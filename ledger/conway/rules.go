@@ -2971,8 +2971,20 @@ func UtxoValidateDelegation(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// Track credentials/pools/DReps registered within this transaction
-	inTxStakeRegs := make(map[common.Blake2b224]bool)
+	// Track credential registration state changes within this transaction.
+	// The bool records both registrations and deregistrations so later
+	// certificates observe the state produced by earlier certificates.
+	type stakeCredentialKey struct {
+		credType uint
+		hash     common.Blake2b224
+	}
+	stakeKey := func(cred common.Credential) stakeCredentialKey {
+		return stakeCredentialKey{
+			credType: cred.CredType,
+			hash:     cred.Credential,
+		}
+	}
+	inTxStakeState := make(map[stakeCredentialKey]bool)
 	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
 	inTxDRepRegs := make(map[common.Blake2b224]bool)
 	// Track VRF keys seen in this transaction (for PV11+ duplicate detection)
@@ -2980,8 +2992,20 @@ func UtxoValidateDelegation(
 
 	// Helper to check if stake credential is registered (in state or in-tx)
 	isStakeRegistered := func(cred common.Credential) bool {
-		return ls.IsStakeCredentialRegistered(cred) ||
-			inTxStakeRegs[cred.Credential]
+		if registered, ok := inTxStakeState[stakeKey(cred)]; ok {
+			return registered
+		}
+		return ls.IsStakeCredentialRegistered(cred)
+	}
+
+	registerStakeCredential := func(cred common.Credential) error {
+		if isStakeRegistered(cred) {
+			return StakeCredentialAlreadyRegisteredError{
+				Credential: cred,
+			}
+		}
+		inTxStakeState[stakeKey(cred)] = true
+		return nil
 	}
 
 	// Helper to check if pool is registered (in state or in-tx)
@@ -3041,10 +3065,14 @@ func UtxoValidateDelegation(
 		switch c := cert.(type) {
 		// Track registrations for in-tx state
 		case *common.RegistrationCertificate:
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 
 		case *common.StakeRegistrationCertificate:
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 
 		case *common.PoolRegistrationCertificate:
 			inTxPoolRegs[c.Operator] = true
@@ -3075,10 +3103,10 @@ func UtxoValidateDelegation(
 
 		// Track deregistrations for in-tx state
 		case *common.StakeDeregistrationCertificate:
-			delete(inTxStakeRegs, c.StakeCredential.Credential)
+			inTxStakeState[stakeKey(c.StakeCredential)] = false
 
 		case *common.DeregistrationCertificate:
-			delete(inTxStakeRegs, c.StakeCredential.Credential)
+			inTxStakeState[stakeKey(c.StakeCredential)] = false
 
 		case *common.PoolRetirementCertificate:
 			delete(inTxPoolRegs, c.PoolKeyHash)
@@ -3144,16 +3172,18 @@ func UtxoValidateDelegation(
 			}
 
 		case *common.StakeRegistrationDelegationCertificate:
-			// This cert registers AND delegates, so mark as registered first
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 			// Check if pool is registered
 			if !isPoolRegistered(c.PoolKeyHash) {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 
 		case *common.VoteRegistrationDelegationCertificate:
-			// This cert registers AND delegates, so mark as registered first
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 			// Check if target DRep is registered (except for Abstain/NoConfidence)
 			drepRegistered, err := isDRepRegistered(c.Drep)
 			if err != nil {
@@ -3171,8 +3201,9 @@ func UtxoValidateDelegation(
 			}
 
 		case *common.StakeVoteRegistrationDelegationCertificate:
-			// This cert registers AND delegates, so mark as registered first
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 			// Check if pool is registered
 			if !isPoolRegistered(c.PoolKeyHash) {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
