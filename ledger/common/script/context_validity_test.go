@@ -51,7 +51,7 @@ func validityBound(
 			data.NewConstr(boolTag(closed)),
 		)
 	}
-	infinityTag := uint(0)
+	var infinityTag uint64
 	if !lower {
 		infinityTag = 2
 	}
@@ -62,7 +62,7 @@ func validityBound(
 	)
 }
 
-func boolTag(value bool) uint {
+func boolTag(value bool) uint64 {
 	if value {
 		return 1
 	}

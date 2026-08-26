@@ -17,6 +17,7 @@ package common_test
 import (
 	"bytes"
 	"encoding/hex"
+	"math/big"
 	"reflect"
 	"testing"
 
@@ -76,7 +77,7 @@ func TestPlutusScriptWrapperTrailingBytes(t *testing.T) {
 	require.NoError(t, err)
 	malformedScript := append(append([]byte(nil), wrappedScript...), 0)
 
-	context := &data.Constr{Tag: 0}
+	context := &data.Constr{Tag: big.NewInt(0)}
 	tests := []struct {
 		name       string
 		script     common.Script

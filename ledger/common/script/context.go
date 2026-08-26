@@ -493,7 +493,7 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 				toPlutusData(closed),
 			)
 		} else {
-			var constrType uint = 0
+			var constrType uint64
 			if !isLower {
 				constrType = 2
 			}
