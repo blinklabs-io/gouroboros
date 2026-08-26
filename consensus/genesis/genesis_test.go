@@ -29,7 +29,7 @@ func testGenesisConfig() GenesisConfig {
 	return GenesisConfig{
 		SecurityParam:   2160,
 		ActiveSlotCoeff: f,
-		GenesisWindow:   ComputeGenesisWindow(2160, f),
+		GenesisWindow:   129600,
 	}
 }
 
@@ -46,7 +46,8 @@ func mustNewGenesisSelector(
 func TestComputeGenesisWindow(t *testing.T) {
 	// With k=2160 and f=0.05, window = 3*2160/0.05 = 129600 slots
 	f := big.NewRat(1, 20)
-	window := ComputeGenesisWindow(2160, f)
+	window, err := ComputeGenesisWindow(2160, f)
+	require.NoError(t, err)
 
 	expected := uint64(129600)
 	if window != expected {
@@ -60,35 +61,79 @@ func TestComputeGenesisWindow(t *testing.T) {
 // the window rounds up, never down.
 func TestComputeGenesisWindowCeiling(t *testing.T) {
 	// k=2160, f=7/100: 3*2160*100/7 = 648000/7 = 92571.43... -> 92572.
-	window := ComputeGenesisWindow(2160, big.NewRat(7, 100))
+	window, err := ComputeGenesisWindow(2160, big.NewRat(7, 100))
+	require.NoError(t, err)
 	assert.Equal(
 		t, uint64(92572), window, "expected ceiling(648000/7) = 92572",
 	)
 
 	// Exact division is unaffected: k=10, f=1/2 -> 3*10*2 = 60.
-	window = ComputeGenesisWindow(10, big.NewRat(1, 2))
+	window, err = ComputeGenesisWindow(10, big.NewRat(1, 2))
+	require.NoError(t, err)
 	assert.Equal(t, uint64(60), window, "expected exact division 60")
 }
 
-// TestComputeGenesisWindowDegenerateCoefficients pins the guard: nil, zero,
-// and negative active-slot coefficients all yield a zero window rather than
-// a garbage value.
-func TestComputeGenesisWindowDegenerateCoefficients(t *testing.T) {
-	assert.Zero(
-		t,
-		ComputeGenesisWindow(2160, nil),
-		"nil coefficient: expected 0",
-	)
-	assert.Zero(
-		t,
-		ComputeGenesisWindow(2160, big.NewRat(0, 1)),
-		"zero coefficient: expected 0",
-	)
-	assert.Zero(
-		t,
-		ComputeGenesisWindow(2160, big.NewRat(-1, 20)),
-		"negative coefficient: expected 0",
-	)
+func TestComputeGenesisWindowAcceptsMaximumWindow(t *testing.T) {
+	window, err := ComputeGenesisWindow(^uint64(0)/3, big.NewRat(1, 1))
+	require.NoError(t, err)
+	require.Equal(t, ^uint64(0), window)
+}
+
+// TestComputeGenesisWindowRejectsInvalidParameters pins the checked contract:
+// invalid parameters and unrepresentable results are rejected explicitly.
+func TestComputeGenesisWindowRejectsInvalidParameters(t *testing.T) {
+	tests := []struct {
+		name            string
+		securityParam   uint64
+		activeSlotCoeff *big.Rat
+		expectError     string
+	}{
+		{
+			name:            "zero security parameter",
+			activeSlotCoeff: big.NewRat(1, 20),
+			expectError:     "security parameter",
+		},
+		{
+			name:          "nil active slot coefficient",
+			securityParam: 2160,
+			expectError:   "active slot coefficient",
+		},
+		{
+			name:            "zero active slot coefficient",
+			securityParam:   2160,
+			activeSlotCoeff: big.NewRat(0, 1),
+			expectError:     "active slot coefficient",
+		},
+		{
+			name:            "negative active slot coefficient",
+			securityParam:   2160,
+			activeSlotCoeff: big.NewRat(-1, 20),
+			expectError:     "active slot coefficient",
+		},
+		{
+			name:            "active slot coefficient above one",
+			securityParam:   2160,
+			activeSlotCoeff: big.NewRat(2, 1),
+			expectError:     "active slot coefficient",
+		},
+		{
+			name:            "window overflows uint64",
+			securityParam:   ^uint64(0),
+			activeSlotCoeff: big.NewRat(1, 1),
+			expectError:     "overflows uint64",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			window, err := ComputeGenesisWindow(
+				test.securityParam,
+				test.activeSlotCoeff,
+			)
+			require.Zero(t, window)
+			require.ErrorContains(t, err, test.expectError)
+		})
+	}
 }
 
 // callNewGenesisSelector lets this regression exercise both the historical
@@ -161,6 +206,32 @@ func TestNewGenesisSelectorRejectsInvalidConfig(t *testing.T) {
 			},
 			expectError: "active slot coefficient",
 		},
+		{
+			name: "genesis window below derived value",
+			config: GenesisConfig{
+				SecurityParam:   2160,
+				ActiveSlotCoeff: big.NewRat(1, 20),
+				GenesisWindow:   129599,
+			},
+			expectError: "does not match computed genesis window",
+		},
+		{
+			name: "genesis window above derived value",
+			config: GenesisConfig{
+				SecurityParam:   2160,
+				ActiveSlotCoeff: big.NewRat(1, 20),
+				GenesisWindow:   129601,
+			},
+			expectError: "does not match computed genesis window",
+		},
+		{
+			name: "derived genesis window overflows uint64",
+			config: GenesisConfig{
+				SecurityParam:   ^uint64(0),
+				ActiveSlotCoeff: big.NewRat(1, 1),
+			},
+			expectError: "overflows uint64",
+		},
 	}
 
 	for _, test := range tests {
@@ -179,6 +250,16 @@ func TestNewGenesisSelectorAcceptsBoundaryConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), selector.config.GenesisWindow)
+}
+
+func TestNewGenesisSelectorAcceptsExactGenesisWindow(t *testing.T) {
+	selector, err := NewGenesisSelector(GenesisConfig{
+		SecurityParam:   2160,
+		ActiveSlotCoeff: big.NewRat(1, 20),
+		GenesisWindow:   129600,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(129600), selector.config.GenesisWindow)
 }
 
 // TestNewGenesisSelectorDerivedWindowCeiling pins the derived-window path

@@ -54,21 +54,32 @@ type GenesisConfig struct {
 	ActiveSlotCoeff *big.Rat
 
 	// GenesisWindow is 3k/f slots - the window for density comparison
-	// If zero, computed from SecurityParam and ActiveSlotCoeff
+	// If zero, it is computed from SecurityParam and ActiveSlotCoeff. A
+	// nonzero value must match that checked computation exactly.
 	GenesisWindow uint64
 }
 
-// ComputeGenesisWindow calculates the genesis window (3k/f) from parameters
+// ComputeGenesisWindow calculates the genesis window (ceiling(3k/f)) from
+// parameters. It returns an error when the parameters are invalid or the
+// result cannot be represented as a uint64.
 func ComputeGenesisWindow(
 	securityParam uint64,
 	activeSlotCoeff *big.Rat,
-) uint64 {
-	// Guard against nil, zero, or negative activeSlotCoeff: zero would
-	// divide by zero, and a negative coefficient is meaningless for an
-	// active-slot probability (and would otherwise produce a garbage
-	// window via truncated negative division).
-	if activeSlotCoeff == nil || activeSlotCoeff.Sign() <= 0 {
-		return 0
+) (uint64, error) {
+	if securityParam == 0 {
+		return 0, errors.New(
+			"genesis security parameter must be greater than zero",
+		)
+	}
+	if activeSlotCoeff == nil {
+		return 0, errors.New("genesis active slot coefficient is required")
+	}
+	if activeSlotCoeff.Sign() <= 0 ||
+		activeSlotCoeff.Cmp(big.NewRat(1, 1)) > 0 {
+		return 0, fmt.Errorf(
+			"genesis active slot coefficient must be greater than zero and at most one: got %s",
+			activeSlotCoeff.String(),
+		)
 	}
 	// Genesis window = 3k/f
 	// With k=2160 and f=0.05, window = 3*2160/0.05 = 129600 slots
@@ -95,11 +106,14 @@ func ComputeGenesisWindow(
 		result.Add(result, big.NewInt(1))
 	}
 
-	// Clamp to uint64 max if result overflows
 	if !result.IsUint64() {
-		return ^uint64(0) // max uint64
+		return 0, fmt.Errorf(
+			"computed genesis window overflows uint64: ceiling(3*%d/%s)",
+			securityParam,
+			activeSlotCoeff.String(),
+		)
 	}
-	return result.Uint64()
+	return result.Uint64(), nil
 }
 
 // ChainFragment represents a fragment of a chain for selection purposes
@@ -125,29 +139,21 @@ type GenesisSelector struct {
 
 // NewGenesisSelector creates a validated Genesis chain selector.
 func NewGenesisSelector(config GenesisConfig) (*GenesisSelector, error) {
-	if config.SecurityParam == 0 {
-		return nil, errors.New(
-			"genesis security parameter must be greater than zero",
-		)
+	computedWindow, err := ComputeGenesisWindow(
+		config.SecurityParam,
+		config.ActiveSlotCoeff,
+	)
+	if err != nil {
+		return nil, err
 	}
-	if config.ActiveSlotCoeff == nil {
-		return nil, errors.New("genesis active slot coefficient is required")
-	}
-	if config.ActiveSlotCoeff.Sign() <= 0 ||
-		config.ActiveSlotCoeff.Cmp(big.NewRat(1, 1)) > 0 {
+	if config.GenesisWindow == 0 {
+		config.GenesisWindow = computedWindow
+	} else if config.GenesisWindow != computedWindow {
 		return nil, fmt.Errorf(
-			"genesis active slot coefficient must be greater than zero and at most one: got %s",
-			config.ActiveSlotCoeff.String(),
+			"configured genesis window %d does not match computed genesis window %d",
+			config.GenesisWindow,
+			computedWindow,
 		)
-	}
-	if config.GenesisWindow == 0 {
-		config.GenesisWindow = ComputeGenesisWindow(
-			config.SecurityParam,
-			config.ActiveSlotCoeff,
-		)
-	}
-	if config.GenesisWindow == 0 {
-		return nil, errors.New("genesis window must be greater than zero")
 	}
 	return &GenesisSelector{config: config}, nil
 }

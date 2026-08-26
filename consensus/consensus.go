@@ -86,13 +86,40 @@ func (c *NetworkConfig) ActiveSlotCoeffRat() *big.Rat {
 }
 
 // SlotDuration returns the slot length as a time.Duration.
+// It returns zero when called on a NetworkConfig that did not pass validation.
 func (c *NetworkConfig) SlotDuration() time.Duration {
-	if c.SlotLength.Rat == nil {
-		return 0
+	duration, _ := slotDuration(c.SlotLength.Rat)
+	return duration
+}
+
+func slotDuration(slotLength *big.Rat) (time.Duration, error) {
+	if slotLength == nil {
+		return 0, errors.New("network slot length is required")
 	}
-	// SlotLength is in seconds as a rational
-	f, _ := c.SlotLength.Float64()
-	return time.Duration(f * float64(time.Second))
+	if slotLength.Sign() <= 0 {
+		return 0, fmt.Errorf(
+			"network slot length must be greater than zero: got %s",
+			slotLength.String(),
+		)
+	}
+
+	nanoseconds := new(big.Rat).Mul(
+		slotLength,
+		big.NewRat(int64(time.Second), 1),
+	)
+	if nanoseconds.Denom().Cmp(big.NewInt(1)) != 0 {
+		return 0, fmt.Errorf(
+			"network slot length must be representable as whole nanoseconds: got %s seconds",
+			slotLength.String(),
+		)
+	}
+	if !nanoseconds.Num().IsInt64() {
+		return 0, fmt.Errorf(
+			"network slot length exceeds time.Duration range: got %s seconds",
+			slotLength.String(),
+		)
+	}
+	return time.Duration(nanoseconds.Num().Int64()), nil
 }
 
 // NewNetworkConfigFromReader creates a NetworkConfig from a Shelley genesis JSON reader.
@@ -124,14 +151,8 @@ func (c NetworkConfig) validate() error {
 			c.ActiveSlotCoeff.String(),
 		)
 	}
-	if c.SlotLength.Rat == nil {
-		return errors.New("network slot length is required")
-	}
-	if c.SlotLength.Sign() <= 0 {
-		return fmt.Errorf(
-			"network slot length must be greater than zero: got %s",
-			c.SlotLength.String(),
-		)
+	if _, err := slotDuration(c.SlotLength.Rat); err != nil {
+		return err
 	}
 	if c.EpochLength == 0 {
 		return errors.New("network epoch length must be greater than zero")

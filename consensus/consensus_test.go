@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -141,6 +142,36 @@ func TestNewNetworkConfigFromReaderRejectsInvalidConfig(t *testing.T) {
 			expectError: "slot length",
 		},
 		{
+			name: "slot length below one nanosecond",
+			config: networkConfigJSON(
+				1,
+				validRat,
+				`{"numerator": 1, "denominator": 2000000000}`,
+				1, 1, 1,
+			),
+			expectError: "whole nanoseconds",
+		},
+		{
+			name: "slot length has sub-nanosecond precision",
+			config: networkConfigJSON(
+				1,
+				validRat,
+				`{"numerator": 3, "denominator": 2000000000}`,
+				1, 1, 1,
+			),
+			expectError: "whole nanoseconds",
+		},
+		{
+			name: "slot length exceeds time duration range",
+			config: networkConfigJSON(
+				1,
+				validRat,
+				`9223372036.854775808`,
+				1, 1, 1,
+			),
+			expectError: "time.Duration range",
+		},
+		{
 			name:        "zero epoch length",
 			config:      networkConfigJSON(1, validRat, validRat, 0, 1, 1),
 			expectError: "epoch length",
@@ -184,4 +215,18 @@ func TestNewNetworkConfigFromReaderAcceptsBoundaryConfig(t *testing.T) {
 	require.Equal(t, int64(1), config.ActiveSlotCoeff.Denom().Int64())
 	require.Equal(t, int64(1), config.SlotLength.Num().Int64())
 	require.Equal(t, int64(1_000_000_000), config.SlotLength.Denom().Int64())
+	require.Equal(t, time.Nanosecond, config.SlotDuration())
+}
+
+func TestNewNetworkConfigFromReaderAcceptsMaximumSlotDuration(t *testing.T) {
+	config, err := NewNetworkConfigFromReader(strings.NewReader(
+		networkConfigJSON(
+			1,
+			`{"numerator": 1, "denominator": 1}`,
+			`9223372036.854775807`,
+			1, 1, 1,
+		),
+	))
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(1<<63-1), config.SlotDuration())
 }
