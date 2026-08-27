@@ -234,13 +234,56 @@ type ShelleyBlockHeaderBody struct {
 	ProtoMinorVersion    uint64
 }
 
+type shelleyBlockHeaderBodyWire struct {
+	cbor.StructAsArray
+	BlockNumber          uint64
+	Slot                 uint64
+	PrevHash             cbor.RawMessage
+	IssuerVkey           common.IssuerVkey
+	VrfKey               []byte
+	NonceVrf             common.VrfResult
+	LeaderVrf            common.VrfResult
+	BlockBodySize        uint64
+	BlockBodyHash        common.Blake2b256
+	OpCertHotVkey        []byte
+	OpCertSequenceNumber uint32
+	OpCertKesPeriod      uint32
+	OpCertSignature      []byte
+	ProtoMajorVersion    uint64
+	ProtoMinorVersion    uint64
+}
+
 func (b *ShelleyBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
-	type tShelleyBlockHeaderBody ShelleyBlockHeaderBody
-	var tmp tShelleyBlockHeaderBody
+	var tmp shelleyBlockHeaderBodyWire
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*b = ShelleyBlockHeaderBody(tmp)
+	var prevHash common.Blake2b256
+	// Origin headers encode prev_hash as null. Keep that compatibility scoped
+	// to this field while non-null hashes use the globally strict decoder.
+	// Mirrors BabbageBlockHeaderBody; this body serves Shelley through Alonzo.
+	if len(tmp.PrevHash) != 1 || tmp.PrevHash[0] != 0xf6 {
+		if _, err := cbor.Decode(tmp.PrevHash, &prevHash); err != nil {
+			return fmt.Errorf("decode previous hash: %w", err)
+		}
+	}
+	*b = ShelleyBlockHeaderBody{
+		BlockNumber:          tmp.BlockNumber,
+		Slot:                 tmp.Slot,
+		PrevHash:             prevHash,
+		IssuerVkey:           tmp.IssuerVkey,
+		VrfKey:               tmp.VrfKey,
+		NonceVrf:             tmp.NonceVrf,
+		LeaderVrf:            tmp.LeaderVrf,
+		BlockBodySize:        tmp.BlockBodySize,
+		BlockBodyHash:        tmp.BlockBodyHash,
+		OpCertHotVkey:        tmp.OpCertHotVkey,
+		OpCertSequenceNumber: tmp.OpCertSequenceNumber,
+		OpCertKesPeriod:      tmp.OpCertKesPeriod,
+		OpCertSignature:      tmp.OpCertSignature,
+		ProtoMajorVersion:    tmp.ProtoMajorVersion,
+		ProtoMinorVersion:    tmp.ProtoMinorVersion,
+	}
 	b.SetCbor(cborData)
 	return nil
 }
