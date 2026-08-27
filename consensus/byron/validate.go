@@ -43,6 +43,12 @@ type HeaderValidator struct {
 	AllowSignatureFallback bool
 }
 
+// ErrGenesisIssuerSetEmpty indicates that Byron issuer authorization has no
+// configured trust roots and therefore cannot safely validate a main block.
+var ErrGenesisIssuerSetEmpty = errors.New(
+	"byron genesis issuer set is empty",
+)
+
 // NewHeaderValidator creates a new Byron header validator
 func NewHeaderValidator(config ByronConfig) *HeaderValidator {
 	keyHashes := make(map[string]bool)
@@ -141,6 +147,11 @@ func (v *HeaderValidator) ValidateHeader(
 
 	// For EBBs or envelope-only validation, skip signature checks
 	if input.IsEBB || input.EnvelopeOnly {
+		return result
+	}
+	if len(v.genesisKeyHashes) == 0 {
+		result.Valid = false
+		result.Errors = append(result.Errors, ErrGenesisIssuerSetEmpty)
 		return result
 	}
 
@@ -812,9 +823,9 @@ func (v *HeaderValidator) validateDelegationCertSignature(
 func (v *HeaderValidator) validateGenesisDelegate(
 	input *ValidateHeaderInput,
 ) error {
-	// If no genesis keys configured, skip this check
+	// Missing trust roots cannot authorize any issuer.
 	if len(v.genesisKeyHashes) == 0 {
-		return nil
+		return ErrGenesisIssuerSetEmpty
 	}
 
 	// Hash the issuer public key using the common Blake2b224Hash function
@@ -839,15 +850,15 @@ func (v *HeaderValidator) validateGenesisDelegate(
 func (v *HeaderValidator) validateSlotLeader(
 	input *ValidateHeaderInput,
 ) error {
-	// If no genesis keys configured, skip this check
+	// Missing trust roots cannot authorize any slot leader.
 	if len(v.config.GenesisKeyHashes) == 0 {
-		return nil
+		return ErrGenesisIssuerSetEmpty
 	}
 
 	// Get the expected slot leader
 	expectedIndex, expectedKeyHash := v.config.SlotLeader(input.Slot)
 	if expectedIndex < 0 {
-		return nil // No delegates configured
+		return ErrGenesisIssuerSetEmpty
 	}
 
 	// Hash the issuer public key
