@@ -501,7 +501,9 @@ func txProposalActions(
 	txId := tx.Hash()
 	ret := make(map[common.GovActionId]txGovProposal, len(proposals))
 	for idx, proposal := range proposals {
-		if idx > math.MaxUint32 {
+		// Convert through int64 so this comparison also compiles on 32-bit
+		// targets, where math.MaxUint32 does not fit in an int.
+		if int64(idx) > int64(math.MaxUint32) {
 			break
 		}
 		actionId := common.GovActionId{
