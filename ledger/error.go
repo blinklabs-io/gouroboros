@@ -647,6 +647,12 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 		var newErr error
 		switch {
 		case failureType == ApplyTxErrorUtxowFailure:
+			if len(tmpFailure) < 2 {
+				return fmt.Errorf(
+					"ApplyTxError UtxowFailure: expected at least 2 elements, got %d",
+					len(tmpFailure),
+				)
+			}
 			// Use era-aware UTXOW failure decoding
 			utxowErr := &UtxowFailure{era: e.era}
 			if _, err := cbor.Decode(tmpFailure[1], utxowErr); err != nil {
@@ -1168,7 +1174,22 @@ type OutsideValidityIntervalUtxo struct {
 }
 
 func (e *OutsideValidityIntervalUtxo) Error() string {
-	validityInterval := e.ValidityInterval.Value().([]any)
+	value := e.ValidityInterval.Value()
+	validityInterval, ok := value.([]any)
+	if !ok {
+		return fmt.Sprintf(
+			"OutsideValidityIntervalUtxo (invalid ValidityInterval type %T, Slot %d)",
+			value,
+			e.Slot,
+		)
+	}
+	if len(validityInterval) < 2 {
+		return fmt.Sprintf(
+			"OutsideValidityIntervalUtxo (invalid ValidityInterval length %d, Slot %d)",
+			len(validityInterval),
+			e.Slot,
+		)
+	}
 	return fmt.Sprintf(
 		"OutsideValidityIntervalUtxo (ValidityInterval { invalidBefore = %v, invalidHereafter = %v }, Slot %d)",
 		validityInterval[0],
