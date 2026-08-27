@@ -486,7 +486,7 @@ type txGovProposal struct {
 // uint64 keeps the comparison well-typed on 32-bit targets, where the
 // untyped math.MaxUint32 constant cannot be represented by int.
 func governanceProposalIndexFits(idx int) bool {
-	return uint64(idx) <= uint64(math.MaxUint32)
+	return idx >= 0 && int64(idx) <= int64(math.MaxUint32)
 }
 
 // txProposalActions indexes the governance actions proposed by tx itself by
