@@ -481,6 +481,14 @@ type txGovProposal struct {
 	action common.GovAction
 }
 
+// governanceProposalIndexFits reports whether an int can be represented by
+// the uint32 index carried in a governance action ID. Converting first to
+// uint64 keeps the comparison well-typed on 32-bit targets, where the
+// untyped math.MaxUint32 constant cannot be represented by int.
+func governanceProposalIndexFits(idx int) bool {
+	return idx >= 0 && int64(idx) <= int64(math.MaxUint32)
+}
+
 // txProposalActions indexes the governance actions proposed by tx itself by
 // the governance action id each one receives once the transaction is
 // accepted, (transaction id, proposal index).
@@ -501,7 +509,7 @@ func txProposalActions(
 	txId := tx.Hash()
 	ret := make(map[common.GovActionId]txGovProposal, len(proposals))
 	for idx, proposal := range proposals {
-		if idx > math.MaxUint32 {
+		if !governanceProposalIndexFits(idx) {
 			break
 		}
 		actionId := common.GovActionId{
