@@ -135,6 +135,7 @@ func TestValidateEBBBodyHashMalformedProof(t *testing.T) {
 
 	var validationErr *common.ValidationError
 	require.ErrorAs(t, err, &validationErr)
+	require.NotNil(t, validationErr)
 	require.Equal(
 		t,
 		common.ValidationErrorTypeBodyHash,

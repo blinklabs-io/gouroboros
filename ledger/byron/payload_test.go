@@ -614,7 +614,7 @@ func TestValidatePayloadsReportsOffendingIndex(t *testing.T) {
 	)
 	err := block.ValidateDelegationPayload()
 	require.ErrorIs(t, err, byron.ErrInvalidPayload)
-	require.Contains(t, err.Error(), "delegation certificate 1")
+	require.ErrorContains(t, err, "delegation certificate 1")
 }
 
 func TestValidatePayloadsWrongNetwork(t *testing.T) {
