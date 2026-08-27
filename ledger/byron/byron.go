@@ -140,7 +140,20 @@ func (h *ByronMainBlockHeader) Era() common.Era {
 	return EraByron
 }
 
-func (h *ByronMainBlockHeader) BlockBodyHash() common.Blake2b256 {
+// BlockBodyHashChecked returns the header's representative body hash, or an
+// error wrapping ErrMalformedBodyProof when the body proof does not have
+// the wire shape a hash can be read out of.
+//
+// Prefer this over BlockBodyHash anywhere the result is compared against a
+// computed hash: BlockBodyHash has to satisfy common.BlockHeader, which
+// gives it no way to report a malformed proof, so it stands in a zero hash
+// instead. A caller that then compares that zero hash reports a hash
+// mismatch, naming a value the block never carried, when the real fault is
+// that the proof could not be parsed at all.
+func (h *ByronMainBlockHeader) BlockBodyHashChecked() (
+	common.Blake2b256,
+	error,
+) {
 	// Byron BodyProof is an array: [tx_proof, ssc_proof, dlg_proof, upd_proof]
 	// tx_proof is: [txCount, txBodyMerkleRoot, txWitnessMerkleRoot]
 	// We return the txBodyMerkleRoot as the representative body hash
@@ -152,7 +165,7 @@ func (h *ByronMainBlockHeader) BlockBodyHash() common.Blake2b256 {
 				len(txBodyRoot) == common.Blake2b256Size {
 				var hash common.Blake2b256
 				copy(hash[:], txBodyRoot)
-				return hash
+				return hash, nil
 			}
 		}
 	}
@@ -161,11 +174,26 @@ func (h *ByronMainBlockHeader) BlockBodyHash() common.Blake2b256 {
 		len(bodyProofBytes) == common.Blake2b256Size {
 		var hash common.Blake2b256
 		copy(hash[:], bodyProofBytes)
-		return hash
+		return hash, nil
 	}
-	// Return zero hash instead of panicking to prevent DoS in verification path
-	// This will cause validation to fail gracefully rather than crash
-	return common.Blake2b256{}
+	return common.Blake2b256{}, fmt.Errorf(
+		"%w: main block header body proof is %T, expected a "+
+			"[tx_proof, ssc_proof, dlg_proof, upd_proof] array whose "+
+			"tx_proof carries a %d-byte merkle root",
+		ErrMalformedBodyProof, h.BodyProof, common.Blake2b256Size,
+	)
+}
+
+// BlockBodyHash satisfies common.BlockHeader. It returns a zero hash for a
+// malformed body proof rather than panicking, so a hostile block cannot
+// take down the verification path; callers that act on the result should
+// use BlockBodyHashChecked, which reports why instead.
+func (h *ByronMainBlockHeader) BlockBodyHash() common.Blake2b256 {
+	hash, err := h.BlockBodyHashChecked()
+	if err != nil {
+		return common.Blake2b256{}
+	}
+	return hash
 }
 
 type ByronTransactionBody struct {
@@ -1106,17 +1134,37 @@ func (h *ByronEpochBoundaryBlockHeader) Era() common.Era {
 	return EraByron
 }
 
-func (h *ByronEpochBoundaryBlockHeader) BlockBodyHash() common.Blake2b256 {
+// BlockBodyHashChecked returns the EBB header's body hash, or an error
+// wrapping ErrMalformedBodyProof when the body proof is not a 32-byte hash.
+// See ByronMainBlockHeader.BlockBodyHashChecked for why this exists
+// alongside BlockBodyHash.
+func (h *ByronEpochBoundaryBlockHeader) BlockBodyHashChecked() (
+	common.Blake2b256,
+	error,
+) {
 	// BodyProof is the hash of the block body, encoded as bytes in CBOR
 	if bodyProofBytes, ok := h.BodyProof.([]byte); ok &&
 		len(bodyProofBytes) == common.Blake2b256Size {
 		var hash common.Blake2b256
 		copy(hash[:], bodyProofBytes)
-		return hash
+		return hash, nil
 	}
-	// Return zero hash instead of panicking to prevent DoS in verification path
-	// This will cause validation to fail gracefully rather than crash
-	return common.Blake2b256{}
+	return common.Blake2b256{}, fmt.Errorf(
+		"%w: epoch boundary block header body proof is %T, expected a "+
+			"%d-byte hash",
+		ErrMalformedBodyProof, h.BodyProof, common.Blake2b256Size,
+	)
+}
+
+// BlockBodyHash satisfies common.BlockHeader. See
+// ByronMainBlockHeader.BlockBodyHash for why a malformed proof yields a
+// zero hash here rather than an error.
+func (h *ByronEpochBoundaryBlockHeader) BlockBodyHash() common.Blake2b256 {
+	hash, err := h.BlockBodyHashChecked()
+	if err != nil {
+		return common.Blake2b256{}
+	}
+	return hash
 }
 
 type ByronMainBlock struct {
@@ -1188,6 +1236,17 @@ func (b *ByronMainBlock) Utxorpc() (*utxorpc.Block, error) {
 
 func (b *ByronMainBlock) BlockBodyHash() common.Blake2b256 {
 	return b.Header().BlockBodyHash()
+}
+
+// BlockBodyHashChecked reports a malformed body proof instead of standing in
+// a zero hash. See ByronMainBlockHeader.BlockBodyHashChecked.
+func (b *ByronMainBlock) BlockBodyHashChecked() (common.Blake2b256, error) {
+	if b == nil || b.BlockHeader == nil {
+		return common.Blake2b256{}, fmt.Errorf(
+			"%w: block or block header is nil", ErrMalformedBodyProof,
+		)
+	}
+	return b.BlockHeader.BlockBodyHashChecked()
 }
 
 type ByronEpochBoundaryBlock struct {
@@ -1275,6 +1334,20 @@ func (b *ByronEpochBoundaryBlock) Utxorpc() (*utxorpc.Block, error) {
 
 func (b *ByronEpochBoundaryBlock) BlockBodyHash() common.Blake2b256 {
 	return b.Header().BlockBodyHash()
+}
+
+// BlockBodyHashChecked reports a malformed body proof instead of standing in
+// a zero hash. See ByronMainBlockHeader.BlockBodyHashChecked.
+func (b *ByronEpochBoundaryBlock) BlockBodyHashChecked() (
+	common.Blake2b256,
+	error,
+) {
+	if b == nil || b.BlockHeader == nil {
+		return common.Blake2b256{}, fmt.Errorf(
+			"%w: block or block header is nil", ErrMalformedBodyProof,
+		)
+	}
+	return b.BlockHeader.BlockBodyHashChecked()
 }
 
 func NewByronEpochBoundaryBlockFromCbor(

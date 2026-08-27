@@ -28,6 +28,12 @@ import (
 // that binds the two together.
 var ErrBodyProofMismatch = errors.New("byron block body proof mismatch")
 
+// ErrMalformedBodyProof reports a Byron header whose body proof does not
+// have the wire shape the format requires, so no body hash can be read out
+// of it at all. This is distinct from ErrBodyProofMismatch, which reports a
+// well-formed proof that disagrees with the body.
+var ErrMalformedBodyProof = errors.New("byron block body proof is malformed")
+
 // Indices into the Byron header's body proof, which is
 // [tx_proof, ssc_proof, dlg_proof, upd_proof].
 const (
@@ -69,6 +75,13 @@ const (
 // this call; NewByronMainBlockFromCbor forwards whatever VerifyConfig it
 // was given here, so that same flag controls decode-time behavior too.
 //
+// The dlg_proof and upd_proof comparisons bind the delegation and update
+// payload bytes to the header but say nothing about what those bytes
+// decode to. Pass a common.VerifyConfig with EnableByronPayloadValidation
+// set to true to additionally validate those payloads structurally and
+// verify the signatures they carry, via ValidatePayloads; see that flag's
+// doc comment for why it is opt-in.
+//
 // This was not always the default: an earlier version of this function
 // unconditionally ran the full ssc_proof hash comparison, after an even
 // earlier version had deliberately skipped ssc_proof's hashes entirely,
@@ -106,9 +119,15 @@ func (b *ByronMainBlock) ValidateBodyProof(
 	); err != nil {
 		return err
 	}
-	return checkPayloadHash(
+	if err := checkPayloadHash(
 		"update", proof[bodyProofUpdIndex], b.Body.UpdPayloadCbor(),
-	)
+	); err != nil {
+		return err
+	}
+	if cfg.EnableByronPayloadValidation {
+		return b.ValidatePayloads()
+	}
+	return nil
 }
 
 // ValidateSscProof validates only a Byron main block's ssc_proof, entirely
@@ -265,6 +284,14 @@ func encodeWitnessList(witnesses [][]byte) []byte {
 // its header. EBBs have no transactions, so the whole body is covered by a
 // single hash.
 func (b *ByronEpochBoundaryBlock) ValidateBodyProof() error {
+	// Read the header hash through the checked accessor so a body proof
+	// that is not a hash at all is reported as malformed, rather than
+	// reaching checkHash's comparison and being reported as a mismatch
+	// against a value the header never carried.
+	expected, err := b.BlockBodyHashChecked()
+	if err != nil {
+		return err
+	}
 	bodyCbor := b.BodyCbor()
 	if len(bodyCbor) == 0 {
 		return fmt.Errorf(
@@ -274,7 +301,7 @@ func (b *ByronEpochBoundaryBlock) ValidateBodyProof() error {
 	}
 	return checkHash(
 		"body hash",
-		b.BlockHeader.BodyProof,
+		expected[:],
 		common.Blake2b256Hash(bodyCbor),
 	)
 }

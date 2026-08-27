@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
@@ -56,7 +57,7 @@ func signedPBFTDelegationCertificate(
 	require.NoError(t, err)
 	protocolMagicCbor, err := cbor.Encode(protocolMagic)
 	require.NoError(t, err)
-	signed := []byte{byronSignTagCertificate}
+	signed := []byte{byron.SignTagCertificate}
 	signed = append(signed, protocolMagicCbor...)
 	signed = append(signed, innerCbor...)
 	return []any{
