@@ -72,6 +72,18 @@ The authoritative profile and per-project exceptions live in
 | Knowledge base | Check book structure, Markdown links, and pinned source URLs | Run a link checker when available; preserve each book's README, start page, glossary, and source map |
 | Parent submodule change | `git diff --check`, `git diff --submodule=log` | `git submodule status --recursive` and parent commit review |
 
+## Release publication rule
+
+Across all Blink Labs repositories, agents create tags only. Never create a
+GitHub release object manually with `gh release create`, the Releases API, or
+an equivalent command. Verify the repository workflow and its consumer-visible
+artifact after tagging; if automated publication fails or reports an immutable
+release record, stop and hand recovery to the owner rather than deleting,
+recreating, or replacing the tag or release.
+
+**Never manually release. Ever.** Release objects and package publication are
+owned by repository automation or the owner.
+
 Full Cardano/Haskell image builds can take a long time. Report when they are
 not run rather than substituting a misleading partial result. Existing static
 analysis findings should be identified by path and ownership before deciding

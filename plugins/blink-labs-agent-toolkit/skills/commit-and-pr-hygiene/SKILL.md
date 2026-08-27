@@ -52,6 +52,26 @@ would technically be safe.
 Never trade reviewer continuity and durable commit references for a tidier
 published graph.
 
+## Tag-only publication; never create releases manually
+
+For every Blink Labs repository, the agent's publication action is **only** to
+create the planned annotated/lightweight Git tag using the repository's
+documented process. Never call `gh release create`, the Releases API, or an
+equivalent release-creation command. Do not delete a release to correct a
+mistake: GitHub can retain an immutable release record for the tag name and
+prevent the workflow from publishing it. If a release object already exists or
+a publish run fails, stop, record the exact workflow error, and ask the owner
+for the recovery decision.
+
+**Never manually release. Ever.** Release objects, generated release notes,
+and package publication are owned by repository automation or the owner; an
+agent must not create, edit, delete, or repair them.
+
+Before tagging, verify the repository's publish workflow and confirm its
+release-creation behavior. A tag is not evidence that the automated release or
+package publication succeeded; after tagging, inspect the workflow and
+consumer-visible artifact, but do not create or repair the release manually.
+
 ## Plan releases; do not tag every eligible merge
 
 Merge eligibility and dependency readiness are not release boundaries. Before

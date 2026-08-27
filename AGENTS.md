@@ -115,6 +115,20 @@ the scope, acceptance criteria, and relevant context.
 
 ## Commits and contributions
 
+### Release publication guardrail
+
+For every Blink Labs repository, agents create only the planned tag. They must
+not call `gh release create`, the Releases API, or any manual release-creation
+equivalent. A tag is not proof that the automated publish completed; verify the
+workflow and consumer-visible artifact afterward. If the workflow fails or
+GitHub reports an immutable release record, stop and hand the recovery decision
+to the owner; never delete, recreate, or replace the release/tag as an
+automatic correction.
+
+**Never manually release. Ever.** Release objects and package publication are
+owned by repository automation or the owner; agents must not create, edit,
+delete, or repair them.
+
 - Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
   for every commit. For example: `docs: clarify submodule workflow`.
 - Do not include issue or pull-request numbers in commit subjects or bodies;
