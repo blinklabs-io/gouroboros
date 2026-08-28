@@ -190,18 +190,36 @@ func nonCanonicalEmptyMap() []byte {
 	return []byte{0xb8, 0x00}
 }
 
-// installerMetadata builds a metadata map of one system tag to one
-// installer hash, in the shape cardano-ledger-byron's ProposalBody decoder
-// requires: Map SystemTag InstallerHash, where InstallerHash is a
-// one-element array around a blake2b-256 hash.
-func installerMetadata(t *testing.T, tag string) []byte {
+// installerHashField builds an InstallerHash in the shape
+// cardano-ledger-byron's decoder requires: a four-element array whose
+// element 1 carries the blake2b-256 hash. Elements 0, 2, and 3 are the
+// remains of cardano-sl's UpdateData record and are dropped by the
+// reference, so their content is arbitrary here.
+func installerHashField(t *testing.T) []byte {
 	t.Helper()
-	installerHash := rawArray(
+	filler := mustEncode(t, bytes.Repeat([]byte{0x00}, common.Blake2b256Size))
+	return rawArray(
+		filler,
 		mustEncode(t, bytes.Repeat([]byte{0x7c}, common.Blake2b256Size)),
+		filler,
+		filler,
 	)
+}
+
+// metadataMap builds a one-entry metadata map from a system tag to an
+// already-encoded installer hash.
+func metadataMap(t *testing.T, tag string, installerHash []byte) []byte {
+	t.Helper()
 	out := []byte{0xa1}
 	out = append(out, mustEncode(t, tag)...)
 	return append(out, installerHash...)
+}
+
+// installerMetadata builds a metadata map of one system tag to one
+// reference-shaped installer hash.
+func installerMetadata(t *testing.T, tag string) []byte {
+	t.Helper()
+	return metadataMap(t, tag, installerHashField(t))
 }
 
 func decodeProposal(
@@ -699,6 +717,18 @@ func TestUpdateProposalShapes(t *testing.T) {
 			metadata:   installerMetadata(t, "0123456789"),
 			attributes: emptyMap(),
 		},
+		{
+			// Elements 0, 2 and 3 are dropped by the reference without
+			// being interpreted, so their content must not be constrained.
+			name: "installer hash with arbitrary dropped elements",
+			metadata: metadataMap(t, "linux", rawArray(
+				mustEncode(t, uint64(1)),
+				mustEncode(t, bytes.Repeat([]byte{0x7c}, 32)),
+				mustEncode(t, "anything"),
+				mustEncode(t, []any{}),
+			)),
+			attributes: emptyMap(),
+		},
 	}
 	for _, testCase := range accepted {
 		t.Run("accepts "+testCase.name, func(t *testing.T) {
@@ -760,24 +790,39 @@ func TestUpdateProposalShapes(t *testing.T) {
 		},
 		{
 			name: "installer hash not wrapped in an array",
-			metadata: func() []byte {
-				out := []byte{0xa1}
-				out = append(out, mustEncode(t, "linux")...)
-				return append(out, mustEncode(
-					t, bytes.Repeat([]byte{0x7c}, common.Blake2b256Size),
-				)...)
-			}(),
+			metadata: metadataMap(t, "linux", mustEncode(
+				t, bytes.Repeat([]byte{0x7c}, common.Blake2b256Size),
+			)),
+			attributes: emptyMap(),
+		},
+		{
+			// The pre-cardano-ledger shape: a one-element array. The
+			// reference enforces four.
+			name: "installer hash with one element",
+			metadata: metadataMap(t, "linux", rawArray(
+				mustEncode(t, bytes.Repeat([]byte{0x7c}, common.Blake2b256Size)),
+			)),
+			attributes: emptyMap(),
+		},
+		{
+			name: "installer hash with five elements",
+			metadata: metadataMap(t, "linux", rawArray(
+				mustEncode(t, bytes.Repeat([]byte{0x00}, 32)),
+				mustEncode(t, bytes.Repeat([]byte{0x7c}, 32)),
+				mustEncode(t, bytes.Repeat([]byte{0x00}, 32)),
+				mustEncode(t, bytes.Repeat([]byte{0x00}, 32)),
+				mustEncode(t, bytes.Repeat([]byte{0x00}, 32)),
+			)),
 			attributes: emptyMap(),
 		},
 		{
 			name: "installer hash wrong length",
-			metadata: func() []byte {
-				out := []byte{0xa1}
-				out = append(out, mustEncode(t, "linux")...)
-				return append(out, rawArray(
-					mustEncode(t, bytes.Repeat([]byte{0x7c}, 16)),
-				)...)
-			}(),
+			metadata: metadataMap(t, "linux", rawArray(
+				mustEncode(t, bytes.Repeat([]byte{0x00}, 32)),
+				mustEncode(t, bytes.Repeat([]byte{0x7c}, 16)),
+				mustEncode(t, bytes.Repeat([]byte{0x00}, 32)),
+				mustEncode(t, bytes.Repeat([]byte{0x00}, 32)),
+			)),
 			attributes: emptyMap(),
 		},
 	}

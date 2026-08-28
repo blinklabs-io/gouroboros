@@ -51,7 +51,8 @@ const (
 	updatePayloadElementCount     = 2
 	updateProposalMetadataIndex   = 3
 	updateProposalAttributesIndex = 4
-	installerHashElementCount     = 1
+	installerHashElementCount     = 4
+	installerHashHashIndex        = 1
 	// systemTagMaxLength is cardano-ledger-byron's systemTagMaxLength.
 	systemTagMaxLength = 10
 )
@@ -377,13 +378,9 @@ func (p *ByronUpdateProposal) Validate(protocolMagic uint32) error {
 //   - the field is a CBOR map;
 //   - each key is a text string of at most systemTagMaxLength characters,
 //     all ASCII -- SystemTag's checkSystemTag;
-//   - each value is a one-element array holding a 32-byte hash --
-//     InstallerHash's enforceSize "InstallerHash" 1.
-//
-// NOTE: the InstallerHash framing above is transcribed from the reference
-// decoder, not confirmed against a real mainnet proposal -- this repository
-// has no such vector. It is the reason
-// common.VerifyConfig.EnableByronPayloadValidation stays opt-in.
+//   - each value is a four-element array whose element 1 is a 32-byte hash
+//     -- InstallerHash's enforceSize "InstallerHash" 4, which drops
+//     elements 0, 2, and 3 and reads the hash out of element 1.
 func validateProposalMetadata(raw cbor.RawMessage) error {
 	var metadata map[string]cbor.RawMessage
 	if _, err := cbor.Decode(raw, &metadata); err != nil {
@@ -426,20 +423,24 @@ func validateSystemTag(tag string) error {
 }
 
 // validateInstallerHash reproduces cardano-ledger-byron's InstallerHash
-// decoder: a one-element array wrapping a blake2b-256 hash.
+// decoder, which enforces a four-element array, drops elements 0, 2, and 3,
+// and reads the Hash Raw out of element 1. The four elements are the
+// remains of cardano-sl's UpdateData record, of which only one hash
+// survived into cardano-ledger-byron.
+//
+// Elements 0, 2, and 3 are deliberately left unchecked: the reference
+// discards them without interpreting them, so constraining them here could
+// only reject something the reference accepts.
 func validateInstallerHash(tag string, raw cbor.RawMessage) error {
-	fields, err := payloadFields(
-		fmt.Sprintf("update proposal installer hash for system tag %q", tag),
-		raw,
-		installerHashElementCount,
+	label := fmt.Sprintf(
+		"update proposal installer hash for system tag %q", tag,
 	)
+	fields, err := payloadFields(label, raw, installerHashElementCount)
 	if err != nil {
 		return err
 	}
 	_, err = payloadBytes(
-		fmt.Sprintf("update proposal installer hash for system tag %q", tag),
-		fields[0],
-		common.Blake2b256Size,
+		label, fields[installerHashHashIndex], common.Blake2b256Size,
 	)
 	return err
 }

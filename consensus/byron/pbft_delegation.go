@@ -179,12 +179,46 @@ func (s PBFTDelegationState) Tick(
 // payload and performs the delegation tick for that block. The update is
 // atomic: malformed or invalid certificates leave the input state unchanged.
 //
+// It takes the payload as the decoder produced it, which means each
+// certificate's epoch is re-encoded before its signature is checked. CBOR
+// admits non-shortest integer encodings that this decoder accepts, so a
+// certificate whose epoch arrived in one of those forms will not verify
+// here -- the issuer signed the bytes on the wire, and a decoded uint64
+// cannot reproduce them. See byron.DelegationCertificate.EpochCbor.
+//
+// Deprecated: use ApplyPayloadCbor, which takes the preserved encodings and
+// does not have that limitation. This method is kept so existing callers
+// holding a ByronMainBlockBody.DlgPayload keep compiling while they
+// migrate; it behaves exactly as it did before ApplyPayloadCbor existed.
+func (s PBFTDelegationState) ApplyPayload(
+	currentEpoch uint64,
+	currentSlot uint64,
+	payload []any,
+) (PBFTDelegationState, error) {
+	raw := make([]cbor.RawMessage, 0, len(payload))
+	for i, certificate := range payload {
+		encoded, err := cbor.Encode(certificate)
+		if err != nil {
+			return PBFTDelegationState{}, fmt.Errorf(
+				"encode Byron PBFT delegation certificate %d: %w", i, err,
+			)
+		}
+		raw = append(raw, encoded)
+	}
+	return s.ApplyPayloadCbor(currentEpoch, currentSlot, raw)
+}
+
+// ApplyPayloadCbor schedules the certificates in a Byron main-block
+// delegation payload and performs the delegation tick for that block. The
+// update is atomic: malformed or invalid certificates leave the input state
+// unchanged.
+//
 // The payload is taken as each certificate's preserved CBOR rather than as
 // decoded values, because a certificate's signature covers its epoch
 // field's wire encoding -- see byron.DelegationCertificate.EpochCbor. Call
 // it with byron.ByronMainBlockBody.DlgPayloadCbor decoded into
 // []cbor.RawMessage.
-func (s PBFTDelegationState) ApplyPayload(
+func (s PBFTDelegationState) ApplyPayloadCbor(
 	currentEpoch uint64,
 	currentSlot uint64,
 	payload []cbor.RawMessage,
