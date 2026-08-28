@@ -1,21 +1,25 @@
 ---
-description: "Run the Blink Labs review loop on a change or pull request: repository-aware findings first, bot findings reconciled, human review requested last"
+description: "Review a Blink Labs or TosiDrop change using the target organization's rules, repository-aware findings, current-head bot state, and required human review"
 argument-hint: "[PR number, branch, or path]"
 allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task", "WebFetch"]
 ---
 
-# Blink Labs review
+# Owned-repository review
 
 Target: "$ARGUMENTS" (if empty, review the current branch diff against its base).
 
-Use `github-review-coordinator` for sequencing and the domain skills for
-judgment. Bot findings are review inputs, never conclusions.
+Use `github-review-coordinator` for discovery and current-head state, the
+organization maintainer skill for policy, and domain skills for judgment. Bot
+findings are review inputs, never conclusions.
 
 ## Steps
 
-1. **Establish the diff and the boundary.** Identify the base branch, changed
-   repositories, changed nested modules, and whether the parent workspace only
-   records a submodule pointer.
+1. **Establish the owner, diff, and boundary.** Identify the GitHub owner, base
+   branch, changed repositories, changed nested modules, and current head SHA.
+   Load `blink-repo-maintainer` for `blinklabs-io` or
+   `tosidrop-repo-maintainer` for `TosiDrop`. Do not import one organization's
+   DCO, screenshots, bot order, merge ownership, or release rules into the
+   other.
 
 2. **Dispatch domain review in parallel** with the toolkit subagents, scoped to
    the parts of the diff each one owns:
@@ -52,18 +56,21 @@ judgment. Bot findings are review inputs, never conclusions.
    For API changes, check generated output, docs, and downstream callers in the
    workspace.
 
-7. **Sequence the humans last.** Run or wait for configured bot reviews, address
-   actionable findings, rerun affected checks, then request the required human
-   review through GitHub. Bot approval or silence is never human approval.
+7. **Follow the target's review gates.** For Blink repositories, run or wait for
+   configured bot reviews, address actionable findings, rerun affected checks,
+   then request the required human review. For TosiDrop, discover the target's
+   configured checks, approvals, and bots first; a green CodeRabbit status that
+   says review was skipped or needs a manual trigger is not a completed review.
+   Bot approval or silence is never human approval.
 
-   Reply to every bot thread, including already-fixed and rejected ones, and
-   expect one more bot pass after you push — check for it before reporting the
-   work finished.
+   In Blink's configured bot loop, reply to every bot thread, including
+   already-fixed and rejected ones, and expect one more bot pass after a push.
+   In TosiDrop, follow the target's actual bot configuration and do not treat a
+   skipped review as a clean pass.
 
-   Do not merge someone else's PR. Whoever presses merge takes responsibility
-   for the code, so an approval is not ownership: report an approved PR back to
-   its author. `dependabot[bot]` is the sole exception, since it cannot merge
-   its own.
+   Apply author-only merge handling only where the target organization or
+   repository requires it. A review request alone authorizes inspection and a
+   report, not posting a review or merging the pull request.
 
 ## Report
 

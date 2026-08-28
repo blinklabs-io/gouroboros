@@ -1,0 +1,4 @@
+interface:
+  display_name: "TosiDrop Repository Maintainer"
+  short_description: "Maintain and review TosiDrop repositories"
+  default_prompt: "Use $tosidrop-repo-maintainer to inspect, change, or review this TosiDrop repository using its own organization and project rules."

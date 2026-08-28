@@ -1,10 +1,10 @@
 ---
-description: "Orient in the Blink Labs workspace: locate the owning repository, classify its family, and load the right skills before doing any work"
+description: "Orient in the Blink Labs and TosiDrop workspace: locate the owning organization and repository, classify its family, and load the right skills before doing any work"
 argument-hint: "[repository name, path, or topic]"
 allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 ---
 
-# Orient in the Blink Labs workspace
+# Orient in the owned repositories
 
 Target: "$ARGUMENTS" (if empty, orient on the current working directory and
 `git status --short`).
@@ -15,11 +15,13 @@ fixing.
 
 ## Steps
 
-1. **Find the boundary.** Run `git status --short` and `git rev-parse --show-toplevel`.
-   Determine whether the target is the `clanker` workspace itself or a submodule
-   under `repos/`. If the target is a name or topic rather than a path, search
-   `repos/` for the owning project; use the `blink-workspace-navigator` skill's
-   ownership map rather than guessing from a similar name.
+1. **Find the organization and boundary.** Run `git status --short`,
+   `git rev-parse --show-toplevel`, and inspect the target's Git remote. For
+   `blinklabs-io`, determine whether the target is `clanker` itself or a
+   submodule under `repos/`; use `blink-workspace-navigator` instead of guessing
+   from a similar name. For `TosiDrop`, use `tosidrop-repo-maintainer` and its
+   repository map. TosiDrop repositories are standalone unless this checkout
+   actually records one as a submodule.
 
 2. **Read local instructions, in this order.** Workspace `AGENTS.md` and
    `CLAUDE.md`, then the target repository's `AGENTS.md`, `CLAUDE.md`,
@@ -27,9 +29,10 @@ fixing.
    instructions refine the workspace ones; where they conflict, the more local
    file wins for work inside that repository.
 
-3. **Classify the family** using the `blink-repo-maintainer` skill and its
-   `references/repository-families.md`. Report which family the repository
-   belongs to and which validation profile follows from it.
+3. **Classify the family.** For `blinklabs-io`, use `blink-repo-maintainer` and
+   `references/repository-families.md`. For `TosiDrop`, use
+   `tosidrop-repo-maintainer` and `references/repository-map.md`. Report which
+   validation profile and organization rules follow from that classification.
 
 4. **Enumerate module boundaries.** For Go repositories, list every nested
    `go.mod` (`find . -name go.mod -not -path './.git/*'`). State explicitly that
@@ -44,10 +47,11 @@ fixing.
    `github-review-coordinator`, `isolated-validation-runs`,
    `evidence-based-handoff`.
 
-6. **Check workflow governance.** Inspect `.github/workflows/` in the target and
-   its entry in `repos/actions/repos-config.yaml`. Generated wrapper workflows
-   are outputs of the governance engine; note whether a workflow change belongs
-   in the wrapper, the profile, or the reusable workflow.
+6. **Check workflow governance.** Inspect `.github/workflows/` and live branch
+   settings in the target. For Blink repositories, also inspect the entry in
+   `repos/actions/repos-config.yaml`; generated wrappers are outputs of that
+   governance engine. TosiDrop does not inherit the Blink actions configuration
+   or organization-wide contribution policy.
 
 ## Report
 

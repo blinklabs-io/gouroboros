@@ -16,6 +16,18 @@ The canonical location for shared agent assets is
 symlinks into it. Never replace a symlink with a copy; a second copy drifts
 silently.
 
+## TosiDrop organization boundary
+
+TosiDrop is a separately governed organization under the same ownership. For
+any `TosiDrop/*` task, read
+[`tosidrop-repo-maintainer`](skills/tosidrop-repo-maintainer/SKILL.md) and the
+target repository's own files and live GitHub settings. TosiDrop repositories
+are standalone unless this workspace explicitly records one as a submodule.
+Do not import Blink-only DCO, Conventional Commit, screenshot, bot-sequencing,
+image, author-only merge, or release rules into TosiDrop work unless the target
+repository or user explicitly adopts them. The clanker repository itself still
+uses the Blink Labs contribution rules below.
+
 ## Before making changes
 
 1. Inspect the repository status and identify the requested change's scope.

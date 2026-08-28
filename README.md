@@ -2,7 +2,8 @@
 
 This repository is the home for the Blink Labs engineering workspace. It brings
 together the shared agentic-coding tooling and the source repositories that make
-up the Blink Labs ecosystem.
+up the Blink Labs ecosystem. The toolkit also supports the separately governed
+TosiDrop organization, which shares ownership but not Blink's repository policy.
 
 The monorepo is intended to provide a common place for:
 
@@ -34,8 +35,8 @@ that submodule. For Go work and cross-repository reviews, start with the
 ## Agent toolkit
 
 Shared agentic-coding assets live in `plugins/blink-labs-agent-toolkit/` and
-cover Cardano, Go, Docker, documentation, and infrastructure work across every
-project in the workspace:
+cover Cardano, Go, Docker, documentation, and infrastructure work across Blink
+Labs projects and affiliated TosiDrop repositories:
 
 - **Skills** that load automatically when a task matches them, from protocol and
   application review to dependency auditing and validation discipline.
@@ -89,6 +90,7 @@ Scan organization pull requests without changing GitHub state:
 
 ```sh
 make scan-prs
+make scan-tosidrop-prs
 ```
 
 See [pull request operations](docs/pr-operations.md) for filters and JSON

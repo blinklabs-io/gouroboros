@@ -7,6 +7,7 @@
 | Indexing | Adder, Shai/Bluefin indexers and cursor storage | Are rollback, duplicates, restart, and cursor recovery safe? |
 | DEX | Shai/Bluefin profile and parser packages | Are on-chain identifiers and profile parameters validated per network? |
 | Node/API | Dingo, Cardano Node API, Tx Submit API, Bark | Are protocol errors, timeouts, auth, and submission semantics preserved? |
+| Claims/delegation | TosiDrop `web`, `vm-frontend`, `vm-sdk`, VM API | Does current delegation come from account state rather than reward history, and are network, pool, whitelist, claim, and failure states kept distinct? |
 | Shared tests | Ouroboros mock ledger, fixtures, conformance | Is the scenario deterministic and reusable instead of locally duplicated? |
 
 Apollo is external upstream at `github.com/Salvionied/apollo/v2`; do not add a

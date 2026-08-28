@@ -20,6 +20,10 @@ catalog is [docs/skill-catalog.md](docs/skill-catalog.md).
 Start a cross-repository task with `/orient`, or with the
 [`blink-workspace-navigator`](skills/blink-workspace-navigator/SKILL.md) skill,
 to establish which repository owns the change before editing anything.
+For any `TosiDrop/*` task, load
+[`tosidrop-repo-maintainer`](skills/tosidrop-repo-maintainer/SKILL.md) instead
+of treating the repository as a Blink submodule. TosiDrop shares ownership but
+has separate repository, review, and release rules.
 
 The `skills/*/SKILL.md` files are tool-neutral and work for Claude and Codex
 alike. Load the relevant `SKILL.md` directly; the adjacent `agents/openai.yaml`
@@ -40,7 +44,11 @@ Plan files and planning notes are local, ephemeral working artifacts. Never
 commit them. Use repository issues for durable scope, acceptance criteria, and
 follow-up tracking.
 
-## Reviews and review bots
+## Blink Labs reviews and review bots
+
+This section governs `blinklabs-io` repositories and clanker. For TosiDrop,
+follow the target repository and `tosidrop-repo-maintainer`; do not infer these
+Blink requirements from shared ownership.
 
 CodeRabbit and Cubic findings are review inputs, not substitutes for inspecting
 the current checkout. For each finding:

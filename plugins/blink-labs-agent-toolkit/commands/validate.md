@@ -1,10 +1,10 @@
 ---
-description: "Run the narrowest meaningful checks for the changed Blink Labs repository and report an evidence ledger of what ran, passed, failed, and was skipped"
+description: "Run the narrowest meaningful checks for a changed Blink Labs or TosiDrop repository and report an evidence ledger of what ran, passed, failed, and was skipped"
 argument-hint: "[repository path or 'all changed']"
 allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 ---
 
-# Validate a Blink Labs change
+# Validate an owned-repository change
 
 Scope: "$ARGUMENTS" (if empty, validate every repository with changes in
 `git status --short --recurse-submodules`).
@@ -31,6 +31,12 @@ report a check as run unless you have its command line, exit code, and output.
    - Infrastructure: `ansible-lint`, `helm lint`, `helm template`,
      `terraform fmt -check`, `terraform validate` per module.
    - Docs site (`repos/docs-site`): `npm ci`, `npm run check`, `npm run build`.
+   - TosiDrop: select the exact profile from
+     `tosidrop-repo-maintainer/references/repository-map.md`. In particular,
+     `web` uses `npm ci`, tests, lint, and build; `vm-sdk` also checks its
+     package surface; `vm-frontend` has separate client/server lockfiles and
+     some no-op test scripts; `infrastructure` requires Terraform validation
+     and authorized state access for plans.
    - Workspace: `git diff --check`, `git diff --submodule=log`,
      `git submodule status --recursive`.
 

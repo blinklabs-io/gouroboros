@@ -11,6 +11,16 @@ make scan-prs
 The default scan covers open, non-draft, non-Dependabot pull requests in
 `blinklabs-io`. It compares reviews and checks with each PR's current head SHA,
 so approvals and bot findings for an earlier commit are not reported as current.
+Use the dedicated target for the separately governed TosiDrop organization:
+
+```sh
+make scan-tosidrop-prs
+```
+
+The scanner behavior is shared, but policy is not. Use
+`tosidrop-repo-maintainer` for TosiDrop repository rules; do not impose Blink
+DCO, screenshot, bot-order, or merge-ownership requirements unless the target
+repository adopts them.
 
 Useful variants:
 
@@ -25,6 +35,9 @@ make scan-prs ARGS='--owner example --user reviewer --team example/reviewers'
 
 # Include drafts or Dependabot only when explicitly needed.
 make scan-prs ARGS='--include-drafts --include-dependabot'
+
+# Apply additional scanner filters to TosiDrop.
+make scan-tosidrop-prs ARGS='--format json'
 ```
 
 The report separates current bot findings, unanswered human PR comments, human

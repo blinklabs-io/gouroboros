@@ -1,8 +1,8 @@
 # Agent toolkit catalog
 
-Everything the Blink Labs Agent Toolkit provides, and when it applies. The
-canonical source is `plugins/blink-labs-agent-toolkit/`; `skills/` is a symlink
-into it.
+Everything the Blink Labs Agent Toolkit provides for Blink Labs and affiliated
+TosiDrop repositories, and when it applies. The canonical source is
+`plugins/blink-labs-agent-toolkit/`; `skills/` is a symlink into it.
 
 Claude Code loads skills automatically when a task matches a description, and
 namespaces the explicit forms as `/blink-labs-agent-toolkit:<name>`. Codex reads
@@ -38,6 +38,7 @@ the same `SKILL.md` files.
 |---|---|
 | `blink-workspace-navigator` | You need to find the repository that owns a topic, or decide where a change belongs |
 | `blink-repo-maintainer` | You are making a repository-aware change and need the family, checks, and governance rules |
+| `tosidrop-repo-maintainer` | Any `TosiDrop/*` task: repository ownership, VM/web/Cloudflare boundaries, native validation, and TosiDrop-specific governance |
 
 ### Cardano and Go engineering
 
@@ -91,6 +92,7 @@ All guards fail open: unparseable input exits without blocking.
 | `docs/go-repository-guide.md` | Go common ground: module boundaries, generated interfaces, CBOR and fixture invariants, per-repository pointers |
 | `docs/repository-patterns.md` | Workspace architecture, project families, validation matrix, governance implications |
 | `skills/blink-repo-maintainer/references/repository-families.md` | Per-family workflow profiles and validation |
+| `skills/tosidrop-repo-maintainer/references/repository-map.md` | TosiDrop repository map, validation profiles, contract boundaries, and governance separation |
 | `skills/blink-workspace-navigator/references/ownership-map.md` | Topic-to-repository map, dependency spine, disambiguation traps |
 | `skills/dingo-maintainer/references/dingo-agent-workflow.md` | Dingo investigation, live-run, and review checklist |
 | `skills/infrastructure-reviewer/references/deployment-checklist.md` | Terraform, Helm, Ansible, Kubernetes, and compose review checks |

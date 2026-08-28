@@ -3,7 +3,7 @@
 # Workspace-level targets only. Source changes belong in the submodule under
 # repos/ and use that project's own Makefile.
 
-.PHONY: help validate scan-prs submodules status
+.PHONY: help validate scan-prs scan-tosidrop-prs submodules status
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -14,6 +14,9 @@ validate: ## Validate the agent toolkit (manifests, skills, commands, hooks)
 
 scan-prs: ## Scan open PRs for current-head reviews, bots, approvals, and checks
 	@python3 scripts/scan-prs.py $(ARGS)
+
+scan-tosidrop-prs: ## Scan open TosiDrop PRs with the same read-only review checks
+	@python3 scripts/scan-prs.py --owner TosiDrop $(ARGS)
 
 submodules: ## Initialize or update every submodule checkout
 	@git submodule update --init --recursive

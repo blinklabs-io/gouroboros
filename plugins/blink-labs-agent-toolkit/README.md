@@ -1,8 +1,10 @@
 # Blink Labs Agent Toolkit
 
-Shared agentic-coding assets for the Blink Labs `clanker` workspace: skills,
-slash commands, review subagents, and workspace guards for Cardano, Go, Docker,
-documentation, infrastructure-as-code maintenance, and live operations.
+Shared agentic-coding assets for the Blink Labs `clanker` workspace and
+affiliated TosiDrop repositories: skills, slash commands, review subagents, and
+workspace guards for Cardano, Go, Docker, documentation,
+infrastructure-as-code maintenance, and live operations. TosiDrop remains a
+separately governed organization; its skill does not import Blink-only policy.
 
 This directory is the canonical source. The workspace `skills/` directory and
 the two guides under `docs/` are symlinks into it, so there is exactly one copy
@@ -72,5 +74,6 @@ Read the `agent-toolkit-authoring` skill, then validate:
 make validate
 ```
 
-Bump `version` in both manifests when contents change, and update
-`docs/skill-catalog.md` when adding a skill, command, or subagent.
+Bump `version` in both plugin manifests and the workspace marketplace entry
+when contents change, and update `docs/skill-catalog.md` when adding a skill,
+command, or subagent.

@@ -1,12 +1,13 @@
 {
   "name": "blink-labs-agent-toolkit",
-  "version": "0.4.12",
-  "description": "Shared Blink Labs maintenance, infrastructure operations, and review skills for Claude- and Codex-compatible agent workflows.",
+  "version": "0.5.0",
+  "description": "Shared Blink Labs and TosiDrop maintenance, infrastructure operations, and review skills for Claude- and Codex-compatible agent workflows.",
   "author": {
     "name": "Blink Labs"
   },
   "keywords": [
     "blink-labs",
+    "tosidrop",
     "cardano",
     "go",
     "docker",
@@ -19,11 +20,11 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Blink Labs Agent Toolkit",
-    "shortDescription": "Shared Blink Labs maintenance skills",
-    "longDescription": "Repository-aware maintenance, Cardano protocol and application review, Go API and dependency auditing, Docker release, infrastructure-as-code maintenance and operations, documentation, and GitHub workflow skills for Claude and Codex.",
+    "shortDescription": "Blink Labs and TosiDrop maintenance skills",
+    "longDescription": "Repository-aware maintenance for Blink Labs and separately governed TosiDrop projects, Cardano protocol and application review, Go API and dependency auditing, Docker release, infrastructure-as-code maintenance and operations, documentation, and GitHub workflow skills for Claude and Codex.",
     "developerName": "Blink Labs",
     "category": "Developer Tools",
     "capabilities": [],
-    "defaultPrompt": "Use the Blink Labs Agent Toolkit to maintain or review this repository."
+    "defaultPrompt": "Use the Blink Labs Agent Toolkit to maintain or review this Blink Labs or TosiDrop repository using the owning organization's rules."
   }
 }
