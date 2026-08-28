@@ -98,8 +98,9 @@ var (
 func MustReplyTimeoutFunc() time.Duration {
 	rangeMs := MustReplyTimeoutMax.Milliseconds() - MustReplyTimeoutMin.Milliseconds()
 	return MustReplyTimeoutMin + time.Duration(
+		//nolint:gosec // Random timeout is required by the protocol.
 		rand.Int64N(rangeMs),
-	)*time.Millisecond //nolint:gosec
+	)*time.Millisecond
 }
 
 // StateMapNtN is the N2N ChainSync state machine with timeouts per spec Table 3.8.

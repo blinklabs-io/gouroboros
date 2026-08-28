@@ -914,6 +914,7 @@ func (c *Client) handleAwaitReply() error {
 		c.lifecycleMutex.Unlock()
 		if err := c.config.Pipeline.Fence(fenceCtx); err != nil {
 			if errors.Is(err, context.Canceled) && fenceCtx.Err() != nil {
+				//nolint:nilerr // A canceled fence is expected while the protocol is stopping.
 				return nil
 			}
 			return err
