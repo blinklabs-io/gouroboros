@@ -944,10 +944,8 @@ func (c *Client) handlePipelineFenceError(
 		//nolint:nilerr // A canceled fence is expected while the protocol is stopping.
 		return nil
 	}
-	if errors.Is(err, pipeline.ErrPipelineStopped) {
-		return nil
-	}
-	if errors.Is(err, pipeline.ErrPipelineNotStarted) {
+	if errors.Is(err, pipeline.ErrPipelineStopped) ||
+		errors.Is(err, pipeline.ErrPipelineNotStarted) {
 		c.lifecycleMutex.Lock()
 		stopping := c.lifecycleState == clientStateStopping ||
 			c.lifecycleState == clientStateStopped
