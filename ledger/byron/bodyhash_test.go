@@ -86,6 +86,39 @@ func TestMainBlockBodyHashCheckedMalformed(t *testing.T) {
 			name:      "raw bytes of the wrong length",
 			bodyProof: bytes.Repeat([]byte{0x01}, 16),
 		},
+		{
+			// A bare hash is the epoch boundary block's body proof format.
+			// A main block header carrying one has no transaction proof at
+			// all, so it must not be accepted here.
+			name: "bare 32-byte hash",
+			bodyProof: bytes.Repeat(
+				[]byte{0x01}, common.Blake2b256Size,
+			),
+		},
+		{
+			name: "oversized outer array",
+			bodyProof: []any{
+				[]any{
+					uint64(0),
+					bytes.Repeat([]byte{0x01}, common.Blake2b256Size),
+					bytes.Repeat([]byte{0x02}, common.Blake2b256Size),
+				},
+				nil, nil, nil,
+				"trailing junk",
+			},
+		},
+		{
+			name: "oversized tx proof",
+			bodyProof: []any{
+				[]any{
+					uint64(0),
+					bytes.Repeat([]byte{0x01}, common.Blake2b256Size),
+					bytes.Repeat([]byte{0x02}, common.Blake2b256Size),
+					"trailing junk",
+				},
+				nil, nil, nil,
+			},
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -163,4 +196,52 @@ func TestBlockBodyHashCheckedNilReceivers(t *testing.T) {
 
 	_, err = (&byron.ByronMainBlock{}).BlockBodyHashChecked()
 	require.ErrorIs(t, err, byron.ErrMalformedBodyProof)
+}
+
+// TestMainBlockValidateBodyProofRejectsOversizedShapes pins that the
+// decode-time path rejects an over-long body proof on shape, rather than
+// letting it through to a content check that happens to fail for an
+// unrelated reason.
+func TestMainBlockValidateBodyProofRejectsOversizedShapes(t *testing.T) {
+	hash := bytes.Repeat([]byte{0x01}, common.Blake2b256Size)
+	txProof := []any{uint64(0), hash, hash}
+
+	testCases := []struct {
+		name      string
+		bodyProof any
+	}{
+		{
+			name: "oversized outer array",
+			bodyProof: []any{
+				txProof, nil, hash, hash, "trailing junk",
+			},
+		},
+		{
+			name:      "undersized outer array",
+			bodyProof: []any{txProof, nil, hash},
+		},
+		{
+			name: "oversized tx proof",
+			bodyProof: []any{
+				[]any{uint64(0), hash, hash, "trailing junk"},
+				nil, hash, hash,
+			},
+		},
+		{
+			name:      "bare hash",
+			bodyProof: hash,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			block := &byron.ByronMainBlock{
+				BlockHeader: &byron.ByronMainBlockHeader{
+					BodyProof: testCase.bodyProof,
+				},
+			}
+			err := block.ValidateBodyProof()
+			require.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+			require.ErrorContains(t, err, "element array")
+		})
+	}
 }

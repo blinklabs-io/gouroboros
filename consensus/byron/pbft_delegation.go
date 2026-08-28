@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -176,10 +178,16 @@ func (s PBFTDelegationState) Tick(
 // ApplyPayload schedules the certificates in a Byron main-block delegation
 // payload and performs the delegation tick for that block. The update is
 // atomic: malformed or invalid certificates leave the input state unchanged.
+//
+// The payload is taken as each certificate's preserved CBOR rather than as
+// decoded values, because a certificate's signature covers its epoch
+// field's wire encoding -- see byron.DelegationCertificate.EpochCbor. Call
+// it with byron.ByronMainBlockBody.DlgPayloadCbor decoded into
+// []cbor.RawMessage.
 func (s PBFTDelegationState) ApplyPayload(
 	currentEpoch uint64,
 	currentSlot uint64,
-	payload []any,
+	payload []cbor.RawMessage,
 ) (PBFTDelegationState, error) {
 	next := s.clone()
 	for i, rawCertificate := range payload {
@@ -241,20 +249,13 @@ func (s PBFTDelegationState) clone() PBFTDelegationState {
 func (s *PBFTDelegationState) scheduleCertificate(
 	currentEpoch uint64,
 	currentSlot uint64,
-	rawCertificate any,
+	rawCertificate cbor.RawMessage,
 ) error {
-	certificate, ok := rawCertificate.([]any)
-	if !ok || len(certificate) != 4 {
-		return fmt.Errorf(
-			"invalid certificate shape: got %T with %d elements",
-			rawCertificate,
-			len(certificate),
-		)
-	}
-	delegationEpoch, err := extractUint64(certificate[0])
+	certificate, err := byron.ParseDelegationCertificate(rawCertificate)
 	if err != nil {
-		return fmt.Errorf("decode delegation epoch: %w", err)
+		return err
 	}
+	delegationEpoch := certificate.Epoch
 	if delegationEpoch < currentEpoch ||
 		delegationEpoch-currentEpoch > 1 {
 		return fmt.Errorf(
@@ -263,31 +264,7 @@ func (s *PBFTDelegationState) scheduleCertificate(
 			currentEpoch,
 		)
 	}
-	issuerKey, ok := certificate[1].([]byte)
-	if !ok || len(issuerKey) != 64 {
-		return fmt.Errorf(
-			"invalid issuer verification key: got %T with length %d",
-			certificate[1],
-			len(issuerKey),
-		)
-	}
-	delegateKey, ok := certificate[2].([]byte)
-	if !ok || len(delegateKey) != 64 {
-		return fmt.Errorf(
-			"invalid delegate verification key: got %T with length %d",
-			certificate[2],
-			len(delegateKey),
-		)
-	}
-	certificateSignature, ok := certificate[3].([]byte)
-	if !ok || len(certificateSignature) != 64 {
-		return fmt.Errorf(
-			"invalid certificate signature: got %T with length %d",
-			certificate[3],
-			len(certificateSignature),
-		)
-	}
-	delegator, err := PBFTVerificationKeyHash(issuerKey)
+	delegator, err := PBFTVerificationKeyHash(certificate.IssuerVK)
 	if err != nil {
 		return fmt.Errorf("derive delegation issuer: %w", err)
 	}
@@ -323,18 +300,10 @@ func (s *PBFTDelegationState) scheduleCertificate(
 			)
 		}
 	}
-	validator := NewHeaderValidator(ByronConfig{
-		ProtocolMagic: s.protocolMagic,
-	})
-	if err := validator.validateDelegationCertSignature(
-		issuerKey,
-		delegateKey,
-		certificateSignature,
-		delegationEpoch,
-	); err != nil {
+	if err := certificate.Verify(s.protocolMagic); err != nil {
 		return fmt.Errorf("validate delegation certificate: %w", err)
 	}
-	delegate, err := PBFTVerificationKeyHash(delegateKey)
+	delegate, err := PBFTVerificationKeyHash(certificate.DelegateVK)
 	if err != nil {
 		return fmt.Errorf("derive delegation delegate: %w", err)
 	}

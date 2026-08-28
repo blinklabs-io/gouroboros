@@ -190,10 +190,12 @@ func (b *ByronMainBlock) bodyProofArray() ([]any, error) {
 		)
 	}
 	proof, ok := b.BlockHeader.BodyProof.([]any)
-	if !ok || len(proof) < bodyProofLength {
+	if !ok || len(proof) != bodyProofLength {
 		return nil, fmt.Errorf(
-			"%w: header body proof is not a %d-element array",
+			"%w: header body proof is not a %d-element array, "+
+				"got %T with %d elements",
 			ErrBodyProofMismatch, bodyProofLength,
+			b.BlockHeader.BodyProof, len(proof),
 		)
 	}
 	return proof, nil
@@ -201,10 +203,10 @@ func (b *ByronMainBlock) bodyProofArray() ([]any, error) {
 
 func (b *ByronMainBlock) validateTxProof(rawProof any) error {
 	txProof, ok := rawProof.([]any)
-	if !ok || len(txProof) < txProofLength {
+	if !ok || len(txProof) != txProofLength {
 		return fmt.Errorf(
-			"%w: tx proof is not a %d-element array",
-			ErrBodyProofMismatch, txProofLength,
+			"%w: tx proof is not a %d-element array, got %T with %d elements",
+			ErrBodyProofMismatch, txProofLength, rawProof, len(txProof),
 		)
 	}
 

@@ -156,32 +156,43 @@ func (h *ByronMainBlockHeader) BlockBodyHashChecked() (
 ) {
 	// Byron BodyProof is an array: [tx_proof, ssc_proof, dlg_proof, upd_proof]
 	// tx_proof is: [txCount, txBodyMerkleRoot, txWitnessMerkleRoot]
-	// We return the txBodyMerkleRoot as the representative body hash
-	if proofSlice, ok := h.BodyProof.([]any); ok && len(proofSlice) >= 1 {
-		// Extract tx_proof which is the first element
-		if txProof, ok := proofSlice[0].([]any); ok && len(txProof) >= 2 {
-			// txProof[1] is the txBodyMerkleRoot
-			if txBodyRoot, ok := txProof[1].([]byte); ok &&
-				len(txBodyRoot) == common.Blake2b256Size {
-				var hash common.Blake2b256
-				copy(hash[:], txBodyRoot)
-				return hash, nil
-			}
-		}
+	// We return the txBodyMerkleRoot as the representative body hash.
+	//
+	// Both shapes are required exactly, not as minimums: the CDDL fixes
+	// them, cardano-ledger reads them with enforceSize, and accepting a
+	// longer array would let a header carry trailing junk that no other
+	// check looks at. There is deliberately no fallback for a body proof
+	// that is a bare hash -- that is the epoch boundary block's format, and
+	// accepting it here would mean a main block header could pass this
+	// while carrying no transaction proof at all.
+	proof, ok := h.BodyProof.([]any)
+	if !ok || len(proof) != bodyProofLength {
+		return common.Blake2b256{}, fmt.Errorf(
+			"%w: main block header body proof is not a %d-element array, "+
+				"got %T with %d elements",
+			ErrMalformedBodyProof, bodyProofLength, h.BodyProof, len(proof),
+		)
 	}
-	// Fallback: check if BodyProof is raw bytes (shouldn't happen for main blocks)
-	if bodyProofBytes, ok := h.BodyProof.([]byte); ok &&
-		len(bodyProofBytes) == common.Blake2b256Size {
-		var hash common.Blake2b256
-		copy(hash[:], bodyProofBytes)
-		return hash, nil
+	txProof, ok := proof[bodyProofTxIndex].([]any)
+	if !ok || len(txProof) != txProofLength {
+		return common.Blake2b256{}, fmt.Errorf(
+			"%w: main block tx proof is not a %d-element array, "+
+				"got %T with %d elements",
+			ErrMalformedBodyProof, txProofLength,
+			proof[bodyProofTxIndex], len(txProof),
+		)
 	}
-	return common.Blake2b256{}, fmt.Errorf(
-		"%w: main block header body proof is %T, expected a "+
-			"[tx_proof, ssc_proof, dlg_proof, upd_proof] array whose "+
-			"tx_proof carries a %d-byte merkle root",
-		ErrMalformedBodyProof, h.BodyProof, common.Blake2b256Size,
-	)
+	merkleRoot, ok := txProof[txProofMerkleIndex].([]byte)
+	if !ok || len(merkleRoot) != common.Blake2b256Size {
+		return common.Blake2b256{}, fmt.Errorf(
+			"%w: main block tx merkle root is not a %d-byte hash, got %T",
+			ErrMalformedBodyProof, common.Blake2b256Size,
+			txProof[txProofMerkleIndex],
+		)
+	}
+	var hash common.Blake2b256
+	copy(hash[:], merkleRoot)
+	return hash, nil
 }
 
 // BlockBodyHash satisfies common.BlockHeader. It returns a zero hash for a

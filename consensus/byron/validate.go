@@ -445,12 +445,36 @@ func (v *HeaderValidator) validateProxySignature(
 		)
 	}
 
-	// Extract certificate components
+	// Extract certificate components. The epoch is taken twice: as a value
+	// for the checks below, and as its preserved wire encoding, which is
+	// what the certificate signature actually covers.
 	epochOrOmega, err := extractUint64(
 		cert[0],
 	) // epochOrOmega - used for replay protection
 	if err != nil {
 		return fmt.Errorf("failed to extract epoch/omega from cert: %w", err)
+	}
+	epochCbor, err := proxyCertEpochCbor(input.HeaderCbor)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to recover delegation certificate epoch encoding: %w",
+			err,
+		)
+	}
+	// Confirm the walk through the raw header landed on the same field the
+	// decoded BlockSig holds, so a header whose shape differs from what
+	// proxyCertEpochCbor assumes is rejected rather than verified against
+	// some other field's bytes.
+	var recoveredEpoch uint64
+	if _, err := cbor.Decode(epochCbor, &recoveredEpoch); err != nil {
+		return fmt.Errorf("decode delegation certificate epoch: %w", err)
+	}
+	if recoveredEpoch != epochOrOmega {
+		return fmt.Errorf(
+			"delegation certificate epoch encoding %x decodes to %d, "+
+				"but the header's decoded certificate says %d",
+			epochCbor, recoveredEpoch, epochOrOmega,
+		)
 	}
 
 	issuerVK, ok := cert[1].([]byte)
@@ -528,7 +552,7 @@ func (v *HeaderValidator) validateProxySignature(
 	// from cardano-ledger-byron's Delegation/Certificate.hs and
 	// cardano-crypto's Signing/{Tag,Signature}.hs.
 	if err := v.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig, epochOrOmega,
+		issuerVK, delegateVK, certSig, epochCbor,
 	); err != nil {
 		return fmt.Errorf(
 			"delegation certificate signature verification failed: %w",
@@ -592,6 +616,56 @@ func (v *HeaderValidator) validateProxySignature(
 	}
 
 	return nil
+}
+
+// proxyCertEpochCbor recovers the preserved wire encoding of the epoch
+// field inside a header's proxy delegation certificate, by walking the
+// header's own CBOR:
+//
+//	header[3]         -> consensus_data
+//	consensus_data[3] -> block_sig
+//	block_sig[1]      -> [certificate, block_signature]
+//	certificate[0]    -> epoch
+//
+// The decoded BlockSig cannot supply this. CBOR admits non-shortest integer
+// encodings and this decoder accepts them, so an epoch that arrived as
+// 0x1807 decodes to 7 and re-encodes to 0x07 -- and the issuer signed the
+// bytes on the wire, not the round trip.
+func proxyCertEpochCbor(headerCbor []byte) ([]byte, error) {
+	if len(headerCbor) == 0 {
+		return nil, errors.New(
+			"header CBOR is required to recover the certificate epoch",
+		)
+	}
+	path := []struct {
+		label string
+		index int
+		count int
+	}{
+		{label: "header", index: 3, count: 5},
+		{label: "consensus data", index: 3, count: 4},
+		{label: "block signature", index: 1, count: 2},
+		{label: "delegation signature", index: 0, count: 2},
+		{label: "delegation certificate", index: 0, count: 4},
+	}
+	current := cbor.RawMessage(headerCbor)
+	for _, step := range path {
+		var elements []cbor.RawMessage
+		if _, err := cbor.Decode(current, &elements); err != nil {
+			return nil, fmt.Errorf("decode %s: %w", step.label, err)
+		}
+		if len(elements) != step.count {
+			return nil, fmt.Errorf(
+				"%s is not a %d-element array, got %d elements",
+				step.label, step.count, len(elements),
+			)
+		}
+		current = elements[step.index]
+	}
+	if len(current) == 0 {
+		return nil, errors.New("delegation certificate epoch encoding is empty")
+	}
+	return current, nil
 }
 
 // Byron signing tags used by header validation. The full set, and the
@@ -721,9 +795,12 @@ func extractUint64(v any) (uint64, error) {
 // in byron.VerifyDelegationCertificateSignature, so that header validation
 // here and delegation payload validation in ledger/byron cannot drift
 // apart.
+//
+// epochCbor is the epoch field's preserved wire encoding, not a re-encoding
+// of its decoded value -- see that function's doc comment.
 func (v *HeaderValidator) validateDelegationCertSignature(
 	issuerVK, delegateVK, certSig []byte,
-	epochOrOmega uint64,
+	epochCbor []byte,
 ) error {
 	// Check if verification should be skipped
 	if v.SkipDelegationCertVerification {
@@ -738,7 +815,7 @@ func (v *HeaderValidator) validateDelegationCertSignature(
 		issuerVK,
 		delegateVK,
 		certSig,
-		epochOrOmega,
+		epochCbor,
 	)
 }
 

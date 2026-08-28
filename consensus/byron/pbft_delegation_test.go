@@ -45,7 +45,7 @@ func signedPBFTDelegationCertificate(
 	issuerKey []byte,
 	issuerPrivateKey ed25519.PrivateKey,
 	delegateKey []byte,
-) []any {
+) cbor.RawMessage {
 	t.Helper()
 	epochCbor, err := cbor.Encode(epoch)
 	require.NoError(t, err)
@@ -60,12 +60,14 @@ func signedPBFTDelegationCertificate(
 	signed := []byte{byron.SignTagCertificate}
 	signed = append(signed, protocolMagicCbor...)
 	signed = append(signed, innerCbor...)
-	return []any{
+	encoded, err := cbor.Encode([]any{
 		epoch,
 		append([]byte(nil), issuerKey...),
 		append([]byte(nil), delegateKey...),
 		ed25519.Sign(issuerPrivateKey, signed),
-	}
+	})
+	require.NoError(t, err)
+	return encoded
 }
 
 func TestPBFTDelegationStateActivationAndRevocation(t *testing.T) {
@@ -103,7 +105,9 @@ func TestPBFTDelegationStateActivationAndRevocation(t *testing.T) {
 		issuerPrivateKey,
 		replacementDelegateKey,
 	)
-	state, err = state.ApplyPayload(1, 101, []any{activationCertificate})
+	state, err = state.ApplyPayload(
+		1, 101, []cbor.RawMessage{activationCertificate},
+	)
 	require.NoError(t, err)
 	require.Equal(
 		t,
@@ -128,7 +132,9 @@ func TestPBFTDelegationStateActivationAndRevocation(t *testing.T) {
 		issuerPrivateKey,
 		issuerKey,
 	)
-	state, err = state.ApplyPayload(2, 201, []any{revocationCertificate})
+	state, err = state.ApplyPayload(
+		2, 201, []cbor.RawMessage{revocationCertificate},
+	)
 	require.NoError(t, err)
 	state = state.Tick(2, 220)
 	require.Equal(
@@ -221,8 +227,14 @@ func TestPBFTDelegationStateRejectsInvalidPayloadAtomically(t *testing.T) {
 		issuerPrivateKey,
 		replacementDelegateKey,
 	)
-	_, err = state.ApplyPayload(1, 101, []any{certificate, []any{}})
-	require.ErrorContains(t, err, "invalid certificate shape")
+	malformed, err := cbor.Encode([]any{})
+	require.NoError(t, err)
+	_, err = state.ApplyPayload(
+		1, 101, []cbor.RawMessage{certificate, malformed},
+	)
+	require.ErrorContains(
+		t, err, "delegation certificate is not a 4-element array",
+	)
 	require.Equal(
 		t,
 		initialDelegateHash,
@@ -258,8 +270,8 @@ func TestPBFTDelegationStateRejectsDuplicateEpoch(t *testing.T) {
 		issuerPrivateKey,
 		replacementDelegateKey,
 	)
-	state, err = state.ApplyPayload(1, 101, []any{certificate})
+	state, err = state.ApplyPayload(1, 101, []cbor.RawMessage{certificate})
 	require.NoError(t, err)
-	_, err = state.ApplyPayload(1, 102, []any{certificate})
+	_, err = state.ApplyPayload(1, 102, []cbor.RawMessage{certificate})
 	require.ErrorContains(t, err, "already delegated for epoch 1")
 }
