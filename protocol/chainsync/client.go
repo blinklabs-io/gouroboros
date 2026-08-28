@@ -742,13 +742,13 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeAwaitReply:
-		c.handleAwaitReply()
+		err = c.handleAwaitReply()
 	case MessageTypeRollForward:
 		err = c.handleRollForward(msg)
 	case MessageTypeRollBackward:
 		err = c.handleRollBackward(msg)
 	case MessageTypeIntersectFound:
-		c.handleIntersectFound(msg)
+		err = c.handleIntersectFound(msg)
 	case MessageTypeIntersectNotFound:
 		c.handleIntersectNotFound(msg)
 	default:
@@ -761,7 +761,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (c *Client) handleAwaitReply() {
+func (c *Client) handleAwaitReply() error {
 	c.Protocol.Logger().
 		Debug("waiting for next reply",
 			"component", "network",
@@ -769,6 +769,10 @@ func (c *Client) handleAwaitReply() {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	if c.config != nil && c.config.AwaitReplyFunc != nil {
+		return c.config.AwaitReplyFunc(c.callbackContext)
+	}
+	return nil
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
@@ -1063,7 +1067,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 	return nil
 }
 
-func (c *Client) handleIntersectFound(msg protocol.Message) {
+func (c *Client) handleIntersectFound(msg protocol.Message) error {
 	c.Protocol.Logger().
 		Debug("chain intersect found",
 			"component", "network",
@@ -1073,12 +1077,22 @@ func (c *Client) handleIntersectFound(msg protocol.Message) {
 		)
 	msgIntersectFound := msg.(*MsgIntersectFound)
 	c.sendCurrentTip(msgIntersectFound.Tip)
+	if c.config != nil && c.config.IntersectFoundFunc != nil {
+		if err := c.config.IntersectFoundFunc(
+			c.callbackContext,
+			msgIntersectFound.Point,
+			msgIntersectFound.Tip,
+		); err != nil {
+			return err
+		}
+	}
 
 	select {
 	case ch := <-c.wantIntersectFoundChan:
 		ch <- clientPointResult{tip: msgIntersectFound.Tip, point: msgIntersectFound.Point}
 	default:
 	}
+	return nil
 }
 
 func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) {

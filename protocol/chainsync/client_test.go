@@ -614,6 +614,78 @@ func TestSyncPipelining(t *testing.T) {
 	)
 }
 
+func syncCallbacksExposeExactTipIntersection(t *testing.T) {
+	intersect := pcommon.NewPoint(
+		100,
+		test.DecodeHexString("0102030405060708"),
+	)
+	tip := chainsync.Tip{
+		BlockNumber: 10,
+		Point: pcommon.NewPoint(
+			100,
+			test.DecodeHexString("1112131415161718"),
+		),
+	}
+	conversation := append(
+		append([]ouroboros_mock.ConversationEntry{}, conversationHandshakeFindIntersect...),
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgIntersectFound(intersect, tip),
+			},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeRequestNext,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages:   []protocol.Message{chainsync.NewMsgAwaitReply()},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeDone,
+		},
+	)
+	callbacks := make(chan string, 2)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			err := oConn.ChainSync().Client.Sync([]pcommon.Point{intersect})
+			require.NoError(t, err)
+			for _, want := range []string{"intersect", "await"} {
+				select {
+				case got := <-callbacks:
+					require.Equal(t, want, got)
+				case <-time.After(2 * time.Second):
+					t.Fatalf("timed out waiting for %s callback", want)
+				}
+			}
+			require.NoError(t, oConn.ChainSync().Client.Stop())
+		},
+		ouroboros.WithChainSyncConfig(chainsync.Config{
+			SkipBlockValidation: true,
+			IntersectFoundFunc: func(
+				_ chainsync.CallbackContext,
+				gotIntersect pcommon.Point,
+				gotTip chainsync.Tip,
+			) error {
+				require.Equal(t, intersect, gotIntersect)
+				require.Equal(t, tip, gotTip)
+				callbacks <- "intersect"
+				return nil
+			},
+			AwaitReplyFunc: func(chainsync.CallbackContext) error {
+				callbacks <- "await"
+				return nil
+			},
+		}),
+	)
+}
+
 func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 	expectedTip1 := chainsync.Tip{
 		BlockNumber: 1,
