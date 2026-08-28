@@ -614,7 +614,7 @@ func TestSyncPipelining(t *testing.T) {
 	)
 }
 
-func syncCallbacksExposeExactTipIntersection(t *testing.T) {
+func TestSyncCallbacksExposeExactTipIntersection(t *testing.T) {
 	intersect := pcommon.NewPoint(
 		100,
 		test.DecodeHexString("0102030405060708"),
@@ -644,12 +644,13 @@ func syncCallbacksExposeExactTipIntersection(t *testing.T) {
 			IsResponse: true,
 			Messages:   []protocol.Message{chainsync.NewMsgAwaitReply()},
 		},
-		ouroboros_mock.ConversationEntryInput{
-			ProtocolId:  chainsync.ProtocolIdNtC,
-			MessageType: chainsync.MessageTypeDone,
-		},
 	)
-	callbacks := make(chan string, 2)
+	type callback struct {
+		name      string
+		intersect pcommon.Point
+		tip       chainsync.Tip
+	}
+	callbacks := make(chan callback, 2)
 	runTest(
 		t,
 		conversation,
@@ -659,7 +660,11 @@ func syncCallbacksExposeExactTipIntersection(t *testing.T) {
 			for _, want := range []string{"intersect", "await"} {
 				select {
 				case got := <-callbacks:
-					require.Equal(t, want, got)
+					require.Equal(t, want, got.name)
+					if got.name == "intersect" {
+						require.Equal(t, intersect, got.intersect)
+						require.Equal(t, tip, got.tip)
+					}
 				case <-time.After(2 * time.Second):
 					t.Fatalf("timed out waiting for %s callback", want)
 				}
@@ -673,13 +678,15 @@ func syncCallbacksExposeExactTipIntersection(t *testing.T) {
 				gotIntersect pcommon.Point,
 				gotTip chainsync.Tip,
 			) error {
-				require.Equal(t, intersect, gotIntersect)
-				require.Equal(t, tip, gotTip)
-				callbacks <- "intersect"
+				callbacks <- callback{
+					name:      "intersect",
+					intersect: gotIntersect,
+					tip:       gotTip,
+				}
 				return nil
 			},
 			AwaitReplyFunc: func(chainsync.CallbackContext) error {
-				callbacks <- "await"
+				callbacks <- callback{name: "await"}
 				return nil
 			},
 		}),

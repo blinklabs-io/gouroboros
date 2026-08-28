@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -49,4 +50,43 @@ func TestExactTipCallbacksExposeIntersectionBeforeAwaitReply(t *testing.T) {
 	require.NoError(t, client.handleIntersectFound(NewMsgIntersectFound(intersect, tip)))
 	require.NoError(t, client.handleAwaitReply())
 	require.Equal(t, []string{"intersect", "await"}, callbacks)
+}
+
+func TestAtTipCallbackErrorsPropagate(t *testing.T) {
+	awaitReplyErr := errors.New("await reply callback failed")
+	intersectFoundErr := errors.New("intersect found callback failed")
+	intersect := pcommon.NewPoint(100, []byte("intersection"))
+	tip := Tip{Point: pcommon.NewPoint(100, []byte("tip")), BlockNumber: 10}
+
+	t.Run("await reply", func(t *testing.T) {
+		client := NewClient(
+			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+			&Config{
+				AwaitReplyFunc: func(CallbackContext) error {
+					return awaitReplyErr
+				},
+			},
+		)
+		require.ErrorIs(t, client.messageHandler(NewMsgAwaitReply()), awaitReplyErr)
+	})
+
+	t.Run("intersect found", func(t *testing.T) {
+		client := NewClient(
+			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+			&Config{
+				IntersectFoundFunc: func(
+					CallbackContext,
+					pcommon.Point,
+					Tip,
+				) error {
+					return intersectFoundErr
+				},
+			},
+		)
+		require.ErrorIs(
+			t,
+			client.messageHandler(NewMsgIntersectFound(intersect, tip)),
+			intersectFoundErr,
+		)
+	})
 }

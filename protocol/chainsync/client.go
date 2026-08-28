@@ -34,6 +34,7 @@ const (
 	clientStateNew clientLifecycleState = iota
 	clientStateStarting
 	clientStateRunning
+	clientStateStopping
 	clientStateStopped
 )
 
@@ -47,7 +48,9 @@ type Client struct {
 	lifecycleMutex           sync.Mutex
 	lifecycleState           clientLifecycleState
 	startingDone             chan struct{}
+	stoppingDone             chan struct{}
 	readyForNextBlockChan    chan bool
+	syncLoopWaitGroup        sync.WaitGroup
 	syncPipelinedRequestNext int
 	protoOptions             protocol.ProtocolOptions
 
@@ -199,6 +202,16 @@ func (c *Client) Start() {
 			// Re-check state after the in-flight start completes
 			continue
 
+		case clientStateStopping:
+			// Wait until the running sync loop has stopped before replacing the
+			// protocol and its channels.
+			ch := c.stoppingDone
+			c.lifecycleMutex.Unlock()
+			if ch != nil {
+				<-ch
+			}
+			continue
+
 		case clientStateStopped, clientStateNew:
 			// We will be the goroutine that performs initialization/start.
 			// Save previous state before transitioning to prevent other goroutines from also starting.
@@ -281,6 +294,17 @@ func (c *Client) Stop() error {
 	c.lifecycleMutex.Lock()
 
 	if c.lifecycleState != clientStateRunning {
+		if c.lifecycleState == clientStateStopping {
+			ch := c.stoppingDone
+			c.lifecycleMutex.Unlock()
+			if ch != nil {
+				<-ch
+			}
+			if busyLocked {
+				c.busyMutex.Unlock()
+			}
+			return nil
+		}
 		if busyLocked {
 			c.busyMutex.Unlock()
 		}
@@ -294,6 +318,10 @@ func (c *Client) Stop() error {
 			"protocol", ProtocolName,
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+
+	c.lifecycleState = clientStateStopping
+	stoppingDone := make(chan struct{})
+	c.stoppingDone = stoppingDone
 
 	var sendErr error
 	// Check if protocol is already done before sending Done message
@@ -315,11 +343,10 @@ func (c *Client) Stop() error {
 		c.readyForNextBlockChan = nil
 	}
 
-	// Stop/unregister the underlying protocol instance, then wait for it to
-	// finish so IsDone reports the completed shutdown when Stop returns.
+	// Stop/unregister the underlying protocol instance, then wait for it and
+	// the sync loop to finish before allowing a restart to replace their state.
 	doneChan := c.DoneChan()
 	c.Protocol.Stop()
-	c.lifecycleState = clientStateStopped
 	// Unblock any goroutine waiting for an in-progress start.
 	if c.startingDone != nil {
 		close(c.startingDone)
@@ -327,6 +354,15 @@ func (c *Client) Stop() error {
 	}
 	c.lifecycleMutex.Unlock()
 	<-doneChan
+	c.syncLoopWaitGroup.Wait()
+
+	c.lifecycleMutex.Lock()
+	c.lifecycleState = clientStateStopped
+	if c.stoppingDone == stoppingDone {
+		close(stoppingDone)
+		c.stoppingDone = nil
+	}
+	c.lifecycleMutex.Unlock()
 	return sendErr
 }
 
@@ -604,16 +640,32 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 	}
 	// Reset pipelined message counter
 	c.syncPipelinedRequestNext = 0
-	// Start sync loop
-	go c.syncLoop()
+	// Start a sync loop bound to this protocol instance. Stop waits for every
+	// active loop before Start can replace the protocol and its channels.
+	c.lifecycleMutex.Lock()
+	if c.lifecycleState != clientStateRunning || c.readyForNextBlockChan == nil {
+		c.lifecycleMutex.Unlock()
+		return protocol.ErrProtocolShuttingDown
+	}
+	readyForNextBlockChan := c.readyForNextBlockChan
+	doneChan := c.DoneChan()
+	c.syncLoopWaitGroup.Add(1)
+	c.lifecycleMutex.Unlock()
+	go func() {
+		defer c.syncLoopWaitGroup.Done()
+		c.syncLoop(readyForNextBlockChan, doneChan)
+	}()
 	return nil
 }
 
-func (c *Client) syncLoop() {
+func (c *Client) syncLoop(
+	readyForNextBlockChan <-chan bool,
+	doneChan <-chan struct{},
+) {
 	for {
 		// Wait for a block to be received
 		select {
-		case ready, ok := <-c.readyForNextBlockChan:
+		case ready, ok := <-readyForNextBlockChan:
 			if !ok {
 				// Channel is closed, which means we're shutting down
 				return
@@ -621,11 +673,18 @@ func (c *Client) syncLoop() {
 				// Sync was cancelled
 				return
 			}
-		case <-c.DoneChan():
+		case <-doneChan:
 			// Protocol is shutting down
 			return
 		}
 		c.busyMutex.Lock()
+		c.lifecycleMutex.Lock()
+		stopping := c.lifecycleState != clientStateRunning
+		c.lifecycleMutex.Unlock()
+		if stopping {
+			c.busyMutex.Unlock()
+			return
+		}
 		// Wait for next block if we have pipelined messages
 		if c.syncPipelinedRequestNext > 0 {
 			c.syncPipelinedRequestNext--
