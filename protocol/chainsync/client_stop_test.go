@@ -118,3 +118,191 @@ func TestConcurrentStopReleasesBusyMutexDuringActiveSync(t *testing.T) {
 		t.Fatal("second Stop did not complete after the active sync loop was released")
 	}
 }
+
+func TestStopWaitsForInitialRequestLifecycleFence(t *testing.T) {
+	client, cleanup := newStartedTestClient(t, nil)
+	defer cleanup()
+
+	beforeEnqueue := make(chan struct{})
+	allowEnqueue := make(chan struct{})
+	enqueued := make(chan struct{})
+	stopInitiated := make(chan struct{})
+	client.testInitialRequestBeforeEnqueue = func() {
+		close(beforeEnqueue)
+		<-allowEnqueue
+	}
+	client.testInitialRequestAfterEnqueue = func() { close(enqueued) }
+	client.testStopInitiated = func() {
+		select {
+		case <-enqueued:
+		case <-time.After(time.Second):
+			t.Error("Stop began before Sync queued its initial RequestNext")
+		}
+		close(stopInitiated)
+	}
+
+	syncDone := make(chan error, 1)
+	go func() { syncDone <- client.sendInitialRequestAndStartSyncLoop() }()
+	select {
+	case <-beforeEnqueue:
+	case <-time.After(time.Second):
+		t.Fatal("Sync did not reach the initial request fence")
+	}
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- client.Stop() }()
+	select {
+	case <-stopInitiated:
+		t.Fatal("Stop began while Sync held the initial request lifecycle fence")
+	default:
+	}
+
+	close(allowEnqueue)
+	select {
+	case err := <-syncDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Sync did not finish queuing its initial RequestNext")
+	}
+	select {
+	case <-stopInitiated:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not begin after Sync released its lifecycle fence")
+	}
+	select {
+	case err := <-stopDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not finish")
+	}
+}
+
+func TestStopWaitsForPipelineRequestBurstLifecycleFence(t *testing.T) {
+	cfg := NewConfig(WithPipelineLimit(3))
+	client, cleanup := newStartedTestClient(t, &cfg)
+	defer cleanup()
+
+	beforeEnqueue := make(chan struct{})
+	allowEnqueue := make(chan struct{})
+	enqueued := make(chan struct{})
+	stopInitiated := make(chan struct{})
+	client.testSyncLoopBeforeRequestNext = func() {
+		close(beforeEnqueue)
+		<-allowEnqueue
+	}
+	client.testSyncLoopAfterRequestNext = func() { close(enqueued) }
+	client.testStopInitiated = func() {
+		select {
+		case <-enqueued:
+		case <-time.After(time.Second):
+			t.Error("Stop began before the sync loop queued its RequestNext burst")
+		}
+		close(stopInitiated)
+	}
+
+	readyForNextBlockChan := make(chan bool, 1)
+	client.syncLoopWaitGroup.Add(1)
+	go func() {
+		defer client.syncLoopWaitGroup.Done()
+		client.syncLoop(readyForNextBlockChan, client.DoneChan())
+	}()
+	readyForNextBlockChan <- true
+	select {
+	case <-beforeEnqueue:
+	case <-time.After(time.Second):
+		t.Fatal("sync loop did not reach the pipeline request fence")
+	}
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- client.Stop() }()
+	select {
+	case <-stopInitiated:
+		t.Fatal("Stop began while the sync loop held its request lifecycle fence")
+	default:
+	}
+
+	close(allowEnqueue)
+	select {
+	case <-enqueued:
+	case <-time.After(time.Second):
+		t.Fatal("sync loop did not queue its RequestNext burst")
+	}
+	select {
+	case <-stopInitiated:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not begin after the sync loop released its lifecycle fence")
+	}
+	select {
+	case err := <-stopDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not finish")
+	}
+}
+
+func TestStopDuringStartAbortsUnstartedProtocol(t *testing.T) {
+	client, cleanup := newStartedTestClient(t, nil)
+	defer cleanup()
+	require.NoError(t, client.Stop())
+
+	beforeProtocolStart := make(chan struct{})
+	allowProtocolStart := make(chan struct{})
+	client.testStartBeforeProtocolStart = func() {
+		close(beforeProtocolStart)
+		<-allowProtocolStart
+	}
+	startDone := make(chan struct{})
+	go func() {
+		client.Start()
+		close(startDone)
+	}()
+	select {
+	case <-beforeProtocolStart:
+	case <-time.After(time.Second):
+		t.Fatal("Start did not reach the protocol-start fence")
+	}
+
+	require.NoError(t, client.Stop())
+	client.lifecycleMutex.Lock()
+	require.Equal(t, clientStateStopped, client.lifecycleState)
+	require.Nil(t, client.startingDone)
+	require.False(t, client.protocolStarted)
+	client.lifecycleMutex.Unlock()
+
+	close(allowProtocolStart)
+	select {
+	case <-startDone:
+	case <-time.After(time.Second):
+		t.Fatal("Start did not abort after Stop returned")
+	}
+	client.lifecycleMutex.Lock()
+	require.Equal(t, clientStateStopped, client.lifecycleState)
+	require.False(t, client.protocolStarted)
+	client.lifecycleMutex.Unlock()
+}
+
+func newStartedTestClient(t *testing.T, cfg *Config) (*Client, func()) {
+	t.Helper()
+	clientConn, peerConn := net.Pipe()
+	m := muxer.New(clientConn)
+	m.Start()
+	peerDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, peerConn)
+		close(peerDone)
+	}()
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId: testConnectionId(),
+			Muxer:        m,
+			Mode:         protocol.ProtocolModeNodeToClient,
+		},
+		cfg,
+	)
+	client.Start()
+	return client, func() {
+		_ = client.Stop()
+		_ = clientConn.Close()
+		_ = peerConn.Close()
+		m.Stop()
+		<-peerDone
+	}
+}

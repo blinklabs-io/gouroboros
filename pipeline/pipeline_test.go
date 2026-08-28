@@ -840,6 +840,60 @@ func TestBlockPipeline_Start_WiresRequireValidation(t *testing.T) {
 	assert.False(t, p2.applyStage.requireValidation)
 }
 
+func TestBlockPipelineFenceWaitsForBlockedApply(t *testing.T) {
+	applyStarted := make(chan struct{})
+	releaseApply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseApply) })
+	}
+	p := NewBlockPipeline(
+		WithDecodeWorkers(1),
+		WithValidateWorkers(0),
+		WithSkipBodyHashValidation(true),
+		WithApplyFunc(func(*BlockItem) error {
+			close(applyStarted)
+			<-releaseApply
+			return nil
+		}),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+	require.NoError(
+		t,
+		p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			getValidBlockCbor(t),
+			createTestTip(1000, 500),
+		),
+	)
+	select {
+	case <-applyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline apply did not start")
+	}
+
+	fenceDone := make(chan error, 1)
+	go func() { fenceDone <- p.Fence(context.Background()) }()
+	select {
+	case <-fenceDone:
+		t.Fatal("pipeline fence returned before the blocked apply completed")
+	default:
+	}
+
+	release()
+	select {
+	case err := <-fenceDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("pipeline fence did not complete after the apply completed")
+	}
+}
+
 func TestApplyStage_PendingCount(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 

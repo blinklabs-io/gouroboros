@@ -226,14 +226,15 @@ func (s *ApplyStage) PendingCount() int {
 
 // ApplyStageRunner runs the apply stage as a single goroutine.
 type ApplyStageRunner struct {
-	stage   *ApplyStage
-	input   <-chan *BlockItem
-	output  chan<- *BlockItem
-	errors  chan<- error
-	metrics *PipelineMetrics
-	done    chan struct{}
-	running bool
-	mu      sync.Mutex
+	stage         *ApplyStage
+	input         <-chan *BlockItem
+	output        chan<- *BlockItem
+	errors        chan<- error
+	metrics       *PipelineMetrics
+	processedFunc func(uint64)
+	done          chan struct{}
+	running       bool
+	mu            sync.Mutex
 }
 
 // NewApplyStageRunner creates a new runner for the apply stage.
@@ -267,6 +268,12 @@ func NewApplyStageRunner(
 // Must be called before Start() to avoid data races.
 func (r *ApplyStageRunner) SetMetrics(metrics *PipelineMetrics) {
 	r.metrics = metrics
+}
+
+// SetProcessedFunc sets a callback invoked after ordered processing completes
+// through the supplied sequence number. It must be called before Start.
+func (r *ApplyStageRunner) SetProcessedFunc(processedFunc func(uint64)) {
+	r.processedFunc = processedFunc
 }
 
 // Start starts the apply stage runner.
@@ -324,6 +331,9 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 					return
 				}
 				continue
+			}
+			if len(processed) > 0 && r.processedFunc != nil {
+				r.processedFunc(processed[len(processed)-1].SequenceNumber() + 1)
 			}
 
 			// Forward all processed items (includes input item + any buffered items

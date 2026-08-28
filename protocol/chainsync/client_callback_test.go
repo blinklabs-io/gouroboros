@@ -15,9 +15,15 @@
 package chainsync
 
 import (
+	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/blinklabs-io/gouroboros/internal/testdata"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
@@ -89,4 +95,84 @@ func TestAtTipCallbackErrorsPropagate(t *testing.T) {
 			intersectFoundErr,
 		)
 	})
+}
+
+func TestAwaitReplyWaitsForPipelineFence(t *testing.T) {
+	applyStarted := make(chan struct{})
+	releaseApply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseApply) })
+	}
+	p := pipeline.NewBlockPipeline(
+		pipeline.WithDecodeWorkers(1),
+		pipeline.WithValidateWorkers(0),
+		pipeline.WithSkipBodyHashValidation(true),
+		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error {
+			close(applyStarted)
+			<-releaseApply
+			return nil
+		}),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+
+	fenceStarted := make(chan struct{})
+	callbackCalled := make(chan struct{}, 1)
+	client := NewClient(
+		protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+		&Config{
+			Pipeline: p,
+			RollForwardFunc: func(CallbackContext, uint, any, Tip) error {
+				return nil
+			},
+			AwaitReplyFunc: func(CallbackContext) error {
+				callbackCalled <- struct{}{}
+				return nil
+			},
+		},
+	)
+	client.testAwaitReplyBeforeFence = func() { close(fenceStarted) }
+	blockCbor := testdata.MustDecodeHex(testdata.ConwayBlockHex)
+	rollForward, err := NewMsgRollForwardNtC(
+		ledger.BlockTypeConway,
+		blockCbor,
+		Tip{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.handleRollForward(rollForward))
+	select {
+	case <-applyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline apply did not start")
+	}
+
+	awaitDone := make(chan error, 1)
+	go func() { awaitDone <- client.handleAwaitReply() }()
+	select {
+	case <-fenceStarted:
+	case <-time.After(time.Second):
+		t.Fatal("AwaitReply did not install its pipeline fence")
+	}
+	select {
+	case <-callbackCalled:
+		t.Fatal("AwaitReply callback ran before the blocked apply completed")
+	default:
+	}
+
+	release()
+	select {
+	case err := <-awaitDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("AwaitReply did not finish after the apply completed")
+	}
+	select {
+	case <-callbackCalled:
+	case <-time.After(time.Second):
+		t.Fatal("AwaitReply callback did not run after the pipeline fence")
+	}
 }

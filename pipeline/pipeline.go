@@ -75,14 +75,17 @@ type BlockPipeline struct {
 	metrics *PipelineMetrics
 
 	// State
-	sequenceCounter atomic.Uint64
-	ctx             context.Context
-	cancel          context.CancelFunc
-	started         atomic.Bool
-	stopped         atomic.Bool
-	wg              sync.WaitGroup
-	mu              sync.Mutex   // protects Start/Stop
-	submitMu        sync.RWMutex // protects Submit against concurrent Stop
+	sequenceCounter   atomic.Uint64
+	completedSequence atomic.Uint64
+	ctx               context.Context
+	cancel            context.CancelFunc
+	started           atomic.Bool
+	stopped           atomic.Bool
+	wg                sync.WaitGroup
+	mu                sync.Mutex   // protects Start/Stop
+	submitMu          sync.RWMutex // protects Submit against concurrent Stop
+	completionMu      sync.Mutex
+	completionChan    chan struct{}
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
@@ -186,6 +189,11 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		bufSize, // Deprecated: pendingQueueSize is no longer used (kept for API compatibility)
 	)
 	p.applyRunner.SetMetrics(p.metrics)
+	p.completionMu.Lock()
+	p.completionChan = make(chan struct{})
+	p.completedSequence.Store(0)
+	p.completionMu.Unlock()
+	p.applyRunner.SetProcessedFunc(p.markProcessed)
 
 	// Start all stages
 	// Note: p.ctx is derived from the passed ctx via context.WithCancel above
@@ -241,6 +249,58 @@ func (p *BlockPipeline) Submit(ctx context.Context, blockType uint, rawCbor []by
 	case <-p.ctx.Done():
 		return ErrPipelineStopped
 	}
+}
+
+// Fence waits until every block submitted before the fence is installed has
+// completed ordered processing. It does not wait for blocks submitted after
+// the fence, allowing callers to establish an exact ordering boundary without
+// draining later work.
+func (p *BlockPipeline) Fence(ctx context.Context) error {
+	if !p.started.Load() {
+		return ErrPipelineNotStarted
+	}
+
+	// The write lock excludes in-flight submissions while we capture the
+	// sequence boundary. Submit allocates each sequence number under its read
+	// lock, so every submission that completed before this point is included.
+	p.submitMu.Lock()
+	if p.stopped.Load() {
+		p.submitMu.Unlock()
+		return ErrPipelineStopped
+	}
+	target := p.sequenceCounter.Load()
+	p.submitMu.Unlock()
+	if target == 0 {
+		return nil
+	}
+
+	for {
+		if p.completedSequence.Load() >= target {
+			return nil
+		}
+		p.completionMu.Lock()
+		if p.completedSequence.Load() >= target {
+			p.completionMu.Unlock()
+			return nil
+		}
+		completionChan := p.completionChan
+		p.completionMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-p.ctx.Done():
+			return ErrPipelineStopped
+		case <-completionChan:
+		}
+	}
+}
+
+func (p *BlockPipeline) markProcessed(sequence uint64) {
+	p.completedSequence.Store(sequence)
+	p.completionMu.Lock()
+	close(p.completionChan)
+	p.completionChan = make(chan struct{})
+	p.completionMu.Unlock()
 }
 
 // Results returns a channel of successfully processed block items.
