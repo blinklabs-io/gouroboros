@@ -545,20 +545,20 @@ func ValidateExtraneousRedeemers(tx Transaction) error {
 
 	// Check each redeemer
 	for redeemerKey := range redeemers.Iter() {
-		var maxIndex int
+		var maxIndex uint64
 		switch redeemerKey.Tag {
 		case RedeemerTagSpend:
-			maxIndex = inputCount
+			maxIndex = uint64(inputCount)
 		case RedeemerTagMint:
-			maxIndex = mintPolicyCount
+			maxIndex = uint64(mintPolicyCount)
 		case RedeemerTagCert:
-			maxIndex = certCount
+			maxIndex = uint64(certCount)
 		case RedeemerTagReward:
-			maxIndex = withdrawalCount
+			maxIndex = uint64(withdrawalCount)
 		case RedeemerTagVoting:
-			maxIndex = voterCount
+			maxIndex = uint64(voterCount)
 		case RedeemerTagProposing:
-			maxIndex = proposalCount
+			maxIndex = uint64(proposalCount)
 		case RedeemerTagGuarding:
 			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
 		default:
@@ -567,7 +567,7 @@ func ValidateExtraneousRedeemers(tx Transaction) error {
 			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
 		}
 
-		if int(redeemerKey.Index) >= maxIndex {
+		if uint64(redeemerKey.Index) >= maxIndex {
 			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
 		}
 	}

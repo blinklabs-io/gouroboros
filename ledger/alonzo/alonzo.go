@@ -68,12 +68,49 @@ type AlonzoBlock struct {
 }
 
 func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
-	type tAlonzoBlock AlonzoBlock
-	var tmp tAlonzoBlock
+	// Decode wire transaction indices into a fixed-width type before converting
+	// them to the platform type used by the block model.
+	type tmpAlonzoBlock struct {
+		cbor.StructAsArray
+		BlockHeader            *AlonzoBlockHeader
+		TransactionBodies      []AlonzoTransactionBody
+		TransactionWitnessSets []AlonzoTransactionWitnessSet
+		TransactionMetadataSet common.TransactionMetadataSet
+		InvalidTransactions    []uint64
+	}
+
+	var tmp tmpAlonzoBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*b = AlonzoBlock(tmp)
+
+	// Convert the wire indices to the platform type without discarding values.
+	result := make([]uint, 0, len(tmp.InvalidTransactions))
+	for _, val := range tmp.InvalidTransactions {
+		if val >= uint64(len(tmp.TransactionBodies)) {
+			return fmt.Errorf(
+				"invalid transaction index %d outside transaction list length %d",
+				val,
+				len(tmp.TransactionBodies),
+			)
+		}
+		converted := uint(val)
+		if uint64(converted) != val {
+			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+		}
+		result = append(result, converted)
+	}
+	if len(result) == 0 {
+		b.InvalidTransactions = nil
+	} else {
+		b.InvalidTransactions = result
+	}
+
+	// Assign the other fields.
+	b.BlockHeader = tmp.BlockHeader
+	b.TransactionBodies = tmp.TransactionBodies
+	b.TransactionWitnessSets = tmp.TransactionWitnessSets
+	b.TransactionMetadataSet = tmp.TransactionMetadataSet
 	b.SetCbor(cborData)
 
 	// Extract and store CBOR for each component
