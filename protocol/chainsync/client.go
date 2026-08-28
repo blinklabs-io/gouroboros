@@ -24,6 +24,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -696,27 +697,40 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 
 func (c *Client) sendInitialRequestAndStartSyncLoop() error {
 	c.lifecycleMutex.Lock()
-	defer c.lifecycleMutex.Unlock()
 	if c.lifecycleState != clientStateRunning ||
 		c.readyForNextBlockChan == nil {
+		c.lifecycleMutex.Unlock()
 		return protocol.ErrProtocolShuttingDown
 	}
+	proto := c.ProtocolInstance()
+	readyForNextBlockChan := c.readyForNextBlockChan
+	doneChan := proto.DoneChan()
+	// Reserve the sync-loop wait-group slot before Stop can begin waiting. The
+	// reservation is released below if the request cannot be queued.
+	c.syncLoopWaitGroup.Add(1)
+	c.lifecycleMutex.Unlock()
 	if c.testInitialRequestBeforeEnqueue != nil {
 		c.testInitialRequestBeforeEnqueue()
 	}
-	if err := c.SendMessage(NewMsgRequestNext()); err != nil {
+	if err := proto.SendMessage(NewMsgRequestNext()); err != nil {
+		c.syncLoopWaitGroup.Done()
 		return err
 	}
 	if c.testInitialRequestAfterEnqueue != nil {
 		c.testInitialRequestAfterEnqueue()
 	}
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+	if c.lifecycleState != clientStateRunning ||
+		c.readyForNextBlockChan != readyForNextBlockChan ||
+		c.ProtocolInstance() != proto {
+		c.syncLoopWaitGroup.Done()
+		return protocol.ErrProtocolShuttingDown
+	}
 	// Reset pipelined message counter before starting a new loop.
 	c.syncPipelinedRequestNext = 0
 	// Start a sync loop bound to this protocol instance. Stop waits for every
 	// active loop before Start can replace the protocol and its channels.
-	readyForNextBlockChan := c.readyForNextBlockChan
-	doneChan := c.DoneChan()
-	c.syncLoopWaitGroup.Add(1)
 	go func() {
 		defer c.syncLoopWaitGroup.Done()
 		c.syncLoop(readyForNextBlockChan, doneChan)
@@ -916,6 +930,18 @@ func (c *Client) handleAwaitReply() error {
 			if errors.Is(err, context.Canceled) && fenceCtx.Err() != nil {
 				//nolint:nilerr // A canceled fence is expected while the protocol is stopping.
 				return nil
+			}
+			if errors.Is(err, pipeline.ErrPipelineStopped) {
+				return nil
+			}
+			if errors.Is(err, pipeline.ErrPipelineNotStarted) {
+				c.lifecycleMutex.Lock()
+				stopping := c.lifecycleState == clientStateStopping ||
+					c.lifecycleState == clientStateStopped
+				c.lifecycleMutex.Unlock()
+				if stopping {
+					return nil
+				}
 			}
 			return err
 		}

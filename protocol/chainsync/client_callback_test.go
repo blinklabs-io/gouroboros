@@ -104,6 +104,45 @@ func TestAtTipCallbackErrorsPropagate(t *testing.T) {
 	})
 }
 
+func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
+	t.Run("stopped pipeline", func(t *testing.T) {
+		p := pipeline.NewBlockPipeline(
+			pipeline.WithValidateWorkers(0),
+		)
+		require.NoError(t, p.Start(context.Background()))
+		require.NoError(t, p.Stop())
+		client := NewClient(
+			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+			&Config{Pipeline: p},
+		)
+		require.NoError(t, client.handleAwaitReply())
+	})
+
+	t.Run("not-started pipeline while running", func(t *testing.T) {
+		p := pipeline.NewBlockPipeline()
+		client := NewClient(
+			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+			&Config{Pipeline: p},
+		)
+		client.lifecycleState = clientStateRunning
+		require.ErrorIs(
+			t,
+			client.handleAwaitReply(),
+			pipeline.ErrPipelineNotStarted,
+		)
+	})
+
+	t.Run("not-started pipeline while stopping", func(t *testing.T) {
+		p := pipeline.NewBlockPipeline()
+		client := NewClient(
+			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+			&Config{Pipeline: p},
+		)
+		client.lifecycleState = clientStateStopping
+		require.NoError(t, client.handleAwaitReply())
+	})
+}
+
 func TestAwaitReplyWaitsForPipelineFence(t *testing.T) {
 	applyStarted := make(chan struct{})
 	releaseApply := make(chan struct{})

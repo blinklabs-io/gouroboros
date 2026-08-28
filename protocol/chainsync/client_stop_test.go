@@ -128,25 +128,18 @@ func TestConcurrentStopReleasesBusyMutexDuringActiveSync(t *testing.T) {
 	}
 }
 
-func TestStopWaitsForInitialRequestLifecycleFence(t *testing.T) {
+func TestStopUnblocksInitialRequestEnqueue(t *testing.T) {
 	client, cleanup := newStartedTestClient(t, nil)
 	defer cleanup()
 
 	beforeEnqueue := make(chan struct{})
 	allowEnqueue := make(chan struct{})
-	enqueued := make(chan struct{})
 	stopInitiated := make(chan struct{})
 	client.testInitialRequestBeforeEnqueue = func() {
 		close(beforeEnqueue)
 		<-allowEnqueue
 	}
-	client.testInitialRequestAfterEnqueue = func() { close(enqueued) }
 	client.testStopInitiated = func() {
-		select {
-		case <-enqueued:
-		case <-time.After(time.Second):
-			t.Error("Stop began before Sync queued its initial RequestNext")
-		}
 		close(stopInitiated)
 	}
 
@@ -161,23 +154,16 @@ func TestStopWaitsForInitialRequestLifecycleFence(t *testing.T) {
 	go func() { stopDone <- client.Stop() }()
 	select {
 	case <-stopInitiated:
-		t.Fatal(
-			"Stop began while Sync held the initial request lifecycle fence",
-		)
-	default:
+	case <-time.After(time.Second):
+		t.Fatal("Stop could not begin while Sync was waiting to enqueue")
 	}
 
 	close(allowEnqueue)
 	select {
 	case err := <-syncDone:
-		require.NoError(t, err)
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
 	case <-time.After(time.Second):
-		t.Fatal("Sync did not finish queuing its initial RequestNext")
-	}
-	select {
-	case <-stopInitiated:
-	case <-time.After(time.Second):
-		t.Fatal("Stop did not begin after Sync released its lifecycle fence")
+		t.Fatal("Sync did not unblock after Stop began")
 	}
 	select {
 	case err := <-stopDone:
