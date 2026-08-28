@@ -53,6 +53,8 @@ type Client struct {
 	readyForNextBlockChan    chan bool
 	syncLoopWaitGroup        sync.WaitGroup
 	syncPipelinedRequestNext int
+	awaitReplyCtx            context.Context
+	awaitReplyCancel         context.CancelFunc
 	protoOptions             protocol.ProtocolOptions
 	// The test hooks make lifecycle interleavings deterministic without changing
 	// production behavior.
@@ -115,6 +117,11 @@ func NewClient(
 }
 
 func (c *Client) initProtocol() {
+	if c.awaitReplyCancel != nil {
+		c.awaitReplyCancel()
+	}
+	c.awaitReplyCtx, c.awaitReplyCancel = context.WithCancel(context.Background())
+
 	// Use node-to-client protocol ID
 	ProtocolId := ProtocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
@@ -312,6 +319,7 @@ func (c *Client) Stop() error {
 		// stopped and unblock its waiters without waiting on DoneChan, which an
 		// unstarted protocol never closes.
 		c.lifecycleState = clientStateStopped
+		c.awaitReplyCancel()
 		if c.startingDone != nil {
 			close(c.startingDone)
 			c.startingDone = nil
@@ -330,6 +338,9 @@ func (c *Client) Stop() error {
 		return nil
 	case clientStateRunning:
 		c.lifecycleState = clientStateStopping
+		// AwaitReply runs on the protocol receive loop. Cancel its pipeline fence
+		// before Stop waits for DoneChan, otherwise each waits for the other.
+		c.awaitReplyCancel()
 		stoppingDone := make(chan struct{})
 		c.stoppingDone = stoppingDone
 		proto := c.ProtocolInstance()
@@ -891,22 +902,14 @@ func (c *Client) handleAwaitReply() error {
 		if c.testAwaitReplyBeforeFence != nil {
 			c.testAwaitReplyBeforeFence()
 		}
-		fenceCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		go func() {
-			select {
-			case <-c.DoneChan():
-				cancel()
-			case <-fenceCtx.Done():
-			}
-		}()
+		c.lifecycleMutex.Lock()
+		fenceCtx := c.awaitReplyCtx
+		c.lifecycleMutex.Unlock()
 		if err := c.config.Pipeline.Fence(fenceCtx); err != nil {
-			select {
-			case <-c.DoneChan():
+			if errors.Is(err, context.Canceled) && fenceCtx.Err() != nil {
 				return nil
-			default:
-				return err
 			}
+			return err
 		}
 	}
 	if c.config != nil && c.config.AwaitReplyFunc != nil {

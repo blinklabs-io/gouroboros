@@ -894,6 +894,115 @@ func TestBlockPipelineFenceWaitsForBlockedApply(t *testing.T) {
 	}
 }
 
+func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(t *testing.T) {
+	applyStarted := make(chan struct{})
+	releaseApply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseApply) })
+	}
+	config := DefaultPipelineConfig()
+	config.DecodeWorkers = 1
+	config.ValidateWorkers = 0
+	config.PrefetchBufferSize = 1
+	config.SkipBodyHashValidation = true
+	var appliedSequences []uint64
+	var appliedMu sync.Mutex
+	p := NewBlockPipeline(
+		WithConfig(config),
+		WithApplyFunc(func(item *BlockItem) error {
+			appliedMu.Lock()
+			appliedSequences = append(appliedSequences, item.SequenceNumber())
+			first := len(appliedSequences) == 1
+			appliedMu.Unlock()
+			if first {
+				close(applyStarted)
+				<-releaseApply
+			}
+			return nil
+		}),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+
+	rawCbor := getValidBlockCbor(t)
+	tip := createTestTip(1000, 500)
+	for range 3 {
+		require.NoError(
+			t,
+			p.Submit(context.Background(), uint(ledger.BlockTypeConway), rawCbor, tip),
+		)
+	}
+	select {
+	case <-applyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline apply did not start")
+	}
+	require.NoError(
+		t,
+		p.Submit(context.Background(), uint(ledger.BlockTypeConway), rawCbor, tip),
+	)
+
+	backpressuredCtx, cancel := context.WithCancel(context.Background())
+	backpressuredSubmit := make(chan error, 1)
+	go func() {
+		backpressuredSubmit <- p.Submit(
+			backpressuredCtx,
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+		)
+	}()
+	select {
+	case err := <-backpressuredSubmit:
+		t.Fatalf("submission escaped backpressure before cancellation: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case err := <-backpressuredSubmit:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("backpressured submission did not cancel")
+	}
+	processedResults := make(chan struct{}, 4)
+	go func() {
+		for range 4 {
+			<-p.Results()
+			processedResults <- struct{}{}
+		}
+	}()
+
+	fenceDone := make(chan error, 1)
+	go func() { fenceDone <- p.Fence(context.Background()) }()
+	select {
+	case err := <-fenceDone:
+		t.Fatalf("fence returned before successful submissions completed: %v", err)
+	default:
+	}
+
+	release()
+	select {
+	case err := <-fenceDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("fence waited for the canceled submission")
+	}
+	for range 4 {
+		select {
+		case <-processedResults:
+		case <-time.After(time.Second):
+			t.Fatal("pipeline did not forward a successfully processed item")
+		}
+	}
+	appliedMu.Lock()
+	require.Equal(t, []uint64{0, 1, 2, 3}, appliedSequences)
+	appliedMu.Unlock()
+}
+
 func TestApplyStage_PendingCount(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 

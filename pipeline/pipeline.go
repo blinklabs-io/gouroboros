@@ -82,8 +82,8 @@ type BlockPipeline struct {
 	started           atomic.Bool
 	stopped           atomic.Bool
 	wg                sync.WaitGroup
-	mu                sync.Mutex   // protects Start/Stop
-	submitMu          sync.RWMutex // protects Submit against concurrent Stop
+	mu                sync.Mutex // protects Start/Stop
+	submitMu          sync.Mutex // serializes successful submissions and Fence boundaries
 	completionMu      sync.Mutex
 	completionChan    chan struct{}
 }
@@ -221,30 +221,30 @@ func (p *BlockPipeline) Submit(ctx context.Context, blockType uint, rawCbor []by
 		return ErrPipelineNotStarted
 	}
 
-	// RLock allows concurrent submits while preventing races with Stop().
-	// This is critical: between the stopped check and channel send, Stop() could
-	// close submitChan causing a panic. The RLock ensures Stop() waits until
-	// all in-flight submits complete before closing the channel.
-	p.submitMu.RLock()
-	defer p.submitMu.RUnlock()
+	// The lock prevents Stop from closing submitChan while a submission is in
+	// flight. It also serializes the enqueue and sequence commit, so canceled
+	// submissions cannot leave a sequence gap that would block ordered apply.
+	p.submitMu.Lock()
+	defer p.submitMu.Unlock()
 
 	// Check stopped under lock to ensure we don't race with Stop()
 	if p.stopped.Load() {
 		return ErrPipelineStopped
 	}
 
-	// Allocate sequence number only once, then send.
-	// We use a single blocking select to avoid sequence gaps that would occur
-	// if we allocated in a non-blocking attempt that failed.
-	item := NewBlockItem(blockType, rawCbor, tip, p.sequenceCounter.Add(1)-1)
+	// Commit a sequence number only after its item was successfully enqueued.
+	// Keeping the provisional ID under submitMu makes successful IDs unique and
+	// contiguous in queue order, while canceled or backpressured submissions do
+	// not create positions that Fence must wait for.
+	sequence := p.sequenceCounter.Load()
+	item := NewBlockItem(blockType, rawCbor, tip, sequence)
 
 	select {
 	case p.submitChan <- item:
+		p.sequenceCounter.Add(1)
 		p.metrics.RecordSubmit()
 		return nil
 	case <-ctx.Done():
-		// Context cancelled while waiting - sequence gap is acceptable
-		// because this typically means shutdown.
 		return ctx.Err()
 	case <-p.ctx.Done():
 		return ErrPipelineStopped
@@ -260,9 +260,9 @@ func (p *BlockPipeline) Fence(ctx context.Context) error {
 		return ErrPipelineNotStarted
 	}
 
-	// The write lock excludes in-flight submissions while we capture the
-	// sequence boundary. Submit allocates each sequence number under its read
-	// lock, so every submission that completed before this point is included.
+	// The lock excludes in-flight submissions while we capture the sequence
+	// boundary. Submit commits each sequence number under this lock only after
+	// enqueue, so every position at or below target is waitable.
 	p.submitMu.Lock()
 	if p.stopped.Load() {
 		p.submitMu.Unlock()
