@@ -927,29 +927,36 @@ func (c *Client) handleAwaitReply() error {
 		fenceCtx := c.awaitReplyCtx
 		c.lifecycleMutex.Unlock()
 		if err := c.config.Pipeline.Fence(fenceCtx); err != nil {
-			if errors.Is(err, context.Canceled) && fenceCtx.Err() != nil {
-				//nolint:nilerr // A canceled fence is expected while the protocol is stopping.
-				return nil
-			}
-			if errors.Is(err, pipeline.ErrPipelineStopped) {
-				return nil
-			}
-			if errors.Is(err, pipeline.ErrPipelineNotStarted) {
-				c.lifecycleMutex.Lock()
-				stopping := c.lifecycleState == clientStateStopping ||
-					c.lifecycleState == clientStateStopped
-				c.lifecycleMutex.Unlock()
-				if stopping {
-					return nil
-				}
-			}
-			return err
+			return c.handlePipelineFenceError(fenceCtx, err)
 		}
 	}
 	if c.config != nil && c.config.AwaitReplyFunc != nil {
 		return c.config.AwaitReplyFunc(c.callbackContext)
 	}
 	return nil
+}
+
+func (c *Client) handlePipelineFenceError(
+	fenceCtx context.Context,
+	err error,
+) error {
+	if errors.Is(err, context.Canceled) && fenceCtx.Err() != nil {
+		//nolint:nilerr // A canceled fence is expected while the protocol is stopping.
+		return nil
+	}
+	if errors.Is(err, pipeline.ErrPipelineStopped) {
+		return nil
+	}
+	if errors.Is(err, pipeline.ErrPipelineNotStarted) {
+		c.lifecycleMutex.Lock()
+		stopping := c.lifecycleState == clientStateStopping ||
+			c.lifecycleState == clientStateStopped
+		c.lifecycleMutex.Unlock()
+		if stopping {
+			return nil
+		}
+	}
+	return err
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {

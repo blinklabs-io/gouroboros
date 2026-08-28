@@ -665,6 +665,17 @@ func TestSyncCallbacksExposeExactTipIntersection(t *testing.T) {
 			IsResponse: true,
 			Messages:   []protocol.Message{chainsync.NewMsgAwaitReply()},
 		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgRollBackward(pcommon.NewPointOrigin(), tip),
+			},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeDone,
+		},
 	)
 	type callback struct {
 		name      string
@@ -709,6 +720,13 @@ func TestSyncCallbacksExposeExactTipIntersection(t *testing.T) {
 			AwaitReplyFunc: func(chainsync.CallbackContext) error {
 				callbacks <- callback{name: "await"}
 				return nil
+			},
+			RollBackwardFunc: func(
+				chainsync.CallbackContext,
+				pcommon.Point,
+				chainsync.Tip,
+			) error {
+				return chainsync.ErrStopSyncProcess
 			},
 		}),
 	)

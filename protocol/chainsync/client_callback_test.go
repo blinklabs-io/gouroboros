@@ -105,6 +105,19 @@ func TestAtTipCallbackErrorsPropagate(t *testing.T) {
 }
 
 func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
+	t.Run("unrelated fence error propagates", func(t *testing.T) {
+		client := NewClient(
+			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+			nil,
+		)
+		expectedErr := errors.New("fence failed")
+		require.ErrorIs(
+			t,
+			client.handlePipelineFenceError(context.Background(), expectedErr),
+			expectedErr,
+		)
+	})
+
 	t.Run("stopped pipeline", func(t *testing.T) {
 		p := pipeline.NewBlockPipeline(
 			pipeline.WithValidateWorkers(0),
