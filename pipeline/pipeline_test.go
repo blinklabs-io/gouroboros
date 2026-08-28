@@ -894,7 +894,9 @@ func TestBlockPipelineFenceWaitsForBlockedApply(t *testing.T) {
 	}
 }
 
-func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(t *testing.T) {
+func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
+	t *testing.T,
+) {
 	applyStarted := make(chan struct{})
 	releaseApply := make(chan struct{})
 	var releaseOnce sync.Once

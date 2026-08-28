@@ -83,9 +83,10 @@ type BlockPipeline struct {
 	stopped           atomic.Bool
 	wg                sync.WaitGroup
 	mu                sync.Mutex // protects Start/Stop
-	submitMu          sync.Mutex // serializes successful submissions and Fence boundaries
-	completionMu      sync.Mutex
-	completionChan    chan struct{}
+	// submitMu serializes successful submissions and Fence boundaries.
+	submitMu       sync.Mutex
+	completionMu   sync.Mutex
+	completionChan chan struct{}
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
