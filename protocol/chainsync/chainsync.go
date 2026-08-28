@@ -97,7 +97,9 @@ var (
 // per Ouroboros Network Specification Table 3.8.
 func MustReplyTimeoutFunc() time.Duration {
 	rangeMs := MustReplyTimeoutMax.Milliseconds() - MustReplyTimeoutMin.Milliseconds()
-	return MustReplyTimeoutMin + time.Duration(rand.Int64N(rangeMs))*time.Millisecond //nolint:gosec
+	return MustReplyTimeoutMin + time.Duration(
+		rand.Int64N(rangeMs),
+	)*time.Millisecond //nolint:gosec
 }
 
 // StateMapNtN is the N2N ChainSync state machine with timeouts per spec Table 3.8.

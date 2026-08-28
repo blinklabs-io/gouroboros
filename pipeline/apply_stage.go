@@ -22,7 +22,9 @@ import (
 )
 
 // ErrPendingLimitExceeded is returned when the apply stage's pending buffer is full.
-var ErrPendingLimitExceeded = errors.New("pipeline: pending block limit exceeded")
+var ErrPendingLimitExceeded = errors.New(
+	"pipeline: pending block limit exceeded",
+)
 
 // ErrBlockNotValidated is returned when the apply stage requires validation
 // but receives a block that was never validated. This guards against blocks
@@ -97,7 +99,10 @@ func (s *ApplyStage) Process(ctx context.Context, item *BlockItem) error {
 //
 // This design eliminates data loss that could occur with callback-based approaches
 // when many buffered items are released at once.
-func (s *ApplyStage) ProcessWithStatus(ctx context.Context, item *BlockItem) ([]*BlockItem, error) {
+func (s *ApplyStage) ProcessWithStatus(
+	ctx context.Context,
+	item *BlockItem,
+) ([]*BlockItem, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -333,7 +338,9 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 				continue
 			}
 			if len(processed) > 0 && r.processedFunc != nil {
-				r.processedFunc(processed[len(processed)-1].SequenceNumber() + 1)
+				r.processedFunc(
+					processed[len(processed)-1].SequenceNumber() + 1,
+				)
 			}
 
 			// Forward all processed items (includes input item + any buffered items
@@ -351,7 +358,8 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 func (r *ApplyStageRunner) forwardItem(ctx context.Context, item *BlockItem) {
 	// Record metrics for items that went through the apply stage (both success and failure).
 	// Items with decode/validation errors are not applied and don't have apply metrics.
-	if r.metrics != nil && item.DecodeError() == nil && item.ValidationError() == nil {
+	if r.metrics != nil && item.DecodeError() == nil &&
+		item.ValidationError() == nil {
 		r.metrics.RecordApply(item.ApplyDuration(), item.ApplyError())
 		r.metrics.RecordPipelineLatency(item.TotalDuration())
 	}

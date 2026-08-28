@@ -120,7 +120,9 @@ func (c *Client) initProtocol() {
 	if c.awaitReplyCancel != nil {
 		c.awaitReplyCancel()
 	}
-	c.awaitReplyCtx, c.awaitReplyCancel = context.WithCancel(context.Background())
+	c.awaitReplyCtx, c.awaitReplyCancel = context.WithCancel(
+		context.Background(),
+	)
 
 	// Use node-to-client protocol ID
 	ProtocolId := ProtocolIdNtC
@@ -243,7 +245,8 @@ func (c *Client) Start() {
 			oldProto := c.Protocol
 			oldProtoStarted := c.protocolStarted
 			var oldDone <-chan struct{}
-			if prevState == clientStateStopped && oldProto != nil && oldProtoStarted {
+			if prevState == clientStateStopped && oldProto != nil &&
+				oldProtoStarted {
 				oldDone = oldProto.DoneChan()
 			}
 			c.lifecycleMutex.Unlock()
@@ -357,7 +360,10 @@ func (c *Client) Stop() error {
 	}
 }
 
-func (c *Client) stopRunning(proto *protocol.Protocol, stoppingDone chan struct{}) error {
+func (c *Client) stopRunning(
+	proto *protocol.Protocol,
+	stoppingDone chan struct{},
+) error {
 	const busyLockTimeout = 5 * time.Second
 	deadline := time.Now().Add(busyLockTimeout)
 	busyLocked := false
@@ -691,7 +697,8 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 func (c *Client) sendInitialRequestAndStartSyncLoop() error {
 	c.lifecycleMutex.Lock()
 	defer c.lifecycleMutex.Unlock()
-	if c.lifecycleState != clientStateRunning || c.readyForNextBlockChan == nil {
+	if c.lifecycleState != clientStateRunning ||
+		c.readyForNextBlockChan == nil {
 		return protocol.ErrProtocolShuttingDown
 	}
 	if c.testInitialRequestBeforeEnqueue != nil {
@@ -1143,7 +1150,10 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		if drainTimeout == 0 {
 			drainTimeout = DefaultPipelineDrainTimeout
 		}
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeout)
+		drainCtx, drainCancel := context.WithTimeout(
+			context.Background(),
+			drainTimeout,
+		)
 		defer drainCancel()
 
 		// Create a channel to signal drain completion

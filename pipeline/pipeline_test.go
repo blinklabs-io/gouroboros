@@ -191,7 +191,12 @@ func TestBlockItem_ThreadSafety(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := range numIterations {
-				item.SetValidation(true, "test", nil, time.Duration(j)*time.Millisecond)
+				item.SetValidation(
+					true,
+					"test",
+					nil,
+					time.Duration(j)*time.Millisecond,
+				)
 			}
 		}()
 	}
@@ -304,7 +309,12 @@ func TestDecodeStageWorkerPool_MultipleWorkers(t *testing.T) {
 	// Populate input channel
 	for i := range numItems {
 		tip := createTestTip(uint64(1000+i), uint64(500+i))
-		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		item := NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 		input <- item
 	}
 	close(input)
@@ -329,7 +339,12 @@ func TestDecodeStageWorkerPool_MultipleWorkers(t *testing.T) {
 
 	assert.Len(t, decoded, numItems)
 	for _, item := range decoded {
-		assert.True(t, item.IsDecoded(), "Item seq %d should be decoded", item.SequenceNumber())
+		assert.True(
+			t,
+			item.IsDecoded(),
+			"Item seq %d should be decoded",
+			item.SequenceNumber(),
+		)
 	}
 }
 
@@ -419,7 +434,9 @@ func TestValidateStage_SkipsItemsWithDecodeErrors(t *testing.T) {
 
 	// Create real validate stage
 	config := ValidateStageConfig{
-		Eta0Provider:      StaticEta0Provider("0000000000000000000000000000000000000000000000000000000000000000"),
+		Eta0Provider: StaticEta0Provider(
+			"0000000000000000000000000000000000000000000000000000000000000000",
+		),
 		SlotsPerKesPeriod: 129600,
 	}
 	validateStage := NewValidateStage(config)
@@ -428,7 +445,10 @@ func TestValidateStage_SkipsItemsWithDecodeErrors(t *testing.T) {
 
 	// Should return nil to avoid spurious error - decode stage already reported it
 	assert.NoError(t, err)
-	assert.False(t, item.IsValid()) // Should not be marked valid since decode failed
+	assert.False(
+		t,
+		item.IsValid(),
+	) // Should not be marked valid since decode failed
 }
 
 func TestValidateStage_ValidationResultSetCorrectly(t *testing.T) {
@@ -448,7 +468,9 @@ func TestValidateStage_ValidationResultSetCorrectly(t *testing.T) {
 	// Create real validate stage (validation will fail without proper eta0,
 	// but we can verify the stage processes correctly)
 	config := ValidateStageConfig{
-		Eta0Provider:      StaticEta0Provider("0000000000000000000000000000000000000000000000000000000000000000"),
+		Eta0Provider: StaticEta0Provider(
+			"0000000000000000000000000000000000000000000000000000000000000000",
+		),
 		SlotsPerKesPeriod: 129600,
 		VerifyConfig: common.VerifyConfig{
 			SkipBodyHashValidation:    true,
@@ -508,8 +530,18 @@ func TestValidateStage_Eta0ProviderCalled(t *testing.T) {
 	_ = stage.Process(context.Background(), item)
 
 	// Verify provider was called with the block's slot number
-	assert.Equal(t, block.SlotNumber(), calledSlot, "Provider should be called with block's slot number")
-	assert.Greater(t, item.ValidateDuration(), time.Duration(0), "ValidateDuration should be set")
+	assert.Equal(
+		t,
+		block.SlotNumber(),
+		calledSlot,
+		"Provider should be called with block's slot number",
+	)
+	assert.Greater(
+		t,
+		item.ValidateDuration(),
+		time.Duration(0),
+		"ValidateDuration should be set",
+	)
 }
 
 func TestValidateStage_Eta0ProviderError(t *testing.T) {
@@ -581,7 +613,12 @@ func TestValidateStage_NoProviderReturnsError(t *testing.T) {
 	assert.Error(t, err, "Should fail without Eta0Provider")
 	assert.Contains(t, err.Error(), "eta0 provider not configured")
 	assert.False(t, item.IsValid())
-	assert.Greater(t, item.ValidateDuration(), time.Duration(0), "ValidateDuration should be set")
+	assert.Greater(
+		t,
+		item.ValidateDuration(),
+		time.Duration(0),
+		"ValidateDuration should be set",
+	)
 }
 
 func TestValidateStage_ContextCancellation(t *testing.T) {
@@ -636,7 +673,12 @@ func TestApplyStageOrdering_OutOfOrderReordering(t *testing.T) {
 	items := make([]*BlockItem, 5)
 	for i := range 5 {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
-		items[i] = NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		items[i] = NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 		// Decode and validate them
 		block, err := ledger.NewBlockFromCbor(
 			uint(ledger.BlockTypeConway),
@@ -677,7 +719,12 @@ func TestApplyStageOrdering_SkipsInvalidItems(t *testing.T) {
 	items := make([]*BlockItem, 5)
 	for i := range 5 {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
-		items[i] = NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		items[i] = NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 
 		block, err := ledger.NewBlockFromCbor(
 			uint(ledger.BlockTypeConway),
@@ -689,7 +736,12 @@ func TestApplyStageOrdering_SkipsInvalidItems(t *testing.T) {
 
 		// Make items 1 and 3 invalid (using validation error)
 		if i == 1 || i == 3 {
-			items[i].SetValidation(false, "", errors.New("validation failed"), time.Millisecond)
+			items[i].SetValidation(
+				false,
+				"",
+				errors.New("validation failed"),
+				time.Millisecond,
+			)
 		} else {
 			items[i].SetValidation(true, "vrf", nil, time.Millisecond)
 		}
@@ -773,7 +825,9 @@ func TestApplyStage_RequireValidation_AppliesValidatedItems(t *testing.T) {
 	assert.NoError(t, item.ApplyError())
 }
 
-func TestApplyStage_RequireValidation_BufferedUnvalidatedItemsSkipped(t *testing.T) {
+func TestApplyStage_RequireValidation_BufferedUnvalidatedItemsSkipped(
+	t *testing.T,
+) {
 	var appliedSeqs []uint64
 	var mu sync.Mutex
 
@@ -935,7 +989,12 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	for range 3 {
 		require.NoError(
 			t,
-			p.Submit(context.Background(), uint(ledger.BlockTypeConway), rawCbor, tip),
+			p.Submit(
+				context.Background(),
+				uint(ledger.BlockTypeConway),
+				rawCbor,
+				tip,
+			),
 		)
 	}
 	select {
@@ -945,7 +1004,12 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	}
 	require.NoError(
 		t,
-		p.Submit(context.Background(), uint(ledger.BlockTypeConway), rawCbor, tip),
+		p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+		),
 	)
 
 	backpressuredCtx, cancel := context.WithCancel(context.Background())
@@ -982,7 +1046,10 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	go func() { fenceDone <- p.Fence(context.Background()) }()
 	select {
 	case err := <-fenceDone:
-		t.Fatalf("fence returned before successful submissions completed: %v", err)
+		t.Fatalf(
+			"fence returned before successful submissions completed: %v",
+			err,
+		)
 	default:
 	}
 
@@ -1015,7 +1082,12 @@ func TestApplyStage_PendingCount(t *testing.T) {
 	// Create items 1 and 2 (but not 0)
 	for i := 1; i <= 2; i++ {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
-		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		item := NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 		block, err := ledger.NewBlockFromCbor(
 			uint(ledger.BlockTypeConway),
 			rawCbor,
@@ -1100,7 +1172,12 @@ func TestApplyStage_Reset(t *testing.T) {
 	// Add some pending items
 	for i := 1; i <= 3; i++ {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
-		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		item := NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 		block, err := ledger.NewBlockFromCbor(
 			uint(ledger.BlockTypeConway),
 			rawCbor,
@@ -1152,7 +1229,11 @@ func TestBlockPipeline_StartStop(t *testing.T) {
 	p := NewBlockPipeline(
 		WithSkipBodyHashValidation(true),
 		WithValidateWorkers(1),
-		WithEta0Provider(StaticEta0Provider("0000000000000000000000000000000000000000000000000000000000000000")),
+		WithEta0Provider(
+			StaticEta0Provider(
+				"0000000000000000000000000000000000000000000000000000000000000000",
+			),
+		),
 		WithSlotsPerKesPeriod(129600),
 		WithVerifyConfig(common.VerifyConfig{
 			SkipBodyHashValidation:    true,
@@ -1196,7 +1277,12 @@ func TestBlockPipeline_NotStarted(t *testing.T) {
 
 	rawCbor := getValidBlockCbor(t)
 	tip := createTestTip(1000, 500)
-	err := p.Submit(context.Background(), uint(ledger.BlockTypeConway), rawCbor, tip)
+	err := p.Submit(
+		context.Background(),
+		uint(ledger.BlockTypeConway),
+		rawCbor,
+		tip,
+	)
 
 	assert.ErrorIs(t, err, ErrPipelineNotStarted)
 }
@@ -1264,7 +1350,12 @@ func TestBlockPipeline_SubmitAndResults(t *testing.T) {
 	// Submit blocks
 	for i := range numBlocks {
 		tip := createTestTip(uint64(1000+i), uint64(i))
-		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		item := NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 		input <- item
 	}
 	close(input)
@@ -1296,7 +1387,12 @@ func TestBlockPipeline_StatsUpdated(t *testing.T) {
 		submitted.Add(1)
 
 		tip := createTestTip(uint64(1000+i), uint64(i))
-		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		item := NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 
 		stage := NewDecodeStage(true)
 		if err := stage.Process(context.Background(), item); err == nil {
@@ -1332,7 +1428,12 @@ func TestPipelineBackpressure_SlowConsumer(t *testing.T) {
 	go func() {
 		for i := range numBlocks {
 			tip := createTestTip(uint64(i), uint64(i))
-			item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+			item := NewBlockItem(
+				uint(ledger.BlockTypeConway),
+				rawCbor,
+				tip,
+				uint64(i),
+			)
 			select {
 			case input <- item:
 				itemsProduced.Add(1)
@@ -1390,7 +1491,12 @@ func TestPipelineBackpressure_PrefetchBufferFillsUp(t *testing.T) {
 	// Fill buffer
 	for i := range bufferSize {
 		tip := createTestTip(uint64(i), uint64(i))
-		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		item := NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 		select {
 		case input <- item:
 		default:
@@ -1438,7 +1544,10 @@ func TestPipelineGracefulShutdown_InFlightItemsComplete(t *testing.T) {
 					close(output)
 					return
 				}
-				_ = stage.Process(context.Background(), item) // Use fresh context to complete
+				_ = stage.Process(
+					context.Background(),
+					item,
+				) // Use fresh context to complete
 				output <- item
 				processedCount.Add(1)
 			case <-ctx.Done():
@@ -1457,7 +1566,12 @@ func TestPipelineGracefulShutdown_InFlightItemsComplete(t *testing.T) {
 	// Submit items
 	for i := range numItems {
 		tip := createTestTip(uint64(i), uint64(i))
-		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		item := NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 		input <- item
 	}
 
@@ -1527,10 +1641,13 @@ func TestStageFunc_NameAndProcess(t *testing.T) {
 
 	processedItems := 0
 
-	stage := NewStageFunc("test-stage", func(ctx context.Context, item *BlockItem) error {
-		processedItems++
-		return nil
-	})
+	stage := NewStageFunc(
+		"test-stage",
+		func(ctx context.Context, item *BlockItem) error {
+			processedItems++
+			return nil
+		},
+	)
 
 	assert.Equal(t, "test-stage", stage.Name())
 
@@ -1546,9 +1663,12 @@ func TestStageFunc_ErrorHandling(t *testing.T) {
 
 	expectedErr := errors.New("stage failed")
 
-	stage := NewStageFunc("error-stage", func(ctx context.Context, item *BlockItem) error {
-		return expectedErr
-	})
+	stage := NewStageFunc(
+		"error-stage",
+		func(ctx context.Context, item *BlockItem) error {
+			return expectedErr
+		},
+	)
 
 	err := stage.Process(context.Background(), item)
 	assert.Equal(t, expectedErr, err)
@@ -1580,9 +1700,18 @@ func TestDecodeStageWorkerPool_NumWorkersValidation(t *testing.T) {
 			output := make(chan *BlockItem, 1)
 			errChan := make(chan error, 1)
 
-			pool := NewDecodeStageWorkerPool(stage, tc.numWorkers, input, output, errChan)
+			pool := NewDecodeStageWorkerPool(
+				stage,
+				tc.numWorkers,
+				input,
+				output,
+				errChan,
+			)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				5*time.Second,
+			)
 			defer cancel()
 
 			pool.Start(ctx)
@@ -1613,7 +1742,9 @@ func TestDecodeStageWorkerPool_NumWorkersValidation(t *testing.T) {
 func TestValidateStageWorkerPool_NumWorkersValidation(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 	config := ValidateStageConfig{
-		Eta0Provider:      StaticEta0Provider("0000000000000000000000000000000000000000000000000000000000000000"),
+		Eta0Provider: StaticEta0Provider(
+			"0000000000000000000000000000000000000000000000000000000000000000",
+		),
 		SlotsPerKesPeriod: 129600,
 		VerifyConfig: common.VerifyConfig{
 			SkipBodyHashValidation:    true,
@@ -1640,9 +1771,18 @@ func TestValidateStageWorkerPool_NumWorkersValidation(t *testing.T) {
 			output := make(chan *BlockItem, 1)
 			errChan := make(chan error, 1)
 
-			pool := NewValidateStageWorkerPool(stage, tc.numWorkers, input, output, errChan)
+			pool := NewValidateStageWorkerPool(
+				stage,
+				tc.numWorkers,
+				input,
+				output,
+				errChan,
+			)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				5*time.Second,
+			)
 			defer cancel()
 
 			pool.Start(ctx)
@@ -1687,7 +1827,11 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 		p := NewBlockPipeline(
 			WithSkipBodyHashValidation(true),
 			WithValidateWorkers(1),
-			WithEta0Provider(StaticEta0Provider("0000000000000000000000000000000000000000000000000000000000000000")),
+			WithEta0Provider(
+				StaticEta0Provider(
+					"0000000000000000000000000000000000000000000000000000000000000000",
+				),
+			),
 			WithSlotsPerKesPeriod(129600),
 			WithVerifyConfig(common.VerifyConfig{
 				SkipBodyHashValidation:    true,
@@ -1715,7 +1859,8 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 				// Either no error, ErrPipelineStopped, or context.Canceled is acceptable.
 				// context.Canceled occurs when Stop() cancels the context before Submit
 				// can complete its channel send.
-				if err != nil && !errors.Is(err, ErrPipelineStopped) && !errors.Is(err, context.Canceled) {
+				if err != nil && !errors.Is(err, ErrPipelineStopped) &&
+					!errors.Is(err, context.Canceled) {
 					t.Errorf("Unexpected error: %v", err)
 				}
 			}
@@ -1768,7 +1913,12 @@ func TestApplyStageRunner_OutOfOrderItemsForwarded(t *testing.T) {
 	items := make([]*BlockItem, 5)
 	for i := range 5 {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
-		items[i] = NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		items[i] = NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 
 		block, err := ledger.NewBlockFromCbor(
 			uint(ledger.BlockTypeConway),
@@ -1812,7 +1962,12 @@ func TestApplyStageRunner_OutOfOrderItemsForwarded(t *testing.T) {
 
 	// Verify all received items are marked as applied
 	for _, item := range received {
-		assert.True(t, item.IsApplied(), "Item %d should be marked as applied", item.SequenceNumber())
+		assert.True(
+			t,
+			item.IsApplied(),
+			"Item %d should be marked as applied",
+			item.SequenceNumber(),
+		)
 	}
 }
 
@@ -1852,7 +2007,12 @@ func TestApplyStageRunner_OutOfOrderErrorItemsForwardedOnce(t *testing.T) {
 	items := make([]*BlockItem, 5)
 	for i := range 5 {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
-		items[i] = NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
+		items[i] = NewBlockItem(
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+			uint64(i),
+		)
 
 		block, err := ledger.NewBlockFromCbor(
 			uint(ledger.BlockTypeConway),
@@ -1864,7 +2024,12 @@ func TestApplyStageRunner_OutOfOrderErrorItemsForwardedOnce(t *testing.T) {
 
 		// Items 1 and 3 have validation errors
 		if i == 1 || i == 3 {
-			items[i].SetValidation(false, "", fmt.Errorf("validation error for item %d", i), time.Millisecond)
+			items[i].SetValidation(
+				false,
+				"",
+				fmt.Errorf("validation error for item %d", i),
+				time.Millisecond,
+			)
 		} else {
 			items[i].SetValidation(true, "vrf", nil, time.Millisecond)
 		}
@@ -1903,7 +2068,12 @@ collectLoop:
 	runner.Stop()
 
 	// Verify exactly 5 items were forwarded (no duplicates)
-	assert.Len(t, received, 5, "Exactly 5 items should be forwarded (no duplicates)")
+	assert.Len(
+		t,
+		received,
+		5,
+		"Exactly 5 items should be forwarded (no duplicates)",
+	)
 
 	// Count how many times each sequence number appears
 	seqCounts := make(map[uint64]int)
@@ -1913,7 +2083,14 @@ collectLoop:
 
 	// Verify each item was forwarded exactly once
 	for seq, count := range seqCounts {
-		assert.Equal(t, 1, count, "Item %d should be forwarded exactly once, got %d", seq, count)
+		assert.Equal(
+			t,
+			1,
+			count,
+			"Item %d should be forwarded exactly once, got %d",
+			seq,
+			count,
+		)
 	}
 
 	// Verify items with validation errors were NOT applied
@@ -1925,7 +2102,12 @@ collectLoop:
 
 	// Verify valid items (0, 2, 4) were applied in sequence order
 	expectedApplied := []uint64{0, 2, 4}
-	assert.Equal(t, expectedApplied, appliedOrder, "Valid items should be applied in sequence order")
+	assert.Equal(
+		t,
+		expectedApplied,
+		appliedOrder,
+		"Valid items should be applied in sequence order",
+	)
 }
 
 // TestBlockPipeline_StartFailsWithoutEta0Provider verifies that Start() returns
@@ -2029,7 +2211,11 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	pipeline := NewBlockPipeline(
 		WithSkipBodyHashValidation(true),
 		WithValidateWorkers(1),
-		WithEta0Provider(StaticEta0Provider("0000000000000000000000000000000000000000000000000000000000000000")),
+		WithEta0Provider(
+			StaticEta0Provider(
+				"0000000000000000000000000000000000000000000000000000000000000000",
+			),
+		),
 		WithSlotsPerKesPeriod(129600),
 		WithVerifyConfig(common.VerifyConfig{
 			SkipBodyHashValidation:    true,
@@ -2072,15 +2258,40 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	// Verify metrics
 	stats := pipeline.Stats()
 
-	assert.Equal(t, uint64(numBlocks), stats.BlocksSubmitted, "BlocksSubmitted should match")
-	assert.Equal(t, uint64(numBlocks), stats.BlocksDecoded, "BlocksDecoded should match")
+	assert.Equal(
+		t,
+		uint64(numBlocks),
+		stats.BlocksSubmitted,
+		"BlocksSubmitted should match",
+	)
+	assert.Equal(
+		t,
+		uint64(numBlocks),
+		stats.BlocksDecoded,
+		"BlocksDecoded should match",
+	)
 	assert.Equal(t, uint64(0), stats.DecodeErrors, "DecodeErrors should be 0")
 
 	// Validation will fail due to incorrect Eta0, so we expect validation errors
-	assert.Equal(t, uint64(numBlocks), stats.ValidationErrors, "ValidationErrors should match (validation fails with dummy Eta0)")
-	assert.Equal(t, uint64(0), stats.BlocksValidated, "BlocksValidated should be 0 (validation fails with dummy Eta0)")
+	assert.Equal(
+		t,
+		uint64(numBlocks),
+		stats.ValidationErrors,
+		"ValidationErrors should match (validation fails with dummy Eta0)",
+	)
+	assert.Equal(
+		t,
+		uint64(0),
+		stats.BlocksValidated,
+		"BlocksValidated should be 0 (validation fails with dummy Eta0)",
+	)
 
 	// Apply and pipeline latency won't be recorded for failed validations
 	// (items with validation errors are not applied)
-	assert.Equal(t, uint64(0), stats.BlocksApplied, "BlocksApplied should be 0 (failed validations are not applied)")
+	assert.Equal(
+		t,
+		uint64(0),
+		stats.BlocksApplied,
+		"BlocksApplied should be 0 (failed validations are not applied)",
+	)
 }

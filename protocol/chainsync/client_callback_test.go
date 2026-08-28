@@ -53,7 +53,10 @@ func TestExactTipCallbacksExposeIntersectionBeforeAwaitReply(t *testing.T) {
 		},
 	)
 
-	require.NoError(t, client.handleIntersectFound(NewMsgIntersectFound(intersect, tip)))
+	require.NoError(
+		t,
+		client.handleIntersectFound(NewMsgIntersectFound(intersect, tip)),
+	)
 	require.NoError(t, client.handleAwaitReply())
 	require.Equal(t, []string{"intersect", "await"}, callbacks)
 }
@@ -73,7 +76,11 @@ func TestAtTipCallbackErrorsPropagate(t *testing.T) {
 				},
 			},
 		)
-		require.ErrorIs(t, client.messageHandler(NewMsgAwaitReply()), awaitReplyErr)
+		require.ErrorIs(
+			t,
+			client.messageHandler(NewMsgAwaitReply()),
+			awaitReplyErr,
+		)
 	})
 
 	t.Run("intersect found", func(t *testing.T) {

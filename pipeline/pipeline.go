@@ -31,7 +31,9 @@ var ErrPipelineStopped = errors.New("pipeline is stopped")
 var ErrPipelineNotStarted = errors.New("pipeline not started")
 
 // ErrMissingEta0Provider is returned when validation is enabled but no Eta0Provider is configured.
-var ErrMissingEta0Provider = errors.New("pipeline: validation enabled but Eta0Provider not configured")
+var ErrMissingEta0Provider = errors.New(
+	"pipeline: validation enabled but Eta0Provider not configured",
+)
 
 // closedResultsChan is a closed channel returned by Results() before Start() is called.
 // This prevents callers from blocking indefinitely on a nil channel.
@@ -216,7 +218,12 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 // This method is safe to call concurrently with Stop().
 // The context allows callers to handle timeouts or cancellations when the
 // pipeline is full and applying backpressure.
-func (p *BlockPipeline) Submit(ctx context.Context, blockType uint, rawCbor []byte, tip pcommon.Tip) error {
+func (p *BlockPipeline) Submit(
+	ctx context.Context,
+	blockType uint,
+	rawCbor []byte,
+	tip pcommon.Tip,
+) error {
 	// Early checks for common cases (before acquiring lock)
 	if !p.started.Load() {
 		return ErrPipelineNotStarted
@@ -381,7 +388,13 @@ func (p *BlockPipeline) PendingCount() int {
 	if !p.started.Load() {
 		return 0
 	}
-	channelDepth := len(p.submitChan) + len(p.decodedChan) + len(p.validatedChan)
+	channelDepth := len(
+		p.submitChan,
+	) + len(
+		p.decodedChan,
+	) + len(
+		p.validatedChan,
+	)
 	applyPending := 0
 	if p.applyStage != nil {
 		applyPending = p.applyStage.PendingCount()
@@ -425,7 +438,13 @@ func (p *BlockPipeline) metricsCollector() {
 			return
 		case <-ticker.C:
 			// Update queue depth
-			depth := len(p.submitChan) + len(p.decodedChan) + len(p.validatedChan)
+			depth := len(
+				p.submitChan,
+			) + len(
+				p.decodedChan,
+			) + len(
+				p.validatedChan,
+			)
 			p.metrics.UpdateQueueDepth(depth)
 		}
 	}

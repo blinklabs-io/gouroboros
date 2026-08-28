@@ -114,13 +114,17 @@ func TestConcurrentStopReleasesBusyMutexDuringActiveSync(t *testing.T) {
 	case err := <-firstStopDone:
 		require.NoError(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("first Stop did not complete after the active sync loop was released")
+		t.Fatal(
+			"first Stop did not complete after the active sync loop was released",
+		)
 	}
 	select {
 	case err := <-secondStopDone:
 		require.NoError(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("second Stop did not complete after the active sync loop was released")
+		t.Fatal(
+			"second Stop did not complete after the active sync loop was released",
+		)
 	}
 }
 
@@ -157,7 +161,9 @@ func TestStopWaitsForInitialRequestLifecycleFence(t *testing.T) {
 	go func() { stopDone <- client.Stop() }()
 	select {
 	case <-stopInitiated:
-		t.Fatal("Stop began while Sync held the initial request lifecycle fence")
+		t.Fatal(
+			"Stop began while Sync held the initial request lifecycle fence",
+		)
 	default:
 	}
 
@@ -199,7 +205,9 @@ func TestStopWaitsForPipelineRequestBurstLifecycleFence(t *testing.T) {
 		select {
 		case <-enqueued:
 		case <-time.After(time.Second):
-			t.Error("Stop began before the sync loop queued its RequestNext burst")
+			t.Error(
+				"Stop began before the sync loop queued its RequestNext burst",
+			)
 		}
 		close(stopInitiated)
 	}
@@ -220,7 +228,9 @@ func TestStopWaitsForPipelineRequestBurstLifecycleFence(t *testing.T) {
 	go func() { stopDone <- client.Stop() }()
 	select {
 	case <-stopInitiated:
-		t.Fatal("Stop began while the sync loop held its request lifecycle fence")
+		t.Fatal(
+			"Stop began while the sync loop held its request lifecycle fence",
+		)
 	default:
 	}
 
@@ -233,7 +243,9 @@ func TestStopWaitsForPipelineRequestBurstLifecycleFence(t *testing.T) {
 	select {
 	case <-stopInitiated:
 	case <-time.After(time.Second):
-		t.Fatal("Stop did not begin after the sync loop released its lifecycle fence")
+		t.Fatal(
+			"Stop did not begin after the sync loop released its lifecycle fence",
+		)
 	}
 	select {
 	case err := <-stopDone:
