@@ -53,6 +53,11 @@ type Client struct {
 	syncLoopWaitGroup        sync.WaitGroup
 	syncPipelinedRequestNext int
 	protoOptions             protocol.ProtocolOptions
+	// The test hooks make lifecycle interleavings deterministic without changing
+	// production behavior.
+	testStopInitiated          func()
+	testStopWaitingForComplete func()
+	testSyncLoopBeforeBusyLock func()
 
 	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
 	// is empty.
@@ -297,11 +302,14 @@ func (c *Client) Stop() error {
 		if c.lifecycleState == clientStateStopping {
 			ch := c.stoppingDone
 			c.lifecycleMutex.Unlock()
-			if ch != nil {
-				<-ch
-			}
 			if busyLocked {
 				c.busyMutex.Unlock()
+			}
+			if c.testStopWaitingForComplete != nil {
+				c.testStopWaitingForComplete()
+			}
+			if ch != nil {
+				<-ch
 			}
 			return nil
 		}
@@ -322,6 +330,9 @@ func (c *Client) Stop() error {
 	c.lifecycleState = clientStateStopping
 	stoppingDone := make(chan struct{})
 	c.stoppingDone = stoppingDone
+	if c.testStopInitiated != nil {
+		c.testStopInitiated()
+	}
 
 	var sendErr error
 	// Check if protocol is already done before sending Done message
@@ -676,6 +687,9 @@ func (c *Client) syncLoop(
 		case <-doneChan:
 			// Protocol is shutting down
 			return
+		}
+		if c.testSyncLoopBeforeBusyLock != nil {
+			c.testSyncLoopBeforeBusyLock()
 		}
 		c.busyMutex.Lock()
 		c.lifecycleMutex.Lock()
