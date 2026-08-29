@@ -19,6 +19,7 @@ import (
 	"math"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -415,6 +416,28 @@ func TestFindNextSlotLeadershipContextHonorsCancellation(t *testing.T) {
 		signer,
 	)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestFindNextSlotLeadershipContextHandlesMaxUint64Boundary(t *testing.T) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	slot, proof, output, err := FindNextSlotLeadershipContext(
+		ctx,
+		math.MaxUint64,
+		math.MaxUint64,
+		make([]byte, 32),
+		0,
+		1,
+		big.NewRat(1, 2),
+		signer,
+	)
+	require.NoError(t, err)
+	require.Zero(t, slot)
+	require.Nil(t, proof)
+	require.Nil(t, output)
 }
 
 func TestIsSlotLeaderWithModeSlotOverflow(t *testing.T) {

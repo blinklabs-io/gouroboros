@@ -365,7 +365,7 @@ func FindNextSlotLeadershipContext(
 			MaxLeadershipSearchSlots,
 		)
 	}
-	for slot := startSlot; slot <= maxSlot; slot++ {
+	for slot := startSlot; ; slot++ {
 		if err := ctx.Err(); err != nil {
 			return 0, nil, nil, err
 		}
@@ -382,6 +382,9 @@ func FindNextSlotLeadershipContext(
 		}
 		if result.Eligible {
 			return slot, result.Proof, result.Output, nil
+		}
+		if slot == maxSlot {
+			break
 		}
 	}
 	return 0, nil, nil, nil
