@@ -13,7 +13,7 @@ func TestServerStopUnblocksWaitingRequest(t *testing.T) {
 	result := make(chan error, 1)
 	go func() { result <- server.WaitForMessage(0) }()
 
-	server.stop()
+	require.NoError(t, server.Stop())
 	select {
 	case err := <-result:
 		require.ErrorContains(t, err, "server shutting down")
@@ -24,7 +24,7 @@ func TestServerStopUnblocksWaitingRequest(t *testing.T) {
 
 func TestServerStopStopsExpirationCleanerBeforeStart(t *testing.T) {
 	server := NewServer(protocol.ProtocolOptions{}, nil)
-	server.stop()
+	require.NoError(t, server.Stop())
 
 	select {
 	case <-server.expirationStopChan:
