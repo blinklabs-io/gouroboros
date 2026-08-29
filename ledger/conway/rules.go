@@ -3469,7 +3469,7 @@ func UtxoValidateCertificateDeposits(
 		if supplied == nil && state.deposit != keyDeposit {
 			return CertificateRefundIncorrectError{
 				CertificateType: certificateType,
-				Supplied:        int64(keyDeposit),
+				Supplied:        keyDeposit,
 				Expected:        state.deposit,
 			}
 		}
