@@ -1435,7 +1435,7 @@ func UtxoValidateExtraneousRedeemers(
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 
-		if uint64(redeemerKey.Index) >= uint64(maxIndex) {
+		if uint64(redeemerKey.Index) >= uint64(maxIndex) { //nolint:gosec // maxIndex is derived from collection lengths
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 	}
