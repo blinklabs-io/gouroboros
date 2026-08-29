@@ -38,6 +38,40 @@ func TestValidateRequiredVKeyWitnesses_Common(t *testing.T) {
 	}
 }
 
+func TestValidateRequiredVKeyWitnessesCertificateAndVoter(t *testing.T) {
+	cred := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+	cred.Credential[0] = 0x42
+	cert := &common.DeregistrationCertificate{StakeCredential: cred}
+	tx := mockledger.NewTransactionBuilder().WithCertificates(cert)
+	if err := common.ValidateRequiredVKeyWitnesses(tx); err == nil {
+		t.Fatal("expected missing witness for certificate credential")
+	}
+
+	vkey := []byte{0x01, 0x02, 0x03}
+	witness := mockledger.NewMockTransactionWitnessSet().
+		WithVkeyWitnesses(common.VkeyWitness{Vkey: vkey})
+	// Use the actual hash represented by the witness so the positive path
+	// proves the certificate requirement is satisfiable, not merely detected.
+	cred.Credential = common.Blake2b224Hash(vkey)
+	tx = mockledger.NewTransactionBuilder().
+		WithCertificates(&common.DeregistrationCertificate{StakeCredential: cred}).
+		WithWitnesses(witness)
+	if err := common.ValidateRequiredVKeyWitnesses(tx); err != nil {
+		t.Fatalf("expected certificate witness to satisfy requirement: %v", err)
+	}
+
+	voterHash := common.Blake2b224Hash([]byte{0x09, 0x08, 0x07})
+	voter := &common.Voter{Type: common.VoterTypeDRepKeyHash, Hash: voterHash}
+	tx = mockledger.NewTransactionBuilder().WithVotingProcedures(
+		common.VotingProcedures{
+			voter: {},
+		},
+	)
+	if err := common.ValidateRequiredVKeyWitnesses(tx); err == nil {
+		t.Fatal("expected missing witness for key-hash voter")
+	}
+}
+
 func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
 	tx := mockledger.NewTransactionBuilder()
 	if err := common.ValidateRedeemerAndScriptWitnesses(tx, nil); err != nil {
