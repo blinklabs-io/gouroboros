@@ -1084,6 +1084,9 @@ func (c *Client) GetPoolDistr2(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1220,6 +1223,9 @@ func (c *Client) GetDRepState(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(credentials, "credentials"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1276,6 +1282,9 @@ func (c *Client) GetDRepStakeDistr(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(dreps, "DReps"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1341,6 +1350,15 @@ func (c *Client) GetCommitteeMembersState(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(coldCreds, "cold credentials"); err != nil {
+		return nil, err
+	}
+	if err := validateLocalStateQuerySet(hotCreds, "hot credentials"); err != nil {
+		return nil, err
+	}
+	if err := validateLocalStateQuerySet(statuses, "statuses"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1414,6 +1432,9 @@ func (c *Client) GetFilteredVoteDelegatees(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(credentials, "credentials"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1470,6 +1491,9 @@ func (c *Client) GetSPOStakeDistr(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
