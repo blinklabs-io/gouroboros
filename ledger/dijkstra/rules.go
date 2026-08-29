@@ -683,7 +683,7 @@ func dijkstraGuardingPurpose(
 		return script.ScriptPurposeGuarding{}, false
 	}
 	guards := dijkstraTx.Body.TxGuards
-	if int(redeemerKey.Index) >= len(guards.Credentials) {
+	if uint64(redeemerKey.Index) >= uint64(len(guards.Credentials)) {
 		return script.ScriptPurposeGuarding{}, false
 	}
 	guard := guards.Credentials[redeemerKey.Index]
@@ -1435,7 +1435,7 @@ func UtxoValidateExtraneousRedeemers(
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 
-		if int(redeemerKey.Index) >= maxIndex {
+		if uint64(redeemerKey.Index) >= uint64(maxIndex) {
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 	}
@@ -1468,7 +1468,7 @@ func dijkstraGuardCredentialAt(
 		return common.Credential{}, false
 	}
 	guards := dijkstraTx.Body.TxGuards
-	if int(index) >= len(guards.Credentials) {
+	if uint64(index) >= uint64(len(guards.Credentials)) {
 		return common.Credential{}, false
 	}
 	return guards.Credentials[index], true
