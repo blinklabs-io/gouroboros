@@ -72,6 +72,27 @@ func TestValidateRequiredVKeyWitnessesCertificateAndVoter(t *testing.T) {
 	}
 }
 
+func TestValidateRequiredVKeyWitnessesExplicitRegistration(t *testing.T) {
+	key := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+	key.Credential[0] = 0x51
+	explicit := &common.RegistrationCertificate{
+		StakeCredential: key,
+		Amount:          2_000_000,
+	}
+	if err := common.ValidateRequiredVKeyWitnesses(
+		mockledger.NewTransactionBuilder().WithCertificates(explicit),
+	); err == nil {
+		t.Fatal("expected explicit registration to require a key witness")
+	}
+
+	legacy := &common.RegistrationCertificate{StakeCredential: key}
+	if err := common.ValidateRequiredVKeyWitnesses(
+		mockledger.NewTransactionBuilder().WithCertificates(legacy),
+	); err != nil {
+		t.Fatalf("legacy registration unexpectedly required a witness: %v", err)
+	}
+}
+
 func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
 	tx := mockledger.NewTransactionBuilder()
 	if err := common.ValidateRedeemerAndScriptWitnesses(tx, nil); err != nil {

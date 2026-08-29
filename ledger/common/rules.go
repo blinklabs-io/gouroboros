@@ -184,7 +184,10 @@ func forEachCertificateCredential(
 		}
 	case *RegistrationCertificate:
 		if c != nil {
-			visit(c.StakeCredential, false)
+			// The legacy registration form has no deposit and does not
+			// authorize a state change. Conway's explicit-deposit form does
+			// authorize registration and therefore requires its credential.
+			visit(c.StakeCredential, c.Amount != 0)
 		}
 	case *DeregistrationCertificate:
 		if c != nil {
