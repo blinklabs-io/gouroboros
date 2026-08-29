@@ -444,6 +444,39 @@ func TestValidateSimpleSignatureRequiresMainBlockDomain(t *testing.T) {
 	assert.Error(t, validator.validateSimpleSignature(input))
 }
 
+func TestValidateSimpleSignatureGoldenDomainBuffer(t *testing.T) {
+	config := testByronConfig()
+	validator := NewHeaderValidator(config)
+	var seed [ed25519.SeedSize]byte
+	for i := range seed {
+		seed[i] = byte(i)
+	}
+	privKey := ed25519.NewKeyFromSeed(seed[:])
+	pubKey := privKey.Public().(ed25519.PublicKey)
+	header := &byron.ByronMainBlockHeader{}
+	header.ConsensusData.SlotId.Epoch = 7
+	header.ConsensusData.SlotId.Slot = 11
+	header.ConsensusData.Difficulty.Value = 19
+	headerCbor, err := cbor.Encode(header)
+	require.NoError(t, err)
+	toSign, err := validator.buildToSign(&ValidateHeaderInput{HeaderCbor: headerCbor})
+	require.NoError(t, err)
+	protocolMagic, err := cbor.Encode(config.ProtocolMagic)
+	require.NoError(t, err)
+	manual := append([]byte{byronSignTagMainBlock}, protocolMagic...)
+	manual = append(manual, toSign...)
+	domain, err := validator.domainSeparateMainBlock(toSign)
+	require.NoError(t, err)
+	require.Equal(t, manual, domain)
+
+	input := &ValidateHeaderInput{
+		IssuerPubKey:   pubKey,
+		BlockSignature: ed25519.Sign(privKey, manual),
+		HeaderCbor:     headerCbor,
+	}
+	require.NoError(t, validator.validateSimpleSignature(input))
+}
+
 // TestValidateDelegationCertSignature_RealMainnetVector verifies a real
 // delegation certificate signature extracted from a mainnet Byron block
 // (slot 4471207), confirming the byte layout reproduced from
