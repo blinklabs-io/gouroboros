@@ -122,7 +122,7 @@ func certificateDepositOutput(t *testing.T, amount uint64) cbor.RawMessage {
 func certificateDepositTransaction(
 	t *testing.T,
 	fixture certificateDepositCredentialFixture,
-	certificateCbor []byte,
+	certificateCbors [][]byte,
 	certificateValueDelta int64,
 	withdrawalAmount uint64,
 ) *conway.ConwayTransaction {
@@ -135,6 +135,10 @@ func certificateDepositTransaction(
 		certificateValueDelta + int64(withdrawalAmount) -
 		int64(certificateDepositFee)
 	require.Positive(t, outputAmount)
+	certificates := make([]cbor.RawMessage, len(certificateCbors))
+	for idx, certificateCbor := range certificateCbors {
+		certificates[idx] = cbor.RawMessage(certificateCbor)
+	}
 	bodyFields := map[int]any{
 		0: cbor.Tag{
 			Number:  258,
@@ -144,7 +148,7 @@ func certificateDepositTransaction(
 			certificateDepositOutput(t, uint64(outputAmount)),
 		},
 		2: certificateDepositFee,
-		4: []cbor.RawMessage{cbor.RawMessage(certificateCbor)},
+		4: certificates,
 	}
 	if withdrawalAmount > 0 {
 		header := byte(0xe1)
@@ -252,73 +256,144 @@ func TestCertificateRegistrationDepositsProductionPath(t *testing.T) {
 			name:     "stake registration",
 			expected: uint64(pp.KeyDeposit),
 			build: func(cred common.Credential, amount int64) []any {
-				return []any{uint64(7), []any{cred.CredType, cred.Credential.Bytes()}, amount}
+				return []any{
+					uint64(7),
+					[]any{cred.CredType, cred.Credential.Bytes()},
+					amount,
+				}
 			},
 		},
 		{
 			name:     "stake registration delegation",
 			expected: uint64(pp.KeyDeposit),
 			build: func(cred common.Credential, amount int64) []any {
-				return []any{uint64(11), []any{cred.CredType, cred.Credential.Bytes()}, pool.Bytes(), amount}
+				return []any{
+					uint64(11),
+					[]any{cred.CredType, cred.Credential.Bytes()},
+					pool.Bytes(),
+					amount,
+				}
 			},
 		},
 		{
 			name:     "vote registration delegation",
 			expected: uint64(pp.KeyDeposit),
 			build: func(cred common.Credential, amount int64) []any {
-				return []any{uint64(12), []any{cred.CredType, cred.Credential.Bytes()}, drepAbstain, amount}
+				return []any{
+					uint64(12),
+					[]any{cred.CredType, cred.Credential.Bytes()},
+					drepAbstain,
+					amount,
+				}
 			},
 		},
 		{
 			name:     "stake vote registration delegation",
 			expected: uint64(pp.KeyDeposit),
 			build: func(cred common.Credential, amount int64) []any {
-				return []any{uint64(13), []any{cred.CredType, cred.Credential.Bytes()}, pool.Bytes(), drepAbstain, amount}
+				return []any{
+					uint64(13),
+					[]any{cred.CredType, cred.Credential.Bytes()},
+					pool.Bytes(),
+					drepAbstain,
+					amount,
+				}
 			},
 		},
 		{
 			name:     "DRep registration",
 			expected: pp.DRepDeposit,
 			build: func(cred common.Credential, amount int64) []any {
-				return []any{uint64(16), []any{cred.CredType, cred.Credential.Bytes()}, amount, nil}
+				return []any{
+					uint64(16),
+					[]any{cred.CredType, cred.Credential.Bytes()},
+					amount,
+					nil,
+				}
 			},
 		},
 	}
 	for _, credType := range credentialTypes {
-		for _, testCase := range cases {
-			t.Run(testCase.name+"/credential-"+string(rune('0'+credType)), func(t *testing.T) {
-				fixture := newCertificateDepositCredentialFixture(t, credType)
-				for _, valid := range []bool{true, false} {
-					t.Run(map[bool]string{true: "valid", false: "invalid"}[valid], func(t *testing.T) {
-						amount := int64(testCase.expected)
-						if !valid {
-							amount--
-						}
-						certificateCbor, err := cbor.Encode(
-							testCase.build(fixture.credential, amount),
-						)
-						require.NoError(t, err)
-						tx := certificateDepositTransaction(
-							t,
-							fixture,
-							certificateCbor,
-							-amount,
-							0,
-						)
-						ls := certificateDepositLedgerState{
-							LedgerState: certificateDepositBaseState(pool),
-							deposits:    map[certificateDepositCredentialKey]uint64{},
-						}
-						err = runCertificateDepositProductionRules(t, tx, ls, pp)
-						if valid {
-							require.NoError(t, err)
-							return
-						}
-						var target conway.CertificateDepositIncorrectError
-						require.True(t, errors.As(err, &target), "unexpected error: %v", err)
-					})
+		fixture := newCertificateDepositCredentialFixture(t, credType)
+		t.Run(
+			"legacy stake registration/credential-"+string(rune('0'+credType)),
+			func(t *testing.T) {
+				certificateCbor, err := cbor.Encode([]any{
+					uint64(0),
+					[]any{
+						fixture.credential.CredType,
+						fixture.credential.Credential.Bytes(),
+					},
+				})
+				require.NoError(t, err)
+				tx := certificateDepositTransaction(
+					t,
+					fixture,
+					[][]byte{certificateCbor},
+					-int64(pp.KeyDeposit),
+					0,
+				)
+				ls := certificateDepositLedgerState{
+					LedgerState: certificateDepositBaseState(pool),
+					deposits:    map[certificateDepositCredentialKey]uint64{},
 				}
-			})
+				require.NoError(
+					t,
+					runCertificateDepositProductionRules(t, tx, ls, pp),
+				)
+			},
+		)
+		for _, testCase := range cases {
+			t.Run(
+				testCase.name+"/credential-"+string(rune('0'+credType)),
+				func(t *testing.T) {
+					for _, valid := range []bool{true, false} {
+						t.Run(
+							map[bool]string{true: "valid", false: "invalid"}[valid],
+							func(t *testing.T) {
+								amount := int64(testCase.expected)
+								if !valid {
+									amount--
+								}
+								certificateCbor, err := cbor.Encode(
+									testCase.build(fixture.credential, amount),
+								)
+								require.NoError(t, err)
+								tx := certificateDepositTransaction(
+									t,
+									fixture,
+									[][]byte{certificateCbor},
+									-amount,
+									0,
+								)
+								ls := certificateDepositLedgerState{
+									LedgerState: certificateDepositBaseState(
+										pool,
+									),
+									deposits: map[certificateDepositCredentialKey]uint64{},
+								}
+								err = runCertificateDepositProductionRules(
+									t,
+									tx,
+									ls,
+									pp,
+								)
+								if valid {
+									require.NoError(t, err)
+									return
+								}
+								var target conway.CertificateDepositIncorrectError
+								require.True(
+									t,
+									errors.As(err, &target),
+									"unexpected error: %v",
+									err,
+								)
+							},
+						)
+					}
+				},
+			)
 		}
 	}
 }
@@ -348,7 +423,10 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					WithPoolRegistrations([]common.PoolRegistrationCertificate{{Operator: pool}})
 				deposits := map[certificateDepositCredentialKey]uint64{}
 				if registered {
-					builder.WithRewardAccountCredentialBalance(fixture.credential, balance)
+					builder.WithRewardAccountCredentialBalance(
+						fixture.credential,
+						balance,
+					)
 					deposits[certificateDepositCredentialKey{
 						credType: fixture.credential.CredType,
 						hash:     fixture.credential.Credential,
@@ -360,9 +438,31 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 				}
 			}
 			buildDeregistration := func(refund int64, withdrawal uint64) *conway.ConwayTransaction {
-				certificateCbor, err := cbor.Encode([]any{uint64(8), credentialCbor, refund})
+				certificateCbor, err := cbor.Encode(
+					[]any{uint64(8), credentialCbor, refund},
+				)
 				require.NoError(t, err)
-				return certificateDepositTransaction(t, fixture, certificateCbor, refund, withdrawal)
+				return certificateDepositTransaction(
+					t,
+					fixture,
+					[][]byte{certificateCbor},
+					refund,
+					withdrawal,
+				)
+			}
+			buildLegacyDeregistration := func() *conway.ConwayTransaction {
+				certificateCbor, err := cbor.Encode([]any{
+					uint64(1),
+					credentialCbor,
+				})
+				require.NoError(t, err)
+				return certificateDepositTransaction(
+					t,
+					fixture,
+					[][]byte{certificateCbor},
+					int64(pp.KeyDeposit),
+					0,
+				)
 			}
 
 			t.Run("valid recorded refund", func(t *testing.T) {
@@ -383,7 +483,37 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					pp,
 				)
 				var target conway.CertificateRefundIncorrectError
-				require.True(t, errors.As(err, &target), "unexpected error: %v", err)
+				require.True(
+					t,
+					errors.As(err, &target),
+					"unexpected error: %v",
+					err,
+				)
+			})
+			t.Run("legacy recorded refund", func(t *testing.T) {
+				tx := buildLegacyDeregistration()
+				require.NoError(t, runCertificateDepositProductionRules(
+					t,
+					tx,
+					buildState(true, 0, uint64(pp.KeyDeposit)),
+					pp,
+				))
+			})
+			t.Run("legacy incorrect recorded refund", func(t *testing.T) {
+				tx := buildLegacyDeregistration()
+				err := runCertificateDepositProductionRules(
+					t,
+					tx,
+					buildState(true, 0, uint64(pp.KeyDeposit)+1),
+					pp,
+				)
+				var target conway.CertificateRefundIncorrectError
+				require.True(
+					t,
+					errors.As(err, &target),
+					"unexpected error: %v",
+					err,
+				)
 			})
 			t.Run("unregistered", func(t *testing.T) {
 				tx := buildDeregistration(int64(pp.KeyDeposit), 0)
@@ -394,7 +524,12 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					pp,
 				)
 				var target conway.StakeCredentialNotRegisteredError
-				require.True(t, errors.As(err, &target), "unexpected error: %v", err)
+				require.True(
+					t,
+					errors.As(err, &target),
+					"unexpected error: %v",
+					err,
+				)
 			})
 			t.Run("nonzero reward balance", func(t *testing.T) {
 				tx := buildDeregistration(int64(pp.KeyDeposit), 0)
@@ -405,7 +540,12 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					pp,
 				)
 				var target conway.StakeCredentialNonZeroRewardBalanceError
-				require.True(t, errors.As(err, &target), "unexpected error: %v", err)
+				require.True(
+					t,
+					errors.As(err, &target),
+					"unexpected error: %v",
+					err,
+				)
 			})
 			t.Run("withdraw all before deregistration", func(t *testing.T) {
 				const balance = uint64(5_000_000)
@@ -438,12 +578,23 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 			int64(pp.DRepDeposit),
 			int64(pp.DRepDeposit) + 1,
 		} {
-			certificateCbor, err := cbor.Encode([]any{uint64(17), credentialCbor, refund})
+			certificateCbor, err := cbor.Encode(
+				[]any{uint64(17), credentialCbor, refund},
+			)
 			require.NoError(t, err)
-			tx := certificateDepositTransaction(t, fixture, certificateCbor, refund, 0)
+			tx := certificateDepositTransaction(
+				t,
+				fixture,
+				[][]byte{certificateCbor},
+				refund,
+				0,
+			)
 			baseState := mockledger.NewLedgerStateBuilder().
 				WithUtxos([]common.Utxo{{
-					Id: shelley.NewShelleyTransactionInput(certificateDepositTxId, 0),
+					Id: shelley.NewShelleyTransactionInput(
+						certificateDepositTxId,
+						0,
+					),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: certificateDepositInputAmount,
 					},
@@ -464,7 +615,12 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 				continue
 			}
 			var target conway.CertificateRefundIncorrectError
-			require.True(t, errors.As(err, &target), "unexpected error: %v", err)
+			require.True(
+				t,
+				errors.As(err, &target),
+				"unexpected error: %v",
+				err,
+			)
 		}
 		certificateCbor, err := cbor.Encode([]any{
 			uint64(17),
@@ -475,7 +631,7 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 		tx := certificateDepositTransaction(
 			t,
 			fixture,
-			certificateCbor,
+			[][]byte{certificateCbor},
 			int64(pp.DRepDeposit),
 			0,
 		)
@@ -497,6 +653,45 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 		err = runCertificateDepositProductionRules(t, tx, ls, pp)
 		var target conway.DRepNotRegisteredError
 		require.True(t, errors.As(err, &target), "unexpected error: %v", err)
+	}
+}
+
+func TestCertificateDepositStateFoldProductionPath(t *testing.T) {
+	pp := certificateDepositPparams()
+	pool := common.PoolKeyHash(common.Blake2b224Hash([]byte("pool")))
+	for _, credType := range []uint{
+		common.CredentialTypeAddrKeyHash,
+		common.CredentialTypeScriptHash,
+	} {
+		fixture := newCertificateDepositCredentialFixture(t, credType)
+		credentialCbor := []any{
+			fixture.credential.CredType,
+			fixture.credential.Credential.Bytes(),
+		}
+		registrationCbor, err := cbor.Encode([]any{
+			uint64(7),
+			credentialCbor,
+			int64(pp.KeyDeposit),
+		})
+		require.NoError(t, err)
+		deregistrationCbor, err := cbor.Encode([]any{
+			uint64(8),
+			credentialCbor,
+			int64(pp.KeyDeposit),
+		})
+		require.NoError(t, err)
+		tx := certificateDepositTransaction(
+			t,
+			fixture,
+			[][]byte{registrationCbor, deregistrationCbor},
+			0,
+			0,
+		)
+		ls := certificateDepositLedgerState{
+			LedgerState: certificateDepositBaseState(pool),
+			deposits:    map[certificateDepositCredentialKey]uint64{},
+		}
+		require.NoError(t, runCertificateDepositProductionRules(t, tx, ls, pp))
 	}
 }
 
