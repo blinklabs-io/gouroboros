@@ -85,6 +85,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNativeScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
+	UtxoValidateCertificateDeposits,
 	UtxoValidateCommitteeCertificates,
 	UtxoValidateUnknownVoters,
 	UtxoValidateUnknownGovActionIds,
@@ -3291,6 +3292,315 @@ func UtxoValidateWithdrawals(
 			return WithdrawalNotDelegatedToDRepError{
 				RewardAddress: *addr,
 			}
+		}
+	}
+	return nil
+}
+
+type certificateStakeCredentialKey struct {
+	credType uint
+	hash     common.Blake2b224
+}
+
+type certificateStakeState struct {
+	registered bool
+	deposit    uint64
+	balance    uint64
+}
+
+// UtxoValidateCertificateDeposits validates Conway certificate deposits and
+// refunds against the protocol parameters and the certificate state produced
+// by the certificates that precede them in the transaction. Withdrawals are
+// applied to the temporary reward-account state before certificates, matching
+// the Conway LEDGER/CERTS transition ordering.
+func UtxoValidateCertificateDeposits(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	depositPparams, ok := pp.(interface {
+		KeyDepositAmount() *big.Int
+		DRepDepositAmount() *big.Int
+	})
+	if !ok {
+		return errors.New("pparams do not expose Conway certificate deposits")
+	}
+	keyDepositAmount := depositPparams.KeyDepositAmount()
+	if keyDepositAmount == nil || !keyDepositAmount.IsUint64() {
+		return errors.New("key deposit does not fit uint64")
+	}
+	keyDeposit := keyDepositAmount.Uint64()
+	drepDepositAmount := depositPparams.DRepDepositAmount()
+	if drepDepositAmount == nil || !drepDepositAmount.IsUint64() {
+		return errors.New("DRep deposit does not fit uint64")
+	}
+	drepDeposit := drepDepositAmount.Uint64()
+	stakeStates := make(map[certificateStakeCredentialKey]certificateStakeState)
+	stakeKey := func(cred common.Credential) certificateStakeCredentialKey {
+		return certificateStakeCredentialKey{
+			credType: cred.CredType,
+			hash:     cred.Credential,
+		}
+	}
+	loadStakeState := func(cred common.Credential) (certificateStakeState, error) {
+		key := stakeKey(cred)
+		if state, found := stakeStates[key]; found {
+			return state, nil
+		}
+		state := certificateStakeState{
+			registered: ls.IsStakeCredentialRegistered(cred),
+		}
+		if state.registered {
+			depositState, ok := ls.(common.StakeCredentialDepositState)
+			if !ok {
+				return state, CertificateDepositStateUnavailableError{}
+			}
+			deposit, err := depositState.StakeCredentialDeposit(cred)
+			if err != nil {
+				return state, err
+			}
+			if deposit == nil {
+				return state, CertificateDepositStateInconsistentError{
+					Credential: cred,
+				}
+			}
+			state.deposit = *deposit
+			balance, err := ls.RewardAccountBalance(cred)
+			if err != nil {
+				return state, err
+			}
+			if balance == nil {
+				return state, CertificateDepositStateInconsistentError{
+					Credential: cred,
+				}
+			}
+			state.balance = *balance
+		}
+		stakeStates[key] = state
+		return state, nil
+	}
+	storeStakeState := func(cred common.Credential, state certificateStakeState) {
+		stakeStates[stakeKey(cred)] = state
+	}
+
+	deregisteredStakeCredentials := make(
+		map[certificateStakeCredentialKey]struct{},
+	)
+	for _, cert := range tx.Certificates() {
+		switch c := cert.(type) {
+		case *common.StakeDeregistrationCertificate:
+			deregisteredStakeCredentials[stakeKey(c.StakeCredential)] = struct{}{}
+		case *common.DeregistrationCertificate:
+			deregisteredStakeCredentials[stakeKey(c.StakeCredential)] = struct{}{}
+		}
+	}
+
+	// The reference drains withdrawals before running CERTS. Withdrawal
+	// validation runs immediately before this rule, so only valid withdrawal
+	// amounts reach this transition.
+	for addr, amount := range tx.Withdrawals() {
+		cred, found := addr.StakeCredential()
+		if !found || amount == nil || !amount.IsUint64() {
+			continue
+		}
+		if _, found := deregisteredStakeCredentials[stakeKey(cred)]; !found {
+			continue
+		}
+		state, err := loadStakeState(cred)
+		if err != nil {
+			return err
+		}
+		withdrawal := amount.Uint64()
+		if withdrawal <= state.balance {
+			state.balance -= withdrawal
+			storeStakeState(cred, state)
+		}
+	}
+
+	registerStake := func(
+		cred common.Credential,
+		certificateType common.CertificateType,
+		supplied int64,
+	) error {
+		if supplied < 0 || uint64(supplied) != keyDeposit {
+			return CertificateDepositIncorrectError{
+				CertificateType: certificateType,
+				Supplied:        supplied,
+				Expected:        keyDeposit,
+			}
+		}
+		key := stakeKey(cred)
+		state, found := stakeStates[key]
+		if !found {
+			state.registered = ls.IsStakeCredentialRegistered(cred)
+		}
+		if state.registered {
+			return StakeCredentialAlreadyRegisteredError{Credential: cred}
+		}
+		state.registered = true
+		state.deposit = keyDeposit
+		state.balance = 0
+		storeStakeState(cred, state)
+		return nil
+	}
+	deregisterStake := func(
+		cred common.Credential,
+		certificateType common.CertificateType,
+		supplied *int64,
+	) error {
+		state, err := loadStakeState(cred)
+		if err != nil {
+			return err
+		}
+		if !state.registered {
+			return StakeCredentialNotRegisteredError{Credential: cred}
+		}
+		if supplied != nil && (*supplied < 0 || uint64(*supplied) != state.deposit) {
+			return CertificateRefundIncorrectError{
+				CertificateType: certificateType,
+				Supplied:        *supplied,
+				Expected:        state.deposit,
+			}
+		}
+		if supplied == nil && state.deposit != keyDeposit {
+			return CertificateRefundIncorrectError{
+				CertificateType: certificateType,
+				Supplied:        int64(keyDeposit),
+				Expected:        state.deposit,
+			}
+		}
+		if state.balance != 0 {
+			return StakeCredentialNonZeroRewardBalanceError{
+				Credential: cred,
+				Balance:    state.balance,
+			}
+		}
+		state.registered = false
+		state.deposit = 0
+		storeStakeState(cred, state)
+		return nil
+	}
+
+	drepStates := make(
+		map[certificateStakeCredentialKey]*common.DRepRegistration,
+	)
+	loadDRep := func(cred common.Credential) (*common.DRepRegistration, error) {
+		key := stakeKey(cred)
+		if state, found := drepStates[key]; found {
+			return state, nil
+		}
+		state, err := ls.DRepRegistration(cred.Credential)
+		if err != nil {
+			return nil, err
+		}
+		drepStates[key] = state
+		return state, nil
+	}
+
+	for _, cert := range tx.Certificates() {
+		switch c := cert.(type) {
+		case *common.StakeRegistrationCertificate:
+			key := stakeKey(c.StakeCredential)
+			state, found := stakeStates[key]
+			if !found {
+				state.registered = ls.IsStakeCredentialRegistered(c.StakeCredential)
+			}
+			if state.registered {
+				return StakeCredentialAlreadyRegisteredError{
+					Credential: c.StakeCredential,
+				}
+			}
+			state.registered = true
+			state.deposit = keyDeposit
+			state.balance = 0
+			storeStakeState(c.StakeCredential, state)
+		case *common.RegistrationCertificate:
+			if err := registerStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.StakeRegistrationDelegationCertificate:
+			if err := registerStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.VoteRegistrationDelegationCertificate:
+			if err := registerStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.StakeVoteRegistrationDelegationCertificate:
+			if err := registerStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.StakeDeregistrationCertificate:
+			if err := deregisterStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				nil,
+			); err != nil {
+				return err
+			}
+		case *common.DeregistrationCertificate:
+			if err := deregisterStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				&c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.RegistrationDrepCertificate:
+			if c.Amount < 0 || uint64(c.Amount) != drepDeposit {
+				return CertificateDepositIncorrectError{
+					CertificateType: common.CertificateType(c.CertType),
+					Supplied:        c.Amount,
+					Expected:        drepDeposit,
+				}
+			}
+			registration, err := loadDRep(c.DrepCredential)
+			if err != nil {
+				return err
+			}
+			if registration != nil {
+				return DRepAlreadyRegisteredError{Credential: c.DrepCredential}
+			}
+			drepStates[stakeKey(c.DrepCredential)] = &common.DRepRegistration{
+				Credential: c.DrepCredential.Credential,
+				Deposit:    drepDeposit,
+			}
+		case *common.DeregistrationDrepCertificate:
+			registration, err := loadDRep(c.DrepCredential)
+			if err != nil {
+				return err
+			}
+			if registration == nil {
+				return DRepNotRegisteredError{Credential: c.DrepCredential}
+			}
+			if c.Amount < 0 || uint64(c.Amount) != registration.Deposit {
+				return CertificateRefundIncorrectError{
+					CertificateType: common.CertificateType(c.CertType),
+					Supplied:        c.Amount,
+					Expected:        registration.Deposit,
+				}
+			}
+			drepStates[stakeKey(c.DrepCredential)] = nil
 		}
 	}
 	return nil

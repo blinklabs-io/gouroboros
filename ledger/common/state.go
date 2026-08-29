@@ -40,6 +40,14 @@ type CertState interface {
 	IsStakeCredentialRegistered(Credential) bool
 }
 
+// StakeCredentialDepositState is the optional ledger-state capability used by
+// Conway certificate validation to retrieve the deposit held for a registered
+// stake credential. The returned pointer is nil when the credential is not
+// registered.
+type StakeCredentialDepositState interface {
+	StakeCredentialDeposit(Credential) (*uint64, error)
+}
+
 // PoolState defines the interface for querying the current pool state
 type PoolState interface {
 	// PoolCurrentState returns the latest active registration certificate for the given pool key hash.

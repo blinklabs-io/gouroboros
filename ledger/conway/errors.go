@@ -355,6 +355,102 @@ func (DRepDelegationStateUnavailableError) Error() string {
 	return "ledger state does not support DRep delegation lookups"
 }
 
+// CertificateDepositIncorrectError indicates that a registration certificate
+// does not carry the active protocol-parameter deposit.
+type CertificateDepositIncorrectError struct {
+	CertificateType common.CertificateType
+	Supplied        int64
+	Expected        uint64
+}
+
+func (e CertificateDepositIncorrectError) Error() string {
+	return fmt.Sprintf(
+		"incorrect deposit for certificate type %d: supplied %d, expected %d",
+		e.CertificateType,
+		e.Supplied,
+		e.Expected,
+	)
+}
+
+// CertificateRefundIncorrectError indicates that a deregistration certificate
+// does not refund the deposit recorded for the credential.
+type CertificateRefundIncorrectError struct {
+	CertificateType common.CertificateType
+	Supplied        int64
+	Expected        uint64
+}
+
+func (e CertificateRefundIncorrectError) Error() string {
+	return fmt.Sprintf(
+		"incorrect refund for certificate type %d: supplied %d, expected %d",
+		e.CertificateType,
+		e.Supplied,
+		e.Expected,
+	)
+}
+
+// CertificateDepositStateUnavailableError indicates that ledger state cannot
+// provide the held stake-credential deposits needed for refund validation.
+type CertificateDepositStateUnavailableError struct{}
+
+func (CertificateDepositStateUnavailableError) Error() string {
+	return "ledger state does not support stake credential deposit lookups"
+}
+
+// CertificateDepositStateInconsistentError indicates that a registered stake
+// credential has no corresponding deposit or reward-account state.
+type CertificateDepositStateInconsistentError struct {
+	Credential common.Credential
+}
+
+func (e CertificateDepositStateInconsistentError) Error() string {
+	return fmt.Sprintf(
+		"registered stake credential has incomplete deposit state: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// StakeCredentialNotRegisteredError indicates a deregistration certificate
+// for a credential absent from the left-folded certificate state.
+type StakeCredentialNotRegisteredError struct {
+	Credential common.Credential
+}
+
+func (e StakeCredentialNotRegisteredError) Error() string {
+	return fmt.Sprintf(
+		"stake credential is not registered: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// StakeCredentialNonZeroRewardBalanceError indicates a deregistration whose
+// post-withdrawal reward balance is not zero.
+type StakeCredentialNonZeroRewardBalanceError struct {
+	Credential common.Credential
+	Balance    uint64
+}
+
+func (e StakeCredentialNonZeroRewardBalanceError) Error() string {
+	return fmt.Sprintf(
+		"stake credential has nonzero reward balance: %x (%d)",
+		e.Credential.Credential[:],
+		e.Balance,
+	)
+}
+
+// DRepNotRegisteredError indicates a DRep deregistration certificate for a
+// credential absent from the left-folded DRep state.
+type DRepNotRegisteredError struct {
+	Credential common.Credential
+}
+
+func (e DRepNotRegisteredError) Error() string {
+	return fmt.Sprintf(
+		"DRep is not registered: %x",
+		e.Credential.Credential[:],
+	)
+}
+
 // StakeCredentialAlreadyRegisteredError indicates attempting to register an already registered stake credential
 type StakeCredentialAlreadyRegisteredError struct {
 	Credential common.Credential
