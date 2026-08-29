@@ -206,7 +206,7 @@ func UtxoValidateWrongNetworkWithdrawal(
 		badAddrs = append(badAddrs, *addr)
 	}
 	if len(badAddrs) == 0 {
-		return nil
+		return common.ValidateWithdrawalAddresses(tx.Withdrawals())
 	}
 	return WrongNetworkWithdrawalError{
 		NetId: networkId,
@@ -627,6 +627,9 @@ func UtxoValidateWithdrawals(
 	if withdrawals == nil {
 		return nil
 	}
+	if err := common.ValidateWithdrawalAddresses(withdrawals); err != nil {
+		return err
+	}
 
 	requireExactAmount := true
 	if versionedPparams, ok := pp.(interface {
@@ -646,9 +649,9 @@ func UtxoValidateWithdrawals(
 	}
 
 	for addr, amount := range withdrawals {
-		cred, ok := addr.StakeCredential()
-		if !ok {
-			continue
+		cred, err := addr.RewardAccountCredential()
+		if err != nil {
+			return err
 		}
 
 		balance, err := ls.RewardAccountBalance(cred)

@@ -442,6 +442,8 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	testWrongNetworkAddr, _ := common.NewAddress(
 		"addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07",
 	)
+	testCorrectNetworkAddr = *testCorrectNetworkAddr.StakeAddress()
+	testWrongNetworkAddr = *testWrongNetworkAddr.StakeAddress()
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
 			TxWithdrawals: map[*common.Address]uint64{},
