@@ -776,20 +776,28 @@ func (c *Client) syncLoop(
 		}
 		// Request the next block(s)
 		msgCount := max(c.config.PipelineLimit, 1)
+		proto := c.ProtocolInstance()
+		c.lifecycleMutex.Unlock()
 		if c.testSyncLoopBeforeRequestNext != nil {
 			c.testSyncLoopBeforeRequestNext()
 		}
 		for range msgCount {
 			msg := NewMsgRequestNext()
-			if err := c.SendMessage(msg); err != nil {
+			if err := proto.SendMessage(msg); err != nil {
 				c.SendError(err)
-				c.lifecycleMutex.Unlock()
 				c.busyMutex.Unlock()
 				return
 			}
 		}
 		if c.testSyncLoopAfterRequestNext != nil {
 			c.testSyncLoopAfterRequestNext()
+		}
+		c.lifecycleMutex.Lock()
+		if c.lifecycleState != clientStateRunning ||
+			c.ProtocolInstance() != proto {
+			c.lifecycleMutex.Unlock()
+			c.busyMutex.Unlock()
+			return
 		}
 		c.syncPipelinedRequestNext = msgCount - 1
 		c.lifecycleMutex.Unlock()

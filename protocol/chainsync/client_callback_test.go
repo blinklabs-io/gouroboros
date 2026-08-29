@@ -118,7 +118,55 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 		)
 	})
 
-	t.Run("stopped pipeline", func(t *testing.T) {
+	t.Run("stopped pipeline while running", func(t *testing.T) {
+		p := pipeline.NewBlockPipeline(
+			pipeline.WithValidateWorkers(0),
+		)
+		require.NoError(t, p.Start(context.Background()))
+		require.NoError(t, p.Stop())
+		callbackCalled := false
+		client := NewClient(
+			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+			&Config{
+				Pipeline: p,
+				AwaitReplyFunc: func(CallbackContext) error {
+					callbackCalled = true
+					return nil
+				},
+			},
+		)
+		client.lifecycleState = clientStateRunning
+		require.ErrorIs(
+			t,
+			client.handleAwaitReply(),
+			pipeline.ErrPipelineStopped,
+		)
+		require.False(t, callbackCalled)
+	})
+
+	t.Run("stopped pipeline while stopping", func(t *testing.T) {
+		p := pipeline.NewBlockPipeline(
+			pipeline.WithValidateWorkers(0),
+		)
+		require.NoError(t, p.Start(context.Background()))
+		require.NoError(t, p.Stop())
+		callbackCalled := false
+		client := NewClient(
+			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+			&Config{
+				Pipeline: p,
+				AwaitReplyFunc: func(CallbackContext) error {
+					callbackCalled = true
+					return nil
+				},
+			},
+		)
+		client.lifecycleState = clientStateStopping
+		require.NoError(t, client.handleAwaitReply())
+		require.False(t, callbackCalled)
+	})
+
+	t.Run("stopped pipeline while stopped", func(t *testing.T) {
 		p := pipeline.NewBlockPipeline(
 			pipeline.WithValidateWorkers(0),
 		)
@@ -130,24 +178,6 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 		)
 		client.lifecycleState = clientStateStopped
 		require.NoError(t, client.handleAwaitReply())
-	})
-
-	t.Run("stopped pipeline while running", func(t *testing.T) {
-		p := pipeline.NewBlockPipeline(
-			pipeline.WithValidateWorkers(0),
-		)
-		require.NoError(t, p.Start(context.Background()))
-		require.NoError(t, p.Stop())
-		client := NewClient(
-			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
-			&Config{Pipeline: p},
-		)
-		client.lifecycleState = clientStateRunning
-		require.ErrorIs(
-			t,
-			client.handleAwaitReply(),
-			pipeline.ErrPipelineStopped,
-		)
 	})
 
 	t.Run("not-started pipeline while running", func(t *testing.T) {

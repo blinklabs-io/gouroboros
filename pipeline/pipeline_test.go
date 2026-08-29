@@ -948,6 +948,51 @@ func TestBlockPipelineFenceWaitsForBlockedApply(t *testing.T) {
 	}
 }
 
+func TestBlockPipelineFenceCancelsWhileWaitingForBlockedSubmit(t *testing.T) {
+	p := &BlockPipeline{
+		submitChan: make(chan *BlockItem, 1),
+		submitGate: make(chan struct{}, 1),
+		ctx:        context.Background(),
+	}
+	p.started.Store(true)
+	p.submitGate <- struct{}{}
+	p.submitChan <- nil
+
+	submitLocked := make(chan struct{})
+	p.testSubmitLocked = func() { close(submitLocked) }
+	submitCtx, cancelSubmit := context.WithCancel(context.Background())
+	submitDone := make(chan error, 1)
+	go func() {
+		submitDone <- p.Submit(submitCtx, 0, nil, pcommon.Tip{})
+	}()
+	select {
+	case <-submitLocked:
+	case <-time.After(time.Second):
+		t.Fatal("submission did not acquire the pipeline boundary")
+	}
+	defer func() {
+		cancelSubmit()
+		select {
+		case err := <-submitDone:
+			require.ErrorIs(t, err, context.Canceled)
+		case <-time.After(time.Second):
+			t.Error("blocked submission did not cancel")
+		}
+	}()
+
+	fenceCtx, cancelFence := context.WithCancel(context.Background())
+	defer cancelFence()
+	fenceDone := make(chan error, 1)
+	go func() { fenceDone <- p.Fence(fenceCtx) }()
+	cancelFence()
+	select {
+	case err := <-fenceDone:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("canceled fence did not return while submit held the boundary")
+	}
+}
+
 func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	t *testing.T,
 ) {

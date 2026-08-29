@@ -173,30 +173,24 @@ func TestStopUnblocksInitialRequestEnqueue(t *testing.T) {
 	}
 }
 
-func TestStopWaitsForPipelineRequestBurstLifecycleFence(t *testing.T) {
+func TestStopUnblocksPipelineRequestBurstEnqueue(t *testing.T) {
 	cfg := NewConfig(WithPipelineLimit(3))
 	client, cleanup := newStartedTestClient(t, &cfg)
 	defer cleanup()
 
 	beforeEnqueue := make(chan struct{})
 	allowEnqueue := make(chan struct{})
-	enqueued := make(chan struct{})
 	stopInitiated := make(chan struct{})
+	var releaseEnqueueOnce sync.Once
+	releaseEnqueue := func() {
+		releaseEnqueueOnce.Do(func() { close(allowEnqueue) })
+	}
+	defer releaseEnqueue()
 	client.testSyncLoopBeforeRequestNext = func() {
 		close(beforeEnqueue)
 		<-allowEnqueue
 	}
-	client.testSyncLoopAfterRequestNext = func() { close(enqueued) }
-	client.testStopInitiated = func() {
-		select {
-		case <-enqueued:
-		case <-time.After(time.Second):
-			t.Error(
-				"Stop began before the sync loop queued its RequestNext burst",
-			)
-		}
-		close(stopInitiated)
-	}
+	client.testStopInitiated = func() { close(stopInitiated) }
 
 	readyForNextBlockChan := make(chan bool, 1)
 	client.syncLoopWaitGroup.Add(1)
@@ -214,25 +208,13 @@ func TestStopWaitsForPipelineRequestBurstLifecycleFence(t *testing.T) {
 	go func() { stopDone <- client.Stop() }()
 	select {
 	case <-stopInitiated:
+	case <-time.After(time.Second):
 		t.Fatal(
-			"Stop began while the sync loop held its request lifecycle fence",
+			"Stop could not begin while the sync loop was waiting to enqueue",
 		)
-	default:
 	}
 
-	close(allowEnqueue)
-	select {
-	case <-enqueued:
-	case <-time.After(time.Second):
-		t.Fatal("sync loop did not queue its RequestNext burst")
-	}
-	select {
-	case <-stopInitiated:
-	case <-time.After(time.Second):
-		t.Fatal(
-			"Stop did not begin after the sync loop released its lifecycle fence",
-		)
-	}
+	releaseEnqueue()
 	select {
 	case err := <-stopDone:
 		require.NoError(t, err)

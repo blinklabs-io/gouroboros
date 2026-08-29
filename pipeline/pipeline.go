@@ -85,10 +85,14 @@ type BlockPipeline struct {
 	stopped           atomic.Bool
 	wg                sync.WaitGroup
 	mu                sync.Mutex // protects Start/Stop
-	// submitMu serializes successful submissions and Fence boundaries.
-	submitMu       sync.Mutex
+	// submitGate serializes successful submissions and Fence boundaries.
+	// Its channel form lets Fence stop waiting when its context is canceled.
+	submitGate     chan struct{}
 	completionMu   sync.Mutex
 	completionChan chan struct{}
+	// The test hook makes blocked Submit/Fence interleavings deterministic
+	// without changing production behavior.
+	testSubmitLocked func()
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
@@ -105,10 +109,28 @@ func NewBlockPipeline(opts ...PipelineOption) *BlockPipeline {
 	for _, opt := range opts {
 		opt(&config)
 	}
-	return &BlockPipeline{
-		config:  config,
-		metrics: NewPipelineMetrics(config.MetricsWindowSize),
+	p := &BlockPipeline{
+		config:     config,
+		metrics:    NewPipelineMetrics(config.MetricsWindowSize),
+		submitGate: make(chan struct{}, 1),
 	}
+	p.submitGate <- struct{}{}
+	return p
+}
+
+func (p *BlockPipeline) lockSubmit(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.ctx.Done():
+		return ErrPipelineStopped
+	case <-p.submitGate:
+		return nil
+	}
+}
+
+func (p *BlockPipeline) unlockSubmit() {
+	p.submitGate <- struct{}{}
 }
 
 // Start starts the pipeline processing.
@@ -229,11 +251,16 @@ func (p *BlockPipeline) Submit(
 		return ErrPipelineNotStarted
 	}
 
-	// The lock prevents Stop from closing submitChan while a submission is in
+	// The gate prevents Stop from closing submitChan while a submission is in
 	// flight. It also serializes the enqueue and sequence commit, so canceled
 	// submissions cannot leave a sequence gap that would block ordered apply.
-	p.submitMu.Lock()
-	defer p.submitMu.Unlock()
+	if err := p.lockSubmit(ctx); err != nil {
+		return err
+	}
+	defer p.unlockSubmit()
+	if p.testSubmitLocked != nil {
+		p.testSubmitLocked()
+	}
 
 	// Check stopped under lock to ensure we don't race with Stop()
 	if p.stopped.Load() {
@@ -241,7 +268,7 @@ func (p *BlockPipeline) Submit(
 	}
 
 	// Commit a sequence number only after its item was successfully enqueued.
-	// Keeping the provisional ID under submitMu makes successful IDs unique and
+	// Keeping the provisional ID under submitGate makes successful IDs unique and
 	// contiguous in queue order, while canceled or backpressured submissions do
 	// not create positions that Fence must wait for.
 	sequence := p.sequenceCounter.Load()
@@ -268,16 +295,18 @@ func (p *BlockPipeline) Fence(ctx context.Context) error {
 		return ErrPipelineNotStarted
 	}
 
-	// The lock excludes in-flight submissions while we capture the sequence
-	// boundary. Submit commits each sequence number under this lock only after
+	// The gate excludes in-flight submissions while we capture the sequence
+	// boundary. Submit commits each sequence number under this gate only after
 	// enqueue, so every position at or below target is waitable.
-	p.submitMu.Lock()
+	if err := p.lockSubmit(ctx); err != nil {
+		return err
+	}
 	if p.stopped.Load() {
-		p.submitMu.Unlock()
+		p.unlockSubmit()
 		return ErrPipelineStopped
 	}
 	target := p.sequenceCounter.Load()
-	p.submitMu.Unlock()
+	p.unlockSubmit()
 	if target == 0 {
 		return nil
 	}
@@ -340,18 +369,18 @@ func (p *BlockPipeline) Stop() error {
 	}
 
 	// Cancel context FIRST to unblock any Submit() calls waiting on channel send.
-	// This must happen before acquiring submitMu.Lock() to avoid deadlock:
-	// Submit() holds RLock while blocking on channel, and we need it to unblock
-	// via ctx.Done() before we can acquire the write lock.
+	// This must happen before acquiring submitGate to avoid deadlock: Submit()
+	// holds the gate while blocking on the channel, and we need it to unblock
+	// via ctx.Done() before we can acquire the gate.
 	p.cancel()
 
-	// Now acquire write lock to ensure no Submit() calls are in progress.
+	// Now acquire the gate to ensure no Submit() calls are in progress.
 	// Any Submit() blocked on channel send will now return via ctx.Done().
-	p.submitMu.Lock()
+	<-p.submitGate
 	p.stopped.Store(true)
 	// Close input channel to signal shutdown
 	close(p.submitChan)
-	p.submitMu.Unlock()
+	p.unlockSubmit()
 
 	// Wait for decode workers to finish
 	p.decodePool.Stop()
