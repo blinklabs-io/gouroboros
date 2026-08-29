@@ -15,6 +15,7 @@
 package blockfetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -70,6 +71,8 @@ const (
 // owns the next MsgStartBatch, MsgNoBlocks, MsgBlock, and MsgBatchDone.
 type rangeRequest struct {
 	id             uint64
+	start          pcommon.Point
+	end            pcommon.Point
 	protocol       *protocol.Protocol
 	delivery       requestDelivery
 	pipelined      bool
@@ -720,6 +723,8 @@ func (c *Client) sendRequestRange(
 		c.nextRequestId++
 		req = &rangeRequest{
 			id:            c.nextRequestId,
+			start:         start,
+			end:           end,
 			protocol:      proto,
 			delivery:      delivery,
 			pipelined:     pipelined,
@@ -1030,12 +1035,39 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 		req.blockDelivered = true
 	}
 	c.queueMutex.Unlock()
-	// Decode only enough to get the block type value
+	// Decode the wrapper and block header before delivering anything. The
+	// response point must be correlated with the requested range; otherwise a
+	// peer can inject an unrelated block into a valid batch.
 	var wrappedBlock WrappedBlock
 	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
 		return c.failRequest(
 			req,
 			fmt.Errorf("%s: decode error: %w", ProtocolName, err),
+		)
+	}
+	block, err := ledger.NewBlockFromCbor(
+		wrappedBlock.Type,
+		wrappedBlock.RawBlock,
+		lcommon.VerifyConfig{
+			SkipBodyHashValidation: c.config.SkipBlockValidation,
+		},
+	)
+	if err != nil {
+		return c.failRequest(req, err)
+	}
+	blockPoint := pcommon.NewPoint(
+		block.SlotNumber(),
+		block.Hash().Bytes(),
+	)
+	if !pointInRange(blockPoint, req.start, req.end) {
+		return c.failRequest(
+			req,
+			fmt.Errorf(
+				"%s: received block outside requested range: slot=%d hash=%x",
+				ProtocolName,
+				blockPoint.Slot,
+				blockPoint.Hash,
+			),
 		)
 	}
 	// If pipeline is configured, submit to pipeline
@@ -1073,20 +1105,6 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 		}
 		return nil
 	}
-	var block ledger.Block
-	if req.delivery == deliveryChannel || c.config.BlockFunc != nil {
-		var err error
-		block, err = ledger.NewBlockFromCbor(
-			wrappedBlock.Type,
-			wrappedBlock.RawBlock,
-			lcommon.VerifyConfig{
-				SkipBodyHashValidation: c.config.SkipBlockValidation,
-			},
-		)
-		if err != nil {
-			return c.failRequest(req, err)
-		}
-	}
 	// Check for shutdown
 	select {
 	case <-c.DoneChan():
@@ -1121,6 +1139,26 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	default:
 	}
 	return nil
+}
+
+func pointInRange(block, start, end pcommon.Point) bool {
+	if start.Hash != nil {
+		if block.Slot < start.Slot {
+			return false
+		}
+		if block.Slot == start.Slot && !bytes.Equal(block.Hash, start.Hash) {
+			return false
+		}
+	}
+	if end.Hash != nil {
+		if block.Slot > end.Slot {
+			return false
+		}
+		if block.Slot == end.Slot && !bytes.Equal(block.Hash, end.Hash) {
+			return false
+		}
+	}
+	return true
 }
 
 // failRequest retires a request that cannot be completed and returns the

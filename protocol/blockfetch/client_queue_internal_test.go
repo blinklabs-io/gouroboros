@@ -34,6 +34,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPointInRange(t *testing.T) {
+	start := pcommon.NewPoint(100, []byte("start"))
+	end := pcommon.NewPoint(200, []byte("end"))
+	tests := []struct {
+		name  string
+		point pcommon.Point
+		want  bool
+	}{
+		{name: "before", point: pcommon.NewPoint(99, []byte("before"))},
+		{name: "inside", point: pcommon.NewPoint(150, []byte("inside")), want: true},
+		{name: "after", point: pcommon.NewPoint(201, []byte("after"))},
+		{name: "start", point: start, want: true},
+		{name: "end", point: end, want: true},
+		{
+			name:  "same slot wrong hash",
+			point: pcommon.NewPoint(100, []byte("other")),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := pointInRange(test.point, start, end); got != test.want {
+				t.Fatalf("pointInRange() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 // newQueueTestClient builds a client whose protocol was never started. The
 // outstanding-request queue and the in-flight byte accounting do not touch the
 // network, so they can be exercised directly.
