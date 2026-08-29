@@ -239,6 +239,23 @@ func (e ExtraneousRedeemerError) Error() string {
 	)
 }
 
+// MissingRedeemerForScriptError indicates that an available Plutus script is
+// required by a concrete purpose but the witness set has no redeemer at that
+// purpose's exact tag and canonical index.
+type MissingRedeemerForScriptError struct {
+	ScriptHash  ScriptHash
+	RedeemerKey RedeemerKey
+}
+
+func (e MissingRedeemerForScriptError) Error() string {
+	return fmt.Sprintf(
+		"missing redeemer for script %x: tag=%d, index=%d",
+		e.ScriptHash[:],
+		e.RedeemerKey.Tag,
+		e.RedeemerKey.Index,
+	)
+}
+
 // BlockExUnitsTooBigError indicates the sum of transaction execution units
 // across an entire block exceeds the protocol's maximum block execution-unit
 // budget (ppMaxBlockExUnits). This is a block-wide (BBODY) check in addition

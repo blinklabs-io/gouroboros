@@ -22,6 +22,7 @@ package common
 //   - ledger/{era}/rules.go: Era-specific validation rules
 
 import (
+	"bytes"
 	"fmt"
 	"math/bits"
 	"sort"
@@ -160,81 +161,165 @@ func (e MissingRequiredVKeyWitnessForSignerError) Error() string {
 	)
 }
 
+// MalformedAuthorizationError reports a certificate or voter whose
+// authorization requirement cannot be determined safely.
+type MalformedAuthorizationError struct {
+	Subject string
+}
+
+func (e MalformedAuthorizationError) Error() string {
+	return "malformed authorization subject: " + e.Subject
+}
+
 // forEachCertificateCredential visits every credential whose authorization is
 // carried by a transaction certificate. Only legacy stake registration does
 // not require authorization; explicit-deposit registration requires the stake
 // credential witness. Keeping this traversal shared prevents key and script
-// credential requirements from diverging.
+// credential requirements from diverging. Malformed certificates fail closed
+// rather than silently omitting an authorization requirement.
+//
+// Certificate authorization completeness (CBOR tags):
+//
+//   - 0: legacy registration has no credential witness.
+//   - 1, 2, 7-18: the certificate credential named below authorizes it.
+//   - 3: the pool operator is collected separately, and every pool owner is
+//     collected by the independent owners term.
+//   - 4: the retiring pool key is collected separately.
+//   - 5: the genesis root key authorizes delegation; the new delegate and VRF
+//     key are targets, not authors.
+//   - 6: MIR has no field-level author. The Shelley-through-Babbage reference
+//     rule enforces its stateful genesis-delegate quorum in a separate UTXOW
+//     predicate; Conway expunges MIR.
+//
+// This switch deliberately names all 19 certificate forms so typed nils and a
+// future unhandled implementation cannot silently bypass authorization.
 func forEachCertificateCredential(
 	cert Certificate,
 	visit func(credential Credential, requiresWitness bool),
-) {
+) error {
+	visitCredential := func(credential Credential, requiresWitness bool) error {
+		switch credential.CredType {
+		case CredentialTypeAddrKeyHash, CredentialTypeScriptHash:
+			visit(credential, requiresWitness)
+			return nil
+		default:
+			return MalformedAuthorizationError{
+				Subject: fmt.Sprintf(
+					"certificate credential type %d",
+					credential.CredType,
+				),
+			}
+		}
+	}
+	typedNil := func(name string) error {
+		return MalformedAuthorizationError{Subject: "nil " + name}
+	}
+	if cert == nil {
+		return typedNil("certificate")
+	}
 	switch c := cert.(type) {
 	case *StakeRegistrationCertificate:
-		if c != nil {
-			visit(c.StakeCredential, false)
+		if c == nil {
+			return typedNil("stake registration certificate")
 		}
+		return visitCredential(c.StakeCredential, false)
 	case *StakeDeregistrationCertificate:
-		if c != nil {
-			visit(c.StakeCredential, true)
+		if c == nil {
+			return typedNil("stake deregistration certificate")
 		}
+		return visitCredential(c.StakeCredential, true)
 	case *StakeDelegationCertificate:
-		if c != nil && c.StakeCredential != nil {
-			visit(*c.StakeCredential, true)
+		if c == nil {
+			return typedNil("stake delegation certificate")
 		}
+		if c.StakeCredential == nil {
+			return typedNil("stake delegation credential")
+		}
+		return visitCredential(*c.StakeCredential, true)
 	case *RegistrationCertificate:
-		if c != nil {
-			visit(c.StakeCredential, true)
+		if c == nil {
+			return typedNil("registration certificate")
 		}
+		return visitCredential(c.StakeCredential, true)
 	case *DeregistrationCertificate:
-		if c != nil {
-			visit(c.StakeCredential, true)
+		if c == nil {
+			return typedNil("deregistration certificate")
 		}
+		return visitCredential(c.StakeCredential, true)
 	case *VoteDelegationCertificate:
-		if c != nil {
-			visit(c.StakeCredential, true)
+		if c == nil {
+			return typedNil("vote delegation certificate")
 		}
+		return visitCredential(c.StakeCredential, true)
 	case *StakeVoteDelegationCertificate:
-		if c != nil {
-			visit(c.StakeCredential, true)
+		if c == nil {
+			return typedNil("stake vote delegation certificate")
 		}
+		return visitCredential(c.StakeCredential, true)
 	case *StakeRegistrationDelegationCertificate:
-		if c != nil {
-			visit(c.StakeCredential, true)
+		if c == nil {
+			return typedNil("stake registration delegation certificate")
 		}
+		return visitCredential(c.StakeCredential, true)
 	case *VoteRegistrationDelegationCertificate:
-		if c != nil {
-			visit(c.StakeCredential, true)
+		if c == nil {
+			return typedNil("vote registration delegation certificate")
 		}
+		return visitCredential(c.StakeCredential, true)
 	case *StakeVoteRegistrationDelegationCertificate:
-		if c != nil {
-			visit(c.StakeCredential, true)
+		if c == nil {
+			return typedNil("stake vote registration delegation certificate")
 		}
+		return visitCredential(c.StakeCredential, true)
 	case *AuthCommitteeHotCertificate:
-		if c != nil {
-			visit(c.ColdCredential, true)
+		if c == nil {
+			return typedNil("committee hot authorization certificate")
 		}
+		return visitCredential(c.ColdCredential, true)
 	case *ResignCommitteeColdCertificate:
-		if c != nil {
-			visit(c.ColdCredential, true)
+		if c == nil {
+			return typedNil("committee cold resignation certificate")
 		}
+		return visitCredential(c.ColdCredential, true)
 	case *RegistrationDrepCertificate:
-		if c != nil {
-			visit(c.DrepCredential, true)
+		if c == nil {
+			return typedNil("DRep registration certificate")
 		}
+		return visitCredential(c.DrepCredential, true)
 	case *DeregistrationDrepCertificate:
-		if c != nil {
-			visit(c.DrepCredential, true)
+		if c == nil {
+			return typedNil("DRep deregistration certificate")
 		}
+		return visitCredential(c.DrepCredential, true)
 	case *UpdateDrepCertificate:
-		if c != nil {
-			visit(c.DrepCredential, true)
+		if c == nil {
+			return typedNil("DRep update certificate")
 		}
-	case *PoolRegistrationCertificate,
-		*PoolRetirementCertificate,
-		*GenesisKeyDelegationCertificate,
-		*MoveInstantaneousRewardsCertificate:
-		// These certificate forms do not carry a key-or-script Credential.
+		return visitCredential(c.DrepCredential, true)
+	case *PoolRegistrationCertificate:
+		if c == nil {
+			return typedNil("pool registration certificate")
+		}
+		return nil
+	case *PoolRetirementCertificate:
+		if c == nil {
+			return typedNil("pool retirement certificate")
+		}
+		return nil
+	case *GenesisKeyDelegationCertificate:
+		if c == nil {
+			return typedNil("genesis key delegation certificate")
+		}
+		return nil
+	case *MoveInstantaneousRewardsCertificate:
+		if c == nil {
+			return typedNil("instantaneous rewards certificate")
+		}
+		return nil
+	default:
+		return MalformedAuthorizationError{
+			Subject: fmt.Sprintf("unsupported certificate type %T", cert),
+		}
 	}
 }
 
@@ -298,14 +383,16 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 		}
 	}
 	for _, cert := range tx.Certificates() {
-		forEachCertificateCredential(cert, func(
+		if err := forEachCertificateCredential(cert, func(
 			credential Credential,
 			requiresWitness bool,
 		) {
 			if requiresWitness && credential.CredType == CredentialTypeAddrKeyHash {
 				required[credential.Credential] = struct{}{}
 			}
-		})
+		}); err != nil {
+			return err
+		}
 		switch c := cert.(type) {
 		case *PoolRegistrationCertificate:
 			if c == nil {
@@ -321,19 +408,23 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 			}
 		case *GenesisKeyDelegationCertificate:
 			if c != nil {
+				if len(c.GenesisHash) != Blake2b224Size {
+					return MalformedAuthorizationError{Subject: fmt.Sprintf(
+						"genesis key hash length %d",
+						len(c.GenesisHash),
+					)}
+				}
 				required[NewBlake2b224(c.GenesisHash)] = struct{}{}
 			}
 		}
 	}
 	for voter := range tx.VotingProcedures() {
-		if voter == nil {
-			continue
+		credential, err := voterCredential(voter)
+		if err != nil {
+			return err
 		}
-		switch voter.Type {
-		case VoterTypeConstitutionalCommitteeHotKeyHash,
-			VoterTypeDRepKeyHash,
-			VoterTypeStakingPoolKeyHash:
-			required[NewBlake2b224(voter.Hash[:])] = struct{}{}
+		if credential.CredType == CredentialTypeAddrKeyHash {
+			required[credential.Credential] = struct{}{}
 		}
 	}
 	if len(required) == 0 {
@@ -371,170 +462,333 @@ func ValidateUnsupportedPlutusExecution(tx Transaction, era string) error {
 	return nil
 }
 
-// ValidateScriptWitnesses checks that script witnesses are provided for all script address inputs
-// and that there are no extraneous script witnesses.
-func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
-	if ls == nil {
-		return nil
-	}
+type scriptRequirement struct {
+	hash     ScriptHash
+	redeemer RedeemerKey
+}
 
-	// If IsValid=false, the transaction is expected to fail phase-2 validation.
-	// Phase-1 validation should still pass even without script witnesses.
-	if !tx.IsValid() {
-		return nil
-	}
+type transactionScriptRequirements struct {
+	required    map[ScriptHash]struct{}
+	purposes    []scriptRequirement
+	explicit    map[ScriptHash]Script
+	available   map[ScriptHash]Script
+	nativeOrder []ScriptHash
+}
 
-	wits := tx.Witnesses()
-	inputs := tx.Inputs()
-	referenceInputs := tx.ReferenceInputs()
-
-	// Collect all script hashes required by script address inputs
-	requiredScriptHashes := make(map[ScriptHash]struct{}, len(inputs))
-	referenceProvided := make(map[ScriptHash]struct{}, len(inputs)+len(referenceInputs))
-	for _, input := range inputs {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// If we can't resolve the UTxO, we can't validate script witnesses
-			// This should be caught by BadInputsUtxo validation
-			continue
+func normalizeAvailableScript(script Script) (Script, error) {
+	switch s := script.(type) {
+	case NativeScript:
+		return s, nil
+	case *NativeScript:
+		if s == nil {
+			return nil, MalformedAuthorizationError{Subject: "nil native script"}
 		}
-		if utxo.Output == nil {
+		return *s, nil
+	case PlutusV1Script:
+		return s, nil
+	case *PlutusV1Script:
+		if s == nil {
+			return nil, MalformedAuthorizationError{Subject: "nil Plutus V1 script"}
+		}
+		return *s, nil
+	case PlutusV2Script:
+		return s, nil
+	case *PlutusV2Script:
+		if s == nil {
+			return nil, MalformedAuthorizationError{Subject: "nil Plutus V2 script"}
+		}
+		return *s, nil
+	case PlutusV3Script:
+		return s, nil
+	case *PlutusV3Script:
+		if s == nil {
+			return nil, MalformedAuthorizationError{Subject: "nil Plutus V3 script"}
+		}
+		return *s, nil
+	case PlutusV4Script:
+		return s, nil
+	case *PlutusV4Script:
+		if s == nil {
+			return nil, MalformedAuthorizationError{Subject: "nil Plutus V4 script"}
+		}
+		return *s, nil
+	default:
+		return nil, MalformedAuthorizationError{
+			Subject: fmt.Sprintf("unsupported script type %T", script),
+		}
+	}
+}
+
+func addAvailableScript(
+	dst map[ScriptHash]Script,
+	script Script,
+) (ScriptHash, error) {
+	normalized, err := normalizeAvailableScript(script)
+	if err != nil {
+		return ScriptHash{}, err
+	}
+	hash := normalized.Hash()
+	dst[hash] = normalized
+	return hash, nil
+}
+
+func voterCredential(voter *Voter) (Credential, error) {
+	if voter == nil {
+		return Credential{}, MalformedAuthorizationError{Subject: "nil voter"}
+	}
+	credential := Credential{Credential: NewBlake2b224(voter.Hash[:])}
+	switch voter.Type {
+	case VoterTypeConstitutionalCommitteeHotKeyHash,
+		VoterTypeDRepKeyHash,
+		VoterTypeStakingPoolKeyHash:
+		credential.CredType = CredentialTypeAddrKeyHash
+	case VoterTypeConstitutionalCommitteeHotScriptHash,
+		VoterTypeDRepScriptHash:
+		credential.CredType = CredentialTypeScriptHash
+	default:
+		return Credential{}, MalformedAuthorizationError{
+			Subject: fmt.Sprintf("voter type %d", voter.Type),
+		}
+	}
+	return credential, nil
+}
+
+func voterPurposeOrder(voter *Voter) int {
+	switch voter.Type {
+	case VoterTypeConstitutionalCommitteeHotScriptHash:
+		return 0
+	case VoterTypeConstitutionalCommitteeHotKeyHash:
+		return 1
+	case VoterTypeDRepScriptHash:
+		return 2
+	case VoterTypeDRepKeyHash:
+		return 3
+	case VoterTypeStakingPoolKeyHash:
+		return 4
+	default:
+		return -1
+	}
+}
+
+func collectTransactionScriptRequirements(
+	tx Transaction,
+	ls LedgerState,
+) (transactionScriptRequirements, error) {
+	ret := transactionScriptRequirements{
+		required:  make(map[ScriptHash]struct{}),
+		explicit:  make(map[ScriptHash]Script),
+		available: make(map[ScriptHash]Script),
+	}
+	addRequirement := func(hash ScriptHash, tag RedeemerTag, index int) {
+		ret.required[hash] = struct{}{}
+		ret.purposes = append(ret.purposes, scriptRequirement{
+			hash: hash,
+			redeemer: RedeemerKey{
+				Tag:   tag,
+				Index: uint32(index), // #nosec G115 -- transaction collections are bounded
+			},
+		})
+	}
+	addWitnessSet := func(wits TransactionWitnessSet) error {
+		if wits == nil {
+			return nil
+		}
+		for _, native := range wits.NativeScripts() {
+			hash, err := addAvailableScript(ret.available, native)
+			if err != nil {
+				return err
+			}
+			ret.explicit[hash] = ret.available[hash]
+			ret.nativeOrder = append(ret.nativeOrder, hash)
+		}
+		for _, plutus := range wits.PlutusV1Scripts() {
+			hash, err := addAvailableScript(ret.available, plutus)
+			if err != nil {
+				return err
+			}
+			ret.explicit[hash] = ret.available[hash]
+		}
+		for _, plutus := range wits.PlutusV2Scripts() {
+			hash, err := addAvailableScript(ret.available, plutus)
+			if err != nil {
+				return err
+			}
+			ret.explicit[hash] = ret.available[hash]
+		}
+		for _, plutus := range wits.PlutusV3Scripts() {
+			hash, err := addAvailableScript(ret.available, plutus)
+			if err != nil {
+				return err
+			}
+			ret.explicit[hash] = ret.available[hash]
+		}
+		for _, plutus := range PlutusV4ScriptsFromWitnessSet(wits) {
+			hash, err := addAvailableScript(ret.available, plutus)
+			if err != nil {
+				return err
+			}
+			ret.explicit[hash] = ret.available[hash]
+		}
+		return nil
+	}
+	if err := addWitnessSet(tx.Witnesses()); err != nil {
+		return ret, err
+	}
+
+	resolvedInputs := make(map[string]Utxo, len(tx.Inputs()))
+	if ls != nil {
+		for _, input := range tx.Inputs() {
+			utxo, err := ls.UtxoById(input)
+			if err != nil {
+				// BadInputsUtxo reports unresolved consumed inputs before script
+				// evaluation. Preserve that error precedence here.
+				continue
+			}
+			resolvedInputs[input.String()] = utxo
+			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
+				if _, err := addAvailableScript(
+					ret.available,
+					utxo.Output.ScriptRef(),
+				); err != nil {
+					return ret, err
+				}
+			}
+		}
+		for _, input := range tx.ReferenceInputs() {
+			utxo, err := ls.UtxoById(input)
+			if err != nil {
+				return ret, ReferenceInputResolutionError{Input: input, Err: err}
+			}
+			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
+				if _, err := addAvailableScript(
+					ret.available,
+					utxo.Output.ScriptRef(),
+				); err != nil {
+					return ret, err
+				}
+			}
+		}
+	}
+
+	inputs := append([]TransactionInput(nil), tx.Inputs()...)
+	sort.Slice(inputs, func(i, j int) bool {
+		if cmp := bytes.Compare(inputs[i].Id().Bytes(), inputs[j].Id().Bytes()); cmp != 0 {
+			return cmp < 0
+		}
+		return inputs[i].Index() < inputs[j].Index()
+	})
+	for index, input := range inputs {
+		utxo, ok := resolvedInputs[input.String()]
+		if !ok || utxo.Output == nil {
 			continue
 		}
 		addr := utxo.Output.Address()
-
-		// Check if this is a script address (payment part is script)
-		if (addr.Type() & AddressTypeScriptBit) != 0 {
-			paymentScriptHash := addr.PaymentKeyHash()
-			// This is a script payment address that needs a script witness.
-			// The script can be provided via the witness set or via ScriptRef
-			// from any input (including the spent UTxO itself or reference inputs).
-			requiredScriptHashes[ScriptHash(paymentScriptHash)] = struct{}{}
-		}
-		// Regular (spent) inputs can also provide reference scripts.
-		if script := utxo.Output.ScriptRef(); script != nil {
-			referenceProvided[script.Hash()] = struct{}{}
-		}
-		// Note: Staking script validation is handled separately in delegation rules
-	}
-
-	// Collect explicit provided script witnesses (those carried in the tx)
-	explicitCap := 0
-	if wits != nil {
-		explicitCap += len(wits.NativeScripts())
-		explicitCap += len(wits.PlutusV1Scripts())
-		explicitCap += len(wits.PlutusV2Scripts())
-		explicitCap += len(wits.PlutusV3Scripts())
-		explicitCap += len(PlutusV4ScriptsFromWitnessSet(wits))
-	}
-	explicitProvided := make(map[ScriptHash]struct{}, explicitCap)
-	if wits != nil {
-		// Native scripts
-		for _, script := range wits.NativeScripts() {
-			explicitProvided[script.Hash()] = struct{}{}
-		}
-
-		// Plutus scripts
-		for _, script := range wits.PlutusV1Scripts() {
-			explicitProvided[script.Hash()] = struct{}{}
-		}
-		for _, script := range wits.PlutusV2Scripts() {
-			explicitProvided[script.Hash()] = struct{}{}
-		}
-		for _, script := range wits.PlutusV3Scripts() {
-			explicitProvided[script.Hash()] = struct{}{}
-		}
-		for _, script := range PlutusV4ScriptsFromWitnessSet(wits) {
-			explicitProvided[script.Hash()] = struct{}{}
+		if addr.Type()&AddressTypeScriptBit != 0 {
+			addRequirement(
+				ScriptHash(addr.PaymentKeyHash()),
+				RedeemerTagSpend,
+				index,
+			)
 		}
 	}
 
-	// From reference inputs
-	for _, refInput := range referenceInputs {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			// If we can't resolve the reference UTxO deterministically, fail
-			return ReferenceInputResolutionError{Input: refInput, Err: err}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		if script := utxo.Output.ScriptRef(); script != nil {
-			referenceProvided[script.Hash()] = struct{}{}
-		}
-	}
-
-	// Collect script hashes required by minting policies
 	if mint := tx.AssetMint(); mint != nil {
-		for policy := range mint.data {
-			requiredScriptHashes[ScriptHash(policy)] = struct{}{}
+		policies := mint.Policies()
+		sort.Slice(policies, func(i, j int) bool {
+			return bytes.Compare(policies[i].Bytes(), policies[j].Bytes()) < 0
+		})
+		for index, policy := range policies {
+			addRequirement(ScriptHash(policy), RedeemerTagMint, index)
 		}
 	}
 
-	// Track scripts that are optional (allowed but not required) for legacy
-	// registration certificates.
-	optionalScriptHashes := make(map[ScriptHash]struct{})
-
-	// Collect script hashes required by certificates through the same credential
-	// traversal used by ValidateRequiredVKeyWitnesses. Only legacy registration
-	// certificates accept, but do not require, a script witness.
-	for _, cert := range tx.Certificates() {
-		forEachCertificateCredential(cert, func(
+	for index, cert := range tx.Certificates() {
+		if err := forEachCertificateCredential(cert, func(
 			credential Credential,
 			requiresWitness bool,
 		) {
-			if credential.CredType != CredentialTypeScriptHash {
-				return
+			if requiresWitness && credential.CredType == CredentialTypeScriptHash {
+				addRequirement(
+					ScriptHash(credential.Credential),
+					RedeemerTagCert,
+					index,
+				)
 			}
-			scriptHash := ScriptHash(credential.Credential)
-			if requiresWitness {
-				requiredScriptHashes[scriptHash] = struct{}{}
-			} else {
-				optionalScriptHashes[scriptHash] = struct{}{}
-			}
-		})
+		}); err != nil {
+			return ret, err
+		}
 	}
 
-	// Collect script hashes required by withdrawals
+	withdrawals := make([]*Address, 0, len(tx.Withdrawals()))
 	for addr := range tx.Withdrawals() {
-		// For stake addresses, check if stake credential is script (LSB of type indicates script)
-		if (addr.Type() & AddressTypeScriptBit) != 0 {
-			stakeScriptHash := addr.StakeKeyHash()
-			requiredScriptHashes[ScriptHash(stakeScriptHash)] = struct{}{}
+		if addr == nil {
+			return ret, MalformedAuthorizationError{Subject: "nil withdrawal address"}
+		}
+		withdrawals = append(withdrawals, addr)
+	}
+	sort.Slice(withdrawals, func(i, j int) bool {
+		aBytes, aErr := withdrawals[i].Bytes()
+		bBytes, bErr := withdrawals[j].Bytes()
+		if aErr != nil || bErr != nil {
+			return withdrawals[i].String() < withdrawals[j].String()
+		}
+		return bytes.Compare(aBytes, bBytes) < 0
+	})
+	for index, addr := range withdrawals {
+		if addr.Type()&AddressTypeScriptBit != 0 {
+			addRequirement(
+				ScriptHash(addr.StakeKeyHash()),
+				RedeemerTagReward,
+				index,
+			)
 		}
 	}
 
-	// Collect script hashes required by voting procedures (script-type voters)
+	voters := make([]*Voter, 0, len(tx.VotingProcedures()))
 	for voter := range tx.VotingProcedures() {
-		if voter == nil {
-			continue
+		if _, err := voterCredential(voter); err != nil {
+			return ret, err
 		}
-		// Check for script-type voters: CC script (1) or DRep script (3)
-		if voter.Type == VoterTypeConstitutionalCommitteeHotScriptHash ||
-			voter.Type == VoterTypeDRepScriptHash {
-			requiredScriptHashes[ScriptHash(NewBlake2b224(voter.Hash[:]))] = struct{}{}
+		voters = append(voters, voter)
+	}
+	sort.Slice(voters, func(i, j int) bool {
+		iOrder := voterPurposeOrder(voters[i])
+		jOrder := voterPurposeOrder(voters[j])
+		if iOrder != jOrder {
+			return iOrder < jOrder
+		}
+		return bytes.Compare(voters[i].Hash[:], voters[j].Hash[:]) < 0
+	})
+	for index, voter := range voters {
+		credential, err := voterCredential(voter)
+		if err != nil {
+			return ret, err
+		}
+		if credential.CredType == CredentialTypeScriptHash {
+			addRequirement(
+				ScriptHash(credential.Credential),
+				RedeemerTagVoting,
+				index,
+			)
 		}
 	}
 
-	// Collect script hashes required by proposal procedures (governance policy scripts)
-	for _, proposal := range tx.ProposalProcedures() {
+	for index, proposal := range tx.ProposalProcedures() {
 		if proposal == nil {
-			continue
+			return ret, MalformedAuthorizationError{Subject: "nil proposal procedure"}
 		}
 		govAction := proposal.GovAction()
 		if govAction == nil {
-			continue
+			return ret, MalformedAuthorizationError{Subject: "nil governance action"}
 		}
-		// Check if governance action has a policy script
 		if actionWithPolicy, ok := govAction.(GovActionWithPolicy); ok {
 			policyHash := actionWithPolicy.GetPolicyHash()
 			if len(policyHash) == Blake2b224Size {
 				var hash ScriptHash
 				copy(hash[:], policyHash)
-				requiredScriptHashes[hash] = struct{}{}
+				addRequirement(hash, RedeemerTagProposing, index)
 			} else if len(policyHash) != 0 {
-				// Non-empty but invalid length - fail fast to surface upstream bugs
-				return fmt.Errorf(
+				return ret, fmt.Errorf(
 					"malformed governance policy hash: got %d bytes, want %d",
 					len(policyHash),
 					Blake2b224Size,
@@ -542,29 +796,92 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 			}
 		}
 	}
+	return ret, nil
+}
 
-	// Check for missing script witnesses. A required script is satisfied if
-	// it appears in either explicit witnesses or reference scripts.
-	for required := range requiredScriptHashes {
-		if _, ok := explicitProvided[required]; !ok {
-			if _, ok := referenceProvided[required]; !ok {
-				return MissingScriptWitnessesError{ScriptHash: required}
-			}
+// NativeScriptsForValidation returns all explicit native scripts plus every
+// native reference script required by a concrete transaction purpose. The
+// latter must be evaluated even though it is not carried in the witness set.
+func NativeScriptsForValidation(
+	tx Transaction,
+	ls LedgerState,
+) ([]NativeScript, error) {
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		return nil, err
+	}
+	needed := make(map[ScriptHash]NativeScript)
+	for _, hash := range requirements.nativeOrder {
+		if script, ok := requirements.explicit[hash].(NativeScript); ok {
+			needed[hash] = script
 		}
 	}
-
-	// Check for extraneous explicit script witnesses. Reference scripts are
-	// not considered explicit witnesses and therefore are not extraneous.
-	// Scripts are allowed if they are either required OR optional (e.g., registration scripts).
-	for provided := range explicitProvided {
-		if _, ok := requiredScriptHashes[provided]; ok {
-			continue
+	for hash := range requirements.required {
+		if script, ok := requirements.available[hash].(NativeScript); ok {
+			needed[hash] = script
 		}
-		if _, ok := optionalScriptHashes[provided]; !ok {
+	}
+	hashes := make([]ScriptHash, 0, len(needed))
+	for hash := range needed {
+		hashes = append(hashes, hash)
+	}
+	sort.Slice(hashes, func(i, j int) bool {
+		return bytes.Compare(hashes[i][:], hashes[j][:]) < 0
+	})
+	ret := make([]NativeScript, 0, len(hashes))
+	for _, hash := range hashes {
+		ret = append(ret, needed[hash])
+	}
+	return ret, nil
+}
+
+// ValidateScriptWitnesses checks script availability and requires the exact
+// redeemer pointer for every Plutus purpose. Native purposes reject a redeemer
+// at that pointer and are evaluated separately, including reference scripts.
+func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		return err
+	}
+	for required := range requirements.required {
+		if _, ok := requirements.available[required]; !ok {
+			return MissingScriptWitnessesError{ScriptHash: required}
+		}
+	}
+	for provided := range requirements.explicit {
+		if _, ok := requirements.required[provided]; !ok {
+			// Legacy type-0 stake registration has no script purpose. A script
+			// matching that credential is therefore extraneous, just like any
+			// other explicit script with no required purpose.
 			return ExtraneousScriptWitnessesError{ScriptHash: provided}
 		}
 	}
 
+	redeemers := map[RedeemerKey]struct{}{}
+	if wits := tx.Witnesses(); wits != nil && wits.Redeemers() != nil {
+		for key := range wits.Redeemers().Iter() {
+			redeemers[key] = struct{}{}
+		}
+	}
+	for _, purpose := range requirements.purposes {
+		available := requirements.available[purpose.hash]
+		_, hasRedeemer := redeemers[purpose.redeemer]
+		if _, isPlutus := PlutusScriptVersion(available); isPlutus {
+			if !hasRedeemer {
+				return MissingRedeemerForScriptError{
+					ScriptHash:  purpose.hash,
+					RedeemerKey: purpose.redeemer,
+				}
+			}
+			continue
+		}
+		if _, isNative := available.(NativeScript); isNative && hasRedeemer {
+			return ExtraneousRedeemerError{RedeemerKey: purpose.redeemer}
+		}
+	}
 	return nil
 }
 

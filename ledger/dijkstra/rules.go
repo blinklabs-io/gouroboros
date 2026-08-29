@@ -1615,19 +1615,21 @@ func UtxoValidateNativeScripts(
 	pp common.ProtocolParameters,
 ) error {
 	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
+	nativeScripts, err := common.NativeScriptsForValidation(tx, ls)
+	if err != nil {
+		return err
 	}
-	nativeScripts := witnesses.NativeScripts()
 	if len(nativeScripts) == 0 {
 		return nil
 	}
 	keyHashes := make(map[common.Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		keyHashes[common.Blake2b224Hash(vkw.Vkey)] = true
-	}
-	for _, bw := range witnesses.Bootstrap() {
-		keyHashes[common.Blake2b224Hash(bw.PublicKey)] = true
+	if witnesses != nil {
+		for _, vkw := range witnesses.Vkey() {
+			keyHashes[common.Blake2b224Hash(vkw.Vkey)] = true
+		}
+		for _, bw := range witnesses.Bootstrap() {
+			keyHashes[common.Blake2b224Hash(bw.PublicKey)] = true
+		}
 	}
 	validityStart := tx.ValidityIntervalStart()
 	validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(

@@ -15,6 +15,7 @@
 package common_test
 
 import (
+	"bytes"
 	"errors"
 	"math"
 	"testing"
@@ -143,6 +144,713 @@ func TestValidateScriptWitnessesExplicitRegistration(t *testing.T) {
 		t,
 		conway.UtxoValidateScriptWitnesses(legacy, 0, ledgerState, nil),
 	)
+}
+
+func testAuthorizationNativeScript(
+	t *testing.T,
+	vkey []byte,
+) common.NativeScript {
+	t.Helper()
+	scriptCbor, err := cbor.Encode([]any{
+		uint64(0),
+		common.Blake2b224Hash(vkey).Bytes(),
+	})
+	require.NoError(t, err)
+	var script common.NativeScript
+	_, err = cbor.Decode(scriptCbor, &script)
+	require.NoError(t, err)
+	return script
+}
+
+func testAuthorizationVkeyWitness(vkey []byte) common.VkeyWitness {
+	return common.VkeyWitness{Vkey: vkey}
+}
+
+func TestCertificateAuthorizationCompleteness(t *testing.T) {
+	type credentialCertificateCase struct {
+		name            string
+		certificateType common.CertificateType
+		requiresWitness bool
+		certificate     func(common.Credential) common.Certificate
+	}
+	cases := []credentialCertificateCase{
+		{
+			name:            "legacy stake registration",
+			certificateType: common.CertificateTypeStakeRegistration,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.StakeRegistrationCertificate{
+					CertType:        uint(common.CertificateTypeStakeRegistration),
+					StakeCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "stake deregistration",
+			certificateType: common.CertificateTypeStakeDeregistration,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.StakeDeregistrationCertificate{
+					CertType:        uint(common.CertificateTypeStakeDeregistration),
+					StakeCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "stake delegation",
+			certificateType: common.CertificateTypeStakeDelegation,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.StakeDelegationCertificate{
+					CertType:        uint(common.CertificateTypeStakeDelegation),
+					StakeCredential: &credential,
+				}
+			},
+		},
+		{
+			name:            "explicit registration",
+			certificateType: common.CertificateTypeRegistration,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.RegistrationCertificate{
+					CertType:        uint(common.CertificateTypeRegistration),
+					StakeCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "explicit deregistration",
+			certificateType: common.CertificateTypeDeregistration,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.DeregistrationCertificate{
+					CertType:        uint(common.CertificateTypeDeregistration),
+					StakeCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "vote delegation",
+			certificateType: common.CertificateTypeVoteDelegation,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.VoteDelegationCertificate{
+					CertType:        uint(common.CertificateTypeVoteDelegation),
+					StakeCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "stake vote delegation",
+			certificateType: common.CertificateTypeStakeVoteDelegation,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.StakeVoteDelegationCertificate{
+					CertType:        uint(common.CertificateTypeStakeVoteDelegation),
+					StakeCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "stake registration delegation",
+			certificateType: common.CertificateTypeStakeRegistrationDelegation,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.StakeRegistrationDelegationCertificate{
+					CertType: uint(
+						common.CertificateTypeStakeRegistrationDelegation,
+					),
+					StakeCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "vote registration delegation",
+			certificateType: common.CertificateTypeVoteRegistrationDelegation,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.VoteRegistrationDelegationCertificate{
+					CertType: uint(
+						common.CertificateTypeVoteRegistrationDelegation,
+					),
+					StakeCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "stake vote registration delegation",
+			certificateType: common.CertificateTypeStakeVoteRegistrationDelegation,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.StakeVoteRegistrationDelegationCertificate{
+					CertType: uint(
+						common.CertificateTypeStakeVoteRegistrationDelegation,
+					),
+					StakeCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "committee hot authorization",
+			certificateType: common.CertificateTypeAuthCommitteeHot,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.AuthCommitteeHotCertificate{
+					CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+					ColdCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "committee cold resignation",
+			certificateType: common.CertificateTypeResignCommitteeCold,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.ResignCommitteeColdCertificate{
+					CertType:       uint(common.CertificateTypeResignCommitteeCold),
+					ColdCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "DRep registration",
+			certificateType: common.CertificateTypeRegistrationDrep,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.RegistrationDrepCertificate{
+					CertType:       uint(common.CertificateTypeRegistrationDrep),
+					DrepCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "DRep deregistration",
+			certificateType: common.CertificateTypeDeregistrationDrep,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.DeregistrationDrepCertificate{
+					CertType:       uint(common.CertificateTypeDeregistrationDrep),
+					DrepCredential: credential,
+				}
+			},
+		},
+		{
+			name:            "DRep update",
+			certificateType: common.CertificateTypeUpdateDrep,
+			requiresWitness: true,
+			certificate: func(credential common.Credential) common.Certificate {
+				return &common.UpdateDrepCertificate{
+					CertType:       uint(common.CertificateTypeUpdateDrep),
+					DrepCredential: credential,
+				}
+			},
+		},
+	}
+
+	covered := make(map[common.CertificateType]struct{}, len(cases)+4)
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+	for _, testCase := range cases {
+		covered[testCase.certificateType] = struct{}{}
+		t.Run(testCase.name+"/key", func(t *testing.T) {
+			vkey := []byte("certificate-author-key-" + testCase.name)
+			credential := common.Credential{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: common.Blake2b224Hash(vkey),
+			}
+			tx := mockledger.NewTransactionBuilder().WithCertificates(
+				testCase.certificate(credential),
+			).WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+					testAuthorizationVkeyWitness([]byte("unrelated-key")),
+				),
+			)
+			err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, ledgerState, nil)
+			if testCase.requiresWitness {
+				require.ErrorAs(
+					t,
+					err,
+					&common.MissingRequiredVKeyWitnessForSignerError{},
+				)
+			} else {
+				require.NoError(t, err)
+			}
+			tx.WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+					testAuthorizationVkeyWitness(vkey),
+				),
+			)
+			require.NoError(
+				t,
+				conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, ledgerState, nil),
+			)
+		})
+
+		t.Run(testCase.name+"/script", func(t *testing.T) {
+			vkey := []byte("certificate-script-key-" + testCase.name)
+			native := testAuthorizationNativeScript(t, vkey)
+			credential := common.Credential{
+				CredType:   common.CredentialTypeScriptHash,
+				Credential: common.Blake2b224(native.Hash()),
+			}
+			tx := mockledger.NewTransactionBuilder().WithCertificates(
+				testCase.certificate(credential),
+			)
+			err := conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil)
+			if testCase.requiresWitness {
+				require.ErrorAs(t, err, &common.MissingScriptWitnessesError{})
+			} else {
+				require.NoError(t, err)
+			}
+			tx.WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().
+					WithNativeScripts(native).
+					WithVkeyWitnesses(testAuthorizationVkeyWitness(vkey)),
+			)
+			err = conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil)
+			if !testCase.requiresWitness {
+				require.ErrorAs(t, err, &common.ExtraneousScriptWitnessesError{})
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(
+				t,
+				conway.UtxoValidateNativeScripts(tx, 0, ledgerState, nil),
+			)
+		})
+	}
+
+	covered[common.CertificateTypePoolRegistration] = struct{}{}
+	covered[common.CertificateTypePoolRetirement] = struct{}{}
+	covered[common.CertificateTypeGenesisKeyDelegation] = struct{}{}
+	covered[common.CertificateTypeMoveInstantaneousRewards] = struct{}{}
+	for certType := common.CertificateTypeStakeRegistration; certType <= common.CertificateTypeUpdateDrep; certType++ {
+		require.Contains(t, covered, certType, "certificate type %d", certType)
+	}
+}
+
+func TestPoolAndGenesisCertificateAuthorization(t *testing.T) {
+	operatorVkey := []byte("pool-operator")
+	ownerOneVkey := []byte("pool-owner-one")
+	ownerTwoVkey := []byte("pool-owner-two")
+	authors := []struct {
+		name string
+		vkey []byte
+	}{
+		{name: "operator", vkey: operatorVkey},
+		{name: "owner one", vkey: ownerOneVkey},
+		{name: "owner two", vkey: ownerTwoVkey},
+	}
+	pool := &common.PoolRegistrationCertificate{
+		CertType: uint(common.CertificateTypePoolRegistration),
+		Operator: common.PoolKeyHash(common.Blake2b224Hash(operatorVkey)),
+		PoolOwners: []common.AddrKeyHash{
+			common.AddrKeyHash(common.Blake2b224Hash(ownerOneVkey)),
+			common.AddrKeyHash(common.Blake2b224Hash(ownerTwoVkey)),
+		},
+	}
+	for omitted := range authors {
+		t.Run("pool registration missing "+authors[omitted].name, func(t *testing.T) {
+			witnesses := mockledger.NewMockTransactionWitnessSet()
+			for index, author := range authors {
+				if index != omitted {
+					witnesses.WithVkeyWitnesses(
+						testAuthorizationVkeyWitness(author.vkey),
+					)
+				}
+			}
+			tx := mockledger.NewTransactionBuilder().
+				WithCertificates(pool).
+				WithWitnesses(witnesses)
+			var missing common.MissingRequiredVKeyWitnessForSignerError
+			require.ErrorAs(t, common.ValidateRequiredVKeyWitnesses(tx), &missing)
+			require.Equal(t, common.Blake2b224Hash(authors[omitted].vkey), missing.Signer)
+		})
+	}
+	allWitnesses := mockledger.NewMockTransactionWitnessSet()
+	for _, author := range authors {
+		allWitnesses.WithVkeyWitnesses(testAuthorizationVkeyWitness(author.vkey))
+	}
+	require.NoError(t, common.ValidateRequiredVKeyWitnesses(
+		mockledger.NewTransactionBuilder().
+			WithCertificates(pool).
+			WithWitnesses(allWitnesses),
+	))
+
+	t.Run("pool retirement requires pool key", func(t *testing.T) {
+		cert := &common.PoolRetirementCertificate{
+			CertType:    uint(common.CertificateTypePoolRetirement),
+			PoolKeyHash: common.PoolKeyHash(common.Blake2b224Hash(operatorVkey)),
+		}
+		tx := mockledger.NewTransactionBuilder().WithCertificates(cert)
+		require.Error(t, common.ValidateRequiredVKeyWitnesses(tx))
+		tx.WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+				testAuthorizationVkeyWitness(operatorVkey),
+			),
+		)
+		require.NoError(t, common.ValidateRequiredVKeyWitnesses(tx))
+	})
+
+	t.Run("genesis source key authorizes delegation", func(t *testing.T) {
+		genesisVkey := []byte("genesis-source-key")
+		delegateVkey := []byte("genesis-delegate-target")
+		cert := &common.GenesisKeyDelegationCertificate{
+			CertType:            uint(common.CertificateTypeGenesisKeyDelegation),
+			GenesisHash:         common.Blake2b224Hash(genesisVkey).Bytes(),
+			GenesisDelegateHash: common.Blake2b224Hash(delegateVkey).Bytes(),
+		}
+		tx := mockledger.NewTransactionBuilder().WithCertificates(cert)
+		require.Error(t, common.ValidateRequiredVKeyWitnesses(tx))
+		tx.WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+				testAuthorizationVkeyWitness(delegateVkey),
+			),
+		)
+		require.Error(t, common.ValidateRequiredVKeyWitnesses(tx))
+		tx.WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+				testAuthorizationVkeyWitness(genesisVkey),
+			),
+		)
+		require.NoError(t, common.ValidateRequiredVKeyWitnesses(tx))
+	})
+
+	t.Run("MIR has no field-level author", func(t *testing.T) {
+		// MIR authorization is a stateful genesis-delegate quorum in the
+		// Shelley-through-Babbage UTXOW rule, not a certificate credential.
+		cert := &common.MoveInstantaneousRewardsCertificate{
+			CertType: uint(common.CertificateTypeMoveInstantaneousRewards),
+		}
+		require.NoError(t, common.ValidateRequiredVKeyWitnesses(
+			mockledger.NewTransactionBuilder().WithCertificates(cert),
+		))
+	})
+}
+
+func TestVoterAuthorizationCompleteness(t *testing.T) {
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+	voterTypes := []struct {
+		name       string
+		voterType  uint8
+		scriptForm bool
+	}{
+		{"committee hot key", common.VoterTypeConstitutionalCommitteeHotKeyHash, false},
+		{"committee hot script", common.VoterTypeConstitutionalCommitteeHotScriptHash, true},
+		{"DRep key", common.VoterTypeDRepKeyHash, false},
+		{"DRep script", common.VoterTypeDRepScriptHash, true},
+		{"stake pool key", common.VoterTypeStakingPoolKeyHash, false},
+	}
+	for _, testCase := range voterTypes {
+		t.Run(testCase.name, func(t *testing.T) {
+			vkey := []byte("voter-author-" + testCase.name)
+			voter := &common.Voter{Type: testCase.voterType}
+			if testCase.scriptForm {
+				native := testAuthorizationNativeScript(t, vkey)
+				nativeHash := native.Hash()
+				copy(voter.Hash[:], nativeHash[:])
+				tx := mockledger.NewTransactionBuilder().WithVotingProcedures(
+					common.VotingProcedures{voter: {}},
+				)
+				require.ErrorAs(
+					t,
+					conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+					&common.MissingScriptWitnessesError{},
+				)
+				tx.WithWitnesses(
+					mockledger.NewMockTransactionWitnessSet().
+						WithNativeScripts(native).
+						WithVkeyWitnesses(testAuthorizationVkeyWitness(vkey)),
+				)
+				require.NoError(
+					t,
+					conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+				)
+				require.NoError(
+					t,
+					conway.UtxoValidateNativeScripts(tx, 0, ledgerState, nil),
+				)
+				return
+			}
+			voterHash := common.Blake2b224Hash(vkey)
+			copy(voter.Hash[:], voterHash[:])
+			tx := mockledger.NewTransactionBuilder().WithVotingProcedures(
+				common.VotingProcedures{voter: {}},
+			).WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+					testAuthorizationVkeyWitness([]byte("unrelated-voter-key")),
+				),
+			)
+			require.ErrorAs(
+				t,
+				common.ValidateRequiredVKeyWitnesses(tx),
+				&common.MissingRequiredVKeyWitnessForSignerError{},
+			)
+			tx.WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+					testAuthorizationVkeyWitness(vkey),
+				),
+			)
+			require.NoError(t, common.ValidateRequiredVKeyWitnesses(tx))
+		})
+	}
+}
+
+func TestScriptAuthorizationRequiresExactRedeemerPurpose(t *testing.T) {
+	plutus := common.PlutusV3Script([]byte{0x41, 0x00})
+	scriptRefCbor, err := cbor.Encode(&common.ScriptRef{
+		Type:   common.ScriptRefTypePlutusV3,
+		Script: plutus,
+	})
+	require.NoError(t, err)
+	const address = "addr_test1vqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygxrcya6"
+	utxo, err := mockledger.NewUtxoBuilder().
+		WithTxId(bytes.Repeat([]byte{0x20}, 32)).
+		WithIndex(0).
+		WithAddress(address).
+		WithLovelace(2_000_000).
+		WithScriptRef(scriptRefCbor).
+		Build()
+	require.NoError(t, err)
+	ledgerState := mockledger.NewLedgerStateBuilder().WithUtxoById(
+		func(common.TransactionInput) (common.Utxo, error) {
+			return utxo, nil
+		},
+	).Build()
+	credential := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224(plutus.Hash()),
+	}
+	certificates := []common.Certificate{
+		&common.DeregistrationCertificate{StakeCredential: credential},
+		&common.UpdateDrepCertificate{DrepCredential: credential},
+	}
+	redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+		{Tag: common.RedeemerTagCert, Index: 0}: {},
+	}}
+	witnesses := mockledger.NewMockTransactionWitnessSet().WithRedeemers(redeemers)
+	tx := mockledger.NewTransactionBuilder().
+		WithCertificates(certificates...).
+		WithReferenceInputs(utxo.Id).
+		WithWitnesses(witnesses)
+	var missing common.MissingRedeemerForScriptError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+		&missing,
+	)
+	require.Equal(
+		t,
+		common.RedeemerKey{Tag: common.RedeemerTagCert, Index: 1},
+		missing.RedeemerKey,
+	)
+	redeemers.Redeemers[common.RedeemerKey{
+		Tag: common.RedeemerTagCert, Index: 1,
+	}] = common.RedeemerValue{}
+	require.NoError(
+		t,
+		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+	)
+}
+
+func TestVoterScriptAuthorizationRequiresExactRedeemerPurpose(t *testing.T) {
+	plutus := common.PlutusV3Script([]byte{0x41, 0x01})
+	scriptHash := plutus.Hash()
+	committeeScript := &common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+	}
+	copy(committeeScript.Hash[:], scriptHash[:])
+	committeeKey := &common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+	}
+	committeeKey.Hash[0] = 0x42
+	drepScript := &common.Voter{Type: common.VoterTypeDRepScriptHash}
+	copy(drepScript.Hash[:], scriptHash[:])
+	redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+		{Tag: common.RedeemerTagVoting, Index: 0}: {},
+	}}
+	tx := mockledger.NewTransactionBuilder().
+		WithVotingProcedures(common.VotingProcedures{
+			committeeScript: {},
+			committeeKey:    {},
+			drepScript:      {},
+		}).
+		WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().
+				WithPlutusV3Scripts(plutus).
+				WithRedeemers(redeemers),
+		)
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+	var missing common.MissingRedeemerForScriptError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+		&missing,
+	)
+	require.Equal(
+		t,
+		common.RedeemerKey{Tag: common.RedeemerTagVoting, Index: 2},
+		missing.RedeemerKey,
+	)
+	redeemers.Redeemers[common.RedeemerKey{
+		Tag: common.RedeemerTagVoting, Index: 2,
+	}] = common.RedeemerValue{}
+	require.NoError(
+		t,
+		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+	)
+}
+
+func TestNativeScriptAuthorizationRejectsRedeemer(t *testing.T) {
+	vkey := []byte("native-purpose-key")
+	native := testAuthorizationNativeScript(t, vkey)
+	credential := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224(native.Hash()),
+	}
+	redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+		{Tag: common.RedeemerTagCert, Index: 0}: {},
+	}}
+	tx := mockledger.NewTransactionBuilder().
+		WithCertificates(&common.DeregistrationCertificate{StakeCredential: credential}).
+		WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().
+				WithNativeScripts(native).
+				WithRedeemers(redeemers),
+		)
+	var extra common.ExtraneousRedeemerError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateScriptWitnesses(
+			tx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			nil,
+		),
+		&extra,
+	)
+	require.Equal(
+		t,
+		common.RedeemerKey{Tag: common.RedeemerTagCert, Index: 0},
+		extra.RedeemerKey,
+	)
+}
+
+func TestRequiredNativeReferenceScriptIsEvaluated(t *testing.T) {
+	vkey := []byte("reference-native-key")
+	native := testAuthorizationNativeScript(t, vkey)
+	scriptRefCbor, err := cbor.Encode(&common.ScriptRef{
+		Type:   common.ScriptRefTypeNativeScript,
+		Script: native,
+	})
+	require.NoError(t, err)
+	const address = "addr_test1vqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygxrcya6"
+	utxo, err := mockledger.NewUtxoBuilder().
+		WithTxId(bytes.Repeat([]byte{0x21}, 32)).
+		WithIndex(0).
+		WithAddress(address).
+		WithLovelace(2_000_000).
+		WithScriptRef(scriptRefCbor).
+		Build()
+	require.NoError(t, err)
+	ledgerState := mockledger.NewLedgerStateBuilder().WithUtxoById(
+		func(common.TransactionInput) (common.Utxo, error) {
+			return utxo, nil
+		},
+	).Build()
+	credential := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224(native.Hash()),
+	}
+	tx := mockledger.NewTransactionBuilder().
+		WithCertificates(&common.DeregistrationCertificate{StakeCredential: credential}).
+		WithReferenceInputs(utxo.Id)
+	require.NoError(
+		t,
+		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+	)
+	var failed conway.NativeScriptFailedError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateNativeScripts(tx, 0, ledgerState, nil),
+		&failed,
+	)
+	tx.WithWitnesses(
+		mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+			testAuthorizationVkeyWitness(vkey),
+		),
+	)
+	require.NoError(
+		t,
+		conway.UtxoValidateNativeScripts(tx, 0, ledgerState, nil),
+	)
+}
+
+func TestMalformedAuthorizationSubjectsFailClosed(t *testing.T) {
+	tests := []struct {
+		name string
+		tx   *mockledger.MockTransaction
+	}{
+		{
+			name: "typed nil certificate",
+			tx: mockledger.NewTransactionBuilder().WithCertificates(
+				(*common.DeregistrationCertificate)(nil),
+			),
+		},
+		{
+			name: "nil stake delegation credential",
+			tx: mockledger.NewTransactionBuilder().WithCertificates(
+				&common.StakeDelegationCertificate{},
+			),
+		},
+		{
+			name: "invalid credential tag",
+			tx: mockledger.NewTransactionBuilder().WithCertificates(
+				&common.DeregistrationCertificate{StakeCredential: common.Credential{
+					CredType: 2,
+				}},
+			),
+		},
+		{
+			name: "nil voter",
+			tx: mockledger.NewTransactionBuilder().WithVotingProcedures(
+				common.VotingProcedures{nil: {}},
+			),
+		},
+		{
+			name: "invalid voter tag",
+			tx: mockledger.NewTransactionBuilder().WithVotingProcedures(
+				common.VotingProcedures{&common.Voter{Type: 5}: {}},
+			),
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			for _, validation := range []struct {
+				name string
+				run  func() error
+			}{
+				{
+					name: "key witnesses",
+					run: func() error {
+						return common.ValidateRequiredVKeyWitnesses(testCase.tx)
+					},
+				},
+				{
+					name: "script witnesses",
+					run: func() error {
+						return common.ValidateScriptWitnesses(
+							testCase.tx,
+							mockledger.NewLedgerStateBuilder().Build(),
+						)
+					},
+				},
+			} {
+				t.Run(validation.name, func(t *testing.T) {
+					var malformed common.MalformedAuthorizationError
+					require.ErrorAs(t, validation.run(), &malformed)
+				})
+			}
+		})
+	}
 }
 
 func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {

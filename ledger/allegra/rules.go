@@ -239,25 +239,26 @@ func UtxoValidateNativeScripts(
 	pp common.ProtocolParameters,
 ) error {
 	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
+	nativeScripts, err := common.NativeScriptsForValidation(tx, ls)
+	if err != nil {
+		return err
 	}
-
-	nativeScripts := witnesses.NativeScripts()
 	if len(nativeScripts) == 0 {
 		return nil
 	}
 
 	// Collect key hashes from VKey witnesses
 	keyHashes := make(map[common.Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		keyHash := common.Blake2b224Hash(vkw.Vkey)
-		keyHashes[keyHash] = true
-	}
-	// Also collect key hashes from bootstrap witnesses (Byron-era)
-	for _, bw := range witnesses.Bootstrap() {
-		keyHash := common.Blake2b224Hash(bw.PublicKey)
-		keyHashes[keyHash] = true
+	if witnesses != nil {
+		for _, vkw := range witnesses.Vkey() {
+			keyHash := common.Blake2b224Hash(vkw.Vkey)
+			keyHashes[keyHash] = true
+		}
+		// Also collect key hashes from bootstrap witnesses (Byron-era)
+		for _, bw := range witnesses.Bootstrap() {
+			keyHash := common.Blake2b224Hash(bw.PublicKey)
+			keyHashes[keyHash] = true
+		}
 	}
 
 	// Get transaction validity interval
