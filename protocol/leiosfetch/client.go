@@ -51,11 +51,12 @@ type Client struct {
 //     drained, so a late response to an abandoned request is never
 //     mis-delivered to a subsequent request.
 type requestSlot struct {
-	mu        sync.Mutex
-	waiter    chan protocol.Message
-	busy      bool
-	abandoned bool
-	drainedCh chan struct{}
+	mu              sync.Mutex
+	waiter          chan protocol.Message
+	busy            bool
+	abandoned       bool
+	drainedCh       chan struct{}
+	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
 }
 
 const abandonedRequestWait = time.Second
@@ -92,7 +93,11 @@ func (s *requestSlot) acquire(
 			continue
 		}
 		drained := s.drainedCh
+		beforeDrainWait := s.beforeDrainWait
 		s.mu.Unlock()
+		if beforeDrainWait != nil {
+			beforeDrainWait()
+		}
 		select {
 		case <-drained:
 		case <-ctx.Done():
@@ -127,6 +132,13 @@ func (s *requestSlot) abandon(w chan protocol.Message) {
 	if s.waiter == w {
 		s.waiter = nil
 		s.abandoned = true
+		// Acquirers that started before this request was abandoned are
+		// waiting on the current channel through the non-abandoned path.
+		// Wake them so they recheck abandoned and use its bounded grace
+		// period. Keep the slot busy on a fresh channel until the late
+		// response drains it, preserving response correlation.
+		close(s.drainedCh)
+		s.drainedCh = make(chan struct{})
 	}
 	s.mu.Unlock()
 }
