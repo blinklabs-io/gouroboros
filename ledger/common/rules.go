@@ -160,6 +160,84 @@ func (e MissingRequiredVKeyWitnessForSignerError) Error() string {
 	)
 }
 
+// forEachCertificateCredential visits every credential whose authorization is
+// carried by a transaction certificate. Registration-only certificates do not
+// require authorization, but their script credentials remain optional script
+// witnesses. Keeping this traversal shared prevents key and script credential
+// requirements from diverging.
+func forEachCertificateCredential(
+	cert Certificate,
+	visit func(credential Credential, requiresWitness bool),
+) {
+	switch c := cert.(type) {
+	case *StakeRegistrationCertificate:
+		if c != nil {
+			visit(c.StakeCredential, false)
+		}
+	case *StakeDeregistrationCertificate:
+		if c != nil {
+			visit(c.StakeCredential, true)
+		}
+	case *StakeDelegationCertificate:
+		if c != nil && c.StakeCredential != nil {
+			visit(*c.StakeCredential, true)
+		}
+	case *RegistrationCertificate:
+		if c != nil {
+			visit(c.StakeCredential, false)
+		}
+	case *DeregistrationCertificate:
+		if c != nil {
+			visit(c.StakeCredential, true)
+		}
+	case *VoteDelegationCertificate:
+		if c != nil {
+			visit(c.StakeCredential, true)
+		}
+	case *StakeVoteDelegationCertificate:
+		if c != nil {
+			visit(c.StakeCredential, true)
+		}
+	case *StakeRegistrationDelegationCertificate:
+		if c != nil {
+			visit(c.StakeCredential, true)
+		}
+	case *VoteRegistrationDelegationCertificate:
+		if c != nil {
+			visit(c.StakeCredential, true)
+		}
+	case *StakeVoteRegistrationDelegationCertificate:
+		if c != nil {
+			visit(c.StakeCredential, true)
+		}
+	case *AuthCommitteeHotCertificate:
+		if c != nil {
+			visit(c.ColdCredential, true)
+		}
+	case *ResignCommitteeColdCertificate:
+		if c != nil {
+			visit(c.ColdCredential, true)
+		}
+	case *RegistrationDrepCertificate:
+		if c != nil {
+			visit(c.DrepCredential, true)
+		}
+	case *DeregistrationDrepCertificate:
+		if c != nil {
+			visit(c.DrepCredential, true)
+		}
+	case *UpdateDrepCertificate:
+		if c != nil {
+			visit(c.DrepCredential, true)
+		}
+	case *PoolRegistrationCertificate,
+		*PoolRetirementCertificate,
+		*GenesisKeyDelegationCertificate,
+		*MoveInstantaneousRewardsCertificate:
+		// These certificate forms do not carry a key-or-script Credential.
+	}
+}
+
 type MissingRedeemersForScriptDataHashError struct{}
 
 func (MissingRedeemersForScriptDataHashError) Error() string {
@@ -204,14 +282,58 @@ func (e ExtraneousScriptWitnessesError) Error() string {
 // vkey witness. This includes explicitly required signers and key-based reward
 // withdrawal credentials.
 func ValidateRequiredVKeyWitnesses(tx Transaction) error {
-	required := make([]Blake2b224, 0, len(tx.RequiredSigners())+len(tx.Withdrawals()))
-	required = append(required, tx.RequiredSigners()...)
+	required := make(
+		map[Blake2b224]struct{},
+		len(tx.RequiredSigners())+len(tx.Withdrawals()),
+	)
+	for _, signer := range tx.RequiredSigners() {
+		required[signer] = struct{}{}
+	}
 	for addr := range tx.Withdrawals() {
 		if addr == nil {
 			continue
 		}
 		if payload, ok := addr.StakingPayload().(AddressPayloadKeyHash); ok {
-			required = append(required, payload.Hash)
+			required[payload.Hash] = struct{}{}
+		}
+	}
+	for _, cert := range tx.Certificates() {
+		forEachCertificateCredential(cert, func(
+			credential Credential,
+			requiresWitness bool,
+		) {
+			if requiresWitness && credential.CredType == CredentialTypeAddrKeyHash {
+				required[credential.Credential] = struct{}{}
+			}
+		})
+		switch c := cert.(type) {
+		case *PoolRegistrationCertificate:
+			if c == nil {
+				continue
+			}
+			required[Blake2b224(c.Operator)] = struct{}{}
+			for _, owner := range c.PoolOwners {
+				required[Blake2b224(owner)] = struct{}{}
+			}
+		case *PoolRetirementCertificate:
+			if c != nil {
+				required[Blake2b224(c.PoolKeyHash)] = struct{}{}
+			}
+		case *GenesisKeyDelegationCertificate:
+			if c != nil {
+				required[NewBlake2b224(c.GenesisHash)] = struct{}{}
+			}
+		}
+	}
+	for voter := range tx.VotingProcedures() {
+		if voter == nil {
+			continue
+		}
+		switch voter.Type {
+		case VoterTypeConstitutionalCommitteeHotKeyHash,
+			VoterTypeDRepKeyHash,
+			VoterTypeStakingPoolKeyHash:
+			required[NewBlake2b224(voter.Hash[:])] = struct{}{}
 		}
 	}
 	if len(required) == 0 {
@@ -225,7 +347,7 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 	for _, vw := range w.Vkey() {
 		vkeyHashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
 	}
-	for _, req := range required {
+	for req := range required {
 		if _, ok := vkeyHashes[req]; !ok {
 			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
 		}
@@ -353,79 +475,24 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	// Registration doesn't require authorization, but if the script is provided, it's valid.
 	optionalScriptHashes := make(map[ScriptHash]struct{})
 
-	// Collect script hashes required by certificates
-	// Note: Registration certificates with script credentials do NOT require the script witness
-	// (registration doesn't need authorization), but providing the script is allowed.
-	// Deregistration, delegation, and withdrawal DO require both the script and a redeemer.
+	// Collect script hashes required by certificates through the same credential
+	// traversal used by ValidateRequiredVKeyWitnesses. Registration-only
+	// certificates accept, but do not require, a script witness.
 	for _, cert := range tx.Certificates() {
-		switch c := cert.(type) {
-		case *StakeRegistrationCertificate:
-			// Registration: script is optional (allowed but not required)
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+		forEachCertificateCredential(cert, func(
+			credential Credential,
+			requiresWitness bool,
+		) {
+			if credential.CredType != CredentialTypeScriptHash {
+				return
 			}
-		case *StakeDeregistrationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			scriptHash := ScriptHash(credential.Credential)
+			if requiresWitness {
+				requiredScriptHashes[scriptHash] = struct{}{}
+			} else {
+				optionalScriptHashes[scriptHash] = struct{}{}
 			}
-		case *StakeDelegationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
-			}
-		case *RegistrationCertificate:
-			// Registration: script is optional (allowed but not required)
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
-			}
-		case *DeregistrationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
-			}
-		case *VoteDelegationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
-			}
-		case *StakeVoteDelegationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
-			}
-		case *StakeRegistrationDelegationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
-			}
-		case *VoteRegistrationDelegationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
-			}
-		case *StakeVoteRegistrationDelegationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
-			}
-		case *AuthCommitteeHotCertificate:
-			if c.ColdCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.ColdCredential.Credential)] = struct{}{}
-			}
-		case *ResignCommitteeColdCertificate:
-			if c.ColdCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.ColdCredential.Credential)] = struct{}{}
-			}
-		case *RegistrationDrepCertificate:
-			if c.DrepCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = struct{}{}
-			}
-		case *DeregistrationDrepCertificate:
-			if c.DrepCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = struct{}{}
-			}
-		case *UpdateDrepCertificate:
-			if c.DrepCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = struct{}{}
-			}
-		case *PoolRegistrationCertificate, *PoolRetirementCertificate:
-			// These certificates use key-only credentials
-		default:
-			// Other certificate types do not have script credentials
-		}
+		})
 	}
 
 	// Collect script hashes required by withdrawals
