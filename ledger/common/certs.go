@@ -1084,6 +1084,12 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 		Rewards map[*Credential]uint64
 	}{}
 	if _, err := cbor.Decode(data, &tmpMapData); err == nil {
+		if err := validateCredentialMapKeys(
+			tmpMapData.Rewards,
+			"instantaneous rewards",
+		); err != nil {
+			return err
+		}
 		r.Rewards = tmpMapData.Rewards
 		r.Source = tmpMapData.Source
 		return nil
