@@ -161,10 +161,10 @@ func (e MissingRequiredVKeyWitnessForSignerError) Error() string {
 }
 
 // forEachCertificateCredential visits every credential whose authorization is
-// carried by a transaction certificate. Registration-only certificates do not
-// require authorization, but their script credentials remain optional script
-// witnesses. Keeping this traversal shared prevents key and script credential
-// requirements from diverging.
+// carried by a transaction certificate. Only legacy stake registration does
+// not require authorization; explicit-deposit registration requires the stake
+// credential witness. Keeping this traversal shared prevents key and script
+// credential requirements from diverging.
 func forEachCertificateCredential(
 	cert Certificate,
 	visit func(credential Credential, requiresWitness bool),
@@ -184,10 +184,7 @@ func forEachCertificateCredential(
 		}
 	case *RegistrationCertificate:
 		if c != nil {
-			// The legacy registration form has no deposit and does not
-			// authorize a state change. Conway's explicit-deposit form does
-			// authorize registration and therefore requires its credential.
-			visit(c.StakeCredential, c.Amount != 0)
+			visit(c.StakeCredential, true)
 		}
 	case *DeregistrationCertificate:
 		if c != nil {
@@ -474,12 +471,12 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 
-	// Track scripts that are optional (allowed but not required) for registration certificates.
-	// Registration doesn't require authorization, but if the script is provided, it's valid.
+	// Track scripts that are optional (allowed but not required) for legacy
+	// registration certificates.
 	optionalScriptHashes := make(map[ScriptHash]struct{})
 
 	// Collect script hashes required by certificates through the same credential
-	// traversal used by ValidateRequiredVKeyWitnesses. Registration-only
+	// traversal used by ValidateRequiredVKeyWitnesses. Only legacy registration
 	// certificates accept, but do not require, a script witness.
 	for _, cert := range tx.Certificates() {
 		forEachCertificateCredential(cert, func(

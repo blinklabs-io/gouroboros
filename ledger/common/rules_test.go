@@ -73,24 +73,76 @@ func TestValidateRequiredVKeyWitnessesCertificateAndVoter(t *testing.T) {
 }
 
 func TestValidateRequiredVKeyWitnessesExplicitRegistration(t *testing.T) {
-	key := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
-	key.Credential[0] = 0x51
+	vkey := []byte("explicit-registration-key")
+	key := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash(vkey),
+	}
 	explicit := &common.RegistrationCertificate{
 		StakeCredential: key,
-		Amount:          2_000_000,
+		Amount:          0,
 	}
-	if err := common.ValidateRequiredVKeyWitnesses(
-		mockledger.NewTransactionBuilder().WithCertificates(explicit),
-	); err == nil {
-		t.Fatal("expected explicit registration to require a key witness")
-	}
+	tx := mockledger.NewTransactionBuilder().WithCertificates(explicit)
+	require.Error(
+		t,
+		conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil),
+	)
+	tx.WithWitnesses(
+		mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+			common.VkeyWitness{Vkey: vkey},
+		),
+	)
+	require.NoError(
+		t,
+		conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil),
+	)
 
-	legacy := &common.RegistrationCertificate{StakeCredential: key}
-	if err := common.ValidateRequiredVKeyWitnesses(
+	legacy := &common.StakeRegistrationCertificate{StakeCredential: key}
+	require.NoError(t, conway.UtxoValidateRequiredVKeyWitnesses(
 		mockledger.NewTransactionBuilder().WithCertificates(legacy),
-	); err != nil {
-		t.Fatalf("legacy registration unexpectedly required a witness: %v", err)
+		0,
+		nil,
+		nil,
+	))
+}
+
+func TestValidateScriptWitnessesExplicitRegistration(t *testing.T) {
+	nativeCbor, err := cbor.Encode([]any{uint64(1), []any{}})
+	require.NoError(t, err)
+	var nativeScript common.NativeScript
+	_, err = cbor.Decode(nativeCbor, &nativeScript)
+	require.NoError(t, err)
+	credential := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224(nativeScript.Hash()),
 	}
+	tx := mockledger.NewTransactionBuilder().WithCertificates(
+		&common.RegistrationCertificate{
+			StakeCredential: credential,
+			Amount:          0,
+		},
+	)
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+	require.Error(
+		t,
+		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+	)
+	tx.WithWitnesses(
+		mockledger.NewMockTransactionWitnessSet().
+			WithNativeScripts(nativeScript),
+	)
+	require.NoError(
+		t,
+		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+	)
+
+	legacy := mockledger.NewTransactionBuilder().WithCertificates(
+		&common.StakeRegistrationCertificate{StakeCredential: credential},
+	)
+	require.NoError(
+		t,
+		conway.UtxoValidateScriptWitnesses(legacy, 0, ledgerState, nil),
+	)
 }
 
 func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
