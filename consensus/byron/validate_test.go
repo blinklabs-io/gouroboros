@@ -1843,6 +1843,19 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 	t.Logf("  NumGenesisKeys: %d", config.NumGenesisKeys)
 }
 
+func TestNewByronConfigFromGenesisRejectsInvalidSecurityParameter(t *testing.T) {
+	genesis, err := byron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
+	require.NoError(t, err)
+
+	for _, k := range []int{0, int(^uint(0) >> 1)} {
+		genesis.ProtocolConsts.K = k
+		_, err = NewByronConfigFromGenesis(&genesis)
+		require.Error(t, err)
+	}
+}
+
 func TestByronTxFeePolicy_CalculateMinFee(t *testing.T) {
 	// Use mainnet-like fee policy values
 	// summand: 155381000000000 (scaled by 10^9)

@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"context"
 	"math"
 	"math/big"
 	"testing"
@@ -380,6 +381,40 @@ func TestFindNextSlotLeadershipNoEligibility(t *testing.T) {
 	if slot != 0 || proof != nil || output != nil {
 		t.Error("should not find eligibility with zero stake")
 	}
+}
+
+func TestFindNextSlotLeadershipContextRejectsOversizedRange(t *testing.T) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+	_, _, _, err = FindNextSlotLeadershipContext(
+		context.Background(),
+		0,
+		MaxLeadershipSearchSlots,
+		make([]byte, 32),
+		1,
+		1,
+		big.NewRat(1, 2),
+		signer,
+	)
+	require.Error(t, err)
+}
+
+func TestFindNextSlotLeadershipContextHonorsCancellation(t *testing.T) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, _, err = FindNextSlotLeadershipContext(
+		ctx,
+		0,
+		10,
+		make([]byte, 32),
+		1,
+		1,
+		big.NewRat(1, 2),
+		signer,
+	)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestIsSlotLeaderWithModeSlotOverflow(t *testing.T) {
