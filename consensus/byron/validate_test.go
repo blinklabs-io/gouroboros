@@ -19,6 +19,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1933,6 +1936,46 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 	t.Logf("  SlotDuration: %v", config.SlotDuration)
 	t.Logf("  SecurityParam: %d", config.SecurityParam)
 	t.Logf("  NumGenesisKeys: %d", config.NumGenesisKeys)
+}
+
+func parseSecurityParameterGenesis(t *testing.T, k int) byron.ByronGenesis {
+	t.Helper()
+	genesisJSON := fmt.Sprintf(
+		`{"protocolConsts":{"k":%d,"protocolMagic":%d}}`,
+		k,
+		testByronProtocolMagicMainnet,
+	)
+	genesis, err := byron.NewByronGenesisFromReader(
+		strings.NewReader(genesisJSON),
+	)
+	require.NoError(t, err)
+	return genesis
+}
+
+func TestNewByronConfigFromGenesisRejectsZeroSecurityParameter(t *testing.T) {
+	genesis := parseSecurityParameterGenesis(t, 0)
+	_, err := NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "must be positive")
+}
+
+func TestNewByronConfigFromGenesisRejectsSecurityParameterOverflow(
+	t *testing.T,
+) {
+	if strconv.IntSize < 64 {
+		t.Skip("an overflow-producing K cannot be represented by int")
+	}
+	genesis := parseSecurityParameterGenesis(t, math.MaxInt)
+	_, err := NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "overflows slots per epoch")
+}
+
+func TestNewByronConfigFromGenesisAcceptsMaxInt32SecurityParameter(
+	t *testing.T,
+) {
+	genesis := parseSecurityParameterGenesis(t, math.MaxInt32)
+	config, err := NewByronConfigFromGenesis(&genesis)
+	require.NoError(t, err)
+	require.Equal(t, uint64(10)*math.MaxInt32, config.SlotsPerEpoch)
 }
 
 func TestByronTxFeePolicy_CalculateMinFee(t *testing.T) {

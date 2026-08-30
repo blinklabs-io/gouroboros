@@ -161,8 +161,11 @@ func (c *ByronConfig) SlotLeader(slot uint64) (int, []byte) {
 //   - Genesis delegate key hashes (sorted for OBFT slot leader assignment)
 func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, error) {
 	// Validate security parameter K
-	if genesis.ProtocolConsts.K < 0 {
-		return ByronConfig{}, fmt.Errorf("invalid security parameter K: %d (must be non-negative)", genesis.ProtocolConsts.K)
+	if genesis.ProtocolConsts.K <= 0 {
+		return ByronConfig{}, fmt.Errorf("invalid security parameter K: %d (must be positive)", genesis.ProtocolConsts.K)
+	}
+	if uint64(genesis.ProtocolConsts.K) > math.MaxUint64/10 {
+		return ByronConfig{}, fmt.Errorf("invalid security parameter K: %d overflows slots per epoch", genesis.ProtocolConsts.K)
 	}
 
 	// Validate protocol magic fits in uint32
