@@ -97,16 +97,23 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 }
 
 func dijkstraPparams(pp common.ProtocolParameters) (*DijkstraProtocolParameters, error) {
+	var ret DijkstraProtocolParameters
 	switch p := pp.(type) {
 	case *DijkstraProtocolParameters:
-		return p, nil
+		if p == nil {
+			return nil, errors.New("pparams are not expected type")
+		}
+		ret = *p
 	case *conway.ConwayProtocolParameters:
-		return &DijkstraProtocolParameters{
-			ConwayProtocolParameters: *p,
-		}, nil
+		if p == nil {
+			return nil, errors.New("pparams are not expected type")
+		}
+		ret.ConwayProtocolParameters = *p
 	default:
 		return nil, errors.New("pparams are not expected type")
 	}
+	applyConwayRefScriptFeeDefaults(&ret)
+	return &ret, nil
 }
 
 func conwayPparams(
@@ -872,9 +879,6 @@ func MinFeeTxWithRefScriptSize(
 	pp common.ProtocolParameters,
 	scriptSize uint64,
 ) (uint64, error) {
-	if conwayPp, ok := pp.(*conway.ConwayProtocolParameters); ok {
-		return conway.MinFeeTxWithRefScriptSize(tx, conwayPp, scriptSize)
-	}
 	dijkstraPp, err := dijkstraPparams(pp)
 	if err != nil {
 		return 0, err

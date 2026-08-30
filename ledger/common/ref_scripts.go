@@ -25,6 +25,11 @@ type transactionInputKey struct {
 	index uint32
 }
 
+type consumedReferenceScriptInput struct {
+	input       TransactionInput
+	isReference bool
+}
+
 func newTransactionInputKey(input TransactionInput) transactionInputKey {
 	return transactionInputKey{id: input.Id(), index: input.Index()}
 }
@@ -41,17 +46,22 @@ func ConsumedReferenceScriptSize(
 		return 0, errors.New("transaction body is nil")
 	}
 	inputs := make(
-		map[transactionInputKey]TransactionInput,
+		map[transactionInputKey]consumedReferenceScriptInput,
 		len(tx.Inputs())+len(tx.ReferenceInputs()),
 	)
 	for _, input := range tx.Inputs() {
 		if input != nil {
-			inputs[newTransactionInputKey(input)] = input
+			inputs[newTransactionInputKey(input)] = consumedReferenceScriptInput{
+				input: input,
+			}
 		}
 	}
 	for _, input := range tx.ReferenceInputs() {
 		if input != nil {
-			inputs[newTransactionInputKey(input)] = input
+			inputs[newTransactionInputKey(input)] = consumedReferenceScriptInput{
+				input:       input,
+				isReference: true,
+			}
 		}
 	}
 	if len(inputs) == 0 {
@@ -63,12 +73,15 @@ func ConsumedReferenceScriptSize(
 		)
 	}
 	var total uint64
-	for _, input := range inputs {
-		utxo, err := utxoState.UtxoById(input)
+	for _, consumedInput := range inputs {
+		utxo, err := utxoState.UtxoById(consumedInput.input)
 		if err != nil {
+			if !consumedInput.isReference {
+				continue
+			}
 			return 0, fmt.Errorf(
 				"resolve consumed reference-script input %s: %w",
-				input,
+				consumedInput.input,
 				err,
 			)
 		}

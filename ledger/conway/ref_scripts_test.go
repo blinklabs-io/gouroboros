@@ -165,6 +165,48 @@ func TestConsumedReferenceScriptSizeInputUnion(t *testing.T) {
 		require.NoError(t, err)
 		require.Zero(t, size)
 	})
+
+	t.Run("unresolved regular input is left to bad-input validation", func(t *testing.T) {
+		tx := conwayTxWithInputs(
+			[]shelley.ShelleyTransactionInput{inputA},
+			nil,
+		)
+		tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
+		missingState := conwayRefScriptLedgerState(t)
+		size, err := common.ConsumedReferenceScriptSize(tx, missingState)
+		require.NoError(t, err)
+		require.Zero(t, size)
+		require.NoError(t, conway.UtxoValidateFeeTooSmallUtxo(
+			tx,
+			0,
+			missingState,
+			&conway.ConwayProtocolParameters{},
+		))
+	})
+
+	t.Run("unresolved reference input remains an error", func(t *testing.T) {
+		tx := conwayTxWithInputs(
+			nil,
+			[]shelley.ShelleyTransactionInput{inputA},
+		)
+		_, err := common.ConsumedReferenceScriptSize(
+			tx,
+			conwayRefScriptLedgerState(t),
+		)
+		require.ErrorContains(t, err, "resolve consumed reference-script input")
+	})
+
+	t.Run("unresolved overlapping input remains an error", func(t *testing.T) {
+		tx := conwayTxWithInputs(
+			[]shelley.ShelleyTransactionInput{inputA},
+			[]shelley.ShelleyTransactionInput{inputA},
+		)
+		_, err := common.ConsumedReferenceScriptSize(
+			tx,
+			conwayRefScriptLedgerState(t),
+		)
+		require.ErrorContains(t, err, "resolve consumed reference-script input")
+	})
 }
 
 func TestConwayRefScriptSizePerTxBoundsAndPublishing(t *testing.T) {

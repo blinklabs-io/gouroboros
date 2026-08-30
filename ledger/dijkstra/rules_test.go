@@ -1393,3 +1393,43 @@ func TestDijkstraRefScriptFeeUsesConsumedScriptSet(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, publishingFee)
 }
+
+func TestDijkstraRefScriptFeeUsesConwayDefaults(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(
+		t,
+		0x01,
+		0,
+		int(conway.RefScriptCostStride*2),
+	)
+	tx := dijkstraTxWithReferenceInputs(input)
+	tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xf6})
+	conwayPparams := conway.ConwayProtocolParameters{
+		MinFeeRefScriptCostPerByte: &cbor.Rat{Rat: big.NewRat(1, 1)},
+	}
+	tests := []struct {
+		name string
+		pp   common.ProtocolParameters
+	}{
+		{
+			name: "Dijkstra parameters",
+			pp: &DijkstraProtocolParameters{
+				ConwayProtocolParameters: conwayPparams,
+			},
+		},
+		{
+			name: "Conway parameters",
+			pp:   &conwayPparams,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			minFee, err := MinFeeTxWithUtxo(
+				tx,
+				tc.pp,
+				dijkstraRefScriptLedgerState(t, utxo),
+			)
+			require.NoError(t, err)
+			require.Equal(t, uint64(56_320), minFee)
+		})
+	}
+}
