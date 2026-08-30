@@ -495,6 +495,17 @@ func TestValidateSimpleSignatureReferenceVector(t *testing.T) {
 // (slot 4471207), confirming the byte layout reproduced from
 // cardano-ledger-byron's Delegation/Certificate.hs and cardano-crypto's
 // Signing/{Tag,Signature}.hs.
+// testEpochCbor encodes a delegation certificate epoch the way it would
+// appear on the wire. validateDelegationCertSignature takes the epoch
+// field's preserved encoding rather than its decoded value, so tests that
+// build a certificate from scratch have to produce that encoding too.
+func testEpochCbor(t *testing.T, epoch uint64) []byte {
+	t.Helper()
+	encoded, err := cbor.Encode(epoch)
+	require.NoError(t, err)
+	return encoded
+}
+
 func TestValidateDelegationCertSignature_RealMainnetVector(t *testing.T) {
 	issuerVK, err := hex.DecodeString(
 		"1bc97a2fe02c297880ce8ecfd997fe4c1ec09ee10feeee9f686760166b05281d" +
@@ -516,7 +527,7 @@ func TestValidateDelegationCertSignature_RealMainnetVector(t *testing.T) {
 	validator := NewHeaderValidator(config)
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig, 0,
+		issuerVK, delegateVK, certSig, testEpochCbor(t, 0),
 	)
 	require.NoError(
 		t,
@@ -528,19 +539,19 @@ func TestValidateDelegationCertSignature_RealMainnetVector(t *testing.T) {
 	tamperedSig := append([]byte{}, certSig...)
 	tamperedSig[0] ^= 0xFF
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, tamperedSig, 0,
+		issuerVK, delegateVK, tamperedSig, testEpochCbor(t, 0),
 	)
 	require.Error(t, err, "tampered certificate signature must fail")
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig, 1, // wrong epoch
+		issuerVK, delegateVK, certSig, testEpochCbor(t, 1), // wrong epoch
 	)
 	require.Error(t, err, "wrong epoch must fail signature verification")
 
 	tamperedDelegateVK := append([]byte{}, delegateVK...)
 	tamperedDelegateVK[0] ^= 0xFF
 	err = validator.validateDelegationCertSignature(
-		issuerVK, tamperedDelegateVK, certSig, 0,
+		issuerVK, tamperedDelegateVK, certSig, testEpochCbor(t, 0),
 	)
 	require.Error(
 		t,
@@ -590,7 +601,7 @@ func TestValidateDelegationCertSignature_Deterministic(t *testing.T) {
 	certSig := ed25519.Sign(issuerPriv, signed)
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig, epoch,
+		issuerVK, delegateVK, certSig, epochBytes,
 	)
 	require.NoError(
 		t,
@@ -603,7 +614,7 @@ func TestValidateDelegationCertSignature_Deterministic(t *testing.T) {
 	skipValidator := NewHeaderValidator(config)
 	skipValidator.SkipDelegationCertVerification = true
 	err = skipValidator.validateDelegationCertSignature(
-		issuerVK, delegateVK, make([]byte, ed25519.SignatureSize), epoch,
+		issuerVK, delegateVK, make([]byte, ed25519.SignatureSize), epochBytes,
 	)
 	require.NoError(
 		t,
@@ -615,23 +626,23 @@ func TestValidateDelegationCertSignature_Deterministic(t *testing.T) {
 	tamperedSig := append([]byte{}, certSig...)
 	tamperedSig[0] ^= 0xFF
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, tamperedSig, epoch,
+		issuerVK, delegateVK, tamperedSig, epochBytes,
 	)
 	require.Error(t, err, "tampered signature must be rejected by default")
 
 	// Malformed key sizes must be rejected before attempting verification.
 	err = validator.validateDelegationCertSignature(
-		issuerVK[:32], delegateVK, certSig, epoch,
+		issuerVK[:32], delegateVK, certSig, epochBytes,
 	)
 	require.Error(t, err, "short issuerVK must be rejected")
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK[:32], certSig, epoch,
+		issuerVK, delegateVK[:32], certSig, epochBytes,
 	)
 	require.Error(t, err, "short delegateVK must be rejected")
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig[:32], epoch,
+		issuerVK, delegateVK, certSig[:32], epochBytes,
 	)
 	require.Error(t, err, "short certSig must be rejected")
 }

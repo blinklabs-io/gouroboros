@@ -405,7 +405,13 @@ func (v *HeaderValidator) validateBlockSignatureWithProxy(
 	switch sigType {
 	case byronSigTypeSimple:
 		// Simple signature: [0, signature]
-		// If BlockSignature is empty but BlockSig contains the signature, extract it
+		// If BlockSignature is empty but BlockSig contains the signature,
+		// extract it. The extracted signature is written to a copy of the
+		// input, never to the caller's: ValidateHeaderInput is caller-owned
+		// and callers reuse one across blocks, so filling in BlockSignature
+		// here would leave this block's signature behind for the next
+		// header validated with the same struct -- one that may carry no
+		// signature of its own, and would then be checked against this one.
 		if len(input.BlockSignature) == 0 && len(input.BlockSig) > 1 {
 			sigBytes, ok := input.BlockSig[1].([]byte)
 			if !ok {
@@ -414,7 +420,9 @@ func (v *HeaderValidator) validateBlockSignatureWithProxy(
 					input.BlockSig[1],
 				)
 			}
-			input.BlockSignature = sigBytes
+			withSig := *input
+			withSig.BlockSignature = sigBytes
+			return v.validateSimpleSignature(&withSig)
 		}
 		return v.validateSimpleSignature(input)
 
@@ -470,12 +478,36 @@ func (v *HeaderValidator) validateProxySignature(
 		)
 	}
 
-	// Extract certificate components
+	// Extract certificate components. The epoch is taken twice: as a value
+	// for the checks below, and as its preserved wire encoding, which is
+	// what the certificate signature actually covers.
 	epochOrOmega, err := extractUint64(
 		cert[0],
 	) // epochOrOmega - used for replay protection
 	if err != nil {
 		return fmt.Errorf("failed to extract epoch/omega from cert: %w", err)
+	}
+	epochCbor, err := proxyCertEpochCbor(input.HeaderCbor)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to recover delegation certificate epoch encoding: %w",
+			err,
+		)
+	}
+	// Confirm the walk through the raw header landed on the same field the
+	// decoded BlockSig holds, so a header whose shape differs from what
+	// proxyCertEpochCbor assumes is rejected rather than verified against
+	// some other field's bytes.
+	var recoveredEpoch uint64
+	if _, err := cbor.Decode(epochCbor, &recoveredEpoch); err != nil {
+		return fmt.Errorf("decode delegation certificate epoch: %w", err)
+	}
+	if recoveredEpoch != epochOrOmega {
+		return fmt.Errorf(
+			"delegation certificate epoch encoding %x decodes to %d, "+
+				"but the header's decoded certificate says %d",
+			epochCbor, recoveredEpoch, epochOrOmega,
+		)
 	}
 
 	issuerVK, ok := cert[1].([]byte)
@@ -553,7 +585,7 @@ func (v *HeaderValidator) validateProxySignature(
 	// from cardano-ledger-byron's Delegation/Certificate.hs and
 	// cardano-crypto's Signing/{Tag,Signature}.hs.
 	if err := v.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig, epochOrOmega,
+		issuerVK, delegateVK, certSig, epochCbor,
 	); err != nil {
 		return fmt.Errorf(
 			"delegation certificate signature verification failed: %w",
@@ -619,21 +651,63 @@ func (v *HeaderValidator) validateProxySignature(
 	return nil
 }
 
-// Byron signing tags (from cardano-sl)
+// proxyCertEpochCbor recovers the preserved wire encoding of the epoch
+// field inside a header's proxy delegation certificate, by walking the
+// header's own CBOR:
+//
+//	header[3]         -> consensus_data
+//	consensus_data[3] -> block_sig
+//	block_sig[1]      -> [certificate, block_signature]
+//	certificate[0]    -> epoch
+//
+// The decoded BlockSig cannot supply this. CBOR admits non-shortest integer
+// encodings and this decoder accepts them, so an epoch that arrived as
+// 0x1807 decodes to 7 and re-encodes to 0x07 -- and the issuer signed the
+// bytes on the wire, not the round trip.
+func proxyCertEpochCbor(headerCbor []byte) ([]byte, error) {
+	if len(headerCbor) == 0 {
+		return nil, errors.New(
+			"header CBOR is required to recover the certificate epoch",
+		)
+	}
+	path := []struct {
+		label string
+		index int
+		count int
+	}{
+		{label: "header", index: 3, count: 5},
+		{label: "consensus data", index: 3, count: 4},
+		{label: "block signature", index: 1, count: 2},
+		{label: "delegation signature", index: 0, count: 2},
+		{label: "delegation certificate", index: 0, count: 4},
+	}
+	current := cbor.RawMessage(headerCbor)
+	for _, step := range path {
+		var elements []cbor.RawMessage
+		if _, err := cbor.Decode(current, &elements); err != nil {
+			return nil, fmt.Errorf("decode %s: %w", step.label, err)
+		}
+		if len(elements) != step.count {
+			return nil, fmt.Errorf(
+				"%s is not a %d-element array, got %d elements",
+				step.label, step.count, len(elements),
+			)
+		}
+		current = elements[step.index]
+	}
+	if len(current) == 0 {
+		return nil, errors.New("delegation certificate epoch encoding is empty")
+	}
+	return current, nil
+}
+
+// Byron signing tags used by header validation. The full set, and the
+// signed-buffer construction they domain-separate, lives in ledger/byron
+// (sign.go) so that package's payload validation and this package's header
+// validation cannot drift apart.
 const (
-	byronSignTagTx             = 0x01
-	byronSignTagRedeemTx       = 0x02
-	byronSignTagVssCert        = 0x03
-	byronSignTagUSProposal     = 0x04
-	byronSignTagCommitment     = 0x05
-	byronSignTagUSVote         = 0x06
-	byronSignTagMainBlock      = 0x07
-	byronSignTagMainBlockLight = 0x08
-	byronSignTagMainBlockHeavy = 0x09
-	// byronSignTagCertificate is SignCertificate from cardano-crypto's
-	// Cardano.Crypto.Signing.Tag: used to sign/verify delegation
-	// certificates (see validateDelegationCertSignature).
-	byronSignTagCertificate = 0x0a
+	byronSignTagMainBlockLight = byron.SignTagMainBlockLight
+	byronSignTagMainBlockHeavy = byron.SignTagMainBlockHeavy
 )
 
 // buildToSign constructs the ToSign data that is actually signed in Byron blocks.
@@ -743,32 +817,23 @@ func extractUint64(v any) (uint64, error) {
 	}
 }
 
-// validateDelegationCertSignature verifies the delegation certificate signature.
-// The issuer signs the certificate to authorize the delegate to produce blocks.
+// validateDelegationCertSignature verifies the delegation certificate
+// signature that authorizes a delegate to produce blocks on the issuer's
+// behalf, honoring this validator's SkipDelegationCertVerification escape
+// hatch.
 //
-// This reproduces cardano-ledger-byron's Cardano.Chain.Delegation.Certificate
-// signing/verification exactly (verified against a real mainnet delegation
-// certificate, see TestValidateDelegationCertSignature):
+// The signing format itself -- reproduced from cardano-ledger-byron's
+// Cardano.Chain.Delegation.Certificate and verified against a real mainnet
+// delegation certificate (see TestValidateDelegationCertSignature) -- lives
+// in byron.VerifyDelegationCertificateSignature, so that header validation
+// here and delegation payload validation in ledger/byron cannot drift
+// apart.
 //
-//	inner = "00" || CC.unXPub(delegateVK) || CBOR(epochOrOmega)
-//	  -- "00" is the two ASCII bytes 0x30 0x30, delegateVK is the raw
-//	  -- 64-byte extended verification key, and the epoch is CBOR-encoded.
-//
-// signCertificate calls `safeSign protocolMagicId SignCertificate safeSigner
-// inner`, and safeSign (Cardano.Crypto.Signing.Signature) is defined as
-// `coerce . safeSignRaw pm (Just tag) ss . serialize'`, i.e. it CBOR-encodes
-// its ByteString argument (wrapping it in a CBOR byte-string header) before
-// prepending the sign tag and signing:
-//
-//	signed = signTag(pm, SignCertificate) || CBOR_bytestring(inner)
-//	signTag(pm, SignCertificate) = 0x0a || CBOR(protocolMagic)
-//
-// The certificate's own signature (certSig) is then a standard Ed25519
-// signature over `signed`, verifiable with the issuer's 32-byte Ed25519
-// public key (the first 32 bytes of the 64-byte extended issuerVK).
+// epochCbor is the epoch field's preserved wire encoding, not a re-encoding
+// of its decoded value -- see that function's doc comment.
 func (v *HeaderValidator) validateDelegationCertSignature(
 	issuerVK, delegateVK, certSig []byte,
-	epochOrOmega uint64,
+	epochCbor []byte,
 ) error {
 	// Check if verification should be skipped
 	if v.SkipDelegationCertVerification {
@@ -778,67 +843,13 @@ func (v *HeaderValidator) validateDelegationCertSignature(
 		// validator verifies delegation certificate signatures fail-closed.
 		return nil
 	}
-
-	if len(issuerVK) != 64 {
-		return fmt.Errorf(
-			"invalid issuerVK size: got %d, expected 64",
-			len(issuerVK),
-		)
-	}
-	if len(delegateVK) != 64 {
-		return fmt.Errorf(
-			"invalid delegateVK size: got %d, expected 64",
-			len(delegateVK),
-		)
-	}
-	if len(certSig) != ed25519.SignatureSize {
-		return fmt.Errorf(
-			"invalid certSig size: got %d, expected %d",
-			len(certSig),
-			ed25519.SignatureSize,
-		)
-	}
-
-	// CBOR-encode the epoch/omega value
-	epochBytes, err := cbor.Encode(epochOrOmega)
-	if err != nil {
-		return fmt.Errorf("failed to encode epoch/omega: %w", err)
-	}
-
-	// inner = "00" || delegateVK || CBOR(epoch)
-	inner := make([]byte, 0, 2+len(delegateVK)+len(epochBytes))
-	inner = append(inner, '0', '0') // ASCII "00"
-	inner = append(inner, delegateVK...)
-	inner = append(inner, epochBytes...)
-
-	// safeSign CBOR-encodes its ByteString argument (wraps it as a CBOR
-	// byte string) before signing.
-	innerCbor, err := cbor.Encode(inner)
-	if err != nil {
-		return fmt.Errorf("failed to encode certificate payload: %w", err)
-	}
-
-	// Encode protocol magic for the SignCertificate tag
-	pmBytes, err := cbor.Encode(v.config.ProtocolMagic)
-	if err != nil {
-		return fmt.Errorf("failed to encode protocol magic: %w", err)
-	}
-
-	// signed = 0x0a || CBOR(protocolMagic) || CBOR_bytestring(inner)
-	signed := make([]byte, 0, 1+len(pmBytes)+len(innerCbor))
-	signed = append(signed, byronSignTagCertificate)
-	signed = append(signed, pmBytes...)
-	signed = append(signed, innerCbor...)
-
-	issuerPubKey := issuerVK[:32]
-	if !ed25519.Verify(issuerPubKey, signed, certSig) {
-		return fmt.Errorf(
-			"delegation certificate signature verification failed for epoch/omega %d",
-			epochOrOmega,
-		)
-	}
-
-	return nil
+	return byron.VerifyDelegationCertificateSignature(
+		v.config.ProtocolMagic,
+		issuerVK,
+		delegateVK,
+		certSig,
+		epochCbor,
+	)
 }
 
 // validateGenesisDelegate checks if the issuer is a valid genesis delegate
@@ -1170,6 +1181,22 @@ func ValidateBodyHash(
 		}
 	}
 
+	// Validate the delegation and update payloads themselves -- opt-in
+	// only (EnableByronPayloadValidation). The dlg_proof/upd_proof checks
+	// above bind those payloads' bytes to the header but say nothing about
+	// whether they decode to well-formed certificates, proposals, and
+	// votes, or whether the signatures inside them verify. See that flag's
+	// doc comment for why the check is not on by default.
+	if cfg.EnableByronPayloadValidation {
+		if err := block.ValidatePayloads(); err != nil {
+			return &common.ValidationError{
+				Type:    common.ValidationErrorTypeBodyHash,
+				Message: "byron payload validation failed",
+				Cause:   err,
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1357,8 +1384,18 @@ func ValidateEBBBodyHash(block *byron.ByronEpochBoundaryBlock) error {
 		}
 	}
 
-	// Get the expected body hash from the header
-	expectedHash := block.BlockHeader.BlockBodyHash()
+	// Get the expected body hash from the header. The checked accessor is
+	// used so a body proof that is not a hash at all is reported as
+	// malformed, rather than yielding a zero hash that the comparison
+	// below would report as an ordinary mismatch.
+	expectedHash, err := block.BlockHeader.BlockBodyHashChecked()
+	if err != nil {
+		return &common.ValidationError{
+			Type:    common.ValidationErrorTypeBodyHash,
+			Message: "malformed EBB body proof in header",
+			Cause:   err,
+		}
+	}
 
 	// Compute the actual body hash
 	// EBB body is a list of stakeholder IDs ([]Blake2b224)

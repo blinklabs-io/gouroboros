@@ -262,11 +262,23 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				err,
 			)
 		}
+		// The genesis file carries omega as a JSON number, so it never had
+		// a wire encoding to preserve; encoding it here is correct.
+		omegaCbor, err := ledgerbyron.EncodeDelegationEpoch(
+			uint64(delegation.Omega),
+		)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"encode delegation omega for genesis key %s: %w",
+				genesisHashHex,
+				err,
+			)
+		}
 		if err := genesisValidator.validateDelegationCertSignature(
 			issuerKey,
 			delegateKey,
 			certificateSignature,
-			uint64(delegation.Omega),
+			omegaCbor,
 		); err != nil {
 			return ByronConfig{}, fmt.Errorf(
 				"validate delegation certificate for genesis key %s: %w",
