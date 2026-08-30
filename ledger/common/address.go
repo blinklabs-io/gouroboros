@@ -738,6 +738,73 @@ func (a *Address) StakeCredential() (Credential, bool) {
 	}
 }
 
+// RewardAccountCredential returns the credential carried by a valid reward
+// account address. Withdrawal map keys are restricted to the two CIP-0019
+// reward-account forms (key and script) and must use their exact 29-byte wire
+// representation.
+func (a *Address) RewardAccountCredential() (Credential, error) {
+	if a == nil {
+		return Credential{}, errors.New("nil withdrawal address")
+	}
+	var wantType uint = CredentialTypeAddrKeyHash
+	switch a.addressType {
+	case AddressTypeNoneKey:
+	case AddressTypeNoneScript:
+		wantType = CredentialTypeScriptHash
+	default:
+		return Credential{}, fmt.Errorf(
+			"withdrawal address type %d is not a reward account",
+			a.addressType,
+		)
+	}
+	if a.networkId != AddressNetworkTestnet &&
+		a.networkId != AddressNetworkMainnet {
+		return Credential{}, fmt.Errorf(
+			"withdrawal address has invalid network ID %d",
+			a.networkId,
+		)
+	}
+	raw, err := a.Bytes()
+	if err != nil {
+		return Credential{}, fmt.Errorf("encode withdrawal address: %w", err)
+	}
+	if len(raw) != 1+AddressHashSize {
+		return Credential{}, fmt.Errorf(
+			"withdrawal address has invalid length %d, want %d",
+			len(raw),
+			1+AddressHashSize,
+		)
+	}
+	credential, ok := a.StakeCredential()
+	if !ok || credential.CredType != wantType {
+		return Credential{}, errors.New(
+			"withdrawal address credential does not match its header",
+		)
+	}
+	return credential, nil
+}
+
+// ValidateWithdrawalAddresses validates every withdrawal map key and rejects
+// semantically duplicate reward accounts even when their CBOR encodings differ.
+func ValidateWithdrawalAddresses[T any](withdrawals map[*Address]T) error {
+	seen := make(map[string]struct{}, len(withdrawals))
+	for addr := range withdrawals {
+		if _, err := addr.RewardAccountCredential(); err != nil {
+			return fmt.Errorf("invalid withdrawal address: %w", err)
+		}
+		raw, err := addr.Bytes()
+		if err != nil {
+			return fmt.Errorf("encode withdrawal address: %w", err)
+		}
+		key := string(raw)
+		if _, ok := seen[key]; ok {
+			return errors.New("duplicate withdrawal reward account")
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
 func (a *Address) ByronAttr() ByronAddressAttributes {
 	return a.byronAddressAttr
 }
