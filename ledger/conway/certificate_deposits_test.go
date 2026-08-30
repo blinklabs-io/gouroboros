@@ -315,7 +315,7 @@ func TestCertificateRegistrationDepositsProductionPath(t *testing.T) {
 	}
 	for _, credType := range credentialTypes {
 		fixture := newCertificateDepositCredentialFixture(t, credType)
-		t.Run(
+			t.Run(
 			"legacy stake registration/credential-"+string(rune('0'+credType)),
 			func(t *testing.T) {
 				certificateCbor, err := cbor.Encode([]any{
@@ -326,9 +326,15 @@ func TestCertificateRegistrationDepositsProductionPath(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				// Legacy stake-registration certificates do not carry a
+				// credential-auth purpose.  In particular, an explicit native
+				// script witness is extraneous; script credentials become
+				// authorized by the later operation that uses them.
+				legacyFixture := fixture
+				legacyFixture.nativeCbor = nil
 				tx := certificateDepositTransaction(
 					t,
-					fixture,
+					legacyFixture,
 					[][]byte{certificateCbor},
 					-int64(pp.KeyDeposit),
 					0,
