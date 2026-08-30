@@ -93,6 +93,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
 	UtxoValidateMalformedReferenceScripts,
+	UtxoValidateRefScriptSizePerTx,
 }
 
 // isInConwayBootstrapPhase reports whether the given protocol parameters
@@ -1665,7 +1666,7 @@ func UtxoValidateFeeTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	minFee, err := MinFeeTx(tx, pp)
+	minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
 	if err != nil {
 		return err
 	}
