@@ -94,8 +94,8 @@ func ValidateRefScriptSizePerBlock(
 	return nil
 }
 
-// CalculateRefScriptFee calculates the tiered reference-script fee and rounds
-// the exact rational result up once, after all tiers have been accumulated.
+// CalculateRefScriptFee calculates the tiered reference-script fee and floors
+// the exact rational result once, after all tiers have been accumulated.
 func CalculateRefScriptFee(
 	scriptSize uint64,
 	baseCost *cbor.Rat,
@@ -127,14 +127,7 @@ func CalculateRefScriptFee(
 		remaining -= tierSize
 		price.Mul(price, multiplier.Rat)
 	}
-	fee, remainder := new(big.Int).QuoRem(
-		total.Num(),
-		total.Denom(),
-		new(big.Int),
-	)
-	if remainder.Sign() != 0 {
-		fee.Add(fee, big.NewInt(1))
-	}
+	fee := new(big.Int).Quo(total.Num(), total.Denom())
 	if !fee.IsUint64() {
 		return 0, fmt.Errorf("reference-script fee overflow: %s", fee)
 	}

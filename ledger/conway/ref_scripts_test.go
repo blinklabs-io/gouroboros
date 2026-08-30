@@ -271,7 +271,7 @@ func TestConwayRefScriptFeeAndLimitUseSameConsumedSet(t *testing.T) {
 	ls := conwayRefScriptLedgerState(t, utxo)
 	minFee, err := conway.MinFeeTxWithUtxo(tx, pp, ls)
 	require.NoError(t, err)
-	require.Equal(t, uint64(25_602), minFee)
+	require.Equal(t, uint64(25_601), minFee)
 
 	tx.Body.TxFee = minFee - 1
 	err = conway.UtxoValidateFeeTooSmallUtxo(tx, 0, ls, pp)
@@ -299,7 +299,7 @@ func TestConwayRefScriptFeeAndLimitUseSameConsumedSet(t *testing.T) {
 	require.Zero(t, publishingFee)
 }
 
-func TestCalculateRefScriptFeeRoundsFractionalTotalUp(t *testing.T) {
+func TestCalculateRefScriptFeeFloorsFractionalTotal(t *testing.T) {
 	fee, err := conway.CalculateRefScriptFee(
 		51_201,
 		&cbor.Rat{Rat: big.NewRat(1, 1)},
@@ -307,7 +307,7 @@ func TestCalculateRefScriptFeeRoundsFractionalTotalUp(t *testing.T) {
 		&cbor.Rat{Rat: big.NewRat(6, 5)},
 	)
 	require.NoError(t, err)
-	require.Equal(t, uint64(56_322), fee)
+	require.Equal(t, uint64(56_321), fee)
 }
 
 func TestConwayRefScriptSizePerBlockBounds(t *testing.T) {
