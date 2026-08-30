@@ -36,8 +36,7 @@ import (
 
 const minUtxoOverheadBytes = 160
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	conway.UtxoValidateMetadata,
+var dijkstraGovernanceRulesBeforeUtxow = []common.UtxoValidationRuleFunc{
 	UtxoValidateProposalProcedures,
 	conway.UtxoValidateGovActionWellFormedness,
 	UtxoValidateHardForkCanFollow,
@@ -48,40 +47,9 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateEmptyTreasuryWithdrawals,
 	UtxoValidateBootstrapAllowedGovActions,
 	UtxoValidateBootstrapParameterGroups,
-	conway.UtxoValidateIsValidFlag,
-	conway.UtxoValidateRequiredVKeyWitnesses,
-	conway.UtxoValidateCollateralVKeyWitnesses,
-	UtxoValidateRedeemerAndScriptWitnesses,
-	conway.UtxoValidateSignatures,
-	UtxoValidateCostModelsPresent,
-	UtxoValidateScriptDataHash,
-	conway.UtxoValidateInlineDatumsWithPlutusV1,
-	conway.UtxoValidateConwayFeaturesWithPlutusV1V2,
-	UtxoValidateDisjointRefInputs,
-	conway.UtxoValidateOutsideValidityIntervalUtxo,
-	conway.UtxoValidateInputSetEmptyUtxo,
-	conway.UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateInsufficientCollateral,
-	UtxoValidateCollateralContainsNonAda,
-	conway.UtxoValidateCollateralEqBalance,
-	UtxoValidateNoCollateralInputs,
-	conway.UtxoValidateBadInputsUtxo,
-	conway.UtxoValidateScriptWitnesses,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputTooBigUtxo,
-	conway.UtxoValidateOutputBootAddrAttrsTooBig,
-	conway.UtxoValidateWrongNetwork,
-	conway.UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateTransactionNetworkId,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateExUnitsTooBigUtxo,
-	UtxoValidateTooManyCollateralInputs,
-	conway.UtxoValidateSupplementalDatums,
-	UtxoValidateExtraneousRedeemers,
-	UtxoValidatePlutusScripts,
-	UtxoValidateNativeScripts,
+}
+
+var dijkstraLedgerRulesAfterUtxow = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateDelegation,
 	conway.UtxoValidateWithdrawals,
 	conway.UtxoValidateCommitteeCertificates,
@@ -91,9 +59,57 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateBootstrapVotingRestrictions,
 	conway.UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
-	UtxoValidateMalformedReferenceScripts,
-	UtxoValidateRefScriptSizePerTx,
 }
+
+var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(conway.UtxoValidateMetadata),
+	common.Phase2ValidUtxoValidationRules(
+		dijkstraGovernanceRulesBeforeUtxow...,
+	),
+	common.AlwaysUtxoValidationRules(
+		conway.UtxoValidateIsValidFlag,
+		conway.UtxoValidateRequiredVKeyWitnesses,
+		conway.UtxoValidateCollateralVKeyWitnesses,
+		UtxoValidateRedeemerAndScriptWitnesses,
+		conway.UtxoValidateSignatures,
+		UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash,
+		conway.UtxoValidateInlineDatumsWithPlutusV1,
+		conway.UtxoValidateConwayFeaturesWithPlutusV1V2,
+		UtxoValidateDisjointRefInputs,
+		conway.UtxoValidateOutsideValidityIntervalUtxo,
+		conway.UtxoValidateInputSetEmptyUtxo,
+		conway.UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo,
+		UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda,
+		conway.UtxoValidateCollateralEqBalance,
+		UtxoValidateNoCollateralInputs,
+		conway.UtxoValidateBadInputsUtxo,
+		conway.UtxoValidateScriptWitnesses,
+		UtxoValidateValueNotConservedUtxo,
+		UtxoValidateOutputTooSmallUtxo,
+		UtxoValidateOutputTooBigUtxo,
+		conway.UtxoValidateOutputBootAddrAttrsTooBig,
+		conway.UtxoValidateWrongNetwork,
+		conway.UtxoValidateWrongNetworkWithdrawal,
+		UtxoValidateTransactionNetworkId,
+		UtxoValidateMaxTxSizeUtxo,
+		UtxoValidateExUnitsTooBigUtxo,
+		UtxoValidateTooManyCollateralInputs,
+		conway.UtxoValidateSupplementalDatums,
+		UtxoValidateExtraneousRedeemers,
+		UtxoValidatePlutusScripts,
+		UtxoValidateNativeScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(
+		dijkstraLedgerRulesAfterUtxow...,
+	),
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateMalformedReferenceScripts,
+		UtxoValidateRefScriptSizePerTx,
+	),
+)
 
 func dijkstraPparams(pp common.ProtocolParameters) (*DijkstraProtocolParameters, error) {
 	switch p := pp.(type) {

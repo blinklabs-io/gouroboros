@@ -38,6 +38,68 @@ type UtxoValidationRuleFunc func(
 	protocolParams ProtocolParameters,
 ) error
 
+// UtxoValidationRuleGroup describes a consecutive group of transaction
+// validation rules with the same phase-2 validity scope. Construct groups with
+// AlwaysUtxoValidationRules or Phase2ValidUtxoValidationRules and flatten them
+// with ComposeUtxoValidationRules.
+type UtxoValidationRuleGroup struct {
+	rules           []UtxoValidationRuleFunc
+	phase2ValidOnly bool
+}
+
+// AlwaysUtxoValidationRules groups UTXOW and other rules that must run for both
+// phase-2-valid and phase-2-invalid transactions.
+func AlwaysUtxoValidationRules(
+	rules ...UtxoValidationRuleFunc,
+) UtxoValidationRuleGroup {
+	return UtxoValidationRuleGroup{rules: rules}
+}
+
+// Phase2ValidUtxoValidationRules groups certificate, governance, and other
+// ledger rules whose transitions run only for phase-2-valid transactions.
+func Phase2ValidUtxoValidationRules(
+	rules ...UtxoValidationRuleFunc,
+) UtxoValidationRuleGroup {
+	return UtxoValidationRuleGroup{
+		rules:           rules,
+		phase2ValidOnly: true,
+	}
+}
+
+// ComposeUtxoValidationRules flattens rule groups without changing their
+// positions. Rules in a Phase2ValidUtxoValidationRules group become no-ops for
+// phase-2-invalid transactions; always-run rules retain their original
+// function values.
+func ComposeUtxoValidationRules(
+	groups ...UtxoValidationRuleGroup,
+) []UtxoValidationRuleFunc {
+	ruleCount := 0
+	for _, group := range groups {
+		ruleCount += len(group.rules)
+	}
+	ret := make([]UtxoValidationRuleFunc, 0, ruleCount)
+	for _, group := range groups {
+		if !group.phase2ValidOnly {
+			ret = append(ret, group.rules...)
+			continue
+		}
+		for _, rule := range group.rules {
+			ret = append(ret, func(
+				tx Transaction,
+				slot uint64,
+				ledgerState LedgerState,
+				protocolParams ProtocolParameters,
+			) error {
+				if tx != nil && !tx.IsValid() {
+					return nil
+				}
+				return rule(tx, slot, ledgerState, protocolParams)
+			})
+		}
+	}
+	return ret
+}
+
 // VerifyTransaction runs the provided validation rules in order and wraps
 // the first error encountered into a ValidationError.
 func VerifyTransaction(

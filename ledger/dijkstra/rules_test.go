@@ -40,9 +40,17 @@ func dijkstraValidationRule(
 	want string,
 ) (common.UtxoValidationRuleFunc, int) {
 	t.Helper()
-	for idx, rule := range UtxoValidationRules {
-		if strings.HasSuffix(dijkstraValidationRuleName(rule), want) {
-			return rule, idx
+	groups := [][]common.UtxoValidationRuleFunc{
+		dijkstraGovernanceRulesBeforeUtxow,
+		dijkstraLedgerRulesAfterUtxow,
+	}
+	idx := 0
+	for _, group := range groups {
+		for _, rule := range group {
+			if strings.HasSuffix(dijkstraValidationRuleName(rule), want) {
+				return rule, idx
+			}
+			idx++
 		}
 	}
 	t.Fatalf("validation rule %s is not registered", want)
@@ -50,6 +58,8 @@ func dijkstraValidationRule(
 }
 
 func TestDijkstraGovernanceValidationRules(t *testing.T) {
+	require.Len(t, UtxoValidationRules, 56)
+
 	expected := []string{
 		"ledger/dijkstra.UtxoValidateProposalProcedures",
 		"ledger/conway.UtxoValidateGovActionWellFormedness",
@@ -91,11 +101,20 @@ func TestDijkstraGovernanceValidationRejectsTypedNilParameterChange(
 	t *testing.T,
 ) {
 	var action *DijkstraParameterChangeGovAction
-	tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
-		TxProposalProcedures: []DijkstraProposalProcedure{{
-			PPGovAction: DijkstraGovAction{Action: action},
-		}},
-	}}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPGovAction: DijkstraGovAction{Action: action},
+			}},
+		},
+	}
+	require.NoError(t, UtxoValidationRules[1](
+		tx,
+		0,
+		nil,
+		&DijkstraProtocolParameters{},
+	))
+	tx.TxIsValid = true
 	var err error
 	require.NotPanics(t, func() {
 		err = common.VerifyTransaction(
