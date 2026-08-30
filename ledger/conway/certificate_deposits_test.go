@@ -315,7 +315,7 @@ func TestCertificateRegistrationDepositsProductionPath(t *testing.T) {
 	}
 	for _, credType := range credentialTypes {
 		fixture := newCertificateDepositCredentialFixture(t, credType)
-			t.Run(
+		t.Run(
 			"legacy stake registration/credential-"+string(rune('0'+credType)),
 			func(t *testing.T) {
 				certificateCbor, err := cbor.Encode([]any{
