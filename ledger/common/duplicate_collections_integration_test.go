@@ -47,6 +47,24 @@ func transactionBodyDecoders() map[string]func() transactionBodyDecoder {
 	}
 }
 
+func preConwayTransactionBodyDecoders() map[string]func() transactionBodyDecoder {
+	return map[string]func() transactionBodyDecoder{
+		"shelley": func() transactionBodyDecoder { return &shelley.ShelleyTransactionBody{} },
+		"allegra": func() transactionBodyDecoder { return &allegra.AllegraTransactionBody{} },
+		"mary":    func() transactionBodyDecoder { return &mary.MaryTransactionBody{} },
+		"alonzo":  func() transactionBodyDecoder { return &alonzo.AlonzoTransactionBody{} },
+		"babbage": func() transactionBodyDecoder { return &babbage.BabbageTransactionBody{} },
+	}
+}
+
+func orderedSetCertificateTransactionBodyDecoders() map[string]func() transactionBodyDecoder {
+	return map[string]func() transactionBodyDecoder{
+		"conway":       func() transactionBodyDecoder { return &conway.ConwayTransactionBody{} },
+		"dijkstra":     func() transactionBodyDecoder { return &dijkstra.DijkstraTransactionBody{} },
+		"dijkstra_sub": func() transactionBodyDecoder { return &dijkstra.DijkstraSubTransactionBody{} },
+	}
+}
+
 func testRewardAddress(t *testing.T) common.Address {
 	t.Helper()
 	addressBytes := make([]byte, 29)
@@ -90,31 +108,28 @@ func TestTransactionBodiesRejectDuplicateLogicalWithdrawalKeys(t *testing.T) {
 	}
 }
 
-func testRegistrationCertificate() *common.RegistrationCertificate {
-	var hash common.Blake2b224
+func testPoolRetirementCertificate() *common.PoolRetirementCertificate {
+	var hash common.PoolKeyHash
 	for idx := range hash {
 		hash[idx] = byte(idx + 1)
 	}
-	return &common.RegistrationCertificate{
-		CertType: uint(common.CertificateTypeRegistration),
-		StakeCredential: common.Credential{
-			CredType:   common.CredentialTypeAddrKeyHash,
-			Credential: hash,
-		},
-		Amount: 1,
+	return &common.PoolRetirementCertificate{
+		CertType:    uint(common.CertificateTypePoolRetirement),
+		PoolKeyHash: hash,
+		Epoch:       1,
 	}
 }
 
-func TestTransactionBodiesRejectDuplicateCertificates(t *testing.T) {
+func TestTransactionBodyDuplicateCertificateSemanticsByEra(t *testing.T) {
 	for _, tagged := range []bool{false, true} {
 		encoding := "untagged"
 		if tagged {
 			encoding = "tagged"
 		}
 		t.Run(encoding, func(t *testing.T) {
-			certificate := testRegistrationCertificate()
-			differentCertificate := testRegistrationCertificate()
-			differentCertificate.Amount = 2
+			certificate := testPoolRetirementCertificate()
+			differentCertificate := testPoolRetirementCertificate()
+			differentCertificate.Epoch = 2
 			duplicateCertificates := any([]any{certificate, certificate})
 			validCertificates := any(
 				[]any{certificate, differentCertificate},
@@ -134,7 +149,19 @@ func TestTransactionBodiesRejectDuplicateCertificates(t *testing.T) {
 			validBody, err := cbor.Encode(map[uint]any{4: validCertificates})
 			require.NoError(t, err)
 
-			for era, newBody := range transactionBodyDecoders() {
+			if !tagged {
+				for era, newBody := range preConwayTransactionBodyDecoders() {
+					t.Run(era, func(t *testing.T) {
+						require.NoError(
+							t,
+							newBody().UnmarshalCBOR(duplicateBody),
+						)
+						require.NoError(t, newBody().UnmarshalCBOR(validBody))
+					})
+				}
+			}
+
+			for era, newBody := range orderedSetCertificateTransactionBodyDecoders() {
 				t.Run(era, func(t *testing.T) {
 					err := newBody().UnmarshalCBOR(duplicateBody)
 					var duplicateError common.DuplicateCertificateError
@@ -147,7 +174,7 @@ func TestTransactionBodiesRejectDuplicateCertificates(t *testing.T) {
 }
 
 func TestTransactionBodiesRejectEquivalentCertificateEncodings(t *testing.T) {
-	canonical, err := cbor.Encode(testRegistrationCertificate())
+	canonical, err := cbor.Encode(testPoolRetirementCertificate())
 	require.NoError(t, err)
 	require.Equal(t, byte(1), canonical[len(canonical)-1])
 	nonShortestAmount := append([]byte(nil), canonical[:len(canonical)-1]...)
@@ -160,7 +187,13 @@ func TestTransactionBodiesRejectEquivalentCertificateEncodings(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	for era, newBody := range transactionBodyDecoders() {
+	for era, newBody := range preConwayTransactionBodyDecoders() {
+		t.Run(era, func(t *testing.T) {
+			require.NoError(t, newBody().UnmarshalCBOR(body))
+		})
+	}
+
+	for era, newBody := range orderedSetCertificateTransactionBodyDecoders() {
 		t.Run(era, func(t *testing.T) {
 			err := newBody().UnmarshalCBOR(body)
 			var duplicateError common.DuplicateCertificateError
@@ -172,7 +205,7 @@ func TestTransactionBodiesRejectEquivalentCertificateEncodings(t *testing.T) {
 func TestConwayTransactionDecoderRejectsDuplicateCollections(t *testing.T) {
 	address1 := testRewardAddress(t)
 	address2 := address1
-	certificate := testRegistrationCertificate()
+	certificate := testPoolRetirementCertificate()
 	tests := []struct {
 		name string
 		body map[uint]any
