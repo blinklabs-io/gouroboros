@@ -115,10 +115,6 @@ func TestPoolRegistrationCertificateRejectsInvalidMarginCBOR(t *testing.T) {
 			margin: cbor.RawMessage{0xd8, 0x1e, 0x82, 0x01, 0x20},
 		},
 		{
-			name:   "double negative",
-			margin: cbor.RawMessage{0xd8, 0x1e, 0x82, 0x20, 0x21},
-		},
-		{
 			name:   "wrong tag",
 			margin: cbor.RawMessage{0xd8, 0x1d, 0x82, 0x00, 0x01},
 		},
@@ -152,6 +148,94 @@ func TestPoolRegistrationCertificateRejectsInvalidMarginCBOR(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestPoolRegistrationCertificateNormalizesHistoricalMarginCBOR(
+	t *testing.T,
+) {
+	tests := []struct {
+		name   string
+		margin cbor.RawMessage
+	}{
+		{
+			name:   "double negative integers",
+			margin: cbor.RawMessage{0xd8, 0x1e, 0x82, 0x20, 0x21},
+		},
+		{
+			name: "tag-2 bignum components",
+			margin: cbor.RawMessage{
+				0xd8, 0x1e, 0x82,
+				0xc2, 0x41, 0x01,
+				0xc2, 0x41, 0x02,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire := testPoolRegistrationWire(t, test.margin, false)
+			var cert PoolRegistrationCertificate
+			_, err := cbor.Decode(wire, &cert)
+			require.NoError(t, err)
+			assert.Zero(t, cert.Margin.Cmp(big.NewRat(1, 2)))
+		})
+	}
+}
+
+func TestPoolRegistrationCertificateRejectsCurrentNonUintMarginCBOR(
+	t *testing.T,
+) {
+	tests := []struct {
+		name   string
+		margin cbor.RawMessage
+	}{
+		{
+			name:   "negative numerator",
+			margin: cbor.RawMessage{0xd8, 0x1e, 0x82, 0x20, 0x21},
+		},
+		{
+			name: "tag-2 bignum numerator",
+			margin: cbor.RawMessage{
+				0xd8, 0x1e, 0x82,
+				0xc2, 0x41, 0x01,
+				0x02,
+			},
+		},
+		{
+			name: "tag-2 bignum denominator",
+			margin: cbor.RawMessage{
+				0xd8, 0x1e, 0x82,
+				0x01,
+				0xc2, 0x41, 0x02,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire := testPoolRegistrationWire(t, test.margin, true)
+			var cert PoolRegistrationCertificate
+			_, err := cbor.Decode(wire, &cert)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrPoolMarginOutsideUnitInterval)
+		})
+	}
+}
+
+func TestPoolRegistrationCertificateMarshalUsesCachedCBORBeforeValidation(
+	t *testing.T,
+) {
+	wire := testPoolRegistrationWire(
+		t,
+		cbor.RawMessage{0xd8, 0x1e, 0x82, 0x01, 0x02},
+		false,
+	)
+	var cert PoolRegistrationCertificate
+	_, err := cbor.Decode(wire, &cert)
+	require.NoError(t, err)
+
+	cert.Margin = NewGenesisRat(2, 1)
+	encoded, err := cbor.Encode(cert)
+	require.NoError(t, err)
+	assert.Equal(t, wire, encoded)
 }
 
 func TestPoolRegistrationCertificateRejectsInvalidMarginJSON(t *testing.T) {

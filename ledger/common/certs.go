@@ -710,22 +710,7 @@ func validatePoolMarginComponents(numerator, denominator *big.Int) error {
 	return nil
 }
 
-func poolMarginInteger(value any) (*big.Int, error) {
-	ret := new(big.Int)
-	switch tmp := value.(type) {
-	case int64:
-		ret.SetInt64(tmp)
-	case uint64:
-		ret.SetUint64(tmp)
-	case big.Int:
-		ret.Set(&tmp)
-	default:
-		return nil, fmt.Errorf("unsupported integer type %T", value)
-	}
-	return ret, nil
-}
-
-func validatePoolMarginCBOR(data []byte) error {
+func validatePoolMarginCBOR(data []byte, requireUintComponents bool) error {
 	var tag cbor.RawTag
 	if _, err := cbor.Decode(data, &tag); err != nil {
 		return fmt.Errorf("%w: %w", ErrPoolMarginOutsideUnitInterval, err)
@@ -738,7 +723,7 @@ func validatePoolMarginCBOR(data []byte) error {
 			tag.Number,
 		)
 	}
-	var components []any
+	var components []cbor.RawMessage
 	if _, err := cbor.Decode(tag.Content, &components); err != nil {
 		return fmt.Errorf("%w: %w", ErrPoolMarginOutsideUnitInterval, err)
 	}
@@ -749,23 +734,31 @@ func validatePoolMarginCBOR(data []byte) error {
 			len(components),
 		)
 	}
-	numerator, err := poolMarginInteger(components[0])
-	if err != nil {
-		return fmt.Errorf(
-			"%w: numerator: %w",
-			ErrPoolMarginOutsideUnitInterval,
-			err,
-		)
+	if requireUintComponents {
+		for idx, component := range components {
+			if len(component) == 0 || component[0]>>5 != 0 {
+				return fmt.Errorf(
+					"%w: component %d must be an unsigned integer",
+					ErrPoolMarginOutsideUnitInterval,
+					idx,
+				)
+			}
+			var value uint64
+			if _, err := cbor.Decode(component, &value); err != nil {
+				return fmt.Errorf(
+					"%w: component %d: %w",
+					ErrPoolMarginOutsideUnitInterval,
+					idx,
+					err,
+				)
+			}
+		}
 	}
-	denominator, err := poolMarginInteger(components[1])
-	if err != nil {
-		return fmt.Errorf(
-			"%w: denominator: %w",
-			ErrPoolMarginOutsideUnitInterval,
-			err,
-		)
+	var margin GenesisRat
+	if _, err := cbor.Decode(data, &margin); err != nil {
+		return fmt.Errorf("%w: %w", ErrPoolMarginOutsideUnitInterval, err)
 	}
-	return validatePoolMarginComponents(numerator, denominator)
+	return ValidatePoolMargin(margin)
 }
 
 // ParsePoolMarginJSON decodes a pool margin while enforcing the unit-interval
@@ -988,7 +981,7 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	}
 	switch len(fields) {
 	case 10:
-		if err := validatePoolMarginCBOR(fields[5]); err != nil {
+		if err := validatePoolMarginCBOR(fields[5], false); err != nil {
 			return fmt.Errorf("invalid pool registration margin: %w", err)
 		}
 		var tmp legacyPoolRegistrationCertificate
@@ -1007,7 +1000,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Relays = tmp.Relays
 		c.PoolMetadata = tmp.PoolMetadata
 	case 11:
-		if err := validatePoolMarginCBOR(fields[6]); err != nil {
+		// The 11-field form is the protocol-version-12 stake-pool
+		// registration, whose rational components decode as Word64.
+		if err := validatePoolMarginCBOR(fields[6], true); err != nil {
 			return fmt.Errorf("invalid pool registration margin: %w", err)
 		}
 		var tmp leiosPoolRegistrationCertificate
@@ -1039,11 +1034,11 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 // those bytes for both 10- and 11-field variants. Call SetCbor(nil) before
 // marshaling mutated fields.
 func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
-	if err := ValidatePoolMargin(c.Margin); err != nil {
-		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
-	}
 	if cborData := c.Cbor(); cborData != nil {
 		return cborData, nil
+	}
+	if err := ValidatePoolMargin(c.Margin); err != nil {
+		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
 	}
 	if c.LeiosKey == nil {
 		return cbor.Encode([]any{
