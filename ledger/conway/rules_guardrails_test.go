@@ -34,6 +34,16 @@ func guardrailsState(scriptHash []byte) common.LedgerState {
 		Build()
 }
 
+func validGuardrailsProposalTx(
+	deposit uint64,
+	rewardAccount common.Address,
+	action common.GovAction,
+) *conway.ConwayTransaction {
+	tx := mkProposalTx(deposit, rewardAccount, action)
+	tx.TxIsValid = true
+	return tx
+}
+
 func guardrailsParameterChange(policyHash []byte) common.GovAction {
 	minFeeA := uint(44)
 	return &conway.ConwayParameterChangeGovAction{
@@ -121,7 +131,7 @@ func TestUtxoValidateGuardrailsScriptHash(t *testing.T) {
 
 			for _, tc := range tests {
 				t.Run(tc.name, func(t *testing.T) {
-					tx := mkProposalTx(
+					tx := validGuardrailsProposalTx(
 						0,
 						common.Address{},
 						actionFactory.new(t, tc.policy),
@@ -147,7 +157,7 @@ func TestUtxoValidateGuardrailsScriptHash(t *testing.T) {
 }
 
 func TestUtxoValidateGuardrailsScriptHashStateFailures(t *testing.T) {
-	tx := mkProposalTx(
+	tx := validGuardrailsProposalTx(
 		0,
 		common.Address{},
 		guardrailsParameterChange(nil),
@@ -187,7 +197,7 @@ func TestUtxoValidateGuardrailsScriptHashStateFailures(t *testing.T) {
 	t.Run(
 		"unrelated action does not need constitution state",
 		func(t *testing.T) {
-			infoTx := mkProposalTx(
+			infoTx := validGuardrailsProposalTx(
 				0,
 				common.Address{},
 				&common.InfoGovAction{},
@@ -207,7 +217,7 @@ func TestUtxoValidateGuardrailsRejectsExplicitEmptyPolicy(t *testing.T) {
 		guardrailsParameterChange([]byte{}),
 		guardrailsTreasuryWithdrawal(t, []byte{}),
 	} {
-		tx := mkProposalTx(0, common.Address{}, action)
+		tx := validGuardrailsProposalTx(0, common.Address{}, action)
 		err := conway.UtxoValidateGovActionWellFormedness(
 			tx,
 			0,
@@ -225,7 +235,11 @@ func TestConwayValidationRulesEnforceGuardrailsOnDecodedTransaction(
 	guardrailsHash := common.Blake2b224Hash([]byte("constitution-guardrails"))
 	state := guardrailsState(guardrailsHash.Bytes())
 
-	decodeTx := func(t *testing.T, policyHash []byte) *conway.ConwayTransaction {
+	decodeTx := func(
+		t *testing.T,
+		isValid bool,
+		policyHash []byte,
+	) *conway.ConwayTransaction {
 		t.Helper()
 		rewardAddress := makeConwayRewardAddress(
 			t,
@@ -236,7 +250,7 @@ func TestConwayValidationRulesEnforceGuardrailsOnDecodedTransaction(
 			rewardAddress,
 			guardrailsParameterChange(policyHash),
 		)
-		tx.TxIsValid = true
+		tx.TxIsValid = isValid
 		encoded, err := cbor.Encode(tx)
 		require.NoError(t, err)
 		decoded, err := conway.NewConwayTransactionFromCbor(encoded)
@@ -244,12 +258,29 @@ func TestConwayValidationRulesEnforceGuardrailsOnDecodedTransaction(
 		return decoded
 	}
 
-	// The guardrails check is part of the existing well-formedness rule. Run
-	// the production rule list through that rule to prove registration without
-	// relying on a second rule or changing consumer-visible rule indices.
-	guardrailsRules := conway.UtxoValidationRules[:3]
+	// Locate the registered rule by its valid-transaction behavior. This keeps
+	// the regression attached to the production rule list without depending on
+	// a rule index or on whether phase-valid rules have been composed.
+	validMismatch := decodeTx(t, true, nil)
+	var guardrailsRule common.UtxoValidationRuleFunc
+	for _, rule := range conway.UtxoValidationRules {
+		err := rule(
+			validMismatch,
+			0,
+			state,
+			&conway.ConwayProtocolParameters{},
+		)
+		var target conway.InvalidGuardrailsScriptHashError
+		if errors.As(err, &target) {
+			guardrailsRule = rule
+			break
+		}
+	}
+	require.NotNil(t, guardrailsRule, "guardrails validation rule is not registered")
+	guardrailsRules := []common.UtxoValidationRuleFunc{guardrailsRule}
+
 	require.NoError(t, common.VerifyTransaction(
-		decodeTx(t, guardrailsHash.Bytes()),
+		decodeTx(t, true, guardrailsHash.Bytes()),
 		0,
 		state,
 		&conway.ConwayProtocolParameters{},
@@ -257,7 +288,7 @@ func TestConwayValidationRulesEnforceGuardrailsOnDecodedTransaction(
 	))
 
 	err := common.VerifyTransaction(
-		decodeTx(t, nil),
+		validMismatch,
 		0,
 		state,
 		&conway.ConwayProtocolParameters{},
@@ -265,6 +296,14 @@ func TestConwayValidationRulesEnforceGuardrailsOnDecodedTransaction(
 	)
 	var target conway.InvalidGuardrailsScriptHashError
 	require.ErrorAs(t, err, &target)
+
+	require.NoError(t, common.VerifyTransaction(
+		decodeTx(t, false, nil),
+		0,
+		state,
+		&conway.ConwayProtocolParameters{},
+		guardrailsRules,
+	))
 }
 
 func TestGuardrailsPolicyRequiresScriptAuthorization(t *testing.T) {

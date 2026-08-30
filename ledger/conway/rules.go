@@ -772,6 +772,9 @@ func UtxoValidateGuardrailsScriptHash(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !tx.IsValid() {
+		return nil
+	}
 	var actions []common.GovActionWithPolicy
 	for _, proposal := range tx.ProposalProcedures() {
 		if proposal == nil {
