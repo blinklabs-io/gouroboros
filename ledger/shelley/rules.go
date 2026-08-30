@@ -41,6 +41,8 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNoDuplicateInputs,
 	UtxoValidateFeeTooSmallUtxo,
 	UtxoValidateBadInputsUtxo,
+	UtxoValidateNativeScripts,
+	UtxoValidateScriptWitnesses,
 	UtxoValidateWrongNetwork,
 	UtxoValidateWrongNetworkWithdrawal,
 	UtxoValidateValueNotConservedUtxo,
@@ -79,6 +81,29 @@ func UtxoValidateInputSetEmptyUtxo(
 		return nil
 	}
 	return InputSetEmptyUtxoError{}
+}
+
+// UtxoValidateScriptWitnesses checks that every required script is provided.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateScriptWitnesses(tx, ls)
+}
+
+// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+func UtxoValidateNativeScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if scriptHash, failed := common.FirstInvalidNativeScript(tx, slot); failed {
+		return NativeScriptFailedError{ScriptHash: scriptHash}
+	}
+	return nil
 }
 
 // UtxoValidateNoDuplicateInputs ensures that there are no duplicate inputs in any input set

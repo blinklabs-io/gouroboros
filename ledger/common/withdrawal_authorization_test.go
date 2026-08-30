@@ -16,10 +16,16 @@ package common_test
 
 import (
 	"bytes"
+	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
@@ -77,7 +83,8 @@ func TestWithdrawalAuthorizationUsesRewardCredentialType(t *testing.T) {
 		&common.MissingScriptWitnessesError{},
 	)
 	scriptTx.WithWitnesses(
-		mockledger.NewMockTransactionWitnessSet().WithNativeScripts(nativeScript),
+		mockledger.NewMockTransactionWitnessSet().
+			WithNativeScripts(nativeScript),
 	)
 	require.NoError(t, common.ValidateScriptWitnesses(scriptTx, ls))
 }
@@ -107,4 +114,83 @@ func TestWithdrawalAuthorizationRejectsNonRewardAddress(t *testing.T) {
 		),
 		"not a reward account",
 	)
+}
+
+func TestShelleyFamilyValidationRulesEnforceWithdrawalScriptAuthorization(
+	t *testing.T,
+) {
+	vkey := bytes.Repeat([]byte{0x52}, 32)
+	nativeScriptCbor, err := cbor.Encode(common.NativeScriptPubkey{
+		Type: 0,
+		Hash: common.Blake2b224Hash(vkey).Bytes(),
+	})
+	require.NoError(t, err)
+	var nativeScript common.NativeScript
+	require.NoError(t, nativeScript.UnmarshalCBOR(nativeScriptCbor))
+	scriptHash := nativeScript.Hash()
+	scriptAddr, err := common.NewAddressFromParts(
+		common.AddressTypeNoneScript,
+		common.AddressNetworkMainnet,
+		nil,
+		scriptHash.Bytes(),
+	)
+	require.NoError(t, err)
+	ls := mockledger.NewLedgerStateBuilder().Build()
+
+	tests := []struct {
+		name  string
+		rules []common.UtxoValidationRuleFunc
+	}{
+		{name: "Shelley", rules: shelley.UtxoValidationRules},
+		{name: "Allegra", rules: allegra.UtxoValidationRules},
+		{name: "Mary", rules: mary.UtxoValidationRules},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			authRules := make([]common.UtxoValidationRuleFunc, 0, 2)
+			for _, rule := range test.rules {
+				name := runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).
+					Name()
+				if strings.HasSuffix(name, ".UtxoValidateScriptWitnesses") ||
+					strings.HasSuffix(name, ".UtxoValidateNativeScripts") {
+					authRules = append(authRules, rule)
+				}
+			}
+			require.Len(
+				t,
+				authRules,
+				2,
+				"authorization rules are not registered",
+			)
+
+			tx := mockledger.NewTransactionBuilder().WithWithdrawals(
+				map[*common.Address]uint64{&scriptAddr: 1},
+			)
+			err := common.VerifyTransaction(tx, 0, ls, nil, authRules)
+			var missing common.MissingScriptWitnessesError
+			require.ErrorAs(t, err, &missing)
+			require.Equal(t, scriptHash, missing.ScriptHash)
+
+			tx.WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().WithNativeScripts(
+					nativeScript,
+				),
+			)
+			require.ErrorContains(
+				t,
+				common.VerifyTransaction(tx, 0, ls, nil, authRules),
+				"native script failed",
+			)
+
+			tx.WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().
+					WithNativeScripts(nativeScript).
+					WithVkeyWitnesses(common.VkeyWitness{Vkey: vkey}),
+			)
+			require.NoError(
+				t,
+				common.VerifyTransaction(tx, 0, ls, nil, authRules),
+			)
+		})
+	}
 }
