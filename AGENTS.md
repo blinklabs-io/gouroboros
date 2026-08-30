@@ -199,6 +199,11 @@ delete, or repair them.
   current head SHA, required checks pass, and configured bots have no
   actionable findings. Use one concise factual squash summary and preserve the
   DCO `Signed-off-by:` line.
+- A failed normal merge is never authorization to bypass repository policy.
+  Do not use `--admin`, an API policy override, or any equivalent bypass unless
+  the owner explicitly authorizes that bypass for the specific pull request.
+  Otherwise, inspect the current policy and PR state, then stop and hand the
+  refusal back to the owner.
 
 ## Validation
 

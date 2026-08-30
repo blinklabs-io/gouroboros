@@ -329,6 +329,11 @@ human review, not human approval or merge.
 - Confirm GitHub shows a human `APPROVED` review whose commit SHA matches the
   current PR head. Approval of an earlier ref is stale after a new commit.
 - Confirm required checks pass and configured bots have no actionable findings.
+- A failed normal merge is never authorization to bypass repository policy.
+  Do not use `--admin`, an API policy override, or an equivalent bypass unless
+  the owner explicitly authorizes that bypass for this specific pull request.
+  If normal merging is refused, inspect the current policy and PR state, then
+  stop and return the refusal to the owner.
 - Use one concise factual squash summary. Do not concatenate commit bodies,
   review threads, or chat history.
 - Write the squash body as real Markdown in a run-owned file and pass it with
