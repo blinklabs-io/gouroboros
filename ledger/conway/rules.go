@@ -3319,6 +3319,13 @@ func UtxoValidateCommitteeCertificates(
 			if member != nil && member.Resigned {
 				return ResignedCommitteeMemberHotKeyError{ColdKey: coldHash}
 			}
+			if member != nil {
+				if err := validateCommitteeTerm(
+					coldHash, member.ExpiryEpoch, ls, pp,
+				); err != nil {
+					return err
+				}
+			}
 
 		case *common.ResignCommitteeColdCertificate:
 			coldHash := c.ColdCredential.Credential
@@ -3329,6 +3336,50 @@ func UtxoValidateCommitteeCertificates(
 			if member == nil && hasCommitteeState {
 				return NotCommitteeMemberError{Credential: coldHash, Operation: "resign"}
 			}
+			if member != nil {
+				if err := validateCommitteeTerm(
+					coldHash, member.ExpiryEpoch, ls, pp,
+				); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateCommitteeTerm mirrors validCommitteeTerm in
+// Cardano.Ledger.Conway.Rules.Ratify. CommitteeMember includes proposed
+// members, so the same bound must hold before a committee certificate can
+// authorize or resign one of them.
+func validateCommitteeTerm(
+	credential common.Blake2b224,
+	expiryEpoch uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	termParams, ok := pp.(common.CommitteeMaxTermLengthProvider)
+	if !ok {
+		return CommitteeTermLimitUnavailableError{}
+	}
+	maxTermLength, ok := termParams.CommitteeMaxTermLength()
+	if !ok {
+		return CommitteeTermLimitUnavailableError{}
+	}
+	epochState, ok := ls.(common.CurrentEpochState)
+	if !ok {
+		return CurrentEpochStateUnavailableError{}
+	}
+	currentEpoch := epochState.CurrentEpoch()
+	// This is equivalent to expiryEpoch > currentEpoch+maxTermLength,
+	// without overflowing when the sum exceeds uint64.
+	if expiryEpoch > currentEpoch &&
+		expiryEpoch-currentEpoch > maxTermLength {
+		return CommitteeTermTooLongError{
+			Credential:    credential,
+			CurrentEpoch:  currentEpoch,
+			ExpiryEpoch:   expiryEpoch,
+			MaxTermLength: maxTermLength,
 		}
 	}
 	return nil

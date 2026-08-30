@@ -62,9 +62,21 @@ type ConwayProtocolParameters struct {
 	MinFeeRefScriptCostPerByte *cbor.Rat
 }
 
+var _ common.CommitteeMaxTermLengthProvider = (*ConwayProtocolParameters)(nil)
+
 // ProtocolMajorVersion returns the active major protocol version.
 func (p *ConwayProtocolParameters) ProtocolMajorVersion() uint {
 	return p.ProtocolVersion.Major
+}
+
+// CommitteeMaxTermLength returns the configured maximum constitutional
+// committee term in epochs. A nil receiver represents an unavailable
+// parameter, while zero remains a present and enforceable limit.
+func (p *ConwayProtocolParameters) CommitteeMaxTermLength() (uint64, bool) {
+	if p == nil {
+		return 0, false
+	}
+	return p.CommitteeTermLimit, true
 }
 
 // KeyDepositAmount returns the key deposit as a *big.Int

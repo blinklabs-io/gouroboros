@@ -119,6 +119,12 @@ type SlotState interface {
 	TimeToSlot(time.Time) (uint64, error)
 }
 
+// CurrentEpochState is the optional ledger-state capability used by rules
+// whose protocol bounds are expressed relative to the current epoch.
+type CurrentEpochState interface {
+	CurrentEpoch() uint64
+}
+
 // Minimal placeholder types used by the extended interface. These are intentionally
 // lightweight so tests and era packages can compile while we wire real parsing.
 type (

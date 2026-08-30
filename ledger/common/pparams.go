@@ -40,6 +40,13 @@ type ProtocolParameters interface {
 	Utxorpc() (*cardano.PParams, error)
 }
 
+// CommitteeMaxTermLengthProvider is the optional protocol-parameter
+// capability used by Conway committee certificate validation. The boolean is
+// false when the parameter is unavailable; zero is a present, valid limit.
+type CommitteeMaxTermLengthProvider interface {
+	CommitteeMaxTermLength() (uint64, bool)
+}
+
 type ExUnitPrice struct {
 	cbor.StructAsArray
 	MemPrice  *cbor.Rat

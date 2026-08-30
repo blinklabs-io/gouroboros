@@ -34,6 +34,8 @@ type DijkstraProtocolParameters struct {
 	QuorumStakeThreshold     *cbor.Rat
 }
 
+var _ common.CommitteeMaxTermLengthProvider = (*DijkstraProtocolParameters)(nil)
+
 type dijkstraProtocolParametersCbor struct {
 	cbor.StructAsArray
 	MinFeeA                    uint

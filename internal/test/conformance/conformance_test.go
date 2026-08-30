@@ -17,8 +17,70 @@ package conformance
 import (
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/ouroboros-mock/conformance"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 )
+
+type currentEpochStateProvider struct {
+	*mockledger.MockLedgerState
+	currentEpoch uint64
+}
+
+func (p currentEpochStateProvider) CurrentEpoch() uint64 {
+	return p.currentEpoch
+}
+
+type currentEpochStateManager struct {
+	*conformance.MockStateManager
+	currentEpoch uint64
+}
+
+func newCurrentEpochStateManager() *currentEpochStateManager {
+	return &currentEpochStateManager{
+		MockStateManager: conformance.NewMockStateManager(),
+	}
+}
+
+func (m *currentEpochStateManager) LoadInitialState(
+	state *conformance.ParsedInitialState,
+	pp common.ProtocolParameters,
+) error {
+	if err := m.MockStateManager.LoadInitialState(state, pp); err != nil {
+		return err
+	}
+	m.currentEpoch = state.CurrentEpoch
+	return nil
+}
+
+func (m *currentEpochStateManager) ProcessEpochBoundary(
+	newEpoch uint64,
+) error {
+	if err := m.MockStateManager.ProcessEpochBoundary(newEpoch); err != nil {
+		return err
+	}
+	m.currentEpoch = newEpoch
+	return nil
+}
+
+func (m *currentEpochStateManager) GetStateProvider() conformance.StateProvider {
+	state, ok := m.MockStateManager.GetStateProvider().(*mockledger.MockLedgerState)
+	if !ok {
+		panic("ouroboros-mock returned an unexpected state provider")
+	}
+	return currentEpochStateProvider{
+		MockLedgerState: state,
+		currentEpoch:    m.currentEpoch,
+	}
+}
+
+func (m *currentEpochStateManager) Reset() error {
+	if err := m.MockStateManager.Reset(); err != nil {
+		return err
+	}
+	m.currentEpoch = 0
+	return nil
+}
 
 // TestRulesConformanceVectors runs the Amaru ledger rules conformance test vectors
 // using the shared harness from ouroboros-mock/conformance.
@@ -36,7 +98,7 @@ func TestRulesConformanceVectors(t *testing.T) {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
 	}
 
-	sm := conformance.NewMockStateManager()
+	sm := newCurrentEpochStateManager()
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        testing.Verbose(),
@@ -53,7 +115,7 @@ func TestRulesConformanceVectorsWithResults(t *testing.T) {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
 	}
 
-	sm := conformance.NewMockStateManager()
+	sm := newCurrentEpochStateManager()
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        false,
