@@ -410,9 +410,11 @@ func (p *BlockPipeline) Stats() PipelineStats {
 	return p.metrics.Stats()
 }
 
-// PendingCount returns the approximate number of items still being processed.
-// This includes items in inter-stage channels and items buffered in the apply stage.
-// Useful for coordinating with rollback operations.
+// PendingCount returns an observational snapshot of the approximate number of
+// items still being processed. It includes items in inter-stage channels and
+// items buffered or active in the apply stage, but not work executing in other
+// stages. It must not be used as a completion barrier; use Fence or
+// WaitForDrain instead.
 func (p *BlockPipeline) PendingCount() int {
 	if !p.started.Load() {
 		return 0
@@ -431,27 +433,29 @@ func (p *BlockPipeline) PendingCount() int {
 	return channelDepth + applyPending
 }
 
-// WaitForDrain blocks until all currently submitted items have been processed
-// or the context is cancelled. This is useful before handling rollbacks to
-// ensure no blocks are applied after the rollback.
+// WaitForDrain blocks until every block accepted before the drain boundary has
+// completed ordered processing, or the context is cancelled. This is useful
+// before handling rollbacks to ensure no earlier block is applied afterward.
 func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 	if !p.started.Load() {
 		return ErrPipelineNotStarted
 	}
-
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if p.PendingCount() == 0 {
-				return nil
-			}
-		}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
+	// Preserve the historical lifecycle contract: once Stop has completed,
+	// there can be no accepted work left to drain.
+	if p.stopped.Load() {
+		return nil
+	}
+	err := p.Fence(ctx)
+	if errors.Is(err, ErrPipelineStopped) && p.stopped.Load() {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return nil
+	}
+	return err
 }
 
 // metricsCollector collects metrics from processed items.

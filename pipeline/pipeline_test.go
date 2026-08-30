@@ -1117,6 +1117,136 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	appliedMu.Unlock()
 }
 
+func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
+	const eta0 = "00000000000000000000000000000000" +
+		"00000000000000000000000000000000"
+	validationStarted := make(chan struct{})
+	releaseValidation := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseValidation) })
+	}
+	p := NewBlockPipeline(
+		WithDecodeWorkers(1),
+		WithValidateWorkers(1),
+		WithSkipBodyHashValidation(true),
+		WithEta0Provider(func(uint64) (string, error) {
+			close(validationStarted)
+			<-releaseValidation
+			return eta0, nil
+		}),
+		WithSlotsPerKesPeriod(129600),
+		WithVerifyConfig(common.VerifyConfig{
+			SkipBodyHashValidation:    true,
+			SkipTransactionValidation: true,
+			SkipStakePoolValidation:   true,
+		}),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+
+	require.NoError(
+		t,
+		p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			getValidBlockCbor(t),
+			createTestTip(1000, 500),
+		),
+	)
+	select {
+	case <-validationStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline validation did not start")
+	}
+	require.Zero(
+		t,
+		p.PendingCount(),
+		"observational count should miss validation work already in flight",
+	)
+
+	drainDone := make(chan error, 1)
+	go func() { drainDone <- p.WaitForDrain(context.Background()) }()
+	select {
+	case err := <-drainDone:
+		t.Fatalf(
+			"WaitForDrain returned while an accepted block was in flight: %v",
+			err,
+		)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	release()
+	select {
+	case err := <-drainDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not complete after validation was released")
+	}
+}
+
+func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
+	t.Run("not started", func(t *testing.T) {
+		p := NewBlockPipeline()
+		require.ErrorIs(
+			t,
+			p.WaitForDrain(context.Background()),
+			ErrPipelineNotStarted,
+		)
+	})
+
+	t.Run("stopped", func(t *testing.T) {
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		require.NoError(t, p.Start(context.Background()))
+		require.NoError(t, p.Stop())
+		require.NoError(t, p.WaitForDrain(context.Background()))
+	})
+
+	t.Run("context canceled", func(t *testing.T) {
+		applyStarted := make(chan struct{})
+		releaseApply := make(chan struct{})
+		var releaseOnce sync.Once
+		release := func() {
+			releaseOnce.Do(func() { close(releaseApply) })
+		}
+		p := NewBlockPipeline(
+			WithValidateWorkers(0),
+			WithSkipBodyHashValidation(true),
+			WithApplyFunc(func(*BlockItem) error {
+				close(applyStarted)
+				<-releaseApply
+				return nil
+			}),
+		)
+		require.NoError(t, p.Start(context.Background()))
+		defer func() {
+			release()
+			require.NoError(t, p.Stop())
+		}()
+		require.NoError(
+			t,
+			p.Submit(
+				context.Background(),
+				uint(ledger.BlockTypeConway),
+				getValidBlockCbor(t),
+				createTestTip(1000, 500),
+			),
+		)
+		select {
+		case <-applyStarted:
+		case <-time.After(time.Second):
+			t.Fatal("pipeline apply did not start")
+		}
+
+		drainCtx, cancelDrain := context.WithCancel(context.Background())
+		cancelDrain()
+		require.ErrorIs(t, p.WaitForDrain(drainCtx), context.Canceled)
+	})
+}
+
 func TestApplyStage_PendingCount(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 
