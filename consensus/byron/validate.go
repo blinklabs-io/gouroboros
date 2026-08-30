@@ -352,10 +352,18 @@ func (v *HeaderValidator) validateSimpleSignature(
 		return nil
 	}
 
-	// Verify Ed25519 signature on ToSign
+	// Byron simple signatures are domain-separated by the main-block tag and
+	// protocol magic. Signing the bare ToSign bytes would allow the same
+	// payload to be replayed across signing domains or networks.
+	signed, err := v.domainSeparateMainBlock(toSign)
+	if err != nil {
+		return fmt.Errorf("failed to domain-separate ToSign: %w", err)
+	}
+
+	// Verify Ed25519 signature on the domain-separated ToSign.
 	valid := ed25519.Verify(
 		input.IssuerPubKey,
-		toSign,
+		signed,
 		input.BlockSignature,
 	)
 	if !valid {
@@ -367,6 +375,20 @@ func (v *HeaderValidator) validateSimpleSignature(
 	}
 
 	return nil
+}
+
+// domainSeparateMainBlock applies Byron's SignMainBlock domain and network
+// magic to a serialized ToSign value.
+func (v *HeaderValidator) domainSeparateMainBlock(toSign []byte) ([]byte, error) {
+	pmBytes, err := cbor.Encode(v.config.ProtocolMagic)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode protocol magic: %w", err)
+	}
+	signed := make([]byte, 0, 1+len(pmBytes)+len(toSign))
+	signed = append(signed, byronSignTagMainBlock)
+	signed = append(signed, pmBytes...)
+	signed = append(signed, toSign...)
+	return signed, nil
 }
 
 // validateBlockSignatureWithProxy handles proxy signatures (types 1 and 2)

@@ -409,6 +409,87 @@ func TestValidateBlockSignature(t *testing.T) {
 	}
 }
 
+func TestValidateSimpleSignatureRequiresMainBlockDomain(t *testing.T) {
+	config := testByronConfig()
+	validator := NewHeaderValidator(config)
+	pubKey, privKey, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+
+	header := &byron.ByronMainBlockHeader{}
+	header.PrevBlock = common.Blake2b256{}
+	header.BodyProof = []any{}
+	header.ConsensusData.SlotId.Epoch = 1
+	header.ConsensusData.SlotId.Slot = 2
+	header.ConsensusData.PubKey = []byte{}
+	header.ConsensusData.Difficulty.Value = 3
+	header.ConsensusData.BlockSig = []any{}
+	header.ExtraData.Attributes = []byte{}
+	header.ExtraData.ExtraProof = common.Blake2b256{}
+	headerCbor, err := cbor.Encode(header)
+	require.NoError(t, err)
+	input := &ValidateHeaderInput{
+		IssuerPubKey: pubKey,
+		HeaderCbor:   headerCbor,
+	}
+	toSign, err := validator.buildToSign(input)
+	require.NoError(t, err)
+	domainSeparated, err := validator.domainSeparateMainBlock(toSign)
+	require.NoError(t, err)
+
+	input.BlockSignature = ed25519.Sign(privKey, domainSeparated)
+	assert.NoError(t, validator.validateSimpleSignature(input))
+
+	// The raw ToSign signature must not verify in the main-block domain.
+	input.BlockSignature = ed25519.Sign(privKey, toSign)
+	assert.Error(t, validator.validateSimpleSignature(input))
+}
+
+func TestValidateSimpleSignatureReferenceVector(t *testing.T) {
+	// This static type-0 vector follows cardano-sl's Signing/Tag.hs and
+	// Signing/Safe.hs reference layout:
+	// SignMainBlock (0x07) || CBOR(protocol magic) || CBOR(MainToSign).
+	// The fixed buffer, public key, and signature prevent the test from signing
+	// bytes assembled by the implementation under test.
+	headerCbor, err := hex.DecodeString(
+		"8500582000000000000000000000000000000000000000000000000000000000" +
+			"00000000f68482070bf68113f68483000000826000f658200000000000000000" +
+			"000000000000000000000000000000000000000000000000",
+	)
+	require.NoError(t, err)
+	signedBuffer, err := hex.DecodeString(
+		"071a2d964a098558200000000000000000000000000000000000000000000000" +
+			"000000000000000000f682070b81138483000000826000f65820000000000000" +
+			"0000000000000000000000000000000000000000000000000000",
+	)
+	require.NoError(t, err)
+	pubKey, err := hex.DecodeString(
+		"03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+	)
+	require.NoError(t, err)
+	signature, err := hex.DecodeString(
+		"905092bd0d1aeceaa69a7bd402545bda19db9cd16a5a6a55a5c0ccc766043d74" +
+			"ee7a6879a6a1df801c85e5691d28a2b61bfc0fbbfeb814e94c1d5e40b5120707",
+	)
+	require.NoError(t, err)
+
+	validator := NewHeaderValidator(testByronConfig())
+	toSign, err := validator.buildToSign(
+		&ValidateHeaderInput{HeaderCbor: headerCbor},
+	)
+	require.NoError(t, err)
+	domain, err := validator.domainSeparateMainBlock(toSign)
+	require.NoError(t, err)
+	require.Equal(t, signedBuffer, domain)
+	require.True(t, ed25519.Verify(pubKey, signedBuffer, signature))
+
+	input := &ValidateHeaderInput{
+		IssuerPubKey: pubKey,
+		HeaderCbor:   headerCbor,
+		BlockSig:     []any{uint64(byronSigTypeSimple), signature},
+	}
+	require.NoError(t, validator.validateBlockSignature(input))
+}
+
 // TestValidateDelegationCertSignature_RealMainnetVector verifies a real
 // delegation certificate signature extracted from a mainnet Byron block
 // (slot 4471207), confirming the byte layout reproduced from
