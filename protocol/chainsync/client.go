@@ -24,6 +24,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -34,6 +35,7 @@ const (
 	clientStateNew clientLifecycleState = iota
 	clientStateStarting
 	clientStateRunning
+	clientStateStopping
 	clientStateStopped
 )
 
@@ -47,9 +49,25 @@ type Client struct {
 	lifecycleMutex           sync.Mutex
 	lifecycleState           clientLifecycleState
 	startingDone             chan struct{}
+	stoppingDone             chan struct{}
+	protocolStarted          bool
 	readyForNextBlockChan    chan bool
+	syncLoopWaitGroup        sync.WaitGroup
 	syncPipelinedRequestNext int
+	awaitReplyCtx            context.Context
+	awaitReplyCancel         context.CancelFunc
 	protoOptions             protocol.ProtocolOptions
+	// The test hooks make lifecycle interleavings deterministic without changing
+	// production behavior.
+	testStopInitiated               func()
+	testStopWaitingForComplete      func()
+	testStartBeforeProtocolStart    func()
+	testInitialRequestBeforeEnqueue func()
+	testInitialRequestAfterEnqueue  func()
+	testSyncLoopBeforeBusyLock      func()
+	testSyncLoopBeforeRequestNext   func()
+	testSyncLoopAfterRequestNext    func()
+	testAwaitReplyBeforeFence       func()
 
 	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
 	// is empty.
@@ -100,6 +118,13 @@ func NewClient(
 }
 
 func (c *Client) initProtocol() {
+	if c.awaitReplyCancel != nil {
+		c.awaitReplyCancel()
+	}
+	c.awaitReplyCtx, c.awaitReplyCancel = context.WithCancel(
+		context.Background(),
+	)
+
 	// Use node-to-client protocol ID
 	ProtocolId := ProtocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
@@ -171,6 +196,7 @@ func (c *Client) initProtocol() {
 	p := protocol.New(protoConfig)
 	c.protocolMu.Lock()
 	c.Protocol = p
+	c.protocolStarted = false
 	c.protocolMu.Unlock()
 }
 
@@ -199,6 +225,16 @@ func (c *Client) Start() {
 			// Re-check state after the in-flight start completes
 			continue
 
+		case clientStateStopping:
+			// Wait until the running sync loop has stopped before replacing the
+			// protocol and its channels.
+			ch := c.stoppingDone
+			c.lifecycleMutex.Unlock()
+			if ch != nil {
+				<-ch
+			}
+			continue
+
 		case clientStateStopped, clientStateNew:
 			// We will be the goroutine that performs initialization/start.
 			// Save previous state before transitioning to prevent other goroutines from also starting.
@@ -208,8 +244,10 @@ func (c *Client) Start() {
 			c.startingDone = ch
 
 			oldProto := c.Protocol
+			oldProtoStarted := c.protocolStarted
 			var oldDone <-chan struct{}
-			if prevState == clientStateStopped && oldProto != nil {
+			if prevState == clientStateStopped && oldProto != nil &&
+				oldProtoStarted {
 				oldDone = oldProto.DoneChan()
 			}
 			c.lifecycleMutex.Unlock()
@@ -222,7 +260,7 @@ func (c *Client) Start() {
 
 			c.lifecycleMutex.Lock()
 			// If we were stopped by someone else while waiting, don't continue.
-			if c.lifecycleState != clientStateStarting {
+			if c.lifecycleState != clientStateStarting || c.startingDone != ch {
 				if c.startingDone == ch {
 					close(ch)
 					c.startingDone = nil
@@ -238,13 +276,24 @@ func (c *Client) Start() {
 				c.syncPipelinedRequestNext = 0
 			}
 
-			c.Protocol.Logger().
+			proto := c.ProtocolInstance()
+			proto.Logger().
 				Debug("starting client protocol",
 					"component", "network",
 					"protocol", ProtocolName,
 					"connection_id", c.callbackContext.ConnectionId.String(),
 				)
-			c.Protocol.Start()
+			c.lifecycleMutex.Unlock()
+			if c.testStartBeforeProtocolStart != nil {
+				c.testStartBeforeProtocolStart()
+			}
+			c.lifecycleMutex.Lock()
+			if c.lifecycleState != clientStateStarting || c.startingDone != ch {
+				c.lifecycleMutex.Unlock()
+				return
+			}
+			proto.Start()
+			c.protocolStarted = true
 			c.lifecycleState = clientStateRunning
 			if c.startingDone == ch {
 				close(ch)
@@ -264,6 +313,58 @@ func (c *Client) Start() {
 
 // Stop sends a Done message and transitions the client to the Stopped state.
 func (c *Client) Stop() error {
+	c.lifecycleMutex.Lock()
+	switch c.lifecycleState {
+	case clientStateNew, clientStateStopped:
+		c.lifecycleMutex.Unlock()
+		return nil
+	case clientStateStarting:
+		// Protocol.Start has not been called yet. Mark this start generation as
+		// stopped and unblock its waiters without waiting on DoneChan, which an
+		// unstarted protocol never closes.
+		c.lifecycleState = clientStateStopped
+		c.awaitReplyCancel()
+		if c.startingDone != nil {
+			close(c.startingDone)
+			c.startingDone = nil
+		}
+		c.lifecycleMutex.Unlock()
+		return nil
+	case clientStateStopping:
+		ch := c.stoppingDone
+		c.lifecycleMutex.Unlock()
+		if c.testStopWaitingForComplete != nil {
+			c.testStopWaitingForComplete()
+		}
+		if ch != nil {
+			<-ch
+		}
+		return nil
+	case clientStateRunning:
+		c.lifecycleState = clientStateStopping
+		// AwaitReply runs on the protocol receive loop. Cancel its pipeline fence
+		// before Stop waits for DoneChan, otherwise each waits for the other.
+		c.awaitReplyCancel()
+		stoppingDone := make(chan struct{})
+		c.stoppingDone = stoppingDone
+		proto := c.ProtocolInstance()
+		if c.testStopInitiated != nil {
+			c.testStopInitiated()
+		}
+		c.lifecycleMutex.Unlock()
+
+		return c.stopRunning(proto, stoppingDone)
+	default:
+		c.lifecycleState = clientStateStopped
+		c.lifecycleMutex.Unlock()
+		return nil
+	}
+}
+
+func (c *Client) stopRunning(
+	proto *protocol.Protocol,
+	stoppingDone chan struct{},
+) error {
 	const busyLockTimeout = 5 * time.Second
 	deadline := time.Now().Add(busyLockTimeout)
 	busyLocked := false
@@ -278,17 +379,7 @@ func (c *Client) Stop() error {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	c.lifecycleMutex.Lock()
-
-	if c.lifecycleState != clientStateRunning {
-		if busyLocked {
-			c.busyMutex.Unlock()
-		}
-		c.lifecycleMutex.Unlock()
-		return nil
-	}
-
-	c.Protocol.Logger().
+	proto.Logger().
 		Debug("stopping client protocol",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -297,36 +388,40 @@ func (c *Client) Stop() error {
 
 	var sendErr error
 	// Check if protocol is already done before sending Done message
-	if !c.IsDone() {
+	if !proto.IsDone() {
 		msg := NewMsgDone()
-		sendErr = c.SendMessage(msg)
+		sendErr = proto.SendMessage(msg)
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
 		}
-		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
+		_ = proto.WaitSendQueueDrained(250 * time.Millisecond)
 	}
 	if busyLocked {
 		c.busyMutex.Unlock()
 	}
 
 	// Close readyForNextBlockChan to signal syncLoop to exit
+	c.lifecycleMutex.Lock()
 	if c.readyForNextBlockChan != nil {
 		close(c.readyForNextBlockChan)
 		c.readyForNextBlockChan = nil
 	}
+	c.lifecycleMutex.Unlock()
 
-	// Stop/unregister the underlying protocol instance, then wait for it to
-	// finish so IsDone reports the completed shutdown when Stop returns.
-	doneChan := c.DoneChan()
-	c.Protocol.Stop()
+	// Stop/unregister the underlying protocol instance, then wait for it and
+	// the sync loop to finish before allowing a restart to replace their state.
+	doneChan := proto.DoneChan()
+	proto.Stop()
+	<-doneChan
+	c.syncLoopWaitGroup.Wait()
+
+	c.lifecycleMutex.Lock()
 	c.lifecycleState = clientStateStopped
-	// Unblock any goroutine waiting for an in-progress start.
-	if c.startingDone != nil {
-		close(c.startingDone)
-		c.startingDone = nil
+	if c.stoppingDone == stoppingDone {
+		close(stoppingDone)
+		c.stoppingDone = nil
 	}
 	c.lifecycleMutex.Unlock()
-	<-doneChan
 	return sendErr
 }
 
@@ -597,23 +692,60 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 		}
 	}
 
-	// Send initial RequestNext
-	msgRequestNext := NewMsgRequestNext()
-	if err := c.SendMessage(msgRequestNext); err != nil {
+	return c.sendInitialRequestAndStartSyncLoop()
+}
+
+func (c *Client) sendInitialRequestAndStartSyncLoop() error {
+	c.lifecycleMutex.Lock()
+	if c.lifecycleState != clientStateRunning ||
+		c.readyForNextBlockChan == nil {
+		c.lifecycleMutex.Unlock()
+		return protocol.ErrProtocolShuttingDown
+	}
+	proto := c.ProtocolInstance()
+	readyForNextBlockChan := c.readyForNextBlockChan
+	doneChan := proto.DoneChan()
+	// Reserve the sync-loop wait-group slot before Stop can begin waiting. The
+	// reservation is released below if the request cannot be queued.
+	c.syncLoopWaitGroup.Add(1)
+	c.lifecycleMutex.Unlock()
+	if c.testInitialRequestBeforeEnqueue != nil {
+		c.testInitialRequestBeforeEnqueue()
+	}
+	if err := proto.SendMessage(NewMsgRequestNext()); err != nil {
+		c.syncLoopWaitGroup.Done()
 		return err
 	}
-	// Reset pipelined message counter
+	if c.testInitialRequestAfterEnqueue != nil {
+		c.testInitialRequestAfterEnqueue()
+	}
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+	if c.lifecycleState != clientStateRunning ||
+		c.readyForNextBlockChan != readyForNextBlockChan ||
+		c.ProtocolInstance() != proto {
+		c.syncLoopWaitGroup.Done()
+		return protocol.ErrProtocolShuttingDown
+	}
+	// Reset pipelined message counter before starting a new loop.
 	c.syncPipelinedRequestNext = 0
-	// Start sync loop
-	go c.syncLoop()
+	// Start a sync loop bound to this protocol instance. Stop waits for every
+	// active loop before Start can replace the protocol and its channels.
+	go func() {
+		defer c.syncLoopWaitGroup.Done()
+		c.syncLoop(readyForNextBlockChan, doneChan)
+	}()
 	return nil
 }
 
-func (c *Client) syncLoop() {
+func (c *Client) syncLoop(
+	readyForNextBlockChan <-chan bool,
+	doneChan <-chan struct{},
+) {
 	for {
 		// Wait for a block to be received
 		select {
-		case ready, ok := <-c.readyForNextBlockChan:
+		case ready, ok := <-readyForNextBlockChan:
 			if !ok {
 				// Channel is closed, which means we're shutting down
 				return
@@ -621,28 +753,54 @@ func (c *Client) syncLoop() {
 				// Sync was cancelled
 				return
 			}
-		case <-c.DoneChan():
+		case <-doneChan:
 			// Protocol is shutting down
 			return
 		}
+		if c.testSyncLoopBeforeBusyLock != nil {
+			c.testSyncLoopBeforeBusyLock()
+		}
 		c.busyMutex.Lock()
+		c.lifecycleMutex.Lock()
+		if c.lifecycleState != clientStateRunning {
+			c.lifecycleMutex.Unlock()
+			c.busyMutex.Unlock()
+			return
+		}
 		// Wait for next block if we have pipelined messages
 		if c.syncPipelinedRequestNext > 0 {
 			c.syncPipelinedRequestNext--
+			c.lifecycleMutex.Unlock()
 			c.busyMutex.Unlock()
 			continue
 		}
 		// Request the next block(s)
 		msgCount := max(c.config.PipelineLimit, 1)
+		proto := c.ProtocolInstance()
+		c.lifecycleMutex.Unlock()
+		if c.testSyncLoopBeforeRequestNext != nil {
+			c.testSyncLoopBeforeRequestNext()
+		}
 		for range msgCount {
 			msg := NewMsgRequestNext()
-			if err := c.SendMessage(msg); err != nil {
+			if err := proto.SendMessage(msg); err != nil {
 				c.SendError(err)
 				c.busyMutex.Unlock()
 				return
 			}
 		}
+		if c.testSyncLoopAfterRequestNext != nil {
+			c.testSyncLoopAfterRequestNext()
+		}
+		c.lifecycleMutex.Lock()
+		if c.lifecycleState != clientStateRunning ||
+			c.ProtocolInstance() != proto {
+			c.lifecycleMutex.Unlock()
+			c.busyMutex.Unlock()
+			return
+		}
 		c.syncPipelinedRequestNext = msgCount - 1
+		c.lifecycleMutex.Unlock()
 		c.busyMutex.Unlock()
 	}
 }
@@ -742,13 +900,13 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeAwaitReply:
-		c.handleAwaitReply()
+		err = c.handleAwaitReply()
 	case MessageTypeRollForward:
 		err = c.handleRollForward(msg)
 	case MessageTypeRollBackward:
 		err = c.handleRollBackward(msg)
 	case MessageTypeIntersectFound:
-		c.handleIntersectFound(msg)
+		err = c.handleIntersectFound(msg)
 	case MessageTypeIntersectNotFound:
 		c.handleIntersectNotFound(msg)
 	default:
@@ -761,7 +919,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (c *Client) handleAwaitReply() {
+func (c *Client) handleAwaitReply() error {
 	c.Protocol.Logger().
 		Debug("waiting for next reply",
 			"component", "network",
@@ -769,6 +927,42 @@ func (c *Client) handleAwaitReply() {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	if c.config != nil && c.config.Pipeline != nil {
+		if c.testAwaitReplyBeforeFence != nil {
+			c.testAwaitReplyBeforeFence()
+		}
+		c.lifecycleMutex.Lock()
+		fenceCtx := c.awaitReplyCtx
+		c.lifecycleMutex.Unlock()
+		if err := c.config.Pipeline.Fence(fenceCtx); err != nil {
+			return c.handlePipelineFenceError(fenceCtx, err)
+		}
+	}
+	if c.config != nil && c.config.AwaitReplyFunc != nil {
+		return c.config.AwaitReplyFunc(c.callbackContext)
+	}
+	return nil
+}
+
+func (c *Client) handlePipelineFenceError(
+	fenceCtx context.Context,
+	err error,
+) error {
+	if errors.Is(err, context.Canceled) && fenceCtx.Err() != nil {
+		//nolint:nilerr // A canceled fence is expected while the protocol is stopping.
+		return nil
+	}
+	if errors.Is(err, pipeline.ErrPipelineStopped) ||
+		errors.Is(err, pipeline.ErrPipelineNotStarted) {
+		c.lifecycleMutex.Lock()
+		stopping := c.lifecycleState == clientStateStopping ||
+			c.lifecycleState == clientStateStopped
+		c.lifecycleMutex.Unlock()
+		if stopping {
+			return nil
+		}
+	}
+	return err
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
@@ -996,7 +1190,10 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		if drainTimeout == 0 {
 			drainTimeout = DefaultPipelineDrainTimeout
 		}
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeout)
+		drainCtx, drainCancel := context.WithTimeout(
+			context.Background(),
+			drainTimeout,
+		)
 		defer drainCancel()
 
 		// Create a channel to signal drain completion
@@ -1063,7 +1260,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 	return nil
 }
 
-func (c *Client) handleIntersectFound(msg protocol.Message) {
+func (c *Client) handleIntersectFound(msg protocol.Message) error {
 	c.Protocol.Logger().
 		Debug("chain intersect found",
 			"component", "network",
@@ -1073,12 +1270,22 @@ func (c *Client) handleIntersectFound(msg protocol.Message) {
 		)
 	msgIntersectFound := msg.(*MsgIntersectFound)
 	c.sendCurrentTip(msgIntersectFound.Tip)
+	if c.config != nil && c.config.IntersectFoundFunc != nil {
+		if err := c.config.IntersectFoundFunc(
+			c.callbackContext,
+			msgIntersectFound.Point,
+			msgIntersectFound.Tip,
+		); err != nil {
+			return err
+		}
+	}
 
 	select {
 	case ch := <-c.wantIntersectFoundChan:
 		ch <- clientPointResult{tip: msgIntersectFound.Tip, point: msgIntersectFound.Point}
 	default:
 	}
+	return nil
 }
 
 func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) {

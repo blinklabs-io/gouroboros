@@ -362,6 +362,9 @@ func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateWithdrawalsMap(tmp.TxWithdrawals); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
 	*b = ShelleyTransactionBody(tmp)
 	b.SetCbor(cborData)
 	return nil

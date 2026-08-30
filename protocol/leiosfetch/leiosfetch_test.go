@@ -244,24 +244,14 @@ func TestBlockRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
 			)
 			assert.Nil(t, resp1)
 
-			// Subsequent request: also bounded by its own context. It must
-			// return a context error, not tear down the connection.
-			ctx2, cancel2 := context.WithTimeout(
-				context.Background(),
-				150*time.Millisecond,
-			)
-			defer cancel2()
+			// A subsequent request must fail after the bounded grace period
+			// while the first request's response is still outstanding. Reusing
+			// the slot would allow a late response to be mis-delivered here.
 			resp2, err2 := client.BlockRequest(
-				ctx2,
+				context.Background(),
 				pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
 			)
-			require.Error(t, err2)
-			assert.True(
-				t,
-				errors.Is(err2, context.DeadlineExceeded),
-				"expected context deadline error, got %v",
-				err2,
-			)
+			require.ErrorIs(t, err2, leiosfetch.ErrRequestSlotAbandoned)
 			assert.Nil(t, resp2)
 		},
 	)

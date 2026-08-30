@@ -22,7 +22,9 @@ import (
 )
 
 // ErrPendingLimitExceeded is returned when the apply stage's pending buffer is full.
-var ErrPendingLimitExceeded = errors.New("pipeline: pending block limit exceeded")
+var ErrPendingLimitExceeded = errors.New(
+	"pipeline: pending block limit exceeded",
+)
 
 // ErrBlockNotValidated is returned when the apply stage requires validation
 // but receives a block that was never validated. This guards against blocks
@@ -97,7 +99,10 @@ func (s *ApplyStage) Process(ctx context.Context, item *BlockItem) error {
 //
 // This design eliminates data loss that could occur with callback-based approaches
 // when many buffered items are released at once.
-func (s *ApplyStage) ProcessWithStatus(ctx context.Context, item *BlockItem) ([]*BlockItem, error) {
+func (s *ApplyStage) ProcessWithStatus(
+	ctx context.Context,
+	item *BlockItem,
+) ([]*BlockItem, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -226,14 +231,15 @@ func (s *ApplyStage) PendingCount() int {
 
 // ApplyStageRunner runs the apply stage as a single goroutine.
 type ApplyStageRunner struct {
-	stage   *ApplyStage
-	input   <-chan *BlockItem
-	output  chan<- *BlockItem
-	errors  chan<- error
-	metrics *PipelineMetrics
-	done    chan struct{}
-	running bool
-	mu      sync.Mutex
+	stage         *ApplyStage
+	input         <-chan *BlockItem
+	output        chan<- *BlockItem
+	errors        chan<- error
+	metrics       *PipelineMetrics
+	processedFunc func(uint64)
+	done          chan struct{}
+	running       bool
+	mu            sync.Mutex
 }
 
 // NewApplyStageRunner creates a new runner for the apply stage.
@@ -267,6 +273,12 @@ func NewApplyStageRunner(
 // Must be called before Start() to avoid data races.
 func (r *ApplyStageRunner) SetMetrics(metrics *PipelineMetrics) {
 	r.metrics = metrics
+}
+
+// SetProcessedFunc sets a callback invoked after ordered processing completes
+// through the supplied sequence number. It must be called before Start.
+func (r *ApplyStageRunner) SetProcessedFunc(processedFunc func(uint64)) {
+	r.processedFunc = processedFunc
 }
 
 // Start starts the apply stage runner.
@@ -325,6 +337,11 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 				}
 				continue
 			}
+			if len(processed) > 0 && r.processedFunc != nil {
+				r.processedFunc(
+					processed[len(processed)-1].SequenceNumber() + 1,
+				)
+			}
 
 			// Forward all processed items (includes input item + any buffered items
 			// that became ready). This eliminates the data loss vulnerability from
@@ -341,7 +358,8 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 func (r *ApplyStageRunner) forwardItem(ctx context.Context, item *BlockItem) {
 	// Record metrics for items that went through the apply stage (both success and failure).
 	// Items with decode/validation errors are not applied and don't have apply metrics.
-	if r.metrics != nil && item.DecodeError() == nil && item.ValidationError() == nil {
+	if r.metrics != nil && item.DecodeError() == nil &&
+		item.ValidationError() == nil {
 		r.metrics.RecordApply(item.ApplyDuration(), item.ApplyError())
 		r.metrics.RecordPipelineLatency(item.TotalDuration())
 	}

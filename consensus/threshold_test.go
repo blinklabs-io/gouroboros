@@ -814,6 +814,19 @@ func TestIsVRFOutputBelowThresholdEmptyOutput(t *testing.T) {
 	}
 }
 
+func TestIsVRFOutputBelowThresholdRejectsMalformedLength(t *testing.T) {
+	threshold := new(big.Int).SetUint64(1)
+	for _, size := range []int{63, 65} {
+		eligible, err := IsVRFOutputBelowThresholdWithMode(
+			make([]byte, size),
+			threshold,
+			ConsensusModeTPraos,
+		)
+		require.False(t, eligible)
+		require.Error(t, err)
+	}
+}
+
 // TestIsVRFOutputBelowThresholdZeroThreshold tests handling of zero threshold.
 func TestIsVRFOutputBelowThresholdZeroThreshold(t *testing.T) {
 	vrfOutput := make([]byte, 64)

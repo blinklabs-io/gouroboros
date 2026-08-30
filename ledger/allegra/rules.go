@@ -30,6 +30,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNoDuplicateInputs,
 	UtxoValidateFeeTooSmallUtxo,
 	UtxoValidateBadInputsUtxo,
+	UtxoValidateScriptWitnesses,
 	UtxoValidateWrongNetwork,
 	UtxoValidateWrongNetworkWithdrawal,
 	UtxoValidateValueNotConservedUtxo,
@@ -84,6 +85,16 @@ func UtxoValidateInputSetEmptyUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
+}
+
+// UtxoValidateScriptWitnesses checks that every required script is provided.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateScriptWitnesses(tx, slot, ls, pp)
 }
 
 func UtxoValidateNoDuplicateInputs(
@@ -238,45 +249,9 @@ func UtxoValidateNativeScripts(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
+	if scriptHash, failed := common.FirstInvalidNativeScript(tx, slot); failed {
+		return NativeScriptFailedError{ScriptHash: scriptHash}
 	}
-
-	nativeScripts := witnesses.NativeScripts()
-	if len(nativeScripts) == 0 {
-		return nil
-	}
-
-	// Collect key hashes from VKey witnesses
-	keyHashes := make(map[common.Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		keyHash := common.Blake2b224Hash(vkw.Vkey)
-		keyHashes[keyHash] = true
-	}
-	// Also collect key hashes from bootstrap witnesses (Byron-era)
-	for _, bw := range witnesses.Bootstrap() {
-		keyHash := common.Blake2b224Hash(bw.PublicKey)
-		keyHashes[keyHash] = true
-	}
-
-	// Get transaction validity interval
-	validityStart := tx.ValidityIntervalStart()
-	validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(
-		tx,
-	)
-	if !validityEndPresent {
-		validityEnd = ^uint64(0) // Max uint64 if not set
-	}
-
-	// Evaluate each native script
-	for _, nscript := range nativeScripts {
-		scriptHash := nscript.Hash()
-		if !nscript.Evaluate(slot, validityStart, validityEnd, keyHashes) {
-			return NativeScriptFailedError{ScriptHash: scriptHash}
-		}
-	}
-
 	return nil
 }
 

@@ -239,6 +239,9 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateWithdrawalsMap(tmp.TxWithdrawals); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}

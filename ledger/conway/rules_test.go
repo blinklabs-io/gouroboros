@@ -1298,10 +1298,10 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 
 func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	testCorrectNetworkAddr, _ := common.NewAddress(
-		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
+		"stake1uyehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gh6ffgw",
 	)
 	testWrongNetworkAddr, _ := common.NewAddress(
-		"addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07",
+		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
