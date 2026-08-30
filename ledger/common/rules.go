@@ -23,6 +23,7 @@ package common
 
 import (
 	"fmt"
+	"math/big"
 	"math/bits"
 	"sort"
 
@@ -37,6 +38,35 @@ type UtxoValidationRuleFunc func(
 	ledgerState LedgerState,
 	protocolParams ProtocolParameters,
 ) error
+
+// UtxoValidateCurrentTreasuryValue checks a transaction's optional current
+// treasury value against the ledger state. The predicate belongs to the
+// phase-2-valid ledger transition, so phase-2-invalid transactions skip it.
+func UtxoValidateCurrentTreasuryValue(
+	tx Transaction,
+	slot uint64,
+	ledgerState LedgerState,
+	protocolParams ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	supplied := tx.CurrentTreasuryValue()
+	if supplied == nil {
+		return nil
+	}
+	expected, err := ledgerState.TreasuryValue()
+	if err != nil {
+		return TreasuryValueQueryError{Err: err}
+	}
+	if supplied.Cmp(new(big.Int).SetUint64(expected)) != 0 {
+		return CurrentTreasuryValueMismatchError{
+			Supplied: new(big.Int).Set(supplied),
+			Expected: expected,
+		}
+	}
+	return nil
+}
 
 // VerifyTransaction runs the provided validation rules in order and wraps
 // the first error encountered into a ValidationError.

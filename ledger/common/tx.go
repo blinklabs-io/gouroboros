@@ -182,6 +182,7 @@ type TransactionBodyBase struct {
 	cbor.DecodeStoreCbor
 	hash                              *Blake2b256
 	validityIntervalUpperBoundPresent bool
+	currentTreasuryValuePresent       bool
 }
 
 // SetValidityIntervalUpperBoundPresence records whether transaction-body key 3
@@ -200,6 +201,23 @@ func (b *TransactionBodyBase) SetValidityIntervalUpperBoundPresence(
 // present.
 func (b *TransactionBodyBase) ValidityIntervalUpperBoundPresent() bool {
 	return b.validityIntervalUpperBoundPresent
+}
+
+// SetCurrentTreasuryValuePresence records whether transaction-body key 21 is
+// present. Era-specific transaction bodies keep the value in their existing
+// scalar fields; this presence bit preserves the distinction between an absent
+// value and an explicitly encoded zero. Calling it for a programmatically
+// constructed body invalidates any stored CBOR.
+func (b *TransactionBodyBase) SetCurrentTreasuryValuePresence(present bool) {
+	b.currentTreasuryValuePresent = present
+	b.hash = nil
+	b.SetCbor(nil)
+}
+
+// CurrentTreasuryValuePresent reports whether transaction-body key 21 is
+// present.
+func (b *TransactionBodyBase) CurrentTreasuryValuePresent() bool {
+	return b.currentTreasuryValuePresent
 }
 
 // DecodeValidityIntervalUpperBoundPresence records the presence of
@@ -222,10 +240,24 @@ func (b *TransactionBodyBase) DecodeValidityIntervalUpperBoundPresence(
 	return nil
 }
 
+// DecodeCurrentTreasuryValuePresence records the presence of transaction-body
+// key 21 from decoded CBOR. It must be called by era-specific body decoders
+// after their typed decode succeeds.
+func (b *TransactionBodyBase) DecodeCurrentTreasuryValuePresence(
+	cborData []byte,
+) error {
+	var bodyFields map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
+		return err
+	}
+	_, b.currentTreasuryValuePresent = bodyFields[21]
+	return nil
+}
+
 // EncodeTransactionBodyWithValidityIntervalUpperBound encodes a constructed
-// transaction body while retaining an explicitly present zero upper bound.
-// Non-zero and absent bounds retain the normal generic transaction-body
-// encoding.
+// transaction body while retaining explicitly present zero values for the
+// validity upper bound and current treasury value. Non-zero and absent values
+// retain the normal generic transaction-body encoding.
 func EncodeTransactionBodyWithValidityIntervalUpperBound(
 	body TransactionBody,
 ) ([]byte, error) {
@@ -234,18 +266,35 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		return nil, err
 	}
 	upperBound, present := TransactionValidityIntervalUpperBound(body)
-	if !present || upperBound != 0 {
+	preserveUpperBoundZero := present && upperBound == 0
+	treasuryValue := body.CurrentTreasuryValue()
+	treasuryBody, hasTreasuryPresence := body.(interface {
+		CurrentTreasuryValuePresent() bool
+	})
+	preserveTreasuryZero := hasTreasuryPresence &&
+		treasuryBody.CurrentTreasuryValuePresent() &&
+		treasuryValue != nil && treasuryValue.Sign() == 0
+	if !preserveUpperBoundZero && !preserveTreasuryZero {
 		return cborData, nil
 	}
 	bodyFields := make(map[uint]cbor.RawMessage)
 	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
 		return nil, err
 	}
-	encodedUpperBound, err := cbor.Encode(upperBound)
-	if err != nil {
-		return nil, err
+	if preserveUpperBoundZero {
+		encodedUpperBound, err := cbor.Encode(upperBound)
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[3] = encodedUpperBound
 	}
-	bodyFields[3] = encodedUpperBound
+	if preserveTreasuryZero {
+		encodedTreasuryValue, err := cbor.Encode(uint64(0))
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[21] = encodedTreasuryValue
+	}
 	return cbor.Encode(bodyFields)
 }
 

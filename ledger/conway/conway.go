@@ -676,6 +676,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
 		return err
 	}
+	if err := b.DecodeCurrentTreasuryValuePresence(cborData); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
 }
@@ -838,6 +841,10 @@ func (b *ConwayTransactionBody) NetworkId() *uint8 {
 }
 
 func (b *ConwayTransactionBody) CurrentTreasuryValue() *big.Int {
+	if b.TxCurrentTreasuryValue == 0 &&
+		!b.CurrentTreasuryValuePresent() {
+		return nil
+	}
 	return big.NewInt(b.TxCurrentTreasuryValue)
 }
 

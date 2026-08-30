@@ -17,7 +17,41 @@ package common
 import (
 	"errors"
 	"fmt"
+	"math/big"
 )
+
+// CurrentTreasuryValueMismatchError indicates that a transaction's supplied
+// current treasury value differs from the ledger state.
+type CurrentTreasuryValueMismatchError struct {
+	Supplied *big.Int
+	Expected uint64
+}
+
+func (e CurrentTreasuryValueMismatchError) Error() string {
+	supplied := "<nil>"
+	if e.Supplied != nil {
+		supplied = e.Supplied.String()
+	}
+	return fmt.Sprintf(
+		"current treasury value mismatch: supplied %s, expected %d",
+		supplied,
+		e.Expected,
+	)
+}
+
+// TreasuryValueQueryError indicates that the current ledger treasury value
+// could not be loaded for transaction validation.
+type TreasuryValueQueryError struct {
+	Err error
+}
+
+func (e TreasuryValueQueryError) Error() string {
+	return fmt.Sprintf("failed to query current treasury value: %v", e.Err)
+}
+
+func (e TreasuryValueQueryError) Unwrap() error {
+	return e.Err
+}
 
 // InvalidIsValidFlagError indicates a tx marked invalid but lacking Plutus scripts
 type InvalidIsValidFlagError struct{}

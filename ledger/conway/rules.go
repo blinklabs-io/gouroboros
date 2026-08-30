@@ -38,6 +38,7 @@ import (
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
+	common.UtxoValidateCurrentTreasuryValue,
 	UtxoValidateProposalProcedures,
 	UtxoValidateGovActionWellFormedness,
 	UtxoValidateHardForkCanFollow,

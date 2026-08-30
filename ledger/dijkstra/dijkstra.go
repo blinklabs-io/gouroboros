@@ -798,6 +798,9 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
 		return err
 	}
+	if err := b.DecodeCurrentTreasuryValuePresence(cborData); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
 }
@@ -933,6 +936,10 @@ func (b *DijkstraTransactionBody) NetworkId() *uint8 {
 }
 
 func (b *DijkstraTransactionBody) CurrentTreasuryValue() *big.Int {
+	if b.TxCurrentTreasuryValue == 0 &&
+		!b.CurrentTreasuryValuePresent() {
+		return nil
+	}
 	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
 }
 
@@ -1075,6 +1082,9 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
 		return err
 	}
+	if err := b.DecodeCurrentTreasuryValuePresence(cborData); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
 }
@@ -1159,6 +1169,10 @@ func (b *DijkstraSubTransactionBody) ProposalProcedures() []common.ProposalProce
 }
 
 func (b *DijkstraSubTransactionBody) CurrentTreasuryValue() *big.Int {
+	if b.TxCurrentTreasuryValue == 0 &&
+		!b.CurrentTreasuryValuePresent() {
+		return nil
+	}
 	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
 }
 

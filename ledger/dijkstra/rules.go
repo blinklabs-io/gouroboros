@@ -38,6 +38,7 @@ const minUtxoOverheadBytes = 160
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateMetadata,
+	common.UtxoValidateCurrentTreasuryValue,
 	UtxoValidateProposalProcedures,
 	conway.UtxoValidateGovActionWellFormedness,
 	UtxoValidateHardForkCanFollow,
