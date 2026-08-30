@@ -69,6 +69,21 @@ func makeConwayBaseAddress(
 	return addr
 }
 
+// committeeMembersErrorLedgerState decorates the shared mock state with a
+// deterministic CommitteeMembers failure. The shared mock already provides
+// the remaining committee lookup behavior exercised by these tests.
+type committeeMembersErrorLedgerState struct {
+	common.LedgerState
+	err error
+}
+
+func (s committeeMembersErrorLedgerState) CommitteeMembers() (
+	[]common.CommitteeMember,
+	error,
+) {
+	return nil, s.err
+}
+
 func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 	stakeKeyHash := common.Blake2b224Hash([]byte("withdrawal-stake-key"))
 	rewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
@@ -3081,6 +3096,151 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 		var ccErr conway.CCVotingRestrictionError
 		assert.True(t, errors.As(err, &ccErr))
 		assert.Contains(t, ccErr.Restriction, "nil action ID")
+	})
+}
+
+func TestUtxoValidateCommitteeCertificates(t *testing.T) {
+	coldHash := common.Blake2b224Hash([]byte("committee-cold-key"))
+	hotHash := common.Blake2b224Hash([]byte("committee-hot-key"))
+	coldCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: coldHash,
+	}
+	hotCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hotHash,
+	}
+	newTx := func(cert common.Certificate) *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: cert},
+				},
+			},
+		}
+	}
+	operations := []struct {
+		name string
+		cert func() common.Certificate
+	}{
+		{
+			name: "authorize hot key",
+			cert: func() common.Certificate {
+				return &common.AuthCommitteeHotCertificate{
+					CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+					ColdCredential: coldCredential,
+					HotCredential:  hotCredential,
+				}
+			},
+		},
+		{
+			name: "resign",
+			cert: func() common.Certificate {
+				return &common.ResignCommitteeColdCertificate{
+					CertType:       uint(common.CertificateTypeResignCommitteeCold),
+					ColdCredential: coldCredential,
+				}
+			},
+		},
+	}
+
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			t.Run("seated member", func(t *testing.T) {
+				ls := mockledger.NewLedgerStateBuilder().
+					WithCommitteeMembers([]common.CommitteeMember{
+						{ColdKey: coldHash, ExpiryEpoch: 100},
+					}).
+					Build()
+				require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				))
+			})
+
+			t.Run("proposed member", func(t *testing.T) {
+				ls := mockledger.NewLedgerStateBuilder().
+					WithProposedCommitteeMembers(
+						map[common.Blake2b224]uint64{coldHash: 100},
+					).
+					Build()
+				require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				))
+			})
+
+			t.Run("empty committee fails closed", func(t *testing.T) {
+				ls := mockledger.NewLedgerStateBuilder().Build()
+				err := conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				)
+				var memberErr conway.NotCommitteeMemberError
+				require.ErrorAs(t, err, &memberErr)
+				assert.Equal(t, coldHash, memberErr.Credential)
+			})
+
+			t.Run("committee list lookup error fails closed", func(t *testing.T) {
+				lookupErr := errors.New("committee state unavailable")
+				ls := committeeMembersErrorLedgerState{
+					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+					err:         lookupErr,
+				}
+				err := conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				)
+				require.ErrorIs(t, err, lookupErr)
+				var memberErr conway.CommitteeMemberLookupError
+				require.ErrorAs(t, err, &memberErr)
+				assert.Equal(t, coldHash, memberErr.Credential)
+			})
+
+			t.Run("member lookup error fails closed", func(t *testing.T) {
+				lookupErr := errors.New("committee member unavailable")
+				ls := mockledger.NewLedgerStateBuilder().
+					WithCommitteeMember(func(
+						common.Blake2b224,
+					) (*common.CommitteeMember, error) {
+						return nil, lookupErr
+					}).
+					Build()
+				err := conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				)
+				require.ErrorIs(t, err, lookupErr)
+				var memberErr conway.CommitteeMemberLookupError
+				require.ErrorAs(t, err, &memberErr)
+				assert.Equal(t, coldHash, memberErr.Credential)
+			})
+		})
+	}
+
+	t.Run("unrelated certificate does not require committee state", func(t *testing.T) {
+		lookupErr := errors.New("committee state unavailable")
+		ls := committeeMembersErrorLedgerState{
+			LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+			err:         lookupErr,
+		}
+		tx := newTx(&common.RegistrationDrepCertificate{})
+		require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+			tx,
+			0,
+			ls,
+			&conway.ConwayProtocolParameters{},
+		))
 	})
 }
 

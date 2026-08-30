@@ -3302,31 +3302,51 @@ func UtxoValidateCommitteeCertificates(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	members, err := ls.CommitteeMembers()
-	hasCommitteeState := err == nil && len(members) > 0
+	committeeStateLoaded := false
+	committeeMember := func(
+		coldHash common.Blake2b224,
+	) (*common.CommitteeMember, error) {
+		if !committeeStateLoaded {
+			if _, err := ls.CommitteeMembers(); err != nil {
+				return nil, CommitteeMemberLookupError{
+					Credential: coldHash,
+					Err:        err,
+				}
+			}
+			committeeStateLoaded = true
+		}
+		member, err := ls.CommitteeMember(coldHash)
+		if err != nil {
+			return nil, CommitteeMemberLookupError{
+				Credential: coldHash,
+				Err:        err,
+			}
+		}
+		return member, nil
+	}
 
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *common.AuthCommitteeHotCertificate:
 			coldHash := c.ColdCredential.Credential
-			member, err := ls.CommitteeMember(coldHash)
+			member, err := committeeMember(coldHash)
 			if err != nil {
-				return CommitteeMemberLookupError{Credential: coldHash, Err: err}
+				return err
 			}
-			if member == nil && hasCommitteeState {
+			if member == nil {
 				return NotCommitteeMemberError{Credential: coldHash, Operation: "authorize hot key"}
 			}
-			if member != nil && member.Resigned {
+			if member.Resigned {
 				return ResignedCommitteeMemberHotKeyError{ColdKey: coldHash}
 			}
 
 		case *common.ResignCommitteeColdCertificate:
 			coldHash := c.ColdCredential.Credential
-			member, err := ls.CommitteeMember(coldHash)
+			member, err := committeeMember(coldHash)
 			if err != nil {
-				return CommitteeMemberLookupError{Credential: coldHash, Err: err}
+				return err
 			}
-			if member == nil && hasCommitteeState {
+			if member == nil {
 				return NotCommitteeMemberError{Credential: coldHash, Operation: "resign"}
 			}
 		}

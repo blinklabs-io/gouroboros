@@ -192,7 +192,11 @@ type GovPurposeRootsState interface {
 // GovState defines the interface for querying governance state
 type GovState interface {
 	// Committee queries
+	// CommitteeMember resolves a cold credential against both the current
+	// committee and every pending UpdateCommittee proposal. It returns nil only
+	// when the credential is neither a current nor a potential future member.
 	CommitteeMember(coldKey Blake2b224) (*CommitteeMember, error)
+	// CommitteeMembers returns the current committee members.
 	CommitteeMembers() ([]CommitteeMember, error)
 
 	// DRep queries
