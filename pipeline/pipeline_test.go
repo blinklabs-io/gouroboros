@@ -1247,6 +1247,260 @@ func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
 	})
 }
 
+func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
+	t *testing.T,
+) {
+	submitLocked := make(chan struct{})
+	releaseSubmit := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseSubmit) })
+	}
+	p := NewBlockPipeline(
+		WithValidateWorkers(0),
+		WithSkipBodyHashValidation(true),
+	)
+	p.testSubmitLocked = func() {
+		close(submitLocked)
+		<-releaseSubmit
+	}
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+
+	rawCbor := getValidBlockCbor(t)
+	submitDone := make(chan error, 1)
+	go func() {
+		submitDone <- p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			createTestTip(1000, 500),
+		)
+	}()
+	select {
+	case <-submitLocked:
+	case <-time.After(time.Second):
+		t.Fatal("submission did not acquire the pipeline boundary")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- p.Stop() }()
+	select {
+	case <-p.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not cancel the pipeline context")
+	}
+
+	require.NoError(
+		t,
+		p.WaitForDrain(context.Background()),
+		"an explicit Stop should make the drain boundary successful",
+	)
+	release()
+	select {
+	case err := <-submitDone:
+		if err != nil {
+			require.ErrorIs(t, err, ErrPipelineStopped)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("submission did not return after release")
+	}
+	select {
+	case err := <-stopDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return after submission released the boundary")
+	}
+}
+
+func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
+	t *testing.T,
+) {
+	t.Run("parent canceled before Start", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancel(context.Background())
+		cancelParent()
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		require.NoError(t, p.Start(parentCtx))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		require.ErrorIs(
+			t,
+			p.WaitForDrain(context.Background()),
+			ErrPipelineStopped,
+		)
+	})
+
+	t.Run("parent canceled at captured boundary", func(t *testing.T) {
+		boundaryCaptured := make(chan uint64, 1)
+		releaseBoundary := make(chan struct{})
+		var releaseOnce sync.Once
+		release := func() {
+			releaseOnce.Do(func() { close(releaseBoundary) })
+		}
+		parentCtx, cancelParent := context.WithCancel(context.Background())
+		defer cancelParent()
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		p.testFenceBoundary = func(target uint64) {
+			boundaryCaptured <- target
+			<-releaseBoundary
+		}
+		require.NoError(t, p.Start(parentCtx))
+		defer func() {
+			release()
+			require.NoError(t, p.Stop())
+		}()
+
+		drainDone := make(chan error, 1)
+		go func() {
+			drainDone <- p.WaitForDrain(context.Background())
+		}()
+		select {
+		case target := <-boundaryCaptured:
+			require.Zero(t, target)
+		case <-time.After(time.Second):
+			t.Fatal("WaitForDrain did not capture the zero-work boundary")
+		}
+
+		cancelParent()
+		select {
+		case <-p.ctx.Done():
+		case <-time.After(time.Second):
+			t.Fatal("parent cancellation did not reach the pipeline context")
+		}
+		release()
+		select {
+		case err := <-drainDone:
+			require.ErrorIs(t, err, ErrPipelineStopped)
+		case <-time.After(time.Second):
+			t.Fatal("WaitForDrain did not return after parent cancellation")
+		}
+	})
+}
+
+func TestBlockPipelineWaitForDrainParentCancellationWithInFlightWork(
+	t *testing.T,
+) {
+	applyStarted := make(chan struct{})
+	releaseApply := make(chan struct{})
+	boundaryCaptured := make(chan uint64, 1)
+	releaseBoundary := make(chan struct{})
+	var releaseApplyOnce sync.Once
+	releaseApplyFunc := func() {
+		releaseApplyOnce.Do(func() { close(releaseApply) })
+	}
+	var releaseBoundaryOnce sync.Once
+	releaseBoundaryFunc := func() {
+		releaseBoundaryOnce.Do(func() { close(releaseBoundary) })
+	}
+	parentCtx, cancelParent := context.WithCancel(context.Background())
+	defer cancelParent()
+	p := NewBlockPipeline(
+		WithValidateWorkers(0),
+		WithSkipBodyHashValidation(true),
+		WithApplyFunc(func(*BlockItem) error {
+			close(applyStarted)
+			<-releaseApply
+			return nil
+		}),
+	)
+	p.testFenceBoundary = func(target uint64) {
+		boundaryCaptured <- target
+		<-releaseBoundary
+	}
+	require.NoError(t, p.Start(parentCtx))
+	defer func() {
+		releaseApplyFunc()
+		releaseBoundaryFunc()
+		require.NoError(t, p.Stop())
+	}()
+	require.NoError(
+		t,
+		p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			getValidBlockCbor(t),
+			createTestTip(1000, 500),
+		),
+	)
+	select {
+	case <-applyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline apply did not start")
+	}
+
+	drainDone := make(chan error, 1)
+	go func() { drainDone <- p.WaitForDrain(context.Background()) }()
+	select {
+	case target := <-boundaryCaptured:
+		require.Equal(t, uint64(1), target)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not capture the accepted-work boundary")
+	}
+	p.completionMu.Lock()
+	processed := p.completionChan
+	p.completionMu.Unlock()
+
+	cancelParent()
+	select {
+	case <-p.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("parent cancellation did not reach the pipeline context")
+	}
+	releaseApplyFunc()
+	select {
+	case <-processed:
+	case <-time.After(time.Second):
+		t.Fatal("accepted in-flight work did not complete")
+	}
+	releaseBoundaryFunc()
+	select {
+	case err := <-drainDone:
+		require.ErrorIs(t, err, ErrPipelineStopped)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not return after parent cancellation")
+	}
+}
+
+func TestBlockPipelineWaitForDrainPrefersCallerContext(t *testing.T) {
+	boundaryCaptured := make(chan uint64, 1)
+	releaseBoundary := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseBoundary) })
+	}
+	p := NewBlockPipeline(WithValidateWorkers(0))
+	p.testFenceBoundary = func(target uint64) {
+		boundaryCaptured <- target
+		<-releaseBoundary
+	}
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+
+	drainCtx, cancelDrain := context.WithCancel(context.Background())
+	drainDone := make(chan error, 1)
+	go func() { drainDone <- p.WaitForDrain(drainCtx) }()
+	select {
+	case target := <-boundaryCaptured:
+		require.Zero(t, target)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not capture the zero-work boundary")
+	}
+	cancelDrain()
+	release()
+	select {
+	case err := <-drainDone:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not return after caller cancellation")
+	}
+}
+
 func TestApplyStage_PendingCount(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 

@@ -82,6 +82,7 @@ type BlockPipeline struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
 	started           atomic.Bool
+	stopping          atomic.Bool
 	stopped           atomic.Bool
 	wg                sync.WaitGroup
 	mu                sync.Mutex // protects Start/Stop
@@ -90,9 +91,10 @@ type BlockPipeline struct {
 	submitGate     chan struct{}
 	completionMu   sync.Mutex
 	completionChan chan struct{}
-	// The test hook makes blocked Submit/Fence interleavings deterministic
-	// without changing production behavior.
-	testSubmitLocked func()
+	// Test hooks must be installed before Start. They make blocked Submit/Fence
+	// interleavings deterministic without changing production behavior.
+	testSubmitLocked  func()
+	testFenceBoundary func(uint64)
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
@@ -138,7 +140,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.stopped.Load() {
+	if p.stopping.Load() || p.stopped.Load() {
 		return ErrPipelineStopped
 	}
 
@@ -262,8 +264,8 @@ func (p *BlockPipeline) Submit(
 		p.testSubmitLocked()
 	}
 
-	// Check stopped under lock to ensure we don't race with Stop()
-	if p.stopped.Load() {
+	// Check stopping under the gate to ensure we don't race with Stop.
+	if p.stopping.Load() || p.stopped.Load() {
 		return ErrPipelineStopped
 	}
 
@@ -301,12 +303,15 @@ func (p *BlockPipeline) Fence(ctx context.Context) error {
 	if err := p.lockSubmit(ctx); err != nil {
 		return err
 	}
-	if p.stopped.Load() {
+	if p.stopping.Load() || p.stopped.Load() {
 		p.unlockSubmit()
 		return ErrPipelineStopped
 	}
 	target := p.sequenceCounter.Load()
 	p.unlockSubmit()
+	if p.testFenceBoundary != nil {
+		p.testFenceBoundary(target)
+	}
 	if target == 0 {
 		return nil
 	}
@@ -368,10 +373,11 @@ func (p *BlockPipeline) Stop() error {
 		return nil
 	}
 
-	// Cancel context FIRST to unblock any Submit() calls waiting on channel send.
-	// This must happen before acquiring submitGate to avoid deadlock: Submit()
-	// holds the gate while blocking on the channel, and we need it to unblock
-	// via ctx.Done() before we can acquire the gate.
+	// Publish the explicit stop before canceling the pipeline context so drain
+	// waiters can distinguish Stop from cancellation inherited from Start.
+	p.stopping.Store(true)
+	// Cancel before acquiring submitGate to avoid deadlock: Submit holds the
+	// gate while blocked on a channel send and needs ctx.Done to unblock.
 	p.cancel()
 
 	// Now acquire the gate to ensure no Submit() calls are in progress.
@@ -437,23 +443,26 @@ func (p *BlockPipeline) PendingCount() int {
 // completed ordered processing, or the context is cancelled. This is useful
 // before handling rollbacks to ensure no earlier block is applied afterward.
 func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
-	if !p.started.Load() {
-		return ErrPipelineNotStarted
-	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Preserve the historical lifecycle contract: once Stop has completed,
-	// there can be no accepted work left to drain.
-	if p.stopped.Load() {
+	if !p.started.Load() {
+		return ErrPipelineNotStarted
+	}
+	// Preserve the historical lifecycle contract: explicit shutdown makes the
+	// drain vacuous, including while Stop waits for the submission gate.
+	if p.stopping.Load() || p.stopped.Load() {
 		return nil
 	}
 	err := p.Fence(ctx)
-	if errors.Is(err, ErrPipelineStopped) && p.stopped.Load() {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if p.stopping.Load() || p.stopped.Load() {
 		return nil
+	}
+	if p.ctx.Err() != nil {
+		return ErrPipelineStopped
 	}
 	return err
 }
