@@ -107,6 +107,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateMalformedReferenceScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(
 		UtxoValidateRefScriptSizePerTx,
 	),
 )

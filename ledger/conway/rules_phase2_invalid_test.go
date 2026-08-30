@@ -15,6 +15,7 @@
 package conway_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -24,19 +25,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	conwayValidationRuleCount          = 55
-	conwayIsValidFlagRuleIndex         = 11
-	conwayNoCollateralInputsRuleIndex  = 28
-	conwayExtraneousRedeemersRuleIndex = 42
-	conwayDelegationRuleIndex          = 45
-	conwayUnknownVotersRuleIndex       = 48
-	conwayUnknownGovActionIdsRuleIndex = 49
-)
+func conwayComposedRuleForError(
+	t *testing.T,
+	tx common.Transaction,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+	match func(error) bool,
+) common.UtxoValidationRuleFunc {
+	t.Helper()
+	var matches []common.UtxoValidationRuleFunc
+	for _, rule := range conway.UtxoValidationRules {
+		if match(rule(tx, 0, ls, pp)) {
+			matches = append(matches, rule)
+		}
+	}
+	require.Len(t, matches, 1, "expected one composed validation rule to match")
+	return matches[0]
+}
 
 func TestPhase2InvalidSkipsCertificateAndGovernanceRules(t *testing.T) {
-	require.Len(t, conway.UtxoValidationRules, conwayValidationRuleCount)
-
 	credential := common.Credential{
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: common.Blake2b224{0x01},
@@ -71,61 +78,52 @@ func TestPhase2InvalidSkipsCertificateAndGovernanceRules(t *testing.T) {
 	pp := &conway.ConwayProtocolParameters{}
 
 	tests := []struct {
-		name            string
-		ruleIndex       int
-		checkValidError func(*testing.T, error)
+		name  string
+		match func(error) bool
 	}{
 		{
-			name:      "certificate data",
-			ruleIndex: conwayDelegationRuleIndex,
-			checkValidError: func(t *testing.T, err error) {
+			name: "certificate data",
+			match: func(err error) bool {
 				var target conway.StakeCredentialAlreadyRegisteredError
-				require.ErrorAs(t, err, &target)
+				return errors.As(err, &target)
 			},
 		},
 		{
-			name:      "unknown voter",
-			ruleIndex: conwayUnknownVotersRuleIndex,
-			checkValidError: func(t *testing.T, err error) {
+			name: "unknown voter",
+			match: func(err error) bool {
 				var target conway.UnknownVoterError
-				require.ErrorAs(t, err, &target)
+				return errors.As(err, &target)
 			},
 		},
 		{
-			name:      "unknown governance action id",
-			ruleIndex: conwayUnknownGovActionIdsRuleIndex,
-			checkValidError: func(t *testing.T, err error) {
+			name: "unknown governance action id",
+			match: func(err error) bool {
 				var target conway.UnknownGovActionIdError
-				require.ErrorAs(t, err, &target)
+				return errors.As(err, &target)
 			},
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rule := conway.UtxoValidationRules[tc.ruleIndex]
+			rule := conwayComposedRuleForError(t, validTx, ls, pp, tc.match)
+			require.True(t, tc.match(rule(validTx, 0, ls, pp)))
 			require.NoError(t, rule(invalidTx, 0, ls, pp))
-
-			err := rule(validTx, 0, ls, pp)
-			tc.checkValidError(t, err)
 		})
 	}
 }
 
 func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
-	require.Len(t, conway.UtxoValidationRules, conwayValidationRuleCount)
 	pp := &conway.ConwayProtocolParameters{}
 	ls := mockledger.NewLedgerStateBuilder().Build()
 
 	t.Run("is-valid flag requires a redeemer", func(t *testing.T) {
 		tx := &conway.ConwayTransaction{TxIsValid: false}
-		err := conway.UtxoValidationRules[conwayIsValidFlagRuleIndex](
-			tx,
-			0,
-			ls,
-			pp,
-		)
-		var target common.InvalidIsValidFlagError
-		require.ErrorAs(t, err, &target)
+		match := func(err error) bool {
+			var target common.InvalidIsValidFlagError
+			return errors.As(err, &target)
+		}
+		rule := conwayComposedRuleForError(t, tx, ls, pp, match)
+		require.True(t, match(rule(tx, 0, ls, pp)))
 	})
 
 	t.Run("redeemer purpose remains well formed", func(t *testing.T) {
@@ -139,14 +137,12 @@ func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
 				},
 			},
 		}
-		err := conway.UtxoValidationRules[conwayExtraneousRedeemersRuleIndex](
-			tx,
-			0,
-			ls,
-			pp,
-		)
-		var target conway.ExtraRedeemerError
-		require.ErrorAs(t, err, &target)
+		match := func(err error) bool {
+			var target conway.ExtraRedeemerError
+			return errors.As(err, &target)
+		}
+		rule := conwayComposedRuleForError(t, tx, ls, pp, match)
+		require.True(t, match(rule(tx, 0, ls, pp)))
 	})
 
 	t.Run("collateral is still required", func(t *testing.T) {
@@ -160,13 +156,11 @@ func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
 				},
 			},
 		}
-		err := conway.UtxoValidationRules[conwayNoCollateralInputsRuleIndex](
-			tx,
-			0,
-			ls,
-			pp,
-		)
-		var target alonzo.NoCollateralInputsError
-		require.ErrorAs(t, err, &target)
+		match := func(err error) bool {
+			var target alonzo.NoCollateralInputsError
+			return errors.As(err, &target)
+		}
+		rule := conwayComposedRuleForError(t, tx, ls, pp, match)
+		require.True(t, match(rule(tx, 0, ls, pp)))
 	})
 }
