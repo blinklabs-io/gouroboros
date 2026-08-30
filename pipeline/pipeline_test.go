@@ -1453,9 +1453,7 @@ func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
 	release()
 	select {
 	case err := <-submitDone:
-		if err != nil {
-			require.ErrorIs(t, err, ErrPipelineStopped)
-		}
+		require.ErrorIs(t, err, ErrPipelineStopped)
 	case <-time.After(time.Second):
 		t.Fatal("submission did not return after release")
 	}
