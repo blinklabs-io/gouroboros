@@ -52,6 +52,12 @@ func createTestTip(slot uint64, blockNum uint64) pcommon.Tip {
 	}
 }
 
+// readyCancellationTieAttempts proves precedence when the old implementation
+// offered an already-canceled context and the submit gate to the same select.
+// Repetition is needed only because Go deliberately randomizes that ready tie;
+// the structural hook and sequence assertions identify any lost cancellation.
+const readyCancellationTieAttempts = 64
+
 // ============================================================================
 // TestBlockItem tests
 // ============================================================================
@@ -991,6 +997,151 @@ func TestBlockPipelineFenceCancelsWhileWaitingForBlockedSubmit(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("canceled fence did not return while submit held the boundary")
 	}
+}
+
+func TestBlockPipelineSubmitCancellationPrecedence(t *testing.T) {
+	t.Run("pre-canceled caller", func(t *testing.T) {
+		p := NewBlockPipeline(
+			WithValidateWorkers(0),
+			WithSkipBodyHashValidation(true),
+		)
+		var gateAcquisitions atomic.Uint64
+		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
+		require.NoError(t, p.Start(context.Background()))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		submitCtx, cancelSubmit := context.WithCancel(context.Background())
+		cancelSubmit()
+		unexpectedResults := 0
+		for range readyCancellationTieAttempts {
+			err := p.Submit(submitCtx, 0, nil, pcommon.Tip{})
+			if !errors.Is(err, context.Canceled) {
+				unexpectedResults++
+			}
+		}
+
+		assert.Zero(
+			t,
+			unexpectedResults,
+			"pre-canceled caller lost cancellation precedence",
+		)
+		assert.Zero(
+			t,
+			gateAcquisitions.Load(),
+			"pre-canceled caller acquired the submit gate",
+		)
+		assert.Zero(t, p.sequenceCounter.Load())
+		assert.Zero(t, p.Stats().BlocksSubmitted)
+	})
+
+	t.Run("canceled Start parent", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancel(context.Background())
+		cancelParent()
+		p := NewBlockPipeline(
+			WithValidateWorkers(0),
+			WithSkipBodyHashValidation(true),
+		)
+		var gateAcquisitions atomic.Uint64
+		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
+		require.NoError(t, p.Start(parentCtx))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		// Wait for every worker started with the canceled parent to exit before
+		// proving that Submit cannot commit work into their abandoned queue.
+		p.decodePool.Stop()
+		p.applyRunner.Stop()
+		p.wg.Wait()
+
+		unexpectedResults := 0
+		for range readyCancellationTieAttempts {
+			err := p.Submit(context.Background(), 0, nil, pcommon.Tip{})
+			if !errors.Is(err, ErrPipelineStopped) {
+				unexpectedResults++
+			}
+		}
+
+		assert.Zero(
+			t,
+			unexpectedResults,
+			"canceled pipeline lost shutdown precedence",
+		)
+		assert.Zero(
+			t,
+			gateAcquisitions.Load(),
+			"canceled pipeline acquired the submit gate",
+		)
+		assert.Zero(t, p.sequenceCounter.Load())
+		assert.Zero(t, p.Stats().BlocksSubmitted)
+		assert.Empty(t, p.submitChan)
+	})
+}
+
+func TestBlockPipelineFenceCancellationPrecedence(t *testing.T) {
+	t.Run("pre-canceled caller", func(t *testing.T) {
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		var boundaryCaptures atomic.Uint64
+		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
+		require.NoError(t, p.Start(context.Background()))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		fenceCtx, cancelFence := context.WithCancel(context.Background())
+		cancelFence()
+		unexpectedResults := 0
+		for range readyCancellationTieAttempts {
+			if err := p.Fence(fenceCtx); !errors.Is(err, context.Canceled) {
+				unexpectedResults++
+			}
+		}
+
+		assert.Zero(
+			t,
+			unexpectedResults,
+			"pre-canceled caller lost cancellation precedence",
+		)
+		assert.Zero(
+			t,
+			boundaryCaptures.Load(),
+			"pre-canceled caller captured a fence boundary",
+		)
+		assert.Zero(t, p.sequenceCounter.Load())
+		assert.Zero(t, p.Stats().BlocksSubmitted)
+		assert.Empty(t, p.submitChan)
+	})
+
+	t.Run("canceled Start parent", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancel(context.Background())
+		cancelParent()
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		var boundaryCaptures atomic.Uint64
+		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
+		require.NoError(t, p.Start(parentCtx))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		p.decodePool.Stop()
+		p.applyRunner.Stop()
+		p.wg.Wait()
+
+		unexpectedResults := 0
+		for range readyCancellationTieAttempts {
+			if err := p.Fence(context.Background()); !errors.Is(err, ErrPipelineStopped) {
+				unexpectedResults++
+			}
+		}
+
+		assert.Zero(
+			t,
+			unexpectedResults,
+			"canceled pipeline lost shutdown precedence",
+		)
+		assert.Zero(
+			t,
+			boundaryCaptures.Load(),
+			"canceled pipeline captured a fence boundary",
+		)
+		assert.Zero(t, p.sequenceCounter.Load())
+		assert.Zero(t, p.Stats().BlocksSubmitted)
+		assert.Empty(t, p.submitChan)
+	})
 }
 
 func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(

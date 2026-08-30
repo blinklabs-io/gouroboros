@@ -121,14 +121,30 @@ func NewBlockPipeline(opts ...PipelineOption) *BlockPipeline {
 }
 
 func (p *BlockPipeline) lockSubmit(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p.ctx.Err() != nil {
+		return ErrPipelineStopped
+	}
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-p.ctx.Done():
 		return ErrPipelineStopped
 	case <-p.submitGate:
-		return nil
 	}
+
+	if err := ctx.Err(); err != nil {
+		p.unlockSubmit()
+		return err
+	}
+	if p.ctx.Err() != nil {
+		p.unlockSubmit()
+		return ErrPipelineStopped
+	}
+	return nil
 }
 
 func (p *BlockPipeline) unlockSubmit() {
@@ -264,17 +280,27 @@ func (p *BlockPipeline) Submit(
 		p.testSubmitLocked()
 	}
 
-	// Check stopping under the gate to ensure we don't race with Stop.
-	if p.stopping.Load() || p.stopped.Load() {
-		return ErrPipelineStopped
-	}
-
 	// Commit a sequence number only after its item was successfully enqueued.
 	// Keeping the provisional ID under submitGate makes successful IDs unique and
 	// contiguous in queue order, while canceled or backpressured submissions do
 	// not create positions that Fence must wait for.
 	sequence := p.sequenceCounter.Load()
 	item := NewBlockItem(blockType, rawCbor, tip, sequence)
+
+	// Preserve cancellation precedence over an immediately writable input.
+	// These checks are repeated under submitGate so cancellation that occurred
+	// while acquiring the gate cannot lose a ready select tie to the enqueue.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p.ctx.Err() != nil {
+		return ErrPipelineStopped
+	}
+	// Check stopping under the gate to ensure we don't race with Stop. This
+	// follows the context checks so caller cancellation keeps precedence.
+	if p.stopping.Load() || p.stopped.Load() {
+		return ErrPipelineStopped
+	}
 
 	select {
 	case p.submitChan <- item:
