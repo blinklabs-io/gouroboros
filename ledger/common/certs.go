@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -670,6 +671,138 @@ type PoolRegistrationCertificate struct {
 	PoolMetadata         *PoolMetadata `json:"poolMetadata,omitempty"`
 }
 
+// ErrPoolMarginOutsideUnitInterval identifies a stake-pool margin outside the
+// inclusive unit interval.
+var ErrPoolMarginOutsideUnitInterval = errors.New(
+	"pool margin must be in the unit interval [0,1]",
+)
+
+// ValidatePoolMargin verifies the bounded-rational contract used by stake
+// pool registrations. Pool margins are inclusive at both zero and one.
+func ValidatePoolMargin(margin GenesisRat) error {
+	if margin.Rat == nil {
+		return fmt.Errorf("%w: missing value", ErrPoolMarginOutsideUnitInterval)
+	}
+	return validatePoolMarginComponents(margin.Num(), margin.Denom())
+}
+
+func validatePoolMarginComponents(numerator, denominator *big.Int) error {
+	if numerator == nil || denominator == nil {
+		return fmt.Errorf(
+			"%w: missing component",
+			ErrPoolMarginOutsideUnitInterval,
+		)
+	}
+	if denominator.Sign() <= 0 {
+		return fmt.Errorf(
+			"%w: denominator must be positive",
+			ErrPoolMarginOutsideUnitInterval,
+		)
+	}
+	if numerator.Sign() < 0 || numerator.Cmp(denominator) > 0 {
+		return fmt.Errorf(
+			"%w: got %s/%s",
+			ErrPoolMarginOutsideUnitInterval,
+			numerator,
+			denominator,
+		)
+	}
+	return nil
+}
+
+func poolMarginInteger(value any) (*big.Int, error) {
+	ret := new(big.Int)
+	switch tmp := value.(type) {
+	case int64:
+		ret.SetInt64(tmp)
+	case uint64:
+		ret.SetUint64(tmp)
+	case big.Int:
+		ret.Set(&tmp)
+	default:
+		return nil, fmt.Errorf("unsupported integer type %T", value)
+	}
+	return ret, nil
+}
+
+func validatePoolMarginCBOR(data []byte) error {
+	var tag cbor.RawTag
+	if _, err := cbor.Decode(data, &tag); err != nil {
+		return fmt.Errorf("%w: %w", ErrPoolMarginOutsideUnitInterval, err)
+	}
+	if tag.Number != cbor.CborTagRational {
+		return fmt.Errorf(
+			"%w: expected CBOR tag %d, got %d",
+			ErrPoolMarginOutsideUnitInterval,
+			cbor.CborTagRational,
+			tag.Number,
+		)
+	}
+	var components []any
+	if _, err := cbor.Decode(tag.Content, &components); err != nil {
+		return fmt.Errorf("%w: %w", ErrPoolMarginOutsideUnitInterval, err)
+	}
+	if len(components) != 2 {
+		return fmt.Errorf(
+			"%w: expected two components, got %d",
+			ErrPoolMarginOutsideUnitInterval,
+			len(components),
+		)
+	}
+	numerator, err := poolMarginInteger(components[0])
+	if err != nil {
+		return fmt.Errorf(
+			"%w: numerator: %w",
+			ErrPoolMarginOutsideUnitInterval,
+			err,
+		)
+	}
+	denominator, err := poolMarginInteger(components[1])
+	if err != nil {
+		return fmt.Errorf(
+			"%w: denominator: %w",
+			ErrPoolMarginOutsideUnitInterval,
+			err,
+		)
+	}
+	return validatePoolMarginComponents(numerator, denominator)
+}
+
+// ParsePoolMarginJSON decodes a pool margin while enforcing the unit-interval
+// contract on both the encoded components and the resulting rational value.
+func ParsePoolMarginJSON(data []byte) (GenesisRat, error) {
+	var margin GenesisRat
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
+		return margin, fmt.Errorf(
+			"%w: missing value",
+			ErrPoolMarginOutsideUnitInterval,
+		)
+	}
+	if data[0] == '{' {
+		var components struct {
+			Numerator   int64 `json:"numerator"`
+			Denominator int64 `json:"denominator"`
+		}
+		if err := json.Unmarshal(data, &components); err != nil {
+			return margin, err
+		}
+		if err := validatePoolMarginComponents(
+			big.NewInt(components.Numerator),
+			big.NewInt(components.Denominator),
+		); err != nil {
+			return margin, err
+		}
+	}
+	if err := margin.UnmarshalJSON(data); err != nil {
+		return margin, err
+	}
+	if err := ValidatePoolMargin(margin); err != nil {
+		return margin, err
+	}
+	return margin, nil
+}
+
 func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	type tempPool struct {
 		Operator      string          `json:"operator"`
@@ -741,11 +874,11 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	p.PoolMetadata = poolMetadata
 
 	// Handle margin field
-	if len(tmp.Margin) > 0 {
-		if err := p.Margin.UnmarshalJSON(tmp.Margin); err != nil {
-			return fmt.Errorf("failed to unmarshal margin: %w", err)
-		}
+	margin, err := ParsePoolMarginJSON(tmp.Margin)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal margin: %w", err)
 	}
+	p.Margin = margin
 
 	// Handle reward account
 	if len(tmp.RewardAccount) > 0 {
@@ -855,6 +988,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	}
 	switch len(fields) {
 	case 10:
+		if err := validatePoolMarginCBOR(fields[5]); err != nil {
+			return fmt.Errorf("invalid pool registration margin: %w", err)
+		}
 		var tmp legacyPoolRegistrationCertificate
 		if _, err := cbor.Decode(cborData, &tmp); err != nil {
 			return err
@@ -871,6 +1007,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Relays = tmp.Relays
 		c.PoolMetadata = tmp.PoolMetadata
 	case 11:
+		if err := validatePoolMarginCBOR(fields[6]); err != nil {
+			return fmt.Errorf("invalid pool registration margin: %w", err)
+		}
 		var tmp leiosPoolRegistrationCertificate
 		if _, err := cbor.Decode(cborData, &tmp); err != nil {
 			return err
@@ -900,6 +1039,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 // those bytes for both 10- and 11-field variants. Call SetCbor(nil) before
 // marshaling mutated fields.
 func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
+	if err := ValidatePoolMargin(c.Margin); err != nil {
+		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
+	}
 	if cborData := c.Cbor(); cborData != nil {
 		return cborData, nil
 	}
@@ -933,6 +1075,9 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 }
 
 func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	if err := ValidatePoolMargin(c.Margin); err != nil {
+		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
+	}
 	tmpPoolOwners := make([][]byte, len(c.PoolOwners))
 	for i, owner := range c.PoolOwners {
 		tmpPoolOwners[i] = owner.Bytes()

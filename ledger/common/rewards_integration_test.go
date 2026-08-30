@@ -49,13 +49,13 @@ func TestRewardServiceIntegration(t *testing.T) {
 		PoolParams: map[common.PoolKeyHash]*common.PoolRegistrationCertificate{
 			{1}: {
 				Cost:       50000,
-				Margin:     common.GenesisRat{},
+				Margin:     common.NewGenesisRat(0, 1),
 				Pledge:     1000000,
 				PoolOwners: []common.AddrKeyHash{{1}},
 			},
 			{2}: {
 				Cost:       30000,
-				Margin:     common.GenesisRat{},
+				Margin:     common.NewGenesisRat(0, 1),
 				Pledge:     500000,
 				PoolOwners: []common.AddrKeyHash{{3}},
 			},
