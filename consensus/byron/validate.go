@@ -385,7 +385,7 @@ func (v *HeaderValidator) domainSeparateMainBlock(toSign []byte) ([]byte, error)
 		return nil, fmt.Errorf("failed to encode protocol magic: %w", err)
 	}
 	signed := make([]byte, 0, 1+len(pmBytes)+len(toSign))
-	signed = append(signed, byronSignTagMainBlock)
+	signed = append(signed, byron.SignTagMainBlock)
 	signed = append(signed, pmBytes...)
 	signed = append(signed, toSign...)
 	return signed, nil
