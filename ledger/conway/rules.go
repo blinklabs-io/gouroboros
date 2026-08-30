@@ -36,65 +36,248 @@ import (
 	"github.com/blinklabs-io/plutigo/syn"
 )
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	common.UtxoValidateCurrentTreasuryValue,
-	UtxoValidateMetadata,
-	UtxoValidateProposalProcedures,
-	UtxoValidateGovActionWellFormedness,
-	UtxoValidateHardForkCanFollow,
-	UtxoValidateProposalAncestry,
-	UtxoValidateProposalDeposit,
-	UtxoValidateProposalNetworkIds,
-	UtxoValidateProposalReturnAccounts,
-	UtxoValidateEmptyTreasuryWithdrawals,
-	UtxoValidateBootstrapAllowedGovActions,
-	UtxoValidateBootstrapParameterGroups,
-	UtxoValidateIsValidFlag,
-	UtxoValidateRequiredVKeyWitnesses,
-	UtxoValidateCollateralVKeyWitnesses,
-	UtxoValidateRedeemerAndScriptWitnesses,
-	UtxoValidateSignatures,
-	UtxoValidateCostModelsPresent,
-	UtxoValidateScriptDataHash,
-	UtxoValidateInlineDatumsWithPlutusV1,
-	UtxoValidateConwayFeaturesWithPlutusV1V2,
-	UtxoValidateDisjointRefInputs,
-	UtxoValidateOutsideValidityIntervalUtxo,
-	UtxoValidateInputSetEmptyUtxo,
-	UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateInsufficientCollateral,
-	UtxoValidateCollateralContainsNonAda,
-	UtxoValidateCollateralEqBalance,
-	UtxoValidateNoCollateralInputs,
-	UtxoValidateBadInputsUtxo,
-	// Ensure script witness presence/absence is validated after redeemer/script relation
-	UtxoValidateScriptWitnesses,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputTooBigUtxo,
-	UtxoValidateOutputBootAddrAttrsTooBig,
-	UtxoValidateWrongNetwork,
-	UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateTransactionNetworkId,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateExUnitsTooBigUtxo,
-	UtxoValidateTooManyCollateralInputs,
-	UtxoValidateSupplementalDatums,
-	UtxoValidateExtraneousRedeemers,
-	UtxoValidatePlutusScripts,
-	UtxoValidateNativeScripts,
-	UtxoValidateDelegation,
-	UtxoValidateWithdrawals,
-	UtxoValidateCommitteeCertificates,
-	UtxoValidateUnknownVoters,
-	UtxoValidateUnknownGovActionIds,
-	UtxoValidateVotingOnExpiredGovAction,
-	UtxoValidateBootstrapVotingRestrictions,
-	UtxoValidateStakePoolVotingRestrictions,
-	UtxoValidateCCVotingRestrictions,
-	UtxoValidateMalformedReferenceScripts,
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{
+		Id:        common.UtxoValidationRuleCurrentTreasuryValue,
+		Validator: common.UtxoValidateCurrentTreasuryValue,
+	},
+	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
+	{
+		Id:        common.UtxoValidationRuleProposalProcedures,
+		Validator: UtxoValidateProposalProcedures,
+	},
+	{
+		Id:        common.UtxoValidationRuleGovActionWellFormedness,
+		Validator: UtxoValidateGovActionWellFormedness,
+	},
+	{
+		Id:        common.UtxoValidationRuleHardForkCanFollow,
+		Validator: UtxoValidateHardForkCanFollow,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalAncestry,
+		Validator: UtxoValidateProposalAncestry,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalDeposit,
+		Validator: UtxoValidateProposalDeposit,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalNetworkIds,
+		Validator: UtxoValidateProposalNetworkIds,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalReturnAccounts,
+		Validator: UtxoValidateProposalReturnAccounts,
+	},
+	{
+		Id:        common.UtxoValidationRuleEmptyTreasuryWithdrawals,
+		Validator: UtxoValidateEmptyTreasuryWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapAllowedGovActions,
+		Validator: UtxoValidateBootstrapAllowedGovActions,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapParameterGroups,
+		Validator: UtxoValidateBootstrapParameterGroups,
+	},
+	{
+		Id:        common.UtxoValidationRuleIsValidFlag,
+		Validator: UtxoValidateIsValidFlag,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralVKeyWitnesses,
+		Validator: UtxoValidateCollateralVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+		Validator: UtxoValidateRedeemerAndScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleCostModelsPresent,
+		Validator: UtxoValidateCostModelsPresent,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptDataHash,
+		Validator: UtxoValidateScriptDataHash,
+	},
+	{
+		Id:        common.UtxoValidationRuleInlineDatumsWithPlutusV1,
+		Validator: UtxoValidateInlineDatumsWithPlutusV1,
+	},
+	{
+		Id:        common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2,
+		Validator: UtxoValidateConwayFeaturesWithPlutusV1V2,
+	},
+	{
+		Id:        common.UtxoValidationRuleDisjointRefInputs,
+		Validator: UtxoValidateDisjointRefInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideValidityInterval,
+		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInsufficientCollateral,
+		Validator: UtxoValidateInsufficientCollateral,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralContainsNonAda,
+		Validator: UtxoValidateCollateralContainsNonAda,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralEqBalance,
+		Validator: UtxoValidateCollateralEqBalance,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoCollateralInputs,
+		Validator: UtxoValidateNoCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
+	// Ensure script witness presence/absence is validated after the
+	// redeemer/script relation.
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooBig,
+		Validator: UtxoValidateOutputTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleTransactionNetworkId,
+		Validator: UtxoValidateTransactionNetworkId,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleExUnitsTooBig,
+		Validator: UtxoValidateExUnitsTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleTooManyCollateralInputs,
+		Validator: UtxoValidateTooManyCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleSupplementalDatums,
+		Validator: UtxoValidateSupplementalDatums,
+	},
+	{
+		Id:        common.UtxoValidationRuleExtraneousRedeemers,
+		Validator: UtxoValidateExtraneousRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRulePlutusScripts,
+		Validator: UtxoValidatePlutusScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleCommitteeCertificates,
+		Validator: UtxoValidateCommitteeCertificates,
+	},
+	{
+		Id:        common.UtxoValidationRuleUnknownVoters,
+		Validator: UtxoValidateUnknownVoters,
+	},
+	{
+		Id:        common.UtxoValidationRuleUnknownGovActionIds,
+		Validator: UtxoValidateUnknownGovActionIds,
+	},
+	{
+		Id:        common.UtxoValidationRuleVotingOnExpiredGovAction,
+		Validator: UtxoValidateVotingOnExpiredGovAction,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapVotingRestrictions,
+		Validator: UtxoValidateBootstrapVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleStakePoolVotingRestrictions,
+		Validator: UtxoValidateStakePoolVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleCCVotingRestrictions,
+		Validator: UtxoValidateCCVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleMalformedReferenceScripts,
+		Validator: UtxoValidateMalformedReferenceScripts,
+	},
 }
+
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
+var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
+	utxoValidationRuleDescriptors,
+)
 
 // isInConwayBootstrapPhase reports whether the given protocol parameters
 // are in the Conway bootstrap phase: protocol major version in the range

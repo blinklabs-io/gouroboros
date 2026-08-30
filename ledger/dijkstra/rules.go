@@ -36,67 +36,257 @@ import (
 
 const minUtxoOverheadBytes = 160
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	common.UtxoValidateCurrentTreasuryValue,
-	conway.UtxoValidateMetadata,
-	UtxoValidateProposalProcedures,
-	conway.UtxoValidateGovActionWellFormedness,
-	UtxoValidateHardForkCanFollow,
-	conway.UtxoValidateProposalAncestry,
-	UtxoValidateProposalDeposit,
-	conway.UtxoValidateProposalNetworkIds,
-	conway.UtxoValidateProposalReturnAccounts,
-	conway.UtxoValidateEmptyTreasuryWithdrawals,
-	UtxoValidateBootstrapAllowedGovActions,
-	UtxoValidateBootstrapParameterGroups,
-	conway.UtxoValidateIsValidFlag,
-	conway.UtxoValidateRequiredVKeyWitnesses,
-	conway.UtxoValidateCollateralVKeyWitnesses,
-	UtxoValidateRedeemerAndScriptWitnesses,
-	conway.UtxoValidateSignatures,
-	UtxoValidateCostModelsPresent,
-	UtxoValidateScriptDataHash,
-	conway.UtxoValidateInlineDatumsWithPlutusV1,
-	conway.UtxoValidateConwayFeaturesWithPlutusV1V2,
-	UtxoValidateDisjointRefInputs,
-	conway.UtxoValidateOutsideValidityIntervalUtxo,
-	conway.UtxoValidateInputSetEmptyUtxo,
-	conway.UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateInsufficientCollateral,
-	UtxoValidateCollateralContainsNonAda,
-	conway.UtxoValidateCollateralEqBalance,
-	UtxoValidateNoCollateralInputs,
-	conway.UtxoValidateBadInputsUtxo,
-	conway.UtxoValidateScriptWitnesses,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputTooBigUtxo,
-	conway.UtxoValidateOutputBootAddrAttrsTooBig,
-	conway.UtxoValidateWrongNetwork,
-	conway.UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateTransactionNetworkId,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateExUnitsTooBigUtxo,
-	UtxoValidateTooManyCollateralInputs,
-	conway.UtxoValidateSupplementalDatums,
-	UtxoValidateExtraneousRedeemers,
-	UtxoValidatePlutusScripts,
-	UtxoValidateNativeScripts,
-	conway.UtxoValidateDelegation,
-	conway.UtxoValidateWithdrawals,
-	conway.UtxoValidateCommitteeCertificates,
-	conway.UtxoValidateUnknownVoters,
-	conway.UtxoValidateUnknownGovActionIds,
-	conway.UtxoValidateVotingOnExpiredGovAction,
-	UtxoValidateBootstrapVotingRestrictions,
-	conway.UtxoValidateStakePoolVotingRestrictions,
-	UtxoValidateCCVotingRestrictions,
-	UtxoValidateMalformedReferenceScripts,
-	UtxoValidateRefScriptSizePerTx,
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{
+		Id:        common.UtxoValidationRuleCurrentTreasuryValue,
+		Validator: common.UtxoValidateCurrentTreasuryValue,
+	},
+	{
+		Id:        common.UtxoValidationRuleMetadata,
+		Validator: conway.UtxoValidateMetadata,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalProcedures,
+		Validator: UtxoValidateProposalProcedures,
+	},
+	{
+		Id:        common.UtxoValidationRuleGovActionWellFormedness,
+		Validator: conway.UtxoValidateGovActionWellFormedness,
+	},
+	{
+		Id:        common.UtxoValidationRuleHardForkCanFollow,
+		Validator: UtxoValidateHardForkCanFollow,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalAncestry,
+		Validator: conway.UtxoValidateProposalAncestry,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalDeposit,
+		Validator: UtxoValidateProposalDeposit,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalNetworkIds,
+		Validator: conway.UtxoValidateProposalNetworkIds,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalReturnAccounts,
+		Validator: conway.UtxoValidateProposalReturnAccounts,
+	},
+	{
+		Id:        common.UtxoValidationRuleEmptyTreasuryWithdrawals,
+		Validator: conway.UtxoValidateEmptyTreasuryWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapAllowedGovActions,
+		Validator: UtxoValidateBootstrapAllowedGovActions,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapParameterGroups,
+		Validator: UtxoValidateBootstrapParameterGroups,
+	},
+	{
+		Id:        common.UtxoValidationRuleIsValidFlag,
+		Validator: conway.UtxoValidateIsValidFlag,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: conway.UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralVKeyWitnesses,
+		Validator: conway.UtxoValidateCollateralVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+		Validator: UtxoValidateRedeemerAndScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: conway.UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleCostModelsPresent,
+		Validator: UtxoValidateCostModelsPresent,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptDataHash,
+		Validator: UtxoValidateScriptDataHash,
+	},
+	{
+		Id:        common.UtxoValidationRuleInlineDatumsWithPlutusV1,
+		Validator: conway.UtxoValidateInlineDatumsWithPlutusV1,
+	},
+	{
+		Id:        common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2,
+		Validator: conway.UtxoValidateConwayFeaturesWithPlutusV1V2,
+	},
+	{
+		Id:        common.UtxoValidationRuleDisjointRefInputs,
+		Validator: UtxoValidateDisjointRefInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideValidityInterval,
+		Validator: conway.UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: conway.UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: conway.UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInsufficientCollateral,
+		Validator: UtxoValidateInsufficientCollateral,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralContainsNonAda,
+		Validator: UtxoValidateCollateralContainsNonAda,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralEqBalance,
+		Validator: conway.UtxoValidateCollateralEqBalance,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoCollateralInputs,
+		Validator: UtxoValidateNoCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: conway.UtxoValidateBadInputsUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: conway.UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooBig,
+		Validator: UtxoValidateOutputTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: conway.UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: conway.UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: conway.UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleTransactionNetworkId,
+		Validator: UtxoValidateTransactionNetworkId,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleExUnitsTooBig,
+		Validator: UtxoValidateExUnitsTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleTooManyCollateralInputs,
+		Validator: UtxoValidateTooManyCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleSupplementalDatums,
+		Validator: conway.UtxoValidateSupplementalDatums,
+	},
+	{
+		Id:        common.UtxoValidationRuleExtraneousRedeemers,
+		Validator: UtxoValidateExtraneousRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRulePlutusScripts,
+		Validator: UtxoValidatePlutusScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: conway.UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: conway.UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleCommitteeCertificates,
+		Validator: conway.UtxoValidateCommitteeCertificates,
+	},
+	{
+		Id:        common.UtxoValidationRuleUnknownVoters,
+		Validator: conway.UtxoValidateUnknownVoters,
+	},
+	{
+		Id:        common.UtxoValidationRuleUnknownGovActionIds,
+		Validator: conway.UtxoValidateUnknownGovActionIds,
+	},
+	{
+		Id:        common.UtxoValidationRuleVotingOnExpiredGovAction,
+		Validator: conway.UtxoValidateVotingOnExpiredGovAction,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapVotingRestrictions,
+		Validator: UtxoValidateBootstrapVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleStakePoolVotingRestrictions,
+		Validator: conway.UtxoValidateStakePoolVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleCCVotingRestrictions,
+		Validator: UtxoValidateCCVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleMalformedReferenceScripts,
+		Validator: UtxoValidateMalformedReferenceScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleRefScriptSizePerTx,
+		Validator: UtxoValidateRefScriptSizePerTx,
+	},
 }
 
-func dijkstraPparams(pp common.ProtocolParameters) (*DijkstraProtocolParameters, error) {
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
+var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
+	utxoValidationRuleDescriptors,
+)
+
+func dijkstraPparams(
+	pp common.ProtocolParameters,
+) (*DijkstraProtocolParameters, error) {
 	switch p := pp.(type) {
 	case *DijkstraProtocolParameters:
 		return p, nil
@@ -718,7 +908,8 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 		return err
 	}
 	hasPlutusWitness := witnessSetHasPlutus(wits)
-	hasSharedPlutusWitness := hasPlutusWitness || dijkstraSubTxHasPlutusWitness(tx)
+	hasSharedPlutusWitness := hasPlutusWitness ||
+		dijkstraSubTxHasPlutusWitness(tx)
 
 	hasPlutusReference := false
 	if ls != nil {
@@ -1318,7 +1509,10 @@ func UtxoValidateExUnitsTooBigUtxo(
 	}
 	var totalSteps, totalMemory int64
 	for _, redeemer := range wits.Redeemers().Iter() {
-		newSteps, ok := common.AddInt64Checked(totalSteps, redeemer.ExUnits.Steps)
+		newSteps, ok := common.AddInt64Checked(
+			totalSteps,
+			redeemer.ExUnits.Steps,
+		)
 		if !ok {
 			return alonzo.ExUnitsTooBigUtxoError{
 				TotalExUnits: common.ExUnits{
@@ -1329,7 +1523,10 @@ func UtxoValidateExUnitsTooBigUtxo(
 			}
 		}
 		totalSteps = newSteps
-		newMemory, ok := common.AddInt64Checked(totalMemory, redeemer.ExUnits.Memory)
+		newMemory, ok := common.AddInt64Checked(
+			totalMemory,
+			redeemer.ExUnits.Memory,
+		)
 		if !ok {
 			return alonzo.ExUnitsTooBigUtxoError{
 				TotalExUnits: common.ExUnits{
