@@ -53,6 +53,14 @@ func (e TreasuryValueQueryError) Unwrap() error {
 	return e.Err
 }
 
+// TreasuryValueProviderUnavailableError indicates that treasury validation
+// cannot query a ledger-state provider because it is nil.
+type TreasuryValueProviderUnavailableError struct{}
+
+func (TreasuryValueProviderUnavailableError) Error() string {
+	return "ledger state provider is unavailable for current treasury value validation"
+}
+
 // InvalidIsValidFlagError indicates a tx marked invalid but lacking Plutus scripts
 type InvalidIsValidFlagError struct{}
 

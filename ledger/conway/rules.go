@@ -37,8 +37,8 @@ import (
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	UtxoValidateMetadata,
 	common.UtxoValidateCurrentTreasuryValue,
+	UtxoValidateMetadata,
 	UtxoValidateProposalProcedures,
 	UtxoValidateGovActionWellFormedness,
 	UtxoValidateHardForkCanFollow,
@@ -2287,8 +2287,7 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	}
 
 	// Check for Conway-specific features
-	hasCurrentTreasuryValue := tx.CurrentTreasuryValue() != nil &&
-		tx.CurrentTreasuryValue().Sign() > 0
+	hasCurrentTreasuryValue := tx.CurrentTreasuryValue() != nil
 	hasProposalProcedures := len(tx.ProposalProcedures()) > 0
 	hasVotingProcedures := tx.VotingProcedures() != nil &&
 		len(tx.VotingProcedures()) > 0

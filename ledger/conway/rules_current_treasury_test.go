@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -29,7 +30,7 @@ import (
 )
 
 const (
-	conwayCurrentTreasuryRuleIndex = 1
+	conwayCurrentTreasuryRuleIndex = 0
 	conwayIsValidFlagRuleIndex     = 12
 	conwayInputSetEmptyRuleIndex   = 23
 )
@@ -207,6 +208,122 @@ func TestConwayCurrentTreasuryValueProductionRules(t *testing.T) {
 				test.wantRuleIndex,
 				validationErr.Details["rule_index"],
 			)
+		})
+	}
+}
+
+func TestConwayCurrentTreasuryValueNilLedgerState(t *testing.T) {
+	body := decodeConwayTreasuryBody(t, conwayTreasuryValue(42))
+	tx := &conway.ConwayTransaction{
+		Body:      body,
+		TxIsValid: true,
+	}
+	var typedNilState *mockledger.MockLedgerState
+	tests := []struct {
+		name  string
+		state common.LedgerState
+	}{
+		{name: "nil interface"},
+		{name: "typed nil", state: typedNilState},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var err error
+			require.NotPanics(t, func() {
+				err = common.VerifyTransaction(
+					tx,
+					0,
+					test.state,
+					&conway.ConwayProtocolParameters{},
+					conway.UtxoValidationRules,
+				)
+			})
+			var target common.TreasuryValueQueryError
+			require.ErrorAs(t, err, &target)
+			var unavailable common.TreasuryValueProviderUnavailableError
+			require.ErrorAs(t, err, &unavailable)
+		})
+	}
+}
+
+func TestConwayCurrentTreasuryValuePrecedesMetadata(t *testing.T) {
+	body := decodeConwayTreasuryBody(t, conwayTreasuryValue(41))
+	body.TxAuxDataHash = &common.Blake2b256{}
+	tx := &conway.ConwayTransaction{
+		Body:      body,
+		TxIsValid: true,
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithTreasuryAmount(42).
+		Build()
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		state,
+		&conway.ConwayProtocolParameters{},
+		conway.UtxoValidationRules,
+	)
+	var target common.CurrentTreasuryValueMismatchError
+	require.ErrorAs(t, err, &target)
+	var validationErr *common.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.NotNil(t, validationErr)
+	require.Equal(t, 0, validationErr.Details["rule_index"])
+}
+
+func TestConwayCurrentTreasuryValuePresentZeroPlutusContexts(
+	t *testing.T,
+) {
+	body := decodeConwayTreasuryBody(t, conwayTreasuryValue(0))
+	tx := &conway.ConwayTransaction{
+		Body:      body,
+		TxIsValid: true,
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+	t.Run("PlutusV3 preserves Some zero", func(t *testing.T) {
+		txInfo, err := script.NewTxInfoV3FromTransaction(state, tx, nil)
+		require.NoError(t, err)
+		require.Equal(t, big.NewInt(0), txInfo.CurrentTreasuryAmount.Value)
+	})
+
+	tests := []struct {
+		name        string
+		witnesses   conway.ConwayTransactionWitnessSet
+		wantVersion string
+	}{
+		{
+			name: "PlutusV1",
+			witnesses: conway.ConwayTransactionWitnessSet{
+				WsPlutusV1Scripts: cbor.NewSetType(
+					[]common.PlutusV1Script{{0x01}},
+					true,
+				),
+			},
+			wantVersion: "PlutusV1",
+		},
+		{
+			name: "PlutusV2",
+			witnesses: conway.ConwayTransactionWitnessSet{
+				WsPlutusV2Scripts: cbor.NewSetType(
+					[]common.PlutusV2Script{{0x01}},
+					true,
+				),
+			},
+			wantVersion: "PlutusV2",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tx.WitnessSet = test.witnesses
+			err := conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
+				tx,
+				0,
+				state,
+				&conway.ConwayProtocolParameters{},
+			)
+			var target conway.CurrentTreasuryValueWithPlutusV1V2Error
+			require.ErrorAs(t, err, &target)
+			require.Equal(t, test.wantVersion, target.PlutusVersion)
 		})
 	}
 }

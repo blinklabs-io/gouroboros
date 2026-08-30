@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	dijkstraCurrentTreasuryRuleIndex = 1
+	dijkstraCurrentTreasuryRuleIndex = 0
 	dijkstraIsValidFlagRuleIndex     = 12
 	dijkstraInputSetEmptyRuleIndex   = 23
 )
@@ -217,4 +217,125 @@ func TestDijkstraCurrentTreasuryValueProductionRules(t *testing.T) {
 			)
 		})
 	}
+}
+
+func decodeDijkstraTreasurySubTransaction(
+	t *testing.T,
+	treasuryValue *uint64,
+) DijkstraSubTransaction {
+	t.Helper()
+	bodyFields := map[uint]any{}
+	if treasuryValue != nil {
+		bodyFields[21] = *treasuryValue
+	}
+	bodyCbor, err := cbor.Encode(bodyFields)
+	require.NoError(t, err)
+	var body DijkstraSubTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+	return DijkstraSubTransaction{Body: body}
+}
+
+func TestDijkstraCurrentTreasuryValueValidatesAllSubTransactions(
+	t *testing.T,
+) {
+	t.Run("validates every sub-transaction before top level", func(t *testing.T) {
+		body := decodeDijkstraTreasuryBody(t, dijkstraTreasuryValue(43))
+		body.TxSubTransactions = cbor.NewSetType(
+			[]DijkstraSubTransaction{
+				decodeDijkstraTreasurySubTransaction(
+					t,
+					dijkstraTreasuryValue(42),
+				),
+				decodeDijkstraTreasurySubTransaction(
+					t,
+					dijkstraTreasuryValue(41),
+				),
+			},
+			true,
+		)
+		tx := &DijkstraTransaction{
+			Body:      body,
+			TxIsValid: true,
+		}
+		providerCalls := 0
+		state := mockledger.NewLedgerStateBuilder().WithTreasuryValue(
+			func() (uint64, error) {
+				providerCalls++
+				return 42, nil
+			},
+		).Build()
+		err := common.VerifyTransaction(
+			tx,
+			0,
+			state,
+			&DijkstraProtocolParameters{
+				ConwayProtocolParameters: conway.ConwayProtocolParameters{},
+			},
+			UtxoValidationRules,
+		)
+		var target common.CurrentTreasuryValueMismatchError
+		require.ErrorAs(t, err, &target)
+		require.Equal(t, big.NewInt(41), target.Supplied)
+		require.Equal(t, 1, providerCalls)
+	})
+
+	t.Run("top-level phase-2-invalid skips every sub-transaction", func(t *testing.T) {
+		body := decodeDijkstraTreasuryBody(t, nil)
+		body.TxSubTransactions = cbor.NewSetType(
+			[]DijkstraSubTransaction{
+				decodeDijkstraTreasurySubTransaction(
+					t,
+					dijkstraTreasuryValue(41),
+				),
+			},
+			true,
+		)
+		tx := &DijkstraTransaction{Body: body}
+		providerCalls := 0
+		state := mockledger.NewLedgerStateBuilder().WithTreasuryValue(
+			func() (uint64, error) {
+				providerCalls++
+				return 42, nil
+			},
+		).Build()
+		err := common.VerifyTransaction(
+			tx,
+			0,
+			state,
+			&DijkstraProtocolParameters{
+				ConwayProtocolParameters: conway.ConwayProtocolParameters{},
+			},
+			UtxoValidationRules,
+		)
+		var target common.InvalidIsValidFlagError
+		require.ErrorAs(t, err, &target)
+		require.Equal(t, 0, providerCalls)
+	})
+}
+
+func TestDijkstraCurrentTreasuryValuePrecedesMetadata(t *testing.T) {
+	body := decodeDijkstraTreasuryBody(t, dijkstraTreasuryValue(41))
+	body.TxAuxDataHash = &common.Blake2b256{}
+	tx := &DijkstraTransaction{
+		Body:      body,
+		TxIsValid: true,
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithTreasuryAmount(42).
+		Build()
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		state,
+		&DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{},
+		},
+		UtxoValidationRules,
+	)
+	var target common.CurrentTreasuryValueMismatchError
+	require.ErrorAs(t, err, &target)
+	var validationErr *common.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.NotNil(t, validationErr)
+	require.Equal(t, 0, validationErr.Details["rule_index"])
 }

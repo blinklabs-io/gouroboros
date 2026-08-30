@@ -137,6 +137,13 @@ type TransactionWithSubTransactionWitnessSets interface {
 	SubTransactionWitnessSets() []TransactionWitnessSet
 }
 
+// TransactionWithSubTransactionBodies exposes sub-transaction bodies in
+// ledger-transition order. Dijkstra validates each sub-transaction before the
+// top-level transaction.
+type TransactionWithSubTransactionBodies interface {
+	SubTransactionBodies() []TransactionBody
+}
+
 func PlutusV4ScriptsFromWitnessSet(
 	w TransactionWitnessSet,
 ) []PlutusV4Script {
@@ -161,6 +168,19 @@ func SubTransactionWitnessSetsFromTransaction(
 		return nil
 	}
 	return withSubTxs.SubTransactionWitnessSets()
+}
+
+func SubTransactionBodiesFromTransaction(
+	t Transaction,
+) []TransactionBody {
+	if t == nil {
+		return nil
+	}
+	withSubTxs, ok := t.(TransactionWithSubTransactionBodies)
+	if !ok {
+		return nil
+	}
+	return withSubTxs.SubTransactionBodies()
 }
 
 type TransactionWitnessRedeemers interface {

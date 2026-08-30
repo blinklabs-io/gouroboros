@@ -37,8 +37,8 @@ import (
 const minUtxoOverheadBytes = 160
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	conway.UtxoValidateMetadata,
 	common.UtxoValidateCurrentTreasuryValue,
+	conway.UtxoValidateMetadata,
 	UtxoValidateProposalProcedures,
 	conway.UtxoValidateGovActionWellFormedness,
 	UtxoValidateHardForkCanFollow,

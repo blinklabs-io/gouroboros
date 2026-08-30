@@ -433,7 +433,7 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 				},
 			},
 			TxWithdrawals: map[*common.Address]uint64{
-				&common.Address{}: 0,
+				{}: 0,
 			},
 			TxVotingProcedures: common.VotingProcedures{
 				votingVoter: {

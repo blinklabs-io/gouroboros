@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/bits"
+	"reflect"
 	"sort"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -51,18 +52,39 @@ func UtxoValidateCurrentTreasuryValue(
 	if !tx.IsValid() {
 		return nil
 	}
-	supplied := tx.CurrentTreasuryValue()
-	if supplied == nil {
+	transactionBodies := SubTransactionBodiesFromTransaction(tx)
+	suppliedValues := make([]*big.Int, 0, len(transactionBodies)+1)
+	for _, body := range transactionBodies {
+		if body == nil {
+			continue
+		}
+		if supplied := body.CurrentTreasuryValue(); supplied != nil {
+			suppliedValues = append(suppliedValues, supplied)
+		}
+	}
+	if supplied := tx.CurrentTreasuryValue(); supplied != nil {
+		suppliedValues = append(suppliedValues, supplied)
+	}
+	if len(suppliedValues) == 0 {
 		return nil
+	}
+	if ledgerState == nil || (reflect.ValueOf(ledgerState).Kind() == reflect.Pointer &&
+		reflect.ValueOf(ledgerState).IsNil()) {
+		return TreasuryValueQueryError{
+			Err: TreasuryValueProviderUnavailableError{},
+		}
 	}
 	expected, err := ledgerState.TreasuryValue()
 	if err != nil {
 		return TreasuryValueQueryError{Err: err}
 	}
-	if supplied.Cmp(new(big.Int).SetUint64(expected)) != 0 {
-		return CurrentTreasuryValueMismatchError{
-			Supplied: new(big.Int).Set(supplied),
-			Expected: expected,
+	expectedValue := new(big.Int).SetUint64(expected)
+	for _, supplied := range suppliedValues {
+		if supplied.Cmp(expectedValue) != 0 {
+			return CurrentTreasuryValueMismatchError{
+				Supplied: new(big.Int).Set(supplied),
+				Expected: expected,
+			}
 		}
 	}
 	return nil
