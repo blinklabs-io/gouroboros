@@ -465,8 +465,8 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 				var hash ScriptHash
 				copy(hash[:], policyHash)
 				requiredScriptHashes[hash] = struct{}{}
-			} else if len(policyHash) != 0 {
-				// Non-empty but invalid length - fail fast to surface upstream bugs
+			} else if policyHash != nil {
+				// Present but invalid length - fail fast to surface upstream bugs
 				return fmt.Errorf(
 					"malformed governance policy hash: got %d bytes, want %d",
 					len(policyHash),

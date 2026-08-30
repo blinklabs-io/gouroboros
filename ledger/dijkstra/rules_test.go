@@ -82,6 +82,40 @@ func TestDijkstraGovernanceValidationRules(t *testing.T) {
 	}
 }
 
+func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
+	guardrailsHash := common.Blake2b224Hash([]byte("constitution-guardrails"))
+	newTx := func(policyHash []byte) *DijkstraTransaction {
+		return &DijkstraTransaction{Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPGovAction: DijkstraGovAction{
+					Action: &DijkstraParameterChangeGovAction{
+						PolicyHash: policyHash,
+					},
+				},
+			}},
+		}}
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithConstitutionValue(&common.Constitution{
+			ScriptHash: guardrailsHash.Bytes(),
+		}).
+		Build()
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/conway.UtxoValidateGovActionWellFormedness",
+	)
+
+	require.NoError(t, rule(
+		newTx(guardrailsHash.Bytes()),
+		0,
+		state,
+		&DijkstraProtocolParameters{},
+	))
+	err := rule(newTx(nil), 0, state, &DijkstraProtocolParameters{})
+	var target conway.InvalidGuardrailsScriptHashError
+	require.ErrorAs(t, err, &target)
+}
+
 func TestConwayGovActionRejectsDijkstraParameterChange(t *testing.T) {
 	_, err := conway.NewConwayGovAction(&DijkstraParameterChangeGovAction{})
 	require.Error(t, err)

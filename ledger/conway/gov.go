@@ -126,7 +126,7 @@ func (a *ConwayParameterChangeGovAction) ToPlutusData() data.PlutusData {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
 	}
 	policyHash := data.NewConstr(1)
-	if len(a.PolicyHash) > 0 {
+	if a.PolicyHash != nil {
 		policyHash = data.NewConstr(
 			0,
 			data.NewByteString(a.PolicyHash),
@@ -172,7 +172,7 @@ func NewConwayParameterChangeGovAction(
 	paramUpdate ConwayProtocolParameterUpdate,
 	policyHash []byte,
 ) (*ConwayParameterChangeGovAction, error) {
-	if len(policyHash) != 0 && len(policyHash) != common.Blake2b224Size {
+	if policyHash != nil && len(policyHash) != common.Blake2b224Size {
 		return nil, fmt.Errorf(
 			"invalid policy hash length: expected %d bytes, got %d",
 			common.Blake2b224Size,

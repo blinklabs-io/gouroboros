@@ -689,7 +689,7 @@ func UtxoValidateGovActionWellFormedness(
 		// hash.
 		if withPolicy, ok := govAction.(common.GovActionWithPolicy); ok {
 			policyHash := withPolicy.GetPolicyHash()
-			if len(policyHash) != 0 &&
+			if policyHash != nil &&
 				len(policyHash) != common.Blake2b224Size {
 				return MalformedGovActionError{
 					Reason: fmt.Sprintf(
@@ -703,7 +703,7 @@ func UtxoValidateGovActionWellFormedness(
 
 		switch a := govAction.(type) {
 		case *common.NewConstitutionGovAction:
-			if l := len(a.Constitution.ScriptHash); l != 0 &&
+			if l := len(a.Constitution.ScriptHash); a.Constitution.ScriptHash != nil &&
 				l != common.Blake2b224Size {
 				return MalformedGovActionError{
 					Reason: fmt.Sprintf(
@@ -755,6 +755,65 @@ func UtxoValidateGovActionWellFormedness(
 					},
 				)
 				return ConflictingCommitteeUpdateError{Credentials: conflicting}
+			}
+		}
+	}
+	return UtxoValidateGuardrailsScriptHash(tx, slot, ls, pp)
+}
+
+// UtxoValidateGuardrailsScriptHash requires parameter-change and
+// treasury-withdrawal proposals to carry exactly the optional guardrails
+// script hash of the current constitution. Nil is the absent representation,
+// so absent/absent succeeds while either one-sided presence or differing
+// hashes fails.
+func UtxoValidateGuardrailsScriptHash(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	var actions []common.GovActionWithPolicy
+	for _, proposal := range tx.ProposalProcedures() {
+		if proposal == nil {
+			continue
+		}
+		govAction := proposal.GovAction()
+		if isNilGovAction(govAction) {
+			continue
+		}
+		withPolicy, ok := govAction.(common.GovActionWithPolicy)
+		if ok {
+			actions = append(actions, withPolicy)
+		}
+	}
+	if len(actions) == 0 {
+		return nil
+	}
+	if ls == nil {
+		return ConstitutionLookupError{
+			Err: errors.New("ledger state is nil"),
+		}
+	}
+	constitution, err := ls.Constitution()
+	if err != nil {
+		return ConstitutionLookupError{Err: err}
+	}
+	var expected []byte
+	if constitution != nil {
+		expected = constitution.ScriptHash
+		if expected != nil && len(expected) != common.Blake2b224Size {
+			return MalformedConstitutionError{
+				ScriptHashLength: len(expected),
+			}
+		}
+	}
+	for _, action := range actions {
+		actual := action.GetPolicyHash()
+		if (actual == nil) != (expected == nil) ||
+			!bytes.Equal(actual, expected) {
+			return InvalidGuardrailsScriptHashError{
+				Actual:   bytes.Clone(actual),
+				Expected: bytes.Clone(expected),
 			}
 		}
 	}
