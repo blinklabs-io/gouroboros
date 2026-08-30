@@ -256,6 +256,44 @@ func TestConwayRefScriptSizePerTxBoundsAndPublishing(t *testing.T) {
 	))
 }
 
+func TestConwayInvalidTxSkipsPerTxRefScriptLimitButCountsForBlock(
+	t *testing.T,
+) {
+	input, utxo := conwayRefScriptInput(
+		t,
+		0x01,
+		0,
+		int(conway.MaxRefScriptSizePerBlock+1),
+	)
+	tx := conwayTxWithInputs(
+		nil,
+		[]shelley.ShelleyTransactionInput{input},
+	)
+	tx.TxIsValid = false
+	pp := &conway.ConwayProtocolParameters{}
+	ls := conwayRefScriptLedgerState(t, utxo)
+
+	t.Run("per-tx limit is skipped", func(t *testing.T) {
+		require.NoError(t, conway.UtxoValidateRefScriptSizePerTx(
+			tx,
+			0,
+			ls,
+			pp,
+		))
+	})
+
+	t.Run("block limit still counts invalid transaction", func(t *testing.T) {
+		block := conwayBlockWithTransactions(tx)
+		block.InvalidTransactions = []uint{0}
+		err := conway.ValidateRefScriptSizePerBlock(block, pp, ls)
+		require.ErrorAs(
+			t,
+			err,
+			&common.RefScriptSizePerBlockTooLargeError{},
+		)
+	})
+}
+
 func TestConwayRefScriptFeeAndLimitUseSameConsumedSet(t *testing.T) {
 	input, utxo := conwayRefScriptInput(
 		t,

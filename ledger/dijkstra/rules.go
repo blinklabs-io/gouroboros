@@ -902,14 +902,15 @@ func MinFeeTxWithRefScriptSize(
 	return baseFee + refScriptFee, nil
 }
 
-// MinFeeTxWithUtxo calculates the Dijkstra minimum fee using the same consumed
-// reference-script set as the transaction and block size limits.
+// MinFeeTxWithUtxo calculates the Dijkstra minimum fee from reference scripts
+// consumed by the top-level transaction. Subtransaction reference scripts only
+// contribute to the Dijkstra batch size limits.
 func MinFeeTxWithUtxo(
 	tx common.Transaction,
 	pp common.ProtocolParameters,
 	utxoState common.UtxoState,
 ) (uint64, error) {
-	scriptSize, err := consumedRefScriptSize(tx, utxoState)
+	scriptSize, err := common.ConsumedReferenceScriptSize(tx, utxoState)
 	if err != nil {
 		return 0, err
 	}
@@ -1771,6 +1772,9 @@ func UtxoValidateRefScriptSizePerTx(
 	maxSize, err := maxRefScriptSizePerTx(pp)
 	if err != nil {
 		return err
+	}
+	if !tx.IsValid() {
+		return nil
 	}
 	totalSize, err := consumedRefScriptSize(tx, ls)
 	if err != nil {

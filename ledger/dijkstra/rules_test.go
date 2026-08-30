@@ -1162,12 +1162,15 @@ func TestUtxoValidateRefScriptSizePerTxAtLimit(t *testing.T) {
 // Verifies a transaction exceeding the per-tx reference-script limit fails.
 func TestUtxoValidateRefScriptSizePerTxExceedsLimit(t *testing.T) {
 	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
-	tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
-		TxReferenceInputs: cbor.NewSetType(
-			[]shelley.ShelleyTransactionInput{input},
-			false,
-		),
-	}}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input},
+				false,
+			),
+		},
+		TxIsValid: true,
+	}
 	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
 	err := UtxoValidateRefScriptSizePerTx(
 		tx,
@@ -1283,6 +1286,34 @@ func TestUtxoValidateRefScriptSizePerTxIncludesSubTransactions(t *testing.T) {
 	require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
 }
 
+func TestInvalidTxSkipsPerTxRefScriptLimitButCountsForBlock(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
+	tx := dijkstraTxWithReferenceInputs(input)
+	tx.TxIsValid = false
+	pp := &DijkstraProtocolParameters{
+		MaxRefScriptSizePerTx:    100,
+		MaxRefScriptSizePerBlock: 100,
+	}
+	ls := dijkstraRefScriptLedgerState(t, utxo)
+
+	t.Run("per-tx limit is skipped", func(t *testing.T) {
+		require.NoError(t, UtxoValidateRefScriptSizePerTx(tx, 0, ls, pp))
+	})
+
+	t.Run("block limit still counts invalid transaction", func(t *testing.T) {
+		err := ValidateRefScriptSizePerBlock(
+			dijkstraBlockWithTransactions(tx),
+			pp,
+			ls,
+		)
+		require.ErrorAs(
+			t,
+			err,
+			&common.RefScriptSizePerBlockTooLargeError{},
+		)
+	})
+}
+
 // Verifies a block with reference scripts below the per-block limit passes.
 func TestValidateRefScriptSizePerBlockBelowLimit(t *testing.T) {
 	inputA, utxoA := dijkstraRefScriptInput(t, 0x01, 0, 100)
@@ -1392,6 +1423,49 @@ func TestDijkstraRefScriptFeeUsesConsumedScriptSet(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Zero(t, publishingFee)
+}
+
+func TestDijkstraRefScriptFeeExcludesSubTransactions(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{
+					{
+						Body: DijkstraSubTransactionBody{
+							TxReferenceInputs: cbor.NewSetType(
+								[]shelley.ShelleyTransactionInput{input},
+								false,
+							),
+						},
+					},
+				},
+				false,
+			),
+		},
+		TxIsValid: true,
+	}
+	tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xf6})
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			MinFeeRefScriptCostPerByte: &cbor.Rat{Rat: big.NewRat(1, 1)},
+		},
+		MaxRefScriptSizePerTx:   100,
+		RefScriptCostStride:     100,
+		RefScriptCostMultiplier: &cbor.Rat{Rat: big.NewRat(2, 1)},
+	}
+	ls := dijkstraRefScriptLedgerState(t, utxo)
+
+	t.Run("fee uses only top-level reference scripts", func(t *testing.T) {
+		minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
+		require.NoError(t, err)
+		require.Zero(t, minFee)
+	})
+
+	t.Run("per-tx limit uses batch reference scripts", func(t *testing.T) {
+		err := UtxoValidateRefScriptSizePerTx(tx, 0, ls, pp)
+		require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
+	})
 }
 
 func TestDijkstraRefScriptFeeUsesConwayDefaults(t *testing.T) {

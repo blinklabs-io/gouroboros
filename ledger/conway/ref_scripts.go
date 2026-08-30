@@ -44,6 +44,9 @@ func UtxoValidateRefScriptSizePerTx(
 	if _, ok := pp.(*ConwayProtocolParameters); !ok {
 		return errors.New("pparams are not expected type")
 	}
+	if !tx.IsValid() {
+		return nil
+	}
 	totalSize, err := common.ConsumedReferenceScriptSize(tx, ls)
 	if err != nil {
 		return err
