@@ -97,7 +97,10 @@ var (
 // per Ouroboros Network Specification Table 3.8.
 func MustReplyTimeoutFunc() time.Duration {
 	rangeMs := MustReplyTimeoutMax.Milliseconds() - MustReplyTimeoutMin.Milliseconds()
-	return MustReplyTimeoutMin + time.Duration(rand.Int64N(rangeMs))*time.Millisecond //nolint:gosec
+	return MustReplyTimeoutMin + time.Duration(
+		//nolint:gosec // Random timeout is required by the protocol.
+		rand.Int64N(rangeMs),
+	)*time.Millisecond
 }
 
 // StateMapNtN is the N2N ChainSync state machine with timeouts per spec Table 3.8.
@@ -167,6 +170,8 @@ type ChainSync struct {
 
 // Config is used to configure the ChainSync protocol instance
 type Config struct {
+	AwaitReplyFunc      AwaitReplyFunc
+	IntersectFoundFunc  IntersectFoundFunc
 	RollBackwardFunc    RollBackwardFunc
 	RollForwardFunc     RollForwardFunc
 	RollForwardRawFunc  RollForwardRawFunc
@@ -221,6 +226,12 @@ type CallbackContext struct {
 
 // Callback function types
 type (
+	// AwaitReplyFunc observes the protocol's at-tip response. It runs on the
+	// ChainSync receive path, ordered after every preceding chain update.
+	AwaitReplyFunc func(CallbackContext) error
+	// IntersectFoundFunc observes the server-accepted local intersection and its
+	// advertised tip before the client asks for the next chain update.
+	IntersectFoundFunc func(CallbackContext, pcommon.Point, Tip) error
 	RollBackwardFunc   func(CallbackContext, pcommon.Point, Tip) error
 	RollForwardFunc    func(CallbackContext, uint, any, Tip) error
 	RollForwardRawFunc func(CallbackContext, uint, []byte, Tip) error
@@ -308,6 +319,22 @@ func (c *Config) validate() error {
 		)
 	}
 	return nil
+}
+
+// WithAwaitReplyFunc specifies the callback invoked for an AwaitReply.
+func WithAwaitReplyFunc(awaitReplyFunc AwaitReplyFunc) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.AwaitReplyFunc = awaitReplyFunc
+	}
+}
+
+// WithIntersectFoundFunc specifies the callback invoked for IntersectFound.
+func WithIntersectFoundFunc(
+	intersectFoundFunc IntersectFoundFunc,
+) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.IntersectFoundFunc = intersectFoundFunc
+	}
 }
 
 // WithRollBackwardFunc specifies the RollBackward callback function

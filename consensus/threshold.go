@@ -856,8 +856,11 @@ func IsVRFOutputBelowThresholdWithMode(
 	if threshold == nil {
 		return false, nil
 	}
-	if len(vrfOutput) == 0 {
-		return false, nil
+	if len(vrfOutput) != 64 {
+		return false, fmt.Errorf(
+			"VRF output: expected 64 bytes, got %d",
+			len(vrfOutput),
+		)
 	}
 
 	var leaderValue []byte

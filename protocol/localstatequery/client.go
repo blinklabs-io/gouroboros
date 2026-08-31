@@ -26,6 +26,27 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
+const maxLocalStateQuerySetItems = 10_000
+
+func validateLocalStateQuerySet[T any](items []T, name string) error {
+	if len(items) > maxLocalStateQuerySetItems {
+		return fmt.Errorf("%s contains %d items; maximum is %d", name, len(items), maxLocalStateQuerySetItems)
+	}
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		encoded, err := cbor.Encode(item)
+		if err != nil {
+			return fmt.Errorf("encode %s item: %w", name, err)
+		}
+		key := string(encoded)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%s contains duplicate item", name)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
 // Client implements the LocalStateQuery client
 type Client struct {
 	*protocol.Protocol
@@ -240,6 +261,9 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 	if err := c.runQuery(query, &result); err != nil {
 		return 0, err
 	}
+	if len(result) < 2 {
+		return 0, errors.New("malformed chain block number result")
+	}
 	return result[1], nil
 }
 
@@ -306,6 +330,9 @@ func (c *Client) GetEpochNo() (int, error) {
 	if err := c.runQuery(query, &result); err != nil {
 		return 0, err
 	}
+	if len(result) == 0 {
+		return 0, errors.New("empty epoch number result")
+	}
 	return result[0], nil
 }
 
@@ -322,6 +349,9 @@ func (c *Client) GetNonMyopicMemberRewards(stakes []any) (*NonMyopicMemberReward
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(stakes, "stakes"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -380,11 +410,17 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
 		}
+		if len(result) == 0 {
+			return nil, errors.New("empty result from Conway protocol parameters query")
+		}
 		return &result[0], nil
 	case ledger.EraIdBabbage:
 		result := []ledger.BabbageProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
+		}
+		if len(result) == 0 {
+			return nil, errors.New("empty result from Babbage protocol parameters query")
 		}
 		return &result[0], nil
 	case ledger.EraIdAlonzo:
@@ -392,11 +428,17 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
 		}
+		if len(result) == 0 {
+			return nil, errors.New("empty result from Alonzo protocol parameters query")
+		}
 		return &result[0], nil
 	case ledger.EraIdMary:
 		result := []ledger.MaryProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
+		}
+		if len(result) == 0 {
+			return nil, errors.New("empty result from Mary protocol parameters query")
 		}
 		return &result[0], nil
 	case ledger.EraIdAllegra:
@@ -404,11 +446,17 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
 		}
+		if len(result) == 0 {
+			return nil, errors.New("empty result from Allegra protocol parameters query")
+		}
 		return &result[0], nil
 	case ledger.EraIdShelley:
 		result := []ledger.ShelleyProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
+		}
+		if len(result) == 0 {
+			return nil, errors.New("empty result from Shelley protocol parameters query")
 		}
 		return &result[0], nil
 	default:
@@ -560,6 +608,9 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(creds, "credentials"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -590,6 +641,9 @@ func (c *Client) GetStakeDelegDeposits(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(creds, "credentials"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -627,6 +681,9 @@ func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 	result := []GenesisConfigResult{}
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
+	}
+	if len(result) == 0 {
+		return nil, errors.New("empty result from genesis config query")
 	}
 	return &result[0], nil
 }
@@ -898,6 +955,9 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -937,6 +997,9 @@ func (c *Client) GetStakeSnapshots(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -975,6 +1038,9 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1018,6 +1084,9 @@ func (c *Client) GetPoolDistr2(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1154,6 +1223,9 @@ func (c *Client) GetDRepState(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(credentials, "credentials"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1210,6 +1282,9 @@ func (c *Client) GetDRepStakeDistr(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(dreps, "DReps"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1275,6 +1350,15 @@ func (c *Client) GetCommitteeMembersState(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(coldCreds, "cold credentials"); err != nil {
+		return nil, err
+	}
+	if err := validateLocalStateQuerySet(hotCreds, "hot credentials"); err != nil {
+		return nil, err
+	}
+	if err := validateLocalStateQuerySet(statuses, "statuses"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1348,6 +1432,9 @@ func (c *Client) GetFilteredVoteDelegatees(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(credentials, "credentials"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1404,6 +1491,9 @@ func (c *Client) GetSPOStakeDistr(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
+		return nil, err
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err

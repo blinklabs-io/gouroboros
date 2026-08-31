@@ -276,6 +276,9 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
 	tmp.TxCollateral = coalesceUntaggedTransactionInputs(tmp.TxCollateral)
 	if err := tmp.TxCollateral.CheckForDuplicates(); err != nil {
 		return fmt.Errorf("collateral inputs: %w", err)
