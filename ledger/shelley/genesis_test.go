@@ -474,6 +474,29 @@ func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
 			},
 			errString: "multi-host-name relay cannot have port",
 		},
+		{
+			name: "negative margin",
+			mutate: func(pool map[string]any) {
+				pool["margin"] = -0.1
+			},
+			errString: "pool margin must be in the unit interval",
+		},
+		{
+			name: "margin above one",
+			mutate: func(pool map[string]any) {
+				pool["margin"] = 1.1
+			},
+			errString: "pool margin must be in the unit interval",
+		},
+		{
+			name: "zero margin denominator",
+			mutate: func(pool map[string]any) {
+				pool["margin"] = map[string]any{
+					"numerator": 1, "denominator": 0,
+				}
+			},
+			errString: "denominator must be positive",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
