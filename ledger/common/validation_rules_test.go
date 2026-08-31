@@ -323,24 +323,55 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			descriptors := test.descriptors()
-			ids := make([]common.UtxoValidationRuleId, len(descriptors))
-			for i, descriptor := range descriptors {
-				ids[i] = descriptor.Id
-				require.NotNil(t, descriptor.Validator)
-			}
-			assert.Equal(t, test.ids, ids)
+			validators, ok := expectedUtxoValidationRuleValidators[test.name]
+			require.True(t, ok, "missing expected validators for %s", test.name)
+			expected, err := expectedUtxoValidationRuleDescriptors(
+				test.ids,
+				validators,
+			)
+			require.NoError(t, err)
+			require.NoError(
+				t,
+				compareUtxoValidationRuleDescriptorMappings(
+					descriptors,
+					expected,
+				),
+			)
 
 			derived, err := common.UtxoValidationRulesFromDescriptors(
 				descriptors,
 			)
 			require.NoError(t, err)
 			require.Len(t, derived, len(test.legacy))
+			for idx := range derived {
+				require.Equal(
+					t,
+					validationRuleIdentity(expected[idx].Validator),
+					validationRuleIdentity(derived[idx]),
+					"derived validator mismatch at index %d for ID %q",
+					idx,
+					expected[idx].Id,
+				)
+				require.Equal(
+					t,
+					validationRuleIdentity(expected[idx].Validator),
+					validationRuleIdentity(test.legacy[idx]),
+					"legacy validator mismatch at index %d for ID %q",
+					idx,
+					expected[idx].Id,
+				)
+			}
 
 			descriptors[0].Id = "mutated"
 			descriptors[0].Validator = nil
 			freshDescriptors := test.descriptors()
-			assert.Equal(t, test.ids[0], freshDescriptors[0].Id)
-			assert.NotNil(t, freshDescriptors[0].Validator)
+			require.NoError(
+				t,
+				compareUtxoValidationRuleDescriptorMappings(
+					freshDescriptors,
+					expected,
+				),
+			)
 		})
 	}
 }

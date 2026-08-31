@@ -119,7 +119,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2,
-		Validator: conway.UtxoValidateConwayFeaturesWithPlutusV1V2,
+		Validator: UtxoValidateConwayFeaturesWithPlutusV1V2,
 	},
 	{
 		Id:        common.UtxoValidationRuleDisjointRefInputs,
@@ -519,6 +519,80 @@ func UtxoValidateDisjointRefInputs(
 		return err
 	}
 	return conway.UtxoValidateDisjointRefInputs(tx, slot, ls, tmpPparams)
+}
+
+// dijkstraConwayFeatureTransaction presents one sub-transaction's body and
+// witnesses while retaining the enclosing transaction's unrelated methods.
+// Conway-feature compatibility is scoped per transaction level, so scripts
+// from another level must not affect this view.
+type dijkstraConwayFeatureTransaction struct {
+	common.Transaction
+	body      common.TransactionBody
+	witnesses common.TransactionWitnessSet
+}
+
+func (t dijkstraConwayFeatureTransaction) Inputs() []common.TransactionInput {
+	return t.body.Inputs()
+}
+
+func (t dijkstraConwayFeatureTransaction) ReferenceInputs() []common.TransactionInput {
+	return t.body.ReferenceInputs()
+}
+
+func (t dijkstraConwayFeatureTransaction) Witnesses() common.TransactionWitnessSet {
+	return t.witnesses
+}
+
+func (t dijkstraConwayFeatureTransaction) CurrentTreasuryValue() *big.Int {
+	return t.body.CurrentTreasuryValue()
+}
+
+func (t dijkstraConwayFeatureTransaction) ProposalProcedures() []common.ProposalProcedure {
+	return t.body.ProposalProcedures()
+}
+
+func (t dijkstraConwayFeatureTransaction) VotingProcedures() common.VotingProcedures {
+	return t.body.VotingProcedures()
+}
+
+func (t dijkstraConwayFeatureTransaction) Certificates() []common.Certificate {
+	return t.body.Certificates()
+}
+
+// UtxoValidateConwayFeaturesWithPlutusV1V2 applies the complete Conway
+// compatibility predicate to each Dijkstra sub-transaction before the
+// top-level transaction. Each level uses its own body, witnesses, regular
+// inputs, and reference inputs.
+func UtxoValidateConwayFeaturesWithPlutusV1V2(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
+		subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+		for idx := range subTxs {
+			subTx := dijkstraConwayFeatureTransaction{
+				Transaction: tx,
+				body:        &subTxs[idx].Body,
+				witnesses:   subTxs[idx].WitnessSet,
+			}
+			if err := conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
+				subTx,
+				slot,
+				ls,
+				pp,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
+		tx,
+		slot,
+		ls,
+		pp,
+	)
 }
 
 func UtxoValidateValueNotConservedUtxo(
