@@ -981,6 +981,14 @@ func validateDijkstraPlutusV4Scripts(
 	if len(keys) == 0 {
 		return nil
 	}
+	wits := level.tx.Witnesses()
+	if wits == nil {
+		return nil
+	}
+	redeemers := wits.Redeemers()
+	if redeemers == nil {
+		return nil
+	}
 	evalContext, err := cek.NewEvalContext(
 		lang.LanguageVersionV4,
 		cek.ProtoVersion{
@@ -992,7 +1000,6 @@ func validateDijkstraPlutusV4Scripts(
 	if err != nil {
 		return fmt.Errorf("build Plutus V4 evaluation context: %w", err)
 	}
-	redeemers := level.tx.Witnesses().Redeemers()
 	for key, value := range redeemers.Iter() {
 		if _, ok := keys[key]; !ok {
 			continue

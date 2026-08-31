@@ -580,7 +580,12 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeScriptGuard(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	err := UtxoValidateRedeemerAndScriptWitnesses(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		nil,
+	)
 	require.NoError(t, err)
 
 	err = UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
@@ -892,7 +897,12 @@ func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	err := UtxoValidateRedeemerAndScriptWitnesses(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		nil,
+	)
 	require.NoError(t, err)
 }
 
@@ -917,7 +927,8 @@ func TestUtxoValidateRedeemerAndScriptWitnessesGuardingRedeemer(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ledgerState, nil)
 	require.ErrorAs(t, err, &common.MissingPlutusScriptWitnessesError{})
 
 	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{
@@ -931,7 +942,7 @@ func TestUtxoValidateRedeemerAndScriptWitnessesGuardingRedeemer(t *testing.T) {
 		},
 	}, false)
 
-	err = UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	err = UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ledgerState, nil)
 	require.NoError(t, err)
 }
 
