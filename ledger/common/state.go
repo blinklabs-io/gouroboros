@@ -119,10 +119,18 @@ type SlotState interface {
 	TimeToSlot(time.Time) (uint64, error)
 }
 
-// Minimal placeholder types used by the extended interface. These are intentionally
-// lightweight so tests and era packages can compile while we wire real parsing.
+// Constitution is the current enacted constitution. ScriptHash is the
+// optional guardrails script hash: nil means that the constitution has no
+// guardrails script.
+type Constitution struct {
+	Anchor     GovAnchor
+	ScriptHash []byte
+}
+
+// Minimal placeholder types used by the extended interface. These are
+// intentionally lightweight so tests and era packages can compile while we
+// wire real parsing.
 type (
-	Constitution   struct{}
 	PlutusLanguage uint8
 	CostModel      struct{}
 )

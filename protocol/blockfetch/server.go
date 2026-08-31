@@ -48,6 +48,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 }
 
 func (s *Server) initProtocol() {
+	stateMap := serverStateMap(s.config)
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
@@ -58,7 +59,7 @@ func (s *Server) initProtocol() {
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
+		StateMap:            stateMap,
 		InitialState:        StateIdle,
 	}
 	if s.config != nil {
@@ -68,6 +69,24 @@ func (s *Server) initProtocol() {
 	s.protocolMu.Lock()
 	s.Protocol = p
 	s.protocolMu.Unlock()
+}
+
+// serverStateMap returns an instance-owned state map so server timeout
+// configuration cannot mutate the package defaults or affect another server.
+func serverStateMap(cfg *Config) protocol.StateMap {
+	stateMap := StateMap.Copy()
+	if cfg == nil {
+		return stateMap
+	}
+	if entry, ok := stateMap[StateBusy]; ok {
+		entry.Timeout = cfg.BatchStartTimeout
+		stateMap[StateBusy] = entry
+	}
+	if entry, ok := stateMap[StateStreaming]; ok {
+		entry.Timeout = cfg.BlockTimeout
+		stateMap[StateStreaming] = entry
+	}
+	return stateMap
 }
 
 func (s *Server) ProtocolInstance() *protocol.Protocol {

@@ -66,6 +66,7 @@ var StateMap = protocol.StateMap{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: BusyMaxPendingMessageBytes,
 		Timeout:                 BusyTimeout, // Timeout for server to start batch or respond no blocks
+		PipelinedMessageTypes:   []uint8{MessageTypeRequestRange},
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeStartBatch,
@@ -81,6 +82,7 @@ var StateMap = protocol.StateMap{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: StreamingMaxPendingMessageBytes,
 		Timeout:                 StreamingTimeout, // Timeout for server to send next block in batch
+		PipelinedMessageTypes:   []uint8{MessageTypeRequestRange},
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlock,

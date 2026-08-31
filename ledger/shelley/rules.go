@@ -41,6 +41,8 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNoDuplicateInputs,
 	UtxoValidateFeeTooSmallUtxo,
 	UtxoValidateBadInputsUtxo,
+	UtxoValidateNativeScripts,
+	UtxoValidateScriptWitnesses,
 	UtxoValidateWrongNetwork,
 	UtxoValidateWrongNetworkWithdrawal,
 	UtxoValidateValueNotConservedUtxo,
@@ -79,6 +81,29 @@ func UtxoValidateInputSetEmptyUtxo(
 		return nil
 	}
 	return InputSetEmptyUtxoError{}
+}
+
+// UtxoValidateScriptWitnesses checks that every required script is provided.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateScriptWitnesses(tx, ls)
+}
+
+// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+func UtxoValidateNativeScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if scriptHash, failed := common.FirstInvalidNativeScript(tx, slot); failed {
+		return NativeScriptFailedError{ScriptHash: scriptHash}
+	}
+	return nil
 }
 
 // UtxoValidateNoDuplicateInputs ensures that there are no duplicate inputs in any input set
@@ -206,7 +231,7 @@ func UtxoValidateWrongNetworkWithdrawal(
 		badAddrs = append(badAddrs, *addr)
 	}
 	if len(badAddrs) == 0 {
-		return nil
+		return common.ValidateWithdrawalAddresses(tx.Withdrawals())
 	}
 	return WrongNetworkWithdrawalError{
 		NetId: networkId,
@@ -627,6 +652,9 @@ func UtxoValidateWithdrawals(
 	if withdrawals == nil {
 		return nil
 	}
+	if err := common.ValidateWithdrawalAddresses(withdrawals); err != nil {
+		return err
+	}
 
 	requireExactAmount := true
 	if versionedPparams, ok := pp.(interface {
@@ -646,9 +674,9 @@ func UtxoValidateWithdrawals(
 	}
 
 	for addr, amount := range withdrawals {
-		cred, ok := addr.StakeCredential()
-		if !ok {
-			continue
+		cred, err := addr.RewardAccountCredential()
+		if err != nil {
+			return err
 		}
 
 		balance, err := ls.RewardAccountBalance(cred)

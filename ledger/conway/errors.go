@@ -621,6 +621,57 @@ func (e MalformedGovActionError) Error() string {
 	return "malformed governance action: " + e.Reason
 }
 
+// ConstitutionLookupError indicates that the current constitution could not
+// be read while validating a governance action.
+type ConstitutionLookupError struct {
+	Err error
+}
+
+func (e ConstitutionLookupError) Error() string {
+	return fmt.Sprintf("failed to look up current constitution: %v", e.Err)
+}
+
+func (e ConstitutionLookupError) Unwrap() error {
+	return e.Err
+}
+
+// MalformedConstitutionError indicates that the current constitution carries
+// a non-nil guardrails script hash of an invalid length.
+type MalformedConstitutionError struct {
+	ScriptHashLength int
+}
+
+func (e MalformedConstitutionError) Error() string {
+	return fmt.Sprintf(
+		"current constitution guardrails script hash has invalid length %d, expected %d",
+		e.ScriptHashLength,
+		common.Blake2b224Size,
+	)
+}
+
+// InvalidGuardrailsScriptHashError indicates that a parameter-change or
+// treasury-withdrawal proposal's optional policy hash does not exactly match
+// the current constitution's optional guardrails script hash.
+type InvalidGuardrailsScriptHashError struct {
+	Actual   []byte
+	Expected []byte
+}
+
+func (e InvalidGuardrailsScriptHashError) Error() string {
+	return fmt.Sprintf(
+		"invalid guardrails script hash: supplied %s, expected %s",
+		formatOptionalScriptHash(e.Actual),
+		formatOptionalScriptHash(e.Expected),
+	)
+}
+
+func formatOptionalScriptHash(hash []byte) string {
+	if hash == nil {
+		return "<absent>"
+	}
+	return hex.EncodeToString(hash)
+}
+
 // BadHardForkProtocolVersionError indicates a HardForkInitiation governance
 // action proposes a protocol version that cannot legally follow the current
 // (or referenced ancestor) protocol version
