@@ -533,7 +533,7 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		}
 	case <-protocolDone:
 		c.releaseBusy(token)
-		return nil, protocol.ErrProtocolShuttingDown
+		return completedBlockOrShutdown(req, nil)
 	}
 	if batchIsDone {
 		c.releaseBusy(token)
@@ -558,8 +558,30 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 	case <-protocolDone:
 		// Shutdown while waiting for BatchDone
 		c.releaseBusy(token)
-		return nil, protocol.ErrProtocolShuttingDown
+		return completedBlockOrShutdown(req, block)
 	}
+}
+
+// completedBlockOrShutdown resolves a GetBlock shutdown branch. A request can
+// finish successfully just before protocol shutdown becomes observable, so a
+// nil completion must preserve the block already delivered by the handler.
+func completedBlockOrShutdown(
+	req *rangeRequest,
+	block ledger.Block,
+) (ledger.Block, error) {
+	if err := requestResultOrShutdown(req.doneChan); err != nil {
+		return nil, err
+	}
+	if block == nil {
+		select {
+		case block = <-req.blockChan:
+		default:
+		}
+	}
+	if block == nil {
+		return nil, ErrNoBlocks
+	}
+	return block, nil
 }
 
 // RequestRange queues a request for the given block range without waiting for
@@ -769,6 +791,17 @@ func (c *Client) waitForBatchStart(
 	case err := <-req.startChan:
 		return err
 	case <-protocolDone:
+		return requestResultOrShutdown(req.startChan)
+	}
+}
+
+// requestResultOrShutdown preserves a request result that was reported before
+// its corresponding protocol shutdown became observable.
+func requestResultOrShutdown(resultChan <-chan error) error {
+	select {
+	case err := <-resultChan:
+		return err
+	default:
 		return protocol.ErrProtocolShuttingDown
 	}
 }

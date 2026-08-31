@@ -17,6 +17,7 @@ package blockfetch
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -89,6 +90,131 @@ func TestBatchDoneRejectsIncompleteRequestedRange(t *testing.T) {
 		completionErr,
 		"RangeDoneFunc must not report an incomplete range as successful",
 	)
+}
+
+func TestRequestResultOrShutdown(t *testing.T) {
+	requestErr := errors.New("request failed")
+	tests := []struct {
+		name        string
+		resultReady bool
+		result      error
+		want        error
+	}{
+		{
+			name:        "request error before shutdown",
+			resultReady: true,
+			result:      requestErr,
+			want:        requestErr,
+		},
+		{
+			name:        "successful result before shutdown",
+			resultReady: true,
+		},
+		{
+			name: "shutdown before request result",
+			want: protocol.ErrProtocolShuttingDown,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resultChan := make(chan error, 1)
+			if test.resultReady {
+				resultChan <- test.result
+			}
+			require.ErrorIs(
+				t,
+				requestResultOrShutdown(resultChan),
+				test.want,
+			)
+		})
+	}
+}
+
+func TestCompletedBlockOrShutdown(t *testing.T) {
+	requestErr := errors.New("request failed")
+	block := &ledger.BabbageBlock{}
+	tests := []struct {
+		name          string
+		initialBlock  ledger.Block
+		bufferedBlock ledger.Block
+		resultReady   bool
+		result        error
+		wantBlock     ledger.Block
+		wantErr       error
+	}{
+		{
+			name:          "success before block wait",
+			bufferedBlock: block,
+			resultReady:   true,
+			wantBlock:     block,
+		},
+		{
+			name:         "success after block delivery",
+			initialBlock: block,
+			resultReady:  true,
+			wantBlock:    block,
+		},
+		{
+			name:          "request error before block wait",
+			bufferedBlock: block,
+			resultReady:   true,
+			result:        requestErr,
+			wantErr:       requestErr,
+		},
+		{
+			name:         "request error after block delivery",
+			initialBlock: block,
+			resultReady:  true,
+			result:       requestErr,
+			wantErr:      requestErr,
+		},
+		{
+			name:          "shutdown before request result",
+			bufferedBlock: block,
+			wantErr:       protocol.ErrProtocolShuttingDown,
+		},
+		{
+			name:         "shutdown after block delivery",
+			initialBlock: block,
+			wantErr:      protocol.ErrProtocolShuttingDown,
+		},
+		{
+			name:        "no blocks result",
+			resultReady: true,
+			result:      ErrNoBlocks,
+			wantErr:     ErrNoBlocks,
+		},
+		{
+			name:        "successful result without block",
+			resultReady: true,
+			wantErr:     ErrNoBlocks,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := &rangeRequest{
+				blockChan: make(chan ledger.Block, 1),
+				doneChan:  make(chan error, 1),
+			}
+			if test.bufferedBlock != nil {
+				req.blockChan <- test.bufferedBlock
+			}
+			if test.resultReady {
+				req.doneChan <- test.result
+			}
+			gotBlock, gotErr := completedBlockOrShutdown(
+				req,
+				test.initialBlock,
+			)
+			require.ErrorIs(t, gotErr, test.wantErr)
+			if test.wantBlock == nil {
+				require.Nil(t, gotBlock)
+			} else {
+				require.NotNil(t, gotBlock)
+				require.Same(t, test.wantBlock, gotBlock)
+			}
+		})
+	}
 }
 
 func queueTestBlock(
