@@ -158,6 +158,38 @@ type VerifyConfig struct {
 	// (e.g. NewByronMainBlockFromCbor) leave it off and rely on the
 	// structural check alone.
 	EnableByronSscProofHashValidation bool
+	// EnableByronPayloadValidation opts into structurally validating a
+	// Byron main block's delegation and update payloads and verifying the
+	// signatures they carry -- heavyweight delegation certificates, update
+	// proposals, and update votes -- in addition to the always-on check
+	// that those payloads' bytes hash to the dlg_proof/upd_proof in the
+	// header.
+	//
+	// Those two checks answer different questions. dlg_proof and upd_proof
+	// bind the payload bytes to the header, so a block cannot carry a
+	// payload its issuer did not commit to; they say nothing about whether
+	// those bytes decode to a well-formed certificate, or whether the
+	// signature inside one verifies. A block whose delegation payload holds
+	// a certificate with a truncated verification key, or a vote signed by
+	// a key that did not sign it, passes the proof check unchanged.
+	//
+	// Default false, for the same reason as
+	// EnableByronSscProofHashValidation: the update proposal and vote
+	// signing formats reproduced here (see ledger/byron's
+	// ByronUpdateProposal.Validate and UpdateVote.Verify) are taken from
+	// cardano-ledger-byron's Cardano.Chain.Update sources rather than
+	// confirmed against real mainnet blocks carrying those payloads, which
+	// are rare enough that this repository has no such vector. Making them
+	// decode-gating by default would risk an undiscovered edge case turning
+	// into a real mainnet block that fails to decode. The delegation
+	// certificate half is on firmer ground -- its signing format is the
+	// same one consensus/byron already verifies against a real mainnet
+	// certificate on every proxy-signed header -- but the flag covers both
+	// so that opting in is a single, coherent decision.
+	//
+	// Callers who want only the delegation half without the update half can
+	// call byron.ByronMainBlock.ValidateDelegationPayload directly.
+	EnableByronPayloadValidation bool
 	// LedgerState provides the current ledger state for transaction validation.
 	// Required if SkipTransactionValidation or SkipStakePoolValidation is false.
 	LedgerState LedgerState
