@@ -606,6 +606,9 @@ func ValidatePlutusScriptsWellFormed(
 
 	outputs := append([]TransactionOutput(nil), tx.Outputs()...)
 	outputs = append(outputs, SubTransactionOutputsFromTransaction(tx)...)
+	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+		outputs = append(outputs, collateralReturn)
+	}
 	var malformedReferences []ScriptHash
 	for _, output := range outputs {
 		if output == nil {

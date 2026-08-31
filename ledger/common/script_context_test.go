@@ -380,6 +380,50 @@ func TestBabbagePlutusWellFormednessAdmission(t *testing.T) {
 		)
 		require.NoError(t, err)
 	})
+
+	t.Run("malformed collateral return on phase-2-invalid transaction", func(t *testing.T) {
+		newTx := func(script common.Script) *babbage.BabbageTransaction {
+			return &babbage.BabbageTransaction{
+				Body: babbage.BabbageTransactionBody{
+					TxCollateralReturn: &babbage.BabbageTransactionOutput{
+						TxOutScriptRef: &common.ScriptRef{
+							Type:   common.ScriptRefTypePlutusV2,
+							Script: script,
+						},
+					},
+				},
+				TxIsValid: false,
+			}
+		}
+
+		tx := newTx(common.PlutusV2Script{0xff})
+		require.False(t, tx.IsValid())
+		produced := tx.Produced()
+		require.Len(t, produced, 1)
+		require.Same(t, tx.CollateralReturn(), produced[0].Output)
+
+		err := babbage.UtxoValidateMalformedReferenceScripts(
+			tx,
+			0,
+			nil,
+			&babbage.BabbageProtocolParameters{ProtocolMajor: 8},
+		)
+		require.ErrorIs(t, err, common.ErrMalformedReferenceScripts)
+
+		validScript := common.PlutusV2Script(encodePlutusContextTestScript(
+			t,
+			lang.LanguageVersion{1, 0, 0},
+			3,
+			nil,
+		))
+		err = babbage.UtxoValidateMalformedReferenceScripts(
+			newTx(validScript),
+			0,
+			nil,
+			&babbage.BabbageProtocolParameters{ProtocolMajor: 8},
+		)
+		require.NoError(t, err)
+	})
 }
 
 func TestConwayPlutusWellFormednessAdmission(t *testing.T) {
