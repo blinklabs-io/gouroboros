@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 )
@@ -82,6 +83,20 @@ func decodePlutusScript(script []byte, rejectTrailing bool) ([]byte, error) {
 		)
 	}
 	return innerScript, nil
+}
+
+func decodePlutusProgram(
+	innerScript []byte,
+	ledgerLanguage lang.LanguageVersion,
+	evalContext *cek.EvalContext,
+) (*syn.Program[syn.DeBruijn], error) {
+	if evalContext == nil {
+		return nil, errors.New("evaluation context is required")
+	}
+	return syn.DecodeDeBruijnWithContext(innerScript, syn.ProgramContext{
+		LedgerLanguage: ledgerLanguage,
+		ProtocolMajor:  evalContext.ProtoMajor,
+	})
 }
 
 func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
@@ -202,7 +217,11 @@ func (s PlutusV1Script) Evaluate(
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	program, err = decodePlutusProgram(
+		innerScript,
+		lang.LanguageVersionV1,
+		evalContext,
+	)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
@@ -284,7 +303,11 @@ func (s PlutusV2Script) Evaluate(
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	program, err = decodePlutusProgram(
+		innerScript,
+		lang.LanguageVersionV2,
+		evalContext,
+	)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
@@ -362,7 +385,11 @@ func (s PlutusV3Script) Evaluate(
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	program, err = decodePlutusProgram(
+		innerScript,
+		lang.LanguageVersionV3,
+		evalContext,
+	)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
@@ -430,7 +457,11 @@ func (s PlutusV4Script) Evaluate(
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
-	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	program, err = decodePlutusProgram(
+		innerScript,
+		lang.LanguageVersionV4,
+		evalContext,
+	)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
@@ -472,6 +503,149 @@ func PlutusScriptVersion(script Script) (uint, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func plutusScriptLanguage(
+	script Script,
+) (lang.LanguageVersion, bool, bool) {
+	switch script.(type) {
+	case PlutusV1Script, *PlutusV1Script:
+		return lang.LanguageVersionV1, false, true
+	case PlutusV2Script, *PlutusV2Script:
+		return lang.LanguageVersionV2, false, true
+	case PlutusV3Script, *PlutusV3Script:
+		return lang.LanguageVersionV3, true, true
+	case PlutusV4Script, *PlutusV4Script:
+		return lang.LanguageVersionV4, true, true
+	default:
+		return lang.LanguageVersion{}, false, false
+	}
+}
+
+func validatePlutusScriptWellFormed(
+	script Script,
+	protocolMajor uint,
+) error {
+	ledgerLanguage, rejectTrailing, ok := plutusScriptLanguage(script)
+	if !ok {
+		return nil
+	}
+	innerScript, err := decodePlutusScript(
+		script.RawScriptBytes(),
+		rejectTrailing,
+	)
+	if err != nil {
+		return fmt.Errorf("decode CBOR script wrapper: %w", err)
+	}
+	_, err = syn.DecodeDeBruijnWithContext(innerScript, syn.ProgramContext{
+		LedgerLanguage: ledgerLanguage,
+		ProtocolMajor:  protocolMajor,
+	})
+	if err != nil {
+		return fmt.Errorf("decode Plutus program: %w", err)
+	}
+	return nil
+}
+
+func plutusWitnessScripts(witnesses TransactionWitnessSet) []Script {
+	if witnesses == nil {
+		return nil
+	}
+	ret := make([]Script, 0)
+	for _, script := range witnesses.PlutusV1Scripts() {
+		ret = append(ret, script)
+	}
+	for _, script := range witnesses.PlutusV2Scripts() {
+		ret = append(ret, script)
+	}
+	for _, script := range witnesses.PlutusV3Scripts() {
+		ret = append(ret, script)
+	}
+	for _, script := range PlutusV4ScriptsFromWitnessSet(witnesses) {
+		ret = append(ret, script)
+	}
+	return ret
+}
+
+// ValidatePlutusScriptsWellFormed contextually validates every Plutus witness
+// and newly produced reference script before phase-2 execution. Validation is
+// independent of the transaction's IsValid flag.
+func ValidatePlutusScriptsWellFormed(
+	tx Transaction,
+	protocolMajor uint,
+) error {
+	if tx == nil {
+		return errors.New("transaction is required")
+	}
+	subTransactionWitnesses := SubTransactionWitnessSetsFromTransaction(tx)
+	witnessSets := make(
+		[]TransactionWitnessSet,
+		0,
+		1+len(subTransactionWitnesses),
+	)
+	witnessSets = append(witnessSets, tx.Witnesses())
+	witnessSets = append(witnessSets, subTransactionWitnesses...)
+	var malformedWitnesses []ScriptHash
+	var witnessCause error
+	for _, witnesses := range witnessSets {
+		for _, script := range plutusWitnessScripts(witnesses) {
+			if err := validatePlutusScriptWellFormed(
+				script,
+				protocolMajor,
+			); err != nil {
+				malformedWitnesses = append(
+					malformedWitnesses,
+					script.Hash(),
+				)
+				if witnessCause == nil {
+					witnessCause = err
+				}
+			}
+		}
+	}
+
+	outputs := append([]TransactionOutput(nil), tx.Outputs()...)
+	outputs = append(outputs, SubTransactionOutputsFromTransaction(tx)...)
+	var malformedReferences []ScriptHash
+	for _, output := range outputs {
+		if output == nil {
+			continue
+		}
+		script := output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		if err := validatePlutusScriptWellFormed(
+			script,
+			protocolMajor,
+		); err != nil {
+			malformedReferences = append(
+				malformedReferences,
+				script.Hash(),
+			)
+		}
+	}
+
+	var witnessErr error
+	if len(malformedWitnesses) > 0 {
+		witnessErr = MalformedScriptWitnessesError{
+			ScriptHashes: malformedWitnesses,
+			Cause:        witnessCause,
+		}
+	}
+	var referenceErr error
+	if len(malformedReferences) > 0 {
+		referenceErr = MalformedReferenceScriptsError{
+			ScriptHashes: malformedReferences,
+		}
+	}
+	if witnessErr != nil && referenceErr != nil {
+		return errors.Join(witnessErr, referenceErr)
+	}
+	if witnessErr != nil {
+		return witnessErr
+	}
+	return referenceErr
 }
 
 type NativeScript struct {
