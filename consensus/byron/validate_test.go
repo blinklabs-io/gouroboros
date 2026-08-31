@@ -19,6 +19,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -409,11 +412,103 @@ func TestValidateBlockSignature(t *testing.T) {
 	}
 }
 
+func TestValidateSimpleSignatureRequiresMainBlockDomain(t *testing.T) {
+	config := testByronConfig()
+	validator := NewHeaderValidator(config)
+	pubKey, privKey, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+
+	header := &byron.ByronMainBlockHeader{}
+	header.PrevBlock = common.Blake2b256{}
+	header.BodyProof = []any{}
+	header.ConsensusData.SlotId.Epoch = 1
+	header.ConsensusData.SlotId.Slot = 2
+	header.ConsensusData.PubKey = []byte{}
+	header.ConsensusData.Difficulty.Value = 3
+	header.ConsensusData.BlockSig = []any{}
+	header.ExtraData.Attributes = []byte{}
+	header.ExtraData.ExtraProof = common.Blake2b256{}
+	headerCbor, err := cbor.Encode(header)
+	require.NoError(t, err)
+	input := &ValidateHeaderInput{
+		IssuerPubKey: pubKey,
+		HeaderCbor:   headerCbor,
+	}
+	toSign, err := validator.buildToSign(input)
+	require.NoError(t, err)
+	domainSeparated, err := validator.domainSeparateMainBlock(toSign)
+	require.NoError(t, err)
+
+	input.BlockSignature = ed25519.Sign(privKey, domainSeparated)
+	assert.NoError(t, validator.validateSimpleSignature(input))
+
+	// The raw ToSign signature must not verify in the main-block domain.
+	input.BlockSignature = ed25519.Sign(privKey, toSign)
+	assert.Error(t, validator.validateSimpleSignature(input))
+}
+
+func TestValidateSimpleSignatureReferenceVector(t *testing.T) {
+	// This static type-0 vector follows cardano-sl's Signing/Tag.hs and
+	// Signing/Safe.hs reference layout:
+	// SignMainBlock (0x07) || CBOR(protocol magic) || CBOR(MainToSign).
+	// The fixed buffer, public key, and signature prevent the test from signing
+	// bytes assembled by the implementation under test.
+	headerCbor, err := hex.DecodeString(
+		"8500582000000000000000000000000000000000000000000000000000000000" +
+			"00000000f68482070bf68113f68483000000826000f658200000000000000000" +
+			"000000000000000000000000000000000000000000000000",
+	)
+	require.NoError(t, err)
+	signedBuffer, err := hex.DecodeString(
+		"071a2d964a098558200000000000000000000000000000000000000000000000" +
+			"000000000000000000f682070b81138483000000826000f65820000000000000" +
+			"0000000000000000000000000000000000000000000000000000",
+	)
+	require.NoError(t, err)
+	pubKey, err := hex.DecodeString(
+		"03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+	)
+	require.NoError(t, err)
+	signature, err := hex.DecodeString(
+		"905092bd0d1aeceaa69a7bd402545bda19db9cd16a5a6a55a5c0ccc766043d74" +
+			"ee7a6879a6a1df801c85e5691d28a2b61bfc0fbbfeb814e94c1d5e40b5120707",
+	)
+	require.NoError(t, err)
+
+	validator := NewHeaderValidator(testByronConfig())
+	toSign, err := validator.buildToSign(
+		&ValidateHeaderInput{HeaderCbor: headerCbor},
+	)
+	require.NoError(t, err)
+	domain, err := validator.domainSeparateMainBlock(toSign)
+	require.NoError(t, err)
+	require.Equal(t, signedBuffer, domain)
+	require.True(t, ed25519.Verify(pubKey, signedBuffer, signature))
+
+	input := &ValidateHeaderInput{
+		IssuerPubKey: pubKey,
+		HeaderCbor:   headerCbor,
+		BlockSig:     []any{uint64(byronSigTypeSimple), signature},
+	}
+	require.NoError(t, validator.validateBlockSignature(input))
+}
+
 // TestValidateDelegationCertSignature_RealMainnetVector verifies a real
 // delegation certificate signature extracted from a mainnet Byron block
 // (slot 4471207), confirming the byte layout reproduced from
 // cardano-ledger-byron's Delegation/Certificate.hs and cardano-crypto's
 // Signing/{Tag,Signature}.hs.
+// testEpochCbor encodes a delegation certificate epoch the way it would
+// appear on the wire. validateDelegationCertSignature takes the epoch
+// field's preserved encoding rather than its decoded value, so tests that
+// build a certificate from scratch have to produce that encoding too.
+func testEpochCbor(t *testing.T, epoch uint64) []byte {
+	t.Helper()
+	encoded, err := cbor.Encode(epoch)
+	require.NoError(t, err)
+	return encoded
+}
+
 func TestValidateDelegationCertSignature_RealMainnetVector(t *testing.T) {
 	issuerVK, err := hex.DecodeString(
 		"1bc97a2fe02c297880ce8ecfd997fe4c1ec09ee10feeee9f686760166b05281d" +
@@ -435,7 +530,7 @@ func TestValidateDelegationCertSignature_RealMainnetVector(t *testing.T) {
 	validator := NewHeaderValidator(config)
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig, 0,
+		issuerVK, delegateVK, certSig, testEpochCbor(t, 0),
 	)
 	require.NoError(
 		t,
@@ -447,19 +542,19 @@ func TestValidateDelegationCertSignature_RealMainnetVector(t *testing.T) {
 	tamperedSig := append([]byte{}, certSig...)
 	tamperedSig[0] ^= 0xFF
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, tamperedSig, 0,
+		issuerVK, delegateVK, tamperedSig, testEpochCbor(t, 0),
 	)
 	require.Error(t, err, "tampered certificate signature must fail")
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig, 1, // wrong epoch
+		issuerVK, delegateVK, certSig, testEpochCbor(t, 1), // wrong epoch
 	)
 	require.Error(t, err, "wrong epoch must fail signature verification")
 
 	tamperedDelegateVK := append([]byte{}, delegateVK...)
 	tamperedDelegateVK[0] ^= 0xFF
 	err = validator.validateDelegationCertSignature(
-		issuerVK, tamperedDelegateVK, certSig, 0,
+		issuerVK, tamperedDelegateVK, certSig, testEpochCbor(t, 0),
 	)
 	require.Error(
 		t,
@@ -509,7 +604,7 @@ func TestValidateDelegationCertSignature_Deterministic(t *testing.T) {
 	certSig := ed25519.Sign(issuerPriv, signed)
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig, epoch,
+		issuerVK, delegateVK, certSig, epochBytes,
 	)
 	require.NoError(
 		t,
@@ -522,7 +617,7 @@ func TestValidateDelegationCertSignature_Deterministic(t *testing.T) {
 	skipValidator := NewHeaderValidator(config)
 	skipValidator.SkipDelegationCertVerification = true
 	err = skipValidator.validateDelegationCertSignature(
-		issuerVK, delegateVK, make([]byte, ed25519.SignatureSize), epoch,
+		issuerVK, delegateVK, make([]byte, ed25519.SignatureSize), epochBytes,
 	)
 	require.NoError(
 		t,
@@ -534,23 +629,23 @@ func TestValidateDelegationCertSignature_Deterministic(t *testing.T) {
 	tamperedSig := append([]byte{}, certSig...)
 	tamperedSig[0] ^= 0xFF
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, tamperedSig, epoch,
+		issuerVK, delegateVK, tamperedSig, epochBytes,
 	)
 	require.Error(t, err, "tampered signature must be rejected by default")
 
 	// Malformed key sizes must be rejected before attempting verification.
 	err = validator.validateDelegationCertSignature(
-		issuerVK[:32], delegateVK, certSig, epoch,
+		issuerVK[:32], delegateVK, certSig, epochBytes,
 	)
 	require.Error(t, err, "short issuerVK must be rejected")
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK[:32], certSig, epoch,
+		issuerVK, delegateVK[:32], certSig, epochBytes,
 	)
 	require.Error(t, err, "short delegateVK must be rejected")
 
 	err = validator.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig[:32], epoch,
+		issuerVK, delegateVK, certSig[:32], epochBytes,
 	)
 	require.Error(t, err, "short certSig must be rejected")
 }
@@ -1841,6 +1936,46 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 	t.Logf("  SlotDuration: %v", config.SlotDuration)
 	t.Logf("  SecurityParam: %d", config.SecurityParam)
 	t.Logf("  NumGenesisKeys: %d", config.NumGenesisKeys)
+}
+
+func parseSecurityParameterGenesis(t *testing.T, k int) byron.ByronGenesis {
+	t.Helper()
+	genesisJSON := fmt.Sprintf(
+		`{"protocolConsts":{"k":%d,"protocolMagic":%d}}`,
+		k,
+		testByronProtocolMagicMainnet,
+	)
+	genesis, err := byron.NewByronGenesisFromReader(
+		strings.NewReader(genesisJSON),
+	)
+	require.NoError(t, err)
+	return genesis
+}
+
+func TestNewByronConfigFromGenesisRejectsZeroSecurityParameter(t *testing.T) {
+	genesis := parseSecurityParameterGenesis(t, 0)
+	_, err := NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "must be positive")
+}
+
+func TestNewByronConfigFromGenesisRejectsSecurityParameterOverflow(
+	t *testing.T,
+) {
+	if strconv.IntSize < 64 {
+		t.Skip("an overflow-producing K cannot be represented by int")
+	}
+	genesis := parseSecurityParameterGenesis(t, math.MaxInt)
+	_, err := NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "overflows slots per epoch")
+}
+
+func TestNewByronConfigFromGenesisAcceptsMaxInt32SecurityParameter(
+	t *testing.T,
+) {
+	genesis := parseSecurityParameterGenesis(t, math.MaxInt32)
+	config, err := NewByronConfigFromGenesis(&genesis)
+	require.NoError(t, err)
+	require.Equal(t, uint64(10)*math.MaxInt32, config.SlotsPerEpoch)
 }
 
 func TestByronTxFeePolicy_CalculateMinFee(t *testing.T) {

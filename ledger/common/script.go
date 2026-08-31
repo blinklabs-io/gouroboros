@@ -540,6 +540,50 @@ func (n NativeScript) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(n.item)
 }
 
+// FirstInvalidNativeScript evaluates each native-script witness against the
+// transaction's validity interval and key witnesses. It returns the hash of
+// the first script that fails.
+func FirstInvalidNativeScript(
+	tx Transaction,
+	slot uint64,
+) (ScriptHash, bool) {
+	witnesses := tx.Witnesses()
+	if witnesses == nil {
+		return ScriptHash{}, false
+	}
+
+	nativeScripts := witnesses.NativeScripts()
+	if len(nativeScripts) == 0 {
+		return ScriptHash{}, false
+	}
+
+	keyHashes := make(map[Blake2b224]bool)
+	for _, vkw := range witnesses.Vkey() {
+		keyHashes[Blake2b224Hash(vkw.Vkey)] = true
+	}
+	for _, bw := range witnesses.Bootstrap() {
+		keyHashes[Blake2b224Hash(bw.PublicKey)] = true
+	}
+
+	validityStart := tx.ValidityIntervalStart()
+	validityEnd, validityEndPresent := TransactionValidityIntervalUpperBound(tx)
+	if !validityEndPresent {
+		validityEnd = ^uint64(0)
+	}
+
+	for _, nativeScript := range nativeScripts {
+		if !nativeScript.Evaluate(
+			slot,
+			validityStart,
+			validityEnd,
+			keyHashes,
+		) {
+			return nativeScript.Hash(), true
+		}
+	}
+	return ScriptHash{}, false
+}
+
 type NativeScriptPubkey struct {
 	cbor.StructAsArray
 	Type uint

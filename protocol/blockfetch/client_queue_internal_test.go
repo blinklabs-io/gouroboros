@@ -28,11 +28,167 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPointInRange(t *testing.T) {
+	start := pcommon.NewPoint(100, []byte("start"))
+	end := pcommon.NewPoint(200, []byte("end"))
+	tests := []struct {
+		name  string
+		point pcommon.Point
+		want  bool
+	}{
+		{name: "before", point: pcommon.NewPoint(99, []byte("before"))},
+		{name: "inside", point: pcommon.NewPoint(150, []byte("inside")), want: true},
+		{name: "after", point: pcommon.NewPoint(201, []byte("after"))},
+		{name: "start", point: start, want: true},
+		{name: "end", point: end, want: true},
+		{
+			name:  "same slot wrong hash",
+			point: pcommon.NewPoint(100, []byte("other")),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := pointInRange(test.point, start, end); got != test.want {
+				t.Fatalf("pointInRange() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestBatchDoneRejectsIncompleteRequestedRange(t *testing.T) {
+	var completionErr error
+	c := newQueueTestClient(&Config{
+		RequestPipelining: true,
+		RangeDoneFunc: func(_ CallbackContext, err error) error {
+			completionErr = err
+			return nil
+		},
+	})
+
+	req := c.appendTestRequest(1024)
+	req.start = pcommon.NewPoint(100, []byte("start"))
+	req.end = pcommon.NewPoint(200, []byte("end"))
+
+	require.NoError(t, c.handleStartBatch())
+
+	err := c.handleBatchDone()
+	require.Error(
+		t,
+		err,
+		"BatchDone must reject a batch that never delivered the requested range",
+	)
+	require.Error(
+		t,
+		completionErr,
+		"RangeDoneFunc must not report an incomplete range as successful",
+	)
+}
+
+func queueTestBlock(
+	t *testing.T,
+	slot uint64,
+	prevHash lcommon.Blake2b256,
+) (*MsgBlock, pcommon.Point) {
+	t.Helper()
+	blk := ledger.BabbageBlock{BlockHeader: &ledger.BabbageBlockHeader{}}
+	blk.BlockHeader.Body.BlockNumber = slot
+	blk.BlockHeader.Body.Slot = slot
+	blk.BlockHeader.Body.PrevHash = prevHash
+	blockCbor, err := cbor.Encode(blk)
+	require.NoError(t, err)
+	_, err = cbor.Decode(blockCbor, &blk)
+	require.NoError(t, err)
+	wrapped, err := cbor.Encode(WrappedBlock{
+		Type:     ledger.BlockTypeBabbage,
+		RawBlock: cbor.RawMessage(blockCbor),
+	})
+	require.NoError(t, err)
+	return NewMsgBlock(wrapped), pcommon.NewPoint(slot, blk.Hash().Bytes())
+}
+
+func TestRangeDeliveryValidation(t *testing.T) {
+	firstMsg, firstPoint := queueTestBlock(t, 100, lcommon.Blake2b256{})
+	firstHash := lcommon.Blake2b256(firstPoint.Hash)
+	middleMsg, middlePoint := queueTestBlock(t, 200, firstHash)
+	middleHash := lcommon.Blake2b256(middlePoint.Hash)
+	lastMsg, lastPoint := queueTestBlock(t, 300, middleHash)
+
+	tests := []struct {
+		name      string
+		messages  []*MsgBlock
+		wantError string
+	}{
+		{
+			name:     "complete linked range",
+			messages: []*MsgBlock{firstMsg, middleMsg, lastMsg},
+		},
+		{
+			name:      "missing range end",
+			messages:  []*MsgBlock{firstMsg, middleMsg},
+			wantError: "before requested range end",
+		},
+		{
+			name:      "missing range start",
+			messages:  []*MsgBlock{middleMsg, lastMsg},
+			wantError: "does not match requested range start",
+		},
+		{
+			name:      "duplicate block",
+			messages:  []*MsgBlock{firstMsg, firstMsg},
+			wantError: "duplicate block",
+		},
+		{
+			name:      "missing interior block",
+			messages:  []*MsgBlock{firstMsg, lastMsg},
+			wantError: "does not follow previous range point",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var completionErr error
+			c := newQueueTestClient(&Config{
+				RequestPipelining:   true,
+				SkipBlockValidation: true,
+				BlockFunc: func(CallbackContext, uint, ledger.Block) error {
+					return nil
+				},
+				RangeDoneFunc: func(_ CallbackContext, err error) error {
+					completionErr = err
+					return nil
+				},
+			})
+			req := c.appendTestRequest(1024)
+			req.start = firstPoint
+			req.end = lastPoint
+
+			require.NoError(t, c.handleStartBatch())
+			var gotErr error
+			for _, msg := range test.messages {
+				gotErr = c.handleBlock(msg)
+				if gotErr != nil {
+					break
+				}
+			}
+			if gotErr == nil {
+				gotErr = c.handleBatchDone()
+			}
+			if test.wantError == "" {
+				require.NoError(t, gotErr)
+				require.NoError(t, completionErr)
+				return
+			}
+			require.ErrorContains(t, gotErr, test.wantError)
+			require.ErrorContains(t, completionErr, test.wantError)
+		})
+	}
+}
 
 // newQueueTestClient builds a client whose protocol was never started. The
 // outstanding-request queue and the in-flight byte accounting do not touch the
@@ -161,6 +317,9 @@ func TestQueueExcessBatchDoneIsNotAppliedToNextRequest(t *testing.T) {
 	})
 	first := c.appendTestRequest(1024)
 	second := c.appendTestRequest(1024)
+	first.end = pcommon.NewPoint(100, []byte("first"))
+	first.lastPoint = first.end
+	first.hasLastPoint = true
 
 	require.NoError(t, c.handleStartBatch())
 	require.True(t, first.started)
@@ -209,7 +368,10 @@ func TestQueueRetiredBytesAreReleased(t *testing.T) {
 			return nil
 		},
 	})
-	c.appendTestRequest(4096)
+	req := c.appendTestRequest(4096)
+	req.end = pcommon.NewPoint(100, []byte("block"))
+	req.lastPoint = req.end
+	req.hasLastPoint = true
 	c.queueMutex.Lock()
 	inFlight := c.inFlightBytes
 	c.queueMutex.Unlock()
@@ -543,17 +705,19 @@ func (p *idlePeer) send(t *testing.T, msg protocol.Message) {
 	}
 }
 
-// completeOneEmptyBatch drives a single pipelined request to completion so the
+// completeOneBatch drives a single pipelined request to completion so the
 // client's state machine returns to Idle through MsgBatchDone, which is the
 // state a peer's next MsgBlock can arrive in.
-func (p *idlePeer) completeOneEmptyBatch(t *testing.T, done chan error) {
+func (p *idlePeer) completeOneBatch(t *testing.T, done chan error) {
 	t.Helper()
+	blockMsg, point := queueTestBlock(t, 100, lcommon.Blake2b256{})
 	_, err := p.client.RequestRange(
 		context.Background(),
-		RangeRequest{ExpectedBytes: 1},
+		RangeRequest{Start: point, End: point, ExpectedBytes: 1},
 	)
 	require.NoError(t, err)
 	p.send(t, NewMsgStartBatch())
+	p.send(t, blockMsg)
 	p.send(t, NewMsgBatchDone())
 	select {
 	case err := <-done:
@@ -588,13 +752,17 @@ func bigBlockMsg(t *testing.T) protocol.Message {
 func TestPipelinedIdleLimitAdmitsMainnetSizedBlock(t *testing.T) {
 	done := make(chan error, 4)
 	p := newIdlePeer(t, &Config{
-		RequestPipelining: true,
+		RequestPipelining:   true,
+		SkipBlockValidation: true,
+		BlockFunc: func(CallbackContext, uint, ledger.Block) error {
+			return nil
+		},
 		RangeDoneFunc: func(_ CallbackContext, err error) error {
 			done <- err
 			return nil
 		},
 	})
-	p.completeOneEmptyBatch(t, done)
+	p.completeOneBatch(t, done)
 
 	// The state machine is back in Idle and the block is larger than the
 	// unpipelined Idle limit. It must be admitted rather than rejected as
