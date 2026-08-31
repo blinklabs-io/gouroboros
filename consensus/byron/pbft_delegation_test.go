@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +45,7 @@ func signedPBFTDelegationCertificate(
 	issuerKey []byte,
 	issuerPrivateKey ed25519.PrivateKey,
 	delegateKey []byte,
-) []any {
+) cbor.RawMessage {
 	t.Helper()
 	epochCbor, err := cbor.Encode(epoch)
 	require.NoError(t, err)
@@ -56,15 +57,17 @@ func signedPBFTDelegationCertificate(
 	require.NoError(t, err)
 	protocolMagicCbor, err := cbor.Encode(protocolMagic)
 	require.NoError(t, err)
-	signed := []byte{byronSignTagCertificate}
+	signed := []byte{byron.SignTagCertificate}
 	signed = append(signed, protocolMagicCbor...)
 	signed = append(signed, innerCbor...)
-	return []any{
+	encoded, err := cbor.Encode([]any{
 		epoch,
 		append([]byte(nil), issuerKey...),
 		append([]byte(nil), delegateKey...),
 		ed25519.Sign(issuerPrivateKey, signed),
-	}
+	})
+	require.NoError(t, err)
+	return encoded
 }
 
 func TestPBFTDelegationStateActivationAndRevocation(t *testing.T) {
@@ -102,7 +105,9 @@ func TestPBFTDelegationStateActivationAndRevocation(t *testing.T) {
 		issuerPrivateKey,
 		replacementDelegateKey,
 	)
-	state, err = state.ApplyPayload(1, 101, []any{activationCertificate})
+	state, err = state.ApplyPayloadCbor(
+		1, 101, []cbor.RawMessage{activationCertificate},
+	)
 	require.NoError(t, err)
 	require.Equal(
 		t,
@@ -127,7 +132,9 @@ func TestPBFTDelegationStateActivationAndRevocation(t *testing.T) {
 		issuerPrivateKey,
 		issuerKey,
 	)
-	state, err = state.ApplyPayload(2, 201, []any{revocationCertificate})
+	state, err = state.ApplyPayloadCbor(
+		2, 201, []cbor.RawMessage{revocationCertificate},
+	)
 	require.NoError(t, err)
 	state = state.Tick(2, 220)
 	require.Equal(
@@ -220,8 +227,14 @@ func TestPBFTDelegationStateRejectsInvalidPayloadAtomically(t *testing.T) {
 		issuerPrivateKey,
 		replacementDelegateKey,
 	)
-	_, err = state.ApplyPayload(1, 101, []any{certificate, []any{}})
-	require.ErrorContains(t, err, "invalid certificate shape")
+	malformed, err := cbor.Encode([]any{})
+	require.NoError(t, err)
+	_, err = state.ApplyPayloadCbor(
+		1, 101, []cbor.RawMessage{certificate, malformed},
+	)
+	require.ErrorContains(
+		t, err, "delegation certificate is not a 4-element array",
+	)
 	require.Equal(
 		t,
 		initialDelegateHash,
@@ -257,8 +270,62 @@ func TestPBFTDelegationStateRejectsDuplicateEpoch(t *testing.T) {
 		issuerPrivateKey,
 		replacementDelegateKey,
 	)
-	state, err = state.ApplyPayload(1, 101, []any{certificate})
+	state, err = state.ApplyPayloadCbor(1, 101, []cbor.RawMessage{certificate})
 	require.NoError(t, err)
-	_, err = state.ApplyPayload(1, 102, []any{certificate})
+	_, err = state.ApplyPayloadCbor(1, 102, []cbor.RawMessage{certificate})
 	require.ErrorContains(t, err, "already delegated for epoch 1")
+}
+
+// TestPBFTDelegationStateApplyPayloadDecodedCompat pins the deprecated
+// ApplyPayload entry point, which downstream callers reach with a decoded
+// ByronMainBlockBody.DlgPayload ([]any) rather than preserved CBOR.
+func TestPBFTDelegationStateApplyPayloadDecodedCompat(t *testing.T) {
+	const protocolMagic = uint32(42)
+	issuerKey, issuerPrivateKey := deterministicPBFTVerificationKey(0x61)
+	initialDelegateKey, _ := deterministicPBFTVerificationKey(0x62)
+	replacementDelegateKey, _ := deterministicPBFTVerificationKey(0x63)
+	issuerHash, err := PBFTVerificationKeyHash(issuerKey)
+	require.NoError(t, err)
+	initialDelegateHash, err := PBFTVerificationKeyHash(initialDelegateKey)
+	require.NoError(t, err)
+	replacementHash, err := PBFTVerificationKeyHash(replacementDelegateKey)
+	require.NoError(t, err)
+	state, err := NewPBFTDelegationState(ByronConfig{
+		ProtocolMagic:    protocolMagic,
+		SecurityParam:    10,
+		GenesisKeyHashes: [][]byte{issuerHash.Bytes()},
+		GenesisDelegations: map[common.Blake2b224]common.Blake2b224{
+			issuerHash: initialDelegateHash,
+		},
+	})
+	require.NoError(t, err)
+
+	certificate := signedPBFTDelegationCertificate(
+		t,
+		protocolMagic,
+		1,
+		issuerKey,
+		issuerPrivateKey,
+		replacementDelegateKey,
+	)
+	// Decode the certificate the way a block body would present it, so the
+	// payload has the []any shape the deprecated entry point takes.
+	var decoded []any
+	_, err = cbor.Decode(certificate, &decoded)
+	require.NoError(t, err)
+
+	state, err = state.ApplyPayload(1, 101, []any{decoded})
+	require.NoError(t, err)
+	state = state.Tick(1, 121)
+	require.Equal(
+		t,
+		replacementHash,
+		state.ActiveDelegations()[issuerHash],
+		"the decoded payload path must still schedule and activate",
+	)
+
+	_, err = state.ApplyPayload(1, 101, []any{"not a certificate"})
+	require.ErrorContains(
+		t, err, "delegation certificate is not a 4-element array",
+	)
 }

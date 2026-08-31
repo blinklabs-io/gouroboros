@@ -204,14 +204,18 @@ func (e ExtraneousScriptWitnessesError) Error() string {
 // vkey witness. This includes explicitly required signers and key-based reward
 // withdrawal credentials.
 func ValidateRequiredVKeyWitnesses(tx Transaction) error {
+	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
+		return err
+	}
 	required := make([]Blake2b224, 0, len(tx.RequiredSigners())+len(tx.Withdrawals()))
 	required = append(required, tx.RequiredSigners()...)
 	for addr := range tx.Withdrawals() {
-		if addr == nil {
-			continue
+		credential, err := addr.RewardAccountCredential()
+		if err != nil {
+			return err
 		}
-		if payload, ok := addr.StakingPayload().(AddressPayloadKeyHash); ok {
-			required = append(required, payload.Hash)
+		if credential.CredType == CredentialTypeAddrKeyHash {
+			required = append(required, credential.Credential)
 		}
 	}
 	if len(required) == 0 {
@@ -252,6 +256,9 @@ func ValidateUnsupportedPlutusExecution(tx Transaction, era string) error {
 // ValidateScriptWitnesses checks that script witnesses are provided for all script address inputs
 // and that there are no extraneous script witnesses.
 func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
+	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
+		return err
+	}
 	if ls == nil {
 		return nil
 	}
@@ -430,10 +437,12 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 
 	// Collect script hashes required by withdrawals
 	for addr := range tx.Withdrawals() {
-		// For stake addresses, check if stake credential is script (LSB of type indicates script)
-		if (addr.Type() & AddressTypeScriptBit) != 0 {
-			stakeScriptHash := addr.StakeKeyHash()
-			requiredScriptHashes[ScriptHash(stakeScriptHash)] = struct{}{}
+		credential, err := addr.RewardAccountCredential()
+		if err != nil {
+			return err
+		}
+		if credential.CredType == CredentialTypeScriptHash {
+			requiredScriptHashes[ScriptHash(credential.Credential)] = struct{}{}
 		}
 	}
 

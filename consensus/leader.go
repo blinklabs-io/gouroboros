@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -323,12 +324,51 @@ func FindNextSlotLeadership(
 	activeSlotCoeff *big.Rat,
 	vrfSigner VRFSigner,
 ) (uint64, []byte, []byte, error) {
-	if maxSlot == math.MaxUint64 {
-		return 0, nil, nil, errors.New(
-			"maxSlot cannot be math.MaxUint64 to prevent overflow",
+	return FindNextSlotLeadershipContext(
+		context.Background(),
+		startSlot,
+		maxSlot,
+		epochNonce,
+		poolStake,
+		totalStake,
+		activeSlotCoeff,
+		vrfSigner,
+	)
+}
+
+// MaxLeadershipSearchSlots bounds one leadership search so callers cannot
+// accidentally turn a scheduling query into an unbounded VRF workload.
+const MaxLeadershipSearchSlots uint64 = 1_000_000
+
+// FindNextSlotLeadershipContext searches for leadership with cancellation and
+// an explicit maximum range. The legacy function delegates here with a
+// background context.
+func FindNextSlotLeadershipContext(
+	ctx context.Context,
+	startSlot uint64,
+	maxSlot uint64,
+	epochNonce []byte,
+	poolStake uint64,
+	totalStake uint64,
+	activeSlotCoeff *big.Rat,
+	vrfSigner VRFSigner,
+) (uint64, []byte, []byte, error) {
+	if ctx == nil {
+		return 0, nil, nil, errors.New("context is nil")
+	}
+	if maxSlot < startSlot {
+		return 0, nil, nil, errors.New("maxSlot must not precede startSlot")
+	}
+	if maxSlot-startSlot >= MaxLeadershipSearchSlots {
+		return 0, nil, nil, fmt.Errorf(
+			"leadership search range exceeds maximum of %d slots",
+			MaxLeadershipSearchSlots,
 		)
 	}
-	for slot := startSlot; slot <= maxSlot; slot++ {
+	for slot := startSlot; ; slot++ {
+		if err := ctx.Err(); err != nil {
+			return 0, nil, nil, err
+		}
 		result, err := IsSlotLeader(
 			slot,
 			epochNonce,
@@ -342,6 +382,9 @@ func FindNextSlotLeadership(
 		}
 		if result.Eligible {
 			return slot, result.Proof, result.Output, nil
+		}
+		if slot == maxSlot {
+			break
 		}
 	}
 	return 0, nil, nil, nil

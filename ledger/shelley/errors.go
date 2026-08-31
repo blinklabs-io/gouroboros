@@ -85,6 +85,14 @@ func (e BadInputsUtxoError) Error() string {
 	return "bad input(s): " + strings.Join(tmpInputs, ", ")
 }
 
+type NativeScriptFailedError struct {
+	ScriptHash common.ScriptHash
+}
+
+func (e NativeScriptFailedError) Error() string {
+	return fmt.Sprintf("native script failed (hash=%x)", e.ScriptHash[:])
+}
+
 type WrongNetworkError struct {
 	NetId uint
 	Addrs []common.Address
