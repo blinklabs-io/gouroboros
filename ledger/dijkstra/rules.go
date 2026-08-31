@@ -881,9 +881,6 @@ func UtxoValidatePlutusScripts(
 	if err != nil {
 		return err
 	}
-	if !tx.IsValid() {
-		return nil
-	}
 	dijkstraTx, ok := tx.(*DijkstraTransaction)
 	if !ok {
 		return conway.UtxoValidatePlutusScripts(tx, slot, ls, tmpPparams)
@@ -893,18 +890,24 @@ func UtxoValidatePlutusScripts(
 		return err
 	}
 	for _, level := range levels {
-		if level.subTxIndex != nil {
-			for _, candidate := range level.view.Needed {
-				version, ok := common.PlutusScriptVersion(candidate)
-				if ok && version < 3 {
-					return UnsupportedScriptInSubtransactionError{
-						Version:             version,
-						SubtransactionIndex: *level.subTxIndex,
-						TransactionId:       level.tx.Id(),
-					}
+		if level.subTxIndex == nil {
+			continue
+		}
+		for _, candidate := range level.view.Needed {
+			version, ok := common.PlutusScriptVersion(candidate)
+			if ok && version < 3 {
+				return UnsupportedScriptInSubtransactionError{
+					Version:             version,
+					SubtransactionIndex: *level.subTxIndex,
+					TransactionId:       level.tx.Id(),
 				}
 			}
 		}
+	}
+	if !tx.IsValid() {
+		return nil
+	}
+	for _, level := range levels {
 		v4Keys, err := dijkstraPlutusV4RedeemerKeys(level, available)
 		if err != nil {
 			return err
@@ -2187,6 +2190,22 @@ func UtxoValidateExtraneousRedeemers(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateExtraneousRedeemers(tx, slot, ls, pp)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := validateDijkstraExtraneousRedeemers(level, ls); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDijkstraExtraneousRedeemers(
+	tx common.Transaction,
+	ls common.LedgerState,
+) error {
 	wits := tx.Witnesses()
 	if wits == nil {
 		return nil
@@ -2271,11 +2290,21 @@ func dijkstraGuardCredentialAt(
 	tx common.Transaction,
 	index uint32,
 ) (common.Credential, bool) {
-	dijkstraTx, ok := tx.(*DijkstraTransaction)
-	if !ok || dijkstraTx.Body.TxGuards == nil {
+	var guards *DijkstraGuards
+	switch tx := tx.(type) {
+	case *DijkstraTransaction:
+		guards = tx.Body.TxGuards
+	case dijkstraConwayFeatureTransaction:
+		switch body := tx.body.(type) {
+		case *DijkstraTransactionBody:
+			guards = body.TxGuards
+		case *DijkstraSubTransactionBody:
+			guards = body.TxGuards
+		}
+	}
+	if guards == nil {
 		return common.Credential{}, false
 	}
-	guards := dijkstraTx.Body.TxGuards
 	if int(index) >= len(guards.Credentials) {
 		return common.Credential{}, false
 	}
@@ -2345,12 +2374,18 @@ func dijkstraGuardWitnessesHaveNativeScript(
 	if witnessSetHasNativeScript(tx.Witnesses(), scriptHash) {
 		return true
 	}
-	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
-		for _, subTx := range dijkstraTx.Body.TxSubTransactions.Items() {
+	switch tx := tx.(type) {
+	case *DijkstraTransaction:
+		for _, subTx := range tx.Body.TxSubTransactions.Items() {
 			if witnessSetHasNativeScript(subTx.WitnessSet, scriptHash) {
 				return true
 			}
 		}
+	case dijkstraConwayFeatureTransaction:
+		return dijkstraGuardWitnessesHaveNativeScript(
+			tx.Transaction,
+			scriptHash,
+		)
 	}
 	return false
 }

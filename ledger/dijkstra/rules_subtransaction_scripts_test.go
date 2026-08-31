@@ -231,59 +231,108 @@ func TestVerifyTransactionExecutesSubtransactionNativeGuards(t *testing.T) {
 }
 
 func TestVerifyTransactionSubtransactionGuardControls(t *testing.T) {
-	for _, test := range []struct {
+	tests := []struct {
 		name        string
 		version     [3]uint32
 		unsupported bool
 	}{
 		{
-			name:        "rejecting PlutusV1 guard without treasury",
+			name:        "PlutusV1",
 			version:     lang.LanguageVersionV1,
 			unsupported: true,
 		},
 		{
-			name:        "rejecting PlutusV2 guard without treasury",
+			name:        "PlutusV2",
 			version:     lang.LanguageVersionV2,
 			unsupported: true,
 		},
 		{
-			name:        "rejecting PlutusV3 guard",
+			name:        "PlutusV3",
 			version:     lang.LanguageVersionV3,
 			unsupported: true,
 		},
-		{name: "passing PlutusV4 guard", version: lang.LanguageVersionV4},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			candidate := dijkstraGuardTestPlutus(t, test.version, false)
-			tx, ls := dijkstraSubtransactionPlutusGuardTx(
-				t,
-				candidate,
-				false,
-			)
-			require.Nil(t, tx.CurrentTreasuryValue())
-			err := common.VerifyTransaction(
-				tx,
-				0,
-				ls,
-				dijkstraGuardTestPParams(),
-				[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
-			)
-			if !test.unsupported {
-				require.NoError(t, err)
-				return
+		{name: "PlutusV4", version: lang.LanguageVersionV4},
+	}
+	for _, test := range tests {
+		for _, txIsValid := range []bool{true, false} {
+			validity := "valid"
+			if !txIsValid {
+				validity = "phase-2 invalid"
 			}
-			var unsupported UnsupportedScriptInSubtransactionError
-			require.ErrorAs(t, err, &unsupported)
-			version, ok := common.PlutusScriptVersion(candidate)
-			require.True(t, ok)
-			require.Equal(t, version, unsupported.Version)
-			require.Zero(t, unsupported.SubtransactionIndex)
-			require.Equal(
-				t,
-				tx.Body.TxSubTransactions.Items()[0].Body.Id(),
-				unsupported.TransactionId,
-			)
-		})
+			t.Run(test.name+"/"+validity, func(t *testing.T) {
+				candidate := dijkstraGuardTestPlutus(t, test.version, false)
+				tx, ls := dijkstraSubtransactionPlutusGuardTx(
+					t,
+					candidate,
+					false,
+				)
+				tx.TxIsValid = txIsValid
+				require.Nil(t, tx.CurrentTreasuryValue())
+				err := common.VerifyTransaction(
+					tx,
+					0,
+					ls,
+					dijkstraGuardTestPParams(),
+					[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
+				)
+				if !test.unsupported {
+					require.NoError(t, err)
+					return
+				}
+				var unsupported UnsupportedScriptInSubtransactionError
+				require.ErrorAs(t, err, &unsupported)
+				version, ok := common.PlutusScriptVersion(candidate)
+				require.True(t, ok)
+				require.Equal(t, version, unsupported.Version)
+				require.Zero(t, unsupported.SubtransactionIndex)
+				require.Equal(
+					t,
+					tx.Body.TxSubTransactions.Items()[0].Body.Id(),
+					unsupported.TransactionId,
+				)
+			})
+		}
+	}
+
+	for _, test := range tests {
+		for _, txIsValid := range []bool{true, false} {
+			validity := "valid"
+			if !txIsValid {
+				validity = "phase-2 invalid"
+			}
+			t.Run("top-level/"+test.name+"/"+validity, func(t *testing.T) {
+				candidate := dijkstraGuardTestPlutus(t, test.version, false)
+				witnesses := testDijkstraWitnessSet(t, candidate)
+				witnesses.WsRedeemers = DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{Tag: common.RedeemerTagGuarding}: {
+							ExUnits: common.ExUnits{
+								Steps:  10_000_000,
+								Memory: 10_000_000,
+							},
+						},
+					},
+				}
+				tx := &DijkstraTransaction{
+					Body: DijkstraTransactionBody{
+						TxGuards: &DijkstraGuards{
+							Credentials: []common.Credential{
+								dijkstraGuardCredentialForScript(candidate),
+							},
+						},
+					},
+					WitnessSet: witnesses,
+					TxIsValid:  txIsValid,
+				}
+				require.NoError(t, common.VerifyTransaction(
+					tx,
+					0,
+					mockledger.NewLedgerStateBuilder().Build(),
+					dijkstraGuardTestPParams(),
+					[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
+				))
+			})
+		}
 	}
 
 	t.Run("no guards or scripts", func(t *testing.T) {
@@ -365,6 +414,117 @@ func TestVerifyTransactionChecksSubtransactionWitnesses(t *testing.T) {
 		[]common.UtxoValidationRuleFunc{UtxoValidateRedeemerAndScriptWitnesses},
 	)
 	require.ErrorAs(t, err, &common.MissingPlutusScriptWitnessesError{})
+}
+
+func TestUtxoValidateExtraneousRedeemersPerTransactionLevel(t *testing.T) {
+	inputs := []shelley.ShelleyTransactionInput{
+		shelley.NewShelleyTransactionInput(
+			"0000000000000000000000000000000000000000000000000000000000000001",
+			0,
+		),
+		shelley.NewShelleyTransactionInput(
+			"0000000000000000000000000000000000000000000000000000000000000002",
+			0,
+		),
+	}
+	inputSet := func(count int) conway.ConwayTransactionInputSet {
+		return conway.NewConwayTransactionInputSet(inputs[:count])
+	}
+	witnesses := func(
+		key *common.RedeemerKey,
+	) DijkstraTransactionWitnessSet {
+		if key == nil {
+			return DijkstraTransactionWitnessSet{}
+		}
+		return DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					*key: {},
+				},
+			},
+		}
+	}
+	unknown := common.RedeemerKey{Tag: common.RedeemerTag(99), Index: 7}
+	spendZero := common.RedeemerKey{Tag: common.RedeemerTagSpend, Index: 0}
+	spendOne := common.RedeemerKey{Tag: common.RedeemerTagSpend, Index: 1}
+	tests := []struct {
+		name      string
+		topInputs int
+		subInputs int
+		topKey    *common.RedeemerKey
+		subKey    *common.RedeemerKey
+		expected  *common.RedeemerKey
+	}{
+		{
+			name:      "subtransaction unknown tag",
+			topInputs: 2,
+			subKey:    &unknown,
+			expected:  &unknown,
+		},
+		{
+			name:      "subtransaction out-of-range index",
+			topInputs: 2,
+			subInputs: 1,
+			subKey:    &spendOne,
+			expected:  &spendOne,
+		},
+		{
+			name:      "subtransaction in-range index",
+			subInputs: 1,
+			subKey:    &spendZero,
+		},
+		{
+			name:     "top-level unknown tag",
+			topKey:   &unknown,
+			expected: &unknown,
+		},
+		{
+			name:      "top-level out-of-range index",
+			topInputs: 1,
+			subInputs: 2,
+			topKey:    &spendOne,
+			expected:  &spendOne,
+		},
+		{
+			name:      "top-level in-range index",
+			topInputs: 1,
+			topKey:    &spendZero,
+		},
+	}
+	for _, test := range tests {
+		for _, txIsValid := range []bool{true, false} {
+			validity := "valid"
+			if !txIsValid {
+				validity = "phase-2 invalid"
+			}
+			t.Run(test.name+"/"+validity, func(t *testing.T) {
+				tx := &DijkstraTransaction{
+					Body: DijkstraTransactionBody{
+						TxInputs: inputSet(test.topInputs),
+						TxSubTransactions: cbor.NewSetType(
+							[]DijkstraSubTransaction{{
+								Body: DijkstraSubTransactionBody{
+									TxInputs: inputSet(test.subInputs),
+								},
+								WitnessSet: witnesses(test.subKey),
+							}},
+							true,
+						),
+					},
+					WitnessSet: witnesses(test.topKey),
+					TxIsValid:  txIsValid,
+				}
+				err := UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+				if test.expected == nil {
+					require.NoError(t, err)
+					return
+				}
+				var extra conway.ExtraRedeemerError
+				require.ErrorAs(t, err, &extra)
+				require.Equal(t, *test.expected, extra.RedeemerKey)
+			})
+		}
+	}
 }
 
 func TestVerifyTransactionChecksSubtransactionSupplementalDatums(t *testing.T) {
