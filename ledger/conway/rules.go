@@ -80,6 +80,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateTooManyCollateralInputs,
 	UtxoValidateSupplementalDatums,
 	UtxoValidateExtraneousRedeemers,
+	UtxoValidateMalformedReferenceScripts,
 	UtxoValidatePlutusScripts,
 	UtxoValidateNativeScripts,
 	UtxoValidateDelegation,
@@ -91,7 +92,6 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateBootstrapVotingRestrictions,
 	UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
-	UtxoValidateMalformedReferenceScripts,
 }
 
 // isInConwayBootstrapPhase reports whether the given protocol parameters

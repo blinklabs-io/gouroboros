@@ -59,10 +59,10 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateTooManyCollateralInputs,
 	UtxoValidateNativeScripts,
 	UtxoValidateExtraneousRedeemers,
+	UtxoValidateMalformedReferenceScripts,
 	UtxoValidatePlutusScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
-	UtxoValidateMalformedReferenceScripts,
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(

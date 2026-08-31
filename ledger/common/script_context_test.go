@@ -16,9 +16,13 @@ package common_test
 
 import (
 	"math/big"
+	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
@@ -303,6 +307,170 @@ func plutusContextMockTransaction(
 	require.NoError(t, err)
 	require.False(t, tx.IsValid())
 	return tx
+}
+
+func plutusContextValidationRuleIndex(
+	t *testing.T,
+	rules []common.UtxoValidationRuleFunc,
+	want string,
+) int {
+	t.Helper()
+	for idx, rule := range rules {
+		fn := runtime.FuncForPC(reflect.ValueOf(rule).Pointer())
+		if fn != nil && strings.HasSuffix(fn.Name(), want) {
+			return idx
+		}
+	}
+	t.Fatalf("validation rule %s is not registered", want)
+	return -1
+}
+
+func TestPlutusWellFormednessRunsBeforePhase2(t *testing.T) {
+	for _, test := range []struct {
+		name               string
+		rules              []common.UtxoValidationRuleFunc
+		wellFormedRuleName string
+		phase2RuleName     string
+	}{
+		{
+			name:               "Babbage",
+			rules:              babbage.UtxoValidationRules,
+			wellFormedRuleName: "ledger/babbage.UtxoValidateMalformedReferenceScripts",
+			phase2RuleName:     "ledger/babbage.UtxoValidatePlutusScripts",
+		},
+		{
+			name:               "Conway",
+			rules:              conway.UtxoValidationRules,
+			wellFormedRuleName: "ledger/conway.UtxoValidateMalformedReferenceScripts",
+			phase2RuleName:     "ledger/conway.UtxoValidatePlutusScripts",
+		},
+		{
+			name:               "Dijkstra",
+			rules:              dijkstra.UtxoValidationRules,
+			wellFormedRuleName: "ledger/dijkstra.UtxoValidateMalformedReferenceScripts",
+			phase2RuleName:     "ledger/dijkstra.UtxoValidatePlutusScripts",
+		},
+	} {
+		t.Run(test.name+" registration", func(t *testing.T) {
+			wellFormedIdx := plutusContextValidationRuleIndex(
+				t,
+				test.rules,
+				test.wellFormedRuleName,
+			)
+			phase2Idx := plutusContextValidationRuleIndex(
+				t,
+				test.rules,
+				test.phase2RuleName,
+			)
+			require.Less(t, wellFormedIdx, phase2Idx)
+		})
+	}
+
+	t.Run(
+		"VerifyTransaction rejects malformed script before execution",
+		func(t *testing.T) {
+			tx := &babbage.BabbageTransaction{TxIsValid: true}
+			tx.WitnessSet.WsPlutusV2Scripts = []common.PlutusV2Script{{0xff}}
+			tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{{
+					Tag:     common.RedeemerTagSpend,
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				}},
+			}
+			wellFormedIdx := plutusContextValidationRuleIndex(
+				t,
+				babbage.UtxoValidationRules,
+				"ledger/babbage.UtxoValidateMalformedReferenceScripts",
+			)
+			phase2Idx := plutusContextValidationRuleIndex(
+				t,
+				babbage.UtxoValidationRules,
+				"ledger/babbage.UtxoValidatePlutusScripts",
+			)
+			firstIdx, lastIdx := wellFormedIdx, phase2Idx
+			if firstIdx > lastIdx {
+				firstIdx, lastIdx = lastIdx, firstIdx
+			}
+			err := common.VerifyTransaction(
+				tx,
+				0,
+				nil,
+				&babbage.BabbageProtocolParameters{ProtocolMajor: 8},
+				babbage.UtxoValidationRules[firstIdx:lastIdx+1],
+			)
+			require.ErrorIs(t, err, common.ErrMalformedScriptWitnesses)
+			var unsupported common.PlutusScriptValidationUnsupportedError
+			require.NotErrorAs(t, err, &unsupported)
+		},
+	)
+}
+
+type plutusContextScriptRefOutput struct {
+	common.TransactionOutput
+	script common.Script
+}
+
+func (o plutusContextScriptRefOutput) ScriptRef() common.Script {
+	return o.script
+}
+
+type plutusContextOutputsTransaction struct {
+	common.Transaction
+	outputs []common.TransactionOutput
+}
+
+func (tx plutusContextOutputsTransaction) Outputs() []common.TransactionOutput {
+	return tx.outputs
+}
+
+func TestPlutusTypedNilScriptValidation(t *testing.T) {
+	var v1 *common.PlutusV1Script
+	var v2 *common.PlutusV2Script
+	var v3 *common.PlutusV3Script
+	var v4 *common.PlutusV4Script
+
+	for _, test := range []struct {
+		name   string
+		script common.Script
+	}{
+		{name: "Plutus V1", script: v1},
+		{name: "Plutus V2", script: v2},
+		{name: "Plutus V3", script: v3},
+		{name: "Plutus V4", script: v4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			baseTx := plutusContextMockTransaction(
+				t,
+				mockledger.NewMockTransactionWitnessSet(),
+			)
+			tx := plutusContextOutputsTransaction{
+				Transaction: baseTx,
+				outputs: []common.TransactionOutput{
+					plutusContextScriptRefOutput{
+						TransactionOutput: plutusContextTestOutput(t),
+						script:            test.script,
+					},
+				},
+			}
+
+			var err error
+			require.NotPanics(t, func() {
+				err = common.VerifyTransaction(
+					tx,
+					0,
+					nil,
+					dijkstraContextParams(12),
+					[]common.UtxoValidationRuleFunc{
+						dijkstra.UtxoValidateMalformedReferenceScripts,
+					},
+				)
+			})
+			require.ErrorIs(t, err, common.ErrMalformedReferenceScripts)
+			var malformed common.MalformedReferenceScriptsError
+			require.ErrorAs(t, err, &malformed)
+			require.Equal(t, []common.ScriptHash{{}}, malformed.ScriptHashes)
+		})
+	}
 }
 
 func TestBabbagePlutusWellFormednessAdmission(t *testing.T) {

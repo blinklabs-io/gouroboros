@@ -507,44 +507,72 @@ func PlutusScriptVersion(script Script) (uint, bool) {
 
 func plutusScriptLanguage(
 	script Script,
-) (lang.LanguageVersion, bool, bool) {
-	switch script.(type) {
-	case PlutusV1Script, *PlutusV1Script:
-		return lang.LanguageVersionV1, false, true
-	case PlutusV2Script, *PlutusV2Script:
-		return lang.LanguageVersionV2, false, true
-	case PlutusV3Script, *PlutusV3Script:
-		return lang.LanguageVersionV3, true, true
-	case PlutusV4Script, *PlutusV4Script:
-		return lang.LanguageVersionV4, true, true
+) (lang.LanguageVersion, bool, bool, error) {
+	switch s := script.(type) {
+	case PlutusV1Script:
+		return lang.LanguageVersionV1, false, true, nil
+	case *PlutusV1Script:
+		if s == nil {
+			return lang.LanguageVersion{}, false, true,
+				errors.New("plutus V1 script is nil")
+		}
+		return lang.LanguageVersionV1, false, true, nil
+	case PlutusV2Script:
+		return lang.LanguageVersionV2, false, true, nil
+	case *PlutusV2Script:
+		if s == nil {
+			return lang.LanguageVersion{}, false, true,
+				errors.New("plutus V2 script is nil")
+		}
+		return lang.LanguageVersionV2, false, true, nil
+	case PlutusV3Script:
+		return lang.LanguageVersionV3, true, true, nil
+	case *PlutusV3Script:
+		if s == nil {
+			return lang.LanguageVersion{}, false, true,
+				errors.New("plutus V3 script is nil")
+		}
+		return lang.LanguageVersionV3, true, true, nil
+	case PlutusV4Script:
+		return lang.LanguageVersionV4, true, true, nil
+	case *PlutusV4Script:
+		if s == nil {
+			return lang.LanguageVersion{}, false, true,
+				errors.New("plutus V4 script is nil")
+		}
+		return lang.LanguageVersionV4, true, true, nil
 	default:
-		return lang.LanguageVersion{}, false, false
+		return lang.LanguageVersion{}, false, false, nil
 	}
 }
 
 func validatePlutusScriptWellFormed(
 	script Script,
 	protocolMajor uint,
-) error {
-	ledgerLanguage, rejectTrailing, ok := plutusScriptLanguage(script)
-	if !ok {
-		return nil
+) (ScriptHash, error) {
+	ledgerLanguage, rejectTrailing, ok, err := plutusScriptLanguage(script)
+	if err != nil {
+		return ScriptHash{}, err
 	}
+	if !ok {
+		return ScriptHash{}, nil
+	}
+	scriptHash := script.Hash()
 	innerScript, err := decodePlutusScript(
 		script.RawScriptBytes(),
 		rejectTrailing,
 	)
 	if err != nil {
-		return fmt.Errorf("decode CBOR script wrapper: %w", err)
+		return scriptHash, fmt.Errorf("decode CBOR script wrapper: %w", err)
 	}
 	_, err = syn.DecodeDeBruijnWithContext(innerScript, syn.ProgramContext{
 		LedgerLanguage: ledgerLanguage,
 		ProtocolMajor:  protocolMajor,
 	})
 	if err != nil {
-		return fmt.Errorf("decode Plutus program: %w", err)
+		return scriptHash, fmt.Errorf("decode Plutus program: %w", err)
 	}
-	return nil
+	return scriptHash, nil
 }
 
 func plutusWitnessScripts(witnesses TransactionWitnessSet) []Script {
@@ -589,13 +617,14 @@ func ValidatePlutusScriptsWellFormed(
 	var witnessCause error
 	for _, witnesses := range witnessSets {
 		for _, script := range plutusWitnessScripts(witnesses) {
-			if err := validatePlutusScriptWellFormed(
+			scriptHash, err := validatePlutusScriptWellFormed(
 				script,
 				protocolMajor,
-			); err != nil {
+			)
+			if err != nil {
 				malformedWitnesses = append(
 					malformedWitnesses,
-					script.Hash(),
+					scriptHash,
 				)
 				if witnessCause == nil {
 					witnessCause = err
@@ -618,13 +647,14 @@ func ValidatePlutusScriptsWellFormed(
 		if script == nil {
 			continue
 		}
-		if err := validatePlutusScriptWellFormed(
+		scriptHash, err := validatePlutusScriptWellFormed(
 			script,
 			protocolMajor,
-		); err != nil {
+		)
+		if err != nil {
 			malformedReferences = append(
 				malformedReferences,
-				script.Hash(),
+				scriptHash,
 			)
 		}
 	}

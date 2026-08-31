@@ -79,6 +79,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateTooManyCollateralInputs,
 	conway.UtxoValidateSupplementalDatums,
 	UtxoValidateExtraneousRedeemers,
+	UtxoValidateMalformedReferenceScripts,
 	UtxoValidatePlutusScripts,
 	UtxoValidateNativeScripts,
 	conway.UtxoValidateDelegation,
@@ -90,7 +91,6 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateBootstrapVotingRestrictions,
 	conway.UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
-	UtxoValidateMalformedReferenceScripts,
 	UtxoValidateRefScriptSizePerTx,
 }
 
