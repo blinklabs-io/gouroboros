@@ -293,7 +293,9 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 func TestUtxoValidateBootstrapAllowedGovActionsRejectsUnknown(t *testing.T) {
 	tx := &DijkstraTransaction{}
 	tx.Body.TxProposalProcedures = []DijkstraProposalProcedure{{
-		PPGovAction: DijkstraGovAction{Action: commontestdata.UnsupportedGovAction{}},
+		PPGovAction: DijkstraGovAction{
+			Action: commontestdata.UnsupportedGovAction{},
+		},
 	}}
 	pp := &DijkstraProtocolParameters{}
 	pp.ProtocolVersion.Major = common.ProtocolVersionConway
@@ -516,11 +518,18 @@ func testGuardScriptCredential(script common.PlutusV4Script) common.Credential {
 func TestUtxoValidateNativeScriptsRequireGuard(t *testing.T) {
 	guardCred := testGuardCredential()
 	nativeScript := testRequireGuardNativeScript(t, guardCred)
+	nativeScriptCred := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: nativeScript.Hash(),
+	}
 
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxGuards: &DijkstraGuards{
-				Credentials: []common.Credential{guardCred},
+				Credentials: []common.Credential{
+					nativeScriptCred,
+					guardCred,
+				},
 			},
 		},
 		WitnessSet: DijkstraTransactionWitnessSet{
@@ -533,7 +542,9 @@ func TestUtxoValidateNativeScriptsRequireGuard(t *testing.T) {
 	}
 	require.NoError(t, UtxoValidateNativeScripts(tx, 0, nil, nil))
 
-	tx.Body.TxGuards = nil
+	tx.Body.TxGuards = &DijkstraGuards{
+		Credentials: []common.Credential{nativeScriptCred},
+	}
 	require.Error(t, UtxoValidateNativeScripts(tx, 0, nil, nil))
 }
 
@@ -767,7 +778,9 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 	}
 }
 
-func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(t *testing.T) {
+func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
+	t *testing.T,
+) {
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{

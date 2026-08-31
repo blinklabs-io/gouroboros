@@ -535,12 +535,64 @@ func (t dijkstraConwayFeatureTransaction) Inputs() []common.TransactionInput {
 	return t.body.Inputs()
 }
 
+func (t dijkstraConwayFeatureTransaction) Outputs() []common.TransactionOutput {
+	return t.body.Outputs()
+}
+
+func (t dijkstraConwayFeatureTransaction) Fee() *big.Int {
+	return t.body.Fee()
+}
+
+func (t dijkstraConwayFeatureTransaction) Id() common.Blake2b256 {
+	return t.body.Id()
+}
+
+func (t dijkstraConwayFeatureTransaction) Hash() common.Blake2b256 {
+	return t.body.Id()
+}
+
+func (t dijkstraConwayFeatureTransaction) TTL() uint64 {
+	return t.body.TTL()
+}
+
+func (t dijkstraConwayFeatureTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return common.TransactionValidityIntervalUpperBound(t.body)
+}
+
+func (t dijkstraConwayFeatureTransaction) ValidityIntervalStart() uint64 {
+	return t.body.ValidityIntervalStart()
+}
+
 func (t dijkstraConwayFeatureTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.body.ReferenceInputs()
 }
 
+func (t dijkstraConwayFeatureTransaction) Collateral() []common.TransactionInput {
+	return t.body.Collateral()
+}
+
+func (t dijkstraConwayFeatureTransaction) CollateralReturn() common.TransactionOutput {
+	return t.body.CollateralReturn()
+}
+
+func (t dijkstraConwayFeatureTransaction) TotalCollateral() *big.Int {
+	return t.body.TotalCollateral()
+}
+
 func (t dijkstraConwayFeatureTransaction) Witnesses() common.TransactionWitnessSet {
 	return t.witnesses
+}
+
+func (t dijkstraConwayFeatureTransaction) AuxDataHash() *common.Blake2b256 {
+	return t.body.AuxDataHash()
+}
+
+func (t dijkstraConwayFeatureTransaction) RequiredSigners() []common.Blake2b224 {
+	return t.body.RequiredSigners()
+}
+
+func (t dijkstraConwayFeatureTransaction) ScriptDataHash() *common.Blake2b256 {
+	return t.body.ScriptDataHash()
 }
 
 func (t dijkstraConwayFeatureTransaction) CurrentTreasuryValue() *big.Int {
@@ -567,6 +619,29 @@ func (t dijkstraConwayFeatureTransaction) AssetMint() *common.MultiAsset[common.
 	return t.body.AssetMint()
 }
 
+func (t dijkstraConwayFeatureTransaction) Donation() *big.Int {
+	return t.body.Donation()
+}
+
+func (t dijkstraConwayFeatureTransaction) Consumed() []common.TransactionInput {
+	if t.IsValid() {
+		return t.Inputs()
+	}
+	return t.Collateral()
+}
+
+func (t dijkstraConwayFeatureTransaction) Produced() []common.Utxo {
+	outputs := t.Outputs()
+	ret := make([]common.Utxo, 0, len(outputs))
+	for idx, output := range outputs {
+		ret = append(ret, common.Utxo{
+			Id:     shelley.NewShelleyTransactionInput(t.Id().String(), idx),
+			Output: output,
+		})
+	}
+	return ret
+}
+
 // GuardingCredentials exposes only this transaction level's guards to the
 // shared script-purpose resolver. Script availability is aggregated across
 // levels separately by UtxoValidateConwayFeaturesWithPlutusV1V2.
@@ -582,6 +657,103 @@ func (t dijkstraConwayFeatureTransaction) GuardingCredentials() []common.Credent
 		}
 	}
 	return nil
+}
+
+func dijkstraTransactionLevels(
+	tx *DijkstraTransaction,
+) []dijkstraConwayFeatureTransaction {
+	subTxs := tx.Body.TxSubTransactions.Items()
+	levels := make([]dijkstraConwayFeatureTransaction, 0, len(subTxs)+1)
+	for idx := range subTxs {
+		levels = append(levels, dijkstraConwayFeatureTransaction{
+			Transaction: tx,
+			body:        &subTxs[idx].Body,
+			witnesses:   subTxs[idx].WitnessSet,
+		})
+	}
+	return append(levels, dijkstraConwayFeatureTransaction{
+		Transaction: tx,
+		body:        &tx.Body,
+		witnesses:   tx.WitnessSet,
+	})
+}
+
+type dijkstraScriptLevel struct {
+	tx       dijkstraConwayFeatureTransaction
+	resolved []common.Utxo
+	view     script.TxScriptView
+}
+
+func dijkstraScriptLevels(
+	tx *DijkstraTransaction,
+	ls common.LedgerState,
+) ([]dijkstraScriptLevel, map[common.ScriptHash]common.Script, error) {
+	txLevels := dijkstraTransactionLevels(tx)
+	levels := make([]dijkstraScriptLevel, 0, len(txLevels))
+	available := make(map[common.ScriptHash]common.Script)
+	for _, txLevel := range txLevels {
+		addDijkstraWitnessScripts(available, txLevel.Witnesses())
+		var inputs, refInputs, resolved []common.Utxo
+		if len(txLevel.Inputs())+len(txLevel.ReferenceInputs()) > 0 {
+			if ls == nil {
+				return nil, nil, errors.New(
+					"ledger state is required for Dijkstra script validation",
+				)
+			}
+			var err error
+			inputs, refInputs, err = script.ResolveTxInputs(txLevel, ls)
+			if err != nil {
+				return nil, nil, err
+			}
+			resolved = script.ConcatResolvedInputs(inputs, refInputs)
+			for _, utxo := range resolved {
+				if utxo.Output == nil || utxo.Output.ScriptRef() == nil {
+					continue
+				}
+				candidate := utxo.Output.ScriptRef()
+				available[candidate.Hash()] = candidate
+			}
+		}
+		levels = append(levels, dijkstraScriptLevel{
+			tx:       txLevel,
+			resolved: resolved,
+			view: script.TxScriptView{
+				ResolvedInputs:          inputs,
+				ResolvedReferenceInputs: refInputs,
+			},
+		})
+	}
+	for idx := range levels {
+		levels[idx].view = levels[idx].view.WithAvailableScripts(
+			levels[idx].tx,
+			available,
+		)
+	}
+	return levels, available, nil
+}
+
+func addDijkstraWitnessScripts(
+	available map[common.ScriptHash]common.Script,
+	wits common.TransactionWitnessSet,
+) {
+	if wits == nil {
+		return
+	}
+	for _, candidate := range wits.NativeScripts() {
+		available[candidate.Hash()] = candidate
+	}
+	for _, candidate := range wits.PlutusV1Scripts() {
+		available[candidate.Hash()] = candidate
+	}
+	for _, candidate := range wits.PlutusV2Scripts() {
+		available[candidate.Hash()] = candidate
+	}
+	for _, candidate := range wits.PlutusV3Scripts() {
+		available[candidate.Hash()] = candidate
+	}
+	for _, candidate := range common.PlutusV4ScriptsFromWitnessSet(wits) {
+		available[candidate.Hash()] = candidate
+	}
 }
 
 // UtxoValidateConwayFeaturesWithPlutusV1V2 applies the complete Conway
@@ -702,18 +874,130 @@ func UtxoValidatePlutusScripts(
 	if !tx.IsValid() {
 		return nil
 	}
-	if !hasGuardingRedeemers(tx.Witnesses()) {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
 		return conway.UtxoValidatePlutusScripts(tx, slot, ls, tmpPparams)
 	}
-	if err := conway.UtxoValidatePlutusScripts(
-		transactionWithoutGuardingRedeemers{Transaction: tx},
-		slot,
-		ls,
-		tmpPparams,
-	); err != nil {
+	levels, available, err := dijkstraScriptLevels(dijkstraTx, ls)
+	if err != nil {
 		return err
 	}
-	return validateGuardingPlutusScripts(tx, ls, tmpPparams)
+	for _, level := range levels {
+		levelTx := transactionWithAvailablePlutusScripts{
+			Transaction: level.tx,
+			available:   available,
+		}
+		if err := conway.UtxoValidatePlutusScripts(
+			transactionWithoutGuardingRedeemers{Transaction: levelTx},
+			slot,
+			ls,
+			tmpPparams,
+		); err != nil {
+			return err
+		}
+		if err := validateGuardingPlutusScripts(
+			level.tx,
+			ls,
+			tmpPparams,
+			available,
+			level.resolved,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type transactionWithAvailablePlutusScripts struct {
+	common.Transaction
+	available map[common.ScriptHash]common.Script
+}
+
+func (t transactionWithAvailablePlutusScripts) Witnesses() common.TransactionWitnessSet {
+	return witnessSetWithAvailablePlutusScripts{
+		TransactionWitnessSet: t.Transaction.Witnesses(),
+		available:             t.available,
+	}
+}
+
+type witnessSetWithAvailablePlutusScripts struct {
+	common.TransactionWitnessSet
+	available map[common.ScriptHash]common.Script
+}
+
+func (w witnessSetWithAvailablePlutusScripts) Vkey() []common.VkeyWitness {
+	if w.TransactionWitnessSet == nil {
+		return nil
+	}
+	return w.TransactionWitnessSet.Vkey()
+}
+
+func (w witnessSetWithAvailablePlutusScripts) NativeScripts() []common.NativeScript {
+	if w.TransactionWitnessSet == nil {
+		return nil
+	}
+	return w.TransactionWitnessSet.NativeScripts()
+}
+
+func (w witnessSetWithAvailablePlutusScripts) Bootstrap() []common.BootstrapWitness {
+	if w.TransactionWitnessSet == nil {
+		return nil
+	}
+	return w.TransactionWitnessSet.Bootstrap()
+}
+
+func (w witnessSetWithAvailablePlutusScripts) PlutusData() []common.Datum {
+	if w.TransactionWitnessSet == nil {
+		return nil
+	}
+	return w.TransactionWitnessSet.PlutusData()
+}
+
+func (w witnessSetWithAvailablePlutusScripts) Redeemers() common.TransactionWitnessRedeemers {
+	if w.TransactionWitnessSet == nil {
+		return nil
+	}
+	return w.TransactionWitnessSet.Redeemers()
+}
+
+func (w witnessSetWithAvailablePlutusScripts) PlutusV1Scripts() []common.PlutusV1Script {
+	ret := make([]common.PlutusV1Script, 0)
+	for _, candidate := range w.available {
+		if plutusScript, ok := candidate.(common.PlutusV1Script); ok {
+			ret = append(ret, plutusScript)
+		}
+	}
+	return ret
+}
+
+func (w witnessSetWithAvailablePlutusScripts) PlutusV2Scripts() []common.PlutusV2Script {
+	ret := make([]common.PlutusV2Script, 0)
+	for _, candidate := range w.available {
+		if plutusScript, ok := candidate.(common.PlutusV2Script); ok {
+			ret = append(ret, plutusScript)
+		}
+	}
+	return ret
+}
+
+func (w witnessSetWithAvailablePlutusScripts) PlutusV3Scripts() []common.PlutusV3Script {
+	ret := make([]common.PlutusV3Script, 0)
+	for _, candidate := range w.available {
+		if plutusScript, ok := candidate.(common.PlutusV3Script); ok {
+			ret = append(ret, plutusScript)
+		}
+	}
+	return ret
+}
+
+func (w witnessSetWithAvailablePlutusScripts) PlutusV4Scripts() []common.PlutusV4Script {
+	ret := make([]common.PlutusV4Script, 0)
+	for _, candidate := range w.available {
+		if plutusScript, ok := candidate.(common.PlutusV4Script); ok {
+			ret = append(ret, plutusScript)
+		}
+	}
+	return ret
 }
 
 type transactionWithoutGuardingRedeemers struct {
@@ -778,39 +1062,16 @@ func (r redeemersWithoutGuarding) Iter() iter.Seq2[common.RedeemerKey, common.Re
 	}
 }
 
-func hasGuardingRedeemers(wits common.TransactionWitnessSet) bool {
-	if wits == nil || wits.Redeemers() == nil {
-		return false
-	}
-	for key := range wits.Redeemers().Iter() {
-		if key.Tag == common.RedeemerTagGuarding {
-			return true
-		}
-	}
-	return false
-}
-
 func validateGuardingPlutusScripts(
 	tx common.Transaction,
 	ls common.LedgerState,
 	pp *conway.ConwayProtocolParameters,
+	availableScripts map[common.ScriptHash]common.Script,
+	resolvedInputs []common.Utxo,
 ) error {
 	wits := tx.Witnesses()
 	if wits == nil || wits.Redeemers() == nil {
 		return nil
-	}
-
-	resolvedInputs, err := resolvedInputsForGuardingPlutus(tx, ls)
-	if err != nil {
-		return err
-	}
-	availableScripts := script.AvailablePlutusScripts(tx, resolvedInputs)
-	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
-		for _, subTx := range dijkstraTx.Body.TxSubTransactions.Items() {
-			for hash, s := range script.PlutusWitnessScripts(subTx.WitnessSet) {
-				availableScripts[hash] = s
-			}
-		}
 	}
 
 	var txInfoV1 script.TxInfoV1
@@ -829,15 +1090,10 @@ func validateGuardingPlutusScripts(
 		scriptHash := purpose.ScriptHash()
 		plutusScript, ok := availableScripts[scriptHash]
 		if !ok {
-			nativeGuard := dijkstraGuardResolvesToNativeScriptFromResolved(
-				tx,
-				resolvedInputs,
-				redeemerKey.Index,
-			)
-			if nativeGuard {
-				return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
-			}
 			return common.MissingScriptWitnessesError{ScriptHash: scriptHash}
+		}
+		if _, ok := plutusScript.(common.NativeScript); ok {
+			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 		if ls == nil {
 			return errors.New(
@@ -988,38 +1244,21 @@ func validateGuardingPlutusScripts(
 	return nil
 }
 
-func resolvedInputsForGuardingPlutus(
-	tx common.Transaction,
-	ls common.LedgerState,
-) ([]common.Utxo, error) {
-	if len(tx.Inputs())+len(tx.ReferenceInputs()) == 0 {
-		return nil, nil
-	}
-	if ls == nil {
-		return nil, errors.New(
-			"ledger state is required for Dijkstra guarding Plutus validation",
-		)
-	}
-	inputs, refInputs, err := script.ResolveTxInputs(tx, ls)
-	if err != nil {
-		return nil, err
-	}
-	return script.ConcatResolvedInputs(inputs, refInputs), nil
-}
-
 func dijkstraGuardingPurpose(
 	tx common.Transaction,
 	redeemerKey common.RedeemerKey,
 ) (script.ScriptPurposeGuarding, bool) {
-	dijkstraTx, ok := tx.(*DijkstraTransaction)
-	if !ok || dijkstraTx.Body.TxGuards == nil {
+	guardingTx, ok := tx.(interface {
+		GuardingCredentials() []common.Credential
+	})
+	if !ok {
 		return script.ScriptPurposeGuarding{}, false
 	}
-	guards := dijkstraTx.Body.TxGuards
-	if int(redeemerKey.Index) >= len(guards.Credentials) {
+	guards := guardingTx.GuardingCredentials()
+	if int(redeemerKey.Index) >= len(guards) {
 		return script.ScriptPurposeGuarding{}, false
 	}
-	guard := guards.Credentials[redeemerKey.Index]
+	guard := guards[redeemerKey.Index]
 	if guard.CredType != common.CredentialTypeScriptHash {
 		return script.ScriptPurposeGuarding{}, false
 	}
@@ -1854,32 +2093,6 @@ func dijkstraGuardResolvesToNativeScript(
 	return false, nil
 }
 
-// dijkstraGuardResolvesToNativeScriptFromResolved is
-// dijkstraGuardResolvesToNativeScript's check for a caller that already
-// resolved the transaction's inputs -- validateGuardingPlutusScripts, via
-// resolvedInputsForGuardingPlutus -- so it does not repeat those UtxoById
-// calls.
-func dijkstraGuardResolvesToNativeScriptFromResolved(
-	tx common.Transaction,
-	resolvedInputs []common.Utxo,
-	index uint32,
-) bool {
-	scriptHash, ok := dijkstraGuardScriptHash(tx, index)
-	if !ok {
-		return false
-	}
-	if dijkstraGuardWitnessesHaveNativeScript(tx, scriptHash) {
-		return true
-	}
-	for _, utxo := range resolvedInputs {
-		if utxo.Output != nil &&
-			scriptRefIsNativeHash(utxo.Output.ScriptRef(), scriptHash) {
-			return true
-		}
-	}
-	return false
-}
-
 // dijkstraGuardScriptHash resolves the guard credential at index to a script
 // hash, reporting false if it is absent or not a script credential.
 func dijkstraGuardScriptHash(
@@ -1954,54 +2167,78 @@ func UtxoValidateNativeScripts(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateNativeScripts(tx, slot, ls, pp)
 	}
-	nativeScripts := witnesses.NativeScripts()
-	if len(nativeScripts) == 0 {
-		return nil
+	levels, _, err := dijkstraScriptLevels(dijkstraTx, ls)
+	if err != nil {
+		return err
 	}
-	keyHashes := make(map[common.Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		keyHashes[common.Blake2b224Hash(vkw.Vkey)] = true
-	}
-	for _, bw := range witnesses.Bootstrap() {
-		keyHashes[common.Blake2b224Hash(bw.PublicKey)] = true
-	}
-	validityStart := tx.ValidityIntervalStart()
-	validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(
-		tx,
-	)
-	if !validityEndPresent {
-		validityEnd = ^uint64(0)
-	}
-	guardCredentials := nativeScriptGuardCredentials(tx)
-	for _, nscript := range nativeScripts {
-		scriptHash := nscript.Hash()
-		if !nscript.EvaluateWithGuards(
-			slot,
-			validityStart,
-			validityEnd,
-			keyHashes,
-			guardCredentials,
-		) {
-			return conway.NativeScriptFailedError{ScriptHash: scriptHash}
+	for _, level := range levels {
+		witnesses := level.tx.Witnesses()
+		nativeScripts := make(map[common.ScriptHash]common.NativeScript)
+		for scriptHash, candidate := range level.view.Needed {
+			switch native := candidate.(type) {
+			case common.NativeScript:
+				nativeScripts[scriptHash] = native
+			case *common.NativeScript:
+				if native != nil {
+					nativeScripts[scriptHash] = *native
+				}
+			}
+		}
+		if len(nativeScripts) == 0 {
+			continue
+		}
+		keyHashes := make(map[common.Blake2b224]bool)
+		if witnesses != nil {
+			for _, vkw := range witnesses.Vkey() {
+				keyHashes[common.Blake2b224Hash(vkw.Vkey)] = true
+			}
+			for _, bw := range witnesses.Bootstrap() {
+				keyHashes[common.Blake2b224Hash(bw.PublicKey)] = true
+			}
+		}
+		validityStart := level.tx.ValidityIntervalStart()
+		validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(
+			level.tx,
+		)
+		if !validityEndPresent {
+			validityEnd = ^uint64(0)
+		}
+		guardCredentials := nativeScriptGuardCredentials(level.tx)
+		for scriptHash, native := range nativeScripts {
+			if !native.EvaluateWithGuards(
+				slot,
+				validityStart,
+				validityEnd,
+				keyHashes,
+				guardCredentials,
+			) {
+				return conway.NativeScriptFailedError{ScriptHash: scriptHash}
+			}
 		}
 	}
 	return nil
 }
 
 func nativeScriptGuardCredentials(tx common.Transaction) []common.Credential {
-	// Dijkstra native-script guards are Dijkstra body fields. This rule is
-	// registered only for Dijkstra validation, whose transaction type has
-	// pointer-only CBOR methods and therefore reaches this helper as
-	// *DijkstraTransaction.
-	dijkstraTx, ok := tx.(*DijkstraTransaction)
-	if !ok || dijkstraTx.Body.TxGuards == nil {
+	var guards *DijkstraGuards
+	switch tx := tx.(type) {
+	case *DijkstraTransaction:
+		guards = tx.Body.TxGuards
+	case dijkstraConwayFeatureTransaction:
+		switch body := tx.body.(type) {
+		case *DijkstraTransactionBody:
+			guards = body.TxGuards
+		case *DijkstraSubTransactionBody:
+			guards = body.TxGuards
+		}
+	}
+	if guards == nil {
 		return nil
 	}
-	guards := dijkstraTx.Body.TxGuards
 	ret := make(
 		[]common.Credential,
 		0,

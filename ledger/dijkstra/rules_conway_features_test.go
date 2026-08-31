@@ -230,12 +230,16 @@ func dijkstraScriptRef(
 ) *common.ScriptRef {
 	var scriptType uint
 	switch script.(type) {
+	case common.NativeScript:
+		scriptType = common.ScriptRefTypeNativeScript
 	case common.PlutusV1Script:
 		scriptType = common.ScriptRefTypePlutusV1
 	case common.PlutusV2Script:
 		scriptType = common.ScriptRefTypePlutusV2
 	case common.PlutusV3Script:
 		scriptType = common.ScriptRefTypePlutusV3
+	case common.PlutusV4Script:
+		scriptType = common.ScriptRefTypePlutusV4
 	}
 	return &common.ScriptRef{Type: scriptType, Script: script}
 }
