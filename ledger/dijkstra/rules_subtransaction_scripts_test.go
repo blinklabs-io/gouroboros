@@ -20,6 +20,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -182,6 +183,97 @@ func TestVerifyTransactionExecutesSubtransactionPlutusGuards(t *testing.T) {
 			require.Equal(t, common.RedeemerTagGuarding, scriptErr.Tag)
 			require.Zero(t, scriptErr.Index)
 		})
+	}
+}
+
+func TestVerifyTransactionRequiresReferencePlutusV4GuardRedeemer(t *testing.T) {
+	v4 := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
+	guard := dijkstraGuardCredentialForScript(v4)
+	referenceInput, referenceUtxo := dijkstraReferenceScriptInput(v4, 903)
+	referenceAddress, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		v4.Hash().Bytes(),
+		nil,
+	)
+	require.NoError(t, err)
+	referenceOutput := referenceUtxo.Output.(babbage.BabbageTransactionOutput)
+	referenceOutput.OutputAddress = referenceAddress
+	referenceUtxo.Output = referenceOutput
+	redeemerKey := common.RedeemerKey{
+		Tag: common.RedeemerTagGuarding,
+	}
+
+	for _, subtransaction := range []bool{false, true} {
+		level := "top-level"
+		if subtransaction {
+			level = "subtransaction"
+		}
+		for _, withRedeemer := range []bool{false, true} {
+			witnessState := "missing redeemer"
+			if withRedeemer {
+				witnessState = "valid redeemer"
+			}
+			t.Run(level+"/"+witnessState, func(t *testing.T) {
+				witnesses := DijkstraTransactionWitnessSet{}
+				if withRedeemer {
+					witnesses.WsRedeemers = DijkstraRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+							redeemerKey: {
+								ExUnits: common.ExUnits{
+									Steps:  10_000_000,
+									Memory: 10_000_000,
+								},
+							},
+						},
+					}
+				}
+				tx := &DijkstraTransaction{
+					Body: DijkstraTransactionBody{
+						TxReferenceInputs: dijkstraReferenceInputSet(
+							referenceInput,
+						),
+					},
+					TxIsValid: true,
+				}
+				guards := &DijkstraGuards{
+					Credentials: []common.Credential{guard},
+				}
+				if subtransaction {
+					tx.Body.TxSubTransactions = cbor.NewSetType(
+						[]DijkstraSubTransaction{{
+							Body: DijkstraSubTransactionBody{
+								TxGuards: guards,
+							},
+							WitnessSet: witnesses,
+						}},
+						true,
+					)
+				} else {
+					tx.Body.TxGuards = guards
+					tx.WitnessSet = witnesses
+				}
+
+				err := common.VerifyTransaction(
+					tx,
+					0,
+					mockledger.NewLedgerStateBuilder().
+						WithUtxos([]common.Utxo{referenceUtxo}).
+						Build(),
+					dijkstraGuardTestPParams(),
+					[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
+				)
+				if withRedeemer {
+					require.NoError(t, err)
+					return
+				}
+				var missing conway.MissingRedeemerForScriptError
+				require.ErrorAs(t, err, &missing)
+				require.Equal(t, v4.Hash(), missing.ScriptHash)
+				require.Equal(t, redeemerKey.Tag, missing.Tag)
+				require.Equal(t, redeemerKey.Index, missing.Index)
+			})
+		}
 	}
 }
 
