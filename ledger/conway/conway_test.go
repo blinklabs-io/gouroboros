@@ -394,13 +394,43 @@ func TestConwayTx_Utxorpc(t *testing.T) {
 func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	input := testConwayShelleyInput()
 	bodyCbor, err := cbor.Encode(map[uint]any{
-		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{input, input}, true),
+		0: cbor.NewSetType(
+			[]shelley.ShelleyTransactionInput{input, input},
+			true,
+		),
 	})
 	assert.NoError(t, err)
 
 	var body ConwayTransactionBody
 	err = body.UnmarshalCBOR(bodyCbor)
 	assert.ErrorContains(t, err, "duplicate member in set")
+}
+
+func TestConwayTransactionRejectsNegativeCurrentTreasuryValue(t *testing.T) {
+	encoded, err := cbor.Encode([]any{
+		map[uint]any{21: int64(-1)},
+		map[uint]any{},
+		false,
+		nil,
+	})
+	require.NoError(t, err)
+
+	var tx ConwayTransaction
+	err = tx.UnmarshalCBOR(encoded)
+	require.ErrorContains(t, err, "current treasury value")
+}
+
+func TestConwayTransactionMarshalRejectsNegativeCurrentTreasuryValue(
+	t *testing.T,
+) {
+	tx := ConwayTransaction{
+		Body: ConwayTransactionBody{
+			TxCurrentTreasuryValue: -1,
+		},
+		TxIsValid: false,
+	}
+	_, err := tx.MarshalCBOR()
+	require.ErrorContains(t, err, "current treasury value")
 }
 
 func TestConwayUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
@@ -536,11 +566,16 @@ func TestConwayWitnessSetToleratesDuplicateTaggedVkeyWitness(t *testing.T) {
 
 	var ws ConwayTransactionWitnessSet
 	err := ws.UnmarshalCBOR(dupCbor)
-	assert.NoError(t, err,
-		"Conway must tolerate duplicate vkey witnesses (dedup at decode, matching cardano-ledger pv 9-11)")
+	assert.NoError(
+		t,
+		err,
+		"Conway must tolerate duplicate vkey witnesses (dedup at decode, matching cardano-ledger pv 9-11)",
+	)
 }
 
-func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(t *testing.T) {
+func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(
+	t *testing.T,
+) {
 	tests := []struct {
 		name   string
 		field  byte
@@ -594,7 +629,9 @@ func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV1Script(t *testing.T) {
 	assert.ErrorContains(t, err, "duplicate member in set")
 }
 
-func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV2AndV3Scripts(t *testing.T) {
+func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV2AndV3Scripts(
+	t *testing.T,
+) {
 	tests := []struct {
 		name  string
 		field byte

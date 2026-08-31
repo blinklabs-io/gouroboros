@@ -15,6 +15,7 @@
 package dijkstra
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -110,8 +111,9 @@ func TestDijkstraConwayFeaturesCurrentTreasuryWitnessScripts(
 			version:  "PlutusV2",
 		},
 	}
-	for _, test := range tests {
+	for idx, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			input, utxo := dijkstraScriptLockedInput(t, test.script, idx)
 			tx := &DijkstraTransaction{
 				Body:      decodeDijkstraTreasuryBody(t, nil),
 				TxIsValid: true,
@@ -122,12 +124,18 @@ func TestDijkstraConwayFeaturesCurrentTreasuryWitnessScripts(
 					dijkstraTreasuryValue(test.treasury),
 				)
 				tx.WitnessSet = testDijkstraWitnessSet(t, test.script)
+				tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				)
 			} else {
 				subTx := decodeDijkstraTreasurySubTransaction(
 					t,
 					dijkstraTreasuryValue(test.treasury),
 				)
 				subTx.WitnessSet = testDijkstraWitnessSet(t, test.script)
+				subTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				)
 				tx.Body.TxSubTransactions = cbor.NewSetType(
 					[]DijkstraSubTransaction{subTx},
 					true,
@@ -139,7 +147,9 @@ func TestDijkstraConwayFeaturesCurrentTreasuryWitnessScripts(
 				verifyDijkstraConwayFeatures(
 					t,
 					tx,
-					mockledger.NewLedgerStateBuilder().Build(),
+					mockledger.NewLedgerStateBuilder().WithUtxos(
+						[]common.Utxo{utxo},
+					).Build(),
 				),
 				test.version,
 			)
@@ -177,8 +187,9 @@ func TestDijkstraConwayFeaturesCurrentTreasuryPermittedCases(
 			script:   common.PlutusV3Script{0x01},
 		},
 	}
-	for _, test := range tests {
+	for idx, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			input, utxo := dijkstraScriptLockedInput(t, test.script, idx+10)
 			tx := &DijkstraTransaction{
 				Body:      decodeDijkstraTreasuryBody(t, nil),
 				TxIsValid: true,
@@ -186,9 +197,15 @@ func TestDijkstraConwayFeaturesCurrentTreasuryPermittedCases(
 			if test.topLevel {
 				tx.Body = decodeDijkstraTreasuryBody(t, test.treasury)
 				tx.WitnessSet = testDijkstraWitnessSet(t, test.script)
+				tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				)
 			} else {
 				subTx := decodeDijkstraTreasurySubTransaction(t, test.treasury)
 				subTx.WitnessSet = testDijkstraWitnessSet(t, test.script)
+				subTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				)
 				tx.Body.TxSubTransactions = cbor.NewSetType(
 					[]DijkstraSubTransaction{subTx},
 					true,
@@ -199,7 +216,9 @@ func TestDijkstraConwayFeaturesCurrentTreasuryPermittedCases(
 				verifyDijkstraConwayFeatures(
 					t,
 					tx,
-					mockledger.NewLedgerStateBuilder().Build(),
+					mockledger.NewLedgerStateBuilder().WithUtxos(
+						[]common.Utxo{utxo},
+					).Build(),
 				),
 			)
 		})
@@ -219,6 +238,214 @@ func dijkstraScriptRef(
 		scriptType = common.ScriptRefTypePlutusV3
 	}
 	return &common.ScriptRef{Type: scriptType, Script: script}
+}
+
+func dijkstraScriptLockedInput(
+	t *testing.T,
+	script common.Script,
+	index int,
+) (shelley.ShelleyTransactionInput, common.Utxo) {
+	t.Helper()
+	input := shelley.NewShelleyTransactionInput(
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		index,
+	)
+	address, err := common.NewAddressFromParts(
+		common.AddressTypeScriptKey,
+		common.AddressNetworkTestnet,
+		script.Hash().Bytes(),
+		bytes.Repeat([]byte{0x55}, common.AddressHashSize),
+	)
+	require.NoError(t, err)
+	return input, common.Utxo{
+		Id: input,
+		Output: babbage.BabbageTransactionOutput{
+			OutputAddress: address,
+			OutputAmount: mary.MaryTransactionOutputValue{
+				Amount: 2_000_000,
+			},
+		},
+	}
+}
+
+func dijkstraReferenceScriptInput(
+	script common.Script,
+	index int,
+) (shelley.ShelleyTransactionInput, common.Utxo) {
+	input := shelley.NewShelleyTransactionInput(
+		"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		index,
+	)
+	return input, common.Utxo{
+		Id: input,
+		Output: babbage.BabbageTransactionOutput{
+			OutputAmount: mary.MaryTransactionOutputValue{
+				Amount: 2_000_000,
+			},
+			TxOutScriptRef: dijkstraScriptRef(script),
+		},
+	}
+}
+
+func TestDijkstraConwayFeaturesUsesSharedRequiredScripts(t *testing.T) {
+	tests := []struct {
+		name              string
+		featureTopLevel   bool
+		treasury          uint64
+		script            common.Script
+		providedByWitness bool
+		wantVersion       string
+	}{
+		{
+			name:              "top-level explicit zero supplied by subtransaction witness",
+			featureTopLevel:   true,
+			script:            common.PlutusV1Script{0x01},
+			providedByWitness: true,
+			wantVersion:       "PlutusV1",
+		},
+		{
+			name:            "top-level nonzero supplied by subtransaction reference input",
+			featureTopLevel: true,
+			treasury:        42,
+			script:          common.PlutusV2Script{0x02},
+			wantVersion:     "PlutusV2",
+		},
+		{
+			name:              "subtransaction explicit zero supplied by top-level witness",
+			script:            common.PlutusV1Script{0x03},
+			providedByWitness: true,
+			wantVersion:       "PlutusV1",
+		},
+		{
+			name:        "subtransaction nonzero supplied by top-level reference input",
+			treasury:    42,
+			script:      common.PlutusV2Script{0x04},
+			wantVersion: "PlutusV2",
+		},
+	}
+	for idx, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spendInput, spendUtxo := dijkstraScriptLockedInput(
+				t,
+				test.script,
+				idx,
+			)
+			tx := &DijkstraTransaction{
+				Body:      decodeDijkstraTreasuryBody(t, nil),
+				TxIsValid: true,
+			}
+			subTx := decodeDijkstraTreasurySubTransaction(t, nil)
+			if test.featureTopLevel {
+				tx.Body = decodeDijkstraTreasuryBody(
+					t,
+					dijkstraTreasuryValue(test.treasury),
+				)
+				tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{spendInput},
+				)
+			} else {
+				subTx = decodeDijkstraTreasurySubTransaction(
+					t,
+					dijkstraTreasuryValue(test.treasury),
+				)
+				subTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{spendInput},
+				)
+			}
+
+			utxos := []common.Utxo{spendUtxo}
+			if test.providedByWitness {
+				if test.featureTopLevel {
+					subTx.WitnessSet = testDijkstraWitnessSet(t, test.script)
+				} else {
+					tx.WitnessSet = testDijkstraWitnessSet(t, test.script)
+				}
+			} else {
+				refInput, refUtxo := dijkstraReferenceScriptInput(
+					test.script,
+					idx,
+				)
+				utxos = append(utxos, refUtxo)
+				if test.featureTopLevel {
+					subTx.Body.TxReferenceInputs = cbor.NewSetType(
+						[]shelley.ShelleyTransactionInput{refInput},
+						true,
+					)
+				} else {
+					tx.Body.TxReferenceInputs = cbor.NewSetType(
+						[]shelley.ShelleyTransactionInput{refInput},
+						true,
+					)
+				}
+			}
+			tx.Body.TxSubTransactions = cbor.NewSetType(
+				[]DijkstraSubTransaction{subTx},
+				true,
+			)
+
+			err := verifyDijkstraConwayFeatures(
+				t,
+				tx,
+				mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build(),
+			)
+			requireDijkstraCurrentTreasuryPlutusError(
+				t,
+				err,
+				test.wantVersion,
+			)
+		})
+	}
+}
+
+func TestDijkstraConwayFeaturesSharedRequiredPlutusV3Permitted(t *testing.T) {
+	for _, featureTopLevel := range []bool{true, false} {
+		name := "subtransaction feature"
+		if featureTopLevel {
+			name = "top-level feature"
+		}
+		t.Run(name, func(t *testing.T) {
+			script := common.PlutusV3Script{0x01}
+			spendInput, spendUtxo := dijkstraScriptLockedInput(t, script, 50)
+			tx := &DijkstraTransaction{
+				Body:      decodeDijkstraTreasuryBody(t, nil),
+				TxIsValid: true,
+			}
+			subTx := decodeDijkstraTreasurySubTransaction(t, nil)
+			if featureTopLevel {
+				tx.Body = decodeDijkstraTreasuryBody(
+					t,
+					dijkstraTreasuryValue(42),
+				)
+				tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{spendInput},
+				)
+				subTx.WitnessSet = testDijkstraWitnessSet(t, script)
+			} else {
+				subTx = decodeDijkstraTreasurySubTransaction(
+					t,
+					dijkstraTreasuryValue(42),
+				)
+				subTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{spendInput},
+				)
+				tx.WitnessSet = testDijkstraWitnessSet(t, script)
+			}
+			tx.Body.TxSubTransactions = cbor.NewSetType(
+				[]DijkstraSubTransaction{subTx},
+				true,
+			)
+			require.NoError(
+				t,
+				verifyDijkstraConwayFeatures(
+					t,
+					tx,
+					mockledger.NewLedgerStateBuilder().WithUtxos(
+						[]common.Utxo{spendUtxo},
+					).Build(),
+				),
+			)
+		})
+	}
 }
 
 func TestDijkstraConwayFeaturesCurrentTreasuryReferenceScripts(
@@ -263,21 +490,26 @@ func TestDijkstraConwayFeaturesCurrentTreasuryReferenceScripts(
 	}
 	for idx, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			input := shelley.NewShelleyTransactionInput(
-				"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-				idx,
+			input, inputUtxo := dijkstraScriptLockedInput(
+				t,
+				test.script,
+				idx+20,
 			)
-			state := mockledger.NewLedgerStateBuilder().WithUtxos(
-				[]common.Utxo{{
-					Id: input,
-					Output: babbage.BabbageTransactionOutput{
-						OutputAmount: mary.MaryTransactionOutputValue{
-							Amount: 1,
-						},
-						TxOutScriptRef: dijkstraScriptRef(test.script),
-					},
-				}},
-			).Build()
+			utxos := []common.Utxo{inputUtxo}
+			var referenceInput shelley.ShelleyTransactionInput
+			if test.referenceInput {
+				var referenceUtxo common.Utxo
+				referenceInput, referenceUtxo = dijkstraReferenceScriptInput(
+					test.script,
+					idx+20,
+				)
+				utxos = append(utxos, referenceUtxo)
+			} else {
+				output := inputUtxo.Output.(babbage.BabbageTransactionOutput)
+				output.TxOutScriptRef = dijkstraScriptRef(test.script)
+				utxos[0].Output = output
+			}
+			state := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 			tx := &DijkstraTransaction{
 				Body:      decodeDijkstraTreasuryBody(t, nil),
 				TxIsValid: true,
@@ -287,14 +519,13 @@ func TestDijkstraConwayFeaturesCurrentTreasuryReferenceScripts(
 					t,
 					dijkstraTreasuryValue(42),
 				)
+				tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				)
 				if test.referenceInput {
 					tx.Body.TxReferenceInputs = cbor.NewSetType(
-						[]shelley.ShelleyTransactionInput{input},
+						[]shelley.ShelleyTransactionInput{referenceInput},
 						true,
-					)
-				} else {
-					tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
-						[]shelley.ShelleyTransactionInput{input},
 					)
 				}
 			} else {
@@ -302,14 +533,13 @@ func TestDijkstraConwayFeaturesCurrentTreasuryReferenceScripts(
 					t,
 					dijkstraTreasuryValue(0),
 				)
+				subTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				)
 				if test.referenceInput {
 					subTx.Body.TxReferenceInputs = cbor.NewSetType(
-						[]shelley.ShelleyTransactionInput{input},
+						[]shelley.ShelleyTransactionInput{referenceInput},
 						true,
-					)
-				} else {
-					subTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
-						[]shelley.ShelleyTransactionInput{input},
 					)
 				}
 				tx.Body.TxSubTransactions = cbor.NewSetType(
@@ -332,9 +562,9 @@ func TestDijkstraConwayFeaturesCurrentTreasuryReferenceScripts(
 	}
 }
 
-func TestDijkstraConwayFeaturesUsesPerLevelScope(t *testing.T) {
+func TestDijkstraConwayFeaturesIgnoresUnneededCrossLevelScripts(t *testing.T) {
 	t.Run(
-		"top-level feature does not pair with subtransaction witness",
+		"top-level feature ignores unneeded subtransaction witness",
 		func(t *testing.T) {
 			tx := &DijkstraTransaction{
 				Body: decodeDijkstraTreasuryBody(
@@ -364,7 +594,7 @@ func TestDijkstraConwayFeaturesUsesPerLevelScope(t *testing.T) {
 	)
 
 	t.Run(
-		"subtransaction feature does not pair with top-level witness",
+		"subtransaction feature ignores unneeded top-level witness",
 		func(t *testing.T) {
 			tx := &DijkstraTransaction{
 				Body: decodeDijkstraTreasuryBody(t, nil),
@@ -397,13 +627,18 @@ func TestDijkstraConwayFeaturesUsesPerLevelScope(t *testing.T) {
 	t.Run(
 		"multiple subtransactions preserve transition order",
 		func(t *testing.T) {
+			plutusV2 := common.PlutusV2Script{0x01}
+			input, utxo := dijkstraScriptLockedInput(t, plutusV2, 40)
 			first := decodeDijkstraTreasurySubTransaction(
 				t,
 				dijkstraTreasuryValue(42),
 			)
 			first.WitnessSet = testDijkstraWitnessSet(
 				t,
-				common.PlutusV2Script{0x01},
+				plutusV2,
+			)
+			first.Body.TxInputs = conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
 			)
 			second := decodeDijkstraTreasurySubTransaction(t, nil)
 			second.WitnessSet = testDijkstraWitnessSet(
@@ -430,7 +665,9 @@ func TestDijkstraConwayFeaturesUsesPerLevelScope(t *testing.T) {
 				verifyDijkstraConwayFeatures(
 					t,
 					tx,
-					mockledger.NewLedgerStateBuilder().Build(),
+					mockledger.NewLedgerStateBuilder().WithUtxos(
+						[]common.Utxo{utxo},
+					).Build(),
 				),
 				"PlutusV2",
 			)
@@ -485,11 +722,16 @@ func TestDijkstraConwayFeaturesChecksAllSubtransactionFeatures(
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			plutusV1 := common.PlutusV1Script{0x01}
+			input, utxo := dijkstraScriptLockedInput(t, plutusV1, 41)
 			subTx := decodeDijkstraTreasurySubTransaction(t, nil)
 			test.configure(&subTx.Body)
 			subTx.WitnessSet = testDijkstraWitnessSet(
 				t,
-				common.PlutusV1Script{0x01},
+				plutusV1,
+			)
+			subTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
 			)
 			tx := &DijkstraTransaction{
 				Body:      decodeDijkstraTreasuryBody(t, nil),
@@ -504,7 +746,9 @@ func TestDijkstraConwayFeaturesChecksAllSubtransactionFeatures(
 				verifyDijkstraConwayFeatures(
 					t,
 					tx,
-					mockledger.NewLedgerStateBuilder().Build(),
+					mockledger.NewLedgerStateBuilder().WithUtxos(
+						[]common.Utxo{utxo},
+					).Build(),
 				),
 			)
 		})
@@ -512,13 +756,18 @@ func TestDijkstraConwayFeaturesChecksAllSubtransactionFeatures(
 }
 
 func TestDijkstraConwayFeaturesPhase2ValidProductionRules(t *testing.T) {
+	plutusV1 := common.PlutusV1Script{0x01}
+	input, utxo := dijkstraScriptLockedInput(t, plutusV1, 42)
 	subTx := decodeDijkstraTreasurySubTransaction(
 		t,
 		dijkstraTreasuryValue(42),
 	)
 	subTx.WitnessSet = testDijkstraWitnessSet(
 		t,
-		common.PlutusV1Script{0x01},
+		plutusV1,
+	)
+	subTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
 	)
 	tx := &DijkstraTransaction{
 		Body:      decodeDijkstraTreasuryBody(t, nil),
@@ -530,6 +779,7 @@ func TestDijkstraConwayFeaturesPhase2ValidProductionRules(t *testing.T) {
 	)
 	state := mockledger.NewLedgerStateBuilder().
 		WithTreasuryAmount(42).
+		WithUtxos([]common.Utxo{utxo}).
 		Build()
 	err := common.VerifyTransaction(
 		tx,

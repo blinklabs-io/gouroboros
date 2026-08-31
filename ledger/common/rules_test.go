@@ -87,21 +87,27 @@ func TestEncodeLangViews(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("rejects_unsupported_versions_without_cost_model", func(t *testing.T) {
-		_, err := common.EncodeLangViews(
-			map[uint]struct{}{4: {}},
-			map[uint][]int64{},
-		)
-		require.Error(t, err)
-	})
+	t.Run(
+		"rejects_unsupported_versions_without_cost_model",
+		func(t *testing.T) {
+			_, err := common.EncodeLangViews(
+				map[uint]struct{}{4: {}},
+				map[uint][]int64{},
+			)
+			require.Error(t, err)
+		},
+	)
 
-	t.Run("rejects_missing_cost_model_for_supported_version", func(t *testing.T) {
-		_, err := common.EncodeLangViews(
-			map[uint]struct{}{2: {}},
-			map[uint][]int64{},
-		)
-		require.Error(t, err)
-	})
+	t.Run(
+		"rejects_missing_cost_model_for_supported_version",
+		func(t *testing.T) {
+			_, err := common.EncodeLangViews(
+				map[uint]struct{}{2: {}},
+				map[uint][]int64{},
+			)
+			require.Error(t, err)
+		},
+	)
 
 	// Forward-compat for PV11 (vanRossem) and later: cost models may grow as
 	// new Plutus builtins are added. The langview hash is part of

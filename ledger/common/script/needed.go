@@ -77,6 +77,21 @@ func (v TxScriptView) NeedsAny(match func(lcommon.Script) bool) bool {
 	return false
 }
 
+// WithAvailableScripts returns a copy of the view whose needed scripts are
+// resolved against available. ResolvedInputs and ResolvedReferenceInputs stay
+// scoped to tx, so a caller can share script availability across transaction
+// levels without importing another level's script purposes.
+//
+// available is treated as read-only and is not copied.
+func (v TxScriptView) WithAvailableScripts(
+	tx lcommon.Transaction,
+	available map[lcommon.ScriptHash]lcommon.Script,
+) TxScriptView {
+	v.Available = available
+	v.Needed = neededScripts(tx, v)
+	return v
+}
+
 // NewTxScriptView resolves the transaction's inputs and reference inputs once,
 // collects the scripts they and the witness set make available, and determines
 // which of those some script purpose requires.
@@ -329,7 +344,9 @@ func neededScripts(
 	}
 	for idx, cert := range tx.Certificates() {
 		keep(ScriptPurposeCertifying{
-			Index:       uint32(idx), // #nosec G115 -- certificate count is bounded
+			Index: uint32(
+				idx,
+			), // #nosec G115 -- certificate count is bounded
 			Certificate: cert,
 		})
 	}
@@ -352,7 +369,9 @@ func neededScripts(
 	}
 	for idx, proposal := range tx.ProposalProcedures() {
 		keep(ScriptPurposeProposing{
-			Index:             uint32(idx), // #nosec G115 -- proposal count is bounded
+			Index: uint32(
+				idx,
+			), // #nosec G115 -- proposal count is bounded
 			ProposalProcedure: proposal,
 		})
 	}

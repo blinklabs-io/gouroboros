@@ -523,8 +523,8 @@ func UtxoValidateDisjointRefInputs(
 
 // dijkstraConwayFeatureTransaction presents one sub-transaction's body and
 // witnesses while retaining the enclosing transaction's unrelated methods.
-// Conway-feature compatibility is scoped per transaction level, so scripts
-// from another level must not affect this view.
+// Script purposes remain scoped to this body; callers can aggregate script
+// availability across transaction levels separately.
 type dijkstraConwayFeatureTransaction struct {
 	common.Transaction
 	body      common.TransactionBody
@@ -559,40 +559,91 @@ func (t dijkstraConwayFeatureTransaction) Certificates() []common.Certificate {
 	return t.body.Certificates()
 }
 
+func (t dijkstraConwayFeatureTransaction) Withdrawals() map[*common.Address]*big.Int {
+	return t.body.Withdrawals()
+}
+
+func (t dijkstraConwayFeatureTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	return t.body.AssetMint()
+}
+
 // UtxoValidateConwayFeaturesWithPlutusV1V2 applies the complete Conway
 // compatibility predicate to each Dijkstra sub-transaction before the
-// top-level transaction. Each level uses its own body, witnesses, regular
-// inputs, and reference inputs.
+// top-level transaction. Script availability is shared across every level,
+// matching Dijkstra script resolution, while each level computes its own
+// needed scripts and checks only its own Conway features.
 func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
-		subTxs := dijkstraTx.Body.TxSubTransactions.Items()
-		for idx := range subTxs {
-			subTx := dijkstraConwayFeatureTransaction{
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
+			tx,
+			slot,
+			ls,
+			pp,
+		)
+	}
+
+	type levelView struct {
+		tx       dijkstraConwayFeatureTransaction
+		view     script.TxScriptView
+		resolved bool
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	levels := make([]levelView, 0, len(subTxs)+1)
+	for idx := range subTxs {
+		levels = append(levels, levelView{
+			tx: dijkstraConwayFeatureTransaction{
 				Transaction: tx,
 				body:        &subTxs[idx].Body,
 				witnesses:   subTxs[idx].WitnessSet,
+			},
+		})
+	}
+	levels = append(levels, levelView{
+		tx: dijkstraConwayFeatureTransaction{
+			Transaction: tx,
+			body:        &dijkstraTx.Body,
+			witnesses:   dijkstraTx.WitnessSet,
+		},
+	})
+
+	available := make(map[common.ScriptHash]common.Script)
+	for idx := range levels {
+		view, err := script.NewTxScriptView(levels[idx].tx, ls)
+		if err != nil {
+			if errors.Is(err, common.ErrInputResolution) {
+				continue
 			}
-			if err := conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
-				subTx,
-				slot,
-				ls,
-				pp,
-			); err != nil {
-				return err
-			}
+			return err
+		}
+		levels[idx].view = view
+		levels[idx].resolved = true
+		for hash, candidate := range view.Available {
+			available[hash] = candidate
 		}
 	}
-	return conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
-		tx,
-		slot,
-		ls,
-		pp,
-	)
+
+	for idx := range levels {
+		if !levels[idx].resolved {
+			continue
+		}
+		view := levels[idx].view.WithAvailableScripts(
+			levels[idx].tx,
+			available,
+		)
+		if err := conway.ValidateConwayFeaturesWithPlutusV1V2(
+			levels[idx].tx,
+			view,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func UtxoValidateValueNotConservedUtxo(

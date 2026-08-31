@@ -1000,7 +1000,11 @@ func dijkstraRequiredSigners(guards *DijkstraGuards) []common.Blake2b224 {
 	if guards == nil {
 		return nil
 	}
-	ret := make([]common.Blake2b224, 0, len(guards.KeyHashes)+len(guards.Credentials))
+	ret := make(
+		[]common.Blake2b224,
+		0,
+		len(guards.KeyHashes)+len(guards.Credentials),
+	)
 	ret = append(ret, guards.KeyHashes...)
 	for _, cred := range guards.Credentials {
 		if cred.CredType == common.CredentialTypeAddrKeyHash {
@@ -1190,7 +1194,8 @@ type DijkstraRedeemers struct {
 }
 
 func (r *DijkstraRedeemers) UnmarshalCBOR(cborData []byte) error {
-	if len(cborData) == 0 || (cborData[0]&cbor.CborTypeMask) != cbor.CborTypeMap {
+	if len(cborData) == 0 ||
+		(cborData[0]&cbor.CborTypeMask) != cbor.CborTypeMap {
 		return errors.New("dijkstra redeemers must use map encoding")
 	}
 	var redeemers map[common.RedeemerKey]common.RedeemerValue
@@ -1239,7 +1244,10 @@ func (r DijkstraRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	return ret
 }
 
-func (r DijkstraRedeemers) Value(index uint, tag common.RedeemerTag) common.RedeemerValue {
+func (r DijkstraRedeemers) Value(
+	index uint,
+	tag common.RedeemerTag,
+) common.RedeemerValue {
 	redeemerVal, ok := r.Redeemers[common.RedeemerKey{
 		Tag:   tag,
 		Index: uint32(index), // #nosec G115
@@ -1560,7 +1568,10 @@ func (t *DijkstraTransaction) Cbor() []byte {
 func (t *DijkstraTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := t.Body.Utxorpc()
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert Dijkstra transaction: %w", err)
+		return nil, fmt.Errorf(
+			"failed to convert Dijkstra transaction: %w",
+			err,
+		)
 	}
 	return tx, nil
 }
@@ -1664,7 +1675,10 @@ func NewDijkstraTransactionBodyFromCbor(
 ) (*DijkstraTransactionBody, error) {
 	var dijkstraTx DijkstraTransactionBody
 	if _, err := cbor.Decode(data, &dijkstraTx); err != nil {
-		return nil, fmt.Errorf("decode Dijkstra transaction body error: %w", err)
+		return nil, fmt.Errorf(
+			"decode Dijkstra transaction body error: %w",
+			err,
+		)
 	}
 	return &dijkstraTx, nil
 }
@@ -1731,7 +1745,10 @@ func newDijkstraTransactionFromCborComponents(
 		return nil, fmt.Errorf("failed to decode transaction body: %w", err)
 	}
 	if _, err := cbor.Decode(txArray[1], &ret.WitnessSet); err != nil {
-		return nil, fmt.Errorf("failed to decode transaction witness set: %w", err)
+		return nil, fmt.Errorf(
+			"failed to decode transaction witness set: %w",
+			err,
+		)
 	}
 	auxIdx := 2
 	if len(txArray) == 4 {
@@ -1740,7 +1757,9 @@ func newDijkstraTransactionFromCborComponents(
 			return nil, fmt.Errorf("failed to decode TxIsValid: %w", err)
 		}
 		if !txIsValid {
-			return nil, errors.New("dijkstra transactions cannot encode is_valid=false")
+			return nil, errors.New(
+				"dijkstra transactions cannot encode is_valid=false",
+			)
 		}
 		auxIdx = 3
 	}

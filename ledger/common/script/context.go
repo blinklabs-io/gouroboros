@@ -771,7 +771,11 @@ func signatoriesInfo(
 func votingInfo(
 	votingProcedures lcommon.VotingProcedures,
 ) KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]] {
-	ret := make(KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]], 0, len(votingProcedures))
+	ret := make(
+		KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
+		0,
+		len(votingProcedures),
+	)
 	for voter, voterData := range votingProcedures {
 		voterPairs := make(
 			KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure],

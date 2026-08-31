@@ -2400,71 +2400,39 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// First check for PlutusV1/V2 scripts in witness set
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) {
+			// UtxoValidateBadInputsUtxo reports regular input failures with the
+			// canonical error. Reference input failures retain this rule's existing
+			// error contract.
+			return nil
+		}
+		return err
+	}
+	return ValidateConwayFeaturesWithPlutusV1V2(tx, view)
+}
+
+// ValidateConwayFeaturesWithPlutusV1V2 applies the Conway compatibility
+// predicate using an already resolved script view. Later eras can share script
+// availability across transaction levels while keeping view.Needed scoped to
+// the body whose Conway features are being checked.
+func ValidateConwayFeaturesWithPlutusV1V2(
+	tx common.Transaction,
+	view script.TxScriptView,
+) error {
 	plutusVersion := ""
-	witnesses := tx.Witnesses()
-	if witnesses != nil {
-		if len(witnesses.PlutusV1Scripts()) > 0 {
-			plutusVersion = "PlutusV1"
-		} else if len(witnesses.PlutusV2Scripts()) > 0 {
-			plutusVersion = "PlutusV2"
-		}
+	if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV1Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV1"
+	} else if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV2Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV2"
 	}
-
-	// Also check reference scripts on reference inputs
-	if plutusVersion == "" {
-		for _, refInput := range tx.ReferenceInputs() {
-			utxo, err := ls.UtxoById(refInput)
-			if err != nil {
-				return common.ReferenceInputResolutionError{
-					Input: refInput,
-					Err:   err,
-				}
-			}
-			if utxo.Output == nil {
-				continue
-			}
-			script := utxo.Output.ScriptRef()
-			if script != nil {
-				switch script.(type) {
-				case common.PlutusV1Script:
-					plutusVersion = "PlutusV1"
-				case common.PlutusV2Script:
-					plutusVersion = "PlutusV2"
-				}
-				if plutusVersion != "" {
-					break
-				}
-			}
-		}
-	}
-
-	// Also check reference scripts on regular inputs
-	if plutusVersion == "" {
-		for _, input := range tx.Inputs() {
-			utxo, err := ls.UtxoById(input)
-			if err != nil {
-				continue
-			}
-			if utxo.Output == nil {
-				continue
-			}
-			script := utxo.Output.ScriptRef()
-			if script != nil {
-				switch script.(type) {
-				case common.PlutusV1Script:
-					plutusVersion = "PlutusV1"
-				case common.PlutusV2Script:
-					plutusVersion = "PlutusV2"
-				}
-				if plutusVersion != "" {
-					break
-				}
-			}
-		}
-	}
-
-	// No V1/V2 scripts found, Conway features are fine
 	if plutusVersion == "" {
 		return nil
 	}

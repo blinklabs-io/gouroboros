@@ -15,6 +15,7 @@
 package conway_test
 
 import (
+	"bytes"
 	"errors"
 	"math/big"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
@@ -37,6 +39,34 @@ const (
 
 func conwayTreasuryValue(value uint64) *uint64 {
 	return &value
+}
+
+func conwayTreasuryScriptInput(
+	t *testing.T,
+	scriptValue common.Script,
+	index int,
+) (shelley.ShelleyTransactionInput, common.Utxo) {
+	t.Helper()
+	input := shelley.NewShelleyTransactionInput(
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		index,
+	)
+	address, err := common.NewAddressFromParts(
+		common.AddressTypeScriptKey,
+		common.AddressNetworkTestnet,
+		scriptValue.Hash().Bytes(),
+		bytes.Repeat([]byte{0x55}, common.AddressHashSize),
+	)
+	require.NoError(t, err)
+	return input, common.Utxo{
+		Id: input,
+		Output: babbage.BabbageTransactionOutput{
+			OutputAddress: address,
+			OutputAmount: mary.MaryTransactionOutputValue{
+				Amount: 2_000_000,
+			},
+		},
+	}
 }
 
 func decodeConwayTreasuryBody(
@@ -288,11 +318,13 @@ func TestConwayCurrentTreasuryValuePresentZeroPlutusContexts(
 
 	tests := []struct {
 		name        string
+		script      common.Script
 		witnesses   conway.ConwayTransactionWitnessSet
 		wantVersion string
 	}{
 		{
-			name: "PlutusV1",
+			name:   "PlutusV1",
+			script: common.PlutusV1Script{0x01},
 			witnesses: conway.ConwayTransactionWitnessSet{
 				WsPlutusV1Scripts: cbor.NewSetType(
 					[]common.PlutusV1Script{{0x01}},
@@ -302,7 +334,8 @@ func TestConwayCurrentTreasuryValuePresentZeroPlutusContexts(
 			wantVersion: "PlutusV1",
 		},
 		{
-			name: "PlutusV2",
+			name:   "PlutusV2",
+			script: common.PlutusV2Script{0x01},
 			witnesses: conway.ConwayTransactionWitnessSet{
 				WsPlutusV2Scripts: cbor.NewSetType(
 					[]common.PlutusV2Script{{0x01}},
@@ -312,13 +345,19 @@ func TestConwayCurrentTreasuryValuePresentZeroPlutusContexts(
 			wantVersion: "PlutusV2",
 		},
 	}
-	for _, test := range tests {
+	for idx, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			input, utxo := conwayTreasuryScriptInput(t, test.script, idx)
+			tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			)
 			tx.WitnessSet = test.witnesses
 			err := conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
 				tx,
 				0,
-				state,
+				mockledger.NewLedgerStateBuilder().WithUtxos(
+					[]common.Utxo{utxo},
+				).Build(),
 				&conway.ConwayProtocolParameters{},
 			)
 			var target conway.CurrentTreasuryValueWithPlutusV1V2Error
