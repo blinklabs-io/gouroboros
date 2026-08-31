@@ -15,6 +15,7 @@
 package dijkstra
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"math/big"
 	"testing"
@@ -56,12 +57,23 @@ func dijkstraRequiredGuardsRaw(
 	datum *common.Datum,
 ) *DijkstraRawCbor {
 	t.Helper()
-	value := any(nil)
+	value := cbor.RawMessage{0xf6}
 	if datum != nil {
-		value = *datum
+		var err error
+		value, err = cbor.Encode(*datum)
+		require.NoError(t, err)
 	}
-	raw, err := cbor.Encode(map[dijkstraV4TestCredentialKey]any{
-		{Type: guard.CredType, Hash: guard.Credential}: value,
+	return dijkstraRequiredGuardsRawDatum(t, guard, value)
+}
+
+func dijkstraRequiredGuardsRawDatum(
+	t *testing.T,
+	guard common.Credential,
+	datum cbor.RawMessage,
+) *DijkstraRawCbor {
+	t.Helper()
+	raw, err := cbor.Encode(map[dijkstraV4TestCredentialKey]cbor.RawMessage{
+		{Type: guard.CredType, Hash: guard.Credential}: datum,
 	})
 	require.NoError(t, err)
 	ret := &DijkstraRawCbor{}
@@ -376,6 +388,102 @@ func TestDijkstraRequiredGuardDatumShapes(t *testing.T) {
 	}
 }
 
+func TestDijkstraRequiredTopLevelGuardDatumCBOR(t *testing.T) {
+	guard := testGuardCredential()
+	tests := []struct {
+		name     string
+		datum    cbor.RawMessage
+		trailing bool
+		wantErr  string
+	}{
+		{
+			name:  "null optional datum",
+			datum: cbor.RawMessage{0xf6},
+		},
+		{
+			name:  "non-canonical integer datum preserves bytes",
+			datum: cbor.RawMessage{0x18, 0x01},
+		},
+		{
+			name:    "CBOR true is not Plutus data",
+			datum:   cbor.RawMessage{0xf5},
+			wantErr: "decode required guard datum",
+		},
+		{
+			name:    "CBOR undefined is not optional data",
+			datum:   cbor.RawMessage{0xf7},
+			wantErr: "decode required guard datum",
+		},
+		{
+			name:     "trailing top-level bytes",
+			datum:    cbor.RawMessage{0x01},
+			trailing: true,
+			wantErr:  "decode required top-level guards",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			required := dijkstraRequiredGuardsRawDatum(t, guard, test.datum)
+			if test.trailing {
+				raw := append([]byte(nil), required.Cbor()...)
+				required.SetCbor(append(raw, 0xf6))
+			}
+			decoded, err := dijkstraRequiredTopLevelGuards(
+				&DijkstraSubTransactionBody{
+					TxRequiredTopLevelGuards: required,
+				},
+			)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(
+				t,
+				test.datum,
+				decoded[dijkstraCredentialKey{
+					Type: guard.CredType,
+					Hash: guard.Credential,
+				}],
+			)
+		})
+	}
+}
+
+func TestDijkstraInvalidTransactionRejectsNonPlutusGuardDatum(t *testing.T) {
+	plutus := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
+	guard := dijkstraGuardCredentialForScript(plutus)
+	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{
+			TxRequiredTopLevelGuards: dijkstraRequiredGuardsRawDatum(
+				t,
+				guard,
+				cbor.RawMessage{0xf5},
+			),
+		},
+	})
+	tx.TxIsValid = false
+	tx.Body.TxGuards = &DijkstraGuards{
+		Credentials: []common.Credential{guard},
+	}
+	tx.WitnessSet = testDijkstraWitnessSet(t, plutus)
+	tx.WitnessSet.WsRedeemers = dijkstraGuardRedeemers()
+
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		dijkstraGuardTestPParams(),
+		[]common.UtxoValidationRuleFunc{
+			dijkstraRule(
+				t,
+				common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+			),
+		},
+	)
+	require.ErrorContains(t, err, "decode required guard datum")
+}
+
 func TestDijkstraSubtransactionKeyGuardAuthorization(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
@@ -466,6 +574,131 @@ func TestDijkstraInvalidTransactionsStillRequireExactRedeemers(t *testing.T) {
 			var missing conway.MissingRedeemerForScriptError
 			require.ErrorAs(t, err, &missing)
 		})
+	}
+}
+
+func TestDijkstraRejectsNativePurposeRedeemersWithGlobalScripts(t *testing.T) {
+	native := testRequireGuardNativeScript(t, testGuardCredential())
+	plutus := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
+	mint := common.NewMultiAsset(
+		map[common.Blake2b224]map[cbor.ByteString]*big.Int{
+			native.Hash(): {
+				cbor.NewByteString(nil): big.NewInt(1),
+			},
+			plutus.Hash(): {
+				cbor.NewByteString(nil): big.NewInt(1),
+			},
+		},
+	)
+	nativeIndex := uint32(0)
+	plutusIndex := uint32(1)
+	if bytes.Compare(plutus.Hash().Bytes(), native.Hash().Bytes()) < 0 {
+		nativeIndex, plutusIndex = plutusIndex, nativeIndex
+	}
+	nativeKey := common.RedeemerKey{
+		Tag:   common.RedeemerTagMint,
+		Index: nativeIndex,
+	}
+	plutusKey := common.RedeemerKey{
+		Tag:   common.RedeemerTagMint,
+		Index: plutusIndex,
+	}
+
+	for _, source := range []string{"top", "sibling"} {
+		for _, txIsValid := range []bool{true, false} {
+			validity := "valid"
+			if !txIsValid {
+				validity = "phase-2 invalid"
+			}
+			for _, extraNative := range []bool{false, true} {
+				redeemerSet := "exact Plutus set"
+				if extraNative {
+					redeemerSet = "extra native redeemer"
+				}
+				t.Run(
+					source+"/"+validity+"/"+redeemerSet,
+					func(t *testing.T) {
+						redeemers := map[common.RedeemerKey]common.RedeemerValue{
+							plutusKey: {
+								ExUnits: common.ExUnits{
+									Steps:  10_000_000,
+									Memory: 10_000_000,
+								},
+							},
+						}
+						if extraNative {
+							redeemers[nativeKey] = common.RedeemerValue{}
+						}
+						witnesses := testDijkstraWitnessSet(t, plutus)
+						witnesses.WsRedeemers = DijkstraRedeemers{
+							Redeemers: redeemers,
+						}
+						target := DijkstraSubTransaction{
+							Body: DijkstraSubTransactionBody{
+								TxMint: &mint,
+							},
+							WitnessSet: witnesses,
+						}
+						input, utxo := dijkstraReferenceScriptInput(native, 931)
+						tx := &DijkstraTransaction{TxIsValid: txIsValid}
+						if source == "top" {
+							tx.Body.TxReferenceInputs = dijkstraReferenceInputSet(
+								input,
+							)
+							tx.Body.TxSubTransactions = cbor.NewSetType(
+								[]DijkstraSubTransaction{target},
+								true,
+							)
+						} else {
+							tx.Body.TxSubTransactions = cbor.NewSetType(
+								[]DijkstraSubTransaction{
+									{Body: DijkstraSubTransactionBody{
+										TxReferenceInputs: dijkstraReferenceInputSet(input),
+									}},
+									target,
+								},
+								true,
+							)
+						}
+						ls := mockledger.NewLedgerStateBuilder().WithUtxos(
+							[]common.Utxo{utxo},
+						).Build()
+						for _, validator := range []struct {
+							name string
+							rule common.UtxoValidationRuleFunc
+						}{
+							{
+								name: "witness rule",
+								rule: UtxoValidateRedeemerAndScriptWitnesses,
+							},
+							{
+								name: "Plutus rule",
+								rule: UtxoValidatePlutusScripts,
+							},
+						} {
+							t.Run(validator.name, func(t *testing.T) {
+								err := common.VerifyTransaction(
+									tx,
+									0,
+									ls,
+									dijkstraGuardTestPParams(),
+									[]common.UtxoValidationRuleFunc{
+										validator.rule,
+									},
+								)
+								if !extraNative {
+									require.NoError(t, err)
+									return
+								}
+								var extra conway.ExtraRedeemerError
+								require.ErrorAs(t, err, &extra)
+								require.Equal(t, nativeKey, extra.RedeemerKey)
+							})
+						}
+					},
+				)
+			}
+		}
 	}
 }
 

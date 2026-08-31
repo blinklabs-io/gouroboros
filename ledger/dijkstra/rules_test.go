@@ -628,7 +628,7 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeScriptGuard(t *testing.T) {
 		mockledger.NewLedgerStateBuilder().Build(),
 		nil,
 	)
-	require.NoError(t, err)
+	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
 
 	err = UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
 	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
@@ -922,15 +922,22 @@ func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
 }
 
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
+	plutusScript := common.PlutusV4Script{0x41, 0x00}
+	guardCred := testGuardScriptCredential(plutusScript)
 	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{guardCred},
+			},
+		},
 		WitnessSet: DijkstraTransactionWitnessSet{
 			WsPlutusV4Scripts: cbor.NewSetType(
-				[]common.PlutusV4Script{{0x41, 0x00}},
+				[]common.PlutusV4Script{plutusScript},
 				false,
 			),
 			WsRedeemers: DijkstraRedeemers{
 				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-					{Tag: common.RedeemerTagSpend, Index: 0}: {
+					{Tag: common.RedeemerTagGuarding, Index: 0}: {
 						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
 					},
 				},

@@ -1044,6 +1044,14 @@ func UtxoValidatePlutusScripts(
 		}
 	}
 	for _, level := range levels {
+		for _, required := range dijkstraRequiredScriptPurposes(level) {
+			hash := required.purpose.ScriptHash()
+			if _, ok := available[hash]; !ok {
+				return common.MissingScriptWitnessesError{ScriptHash: hash}
+			}
+		}
+	}
+	for _, level := range levels {
 		if err := validateDijkstraPlutusRedeemers(
 			level,
 			available,
@@ -1304,22 +1312,30 @@ func validateDijkstraPlutusRedeemers(
 	level dijkstraScriptLevel,
 	available map[common.ScriptHash]common.Script,
 ) error {
+	requiredPurposes := dijkstraRequiredPlutusPurposes(level, available)
+	required := make(map[common.RedeemerKey]struct{}, len(requiredPurposes))
+	for _, purpose := range requiredPurposes {
+		required[purpose.key] = struct{}{}
+	}
 	provided := make(map[common.RedeemerKey]struct{})
 	if wits := level.tx.Witnesses(); wits != nil {
 		if redeemers := wits.Redeemers(); redeemers != nil {
 			for key := range redeemers.Iter() {
 				provided[key] = struct{}{}
+				if _, ok := required[key]; !ok {
+					return conway.ExtraRedeemerError{RedeemerKey: key}
+				}
 			}
 		}
 	}
-	for _, required := range dijkstraRequiredPlutusPurposes(level, available) {
-		if _, ok := provided[required.key]; ok {
+	for _, purpose := range requiredPurposes {
+		if _, ok := provided[purpose.key]; ok {
 			continue
 		}
 		return conway.MissingRedeemerForScriptError{
-			ScriptHash: required.purpose.ScriptHash(),
-			Tag:        required.key.Tag,
-			Index:      required.key.Index,
+			ScriptHash: purpose.purpose.ScriptHash(),
+			Tag:        purpose.key.Tag,
+			Index:      purpose.key.Index,
 		}
 	}
 	return nil
@@ -1868,12 +1884,53 @@ func dijkstraRequiredTopLevelGuards(
 	if body == nil || body.TxRequiredTopLevelGuards == nil {
 		return nil, nil
 	}
+	raw := body.TxRequiredTopLevelGuards.Cbor()
 	var required map[dijkstraCredentialKey]cbor.RawMessage
-	if _, err := cbor.Decode(
-		body.TxRequiredTopLevelGuards.Cbor(),
-		&required,
-	); err != nil {
+	consumed, err := cbor.Decode(raw, &required)
+	if err != nil {
 		return nil, fmt.Errorf("decode required top-level guards: %w", err)
+	}
+	if consumed != len(raw) {
+		return nil, fmt.Errorf(
+			"decode required top-level guards: %d trailing bytes",
+			len(raw)-consumed,
+		)
+	}
+	credentials := make([]dijkstraCredentialKey, 0, len(required))
+	for credential := range required {
+		credentials = append(credentials, credential)
+	}
+	dijkstraSortCredentialKeys(credentials)
+	for _, credential := range credentials {
+		rawDatum := required[credential]
+		if bytes.Equal(rawDatum, []byte{0xf6}) {
+			continue
+		}
+		var datum common.Datum
+		consumed, err := cbor.Decode(rawDatum, &datum)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"decode required guard datum for credential %d:%x: %w",
+				credential.Type,
+				credential.Hash[:],
+				err,
+			)
+		}
+		if consumed != len(rawDatum) {
+			return nil, fmt.Errorf(
+				"decode required guard datum for credential %d:%x: %d trailing bytes",
+				credential.Type,
+				credential.Hash[:],
+				len(rawDatum)-consumed,
+			)
+		}
+		if datum.Data == nil {
+			return nil, fmt.Errorf(
+				"decode required guard datum for credential %d:%x: nil Plutus data",
+				credential.Type,
+				credential.Hash[:],
+			)
+		}
 	}
 	return required, nil
 }
