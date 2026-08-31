@@ -132,7 +132,7 @@ func (a *DijkstraParameterChangeGovAction) ToPlutusData() data.PlutusData {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
 	}
 	policyHash := data.NewConstr(1)
-	if len(a.PolicyHash) > 0 {
+	if a.PolicyHash != nil {
 		policyHash = data.NewConstr(
 			0,
 			data.NewByteString(a.PolicyHash),
