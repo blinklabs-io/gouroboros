@@ -558,6 +558,18 @@ waitSendReadyChan:
 					return
 				}
 				tmpOutbound := outbound
+				if !slices.Contains(
+					p.config.StateMap[p.getCurrentState()].PipelinedMessageTypes,
+					outbound.message.Type(),
+				) {
+					p.SendError(fmt.Errorf(
+						"%s: message type %d is not allowed while pipelined in state %s",
+						p.config.Name,
+						outbound.message.Type(),
+						p.getCurrentState(),
+					))
+					return
+				}
 				pipelinedOutbound = &tmpOutbound
 			}
 		} else {

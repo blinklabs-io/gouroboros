@@ -464,7 +464,11 @@ func TestSyncPipelining(t *testing.T) {
 			finalTip,
 		)
 		if err != nil {
-			t.Fatalf("failed to create RollForward message for block %d: %s", idx, err)
+			t.Fatalf(
+				"failed to create RollForward message for block %d: %s",
+				idx,
+				err,
+			)
 		}
 		return msg
 	}
@@ -567,7 +571,9 @@ func TestSyncPipelining(t *testing.T) {
 				}
 			}()
 
-			err := oConn.ChainSync().Client.Sync([]pcommon.Point{expectedIntersect})
+			err := oConn.ChainSync().Client.Sync(
+				[]pcommon.Point{expectedIntersect},
+			)
 			if err != nil {
 				t.Fatalf("unexpected error starting sync: %s", err)
 			}
@@ -578,19 +584,32 @@ func TestSyncPipelining(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				receivedMu.Lock()
 				defer receivedMu.Unlock()
-				t.Fatalf("timeout waiting for blocks, received %d of %d", len(receivedBlocks), totalBlocks)
+				t.Fatalf(
+					"timeout waiting for blocks, received %d of %d",
+					len(receivedBlocks),
+					totalBlocks,
+				)
 			}
 
 			// Verify blocks received in order
 			receivedMu.Lock()
 			defer receivedMu.Unlock()
 			if len(receivedBlocks) != totalBlocks {
-				t.Fatalf("expected %d blocks, received %d", totalBlocks, len(receivedBlocks))
+				t.Fatalf(
+					"expected %d blocks, received %d",
+					totalBlocks,
+					len(receivedBlocks),
+				)
 			}
 			for i := range totalBlocks {
 				expectedSlot := uint64(1000 + i)
 				if receivedBlocks[i] != expectedSlot {
-					t.Fatalf("block %d: expected slot %d, got %d", i, expectedSlot, receivedBlocks[i])
+					t.Fatalf(
+						"block %d: expected slot %d, got %d",
+						i,
+						expectedSlot,
+						receivedBlocks[i],
+					)
 				}
 			}
 		},
@@ -611,6 +630,105 @@ func TestSyncPipelining(t *testing.T) {
 				},
 			},
 		),
+	)
+}
+
+func TestSyncCallbacksExposeExactTipIntersection(t *testing.T) {
+	intersect := pcommon.NewPoint(
+		100,
+		test.DecodeHexString("0102030405060708"),
+	)
+	tip := chainsync.Tip{
+		BlockNumber: 10,
+		Point: pcommon.NewPoint(
+			100,
+			test.DecodeHexString("1112131415161718"),
+		),
+	}
+	conversation := append(
+		append(
+			[]ouroboros_mock.ConversationEntry{},
+			conversationHandshakeFindIntersect...),
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgIntersectFound(intersect, tip),
+			},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeRequestNext,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages:   []protocol.Message{chainsync.NewMsgAwaitReply()},
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgRollBackward(pcommon.NewPointOrigin(), tip),
+			},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeDone,
+		},
+	)
+	type callback struct {
+		name      string
+		intersect pcommon.Point
+		tip       chainsync.Tip
+	}
+	callbacks := make(chan callback, 2)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			err := oConn.ChainSync().Client.Sync([]pcommon.Point{intersect})
+			require.NoError(t, err)
+			for _, want := range []string{"intersect", "await"} {
+				select {
+				case got := <-callbacks:
+					require.Equal(t, want, got.name)
+					if got.name == "intersect" {
+						require.Equal(t, intersect, got.intersect)
+						require.Equal(t, tip, got.tip)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatalf("timed out waiting for %s callback", want)
+				}
+			}
+			require.NoError(t, oConn.ChainSync().Client.Stop())
+		},
+		ouroboros.WithChainSyncConfig(chainsync.Config{
+			SkipBlockValidation: true,
+			IntersectFoundFunc: func(
+				_ chainsync.CallbackContext,
+				gotIntersect pcommon.Point,
+				gotTip chainsync.Tip,
+			) error {
+				callbacks <- callback{
+					name:      "intersect",
+					intersect: gotIntersect,
+					tip:       gotTip,
+				}
+				return nil
+			},
+			AwaitReplyFunc: func(chainsync.CallbackContext) error {
+				callbacks <- callback{name: "await"}
+				return nil
+			},
+			RollBackwardFunc: func(
+				chainsync.CallbackContext,
+				pcommon.Point,
+				chainsync.Tip,
+			) error {
+				return chainsync.ErrStopSyncProcess
+			},
+		}),
 	)
 }
 
@@ -781,7 +899,11 @@ func TestStopAfterConnectionClose(t *testing.T) {
 	client.Start()
 
 	// Close the connection first (simulating remote close)
-	require.NoError(t, oConn.Close(), "unexpected error when closing connection")
+	require.NoError(
+		t,
+		oConn.Close(),
+		"unexpected error when closing connection",
+	)
 
 	// Wait for connection to fully close
 	select {
@@ -791,10 +913,18 @@ func TestStopAfterConnectionClose(t *testing.T) {
 	}
 
 	// Now Stop() should not return an error even though connection is closed
-	require.NoError(t, client.Stop(), "Stop() should not return error after connection close")
+	require.NoError(
+		t,
+		client.Stop(),
+		"Stop() should not return error after connection close",
+	)
 
 	// Verify IsDone returns true
-	require.True(t, client.IsDone(), "IsDone() should return true after connection close")
+	require.True(
+		t,
+		client.IsDone(),
+		"IsDone() should return true after connection close",
+	)
 
 	// Wait for mock connection shutdown
 	select {
