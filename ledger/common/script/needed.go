@@ -281,6 +281,14 @@ func voterUsesScriptCredential(voter lcommon.Voter) bool {
 	}
 }
 
+// transactionWithGuardingCredentials is implemented by transaction views
+// whose body defines Dijkstra guarding script purposes. Keeping this optional
+// leaves pre-Dijkstra transactions unchanged while allowing each Dijkstra
+// transaction level to contribute only its own guards.
+type transactionWithGuardingCredentials interface {
+	GuardingCredentials() []lcommon.Credential
+}
+
 // neededScripts walks every script purpose the transaction requires and keeps
 // the available script each one resolves to.
 //
@@ -374,6 +382,11 @@ func neededScripts(
 			), // #nosec G115 -- proposal count is bounded
 			ProposalProcedure: proposal,
 		})
+	}
+	if guardingTx, ok := tx.(transactionWithGuardingCredentials); ok {
+		for _, guard := range guardingTx.GuardingCredentials() {
+			keep(ScriptPurposeGuarding{Guard: guard})
+		}
 	}
 	return out
 }

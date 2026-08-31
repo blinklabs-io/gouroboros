@@ -567,6 +567,23 @@ func (t dijkstraConwayFeatureTransaction) AssetMint() *common.MultiAsset[common.
 	return t.body.AssetMint()
 }
 
+// GuardingCredentials exposes only this transaction level's guards to the
+// shared script-purpose resolver. Script availability is aggregated across
+// levels separately by UtxoValidateConwayFeaturesWithPlutusV1V2.
+func (t dijkstraConwayFeatureTransaction) GuardingCredentials() []common.Credential {
+	switch body := t.body.(type) {
+	case *DijkstraTransactionBody:
+		if body.TxGuards != nil {
+			return body.TxGuards.Credentials
+		}
+	case *DijkstraSubTransactionBody:
+		if body.TxGuards != nil {
+			return body.TxGuards.Credentials
+		}
+	}
+	return nil
+}
+
 // UtxoValidateConwayFeaturesWithPlutusV1V2 applies the complete Conway
 // compatibility predicate to each Dijkstra sub-transaction before the
 // top-level transaction. Script availability is shared across every level,

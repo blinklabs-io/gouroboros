@@ -675,6 +675,261 @@ func TestDijkstraConwayFeaturesIgnoresUnneededCrossLevelScripts(t *testing.T) {
 	)
 }
 
+func dijkstraGuardCredentialForScript(
+	script common.Script,
+) common.Credential {
+	return common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224(script.Hash()),
+	}
+}
+
+func dijkstraGuardedTreasuryTransaction(
+	t *testing.T,
+	script common.Script,
+	treasury *uint64,
+	guardTopLevel bool,
+	providerTopLevel bool,
+	referenceProvider bool,
+	index int,
+) (*DijkstraTransaction, []common.Utxo) {
+	t.Helper()
+	tx := &DijkstraTransaction{
+		Body:      decodeDijkstraTreasuryBody(t, nil),
+		TxIsValid: true,
+	}
+	subTx := decodeDijkstraTreasurySubTransaction(t, nil)
+	guard := dijkstraGuardCredentialForScript(script)
+	if guardTopLevel {
+		tx.Body = decodeDijkstraTreasuryBody(t, treasury)
+		tx.Body.TxGuards = &DijkstraGuards{
+			Credentials: []common.Credential{guard},
+		}
+	} else {
+		subTx = decodeDijkstraTreasurySubTransaction(t, treasury)
+		subTx.Body.TxGuards = &DijkstraGuards{
+			Credentials: []common.Credential{guard},
+		}
+	}
+
+	var utxos []common.Utxo
+	if referenceProvider {
+		input, utxo := dijkstraReferenceScriptInput(script, index)
+		utxos = append(utxos, utxo)
+		if providerTopLevel {
+			tx.Body.TxReferenceInputs = cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input},
+				true,
+			)
+		} else {
+			subTx.Body.TxReferenceInputs = cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input},
+				true,
+			)
+		}
+	} else if providerTopLevel {
+		tx.WitnessSet = testDijkstraWitnessSet(t, script)
+	} else {
+		subTx.WitnessSet = testDijkstraWitnessSet(t, script)
+	}
+
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]DijkstraSubTransaction{subTx},
+		true,
+	)
+	return tx, utxos
+}
+
+func TestDijkstraConwayFeaturesCurrentTreasuryGuardingScripts(
+	t *testing.T,
+) {
+	tests := []struct {
+		name              string
+		script            common.Script
+		treasury          uint64
+		guardTopLevel     bool
+		providerTopLevel  bool
+		referenceProvider bool
+		wantPlutusVersion string
+	}{
+		{
+			name:              "top-level explicit zero same-level witness PlutusV1",
+			script:            common.PlutusV1Script{0x11},
+			guardTopLevel:     true,
+			providerTopLevel:  true,
+			wantPlutusVersion: "PlutusV1",
+		},
+		{
+			name:              "subtransaction nonzero same-level witness PlutusV2",
+			script:            common.PlutusV2Script{0x12},
+			treasury:          42,
+			wantPlutusVersion: "PlutusV2",
+		},
+		{
+			name:              "top-level nonzero cross-level witness PlutusV2",
+			script:            common.PlutusV2Script{0x13},
+			treasury:          42,
+			guardTopLevel:     true,
+			wantPlutusVersion: "PlutusV2",
+		},
+		{
+			name:              "subtransaction explicit zero cross-level witness PlutusV1",
+			script:            common.PlutusV1Script{0x14},
+			providerTopLevel:  true,
+			wantPlutusVersion: "PlutusV1",
+		},
+		{
+			name:              "top-level nonzero same-level reference PlutusV1",
+			script:            common.PlutusV1Script{0x15},
+			treasury:          42,
+			guardTopLevel:     true,
+			providerTopLevel:  true,
+			referenceProvider: true,
+			wantPlutusVersion: "PlutusV1",
+		},
+		{
+			name:              "subtransaction explicit zero same-level reference PlutusV2",
+			script:            common.PlutusV2Script{0x16},
+			referenceProvider: true,
+			wantPlutusVersion: "PlutusV2",
+		},
+		{
+			name:              "top-level explicit zero cross-level reference PlutusV2",
+			script:            common.PlutusV2Script{0x17},
+			guardTopLevel:     true,
+			referenceProvider: true,
+			wantPlutusVersion: "PlutusV2",
+		},
+		{
+			name:              "subtransaction nonzero cross-level reference PlutusV1",
+			script:            common.PlutusV1Script{0x18},
+			treasury:          42,
+			providerTopLevel:  true,
+			referenceProvider: true,
+			wantPlutusVersion: "PlutusV1",
+		},
+	}
+	for idx, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tx, utxos := dijkstraGuardedTreasuryTransaction(
+				t,
+				test.script,
+				dijkstraTreasuryValue(test.treasury),
+				test.guardTopLevel,
+				test.providerTopLevel,
+				test.referenceProvider,
+				idx+100,
+			)
+			err := verifyDijkstraConwayFeatures(
+				t,
+				tx,
+				mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build(),
+			)
+			requireDijkstraCurrentTreasuryPlutusError(
+				t,
+				err,
+				test.wantPlutusVersion,
+			)
+		})
+	}
+}
+
+func TestDijkstraConwayFeaturesCurrentTreasuryGuardingControls(
+	t *testing.T,
+) {
+	t.Run("PlutusV3 guard is permitted", func(t *testing.T) {
+		tx, utxos := dijkstraGuardedTreasuryTransaction(
+			t,
+			common.PlutusV3Script{0x21},
+			dijkstraTreasuryValue(42),
+			true,
+			true,
+			false,
+			200,
+		)
+		require.NoError(
+			t,
+			verifyDijkstraConwayFeatures(
+				t,
+				tx,
+				mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build(),
+			),
+		)
+	})
+
+	t.Run(
+		"unrelated PlutusV1 witness with key guard is permitted",
+		func(t *testing.T) {
+			tx := &DijkstraTransaction{
+				Body: decodeDijkstraTreasuryBody(
+					t,
+					dijkstraTreasuryValue(42),
+				),
+				WitnessSet: testDijkstraWitnessSet(
+					t,
+					common.PlutusV1Script{0x22},
+				),
+				TxIsValid: true,
+			}
+			tx.Body.TxGuards = &DijkstraGuards{
+				KeyHashes: []common.Blake2b224{{0x01}},
+			}
+			require.NoError(
+				t,
+				verifyDijkstraConwayFeatures(
+					t,
+					tx,
+					mockledger.NewLedgerStateBuilder().Build(),
+				),
+			)
+		},
+	)
+
+	t.Run("native script guard is permitted", func(t *testing.T) {
+		native := testRequireGuardNativeScript(t, testGuardCredential())
+		tx, utxos := dijkstraGuardedTreasuryTransaction(
+			t,
+			native,
+			dijkstraTreasuryValue(0),
+			true,
+			true,
+			false,
+			201,
+		)
+		require.NoError(
+			t,
+			verifyDijkstraConwayFeatures(
+				t,
+				tx,
+				mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build(),
+			),
+		)
+	})
+
+	t.Run(
+		"PlutusV2 guard without current treasury is permitted",
+		func(t *testing.T) {
+			tx, utxos := dijkstraGuardedTreasuryTransaction(
+				t,
+				common.PlutusV2Script{0x23},
+				nil,
+				false,
+				true,
+				false,
+				202,
+			)
+			require.NoError(
+				t,
+				verifyDijkstraConwayFeatures(
+					t,
+					tx,
+					mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build(),
+				),
+			)
+		},
+	)
+}
+
 func TestDijkstraConwayFeaturesChecksAllSubtransactionFeatures(
 	t *testing.T,
 ) {
