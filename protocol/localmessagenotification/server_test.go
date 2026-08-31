@@ -17,6 +17,7 @@ package localmessagenotification
 import (
 	"net"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/muxer"
@@ -66,17 +67,22 @@ func TestServerRepeatedStopAfterStartCompletesLifecycle(t *testing.T) {
 }
 
 func TestServerStopUnblocksWaitingRequest(t *testing.T) {
-	server := NewServer(protocol.ProtocolOptions{}, nil)
-	result := make(chan error, 1)
-	go func() { result <- server.WaitForMessage(0) }()
+	synctest.Test(t, func(t *testing.T) {
+		server := NewServer(protocol.ProtocolOptions{}, nil)
+		result := make(chan error, 1)
+		go func() { result <- server.WaitForMessage(0) }()
 
-	require.NoError(t, server.Stop())
-	select {
-	case err := <-result:
-		require.ErrorContains(t, err, "server shutting down")
-	case <-time.After(time.Second):
-		t.Fatal("waiting request was not cancelled")
-	}
+		// Wait until WaitForMessage is durably blocked in its select before
+		// stopping the server.
+		synctest.Wait()
+		require.NoError(t, server.Stop())
+		select {
+		case err := <-result:
+			require.ErrorContains(t, err, "server shutting down")
+		case <-time.After(time.Second):
+			t.Fatal("waiting request was not cancelled")
+		}
+	})
 }
 
 func TestServerStopStopsExpirationCleanerBeforeStart(t *testing.T) {
