@@ -263,7 +263,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateMaxTxSizeUtxo,                // UtxoValidationRuleMaxTxSize
 		dijkstra.UtxoValidateExUnitsTooBigUtxo,            // UtxoValidationRuleExUnitsTooBig
 		dijkstra.UtxoValidateTooManyCollateralInputs,      // UtxoValidationRuleTooManyCollateralInputs
-		conway.UtxoValidateSupplementalDatums,             // UtxoValidationRuleSupplementalDatums
+		dijkstra.UtxoValidateSupplementalDatums,           // UtxoValidationRuleSupplementalDatums
 		dijkstra.UtxoValidateExtraneousRedeemers,          // UtxoValidationRuleExtraneousRedeemers
 		dijkstra.UtxoValidatePlutusScripts,                // UtxoValidationRulePlutusScripts
 		dijkstra.UtxoValidateNativeScripts,                // UtxoValidationRuleNativeScripts

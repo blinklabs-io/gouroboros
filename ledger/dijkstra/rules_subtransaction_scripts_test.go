@@ -19,10 +19,12 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/stretchr/testify/require"
@@ -230,28 +232,57 @@ func TestVerifyTransactionExecutesSubtransactionNativeGuards(t *testing.T) {
 
 func TestVerifyTransactionSubtransactionGuardControls(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		version [3]uint32
+		name        string
+		version     [3]uint32
+		unsupported bool
 	}{
-		{name: "passing PlutusV1 guard without treasury", version: lang.LanguageVersionV1},
-		{name: "passing PlutusV2 guard without treasury", version: lang.LanguageVersionV2},
-		{name: "passing PlutusV3 guard", version: lang.LanguageVersionV3},
+		{
+			name:        "rejecting PlutusV1 guard without treasury",
+			version:     lang.LanguageVersionV1,
+			unsupported: true,
+		},
+		{
+			name:        "rejecting PlutusV2 guard without treasury",
+			version:     lang.LanguageVersionV2,
+			unsupported: true,
+		},
+		{
+			name:        "rejecting PlutusV3 guard",
+			version:     lang.LanguageVersionV3,
+			unsupported: true,
+		},
 		{name: "passing PlutusV4 guard", version: lang.LanguageVersionV4},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			candidate := dijkstraGuardTestPlutus(t, test.version, false)
 			tx, ls := dijkstraSubtransactionPlutusGuardTx(
 				t,
-				dijkstraGuardTestPlutus(t, test.version, false),
+				candidate,
 				false,
 			)
 			require.Nil(t, tx.CurrentTreasuryValue())
-			require.NoError(t, common.VerifyTransaction(
+			err := common.VerifyTransaction(
 				tx,
 				0,
 				ls,
 				dijkstraGuardTestPParams(),
 				[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
-			))
+			)
+			if !test.unsupported {
+				require.NoError(t, err)
+				return
+			}
+			var unsupported UnsupportedScriptInSubtransactionError
+			require.ErrorAs(t, err, &unsupported)
+			version, ok := common.PlutusScriptVersion(candidate)
+			require.True(t, ok)
+			require.Equal(t, version, unsupported.Version)
+			require.Zero(t, unsupported.SubtransactionIndex)
+			require.Equal(
+				t,
+				tx.Body.TxSubTransactions.Items()[0].Body.Id(),
+				unsupported.TransactionId,
+			)
 		})
 	}
 
@@ -299,4 +330,223 @@ func TestVerifyTransactionSubtransactionGuardControls(t *testing.T) {
 			[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
 		))
 	})
+}
+
+func TestVerifyTransactionChecksSubtransactionWitnesses(t *testing.T) {
+	script := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
+	guard := dijkstraGuardCredentialForScript(script)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{{
+					Body: DijkstraSubTransactionBody{
+						TxGuards: &DijkstraGuards{
+							Credentials: []common.Credential{guard},
+						},
+					},
+					WitnessSet: DijkstraTransactionWitnessSet{
+						WsRedeemers: DijkstraRedeemers{
+							Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+								{Tag: common.RedeemerTagGuarding}: {},
+							},
+						},
+					},
+				}},
+				true,
+			),
+		},
+		TxIsValid: true,
+	}
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		dijkstraGuardTestPParams(),
+		[]common.UtxoValidationRuleFunc{UtxoValidateRedeemerAndScriptWitnesses},
+	)
+	require.ErrorAs(t, err, &common.MissingPlutusScriptWitnessesError{})
+}
+
+func TestVerifyTransactionChecksSubtransactionSupplementalDatums(t *testing.T) {
+	datum := common.Datum{Data: data.NewInteger(big.NewInt(1))}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{{
+					WitnessSet: DijkstraTransactionWitnessSet{
+						WsPlutusData: cbor.NewSetType(
+							[]common.Datum{datum},
+							true,
+						),
+					},
+				}},
+				true,
+			),
+		},
+		TxIsValid: true,
+	}
+	var validator common.UtxoValidationRuleFunc
+	for _, descriptor := range utxoValidationRuleDescriptors {
+		if descriptor.Id == common.UtxoValidationRuleSupplementalDatums {
+			validator = descriptor.Validator
+			break
+		}
+	}
+	require.NotNil(t, validator)
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		dijkstraGuardTestPParams(),
+		[]common.UtxoValidationRuleFunc{validator},
+	)
+	require.ErrorAs(t, err, &conway.NotAllowedSupplementalDatumsError{})
+}
+
+func TestVerifyTransactionChecksSubtransactionScriptIntegrity(t *testing.T) {
+	redeemers := DijkstraRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			{Tag: common.RedeemerTagMint}: {},
+		},
+	}
+	redeemersCbor, err := cbor.Encode(redeemers.Redeemers)
+	require.NoError(t, err)
+	redeemers.SetCbor(redeemersCbor)
+	declared := common.Blake2b256{}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{{
+					Body: DijkstraSubTransactionBody{
+						TxScriptDataHash: &declared,
+					},
+					WitnessSet: DijkstraTransactionWitnessSet{
+						WsRedeemers: redeemers,
+					},
+				}},
+				true,
+			),
+		},
+		TxIsValid: true,
+	}
+	err = common.VerifyTransaction(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		dijkstraGuardTestPParams(),
+		[]common.UtxoValidationRuleFunc{UtxoValidateScriptDataHash},
+	)
+	require.ErrorAs(t, err, &common.ScriptDataHashMismatchError{})
+}
+
+func TestVerifyTransactionRequiresCollateralForSubtransactionPlutus(
+	t *testing.T,
+) {
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{{
+					WitnessSet: DijkstraTransactionWitnessSet{
+						WsRedeemers: DijkstraRedeemers{
+							Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+								{Tag: common.RedeemerTagMint}: {},
+							},
+						},
+					},
+				}},
+				true,
+			),
+		},
+		TxIsValid: true,
+	}
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		dijkstraGuardTestPParams(),
+		[]common.UtxoValidationRuleFunc{UtxoValidateNoCollateralInputs},
+	)
+	require.ErrorAs(t, err, &alonzo.NoCollateralInputsError{})
+}
+
+func TestUtxoValidateCostModelsPresentUsesNeededScripts(t *testing.T) {
+	v4 := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
+	v1 := dijkstraGuardTestPlutus(t, lang.LanguageVersionV1, false)
+	witnesses := testDijkstraWitnessSet(t, v4)
+	witnesses.WsPlutusV1Scripts = cbor.NewSetType(
+		[]common.PlutusV1Script{v1.(common.PlutusV1Script)},
+		true,
+	)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{{
+					Body: DijkstraSubTransactionBody{
+						TxGuards: &DijkstraGuards{
+							Credentials: []common.Credential{
+								dijkstraGuardCredentialForScript(v4),
+							},
+						},
+					},
+					WitnessSet: witnesses,
+				}},
+				true,
+			),
+		},
+		TxIsValid: true,
+	}
+	pp := dijkstraGuardTestPParams()
+	delete(pp.CostModels, 0)
+	require.NoError(t, UtxoValidateCostModelsPresent(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		pp,
+	))
+	delete(pp.CostModels, 3)
+	err := UtxoValidateCostModelsPresent(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		pp,
+	)
+	var missing common.MissingCostModelError
+	require.ErrorAs(t, err, &missing)
+	require.Equal(t, uint(3), missing.Version)
+}
+
+func TestVerifyTransactionAcceptsNonGuardPlutusV4(t *testing.T) {
+	v4 := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
+	mint := common.NewMultiAsset(
+		map[common.Blake2b224]map[cbor.ByteString]*big.Int{
+			v4.Hash(): {cbor.NewByteString(nil): big.NewInt(1)},
+		},
+	)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{TxMint: &mint},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsPlutusV4Scripts: cbor.NewSetType(
+				[]common.PlutusV4Script{v4.(common.PlutusV4Script)},
+				true,
+			),
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagMint}: {
+						ExUnits: common.ExUnits{
+							Steps:  10_000_000,
+							Memory: 10_000_000,
+						},
+					},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+	require.NoError(t, common.VerifyTransaction(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		dijkstraGuardTestPParams(),
+		[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
+	))
 }

@@ -15,10 +15,29 @@
 package dijkstra
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
+
+// UnsupportedScriptInSubtransactionError reports the Dijkstra rule that
+// Plutus V1 through V3 scripts cannot be required by a subtransaction.
+type UnsupportedScriptInSubtransactionError struct {
+	Version             uint
+	SubtransactionIndex uint32
+	TransactionId       common.Blake2b256
+}
+
+func (e UnsupportedScriptInSubtransactionError) Error() string {
+	return fmt.Sprintf(
+		"PlutusV%d script is unsupported in Dijkstra subtransaction %d (%x)",
+		e.Version+1,
+		e.SubtransactionIndex,
+		e.TransactionId[:],
+	)
+}
 
 type LeiosCommitteeStakeParametersError struct {
 	Reason string

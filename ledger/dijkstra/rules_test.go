@@ -660,10 +660,18 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeReferenceScriptGuard(
 }
 
 func TestUtxoValidateCostModelsPresentPlutusV4(t *testing.T) {
+	script := common.PlutusV4Script{0x41, 0x00}
 	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{
+					dijkstraGuardCredentialForScript(script),
+				},
+			},
+		},
 		WitnessSet: DijkstraTransactionWitnessSet{
 			WsPlutusV4Scripts: cbor.NewSetType(
-				[]common.PlutusV4Script{{0x41, 0x00}},
+				[]common.PlutusV4Script{script},
 				false,
 			),
 		},
@@ -695,6 +703,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 	cases := []struct {
 		name       string
 		witnessSet DijkstraTransactionWitnessSet
+		script     common.Script
 		version    uint
 	}{
 		{
@@ -705,6 +714,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV1Script{0x41, 0x00},
 			version: 0,
 		},
 		{
@@ -715,6 +725,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV2Script{0x41, 0x00},
 			version: 1,
 		},
 		{
@@ -725,6 +736,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV3Script{0x41, 0x00},
 			version: 2,
 		},
 		{
@@ -735,6 +747,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV4Script{0x41, 0x00},
 			version: 3,
 		},
 	}
@@ -745,7 +758,18 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 				Body: DijkstraTransactionBody{
 					TxSubTransactions: cbor.NewSetType(
 						[]DijkstraSubTransaction{
-							{WitnessSet: tc.witnessSet},
+							{
+								Body: DijkstraSubTransactionBody{
+									TxGuards: &DijkstraGuards{
+										Credentials: []common.Credential{
+											dijkstraGuardCredentialForScript(
+												tc.script,
+											),
+										},
+									},
+								},
+								WitnessSet: tc.witnessSet,
+							},
 						},
 						false,
 					),
@@ -798,12 +822,11 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 	require.ErrorAs(t, err, &conway.ProtocolParameterUpdateEmptyError{})
 
 	maxRefScriptSizePerBlock := uint32(1000)
-	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
-		&DijkstraParameterChangeGovAction{
-			ParamUpdate: DijkstraProtocolParameterUpdate{
-				MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
-			},
-		}
+	tx.Body.TxProposalProcedures[0].PPGovAction.Action = &DijkstraParameterChangeGovAction{
+		ParamUpdate: DijkstraProtocolParameterUpdate{
+			MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
+		},
+	}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 

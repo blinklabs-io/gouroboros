@@ -1025,9 +1025,27 @@ func TestDijkstraConwayFeaturesPhase2ValidProductionRules(t *testing.T) {
 		t,
 		plutusV1,
 	)
+	subTx.WitnessSet.WsRedeemers = DijkstraRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			{Tag: common.RedeemerTagSpend}: {},
+		},
+	}
+	redeemersCbor, err := cbor.Encode(subTx.WitnessSet.WsRedeemers.Redeemers)
+	require.NoError(t, err)
+	subTx.WitnessSet.WsRedeemers.SetCbor(redeemersCbor)
 	subTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
 		[]shelley.ShelleyTransactionInput{input},
 	)
+	costModels := map[uint][]int64{0: {1}}
+	languageViews, err := common.EncodeLangViews(
+		map[uint]struct{}{0: {}},
+		costModels,
+	)
+	require.NoError(t, err)
+	integrityInput := append([]byte{}, redeemersCbor...)
+	integrityInput = append(integrityInput, languageViews...)
+	integrityHash := common.Blake2b256Hash(integrityInput)
+	subTx.Body.TxScriptDataHash = &integrityHash
 	tx := &DijkstraTransaction{
 		Body:      decodeDijkstraTreasuryBody(t, nil),
 		TxIsValid: true,
@@ -1040,13 +1058,13 @@ func TestDijkstraConwayFeaturesPhase2ValidProductionRules(t *testing.T) {
 		WithTreasuryAmount(42).
 		WithUtxos([]common.Utxo{utxo}).
 		Build()
-	err := common.VerifyTransaction(
+	err = common.VerifyTransaction(
 		tx,
 		0,
 		state,
 		&DijkstraProtocolParameters{
 			ConwayProtocolParameters: conway.ConwayProtocolParameters{
-				CostModels: map[uint][]int64{0: {1}},
+				CostModels: costModels,
 			},
 		},
 		UtxoValidationRules,
