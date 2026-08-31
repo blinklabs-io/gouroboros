@@ -233,11 +233,11 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateEmptyTreasuryWithdrawals,       // UtxoValidationRuleEmptyTreasuryWithdrawals
 		dijkstra.UtxoValidateBootstrapAllowedGovActions,   // UtxoValidationRuleBootstrapAllowedGovActions
 		dijkstra.UtxoValidateBootstrapParameterGroups,     // UtxoValidationRuleBootstrapParameterGroups
-		conway.UtxoValidateIsValidFlag,                    // UtxoValidationRuleIsValidFlag
-		conway.UtxoValidateRequiredVKeyWitnesses,          // UtxoValidationRuleRequiredVKeyWitnesses
+		dijkstra.UtxoValidateIsValidFlag,                  // UtxoValidationRuleIsValidFlag
+		dijkstra.UtxoValidateRequiredVKeyWitnesses,        // UtxoValidationRuleRequiredVKeyWitnesses
 		conway.UtxoValidateCollateralVKeyWitnesses,        // UtxoValidationRuleCollateralVKeyWitnesses
 		dijkstra.UtxoValidateRedeemerAndScriptWitnesses,   // UtxoValidationRuleRedeemerAndScriptWitnesses
-		conway.UtxoValidateSignatures,                     // UtxoValidationRuleSignatures
+		dijkstra.UtxoValidateSignatures,                   // UtxoValidationRuleSignatures
 		dijkstra.UtxoValidateCostModelsPresent,            // UtxoValidationRuleCostModelsPresent
 		dijkstra.UtxoValidateScriptDataHash,               // UtxoValidationRuleScriptDataHash
 		conway.UtxoValidateInlineDatumsWithPlutusV1,       // UtxoValidationRuleInlineDatumsWithPlutusV1
@@ -252,7 +252,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateCollateralEqBalance,            // UtxoValidationRuleCollateralEqBalance
 		dijkstra.UtxoValidateNoCollateralInputs,           // UtxoValidationRuleNoCollateralInputs
 		conway.UtxoValidateBadInputsUtxo,                  // UtxoValidationRuleBadInputs
-		conway.UtxoValidateScriptWitnesses,                // UtxoValidationRuleScriptWitnesses
+		dijkstra.UtxoValidateScriptWitnesses,              // UtxoValidationRuleScriptWitnesses
 		dijkstra.UtxoValidateValueNotConservedUtxo,        // UtxoValidationRuleValueNotConserved
 		dijkstra.UtxoValidateOutputTooSmallUtxo,           // UtxoValidationRuleOutputTooSmall
 		dijkstra.UtxoValidateOutputTooBigUtxo,             // UtxoValidationRuleOutputTooBig

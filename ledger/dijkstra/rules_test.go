@@ -971,7 +971,9 @@ func TestUtxoValidateRedeemerAndScriptWitnessesGuardingRedeemer(t *testing.T) {
 
 	ledgerState := mockledger.NewLedgerStateBuilder().Build()
 	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ledgerState, nil)
-	require.ErrorAs(t, err, &common.MissingPlutusScriptWitnessesError{})
+	var missing common.MissingScriptWitnessesError
+	require.ErrorAs(t, err, &missing)
+	require.Equal(t, guardScript.Hash(), missing.ScriptHash)
 
 	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{
 		{

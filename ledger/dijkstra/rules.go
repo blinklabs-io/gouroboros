@@ -90,11 +90,11 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
-		Validator: conway.UtxoValidateIsValidFlag,
+		Validator: UtxoValidateIsValidFlag,
 	},
 	{
 		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
-		Validator: conway.UtxoValidateRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
 	},
 	{
 		Id:        common.UtxoValidationRuleCollateralVKeyWitnesses,
@@ -106,7 +106,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleSignatures,
-		Validator: conway.UtxoValidateSignatures,
+		Validator: UtxoValidateSignatures,
 	},
 	{
 		Id:        common.UtxoValidationRuleCostModelsPresent,
@@ -166,7 +166,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleScriptWitnesses,
-		Validator: conway.UtxoValidateScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
 	},
 	{
 		Id:        common.UtxoValidationRuleValueNotConserved,
@@ -681,6 +681,78 @@ func dijkstraTransactionLevels(
 	})
 }
 
+// UtxoValidateIsValidFlag accepts a phase-2-invalid Dijkstra transaction when
+// any transaction level supplies a redeemer.
+func UtxoValidateIsValidFlag(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateIsValidFlag(tx, slot, ls, pp)
+	}
+	if tx.IsValid() {
+		return nil
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		wits := level.Witnesses()
+		if wits == nil || wits.Redeemers() == nil {
+			continue
+		}
+		for range wits.Redeemers().Iter() {
+			return nil
+		}
+	}
+	return common.InvalidIsValidFlagError{}
+}
+
+// UtxoValidateRequiredVKeyWitnesses validates required signers independently
+// at the transaction level where the requirement occurs.
+func UtxoValidateRequiredVKeyWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateRequiredVKeyWitnesses(tx, slot, ls, pp)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := common.ValidateRequiredVKeyWitnesses(level); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UtxoValidateSignatures verifies each transaction level's witnesses against
+// that level's body hash.
+func UtxoValidateSignatures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateSignatures(tx, slot, ls, pp)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := common.UtxoValidateSignatures(
+			level,
+			slot,
+			ls,
+			pp,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type dijkstraScriptLevel struct {
 	tx         dijkstraConwayFeatureTransaction
 	resolved   []common.Utxo
@@ -732,6 +804,70 @@ func dijkstraScriptLevels(
 			idx := uint32(
 				levelIndex,
 			) // #nosec G115 -- bounded by transaction size
+			level.subTxIndex = &idx
+		}
+		levels = append(levels, level)
+	}
+	for idx := range levels {
+		levels[idx].view = levels[idx].view.WithAvailableScripts(
+			levels[idx].tx,
+			available,
+		)
+	}
+	return levels, available, nil
+}
+
+// dijkstraWitnessRuleLevels builds the global script view used by phase-1
+// witness predicates. Missing consumed inputs are left to BadInputs, while a
+// missing reference input remains a reference-input resolution failure.
+func dijkstraWitnessRuleLevels(
+	tx *DijkstraTransaction,
+	ls common.LedgerState,
+) ([]dijkstraScriptLevel, map[common.ScriptHash]common.Script, error) {
+	txLevels := dijkstraTransactionLevels(tx)
+	levels := make([]dijkstraScriptLevel, 0, len(txLevels))
+	available := make(map[common.ScriptHash]common.Script)
+	for levelIndex, txLevel := range txLevels {
+		addDijkstraWitnessScripts(available, txLevel.Witnesses())
+		var inputs, refInputs []common.Utxo
+		if ls != nil {
+			for _, input := range txLevel.Inputs() {
+				utxo, err := ls.UtxoById(input)
+				if err != nil {
+					continue
+				}
+				inputs = append(inputs, utxo)
+			}
+			for _, input := range txLevel.ReferenceInputs() {
+				utxo, err := ls.UtxoById(input)
+				if err != nil {
+					return nil, nil, common.ReferenceInputResolutionError{
+						Input: input,
+						Err:   err,
+					}
+				}
+				refInputs = append(refInputs, utxo)
+			}
+		}
+		resolved := script.ConcatResolvedInputs(inputs, refInputs)
+		for _, utxo := range resolved {
+			if utxo.Output == nil || utxo.Output.ScriptRef() == nil {
+				continue
+			}
+			candidate := utxo.Output.ScriptRef()
+			available[candidate.Hash()] = candidate
+		}
+		level := dijkstraScriptLevel{
+			tx:       txLevel,
+			resolved: resolved,
+			view: script.TxScriptView{
+				ResolvedInputs:          inputs,
+				ResolvedReferenceInputs: refInputs,
+			},
+			slotState: ls,
+		}
+		if levelIndex < len(txLevels)-1 {
+			idx := uint32(levelIndex) // #nosec G115 -- bounded by tx size
 			level.subTxIndex = &idx
 		}
 		levels = append(levels, level)
@@ -907,13 +1043,18 @@ func UtxoValidatePlutusScripts(
 			}
 		}
 	}
+	for _, level := range levels {
+		if err := validateDijkstraPlutusRedeemers(
+			level,
+			available,
+		); err != nil {
+			return err
+		}
+	}
 	if !tx.IsValid() {
 		return nil
 	}
 	for _, level := range levels {
-		if err := validateDijkstraPlutusRedeemers(level); err != nil {
-			return err
-		}
 		v4Keys, err := dijkstraPlutusV4RedeemerKeys(level, available)
 		if err != nil {
 			return err
@@ -957,30 +1098,42 @@ func UtxoValidatePlutusScripts(
 	return nil
 }
 
-type dijkstraRequiredPlutusPurpose struct {
+type dijkstraRequiredScriptPurpose struct {
 	key     common.RedeemerKey
 	purpose script.ScriptPurpose
 }
 
 func dijkstraRequiredPlutusPurposes(
 	level dijkstraScriptLevel,
-) []dijkstraRequiredPlutusPurpose {
-	ret := make([]dijkstraRequiredPlutusPurpose, 0)
+	available map[common.ScriptHash]common.Script,
+) []dijkstraRequiredScriptPurpose {
+	allPurposes := dijkstraRequiredScriptPurposes(level)
+	ret := make([]dijkstraRequiredScriptPurpose, 0, len(allPurposes))
+	for _, required := range allPurposes {
+		candidate, ok := available[required.purpose.ScriptHash()]
+		if !ok {
+			continue
+		}
+		if _, ok := common.PlutusScriptVersion(candidate); !ok {
+			continue
+		}
+		ret = append(ret, required)
+	}
+	return ret
+}
+
+func dijkstraRequiredScriptPurposes(
+	level dijkstraScriptLevel,
+) []dijkstraRequiredScriptPurpose {
+	ret := make([]dijkstraRequiredScriptPurpose, 0)
 	appendPurpose := func(
 		key common.RedeemerKey,
 		purpose script.ScriptPurpose,
 	) {
-		if purpose == nil {
+		if purpose == nil || purpose.ScriptHash() == (common.ScriptHash{}) {
 			return
 		}
-		candidate, ok := level.view.Needed[purpose.ScriptHash()]
-		if !ok {
-			return
-		}
-		if _, ok := common.PlutusScriptVersion(candidate); !ok {
-			return
-		}
-		ret = append(ret, dijkstraRequiredPlutusPurpose{
+		ret = append(ret, dijkstraRequiredScriptPurpose{
 			key:     key,
 			purpose: purpose,
 		})
@@ -1000,8 +1153,10 @@ func dijkstraRequiredPlutusPurposes(
 		}
 		appendPurpose(
 			common.RedeemerKey{
-				Tag:   common.RedeemerTagSpend,
-				Index: uint32(idx), // #nosec G115 -- bounded by transaction size
+				Tag: common.RedeemerTagSpend,
+				Index: uint32(
+					idx,
+				), // #nosec G115 -- bounded by transaction size
 			},
 			script.ScriptPurposeSpending{Input: utxo},
 		)
@@ -1145,7 +1300,10 @@ func dijkstraRequiredPlutusPurposes(
 	return ret
 }
 
-func validateDijkstraPlutusRedeemers(level dijkstraScriptLevel) error {
+func validateDijkstraPlutusRedeemers(
+	level dijkstraScriptLevel,
+	available map[common.ScriptHash]common.Script,
+) error {
 	provided := make(map[common.RedeemerKey]struct{})
 	if wits := level.tx.Witnesses(); wits != nil {
 		if redeemers := wits.Redeemers(); redeemers != nil {
@@ -1154,7 +1312,7 @@ func validateDijkstraPlutusRedeemers(level dijkstraScriptLevel) error {
 			}
 		}
 	}
-	for _, required := range dijkstraRequiredPlutusPurposes(level) {
+	for _, required := range dijkstraRequiredPlutusPurposes(level, available) {
 		if _, ok := provided[required.key]; ok {
 			continue
 		}
@@ -1704,6 +1862,112 @@ func guardingRedeemer(
 	}
 }
 
+func dijkstraRequiredTopLevelGuards(
+	body *DijkstraSubTransactionBody,
+) (map[dijkstraCredentialKey]cbor.RawMessage, error) {
+	if body == nil || body.TxRequiredTopLevelGuards == nil {
+		return nil, nil
+	}
+	var required map[dijkstraCredentialKey]cbor.RawMessage
+	if _, err := cbor.Decode(
+		body.TxRequiredTopLevelGuards.Cbor(),
+		&required,
+	); err != nil {
+		return nil, fmt.Errorf("decode required top-level guards: %w", err)
+	}
+	return required, nil
+}
+
+func dijkstraSortedCredentials(
+	credentials map[dijkstraCredentialKey]struct{},
+) []common.Credential {
+	keys := make([]dijkstraCredentialKey, 0, len(credentials))
+	for credential := range credentials {
+		keys = append(keys, credential)
+	}
+	dijkstraSortCredentialKeys(keys)
+	ret := make([]common.Credential, 0, len(keys))
+	for _, credential := range keys {
+		ret = append(ret, *credential.credential())
+	}
+	return ret
+}
+
+func validateDijkstraRequiredTopLevelGuards(
+	tx *DijkstraTransaction,
+) error {
+	topLevel := make(map[dijkstraCredentialKey]struct{})
+	topTx := dijkstraConwayFeatureTransaction{
+		Transaction: tx,
+		body:        &tx.Body,
+		witnesses:   tx.WitnessSet,
+	}
+	for _, guard := range nativeScriptGuardCredentials(topTx) {
+		topLevel[dijkstraCredentialKey{
+			Type: guard.CredType,
+			Hash: guard.Credential,
+		}] = struct{}{}
+	}
+	missing := make(map[dijkstraCredentialKey]struct{})
+	subTxs := tx.Body.TxSubTransactions.Items()
+	for idx := range subTxs {
+		required, err := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
+		if err != nil {
+			return err
+		}
+		for credential := range required {
+			if _, ok := topLevel[credential]; !ok {
+				missing[credential] = struct{}{}
+			}
+		}
+	}
+	if len(missing) > 0 {
+		return &MissingRequiredGuards{
+			Guards: dijkstraSortedCredentials(missing),
+		}
+	}
+	return nil
+}
+
+func validateDijkstraGuardDatums(
+	tx *DijkstraTransaction,
+	available map[common.ScriptHash]common.Script,
+) error {
+	malformed := make(map[dijkstraCredentialKey]struct{})
+	subTxs := tx.Body.TxSubTransactions.Items()
+	for idx := range subTxs {
+		required, err := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
+		if err != nil {
+			return err
+		}
+		for credential, rawDatum := range required {
+			hasDatum := !bytes.Equal(rawDatum, []byte{0xf6})
+			switch credential.Type {
+			case common.CredentialTypeAddrKeyHash:
+				if hasDatum {
+					malformed[credential] = struct{}{}
+				}
+			case common.CredentialTypeScriptHash:
+				candidate, ok := available[common.ScriptHash(credential.Hash)]
+				if !ok {
+					continue
+				}
+				_, plutus := common.PlutusScriptVersion(candidate)
+				if plutus == hasDatum {
+					continue
+				}
+				malformed[credential] = struct{}{}
+			}
+		}
+	}
+	if len(malformed) > 0 {
+		return &MalformedGuardDatums{
+			Guards: dijkstraSortedCredentials(malformed),
+		}
+	}
+	return nil
+}
+
 func UtxoValidateRedeemerAndScriptWitnesses(
 	tx common.Transaction,
 	slot uint64,
@@ -1719,46 +1983,43 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 			pp,
 		)
 	}
-	levels := dijkstraTransactionLevels(dijkstraTx)
-	available := make(map[common.ScriptHash]common.Script)
+	levels, available, err := dijkstraWitnessRuleLevels(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
 	hasPlutusWitness := false
 	for _, level := range levels {
-		addDijkstraWitnessScripts(available, level.Witnesses())
 		hasPlutusWitness = hasPlutusWitness || witnessSetHasPlutus(
-			level.Witnesses(),
+			level.tx.Witnesses(),
 		)
 	}
-	if ls != nil {
-		for _, level := range levels {
-			for _, refInput := range level.ReferenceInputs() {
-				utxo, err := ls.UtxoById(refInput)
-				if err != nil {
-					return common.ReferenceInputResolutionError{
-						Input: refInput,
-						Err:   err,
-					}
-				}
-				if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
-					candidate := utxo.Output.ScriptRef()
-					available[candidate.Hash()] = candidate
-				}
+	for _, level := range levels {
+		for _, required := range dijkstraRequiredScriptPurposes(level) {
+			hash := required.purpose.ScriptHash()
+			if _, ok := available[hash]; !ok {
+				return common.MissingScriptWitnessesError{ScriptHash: hash}
 			}
-			for _, input := range level.Inputs() {
-				utxo, err := ls.UtxoById(input)
-				if err != nil || utxo.Output == nil ||
-					utxo.Output.ScriptRef() == nil {
-					continue
-				}
-				candidate := utxo.Output.ScriptRef()
-				available[candidate.Hash()] = candidate
-			}
+		}
+	}
+	if err := validateDijkstraRequiredTopLevelGuards(dijkstraTx); err != nil {
+		return err
+	}
+	if err := validateDijkstraGuardDatums(dijkstraTx, available); err != nil {
+		return err
+	}
+	for _, level := range levels {
+		if err := validateDijkstraPlutusRedeemers(
+			level,
+			available,
+		); err != nil {
+			return err
 		}
 	}
 
 	totalRedeemers := 0
 	plutusRedeemers := 0
 	for _, level := range levels {
-		wits := level.Witnesses()
+		wits := level.tx.Witnesses()
 		levelRedeemers := 0
 		if wits != nil && wits.Redeemers() != nil {
 			for key := range wits.Redeemers().Iter() {
@@ -1768,7 +2029,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 					plutusRedeemers++
 					continue
 				}
-				purpose, ok := dijkstraGuardingPurpose(level, key)
+				purpose, ok := dijkstraGuardingPurpose(level.tx, key)
 				if !ok {
 					continue
 				}
@@ -1779,7 +2040,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 				}
 			}
 		}
-		if level.ScriptDataHash() != nil && levelRedeemers == 0 &&
+		if level.tx.ScriptDataHash() != nil && levelRedeemers == 0 &&
 			(wits == nil || len(wits.PlutusData()) == 0) {
 			return common.MissingRedeemersForScriptDataHashError{}
 		}
@@ -1809,6 +2070,64 @@ func witnessSetHasPlutus(wits common.TransactionWitnessSet) bool {
 		len(wits.PlutusV2Scripts()) > 0 ||
 		len(wits.PlutusV3Scripts()) > 0 ||
 		len(common.PlutusV4ScriptsFromWitnessSet(wits)) > 0
+}
+
+// UtxoValidateScriptWitnesses compares globally supplied Dijkstra scripts to
+// the scripts required across all transaction levels. Reference scripts from
+// any level satisfy requirements without requiring a duplicate witness.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateScriptWitnesses(tx, slot, ls, pp)
+	}
+	levels, available, err := dijkstraScriptLevels(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
+	required := make(map[common.ScriptHash]struct{})
+	referenceScripts := make(map[common.ScriptHash]struct{})
+	witnessScripts := make(map[common.ScriptHash]struct{})
+	for _, level := range levels {
+		for _, purpose := range dijkstraRequiredScriptPurposes(level) {
+			required[purpose.purpose.ScriptHash()] = struct{}{}
+		}
+		for _, utxo := range level.resolved {
+			if utxo.Output == nil || utxo.Output.ScriptRef() == nil {
+				continue
+			}
+			referenceScripts[utxo.Output.ScriptRef().Hash()] = struct{}{}
+		}
+		levelScripts := make(map[common.ScriptHash]common.Script)
+		addDijkstraWitnessScripts(levelScripts, level.tx.Witnesses())
+		for hash := range levelScripts {
+			witnessScripts[hash] = struct{}{}
+		}
+	}
+	for hash := range required {
+		if _, ok := available[hash]; !ok {
+			return common.MissingScriptWitnessesError{ScriptHash: hash}
+		}
+		if _, referenced := referenceScripts[hash]; referenced {
+			continue
+		}
+		if _, witnessed := witnessScripts[hash]; !witnessed {
+			return common.MissingScriptWitnessesError{ScriptHash: hash}
+		}
+	}
+	for hash := range witnessScripts {
+		if _, needed := required[hash]; !needed {
+			return common.ExtraneousScriptWitnessesError{ScriptHash: hash}
+		}
+		if _, referenced := referenceScripts[hash]; referenced {
+			return common.ExtraneousScriptWitnessesError{ScriptHash: hash}
+		}
+	}
+	return nil
 }
 
 func UtxoValidateFeeTooSmallUtxo(
@@ -2444,8 +2763,15 @@ func UtxoValidateExtraneousRedeemers(
 	if !ok {
 		return conway.UtxoValidateExtraneousRedeemers(tx, slot, ls, pp)
 	}
-	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
-		if err := validateDijkstraExtraneousRedeemers(level, ls); err != nil {
+	levels, available, err := dijkstraWitnessRuleLevels(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
+	for _, level := range levels {
+		if err := validateDijkstraExtraneousRedeemers(
+			level.tx,
+			available,
+		); err != nil {
 			return err
 		}
 	}
@@ -2454,7 +2780,7 @@ func UtxoValidateExtraneousRedeemers(
 
 func validateDijkstraExtraneousRedeemers(
 	tx common.Transaction,
-	ls common.LedgerState,
+	available map[common.ScriptHash]common.Script,
 ) error {
 	wits := tx.Witnesses()
 	if wits == nil {
@@ -2496,14 +2822,11 @@ func validateDijkstraExtraneousRedeemers(
 		case common.RedeemerTagProposing:
 			maxIndex = proposalCount
 		case common.RedeemerTagGuarding:
-			needsPlutus, err := dijkstraGuardNeedsPlutusRedeemer(
+			needsPlutus := dijkstraGuardNeedsPlutusRedeemer(
 				tx,
-				ls,
+				available,
 				redeemerKey.Index,
 			)
-			if err != nil {
-				return err
-			}
 			if needsPlutus {
 				continue
 			}
@@ -2522,18 +2845,26 @@ func validateDijkstraExtraneousRedeemers(
 
 func dijkstraGuardNeedsPlutusRedeemer(
 	tx common.Transaction,
-	ls common.LedgerState,
+	available map[common.ScriptHash]common.Script,
 	index uint32,
-) (bool, error) {
+) bool {
 	guard, ok := dijkstraGuardCredentialAt(tx, index)
 	if !ok || guard.CredType != common.CredentialTypeScriptHash {
-		return false, nil
+		return false
 	}
-	isNative, err := dijkstraGuardResolvesToNativeScript(tx, ls, index)
-	if err != nil {
-		return false, err
+	candidate, ok := available[common.ScriptHash(guard.Credential)]
+	if !ok {
+		// Missing scripts are reported by the script-witness predicate. Until
+		// then, do not misclassify an otherwise well-shaped guarding key as an
+		// extraneous redeemer.
+		return true
 	}
-	return !isNative, nil
+	switch candidate.(type) {
+	case common.NativeScript, *common.NativeScript:
+		return false
+	default:
+		return true
+	}
 }
 
 func dijkstraGuardCredentialAt(
@@ -2559,120 +2890,6 @@ func dijkstraGuardCredentialAt(
 		return common.Credential{}, false
 	}
 	return guards.Credentials[index], true
-}
-
-func dijkstraGuardResolvesToNativeScript(
-	tx common.Transaction,
-	ls common.LedgerState,
-	index uint32,
-) (bool, error) {
-	scriptHash, ok := dijkstraGuardScriptHash(tx, index)
-	if !ok {
-		return false, nil
-	}
-	if dijkstraGuardWitnessesHaveNativeScript(tx, scriptHash) {
-		return true, nil
-	}
-	if ls == nil {
-		return false, nil
-	}
-	for _, refInput := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return false, common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output != nil &&
-			scriptRefIsNativeHash(utxo.Output.ScriptRef(), scriptHash) {
-			return true, nil
-		}
-	}
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil || utxo.Output == nil {
-			continue
-		}
-		if scriptRefIsNativeHash(utxo.Output.ScriptRef(), scriptHash) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// dijkstraGuardScriptHash resolves the guard credential at index to a script
-// hash, reporting false if it is absent or not a script credential.
-func dijkstraGuardScriptHash(
-	tx common.Transaction,
-	index uint32,
-) (common.ScriptHash, bool) {
-	guard, ok := dijkstraGuardCredentialAt(tx, index)
-	if !ok || guard.CredType != common.CredentialTypeScriptHash {
-		return common.ScriptHash{}, false
-	}
-	return common.ScriptHash(guard.Credential), true
-}
-
-// dijkstraGuardWitnessesHaveNativeScript checks the transaction's own witness
-// set and every sub-transaction's witness set for a native script matching
-// scriptHash.
-func dijkstraGuardWitnessesHaveNativeScript(
-	tx common.Transaction,
-	scriptHash common.ScriptHash,
-) bool {
-	if witnessSetHasNativeScript(tx.Witnesses(), scriptHash) {
-		return true
-	}
-	switch tx := tx.(type) {
-	case *DijkstraTransaction:
-		for _, subTx := range tx.Body.TxSubTransactions.Items() {
-			if witnessSetHasNativeScript(subTx.WitnessSet, scriptHash) {
-				return true
-			}
-		}
-	case dijkstraConwayFeatureTransaction:
-		return dijkstraGuardWitnessesHaveNativeScript(
-			tx.Transaction,
-			scriptHash,
-		)
-	}
-	return false
-}
-
-func witnessSetHasNativeScript(
-	wits common.TransactionWitnessSet,
-	scriptHash common.ScriptHash,
-) bool {
-	if wits == nil {
-		return false
-	}
-	for _, script := range wits.NativeScripts() {
-		if script.Hash() == scriptHash {
-			return true
-		}
-	}
-	return false
-}
-
-func scriptRefIsNativeHash(
-	scriptRef common.Script,
-	scriptHash common.ScriptHash,
-) bool {
-	if scriptRef == nil {
-		return false
-	}
-	switch script := scriptRef.(type) {
-	case common.NativeScript:
-		return script.Hash() == scriptHash
-	case *common.NativeScript:
-		if script == nil {
-			return false
-		}
-		return script.Hash() == scriptHash
-	default:
-		return false
-	}
 }
 
 func UtxoValidateNativeScripts(

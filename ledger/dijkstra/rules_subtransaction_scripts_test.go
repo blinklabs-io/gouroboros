@@ -505,7 +505,9 @@ func TestVerifyTransactionChecksSubtransactionWitnesses(t *testing.T) {
 		dijkstraGuardTestPParams(),
 		[]common.UtxoValidationRuleFunc{UtxoValidateRedeemerAndScriptWitnesses},
 	)
-	require.ErrorAs(t, err, &common.MissingPlutusScriptWitnessesError{})
+	var missing common.MissingScriptWitnessesError
+	require.ErrorAs(t, err, &missing)
+	require.Equal(t, script.Hash(), missing.ScriptHash)
 }
 
 func TestUtxoValidateExtraneousRedeemersPerTransactionLevel(t *testing.T) {

@@ -17,10 +17,63 @@ package dijkstra
 import (
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
+
+// MissingRequiredGuards represents guard credentials that subtransactions
+// require but that are absent from the top-level guard set.
+type MissingRequiredGuards struct {
+	Guards []common.Credential
+}
+
+func (e *MissingRequiredGuards) UnmarshalCBOR(cborData []byte) error {
+	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *MissingRequiredGuards) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MissingRequiredGuards ([")
+	for idx, cred := range e.Guards {
+		sb.WriteString(cred.Credential.String())
+		if idx < len(e.Guards)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// MalformedGuardDatums represents guard credentials whose datum presence in
+// requiredTopLevelGuards is inconsistent with the guard script kind.
+type MalformedGuardDatums struct {
+	Guards []common.Credential
+}
+
+func (e *MalformedGuardDatums) UnmarshalCBOR(cborData []byte) error {
+	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *MalformedGuardDatums) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MalformedGuardDatums ([")
+	for idx, cred := range e.Guards {
+		sb.WriteString(cred.Credential.String())
+		if idx < len(e.Guards)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
 
 // UnsupportedScriptInSubtransactionError reports the Dijkstra rule that
 // Plutus V1 through V3 scripts cannot be required by a subtransaction.
