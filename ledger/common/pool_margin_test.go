@@ -17,6 +17,7 @@ package common
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"math/big"
 	"testing"
 
@@ -24,6 +25,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testGenesisRat(numerator, denominator *big.Int) GenesisRat {
+	return GenesisRat{
+		Rat: new(big.Rat).SetFrac(numerator, denominator),
+	}
+}
 
 func testPoolRegistrationCertificate(
 	margin GenesisRat,
@@ -181,6 +188,50 @@ func TestPoolRegistrationCertificateNormalizesHistoricalMarginCBOR(
 	}
 }
 
+func TestPoolRegistrationCertificateHistoricalMarginWord64Bounds(
+	t *testing.T,
+) {
+	t.Run("rejects irreducible components above Word64", func(t *testing.T) {
+		margin := cbor.RawMessage{
+			0xd8, 0x1e, 0x82,
+			0xc2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xc2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+		}
+		wire := testPoolRegistrationWire(t, margin, false)
+		var cert PoolRegistrationCertificate
+		_, err := cbor.Decode(wire, &cert)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrPoolMarginOutsideUnitInterval)
+	})
+
+	t.Run("accepts reducible components above Word64", func(t *testing.T) {
+		margin := cbor.RawMessage{
+			0xd8, 0x1e, 0x82,
+			0xc2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xc2, 0x49, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		}
+		wire := testPoolRegistrationWire(t, margin, false)
+		var cert PoolRegistrationCertificate
+		_, err := cbor.Decode(wire, &cert)
+		require.NoError(t, err)
+		assert.Zero(t, cert.Margin.Cmp(big.NewRat(1, 2)))
+	})
+}
+
+func TestPoolRegistrationCertificateCurrentMarginMaxWord64CBOR(t *testing.T) {
+	margin := cbor.RawMessage{
+		0xd8, 0x1e, 0x82,
+		0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+		0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	}
+	wire := testPoolRegistrationWire(t, margin, true)
+	var cert PoolRegistrationCertificate
+	_, err := cbor.Decode(wire, &cert)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(math.MaxUint64-1), cert.Margin.Num().Uint64())
+	assert.Equal(t, uint64(math.MaxUint64), cert.Margin.Denom().Uint64())
+}
+
 func TestPoolRegistrationCertificateRejectsCurrentNonUintMarginCBOR(
 	t *testing.T,
 ) {
@@ -272,6 +323,185 @@ func TestPoolRegistrationCertificateRejectsInvalidMarginJSON(t *testing.T) {
 	}
 }
 
+func TestPoolRegistrationCertificateJSONMarginWord64Bounds(t *testing.T) {
+	tests := []struct {
+		name       string
+		margin     string
+		want       *big.Rat
+		shouldFail bool
+	}{
+		{
+			name:       "decimal below Word64 precision",
+			margin:     `1e-20`,
+			shouldFail: true,
+		},
+		{
+			name: "irreducible components above Word64",
+			margin: `{"numerator":18446744073709551616,` +
+				`"denominator":18446744073709551617}`,
+			shouldFail: true,
+		},
+		{
+			name: "reducible components above Word64",
+			margin: `{"numerator":18446744073709551616,` +
+				`"denominator":36893488147419103232}`,
+			want: big.NewRat(1, 2),
+		},
+		{
+			name: "maximum Word64 components",
+			margin: `{"numerator":18446744073709551614,` +
+				`"denominator":18446744073709551615}`,
+			want: testGenesisRat(
+				new(big.Int).SetUint64(math.MaxUint64-1),
+				new(big.Int).SetUint64(math.MaxUint64),
+			).Rat,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var cert PoolRegistrationCertificate
+			err := json.Unmarshal(
+				[]byte(`{"margin":`+test.margin+`}`),
+				&cert,
+			)
+			if test.shouldFail {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, ErrPoolMarginOutsideUnitInterval)
+				return
+			}
+			require.NoError(t, err)
+			assert.Zero(t, cert.Margin.Cmp(test.want))
+		})
+	}
+}
+
+func TestPoolRegistrationCertificateMarshalJSONValidatesMargin(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		margin GenesisRat
+		valid  bool
+	}{
+		{name: "zero", margin: NewGenesisRat(0, 1), valid: true},
+		{name: "one", margin: NewGenesisRat(1, 1), valid: true},
+		{
+			name: "maximum Word64 components",
+			margin: testGenesisRat(
+				new(big.Int).SetUint64(math.MaxUint64-1),
+				new(big.Int).SetUint64(math.MaxUint64),
+			),
+			valid: true,
+		},
+		{name: "above one", margin: NewGenesisRat(2, 1)},
+		{name: "missing", margin: GenesisRat{}},
+		{
+			name: "Word64 denominator overflow",
+			margin: testGenesisRat(
+				big.NewInt(1),
+				new(big.Int).Lsh(big.NewInt(1), 64),
+			),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cert := testPoolRegistrationCertificate(test.margin)
+			type unvalidatedPoolRegistrationCertificate PoolRegistrationCertificate
+			var want []byte
+			if test.valid {
+				var err error
+				want, err = json.Marshal(
+					unvalidatedPoolRegistrationCertificate(cert),
+				)
+				require.NoError(t, err)
+			}
+			for _, value := range []any{cert, &cert} {
+				encoded, err := json.Marshal(value)
+				if test.valid {
+					require.NoError(t, err)
+					assert.Equal(t, want, encoded)
+					continue
+				}
+				require.Error(t, err)
+				assert.ErrorIs(t, err, ErrPoolMarginOutsideUnitInterval)
+				assert.Nil(t, encoded)
+			}
+		})
+	}
+}
+
+func TestPoolRegistrationCertificateJSONValidationPreservesCachedCBOR(
+	t *testing.T,
+) {
+	wire := testPoolRegistrationWire(
+		t,
+		cbor.RawMessage{0xd8, 0x1e, 0x82, 0x01, 0x02},
+		false,
+	)
+	var cert PoolRegistrationCertificate
+	_, err := cbor.Decode(wire, &cert)
+	require.NoError(t, err)
+
+	cert.Margin = NewGenesisRat(2, 1)
+	_, err = json.Marshal(cert)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrPoolMarginOutsideUnitInterval)
+	encoded, err := cbor.Encode(cert)
+	require.NoError(t, err)
+	assert.Equal(t, wire, encoded)
+}
+
+func TestPoolRegistrationCertificateUtxorpcMarginBounds(t *testing.T) {
+	tests := []struct {
+		name   string
+		margin GenesisRat
+		valid  bool
+	}{
+		{
+			name: "largest representable components",
+			margin: testGenesisRat(
+				big.NewInt(math.MaxInt32),
+				new(big.Int).SetUint64(math.MaxUint32),
+			),
+			valid: true,
+		},
+		{
+			name: "numerator above signed schema range",
+			margin: testGenesisRat(
+				new(big.Int).SetUint64(uint64(math.MaxInt32)+1),
+				new(big.Int).SetUint64(uint64(math.MaxInt32)+2),
+			),
+		},
+		{
+			name: "denominator above unsigned schema range",
+			margin: testGenesisRat(
+				big.NewInt(1),
+				new(big.Int).SetUint64(uint64(math.MaxUint32)+1),
+			),
+		},
+		{
+			name: "valid Word64 components outside schema range",
+			margin: testGenesisRat(
+				new(big.Int).SetUint64(math.MaxUint64-1),
+				new(big.Int).SetUint64(math.MaxUint64),
+			),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cert := testPoolRegistrationCertificate(test.margin)
+			converted, err := cert.Utxorpc()
+			if test.valid {
+				require.NoError(t, err)
+				margin := converted.GetPoolRegistration().GetMargin()
+				assert.Equal(t, int32(math.MaxInt32), margin.GetNumerator())
+				assert.Equal(t, uint32(math.MaxUint32), margin.GetDenominator())
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrPoolMarginUTxORPCUnrepresentable)
+			assert.Nil(t, converted)
+		})
+	}
+}
+
 func TestPoolRegistrationCertificateConstructedMarginBoundaries(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -280,6 +510,24 @@ func TestPoolRegistrationCertificateConstructedMarginBoundaries(t *testing.T) {
 	}{
 		{name: "zero", margin: NewGenesisRat(0, 1), valid: true},
 		{name: "one", margin: NewGenesisRat(1, 1), valid: true},
+		{
+			name: "maximum Word64",
+			margin: testGenesisRat(
+				new(big.Int).SetUint64(math.MaxUint64-1),
+				new(big.Int).SetUint64(math.MaxUint64),
+			),
+			valid: true,
+		},
+		{
+			name: "Word64 denominator overflow",
+			margin: testGenesisRat(
+				big.NewInt(1),
+				new(big.Int).Add(
+					new(big.Int).SetUint64(math.MaxUint64),
+					big.NewInt(1),
+				),
+			),
+		},
 		{name: "negative", margin: NewGenesisRat(-1, 1)},
 		{name: "above one", margin: NewGenesisRat(2, 1)},
 		{name: "missing", margin: GenesisRat{}},
@@ -294,8 +542,10 @@ func TestPoolRegistrationCertificateConstructedMarginBoundaries(t *testing.T) {
 				_, err = cbor.Decode(wire, &decoded)
 				require.NoError(t, err)
 				assert.Zero(t, decoded.Margin.Cmp(test.margin.Rat))
-				_, err = cert.Utxorpc()
-				require.NoError(t, err)
+				if test.name != "maximum Word64" {
+					_, err = cert.Utxorpc()
+					require.NoError(t, err)
+				}
 				return
 			}
 			require.Error(t, err)
@@ -321,6 +571,13 @@ func TestCalculateRewardsRejectsInvalidPoolMargins(t *testing.T) {
 		{name: "negative", margin: NewGenesisRat(-1, 1)},
 		{name: "above one", margin: NewGenesisRat(2, 1)},
 		{name: "missing", margin: GenesisRat{}},
+		{
+			name: "Word64 denominator overflow",
+			margin: testGenesisRat(
+				big.NewInt(1),
+				new(big.Int).Lsh(big.NewInt(1), 64),
+			),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -380,6 +637,13 @@ func TestDistributePoolRewardsConservesInvalidMargins(t *testing.T) {
 		{name: "negative", margin: NewGenesisRat(-1, 1)},
 		{name: "above one", margin: NewGenesisRat(2, 1)},
 		{name: "missing", margin: GenesisRat{}},
+		{
+			name: "Word64 denominator overflow",
+			margin: testGenesisRat(
+				big.NewInt(1),
+				new(big.Int).Lsh(big.NewInt(1), 64),
+			),
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			rewards := distributePoolRewards(

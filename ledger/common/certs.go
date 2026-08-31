@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net"
 	"strings"
@@ -677,6 +678,12 @@ var ErrPoolMarginOutsideUnitInterval = errors.New(
 	"pool margin must be in the unit interval [0,1]",
 )
 
+// ErrPoolMarginUTxORPCUnrepresentable identifies a valid ledger pool margin
+// that cannot be represented by the UTxO-RPC RationalNumber schema.
+var ErrPoolMarginUTxORPCUnrepresentable = errors.New(
+	"pool margin cannot be represented by UTxO-RPC",
+)
+
 // ValidatePoolMargin verifies the bounded-rational contract used by stake
 // pool registrations. Pool margins are inclusive at both zero and one.
 func ValidatePoolMargin(margin GenesisRat) error {
@@ -687,6 +694,27 @@ func ValidatePoolMargin(margin GenesisRat) error {
 }
 
 func validatePoolMarginComponents(numerator, denominator *big.Int) error {
+	if err := validatePoolMarginInterval(numerator, denominator); err != nil {
+		return err
+	}
+	if !numerator.IsUint64() {
+		return fmt.Errorf(
+			"%w: numerator cannot be represented by Word64: %s",
+			ErrPoolMarginOutsideUnitInterval,
+			numerator,
+		)
+	}
+	if !denominator.IsUint64() {
+		return fmt.Errorf(
+			"%w: denominator cannot be represented by Word64: %s",
+			ErrPoolMarginOutsideUnitInterval,
+			denominator,
+		)
+	}
+	return nil
+}
+
+func validatePoolMarginInterval(numerator, denominator *big.Int) error {
 	if numerator == nil || denominator == nil {
 		return fmt.Errorf(
 			"%w: missing component",
@@ -774,18 +802,36 @@ func ParsePoolMarginJSON(data []byte) (GenesisRat, error) {
 	}
 	if data[0] == '{' {
 		var components struct {
-			Numerator   int64 `json:"numerator"`
-			Denominator int64 `json:"denominator"`
+			Numerator   json.RawMessage `json:"numerator"`
+			Denominator json.RawMessage `json:"denominator"`
 		}
 		if err := json.Unmarshal(data, &components); err != nil {
 			return margin, err
 		}
-		if err := validatePoolMarginComponents(
-			big.NewInt(components.Numerator),
-			big.NewInt(components.Denominator),
-		); err != nil {
+		numerator, err := parsePoolMarginJSONInteger(
+			components.Numerator,
+			"numerator",
+		)
+		if err != nil {
 			return margin, err
 		}
+		denominator, err := parsePoolMarginJSONInteger(
+			components.Denominator,
+			"denominator",
+		)
+		if err != nil {
+			return margin, err
+		}
+		// Preserve the encoded-component sign rules while applying the Word64
+		// bound to the normalized rational, as cardano-ledger does.
+		if err := validatePoolMarginInterval(numerator, denominator); err != nil {
+			return margin, err
+		}
+		margin.Rat = new(big.Rat).SetFrac(numerator, denominator)
+		if err := ValidatePoolMargin(margin); err != nil {
+			return margin, err
+		}
+		return margin, nil
 	}
 	if err := margin.UnmarshalJSON(data); err != nil {
 		return margin, err
@@ -794,6 +840,29 @@ func ParsePoolMarginJSON(data []byte) (GenesisRat, error) {
 		return margin, err
 	}
 	return margin, nil
+}
+
+func parsePoolMarginJSONInteger(
+	data []byte,
+	component string,
+) (*big.Int, error) {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
+		return nil, fmt.Errorf(
+			"%w: missing %s",
+			ErrPoolMarginOutsideUnitInterval,
+			component,
+		)
+	}
+	value, ok := new(big.Int).SetString(string(data), 10)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: %s must be an integer",
+			ErrPoolMarginOutsideUnitInterval,
+			component,
+		)
+	}
+	return value, nil
 }
 
 func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
@@ -944,6 +1013,17 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON rejects programmatically constructed margins that do not satisfy
+// the ledger's Word64-backed unit-interval contract.
+func (c PoolRegistrationCertificate) MarshalJSON() ([]byte, error) {
+	if err := ValidatePoolMargin(c.Margin); err != nil {
+		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
+	}
+	type poolRegistrationCertificateJSON PoolRegistrationCertificate
+	//nolint:musttag // The alias preserves PoolRegistrationCertificate's tags.
+	return json.Marshal(poolRegistrationCertificateJSON(c))
+}
+
 func (c PoolRegistrationCertificate) isCertificate() {}
 
 func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
@@ -1073,6 +1153,10 @@ func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	if err := ValidatePoolMargin(c.Margin); err != nil {
 		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
 	}
+	margin, err := poolMarginUtxorpc(c.Margin)
+	if err != nil {
+		return nil, err
+	}
 	tmpPoolOwners := make([][]byte, len(c.PoolOwners))
 	for i, owner := range c.PoolOwners {
 		tmpPoolOwners[i] = owner.Bytes()
@@ -1093,22 +1177,43 @@ func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_PoolRegistration{
-			// #nosec G115
 			PoolRegistration: &utxorpc.PoolRegistrationCert{
-				Operator:   c.Operator.Bytes(),
-				VrfKeyhash: c.VrfKeyHash[:],
-				Pledge:     ToUtxorpcBigInt(c.Pledge),
-				Cost:       ToUtxorpcBigInt(c.Cost),
-				Margin: &utxorpc.RationalNumber{
-					Numerator:   int32(c.Margin.Num().Int64()),
-					Denominator: uint32(c.Margin.Denom().Uint64()),
-				},
+				Operator:      c.Operator.Bytes(),
+				VrfKeyhash:    c.VrfKeyHash[:],
+				Pledge:        ToUtxorpcBigInt(c.Pledge),
+				Cost:          ToUtxorpcBigInt(c.Cost),
+				Margin:        margin,
 				RewardAccount: c.RewardAccount.Bytes(),
 				PoolOwners:    tmpPoolOwners,
 				Relays:        tmpRelays,
 				PoolMetadata:  poolMetadata,
 			},
 		},
+	}, nil
+}
+
+func poolMarginUtxorpc(margin GenesisRat) (*utxorpc.RationalNumber, error) {
+	numerator := margin.Num().Uint64()
+	denominator := margin.Denom().Uint64()
+	if numerator > math.MaxInt32 {
+		return nil, fmt.Errorf(
+			"%w: numerator %d exceeds int32 maximum %d",
+			ErrPoolMarginUTxORPCUnrepresentable,
+			numerator,
+			math.MaxInt32,
+		)
+	}
+	if denominator > math.MaxUint32 {
+		return nil, fmt.Errorf(
+			"%w: denominator %d exceeds uint32 maximum %d",
+			ErrPoolMarginUTxORPCUnrepresentable,
+			denominator,
+			uint64(math.MaxUint32),
+		)
+	}
+	return &utxorpc.RationalNumber{
+		Numerator:   int32(numerator),
+		Denominator: uint32(denominator),
 	}, nil
 }
 
