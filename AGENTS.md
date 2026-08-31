@@ -199,6 +199,11 @@ delete, or repair them.
   current head SHA, required checks pass, and configured bots have no
   actionable findings. Use one concise factual squash summary and preserve the
   DCO `Signed-off-by:` line.
+- Use `gh pr merge --squash` with a run-owned body file and
+  `--match-head-commit` for normal squash merges. A request to use REST for
+  status checks applies only to those reads. If an owner explicitly requires
+  the REST merge endpoint, submit a validated JSON input file; never send a
+  multiline commit message through form fields or escaped shell text.
 - A failed normal merge is never authorization to bypass repository policy.
   Do not use `--admin`, an API policy override, or any equivalent bypass unless
   the owner explicitly authorizes that bypass for the specific pull request.

@@ -1,6 +1,6 @@
 {
   "name": "blink-labs-agent-toolkit",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Blink Labs and TosiDrop repository maintenance, Cardano protocol and application review, Go API and dependency auditing, Docker release review, infrastructure-as-code maintenance and operations, and GitHub review-loop coordination.",
   "author": {
     "name": "Blink Labs"

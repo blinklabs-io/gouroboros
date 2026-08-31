@@ -339,6 +339,12 @@ human review, not human approval or merge.
 - Write the squash body as real Markdown in a run-owned file and pass it with
   `--body-file`; never encode its line breaks as `\\n` in `--body`. Lock the
   merge to the reviewed head with `--match-head-commit`.
+- REST-only status or review checks do not change the merge transport: use
+  `gh pr merge --squash --body-file ... --match-head-commit ...` for the merge.
+  If the owner explicitly requires the REST merge endpoint, put the complete
+  request in a validated JSON input file and use `gh api --input`; never pass a
+  multiline `commit_message` through `-f`, `-F`, JSON-stringified shell text,
+  or escaped newlines.
 - Preserve the DCO `Signed-off-by:` line in the squash commit. After merging,
   read the resulting commit message back and verify the sign-off is a standalone
   trailer, not literal escaped text. Do not use a merge path that drops or
