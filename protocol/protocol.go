@@ -61,6 +61,10 @@ type Protocol struct {
 	onceRegister        sync.Once
 	onceStart           sync.Once
 	onceStop            sync.Once
+	doneOnce            sync.Once
+	lifecycleMu         sync.Mutex
+	started             bool
+	stopped             bool
 	pendingBytesMu      sync.Mutex
 	pendingSendBytes    int
 	pendingRecvBytes    int
@@ -166,10 +170,18 @@ func (p *Protocol) EnsureRegistered() {
 // Start initializes the mini-protocol
 func (p *Protocol) Start() {
 	p.onceStart.Do(func() {
+		p.lifecycleMu.Lock()
+		if p.stopped {
+			p.lifecycleMu.Unlock()
+			return
+		}
+
 		p.EnsureRegistered()
 
 		if p.muxerDoneChan == nil {
+			p.lifecycleMu.Unlock()
 			p.SendError(errors.New("could not register protocol with muxer"))
+			p.closeDone()
 			return
 		}
 
@@ -186,30 +198,50 @@ func (p *Protocol) Start() {
 		go func() {
 			<-p.recvDoneChan
 			<-p.sendDoneChan
-			close(p.doneChan)
+			p.closeDone()
 		}()
 
 		go p.stateLoop(stateTransitionChan)
 		go p.readLoop()
 		go p.recvLoop()
 		go p.sendLoop()
+
+		p.started = true
+		p.lifecycleMu.Unlock()
 	})
 }
 
 // Stop shuts down the mini-protocol
 func (p *Protocol) Stop() {
 	p.onceStop.Do(func() {
+		p.lifecycleMu.Lock()
+		p.stopped = true
+		started := p.started
+		p.lifecycleMu.Unlock()
+
 		close(p.stopChan)
+		if !started {
+			p.closeDone()
+		}
 
 		// Unregister protocol from muxer
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
 		}
+		if p.config.Muxer == nil {
+			return
+		}
 		p.config.Muxer.UnregisterProtocol(
 			p.config.ProtocolId,
 			muxerProtocolRole,
 		)
+	})
+}
+
+func (p *Protocol) closeDone() {
+	p.doneOnce.Do(func() {
+		close(p.doneChan)
 	})
 }
 
