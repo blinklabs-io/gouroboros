@@ -44,6 +44,18 @@ func dijkstraPlutusV4Context(
 	if err != nil {
 		return nil, err
 	}
+	if guarding, ok := purpose.(script.ScriptPurposeGuarding); ok &&
+		level.subTxIndex == nil {
+		topTxInfo, err := dijkstraTopTxInfoV4(level, guarding.Guard)
+		if err != nil {
+			return nil, err
+		}
+		scriptInfo = data.NewConstr(
+			6,
+			data.NewInteger(new(big.Int).SetUint64(uint64(key.Index))),
+			data.NewConstr(0, topTxInfo),
+		)
+	}
 	_ = purposeData // The purpose is represented in txInfoRedeemers.
 	return data.NewConstr(
 		0,
@@ -107,11 +119,11 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	fee := new(big.Int)
-	if level.subTxIndex == nil && level.tx.Fee() != nil {
-		fee.Set(level.tx.Fee())
+	validRange, err := dijkstraPOSIXTimeRangeV4(level)
+	if err != nil {
+		return nil, err
 	}
+
 	mint := level.tx.AssetMint()
 	if mint == nil {
 		mint = &common.MultiAsset[common.MultiAssetTypeMint]{}
@@ -128,13 +140,12 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		data.NewList(inputs...),
 		data.NewList(referenceInputs...),
 		data.NewList(outputs...),
-		data.NewInteger(fee),
 		mint.ToPlutusData(),
 		data.NewList(certificates...),
 		withdrawals,
 		directDeposits,
 		balanceIntervals,
-		base.ValidRange.ToPlutusData(),
+		validRange,
 		guards,
 		requiredGuards,
 		redeemers,
@@ -144,6 +155,720 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		base.CurrentTreasuryAmount.ToPlutusData(),
 		data.NewInteger(donation),
 	), nil
+}
+
+func dijkstraPOSIXTimeRangeV4(
+	level dijkstraScriptLevel,
+) (data.PlutusData, error) {
+	var lower *big.Int
+	if dijkstraValidityLowerBoundPresentV4(level.tx.body) {
+		value, err := level.slotState.SlotToTime(
+			level.tx.ValidityIntervalStart(),
+		)
+		if err != nil {
+			return nil, err
+		}
+		lower = big.NewInt(value.UnixMilli())
+	}
+	var upper *big.Int
+	if slot, present := level.tx.ValidityIntervalUpperBound(); present {
+		value, err := level.slotState.SlotToTime(slot)
+		if err != nil {
+			return nil, err
+		}
+		upper = big.NewInt(value.UnixMilli())
+	}
+	return dijkstraPOSIXTimeRangeDataV4(lower, upper), nil
+}
+
+func dijkstraValidityLowerBoundPresentV4(body common.TransactionBody) bool {
+	present := body.ValidityIntervalStart() > 0
+	if len(body.Cbor()) == 0 {
+		return present
+	}
+	var fields map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(body.Cbor(), &fields); err != nil {
+		return present
+	}
+	_, present = fields[8]
+	return present
+}
+
+func dijkstraPOSIXTimeRangeDataV4(
+	lower *big.Int,
+	upper *big.Int,
+) data.PlutusData {
+	optional := func(value *big.Int) data.PlutusData {
+		if value == nil {
+			return data.NewConstr(1)
+		}
+		return data.NewConstr(0, data.NewInteger(value))
+	}
+	return data.NewConstr(0, optional(lower), optional(upper))
+}
+
+const (
+	dijkstraTxInfoV4ID = iota
+	dijkstraTxInfoV4SubTxIndex
+	dijkstraTxInfoV4Inputs
+	dijkstraTxInfoV4ReferenceInputs
+	dijkstraTxInfoV4Outputs
+	dijkstraTxInfoV4Mint
+	dijkstraTxInfoV4Certificates
+	dijkstraTxInfoV4Withdrawals
+	dijkstraTxInfoV4DirectDeposits
+	dijkstraTxInfoV4BalanceIntervals
+	dijkstraTxInfoV4ValidRange
+	dijkstraTxInfoV4Guards
+	dijkstraTxInfoV4RequiredGuards
+	dijkstraTxInfoV4Redeemers
+	dijkstraTxInfoV4Data
+	dijkstraTxInfoV4Votes
+	dijkstraTxInfoV4Proposals
+	dijkstraTxInfoV4CurrentTreasury
+	dijkstraTxInfoV4Donation
+	dijkstraTxInfoV4FieldCount
+)
+
+func dijkstraTopTxInfoV4(
+	level dijkstraScriptLevel,
+	guard common.Credential,
+) (data.PlutusData, error) {
+	root, ok := level.tx.Transaction.(*DijkstraTransaction)
+	if !ok {
+		return nil, fmt.Errorf(
+			"unexpected Dijkstra transaction type %T",
+			level.tx.Transaction,
+		)
+	}
+	ledgerState, ok := level.slotState.(common.LedgerState)
+	if !ok {
+		return nil, errors.New(
+			"ledger state is required for top-level Plutus V4 context",
+		)
+	}
+	levels, _, err := dijkstraScriptLevels(root, ledgerState)
+	if err != nil {
+		return nil, err
+	}
+	infos := make([]*data.Constr, len(levels))
+	encodedInfos := make([]data.PlutusData, len(levels))
+	for idx := range levels {
+		encoded, err := dijkstraTxInfoV4(levels[idx])
+		if err != nil {
+			return nil, err
+		}
+		info, ok := encoded.(*data.Constr)
+		if !ok || info.Tag.Uint64() != 0 ||
+			len(info.Fields) != dijkstraTxInfoV4FieldCount {
+			return nil, errors.New("invalid Plutus V4 transaction info")
+		}
+		infos[idx] = info
+		encodedInfos[idx] = encoded
+	}
+	if len(infos) == 0 {
+		return nil, errors.New("top-level Plutus V4 context has no transaction")
+	}
+	datums, err := dijkstraTopTxInfoDatumsV4(infos, guard)
+	if err != nil {
+		return nil, err
+	}
+	simplified, err := dijkstraTopTxInfoSimplifiedV4(infos)
+	if err != nil {
+		return nil, err
+	}
+	return data.NewConstr(
+		0,
+		data.NewList(encodedInfos[:len(encodedInfos)-1]...),
+		datums,
+		infos[len(infos)-1].Fields[dijkstraTxInfoV4BalanceIntervals],
+		simplified,
+	), nil
+}
+
+func dijkstraTopTxInfoDatumsV4(
+	infos []*data.Constr,
+	guard common.Credential,
+) (data.PlutusData, error) {
+	pairs := make([][2]data.PlutusData, 0)
+	guardData := guard.ToPlutusData()
+	for _, info := range infos {
+		required, ok := info.Fields[dijkstraTxInfoV4RequiredGuards].(*data.Map)
+		if !ok {
+			return nil, errors.New(
+				"required top-level guards did not encode as a map",
+			)
+		}
+		for _, pair := range required.Pairs {
+			if !pair[0].Equal(guardData) {
+				continue
+			}
+			optional, ok := pair[1].(*data.Constr)
+			if !ok {
+				return nil, errors.New(
+					"required top-level guard datum is not optional data",
+				)
+			}
+			if optional.Tag.Uint64() == 1 && len(optional.Fields) == 0 {
+				continue
+			}
+			if optional.Tag.Uint64() != 0 || len(optional.Fields) != 1 {
+				return nil, errors.New(
+					"required top-level guard datum has invalid data",
+				)
+			}
+			txID := info.Fields[dijkstraTxInfoV4ID]
+			idx := dijkstraDataPairIndexV4(pairs, txID)
+			item := [2]data.PlutusData{txID, optional.Fields[0]}
+			if idx < 0 {
+				pairs = append(pairs, item)
+			} else {
+				pairs[idx] = item
+			}
+		}
+	}
+	dijkstraSortDataPairsV4(pairs)
+	return data.NewMap(pairs), nil
+}
+
+func dijkstraTopTxInfoSimplifiedV4(
+	infos []*data.Constr,
+) (data.PlutusData, error) {
+	ids := make([]data.PlutusData, len(infos))
+	for idx := range infos {
+		ids[idx] = infos[idx].Fields[dijkstraTxInfoV4ID]
+	}
+	inputs, err := dijkstraConcatTxInfoListsV4(
+		infos,
+		dijkstraTxInfoV4Inputs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	referenceInputs, err := dijkstraConcatTxInfoListsV4(
+		infos,
+		dijkstraTxInfoV4ReferenceInputs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	outputs, err := dijkstraConcatTxInfoListsV4(
+		infos,
+		dijkstraTxInfoV4Outputs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	mints, burns, err := dijkstraCombinedMintV4(infos)
+	if err != nil {
+		return nil, err
+	}
+	certificates, err := dijkstraConcatTxInfoListsV4(
+		infos,
+		dijkstraTxInfoV4Certificates,
+	)
+	if err != nil {
+		return nil, err
+	}
+	withdrawals, err := dijkstraSumTxInfoMapsV4(
+		infos,
+		dijkstraTxInfoV4Withdrawals,
+	)
+	if err != nil {
+		return nil, err
+	}
+	directDeposits, err := dijkstraSumTxInfoMapsV4(
+		infos,
+		dijkstraTxInfoV4DirectDeposits,
+	)
+	if err != nil {
+		return nil, err
+	}
+	validRange, err := dijkstraIntersectTxInfoRangesV4(infos)
+	if err != nil {
+		return nil, err
+	}
+	guards, err := dijkstraConcatTxInfoListsV4(
+		infos,
+		dijkstraTxInfoV4Guards,
+	)
+	if err != nil {
+		return nil, err
+	}
+	requiredGuards, err := dijkstraTxInfoMapKeysV4(
+		infos,
+		dijkstraTxInfoV4RequiredGuards,
+	)
+	if err != nil {
+		return nil, err
+	}
+	purposes, err := dijkstraTxInfoMapKeysV4(
+		infos,
+		dijkstraTxInfoV4Redeemers,
+	)
+	if err != nil {
+		return nil, err
+	}
+	datums, err := dijkstraUnionTxInfoMapsV4(
+		infos,
+		dijkstraTxInfoV4Data,
+		false,
+	)
+	if err != nil {
+		return nil, err
+	}
+	votes, err := dijkstraUnionVotesV4(infos)
+	if err != nil {
+		return nil, err
+	}
+	proposals, err := dijkstraConcatTxInfoListsV4(
+		infos,
+		dijkstraTxInfoV4Proposals,
+	)
+	if err != nil {
+		return nil, err
+	}
+	treasury, err := dijkstraTopTxInfoTreasuryV4(infos)
+	if err != nil {
+		return nil, err
+	}
+	donations, err := dijkstraSumTxInfoIntegersV4(
+		infos,
+		dijkstraTxInfoV4Donation,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return data.NewConstr(
+		0,
+		data.NewList(ids...),
+		inputs,
+		referenceInputs,
+		outputs,
+		mints,
+		burns,
+		certificates,
+		withdrawals,
+		directDeposits,
+		validRange,
+		guards,
+		requiredGuards,
+		purposes,
+		datums,
+		votes,
+		proposals,
+		treasury,
+		donations,
+	), nil
+}
+
+func dijkstraConcatTxInfoListsV4(
+	infos []*data.Constr,
+	field int,
+) (data.PlutusData, error) {
+	items := make([]data.PlutusData, 0)
+	for _, info := range infos {
+		list, ok := info.Fields[field].(*data.List)
+		if !ok {
+			return nil, fmt.Errorf(
+				"plutus V4 transaction info field %d is not a list",
+				field,
+			)
+		}
+		items = append(items, list.Items...)
+	}
+	return data.NewList(items...), nil
+}
+
+type dijkstraDataAmountV4 struct {
+	key    data.PlutusData
+	amount *big.Int
+}
+
+func dijkstraSumTxInfoMapsV4(
+	infos []*data.Constr,
+	field int,
+) (data.PlutusData, error) {
+	entries := make([]dijkstraDataAmountV4, 0)
+	for _, info := range infos {
+		encoded, ok := info.Fields[field].(*data.Map)
+		if !ok {
+			return nil, fmt.Errorf(
+				"plutus V4 transaction info field %d is not a map",
+				field,
+			)
+		}
+		for _, pair := range encoded.Pairs {
+			amount, ok := pair[1].(*data.Integer)
+			if !ok {
+				return nil, fmt.Errorf(
+					"plutus V4 transaction info field %d has a non-integer value",
+					field,
+				)
+			}
+			dijkstraAddDataAmountV4(&entries, pair[0], amount.Inner)
+		}
+	}
+	pairs := make([][2]data.PlutusData, len(entries))
+	for idx := range entries {
+		pairs[idx] = [2]data.PlutusData{
+			entries[idx].key,
+			data.NewInteger(entries[idx].amount),
+		}
+	}
+	dijkstraSortDataPairsV4(pairs)
+	return data.NewMap(pairs), nil
+}
+
+func dijkstraAddDataAmountV4(
+	entries *[]dijkstraDataAmountV4,
+	key data.PlutusData,
+	amount *big.Int,
+) {
+	for idx := range *entries {
+		if (*entries)[idx].key.Equal(key) {
+			(*entries)[idx].amount.Add((*entries)[idx].amount, amount)
+			return
+		}
+	}
+	*entries = append(*entries, dijkstraDataAmountV4{
+		key:    key,
+		amount: new(big.Int).Set(amount),
+	})
+}
+
+type dijkstraMintPolicyV4 struct {
+	key    data.PlutusData
+	assets []dijkstraDataAmountV4
+}
+
+func dijkstraCombinedMintV4(
+	infos []*data.Constr,
+) (data.PlutusData, data.PlutusData, error) {
+	mints := make([]dijkstraMintPolicyV4, 0)
+	burns := make([]dijkstraMintPolicyV4, 0)
+	for _, info := range infos {
+		mint, ok := info.Fields[dijkstraTxInfoV4Mint].(*data.Map)
+		if !ok {
+			return nil, nil, errors.New(
+				"plutus V4 transaction mint did not encode as a map",
+			)
+		}
+		for _, policyPair := range mint.Pairs {
+			assets, ok := policyPair[1].(*data.Map)
+			if !ok {
+				return nil, nil, errors.New(
+					"plutus V4 mint policy did not encode as a map",
+				)
+			}
+			for _, assetPair := range assets.Pairs {
+				amount, ok := assetPair[1].(*data.Integer)
+				if !ok {
+					return nil, nil, errors.New(
+						"plutus V4 mint amount did not encode as an integer",
+					)
+				}
+				target := &mints
+				if amount.Inner.Sign() < 0 {
+					target = &burns
+				}
+				dijkstraAddMintAmountV4(
+					target,
+					policyPair[0],
+					assetPair[0],
+					amount.Inner,
+				)
+			}
+		}
+	}
+	return dijkstraMintMapV4(mints), dijkstraMintMapV4(burns), nil
+}
+
+func dijkstraAddMintAmountV4(
+	policies *[]dijkstraMintPolicyV4,
+	policy data.PlutusData,
+	asset data.PlutusData,
+	amount *big.Int,
+) {
+	for idx := range *policies {
+		if (*policies)[idx].key.Equal(policy) {
+			dijkstraAddDataAmountV4(&(*policies)[idx].assets, asset, amount)
+			return
+		}
+	}
+	*policies = append(*policies, dijkstraMintPolicyV4{
+		key: policy,
+		assets: []dijkstraDataAmountV4{{
+			key:    asset,
+			amount: new(big.Int).Set(amount),
+		}},
+	})
+}
+
+func dijkstraMintMapV4(
+	policies []dijkstraMintPolicyV4,
+) data.PlutusData {
+	pairs := make([][2]data.PlutusData, 0, len(policies))
+	for _, policy := range policies {
+		assets := make([][2]data.PlutusData, 0, len(policy.assets))
+		for _, asset := range policy.assets {
+			if asset.amount.Sign() != 0 {
+				assets = append(assets, [2]data.PlutusData{
+					asset.key, data.NewInteger(asset.amount),
+				})
+			}
+		}
+		if len(assets) > 0 {
+			dijkstraSortDataPairsV4(assets)
+			pairs = append(pairs, [2]data.PlutusData{
+				policy.key,
+				data.NewMap(assets),
+			})
+		}
+	}
+	dijkstraSortDataPairsV4(pairs)
+	return data.NewMap(pairs)
+}
+
+func dijkstraIntersectTxInfoRangesV4(
+	infos []*data.Constr,
+) (data.PlutusData, error) {
+	var lower, upper *big.Int
+	for _, info := range infos {
+		itemLower, itemUpper, err := dijkstraPOSIXTimeRangeBoundsV4(
+			info.Fields[dijkstraTxInfoV4ValidRange],
+		)
+		if err != nil {
+			return nil, err
+		}
+		if itemLower != nil && (lower == nil || itemLower.Cmp(lower) > 0) {
+			lower = new(big.Int).Set(itemLower)
+		}
+		if itemUpper != nil && (upper == nil || itemUpper.Cmp(upper) < 0) {
+			upper = new(big.Int).Set(itemUpper)
+		}
+	}
+	return dijkstraPOSIXTimeRangeDataV4(lower, upper), nil
+}
+
+func dijkstraPOSIXTimeRangeBoundsV4(
+	encoded data.PlutusData,
+) (*big.Int, *big.Int, error) {
+	rangeData, ok := encoded.(*data.Constr)
+	if !ok || rangeData.Tag.Uint64() != 0 || len(rangeData.Fields) != 2 {
+		return nil, nil, errors.New("invalid Plutus V4 POSIX time range")
+	}
+	lower, err := dijkstraOptionalIntegerV4(rangeData.Fields[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	upper, err := dijkstraOptionalIntegerV4(rangeData.Fields[1])
+	if err != nil {
+		return nil, nil, err
+	}
+	return lower, upper, nil
+}
+
+func dijkstraOptionalIntegerV4(
+	encoded data.PlutusData,
+) (*big.Int, error) {
+	optional, ok := encoded.(*data.Constr)
+	if !ok {
+		return nil, errors.New("invalid optional Plutus V4 integer")
+	}
+	if optional.Tag.Uint64() == 1 && len(optional.Fields) == 0 {
+		return nil, nil
+	}
+	if optional.Tag.Uint64() != 0 || len(optional.Fields) != 1 {
+		return nil, errors.New("invalid optional Plutus V4 integer")
+	}
+	integer, ok := optional.Fields[0].(*data.Integer)
+	if !ok {
+		return nil, errors.New("invalid optional Plutus V4 integer")
+	}
+	return integer.Inner, nil
+}
+
+func dijkstraTxInfoMapKeysV4(
+	infos []*data.Constr,
+	field int,
+) (data.PlutusData, error) {
+	items := make([]data.PlutusData, 0)
+	for _, info := range infos {
+		encoded, ok := info.Fields[field].(*data.Map)
+		if !ok {
+			return nil, fmt.Errorf(
+				"plutus V4 transaction info field %d is not a map",
+				field,
+			)
+		}
+		for _, pair := range encoded.Pairs {
+			if !dijkstraDataSliceContainsV4(items, pair[0]) {
+				items = append(items, pair[0])
+			}
+		}
+	}
+	slices.SortFunc(items, dijkstraCompareDataV4)
+	return data.NewList(items...), nil
+}
+
+func dijkstraUnionTxInfoMapsV4(
+	infos []*data.Constr,
+	field int,
+	replace bool,
+) (data.PlutusData, error) {
+	pairs := make([][2]data.PlutusData, 0)
+	for _, info := range infos {
+		encoded, ok := info.Fields[field].(*data.Map)
+		if !ok {
+			return nil, fmt.Errorf(
+				"plutus V4 transaction info field %d is not a map",
+				field,
+			)
+		}
+		for _, pair := range encoded.Pairs {
+			idx := dijkstraDataPairIndexV4(pairs, pair[0])
+			if idx < 0 {
+				pairs = append(pairs, pair)
+			} else if replace {
+				pairs[idx] = pair
+			}
+		}
+	}
+	dijkstraSortDataPairsV4(pairs)
+	return data.NewMap(pairs), nil
+}
+
+func dijkstraUnionVotesV4(
+	infos []*data.Constr,
+) (data.PlutusData, error) {
+	pairs := make([][2]data.PlutusData, 0)
+	for _, info := range infos {
+		votes, ok := info.Fields[dijkstraTxInfoV4Votes].(*data.Map)
+		if !ok {
+			return nil, errors.New("plutus V4 votes did not encode as a map")
+		}
+		for _, votePair := range votes.Pairs {
+			incoming, ok := votePair[1].(*data.Map)
+			if !ok {
+				return nil, errors.New(
+					"plutus V4 voter procedures did not encode as a map",
+				)
+			}
+			idx := dijkstraDataPairIndexV4(pairs, votePair[0])
+			if idx < 0 {
+				copied := append([][2]data.PlutusData(nil), incoming.Pairs...)
+				pairs = append(pairs, [2]data.PlutusData{
+					votePair[0], data.NewMap(copied),
+				})
+				continue
+			}
+			existing, ok := pairs[idx][1].(*data.Map)
+			if !ok {
+				return nil, errors.New(
+					"plutus V4 voter procedures did not encode as a map",
+				)
+			}
+			merged := append([][2]data.PlutusData(nil), existing.Pairs...)
+			for _, procedure := range incoming.Pairs {
+				procedureIdx := dijkstraDataPairIndexV4(
+					merged,
+					procedure[0],
+				)
+				if procedureIdx < 0 {
+					merged = append(merged, procedure)
+				} else {
+					merged[procedureIdx] = procedure
+				}
+			}
+			pairs[idx][1] = data.NewMap(merged)
+		}
+	}
+	for idx := range pairs {
+		procedures := pairs[idx][1].(*data.Map)
+		dijkstraSortDataPairsV4(procedures.Pairs)
+	}
+	dijkstraSortDataPairsV4(pairs)
+	return data.NewMap(pairs), nil
+}
+
+func dijkstraTopTxInfoTreasuryV4(
+	infos []*data.Constr,
+) (data.PlutusData, error) {
+	for _, info := range infos {
+		optional, ok := info.Fields[dijkstraTxInfoV4CurrentTreasury].(*data.Constr)
+		if !ok {
+			return nil, errors.New(
+				"plutus V4 current treasury amount is not optional data",
+			)
+		}
+		if optional.Tag.Uint64() == 0 && len(optional.Fields) == 1 {
+			return optional, nil
+		}
+		if optional.Tag.Uint64() != 1 || len(optional.Fields) != 0 {
+			return nil, errors.New(
+				"plutus V4 current treasury amount has invalid data",
+			)
+		}
+	}
+	return data.NewConstr(1), nil
+}
+
+func dijkstraSumTxInfoIntegersV4(
+	infos []*data.Constr,
+	field int,
+) (data.PlutusData, error) {
+	total := new(big.Int)
+	for _, info := range infos {
+		integer, ok := info.Fields[field].(*data.Integer)
+		if !ok {
+			return nil, fmt.Errorf(
+				"plutus V4 transaction info field %d is not an integer",
+				field,
+			)
+		}
+		total.Add(total, integer.Inner)
+	}
+	return data.NewInteger(total), nil
+}
+
+func dijkstraDataPairIndexV4(
+	pairs [][2]data.PlutusData,
+	key data.PlutusData,
+) int {
+	for idx := range pairs {
+		if pairs[idx][0].Equal(key) {
+			return idx
+		}
+	}
+	return -1
+}
+
+func dijkstraDataSliceContainsV4(
+	items []data.PlutusData,
+	value data.PlutusData,
+) bool {
+	for _, item := range items {
+		if item.Equal(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func dijkstraSortDataPairsV4(pairs [][2]data.PlutusData) {
+	slices.SortFunc(pairs, func(a, b [2]data.PlutusData) int {
+		return dijkstraCompareDataV4(a[0], b[0])
+	})
+}
+
+func dijkstraCompareDataV4(a, b data.PlutusData) int {
+	aRaw, aErr := data.Encode(a)
+	bRaw, bErr := data.Encode(b)
+	if aErr == nil && bErr == nil {
+		return bytes.Compare(aRaw, bRaw)
+	}
+	return bytes.Compare([]byte(a.String()), []byte(b.String()))
 }
 
 func dijkstraOptionalIndex(index *uint32) data.PlutusData {
@@ -267,16 +992,16 @@ func dijkstraAddressV4(address common.Address) (data.PlutusData, error) {
 			"pointer output is not supported in Plutus V4 context",
 		)
 	}
-	if address.PaymentAddress() == nil {
+	var payment common.Credential
+	switch payload := address.PayloadPayload().(type) {
+	case common.AddressPayloadKeyHash:
+		payment.CredType = common.CredentialTypeAddrKeyHash
+		payment.Credential = payload.Hash
+	case common.AddressPayloadScriptHash:
+		payment.CredType = common.CredentialTypeScriptHash
+		payment.Credential = common.Blake2b224(payload.Hash)
+	default:
 		return nil, errors.New("transaction output has no payment credential")
-	}
-	paymentType := uint(common.CredentialTypeAddrKeyHash)
-	if address.Type()&common.AddressTypeScriptBit != 0 {
-		paymentType = uint(common.CredentialTypeScriptHash)
-	}
-	payment := common.Credential{
-		CredType:   paymentType,
-		Credential: address.PaymentKeyHash(),
 	}
 	stake := data.NewConstr(1)
 	if credential, ok := address.StakeCredential(); ok {
