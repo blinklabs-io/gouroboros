@@ -168,6 +168,13 @@ type TransactionWithSubTransactionBodies interface {
 	SubTransactionBodies() []TransactionBody
 }
 
+// TransactionWithSubTransactionOutputs exposes outputs created by nested
+// transactions. Their reference scripts undergo the same phase-1 admission
+// checks as top-level output reference scripts.
+type TransactionWithSubTransactionOutputs interface {
+	SubTransactionOutputs() []TransactionOutput
+}
+
 func PlutusV4ScriptsFromWitnessSet(
 	w TransactionWitnessSet,
 ) []PlutusV4Script {
@@ -205,6 +212,19 @@ func SubTransactionBodiesFromTransaction(
 		return nil
 	}
 	return withSubTxs.SubTransactionBodies()
+}
+
+func SubTransactionOutputsFromTransaction(
+	t Transaction,
+) []TransactionOutput {
+	if t == nil {
+		return nil
+	}
+	withSubTxs, ok := t.(TransactionWithSubTransactionOutputs)
+	if !ok {
+		return nil
+	}
+	return withSubTxs.SubTransactionOutputs()
 }
 
 type TransactionWitnessRedeemers interface {

@@ -1554,6 +1554,15 @@ func (t DijkstraTransaction) SubTransactionBodies() []common.TransactionBody {
 	return ret
 }
 
+func (t DijkstraTransaction) SubTransactionOutputs() []common.TransactionOutput {
+	subTxs := t.Body.TxSubTransactions.Items()
+	var ret []common.TransactionOutput
+	for _, subTx := range subTxs {
+		ret = append(ret, subTx.Body.Outputs()...)
+	}
+	return ret
+}
+
 func (t *DijkstraTransaction) MarshalCBOR() ([]byte, error) {
 	if cborData := t.DecodeStoreCbor.Cbor(); cborData != nil {
 		return cborData, nil

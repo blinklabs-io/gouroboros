@@ -52,6 +52,12 @@ func createTestTip(slot uint64, blockNum uint64) pcommon.Tip {
 	}
 }
 
+// readyCancellationTieAttempts proves precedence when the old implementation
+// offered an already-canceled context and the submit gate to the same select.
+// Repetition is needed only because Go deliberately randomizes that ready tie;
+// the structural hook and sequence assertions identify any lost cancellation.
+const readyCancellationTieAttempts = 64
+
 // ============================================================================
 // TestBlockItem tests
 // ============================================================================
@@ -993,6 +999,151 @@ func TestBlockPipelineFenceCancelsWhileWaitingForBlockedSubmit(t *testing.T) {
 	}
 }
 
+func TestBlockPipelineSubmitCancellationPrecedence(t *testing.T) {
+	t.Run("pre-canceled caller", func(t *testing.T) {
+		p := NewBlockPipeline(
+			WithValidateWorkers(0),
+			WithSkipBodyHashValidation(true),
+		)
+		var gateAcquisitions atomic.Uint64
+		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
+		require.NoError(t, p.Start(context.Background()))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		submitCtx, cancelSubmit := context.WithCancel(context.Background())
+		cancelSubmit()
+		unexpectedResults := 0
+		for range readyCancellationTieAttempts {
+			err := p.Submit(submitCtx, 0, nil, pcommon.Tip{})
+			if !errors.Is(err, context.Canceled) {
+				unexpectedResults++
+			}
+		}
+
+		assert.Zero(
+			t,
+			unexpectedResults,
+			"pre-canceled caller lost cancellation precedence",
+		)
+		assert.Zero(
+			t,
+			gateAcquisitions.Load(),
+			"pre-canceled caller acquired the submit gate",
+		)
+		assert.Zero(t, p.sequenceCounter.Load())
+		assert.Zero(t, p.Stats().BlocksSubmitted)
+	})
+
+	t.Run("canceled Start parent", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancel(context.Background())
+		cancelParent()
+		p := NewBlockPipeline(
+			WithValidateWorkers(0),
+			WithSkipBodyHashValidation(true),
+		)
+		var gateAcquisitions atomic.Uint64
+		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
+		require.NoError(t, p.Start(parentCtx))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		// Wait for every worker started with the canceled parent to exit before
+		// proving that Submit cannot commit work into their abandoned queue.
+		p.decodePool.Stop()
+		p.applyRunner.Stop()
+		p.wg.Wait()
+
+		unexpectedResults := 0
+		for range readyCancellationTieAttempts {
+			err := p.Submit(context.Background(), 0, nil, pcommon.Tip{})
+			if !errors.Is(err, ErrPipelineStopped) {
+				unexpectedResults++
+			}
+		}
+
+		assert.Zero(
+			t,
+			unexpectedResults,
+			"canceled pipeline lost shutdown precedence",
+		)
+		assert.Zero(
+			t,
+			gateAcquisitions.Load(),
+			"canceled pipeline acquired the submit gate",
+		)
+		assert.Zero(t, p.sequenceCounter.Load())
+		assert.Zero(t, p.Stats().BlocksSubmitted)
+		assert.Empty(t, p.submitChan)
+	})
+}
+
+func TestBlockPipelineFenceCancellationPrecedence(t *testing.T) {
+	t.Run("pre-canceled caller", func(t *testing.T) {
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		var boundaryCaptures atomic.Uint64
+		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
+		require.NoError(t, p.Start(context.Background()))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		fenceCtx, cancelFence := context.WithCancel(context.Background())
+		cancelFence()
+		unexpectedResults := 0
+		for range readyCancellationTieAttempts {
+			if err := p.Fence(fenceCtx); !errors.Is(err, context.Canceled) {
+				unexpectedResults++
+			}
+		}
+
+		assert.Zero(
+			t,
+			unexpectedResults,
+			"pre-canceled caller lost cancellation precedence",
+		)
+		assert.Zero(
+			t,
+			boundaryCaptures.Load(),
+			"pre-canceled caller captured a fence boundary",
+		)
+		assert.Zero(t, p.sequenceCounter.Load())
+		assert.Zero(t, p.Stats().BlocksSubmitted)
+		assert.Empty(t, p.submitChan)
+	})
+
+	t.Run("canceled Start parent", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancel(context.Background())
+		cancelParent()
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		var boundaryCaptures atomic.Uint64
+		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
+		require.NoError(t, p.Start(parentCtx))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		p.decodePool.Stop()
+		p.applyRunner.Stop()
+		p.wg.Wait()
+
+		unexpectedResults := 0
+		for range readyCancellationTieAttempts {
+			if err := p.Fence(context.Background()); !errors.Is(err, ErrPipelineStopped) {
+				unexpectedResults++
+			}
+		}
+
+		assert.Zero(
+			t,
+			unexpectedResults,
+			"canceled pipeline lost shutdown precedence",
+		)
+		assert.Zero(
+			t,
+			boundaryCaptures.Load(),
+			"canceled pipeline captured a fence boundary",
+		)
+		assert.Zero(t, p.sequenceCounter.Load())
+		assert.Zero(t, p.Stats().BlocksSubmitted)
+		assert.Empty(t, p.submitChan)
+	})
+}
+
 func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	t *testing.T,
 ) {
@@ -1115,6 +1266,388 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	appliedMu.Lock()
 	require.Equal(t, []uint64{0, 1, 2, 3}, appliedSequences)
 	appliedMu.Unlock()
+}
+
+func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
+	const eta0 = "00000000000000000000000000000000" +
+		"00000000000000000000000000000000"
+	validationStarted := make(chan struct{})
+	releaseValidation := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseValidation) })
+	}
+	p := NewBlockPipeline(
+		WithDecodeWorkers(1),
+		WithValidateWorkers(1),
+		WithSkipBodyHashValidation(true),
+		WithEta0Provider(func(uint64) (string, error) {
+			close(validationStarted)
+			<-releaseValidation
+			return eta0, nil
+		}),
+		WithSlotsPerKesPeriod(129600),
+		WithVerifyConfig(common.VerifyConfig{
+			SkipBodyHashValidation:    true,
+			SkipTransactionValidation: true,
+			SkipStakePoolValidation:   true,
+		}),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+
+	require.NoError(
+		t,
+		p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			getValidBlockCbor(t),
+			createTestTip(1000, 500),
+		),
+	)
+	select {
+	case <-validationStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline validation did not start")
+	}
+	require.Zero(
+		t,
+		p.PendingCount(),
+		"observational count should miss validation work already in flight",
+	)
+
+	drainDone := make(chan error, 1)
+	go func() { drainDone <- p.WaitForDrain(context.Background()) }()
+	select {
+	case err := <-drainDone:
+		t.Fatalf(
+			"WaitForDrain returned while an accepted block was in flight: %v",
+			err,
+		)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	release()
+	select {
+	case err := <-drainDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not complete after validation was released")
+	}
+}
+
+func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
+	t.Run("not started", func(t *testing.T) {
+		p := NewBlockPipeline()
+		require.ErrorIs(
+			t,
+			p.WaitForDrain(context.Background()),
+			ErrPipelineNotStarted,
+		)
+	})
+
+	t.Run("stopped", func(t *testing.T) {
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		require.NoError(t, p.Start(context.Background()))
+		require.NoError(t, p.Stop())
+		require.NoError(t, p.WaitForDrain(context.Background()))
+	})
+
+	t.Run("context canceled", func(t *testing.T) {
+		applyStarted := make(chan struct{})
+		releaseApply := make(chan struct{})
+		var releaseOnce sync.Once
+		release := func() {
+			releaseOnce.Do(func() { close(releaseApply) })
+		}
+		p := NewBlockPipeline(
+			WithValidateWorkers(0),
+			WithSkipBodyHashValidation(true),
+			WithApplyFunc(func(*BlockItem) error {
+				close(applyStarted)
+				<-releaseApply
+				return nil
+			}),
+		)
+		require.NoError(t, p.Start(context.Background()))
+		defer func() {
+			release()
+			require.NoError(t, p.Stop())
+		}()
+		require.NoError(
+			t,
+			p.Submit(
+				context.Background(),
+				uint(ledger.BlockTypeConway),
+				getValidBlockCbor(t),
+				createTestTip(1000, 500),
+			),
+		)
+		select {
+		case <-applyStarted:
+		case <-time.After(time.Second):
+			t.Fatal("pipeline apply did not start")
+		}
+
+		drainCtx, cancelDrain := context.WithCancel(context.Background())
+		cancelDrain()
+		require.ErrorIs(t, p.WaitForDrain(drainCtx), context.Canceled)
+	})
+}
+
+func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
+	t *testing.T,
+) {
+	submitLocked := make(chan struct{})
+	releaseSubmit := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseSubmit) })
+	}
+	p := NewBlockPipeline(
+		WithValidateWorkers(0),
+		WithSkipBodyHashValidation(true),
+	)
+	p.testSubmitLocked = func() {
+		close(submitLocked)
+		<-releaseSubmit
+	}
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+
+	rawCbor := getValidBlockCbor(t)
+	submitDone := make(chan error, 1)
+	go func() {
+		submitDone <- p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			createTestTip(1000, 500),
+		)
+	}()
+	select {
+	case <-submitLocked:
+	case <-time.After(time.Second):
+		t.Fatal("submission did not acquire the pipeline boundary")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- p.Stop() }()
+	select {
+	case <-p.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not cancel the pipeline context")
+	}
+
+	require.NoError(
+		t,
+		p.WaitForDrain(context.Background()),
+		"an explicit Stop should make the drain boundary successful",
+	)
+	release()
+	select {
+	case err := <-submitDone:
+		require.ErrorIs(t, err, ErrPipelineStopped)
+	case <-time.After(time.Second):
+		t.Fatal("submission did not return after release")
+	}
+	select {
+	case err := <-stopDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return after submission released the boundary")
+	}
+}
+
+func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
+	t *testing.T,
+) {
+	t.Run("parent canceled before Start", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancel(context.Background())
+		cancelParent()
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		require.NoError(t, p.Start(parentCtx))
+		defer func() { require.NoError(t, p.Stop()) }()
+
+		require.ErrorIs(
+			t,
+			p.WaitForDrain(context.Background()),
+			ErrPipelineStopped,
+		)
+	})
+
+	t.Run("parent canceled at captured boundary", func(t *testing.T) {
+		boundaryCaptured := make(chan uint64, 1)
+		releaseBoundary := make(chan struct{})
+		var releaseOnce sync.Once
+		release := func() {
+			releaseOnce.Do(func() { close(releaseBoundary) })
+		}
+		parentCtx, cancelParent := context.WithCancel(context.Background())
+		defer cancelParent()
+		p := NewBlockPipeline(WithValidateWorkers(0))
+		p.testFenceBoundary = func(target uint64) {
+			boundaryCaptured <- target
+			<-releaseBoundary
+		}
+		require.NoError(t, p.Start(parentCtx))
+		defer func() {
+			release()
+			require.NoError(t, p.Stop())
+		}()
+
+		drainDone := make(chan error, 1)
+		go func() {
+			drainDone <- p.WaitForDrain(context.Background())
+		}()
+		select {
+		case target := <-boundaryCaptured:
+			require.Zero(t, target)
+		case <-time.After(time.Second):
+			t.Fatal("WaitForDrain did not capture the zero-work boundary")
+		}
+
+		cancelParent()
+		select {
+		case <-p.ctx.Done():
+		case <-time.After(time.Second):
+			t.Fatal("parent cancellation did not reach the pipeline context")
+		}
+		release()
+		select {
+		case err := <-drainDone:
+			require.ErrorIs(t, err, ErrPipelineStopped)
+		case <-time.After(time.Second):
+			t.Fatal("WaitForDrain did not return after parent cancellation")
+		}
+	})
+}
+
+func TestBlockPipelineWaitForDrainParentCancellationWithInFlightWork(
+	t *testing.T,
+) {
+	applyStarted := make(chan struct{})
+	releaseApply := make(chan struct{})
+	boundaryCaptured := make(chan uint64, 1)
+	releaseBoundary := make(chan struct{})
+	var releaseApplyOnce sync.Once
+	releaseApplyFunc := func() {
+		releaseApplyOnce.Do(func() { close(releaseApply) })
+	}
+	var releaseBoundaryOnce sync.Once
+	releaseBoundaryFunc := func() {
+		releaseBoundaryOnce.Do(func() { close(releaseBoundary) })
+	}
+	parentCtx, cancelParent := context.WithCancel(context.Background())
+	defer cancelParent()
+	p := NewBlockPipeline(
+		WithValidateWorkers(0),
+		WithSkipBodyHashValidation(true),
+		WithApplyFunc(func(*BlockItem) error {
+			close(applyStarted)
+			<-releaseApply
+			return nil
+		}),
+	)
+	p.testFenceBoundary = func(target uint64) {
+		boundaryCaptured <- target
+		<-releaseBoundary
+	}
+	require.NoError(t, p.Start(parentCtx))
+	defer func() {
+		releaseApplyFunc()
+		releaseBoundaryFunc()
+		require.NoError(t, p.Stop())
+	}()
+	require.NoError(
+		t,
+		p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			getValidBlockCbor(t),
+			createTestTip(1000, 500),
+		),
+	)
+	select {
+	case <-applyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline apply did not start")
+	}
+
+	drainDone := make(chan error, 1)
+	go func() { drainDone <- p.WaitForDrain(context.Background()) }()
+	select {
+	case target := <-boundaryCaptured:
+		require.Equal(t, uint64(1), target)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not capture the accepted-work boundary")
+	}
+	p.completionMu.Lock()
+	processed := p.completionChan
+	p.completionMu.Unlock()
+
+	cancelParent()
+	select {
+	case <-p.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("parent cancellation did not reach the pipeline context")
+	}
+	releaseApplyFunc()
+	select {
+	case <-processed:
+	case <-time.After(time.Second):
+		t.Fatal("accepted in-flight work did not complete")
+	}
+	releaseBoundaryFunc()
+	select {
+	case err := <-drainDone:
+		require.ErrorIs(t, err, ErrPipelineStopped)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not return after parent cancellation")
+	}
+}
+
+func TestBlockPipelineWaitForDrainPrefersCallerContext(t *testing.T) {
+	boundaryCaptured := make(chan uint64, 1)
+	releaseBoundary := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseBoundary) })
+	}
+	p := NewBlockPipeline(WithValidateWorkers(0))
+	p.testFenceBoundary = func(target uint64) {
+		boundaryCaptured <- target
+		<-releaseBoundary
+	}
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+
+	drainCtx, cancelDrain := context.WithCancel(context.Background())
+	drainDone := make(chan error, 1)
+	go func() { drainDone <- p.WaitForDrain(drainCtx) }()
+	select {
+	case target := <-boundaryCaptured:
+		require.Zero(t, target)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not capture the zero-work boundary")
+	}
+	cancelDrain()
+	release()
+	select {
+	case err := <-drainDone:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("WaitForDrain did not return after caller cancellation")
+	}
 }
 
 func TestApplyStage_PendingCount(t *testing.T) {

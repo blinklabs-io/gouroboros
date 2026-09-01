@@ -25,7 +25,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/blinklabs-io/plutigo/syn"
 )
 
 var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
@@ -151,6 +150,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateExtraneousRedeemers,
 	},
 	{
+		Id:        common.UtxoValidationRuleMalformedReferenceScripts,
+		Validator: UtxoValidateMalformedReferenceScripts,
+	},
+	{
 		Id:        common.UtxoValidationRulePlutusScripts,
 		Validator: UtxoValidatePlutusScripts,
 	},
@@ -161,10 +164,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleWithdrawals,
 		Validator: UtxoValidateWithdrawals,
-	},
-	{
-		Id:        common.UtxoValidationRuleMalformedReferenceScripts,
-		Validator: UtxoValidateMalformedReferenceScripts,
 	},
 }
 
@@ -1392,59 +1391,17 @@ func UtxoValidateScriptDataHash(
 	return nil
 }
 
-// UtxoValidateMalformedReferenceScripts checks that any reference scripts in
-// transaction outputs are well-formed and can be deserialized.
+// UtxoValidateMalformedReferenceScripts checks that Plutus witnesses and
+// reference scripts are well-formed for the active protocol version.
 func UtxoValidateMalformedReferenceScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	var malformedHashes []common.ScriptHash
-
-	for _, output := range tx.Outputs() {
-		scriptRef := output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-
-		// Check if the script can be decoded properly
-		var innerScript []byte
-		var isPlutus bool
-		var scriptBytes []byte
-		var scriptHash common.ScriptHash
-
-		switch s := scriptRef.(type) {
-		case common.PlutusV1Script:
-			isPlutus = true
-			scriptBytes = []byte(s)
-			scriptHash = s.Hash()
-		case common.PlutusV2Script:
-			isPlutus = true
-			scriptBytes = []byte(s)
-			scriptHash = s.Hash()
-		default:
-			// Native scripts don't need UPLC validation
-			continue
-		}
-
-		if isPlutus {
-			// Decode the outer CBOR wrapper to get the actual script bytes
-			if _, err := cbor.Decode(scriptBytes, &innerScript); err != nil {
-				malformedHashes = append(malformedHashes, scriptHash)
-				continue
-			}
-			// Try to decode as UPLC program
-			if _, err := syn.Decode[syn.DeBruijn](innerScript); err != nil {
-				malformedHashes = append(malformedHashes, scriptHash)
-			}
-		}
+	params, ok := pp.(*BabbageProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
 	}
-
-	if len(malformedHashes) > 0 {
-		return common.MalformedReferenceScriptsError{
-			ScriptHashes: malformedHashes,
-		}
-	}
-	return nil
+	return common.ValidatePlutusScriptsWellFormed(tx, params.ProtocolMajor)
 }
