@@ -55,7 +55,7 @@ func mkProposalTx(
 	rewardAccount common.Address,
 	action common.GovAction,
 ) *conway.ConwayTransaction {
-	tx := &conway.ConwayTransaction{}
+	tx := &conway.ConwayTransaction{TxIsValid: true}
 	tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
 		{
 			PPDeposit:       deposit,
@@ -495,7 +495,7 @@ func mkVoteTx(
 	actionId common.GovActionId,
 	vote uint8,
 ) *conway.ConwayTransaction {
-	tx := &conway.ConwayTransaction{}
+	tx := &conway.ConwayTransaction{TxIsValid: true}
 	v := voter
 	aid := actionId
 	tx.Body.TxVotingProcedures = common.VotingProcedures{

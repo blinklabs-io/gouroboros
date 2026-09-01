@@ -3364,6 +3364,12 @@ func UtxoValidateCommitteeCertificates(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	// Committee certificates belong to the CERTS state transition. A
+	// phase-2-invalid transaction only applies its collateral effects, so it
+	// must not inspect or reject against committee state.
+	if !tx.IsValid() {
+		return nil
+	}
 	var committeeState common.CommitteeCredentialState
 	committeeStateLoaded := false
 	committeeMember := func(
@@ -3542,6 +3548,12 @@ func UtxoValidateUnknownVoters(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	// Voter existence belongs to the GOV state transition. A
+	// phase-2-invalid transaction does not apply governance effects and must
+	// not query committee state.
+	if !tx.IsValid() {
+		return nil
+	}
 	votes := tx.VotingProcedures()
 	if len(votes) == 0 {
 		return nil

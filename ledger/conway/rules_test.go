@@ -31,6 +31,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -90,6 +91,34 @@ type committeeCredentialLedgerState struct {
 	availabilityErr error
 	coldLookup      func(common.Credential) (*common.CommitteeMember, error)
 	hotLookup       func(common.Credential) (*common.CommitteeMember, error)
+}
+
+type erroringCommitteeCredentialLedgerState struct {
+	common.LedgerState
+	err     error
+	queries int
+}
+
+func (s *erroringCommitteeCredentialLedgerState) CommitteeStateAvailable() (
+	bool,
+	error,
+) {
+	s.queries++
+	return false, s.err
+}
+
+func (s *erroringCommitteeCredentialLedgerState) CommitteeCredentialMember(
+	common.Credential,
+) (*common.CommitteeMember, error) {
+	s.queries++
+	return nil, s.err
+}
+
+func (s *erroringCommitteeCredentialLedgerState) CommitteeHotCredentialMember(
+	common.Credential,
+) (*common.CommitteeMember, error) {
+	s.queries++
+	return nil, s.err
 }
 
 func (s committeeCredentialLedgerState) CommitteeStateAvailable() (
@@ -3181,6 +3210,7 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 	}
 	newTx := func(cert common.Certificate) *conway.ConwayTransaction {
 		return &conway.ConwayTransaction{
+			TxIsValid: true,
 			Body: conway.ConwayTransactionBody{
 				TxCertificates: []common.CertificateWrapper{
 					{Certificate: cert},
@@ -3404,6 +3434,161 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 			&conway.ConwayProtocolParameters{},
 		))
 	})
+}
+
+func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
+	t *testing.T,
+) {
+	registeredRules := func(
+		t *testing.T,
+		production []common.UtxoValidationRuleFunc,
+		wanted ...common.UtxoValidationRuleFunc,
+	) []common.UtxoValidationRuleFunc {
+		t.Helper()
+		wantedPointers := make(map[uintptr]struct{}, len(wanted))
+		for _, rule := range wanted {
+			wantedPointers[reflect.ValueOf(rule).Pointer()] = struct{}{}
+		}
+		ret := make([]common.UtxoValidationRuleFunc, 0, len(wanted))
+		for _, rule := range production {
+			if _, ok := wantedPointers[reflect.ValueOf(rule).Pointer()]; ok {
+				ret = append(ret, rule)
+			}
+		}
+		require.Len(t, ret, len(wanted), "production validation rules")
+		return ret
+	}
+
+	coldCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("phase-2-invalid-cold-key")),
+	}
+	hotCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("phase-2-invalid-hot-key")),
+	}
+	committeeVoter := common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		Hash: hotCredential.Credential,
+	}
+	actionId := common.GovActionId{
+		TransactionId: common.Blake2b256Hash([]byte("phase-2-invalid-action")),
+	}
+
+	operations := []struct {
+		name string
+		tx   func() *conway.ConwayTransaction
+		rule common.UtxoValidationRuleFunc
+	}{
+		{
+			name: "committee hot-key authorization",
+			tx: func() *conway.ConwayTransaction {
+				return &conway.ConwayTransaction{
+					Body: conway.ConwayTransactionBody{
+						TxCertificates: []common.CertificateWrapper{{
+							Certificate: &common.AuthCommitteeHotCertificate{
+								CertType: uint(
+									common.CertificateTypeAuthCommitteeHot,
+								),
+								ColdCredential: coldCredential,
+								HotCredential:  hotCredential,
+							},
+						}},
+					},
+				}
+			},
+			rule: conway.UtxoValidateCommitteeCertificates,
+		},
+		{
+			name: "committee resignation",
+			tx: func() *conway.ConwayTransaction {
+				return &conway.ConwayTransaction{
+					Body: conway.ConwayTransactionBody{
+						TxCertificates: []common.CertificateWrapper{{
+							Certificate: &common.ResignCommitteeColdCertificate{
+								CertType: uint(
+									common.CertificateTypeResignCommitteeCold,
+								),
+								ColdCredential: coldCredential,
+							},
+						}},
+					},
+				}
+			},
+			rule: conway.UtxoValidateCommitteeCertificates,
+		},
+		{
+			name: "committee voter",
+			tx: func() *conway.ConwayTransaction {
+				return mkVoteTx(
+					committeeVoter,
+					actionId,
+					common.GovVoteYes,
+				)
+			},
+			rule: conway.UtxoValidateUnknownVoters,
+		},
+	}
+
+	for _, era := range []struct {
+		name  string
+		rules []common.UtxoValidationRuleFunc
+	}{
+		{name: "Conway", rules: conway.UtxoValidationRules},
+		{name: "Dijkstra", rules: dijkstra.UtxoValidationRules},
+	} {
+		t.Run(era.name, func(t *testing.T) {
+			for _, operation := range operations {
+				t.Run(operation.name, func(t *testing.T) {
+					tx := operation.tx()
+					tx.TxIsValid = false
+					tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+							{}: {},
+						},
+					}
+					state := &erroringCommitteeCredentialLedgerState{
+						LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+						err:         errors.New("committee provider queried"),
+					}
+					rules := registeredRules(
+						t,
+						era.rules,
+						conway.UtxoValidateIsValidFlag,
+						operation.rule,
+					)
+					err := common.VerifyTransaction(tx, 0, state, nil, rules)
+					if err != nil {
+						t.Fatalf(
+							"phase-2-invalid transaction reached %s: %v",
+							operation.name,
+							err,
+						)
+					}
+					require.Zero(t, state.queries, "committee provider queries")
+				})
+			}
+
+			t.Run("phase-1 invalid flag still runs", func(t *testing.T) {
+				tx := operations[0].tx()
+				tx.TxIsValid = false
+				state := &erroringCommitteeCredentialLedgerState{
+					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+					err:         errors.New("committee provider queried"),
+				}
+				rules := registeredRules(
+					t,
+					era.rules,
+					conway.UtxoValidateIsValidFlag,
+					conway.UtxoValidateCommitteeCertificates,
+				)
+				err := common.VerifyTransaction(tx, 0, state, nil, rules)
+				var invalidFlag common.InvalidIsValidFlagError
+				require.ErrorAs(t, err, &invalidFlag)
+				require.Zero(t, state.queries, "committee provider queries")
+			})
+		})
+	}
 }
 
 func TestPoolValidateVrfKeyUniqueness(t *testing.T) {
