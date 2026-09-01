@@ -799,7 +799,6 @@ func collectTransactionScriptRequirements(
 	// index than the node assigns. voterPurposeOrder below encodes the same
 	// script-before-key rule.
 	type withdrawalKey struct {
-		address    *Address
 		credential Credential
 		network    uint
 	}
@@ -810,7 +809,6 @@ func collectTransactionScriptRequirements(
 			return ret, err
 		}
 		withdrawals = append(withdrawals, withdrawalKey{
-			address:    addr,
 			credential: credential,
 			network:    addr.NetworkId(),
 		})

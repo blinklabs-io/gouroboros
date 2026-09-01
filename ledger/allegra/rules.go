@@ -249,13 +249,6 @@ func UtxoValidateNativeScripts(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// Resolving the full input set is expensive, and UtxoValidateScriptWitnesses
-	// in this same rule list resolves it too. Skip it entirely for a
-	// transaction that carries no native script and produces no reference
-	// script, which is the ordinary payment case.
-	if !common.TransactionMayCarryNativeScript(tx) {
-		return nil
-	}
 	nativeScripts, err := common.NativeScriptsForValidation(tx, ls)
 	if err != nil {
 		return err
