@@ -33,7 +33,6 @@ import (
 	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
-	"github.com/blinklabs-io/plutigo/syn"
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
@@ -81,6 +80,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateTooManyCollateralInputs,
 	UtxoValidateSupplementalDatums,
 	UtxoValidateExtraneousRedeemers,
+	UtxoValidateMalformedReferenceScripts,
 	UtxoValidatePlutusScripts,
 	UtxoValidateNativeScripts,
 	UtxoValidateDelegation,
@@ -92,7 +92,6 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateBootstrapVotingRestrictions,
 	UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
-	UtxoValidateMalformedReferenceScripts,
 }
 
 // isInConwayBootstrapPhase reports whether the given protocol parameters
@@ -3846,44 +3845,20 @@ func UtxoValidateCCVotingRestrictions(
 	return nil
 }
 
-// UtxoValidateMalformedReferenceScripts checks that any reference scripts in
-// transaction outputs are well-formed and can be deserialized.
+// UtxoValidateMalformedReferenceScripts checks that Plutus witnesses and
+// reference scripts are well-formed for the active protocol version.
 func UtxoValidateMalformedReferenceScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	var malformedHashes []common.ScriptHash
-
-	for _, output := range tx.Outputs() {
-		scriptRef := output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-
-		// Check if the script can be decoded properly
-		var innerScript []byte
-		if _, ok := common.PlutusScriptVersion(scriptRef); !ok {
-			// Native scripts don't need UPLC validation
-			continue
-		}
-
-		// Decode the outer CBOR wrapper to get the actual script bytes.
-		if _, err := cbor.Decode(scriptRef.RawScriptBytes(), &innerScript); err != nil {
-			malformedHashes = append(malformedHashes, scriptRef.Hash())
-			continue
-		}
-		// Try to decode as UPLC program.
-		if _, err := syn.Decode[syn.DeBruijn](innerScript); err != nil {
-			malformedHashes = append(malformedHashes, scriptRef.Hash())
-		}
+	params, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
 	}
-
-	if len(malformedHashes) > 0 {
-		return common.MalformedReferenceScriptsError{
-			ScriptHashes: malformedHashes,
-		}
-	}
-	return nil
+	return common.ValidatePlutusScriptsWellFormed(
+		tx,
+		params.ProtocolVersion.Major,
+	)
 }
