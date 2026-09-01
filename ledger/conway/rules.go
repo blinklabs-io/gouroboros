@@ -3380,24 +3380,24 @@ func UtxoValidateCommitteeCertificates(
 			committeeState, ok = ls.(common.CommitteeCredentialState)
 			if !ok {
 				return nil, CommitteeMemberLookupError{
-					Credential:     coldCredential.Credential,
-					ColdCredential: coldCredential,
-					Err:            CommitteeStateUnavailableError{},
+					Credential:       coldCredential.Credential,
+					MemberCredential: coldCredential,
+					Err:              CommitteeStateUnavailableError{},
 				}
 			}
 			available, err := committeeState.CommitteeStateAvailable()
 			if err != nil {
 				return nil, CommitteeMemberLookupError{
-					Credential:     coldCredential.Credential,
-					ColdCredential: coldCredential,
-					Err:            err,
+					Credential:       coldCredential.Credential,
+					MemberCredential: coldCredential,
+					Err:              err,
 				}
 			}
 			if !available {
 				return nil, CommitteeMemberLookupError{
-					Credential:     coldCredential.Credential,
-					ColdCredential: coldCredential,
-					Err:            CommitteeStateUnavailableError{},
+					Credential:       coldCredential.Credential,
+					MemberCredential: coldCredential,
+					Err:              CommitteeStateUnavailableError{},
 				}
 			}
 			committeeStateLoaded = true
@@ -3405,9 +3405,9 @@ func UtxoValidateCommitteeCertificates(
 		member, err := committeeState.CommitteeCredentialMember(coldCredential)
 		if err != nil {
 			return nil, CommitteeMemberLookupError{
-				Credential:     coldCredential.Credential,
-				ColdCredential: coldCredential,
-				Err:            err,
+				Credential:       coldCredential.Credential,
+				MemberCredential: coldCredential,
+				Err:              err,
 			}
 		}
 		return member, nil
@@ -3583,32 +3583,40 @@ func UtxoValidateUnknownVoters(
 
 		case common.VoterTypeConstitutionalCommitteeHotKeyHash,
 			common.VoterTypeConstitutionalCommitteeHotScriptHash:
-			if committeeState == nil {
-				var ok bool
-				committeeState, ok = ls.(common.CommitteeCredentialState)
-				if !ok {
-					return CommitteeStateUnavailableError{}
-				}
-				available, err := committeeState.CommitteeStateAvailable()
-				if err != nil {
-					return err
-				}
-				if !available {
-					return CommitteeStateUnavailableError{}
-				}
-			}
 			credentialType := uint(common.CredentialTypeAddrKeyHash)
 			if voter.Type == common.VoterTypeConstitutionalCommitteeHotScriptHash {
 				credentialType = common.CredentialTypeScriptHash
 			}
+			hotCredential := common.Credential{
+				CredType:   credentialType,
+				Credential: common.Blake2b224(voter.Hash),
+			}
+			lookupError := func(err error) error {
+				return CommitteeMemberLookupError{
+					Credential:       hotCredential.Credential,
+					MemberCredential: hotCredential,
+					Err:              err,
+				}
+			}
+			if committeeState == nil {
+				var ok bool
+				committeeState, ok = ls.(common.CommitteeCredentialState)
+				if !ok {
+					return lookupError(CommitteeStateUnavailableError{})
+				}
+				available, err := committeeState.CommitteeStateAvailable()
+				if err != nil {
+					return lookupError(err)
+				}
+				if !available {
+					return lookupError(CommitteeStateUnavailableError{})
+				}
+			}
 			member, err := committeeState.CommitteeHotCredentialMember(
-				common.Credential{
-					CredType:   credentialType,
-					Credential: common.Blake2b224(voter.Hash),
-				},
+				hotCredential,
 			)
 			if err != nil {
-				return err
+				return lookupError(err)
 			}
 			if member == nil || member.Resigned {
 				return UnknownVoterError{Voter: *voter}

@@ -69,6 +69,13 @@ func (p *legacyCommitteeStateProvider) CommitteeStateAvailable() (bool, error) {
 func (p *legacyCommitteeStateProvider) CommitteeCredentialMember(
 	credential common.Credential,
 ) (*common.CommitteeMember, error) {
+	// The released store is keyed by hash alone and cannot represent a script
+	// member, so answering for a script credential would alias it onto a
+	// key-hash member with the same hash. That is the identity aliasing
+	// CommitteeCredentialState exists to prevent, so report not a member.
+	if credential.CredType != common.CredentialTypeAddrKeyHash {
+		return nil, nil
+	}
 	member, err := p.CommitteeMember(credential.Credential)
 	if err != nil || member != nil || p.governanceState == nil {
 		return member, err
@@ -95,6 +102,10 @@ func (p *legacyCommitteeStateProvider) CommitteeCredentialMember(
 func (p *legacyCommitteeStateProvider) CommitteeHotCredentialMember(
 	credential common.Credential,
 ) (*common.CommitteeMember, error) {
+	// Hot credentials carry the same hash-only limitation as cold ones.
+	if credential.CredType != common.CredentialTypeAddrKeyHash {
+		return nil, nil
+	}
 	if p.governanceState != nil {
 		for coldHash, hotHash := range p.governanceState.HotKeyAuthorizations {
 			if hotHash != credential.Credential {

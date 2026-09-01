@@ -407,11 +407,14 @@ func (e ResignedCommitteeMemberHotKeyError) Error() string {
 	)
 }
 
-// CommitteeMemberLookupError indicates a failure to look up a committee member
+// CommitteeMemberLookupError indicates a failure to look up a committee member.
+// MemberCredential carries the credential type alongside the hash, which a bare
+// Blake2b224 cannot distinguish: it is the cold credential for a certificate
+// lookup and the hot credential for a voter lookup.
 type CommitteeMemberLookupError struct {
-	Credential     common.Blake2b224
-	ColdCredential common.Credential
-	Err            error
+	Credential       common.Blake2b224
+	MemberCredential common.Credential
+	Err              error
 }
 
 // CommitteeStateUnavailableError indicates that a ledger-state provider cannot

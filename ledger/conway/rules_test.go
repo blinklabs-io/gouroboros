@@ -3310,7 +3310,7 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 					assert.Equal(
 						t,
 						coldCredential,
-						memberErr.ColdCredential,
+						memberErr.MemberCredential,
 					)
 				},
 			)
@@ -3357,7 +3357,7 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 				require.ErrorIs(t, err, lookupErr)
 				var memberErr conway.CommitteeMemberLookupError
 				require.ErrorAs(t, err, &memberErr)
-				assert.Equal(t, coldCredential, memberErr.ColdCredential)
+				assert.Equal(t, coldCredential, memberErr.MemberCredential)
 			})
 		})
 	}
@@ -4673,4 +4673,88 @@ func TestUtxoValidateBootstrapParameterGroups(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+}
+
+// Voter committee lookups report the same CommitteeMemberLookupError shape as
+// certificate lookups, so a caller gets the credential and its type rather than
+// a bare provider error.
+func TestUtxoValidateUnknownVotersWrapsCommitteeLookupFailures(t *testing.T) {
+	hotHash := common.Blake2b224{0x0a}
+	newTx := func(voterType uint8) *conway.ConwayTransaction {
+		voter := &common.Voter{Type: voterType, Hash: hotHash}
+		actionId := &common.GovActionId{
+			TransactionId: common.Blake2b256{0x01},
+		}
+		return &conway.ConwayTransaction{
+			TxIsValid: true,
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {actionId: {Vote: common.GovVoteYes}},
+				},
+			},
+		}
+	}
+	pp := &conway.ConwayProtocolParameters{}
+
+	voterTypes := []struct {
+		name      string
+		voterType uint8
+		credType  uint
+	}{
+		{
+			name:      "hot key hash",
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			credType:  common.CredentialTypeAddrKeyHash,
+		},
+		{
+			name:      "hot script hash",
+			voterType: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+			credType:  common.CredentialTypeScriptHash,
+		},
+	}
+
+	for _, voterCase := range voterTypes {
+		t.Run(voterCase.name, func(t *testing.T) {
+			wantCredential := common.Credential{
+				CredType:   voterCase.credType,
+				Credential: hotHash,
+			}
+
+			t.Run("provider without committee state", func(t *testing.T) {
+				err := conway.UtxoValidateUnknownVoters(
+					newTx(voterCase.voterType),
+					0,
+					mockledger.NewLedgerStateBuilder().Build(),
+					pp,
+				)
+				var memberErr conway.CommitteeMemberLookupError
+				require.ErrorAs(t, err, &memberErr)
+				assert.Equal(t, wantCredential, memberErr.MemberCredential)
+				assert.Equal(t, hotHash, memberErr.Credential)
+				require.ErrorAs(
+					t,
+					err,
+					&conway.CommitteeStateUnavailableError{},
+				)
+			})
+
+			t.Run("provider lookup error", func(t *testing.T) {
+				lookupErr := errors.New("hot credential lookup failed")
+				ls := &erroringCommitteeCredentialLedgerState{
+					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+					err:         lookupErr,
+				}
+				err := conway.UtxoValidateUnknownVoters(
+					newTx(voterCase.voterType),
+					0,
+					ls,
+					pp,
+				)
+				require.ErrorIs(t, err, lookupErr)
+				var memberErr conway.CommitteeMemberLookupError
+				require.ErrorAs(t, err, &memberErr)
+				assert.Equal(t, wantCredential, memberErr.MemberCredential)
+			})
+		})
+	}
 }
