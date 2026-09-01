@@ -581,6 +581,7 @@ func validateGuardingPlutusScripts(
 					ls,
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
+					true,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
@@ -614,6 +615,7 @@ func validateGuardingPlutusScripts(
 					ls,
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
+					true,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
