@@ -102,7 +102,7 @@ func TestTransactionBodiesRejectDuplicateLogicalWithdrawalKeys(t *testing.T) {
 	for era, newBody := range transactionBodyDecoders() {
 		t.Run(era, func(t *testing.T) {
 			err := newBody().UnmarshalCBOR(duplicateBody)
-			requireDuplicateLogicalMapKey(t, err)
+			require.ErrorContains(t, err, "duplicate withdrawal reward account")
 			require.NoError(t, newBody().UnmarshalCBOR(validBody))
 		})
 	}
@@ -323,7 +323,7 @@ func TestGovernanceMapsRejectDuplicateLogicalKeys(t *testing.T) {
 		require.NoError(t, err)
 		var action common.TreasuryWithdrawalGovAction
 		_, err = cbor.Decode(encoded, &action)
-		requireDuplicateLogicalMapKey(t, err)
+		require.ErrorContains(t, err, "duplicate withdrawal reward account")
 
 		encoded, err = cbor.Encode([]any{
 			uint(common.GovActionTypeTreasuryWithdrawal),

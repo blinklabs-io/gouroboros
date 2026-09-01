@@ -761,16 +761,13 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	if err := common.ValidateWithdrawalsMap(tmp.TxWithdrawals); err != nil {
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
-		return err
-	}
-	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
 	// Reject duplicate members in any tag-258 set field on the transaction body.
@@ -1059,16 +1056,13 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	if err := common.ValidateWithdrawalsMap(tmp.TxWithdrawals); err != nil {
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
-		return err
-	}
-	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
 	if err := tmp.TxInputs.CheckForDuplicates(); err != nil {

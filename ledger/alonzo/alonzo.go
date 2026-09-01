@@ -276,9 +276,6 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	if err := common.ValidateWithdrawalsMap(tmp.TxWithdrawals); err != nil {
-		return err
-	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}

@@ -48,17 +48,17 @@ func (vps *VotingProcedures) UnmarshalCBOR(cborData []byte) error {
 		if len(procedures) == 0 {
 			return errors.New("voting procedures contain an empty action map")
 		}
+		for actionId := range procedures {
+			if actionId == nil {
+				return errors.New("voting procedures contain a nil action id")
+			}
+		}
 		if err := validateLogicalMapKeys(
 			procedures,
 			"voting procedure action map",
 			govActionIdLogicalKey,
 		); err != nil {
 			return err
-		}
-		for actionId := range procedures {
-			if actionId == nil {
-				return errors.New("voting procedures contain a nil action id")
-			}
 		}
 	}
 	if err := validateLogicalMapKeys(
@@ -748,12 +748,7 @@ func (a *TreasuryWithdrawalGovAction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	for address := range tmp.Withdrawals {
-		if address == nil {
-			return errors.New("treasury withdrawal contains a nil address")
-		}
-	}
-	if err := ValidateWithdrawalsMap(tmp.Withdrawals); err != nil {
+	if err := ValidateWithdrawalAddresses(tmp.Withdrawals); err != nil {
 		return fmt.Errorf("treasury withdrawal: %w", err)
 	}
 	*a = TreasuryWithdrawalGovAction(tmp)

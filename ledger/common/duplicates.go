@@ -35,11 +35,20 @@ func (e DuplicateLogicalMapKeyError) Error() string {
 }
 
 // DuplicateCertificateError indicates that a transaction certificate set
-// contains the same logical certificate more than once.
-type DuplicateCertificateError struct{}
+// contains the same logical certificate more than once. Index and
+// CertificateType name the repeat so a rejected block can be triaged from the
+// error alone.
+type DuplicateCertificateError struct {
+	Index           int
+	CertificateType uint
+}
 
-func (DuplicateCertificateError) Error() string {
-	return "duplicate certificate in transaction certificate set"
+func (e DuplicateCertificateError) Error() string {
+	return fmt.Sprintf(
+		"duplicate certificate in transaction certificate set: index %d, type %d",
+		e.Index,
+		e.CertificateType,
+	)
 }
 
 func validateLogicalMapKeys[K any, V any](
@@ -72,14 +81,6 @@ func validateLogicalMapKeys[K any, V any](
 	return nil
 }
 
-func addressLogicalKey(address *Address) (string, error) {
-	addressBytes, err := address.Bytes()
-	if err != nil {
-		return "", err
-	}
-	return string(addressBytes), nil
-}
-
 func credentialLogicalKey(credential *Credential) (string, error) {
 	key := make([]byte, 8+len(credential.Credential))
 	binary.BigEndian.PutUint64(key, uint64(credential.CredType))
@@ -104,21 +105,6 @@ func govActionIdLogicalKey(actionId *GovActionId) (string, error) {
 	return string(key), nil
 }
 
-// ValidateWithdrawalsMap rejects nil and duplicate logical address keys while
-// preserving the existing pointer-keyed public representation.
-func ValidateWithdrawalsMap(withdrawals map[*Address]uint64) error {
-	for address := range withdrawals {
-		if address == nil {
-			return errors.New("withdrawals map contains a nil address")
-		}
-	}
-	return validateLogicalMapKeys(
-		withdrawals,
-		"withdrawals map",
-		addressLogicalKey,
-	)
-}
-
 func validateCredentialMapKeys[V any](
 	values map[*Credential]V,
 	field string,
@@ -126,11 +112,129 @@ func validateCredentialMapKeys[V any](
 	return validateLogicalMapKeys(values, field, credentialLogicalKey)
 }
 
+func appendLogicalUint64(dst []byte, value uint64) []byte {
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], value)
+	return append(dst, buf[:]...)
+}
+
+// appendLogicalBytes length-prefixes so adjacent variable-length fields cannot
+// be confused with one another.
+func appendLogicalBytes(dst []byte, value []byte) []byte {
+	dst = appendLogicalUint64(dst, uint64(len(value)))
+	return append(dst, value...)
+}
+
+func appendLogicalCredential(dst []byte, credential Credential) []byte {
+	dst = appendLogicalUint64(dst, uint64(credential.CredType))
+	return append(dst, credential.Credential[:]...)
+}
+
+func appendLogicalDrep(dst []byte, drep Drep) []byte {
+	dst = appendLogicalUint64(dst, uint64(drep.Type))
+	return appendLogicalBytes(dst, drep.Credential)
+}
+
+func appendLogicalAnchor(dst []byte, anchor *GovAnchor) []byte {
+	if anchor == nil {
+		return append(dst, 0)
+	}
+	dst = append(dst, 1)
+	dst = appendLogicalBytes(dst, []byte(anchor.Url))
+	return append(dst, anchor.DataHash[:]...)
+}
+
+// certificateLogicalKey builds a certificate identity from its decoded fields,
+// so two encodings of the same certificate compare equal without re-encoding
+// it. Types that aggregate over slices or maps fall back to a canonical
+// re-encoding, which keeps the reflection cost off the ordinary decode path.
+func certificateLogicalKey(certificate Certificate) (string, error) {
+	key := appendLogicalUint64(
+		make([]byte, 0, 64),
+		uint64(certificate.Type()),
+	)
+	switch c := certificate.(type) {
+	case *StakeRegistrationCertificate:
+		key = appendLogicalCredential(key, c.StakeCredential)
+	case *StakeDeregistrationCertificate:
+		key = appendLogicalCredential(key, c.StakeCredential)
+	case *StakeDelegationCertificate:
+		if c.StakeCredential == nil {
+			return "", errors.New(
+				"stake delegation certificate has a nil stake credential",
+			)
+		}
+		key = appendLogicalCredential(key, *c.StakeCredential)
+		key = append(key, c.PoolKeyHash[:]...)
+	case *PoolRetirementCertificate:
+		key = append(key, c.PoolKeyHash[:]...)
+		key = appendLogicalUint64(key, c.Epoch)
+	case *GenesisKeyDelegationCertificate:
+		key = appendLogicalBytes(key, c.GenesisHash)
+		key = appendLogicalBytes(key, c.GenesisDelegateHash)
+		key = append(key, c.VrfKeyHash[:]...)
+	case *RegistrationCertificate:
+		key = appendLogicalCredential(key, c.StakeCredential)
+		key = appendLogicalUint64(key, uint64(c.Amount))
+	case *DeregistrationCertificate:
+		key = appendLogicalCredential(key, c.StakeCredential)
+		key = appendLogicalUint64(key, uint64(c.Amount))
+	case *VoteDelegationCertificate:
+		key = appendLogicalCredential(key, c.StakeCredential)
+		key = appendLogicalDrep(key, c.Drep)
+	case *StakeVoteDelegationCertificate:
+		key = appendLogicalCredential(key, c.StakeCredential)
+		key = append(key, c.PoolKeyHash[:]...)
+		key = appendLogicalDrep(key, c.Drep)
+	case *StakeRegistrationDelegationCertificate:
+		key = appendLogicalCredential(key, c.StakeCredential)
+		key = append(key, c.PoolKeyHash[:]...)
+		key = appendLogicalUint64(key, uint64(c.Amount))
+	case *VoteRegistrationDelegationCertificate:
+		key = appendLogicalCredential(key, c.StakeCredential)
+		key = appendLogicalDrep(key, c.Drep)
+		key = appendLogicalUint64(key, uint64(c.Amount))
+	case *StakeVoteRegistrationDelegationCertificate:
+		key = appendLogicalCredential(key, c.StakeCredential)
+		key = append(key, c.PoolKeyHash[:]...)
+		key = appendLogicalDrep(key, c.Drep)
+		key = appendLogicalUint64(key, uint64(c.Amount))
+	case *AuthCommitteeHotCertificate:
+		key = appendLogicalCredential(key, c.ColdCredential)
+		key = appendLogicalCredential(key, c.HotCredential)
+	case *ResignCommitteeColdCertificate:
+		key = appendLogicalCredential(key, c.ColdCredential)
+		key = appendLogicalAnchor(key, c.Anchor)
+	case *RegistrationDrepCertificate:
+		key = appendLogicalCredential(key, c.DrepCredential)
+		key = appendLogicalUint64(key, uint64(c.Amount))
+		key = appendLogicalAnchor(key, c.Anchor)
+	case *DeregistrationDrepCertificate:
+		key = appendLogicalCredential(key, c.DrepCredential)
+		key = appendLogicalUint64(key, uint64(c.Amount))
+	case *UpdateDrepCertificate:
+		key = appendLogicalCredential(key, c.DrepCredential)
+		key = appendLogicalAnchor(key, c.Anchor)
+	default:
+		// PoolRegistrationCertificate and MoveInstantaneousRewardsCertificate
+		// aggregate over slices and maps, and a certificate type added later
+		// has no enumerated identity here yet. A canonical re-encoding is a
+		// correct identity for all of them, so a new certificate type keeps
+		// working without touching this file.
+		encoded, err := cbor.EncodeGeneric(certificate)
+		if err != nil {
+			return "", fmt.Errorf("encode transaction certificate: %w", err)
+		}
+		key = appendLogicalBytes(key, encoded)
+	}
+	return string(key), nil
+}
+
 // ValidateCertificateSet rejects duplicate logical transaction certificates.
-// EncodeGeneric deliberately ignores preserved source CBOR so equivalent
-// definite, indefinite, and non-shortest encodings compare by decoded value.
+// The identity is built from decoded fields, so equivalent definite,
+// indefinite, and non-shortest encodings compare equal.
 func ValidateCertificateSet(certificates []CertificateWrapper) error {
-	var typeCounts [CertificateTypeUpdateDrep + 1]uint
+	typeCounts := make(map[uint]int, len(certificates))
 	hasRepeatedType := false
 	for _, certificate := range certificates {
 		if certificate.Certificate == nil {
@@ -139,11 +243,6 @@ func ValidateCertificateSet(certificates []CertificateWrapper) error {
 			)
 		}
 		certificateType := certificate.Certificate.Type()
-		// Certificate is a closed interface, so every implementation has a
-		// type in this range.
-		if certificateType > uint(CertificateTypeUpdateDrep) {
-			return fmt.Errorf("invalid certificate type: %d", certificateType)
-		}
 		typeCounts[certificateType]++
 		if typeCounts[certificateType] == 2 {
 			hasRepeatedType = true
@@ -153,17 +252,20 @@ func ValidateCertificateSet(certificates []CertificateWrapper) error {
 		return nil
 	}
 	seen := make(map[string]struct{}, len(certificates))
-	for _, certificate := range certificates {
-		if typeCounts[certificate.Certificate.Type()] < 2 {
+	for index, certificate := range certificates {
+		certificateType := certificate.Certificate.Type()
+		if typeCounts[certificateType] < 2 {
 			continue
 		}
-		encoded, err := cbor.EncodeGeneric(certificate.Certificate)
+		key, err := certificateLogicalKey(certificate.Certificate)
 		if err != nil {
-			return fmt.Errorf("encode transaction certificate: %w", err)
+			return err
 		}
-		key := string(encoded)
 		if _, ok := seen[key]; ok {
-			return DuplicateCertificateError{}
+			return DuplicateCertificateError{
+				Index:           index,
+				CertificateType: certificateType,
+			}
 		}
 		seen[key] = struct{}{}
 	}

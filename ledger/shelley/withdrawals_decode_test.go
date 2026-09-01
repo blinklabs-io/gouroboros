@@ -135,9 +135,7 @@ func TestShelleyTransactionBodyRejectsSemanticDuplicateWithdrawal(t *testing.T) 
 
 	var body shelley.ShelleyTransactionBody
 	_, err := cbor.Decode(bodyCbor, &body)
-	var duplicateError common.DuplicateLogicalMapKeyError
-	require.ErrorAs(t, err, &duplicateError)
-	require.Equal(t, "withdrawals map", duplicateError.Field)
+	require.ErrorContains(t, err, "duplicate withdrawal reward account")
 }
 
 func TestShelleyFamilyBodiesRejectNonRewardWithdrawals(t *testing.T) {
