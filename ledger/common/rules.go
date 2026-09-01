@@ -90,7 +90,7 @@ func ComposeUtxoValidationRules(
 				ledgerState LedgerState,
 				protocolParams ProtocolParameters,
 			) error {
-				if tx != nil && !tx.IsValid() {
+				if !tx.IsValid() {
 					return nil
 				}
 				return rule(tx, slot, ledgerState, protocolParams)

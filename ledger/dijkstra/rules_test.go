@@ -35,26 +35,159 @@ func dijkstraValidationRuleName(rule common.UtxoValidationRuleFunc) string {
 	return runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).Name()
 }
 
+// dijkstraComposedEntry is one position in the list ComposeUtxoValidationRules
+// is expected to produce. It is declared here rather than derived from the
+// group literals in rules.go, so a mis-ordered composition fails rather than
+// re-confirming the literals.
+type dijkstraComposedEntry struct {
+	name  string
+	gated bool
+}
+
+var dijkstraComposedLayout = []dijkstraComposedEntry{
+	{name: "ledger/conway.UtxoValidateMetadata", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateProposalProcedures", gated: true},
+	{name: "ledger/conway.UtxoValidateGovActionWellFormedness", gated: true},
+	{name: "ledger/dijkstra.UtxoValidateHardForkCanFollow", gated: true},
+	{name: "ledger/conway.UtxoValidateProposalAncestry", gated: true},
+	{name: "ledger/dijkstra.UtxoValidateProposalDeposit", gated: true},
+	{name: "ledger/conway.UtxoValidateProposalNetworkIds", gated: true},
+	{name: "ledger/conway.UtxoValidateProposalReturnAccounts", gated: true},
+	{name: "ledger/conway.UtxoValidateEmptyTreasuryWithdrawals", gated: true},
+	{name: "ledger/dijkstra.UtxoValidateBootstrapAllowedGovActions", gated: true},
+	{name: "ledger/dijkstra.UtxoValidateBootstrapParameterGroups", gated: true},
+	{name: "ledger/conway.UtxoValidateIsValidFlag", gated: false},
+	{name: "ledger/conway.UtxoValidateRequiredVKeyWitnesses", gated: false},
+	{name: "ledger/conway.UtxoValidateCollateralVKeyWitnesses", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateRedeemerAndScriptWitnesses", gated: false},
+	{name: "ledger/conway.UtxoValidateSignatures", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateCostModelsPresent", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateScriptDataHash", gated: false},
+	{name: "ledger/conway.UtxoValidateInlineDatumsWithPlutusV1", gated: false},
+	{name: "ledger/conway.UtxoValidateConwayFeaturesWithPlutusV1V2", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateDisjointRefInputs", gated: false},
+	{name: "ledger/conway.UtxoValidateOutsideValidityIntervalUtxo", gated: false},
+	{name: "ledger/conway.UtxoValidateInputSetEmptyUtxo", gated: false},
+	{name: "ledger/conway.UtxoValidateNoDuplicateInputs", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateFeeTooSmallUtxo", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateInsufficientCollateral", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateCollateralContainsNonAda", gated: false},
+	{name: "ledger/conway.UtxoValidateCollateralEqBalance", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateNoCollateralInputs", gated: false},
+	{name: "ledger/conway.UtxoValidateBadInputsUtxo", gated: false},
+	{name: "ledger/conway.UtxoValidateScriptWitnesses", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateValueNotConservedUtxo", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateOutputTooSmallUtxo", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateOutputTooBigUtxo", gated: false},
+	{name: "ledger/conway.UtxoValidateOutputBootAddrAttrsTooBig", gated: false},
+	{name: "ledger/conway.UtxoValidateWrongNetwork", gated: false},
+	{name: "ledger/conway.UtxoValidateWrongNetworkWithdrawal", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateTransactionNetworkId", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateMaxTxSizeUtxo", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateExUnitsTooBigUtxo", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateTooManyCollateralInputs", gated: false},
+	{name: "ledger/conway.UtxoValidateSupplementalDatums", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateExtraneousRedeemers", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateMalformedReferenceScripts", gated: false},
+	{name: "ledger/dijkstra.UtxoValidatePlutusScripts", gated: false},
+	{name: "ledger/dijkstra.UtxoValidateNativeScripts", gated: false},
+	{name: "ledger/conway.UtxoValidateDelegation", gated: true},
+	{name: "ledger/conway.UtxoValidateWithdrawals", gated: true},
+	{name: "ledger/conway.UtxoValidateCommitteeCertificates", gated: true},
+	{name: "ledger/conway.UtxoValidateUnknownVoters", gated: true},
+	{name: "ledger/conway.UtxoValidateUnknownGovActionIds", gated: true},
+	{name: "ledger/conway.UtxoValidateVotingOnExpiredGovAction", gated: true},
+	{name: "ledger/dijkstra.UtxoValidateBootstrapVotingRestrictions", gated: true},
+	{name: "ledger/conway.UtxoValidateStakePoolVotingRestrictions", gated: true},
+	{name: "ledger/dijkstra.UtxoValidateCCVotingRestrictions", gated: true},
+	{name: "ledger/dijkstra.UtxoValidateRefScriptSizePerTx", gated: true},
+}
+
+// dijkstraValidationRule returns the composed rule at the position the named
+// rule is expected to occupy. Gated rules are wrapped by the composition, so
+// they cannot be resolved by name in the composed list; the layout above is
+// what pins them.
 func dijkstraValidationRule(
 	t *testing.T,
 	want string,
 ) (common.UtxoValidationRuleFunc, int) {
 	t.Helper()
-	groups := [][]common.UtxoValidationRuleFunc{
-		dijkstraGovernanceRulesBeforeUtxow,
-		dijkstraLedgerRulesAfterUtxow,
-	}
-	idx := 0
-	for _, group := range groups {
-		for _, rule := range group {
-			if strings.HasSuffix(dijkstraValidationRuleName(rule), want) {
-				return rule, idx
-			}
-			idx++
+	require.Len(t, UtxoValidationRules, len(dijkstraComposedLayout))
+	for idx, entry := range dijkstraComposedLayout {
+		if !strings.HasSuffix(entry.name, want) {
+			continue
 		}
+		if !entry.gated {
+			require.True(
+				t,
+				strings.HasSuffix(
+					dijkstraValidationRuleName(UtxoValidationRules[idx]),
+					want,
+				),
+				"composed rule %d is not %s",
+				idx,
+				want,
+			)
+		}
+		return UtxoValidationRules[idx], idx
 	}
 	t.Fatalf("validation rule %s is not registered", want)
 	return nil, -1
+}
+
+// TestDijkstraComposedRuleLayout pins the composed list: every ungated rule by
+// name at its index, and every gated position by its phase-2 behavior. A rule
+// moved between groups, dropped, or reordered fails here.
+func TestDijkstraComposedRuleLayout(t *testing.T) {
+	require.Len(t, UtxoValidationRules, len(dijkstraComposedLayout))
+	invalidTx := &DijkstraTransaction{TxIsValid: false}
+	for idx, entry := range dijkstraComposedLayout {
+		rule := UtxoValidationRules[idx]
+		if entry.gated {
+			// A gated rule must not run for a phase-2-invalid transaction.
+			// Nil parameters would panic if the wrapper delegated.
+			require.NoError(
+				t,
+				rule(invalidTx, 0, nil, nil),
+				"rule %d (%s) is not gated on phase-2 validity",
+				idx,
+				entry.name,
+			)
+			continue
+		}
+		require.True(
+			t,
+			strings.HasSuffix(dijkstraValidationRuleName(rule), entry.name),
+			"composed rule %d is %s, want %s",
+			idx,
+			dijkstraValidationRuleName(rule),
+			entry.name,
+		)
+	}
+}
+
+// TestDijkstraRefScriptSizePerTxIsPhase2Gated pins the one place a size limit
+// is deliberately skipped for an invalid transaction, matching
+// validateAllRefScriptSize inside the Phase2Valid branch of upstream
+// Dijkstra/Rules/Ledger.hs.
+func TestDijkstraRefScriptSizePerTxIsPhase2Gated(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateRefScriptSizePerTx",
+	)
+
+	valid := txWithRefScripts(60, 60)
+	valid.TxIsValid = true
+	require.ErrorAs(
+		t,
+		rule(valid, 0, nil, pp),
+		&common.RefScriptSizePerTxTooLargeError{},
+	)
+
+	invalid := txWithRefScripts(60, 60)
+	invalid.TxIsValid = false
+	require.NoError(t, rule(invalid, 0, nil, pp))
 }
 
 func TestDijkstraWellFormednessPrecedesPlutusExecution(t *testing.T) {
@@ -119,8 +252,6 @@ func TestDijkstraWellFormednessPrecedesPlutusExecution(t *testing.T) {
 }
 
 func TestDijkstraGovernanceValidationRules(t *testing.T) {
-	require.Len(t, UtxoValidationRules, 56)
-
 	expected := []string{
 		"ledger/dijkstra.UtxoValidateProposalProcedures",
 		"ledger/conway.UtxoValidateGovActionWellFormedness",
@@ -211,7 +342,11 @@ func TestDijkstraGovernanceValidationRejectsTypedNilParameterChange(
 			}},
 		},
 	}
-	require.NoError(t, UtxoValidationRules[1](
+	proposalRule, _ := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateProposalProcedures",
+	)
+	require.NoError(t, proposalRule(
 		tx,
 		0,
 		nil,
@@ -234,7 +369,7 @@ func TestDijkstraGovernanceValidationRejectsTypedNilParameterChange(
 
 func TestDijkstraBootstrapVotingRestrictionsAreRegistered(t *testing.T) {
 	newTx := func(action common.GovAction) *DijkstraTransaction {
-		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+		tx := &DijkstraTransaction{TxIsValid: true, Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPGovAction: DijkstraGovAction{Action: action},
 			}},
@@ -305,7 +440,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 	}
 
 	t.Run("proposal deposit", func(t *testing.T) {
-		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+		tx := &DijkstraTransaction{TxIsValid: true, Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPDeposit:   1,
 				PPGovAction: DijkstraGovAction{Action: &common.InfoGovAction{}},
@@ -322,7 +457,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 
 	t.Run("parameter-change ancestry", func(t *testing.T) {
 		missing := common.GovActionId{TransactionId: common.Blake2b256{0x01}}
-		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+		tx := &DijkstraTransaction{TxIsValid: true, Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
@@ -343,7 +478,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 
 	t.Run("stake-pool parameter-change vote", func(t *testing.T) {
 		keyDeposit := uint(2_000_000)
-		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+		tx := &DijkstraTransaction{TxIsValid: true, Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
