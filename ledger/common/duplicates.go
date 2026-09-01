@@ -25,13 +25,22 @@ import (
 // DuplicateLogicalMapKeyError indicates that two CBOR map keys decoded to the
 // same ledger value. This cannot be left to Go's map duplicate handling when
 // the decoded map is keyed by pointers, because each wire key gets a distinct
-// pointer identity.
+// pointer identity. Identity is the repeated logical key, so a rejected block
+// can be triaged from the error alone.
 type DuplicateLogicalMapKeyError struct {
-	Field string
+	Field    string
+	Identity []byte
 }
 
 func (e DuplicateLogicalMapKeyError) Error() string {
-	return "duplicate logical key in " + e.Field
+	if len(e.Identity) == 0 {
+		return "duplicate logical key in " + e.Field
+	}
+	return fmt.Sprintf(
+		"duplicate logical key in %s: %x",
+		e.Field,
+		e.Identity,
+	)
 }
 
 // DuplicateCertificateError indicates that a transaction certificate set
@@ -74,7 +83,10 @@ func validateLogicalMapKeys[K any, V any](
 			return fmt.Errorf("%s key: %w", field, err)
 		}
 		if _, ok := seen[identity]; ok {
-			return DuplicateLogicalMapKeyError{Field: field}
+			return DuplicateLogicalMapKeyError{
+				Field:    field,
+				Identity: []byte(identity),
+			}
 		}
 		seen[identity] = struct{}{}
 	}
