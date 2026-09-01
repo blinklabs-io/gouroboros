@@ -40,6 +40,7 @@ type Server struct {
 	newMessageSignal       chan struct{}
 	newMessageSignalClosed bool
 	done                   chan struct{}
+	stopOnce               sync.Once
 }
 
 // NewServer returns a new LocalMessageNotification server object
@@ -249,20 +250,34 @@ func (s *Server) handleClientDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	// Close channels and signal shutdown
-	s.lock.Lock()
-	if !s.newMessageSignalClosed {
-		// Close newMessageSignal to wake up any goroutines waiting on it
-		close(s.newMessageSignal)
-		// Close done channel to signal protocol shutdown
-		close(s.done)
-		s.newMessageSignalClosed = true
-	}
-	s.lock.Unlock()
-
-	// Stop the expiration cleaner
-	s.stopExpirationCleaner()
+	s.stop()
 	return nil
+}
+
+// Stop terminates the server and releases background resources. It is safe to
+// call before Start when protocol registration or construction fails.
+func (s *Server) Stop() error {
+	s.stop()
+	s.Protocol.Stop()
+	return nil
+}
+
+func (s *Server) stop() {
+	s.stopOnce.Do(func() {
+		// Close channels and signal shutdown
+		s.lock.Lock()
+		if !s.newMessageSignalClosed {
+			// Close newMessageSignal to wake up any goroutines waiting on it
+			close(s.newMessageSignal)
+			// Close done channel to signal protocol shutdown
+			close(s.done)
+			s.newMessageSignalClosed = true
+		}
+		s.lock.Unlock()
+
+		// Stop the expiration cleaner
+		s.stopExpirationCleaner()
+	})
 }
 
 // startExpirationCleaner starts a background goroutine that periodically cleans up expired acknowledged IDs

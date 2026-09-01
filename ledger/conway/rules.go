@@ -33,7 +33,6 @@ import (
 	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
-	"github.com/blinklabs-io/plutigo/syn"
 )
 
 var UtxoValidationRules = common.ComposeUtxoValidationRules(
@@ -84,6 +83,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateTooManyCollateralInputs,
 		UtxoValidateSupplementalDatums,
 		UtxoValidateExtraneousRedeemers,
+		UtxoValidateMalformedReferenceScripts,
 		UtxoValidatePlutusScripts,
 		UtxoValidateNativeScripts,
 	),
@@ -97,9 +97,6 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateBootstrapVotingRestrictions,
 		UtxoValidateStakePoolVotingRestrictions,
 		UtxoValidateCCVotingRestrictions,
-	),
-	common.AlwaysUtxoValidationRules(
-		UtxoValidateMalformedReferenceScripts,
 	),
 )
 
@@ -697,7 +694,7 @@ func UtxoValidateGovActionWellFormedness(
 		// hash.
 		if withPolicy, ok := govAction.(common.GovActionWithPolicy); ok {
 			policyHash := withPolicy.GetPolicyHash()
-			if len(policyHash) != 0 &&
+			if policyHash != nil &&
 				len(policyHash) != common.Blake2b224Size {
 				return MalformedGovActionError{
 					Reason: fmt.Sprintf(
@@ -711,7 +708,7 @@ func UtxoValidateGovActionWellFormedness(
 
 		switch a := govAction.(type) {
 		case *common.NewConstitutionGovAction:
-			if l := len(a.Constitution.ScriptHash); l != 0 &&
+			if l := len(a.Constitution.ScriptHash); a.Constitution.ScriptHash != nil &&
 				l != common.Blake2b224Size {
 				return MalformedGovActionError{
 					Reason: fmt.Sprintf(
@@ -763,6 +760,68 @@ func UtxoValidateGovActionWellFormedness(
 					},
 				)
 				return ConflictingCommitteeUpdateError{Credentials: conflicting}
+			}
+		}
+	}
+	return UtxoValidateGuardrailsScriptHash(tx, slot, ls, pp)
+}
+
+// UtxoValidateGuardrailsScriptHash requires parameter-change and
+// treasury-withdrawal proposals to carry exactly the optional guardrails
+// script hash of the current constitution. Nil is the absent representation,
+// so absent/absent succeeds while either one-sided presence or differing
+// hashes fails.
+func UtxoValidateGuardrailsScriptHash(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	var actions []common.GovActionWithPolicy
+	for _, proposal := range tx.ProposalProcedures() {
+		if proposal == nil {
+			continue
+		}
+		govAction := proposal.GovAction()
+		if isNilGovAction(govAction) {
+			continue
+		}
+		withPolicy, ok := govAction.(common.GovActionWithPolicy)
+		if ok {
+			actions = append(actions, withPolicy)
+		}
+	}
+	if len(actions) == 0 {
+		return nil
+	}
+	if ls == nil {
+		return ConstitutionLookupError{
+			Err: errors.New("ledger state is nil"),
+		}
+	}
+	constitution, err := ls.Constitution()
+	if err != nil {
+		return ConstitutionLookupError{Err: err}
+	}
+	var expected []byte
+	if constitution != nil {
+		expected = constitution.ScriptHash
+		if expected != nil && len(expected) != common.Blake2b224Size {
+			return MalformedConstitutionError{
+				ScriptHashLength: len(expected),
+			}
+		}
+	}
+	for _, action := range actions {
+		actual := action.GetPolicyHash()
+		if (actual == nil) != (expected == nil) ||
+			!bytes.Equal(actual, expected) {
+			return InvalidGuardrailsScriptHashError{
+				Actual:   bytes.Clone(actual),
+				Expected: bytes.Clone(expected),
 			}
 		}
 	}
@@ -3792,44 +3851,20 @@ func UtxoValidateCCVotingRestrictions(
 	return nil
 }
 
-// UtxoValidateMalformedReferenceScripts checks that any reference scripts in
-// transaction outputs are well-formed and can be deserialized.
+// UtxoValidateMalformedReferenceScripts checks that Plutus witnesses and
+// reference scripts are well-formed for the active protocol version.
 func UtxoValidateMalformedReferenceScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	var malformedHashes []common.ScriptHash
-
-	for _, output := range tx.Outputs() {
-		scriptRef := output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-
-		// Check if the script can be decoded properly
-		var innerScript []byte
-		if _, ok := common.PlutusScriptVersion(scriptRef); !ok {
-			// Native scripts don't need UPLC validation
-			continue
-		}
-
-		// Decode the outer CBOR wrapper to get the actual script bytes.
-		if _, err := cbor.Decode(scriptRef.RawScriptBytes(), &innerScript); err != nil {
-			malformedHashes = append(malformedHashes, scriptRef.Hash())
-			continue
-		}
-		// Try to decode as UPLC program.
-		if _, err := syn.Decode[syn.DeBruijn](innerScript); err != nil {
-			malformedHashes = append(malformedHashes, scriptRef.Hash())
-		}
+	params, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
 	}
-
-	if len(malformedHashes) > 0 {
-		return common.MalformedReferenceScriptsError{
-			ScriptHashes: malformedHashes,
-		}
-	}
-	return nil
+	return common.ValidatePlutusScriptsWellFormed(
+		tx,
+		params.ProtocolVersion.Major,
+	)
 }
