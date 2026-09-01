@@ -55,7 +55,7 @@ func mkProposalTx(
 	rewardAccount common.Address,
 	action common.GovAction,
 ) *conway.ConwayTransaction {
-	tx := &conway.ConwayTransaction{}
+	tx := &conway.ConwayTransaction{TxIsValid: true}
 	tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
 		{
 			PPDeposit:       deposit,
@@ -495,7 +495,7 @@ func mkVoteTx(
 	actionId common.GovActionId,
 	vote uint8,
 ) *conway.ConwayTransaction {
-	tx := &conway.ConwayTransaction{}
+	tx := &conway.ConwayTransaction{TxIsValid: true}
 	v := voter
 	aid := actionId
 	tx.Body.TxVotingProcedures = common.VotingProcedures{
@@ -642,7 +642,7 @@ func TestUtxoValidateUnknownVoters(t *testing.T) {
 	poolHash := common.Blake2b224{0x20}
 	ccHotHash := common.Blake2b224{0x30}
 
-	ls := mockledger.NewLedgerStateBuilder().
+	baseLs := mockledger.NewLedgerStateBuilder().
 		WithDRepRegistrations([]common.DRepRegistration{
 			{Credential: drepHash},
 		}).
@@ -653,6 +653,7 @@ func TestUtxoValidateUnknownVoters(t *testing.T) {
 			{ColdKey: common.Blake2b224{0x31}, HotKey: &ccHotHash},
 		}).
 		Build()
+	ls := authoritativeLegacyCommitteeState(baseLs)
 
 	t.Run("registered DRep", func(t *testing.T) {
 		voter := common.Voter{Type: common.VoterTypeDRepKeyHash, Hash: drepHash}
@@ -711,15 +712,89 @@ func TestUtxoValidateUnknownVoters(t *testing.T) {
 		require.ErrorAs(t, err, &unkErr)
 	})
 
-	t.Run("empty committee state is treated as unmodeled", func(t *testing.T) {
-		emptyLs := mockledger.NewLedgerStateBuilder().Build()
+	t.Run("authoritative empty committee rejects voter", func(t *testing.T) {
+		emptyLs := authoritativeLegacyCommitteeState(
+			mockledger.NewLedgerStateBuilder().Build(),
+		)
 		voter := common.Voter{
 			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
 			Hash: common.Blake2b224{0x99},
 		}
 		tx := mkVoteTx(voter, actionId, common.GovVoteYes)
-		require.NoError(t, conway.UtxoValidateUnknownVoters(tx, 0, emptyLs, pp))
+		err := conway.UtxoValidateUnknownVoters(tx, 0, emptyLs, pp)
+		var unkErr conway.UnknownVoterError
+		require.ErrorAs(t, err, &unkErr)
 	})
+
+	t.Run(
+		"provider without authoritative committee state fails closed",
+		func(t *testing.T) {
+			unavailableLs := legacyOnlyLedgerState{
+				LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+			}
+			voter := common.Voter{
+				Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+				Hash: ccHotHash,
+			}
+			tx := mkVoteTx(voter, actionId, common.GovVoteYes)
+			err := conway.UtxoValidateUnknownVoters(tx, 0, unavailableLs, pp)
+			var unavailableErr conway.CommitteeStateUnavailableError
+			require.ErrorAs(t, err, &unavailableErr)
+		},
+	)
+
+	t.Run("provider reports committee state unavailable", func(t *testing.T) {
+		unavailableLs := committeeCredentialLedgerState{
+			LedgerState: baseLs,
+			hotLookup: func(
+				common.Credential,
+			) (*common.CommitteeMember, error) {
+				t.Fatal(
+					"hot-key lookup called for unavailable committee state",
+				)
+				return nil, nil
+			},
+		}
+		voter := common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: ccHotHash,
+		}
+		tx := mkVoteTx(voter, actionId, common.GovVoteYes)
+		err := conway.UtxoValidateUnknownVoters(tx, 0, unavailableLs, pp)
+		var unavailableErr conway.CommitteeStateUnavailableError
+		require.ErrorAs(t, err, &unavailableErr)
+	})
+
+	t.Run(
+		"same hash with different hot credential tag does not alias",
+		func(t *testing.T) {
+			keyCredential := common.Credential{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: ccHotHash,
+			}
+			exactLs := committeeCredentialLedgerState{
+				LedgerState: baseLs,
+				available:   true,
+				hotLookup: func(
+					credential common.Credential,
+				) (*common.CommitteeMember, error) {
+					if credential.CredType == keyCredential.CredType &&
+						credential.Credential == keyCredential.Credential {
+						return &common.CommitteeMember{HotKey: &ccHotHash}, nil
+					}
+					return nil, nil
+				},
+			}
+			voter := common.Voter{
+				Type: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+				Hash: ccHotHash,
+			}
+			tx := mkVoteTx(voter, actionId, common.GovVoteYes)
+			err := conway.UtxoValidateUnknownVoters(tx, 0, exactLs, pp)
+			var unkErr conway.UnknownVoterError
+			require.ErrorAs(t, err, &unkErr)
+		},
+	)
 
 	t.Run("out-of-range voter type is rejected", func(t *testing.T) {
 		// Voter.Type is decoded from CBOR with no range check, so a value
