@@ -48,7 +48,6 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNativeScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
-	UtxoValidateMIRGenesisQuorum,
 }
 
 func UtxoValidateRequiredVKeyWitnesses(

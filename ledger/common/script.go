@@ -758,18 +758,64 @@ func FirstInvalidNativeScript(
 	if witnesses == nil {
 		return ScriptHash{}, false
 	}
+	return FirstInvalidNativeScriptIn(tx, slot, witnesses.NativeScripts())
+}
 
-	nativeScripts := witnesses.NativeScripts()
+// TransactionMayCarryNativeScript reports whether a transaction could have any
+// native script to evaluate, either in its witness set or as a reference script
+// on an output it produces. It reads no ledger state, so it lets the ordinary
+// script-free transaction skip input resolution.
+func TransactionMayCarryNativeScript(tx Transaction) bool {
+	if tx == nil {
+		return false
+	}
+	if witnesses := tx.Witnesses(); witnesses != nil {
+		if len(witnesses.NativeScripts()) > 0 {
+			return true
+		}
+	}
+	outputs := append([]TransactionOutput(nil), tx.Outputs()...)
+	outputs = append(outputs, SubTransactionOutputsFromTransaction(tx)...)
+	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+		outputs = append(outputs, collateralReturn)
+	}
+	for _, output := range outputs {
+		if output == nil {
+			continue
+		}
+		if script := output.ScriptRef(); script != nil {
+			if _, isNative := script.(NativeScript); isNative {
+				return true
+			}
+		}
+	}
+	// A reference input can carry a native script this transaction needs, and
+	// resolving that requires ledger state.
+	return len(tx.ReferenceInputs()) > 0 || len(tx.Inputs()) > 0
+}
+
+// FirstInvalidNativeScriptIn evaluates the given native scripts against the
+// transaction's witness key hashes and validity interval. Eras that must also
+// evaluate reference scripts pass the resolved list from
+// NativeScriptsForValidation; the evaluation itself is identical.
+func FirstInvalidNativeScriptIn(
+	tx Transaction,
+	slot uint64,
+	nativeScripts []NativeScript,
+) (ScriptHash, bool) {
 	if len(nativeScripts) == 0 {
 		return ScriptHash{}, false
 	}
+	witnesses := tx.Witnesses()
 
 	keyHashes := make(map[Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		keyHashes[Blake2b224Hash(vkw.Vkey)] = true
-	}
-	for _, bw := range witnesses.Bootstrap() {
-		keyHashes[Blake2b224Hash(bw.PublicKey)] = true
+	if witnesses != nil {
+		for _, vkw := range witnesses.Vkey() {
+			keyHashes[Blake2b224Hash(vkw.Vkey)] = true
+		}
+		for _, bw := range witnesses.Bootstrap() {
+			keyHashes[Blake2b224Hash(bw.PublicKey)] = true
+		}
 	}
 
 	validityStart := tx.ValidityIntervalStart()

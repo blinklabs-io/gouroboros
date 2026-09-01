@@ -51,7 +51,6 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
-	UtxoValidateMIRGenesisQuorum,
 }
 
 // UtxoValidateTimeToLive ensures that the current tip slot is not after the specified TTL value
@@ -421,7 +420,13 @@ func UtxoValidateRequiredVKeyWitnesses(
 }
 
 // UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards
-// certificate is authorized by a quorum of the current genesis delegates
+// certificate is authorized by a quorum of the current genesis delegates.
+//
+// Not yet registered in any era's UtxoValidationRules. The rule fails closed
+// for a ledger state that does not implement common.GenesisDelegationState, so
+// registering it before a consumer implements the capability would stop a
+// syncing node on the first MIR certificate in Shelley-through-Babbage
+// history. Register it once consumers are wired: blinklabs-io/dingo#3748.
 func UtxoValidateMIRGenesisQuorum(
 	tx common.Transaction,
 	slot uint64,

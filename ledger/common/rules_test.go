@@ -83,8 +83,11 @@ func TestValidateRequiredVKeyWitnessesExplicitRegistration(t *testing.T) {
 		StakeCredential: key,
 		Amount:          0,
 	}
+	// Types 0 and 7 both decode to ConwayRegCert, whose
+	// getVKeyWitnessTxCert returns Nothing, so neither form requires the
+	// credential's signature.
 	tx := mockledger.NewTransactionBuilder().WithCertificates(explicit)
-	require.Error(
+	require.NoError(
 		t,
 		conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil),
 	)
@@ -124,7 +127,10 @@ func TestValidateScriptWitnessesExplicitRegistration(t *testing.T) {
 		},
 	)
 	ledgerState := mockledger.NewLedgerStateBuilder().Build()
-	require.Error(
+	// Registration authorizes nothing, so its script credential creates no
+	// script purpose and needs no witness. Supplying the script anyway is
+	// accepted rather than extraneous; conformance vectors carry that shape.
+	require.NoError(
 		t,
 		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
 	)
@@ -207,9 +213,10 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			},
 		},
 		{
+			// ConwayRegCert covers types 0 and 7 and authorizes neither.
 			name:            "explicit registration",
 			certificateType: common.CertificateTypeRegistration,
-			requiresWitness: true,
+			requiresWitness: false,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.RegistrationCertificate{
 					CertType:        uint(common.CertificateTypeRegistration),
@@ -406,11 +413,13 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 					WithVkeyWitnesses(testAuthorizationVkeyWitness(vkey)),
 			)
 			err = conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil)
+			// A certificate that authorizes nothing creates no script purpose,
+			// so its script is optional: not required, and accepted when
+			// supplied rather than reported as extraneous.
+			require.NoError(t, err)
 			if !testCase.requiresWitness {
-				require.ErrorAs(t, err, &common.ExtraneousScriptWitnessesError{})
 				return
 			}
-			require.NoError(t, err)
 			require.NoError(
 				t,
 				conway.UtxoValidateNativeScripts(tx, 0, ledgerState, nil),
@@ -1249,7 +1258,7 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 				},
 			},
 			TxWithdrawals: map[*common.Address]uint64{
-				&common.Address{}: 0,
+				{}: 0,
 			},
 			TxVotingProcedures: common.VotingProcedures{
 				votingVoter: {

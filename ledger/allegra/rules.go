@@ -40,7 +40,6 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNativeScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
-	UtxoValidateMIRGenesisQuorum,
 }
 
 func UtxoValidateRequiredVKeyWitnesses(
@@ -250,46 +249,24 @@ func UtxoValidateNativeScripts(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
+	// Resolving the full input set is expensive, and UtxoValidateScriptWitnesses
+	// in this same rule list resolves it too. Skip it entirely for a
+	// transaction that carries no native script and produces no reference
+	// script, which is the ordinary payment case.
+	if !common.TransactionMayCarryNativeScript(tx) {
+		return nil
+	}
 	nativeScripts, err := common.NativeScriptsForValidation(tx, ls)
 	if err != nil {
 		return err
 	}
-	if len(nativeScripts) == 0 {
-		return nil
-	}
-
-	// Collect key hashes from VKey witnesses
-	keyHashes := make(map[common.Blake2b224]bool)
-	if witnesses != nil {
-		for _, vkw := range witnesses.Vkey() {
-			keyHash := common.Blake2b224Hash(vkw.Vkey)
-			keyHashes[keyHash] = true
-		}
-		// Also collect key hashes from bootstrap witnesses (Byron-era)
-		for _, bw := range witnesses.Bootstrap() {
-			keyHash := common.Blake2b224Hash(bw.PublicKey)
-			keyHashes[keyHash] = true
-		}
-	}
-
-	// Get transaction validity interval
-	validityStart := tx.ValidityIntervalStart()
-	validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(
+	if scriptHash, failed := common.FirstInvalidNativeScriptIn(
 		tx,
-	)
-	if !validityEndPresent {
-		validityEnd = ^uint64(0) // Max uint64 if not set
+		slot,
+		nativeScripts,
+	); failed {
+		return NativeScriptFailedError{ScriptHash: scriptHash}
 	}
-
-	// Evaluate each native script
-	for _, nscript := range nativeScripts {
-		scriptHash := nscript.Hash()
-		if !nscript.Evaluate(slot, validityStart, validityEnd, keyHashes) {
-			return NativeScriptFailedError{ScriptHash: scriptHash}
-		}
-	}
-
 	return nil
 }
 

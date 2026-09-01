@@ -172,24 +172,24 @@ func (e MalformedAuthorizationError) Error() string {
 }
 
 // forEachCertificateCredential visits every credential whose authorization is
-// carried by a transaction certificate. Only legacy stake registration does
-// not require authorization; explicit-deposit registration requires the stake
-// credential witness. Keeping this traversal shared prevents key and script
-// credential requirements from diverging. Malformed certificates fail closed
+// carried by a transaction certificate. Registration does not require
+// authorization in either of its forms. Keeping this traversal shared prevents
+// key and script credential requirements from diverging. Malformed certificates fail closed
 // rather than silently omitting an authorization requirement.
 //
 // Certificate authorization completeness (CBOR tags):
 //
-//   - 0: legacy registration has no credential witness.
-//   - 1, 2, 7-18: the certificate credential named below authorizes it.
+//   - 0 and 7: registration has no credential witness, with or without an
+//     explicit deposit. Both decode to ConwayRegCert.
+//   - 1, 2, 8-18: the certificate credential named below authorizes it.
 //   - 3: the pool operator is collected separately, and every pool owner is
 //     collected by the independent owners term.
 //   - 4: the retiring pool key is collected separately.
 //   - 5: the genesis root key authorizes delegation; the new delegate and VRF
 //     key are targets, not authors.
 //   - 6: MIR has no field-level author. Its stateful genesis-delegate quorum
-//     is enforced by ValidateMIRGenesisQuorum, a separate Shelley-through-
-//     Babbage UTXOW predicate; Conway expunges MIR.
+//     is implemented by ValidateMIRGenesisQuorum, which is not yet registered
+//     in any era rule list; Conway expunges MIR.
 //
 // This switch deliberately names all 19 certificate forms so typed nils and a
 // future unhandled implementation cannot silently bypass authorization.
@@ -240,7 +240,11 @@ func forEachCertificateCredential(
 		if c == nil {
 			return typedNil("registration certificate")
 		}
-		return visitCredential(c.StakeCredential, true)
+		// Types 0 and 7 both decode to ConwayRegCert, which differ only in
+		// whether the deposit is present. Registration is unauthenticated in
+		// either form: getVKeyWitnessTxCert and getScriptWitnessTxCert both
+		// return Nothing for it.
+		return visitCredential(c.StakeCredential, false)
 	case *DeregistrationCertificate:
 		if c == nil {
 			return typedNil("deregistration certificate")
@@ -524,7 +528,12 @@ type scriptRequirement struct {
 }
 
 type transactionScriptRequirements struct {
-	required    map[ScriptHash]struct{}
+	required map[ScriptHash]struct{}
+	// optional holds script hashes a certificate names without creating a
+	// script purpose. Registration authorizes nothing, so its script is not
+	// required, but the node accepts a transaction that supplies it and
+	// conformance vectors carry exactly that shape.
+	optional    map[ScriptHash]struct{}
 	purposes    []scriptRequirement
 	explicit    map[ScriptHash]Script
 	available   map[ScriptHash]Script
@@ -632,6 +641,7 @@ func collectTransactionScriptRequirements(
 ) (transactionScriptRequirements, error) {
 	ret := transactionScriptRequirements{
 		required:  make(map[ScriptHash]struct{}),
+		optional:  make(map[ScriptHash]struct{}),
 		explicit:  make(map[ScriptHash]Script),
 		available: make(map[ScriptHash]Script),
 	}
@@ -763,38 +773,70 @@ func collectTransactionScriptRequirements(
 			credential Credential,
 			requiresWitness bool,
 		) {
-			if requiresWitness && credential.CredType == CredentialTypeScriptHash {
-				addRequirement(
-					ScriptHash(credential.Credential),
-					RedeemerTagCert,
-					index,
-				)
+			if credential.CredType != CredentialTypeScriptHash {
+				return
 			}
+			if !requiresWitness {
+				ret.optional[ScriptHash(credential.Credential)] = struct{}{}
+				return
+			}
+			addRequirement(
+				ScriptHash(credential.Credential),
+				RedeemerTagCert,
+				index,
+			)
 		}); err != nil {
 			return ret, err
 		}
 	}
 
-	withdrawals := make([]*Address, 0, len(tx.Withdrawals()))
-	for addr := range tx.Withdrawals() {
-		if _, err := addr.RewardAccountCredential(); err != nil {
-			return ret, err
-		}
-		withdrawals = append(withdrawals, addr)
+	// Reward redeemer indices follow cardano-ledger's Withdrawals key order,
+	// which is RewardAccount Ord: (Network, Credential). Credential's derived
+	// Ord puts ScriptHashObj before KeyHashObj, so a script credential sorts
+	// ahead of a key credential with the same hash. Address bytes invert that,
+	// because the reward header is 0xE_ for a key hash and 0xF_ for a script
+	// hash, so sorting on them would give a script withdrawal a different
+	// index than the node assigns. voterPurposeOrder below encodes the same
+	// script-before-key rule.
+	type withdrawalKey struct {
+		address    *Address
+		credential Credential
+		network    uint
 	}
-	sort.Slice(withdrawals, func(i, j int) bool {
-		aBytes, aErr := withdrawals[i].Bytes()
-		bBytes, bErr := withdrawals[j].Bytes()
-		if aErr != nil || bErr != nil {
-			return withdrawals[i].String() < withdrawals[j].String()
-		}
-		return bytes.Compare(aBytes, bBytes) < 0
-	})
-	for index, addr := range withdrawals {
+	withdrawals := make([]withdrawalKey, 0, len(tx.Withdrawals()))
+	for addr := range tx.Withdrawals() {
 		credential, err := addr.RewardAccountCredential()
 		if err != nil {
 			return ret, err
 		}
+		withdrawals = append(withdrawals, withdrawalKey{
+			address:    addr,
+			credential: credential,
+			network:    addr.NetworkId(),
+		})
+	}
+	credentialOrder := func(credential Credential) int {
+		if credential.CredType == CredentialTypeScriptHash {
+			return 0
+		}
+		return 1
+	}
+	sort.Slice(withdrawals, func(i, j int) bool {
+		if withdrawals[i].network != withdrawals[j].network {
+			return withdrawals[i].network < withdrawals[j].network
+		}
+		iOrder := credentialOrder(withdrawals[i].credential)
+		jOrder := credentialOrder(withdrawals[j].credential)
+		if iOrder != jOrder {
+			return iOrder < jOrder
+		}
+		return bytes.Compare(
+			withdrawals[i].credential.Credential[:],
+			withdrawals[j].credential.Credential[:],
+		) < 0
+	})
+	for index, entry := range withdrawals {
+		credential := entry.credential
 		if credential.CredType == CredentialTypeScriptHash {
 			addRequirement(
 				ScriptHash(credential.Credential),
@@ -903,6 +945,13 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
 		return err
 	}
+	if ls == nil {
+		// Without ledger state a reference script cannot be resolved, so every
+		// requirement it would have satisfied would be reported missing. Main
+		// returned early here and this keeps that contract rather than
+		// tightening it as a side effect.
+		return nil
+	}
 	if !tx.IsValid() {
 		return nil
 	}
@@ -916,10 +965,10 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 	for provided := range requirements.explicit {
+		if _, ok := requirements.optional[provided]; ok {
+			continue
+		}
 		if _, ok := requirements.required[provided]; !ok {
-			// Legacy type-0 stake registration has no script purpose. A script
-			// matching that credential is therefore extraneous, just like any
-			// other explicit script with no required purpose.
 			return ExtraneousScriptWitnessesError{ScriptHash: provided}
 		}
 	}
