@@ -356,3 +356,28 @@ var ErrBlockHeaderSizeTooBig = errors.New("block header size too big")
 func (BlockHeaderSizeTooBigError) Is(target error) bool {
 	return target == ErrBlockHeaderSizeTooBig
 }
+
+// GenesisDelegationStateUnavailableError indicates that a ledger state cannot
+// answer the genesis-delegation queries required to authorize a move
+// instantaneous rewards certificate.
+type GenesisDelegationStateUnavailableError struct{}
+
+func (GenesisDelegationStateUnavailableError) Error() string {
+	return "ledger state does not provide genesis delegation state"
+}
+
+// MIRInsufficientGenesisSigsError indicates that a move instantaneous rewards
+// certificate was not authorized by a quorum of the currently delegated
+// genesis keys.
+type MIRInsufficientGenesisSigsError struct {
+	Provided uint
+	Required uint
+}
+
+func (e MIRInsufficientGenesisSigsError) Error() string {
+	return fmt.Sprintf(
+		"insufficient genesis delegate signatures for instantaneous rewards certificate: provided %d, required %d",
+		e.Provided,
+		e.Required,
+	)
+}

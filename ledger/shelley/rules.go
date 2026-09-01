@@ -51,6 +51,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
+	UtxoValidateMIRGenesisQuorum,
 }
 
 // UtxoValidateTimeToLive ensures that the current tip slot is not after the specified TTL value
@@ -417,6 +418,17 @@ func UtxoValidateRequiredVKeyWitnesses(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateRequiredVKeyWitnesses(tx)
+}
+
+// UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards
+// certificate is authorized by a quorum of the current genesis delegates
+func UtxoValidateMIRGenesisQuorum(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateMIRGenesisQuorum(tx, ls)
 }
 
 // MinFeeTx calculates the minimum required fee for a transaction based on

@@ -187,9 +187,9 @@ func (e MalformedAuthorizationError) Error() string {
 //   - 4: the retiring pool key is collected separately.
 //   - 5: the genesis root key authorizes delegation; the new delegate and VRF
 //     key are targets, not authors.
-//   - 6: MIR has no field-level author. The Shelley-through-Babbage reference
-//     rule enforces its stateful genesis-delegate quorum in a separate UTXOW
-//     predicate; Conway expunges MIR.
+//   - 6: MIR has no field-level author. Its stateful genesis-delegate quorum
+//     is enforced by ValidateMIRGenesisQuorum, a separate Shelley-through-
+//     Babbage UTXOW predicate; Conway expunges MIR.
 //
 // This switch deliberately names all 19 certificate forms so typed nils and a
 // future unhandled implementation cannot silently bypass authorization.
@@ -445,6 +445,58 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 	for req := range required {
 		if _, ok := vkeyHashes[req]; !ok {
 			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
+		}
+	}
+	return nil
+}
+
+// ValidateMIRGenesisQuorum enforces the genesis-delegate quorum that authorizes
+// a move instantaneous rewards certificate. MIR names no author in its own
+// fields, so Shelley through Babbage require signatures from a quorum of the
+// currently delegated genesis keys. A ledger state that cannot answer the
+// query fails closed rather than admitting an unauthorized certificate.
+func ValidateMIRGenesisQuorum(tx Transaction, ls LedgerState) error {
+	hasMIR := false
+	for _, cert := range tx.Certificates() {
+		if _, ok := cert.(*MoveInstantaneousRewardsCertificate); ok {
+			hasMIR = true
+			break
+		}
+	}
+	if !hasMIR {
+		return nil
+	}
+	genesisState, ok := ls.(GenesisDelegationState)
+	if !ok {
+		return GenesisDelegationStateUnavailableError{}
+	}
+	delegates, err := genesisState.GenesisDelegateKeyHashes()
+	if err != nil {
+		return err
+	}
+	quorum, err := genesisState.GenesisUpdateQuorum()
+	if err != nil {
+		return err
+	}
+	delegateSet := make(map[Blake2b224]struct{}, len(delegates))
+	for _, delegate := range delegates {
+		delegateSet[delegate] = struct{}{}
+	}
+	// Only a signature from a currently delegated genesis key counts, and each
+	// delegate counts once no matter how often it appears in the witness set.
+	signed := make(map[Blake2b224]struct{}, len(delegateSet))
+	if w := tx.Witnesses(); w != nil {
+		for _, vw := range w.Vkey() {
+			hash := Blake2b224Hash(vw.Vkey)
+			if _, ok := delegateSet[hash]; ok {
+				signed[hash] = struct{}{}
+			}
+		}
+	}
+	if uint(len(signed)) < quorum {
+		return MIRInsufficientGenesisSigsError{
+			Provided: uint(len(signed)),
+			Required: quorum,
 		}
 	}
 	return nil

@@ -515,8 +515,9 @@ func TestPoolAndGenesisCertificateAuthorization(t *testing.T) {
 	})
 
 	t.Run("MIR has no field-level author", func(t *testing.T) {
-		// MIR authorization is a stateful genesis-delegate quorum in the
-		// Shelley-through-Babbage UTXOW rule, not a certificate credential.
+		// MIR authorization is a stateful genesis-delegate quorum enforced by
+		// ValidateMIRGenesisQuorum, not a certificate credential. See
+		// TestValidateMIRGenesisQuorum.
 		cert := &common.MoveInstantaneousRewardsCertificate{
 			CertType: uint(common.CertificateTypeMoveInstantaneousRewards),
 		}
@@ -1325,5 +1326,159 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 			},
 		}
 		require.NoError(t, common.ValidateExtraneousRedeemers(tx))
+	})
+}
+
+// genesisDelegationLedgerState is a ledger state that can answer the
+// genesis-delegation queries required to authorize an MIR certificate.
+type genesisDelegationLedgerState struct {
+	common.LedgerState
+	delegates []common.Blake2b224
+	quorum    uint
+}
+
+func (s genesisDelegationLedgerState) GenesisDelegateKeyHashes() (
+	[]common.Blake2b224,
+	error,
+) {
+	return s.delegates, nil
+}
+
+func (s genesisDelegationLedgerState) GenesisUpdateQuorum() (uint, error) {
+	return s.quorum, nil
+}
+
+func mirGenesisQuorumState(
+	quorum uint,
+	delegateVkeys ...[]byte,
+) genesisDelegationLedgerState {
+	delegates := make([]common.Blake2b224, 0, len(delegateVkeys))
+	for _, vkey := range delegateVkeys {
+		delegates = append(delegates, common.Blake2b224Hash(vkey))
+	}
+	return genesisDelegationLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		delegates:   delegates,
+		quorum:      quorum,
+	}
+}
+
+func mirTransaction(witnessVkeys ...[]byte) common.Transaction {
+	cert := &common.MoveInstantaneousRewardsCertificate{
+		CertType: uint(common.CertificateTypeMoveInstantaneousRewards),
+	}
+	tx := mockledger.NewTransactionBuilder().WithCertificates(cert)
+	if len(witnessVkeys) > 0 {
+		witnesses := make(
+			[]common.VkeyWitness,
+			0,
+			len(witnessVkeys),
+		)
+		for _, vkey := range witnessVkeys {
+			witnesses = append(witnesses, testAuthorizationVkeyWitness(vkey))
+		}
+		tx.WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().
+				WithVkeyWitnesses(witnesses...),
+		)
+	}
+	return tx
+}
+
+// MIR certificates name no author in their own fields, so Shelley through
+// Babbage authorize them with signatures from a quorum of the currently
+// delegated genesis keys.
+func TestValidateMIRGenesisQuorum(t *testing.T) {
+	delegateA := []byte("genesis-delegate-a")
+	delegateB := []byte("genesis-delegate-b")
+	delegateC := []byte("genesis-delegate-c")
+	retired := []byte("retired-genesis-delegate")
+	unrelated := []byte("unrelated-signer")
+
+	t.Run("no MIR certificate is unaffected", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		require.NoError(t, common.ValidateMIRGenesisQuorum(
+			tx,
+			mockledger.NewLedgerStateBuilder().Build(),
+		))
+	})
+
+	t.Run("ledger state without the capability fails closed", func(t *testing.T) {
+		err := common.ValidateMIRGenesisQuorum(
+			mirTransaction(delegateA, delegateB),
+			mockledger.NewLedgerStateBuilder().Build(),
+		)
+		require.ErrorAs(t, err, &common.GenesisDelegationStateUnavailableError{})
+	})
+
+	t.Run("nil ledger state fails closed", func(t *testing.T) {
+		err := common.ValidateMIRGenesisQuorum(mirTransaction(), nil)
+		require.ErrorAs(t, err, &common.GenesisDelegationStateUnavailableError{})
+	})
+
+	t.Run("no genesis delegate witnesses is rejected", func(t *testing.T) {
+		err := common.ValidateMIRGenesisQuorum(
+			mirTransaction(),
+			mirGenesisQuorumState(2, delegateA, delegateB, delegateC),
+		)
+		var quorumErr common.MIRInsufficientGenesisSigsError
+		require.ErrorAs(t, err, &quorumErr)
+		require.Equal(t, uint(0), quorumErr.Provided)
+		require.Equal(t, uint(2), quorumErr.Required)
+	})
+
+	t.Run("insufficient delegate witnesses is rejected", func(t *testing.T) {
+		err := common.ValidateMIRGenesisQuorum(
+			mirTransaction(delegateA),
+			mirGenesisQuorumState(2, delegateA, delegateB, delegateC),
+		)
+		var quorumErr common.MIRInsufficientGenesisSigsError
+		require.ErrorAs(t, err, &quorumErr)
+		require.Equal(t, uint(1), quorumErr.Provided)
+	})
+
+	t.Run("quorum of current delegates is accepted", func(t *testing.T) {
+		require.NoError(t, common.ValidateMIRGenesisQuorum(
+			mirTransaction(delegateA, delegateB),
+			mirGenesisQuorumState(2, delegateA, delegateB, delegateC),
+		))
+	})
+
+	t.Run("obsolete and unrelated witnesses do not count", func(t *testing.T) {
+		// Only a signature from a currently delegated genesis key counts, so a
+		// retired delegate and a bystander cannot make up the quorum.
+		err := common.ValidateMIRGenesisQuorum(
+			mirTransaction(delegateA, retired, unrelated),
+			mirGenesisQuorumState(2, delegateA, delegateB, delegateC),
+		)
+		var quorumErr common.MIRInsufficientGenesisSigsError
+		require.ErrorAs(t, err, &quorumErr)
+		require.Equal(t, uint(1), quorumErr.Provided)
+	})
+
+	t.Run("a repeated delegate counts once", func(t *testing.T) {
+		err := common.ValidateMIRGenesisQuorum(
+			mirTransaction(delegateA, delegateA),
+			mirGenesisQuorumState(2, delegateA, delegateB),
+		)
+		var quorumErr common.MIRInsufficientGenesisSigsError
+		require.ErrorAs(t, err, &quorumErr)
+		require.Equal(t, uint(1), quorumErr.Provided)
+	})
+
+	t.Run("the Shelley UTXOW rule enforces the quorum", func(t *testing.T) {
+		state := mirGenesisQuorumState(2, delegateA, delegateB)
+		require.Error(t, shelley.UtxoValidateMIRGenesisQuorum(
+			mirTransaction(delegateA),
+			0,
+			state,
+			nil,
+		))
+		require.NoError(t, shelley.UtxoValidateMIRGenesisQuorum(
+			mirTransaction(delegateA, delegateB),
+			0,
+			state,
+			nil,
+		))
 	})
 }
