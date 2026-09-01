@@ -210,17 +210,8 @@ func (e ExtraRedeemerError) Error() string {
 	)
 }
 
-// MissingRedeemerForScriptError indicates a script purpose requires a redeemer but none was provided
-type MissingRedeemerForScriptError struct {
-	ScriptHash common.ScriptHash
-	Tag        common.RedeemerTag
-	Index      uint32
-}
-
-func (e MissingRedeemerForScriptError) Error() string {
-	return fmt.Sprintf("missing redeemer for script %x: tag=%d, index=%d",
-		e.ScriptHash[:], e.Tag, e.Index)
-}
+// MissingRedeemerForScriptError is an alias to common.MissingRedeemerForScriptError
+type MissingRedeemerForScriptError = common.MissingRedeemerForScriptError
 
 // ProtocolParameterUpdateEmptyError indicates that a PPU has no fields set
 type ProtocolParameterUpdateEmptyError struct{}

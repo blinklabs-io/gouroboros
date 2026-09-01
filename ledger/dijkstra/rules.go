@@ -67,6 +67,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNoCollateralInputs,
 	conway.UtxoValidateBadInputsUtxo,
 	conway.UtxoValidateScriptWitnesses,
+	conway.UtxoValidateRequiredRedeemers,
 	UtxoValidateValueNotConservedUtxo,
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputTooBigUtxo,
