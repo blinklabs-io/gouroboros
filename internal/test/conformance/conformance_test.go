@@ -17,8 +17,24 @@ package conformance
 import (
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/ouroboros-mock/conformance"
 )
+
+func requireExactCommitteeProvider(
+	t *testing.T,
+	stateManager conformance.StateManager,
+) {
+	t.Helper()
+	stateProvider := stateManager.GetStateProvider()
+	if _, ok := stateProvider.(common.CommitteeCredentialState); ok {
+		return
+	}
+	t.Skip(
+		"all-vector conformance requires the next ouroboros-mock " +
+			"committee provider release",
+	)
+}
 
 // TestRulesConformanceVectors runs the Amaru ledger rules conformance test vectors
 // using the shared harness from ouroboros-mock/conformance.
@@ -37,6 +53,7 @@ func TestRulesConformanceVectors(t *testing.T) {
 	}
 
 	sm := conformance.NewMockStateManager()
+	requireExactCommitteeProvider(t, sm)
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        testing.Verbose(),
@@ -54,6 +71,7 @@ func TestRulesConformanceVectorsWithResults(t *testing.T) {
 	}
 
 	sm := conformance.NewMockStateManager()
+	requireExactCommitteeProvider(t, sm)
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        false,

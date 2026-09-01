@@ -3364,24 +3364,44 @@ func UtxoValidateCommitteeCertificates(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	var committeeState common.CommitteeCredentialState
 	committeeStateLoaded := false
 	committeeMember := func(
-		coldHash common.Blake2b224,
+		coldCredential common.Credential,
 	) (*common.CommitteeMember, error) {
 		if !committeeStateLoaded {
-			if _, err := ls.CommitteeMembers(); err != nil {
+			var ok bool
+			committeeState, ok = ls.(common.CommitteeCredentialState)
+			if !ok {
 				return nil, CommitteeMemberLookupError{
-					Credential: coldHash,
-					Err:        err,
+					Credential:     coldCredential.Credential,
+					ColdCredential: coldCredential,
+					Err:            CommitteeStateUnavailableError{},
+				}
+			}
+			available, err := committeeState.CommitteeStateAvailable()
+			if err != nil {
+				return nil, CommitteeMemberLookupError{
+					Credential:     coldCredential.Credential,
+					ColdCredential: coldCredential,
+					Err:            err,
+				}
+			}
+			if !available {
+				return nil, CommitteeMemberLookupError{
+					Credential:     coldCredential.Credential,
+					ColdCredential: coldCredential,
+					Err:            CommitteeStateUnavailableError{},
 				}
 			}
 			committeeStateLoaded = true
 		}
-		member, err := ls.CommitteeMember(coldHash)
+		member, err := committeeState.CommitteeCredentialMember(coldCredential)
 		if err != nil {
 			return nil, CommitteeMemberLookupError{
-				Credential: coldHash,
-				Err:        err,
+				Credential:     coldCredential.Credential,
+				ColdCredential: coldCredential,
+				Err:            err,
 			}
 		}
 		return member, nil
@@ -3390,26 +3410,35 @@ func UtxoValidateCommitteeCertificates(
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *common.AuthCommitteeHotCertificate:
-			coldHash := c.ColdCredential.Credential
-			member, err := committeeMember(coldHash)
+			member, err := committeeMember(c.ColdCredential)
 			if err != nil {
 				return err
 			}
 			if member == nil {
-				return NotCommitteeMemberError{Credential: coldHash, Operation: "authorize hot key"}
+				return NotCommitteeMemberError{
+					Credential:     c.ColdCredential.Credential,
+					ColdCredential: c.ColdCredential,
+					Operation:      "authorize hot key",
+				}
 			}
 			if member.Resigned {
-				return ResignedCommitteeMemberHotKeyError{ColdKey: coldHash}
+				return ResignedCommitteeMemberHotKeyError{
+					ColdKey:        c.ColdCredential.Credential,
+					ColdCredential: c.ColdCredential,
+				}
 			}
 
 		case *common.ResignCommitteeColdCertificate:
-			coldHash := c.ColdCredential.Credential
-			member, err := committeeMember(coldHash)
+			member, err := committeeMember(c.ColdCredential)
 			if err != nil {
 				return err
 			}
 			if member == nil {
-				return NotCommitteeMemberError{Credential: coldHash, Operation: "resign"}
+				return NotCommitteeMemberError{
+					Credential:     c.ColdCredential.Credential,
+					ColdCredential: c.ColdCredential,
+					Operation:      "resign",
+				}
 			}
 		}
 	}
@@ -3518,8 +3547,7 @@ func UtxoValidateUnknownVoters(
 		return nil
 	}
 
-	var members []common.CommitteeMember
-	var membersLoaded bool
+	var committeeState common.CommitteeCredentialState
 
 	for voter := range votes {
 		if voter == nil {
@@ -3543,38 +3571,34 @@ func UtxoValidateUnknownVoters(
 
 		case common.VoterTypeConstitutionalCommitteeHotKeyHash,
 			common.VoterTypeConstitutionalCommitteeHotScriptHash:
-			if !membersLoaded {
-				var err error
-				members, err = ls.CommitteeMembers()
+			if committeeState == nil {
+				var ok bool
+				committeeState, ok = ls.(common.CommitteeCredentialState)
+				if !ok {
+					return CommitteeStateUnavailableError{}
+				}
+				available, err := committeeState.CommitteeStateAvailable()
 				if err != nil {
 					return err
 				}
-				membersLoaded = true
-			}
-			// If the ledger state reports no committee members at all,
-			// treat committee state as unmodeled (consistent with
-			// UtxoValidateCommitteeCertificates) rather than rejecting
-			// every CC vote as unknown.
-			if len(members) == 0 {
-				continue
-			}
-			hotHash := common.Blake2b224(voter.Hash)
-			found := false
-			for _, member := range members {
-				// NOTE: this does not check member.ExpiryEpoch. There is
-				// no current-epoch accessor on LedgerState to compare it
-				// against, so an expired-but-not-yet-resigned committee
-				// member's hot key is treated as a valid voter here. This
-				// is the same class of LedgerState-surface limitation
-				// disclosed via NOTE comments elsewhere in this file
-				// (e.g. UtxoValidateProposalAncestry, UtxoValidateHardForkCanFollow).
-				if member.HotKey != nil && *member.HotKey == hotHash &&
-					!member.Resigned {
-					found = true
-					break
+				if !available {
+					return CommitteeStateUnavailableError{}
 				}
 			}
-			if !found {
+			credentialType := uint(common.CredentialTypeAddrKeyHash)
+			if voter.Type == common.VoterTypeConstitutionalCommitteeHotScriptHash {
+				credentialType = common.CredentialTypeScriptHash
+			}
+			member, err := committeeState.CommitteeHotCredentialMember(
+				common.Credential{
+					CredType:   credentialType,
+					Credential: common.Blake2b224(voter.Hash),
+				},
+			)
+			if err != nil {
+				return err
+			}
+			if member == nil || member.Resigned {
 				return UnknownVoterError{Voter: *voter}
 			}
 

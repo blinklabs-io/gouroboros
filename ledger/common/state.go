@@ -143,6 +143,20 @@ type CommitteeMember struct {
 	Resigned    bool
 }
 
+// CommitteeCredentialState is the optional authoritative committee-state
+// capability used by Conway certificate and voter validation. Credentials are
+// passed with their key/script tag intact so providers cannot alias identities
+// that share the same hash.
+//
+// CommitteeStateAvailable distinguishes an authoritative empty committee from
+// a provider that cannot answer committee queries for the validation snapshot.
+// Validation fails closed when this capability is absent or reports false.
+type CommitteeCredentialState interface {
+	CommitteeStateAvailable() (bool, error)
+	CommitteeCredentialMember(Credential) (*CommitteeMember, error)
+	CommitteeHotCredentialMember(Credential) (*CommitteeMember, error)
+}
+
 type DRepRegistration struct {
 	Credential Blake2b224
 	Anchor     *GovAnchor

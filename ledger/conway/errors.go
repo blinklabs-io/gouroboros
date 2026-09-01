@@ -381,8 +381,9 @@ func (e DRepAlreadyRegisteredError) Error() string {
 
 // NotCommitteeMemberError indicates an operation on a credential that is not a CC member
 type NotCommitteeMemberError struct {
-	Credential common.Blake2b224
-	Operation  string
+	Credential     common.Blake2b224
+	ColdCredential common.Credential
+	Operation      string
 }
 
 func (e NotCommitteeMemberError) Error() string {
@@ -395,7 +396,8 @@ func (e NotCommitteeMemberError) Error() string {
 
 // ResignedCommitteeMemberHotKeyError indicates trying to authorize hot key for resigned CC member
 type ResignedCommitteeMemberHotKeyError struct {
-	ColdKey common.Blake2b224
+	ColdKey        common.Blake2b224
+	ColdCredential common.Credential
 }
 
 func (e ResignedCommitteeMemberHotKeyError) Error() string {
@@ -407,8 +409,17 @@ func (e ResignedCommitteeMemberHotKeyError) Error() string {
 
 // CommitteeMemberLookupError indicates a failure to look up a committee member
 type CommitteeMemberLookupError struct {
-	Credential common.Blake2b224
-	Err        error
+	Credential     common.Blake2b224
+	ColdCredential common.Credential
+	Err            error
+}
+
+// CommitteeStateUnavailableError indicates that a ledger-state provider cannot
+// authoritatively resolve committee credentials for this validation snapshot.
+type CommitteeStateUnavailableError struct{}
+
+func (CommitteeStateUnavailableError) Error() string {
+	return "authoritative committee state unavailable"
 }
 
 func (e CommitteeMemberLookupError) Error() string {
