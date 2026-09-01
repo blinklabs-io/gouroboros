@@ -1880,29 +1880,26 @@ func UtxoValidateValueNotConservedUtxo(
 		case *common.StakeDeregistrationCertificate:
 			// A legacy deregistration refunds the deposit recorded when the
 			// credential registered, which may predate a KeyDeposit change.
-			// UtxoValidateCertificateDeposits requires the same capability for
-			// the same certificate, so falling back to the current parameter
-			// here would leave the two rules disagreeing about what a state
-			// without it may do. Both fail closed.
-			depositState, ok := ls.(common.StakeCredentialDepositState)
-			if !ok {
-				return CertificateDepositStateUnavailableError{}
-			}
-			deposit, err := depositState.StakeCredentialDeposit(
-				tmpCert.StakeCredential,
-			)
-			if err != nil {
-				return err
-			}
-			if deposit == nil {
-				return CertificateDepositStateInconsistentError{
-					Credential: tmpCert.StakeCredential,
+			//
+			// The current parameter remains the fallback for a state that
+			// cannot report the recorded deposit. Failing closed here instead
+			// rejects six Amaru conformance vectors, because value
+			// conservation runs for every legacy deregistration while
+			// UtxoValidateCertificateDeposits only needs the capability once a
+			// credential resolves as registered.
+			refund := new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit))
+			if depositState, ok := ls.(common.StakeCredentialDepositState); ok {
+				deposit, err := depositState.StakeCredentialDeposit(
+					tmpCert.StakeCredential,
+				)
+				if err != nil {
+					return err
+				}
+				if deposit != nil {
+					refund = new(big.Int).SetUint64(*deposit)
 				}
 			}
-			consumedValue.Add(
-				consumedValue,
-				new(big.Int).SetUint64(*deposit),
-			)
+			consumedValue.Add(consumedValue, refund)
 			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
 			// Pool deposits are refunded at epoch boundary after the retirement epoch has passed.
 		}
