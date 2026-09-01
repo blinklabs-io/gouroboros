@@ -106,7 +106,7 @@ var dijkstraComposedLayout = []dijkstraComposedEntry{
 // dijkstraValidationRule returns the composed rule at the position the named
 // rule is expected to occupy. Gated rules are wrapped by the composition, so
 // they cannot be resolved by name in the composed list; the layout above is
-// what pins them.
+// what pins them, and it cannot tell two gated rules apart from each other.
 func dijkstraValidationRule(
 	t *testing.T,
 	want string,
@@ -137,7 +137,13 @@ func dijkstraValidationRule(
 
 // TestDijkstraComposedRuleLayout pins the composed list: every ungated rule by
 // name at its index, and every gated position by its phase-2 behavior. A rule
-// moved between groups, dropped, or reordered fails here.
+// dropped, reordered across the two kinds, or moved between the Always and
+// Phase2Valid groups fails here.
+//
+// Two gated rules swapped with each other are not caught: the composition
+// wraps each in an identical closure, so a gated position can only be
+// identified by the behavior every gated rule shares. Naming them would need
+// the wrapper to carry the wrapped rule's identity.
 func TestDijkstraComposedRuleLayout(t *testing.T) {
 	require.Len(t, UtxoValidationRules, len(dijkstraComposedLayout))
 	invalidTx := &DijkstraTransaction{TxIsValid: false}
@@ -342,16 +348,6 @@ func TestDijkstraGovernanceValidationRejectsTypedNilParameterChange(
 			}},
 		},
 	}
-	proposalRule, _ := dijkstraValidationRule(
-		t,
-		"ledger/dijkstra.UtxoValidateProposalProcedures",
-	)
-	require.NoError(t, proposalRule(
-		tx,
-		0,
-		nil,
-		&DijkstraProtocolParameters{},
-	))
 	tx.TxIsValid = true
 	var err error
 	require.NotPanics(t, func() {

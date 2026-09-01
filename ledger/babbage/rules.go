@@ -1091,9 +1091,8 @@ func UtxoValidateWithdrawals(
 	pp common.ProtocolParameters,
 ) error {
 	// The composed rule list gates this rule on phase-2 validity. This inner
-	// guard is kept for callers that invoke the rule directly, which
-	// TestUtxoValidateWithdrawals_DRepDelegationProtocolGate covers. A new
-	// rule should rely on the Phase2ValidUtxoValidationRules group instead.
+	// guard is kept for callers that invoke the rule directly. A new rule
+	// should rely on the Phase2ValidUtxoValidationRules group instead.
 	if !tx.IsValid() {
 		return nil
 	}
