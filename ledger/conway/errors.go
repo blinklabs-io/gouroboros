@@ -376,13 +376,13 @@ func (e CertificateDepositIncorrectError) Error() string {
 // does not refund the deposit recorded for the credential.
 type CertificateRefundIncorrectError struct {
 	CertificateType common.CertificateType
-	Supplied        any
+	Supplied        int64
 	Expected        uint64
 }
 
 func (e CertificateRefundIncorrectError) Error() string {
 	return fmt.Sprintf(
-		"incorrect refund for certificate type %d: supplied %v, expected %d",
+		"incorrect refund for certificate type %d: supplied %d, expected %d",
 		e.CertificateType,
 		e.Supplied,
 		e.Expected,

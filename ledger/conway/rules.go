@@ -1880,22 +1880,29 @@ func UtxoValidateValueNotConservedUtxo(
 		case *common.StakeDeregistrationCertificate:
 			// A legacy deregistration refunds the deposit recorded when the
 			// credential registered, which may predate a KeyDeposit change.
-			// The current parameter is only a fallback for a ledger state that
-			// cannot report the recorded deposit, and such a state is already
-			// rejected by UtxoValidateCertificateDeposits.
-			refund := new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit))
-			if depositState, ok := ls.(common.StakeCredentialDepositState); ok {
-				deposit, err := depositState.StakeCredentialDeposit(
-					tmpCert.StakeCredential,
-				)
-				if err != nil {
-					return err
-				}
-				if deposit != nil {
-					refund = new(big.Int).SetUint64(*deposit)
+			// UtxoValidateCertificateDeposits requires the same capability for
+			// the same certificate, so falling back to the current parameter
+			// here would leave the two rules disagreeing about what a state
+			// without it may do. Both fail closed.
+			depositState, ok := ls.(common.StakeCredentialDepositState)
+			if !ok {
+				return CertificateDepositStateUnavailableError{}
+			}
+			deposit, err := depositState.StakeCredentialDeposit(
+				tmpCert.StakeCredential,
+			)
+			if err != nil {
+				return err
+			}
+			if deposit == nil {
+				return CertificateDepositStateInconsistentError{
+					Credential: tmpCert.StakeCredential,
 				}
 			}
-			consumedValue.Add(consumedValue, refund)
+			consumedValue.Add(
+				consumedValue,
+				new(big.Int).SetUint64(*deposit),
+			)
 			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
 			// Pool deposits are refunded at epoch boundary after the retirement epoch has passed.
 		}
@@ -3437,18 +3444,10 @@ func UtxoValidateCertificateDeposits(
 		}
 	}
 
-	registerStake := func(
-		cred common.Credential,
-		certificateType common.CertificateType,
-		supplied int64,
-	) error {
-		if supplied < 0 || uint64(supplied) != keyDeposit {
-			return CertificateDepositIncorrectError{
-				CertificateType: certificateType,
-				Supplied:        supplied,
-				Expected:        keyDeposit,
-			}
-		}
+	// markStakeRegistered holds the registration transition itself. Legacy
+	// type-0 registration supplies no deposit to check, so it shares this
+	// rather than repeating the already-registered check and the state write.
+	markStakeRegistered := func(cred common.Credential) error {
 		key := stakeKey(cred)
 		state, found := stakeStates[key]
 		if !found {
@@ -3462,6 +3461,20 @@ func UtxoValidateCertificateDeposits(
 		state.balance = 0
 		storeStakeState(cred, state)
 		return nil
+	}
+	registerStake := func(
+		cred common.Credential,
+		certificateType common.CertificateType,
+		supplied int64,
+	) error {
+		if supplied < 0 || uint64(supplied) != keyDeposit {
+			return CertificateDepositIncorrectError{
+				CertificateType: certificateType,
+				Supplied:        supplied,
+				Expected:        keyDeposit,
+			}
+		}
+		return markStakeRegistered(cred)
 	}
 	deregisterStake := func(
 		cred common.Credential,
@@ -3513,20 +3526,9 @@ func UtxoValidateCertificateDeposits(
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *common.StakeRegistrationCertificate:
-			key := stakeKey(c.StakeCredential)
-			state, found := stakeStates[key]
-			if !found {
-				state.registered = ls.IsStakeCredentialRegistered(c.StakeCredential)
+			if err := markStakeRegistered(c.StakeCredential); err != nil {
+				return err
 			}
-			if state.registered {
-				return StakeCredentialAlreadyRegisteredError{
-					Credential: c.StakeCredential,
-				}
-			}
-			state.registered = true
-			state.deposit = keyDeposit
-			state.balance = 0
-			storeStakeState(c.StakeCredential, state)
 		case *common.RegistrationCertificate:
 			if err := registerStake(
 				c.StakeCredential,
