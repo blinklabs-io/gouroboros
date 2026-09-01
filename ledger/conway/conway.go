@@ -686,10 +686,11 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	*b = ConwayTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
-		return err
-	}
-	if err := b.DecodeCurrentTreasuryValuePresence(cborData); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(
+		cborData,
+		b.Ttl,
+		b.TxCurrentTreasuryValue != 0,
+	); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -862,6 +863,11 @@ func (b *ConwayTransactionBody) CurrentTreasuryValue() *big.Int {
 		return nil
 	}
 	return big.NewInt(b.TxCurrentTreasuryValue)
+}
+
+func (b *ConwayTransactionBody) CurrentTreasuryValuePresent() bool {
+	return b.TxCurrentTreasuryValue != 0 ||
+		b.TransactionBodyBase.CurrentTreasuryValuePresent()
 }
 
 func (b *ConwayTransactionBody) Donation() *big.Int {

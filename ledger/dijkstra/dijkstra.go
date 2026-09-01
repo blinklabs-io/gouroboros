@@ -795,10 +795,11 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	*b = DijkstraTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
-		return err
-	}
-	if err := b.DecodeCurrentTreasuryValuePresence(cborData); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(
+		cborData,
+		b.Ttl,
+		b.TxCurrentTreasuryValue != 0,
+	); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -943,6 +944,11 @@ func (b *DijkstraTransactionBody) CurrentTreasuryValue() *big.Int {
 	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
 }
 
+func (b *DijkstraTransactionBody) CurrentTreasuryValuePresent() bool {
+	return b.TxCurrentTreasuryValue != 0 ||
+		b.TransactionBodyBase.CurrentTreasuryValuePresent()
+}
+
 func (b *DijkstraTransactionBody) Donation() *big.Int {
 	return new(big.Int).SetUint64(b.TxDonation)
 }
@@ -1083,10 +1089,11 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("mint: %w", err)
 	}
 	*b = DijkstraSubTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
-		return err
-	}
-	if err := b.DecodeCurrentTreasuryValuePresence(cborData); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(
+		cborData,
+		b.Ttl,
+		b.TxCurrentTreasuryValue != 0,
+	); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -1178,6 +1185,11 @@ func (b *DijkstraSubTransactionBody) CurrentTreasuryValue() *big.Int {
 		return nil
 	}
 	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
+}
+
+func (b *DijkstraSubTransactionBody) CurrentTreasuryValuePresent() bool {
+	return b.TxCurrentTreasuryValue != 0 ||
+		b.TransactionBodyBase.CurrentTreasuryValuePresent()
 }
 
 func (b *DijkstraSubTransactionBody) Donation() *big.Int {

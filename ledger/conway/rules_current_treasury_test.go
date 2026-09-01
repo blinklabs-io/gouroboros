@@ -31,11 +31,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	conwayCurrentTreasuryRuleIndex = 0
-	conwayIsValidFlagRuleIndex     = 12
-	conwayInputSetEmptyRuleIndex   = 23
-)
+func conwayRuleIndex(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) int {
+	t.Helper()
+	for idx, descriptor := range conway.UtxoValidationRuleDescriptors() {
+		if descriptor.Id == id {
+			return idx
+		}
+	}
+	t.Fatalf("Conway validation rule %q is not registered", id)
+	return -1
+}
 
 func conwayTreasuryValue(value uint64) *uint64 {
 	return &value
@@ -130,14 +138,14 @@ func TestConwayCurrentTreasuryValueProductionRules(t *testing.T) {
 		ledgerValue      uint64
 		ledgerErr        error
 		wantProviderCall int
-		wantRuleIndex    int
+		wantRuleId       common.UtxoValidationRuleId
 		checkError       func(*testing.T, error)
 	}{
 		{
-			name:          "absent",
-			isValid:       true,
-			ledgerValue:   42,
-			wantRuleIndex: conwayInputSetEmptyRuleIndex,
+			name:        "absent",
+			isValid:     true,
+			ledgerValue: 42,
+			wantRuleId:  common.UtxoValidationRuleInputSetEmpty,
 			checkError: func(t *testing.T, err error) {
 				var target shelley.InputSetEmptyUtxoError
 				require.ErrorAs(t, err, &target)
@@ -149,7 +157,7 @@ func TestConwayCurrentTreasuryValueProductionRules(t *testing.T) {
 			isValid:          true,
 			ledgerValue:      42,
 			wantProviderCall: 1,
-			wantRuleIndex:    conwayInputSetEmptyRuleIndex,
+			wantRuleId:       common.UtxoValidationRuleInputSetEmpty,
 			checkError: func(t *testing.T, err error) {
 				var target shelley.InputSetEmptyUtxoError
 				require.ErrorAs(t, err, &target)
@@ -161,7 +169,7 @@ func TestConwayCurrentTreasuryValueProductionRules(t *testing.T) {
 			isValid:          true,
 			ledgerValue:      42,
 			wantProviderCall: 1,
-			wantRuleIndex:    conwayCurrentTreasuryRuleIndex,
+			wantRuleId:       common.UtxoValidationRuleCurrentTreasuryValue,
 			checkError: func(t *testing.T, err error) {
 				var target common.CurrentTreasuryValueMismatchError
 				require.ErrorAs(t, err, &target)
@@ -175,7 +183,7 @@ func TestConwayCurrentTreasuryValueProductionRules(t *testing.T) {
 			isValid:          true,
 			ledgerValue:      42,
 			wantProviderCall: 1,
-			wantRuleIndex:    conwayCurrentTreasuryRuleIndex,
+			wantRuleId:       common.UtxoValidationRuleCurrentTreasuryValue,
 			checkError: func(t *testing.T, err error) {
 				var target common.CurrentTreasuryValueMismatchError
 				require.ErrorAs(t, err, &target)
@@ -189,7 +197,7 @@ func TestConwayCurrentTreasuryValueProductionRules(t *testing.T) {
 			isValid:          true,
 			ledgerErr:        providerErr,
 			wantProviderCall: 1,
-			wantRuleIndex:    conwayCurrentTreasuryRuleIndex,
+			wantRuleId:       common.UtxoValidationRuleCurrentTreasuryValue,
 			checkError: func(t *testing.T, err error) {
 				var target common.TreasuryValueQueryError
 				require.ErrorAs(t, err, &target)
@@ -200,7 +208,7 @@ func TestConwayCurrentTreasuryValueProductionRules(t *testing.T) {
 			name:          "phase-2 invalid skips provider",
 			treasuryValue: conwayTreasuryValue(41),
 			ledgerErr:     providerErr,
-			wantRuleIndex: conwayIsValidFlagRuleIndex,
+			wantRuleId:    common.UtxoValidationRuleIsValidFlag,
 			checkError: func(t *testing.T, err error) {
 				var target common.InvalidIsValidFlagError
 				require.ErrorAs(t, err, &target)
@@ -235,7 +243,7 @@ func TestConwayCurrentTreasuryValueProductionRules(t *testing.T) {
 			require.ErrorAs(t, err, &validationErr)
 			require.Equal(
 				t,
-				test.wantRuleIndex,
+				conwayRuleIndex(t, test.wantRuleId),
 				validationErr.Details["rule_index"],
 			)
 		})
@@ -298,7 +306,188 @@ func TestConwayCurrentTreasuryValuePrecedesMetadata(t *testing.T) {
 	var validationErr *common.ValidationError
 	require.ErrorAs(t, err, &validationErr)
 	require.NotNil(t, validationErr)
-	require.Equal(t, 0, validationErr.Details["rule_index"])
+	require.Equal(
+		t,
+		conwayRuleIndex(t, common.UtxoValidationRuleCurrentTreasuryValue),
+		validationErr.Details["rule_index"],
+	)
+}
+
+func conwayTreasuryMint(scriptValue common.Script) *common.MultiAsset[common.MultiAssetTypeMint] {
+	mint := common.NewMultiAsset[common.MultiAssetTypeMint](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
+			scriptValue.Hash(): {
+				cbor.NewByteString([]byte("asset")): big.NewInt(1),
+			},
+		},
+	)
+	return &mint
+}
+
+func conwayTreasuryWitnessSet(
+	t *testing.T,
+	scriptValue common.Script,
+) conway.ConwayTransactionWitnessSet {
+	t.Helper()
+	switch s := scriptValue.(type) {
+	case common.PlutusV1Script:
+		return conway.ConwayTransactionWitnessSet{
+			WsPlutusV1Scripts: cbor.NewSetType([]common.PlutusV1Script{s}, true),
+		}
+	case common.PlutusV2Script:
+		return conway.ConwayTransactionWitnessSet{
+			WsPlutusV2Scripts: cbor.NewSetType([]common.PlutusV2Script{s}, true),
+		}
+	case common.PlutusV3Script:
+		return conway.ConwayTransactionWitnessSet{
+			WsPlutusV3Scripts: cbor.NewSetType([]common.PlutusV3Script{s}, true),
+		}
+	default:
+		t.Fatalf("unsupported test script type %T", scriptValue)
+		return conway.ConwayTransactionWitnessSet{}
+	}
+}
+
+func TestConwayFeaturesWithPlutusV1V2NilLedgerState(t *testing.T) {
+	unresolvedInput := shelley.NewShelleyTransactionInput(
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		0,
+	)
+	tests := []struct {
+		name        string
+		script      common.Script
+		useScript   bool
+		wantVersion string
+	}{
+		{
+			name:        "needed PlutusV1 witness",
+			script:      common.PlutusV1Script{0x01},
+			useScript:   true,
+			wantVersion: "PlutusV1",
+		},
+		{
+			name:        "needed PlutusV2 witness",
+			script:      common.PlutusV2Script{0x02},
+			useScript:   true,
+			wantVersion: "PlutusV2",
+		},
+		{
+			name:      "unused PlutusV1 witness",
+			script:    common.PlutusV1Script{0x03},
+			useScript: false,
+		},
+		{
+			name:      "needed PlutusV3 witness",
+			script:    common.PlutusV3Script{0x04},
+			useScript: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{unresolvedInput},
+				),
+				TxCurrentTreasuryValue: 42,
+			}
+			if test.useScript {
+				body.TxMint = conwayTreasuryMint(test.script)
+			}
+			tx := &conway.ConwayTransaction{
+				Body:       body,
+				WitnessSet: conwayTreasuryWitnessSet(t, test.script),
+				TxIsValid:  true,
+			}
+			err := conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
+				tx,
+				0,
+				nil,
+				&conway.ConwayProtocolParameters{},
+			)
+			if test.wantVersion == "" {
+				require.NoError(t, err)
+				return
+			}
+			var target conway.CurrentTreasuryValueWithPlutusV1V2Error
+			require.ErrorAs(
+				t,
+				err,
+				&target,
+				"a needed witness script must be detected without UTxO resolution",
+			)
+			require.Equal(t, test.wantVersion, target.PlutusVersion)
+		})
+	}
+}
+
+func TestConwayFeaturesWithPlutusV1V2ReferenceScripts(t *testing.T) {
+	refInput := shelley.NewShelleyTransactionInput(
+		"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		0,
+	)
+	tests := []struct {
+		name        string
+		script      common.Script
+		wantVersion string
+	}{
+		{
+			name:        "PlutusV1",
+			script:      common.PlutusV1Script{0x01},
+			wantVersion: "PlutusV1",
+		},
+		{
+			name:   "PlutusV3 control",
+			script: common.PlutusV3Script{0x03},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxCurrentTreasuryValue: 42,
+					TxMint:                 conwayTreasuryMint(test.script),
+					TxReferenceInputs: cbor.NewSetType(
+						[]shelley.ShelleyTransactionInput{refInput},
+						true,
+					),
+				},
+				TxIsValid: true,
+			}
+			err := conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
+				tx,
+				0,
+				nil,
+				&conway.ConwayProtocolParameters{},
+			)
+			var resolutionErr common.ReferenceInputResolutionError
+			require.ErrorAs(t, err, &resolutionErr)
+			require.ErrorIs(t, err, common.ErrReferenceInputResolution)
+
+			state := mockledger.NewLedgerStateBuilder().WithUtxos(
+				[]common.Utxo{
+					{
+						Id: refInput,
+						Output: babbage.BabbageTransactionOutput{
+							TxOutScriptRef: &common.ScriptRef{Script: test.script},
+						},
+					},
+				},
+			).Build()
+			err = conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
+				tx,
+				0,
+				state,
+				&conway.ConwayProtocolParameters{},
+			)
+			if test.wantVersion == "" {
+				require.NoError(t, err)
+				return
+			}
+			var featureErr conway.CurrentTreasuryValueWithPlutusV1V2Error
+			require.ErrorAs(t, err, &featureErr)
+			require.Equal(t, test.wantVersion, featureErr.PlutusVersion)
+		})
+	}
 }
 
 func TestConwayCurrentTreasuryValuePresentZeroPlutusContexts(

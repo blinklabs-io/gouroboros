@@ -2466,9 +2466,9 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	if err != nil {
 		if errors.Is(err, common.ErrInputResolution) {
 			// UtxoValidateBadInputsUtxo reports regular input failures with the
-			// canonical error. Reference input failures retain this rule's existing
-			// error contract.
-			return nil
+			// canonical error. The partial view still contains witness scripts and
+			// script purposes that do not depend on resolving those inputs.
+			return ValidateConwayFeaturesWithPlutusV1V2(tx, view)
 		}
 		return err
 	}

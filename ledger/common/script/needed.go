@@ -16,10 +16,14 @@ package script
 
 import (
 	"bytes"
+	"errors"
+	"reflect"
 	"slices"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 )
+
+var errLedgerStateUnavailable = errors.New("ledger state unavailable")
 
 // TxScriptView is a transaction's script picture, resolved once.
 //
@@ -97,19 +101,44 @@ func (v TxScriptView) WithAvailableScripts(
 // which of those some script purpose requires.
 //
 // Input resolution failures are returned as InputResolutionError or
-// ReferenceInputResolutionError. Callers enforcing a language restriction
-// generally want to skip those rather than report them, because
-// UtxoValidateBadInputsUtxo reports an unresolvable input with the right error.
+// ReferenceInputResolutionError together with a partial view of witness-set
+// scripts and non-spending purposes. Callers can enforce restrictions that do
+// not depend on UTxO resolution before deferring the resolution failure to
+// UtxoValidateBadInputsUtxo.
 func NewTxScriptView(
 	tx lcommon.Transaction,
 	ls lcommon.LedgerState,
 ) (TxScriptView, error) {
 	var view TxScriptView
-	if tx == nil || ls == nil {
+	if tx == nil {
+		return view, nil
+	}
+	if ledgerStateIsNil(ls) {
+		// Witness scripts and non-spending purposes do not require UTxO
+		// resolution. Build that partial view before reporting unavailable
+		// inputs so callers can still enforce independent language restrictions.
+		view.Available = availableScripts(tx, nil)
+		view.Needed = neededScripts(tx, view)
+		if inputs := tx.Inputs(); len(inputs) > 0 {
+			return view, lcommon.InputResolutionError{
+				Input: inputs[0],
+				Err:   errLedgerStateUnavailable,
+			}
+		}
+		if refInputs := tx.ReferenceInputs(); len(refInputs) > 0 {
+			return view, lcommon.ReferenceInputResolutionError{
+				Input: refInputs[0],
+				Err:   errLedgerStateUnavailable,
+			}
+		}
 		return view, nil
 	}
 	inputs, refInputs, err := ResolveTxInputs(tx, ls)
 	if err != nil {
+		// Preserve witness-only script information even when a concrete ledger
+		// state cannot resolve one of the transaction's inputs.
+		view.Available = availableScripts(tx, nil)
+		view.Needed = neededScripts(tx, view)
 		return view, err
 	}
 	view.ResolvedInputs = inputs
@@ -118,6 +147,14 @@ func NewTxScriptView(
 	view.Available = availableScripts(tx, view.allResolvedInputs)
 	view.Needed = neededScripts(tx, view)
 	return view, nil
+}
+
+func ledgerStateIsNil(ls lcommon.LedgerState) bool {
+	if ls == nil {
+		return true
+	}
+	rv := reflect.ValueOf(ls)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
 // ResolveTxInputs resolves a transaction's consumed inputs and reference
