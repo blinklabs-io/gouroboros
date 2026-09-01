@@ -115,24 +115,33 @@ func testLedgerState(
 		Build()
 }
 
-// scriptAuthorizationRules picks the two rules that decide whether a needed
-// script is provided and whether it is satisfied out of an era's production
-// rule set, so a case runs the registered rules rather than a function the
-// era might not have wired in.
-func scriptAuthorizationRules(
+// selectRules picks named rules out of an era's production rule set, keeping
+// the order the era registered them in. A case therefore runs the rules the
+// era actually wired in, in the order it runs them, rather than functions
+// called directly.
+func selectRules(
 	t *testing.T,
 	rules []common.UtxoValidationRuleFunc,
+	suffixes ...string,
 ) []common.UtxoValidationRuleFunc {
 	t.Helper()
-	out := make([]common.UtxoValidationRuleFunc, 0, 2)
+	out := make([]common.UtxoValidationRuleFunc, 0, len(suffixes))
 	for _, rule := range rules {
 		name := runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).Name()
-		if strings.HasSuffix(name, ".UtxoValidateScriptWitnesses") ||
-			strings.HasSuffix(name, ".UtxoValidateNativeScripts") {
-			out = append(out, rule)
+		for _, suffix := range suffixes {
+			if strings.HasSuffix(name, suffix) {
+				out = append(out, rule)
+				break
+			}
 		}
 	}
-	require.Len(t, out, 2, "authorization rules are not registered")
+	require.Len(
+		t,
+		out,
+		len(suffixes),
+		"expected rules are not registered: %v",
+		suffixes,
+	)
 	return out
 }
 
@@ -276,7 +285,12 @@ func TestReferenceProvidedNativeScriptsAreValidated(t *testing.T) {
 	}
 	for _, era := range eras {
 		t.Run(era.name, func(t *testing.T) {
-			rules := scriptAuthorizationRules(t, era.rules)
+			rules := selectRules(
+				t,
+				era.rules,
+				".UtxoValidateScriptWitnesses",
+				".UtxoValidateNativeScripts",
+			)
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					// Both rules run together on purpose: an
@@ -293,6 +307,112 @@ func TestReferenceProvidedNativeScriptsAreValidated(t *testing.T) {
 					var failed allegra.NativeScriptFailedError
 					require.ErrorAs(t, err, &failed)
 					require.Equal(t, scriptHash, failed.ScriptHash)
+				})
+			}
+		})
+	}
+}
+
+// The native-script rule reads an empty script view when an input cannot be
+// resolved, so it evaluates the witness set alone and contributes no
+// reference-provided script. That is safe only because a transaction with an
+// unresolvable input is rejected anyway, by a rule every era registers ahead
+// of the native-script rule: UtxoValidateBadInputsUtxo for a consumed input,
+// UtxoValidateScriptWitnesses for a reference input, which
+// UtxoValidateBadInputsUtxo does not cover. Resolving the reachable inputs
+// into a partial view instead would make the needed-script set depend on
+// which lookups happened to succeed, which is worse for a rule that has to
+// reach the same verdict on every node.
+func TestUnresolvableInputsAreRejectedBeforeNativeScripts(t *testing.T) {
+	vkey := bytes.Repeat([]byte{0x63}, 32)
+	nativeScript := testPubkeyNativeScript(t, vkey)
+	scriptAddr := testScriptPaymentAddress(t, nativeScript.Hash())
+	keyAddr := testKeyPaymentAddress(t, vkey)
+
+	scriptInput := shelley.NewShelleyTransactionInput(
+		"3333333333333333333333333333333333333333333333333333333333333333",
+		0,
+	)
+	refInput := shelley.NewShelleyTransactionInput(
+		"4444444444444444444444444444444444444444444444444444444444444444",
+		0,
+	)
+	missingInput := shelley.NewShelleyTransactionInput(
+		"5555555555555555555555555555555555555555555555555555555555555555",
+		0,
+	)
+
+	tests := []struct {
+		name   string
+		build  func() (*mockledger.MockTransaction, common.LedgerState)
+		assert func(t *testing.T, err error)
+	}{
+		{
+			name: "unresolvable consumed input",
+			build: func() (*mockledger.MockTransaction, common.LedgerState) {
+				tx := mockledger.NewTransactionBuilder()
+				tx.WithInputs(scriptInput, missingInput)
+				tx.WithReferenceInputs(refInput)
+				return tx, testLedgerState(
+					map[string]common.TransactionOutput{
+						scriptInput.String(): testOutput(scriptAddr, nil),
+						refInput.String(): testOutput(
+							keyAddr,
+							nativeScript,
+						),
+					},
+				)
+			},
+			assert: func(t *testing.T, err error) {
+				var badInputs shelley.BadInputsUtxoError
+				require.ErrorAs(t, err, &badInputs)
+			},
+		},
+		{
+			name: "unresolvable reference input",
+			build: func() (*mockledger.MockTransaction, common.LedgerState) {
+				tx := mockledger.NewTransactionBuilder()
+				tx.WithInputs(scriptInput)
+				tx.WithReferenceInputs(missingInput)
+				return tx, testLedgerState(
+					map[string]common.TransactionOutput{
+						scriptInput.String(): testOutput(scriptAddr, nil),
+					},
+				)
+			},
+			assert: func(t *testing.T, err error) {
+				require.ErrorIs(
+					t,
+					err,
+					common.ErrReferenceInputResolution,
+				)
+			},
+		},
+	}
+
+	eras := []struct {
+		name  string
+		rules []common.UtxoValidationRuleFunc
+	}{
+		{name: "Babbage", rules: babbage.UtxoValidationRules},
+		{name: "Conway", rules: conway.UtxoValidationRules},
+		{name: "Dijkstra", rules: dijkstra.UtxoValidationRules},
+	}
+	for _, era := range eras {
+		t.Run(era.name, func(t *testing.T) {
+			rules := selectRules(
+				t,
+				era.rules,
+				".UtxoValidateBadInputsUtxo",
+				".UtxoValidateScriptWitnesses",
+				".UtxoValidateNativeScripts",
+			)
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					tx, ls := test.build()
+					err := common.VerifyTransaction(tx, 0, ls, nil, rules)
+					require.Error(t, err)
+					test.assert(t, err)
 				})
 			}
 		})
