@@ -1878,8 +1878,24 @@ func UtxoValidateValueNotConservedUtxo(
 			}
 			consumedValue.Add(consumedValue, big.NewInt(tmpCert.Amount))
 		case *common.StakeDeregistrationCertificate:
-			// Traditional stake deregistration uses protocol KeyDeposit parameter
-			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
+			// A legacy deregistration refunds the deposit recorded when the
+			// credential registered, which may predate a KeyDeposit change.
+			// The current parameter is only a fallback for a ledger state that
+			// cannot report the recorded deposit, and such a state is already
+			// rejected by UtxoValidateCertificateDeposits.
+			refund := new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit))
+			if depositState, ok := ls.(common.StakeCredentialDepositState); ok {
+				deposit, err := depositState.StakeCredentialDeposit(
+					tmpCert.StakeCredential,
+				)
+				if err != nil {
+					return err
+				}
+				if deposit != nil {
+					refund = new(big.Int).SetUint64(*deposit)
+				}
+			}
+			consumedValue.Add(consumedValue, refund)
 			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
 			// Pool deposits are refunded at epoch boundary after the retirement epoch has passed.
 		}
@@ -3463,13 +3479,6 @@ func UtxoValidateCertificateDeposits(
 			return CertificateRefundIncorrectError{
 				CertificateType: certificateType,
 				Supplied:        *supplied,
-				Expected:        state.deposit,
-			}
-		}
-		if supplied == nil && state.deposit != keyDeposit {
-			return CertificateRefundIncorrectError{
-				CertificateType: certificateType,
-				Supplied:        keyDeposit,
 				Expected:        state.deposit,
 			}
 		}

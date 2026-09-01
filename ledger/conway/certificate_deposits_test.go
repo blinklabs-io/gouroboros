@@ -456,7 +456,7 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					withdrawal,
 				)
 			}
-			buildLegacyDeregistration := func() *conway.ConwayTransaction {
+			buildLegacyDeregistration := func(refund uint64) *conway.ConwayTransaction {
 				certificateCbor, err := cbor.Encode([]any{
 					uint64(1),
 					credentialCbor,
@@ -466,7 +466,7 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					t,
 					fixture,
 					[][]byte{certificateCbor},
-					int64(pp.KeyDeposit),
+					int64(refund),
 					0,
 				)
 			}
@@ -497,7 +497,7 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 				)
 			})
 			t.Run("legacy recorded refund", func(t *testing.T) {
-				tx := buildLegacyDeregistration()
+				tx := buildLegacyDeregistration(uint64(pp.KeyDeposit))
 				require.NoError(t, runCertificateDepositProductionRules(
 					t,
 					tx,
@@ -505,15 +505,31 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					pp,
 				))
 			})
-			t.Run("legacy incorrect recorded refund", func(t *testing.T) {
-				tx := buildLegacyDeregistration()
+			// A credential may have registered before KeyDeposit changed. Its
+			// legacy deregistration refunds the deposit recorded in ledger
+			// state rather than the current protocol parameter.
+			t.Run("legacy refund follows recorded deposit", func(t *testing.T) {
+				recorded := uint64(pp.KeyDeposit) + 1
+				tx := buildLegacyDeregistration(recorded)
+				require.NoError(t, runCertificateDepositProductionRules(
+					t,
+					tx,
+					buildState(true, 0, recorded),
+					pp,
+				))
+			})
+			t.Run("legacy refund of the parameter is not conserved", func(t *testing.T) {
+				// Balancing against the current parameter while state records a
+				// larger deposit must fail value conservation, which proves the
+				// refund is taken from ledger state.
+				tx := buildLegacyDeregistration(uint64(pp.KeyDeposit))
 				err := runCertificateDepositProductionRules(
 					t,
 					tx,
 					buildState(true, 0, uint64(pp.KeyDeposit)+1),
 					pp,
 				)
-				var target conway.CertificateRefundIncorrectError
+				var target shelley.ValueNotConservedUtxoError
 				require.True(
 					t,
 					errors.As(err, &target),
