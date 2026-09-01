@@ -306,7 +306,7 @@ func TestTreasuryWithdrawalGovActionUnmarshalCBORAddressKeys(t *testing.T) {
 			var action TreasuryWithdrawalGovAction
 			_, err = cbor.Decode(encoded, &action)
 			if tc.wantErr {
-				require.ErrorContains(t, err, "nil address")
+				require.ErrorContains(t, err, "nil withdrawal address")
 				return
 			}
 			require.NoError(t, err)

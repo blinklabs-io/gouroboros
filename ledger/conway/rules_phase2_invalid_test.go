@@ -25,13 +25,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func conwayComposedRuleForError(
+// conwayComposedRulesForError returns every composed rule that reports the
+// matched error. More than one rule can report the same failure: certificate
+// state is checked by both the delegation rule and the deposit rule.
+func conwayComposedRulesForError(
 	t *testing.T,
 	tx common.Transaction,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 	match func(error) bool,
-) common.UtxoValidationRuleFunc {
+) []common.UtxoValidationRuleFunc {
 	t.Helper()
 	var matches []common.UtxoValidationRuleFunc
 	for _, rule := range conway.UtxoValidationRules {
@@ -39,8 +42,12 @@ func conwayComposedRuleForError(
 			matches = append(matches, rule)
 		}
 	}
-	require.Len(t, matches, 1, "expected one composed validation rule to match")
-	return matches[0]
+	require.NotEmpty(
+		t,
+		matches,
+		"expected a composed validation rule to match",
+	)
+	return matches
 }
 
 func TestPhase2InvalidSkipsCertificateAndGovernanceRules(t *testing.T) {
@@ -105,9 +112,11 @@ func TestPhase2InvalidSkipsCertificateAndGovernanceRules(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rule := conwayComposedRuleForError(t, validTx, ls, pp, tc.match)
-			require.True(t, tc.match(rule(validTx, 0, ls, pp)))
-			require.NoError(t, rule(invalidTx, 0, ls, pp))
+			rules := conwayComposedRulesForError(t, validTx, ls, pp, tc.match)
+			for _, rule := range rules {
+				require.True(t, tc.match(rule(validTx, 0, ls, pp)))
+				require.NoError(t, rule(invalidTx, 0, ls, pp))
+			}
 		})
 	}
 }
@@ -122,8 +131,8 @@ func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
 			var target common.InvalidIsValidFlagError
 			return errors.As(err, &target)
 		}
-		rule := conwayComposedRuleForError(t, tx, ls, pp, match)
-		require.True(t, match(rule(tx, 0, ls, pp)))
+		rules := conwayComposedRulesForError(t, tx, ls, pp, match)
+		require.True(t, match(rules[0](tx, 0, ls, pp)))
 	})
 
 	t.Run("redeemer purpose remains well formed", func(t *testing.T) {
@@ -141,8 +150,8 @@ func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
 			var target conway.ExtraRedeemerError
 			return errors.As(err, &target)
 		}
-		rule := conwayComposedRuleForError(t, tx, ls, pp, match)
-		require.True(t, match(rule(tx, 0, ls, pp)))
+		rules := conwayComposedRulesForError(t, tx, ls, pp, match)
+		require.True(t, match(rules[0](tx, 0, ls, pp)))
 	})
 
 	t.Run("collateral is still required", func(t *testing.T) {
@@ -160,7 +169,7 @@ func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
 			var target alonzo.NoCollateralInputsError
 			return errors.As(err, &target)
 		}
-		rule := conwayComposedRuleForError(t, tx, ls, pp, match)
-		require.True(t, match(rule(tx, 0, ls, pp)))
+		rules := conwayComposedRulesForError(t, tx, ls, pp, match)
+		require.True(t, match(rules[0](tx, 0, ls, pp)))
 	})
 }

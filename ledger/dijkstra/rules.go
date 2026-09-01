@@ -51,6 +51,7 @@ var dijkstraGovernanceRulesBeforeUtxow = []common.UtxoValidationRuleFunc{
 var dijkstraLedgerRulesAfterUtxow = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateDelegation,
 	conway.UtxoValidateWithdrawals,
+	conway.UtxoValidateCertificateDeposits,
 	conway.UtxoValidateCommitteeCertificates,
 	conway.UtxoValidateUnknownVoters,
 	conway.UtxoValidateUnknownGovActionIds,

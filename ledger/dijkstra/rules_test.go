@@ -93,6 +93,7 @@ var dijkstraComposedLayout = []dijkstraComposedEntry{
 	{name: "ledger/dijkstra.UtxoValidateNativeScripts", gated: false},
 	{name: "ledger/conway.UtxoValidateDelegation", gated: true},
 	{name: "ledger/conway.UtxoValidateWithdrawals", gated: true},
+	{name: "ledger/conway.UtxoValidateCertificateDeposits", gated: true},
 	{name: "ledger/conway.UtxoValidateCommitteeCertificates", gated: true},
 	{name: "ledger/conway.UtxoValidateUnknownVoters", gated: true},
 	{name: "ledger/conway.UtxoValidateUnknownGovActionIds", gated: true},
