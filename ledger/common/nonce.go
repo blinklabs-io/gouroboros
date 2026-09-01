@@ -1,0 +1,187 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package common
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+)
+
+const (
+	NonceTypeNeutral = 0
+	NonceTypeNonce   = 1
+)
+
+type Nonce struct {
+	cbor.StructAsArray
+	Type  uint
+	Value [32]byte
+}
+
+func (n *Nonce) UnmarshalCBOR(data []byte) error {
+	nonceType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	// nonce type is known within uint range
+	n.Type = uint(nonceType) // #nosec G115
+	switch nonceType {
+	case NonceTypeNeutral:
+		// Value uses default value
+	case NonceTypeNonce:
+		var tmp struct {
+			cbor.StructAsArray
+			Type  uint
+			Value Blake2b256
+		}
+		if _, err := cbor.Decode(data, &tmp); err != nil {
+			return err
+		}
+		n.Type = tmp.Type
+		copy(n.Value[:], tmp.Value[:])
+	default:
+		return fmt.Errorf("unsupported nonce type %d", nonceType)
+	}
+	return nil
+}
+
+func (n *Nonce) UnmarshalJSON(data []byte) error {
+	var tmpData map[string]string
+	if err := json.Unmarshal(data, &tmpData); err != nil {
+		return err
+	}
+	tag, ok := tmpData["tag"]
+	if !ok {
+		return errors.New("did not find expected key 'tag' for nonce")
+	}
+	switch tag {
+	case "NeutralNonce":
+		n.Type = NonceTypeNeutral
+	default:
+		return fmt.Errorf("unsupported nonce tag: %s", tag)
+	}
+	return nil
+}
+
+func (n *Nonce) MarshalCBOR() ([]byte, error) {
+	var tmpData []any
+	switch n.Type {
+	case NonceTypeNeutral:
+		tmpData = []any{NonceTypeNeutral}
+	case NonceTypeNonce:
+		tmpData = []any{NonceTypeNonce, n.Value}
+	}
+	return cbor.Encode(tmpData)
+}
+
+// CalculateRollingNonce calculates a rolling nonce (eta_v) value from the
+// previous block's eta_v value and the current block's VRF result.
+// This implements the Ouroboros Praos evolving nonce update using the
+// Haskell Nonce semigroup (⭒) operator:
+//
+//	NeutralNonce ⭒ Nonce(x) = Nonce(x)
+//	Nonce(a) ⭒ Nonce(b) = Nonce(blake2b_256(a || b))
+//
+// In the Haskell implementation, the VRF output is coerced directly
+// into a Nonce via "coerce @(OutputVRF (VRF c)) @(Hash Blake2b_256
+// Nonce)". This means the raw VRF output bytes (64 bytes for both
+// TPraos and Praos VRF schemes) are used as-is — they are NOT
+// pre-hashed to 32 bytes. The concatenation is therefore
+// prevBlockNonce (32 bytes) || rawVrfOutput (64 bytes) = 96 bytes,
+// and the result is blake2b_256(96 bytes).
+//
+// NeutralNonce is represented as 32 zero bytes. When prevBlockNonce is
+// all zeros (identity element), the result is blake2b_256(vrfOutput).
+// In practice, NeutralNonce never occurs as the evolving nonce because
+// it is initialized to the Shelley genesis hash.
+//
+// Ref: Ouroboros.Consensus.Protocol.Praos (reupdateChainDepState),
+// Cardano.Ledger.BaseTypes (⭒ operator)
+func CalculateRollingNonce(
+	prevBlockNonce []byte,
+	blockVrf []byte,
+) (Blake2b256, error) {
+	if len(blockVrf) != 32 && len(blockVrf) != 64 {
+		return Blake2b256{}, fmt.Errorf(
+			"invalid block VRF length: %d, expected 32 or 64",
+			len(blockVrf),
+		)
+	}
+	if len(prevBlockNonce) != 32 {
+		return Blake2b256{}, fmt.Errorf(
+			"invalid prev block nonce length: %d, expected 32",
+			len(prevBlockNonce),
+		)
+	}
+	// NeutralNonce identity: if prevBlockNonce is all zeros,
+	// return blake2b_256(vrfOutput) directly (Nonce semigroup identity)
+	isNeutral := true
+	for _, b := range prevBlockNonce {
+		if b != 0 {
+			isNeutral = false
+			break
+		}
+	}
+	if isNeutral {
+		return Blake2b256Hash(blockVrf), nil
+	}
+	// Nonce(a) ⭒ Nonce(b) = Nonce(blake2b_256(a || b))
+	// The raw VRF output bytes are concatenated directly without
+	// pre-hashing, matching the Haskell coerce semantics.
+	buf := make([]byte, 32+len(blockVrf))
+	copy(buf[:32], prevBlockNonce)
+	copy(buf[32:], blockVrf)
+	return Blake2b256Hash(buf), nil
+}
+
+// CalculateEpochNonce calculates an epoch nonce:
+//
+//	epochNonce = blake2b_256(candidateNonce || prevEpochFirstBlockHash)
+//
+// When extraEntropy is non-empty (must be exactly 32 bytes):
+//
+//	epochNonce = blake2b_256(epochNonce || extraEntropy)
+func CalculateEpochNonce(
+	stableBlockNonce []byte,
+	prevEpochFirstBlockHash []byte,
+	extraEntropy []byte,
+) (Blake2b256, error) {
+	if len(stableBlockNonce) != 32 || len(prevEpochFirstBlockHash) != 32 {
+		return Blake2b256{}, fmt.Errorf(
+			"invalid epoch nonce inputs: stable=%d, prevEpochFirstBlockHash=%d, expected 32 each",
+			len(stableBlockNonce),
+			len(prevEpochFirstBlockHash),
+		)
+	}
+	if len(extraEntropy) != 0 && len(extraEntropy) != 32 {
+		return Blake2b256{}, fmt.Errorf(
+			"invalid extraEntropy length: %d, expected 0 or 32",
+			len(extraEntropy),
+		)
+	}
+	var buf [64]byte
+	copy(buf[:32], stableBlockNonce)
+	copy(buf[32:], prevEpochFirstBlockHash)
+	tmpDataHash := Blake2b256Hash(buf[:])
+	if len(extraEntropy) == 32 {
+		copy(buf[:32], tmpDataHash.Bytes())
+		copy(buf[32:], extraEntropy)
+		tmpDataHash = Blake2b256Hash(buf[:])
+	}
+	return tmpDataHash, nil
+}

@@ -1,0 +1,811 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package shelley_test
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"math/big"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+)
+
+const shelleyGenesisConfig = `
+{
+  "activeSlotsCoeff": 0.05,
+  "protocolParams": {
+    "protocolVersion": {
+      "minor": 0,
+      "major": 2
+    },
+    "decentralisationParam": 1,
+    "eMax": 18,
+    "extraEntropy": {
+      "tag": "NeutralNonce"
+    },
+    "maxTxSize": 16384,
+    "maxBlockBodySize": 65536,
+    "maxBlockHeaderSize": 1100,
+    "minFeeA": 44,
+    "minFeeB": 155381,
+    "minUTxOValue": 1000000,
+    "poolDeposit": 500000000,
+    "minPoolCost": 340000000,
+    "keyDeposit": 2000000,
+    "nOpt": 150,
+    "rho": 0.003,
+    "tau": 0.20,
+    "a0": 0.3
+  },
+  "genDelegs": {
+    "ad5463153dc3d24b9ff133e46136028bdc1edbb897f5a7cf1b37950c": {
+      "delegate": "d9e5c76ad5ee778960804094a389f0b546b5c2b140a62f8ec43ea54d",
+      "vrf": "64fa87e8b29a5b7bfbd6795677e3e878c505bc4a3649485d366b50abadec92d7"
+    },
+    "b9547b8a57656539a8d9bc42c008e38d9c8bd9c8adbb1e73ad529497": {
+      "delegate": "855d6fc1e54274e331e34478eeac8d060b0b90c1f9e8a2b01167c048",
+      "vrf": "66d5167a1f426bd1adcc8bbf4b88c280d38c148d135cb41e3f5a39f948ad7fcc"
+    },
+    "60baee25cbc90047e83fd01e1e57dc0b06d3d0cb150d0ab40bbfead1": {
+      "delegate": "7f72a1826ae3b279782ab2bc582d0d2958de65bd86b2c4f82d8ba956",
+      "vrf": "c0546d9aa5740afd569d3c2d9c412595cd60822bb6d9a4e8ce6c43d12bd0f674"
+    },
+    "f7b341c14cd58fca4195a9b278cce1ef402dc0e06deb77e543cd1757": {
+      "delegate": "69ae12f9e45c0c9122356c8e624b1fbbed6c22a2e3b4358cf0cb5011",
+      "vrf": "6394a632af51a32768a6f12dac3485d9c0712d0b54e3f389f355385762a478f2"
+    },
+    "162f94554ac8c225383a2248c245659eda870eaa82d0ef25fc7dcd82": {
+      "delegate": "4485708022839a7b9b8b639a939c85ec0ed6999b5b6dc651b03c43f6",
+      "vrf": "aba81e764b71006c515986bf7b37a72fbb5554f78e6775f08e384dbd572a4b32"
+    },
+    "2075a095b3c844a29c24317a94a643ab8e22d54a3a3a72a420260af6": {
+      "delegate": "6535db26347283990a252313a7903a45e3526ec25ddba381c071b25b",
+      "vrf": "fcaca997b8105bd860876348fc2c6e68b13607f9bbd23515cd2193b555d267af"
+    },
+    "268cfc0b89e910ead22e0ade91493d8212f53f3e2164b2e4bef0819b": {
+      "delegate": "1d4f2e1fda43070d71bb22a5522f86943c7c18aeb4fa47a362c27e23",
+      "vrf": "63ef48bc5355f3e7973100c371d6a095251c80ceb40559f4750aa7014a6fb6db"
+    }
+  },
+  "updateQuorum": 5,
+  "networkId": "Mainnet",
+  "initialFunds": {},
+  "maxLovelaceSupply": 45000000000000000,
+  "networkMagic": 764824073,
+  "epochLength": 432000,
+  "systemStart": "2017-09-23T21:44:51Z",
+  "slotsPerKESPeriod": 129600,
+  "slotLength": 1,
+  "maxKESEvolutions": 62,
+  "securityParam": 2160
+}
+`
+
+var expectedGenesisObj = shelley.ShelleyGenesis{
+	SystemStart: time.Date(
+		2017,
+		time.September,
+		23,
+		21,
+		44,
+		51,
+		0,
+		time.UTC,
+	),
+	NetworkMagic: 764824073,
+	NetworkId:    "Mainnet",
+	ActiveSlotsCoeff: common.GenesisRat{
+		Rat: big.NewRat(5, 100),
+	},
+	SecurityParam:     2160,
+	EpochLength:       432000,
+	SlotsPerKESPeriod: 129600,
+	MaxKESEvolutions:  62,
+	SlotLength: common.GenesisRat{
+		Rat: big.NewRat(1, 1),
+	},
+	UpdateQuorum:      5,
+	MaxLovelaceSupply: 45000000000000000,
+	ProtocolParameters: shelley.ShelleyGenesisProtocolParams{
+		MinFeeA:            44,
+		MinFeeB:            155381,
+		MaxBlockBodySize:   65536,
+		MaxTxSize:          16384,
+		MaxBlockHeaderSize: 1100,
+		KeyDeposit:         2000000,
+		PoolDeposit:        500000000,
+		MaxEpoch:           18,
+		NOpt:               150,
+		A0:                 &common.GenesisRat{Rat: big.NewRat(3, 10)},
+		Rho:                &common.GenesisRat{Rat: big.NewRat(3, 1000)},
+		Tau:                &common.GenesisRat{Rat: big.NewRat(2, 10)},
+		Decentralization:   &common.GenesisRat{Rat: new(big.Rat).SetInt64(1)},
+		ExtraEntropy: common.Nonce{
+			Type: common.NonceTypeNeutral,
+		},
+		ProtocolVersion: struct {
+			Major uint `json:"major"`
+			Minor uint `json:"minor"`
+		}{
+			Major: 2,
+			Minor: 0,
+		},
+		MinUtxoValue: 1000000,
+		MinPoolCost:  340000000,
+	},
+	GenDelegs: map[string]map[string]string{
+		"162f94554ac8c225383a2248c245659eda870eaa82d0ef25fc7dcd82": {
+			"delegate": "4485708022839a7b9b8b639a939c85ec0ed6999b5b6dc651b03c43f6",
+			"vrf":      "aba81e764b71006c515986bf7b37a72fbb5554f78e6775f08e384dbd572a4b32",
+		},
+		"2075a095b3c844a29c24317a94a643ab8e22d54a3a3a72a420260af6": {
+			"delegate": "6535db26347283990a252313a7903a45e3526ec25ddba381c071b25b",
+			"vrf":      "fcaca997b8105bd860876348fc2c6e68b13607f9bbd23515cd2193b555d267af",
+		},
+		"268cfc0b89e910ead22e0ade91493d8212f53f3e2164b2e4bef0819b": {
+			"delegate": "1d4f2e1fda43070d71bb22a5522f86943c7c18aeb4fa47a362c27e23",
+			"vrf":      "63ef48bc5355f3e7973100c371d6a095251c80ceb40559f4750aa7014a6fb6db",
+		},
+		"60baee25cbc90047e83fd01e1e57dc0b06d3d0cb150d0ab40bbfead1": {
+			"delegate": "7f72a1826ae3b279782ab2bc582d0d2958de65bd86b2c4f82d8ba956",
+			"vrf":      "c0546d9aa5740afd569d3c2d9c412595cd60822bb6d9a4e8ce6c43d12bd0f674",
+		},
+		"ad5463153dc3d24b9ff133e46136028bdc1edbb897f5a7cf1b37950c": {
+			"delegate": "d9e5c76ad5ee778960804094a389f0b546b5c2b140a62f8ec43ea54d",
+			"vrf":      "64fa87e8b29a5b7bfbd6795677e3e878c505bc4a3649485d366b50abadec92d7",
+		},
+		"b9547b8a57656539a8d9bc42c008e38d9c8bd9c8adbb1e73ad529497": {
+			"delegate": "855d6fc1e54274e331e34478eeac8d060b0b90c1f9e8a2b01167c048",
+			"vrf":      "66d5167a1f426bd1adcc8bbf4b88c280d38c148d135cb41e3f5a39f948ad7fcc",
+		},
+		"f7b341c14cd58fca4195a9b278cce1ef402dc0e06deb77e543cd1757": {
+			"delegate": "69ae12f9e45c0c9122356c8e624b1fbbed6c22a2e3b4358cf0cb5011",
+			"vrf":      "6394a632af51a32768a6f12dac3485d9c0712d0b54e3f389f355385762a478f2",
+		},
+	},
+	InitialFunds: map[string]uint64{},
+}
+
+func TestGenesisFromJson(t *testing.T) {
+	tmpGenesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(shelleyGenesisConfig),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if !reflect.DeepEqual(tmpGenesis, expectedGenesisObj) {
+		t.Fatalf(
+			"did not get expected object:\n     got: %#v\n  wanted: %#v",
+			tmpGenesis,
+			expectedGenesisObj,
+		)
+	}
+}
+
+func TestGenesisExtraConfig(t *testing.T) {
+	const extraConfig = `,
+  "extraConfig": {
+    "initialFunds": {
+      "data": {
+        "000045183c1dcaeb0ca5cf583a68b9e31a6301bcbde487065bd35b955a98ba9d3061e1bd15749cc857e94b30583c120e3255adb93b44681bad": 120000000000000
+      }
+    },
+    "stakeCredentials": {
+      "data": {
+        "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+      }
+    },
+    "stakePools": {
+      "data": {
+        "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195": {
+          "vrf": "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e",
+          "pledge": 1000000,
+          "cost": 340000000,
+          "margin": 0.05,
+          "accountAddress": {
+            "credential": {
+              "keyHash": "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+            },
+            "network": "Mainnet"
+          },
+          "futurePoolField": true
+        }
+      }
+    }
+  }
+}`
+
+	baseConfig := strings.TrimSpace(shelleyGenesisConfig)
+	extraConfigGenesis := strings.TrimSuffix(baseConfig, "}") + extraConfig
+	genesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(extraConfigGenesis),
+	)
+	require.NoError(t, err)
+
+	// The injection is effective for bootstrap consumers without changing the
+	// public Shelley fields that determine the standard genesis CBOR encoding.
+	require.Empty(t, genesis.InitialFunds)
+	require.Empty(t, genesis.Staking.Pools)
+	require.Empty(t, genesis.Staking.Stake)
+
+	utxos, err := genesis.GenesisUtxos()
+	require.NoError(t, err)
+	require.Len(t, utxos, 1)
+	assert.Equal(t, "120000000000000", utxos[0].Output.Amount().String())
+
+	pools, delegators, err := genesis.InitialPools()
+	require.NoError(t, err)
+	require.Len(t, pools, 1)
+	require.Len(
+		t,
+		delegators["0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"],
+		1,
+	)
+	pool := pools["0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"]
+	assert.Zero(t, pool.Margin.Rat.Cmp(big.NewRat(1, 20)))
+
+	poolByID, _, err := genesis.PoolById(
+		"0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195",
+	)
+	require.NoError(t, err)
+	assert.Zero(t, poolByID.Margin.Rat.Cmp(big.NewRat(1, 20)))
+
+	baseGenesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(shelleyGenesisConfig),
+	)
+	require.NoError(t, err)
+	baseCbor, err := baseGenesis.MarshalCBOR()
+	require.NoError(t, err)
+	extraCbor, err := genesis.MarshalCBOR()
+	require.NoError(t, err)
+	assert.Equal(t, baseCbor, extraCbor)
+}
+
+func TestGenesisExtraConfigPoolFields(t *testing.T) {
+	const (
+		poolID = "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+		vrf    = "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+		reward = "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+		owner  = "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36"
+	)
+	publicKey := strings.Repeat("A", common.LeiosBlsPublicKeySize)
+	proof := strings.Repeat("B", common.LeiosBlsPossessionProofSize)
+	metadataHash := common.NewBlake2b256(
+		[]byte(strings.Repeat("M", common.Blake2b256Size)),
+	)
+	poolJSON := map[string]any{
+		"vrf":    vrf,
+		"pledge": uint64(1_000_000),
+		"cost":   uint64(340_000_000),
+		"margin": 0.05,
+		"accountAddress": map[string]any{
+			"credential": map[string]any{"keyHash": reward},
+			"network":    "Mainnet",
+		},
+		"leiosKey": map[string]any{
+			"publicKey":       []byte(publicKey),
+			"possessionProof": []byte(proof),
+		},
+		"metadata": map[string]any{
+			"url":  "https://example.com/pool.json",
+			"hash": metadataHash,
+		},
+		"owners": []string{owner},
+		"relays": []map[string]any{
+			{
+				"type": 0,
+				"port": 3001,
+				"ipv4": "192.0.2.1",
+				"ipv6": "2001:db8::1",
+			},
+			{"type": 1, "port": 3002, "hostname": "relay.example.com"},
+			{"type": 2, "hostname": "_pool._tcp.example.com"},
+		},
+	}
+
+	genesis, err := genesisWithExtraPool(poolID, poolJSON)
+	require.NoError(t, err)
+	pools, _, err := genesis.InitialPools()
+	require.NoError(t, err)
+	require.Contains(t, pools, poolID)
+	pool := pools[poolID]
+	require.NotNil(t, pool.LeiosKey)
+	assert.Equal(t, []byte(publicKey), pool.LeiosKey.PublicKey)
+	assert.Equal(t, []byte(proof), pool.LeiosKey.PossessionProof)
+	assert.Equal(t, common.NewBlake2b224(mustHex(t, reward)), pool.RewardAccount)
+	assert.Equal(
+		t,
+		[]common.AddrKeyHash{common.NewBlake2b224(mustHex(t, owner))},
+		pool.PoolOwners,
+	)
+	require.Len(t, pool.Relays, 3)
+	assert.Equal(t, common.PoolRelayTypeSingleHostAddress, pool.Relays[0].Type)
+	require.NotNil(t, pool.Relays[0].Port)
+	assert.Equal(t, uint32(3001), *pool.Relays[0].Port)
+	require.NotNil(t, pool.Relays[0].Ipv4)
+	assert.Equal(t, "192.0.2.1", pool.Relays[0].Ipv4.String())
+	require.NotNil(t, pool.Relays[0].Ipv6)
+	assert.Equal(t, "2001:db8::1", pool.Relays[0].Ipv6.String())
+	assert.Equal(t, common.PoolRelayTypeSingleHostName, pool.Relays[1].Type)
+	require.NotNil(t, pool.Relays[1].Hostname)
+	assert.Equal(t, "relay.example.com", *pool.Relays[1].Hostname)
+	assert.Equal(t, common.PoolRelayTypeMultiHostName, pool.Relays[2].Type)
+	require.NotNil(t, pool.Relays[2].Hostname)
+	assert.Equal(t, "_pool._tcp.example.com", *pool.Relays[2].Hostname)
+	require.NotNil(t, pool.PoolMetadata)
+	assert.Equal(t, "https://example.com/pool.json", pool.PoolMetadata.Url)
+	assert.Equal(t, metadataHash, pool.PoolMetadata.Hash)
+
+	poolByID, _, err := genesis.PoolById(poolID)
+	require.NoError(t, err)
+	assert.Equal(t, pool.LeiosKey, poolByID.LeiosKey)
+	assert.Equal(t, pool.PoolOwners, poolByID.PoolOwners)
+	assert.Equal(t, pool.Relays, poolByID.Relays)
+	assert.Equal(t, pool.PoolMetadata, poolByID.PoolMetadata)
+}
+
+func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
+	const (
+		poolID = "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+		vrf    = "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+		reward = "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+	)
+	validPool := func() map[string]any {
+		return map[string]any{
+			"vrf": vrf,
+			"accountAddress": map[string]any{
+				"credential": map[string]any{"keyHash": reward},
+				"network":    "Mainnet",
+			},
+		}
+	}
+	tests := []struct {
+		name      string
+		mutate    func(map[string]any)
+		errString string
+	}{
+		{
+			name: "script reward credential",
+			mutate: func(pool map[string]any) {
+				pool["accountAddress"] = map[string]any{
+					"credential": map[string]any{"scriptHash": reward},
+					"network":    "Mainnet",
+				}
+			},
+			errString: "script credentials are not supported",
+		},
+		{
+			name: "missing reward credential",
+			mutate: func(pool map[string]any) {
+				pool["accountAddress"] = map[string]any{
+					"credential": map[string]any{},
+					"network":    "Mainnet",
+				}
+			},
+			errString: "reward account key hash is required",
+		},
+		{
+			name: "invalid reward key hash",
+			mutate: func(pool map[string]any) {
+				pool["accountAddress"] = map[string]any{
+					"credential": map[string]any{"keyHash": "01"},
+					"network":    "Mainnet",
+				}
+			},
+			errString: "invalid extraConfig pool reward account length",
+		},
+		{
+			name: "invalid Leios key length",
+			mutate: func(pool map[string]any) {
+				pool["leiosKey"] = map[string]any{
+					"publicKey":       []byte{1},
+					"possessionProof": make([]byte, common.LeiosBlsPossessionProofSize),
+				}
+			},
+			errString: "invalid Leios BLS public key length",
+		},
+		{
+			name: "invalid metadata hash",
+			mutate: func(pool map[string]any) {
+				pool["metadata"] = map[string]any{
+					"url":  "https://example.com",
+					"hash": "01",
+				}
+			},
+			errString: "invalid blake2b-256 hash",
+		},
+		{
+			name: "invalid owner hash",
+			mutate: func(pool map[string]any) {
+				pool["owners"] = []string{"01"}
+			},
+			errString: "invalid blake2b-224 hash",
+		},
+		{
+			name: "unsupported relay type",
+			mutate: func(pool map[string]any) {
+				pool["relays"] = []map[string]any{{"type": 3}}
+			},
+			errString: "unsupported relay type 3",
+		},
+		{
+			name: "invalid single-host-address fields",
+			mutate: func(pool map[string]any) {
+				pool["relays"] = []map[string]any{{
+					"type": 0, "hostname": "example.com",
+				}}
+			},
+			errString: "single-host-address relay cannot have hostname",
+		},
+		{
+			name: "missing single-host-name hostname",
+			mutate: func(pool map[string]any) {
+				pool["relays"] = []map[string]any{{"type": 1}}
+			},
+			errString: "single-host-name relay requires hostname",
+		},
+		{
+			name: "invalid multi-host relay fields",
+			mutate: func(pool map[string]any) {
+				pool["relays"] = []map[string]any{{
+					"type": 2, "hostname": "example.com", "port": 3001,
+				}}
+			},
+			errString: "multi-host-name relay cannot have port",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pool := validPool()
+			test.mutate(pool)
+			genesis, err := genesisWithExtraPool(poolID, pool)
+			require.NoError(t, err)
+			_, _, err = genesis.InitialPools()
+			require.ErrorContains(t, err, test.errString)
+		})
+	}
+}
+
+func genesisWithExtraPool(
+	poolID string,
+	pool map[string]any,
+) (shelley.ShelleyGenesis, error) {
+	extraConfig, err := json.Marshal(map[string]any{
+		"stakePools": map[string]any{
+			"data": map[string]any{poolID: pool},
+		},
+	})
+	if err != nil {
+		return shelley.ShelleyGenesis{}, err
+	}
+	baseConfig := strings.TrimSpace(shelleyGenesisConfig)
+	config := strings.TrimSuffix(baseConfig, "}") +
+		`,"extraConfig":` + string(extraConfig) + `}`
+	return shelley.NewShelleyGenesisFromReader(strings.NewReader(config))
+}
+
+func mustHex(t *testing.T, value string) []byte {
+	t.Helper()
+	decoded, err := hex.DecodeString(value)
+	require.NoError(t, err)
+	return decoded
+}
+
+func TestGenesisMarshalCBORReflectsPostParseMutation(t *testing.T) {
+	genesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(shelleyGenesisConfig),
+	)
+	require.NoError(t, err)
+
+	before, err := genesis.MarshalCBOR()
+	require.NoError(t, err)
+	genesis.InitialFunds = map[string]uint64{
+		"000045183c1dcaeb0ca5cf583a68b9e31a6301bcbde487065bd35b955a98ba9d3061e1bd15749cc857e94b30583c120e3255adb93b44681bad": 1,
+	}
+	after, err := genesis.MarshalCBOR()
+	require.NoError(t, err)
+	assert.NotEqual(t, before, after)
+
+	genesis.Staking = shelley.GenesisStaking{
+		Stake: map[string]string{
+			"24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195",
+		},
+	}
+	afterStakingMutation, err := genesis.MarshalCBOR()
+	require.NoError(t, err)
+	assert.NotEqual(t, after, afterStakingMutation)
+}
+
+// Guards against a regression where an unrecognized NetworkId silently
+// encoded as testnet instead of returning an error.
+func TestGenesisMarshalCBORInvalidNetworkId(t *testing.T) {
+	tmpGenesis := shelley.ShelleyGenesis{
+		NetworkId: "Regtest",
+	}
+	_, err := tmpGenesis.MarshalCBOR()
+	require.Error(t, err)
+}
+
+// Confirms the getNetworkId() refactor preserves the original encoded
+// values (Testnet=0, Mainnet=1) for valid network ids.
+func TestGenesisMarshalCBORValidNetworkId(t *testing.T) {
+	testDefs := []struct {
+		networkId             string
+		expectedNetworkIdCbor uint64
+	}{
+		{networkId: "Testnet", expectedNetworkIdCbor: 0},
+		{networkId: "Mainnet", expectedNetworkIdCbor: 1},
+	}
+	for _, testDef := range testDefs {
+		tmpGenesis := shelley.ShelleyGenesis{
+			NetworkId: testDef.networkId,
+			ActiveSlotsCoeff: common.GenesisRat{
+				Rat: big.NewRat(5, 100),
+			},
+			SlotLength: common.GenesisRat{
+				Rat: big.NewRat(1, 1),
+			},
+			ProtocolParameters: shelley.ShelleyGenesisProtocolParams{
+				A0:               &common.GenesisRat{Rat: big.NewRat(3, 10)},
+				Rho:              &common.GenesisRat{Rat: big.NewRat(3, 1000)},
+				Tau:              &common.GenesisRat{Rat: big.NewRat(2, 10)},
+				Decentralization: &common.GenesisRat{Rat: big.NewRat(1, 1)},
+			},
+		}
+		cborData, err := tmpGenesis.MarshalCBOR()
+		require.NoError(t, err, "unexpected error marshaling %s genesis", testDef.networkId)
+
+		var decoded []any
+		_, err = cbor.Decode(cborData, &decoded)
+		require.NoError(t, err, "unexpected error decoding CBOR")
+		require.Greater(t, len(decoded), 2, "decoded genesis has too few fields")
+
+		gotNetworkId, ok := decoded[2].(uint64)
+		require.True(t, ok, "expected network ID field to decode as uint64, got %T", decoded[2])
+		assert.Equal(t, testDef.expectedNetworkIdCbor, gotNetworkId, "for %s", testDef.networkId)
+	}
+}
+
+func TestGenesisUtxos(t *testing.T) {
+	testHexAddr := "000045183c1dcaeb0ca5cf583a68b9e31a6301bcbde487065bd35b955a98ba9d3061e1bd15749cc857e94b30583c120e3255adb93b44681bad"
+	testAmount := uint64(120_000_000_000_000)
+	expectedTxId := "d7357999c3867a9d8eb7c84b25a8d4fc20699d9d802f6c51a4554bd6a928783e"
+	expectedAddr := "addr_test1qqqy2xpurh9wkr99eavr569euvdxxqduhhjgwpjm6dde2k5ch2wnqc0ph52hf8xg2l55kvzc8sfquvj44kunk3rgrwksfahlvw"
+	// Generate genesis config JSON
+	tmpGenesisData := map[string]any{
+		"initialFunds": map[string]uint64{
+			testHexAddr: testAmount,
+		},
+	}
+	tmpGenesisJson, err := json.Marshal(tmpGenesisData)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	// Parse genesis config JSON
+	tmpGenesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(string(tmpGenesisJson)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tmpGenesisUtxos, err := tmpGenesis.GenesisUtxos()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if len(tmpGenesisUtxos) != 1 {
+		t.Fatalf("did not get expected count of genesis UTxOs")
+	}
+	tmpUtxo := tmpGenesisUtxos[0]
+	if tmpUtxo.Id.Id().String() != expectedTxId {
+		t.Fatalf(
+			"did not get expected TxID: got %s, wanted %s",
+			tmpUtxo.Id.Id().String(),
+			expectedTxId,
+		)
+	}
+	if tmpUtxo.Output.Address().String() != expectedAddr {
+		t.Fatalf(
+			"did not get expected address: got %s, wanted %s",
+			tmpUtxo.Output.Address().String(),
+			expectedAddr,
+		)
+	}
+	expectedAmount := new(big.Int).SetUint64(testAmount)
+	if tmpUtxo.Output.Amount().Cmp(expectedAmount) != 0 {
+		t.Fatalf(
+			"did not get expected amount: got %s, wanted %d",
+			tmpUtxo.Output.Amount().String(),
+			testAmount,
+		)
+	}
+}
+
+func TestGenesisStaking(t *testing.T) {
+	const testGenesis = `{
+        "systemStart": "2017-09-23T21:44:51Z",
+        "networkMagic": 764824073,
+        "networkId": "Testnet",
+        "staking": {
+            "pools": {
+                "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195": {
+                    "cost": 340000000,
+                    "margin": 0.0,
+                    "pledge": 0,
+                    "publicKey": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195",
+                    "vrf": "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e",
+                    "rewardAccount": {
+                        "credential": {
+                            "key hash": "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+                        },
+                        "network": "Testnet"
+                    }
+                }
+            },
+            "stake": {
+                "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+            }
+        },
+        "protocolParams": {
+            "minFeeA": 44,
+            "minFeeB": 155381,
+            "maxBlockBodySize": 65536,
+            "maxTxSize": 16384,
+            "maxBlockHeaderSize": 1100,
+            "keyDeposit": 2000000,
+            "poolDeposit": 500000000
+        }
+    }`
+
+	t.Run("TestInitialPools", func(t *testing.T) {
+		genesis, err := shelley.NewShelleyGenesisFromReader(
+			strings.NewReader(testGenesis),
+		)
+		if err != nil {
+			t.Fatalf("Genesis parsing failed: %v", err)
+		}
+
+		pools, delegators, err := genesis.InitialPools()
+		if err != nil {
+			t.Fatalf("InitialPools failed: %v", err)
+		}
+
+		expectedPoolId := "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+		expectedStakeKey := "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36"
+
+		// Test pool count
+		if len(pools) != 1 {
+			t.Errorf("Expected 1 pool, got %d", len(pools))
+		}
+
+		// Test pool data
+		pool, exists := pools[expectedPoolId]
+		if !exists {
+			t.Fatal("Expected pool not found")
+		}
+
+		if pool.Cost != 340000000 {
+			t.Errorf("Expected pool cost 340000000, got %d", pool.Cost)
+		}
+
+		// The VRF key hash must be parsed from the genesis "vrf" field.
+		// If it is dropped it reads as all-zeros, which breaks consensus
+		// header VRF-key validation for this pool's blocks.
+		expectedVrf := "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+		if got := hex.EncodeToString(pool.VrfKeyHash[:]); got != expectedVrf {
+			t.Errorf(
+				"Expected pool VRF key hash %s, got %s",
+				expectedVrf,
+				got,
+			)
+		}
+
+		// Test delegators
+		if len(delegators) != 1 {
+			t.Errorf("Expected 1 delegator mapping, got %d", len(delegators))
+		}
+
+		delegs := delegators[expectedPoolId]
+		if len(delegs) != 1 {
+			t.Errorf("Expected 1 delegator, got %d", len(delegs))
+		} else {
+			// Verify address format
+			// Verify address type and network
+			if delegs[0].NetworkId() != common.AddressNetworkTestnet {
+				t.Errorf("Expected testnet address, got network ID %d", delegs[0].NetworkId())
+			}
+
+			if delegs[0].Type() != common.AddressTypeNoneScript {
+				t.Errorf("Expected script stake address type, got %d", delegs[0].Type())
+			}
+
+			// Verify stake key matches
+			stakeKeyHash := delegs[0].StakeKeyHash()
+			if hex.EncodeToString(stakeKeyHash[:]) != expectedStakeKey {
+				t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
+					expectedStakeKey, hex.EncodeToString(stakeKeyHash[:]))
+			}
+		}
+	})
+
+	t.Run("TestPoolById", func(t *testing.T) {
+		genesis, err := shelley.NewShelleyGenesisFromReader(
+			strings.NewReader(testGenesis),
+		)
+		if err != nil {
+			t.Fatalf("Genesis parsing failed: %v", err)
+		}
+
+		expectedPoolId := "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+		expectedStakeKey := "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36"
+
+		pool, delegators, err := genesis.PoolById(expectedPoolId)
+		if err != nil {
+			t.Fatalf("PoolById failed: %v", err)
+		}
+
+		// Test pool data
+		if pool.Cost != 340000000 {
+			t.Errorf("Expected pool cost 340000000, got %d", pool.Cost)
+		}
+
+		// The VRF key hash must be parsed from the genesis "vrf" field.
+		// If it is dropped it reads as all-zeros, which breaks consensus
+		// header VRF-key validation for this pool's blocks.
+		expectedVrf := "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+		if got := hex.EncodeToString(pool.VrfKeyHash[:]); got != expectedVrf {
+			t.Errorf(
+				"Expected pool VRF key hash %s, got %s",
+				expectedVrf,
+				got,
+			)
+		}
+
+		// Test delegators
+		if len(delegators) != 1 {
+			t.Errorf("Expected 1 delegator, got %d", len(delegators))
+		} else {
+			// Verify address type and network
+			if delegators[0].NetworkId() != common.AddressNetworkTestnet {
+				t.Errorf("Expected testnet address, got network ID %d", delegators[0].NetworkId())
+			}
+
+			if delegators[0].Type() != common.AddressTypeNoneScript {
+				t.Errorf("Expected script stake address type, got %d", delegators[0].Type())
+			}
+
+			// Verify stake key matches
+			stakeKeyHash := delegators[0].StakeKeyHash()
+			if hex.EncodeToString(stakeKeyHash[:]) != expectedStakeKey {
+				t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
+					expectedStakeKey, hex.EncodeToString(stakeKeyHash[:]))
+			}
+		}
+
+		// Test non-existent pool
+		_, _, err = genesis.PoolById("nonexistentpoolid")
+		if err == nil {
+			t.Error("Expected error for non-existent pool, got nil")
+		}
+	})
+}

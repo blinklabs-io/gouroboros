@@ -1,0 +1,788 @@
+// Copyright 2026 Blink Labs Software
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package common
+
+// Related files:
+//   - state.go: LedgerState interface used by validation rules
+//   - tx.go: Transaction interface that rules validate
+//   - errors.go: Common error types returned by rules
+//   - ledger/shelley/rules.go: Base validation rules (other eras delegate here)
+//   - ledger/{era}/rules.go: Era-specific validation rules
+
+import (
+	"fmt"
+	"math/bits"
+	"sort"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+)
+
+// UtxoValidationRuleFunc represents a function that validates a transaction
+// against a specific UTXO validation rule.
+type UtxoValidationRuleFunc func(
+	tx Transaction,
+	slot uint64,
+	ledgerState LedgerState,
+	protocolParams ProtocolParameters,
+) error
+
+// VerifyTransaction runs the provided validation rules in order and wraps
+// the first error encountered into a ValidationError.
+func VerifyTransaction(
+	tx Transaction,
+	slot uint64,
+	ledgerState LedgerState,
+	protocolParams ProtocolParameters,
+	validationRules []UtxoValidationRuleFunc,
+) error {
+	for i, rule := range validationRules {
+		if err := rule(tx, slot, ledgerState, protocolParams); err != nil {
+			details := map[string]any{"rule_index": i, "slot": slot}
+			if tx != nil {
+				details["tx_hash"] = tx.Hash().String()
+			}
+			return NewValidationError(
+				ValidationErrorTypeTransaction,
+				"transaction validation failed",
+				details,
+				err,
+			)
+		}
+	}
+	return nil
+}
+
+// txTypeAlonzo is the first era whose historical on-wire CBOR includes the
+// 1-byte IsValid boolean field. The fee-relevant size excludes this byte only
+// when the transaction actually has the 4-component Alonzo-style envelope.
+const txTypeAlonzo = 4
+
+// TxSizeForFee returns the fee-relevant transaction size as defined by the
+// Cardano ledger spec. For Alonzo through Conway the on-wire CBOR contains a
+// 4-element array [body, witnesses, isValid, metadata]; the Haskell
+// toCBORForSizeComputation function encodes only 3 elements, so the fee-
+// relevant size is the full on-wire length minus 1 byte (the IsValid field).
+// Dijkstra block transactions use a 3-element envelope, so no adjustment is
+// applied unless an explicitly 4-component transaction is being sized.
+//
+// When the transaction has no stored CBOR (e.g. programmatically constructed),
+// the function falls back to encoding the transaction to compute its size.
+func TxSizeForFee(tx Transaction) (int, error) {
+	cborData := tx.Cbor()
+	if len(cborData) == 0 {
+		// Fallback: encode the transaction to compute its size.
+		// This handles programmatically constructed transactions
+		// whose Cbor() returns nil because no stored CBOR exists.
+		var err error
+		cborData, err = cbor.Encode(tx)
+		if err != nil {
+			return 0, fmt.Errorf("failed to encode transaction for fee size: %w", err)
+		}
+	}
+	fullSize := len(cborData)
+	if tx.Type() >= txTypeAlonzo {
+		dec, err := cbor.NewStreamDecoder(cborData)
+		if err == nil {
+			arrayLen, _, _, decodeErr := dec.DecodeArrayHeader()
+			if decodeErr == nil {
+				if arrayLen == 4 {
+					return fullSize - 1, nil
+				}
+				return fullSize, nil
+			}
+		}
+		return fullSize, nil
+	}
+	return fullSize, nil
+}
+
+// CalculateMinFee computes the minimum fee for a transaction given its
+// fee-relevant size (as returned by TxSizeForFee) and the protocol parameters
+// MinFeeA and MinFeeB. It returns an error if the computation would
+// overflow a uint64.
+func CalculateMinFee(
+	bodySize int,
+	minFeeA uint,
+	minFeeB uint,
+) (uint64, error) {
+	if bodySize < 0 {
+		return 0, fmt.Errorf(
+			"min fee: negative body size %d",
+			bodySize,
+		)
+	}
+	// Two-step conversion (int → uint → uint64) so that gosec G115 does
+	// not flag the signed-to-unsigned cast: the negative guard above makes
+	// int → uint safe, and uint → uint64 is a widening conversion.
+	uBodySize := uint64(uint(bodySize))
+	hi, lo := bits.Mul64(uint64(minFeeA), uBodySize)
+	if hi != 0 {
+		return 0, fmt.Errorf(
+			"min fee overflow: %d * %d exceeds uint64",
+			minFeeA,
+			bodySize,
+		)
+	}
+	sum, carry := bits.Add64(lo, uint64(minFeeB), 0)
+	if carry != 0 {
+		return 0, fmt.Errorf(
+			"min fee overflow: %d + %d exceeds uint64",
+			lo,
+			minFeeB,
+		)
+	}
+	return sum, nil
+}
+
+// Common witness-related error types for lightweight UTXOW checks.
+type MissingVKeyWitnessesError struct{}
+
+func (MissingVKeyWitnessesError) Error() string { return "missing required vkey witnesses" }
+
+type MissingRequiredVKeyWitnessForSignerError struct{ Signer Blake2b224 }
+
+func (e MissingRequiredVKeyWitnessForSignerError) Error() string {
+	return fmt.Sprintf(
+		"missing required vkey witness for required signer %x",
+		e.Signer,
+	)
+}
+
+type MissingRedeemersForScriptDataHashError struct{}
+
+func (MissingRedeemersForScriptDataHashError) Error() string {
+	return "missing redeemers for script data hash"
+}
+
+type MissingPlutusScriptWitnessesError struct{}
+
+func (MissingPlutusScriptWitnessesError) Error() string {
+	return "missing Plutus script witnesses for redeemers"
+}
+
+type ExtraneousPlutusScriptWitnessesError struct{}
+
+func (ExtraneousPlutusScriptWitnessesError) Error() string {
+	return "extraneous Plutus script witnesses"
+}
+
+type MissingScriptWitnessesError struct {
+	ScriptHash ScriptHash
+}
+
+func (e MissingScriptWitnessesError) Error() string {
+	return fmt.Sprintf(
+		"missing script witness for script hash %x",
+		e.ScriptHash[:],
+	)
+}
+
+type ExtraneousScriptWitnessesError struct {
+	ScriptHash ScriptHash
+}
+
+func (e ExtraneousScriptWitnessesError) Error() string {
+	return fmt.Sprintf(
+		"extraneous script witness for script hash %x",
+		e.ScriptHash[:],
+	)
+}
+
+// ValidateRequiredVKeyWitnesses checks that all required key credentials have a
+// vkey witness. This includes explicitly required signers and key-based reward
+// withdrawal credentials.
+func ValidateRequiredVKeyWitnesses(tx Transaction) error {
+	required := make([]Blake2b224, 0, len(tx.RequiredSigners())+len(tx.Withdrawals()))
+	required = append(required, tx.RequiredSigners()...)
+	for addr := range tx.Withdrawals() {
+		if addr == nil {
+			continue
+		}
+		if payload, ok := addr.StakingPayload().(AddressPayloadKeyHash); ok {
+			required = append(required, payload.Hash)
+		}
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	w := tx.Witnesses()
+	if w == nil || len(w.Vkey()) == 0 {
+		return MissingVKeyWitnessesError{}
+	}
+	vkeyHashes := make(map[Blake2b224]struct{}, len(w.Vkey()))
+	for _, vw := range w.Vkey() {
+		vkeyHashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
+	}
+	for _, req := range required {
+		if _, ok := vkeyHashes[req]; !ok {
+			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
+		}
+	}
+	return nil
+}
+
+// ValidateUnsupportedPlutusExecution fails closed when a transaction requires
+// phase-2 Plutus execution in an era that does not implement it.
+func ValidateUnsupportedPlutusExecution(tx Transaction, era string) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	wits := tx.Witnesses()
+	if wits == nil || wits.Redeemers() == nil {
+		return nil
+	}
+	for range wits.Redeemers().Iter() {
+		return PlutusScriptValidationUnsupportedError{Era: era}
+	}
+	return nil
+}
+
+// ValidateScriptWitnesses checks that script witnesses are provided for all script address inputs
+// and that there are no extraneous script witnesses.
+func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
+	if ls == nil {
+		return nil
+	}
+
+	// If IsValid=false, the transaction is expected to fail phase-2 validation.
+	// Phase-1 validation should still pass even without script witnesses.
+	if !tx.IsValid() {
+		return nil
+	}
+
+	wits := tx.Witnesses()
+	inputs := tx.Inputs()
+	referenceInputs := tx.ReferenceInputs()
+
+	// Collect all script hashes required by script address inputs
+	requiredScriptHashes := make(map[ScriptHash]struct{}, len(inputs))
+	referenceProvided := make(map[ScriptHash]struct{}, len(inputs)+len(referenceInputs))
+	for _, input := range inputs {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			// If we can't resolve the UTxO, we can't validate script witnesses
+			// This should be caught by BadInputsUtxo validation
+			continue
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		addr := utxo.Output.Address()
+
+		// Check if this is a script address (payment part is script)
+		if (addr.Type() & AddressTypeScriptBit) != 0 {
+			paymentScriptHash := addr.PaymentKeyHash()
+			// This is a script payment address that needs a script witness.
+			// The script can be provided via the witness set or via ScriptRef
+			// from any input (including the spent UTxO itself or reference inputs).
+			requiredScriptHashes[ScriptHash(paymentScriptHash)] = struct{}{}
+		}
+		// Regular (spent) inputs can also provide reference scripts.
+		if script := utxo.Output.ScriptRef(); script != nil {
+			referenceProvided[script.Hash()] = struct{}{}
+		}
+		// Note: Staking script validation is handled separately in delegation rules
+	}
+
+	// Collect explicit provided script witnesses (those carried in the tx)
+	explicitCap := 0
+	if wits != nil {
+		explicitCap += len(wits.NativeScripts())
+		explicitCap += len(wits.PlutusV1Scripts())
+		explicitCap += len(wits.PlutusV2Scripts())
+		explicitCap += len(wits.PlutusV3Scripts())
+		explicitCap += len(PlutusV4ScriptsFromWitnessSet(wits))
+	}
+	explicitProvided := make(map[ScriptHash]struct{}, explicitCap)
+	if wits != nil {
+		// Native scripts
+		for _, script := range wits.NativeScripts() {
+			explicitProvided[script.Hash()] = struct{}{}
+		}
+
+		// Plutus scripts
+		for _, script := range wits.PlutusV1Scripts() {
+			explicitProvided[script.Hash()] = struct{}{}
+		}
+		for _, script := range wits.PlutusV2Scripts() {
+			explicitProvided[script.Hash()] = struct{}{}
+		}
+		for _, script := range wits.PlutusV3Scripts() {
+			explicitProvided[script.Hash()] = struct{}{}
+		}
+		for _, script := range PlutusV4ScriptsFromWitnessSet(wits) {
+			explicitProvided[script.Hash()] = struct{}{}
+		}
+	}
+
+	// From reference inputs
+	for _, refInput := range referenceInputs {
+		utxo, err := ls.UtxoById(refInput)
+		if err != nil {
+			// If we can't resolve the reference UTxO deterministically, fail
+			return ReferenceInputResolutionError{Input: refInput, Err: err}
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		if script := utxo.Output.ScriptRef(); script != nil {
+			referenceProvided[script.Hash()] = struct{}{}
+		}
+	}
+
+	// Collect script hashes required by minting policies
+	if mint := tx.AssetMint(); mint != nil {
+		for policy := range mint.data {
+			requiredScriptHashes[ScriptHash(policy)] = struct{}{}
+		}
+	}
+
+	// Track scripts that are optional (allowed but not required) for registration certificates.
+	// Registration doesn't require authorization, but if the script is provided, it's valid.
+	optionalScriptHashes := make(map[ScriptHash]struct{})
+
+	// Collect script hashes required by certificates
+	// Note: Registration certificates with script credentials do NOT require the script witness
+	// (registration doesn't need authorization), but providing the script is allowed.
+	// Deregistration, delegation, and withdrawal DO require both the script and a redeemer.
+	for _, cert := range tx.Certificates() {
+		switch c := cert.(type) {
+		case *StakeRegistrationCertificate:
+			// Registration: script is optional (allowed but not required)
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *StakeDeregistrationCertificate:
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *StakeDelegationCertificate:
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *RegistrationCertificate:
+			// Registration: script is optional (allowed but not required)
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *DeregistrationCertificate:
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *VoteDelegationCertificate:
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *StakeVoteDelegationCertificate:
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *StakeRegistrationDelegationCertificate:
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *VoteRegistrationDelegationCertificate:
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *StakeVoteRegistrationDelegationCertificate:
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
+			}
+		case *AuthCommitteeHotCertificate:
+			if c.ColdCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.ColdCredential.Credential)] = struct{}{}
+			}
+		case *ResignCommitteeColdCertificate:
+			if c.ColdCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.ColdCredential.Credential)] = struct{}{}
+			}
+		case *RegistrationDrepCertificate:
+			if c.DrepCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = struct{}{}
+			}
+		case *DeregistrationDrepCertificate:
+			if c.DrepCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = struct{}{}
+			}
+		case *UpdateDrepCertificate:
+			if c.DrepCredential.CredType == CredentialTypeScriptHash {
+				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = struct{}{}
+			}
+		case *PoolRegistrationCertificate, *PoolRetirementCertificate:
+			// These certificates use key-only credentials
+		default:
+			// Other certificate types do not have script credentials
+		}
+	}
+
+	// Collect script hashes required by withdrawals
+	for addr := range tx.Withdrawals() {
+		// For stake addresses, check if stake credential is script (LSB of type indicates script)
+		if (addr.Type() & AddressTypeScriptBit) != 0 {
+			stakeScriptHash := addr.StakeKeyHash()
+			requiredScriptHashes[ScriptHash(stakeScriptHash)] = struct{}{}
+		}
+	}
+
+	// Collect script hashes required by voting procedures (script-type voters)
+	for voter := range tx.VotingProcedures() {
+		if voter == nil {
+			continue
+		}
+		// Check for script-type voters: CC script (1) or DRep script (3)
+		if voter.Type == VoterTypeConstitutionalCommitteeHotScriptHash ||
+			voter.Type == VoterTypeDRepScriptHash {
+			requiredScriptHashes[ScriptHash(NewBlake2b224(voter.Hash[:]))] = struct{}{}
+		}
+	}
+
+	// Collect script hashes required by proposal procedures (governance policy scripts)
+	for _, proposal := range tx.ProposalProcedures() {
+		if proposal == nil {
+			continue
+		}
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+		// Check if governance action has a policy script
+		if actionWithPolicy, ok := govAction.(GovActionWithPolicy); ok {
+			policyHash := actionWithPolicy.GetPolicyHash()
+			if len(policyHash) == Blake2b224Size {
+				var hash ScriptHash
+				copy(hash[:], policyHash)
+				requiredScriptHashes[hash] = struct{}{}
+			} else if len(policyHash) != 0 {
+				// Non-empty but invalid length - fail fast to surface upstream bugs
+				return fmt.Errorf(
+					"malformed governance policy hash: got %d bytes, want %d",
+					len(policyHash),
+					Blake2b224Size,
+				)
+			}
+		}
+	}
+
+	// Check for missing script witnesses. A required script is satisfied if
+	// it appears in either explicit witnesses or reference scripts.
+	for required := range requiredScriptHashes {
+		if _, ok := explicitProvided[required]; !ok {
+			if _, ok := referenceProvided[required]; !ok {
+				return MissingScriptWitnessesError{ScriptHash: required}
+			}
+		}
+	}
+
+	// Check for extraneous explicit script witnesses. Reference scripts are
+	// not considered explicit witnesses and therefore are not extraneous.
+	// Scripts are allowed if they are either required OR optional (e.g., registration scripts).
+	for provided := range explicitProvided {
+		if _, ok := requiredScriptHashes[provided]; ok {
+			continue
+		}
+		if _, ok := optionalScriptHashes[provided]; !ok {
+			return ExtraneousScriptWitnessesError{ScriptHash: provided}
+		}
+	}
+
+	return nil
+}
+
+// ValidateExtraneousRedeemers checks that every redeemer in the
+// transaction's witness set has a tag/index that maps to a real script
+// purpose: a spending redeemer must index an existing input, a minting
+// redeemer an existing (distinct, sorted) mint policy, a certifying
+// redeemer an existing certificate, a reward redeemer an existing
+// withdrawal, a voting redeemer an existing voter, and a proposing redeemer
+// an existing proposal procedure. Any redeemer whose index is out of range
+// for its tag's category, or whose tag is not one of the above (e.g.
+// RedeemerTagGuarding, which this shared check always treats as
+// extraneous), causes ExtraneousRedeemerError to be returned for that
+// redeemer. Eras that define additional redeemer purposes (e.g. Dijkstra's
+// guarding redeemers) must check for and accept those before delegating the
+// remaining redeemers to this function, since it fails closed on anything
+// it doesn't recognize.
+func ValidateExtraneousRedeemers(tx Transaction) error {
+	wits := tx.Witnesses()
+	if wits == nil {
+		return nil
+	}
+	redeemers := wits.Redeemers()
+	if redeemers == nil {
+		return nil
+	}
+
+	// Get counts for each purpose type
+	inputCount := len(tx.Inputs())
+	certCount := len(tx.Certificates())
+	withdrawalCount := len(tx.Withdrawals())
+	proposalCount := len(tx.ProposalProcedures())
+
+	// Count distinct mint policies
+	mintPolicyCount := 0
+	if mint := tx.AssetMint(); mint != nil {
+		mintPolicyCount = len(mint.Policies())
+	}
+
+	// Count voters (each voter is a separate purpose index)
+	voterCount := 0
+	if votingProcs := tx.VotingProcedures(); votingProcs != nil {
+		voterCount = len(votingProcs)
+	}
+
+	// Check each redeemer
+	for redeemerKey := range redeemers.Iter() {
+		var maxIndex int
+		switch redeemerKey.Tag {
+		case RedeemerTagSpend:
+			maxIndex = inputCount
+		case RedeemerTagMint:
+			maxIndex = mintPolicyCount
+		case RedeemerTagCert:
+			maxIndex = certCount
+		case RedeemerTagReward:
+			maxIndex = withdrawalCount
+		case RedeemerTagVoting:
+			maxIndex = voterCount
+		case RedeemerTagProposing:
+			maxIndex = proposalCount
+		case RedeemerTagGuarding:
+			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
+		default:
+			// Any unrecognized tag doesn't map to a purpose this shared
+			// check understands.
+			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
+		}
+
+		if int(redeemerKey.Index) >= maxIndex {
+			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
+		}
+	}
+
+	return nil
+}
+
+// ValidateRedeemerAndScriptWitnesses performs lightweight checks between redeemers and Plutus scripts.
+func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
+	wits := tx.Witnesses()
+	redeemerCount := 0
+	if wits != nil {
+		if r := wits.Redeemers(); r != nil {
+			for range r.Iter() {
+				redeemerCount++
+			}
+		}
+	}
+	hasPlutus := false
+	if wits != nil {
+		if len(wits.PlutusV1Scripts()) > 0 || len(wits.PlutusV2Scripts()) > 0 ||
+			len(wits.PlutusV3Scripts()) > 0 ||
+			len(PlutusV4ScriptsFromWitnessSet(wits)) > 0 {
+			hasPlutus = true
+		}
+	}
+
+	// If there are inputs (reference or regular) and a LedgerState is provided,
+	// resolve them to detect Plutus reference scripts. Per CIP-33, ScriptRef can
+	// be provided via both reference inputs AND regular (spent) inputs.
+	hasPlutusReference := false
+	if ls != nil {
+		// Check reference inputs
+		for _, refInput := range tx.ReferenceInputs() {
+			utxo, err := ls.UtxoById(refInput)
+			if err != nil {
+				return ReferenceInputResolutionError{Input: refInput, Err: err}
+			}
+			if utxo.Output == nil {
+				continue
+			}
+			script := utxo.Output.ScriptRef()
+			if script == nil {
+				continue
+			}
+			if _, ok := PlutusScriptVersion(script); ok {
+				hasPlutusReference = true
+			}
+			if hasPlutusReference {
+				break
+			}
+		}
+		// Check regular inputs if not found in reference inputs
+		if !hasPlutusReference {
+			for _, input := range tx.Inputs() {
+				utxo, err := ls.UtxoById(input)
+				if err != nil {
+					// Skip errors - BadInputsUtxo will catch this
+					continue
+				}
+				if utxo.Output == nil {
+					continue
+				}
+				script := utxo.Output.ScriptRef()
+				if script == nil {
+					continue
+				}
+				if _, ok := PlutusScriptVersion(script); ok {
+					hasPlutusReference = true
+				}
+				if hasPlutusReference {
+					break
+				}
+			}
+		}
+	}
+
+	// Check witness PlutusData (datums)
+	hasWitnessPlutusData := false
+	if wits != nil {
+		if len(wits.PlutusData()) > 0 {
+			hasWitnessPlutusData = true
+		}
+	}
+
+	// ScriptDataHash covers redeemers, datums, and language views.
+	// It's valid to have ScriptDataHash with no redeemers if there are witness datums.
+	if tx.ScriptDataHash() != nil && redeemerCount == 0 &&
+		!hasWitnessPlutusData {
+		return MissingRedeemersForScriptDataHashError{}
+	}
+	if redeemerCount > 0 && !hasPlutus && !hasPlutusReference {
+		return MissingPlutusScriptWitnessesError{}
+	}
+	if redeemerCount == 0 && hasPlutus {
+		return ExtraneousPlutusScriptWitnessesError{}
+	}
+	return nil
+}
+
+// EncodeLangViews encodes language views per the Cardano ledger specification.
+// For PlutusV1, the tag is double-serialized and the cost model uses indefinite-length list.
+// For PlutusV2+, the tag is single-serialized and the cost model uses definite-length list.
+// The map is sorted by "shortLex" order (length first, then lexicographic).
+func EncodeLangViews(
+	usedVersions map[uint]struct{},
+	costModels map[uint][]int64,
+) ([]byte, error) {
+	type langView struct {
+		tag    []byte
+		params []byte
+	}
+
+	views := make([]langView, 0, len(usedVersions))
+
+	for version := range usedVersions {
+		switch version {
+		case 0, 1, 2, 3:
+		default:
+			return nil, fmt.Errorf(
+				"unsupported Plutus version for lang views: %d",
+				version,
+			)
+		}
+
+		costModel, ok := costModels[version]
+		if !ok {
+			return nil, fmt.Errorf(
+				"missing cost model for Plutus version: %d",
+				version,
+			)
+		}
+
+		var tag []byte
+		var params []byte
+		var err error
+
+		switch version {
+		case 0: // PlutusV1
+			// Tag is double-serialized: serialize(serialize(0)) => 0x4100.
+			tag = []byte{0x41, 0x00}
+			// Cost model uses indefinite-length list, wrapped in a bytestring
+			// This is the "double bagging" for PlutusV1 compatibility
+			indefList := make(cbor.IndefLengthList, len(costModel))
+			for i, v := range costModel {
+				indefList[i] = any(v)
+			}
+			indefBytes, indefErr := cbor.Encode(indefList)
+			if indefErr != nil {
+				return nil, indefErr
+			}
+			// Wrap the indefinite list bytes in a CBOR bytestring
+			params, err = cbor.Encode(indefBytes)
+			if err != nil {
+				return nil, err
+			}
+
+		case 1, 2, 3: // PlutusV2, PlutusV3, PlutusV4
+			// Tags are single-byte CBOR encodings for small unsigned ints.
+			tag = []byte{byte(version)}
+			// Cost model uses definite-length list (no bytestring wrapper)
+			params, err = cbor.Encode(costModel)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("unsupported Plutus version for lang views: %d", version)
+		}
+
+		views = append(views, langView{tag: tag, params: params})
+	}
+
+	// Sort by "shortLex" order (length first, then lexicographic)
+	sort.Slice(views, func(i, j int) bool {
+		return ShortLex(views[i].tag, views[j].tag) < 0
+	})
+
+	totalSize := 1
+	for _, v := range views {
+		totalSize += len(v.tag) + len(v.params)
+	}
+
+	// Encode as a map with map length prefix
+	result := make([]byte, 0, totalSize)
+	// Encode map length (definite-length map)
+	if len(views) < 24 {
+		result = append(result, 0xa0+byte(len(views))) //nolint:gosec // len < 24
+	} else {
+		result = append(result, 0xb8, byte(len(views))) //nolint:gosec // len < 256
+	}
+
+	// Append key-value pairs in sorted order
+	for _, v := range views {
+		result = append(result, v.tag...)
+		result = append(result, v.params...)
+	}
+
+	return result, nil
+}
+
+// ShortLex compares byte slices by length first, then lexicographically
+func ShortLex(a, b []byte) int {
+	if len(a) < len(b) {
+		return -1
+	}
+	if len(a) > len(b) {
+		return 1
+	}
+	for i := range a {
+		if a[i] < b[i] {
+			return -1
+		}
+		if a[i] > b[i] {
+			return 1
+		}
+	}
+	return 0
+}

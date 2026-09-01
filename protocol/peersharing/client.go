@@ -1,0 +1,127 @@
+// Copyright 2024 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package peersharing
+
+import (
+	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/protocol"
+)
+
+// Client implements the PeerSharing client
+type Client struct {
+	*protocol.Protocol
+	config          *Config
+	callbackContext CallbackContext
+	sharePeersChan  chan []PeerAddress
+}
+
+// NewClient returns a new PeerSharing client object
+func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
+	if cfg == nil {
+		tmpCfg := NewConfig()
+		cfg = &tmpCfg
+	}
+	c := &Client{
+		config:         cfg,
+		sharePeersChan: make(chan []PeerAddress),
+	}
+	c.callbackContext = CallbackContext{
+		Client:       c,
+		ConnectionId: protoOptions.ConnectionId,
+	}
+	// Update state map with timeout
+	stateMap := StateMap.Copy()
+	if entry, ok := stateMap[stateBusy]; ok {
+		entry.Timeout = c.config.Timeout
+		stateMap[stateBusy] = entry
+	}
+	// Configure underlying Protocol
+	protoConfig := protocol.ProtocolConfig{
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
+		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
+		ErrorChan:           protoOptions.ErrorChan,
+		Mode:                protoOptions.Mode,
+		Role:                protocol.ProtocolRoleClient,
+		MessageHandlerFunc:  c.messageHandler,
+		MessageFromCborFunc: NewMsgFromCbor,
+		StateMap:            stateMap,
+		InitialState:        stateIdle,
+	}
+	c.Protocol = protocol.New(protoConfig)
+	return c
+}
+
+// GetPeers requests peers and waits for either the response or protocol
+// shutdown. When the configured Busy-state timeout expires, the protocol
+// reports the timeout through its error channel and this method returns
+// protocol.ErrProtocolShuttingDown.
+func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
+	if c.config.RemoteDisabled {
+		return nil, ErrRemotePeerSharingDisabled
+	}
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetPeers(amount: %d)", amount),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	msg := NewMsgShareRequest(amount)
+	if err := c.SendMessage(msg); err != nil {
+		return nil, err
+	}
+	select {
+	case peers, ok := <-c.sharePeersChan:
+		if !ok {
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		return peers, nil
+	case <-c.DoneChan():
+		return nil, protocol.ErrProtocolShuttingDown
+	}
+}
+
+func (c *Client) messageHandler(msg protocol.Message) error {
+	var err error
+	switch msg.Type() {
+	case MessageTypeSharePeers:
+		c.handleSharePeers(msg)
+	default:
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
+	}
+	return err
+}
+
+func (c *Client) handleSharePeers(msg protocol.Message) {
+	c.Protocol.Logger().
+		Debug("share peers",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	msgSharePeers := msg.(*MsgSharePeers)
+	select {
+	case <-c.DoneChan():
+	case c.sharePeersChan <- msgSharePeers.PeerAddresses:
+	}
+}

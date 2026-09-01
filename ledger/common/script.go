@@ -1,0 +1,707 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package common
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/cek"
+	"github.com/blinklabs-io/plutigo/data"
+	"github.com/blinklabs-io/plutigo/syn"
+	"github.com/btcsuite/btcd/btcutil/bech32"
+)
+
+const (
+	ScriptRefTypeNativeScript = 0
+	ScriptRefTypePlutusV1     = 1
+	ScriptRefTypePlutusV2     = 2
+	ScriptRefTypePlutusV3     = 3
+	ScriptRefTypePlutusV4     = 4
+)
+
+type ScriptHash = Blake2b224
+
+type Script interface {
+	isScript()
+	Hash() ScriptHash
+	RawScriptBytes() []byte
+}
+
+func NewScriptHashFromBech32(scriptHash string) (ScriptHash, error) {
+	var s ScriptHash
+	_, data, err := bech32.DecodeNoLimit(scriptHash)
+	if err != nil {
+		return s, err
+	}
+	decoded, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return s, err
+	}
+	if len(decoded) != 28 {
+		return s, fmt.Errorf("invalid script hash length: %d", len(decoded))
+	}
+	s = ScriptHash(decoded)
+	return s, nil
+}
+
+// ScriptHashToBech32 encodes a ScriptHash as a CIP-0005 bech32 string with "script" prefix.
+func ScriptHashToBech32(s ScriptHash) string {
+	return s.Bech32("script")
+}
+
+type ScriptRef struct {
+	Type   uint
+	Script Script
+}
+
+func decodePlutusScript(script []byte, rejectTrailing bool) ([]byte, error) {
+	var innerScript []byte
+	bytesRead, err := cbor.Decode(script, &innerScript)
+	if err != nil {
+		return nil, err
+	}
+	if rejectTrailing && bytesRead != len(script) {
+		return nil, fmt.Errorf(
+			"trailing bytes after CBOR script wrapper: %d",
+			len(script)-bytesRead,
+		)
+	}
+	return innerScript, nil
+}
+
+func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
+	// Unwrap outer CBOR tag
+	var tmpTag cbor.Tag
+	if _, err := cbor.Decode(data, &tmpTag); err != nil {
+		return err
+	}
+	innerCbor, ok := tmpTag.Content.([]byte)
+	if !ok {
+		return errors.New("unexpected tag type")
+	}
+	// Determine script type
+	var rawScript struct {
+		cbor.StructAsArray
+		Type uint
+		Raw  cbor.RawMessage
+	}
+	if _, err := cbor.Decode(innerCbor, &rawScript); err != nil {
+		return err
+	}
+	var script Script
+	switch rawScript.Type {
+	case ScriptRefTypeNativeScript:
+		tmpScript := &NativeScript{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
+	case ScriptRefTypePlutusV1:
+		tmpScript := &PlutusV1Script{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
+	case ScriptRefTypePlutusV2:
+		tmpScript := &PlutusV2Script{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
+	case ScriptRefTypePlutusV3:
+		tmpScript := &PlutusV3Script{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
+	case ScriptRefTypePlutusV4:
+		tmpScript := &PlutusV4Script{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
+	default:
+		return fmt.Errorf("unknown script type %d", rawScript.Type)
+	}
+	s.Type = rawScript.Type
+	s.Script = script
+	return nil
+}
+
+func (s *ScriptRef) MarshalCBOR() ([]byte, error) {
+	tmpData := []any{
+		s.Type,
+		s.Script,
+	}
+	tmpDataCbor, err := cbor.Encode(tmpData)
+	if err != nil {
+		return nil, err
+	}
+	tmpTag := cbor.Tag{
+		Number:  24,
+		Content: tmpDataCbor,
+	}
+	return cbor.Encode(tmpTag)
+}
+
+type PlutusV1Script []byte
+
+func (PlutusV1Script) isScript() {}
+
+func (s PlutusV1Script) Hash() ScriptHash {
+	return ScriptHash(Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV1},
+			[]byte(s),
+		),
+	))
+}
+
+func (s PlutusV1Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
+
+// Evaluate executes a PlutusV1 script with datum, redeemer, and script context
+// V1 scripts take 3 arguments applied in order: datum, redeemer, context
+func (s PlutusV1Script) Evaluate(
+	datum data.PlutusData,
+	redeemer data.PlutusData,
+	scriptContext data.PlutusData,
+	budget ExUnits,
+	evalContext *cek.EvalContext,
+) (ExUnits, error) {
+	var usedExUnits ExUnits
+	var err error
+	var program *syn.Program[syn.DeBruijn]
+	// Set budget
+	machineBudget := cek.DefaultExBudget
+	if budget.Steps > 0 || budget.Memory > 0 {
+		machineBudget = cek.ExBudget{
+			Cpu: budget.Steps,
+			Mem: budget.Memory,
+		}
+	}
+	// Decode raw script as bytestring to get actual script bytes
+	innerScript, err := decodePlutusScript([]byte(s), false)
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
+	}
+	// Decode program
+	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode script: %w", err)
+	}
+	// Apply arguments to program: datum (optional), redeemer, context
+	redeemerTerm := &syn.Constant{Con: &syn.Data{Inner: redeemer}}
+	contextTerm := &syn.Constant{Con: &syn.Data{Inner: scriptContext}}
+	wrappedProgram := program.Term
+	if datum != nil {
+		wrappedProgram = &syn.Apply[syn.DeBruijn]{
+			Function: wrappedProgram,
+			Argument: &syn.Constant{Con: &syn.Data{Inner: datum}},
+		}
+	}
+	wrappedProgram = &syn.Apply[syn.DeBruijn]{
+		Function: &syn.Apply[syn.DeBruijn]{
+			Function: wrappedProgram,
+			Argument: redeemerTerm,
+		},
+		Argument: contextTerm,
+	}
+	// Execute wrapped program
+	machine := cek.NewMachine[syn.DeBruijn](
+		cek.LanguageVersionV1,
+		200,
+		evalContext,
+	)
+	machine.ExBudget = machineBudget
+	_, runErr := machine.Run(wrappedProgram)
+	// Always calculate consumed budget, even on error
+	consumedBudget := machineBudget.Sub(&machine.ExBudget)
+	usedExUnits.Memory = consumedBudget.Mem
+	usedExUnits.Steps = consumedBudget.Cpu
+	if runErr != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", runErr)
+	}
+	return usedExUnits, nil
+}
+
+type PlutusV2Script []byte
+
+func (PlutusV2Script) isScript() {}
+
+func (s PlutusV2Script) Hash() ScriptHash {
+	return ScriptHash(Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV2},
+			[]byte(s),
+		),
+	))
+}
+
+func (s PlutusV2Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
+
+// Evaluate executes a PlutusV2 script with datum, redeemer, and script context
+// V2 scripts take 3 arguments applied in order: datum, redeemer, context
+func (s PlutusV2Script) Evaluate(
+	datum data.PlutusData,
+	redeemer data.PlutusData,
+	scriptContext data.PlutusData,
+	budget ExUnits,
+	evalContext *cek.EvalContext,
+) (ExUnits, error) {
+	var usedExUnits ExUnits
+	var err error
+	var program *syn.Program[syn.DeBruijn]
+	// Set budget
+	machineBudget := cek.DefaultExBudget
+	if budget.Steps > 0 || budget.Memory > 0 {
+		machineBudget = cek.ExBudget{
+			Cpu: budget.Steps,
+			Mem: budget.Memory,
+		}
+	}
+	// Decode raw script as bytestring to get actual script bytes
+	innerScript, err := decodePlutusScript([]byte(s), false)
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
+	}
+	// Decode program
+	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode script: %w", err)
+	}
+	// Apply arguments to program: datum (optional), redeemer, context
+	redeemerTerm := &syn.Constant{Con: &syn.Data{Inner: redeemer}}
+	contextTerm := &syn.Constant{Con: &syn.Data{Inner: scriptContext}}
+	wrappedProgram := program.Term
+	if datum != nil {
+		wrappedProgram = &syn.Apply[syn.DeBruijn]{
+			Function: wrappedProgram,
+			Argument: &syn.Constant{Con: &syn.Data{Inner: datum}},
+		}
+	}
+	wrappedProgram = &syn.Apply[syn.DeBruijn]{
+		Function: &syn.Apply[syn.DeBruijn]{
+			Function: wrappedProgram,
+			Argument: redeemerTerm,
+		},
+		Argument: contextTerm,
+	}
+	// Execute wrapped program
+	machine := cek.NewMachine[syn.DeBruijn](
+		cek.LanguageVersionV2,
+		200,
+		evalContext,
+	)
+	machine.ExBudget = machineBudget
+	_, runErr := machine.Run(wrappedProgram)
+	// Always calculate consumed budget, even on error
+	consumedBudget := machineBudget.Sub(&machine.ExBudget)
+	usedExUnits.Memory = consumedBudget.Mem
+	usedExUnits.Steps = consumedBudget.Cpu
+	if runErr != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", runErr)
+	}
+	return usedExUnits, nil
+}
+
+type PlutusV3Script []byte
+
+func (PlutusV3Script) isScript() {}
+
+func (s PlutusV3Script) Hash() ScriptHash {
+	return ScriptHash(Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV3},
+			[]byte(s),
+		),
+	))
+}
+
+func (s PlutusV3Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
+
+func (s PlutusV3Script) Evaluate(
+	scriptContext data.PlutusData,
+	budget ExUnits,
+	evalContext *cek.EvalContext,
+) (ExUnits, error) {
+	var usedExUnits ExUnits
+	var err error
+	var program *syn.Program[syn.DeBruijn]
+	// Set budget
+	machineBudget := cek.DefaultExBudget
+	if budget.Steps > 0 || budget.Memory > 0 {
+		machineBudget = cek.ExBudget{
+			Cpu: budget.Steps,
+			Mem: budget.Memory,
+		}
+	}
+	// Decode raw script as bytestring to get actual script bytes
+	innerScript, err := decodePlutusScript([]byte(s), true)
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
+	}
+	// Decode program
+	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode script: %w", err)
+	}
+	// Apply script context to program
+	contextTerm := &syn.Constant{
+		Con: &syn.Data{
+			Inner: scriptContext,
+		},
+	}
+	wrappedProgram := &syn.Apply[syn.DeBruijn]{
+		Function: program.Term,
+		Argument: contextTerm,
+	}
+	// Execute wrapped program
+	machine := cek.NewMachine[syn.DeBruijn](
+		cek.LanguageVersionV3,
+		200,
+		evalContext,
+	)
+	machine.ExBudget = machineBudget
+	_, runErr := machine.Run(wrappedProgram)
+	// Always calculate consumed budget, even on error
+	consumedBudget := machineBudget.Sub(&machine.ExBudget)
+	usedExUnits.Memory = consumedBudget.Mem
+	usedExUnits.Steps = consumedBudget.Cpu
+	if runErr != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", runErr)
+	}
+	return usedExUnits, nil
+}
+
+type PlutusV4Script []byte
+
+func (PlutusV4Script) isScript() {}
+
+func (s PlutusV4Script) Hash() ScriptHash {
+	return ScriptHash(Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV4},
+			[]byte(s),
+		),
+	))
+}
+
+func (s PlutusV4Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
+
+func (s PlutusV4Script) Evaluate(
+	scriptContext data.PlutusData,
+	budget ExUnits,
+	evalContext *cek.EvalContext,
+) (ExUnits, error) {
+	var usedExUnits ExUnits
+	var err error
+	var program *syn.Program[syn.DeBruijn]
+	machineBudget := cek.DefaultExBudget
+	if budget.Steps > 0 || budget.Memory > 0 {
+		machineBudget = cek.ExBudget{
+			Cpu: budget.Steps,
+			Mem: budget.Memory,
+		}
+	}
+	innerScript, err := decodePlutusScript([]byte(s), true)
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
+	}
+	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode script: %w", err)
+	}
+	contextTerm := &syn.Constant{
+		Con: &syn.Data{
+			Inner: scriptContext,
+		},
+	}
+	wrappedProgram := &syn.Apply[syn.DeBruijn]{
+		Function: program.Term,
+		Argument: contextTerm,
+	}
+	machine := cek.NewMachine[syn.DeBruijn](
+		cek.LanguageVersionV4,
+		200,
+		evalContext,
+	)
+	machine.ExBudget = machineBudget
+	_, runErr := machine.Run(wrappedProgram)
+	consumedBudget := machineBudget.Sub(&machine.ExBudget)
+	usedExUnits.Memory = consumedBudget.Mem
+	usedExUnits.Steps = consumedBudget.Cpu
+	if runErr != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", runErr)
+	}
+	return usedExUnits, nil
+}
+
+func PlutusScriptVersion(script Script) (uint, bool) {
+	switch script.(type) {
+	case PlutusV1Script, *PlutusV1Script:
+		return 0, true
+	case PlutusV2Script, *PlutusV2Script:
+		return 1, true
+	case PlutusV3Script, *PlutusV3Script:
+		return 2, true
+	case PlutusV4Script, *PlutusV4Script:
+		return 3, true
+	default:
+		return 0, false
+	}
+}
+
+type NativeScript struct {
+	cbor.DecodeStoreCbor
+	item any
+}
+
+func (NativeScript) isScript() {}
+
+func (n *NativeScript) Item() any {
+	return n.item
+}
+
+func (n *NativeScript) UnmarshalCBOR(data []byte) error {
+	n.SetCbor(data)
+	id, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	var tmpData any
+	switch id {
+	case 0:
+		tmpData = &NativeScriptPubkey{}
+	case 1:
+		tmpData = &NativeScriptAll{}
+	case 2:
+		tmpData = &NativeScriptAny{}
+	case 3:
+		tmpData = &NativeScriptNofK{}
+	case 4:
+		tmpData = &NativeScriptInvalidBefore{}
+	case 5:
+		tmpData = &NativeScriptInvalidHereafter{}
+	case 6:
+		tmpData = &NativeScriptRequireGuard{}
+	default:
+		return fmt.Errorf("unknown native script type %d", id)
+	}
+	if _, err := cbor.Decode(data, tmpData); err != nil {
+		return err
+	}
+	n.item = tmpData
+	return nil
+}
+
+func (s NativeScript) Hash() ScriptHash {
+	return ScriptHash(Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypeNativeScript},
+			[]byte(s.Cbor()),
+		),
+	))
+}
+
+func (s NativeScript) RawScriptBytes() []byte {
+	return s.Cbor()
+}
+
+func (n NativeScript) MarshalCBOR() ([]byte, error) {
+	if raw := n.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	if n.item == nil {
+		return nil, errors.New("native script has no backing item")
+	}
+	return cbor.Encode(n.item)
+}
+
+type NativeScriptPubkey struct {
+	cbor.StructAsArray
+	Type uint
+	Hash []byte
+}
+
+type NativeScriptAll struct {
+	cbor.StructAsArray
+	Type    uint
+	Scripts []NativeScript
+}
+
+type NativeScriptAny struct {
+	cbor.StructAsArray
+	Type    uint
+	Scripts []NativeScript
+}
+
+type NativeScriptNofK struct {
+	cbor.StructAsArray
+	Type    uint
+	N       uint
+	Scripts []NativeScript
+}
+
+type NativeScriptInvalidBefore struct {
+	cbor.StructAsArray
+	Type uint
+	Slot uint64
+}
+
+type NativeScriptInvalidHereafter struct {
+	cbor.StructAsArray
+	Type uint
+	Slot uint64
+}
+
+type NativeScriptRequireGuard struct {
+	cbor.StructAsArray
+	Type       uint
+	Credential Credential
+}
+
+// Evaluate evaluates the native script against the given context.
+// It returns true if the script conditions are satisfied, false otherwise.
+// Parameters:
+//   - slot: The current slot number for time-based conditions
+//   - validityStart: The transaction's validity start slot (0 if not set)
+//   - validityEnd: The transaction's validity end slot (math.MaxUint64 if not set)
+//   - keyHashes: Set of key hashes from VKey witnesses in the transaction
+func (n *NativeScript) Evaluate(
+	slot uint64,
+	validityStart, validityEnd uint64,
+	keyHashes map[Blake2b224]bool,
+) bool {
+	return n.evaluate(nativeScriptEvalContext{
+		validityStart: validityStart,
+		validityEnd:   validityEnd,
+		keyHashes:     keyHashes,
+	})
+}
+
+func (n *NativeScript) EvaluateWithGuards(
+	slot uint64,
+	validityStart, validityEnd uint64,
+	keyHashes map[Blake2b224]bool,
+	guardCredentials []Credential,
+) bool {
+	return n.evaluate(nativeScriptEvalContext{
+		validityStart:    validityStart,
+		validityEnd:      validityEnd,
+		keyHashes:        keyHashes,
+		guardCredentials: newCredentialSet(guardCredentials),
+	})
+}
+
+type nativeScriptEvalContext struct {
+	validityStart    uint64
+	validityEnd      uint64
+	keyHashes        map[Blake2b224]bool
+	guardCredentials map[credentialKey]bool
+}
+
+type credentialKey struct {
+	typ  uint
+	hash Blake2b224
+}
+
+func newCredentialSet(credentials []Credential) map[credentialKey]bool {
+	if len(credentials) == 0 {
+		return nil
+	}
+	ret := make(map[credentialKey]bool, len(credentials))
+	for _, cred := range credentials {
+		ret[credentialKey{typ: cred.CredType, hash: cred.Credential}] = true
+	}
+	return ret
+}
+
+func (n *NativeScript) evaluate(ctx nativeScriptEvalContext) bool {
+	if n.item == nil {
+		return false
+	}
+
+	switch s := n.item.(type) {
+	case *NativeScriptPubkey:
+		// Check if the required key hash is in the witness set
+		var hash Blake2b224
+		copy(hash[:], s.Hash)
+		return ctx.keyHashes[hash]
+
+	case *NativeScriptAll:
+		// All sub-scripts must pass
+		for i := range s.Scripts {
+			if !s.Scripts[i].evaluate(ctx) {
+				return false
+			}
+		}
+		return true
+
+	case *NativeScriptAny:
+		// At least one sub-script must pass
+		for i := range s.Scripts {
+			if s.Scripts[i].evaluate(ctx) {
+				return true
+			}
+		}
+		return false
+
+	case *NativeScriptNofK:
+		// At least N of K sub-scripts must pass
+		count := uint(0)
+		for i := range s.Scripts {
+			if s.Scripts[i].evaluate(ctx) {
+				count++
+			}
+		}
+		return count >= s.N
+
+	case *NativeScriptInvalidBefore:
+		// Transaction is only valid at or after this slot
+		// For native scripts, we check against the transaction's validity interval
+		// The tx must start at or after the script's slot requirement
+		return ctx.validityStart >= s.Slot
+
+	case *NativeScriptInvalidHereafter:
+		// Transaction is only valid before this slot
+		// The tx must end at or before the script's slot requirement
+		// TTL = X means tx valid at slots [start, X), which is entirely within [0, X)
+		return ctx.validityEnd <= s.Slot
+
+	case *NativeScriptRequireGuard:
+		if ctx.guardCredentials == nil {
+			return false
+		}
+		key := credentialKey{
+			typ:  s.Credential.CredType,
+			hash: s.Credential.Credential,
+		}
+		return ctx.guardCredentials[key]
+
+	default:
+		return false
+	}
+}

@@ -1,0 +1,809 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package handshake_test
+
+import (
+	"fmt"
+	"reflect"
+	"testing"
+	"time"
+
+	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/handshake"
+	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
+	"go.uber.org/goleak"
+)
+
+const (
+	mockProtocolVersionNtC    uint16 = (14 + protocol.ProtocolVersionNtCOffset)
+	mockProtocolVersionNtN    uint16 = 13
+	mockProtocolVersionNtNV11 uint16 = 11
+)
+
+var conversationEntryNtCResponse = ouroboros_mock.ConversationEntryOutput{
+	ProtocolId: handshake.ProtocolId,
+	IsResponse: true,
+	Messages: []protocol.Message{
+		handshake.NewMsgAcceptVersion(
+			mockProtocolVersionNtC,
+			mockNtCVersionData(),
+		),
+	},
+}
+
+var conversationEntryNtNResponse = ouroboros_mock.ConversationEntryOutput{
+	ProtocolId: handshake.ProtocolId,
+	IsResponse: true,
+	Messages: []protocol.Message{
+		handshake.NewMsgAcceptVersion(
+			mockProtocolVersionNtN,
+			mockNtNVersionData(),
+		),
+	},
+}
+
+var conversationEntryNtNResponseV11 = ouroboros_mock.ConversationEntryOutput{
+	ProtocolId: handshake.ProtocolId,
+	IsResponse: true,
+	Messages: []protocol.Message{
+		handshake.NewMsgAcceptVersion(
+			mockProtocolVersionNtNV11,
+			mockNtNVersionDataV11(),
+		),
+	},
+}
+
+func mockNtCVersionData() protocol.VersionData {
+	return protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic)
+}
+
+func mockNtNVersionDataV11() protocol.VersionData {
+	return protocol.VersionDataNtN11to12{
+		CborNetworkMagic:                       ouroboros_mock.MockNetworkMagic,
+		CborInitiatorAndResponderDiffusionMode: protocol.DiffusionModeInitiatorOnly,
+		CborPeerSharing:                        protocol.PeerSharingModeNoPeerSharing,
+		CborQuery:                              protocol.QueryModeDisabled,
+	}
+}
+
+func mockNtNVersionData() protocol.VersionData {
+	return protocol.VersionDataNtN13andUp{
+		VersionDataNtN11to12: mockNtNVersionDataV11().(protocol.VersionDataNtN11to12),
+	}
+}
+
+func TestClientNtCAccept(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			conversationEntryNtCResponse,
+		},
+	)
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+	// Async error handler
+	go func() {
+		err, ok := <-oConn.ErrorChan()
+		if !ok {
+			return
+		}
+		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
+		panic(fmt.Sprintf("unexpected Ouroboros connection error: %s", err))
+	}()
+	// Check negotiated version and version data
+	protoVersion, protoVersionData := oConn.ProtocolVersion()
+	if protoVersion != mockProtocolVersionNtC {
+		t.Fatalf(
+			"did not get expected protocol version: got %d, wanted %d",
+			protoVersion,
+			mockProtocolVersionNtC,
+		)
+	}
+	if !reflect.DeepEqual(protoVersionData, mockNtCVersionData()) {
+		t.Fatalf(
+			"did not get expected protocol version data:\n  got:   %#v\n  wanted: %#v",
+			protoVersionData,
+			mockNtCVersionData(),
+		)
+	}
+	// Close Ouroboros connection
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
+}
+
+func TestClientNtNAccept(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			conversationEntryNtNResponse,
+		},
+	)
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+	// Async error handler
+	go func() {
+		err, ok := <-oConn.ErrorChan()
+		if !ok {
+			return
+		}
+		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
+		panic(fmt.Sprintf("unexpected Ouroboros connection error: %s", err))
+	}()
+	// Check negotiated version and version data
+	protoVersion, protoVersionData := oConn.ProtocolVersion()
+	if protoVersion != mockProtocolVersionNtN {
+		t.Fatalf(
+			"did not get expected protocol version: got %d, wanted %d",
+			protoVersion,
+			mockProtocolVersionNtN,
+		)
+	}
+	if !reflect.DeepEqual(protoVersionData, mockNtNVersionData()) {
+		t.Fatalf(
+			"did not get expected protocol version data:\n  got:   %#v\n  wanted: %#v",
+			protoVersionData,
+			mockNtNVersionData(),
+		)
+	}
+	// Close Ouroboros connection
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
+}
+
+func TestClientNtNAcceptV11(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			conversationEntryNtNResponseV11,
+		},
+	)
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+	// Async error handler
+	go func() {
+		err, ok := <-oConn.ErrorChan()
+		if !ok {
+			return
+		}
+		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
+		panic(fmt.Sprintf("unexpected Ouroboros connection error: %s", err))
+	}()
+	// Check negotiated version and version data
+	protoVersion, protoVersionData := oConn.ProtocolVersion()
+	if protoVersion != mockProtocolVersionNtNV11 {
+		t.Fatalf(
+			"did not get expected protocol version: got %d, wanted %d",
+			protoVersion,
+			mockProtocolVersionNtNV11,
+		)
+	}
+	if !reflect.DeepEqual(protoVersionData, mockNtNVersionDataV11()) {
+		t.Fatalf(
+			"did not get expected protocol version data:\n  got:   %#v\n  wanted: %#v",
+			protoVersionData,
+			mockNtNVersionDataV11(),
+		)
+	}
+	// Close Ouroboros connection
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
+}
+
+func TestClientNtCRefuseVersionMismatch(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedVersions := []uint16{1, 2, 3}
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonVersionMismatch,
+							[]any{uint64(1), uint64(2), uint64(3)},
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	}
+	// Verify error type
+	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
+	if !ok {
+		t.Fatalf(
+			"expected *handshake.VersionMismatchError, got %T: %v",
+			err,
+			err,
+		)
+	}
+	// Verify reason code
+	if versionMismatchErr.ReasonCode() != handshake.RefuseReasonVersionMismatch {
+		t.Fatalf(
+			"expected reason code %d, got %d",
+			handshake.RefuseReasonVersionMismatch,
+			versionMismatchErr.ReasonCode(),
+		)
+	}
+	// Verify supported versions
+	if !reflect.DeepEqual(
+		versionMismatchErr.SupportedVersions,
+		expectedVersions,
+	) {
+		t.Fatalf(
+			"expected supported versions %v, got %v",
+			expectedVersions,
+			versionMismatchErr.SupportedVersions,
+		)
+	}
+}
+
+func TestClientNtCRefuseDecodeError(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedVersion := mockProtocolVersionNtC
+	expectedMessage := "foo"
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonDecodeError,
+							uint64(mockProtocolVersionNtC),
+							"foo",
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	}
+	// Verify error type
+	decodeErr, ok := err.(*handshake.DecodeError)
+	if !ok {
+		t.Fatalf("expected *handshake.DecodeError, got %T: %v", err, err)
+	}
+	// Verify reason code
+	if decodeErr.ReasonCode() != handshake.RefuseReasonDecodeError {
+		t.Fatalf(
+			"expected reason code %d, got %d",
+			handshake.RefuseReasonDecodeError,
+			decodeErr.ReasonCode(),
+		)
+	}
+	// Verify version and message
+	if decodeErr.Version != expectedVersion {
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			decodeErr.Version,
+		)
+	}
+	if decodeErr.Message != expectedMessage {
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			decodeErr.Message,
+		)
+	}
+}
+
+func TestClientNtCRefuseRefused(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedVersion := mockProtocolVersionNtC
+	expectedMessage := "foo"
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonRefused,
+							uint64(mockProtocolVersionNtC),
+							"foo",
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	}
+	// Verify error type
+	refusedErr, ok := err.(*handshake.RefusedError)
+	if !ok {
+		t.Fatalf("expected *handshake.RefusedError, got %T: %v", err, err)
+	}
+	// Verify reason code
+	if refusedErr.ReasonCode() != handshake.RefuseReasonRefused {
+		t.Fatalf(
+			"expected reason code %d, got %d",
+			handshake.RefuseReasonRefused,
+			refusedErr.ReasonCode(),
+		)
+	}
+	// Verify version and message
+	if refusedErr.Version != expectedVersion {
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			refusedErr.Version,
+		)
+	}
+	if refusedErr.Message != expectedMessage {
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			refusedErr.Message,
+		)
+	}
+}
+
+// Node-to-Node refusal tests
+
+func TestClientNtNRefuseVersionMismatch(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedVersions := []uint16{7, 8, 9, 10}
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonVersionMismatch,
+							[]any{uint64(7), uint64(8), uint64(9), uint64(10)},
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	}
+	// Verify error type
+	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
+	if !ok {
+		t.Fatalf(
+			"expected *handshake.VersionMismatchError, got %T: %v",
+			err,
+			err,
+		)
+	}
+	// Verify supported versions
+	if !reflect.DeepEqual(
+		versionMismatchErr.SupportedVersions,
+		expectedVersions,
+	) {
+		t.Fatalf(
+			"expected supported versions %v, got %v",
+			expectedVersions,
+			versionMismatchErr.SupportedVersions,
+		)
+	}
+}
+
+func TestClientNtNRefuseDecodeError(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedVersion := mockProtocolVersionNtN
+	expectedMessage := "invalid protocol parameters"
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonDecodeError,
+							uint64(mockProtocolVersionNtN),
+							"invalid protocol parameters",
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	}
+	// Verify error type
+	decodeErr, ok := err.(*handshake.DecodeError)
+	if !ok {
+		t.Fatalf("expected *handshake.DecodeError, got %T: %v", err, err)
+	}
+	// Verify version and message
+	if decodeErr.Version != expectedVersion {
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			decodeErr.Version,
+		)
+	}
+	if decodeErr.Message != expectedMessage {
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			decodeErr.Message,
+		)
+	}
+}
+
+func TestClientNtNRefuseRefused(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedVersion := mockProtocolVersionNtN
+	expectedMessage := "connection not allowed"
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonRefused,
+							uint64(mockProtocolVersionNtN),
+							"connection not allowed",
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	}
+	// Verify error type
+	refusedErr, ok := err.(*handshake.RefusedError)
+	if !ok {
+		t.Fatalf("expected *handshake.RefusedError, got %T: %v", err, err)
+	}
+	// Verify version and message
+	if refusedErr.Version != expectedVersion {
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			refusedErr.Version,
+		)
+	}
+	if refusedErr.Message != expectedMessage {
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			refusedErr.Message,
+		)
+	}
+}
+
+// Additional edge case tests for refusal handling
+
+func TestClientNtCRefuseDecodeErrorEmptyMessage(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedVersion := mockProtocolVersionNtC
+	expectedMessage := ""
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonDecodeError,
+							uint64(mockProtocolVersionNtC),
+							"",
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	}
+	// Verify error type
+	decodeErr, ok := err.(*handshake.DecodeError)
+	if !ok {
+		t.Fatalf("expected *handshake.DecodeError, got %T: %v", err, err)
+	}
+	// Verify version and message (even if empty)
+	if decodeErr.Version != expectedVersion {
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			decodeErr.Version,
+		)
+	}
+	if decodeErr.Message != expectedMessage {
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			decodeErr.Message,
+		)
+	}
+}
+
+func TestClientNtCRefuseVersionMismatchMultipleVersions(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedVersions := []uint16{10, 11, 12, 13, 14, 15}
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonVersionMismatch,
+							[]any{
+								uint64(10),
+								uint64(11),
+								uint64(12),
+								uint64(13),
+								uint64(14),
+								uint64(15),
+							},
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	}
+	// Verify error type
+	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
+	if !ok {
+		t.Fatalf(
+			"expected *handshake.VersionMismatchError, got %T: %v",
+			err,
+			err,
+		)
+	}
+	// Verify supported versions
+	if !reflect.DeepEqual(
+		versionMismatchErr.SupportedVersions,
+		expectedVersions,
+	) {
+		t.Fatalf(
+			"expected supported versions %v, got %v",
+			expectedVersions,
+			versionMismatchErr.SupportedVersions,
+		)
+	}
+}
+
+func TestClientNtNRefuseVersionMismatchSingleVersion(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedVersions := []uint16{5}
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonVersionMismatch,
+							[]any{uint64(5)},
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	}
+	// Verify error type
+	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
+	if !ok {
+		t.Fatalf(
+			"expected *handshake.VersionMismatchError, got %T: %v",
+			err,
+			err,
+		)
+	}
+	// Verify supported versions
+	if !reflect.DeepEqual(
+		versionMismatchErr.SupportedVersions,
+		expectedVersions,
+	) {
+		t.Fatalf(
+			"expected supported versions %v, got %v",
+			expectedVersions,
+			versionMismatchErr.SupportedVersions,
+		)
+	}
+}
+
+func TestClientQueryReply(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgQueryReply(
+						protocol.GetProtocolVersionMap(
+							protocol.ProtocolModeNodeToClient,
+							ouroboros_mock.MockNetworkMagic,
+							protocol.DiffusionModeInitiatorOnly,
+							false,
+							false,
+						),
+					),
+				},
+			},
+		},
+	)
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+	// Async error handler
+	go func() {
+		err, ok := <-oConn.ErrorChan()
+		if !ok {
+			return
+		}
+		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
+		panic(fmt.Sprintf("unexpected Ouroboros connection error: %s", err))
+	}()
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+	// Verify that the query reply was processed by checking the protocol version
+	protoVersion, protoVersionData := oConn.ProtocolVersion()
+	if protoVersion != 0 {
+		t.Fatalf(
+			"expected protocol version 0 for query reply, got %d",
+			protoVersion,
+		)
+	}
+	if protoVersionData != nil {
+		t.Fatalf(
+			"expected nil protocol version data for query reply, got %v",
+			protoVersionData,
+		)
+	}
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
+}

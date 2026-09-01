@@ -1,0 +1,293 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package chainsync
+
+import (
+	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+)
+
+// Message types
+const (
+	MessageTypeRequestNext       = 0
+	MessageTypeAwaitReply        = 1
+	MessageTypeRollForward       = 2
+	MessageTypeRollBackward      = 3
+	MessageTypeFindIntersect     = 4
+	MessageTypeIntersectFound    = 5
+	MessageTypeIntersectNotFound = 6
+	MessageTypeDone              = 7
+)
+
+// NewMsgFromCborNtN parses a NtC ChainSync message from CBOR
+func NewMsgFromCborNtN(msgType uint, data []byte) (protocol.Message, error) {
+	return NewMsgFromCbor(protocol.ProtocolModeNodeToNode, msgType, data)
+}
+
+// NewMsgFromCborNtC parses a NtC ChainSync message from CBOR
+func NewMsgFromCborNtC(msgType uint, data []byte) (protocol.Message, error) {
+	return NewMsgFromCbor(protocol.ProtocolModeNodeToClient, msgType, data)
+}
+
+// NewMsgFromCbor parses a ChainSync message from CBOR
+func NewMsgFromCbor(
+	protoMode protocol.ProtocolMode,
+	msgType uint,
+	data []byte,
+) (protocol.Message, error) {
+	var ret protocol.Message
+	switch msgType {
+	case MessageTypeRequestNext:
+		ret = &MsgRequestNext{}
+	case MessageTypeAwaitReply:
+		ret = &MsgAwaitReply{}
+	case MessageTypeRollForward:
+		if protoMode == protocol.ProtocolModeNodeToNode {
+			ret = &MsgRollForwardNtN{}
+		} else {
+			ret = &MsgRollForwardNtC{}
+		}
+	case MessageTypeRollBackward:
+		ret = &MsgRollBackward{}
+	case MessageTypeFindIntersect:
+		ret = &MsgFindIntersect{}
+	case MessageTypeIntersectFound:
+		ret = &MsgIntersectFound{}
+	case MessageTypeIntersectNotFound:
+		ret = &MsgIntersectNotFound{}
+	case MessageTypeDone:
+		ret = &MsgDone{}
+	default:
+		return nil, fmt.Errorf(
+			"%s: unknown message type: %d",
+			ProtocolName,
+			msgType,
+		)
+	}
+	if _, err := cbor.Decode(data, ret); err != nil {
+		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	}
+	if ret != nil {
+		// Store the raw message CBOR
+		ret.SetCbor(data)
+	}
+	return ret, nil
+}
+
+type MsgRequestNext struct {
+	protocol.MessageBase
+}
+
+func NewMsgRequestNext() *MsgRequestNext {
+	m := &MsgRequestNext{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeRequestNext,
+		},
+	}
+	return m
+}
+
+type MsgAwaitReply struct {
+	protocol.MessageBase
+}
+
+func NewMsgAwaitReply() *MsgAwaitReply {
+	m := &MsgAwaitReply{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeAwaitReply,
+		},
+	}
+	return m
+}
+
+// MsgRollForwardNtC is the NtC version of the RollForward message
+type MsgRollForwardNtC struct {
+	protocol.MessageBase
+	WrappedBlock cbor.Tag
+	Tip          Tip
+	blockType    uint
+	blockCbor    []byte
+}
+
+// NewMsgRollForwardNtC returns a MsgRollForwardNtC with the provided parameters
+func NewMsgRollForwardNtC(
+	blockType uint,
+	blockCbor []byte,
+	tip Tip,
+) (*MsgRollForwardNtC, error) {
+	m := &MsgRollForwardNtC{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeRollForward,
+		},
+		Tip:       tip,
+		blockType: blockType,
+		blockCbor: make([]byte, len(blockCbor)),
+	}
+	copy(m.blockCbor, blockCbor)
+	wb := NewWrappedBlock(blockType, blockCbor)
+	content, err := cbor.Encode(wb)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode wrapped block: %w", err)
+	}
+	m.WrappedBlock = cbor.Tag{Number: 24, Content: content}
+	return m, nil
+}
+
+func (m *MsgRollForwardNtC) UnmarshalCBOR(data []byte) error {
+	// Decode message
+	type tMsgRollForwardNtC MsgRollForwardNtC
+	var tmp tMsgRollForwardNtC
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*m = MsgRollForwardNtC(tmp)
+	// Decode wrapped block
+	wrappedBlockContent, ok := m.WrappedBlock.Content.([]byte)
+	if !ok {
+		return fmt.Errorf(
+			"%s: decode error: wrapped block tag content must be []byte, got %T",
+			ProtocolName,
+			m.WrappedBlock.Content,
+		)
+	}
+	var wb WrappedBlock
+	if _, err := cbor.Decode(wrappedBlockContent, &wb); err != nil {
+		return err
+	}
+	m.blockType = wb.BlockType
+	m.blockCbor = wb.BlockCbor
+	return nil
+}
+
+// BlockType returns the block type
+func (m *MsgRollForwardNtC) BlockType() uint {
+	return m.blockType
+}
+
+// BlockCbor returns the block CBOR
+func (m *MsgRollForwardNtC) BlockCbor() []byte {
+	return m.blockCbor
+}
+
+// MsgRollForwardNtN is the NtN version of the RollForward message
+type MsgRollForwardNtN struct {
+	protocol.MessageBase
+	WrappedHeader WrappedHeader
+	Tip           Tip
+}
+
+// NewMsgRollForwardNtN returns a MsgRollForwardNtN with the provided parameters
+func NewMsgRollForwardNtN(
+	era uint,
+	byronType uint,
+	blockCbor []byte,
+	tip Tip,
+) (*MsgRollForwardNtN, error) {
+	m := &MsgRollForwardNtN{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeRollForward,
+		},
+		Tip: tip,
+	}
+	wrappedHeader, err := NewWrappedHeader(era, byronType, blockCbor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wrapped header: %w", err)
+	}
+	m.WrappedHeader = *wrappedHeader
+	return m, nil
+}
+
+type MsgRollBackward struct {
+	protocol.MessageBase
+	Point pcommon.Point
+	Tip   Tip
+}
+
+func NewMsgRollBackward(point pcommon.Point, tip Tip) *MsgRollBackward {
+	m := &MsgRollBackward{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeRollBackward,
+		},
+		Point: point,
+		Tip:   tip,
+	}
+	return m
+}
+
+type MsgFindIntersect struct {
+	protocol.MessageBase
+	Points []pcommon.Point
+}
+
+func NewMsgFindIntersect(points []pcommon.Point) *MsgFindIntersect {
+	m := &MsgFindIntersect{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeFindIntersect,
+		},
+		Points: points,
+	}
+	return m
+}
+
+type MsgIntersectFound struct {
+	protocol.MessageBase
+	Point pcommon.Point
+	Tip   Tip
+}
+
+func NewMsgIntersectFound(point pcommon.Point, tip Tip) *MsgIntersectFound {
+	m := &MsgIntersectFound{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeIntersectFound,
+		},
+		Point: point,
+		Tip:   tip,
+	}
+	return m
+}
+
+type MsgIntersectNotFound struct {
+	protocol.MessageBase
+	Tip Tip
+}
+
+func NewMsgIntersectNotFound(tip Tip) *MsgIntersectNotFound {
+	m := &MsgIntersectNotFound{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeIntersectNotFound,
+		},
+		Tip: tip,
+	}
+	return m
+}
+
+type MsgDone struct {
+	protocol.MessageBase
+}
+
+func NewMsgDone() *MsgDone {
+	m := &MsgDone{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeDone,
+		},
+	}
+	return m
+}
+
+// Tip is an alias to keep historical code from breaking after moving this elsewhere
+type Tip = pcommon.Tip

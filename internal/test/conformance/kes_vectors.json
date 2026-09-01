@@ -1,0 +1,28 @@
+{
+  "source": "https://github.com/input-output-hk/kes",
+  "description": "KES (Key-Evolving Signature) test vectors for Sum6Kes (Cardano depth 6)",
+  "note": "Test vectors from Haskell KES implementation interoperability tests",
+  "parameters": {
+    "depth": 6,
+    "max_period": 64,
+    "signature_size": 448,
+    "seed": "test string of 32 byte of lenght",
+    "seed_hex": "7465737420737472696e67206f662033322062797465206f66206c656e676874",
+    "message": "test message",
+    "message_hex": "74657374206d657373616765"
+  },
+  "vectors": [
+    {
+      "name": "sign_at_period_0",
+      "description": "Signature generated at initial period 0",
+      "period": 0,
+      "signature": "bfc5aacd9410f03b877630578c1779db6388fa1441553408f2bc7347ffdd9885f512e10b92a735935dd9fc631f2a598009770eab72a6926aea089ab6e8a11d071bf4bacb1be6ac5ff6a2ba1f9a3a8332425e09c2018b9da013c9b46ae1a4b690f9324acf6b44db26de96dd82e258a0b19f812a1813284955e63fdbb4c8ecf971a0448a6a090bbf65c1052e3995b5ee749626ab5a2484f7d767e75e2da828af97e326e7889f40372c9bf7c422ce4f039de181e5354d26abbd82c8cae63e66ed4368c6febced18af77a204d79b570bc425f9f3b1f68c369f8270a9ce97ab124e6e1ce29b709e4e4512a9db6bb7f8517c7c4c9b3aa0cbb516a128213b53c237172cef212dd8e22cfa42d3a6048250603c7f743d15886fb60ff22407a37b1a66311c97480108d12e8c8c278afcb368e61a57df16e94594246f9f3edbc4c4461ac662dfce87cddaeda4f313f5b91fe4e8dc13fb889d42bf04ca64cbeca3e5e71ab68341f2ea1e2f71a5bffd9756aefc230f1aad4381072bac475611ff3d64f9a6cfb50b318353c6c6ffc2b27907bb5118f52d9b6031e4f6e69d62d208553e35c099a94c1665a7ebaccd3378175bc5490d9d5b414d66f1565909492ed415cbf6d7a35e"
+    },
+    {
+      "name": "sign_at_period_5",
+      "description": "Signature generated after 5 key updates (period 5)",
+      "period": 5,
+      "signature": "b639087e56dbdfcae8ebda18dabd7775987439b96e694282656d95ccd9c31211d6eccbcba0124ee6989c92ba4f42b527b3b30926db49fdfdbc9a740058b9b703a883cc98300eedfe34f2ba1fb4469cd17a583148d88966c912c3688664c4763d2f02a20af2b53a534eb90a6c939d22be18f72190100d8cad89d1959cef516e71ac6c5803c8f822072548bfa5e7245474c056a6a610a1ac389e4a12fc788e65a9ea3d8ad90313fa5749b566f8787552b970bbe9d98d4870839fbe681b68fd1d9c68c6febced18af77a204d79b570bc425f9f3b1f68c369f8270a9ce97ab124e6e1ce29b709e4e4512a9db6bb7f8517c7c4c9b3aa0cbb516a128213b53c237172cef212dd8e22cfa42d3a6048250603c7f743d15886fb60ff22407a37b1a66311c97480108d12e8c8c278afcb368e61a57df16e94594246f9f3edbc4c4461ac662dfce87cddaeda4f313f5b91fe4e8dc13fb889d42bf04ca64cbeca3e5e71ab68341f2ea1e2f71a5bffd9756aefc230f1aad4381072bac475611ff3d64f9a6cfb50b318353c6c6ffc2b27907bb5118f52d9b6031e4f6e69d62d208553e35c099a94c1665a7ebaccd3378175bc5490d9d5b414d66f1565909492ed415cbf6d7a35e"
+    }
+  ]
+}

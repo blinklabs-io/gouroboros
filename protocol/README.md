@@ -1,0 +1,190 @@
+# Ouroboros Mini-Protocols
+
+This directory contains implementations of the Ouroboros mini-protocols used for communication between Cardano nodes and clients.
+
+## Protocol Overview
+
+| Protocol | ID | Mode | Purpose |
+|----------|-----|------|---------|
+| [Handshake](handshake/) | 0 | NtN/NtC | Version negotiation |
+| [ChainSync](chainsync/) | 2/5 | NtN/NtC | Blockchain synchronization |
+| [BlockFetch](blockfetch/) | 3 | NtN | Block retrieval |
+| [TxSubmission](txsubmission/) | 4 | NtN | Transaction propagation |
+| [LocalTxSubmission](localtxsubmission/) | 6 | NtC | Local transaction submission |
+| [LocalStateQuery](localstatequery/) | 7 | NtC | Ledger state queries |
+| [KeepAlive](keepalive/) | 8 | NtN | Connection liveness |
+| [LocalTxMonitor](localtxmonitor/) | 9 | NtC | Mempool monitoring |
+| [PeerSharing](peersharing/) | 10 | NtN | Peer discovery |
+| [MessageSubmission](messagesubmission/) | 11 | NtN | DMQ message propagation (sig-submission-v2) |
+| [LocalMessageSubmission](localmessagesubmission/) | 14 | NtC | Local DMQ submission |
+| [LocalMessageNotification](localmessagenotification/) | 15 | NtC | Local DMQ notifications |
+| [LeiosNotify](leiosnotify/) | 18 | NtN | Leios notifications |
+| [LeiosFetch](leiosfetch/) | 19 | NtN | Leios data retrieval |
+| [LeiosVotes](leiosvotes/) | 20 | NtN | Leios vote diffusion |
+
+**Mode Key:**
+- **NtN**: Node-to-Node (between full nodes)
+- **NtC**: Node-to-Client (between node and wallet/application)
+
+## Protocol Architecture
+
+### State Machines
+
+Each protocol is defined by a state machine with:
+- **States**: Named protocol states with numeric IDs
+- **Agency**: Which party (Client/Server) can send messages in each state
+- **Transitions**: Valid message types that trigger state changes
+- **Timeouts**: Optional deadlines for state transitions
+
+### Agency Model
+
+The Ouroboros protocol uses an agency model where only one party can send messages at a time:
+- **Client Agency**: Client sends, server waits
+- **Server Agency**: Server sends, client waits
+- **None**: Terminal state (Done)
+
+### Pipelining
+
+A state may set `StateMapEntry.AllowPipelinedSend`, which lets the party
+*without* agency in that state write already-queued messages to the wire. The
+state transition for such a message is deferred until agency returns, so the
+local state machine still applies exactly one transition per message, in send
+order. This is how a protocol that is pipelined on the wire keeps the remote
+peer busy across response boundaries; block-fetch uses it for
+`MsgRequestRange`. States that leave the field false keep the strict "send only
+while holding agency" behavior.
+
+### Common Patterns
+
+**Acquire/Release Pattern** (LocalStateQuery, LocalTxMonitor):
+```
+Idle → Acquiring → Acquired → (query) → Acquired → Release → Idle
+```
+
+**Request/Reply Pattern** (BlockFetch, PeerSharing):
+```
+Idle → Request → Busy → Reply → Idle
+```
+
+**Streaming Pattern** (ChainSync, BlockFetch):
+```
+Idle → Request → Streaming → (data)* → Done → Idle
+```
+
+**Init Pattern** (TxSubmission, MessageSubmission):
+```
+Init → Idle → (request/reply cycle)
+```
+
+## Protocol Groups
+
+### Core Synchronization
+- **Handshake**: Establishes protocol version
+- **ChainSync**: Synchronizes blockchain headers/blocks
+- **BlockFetch**: Retrieves full block bodies
+
+### Transaction Handling
+- **TxSubmission**: Node-to-node transaction propagation
+- **LocalTxSubmission**: Submit transactions to local node
+- **LocalTxMonitor**: Monitor local mempool
+
+### State & Discovery
+- **LocalStateQuery**: Query ledger state
+- **PeerSharing**: Discover new peers
+- **KeepAlive**: Maintain connection liveness
+
+### CIP-0137 (DMQ)
+- **MessageSubmission**: Node-to-node message propagation
+- **LocalMessageSubmission**: Submit messages to local node
+- **LocalMessageNotification**: Receive message notifications
+
+### Leios (Experimental)
+- **LeiosNotify**: Block announcements and availability notifications
+- **LeiosFetch**: Block and transaction retrieval
+- **LeiosVotes**: Vote diffusion
+
+## Usage
+
+### Creating a Protocol Instance
+
+```go
+import (
+    "log/slog"
+
+    "github.com/blinklabs-io/gouroboros/protocol"
+    "github.com/blinklabs-io/gouroboros/protocol/chainsync"
+)
+
+// Create protocol options
+protoOptions := protocol.ProtocolOptions{
+    ConnectionId: connId,                              // connection.ConnectionId
+    Muxer:        muxer,                               // *muxer.Muxer
+    Logger:       slog.Default(),                      // *slog.Logger
+    ErrorChan:    errorChan,                           // chan error
+    Mode:         protocol.ProtocolModeNodeToClient,
+    Role:         protocol.ProtocolRoleClient,
+    Version:      versionNumber,                       // uint16
+}
+
+// Create protocol config with callbacks
+cfg := chainsync.NewConfig(
+    chainsync.WithRollForwardFunc(handleRollForward),
+    chainsync.WithRollBackwardFunc(handleRollBackward),
+)
+
+// Create protocol instance
+cs := chainsync.New(protoOptions, &cfg)
+```
+
+### Starting the Protocol
+
+```go
+// Start the protocol
+cs.Client.Start()
+
+// Use protocol methods
+cs.Client.RequestNext()
+```
+
+The embedded common protocol also exposes `SendMessageContext` for operations
+that must stop waiting when a full send queue outlives the caller's context.
+Cancellation applies only until the message enters the queue; a successful
+return means the protocol accepted responsibility for sending it.
+
+## Common Configuration
+
+All protocols support these common options:
+- **Timeouts**: Per-state or operation timeouts
+- **Callbacks**: Functions called on message receipt
+- **Queue Sizes**: Receive queue capacity
+
+## Error Handling
+
+Protocols report errors through the error channel:
+```go
+errChan := make(chan error, 10)
+protoOptions := protocol.ProtocolOptions{
+    ErrorChan: errChan,
+    // ...
+}
+
+go func() {
+    for err := range errChan {
+        slog.Default().Error("Protocol error", "error", err)
+    }
+}()
+```
+
+## Limits
+
+Each protocol defines specific limits documented in its README:
+- Message sizes
+- Queue depths
+- Pipeline counts
+- Pending byte limits
+
+## References
+
+- [Ouroboros Network Specification](https://github.com/IntersectMBO/ouroboros-network)
+- [CIP-0137: Distributed Message Queue](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0137)
+- [Leios Protocol Specification](https://github.com/input-output-hk/ouroboros-leios)

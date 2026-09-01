@@ -1,0 +1,231 @@
+Constr{
+    tag: 0,
+    fields: [
+        Constr{
+            tag: 0,
+            fields: [
+                List[
+                    Constr{
+                        tag: 0,
+                        fields: [
+                            Constr{
+                                tag: 0,
+                                fields: [
+                                    ByteString(0000000000000000000000000000000000000000000000000000000000000000)
+                                    Integer(0)
+                                ]
+                            }
+                            Constr{
+                                tag: 0,
+                                fields: [
+                                    Constr{
+                                        tag: 0,
+                                        fields: [
+                                            Constr{
+                                                tag: 1,
+                                                fields: [
+                                                    ByteString(39f47fd3b388ef53c48f08de24766d3e55dade6cae908cc24e0f4f3e)
+                                                ]
+                                            }
+                                            Constr{
+                                                tag: 1,
+                                                fields: [
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                    Map[
+                                        [
+                                            ByteString()
+                                            Map[
+                                                [
+                                                    ByteString()
+                                                    Integer(1000000000)
+                                                ]
+                                            ]
+                                        ]
+                                    ]
+                                    Constr{
+                                        tag: 0,
+                                        fields: [
+                                        ]
+                                    }
+                                    Constr{
+                                        tag: 1,
+                                        fields: [
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+                List[
+                ]
+                List[
+                    Constr{
+                        tag: 0,
+                        fields: [
+                            Constr{
+                                tag: 0,
+                                fields: [
+                                    Constr{
+                                        tag: 0,
+                                        fields: [
+                                            ByteString(11111111111111111111111111111111111111111111111111111111)
+                                        ]
+                                    }
+                                    Constr{
+                                        tag: 1,
+                                        fields: [
+                                        ]
+                                    }
+                                ]
+                            }
+                            Map[
+                                [
+                                    ByteString()
+                                    Map[
+                                        [
+                                            ByteString()
+                                            Integer(1000000000)
+                                        ]
+                                    ]
+                                ]
+                            ]
+                            Constr{
+                                tag: 0,
+                                fields: [
+                                ]
+                            }
+                            Constr{
+                                tag: 1,
+                                fields: [
+                                ]
+                            }
+                        ]
+                    }
+                ]
+                Integer(42)
+                Map[
+                ]
+                List[
+                ]
+                Map[
+                ]
+                Constr{
+                    tag: 0,
+                    fields: [
+                        Constr{
+                            tag: 0,
+                            fields: [
+                                Constr{
+                                    tag: 0,
+                                    fields: [
+                                    ]
+                                }
+                                Constr{
+                                    tag: 1,
+                                    fields: [
+                                    ]
+                                }
+                            ]
+                        }
+                        Constr{
+                            tag: 0,
+                            fields: [
+                                Constr{
+                                    tag: 2,
+                                    fields: [
+                                    ]
+                                }
+                                Constr{
+                                    tag: 1,
+                                    fields: [
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+                List[
+                ]
+                Map[
+                    [
+                        Constr{
+                            tag: 1,
+                            fields: [
+                                Constr{
+                                    tag: 0,
+                                    fields: [
+                                        ByteString(0000000000000000000000000000000000000000000000000000000000000000)
+                                        Integer(0)
+                                    ]
+                                }
+                                Constr{
+                                    tag: 0,
+                                    fields: [
+                                        Constr{
+                                            tag: 0,
+                                            fields: [
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                        Constr{
+                            tag: 0,
+                            fields: [
+                            ]
+                        }
+                    ]
+                ]
+                Map[
+                ]
+                ByteString(78ec148ea647cf9969446891af31939c5d57b275a2455706782c6183ef0b62f1)
+                Map[
+                ]
+                List[
+                ]
+                Constr{
+                    tag: 1,
+                    fields: [
+                    ]
+                }
+                Constr{
+                    tag: 1,
+                    fields: [
+                    ]
+                }
+            ]
+        }
+        Constr{
+            tag: 0,
+            fields: [
+            ]
+        }
+        Constr{
+            tag: 1,
+            fields: [
+                Constr{
+                    tag: 0,
+                    fields: [
+                        ByteString(0000000000000000000000000000000000000000000000000000000000000000)
+                        Integer(0)
+                    ]
+                }
+                Constr{
+                    tag: 0,
+                    fields: [
+                        Constr{
+                            tag: 0,
+                            fields: [
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

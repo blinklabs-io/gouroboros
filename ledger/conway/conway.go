@@ -1,0 +1,1220 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package conway
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"iter"
+	"maps"
+	"math/big"
+	"slices"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+)
+
+const (
+	EraIdConway   = 6
+	EraNameConway = "Conway"
+
+	// MinProtocolVersionConway is the lowest protocol major
+	// version that belongs to the Conway era.
+	MinProtocolVersionConway = 9
+	// MaxProtocolVersionConway is the highest protocol major
+	// version that belongs to the Conway era.
+	MaxProtocolVersionConway = 11
+
+	BlockTypeConway = 7
+
+	BlockHeaderTypeConway = 6
+
+	TxTypeConway = 6
+)
+
+var EraConway = common.Era{
+	Id:   EraIdConway,
+	Name: EraNameConway,
+}
+
+func init() {
+	common.RegisterEra(EraConway)
+}
+
+type ConwayBlock struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	BlockHeader            *ConwayBlockHeader
+	TransactionBodies      []ConwayTransactionBody
+	TransactionWitnessSets []ConwayTransactionWitnessSet
+	TransactionMetadataSet common.TransactionMetadataSet
+	InvalidTransactions    []uint
+}
+
+func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
+	// Create a temporary struct for unmarshaling with []any for InvalidTransactions
+	type tmpConwayBlock struct {
+		cbor.StructAsArray
+		BlockHeader            *ConwayBlockHeader
+		TransactionBodies      []ConwayTransactionBody
+		TransactionWitnessSets []ConwayTransactionWitnessSet
+		TransactionMetadataSet common.TransactionMetadataSet
+		InvalidTransactions    []uint64
+	}
+
+	var tmp tmpConwayBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+
+	// Convert the wire indices to the platform type without discarding values.
+	result := make([]uint, 0, len(tmp.InvalidTransactions))
+	for _, val := range tmp.InvalidTransactions {
+		if val >= uint64(len(tmp.TransactionBodies)) {
+			return fmt.Errorf(
+				"invalid transaction index %d outside transaction list length %d",
+				val,
+				len(tmp.TransactionBodies),
+			)
+		}
+		converted := uint(val)
+		if uint64(converted) != val {
+			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+		}
+		result = append(result, converted)
+	}
+	if len(result) == 0 {
+		b.InvalidTransactions = nil
+	} else {
+		b.InvalidTransactions = result
+	}
+
+	// Assign the other fields
+	b.BlockHeader = tmp.BlockHeader
+	b.TransactionBodies = tmp.TransactionBodies
+	b.TransactionWitnessSets = tmp.TransactionWitnessSets
+	b.TransactionMetadataSet = tmp.TransactionMetadataSet
+
+	b.SetCbor(cborData)
+
+	// Extract and store CBOR for each component
+	if err := common.ExtractAndSetTransactionCbor(
+		b.Cbor(),
+		func(i int, data []byte) { b.TransactionBodies[i].SetCborReference(data) },
+		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCborReference(data) },
+		func(data []byte) { b.TransactionMetadataSet.SetCborReference(data) },
+		len(b.TransactionBodies),
+		len(b.TransactionWitnessSets),
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateConwayCertificateTypes(
+	certificates []common.CertificateWrapper,
+) error {
+	for idx, certificate := range certificates {
+		certType := common.CertificateType(certificate.Type)
+		if certType == common.CertificateTypeGenesisKeyDelegation ||
+			certType == common.CertificateTypeMoveInstantaneousRewards {
+			return fmt.Errorf(
+				"certificate type is not valid in Conway: index %d type %d",
+				idx,
+				certificate.Type,
+			)
+		}
+	}
+	return nil
+}
+
+func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+
+	// Ensure nil slices are encoded as empty CBOR arrays (0x80)
+	// rather than CBOR null (0xF6). The Cardano CDDL requires
+	// arrays for transaction_bodies, transaction_witness_sets,
+	// and invalid_transactions.
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []ConwayTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []ConwayTransactionWitnessSet{}
+	}
+	invalidTxs := b.InvalidTransactions
+	if invalidTxs == nil {
+		invalidTxs = []uint{}
+	}
+
+	return cbor.Encode([]any{
+		b.BlockHeader,
+		txBodies,
+		txWitnesses,
+		b.TransactionMetadataSet,
+		invalidTxs,
+	})
+}
+
+func (ConwayBlock) Type() int {
+	return BlockTypeConway
+}
+
+func (b *ConwayBlock) Hash() common.Blake2b256 {
+	return b.BlockHeader.Hash()
+}
+
+func (b *ConwayBlock) Header() common.BlockHeader {
+	return b.BlockHeader
+}
+
+func (b *ConwayBlock) PrevHash() common.Blake2b256 {
+	return b.BlockHeader.PrevHash()
+}
+
+func (b *ConwayBlock) BlockNumber() uint64 {
+	return b.BlockHeader.BlockNumber()
+}
+
+func (b *ConwayBlock) SlotNumber() uint64 {
+	return b.BlockHeader.SlotNumber()
+}
+
+func (b *ConwayBlock) IssuerVkey() common.IssuerVkey {
+	return b.BlockHeader.IssuerVkey()
+}
+
+func (b *ConwayBlock) BlockBodySize() uint64 {
+	return b.BlockHeader.BlockBodySize()
+}
+
+func (b *ConwayBlock) Era() common.Era {
+	return EraConway
+}
+
+func (b *ConwayBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
+	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
+	for _, invalidTxIdx := range b.InvalidTransactions {
+		invalidTxMap[invalidTxIdx] = true
+	}
+
+	ret := make([]common.Transaction, len(b.TransactionBodies))
+	// #nosec G115
+	for idx := range b.TransactionBodies {
+		tx := &ConwayTransaction{
+			Body:       b.TransactionBodies[idx],
+			WitnessSet: b.TransactionWitnessSets[idx],
+			TxIsValid:  !invalidTxMap[uint(idx)],
+		}
+		// Populate metadata and preserve original auxiliary CBOR when present
+		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
+			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
+		}
+		ret[idx] = tx
+	}
+	return ret
+}
+
+func (b *ConwayBlock) Utxorpc() (*utxorpc.Block, error) {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
+		tx, err := t.Utxorpc()
+		if err != nil {
+			return nil, err
+		}
+		txs = append(txs, tx)
+	}
+	body := &utxorpc.BlockBody{
+		Tx: txs,
+	}
+	header := &utxorpc.BlockHeader{
+		Hash:   b.Hash().Bytes(),
+		Height: b.BlockNumber(),
+		Slot:   b.SlotNumber(),
+	}
+	block := &utxorpc.Block{
+		Body:   body,
+		Header: header,
+	}
+	return block, nil
+}
+
+func (b *ConwayBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
+}
+
+type ConwayBlockHeader struct {
+	babbage.BabbageBlockHeader
+}
+
+func (h *ConwayBlockHeader) Era() common.Era {
+	return EraConway
+}
+
+type ConwayRedeemers struct {
+	cbor.DecodeStoreCbor
+	Redeemers       map[common.RedeemerKey]common.RedeemerValue
+	legacyRedeemers alonzo.AlonzoRedeemers
+	legacy          bool
+}
+
+func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
+	r.SetCbor(cborData)
+	if len(cborData) > 0 && (cborData[0]&0xe0) == 0xa0 {
+		// Modern map form — clear any stale legacy state
+		r.legacy = false
+		r.legacyRedeemers = alonzo.AlonzoRedeemers{}
+		if _, err := cbor.Decode(cborData, &r.Redeemers); err != nil {
+			if !cbor.IsDuplicateMapKeyError(err) {
+				return err
+			}
+			// A Redeemers map with a duplicate (tag, index) key. cardano-ledger
+			// decodes this map last-wins and cardano-node accepts such blocks,
+			// so they appear on canonical chains (gouroboros #1860: a preview
+			// block carries a duplicate (Spend, 0) redeemer that cardano-node
+			// accepts). Reject-on-duplicate poisons every peer serving the block
+			// and stalls sync, so decode leniently (last-wins) to match
+			// consensus. Hash-safe: redeemer/tx/block hashes are computed over
+			// the stored raw CBOR (SetCbor above), so lenient struct decoding
+			// never changes them.
+			r.Redeemers = nil
+			if _, err := cbor.DecodeLenient(cborData, &r.Redeemers); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	// Legacy array form — clear any stale map state
+	r.Redeemers = nil
+	_, err := cbor.Decode(cborData, &r.legacyRedeemers)
+	if err != nil {
+		return err
+	}
+	r.legacy = true
+	return nil
+}
+
+// conwayRedeemerJSON is a helper type for JSON serialization of ConwayRedeemers
+type conwayRedeemerJSON struct {
+	Tag     common.RedeemerTag `json:"tag"`
+	Index   uint32             `json:"index"`
+	Data    common.Datum       `json:"data"`
+	ExUnits common.ExUnits     `json:"exUnits"`
+}
+
+func (r ConwayRedeemers) MarshalJSON() ([]byte, error) {
+	if r.legacy {
+		return json.Marshal(r.legacyRedeemers)
+	}
+	entries := make([]conwayRedeemerJSON, 0, len(r.Redeemers))
+	// Sort keys for deterministic output
+	sorted := slices.Collect(maps.Keys(r.Redeemers))
+	slices.SortFunc(sorted, common.CompareRedeemerKeys)
+	for _, key := range sorted {
+		val := r.Redeemers[key]
+		entries = append(entries, conwayRedeemerJSON{
+			Tag:     key.Tag,
+			Index:   key.Index,
+			Data:    val.Data,
+			ExUnits: val.ExUnits,
+		})
+	}
+	return json.Marshal(entries)
+}
+
+func (r *ConwayRedeemers) UnmarshalJSON(data []byte) error {
+	r.SetCbor(nil)
+	r.legacy = false
+	r.legacyRedeemers = alonzo.AlonzoRedeemers{}
+	var entries []conwayRedeemerJSON
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return err
+	}
+	r.Redeemers = make(map[common.RedeemerKey]common.RedeemerValue, len(entries))
+	for _, entry := range entries {
+		key := common.RedeemerKey{
+			Tag:   entry.Tag,
+			Index: entry.Index,
+		}
+		if _, exists := r.Redeemers[key]; exists {
+			return fmt.Errorf("duplicate redeemer key: tag=%d index=%d", entry.Tag, entry.Index)
+		}
+		r.Redeemers[key] = common.RedeemerValue{
+			Data:    entry.Data,
+			ExUnits: entry.ExUnits,
+		}
+	}
+	return nil
+}
+
+func (r *ConwayRedeemers) MarshalCBOR() ([]byte, error) {
+	if r.legacy {
+		return cbor.Encode(r.legacyRedeemers)
+	}
+	return cbor.Encode(r.Redeemers)
+}
+
+// Len returns the number of redeemers, correctly handling both legacy (array)
+// and new (map) Conway formats.
+func (r ConwayRedeemers) Len() int {
+	if r.legacy {
+		return len(r.legacyRedeemers.Redeemers)
+	}
+	return len(r.Redeemers)
+}
+
+func (r ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
+	if r.legacy {
+		return r.legacyRedeemers.Iter()
+	}
+	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
+		// Sort redeemers
+		sorted := slices.Collect(maps.Keys(r.Redeemers))
+		slices.SortFunc(sorted, common.CompareRedeemerKeys)
+		// Yield keys
+		for _, redeemerKey := range sorted {
+			tmpVal := r.Redeemers[redeemerKey]
+			if !yield(redeemerKey, tmpVal) {
+				return
+			}
+		}
+	}
+}
+
+func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
+	if r.legacy {
+		return r.legacyRedeemers.Indexes(tag)
+	}
+	ret := []uint{}
+	for key := range r.Redeemers {
+		if key.Tag == tag {
+			ret = append(ret, uint(key.Index))
+		}
+	}
+	return ret
+}
+
+func (r ConwayRedeemers) Value(
+	index uint,
+	tag common.RedeemerTag,
+) common.RedeemerValue {
+	if r.legacy {
+		return r.legacyRedeemers.Value(index, tag)
+	}
+	redeemerVal, ok := r.Redeemers[common.RedeemerKey{
+		Tag:   tag,
+		Index: uint32(index), // #nosec G115
+	}]
+	if ok {
+		return redeemerVal
+	}
+	return common.RedeemerValue{}
+}
+
+type ConwayTransactionWitnessSet struct {
+	cbor.DecodeStoreCbor
+	VkeyWitnesses      cbor.SetType[common.VkeyWitness]      `cbor:"0,keyasint,omitempty,omitzero"`
+	WsNativeScripts    cbor.SetType[common.NativeScript]     `cbor:"1,keyasint,omitempty,omitzero"`
+	BootstrapWitnesses cbor.SetType[common.BootstrapWitness] `cbor:"2,keyasint,omitempty,omitzero"`
+	WsPlutusV1Scripts  cbor.SetType[common.PlutusV1Script]   `cbor:"3,keyasint,omitempty,omitzero"`
+	WsPlutusData       cbor.SetType[common.Datum]            `cbor:"4,keyasint,omitempty,omitzero"`
+	WsRedeemers        ConwayRedeemers                       `cbor:"5,keyasint,omitempty,omitzero"`
+	WsPlutusV2Scripts  cbor.SetType[common.PlutusV2Script]   `cbor:"6,keyasint,omitempty,omitzero"`
+	WsPlutusV3Scripts  cbor.SetType[common.PlutusV3Script]   `cbor:"7,keyasint,omitempty,omitzero"`
+}
+
+func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	type tConwayTransactionWitnessSet ConwayTransactionWitnessSet
+	var tmp tConwayTransactionWitnessSet
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	// Conway (protocol versions 9-11) tolerates duplicate members in the
+	// witness-set sets that cardano-ledger decodes via Set/Map.fromList: vkey
+	// witnesses, bootstrap witnesses, native scripts, and plutus data all
+	// silently deduplicate at decode and only begin rejecting duplicates at
+	// protocol version 12 (Dijkstra, handled by DijkstraTransactionWitnessSet).
+	// Plutus script sets, by contrast, reject duplicates from version 9
+	// (cardano-ledger scriptDecoderV9 / decodeMapLikeEnforceNoDuplicates), like
+	// the tx-body sets. Only enforce the fields cardano-ledger enforces in
+	// Conway; enforcing the tolerated fields rejects valid historical blocks at
+	// decode (issue #1853). Untagged array fields are left unchecked so
+	// pre-Conway encodings remain valid.
+	type duplicateChecker interface {
+		CheckForDuplicates() error
+	}
+	for _, c := range []duplicateChecker{
+		&tmp.WsPlutusV1Scripts,
+		&tmp.WsPlutusV2Scripts,
+		&tmp.WsPlutusV3Scripts,
+	} {
+		if err := c.CheckForDuplicates(); err != nil {
+			return err
+		}
+	}
+	*w = ConwayTransactionWitnessSet(tmp)
+	w.SetCbor(cborData)
+	return nil
+}
+
+func (w ConwayTransactionWitnessSet) Vkey() []common.VkeyWitness {
+	return w.VkeyWitnesses.Items()
+}
+
+func (w ConwayTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+	return w.BootstrapWitnesses.Items()
+}
+
+func (w ConwayTransactionWitnessSet) NativeScripts() []common.NativeScript {
+	return w.WsNativeScripts.Items()
+}
+
+func (w ConwayTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
+	return w.WsPlutusV1Scripts.Items()
+}
+
+func (w ConwayTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
+	return w.WsPlutusV2Scripts.Items()
+}
+
+func (w ConwayTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
+	return w.WsPlutusV3Scripts.Items()
+}
+
+func (w ConwayTransactionWitnessSet) PlutusData() []common.Datum {
+	return w.WsPlutusData.Items()
+}
+
+func (w ConwayTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+	return w.WsRedeemers
+}
+
+type ConwayTransactionInputSet struct {
+	useSet bool
+	items  []shelley.ShelleyTransactionInput
+}
+
+func NewConwayTransactionInputSet(
+	items []shelley.ShelleyTransactionInput,
+) ConwayTransactionInputSet {
+	s := ConwayTransactionInputSet{
+		items: items,
+	}
+	return s
+}
+
+func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
+	// Check if the set is wrapped in a CBOR tag
+	// This is mostly needed so we can remember whether it was Set-wrapped for CBOR encoding
+	var tmpTag cbor.RawTag
+	s.useSet = false
+	if _, err := cbor.Decode(data, &tmpTag); err == nil {
+		if tmpTag.Number != cbor.CborTagSet {
+			return errors.New("unexpected tag type")
+		}
+		data = []byte(tmpTag.Content)
+		s.useSet = true
+	}
+	var tmpData []shelley.ShelleyTransactionInput
+	if _, err := cbor.Decode(data, &tmpData); err != nil {
+		return err
+	}
+	s.items = tmpData
+	return nil
+}
+
+func (s *ConwayTransactionInputSet) CheckForDuplicates() error {
+	if !s.useSet {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(s.items))
+	for _, item := range s.items {
+		encoded, err := cbor.Encode(item)
+		if err != nil {
+			return err
+		}
+		key := string(encoded)
+		if _, exists := seen[key]; exists {
+			return errors.New("duplicate member in set")
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func (s *ConwayTransactionInputSet) MarshalCBOR() ([]byte, error) {
+	tmpItems := make([]any, len(s.items))
+	for i, item := range s.items {
+		tmpItems[i] = item
+	}
+	var tmpData any = tmpItems
+	if s.useSet {
+		tmpData = cbor.Set(tmpItems)
+	}
+	return cbor.Encode(tmpData)
+}
+
+func (s *ConwayTransactionInputSet) Items() []shelley.ShelleyTransactionInput {
+	return s.items
+}
+
+func (s *ConwayTransactionInputSet) SetItems(
+	items []shelley.ShelleyTransactionInput,
+) {
+	s.items = make([]shelley.ShelleyTransactionInput, len(items))
+	copy(s.items, items)
+}
+
+type ConwayTransactionPparamUpdate struct {
+	cbor.StructAsArray
+	ProtocolParamUpdates map[common.Blake2b224]babbage.BabbageProtocolParameterUpdate
+	Epoch                uint64
+}
+
+type ConwayTransactionBody struct {
+	common.TransactionBodyBase
+	TxInputs                ConwayTransactionInputSet                     `cbor:"0,keyasint,omitempty"`
+	TxOutputs               []babbage.BabbageTransactionOutput            `cbor:"1,keyasint,omitempty"`
+	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
+	Ttl                     uint64                                        `cbor:"3,keyasint,omitempty"`
+	TxCertificates          []common.CertificateWrapper                   `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals           map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
+	Update                  *ConwayTransactionPparamUpdate                `cbor:"6,keyasint,omitempty"`
+	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
+	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
+	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
+	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
+	TxCollateral            cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"13,keyasint,omitempty,omitzero"`
+	TxRequiredSigners       cbor.SetType[common.Blake2b224]               `cbor:"14,keyasint,omitempty,omitzero"`
+	TxNetworkId             *uint8                                        `cbor:"15,keyasint,omitempty"`
+	TxCollateralReturn      *babbage.BabbageTransactionOutput             `cbor:"16,keyasint,omitempty"`
+	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
+	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
+	TxVotingProcedures      common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
+	TxProposalProcedures    []ConwayProposalProcedure                     `cbor:"20,keyasint,omitempty"`
+	TxCurrentTreasuryValue  int64                                         `cbor:"21,keyasint,omitempty"`
+	TxDonation              uint64                                        `cbor:"22,keyasint,omitempty"`
+}
+
+func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
+	type tConwayTransactionBody ConwayTransactionBody
+	var tmp tConwayTransactionBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := validateConwayCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
+	// Reject duplicate members in any tag-258 set field on the transaction body.
+	type duplicateChecker interface {
+		CheckForDuplicates() error
+	}
+	for _, c := range []duplicateChecker{
+		&tmp.TxInputs,
+		&tmp.TxCollateral,
+		&tmp.TxRequiredSigners,
+		&tmp.TxReferenceInputs,
+	} {
+		if err := c.CheckForDuplicates(); err != nil {
+			return err
+		}
+	}
+	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
+		return err
+	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
+	for idx := range tmp.TxOutputs {
+		if err := checkMultiAssetDuplicateKeys(tmp.TxOutputs[idx].Assets()); err != nil {
+			return fmt.Errorf("transaction output %d: %w", idx, err)
+		}
+	}
+	if tmp.TxCollateralReturn != nil {
+		if err := checkMultiAssetDuplicateKeys(
+			tmp.TxCollateralReturn.Assets(),
+		); err != nil {
+			return fmt.Errorf("collateral return: %w", err)
+		}
+	}
+	*b = ConwayTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
+	b.SetCborReference(cborData)
+	return nil
+}
+
+func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+}
+
+func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
+	assets *common.MultiAsset[T],
+) error {
+	if assets == nil {
+		return nil
+	}
+	return assets.CheckForDuplicateKeys()
+}
+
+func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {
+	ret := make([]common.TransactionInput, 0, len(b.TxInputs.Items()))
+	for _, input := range b.TxInputs.Items() {
+		ret = append(ret, input)
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) Outputs() []common.TransactionOutput {
+	ret := make([]common.TransactionOutput, len(b.TxOutputs))
+	for i := range b.TxOutputs {
+		ret[i] = &b.TxOutputs[i]
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
+}
+
+func (b *ConwayTransactionBody) TTL() uint64 {
+	return b.Ttl
+}
+
+func (b *ConwayTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *ConwayTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *ConwayTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
+}
+
+func (b *ConwayTransactionBody) ValidityIntervalStart() uint64 {
+	return b.TxValidityIntervalStart
+}
+
+func (b *ConwayTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	if b.Update == nil {
+		return 0, nil
+	}
+	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
+	for k, v := range b.Update.ProtocolParamUpdates {
+		updateMap[k] = v
+	}
+	return b.Update.Epoch, updateMap
+}
+
+func (b *ConwayTransactionBody) Certificates() []common.Certificate {
+	ret := make([]common.Certificate, len(b.TxCertificates))
+	for i, cert := range b.TxCertificates {
+		ret[i] = cert.Certificate
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int, len(b.TxWithdrawals))
+	for addr, amount := range b.TxWithdrawals {
+		ret[addr] = new(big.Int).SetUint64(amount)
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) AuxDataHash() *common.Blake2b256 {
+	return b.TxAuxDataHash
+}
+
+func (b *ConwayTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	return b.TxMint
+}
+
+func (b *ConwayTransactionBody) Collateral() []common.TransactionInput {
+	items := b.TxCollateral.Items()
+	ret := make([]common.TransactionInput, 0, len(items))
+	for _, collateral := range items {
+		ret = append(ret, collateral)
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) RequiredSigners() []common.Blake2b224 {
+	return b.TxRequiredSigners.Items()
+}
+
+func (b *ConwayTransactionBody) ScriptDataHash() *common.Blake2b256 {
+	return b.TxScriptDataHash
+}
+
+func (b *ConwayTransactionBody) ReferenceInputs() []common.TransactionInput {
+	items := b.TxReferenceInputs.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i := range items {
+		ret[i] = &items[i]
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) CollateralReturn() common.TransactionOutput {
+	// Return an actual nil if we have no value. If we return our nil pointer,
+	// we get a non-nil interface containing a nil value, which is harder to
+	// compare against
+	if b.TxCollateralReturn == nil {
+		return nil
+	}
+	return b.TxCollateralReturn
+}
+
+func (b *ConwayTransactionBody) TotalCollateral() *big.Int {
+	return new(big.Int).SetUint64(b.TxTotalCollateral)
+}
+
+func (b *ConwayTransactionBody) VotingProcedures() common.VotingProcedures {
+	return b.TxVotingProcedures
+}
+
+func (b *ConwayTransactionBody) ProposalProcedures() []common.ProposalProcedure {
+	ret := make([]common.ProposalProcedure, len(b.TxProposalProcedures))
+	for i, item := range b.TxProposalProcedures {
+		ret[i] = item
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) NetworkId() *uint8 {
+	// TxNetworkId field is optional (omitempty in CBOR)
+	// Since it's a pointer, nil means not present, non-nil means present
+	// This correctly handles testnet (network ID 0) as well as mainnet (ID 1)
+	return b.TxNetworkId
+}
+
+func (b *ConwayTransactionBody) CurrentTreasuryValue() *big.Int {
+	return big.NewInt(b.TxCurrentTreasuryValue)
+}
+
+func (b *ConwayTransactionBody) Donation() *big.Int {
+	return new(big.Int).SetUint64(b.TxDonation)
+}
+
+func (b *ConwayTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
+	return common.TransactionBodyToUtxorpc(b)
+}
+
+type ConwayTransaction struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
+	Body       ConwayTransactionBody
+	WitnessSet ConwayTransactionWitnessSet
+	TxIsValid  bool
+	TxMetadata common.TransactionMetadatum
+	auxData    common.AuxiliaryData
+}
+
+func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
+	// Reset cached/derived fields to avoid stale state on receiver reuse
+	t.hash = nil
+	t.TxMetadata = nil
+	t.auxData = nil
+
+	dec, err := cbor.NewStreamDecoder(cborData)
+	if err != nil {
+		return err
+	}
+	var txArray []cbor.RawMessage
+	if _, _, err := dec.Decode(&txArray); err != nil {
+		return err
+	}
+
+	// Ensure we have exactly 4 components (body, witness, isValid, metadata)
+	if len(txArray) != 4 {
+		return fmt.Errorf(
+			"invalid transaction: expected exactly 4 components, got %d",
+			len(txArray),
+		)
+	}
+
+	// Decode body
+	if _, err := cbor.Decode([]byte(txArray[0]), &t.Body); err != nil {
+		return fmt.Errorf("failed to decode transaction body: %w", err)
+	}
+
+	// Decode witness set
+	if _, err := cbor.Decode([]byte(txArray[1]), &t.WitnessSet); err != nil {
+		return fmt.Errorf("failed to decode transaction witness set: %w", err)
+	}
+
+	// Decode TxIsValid flag
+	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
+		return fmt.Errorf("failed to decode TxIsValid: %w", err)
+	}
+	// Handle metadata (component 4, always present - either data or CBOR nil)
+	metadataRaw := []byte(txArray[3])
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 &&
+		(len(metadataRaw) != 1 ||
+			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
+		// 0xF6 is CBOR null
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
+			if fallbackErr != nil || metadata == nil {
+				if fallbackErr == nil {
+					fallbackErr = errors.New("metadata fallback returned no metadata")
+				}
+				return fmt.Errorf(
+					"failed to decode auxiliary data: %w (metadata fallback: %w)",
+					err,
+					fallbackErr,
+				)
+			}
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		}
+	}
+
+	t.SetCbor(cborData)
+	return nil
+}
+
+func (t *ConwayTransaction) Metadata() common.TransactionMetadatum {
+	return t.TxMetadata
+}
+
+func (t *ConwayTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
+}
+
+func (ConwayTransaction) Type() int {
+	return TxTypeConway
+}
+
+func (t ConwayTransaction) Hash() common.Blake2b256 {
+	return t.Id()
+}
+
+func (t ConwayTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t ConwayTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
+}
+
+func (t ConwayTransaction) Inputs() []common.TransactionInput {
+	return t.Body.Inputs()
+}
+
+func (t ConwayTransaction) Outputs() []common.TransactionOutput {
+	return t.Body.Outputs()
+}
+
+func (t ConwayTransaction) Fee() *big.Int {
+	return t.Body.Fee()
+}
+
+func (t ConwayTransaction) TTL() uint64 {
+	return t.Body.TTL()
+}
+
+func (t ConwayTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
+}
+
+func (t ConwayTransaction) ValidityIntervalStart() uint64 {
+	return t.Body.ValidityIntervalStart()
+}
+
+func (t ConwayTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	return t.Body.ProtocolParameterUpdates()
+}
+
+func (t ConwayTransaction) ReferenceInputs() []common.TransactionInput {
+	return t.Body.ReferenceInputs()
+}
+
+func (t ConwayTransaction) Collateral() []common.TransactionInput {
+	return t.Body.Collateral()
+}
+
+func (t ConwayTransaction) CollateralReturn() common.TransactionOutput {
+	return t.Body.CollateralReturn()
+}
+
+func (t ConwayTransaction) TotalCollateral() *big.Int {
+	return t.Body.TotalCollateral()
+}
+
+func (t ConwayTransaction) Certificates() []common.Certificate {
+	return t.Body.Certificates()
+}
+
+func (t ConwayTransaction) Withdrawals() map[*common.Address]*big.Int {
+	return t.Body.Withdrawals()
+}
+
+func (t ConwayTransaction) AuxDataHash() *common.Blake2b256 {
+	return t.Body.AuxDataHash()
+}
+
+func (t ConwayTransaction) RequiredSigners() []common.Blake2b224 {
+	return t.Body.RequiredSigners()
+}
+
+func (t ConwayTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	return t.Body.AssetMint()
+}
+
+func (t ConwayTransaction) ScriptDataHash() *common.Blake2b256 {
+	return t.Body.ScriptDataHash()
+}
+
+func (t ConwayTransaction) VotingProcedures() common.VotingProcedures {
+	return t.Body.VotingProcedures()
+}
+
+func (t ConwayTransaction) ProposalProcedures() []common.ProposalProcedure {
+	return t.Body.ProposalProcedures()
+}
+
+func (t ConwayTransaction) CurrentTreasuryValue() *big.Int {
+	return t.Body.CurrentTreasuryValue()
+}
+
+func (t ConwayTransaction) Donation() *big.Int {
+	return t.Body.Donation()
+}
+
+func (t ConwayTransaction) NetworkId() *uint8 {
+	return t.Body.NetworkId()
+}
+
+func (t ConwayTransaction) IsValid() bool {
+	return t.TxIsValid
+}
+
+func (t ConwayTransaction) Consumed() []common.TransactionInput {
+	if t.IsValid() {
+		return t.Inputs()
+	}
+	return t.Collateral()
+}
+
+func (t ConwayTransaction) Produced() []common.Utxo {
+	if t.IsValid() {
+		outputs := t.Outputs()
+		ret := make([]common.Utxo, 0, len(outputs))
+		for idx, output := range outputs {
+			ret = append(
+				ret,
+				common.Utxo{
+					Id: shelley.NewShelleyTransactionInput(
+						t.Hash().String(),
+						idx,
+					),
+					Output: output,
+				},
+			)
+		}
+		return ret
+	}
+	if t.CollateralReturn() == nil {
+		return []common.Utxo{}
+	}
+	return []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(
+				t.Hash().String(),
+				len(t.Outputs()),
+			),
+			Output: t.CollateralReturn(),
+		},
+	}
+}
+
+func (t ConwayTransaction) Witnesses() common.TransactionWitnessSet {
+	return t.WitnessSet
+}
+
+func (t *ConwayTransaction) MarshalCBOR() ([]byte, error) {
+	// If we have stored CBOR (from decode), return it to preserve metadata bytes
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData, nil
+	}
+	bodyCbor := t.Body.Cbor()
+	witnessCbor := t.WitnessSet.Cbor()
+	if len(bodyCbor) > 0 && len(witnessCbor) > 0 {
+		var auxCbor []byte
+		if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
+			auxCbor = t.auxData.Cbor()
+		} else if t.TxMetadata != nil {
+			auxCbor = t.TxMetadata.Cbor()
+		}
+		return common.ReassembleTransactionCbor(
+			bodyCbor,
+			witnessCbor,
+			t.TxIsValid,
+			auxCbor,
+		), nil
+	}
+	// Otherwise, construct and encode
+	tmpObj := []any{
+		t.Body,
+		t.WitnessSet,
+		t.TxIsValid,
+	}
+	if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.auxData.Cbor()))
+	} else if t.TxMetadata != nil {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+	} else {
+		tmpObj = append(tmpObj, nil)
+	}
+	return cbor.Encode(tmpObj)
+}
+
+func (t *ConwayTransaction) Cbor() []byte {
+	// Return stored CBOR if we have any
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData[:]
+	}
+	// Return immediately if the body CBOR is also empty, which implies an empty TX object
+	if t.Body.Cbor() == nil {
+		return nil
+	}
+	// Delegate to MarshalCBOR which handles encoding
+	cborData, err := t.MarshalCBOR()
+	if err != nil {
+		panic("CBOR encoding that should never fail has failed: " + err.Error())
+	}
+	return cborData
+}
+
+func (t *ConwayTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	tx, err := t.Body.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Conway transaction: %w", err)
+	}
+	return tx, nil
+}
+
+func NewConwayBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*ConwayBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
+	var conwayBlock ConwayBlock
+	if _, err := cbor.Decode(data, &conwayBlock); err != nil {
+		return nil, fmt.Errorf("decode Conway block error: %w", err)
+	}
+
+	// Validate body hash during parsing if not skipped
+	if !cfg.SkipBodyHashValidation {
+		if conwayBlock.BlockHeader == nil {
+			return nil, errors.New("conway block header is nil")
+		}
+		if err := common.ValidateBlockBodyHash(
+			data,
+			conwayBlock.BlockHeader.BlockBodyHash(),
+			EraNameConway,
+			5, // Conway has 5 elements: header, txs, witnesses, aux, invalid
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	return &conwayBlock, nil
+}
+
+func NewConwayBlockHeaderFromCbor(data []byte) (*ConwayBlockHeader, error) {
+	var conwayBlockHeader ConwayBlockHeader
+	if _, err := cbor.Decode(data, &conwayBlockHeader); err != nil {
+		return nil, fmt.Errorf("decode Conway block header error: %w", err)
+	}
+	return &conwayBlockHeader, nil
+}
+
+func NewConwayTransactionBodyFromCbor(
+	data []byte,
+) (*ConwayTransactionBody, error) {
+	var conwayTx ConwayTransactionBody
+	if _, err := cbor.Decode(data, &conwayTx); err != nil {
+		return nil, fmt.Errorf("decode Conway transaction body error: %w", err)
+	}
+	return &conwayTx, nil
+}
+
+func NewConwayTransactionFromCbor(data []byte) (*ConwayTransaction, error) {
+	var conwayTx ConwayTransaction
+	if _, err := cbor.Decode(data, &conwayTx); err != nil {
+		return nil, fmt.Errorf("decode Conway transaction error: %w", err)
+	}
+	return &conwayTx, nil
+}

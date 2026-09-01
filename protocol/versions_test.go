@@ -1,0 +1,172 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package protocol
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestDMQVersionEncoding verifies the DMQ N2C version offset matches the
+// upstream encoding: dmq-node uses bit 12 (= 0x1000) to mark DMQ N2C
+// versions in the handshake, distinct from Cardano's NtC offset 0x8000
+// (bit 15). NodeToClientV_1 is therefore wire-encoded as
+// 1 | 0x1000 = 0x1001 = 4097.
+func TestDMQVersionEncoding(t *testing.T) {
+	require.Equal(t, uint16(0x1000), uint16(ProtocolVersionDMQNtCOffset))
+	versions := GetProtocolVersionsDMQNtC()
+	require.Len(t, versions, 1)
+	assert.Equal(t, uint16(0x1001), versions[0])
+	assert.NotEqual(
+		t,
+		uint16(ProtocolVersionNtCOffset+1),
+		versions[0],
+		"DMQ version must not collide with Cardano NtC version space",
+	)
+}
+
+// TestGetProtocolVersionMapDMQNtC verifies the version map produced for a
+// DMQ N2C handshake. The VersionData carries the supplied network magic
+// and query flag, encoded with the same shape as Cardano's
+// VersionDataNtC15andUp.
+func TestGetProtocolVersionMapDMQNtC(t *testing.T) {
+	const dmqDefaultMagic uint32 = 3_141_592 // dmq-node default
+	m := GetProtocolVersionMapDMQNtC(dmqDefaultMagic, false)
+	require.Len(t, m, 1, "DMQ currently advertises only V1")
+	v, ok := m[0x1001]
+	require.True(t, ok, "DMQ N2C v1 (0x1001) missing from version map")
+	assert.Equal(t, dmqDefaultMagic, v.NetworkMagic())
+	assert.False(t, v.Query())
+
+	// Query flag passes through.
+	mq := GetProtocolVersionMapDMQNtC(dmqDefaultMagic, true)
+	vq, ok := mq[0x1001]
+	require.True(t, ok, "DMQ N2C v1 (0x1001) missing from query-mode version map")
+	assert.True(t, vq.Query(), "Query flag did not propagate from caller to VersionData")
+}
+
+func TestGetProtocolVersionMapDMQNtN(t *testing.T) {
+	const dmqDefaultMagic uint32 = 3_141_592
+	m := GetProtocolVersionMapDMQNtN(
+		dmqDefaultMagic,
+		DiffusionModeInitiatorAndResponder,
+		true,
+		true,
+	)
+	require.Len(t, m, 2, "DMQ N2N should advertise V1 and V2")
+
+	for _, version := range []uint16{
+		ProtocolVersionDMQNtN1,
+		ProtocolVersionDMQNtN2,
+	} {
+		v, ok := m[version]
+		require.True(t, ok, "DMQ N2N version %d missing", version)
+		assert.Equal(t, dmqDefaultMagic, v.NetworkMagic())
+		assert.Equal(t, DiffusionModeInitiatorAndResponder, v.DiffusionMode())
+		assert.True(t, v.PeerSharing())
+		assert.True(t, v.Query())
+	}
+}
+
+func TestGetProtocolVersionsDMQNtN(t *testing.T) {
+	assert.Equal(
+		t,
+		[]uint16{ProtocolVersionDMQNtN1, ProtocolVersionDMQNtN2},
+		GetProtocolVersionsDMQNtN(),
+	)
+}
+
+// TestGetProtocolVersionDMQResolvable verifies that GetProtocolVersion can
+// resolve DMQ N2C versions. Without this, handshake.Client.handleAcceptVersion
+// and handshake.Server.handleProposeVersions would panic when calling
+// NewVersionDataFromCborFunc on a zero-value ProtocolVersion returned for
+// any DMQ version.
+func TestGetProtocolVersionDMQResolvable(t *testing.T) {
+	require.NotNil(
+		t,
+		GetProtocolVersion(0x1001).NewVersionDataFromCborFunc,
+		"DMQ versions are not reachable via GetProtocolVersion",
+	)
+	require.NotNil(
+		t,
+		GetProtocolVersion(ProtocolVersionDMQNtN2).NewVersionDataFromCborFunc,
+		"DMQ N2N versions are not reachable via GetProtocolVersion",
+	)
+}
+
+// TestGetProtocolVersionMapDMQNtCMithril verifies the well-known Mithril
+// magics round-trip through the DMQ version map. These values are
+// documented in CIP-0137 and used by Mithril's published deployments;
+// breaking them would silently misroute DMQ traffic.
+func TestGetProtocolVersionMapDMQNtCMithril(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		magic uint32
+	}{
+		{"mainnet", 2_912_307_721},
+		{"preprod", 2_147_483_649},
+		{"preview", 2_147_483_650},
+		{"devnet", 2_147_483_690},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := GetProtocolVersionMapDMQNtC(tc.magic, false)
+			v, ok := m[0x1001]
+			require.True(t, ok, "DMQ N2C v1 (0x1001) missing from version map")
+			assert.Equal(t, tc.magic, v.NetworkMagic())
+		})
+	}
+}
+
+// TestNtCVersion21Supported covers the handshake half of node-to-client
+// protocol version 21.
+//
+// cardano-cli gates several queries on the negotiated version rather than on
+// the reply it gets back, so a node that stops at 20 is refused before it can
+// answer anything — `query leadership-schedule` reports that it needs a newer
+// version and never sends the query.
+func TestNtCVersion21Supported(t *testing.T) {
+	const version = 21 + ProtocolVersionNtCOffset
+
+	assert.Contains(t, GetProtocolVersionsNtC(), uint16(version),
+		"version 21 must be offered during the handshake")
+
+	got := GetProtocolVersion(version)
+	require.NotNil(t, got.NewVersionDataFromCborFunc,
+		"version 21 needs the version data codec used from 15 onwards")
+
+	// Version 21 changes how two query results are serialised; it neither adds
+	// nor removes an era or a mini-protocol, so its capabilities are those of
+	// version 20.
+	previous := GetProtocolVersion(20 + ProtocolVersionNtCOffset)
+	assert.Equal(t, previous.EnableShelleyEra, got.EnableShelleyEra)
+	assert.Equal(t, previous.EnableAllegraEra, got.EnableAllegraEra)
+	assert.Equal(t, previous.EnableMaryEra, got.EnableMaryEra)
+	assert.Equal(t, previous.EnableAlonzoEra, got.EnableAlonzoEra)
+	assert.Equal(t, previous.EnableBabbageEra, got.EnableBabbageEra)
+	assert.Equal(t, previous.EnableConwayEra, got.EnableConwayEra)
+	assert.Equal(t, previous.EnableDijkstraEra, got.EnableDijkstraEra)
+	assert.Equal(
+		t,
+		previous.EnableLocalQueryProtocol,
+		got.EnableLocalQueryProtocol,
+	)
+	assert.Equal(
+		t,
+		previous.EnableLocalTxMonitorProtocol,
+		got.EnableLocalTxMonitorProtocol,
+	)
+}

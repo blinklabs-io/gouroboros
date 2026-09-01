@@ -1,0 +1,307 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package chainsync
+
+import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+)
+
+// Server implements the ChainSync server
+type Server struct {
+	*protocol.Protocol
+	protocolMu      sync.RWMutex
+	config          *Config
+	callbackContext CallbackContext
+	protoOptions    protocol.ProtocolOptions
+}
+
+// NewServer returns a new ChainSync server object
+func NewServer(
+	protoOptions protocol.ProtocolOptions,
+	cfg *Config,
+) *Server {
+	// Apply defaults for zero values to handle Config{} created without NewConfig()
+	var config *Config
+	if cfg != nil {
+		configCopy := *cfg
+		if configCopy.RecvQueueSize == 0 {
+			configCopy.RecvQueueSize = DefaultRecvQueueSize
+		}
+		config = &configCopy
+	}
+	s := &Server{
+		config: config,
+		// Save these for re-use later
+		protoOptions: protoOptions,
+	}
+	s.callbackContext = CallbackContext{
+		Server:       s,
+		ConnectionId: protoOptions.ConnectionId,
+	}
+	s.initProtocol()
+	return s
+}
+
+func (s *Server) initProtocol() {
+	// Use node-to-client protocol ID
+	ProtocolId := ProtocolIdNtC
+	msgFromCborFunc := NewMsgFromCborNtC
+	if s.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		// Use node-to-node protocol ID
+		ProtocolId = ProtocolIdNtN
+		msgFromCborFunc = NewMsgFromCborNtN
+	}
+	// Select state map based on protocol mode.
+	// Default to NtC (matching ProtocolId/CBOR defaults above) so that
+	// callers who omit Mode get consistent NtC behaviour throughout.
+	stateMap := StateMapNtC.Copy()
+	if s.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		stateMap = StateMapNtN.Copy()
+	}
+	// Apply per-connection config overrides to the copied state map.
+	// Only override when the state already has a timeout defined —
+	// NtC mode has no timeouts per spec (Table 3.9) and must not
+	// have timeouts injected.
+	if s.config != nil {
+		if entry, ok := stateMap[stateIntersect]; ok && entry.Timeout != 0 && s.config.IntersectTimeout != 0 {
+			entry.Timeout = s.config.IntersectTimeout
+			stateMap[stateIntersect] = entry
+		}
+		if entry, ok := stateMap[stateIdle]; ok && entry.Timeout != 0 && s.config.IdleTimeout != 0 {
+			entry.Timeout = s.config.IdleTimeout
+			stateMap[stateIdle] = entry
+		}
+	}
+	protoConfig := protocol.ProtocolConfig{
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
+		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
+		Role:                protocol.ProtocolRoleServer,
+		MessageHandlerFunc:  s.messageHandler,
+		MessageFromCborFunc: msgFromCborFunc,
+		StateMap:            stateMap,
+		InitialState:        stateIdle,
+	}
+	if s.config != nil {
+		protoConfig.RecvQueueSize = s.config.RecvQueueSize
+	}
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	s.Protocol = p
+	s.protocolMu.Unlock()
+}
+
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
+}
+
+func (s *Server) RollBackward(point pcommon.Point, tip Tip) error {
+	p := s.ProtocolInstance()
+	p.Logger().
+		Debug(
+			fmt.Sprintf("calling RollBackward(point: {Slot: %d, Hash: %x}, tip: {Point: {Slot: %d, Hash: %x}, BlockNumber: %d})",
+				point.Slot, point.Hash,
+				tip.Point.Slot, tip.Point.Hash,
+				tip.BlockNumber,
+			),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
+	msg := NewMsgRollBackward(point, tip)
+	return p.SendMessage(msg)
+}
+
+func (s *Server) AwaitReply() error {
+	p := s.ProtocolInstance()
+	p.Logger().
+		Debug("calling AwaitReply()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
+	msg := NewMsgAwaitReply()
+	return p.SendMessage(msg)
+}
+
+func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
+	p := s.ProtocolInstance()
+	logRollForward(
+		p.Logger(),
+		blockType,
+		blockData,
+		tip,
+		s.callbackContext.ConnectionId.String(),
+	)
+	if p.Mode() == protocol.ProtocolModeNodeToNode {
+		eraId, ok := ledger.BlockToBlockHeaderTypeMap[blockType]
+		if !ok {
+			return fmt.Errorf("unknown block type: %d", blockType)
+		}
+		msg, err := NewMsgRollForwardNtN(
+			eraId,
+			0,
+			blockData,
+			tip,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create roll forward message: %w", err)
+		}
+		return p.SendMessage(msg)
+	} else {
+		msg, err := NewMsgRollForwardNtC(
+			blockType,
+			blockData,
+			tip,
+		)
+		if err != nil {
+			p.Logger().
+				Error(
+					fmt.Sprintf("failed to create roll forward message: %s", err),
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "server",
+					"connection_id", s.callbackContext.ConnectionId.String(),
+				)
+			return fmt.Errorf("failed to create roll forward message: %w", err)
+		}
+		return p.SendMessage(msg)
+	}
+}
+
+func logRollForward(
+	logger *slog.Logger,
+	blockType uint,
+	blockData []byte,
+	tip Tip,
+	connectionId string,
+) {
+	logger.Debug(
+		"calling RollForward",
+		"block_type", blockType,
+		"block_size", len(blockData),
+		"tip_slot", tip.Point.Slot,
+		"tip_hash", tip.Point.Hash,
+		"tip_block_number", tip.BlockNumber,
+		"component", "network",
+		"protocol", ProtocolName,
+		"role", "server",
+		"connection_id", connectionId,
+	)
+}
+
+func (s *Server) messageHandler(msg protocol.Message) error {
+	var err error
+	switch msg.Type() {
+	case MessageTypeRequestNext:
+		err = s.handleRequestNext()
+	case MessageTypeFindIntersect:
+		err = s.handleFindIntersect(msg)
+	case MessageTypeDone:
+		s.handleDone()
+	default:
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
+	}
+	return err
+}
+
+func (s *Server) handleRequestNext() error {
+	if p := s.ProtocolInstance(); p != nil {
+		p.Logger().
+			Debug("request next",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+			)
+	}
+	if s.config == nil || s.config.RequestNextFunc == nil {
+		return errors.New(
+			"received chain-sync RequestNext message but no callback function is defined",
+		)
+	}
+	return s.config.RequestNextFunc(s.callbackContext)
+}
+
+func (s *Server) handleFindIntersect(msg protocol.Message) error {
+	if p := s.ProtocolInstance(); p != nil {
+		p.Logger().
+			Debug("find intersect",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+			)
+	}
+	if s.config == nil || s.config.FindIntersectFunc == nil {
+		return errors.New(
+			"received chain-sync FindIntersect message but no callback function is defined",
+		)
+	}
+	msgFindIntersect := msg.(*MsgFindIntersect)
+	point, tip, err := s.config.FindIntersectFunc(
+		s.callbackContext,
+		msgFindIntersect.Points,
+	)
+	if err != nil {
+		if errors.Is(err, ErrIntersectNotFound) {
+			msgResp := NewMsgIntersectNotFound(tip)
+			if err := s.SendMessage(msgResp); err != nil {
+				return err
+			}
+			return nil
+		}
+		return err
+	}
+	msgResp := NewMsgIntersectFound(point, tip)
+	if err := s.SendMessage(msgResp); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Server) handleDone() {
+	if p := s.ProtocolInstance(); p != nil {
+		p.Logger().
+			Debug("done",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+			)
+	}
+	// Restart protocol
+	s.Stop()
+	s.initProtocol()
+	s.Start()
+}

@@ -1,0 +1,494 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package cbor_test
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math/big"
+	"reflect"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/stretchr/testify/require"
+)
+
+var testDefs = []struct {
+	cborHex             string
+	expectedObject      any
+	expectedAstJson     string
+	expectedDecodeError error
+}{
+	// []
+	{
+		cborHex:         "80",
+		expectedObject:  []any{},
+		expectedAstJson: `{"list":[]}`,
+	},
+	// Invalid CBOR
+	{
+		cborHex:             "81",
+		expectedObject:      nil,
+		expectedDecodeError: io.ErrUnexpectedEOF,
+	},
+	// [1, 2, 3]
+	{
+		cborHex:         "83010203",
+		expectedObject:  []any{uint64(1), uint64(2), uint64(3)},
+		expectedAstJson: `{"list":[{"int":1},{"int":2},{"int":3}]}`,
+	},
+	// {1: 2, 3: 4}
+	{
+		cborHex: "A201020304",
+		expectedObject: map[any]any{
+			uint64(1): uint64(2),
+			uint64(3): uint64(4),
+		},
+		expectedAstJson: `{"map":[{"k":{"int":1},"v":{"int":2}},{"k":{"int":3},"v":{"int":4}}]}`,
+	},
+	// {1: [2], 3: [4]}
+	{
+		cborHex: "A2018102038104",
+		expectedObject: map[any]any{
+			uint64(1): []any{uint64(2)},
+			uint64(3): []any{uint64(4)},
+		},
+		expectedAstJson: `{"map":[{"k":{"int":1},"v":{"list":[{"int":2}]}},{"k":{"int":3},"v":{"list":[{"int":4}]}}]}`,
+	},
+	// [22318265904693663008365, 8535038193994223137511702528]
+	{
+		cborHex: "82C24A04B9E028911409DC866DC24C1B9404A39BD8000000000000",
+		expectedObject: []any{
+			*(new(big.Int).SetBytes(test.DecodeHexString("04B9E028911409DC866D"))),
+			*(new(big.Int).SetBytes(test.DecodeHexString("1B9404A39BD8000000000000"))),
+		},
+		expectedAstJson: `{"list":[{"int":22318265904693663008365},{"int":8535038193994223137511702528}]}`,
+	},
+	// 24('abcdef')
+	{
+		cborHex:         "d81843abcdef",
+		expectedObject:  cbor.WrappedCbor([]byte{0xab, 0xcd, 0xef}),
+		expectedAstJson: `{"bytes":"abcdef"}`,
+	},
+	// 30([3, 1000])
+	{
+		cborHex: "d81e82031903e8",
+		expectedObject: cbor.Rat{
+			Rat: big.NewRat(3, 1000),
+		},
+		expectedAstJson: `{"list":[{"int":3},{"int":1000}]}`,
+	},
+	// 30([-1, 2]) -- negative rational
+	{
+		cborHex: "d81e822002",
+		expectedObject: cbor.Rat{
+			Rat: big.NewRat(-1, 2),
+		},
+		expectedAstJson: `{"list":[{"int":-1},{"int":2}]}`,
+	},
+	// 30([18446744073709551617, 1]) -- numerator = 2^64+1 greater than MaxUint64
+	{
+		cborHex: "d81e82c24901000000000000000101",
+		expectedObject: cbor.Rat{
+			Rat: new(big.Rat).SetFrac(
+				new(big.Int).SetBytes(test.DecodeHexString("010000000000000001")),
+				big.NewInt(1),
+			),
+		},
+		expectedAstJson: `{"list":[{"int":18446744073709551617},{"int":1}]}`,
+	},
+	// 30([1, 0]) -- zero denominator
+	{
+		cborHex:             "d81e820100",
+		expectedObject:      nil,
+		expectedDecodeError: fmt.Errorf("invalid cbor.Rat: denominator cannot be zero"),
+	},
+	// 258([1, 2, 3])
+	{
+		cborHex: "d9010283010203",
+		expectedObject: cbor.Set(
+			[]any{
+				uint64(1), uint64(2), uint64(3),
+			},
+		),
+		expectedAstJson: `{"list":[{"int":1},{"int":2},{"int":3}]}`,
+	},
+	// 259({1: 2, 3: 4})
+	{
+		cborHex: "d90103a201020304",
+		expectedObject: cbor.Map(
+			map[any]any{
+				uint64(1): uint64(2),
+				uint64(3): uint64(4),
+			},
+		),
+		expectedAstJson: `{"map":[{"k":{"int":1},"v":{"int":2}},{"k":{"int":3},"v":{"int":4}}]}`,
+	},
+	// 259({2: [h'abcd']})
+	{
+		cborHex: "D90103A1028142ABCD",
+		expectedObject: cbor.Map(
+			map[any]any{
+				uint64(2): []any{
+					[]byte{0xab, 0xcd},
+				},
+			},
+		),
+		expectedAstJson: `{"map":[{"k":{"int":2},"v":{"list":[{"bytes":"abcd"}]}}]}`,
+	},
+}
+
+func TestValueDecode(t *testing.T) {
+	for _, testDef := range testDefs {
+		cborData, err := hex.DecodeString(testDef.cborHex)
+		if err != nil {
+			t.Fatalf("failed to decode CBOR hex: %s", err)
+		}
+		var tmpValue cbor.Value
+		if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
+			if testDef.expectedDecodeError != nil {
+				if err.Error() != testDef.expectedDecodeError.Error() {
+					t.Fatalf(
+						"did not receive expected decode error, got:    %s, wanted: %s",
+						err,
+						testDef.expectedDecodeError,
+					)
+				}
+				continue
+			} else {
+				t.Fatalf("failed to decode CBOR data: %s", err)
+			}
+		} else {
+			if testDef.expectedDecodeError != nil {
+				t.Fatalf("did not receive expected decode error: %s", testDef.expectedDecodeError)
+			}
+		}
+		newObj := tmpValue.Value()
+		if !reflect.DeepEqual(newObj, testDef.expectedObject) {
+			t.Fatalf(
+				"CBOR did not decode to expected object\n  got:    %#v\n  wanted: %#v",
+				newObj,
+				testDef.expectedObject,
+			)
+		}
+	}
+}
+
+func TestValueDecodeNestedContainersDoesNotCopySubtrees(t *testing.T) {
+	const (
+		depth         = 64
+		payloadLength = 64 * 1024
+		iterations    = 5
+	)
+	payload := make([]byte, payloadLength)
+	payloadSize := uint32(payloadLength)
+	cborData := make([]byte, 0, depth+5+payloadLength)
+	for range depth {
+		cborData = append(cborData, 0x81)
+	}
+	cborData = append(
+		cborData,
+		0x5a,
+		byte(payloadSize>>24),
+		byte(payloadSize>>16),
+		byte(payloadSize>>8),
+		byte(payloadSize),
+	)
+	cborData = append(cborData, payload...)
+
+	var warmup cbor.Value
+	_, err := cbor.Decode(cborData, &warmup)
+	require.NoError(t, err, "warm up nested value decoder")
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range iterations {
+		var value cbor.Value
+		decodedLength, err := cbor.Decode(cborData, &value)
+		require.NoError(t, err, "decode nested value")
+		require.Equal(t, len(cborData), decodedLength)
+	}
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	allocatedBytes := after.TotalAlloc - before.TotalAlloc
+	maxAllocatedBytes := uint64(len(cborData) * iterations * 12)
+	require.LessOrEqual(
+		t,
+		allocatedBytes,
+		maxAllocatedBytes,
+		"nested Value decoding allocated %d bytes, want at most %d",
+		allocatedBytes,
+		maxAllocatedBytes,
+	)
+}
+
+func TestValueDecodeMapWithUnhashableKeyIsWrapped(t *testing.T) {
+	// { [1]: 2 }
+	cborData := test.DecodeHexString("a1810102")
+
+	var tmpValue cbor.Value
+	_, err := cbor.Decode(cborData, &tmpValue)
+	if err != nil {
+		t.Fatalf("failed to decode CBOR map with unhashable key: %s", err)
+	}
+	valueMap, ok := tmpValue.Value().(map[any]any)
+	if !ok {
+		t.Fatalf("expected map[any]any, got: %T", tmpValue.Value())
+	}
+	if len(valueMap) != 1 {
+		t.Fatalf("expected one map item, got: %d", len(valueMap))
+	}
+	for key, value := range valueMap {
+		if reflect.TypeOf(key).Kind() != reflect.Ptr {
+			t.Fatalf("expected unhashable key to be wrapped as pointer, got: %T", key)
+		}
+		if value != uint64(2) {
+			t.Fatalf("unexpected map value: %#v", value)
+		}
+	}
+}
+
+func TestValueDecodeMapWithNullKey(t *testing.T) {
+	testDefs := []struct {
+		name    string
+		cborHex string
+	}{
+		// { null: 1 }
+		{name: "NullKey", cborHex: "a1f601"},
+		// { undefined: 1 }
+		{name: "UndefinedKey", cborHex: "a1f701"},
+	}
+	for _, testDef := range testDefs {
+		t.Run(testDef.name, func(t *testing.T) {
+			cborData := test.DecodeHexString(testDef.cborHex)
+			var tmpValue cbor.Value
+			if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
+				t.Fatalf("failed to decode CBOR map with null key: %s", err)
+			}
+			valueMap, ok := tmpValue.Value().(map[any]any)
+			if !ok {
+				t.Fatalf("expected map[any]any, got: %T", tmpValue.Value())
+			}
+			if len(valueMap) != 1 {
+				t.Fatalf("expected one map item, got: %d", len(valueMap))
+			}
+			value, ok := valueMap[nil]
+			if !ok {
+				t.Fatal("expected map entry with nil key")
+			}
+			if value != uint64(1) {
+				t.Fatalf("unexpected map value: %#v", value)
+			}
+		})
+	}
+}
+
+func TestValueDecodeMapWithNullKeyInNestedMapKey(t *testing.T) {
+	// { {null: 1}: 100 } -- a map key that is itself a map with a null key,
+	// matching the shape found by FuzzNewBlockFromCbor via tx metadata
+	cborData := test.DecodeHexString("a1a1f6011864")
+
+	var tmpValue cbor.Value
+	if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
+		t.Fatalf("failed to decode CBOR map with nested null key: %s", err)
+	}
+	valueMap, ok := tmpValue.Value().(map[any]any)
+	if !ok {
+		t.Fatalf("expected map[any]any, got: %T", tmpValue.Value())
+	}
+	if len(valueMap) != 1 {
+		t.Fatalf("expected one map item, got: %d", len(valueMap))
+	}
+	for key, value := range valueMap {
+		// The unhashable map key is wrapped as a pointer
+		if reflect.TypeOf(key).Kind() != reflect.Ptr {
+			t.Fatalf("expected unhashable key to be wrapped as pointer, got: %T", key)
+		}
+		if value != uint64(100) {
+			t.Fatalf("unexpected map value: %#v", value)
+		}
+	}
+}
+
+func TestValueMarshalJSON(t *testing.T) {
+	for _, testDef := range testDefs {
+		// Skip test if the CBOR decode is expected to fail
+		if testDef.expectedDecodeError != nil {
+			continue
+		}
+		cborData, err := hex.DecodeString(testDef.cborHex)
+		if err != nil {
+			t.Fatalf("failed to decode CBOR hex: %s", err)
+		}
+		var tmpValue cbor.Value
+		if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
+			t.Fatalf("failed to decode CBOR data: %s", err)
+		}
+		jsonData, err := json.Marshal(&tmpValue)
+		if err != nil {
+			t.Fatalf("failed to marshal Value as JSON: %s", err)
+		}
+		// We create the wrapper JSON here, since it would otherwise result in the CBOR hex being duplicated in each test definition
+		fullExpectedJson := fmt.Sprintf(
+			`{"cbor":"%s","json":%s}`,
+			strings.ToLower(testDef.cborHex),
+			testDef.expectedAstJson,
+		)
+		if testDef.expectedObject == nil {
+			fullExpectedJson = fmt.Sprintf(
+				`{"cbor":"%s"}`,
+				strings.ToLower(testDef.cborHex),
+			)
+		}
+		if !test.JsonStringsEqual(jsonData, []byte(fullExpectedJson)) {
+			t.Fatalf(
+				"CBOR did not marshal to expected JSON\n  got:    %s\n  wanted: %s",
+				jsonData,
+				fullExpectedJson,
+			)
+		}
+	}
+}
+
+func TestLazyValueDecode(t *testing.T) {
+	for _, testDef := range testDefs {
+		cborData, err := hex.DecodeString(testDef.cborHex)
+		if err != nil {
+			t.Fatalf("failed to decode CBOR hex: %s", err)
+		}
+		var tmpValue cbor.LazyValue
+		if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
+			if testDef.expectedDecodeError != nil {
+				if err.Error() != testDef.expectedDecodeError.Error() {
+					t.Fatalf(
+						"did not receive expected decode error, got:    %s, wanted: %s",
+						err,
+						testDef.expectedDecodeError,
+					)
+				}
+				continue
+			} else {
+				t.Fatalf("failed to decode CBOR data: %s", err)
+			}
+		}
+		newObj, err := tmpValue.Decode()
+		if err != nil {
+			if testDef.expectedDecodeError != nil {
+				if err.Error() != testDef.expectedDecodeError.Error() {
+					t.Fatalf(
+						"did not receive expected decode error, got:    %s, wanted: %s",
+						err,
+						testDef.expectedDecodeError,
+					)
+				}
+				continue
+			} else {
+				t.Fatalf("failed to decode CBOR data: %s", err)
+			}
+		} else {
+			if testDef.expectedDecodeError != nil {
+				t.Fatalf("did not receive expected decode error: %s", testDef.expectedDecodeError)
+			}
+		}
+		if !reflect.DeepEqual(newObj, testDef.expectedObject) {
+			t.Fatalf(
+				"CBOR did not decode to expected object\n  got:    %#v\n  wanted: %#v",
+				newObj,
+				testDef.expectedObject,
+			)
+		}
+	}
+}
+
+func TestLazyValueMarshalJSON(t *testing.T) {
+	for _, testDef := range testDefs {
+		// Skip test if the CBOR decode is expected to fail
+		if testDef.expectedDecodeError != nil {
+			continue
+		}
+		cborData, err := hex.DecodeString(testDef.cborHex)
+		if err != nil {
+			t.Fatalf("failed to decode CBOR hex: %s", err)
+		}
+		var tmpValue cbor.LazyValue
+		if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
+			t.Fatalf("failed to decode CBOR data: %s", err)
+		}
+		jsonData, err := json.Marshal(&tmpValue)
+		if err != nil {
+			t.Fatalf("failed to marshal Value as JSON: %s", err)
+		}
+		// We create the wrapper JSON here, since it would otherwise result in the CBOR hex being duplicated in each test definition
+		fullExpectedJson := fmt.Sprintf(
+			`{"cbor":"%s","json":%s}`,
+			strings.ToLower(testDef.cborHex),
+			testDef.expectedAstJson,
+		)
+		if testDef.expectedObject == nil {
+			fullExpectedJson = fmt.Sprintf(
+				`{"cbor":"%s"}`,
+				strings.ToLower(testDef.cborHex),
+			)
+		}
+		if !test.JsonStringsEqual(jsonData, []byte(fullExpectedJson)) {
+			t.Fatalf(
+				"CBOR did not marshal to expected JSON\n  got:    %s\n  wanted: %s",
+				jsonData,
+				fullExpectedJson,
+			)
+		}
+	}
+}
+
+func TestLazyValueMarshalJSONEmptyCborData(t *testing.T) {
+	t.Run("zero value", func(t *testing.T) {
+		var tmpValue cbor.LazyValue
+		jsonData, err := json.Marshal(&tmpValue)
+		if err != nil {
+			t.Fatalf("failed to marshal LazyValue as JSON: %s", err)
+		}
+		if !test.JsonStringsEqual(jsonData, []byte(`{"cbor":""}`)) {
+			t.Fatalf(
+				"LazyValue did not marshal to expected JSON\n  got:    %s\n  wanted: %s",
+				jsonData,
+				`{"cbor":""}`,
+			)
+		}
+	})
+
+	t.Run("empty cbor after unmarshal", func(t *testing.T) {
+		var tmpValue cbor.LazyValue
+		if err := tmpValue.UnmarshalCBOR(nil); err != nil {
+			t.Fatalf("failed to unmarshal empty CBOR data: %s", err)
+		}
+		jsonData, err := json.Marshal(&tmpValue)
+		if err != nil {
+			t.Fatalf("failed to marshal LazyValue as JSON: %s", err)
+		}
+		if !test.JsonStringsEqual(jsonData, []byte(`{"cbor":""}`)) {
+			t.Fatalf(
+				"LazyValue did not marshal to expected JSON\n  got:    %s\n  wanted: %s",
+				jsonData,
+				`{"cbor":""}`,
+			)
+		}
+	})
+}

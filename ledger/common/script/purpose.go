@@ -1,0 +1,559 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package script
+
+import (
+	"bytes"
+	"fmt"
+	"math/big"
+	"slices"
+	"strings"
+
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/plutigo/data"
+)
+
+// UnmatchedRedeemerError indicates a redeemer's tag/index does not
+// correspond to any valid script purpose that scriptPurposeBuilder or
+// BuildScriptPurpose can construct for the transaction (e.g. the index is
+// out of range for its tag's category, the referenced input could not be
+// resolved, or the tag itself is not a purpose these builders support, such
+// as RedeemerTagGuarding).
+type UnmatchedRedeemerError struct {
+	RedeemerKey lcommon.RedeemerKey
+}
+
+func (e UnmatchedRedeemerError) Error() string {
+	return fmt.Sprintf(
+		"redeemer tag=%d index=%d does not match any script purpose",
+		e.RedeemerKey.Tag,
+		e.RedeemerKey.Index,
+	)
+}
+
+type ScriptPurpose interface {
+	isScriptPurpose()
+	ScriptHash() lcommon.ScriptHash
+	ToScriptInfo() ScriptInfo
+	ToPlutusData
+}
+
+type ScriptInfo interface {
+	isScriptInfo()
+	ScriptHash() lcommon.ScriptHash
+	ToPlutusData
+}
+
+type ScriptPurposeMinting struct {
+	PolicyId lcommon.Blake2b224
+}
+
+func (ScriptPurposeMinting) isScriptPurpose() {}
+
+func (s ScriptPurposeMinting) ScriptHash() lcommon.ScriptHash {
+	return lcommon.ScriptHash(s.PolicyId)
+}
+
+func (s ScriptPurposeMinting) ToPlutusData() data.PlutusData {
+	return data.NewConstr(
+		0,
+		data.NewByteString(s.PolicyId.Bytes()),
+	)
+}
+
+func (s ScriptPurposeMinting) ToScriptInfo() ScriptInfo {
+	return ScriptInfoMinting{s}
+}
+
+type ScriptPurposeSpending struct {
+	Input lcommon.Utxo
+	Datum data.PlutusData
+}
+
+func (ScriptPurposeSpending) isScriptPurpose() {}
+
+func (s ScriptPurposeSpending) ScriptHash() lcommon.ScriptHash {
+	tmpAddr := s.Input.Output.Address()
+	return lcommon.ScriptHash(tmpAddr.PaymentKeyHash())
+}
+
+func (s ScriptPurposeSpending) ToPlutusData() data.PlutusData {
+	return data.NewConstr(
+		1,
+		s.Input.Id.ToPlutusData(),
+	)
+}
+
+func (s ScriptPurposeSpending) ToScriptInfo() ScriptInfo {
+	return ScriptInfoSpending{s}
+}
+
+type ScriptPurposeRewarding struct {
+	StakeCredential lcommon.Credential
+}
+
+func (ScriptPurposeRewarding) isScriptPurpose() {}
+
+func (s ScriptPurposeRewarding) ScriptHash() lcommon.ScriptHash {
+	return lcommon.ScriptHash(s.StakeCredential.Credential)
+}
+
+func (s ScriptPurposeRewarding) ToPlutusData() data.PlutusData {
+	return data.NewConstr(
+		2,
+		s.StakeCredential.ToPlutusData(),
+	)
+}
+
+func (s ScriptPurposeRewarding) ToScriptInfo() ScriptInfo {
+	return ScriptInfoRewarding{s}
+}
+
+type ScriptPurposeCertifying struct {
+	Index       uint32
+	Certificate lcommon.Certificate
+}
+
+func (ScriptPurposeCertifying) isScriptPurpose() {}
+
+func (s ScriptPurposeCertifying) ScriptHash() lcommon.ScriptHash {
+	var cred *lcommon.Credential
+	switch c := s.Certificate.(type) {
+	case *lcommon.StakeDeregistrationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.RegistrationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.DeregistrationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.VoteDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.VoteRegistrationDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.StakeVoteDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.StakeRegistrationDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.StakeVoteRegistrationDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.RegistrationDrepCertificate:
+		cred = &c.DrepCredential
+	case *lcommon.DeregistrationDrepCertificate:
+		cred = &c.DrepCredential
+	case *lcommon.UpdateDrepCertificate:
+		cred = &c.DrepCredential
+	case *lcommon.AuthCommitteeHotCertificate:
+		cred = &c.ColdCredential
+	case *lcommon.ResignCommitteeColdCertificate:
+		cred = &c.ColdCredential
+	case *lcommon.StakeDelegationCertificate:
+		cred = c.StakeCredential
+	}
+	if cred != nil {
+		if cred.CredType == lcommon.CredentialTypeScriptHash {
+			return lcommon.ScriptHash(cred.Credential)
+		}
+	}
+	return lcommon.ScriptHash{}
+}
+
+func (s ScriptPurposeCertifying) ToPlutusData() data.PlutusData {
+	return data.NewConstr(
+		3,
+		data.NewInteger(new(big.Int).SetUint64(uint64(s.Index))),
+		certificateToPlutusData(s.Certificate),
+	)
+}
+
+func (s ScriptPurposeCertifying) ToScriptInfo() ScriptInfo {
+	return ScriptInfoCertifying{s}
+}
+
+type ScriptPurposeVoting struct {
+	Voter lcommon.Voter
+}
+
+func (ScriptPurposeVoting) isScriptPurpose() {}
+
+func (s ScriptPurposeVoting) ScriptHash() lcommon.ScriptHash {
+	return lcommon.ScriptHash(lcommon.NewBlake2b224(s.Voter.Hash[:]))
+}
+
+func (s ScriptPurposeVoting) ToPlutusData() data.PlutusData {
+	return data.NewConstr(
+		4,
+		s.Voter.ToPlutusData(),
+	)
+}
+
+func (s ScriptPurposeVoting) ToScriptInfo() ScriptInfo {
+	return ScriptInfoVoting{s}
+}
+
+type ScriptPurposeProposing struct {
+	Index             uint32
+	ProposalProcedure lcommon.ProposalProcedure
+}
+
+func (ScriptPurposeProposing) isScriptPurpose() {}
+
+func (s ScriptPurposeProposing) ScriptHash() lcommon.ScriptHash {
+	// Use GovActionWithPolicy interface to get policy hash without importing conway
+	if ga, ok := s.ProposalProcedure.GovAction().(lcommon.GovActionWithPolicy); ok {
+		policyBytes := ga.GetPolicyHash()
+		if len(policyBytes) == 28 {
+			return lcommon.ScriptHash(lcommon.NewBlake2b224(policyBytes))
+		}
+	}
+	return lcommon.ScriptHash{}
+}
+
+func (s ScriptPurposeProposing) ToPlutusData() data.PlutusData {
+	return data.NewConstr(
+		5,
+		toPlutusData(uint64(s.Index)),
+		s.ProposalProcedure.ToPlutusData(),
+	)
+}
+
+func (s ScriptPurposeProposing) ToScriptInfo() ScriptInfo {
+	return ScriptInfoProposing{s}
+}
+
+type ScriptPurposeGuarding struct {
+	Guard lcommon.Credential
+}
+
+func (ScriptPurposeGuarding) isScriptPurpose() {}
+
+func (s ScriptPurposeGuarding) ScriptHash() lcommon.ScriptHash {
+	if s.Guard.CredType != lcommon.CredentialTypeScriptHash {
+		return lcommon.ScriptHash{}
+	}
+	return lcommon.ScriptHash(s.Guard.Credential)
+}
+
+func (s ScriptPurposeGuarding) ToPlutusData() data.PlutusData {
+	guard := s.Guard
+	return data.NewConstr(
+		6,
+		guard.ToPlutusData(),
+	)
+}
+
+func (s ScriptPurposeGuarding) ToScriptInfo() ScriptInfo {
+	return ScriptInfoGuarding{s}
+}
+
+type ScriptInfoSpending struct {
+	ScriptPurposeSpending
+}
+
+func (ScriptInfoSpending) isScriptInfo() {}
+
+func (s ScriptInfoSpending) ToPlutusData() data.PlutusData {
+	return data.NewConstr(
+		1,
+		s.Input.Id.ToPlutusData(),
+		Option[data.PlutusData]{s.Datum}.ToPlutusData(),
+	)
+}
+
+type ScriptInfoMinting struct {
+	ScriptPurposeMinting
+}
+
+func (ScriptInfoMinting) isScriptInfo() {}
+
+type ScriptInfoRewarding struct {
+	ScriptPurposeRewarding
+}
+
+func (ScriptInfoRewarding) isScriptInfo() {}
+
+type ScriptInfoCertifying struct {
+	ScriptPurposeCertifying
+}
+
+func (ScriptInfoCertifying) isScriptInfo() {}
+
+type ScriptInfoVoting struct {
+	ScriptPurposeVoting
+}
+
+func (ScriptInfoVoting) isScriptInfo() {}
+
+type ScriptInfoProposing struct {
+	ScriptPurposeProposing
+}
+
+func (ScriptInfoProposing) isScriptInfo() {}
+
+type ScriptInfoGuarding struct {
+	ScriptPurposeGuarding
+}
+
+func (ScriptInfoGuarding) isScriptInfo() {}
+
+type toScriptPurposeFunc func(
+	lcommon.RedeemerKey,
+) (ScriptPurpose, error)
+
+// scriptPurposeBuilder creates a reusable function preloaded with information about a particular transaction
+// The witnessDatums parameter allows looking up datums from the transaction witness set
+// for outputs that have a datum hash but no inline datum.
+func scriptPurposeBuilder(
+	resolvedInputs []lcommon.Utxo,
+	inputs []lcommon.TransactionInput,
+	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
+	certificates []lcommon.Certificate,
+	withdrawals KeyValuePairs[*lcommon.Address, *big.Int],
+	votes KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
+	proposalProcedures []lcommon.ProposalProcedure,
+	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
+) toScriptPurposeFunc {
+	return func(
+		redeemerKey lcommon.RedeemerKey,
+	) (ScriptPurpose, error) {
+		switch redeemerKey.Tag {
+		case lcommon.RedeemerTagSpend:
+			if int(redeemerKey.Index) >= len(inputs) {
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+			}
+			var datum data.PlutusData
+			tmpInput := inputs[redeemerKey.Index]
+			var resolvedInput lcommon.Utxo
+			resolved := false
+			for _, tmpResolvedInput := range resolvedInputs {
+				if tmpResolvedInput.Id.String() == tmpInput.String() {
+					resolvedInput = tmpResolvedInput
+					resolved = true
+					if resolvedInput.Output == nil {
+						return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+					}
+					if tmpDatum := resolvedInput.Output.Datum(); tmpDatum != nil {
+						// Inline datum - use it directly
+						datum = tmpDatum.Data
+					} else if datumHash := resolvedInput.Output.DatumHash(); datumHash != nil {
+						// No inline datum - check witness datums by hash
+						if witnessDatum, exists := witnessDatums[*datumHash]; exists && witnessDatum != nil {
+							datum = witnessDatum.Data
+						}
+					}
+					break
+				}
+			}
+			if !resolved {
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+			}
+			return ScriptPurposeSpending{
+				Input: resolvedInput,
+				Datum: datum,
+			}, nil
+		case lcommon.RedeemerTagMint:
+			mintPolicies := mint.Policies()
+			if int(redeemerKey.Index) >= len(mintPolicies) {
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+			}
+			slices.SortFunc(
+				mintPolicies,
+				func(a, b lcommon.Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+			)
+			return ScriptPurposeMinting{
+				PolicyId: mintPolicies[redeemerKey.Index],
+			}, nil
+		case lcommon.RedeemerTagCert:
+			if int(redeemerKey.Index) >= len(certificates) {
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+			}
+			return ScriptPurposeCertifying{
+				Index:       redeemerKey.Index,
+				Certificate: certificates[redeemerKey.Index],
+			}, nil
+		case lcommon.RedeemerTagReward:
+			if int(redeemerKey.Index) >= len(withdrawals) {
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+			}
+			return ScriptPurposeRewarding{
+				StakeCredential: lcommon.Credential{
+					CredType:   lcommon.CredentialTypeScriptHash,
+					Credential: withdrawals[redeemerKey.Index].Key.StakeKeyHash(),
+				},
+			}, nil
+		case lcommon.RedeemerTagVoting:
+			if int(redeemerKey.Index) >= len(votes) {
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+			}
+			return ScriptPurposeVoting{
+				Voter: *votes[redeemerKey.Index].Key,
+			}, nil
+		case lcommon.RedeemerTagProposing:
+			if int(redeemerKey.Index) >= len(proposalProcedures) {
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+			}
+			return ScriptPurposeProposing{
+				Index:             redeemerKey.Index,
+				ProposalProcedure: proposalProcedures[redeemerKey.Index],
+			}, nil
+		case lcommon.RedeemerTagGuarding:
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		default:
+			// Any unrecognized tag isn't a purpose this builder can
+			// construct.
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
+	}
+}
+
+// BuildScriptPurpose creates a ScriptPurpose from a redeemer key using map-based inputs.
+// This variant accepts raw maps for withdrawals and votes and handles deterministic ordering internally.
+// The witnessDatums parameter allows looking up datums from the transaction witness set
+// for outputs that have a datum hash but no inline datum.
+func BuildScriptPurpose(
+	redeemerKey lcommon.RedeemerKey,
+	resolvedInputs map[string]lcommon.Utxo,
+	inputs []lcommon.TransactionInput,
+	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
+	certificates []lcommon.Certificate,
+	withdrawals map[*lcommon.Address]*big.Int,
+	votes lcommon.VotingProcedures,
+	proposalProcedures []lcommon.ProposalProcedure,
+	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
+) (ScriptPurpose, error) {
+	switch redeemerKey.Tag {
+	case lcommon.RedeemerTagSpend:
+		if int(redeemerKey.Index) >= len(inputs) {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
+		tmpInput := inputs[redeemerKey.Index]
+		utxo, ok := resolvedInputs[tmpInput.String()]
+		if !ok {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
+		if utxo.Output == nil {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
+		var datum data.PlutusData
+		if d := utxo.Output.Datum(); d != nil {
+			// Inline datum - use it directly
+			datum = d.Data
+		} else if datumHash := utxo.Output.DatumHash(); datumHash != nil {
+			// No inline datum - check witness datums by hash
+			if witnessDatum, exists := witnessDatums[*datumHash]; exists && witnessDatum != nil {
+				datum = witnessDatum.Data
+			}
+		}
+		return ScriptPurposeSpending{
+			Input: utxo,
+			Datum: datum,
+		}, nil
+	case lcommon.RedeemerTagMint:
+		policies := mint.Policies()
+		if int(redeemerKey.Index) >= len(policies) {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
+		slices.SortFunc(
+			policies,
+			func(a, b lcommon.Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+		)
+		return ScriptPurposeMinting{
+			PolicyId: policies[redeemerKey.Index],
+		}, nil
+	case lcommon.RedeemerTagCert:
+		if int(redeemerKey.Index) >= len(certificates) {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
+		return ScriptPurposeCertifying{
+			Index:       redeemerKey.Index,
+			Certificate: certificates[redeemerKey.Index],
+		}, nil
+	case lcommon.RedeemerTagReward:
+		// Extract and sort withdrawal addresses for deterministic ordering
+		sortedAddrs := make([]*lcommon.Address, 0, len(withdrawals))
+		for addr := range withdrawals {
+			sortedAddrs = append(sortedAddrs, addr)
+		}
+		slices.SortFunc(sortedAddrs, func(a, b *lcommon.Address) int {
+			aBytes, aErr := a.Bytes()
+			bBytes, bErr := b.Bytes()
+			// Fall back to string comparison if Bytes() fails
+			if aErr != nil || bErr != nil {
+				return strings.Compare(a.String(), b.String())
+			}
+			return bytes.Compare(aBytes, bBytes)
+		})
+		if int(redeemerKey.Index) >= len(sortedAddrs) {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
+		addr := sortedAddrs[redeemerKey.Index]
+		return ScriptPurposeRewarding{
+			StakeCredential: lcommon.Credential{
+				CredType:   lcommon.CredentialTypeScriptHash,
+				Credential: addr.StakeKeyHash(),
+			},
+		}, nil
+	case lcommon.RedeemerTagVoting:
+		// Extract and sort voters for deterministic ordering
+		sortedVoters := make([]*lcommon.Voter, 0, len(votes))
+		for voter := range votes {
+			sortedVoters = append(sortedVoters, voter)
+		}
+		// Sort by voter type tag, then by hash bytes (matches votingInfo in context.go)
+		voterTag := func(v *lcommon.Voter) int {
+			switch v.Type {
+			case lcommon.VoterTypeConstitutionalCommitteeHotScriptHash:
+				return 0
+			case lcommon.VoterTypeConstitutionalCommitteeHotKeyHash:
+				return 1
+			case lcommon.VoterTypeDRepScriptHash:
+				return 2
+			case lcommon.VoterTypeDRepKeyHash:
+				return 3
+			case lcommon.VoterTypeStakingPoolKeyHash:
+				return 4
+			}
+			return -1
+		}
+		slices.SortFunc(sortedVoters, func(a, b *lcommon.Voter) int {
+			tagA := voterTag(a)
+			tagB := voterTag(b)
+			if tagA == tagB {
+				return bytes.Compare(a.Hash[:], b.Hash[:])
+			}
+			if tagA < tagB {
+				return -1
+			}
+			return 1
+		})
+		if int(redeemerKey.Index) >= len(sortedVoters) {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
+		return ScriptPurposeVoting{
+			Voter: *sortedVoters[redeemerKey.Index],
+		}, nil
+	case lcommon.RedeemerTagProposing:
+		if int(redeemerKey.Index) >= len(proposalProcedures) {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
+		return ScriptPurposeProposing{
+			Index:             redeemerKey.Index,
+			ProposalProcedure: proposalProcedures[redeemerKey.Index],
+		}, nil
+	case lcommon.RedeemerTagGuarding:
+		return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+	default:
+		// Any unrecognized tag isn't a purpose this function can construct.
+		return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+	}
+}

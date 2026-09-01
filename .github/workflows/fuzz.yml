@@ -1,0 +1,55 @@
+name: Fuzz Testing
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Nightly at midnight UTC
+  workflow_dispatch:      # Allow manual triggering
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          # go test rejects -fuzz when the package pattern matches more than
+          # one package, so each entry must name the exact package containing
+          # the fuzz target (no /... wildcards).
+          - {package: "./cbor", fuzz: "FuzzDecode$"}
+          - {package: "./cbor", fuzz: "FuzzDecodeStruct$"}
+          - {package: "./ledger", fuzz: "FuzzNewBlockFromCbor$"}
+          - {package: "./ledger", fuzz: "FuzzNewTransactionFromCbor$"}
+          - {package: "./ledger/common", fuzz: "FuzzMultiAsset$"}
+          - {package: "./ledger/common", fuzz: "FuzzValue$"}
+          - {package: "./ledger/common", fuzz: "FuzzNewAddressFromBytes$"}
+          - {package: "./ledger/common", fuzz: "FuzzNewAddress$"}
+          - {package: "./ledger/common", fuzz: "FuzzNewScriptHashFromBech32$"}
+          - {package: "./kes", fuzz: "FuzzVerifySignedKES$"}
+          - {package: "./kes", fuzz: "FuzzNewSumKesFromBytes$"}
+          - {package: "./vrf", fuzz: "FuzzVerify$"}
+          - {package: "./vrf", fuzz: "FuzzVerifyAndHash$"}
+          - {package: "./vrf", fuzz: "FuzzProofToHash$"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 https://github.com/actions/setup-go/releases/tag/v7.0.0
+        with:
+          go-version: '1.26.x'
+
+      - name: Run fuzz test
+        run: |
+          go test -fuzz=${{ matrix.target.fuzz }} \
+            -fuzztime=5m \
+            ${{ matrix.target.package }}
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: fuzz-crashes-${{ matrix.target.fuzz }}
+          path: "**/testdata/fuzz/**"
+          retention-days: 30

@@ -1,0 +1,514 @@
+// Copyright 2026 Blink Labs Software
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package common_test
+
+import (
+	"errors"
+	"math"
+	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/data"
+	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/stretchr/testify/require"
+)
+
+func TestValidateRequiredVKeyWitnesses_Common(t *testing.T) {
+	tx := mockledger.NewTransactionBuilder()
+	if err := common.ValidateRequiredVKeyWitnesses(tx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
+	tx := mockledger.NewTransactionBuilder()
+	if err := common.ValidateRedeemerAndScriptWitnesses(tx, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEncodeLangViews(t *testing.T) {
+	t.Run("encodes_versions_in_shortlex_order", func(t *testing.T) {
+		usedVersions := map[uint]struct{}{
+			2: {},
+			0: {},
+			1: {},
+		}
+		costModels := map[uint][]int64{
+			0: {10, 11},
+			1: {20, 21},
+			2: {30, 31},
+		}
+
+		got, err := common.EncodeLangViews(usedVersions, costModels)
+		require.NoError(t, err)
+
+		v1List, err := cbor.Encode(cbor.IndefLengthList{int64(10), int64(11)})
+		require.NoError(t, err)
+		v1Params, err := cbor.Encode(v1List)
+		require.NoError(t, err)
+		v2Params, err := cbor.Encode([]int64{20, 21})
+		require.NoError(t, err)
+		v3Params, err := cbor.Encode([]int64{30, 31})
+		require.NoError(t, err)
+
+		want := append([]byte{0xa3, 0x01}, v2Params...)
+		want = append(want, 0x02)
+		want = append(want, v3Params...)
+		want = append(want, 0x41, 0x00)
+		want = append(want, v1Params...)
+
+		require.Equal(t, want, got)
+	})
+
+	t.Run("rejects_unsupported_versions", func(t *testing.T) {
+		_, err := common.EncodeLangViews(
+			map[uint]struct{}{4: {}},
+			map[uint][]int64{4: {1}},
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("rejects_unsupported_versions_without_cost_model", func(t *testing.T) {
+		_, err := common.EncodeLangViews(
+			map[uint]struct{}{4: {}},
+			map[uint][]int64{},
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("rejects_missing_cost_model_for_supported_version", func(t *testing.T) {
+		_, err := common.EncodeLangViews(
+			map[uint]struct{}{2: {}},
+			map[uint][]int64{},
+		)
+		require.Error(t, err)
+	})
+
+	// Forward-compat for PV11 (vanRossem) and later: cost models may grow as
+	// new Plutus builtins are added. The langview hash is part of
+	// ScriptDataHash, so any silent truncation here would invalidate every
+	// Plutus tx after a hard fork. Encode arbitrary-length arrays for V2 and
+	// V3 and assert the produced bytes round-trip the full slice.
+	t.Run("encodes_longer_cost_models_for_v2_and_v3", func(t *testing.T) {
+		v2 := make([]int64, 220)
+		v3 := make([]int64, 350)
+		for i := range v2 {
+			v2[i] = int64(i + 1)
+		}
+		for i := range v3 {
+			v3[i] = int64(i + 100_000)
+		}
+
+		got, err := common.EncodeLangViews(
+			map[uint]struct{}{1: {}, 2: {}},
+			map[uint][]int64{1: v2, 2: v3},
+		)
+		require.NoError(t, err)
+
+		v2Params, err := cbor.Encode(v2)
+		require.NoError(t, err)
+		v3Params, err := cbor.Encode(v3)
+		require.NoError(t, err)
+
+		// Map header for 2 entries, then tag 0x01 + v2 params, tag 0x02 + v3 params.
+		want := append([]byte{0xa2, 0x01}, v2Params...)
+		want = append(want, 0x02)
+		want = append(want, v3Params...)
+
+		require.Equal(t, want, got)
+	})
+
+	t.Run("encodes_v4_language_view", func(t *testing.T) {
+		got, err := common.EncodeLangViews(
+			map[uint]struct{}{3: {}},
+			map[uint][]int64{3: {40, 41}},
+		)
+		require.NoError(t, err)
+
+		v4Params, err := cbor.Encode([]int64{40, 41})
+		require.NoError(t, err)
+
+		want := append([]byte{0xa1, 0x03}, v4Params...)
+		require.Equal(t, want, got)
+	})
+}
+
+func TestTxSizeForFeeDijkstraEnvelope(t *testing.T) {
+	txBody := map[uint]any{
+		0: []any{},
+		1: []any{},
+		2: uint64(0),
+	}
+	witnessSet := map[uint]any{}
+	auxData := any(nil)
+
+	threePartCbor, err := cbor.Encode([]any{txBody, witnessSet, auxData})
+	require.NoError(t, err)
+	threePartTx := mockledger.NewTransactionBuilder().
+		WithType(dijkstra.TxTypeDijkstra)
+	threePartTx.SetCbor(threePartCbor)
+
+	size, err := common.TxSizeForFee(threePartTx)
+	require.NoError(t, err)
+	require.Equal(t, len(threePartCbor), size)
+
+	fourPartCbor, err := cbor.Encode([]any{txBody, witnessSet, true, auxData})
+	require.NoError(t, err)
+	fourPartTx := mockledger.NewTransactionBuilder().
+		WithType(dijkstra.TxTypeDijkstra)
+	fourPartTx.SetCbor(fourPartCbor)
+
+	size, err = common.TxSizeForFee(fourPartTx)
+	require.NoError(t, err)
+	require.Equal(t, len(fourPartCbor)-1, size)
+
+	malformedTx := mockledger.NewTransactionBuilder().
+		WithType(dijkstra.TxTypeDijkstra)
+	malformedCbor := []byte{0xff}
+	malformedTx.SetCbor(malformedCbor)
+
+	size, err = common.TxSizeForFee(malformedTx)
+	require.NoError(t, err)
+	require.Equal(t, len(malformedCbor), size)
+}
+
+// Tests for VerifyTransaction moved from verify_rules_test.go
+func TestVerifyTransaction(t *testing.T) {
+	var tx common.Transaction
+
+	slot := uint64(1000)
+	ledgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) { return common.Utxo{}, nil }).
+		Build()
+	protocolParams := &mockledger.MockProtocolParamsRules{}
+
+	t.Run("all_rules_pass", func(t *testing.T) {
+		rules := []common.UtxoValidationRuleFunc{
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+		}
+
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("first_rule_fails", func(t *testing.T) {
+		expectedErr := errors.New("first rule failed")
+		rules := []common.UtxoValidationRuleFunc{
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error {
+				return expectedErr
+			},
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+		}
+
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var validationErr *common.ValidationError
+		if !errors.As(err, &validationErr) {
+			t.Fatalf("expected ValidationError, got %T", err)
+		}
+		if validationErr.Cause != expectedErr {
+			t.Errorf(
+				"expected cause %v, got %v",
+				expectedErr,
+				validationErr.Cause,
+			)
+		}
+	})
+
+	t.Run("middle_rule_fails", func(t *testing.T) {
+		expectedErr := errors.New("middle rule failed")
+		rules := []common.UtxoValidationRuleFunc{
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error {
+				return expectedErr
+			},
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+		}
+
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var validationErr *common.ValidationError
+		if !errors.As(err, &validationErr) {
+			t.Fatalf("expected ValidationError, got %T", err)
+		}
+		if validationErr.Cause != expectedErr {
+			t.Errorf(
+				"expected cause %v, got %v",
+				expectedErr,
+				validationErr.Cause,
+			)
+		}
+	})
+
+	t.Run("last_rule_fails", func(t *testing.T) {
+		expectedErr := errors.New("last rule failed")
+		rules := []common.UtxoValidationRuleFunc{
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error {
+				return expectedErr
+			},
+		}
+
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var validationErr *common.ValidationError
+		if !errors.As(err, &validationErr) {
+			t.Fatalf("expected ValidationError, got %T", err)
+		}
+		if validationErr.Cause != expectedErr {
+			t.Errorf(
+				"expected cause %v, got %v",
+				expectedErr,
+				validationErr.Cause,
+			)
+		}
+	})
+
+	t.Run("empty_rules", func(t *testing.T) {
+		rules := []common.UtxoValidationRuleFunc{}
+
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
+		if err != nil {
+			t.Errorf("expected no error with empty rules, got %v", err)
+		}
+	})
+}
+
+// Use centralized mocks from ledger/common/mock.go
+
+// mockTxInput implements TransactionInput minimally for constructing
+// ReferenceInputResolutionError in tests.
+type mockTxInput struct{ id common.Blake2b256 }
+
+func (m *mockTxInput) Id() common.Blake2b256 { return m.id }
+func (m *mockTxInput) Index() uint32         { return 0 }
+
+func (m *mockTxInput) String() string                     { return m.id.String() }
+func (m *mockTxInput) Utxorpc() (*cardano.TxInput, error) { return nil, nil }
+func (m *mockTxInput) ToPlutusData() data.PlutusData      { return nil }
+
+func TestReferenceInputResolutionSentinel(t *testing.T) {
+	// Construct ReferenceInputResolutionError using the concrete type defined
+	// in common/errors.go. Provide a minimal mock input and inner error.
+	inner := errors.New("utxo not found")
+	rie := common.ReferenceInputResolutionError{
+		Input: &mockTxInput{id: common.Blake2b256{}},
+		Err:   inner,
+	}
+	err := rie
+
+	if !errors.Is(err, common.ErrReferenceInputResolution) {
+		t.Fatalf("expected errors.Is to match ErrReferenceInputResolution")
+	}
+
+	var out common.ReferenceInputResolutionError
+	if !errors.As(err, &out) {
+		t.Fatalf(
+			"expected errors.As to unwrap to ReferenceInputResolutionError",
+		)
+	}
+
+	if out.Err == nil || out.Err.Error() != "utxo not found" {
+		t.Fatalf("expected inner message 'utxo not found', got %q", out.Err)
+	}
+}
+
+func TestCalculateMinFee(t *testing.T) {
+	t.Run("normal_parameters", func(t *testing.T) {
+		// Typical mainnet values: minFeeA=44, minFeeB=155381, bodySize=300
+		fee, err := common.CalculateMinFee(300, 44, 155381)
+		require.NoError(t, err)
+		require.Equal(t, uint64(44*300+155381), fee)
+	})
+
+	t.Run("zero_values", func(t *testing.T) {
+		fee, err := common.CalculateMinFee(0, 0, 0)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), fee)
+	})
+
+	t.Run("multiplication_overflow", func(t *testing.T) {
+		// Choose minFeeA and bodySize whose product exceeds math.MaxUint64.
+		// math.MaxUint64 ≈ 1.8e19, so (1<<32+1) * (1<<32+1) > 2^64.
+		bigA := uint(1<<32 + 1)
+		bigSize := int(1<<32 + 1)
+		_, err := common.CalculateMinFee(bigSize, bigA, 0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "overflow")
+	})
+
+	t.Run("addition_overflow", func(t *testing.T) {
+		// Product fits but adding minFeeB pushes past MaxUint64.
+		fee, err := common.CalculateMinFee(1, uint(math.MaxUint64), 0)
+		require.NoError(t, err)
+		require.Equal(t, uint64(math.MaxUint64), fee)
+
+		_, err = common.CalculateMinFee(1, uint(math.MaxUint64), 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "overflow")
+	})
+}
+
+func TestValidateExtraneousRedeemers_Common(t *testing.T) {
+	testInput := shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000001",
+		0,
+	)
+	votingVoter := &common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224{0x10},
+	}
+	votingGovActionId := &common.GovActionId{}
+
+	baseBody := func() conway.ConwayTransactionBody {
+		return conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{testInput},
+			),
+			TxCertificates: []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypeStakeRegistration),
+					Certificate: &common.StakeRegistrationCertificate{
+						StakeCredential: common.Credential{},
+					},
+				},
+			},
+			TxWithdrawals: map[*common.Address]uint64{
+				&common.Address{}: 0,
+			},
+			TxVotingProcedures: common.VotingProcedures{
+				votingVoter: {
+					votingGovActionId: common.VotingProcedure{Vote: 1},
+				},
+			},
+			TxProposalProcedures: []conway.ConwayProposalProcedure{{}},
+		}
+	}
+
+	t.Run("no witnesses is valid", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		require.NoError(t, common.ValidateExtraneousRedeemers(tx))
+	})
+
+	t.Run("unknown tag is extraneous", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTag(99)}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		var extraErr common.ExtraneousRedeemerError
+		require.ErrorAs(t, err, &extraErr)
+	})
+
+	t.Run("guarding tag is extraneous", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagGuarding}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+	})
+
+	t.Run("voting index out of range", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagVoting, Index: 1}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+	})
+
+	t.Run("proposing index out of range", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagProposing, Index: 1}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+	})
+
+	t.Run("in-range redeemers for every tag pass", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}:     {},
+				{Tag: common.RedeemerTagCert, Index: 0}:      {},
+				{Tag: common.RedeemerTagReward, Index: 0}:    {},
+				{Tag: common.RedeemerTagVoting, Index: 0}:    {},
+				{Tag: common.RedeemerTagProposing, Index: 0}: {},
+			},
+		}
+		require.NoError(t, common.ValidateExtraneousRedeemers(tx))
+	})
+}

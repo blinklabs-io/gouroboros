@@ -1,0 +1,1428 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package babbage
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math/big"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/blinklabs-io/plutigo/data"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+)
+
+const (
+	EraIdBabbage   = 5
+	EraNameBabbage = "Babbage"
+
+	// MinProtocolVersionBabbage is the lowest protocol major
+	// version that belongs to the Babbage era.
+	MinProtocolVersionBabbage = 7
+	// MaxProtocolVersionBabbage is the highest protocol major
+	// version that belongs to the Babbage era.
+	MaxProtocolVersionBabbage = 8
+
+	BlockTypeBabbage = 6
+
+	BlockHeaderTypeBabbage = 5
+
+	TxTypeBabbage = 5
+)
+
+var EraBabbage = common.Era{
+	Id:   EraIdBabbage,
+	Name: EraNameBabbage,
+}
+
+func init() {
+	common.RegisterEra(EraBabbage)
+}
+
+type BabbageBlock struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	BlockHeader            *BabbageBlockHeader
+	TransactionBodies      []BabbageTransactionBody
+	TransactionWitnessSets []BabbageTransactionWitnessSet
+	TransactionMetadataSet common.TransactionMetadataSet
+	InvalidTransactions    []uint
+}
+
+func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
+	// Create a temporary struct for unmarshaling with []any for InvalidTransactions
+	type tmpBabbageBlock struct {
+		cbor.StructAsArray
+		BlockHeader            *BabbageBlockHeader
+		TransactionBodies      []BabbageTransactionBody
+		TransactionWitnessSets []BabbageTransactionWitnessSet
+		TransactionMetadataSet common.TransactionMetadataSet
+		InvalidTransactions    []uint64
+	}
+
+	var tmp tmpBabbageBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+
+	// Convert the wire indices to the platform type without discarding values.
+	result := make([]uint, 0, len(tmp.InvalidTransactions))
+	for _, val := range tmp.InvalidTransactions {
+		if val >= uint64(len(tmp.TransactionBodies)) {
+			return fmt.Errorf(
+				"invalid transaction index %d outside transaction list length %d",
+				val,
+				len(tmp.TransactionBodies),
+			)
+		}
+		converted := uint(val)
+		if uint64(converted) != val {
+			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+		}
+		result = append(result, converted)
+	}
+	if len(result) == 0 {
+		b.InvalidTransactions = nil
+	} else {
+		b.InvalidTransactions = result
+	}
+
+	// Assign the other fields
+	b.BlockHeader = tmp.BlockHeader
+	b.TransactionBodies = tmp.TransactionBodies
+	b.TransactionWitnessSets = tmp.TransactionWitnessSets
+	b.TransactionMetadataSet = tmp.TransactionMetadataSet
+
+	b.SetCbor(cborData)
+
+	// Extract and store CBOR for each component
+	if err := common.ExtractAndSetTransactionCbor(
+		b.Cbor(),
+		func(i int, data []byte) { b.TransactionBodies[i].SetCborReference(data) },
+		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCborReference(data) },
+		func(data []byte) { b.TransactionMetadataSet.SetCborReference(data) },
+		len(b.TransactionBodies),
+		len(b.TransactionWitnessSets),
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (b *BabbageBlock) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+
+	// Ensure nil slices are encoded as empty CBOR arrays (0x80)
+	// rather than CBOR null (0xF6). The Cardano CDDL requires
+	// arrays for transaction_bodies, transaction_witness_sets,
+	// and invalid_transactions.
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []BabbageTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []BabbageTransactionWitnessSet{}
+	}
+	invalidTxs := b.InvalidTransactions
+	if invalidTxs == nil {
+		invalidTxs = []uint{}
+	}
+
+	return cbor.Encode([]any{
+		b.BlockHeader,
+		txBodies,
+		txWitnesses,
+		b.TransactionMetadataSet,
+		invalidTxs,
+	})
+}
+
+func (BabbageBlock) Type() int {
+	return BlockTypeBabbage
+}
+
+func (b *BabbageBlock) Hash() common.Blake2b256 {
+	return b.BlockHeader.Hash()
+}
+
+func (b *BabbageBlock) Header() common.BlockHeader {
+	return b.BlockHeader
+}
+
+func (b *BabbageBlock) PrevHash() common.Blake2b256 {
+	return b.BlockHeader.PrevHash()
+}
+
+func (b *BabbageBlock) BlockNumber() uint64 {
+	return b.BlockHeader.BlockNumber()
+}
+
+func (b *BabbageBlock) SlotNumber() uint64 {
+	return b.BlockHeader.SlotNumber()
+}
+
+func (b *BabbageBlock) IssuerVkey() common.IssuerVkey {
+	return b.BlockHeader.IssuerVkey()
+}
+
+func (b *BabbageBlock) BlockBodySize() uint64 {
+	return b.BlockHeader.BlockBodySize()
+}
+
+func (b *BabbageBlock) Era() common.Era {
+	return EraBabbage
+}
+
+func (b *BabbageBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
+	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
+	for _, invalidTxIdx := range b.InvalidTransactions {
+		invalidTxMap[invalidTxIdx] = true
+	}
+
+	ret := make([]common.Transaction, len(b.TransactionBodies))
+	// #nosec G115
+	for idx := range b.TransactionBodies {
+		tx := &BabbageTransaction{
+			Body:       b.TransactionBodies[idx],
+			WitnessSet: b.TransactionWitnessSets[idx],
+			TxIsValid:  !invalidTxMap[uint(idx)],
+		}
+		// Populate metadata and preserve original auxiliary CBOR when present
+		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
+			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
+		}
+		ret[idx] = tx
+	}
+	return ret
+}
+
+func (b *BabbageBlock) Utxorpc() (*utxorpc.Block, error) {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
+		tx, err := t.Utxorpc()
+		if err != nil {
+			return nil, err
+		}
+		txs = append(txs, tx)
+	}
+	body := &utxorpc.BlockBody{
+		Tx: txs,
+	}
+	header := &utxorpc.BlockHeader{
+		Hash:   b.Hash().Bytes(),
+		Height: b.BlockNumber(),
+		Slot:   b.SlotNumber(),
+	}
+	block := &utxorpc.Block{
+		Body:   body,
+		Header: header,
+	}
+	return block, nil
+}
+
+func (b *BabbageBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
+}
+
+type BabbageBlockHeader struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	hash      *common.Blake2b256
+	Body      BabbageBlockHeaderBody
+	Signature []byte
+}
+
+type BabbageBlockHeaderBody struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	BlockNumber   uint64
+	Slot          uint64
+	PrevHash      common.Blake2b256
+	IssuerVkey    common.IssuerVkey
+	VrfKey        []byte
+	VrfResult     common.VrfResult
+	BlockBodySize uint64
+	BlockBodyHash common.Blake2b256
+	OpCert        BabbageOpCert
+	ProtoVersion  BabbageProtoVersion
+}
+
+type babbageBlockHeaderBodyWire struct {
+	cbor.StructAsArray
+	BlockNumber   uint64
+	Slot          uint64
+	PrevHash      cbor.RawMessage
+	IssuerVkey    common.IssuerVkey
+	VrfKey        []byte
+	VrfResult     common.VrfResult
+	BlockBodySize uint64
+	BlockBodyHash common.Blake2b256
+	OpCert        BabbageOpCert
+	ProtoVersion  BabbageProtoVersion
+}
+
+func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
+	var tmp babbageBlockHeaderBodyWire
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	var prevHash common.Blake2b256
+	// Origin headers encode prev_hash as null. Keep that compatibility scoped
+	// to this field while non-null hashes use the globally strict decoder.
+	if len(tmp.PrevHash) != 1 || tmp.PrevHash[0] != 0xf6 {
+		if _, err := cbor.Decode(tmp.PrevHash, &prevHash); err != nil {
+			return fmt.Errorf("decode previous hash: %w", err)
+		}
+	}
+	*b = BabbageBlockHeaderBody{
+		BlockNumber:   tmp.BlockNumber,
+		Slot:          tmp.Slot,
+		PrevHash:      prevHash,
+		IssuerVkey:    tmp.IssuerVkey,
+		VrfKey:        tmp.VrfKey,
+		VrfResult:     tmp.VrfResult,
+		BlockBodySize: tmp.BlockBodySize,
+		BlockBodyHash: tmp.BlockBodyHash,
+		OpCert:        tmp.OpCert,
+		ProtoVersion:  tmp.ProtoVersion,
+	}
+	b.SetCbor(cborData)
+	return nil
+}
+
+type BabbageOpCert struct {
+	cbor.StructAsArray
+	HotVkey        []byte
+	SequenceNumber uint32
+	KesPeriod      uint32
+	Signature      []byte
+}
+
+type BabbageProtoVersion struct {
+	cbor.StructAsArray
+	Major uint64
+	Minor uint64
+}
+
+func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
+	type tBabbageBlockHeader BabbageBlockHeader
+	var tmp tBabbageBlockHeader
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*h = BabbageBlockHeader(tmp)
+	h.SetCbor(cborData)
+	return nil
+}
+
+func (h *BabbageBlockHeader) Hash() common.Blake2b256 {
+	if h.hash == nil {
+		tmpHash := common.Blake2b256Hash(h.Cbor())
+		h.hash = &tmpHash
+	}
+	return *h.hash
+}
+
+func (h *BabbageBlockHeader) PrevHash() common.Blake2b256 {
+	return h.Body.PrevHash
+}
+
+func (h *BabbageBlockHeader) BlockNumber() uint64 {
+	return h.Body.BlockNumber
+}
+
+func (h *BabbageBlockHeader) SlotNumber() uint64 {
+	return h.Body.Slot
+}
+
+func (h *BabbageBlockHeader) IssuerVkey() common.IssuerVkey {
+	return h.Body.IssuerVkey
+}
+
+func (h *BabbageBlockHeader) BlockBodySize() uint64 {
+	return h.Body.BlockBodySize
+}
+
+func (h *BabbageBlockHeader) Era() common.Era {
+	return EraBabbage
+}
+
+func (h *BabbageBlockHeader) BlockBodyHash() common.Blake2b256 {
+	return h.Body.BlockBodyHash
+}
+
+type BabbageTransactionPparamUpdate struct {
+	cbor.StructAsArray
+	ProtocolParamUpdates map[common.Blake2b224]BabbageProtocolParameterUpdate
+	Epoch                uint64
+}
+
+type BabbageTransactionBody struct {
+	common.TransactionBodyBase
+	hash                    *common.Blake2b256
+	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
+	TxOutputs               []BabbageTransactionOutput                    `cbor:"1,keyasint,omitempty"`
+	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
+	Ttl                     uint64                                        `cbor:"3,keyasint,omitempty"`
+	TxCertificates          []common.CertificateWrapper                   `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals           map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
+	Update                  *BabbageTransactionPparamUpdate               `cbor:"6,keyasint,omitempty"`
+	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
+	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
+	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
+	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
+	TxCollateral            cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"13,keyasint,omitempty,omitzero"`
+	TxRequiredSigners       cbor.SetType[common.Blake2b224]               `cbor:"14,keyasint,omitempty,omitzero"`
+	NetworkId               uint8                                         `cbor:"15,keyasint,omitempty"`
+	TxCollateralReturn      *BabbageTransactionOutput                     `cbor:"16,keyasint,omitempty"`
+	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
+	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
+}
+
+func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
+	type tBabbageTransactionBody BabbageTransactionBody
+	var tmp tBabbageTransactionBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	tmp.TxCollateral = coalesceUntaggedTransactionInputs(tmp.TxCollateral)
+	tmp.TxReferenceInputs = coalesceUntaggedTransactionInputs(
+		tmp.TxReferenceInputs,
+	)
+	if err := tmp.TxCollateral.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("collateral inputs: %w", err)
+	}
+	if err := tmp.TxRequiredSigners.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("required signers: %w", err)
+	}
+	if err := tmp.TxReferenceInputs.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("reference inputs: %w", err)
+	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
+	*b = BabbageTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
+	b.SetCborReference(cborData)
+	return nil
+}
+
+func (b BabbageTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+}
+
+func coalesceUntaggedTransactionInputs(
+	set cbor.SetType[shelley.ShelleyTransactionInput],
+) cbor.SetType[shelley.ShelleyTransactionInput] {
+	wire := set.Cbor()
+	if wire == nil {
+		return set
+	}
+	var tag cbor.RawTag
+	if _, err := cbor.Decode(wire, &tag); err == nil {
+		return set
+	}
+	items := set.Items()
+	seen := make(map[string]struct{}, len(items))
+	uniqueItems := make([]shelley.ShelleyTransactionInput, 0, len(items))
+	for _, item := range items {
+		key := item.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		uniqueItems = append(uniqueItems, item)
+	}
+	ret := cbor.NewSetType(uniqueItems, false)
+	ret.SetCbor(wire)
+	return ret
+}
+
+func (b *BabbageTransactionBody) Id() common.Blake2b256 {
+	if b.hash == nil {
+		tmpHash := common.Blake2b256Hash(b.Cbor())
+		b.hash = &tmpHash
+	}
+	return *b.hash
+}
+
+func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
+	items := b.TxInputs.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i, input := range items {
+		ret[i] = input
+	}
+	return ret
+}
+
+func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
+	ret := make([]common.TransactionOutput, len(b.TxOutputs))
+	for i := range b.TxOutputs {
+		ret[i] = &b.TxOutputs[i]
+	}
+	return ret
+}
+
+func (b *BabbageTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
+}
+
+func (b *BabbageTransactionBody) TTL() uint64 {
+	return b.Ttl
+}
+
+func (b *BabbageTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *BabbageTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.hash = nil
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *BabbageTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.hash = nil
+	b.SetValidityIntervalUpperBoundPresence(false)
+}
+
+func (b *BabbageTransactionBody) ValidityIntervalStart() uint64 {
+	return b.TxValidityIntervalStart
+}
+
+func (b *BabbageTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	if b.Update == nil {
+		return 0, nil
+	}
+	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
+	for k, v := range b.Update.ProtocolParamUpdates {
+		updateMap[k] = v
+	}
+	return b.Update.Epoch, updateMap
+}
+
+func (b *BabbageTransactionBody) Certificates() []common.Certificate {
+	ret := make([]common.Certificate, len(b.TxCertificates))
+	for i, cert := range b.TxCertificates {
+		ret[i] = cert.Certificate
+	}
+	return ret
+}
+
+func (b *BabbageTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int)
+	for k, v := range b.TxWithdrawals {
+		ret[k] = new(big.Int).SetUint64(v)
+	}
+	return ret
+}
+
+func (b *BabbageTransactionBody) AuxDataHash() *common.Blake2b256 {
+	return b.TxAuxDataHash
+}
+
+func (b *BabbageTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	return b.TxMint
+}
+
+func (b *BabbageTransactionBody) Collateral() []common.TransactionInput {
+	items := b.TxCollateral.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i, collateral := range items {
+		ret[i] = collateral
+	}
+	return ret
+}
+
+func (b *BabbageTransactionBody) RequiredSigners() []common.Blake2b224 {
+	return b.TxRequiredSigners.Items()
+}
+
+func (b *BabbageTransactionBody) ScriptDataHash() *common.Blake2b256 {
+	return b.TxScriptDataHash
+}
+
+func (b *BabbageTransactionBody) ReferenceInputs() []common.TransactionInput {
+	items := b.TxReferenceInputs.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i := range items {
+		ret[i] = &items[i]
+	}
+	return ret
+}
+
+func (b *BabbageTransactionBody) CollateralReturn() common.TransactionOutput {
+	// Return an actual nil if we have no value. If we return our nil pointer,
+	// we get a non-nil interface containing a nil value, which is harder to
+	// compare against
+	if b.TxCollateralReturn == nil {
+		return nil
+	}
+	return b.TxCollateralReturn
+}
+
+func (b *BabbageTransactionBody) TotalCollateral() *big.Int {
+	return new(big.Int).SetUint64(b.TxTotalCollateral)
+}
+
+func (b *BabbageTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
+	return common.TransactionBodyToUtxorpc(b)
+}
+
+const (
+	DatumOptionTypeHash = 0
+	DatumOptionTypeData = 1
+)
+
+type BabbageTransactionOutputDatumOption struct {
+	hash *common.Blake2b256
+	data *common.Datum
+}
+
+func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	dec, err := cbor.NewStreamDecoder(cborData)
+	if err != nil {
+		return err
+	}
+	var items []cbor.RawMessage
+	if _, _, err := dec.Decode(&items); err != nil {
+		return err
+	}
+	if len(items) != 2 {
+		return fmt.Errorf(
+			"unsupported datum option shape: expected 2 items, got %d",
+			len(items),
+		)
+	}
+	datumOptionType, err := cbor.DecodeIdFromList(cborData)
+	if err != nil {
+		return err
+	}
+	d.hash = nil
+	d.data = nil
+	switch datumOptionType {
+	case DatumOptionTypeHash:
+		var hash common.Blake2b256
+		if _, err := cbor.Decode([]byte(items[1]), &hash); err != nil {
+			return err
+		}
+		d.hash = &hash
+	case DatumOptionTypeData:
+		var wrapped cbor.WrappedCbor
+		if _, err := cbor.Decode([]byte(items[1]), &wrapped); err != nil {
+			return err
+		}
+		var datumValue common.Datum
+		datumValue.SetCborReference(wrapped.Bytes())
+		tmpData, err := data.Decode(wrapped.Bytes())
+		if err != nil {
+			return err
+		}
+		datumValue.Data = tmpData
+		d.data = &datumValue
+	default:
+		return fmt.Errorf("unsupported datum option type: %d", datumOptionType)
+	}
+	return nil
+}
+
+func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
+	var tmpObj []any
+	if d.hash != nil {
+		tmpObj = []any{DatumOptionTypeHash, d.hash}
+	} else if d.data != nil {
+		tmpContent, err := cbor.Encode(d.data)
+		if err != nil {
+			return nil, err
+		}
+		tmpObj = []any{DatumOptionTypeData, cbor.Tag{Number: 24, Content: tmpContent}}
+	} else {
+		return nil, errors.New("unknown datum option type")
+	}
+	return cbor.Encode(&tmpObj)
+}
+
+type BabbageTransactionOutput struct {
+	cbor.DecodeStoreCbor
+	OutputAddress  common.Address                       `cbor:"0,keyasint,omitempty"`
+	OutputAmount   mary.MaryTransactionOutputValue      `cbor:"1,keyasint,omitempty"`
+	DatumOption    *BabbageTransactionOutputDatumOption `cbor:"2,keyasint,omitempty"`
+	TxOutScriptRef *common.ScriptRef                    `cbor:"3,keyasint,omitempty"`
+	legacyOutput   bool
+}
+
+func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	if len(cborData) > 0 && (cborData[0]&0xe0) == 0xa0 {
+		type tBabbageTransactionOutput BabbageTransactionOutput
+		var tmp tBabbageTransactionOutput
+		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		*o = BabbageTransactionOutput(tmp)
+	} else {
+		// Legacy outputs use the pre-Babbage array form.
+		var tmpOutput alonzo.AlonzoTransactionOutput
+		if _, err := cbor.Decode(cborData, &tmpOutput); err != nil {
+			return err
+		}
+		// Clear Babbage-only fields to avoid leaking state from a prior decode
+		o.TxOutScriptRef = nil
+		// Copy from temp legacy object to Babbage format
+		o.OutputAddress = tmpOutput.OutputAddress
+		o.OutputAmount = tmpOutput.OutputAmount
+		// Copy datum hash if present in legacy Alonzo output
+		if tmpOutput.OutputDatumHash != nil {
+			o.DatumOption = &BabbageTransactionOutputDatumOption{
+				hash: tmpOutput.OutputDatumHash,
+			}
+		} else {
+			o.DatumOption = nil
+		}
+		o.legacyOutput = true
+	}
+	// Save original CBOR
+	o.SetCborReference(cborData)
+	return nil
+}
+
+func (o *BabbageTransactionOutput) MarshalCBOR() ([]byte, error) {
+	if o.legacyOutput {
+		tmpOutput := alonzo.AlonzoTransactionOutput{
+			OutputAddress: o.OutputAddress,
+			OutputAmount:  o.OutputAmount,
+		}
+		// Copy datum hash if present
+		if o.DatumOption != nil && o.DatumOption.hash != nil {
+			tmpOutput.OutputDatumHash = o.DatumOption.hash
+		}
+		return cbor.Encode(&tmpOutput)
+	}
+	return cbor.EncodeGeneric(o)
+}
+
+func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
+	tmpObj := struct {
+		Address   common.Address                                  `json:"address"`
+		Amount    uint64                                          `json:"amount"`
+		Assets    *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
+		Datum     *common.Datum                                   `json:"datum,omitempty"`
+		DatumHash string                                          `json:"datumHash,omitempty"`
+	}{
+		Address: o.OutputAddress,
+		Amount:  o.OutputAmount.Amount,
+		Assets:  o.OutputAmount.Assets,
+	}
+	if o.DatumOption != nil {
+		if o.DatumOption.hash != nil {
+			tmpObj.DatumHash = o.DatumOption.hash.String()
+		}
+		if o.DatumOption.data != nil {
+			tmpObj.Datum = o.DatumOption.data
+		}
+	}
+	return json.Marshal(&tmpObj)
+}
+
+func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
+	var valueData [][2]data.PlutusData
+	if o.OutputAmount.Amount > 0 {
+		valueData = append(
+			valueData,
+			[2]data.PlutusData{
+				data.NewByteString(nil),
+				data.NewMap(
+					[][2]data.PlutusData{
+						{
+							data.NewByteString(nil),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount.Amount),
+							),
+						},
+					},
+				),
+			},
+		)
+	}
+	if o.OutputAmount.Assets != nil {
+		assetData := o.OutputAmount.Assets.ToPlutusData()
+		assetDataMap, ok := assetData.(*data.Map)
+		if !ok {
+			return nil
+		}
+		valueData = append(
+			valueData,
+			assetDataMap.Pairs...,
+		)
+	}
+	var datumOptionPd data.PlutusData
+	switch {
+	case o.DatumOption == nil:
+		datumOptionPd = data.NewConstr(0)
+	case o.DatumOption.hash != nil:
+		datumOptionPd = data.NewConstr(
+			1,
+			data.NewByteString(o.DatumOption.hash.Bytes()),
+		)
+	case o.DatumOption.data != nil:
+		datumOptionPd = data.NewConstr(
+			2,
+			o.DatumOption.data.Data,
+		)
+	}
+	var scriptRefPd data.PlutusData
+	if o.TxOutScriptRef == nil {
+		scriptRefPd = data.NewConstr(1)
+	} else {
+		scriptRefPd = data.NewConstr(
+			0,
+			data.NewByteString(
+				o.TxOutScriptRef.Script.Hash().Bytes(),
+			),
+		)
+	}
+	tmpData := data.NewConstr(
+		0,
+		o.OutputAddress.ToPlutusData(),
+		data.NewMap(valueData),
+		datumOptionPd,
+		scriptRefPd,
+	)
+	return tmpData
+}
+
+func (o BabbageTransactionOutput) Address() common.Address {
+	return o.OutputAddress
+}
+
+func (o BabbageTransactionOutput) ScriptRef() common.Script {
+	if o.TxOutScriptRef == nil {
+		return nil
+	}
+	return o.TxOutScriptRef.Script
+}
+
+func (o BabbageTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount.Amount)
+}
+
+func (o BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
+	return o.OutputAmount.Assets
+}
+
+func (o BabbageTransactionOutput) DatumHash() *common.Blake2b256 {
+	if o.DatumOption != nil {
+		if o.DatumOption.hash != nil {
+			return o.DatumOption.hash
+		}
+		if o.DatumOption.data != nil {
+			hash := o.DatumOption.data.Hash()
+			return &hash
+		}
+	}
+	return nil
+}
+
+func (o BabbageTransactionOutput) Datum() *common.Datum {
+	if o.DatumOption != nil {
+		return o.DatumOption.data
+	}
+	return nil
+}
+
+func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
+	// Handle address bytes
+	addressBytes, err := o.OutputAddress.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get output address bytes: %w", err)
+	}
+	var address []byte
+	if addressBytes == nil {
+		address = []byte{}
+	} else {
+		address = addressBytes
+	}
+
+	var assets []*utxorpc.Multiasset
+	if o.Assets() != nil {
+		tmpAssets := o.Assets()
+		for _, policyId := range tmpAssets.Policies() {
+			ma := &utxorpc.Multiasset{
+				PolicyId: policyId.Bytes(),
+			}
+			for _, assetName := range tmpAssets.Assets(policyId) {
+				amount := tmpAssets.Asset(policyId, assetName)
+				asset := &utxorpc.Asset{
+					Name: assetName,
+					Quantity: &utxorpc.Asset_OutputCoin{
+						OutputCoin: common.BigIntToUtxorpcBigInt(amount),
+					},
+				}
+				ma.Assets = append(ma.Assets, asset)
+			}
+			assets = append(assets, ma)
+		}
+	}
+
+	var datumHash []byte
+	if o.DatumOption == nil {
+		datumHash = make([]byte, 32) // 32 zero bytes for no datum option
+	} else if o.DatumOption.hash != nil {
+		datumHash = o.DatumOption.hash.Bytes()
+	} else if o.DatumOption.data != nil {
+		datumHash = o.DatumHash().Bytes()
+	} else {
+		// DatumOption present but empty
+		datumHash = []byte{}
+	}
+
+	return &utxorpc.TxOutput{
+			Address: address,
+			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
+			Assets:  assets,
+			Datum: &utxorpc.Datum{
+				Hash: datumHash,
+				// OriginalCbor: o.Datum().Cbor(),
+			},
+			// Script:    o.ScriptRef,
+		},
+		nil
+}
+
+func (o BabbageTransactionOutput) String() string {
+	assets := ""
+	if o.OutputAmount.Assets != nil {
+		if as := o.OutputAmount.Assets.String(); as != "[]" {
+			assets = " assets=" + as
+		}
+	}
+	return fmt.Sprintf(
+		"(BabbageTransactionOutput address=%s amount=%d%s)",
+		o.OutputAddress.String(),
+		o.OutputAmount.Amount,
+		assets,
+	)
+}
+
+type BabbageTransactionWitnessSet struct {
+	cbor.DecodeStoreCbor
+	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
+	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
+	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
+	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
+	WsPlutusData       alonzo.PlutusDataList     `cbor:"4,keyasint,omitempty"`
+	WsRedeemers        alonzo.AlonzoRedeemers    `cbor:"5,keyasint,omitempty"`
+	WsPlutusV2Scripts  []common.PlutusV2Script   `cbor:"6,keyasint,omitempty"`
+}
+
+func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	type tBabbageTransactionWitnessSet BabbageTransactionWitnessSet
+	var tmp tBabbageTransactionWitnessSet
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*w = BabbageTransactionWitnessSet(tmp)
+	w.SetCbor(cborData)
+	return nil
+}
+
+func (w *BabbageTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if w.Cbor() != nil {
+		return w.Cbor(), nil
+	}
+
+	// When encoding from scratch, we need to use indefinite-length encoding
+	// for WsPlutusData to match the original on-chain format
+
+	// Create a temporary witness set for encoding
+	type tempWitnessSet struct {
+		cbor.DecodeStoreCbor
+		VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
+		WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
+		BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
+		WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
+		WsPlutusData       cbor.IndefLengthList      `cbor:"4,keyasint,omitempty"` // Use indefinite-length for Plutus data
+		WsRedeemers        alonzo.AlonzoRedeemers    `cbor:"5,keyasint,omitempty"`
+		WsPlutusV2Scripts  []common.PlutusV2Script   `cbor:"6,keyasint,omitempty"`
+	}
+
+	// Convert WsPlutusData to IndefLengthList
+	var plutusDataIndefList cbor.IndefLengthList
+	if len(w.WsPlutusData.Items) > 0 {
+		plutusDataIndefList = make(cbor.IndefLengthList, len(w.WsPlutusData.Items))
+		for i, datum := range w.WsPlutusData.Items {
+			plutusDataIndefList[i] = datum
+		}
+	}
+
+	temp := tempWitnessSet{
+		VkeyWitnesses:      w.VkeyWitnesses,
+		WsNativeScripts:    w.WsNativeScripts,
+		BootstrapWitnesses: w.BootstrapWitnesses,
+		WsPlutusV1Scripts:  w.WsPlutusV1Scripts,
+		WsPlutusData:       plutusDataIndefList,
+		WsRedeemers:        w.WsRedeemers,
+		WsPlutusV2Scripts:  w.WsPlutusV2Scripts,
+	}
+
+	return cbor.Encode(&temp)
+}
+
+func (w BabbageTransactionWitnessSet) Vkey() []common.VkeyWitness {
+	return w.VkeyWitnesses
+}
+
+func (w BabbageTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+	return w.BootstrapWitnesses
+}
+
+func (w BabbageTransactionWitnessSet) NativeScripts() []common.NativeScript {
+	return w.WsNativeScripts
+}
+
+func (w BabbageTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
+	return w.WsPlutusV1Scripts
+}
+
+func (w BabbageTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
+	return w.WsPlutusV2Scripts
+}
+
+func (w BabbageTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
+	// No plutus v3 scripts in Babbage
+	return nil
+}
+
+func (w BabbageTransactionWitnessSet) PlutusData() []common.Datum {
+	return w.WsPlutusData.Items
+}
+
+func (w BabbageTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+	return w.WsRedeemers
+}
+
+type BabbageTransaction struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
+	Body       BabbageTransactionBody
+	WitnessSet BabbageTransactionWitnessSet
+	TxIsValid  bool
+	TxMetadata common.TransactionMetadatum
+	auxData    common.AuxiliaryData
+}
+
+func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
+	// Reset cached/derived fields to avoid stale state on receiver reuse
+	t.hash = nil
+	t.TxMetadata = nil
+	t.auxData = nil
+
+	dec, err := cbor.NewStreamDecoder(cborData)
+	if err != nil {
+		return err
+	}
+	var txArray []cbor.RawMessage
+	if _, _, err := dec.Decode(&txArray); err != nil {
+		return err
+	}
+
+	// Ensure we have exactly 4 components (body, witness, isValid, metadata)
+	if len(txArray) != 4 {
+		return fmt.Errorf(
+			"invalid transaction: expected exactly 4 components, got %d",
+			len(txArray),
+		)
+	}
+
+	// Decode body
+	if _, err := cbor.Decode([]byte(txArray[0]), &t.Body); err != nil {
+		return fmt.Errorf("failed to decode transaction body: %w", err)
+	}
+
+	// Decode witness set
+	if _, err := cbor.Decode([]byte(txArray[1]), &t.WitnessSet); err != nil {
+		return fmt.Errorf("failed to decode transaction witness set: %w", err)
+	}
+
+	// Decode TxIsValid flag
+	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
+		return fmt.Errorf("failed to decode TxIsValid: %w", err)
+	}
+	// Handle metadata (component 4, always present - either data or CBOR nil)
+	metadataRaw := []byte(txArray[3])
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 &&
+		(len(metadataRaw) != 1 ||
+			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
+		// 0xF6 is CBOR null
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
+			if fallbackErr != nil || metadata == nil {
+				if fallbackErr == nil {
+					fallbackErr = errors.New("metadata fallback returned no metadata")
+				}
+				return fmt.Errorf(
+					"failed to decode auxiliary data: %w (metadata fallback: %w)",
+					err,
+					fallbackErr,
+				)
+			}
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		}
+	}
+
+	t.SetCbor(cborData)
+	return nil
+}
+
+func (t *BabbageTransaction) Metadata() common.TransactionMetadatum {
+	return t.TxMetadata
+}
+
+func (t *BabbageTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
+}
+
+func (BabbageTransaction) Type() int {
+	return TxTypeBabbage
+}
+
+func (t BabbageTransaction) Hash() common.Blake2b256 {
+	return t.Id()
+}
+
+func (t BabbageTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t BabbageTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
+}
+
+func (t BabbageTransaction) Inputs() []common.TransactionInput {
+	return t.Body.Inputs()
+}
+
+func (t BabbageTransaction) Outputs() []common.TransactionOutput {
+	return t.Body.Outputs()
+}
+
+func (t BabbageTransaction) Fee() *big.Int {
+	return t.Body.Fee()
+}
+
+func (t BabbageTransaction) TTL() uint64 {
+	return t.Body.TTL()
+}
+
+func (t BabbageTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
+}
+
+func (t BabbageTransaction) ValidityIntervalStart() uint64 {
+	return t.Body.ValidityIntervalStart()
+}
+
+func (t BabbageTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	return t.Body.ProtocolParameterUpdates()
+}
+
+func (t BabbageTransaction) ReferenceInputs() []common.TransactionInput {
+	return t.Body.ReferenceInputs()
+}
+
+func (t BabbageTransaction) Collateral() []common.TransactionInput {
+	return t.Body.Collateral()
+}
+
+func (t BabbageTransaction) CollateralReturn() common.TransactionOutput {
+	return t.Body.CollateralReturn()
+}
+
+func (t BabbageTransaction) TotalCollateral() *big.Int {
+	return t.Body.TotalCollateral()
+}
+
+func (t BabbageTransaction) Certificates() []common.Certificate {
+	return t.Body.Certificates()
+}
+
+func (t BabbageTransaction) Withdrawals() map[*common.Address]*big.Int {
+	return t.Body.Withdrawals()
+}
+
+func (t BabbageTransaction) AuxDataHash() *common.Blake2b256 {
+	return t.Body.AuxDataHash()
+}
+
+func (t BabbageTransaction) ScriptDataHash() *common.Blake2b256 {
+	return t.Body.ScriptDataHash()
+}
+
+func (t BabbageTransaction) VotingProcedures() common.VotingProcedures {
+	return t.Body.VotingProcedures()
+}
+
+func (t BabbageTransaction) RequiredSigners() []common.Blake2b224 {
+	return t.Body.RequiredSigners()
+}
+
+func (t BabbageTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	return t.Body.AssetMint()
+}
+
+func (t BabbageTransaction) ProposalProcedures() []common.ProposalProcedure {
+	return t.Body.ProposalProcedures()
+}
+
+func (t BabbageTransaction) CurrentTreasuryValue() *big.Int {
+	return t.Body.CurrentTreasuryValue()
+}
+
+func (t BabbageTransaction) Donation() *big.Int {
+	return t.Body.Donation()
+}
+
+func (t BabbageTransaction) IsValid() bool {
+	return t.TxIsValid
+}
+
+func (t BabbageTransaction) Consumed() []common.TransactionInput {
+	if t.IsValid() {
+		return t.Inputs()
+	} else {
+		return t.Collateral()
+	}
+}
+
+func (t BabbageTransaction) Produced() []common.Utxo {
+	if t.IsValid() {
+		outputs := t.Outputs()
+		ret := make([]common.Utxo, 0, len(outputs))
+		for idx, output := range outputs {
+			ret = append(
+				ret,
+				common.Utxo{
+					Id: shelley.NewShelleyTransactionInput(
+						t.Hash().String(),
+						idx,
+					),
+					Output: output,
+				},
+			)
+		}
+		return ret
+	} else {
+		if t.CollateralReturn() == nil {
+			return []common.Utxo{}
+		}
+		return []common.Utxo{
+			{
+				Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), len(t.Outputs())),
+				Output: t.CollateralReturn(),
+			},
+		}
+	}
+}
+
+func (t BabbageTransaction) Witnesses() common.TransactionWitnessSet {
+	return t.WitnessSet
+}
+
+func (t *BabbageTransaction) MarshalCBOR() ([]byte, error) {
+	// If we have stored CBOR (from decode), return it to preserve metadata bytes
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData, nil
+	}
+	bodyCbor := t.Body.Cbor()
+	witnessCbor := t.WitnessSet.Cbor()
+	if len(bodyCbor) > 0 && len(witnessCbor) > 0 {
+		var auxCbor []byte
+		if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
+			auxCbor = t.auxData.Cbor()
+		} else if t.TxMetadata != nil {
+			auxCbor = t.TxMetadata.Cbor()
+		}
+		return common.ReassembleTransactionCbor(
+			bodyCbor,
+			witnessCbor,
+			t.TxIsValid,
+			auxCbor,
+		), nil
+	}
+	// Otherwise, construct and encode
+	tmpObj := []any{
+		t.Body,
+		t.WitnessSet,
+		t.TxIsValid,
+	}
+	if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.auxData.Cbor()))
+	} else if t.TxMetadata != nil {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+	} else {
+		tmpObj = append(tmpObj, nil)
+	}
+	return cbor.Encode(tmpObj)
+}
+
+func (t *BabbageTransaction) Cbor() []byte {
+	// Return stored CBOR if we have any
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData[:]
+	}
+	// Return immediately if the body CBOR is also empty, which implies an empty TX object
+	if t.Body.Cbor() == nil {
+		return nil
+	}
+	// Delegate to MarshalCBOR which handles encoding
+	cborData, err := t.MarshalCBOR()
+	if err != nil {
+		panic("CBOR encoding that should never fail has failed: " + err.Error())
+	}
+	return cborData
+}
+
+func (t *BabbageTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	tx, err := t.Body.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Babbage transaction: %w", err)
+	}
+	return tx, nil
+}
+
+func NewBabbageBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*BabbageBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
+	var babbageBlock BabbageBlock
+	if _, err := cbor.Decode(data, &babbageBlock); err != nil {
+		return nil, fmt.Errorf("decode Babbage block error: %w", err)
+	}
+
+	// Validate body hash during parsing if not skipped
+	if !cfg.SkipBodyHashValidation {
+		if babbageBlock.BlockHeader == nil {
+			return nil, errors.New("babbage block header is nil")
+		}
+		if err := common.ValidateBlockBodyHash(
+			data,
+			babbageBlock.BlockHeader.BlockBodyHash(),
+			EraNameBabbage,
+			5, // Babbage+ has 5 elements: header, txs, witnesses, aux, invalid
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	return &babbageBlock, nil
+}
+
+func NewBabbageBlockHeaderFromCbor(data []byte) (*BabbageBlockHeader, error) {
+	var babbageBlockHeader BabbageBlockHeader
+	if _, err := cbor.Decode(data, &babbageBlockHeader); err != nil {
+		return nil, fmt.Errorf("decode Babbage block header error: %w", err)
+	}
+	return &babbageBlockHeader, nil
+}
+
+func NewBabbageTransactionBodyFromCbor(
+	data []byte,
+) (*BabbageTransactionBody, error) {
+	var babbageTx BabbageTransactionBody
+	if _, err := cbor.Decode(data, &babbageTx); err != nil {
+		return nil, fmt.Errorf("decode Babbage transaction body error: %w", err)
+	}
+	return &babbageTx, nil
+}
+
+func NewBabbageTransactionFromCbor(data []byte) (*BabbageTransaction, error) {
+	var babbageTx BabbageTransaction
+	if _, err := cbor.Decode(data, &babbageTx); err != nil {
+		return nil, fmt.Errorf("decode Babbage transaction error: %w", err)
+	}
+	return &babbageTx, nil
+}
+
+func NewBabbageTransactionOutputFromCbor(
+	data []byte,
+) (*BabbageTransactionOutput, error) {
+	var babbageTxOutput BabbageTransactionOutput
+	if _, err := cbor.Decode(data, &babbageTxOutput); err != nil {
+		return nil, fmt.Errorf(
+			"decode Babbage transaction output error: %w",
+			err,
+		)
+	}
+	return &babbageTxOutput, nil
+}
