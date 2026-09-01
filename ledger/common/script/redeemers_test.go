@@ -431,3 +431,14 @@ func TestValidateRequiredRedeemersNilLedgerState(t *testing.T) {
 	tx := &conway.ConwayTransaction{}
 	require.NoError(t, script.ValidateRequiredRedeemers(tx, nil))
 }
+
+// TestValidateRequiredRedeemersNilTransaction pins that a nil Transaction
+// interface value is rejected before tx.IsValid() is called on it -- calling
+// a method on a nil interface panics, so the nil check must short-circuit
+// first (matching NewTxScriptView's own "tx == nil || ls == nil" guard).
+func TestValidateRequiredRedeemersNilTransaction(t *testing.T) {
+	require.NotPanics(t, func() {
+		err := script.ValidateRequiredRedeemers(nil, nil)
+		require.NoError(t, err)
+	})
+}

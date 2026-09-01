@@ -32,7 +32,35 @@ import (
 // re-deriving the reference-script-implies-redeemer check on its own (issue
 // #2147's "avoid duplicating era-specific guards" requirement).
 func TestUtxoValidateRequiredRedeemersRegistered(t *testing.T) {
-	dijkstraValidationRule(t, "ledger/conway.UtxoValidateRequiredRedeemers")
+	_, requiredRedeemersIdx := dijkstraValidationRule(
+		t,
+		"ledger/conway.UtxoValidateRequiredRedeemers",
+	)
+	_, badInputsIdx := dijkstraValidationRule(
+		t,
+		"ledger/conway.UtxoValidateBadInputsUtxo",
+	)
+	_, scriptWitnessesIdx := dijkstraValidationRule(
+		t,
+		"ledger/conway.UtxoValidateScriptWitnesses",
+	)
+
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		badInputsIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateBadInputsUtxo "+
+			"so an unresolvable input surfaces as BadInputsUtxo, not a raw "+
+			"input-resolution error",
+	)
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		scriptWitnessesIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateScriptWitnesses "+
+			"so a missing script is reported by the latter, not masked as a "+
+			"missing redeemer",
+	)
 }
 
 // TestUtxoValidateRequiredRedeemersDijkstra exercises issue #2147's scenario

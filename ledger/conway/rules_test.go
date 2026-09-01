@@ -23,6 +23,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -997,13 +998,41 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 // TestUtxoValidateRequiredRedeemersRegistered pins that Conway registers
 // UtxoValidateRequiredRedeemers in its production rule list (issue #2147).
 func TestUtxoValidateRequiredRedeemersRegistered(t *testing.T) {
-	want := reflect.ValueOf(conway.UtxoValidateRequiredRedeemers).Pointer()
-	for _, rule := range conway.UtxoValidationRules {
-		if reflect.ValueOf(rule).Pointer() == want {
-			return
+	indexOf := func(rule common.UtxoValidationRuleFunc) int {
+		t.Helper()
+		want := reflect.ValueOf(rule).Pointer()
+		for idx, r := range conway.UtxoValidationRules {
+			if reflect.ValueOf(r).Pointer() == want {
+				return idx
+			}
 		}
+		t.Fatalf(
+			"rule %s is not registered in UtxoValidationRules",
+			runtime.FuncForPC(want).Name(),
+		)
+		return -1
 	}
-	t.Fatal("UtxoValidateRequiredRedeemers is not registered in UtxoValidationRules")
+
+	requiredRedeemersIdx := indexOf(conway.UtxoValidateRequiredRedeemers)
+	badInputsIdx := indexOf(conway.UtxoValidateBadInputsUtxo)
+	scriptWitnessesIdx := indexOf(conway.UtxoValidateScriptWitnesses)
+
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		badInputsIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateBadInputsUtxo "+
+			"so an unresolvable input surfaces as BadInputsUtxo, not a raw "+
+			"input-resolution error",
+	)
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		scriptWitnessesIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateScriptWitnesses "+
+			"so a missing script is reported by the latter, not masked as a "+
+			"missing redeemer",
+	)
 }
 
 // TestUtxoValidateRequiredRedeemers covers issue #2147's acceptance

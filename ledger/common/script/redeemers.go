@@ -38,7 +38,7 @@ func ValidateRequiredRedeemers(
 	tx lcommon.Transaction,
 	ls lcommon.LedgerState,
 ) error {
-	if ls == nil || !tx.IsValid() {
+	if tx == nil || ls == nil || !tx.IsValid() {
 		return nil
 	}
 	view, err := NewTxScriptView(tx, ls)

@@ -17,6 +17,7 @@ package babbage_test
 import (
 	"errors"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -34,13 +35,41 @@ import (
 // script-address input with no redeemer must still be rejected rather than
 // silently spent unexecuted (issue #2147: "across all supported eras").
 func TestBabbageUtxoValidateRequiredRedeemersRegistered(t *testing.T) {
-	want := reflect.ValueOf(babbage.UtxoValidateRequiredRedeemers).Pointer()
-	for _, rule := range babbage.UtxoValidationRules {
-		if reflect.ValueOf(rule).Pointer() == want {
-			return
+	indexOf := func(rule common.UtxoValidationRuleFunc) int {
+		t.Helper()
+		want := reflect.ValueOf(rule).Pointer()
+		for idx, r := range babbage.UtxoValidationRules {
+			if reflect.ValueOf(r).Pointer() == want {
+				return idx
+			}
 		}
+		t.Fatalf(
+			"rule %s is not registered in UtxoValidationRules",
+			runtime.FuncForPC(want).Name(),
+		)
+		return -1
 	}
-	t.Fatal("UtxoValidateRequiredRedeemers is not registered in UtxoValidationRules")
+
+	requiredRedeemersIdx := indexOf(babbage.UtxoValidateRequiredRedeemers)
+	badInputsIdx := indexOf(babbage.UtxoValidateBadInputsUtxo)
+	scriptWitnessesIdx := indexOf(babbage.UtxoValidateScriptWitnesses)
+
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		badInputsIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateBadInputsUtxo "+
+			"so an unresolvable input surfaces as BadInputsUtxo, not a raw "+
+			"input-resolution error",
+	)
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		scriptWitnessesIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateScriptWitnesses "+
+			"so a missing script is reported by the latter, not masked as a "+
+			"missing redeemer",
+	)
 }
 
 // TestBabbageUtxoValidateRequiredRedeemers covers a Plutus script-address
