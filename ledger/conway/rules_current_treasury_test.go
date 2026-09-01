@@ -129,6 +129,26 @@ func TestConwayCurrentTreasuryValuePresence(t *testing.T) {
 	require.Zero(t, value)
 }
 
+func TestConwayFeaturesLegacyZeroCurrentTreasuryAbsent(t *testing.T) {
+	plutusV1 := common.PlutusV1Script{0x01}
+	tx := mockledger.NewTransactionBuilder().
+		WithMint(conwayTreasuryMint(plutusV1)).
+		WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().
+				WithPlutusV1Scripts(plutusV1),
+		)
+	require.NoError(
+		t,
+		conway.UtxoValidateConwayFeaturesWithPlutusV1V2(
+			tx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			&conway.ConwayProtocolParameters{},
+		),
+		"ouroboros-mock v0.17.0 default treasury zero is absent",
+	)
+}
+
 func TestConwayCurrentTreasuryValueProductionRules(t *testing.T) {
 	providerErr := errors.New("treasury provider failed")
 	tests := []struct {
@@ -313,7 +333,9 @@ func TestConwayCurrentTreasuryValuePrecedesMetadata(t *testing.T) {
 	)
 }
 
-func conwayTreasuryMint(scriptValue common.Script) *common.MultiAsset[common.MultiAssetTypeMint] {
+func conwayTreasuryMint(
+	scriptValue common.Script,
+) *common.MultiAsset[common.MultiAssetTypeMint] {
 	mint := common.NewMultiAsset[common.MultiAssetTypeMint](
 		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
 			scriptValue.Hash(): {
@@ -468,7 +490,9 @@ func TestConwayFeaturesWithPlutusV1V2ReferenceScripts(t *testing.T) {
 					{
 						Id: refInput,
 						Output: babbage.BabbageTransactionOutput{
-							TxOutScriptRef: &common.ScriptRef{Script: test.script},
+							TxOutScriptRef: &common.ScriptRef{
+								Script: test.script,
+							},
 						},
 					},
 				},

@@ -458,7 +458,8 @@ func NewTxInfoV3FromTransaction(
 		Votes:              votes,
 		ProposalProcedures: proposalProcedures,
 	}
-	if amt := tx.CurrentTreasuryValue(); amt != nil {
+	if lcommon.TransactionCurrentTreasuryValuePresent(tx) {
+		amt := tx.CurrentTreasuryValue()
 		ret.CurrentTreasuryAmount.Value = amt
 	}
 	if amt := tx.Donation(); amt != nil && amt.Sign() > 0 {

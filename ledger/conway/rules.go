@@ -2500,7 +2500,7 @@ func ValidateConwayFeaturesWithPlutusV1V2(
 	}
 
 	// Check for Conway-specific features
-	hasCurrentTreasuryValue := tx.CurrentTreasuryValue() != nil
+	hasCurrentTreasuryValue := common.TransactionCurrentTreasuryValuePresent(tx)
 	hasProposalProcedures := len(tx.ProposalProcedures()) > 0
 	hasVotingProcedures := tx.VotingProcedures() != nil &&
 		len(tx.VotingProcedures()) > 0

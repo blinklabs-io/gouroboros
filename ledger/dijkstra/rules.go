@@ -602,6 +602,10 @@ func (t dijkstraConwayFeatureTransaction) CurrentTreasuryValue() *big.Int {
 	return t.body.CurrentTreasuryValue()
 }
 
+func (t dijkstraConwayFeatureTransaction) CurrentTreasuryValuePresent() bool {
+	return common.TransactionCurrentTreasuryValuePresent(t.body)
+}
+
 func (t dijkstraConwayFeatureTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.body.ProposalProcedures()
 }
@@ -927,9 +931,8 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	}
 
 	type levelView struct {
-		tx       dijkstraConwayFeatureTransaction
-		view     script.TxScriptView
-		resolved bool
+		tx   dijkstraConwayFeatureTransaction
+		view script.TxScriptView
 	}
 	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
 	levels := make([]levelView, 0, len(subTxs)+1)
@@ -954,22 +957,17 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	for idx := range levels {
 		view, err := script.NewTxScriptView(levels[idx].tx, ls)
 		if err != nil {
-			if errors.Is(err, common.ErrInputResolution) {
-				continue
+			if !errors.Is(err, common.ErrInputResolution) {
+				return err
 			}
-			return err
 		}
 		levels[idx].view = view
-		levels[idx].resolved = true
 		for hash, candidate := range view.Available {
 			available[hash] = candidate
 		}
 	}
 
 	for idx := range levels {
-		if !levels[idx].resolved {
-			continue
-		}
 		view := levels[idx].view.WithAvailableScripts(
 			levels[idx].tx,
 			available,

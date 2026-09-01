@@ -27,12 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	dijkstraCurrentTreasuryRuleIndex = 0
-	dijkstraIsValidFlagRuleIndex     = 12
-	dijkstraInputSetEmptyRuleIndex   = 23
-)
-
 func dijkstraTreasuryValue(value uint64) *uint64 {
 	return &value
 }
@@ -105,14 +99,14 @@ func TestDijkstraCurrentTreasuryValueProductionRules(t *testing.T) {
 		ledgerValue      uint64
 		ledgerErr        error
 		wantProviderCall int
-		wantRuleIndex    int
+		wantRuleId       common.UtxoValidationRuleId
 		checkError       func(*testing.T, error)
 	}{
 		{
-			name:          "absent",
-			isValid:       true,
-			ledgerValue:   42,
-			wantRuleIndex: dijkstraInputSetEmptyRuleIndex,
+			name:        "absent",
+			isValid:     true,
+			ledgerValue: 42,
+			wantRuleId:  common.UtxoValidationRuleInputSetEmpty,
 			checkError: func(t *testing.T, err error) {
 				var target shelley.InputSetEmptyUtxoError
 				require.ErrorAs(t, err, &target)
@@ -124,7 +118,7 @@ func TestDijkstraCurrentTreasuryValueProductionRules(t *testing.T) {
 			isValid:          true,
 			ledgerValue:      42,
 			wantProviderCall: 1,
-			wantRuleIndex:    dijkstraInputSetEmptyRuleIndex,
+			wantRuleId:       common.UtxoValidationRuleInputSetEmpty,
 			checkError: func(t *testing.T, err error) {
 				var target shelley.InputSetEmptyUtxoError
 				require.ErrorAs(t, err, &target)
@@ -136,7 +130,7 @@ func TestDijkstraCurrentTreasuryValueProductionRules(t *testing.T) {
 			isValid:          true,
 			ledgerValue:      42,
 			wantProviderCall: 1,
-			wantRuleIndex:    dijkstraCurrentTreasuryRuleIndex,
+			wantRuleId:       common.UtxoValidationRuleCurrentTreasuryValue,
 			checkError: func(t *testing.T, err error) {
 				var target common.CurrentTreasuryValueMismatchError
 				require.ErrorAs(t, err, &target)
@@ -150,7 +144,7 @@ func TestDijkstraCurrentTreasuryValueProductionRules(t *testing.T) {
 			isValid:          true,
 			ledgerValue:      42,
 			wantProviderCall: 1,
-			wantRuleIndex:    dijkstraCurrentTreasuryRuleIndex,
+			wantRuleId:       common.UtxoValidationRuleCurrentTreasuryValue,
 			checkError: func(t *testing.T, err error) {
 				var target common.CurrentTreasuryValueMismatchError
 				require.ErrorAs(t, err, &target)
@@ -164,7 +158,7 @@ func TestDijkstraCurrentTreasuryValueProductionRules(t *testing.T) {
 			isValid:          true,
 			ledgerErr:        providerErr,
 			wantProviderCall: 1,
-			wantRuleIndex:    dijkstraCurrentTreasuryRuleIndex,
+			wantRuleId:       common.UtxoValidationRuleCurrentTreasuryValue,
 			checkError: func(t *testing.T, err error) {
 				var target common.TreasuryValueQueryError
 				require.ErrorAs(t, err, &target)
@@ -175,7 +169,7 @@ func TestDijkstraCurrentTreasuryValueProductionRules(t *testing.T) {
 			name:          "phase-2 invalid skips provider",
 			treasuryValue: dijkstraTreasuryValue(41),
 			ledgerErr:     providerErr,
-			wantRuleIndex: dijkstraIsValidFlagRuleIndex,
+			wantRuleId:    common.UtxoValidationRuleIsValidFlag,
 			checkError: func(t *testing.T, err error) {
 				var target common.InvalidIsValidFlagError
 				require.ErrorAs(t, err, &target)
@@ -212,7 +206,7 @@ func TestDijkstraCurrentTreasuryValueProductionRules(t *testing.T) {
 			require.ErrorAs(t, err, &validationErr)
 			require.Equal(
 				t,
-				test.wantRuleIndex,
+				dijkstraValidationRuleIndex(t, test.wantRuleId),
 				validationErr.Details["rule_index"],
 			)
 		})
@@ -343,5 +337,12 @@ func TestDijkstraCurrentTreasuryValuePrecedesMetadata(t *testing.T) {
 	var validationErr *common.ValidationError
 	require.ErrorAs(t, err, &validationErr)
 	require.NotNil(t, validationErr)
-	require.Equal(t, 0, validationErr.Details["rule_index"])
+	require.Equal(
+		t,
+		dijkstraValidationRuleIndex(
+			t,
+			common.UtxoValidationRuleCurrentTreasuryValue,
+		),
+		validationErr.Details["rule_index"],
+	)
 }

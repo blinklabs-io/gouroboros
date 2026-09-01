@@ -58,11 +58,13 @@ func UtxoValidateCurrentTreasuryValue(
 		if body == nil {
 			continue
 		}
-		if supplied := body.CurrentTreasuryValue(); supplied != nil {
+		if TransactionCurrentTreasuryValuePresent(body) {
+			supplied := body.CurrentTreasuryValue()
 			suppliedValues = append(suppliedValues, supplied)
 		}
 	}
-	if supplied := tx.CurrentTreasuryValue(); supplied != nil {
+	if TransactionCurrentTreasuryValuePresent(tx) {
+		supplied := tx.CurrentTreasuryValue()
 		suppliedValues = append(suppliedValues, supplied)
 	}
 	if len(suppliedValues) == 0 {

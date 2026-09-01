@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
@@ -232,6 +234,42 @@ var preprodSlotState = mockSlotState{
 	// Shelley start
 	ZeroTime: time.UnixMilli(1596059091000),
 	ZeroSlot: 4492800,
+}
+
+func TestTxInfoV3LegacyCurrentTreasuryPresence(t *testing.T) {
+	tests := []struct {
+		name          string
+		treasuryValue *int64
+		want          *big.Int
+	}{
+		{
+			name: "default zero is absent",
+		},
+		{
+			name:          "nonzero implies presence",
+			treasuryValue: func() *int64 { value := int64(42); return &value }(),
+			want:          big.NewInt(42),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tx := mockledger.NewTransactionBuilder()
+			if test.treasuryValue != nil {
+				tx.WithTreasuryValue(*test.treasuryValue)
+			}
+			txInfo, err := script.NewTxInfoV3FromTransaction(
+				mockledger.NewLedgerStateBuilder().Build(),
+				tx,
+				nil,
+			)
+			require.NoError(t, err)
+			if test.want == nil {
+				require.Nil(t, txInfo.CurrentTreasuryAmount.Value)
+				return
+			}
+			require.Equal(t, test.want, txInfo.CurrentTreasuryAmount.Value)
+		})
+	}
 }
 
 var scriptContextV1TestDefs = []struct {

@@ -1477,6 +1477,10 @@ func (t DijkstraTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
+func (t DijkstraTransaction) CurrentTreasuryValuePresent() bool {
+	return t.Body.CurrentTreasuryValuePresent()
+}
+
 func (t DijkstraTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }

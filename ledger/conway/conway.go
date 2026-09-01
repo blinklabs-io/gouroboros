@@ -1073,6 +1073,10 @@ func (t ConwayTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
+func (t ConwayTransaction) CurrentTreasuryValuePresent() bool {
+	return t.Body.CurrentTreasuryValuePresent()
+}
+
 func (t ConwayTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }

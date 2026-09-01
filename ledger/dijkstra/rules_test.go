@@ -35,6 +35,43 @@ func dijkstraValidationRuleName(rule common.UtxoValidationRuleFunc) string {
 	return runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).Name()
 }
 
+func dijkstraValidationRuleDescriptor(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) (common.UtxoValidationRuleDescriptor, int) {
+	t.Helper()
+	var found common.UtxoValidationRuleDescriptor
+	foundIndex := -1
+	for idx, descriptor := range UtxoValidationRuleDescriptors() {
+		if descriptor.Id != id {
+			continue
+		}
+		if foundIndex >= 0 {
+			t.Fatalf(
+				"Dijkstra validation rule %q is registered at indexes %d and %d",
+				id,
+				foundIndex,
+				idx,
+			)
+		}
+		found = descriptor
+		foundIndex = idx
+	}
+	if foundIndex < 0 {
+		t.Fatalf("Dijkstra validation rule %q is not registered", id)
+	}
+	return found, foundIndex
+}
+
+func dijkstraValidationRuleIndex(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) int {
+	t.Helper()
+	_, idx := dijkstraValidationRuleDescriptor(t, id)
+	return idx
+}
+
 func dijkstraValidationRule(
 	t *testing.T,
 	want string,

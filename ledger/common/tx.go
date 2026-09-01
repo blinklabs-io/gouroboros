@@ -94,6 +94,30 @@ func TransactionValidityIntervalUpperBound(
 	return upperBound, upperBound != 0
 }
 
+// TransactionWithCurrentTreasuryValuePresence is implemented by transactions
+// and transaction bodies that can distinguish an absent current treasury value
+// from an explicitly encoded value of zero.
+type TransactionWithCurrentTreasuryValuePresence interface {
+	CurrentTreasuryValuePresent() bool
+}
+
+// TransactionCurrentTreasuryValuePresent reports whether a transaction body's
+// current treasury value is present. A nonzero value implies presence for
+// legacy implementations. Zero is present only when the optional presence
+// capability reports it explicitly, so legacy implementations that return a
+// non-nil zero value for an absent field remain compatible.
+func TransactionCurrentTreasuryValuePresent(tx TransactionBody) bool {
+	value := tx.CurrentTreasuryValue()
+	if value == nil {
+		return false
+	}
+	if value.Sign() != 0 {
+		return true
+	}
+	txWithPresence, ok := tx.(TransactionWithCurrentTreasuryValuePresence)
+	return ok && txWithPresence.CurrentTreasuryValuePresent()
+}
+
 type TransactionInput interface {
 	Id() Blake2b256
 	Index() uint32
@@ -324,11 +348,7 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 	upperBound, present := TransactionValidityIntervalUpperBound(body)
 	preserveUpperBoundZero := present && upperBound == 0
 	treasuryValue := body.CurrentTreasuryValue()
-	treasuryBody, hasTreasuryPresence := body.(interface {
-		CurrentTreasuryValuePresent() bool
-	})
-	preserveTreasuryZero := hasTreasuryPresence &&
-		treasuryBody.CurrentTreasuryValuePresent() &&
+	preserveTreasuryZero := TransactionCurrentTreasuryValuePresent(body) &&
 		treasuryValue != nil && treasuryValue.Sign() == 0
 	if !preserveUpperBoundZero && !preserveTreasuryZero {
 		return cborData, nil

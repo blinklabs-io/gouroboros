@@ -33,16 +33,11 @@ func dijkstraConwayFeaturesRule(
 	t *testing.T,
 ) common.UtxoValidationRuleFunc {
 	t.Helper()
-	var rule common.UtxoValidationRuleFunc
-	for _, descriptor := range UtxoValidationRuleDescriptors() {
-		if descriptor.Id != common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2 {
-			continue
-		}
-		require.Nil(t, rule, "duplicate Conway-feature descriptor")
-		rule = descriptor.Validator
-	}
-	require.NotNil(t, rule, "missing Conway-feature descriptor")
-	return rule
+	descriptor, _ := dijkstraValidationRuleDescriptor(
+		t,
+		common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2,
+	)
+	return descriptor.Validator
 }
 
 func verifyDijkstraConwayFeatures(
@@ -288,6 +283,182 @@ func dijkstraReferenceScriptInput(
 			},
 			TxOutScriptRef: dijkstraScriptRef(script),
 		},
+	}
+}
+
+func dijkstraSetUnresolvedInput(
+	t *testing.T,
+	tx *DijkstraTransaction,
+	topLevel bool,
+	index int,
+) shelley.ShelleyTransactionInput {
+	t.Helper()
+	input := shelley.NewShelleyTransactionInput(
+		"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+		index,
+	)
+	inputs := conway.NewConwayTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
+	if topLevel {
+		tx.Body.TxInputs = inputs
+		return input
+	}
+	subTxs := tx.Body.TxSubTransactions.Items()
+	require.Len(t, subTxs, 1)
+	subTxs[0].Body.TxInputs = inputs
+	tx.Body.TxSubTransactions = cbor.NewSetType(subTxs, true)
+	return input
+}
+
+func dijkstraSetUnresolvedReferenceInput(
+	t *testing.T,
+	tx *DijkstraTransaction,
+	topLevel bool,
+	index int,
+) shelley.ShelleyTransactionInput {
+	t.Helper()
+	input := shelley.NewShelleyTransactionInput(
+		"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		index,
+	)
+	inputs := cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{input},
+		true,
+	)
+	if topLevel {
+		tx.Body.TxReferenceInputs = inputs
+		return input
+	}
+	subTxs := tx.Body.TxSubTransactions.Items()
+	require.Len(t, subTxs, 1)
+	subTxs[0].Body.TxReferenceInputs = inputs
+	tx.Body.TxSubTransactions = cbor.NewSetType(subTxs, true)
+	return input
+}
+
+func TestDijkstraConwayFeaturesRetainsPartialWitnessViews(t *testing.T) {
+	native := testRequireGuardNativeScript(t, testGuardCredential())
+	tests := []struct {
+		name        string
+		script      common.Script
+		topLevel    bool
+		wantVersion string
+	}{
+		{
+			name:        "top-level PlutusV1",
+			script:      common.PlutusV1Script{0x31},
+			topLevel:    true,
+			wantVersion: "PlutusV1",
+		},
+		{
+			name:        "top-level PlutusV2",
+			script:      common.PlutusV2Script{0x32},
+			topLevel:    true,
+			wantVersion: "PlutusV2",
+		},
+		{
+			name:        "subtransaction PlutusV1",
+			script:      common.PlutusV1Script{0x33},
+			wantVersion: "PlutusV1",
+		},
+		{
+			name:        "subtransaction PlutusV2",
+			script:      common.PlutusV2Script{0x34},
+			wantVersion: "PlutusV2",
+		},
+		{name: "top-level native control", script: native, topLevel: true},
+		{name: "subtransaction native control", script: native},
+		{
+			name:     "top-level PlutusV3 control",
+			script:   common.PlutusV3Script{0x35},
+			topLevel: true,
+		},
+		{
+			name:   "subtransaction PlutusV3 control",
+			script: common.PlutusV3Script{0x36},
+		},
+	}
+	var typedNilState *mockledger.MockLedgerState
+	states := []struct {
+		name  string
+		state common.LedgerState
+	}{
+		{name: "nil interface"},
+		{name: "typed nil", state: typedNilState},
+	}
+	for idx, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, state := range states {
+				t.Run(state.name, func(t *testing.T) {
+					tx, _ := dijkstraGuardedTreasuryTransaction(
+						t,
+						test.script,
+						dijkstraTreasuryValue(42),
+						test.topLevel,
+						test.topLevel,
+						false,
+						300+idx,
+					)
+					dijkstraSetUnresolvedInput(t, tx, test.topLevel, 300+idx)
+					err := verifyDijkstraConwayFeatures(t, tx, state.state)
+					if test.wantVersion == "" {
+						require.NoError(t, err)
+						return
+					}
+					requireDijkstraCurrentTreasuryPlutusError(
+						t,
+						err,
+						test.wantVersion,
+					)
+				})
+			}
+		})
+	}
+}
+
+func TestDijkstraConwayFeaturesPreservesReferenceInputErrors(t *testing.T) {
+	var typedNilState *mockledger.MockLedgerState
+	states := []struct {
+		name  string
+		state common.LedgerState
+	}{
+		{name: "nil interface"},
+		{name: "typed nil", state: typedNilState},
+	}
+	for _, topLevel := range []bool{true, false} {
+		levelName := "subtransaction"
+		if topLevel {
+			levelName = "top-level"
+		}
+		t.Run(levelName, func(t *testing.T) {
+			for idx, state := range states {
+				t.Run(state.name, func(t *testing.T) {
+					tx, _ := dijkstraGuardedTreasuryTransaction(
+						t,
+						common.PlutusV1Script{0x41},
+						dijkstraTreasuryValue(42),
+						topLevel,
+						topLevel,
+						false,
+						400+idx,
+					)
+					input := dijkstraSetUnresolvedReferenceInput(
+						t,
+						tx,
+						topLevel,
+						400+idx,
+					)
+					err := verifyDijkstraConwayFeatures(t, tx, state.state)
+					var target common.ReferenceInputResolutionError
+					require.ErrorAs(t, err, &target)
+					require.ErrorIs(t, err, common.ErrReferenceInputResolution)
+					require.Equal(t, input.String(), target.Input.String())
+					var featureErr conway.CurrentTreasuryValueWithPlutusV1V2Error
+					require.NotErrorAs(t, err, &featureErr)
+				})
+			}
+		})
 	}
 }
 
@@ -1072,5 +1243,12 @@ func TestDijkstraConwayFeaturesPhase2ValidProductionRules(t *testing.T) {
 	requireDijkstraCurrentTreasuryPlutusError(t, err, "PlutusV1")
 	var validationErr *common.ValidationError
 	require.True(t, errors.As(err, &validationErr))
-	require.Equal(t, 20, validationErr.Details["rule_index"])
+	require.Equal(
+		t,
+		dijkstraValidationRuleIndex(
+			t,
+			common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2,
+		),
+		validationErr.Details["rule_index"],
+	)
 }
