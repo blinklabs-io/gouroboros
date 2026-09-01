@@ -212,6 +212,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateNativeScripts,                // UtxoValidationRuleNativeScripts
 		conway.UtxoValidateDelegation,                   // UtxoValidationRuleDelegation
 		conway.UtxoValidateWithdrawals,                  // UtxoValidationRuleWithdrawals
+		conway.UtxoValidateCertificateDeposits,          // UtxoValidationRuleCertificateDeposits
 		conway.UtxoValidateCommitteeCertificates,        // UtxoValidationRuleCommitteeCertificates
 		conway.UtxoValidateUnknownVoters,                // UtxoValidationRuleUnknownVoters
 		conway.UtxoValidateUnknownGovActionIds,          // UtxoValidationRuleUnknownGovActionIds
@@ -270,6 +271,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateNativeScripts,                // UtxoValidationRuleNativeScripts
 		conway.UtxoValidateDelegation,                     // UtxoValidationRuleDelegation
 		conway.UtxoValidateWithdrawals,                    // UtxoValidationRuleWithdrawals
+		conway.UtxoValidateCertificateDeposits,            // UtxoValidationRuleCertificateDeposits
 		conway.UtxoValidateCommitteeCertificates,          // UtxoValidationRuleCommitteeCertificates
 		conway.UtxoValidateUnknownVoters,                  // UtxoValidationRuleUnknownVoters
 		conway.UtxoValidateUnknownGovActionIds,            // UtxoValidationRuleUnknownGovActionIds

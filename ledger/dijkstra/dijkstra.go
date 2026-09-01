@@ -767,6 +767,9 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
+		return err
+	}
 	// Reject duplicate members in any tag-258 set field on the transaction body.
 	type duplicateChecker interface {
 		CheckForDuplicates() error
@@ -1074,6 +1077,9 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
 	if err := tmp.TxInputs.CheckForDuplicates(); err != nil {

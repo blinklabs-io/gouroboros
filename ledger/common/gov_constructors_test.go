@@ -83,7 +83,7 @@ func TestNewHardForkInitiationGovAction(t *testing.T) {
 
 func TestNewTreasuryWithdrawalGovAction(t *testing.T) {
 	addr, err := NewAddress(
-		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+		"stake1u9f9v0z5zzlldgx58n8tklphu8mf7h4jvp2j2gddluemnssjfnkzz",
 	)
 	require.NoError(t, err)
 	withdrawals := map[*Address]uint64{&addr: 5_000_000}

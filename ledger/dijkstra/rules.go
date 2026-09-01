@@ -236,6 +236,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: conway.UtxoValidateWithdrawals,
 	},
 	{
+		Id:        common.UtxoValidationRuleCertificateDeposits,
+		Validator: conway.UtxoValidateCertificateDeposits,
+	},
+	{
 		Id:        common.UtxoValidationRuleCommitteeCertificates,
 		Validator: conway.UtxoValidateCommitteeCertificates,
 	},
