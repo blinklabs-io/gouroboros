@@ -84,6 +84,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNativeScripts,
 	conway.UtxoValidateDelegation,
 	conway.UtxoValidateWithdrawals,
+	conway.UtxoValidateCertificateDeposits,
 	conway.UtxoValidateCommitteeCertificates,
 	conway.UtxoValidateUnknownVoters,
 	conway.UtxoValidateUnknownGovActionIds,

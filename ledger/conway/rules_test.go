@@ -1506,7 +1506,19 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	// UtxoValidateValueNotConservedUtxo reads a legacy deregistration's refund
+	// from ledger state, so the state must report the recorded deposit.
+	testLedgerState := certificateDepositLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithUtxos(utxos).
+			Build(),
+		deposits: map[certificateDepositCredentialKey]uint64{
+			{
+				credType: common.CredentialTypeAddrKeyHash,
+				hash:     common.Blake2b224{},
+			}: testStakeDeposit,
+		},
+	}
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
