@@ -2465,19 +2465,33 @@ func UtxoValidateSupplementalDatums(
 
 func redeemerCount(tx common.Transaction) int {
 	count := 0
-	countWitnesses := func(wits common.TransactionWitnessSet) {
+	for wits := range dijkstraTransactionWitnessSets(tx) {
 		if wits == nil || wits.Redeemers() == nil {
-			return
+			continue
 		}
 		for range wits.Redeemers().Iter() {
 			count++
 		}
 	}
-	countWitnesses(tx.Witnesses())
-	for _, wits := range common.SubTransactionWitnessSetsFromTransaction(tx) {
-		countWitnesses(wits)
-	}
 	return count
+}
+
+// dijkstraTransactionWitnessSets visits the top-level witness set followed by
+// each subtransaction witness set. The top level is retained first so existing
+// Dijkstra behavior is unchanged when a transaction has no subtransactions.
+func dijkstraTransactionWitnessSets(
+	tx common.Transaction,
+) iter.Seq[common.TransactionWitnessSet] {
+	return func(yield func(common.TransactionWitnessSet) bool) {
+		if !yield(tx.Witnesses()) {
+			return
+		}
+		for _, wits := range common.SubTransactionWitnessSetsFromTransaction(tx) {
+			if !yield(wits) {
+				return
+			}
+		}
+	}
 }
 
 func UtxoValidateInsufficientCollateral(
@@ -2742,40 +2756,41 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if err != nil {
 		return err
 	}
-	wits := tx.Witnesses()
-	if wits == nil || wits.Redeemers() == nil {
-		return nil
-	}
 	var totalSteps, totalMemory int64
-	for _, redeemer := range wits.Redeemers().Iter() {
-		newSteps, ok := common.AddInt64Checked(
-			totalSteps,
-			redeemer.ExUnits.Steps,
-		)
-		if !ok {
-			return alonzo.ExUnitsTooBigUtxoError{
-				TotalExUnits: common.ExUnits{
-					Memory: totalMemory,
-					Steps:  totalSteps,
-				},
-				MaxTxExUnits: tmpPparams.MaxTxExUnits,
-			}
+	for wits := range dijkstraTransactionWitnessSets(tx) {
+		if wits == nil || wits.Redeemers() == nil {
+			continue
 		}
-		totalSteps = newSteps
-		newMemory, ok := common.AddInt64Checked(
-			totalMemory,
-			redeemer.ExUnits.Memory,
-		)
-		if !ok {
-			return alonzo.ExUnitsTooBigUtxoError{
-				TotalExUnits: common.ExUnits{
-					Memory: totalMemory,
-					Steps:  totalSteps,
-				},
-				MaxTxExUnits: tmpPparams.MaxTxExUnits,
+		for _, redeemer := range wits.Redeemers().Iter() {
+			newSteps, ok := common.AddInt64Checked(
+				totalSteps,
+				redeemer.ExUnits.Steps,
+			)
+			if !ok {
+				return alonzo.ExUnitsTooBigUtxoError{
+					TotalExUnits: common.ExUnits{
+						Memory: totalMemory,
+						Steps:  totalSteps,
+					},
+					MaxTxExUnits: tmpPparams.MaxTxExUnits,
+				}
 			}
+			totalSteps = newSteps
+			newMemory, ok := common.AddInt64Checked(
+				totalMemory,
+				redeemer.ExUnits.Memory,
+			)
+			if !ok {
+				return alonzo.ExUnitsTooBigUtxoError{
+					TotalExUnits: common.ExUnits{
+						Memory: totalMemory,
+						Steps:  totalSteps,
+					},
+					MaxTxExUnits: tmpPparams.MaxTxExUnits,
+				}
+			}
+			totalMemory = newMemory
 		}
-		totalMemory = newMemory
 	}
 	if totalSteps <= tmpPparams.MaxTxExUnits.Steps &&
 		totalMemory <= tmpPparams.MaxTxExUnits.Memory {
@@ -3049,7 +3064,7 @@ func UtxoValidateMalformedReferenceScripts(
 	pp common.ProtocolParameters,
 ) error {
 	var malformedHashes []common.ScriptHash
-	for _, output := range tx.Outputs() {
+	for output := range dijkstraTransactionLevelOutputs(tx) {
 		scriptRef := output.ScriptRef()
 		if scriptRef == nil {
 			continue
@@ -3125,7 +3140,7 @@ func ValidateRefScriptSizePerBlock(
 
 func refScriptSize(tx common.Transaction) uint64 {
 	var totalSize uint64
-	for _, output := range tx.Outputs() {
+	for output := range dijkstraTransactionLevelOutputs(tx) {
 		scriptRef := output.ScriptRef()
 		if scriptRef == nil {
 			continue
@@ -3133,4 +3148,34 @@ func refScriptSize(tx common.Transaction) uint64 {
 		totalSize += uint64(len(scriptRef.RawScriptBytes()))
 	}
 	return totalSize
+}
+
+// dijkstraTransactionLevelOutputs visits every output-bearing field once.
+// Existing top-level outputs remain first, followed by the collateral return
+// and then subtransaction outputs in their encoded order.
+func dijkstraTransactionLevelOutputs(
+	tx common.Transaction,
+) iter.Seq[common.TransactionOutput] {
+	return func(yield func(common.TransactionOutput) bool) {
+		for _, output := range tx.Outputs() {
+			if !yield(output) {
+				return
+			}
+		}
+		if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+			if !yield(collateralReturn) {
+				return
+			}
+		}
+		for _, body := range common.SubTransactionBodiesFromTransaction(tx) {
+			if body == nil {
+				continue
+			}
+			for _, output := range body.Outputs() {
+				if !yield(output) {
+					return
+				}
+			}
+		}
+	}
 }
