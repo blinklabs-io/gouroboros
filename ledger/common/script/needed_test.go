@@ -316,3 +316,78 @@ func TestResolveTxInputsOrderAndErrors(t *testing.T) {
 	_, _, err = script.ResolveTxInputs(refOnlyTx, failLs)
 	require.ErrorAs(t, err, &common.ReferenceInputResolutionError{})
 }
+
+// partialResolutionLedgerState resolves reference inputs but fails the spend
+// input, which is the shape that previously produced a view with no reference
+// scripts at all.
+type partialResolutionLedgerState struct {
+	common.LedgerState
+	resolvable map[string]common.Utxo
+}
+
+func (s partialResolutionLedgerState) UtxoById(
+	input common.TransactionInput,
+) (common.Utxo, error) {
+	key := string(input.Id().Bytes()) + string(rune(input.Index()))
+	if utxo, ok := s.resolvable[key]; ok {
+		return utxo, nil
+	}
+	return common.Utxo{}, errors.New("input not found")
+}
+
+// A script supplied only as a reference script must still reach Available when
+// a spend input cannot be resolved, so a caller enforcing a language
+// restriction sees it before deferring the failure to UtxoValidateBadInputsUtxo.
+func TestNewTxScriptViewPartialViewKeepsReferenceScripts(t *testing.T) {
+	v1 := common.PlutusV1Script([]byte{0x01, 0x02})
+	scriptHash := v1.Hash()
+
+	spendInput := shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000001",
+		0,
+	)
+	refInput := shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000002",
+		0,
+	)
+	refUtxo := common.Utxo{
+		Id: refInput,
+		Output: babbage.BabbageTransactionOutput{
+			TxOutScriptRef: &common.ScriptRef{Script: v1},
+		},
+	}
+	ls := partialResolutionLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		resolvable: map[string]common.Utxo{
+			string(refInput.Id().Bytes()) + string(rune(refInput.Index())): refUtxo,
+		},
+	}
+
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{spendInput},
+			),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{refInput},
+				false,
+			),
+		},
+	}
+
+	view, err := script.NewTxScriptView(tx, ls)
+	require.Error(t, err, "the unresolvable spend input is still reported")
+	var resolutionErr common.InputResolutionError
+	require.ErrorAs(t, err, &resolutionErr)
+	require.Contains(
+		t,
+		view.Available,
+		scriptHash,
+		"a reference script that resolved must survive the partial view",
+	)
+	require.Empty(
+		t,
+		view.ResolvedReferenceInputs,
+		"the view stays partial",
+	)
+}

@@ -136,8 +136,16 @@ func NewTxScriptView(
 	inputs, refInputs, err := ResolveTxInputs(tx, ls)
 	if err != nil {
 		// Preserve witness-only script information even when a concrete ledger
-		// state cannot resolve one of the transaction's inputs.
-		view.Available = availableScripts(tx, nil)
+		// state cannot resolve one of the transaction's inputs. ResolveTxInputs
+		// stops at the first failure, so a failed spend input would otherwise
+		// hide reference scripts that did resolve, and a language restriction
+		// on a script supplied only as a reference script would go unchecked
+		// before the failure is deferred to UtxoValidateBadInputsUtxo. The view
+		// stays partial: ResolvedReferenceInputs is left unset.
+		view.Available = availableScripts(
+			tx,
+			resolvableReferenceInputs(tx, ls),
+		)
 		view.Needed = neededScripts(tx, view)
 		return view, err
 	}
@@ -147,6 +155,28 @@ func NewTxScriptView(
 	view.Available = availableScripts(tx, view.allResolvedInputs)
 	view.Needed = neededScripts(tx, view)
 	return view, nil
+}
+
+// resolvableReferenceInputs resolves whatever reference inputs the ledger state
+// can supply and skips the rest. It is only used on the input-resolution
+// failure path, where the failure is already being reported to the caller.
+func resolvableReferenceInputs(
+	tx lcommon.Transaction,
+	ls lcommon.LedgerState,
+) []lcommon.Utxo {
+	refInputs := tx.ReferenceInputs()
+	if len(refInputs) == 0 {
+		return nil
+	}
+	ret := make([]lcommon.Utxo, 0, len(refInputs))
+	for _, input := range refInputs {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			continue
+		}
+		ret = append(ret, utxo)
+	}
+	return ret
 }
 
 func ledgerStateIsNil(ls lcommon.LedgerState) bool {
