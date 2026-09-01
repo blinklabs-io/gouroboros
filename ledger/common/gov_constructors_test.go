@@ -113,6 +113,8 @@ func TestNewTreasuryWithdrawalGovAction(t *testing.T) {
 	// Negative: non-empty policy hash must be 28 bytes
 	_, err = NewTreasuryWithdrawalGovAction(withdrawals, []byte{1, 2})
 	require.Error(t, err)
+	_, err = NewTreasuryWithdrawalGovAction(withdrawals, []byte{})
+	require.Error(t, err)
 	// Negative: a nil address key would panic in ToPlutusData
 	_, err = NewTreasuryWithdrawalGovAction(
 		map[*Address]uint64{nil: 5_000_000},
@@ -217,13 +219,16 @@ func TestNewNewConstitutionGovAction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint(GovActionTypeNewConstitution), decoded.Type)
 
-	// Empty script hash is valid (optional guardrail script)
+	// A nil script hash represents an absent optional guardrail script.
 	noScript, err := NewNewConstitutionGovAction(nil, anchor, nil)
 	require.NoError(t, err)
-	assert.Empty(t, noScript.Constitution.ScriptHash)
+	assert.Nil(t, noScript.Constitution.ScriptHash)
 
-	// Negative: non-empty script hash must be 28 bytes
+	// A present script hash, including an explicit empty byte string, must be
+	// exactly 28 bytes.
 	_, err = NewNewConstitutionGovAction(nil, anchor, []byte{1, 2})
+	require.Error(t, err)
+	_, err = NewNewConstitutionGovAction(nil, anchor, []byte{})
 	require.Error(t, err)
 }
 

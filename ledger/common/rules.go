@@ -367,6 +367,9 @@ func (e ExtraneousScriptWitnessesError) Error() string {
 // vkey witness. This includes explicitly required signers and key-based reward
 // withdrawal credentials.
 func ValidateRequiredVKeyWitnesses(tx Transaction) error {
+	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
+		return err
+	}
 	required := make(
 		map[Blake2b224]struct{},
 		len(tx.RequiredSigners())+len(tx.Withdrawals()),
@@ -375,11 +378,12 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 		required[signer] = struct{}{}
 	}
 	for addr := range tx.Withdrawals() {
-		if addr == nil {
-			continue
+		credential, err := addr.RewardAccountCredential()
+		if err != nil {
+			return err
 		}
-		if payload, ok := addr.StakingPayload().(AddressPayloadKeyHash); ok {
-			required[payload.Hash] = struct{}{}
+		if credential.CredType == CredentialTypeAddrKeyHash {
+			required[credential.Credential] = struct{}{}
 		}
 	}
 	for _, cert := range tx.Certificates() {
@@ -721,8 +725,8 @@ func collectTransactionScriptRequirements(
 
 	withdrawals := make([]*Address, 0, len(tx.Withdrawals()))
 	for addr := range tx.Withdrawals() {
-		if addr == nil {
-			return ret, MalformedAuthorizationError{Subject: "nil withdrawal address"}
+		if _, err := addr.RewardAccountCredential(); err != nil {
+			return ret, err
 		}
 		withdrawals = append(withdrawals, addr)
 	}
@@ -735,9 +739,13 @@ func collectTransactionScriptRequirements(
 		return bytes.Compare(aBytes, bBytes) < 0
 	})
 	for index, addr := range withdrawals {
-		if addr.Type()&AddressTypeScriptBit != 0 {
+		credential, err := addr.RewardAccountCredential()
+		if err != nil {
+			return ret, err
+		}
+		if credential.CredType == CredentialTypeScriptHash {
 			addRequirement(
-				ScriptHash(addr.StakeKeyHash()),
+				ScriptHash(credential.Credential),
 				RedeemerTagReward,
 				index,
 			)
@@ -787,7 +795,8 @@ func collectTransactionScriptRequirements(
 				var hash ScriptHash
 				copy(hash[:], policyHash)
 				addRequirement(hash, RedeemerTagProposing, index)
-			} else if len(policyHash) != 0 {
+			} else if policyHash != nil {
+				// Present but invalid length - fail fast to surface upstream bugs
 				return ret, fmt.Errorf(
 					"malformed governance policy hash: got %d bytes, want %d",
 					len(policyHash),
@@ -839,6 +848,9 @@ func NativeScriptsForValidation(
 // redeemer pointer for every Plutus purpose. Native purposes reject a redeemer
 // at that pointer and are evaluated separately, including reference scripts.
 func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
+	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
+		return err
+	}
 	if !tx.IsValid() {
 		return nil
 	}

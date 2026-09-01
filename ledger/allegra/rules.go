@@ -30,6 +30,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNoDuplicateInputs,
 	UtxoValidateFeeTooSmallUtxo,
 	UtxoValidateBadInputsUtxo,
+	UtxoValidateScriptWitnesses,
 	UtxoValidateWrongNetwork,
 	UtxoValidateWrongNetworkWithdrawal,
 	UtxoValidateValueNotConservedUtxo,
@@ -84,6 +85,16 @@ func UtxoValidateInputSetEmptyUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
+}
+
+// UtxoValidateScriptWitnesses checks that every required script is provided.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateScriptWitnesses(tx, slot, ls, pp)
 }
 
 func UtxoValidateNoDuplicateInputs(

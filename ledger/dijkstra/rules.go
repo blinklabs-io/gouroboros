@@ -31,7 +31,6 @@ import (
 	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
-	"github.com/blinklabs-io/plutigo/syn"
 )
 
 const minUtxoOverheadBytes = 160
@@ -80,6 +79,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateTooManyCollateralInputs,
 	conway.UtxoValidateSupplementalDatums,
 	UtxoValidateExtraneousRedeemers,
+	UtxoValidateMalformedReferenceScripts,
 	UtxoValidatePlutusScripts,
 	UtxoValidateNativeScripts,
 	conway.UtxoValidateDelegation,
@@ -91,7 +91,6 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateBootstrapVotingRestrictions,
 	conway.UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
-	UtxoValidateMalformedReferenceScripts,
 	UtxoValidateRefScriptSizePerTx,
 }
 
@@ -1685,30 +1684,14 @@ func UtxoValidateMalformedReferenceScripts(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	var malformedHashes []common.ScriptHash
-	for _, output := range tx.Outputs() {
-		scriptRef := output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-		if _, ok := common.PlutusScriptVersion(scriptRef); !ok {
-			continue
-		}
-		var innerScript []byte
-		if _, err := cbor.Decode(scriptRef.RawScriptBytes(), &innerScript); err != nil {
-			malformedHashes = append(malformedHashes, scriptRef.Hash())
-			continue
-		}
-		if _, err := syn.Decode[syn.DeBruijn](innerScript); err != nil {
-			malformedHashes = append(malformedHashes, scriptRef.Hash())
-		}
+	params, err := dijkstraPparams(pp)
+	if err != nil {
+		return err
 	}
-	if len(malformedHashes) > 0 {
-		return common.MalformedReferenceScriptsError{
-			ScriptHashes: malformedHashes,
-		}
-	}
-	return nil
+	return common.ValidatePlutusScriptsWellFormed(
+		tx,
+		params.ProtocolVersion.Major,
+	)
 }
 
 func UtxoValidateRefScriptSizePerTx(

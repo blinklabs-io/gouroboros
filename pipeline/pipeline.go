@@ -31,7 +31,9 @@ var ErrPipelineStopped = errors.New("pipeline is stopped")
 var ErrPipelineNotStarted = errors.New("pipeline not started")
 
 // ErrMissingEta0Provider is returned when validation is enabled but no Eta0Provider is configured.
-var ErrMissingEta0Provider = errors.New("pipeline: validation enabled but Eta0Provider not configured")
+var ErrMissingEta0Provider = errors.New(
+	"pipeline: validation enabled but Eta0Provider not configured",
+)
 
 // closedResultsChan is a closed channel returned by Results() before Start() is called.
 // This prevents callers from blocking indefinitely on a nil channel.
@@ -75,14 +77,24 @@ type BlockPipeline struct {
 	metrics *PipelineMetrics
 
 	// State
-	sequenceCounter atomic.Uint64
-	ctx             context.Context
-	cancel          context.CancelFunc
-	started         atomic.Bool
-	stopped         atomic.Bool
-	wg              sync.WaitGroup
-	mu              sync.Mutex   // protects Start/Stop
-	submitMu        sync.RWMutex // protects Submit against concurrent Stop
+	sequenceCounter   atomic.Uint64
+	completedSequence atomic.Uint64
+	ctx               context.Context
+	cancel            context.CancelFunc
+	started           atomic.Bool
+	stopping          atomic.Bool
+	stopped           atomic.Bool
+	wg                sync.WaitGroup
+	mu                sync.Mutex // protects Start/Stop
+	// submitGate serializes successful submissions and Fence boundaries.
+	// Its channel form lets Fence stop waiting when its context is canceled.
+	submitGate     chan struct{}
+	completionMu   sync.Mutex
+	completionChan chan struct{}
+	// Test hooks must be installed before Start. They make blocked Submit/Fence
+	// interleavings deterministic without changing production behavior.
+	testSubmitLocked  func()
+	testFenceBoundary func(uint64)
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
@@ -99,10 +111,44 @@ func NewBlockPipeline(opts ...PipelineOption) *BlockPipeline {
 	for _, opt := range opts {
 		opt(&config)
 	}
-	return &BlockPipeline{
-		config:  config,
-		metrics: NewPipelineMetrics(config.MetricsWindowSize),
+	p := &BlockPipeline{
+		config:     config,
+		metrics:    NewPipelineMetrics(config.MetricsWindowSize),
+		submitGate: make(chan struct{}, 1),
 	}
+	p.submitGate <- struct{}{}
+	return p
+}
+
+func (p *BlockPipeline) lockSubmit(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p.ctx.Err() != nil {
+		return ErrPipelineStopped
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.ctx.Done():
+		return ErrPipelineStopped
+	case <-p.submitGate:
+	}
+
+	if err := ctx.Err(); err != nil {
+		p.unlockSubmit()
+		return err
+	}
+	if p.ctx.Err() != nil {
+		p.unlockSubmit()
+		return ErrPipelineStopped
+	}
+	return nil
+}
+
+func (p *BlockPipeline) unlockSubmit() {
+	p.submitGate <- struct{}{}
 }
 
 // Start starts the pipeline processing.
@@ -110,7 +156,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.stopped.Load() {
+	if p.stopping.Load() || p.stopped.Load() {
 		return ErrPipelineStopped
 	}
 
@@ -186,6 +232,11 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		bufSize, // Deprecated: pendingQueueSize is no longer used (kept for API compatibility)
 	)
 	p.applyRunner.SetMetrics(p.metrics)
+	p.completionMu.Lock()
+	p.completionChan = make(chan struct{})
+	p.completedSequence.Store(0)
+	p.completionMu.Unlock()
+	p.applyRunner.SetProcessedFunc(p.markProcessed)
 
 	// Start all stages
 	// Note: p.ctx is derived from the passed ctx via context.WithCancel above
@@ -207,40 +258,117 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 // This method is safe to call concurrently with Stop().
 // The context allows callers to handle timeouts or cancellations when the
 // pipeline is full and applying backpressure.
-func (p *BlockPipeline) Submit(ctx context.Context, blockType uint, rawCbor []byte, tip pcommon.Tip) error {
+func (p *BlockPipeline) Submit(
+	ctx context.Context,
+	blockType uint,
+	rawCbor []byte,
+	tip pcommon.Tip,
+) error {
 	// Early checks for common cases (before acquiring lock)
 	if !p.started.Load() {
 		return ErrPipelineNotStarted
 	}
 
-	// RLock allows concurrent submits while preventing races with Stop().
-	// This is critical: between the stopped check and channel send, Stop() could
-	// close submitChan causing a panic. The RLock ensures Stop() waits until
-	// all in-flight submits complete before closing the channel.
-	p.submitMu.RLock()
-	defer p.submitMu.RUnlock()
+	// The gate prevents Stop from closing submitChan while a submission is in
+	// flight. It also serializes the enqueue and sequence commit, so canceled
+	// submissions cannot leave a sequence gap that would block ordered apply.
+	if err := p.lockSubmit(ctx); err != nil {
+		return err
+	}
+	defer p.unlockSubmit()
+	if p.testSubmitLocked != nil {
+		p.testSubmitLocked()
+	}
 
-	// Check stopped under lock to ensure we don't race with Stop()
-	if p.stopped.Load() {
+	// Commit a sequence number only after its item was successfully enqueued.
+	// Keeping the provisional ID under submitGate makes successful IDs unique and
+	// contiguous in queue order, while canceled or backpressured submissions do
+	// not create positions that Fence must wait for.
+	sequence := p.sequenceCounter.Load()
+	item := NewBlockItem(blockType, rawCbor, tip, sequence)
+
+	// Preserve cancellation precedence over an immediately writable input.
+	// These checks are repeated under submitGate so cancellation that occurred
+	// while acquiring the gate cannot lose a ready select tie to the enqueue.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p.ctx.Err() != nil {
+		return ErrPipelineStopped
+	}
+	// Check stopping under the gate to ensure we don't race with Stop. This
+	// follows the context checks so caller cancellation keeps precedence.
+	if p.stopping.Load() || p.stopped.Load() {
 		return ErrPipelineStopped
 	}
 
-	// Allocate sequence number only once, then send.
-	// We use a single blocking select to avoid sequence gaps that would occur
-	// if we allocated in a non-blocking attempt that failed.
-	item := NewBlockItem(blockType, rawCbor, tip, p.sequenceCounter.Add(1)-1)
-
 	select {
 	case p.submitChan <- item:
+		p.sequenceCounter.Add(1)
 		p.metrics.RecordSubmit()
 		return nil
 	case <-ctx.Done():
-		// Context cancelled while waiting - sequence gap is acceptable
-		// because this typically means shutdown.
 		return ctx.Err()
 	case <-p.ctx.Done():
 		return ErrPipelineStopped
 	}
+}
+
+// Fence waits until every block submitted before the fence is installed has
+// completed ordered processing. It does not wait for blocks submitted after
+// the fence, allowing callers to establish an exact ordering boundary without
+// draining later work.
+func (p *BlockPipeline) Fence(ctx context.Context) error {
+	if !p.started.Load() {
+		return ErrPipelineNotStarted
+	}
+
+	// The gate excludes in-flight submissions while we capture the sequence
+	// boundary. Submit commits each sequence number under this gate only after
+	// enqueue, so every position at or below target is waitable.
+	if err := p.lockSubmit(ctx); err != nil {
+		return err
+	}
+	if p.stopping.Load() || p.stopped.Load() {
+		p.unlockSubmit()
+		return ErrPipelineStopped
+	}
+	target := p.sequenceCounter.Load()
+	p.unlockSubmit()
+	if p.testFenceBoundary != nil {
+		p.testFenceBoundary(target)
+	}
+	if target == 0 {
+		return nil
+	}
+
+	for {
+		if p.completedSequence.Load() >= target {
+			return nil
+		}
+		p.completionMu.Lock()
+		if p.completedSequence.Load() >= target {
+			p.completionMu.Unlock()
+			return nil
+		}
+		completionChan := p.completionChan
+		p.completionMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-p.ctx.Done():
+			return ErrPipelineStopped
+		case <-completionChan:
+		}
+	}
+}
+
+func (p *BlockPipeline) markProcessed(sequence uint64) {
+	p.completedSequence.Store(sequence)
+	p.completionMu.Lock()
+	close(p.completionChan)
+	p.completionChan = make(chan struct{})
+	p.completionMu.Unlock()
 }
 
 // Results returns a channel of successfully processed block items.
@@ -271,19 +399,20 @@ func (p *BlockPipeline) Stop() error {
 		return nil
 	}
 
-	// Cancel context FIRST to unblock any Submit() calls waiting on channel send.
-	// This must happen before acquiring submitMu.Lock() to avoid deadlock:
-	// Submit() holds RLock while blocking on channel, and we need it to unblock
-	// via ctx.Done() before we can acquire the write lock.
+	// Publish the explicit stop before canceling the pipeline context so drain
+	// waiters can distinguish Stop from cancellation inherited from Start.
+	p.stopping.Store(true)
+	// Cancel before acquiring submitGate to avoid deadlock: Submit holds the
+	// gate while blocked on a channel send and needs ctx.Done to unblock.
 	p.cancel()
 
-	// Now acquire write lock to ensure no Submit() calls are in progress.
+	// Now acquire the gate to ensure no Submit() calls are in progress.
 	// Any Submit() blocked on channel send will now return via ctx.Done().
-	p.submitMu.Lock()
+	<-p.submitGate
 	p.stopped.Store(true)
 	// Close input channel to signal shutdown
 	close(p.submitChan)
-	p.submitMu.Unlock()
+	p.unlockSubmit()
 
 	// Wait for decode workers to finish
 	p.decodePool.Stop()
@@ -313,14 +442,22 @@ func (p *BlockPipeline) Stats() PipelineStats {
 	return p.metrics.Stats()
 }
 
-// PendingCount returns the approximate number of items still being processed.
-// This includes items in inter-stage channels and items buffered in the apply stage.
-// Useful for coordinating with rollback operations.
+// PendingCount returns an observational snapshot of the approximate number of
+// items still being processed. It includes items in inter-stage channels and
+// items buffered or active in the apply stage, but not work executing in other
+// stages. It must not be used as a completion barrier; use Fence or
+// WaitForDrain instead.
 func (p *BlockPipeline) PendingCount() int {
 	if !p.started.Load() {
 		return 0
 	}
-	channelDepth := len(p.submitChan) + len(p.decodedChan) + len(p.validatedChan)
+	channelDepth := len(
+		p.submitChan,
+	) + len(
+		p.decodedChan,
+	) + len(
+		p.validatedChan,
+	)
 	applyPending := 0
 	if p.applyStage != nil {
 		applyPending = p.applyStage.PendingCount()
@@ -328,27 +465,32 @@ func (p *BlockPipeline) PendingCount() int {
 	return channelDepth + applyPending
 }
 
-// WaitForDrain blocks until all currently submitted items have been processed
-// or the context is cancelled. This is useful before handling rollbacks to
-// ensure no blocks are applied after the rollback.
+// WaitForDrain blocks until every block accepted before the drain boundary has
+// completed ordered processing, or the context is cancelled. This is useful
+// before handling rollbacks to ensure no earlier block is applied afterward.
 func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !p.started.Load() {
 		return ErrPipelineNotStarted
 	}
-
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if p.PendingCount() == 0 {
-				return nil
-			}
-		}
+	// Preserve the historical lifecycle contract: explicit shutdown makes the
+	// drain vacuous, including while Stop waits for the submission gate.
+	if p.stopping.Load() || p.stopped.Load() {
+		return nil
 	}
+	err := p.Fence(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if p.stopping.Load() || p.stopped.Load() {
+		return nil
+	}
+	if p.ctx.Err() != nil {
+		return ErrPipelineStopped
+	}
+	return err
 }
 
 // metricsCollector collects metrics from processed items.
@@ -364,7 +506,13 @@ func (p *BlockPipeline) metricsCollector() {
 			return
 		case <-ticker.C:
 			// Update queue depth
-			depth := len(p.submitChan) + len(p.decodedChan) + len(p.validatedChan)
+			depth := len(
+				p.submitChan,
+			) + len(
+				p.decodedChan,
+			) + len(
+				p.validatedChan,
+			)
 			p.metrics.UpdateQueueDepth(depth)
 		}
 	}

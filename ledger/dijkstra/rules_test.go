@@ -49,6 +49,67 @@ func dijkstraValidationRule(
 	return nil, -1
 }
 
+func TestDijkstraWellFormednessPrecedesPlutusExecution(t *testing.T) {
+	malformedScript := common.PlutusV4Script{0xff}
+	guardCred := testGuardScriptCredential(malformedScript)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{guardCred},
+			},
+		},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsPlutusV4Scripts: cbor.NewSetType(
+				[]common.PlutusV4Script{malformedScript},
+				false,
+			),
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagGuarding, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+	params := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: 12,
+			},
+			CostModels: map[uint][]int64{3: nil},
+		},
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+
+	execErr := UtxoValidatePlutusScripts(tx, 0, state, params)
+	var scriptFailed conway.PlutusScriptFailedError
+	require.ErrorAs(t, execErr, &scriptFailed)
+
+	_, wellFormedIdx := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateMalformedReferenceScripts",
+	)
+	_, phase2Idx := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidatePlutusScripts",
+	)
+	firstIdx, lastIdx := wellFormedIdx, phase2Idx
+	if firstIdx > lastIdx {
+		firstIdx, lastIdx = lastIdx, firstIdx
+	}
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		state,
+		params,
+		UtxoValidationRules[firstIdx:lastIdx+1],
+	)
+	require.ErrorIs(t, err, common.ErrMalformedScriptWitnesses)
+	require.NotErrorAs(t, err, &scriptFailed)
+}
+
 func TestDijkstraGovernanceValidationRules(t *testing.T) {
 	expected := []string{
 		"ledger/dijkstra.UtxoValidateProposalProcedures",
@@ -80,6 +141,48 @@ func TestDijkstraGovernanceValidationRules(t *testing.T) {
 		)
 		previous = idx
 	}
+}
+
+func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
+	guardrailsHash := common.Blake2b224Hash([]byte("constitution-guardrails"))
+	newTx := func(isValid bool, policyHash []byte) *DijkstraTransaction {
+		return &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxProposalProcedures: []DijkstraProposalProcedure{{
+					PPGovAction: DijkstraGovAction{
+						Action: &DijkstraParameterChangeGovAction{
+							PolicyHash: policyHash,
+						},
+					},
+				}},
+			},
+			TxIsValid: isValid,
+		}
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithConstitutionValue(&common.Constitution{
+			ScriptHash: guardrailsHash.Bytes(),
+		}).
+		Build()
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/conway.UtxoValidateGovActionWellFormedness",
+	)
+
+	validate := func(tx common.Transaction) error {
+		return common.VerifyTransaction(
+			tx,
+			0,
+			state,
+			&DijkstraProtocolParameters{},
+			[]common.UtxoValidationRuleFunc{rule},
+		)
+	}
+	require.NoError(t, validate(newTx(true, guardrailsHash.Bytes())))
+	err := validate(newTx(true, nil))
+	var target conway.InvalidGuardrailsScriptHashError
+	require.ErrorAs(t, err, &target)
+	require.NoError(t, validate(newTx(false, nil)))
 }
 
 func TestConwayGovActionRejectsDijkstraParameterChange(t *testing.T) {

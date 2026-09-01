@@ -237,6 +237,36 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 	}
 }
 
+// TestRequestSlotAbandonWakesExistingAcquirer verifies that an acquirer which
+// was already waiting for a non-abandoned request to drain observes a later
+// abandonment and applies the bounded grace period. Otherwise it remains
+// blocked on the old drain channel until a response arrives, bypassing
+// ErrRequestSlotAbandoned entirely.
+func TestRequestSlotAbandonWakesExistingAcquirer(t *testing.T) {
+	client := NewClient(protocol.ProtocolOptions{}, nil)
+	wA, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	require.NoError(t, err)
+
+	bWaiting := make(chan struct{})
+	client.blockSlot.beforeDrainWait = func() {
+		close(bWaiting)
+	}
+	bResult := make(chan error, 1)
+	ctxB, cancelB := context.WithTimeout(
+		context.Background(),
+		2*abandonedRequestWait,
+	)
+	defer cancelB()
+	go func() {
+		_, err := client.blockSlot.acquire(ctxB, client.DoneChan())
+		bResult <- err
+	}()
+	<-bWaiting
+
+	client.blockSlot.abandon(wA)
+	require.ErrorIs(t, <-bResult, ErrRequestSlotAbandoned)
+}
+
 // TestRequestSlotReleaseAfterReacquireKeepsNextWaiter is the release-path
 // analogue of the abandon race: once the slot has been freed and reacquired by
 // a newer request, calling release with the previous request's channel must be

@@ -761,6 +761,9 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
@@ -1048,6 +1051,9 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tDijkstraSubTransactionBody DijkstraSubTransactionBody
 	var tmp tDijkstraSubTransactionBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
@@ -1497,6 +1503,15 @@ func (t DijkstraTransaction) SubTransactionWitnessSets() []common.TransactionWit
 	ret := make([]common.TransactionWitnessSet, 0, len(subTxs))
 	for _, subTx := range subTxs {
 		ret = append(ret, subTx.WitnessSet)
+	}
+	return ret
+}
+
+func (t DijkstraTransaction) SubTransactionOutputs() []common.TransactionOutput {
+	subTxs := t.Body.TxSubTransactions.Items()
+	var ret []common.TransactionOutput
+	for _, subTx := range subTxs {
+		ret = append(ret, subTx.Body.Outputs()...)
 	}
 	return ret
 }

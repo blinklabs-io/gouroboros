@@ -161,7 +161,37 @@ func (ScriptDataHashMismatchError) Is(target error) bool {
 	return target == ErrScriptDataHashMismatch
 }
 
-// MalformedReferenceScriptsError indicates reference scripts in outputs that cannot be deserialized
+// MalformedScriptWitnessesError indicates Plutus script witnesses that cannot
+// be contextually decoded and validated.
+type MalformedScriptWitnessesError struct {
+	ScriptHashes []ScriptHash
+	Cause        error
+}
+
+func (e MalformedScriptWitnessesError) Error() string {
+	if e.Cause == nil {
+		return fmt.Sprintf("malformed script witnesses: %v", e.ScriptHashes)
+	}
+	return fmt.Sprintf(
+		"malformed script witnesses: %v: %v",
+		e.ScriptHashes,
+		e.Cause,
+	)
+}
+
+func (e MalformedScriptWitnessesError) Unwrap() error {
+	return e.Cause
+}
+
+// ErrMalformedScriptWitnesses identifies malformed Plutus script witnesses.
+var ErrMalformedScriptWitnesses = errors.New("malformed script witnesses")
+
+func (MalformedScriptWitnessesError) Is(target error) bool {
+	return target == ErrMalformedScriptWitnesses
+}
+
+// MalformedReferenceScriptsError indicates reference scripts in outputs that
+// cannot be contextually decoded and validated.
 type MalformedReferenceScriptsError struct {
 	ScriptHashes []ScriptHash
 }
