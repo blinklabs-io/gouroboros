@@ -124,26 +124,34 @@ func validateCredentialMapKeys[V any](
 	return validateLogicalMapKeys(values, field, credentialLogicalKey)
 }
 
-func appendLogicalUint64(dst []byte, value uint64) []byte {
+// appendLogicalNumber writes a fixed-width big-endian image of value. The
+// conversion is deliberate: an identity needs an injective bit pattern rather
+// than an arithmetic value, so a negative input is reinterpreted on purpose and
+// two different inputs cannot collide.
+func appendLogicalNumber[T ~int | ~int64 | ~uint | ~uint64](
+	dst []byte,
+	value T,
+) []byte {
 	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], value)
+	//nolint:gosec // G115: the bit pattern is the identity, not the magnitude
+	binary.BigEndian.PutUint64(buf[:], uint64(value))
 	return append(dst, buf[:]...)
 }
 
 // appendLogicalBytes length-prefixes so adjacent variable-length fields cannot
 // be confused with one another.
 func appendLogicalBytes(dst []byte, value []byte) []byte {
-	dst = appendLogicalUint64(dst, uint64(len(value)))
+	dst = appendLogicalNumber(dst, len(value))
 	return append(dst, value...)
 }
 
 func appendLogicalCredential(dst []byte, credential Credential) []byte {
-	dst = appendLogicalUint64(dst, uint64(credential.CredType))
+	dst = appendLogicalNumber(dst, credential.CredType)
 	return append(dst, credential.Credential[:]...)
 }
 
 func appendLogicalDrep(dst []byte, drep Drep) []byte {
-	dst = appendLogicalUint64(dst, uint64(drep.Type))
+	dst = appendLogicalNumber(dst, drep.Type)
 	return appendLogicalBytes(dst, drep.Credential)
 }
 
@@ -161,9 +169,9 @@ func appendLogicalAnchor(dst []byte, anchor *GovAnchor) []byte {
 // it. Types that aggregate over slices or maps fall back to a canonical
 // re-encoding, which keeps the reflection cost off the ordinary decode path.
 func certificateLogicalKey(certificate Certificate) (string, error) {
-	key := appendLogicalUint64(
+	key := appendLogicalNumber(
 		make([]byte, 0, 64),
-		uint64(certificate.Type()),
+		certificate.Type(),
 	)
 	switch c := certificate.(type) {
 	case *StakeRegistrationCertificate:
@@ -180,17 +188,17 @@ func certificateLogicalKey(certificate Certificate) (string, error) {
 		key = append(key, c.PoolKeyHash[:]...)
 	case *PoolRetirementCertificate:
 		key = append(key, c.PoolKeyHash[:]...)
-		key = appendLogicalUint64(key, c.Epoch)
+		key = appendLogicalNumber(key, c.Epoch)
 	case *GenesisKeyDelegationCertificate:
 		key = appendLogicalBytes(key, c.GenesisHash)
 		key = appendLogicalBytes(key, c.GenesisDelegateHash)
 		key = append(key, c.VrfKeyHash[:]...)
 	case *RegistrationCertificate:
 		key = appendLogicalCredential(key, c.StakeCredential)
-		key = appendLogicalUint64(key, uint64(c.Amount))
+		key = appendLogicalNumber(key, c.Amount)
 	case *DeregistrationCertificate:
 		key = appendLogicalCredential(key, c.StakeCredential)
-		key = appendLogicalUint64(key, uint64(c.Amount))
+		key = appendLogicalNumber(key, c.Amount)
 	case *VoteDelegationCertificate:
 		key = appendLogicalCredential(key, c.StakeCredential)
 		key = appendLogicalDrep(key, c.Drep)
@@ -201,16 +209,16 @@ func certificateLogicalKey(certificate Certificate) (string, error) {
 	case *StakeRegistrationDelegationCertificate:
 		key = appendLogicalCredential(key, c.StakeCredential)
 		key = append(key, c.PoolKeyHash[:]...)
-		key = appendLogicalUint64(key, uint64(c.Amount))
+		key = appendLogicalNumber(key, c.Amount)
 	case *VoteRegistrationDelegationCertificate:
 		key = appendLogicalCredential(key, c.StakeCredential)
 		key = appendLogicalDrep(key, c.Drep)
-		key = appendLogicalUint64(key, uint64(c.Amount))
+		key = appendLogicalNumber(key, c.Amount)
 	case *StakeVoteRegistrationDelegationCertificate:
 		key = appendLogicalCredential(key, c.StakeCredential)
 		key = append(key, c.PoolKeyHash[:]...)
 		key = appendLogicalDrep(key, c.Drep)
-		key = appendLogicalUint64(key, uint64(c.Amount))
+		key = appendLogicalNumber(key, c.Amount)
 	case *AuthCommitteeHotCertificate:
 		key = appendLogicalCredential(key, c.ColdCredential)
 		key = appendLogicalCredential(key, c.HotCredential)
@@ -219,11 +227,11 @@ func certificateLogicalKey(certificate Certificate) (string, error) {
 		key = appendLogicalAnchor(key, c.Anchor)
 	case *RegistrationDrepCertificate:
 		key = appendLogicalCredential(key, c.DrepCredential)
-		key = appendLogicalUint64(key, uint64(c.Amount))
+		key = appendLogicalNumber(key, c.Amount)
 		key = appendLogicalAnchor(key, c.Anchor)
 	case *DeregistrationDrepCertificate:
 		key = appendLogicalCredential(key, c.DrepCredential)
-		key = appendLogicalUint64(key, uint64(c.Amount))
+		key = appendLogicalNumber(key, c.Amount)
 	case *UpdateDrepCertificate:
 		key = appendLogicalCredential(key, c.DrepCredential)
 		key = appendLogicalAnchor(key, c.Anchor)
