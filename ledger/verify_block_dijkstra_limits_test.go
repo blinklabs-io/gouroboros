@@ -30,7 +30,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
-	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/stretchr/testify/require"
 )
@@ -165,8 +164,10 @@ func TestVerifyBlockDijkstraExUnitsIncludesEveryTransactionLevel(
 
 func dijkstraBlockLimitScript(t *testing.T) common.PlutusV4Script {
 	t.Helper()
+	// lang.LanguageVersionV4 identifies the ledger language, not the UPLC
+	// program version, which must be 1.0.0 or 1.1.0.
 	flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
-		Version: lang.LanguageVersionV4,
+		Version: [3]uint32{1, 1, 0},
 		Term:    &syn.Error{},
 	})
 	require.NoError(t, err)

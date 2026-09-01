@@ -31,6 +31,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// uplcProgramVersion maps a ledger Plutus language to the UPLC program version
+// its scripts carry. lang.LanguageVersionV* identifies the ledger language, not
+// the program version, and only 1.0.0 and 1.1.0 are valid programs.
+func uplcProgramVersion(ledgerVersion [3]uint32) [3]uint32 {
+	switch ledgerVersion {
+	case lang.LanguageVersionV1, lang.LanguageVersionV2:
+		return [3]uint32{1, 0, 0}
+	default:
+		return [3]uint32{1, 1, 0}
+	}
+}
+
 func dijkstraGuardTestPlutus(
 	t *testing.T,
 	version [3]uint32,
@@ -51,7 +63,7 @@ func dijkstraGuardTestPlutus(
 		body = &syn.Lambda[syn.DeBruijn]{Body: body}
 	}
 	flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
-		Version: version,
+		Version: uplcProgramVersion(version),
 		Term:    body,
 	})
 	require.NoError(t, err)

@@ -157,10 +157,10 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateTooManyCollateralInputs,     // UtxoValidationRuleTooManyCollateralInputs
 		babbage.UtxoValidateNativeScripts,               // UtxoValidationRuleNativeScripts
 		babbage.UtxoValidateExtraneousRedeemers,         // UtxoValidationRuleExtraneousRedeemers
+		babbage.UtxoValidateMalformedReferenceScripts,   // UtxoValidationRuleMalformedReferenceScripts
 		babbage.UtxoValidatePlutusScripts,               // UtxoValidationRulePlutusScripts
 		babbage.UtxoValidateDelegation,                  // UtxoValidationRuleDelegation
 		babbage.UtxoValidateWithdrawals,                 // UtxoValidationRuleWithdrawals
-		babbage.UtxoValidateMalformedReferenceScripts,   // UtxoValidationRuleMalformedReferenceScripts
 	},
 	"Conway": {
 		common.UtxoValidateCurrentTreasuryValue,         // UtxoValidationRuleCurrentTreasuryValue
@@ -207,6 +207,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateTooManyCollateralInputs,      // UtxoValidationRuleTooManyCollateralInputs
 		conway.UtxoValidateSupplementalDatums,           // UtxoValidationRuleSupplementalDatums
 		conway.UtxoValidateExtraneousRedeemers,          // UtxoValidationRuleExtraneousRedeemers
+		conway.UtxoValidateMalformedReferenceScripts,    // UtxoValidationRuleMalformedReferenceScripts
 		conway.UtxoValidatePlutusScripts,                // UtxoValidationRulePlutusScripts
 		conway.UtxoValidateNativeScripts,                // UtxoValidationRuleNativeScripts
 		conway.UtxoValidateDelegation,                   // UtxoValidationRuleDelegation
@@ -218,7 +219,6 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateBootstrapVotingRestrictions,  // UtxoValidationRuleBootstrapVotingRestrictions
 		conway.UtxoValidateStakePoolVotingRestrictions,  // UtxoValidationRuleStakePoolVotingRestrictions
 		conway.UtxoValidateCCVotingRestrictions,         // UtxoValidationRuleCCVotingRestrictions
-		conway.UtxoValidateMalformedReferenceScripts,    // UtxoValidationRuleMalformedReferenceScripts
 	},
 	"Dijkstra": {
 		common.UtxoValidateCurrentTreasuryValue,           // UtxoValidationRuleCurrentTreasuryValue
@@ -265,6 +265,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateTooManyCollateralInputs,      // UtxoValidationRuleTooManyCollateralInputs
 		dijkstra.UtxoValidateSupplementalDatums,           // UtxoValidationRuleSupplementalDatums
 		dijkstra.UtxoValidateExtraneousRedeemers,          // UtxoValidationRuleExtraneousRedeemers
+		dijkstra.UtxoValidateMalformedReferenceScripts,    // UtxoValidationRuleMalformedReferenceScripts
 		dijkstra.UtxoValidatePlutusScripts,                // UtxoValidationRulePlutusScripts
 		dijkstra.UtxoValidateNativeScripts,                // UtxoValidationRuleNativeScripts
 		conway.UtxoValidateDelegation,                     // UtxoValidationRuleDelegation
@@ -276,7 +277,6 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateBootstrapVotingRestrictions,  // UtxoValidationRuleBootstrapVotingRestrictions
 		conway.UtxoValidateStakePoolVotingRestrictions,    // UtxoValidationRuleStakePoolVotingRestrictions
 		dijkstra.UtxoValidateCCVotingRestrictions,         // UtxoValidationRuleCCVotingRestrictions
-		dijkstra.UtxoValidateMalformedReferenceScripts,    // UtxoValidationRuleMalformedReferenceScripts
 		dijkstra.UtxoValidateRefScriptSizePerTx,           // UtxoValidationRuleRefScriptSizePerTx
 	},
 }

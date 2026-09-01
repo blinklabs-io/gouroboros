@@ -147,6 +147,18 @@ func dijkstraResourceLimitTransaction(
 	return tx
 }
 
+// Plutus well-formedness is contextual on the protocol major, so these
+// fixtures must carry the Dijkstra version rather than the zero value.
+func dijkstraResourceLimitPparams() *DijkstraProtocolParameters {
+	return &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionDijkstra,
+			},
+		},
+	}
+}
+
 func TestVerifyTransactionDijkstraMalformedReferenceScriptOutputs(
 	t *testing.T,
 ) {
@@ -183,7 +195,7 @@ func TestVerifyTransactionDijkstraMalformedReferenceScriptOutputs(
 				test.tx,
 				0,
 				nil,
-				&DijkstraProtocolParameters{},
+				dijkstraResourceLimitPparams(),
 				[]common.UtxoValidationRuleFunc{
 					UtxoValidateMalformedReferenceScripts,
 				},
