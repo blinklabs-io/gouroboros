@@ -391,3 +391,53 @@ func TestNewTxScriptViewPartialViewKeepsReferenceScripts(t *testing.T) {
 		"the view stays partial",
 	)
 }
+
+// A consumed input that resolved carries its scripts into the partial view
+// too, not just reference inputs.
+func TestNewTxScriptViewPartialViewKeepsResolvedSpendScripts(t *testing.T) {
+	v1 := common.PlutusV1Script([]byte{0x03, 0x04})
+	scriptHash := v1.Hash()
+
+	resolvableSpend := shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000003",
+		0,
+	)
+	unresolvableSpend := shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000004",
+		0,
+	)
+	spendUtxo := common.Utxo{
+		Id: resolvableSpend,
+		Output: babbage.BabbageTransactionOutput{
+			TxOutScriptRef: &common.ScriptRef{Script: v1},
+		},
+	}
+	ls := partialResolutionLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		resolvable: map[string]common.Utxo{
+			string(resolvableSpend.Id().Bytes()) +
+				string(rune(resolvableSpend.Index())): spendUtxo,
+		},
+	}
+
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{
+					resolvableSpend,
+					unresolvableSpend,
+				},
+			),
+		},
+	}
+
+	view, err := script.NewTxScriptView(tx, ls)
+	require.Error(t, err, "the unresolvable spend input is still reported")
+	require.Contains(
+		t,
+		view.Available,
+		scriptHash,
+		"a script on a consumed input that resolved must survive",
+	)
+	require.Empty(t, view.ResolvedInputs, "the view stays partial")
+}

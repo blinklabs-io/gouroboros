@@ -137,15 +137,13 @@ func NewTxScriptView(
 	if err != nil {
 		// Preserve witness-only script information even when a concrete ledger
 		// state cannot resolve one of the transaction's inputs. ResolveTxInputs
-		// stops at the first failure, so a failed spend input would otherwise
-		// hide reference scripts that did resolve, and a language restriction
-		// on a script supplied only as a reference script would go unchecked
-		// before the failure is deferred to UtxoValidateBadInputsUtxo. The view
-		// stays partial: ResolvedReferenceInputs is left unset.
-		view.Available = availableScripts(
-			tx,
-			resolvableReferenceInputs(tx, ls),
-		)
+		// stops at the first failure and discards what it had, so a failed
+		// input would otherwise hide every script carried by an input that did
+		// resolve, and a language restriction on such a script would go
+		// unchecked before the failure is deferred to UtxoValidateBadInputsUtxo.
+		// The view stays partial: ResolvedInputs and ResolvedReferenceInputs
+		// are left unset.
+		view.Available = availableScripts(tx, resolvableInputs(tx, ls))
 		view.Needed = neededScripts(tx, view)
 		return view, err
 	}
@@ -157,19 +155,23 @@ func NewTxScriptView(
 	return view, nil
 }
 
-// resolvableReferenceInputs resolves whatever reference inputs the ledger state
-// can supply and skips the rest. It is only used on the input-resolution
+// resolvableInputs resolves whatever consumed and reference inputs the ledger
+// state can supply and skips the rest. It is only used on the input-resolution
 // failure path, where the failure is already being reported to the caller.
-func resolvableReferenceInputs(
+func resolvableInputs(
 	tx lcommon.Transaction,
 	ls lcommon.LedgerState,
 ) []lcommon.Utxo {
+	inputs := tx.Inputs()
 	refInputs := tx.ReferenceInputs()
-	if len(refInputs) == 0 {
+	if len(inputs) == 0 && len(refInputs) == 0 {
 		return nil
 	}
-	ret := make([]lcommon.Utxo, 0, len(refInputs))
-	for _, input := range refInputs {
+	ret := make([]lcommon.Utxo, 0, len(inputs)+len(refInputs))
+	for _, input := range append(append(
+		make([]lcommon.TransactionInput, 0, len(inputs)+len(refInputs)),
+		inputs...,
+	), refInputs...) {
 		utxo, err := ls.UtxoById(input)
 		if err != nil {
 			continue
