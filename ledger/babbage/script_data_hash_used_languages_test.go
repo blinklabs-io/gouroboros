@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
@@ -188,7 +189,14 @@ func TestUtxoValidateScriptDataHashDefersUnresolvableSpentInput(t *testing.T) {
 		"an unresolvable spent input belongs to UtxoValidateBadInputsUtxo",
 	)
 
-	// And that rule does reject it, so nothing slips through.
+	// And that rule does reject it, with the error the deferral is deferring
+	// to. Asserting merely that something failed would keep passing if that
+	// rule started reporting the resolution failure some other way, which is
+	// exactly the coupling this test exists to pin.
 	err = babbage.UtxoValidateBadInputsUtxo(tx, 1796036, ls, pp)
 	require.Error(t, err, "the dedicated rule still rejects the transaction")
+	var badInputs shelley.BadInputsUtxoError
+	require.ErrorAs(t, err, &badInputs)
+	require.Len(t, badInputs.Inputs, 1)
+	require.Equal(t, tx.Inputs()[0].String(), badInputs.Inputs[0].String())
 }
