@@ -28,36 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// expectedValidityRangeForEra builds the expected ScriptContext validity
-// range for a given era.
-//
-// cardano-ledger renders an interval with only an upper bound using PV1.to
-// (inclusive) in Alonzo and Babbage, and PV1.strictUpperBound (exclusive)
-// from Conway on. Every era uses strictUpperBound when both bounds are
-// present, and an absent bound is infinite.
-func expectedValidityRangeForEra(
-	start *uint64,
-	end *uint64,
-	upperBoundOnlyIsClosed bool,
-) data.PlutusData {
-	startPresent := start != nil
-	endPresent := end != nil
-	var startValue uint64
-	if startPresent {
-		startValue = *start
-	}
-	var endValue uint64
-	if endPresent {
-		endValue = *end
-	}
-	upperClosed := !startPresent && upperBoundOnlyIsClosed
-	return data.NewConstr(
-		0,
-		validityBound(startPresent, startValue, true, true),
-		validityBound(endPresent, endValue, false, upperClosed),
-	)
-}
-
 // conwayTransaction re-decodes the shared validity fixture as a Conway
 // transaction. The fixture body only sets the validity interval keys, so the
 // same CBOR is valid in every post-Shelley era.
@@ -233,7 +203,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 								nil,
 							)
 							require.NoError(t, err)
-							expected := expectedValidityRangeForEra(
+							expected := expectedValidityRange(
 								fixture.StartSlot,
 								fixture.EndSlot,
 								era.upperBoundOnlyIsClosed,
