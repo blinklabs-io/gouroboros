@@ -206,7 +206,7 @@ func TestAlonzoBlockRejectsInvalidTransactionIndices(t *testing.T) {
 	}{
 		{
 			name:          "large wire index",
-			invalidTxs:    []uint64{math.MaxUint32},
+			invalidTxs:    []uint64{math.MaxUint64},
 			transactionTx: []any{},
 		},
 		{

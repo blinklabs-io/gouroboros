@@ -87,16 +87,16 @@ func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
 	// Convert the wire indices to the platform type without discarding values.
 	result := make([]uint, 0, len(tmp.InvalidTransactions))
 	for _, val := range tmp.InvalidTransactions {
+		converted := uint(val)
+		if uint64(converted) != val {
+			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+		}
 		if val >= uint64(len(tmp.TransactionBodies)) {
 			return fmt.Errorf(
 				"invalid transaction index %d outside transaction list length %d",
 				val,
 				len(tmp.TransactionBodies),
 			)
-		}
-		converted := uint(val)
-		if uint64(converted) != val {
-			return fmt.Errorf("invalid transaction index %d overflows uint", val)
 		}
 		result = append(result, converted)
 	}
