@@ -514,10 +514,20 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		c.releaseBusy(token)
 		return nil, err
 	}
-	// Wait for the block. Both the block and the completion can already be
-	// buffered by the time we get here, and a select over two ready cases
-	// picks at random, so a completed batch is only believed after checking
-	// for a delivered block.
+	return c.awaitBlock(req, protocolDone, token)
+}
+
+// awaitBlock resolves a deliveryChannel request once its batch has started.
+// The block, the request completion, and the protocol shutdown can all be
+// ready by the time this runs, and a select over ready cases picks at random,
+// so every branch reports the outcome the request already has: a completed
+// batch is only believed after checking for a delivered block, and a shutdown
+// branch does not discard a result the handler already reported.
+func (c *Client) awaitBlock(
+	req *rangeRequest,
+	protocolDone <-chan struct{},
+	token uint64,
+) (ledger.Block, error) {
 	var block ledger.Block
 	var batchDone error
 	var batchIsDone bool
@@ -546,8 +556,19 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		}
 		return block, nil
 	}
-	// Wait for BatchDone before returning to ensure the protocol state machine
-	// completes the batch properly (transitions back to Idle state).
+	return c.waitForBatchDone(req, protocolDone, token, block)
+}
+
+// waitForBatchDone waits for MsgBatchDone after the block has been delivered,
+// so the protocol state machine completes the batch and returns to Idle. The
+// completion and the protocol shutdown can be ready at once, so the shutdown
+// branch reports the completion the request already has.
+func (c *Client) waitForBatchDone(
+	req *rangeRequest,
+	protocolDone <-chan struct{},
+	token uint64,
+	block ledger.Block,
+) (ledger.Block, error) {
 	select {
 	case err := <-req.doneChan:
 		c.releaseBusy(token)
@@ -556,7 +577,6 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		}
 		return block, nil
 	case <-protocolDone:
-		// Shutdown while waiting for BatchDone
 		c.releaseBusy(token)
 		return completedBlockOrShutdown(req, block)
 	}

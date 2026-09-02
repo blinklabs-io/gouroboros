@@ -92,8 +92,25 @@ func TestBatchDoneRejectsIncompleteRequestedRange(t *testing.T) {
 	)
 }
 
-func TestRequestResultOrShutdown(t *testing.T) {
-	requestErr := errors.New("request failed")
+// shutdownRaceIterations bounds how many times a test drives a select whose
+// cases are all ready. Go chooses uniformly at random among ready cases, so
+// correct code passes every iteration while a branch that discards an
+// already-reported result is caught with high probability.
+const shutdownRaceIterations = 200
+
+// closedDoneChan returns an already-closed protocol done channel, so protocol
+// shutdown is observable before the call under test runs.
+func closedDoneChan() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
+}
+
+// TestWaitForBatchStartPreservesResultAtShutdown verifies waitForBatchStart
+// reports a batch-start outcome that arrived before protocol shutdown became
+// observable, whichever ready select branch runs.
+func TestWaitForBatchStartPreservesResultAtShutdown(t *testing.T) {
+	startErr := errors.New("request failed")
 	tests := []struct {
 		name        string
 		resultReady bool
@@ -103,39 +120,48 @@ func TestRequestResultOrShutdown(t *testing.T) {
 		{
 			name:        "request error before shutdown",
 			resultReady: true,
-			result:      requestErr,
-			want:        requestErr,
+			result:      startErr,
+			want:        startErr,
 		},
 		{
-			name:        "successful result before shutdown",
+			name:        "batch started before shutdown",
 			resultReady: true,
 		},
 		{
-			name: "shutdown before request result",
+			// A shutdown with nothing reported stays a shutdown, and must
+			// not synthesize a batch-start result.
+			name: "shutdown without a request result",
 			want: protocol.ErrProtocolShuttingDown,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resultChan := make(chan error, 1)
-			if test.resultReady {
-				resultChan <- test.result
+			client := &Client{}
+			for i := range shutdownRaceIterations {
+				req := &rangeRequest{startChan: make(chan error, 1)}
+				if test.resultReady {
+					req.startChan <- test.result
+				}
+				require.ErrorIsf(
+					t,
+					client.waitForBatchStart(req, closedDoneChan()),
+					test.want,
+					"iteration %d",
+					i,
+				)
 			}
-			require.ErrorIs(
-				t,
-				requestResultOrShutdown(resultChan),
-				test.want,
-			)
 		})
 	}
 }
 
-func TestCompletedBlockOrShutdown(t *testing.T) {
-	requestErr := errors.New("request failed")
+// TestAwaitBlockPreservesResultAtShutdown verifies awaitBlock reports the
+// block and the completion a request already has when protocol shutdown is
+// observable at the same time.
+func TestAwaitBlockPreservesResultAtShutdown(t *testing.T) {
+	rangeErr := errors.New("batch completed before requested range end")
 	block := &ledger.BabbageBlock{}
 	tests := []struct {
 		name          string
-		initialBlock  ledger.Block
 		bufferedBlock ledger.Block
 		resultReady   bool
 		result        error
@@ -143,75 +169,68 @@ func TestCompletedBlockOrShutdown(t *testing.T) {
 		wantErr       error
 	}{
 		{
-			name:          "success before block wait",
+			name:          "complete range reports its block",
 			bufferedBlock: block,
 			resultReady:   true,
 			wantBlock:     block,
 		},
 		{
-			name:         "success after block delivery",
-			initialBlock: block,
-			resultReady:  true,
-			wantBlock:    block,
-		},
-		{
-			name:          "request error before block wait",
+			name:          "incomplete range error survives shutdown",
 			bufferedBlock: block,
 			resultReady:   true,
-			result:        requestErr,
-			wantErr:       requestErr,
+			result:        rangeErr,
+			wantErr:       rangeErr,
 		},
 		{
-			name:         "request error after block delivery",
-			initialBlock: block,
-			resultReady:  true,
-			result:       requestErr,
-			wantErr:      requestErr,
-		},
-		{
-			name:          "shutdown before request result",
-			bufferedBlock: block,
-			wantErr:       protocol.ErrProtocolShuttingDown,
-		},
-		{
-			name:         "shutdown after block delivery",
-			initialBlock: block,
-			wantErr:      protocol.ErrProtocolShuttingDown,
-		},
-		{
-			name:        "no blocks result",
+			name:        "no blocks error survives shutdown",
 			resultReady: true,
 			result:      ErrNoBlocks,
 			wantErr:     ErrNoBlocks,
 		},
 		{
-			name:        "successful result without block",
+			name:        "completed batch without a block reports no blocks",
 			resultReady: true,
 			wantErr:     ErrNoBlocks,
+		},
+		{
+			// A shutdown with no completion stays a shutdown, and must not
+			// report a delivered block as a complete range.
+			name:          "shutdown without a completion",
+			bufferedBlock: block,
+			wantErr:       protocol.ErrProtocolShuttingDown,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			req := &rangeRequest{
-				blockChan: make(chan ledger.Block, 1),
-				doneChan:  make(chan error, 1),
-			}
-			if test.bufferedBlock != nil {
-				req.blockChan <- test.bufferedBlock
-			}
-			if test.resultReady {
-				req.doneChan <- test.result
-			}
-			gotBlock, gotErr := completedBlockOrShutdown(
-				req,
-				test.initialBlock,
-			)
-			require.ErrorIs(t, gotErr, test.wantErr)
-			if test.wantBlock == nil {
-				require.Nil(t, gotBlock)
-			} else {
-				require.NotNil(t, gotBlock)
-				require.Same(t, test.wantBlock, gotBlock)
+			client := &Client{}
+			for i := range shutdownRaceIterations {
+				req := &rangeRequest{
+					blockChan: make(chan ledger.Block, 1),
+					doneChan:  make(chan error, 1),
+				}
+				if test.bufferedBlock != nil {
+					req.blockChan <- test.bufferedBlock
+				}
+				if test.resultReady {
+					req.doneChan <- test.result
+				}
+				gotBlock, gotErr := client.awaitBlock(
+					req,
+					closedDoneChan(),
+					0,
+				)
+				require.ErrorIsf(t, gotErr, test.wantErr, "iteration %d", i)
+				if test.wantBlock == nil {
+					require.Nilf(t, gotBlock, "iteration %d", i)
+				} else {
+					require.Samef(
+						t,
+						test.wantBlock,
+						gotBlock,
+						"iteration %d",
+						i,
+					)
+				}
 			}
 		})
 	}
