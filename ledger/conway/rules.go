@@ -2938,7 +2938,7 @@ func UtxoValidatePlutusScripts(
 			// Build V2 TxInfo lazily
 			if !txInfoV2Built {
 				var err error
-				txInfoV2, err = script.NewTxInfoV2FromTransaction(ls, tx, resolvedInputs)
+				txInfoV2, err = script.NewTxInfoV2FromTransaction(ls, tx, resolvedInputs, true)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
@@ -2970,7 +2970,7 @@ func UtxoValidatePlutusScripts(
 			// Build V1 TxInfo lazily
 			if !txInfoV1Built {
 				var err error
-				txInfoV1, err = script.NewTxInfoV1FromTransaction(ls, tx, resolvedInputs)
+				txInfoV1, err = script.NewTxInfoV1FromTransaction(ls, tx, resolvedInputs, true)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
@@ -3008,58 +3008,17 @@ func UtxoValidatePlutusScripts(
 	return nil
 }
 
-// UtxoValidateNativeScripts evaluates native scripts in the transaction.
-// Native scripts (timelock scripts) are evaluated based on:
-// - Signatures present in the transaction
-// - Transaction's validity interval
-// This is phase-1 validation for native scripts.
+// UtxoValidateNativeScripts evaluates the native scripts this transaction has
+// to satisfy. Conway inherits Babbage's rule unchanged: the scripts to
+// evaluate are the needed ones the resolved transaction view provides, from
+// the witness set or from a reference script on any resolved input.
 func UtxoValidateNativeScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
-	}
-
-	nativeScripts := witnesses.NativeScripts()
-	if len(nativeScripts) == 0 {
-		return nil
-	}
-
-	// Collect key hashes from VKey witnesses
-	keyHashes := make(map[common.Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		// VKey witnesses contain the public key, we need its hash
-		keyHash := common.Blake2b224Hash(vkw.Vkey)
-		keyHashes[keyHash] = true
-	}
-	// Also collect key hashes from bootstrap witnesses (Byron-era)
-	for _, bw := range witnesses.Bootstrap() {
-		keyHash := common.Blake2b224Hash(bw.PublicKey)
-		keyHashes[keyHash] = true
-	}
-
-	// Get transaction validity interval
-	validityStart := tx.ValidityIntervalStart()
-	validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(
-		tx,
-	)
-	if !validityEndPresent {
-		validityEnd = ^uint64(0) // Max uint64 if not set
-	}
-
-	// Evaluate each native script
-	for _, nscript := range nativeScripts {
-		scriptHash := nscript.Hash()
-		if !nscript.Evaluate(slot, validityStart, validityEnd, keyHashes) {
-			return NativeScriptFailedError{ScriptHash: scriptHash}
-		}
-	}
-
-	return nil
+	return babbage.UtxoValidateNativeScripts(tx, slot, ls, pp)
 }
 
 // UtxoValidateDelegation validates delegation certificates against ledger state.

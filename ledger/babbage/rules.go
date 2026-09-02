@@ -286,15 +286,12 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	view, err := script.NewTxScriptView(tx, ls)
+	// An unresolvable input yields an empty view rather than an error:
+	// UtxoValidateBadInputsUtxo reports it with the right error, and reporting
+	// it here as well would make this rule a second, competing source of
+	// input-resolution failures.
+	view, err := script.NewTxScriptViewSkippingUnresolved(tx, ls)
 	if err != nil {
-		if errors.Is(err, common.ErrInputResolution) ||
-			errors.Is(err, common.ErrReferenceInputResolution) {
-			// UtxoValidateBadInputsUtxo reports an unresolvable input with the
-			// right error; reporting it here as well would make this rule a
-			// second, competing source of input-resolution failures.
-			return nil
-		}
 		return err
 	}
 	needsV1 := view.NeedsAny(func(s common.Script) bool {
@@ -1084,14 +1081,41 @@ func UtxoValidateRequiredRedeemers(
 	return script.ValidateRequiredRedeemers(tx, ls)
 }
 
-// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+// UtxoValidateNativeScripts evaluates the native scripts this transaction has
+// to satisfy.
+//
+// Babbage is the first era in which a script can reach a transaction as a
+// reference script rather than a witness, so unlike the Alonzo rule this
+// replaces, the scripts to evaluate come from the resolved transaction view
+// rather than the witness set alone: a native script some script purpose
+// requires counts whether the witness set, a reference input, or the spent
+// input's own reference-script field supplies it -- the same three sources
+// UtxoValidateScriptWitnesses accepts a required script from, so a script that
+// rule counts as provided is a script this rule evaluates rather than ignores.
 func UtxoValidateNativeScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return alonzo.UtxoValidateNativeScripts(tx, slot, ls, pp)
+	view, err := script.NewTxScriptViewSkippingUnresolved(tx, ls)
+	if err != nil {
+		return err
+	}
+	env := script.NewNativeScriptEnv(tx, slot)
+	for _, nativeScript := range script.NativeScriptsToEvaluate(tx, view) {
+		if !nativeScript.Evaluate(
+			env.Slot,
+			env.ValidityStart,
+			env.ValidityEnd,
+			env.KeyHashes,
+		) {
+			return allegra.NativeScriptFailedError{
+				ScriptHash: nativeScript.Hash(),
+			}
+		}
+	}
+	return nil
 }
 
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
