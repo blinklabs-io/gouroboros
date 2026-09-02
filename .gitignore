@@ -40,3 +40,13 @@
 /examples/*/*
 !/examples/*/*.*
 !/examples/*/*/
+
+# Re-assert the rules above that the examples/*/*.* re-include would
+# otherwise override.
+/examples/*/*.exe
+/examples/*/*.exe~
+/examples/*/*.dll
+/examples/*/*.so
+/examples/*/*.dylib
+/examples/*/*.test
+/examples/*/*.out
