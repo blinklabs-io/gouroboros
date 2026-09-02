@@ -5,7 +5,6 @@
 *.so
 *.dylib
 /gouroboros
-/tx-submission
 
 # Test binary, built with `go test -c`
 *.test
@@ -27,3 +26,17 @@
 
 # Git worktrees
 .worktrees/
+
+# Example build output. `make build` writes each example to the repository
+# root; `go build` inside an example writes examples/<name>/<name>.
+/block-fetch
+/chain-sync
+/chain-tip
+/peer-sharing
+/ping
+/state-query
+/tx-monitor
+/tx-submission
+/examples/*/*
+!/examples/*/*.*
+!/examples/*/*/
