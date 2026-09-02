@@ -223,6 +223,12 @@ func (r *rewardAccountCBOR) UnmarshalCBOR(cborData []byte) error {
 	credentialOffset := 0
 	if decodedLength == Blake2b224Size+1 {
 		credentialOffset = 1
+		if decoded[0]&0xF0 != 0xE0 && decoded[0]&0xF0 != 0xF0 {
+			return fmt.Errorf(
+				"invalid reward account address header: 0x%02x",
+				decoded[0],
+			)
+		}
 	}
 	copy(
 		r.credential[:],

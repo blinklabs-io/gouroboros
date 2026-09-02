@@ -347,6 +347,14 @@ func TestPoolRegistrationCertificateRewardAccountDecode(t *testing.T) {
 			),
 		},
 		{
+			name: "non-reward address",
+			rewardAccount: append(
+				[]byte{0x01},
+				credential...,
+			),
+			wantErr: "invalid reward account address header",
+		},
+		{
 			name:          "long",
 			rewardAccount: bytes.Repeat([]byte{0x03}, Blake2b224Size+2),
 			wantErr:       "invalid reward account length",
