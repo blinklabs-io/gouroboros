@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"math"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -96,16 +97,23 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 }
 
 func dijkstraPparams(pp common.ProtocolParameters) (*DijkstraProtocolParameters, error) {
+	var ret DijkstraProtocolParameters
 	switch p := pp.(type) {
 	case *DijkstraProtocolParameters:
-		return p, nil
+		if p == nil {
+			return nil, errors.New("pparams are not expected type")
+		}
+		ret = *p
 	case *conway.ConwayProtocolParameters:
-		return &DijkstraProtocolParameters{
-			ConwayProtocolParameters: *p,
-		}, nil
+		if p == nil {
+			return nil, errors.New("pparams are not expected type")
+		}
+		ret.ConwayProtocolParameters = *p
 	default:
 		return nil, errors.New("pparams are not expected type")
 	}
+	applyConwayRefScriptFeeDefaults(&ret)
+	return &ret, nil
 }
 
 func conwayPparams(
@@ -828,7 +836,7 @@ func UtxoValidateFeeTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	minFee, err := MinFeeTx(tx, pp)
+	minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
 	if err != nil {
 		return err
 	}
@@ -863,6 +871,52 @@ func MinFeeTx(
 		tmpPparams.MinFeeA,
 		tmpPparams.MinFeeB,
 	)
+}
+
+// MinFeeTxWithRefScriptSize adds the Dijkstra tiered reference-script fee to
+// the size-based transaction fee. Conway parameters retain their fixed Conway
+// stride and multiplier for compatibility with cross-era callers.
+func MinFeeTxWithRefScriptSize(
+	tx common.Transaction,
+	pp common.ProtocolParameters,
+	scriptSize uint64,
+) (uint64, error) {
+	dijkstraPp, err := dijkstraPparams(pp)
+	if err != nil {
+		return 0, err
+	}
+	baseFee, err := MinFeeTx(tx, pp)
+	if err != nil {
+		return 0, err
+	}
+	refScriptFee, err := conway.CalculateRefScriptFee(
+		scriptSize,
+		dijkstraPp.MinFeeRefScriptCostPerByte,
+		uint64(dijkstraPp.RefScriptCostStride),
+		dijkstraPp.RefScriptCostMultiplier,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if baseFee > math.MaxUint64-refScriptFee {
+		return 0, errors.New("minimum transaction fee overflow")
+	}
+	return baseFee + refScriptFee, nil
+}
+
+// MinFeeTxWithUtxo calculates the Dijkstra minimum fee from reference scripts
+// consumed by the top-level transaction. Subtransaction reference scripts only
+// contribute to the Dijkstra batch size limits.
+func MinFeeTxWithUtxo(
+	tx common.Transaction,
+	pp common.ProtocolParameters,
+	utxoState common.UtxoState,
+) (uint64, error) {
+	scriptSize, err := common.ConsumedReferenceScriptSize(tx, utxoState)
+	if err != nil {
+		return 0, err
+	}
+	return MinFeeTxWithRefScriptSize(tx, pp, scriptSize)
 }
 
 func UtxoValidateCostModelsPresent(
@@ -1703,19 +1757,21 @@ func UtxoValidateRefScriptSizePerTx(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	tmpPparams, err := dijkstraPparams(pp)
+	maxSize, err := maxRefScriptSizePerTx(pp)
 	if err != nil {
 		return err
 	}
-	maxSize := tmpPparams.MaxRefScriptSizePerTx
-	if maxSize == 0 {
+	if !tx.IsValid() {
 		return nil
 	}
-	totalSize := refScriptSize(tx)
-	if totalSize > uint64(maxSize) {
+	totalSize, err := consumedRefScriptSize(tx, ls)
+	if err != nil {
+		return err
+	}
+	if totalSize > maxSize {
 		return common.RefScriptSizePerTxTooLargeError{
 			TxSize:  totalSize,
-			MaxSize: uint64(maxSize),
+			MaxSize: maxSize,
 		}
 	}
 	return nil
@@ -1724,36 +1780,89 @@ func UtxoValidateRefScriptSizePerTx(
 func ValidateRefScriptSizePerBlock(
 	block *DijkstraBlock,
 	pp common.ProtocolParameters,
+	utxoStates ...common.UtxoState,
 ) error {
-	tmpPparams, err := dijkstraPparams(pp)
+	maxSize, err := maxRefScriptSizePerBlock(pp)
 	if err != nil {
 		return err
 	}
-	maxSize := tmpPparams.MaxRefScriptSizePerBlock
-	if maxSize == 0 {
-		return nil
+	if len(utxoStates) > 1 {
+		return errors.New("expected at most one ledger state")
 	}
-	var totalSize uint64
-	for _, tx := range block.Transactions() {
-		totalSize += refScriptSize(tx)
+	var utxoState common.UtxoState
+	if len(utxoStates) == 1 {
+		utxoState = utxoStates[0]
 	}
-	if totalSize > uint64(maxSize) {
+	conwayPp, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	totalSize, err := common.ConsumedReferenceScriptSizePerBlock(
+		block,
+		utxoState,
+		conwayPp.ProtocolVersion.Major >= common.ProtocolVersionVanRossem,
+		consumedRefScriptSize,
+	)
+	if err != nil {
+		return err
+	}
+	if totalSize > maxSize {
 		return common.RefScriptSizePerBlockTooLargeError{
 			BlockSize: totalSize,
-			MaxSize:   uint64(maxSize),
+			MaxSize:   maxSize,
 		}
 	}
 	return nil
 }
 
-func refScriptSize(tx common.Transaction) uint64 {
-	var totalSize uint64
-	for _, output := range tx.Outputs() {
-		scriptRef := output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-		totalSize += uint64(len(scriptRef.RawScriptBytes()))
+func maxRefScriptSizePerTx(pp common.ProtocolParameters) (uint64, error) {
+	switch p := pp.(type) {
+	case *DijkstraProtocolParameters:
+		return uint64(p.MaxRefScriptSizePerTx), nil
+	case *conway.ConwayProtocolParameters:
+		return conway.MaxRefScriptSizePerTx, nil
+	default:
+		return 0, errors.New("pparams are not expected type")
 	}
-	return totalSize
+}
+
+func maxRefScriptSizePerBlock(pp common.ProtocolParameters) (uint64, error) {
+	switch p := pp.(type) {
+	case *DijkstraProtocolParameters:
+		return uint64(p.MaxRefScriptSizePerBlock), nil
+	case *conway.ConwayProtocolParameters:
+		return conway.MaxRefScriptSizePerBlock, nil
+	default:
+		return 0, errors.New("pparams are not expected type")
+	}
+}
+
+func consumedRefScriptSize(
+	tx common.Transaction,
+	utxoState common.UtxoState,
+) (uint64, error) {
+	totalSize, err := common.ConsumedReferenceScriptSize(tx, utxoState)
+	if err != nil {
+		return 0, err
+	}
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return totalSize, nil
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	for idx := range subTxs {
+		subTx := &subTxs[idx]
+		subTxSize, err := common.ConsumedReferenceScriptSize(
+			&subTx.Body,
+			utxoState,
+		)
+		if err != nil {
+			return 0, err
+		}
+		if totalSize > math.MaxUint64-subTxSize {
+			return 0, errors.New("consumed reference-script size overflow")
+		}
+		totalSize += subTxSize
+	}
+	return totalSize, nil
 }
