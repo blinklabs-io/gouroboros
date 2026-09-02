@@ -48,7 +48,7 @@ type dijkstraComposedEntry struct {
 var dijkstraComposedLayout = []dijkstraComposedEntry{
 	{name: "ledger/conway.UtxoValidateMetadata", gated: false},
 	{name: "ledger/dijkstra.UtxoValidateProposalProcedures", gated: true},
-	{name: "ledger/conway.UtxoValidateGovActionWellFormedness", gated: true},
+	{name: "ledger/conway.UtxoValidateGovActionWellFormedness", gated: false},
 	{name: "ledger/dijkstra.UtxoValidateHardForkCanFollow", gated: true},
 	{name: "ledger/conway.UtxoValidateProposalAncestry", gated: true},
 	{name: "ledger/dijkstra.UtxoValidateProposalDeposit", gated: true},

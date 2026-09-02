@@ -39,7 +39,14 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.AlwaysUtxoValidationRules(UtxoValidateMetadata),
 	common.Phase2ValidUtxoValidationRules(
 		UtxoValidateProposalProcedures,
+	),
+	// UtxoValidateGovActionWellFormedness also performs the representability
+	// checks that stand in for upstream CBOR decoding, so it runs for
+	// phase-2-invalid transactions too and gates its GOV half internally.
+	common.AlwaysUtxoValidationRules(
 		UtxoValidateGovActionWellFormedness,
+	),
+	common.Phase2ValidUtxoValidationRules(
 		UtxoValidateHardForkCanFollow,
 		UtxoValidateProposalAncestry,
 		UtxoValidateProposalDeposit,
@@ -674,16 +681,14 @@ func govPurposeRootId(
 	}
 }
 
-// UtxoValidateGovActionWellFormedness performs structural well-formedness
-// checks on governance actions beyond the ParameterChange-specific checks in
-// UtxoValidateProposalProcedures (ConwayGovPredFailure.MalformedProposal),
-// plus the ConflictingCommitteeUpdate check for UpdateCommittee actions.
-func UtxoValidateGovActionWellFormedness(
-	tx common.Transaction,
-	slot uint64,
-	ls common.LedgerState,
-	pp common.ProtocolParameters,
-) error {
+// govActionStructuralWellFormedness rejects governance actions cardano-ledger
+// cannot represent: a nil action, and a policy or constitution script hash of
+// any length other than 28 bytes. Upstream ScriptHash is a fixed-size type, so
+// such a proposal fails CBOR decoding and the transaction is rejected before
+// the LEDGER rule runs, whatever its phase-2 validity. gouroboros decodes both
+// hashes as []byte (ledger/common/gov.go), so these checks are the only place
+// the length is enforced and must not be gated on IsValid.
+func govActionStructuralWellFormedness(tx common.Transaction) error {
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
 		if isNilGovAction(govAction) {
@@ -708,8 +713,7 @@ func UtxoValidateGovActionWellFormedness(
 			}
 		}
 
-		switch a := govAction.(type) {
-		case *common.NewConstitutionGovAction:
+		if a, ok := govAction.(*common.NewConstitutionGovAction); ok {
 			if l := len(a.Constitution.ScriptHash); a.Constitution.ScriptHash != nil &&
 				l != common.Blake2b224Size {
 				return MalformedGovActionError{
@@ -720,7 +724,36 @@ func UtxoValidateGovActionWellFormedness(
 					),
 				}
 			}
+		}
+	}
+	return nil
+}
 
+// UtxoValidateGovActionWellFormedness performs structural well-formedness
+// checks on governance actions beyond the ParameterChange-specific checks in
+// UtxoValidateProposalProcedures (ConwayGovPredFailure.MalformedProposal),
+// plus the ConflictingCommitteeUpdate check for UpdateCommittee actions.
+//
+// NOTE: this rule spans both phases and so belongs in the always-run group.
+// The representability checks in govActionStructuralWellFormedness stand in
+// for upstream CBOR decoding, which rejects the transaction before any rule
+// runs and therefore does not consult phase-2 validity. Only the
+// ConflictingCommitteeUpdate and guardrails checks below it are GOV, which
+// upstream runs inside the Phase2Valid branch of the LEDGER rule.
+func UtxoValidateGovActionWellFormedness(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if err := govActionStructuralWellFormedness(tx); err != nil {
+		return err
+	}
+	if !tx.IsValid() {
+		return nil
+	}
+	for _, proposal := range tx.ProposalProcedures() {
+		switch a := proposal.GovAction().(type) {
 		case *common.UpdateCommitteeGovAction:
 			// common.Credential embeds cbor.DecodeStoreCbor (a slice field),
 			// making it non-comparable, so key the set on its logical

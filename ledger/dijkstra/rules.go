@@ -36,8 +36,6 @@ import (
 const minUtxoOverheadBytes = 160
 
 var dijkstraGovernanceRulesBeforeUtxow = []common.UtxoValidationRuleFunc{
-	UtxoValidateProposalProcedures,
-	conway.UtxoValidateGovActionWellFormedness,
 	UtxoValidateHardForkCanFollow,
 	conway.UtxoValidateProposalAncestry,
 	UtxoValidateProposalDeposit,
@@ -63,6 +61,16 @@ var dijkstraLedgerRulesAfterUtxow = []common.UtxoValidationRuleFunc{
 
 var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.AlwaysUtxoValidationRules(conway.UtxoValidateMetadata),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateProposalProcedures,
+	),
+	// conway.UtxoValidateGovActionWellFormedness also performs the
+	// representability checks that stand in for upstream CBOR decoding, so it
+	// runs for phase-2-invalid transactions too and gates its GOV half
+	// internally.
+	common.AlwaysUtxoValidationRules(
+		conway.UtxoValidateGovActionWellFormedness,
+	),
 	common.Phase2ValidUtxoValidationRules(
 		dijkstraGovernanceRulesBeforeUtxow...,
 	),

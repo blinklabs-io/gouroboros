@@ -16,7 +16,10 @@ package conway_test
 
 import (
 	"errors"
+	"math/big"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -173,5 +176,118 @@ func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
 		// The helper fails when no composed rule reports the error, which
 		// is the assertion: the rule still runs for an invalid transaction.
 		conwayComposedRulesForError(t, tx, ls, pp, match)
+	})
+}
+
+// TestPhase2InvalidSkipsGovernanceProposalRules covers the Conway governance
+// group that runs before UTXOW. Nothing else in this package reaches it through
+// the composition: the rules matched above sit in the post-UTXOW group, and
+// UtxoValidateUnknownVoters, UtxoValidateCommitteeCertificates and
+// UtxoValidateCertificateDeposits each carry their own phase-2 guard, so they
+// still skip an invalid transaction with the composition gate removed.
+func TestPhase2InvalidSkipsGovernanceProposalRules(t *testing.T) {
+	newTx := func(isValid bool) *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxProposalProcedures: []conway.ConwayProposalProcedure{{
+					PPGovAction: conway.ConwayGovAction{
+						Action: &conway.ConwayParameterChangeGovAction{},
+					},
+				}},
+			},
+			TxIsValid: isValid,
+		}
+	}
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	pp := &conway.ConwayProtocolParameters{}
+	match := func(err error) bool {
+		var target conway.ProtocolParameterUpdateEmptyError
+		return errors.As(err, &target)
+	}
+
+	rules := conwayComposedRulesForError(t, newTx(true), ls, pp, match)
+	for _, rule := range rules {
+		require.NoError(t, rule(newTx(false), 0, ls, pp))
+	}
+}
+
+// TestGovActionRepresentabilityIsNotPhase2Gated pins the split inside
+// UtxoValidateGovActionWellFormedness. Upstream rejects a proposal whose
+// policy hash is not a 28-byte ScriptHash at CBOR decode, before the LEDGER
+// rule and so before phase-2 validity is consulted, while its
+// ConflictingCommitteeUpdate check is GOV and runs only for a phase-2-valid
+// transaction.
+func TestGovActionRepresentabilityIsNotPhase2Gated(t *testing.T) {
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	pp := &conway.ConwayProtocolParameters{}
+
+	proposalTx := func(
+		action common.GovAction,
+		isValid bool,
+	) *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxProposalProcedures: []conway.ConwayProposalProcedure{{
+					PPGovAction: conway.ConwayGovAction{Action: action},
+				}},
+			},
+			TxIsValid: isValid,
+		}
+	}
+
+	t.Run("short policy hash is rejected in both phases", func(t *testing.T) {
+		shortPolicy := make([]byte, common.Blake2b224Size-8)
+		action := func() common.GovAction {
+			return &conway.ConwayParameterChangeGovAction{
+				PolicyHash: shortPolicy,
+			}
+		}
+		match := func(err error) bool {
+			var target conway.MalformedGovActionError
+			return errors.As(err, &target)
+		}
+
+		// The rule must report the malformed hash for a phase-2-invalid
+		// transaction, so it has to sit in the always-run group.
+		rules := conwayComposedRulesForError(
+			t,
+			proposalTx(action(), false),
+			ls,
+			pp,
+			match,
+		)
+		for _, rule := range rules {
+			require.Error(t, rule(proposalTx(action(), true), 0, ls, pp))
+		}
+	})
+
+	t.Run("conflicting committee update is gated", func(t *testing.T) {
+		credential := common.Credential{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: common.Blake2b224{0x04},
+		}
+		conflicting := credential
+		action := func() common.GovAction {
+			return &common.UpdateCommitteeGovAction{
+				Credentials: []common.Credential{credential},
+				CredEpochs:  map[*common.Credential]uint{&conflicting: 100},
+				Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
+			}
+		}
+		match := func(err error) bool {
+			var target conway.ConflictingCommitteeUpdateError
+			return errors.As(err, &target)
+		}
+
+		rules := conwayComposedRulesForError(
+			t,
+			proposalTx(action(), true),
+			ls,
+			pp,
+			match,
+		)
+		for _, rule := range rules {
+			require.NoError(t, rule(proposalTx(action(), false), 0, ls, pp))
+		}
 	})
 }

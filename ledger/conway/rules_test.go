@@ -3782,23 +3782,56 @@ func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 				return
 			}
 			t.Run("phase-2 valid transaction runs committee rules", func(t *testing.T) {
-				tx := operations[0].tx()
-				tx.TxIsValid = true
-				state := &erroringCommitteeCredentialLedgerState{
-					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
-					err:         errors.New("committee provider queried"),
+				newState := func() *erroringCommitteeCredentialLedgerState {
+					return &erroringCommitteeCredentialLedgerState{
+						LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+						err:         errors.New("committee provider queried"),
+					}
 				}
-				err := common.VerifyTransaction(
-					tx,
-					0,
-					state,
-					&conway.ConwayProtocolParameters{},
-					[]common.UtxoValidationRuleFunc{
-						conway.UtxoValidateCommitteeCertificates,
-					},
+				pp := &conway.ConwayProtocolParameters{}
+				validTx := operations[0].tx()
+				validTx.TxIsValid = true
+
+				// The composition wraps every gated rule in an identical
+				// closure, so the committee rule cannot be selected out of the
+				// production list by function pointer. Locate the composed
+				// position by the lookup error only it reports for a valid
+				// transaction, then assert that same position for an invalid
+				// one. Selecting the rule by pointer instead would test the
+				// function rather than its place in the composed list.
+				var matched []common.UtxoValidationRuleFunc
+				for _, rule := range era.rules {
+					state := newState()
+					err := rule(validTx, 0, state, pp)
+					var lookupErr conway.CommitteeMemberLookupError
+					if !errors.As(err, &lookupErr) {
+						continue
+					}
+					require.Positivef(
+						t,
+						state.queries,
+						"committee provider queries: %v",
+						err,
+					)
+					matched = append(matched, rule)
+				}
+				require.NotEmpty(
+					t,
+					matched,
+					"no composed rule reached the committee provider",
 				)
-				require.Error(t, err)
-				require.Positivef(t, state.queries, "committee provider queries: %v", err)
+
+				invalidTx := operations[0].tx()
+				invalidTx.TxIsValid = false
+				for _, rule := range matched {
+					state := newState()
+					require.NoError(t, rule(invalidTx, 0, state, pp))
+					require.Zero(
+						t,
+						state.queries,
+						"committee provider queries",
+					)
+				}
 			})
 
 			t.Run("phase-1 invalid flag still runs", func(t *testing.T) {
