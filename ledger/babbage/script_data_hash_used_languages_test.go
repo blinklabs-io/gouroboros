@@ -155,3 +155,40 @@ func TestUtxoValidateScriptDataHashCountsNeededReferenceScript(t *testing.T) {
 		"a script the spend purpose requires must contribute its language view")
 	require.ErrorIs(t, err, common.ErrScriptDataHashMismatch)
 }
+
+// TestUtxoValidateScriptDataHashDefersUnresolvableSpentInput pins the error
+// taxonomy this rule must not disturb. Deriving the language set from the
+// needed scripts requires resolving the transaction's inputs, which this rule
+// did not do in Alonzo at all and did only partially in Babbage. An input that
+// does not resolve is reported by UtxoValidateBadInputsUtxo, registered in the
+// same rule list, so reporting it from here instead would change which error an
+// invalid transaction produces.
+//
+// A reference input is deliberately not covered by that rule, so its resolution
+// failure still surfaces here — the behaviour Babbage and Conway already had.
+func TestUtxoValidateScriptDataHashDefersUnresolvableSpentInput(t *testing.T) {
+	txBytes, err := hex.DecodeString(preview1796036TxHex)
+	require.NoError(t, err)
+	tx, err := babbage.NewBabbageTransactionFromCbor(txBytes)
+	require.NoError(t, err)
+
+	// Nothing resolves.
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, errors.New("not found")
+		}).
+		Build()
+	pp := &babbage.BabbageProtocolParameters{
+		CostModels: map[uint][]int64{0: {197209, 0}, 1: {205665, 812}},
+	}
+
+	require.NoError(
+		t,
+		babbage.UtxoValidateScriptDataHash(tx, 1796036, ls, pp),
+		"an unresolvable spent input belongs to UtxoValidateBadInputsUtxo",
+	)
+
+	// And that rule does reject it, so nothing slips through.
+	err = babbage.UtxoValidateBadInputsUtxo(tx, 1796036, ls, pp)
+	require.Error(t, err, "the dedicated rule still rejects the transaction")
+}

@@ -1763,6 +1763,15 @@ func UtxoValidateScriptDataHash(
 	// (gouroboros #2188).
 	view, err := script.NewTxScriptView(tx, ls)
 	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) {
+			// A spent input that does not resolve is reported by
+			// UtxoValidateBadInputsUtxo, which runs on every transaction in
+			// this same rule list. Reporting it from here would change which
+			// error an invalid transaction produces, and this rule is
+			// registered ahead of that one. A reference input that does not
+			// resolve has no such dedicated rule, so it still surfaces here.
+			return nil
+		}
 		return err
 	}
 	usedVersions := view.UsedPlutusVersions()
