@@ -275,6 +275,8 @@ func (e ExtraneousRedeemerError) Error() string {
 type MissingRedeemerForScriptError struct {
 	ScriptHash  ScriptHash
 	RedeemerKey RedeemerKey
+	Tag         RedeemerTag
+	Index       uint32
 }
 
 func (e MissingRedeemerForScriptError) Error() string {

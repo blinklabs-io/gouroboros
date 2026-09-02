@@ -1000,6 +1000,8 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 			if !hasRedeemer {
 				return MissingRedeemerForScriptError{
 					ScriptHash:  purpose.hash,
+					Tag:         purpose.redeemer.Tag,
+					Index:       purpose.redeemer.Index,
 					RedeemerKey: purpose.redeemer,
 				}
 			}

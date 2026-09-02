@@ -640,6 +640,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := validateConwayCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
+		return err
+	}
 	// Reject duplicate members in any tag-258 set field on the transaction body.
 	type duplicateChecker interface {
 		CheckForDuplicates() error
