@@ -19,9 +19,41 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
+
+// blockLayoutRepresentable reports whether the generic type decoder can read
+// this block at all, independent of any validation verdict.
+//
+// This is the raw fallback's actual precondition, and decoding with
+// validation disabled isolates it. If that succeeds, the decoder understood
+// the block and the original failure was a rejection -- a body-hash mismatch,
+// a nil header, or any other check behind the validation gate. Delivering
+// those bytes anyway would let a peer keep a valid header, replace the body,
+// and have the tampered block reach the raw callback while header-only range
+// correlation still passed, so the fallback must not engage. If it still
+// fails, nothing could be read, which is the case the raw callback exists
+// for: the consumer that asked for raw blocks is the one equipped to decode
+// and validate that layout.
+//
+// Asking the decoder beats matching on error types, which every era would
+// have to keep in sync: the body-hash checks return a typed
+// common.ValidationError but the nil-header checks beside them return a plain
+// error, and a new era adding a third shape would silently widen the
+// fallback.
+//
+// Only reached once a decode has already failed and a raw callback is
+// configured, so the second decode is off the healthy path.
+func blockLayoutRepresentable(blockType uint, raw []byte) bool {
+	_, err := ledger.NewBlockFromCbor(
+		blockType,
+		raw,
+		lcommon.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	return err == nil
+}
 
 // blockHeaderBodyMinFields is the number of leading block-header-body fields
 // this file reads: block_number, slot, prev_hash. Every Shelley-family era

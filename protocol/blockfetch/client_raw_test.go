@@ -352,6 +352,187 @@ func TestGetBlockRangePipelineStillFailsUndecodableBlock(t *testing.T) {
 	}
 }
 
+// tamperedBodyConwayBlock returns a Conway block whose layout decodes cleanly
+// but whose body does not match the body hash its header commits to, along
+// with its point. This is the shape of a peer that keeps a valid header and
+// replaces the body.
+func tamperedBodyConwayBlock(t *testing.T) ([]byte, pcommon.Point) {
+	t.Helper()
+	blk := ledger.ConwayBlock{BlockHeader: &ledger.ConwayBlockHeader{}}
+	blk.BlockHeader.Body.BlockNumber = 12345
+	blk.BlockHeader.Body.Slot = 23456
+	raw, err := cbor.Encode(blk)
+	require.NoError(t, err)
+	// The layout is representable, so the decoder gets far enough to check
+	// the body hash and reject it. That distinction is what the fallback
+	// keys on, so assert it rather than assuming it.
+	_, err = ledger.NewBlockFromCbor(
+		ledger.BlockTypeConway,
+		raw,
+		lcommon.VerifyConfig{SkipBodyHashValidation: false},
+	)
+	var validationErr *lcommon.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	// ErrorAs above already fails the test on no match; the guard is for
+	// static nil analysis, which cannot see that it assigns the target.
+	if validationErr != nil {
+		require.Equal(
+			t,
+			lcommon.ValidationErrorTypeBodyHash,
+			validationErr.Type,
+		)
+	}
+	decoded, err := ledger.NewBlockFromCbor(
+		ledger.BlockTypeConway,
+		raw,
+		lcommon.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+	return raw, pcommon.NewPoint(
+		decoded.SlotNumber(),
+		decoded.Hash().Bytes(),
+	)
+}
+
+// TestGetBlockRangeRawFuncRejectsValidationFailure covers the security
+// boundary of the raw fallback. A block the decoder understood and rejected
+// must not be handed to the raw callback: a peer could otherwise keep a valid
+// header, replace the body, and have the tampered bytes delivered while
+// header-only range correlation still passed. The fallback exists for layouts
+// the decoder cannot represent, not for blocks it has already refused.
+func TestGetBlockRangeRawFuncRejectsValidationFailure(t *testing.T) {
+	raw, point := tamperedBodyConwayBlock(t)
+	conversation := append(
+		conversationHandshakeRequestRange,
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: blockfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				blockfetch.NewMsgStartBatch(),
+				blockfetch.NewMsgBlock(conwayTaggedWrappedBlock(t, raw)),
+				blockfetch.NewMsgBatchDone(),
+			},
+		},
+		ouroboros_mock.ConversationEntrySleep{Duration: 100 * time.Millisecond},
+		ouroboros_mock.ConversationEntryClose{},
+	)
+	rawCalled := make(chan struct{}, 1)
+	connErr := runTestExpectingError(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			require.NoError(
+				t,
+				oConn.BlockFetch().Client.GetBlockRange(point, point),
+			)
+		},
+		ouroboros.WithBlockFetchConfig(blockfetch.Config{
+			// Validation left enabled, which is the default and what the
+			// hole depended on.
+			BlockRawFunc: func(
+				_ blockfetch.CallbackContext,
+				_ uint,
+				_ []byte,
+			) error {
+				rawCalled <- struct{}{}
+				return nil
+			},
+		}),
+	)
+	require.ErrorContains(t, connErr, "body hash mismatch")
+	select {
+	case <-rawCalled:
+		require.Fail(
+			t,
+			"BlockRawFunc received a block that failed body-hash validation",
+		)
+	default:
+	}
+}
+
+// TestGetBlockRangeRawFuncRejectsNilHeaderBlock covers the other member of
+// the rejected-under-validation class. The nil-header check sits beside the
+// body-hash check behind the same validation gate but returns a plain error
+// rather than a common.ValidationError, so a fallback keyed on the error type
+// would let this one through. Keyed on whether the layout is representable,
+// both are refused.
+func TestGetBlockRangeRawFuncRejectsNilHeaderBlock(t *testing.T) {
+	raw, err := cbor.Encode(ledger.ConwayBlock{})
+	require.NoError(t, err)
+	// Representable with validation off, rejected with it on, and rejected
+	// with a plain error rather than a typed one.
+	_, err = ledger.NewBlockFromCbor(
+		ledger.BlockTypeConway,
+		raw,
+		lcommon.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+	_, err = ledger.NewBlockFromCbor(
+		ledger.BlockTypeConway,
+		raw,
+		lcommon.VerifyConfig{SkipBodyHashValidation: false},
+	)
+	require.Error(t, err)
+	var validationErr *lcommon.ValidationError
+	require.NotErrorAs(
+		t,
+		err,
+		&validationErr,
+		"if this becomes typed, the class this test guards has changed",
+	)
+	conversation := append(
+		conversationHandshakeRequestRange,
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: blockfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				blockfetch.NewMsgStartBatch(),
+				blockfetch.NewMsgBlock(conwayTaggedWrappedBlock(t, raw)),
+				blockfetch.NewMsgBatchDone(),
+			},
+		},
+		ouroboros_mock.ConversationEntrySleep{Duration: 100 * time.Millisecond},
+		ouroboros_mock.ConversationEntryClose{},
+	)
+	rawCalled := make(chan struct{}, 1)
+	connErr := runTestExpectingError(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			point := pcommon.NewPoint(1, make([]byte, 32))
+			require.NoError(
+				t,
+				oConn.BlockFetch().Client.GetBlockRange(point, point),
+			)
+		},
+		ouroboros.WithBlockFetchConfig(blockfetch.Config{
+			BlockRawFunc: func(
+				_ blockfetch.CallbackContext,
+				_ uint,
+				_ []byte,
+			) error {
+				rawCalled <- struct{}{}
+				return nil
+			},
+		}),
+	)
+	require.ErrorContains(t, connErr, "header is nil")
+	// The fallback must have been declined outright, not entered and then
+	// tripped over the null header while extracting the point. Both end in a
+	// failed request, so without this the test would pass either way.
+	require.NotContains(
+		t,
+		connErr.Error(),
+		"raw block header",
+		"the fallback was entered for a block rejected on validation",
+	)
+	select {
+	case <-rawCalled:
+		require.Fail(t, "BlockRawFunc received a block rejected on validation")
+	default:
+	}
+}
+
 // chainedMusashiBlock rewrites the fixture's slot and prev_hash so it follows
 // the given point, producing a second Leios-extended block for range tests.
 // Only the header fields BlockFetch correlates on are changed; the block stays

@@ -1121,16 +1121,22 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	// understates its actual shape -- a Dijkstra-shaped block tagged Conway,
 	// say -- reaches a consumer that does understand it.
 	//
-	// The condition is exactly "the raw callback is the consumer that would
-	// receive this block", matching the delivery decisions made below. Every
-	// other consumer wants a decoded block and keeps failing here: GetBlock,
-	// which hands its caller a ledger.Block; BlockFunc; and the block
-	// pipeline, which takes precedence over BlockRawFunc and does its own
-	// typed decode (pipeline.decodeStage).
+	// A block the decoder rejected on validation is excluded: it was
+	// representable, so the verdict stands and must not be routed around
+	// (see blockLayoutRepresentable). What remains is the layout it could
+	// not read at all.
+	//
+	// The rest of the condition is exactly "the raw callback is the consumer
+	// that would receive this block", matching the delivery decisions made
+	// below. Every other consumer wants a decoded block and keeps failing
+	// here: GetBlock, which hands its caller a ledger.Block; BlockFunc; and
+	// the block pipeline, which takes precedence over BlockRawFunc and does
+	// its own typed decode (pipeline.decodeStage).
 	rawFallback := decodeErr != nil &&
 		req.delivery == deliveryCallback &&
 		c.config.Pipeline == nil &&
-		c.config.BlockRawFunc != nil
+		c.config.BlockRawFunc != nil &&
+		!blockLayoutRepresentable(wrappedBlock.Type, wrappedBlock.RawBlock)
 	if decodeErr != nil && !rawFallback {
 		return c.failRequest(req, decodeErr)
 	}
