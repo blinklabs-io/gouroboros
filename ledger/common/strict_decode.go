@@ -223,7 +223,12 @@ func (r *rewardAccountCBOR) UnmarshalCBOR(cborData []byte) error {
 	credentialOffset := 0
 	if decodedLength == Blake2b224Size+1 {
 		credentialOffset = 1
-		if decoded[0]&0xF0 != 0xE0 && decoded[0]&0xF0 != 0xF0 {
+		// headerIsAccountAddress in Cardano.Ledger.Address:
+		// header .&. 0b11101110 == 0b11100000. Bits 7-5 are the account
+		// address prefix, bit 4 is the script flag and is free, bits 3-1
+		// must be clear, and bit 0 is the network id. So the only valid
+		// header bytes are 0xe0, 0xe1, 0xf0 and 0xf1.
+		if decoded[0]&0xEE != 0xE0 {
 			return fmt.Errorf(
 				"invalid reward account address header: 0x%02x",
 				decoded[0],
@@ -235,8 +240,9 @@ func (r *rewardAccountCBOR) UnmarshalCBOR(cborData []byte) error {
 		decoded[credentialOffset:credentialOffset+Blake2b224Size],
 	)
 	if credentialOffset == 1 {
-		// The low nibble of a reward address header byte is the network
-		// id. See Cardano.Ledger.Address (aaNetworkId), read by
+		// Bit 0 of a reward address header byte is the network id,
+		// which the header check above has already constrained to 0 or
+		// 1. See Cardano.Ledger.Address (aaNetworkId), read by
 		// poolTransition's WrongNetworkPOOL check.
 		r.networkId = uint(decoded[0] & 0x0F)
 		r.networkIdKnown = true
