@@ -114,7 +114,6 @@ func TestPhase2InvalidSkipsCertificateAndGovernanceRules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rules := conwayComposedRulesForError(t, validTx, ls, pp, tc.match)
 			for _, rule := range rules {
-				require.True(t, tc.match(rule(validTx, 0, ls, pp)))
 				require.NoError(t, rule(invalidTx, 0, ls, pp))
 			}
 		})
@@ -131,8 +130,9 @@ func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
 			var target common.InvalidIsValidFlagError
 			return errors.As(err, &target)
 		}
-		rules := conwayComposedRulesForError(t, tx, ls, pp, match)
-		require.True(t, match(rules[0](tx, 0, ls, pp)))
+		// The helper fails when no composed rule reports the error, which
+		// is the assertion: the rule still runs for an invalid transaction.
+		conwayComposedRulesForError(t, tx, ls, pp, match)
 	})
 
 	t.Run("redeemer purpose remains well formed", func(t *testing.T) {
@@ -150,8 +150,9 @@ func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
 			var target conway.ExtraRedeemerError
 			return errors.As(err, &target)
 		}
-		rules := conwayComposedRulesForError(t, tx, ls, pp, match)
-		require.True(t, match(rules[0](tx, 0, ls, pp)))
+		// The helper fails when no composed rule reports the error, which
+		// is the assertion: the rule still runs for an invalid transaction.
+		conwayComposedRulesForError(t, tx, ls, pp, match)
 	})
 
 	t.Run("collateral is still required", func(t *testing.T) {
@@ -169,7 +170,8 @@ func TestPhase2InvalidStillRunsUtxowRules(t *testing.T) {
 			var target alonzo.NoCollateralInputsError
 			return errors.As(err, &target)
 		}
-		rules := conwayComposedRulesForError(t, tx, ls, pp, match)
-		require.True(t, match(rules[0](tx, 0, ls, pp)))
+		// The helper fails when no composed rule reports the error, which
+		// is the assertion: the rule still runs for an invalid transaction.
+		conwayComposedRulesForError(t, tx, ls, pp, match)
 	})
 }

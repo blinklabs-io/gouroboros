@@ -15,6 +15,7 @@
 package dijkstra
 
 import (
+	"errors"
 	"reflect"
 	"runtime"
 	"strings"
@@ -141,13 +142,16 @@ func dijkstraValidationRule(
 // dropped, reordered across the two kinds, or moved between the Always and
 // Phase2Valid groups fails here.
 //
-// Two gated rules swapped with each other are not caught: the composition
-// wraps each in an identical closure, so a gated position can only be
-// identified by the behavior every gated rule shares. Naming them would need
+// The composition wraps every gated rule in an identical closure, so a gated
+// position cannot be resolved by name. dijkstraGatedRuleAnchors pins one rule
+// per gated group by behavior only that rule produces; without them the two
+// ten-rule gated groups could be exchanged with no assertion changing. Two
+// gated rules swapped inside one group are still not caught, which would need
 // the wrapper to carry the wrapped rule's identity.
 func TestDijkstraComposedRuleLayout(t *testing.T) {
 	require.Len(t, UtxoValidationRules, len(dijkstraComposedLayout))
 	invalidTx := &DijkstraTransaction{TxIsValid: false}
+	anchored := 0
 	for idx, entry := range dijkstraComposedLayout {
 		rule := UtxoValidationRules[idx]
 		if entry.gated {
@@ -160,6 +164,15 @@ func TestDijkstraComposedRuleLayout(t *testing.T) {
 				idx,
 				entry.name,
 			)
+			if anchor, ok := dijkstraGatedRuleAnchors[entry.name]; ok {
+				anchored++
+				t.Run(
+					strings.ReplaceAll(entry.name, "/", "_"),
+					func(t *testing.T) {
+						anchor(t, rule)
+					},
+				)
+			}
 			continue
 		}
 		require.True(
@@ -171,6 +184,88 @@ func TestDijkstraComposedRuleLayout(t *testing.T) {
 			entry.name,
 		)
 	}
+	require.Len(
+		t,
+		dijkstraGatedRuleAnchors,
+		anchored,
+		"an anchored rule is missing from the gated positions",
+	)
+}
+
+// dijkstraGatedRuleAnchors identifies a gated position by an error only the
+// rule expected there returns, and confirms the wrapper delegates for a
+// phase-2-valid transaction. One rule in each of the two ten-rule gated groups
+// is enough to tell those groups apart. The third gated group holds only
+// UtxoValidateRefScriptSizePerTx, which
+// TestDijkstraRefScriptSizePerTxIsPhase2Gated pins the same way.
+var dijkstraGatedRuleAnchors = map[string]func(
+	*testing.T,
+	common.UtxoValidationRuleFunc,
+){
+	// First rule of the governance group that runs before UTXOW.
+	"ledger/dijkstra.UtxoValidateProposalProcedures": func(
+		t *testing.T,
+		rule common.UtxoValidationRuleFunc,
+	) {
+		newTx := func(isValid bool) *DijkstraTransaction {
+			return &DijkstraTransaction{
+				Body: DijkstraTransactionBody{
+					TxProposalProcedures: []DijkstraProposalProcedure{{
+						PPGovAction: DijkstraGovAction{
+							Action: &DijkstraParameterChangeGovAction{},
+						},
+					}},
+				},
+				TxIsValid: isValid,
+			}
+		}
+		pp := &DijkstraProtocolParameters{}
+		var emptyUpdate conway.ProtocolParameterUpdateEmptyError
+		require.ErrorAs(t, rule(newTx(true), 0, nil, pp), &emptyUpdate)
+		require.NoError(t, rule(newTx(false), 0, nil, pp))
+	},
+	// First rule of the ledger group that runs after UTXOW.
+	"ledger/conway.UtxoValidateDelegation": func(
+		t *testing.T,
+		rule common.UtxoValidationRuleFunc,
+	) {
+		credential := common.Credential{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: common.Blake2b224{0x01},
+		}
+		newTx := func(isValid bool) *DijkstraTransaction {
+			return &DijkstraTransaction{
+				Body: DijkstraTransactionBody{
+					TxCertificates: []common.CertificateWrapper{{
+						Type: uint(common.CertificateTypeStakeDelegation),
+						Certificate: &common.StakeDelegationCertificate{
+							CertType: uint(
+								common.CertificateTypeStakeDelegation,
+							),
+							StakeCredential: &credential,
+							PoolKeyHash: common.PoolKeyHash(
+								common.Blake2b224{0x02},
+							),
+						},
+					}},
+				},
+				TxIsValid: isValid,
+			}
+		}
+		ls := mockledger.NewLedgerStateBuilder().Build()
+		pp := &DijkstraProtocolParameters{}
+		var unregisteredPool shelley.DelegateToUnregisteredPoolError
+		var unregisteredCred shelley.DelegateUnregisteredStakeCredentialError
+		err := rule(newTx(true), 0, ls, pp)
+		require.True(
+			t,
+			errors.As(err, &unregisteredPool) ||
+				errors.As(err, &unregisteredCred),
+			"unexpected error from the delegation position: %v",
+			err,
+		)
+		require.NoError(t, rule(newTx(false), 0, ls, pp))
+	},
 }
 
 // TestDijkstraRefScriptSizePerTxIsPhase2Gated pins the one place a size limit
