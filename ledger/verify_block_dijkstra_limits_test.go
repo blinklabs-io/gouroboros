@@ -25,7 +25,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/plutigo/data"
-	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/stretchr/testify/require"
 )
 
@@ -155,18 +154,4 @@ func TestVerifyBlockDijkstraExUnitsIncludesEveryTransactionLevel(
 			require.Equal(t, wantTotal, target.TotalExUnits)
 		})
 	}
-}
-
-func dijkstraBlockLimitScript(t *testing.T) common.PlutusV4Script {
-	t.Helper()
-	// lang.LanguageVersionV4 identifies the ledger language, not the UPLC
-	// program version, which must be 1.0.0 or 1.1.0.
-	flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
-		Version: [3]uint32{1, 1, 0},
-		Term:    &syn.Error{},
-	})
-	require.NoError(t, err)
-	wrapper, err := cbor.Encode(flat)
-	require.NoError(t, err)
-	return common.PlutusV4Script(wrapper)
 }
