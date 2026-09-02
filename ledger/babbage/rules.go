@@ -64,7 +64,6 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidatePlutusScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
-	UtxoValidateMIRGenesisQuorum,
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(
