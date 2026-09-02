@@ -49,6 +49,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateNoCollateralInputs,
 		UtxoValidateBadInputsUtxo,
 		UtxoValidateScriptWitnesses,
+		UtxoValidateRequiredRedeemers,
 		UtxoValidateValueNotConservedUtxo,
 		UtxoValidateOutputTooSmallUtxo,
 		UtxoValidateOutputTooBigUtxo,
@@ -1069,6 +1070,18 @@ func UtxoValidateScriptWitnesses(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateScriptWitnesses(tx, ls)
+}
+
+// UtxoValidateRequiredRedeemers checks that every Plutus script-address
+// input has a matching spend redeemer, including inputs using reference
+// scripts.
+func UtxoValidateRequiredRedeemers(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return script.ValidateRequiredRedeemers(tx, ls)
 }
 
 // UtxoValidateNativeScripts evaluates the native scripts this transaction has
