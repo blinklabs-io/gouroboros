@@ -468,8 +468,11 @@ func NewTxInfoV3FromTransaction(
 }
 
 type TimeRange struct {
-	lowerBound        uint64
-	upperBound        uint64
+	lowerBound uint64
+	upperBound uint64
+	// upperBoundClosed reports whether a present upper bound is inclusive.
+	// It is era-dependent and is decided in validityRangeInfo.
+	upperBoundClosed  bool
 	lowerBoundPresent bool
 	upperBoundPresent bool
 }
@@ -500,7 +503,8 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 			return data.NewConstr(
 				0,
 				data.NewConstr(constrType),
-				// NOTE: Infinite bounds are always exclusive, by convention.
+				// An absent bound is infinite, and cardano-ledger renders
+				// both PV1.NegInf and PV1.PosInf as closed.
 				toPlutusData(true),
 			)
 		}
@@ -517,10 +521,7 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 			t.upperBound,
 			t.upperBoundPresent,
 			false,
-			// cardano-ledger uses `to` (closed upper) for an
-			// upper-only interval, but `strictUpperBound` when
-			// both bounds are present.
-			!t.lowerBoundPresent,
+			t.upperBoundClosed,
 		),
 	)
 }
@@ -620,8 +621,24 @@ func validityRangeInfo(
 		}
 		ret.upperBound = uint64(endTime.UnixMilli()) // nolint:gosec
 	}
+	// cardano-ledger's Alonzo transValidityInterval renders an interval with
+	// only an upper bound using PV1.to, which is inclusive. The Conway
+	// instance shadows it and uses PV1.strictUpperBound instead, so from
+	// Conway on that bound is exclusive. Every era uses strictUpperBound when
+	// both bounds are present, and an absent bound is infinite rather than
+	// finite, so the flag only matters for the upper-bound-only case.
+	ret.upperBoundClosed = !ret.lowerBoundPresent &&
+		tx.Type() < eraIdConway
 	return ret, nil
 }
+
+// eraIdConway is the ledger era ID of the Conway era, which is also the
+// transaction type reported by Transaction.Type() for a Conway transaction.
+// The value is repeated here because ledger/common/script cannot import the
+// era packages: they import this package. TestValidityRangeUpperBoundByEra
+// pins the resulting encoding for real transactions of each era, so a wrong
+// value here fails that test.
+const eraIdConway = 6
 
 func validityLowerBoundPresent(tx lcommon.Transaction) bool {
 	startPresent := tx.ValidityIntervalStart() > 0
