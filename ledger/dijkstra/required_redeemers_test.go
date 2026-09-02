@@ -40,9 +40,11 @@ func TestUtxoValidateRequiredRedeemersRegistered(t *testing.T) {
 		t,
 		"ledger/conway.UtxoValidateBadInputsUtxo",
 	)
+	// Dijkstra registers its own ScriptWitnesses rule, which extends Conway's
+	// to sub-transaction witness sets; the ordering requirement is the same.
 	_, scriptWitnessesIdx := dijkstraValidationRule(
 		t,
-		"ledger/conway.UtxoValidateScriptWitnesses",
+		"ledger/dijkstra.UtxoValidateScriptWitnesses",
 	)
 
 	require.Greater(

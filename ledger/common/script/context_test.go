@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
@@ -234,6 +236,95 @@ var preprodSlotState = mockSlotState{
 	// Shelley start
 	ZeroTime: time.UnixMilli(1596059091000),
 	ZeroSlot: 4492800,
+}
+
+// treasuryPresenceTransaction adds the optional presence capability, which the
+// released mock transaction does not implement. Without it an explicit zero is
+// indistinguishable from an absent field.
+type treasuryPresenceTransaction struct {
+	*mockledger.MockTransaction
+	present bool
+}
+
+func (t treasuryPresenceTransaction) CurrentTreasuryValuePresent() bool {
+	return t.present
+}
+
+func TestTxInfoV3LegacyCurrentTreasuryPresence(t *testing.T) {
+	tests := []struct {
+		name          string
+		treasuryValue *int64
+		withPresence  bool
+		present       bool
+		want          *big.Int
+	}{
+		{
+			name: "default zero is absent",
+		},
+		{
+			// The mock cannot report presence, so an explicit zero is
+			// indistinguishable from an absent field and stays absent.
+			name:          "explicit zero without the presence capability is absent",
+			treasuryValue: func() *int64 { value := int64(0); return &value }(),
+		},
+		{
+			// No presence capability, so this can only be carried by the
+			// nonzero branch of TransactionCurrentTreasuryValuePresent.
+			name:          "nonzero without the presence capability is present",
+			treasuryValue: func() *int64 { value := int64(42); return &value }(),
+			want:          big.NewInt(42),
+		},
+		{
+			name:          "explicit zero with the presence capability is present",
+			treasuryValue: func() *int64 { value := int64(0); return &value }(),
+			withPresence:  true,
+			present:       true,
+			want:          big.NewInt(0),
+		},
+		{
+			name:          "zero with the presence capability reporting absent",
+			treasuryValue: func() *int64 { value := int64(0); return &value }(),
+			withPresence:  true,
+			present:       false,
+		},
+		{
+			name:          "nonzero with the presence capability is present",
+			treasuryValue: func() *int64 { value := int64(42); return &value }(),
+			withPresence:  true,
+			present:       true,
+			want:          big.NewInt(42),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mockTx := mockledger.NewTransactionBuilder()
+			if test.treasuryValue != nil {
+				mockTx.WithTreasuryValue(*test.treasuryValue)
+			}
+			var tx common.Transaction = mockTx
+			if test.withPresence {
+				tx = treasuryPresenceTransaction{
+					MockTransaction: mockTx,
+					present:         test.present,
+				}
+			}
+			txInfo, err := script.NewTxInfoV3FromTransaction(
+				mockledger.NewLedgerStateBuilder().Build(),
+				tx,
+				nil,
+			)
+			require.NoError(t, err)
+			if test.want == nil {
+				require.Nil(t, txInfo.CurrentTreasuryAmount.Value)
+				return
+			}
+			require.Equal(
+				t,
+				test.want,
+				txInfo.CurrentTreasuryAmount.Value,
+			)
+		})
+	}
 }
 
 var scriptContextV1TestDefs = []struct {

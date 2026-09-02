@@ -16,10 +16,14 @@ package script
 
 import (
 	"bytes"
+	"errors"
+	"reflect"
 	"slices"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 )
+
+var errLedgerStateUnavailable = errors.New("ledger state unavailable")
 
 // TxScriptView is a transaction's script picture, resolved once.
 //
@@ -77,24 +81,73 @@ func (v TxScriptView) NeedsAny(match func(lcommon.Script) bool) bool {
 	return false
 }
 
+// WithAvailableScripts returns a copy of the view whose needed scripts are
+// resolved against available. ResolvedInputs and ResolvedReferenceInputs stay
+// scoped to tx, so a caller can share script availability across transaction
+// levels without importing another level's script purposes.
+//
+// available is treated as read-only and is not copied.
+func (v TxScriptView) WithAvailableScripts(
+	tx lcommon.Transaction,
+	available map[lcommon.ScriptHash]lcommon.Script,
+) TxScriptView {
+	v.Available = available
+	v.Needed = neededScripts(tx, v)
+	return v
+}
+
 // NewTxScriptView resolves the transaction's inputs and reference inputs once,
 // collects the scripts they and the witness set make available, and determines
 // which of those some script purpose requires.
 //
 // Input resolution failures are returned as InputResolutionError or
-// ReferenceInputResolutionError. Callers enforcing a language restriction
-// generally want to skip those rather than report them, because
-// UtxoValidateBadInputsUtxo reports an unresolvable input with the right error.
+// ReferenceInputResolutionError together with a partial view of witness-set
+// scripts and non-spending purposes. Callers can enforce restrictions that do
+// not depend on UTxO resolution before deferring the resolution failure to
+// UtxoValidateBadInputsUtxo.
 func NewTxScriptView(
 	tx lcommon.Transaction,
 	ls lcommon.LedgerState,
 ) (TxScriptView, error) {
 	var view TxScriptView
-	if tx == nil || ls == nil {
+	if tx == nil {
+		return view, nil
+	}
+	// The ls == nil arm is spelled out rather than left to ledgerStateIsNil so
+	// that nil analysis can see the guard; ledgerStateIsNil additionally covers
+	// a typed nil pointer, which it cannot.
+	if ls == nil || ledgerStateIsNil(ls) {
+		// Witness scripts and non-spending purposes do not require UTxO
+		// resolution. Build that partial view before reporting unavailable
+		// inputs so callers can still enforce independent language restrictions.
+		view.Available = availableScripts(tx, nil)
+		view.Needed = neededScripts(tx, view)
+		if inputs := tx.Inputs(); len(inputs) > 0 {
+			return view, lcommon.InputResolutionError{
+				Input: inputs[0],
+				Err:   errLedgerStateUnavailable,
+			}
+		}
+		if refInputs := tx.ReferenceInputs(); len(refInputs) > 0 {
+			return view, lcommon.ReferenceInputResolutionError{
+				Input: refInputs[0],
+				Err:   errLedgerStateUnavailable,
+			}
+		}
 		return view, nil
 	}
 	inputs, refInputs, err := ResolveTxInputs(tx, ls)
 	if err != nil {
+		// Preserve witness-only script information even when a concrete ledger
+		// state cannot resolve one of the transaction's inputs. ResolveTxInputs
+		// stops at the first failure and discards what it had, so a failed
+		// input would otherwise hide every script carried by an input that did
+		// resolve, and a language restriction on such a script would go
+		// unchecked before the failure is deferred to UtxoValidateBadInputsUtxo.
+		// The view stays partial: ResolvedInputs and ResolvedReferenceInputs
+		// are left unset.
+		view.Available = availableScripts(tx, resolvableInputs(tx, ls))
+		view.Needed = neededScripts(tx, view)
 		return view, err
 	}
 	view.ResolvedInputs = inputs
@@ -103,6 +156,47 @@ func NewTxScriptView(
 	view.Available = availableScripts(tx, view.allResolvedInputs)
 	view.Needed = neededScripts(tx, view)
 	return view, nil
+}
+
+// resolvableInputs resolves whatever consumed and reference inputs the ledger
+// state can supply and skips the rest. It is only used on the input-resolution
+// failure path, where the failure is already being reported to the caller.
+//
+// NewTxScriptView establishes that ls is usable before it reaches this path,
+// but the path is reachable from a rule invoked with no ledger state at all,
+// so ls is checked here rather than assumed.
+func resolvableInputs(
+	tx lcommon.Transaction,
+	ls lcommon.LedgerState,
+) []lcommon.Utxo {
+	if ls == nil {
+		return nil
+	}
+	inputs := tx.Inputs()
+	refInputs := tx.ReferenceInputs()
+	if len(inputs) == 0 && len(refInputs) == 0 {
+		return nil
+	}
+	ret := make([]lcommon.Utxo, 0, len(inputs)+len(refInputs))
+	for _, input := range append(append(
+		make([]lcommon.TransactionInput, 0, len(inputs)+len(refInputs)),
+		inputs...,
+	), refInputs...) {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			continue
+		}
+		ret = append(ret, utxo)
+	}
+	return ret
+}
+
+func ledgerStateIsNil(ls lcommon.LedgerState) bool {
+	if ls == nil {
+		return true
+	}
+	rv := reflect.ValueOf(ls)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
 // ResolveTxInputs resolves a transaction's consumed inputs and reference
@@ -266,6 +360,14 @@ func voterUsesScriptCredential(voter lcommon.Voter) bool {
 	}
 }
 
+// transactionWithGuardingCredentials is implemented by transaction views
+// whose body defines Dijkstra guarding script purposes. Keeping this optional
+// leaves pre-Dijkstra transactions unchanged while allowing each Dijkstra
+// transaction level to contribute only its own guards.
+type transactionWithGuardingCredentials interface {
+	GuardingCredentials() []lcommon.Credential
+}
+
 // neededScripts walks every script purpose the transaction requires and keeps
 // the available script each one resolves to.
 //
@@ -329,7 +431,9 @@ func neededScripts(
 	}
 	for idx, cert := range tx.Certificates() {
 		keep(ScriptPurposeCertifying{
-			Index:       uint32(idx), // #nosec G115 -- certificate count is bounded
+			Index: uint32(
+				idx,
+			), // #nosec G115 -- certificate count is bounded
 			Certificate: cert,
 		})
 	}
@@ -352,9 +456,16 @@ func neededScripts(
 	}
 	for idx, proposal := range tx.ProposalProcedures() {
 		keep(ScriptPurposeProposing{
-			Index:             uint32(idx), // #nosec G115 -- proposal count is bounded
+			Index: uint32(
+				idx,
+			), // #nosec G115 -- proposal count is bounded
 			ProposalProcedure: proposal,
 		})
+	}
+	if guardingTx, ok := tx.(transactionWithGuardingCredentials); ok {
+		for _, guard := range guardingTx.GuardingCredentials() {
+			keep(ScriptPurposeGuarding{Guard: guard})
+		}
 	}
 	return out
 }
