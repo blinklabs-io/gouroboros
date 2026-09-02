@@ -103,10 +103,16 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRequestFunc == nil {
-		// The unconfirmed NoBlock wire ID cannot safely be emitted by default.
-		// Keep server agency in StateBlock so the optional protocol remains
-		// pending without terminating the shared bearer.
-		return nil
+		// NOTE: this MUST answer, not return nil. Returning nil left the
+		// protocol in StateBlock holding server agency forever, which wedges
+		// the requester's client permanently: its send loop waits for agency
+		// that only this response can return, so it can never issue another
+		// leios-fetch request on the connection (dingo issue #3623). The
+		// MessageTypeNoBlock wire ID is a placeholder, but a configured
+		// callback that reports ErrBlockNotFound already emits it below, so
+		// declining here adds no wire risk that the normal path does not
+		// already take.
+		return s.SendMessage(NewMsgNoBlock())
 	}
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
@@ -153,9 +159,12 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockTxsRequestFunc == nil {
-		// The unconfirmed NoBlockTxs wire ID cannot safely be emitted by
-		// default. Keep server agency without failing the shared bearer.
-		return nil
+		// NOTE: as with handleBlockRequest, this MUST answer. Retaining
+		// server agency in StateBlockTxs permanently desynchronises the
+		// requester's leios-fetch client (dingo issue #3623), and the
+		// configured not-available path below already puts this wire ID on
+		// the wire.
+		return s.SendMessage(NewMsgNoBlockTxs())
 	}
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
@@ -233,10 +242,16 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRangeRequestFunc == nil {
-		// The protocol has no empty range response. Keep server agency in
-		// StateBlockRange instead of fabricating a payload or failing the
-		// bearer.
-		return nil
+		// NOTE: unlike Block/BlockTxs there is no absence reply for a range
+		// request -- MsgLastBlockAndTxsInRange carries a mandatory block --
+		// so this cannot decline gracefully. Fail the connection rather than
+		// retain server agency in StateBlockRange forever: a silent hang
+		// leaves the requester's leios-fetch client permanently wedged with
+		// no way to detect it, while an error lets its peer governance drop
+		// and replace this peer (dingo issue #3623).
+		return errors.New(
+			"received leios-fetch BlockRangeRequest message but no callback function is defined",
+		)
 	}
 	msgBlockRangeRequest := msg.(*MsgBlockRangeRequest)
 	err := s.config.BlockRangeRequestFunc(

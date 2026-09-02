@@ -188,16 +188,38 @@ whole node-to-node connection.
 
 ## Optional server responders
 
-Leios fetch is optional, but not every request has a safe empty response. An
-unconfigured `VotesRequestFunc` returns `Votes` with an empty CBOR array,
-returning the protocol to `Idle` without a connection-level error. When a
-block, block-transactions, or block-range callback is unconfigured, the server
-enters the corresponding server-agency state and leaves the request pending.
-It sends no response because the available absence replies are either
-placeholder wire IDs or ambiguous with a real response. The requester cannot
-start another Leios fetch exchange, but other mini-protocols on the bearer
-remain usable. Errors from configured callbacks and transport failures are
-still propagated.
+Leios fetch is optional, but an unconfigured responder must never retain server
+agency. A server that accepts a request and never answers wedges the
+requester's client for the life of the connection: `protocol.sendLoop` waits
+for agency that only the missing response returns, so the requester can neither
+issue another Leios fetch request nor detect the condition.
+
+- An unconfigured `VotesRequestFunc` returns `Votes` with an empty CBOR array.
+- An unconfigured `BlockRequestFunc` returns `NoBlock`, and an unconfigured
+  `BlockTxsRequestFunc` returns `NoBlockTxs`. Both wire IDs are still
+  placeholders, but the configured not-available path already emits them, so
+  declining here adds no wire risk that the normal path does not already take.
+- An unconfigured `BlockRangeRequestFunc` returns a protocol error, because
+  `LastBlockAndTxsInRange` carries a mandatory block and there is no absence
+  reply to send. A connection-level error is diagnosable and lets the
+  requester's peer governance replace the peer; a silent hang is neither.
+
+Errors from configured callbacks and transport failures are still propagated.
+
+## Abandoned requests
+
+`BlockRequest` and `BlockTxsRequest` are bounded by the caller's context. A
+request whose context expires is abandoned: its delivery channel is cleared so
+a late response is dropped rather than mis-delivered, and the slot stays busy
+so the next request cannot be correlated with the outstanding response.
+
+A later request waits a bounded grace period for that response to drain. If it
+arrives, the connection continues normally. If it does not, the exchange is
+desynchronised beyond recovery and the client fails the connection with
+`ErrRequestSlotAbandoned` so peer governance can drop and replace the peer.
+This is deliberately narrower than a protocol-level state timeout, which would
+also fire for a healthy relay that merely responded slowly, and is why
+`StateBlock` and `StateBlockTxs` still carry no `StateMap` timeout.
 
 ## Notes
 

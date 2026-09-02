@@ -92,6 +92,65 @@ func runTest(
 	}
 }
 
+// runTestCollectingConnErrors is runTest with the shared connection ErrorChan
+// drained into a channel instead of panicking, so a test can assert that a
+// desynchronised leios-fetch exchange fails the connection. Every wait is
+// bounded: the bug under test is a park, so a hang must fail the test rather
+// than hang the suite.
+func runTestCollectingConnErrors(
+	t *testing.T,
+	conversation []ouroboros_mock.ConversationEntry,
+	innerFunc func(*testing.T, *ouroboros.Connection, <-chan error),
+) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		conversation,
+	)
+	// Drain the mock's error channel so the mock conversation goroutine is
+	// never gated on a reader.
+	mockDone := make(chan struct{})
+	go func() {
+		defer close(mockDone)
+		for range mockConn.(*ouroboros_mock.Connection).ErrorChan() {
+		}
+	}()
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	require.NoError(t, err)
+	connErrChan := make(chan error, 16)
+	connDone := make(chan struct{})
+	go func() {
+		defer close(connDone)
+		for err := range oConn.ErrorChan() {
+			if err == nil {
+				continue
+			}
+			select {
+			case connErrChan <- err:
+			default:
+			}
+		}
+	}()
+	innerFunc(t, oConn, connErrChan)
+	// The connection may already be closing because the test asserted a
+	// protocol error, so a Close error is not itself a failure.
+	_ = oConn.Close()
+	select {
+	case <-connDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("connection did not shut down within timeout")
+	}
+	select {
+	case <-mockDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("mock connection did not shut down within timeout")
+	}
+}
+
 var conversationHandshake = []ouroboros_mock.ConversationEntry{
 	ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
 	ouroboros_mock.ConversationEntryHandshakeNtNResponse,
@@ -205,11 +264,15 @@ func TestBlockRequestSuccess(t *testing.T) {
 
 // TestBlockRequestSubsequentAfterAbandonedNoResponse verifies that when a
 // BlockRequest is abandoned via its context and NO response ever arrives, a
-// subsequent BlockRequest still fails cleanly with its own context error and
-// does NOT tear down the shared multiplexed connection. The runTest harness
-// panics on any error delivered to the connection ErrorChan, so completing
-// without a panic proves the connection stays alive (no SendError / fatal
-// teardown from a request issued after an abandoned one).
+// subsequent BlockRequest fails fast with ErrRequestSlotAbandoned and fails the
+// connection.
+//
+// The peer holds leios-fetch server agency, so protocol.sendLoop can never
+// regain the agency it needs to write another request on this bearer: the
+// exchange is desynchronised for the life of the connection. Failing it is what
+// lets peer governance drop and replace the peer instead of leaving a
+// permanently dead leios-fetch client attached to an apparently healthy peer
+// (dingo issue #3623).
 func TestBlockRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
 	conversation := append(
 		conversationHandshake,
@@ -221,10 +284,14 @@ func TestBlockRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
 			MessageType: leiosfetch.MessageTypeBlockRequest,
 		},
 	)
-	runTest(
+	runTestCollectingConnErrors(
 		t,
 		conversation,
-		func(t *testing.T, oConn *ouroboros.Connection) {
+		func(
+			t *testing.T,
+			oConn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
 			client := oConn.LeiosFetch().Client
 			ctx1, cancel1 := context.WithTimeout(
 				context.Background(),
@@ -235,24 +302,114 @@ func TestBlockRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
 				ctx1,
 				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
 			)
-			require.Error(t, err1)
-			assert.True(
-				t,
-				errors.Is(err1, context.DeadlineExceeded),
-				"expected context deadline error, got %v",
-				err1,
-			)
+			require.ErrorIs(t, err1, context.DeadlineExceeded)
 			assert.Nil(t, resp1)
 
 			// A subsequent request must fail after the bounded grace period
 			// while the first request's response is still outstanding. Reusing
 			// the slot would allow a late response to be mis-delivered here.
-			resp2, err2 := client.BlockRequest(
+			// Bound the call itself: without the fix this is where #3623
+			// parks.
+			type reqResult struct {
+				resp protocol.Message
+				err  error
+			}
+			resultChan := make(chan reqResult, 1)
+			go func() {
+				resp, err := client.BlockRequest(
+					context.Background(),
+					pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
+				)
+				resultChan <- reqResult{resp: resp, err: err}
+			}()
+			select {
+			case result := <-resultChan:
+				require.ErrorIs(
+					t,
+					result.err,
+					leiosfetch.ErrRequestSlotAbandoned,
+				)
+				assert.Nil(t, result.resp)
+			case <-time.After(10 * time.Second):
+				t.Fatal(
+					"subsequent BlockRequest parked instead of failing fast",
+				)
+			}
+
+			// The desynchronised exchange must fail the connection so peer
+			// governance can replace the peer.
+			select {
+			case err := <-connErrs:
+				require.ErrorIs(t, err, leiosfetch.ErrRequestSlotAbandoned)
+				require.ErrorContains(t, err, "retained agency")
+			case <-time.After(10 * time.Second):
+				t.Fatal(
+					"desynchronised leios-fetch exchange did not fail the connection",
+				)
+			}
+		},
+	)
+}
+
+// TestBlockTxsRequestSubsequentAfterAbandonedNoResponse is the BlockTxs
+// equivalent, which is the exact path dingo issue #3623 stalled on
+// (fetchLeiosEbTxsBatchedUntilWithValidator -> BlockTxsRequest).
+func TestBlockTxsRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockTxsRequest,
+		},
+	)
+	runTestCollectingConnErrors(
+		t,
+		conversation,
+		func(
+			t *testing.T,
+			oConn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
+			client := oConn.LeiosFetch().Client
+			bitmaps := map[uint16]uint64{0: 0xff00000000000000}
+			ctx1, cancel1 := context.WithTimeout(
 				context.Background(),
-				pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
+				150*time.Millisecond,
 			)
-			require.ErrorIs(t, err2, leiosfetch.ErrRequestSlotAbandoned)
-			assert.Nil(t, resp2)
+			defer cancel1()
+			_, err1 := client.BlockTxsRequest(
+				ctx1,
+				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+				bitmaps,
+			)
+			require.ErrorIs(t, err1, context.DeadlineExceeded)
+
+			errChan := make(chan error, 1)
+			go func() {
+				_, err := client.BlockTxsRequest(
+					context.Background(),
+					pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
+					bitmaps,
+				)
+				errChan <- err
+			}()
+			select {
+			case err := <-errChan:
+				require.ErrorIs(t, err, leiosfetch.ErrRequestSlotAbandoned)
+			case <-time.After(10 * time.Second):
+				t.Fatal(
+					"subsequent BlockTxsRequest parked instead of failing fast",
+				)
+			}
+			select {
+			case err := <-connErrs:
+				require.ErrorIs(t, err, leiosfetch.ErrRequestSlotAbandoned)
+				require.ErrorContains(t, err, "BlockTxs")
+			case <-time.After(10 * time.Second):
+				t.Fatal(
+					"desynchronised leios-fetch exchange did not fail the connection",
+				)
+			}
 		},
 	)
 }

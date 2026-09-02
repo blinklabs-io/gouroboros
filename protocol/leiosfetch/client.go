@@ -16,6 +16,7 @@ package leiosfetch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -119,8 +120,9 @@ func (s *requestSlot) acquire(
 // abandon clears the live waiter so that a late response is dropped by deliver
 // rather than mis-delivered, while leaving the slot busy until that response
 // arrives (or the protocol shuts down). Subsequent acquire calls have a bounded
-// grace period while the slot is abandoned instead of parking indefinitely. It
-// is used when a caller's context expires before a response is received.
+// grace period while the slot is abandoned instead of parking indefinitely, and
+// on its expiry the client fails the connection (see acquireSlot). It is used
+// when a caller's context expires before a response is received.
 //
 // The caller passes the delivery channel it registered in acquire. The slot is
 // only mutated while that channel is still the live waiter (s.waiter == w). If
@@ -212,12 +214,17 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
 	// NOTE: StateBlock and StateBlockTxs intentionally do NOT get a
-	// protocol-level timeout. A missing response to a BlockRequest /
+	// protocol-level timeout. A slow response to a BlockRequest /
 	// BlockTxsRequest must fail only that individual request (bounded by the
 	// caller-supplied context), never tear down the shared multiplexed
 	// connection. The protocol-level timeout fires p.SendError(), which is
 	// fatal to every mini-protocol on the same bearer (chainsync, blockfetch,
-	// etc.), so it must not be wired for these two states.
+	// etc.), so it must not be wired for these two states: it would fire for
+	// a healthy relay that merely responded later than the timeout.
+	//
+	// A response that never arrives at all is a different case and IS fatal,
+	// but only once acquireSlot has proven the exchange is desynchronised --
+	// see acquireSlot.
 	if entry, ok := stateMap[StateVotes]; ok {
 		entry.Timeout = c.config.Timeout
 		stateMap[StateVotes] = entry
@@ -281,6 +288,44 @@ func (c *Client) Stop() error {
 	return err
 }
 
+// acquireSlot acquires slot for a new request in the given server-agency
+// state.
+//
+// A slot that is still holding an abandoned request's response means the peer
+// took leios-fetch agency and never returned it. That is not recoverable on
+// this connection: protocol.sendLoop waits on sendReadyChan for agency the
+// state map only grants once the missing response arrives, so no later
+// leios-fetch request can ever be written to this bearer. Keeping the bearer
+// alive therefore keeps a permanently dead leios-fetch client attached to a
+// peer that still looks healthy, which is exactly how dingo issue #3623
+// stalled a node's ledger indefinitely.
+//
+// Fail the connection instead, so the consumer's peer governance drops and
+// replaces the peer. This does not reintroduce the mis-delivery hazard the
+// slot exists to prevent: the slot is never reused, the connection is
+// discarded.
+func (c *Client) acquireSlot(
+	ctx context.Context,
+	slot *requestSlot,
+	state protocol.State,
+) (chan protocol.Message, error) {
+	w, err := slot.acquire(ctx, c.DoneChan())
+	if err == nil {
+		return w, nil
+	}
+	if errors.Is(err, ErrRequestSlotAbandoned) {
+		c.SendError(
+			fmt.Errorf(
+				"%s: peer retained agency in state %s after an abandoned request: %w",
+				ProtocolName,
+				state,
+				err,
+			),
+		)
+	}
+	return nil, err
+}
+
 // BlockRequest fetches the requested EB identified by the specified point.
 //
 // The wait for a response is bounded by the provided context. If the context
@@ -289,12 +334,14 @@ func (c *Client) Stop() error {
 // NOT emit a protocol error and does NOT tear down the shared multiplexed
 // connection. A response that arrives after the context is done is dropped by
 // the receive path (see handleBlock/handleNoBlock), and a subsequent request
-// waits for that late response to drain so it can never be mis-delivered.
+// waits for that late response to drain so it can never be mis-delivered. If
+// the late response never arrives, that subsequent request fails the
+// connection rather than reusing the slot (see acquireSlot).
 func (c *Client) BlockRequest(
 	ctx context.Context,
 	point pcommon.Point,
 ) (protocol.Message, error) {
-	w, err := c.blockSlot.acquire(ctx, c.DoneChan())
+	w, err := c.acquireSlot(ctx, &c.blockSlot, StateBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +376,7 @@ func (c *Client) BlockTxsRequest(
 	point pcommon.Point,
 	bitmaps map[uint16]uint64,
 ) (protocol.Message, error) {
-	w, err := c.blockTxsSlot.acquire(ctx, c.DoneChan())
+	w, err := c.acquireSlot(ctx, &c.blockTxsSlot, StateBlockTxs)
 	if err != nil {
 		return nil, err
 	}
