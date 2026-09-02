@@ -113,7 +113,10 @@ func NewTxScriptView(
 	if tx == nil {
 		return view, nil
 	}
-	if ledgerStateIsNil(ls) {
+	// The ls == nil arm is spelled out rather than left to ledgerStateIsNil so
+	// that nil analysis can see the guard; ledgerStateIsNil additionally covers
+	// a typed nil pointer, which it cannot.
+	if ls == nil || ledgerStateIsNil(ls) {
 		// Witness scripts and non-spending purposes do not require UTxO
 		// resolution. Build that partial view before reporting unavailable
 		// inputs so callers can still enforce independent language restrictions.
@@ -158,10 +161,17 @@ func NewTxScriptView(
 // resolvableInputs resolves whatever consumed and reference inputs the ledger
 // state can supply and skips the rest. It is only used on the input-resolution
 // failure path, where the failure is already being reported to the caller.
+//
+// NewTxScriptView establishes that ls is usable before it reaches this path,
+// but the path is reachable from a rule invoked with no ledger state at all,
+// so ls is checked here rather than assumed.
 func resolvableInputs(
 	tx lcommon.Transaction,
 	ls lcommon.LedgerState,
 ) []lcommon.Utxo {
+	if ls == nil {
+		return nil
+	}
 	inputs := tx.Inputs()
 	refInputs := tx.ReferenceInputs()
 	if len(inputs) == 0 && len(refInputs) == 0 {
