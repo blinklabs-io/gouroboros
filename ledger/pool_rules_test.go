@@ -65,6 +65,7 @@ func vrfKeyHash(b byte) common.VrfKeyHash {
 // minPoolCost.
 func maryPparams(minPoolCost uint64) *mary.MaryProtocolParameters {
 	pparams := mockledger.NewMockMaryProtocolParams()
+	pparams.ProtocolMajor = 4
 	pparams.MinPoolCost = minPoolCost
 	return &pparams
 }
@@ -73,6 +74,7 @@ func maryPparams(minPoolCost uint64) *mary.MaryProtocolParameters {
 // version at which the reward account network id is validated).
 func alonzoPparams(minPoolCost uint64) *alonzo.AlonzoProtocolParameters {
 	pparams := mockledger.NewMockAlonzoProtocolParams()
+	pparams.ProtocolMajor = 5
 	pparams.MinPoolCost = minPoolCost
 	return &pparams
 }
