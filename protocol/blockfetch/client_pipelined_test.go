@@ -741,17 +741,29 @@ func TestGetBlockRejectsEmptyBatch(t *testing.T) {
 		blk, err := h.client.GetBlock(point1)
 		results <- result{block: blk, err: err}
 	}()
+	var getBlockResult *result
+	var connectionErr error
+	connectionErrors := h.connErrs
 	deadline := time.After(testTimeout)
-	for {
+	for getBlockResult == nil || connectionErr == nil {
 		select {
 		case res := <-results:
-			require.Nil(t, res.block)
-			require.ErrorContains(t, res.err, "before requested range end")
-			return
-		case err := <-h.connErrs:
-			require.ErrorContains(t, err, "before requested range end")
+			getBlockResult = &res
+		case err, ok := <-connectionErrors:
+			if !ok {
+				connectionErrors = nil
+				continue
+			}
+			connectionErr = err
 		case <-deadline:
-			t.Fatal("GetBlock did not return for a batch with no blocks")
+			t.Fatal("empty batch did not fail the request and connection")
 		}
 	}
+	require.Nil(t, getBlockResult.block)
+	require.ErrorContains(
+		t,
+		getBlockResult.err,
+		"before requested range end",
+	)
+	require.ErrorContains(t, connectionErr, "before requested range end")
 }
