@@ -53,6 +53,20 @@ func (vps *VotingProcedures) UnmarshalCBOR(cborData []byte) error {
 				return errors.New("voting procedures contain a nil action id")
 			}
 		}
+		if err := validateLogicalMapKeys(
+			procedures,
+			"voting procedure action map",
+			govActionIdLogicalKey,
+		); err != nil {
+			return err
+		}
+	}
+	if err := validateLogicalMapKeys(
+		map[*Voter]map[*GovActionId]VotingProcedure(tmp),
+		"voting procedures",
+		voterLogicalKey,
+	); err != nil {
+		return err
 	}
 	*vps = VotingProcedures(tmp)
 	return nil
@@ -734,10 +748,8 @@ func (a *TreasuryWithdrawalGovAction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	for address := range tmp.Withdrawals {
-		if address == nil {
-			return errors.New("treasury withdrawal contains a nil address")
-		}
+	if err := ValidateWithdrawalAddresses(tmp.Withdrawals); err != nil {
+		return fmt.Errorf("treasury withdrawal: %w", err)
 	}
 	*a = TreasuryWithdrawalGovAction(tmp)
 	return nil
@@ -752,7 +764,7 @@ func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 		})
 	}
 	policyHash := data.NewConstr(1)
-	if len(a.PolicyHash) > 0 {
+	if a.PolicyHash != nil {
 		policyHash = data.NewConstr(
 			0,
 			data.NewByteString(a.PolicyHash),
@@ -791,7 +803,7 @@ func NewTreasuryWithdrawalGovAction(
 			)
 		}
 	}
-	if len(policyHash) != 0 && len(policyHash) != Blake2b224Size {
+	if policyHash != nil && len(policyHash) != Blake2b224Size {
 		return nil, fmt.Errorf(
 			"invalid policy hash length: expected %d bytes, got %d",
 			Blake2b224Size,
@@ -853,6 +865,12 @@ func (a *UpdateCommitteeGovAction) UnmarshalCBOR(cborData []byte) error {
 		if credential == nil {
 			return errors.New("update committee contains a nil credential")
 		}
+	}
+	if err := validateCredentialMapKeys(
+		tmp.CredEpochs,
+		"update committee credential epochs",
+	); err != nil {
+		return err
 	}
 	*a = UpdateCommitteeGovAction(tmp)
 	return nil
@@ -949,7 +967,7 @@ func (a *NewConstitutionGovAction) ToPlutusData() data.PlutusData {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
 	}
 	scriptHash := data.NewConstr(1)
-	if len(a.Constitution.ScriptHash) > 0 {
+	if a.Constitution.ScriptHash != nil {
 		scriptHash = data.NewConstr(
 			0,
 			data.NewByteString(a.Constitution.ScriptHash),
@@ -973,7 +991,7 @@ func NewNewConstitutionGovAction(
 	anchor GovAnchor,
 	scriptHash []byte,
 ) (*NewConstitutionGovAction, error) {
-	if len(scriptHash) != 0 && len(scriptHash) != Blake2b224Size {
+	if scriptHash != nil && len(scriptHash) != Blake2b224Size {
 		return nil, fmt.Errorf(
 			"invalid script hash length: expected %d bytes, got %d",
 			Blake2b224Size,

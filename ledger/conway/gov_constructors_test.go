@@ -60,13 +60,16 @@ func TestNewConwayParameterChangeGovAction(t *testing.T) {
 		decodedAction.Type,
 	)
 
-	// Empty policy hash is valid (optional field)
+	// A nil policy hash represents an absent optional field.
 	noPolicy, err := NewConwayParameterChangeGovAction(nil, paramUpdate, nil)
 	require.NoError(t, err)
-	assert.Empty(t, noPolicy.PolicyHash)
+	assert.Nil(t, noPolicy.PolicyHash)
 
-	// Negative: non-empty policy hash must be 28 bytes
+	// A present policy hash, including an explicit empty byte string, must be
+	// exactly 28 bytes.
 	_, err = NewConwayParameterChangeGovAction(nil, paramUpdate, []byte{1, 2})
+	require.Error(t, err)
+	_, err = NewConwayParameterChangeGovAction(nil, paramUpdate, []byte{})
 	require.Error(t, err)
 }
 

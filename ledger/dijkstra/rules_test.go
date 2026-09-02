@@ -15,6 +15,8 @@
 package dijkstra
 
 import (
+	"fmt"
+	"math/big"
 	"reflect"
 	"runtime"
 	"strings"
@@ -35,6 +37,43 @@ func dijkstraValidationRuleName(rule common.UtxoValidationRuleFunc) string {
 	return runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).Name()
 }
 
+func dijkstraValidationRuleDescriptor(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) (common.UtxoValidationRuleDescriptor, int) {
+	t.Helper()
+	var found common.UtxoValidationRuleDescriptor
+	foundIndex := -1
+	for idx, descriptor := range UtxoValidationRuleDescriptors() {
+		if descriptor.Id != id {
+			continue
+		}
+		if foundIndex >= 0 {
+			t.Fatalf(
+				"Dijkstra validation rule %q is registered at indexes %d and %d",
+				id,
+				foundIndex,
+				idx,
+			)
+		}
+		found = descriptor
+		foundIndex = idx
+	}
+	if foundIndex < 0 {
+		t.Fatalf("Dijkstra validation rule %q is not registered", id)
+	}
+	return found, foundIndex
+}
+
+func dijkstraValidationRuleIndex(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) int {
+	t.Helper()
+	_, idx := dijkstraValidationRuleDescriptor(t, id)
+	return idx
+}
+
 func dijkstraValidationRule(
 	t *testing.T,
 	want string,
@@ -47,6 +86,67 @@ func dijkstraValidationRule(
 	}
 	t.Fatalf("validation rule %s is not registered", want)
 	return nil, -1
+}
+
+func TestDijkstraWellFormednessPrecedesPlutusExecution(t *testing.T) {
+	malformedScript := common.PlutusV4Script{0xff}
+	guardCred := testGuardScriptCredential(malformedScript)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{guardCred},
+			},
+		},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsPlutusV4Scripts: cbor.NewSetType(
+				[]common.PlutusV4Script{malformedScript},
+				false,
+			),
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagGuarding, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+	params := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: 12,
+			},
+			CostModels: map[uint][]int64{3: nil},
+		},
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+
+	execErr := UtxoValidatePlutusScripts(tx, 0, state, params)
+	var scriptFailed conway.PlutusScriptFailedError
+	require.ErrorAs(t, execErr, &scriptFailed)
+
+	_, wellFormedIdx := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateMalformedReferenceScripts",
+	)
+	_, phase2Idx := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidatePlutusScripts",
+	)
+	firstIdx, lastIdx := wellFormedIdx, phase2Idx
+	if firstIdx > lastIdx {
+		firstIdx, lastIdx = lastIdx, firstIdx
+	}
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		state,
+		params,
+		UtxoValidationRules[firstIdx:lastIdx+1],
+	)
+	require.ErrorIs(t, err, common.ErrMalformedScriptWitnesses)
+	require.NotErrorAs(t, err, &scriptFailed)
 }
 
 func TestDijkstraGovernanceValidationRules(t *testing.T) {
@@ -80,6 +180,48 @@ func TestDijkstraGovernanceValidationRules(t *testing.T) {
 		)
 		previous = idx
 	}
+}
+
+func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
+	guardrailsHash := common.Blake2b224Hash([]byte("constitution-guardrails"))
+	newTx := func(isValid bool, policyHash []byte) *DijkstraTransaction {
+		return &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxProposalProcedures: []DijkstraProposalProcedure{{
+					PPGovAction: DijkstraGovAction{
+						Action: &DijkstraParameterChangeGovAction{
+							PolicyHash: policyHash,
+						},
+					},
+				}},
+			},
+			TxIsValid: isValid,
+		}
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithConstitutionValue(&common.Constitution{
+			ScriptHash: guardrailsHash.Bytes(),
+		}).
+		Build()
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/conway.UtxoValidateGovActionWellFormedness",
+	)
+
+	validate := func(tx common.Transaction) error {
+		return common.VerifyTransaction(
+			tx,
+			0,
+			state,
+			&DijkstraProtocolParameters{},
+			[]common.UtxoValidationRuleFunc{rule},
+		)
+	}
+	require.NoError(t, validate(newTx(true, guardrailsHash.Bytes())))
+	err := validate(newTx(true, nil))
+	var target conway.InvalidGuardrailsScriptHashError
+	require.ErrorAs(t, err, &target)
+	require.NoError(t, validate(newTx(false, nil)))
 }
 
 func TestConwayGovActionRejectsDijkstraParameterChange(t *testing.T) {
@@ -293,7 +435,9 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 func TestUtxoValidateBootstrapAllowedGovActionsRejectsUnknown(t *testing.T) {
 	tx := &DijkstraTransaction{}
 	tx.Body.TxProposalProcedures = []DijkstraProposalProcedure{{
-		PPGovAction: DijkstraGovAction{Action: commontestdata.UnsupportedGovAction{}},
+		PPGovAction: DijkstraGovAction{
+			Action: commontestdata.UnsupportedGovAction{},
+		},
 	}}
 	pp := &DijkstraProtocolParameters{}
 	pp.ProtocolVersion.Major = common.ProtocolVersionConway
@@ -516,11 +660,18 @@ func testGuardScriptCredential(script common.PlutusV4Script) common.Credential {
 func TestUtxoValidateNativeScriptsRequireGuard(t *testing.T) {
 	guardCred := testGuardCredential()
 	nativeScript := testRequireGuardNativeScript(t, guardCred)
+	nativeScriptCred := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: nativeScript.Hash(),
+	}
 
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxGuards: &DijkstraGuards{
-				Credentials: []common.Credential{guardCred},
+				Credentials: []common.Credential{
+					nativeScriptCred,
+					guardCred,
+				},
 			},
 		},
 		WitnessSet: DijkstraTransactionWitnessSet{
@@ -533,7 +684,9 @@ func TestUtxoValidateNativeScriptsRequireGuard(t *testing.T) {
 	}
 	require.NoError(t, UtxoValidateNativeScripts(tx, 0, nil, nil))
 
-	tx.Body.TxGuards = nil
+	tx.Body.TxGuards = &DijkstraGuards{
+		Credentials: []common.Credential{nativeScriptCred},
+	}
 	require.Error(t, UtxoValidateNativeScripts(tx, 0, nil, nil))
 }
 
@@ -569,8 +722,13 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeScriptGuard(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
-	require.NoError(t, err)
+	err := UtxoValidateRedeemerAndScriptWitnesses(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		nil,
+	)
+	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
 
 	err = UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
 	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
@@ -649,10 +807,18 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeReferenceScriptGuard(
 }
 
 func TestUtxoValidateCostModelsPresentPlutusV4(t *testing.T) {
+	script := common.PlutusV4Script{0x41, 0x00}
 	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{
+					dijkstraGuardCredentialForScript(script),
+				},
+			},
+		},
 		WitnessSet: DijkstraTransactionWitnessSet{
 			WsPlutusV4Scripts: cbor.NewSetType(
-				[]common.PlutusV4Script{{0x41, 0x00}},
+				[]common.PlutusV4Script{script},
 				false,
 			),
 		},
@@ -684,6 +850,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 	cases := []struct {
 		name       string
 		witnessSet DijkstraTransactionWitnessSet
+		script     common.Script
 		version    uint
 	}{
 		{
@@ -694,6 +861,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV1Script{0x41, 0x00},
 			version: 0,
 		},
 		{
@@ -704,6 +872,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV2Script{0x41, 0x00},
 			version: 1,
 		},
 		{
@@ -714,6 +883,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV3Script{0x41, 0x00},
 			version: 2,
 		},
 		{
@@ -724,6 +894,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV4Script{0x41, 0x00},
 			version: 3,
 		},
 	}
@@ -734,7 +905,18 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 				Body: DijkstraTransactionBody{
 					TxSubTransactions: cbor.NewSetType(
 						[]DijkstraSubTransaction{
-							{WitnessSet: tc.witnessSet},
+							{
+								Body: DijkstraSubTransactionBody{
+									TxGuards: &DijkstraGuards{
+										Credentials: []common.Credential{
+											dijkstraGuardCredentialForScript(
+												tc.script,
+											),
+										},
+									},
+								},
+								WitnessSet: tc.witnessSet,
+							},
 						},
 						false,
 					),
@@ -767,7 +949,9 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 	}
 }
 
-func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(t *testing.T) {
+func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
+	t *testing.T,
+) {
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{
@@ -785,12 +969,11 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(t *testin
 	require.ErrorAs(t, err, &conway.ProtocolParameterUpdateEmptyError{})
 
 	maxRefScriptSizePerBlock := uint32(1000)
-	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
-		&DijkstraParameterChangeGovAction{
-			ParamUpdate: DijkstraProtocolParameterUpdate{
-				MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
-			},
-		}
+	tx.Body.TxProposalProcedures[0].PPGovAction.Action = &DijkstraParameterChangeGovAction{
+		ParamUpdate: DijkstraProtocolParameterUpdate{
+			MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
+		},
+	}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 
@@ -839,15 +1022,22 @@ func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
 }
 
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
+	plutusScript := common.PlutusV4Script{0x41, 0x00}
+	guardCred := testGuardScriptCredential(plutusScript)
 	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{guardCred},
+			},
+		},
 		WitnessSet: DijkstraTransactionWitnessSet{
 			WsPlutusV4Scripts: cbor.NewSetType(
-				[]common.PlutusV4Script{{0x41, 0x00}},
+				[]common.PlutusV4Script{plutusScript},
 				false,
 			),
 			WsRedeemers: DijkstraRedeemers{
 				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-					{Tag: common.RedeemerTagSpend, Index: 0}: {
+					{Tag: common.RedeemerTagGuarding, Index: 0}: {
 						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
 					},
 				},
@@ -856,7 +1046,12 @@ func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	err := UtxoValidateRedeemerAndScriptWitnesses(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		nil,
+	)
 	require.NoError(t, err)
 }
 
@@ -881,8 +1076,11 @@ func TestUtxoValidateRedeemerAndScriptWitnessesGuardingRedeemer(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
-	require.ErrorAs(t, err, &common.MissingPlutusScriptWitnessesError{})
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ledgerState, nil)
+	var missing common.MissingScriptWitnessesError
+	require.ErrorAs(t, err, &missing)
+	require.Equal(t, guardScript.Hash(), missing.ScriptHash)
 
 	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{
 		{
@@ -895,7 +1093,7 @@ func TestUtxoValidateRedeemerAndScriptWitnessesGuardingRedeemer(t *testing.T) {
 		},
 	}, false)
 
-	err = UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	err = UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ledgerState, nil)
 	require.NoError(t, err)
 }
 
@@ -1013,11 +1211,11 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	ls := mockledger.NewLedgerStateBuilder().Build()
 
 	t.Run("unwrapped fails closed", func(t *testing.T) {
-		_, err := script.NewTxInfoV1FromTransaction(ls, tx, nil)
+		_, err := script.NewTxInfoV1FromTransaction(ls, tx, nil, true)
 		var unmatchedErr script.UnmatchedRedeemerError
 		require.ErrorAs(t, err, &unmatchedErr)
 
-		_, err = script.NewTxInfoV2FromTransaction(ls, tx, nil)
+		_, err = script.NewTxInfoV2FromTransaction(ls, tx, nil, true)
 		require.ErrorAs(t, err, &unmatchedErr)
 
 		_, err = script.NewTxInfoV3FromTransaction(ls, tx, nil)
@@ -1027,10 +1225,10 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	t.Run("wrapped succeeds", func(t *testing.T) {
 		wrapped := transactionWithoutGuardingRedeemers{Transaction: tx}
 
-		_, err := script.NewTxInfoV1FromTransaction(ls, wrapped, nil)
+		_, err := script.NewTxInfoV1FromTransaction(ls, wrapped, nil, true)
 		require.NoError(t, err)
 
-		_, err = script.NewTxInfoV2FromTransaction(ls, wrapped, nil)
+		_, err = script.NewTxInfoV2FromTransaction(ls, wrapped, nil, true)
 		require.NoError(t, err)
 
 		_, err = script.NewTxInfoV3FromTransaction(ls, wrapped, nil)
@@ -1055,6 +1253,45 @@ func txWithRefScripts(sizes ...int) *DijkstraTransaction {
 	}
 }
 
+func dijkstraRefScriptInput(
+	t *testing.T,
+	hashByte byte,
+	index int,
+	scriptSize int,
+) (shelley.ShelleyTransactionInput, common.Utxo) {
+	t.Helper()
+	input := shelley.NewShelleyTransactionInput(
+		strings.Repeat(fmt.Sprintf("%02x", hashByte), 32),
+		index,
+	)
+	output := &babbage.BabbageTransactionOutput{
+		TxOutScriptRef: &common.ScriptRef{
+			Script: make(common.PlutusV4Script, scriptSize),
+		},
+	}
+	return input, common.Utxo{Id: input, Output: output}
+}
+
+func dijkstraRefScriptLedgerState(
+	t *testing.T,
+	utxos ...common.Utxo,
+) common.LedgerState {
+	t.Helper()
+	byInput := make(map[string]common.Utxo, len(utxos))
+	for _, utxo := range utxos {
+		byInput[utxo.Id.String()] = utxo
+	}
+	return mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
+			utxo, ok := byInput[input.String()]
+			if !ok {
+				return common.Utxo{}, fmt.Errorf("utxo not found: %s", input)
+			}
+			return utxo, nil
+		}).
+		Build()
+}
+
 func blockWithRefScripts(txScriptSizes ...[]int) *DijkstraBlock {
 	txs := make([]DijkstraTransaction, len(txScriptSizes))
 	for i, sizes := range txScriptSizes {
@@ -1065,47 +1302,222 @@ func blockWithRefScripts(txScriptSizes ...[]int) *DijkstraBlock {
 	}
 }
 
+func dijkstraTxWithReferenceInputs(
+	inputs ...shelley.ShelleyTransactionInput,
+) *DijkstraTransaction {
+	return &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxReferenceInputs: cbor.NewSetType(inputs, false),
+		},
+		TxIsValid: true,
+	}
+}
+
+func dijkstraBlockWithTransactions(
+	txs ...*DijkstraTransaction,
+) *DijkstraBlock {
+	transactions := make([]DijkstraTransaction, len(txs))
+	for idx, tx := range txs {
+		transactions[idx] = *tx
+	}
+	return &DijkstraBlock{
+		BlockBody: DijkstraBlockBody{Transactions: transactions},
+	}
+}
+
 // Verifies a transaction with reference scripts below the per-tx limit passes.
 func TestUtxoValidateRefScriptSizePerTxBelowLimit(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 100)
 	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 200}
-	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(100), 0, nil, pp)
+	err := UtxoValidateRefScriptSizePerTx(
+		dijkstraTxWithReferenceInputs(input),
+		0,
+		dijkstraRefScriptLedgerState(t, utxo),
+		pp,
+	)
 	require.NoError(t, err)
 }
 
 // Verifies a transaction with reference scripts exactly at the per-tx limit passes.
 func TestUtxoValidateRefScriptSizePerTxAtLimit(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 100)
 	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
-	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(100), 0, nil, pp)
+	err := UtxoValidateRefScriptSizePerTx(
+		dijkstraTxWithReferenceInputs(input),
+		0,
+		dijkstraRefScriptLedgerState(t, utxo),
+		pp,
+	)
 	require.NoError(t, err)
 }
 
 // Verifies a transaction exceeding the per-tx reference-script limit fails.
 func TestUtxoValidateRefScriptSizePerTxExceedsLimit(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input},
+				false,
+			),
+		},
+		TxIsValid: true,
+	}
 	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
-	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(60, 60), 0, nil, pp)
+	err := UtxoValidateRefScriptSizePerTx(
+		tx,
+		0,
+		dijkstraRefScriptLedgerState(t, utxo),
+		pp,
+	)
 	require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
 }
 
-// Verifies a zero per-tx reference-script limit skips size validation.
-func TestUtxoValidateRefScriptSizePerTxZeroLimitSkipped(t *testing.T) {
-	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 0}
-	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(99999), 0, nil, pp)
+// Verifies publishing a reference script does not consume the per-tx limit.
+func TestUtxoValidateRefScriptSizePerTxPublishingOnly(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
+	err := UtxoValidateRefScriptSizePerTx(
+		txWithRefScripts(101),
+		0,
+		dijkstraRefScriptLedgerState(t),
+		pp,
+	)
 	require.NoError(t, err)
 }
 
-// Verifies Conway protocol params do not fail Dijkstra per-tx validation.
+// Verifies a zero per-tx reference-script limit permits no consumed scripts.
+func TestUtxoValidateRefScriptSizePerTxZeroLimit(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 1)
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 0}
+	err := UtxoValidateRefScriptSizePerTx(
+		dijkstraTxWithReferenceInputs(input),
+		0,
+		dijkstraRefScriptLedgerState(t, utxo),
+		pp,
+	)
+	require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
+}
+
+// Verifies Conway protocol params use Conway's static per-tx limit.
 func TestUtxoValidateRefScriptSizePerTxConwayParams(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(
+		t,
+		0x01,
+		0,
+		int(conway.MaxRefScriptSizePerTx+1),
+	)
 	pp := &conway.ConwayProtocolParameters{}
-	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(99999), 0, nil, pp)
+	err := UtxoValidateRefScriptSizePerTx(
+		dijkstraTxWithReferenceInputs(input),
+		0,
+		dijkstraRefScriptLedgerState(t, utxo),
+		pp,
+	)
+	require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
+}
+
+func TestUtxoValidateRefScriptSizePerTxOverlappingInputCountedOnce(
+	t *testing.T,
+) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 100)
+	tx := dijkstraTxWithReferenceInputs(input)
+	tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
+	err := UtxoValidateRefScriptSizePerTx(
+		tx,
+		0,
+		dijkstraRefScriptLedgerState(t, utxo),
+		pp,
+	)
 	require.NoError(t, err)
+}
+
+func TestUtxoValidateRefScriptSizePerTxDistinctIdenticalScriptsCountedTwice(
+	t *testing.T,
+) {
+	inputA, utxoA := dijkstraRefScriptInput(t, 0x01, 0, 60)
+	inputB, utxoB := dijkstraRefScriptInput(t, 0x02, 0, 60)
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
+	err := UtxoValidateRefScriptSizePerTx(
+		dijkstraTxWithReferenceInputs(inputA, inputB),
+		0,
+		dijkstraRefScriptLedgerState(t, utxoA, utxoB),
+		pp,
+	)
+	require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
+}
+
+func TestUtxoValidateRefScriptSizePerTxIncludesSubTransactions(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{
+					{
+						Body: DijkstraSubTransactionBody{
+							TxReferenceInputs: cbor.NewSetType(
+								[]shelley.ShelleyTransactionInput{input},
+								false,
+							),
+						},
+					},
+				},
+				false,
+			),
+		},
+		TxIsValid: true,
+	}
+	err := UtxoValidateRefScriptSizePerTx(
+		tx,
+		0,
+		dijkstraRefScriptLedgerState(t, utxo),
+		&DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100},
+	)
+	require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
+}
+
+func TestInvalidTxSkipsPerTxRefScriptLimitButCountsForBlock(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
+	tx := dijkstraTxWithReferenceInputs(input)
+	tx.TxIsValid = false
+	pp := &DijkstraProtocolParameters{
+		MaxRefScriptSizePerTx:    100,
+		MaxRefScriptSizePerBlock: 100,
+	}
+	ls := dijkstraRefScriptLedgerState(t, utxo)
+
+	t.Run("per-tx limit is skipped", func(t *testing.T) {
+		require.NoError(t, UtxoValidateRefScriptSizePerTx(tx, 0, ls, pp))
+	})
+
+	t.Run("block limit still counts invalid transaction", func(t *testing.T) {
+		err := ValidateRefScriptSizePerBlock(
+			dijkstraBlockWithTransactions(tx),
+			pp,
+			ls,
+		)
+		require.ErrorAs(
+			t,
+			err,
+			&common.RefScriptSizePerBlockTooLargeError{},
+		)
+	})
 }
 
 // Verifies a block with reference scripts below the per-block limit passes.
 func TestValidateRefScriptSizePerBlockBelowLimit(t *testing.T) {
+	inputA, utxoA := dijkstraRefScriptInput(t, 0x01, 0, 100)
+	inputB, utxoB := dijkstraRefScriptInput(t, 0x02, 0, 100)
 	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 300}
 	err := ValidateRefScriptSizePerBlock(
-		blockWithRefScripts([]int{100}, []int{100}),
+		dijkstraBlockWithTransactions(
+			dijkstraTxWithReferenceInputs(inputA),
+			dijkstraTxWithReferenceInputs(inputB),
+		),
 		pp,
+		dijkstraRefScriptLedgerState(t, utxoA, utxoB),
 	)
 	require.NoError(t, err)
 }
@@ -1120,32 +1532,170 @@ func TestValidateRefScriptSizePerBlockConwayParams(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestValidateRefScriptSizePerBlockPublishingOnly(t *testing.T) {
+	err := ValidateRefScriptSizePerBlock(
+		blockWithRefScripts([]int{101}),
+		&DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 100},
+	)
+	require.NoError(t, err)
+}
+
 // Verifies a block with reference scripts exactly at the per-block limit passes.
 func TestValidateRefScriptSizePerBlockAtLimit(t *testing.T) {
+	inputA, utxoA := dijkstraRefScriptInput(t, 0x01, 0, 100)
+	inputB, utxoB := dijkstraRefScriptInput(t, 0x02, 0, 100)
 	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 200}
 	err := ValidateRefScriptSizePerBlock(
-		blockWithRefScripts([]int{100}, []int{50, 50}),
+		dijkstraBlockWithTransactions(
+			dijkstraTxWithReferenceInputs(inputA),
+			dijkstraTxWithReferenceInputs(inputB),
+		),
 		pp,
+		dijkstraRefScriptLedgerState(t, utxoA, utxoB),
 	)
 	require.NoError(t, err)
 }
 
 // Verifies a block exceeding the per-block reference-script limit fails.
 func TestValidateRefScriptSizePerBlockExceedsLimit(t *testing.T) {
+	inputA, utxoA := dijkstraRefScriptInput(t, 0x01, 0, 101)
+	inputB, utxoB := dijkstraRefScriptInput(t, 0x02, 0, 100)
 	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 200}
 	err := ValidateRefScriptSizePerBlock(
-		blockWithRefScripts([]int{100}, []int{60, 60}),
+		dijkstraBlockWithTransactions(
+			dijkstraTxWithReferenceInputs(inputA),
+			dijkstraTxWithReferenceInputs(inputB),
+		),
 		pp,
+		dijkstraRefScriptLedgerState(t, utxoA, utxoB),
 	)
 	require.ErrorAs(t, err, &common.RefScriptSizePerBlockTooLargeError{})
 }
 
-// Verifies a zero per-block reference-script limit skips size validation.
-func TestValidateRefScriptSizePerBlockZeroLimitSkipped(t *testing.T) {
+// Verifies a zero per-block reference-script limit permits no consumed scripts.
+func TestValidateRefScriptSizePerBlockZeroLimit(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 1)
 	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 0}
 	err := ValidateRefScriptSizePerBlock(
-		blockWithRefScripts([]int{99999}, []int{99999}),
+		dijkstraBlockWithTransactions(dijkstraTxWithReferenceInputs(input)),
 		pp,
+		dijkstraRefScriptLedgerState(t, utxo),
+	)
+	require.ErrorAs(t, err, &common.RefScriptSizePerBlockTooLargeError{})
+}
+
+func TestDijkstraRefScriptFeeUsesConsumedScriptSet(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 150)
+	tx := dijkstraTxWithReferenceInputs(input)
+	tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xf6})
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			MinFeeRefScriptCostPerByte: &cbor.Rat{Rat: big.NewRat(1, 1)},
+		},
+		MaxRefScriptSizePerTx:   150,
+		RefScriptCostStride:     100,
+		RefScriptCostMultiplier: &cbor.Rat{Rat: big.NewRat(2, 1)},
+	}
+	ls := dijkstraRefScriptLedgerState(t, utxo)
+	minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
+	require.NoError(t, err)
+	require.Equal(t, uint64(200), minFee)
+
+	tx.Body.TxFee = minFee - 1
+	err = UtxoValidateFeeTooSmallUtxo(tx, 0, ls, pp)
+	require.ErrorAs(t, err, &shelley.FeeTooSmallUtxoError{})
+	require.NoError(t, UtxoValidateRefScriptSizePerTx(tx, 0, ls, pp))
+
+	publishingTx := txWithRefScripts(150)
+	publishingTx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xf6})
+	publishingFee, err := MinFeeTxWithUtxo(
+		publishingTx,
+		pp,
+		dijkstraRefScriptLedgerState(t),
 	)
 	require.NoError(t, err)
+	require.Zero(t, publishingFee)
+}
+
+func TestDijkstraRefScriptFeeExcludesSubTransactions(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{
+					{
+						Body: DijkstraSubTransactionBody{
+							TxReferenceInputs: cbor.NewSetType(
+								[]shelley.ShelleyTransactionInput{input},
+								false,
+							),
+						},
+					},
+				},
+				false,
+			),
+		},
+		TxIsValid: true,
+	}
+	tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xf6})
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			MinFeeRefScriptCostPerByte: &cbor.Rat{Rat: big.NewRat(1, 1)},
+		},
+		MaxRefScriptSizePerTx:   100,
+		RefScriptCostStride:     100,
+		RefScriptCostMultiplier: &cbor.Rat{Rat: big.NewRat(2, 1)},
+	}
+	ls := dijkstraRefScriptLedgerState(t, utxo)
+
+	t.Run("fee uses only top-level reference scripts", func(t *testing.T) {
+		minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
+		require.NoError(t, err)
+		require.Zero(t, minFee)
+	})
+
+	t.Run("per-tx limit uses batch reference scripts", func(t *testing.T) {
+		err := UtxoValidateRefScriptSizePerTx(tx, 0, ls, pp)
+		require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
+	})
+}
+
+func TestDijkstraRefScriptFeeUsesConwayDefaults(t *testing.T) {
+	input, utxo := dijkstraRefScriptInput(
+		t,
+		0x01,
+		0,
+		int(conway.RefScriptCostStride*2),
+	)
+	tx := dijkstraTxWithReferenceInputs(input)
+	tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xf6})
+	conwayPparams := conway.ConwayProtocolParameters{
+		MinFeeRefScriptCostPerByte: &cbor.Rat{Rat: big.NewRat(1, 1)},
+	}
+	tests := []struct {
+		name string
+		pp   common.ProtocolParameters
+	}{
+		{
+			name: "Dijkstra parameters",
+			pp: &DijkstraProtocolParameters{
+				ConwayProtocolParameters: conwayPparams,
+			},
+		},
+		{
+			name: "Conway parameters",
+			pp:   &conwayPparams,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			minFee, err := MinFeeTxWithUtxo(
+				tx,
+				tc.pp,
+				dijkstraRefScriptLedgerState(t, utxo),
+			)
+			require.NoError(t, err)
+			require.Equal(t, uint64(56_320), minFee)
+		})
+	}
 }

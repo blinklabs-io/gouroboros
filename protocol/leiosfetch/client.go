@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -50,23 +51,53 @@ type Client struct {
 //     drained, so a late response to an abandoned request is never
 //     mis-delivered to a subsequent request.
 type requestSlot struct {
-	mu        sync.Mutex
-	waiter    chan protocol.Message
-	busy      bool
-	drainedCh chan struct{}
+	mu              sync.Mutex
+	waiter          chan protocol.Message
+	busy            bool
+	abandoned       bool
+	drainedCh       chan struct{}
+	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
 }
+
+const abandonedRequestWait = time.Second
 
 // acquire waits until the slot is free (any previously abandoned response has
 // been drained), bounded by ctx and the protocol done channel, then registers
-// and returns a fresh capacity-1 delivery channel for this request.
+// and returns a fresh capacity-1 delivery channel for this request. If a
+// previous request was abandoned, it waits briefly for the late response and
+// then fails rather than parking indefinitely; the protocol cannot safely
+// correlate a new request until that response is received.
 func (s *requestSlot) acquire(
 	ctx context.Context,
 	done <-chan struct{},
 ) (chan protocol.Message, error) {
 	s.mu.Lock()
 	for s.busy {
+		if s.abandoned {
+			timer := time.NewTimer(abandonedRequestWait)
+			drained := s.drainedCh
+			s.mu.Unlock()
+			select {
+			case <-drained:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-done:
+				timer.Stop()
+				return nil, protocol.ErrProtocolShuttingDown
+			case <-timer.C:
+				return nil, ErrRequestSlotAbandoned
+			}
+			timer.Stop()
+			s.mu.Lock()
+			continue
+		}
 		drained := s.drainedCh
+		beforeDrainWait := s.beforeDrainWait
 		s.mu.Unlock()
+		if beforeDrainWait != nil {
+			beforeDrainWait()
+		}
 		select {
 		case <-drained:
 		case <-ctx.Done():
@@ -79,6 +110,7 @@ func (s *requestSlot) acquire(
 	w := make(chan protocol.Message, 1)
 	s.waiter = w
 	s.busy = true
+	s.abandoned = false
 	s.drainedCh = make(chan struct{})
 	s.mu.Unlock()
 	return w, nil
@@ -86,8 +118,9 @@ func (s *requestSlot) acquire(
 
 // abandon clears the live waiter so that a late response is dropped by deliver
 // rather than mis-delivered, while leaving the slot busy until that response
-// arrives (or the protocol shuts down). It is used when a caller's context
-// expires before a response is received.
+// arrives (or the protocol shuts down). Subsequent acquire calls have a bounded
+// grace period while the slot is abandoned instead of parking indefinitely. It
+// is used when a caller's context expires before a response is received.
 //
 // The caller passes the delivery channel it registered in acquire. The slot is
 // only mutated while that channel is still the live waiter (s.waiter == w). If
@@ -98,6 +131,14 @@ func (s *requestSlot) abandon(w chan protocol.Message) {
 	s.mu.Lock()
 	if s.waiter == w {
 		s.waiter = nil
+		s.abandoned = true
+		// Acquirers that started before this request was abandoned are
+		// waiting on the current channel through the non-abandoned path.
+		// Wake them so they recheck abandoned and use its bounded grace
+		// period. Keep the slot busy on a fresh channel until the late
+		// response drains it, preserving response correlation.
+		close(s.drainedCh)
+		s.drainedCh = make(chan struct{})
 	}
 	s.mu.Unlock()
 }
@@ -147,6 +188,7 @@ func (s *requestSlot) freeLocked() {
 		return
 	}
 	s.busy = false
+	s.abandoned = false
 	if s.drainedCh != nil {
 		close(s.drainedCh)
 		s.drainedCh = nil

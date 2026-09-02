@@ -17,7 +17,49 @@ package common
 import (
 	"errors"
 	"fmt"
+	"math/big"
 )
+
+// CurrentTreasuryValueMismatchError indicates that a transaction's supplied
+// current treasury value differs from the ledger state.
+type CurrentTreasuryValueMismatchError struct {
+	Supplied *big.Int
+	Expected uint64
+}
+
+func (e CurrentTreasuryValueMismatchError) Error() string {
+	supplied := "<nil>"
+	if e.Supplied != nil {
+		supplied = e.Supplied.String()
+	}
+	return fmt.Sprintf(
+		"current treasury value mismatch: supplied %s, expected %d",
+		supplied,
+		e.Expected,
+	)
+}
+
+// TreasuryValueQueryError indicates that the current ledger treasury value
+// could not be loaded for transaction validation.
+type TreasuryValueQueryError struct {
+	Err error
+}
+
+func (e TreasuryValueQueryError) Error() string {
+	return fmt.Sprintf("failed to query current treasury value: %v", e.Err)
+}
+
+func (e TreasuryValueQueryError) Unwrap() error {
+	return e.Err
+}
+
+// TreasuryValueProviderUnavailableError indicates that treasury validation
+// cannot query a ledger-state provider because it is nil.
+type TreasuryValueProviderUnavailableError struct{}
+
+func (TreasuryValueProviderUnavailableError) Error() string {
+	return "ledger state provider is unavailable for current treasury value validation"
+}
 
 // InvalidIsValidFlagError indicates a tx marked invalid but lacking Plutus scripts
 type InvalidIsValidFlagError struct{}
@@ -161,7 +203,37 @@ func (ScriptDataHashMismatchError) Is(target error) bool {
 	return target == ErrScriptDataHashMismatch
 }
 
-// MalformedReferenceScriptsError indicates reference scripts in outputs that cannot be deserialized
+// MalformedScriptWitnessesError indicates Plutus script witnesses that cannot
+// be contextually decoded and validated.
+type MalformedScriptWitnessesError struct {
+	ScriptHashes []ScriptHash
+	Cause        error
+}
+
+func (e MalformedScriptWitnessesError) Error() string {
+	if e.Cause == nil {
+		return fmt.Sprintf("malformed script witnesses: %v", e.ScriptHashes)
+	}
+	return fmt.Sprintf(
+		"malformed script witnesses: %v: %v",
+		e.ScriptHashes,
+		e.Cause,
+	)
+}
+
+func (e MalformedScriptWitnessesError) Unwrap() error {
+	return e.Cause
+}
+
+// ErrMalformedScriptWitnesses identifies malformed Plutus script witnesses.
+var ErrMalformedScriptWitnesses = errors.New("malformed script witnesses")
+
+func (MalformedScriptWitnessesError) Is(target error) bool {
+	return target == ErrMalformedScriptWitnesses
+}
+
+// MalformedReferenceScriptsError indicates reference scripts in outputs that
+// cannot be contextually decoded and validated.
 type MalformedReferenceScriptsError struct {
 	ScriptHashes []ScriptHash
 }
@@ -236,6 +308,24 @@ func (e ExtraneousRedeemerError) Error() string {
 		"extraneous redeemer: tag=%d, index=%d doesn't match any valid script purpose",
 		e.RedeemerKey.Tag,
 		e.RedeemerKey.Index,
+	)
+}
+
+// MissingRedeemerForScriptError indicates a script-address input's Plutus
+// script is reachable -- via an explicit witness or a CIP-33 reference
+// script -- but no redeemer exists for its spend index. See
+// script.ValidateRequiredRedeemers for why this must be checked separately
+// from script presence.
+type MissingRedeemerForScriptError struct {
+	ScriptHash ScriptHash
+	Tag        RedeemerTag
+	Index      uint32
+}
+
+func (e MissingRedeemerForScriptError) Error() string {
+	return fmt.Sprintf(
+		"missing redeemer for script %x: tag=%d, index=%d",
+		e.ScriptHash[:], e.Tag, e.Index,
 	)
 }
 

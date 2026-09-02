@@ -74,6 +74,10 @@ type StateMapEntry struct {
 	// keep the remote peer busy across response boundaries. Leaving this
 	// false preserves the strict "send only while holding agency" behavior.
 	AllowPipelinedSend bool
+	// PipelinedMessageTypes limits which messages may use the pipelined send
+	// path while this state is active. An empty list preserves the default of
+	// allowing no pipelined messages.
+	PipelinedMessageTypes []uint8
 }
 
 // StateMap represents the state machine definition for a mini-protocol

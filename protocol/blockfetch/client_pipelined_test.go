@@ -715,9 +715,9 @@ func TestRequestRangeNoBlocksResolvesOnlyItsOwnRequest(t *testing.T) {
 	require.NoError(t, second.err)
 }
 
-// TestGetBlockEmptyBatch verifies GetBlock reports a missing block rather than
-// hanging when a peer completes a batch without sending one.
-func TestGetBlockEmptyBatch(t *testing.T) {
+// TestGetBlockRejectsEmptyBatch verifies GetBlock reports a protocol violation
+// rather than accepting StartBatch followed by BatchDone without its block.
+func TestGetBlockRejectsEmptyBatch(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	_, point1 := testBlock(t, 100)
 	conversation := []ouroboros_mock.ConversationEntry{
@@ -741,13 +741,29 @@ func TestGetBlockEmptyBatch(t *testing.T) {
 		blk, err := h.client.GetBlock(point1)
 		results <- result{block: blk, err: err}
 	}()
-	select {
-	case res := <-results:
-		require.Nil(t, res.block)
-		require.ErrorIs(t, res.err, blockfetch.ErrNoBlocks)
-	case err := <-h.connErrs:
-		t.Fatalf("unexpected connection error: %s", err)
-	case <-time.After(testTimeout):
-		t.Fatal("GetBlock did not return for a batch with no blocks")
+	var getBlockResult *result
+	var connectionErr error
+	connectionErrors := h.connErrs
+	deadline := time.After(testTimeout)
+	for getBlockResult == nil || connectionErr == nil {
+		select {
+		case res := <-results:
+			getBlockResult = &res
+		case err, ok := <-connectionErrors:
+			if !ok {
+				connectionErrors = nil
+				continue
+			}
+			connectionErr = err
+		case <-deadline:
+			t.Fatal("empty batch did not fail the request and connection")
+		}
 	}
+	require.Nil(t, getBlockResult.block)
+	require.ErrorContains(
+		t,
+		getBlockResult.err,
+		"before requested range end",
+	)
+	require.ErrorContains(t, connectionErr, "before requested range end")
 }

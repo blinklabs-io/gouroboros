@@ -15,6 +15,7 @@
 package blockfetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -70,6 +71,10 @@ const (
 // owns the next MsgStartBatch, MsgNoBlocks, MsgBlock, and MsgBatchDone.
 type rangeRequest struct {
 	id             uint64
+	start          pcommon.Point
+	end            pcommon.Point
+	lastPoint      pcommon.Point
+	hasLastPoint   bool
 	protocol       *protocol.Protocol
 	delivery       requestDelivery
 	pipelined      bool
@@ -509,10 +514,20 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		c.releaseBusy(token)
 		return nil, err
 	}
-	// Wait for the block. Both the block and the completion can already be
-	// buffered by the time we get here, and a select over two ready cases
-	// picks at random, so a completed batch is only believed after checking
-	// for a delivered block.
+	return c.awaitBlock(req, protocolDone, token)
+}
+
+// awaitBlock resolves a deliveryChannel request once its batch has started.
+// The block, the request completion, and the protocol shutdown can all be
+// ready by the time this runs, and a select over ready cases picks at random,
+// so every branch reports the outcome the request already has: a completed
+// batch is only believed after checking for a delivered block, and a shutdown
+// branch does not discard a result the handler already reported.
+func (c *Client) awaitBlock(
+	req *rangeRequest,
+	protocolDone <-chan struct{},
+	token uint64,
+) (ledger.Block, error) {
 	var block ledger.Block
 	var batchDone error
 	var batchIsDone bool
@@ -528,7 +543,7 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		}
 	case <-protocolDone:
 		c.releaseBusy(token)
-		return nil, protocol.ErrProtocolShuttingDown
+		return completedBlockOrShutdown(req, nil)
 	}
 	if batchIsDone {
 		c.releaseBusy(token)
@@ -541,8 +556,19 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		}
 		return block, nil
 	}
-	// Wait for BatchDone before returning to ensure the protocol state machine
-	// completes the batch properly (transitions back to Idle state).
+	return c.waitForBatchDone(req, protocolDone, token, block)
+}
+
+// waitForBatchDone waits for MsgBatchDone after the block has been delivered,
+// so the protocol state machine completes the batch and returns to Idle. The
+// completion and the protocol shutdown can be ready at once, so the shutdown
+// branch reports the completion the request already has.
+func (c *Client) waitForBatchDone(
+	req *rangeRequest,
+	protocolDone <-chan struct{},
+	token uint64,
+	block ledger.Block,
+) (ledger.Block, error) {
 	select {
 	case err := <-req.doneChan:
 		c.releaseBusy(token)
@@ -551,10 +577,31 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		}
 		return block, nil
 	case <-protocolDone:
-		// Shutdown while waiting for BatchDone
 		c.releaseBusy(token)
-		return nil, protocol.ErrProtocolShuttingDown
+		return completedBlockOrShutdown(req, block)
 	}
+}
+
+// completedBlockOrShutdown resolves a GetBlock shutdown branch. A request can
+// finish successfully just before protocol shutdown becomes observable, so a
+// nil completion must preserve the block already delivered by the handler.
+func completedBlockOrShutdown(
+	req *rangeRequest,
+	block ledger.Block,
+) (ledger.Block, error) {
+	if err := requestResultOrShutdown(req.doneChan); err != nil {
+		return nil, err
+	}
+	if block == nil {
+		select {
+		case block = <-req.blockChan:
+		default:
+		}
+	}
+	if block == nil {
+		return nil, ErrNoBlocks
+	}
+	return block, nil
 }
 
 // RequestRange queues a request for the given block range without waiting for
@@ -720,6 +767,8 @@ func (c *Client) sendRequestRange(
 		c.nextRequestId++
 		req = &rangeRequest{
 			id:            c.nextRequestId,
+			start:         start,
+			end:           end,
 			protocol:      proto,
 			delivery:      delivery,
 			pipelined:     pipelined,
@@ -762,6 +811,17 @@ func (c *Client) waitForBatchStart(
 	case err := <-req.startChan:
 		return err
 	case <-protocolDone:
+		return requestResultOrShutdown(req.startChan)
+	}
+}
+
+// requestResultOrShutdown preserves a request result that was reported before
+// its corresponding protocol shutdown became observable.
+func requestResultOrShutdown(resultChan <-chan error) error {
+	select {
+	case err := <-resultChan:
+		return err
+	default:
 		return protocol.ErrProtocolShuttingDown
 	}
 }
@@ -1030,13 +1090,35 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 		req.blockDelivered = true
 	}
 	c.queueMutex.Unlock()
-	// Decode only enough to get the block type value
+	// Decode the wrapper and block header before delivering anything. The
+	// response point must be correlated with the requested range; otherwise a
+	// peer can inject an unrelated block into a valid batch.
 	var wrappedBlock WrappedBlock
 	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
 		return c.failRequest(
 			req,
 			fmt.Errorf("%s: decode error: %w", ProtocolName, err),
 		)
+	}
+	block, err := ledger.NewBlockFromCbor(
+		wrappedBlock.Type,
+		wrappedBlock.RawBlock,
+		lcommon.VerifyConfig{
+			SkipBodyHashValidation: c.config.SkipBlockValidation,
+		},
+	)
+	if err != nil {
+		return c.failRequest(req, err)
+	}
+	blockPoint := pcommon.NewPoint(
+		block.SlotNumber(),
+		block.Hash().Bytes(),
+	)
+	c.queueMutex.Lock()
+	err = req.recordBlock(block, blockPoint)
+	c.queueMutex.Unlock()
+	if err != nil {
+		return c.failRequest(req, err)
 	}
 	// If pipeline is configured, submit to pipeline
 	// Only use pipeline if we are in callback mode (GetBlockRange, RequestRange),
@@ -1072,20 +1154,6 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			return c.failRequest(req, err)
 		}
 		return nil
-	}
-	var block ledger.Block
-	if req.delivery == deliveryChannel || c.config.BlockFunc != nil {
-		var err error
-		block, err = ledger.NewBlockFromCbor(
-			wrappedBlock.Type,
-			wrappedBlock.RawBlock,
-			lcommon.VerifyConfig{
-				SkipBodyHashValidation: c.config.SkipBlockValidation,
-			},
-		)
-		if err != nil {
-			return c.failRequest(req, err)
-		}
 	}
 	// Check for shutdown
 	select {
@@ -1123,6 +1191,88 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	return nil
 }
 
+func pointInRange(block, start, end pcommon.Point) bool {
+	if start.Hash != nil {
+		if block.Slot < start.Slot {
+			return false
+		}
+		if block.Slot == start.Slot && !bytes.Equal(block.Hash, start.Hash) {
+			return false
+		}
+	}
+	if end.Hash != nil {
+		if block.Slot > end.Slot {
+			return false
+		}
+		if block.Slot == end.Slot && !bytes.Equal(block.Hash, end.Hash) {
+			return false
+		}
+	}
+	return true
+}
+
+func pointsEqual(a, b pcommon.Point) bool {
+	return a.Slot == b.Slot && bytes.Equal(a.Hash, b.Hash)
+}
+
+// recordBlock validates and records the next block in a requested inclusive
+// range. BlockFetch does not carry the expected interior points on the wire,
+// so continuity is established from each decoded block's previous hash. The
+// caller must hold queueMutex.
+func (req *rangeRequest) recordBlock(
+	block ledger.Block,
+	blockPoint pcommon.Point,
+) error {
+	if !pointInRange(blockPoint, req.start, req.end) {
+		return fmt.Errorf(
+			"%s: received block outside requested range: slot=%d hash=%x",
+			ProtocolName,
+			blockPoint.Slot,
+			blockPoint.Hash,
+		)
+	}
+	if !req.hasLastPoint {
+		if req.start.Hash != nil && !pointsEqual(blockPoint, req.start) {
+			return fmt.Errorf(
+				"%s: first received block does not match requested range start: slot=%d hash=%x",
+				ProtocolName,
+				blockPoint.Slot,
+				blockPoint.Hash,
+			)
+		}
+	} else {
+		if pointsEqual(blockPoint, req.lastPoint) {
+			return fmt.Errorf(
+				"%s: received duplicate block in requested range: slot=%d hash=%x",
+				ProtocolName,
+				blockPoint.Slot,
+				blockPoint.Hash,
+			)
+		}
+		if blockPoint.Slot < req.lastPoint.Slot {
+			return fmt.Errorf(
+				"%s: received block before previous range point: slot=%d previous_slot=%d",
+				ProtocolName,
+				blockPoint.Slot,
+				req.lastPoint.Slot,
+			)
+		}
+		prevHash := block.PrevHash()
+		if !bytes.Equal(prevHash[:], req.lastPoint.Hash) {
+			return fmt.Errorf(
+				"%s: received block does not follow previous range point: slot=%d hash=%x previous_hash=%x",
+				ProtocolName,
+				blockPoint.Slot,
+				blockPoint.Hash,
+				req.lastPoint.Hash,
+			)
+		}
+	}
+	req.lastPoint = blockPoint
+	req.hasLastPoint = true
+	return nil
+}
+
 // failRequest retires a request that cannot be completed and returns the
 // error so the protocol is torn down, matching the previous behavior of
 // releasing the busy lock before returning a handler error.
@@ -1155,6 +1305,18 @@ func (c *Client) handleBatchDone() error {
 	if err != nil {
 		c.queueMutex.Unlock()
 		return err
+	}
+	if !req.hasLastPoint || !pointsEqual(req.lastPoint, req.end) {
+		c.queueMutex.Unlock()
+		return c.failRequest(
+			req,
+			fmt.Errorf(
+				"%s: batch completed before requested range end: slot=%d hash=%x",
+				ProtocolName,
+				req.end.Slot,
+				req.end.Hash,
+			),
+		)
 	}
 	c.removeLocked(req)
 	c.queueMutex.Unlock()

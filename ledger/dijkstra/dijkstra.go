@@ -761,7 +761,13 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
 	// Reject duplicate members in any tag-258 set field on the transaction body.
@@ -792,7 +798,11 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	*b = DijkstraTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(
+		cborData,
+		b.Ttl,
+		b.TxCurrentTreasuryValue != 0,
+	); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -930,7 +940,16 @@ func (b *DijkstraTransactionBody) NetworkId() *uint8 {
 }
 
 func (b *DijkstraTransactionBody) CurrentTreasuryValue() *big.Int {
+	if b.TxCurrentTreasuryValue == 0 &&
+		!b.CurrentTreasuryValuePresent() {
+		return nil
+	}
 	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
+}
+
+func (b *DijkstraTransactionBody) CurrentTreasuryValuePresent() bool {
+	return b.TxCurrentTreasuryValue != 0 ||
+		b.TransactionBodyBase.CurrentTreasuryValuePresent()
 }
 
 func (b *DijkstraTransactionBody) Donation() *big.Int {
@@ -990,7 +1009,11 @@ func dijkstraRequiredSigners(guards *DijkstraGuards) []common.Blake2b224 {
 	if guards == nil {
 		return nil
 	}
-	ret := make([]common.Blake2b224, 0, len(guards.KeyHashes)+len(guards.Credentials))
+	ret := make(
+		[]common.Blake2b224,
+		0,
+		len(guards.KeyHashes)+len(guards.Credentials),
+	)
 	ret = append(ret, guards.KeyHashes...)
 	for _, cred := range guards.Credentials {
 		if cred.CredType == common.CredentialTypeAddrKeyHash {
@@ -1050,7 +1073,13 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
 	if err := tmp.TxInputs.CheckForDuplicates(); err != nil {
@@ -1066,7 +1095,11 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("mint: %w", err)
 	}
 	*b = DijkstraSubTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(
+		cborData,
+		b.Ttl,
+		b.TxCurrentTreasuryValue != 0,
+	); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -1153,7 +1186,16 @@ func (b *DijkstraSubTransactionBody) ProposalProcedures() []common.ProposalProce
 }
 
 func (b *DijkstraSubTransactionBody) CurrentTreasuryValue() *big.Int {
+	if b.TxCurrentTreasuryValue == 0 &&
+		!b.CurrentTreasuryValuePresent() {
+		return nil
+	}
 	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
+}
+
+func (b *DijkstraSubTransactionBody) CurrentTreasuryValuePresent() bool {
+	return b.TxCurrentTreasuryValue != 0 ||
+		b.TransactionBodyBase.CurrentTreasuryValuePresent()
 }
 
 func (b *DijkstraSubTransactionBody) Donation() *big.Int {
@@ -1170,7 +1212,8 @@ type DijkstraRedeemers struct {
 }
 
 func (r *DijkstraRedeemers) UnmarshalCBOR(cborData []byte) error {
-	if len(cborData) == 0 || (cborData[0]&cbor.CborTypeMask) != cbor.CborTypeMap {
+	if len(cborData) == 0 ||
+		(cborData[0]&cbor.CborTypeMask) != cbor.CborTypeMap {
 		return errors.New("dijkstra redeemers must use map encoding")
 	}
 	var redeemers map[common.RedeemerKey]common.RedeemerValue
@@ -1219,7 +1262,10 @@ func (r DijkstraRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	return ret
 }
 
-func (r DijkstraRedeemers) Value(index uint, tag common.RedeemerTag) common.RedeemerValue {
+func (r DijkstraRedeemers) Value(
+	index uint,
+	tag common.RedeemerTag,
+) common.RedeemerValue {
 	redeemerVal, ok := r.Redeemers[common.RedeemerKey{
 		Tag:   tag,
 		Index: uint32(index), // #nosec G115
@@ -1437,6 +1483,10 @@ func (t DijkstraTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
+func (t DijkstraTransaction) CurrentTreasuryValuePresent() bool {
+	return t.Body.CurrentTreasuryValuePresent()
+}
+
 func (t DijkstraTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
@@ -1501,6 +1551,24 @@ func (t DijkstraTransaction) SubTransactionWitnessSets() []common.TransactionWit
 	return ret
 }
 
+func (t DijkstraTransaction) SubTransactionBodies() []common.TransactionBody {
+	subTxs := t.Body.TxSubTransactions.Items()
+	ret := make([]common.TransactionBody, 0, len(subTxs))
+	for idx := range subTxs {
+		ret = append(ret, &subTxs[idx].Body)
+	}
+	return ret
+}
+
+func (t DijkstraTransaction) SubTransactionOutputs() []common.TransactionOutput {
+	subTxs := t.Body.TxSubTransactions.Items()
+	var ret []common.TransactionOutput
+	for _, subTx := range subTxs {
+		ret = append(ret, subTx.Body.Outputs()...)
+	}
+	return ret
+}
+
 func (t *DijkstraTransaction) MarshalCBOR() ([]byte, error) {
 	if cborData := t.DecodeStoreCbor.Cbor(); cborData != nil {
 		return cborData, nil
@@ -1531,7 +1599,10 @@ func (t *DijkstraTransaction) Cbor() []byte {
 func (t *DijkstraTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := t.Body.Utxorpc()
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert Dijkstra transaction: %w", err)
+		return nil, fmt.Errorf(
+			"failed to convert Dijkstra transaction: %w",
+			err,
+		)
 	}
 	return tx, nil
 }
@@ -1635,7 +1706,10 @@ func NewDijkstraTransactionBodyFromCbor(
 ) (*DijkstraTransactionBody, error) {
 	var dijkstraTx DijkstraTransactionBody
 	if _, err := cbor.Decode(data, &dijkstraTx); err != nil {
-		return nil, fmt.Errorf("decode Dijkstra transaction body error: %w", err)
+		return nil, fmt.Errorf(
+			"decode Dijkstra transaction body error: %w",
+			err,
+		)
 	}
 	return &dijkstraTx, nil
 }
@@ -1702,7 +1776,10 @@ func newDijkstraTransactionFromCborComponents(
 		return nil, fmt.Errorf("failed to decode transaction body: %w", err)
 	}
 	if _, err := cbor.Decode(txArray[1], &ret.WitnessSet); err != nil {
-		return nil, fmt.Errorf("failed to decode transaction witness set: %w", err)
+		return nil, fmt.Errorf(
+			"failed to decode transaction witness set: %w",
+			err,
+		)
 	}
 	auxIdx := 2
 	if len(txArray) == 4 {
@@ -1711,7 +1788,9 @@ func newDijkstraTransactionFromCborComponents(
 			return nil, fmt.Errorf("failed to decode TxIsValid: %w", err)
 		}
 		if !txIsValid {
-			return nil, errors.New("dijkstra transactions cannot encode is_valid=false")
+			return nil, errors.New(
+				"dijkstra transactions cannot encode is_valid=false",
+			)
 		}
 		auxIdx = 3
 	}

@@ -23,7 +23,9 @@ package common
 
 import (
 	"fmt"
+	"math/big"
 	"math/bits"
+	"reflect"
 	"sort"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -37,6 +39,59 @@ type UtxoValidationRuleFunc func(
 	ledgerState LedgerState,
 	protocolParams ProtocolParameters,
 ) error
+
+// UtxoValidateCurrentTreasuryValue checks a transaction's optional current
+// treasury value against the ledger state. The predicate belongs to the
+// phase-2-valid ledger transition, so phase-2-invalid transactions skip it.
+func UtxoValidateCurrentTreasuryValue(
+	tx Transaction,
+	slot uint64,
+	ledgerState LedgerState,
+	protocolParams ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	transactionBodies := SubTransactionBodiesFromTransaction(tx)
+	suppliedValues := make([]*big.Int, 0, len(transactionBodies)+1)
+	for _, body := range transactionBodies {
+		if body == nil {
+			continue
+		}
+		if TransactionCurrentTreasuryValuePresent(body) {
+			supplied := body.CurrentTreasuryValue()
+			suppliedValues = append(suppliedValues, supplied)
+		}
+	}
+	if TransactionCurrentTreasuryValuePresent(tx) {
+		supplied := tx.CurrentTreasuryValue()
+		suppliedValues = append(suppliedValues, supplied)
+	}
+	if len(suppliedValues) == 0 {
+		return nil
+	}
+	if ledgerState == nil ||
+		(reflect.ValueOf(ledgerState).Kind() == reflect.Pointer &&
+			reflect.ValueOf(ledgerState).IsNil()) {
+		return TreasuryValueQueryError{
+			Err: TreasuryValueProviderUnavailableError{},
+		}
+	}
+	expected, err := ledgerState.TreasuryValue()
+	if err != nil {
+		return TreasuryValueQueryError{Err: err}
+	}
+	expectedValue := new(big.Int).SetUint64(expected)
+	for _, supplied := range suppliedValues {
+		if supplied.Cmp(expectedValue) != 0 {
+			return CurrentTreasuryValueMismatchError{
+				Supplied: new(big.Int).Set(supplied),
+				Expected: expected,
+			}
+		}
+	}
+	return nil
+}
 
 // VerifyTransaction runs the provided validation rules in order and wraps
 // the first error encountered into a ValidationError.
@@ -88,7 +143,10 @@ func TxSizeForFee(tx Transaction) (int, error) {
 		var err error
 		cborData, err = cbor.Encode(tx)
 		if err != nil {
-			return 0, fmt.Errorf("failed to encode transaction for fee size: %w", err)
+			return 0, fmt.Errorf(
+				"failed to encode transaction for fee size: %w",
+				err,
+			)
 		}
 	}
 	fullSize := len(cborData)
@@ -204,14 +262,22 @@ func (e ExtraneousScriptWitnessesError) Error() string {
 // vkey witness. This includes explicitly required signers and key-based reward
 // withdrawal credentials.
 func ValidateRequiredVKeyWitnesses(tx Transaction) error {
-	required := make([]Blake2b224, 0, len(tx.RequiredSigners())+len(tx.Withdrawals()))
+	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
+		return err
+	}
+	required := make(
+		[]Blake2b224,
+		0,
+		len(tx.RequiredSigners())+len(tx.Withdrawals()),
+	)
 	required = append(required, tx.RequiredSigners()...)
 	for addr := range tx.Withdrawals() {
-		if addr == nil {
-			continue
+		credential, err := addr.RewardAccountCredential()
+		if err != nil {
+			return err
 		}
-		if payload, ok := addr.StakingPayload().(AddressPayloadKeyHash); ok {
-			required = append(required, payload.Hash)
+		if credential.CredType == CredentialTypeAddrKeyHash {
+			required = append(required, credential.Credential)
 		}
 	}
 	if len(required) == 0 {
@@ -252,6 +318,9 @@ func ValidateUnsupportedPlutusExecution(tx Transaction, era string) error {
 // ValidateScriptWitnesses checks that script witnesses are provided for all script address inputs
 // and that there are no extraneous script witnesses.
 func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
+	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
+		return err
+	}
 	if ls == nil {
 		return nil
 	}
@@ -268,7 +337,10 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 
 	// Collect all script hashes required by script address inputs
 	requiredScriptHashes := make(map[ScriptHash]struct{}, len(inputs))
-	referenceProvided := make(map[ScriptHash]struct{}, len(inputs)+len(referenceInputs))
+	referenceProvided := make(
+		map[ScriptHash]struct{},
+		len(inputs)+len(referenceInputs),
+	)
 	for _, input := range inputs {
 		utxo, err := ls.UtxoById(input)
 		if err != nil {
@@ -430,10 +502,12 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 
 	// Collect script hashes required by withdrawals
 	for addr := range tx.Withdrawals() {
-		// For stake addresses, check if stake credential is script (LSB of type indicates script)
-		if (addr.Type() & AddressTypeScriptBit) != 0 {
-			stakeScriptHash := addr.StakeKeyHash()
-			requiredScriptHashes[ScriptHash(stakeScriptHash)] = struct{}{}
+		credential, err := addr.RewardAccountCredential()
+		if err != nil {
+			return err
+		}
+		if credential.CredType == CredentialTypeScriptHash {
+			requiredScriptHashes[ScriptHash(credential.Credential)] = struct{}{}
 		}
 	}
 
@@ -465,8 +539,8 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 				var hash ScriptHash
 				copy(hash[:], policyHash)
 				requiredScriptHashes[hash] = struct{}{}
-			} else if len(policyHash) != 0 {
-				// Non-empty but invalid length - fail fast to surface upstream bugs
+			} else if policyHash != nil {
+				// Present but invalid length - fail fast to surface upstream bugs
 				return fmt.Errorf(
 					"malformed governance policy hash: got %d bytes, want %d",
 					len(policyHash),
@@ -743,7 +817,10 @@ func EncodeLangViews(
 				return nil, err
 			}
 		default:
-			return nil, fmt.Errorf("unsupported Plutus version for lang views: %d", version)
+			return nil, fmt.Errorf(
+				"unsupported Plutus version for lang views: %d",
+				version,
+			)
 		}
 
 		views = append(views, langView{tag: tag, params: params})
@@ -763,7 +840,8 @@ func EncodeLangViews(
 	result := make([]byte, 0, totalSize)
 	// Encode map length (definite-length map)
 	if len(views) < 24 {
-		result = append(result, 0xa0+byte(len(views))) //nolint:gosec // len < 24
+		viewCount := byte(len(views)) //nolint:gosec // len < 24
+		result = append(result, 0xa0+viewCount)
 	} else {
 		result = append(result, 0xb8, byte(len(views))) //nolint:gosec // len < 256
 	}
