@@ -289,6 +289,19 @@ func CalculateRewards(
 		if !exists {
 			continue // Skip pools without parameters
 		}
+		if poolParams == nil {
+			return nil, fmt.Errorf(
+				"pool parameters not found for pool %s",
+				poolID,
+			)
+		}
+		if err := ValidatePoolMargin(poolParams.Margin); err != nil {
+			return nil, fmt.Errorf(
+				"invalid margin for pool %s: %w",
+				poolID,
+				err,
+			)
+		}
 
 		share := calculatePoolShare(
 			poolStake,
@@ -461,18 +474,28 @@ func distributePoolRewards(
 
 	if totalPoolStake > 0 {
 		ownerStakeRatio := float64(ownerStake) / float64(totalPoolStake)
-		operatorRewards += uint64(
-			float64(
-				totalPoolRewards-poolCost,
-			) * (margin + (1.0-margin)*ownerStakeRatio),
-		)
+		variableRewardsAvailable := totalPoolRewards - poolCost
+		operatorShare := margin + (1.0-margin)*ownerStakeRatio
+		variableRewards := float64(variableRewardsAvailable) * operatorShare
+		if variableRewards >= float64(variableRewardsAvailable) {
+			operatorRewards = totalPoolRewards
+		} else if variableRewards > 0 {
+			operatorRewards += uint64(variableRewards)
+		}
 	} else {
 		// If no stake, operator gets all rewards above cost
 		operatorRewards = totalPoolRewards
 	}
 
 	// Remaining rewards go to all stakeholders (owners and delegators)
-	stakeholderRewardsTotal := totalPoolRewards - operatorRewards
+	stakeholderRewardsTotal := uint64(0)
+	if operatorRewards < totalPoolRewards {
+		stakeholderRewardsTotal = totalPoolRewards - operatorRewards
+	} else {
+		// Keep the split conservative even if a malformed programmatic value
+		// reaches this internal helper without passing CalculateRewards.
+		operatorRewards = totalPoolRewards
+	}
 
 	// Distribute stakeholder rewards proportionally to stake
 	delegatorRewards := make(map[AddrKeyHash]uint64)
@@ -511,14 +534,19 @@ func distributePoolRewards(
 
 // marginFloat converts a GenesisRat margin to float64
 func marginFloat(margin GenesisRat) float64 {
-	// Check if margin is zero (empty cbor.Rat)
-	if margin == (cbor.Rat{}) {
+	if margin == (cbor.Rat{}) || margin.Rat == nil {
 		return 0.0
 	}
 	num := margin.Num()
 	den := margin.Denom()
 	if num == nil || den == nil {
 		return 0.0
+	}
+	if num.Sign() <= 0 {
+		return 0.0
+	}
+	if num.Cmp(den) >= 0 {
+		return 1.0
 	}
 	marginRat := big.NewRat(0, 1)
 	marginRat.SetFrac(num, den)
