@@ -336,6 +336,9 @@ human review, not human approval or merge.
   stop and return the refusal to the owner.
 - Use one concise factual squash summary. Do not concatenate commit bodies,
   review threads, or chat history.
+- Set the squash subject to the exact PR title. Never invent a generic subject
+  such as `Merge approved changes`, `Merge PR`, or `Squash merge`; those messages
+  discard the purpose of the change and are blocked by the merge guard.
 - Write the squash body as real Markdown in a run-owned file and pass it with
   `--body-file`; never encode its line breaks as `\\n` in `--body`. Lock the
   merge to the reviewed head with `--match-head-commit`.
@@ -349,6 +352,10 @@ human review, not human approval or merge.
   read the resulting commit message back and verify the sign-off is a standalone
   trailer, not literal escaped text. Do not use a merge path that drops or
   corrupts the sign-off.
+- Before merging, run `python3 plugins/blink-labs-agent-toolkit/scripts/validate-squash-merge.py`
+  with the PR title, proposed subject, and body file. After merging, read the
+  remote commit message and stop if its subject differs from the PR title or
+  its DCO trailer is malformed.
 
 ## Submodule work
 

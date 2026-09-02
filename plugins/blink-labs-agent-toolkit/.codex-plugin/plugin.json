@@ -1,6 +1,6 @@
 {
   "name": "blink-labs-agent-toolkit",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Shared Blink Labs and TosiDrop maintenance, infrastructure operations, and review skills for Claude- and Codex-compatible agent workflows.",
   "author": {
     "name": "Blink Labs"
