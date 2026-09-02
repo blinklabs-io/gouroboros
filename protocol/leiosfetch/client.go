@@ -215,9 +215,13 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config:               cfg,
-		votesResultChan:      make(chan protocol.Message),
-		blockRangeResultChan: make(chan protocol.Message),
+		config: cfg,
+		// Capacity 1: the caller registers before its request is sent, so
+		// the response always has somewhere to land even if the caller has
+		// not reached its receive yet. Unbuffered, a response whose caller
+		// gave up on its context blocked the protocol receive loop forever.
+		votesResultChan:      make(chan protocol.Message, 1),
+		blockRangeResultChan: make(chan protocol.Message, 1),
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -489,7 +493,10 @@ func (c *Client) BlockRangeRequest(
 				return ret, nil
 			}
 		case <-ctx.Done():
-			c.blockRequestSlot.abandon(w)
+			// release, not abandon, for the reason given in VotesRequest:
+			// a range response reaches blockRangeResultChan, never deliver,
+			// so an abandoned slot here would never drain.
+			c.blockRequestSlot.release(w)
 			return nil, ctx.Err()
 		case <-c.DoneChan():
 			c.blockRequestSlot.release(w)
@@ -579,14 +586,29 @@ func (c *Client) handleNoBlockTxs(msg protocol.Message) {
 	}
 }
 
+// handleVotes hands a votes response to its caller, dropping it if none is
+// waiting. The send must not block: the protocol receive loop runs it, and a
+// caller whose context expired is gone for good.
 func (c *Client) handleVotes(msg protocol.Message) {
-	c.votesResultChan <- msg
+	select {
+	case c.votesResultChan <- msg:
+	default:
+		c.logDroppedResponse(msg)
+	}
 }
 
 func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) {
-	c.blockRangeResultChan <- msg
+	select {
+	case c.blockRangeResultChan <- msg:
+	default:
+		c.logDroppedResponse(msg)
+	}
 }
 
 func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) {
-	c.blockRangeResultChan <- msg
+	select {
+	case c.blockRangeResultChan <- msg:
+	default:
+		c.logDroppedResponse(msg)
+	}
 }
