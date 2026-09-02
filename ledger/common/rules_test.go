@@ -249,8 +249,8 @@ func TestCertificateAuthorizationRulesAreRegistered(t *testing.T) {
 		{
 			"dijkstra",
 			dijkstra.UtxoValidationRules,
-			conway.UtxoValidateRequiredVKeyWitnesses,
-			conway.UtxoValidateScriptWitnesses,
+			dijkstra.UtxoValidateRequiredVKeyWitnesses,
+			dijkstra.UtxoValidateScriptWitnesses,
 			true,
 		},
 	}
