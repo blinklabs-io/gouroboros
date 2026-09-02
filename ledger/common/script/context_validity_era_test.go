@@ -89,11 +89,13 @@ func TestValidityRangeEraIdsUnchanged(t *testing.T) {
 // on.
 func TestValidityRangeUpperBoundByEra(t *testing.T) {
 	for _, era := range []struct {
-		name string
-		tx   eraTxBuilder
+		name                   string
+		upperBoundOnlyIsClosed bool
+		tx                     eraTxBuilder
 	}{
 		{
-			name: "Alonzo",
+			name:                   "Alonzo",
+			upperBoundOnlyIsClosed: true,
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -105,7 +107,8 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name: "Babbage",
+			name:                   "Babbage",
+			upperBoundOnlyIsClosed: true,
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -117,7 +120,8 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name: "Conway",
+			name:                   "Conway",
+			upperBoundOnlyIsClosed: false,
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -128,7 +132,8 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name: "Dijkstra",
+			name:                   "Dijkstra",
+			upperBoundOnlyIsClosed: false,
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -203,9 +208,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 							)
 							require.NoError(t, err)
 							strictUpperBound := build.name == "V3" ||
-								script.StrictValidityUpperBoundForTransaction(
-									era.tx(t, fixture),
-								)
+								!era.upperBoundOnlyIsClosed
 							expected := expectedValidityRange(
 								fixture.StartSlot,
 								fixture.EndSlot,
