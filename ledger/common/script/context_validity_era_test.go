@@ -158,7 +158,9 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 						tx lcommon.Transaction,
 						u []lcommon.Utxo,
 					) (data.PlutusData, error) {
-						info, err := script.NewTxInfoV1FromTransaction(s, tx, u)
+						info, err := script.NewTxInfoV1FromTransaction(
+							s, tx, u, !era.upperBoundOnlyIsClosed,
+						)
 						if err != nil {
 							return nil, err
 						}
@@ -172,7 +174,9 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 						tx lcommon.Transaction,
 						u []lcommon.Utxo,
 					) (data.PlutusData, error) {
-						info, err := script.NewTxInfoV2FromTransaction(s, tx, u)
+						info, err := script.NewTxInfoV2FromTransaction(
+							s, tx, u, !era.upperBoundOnlyIsClosed,
+						)
 						if err != nil {
 							return nil, err
 						}
@@ -203,10 +207,12 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 								nil,
 							)
 							require.NoError(t, err)
+							strictUpperBound := build.name == "V3" ||
+								!era.upperBoundOnlyIsClosed
 							expected := expectedValidityRange(
 								fixture.StartSlot,
 								fixture.EndSlot,
-								era.upperBoundOnlyIsClosed,
+								!strictUpperBound,
 							)
 							require.True(
 								t,
