@@ -226,16 +226,40 @@ func TestUtxoValidatePoolCertificatesCostTooLow(t *testing.T) {
 		))
 	})
 
-	t.Run("shelley reports no minimum", func(t *testing.T) {
-		// ShelleyProtocolParameters carries no minPoolCost entry in this
-		// repository, so the floor is zero and the predicate accepts any
-		// cost for Shelley and Allegra blocks.
+	// StakePoolCostTooLowPOOL is unconditional in the reference, so it has to
+	// bind in Shelley and Allegra too. Those eras share
+	// ShelleyProtocolParameters, whose minPoolCost is PParamUpdate key 16 in
+	// eras/shelley/impl/src/Cardano/Ledger/Shelley/PParams.hs.
+	t.Run("shelley enforces its minimum", func(t *testing.T) {
 		shelleyPparams := mockledger.NewMockShelleyProtocolParams()
+		shelleyPparams.MinPoolCost = 340_000_000
 		cert := poolRegCertWire(
 			t,
 			poolKeyHash(0x01),
 			vrfKeyHash(0x02),
+			339_999_999,
+			common.AddressNetworkMainnet,
+		)
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(cert),
 			0,
+			ls,
+			&shelleyPparams,
+		)
+		var target shelley.StakePoolCostTooLowError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, uint64(339_999_999), target.Supplied)
+		assert.Equal(t, uint64(340_000_000), target.Min)
+	})
+
+	t.Run("shelley accepts its minimum", func(t *testing.T) {
+		shelleyPparams := mockledger.NewMockShelleyProtocolParams()
+		shelleyPparams.MinPoolCost = 340_000_000
+		cert := poolRegCertWire(
+			t,
+			poolKeyHash(0x01),
+			vrfKeyHash(0x02),
+			340_000_000,
 			common.AddressNetworkMainnet,
 		)
 		require.NoError(t, shelley.UtxoValidatePoolCertificates(
@@ -659,12 +683,20 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 	})
 
 	t.Run("saturating eMax leaves the bound vacuous", func(t *testing.T) {
+		// The overflow has to come from the epoch, not from eMax: eMax is
+		// a uint, so ^uint(0) does not overflow a uint64 sum on a 32-bit
+		// build and the clamp would never be reached there. A near-maximum
+		// current epoch plus a small eMax wraps on every word size.
 		saturating := conwayPparams(common.ProtocolVersionConway, 0)
-		saturating.MaxEpoch = ^uint(0)
+		saturating.MaxEpoch = 2
+		nearMax := epochLedgerState{
+			LedgerState: base,
+			epoch:       ^uint64(0) - 1,
+		}
 		require.NoError(t, shelley.UtxoValidatePoolCertificates(
 			poolCertTx(poolRetirementCert(registered, ^uint64(0))),
 			0,
-			withEpoch,
+			nearMax,
 			saturating,
 		))
 	})
@@ -778,6 +810,17 @@ func TestPoolRuleInEveryEraRuleSet(t *testing.T) {
 			conway.UtxoValidatePoolCertificates,
 		},
 	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+	pparams := conwayPparams(common.ProtocolVersionConway, 340_000_000)
+	tooCheap := poolRegCertWire(
+		t,
+		poolKeyHash(0x01),
+		vrfKeyHash(0x02),
+		339_999_999,
+		common.AddressNetworkMainnet,
+	)
 	for _, era := range eras {
 		t.Run(era.name, func(t *testing.T) {
 			want := reflect.ValueOf(era.want).Pointer()
@@ -794,14 +837,28 @@ func TestPoolRuleInEveryEraRuleSet(t *testing.T) {
 				"%s UtxoValidationRules is missing the POOL rule",
 				era.name,
 			)
+			// Membership alone would still pass if the era's wrapper
+			// stopped delegating to the Shelley rule, so drive the entry
+			// that is actually registered and require it to reject.
+			var target shelley.StakePoolCostTooLowError
+			require.ErrorAs(
+				t,
+				era.want(poolCertTx(tooCheap), 0, ls, pparams),
+				&target,
+				"%s POOL rule entry does not apply the Shelley predicates",
+				era.name,
+			)
 		})
 	}
 }
 
 // TestPoolRulePparamsWiring proves every era's protocol parameter type answers
-// the POOL rule's parameter queries from its own fields. A type that failed to
-// implement the interface would make the rule return "pparams are not expected
-// type" for that era's blocks.
+// the POOL rule's parameter queries. A type that failed to implement the
+// interface would make the rule return "pparams are not expected type" for that
+// era's blocks.
+//
+// The seven cases cover five distinct method sets: Allegra aliases Shelley's
+// type, and Dijkstra promotes Conway's methods through embedding.
 func TestPoolRulePparamsWiring(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -811,16 +868,17 @@ func TestPoolRulePparamsWiring(t *testing.T) {
 		wantMaxEpoch    uint64
 	}{
 		{
-			// Shelley and Allegra share ShelleyProtocolParameters, which
-			// this repository models without a minPoolCost entry, so the
-			// cost floor is reported as zero for those eras.
+			// AllegraProtocolParameters is a type alias of
+			// ShelleyProtocolParameters, so these two cases exercise the
+			// same methods and differ only in the major version.
 			name: "shelley",
 			pparams: &shelley.ShelleyProtocolParameters{
 				ProtocolMajor: common.ProtocolVersionShelley,
 				MaxEpoch:      18,
+				MinPoolCost:   340_000_000,
 			},
 			wantMajor:       common.ProtocolVersionShelley,
-			wantMinPoolCost: 0,
+			wantMinPoolCost: 340_000_000,
 			wantMaxEpoch:    18,
 		},
 		{
@@ -828,9 +886,10 @@ func TestPoolRulePparamsWiring(t *testing.T) {
 			pparams: &allegra.AllegraProtocolParameters{
 				ProtocolMajor: common.ProtocolVersionAllegra,
 				MaxEpoch:      18,
+				MinPoolCost:   340_000_000,
 			},
 			wantMajor:       common.ProtocolVersionAllegra,
-			wantMinPoolCost: 0,
+			wantMinPoolCost: 340_000_000,
 			wantMaxEpoch:    18,
 		},
 		{

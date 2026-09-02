@@ -355,6 +355,44 @@ func TestPoolRegistrationCertificateRewardAccountDecode(t *testing.T) {
 			wantErr: "invalid reward account address header",
 		},
 		{
+			// 0xf1 is the script-credential reward-address header on
+			// mainnet, the last of the four headers
+			// headerIsAccountAddress admits.
+			name: "script reward address",
+			rewardAccount: append(
+				[]byte{0xf1},
+				credential...,
+			),
+		},
+		// headerIsAccountAddress in Cardano.Ledger.Address requires
+		// header .&. 0b11101110 == 0b11100000, so bits 3-1 must be clear
+		// and only 0xe0, 0xe1, 0xf0 and 0xf1 are valid. Each header below
+		// has the reward-address high nibble but a reserved bit set.
+		{
+			name: "reserved bit 1 set",
+			rewardAccount: append(
+				[]byte{0xe2},
+				credential...,
+			),
+			wantErr: "invalid reward account address header",
+		},
+		{
+			name: "reserved bit 2 set",
+			rewardAccount: append(
+				[]byte{0xe5},
+				credential...,
+			),
+			wantErr: "invalid reward account address header",
+		},
+		{
+			name: "reserved bit 3 set",
+			rewardAccount: append(
+				[]byte{0xe8},
+				credential...,
+			),
+			wantErr: "invalid reward account address header",
+		},
+		{
 			name:          "long",
 			rewardAccount: bytes.Repeat([]byte{0x03}, Blake2b224Size+2),
 			wantErr:       "invalid reward account length",

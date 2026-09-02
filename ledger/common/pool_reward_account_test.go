@@ -174,3 +174,54 @@ func TestPoolMetadataHashLengthIsFixed(t *testing.T) {
 		})
 	}
 }
+
+// TestPoolRegistrationSetCborInvalidatesNetworkId pins the cache invalidation
+// on the field WrongNetworkPOOL reads. SetCbor(nil) followed by field mutation
+// is a supported pattern for re-encoding a decoded certificate, and the decoded
+// reward-account header must not outlive the bytes it came from.
+func TestPoolRegistrationSetCborInvalidatesNetworkId(t *testing.T) {
+	credential := bytes.Repeat([]byte{0x07}, Blake2b224Size)
+	wire, err := cbor.Encode([]any{
+		uint(CertificateTypePoolRegistration),
+		NewBlake2b224(bytes.Repeat([]byte{0x01}, Blake2b224Size)),
+		NewBlake2b256(bytes.Repeat([]byte{0x02}, Blake2b256Size)),
+		uint64(1_000_000),
+		uint64(340_000_000),
+		NewGenesisRat(0, 1),
+		append([]byte{0xe1}, credential...),
+		[]AddrKeyHash{},
+		[]PoolRelay{},
+		nil,
+	})
+	require.NoError(t, err)
+
+	cert := &PoolRegistrationCertificate{}
+	require.NoError(t, cert.UnmarshalCBOR(wire))
+
+	// Decoding must keep the header metadata: UnmarshalCBOR caches the wire
+	// bytes through the embedded DecodeStoreCbor rather than this override.
+	networkId, known := cert.RewardAccountNetworkId()
+	require.True(t, known)
+	assert.Equal(t, uint(AddressNetworkMainnet), networkId)
+
+	// Clearing the cached bytes must drop it.
+	cert.SetCbor(nil)
+	networkId, known = cert.RewardAccountNetworkId()
+	assert.False(
+		t,
+		known,
+		"reward account network id survived SetCbor(nil)",
+	)
+	assert.Equal(t, uint(0), networkId)
+
+	// Replacing the cached bytes must drop it too.
+	cert2 := &PoolRegistrationCertificate{}
+	require.NoError(t, cert2.UnmarshalCBOR(wire))
+	cert2.SetCbor([]byte{0x01})
+	_, known = cert2.RewardAccountNetworkId()
+	assert.False(
+		t,
+		known,
+		"reward account network id survived a SetCbor replacement",
+	)
+}
