@@ -37,6 +37,43 @@ func dijkstraValidationRuleName(rule common.UtxoValidationRuleFunc) string {
 	return runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).Name()
 }
 
+func dijkstraValidationRuleDescriptor(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) (common.UtxoValidationRuleDescriptor, int) {
+	t.Helper()
+	var found common.UtxoValidationRuleDescriptor
+	foundIndex := -1
+	for idx, descriptor := range UtxoValidationRuleDescriptors() {
+		if descriptor.Id != id {
+			continue
+		}
+		if foundIndex >= 0 {
+			t.Fatalf(
+				"Dijkstra validation rule %q is registered at indexes %d and %d",
+				id,
+				foundIndex,
+				idx,
+			)
+		}
+		found = descriptor
+		foundIndex = idx
+	}
+	if foundIndex < 0 {
+		t.Fatalf("Dijkstra validation rule %q is not registered", id)
+	}
+	return found, foundIndex
+}
+
+func dijkstraValidationRuleIndex(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) int {
+	t.Helper()
+	_, idx := dijkstraValidationRuleDescriptor(t, id)
+	return idx
+}
+
 func dijkstraValidationRule(
 	t *testing.T,
 	want string,
@@ -623,11 +660,18 @@ func testGuardScriptCredential(script common.PlutusV4Script) common.Credential {
 func TestUtxoValidateNativeScriptsRequireGuard(t *testing.T) {
 	guardCred := testGuardCredential()
 	nativeScript := testRequireGuardNativeScript(t, guardCred)
+	nativeScriptCred := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: nativeScript.Hash(),
+	}
 
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxGuards: &DijkstraGuards{
-				Credentials: []common.Credential{guardCred},
+				Credentials: []common.Credential{
+					nativeScriptCred,
+					guardCred,
+				},
 			},
 		},
 		WitnessSet: DijkstraTransactionWitnessSet{
@@ -640,7 +684,9 @@ func TestUtxoValidateNativeScriptsRequireGuard(t *testing.T) {
 	}
 	require.NoError(t, UtxoValidateNativeScripts(tx, 0, nil, nil))
 
-	tx.Body.TxGuards = nil
+	tx.Body.TxGuards = &DijkstraGuards{
+		Credentials: []common.Credential{nativeScriptCred},
+	}
 	require.Error(t, UtxoValidateNativeScripts(tx, 0, nil, nil))
 }
 
@@ -676,8 +722,13 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeScriptGuard(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
-	require.NoError(t, err)
+	err := UtxoValidateRedeemerAndScriptWitnesses(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		nil,
+	)
+	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
 
 	err = UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
 	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
@@ -756,10 +807,18 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeReferenceScriptGuard(
 }
 
 func TestUtxoValidateCostModelsPresentPlutusV4(t *testing.T) {
+	script := common.PlutusV4Script{0x41, 0x00}
 	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{
+					dijkstraGuardCredentialForScript(script),
+				},
+			},
+		},
 		WitnessSet: DijkstraTransactionWitnessSet{
 			WsPlutusV4Scripts: cbor.NewSetType(
-				[]common.PlutusV4Script{{0x41, 0x00}},
+				[]common.PlutusV4Script{script},
 				false,
 			),
 		},
@@ -791,6 +850,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 	cases := []struct {
 		name       string
 		witnessSet DijkstraTransactionWitnessSet
+		script     common.Script
 		version    uint
 	}{
 		{
@@ -801,6 +861,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV1Script{0x41, 0x00},
 			version: 0,
 		},
 		{
@@ -811,6 +872,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV2Script{0x41, 0x00},
 			version: 1,
 		},
 		{
@@ -821,6 +883,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV3Script{0x41, 0x00},
 			version: 2,
 		},
 		{
@@ -831,6 +894,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV4Script{0x41, 0x00},
 			version: 3,
 		},
 	}
@@ -841,7 +905,18 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 				Body: DijkstraTransactionBody{
 					TxSubTransactions: cbor.NewSetType(
 						[]DijkstraSubTransaction{
-							{WitnessSet: tc.witnessSet},
+							{
+								Body: DijkstraSubTransactionBody{
+									TxGuards: &DijkstraGuards{
+										Credentials: []common.Credential{
+											dijkstraGuardCredentialForScript(
+												tc.script,
+											),
+										},
+									},
+								},
+								WitnessSet: tc.witnessSet,
+							},
 						},
 						false,
 					),
@@ -894,12 +969,11 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 	require.ErrorAs(t, err, &conway.ProtocolParameterUpdateEmptyError{})
 
 	maxRefScriptSizePerBlock := uint32(1000)
-	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
-		&DijkstraParameterChangeGovAction{
-			ParamUpdate: DijkstraProtocolParameterUpdate{
-				MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
-			},
-		}
+	tx.Body.TxProposalProcedures[0].PPGovAction.Action = &DijkstraParameterChangeGovAction{
+		ParamUpdate: DijkstraProtocolParameterUpdate{
+			MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
+		},
+	}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 
@@ -948,15 +1022,22 @@ func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
 }
 
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
+	plutusScript := common.PlutusV4Script{0x41, 0x00}
+	guardCred := testGuardScriptCredential(plutusScript)
 	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{guardCred},
+			},
+		},
 		WitnessSet: DijkstraTransactionWitnessSet{
 			WsPlutusV4Scripts: cbor.NewSetType(
-				[]common.PlutusV4Script{{0x41, 0x00}},
+				[]common.PlutusV4Script{plutusScript},
 				false,
 			),
 			WsRedeemers: DijkstraRedeemers{
 				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-					{Tag: common.RedeemerTagSpend, Index: 0}: {
+					{Tag: common.RedeemerTagGuarding, Index: 0}: {
 						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
 					},
 				},
@@ -965,7 +1046,12 @@ func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	err := UtxoValidateRedeemerAndScriptWitnesses(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		nil,
+	)
 	require.NoError(t, err)
 }
 
@@ -990,8 +1076,11 @@ func TestUtxoValidateRedeemerAndScriptWitnessesGuardingRedeemer(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
-	require.ErrorAs(t, err, &common.MissingPlutusScriptWitnessesError{})
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ledgerState, nil)
+	var missing common.MissingScriptWitnessesError
+	require.ErrorAs(t, err, &missing)
+	require.Equal(t, guardScript.Hash(), missing.ScriptHash)
 
 	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{
 		{
@@ -1004,7 +1093,7 @@ func TestUtxoValidateRedeemerAndScriptWitnessesGuardingRedeemer(t *testing.T) {
 		},
 	}, false)
 
-	err = UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	err = UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ledgerState, nil)
 	require.NoError(t, err)
 }
 
