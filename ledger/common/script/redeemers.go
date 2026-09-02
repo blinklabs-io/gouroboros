@@ -34,13 +34,31 @@ import (
 //
 // Eras share this single implementation rather than each re-deriving the
 // sorted-input walk and its script-availability lookup.
+//
+// This check applies regardless of the transaction's IsValid flag.
+// AlonzoUTXOW's hasExactSetOfRedeemers (the source of AlonzoUtxowPredFailure
+// MissingRedeemers) is a witnessing-completeness check, not a phase-2
+// execution check: IsValid is read only by UTXOS to decide how an already
+// phase-1-valid transaction is applied to the ledger state, never by UTXOW to
+// decide which witnesses are required. A transaction the submitter marked
+// invalid still must carry every redeemer its script-locked inputs require.
 func ValidateRequiredRedeemers(
 	tx lcommon.Transaction,
 	ls lcommon.LedgerState,
 ) error {
-	if tx == nil || ls == nil || !tx.IsValid() {
+	if tx == nil || ls == nil {
 		return nil
 	}
+	// NewTxScriptView resolves every input, so an unresolvable one surfaces
+	// here as InputResolutionError/ReferenceInputResolutionError even though
+	// shelley.UtxoValidateBadInputsUtxo and
+	// common.ValidateRedeemerAndScriptWitnesses -- both registered ahead of
+	// this rule in every era's rule list -- already report the same failure
+	// more specifically. Not reachable in production today because of that
+	// ordering, but reachable by any caller that runs this check first.
+	// TODO(#2162): switch to NewTxScriptViewSkippingUnresolved once it
+	// lands, so this rule -- which only ever reads the resolved view --
+	// stops being a second, competing source of input-resolution failures.
 	view, err := NewTxScriptView(tx, ls)
 	if err != nil {
 		return err

@@ -314,6 +314,74 @@ func TestValidateRequiredRedeemersMixedInputs(t *testing.T) {
 	require.Equal(t, uint32(1), missingErr.Index)
 }
 
+// TestValidateRequiredRedeemersMixedInputsBothRedeemed is
+// TestValidateRequiredRedeemersMixedInputs's positive counterpart: the same
+// two script-address inputs (one witness-backed, one reference-backed),
+// each correctly redeemed at its own sorted-input index, must pass.
+func TestValidateRequiredRedeemersMixedInputsBothRedeemed(t *testing.T) {
+	v1 := common.PlutusV1Script{0x01}
+	v2 := common.PlutusV2Script{0x02}
+
+	// Sorts after "aaaa...", so v1's input lands at sorted index 1.
+	inputWitness := shelley.NewShelleyTransactionInput(
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		0,
+	)
+	inputRef := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		0,
+	)
+
+	utxoWitness := common.Utxo{
+		Id: inputWitness,
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: scriptAddress(t, v1),
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+		},
+	}
+	utxoRef := common.Utxo{
+		Id: inputRef,
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: scriptAddress(t, v2),
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   common.ScriptRefTypePlutusV2,
+				Script: v2,
+			},
+		},
+	}
+	ls := ledgerStateWithUtxos(utxoWitness, utxoRef)
+
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{inputWitness, inputRef},
+			),
+		},
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsPlutusV1Scripts: cbor.NewSetType(
+				[]common.PlutusV1Script{v1},
+				false,
+			),
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					// inputRef (v2, reference-backed) at sorted index 0.
+					{Tag: common.RedeemerTagSpend, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+					// inputWitness (v1, witness-backed) at sorted index 1.
+					{Tag: common.RedeemerTagSpend, Index: 1}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+
+	require.NoError(t, script.ValidateRequiredRedeemers(tx, ls))
+}
+
 // TestValidateRequiredRedeemersSkipsNonScriptAddress ensures a key-address
 // input is never treated as requiring a redeemer.
 func TestValidateRequiredRedeemersSkipsNonScriptAddress(t *testing.T) {
@@ -389,11 +457,171 @@ func TestValidateRequiredRedeemersSkipsNativeScript(t *testing.T) {
 	require.NoError(t, script.ValidateRequiredRedeemers(tx, ls))
 }
 
-// TestValidateRequiredRedeemersSkipsInvalidTx mirrors
-// ValidateScriptWitnesses: a phase-2-invalid transaction is expected to fail
-// phase-2 validation, so phase-1 checks like this one must not additionally
-// reject it for a missing redeemer.
-func TestValidateRequiredRedeemersSkipsInvalidTx(t *testing.T) {
+// TestValidateRequiredRedeemersSkipsNativeWitnessScript is
+// TestValidateRequiredRedeemersSkipsNativeScript's explicit-witness
+// counterpart: a native script provided in the witness set, not as a
+// reference script, must not be treated as requiring a redeemer either.
+func TestValidateRequiredRedeemersSkipsNativeWitnessScript(t *testing.T) {
+	nsCbor, err := cbor.Encode(
+		common.NativeScriptInvalidBefore{Type: 4, Slot: 0},
+	)
+	require.NoError(t, err)
+	var ns common.NativeScript
+	require.NoError(t, ns.UnmarshalCBOR(nsCbor))
+
+	input := shelley.NewShelleyTransactionInput(
+		"6666666666666666666666666666666666666666666666666666666666666666",
+		0,
+	)
+	utxo := common.Utxo{
+		Id: input,
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: scriptAddress(t, ns),
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+		},
+	}
+	ls := ledgerStateWithUtxos(utxo)
+
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			),
+		},
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsNativeScripts: cbor.NewSetType(
+				[]common.NativeScript{ns},
+				false,
+			),
+		},
+		TxIsValid: true,
+	}
+
+	require.NoError(t, script.ValidateRequiredRedeemers(tx, ls))
+}
+
+// TestValidateRequiredRedeemersSkipsScriptEntirelyMissing ensures a
+// script-address input whose script is reachable via neither an explicit
+// witness nor a reference script is not reported by this check. That
+// absence is ValidateScriptWitnesses's error to report (MissingScriptWitnessesError);
+// this check must not also fire, or must not fire a *different* error, for
+// the same missing script.
+func TestValidateRequiredRedeemersSkipsScriptEntirelyMissing(t *testing.T) {
+	v1 := common.PlutusV1Script{0x01, 0x02, 0x03}
+	input := shelley.NewShelleyTransactionInput(
+		"7777777777777777777777777777777777777777777777777777777777777777",
+		0,
+	)
+	utxo := common.Utxo{
+		Id: input,
+		Output: &babbage.BabbageTransactionOutput{
+			// scriptAddress requires v1's hash, but v1 is never provided as
+			// a witness or a reference script anywhere in this transaction.
+			OutputAddress: scriptAddress(t, v1),
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+		},
+	}
+	ls := ledgerStateWithUtxos(utxo)
+
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			),
+		},
+		TxIsValid: true,
+	}
+
+	require.NoError(t, script.ValidateRequiredRedeemers(tx, ls))
+}
+
+// TestValidateRequiredRedeemersPropagatesInputResolutionError pins the
+// current resolution-error contract: an unresolvable consumed input
+// surfaces as common.InputResolutionError, the same error
+// NewTxScriptView/ResolveTxInputs report, even though
+// shelley.UtxoValidateBadInputsUtxo already reports the same failure more
+// specifically and is registered ahead of this rule in every era's
+// production rule list. This test pins today's actual behavior so a future
+// switch to NewTxScriptViewSkippingUnresolved (#2162) changes it
+// deliberately rather than silently.
+func TestValidateRequiredRedeemersPropagatesInputResolutionError(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"8888888888888888888888888888888888888888888888888888888888888888",
+		0,
+	)
+	// No UTxOs registered, so every UtxoById call fails.
+	ls := ledgerStateWithUtxos()
+
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			),
+		},
+		TxIsValid: true,
+	}
+
+	err := script.ValidateRequiredRedeemers(tx, ls)
+	require.ErrorAs(t, err, &common.InputResolutionError{})
+}
+
+// TestValidateRequiredRedeemersMissingRedeemerPlutusV3AndV4 extends the
+// missing-redeemer coverage beyond PlutusV1/V2 to PlutusV3 and PlutusV4
+// reference scripts.
+func TestValidateRequiredRedeemersMissingRedeemerPlutusV3AndV4(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		script  common.Script
+		refType uint
+	}{
+		{"PlutusV3", common.PlutusV3Script{0x01}, common.ScriptRefTypePlutusV3},
+		{"PlutusV4", common.PlutusV4Script{0x01}, common.ScriptRefTypePlutusV4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := shelley.NewShelleyTransactionInput(
+				"9999999999999999999999999999999999999999999999999999999999999999",
+				0,
+			)
+			utxo := common.Utxo{
+				Id: input,
+				Output: &babbage.BabbageTransactionOutput{
+					OutputAddress: scriptAddress(t, tc.script),
+					OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+					TxOutScriptRef: &common.ScriptRef{
+						Type:   tc.refType,
+						Script: tc.script,
+					},
+				},
+			}
+			ls := ledgerStateWithUtxos(utxo)
+
+			tx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{input},
+					),
+				},
+				TxIsValid: true,
+			}
+
+			err := script.ValidateRequiredRedeemers(tx, ls)
+			var missingErr common.MissingRedeemerForScriptError
+			require.ErrorAs(t, err, &missingErr)
+			require.Equal(t, tc.script.Hash(), missingErr.ScriptHash)
+			require.Equal(t, uint32(0), missingErr.Index)
+		})
+	}
+}
+
+// TestValidateRequiredRedeemersAppliesRegardlessOfIsValid pins that this
+// check is NOT gated on the transaction's IsValid flag, unlike
+// ValidateScriptWitnesses. AlonzoUTXOW's hasExactSetOfRedeemers (the source
+// of AlonzoUtxowPredFailure.MissingRedeemers) is a witnessing-completeness
+// check that cardano-ledger enforces unconditionally; IsValid is read only
+// by UTXOS, never by UTXOW, to decide which witnesses are required. A
+// submitter marking a transaction invalid does not excuse it from carrying
+// every redeemer its script-locked inputs require.
+func TestValidateRequiredRedeemersAppliesRegardlessOfIsValid(t *testing.T) {
 	v1 := common.PlutusV1Script{0x01}
 	input := shelley.NewShelleyTransactionInput(
 		"5555555555555555555555555555555555555555555555555555555555555555",
@@ -421,7 +649,11 @@ func TestValidateRequiredRedeemersSkipsInvalidTx(t *testing.T) {
 		TxIsValid: false,
 	}
 
-	require.NoError(t, script.ValidateRequiredRedeemers(tx, ls))
+	err := script.ValidateRequiredRedeemers(tx, ls)
+	var missingErr common.MissingRedeemerForScriptError
+	require.ErrorAs(t, err, &missingErr)
+	require.Equal(t, v1.Hash(), missingErr.ScriptHash)
+	require.Equal(t, uint32(0), missingErr.Index)
 }
 
 // TestValidateRequiredRedeemersNilLedgerState mirrors
