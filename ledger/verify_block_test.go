@@ -224,6 +224,7 @@ func testSkipAllValidationConfig() common.VerifyConfig {
 		SkipBodyHashValidation:    true,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,
+		SkipBlockLimitsValidation: true,
 	}
 }
 
