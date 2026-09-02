@@ -40,6 +40,14 @@ type CertState interface {
 	IsStakeCredentialRegistered(Credential) bool
 }
 
+// StakeCredentialDepositState is the optional ledger-state capability used by
+// Conway certificate validation to retrieve the deposit held for a registered
+// stake credential. The returned pointer is nil when the credential is not
+// registered.
+type StakeCredentialDepositState interface {
+	StakeCredentialDeposit(Credential) (*uint64, error)
+}
+
 // PoolState defines the interface for querying the current pool state
 type PoolState interface {
 	// PoolCurrentState returns the latest active registration certificate for the given pool key hash.
@@ -143,6 +151,20 @@ type CommitteeMember struct {
 	Resigned    bool
 }
 
+// CommitteeCredentialState is the optional authoritative committee-state
+// capability used by Conway certificate and voter validation. Credentials are
+// passed with their key/script tag intact so providers cannot alias identities
+// that share the same hash.
+//
+// CommitteeStateAvailable distinguishes an authoritative empty committee from
+// a provider that cannot answer committee queries for the validation snapshot.
+// Validation fails closed when this capability is absent or reports false.
+type CommitteeCredentialState interface {
+	CommitteeStateAvailable() (bool, error)
+	CommitteeCredentialMember(Credential) (*CommitteeMember, error)
+	CommitteeHotCredentialMember(Credential) (*CommitteeMember, error)
+}
+
 type DRepRegistration struct {
 	Credential Blake2b224
 	Anchor     *GovAnchor
@@ -200,7 +222,11 @@ type GovPurposeRootsState interface {
 // GovState defines the interface for querying governance state
 type GovState interface {
 	// Committee queries
+	// CommitteeMember resolves a cold credential against both the current
+	// committee and every pending UpdateCommittee proposal. It returns nil only
+	// when the credential is neither a current nor a potential future member.
 	CommitteeMember(coldKey Blake2b224) (*CommitteeMember, error)
+	// CommitteeMembers returns the current committee members.
 	CommitteeMembers() ([]CommitteeMember, error)
 
 	// DRep queries

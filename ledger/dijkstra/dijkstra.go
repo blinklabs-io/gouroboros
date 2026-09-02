@@ -767,6 +767,9 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
+		return err
+	}
 	// Reject duplicate members in any tag-258 set field on the transaction body.
 	type duplicateChecker interface {
 		CheckForDuplicates() error
@@ -1057,6 +1060,9 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
 	if err := tmp.TxInputs.CheckForDuplicates(); err != nil {
@@ -1503,6 +1509,15 @@ func (t DijkstraTransaction) SubTransactionWitnessSets() []common.TransactionWit
 	ret := make([]common.TransactionWitnessSet, 0, len(subTxs))
 	for _, subTx := range subTxs {
 		ret = append(ret, subTx.WitnessSet)
+	}
+	return ret
+}
+
+func (t DijkstraTransaction) SubTransactionOutputs() []common.TransactionOutput {
+	subTxs := t.Body.TxSubTransactions.Items()
+	var ret []common.TransactionOutput
+	for _, subTx := range subTxs {
+		ret = append(ret, subTx.Body.Outputs()...)
 	}
 	return ret
 }
