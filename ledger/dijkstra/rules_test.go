@@ -77,6 +77,7 @@ var dijkstraComposedLayout = []dijkstraComposedEntry{
 	{name: "ledger/dijkstra.UtxoValidateNoCollateralInputs", gated: false},
 	{name: "ledger/conway.UtxoValidateBadInputsUtxo", gated: false},
 	{name: "ledger/conway.UtxoValidateScriptWitnesses", gated: false},
+	{name: "ledger/conway.UtxoValidateRequiredRedeemers", gated: false},
 	{name: "ledger/dijkstra.UtxoValidateValueNotConservedUtxo", gated: false},
 	{name: "ledger/dijkstra.UtxoValidateOutputTooSmallUtxo", gated: false},
 	{name: "ledger/dijkstra.UtxoValidateOutputTooBigUtxo", gated: false},
@@ -1362,11 +1363,11 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	ls := mockledger.NewLedgerStateBuilder().Build()
 
 	t.Run("unwrapped fails closed", func(t *testing.T) {
-		_, err := script.NewTxInfoV1FromTransaction(ls, tx, nil)
+		_, err := script.NewTxInfoV1FromTransaction(ls, tx, nil, true)
 		var unmatchedErr script.UnmatchedRedeemerError
 		require.ErrorAs(t, err, &unmatchedErr)
 
-		_, err = script.NewTxInfoV2FromTransaction(ls, tx, nil)
+		_, err = script.NewTxInfoV2FromTransaction(ls, tx, nil, true)
 		require.ErrorAs(t, err, &unmatchedErr)
 
 		_, err = script.NewTxInfoV3FromTransaction(ls, tx, nil)
@@ -1376,10 +1377,10 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	t.Run("wrapped succeeds", func(t *testing.T) {
 		wrapped := transactionWithoutGuardingRedeemers{Transaction: tx}
 
-		_, err := script.NewTxInfoV1FromTransaction(ls, wrapped, nil)
+		_, err := script.NewTxInfoV1FromTransaction(ls, wrapped, nil, true)
 		require.NoError(t, err)
 
-		_, err = script.NewTxInfoV2FromTransaction(ls, wrapped, nil)
+		_, err = script.NewTxInfoV2FromTransaction(ls, wrapped, nil, true)
 		require.NoError(t, err)
 
 		_, err = script.NewTxInfoV3FromTransaction(ls, wrapped, nil)

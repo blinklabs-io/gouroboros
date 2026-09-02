@@ -1071,14 +1071,32 @@ func UtxoValidateScriptWitnesses(
 	return common.ValidateScriptWitnesses(tx, ls)
 }
 
-// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+// UtxoValidateNativeScripts evaluates the native scripts this transaction has
+// to satisfy.
 func UtxoValidateNativeScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return alonzo.UtxoValidateNativeScripts(tx, slot, ls, pp)
+	view, err := script.NewTxScriptViewSkippingUnresolved(tx, ls)
+	if err != nil {
+		return err
+	}
+	env := script.NewNativeScriptEnv(tx, slot)
+	for _, nativeScript := range script.NativeScriptsToEvaluate(tx, view) {
+		if !nativeScript.Evaluate(
+			env.Slot,
+			env.ValidityStart,
+			env.ValidityEnd,
+			env.KeyHashes,
+		) {
+			return allegra.NativeScriptFailedError{
+				ScriptHash: nativeScript.Hash(),
+			}
+		}
+	}
+	return nil
 }
 
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
