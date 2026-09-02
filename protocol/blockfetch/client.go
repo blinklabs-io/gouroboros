@@ -1100,22 +1100,55 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			fmt.Errorf("%s: decode error: %w", ProtocolName, err),
 		)
 	}
-	block, err := ledger.NewBlockFromCbor(
+	block, decodeErr := ledger.NewBlockFromCbor(
 		wrappedBlock.Type,
 		wrappedBlock.RawBlock,
 		lcommon.VerifyConfig{
 			SkipBodyHashValidation: c.config.SkipBlockValidation,
 		},
 	)
-	if err != nil {
-		return c.failRequest(req, err)
+	// A raw callback decodes the payload itself, so a generic type decoder
+	// that cannot represent the full wire layout must not fail the request
+	// before the callback ever runs. This is how a block whose era tag
+	// understates its actual shape -- a Dijkstra-shaped block tagged Conway,
+	// say -- reaches a consumer that does understand it.
+	//
+	// The condition is exactly "the raw callback is the consumer that would
+	// receive this block", matching the delivery decisions made below. Every
+	// other consumer wants a decoded block and keeps failing here: GetBlock,
+	// which hands its caller a ledger.Block; BlockFunc; and the block
+	// pipeline, which takes precedence over BlockRawFunc and does its own
+	// typed decode (pipeline.decodeStage).
+	rawFallback := decodeErr != nil &&
+		req.delivery == deliveryCallback &&
+		c.config.Pipeline == nil &&
+		c.config.BlockRawFunc != nil
+	if decodeErr != nil && !rawFallback {
+		return c.failRequest(req, decodeErr)
 	}
-	blockPoint := pcommon.NewPoint(
-		block.SlotNumber(),
-		block.Hash().Bytes(),
-	)
+	// Range correlation applies either way. Without a decoded block its
+	// inputs are read straight from the block header CBOR, so a peer still
+	// cannot inject an unrelated block into a valid batch by sending one the
+	// type decoder rejects.
+	var blockPoint pcommon.Point
+	var prevHash []byte
+	if rawFallback {
+		info, err := rawBlockHeaderInfoFromCbor(wrappedBlock.RawBlock)
+		if err != nil {
+			return c.failRequest(req, errors.Join(decodeErr, err))
+		}
+		blockPoint = info.point
+		prevHash = info.prevHash
+	} else {
+		blockPoint = pcommon.NewPoint(
+			block.SlotNumber(),
+			block.Hash().Bytes(),
+		)
+		blockPrevHash := block.PrevHash()
+		prevHash = blockPrevHash.Bytes()
+	}
 	c.queueMutex.Lock()
-	err = req.recordBlock(block, blockPoint)
+	err = req.recordBlock(blockPoint, prevHash)
 	c.queueMutex.Unlock()
 	if err != nil {
 		return c.failRequest(req, err)
@@ -1217,11 +1250,13 @@ func pointsEqual(a, b pcommon.Point) bool {
 
 // recordBlock validates and records the next block in a requested inclusive
 // range. BlockFetch does not carry the expected interior points on the wire,
-// so continuity is established from each decoded block's previous hash. The
-// caller must hold queueMutex.
+// so continuity is established from each block's previous hash. It takes the
+// point and previous hash rather than a block so it applies equally to a
+// block delivered raw, whose typed decode is the consumer's job. The caller
+// must hold queueMutex.
 func (req *rangeRequest) recordBlock(
-	block ledger.Block,
 	blockPoint pcommon.Point,
+	prevHash []byte,
 ) error {
 	if !pointInRange(blockPoint, req.start, req.end) {
 		return fmt.Errorf(
@@ -1257,8 +1292,7 @@ func (req *rangeRequest) recordBlock(
 				req.lastPoint.Slot,
 			)
 		}
-		prevHash := block.PrevHash()
-		if !bytes.Equal(prevHash[:], req.lastPoint.Hash) {
+		if !bytes.Equal(prevHash, req.lastPoint.Hash) {
 			return fmt.Errorf(
 				"%s: received block does not follow previous range point: slot=%d hash=%x previous_hash=%x",
 				ProtocolName,
