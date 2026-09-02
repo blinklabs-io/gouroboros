@@ -26,6 +26,10 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 )
 
+// eraIdConway is the first era with strict validity upper bounds. Keep this
+// numeric boundary here to avoid importing era packages into common/script.
+const eraIdConway = 6
+
 type ScriptContext interface {
 	isScriptContext()
 	ToPlutusData() data.PlutusData
@@ -248,6 +252,12 @@ func NewTxInfoV1FromTransaction(
 		Id:           tx.Id(),
 	}
 	return ret, nil
+}
+
+// StrictValidityUpperBoundForTransaction reports whether the transaction's
+// era uses an exclusive upper validity bound in Plutus script contexts.
+func StrictValidityUpperBoundForTransaction(tx lcommon.Transaction) bool {
+	return tx.Type() >= eraIdConway
 }
 
 type TxInfoV2 struct {

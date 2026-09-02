@@ -2978,7 +2978,8 @@ func UtxoValidatePlutusScripts(
 			if !txInfoV2Built {
 				var err error
 				txInfoV2, err = script.NewTxInfoV2FromTransaction(
-					ls, tx, resolvedInputs, true,
+					ls, tx, resolvedInputs,
+					script.StrictValidityUpperBoundForTransaction(tx),
 				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
@@ -3012,7 +3013,8 @@ func UtxoValidatePlutusScripts(
 			if !txInfoV1Built {
 				var err error
 				txInfoV1, err = script.NewTxInfoV1FromTransaction(
-					ls, tx, resolvedInputs, true,
+					ls, tx, resolvedInputs,
+					script.StrictValidityUpperBoundForTransaction(tx),
 				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
