@@ -1452,14 +1452,10 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 	})
 }
 
-// UtxoValidateMIRGenesisQuorum is exported API that no era registers yet. It
-// fails closed for a ledger state that does not implement
-// common.GenesisDelegationState, so registering it before consumers implement
-// that capability would stop a syncing node on the first MIR certificate in
-// Shelley-through-Babbage history, and mainnet history contains them. This
-// pins the deferral until blinklabs-io/dingo#3748 lands; the rule-list entries
-// and this test are meant to change together.
-func TestMIRGenesisQuorumIsNotYetRegistered(t *testing.T) {
+// UtxoValidateMIRGenesisQuorum is registered in every pre-Conway era. It
+// fails closed when a ledger state cannot provide the genesis-delegation
+// capability, preventing unauthorized MIR certificates from being accepted.
+func TestMIRGenesisQuorumIsRegistered(t *testing.T) {
 	eras := []struct {
 		name  string
 		rules []common.UtxoValidationRuleFunc
@@ -1473,22 +1469,13 @@ func TestMIRGenesisQuorumIsNotYetRegistered(t *testing.T) {
 	}
 	for _, era := range eras {
 		t.Run(era.name, func(t *testing.T) {
+			want := reflect.ValueOf(era.rule).Pointer()
 			for _, registered := range era.rules {
-				got := reflect.ValueOf(registered).Pointer()
-				// Compare against every era's entry point, not just this
-				// era's, because the pre-Conway wrappers all delegate to the
-				// Shelley rule and any of them would wire it in.
-				for _, other := range eras {
-					require.NotEqual(
-						t,
-						reflect.ValueOf(other.rule).Pointer(),
-						got,
-						"%s UtxoValidateMIRGenesisQuorum is registered in %s",
-						other.name,
-						era.name,
-					)
+				if reflect.ValueOf(registered).Pointer() == want {
+					return
 				}
 			}
+			t.Errorf("%s UtxoValidateMIRGenesisQuorum is not registered", era.name)
 		})
 	}
 }

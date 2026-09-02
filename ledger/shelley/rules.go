@@ -51,6 +51,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
+	UtxoValidateMIRGenesisQuorum,
 }
 
 // UtxoValidateTimeToLive ensures that the current tip slot is not after the specified TTL value

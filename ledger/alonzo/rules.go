@@ -56,6 +56,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidatePlutusScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
+	UtxoValidateMIRGenesisQuorum,
 }
 
 // UtxoValidateOutputTooBigUtxo ensures that transaction output values are not too large
