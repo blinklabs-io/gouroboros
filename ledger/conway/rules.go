@@ -35,67 +35,260 @@ import (
 	"github.com/blinklabs-io/plutigo/lang"
 )
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	UtxoValidateMetadata,
-	UtxoValidateProposalProcedures,
-	UtxoValidateGovActionWellFormedness,
-	UtxoValidateHardForkCanFollow,
-	UtxoValidateProposalAncestry,
-	UtxoValidateProposalDeposit,
-	UtxoValidateProposalNetworkIds,
-	UtxoValidateProposalReturnAccounts,
-	UtxoValidateEmptyTreasuryWithdrawals,
-	UtxoValidateBootstrapAllowedGovActions,
-	UtxoValidateBootstrapParameterGroups,
-	UtxoValidateIsValidFlag,
-	UtxoValidateRequiredVKeyWitnesses,
-	UtxoValidateCollateralVKeyWitnesses,
-	UtxoValidateRedeemerAndScriptWitnesses,
-	UtxoValidateSignatures,
-	UtxoValidateCostModelsPresent,
-	UtxoValidateScriptDataHash,
-	UtxoValidateInlineDatumsWithPlutusV1,
-	UtxoValidateConwayFeaturesWithPlutusV1V2,
-	UtxoValidateDisjointRefInputs,
-	UtxoValidateOutsideValidityIntervalUtxo,
-	UtxoValidateInputSetEmptyUtxo,
-	UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateInsufficientCollateral,
-	UtxoValidateCollateralContainsNonAda,
-	UtxoValidateCollateralEqBalance,
-	UtxoValidateNoCollateralInputs,
-	UtxoValidateBadInputsUtxo,
-	// Ensure script witness presence/absence is validated after redeemer/script relation
-	UtxoValidateScriptWitnesses,
-	UtxoValidateRequiredRedeemers,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputTooBigUtxo,
-	UtxoValidateOutputBootAddrAttrsTooBig,
-	UtxoValidateWrongNetwork,
-	UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateTransactionNetworkId,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateExUnitsTooBigUtxo,
-	UtxoValidateTooManyCollateralInputs,
-	UtxoValidateSupplementalDatums,
-	UtxoValidateExtraneousRedeemers,
-	UtxoValidateMalformedReferenceScripts,
-	UtxoValidatePlutusScripts,
-	UtxoValidateNativeScripts,
-	UtxoValidateDelegation,
-	UtxoValidateWithdrawals,
-	UtxoValidateCertificateDeposits,
-	UtxoValidateCommitteeCertificates,
-	UtxoValidateUnknownVoters,
-	UtxoValidateUnknownGovActionIds,
-	UtxoValidateVotingOnExpiredGovAction,
-	UtxoValidateBootstrapVotingRestrictions,
-	UtxoValidateStakePoolVotingRestrictions,
-	UtxoValidateCCVotingRestrictions,
-	UtxoValidateRefScriptSizePerTx,
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{
+		Id:        common.UtxoValidationRuleCurrentTreasuryValue,
+		Validator: common.UtxoValidateCurrentTreasuryValue,
+	},
+	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
+	{
+		Id:        common.UtxoValidationRuleProposalProcedures,
+		Validator: UtxoValidateProposalProcedures,
+	},
+	{
+		Id:        common.UtxoValidationRuleGovActionWellFormedness,
+		Validator: UtxoValidateGovActionWellFormedness,
+	},
+	{
+		Id:        common.UtxoValidationRuleHardForkCanFollow,
+		Validator: UtxoValidateHardForkCanFollow,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalAncestry,
+		Validator: UtxoValidateProposalAncestry,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalDeposit,
+		Validator: UtxoValidateProposalDeposit,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalNetworkIds,
+		Validator: UtxoValidateProposalNetworkIds,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalReturnAccounts,
+		Validator: UtxoValidateProposalReturnAccounts,
+	},
+	{
+		Id:        common.UtxoValidationRuleEmptyTreasuryWithdrawals,
+		Validator: UtxoValidateEmptyTreasuryWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapAllowedGovActions,
+		Validator: UtxoValidateBootstrapAllowedGovActions,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapParameterGroups,
+		Validator: UtxoValidateBootstrapParameterGroups,
+	},
+	{
+		Id:        common.UtxoValidationRuleIsValidFlag,
+		Validator: UtxoValidateIsValidFlag,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralVKeyWitnesses,
+		Validator: UtxoValidateCollateralVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+		Validator: UtxoValidateRedeemerAndScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleCostModelsPresent,
+		Validator: UtxoValidateCostModelsPresent,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptDataHash,
+		Validator: UtxoValidateScriptDataHash,
+	},
+	{
+		Id:        common.UtxoValidationRuleInlineDatumsWithPlutusV1,
+		Validator: UtxoValidateInlineDatumsWithPlutusV1,
+	},
+	{
+		Id:        common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2,
+		Validator: UtxoValidateConwayFeaturesWithPlutusV1V2,
+	},
+	{
+		Id:        common.UtxoValidationRuleDisjointRefInputs,
+		Validator: UtxoValidateDisjointRefInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideValidityInterval,
+		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInsufficientCollateral,
+		Validator: UtxoValidateInsufficientCollateral,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralContainsNonAda,
+		Validator: UtxoValidateCollateralContainsNonAda,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralEqBalance,
+		Validator: UtxoValidateCollateralEqBalance,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoCollateralInputs,
+		Validator: UtxoValidateNoCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
+	// Ensure script witness presence/absence is validated after the
+	// redeemer/script relation.
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredRedeemers,
+		Validator: UtxoValidateRequiredRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooBig,
+		Validator: UtxoValidateOutputTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleTransactionNetworkId,
+		Validator: UtxoValidateTransactionNetworkId,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleExUnitsTooBig,
+		Validator: UtxoValidateExUnitsTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleTooManyCollateralInputs,
+		Validator: UtxoValidateTooManyCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleSupplementalDatums,
+		Validator: UtxoValidateSupplementalDatums,
+	},
+	{
+		Id:        common.UtxoValidationRuleExtraneousRedeemers,
+		Validator: UtxoValidateExtraneousRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRuleMalformedReferenceScripts,
+		Validator: UtxoValidateMalformedReferenceScripts,
+	},
+	{
+		Id:        common.UtxoValidationRulePlutusScripts,
+		Validator: UtxoValidatePlutusScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleCertificateDeposits,
+		Validator: UtxoValidateCertificateDeposits,
+	},
+	{
+		Id:        common.UtxoValidationRuleCommitteeCertificates,
+		Validator: UtxoValidateCommitteeCertificates,
+	},
+	{
+		Id:        common.UtxoValidationRuleUnknownVoters,
+		Validator: UtxoValidateUnknownVoters,
+	},
+	{
+		Id:        common.UtxoValidationRuleUnknownGovActionIds,
+		Validator: UtxoValidateUnknownGovActionIds,
+	},
+	{
+		Id:        common.UtxoValidationRuleVotingOnExpiredGovAction,
+		Validator: UtxoValidateVotingOnExpiredGovAction,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapVotingRestrictions,
+		Validator: UtxoValidateBootstrapVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleStakePoolVotingRestrictions,
+		Validator: UtxoValidateStakePoolVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleCCVotingRestrictions,
+		Validator: UtxoValidateCCVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleRefScriptSizePerTx,
+		Validator: UtxoValidateRefScriptSizePerTx,
+	},
 }
+
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
+var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
+	utxoValidationRuleDescriptors,
+)
 
 // isInConwayBootstrapPhase reports whether the given protocol parameters
 // are in the Conway bootstrap phase: protocol major version in the range
@@ -2313,78 +2506,45 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// First check for PlutusV1/V2 scripts in witness set
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) {
+			// UtxoValidateBadInputsUtxo reports regular input failures with the
+			// canonical error. The partial view still contains witness scripts and
+			// script purposes that do not depend on resolving those inputs.
+			return ValidateConwayFeaturesWithPlutusV1V2(tx, view)
+		}
+		return err
+	}
+	return ValidateConwayFeaturesWithPlutusV1V2(tx, view)
+}
+
+// ValidateConwayFeaturesWithPlutusV1V2 applies the Conway compatibility
+// predicate using an already resolved script view. Later eras can share script
+// availability across transaction levels while keeping view.Needed scoped to
+// the body whose Conway features are being checked.
+func ValidateConwayFeaturesWithPlutusV1V2(
+	tx common.Transaction,
+	view script.TxScriptView,
+) error {
 	plutusVersion := ""
-	witnesses := tx.Witnesses()
-	if witnesses != nil {
-		if len(witnesses.PlutusV1Scripts()) > 0 {
-			plutusVersion = "PlutusV1"
-		} else if len(witnesses.PlutusV2Scripts()) > 0 {
-			plutusVersion = "PlutusV2"
-		}
+	if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV1Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV1"
+	} else if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV2Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV2"
 	}
-
-	// Also check reference scripts on reference inputs
-	if plutusVersion == "" {
-		for _, refInput := range tx.ReferenceInputs() {
-			utxo, err := ls.UtxoById(refInput)
-			if err != nil {
-				return common.ReferenceInputResolutionError{
-					Input: refInput,
-					Err:   err,
-				}
-			}
-			if utxo.Output == nil {
-				continue
-			}
-			script := utxo.Output.ScriptRef()
-			if script != nil {
-				switch script.(type) {
-				case common.PlutusV1Script:
-					plutusVersion = "PlutusV1"
-				case common.PlutusV2Script:
-					plutusVersion = "PlutusV2"
-				}
-				if plutusVersion != "" {
-					break
-				}
-			}
-		}
-	}
-
-	// Also check reference scripts on regular inputs
-	if plutusVersion == "" {
-		for _, input := range tx.Inputs() {
-			utxo, err := ls.UtxoById(input)
-			if err != nil {
-				continue
-			}
-			if utxo.Output == nil {
-				continue
-			}
-			script := utxo.Output.ScriptRef()
-			if script != nil {
-				switch script.(type) {
-				case common.PlutusV1Script:
-					plutusVersion = "PlutusV1"
-				case common.PlutusV2Script:
-					plutusVersion = "PlutusV2"
-				}
-				if plutusVersion != "" {
-					break
-				}
-			}
-		}
-	}
-
-	// No V1/V2 scripts found, Conway features are fine
 	if plutusVersion == "" {
 		return nil
 	}
 
 	// Check for Conway-specific features
-	hasCurrentTreasuryValue := tx.CurrentTreasuryValue() != nil &&
-		tx.CurrentTreasuryValue().Sign() > 0
+	hasCurrentTreasuryValue := common.TransactionCurrentTreasuryValuePresent(tx)
 	hasProposalProcedures := len(tx.ProposalProcedures()) > 0
 	hasVotingProcedures := tx.VotingProcedures() != nil &&
 		len(tx.VotingProcedures()) > 0

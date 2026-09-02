@@ -3708,11 +3708,22 @@ func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 	}
 
 	for _, era := range []struct {
-		name  string
-		rules []common.UtxoValidationRuleFunc
+		name string
+		// isValidFlag is the era's own registered rule. Dijkstra wraps
+		// Conway's, so asking for Conway's would not match its descriptor.
+		isValidFlag common.UtxoValidationRuleFunc
+		rules       []common.UtxoValidationRuleFunc
 	}{
-		{name: "Conway", rules: conway.UtxoValidationRules},
-		{name: "Dijkstra", rules: dijkstra.UtxoValidationRules},
+		{
+			name:        "Conway",
+			isValidFlag: conway.UtxoValidateIsValidFlag,
+			rules:       conway.UtxoValidationRules,
+		},
+		{
+			name:        "Dijkstra",
+			isValidFlag: dijkstra.UtxoValidateIsValidFlag,
+			rules:       dijkstra.UtxoValidationRules,
+		},
 	} {
 		t.Run(era.name, func(t *testing.T) {
 			for _, operation := range operations {
@@ -3731,7 +3742,7 @@ func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 					rules := registeredRules(
 						t,
 						era.rules,
-						conway.UtxoValidateIsValidFlag,
+						era.isValidFlag,
 						operation.rule,
 					)
 					err := common.VerifyTransaction(tx, 0, state, nil, rules)
@@ -3756,7 +3767,7 @@ func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 				rules := registeredRules(
 					t,
 					era.rules,
-					conway.UtxoValidateIsValidFlag,
+					era.isValidFlag,
 					conway.UtxoValidateCommitteeCertificates,
 				)
 				err := common.VerifyTransaction(tx, 0, state, nil, rules)

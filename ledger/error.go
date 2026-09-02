@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
@@ -999,29 +1000,7 @@ func (e *UtxowFailure) Error() string {
 // CBOR (constructor payload only, tag already stripped by the caller):
 //
 //	[credential, ...]
-type MissingRequiredGuards struct {
-	Guards []common.Credential
-}
-
-func (e *MissingRequiredGuards) UnmarshalCBOR(cborData []byte) error {
-	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (e *MissingRequiredGuards) Error() string {
-	var sb strings.Builder
-	sb.WriteString("MissingRequiredGuards ([")
-	for idx, cred := range e.Guards {
-		sb.WriteString(cred.Credential.String())
-		if idx < len(e.Guards)-1 {
-			sb.WriteString(", ")
-		}
-	}
-	sb.WriteString("])")
-	return sb.String()
-}
+type MissingRequiredGuards = dijkstra.MissingRequiredGuards
 
 // MalformedGuardDatums represents guard credentials whose datum presence in
 // requiredTopLevelGuards is inconsistent. Dijkstra-only (UTXOW constructor
@@ -1033,29 +1012,7 @@ func (e *MissingRequiredGuards) Error() string {
 // CBOR (constructor payload only, tag already stripped by the caller):
 //
 //	[credential, ...]
-type MalformedGuardDatums struct {
-	Guards []common.Credential
-}
-
-func (e *MalformedGuardDatums) UnmarshalCBOR(cborData []byte) error {
-	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (e *MalformedGuardDatums) Error() string {
-	var sb strings.Builder
-	sb.WriteString("MalformedGuardDatums ([")
-	for idx, cred := range e.Guards {
-		sb.WriteString(cred.Credential.String())
-		if idx < len(e.Guards)-1 {
-			sb.WriteString(", ")
-		}
-	}
-	sb.WriteString("])")
-	return sb.String()
-}
+type MalformedGuardDatums = dijkstra.MalformedGuardDatums
 
 type UtxoFailure struct {
 	cbor.StructAsArray
