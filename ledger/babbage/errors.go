@@ -58,6 +58,9 @@ type MissingPlutusScriptWitnessesError = common.MissingPlutusScriptWitnessesErro
 
 type ExtraneousPlutusScriptWitnessesError = common.ExtraneousPlutusScriptWitnessesError
 
+// MissingRedeemerForScriptError is an alias to common.MissingRedeemerForScriptError
+type MissingRedeemerForScriptError = common.MissingRedeemerForScriptError
+
 // Metadata / cost model / IsValid aliases
 type MissingTransactionMetadataError = common.MissingTransactionMetadataError
 

@@ -85,6 +85,7 @@ func buildTxInfoV1(
 		slotState,
 		tx,
 		resolvedInputs,
+		false, // Alonzo era: pre-Conway, closed upper-only validity bound
 	)
 	if err != nil {
 		return nil, err
@@ -144,6 +145,7 @@ func buildTxInfoV2(
 		slotState,
 		tx,
 		resolvedInputs,
+		false, // Babbage era: pre-Conway, closed upper-only validity bound
 	)
 	if err != nil {
 		return nil, err
@@ -526,10 +528,11 @@ var scriptContextV3TestDefs = []struct {
 		redeemerTag:   lcommon.RedeemerTagReward,
 		redeemerIndex: 0,
 		slotState:     preprodSlotState,
-		// This transaction has key 3 (upper) and no key 8 (lower).
-		// Alonzo translates an upper-only interval with PV1.to, whose
-		// finite upper bound is closed, but the Conway instance shadows
-		// it with PV1.strictUpperBound, so the bound is exclusive here.
+		// cardano-ledger translates the validity-interval upper bound
+		// with PV1.strictUpperBound (EXCLUSIVE), so a finite upper bound
+		// is OPEN (closure False) even for an upper-only interval. This
+		// transaction has key 3 (upper, invalidHereafter) and no key 8
+		// (lower).
 		expectedCbor: "d8799fd8799f9fd8799fd8799f5820000000000000000000000000000000000000000000000000000000000000000000ffd8799fd8799fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffd8799fd8799fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffffffa140a1401a000f4240d87b9fd87980ffd8799f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffffff809fd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd8799fd8799fd87a9f581c11111111111111111111111111111111111111111111111111111111ffffffffa140a1401a000f4240d87980d87a80ffd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd8799fd87a9f1a00261ec3181b03ffffffa140a1401a000f4240d87980d87a80ffd8799fd8799fd87a9f581c11111111111111111111111111111111111111111111111111111111ffd8799fd87a9f1a00261ec3181b03ffffffa140a1401a000f4240d87980d87a80ffff182aa080a1d87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ff00d8799fd8799fd87980d87a80ffd8799fd87a9f1b000001739c890420ffd87980ffff9f581c00000000000000000000000000000000000000000000000000000000ffa2d87a9fd8799f5820000000000000000000000000000000000000000000000000000000000000000000ffffd87a81d87980d87b9fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffd87980a0582040bee3b25a585a854fe73f3448a6f6b417fe669c813a1881e665971f34a9e984a080d87a80d8799f01ffffd87980d87b9fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffff",
 	},
 	{
@@ -640,6 +643,7 @@ func TestNewTxInfoFromTransactionUnmatchedRedeemer(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			true, // Conway tx (error path; flag does not affect the assertion)
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -651,6 +655,7 @@ func TestNewTxInfoFromTransactionUnmatchedRedeemer(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			true, // Conway tx (error path; flag does not affect the assertion)
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -690,6 +695,7 @@ func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			true, // Conway tx (error path; flag does not affect the assertion)
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -701,6 +707,7 @@ func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			true, // Conway tx (error path; flag does not affect the assertion)
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError

@@ -67,6 +67,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNoCollateralInputs,
 	conway.UtxoValidateBadInputsUtxo,
 	conway.UtxoValidateScriptWitnesses,
+	conway.UtxoValidateRequiredRedeemers,
 	UtxoValidateValueNotConservedUtxo,
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputTooBigUtxo,
@@ -581,6 +582,7 @@ func validateGuardingPlutusScripts(
 					ls,
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
+					true,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
@@ -614,6 +616,7 @@ func validateGuardingPlutusScripts(
 					ls,
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
+					true,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
@@ -1608,45 +1611,37 @@ func scriptRefIsNativeHash(
 	}
 }
 
+// UtxoValidateNativeScripts evaluates the native scripts this transaction has
+// to satisfy, with Dijkstra's guard credentials in scope for RequireGuard.
+//
+// The scripts to evaluate come from the resolved transaction view, as in
+// Babbage: a native script some script purpose requires counts whether the
+// witness set, a reference input, or the spent input's own reference-script
+// field supplies it. Dijkstra keeps its own body rather than delegating to
+// Babbage because only it evaluates guards.
 func UtxoValidateNativeScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
+	view, err := script.NewTxScriptViewSkippingUnresolved(tx, ls)
+	if err != nil {
+		return err
 	}
-	nativeScripts := witnesses.NativeScripts()
-	if len(nativeScripts) == 0 {
-		return nil
-	}
-	keyHashes := make(map[common.Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		keyHashes[common.Blake2b224Hash(vkw.Vkey)] = true
-	}
-	for _, bw := range witnesses.Bootstrap() {
-		keyHashes[common.Blake2b224Hash(bw.PublicKey)] = true
-	}
-	validityStart := tx.ValidityIntervalStart()
-	validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(
-		tx,
-	)
-	if !validityEndPresent {
-		validityEnd = ^uint64(0)
-	}
+	env := script.NewNativeScriptEnv(tx, slot)
 	guardCredentials := nativeScriptGuardCredentials(tx)
-	for _, nscript := range nativeScripts {
-		scriptHash := nscript.Hash()
-		if !nscript.EvaluateWithGuards(
-			slot,
-			validityStart,
-			validityEnd,
-			keyHashes,
+	for _, nativeScript := range script.NativeScriptsToEvaluate(tx, view) {
+		if !nativeScript.EvaluateWithGuards(
+			env.Slot,
+			env.ValidityStart,
+			env.ValidityEnd,
+			env.KeyHashes,
 			guardCredentials,
 		) {
-			return conway.NativeScriptFailedError{ScriptHash: scriptHash}
+			return conway.NativeScriptFailedError{
+				ScriptHash: nativeScript.Hash(),
+			}
 		}
 	}
 	return nil
