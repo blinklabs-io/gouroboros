@@ -27,10 +27,13 @@ import (
 
 type Client struct {
 	*protocol.Protocol
-	config               *Config
-	callbackContext      CallbackContext
-	onceStart            sync.Once
-	onceStop             sync.Once
+	config          *Config
+	callbackContext CallbackContext
+	onceStart       sync.Once
+	onceStop        sync.Once
+	// Block and BlockTxs share one slot because both requests use the same
+	// connection-wide agency and have no request identifier.
+	blockRequestSlot     requestSlot
 	blockSlot            requestSlot
 	blockTxsSlot         requestSlot
 	votesResultChan      chan protocol.Message
@@ -87,7 +90,16 @@ func (s *requestSlot) acquire(
 				timer.Stop()
 				return nil, protocol.ErrProtocolShuttingDown
 			case <-timer.C:
-				return nil, ErrRequestSlotAbandoned
+				// A response may drain the abandoned request at the same
+				// instant the grace timer fires. Prefer recovery when that
+				// response has already arrived.
+				select {
+				case <-drained:
+					s.mu.Lock()
+					continue
+				default:
+					return nil, ErrRequestSlotAbandoned
+				}
 			}
 			timer.Stop()
 			s.mu.Lock()
@@ -341,13 +353,13 @@ func (c *Client) BlockRequest(
 	ctx context.Context,
 	point pcommon.Point,
 ) (protocol.Message, error) {
-	w, err := c.acquireSlot(ctx, &c.blockSlot, StateBlock)
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlock)
 	if err != nil {
 		return nil, err
 	}
 	msg := NewMsgBlockRequest(point)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
-		c.blockSlot.release(w)
+		c.blockRequestSlot.release(w)
 		return nil, err
 	}
 	select {
@@ -358,10 +370,10 @@ func (c *Client) BlockRequest(
 		}
 		return resp, nil
 	case <-ctx.Done():
-		c.blockSlot.abandon(w)
+		c.blockRequestSlot.abandon(w)
 		return nil, ctx.Err()
 	case <-c.DoneChan():
-		c.blockSlot.release(w)
+		c.blockRequestSlot.release(w)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
 }
@@ -376,13 +388,13 @@ func (c *Client) BlockTxsRequest(
 	point pcommon.Point,
 	bitmaps map[uint16]uint64,
 ) (protocol.Message, error) {
-	w, err := c.acquireSlot(ctx, &c.blockTxsSlot, StateBlockTxs)
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlockTxs)
 	if err != nil {
 		return nil, err
 	}
 	msg := NewMsgBlockTxsRequest(point, bitmaps)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
-		c.blockTxsSlot.release(w)
+		c.blockRequestSlot.release(w)
 		return nil, err
 	}
 	select {
@@ -393,10 +405,10 @@ func (c *Client) BlockTxsRequest(
 		}
 		return resp, nil
 	case <-ctx.Done():
-		c.blockTxsSlot.abandon(w)
+		c.blockRequestSlot.abandon(w)
 		return nil, ctx.Err()
 	case <-c.DoneChan():
-		c.blockTxsSlot.release(w)
+		c.blockRequestSlot.release(w)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
 }
@@ -484,7 +496,7 @@ func (c *Client) logDroppedResponse(msg protocol.Message) {
 }
 
 func (c *Client) handleBlock(msg protocol.Message) {
-	if !c.blockSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg) && !c.blockSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
@@ -497,13 +509,13 @@ func (c *Client) handleNoBlock(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	if !c.blockSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg) && !c.blockSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
 
 func (c *Client) handleBlockTxs(msg protocol.Message) {
-	if !c.blockTxsSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg) && !c.blockTxsSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
@@ -516,7 +528,7 @@ func (c *Client) handleNoBlockTxs(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	if !c.blockTxsSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg) && !c.blockTxsSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
