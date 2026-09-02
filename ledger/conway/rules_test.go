@@ -23,6 +23,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -992,6 +993,170 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 			assert.NoError(t, err)
 		},
 	)
+}
+
+// TestUtxoValidateRequiredRedeemersRegistered pins that Conway registers
+// UtxoValidateRequiredRedeemers in its production rule list (issue #2147).
+func TestUtxoValidateRequiredRedeemersRegistered(t *testing.T) {
+	indexOf := func(rule common.UtxoValidationRuleFunc) int {
+		t.Helper()
+		want := reflect.ValueOf(rule).Pointer()
+		for idx, r := range conway.UtxoValidationRules {
+			if reflect.ValueOf(r).Pointer() == want {
+				return idx
+			}
+		}
+		t.Fatalf(
+			"rule %s is not registered in UtxoValidationRules",
+			runtime.FuncForPC(want).Name(),
+		)
+		return -1
+	}
+
+	requiredRedeemersIdx := indexOf(conway.UtxoValidateRequiredRedeemers)
+	badInputsIdx := indexOf(conway.UtxoValidateBadInputsUtxo)
+	scriptWitnessesIdx := indexOf(conway.UtxoValidateScriptWitnesses)
+
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		badInputsIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateBadInputsUtxo "+
+			"so an unresolvable input surfaces as BadInputsUtxo, not a raw "+
+			"input-resolution error",
+	)
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		scriptWitnessesIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateScriptWitnesses "+
+			"so a missing script is reported by the latter, not masked as a "+
+			"missing redeemer",
+	)
+}
+
+// TestUtxoValidateRequiredRedeemers covers issue #2147's acceptance
+// criteria directly: a Plutus script-address input satisfied by a CIP-33
+// reference script must not spend without a matching redeemer, a regular
+// (non-script) input is unaffected, and a valid redeemer passes.
+func TestUtxoValidateRequiredRedeemers(t *testing.T) {
+	v1 := common.PlutusV1Script{0x01, 0x02, 0x03}
+	scriptAddr, err := common.NewAddressFromParts(
+		common.AddressTypeScriptNone,
+		common.AddressNetworkTestnet,
+		v1.Hash().Bytes(),
+		nil,
+	)
+	require.NoError(t, err)
+
+	input := shelley.NewShelleyTransactionInput(
+		"7777777777777777777777777777777777777777777777777777777777777777",
+		0,
+	)
+	utxo := common.Utxo{
+		Id: input,
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: scriptAddr,
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   common.ScriptRefTypePlutusV1,
+				Script: v1,
+			},
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+			if id.String() == input.String() {
+				return utxo, nil
+			}
+			return common.Utxo{}, errors.New("not found")
+		}).
+		Build()
+
+	newTx := func() *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				),
+			},
+			TxIsValid: true,
+		}
+	}
+
+	t.Run("missing redeemer for reference script rejected", func(t *testing.T) {
+		err := conway.UtxoValidateRequiredRedeemers(
+			newTx(),
+			0,
+			ls,
+			&conway.ConwayProtocolParameters{},
+		)
+		var missingErr common.MissingRedeemerForScriptError
+		require.ErrorAs(t, err, &missingErr)
+		require.Equal(t, v1.Hash(), missingErr.ScriptHash)
+		require.Equal(t, common.RedeemerTagSpend, missingErr.Tag)
+		require.Equal(t, uint32(0), missingErr.Index)
+	})
+
+	t.Run("valid redeemer accepted", func(t *testing.T) {
+		tx := newTx()
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		require.NoError(t, conway.UtxoValidateRequiredRedeemers(
+			tx,
+			0,
+			ls,
+			&conway.ConwayProtocolParameters{},
+		))
+	})
+
+	t.Run("non-script input unaffected", func(t *testing.T) {
+		keyInput := shelley.NewShelleyTransactionInput(
+			"8888888888888888888888888888888888888888888888888888888888888888",
+			0,
+		)
+		keyAddr, err := common.NewAddressFromParts(
+			common.AddressTypeKeyNone,
+			common.AddressNetworkTestnet,
+			make([]byte, 28),
+			nil,
+		)
+		require.NoError(t, err)
+		keyUtxo := common.Utxo{
+			Id: keyInput,
+			Output: &babbage.BabbageTransactionOutput{
+				OutputAddress: keyAddr,
+				OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			},
+		}
+		keyLs := mockledger.NewLedgerStateBuilder().
+			WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+				if id.String() == keyInput.String() {
+					return keyUtxo, nil
+				}
+				return common.Utxo{}, errors.New("not found")
+			}).
+			Build()
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{keyInput},
+				),
+			},
+			TxIsValid: true,
+		}
+		require.NoError(t, conway.UtxoValidateRequiredRedeemers(
+			tx,
+			0,
+			keyLs,
+			&conway.ConwayProtocolParameters{},
+		))
+	})
 }
 
 func TestUtxoValidateExtraneousRedeemersUnknownTag(t *testing.T) {

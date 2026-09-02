@@ -68,6 +68,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateBadInputsUtxo,
 	// Ensure script witness presence/absence is validated after redeemer/script relation
 	UtxoValidateScriptWitnesses,
+	UtxoValidateRequiredRedeemers,
 	UtxoValidateValueNotConservedUtxo,
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputTooBigUtxo,
@@ -1399,6 +1400,19 @@ func UtxoValidateScriptWitnesses(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateScriptWitnesses(tx, ls)
+}
+
+// UtxoValidateRequiredRedeemers checks that every Plutus script-address
+// input -- whether its script is provided as an explicit witness or as a
+// CIP-33 reference script -- has a matching spend redeemer. See
+// script.ValidateRequiredRedeemers for details on the gap this closes.
+func UtxoValidateRequiredRedeemers(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return script.ValidateRequiredRedeemers(tx, ls)
 }
 
 // UtxoValidateExtraneousRedeemers checks that all redeemers have valid purposes.

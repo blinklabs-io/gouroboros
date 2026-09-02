@@ -48,6 +48,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNoCollateralInputs,
 	UtxoValidateBadInputsUtxo,
 	UtxoValidateScriptWitnesses,
+	UtxoValidateRequiredRedeemers,
 	UtxoValidateValueNotConservedUtxo,
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputTooBigUtxo,
@@ -1062,6 +1063,22 @@ func UtxoValidateScriptWitnesses(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateScriptWitnesses(tx, ls)
+}
+
+// UtxoValidateRequiredRedeemers checks that every Plutus script-address
+// input -- whether its script is provided as an explicit witness or as a
+// CIP-33 reference script -- has a matching spend redeemer. See
+// script.ValidateRequiredRedeemers for details on the gap this closes.
+// Babbage never executes Plutus itself (see UtxoValidatePlutusScripts
+// below), but a reference-script-backed input with no redeemer must still
+// be rejected rather than silently spent unexecuted.
+func UtxoValidateRequiredRedeemers(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return script.ValidateRequiredRedeemers(tx, ls)
 }
 
 // UtxoValidateNativeScripts evaluates the native scripts this transaction has
