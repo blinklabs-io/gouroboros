@@ -172,24 +172,38 @@ func (e MalformedAuthorizationError) Error() string {
 }
 
 // forEachCertificateCredential visits every credential whose authorization is
-// carried by a transaction certificate. Registration does not require
-// authorization in either of its forms. Keeping this traversal shared prevents
-// key and script credential requirements from diverging. Malformed certificates fail closed
+// carried by a transaction certificate. Only implicit-deposit registration does
+// not require authorization; explicit-deposit registration requires the stake
+// credential witness. Keeping this traversal shared prevents key and script
+// credential requirements from diverging. Malformed certificates fail closed
 // rather than silently omitting an authorization requirement.
+//
+// Every entry below is taken from getVKeyWitnessTxCert and
+// getScriptWitnessTxCert in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/TxCert.hs and
+// eras/conway/impl/src/Cardano/Ledger/Conway/TxCert.hs. Conway shadows the
+// Shelley definitions for every form it carries, so the Conway file is
+// authoritative for tags 0-4 and 7-18 and the Shelley file for tags 5 and 6,
+// which Conway expunges.
 //
 // Certificate authorization completeness (CBOR tags):
 //
-//   - 0 and 7: registration has no credential witness, with or without an
-//     explicit deposit. Both decode to ConwayRegCert.
-//   - 1, 2, 8-18: the certificate credential named below authorizes it.
+//   - 0: registration without an explicit deposit has no credential witness.
+//     Conway decodes it to ConwayRegCert _ SNothing, which both accessors
+//     match with Nothing, so its credential creates no script purpose either.
+//   - 1, 2, 7-18: the certificate credential named below authorizes it. Tag 7
+//     decodes to ConwayRegCert cred (SJust _), which the same two accessors
+//     match with credKeyHashWitness cred and credScriptHash cred. The deposit
+//     field, not the constructor, is what separates tag 7 from tag 0.
 //   - 3: the pool operator is collected separately, and every pool owner is
 //     collected by the independent owners term.
 //   - 4: the retiring pool key is collected separately.
 //   - 5: the genesis root key authorizes delegation; the new delegate and VRF
 //     key are targets, not authors.
-//   - 6: MIR has no field-level author. Its stateful genesis-delegate quorum
-//     is implemented by ValidateMIRGenesisQuorum, which is not yet registered
-//     in any era rule list; Conway expunges MIR.
+//   - 6: MIR has no field-level author; Shelley's accessor returns Nothing for
+//     it. Its stateful genesis-delegate quorum is implemented by
+//     ValidateMIRGenesisQuorum, which is not yet registered in any era rule
+//     list; Conway expunges MIR.
 //
 // This switch deliberately names all 19 certificate forms so typed nils and a
 // future unhandled implementation cannot silently bypass authorization.
@@ -240,11 +254,12 @@ func forEachCertificateCredential(
 		if c == nil {
 			return typedNil("registration certificate")
 		}
-		// Types 0 and 7 both decode to ConwayRegCert, which differ only in
-		// whether the deposit is present. Registration is unauthenticated in
-		// either form: getVKeyWitnessTxCert and getScriptWitnessTxCert both
-		// return Nothing for it.
-		return visitCredential(c.StakeCredential, false)
+		// Tag 7 carries an explicit deposit, so Conway decodes it to
+		// ConwayRegCert cred (SJust _). getVKeyWitnessConwayTxCert and
+		// getScriptWitnessConwayTxCert both match that pattern ahead of the
+		// SNothing case and return the credential's witness, so unlike tag 0
+		// this form is authenticated.
+		return visitCredential(c.StakeCredential, true)
 	case *DeregistrationCertificate:
 		if c == nil {
 			return typedNil("deregistration certificate")
@@ -528,12 +543,7 @@ type scriptRequirement struct {
 }
 
 type transactionScriptRequirements struct {
-	required map[ScriptHash]struct{}
-	// optional holds script hashes a certificate names without creating a
-	// script purpose. Registration authorizes nothing, so its script is not
-	// required, but the node accepts a transaction that supplies it and
-	// conformance vectors carry exactly that shape.
-	optional    map[ScriptHash]struct{}
+	required    map[ScriptHash]struct{}
 	purposes    []scriptRequirement
 	explicit    map[ScriptHash]Script
 	available   map[ScriptHash]Script
@@ -641,7 +651,6 @@ func collectTransactionScriptRequirements(
 ) (transactionScriptRequirements, error) {
 	ret := transactionScriptRequirements{
 		required:  make(map[ScriptHash]struct{}),
-		optional:  make(map[ScriptHash]struct{}),
 		explicit:  make(map[ScriptHash]Script),
 		available: make(map[ScriptHash]Script),
 	}
@@ -773,11 +782,8 @@ func collectTransactionScriptRequirements(
 			credential Credential,
 			requiresWitness bool,
 		) {
-			if credential.CredType != CredentialTypeScriptHash {
-				return
-			}
-			if !requiresWitness {
-				ret.optional[ScriptHash(credential.Credential)] = struct{}{}
+			if !requiresWitness ||
+				credential.CredType != CredentialTypeScriptHash {
 				return
 			}
 			addRequirement(
@@ -791,13 +797,18 @@ func collectTransactionScriptRequirements(
 	}
 
 	// Reward redeemer indices follow cardano-ledger's Withdrawals key order,
-	// which is RewardAccount Ord: (Network, Credential). Credential's derived
-	// Ord puts ScriptHashObj before KeyHashObj, so a script credential sorts
-	// ahead of a key credential with the same hash. Address bytes invert that,
-	// because the reward header is 0xE_ for a key hash and 0xF_ for a script
-	// hash, so sorting on them would give a script withdrawal a different
-	// index than the node assigns. voterPurposeOrder below encodes the same
-	// script-before-key rule.
+	// which is the derived Ord on AccountAddress: (Network, Credential). See
+	// AccountAddress and the RewardAccount pattern in
+	// libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs, Network in
+	// libs/cardano-ledger-core/src/Cardano/Ledger/BaseTypes.hs (Testnet before
+	// Mainnet), and Credential in
+	// libs/cardano-ledger-core/src/Cardano/Ledger/Credential.hs, whose derived
+	// Ord puts ScriptHashObj before KeyHashObj. A script credential therefore
+	// sorts ahead of a key credential with the same hash. Address bytes invert
+	// that, because the reward header is 0xE_ for a key hash and 0xF_ for a
+	// script hash, so sorting on them would give a script withdrawal a
+	// different index than the node assigns. voterPurposeOrder below encodes
+	// the same script-before-key rule.
 	type withdrawalKey struct {
 		credential Credential
 		network    uint
@@ -963,10 +974,15 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 	for provided := range requirements.explicit {
-		if _, ok := requirements.optional[provided]; ok {
-			continue
-		}
 		if _, ok := requirements.required[provided]; !ok {
+			// A witness-set script with no script purpose is extraneous. See
+			// validateMissingScripts in
+			// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Utxow.hs and
+			// babbageMissingScripts in
+			// eras/babbage/impl/src/Cardano/Ledger/Babbage/Rules/Utxow.hs,
+			// which both fail on sProvided minus the needed set. Tag-0
+			// registration creates no purpose, so a script matching its
+			// credential lands here.
 			return ExtraneousScriptWitnessesError{ScriptHash: provided}
 		}
 	}

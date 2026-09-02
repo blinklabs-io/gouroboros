@@ -18,15 +18,20 @@ import (
 	"bytes"
 	"errors"
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
@@ -83,14 +88,29 @@ func TestValidateRequiredVKeyWitnessesExplicitRegistration(t *testing.T) {
 		StakeCredential: key,
 		Amount:          0,
 	}
-	// Types 0 and 7 both decode to ConwayRegCert, whose
-	// getVKeyWitnessTxCert returns Nothing, so neither form requires the
-	// credential's signature.
+	// Tag 7 decodes to ConwayRegCert cred (SJust _), which
+	// getVKeyWitnessConwayTxCert matches with credKeyHashWitness cred, so the
+	// registering credential must sign. No conformance vector carries a tag-7
+	// registration whose credential abstains, so this is the only coverage of
+	// the abstaining case.
 	tx := mockledger.NewTransactionBuilder().WithCertificates(explicit)
-	require.NoError(
+	require.ErrorAs(
 		t,
 		conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil),
+		&common.MissingVKeyWitnessesError{},
 	)
+	tx.WithWitnesses(
+		mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+			common.VkeyWitness{Vkey: []byte("some-other-key")},
+		),
+	)
+	var missing common.MissingRequiredVKeyWitnessForSignerError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil),
+		&missing,
+	)
+	require.Equal(t, key.Credential, missing.Signer)
 	tx.WithWitnesses(
 		mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
 			common.VkeyWitness{Vkey: vkey},
@@ -101,6 +121,8 @@ func TestValidateRequiredVKeyWitnessesExplicitRegistration(t *testing.T) {
 		conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil),
 	)
 
+	// Tag 0 decodes to ConwayRegCert _ SNothing, which the same accessor
+	// matches with Nothing, so the identical credential needs no signature.
 	legacy := &common.StakeRegistrationCertificate{StakeCredential: key}
 	require.NoError(t, conway.UtxoValidateRequiredVKeyWitnesses(
 		mockledger.NewTransactionBuilder().WithCertificates(legacy),
@@ -127,12 +149,13 @@ func TestValidateScriptWitnessesExplicitRegistration(t *testing.T) {
 		},
 	)
 	ledgerState := mockledger.NewLedgerStateBuilder().Build()
-	// Registration authorizes nothing, so its script credential creates no
-	// script purpose and needs no witness. Supplying the script anyway is
-	// accepted rather than extraneous; conformance vectors carry that shape.
-	require.NoError(
+	// Tag 7 decodes to ConwayRegCert cred (SJust _), which
+	// getScriptWitnessConwayTxCert matches with credScriptHash cred, so a
+	// script-credential registration needs its script.
+	require.ErrorAs(
 		t,
 		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+		&common.MissingScriptWitnessesError{},
 	)
 	tx.WithWitnesses(
 		mockledger.NewMockTransactionWitnessSet().
@@ -143,12 +166,23 @@ func TestValidateScriptWitnessesExplicitRegistration(t *testing.T) {
 		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
 	)
 
+	// Tag 0 creates no script purpose, so the same credential needs no script
+	// and supplying one is extraneous.
 	legacy := mockledger.NewTransactionBuilder().WithCertificates(
 		&common.StakeRegistrationCertificate{StakeCredential: credential},
 	)
 	require.NoError(
 		t,
 		conway.UtxoValidateScriptWitnesses(legacy, 0, ledgerState, nil),
+	)
+	legacy.WithWitnesses(
+		mockledger.NewMockTransactionWitnessSet().
+			WithNativeScripts(nativeScript),
+	)
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateScriptWitnesses(legacy, 0, ledgerState, nil),
+		&common.ExtraneousScriptWitnessesError{},
 	)
 }
 
@@ -213,10 +247,11 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			},
 		},
 		{
-			// ConwayRegCert covers types 0 and 7 and authorizes neither.
+			// ConwayRegCert cred (SJust _) covers tag 7 and authorizes it;
+			// only the SNothing form behind tag 0 authorizes nothing.
 			name:            "explicit registration",
 			certificateType: common.CertificateTypeRegistration,
-			requiresWitness: false,
+			requiresWitness: true,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.RegistrationCertificate{
 					CertType:        uint(common.CertificateTypeRegistration),
@@ -413,13 +448,17 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 					WithVkeyWitnesses(testAuthorizationVkeyWitness(vkey)),
 			)
 			err = conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil)
-			// A certificate that authorizes nothing creates no script purpose,
-			// so its script is optional: not required, and accepted when
-			// supplied rather than reported as extraneous.
-			require.NoError(t, err)
 			if !testCase.requiresWitness {
+				// A certificate that authorizes nothing creates no script
+				// purpose, so a script matching its credential is extraneous.
+				require.ErrorAs(
+					t,
+					err,
+					&common.ExtraneousScriptWitnessesError{},
+				)
 				return
 			}
+			require.NoError(t, err)
 			require.NoError(
 				t,
 				conway.UtxoValidateNativeScripts(tx, 0, ledgerState, nil),
@@ -654,6 +693,81 @@ func TestScriptAuthorizationRequiresExactRedeemerPurpose(t *testing.T) {
 	)
 	redeemers.Redeemers[common.RedeemerKey{
 		Tag: common.RedeemerTagCert, Index: 1,
+	}] = common.RedeemerValue{}
+	require.NoError(
+		t,
+		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+	)
+}
+
+// Reward redeemer indices follow the derived Ord on cardano-ledger's
+// AccountAddress, (Network, Credential), where ScriptHashObj sorts before
+// KeyHashObj. Reward-address bytes invert that, because the header nibble is
+// 0xE for a key hash and 0xF for a script hash. No conformance vector mixes
+// withdrawal credential types, so a transaction carrying both is the only way
+// to observe which order the redeemer index follows.
+func TestWithdrawalRedeemerIndexFollowsCredentialOrder(t *testing.T) {
+	plutus := common.PlutusV3Script([]byte{0x41, 0x02})
+	hash := plutus.Hash()
+	// The same 28 bytes under both credential types is the case that
+	// discriminates the two orders.
+	scriptAddr, err := common.NewAddressFromParts(
+		common.AddressTypeNoneScript,
+		common.AddressNetworkTestnet,
+		nil,
+		hash.Bytes(),
+	)
+	require.NoError(t, err)
+	keyAddr, err := common.NewAddressFromParts(
+		common.AddressTypeNoneKey,
+		common.AddressNetworkTestnet,
+		nil,
+		hash.Bytes(),
+	)
+	require.NoError(t, err)
+
+	scriptBytes, err := scriptAddr.Bytes()
+	require.NoError(t, err)
+	keyBytes, err := keyAddr.Bytes()
+	require.NoError(t, err)
+	// Guard the premise: address bytes put the key account first, so an index
+	// derived from them would be 1 for the script withdrawal, not 0.
+	require.Negative(t, bytes.Compare(keyBytes, scriptBytes))
+
+	redeemers := conway.ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			{Tag: common.RedeemerTagReward, Index: 1}: {},
+		},
+	}
+	tx := mockledger.NewTransactionBuilder().
+		WithWithdrawals(map[*common.Address]uint64{
+			&scriptAddr: 1,
+			&keyAddr:    2,
+		}).
+		WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().
+				WithPlutusV3Scripts(plutus).
+				WithRedeemers(redeemers),
+		)
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+
+	var missing common.MissingRedeemerForScriptError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateScriptWitnesses(tx, 0, ledgerState, nil),
+		&missing,
+	)
+	require.Equal(
+		t,
+		common.RedeemerKey{Tag: common.RedeemerTagReward, Index: 0},
+		missing.RedeemerKey,
+	)
+
+	delete(redeemers.Redeemers, common.RedeemerKey{
+		Tag: common.RedeemerTagReward, Index: 1,
+	})
+	redeemers.Redeemers[common.RedeemerKey{
+		Tag: common.RedeemerTagReward, Index: 0,
 	}] = common.RedeemerValue{}
 	require.NoError(
 		t,
@@ -1336,6 +1450,47 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 		}
 		require.NoError(t, common.ValidateExtraneousRedeemers(tx))
 	})
+}
+
+// UtxoValidateMIRGenesisQuorum is exported API that no era registers yet. It
+// fails closed for a ledger state that does not implement
+// common.GenesisDelegationState, so registering it before consumers implement
+// that capability would stop a syncing node on the first MIR certificate in
+// Shelley-through-Babbage history, and mainnet history contains them. This
+// pins the deferral until blinklabs-io/dingo#3748 lands; the rule-list entries
+// and this test are meant to change together.
+func TestMIRGenesisQuorumIsNotYetRegistered(t *testing.T) {
+	eras := []struct {
+		name  string
+		rules []common.UtxoValidationRuleFunc
+		rule  common.UtxoValidationRuleFunc
+	}{
+		{"shelley", shelley.UtxoValidationRules, shelley.UtxoValidateMIRGenesisQuorum},
+		{"allegra", allegra.UtxoValidationRules, allegra.UtxoValidateMIRGenesisQuorum},
+		{"mary", mary.UtxoValidationRules, mary.UtxoValidateMIRGenesisQuorum},
+		{"alonzo", alonzo.UtxoValidationRules, alonzo.UtxoValidateMIRGenesisQuorum},
+		{"babbage", babbage.UtxoValidationRules, babbage.UtxoValidateMIRGenesisQuorum},
+	}
+	for _, era := range eras {
+		t.Run(era.name, func(t *testing.T) {
+			for _, registered := range era.rules {
+				got := reflect.ValueOf(registered).Pointer()
+				// Compare against every era's entry point, not just this
+				// era's, because the pre-Conway wrappers all delegate to the
+				// Shelley rule and any of them would wire it in.
+				for _, other := range eras {
+					require.NotEqual(
+						t,
+						reflect.ValueOf(other.rule).Pointer(),
+						got,
+						"%s UtxoValidateMIRGenesisQuorum is registered in %s",
+						other.name,
+						era.name,
+					)
+				}
+			}
+		})
+	}
 }
 
 // genesisDelegationLedgerState is a ledger state that can answer the
