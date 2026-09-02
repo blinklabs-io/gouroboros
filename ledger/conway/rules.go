@@ -93,6 +93,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateBootstrapVotingRestrictions,
 	UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
+	UtxoValidatePoolCertificates,
 }
 
 // isInConwayBootstrapPhase reports whether the given protocol parameters
@@ -4243,4 +4244,19 @@ func UtxoValidateMalformedReferenceScripts(
 		tx,
 		params.ProtocolVersion.Major,
 	)
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Pool.hs declares
+// only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
 }

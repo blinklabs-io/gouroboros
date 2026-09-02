@@ -670,6 +670,24 @@ type PoolRegistrationCertificate struct {
 	PoolOwners           []AddrKeyHash `json:"poolOwners"`
 	Relays               []PoolRelay   `json:"relays"`
 	PoolMetadata         *PoolMetadata `json:"poolMetadata,omitempty"`
+
+	// rewardAccountNetworkId holds the network id from the address header
+	// byte of the wire reward_account, which RewardAccount itself does not
+	// retain. rewardAccountNetworkIdKnown is false when the certificate was
+	// not decoded from a CBOR reward account carrying a header byte (a
+	// programmatically constructed certificate, one built from JSON, or the
+	// legacy 28-byte encoding).
+	rewardAccountNetworkId      uint
+	rewardAccountNetworkIdKnown bool
+}
+
+// RewardAccountNetworkId returns the network id encoded in the header byte of
+// the certificate's reward account. The second return value is false when the
+// certificate did not come from a wire reward_account carrying that header, in
+// which case no network id is recoverable and callers must not treat the zero
+// value as testnet.
+func (c *PoolRegistrationCertificate) RewardAccountNetworkId() (uint, bool) {
+	return c.rewardAccountNetworkId, c.rewardAccountNetworkIdKnown
 }
 
 // ErrPoolMarginOutsideUnitInterval identifies a stake-pool margin outside the
@@ -1076,6 +1094,8 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
 		c.RewardAccount = tmp.RewardAccount.credential
+		c.rewardAccountNetworkId = tmp.RewardAccount.networkId
+		c.rewardAccountNetworkIdKnown = tmp.RewardAccount.networkIdKnown
 		c.PoolOwners = tmp.PoolOwners
 		c.Relays = tmp.Relays
 		c.PoolMetadata = tmp.PoolMetadata
@@ -1097,6 +1117,8 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
 		c.RewardAccount = tmp.RewardAccount.credential
+		c.rewardAccountNetworkId = tmp.RewardAccount.networkId
+		c.rewardAccountNetworkIdKnown = tmp.RewardAccount.networkIdKnown
 		c.PoolOwners = tmp.PoolOwners
 		c.Relays = tmp.Relays
 		c.PoolMetadata = tmp.PoolMetadata

@@ -48,6 +48,23 @@ type StakeCredentialDepositState interface {
 	StakeCredentialDeposit(Credential) (*uint64, error)
 }
 
+// EpochState is the optional ledger-state capability that maps a slot to the
+// epoch containing it. The Shelley POOL rule's retirement bound
+// (StakePoolRetirementWrongEpochPOOL) is expressed relative to the current
+// epoch, which the (transaction, slot, state, params) validation contract does
+// not otherwise carry.
+//
+// It is deliberately optional and degrading: a ledger state that does not
+// implement it keeps every other POOL predicate and simply does not get the
+// retirement-epoch bound enforced. Validation must not fail closed when it is
+// absent, so that adopting a gouroboros release containing this rule cannot
+// reject otherwise-valid pool retirements in a consumer that has not
+// implemented the method yet.
+type EpochState interface {
+	// EpochForSlot returns the epoch number containing the given slot.
+	EpochForSlot(slot uint64) (uint64, error)
+}
+
 // PoolState defines the interface for querying the current pool state
 type PoolState interface {
 	// PoolCurrentState returns the latest active registration certificate for the given pool key hash.

@@ -40,6 +40,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNativeScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
+	UtxoValidatePoolCertificates,
 }
 
 func UtxoValidateRequiredVKeyWitnesses(
@@ -263,4 +264,19 @@ func UtxoValidateWithdrawals(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/allegra/impl/src/Cardano/Ledger/Allegra/Rules/Pool.hs
+// declares only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
 }

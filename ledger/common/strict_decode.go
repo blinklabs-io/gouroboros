@@ -29,6 +29,12 @@ import (
 // existing constructed values round-trip.
 type rewardAccountCBOR struct {
 	credential AddrKeyHash
+	// networkId holds the low nibble of the address header byte, and
+	// networkIdKnown records whether a header byte was present at all. The
+	// legacy 28-byte encoding carries no header, so no network id can be
+	// recovered from it.
+	networkId      uint
+	networkIdKnown bool
 }
 
 func unmarshalFixedLengthByteString(
@@ -222,6 +228,13 @@ func (r *rewardAccountCBOR) UnmarshalCBOR(cborData []byte) error {
 		r.credential[:],
 		decoded[credentialOffset:credentialOffset+Blake2b224Size],
 	)
+	if credentialOffset == 1 {
+		// The low nibble of a reward address header byte is the network
+		// id. See Cardano.Ledger.Address (aaNetworkId), read by
+		// poolTransition's WrongNetworkPOOL check.
+		r.networkId = uint(decoded[0] & 0x0F)
+		r.networkIdKnown = true
+	}
 	return nil
 }
 

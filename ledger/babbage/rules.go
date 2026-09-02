@@ -63,6 +63,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidatePlutusScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
+	UtxoValidatePoolCertificates,
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(
@@ -1279,4 +1280,19 @@ func UtxoValidateMalformedReferenceScripts(
 		return errors.New("pparams are not expected type")
 	}
 	return common.ValidatePlutusScriptsWellFormed(tx, params.ProtocolMajor)
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/babbage/impl/src/Cardano/Ledger/Babbage/Rules/Pool.hs
+// declares only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
 }

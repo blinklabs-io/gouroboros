@@ -241,3 +241,28 @@ func UpgradePParams(prevPParams any) ShelleyProtocolParameters {
 	// No upgrade from Byron
 	return ShelleyProtocolParameters{}
 }
+
+// ProtocolMajorVersion returns the active major protocol version.
+func (p *ShelleyProtocolParameters) ProtocolMajorVersion() uint {
+	return p.ProtocolMajor
+}
+
+// MinPoolCostValue returns the minPoolCost protocol parameter, which is always
+// zero for Shelley and Allegra.
+//
+// Shelley and Allegra protocol parameters are decoded from a CBOR array
+// (cbor.StructAsArray) that this repository models without the minPoolCost
+// entry, so no value is available for those eras. cardano-ledger does define
+// minPoolCost for Shelley: ppMinPoolCost, PParamUpdate key 16, listed in
+// shelleyPParams in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/PParams.hs. So
+// StakePoolCostTooLowPOOL is only enforced from Mary onwards here. Reporting
+// zero keeps the predicate from rejecting registrations it cannot evaluate.
+func (*ShelleyProtocolParameters) MinPoolCostValue() uint64 {
+	return 0
+}
+
+// PoolRetirementMaxEpoch returns the eMax protocol parameter.
+func (p *ShelleyProtocolParameters) PoolRetirementMaxEpoch() uint64 {
+	return uint64(p.MaxEpoch)
+}

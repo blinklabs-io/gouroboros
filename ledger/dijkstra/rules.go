@@ -93,6 +93,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
 	UtxoValidateRefScriptSizePerTx,
+	conway.UtxoValidatePoolCertificates,
 }
 
 func dijkstraPparams(pp common.ProtocolParameters) (*DijkstraProtocolParameters, error) {

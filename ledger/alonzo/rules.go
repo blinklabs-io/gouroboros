@@ -56,6 +56,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidatePlutusScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
+	UtxoValidatePoolCertificates,
 }
 
 // UtxoValidateOutputTooBigUtxo ensures that transaction output values are not too large
@@ -919,4 +920,19 @@ func UtxoValidateScriptDataHash(
 	}
 
 	return nil
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Rules/Pool.hs declares
+// only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
 }
