@@ -77,9 +77,19 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.MaxRefScriptSizePerTx = genesis.MaxRefScriptSizePerTx
 	p.RefScriptCostStride = genesis.RefScriptCostStride
 	p.RefScriptCostMultiplier = genesisRatToRat(genesis.RefScriptCostMultiplier)
+	applyConwayRefScriptFeeDefaults(p)
 	p.CommitteeStakeCoverage = committeeStakeCoverage
 	p.QuorumStakeThreshold = quorumStakeThreshold
 	return nil
+}
+
+func applyConwayRefScriptFeeDefaults(p *DijkstraProtocolParameters) {
+	if p.RefScriptCostStride == 0 {
+		p.RefScriptCostStride = uint32(conway.RefScriptCostStride)
+	}
+	if p.RefScriptCostMultiplier == nil {
+		p.RefScriptCostMultiplier = &cbor.Rat{Rat: big.NewRat(6, 5)}
+	}
 }
 
 func genesisRatToRat(r *common.GenesisRat) *cbor.Rat {

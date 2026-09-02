@@ -1175,6 +1175,22 @@ func TestDijkstraGenesisLeiosStakeParameters(t *testing.T) {
 	)
 }
 
+func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {
+	var pparams DijkstraProtocolParameters
+	require.NoError(t, pparams.UpdateFromGenesis(&DijkstraGenesis{}))
+	require.Equal(
+		t,
+		uint32(conway.RefScriptCostStride),
+		pparams.RefScriptCostStride,
+	)
+	require.NotNil(t, pparams.RefScriptCostMultiplier)
+	require.Equal(
+		t,
+		0,
+		pparams.RefScriptCostMultiplier.Cmp(big.NewRat(6, 5)),
+	)
+}
+
 func TestDijkstraGenesisRejectsInvalidLeiosStakeParameters(t *testing.T) {
 	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
   "committeeStakeCoverage": 0.75,

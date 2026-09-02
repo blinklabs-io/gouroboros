@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"math"
 	"math/big"
 	"slices"
 	"strings"
@@ -168,6 +169,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateScriptWitnesses,
 	},
 	{
+		Id:        common.UtxoValidationRuleRequiredRedeemers,
+		Validator: conway.UtxoValidateRequiredRedeemers,
+	},
+	{
 		Id:        common.UtxoValidationRuleValueNotConserved,
 		Validator: UtxoValidateValueNotConservedUtxo,
 	},
@@ -293,16 +298,23 @@ var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
 func dijkstraPparams(
 	pp common.ProtocolParameters,
 ) (*DijkstraProtocolParameters, error) {
+	var ret DijkstraProtocolParameters
 	switch p := pp.(type) {
 	case *DijkstraProtocolParameters:
-		return p, nil
+		if p == nil {
+			return nil, errors.New("pparams are not expected type")
+		}
+		ret = *p
 	case *conway.ConwayProtocolParameters:
-		return &DijkstraProtocolParameters{
-			ConwayProtocolParameters: *p,
-		}, nil
+		if p == nil {
+			return nil, errors.New("pparams are not expected type")
+		}
+		ret.ConwayProtocolParameters = *p
 	default:
 		return nil, errors.New("pparams are not expected type")
 	}
+	applyConwayRefScriptFeeDefaults(&ret)
+	return &ret, nil
 }
 
 func conwayPparams(
@@ -937,24 +949,11 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 		tx   dijkstraConwayFeatureTransaction
 		view script.TxScriptView
 	}
-	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
-	levels := make([]levelView, 0, len(subTxs)+1)
-	for idx := range subTxs {
-		levels = append(levels, levelView{
-			tx: dijkstraConwayFeatureTransaction{
-				Transaction: tx,
-				body:        &subTxs[idx].Body,
-				witnesses:   subTxs[idx].WitnessSet,
-			},
-		})
+	txLevels := dijkstraTransactionLevels(dijkstraTx)
+	levels := make([]levelView, 0, len(txLevels))
+	for _, txLevel := range txLevels {
+		levels = append(levels, levelView{tx: txLevel})
 	}
-	levels = append(levels, levelView{
-		tx: dijkstraConwayFeatureTransaction{
-			Transaction: tx,
-			body:        &dijkstraTx.Body,
-			witnesses:   dijkstraTx.WitnessSet,
-		},
-	})
 
 	available := make(map[common.ScriptHash]common.Script)
 	for idx := range levels {
@@ -1772,6 +1771,7 @@ func validateGuardingPlutusScripts(
 					ls,
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
+					true,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
@@ -1805,6 +1805,7 @@ func validateGuardingPlutusScripts(
 					ls,
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
+					true,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
@@ -2194,7 +2195,7 @@ func UtxoValidateFeeTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	minFee, err := MinFeeTx(tx, pp)
+	minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
 	if err != nil {
 		return err
 	}
@@ -2229,6 +2230,52 @@ func MinFeeTx(
 		tmpPparams.MinFeeA,
 		tmpPparams.MinFeeB,
 	)
+}
+
+// MinFeeTxWithRefScriptSize adds the Dijkstra tiered reference-script fee to
+// the size-based transaction fee. Conway parameters retain their fixed Conway
+// stride and multiplier for compatibility with cross-era callers.
+func MinFeeTxWithRefScriptSize(
+	tx common.Transaction,
+	pp common.ProtocolParameters,
+	scriptSize uint64,
+) (uint64, error) {
+	dijkstraPp, err := dijkstraPparams(pp)
+	if err != nil {
+		return 0, err
+	}
+	baseFee, err := MinFeeTx(tx, pp)
+	if err != nil {
+		return 0, err
+	}
+	refScriptFee, err := conway.CalculateRefScriptFee(
+		scriptSize,
+		dijkstraPp.MinFeeRefScriptCostPerByte,
+		uint64(dijkstraPp.RefScriptCostStride),
+		dijkstraPp.RefScriptCostMultiplier,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if baseFee > math.MaxUint64-refScriptFee {
+		return 0, errors.New("minimum transaction fee overflow")
+	}
+	return baseFee + refScriptFee, nil
+}
+
+// MinFeeTxWithUtxo calculates the Dijkstra minimum fee from reference scripts
+// consumed by the top-level transaction. Subtransaction reference scripts only
+// contribute to the Dijkstra batch size limits.
+func MinFeeTxWithUtxo(
+	tx common.Transaction,
+	pp common.ProtocolParameters,
+	utxoState common.UtxoState,
+) (uint64, error) {
+	scriptSize, err := common.ConsumedReferenceScriptSize(tx, utxoState)
+	if err != nil {
+		return 0, err
+	}
+	return MinFeeTxWithRefScriptSize(tx, pp, scriptSize)
 }
 
 func UtxoValidateCostModelsPresent(
@@ -2965,6 +3012,15 @@ func dijkstraGuardCredentialAt(
 	return guards.Credentials[index], true
 }
 
+// UtxoValidateNativeScripts evaluates the native scripts this transaction has
+// to satisfy, with Dijkstra's guard credentials in scope for RequireGuard.
+//
+// The scripts to evaluate come from the resolved transaction view, as in
+// Babbage: a native script some script purpose requires counts whether the
+// witness set, a reference input, or the spent input's own reference-script
+// field supplies it. Dijkstra keeps its own body rather than delegating to
+// Babbage because only it evaluates guards, and it runs the check at every
+// transaction level so a sub-transaction's native scripts are covered too.
 func UtxoValidateNativeScripts(
 	tx common.Transaction,
 	slot uint64,
@@ -2980,47 +3036,22 @@ func UtxoValidateNativeScripts(
 		return err
 	}
 	for _, level := range levels {
-		witnesses := level.tx.Witnesses()
-		nativeScripts := make(map[common.ScriptHash]common.NativeScript)
-		for scriptHash, candidate := range level.view.Needed {
-			switch native := candidate.(type) {
-			case common.NativeScript:
-				nativeScripts[scriptHash] = native
-			case *common.NativeScript:
-				if native != nil {
-					nativeScripts[scriptHash] = *native
-				}
-			}
-		}
-		if len(nativeScripts) == 0 {
-			continue
-		}
-		keyHashes := make(map[common.Blake2b224]bool)
-		if witnesses != nil {
-			for _, vkw := range witnesses.Vkey() {
-				keyHashes[common.Blake2b224Hash(vkw.Vkey)] = true
-			}
-			for _, bw := range witnesses.Bootstrap() {
-				keyHashes[common.Blake2b224Hash(bw.PublicKey)] = true
-			}
-		}
-		validityStart := level.tx.ValidityIntervalStart()
-		validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(
-			level.tx,
-		)
-		if !validityEndPresent {
-			validityEnd = ^uint64(0)
-		}
+		env := script.NewNativeScriptEnv(level.tx, slot)
 		guardCredentials := nativeScriptGuardCredentials(level.tx)
-		for scriptHash, native := range nativeScripts {
-			if !native.EvaluateWithGuards(
-				slot,
-				validityStart,
-				validityEnd,
-				keyHashes,
+		for _, nativeScript := range script.NativeScriptsToEvaluate(
+			level.tx,
+			level.view,
+		) {
+			if !nativeScript.EvaluateWithGuards(
+				env.Slot,
+				env.ValidityStart,
+				env.ValidityEnd,
+				env.KeyHashes,
 				guardCredentials,
 			) {
-				return conway.NativeScriptFailedError{ScriptHash: scriptHash}
+				return conway.NativeScriptFailedError{
+					ScriptHash: nativeScript.Hash(),
+				}
 			}
 		}
 	}
@@ -3080,19 +3111,21 @@ func UtxoValidateRefScriptSizePerTx(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	tmpPparams, err := dijkstraPparams(pp)
+	maxSize, err := maxRefScriptSizePerTx(pp)
 	if err != nil {
 		return err
 	}
-	maxSize := tmpPparams.MaxRefScriptSizePerTx
-	if maxSize == 0 {
+	if !tx.IsValid() {
 		return nil
 	}
-	totalSize := refScriptSize(tx)
-	if totalSize > uint64(maxSize) {
+	totalSize, err := consumedRefScriptSize(tx, ls)
+	if err != nil {
+		return err
+	}
+	if totalSize > maxSize {
 		return common.RefScriptSizePerTxTooLargeError{
 			TxSize:  totalSize,
-			MaxSize: uint64(maxSize),
+			MaxSize: maxSize,
 		}
 	}
 	return nil
@@ -3101,66 +3134,89 @@ func UtxoValidateRefScriptSizePerTx(
 func ValidateRefScriptSizePerBlock(
 	block *DijkstraBlock,
 	pp common.ProtocolParameters,
+	utxoStates ...common.UtxoState,
 ) error {
-	tmpPparams, err := dijkstraPparams(pp)
+	maxSize, err := maxRefScriptSizePerBlock(pp)
 	if err != nil {
 		return err
 	}
-	maxSize := tmpPparams.MaxRefScriptSizePerBlock
-	if maxSize == 0 {
-		return nil
+	if len(utxoStates) > 1 {
+		return errors.New("expected at most one ledger state")
 	}
-	var totalSize uint64
-	for _, tx := range block.Transactions() {
-		totalSize += refScriptSize(tx)
+	var utxoState common.UtxoState
+	if len(utxoStates) == 1 {
+		utxoState = utxoStates[0]
 	}
-	if totalSize > uint64(maxSize) {
+	conwayPp, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	totalSize, err := common.ConsumedReferenceScriptSizePerBlock(
+		block,
+		utxoState,
+		conwayPp.ProtocolVersion.Major >= common.ProtocolVersionVanRossem,
+		consumedRefScriptSize,
+	)
+	if err != nil {
+		return err
+	}
+	if totalSize > maxSize {
 		return common.RefScriptSizePerBlockTooLargeError{
 			BlockSize: totalSize,
-			MaxSize:   uint64(maxSize),
+			MaxSize:   maxSize,
 		}
 	}
 	return nil
 }
 
-func refScriptSize(tx common.Transaction) uint64 {
-	var totalSize uint64
-	for output := range dijkstraTransactionLevelOutputs(tx) {
-		scriptRef := output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-		totalSize += uint64(len(scriptRef.RawScriptBytes()))
+func maxRefScriptSizePerTx(pp common.ProtocolParameters) (uint64, error) {
+	switch p := pp.(type) {
+	case *DijkstraProtocolParameters:
+		return uint64(p.MaxRefScriptSizePerTx), nil
+	case *conway.ConwayProtocolParameters:
+		return conway.MaxRefScriptSizePerTx, nil
+	default:
+		return 0, errors.New("pparams are not expected type")
 	}
-	return totalSize
 }
 
-// dijkstraTransactionLevelOutputs visits every output-bearing field once.
-// Existing top-level outputs remain first, followed by the collateral return
-// and then subtransaction outputs in their encoded order.
-func dijkstraTransactionLevelOutputs(
-	tx common.Transaction,
-) iter.Seq[common.TransactionOutput] {
-	return func(yield func(common.TransactionOutput) bool) {
-		for _, output := range tx.Outputs() {
-			if !yield(output) {
-				return
-			}
-		}
-		if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
-			if !yield(collateralReturn) {
-				return
-			}
-		}
-		for _, body := range common.SubTransactionBodiesFromTransaction(tx) {
-			if body == nil {
-				continue
-			}
-			for _, output := range body.Outputs() {
-				if !yield(output) {
-					return
-				}
-			}
-		}
+func maxRefScriptSizePerBlock(pp common.ProtocolParameters) (uint64, error) {
+	switch p := pp.(type) {
+	case *DijkstraProtocolParameters:
+		return uint64(p.MaxRefScriptSizePerBlock), nil
+	case *conway.ConwayProtocolParameters:
+		return conway.MaxRefScriptSizePerBlock, nil
+	default:
+		return 0, errors.New("pparams are not expected type")
 	}
+}
+
+func consumedRefScriptSize(
+	tx common.Transaction,
+	utxoState common.UtxoState,
+) (uint64, error) {
+	totalSize, err := common.ConsumedReferenceScriptSize(tx, utxoState)
+	if err != nil {
+		return 0, err
+	}
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return totalSize, nil
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	for idx := range subTxs {
+		subTx := &subTxs[idx]
+		subTxSize, err := common.ConsumedReferenceScriptSize(
+			&subTx.Body,
+			utxoState,
+		)
+		if err != nil {
+			return 0, err
+		}
+		if totalSize > math.MaxUint64-subTxSize {
+			return 0, errors.New("consumed reference-script size overflow")
+		}
+		totalSize += subTxSize
+	}
+	return totalSize, nil
 }

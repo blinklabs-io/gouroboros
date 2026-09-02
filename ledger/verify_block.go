@@ -944,20 +944,37 @@ func VerifyBlock(
 				)
 			}
 		}
-		if dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock); ok {
-			if err := dijkstra.ValidateRefScriptSizePerBlock(dijkstraBlock, config.ProtocolParameters); err != nil {
-				return false, "", 0, 0, common.NewValidationError(
-					common.ValidationErrorTypeTransaction,
-					"block reference-script size validation failed",
-					map[string]any{
-						"block_slot":   slot,
-						"block_number": blockNo,
-						"era":          era,
-					},
-					err,
-				)
-			}
+	}
+
+	var refScriptSizeErr error
+	if block.Era() != byron.EraByron &&
+		!config.SkipBlockLimitsValidation && len(block.Transactions()) > 0 {
+		switch typedBlock := block.(type) {
+		case *conway.ConwayBlock:
+			refScriptSizeErr = conway.ValidateRefScriptSizePerBlock(
+				typedBlock,
+				config.ProtocolParameters,
+				config.LedgerState,
+			)
+		case *dijkstra.DijkstraBlock:
+			refScriptSizeErr = dijkstra.ValidateRefScriptSizePerBlock(
+				typedBlock,
+				config.ProtocolParameters,
+				config.LedgerState,
+			)
 		}
+	}
+	if refScriptSizeErr != nil {
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeTransaction,
+			"block reference-script size validation failed",
+			map[string]any{
+				"block_slot":   slot,
+				"block_number": blockNo,
+				"era":          era,
+			},
+			refScriptSizeErr,
+		)
 	}
 
 	// Verify stake pool registration (can be skipped via config)

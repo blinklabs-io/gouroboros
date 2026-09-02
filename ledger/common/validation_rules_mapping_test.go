@@ -146,6 +146,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateNoCollateralInputs,          // UtxoValidationRuleNoCollateralInputs
 		babbage.UtxoValidateBadInputsUtxo,               // UtxoValidationRuleBadInputs
 		babbage.UtxoValidateScriptWitnesses,             // UtxoValidationRuleScriptWitnesses
+		babbage.UtxoValidateRequiredRedeemers,           // UtxoValidationRuleRequiredRedeemers
 		babbage.UtxoValidateValueNotConservedUtxo,       // UtxoValidationRuleValueNotConserved
 		babbage.UtxoValidateOutputTooSmallUtxo,          // UtxoValidationRuleOutputTooSmall
 		babbage.UtxoValidateOutputTooBigUtxo,            // UtxoValidationRuleOutputTooBig
@@ -195,6 +196,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateNoCollateralInputs,           // UtxoValidationRuleNoCollateralInputs
 		conway.UtxoValidateBadInputsUtxo,                // UtxoValidationRuleBadInputs
 		conway.UtxoValidateScriptWitnesses,              // UtxoValidationRuleScriptWitnesses
+		conway.UtxoValidateRequiredRedeemers,            // UtxoValidationRuleRequiredRedeemers
 		conway.UtxoValidateValueNotConservedUtxo,        // UtxoValidationRuleValueNotConserved
 		conway.UtxoValidateOutputTooSmallUtxo,           // UtxoValidationRuleOutputTooSmall
 		conway.UtxoValidateOutputTooBigUtxo,             // UtxoValidationRuleOutputTooBig
@@ -220,6 +222,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateBootstrapVotingRestrictions,  // UtxoValidationRuleBootstrapVotingRestrictions
 		conway.UtxoValidateStakePoolVotingRestrictions,  // UtxoValidationRuleStakePoolVotingRestrictions
 		conway.UtxoValidateCCVotingRestrictions,         // UtxoValidationRuleCCVotingRestrictions
+		conway.UtxoValidateRefScriptSizePerTx,           // UtxoValidationRuleRefScriptSizePerTx
 	},
 	"Dijkstra": {
 		common.UtxoValidateCurrentTreasuryValue,           // UtxoValidationRuleCurrentTreasuryValue
@@ -254,6 +257,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateNoCollateralInputs,           // UtxoValidationRuleNoCollateralInputs
 		conway.UtxoValidateBadInputsUtxo,                  // UtxoValidationRuleBadInputs
 		dijkstra.UtxoValidateScriptWitnesses,              // UtxoValidationRuleScriptWitnesses
+		conway.UtxoValidateRequiredRedeemers,              // UtxoValidationRuleRequiredRedeemers
 		dijkstra.UtxoValidateValueNotConservedUtxo,        // UtxoValidationRuleValueNotConserved
 		dijkstra.UtxoValidateOutputTooSmallUtxo,           // UtxoValidationRuleOutputTooSmall
 		dijkstra.UtxoValidateOutputTooBigUtxo,             // UtxoValidationRuleOutputTooBig

@@ -862,13 +862,23 @@ func dijkstraSortDataPairsV4(pairs [][2]data.PlutusData) {
 	})
 }
 
-func dijkstraCompareDataV4(a, b data.PlutusData) int {
-	aRaw, aErr := data.Encode(a)
-	bRaw, bErr := data.Encode(b)
-	if aErr == nil && bErr == nil {
-		return bytes.Compare(aRaw, bRaw)
+// dijkstraSortKeyV4 is the byte key one PlutusData value sorts by: its
+// canonical encoding, or its textual form under a distinct tag byte when the
+// encoding is unavailable. data.PlutusData is sealed by an unexported method,
+// so data.Encode handles every value this file can build and the fallback is
+// unreachable; deriving one key per value rather than choosing an ordering per
+// pair keeps the comparator a strict weak ordering even so. A comparator that
+// switched orderings mid-sort would let slices.SortFunc emit an arbitrary
+// order, and this order is script-visible through the Plutus V4 context.
+func dijkstraSortKeyV4(d data.PlutusData) []byte {
+	if raw, err := data.Encode(d); err == nil {
+		return append([]byte{0}, raw...)
 	}
-	return bytes.Compare([]byte(a.String()), []byte(b.String()))
+	return append([]byte{1}, d.String()...)
+}
+
+func dijkstraCompareDataV4(a, b data.PlutusData) int {
+	return bytes.Compare(dijkstraSortKeyV4(a), dijkstraSortKeyV4(b))
 }
 
 func dijkstraOptionalIndex(index *uint32) data.PlutusData {
