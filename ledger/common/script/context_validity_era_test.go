@@ -90,14 +90,10 @@ func TestValidityRangeEraIdsUnchanged(t *testing.T) {
 func TestValidityRangeUpperBoundByEra(t *testing.T) {
 	for _, era := range []struct {
 		name string
-		// upperBoundOnlyIsClosed is the expected inclusivity of a
-		// finite upper bound when no lower bound is present.
-		upperBoundOnlyIsClosed bool
-		tx                     eraTxBuilder
+		tx   eraTxBuilder
 	}{
 		{
-			name:                   "Alonzo",
-			upperBoundOnlyIsClosed: true,
+			name: "Alonzo",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -109,8 +105,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name:                   "Babbage",
-			upperBoundOnlyIsClosed: true,
+			name: "Babbage",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -122,8 +117,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name:                   "Conway",
-			upperBoundOnlyIsClosed: false,
+			name: "Conway",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -134,8 +128,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name:                   "Dijkstra",
-			upperBoundOnlyIsClosed: false,
+			name: "Dijkstra",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -159,7 +152,8 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 						u []lcommon.Utxo,
 					) (data.PlutusData, error) {
 						info, err := script.NewTxInfoV1FromTransaction(
-							s, tx, u, !era.upperBoundOnlyIsClosed,
+							s, tx, u,
+							script.StrictValidityUpperBoundForTransaction(tx),
 						)
 						if err != nil {
 							return nil, err
@@ -175,7 +169,8 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 						u []lcommon.Utxo,
 					) (data.PlutusData, error) {
 						info, err := script.NewTxInfoV2FromTransaction(
-							s, tx, u, !era.upperBoundOnlyIsClosed,
+							s, tx, u,
+							script.StrictValidityUpperBoundForTransaction(tx),
 						)
 						if err != nil {
 							return nil, err
@@ -208,7 +203,9 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 							)
 							require.NoError(t, err)
 							strictUpperBound := build.name == "V3" ||
-								!era.upperBoundOnlyIsClosed
+								script.StrictValidityUpperBoundForTransaction(
+									era.tx(t, fixture),
+								)
 							expected := expectedValidityRange(
 								fixture.StartSlot,
 								fixture.EndSlot,
