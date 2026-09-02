@@ -367,9 +367,11 @@ func chainedMusashiBlock(
 	var blockElems []cbor.RawMessage
 	_, err := cbor.Decode(raw, &blockElems)
 	require.NoError(t, err)
+	require.NotEmpty(t, blockElems, "block should hold a header")
 	var headerElems []cbor.RawMessage
 	_, err = cbor.Decode(blockElems[0], &headerElems)
 	require.NoError(t, err)
+	require.NotEmpty(t, headerElems, "header should hold a body")
 	var bodyElems []cbor.RawMessage
 	_, err = cbor.Decode(headerElems[0], &bodyElems)
 	require.NoError(t, err)

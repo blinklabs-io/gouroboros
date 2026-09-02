@@ -1107,6 +1107,14 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			SkipBodyHashValidation: c.config.SkipBlockValidation,
 		},
 	)
+	if decodeErr != nil {
+		// The era decoders return a typed nil pointer alongside their error
+		// (see conway.NewConwayBlockFromCbor), and an interface holding one
+		// is not itself nil, so a `block != nil` check would pass and every
+		// method call on it would panic. Normalize to an untyped nil so a
+		// failed decode cannot be mistaken for a usable block below.
+		block = nil
+	}
 	// A raw callback decodes the payload itself, so a generic type decoder
 	// that cannot represent the full wire layout must not fail the request
 	// before the callback ever runs. This is how a block whose era tag
@@ -1126,26 +1134,35 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	if decodeErr != nil && !rawFallback {
 		return c.failRequest(req, decodeErr)
 	}
+	if decodeErr == nil && block == nil {
+		// Not reachable through any current decoder, but the rest of this
+		// function hands the block to a consumer, so state the contract
+		// rather than relying on it.
+		return c.failRequest(req, fmt.Errorf(
+			"%s: block decoder returned no block and no error",
+			ProtocolName,
+		))
+	}
 	// Range correlation applies either way. Without a decoded block its
 	// inputs are read straight from the block header CBOR, so a peer still
 	// cannot inject an unrelated block into a valid batch by sending one the
 	// type decoder rejects.
 	var blockPoint pcommon.Point
 	var prevHash []byte
-	if rawFallback {
-		info, err := rawBlockHeaderInfoFromCbor(wrappedBlock.RawBlock)
-		if err != nil {
-			return c.failRequest(req, errors.Join(decodeErr, err))
-		}
-		blockPoint = info.point
-		prevHash = info.prevHash
-	} else {
+	if block != nil {
 		blockPoint = pcommon.NewPoint(
 			block.SlotNumber(),
 			block.Hash().Bytes(),
 		)
 		blockPrevHash := block.PrevHash()
 		prevHash = blockPrevHash.Bytes()
+	} else {
+		info, err := rawBlockHeaderInfoFromCbor(wrappedBlock.RawBlock)
+		if err != nil {
+			return c.failRequest(req, errors.Join(decodeErr, err))
+		}
+		blockPoint = info.point
+		prevHash = info.prevHash
 	}
 	c.queueMutex.Lock()
 	err = req.recordBlock(blockPoint, prevHash)
