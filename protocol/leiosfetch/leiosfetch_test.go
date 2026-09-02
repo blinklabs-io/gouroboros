@@ -543,3 +543,148 @@ func TestBlockRequestSubsequentAfterAbandoned(t *testing.T) {
 		},
 	)
 }
+
+// TestVotesRequestAfterAbandonedBlockRequestFailsFast pins that a votes
+// request goes through the same admission slot as a block request.
+//
+// The leios-fetch states share one connection-wide agency, so a block request
+// whose caller gave up leaves the peer holding agency and nothing further can
+// be written to the bearer. Before VotesRequest acquired the slot it skipped
+// that diagnosis entirely and blocked forever on votesResultChan with no
+// context and no recovery.
+func TestVotesRequestAfterAbandonedBlockRequestFailsFast(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRequest,
+		},
+	)
+	runTestCollectingConnErrors(
+		t,
+		conversation,
+		func(
+			t *testing.T,
+			oConn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
+			client := oConn.LeiosFetch().Client
+			ctx1, cancel1 := context.WithTimeout(
+				context.Background(),
+				150*time.Millisecond,
+			)
+			defer cancel1()
+			_, err1 := client.BlockRequest(
+				ctx1,
+				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			)
+			require.ErrorIs(t, err1, context.DeadlineExceeded)
+
+			type reqResult struct {
+				resp protocol.Message
+				err  error
+			}
+			resultChan := make(chan reqResult, 1)
+			go func() {
+				resp, err := client.VotesRequest(
+					context.Background(),
+					[]leiosfetch.MsgVotesRequestVoteId{},
+				)
+				resultChan <- reqResult{resp: resp, err: err}
+			}()
+			select {
+			case result := <-resultChan:
+				require.ErrorIs(
+					t,
+					result.err,
+					leiosfetch.ErrRequestSlotAbandoned,
+				)
+				assert.Nil(t, result.resp)
+			case <-time.After(10 * time.Second):
+				t.Fatal(
+					"VotesRequest parked behind an abandoned block request",
+				)
+			}
+
+			select {
+			case err := <-connErrs:
+				require.ErrorIs(t, err, leiosfetch.ErrRequestSlotAbandoned)
+				require.ErrorContains(t, err, "retained agency")
+			case <-time.After(10 * time.Second):
+				t.Fatal(
+					"desynchronised leios-fetch exchange did not fail the connection",
+				)
+			}
+		},
+	)
+}
+
+// TestBlockRangeRequestAfterAbandonedBlockRequestFailsFast is the range-request
+// counterpart of TestVotesRequestAfterAbandonedBlockRequestFailsFast.
+func TestBlockRangeRequestAfterAbandonedBlockRequestFailsFast(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRequest,
+		},
+	)
+	runTestCollectingConnErrors(
+		t,
+		conversation,
+		func(
+			t *testing.T,
+			oConn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
+			client := oConn.LeiosFetch().Client
+			ctx1, cancel1 := context.WithTimeout(
+				context.Background(),
+				150*time.Millisecond,
+			)
+			defer cancel1()
+			_, err1 := client.BlockRequest(
+				ctx1,
+				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			)
+			require.ErrorIs(t, err1, context.DeadlineExceeded)
+
+			type rangeResult struct {
+				resp []protocol.Message
+				err  error
+			}
+			resultChan := make(chan rangeResult, 1)
+			go func() {
+				resp, err := client.BlockRangeRequest(
+					context.Background(),
+					pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
+					pcommon.NewPoint(34567, []byte{0x09, 0x0a, 0x0b, 0x0c}),
+				)
+				resultChan <- rangeResult{resp: resp, err: err}
+			}()
+			select {
+			case result := <-resultChan:
+				require.ErrorIs(
+					t,
+					result.err,
+					leiosfetch.ErrRequestSlotAbandoned,
+				)
+				assert.Nil(t, result.resp)
+			case <-time.After(10 * time.Second):
+				t.Fatal(
+					"BlockRangeRequest parked behind an abandoned block request",
+				)
+			}
+
+			select {
+			case err := <-connErrs:
+				require.ErrorIs(t, err, leiosfetch.ErrRequestSlotAbandoned)
+				require.ErrorContains(t, err, "retained agency")
+			case <-time.After(10 * time.Second):
+				t.Fatal(
+					"desynchronised leios-fetch exchange did not fail the connection",
+				)
+			}
+		},
+	)
+}

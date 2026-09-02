@@ -413,43 +413,89 @@ func (c *Client) BlockTxsRequest(
 	}
 }
 
-// VotesRequest fetches the requested votes
+// VotesRequest fetches the requested votes.
+//
+// Admission goes through the same slot as BlockRequest and BlockTxsRequest.
+// The leios-fetch states share one connection-wide agency and carry no request
+// identifier, so a block request whose caller gave up leaves the peer holding
+// agency and nothing can be written to this bearer afterwards. Acquiring the
+// slot here makes that condition surface as ErrRequestSlotAbandoned and fail
+// the connection, instead of blocking this caller forever with no diagnosis.
+//
+// The votes response does not arrive through the slot, so unlike BlockRequest
+// this releases it explicitly on success. A context that expires with the
+// response still outstanding abandons instead: the peer still owes a reply and
+// still holds agency, so the slot has to stay busy until that reply drains it.
 func (c *Client) VotesRequest(
+	ctx context.Context,
 	voteIds []MsgVotesRequestVoteId,
 ) (protocol.Message, error) {
-	msg := NewMsgVotesRequest(voteIds)
-	if err := c.SendMessage(msg); err != nil {
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateVotes)
+	if err != nil {
 		return nil, err
 	}
-	resp, ok := <-c.votesResultChan
-	if !ok {
+	msg := NewMsgVotesRequest(voteIds)
+	if err := c.SendMessageContext(ctx, msg); err != nil {
+		c.blockRequestSlot.release(w)
+		return nil, err
+	}
+	select {
+	case resp, ok := <-c.votesResultChan:
+		c.blockRequestSlot.release(w)
+		if !ok {
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		return resp, nil
+	case <-ctx.Done():
+		c.blockRequestSlot.abandon(w)
+		return nil, ctx.Err()
+	case <-c.DoneChan():
+		c.blockRequestSlot.release(w)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
-	return resp, nil
 }
 
 // BlockRangeRequest fetches a range of EBs and their TXs that are certified by RBs within the provided range.
 // This function will block until all EBs and TXs in the requested range have been received
+// Admission goes through the same slot as BlockRequest, for the reason given
+// on VotesRequest: one abandoned block request otherwise makes this block
+// forever with no diagnosis. The slot is held for the whole multi-message
+// range exchange and released once the last message arrives.
 func (c *Client) BlockRangeRequest(
+	ctx context.Context,
 	start pcommon.Point,
 	end pcommon.Point,
 ) ([]protocol.Message, error) {
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlockRange)
+	if err != nil {
+		return nil, err
+	}
 	msg := NewMsgBlockRangeRequest(start, end)
-	if err := c.SendMessage(msg); err != nil {
+	if err := c.SendMessageContext(ctx, msg); err != nil {
+		c.blockRequestSlot.release(w)
 		return nil, err
 	}
 	ret := make([]protocol.Message, 0, 20)
 	for {
-		resp, ok := <-c.blockRangeResultChan
-		if !ok {
+		select {
+		case resp, ok := <-c.blockRangeResultChan:
+			if !ok {
+				c.blockRequestSlot.release(w)
+				return nil, protocol.ErrProtocolShuttingDown
+			}
+			ret = append(ret, resp)
+			if _, ok := resp.(*MsgLastBlockAndTxsInRange); ok {
+				c.blockRequestSlot.release(w)
+				return ret, nil
+			}
+		case <-ctx.Done():
+			c.blockRequestSlot.abandon(w)
+			return nil, ctx.Err()
+		case <-c.DoneChan():
+			c.blockRequestSlot.release(w)
 			return nil, protocol.ErrProtocolShuttingDown
 		}
-		ret = append(ret, resp)
-		if _, ok := resp.(*MsgLastBlockAndTxsInRange); ok {
-			break
-		}
 	}
-	return ret, nil
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
