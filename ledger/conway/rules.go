@@ -106,6 +106,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateBootstrapVotingRestrictions,
 		UtxoValidateStakePoolVotingRestrictions,
 		UtxoValidateCCVotingRestrictions,
+		UtxoValidateRefScriptSizePerTx,
 	),
 )
 
@@ -1779,7 +1780,7 @@ func UtxoValidateFeeTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	minFee, err := MinFeeTx(tx, pp)
+	minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
 	if err != nil {
 		return err
 	}

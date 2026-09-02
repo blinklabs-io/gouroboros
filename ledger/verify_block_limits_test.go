@@ -17,13 +17,18 @@ package ledger_test
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
@@ -142,6 +147,62 @@ func TestVerifyBlock_BlockLimits_Positive(t *testing.T) {
 		blockLimitsTestEta0Hex,
 		blockLimitsTestSlotsPerKesPeriod,
 		blockLimitsTestVerifyConfig(pp),
+	)
+	require.NoError(t, err)
+	require.True(t, valid)
+}
+
+func TestVerifyBlock_RefScriptLimitIndependentOfTransactionValidation(
+	t *testing.T,
+) {
+	block := buildBlockLimitsTestBlock(t, 1, common.ExUnits{})
+	conwayBlock, ok := block.(*conway.ConwayBlock)
+	require.True(t, ok)
+	input := shelley.NewShelleyTransactionInput(
+		strings.Repeat("01", 32),
+		0,
+	)
+	conwayBlock.TransactionBodies[0].TxReferenceInputs = cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{input},
+		false,
+	)
+	utxo := common.Utxo{
+		Id: input,
+		Output: &babbage.BabbageTransactionOutput{
+			TxOutScriptRef: &common.ScriptRef{
+				Script: make(
+					common.PlutusV3Script,
+					conway.MaxRefScriptSizePerBlock+1,
+				),
+			},
+		},
+	}
+	config := blockLimitsTestVerifyConfig(&conway.ConwayProtocolParameters{})
+	config.LedgerState = mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(got common.TransactionInput) (common.Utxo, error) {
+			if got.String() != input.String() {
+				return common.Utxo{}, fmt.Errorf("utxo not found: %s", got)
+			}
+			return utxo, nil
+		}).
+		Build()
+
+	valid, _, _, _, err := ledger.VerifyBlock(
+		block,
+		blockLimitsTestEta0Hex,
+		blockLimitsTestSlotsPerKesPeriod,
+		config,
+	)
+	require.Error(t, err)
+	require.False(t, valid)
+	require.ErrorAs(t, err, &common.RefScriptSizePerBlockTooLargeError{})
+
+	config.SkipBlockLimitsValidation = true
+	valid, _, _, _, err = ledger.VerifyBlock(
+		block,
+		blockLimitsTestEta0Hex,
+		blockLimitsTestSlotsPerKesPeriod,
+		config,
 	)
 	require.NoError(t, err)
 	require.True(t, valid)
