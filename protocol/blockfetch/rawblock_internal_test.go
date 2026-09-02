@@ -59,14 +59,24 @@ func TestRawBlockHeaderInfoMatchesTypedDecode(t *testing.T) {
 	_, err = cbor.Decode(babbageCbor, &babbageBlock)
 	require.NoError(t, err)
 
+	// An encoded zero Blake2b256 is a 32-byte bytestring, not CBOR null, so
+	// the case above does not reach the origin branch. Rewrite prev_hash to
+	// null to cover it.
+	originCbor := withNullPrevHash(t, babbageCbor)
+	var originBlock ledger.BabbageBlock
+	_, err = cbor.Decode(originCbor, &originBlock)
+	require.NoError(t, err)
+
 	testCases := []struct {
 		name  string
 		raw   []byte
 		block ledger.Block
 	}{
-		// Babbage exercises a 10-field header body with an origin (null)
-		// prev_hash.
+		// Babbage exercises a 10-field header body with a present prev_hash.
 		{name: "babbage", raw: babbageCbor, block: &babbageBlock},
+		// The origin case: prev_hash encoded as CBOR null, which the typed
+		// header decoder turns into the zero hash.
+		{name: "babbage origin", raw: originCbor, block: &originBlock},
 		// Musashi exercises a 12-field Leios-extended header body, the shape
 		// that made the raw fallback necessary in the first place.
 		{name: "musashi dijkstra", raw: musashi, block: musashiBlock},
@@ -135,4 +145,32 @@ func TestRawBlockHeaderInfoRejectsMalformed(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// withNullPrevHash rewrites a block's header-body prev_hash to CBOR null,
+// producing the encoding an origin header uses.
+func withNullPrevHash(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	var blockElems []cbor.RawMessage
+	_, err := cbor.Decode(raw, &blockElems)
+	require.NoError(t, err)
+	require.NotEmpty(t, blockElems)
+	var headerElems []cbor.RawMessage
+	_, err = cbor.Decode(blockElems[0], &headerElems)
+	require.NoError(t, err)
+	require.NotEmpty(t, headerElems)
+	var bodyElems []cbor.RawMessage
+	_, err = cbor.Decode(headerElems[0], &bodyElems)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(bodyElems), blockHeaderBodyMinFields)
+	bodyElems[2] = cbor.RawMessage{0xf6}
+	headerBody, err := cbor.Encode(bodyElems)
+	require.NoError(t, err)
+	headerElems[0] = headerBody
+	header, err := cbor.Encode(headerElems)
+	require.NoError(t, err)
+	blockElems[0] = header
+	out, err := cbor.Encode(blockElems)
+	require.NoError(t, err)
+	return out
 }
