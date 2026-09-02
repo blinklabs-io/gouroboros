@@ -23,7 +23,9 @@ package common
 
 import (
 	"fmt"
+	"math/big"
 	"math/bits"
+	"reflect"
 	"sort"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -37,6 +39,42 @@ type UtxoValidationRuleFunc func(
 	ledgerState LedgerState,
 	protocolParams ProtocolParameters,
 ) error
+
+// UtxoValidateCurrentTreasuryValue checks a transaction's optional current
+// treasury value against the ledger state.
+func UtxoValidateCurrentTreasuryValue(
+	tx Transaction, slot uint64, ledgerState LedgerState, protocolParams ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	bodies := SubTransactionBodiesFromTransaction(tx)
+	values := make([]*big.Int, 0, len(bodies)+1)
+	for _, body := range bodies {
+		if body != nil && TransactionCurrentTreasuryValuePresent(body) {
+			values = append(values, body.CurrentTreasuryValue())
+		}
+	}
+	if TransactionCurrentTreasuryValuePresent(tx) {
+		values = append(values, tx.CurrentTreasuryValue())
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	if ledgerState == nil || (reflect.ValueOf(ledgerState).Kind() == reflect.Pointer && reflect.ValueOf(ledgerState).IsNil()) {
+		return TreasuryValueQueryError{Err: TreasuryValueProviderUnavailableError{}}
+	}
+	expected, err := ledgerState.TreasuryValue()
+	if err != nil {
+		return TreasuryValueQueryError{Err: err}
+	}
+	for _, supplied := range values {
+		if supplied.Cmp(new(big.Int).SetUint64(expected)) != 0 {
+			return CurrentTreasuryValueMismatchError{Supplied: new(big.Int).Set(supplied), Expected: expected}
+		}
+	}
+	return nil
+}
 
 // UtxoValidationRuleGroup describes a consecutive group of transaction
 // validation rules with the same phase-2 validity scope. Construct groups with

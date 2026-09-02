@@ -27,47 +27,184 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
+	{
+		Id:        common.UtxoValidationRuleIsValidFlag,
+		Validator: UtxoValidateIsValidFlag,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralVKeyWitnesses,
+		Validator: UtxoValidateCollateralVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+		Validator: UtxoValidateRedeemerAndScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleCostModelsPresent,
+		Validator: UtxoValidateCostModelsPresent,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptDataHash,
+		Validator: UtxoValidateScriptDataHash,
+	},
+	{
+		Id:        common.UtxoValidationRuleInlineDatumsWithPlutusV1,
+		Validator: UtxoValidateInlineDatumsWithPlutusV1,
+	},
+	{
+		Id:        common.UtxoValidationRuleDisjointRefInputs,
+		Validator: UtxoValidateDisjointRefInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideValidityInterval,
+		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInsufficientCollateral,
+		Validator: UtxoValidateInsufficientCollateral,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralContainsNonAda,
+		Validator: UtxoValidateCollateralContainsNonAda,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralEqBalance,
+		Validator: UtxoValidateCollateralEqBalance,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoCollateralInputs,
+		Validator: UtxoValidateNoCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredRedeemers,
+		Validator: UtxoValidateRequiredRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooBig,
+		Validator: UtxoValidateOutputTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleExUnitsTooBig,
+		Validator: UtxoValidateExUnitsTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleTooManyCollateralInputs,
+		Validator: UtxoValidateTooManyCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleExtraneousRedeemers,
+		Validator: UtxoValidateExtraneousRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRuleMalformedReferenceScripts,
+		Validator: UtxoValidateMalformedReferenceScripts,
+	},
+	{
+		Id:        common.UtxoValidationRulePlutusScripts,
+		Validator: UtxoValidatePlutusScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: UtxoValidateWithdrawals,
+	},
+}
+
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
 var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.AlwaysUtxoValidationRules(
-		UtxoValidateMetadata,
-		UtxoValidateIsValidFlag,
-		UtxoValidateRequiredVKeyWitnesses,
-		UtxoValidateSignatures,
-		UtxoValidateCollateralVKeyWitnesses,
-		UtxoValidateRedeemerAndScriptWitnesses,
-		UtxoValidateCostModelsPresent,
-		UtxoValidateScriptDataHash,
-		UtxoValidateInlineDatumsWithPlutusV1,
-		UtxoValidateDisjointRefInputs,
-		UtxoValidateOutsideValidityIntervalUtxo,
-		UtxoValidateInputSetEmptyUtxo,
-		UtxoValidateNoDuplicateInputs,
-		UtxoValidateFeeTooSmallUtxo,
-		UtxoValidateInsufficientCollateral,
-		UtxoValidateCollateralContainsNonAda,
-		UtxoValidateCollateralEqBalance,
-		UtxoValidateNoCollateralInputs,
-		UtxoValidateBadInputsUtxo,
-		UtxoValidateScriptWitnesses,
-		UtxoValidateRequiredRedeemers,
-		UtxoValidateValueNotConservedUtxo,
-		UtxoValidateOutputTooSmallUtxo,
-		UtxoValidateOutputTooBigUtxo,
-		UtxoValidateOutputBootAddrAttrsTooBig,
-		UtxoValidateWrongNetwork,
-		UtxoValidateWrongNetworkWithdrawal,
-		UtxoValidateMaxTxSizeUtxo,
-		UtxoValidateExUnitsTooBigUtxo,
-		UtxoValidateTooManyCollateralInputs,
-		UtxoValidateNativeScripts,
-		UtxoValidateExtraneousRedeemers,
-		UtxoValidateMalformedReferenceScripts,
+		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
+		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash, UtxoValidateInlineDatumsWithPlutusV1,
+		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
+		UtxoValidateNoCollateralInputs, UtxoValidateBadInputsUtxo,
+		UtxoValidateScriptWitnesses, UtxoValidateRequiredRedeemers,
+		UtxoValidateValueNotConservedUtxo, UtxoValidateOutputTooSmallUtxo,
+		UtxoValidateOutputTooBigUtxo, UtxoValidateOutputBootAddrAttrsTooBig,
+		UtxoValidateWrongNetwork, UtxoValidateWrongNetworkWithdrawal,
+		UtxoValidateMaxTxSizeUtxo, UtxoValidateExUnitsTooBigUtxo,
+		UtxoValidateTooManyCollateralInputs, UtxoValidateNativeScripts,
+		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
 		UtxoValidatePlutusScripts,
 	),
-	common.Phase2ValidUtxoValidationRules(
-		UtxoValidateDelegation,
-		UtxoValidateWithdrawals,
-	),
+	common.Phase2ValidUtxoValidationRules(UtxoValidateDelegation, UtxoValidateWithdrawals),
 )
 
 func UtxoValidateOutsideValidityIntervalUtxo(
@@ -290,15 +427,12 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	view, err := script.NewTxScriptView(tx, ls)
+	// An unresolvable input yields an empty view rather than an error:
+	// UtxoValidateBadInputsUtxo reports it with the right error, and reporting
+	// it here as well would make this rule a second, competing source of
+	// input-resolution failures.
+	view, err := script.NewTxScriptViewSkippingUnresolved(tx, ls)
 	if err != nil {
-		if errors.Is(err, common.ErrInputResolution) ||
-			errors.Is(err, common.ErrReferenceInputResolution) {
-			// UtxoValidateBadInputsUtxo reports an unresolvable input with the
-			// right error; reporting it here as well would make this rule a
-			// second, competing source of input-resolution failures.
-			return nil
-		}
 		return err
 	}
 	needsV1 := view.NeedsAny(func(s common.Script) bool {
@@ -896,7 +1030,10 @@ func UtxoValidateExUnitsTooBigUtxo(
 	}
 	var totalSteps, totalMemory int64
 	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
-		newSteps, ok := common.AddInt64Checked(totalSteps, redeemer.ExUnits.Steps)
+		newSteps, ok := common.AddInt64Checked(
+			totalSteps,
+			redeemer.ExUnits.Steps,
+		)
 		if !ok {
 			return alonzo.ExUnitsTooBigUtxoError{
 				TotalExUnits: common.ExUnits{
@@ -907,7 +1044,10 @@ func UtxoValidateExUnitsTooBigUtxo(
 			}
 		}
 		totalSteps = newSteps
-		newMemory, ok := common.AddInt64Checked(totalMemory, redeemer.ExUnits.Memory)
+		newMemory, ok := common.AddInt64Checked(
+			totalMemory,
+			redeemer.ExUnits.Memory,
+		)
 		if !ok {
 			return alonzo.ExUnitsTooBigUtxoError{
 				TotalExUnits: common.ExUnits{
@@ -1073,8 +1213,12 @@ func UtxoValidateScriptWitnesses(
 }
 
 // UtxoValidateRequiredRedeemers checks that every Plutus script-address
-// input has a matching spend redeemer, including inputs using reference
-// scripts.
+// input -- whether its script is provided as an explicit witness or as a
+// CIP-33 reference script -- has a matching spend redeemer. See
+// script.ValidateRequiredRedeemers for details on the gap this closes.
+// Babbage never executes Plutus itself (see UtxoValidatePlutusScripts
+// below), but a reference-script-backed input with no redeemer must still
+// be rejected rather than silently spent unexecuted.
 func UtxoValidateRequiredRedeemers(
 	tx common.Transaction,
 	slot uint64,
@@ -1086,6 +1230,15 @@ func UtxoValidateRequiredRedeemers(
 
 // UtxoValidateNativeScripts evaluates the native scripts this transaction has
 // to satisfy.
+//
+// Babbage is the first era in which a script can reach a transaction as a
+// reference script rather than a witness, so unlike the Alonzo rule this
+// replaces, the scripts to evaluate come from the resolved transaction view
+// rather than the witness set alone: a native script some script purpose
+// requires counts whether the witness set, a reference input, or the spent
+// input's own reference-script field supplies it -- the same three sources
+// UtxoValidateScriptWitnesses accepts a required script from, so a script that
+// rule counts as provided is a script this rule evaluates rather than ignores.
 func UtxoValidateNativeScripts(
 	tx common.Transaction,
 	slot uint64,
@@ -1121,9 +1274,6 @@ func UtxoValidateWithdrawals(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// The composed rule list gates this rule on phase-2 validity. This inner
-	// guard is kept for callers that invoke the rule directly. A new rule
-	// should rely on the Phase2ValidUtxoValidationRules group instead.
 	if !tx.IsValid() {
 		return nil
 	}

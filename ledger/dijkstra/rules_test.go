@@ -15,7 +15,6 @@
 package dijkstra
 
 import (
-	"errors"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -38,272 +37,55 @@ func dijkstraValidationRuleName(rule common.UtxoValidationRuleFunc) string {
 	return runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).Name()
 }
 
-// dijkstraComposedEntry is one position in the list ComposeUtxoValidationRules
-// is expected to produce. It is declared here rather than derived from the
-// group literals in rules.go, so a mis-ordered composition fails rather than
-// re-confirming the literals.
-type dijkstraComposedEntry struct {
-	name  string
-	gated bool
+func dijkstraValidationRuleDescriptor(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) (common.UtxoValidationRuleDescriptor, int) {
+	t.Helper()
+	var found common.UtxoValidationRuleDescriptor
+	foundIndex := -1
+	for idx, descriptor := range UtxoValidationRuleDescriptors() {
+		if descriptor.Id != id {
+			continue
+		}
+		if foundIndex >= 0 {
+			t.Fatalf(
+				"Dijkstra validation rule %q is registered at indexes %d and %d",
+				id,
+				foundIndex,
+				idx,
+			)
+		}
+		found = descriptor
+		foundIndex = idx
+	}
+	if foundIndex < 0 {
+		t.Fatalf("Dijkstra validation rule %q is not registered", id)
+	}
+	return found, foundIndex
 }
 
-var dijkstraComposedLayout = []dijkstraComposedEntry{
-	{name: "ledger/conway.UtxoValidateMetadata", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateProposalProcedures", gated: true},
-	{name: "ledger/conway.UtxoValidateGovActionWellFormedness", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateHardForkCanFollow", gated: true},
-	{name: "ledger/conway.UtxoValidateProposalAncestry", gated: true},
-	{name: "ledger/dijkstra.UtxoValidateProposalDeposit", gated: true},
-	{name: "ledger/conway.UtxoValidateProposalNetworkIds", gated: true},
-	{name: "ledger/conway.UtxoValidateProposalReturnAccounts", gated: true},
-	{name: "ledger/conway.UtxoValidateEmptyTreasuryWithdrawals", gated: true},
-	{name: "ledger/dijkstra.UtxoValidateBootstrapAllowedGovActions", gated: true},
-	{name: "ledger/dijkstra.UtxoValidateBootstrapParameterGroups", gated: true},
-	{name: "ledger/conway.UtxoValidateIsValidFlag", gated: false},
-	{name: "ledger/conway.UtxoValidateRequiredVKeyWitnesses", gated: false},
-	{name: "ledger/conway.UtxoValidateCollateralVKeyWitnesses", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateRedeemerAndScriptWitnesses", gated: false},
-	{name: "ledger/conway.UtxoValidateSignatures", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateCostModelsPresent", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateScriptDataHash", gated: false},
-	{name: "ledger/conway.UtxoValidateInlineDatumsWithPlutusV1", gated: false},
-	{name: "ledger/conway.UtxoValidateConwayFeaturesWithPlutusV1V2", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateDisjointRefInputs", gated: false},
-	{name: "ledger/conway.UtxoValidateOutsideValidityIntervalUtxo", gated: false},
-	{name: "ledger/conway.UtxoValidateInputSetEmptyUtxo", gated: false},
-	{name: "ledger/conway.UtxoValidateNoDuplicateInputs", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateFeeTooSmallUtxo", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateInsufficientCollateral", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateCollateralContainsNonAda", gated: false},
-	{name: "ledger/conway.UtxoValidateCollateralEqBalance", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateNoCollateralInputs", gated: false},
-	{name: "ledger/conway.UtxoValidateBadInputsUtxo", gated: false},
-	{name: "ledger/conway.UtxoValidateScriptWitnesses", gated: false},
-	{name: "ledger/conway.UtxoValidateRequiredRedeemers", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateValueNotConservedUtxo", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateOutputTooSmallUtxo", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateOutputTooBigUtxo", gated: false},
-	{name: "ledger/conway.UtxoValidateOutputBootAddrAttrsTooBig", gated: false},
-	{name: "ledger/conway.UtxoValidateWrongNetwork", gated: false},
-	{name: "ledger/conway.UtxoValidateWrongNetworkWithdrawal", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateTransactionNetworkId", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateMaxTxSizeUtxo", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateExUnitsTooBigUtxo", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateTooManyCollateralInputs", gated: false},
-	{name: "ledger/conway.UtxoValidateSupplementalDatums", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateExtraneousRedeemers", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateMalformedReferenceScripts", gated: false},
-	{name: "ledger/dijkstra.UtxoValidatePlutusScripts", gated: false},
-	{name: "ledger/dijkstra.UtxoValidateNativeScripts", gated: false},
-	{name: "ledger/conway.UtxoValidateDelegation", gated: true},
-	{name: "ledger/conway.UtxoValidateWithdrawals", gated: true},
-	{name: "ledger/conway.UtxoValidateCertificateDeposits", gated: true},
-	{name: "ledger/conway.UtxoValidateCommitteeCertificates", gated: true},
-	{name: "ledger/conway.UtxoValidateUnknownVoters", gated: true},
-	{name: "ledger/conway.UtxoValidateUnknownGovActionIds", gated: true},
-	{name: "ledger/conway.UtxoValidateVotingOnExpiredGovAction", gated: true},
-	{name: "ledger/dijkstra.UtxoValidateBootstrapVotingRestrictions", gated: true},
-	{name: "ledger/conway.UtxoValidateStakePoolVotingRestrictions", gated: true},
-	{name: "ledger/dijkstra.UtxoValidateCCVotingRestrictions", gated: true},
-	{name: "ledger/dijkstra.UtxoValidateRefScriptSizePerTx", gated: true},
+func dijkstraValidationRuleIndex(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) int {
+	t.Helper()
+	_, idx := dijkstraValidationRuleDescriptor(t, id)
+	return idx
 }
 
-// dijkstraValidationRule returns the composed rule at the position the named
-// rule is expected to occupy. Gated rules are wrapped by the composition, so
-// they cannot be resolved by name in the composed list; the layout above is
-// what pins them, and it cannot tell two gated rules apart from each other.
 func dijkstraValidationRule(
 	t *testing.T,
 	want string,
 ) (common.UtxoValidationRuleFunc, int) {
 	t.Helper()
-	require.Len(t, UtxoValidationRules, len(dijkstraComposedLayout))
-	for idx, entry := range dijkstraComposedLayout {
-		if !strings.HasSuffix(entry.name, want) {
-			continue
+	for idx, rule := range UtxoValidationRules {
+		if strings.HasSuffix(dijkstraValidationRuleName(rule), want) {
+			return rule, idx
 		}
-		if !entry.gated {
-			require.True(
-				t,
-				strings.HasSuffix(
-					dijkstraValidationRuleName(UtxoValidationRules[idx]),
-					want,
-				),
-				"composed rule %d is not %s",
-				idx,
-				want,
-			)
-		}
-		return UtxoValidationRules[idx], idx
 	}
 	t.Fatalf("validation rule %s is not registered", want)
 	return nil, -1
-}
-
-// TestDijkstraComposedRuleLayout pins the composed list: every ungated rule by
-// name at its index, and every gated position by its phase-2 behavior. A rule
-// dropped, reordered across the two kinds, or moved between the Always and
-// Phase2Valid groups fails here.
-//
-// The composition wraps every gated rule in an identical closure, so a gated
-// position cannot be resolved by name. dijkstraGatedRuleAnchors pins one rule
-// per gated group by behavior only that rule produces; without them the two
-// ten-rule gated groups could be exchanged with no assertion changing. Two
-// gated rules swapped inside one group are still not caught, which would need
-// the wrapper to carry the wrapped rule's identity.
-func TestDijkstraComposedRuleLayout(t *testing.T) {
-	require.Len(t, UtxoValidationRules, len(dijkstraComposedLayout))
-	invalidTx := &DijkstraTransaction{TxIsValid: false}
-	anchored := 0
-	for idx, entry := range dijkstraComposedLayout {
-		rule := UtxoValidationRules[idx]
-		if entry.gated {
-			// A gated rule must not run for a phase-2-invalid transaction.
-			// Nil parameters would panic if the wrapper delegated.
-			require.NoError(
-				t,
-				rule(invalidTx, 0, nil, nil),
-				"rule %d (%s) is not gated on phase-2 validity",
-				idx,
-				entry.name,
-			)
-			if anchor, ok := dijkstraGatedRuleAnchors[entry.name]; ok {
-				anchored++
-				t.Run(
-					strings.ReplaceAll(entry.name, "/", "_"),
-					func(t *testing.T) {
-						anchor(t, rule)
-					},
-				)
-			}
-			continue
-		}
-		require.True(
-			t,
-			strings.HasSuffix(dijkstraValidationRuleName(rule), entry.name),
-			"composed rule %d is %s, want %s",
-			idx,
-			dijkstraValidationRuleName(rule),
-			entry.name,
-		)
-	}
-	require.Len(
-		t,
-		dijkstraGatedRuleAnchors,
-		anchored,
-		"an anchored rule is missing from the gated positions",
-	)
-}
-
-// dijkstraGatedRuleAnchors identifies a gated position by an error only the
-// rule expected there returns, and confirms the wrapper delegates for a
-// phase-2-valid transaction. One rule in each of the two ten-rule gated groups
-// is enough to tell those groups apart. The third gated group holds only
-// UtxoValidateRefScriptSizePerTx, which
-// TestDijkstraRefScriptSizePerTxIsPhase2Gated pins the same way.
-var dijkstraGatedRuleAnchors = map[string]func(
-	*testing.T,
-	common.UtxoValidationRuleFunc,
-){
-	// First rule of the governance group that runs before UTXOW.
-	"ledger/dijkstra.UtxoValidateProposalProcedures": func(
-		t *testing.T,
-		rule common.UtxoValidationRuleFunc,
-	) {
-		newTx := func(isValid bool) *DijkstraTransaction {
-			return &DijkstraTransaction{
-				Body: DijkstraTransactionBody{
-					TxProposalProcedures: []DijkstraProposalProcedure{{
-						PPGovAction: DijkstraGovAction{
-							Action: &DijkstraParameterChangeGovAction{},
-						},
-					}},
-				},
-				TxIsValid: isValid,
-			}
-		}
-		pp := &DijkstraProtocolParameters{}
-		var emptyUpdate conway.ProtocolParameterUpdateEmptyError
-		require.ErrorAs(t, rule(newTx(true), 0, nil, pp), &emptyUpdate)
-		require.NoError(t, rule(newTx(false), 0, nil, pp))
-	},
-	// First rule of the ledger group that runs after UTXOW.
-	"ledger/conway.UtxoValidateDelegation": func(
-		t *testing.T,
-		rule common.UtxoValidationRuleFunc,
-	) {
-		credential := common.Credential{
-			CredType:   common.CredentialTypeAddrKeyHash,
-			Credential: common.Blake2b224{0x01},
-		}
-		newTx := func(isValid bool) *DijkstraTransaction {
-			return &DijkstraTransaction{
-				Body: DijkstraTransactionBody{
-					TxCertificates: []common.CertificateWrapper{{
-						Type: uint(common.CertificateTypeStakeDelegation),
-						Certificate: &common.StakeDelegationCertificate{
-							CertType: uint(
-								common.CertificateTypeStakeDelegation,
-							),
-							StakeCredential: &credential,
-							PoolKeyHash: common.PoolKeyHash(
-								common.Blake2b224{0x02},
-							),
-						},
-					}},
-				},
-				TxIsValid: isValid,
-			}
-		}
-		ls := mockledger.NewLedgerStateBuilder().Build()
-		pp := &DijkstraProtocolParameters{}
-		var unregisteredPool shelley.DelegateToUnregisteredPoolError
-		var unregisteredCred shelley.DelegateUnregisteredStakeCredentialError
-		err := rule(newTx(true), 0, ls, pp)
-		require.True(
-			t,
-			errors.As(err, &unregisteredPool) ||
-				errors.As(err, &unregisteredCred),
-			"unexpected error from the delegation position: %v",
-			err,
-		)
-		require.NoError(t, rule(newTx(false), 0, ls, pp))
-	},
-}
-
-// TestDijkstraRefScriptSizePerTxIsPhase2Gated pins the one place a size limit
-// is deliberately skipped for an invalid transaction, matching
-// validateAllRefScriptSize inside the Phase2Valid branch of upstream
-// Dijkstra/Rules/Ledger.hs.
-func TestDijkstraRefScriptSizePerTxIsPhase2Gated(t *testing.T) {
-	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
-	rule, _ := dijkstraValidationRule(
-		t,
-		"ledger/dijkstra.UtxoValidateRefScriptSizePerTx",
-	)
-
-	// The limit counts reference scripts the transaction consumes, so the
-	// oversized script has to be reachable through a reference input.
-	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
-	ls := dijkstraRefScriptLedgerState(t, utxo)
-	newTx := func(isValid bool) *DijkstraTransaction {
-		return &DijkstraTransaction{
-			Body: DijkstraTransactionBody{
-				TxReferenceInputs: cbor.NewSetType(
-					[]shelley.ShelleyTransactionInput{input},
-					false,
-				),
-			},
-			TxIsValid: isValid,
-		}
-	}
-
-	require.ErrorAs(
-		t,
-		rule(newTx(true), 0, ls, pp),
-		&common.RefScriptSizePerTxTooLargeError{},
-	)
-	require.NoError(t, rule(newTx(false), 0, ls, pp))
 }
 
 func TestDijkstraWellFormednessPrecedesPlutusExecution(t *testing.T) {
@@ -451,14 +233,11 @@ func TestDijkstraGovernanceValidationRejectsTypedNilParameterChange(
 	t *testing.T,
 ) {
 	var action *DijkstraParameterChangeGovAction
-	tx := &DijkstraTransaction{
-		Body: DijkstraTransactionBody{
-			TxProposalProcedures: []DijkstraProposalProcedure{{
-				PPGovAction: DijkstraGovAction{Action: action},
-			}},
-		},
-	}
-	tx.TxIsValid = true
+	tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+		TxProposalProcedures: []DijkstraProposalProcedure{{
+			PPGovAction: DijkstraGovAction{Action: action},
+		}},
+	}}
 	var err error
 	require.NotPanics(t, func() {
 		err = common.VerifyTransaction(
@@ -475,7 +254,7 @@ func TestDijkstraGovernanceValidationRejectsTypedNilParameterChange(
 
 func TestDijkstraBootstrapVotingRestrictionsAreRegistered(t *testing.T) {
 	newTx := func(action common.GovAction) *DijkstraTransaction {
-		tx := &DijkstraTransaction{TxIsValid: true, Body: DijkstraTransactionBody{
+		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPGovAction: DijkstraGovAction{Action: action},
 			}},
@@ -546,7 +325,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 	}
 
 	t.Run("proposal deposit", func(t *testing.T) {
-		tx := &DijkstraTransaction{TxIsValid: true, Body: DijkstraTransactionBody{
+		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPDeposit:   1,
 				PPGovAction: DijkstraGovAction{Action: &common.InfoGovAction{}},
@@ -563,7 +342,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 
 	t.Run("parameter-change ancestry", func(t *testing.T) {
 		missing := common.GovActionId{TransactionId: common.Blake2b256{0x01}}
-		tx := &DijkstraTransaction{TxIsValid: true, Body: DijkstraTransactionBody{
+		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
@@ -584,7 +363,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 
 	t.Run("stake-pool parameter-change vote", func(t *testing.T) {
 		keyDeposit := uint(2_000_000)
-		tx := &DijkstraTransaction{TxIsValid: true, Body: DijkstraTransactionBody{
+		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
@@ -881,11 +660,18 @@ func testGuardScriptCredential(script common.PlutusV4Script) common.Credential {
 func TestUtxoValidateNativeScriptsRequireGuard(t *testing.T) {
 	guardCred := testGuardCredential()
 	nativeScript := testRequireGuardNativeScript(t, guardCred)
+	nativeScriptCred := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: nativeScript.Hash(),
+	}
 
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxGuards: &DijkstraGuards{
-				Credentials: []common.Credential{guardCred},
+				Credentials: []common.Credential{
+					nativeScriptCred,
+					guardCred,
+				},
 			},
 		},
 		WitnessSet: DijkstraTransactionWitnessSet{
@@ -898,7 +684,9 @@ func TestUtxoValidateNativeScriptsRequireGuard(t *testing.T) {
 	}
 	require.NoError(t, UtxoValidateNativeScripts(tx, 0, nil, nil))
 
-	tx.Body.TxGuards = nil
+	tx.Body.TxGuards = &DijkstraGuards{
+		Credentials: []common.Credential{nativeScriptCred},
+	}
 	require.Error(t, UtxoValidateNativeScripts(tx, 0, nil, nil))
 }
 
@@ -934,8 +722,13 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeScriptGuard(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
-	require.NoError(t, err)
+	err := UtxoValidateRedeemerAndScriptWitnesses(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		nil,
+	)
+	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
 
 	err = UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
 	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
@@ -1014,10 +807,18 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeReferenceScriptGuard(
 }
 
 func TestUtxoValidateCostModelsPresentPlutusV4(t *testing.T) {
+	script := common.PlutusV4Script{0x41, 0x00}
 	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{
+					dijkstraGuardCredentialForScript(script),
+				},
+			},
+		},
 		WitnessSet: DijkstraTransactionWitnessSet{
 			WsPlutusV4Scripts: cbor.NewSetType(
-				[]common.PlutusV4Script{{0x41, 0x00}},
+				[]common.PlutusV4Script{script},
 				false,
 			),
 		},
@@ -1049,6 +850,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 	cases := []struct {
 		name       string
 		witnessSet DijkstraTransactionWitnessSet
+		script     common.Script
 		version    uint
 	}{
 		{
@@ -1059,6 +861,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV1Script{0x41, 0x00},
 			version: 0,
 		},
 		{
@@ -1069,6 +872,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV2Script{0x41, 0x00},
 			version: 1,
 		},
 		{
@@ -1079,6 +883,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV3Script{0x41, 0x00},
 			version: 2,
 		},
 		{
@@ -1089,6 +894,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 					false,
 				),
 			},
+			script:  common.PlutusV4Script{0x41, 0x00},
 			version: 3,
 		},
 	}
@@ -1099,7 +905,18 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 				Body: DijkstraTransactionBody{
 					TxSubTransactions: cbor.NewSetType(
 						[]DijkstraSubTransaction{
-							{WitnessSet: tc.witnessSet},
+							{
+								Body: DijkstraSubTransactionBody{
+									TxGuards: &DijkstraGuards{
+										Credentials: []common.Credential{
+											dijkstraGuardCredentialForScript(
+												tc.script,
+											),
+										},
+									},
+								},
+								WitnessSet: tc.witnessSet,
+							},
 						},
 						false,
 					),
@@ -1152,12 +969,11 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 	require.ErrorAs(t, err, &conway.ProtocolParameterUpdateEmptyError{})
 
 	maxRefScriptSizePerBlock := uint32(1000)
-	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
-		&DijkstraParameterChangeGovAction{
-			ParamUpdate: DijkstraProtocolParameterUpdate{
-				MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
-			},
-		}
+	tx.Body.TxProposalProcedures[0].PPGovAction.Action = &DijkstraParameterChangeGovAction{
+		ParamUpdate: DijkstraProtocolParameterUpdate{
+			MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
+		},
+	}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 
@@ -1206,15 +1022,22 @@ func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
 }
 
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
+	plutusScript := common.PlutusV4Script{0x41, 0x00}
+	guardCred := testGuardScriptCredential(plutusScript)
 	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{guardCred},
+			},
+		},
 		WitnessSet: DijkstraTransactionWitnessSet{
 			WsPlutusV4Scripts: cbor.NewSetType(
-				[]common.PlutusV4Script{{0x41, 0x00}},
+				[]common.PlutusV4Script{plutusScript},
 				false,
 			),
 			WsRedeemers: DijkstraRedeemers{
 				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-					{Tag: common.RedeemerTagSpend, Index: 0}: {
+					{Tag: common.RedeemerTagGuarding, Index: 0}: {
 						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
 					},
 				},
@@ -1223,7 +1046,12 @@ func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	err := UtxoValidateRedeemerAndScriptWitnesses(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		nil,
+	)
 	require.NoError(t, err)
 }
 
@@ -1248,8 +1076,11 @@ func TestUtxoValidateRedeemerAndScriptWitnessesGuardingRedeemer(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
-	require.ErrorAs(t, err, &common.MissingPlutusScriptWitnessesError{})
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+	err := UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ledgerState, nil)
+	var missing common.MissingScriptWitnessesError
+	require.ErrorAs(t, err, &missing)
+	require.Equal(t, guardScript.Hash(), missing.ScriptHash)
 
 	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{
 		{
@@ -1262,7 +1093,7 @@ func TestUtxoValidateRedeemerAndScriptWitnessesGuardingRedeemer(t *testing.T) {
 		},
 	}, false)
 
-	err = UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+	err = UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ledgerState, nil)
 	require.NoError(t, err)
 }
 
