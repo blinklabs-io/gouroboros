@@ -482,7 +482,8 @@ func NewTxInfoV3FromTransaction(
 		Votes:              votes,
 		ProposalProcedures: proposalProcedures,
 	}
-	if amt := tx.CurrentTreasuryValue(); amt != nil && amt.Sign() > 0 {
+	if lcommon.TransactionCurrentTreasuryValuePresent(tx) {
+		amt := tx.CurrentTreasuryValue()
 		ret.CurrentTreasuryAmount.Value = amt
 	}
 	if amt := tx.Donation(); amt != nil && amt.Sign() > 0 {
@@ -824,7 +825,11 @@ func signatoriesInfo(
 func votingInfo(
 	votingProcedures lcommon.VotingProcedures,
 ) KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]] {
-	ret := make(KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]], 0, len(votingProcedures))
+	ret := make(
+		KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
+		0,
+		len(votingProcedures),
+	)
 	for voter, voterData := range votingProcedures {
 		voterPairs := make(
 			KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure],

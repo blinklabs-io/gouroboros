@@ -108,6 +108,22 @@ func TestDijkstraTransactionBodiesUnmarshalCBORCertificateTypes(t *testing.T) {
 	}
 }
 
+func TestDijkstraTransactionBodiesRejectNegativeCurrentTreasuryValue(
+	t *testing.T,
+) {
+	encoded, err := cbor.Encode(map[uint]any{21: int64(-1)})
+	require.NoError(t, err)
+
+	t.Run("top-level", func(t *testing.T) {
+		var body DijkstraTransactionBody
+		require.Error(t, body.UnmarshalCBOR(encoded))
+	})
+	t.Run("subtransaction", func(t *testing.T) {
+		var body DijkstraSubTransactionBody
+		require.Error(t, body.UnmarshalCBOR(encoded))
+	})
+}
+
 func certificateFixturesByType() map[common.CertificateType]any {
 	credential := common.Credential{
 		CredType: common.CredentialTypeAddrKeyHash,
@@ -342,7 +358,9 @@ func TestDijkstraBlockBodyRejectsTransactionIsValidFlag(t *testing.T) {
 	require.ErrorContains(t, err, "cannot include is_valid")
 }
 
-func TestDijkstraBlockBodyRejectsDuplicateTaggedInvalidTransactions(t *testing.T) {
+func TestDijkstraBlockBodyRejectsDuplicateTaggedInvalidTransactions(
+	t *testing.T,
+) {
 	bodyCbor, err := cbor.Encode([]any{
 		cbor.NewSetType([]uint64{0, 0}, true),
 		[]any{minimalTxParts()},
@@ -356,7 +374,9 @@ func TestDijkstraBlockBodyRejectsDuplicateTaggedInvalidTransactions(t *testing.T
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
-func TestDijkstraBlockBodyRejectsInvalidTransactionIndexOutOfRange(t *testing.T) {
+func TestDijkstraBlockBodyRejectsInvalidTransactionIndexOutOfRange(
+	t *testing.T,
+) {
 	bodyCbor, err := cbor.Encode(minimalBlockBodyParts([]uint{1}))
 	require.NoError(t, err)
 
@@ -740,7 +760,10 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransaction(t *testing.T) {
 func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	input := testShelleyInput()
 	bodyCbor, err := cbor.Encode(map[uint]any{
-		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{input, input}, true),
+		0: cbor.NewSetType(
+			[]shelley.ShelleyTransactionInput{input, input},
+			true,
+		),
 	})
 	require.NoError(t, err)
 
@@ -806,7 +829,9 @@ func TestDijkstraUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
 	}
 }
 
-func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionInputs(t *testing.T) {
+func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionInputs(
+	t *testing.T,
+) {
 	input := testShelleyInput()
 	subTx := []any{
 		map[uint]any{
@@ -828,7 +853,9 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionInputs(t *testing.
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
-func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionReferenceInputs(t *testing.T) {
+func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionReferenceInputs(
+	t *testing.T,
+) {
 	refInput := testShelleyInput()
 	subTx := DijkstraSubTransaction{
 		Body: DijkstraSubTransactionBody{
@@ -1059,7 +1086,9 @@ func TestDijkstraProtocolParametersUpdateNil(t *testing.T) {
 	require.Equal(t, uint32(1000), pparams.MaxRefScriptSizePerBlock)
 }
 
-func TestDijkstraProtocolParameterUpdateDecodesConwayAndDijkstraFields(t *testing.T) {
+func TestDijkstraProtocolParameterUpdateDecodesConwayAndDijkstraFields(
+	t *testing.T,
+) {
 	updateCbor, err := cbor.Encode(map[uint]any{
 		0:  uint(44),
 		34: uint32(1000),
@@ -1089,7 +1118,9 @@ func TestDijkstraProtocolParameterUpdateDecodesConwayAndDijkstraFields(t *testin
 	require.Equal(t, 0, pparams.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
 }
 
-func TestDijkstraProtocolParameterUpdateLeiosStakeFieldsExcludedFromCbor(t *testing.T) {
+func TestDijkstraProtocolParameterUpdateLeiosStakeFieldsExcludedFromCbor(
+	t *testing.T,
+) {
 	updateCbor, err := cbor.Encode(DijkstraProtocolParameterUpdate{
 		CommitteeStakeCoverage: &cbor.Rat{Rat: big.NewRat(99, 100)},
 		QuorumStakeThreshold:   &cbor.Rat{Rat: big.NewRat(3, 4)},
@@ -1218,7 +1249,9 @@ func TestDijkstraLeiosStakeParametersValidateSingleField(t *testing.T) {
 	}
 }
 
-func TestDijkstraProtocolParametersApplyUpdateLeiosStakeInvariant(t *testing.T) {
+func TestDijkstraProtocolParametersApplyUpdateLeiosStakeInvariant(
+	t *testing.T,
+) {
 	pparams := DijkstraProtocolParameters{
 		CommitteeStakeCoverage: &cbor.Rat{Rat: big.NewRat(99, 100)},
 		QuorumStakeThreshold:   &cbor.Rat{Rat: big.NewRat(3, 4)},
@@ -1241,7 +1274,9 @@ func TestDijkstraProtocolParametersApplyUpdateLeiosStakeInvariant(t *testing.T) 
 	)
 }
 
-func TestDijkstraProtocolParametersUpdatePreservesLeiosStakeInvariant(t *testing.T) {
+func TestDijkstraProtocolParametersUpdatePreservesLeiosStakeInvariant(
+	t *testing.T,
+) {
 	pparams := DijkstraProtocolParameters{
 		MaxRefScriptSizePerBlock: 1000,
 		CommitteeStakeCoverage:   &cbor.Rat{Rat: big.NewRat(99, 100)},
@@ -1312,7 +1347,9 @@ func TestDijkstraProtocolParameterUpdateToPlutusDataCostModels(t *testing.T) {
 	require.True(t, expected.Equal(result), "got %#v", result)
 }
 
-func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(t *testing.T) {
+func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(
+	t *testing.T,
+) {
 	maxRefScriptSizePerBlock := uint32(1000)
 	action := &DijkstraParameterChangeGovAction{
 		Type: uint(common.GovActionTypeParameterChange),

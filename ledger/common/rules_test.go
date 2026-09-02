@@ -17,6 +17,7 @@ package common_test
 import (
 	"errors"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -42,6 +43,59 @@ func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
 	tx := mockledger.NewTransactionBuilder()
 	if err := common.ValidateRedeemerAndScriptWitnesses(tx, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUtxoValidateCurrentTreasuryValueLegacyTransaction(t *testing.T) {
+	tests := []struct {
+		name              string
+		treasuryValue     *int64
+		wantProviderCalls int
+		wantMismatch      bool
+	}{
+		{
+			name: "default zero is absent",
+		},
+		{
+			name:              "nonzero implies presence",
+			treasuryValue:     func() *int64 { value := int64(41); return &value }(),
+			wantProviderCalls: 1,
+			wantMismatch:      true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tx := mockledger.NewTransactionBuilder()
+			if test.treasuryValue != nil {
+				tx.WithTreasuryValue(*test.treasuryValue)
+			}
+			providerCalls := 0
+			state := mockledger.NewLedgerStateBuilder().WithTreasuryValue(
+				func() (uint64, error) {
+					providerCalls++
+					return 42, nil
+				},
+			).Build()
+
+			err := common.UtxoValidateCurrentTreasuryValue(tx, 0, state, nil)
+			if test.wantMismatch {
+				var target common.CurrentTreasuryValueMismatchError
+				require.ErrorAs(t, err, &target)
+				require.Equal(
+					t,
+					big.NewInt(*test.treasuryValue),
+					target.Supplied,
+				)
+				require.Equal(t, uint64(42), target.Expected)
+			} else {
+				require.NoError(
+					t,
+					err,
+					"ouroboros-mock v0.17.0 default treasury zero is absent",
+				)
+			}
+			require.Equal(t, test.wantProviderCalls, providerCalls)
+		})
 	}
 }
 
@@ -87,21 +141,27 @@ func TestEncodeLangViews(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("rejects_unsupported_versions_without_cost_model", func(t *testing.T) {
-		_, err := common.EncodeLangViews(
-			map[uint]struct{}{4: {}},
-			map[uint][]int64{},
-		)
-		require.Error(t, err)
-	})
+	t.Run(
+		"rejects_unsupported_versions_without_cost_model",
+		func(t *testing.T) {
+			_, err := common.EncodeLangViews(
+				map[uint]struct{}{4: {}},
+				map[uint][]int64{},
+			)
+			require.Error(t, err)
+		},
+	)
 
-	t.Run("rejects_missing_cost_model_for_supported_version", func(t *testing.T) {
-		_, err := common.EncodeLangViews(
-			map[uint]struct{}{2: {}},
-			map[uint][]int64{},
-		)
-		require.Error(t, err)
-	})
+	t.Run(
+		"rejects_missing_cost_model_for_supported_version",
+		func(t *testing.T) {
+			_, err := common.EncodeLangViews(
+				map[uint]struct{}{2: {}},
+				map[uint][]int64{},
+			)
+			require.Error(t, err)
+		},
+	)
 
 	// Forward-compat for PV11 (vanRossem) and later: cost models may grow as
 	// new Plutus builtins are added. The langview hash is part of
@@ -477,7 +537,7 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 				},
 			},
 			TxWithdrawals: map[*common.Address]uint64{
-				&common.Address{}: 0,
+				{}: 0,
 			},
 			TxVotingProcedures: common.VotingProcedures{
 				votingVoter: {

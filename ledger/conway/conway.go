@@ -96,7 +96,10 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 		}
 		converted := uint(val)
 		if uint64(converted) != val {
-			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+			return fmt.Errorf(
+				"invalid transaction index %d overflows uint",
+				val,
+			)
 		}
 		result = append(result, converted)
 	}
@@ -362,14 +365,21 @@ func (r *ConwayRedeemers) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return err
 	}
-	r.Redeemers = make(map[common.RedeemerKey]common.RedeemerValue, len(entries))
+	r.Redeemers = make(
+		map[common.RedeemerKey]common.RedeemerValue,
+		len(entries),
+	)
 	for _, entry := range entries {
 		key := common.RedeemerKey{
 			Tag:   entry.Tag,
 			Index: entry.Index,
 		}
 		if _, exists := r.Redeemers[key]; exists {
-			return fmt.Errorf("duplicate redeemer key: tag=%d index=%d", entry.Tag, entry.Index)
+			return fmt.Errorf(
+				"duplicate redeemer key: tag=%d index=%d",
+				entry.Tag,
+				entry.Index,
+			)
 		}
 		r.Redeemers[key] = common.RedeemerValue{
 			Data:    entry.Data,
@@ -634,6 +644,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if tmp.TxCurrentTreasuryValue < 0 {
+		return errors.New("current treasury value must not be negative")
+	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
@@ -676,7 +689,11 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	*b = ConwayTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(
+		cborData,
+		b.Ttl,
+		b.TxCurrentTreasuryValue != 0,
+	); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -684,6 +701,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.TxCurrentTreasuryValue < 0 {
+		return nil, errors.New("current treasury value must not be negative")
+	}
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
@@ -841,7 +861,16 @@ func (b *ConwayTransactionBody) NetworkId() *uint8 {
 }
 
 func (b *ConwayTransactionBody) CurrentTreasuryValue() *big.Int {
+	if b.TxCurrentTreasuryValue == 0 &&
+		!b.CurrentTreasuryValuePresent() {
+		return nil
+	}
 	return big.NewInt(b.TxCurrentTreasuryValue)
+}
+
+func (b *ConwayTransactionBody) CurrentTreasuryValuePresent() bool {
+	return b.TxCurrentTreasuryValue != 0 ||
+		b.TransactionBodyBase.CurrentTreasuryValuePresent()
 }
 
 func (b *ConwayTransactionBody) Donation() *big.Int {
@@ -1045,6 +1074,10 @@ func (t ConwayTransaction) ProposalProcedures() []common.ProposalProcedure {
 
 func (t ConwayTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
+}
+
+func (t ConwayTransaction) CurrentTreasuryValuePresent() bool {
+	return t.Body.CurrentTreasuryValuePresent()
 }
 
 func (t ConwayTransaction) Donation() *big.Int {
