@@ -186,6 +186,146 @@ func TestValidateScriptWitnessesExplicitRegistration(t *testing.T) {
 	)
 }
 
+// The tag-0 and tag-7 verdicts above only bind if the rules carrying them are
+// the ones each era actually runs. Resolve both rules out of the era's
+// production UtxoValidationRules by function pointer and exercise the
+// resolved value, so a verdict asserted against a function no era registers
+// cannot pass.
+func TestCertificateAuthorizationRulesAreRegistered(t *testing.T) {
+	eras := []struct {
+		name string
+		// rules is the era's production rule list.
+		rules []common.UtxoValidationRuleFunc
+		// vkey and script are the entry points the list is expected to
+		// contain. Dijkstra registers the Conway functions directly.
+		vkey   common.UtxoValidationRuleFunc
+		script common.UtxoValidationRuleFunc
+		// explicitDeposit records whether the era carries CBOR tag 7, which
+		// Conway introduces.
+		explicitDeposit bool
+	}{
+		{
+			"shelley",
+			shelley.UtxoValidationRules,
+			shelley.UtxoValidateRequiredVKeyWitnesses,
+			shelley.UtxoValidateScriptWitnesses,
+			false,
+		},
+		{
+			"allegra",
+			allegra.UtxoValidationRules,
+			allegra.UtxoValidateRequiredVKeyWitnesses,
+			allegra.UtxoValidateScriptWitnesses,
+			false,
+		},
+		{
+			"mary",
+			mary.UtxoValidationRules,
+			mary.UtxoValidateRequiredVKeyWitnesses,
+			mary.UtxoValidateScriptWitnesses,
+			false,
+		},
+		{
+			"alonzo",
+			alonzo.UtxoValidationRules,
+			alonzo.UtxoValidateRequiredVKeyWitnesses,
+			alonzo.UtxoValidateScriptWitnesses,
+			false,
+		},
+		{
+			"babbage",
+			babbage.UtxoValidationRules,
+			babbage.UtxoValidateRequiredVKeyWitnesses,
+			babbage.UtxoValidateScriptWitnesses,
+			false,
+		},
+		{
+			"conway",
+			conway.UtxoValidationRules,
+			conway.UtxoValidateRequiredVKeyWitnesses,
+			conway.UtxoValidateScriptWitnesses,
+			true,
+		},
+		{
+			"dijkstra",
+			dijkstra.UtxoValidationRules,
+			conway.UtxoValidateRequiredVKeyWitnesses,
+			conway.UtxoValidateScriptWitnesses,
+			true,
+		},
+	}
+	resolve := func(
+		t *testing.T,
+		rules []common.UtxoValidationRuleFunc,
+		want common.UtxoValidationRuleFunc,
+		name string,
+	) common.UtxoValidationRuleFunc {
+		t.Helper()
+		wantPtr := reflect.ValueOf(want).Pointer()
+		for _, rule := range rules {
+			if reflect.ValueOf(rule).Pointer() == wantPtr {
+				return rule
+			}
+		}
+		t.Fatalf("%s is not registered in UtxoValidationRules", name)
+		return nil
+	}
+	vkey := []byte("registered-rule-authorization-key")
+	key := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash(vkey),
+	}
+	for _, era := range eras {
+		t.Run(era.name, func(t *testing.T) {
+			vkeyRule := resolve(
+				t,
+				era.rules,
+				era.vkey,
+				"UtxoValidateRequiredVKeyWitnesses",
+			)
+			scriptRule := resolve(
+				t,
+				era.rules,
+				era.script,
+				"UtxoValidateScriptWitnesses",
+			)
+			ledgerState := mockledger.NewLedgerStateBuilder().Build()
+
+			// Tag 0 authorizes nothing in every era, so a transaction that
+			// omits the witness must still be accepted. Requiring one here
+			// would falsely reject valid mainnet transactions.
+			legacy := mockledger.NewTransactionBuilder().WithCertificates(
+				&common.StakeRegistrationCertificate{StakeCredential: key},
+			)
+			require.NoError(t, vkeyRule(legacy, 0, ledgerState, nil))
+			require.NoError(t, scriptRule(legacy, 0, ledgerState, nil))
+
+			if !era.explicitDeposit {
+				return
+			}
+			// Tag 7 decodes to ConwayRegCert cred (SJust _), so the
+			// registered rule must reject the abstaining credential.
+			explicit := mockledger.NewTransactionBuilder().WithCertificates(
+				&common.RegistrationCertificate{
+					StakeCredential: key,
+					Amount:          0,
+				},
+			)
+			require.ErrorAs(
+				t,
+				vkeyRule(explicit, 0, ledgerState, nil),
+				&common.MissingVKeyWitnessesError{},
+			)
+			explicit.WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+					common.VkeyWitness{Vkey: vkey},
+				),
+			)
+			require.NoError(t, vkeyRule(explicit, 0, ledgerState, nil))
+		})
+	}
+}
+
 func testAuthorizationNativeScript(
 	t *testing.T,
 	vkey []byte,
