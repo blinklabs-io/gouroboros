@@ -702,6 +702,57 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 	})
 }
 
+// TestUtxoValidatePoolCertificatesPhase2Invalid confirms a phase-2-invalid
+// transaction is left alone. ledgerTransition in
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Rules/Ledger.hs runs DELEGS, and
+// so DELPL and POOL, only when isPhase2ValidTxL is Phase2Valid, so the
+// certificates of an invalid transaction are never applied and the POOL
+// predicates never see them.
+func TestUtxoValidatePoolCertificatesPhase2Invalid(t *testing.T) {
+	ls := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+	pparams := conwayPparams(common.ProtocolVersionConway, 340_000_000)
+	// Violates StakePoolCostTooLowPOOL and, on this mainnet ledger state,
+	// WrongNetworkPOOL as well.
+	bad := poolRegCertWire(
+		t,
+		poolKeyHash(0x01),
+		vrfKeyHash(0x02),
+		1,
+		common.AddressNetworkTestnet,
+	)
+	body := alonzo.AlonzoTransactionBody{
+		TxCertificates: []common.CertificateWrapper{
+			{Type: bad.Type(), Certificate: bad},
+		},
+	}
+
+	t.Run("phase-2-invalid is not rejected", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{Body: body, TxIsValid: false}
+		require.False(t, tx.IsValid())
+		require.NoError(t, shelley.UtxoValidatePoolCertificates(
+			tx,
+			0,
+			ls,
+			pparams,
+		))
+	})
+
+	// The same certificate in a phase-2-valid transaction must still be
+	// rejected, so the subtest above cannot pass for the wrong reason.
+	t.Run("phase-2-valid is still rejected", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{Body: body, TxIsValid: true}
+		require.True(t, tx.IsValid())
+		require.Error(t, shelley.UtxoValidatePoolCertificates(
+			tx,
+			0,
+			ls,
+			pparams,
+		))
+	})
+}
+
 // TestUtxoValidatePoolCertificatesNoCertificates confirms the rule is inert for
 // transactions without pool certificates.
 func TestUtxoValidatePoolCertificatesNoCertificates(t *testing.T) {

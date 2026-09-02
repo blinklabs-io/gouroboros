@@ -758,6 +758,22 @@ func UtxoValidatePoolCertificates(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	// A phase-2-invalid transaction never reaches the POOL rule. From
+	// Alonzo onwards ledgerTransition runs DELEGS, and so DELPL and POOL,
+	// only for a phase-2-valid transaction:
+	//
+	//	certState' <-
+	//	  if tx ^. isPhase2ValidTxL == Phase2Valid
+	//	    then ... trans @(EraRule "DELEGS" era) ...
+	//	    else pure certState
+	//
+	// in eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Rules/Ledger.hs. Its
+	// certificates are not applied, so none of the predicates below may
+	// reject it. IsValid reports true in the eras before the phase-2
+	// concept exists, so this is inert for Shelley through Mary.
+	if !tx.IsValid() {
+		return nil
+	}
 	certs := tx.Certificates()
 	if !hasPoolCertificate(certs) {
 		// Leave transactions that carry no pool certificate untouched,
