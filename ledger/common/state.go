@@ -55,11 +55,16 @@ type StakeCredentialDepositState interface {
 // not otherwise carry.
 //
 // It is deliberately optional and degrading: a ledger state that does not
-// implement it keeps every other POOL predicate and simply does not get the
-// retirement-epoch bound enforced. Validation must not fail closed when it is
-// absent, so that adopting a gouroboros release containing this rule cannot
-// reject otherwise-valid pool retirements in a consumer that has not
-// implemented the method yet.
+// implement it keeps every other POOL predicate and does not get the
+// retirement-epoch bound enforced, so that adopting a gouroboros release
+// containing this rule cannot reject otherwise-valid pool retirements in a
+// consumer that has not implemented the method yet.
+//
+// The single exception is retirement epoch zero, which is rejected without
+// EpochState. The bound is cEpoch < e, and cEpoch is unsigned, so e == 0 is
+// invalid for every possible current epoch and needs no epoch lookup to
+// judge. Every other epoch value requires current-epoch knowledge and is
+// skipped rather than rejected when EpochState is absent.
 type EpochState interface {
 	// EpochForSlot returns the epoch number containing the given slot.
 	EpochForSlot(slot uint64) (uint64, error)
