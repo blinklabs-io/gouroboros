@@ -122,24 +122,10 @@ func TestClientMessageHandler(t *testing.T) {
 			// the request under test.
 			var deliverCh chan protocol.Message
 			switch tc.msg.Type() {
-			case MessageTypeBlock, MessageTypeNoBlock:
-				w, err := client.blockSlot.acquire(
-					context.Background(),
-					client.DoneChan(),
-				)
-				require.NoError(t, err)
-				deliverCh = w
-			case MessageTypeBlockTxs, MessageTypeNoBlockTxs:
-				w, err := client.blockTxsSlot.acquire(
-					context.Background(),
-					client.DoneChan(),
-				)
-				require.NoError(t, err)
-				deliverCh = w
-			case MessageTypeVotes, MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
+			case MessageTypeBlock, MessageTypeNoBlock, MessageTypeBlockTxs, MessageTypeNoBlockTxs,
+				MessageTypeVotes, MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
 				w, err := client.blockRequestSlot.acquire(
-					context.Background(),
-					client.DoneChan(),
+					context.Background(), client.DoneChan(),
 				)
 				require.NoError(t, err)
 				deliverCh = w
@@ -193,26 +179,26 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{ConnectionId: connId}, nil)
 
 	// Request A acquires the slot and registers its delivery channel.
-	wA, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	wA, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
 	require.NoError(t, err)
 
 	// A's response arrives: delivered to wA and the slot is freed.
 	msgA := NewMsgBlock([]byte{0xaa, 0xbb})
-	require.True(t, client.blockSlot.deliver(msgA))
+	require.True(t, client.blockRequestSlot.deliver(msgA))
 
 	// Request B acquires the now-free slot and registers its own channel.
-	wB, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	wB, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
 	require.NoError(t, err)
 
 	// A's late context cancellation abandons using A's own channel. B owns the
 	// slot now, so this must not disturb B's registration.
-	client.blockSlot.abandon(wA)
+	client.blockRequestSlot.abandon(wA)
 
 	// B's response must be delivered to B (not dropped).
 	msgB := NewMsgBlock([]byte{0xcc, 0xdd})
 	require.True(
 		t,
-		client.blockSlot.deliver(msgB),
+		client.blockRequestSlot.deliver(msgB),
 		"B's response was dropped: abandon(wA) erased B's waiter",
 	)
 
@@ -244,11 +230,11 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 // ErrRequestSlotAbandoned entirely.
 func TestRequestSlotAbandonWakesExistingAcquirer(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, nil)
-	wA, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	wA, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
 	require.NoError(t, err)
 
 	bWaiting := make(chan struct{})
-	client.blockSlot.beforeDrainWait = func() {
+	client.blockRequestSlot.beforeDrainWait = func() {
 		close(bWaiting)
 	}
 	bResult := make(chan error, 1)
@@ -258,12 +244,12 @@ func TestRequestSlotAbandonWakesExistingAcquirer(t *testing.T) {
 	)
 	defer cancelB()
 	go func() {
-		_, err := client.blockSlot.acquire(ctxB, client.DoneChan())
+		_, err := client.blockRequestSlot.acquire(ctxB, client.DoneChan())
 		bResult <- err
 	}()
 	<-bWaiting
 
-	client.blockSlot.abandon(wA)
+	client.blockRequestSlot.abandon(wA)
 	require.ErrorIs(t, <-bResult, ErrRequestSlotAbandoned)
 }
 
@@ -278,21 +264,21 @@ func TestRequestSlotReleaseAfterReacquireKeepsNextWaiter(t *testing.T) {
 	}
 	client := NewClient(protocol.ProtocolOptions{ConnectionId: connId}, nil)
 
-	wA, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	wA, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
 	require.NoError(t, err)
 	// Free the slot via a delivery, then reacquire for request B.
-	require.True(t, client.blockSlot.deliver(NewMsgBlock([]byte{0x01})))
+	require.True(t, client.blockRequestSlot.deliver(NewMsgBlock([]byte{0x01})))
 	<-wA
-	wB, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	wB, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
 	require.NoError(t, err)
 
 	// A stale release using A's channel must not touch B's registration.
-	client.blockSlot.release(wA)
+	client.blockRequestSlot.release(wA)
 
 	msgB := NewMsgBlock([]byte{0x02})
 	require.True(
 		t,
-		client.blockSlot.deliver(msgB),
+		client.blockRequestSlot.deliver(msgB),
 		"B's response was dropped: release(wA) erased B's waiter",
 	)
 	select {

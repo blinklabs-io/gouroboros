@@ -34,8 +34,6 @@ type Client struct {
 	// Block and BlockTxs share one slot because both requests use the same
 	// connection-wide agency and have no request identifier.
 	blockRequestSlot requestSlot
-	blockSlot        requestSlot
-	blockTxsSlot     requestSlot
 }
 
 // requestSlot serializes a single outstanding request/response exchange for a
@@ -535,7 +533,7 @@ func (c *Client) logDroppedResponse(msg protocol.Message) {
 }
 
 func (c *Client) handleBlock(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg) && !c.blockSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
@@ -548,13 +546,13 @@ func (c *Client) handleNoBlock(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	if !c.blockRequestSlot.deliver(msg) && !c.blockSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
 
 func (c *Client) handleBlockTxs(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg) && !c.blockTxsSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
@@ -567,7 +565,7 @@ func (c *Client) handleNoBlockTxs(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	if !c.blockRequestSlot.deliver(msg) && !c.blockTxsSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
