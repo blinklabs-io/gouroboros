@@ -544,6 +544,82 @@ func TestBlockRequestSubsequentAfterAbandoned(t *testing.T) {
 	)
 }
 
+// TestBlockRangeRequestSubsequentAfterAbandoned verifies that a late terminal
+// response from an abandoned range exchange cannot be delivered to a later
+// range request. Range responses use the shared request slot, so the first
+// request must remain quarantined until its terminal response drains.
+func TestBlockRangeRequestSubsequentAfterAbandoned(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRangeRequest,
+		},
+		ouroboros_mock.ConversationEntrySleep{
+			Duration: 300 * time.Millisecond,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgLastBlockAndTxsInRange(
+					[]byte{0x82, 0x01, 0x02},
+					nil,
+				),
+			},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRangeRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgLastBlockAndTxsInRange(
+					[]byte{0x82, 0x03, 0x04},
+					nil,
+				),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			client := oConn.LeiosFetch().Client
+			ctx1, cancel1 := context.WithTimeout(
+				context.Background(),
+				100*time.Millisecond,
+			)
+			defer cancel1()
+			resp1, err1 := client.BlockRangeRequest(
+				ctx1,
+				pcommon.NewPoint(12345, []byte{0x01}),
+				pcommon.NewPoint(12346, []byte{0x02}),
+			)
+			require.ErrorIs(t, err1, context.DeadlineExceeded)
+			assert.Nil(t, resp1)
+
+			ctx2, cancel2 := context.WithTimeout(
+				context.Background(),
+				2*time.Second,
+			)
+			defer cancel2()
+			resp2, err2 := client.BlockRangeRequest(
+				ctx2,
+				pcommon.NewPoint(23456, []byte{0x03}),
+				pcommon.NewPoint(23457, []byte{0x04}),
+			)
+			require.NoError(t, err2)
+			require.Len(t, resp2, 1)
+			last, ok := resp2[0].(*leiosfetch.MsgLastBlockAndTxsInRange)
+			require.True(t, ok)
+			assert.Equal(t, []byte{0x82, 0x03, 0x04}, []byte(last.BlockRaw))
+		},
+	)
+}
+
 // TestNonBlockRequestsAfterAbandonedBlockRequestFailFast pins that every
 // leios-fetch request path goes through the same admission slot.
 //

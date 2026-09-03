@@ -208,18 +208,24 @@ Errors from configured callbacks and transport failures are still propagated.
 
 ## Abandoned requests
 
-`BlockRequest` and `BlockTxsRequest` are bounded by the caller's context. A
-request whose context expires is abandoned: its delivery channel is cleared so
-a late response is dropped rather than mis-delivered, and the slot stays busy
-so the next request cannot be correlated with the outstanding response.
+`BlockRequest`, `BlockTxsRequest`, `VotesRequest`, and `BlockRangeRequest` are
+bounded by the caller's context. These requests share one connection-wide slot
+because their responses carry no request identifier. A request whose context
+expires is abandoned: its delivery channel is cleared so a late response is
+dropped rather than mis-delivered, and the slot stays busy so the next request
+cannot be correlated with the outstanding response. For `BlockRangeRequest`,
+this applies to the whole streaming exchange; the terminal response drains the
+abandoned slot.
 
 A later request waits a bounded grace period for that response to drain. If it
 arrives, the connection continues normally. If it does not, the exchange is
 desynchronised beyond recovery and the client fails the connection with
 `ErrRequestSlotAbandoned` so peer governance can drop and replace the peer.
 This is deliberately narrower than a protocol-level state timeout, which would
-also fire for a healthy relay that merely responded slowly, and is why
-`StateBlock` and `StateBlockTxs` still carry no `StateMap` timeout.
+also fire for a healthy relay that merely responded slowly. `StateBlock` and
+`StateBlockTxs` still carry no `StateMap` timeout; `StateVotes` and
+`StateBlockRange` retain their protocol-level timeout for exchanges that never
+return agency.
 
 ## Notes
 

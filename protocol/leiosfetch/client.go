@@ -39,7 +39,7 @@ type Client struct {
 }
 
 // requestSlot serializes a single outstanding request/response exchange for a
-// ping-pong leios-fetch state (Block or BlockTxs) and correlates the response
+// ping-pong or streaming leios-fetch state and correlates the response
 // with the caller that is actually waiting for it.
 //
 // These mini-protocol states carry no request identifier and the underlying
@@ -479,10 +479,10 @@ func (c *Client) BlockRangeRequest(
 				return ret, nil
 			}
 		case <-ctx.Done():
-			// release, not abandon, for the reason given in VotesRequest:
-			// a range response reaches blockRangeResultChan, never deliver,
-			// so an abandoned slot here would never drain.
-			c.blockRequestSlot.release(w)
+			// Range responses are delivered through the shared slot, including
+			// the terminal response. Keep the slot abandoned until that response
+			// drains so it cannot be delivered to a later request.
+			c.blockRequestSlot.abandon(w)
 			return nil, ctx.Err()
 		case <-c.DoneChan():
 			c.blockRequestSlot.release(w)
