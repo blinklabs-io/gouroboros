@@ -79,9 +79,11 @@ func dijkstraValidationRule(
 	want string,
 ) (common.UtxoValidationRuleFunc, int) {
 	t.Helper()
-	for idx, rule := range UtxoValidationRules {
-		if strings.HasSuffix(dijkstraValidationRuleName(rule), want) {
-			return rule, idx
+	for idx, descriptor := range UtxoValidationRuleDescriptors() {
+		if strings.HasSuffix(dijkstraValidationRuleName(descriptor.Validator), want) {
+			// The production slice preserves descriptor positions, but wraps
+			// phase-2-valid-only entries so invalid transactions can skip them.
+			return UtxoValidationRules[idx], idx
 		}
 	}
 	t.Fatalf("validation rule %s is not registered", want)

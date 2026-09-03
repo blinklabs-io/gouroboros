@@ -159,8 +159,23 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // UtxoValidationRules is initialized from the authoritative descriptors. It
 // remains mutable for compatibility; mutations are not reflected by
 // UtxoValidationRuleDescriptors.
-var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
-	utxoValidationRuleDescriptors,
+var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
+		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda, UtxoValidateNoCollateralInputs,
+		UtxoValidateBadInputsUtxo, UtxoValidateScriptWitnesses, UtxoValidateValueNotConservedUtxo,
+		UtxoValidateOutputTooSmallUtxo, UtxoValidateOutputTooBigUtxo,
+		UtxoValidateOutputBootAddrAttrsTooBig, UtxoValidateWrongNetwork,
+		UtxoValidateWrongNetworkWithdrawal, UtxoValidateMaxTxSizeUtxo,
+		UtxoValidateExUnitsTooBigUtxo, UtxoValidateNativeScripts,
+		UtxoValidateExtraneousRedeemers, UtxoValidatePlutusScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(UtxoValidateDelegation, UtxoValidateWithdrawals),
 )
 
 // UtxoValidateOutputTooBigUtxo ensures that transaction output values are not too large

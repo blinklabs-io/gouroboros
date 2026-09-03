@@ -184,8 +184,27 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // UtxoValidationRules is initialized from the authoritative descriptors. It
 // remains mutable for compatibility; mutations are not reflected by
 // UtxoValidationRuleDescriptors.
-var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
-	utxoValidationRuleDescriptors,
+var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
+		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash, UtxoValidateInlineDatumsWithPlutusV1,
+		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
+		UtxoValidateNoCollateralInputs, UtxoValidateBadInputsUtxo,
+		UtxoValidateScriptWitnesses, UtxoValidateRequiredRedeemers,
+		UtxoValidateValueNotConservedUtxo, UtxoValidateOutputTooSmallUtxo,
+		UtxoValidateOutputTooBigUtxo, UtxoValidateOutputBootAddrAttrsTooBig,
+		UtxoValidateWrongNetwork, UtxoValidateWrongNetworkWithdrawal,
+		UtxoValidateMaxTxSizeUtxo, UtxoValidateExUnitsTooBigUtxo,
+		UtxoValidateTooManyCollateralInputs, UtxoValidateNativeScripts,
+		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
+		UtxoValidatePlutusScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(UtxoValidateDelegation, UtxoValidateWithdrawals),
 )
 
 func UtxoValidateOutsideValidityIntervalUtxo(

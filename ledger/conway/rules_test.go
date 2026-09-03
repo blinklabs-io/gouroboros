@@ -3708,22 +3708,11 @@ func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 	}
 
 	for _, era := range []struct {
-		name string
-		// isValidFlag is the era's own registered rule. Dijkstra wraps
-		// Conway's, so asking for Conway's would not match its descriptor.
-		isValidFlag common.UtxoValidationRuleFunc
-		rules       []common.UtxoValidationRuleFunc
+		name  string
+		rules []common.UtxoValidationRuleFunc
 	}{
-		{
-			name:        "Conway",
-			isValidFlag: conway.UtxoValidateIsValidFlag,
-			rules:       conway.UtxoValidationRules,
-		},
-		{
-			name:        "Dijkstra",
-			isValidFlag: dijkstra.UtxoValidateIsValidFlag,
-			rules:       dijkstra.UtxoValidationRules,
-		},
+		{name: "Conway", rules: conway.UtxoValidationRules},
+		{name: "Dijkstra", rules: dijkstra.UtxoValidationRules},
 	} {
 		t.Run(era.name, func(t *testing.T) {
 			for _, operation := range operations {
@@ -3736,26 +3725,114 @@ func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 						},
 					}
 					state := &erroringCommitteeCredentialLedgerState{
-						LedgerState: mockledger.NewLedgerStateBuilder().Build(),
-						err:         errors.New("committee provider queried"),
+						LedgerState: mockledger.NewLedgerStateBuilder().
+							WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
+								return common.Utxo{
+									Id: input,
+									Output: babbage.BabbageTransactionOutput{
+										OutputAmount: mary.MaryTransactionOutputValue{Amount: 1_000_000},
+									},
+								}, nil
+							}).
+							Build(),
+						err: errors.New("committee provider queried"),
 					}
-					rules := registeredRules(
-						t,
+					// The composed rule list wraps every phase-2-gated
+					// rule in an identical closure, so a gated rule cannot be
+					// selected out by function pointer. Run the whole list and
+					// assert the property this test is named for: a
+					// phase-2-invalid transaction never reaches the committee
+					// provider, and no committee error is produced.
+					err := common.VerifyTransaction(
+						tx,
+						0,
+						state,
+						nil,
 						era.rules,
-						era.isValidFlag,
-						operation.rule,
 					)
-					err := common.VerifyTransaction(tx, 0, state, nil, rules)
-					if err != nil {
-						t.Fatalf(
-							"phase-2-invalid transaction reached %s: %v",
-							operation.name,
-							err,
-						)
-					}
+					var lookupErr conway.CommitteeMemberLookupError
+					require.False(
+						t,
+						errors.As(err, &lookupErr),
+						"phase-2-invalid transaction reached %s: %v",
+						operation.name,
+						err,
+					)
+					var notMemberErr conway.NotCommitteeMemberError
+					require.False(
+						t,
+						errors.As(err, &notMemberErr),
+						"phase-2-invalid transaction reached %s: %v",
+						operation.name,
+						err,
+					)
+					var unknownVoterErr conway.UnknownVoterError
+					require.False(
+						t,
+						errors.As(err, &unknownVoterErr),
+						"phase-2-invalid transaction reached %s: %v",
+						operation.name,
+						err,
+					)
 					require.Zero(t, state.queries, "committee provider queries")
 				})
 			}
+
+			if era.name != "Conway" {
+				return
+			}
+			t.Run("phase-2 valid transaction runs committee rules", func(t *testing.T) {
+				newState := func() *erroringCommitteeCredentialLedgerState {
+					return &erroringCommitteeCredentialLedgerState{
+						LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+						err:         errors.New("committee provider queried"),
+					}
+				}
+				pp := &conway.ConwayProtocolParameters{}
+				validTx := operations[0].tx()
+				validTx.TxIsValid = true
+
+				// The composition wraps every gated rule in an identical
+				// closure, so the committee rule cannot be selected out of the
+				// production list by function pointer. Locate the composed
+				// position by the lookup error only it reports for a valid
+				// transaction, then assert that same position for an invalid
+				// one. Selecting the rule by pointer instead would test the
+				// function rather than its place in the composed list.
+				var matched []common.UtxoValidationRuleFunc
+				for _, rule := range era.rules {
+					state := newState()
+					err := rule(validTx, 0, state, pp)
+					var lookupErr conway.CommitteeMemberLookupError
+					if !errors.As(err, &lookupErr) {
+						continue
+					}
+					require.Positivef(
+						t,
+						state.queries,
+						"committee provider queries: %v",
+						err,
+					)
+					matched = append(matched, rule)
+				}
+				require.NotEmpty(
+					t,
+					matched,
+					"no composed rule reached the committee provider",
+				)
+
+				invalidTx := operations[0].tx()
+				invalidTx.TxIsValid = false
+				for _, rule := range matched {
+					state := newState()
+					require.NoError(t, rule(invalidTx, 0, state, pp))
+					require.Zero(
+						t,
+						state.queries,
+						"committee provider queries",
+					)
+				}
+			})
 
 			t.Run("phase-1 invalid flag still runs", func(t *testing.T) {
 				tx := operations[0].tx()
@@ -3764,11 +3841,13 @@ func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
 					err:         errors.New("committee provider queried"),
 				}
+				// UtxoValidateIsValidFlag is always-run, so it is still
+				// selectable by pointer; the committee rule is gated and is
+				// covered by the whole-list run above.
 				rules := registeredRules(
 					t,
 					era.rules,
-					era.isValidFlag,
-					conway.UtxoValidateCommitteeCertificates,
+					conway.UtxoValidateIsValidFlag,
 				)
 				err := common.VerifyTransaction(tx, 0, state, nil, rules)
 				var invalidFlag common.InvalidIsValidFlagError

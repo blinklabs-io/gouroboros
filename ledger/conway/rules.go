@@ -286,8 +286,44 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // UtxoValidationRules is initialized from the authoritative descriptors. It
 // remains mutable for compatibility; mutations are not reflected by
 // UtxoValidationRuleDescriptors.
-var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
-	utxoValidationRuleDescriptors,
+var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(common.UtxoValidateCurrentTreasuryValue),
+	common.AlwaysUtxoValidationRules(UtxoValidateMetadata),
+	common.Phase2ValidUtxoValidationRules(UtxoValidateProposalProcedures),
+	common.AlwaysUtxoValidationRules(UtxoValidateGovActionWellFormedness),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateHardForkCanFollow, UtxoValidateProposalAncestry,
+		UtxoValidateProposalDeposit, UtxoValidateProposalNetworkIds,
+		UtxoValidateProposalReturnAccounts, UtxoValidateEmptyTreasuryWithdrawals,
+		UtxoValidateBootstrapAllowedGovActions, UtxoValidateBootstrapParameterGroups,
+	),
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateCollateralVKeyWitnesses, UtxoValidateRedeemerAndScriptWitnesses,
+		UtxoValidateSignatures, UtxoValidateCostModelsPresent, UtxoValidateScriptDataHash,
+		UtxoValidateInlineDatumsWithPlutusV1, UtxoValidateConwayFeaturesWithPlutusV1V2,
+		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
+		UtxoValidateNoCollateralInputs, UtxoValidateBadInputsUtxo,
+		UtxoValidateScriptWitnesses, UtxoValidateRequiredRedeemers,
+		UtxoValidateValueNotConservedUtxo, UtxoValidateOutputTooSmallUtxo,
+		UtxoValidateOutputTooBigUtxo, UtxoValidateOutputBootAddrAttrsTooBig,
+		UtxoValidateWrongNetwork, UtxoValidateWrongNetworkWithdrawal,
+		UtxoValidateTransactionNetworkId, UtxoValidateMaxTxSizeUtxo,
+		UtxoValidateExUnitsTooBigUtxo, UtxoValidateTooManyCollateralInputs,
+		UtxoValidateSupplementalDatums, UtxoValidateExtraneousRedeemers,
+		UtxoValidateMalformedReferenceScripts, UtxoValidatePlutusScripts,
+		UtxoValidateNativeScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidateCertificateDeposits,
+		UtxoValidateCommitteeCertificates, UtxoValidateUnknownVoters,
+		UtxoValidateUnknownGovActionIds, UtxoValidateVotingOnExpiredGovAction,
+		UtxoValidateBootstrapVotingRestrictions, UtxoValidateStakePoolVotingRestrictions,
+		UtxoValidateCCVotingRestrictions, UtxoValidateRefScriptSizePerTx,
+	),
 )
 
 // isInConwayBootstrapPhase reports whether the given protocol parameters
@@ -910,6 +946,9 @@ func UtxoValidateGovActionWellFormedness(
 			}
 
 		case *common.UpdateCommitteeGovAction:
+			if !tx.IsValid() {
+				continue
+			}
 			// common.Credential embeds cbor.DecodeStoreCbor (a slice field),
 			// making it non-comparable, so key the set on its logical
 			// (CredType, Credential hash) value instead.
