@@ -208,7 +208,9 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
 		UtxoValidatePlutusScripts,
 	),
-	common.Phase2ValidUtxoValidationRules(UtxoValidateDelegation, UtxoValidateWithdrawals),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidatePoolCertificates,
+	),
 )
 
 func UtxoValidateOutsideValidityIntervalUtxo(

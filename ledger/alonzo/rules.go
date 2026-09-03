@@ -179,7 +179,9 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateExUnitsTooBigUtxo, UtxoValidateNativeScripts,
 		UtxoValidateExtraneousRedeemers, UtxoValidatePlutusScripts,
 	),
-	common.Phase2ValidUtxoValidationRules(UtxoValidateDelegation, UtxoValidateWithdrawals),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidatePoolCertificates,
+	),
 )
 
 // UtxoValidateOutputTooBigUtxo ensures that transaction output values are not too large

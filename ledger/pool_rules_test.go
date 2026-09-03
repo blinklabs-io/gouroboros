@@ -23,7 +23,6 @@ package ledger_test
 import (
 	"bytes"
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -828,43 +827,51 @@ func TestUtxoValidatePoolCertificatesWrongPparams(t *testing.T) {
 // eras/dijkstra all reuse Shelley.poolTransition, so none of them may omit it.
 func TestPoolRuleInEveryEraRuleSet(t *testing.T) {
 	eras := []struct {
-		name  string
-		rules []common.UtxoValidationRuleFunc
-		want  common.UtxoValidationRuleFunc
+		name        string
+		rules       []common.UtxoValidationRuleFunc
+		descriptors func() []common.UtxoValidationRuleDescriptor
+		want        common.UtxoValidationRuleFunc
 	}{
 		{
 			"shelley",
 			shelley.UtxoValidationRules,
+			shelley.UtxoValidationRuleDescriptors,
 			shelley.UtxoValidatePoolCertificates,
 		},
 		{
 			"allegra",
 			allegra.UtxoValidationRules,
+			allegra.UtxoValidationRuleDescriptors,
 			allegra.UtxoValidatePoolCertificates,
 		},
 		{
 			"mary",
 			mary.UtxoValidationRules,
+			mary.UtxoValidationRuleDescriptors,
 			mary.UtxoValidatePoolCertificates,
 		},
 		{
 			"alonzo",
 			alonzo.UtxoValidationRules,
+			alonzo.UtxoValidationRuleDescriptors,
 			alonzo.UtxoValidatePoolCertificates,
 		},
 		{
 			"babbage",
 			babbage.UtxoValidationRules,
+			babbage.UtxoValidationRuleDescriptors,
 			babbage.UtxoValidatePoolCertificates,
 		},
 		{
 			"conway",
 			conway.UtxoValidationRules,
+			conway.UtxoValidationRuleDescriptors,
 			conway.UtxoValidatePoolCertificates,
 		},
 		{
 			"dijkstra",
 			dijkstra.UtxoValidationRules,
+			dijkstra.UtxoValidationRuleDescriptors,
 			conway.UtxoValidatePoolCertificates,
 		},
 	}
@@ -881,10 +888,9 @@ func TestPoolRuleInEveryEraRuleSet(t *testing.T) {
 	)
 	for _, era := range eras {
 		t.Run(era.name, func(t *testing.T) {
-			want := reflect.ValueOf(era.want).Pointer()
 			found := false
-			for _, rule := range era.rules {
-				if reflect.ValueOf(rule).Pointer() == want {
+			for _, descriptor := range era.descriptors() {
+				if descriptor.Id == common.UtxoValidationRulePoolCertificates {
 					found = true
 					break
 				}
