@@ -677,7 +677,7 @@ func (g *DijkstraGuards) UnmarshalCBOR(cborData []byte) error {
 	g.SetCbor(cborData)
 	var credentials cbor.SetType[common.Credential]
 	if _, err := cbor.Decode(cborData, &credentials); err == nil {
-		if err := credentials.CheckForDuplicates(); err != nil {
+		if err := credentials.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 		if len(credentials.Items()) == 0 {
@@ -691,7 +691,7 @@ func (g *DijkstraGuards) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &keyHashes); err != nil {
 		return err
 	}
-	if err := keyHashes.CheckForDuplicates(); err != nil {
+	if err := keyHashes.CheckForDuplicatesAlways(); err != nil {
 		return err
 	}
 	if len(keyHashes.Items()) == 0 {
@@ -770,9 +770,10 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
-	// Reject duplicate members in any tag-258 set field on the transaction body.
+	// Reject duplicate members in every Dijkstra set encoding, including
+	// untagged arrays.
 	type duplicateChecker interface {
-		CheckForDuplicates() error
+		CheckForDuplicatesAlways() error
 	}
 	for _, c := range []duplicateChecker{
 		&tmp.TxInputs,
@@ -780,7 +781,7 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		&tmp.TxReferenceInputs,
 		&tmp.TxSubTransactions,
 	} {
-		if err := c.CheckForDuplicates(); err != nil {
+		if err := c.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 	}
@@ -1082,10 +1083,10 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
-	if err := tmp.TxInputs.CheckForDuplicates(); err != nil {
+	if err := tmp.TxInputs.CheckForDuplicatesAlways(); err != nil {
 		return err
 	}
-	if err := tmp.TxReferenceInputs.CheckForDuplicates(); err != nil {
+	if err := tmp.TxReferenceInputs.CheckForDuplicatesAlways(); err != nil {
 		return err
 	}
 	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
@@ -1295,10 +1296,10 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	// Reject duplicate members in any tag-258 witness set field.
-	// Untagged array fields are left unchecked so pre-Dijkstra encodings remain valid.
+	// Reject duplicate members in every Dijkstra witness-set encoding, including
+	// untagged arrays.
 	type duplicateChecker interface {
-		CheckForDuplicates() error
+		CheckForDuplicatesAlways() error
 	}
 	for _, c := range []duplicateChecker{
 		&tmp.VkeyWitnesses,
@@ -1310,7 +1311,7 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 		&tmp.WsPlutusV3Scripts,
 		&tmp.WsPlutusV4Scripts,
 	} {
-		if err := c.CheckForDuplicates(); err != nil {
+		if err := c.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 	}
@@ -1816,7 +1817,7 @@ func decodeInvalidTransactions(raw cbor.RawMessage) ([]uint, error) {
 	if _, err := cbor.Decode(raw, &txIndices); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra invalid transactions: %w", err)
 	}
-	if err := txIndices.CheckForDuplicates(); err != nil {
+	if err := txIndices.CheckForDuplicatesAlways(); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra invalid transactions: %w", err)
 	}
 	items := txIndices.Items()

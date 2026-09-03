@@ -433,7 +433,7 @@ func TestConwayTransactionMarshalRejectsNegativeCurrentTreasuryValue(
 	require.ErrorContains(t, err, "current treasury value")
 }
 
-func TestConwayUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
+func TestConwayRejectsDuplicateUntaggedInputSets(t *testing.T) {
 	input := testConwayShelleyInput()
 	tests := []struct {
 		name  string
@@ -454,14 +454,7 @@ func TestConwayUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
 			require.NoError(t, err)
 
 			var body ConwayTransactionBody
-			require.NoError(t, body.UnmarshalCBOR(bodyCbor))
-			tx := &ConwayTransaction{Body: body}
-			require.Error(t, shelley.UtxoValidateNoDuplicateInputs(
-				tx,
-				0,
-				nil,
-				nil,
-			))
+			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "duplicate member in set")
 		})
 	}
 }

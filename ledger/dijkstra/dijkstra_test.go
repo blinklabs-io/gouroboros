@@ -797,7 +797,7 @@ func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputSets(t *testing.T) {
 	}
 }
 
-func TestDijkstraUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
+func TestDijkstraRejectsDuplicateUntaggedInputSets(t *testing.T) {
 	input := testShelleyInput()
 	for _, tt := range []struct {
 		name  string
@@ -817,14 +817,7 @@ func TestDijkstraUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
 			require.NoError(t, err)
 
 			var body DijkstraTransactionBody
-			require.NoError(t, body.UnmarshalCBOR(bodyCbor))
-			tx := &DijkstraTransaction{Body: body}
-			require.Error(t, shelley.UtxoValidateNoDuplicateInputs(
-				tx,
-				0,
-				nil,
-				nil,
-			))
+			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "duplicate member in set")
 		})
 	}
 }
@@ -914,19 +907,17 @@ func TestDijkstraTransactionBodyRejectsDuplicateKeyHashGuards(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
-func TestDijkstraWitnessSetAllowsDuplicateUntaggedVkeyWitness(t *testing.T) {
-	// Untagged arrays (no tag 258) are not checked for duplicates so that
-	// pre-Dijkstra encodings decoded via this path remain accepted.
+func TestDijkstraWitnessSetRejectsDuplicateUntaggedVkeyWitness(t *testing.T) {
 	dupCbor := []byte{
 		0xa1, // map(1)
 		0x00, // key: 0  (VkeyWitnesses field)
 		// plain array — no tag 258
 		0x82,                         // array(2)
 		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
-		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate — must NOT be rejected
+		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
 	}
 	var ws DijkstraTransactionWitnessSet
-	require.NoError(t, ws.UnmarshalCBOR(dupCbor))
+	require.ErrorContains(t, ws.UnmarshalCBOR(dupCbor), "duplicate member in set")
 }
 
 func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
