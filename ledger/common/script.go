@@ -758,18 +758,31 @@ func FirstInvalidNativeScript(
 	if witnesses == nil {
 		return ScriptHash{}, false
 	}
+	return FirstInvalidNativeScriptIn(tx, slot, witnesses.NativeScripts())
+}
 
-	nativeScripts := witnesses.NativeScripts()
+// FirstInvalidNativeScriptIn evaluates the given native scripts against the
+// transaction's witness key hashes and validity interval. Eras that must also
+// evaluate reference scripts pass the resolved list from
+// NativeScriptsForValidation; the evaluation itself is identical.
+func FirstInvalidNativeScriptIn(
+	tx Transaction,
+	slot uint64,
+	nativeScripts []NativeScript,
+) (ScriptHash, bool) {
 	if len(nativeScripts) == 0 {
 		return ScriptHash{}, false
 	}
+	witnesses := tx.Witnesses()
 
 	keyHashes := make(map[Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		keyHashes[Blake2b224Hash(vkw.Vkey)] = true
-	}
-	for _, bw := range witnesses.Bootstrap() {
-		keyHashes[Blake2b224Hash(bw.PublicKey)] = true
+	if witnesses != nil {
+		for _, vkw := range witnesses.Vkey() {
+			keyHashes[Blake2b224Hash(vkw.Vkey)] = true
+		}
+		for _, bw := range witnesses.Bootstrap() {
+			keyHashes[Blake2b224Hash(bw.PublicKey)] = true
+		}
 	}
 
 	validityStart := tx.ValidityIntervalStart()

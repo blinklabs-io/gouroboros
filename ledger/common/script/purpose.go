@@ -16,6 +16,7 @@ package script
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"math/big"
 	"slices"
@@ -479,20 +480,7 @@ func BuildScriptPurpose(
 			Certificate: certificates[redeemerKey.Index],
 		}, nil
 	case lcommon.RedeemerTagReward:
-		// Extract and sort withdrawal addresses for deterministic ordering
-		sortedAddrs := make([]*lcommon.Address, 0, len(withdrawals))
-		for addr := range withdrawals {
-			sortedAddrs = append(sortedAddrs, addr)
-		}
-		slices.SortFunc(sortedAddrs, func(a, b *lcommon.Address) int {
-			aBytes, aErr := a.Bytes()
-			bBytes, bErr := b.Bytes()
-			// Fall back to string comparison if Bytes() fails
-			if aErr != nil || bErr != nil {
-				return strings.Compare(a.String(), b.String())
-			}
-			return bytes.Compare(aBytes, bBytes)
-		})
+		sortedAddrs := sortWithdrawalAddresses(withdrawals)
 		if int(redeemerKey.Index) >= len(sortedAddrs) {
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
@@ -556,4 +544,32 @@ func BuildScriptPurpose(
 		// Any unrecognized tag isn't a purpose this function can construct.
 		return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 	}
+}
+
+// sortWithdrawalAddresses matches cardano-ledger's Ord instance for reward
+// accounts: network first, then credential type, then credential hash.
+func sortWithdrawalAddresses(
+	withdrawals map[*lcommon.Address]*big.Int,
+) []*lcommon.Address {
+	sorted := make([]*lcommon.Address, 0, len(withdrawals))
+	for addr := range withdrawals {
+		sorted = append(sorted, addr)
+	}
+	slices.SortFunc(sorted, func(a, b *lcommon.Address) int {
+		aCred, aErr := a.RewardAccountCredential()
+		bCred, bErr := b.RewardAccountCredential()
+		if aErr != nil || bErr != nil {
+			return strings.Compare(a.String(), b.String())
+		}
+		if c := cmp.Compare(a.NetworkId(), b.NetworkId()); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(aCred.CredType, bCred.CredType); c != 0 {
+			// Credential's numeric order is key before script, while
+			// cardano-ledger's Ord instance places ScriptHashObj first.
+			return -c
+		}
+		return bytes.Compare(aCred.Credential[:], bCred.Credential[:])
+	})
+	return sorted
 }

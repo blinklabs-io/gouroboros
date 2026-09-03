@@ -107,6 +107,10 @@ func ValidateRequiredRedeemers(
 				ScriptHash: scriptHash,
 				Tag:        lcommon.RedeemerTagSpend,
 				Index:      index,
+				RedeemerKey: lcommon.RedeemerKey{
+					Tag:   lcommon.RedeemerTagSpend,
+					Index: index,
+				},
 			}
 		}
 	}
