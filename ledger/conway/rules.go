@@ -323,11 +323,11 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	),
 	common.Phase2ValidUtxoValidationRules(
 		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidateCertificateDeposits,
-		UtxoValidatePoolCertificates,
 		UtxoValidateCommitteeCertificates, UtxoValidateUnknownVoters,
 		UtxoValidateUnknownGovActionIds, UtxoValidateVotingOnExpiredGovAction,
 		UtxoValidateBootstrapVotingRestrictions, UtxoValidateStakePoolVotingRestrictions,
 		UtxoValidateCCVotingRestrictions, UtxoValidateRefScriptSizePerTx,
+		UtxoValidatePoolCertificates,
 	),
 )
 
