@@ -1044,7 +1044,18 @@ func validatePoolRetirement(
 	// The current epoch is required to evaluate the retirement bound.
 	epochState, ok := ls.(common.EpochState)
 	if !ok {
-		return errors.New("epoch state is required for pool retirement validation")
+		// Epoch zero is invalid for every possible current epoch. For any
+		// other epoch, the optional capability's degrading contract requires
+		// us to skip only the bound that cannot be evaluated here.
+		if cert.Epoch == 0 {
+			return StakePoolRetirementWrongEpochError{
+				PoolKeyHash:  cert.PoolKeyHash,
+				Supplied:     cert.Epoch,
+				CurrentEpoch: 0,
+				LimitEpoch:   0,
+			}
+		}
+		return nil
 	}
 	currentEpoch, err := epochState.EpochForSlot(slot)
 	if err != nil {

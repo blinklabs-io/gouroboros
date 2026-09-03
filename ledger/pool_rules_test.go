@@ -664,17 +664,29 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 		})
 	}
 
-	t.Run("no EpochState rejects the retirement", func(t *testing.T) {
-		// The retirement bound cannot be evaluated without authoritative epoch
-		// state, so validation must fail closed.
+	t.Run("no EpochState skips nonzero retirement epoch bound", func(t *testing.T) {
+		// EpochState is deliberately optional and degrading. Only epoch zero
+		// is invalid without current-epoch knowledge.
 		_, ok := any(base).(common.EpochState)
 		require.False(t, ok)
-		require.Error(t, shelley.UtxoValidatePoolCertificates(
-			poolCertTx(poolRetirementCert(registered, currentEpoch)),
+		require.NoError(t, shelley.UtxoValidatePoolCertificates(
+			poolCertTx(poolRetirementCert(registered, currentEpoch+1)),
 			0,
 			base,
 			pparams,
 		))
+	})
+
+	t.Run("no EpochState rejects epoch zero", func(t *testing.T) {
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(poolRetirementCert(registered, 0)),
+			0,
+			base,
+			pparams,
+		)
+		var target shelley.StakePoolRetirementWrongEpochError
+		require.ErrorAs(t, err, &target)
+		require.Equal(t, uint64(0), target.Supplied)
 	})
 
 	t.Run("EpochState error propagates", func(t *testing.T) {
