@@ -71,6 +71,31 @@ func ConcatResolvedInputs(inputs, refInputs []lcommon.Utxo) []lcommon.Utxo {
 	return out
 }
 
+// UsedPlutusVersions returns the language-view version indices of the Plutus
+// scripts some script purpose of this transaction requires, in the numbering
+// lcommon.PlutusScriptVersion and EncodeLangViews share.
+//
+// This is the set the script data hash's language views are built from, and it
+// has to be the needed scripts rather than the available ones for the same
+// reason NativeScriptsToEvaluate does: a script that is merely reachable does
+// not constrain the transaction. Counting availability adds a language view the
+// producer did not, so the hash comes out different and a canonical transaction
+// is rejected -- concretely, spending a UTxO that happens to carry an unrelated
+// reference script, or witnessing a script no purpose needs.
+//
+// cardano-ledger derives the same set from the scripts actually used
+// (Cardano.Ledger.Alonzo.Rules.Utxow passes plutusLanguagesUsed to
+// mkScriptIntegrity, which maps getLanguageView over exactly that set).
+func (v TxScriptView) UsedPlutusVersions() map[uint]struct{} {
+	out := make(map[uint]struct{}, len(v.Needed))
+	for _, s := range v.Needed {
+		if version, ok := lcommon.PlutusScriptVersion(s); ok {
+			out[version] = struct{}{}
+		}
+	}
+	return out
+}
+
 // NeedsAny reports whether any needed script satisfies match.
 func (v TxScriptView) NeedsAny(match func(lcommon.Script) bool) bool {
 	for _, s := range v.Needed {

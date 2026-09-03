@@ -393,6 +393,50 @@ func TestVerifyTransaction(t *testing.T) {
 	})
 }
 
+func TestComposeUtxoValidationRules(t *testing.T) {
+	var calls []string
+	rule := func(name string) common.UtxoValidationRuleFunc {
+		return func(
+			common.Transaction,
+			uint64,
+			common.LedgerState,
+			common.ProtocolParameters,
+		) error {
+			calls = append(calls, name)
+			return nil
+		}
+	}
+	rules := common.ComposeUtxoValidationRules(
+		common.AlwaysUtxoValidationRules(rule("always before")),
+		common.Phase2ValidUtxoValidationRules(
+			rule("valid only first"),
+			rule("valid only second"),
+		),
+		common.AlwaysUtxoValidationRules(rule("always after")),
+	)
+	require.Len(t, rules, 4)
+
+	invalidTx := mockledger.NewTransactionBuilder()
+	invalidTx.WithValid(false)
+	for _, validationRule := range rules {
+		require.NoError(t, validationRule(invalidTx, 0, nil, nil))
+	}
+	require.Equal(t, []string{"always before", "always after"}, calls)
+
+	calls = nil
+	validTx := mockledger.NewTransactionBuilder()
+	validTx.WithValid(true)
+	for _, validationRule := range rules {
+		require.NoError(t, validationRule(validTx, 0, nil, nil))
+	}
+	require.Equal(t, []string{
+		"always before",
+		"valid only first",
+		"valid only second",
+		"always after",
+	}, calls)
+}
+
 // Use centralized mocks from ledger/common/mock.go
 
 // mockTxInput implements TransactionInput minimally for constructing

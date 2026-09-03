@@ -188,8 +188,27 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // UtxoValidationRules is initialized from the authoritative descriptors. It
 // remains mutable for compatibility; mutations are not reflected by
 // UtxoValidationRuleDescriptors.
-var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
-	utxoValidationRuleDescriptors,
+var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
+		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash, UtxoValidateInlineDatumsWithPlutusV1,
+		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
+		UtxoValidateNoCollateralInputs, UtxoValidateBadInputsUtxo,
+		UtxoValidateScriptWitnesses, UtxoValidateRequiredRedeemers,
+		UtxoValidateValueNotConservedUtxo, UtxoValidateOutputTooSmallUtxo,
+		UtxoValidateOutputTooBigUtxo, UtxoValidateOutputBootAddrAttrsTooBig,
+		UtxoValidateWrongNetwork, UtxoValidateWrongNetworkWithdrawal,
+		UtxoValidateMaxTxSizeUtxo, UtxoValidateExUnitsTooBigUtxo,
+		UtxoValidateTooManyCollateralInputs, UtxoValidateNativeScripts,
+		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
+		UtxoValidatePlutusScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(UtxoValidateDelegation, UtxoValidateWithdrawals),
 )
 
 func UtxoValidateOutsideValidityIntervalUtxo(
@@ -1287,61 +1306,6 @@ func UtxoValidateScriptDataHash(
 	hasRedeemers := len(wits.WsRedeemers.Redeemers) > 0
 	hasDatums := len(wits.WsPlutusData.Items) > 0
 
-	// Determine which Plutus versions are used (Babbage has PlutusV1 and V2)
-	usedVersions := make(map[uint]struct{})
-	if len(wits.WsPlutusV1Scripts) > 0 {
-		usedVersions[0] = struct{}{}
-	}
-	if len(wits.WsPlutusV2Scripts) > 0 {
-		usedVersions[1] = struct{}{}
-	}
-
-	// Also check reference scripts on reference inputs
-	for _, refInput := range tmpTx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
-			usedVersions[1] = struct{}{}
-		}
-	}
-
-	// Check reference scripts on regular inputs.
-	// These may provide reference scripts for minting, spending, etc.
-	for _, input := range tmpTx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
-			usedVersions[1] = struct{}{}
-		}
-	}
-
 	declaredHash := tx.ScriptDataHash()
 
 	// ScriptDataHash is required only when the transaction has redeemers or
@@ -1358,6 +1322,27 @@ func UtxoValidateScriptDataHash(
 	if declaredHash == nil {
 		return common.MissingScriptDataHashError{}
 	}
+
+	// The language views cover the Plutus scripts some script purpose of this
+	// transaction requires, not every script it can reach. A reference script
+	// on a spent or referenced input that no purpose needs is inert data (see
+	// the comment above), and counting it adds a view the producer did not,
+	// which rejects a canonical transaction on a hash it never declared
+	// (gouroboros #2188).
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) {
+			// A spent input that does not resolve is reported by
+			// UtxoValidateBadInputsUtxo, which runs on every transaction in
+			// this same rule list. Reporting it from here would change which
+			// error an invalid transaction produces, and this rule is
+			// registered ahead of that one. A reference input that does not
+			// resolve has no such dedicated rule, so it still surfaces here.
+			return nil
+		}
+		return err
+	}
+	usedVersions := view.UsedPlutusVersions()
 
 	// Verify cost models are present for all used Plutus versions
 	for version := range usedVersions {
