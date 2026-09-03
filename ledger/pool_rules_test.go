@@ -670,7 +670,7 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 		_, ok := any(base).(common.EpochState)
 		require.False(t, ok)
 		require.NoError(t, shelley.UtxoValidatePoolCertificates(
-			poolCertTx(poolRetirementCert(registered, currentEpoch+1)),
+			poolCertTx(poolRetirementCert(registered, limitEpoch+1)),
 			0,
 			base,
 			pparams,
