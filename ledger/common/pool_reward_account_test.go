@@ -214,7 +214,6 @@ func TestPoolRegistrationSetCborPreservesNetworkId(t *testing.T) {
 	cert2 := &PoolRegistrationCertificate{}
 	require.NoError(t, cert2.UnmarshalCBOR(wire))
 	cert2.SetCbor([]byte{0x01})
-	networkId, known = cert2.RewardAccountNetworkId()
-	assert.True(t, known)
-	assert.Equal(t, uint(AddressNetworkMainnet), networkId)
+	_, known = cert2.RewardAccountNetworkId()
+	assert.False(t, known)
 }
