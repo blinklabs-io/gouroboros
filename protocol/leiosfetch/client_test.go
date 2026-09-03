@@ -117,12 +117,9 @@ func TestClientMessageHandler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// The Block/BlockTxs handlers deliver results to a per-request slot
 			// (a non-blocking send), so register a waiter first. The
-			// Votes/BlockRange handlers deliver with a blocking send to a shared
-			// channel, so the main goroutine below acts as the parked receiver.
-			// messageHandler runs in a helper goroutine: for a slot delivery it
-			// returns immediately, and for a blocking-send delivery it unblocks
-			// as soon as the main goroutine receives. Either way the helper is
-			// guaranteed to exit, so no goroutine dangles on a failed subtest.
+			// Every response handler delivers through the request slot. Register
+			// a waiter before invoking the handler so delivery is correlated with
+			// the request under test.
 			var deliverCh chan protocol.Message
 			switch tc.msg.Type() {
 			case MessageTypeBlock, MessageTypeNoBlock:
@@ -139,10 +136,13 @@ func TestClientMessageHandler(t *testing.T) {
 				)
 				require.NoError(t, err)
 				deliverCh = w
-			case MessageTypeVotes:
-				deliverCh = client.votesResultChan
-			case MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
-				deliverCh = client.blockRangeResultChan
+			case MessageTypeVotes, MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
+				w, err := client.blockRequestSlot.acquire(
+					context.Background(),
+					client.DoneChan(),
+				)
+				require.NoError(t, err)
+				deliverCh = w
 			}
 			errCh := make(chan error, 1)
 			go func() {

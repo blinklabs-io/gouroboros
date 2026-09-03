@@ -33,11 +33,9 @@ type Client struct {
 	onceStop        sync.Once
 	// Block and BlockTxs share one slot because both requests use the same
 	// connection-wide agency and have no request identifier.
-	blockRequestSlot     requestSlot
-	blockSlot            requestSlot
-	blockTxsSlot         requestSlot
-	votesResultChan      chan protocol.Message
-	blockRangeResultChan chan protocol.Message
+	blockRequestSlot requestSlot
+	blockSlot        requestSlot
+	blockTxsSlot     requestSlot
 }
 
 // requestSlot serializes a single outstanding request/response exchange for a
@@ -220,8 +218,6 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		// the response always has somewhere to land even if the caller has
 		// not reached its receive yet. Unbuffered, a response whose caller
 		// gave up on its context blocked the protocol receive loop forever.
-		votesResultChan:      make(chan protocol.Message, 1),
-		blockRangeResultChan: make(chan protocol.Message, 1),
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -277,15 +273,6 @@ func (c *Client) Start() {
 			)
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown.
-		// The Block/BlockTxs request slots are unblocked directly by the
-		// per-request select watching DoneChan (see BlockRequest /
-		// BlockTxsRequest), so only the shared Votes/BlockRange channels are
-		// closed here.
-		go func() {
-			<-c.DoneChan()
-			close(c.votesResultChan)
-			close(c.blockRangeResultChan)
-		}()
 	})
 }
 
@@ -444,8 +431,7 @@ func (c *Client) VotesRequest(
 		return nil, err
 	}
 	select {
-	case resp, ok := <-c.votesResultChan:
-		c.blockRequestSlot.release(w)
+	case resp, ok := <-w:
 		if !ok {
 			return nil, protocol.ErrProtocolShuttingDown
 		}
@@ -482,7 +468,7 @@ func (c *Client) BlockRangeRequest(
 	ret := make([]protocol.Message, 0, 20)
 	for {
 		select {
-		case resp, ok := <-c.blockRangeResultChan:
+		case resp, ok := <-w:
 			if !ok {
 				c.blockRequestSlot.release(w)
 				return nil, protocol.ErrProtocolShuttingDown
@@ -590,25 +576,19 @@ func (c *Client) handleNoBlockTxs(msg protocol.Message) {
 // waiting. The send must not block: the protocol receive loop runs it, and a
 // caller whose context expired is gone for good.
 func (c *Client) handleVotes(msg protocol.Message) {
-	select {
-	case c.votesResultChan <- msg:
-	default:
+	if !c.blockRequestSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
 
 func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) {
-	select {
-	case c.blockRangeResultChan <- msg:
-	default:
+	if !c.blockRequestSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
 
 func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) {
-	select {
-	case c.blockRangeResultChan <- msg:
-	default:
+	if !c.blockRequestSlot.deliver(msg) {
 		c.logDroppedResponse(msg)
 	}
 }
