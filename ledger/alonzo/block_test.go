@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -200,14 +201,16 @@ func TestAlonzoBlock_Validation(t *testing.T) {
 
 func TestAlonzoBlockRejectsInvalidTransactionIndices(t *testing.T) {
 	tests := []struct {
-		name          string
-		invalidTxs    []uint64
-		transactionTx []any
+		name           string
+		invalidTxs     []uint64
+		transactionTx  []any
+		expectOverflow bool
 	}{
 		{
-			name:          "large wire index",
-			invalidTxs:    []uint64{math.MaxUint64},
-			transactionTx: []any{},
+			name:           "large wire index",
+			invalidTxs:     []uint64{math.MaxUint64},
+			transactionTx:  []any{},
+			expectOverflow: true,
 		},
 		{
 			name:          "empty transaction collection",
@@ -229,8 +232,12 @@ func TestAlonzoBlockRejectsInvalidTransactionIndices(t *testing.T) {
 
 			var block alonzo.AlonzoBlock
 			err = block.UnmarshalCBOR(blockCbor)
-			if tt.name == "large wire index" {
-				require.Error(t, err)
+			if tt.expectOverflow {
+				if strconv.IntSize == 32 {
+					require.ErrorContains(t, err, "overflows uint")
+				} else {
+					require.ErrorContains(t, err, "outside transaction list length")
+				}
 			} else {
 				require.ErrorContains(t, err, "outside transaction list length")
 			}
