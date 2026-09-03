@@ -2312,7 +2312,7 @@ func usedPlutusVersions(
 			return nil, err
 		}
 		for _, level := range levels {
-			addUsedPlutusVersionsFromNeeded(used, level.view.Needed)
+			addUsedPlutusVersionsFromNeeded(used, level.view)
 		}
 		return used, nil
 	}
@@ -2349,14 +2349,17 @@ func usedPlutusVersions(
 	return used, nil
 }
 
+// addUsedPlutusVersionsFromNeeded folds a script view's needed Plutus
+// languages into used. It defers to script.TxScriptView.UsedPlutusVersions so
+// the older eras, which had to be corrected to derive the set this way rather
+// than from every reachable script (gouroboros #2188), and this one cannot
+// drift apart.
 func addUsedPlutusVersionsFromNeeded(
 	used map[uint]struct{},
-	needed map[common.ScriptHash]common.Script,
+	view script.TxScriptView,
 ) {
-	for _, candidate := range needed {
-		if version, ok := common.PlutusScriptVersion(candidate); ok {
-			used[version] = struct{}{}
-		}
+	for version := range view.UsedPlutusVersions() {
+		used[version] = struct{}{}
 	}
 }
 
@@ -2401,7 +2404,7 @@ func UtxoValidateScriptDataHash(
 	}
 	for _, level := range levels {
 		usedVersions := make(map[uint]struct{})
-		addUsedPlutusVersionsFromNeeded(usedVersions, level.view.Needed)
+		addUsedPlutusVersionsFromNeeded(usedVersions, level.view)
 		if err := validateDijkstraScriptDataHash(
 			level,
 			tmpPparams,

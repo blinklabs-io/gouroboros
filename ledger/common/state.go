@@ -178,6 +178,20 @@ type DRepDelegationState interface {
 	DRepDelegation(Credential) (*Drep, error)
 }
 
+// GenesisDelegationState is the optional ledger-state capability used to
+// authorize move-instantaneous-rewards certificates. MIR certificates carry no
+// field-level author, so Shelley through Babbage authorize them with signatures
+// from a quorum of the currently delegated genesis keys. Ledger states used to
+// validate those eras must implement this interface.
+type GenesisDelegationState interface {
+	// GenesisDelegateKeyHashes returns the key hash of every currently
+	// delegated genesis key.
+	GenesisDelegateKeyHashes() ([]Blake2b224, error)
+	// GenesisUpdateQuorum returns the number of distinct genesis delegate
+	// signatures required to authorize an MIR certificate.
+	GenesisUpdateQuorum() (uint, error)
+}
+
 type PoolDelegation struct {
 	Pool Blake2b224
 }

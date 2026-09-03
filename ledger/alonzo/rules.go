@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
@@ -158,8 +159,23 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // UtxoValidationRules is initialized from the authoritative descriptors. It
 // remains mutable for compatibility; mutations are not reflected by
 // UtxoValidationRuleDescriptors.
-var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
-	utxoValidationRuleDescriptors,
+var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
+		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda, UtxoValidateNoCollateralInputs,
+		UtxoValidateBadInputsUtxo, UtxoValidateScriptWitnesses, UtxoValidateValueNotConservedUtxo,
+		UtxoValidateOutputTooSmallUtxo, UtxoValidateOutputTooBigUtxo,
+		UtxoValidateOutputBootAddrAttrsTooBig, UtxoValidateWrongNetwork,
+		UtxoValidateWrongNetworkWithdrawal, UtxoValidateMaxTxSizeUtxo,
+		UtxoValidateExUnitsTooBigUtxo, UtxoValidateNativeScripts,
+		UtxoValidateExtraneousRedeemers, UtxoValidatePlutusScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(UtxoValidateDelegation, UtxoValidateWithdrawals),
 )
 
 // UtxoValidateOutputTooBigUtxo ensures that transaction output values are not too large
@@ -932,12 +948,6 @@ func UtxoValidateScriptDataHash(
 	hasRedeemers := len(wits.WsRedeemers.Redeemers) > 0
 	hasDatums := len(wits.WsPlutusData.Items) > 0
 
-	// Determine which Plutus versions are used (Alonzo only has PlutusV1)
-	usedVersions := make(map[uint]struct{})
-	if len(wits.WsPlutusV1Scripts) > 0 {
-		usedVersions[0] = struct{}{}
-	}
-
 	declaredHash := tx.ScriptDataHash()
 
 	// ScriptDataHash is required only when the transaction has redeemers or
@@ -952,6 +962,28 @@ func UtxoValidateScriptDataHash(
 	if declaredHash == nil {
 		return common.MissingScriptDataHashError{}
 	}
+
+	// The language views cover the Plutus scripts some script purpose of this
+	// transaction requires, not every script the witness set carries. A
+	// witnessed script no purpose needs adds a view the producer did not, so
+	// the hash comes out different and a canonical transaction is rejected
+	// (gouroboros #2188). Alonzo has no reference scripts, so the witness set
+	// is the only source, but the needed-versus-provided distinction is the
+	// same one cardano-ledger draws.
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) {
+			// A spent input that does not resolve is reported by
+			// UtxoValidateBadInputsUtxo, which runs on every transaction in
+			// this same rule list. Reporting it from here would change which
+			// error an invalid transaction produces, and this rule is
+			// registered ahead of that one. A reference input that does not
+			// resolve has no such dedicated rule, so it still surfaces here.
+			return nil
+		}
+		return err
+	}
+	usedVersions := view.UsedPlutusVersions()
 
 	// Verify cost models are present for all used Plutus versions
 	for version := range usedVersions {
@@ -1029,4 +1061,15 @@ func UtxoValidateScriptDataHash(
 	}
 
 	return nil
+}
+
+// UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards
+// certificate is authorized by a quorum of the current genesis delegates
+func UtxoValidateMIRGenesisQuorum(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateMIRGenesisQuorum(tx, slot, ls, pp)
 }

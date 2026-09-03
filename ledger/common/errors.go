@@ -311,21 +311,22 @@ func (e ExtraneousRedeemerError) Error() string {
 	)
 }
 
-// MissingRedeemerForScriptError indicates a script-address input's Plutus
-// script is reachable -- via an explicit witness or a CIP-33 reference
-// script -- but no redeemer exists for its spend index. See
-// script.ValidateRequiredRedeemers for why this must be checked separately
-// from script presence.
+// MissingRedeemerForScriptError indicates that an available Plutus script is
+// required by a concrete purpose but the witness set has no redeemer at that
+// purpose's exact tag and canonical index.
 type MissingRedeemerForScriptError struct {
-	ScriptHash ScriptHash
-	Tag        RedeemerTag
-	Index      uint32
+	ScriptHash  ScriptHash
+	RedeemerKey RedeemerKey
+	Tag         RedeemerTag
+	Index       uint32
 }
 
 func (e MissingRedeemerForScriptError) Error() string {
 	return fmt.Sprintf(
 		"missing redeemer for script %x: tag=%d, index=%d",
-		e.ScriptHash[:], e.Tag, e.Index,
+		e.ScriptHash[:],
+		e.RedeemerKey.Tag,
+		e.RedeemerKey.Index,
 	)
 }
 
@@ -398,4 +399,29 @@ var ErrBlockHeaderSizeTooBig = errors.New("block header size too big")
 
 func (BlockHeaderSizeTooBigError) Is(target error) bool {
 	return target == ErrBlockHeaderSizeTooBig
+}
+
+// GenesisDelegationStateUnavailableError indicates that a ledger state cannot
+// answer the genesis-delegation queries required to authorize a move
+// instantaneous rewards certificate.
+type GenesisDelegationStateUnavailableError struct{}
+
+func (GenesisDelegationStateUnavailableError) Error() string {
+	return "ledger state does not provide genesis delegation state"
+}
+
+// MIRInsufficientGenesisSigsError indicates that a move instantaneous rewards
+// certificate was not authorized by a quorum of the currently delegated
+// genesis keys.
+type MIRInsufficientGenesisSigsError struct {
+	Provided uint
+	Required uint
+}
+
+func (e MIRInsufficientGenesisSigsError) Error() string {
+	return fmt.Sprintf(
+		"insufficient genesis delegate signatures for instantaneous rewards certificate: provided %d, required %d",
+		e.Provided,
+		e.Required,
+	)
 }
