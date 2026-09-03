@@ -72,7 +72,6 @@ func boolTag(value bool) uint64 {
 func expectedValidityRange(
 	start *uint64,
 	end *uint64,
-	upperBoundOnlyIsClosed bool,
 ) data.PlutusData {
 	startPresent := start != nil
 	endPresent := end != nil
@@ -84,13 +83,6 @@ func expectedValidityRange(
 	if endPresent {
 		endValue = *end
 	}
-	// These fixtures build V1/V2 TxInfo from Alonzo/Babbage transactions, i.e.
-	// the PRE-CONWAY eras. cardano-ledger's transVITime translates an upper-only
-	// interval there with PV1.to, a CLOSED (inclusive) upper bound, while a
-	// two-sided interval uses strictUpperBound (exclusive). So the upper-bound
-	// closure is inclusive iff there is no lower bound (upper-only). The Conway
-	// era corrects the upper-only case to exclusive (cardano-ledger#3043); that
-	// is covered separately in the strictUpperBound=true tests.
 	return data.NewConstr(
 		0,
 		validityBound(startPresent, startValue, true, true),
@@ -98,7 +90,7 @@ func expectedValidityRange(
 			endPresent,
 			endValue,
 			false,
-			!startPresent && upperBoundOnlyIsClosed,
+			false,
 		),
 	)
 }
@@ -109,7 +101,7 @@ func requireValidityRange(
 	actual data.PlutusData,
 ) {
 	t.Helper()
-	expected := expectedValidityRange(fixture.StartSlot, fixture.EndSlot, true)
+	expected := expectedValidityRange(fixture.StartSlot, fixture.EndSlot)
 	require.True(
 		t,
 		expected.Equal(actual),
@@ -129,7 +121,7 @@ func TestValidityRangeMatchesCardanoLedger(t *testing.T) {
 					validitySlotState{},
 					tx,
 					nil,
-					false, // Alonzo era: pre-Conway, closed upper-only bound
+					false,
 				)
 				require.NoError(t, err)
 				requireValidityRange(
@@ -149,7 +141,7 @@ func TestValidityRangeMatchesCardanoLedger(t *testing.T) {
 					validitySlotState{},
 					tx,
 					nil,
-					false, // Babbage era: pre-Conway, closed upper-only bound
+					false,
 				)
 				require.NoError(t, err)
 				requireValidityRange(

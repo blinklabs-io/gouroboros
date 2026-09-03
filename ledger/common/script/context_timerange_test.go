@@ -56,34 +56,19 @@ func wholeRange(lower, upper data.PlutusData) data.PlutusData {
 	return data.NewConstr(0, lower, upper)
 }
 
-// TestTimeRangeToPlutusDataUpperBoundEraDependent pins cardano-ledger's
-// ERA-DEPENDENT encoding of a finite validity-interval upper bound
-// (invalidHereafter):
-//
-//   - Conway and later (strictUpperBound == true): the upper bound is EXCLUSIVE
-//     in every case (Conway.transValidityInterval / cardano-ledger#3043).
-//   - Alonzo/Babbage (strictUpperBound == false): an upper-only interval uses
-//     PV1.to, a CLOSED/INCLUSIVE upper bound; a two-sided interval already uses
-//     strictUpperBound (EXCLUSIVE).
-//
-// The bug that motivated this test: gouroboros previously emitted
-// `!lowerBoundPresent` for every era, giving Conway-era TTL-only transactions
-// an INCLUSIVE upper bound and mis-computing script execution units.
-func TestTimeRangeToPlutusDataUpperBoundEraDependent(t *testing.T) {
+// TestTimeRangeToPlutusDataUpperBound pins cardano-ledger's strictUpperBound
+// encoding: every finite upper bound is exclusive, including TTL-only ranges.
+func TestTimeRangeToPlutusDataUpperBound(t *testing.T) {
 	tests := []struct {
 		name string
 		tr   TimeRange
 		want data.PlutusData
 	}{
-		// --- Conway and later: upper bound always EXCLUSIVE ---
 		{
-			// invalidHereafter set, no invalidBefore, Conway+. This is
-			// the case the bug affected. Upper must be EXCLUSIVE.
-			name: "conway ttl only (upper present, lower absent)",
+			name: "ttl only (upper present, lower absent)",
 			tr: TimeRange{
 				upperBound:        1000,
 				upperBoundPresent: true,
-				strictUpperBound:  true,
 			},
 			want: wholeRange(
 				infBound(false),          // NegInf
@@ -97,41 +82,30 @@ func TestTimeRangeToPlutusDataUpperBoundEraDependent(t *testing.T) {
 				upperBound:        1000,
 				lowerBoundPresent: true,
 				upperBoundPresent: true,
-				strictUpperBound:  true,
 			},
 			want: wholeRange(
 				finiteBound(500, true),   // Finite 500, INCLUSIVE
 				finiteBound(1000, false), // Finite 1000, EXCLUSIVE
 			),
 		},
-		// --- Alonzo/Babbage: upper-only is INCLUSIVE, two-sided EXCLUSIVE ---
 		{
-			// invalidHereafter set, no invalidBefore, pre-Conway. Upper
-			// must be INCLUSIVE (PV1.to). A version/language-only gate
-			// that keyed off "V1/V2" would get this right but would then
-			// wrongly apply it to Conway-era V1/V2 as well — hence the
-			// gate is on the ERA, not the Plutus version.
-			name: "preconway ttl only (upper present, lower absent)",
+			name: "ttl only remains exclusive",
 			tr: TimeRange{
 				upperBound:        1000,
 				upperBoundPresent: true,
-				strictUpperBound:  false,
 			},
 			want: wholeRange(
-				infBound(false),         // NegInf
-				finiteBound(1000, true), // Finite 1000, INCLUSIVE
+				infBound(false),          // NegInf
+				finiteBound(1000, false), // Finite 1000, EXCLUSIVE
 			),
 		},
 		{
-			// Two-sided interval is EXCLUSIVE-upper even pre-Conway
-			// (transVITime uses strictUpperBound when both bounds exist).
-			name: "preconway both bounds present",
+			name: "two-sided remains exclusive",
 			tr: TimeRange{
 				lowerBound:        500,
 				upperBound:        1000,
 				lowerBoundPresent: true,
 				upperBoundPresent: true,
-				strictUpperBound:  false,
 			},
 			want: wholeRange(
 				finiteBound(500, true),   // Finite 500, INCLUSIVE
@@ -144,7 +118,6 @@ func TestTimeRangeToPlutusDataUpperBoundEraDependent(t *testing.T) {
 			tr: TimeRange{
 				lowerBound:        500,
 				lowerBoundPresent: true,
-				strictUpperBound:  true,
 			},
 			want: wholeRange(finiteBound(500, true), infBound(true)),
 		},
@@ -153,18 +126,17 @@ func TestTimeRangeToPlutusDataUpperBoundEraDependent(t *testing.T) {
 			tr: TimeRange{
 				lowerBound:        500,
 				lowerBoundPresent: true,
-				strictUpperBound:  false,
 			},
 			want: wholeRange(finiteBound(500, true), infBound(true)),
 		},
 		{
 			name: "unbounded - conway",
-			tr:   TimeRange{strictUpperBound: true},
+			tr:   TimeRange{},
 			want: wholeRange(infBound(false), infBound(true)),
 		},
 		{
 			name: "unbounded - preconway",
-			tr:   TimeRange{strictUpperBound: false},
+			tr:   TimeRange{},
 			want: wholeRange(infBound(false), infBound(true)),
 		},
 	}
