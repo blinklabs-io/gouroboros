@@ -56,8 +56,7 @@ func wholeRange(lower, upper data.PlutusData) data.PlutusData {
 	return data.NewConstr(0, lower, upper)
 }
 
-// TestTimeRangeToPlutusDataUpperBound pins cardano-ledger's strictUpperBound
-// encoding: every finite upper bound is exclusive, including TTL-only ranges.
+// TestTimeRangeToPlutusDataUpperBound pins era-dependent upper-bound encoding.
 func TestTimeRangeToPlutusDataUpperBound(t *testing.T) {
 	tests := []struct {
 		name string
@@ -65,14 +64,14 @@ func TestTimeRangeToPlutusDataUpperBound(t *testing.T) {
 		want data.PlutusData
 	}{
 		{
-			name: "ttl only (upper present, lower absent)",
+			name: "pre-Conway TTL only is inclusive",
 			tr: TimeRange{
 				upperBound:        1000,
 				upperBoundPresent: true,
 			},
 			want: wholeRange(
-				infBound(false),          // NegInf
-				finiteBound(1000, false), // Finite 1000, EXCLUSIVE
+				infBound(false),         // NegInf
+				finiteBound(1000, true), // Finite 1000, INCLUSIVE
 			),
 		},
 		{
@@ -82,6 +81,7 @@ func TestTimeRangeToPlutusDataUpperBound(t *testing.T) {
 				upperBound:        1000,
 				lowerBoundPresent: true,
 				upperBoundPresent: true,
+				strictUpperBound:  true,
 			},
 			want: wholeRange(
 				finiteBound(500, true),   // Finite 500, INCLUSIVE
@@ -89,10 +89,11 @@ func TestTimeRangeToPlutusDataUpperBound(t *testing.T) {
 			),
 		},
 		{
-			name: "ttl only remains exclusive",
+			name: "Conway TTL only is exclusive",
 			tr: TimeRange{
 				upperBound:        1000,
 				upperBoundPresent: true,
+				strictUpperBound:  true,
 			},
 			want: wholeRange(
 				infBound(false),          // NegInf

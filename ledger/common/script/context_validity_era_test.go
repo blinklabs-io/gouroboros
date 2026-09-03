@@ -72,8 +72,8 @@ type validRangeBuilder func(
 	[]lcommon.Utxo,
 ) (data.PlutusData, error)
 
-// TestValidityRangeEraIdsUnchanged pins the transaction type values used by
-// the shared validity fixtures.
+// TestValidityRangeEraIdsUnchanged pins the era-numbering assumption behind
+// the unexported eraIdConway gate in validityRangeInfo.
 func TestValidityRangeEraIdsUnchanged(t *testing.T) {
 	require.Equal(t, 4, alonzo.TxTypeAlonzo)
 	require.Equal(t, 5, babbage.TxTypeBabbage)
@@ -200,9 +200,12 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 								nil,
 							)
 							require.NoError(t, err)
+							strictUpperBound := build.name == "V3" ||
+								era.name == "Conway" || era.name == "Dijkstra"
 							expected := expectedValidityRange(
 								fixture.StartSlot,
 								fixture.EndSlot,
+								!strictUpperBound,
 							)
 							require.True(
 								t,

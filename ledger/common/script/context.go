@@ -26,6 +26,9 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 )
 
+// eraIdConway is the first era with strict validity upper bounds.
+const eraIdConway = 6
+
 type ScriptContext interface {
 	isScriptContext()
 	ToPlutusData() data.PlutusData
@@ -194,8 +197,7 @@ func (t TxInfoV1) ToPlutusData() data.PlutusData {
 	)
 }
 
-// NewTxInfoV1FromTransaction builds a Plutus V1 TxInfo. The upper validity
-// bound is always exclusive, matching cardano-ledger's strictUpperBound.
+// NewTxInfoV1FromTransaction builds a Plutus V1 TxInfo.
 func NewTxInfoV1FromTransaction(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
@@ -250,8 +252,7 @@ func NewTxInfoV1FromTransaction(
 // StrictValidityUpperBoundForTransaction reports whether the transaction's
 // era uses an exclusive upper validity bound in Plutus script contexts.
 func StrictValidityUpperBoundForTransaction(tx lcommon.Transaction) bool {
-	_ = tx
-	return true
+	return tx.Type() >= eraIdConway
 }
 
 type TxInfoV2 struct {
@@ -317,8 +318,7 @@ func (t TxInfoV2) ToPlutusData() data.PlutusData {
 	)
 }
 
-// NewTxInfoV2FromTransaction builds a Plutus V2 TxInfo. The upper validity
-// bound is always exclusive, matching cardano-ledger's strictUpperBound.
+// NewTxInfoV2FromTransaction builds a Plutus V2 TxInfo.
 func NewTxInfoV2FromTransaction(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
@@ -488,6 +488,7 @@ type TimeRange struct {
 	upperBound        uint64
 	lowerBoundPresent bool
 	upperBoundPresent bool
+	strictUpperBound  bool
 }
 
 func (t TimeRange) ToPlutusData() data.PlutusData {
@@ -533,8 +534,7 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 			t.upperBound,
 			t.upperBoundPresent,
 			false,
-			// cardano-ledger's strictUpperBound is always exclusive.
-			false,
+			!t.lowerBoundPresent && !t.strictUpperBound,
 		),
 	)
 }
@@ -612,9 +612,10 @@ func sortedRedeemerKeys(
 func validityRangeInfo(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
-	_ bool,
+	strictValidityUpperBound bool,
 ) (TimeRange, error) {
 	var ret TimeRange
+	ret.strictUpperBound = strictValidityUpperBound
 	startSlot := tx.ValidityIntervalStart()
 	endSlot, upperBoundPresent := lcommon.TransactionValidityIntervalUpperBound(
 		tx,

@@ -72,6 +72,7 @@ func boolTag(value bool) uint64 {
 func expectedValidityRange(
 	start *uint64,
 	end *uint64,
+	upperClosed ...bool,
 ) data.PlutusData {
 	startPresent := start != nil
 	endPresent := end != nil
@@ -83,6 +84,10 @@ func expectedValidityRange(
 	if endPresent {
 		endValue = *end
 	}
+	closed := false
+	if len(upperClosed) > 0 {
+		closed = !startPresent && upperClosed[0]
+	}
 	return data.NewConstr(
 		0,
 		validityBound(startPresent, startValue, true, true),
@@ -90,7 +95,7 @@ func expectedValidityRange(
 			endPresent,
 			endValue,
 			false,
-			false,
+			closed,
 		),
 	)
 }
@@ -101,7 +106,7 @@ func requireValidityRange(
 	actual data.PlutusData,
 ) {
 	t.Helper()
-	expected := expectedValidityRange(fixture.StartSlot, fixture.EndSlot)
+	expected := expectedValidityRange(fixture.StartSlot, fixture.EndSlot, true)
 	require.True(
 		t,
 		expected.Equal(actual),
