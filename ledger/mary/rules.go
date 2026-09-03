@@ -589,3 +589,14 @@ func UtxoValidatePoolCertificates(
 ) error {
 	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
 }
+
+// UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards
+// certificate is authorized by a quorum of the current genesis delegates
+func UtxoValidateMIRGenesisQuorum(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateMIRGenesisQuorum(tx, slot, ls, pp)
+}

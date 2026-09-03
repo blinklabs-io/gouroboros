@@ -709,19 +709,14 @@ func withdrawalsInfo(
 			},
 		)
 	}
-	// Sort by address bytes
-	// Note: Bytes() errors are ignored here because Address.Bytes() only fails
-	// for malformed Byron addresses during CBOR encoding. In practice, addresses
-	// in valid transactions will always serialize successfully. If both fail,
-	// bytes.Compare(nil, nil) returns 0, preserving original order for that pair.
-	slices.SortFunc(
-		ret,
-		func(a, b KeyValuePair[*lcommon.Address, *big.Int]) int {
-			aBytes, _ := a.Key.Bytes()
-			bBytes, _ := b.Key.Bytes()
-			return bytes.Compare(aBytes, bBytes)
-		},
-	)
+	sorted := sortWithdrawalAddresses(withdrawals)
+	ret = ret[:0]
+	for _, addr := range sorted {
+		ret = append(ret, KeyValuePair[*lcommon.Address, *big.Int]{
+			Key:   addr,
+			Value: withdrawals[addr],
+		})
+	}
 	return ret
 }
 
