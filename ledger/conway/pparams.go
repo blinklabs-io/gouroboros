@@ -845,3 +845,13 @@ func UpgradePParams(
 	}
 	return ret
 }
+
+// MinPoolCostValue returns the minPoolCost protocol parameter.
+func (p *ConwayProtocolParameters) MinPoolCostValue() uint64 {
+	return p.MinPoolCost
+}
+
+// PoolRetirementMaxEpoch returns the eMax protocol parameter.
+func (p *ConwayProtocolParameters) PoolRetirementMaxEpoch() uint64 {
+	return uint64(p.MaxEpoch)
+}

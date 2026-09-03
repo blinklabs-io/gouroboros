@@ -102,6 +102,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Id:        common.UtxoValidationRuleWithdrawals,
 		Validator: UtxoValidateWithdrawals,
 	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
+	},
 }
 
 // UtxoValidationRuleDescriptors returns the authoritative ordered rule
@@ -569,6 +573,21 @@ func UtxoValidateWithdrawals(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/mary/impl/src/Cardano/Ledger/Mary/Rules/Pool.hs declares
+// only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
 }
 
 // UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards

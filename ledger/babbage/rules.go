@@ -169,6 +169,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Id:        common.UtxoValidationRuleWithdrawals,
 		Validator: UtxoValidateWithdrawals,
 	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
+	},
 }
 
 // UtxoValidationRuleDescriptors returns the authoritative ordered rule
@@ -204,7 +208,9 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
 		UtxoValidatePlutusScripts,
 	),
-	common.Phase2ValidUtxoValidationRules(UtxoValidateDelegation, UtxoValidateWithdrawals),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidatePoolCertificates,
+	),
 )
 
 func UtxoValidateOutsideValidityIntervalUtxo(
@@ -1433,6 +1439,21 @@ func UtxoValidateMalformedReferenceScripts(
 		return errors.New("pparams are not expected type")
 	}
 	return common.ValidatePlutusScriptsWellFormed(tx, params.ProtocolMajor)
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/babbage/impl/src/Cardano/Ledger/Babbage/Rules/Pool.hs
+// declares only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
 }
 
 // UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards

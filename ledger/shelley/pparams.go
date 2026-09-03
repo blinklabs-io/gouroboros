@@ -43,6 +43,7 @@ type ShelleyProtocolParameters struct {
 	ProtocolMajor      uint
 	ProtocolMinor      uint
 	MinUtxoValue       uint
+	MinPoolCost        uint64
 }
 
 // KeyDepositAmount returns the key deposit as a *big.Int
@@ -112,6 +113,9 @@ func (p *ShelleyProtocolParameters) Update(
 	if paramUpdate.MinUtxoValue != nil {
 		p.MinUtxoValue = *paramUpdate.MinUtxoValue
 	}
+	if paramUpdate.MinPoolCost != nil {
+		p.MinPoolCost = *paramUpdate.MinPoolCost
+	}
 }
 
 func (p *ShelleyProtocolParameters) UpdateFromGenesis(
@@ -148,6 +152,7 @@ func (p *ShelleyProtocolParameters) UpdateFromGenesis(
 	p.ProtocolMajor = genesisParams.ProtocolVersion.Major
 	p.ProtocolMinor = genesisParams.ProtocolVersion.Minor
 	p.MinUtxoValue = genesisParams.MinUtxoValue
+	p.MinPoolCost = uint64(genesisParams.MinPoolCost)
 	return nil
 }
 
@@ -169,6 +174,7 @@ type ShelleyProtocolParameterUpdate struct {
 	ExtraEntropy       *common.Nonce                             `cbor:"13,keyasint"`
 	ProtocolVersion    *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
 	MinUtxoValue       *uint                                     `cbor:"15,keyasint"`
+	MinPoolCost        *uint64                                   `cbor:"16,keyasint"`
 }
 
 func (ShelleyProtocolParameterUpdate) IsProtocolParameterUpdate() {}
@@ -234,10 +240,31 @@ func (p *ShelleyProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 			Major: uint32(p.ProtocolMajor),
 			Minor: uint32(p.ProtocolMinor),
 		},
+		MinPoolCost: common.ToUtxorpcBigInt(p.MinPoolCost),
 	}, nil
 }
 
 func UpgradePParams(prevPParams any) ShelleyProtocolParameters {
 	// No upgrade from Byron
 	return ShelleyProtocolParameters{}
+}
+
+// ProtocolMajorVersion returns the active major protocol version.
+func (p *ShelleyProtocolParameters) ProtocolMajorVersion() uint {
+	return p.ProtocolMajor
+}
+
+// MinPoolCostValue returns the minPoolCost protocol parameter.
+//
+// minPoolCost is a Shelley-era protocol parameter: ppMinPoolCost, listed in
+// shelleyPParams and carrying PParamUpdate key 16, in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/PParams.hs. It is read by
+// poolTransition's StakePoolCostTooLowPOOL check.
+func (p *ShelleyProtocolParameters) MinPoolCostValue() uint64 {
+	return p.MinPoolCost
+}
+
+// PoolRetirementMaxEpoch returns the eMax protocol parameter.
+func (p *ShelleyProtocolParameters) PoolRetirementMaxEpoch() uint64 {
+	return uint64(p.MaxEpoch)
 }

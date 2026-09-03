@@ -24,6 +24,7 @@ package shelley
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"unicode/utf8"
 
@@ -101,6 +102,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleWithdrawals,
 		Validator: UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
 	},
 }
 
@@ -791,6 +796,285 @@ func UtxoValidateWithdrawals(
 				Provided:      provided,
 				Balance:       *balance,
 			}
+		}
+	}
+	return nil
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule to every stake
+// pool certificate in a transaction, in certificate order.
+//
+// Reference: poolTransition in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs. Every later era
+// re-exports that transition unchanged: Rules/Pool.hs in eras/allegra,
+// eras/mary, eras/alonzo, eras/babbage, eras/conway and eras/dijkstra each
+// declare only the EraRuleFailure and EraRuleEvent instances and import
+// Cardano.Ledger.Shelley.Rules. So every era from Shelley onwards runs the
+// same predicates and differs only in the protocol version that gates them.
+//
+// Predicates enforced here, all from that file:
+//
+//   - StakePoolCostTooLowPOOL: a registration's cost must be at least
+//     minPoolCost. Unconditional in every era.
+//   - WrongNetworkPOOL: a registration's reward account must be on the
+//     ledger's network. Gated on major protocol version > 4
+//     (hardforkAlonzoValidatePoolAccountAddressNetID).
+//   - VRFKeyHashAlreadyRegistered: a registration may not claim a VRF key hash
+//     another pool holds. Gated on major protocol version > 10
+//     (hardforkConwayDisallowDuplicatedVRFKeys).
+//   - StakePoolNotRegisteredOnKeyPOOL: a retirement must name a registered
+//     pool.
+//   - StakePoolRetirementWrongEpochPOOL: a retirement epoch e must satisfy
+//     cEpoch < e <= cEpoch + eMax.
+//
+// The reference rule's remaining predicate, PoolMedataHashTooBig (a metadata
+// hash longer than 32 bytes, gated on SoftForks.restrictPoolMetadataHash), is
+// not reimplemented because it cannot be reached: PoolMetadata.Hash is a fixed
+// 32-byte PoolMetadataHash whose UnmarshalCBOR rejects any other length, so a
+// certificate carrying an oversized hash never decodes. See
+// TestPoolMetadataHashLengthIsFixed in ledger/common. That makes this package
+// stricter than the reference for protocol versions at or below 4.0, which
+// accepted oversized hashes.
+//
+// The registration and re-registration state updates poolTransition performs
+// (psStakePools, psFutureStakePoolParams, psRetiring, psVRFKeyHashes) are
+// ledger-state transitions rather than predicates, and belong to the consumer
+// applying the certificate.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// A phase-2-invalid transaction never reaches the POOL rule. From
+	// Alonzo onwards ledgerTransition runs DELEGS, and so DELPL and POOL,
+	// only for a phase-2-valid transaction:
+	//
+	//	certState' <-
+	//	  if tx ^. isPhase2ValidTxL == Phase2Valid
+	//	    then ... trans @(EraRule "DELEGS" era) ...
+	//	    else pure certState
+	//
+	// in eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Rules/Ledger.hs. Its
+	// certificates are not applied, so none of the predicates below may
+	// reject it. IsValid reports true in the eras before the phase-2
+	// concept exists, so this is inert for Shelley through Mary.
+	if !tx.IsValid() {
+		return nil
+	}
+	certs := tx.Certificates()
+	if !hasPoolCertificate(certs) {
+		// Leave transactions that carry no pool certificate untouched,
+		// including their protocol parameters, so the rule cannot reject
+		// anything the POOL transition would never have seen.
+		return nil
+	}
+	poolPparams, ok := pp.(common.PoolRuleProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	protocolMajor := poolPparams.ProtocolMajorVersion()
+	checkNetworkId := common.PoolAccountNetworkIdValidated(protocolMajor)
+	checkVrfKeys := common.DuplicateVrfKeysDisallowed(protocolMajor)
+	minPoolCost := poolPparams.MinPoolCostValue()
+	networkId := ls.NetworkId()
+
+	// Certificates are applied in order, so a pool registered by an earlier
+	// certificate in the same transaction is registered for the purposes of
+	// a later one. A retirement certificate does not undo that: the
+	// reference rule only adds the pool to psRetiring and leaves it in
+	// psStakePools until POOLREAP runs at the epoch boundary.
+	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
+	// VRF key hashes claimed by earlier registrations in this transaction,
+	// mirroring the psVRFKeyHashes insert that poolTransition performs.
+	inTxVrfKeys := make(map[common.VrfKeyHash]common.PoolKeyHash)
+
+	for _, cert := range certs {
+		switch c := cert.(type) {
+		case *common.PoolRegistrationCertificate:
+			if err := validatePoolRegistration(
+				c,
+				ls,
+				networkId,
+				minPoolCost,
+				checkNetworkId,
+				checkVrfKeys,
+				inTxVrfKeys,
+			); err != nil {
+				return err
+			}
+			inTxPoolRegs[c.Operator] = true
+			if checkVrfKeys {
+				inTxVrfKeys[c.VrfKeyHash] = c.Operator
+			}
+		case *common.PoolRetirementCertificate:
+			if err := validatePoolRetirement(
+				c,
+				slot,
+				ls,
+				poolPparams,
+				inTxPoolRegs,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// hasPoolCertificate reports whether any certificate is a pool registration or
+// pool retirement, the two signals the POOL rule handles.
+func hasPoolCertificate(certs []common.Certificate) bool {
+	for _, cert := range certs {
+		switch cert.(type) {
+		case *common.PoolRegistrationCertificate,
+			*common.PoolRetirementCertificate:
+			return true
+		}
+	}
+	return false
+}
+
+// validatePoolRegistration applies the RegPool branch of poolTransition.
+func validatePoolRegistration(
+	cert *common.PoolRegistrationCertificate,
+	ls common.LedgerState,
+	networkId uint,
+	minPoolCost uint64,
+	checkNetworkId bool,
+	checkVrfKeys bool,
+	inTxVrfKeys map[common.VrfKeyHash]common.PoolKeyHash,
+) error {
+	// WrongNetworkPOOL: actualNetID == suppliedNetID.
+	//
+	// The supplied value is the network id in the reward account's address
+	// header byte. When the certificate was not decoded from a wire
+	// reward_account carrying that header there is nothing to compare, so
+	// the check is skipped rather than assuming a network.
+	if checkNetworkId {
+		if suppliedNetworkId, known := cert.RewardAccountNetworkId(); known &&
+			suppliedNetworkId != networkId {
+			return WrongNetworkPoolError{
+				PoolKeyHash: cert.Operator,
+				Supplied:    suppliedNetworkId,
+				Expected:    networkId,
+			}
+		}
+	}
+
+	// StakePoolCostTooLowPOOL: sppCost >= minPoolCost.
+	if cert.Cost < minPoolCost {
+		return StakePoolCostTooLowError{
+			PoolKeyHash: cert.Operator,
+			Supplied:    cert.Cost,
+			Min:         minPoolCost,
+		}
+	}
+
+	if !checkVrfKeys {
+		return nil
+	}
+	// VRFKeyHashAlreadyRegistered. The reference splits on whether the pool
+	// is already in psStakePools: a new registration requires
+	// Map.notMember sppVrf psVRFKeyHashes, while a re-registration also
+	// accepts sppVrf == the pool's own registered VRF key hash. Only
+	// registrations put entries into psVRFKeyHashes, so both branches
+	// reduce to the same predicate here: the VRF key hash must be unused,
+	// or held by this same pool.
+	//
+	// One narrow case is not reproduced. psVRFKeyHashes also retains the
+	// VRF key hash of an earlier same-epoch re-registration held in
+	// psFutureStakePoolParams, which the reference rejects because it is
+	// neither absent nor equal to the pool's current VRF key hash. This
+	// package has no future-pool-parameter state, so a pool reverting to
+	// such a key hash is accepted. That direction cannot reject a valid
+	// registration.
+	if owner, claimed := inTxVrfKeys[cert.VrfKeyHash]; claimed &&
+		owner != cert.Operator {
+		return VrfKeyHashAlreadyRegisteredError{
+			PoolKeyHash:  cert.Operator,
+			VrfKeyHash:   cert.VrfKeyHash,
+			RegisteredBy: owner,
+		}
+	}
+	inUse, owningPool, err := ls.IsVrfKeyInUse(cert.VrfKeyHash)
+	if err != nil {
+		return err
+	}
+	if inUse && owningPool == cert.Operator {
+		current, _, err := ls.PoolCurrentState(cert.Operator)
+		if err != nil {
+			return err
+		}
+		if current == nil || current.VrfKeyHash != cert.VrfKeyHash {
+			return VrfKeyHashAlreadyRegisteredError{
+				PoolKeyHash:  cert.Operator,
+				VrfKeyHash:   cert.VrfKeyHash,
+				RegisteredBy: owningPool,
+			}
+		}
+	}
+	if inUse && owningPool != cert.Operator {
+		return VrfKeyHashAlreadyRegisteredError{
+			PoolKeyHash:  cert.Operator,
+			VrfKeyHash:   cert.VrfKeyHash,
+			RegisteredBy: owningPool,
+		}
+	}
+	return nil
+}
+
+// validatePoolRetirement applies the RetirePool branch of poolTransition.
+func validatePoolRetirement(
+	cert *common.PoolRetirementCertificate,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.PoolRuleProtocolParameters,
+	inTxPoolRegs map[common.PoolKeyHash]bool,
+) error {
+	// StakePoolNotRegisteredOnKeyPOOL: Map.member sppId psStakePools.
+	if !ls.IsPoolRegistered(cert.PoolKeyHash) &&
+		!inTxPoolRegs[cert.PoolKeyHash] {
+		return StakePoolNotRegisteredOnKeyError{
+			PoolKeyHash: cert.PoolKeyHash,
+		}
+	}
+	// StakePoolRetirementWrongEpochPOOL: cEpoch < e && e <= cEpoch + eMax.
+	//
+	// The current epoch is required to evaluate the retirement bound.
+	epochState, ok := ls.(common.EpochState)
+	if !ok {
+		// Epoch zero is invalid for every possible current epoch. For any
+		// other epoch, the optional capability's degrading contract requires
+		// us to skip only the bound that cannot be evaluated here.
+		if cert.Epoch == 0 {
+			return StakePoolRetirementWrongEpochError{
+				PoolKeyHash:  cert.PoolKeyHash,
+				Supplied:     cert.Epoch,
+				CurrentEpoch: 0,
+				LimitEpoch:   0,
+			}
+		}
+		return nil
+	}
+	currentEpoch, err := epochState.EpochForSlot(slot)
+	if err != nil {
+		return err
+	}
+	// addEpochInterval in cardano-base adds a Word32 interval to a Word64
+	// epoch and cannot overflow for real values. eMax is a uint here, so
+	// saturate instead of wrapping: a saturated limit leaves the upper
+	// bound vacuous rather than rejecting a valid retirement.
+	limitEpoch := currentEpoch + pp.PoolRetirementMaxEpoch()
+	if limitEpoch < currentEpoch {
+		limitEpoch = math.MaxUint64
+	}
+	if cert.Epoch <= currentEpoch || cert.Epoch > limitEpoch {
+		return StakePoolRetirementWrongEpochError{
+			PoolKeyHash:  cert.PoolKeyHash,
+			Supplied:     cert.Epoch,
+			CurrentEpoch: currentEpoch,
+			LimitEpoch:   limitEpoch,
 		}
 	}
 	return nil

@@ -410,3 +410,18 @@ func UpgradePParams(
 		MinPoolCost:        prevPParams.MinPoolCost,
 	}
 }
+
+// ProtocolMajorVersion returns the active major protocol version.
+func (p *AlonzoProtocolParameters) ProtocolMajorVersion() uint {
+	return p.ProtocolMajor
+}
+
+// MinPoolCostValue returns the minPoolCost protocol parameter.
+func (p *AlonzoProtocolParameters) MinPoolCostValue() uint64 {
+	return p.MinPoolCost
+}
+
+// PoolRetirementMaxEpoch returns the eMax protocol parameter.
+func (p *AlonzoProtocolParameters) PoolRetirementMaxEpoch() uint64 {
+	return uint64(p.MaxEpoch)
+}

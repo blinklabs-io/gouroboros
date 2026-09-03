@@ -276,6 +276,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Id:        common.UtxoValidationRuleRefScriptSizePerTx,
 		Validator: UtxoValidateRefScriptSizePerTx,
 	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: conway.UtxoValidatePoolCertificates,
+	},
 }
 
 // UtxoValidationRuleDescriptors returns the authoritative ordered rule

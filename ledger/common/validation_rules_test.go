@@ -59,6 +59,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleMaxTxSize,
 				common.UtxoValidationRuleDelegation,
 				common.UtxoValidationRuleWithdrawals,
+				common.UtxoValidationRulePoolCertificates,
 			},
 		},
 		{
@@ -84,6 +85,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleNativeScripts,
 				common.UtxoValidationRuleDelegation,
 				common.UtxoValidationRuleWithdrawals,
+				common.UtxoValidationRulePoolCertificates,
 			},
 		},
 		{
@@ -110,6 +112,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleNativeScripts,
 				common.UtxoValidationRuleDelegation,
 				common.UtxoValidationRuleWithdrawals,
+				common.UtxoValidationRulePoolCertificates,
 			},
 		},
 		{
@@ -147,6 +150,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRulePlutusScripts,
 				common.UtxoValidationRuleDelegation,
 				common.UtxoValidationRuleWithdrawals,
+				common.UtxoValidationRulePoolCertificates,
 			},
 		},
 		{
@@ -190,6 +194,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRulePlutusScripts,
 				common.UtxoValidationRuleDelegation,
 				common.UtxoValidationRuleWithdrawals,
+				common.UtxoValidationRulePoolCertificates,
 			},
 		},
 		{
@@ -256,6 +261,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleStakePoolVotingRestrictions,
 				common.UtxoValidationRuleCCVotingRestrictions,
 				common.UtxoValidationRuleRefScriptSizePerTx,
+				common.UtxoValidationRulePoolCertificates,
 			},
 		},
 		{
@@ -322,6 +328,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleStakePoolVotingRestrictions,
 				common.UtxoValidationRuleCCVotingRestrictions,
 				common.UtxoValidationRuleRefScriptSizePerTx,
+				common.UtxoValidationRulePoolCertificates,
 			},
 		},
 	}

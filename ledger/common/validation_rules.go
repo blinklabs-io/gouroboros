@@ -82,6 +82,7 @@ const (
 	UtxoValidationRuleCCVotingRestrictions         UtxoValidationRuleId = "constitutional-committee-voting-restrictions"
 	UtxoValidationRuleRefScriptSizePerTx           UtxoValidationRuleId = "reference-script-size-per-transaction"
 	UtxoValidationRuleRequiredRedeemers            UtxoValidationRuleId = "required-redeemers"
+	UtxoValidationRulePoolCertificates             UtxoValidationRuleId = "pool-certificates"
 )
 
 // UtxoValidationRuleDescriptor pairs a stable semantic rule identifier with

@@ -247,3 +247,18 @@ func UpgradePParams(
 		MinPoolCost:        340000000, // initial MinPoolCost at Mary on mainnet
 	}
 }
+
+// ProtocolMajorVersion returns the active major protocol version.
+func (p *MaryProtocolParameters) ProtocolMajorVersion() uint {
+	return p.ProtocolMajor
+}
+
+// MinPoolCostValue returns the minPoolCost protocol parameter.
+func (p *MaryProtocolParameters) MinPoolCostValue() uint64 {
+	return p.MinPoolCost
+}
+
+// PoolRetirementMaxEpoch returns the eMax protocol parameter.
+func (p *MaryProtocolParameters) PoolRetirementMaxEpoch() uint64 {
+	return uint64(p.MaxEpoch)
+}

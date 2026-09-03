@@ -271,6 +271,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Id:        common.UtxoValidationRuleRefScriptSizePerTx,
 		Validator: UtxoValidateRefScriptSizePerTx,
 	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
+	},
 }
 
 // UtxoValidationRuleDescriptors returns the authoritative ordered rule
@@ -323,6 +327,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateUnknownGovActionIds, UtxoValidateVotingOnExpiredGovAction,
 		UtxoValidateBootstrapVotingRestrictions, UtxoValidateStakePoolVotingRestrictions,
 		UtxoValidateCCVotingRestrictions, UtxoValidateRefScriptSizePerTx,
+		UtxoValidatePoolCertificates,
 	),
 )
 
@@ -4388,4 +4393,19 @@ func UtxoValidateMalformedReferenceScripts(
 		tx,
 		params.ProtocolVersion.Major,
 	)
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Pool.hs declares
+// only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
 }
