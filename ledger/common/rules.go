@@ -1158,20 +1158,20 @@ func ValidateExtraneousRedeemers(tx Transaction) error {
 
 	// Check each redeemer
 	for redeemerKey := range redeemers.Iter() {
-		var maxIndex int
+		var maxIndex uint64
 		switch redeemerKey.Tag {
 		case RedeemerTagSpend:
-			maxIndex = inputCount
+			maxIndex = countToUint64(inputCount)
 		case RedeemerTagMint:
-			maxIndex = mintPolicyCount
+			maxIndex = countToUint64(mintPolicyCount)
 		case RedeemerTagCert:
-			maxIndex = certCount
+			maxIndex = countToUint64(certCount)
 		case RedeemerTagReward:
-			maxIndex = withdrawalCount
+			maxIndex = countToUint64(withdrawalCount)
 		case RedeemerTagVoting:
-			maxIndex = voterCount
+			maxIndex = countToUint64(voterCount)
 		case RedeemerTagProposing:
-			maxIndex = proposalCount
+			maxIndex = countToUint64(proposalCount)
 		case RedeemerTagGuarding:
 			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
 		default:
@@ -1180,12 +1180,21 @@ func ValidateExtraneousRedeemers(tx Transaction) error {
 			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
 		}
 
-		if int(redeemerKey.Index) >= maxIndex {
+		if uint64(redeemerKey.Index) >= maxIndex {
 			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
 		}
 	}
 
 	return nil
+}
+
+// countToUint64 converts a collection length for comparison with a wire-width
+// index. Collection lengths are non-negative and cannot exceed uint64.
+func countToUint64(count int) uint64 {
+	if count <= 0 {
+		return 0
+	}
+	return uint64(count) //nolint:gosec // count is derived from len
 }
 
 // ValidateRedeemerAndScriptWitnesses performs lightweight checks between redeemers and Plutus scripts.

@@ -1822,6 +1822,12 @@ func decodeInvalidTransactions(raw cbor.RawMessage) ([]uint, error) {
 	items := txIndices.Items()
 	ret := make([]uint, len(items))
 	for i, idx := range items {
+		if uint64(uint(idx)) != idx {
+			return nil, fmt.Errorf(
+				"decode Dijkstra invalid transactions: index %d overflows platform uint",
+				idx,
+			)
+		}
 		ret[i] = uint(idx)
 	}
 	return ret, nil

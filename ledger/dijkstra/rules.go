@@ -1858,7 +1858,7 @@ func dijkstraGuardingPurpose(
 		return script.ScriptPurposeGuarding{}, false
 	}
 	guards := guardingTx.GuardingCredentials()
-	if int(redeemerKey.Index) >= len(guards) {
+	if uint64(redeemerKey.Index) >= uint64(len(guards)) {
 		return script.ScriptPurposeGuarding{}, false
 	}
 	guard := guards[redeemerKey.Index]
@@ -2914,23 +2914,25 @@ func validateDijkstraExtraneousRedeemers(
 		return nil
 	}
 
-	inputCount := len(tx.Inputs())
-	certCount := len(tx.Certificates())
-	withdrawalCount := len(tx.Withdrawals())
-	proposalCount := len(tx.ProposalProcedures())
+	// Collection lengths are kept at wire width so that a redeemer index near
+	// the top of its uint32 range is compared, not narrowed to a platform int.
+	inputCount := uint64(len(tx.Inputs()))
+	certCount := uint64(len(tx.Certificates()))
+	withdrawalCount := uint64(len(tx.Withdrawals()))
+	proposalCount := uint64(len(tx.ProposalProcedures()))
 
-	mintPolicyCount := 0
+	mintPolicyCount := uint64(0)
 	if mint := tx.AssetMint(); mint != nil {
-		mintPolicyCount = len(mint.Policies())
+		mintPolicyCount = uint64(len(mint.Policies()))
 	}
 
-	voterCount := 0
+	voterCount := uint64(0)
 	if votingProcs := tx.VotingProcedures(); votingProcs != nil {
-		voterCount = len(votingProcs)
+		voterCount = uint64(len(votingProcs))
 	}
 
 	for redeemerKey := range redeemers.Iter() {
-		var maxIndex int
+		var maxIndex uint64
 		switch redeemerKey.Tag {
 		case common.RedeemerTagSpend:
 			maxIndex = inputCount
@@ -2958,7 +2960,7 @@ func validateDijkstraExtraneousRedeemers(
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 
-		if int(redeemerKey.Index) >= maxIndex {
+		if uint64(redeemerKey.Index) >= maxIndex {
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 	}
@@ -3009,7 +3011,7 @@ func dijkstraGuardCredentialAt(
 	if guards == nil {
 		return common.Credential{}, false
 	}
-	if int(index) >= len(guards.Credentials) {
+	if uint64(index) >= uint64(len(guards.Credentials)) {
 		return common.Credential{}, false
 	}
 	return guards.Credentials[index], true

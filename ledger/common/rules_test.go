@@ -1609,6 +1609,30 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
 	})
 
+	t.Run("large wire index is out of range", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: math.MaxUint32}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+	})
+
+	t.Run("zero index is out of range for an empty collection", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+	})
+
 	t.Run("proposing index out of range", func(t *testing.T) {
 		tx := &conway.ConwayTransaction{Body: baseBody()}
 		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{

@@ -329,7 +329,7 @@ func scriptPurposeBuilder(
 	) (ScriptPurpose, error) {
 		switch redeemerKey.Tag {
 		case lcommon.RedeemerTagSpend:
-			if int(redeemerKey.Index) >= len(inputs) {
+			if uint64(redeemerKey.Index) >= uint64(len(inputs)) {
 				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			var datum data.PlutusData
@@ -364,7 +364,7 @@ func scriptPurposeBuilder(
 			}, nil
 		case lcommon.RedeemerTagMint:
 			mintPolicies := mint.Policies()
-			if int(redeemerKey.Index) >= len(mintPolicies) {
+			if uint64(redeemerKey.Index) >= uint64(len(mintPolicies)) {
 				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			slices.SortFunc(
@@ -375,7 +375,7 @@ func scriptPurposeBuilder(
 				PolicyId: mintPolicies[redeemerKey.Index],
 			}, nil
 		case lcommon.RedeemerTagCert:
-			if int(redeemerKey.Index) >= len(certificates) {
+			if uint64(redeemerKey.Index) >= uint64(len(certificates)) {
 				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeCertifying{
@@ -383,7 +383,7 @@ func scriptPurposeBuilder(
 				Certificate: certificates[redeemerKey.Index],
 			}, nil
 		case lcommon.RedeemerTagReward:
-			if int(redeemerKey.Index) >= len(withdrawals) {
+			if uint64(redeemerKey.Index) >= uint64(len(withdrawals)) {
 				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeRewarding{
@@ -393,14 +393,14 @@ func scriptPurposeBuilder(
 				},
 			}, nil
 		case lcommon.RedeemerTagVoting:
-			if int(redeemerKey.Index) >= len(votes) {
+			if uint64(redeemerKey.Index) >= uint64(len(votes)) {
 				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeVoting{
 				Voter: *votes[redeemerKey.Index].Key,
 			}, nil
 		case lcommon.RedeemerTagProposing:
-			if int(redeemerKey.Index) >= len(proposalProcedures) {
+			if uint64(redeemerKey.Index) >= uint64(len(proposalProcedures)) {
 				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeProposing{
@@ -434,7 +434,7 @@ func BuildScriptPurpose(
 ) (ScriptPurpose, error) {
 	switch redeemerKey.Tag {
 	case lcommon.RedeemerTagSpend:
-		if int(redeemerKey.Index) >= len(inputs) {
+		if uint64(redeemerKey.Index) >= uint64(len(inputs)) {
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		tmpInput := inputs[redeemerKey.Index]
@@ -461,7 +461,7 @@ func BuildScriptPurpose(
 		}, nil
 	case lcommon.RedeemerTagMint:
 		policies := mint.Policies()
-		if int(redeemerKey.Index) >= len(policies) {
+		if uint64(redeemerKey.Index) >= uint64(len(policies)) {
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		slices.SortFunc(
@@ -472,7 +472,7 @@ func BuildScriptPurpose(
 			PolicyId: policies[redeemerKey.Index],
 		}, nil
 	case lcommon.RedeemerTagCert:
-		if int(redeemerKey.Index) >= len(certificates) {
+		if uint64(redeemerKey.Index) >= uint64(len(certificates)) {
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		return ScriptPurposeCertifying{
@@ -481,7 +481,7 @@ func BuildScriptPurpose(
 		}, nil
 	case lcommon.RedeemerTagReward:
 		sortedAddrs := sortWithdrawalAddresses(withdrawals)
-		if int(redeemerKey.Index) >= len(sortedAddrs) {
+		if uint64(redeemerKey.Index) >= uint64(len(sortedAddrs)) {
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		addr := sortedAddrs[redeemerKey.Index]
@@ -524,14 +524,14 @@ func BuildScriptPurpose(
 			}
 			return 1
 		})
-		if int(redeemerKey.Index) >= len(sortedVoters) {
+		if uint64(redeemerKey.Index) >= uint64(len(sortedVoters)) {
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		return ScriptPurposeVoting{
 			Voter: *sortedVoters[redeemerKey.Index],
 		}, nil
 	case lcommon.RedeemerTagProposing:
-		if int(redeemerKey.Index) >= len(proposalProcedures) {
+		if uint64(redeemerKey.Index) >= uint64(len(proposalProcedures)) {
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		return ScriptPurposeProposing{
