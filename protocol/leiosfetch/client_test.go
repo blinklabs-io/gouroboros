@@ -142,6 +142,7 @@ func TestClientMessageHandler(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("handler did not route message")
 			}
+			client.blockRequestSlot.release(deliverCh)
 
 			// Confirm the handler returned (and its error expectation) under a
 			// bounded deadline so the helper goroutine cannot dangle.
@@ -184,7 +185,7 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 
 	// A's response arrives: delivered to wA and the slot is freed.
 	msgA := NewMsgBlock([]byte{0xaa, 0xbb})
-	require.True(t, client.blockRequestSlot.deliver(msgA))
+	require.True(t, client.blockRequestSlot.deliver(msgA, true))
 
 	// Request B acquires the now-free slot and registers its own channel.
 	wB, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
@@ -198,7 +199,7 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 	msgB := NewMsgBlock([]byte{0xcc, 0xdd})
 	require.True(
 		t,
-		client.blockRequestSlot.deliver(msgB),
+		client.blockRequestSlot.deliver(msgB, true),
 		"B's response was dropped: abandon(wA) erased B's waiter",
 	)
 
@@ -267,7 +268,7 @@ func TestRequestSlotReleaseAfterReacquireKeepsNextWaiter(t *testing.T) {
 	wA, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
 	require.NoError(t, err)
 	// Free the slot via a delivery, then reacquire for request B.
-	require.True(t, client.blockRequestSlot.deliver(NewMsgBlock([]byte{0x01})))
+	require.True(t, client.blockRequestSlot.deliver(NewMsgBlock([]byte{0x01}), true))
 	<-wA
 	wB, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
 	require.NoError(t, err)
@@ -278,7 +279,7 @@ func TestRequestSlotReleaseAfterReacquireKeepsNextWaiter(t *testing.T) {
 	msgB := NewMsgBlock([]byte{0x02})
 	require.True(
 		t,
-		client.blockRequestSlot.deliver(msgB),
+		client.blockRequestSlot.deliver(msgB, true),
 		"B's response was dropped: release(wA) erased B's waiter",
 	)
 	select {

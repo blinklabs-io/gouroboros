@@ -620,6 +620,35 @@ func TestBlockRangeRequestSubsequentAfterAbandoned(t *testing.T) {
 	)
 }
 
+func TestBlockRangeRequestStreamsMultipleMessages(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRangeRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgNextBlockAndTxsInRange([]byte{0x82, 0x01, 0x01}, nil),
+				leiosfetch.NewMsgNextBlockAndTxsInRange([]byte{0x82, 0x01, 0x02}, nil),
+				leiosfetch.NewMsgLastBlockAndTxsInRange([]byte{0x82, 0x01, 0x03}, nil),
+			},
+		},
+	)
+	runTest(t, conversation, func(t *testing.T, oConn *ouroboros.Connection) {
+		client := oConn.LeiosFetch().Client
+		resp, err := client.BlockRangeRequest(
+			context.Background(),
+			pcommon.NewPoint(12345, []byte{0x01}),
+			pcommon.NewPoint(12346, []byte{0x02}),
+		)
+		require.NoError(t, err)
+		require.Len(t, resp, 3)
+	})
+}
+
 // TestNonBlockRequestsAfterAbandonedBlockRequestFailFast pins that every
 // leios-fetch request path goes through the same admission slot.
 //

@@ -53,10 +53,88 @@ type Client struct {
 type requestSlot struct {
 	mu              sync.Mutex
 	waiter          chan protocol.Message
+	delivery        *requestDelivery
 	busy            bool
 	abandoned       bool
 	drainedCh       chan struct{}
 	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
+}
+
+type requestDelivery struct {
+	mu      sync.Mutex
+	queue   []queuedResponse
+	signal  chan struct{}
+	stopped chan struct{}
+	once    sync.Once
+	out     chan protocol.Message
+}
+
+type queuedResponse struct {
+	msg      protocol.Message
+	terminal bool
+}
+
+func newRequestDelivery(out chan protocol.Message) *requestDelivery {
+	d := &requestDelivery{
+		signal:  make(chan struct{}, 1),
+		stopped: make(chan struct{}),
+		out:     out,
+	}
+	go d.run()
+	return d
+}
+
+func (d *requestDelivery) enqueue(msg protocol.Message, terminal bool) bool {
+	d.mu.Lock()
+	select {
+	case <-d.stopped:
+		d.mu.Unlock()
+		return false
+	default:
+	}
+	d.queue = append(d.queue, queuedResponse{msg: msg, terminal: terminal})
+	d.mu.Unlock()
+	select {
+	case d.signal <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+func (d *requestDelivery) stop() {
+	d.once.Do(func() {
+		close(d.stopped)
+		d.mu.Lock()
+		d.queue = nil
+		d.mu.Unlock()
+	})
+}
+
+func (d *requestDelivery) run() {
+	for {
+		d.mu.Lock()
+		if len(d.queue) == 0 {
+			d.mu.Unlock()
+			select {
+			case <-d.signal:
+				continue
+			case <-d.stopped:
+				return
+			}
+		}
+		response := d.queue[0]
+		d.queue = d.queue[1:]
+		d.mu.Unlock()
+		select {
+		case d.out <- response.msg:
+		case <-d.stopped:
+			return
+		}
+		if response.terminal {
+			d.stop()
+			return
+		}
+	}
 }
 
 const abandonedRequestWait = time.Second
@@ -118,6 +196,7 @@ func (s *requestSlot) acquire(
 	}
 	w := make(chan protocol.Message, 1)
 	s.waiter = w
+	s.delivery = newRequestDelivery(w)
 	s.busy = true
 	s.abandoned = false
 	s.drainedCh = make(chan struct{})
@@ -141,6 +220,8 @@ func (s *requestSlot) abandon(w chan protocol.Message) {
 	s.mu.Lock()
 	if s.waiter == w {
 		s.waiter = nil
+		s.delivery.stop()
+		s.delivery = nil
 		s.abandoned = true
 		// Acquirers that started before this request was abandoned are
 		// waiting on the current channel through the non-abandoned path.
@@ -167,28 +248,34 @@ func (s *requestSlot) release(w chan protocol.Message) {
 	s.mu.Lock()
 	if s.waiter == w {
 		s.waiter = nil
+		s.delivery.stop()
+		s.delivery = nil
 		s.freeLocked()
 	}
 	s.mu.Unlock()
 }
 
-// deliver routes a received response to the waiting caller, if any, and frees
-// the slot. It returns true when a caller received the response and false when
-// the response was dropped (no caller waiting, e.g. after abandonment).
-func (s *requestSlot) deliver(msg protocol.Message) bool {
+// deliver queues a received response for the waiting caller. Streaming range
+// responses retain the slot until terminal is true.
+func (s *requestSlot) deliver(msg protocol.Message, terminal bool) bool {
 	s.mu.Lock()
 	w := s.waiter
-	s.waiter = nil
-	s.freeLocked()
+	d := s.delivery
+	if w == nil && d == nil && terminal && s.abandoned {
+		s.freeLocked()
+		s.mu.Unlock()
+		return true
+	}
+	if terminal && w != nil {
+		s.waiter = nil
+		s.delivery = nil
+		s.freeLocked()
+	}
 	s.mu.Unlock()
-	if w == nil {
+	if w == nil || d == nil {
 		return false
 	}
-	// The channel has capacity 1 and receives at most one response per
-	// request (the state machine rejects a second server message before it
-	// reaches this handler), so this send never blocks the receive loop.
-	w <- msg
-	return true
+	return d.enqueue(msg, terminal)
 }
 
 // freeLocked marks the slot as no longer busy and wakes any goroutine waiting
@@ -212,10 +299,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config: cfg,
-		// Capacity 1: the caller registers before its request is sent, so
-		// the response always has somewhere to land even if the caller has
-		// not reached its receive yet. Unbuffered, a response whose caller
-		// gave up on its context blocked the protocol receive loop forever.
+		// Each request uses a delivery queue so streaming range responses do
+		// not block the protocol receive loop or get dropped.
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -270,7 +355,6 @@ func (c *Client) Start() {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown.
 	})
 }
 
@@ -533,7 +617,7 @@ func (c *Client) logDroppedResponse(msg protocol.Message) {
 }
 
 func (c *Client) handleBlock(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
@@ -546,13 +630,13 @@ func (c *Client) handleNoBlock(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	if !c.blockRequestSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
 
 func (c *Client) handleBlockTxs(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
@@ -565,7 +649,7 @@ func (c *Client) handleNoBlockTxs(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	if !c.blockRequestSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
@@ -574,19 +658,19 @@ func (c *Client) handleNoBlockTxs(msg protocol.Message) {
 // waiting. The send must not block: the protocol receive loop runs it, and a
 // caller whose context expired is gone for good.
 func (c *Client) handleVotes(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
 
 func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, false) {
 		c.logDroppedResponse(msg)
 	}
 }
 
 func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
