@@ -75,16 +75,30 @@ func writeLeiosFetchTestSegment(
 	require.NoError(t, err)
 }
 
-func TestUnconfiguredRequestsRemainPendingAndPreserveSharedBearer(t *testing.T) {
+// TestUnconfiguredBlockResponderAnswersAbsence proves that an unconfigured
+// BlockRequestFunc / BlockTxsRequestFunc answers with the absence message
+// instead of retaining server agency. Retaining agency wedges the requester's
+// leios-fetch client permanently (dingo issue #3623): its send loop waits for
+// agency that only the missing response returns, so it can never issue another
+// request on that connection and cannot detect the condition.
+//
+// sendNotFoundTest performs the exchange twice and then probes an unrelated
+// mini-protocol, so this also proves the protocol returns to Idle and the
+// shared bearer stays usable.
+func TestUnconfiguredBlockResponderAnswersAbsence(t *testing.T) {
 	tests := []struct {
-		name    string
-		request protocol.Message
+		name            string
+		request         protocol.Message
+		expectedType    uint
+		expectedPayload []byte
 	}{
 		{
 			name: "block",
 			request: NewMsgBlockRequest(
 				pcommon.NewPoint(12345, []byte{0x01, 0x02}),
 			),
+			expectedType:    uint(MessageTypeNoBlock),
+			expectedPayload: []byte{0x81, MessageTypeNoBlock},
 		},
 		{
 			name: "block transactions",
@@ -92,112 +106,115 @@ func TestUnconfiguredRequestsRemainPendingAndPreserveSharedBearer(t *testing.T) 
 				pcommon.NewPoint(12345, []byte{0x01, 0x02}),
 				nil,
 			),
-		},
-		{
-			name: "block range",
-			request: NewMsgBlockRangeRequest(
-				pcommon.NewPoint(12345, []byte{0x01, 0x02}),
-				pcommon.NewPoint(23456, []byte{0x03, 0x04}),
-			),
+			expectedType:    uint(MessageTypeNoBlockTxs),
+			expectedPayload: []byte{0x81, MessageTypeNoBlockTxs},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			connId := testLeiosFetchConnectionId()
-			connA, connB := net.Pipe()
-			m := muxer.New(connA)
-			protocolErrors := make(chan error, 1)
-			leiosServer := NewServer(
-				protocol.ProtocolOptions{
-					ConnectionId: connId,
-					ErrorChan:    protocolErrors,
-					Muxer:        m,
-				},
-				nil,
-			)
-			peerSharingCfg := peersharing.NewConfig(
-				peersharing.WithShareRequestFunc(
-					func(
-						peersharing.CallbackContext,
-						int,
-					) ([]peersharing.PeerAddress, error) {
-						return []peersharing.PeerAddress{}, nil
-					},
-				),
-			)
-			peerSharingServer := peersharing.NewServer(
-				protocol.ProtocolOptions{
-					ConnectionId: connId,
-					ErrorChan:    protocolErrors,
-					Muxer:        m,
-				},
-				&peerSharingCfg,
-			)
-			leiosServer.Start()
-			peerSharingServer.Start()
-			m.Start()
-			t.Cleanup(func() {
-				leiosServer.Stop()
-				peerSharingServer.Stop()
-				m.Stop()
-				_ = connA.Close()
-				_ = connB.Close()
-			})
-
-			requestData, err := cbor.Encode(test.request)
-			require.NoError(t, err)
-			writeLeiosFetchTestSegment(
-				t,
-				connB,
-				muxer.NewSegment(ProtocolId, requestData, false),
-			)
-			require.Never(t, func() bool {
-				select {
-				case <-protocolErrors:
-					return true
-				default:
-					return false
-				}
-			}, 20*time.Millisecond, time.Millisecond,
-				"unconfigured request reported a protocol error",
-			)
-			require.Eventually(t, func() bool {
-				return !leiosServer.ProtocolInstance().
-					IsInTerminalOrIdleState()
-			}, time.Second, time.Millisecond,
-				"request did not enter its server-agency state",
-			)
-
-			peerRequestData, err := cbor.Encode(
-				peersharing.NewMsgShareRequest(1),
-			)
-			require.NoError(t, err)
-			writeLeiosFetchTestSegment(
-				t,
-				connB,
-				muxer.NewSegment(
-					peersharing.ProtocolId,
-					peerRequestData,
-					false,
-				),
-			)
-			require.NoError(
-				t,
-				connB.SetReadDeadline(time.Now().Add(time.Second)),
-			)
-			segment, err := readLeiosFetchTestSegment(t, connB)
-			require.NoError(t, err)
-			require.Equal(
-				t,
-				uint16(peersharing.ProtocolId),
-				segment.GetProtocolId(),
-			)
-			require.Equal(
-				t,
-				[]byte{0x82, peersharing.MessageTypeSharePeers, 0x80},
-				segment.Payload,
-			)
+			msgType, payload := sendNotFoundTest(t, NewConfig(), test.request)
+			require.Equal(t, test.expectedType, msgType)
+			require.Equal(t, test.expectedPayload, payload)
 		})
+	}
+}
+
+// TestUnconfiguredBlockResponderAnswersAbsenceNilConfig covers the same
+// contract for a server constructed with no Config at all, which is what any
+// gouroboros consumer that does not pass WithLeiosFetchConfig gets: the
+// leios-fetch server is registered and started unconditionally for every
+// node-to-node connection, so an unconfigured peer must still answer.
+func TestUnconfiguredBlockResponderAnswersAbsenceNilConfig(t *testing.T) {
+	connId := testLeiosFetchConnectionId()
+	connA, connB := net.Pipe()
+	m := muxer.New(connA)
+	protocolErrors := make(chan error, 1)
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connId,
+			ErrorChan:    protocolErrors,
+			Muxer:        m,
+		},
+		nil,
+	)
+	server.Start()
+	m.Start()
+	t.Cleanup(func() {
+		server.Protocol.Stop()
+		m.Stop()
+		_ = connA.Close()
+		_ = connB.Close()
+	})
+
+	requestData, err := cbor.Encode(
+		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
+	)
+	require.NoError(t, err)
+	writeLeiosFetchTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, requestData, false),
+	)
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(2*time.Second)))
+	segment, err := readLeiosFetchTestSegment(t, connB)
+	require.NoError(t, err)
+	require.True(t, segment.IsResponse())
+	require.Equal(t, uint16(ProtocolId), segment.GetProtocolId())
+	require.Equal(t, []byte{0x81, MessageTypeNoBlockTxs}, segment.Payload)
+	select {
+	case err := <-protocolErrors:
+		require.NoError(t, err)
+	default:
+	}
+}
+
+// TestUnconfiguredBlockRangeResponderFailsConnection proves that an
+// unconfigured BlockRangeRequestFunc reports a protocol error rather than
+// leaving the request pending forever. There is no absence reply for a range
+// request, so failing the connection is the only outcome that lets the
+// requester recover; a silent hang leaves its leios-fetch client wedged with
+// no way to detect it.
+func TestUnconfiguredBlockRangeResponderFailsConnection(t *testing.T) {
+	connId := testLeiosFetchConnectionId()
+	connA, connB := net.Pipe()
+	m := muxer.New(connA)
+	protocolErrors := make(chan error, 1)
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connId,
+			ErrorChan:    protocolErrors,
+			Muxer:        m,
+		},
+		nil,
+	)
+	server.Start()
+	m.Start()
+	t.Cleanup(func() {
+		server.Protocol.Stop()
+		m.Stop()
+		_ = connA.Close()
+		_ = connB.Close()
+	})
+
+	requestData, err := cbor.Encode(
+		NewMsgBlockRangeRequest(
+			pcommon.NewPoint(12345, []byte{0x01, 0x02}),
+			pcommon.NewPoint(23456, []byte{0x03, 0x04}),
+		),
+	)
+	require.NoError(t, err)
+	writeLeiosFetchTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, requestData, false),
+	)
+	select {
+	case err := <-protocolErrors:
+		require.ErrorContains(t, err, "BlockRangeRequest")
+	case <-time.After(2 * time.Second):
+		t.Fatal(
+			"unconfigured BlockRangeRequest left the request pending instead of failing the connection",
+		)
 	}
 }
 
@@ -348,26 +365,13 @@ func TestHandleBlockRequest_CallbackIsCalled(t *testing.T) {
 }
 
 func TestHandleBlockRequest_NilCallback(t *testing.T) {
-	cfg := NewConfig()
-	server := NewServer(
-		protocol.ProtocolOptions{ConnectionId: testLeiosFetchConnectionId()},
-		&cfg,
-	)
-	err := server.handleBlockRequest(
+	msgType, payload := sendNotFoundTest(
+		t,
+		NewConfig(),
 		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
 	)
-	require.NoError(t, err)
-}
-
-func TestHandleBlockRequest_NilConfig(t *testing.T) {
-	server := NewServer(
-		protocol.ProtocolOptions{ConnectionId: testLeiosFetchConnectionId()},
-		nil,
-	)
-	err := server.handleBlockRequest(
-		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
-	)
-	require.NoError(t, err)
+	require.Equal(t, uint(MessageTypeNoBlock), msgType)
+	require.Equal(t, []byte{0x81, MessageTypeNoBlock}, payload)
 }
 
 func TestHandleBlockRequest_CallbackError(t *testing.T) {
@@ -533,15 +537,13 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 }
 
 func TestHandleBlockTxsRequest_NilCallback(t *testing.T) {
-	cfg := NewConfig()
-	server := NewServer(
-		protocol.ProtocolOptions{ConnectionId: testLeiosFetchConnectionId()},
-		&cfg,
-	)
-	err := server.handleBlockTxsRequest(
+	msgType, payload := sendNotFoundTest(
+		t,
+		NewConfig(),
 		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
 	)
-	require.NoError(t, err)
+	require.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
+	require.Equal(t, []byte{0x81, MessageTypeNoBlockTxs}, payload)
 }
 
 func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
@@ -626,7 +628,7 @@ func TestHandleBlockRangeRequest_NilCallback(t *testing.T) {
 	err := server.handleBlockRangeRequest(
 		NewMsgBlockRangeRequest(pcommon.Point{}, pcommon.Point{}),
 	)
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "BlockRangeRequest")
 }
 
 func TestServerMessageHandler_UnexpectedType(t *testing.T) {

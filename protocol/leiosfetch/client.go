@@ -16,6 +16,7 @@ package leiosfetch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -26,18 +27,17 @@ import (
 
 type Client struct {
 	*protocol.Protocol
-	config               *Config
-	callbackContext      CallbackContext
-	onceStart            sync.Once
-	onceStop             sync.Once
-	blockSlot            requestSlot
-	blockTxsSlot         requestSlot
-	votesResultChan      chan protocol.Message
-	blockRangeResultChan chan protocol.Message
+	config          *Config
+	callbackContext CallbackContext
+	onceStart       sync.Once
+	onceStop        sync.Once
+	// Block and BlockTxs share one slot because both requests use the same
+	// connection-wide agency and have no request identifier.
+	blockRequestSlot requestSlot
 }
 
 // requestSlot serializes a single outstanding request/response exchange for a
-// ping-pong leios-fetch state (Block or BlockTxs) and correlates the response
+// ping-pong or streaming leios-fetch state and correlates the response
 // with the caller that is actually waiting for it.
 //
 // These mini-protocol states carry no request identifier and the underlying
@@ -53,10 +53,88 @@ type Client struct {
 type requestSlot struct {
 	mu              sync.Mutex
 	waiter          chan protocol.Message
+	delivery        *requestDelivery
 	busy            bool
 	abandoned       bool
 	drainedCh       chan struct{}
 	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
+}
+
+type requestDelivery struct {
+	mu      sync.Mutex
+	queue   []queuedResponse
+	signal  chan struct{}
+	stopped chan struct{}
+	once    sync.Once
+	out     chan protocol.Message
+}
+
+type queuedResponse struct {
+	msg      protocol.Message
+	terminal bool
+}
+
+func newRequestDelivery(out chan protocol.Message) *requestDelivery {
+	d := &requestDelivery{
+		signal:  make(chan struct{}, 1),
+		stopped: make(chan struct{}),
+		out:     out,
+	}
+	go d.run()
+	return d
+}
+
+func (d *requestDelivery) enqueue(msg protocol.Message, terminal bool) bool {
+	d.mu.Lock()
+	select {
+	case <-d.stopped:
+		d.mu.Unlock()
+		return false
+	default:
+	}
+	d.queue = append(d.queue, queuedResponse{msg: msg, terminal: terminal})
+	d.mu.Unlock()
+	select {
+	case d.signal <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+func (d *requestDelivery) stop() {
+	d.once.Do(func() {
+		close(d.stopped)
+		d.mu.Lock()
+		d.queue = nil
+		d.mu.Unlock()
+	})
+}
+
+func (d *requestDelivery) run() {
+	for {
+		d.mu.Lock()
+		if len(d.queue) == 0 {
+			d.mu.Unlock()
+			select {
+			case <-d.signal:
+				continue
+			case <-d.stopped:
+				return
+			}
+		}
+		response := d.queue[0]
+		d.queue = d.queue[1:]
+		d.mu.Unlock()
+		select {
+		case d.out <- response.msg:
+		case <-d.stopped:
+			return
+		}
+		if response.terminal {
+			d.stop()
+			return
+		}
+	}
 }
 
 const abandonedRequestWait = time.Second
@@ -86,7 +164,16 @@ func (s *requestSlot) acquire(
 				timer.Stop()
 				return nil, protocol.ErrProtocolShuttingDown
 			case <-timer.C:
-				return nil, ErrRequestSlotAbandoned
+				// A response may drain the abandoned request at the same
+				// instant the grace timer fires. Prefer recovery when that
+				// response has already arrived.
+				select {
+				case <-drained:
+					s.mu.Lock()
+					continue
+				default:
+					return nil, ErrRequestSlotAbandoned
+				}
 			}
 			timer.Stop()
 			s.mu.Lock()
@@ -109,6 +196,7 @@ func (s *requestSlot) acquire(
 	}
 	w := make(chan protocol.Message, 1)
 	s.waiter = w
+	s.delivery = newRequestDelivery(w)
 	s.busy = true
 	s.abandoned = false
 	s.drainedCh = make(chan struct{})
@@ -119,8 +207,9 @@ func (s *requestSlot) acquire(
 // abandon clears the live waiter so that a late response is dropped by deliver
 // rather than mis-delivered, while leaving the slot busy until that response
 // arrives (or the protocol shuts down). Subsequent acquire calls have a bounded
-// grace period while the slot is abandoned instead of parking indefinitely. It
-// is used when a caller's context expires before a response is received.
+// grace period while the slot is abandoned instead of parking indefinitely, and
+// on its expiry the client fails the connection (see acquireSlot). It is used
+// when a caller's context expires before a response is received.
 //
 // The caller passes the delivery channel it registered in acquire. The slot is
 // only mutated while that channel is still the live waiter (s.waiter == w). If
@@ -131,6 +220,8 @@ func (s *requestSlot) abandon(w chan protocol.Message) {
 	s.mu.Lock()
 	if s.waiter == w {
 		s.waiter = nil
+		s.delivery.stop()
+		s.delivery = nil
 		s.abandoned = true
 		// Acquirers that started before this request was abandoned are
 		// waiting on the current channel through the non-abandoned path.
@@ -157,28 +248,34 @@ func (s *requestSlot) release(w chan protocol.Message) {
 	s.mu.Lock()
 	if s.waiter == w {
 		s.waiter = nil
+		s.delivery.stop()
+		s.delivery = nil
 		s.freeLocked()
 	}
 	s.mu.Unlock()
 }
 
-// deliver routes a received response to the waiting caller, if any, and frees
-// the slot. It returns true when a caller received the response and false when
-// the response was dropped (no caller waiting, e.g. after abandonment).
-func (s *requestSlot) deliver(msg protocol.Message) bool {
+// deliver queues a received response for the waiting caller. Streaming range
+// responses retain the slot until terminal is true.
+func (s *requestSlot) deliver(msg protocol.Message, terminal bool) bool {
 	s.mu.Lock()
 	w := s.waiter
-	s.waiter = nil
-	s.freeLocked()
+	d := s.delivery
+	if w == nil && d == nil && terminal && s.abandoned {
+		s.freeLocked()
+		s.mu.Unlock()
+		return true
+	}
+	if terminal && w != nil {
+		s.waiter = nil
+		s.delivery = nil
+		s.freeLocked()
+	}
 	s.mu.Unlock()
-	if w == nil {
+	if w == nil || d == nil {
 		return false
 	}
-	// The channel has capacity 1 and receives at most one response per
-	// request (the state machine rejects a second server message before it
-	// reaches this handler), so this send never blocks the receive loop.
-	w <- msg
-	return true
+	return d.enqueue(msg, terminal)
 }
 
 // freeLocked marks the slot as no longer busy and wakes any goroutine waiting
@@ -201,9 +298,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config:               cfg,
-		votesResultChan:      make(chan protocol.Message),
-		blockRangeResultChan: make(chan protocol.Message),
+		config: cfg,
+		// Each request uses a delivery queue so streaming range responses do
+		// not block the protocol receive loop or get dropped.
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -212,12 +309,17 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
 	// NOTE: StateBlock and StateBlockTxs intentionally do NOT get a
-	// protocol-level timeout. A missing response to a BlockRequest /
+	// protocol-level timeout. A slow response to a BlockRequest /
 	// BlockTxsRequest must fail only that individual request (bounded by the
 	// caller-supplied context), never tear down the shared multiplexed
 	// connection. The protocol-level timeout fires p.SendError(), which is
 	// fatal to every mini-protocol on the same bearer (chainsync, blockfetch,
-	// etc.), so it must not be wired for these two states.
+	// etc.), so it must not be wired for these two states: it would fire for
+	// a healthy relay that merely responded later than the timeout.
+	//
+	// A response that never arrives at all is a different case and IS fatal,
+	// but only once acquireSlot has proven the exchange is desynchronised --
+	// see acquireSlot.
 	if entry, ok := stateMap[StateVotes]; ok {
 		entry.Timeout = c.config.Timeout
 		stateMap[StateVotes] = entry
@@ -253,16 +355,6 @@ func (c *Client) Start() {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown.
-		// The Block/BlockTxs request slots are unblocked directly by the
-		// per-request select watching DoneChan (see BlockRequest /
-		// BlockTxsRequest), so only the shared Votes/BlockRange channels are
-		// closed here.
-		go func() {
-			<-c.DoneChan()
-			close(c.votesResultChan)
-			close(c.blockRangeResultChan)
-		}()
 	})
 }
 
@@ -281,6 +373,44 @@ func (c *Client) Stop() error {
 	return err
 }
 
+// acquireSlot acquires slot for a new request in the given server-agency
+// state.
+//
+// A slot that is still holding an abandoned request's response means the peer
+// took leios-fetch agency and never returned it. That is not recoverable on
+// this connection: protocol.sendLoop waits on sendReadyChan for agency the
+// state map only grants once the missing response arrives, so no later
+// leios-fetch request can ever be written to this bearer. Keeping the bearer
+// alive therefore keeps a permanently dead leios-fetch client attached to a
+// peer that still looks healthy, which is exactly how dingo issue #3623
+// stalled a node's ledger indefinitely.
+//
+// Fail the connection instead, so the consumer's peer governance drops and
+// replaces the peer. This does not reintroduce the mis-delivery hazard the
+// slot exists to prevent: the slot is never reused, the connection is
+// discarded.
+func (c *Client) acquireSlot(
+	ctx context.Context,
+	slot *requestSlot,
+	state protocol.State,
+) (chan protocol.Message, error) {
+	w, err := slot.acquire(ctx, c.DoneChan())
+	if err == nil {
+		return w, nil
+	}
+	if errors.Is(err, ErrRequestSlotAbandoned) {
+		c.SendError(
+			fmt.Errorf(
+				"%s: peer retained agency in state %s after an abandoned request: %w",
+				ProtocolName,
+				state,
+				err,
+			),
+		)
+	}
+	return nil, err
+}
+
 // BlockRequest fetches the requested EB identified by the specified point.
 //
 // The wait for a response is bounded by the provided context. If the context
@@ -289,18 +419,20 @@ func (c *Client) Stop() error {
 // NOT emit a protocol error and does NOT tear down the shared multiplexed
 // connection. A response that arrives after the context is done is dropped by
 // the receive path (see handleBlock/handleNoBlock), and a subsequent request
-// waits for that late response to drain so it can never be mis-delivered.
+// waits for that late response to drain so it can never be mis-delivered. If
+// the late response never arrives, that subsequent request fails the
+// connection rather than reusing the slot (see acquireSlot).
 func (c *Client) BlockRequest(
 	ctx context.Context,
 	point pcommon.Point,
 ) (protocol.Message, error) {
-	w, err := c.blockSlot.acquire(ctx, c.DoneChan())
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlock)
 	if err != nil {
 		return nil, err
 	}
 	msg := NewMsgBlockRequest(point)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
-		c.blockSlot.release(w)
+		c.blockRequestSlot.release(w)
 		return nil, err
 	}
 	select {
@@ -311,10 +443,10 @@ func (c *Client) BlockRequest(
 		}
 		return resp, nil
 	case <-ctx.Done():
-		c.blockSlot.abandon(w)
+		c.blockRequestSlot.abandon(w)
 		return nil, ctx.Err()
 	case <-c.DoneChan():
-		c.blockSlot.release(w)
+		c.blockRequestSlot.release(w)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
 }
@@ -329,13 +461,13 @@ func (c *Client) BlockTxsRequest(
 	point pcommon.Point,
 	bitmaps map[uint16]uint64,
 ) (protocol.Message, error) {
-	w, err := c.blockTxsSlot.acquire(ctx, c.DoneChan())
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlockTxs)
 	if err != nil {
 		return nil, err
 	}
 	msg := NewMsgBlockTxsRequest(point, bitmaps)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
-		c.blockTxsSlot.release(w)
+		c.blockRequestSlot.release(w)
 		return nil, err
 	}
 	select {
@@ -346,51 +478,99 @@ func (c *Client) BlockTxsRequest(
 		}
 		return resp, nil
 	case <-ctx.Done():
-		c.blockTxsSlot.abandon(w)
+		c.blockRequestSlot.abandon(w)
 		return nil, ctx.Err()
 	case <-c.DoneChan():
-		c.blockTxsSlot.release(w)
+		c.blockRequestSlot.release(w)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
 }
 
-// VotesRequest fetches the requested votes
+// VotesRequest fetches the requested votes.
+//
+// Admission goes through the same slot as BlockRequest and BlockTxsRequest.
+// The leios-fetch states share one connection-wide agency and carry no request
+// identifier, so a block request whose caller gave up leaves the peer holding
+// agency and nothing can be written to this bearer afterwards. Acquiring the
+// slot here makes that condition surface as ErrRequestSlotAbandoned and fail
+// the connection, instead of blocking this caller forever with no diagnosis.
+//
+// The votes response does not arrive through the slot, so unlike BlockRequest
+// this releases it explicitly on success. A context that expires with the
+// response still outstanding abandons instead: the peer still owes a reply and
+// still holds agency, so the slot has to stay busy until that reply drains it.
 func (c *Client) VotesRequest(
+	ctx context.Context,
 	voteIds []MsgVotesRequestVoteId,
 ) (protocol.Message, error) {
-	msg := NewMsgVotesRequest(voteIds)
-	if err := c.SendMessage(msg); err != nil {
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateVotes)
+	if err != nil {
 		return nil, err
 	}
-	resp, ok := <-c.votesResultChan
-	if !ok {
+	msg := NewMsgVotesRequest(voteIds)
+	if err := c.SendMessageContext(ctx, msg); err != nil {
+		c.blockRequestSlot.release(w)
+		return nil, err
+	}
+	select {
+	case resp, ok := <-w:
+		if !ok {
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		return resp, nil
+	case <-ctx.Done():
+		c.blockRequestSlot.abandon(w)
+		return nil, ctx.Err()
+	case <-c.DoneChan():
+		c.blockRequestSlot.release(w)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
-	return resp, nil
 }
 
 // BlockRangeRequest fetches a range of EBs and their TXs that are certified by RBs within the provided range.
 // This function will block until all EBs and TXs in the requested range have been received
+// Admission goes through the same slot as BlockRequest, for the reason given
+// on VotesRequest: one abandoned block request otherwise makes this block
+// forever with no diagnosis. The slot is held for the whole multi-message
+// range exchange and released once the last message arrives.
 func (c *Client) BlockRangeRequest(
+	ctx context.Context,
 	start pcommon.Point,
 	end pcommon.Point,
 ) ([]protocol.Message, error) {
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlockRange)
+	if err != nil {
+		return nil, err
+	}
 	msg := NewMsgBlockRangeRequest(start, end)
-	if err := c.SendMessage(msg); err != nil {
+	if err := c.SendMessageContext(ctx, msg); err != nil {
+		c.blockRequestSlot.release(w)
 		return nil, err
 	}
 	ret := make([]protocol.Message, 0, 20)
 	for {
-		resp, ok := <-c.blockRangeResultChan
-		if !ok {
+		select {
+		case resp, ok := <-w:
+			if !ok {
+				c.blockRequestSlot.release(w)
+				return nil, protocol.ErrProtocolShuttingDown
+			}
+			ret = append(ret, resp)
+			if _, ok := resp.(*MsgLastBlockAndTxsInRange); ok {
+				c.blockRequestSlot.release(w)
+				return ret, nil
+			}
+		case <-ctx.Done():
+			// Range responses are delivered through the shared slot, including
+			// the terminal response. Keep the slot abandoned until that response
+			// drains so it cannot be delivered to a later request.
+			c.blockRequestSlot.abandon(w)
+			return nil, ctx.Err()
+		case <-c.DoneChan():
+			c.blockRequestSlot.release(w)
 			return nil, protocol.ErrProtocolShuttingDown
 		}
-		ret = append(ret, resp)
-		if _, ok := resp.(*MsgLastBlockAndTxsInRange); ok {
-			break
-		}
 	}
-	return ret, nil
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
@@ -437,7 +617,7 @@ func (c *Client) logDroppedResponse(msg protocol.Message) {
 }
 
 func (c *Client) handleBlock(msg protocol.Message) {
-	if !c.blockSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
@@ -450,13 +630,13 @@ func (c *Client) handleNoBlock(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	if !c.blockSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
 
 func (c *Client) handleBlockTxs(msg protocol.Message) {
-	if !c.blockTxsSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
@@ -469,19 +649,28 @@ func (c *Client) handleNoBlockTxs(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	if !c.blockTxsSlot.deliver(msg) {
+	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}
 }
 
+// handleVotes hands a votes response to its caller, dropping it if none is
+// waiting. The send must not block: the protocol receive loop runs it, and a
+// caller whose context expired is gone for good.
 func (c *Client) handleVotes(msg protocol.Message) {
-	c.votesResultChan <- msg
+	if !c.blockRequestSlot.deliver(msg, true) {
+		c.logDroppedResponse(msg)
+	}
 }
 
 func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) {
-	c.blockRangeResultChan <- msg
+	if !c.blockRequestSlot.deliver(msg, false) {
+		c.logDroppedResponse(msg)
+	}
 }
 
 func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) {
-	c.blockRangeResultChan <- msg
+	if !c.blockRequestSlot.deliver(msg, true) {
+		c.logDroppedResponse(msg)
+	}
 }
