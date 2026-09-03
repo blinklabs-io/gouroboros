@@ -358,8 +358,15 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 	pparams := conwayPparams(common.ProtocolVersionVanRossem, 0)
 
 	inUseBy := func(owner common.PoolKeyHash) *mockledger.MockLedgerState {
+		current := &common.PoolRegistrationCertificate{
+			CertType:   uint(common.CertificateTypePoolRegistration),
+			Operator:   owner,
+			VrfKeyHash: sharedVrf,
+			Margin:     common.NewGenesisRat(0, 1),
+		}
 		return mockledger.NewLedgerStateBuilder().
 			WithNetworkId(common.AddressNetworkMainnet).
+			WithPools([]*common.PoolRegistrationCertificate{current}).
 			WithVrfKeyInUseFunc(
 				func(
 					hash common.Blake2b256,
@@ -549,7 +556,8 @@ func registeredPoolLedgerState() (
 // TestUtxoValidatePoolCertificatesRetirementRegistered covers
 // StakePoolNotRegisteredOnKeyPOOL.
 func TestUtxoValidatePoolCertificatesRetirementRegistered(t *testing.T) {
-	registered, ls := registeredPoolLedgerState()
+	registered, base := registeredPoolLedgerState()
+	ls := epochLedgerState{LedgerState: base, epoch: 0}
 	unregistered := poolKeyHash(0x02)
 	pparams := conwayPparams(common.ProtocolVersionConway, 0)
 
@@ -657,13 +665,12 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 		})
 	}
 
-	t.Run("no EpochState skips the bound", func(t *testing.T) {
-		// base does not implement EpochState, so an otherwise invalid
-		// retirement epoch must still be accepted rather than failing
-		// closed.
+	t.Run("no EpochState rejects the retirement", func(t *testing.T) {
+		// The retirement bound cannot be evaluated without authoritative epoch
+		// state, so validation must fail closed.
 		_, ok := any(base).(common.EpochState)
 		require.False(t, ok)
-		require.NoError(t, shelley.UtxoValidatePoolCertificates(
+		require.Error(t, shelley.UtxoValidatePoolCertificates(
 			poolCertTx(poolRetirementCert(registered, currentEpoch)),
 			0,
 			base,
