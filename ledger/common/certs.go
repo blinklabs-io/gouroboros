@@ -690,12 +690,10 @@ func (c *PoolRegistrationCertificate) RewardAccountNetworkId() (uint, bool) {
 	return c.rewardAccountNetworkId, c.rewardAccountNetworkIdKnown
 }
 
-// SetCbor invalidates the decoded reward-account header whenever callers
-// replace the cached certificate bytes or clear them before mutation.
+// SetCbor invalidates only the cached CBOR. The decoded reward-account network
+// remains certificate data and must survive mutation before re-encoding.
 func (c *PoolRegistrationCertificate) SetCbor(cborData []byte) {
 	c.DecodeStoreCbor.SetCbor(cborData)
-	c.rewardAccountNetworkId = 0
-	c.rewardAccountNetworkIdKnown = false
 }
 
 // ErrPoolMarginOutsideUnitInterval identifies a stake-pool margin outside the

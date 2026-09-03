@@ -984,6 +984,19 @@ func validatePoolRegistration(
 	if err != nil {
 		return err
 	}
+	if inUse && owningPool == cert.Operator {
+		current, _, err := ls.PoolCurrentState(cert.Operator)
+		if err != nil {
+			return err
+		}
+		if current == nil || current.VrfKeyHash != cert.VrfKeyHash {
+			return VrfKeyHashAlreadyRegisteredError{
+				PoolKeyHash:  cert.Operator,
+				VrfKeyHash:   cert.VrfKeyHash,
+				RegisteredBy: owningPool,
+			}
+		}
+	}
 	if inUse && owningPool != cert.Operator {
 		return VrfKeyHashAlreadyRegisteredError{
 			PoolKeyHash:  cert.Operator,
@@ -1011,13 +1024,10 @@ func validatePoolRetirement(
 	}
 	// StakePoolRetirementWrongEpochPOOL: cEpoch < e && e <= cEpoch + eMax.
 	//
-	// The current epoch is only available from the optional EpochState
-	// capability. Skip the bound rather than failing closed when the ledger
-	// state does not provide it, so that a consumer which has not
-	// implemented EpochForSlot keeps accepting valid retirements.
+	// The current epoch is required to evaluate the retirement bound.
 	epochState, ok := ls.(common.EpochState)
 	if !ok {
-		return nil
+		return errors.New("epoch state is required for pool retirement validation")
 	}
 	currentEpoch, err := epochState.EpochForSlot(slot)
 	if err != nil {
