@@ -66,6 +66,29 @@ func NewShelleyAuxiliaryData(
 	return &ShelleyAuxiliaryData{metadata: metadata}
 }
 
+// MetadataJSONMaxNestingDepth is the deepest a metadata JSON document may
+// nest before parsing is rejected. The mandatory top-level object counts as
+// depth 0, so this many containers may be open at once.
+//
+// The bound matches the CBOR decoder's MaxNestedLevels: metadata that cannot
+// round trip through CBOR is not usable as transaction metadata anyway. It is
+// enforced before descending because the readers below recurse once per
+// level, and exhausting the goroutine stack is a fatal error that recover
+// cannot catch.
+const MetadataJSONMaxNestingDepth = 256
+
+// checkMetadataJSONNestingDepth reports whether a container opened at depth
+// may be descended into.
+func checkMetadataJSONNestingDepth(depth int) error {
+	if depth >= MetadataJSONMaxNestingDepth {
+		return fmt.Errorf(
+			"metadata JSON exceeds maximum nesting depth %d",
+			MetadataJSONMaxNestingDepth,
+		)
+	}
+	return nil
+}
+
 type metadataJSONValueKind uint8
 
 const (
@@ -132,7 +155,7 @@ func parseCardanoCLIMetadataJSON(
 func decodeMetadataJSON(data []byte) (metadataJSONValue, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	value, err := readMetadataJSONValue(decoder)
+	value, err := readMetadataJSONValue(decoder, 0)
 	if err != nil {
 		return metadataJSONValue{}, err
 	}
@@ -150,6 +173,7 @@ func decodeMetadataJSON(data []byte) (metadataJSONValue, error) {
 
 func readMetadataJSONValue(
 	decoder *json.Decoder,
+	depth int,
 ) (metadataJSONValue, error) {
 	token, err := decoder.Token()
 	if err != nil {
@@ -173,9 +197,9 @@ func readMetadataJSONValue(
 	case json.Delim:
 		switch value {
 		case '{':
-			return readMetadataJSONObject(decoder)
+			return readMetadataJSONObject(decoder, depth)
 		case '[':
-			return readMetadataJSONArray(decoder)
+			return readMetadataJSONArray(decoder, depth)
 		default:
 			return metadataJSONValue{}, fmt.Errorf(
 				"unexpected JSON delimiter %q",
@@ -192,7 +216,11 @@ func readMetadataJSONValue(
 
 func readMetadataJSONObject(
 	decoder *json.Decoder,
+	depth int,
 ) (metadataJSONValue, error) {
+	if err := checkMetadataJSONNestingDepth(depth); err != nil {
+		return metadataJSONValue{}, err
+	}
 	members := []metadataJSONMember{}
 	seen := map[string]struct{}{}
 	for decoder.More() {
@@ -214,7 +242,7 @@ func readMetadataJSONObject(
 			)
 		}
 		seen[key] = struct{}{}
-		value, err := readMetadataJSONValue(decoder)
+		value, err := readMetadataJSONValue(decoder, depth+1)
 		if err != nil {
 			return metadataJSONValue{}, err
 		}
@@ -234,10 +262,14 @@ func readMetadataJSONObject(
 
 func readMetadataJSONArray(
 	decoder *json.Decoder,
+	depth int,
 ) (metadataJSONValue, error) {
+	if err := checkMetadataJSONNestingDepth(depth); err != nil {
+		return metadataJSONValue{}, err
+	}
 	items := []metadataJSONValue{}
 	for decoder.More() {
-		value, err := readMetadataJSONValue(decoder)
+		value, err := readMetadataJSONValue(decoder, depth+1)
 		if err != nil {
 			return metadataJSONValue{}, err
 		}
