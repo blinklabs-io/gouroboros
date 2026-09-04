@@ -1120,12 +1120,12 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	innerArray := header.ConsensusData.BlockSig[1].([]any)
 	cert := innerArray[0].([]any)
 
-	epoch, _ := cert[0].(uint64)
+	omega, _ := cert[0].(uint64)
 	issuerVK := cert[1].([]byte)
 	delegateVK := cert[2].([]byte)
 	certSig := cert[3].([]byte)
 
-	t.Logf("Epoch: %d", epoch)
+	t.Logf("Omega: %d", omega)
 	t.Logf("IssuerVK: %x", issuerVK)
 	t.Logf("DelegateVK: %x", delegateVK)
 	t.Logf("CertSig: %x", certSig)
@@ -1134,16 +1134,16 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	// The issuer's Ed25519 public key is the first 32 bytes of the extended key
 	issuerPubKey := issuerVK[:32]
 
-	buildSignedMessage := func(epoch uint64, delegateVK []byte) []byte {
+	buildSignedMessage := func(omega uint64, delegateVK []byte) []byte {
 		pm, err := cbor.Encode(header.ProtocolMagic)
 		require.NoError(t, err)
-		epochBytes, err := cbor.Encode(epoch)
+		omegaBytes, err := cbor.Encode(omega)
 		require.NoError(t, err)
 
-		inner := make([]byte, 0, 2+len(delegateVK)+len(epochBytes))
+		inner := make([]byte, 0, 2+len(delegateVK)+len(omegaBytes))
 		inner = append(inner, '0', '0')
 		inner = append(inner, delegateVK...)
-		inner = append(inner, epochBytes...)
+		inner = append(inner, omegaBytes...)
 
 		innerCbor, err := cbor.Encode(inner)
 		require.NoError(t, err)
@@ -1156,7 +1156,7 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	}
 
 	// Positive case: the real certificate signature must verify.
-	signed := buildSignedMessage(epoch, delegateVK)
+	signed := buildSignedMessage(omega, delegateVK)
 	require.True(
 		t,
 		ed25519.Verify(issuerPubKey, signed, certSig),
@@ -1164,16 +1164,16 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	)
 
 	// Negative cases: fail closed on tampering.
-	wrongEpoch := buildSignedMessage(epoch+1, delegateVK)
+	wrongOmega := buildSignedMessage(omega+1, delegateVK)
 	assert.False(
 		t,
-		ed25519.Verify(issuerPubKey, wrongEpoch, certSig),
+		ed25519.Verify(issuerPubKey, wrongOmega, certSig),
 		"signature must not verify against a different epoch",
 	)
 
 	tamperedDelegateVK := append([]byte{}, delegateVK...)
 	tamperedDelegateVK[0] ^= 0xFF
-	wrongDelegate := buildSignedMessage(epoch, tamperedDelegateVK)
+	wrongDelegate := buildSignedMessage(omega, tamperedDelegateVK)
 	assert.False(
 		t,
 		ed25519.Verify(issuerPubKey, wrongDelegate, certSig),
