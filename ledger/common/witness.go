@@ -116,8 +116,24 @@ func ValidateCollateralVKeyWitnesses(
 // Plutus script, by looking for redeemers rather than for scripts in the
 // witness set. A reference input can supply the script, in which case the
 // witness set holds none but the redeemer is still present.
+//
+// Sub-transaction witness sets count too. A Dijkstra transaction can carry its
+// redeemers only in a sub-transaction, and reading just the top level would
+// report no phase-2 execution and skip the collateral rules for it — the one
+// direction this guard must never fail in.
 func transactionRunsPhase2Scripts(tx Transaction) bool {
-	w := tx.Witnesses()
+	if witnessSetHasRedeemers(tx.Witnesses()) {
+		return true
+	}
+	for _, sub := range SubTransactionWitnessSetsFromTransaction(tx) {
+		if witnessSetHasRedeemers(sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func witnessSetHasRedeemers(w TransactionWitnessSet) bool {
 	if w == nil {
 		return false
 	}

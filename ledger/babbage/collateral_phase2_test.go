@@ -78,6 +78,33 @@ func TestCollateralKeyLockedOnlyForPhase2(t *testing.T) {
 		}
 	})
 
+	t.Run("redeemers only in a sub-transaction still count", func(t *testing.T) {
+		// A Dijkstra transaction can carry its redeemers in a sub-transaction.
+		// Reading only the top-level witness set would report no phase-2
+		// execution and skip the rule, which is the one direction this guard
+		// must never fail in.
+		tx := &subTxCarrier{
+			BabbageTransaction: newTx(false),
+			subWitnessSets: []common.TransactionWitnessSet{
+				babbage.BabbageTransactionWitnessSet{
+					WsRedeemers: alonzo.AlonzoRedeemers{
+						Redeemers: []alonzo.AlonzoRedeemer{
+							{Tag: common.RedeemerTagSpend, Index: 0},
+						},
+					},
+				},
+			},
+		}
+		if err := babbage.UtxoValidateCollateralVKeyWitnesses(
+			tx, 0, ls, &babbage.BabbageProtocolParameters{},
+		); err == nil {
+			t.Error(
+				"redeemers in a sub-transaction mean phase-2 execution, so " +
+					"the collateral rule must still apply",
+			)
+		}
+	})
+
 	t.Run("phase-2 scripts: script collateral is still rejected", func(t *testing.T) {
 		err := babbage.UtxoValidateCollateralVKeyWitnesses(
 			newTx(true), 0, ls, &babbage.BabbageProtocolParameters{},
@@ -90,4 +117,15 @@ func TestCollateralKeyLockedOnlyForPhase2(t *testing.T) {
 			)
 		}
 	})
+}
+
+// subTxCarrier is a Babbage transaction that also exposes sub-transaction
+// witness sets, standing in for the Dijkstra shape without pulling that era in.
+type subTxCarrier struct {
+	*babbage.BabbageTransaction
+	subWitnessSets []common.TransactionWitnessSet
+}
+
+func (t *subTxCarrier) SubTransactionWitnessSets() []common.TransactionWitnessSet {
+	return t.subWitnessSets
 }
