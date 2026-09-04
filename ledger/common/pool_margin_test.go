@@ -688,23 +688,3 @@ func TestDistributePoolRewardsConservesMaximumPot(t *testing.T) {
 	assert.Empty(t, rewards.DelegatorRewards)
 	assert.Equal(t, ^uint64(0), rewards.TotalRewards)
 }
-
-func TestMarginFloatIsBounded(t *testing.T) {
-	tests := []struct {
-		name   string
-		margin GenesisRat
-		want   float64
-	}{
-		{name: "missing", margin: GenesisRat{}, want: 0},
-		{name: "negative", margin: NewGenesisRat(-1, 1), want: 0},
-		{name: "zero", margin: NewGenesisRat(0, 1), want: 0},
-		{name: "half", margin: NewGenesisRat(1, 2), want: 0.5},
-		{name: "one", margin: NewGenesisRat(1, 1), want: 1},
-		{name: "above one", margin: NewGenesisRat(2, 1), want: 1},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.want, marginFloat(test.margin))
-		})
-	}
-}

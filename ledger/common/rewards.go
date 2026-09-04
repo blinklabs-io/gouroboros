@@ -15,10 +15,12 @@
 package common
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -222,6 +224,47 @@ func calculateEta(totalBlocksInEpoch uint32, params RewardParameters) (*big.Rat,
 	return eta, nil
 }
 
+// poolSaturationThreshold (z0) is the relative stake at which a pool counts as
+// fully saturated. Held as an exact rational so the reward split does not
+// depend on the binary representation of 0.05. Read-only: never pass it as a
+// big.Rat receiver.
+// TODO(enhancement): Extract to a parameter for consistency with
+// CalculatePoolSaturation
+var poolSaturationThreshold = big.NewRat(1, 20)
+
+// ratFromUint64 converts a lovelace amount to an exact rational
+func ratFromUint64(value uint64) *big.Rat {
+	return new(big.Rat).SetInt(new(big.Int).SetUint64(value))
+}
+
+// ratFloorUint64 returns floor(value) saturated to the uint64 range. Reward
+// amounts are always floored; a stakeholder is never credited a fraction of a
+// lovelace.
+func ratFloorUint64(value *big.Rat) uint64 {
+	if value.Sign() <= 0 {
+		return 0
+	}
+	floor := new(big.Int).Quo(value.Num(), value.Denom())
+	if !floor.IsUint64() {
+		return math.MaxUint64
+	}
+	return floor.Uint64()
+}
+
+// sortedPoolIDs returns a map's pool IDs in ascending byte order. Reward
+// arithmetic iterates this instead of the map so a result never depends on
+// Go's randomized map iteration order.
+func sortedPoolIDs[V any](pools map[PoolKeyHash]V) []PoolKeyHash {
+	poolIDs := make([]PoolKeyHash, 0, len(pools))
+	for poolID := range pools {
+		poolIDs = append(poolIDs, poolID)
+	}
+	slices.SortFunc(poolIDs, func(a, b PoolKeyHash) int {
+		return bytes.Compare(a[:], b[:])
+	})
+	return poolIDs
+}
+
 // calculatePoolPerformance calculates the apparent performance of a pool
 // Following Amaru's approach: performance = (pool_blocks / total_blocks) * (total_stake / pool_stake)
 // params is unused as performance calculation only requires block production data from snapshot
@@ -229,34 +272,40 @@ func calculatePoolPerformance(
 	poolID PoolKeyHash,
 	snapshot RewardSnapshot,
 	_ RewardParameters,
-) float64 {
+) *big.Rat {
 	// Get blocks produced by this pool
 	poolBlocks := snapshot.PoolBlocks[poolID]
 
 	// If no total blocks, assume optimal performance
 	if snapshot.TotalBlocksInEpoch == 0 {
-		return 1.0
+		return big.NewRat(1, 1)
 	}
 
 	// If no blocks produced, performance = 0
 	if poolBlocks == 0 {
-		return 0.0
+		return new(big.Rat)
+	}
+
+	// Zero-stake pools have zero performance
+	poolStake := snapshot.PoolStake[poolID]
+	if poolStake == 0 {
+		return new(big.Rat)
 	}
 
 	// Calculate blocks ratio: pool_blocks / total_blocks
-	blocksRatio := float64(poolBlocks) / float64(snapshot.TotalBlocksInEpoch)
+	blocksRatio := new(big.Rat).SetFrac64(
+		int64(poolBlocks),
+		int64(snapshot.TotalBlocksInEpoch),
+	)
 
 	// Calculate stake ratio: total_stake / pool_stake
-	poolStake := snapshot.PoolStake[poolID]
-	if poolStake == 0 {
-		return 0.0 // Zero-stake pools have zero performance
-	}
-	stakeRatio := float64(snapshot.TotalActiveStake) / float64(poolStake)
+	stakeRatio := new(big.Rat).SetFrac(
+		new(big.Int).SetUint64(snapshot.TotalActiveStake),
+		new(big.Int).SetUint64(poolStake),
+	)
 
 	// Performance = blocks_ratio * stake_ratio
-	performance := blocksRatio * stakeRatio
-
-	return performance
+	return new(big.Rat).Mul(blocksRatio, stakeRatio)
 }
 
 // CalculateRewards calculates stake pool and delegator rewards
@@ -280,11 +329,12 @@ func CalculateRewards(
 	}
 
 	// Calculate rewards for each pool
-	poolShares := make(map[PoolKeyHash]float64)
-	totalShare := 0.0
+	poolShares := make(map[PoolKeyHash]*big.Rat)
+	totalShare := new(big.Rat)
 
 	// First pass: calculate raw shares for all pools
-	for poolID, poolStake := range snapshot.PoolStake {
+	for _, poolID := range sortedPoolIDs(snapshot.PoolStake) {
+		poolStake := snapshot.PoolStake[poolID]
 		poolParams, exists := snapshot.PoolParams[poolID]
 		if !exists {
 			continue // Skip pools without parameters
@@ -311,7 +361,7 @@ func CalculateRewards(
 			poolID,
 		)
 		poolShares[poolID] = share
-		totalShare += share
+		totalShare.Add(totalShare, share)
 	}
 
 	// Guard against malformed snapshot with no valid pools
@@ -320,44 +370,23 @@ func CalculateRewards(
 	}
 
 	// Guard against zero total share (all pools have zero share)
-	if totalShare == 0 {
+	if totalShare.Sign() == 0 {
 		// Assign equal shares to all pools to avoid division by zero
-		equalShare := 1.0 / float64(len(poolShares))
+		equalShare := big.NewRat(1, int64(len(poolShares)))
 		for poolID := range poolShares {
-			poolShares[poolID] = equalShare
+			poolShares[poolID] = new(big.Rat).Set(equalShare)
 		}
-		totalShare = 1.0
+		totalShare = big.NewRat(1, 1)
 	}
 
-	// Second pass: calculate actual rewards using normalized shares
-	totalDistributed := uint64(0)
-	var lastPoolID PoolKeyHash
-	poolRewardAmounts := make(map[PoolKeyHash]uint64)
-
-	for poolID, rawShare := range poolShares {
-		lastPoolID = poolID
-		// Normalize share
-		normalizedShare := rawShare / totalShare
-		totalPoolRewards := uint64(float64(pots.Rewards) * normalizedShare)
-		poolRewardAmounts[poolID] = totalPoolRewards
-		totalDistributed += totalPoolRewards
-	}
-
-	// Adjust the last pool's total rewards to ensure sum equals reward pot exactly
-	if totalDistributed != pots.Rewards && len(poolRewardAmounts) > 0 {
-		// Calculate adjustment - this may overflow in extreme cases, but Cardano values are reasonable
-		adjustment := int64(
-			pots.Rewards,
-		) - int64(
-			totalDistributed,
-		) // #nosec G115
-		poolRewardAmounts[lastPoolID] = uint64(
-			int64(poolRewardAmounts[lastPoolID]) + adjustment,
-		) // #nosec G115
-	}
+	// Second pass: split the reward pot across pools in proportion to their
+	// shares. The amounts sum to the pot exactly and do not depend on map
+	// iteration order.
+	poolRewardAmounts := apportionRewardPot(pots.Rewards, poolShares, totalShare)
 
 	// Now distribute rewards for each pool
-	for poolID, totalPoolRewards := range poolRewardAmounts {
+	for _, poolID := range sortedPoolIDs(poolRewardAmounts) {
+		totalPoolRewards := poolRewardAmounts[poolID]
 		poolParams := snapshot.PoolParams[poolID]
 		if poolParams == nil {
 			return nil, fmt.Errorf(
@@ -387,6 +416,58 @@ func CalculateRewards(
 	return result, nil
 }
 
+// apportionRewardPot splits pot across pools in proportion to their shares.
+// Each pool takes the floor of its exact share; the lovelace left unassigned
+// by flooring are handed out one each by descending fractional remainder,
+// breaking ties on pool ID. The result therefore sums to pot exactly and is
+// identical for every node computing it from the same snapshot.
+func apportionRewardPot(
+	pot uint64,
+	poolShares map[PoolKeyHash]*big.Rat,
+	totalShare *big.Rat,
+) map[PoolKeyHash]uint64 {
+	poolIDs := sortedPoolIDs(poolShares)
+	amounts := make(map[PoolKeyHash]uint64, len(poolIDs))
+	remainders := make(map[PoolKeyHash]*big.Rat, len(poolIDs))
+
+	potRat := ratFromUint64(pot)
+	assigned := new(big.Int)
+	for _, poolID := range poolIDs {
+		// exact = pot * share / totalShare
+		exact := new(big.Rat).Quo(poolShares[poolID], totalShare)
+		exact.Mul(exact, potRat)
+		if exact.Sign() < 0 {
+			exact = new(big.Rat)
+		}
+		floor := new(big.Int).Quo(exact.Num(), exact.Denom())
+		if !floor.IsUint64() {
+			floor = new(big.Int).SetUint64(pot)
+		}
+		amounts[poolID] = floor.Uint64()
+		assigned.Add(assigned, floor)
+		remainders[poolID] = exact.Sub(exact, new(big.Rat).SetInt(floor))
+	}
+
+	// Each fractional remainder is below 1, so at most len(poolIDs)-1 lovelace
+	// are left to hand out.
+	leftover := new(big.Int).Sub(new(big.Int).SetUint64(pot), assigned)
+	if leftover.Sign() <= 0 {
+		return amounts
+	}
+	// poolIDs is a fresh slice and its ID order is no longer needed, so
+	// reorder it in place by descending remainder.
+	slices.SortFunc(poolIDs, func(a, b PoolKeyHash) int {
+		if cmp := remainders[b].Cmp(remainders[a]); cmp != 0 {
+			return cmp
+		}
+		return bytes.Compare(a[:], b[:])
+	})
+	for i := range min(leftover.Int64(), int64(len(poolIDs))) {
+		amounts[poolIDs[i]]++
+	}
+	return amounts
+}
+
 // calculatePoolShare calculates the reward share for a single pool
 func calculatePoolShare(
 	poolStake uint64,
@@ -394,44 +475,49 @@ func calculatePoolShare(
 	snapshot RewardSnapshot,
 	params RewardParameters,
 	poolID PoolKeyHash,
-) float64 {
+) *big.Rat {
+	if snapshot.TotalActiveStake == 0 {
+		return new(big.Rat)
+	}
+
 	// Calculate pool performance using actual block production data
 	performance := calculatePoolPerformance(poolID, snapshot, params)
 
 	// Calculate stake ratio (pool stake / total active stake)
-	stakeRatio := float64(poolStake) / float64(snapshot.TotalActiveStake)
+	stakeRatio := new(big.Rat).SetFrac(
+		new(big.Int).SetUint64(poolStake),
+		new(big.Int).SetUint64(snapshot.TotalActiveStake),
+	)
 
-	// Calculate saturation (capped at 1.0)
-	saturation := math.Min(
-		stakeRatio/0.05,
-		1.0,
-	) // TODO(enhancement): Extract 0.05 saturation threshold to param for consistency with CalculatePoolSaturation
+	// Calculate saturation (capped at 1)
+	one := big.NewRat(1, 1)
+	saturation := new(big.Rat).Quo(stakeRatio, poolSaturationThreshold)
+	if saturation.Cmp(one) > 0 {
+		saturation.Set(one)
+	}
 
 	// Calculate pool reward share using leader stake influence formula
 	// R_pool = (stake_ratio * performance * (1 - margin)) / (1 + a0 * saturation)
 	a0 := params.PoolInfluence
-	if a0 == nil {
+	switch {
+	case a0 == nil:
 		a0 = big.NewRat(1, 1) // Default a0 = 1
+	case a0.Sign() < 0:
+		a0 = new(big.Rat) // Defensive clamp against pathological values
 	}
-
-	margin := poolParams.Margin
 
 	// Calculate numerator: stake_ratio * performance * (1 - margin)
-	numerator := stakeRatio * performance * (1 - marginFloat(margin))
+	numerator := new(big.Rat).Mul(stakeRatio, performance)
+	numerator.Mul(numerator, new(big.Rat).Sub(one, marginRat(poolParams.Margin)))
 
 	// Calculate denominator: 1 + a0 * saturation
-	a0Float, _ := a0.Float64()
-	if a0Float < 0 {
-		a0Float = 0 // Defensive clamp against pathological values
-	}
-	denominator := 1.0 + a0Float*saturation
-	if denominator <= 0 {
-		return 0 // Prevent division by zero or negative denominator
+	denominator := new(big.Rat).Mul(a0, saturation)
+	denominator.Add(denominator, one)
+	if denominator.Sign() <= 0 {
+		return new(big.Rat) // Prevent division by zero or negative denominator
 	}
 
-	poolRewardShare := numerator / denominator
-
-	return poolRewardShare
+	return numerator.Quo(numerator, denominator)
 }
 
 // distributePoolRewards distributes rewards within a pool between operator and delegators
@@ -444,7 +530,7 @@ func distributePoolRewards(
 	snapshot RewardSnapshot,
 ) *PoolRewards {
 	poolCost := poolParams.Cost
-	margin := marginFloat(poolParams.Margin)
+	margin := marginRat(poolParams.Margin)
 
 	// Calculate total pool stake (delegators + owners)
 	totalPoolStake := uint64(0)
@@ -473,14 +559,23 @@ func distributePoolRewards(
 	}
 
 	if totalPoolStake > 0 {
-		ownerStakeRatio := float64(ownerStake) / float64(totalPoolStake)
 		variableRewardsAvailable := totalPoolRewards - poolCost
-		operatorShare := margin + (1.0-margin)*ownerStakeRatio
-		variableRewards := float64(variableRewardsAvailable) * operatorShare
-		if variableRewards >= float64(variableRewardsAvailable) {
+		available := ratFromUint64(variableRewardsAvailable)
+
+		// operator_share = margin + (1 - margin) * owner_stake / total_pool_stake
+		ownerStakeRatio := new(big.Rat).SetFrac(
+			new(big.Int).SetUint64(ownerStake),
+			new(big.Int).SetUint64(totalPoolStake),
+		)
+		operatorShare := new(big.Rat).Sub(big.NewRat(1, 1), margin)
+		operatorShare.Mul(operatorShare, ownerStakeRatio)
+		operatorShare.Add(operatorShare, margin)
+
+		variableRewards := new(big.Rat).Mul(available, operatorShare)
+		if variableRewards.Cmp(available) >= 0 {
 			operatorRewards = totalPoolRewards
-		} else if variableRewards > 0 {
-			operatorRewards += uint64(variableRewards)
+		} else if variableRewards.Sign() > 0 {
+			operatorRewards += ratFloorUint64(variableRewards)
 		}
 	} else {
 		// If no stake, operator gets all rewards above cost
@@ -502,20 +597,19 @@ func distributePoolRewards(
 
 	assigned := uint64(0)
 	if totalPoolStake > 0 && stakeholderRewardsTotal > 0 {
+		pot := new(big.Int).SetUint64(stakeholderRewardsTotal)
+		total := new(big.Int).SetUint64(totalPoolStake)
 		for stakeKey, stake := range delegatorStake {
 			// Only reward registered stake keys
 			if snapshot.StakeRegistrations[stakeKey] {
-				reward := uint64(
-					float64(
-						stake,
-					) / float64(
-						totalPoolStake,
-					) * float64(
-						stakeholderRewardsTotal,
-					),
+				// reward = floor(stake * stakeholder_pot / total_pool_stake)
+				reward := new(big.Int).Mul(
+					new(big.Int).SetUint64(stake),
+					pot,
 				)
-				delegatorRewards[stakeKey] = reward
-				assigned += reward
+				reward.Div(reward, total)
+				delegatorRewards[stakeKey] = reward.Uint64()
+				assigned += reward.Uint64()
 			}
 		}
 	}
@@ -532,26 +626,25 @@ func distributePoolRewards(
 	}
 }
 
-// marginFloat converts a GenesisRat margin to float64
-func marginFloat(margin GenesisRat) float64 {
+// marginRat converts a GenesisRat margin to an exact rational clamped to
+// [0, 1]. ValidatePoolMargin is the gate that rejects an out-of-range margin;
+// this helper only keeps the arithmetic well defined when one reaches it.
+func marginRat(margin GenesisRat) *big.Rat {
 	if margin == (cbor.Rat{}) || margin.Rat == nil {
-		return 0.0
+		return new(big.Rat)
 	}
 	num := margin.Num()
 	den := margin.Denom()
 	if num == nil || den == nil {
-		return 0.0
+		return new(big.Rat)
 	}
 	if num.Sign() <= 0 {
-		return 0.0
+		return new(big.Rat)
 	}
 	if num.Cmp(den) >= 0 {
-		return 1.0
+		return big.NewRat(1, 1)
 	}
-	marginRat := big.NewRat(0, 1)
-	marginRat.SetFrac(num, den)
-	marginFloat, _ := marginRat.Float64()
-	return marginFloat
+	return new(big.Rat).SetFrac(num, den)
 }
 
 // CalculateOptimalPoolCount calculates the optimal number of stake pools
@@ -595,6 +688,8 @@ func ValidatePoolPledge(
 // CalculatePoolSaturation calculates the saturation level of a pool
 // Returns 1.0 (fully saturated) when saturationPointStake == 0 to handle edge cases
 // like very small totalActiveStake or misconfigured saturationPoint parameters.
+// The ratio is derived exactly and converted once on return, so a large
+// saturationPoint cannot overflow the intermediate product.
 func CalculatePoolSaturation(
 	poolStake uint64,
 	totalActiveStake uint64,
@@ -604,11 +699,22 @@ func CalculatePoolSaturation(
 		return 0.0
 	}
 
-	saturationPointStake := (totalActiveStake * saturationPoint) / 100
-	if saturationPointStake == 0 {
+	saturationPointStake := new(big.Int).Mul(
+		new(big.Int).SetUint64(totalActiveStake),
+		new(big.Int).SetUint64(saturationPoint),
+	)
+	saturationPointStake.Div(saturationPointStake, big.NewInt(100))
+	if saturationPointStake.Sign() == 0 {
 		return 1.0 // Fully saturated if saturation point is 0 (edge case handling)
 	}
 
-	saturation := float64(poolStake) / float64(saturationPointStake)
-	return math.Min(saturation, 1.0) // Cap at 1.0
+	saturation := new(big.Rat).SetFrac(
+		new(big.Int).SetUint64(poolStake),
+		saturationPointStake,
+	)
+	if saturation.Cmp(big.NewRat(1, 1)) > 0 {
+		return 1.0 // Cap at 1.0
+	}
+	value, _ := saturation.Float64()
+	return value
 }
