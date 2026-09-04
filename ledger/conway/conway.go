@@ -566,6 +566,9 @@ func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
 }
 
 func (s *ConwayTransactionInputSet) CheckForDuplicates() error {
+	if !s.useSet {
+		return nil
+	}
 	return s.checkForDuplicates()
 }
 

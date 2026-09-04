@@ -868,6 +868,44 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionReferenceInputs(
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
+func TestDijkstraRejectsDuplicateProposalProcedures(t *testing.T) {
+	rewardAccount, err := common.NewAddress(
+		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+	)
+	require.NoError(t, err)
+	action, err := common.NewInfoGovAction()
+	require.NoError(t, err)
+	procedure := DijkstraProposalProcedure{
+		PPRewardAccount: rewardAccount,
+		PPGovAction: DijkstraGovAction{
+			Action: action,
+		},
+	}
+	for _, tt := range []struct {
+		name  string
+		field uint
+	}{
+		{name: "transaction body", field: 20},
+		{name: "subtransaction body", field: 20},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{
+				tt.field: []DijkstraProposalProcedure{procedure, procedure},
+			})
+			require.NoError(t, err)
+
+			if tt.name == "transaction body" {
+				var body DijkstraTransactionBody
+				err = body.UnmarshalCBOR(bodyCbor)
+			} else {
+				var body DijkstraSubTransactionBody
+				err = body.UnmarshalCBOR(bodyCbor)
+			}
+			require.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
+
 func testShelleyInput() shelley.ShelleyTransactionInput {
 	var txId common.Blake2b256
 	txId[0] = 1

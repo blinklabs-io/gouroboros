@@ -127,6 +127,20 @@ func TestConwayRedeemersIter(t *testing.T) {
 	}
 }
 
+func TestConwayTransactionInputSetConditionalDuplicateCheck(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		0,
+	)
+	encoded, err := cbor.Encode([]shelley.ShelleyTransactionInput{input, input})
+	require.NoError(t, err)
+
+	var inputSet ConwayTransactionInputSet
+	_, err = cbor.Decode(encoded, &inputSet)
+	require.NoError(t, err)
+	require.NoError(t, inputSet.CheckForDuplicates())
+}
+
 func TestConwayTransactionBodyUnmarshalCBORCertificateTypes(t *testing.T) {
 	testCases := []struct {
 		name            string

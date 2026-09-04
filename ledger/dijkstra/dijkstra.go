@@ -785,6 +785,9 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 	}
+	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
+		return err
+	}
 	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
 		return err
 	}
@@ -1089,6 +1092,9 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxReferenceInputs.CheckForDuplicatesAlways(); err != nil {
 		return err
 	}
+	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
+		return err
+	}
 	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
 		return err
 	}
@@ -1104,6 +1110,24 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	b.SetCborReference(cborData)
+	return nil
+}
+
+func checkDuplicateProposalProcedures(
+	proposalProcedures []DijkstraProposalProcedure,
+) error {
+	seen := make(map[string]struct{}, len(proposalProcedures))
+	for _, procedure := range proposalProcedures {
+		encoded, err := cbor.Encode(procedure)
+		if err != nil {
+			return err
+		}
+		key := string(encoded)
+		if _, exists := seen[key]; exists {
+			return errors.New("duplicate member in set")
+		}
+		seen[key] = struct{}{}
+	}
 	return nil
 }
 
