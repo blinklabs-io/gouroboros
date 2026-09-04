@@ -720,31 +720,31 @@ func (r AlonzoRedeemers) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(r.Redeemers)
 }
 
+// Iter projects the list-form encoding into the map held by cardano-ledger.
+// Duplicate keys therefore resolve to their last value and are yielded once.
 func (r AlonzoRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
 	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
-		// Sort redeemers
-		sorted := make([]AlonzoRedeemer, len(r.Redeemers))
-		copy(sorted, r.Redeemers)
-		slices.SortFunc(
-			sorted,
-			func(a, b AlonzoRedeemer) int {
-				return common.CompareRedeemerKeys(
-					common.RedeemerKey{Tag: a.Tag, Index: a.Index},
-					common.RedeemerKey{Tag: b.Tag, Index: b.Index},
-				)
-			},
+		byKey := make(
+			map[common.RedeemerKey]common.RedeemerValue,
+			len(r.Redeemers),
 		)
-		// Yield keys
-		for _, redeemer := range sorted {
-			tmpKey := common.RedeemerKey{
+		for _, redeemer := range r.Redeemers {
+			key := common.RedeemerKey{
 				Tag:   redeemer.Tag,
 				Index: redeemer.Index,
 			}
-			tmpVal := common.RedeemerValue{
+			byKey[key] = common.RedeemerValue{
 				Data:    redeemer.Data,
 				ExUnits: redeemer.ExUnits,
 			}
-			if !yield(tmpKey, tmpVal) {
+		}
+		keys := make([]common.RedeemerKey, 0, len(byKey))
+		for key := range byKey {
+			keys = append(keys, key)
+		}
+		slices.SortFunc(keys, common.CompareRedeemerKeys)
+		for _, key := range keys {
+			if !yield(key, byKey[key]) {
 				return
 			}
 		}
@@ -765,7 +765,9 @@ func (r AlonzoRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
 ) common.RedeemerValue {
-	for _, redeemer := range r.Redeemers {
+	// Walk backward so duplicate keys resolve like Map.fromList: last wins.
+	for i := len(r.Redeemers) - 1; i >= 0; i-- {
+		redeemer := r.Redeemers[i]
 		if redeemer.Tag == tag && uint(redeemer.Index) == index {
 			return common.RedeemerValue{
 				Data:    redeemer.Data,
