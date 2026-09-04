@@ -180,7 +180,21 @@ const txTypeAlonzo = 4
 //
 // When the transaction has no stored CBOR (e.g. programmatically constructed),
 // the function falls back to encoding the transaction to compute its size.
-func TxSizeForFee(tx Transaction) (int, error) {
+// TxSize returns the size of a transaction as the chain measures it.
+//
+// A transaction stored in a block from Alonzo onwards is split across four
+// parallel arrays — bodies, witness sets, IsValid flags and auxiliary data —
+// and the IsValid flag is not part of the transaction the chain sized.
+// Reconstructing a standalone transaction re-attaches it as the third element
+// of a four-element array, one byte the original never had, so that byte is
+// subtracted here.
+//
+// Every rule expressed against a transaction's size must use this, not
+// len(tx.Cbor()). The two differ by exactly one byte, which only matters for a
+// transaction sitting exactly on a limit — rare enough to survive a long way
+// into a replay before a single transaction built to fill maxTxSize exposes
+// it.
+func TxSize(tx Transaction) (int, error) {
 	cborData := tx.Cbor()
 	if len(cborData) == 0 {
 		// Fallback: encode the transaction to compute its size.
@@ -189,7 +203,7 @@ func TxSizeForFee(tx Transaction) (int, error) {
 		var err error
 		cborData, err = cbor.Encode(tx)
 		if err != nil {
-			return 0, fmt.Errorf("failed to encode transaction for fee size: %w", err)
+			return 0, fmt.Errorf("failed to encode transaction for size: %w", err)
 		}
 	}
 	fullSize := len(cborData)
@@ -197,16 +211,18 @@ func TxSizeForFee(tx Transaction) (int, error) {
 		dec, err := cbor.NewStreamDecoder(cborData)
 		if err == nil {
 			arrayLen, _, _, decodeErr := dec.DecodeArrayHeader()
-			if decodeErr == nil {
-				if arrayLen == 4 {
-					return fullSize - 1, nil
-				}
-				return fullSize, nil
+			if decodeErr == nil && arrayLen == 4 {
+				return fullSize - 1, nil
 			}
 		}
-		return fullSize, nil
 	}
 	return fullSize, nil
+}
+
+// TxSizeForFee returns the fee-relevant size of a transaction. It is the same
+// measure as TxSize; the name is kept for the fee rules that already call it.
+func TxSizeForFee(tx Transaction) (int, error) {
+	return TxSize(tx)
 }
 
 // CalculateMinFee computes the minimum fee for a transaction given its
