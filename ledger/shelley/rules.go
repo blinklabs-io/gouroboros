@@ -819,6 +819,8 @@ func UtxoValidateWithdrawals(
 //   - WrongNetworkPOOL: a registration's reward account must be on the
 //     ledger's network. Gated on major protocol version > 4
 //     (hardforkAlonzoValidatePoolAccountAddressNetID).
+//   - PoolMetadataURLTooLong: a registration's metadata URL must fit the
+//     era-specific byte bound (64 before protocol version 9, 128 thereafter).
 //   - VRFKeyHashAlreadyRegistered: a registration may not claim a VRF key hash
 //     another pool holds. Gated on major protocol version > 10
 //     (hardforkConwayDisallowDuplicatedVRFKeys).

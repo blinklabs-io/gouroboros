@@ -551,12 +551,17 @@ func (p *PoolMetadata) UnmarshalJSON(data []byte) error {
 	if p == nil {
 		return errors.New("nil PoolMetadata receiver")
 	}
-	type poolMetadata PoolMetadata
-	var tmp poolMetadata
+	var tmp struct {
+		Url  string           `json:"url"`
+		Hash PoolMetadataHash `json:"hash"`
+	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
-	metadata := PoolMetadata(tmp)
+	metadata := PoolMetadata{
+		Url:  tmp.Url,
+		Hash: tmp.Hash,
+	}
 	if err := ValidatePoolMetadata(&metadata); err != nil {
 		return err
 	}
@@ -568,8 +573,13 @@ func (p PoolMetadata) MarshalJSON() ([]byte, error) {
 	if err := ValidatePoolMetadata(&p); err != nil {
 		return nil, err
 	}
-	type poolMetadata PoolMetadata
-	return json.Marshal(poolMetadata(p))
+	return json.Marshal(struct {
+		Url  string           `json:"url"`
+		Hash PoolMetadataHash `json:"hash"`
+	}{
+		Url:  p.Url,
+		Hash: p.Hash,
+	})
 }
 
 func (p *PoolMetadata) Utxorpc() (*utxorpc.PoolMetadata, error) {

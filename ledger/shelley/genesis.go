@@ -279,6 +279,14 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 			PoolMetadata:  metadata,
 		}
 	}
+	for poolID, pool := range out {
+		if err := common.ValidatePoolMetadataForProtocolVersion(
+			pool.PoolMetadata,
+			g.ProtocolParameters.ProtocolVersion.Major,
+		); err != nil {
+			return nil, fmt.Errorf("invalid pool %s metadata: %w", poolID, err)
+		}
+	}
 	return out, nil
 }
 
