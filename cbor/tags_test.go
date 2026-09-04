@@ -310,6 +310,12 @@ func TestSetTypeTaggedItemsRetainDuplicates(t *testing.T) {
 	assert.ErrorContains(t, setType.CheckForDuplicates(), "duplicate member in set")
 }
 
+func TestSetTypeAlwaysRejectsUntaggedDuplicates(t *testing.T) {
+	setType := cbor.NewSetType([]uint64{1, 2, 1}, false)
+	assert.NoError(t, setType.CheckForDuplicates())
+	assert.ErrorContains(t, setType.CheckForDuplicatesAlways(), "duplicate member in set")
+}
+
 func TestSetTypeMarshalCBOR(t *testing.T) {
 	// Create SetType with tag
 	setType := cbor.NewSetType([]uint64{1, 2, 3}, true)

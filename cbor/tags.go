@@ -265,6 +265,17 @@ func (t *SetType[T]) CheckForDuplicates() error {
 	if !t.useTag {
 		return nil
 	}
+	return t.checkForDuplicates()
+}
+
+// CheckForDuplicatesAlways rejects duplicate members regardless of the
+// optional tag-258 wrapper. Conway and later decoders require this for all
+// set encodings.
+func (t *SetType[T]) CheckForDuplicatesAlways() error {
+	return t.checkForDuplicates()
+}
+
+func (t *SetType[T]) checkForDuplicates() error {
 	seen := make(map[string]struct{}, len(t.items))
 	for _, item := range t.items {
 		encoded, err := Encode(item)

@@ -797,7 +797,7 @@ func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputSets(t *testing.T) {
 	}
 }
 
-func TestDijkstraUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
+func TestDijkstraRejectsDuplicateUntaggedInputSets(t *testing.T) {
 	input := testShelleyInput()
 	for _, tt := range []struct {
 		name  string
@@ -817,14 +817,7 @@ func TestDijkstraUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
 			require.NoError(t, err)
 
 			var body DijkstraTransactionBody
-			require.NoError(t, body.UnmarshalCBOR(bodyCbor))
-			tx := &DijkstraTransaction{Body: body}
-			require.Error(t, shelley.UtxoValidateNoDuplicateInputs(
-				tx,
-				0,
-				nil,
-				nil,
-			))
+			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "duplicate member in set")
 		})
 	}
 }
@@ -875,6 +868,44 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionReferenceInputs(
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
+func TestDijkstraRejectsDuplicateProposalProcedures(t *testing.T) {
+	rewardAccount, err := common.NewAddress(
+		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+	)
+	require.NoError(t, err)
+	action, err := common.NewInfoGovAction()
+	require.NoError(t, err)
+	procedure := DijkstraProposalProcedure{
+		PPRewardAccount: rewardAccount,
+		PPGovAction: DijkstraGovAction{
+			Action: action,
+		},
+	}
+	for _, tt := range []struct {
+		name  string
+		field uint
+	}{
+		{name: "transaction body", field: 20},
+		{name: "subtransaction body", field: 20},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{
+				tt.field: []DijkstraProposalProcedure{procedure, procedure},
+			})
+			require.NoError(t, err)
+
+			if tt.name == "transaction body" {
+				var body DijkstraTransactionBody
+				err = body.UnmarshalCBOR(bodyCbor)
+			} else {
+				var body DijkstraSubTransactionBody
+				err = body.UnmarshalCBOR(bodyCbor)
+			}
+			require.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
+
 func testShelleyInput() shelley.ShelleyTransactionInput {
 	var txId common.Blake2b256
 	txId[0] = 1
@@ -914,19 +945,17 @@ func TestDijkstraTransactionBodyRejectsDuplicateKeyHashGuards(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
-func TestDijkstraWitnessSetAllowsDuplicateUntaggedVkeyWitness(t *testing.T) {
-	// Untagged arrays (no tag 258) are not checked for duplicates so that
-	// pre-Dijkstra encodings decoded via this path remain accepted.
+func TestDijkstraWitnessSetRejectsDuplicateUntaggedVkeyWitness(t *testing.T) {
 	dupCbor := []byte{
 		0xa1, // map(1)
 		0x00, // key: 0  (VkeyWitnesses field)
 		// plain array — no tag 258
 		0x82,                         // array(2)
 		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
-		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate — must NOT be rejected
+		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
 	}
 	var ws DijkstraTransactionWitnessSet
-	require.NoError(t, ws.UnmarshalCBOR(dupCbor))
+	require.ErrorContains(t, ws.UnmarshalCBOR(dupCbor), "duplicate member in set")
 }
 
 func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {

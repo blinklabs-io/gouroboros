@@ -480,17 +480,17 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	// (cardano-ledger scriptDecoderV9 / decodeMapLikeEnforceNoDuplicates), like
 	// the tx-body sets. Only enforce the fields cardano-ledger enforces in
 	// Conway; enforcing the tolerated fields rejects valid historical blocks at
-	// decode (issue #1853). Untagged array fields are left unchecked so
-	// pre-Conway encodings remain valid.
+	// decode (issue #1853). The checked Plutus script sets reject duplicates in
+	// both tagged and untagged encodings.
 	type duplicateChecker interface {
-		CheckForDuplicates() error
+		CheckForDuplicatesAlways() error
 	}
 	for _, c := range []duplicateChecker{
 		&tmp.WsPlutusV1Scripts,
 		&tmp.WsPlutusV2Scripts,
 		&tmp.WsPlutusV3Scripts,
 	} {
-		if err := c.CheckForDuplicates(); err != nil {
+		if err := c.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 	}
@@ -569,6 +569,14 @@ func (s *ConwayTransactionInputSet) CheckForDuplicates() error {
 	if !s.useSet {
 		return nil
 	}
+	return s.checkForDuplicates()
+}
+
+func (s *ConwayTransactionInputSet) CheckForDuplicatesAlways() error {
+	return s.checkForDuplicates()
+}
+
+func (s *ConwayTransactionInputSet) checkForDuplicates() error {
 	seen := make(map[string]struct{}, len(s.items))
 	for _, item := range s.items {
 		encoded, err := cbor.Encode(item)
@@ -656,9 +664,10 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
-	// Reject duplicate members in any tag-258 set field on the transaction body.
+	// Reject duplicate members in every Conway set encoding, including
+	// untagged arrays.
 	type duplicateChecker interface {
-		CheckForDuplicates() error
+		CheckForDuplicatesAlways() error
 	}
 	for _, c := range []duplicateChecker{
 		&tmp.TxInputs,
@@ -666,7 +675,7 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		&tmp.TxRequiredSigners,
 		&tmp.TxReferenceInputs,
 	} {
-		if err := c.CheckForDuplicates(); err != nil {
+		if err := c.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 	}

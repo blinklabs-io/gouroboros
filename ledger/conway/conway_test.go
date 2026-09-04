@@ -127,6 +127,20 @@ func TestConwayRedeemersIter(t *testing.T) {
 	}
 }
 
+func TestConwayTransactionInputSetConditionalDuplicateCheck(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		0,
+	)
+	encoded, err := cbor.Encode([]shelley.ShelleyTransactionInput{input, input})
+	require.NoError(t, err)
+
+	var inputSet ConwayTransactionInputSet
+	_, err = cbor.Decode(encoded, &inputSet)
+	require.NoError(t, err)
+	require.NoError(t, inputSet.CheckForDuplicates())
+}
+
 func TestConwayTransactionBodyUnmarshalCBORCertificateTypes(t *testing.T) {
 	testCases := []struct {
 		name            string
@@ -433,7 +447,7 @@ func TestConwayTransactionMarshalRejectsNegativeCurrentTreasuryValue(
 	require.ErrorContains(t, err, "current treasury value")
 }
 
-func TestConwayUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
+func TestConwayRejectsDuplicateUntaggedInputSets(t *testing.T) {
 	input := testConwayShelleyInput()
 	tests := []struct {
 		name  string
@@ -454,14 +468,7 @@ func TestConwayUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
 			require.NoError(t, err)
 
 			var body ConwayTransactionBody
-			require.NoError(t, body.UnmarshalCBOR(bodyCbor))
-			tx := &ConwayTransaction{Body: body}
-			require.Error(t, shelley.UtxoValidateNoDuplicateInputs(
-				tx,
-				0,
-				nil,
-				nil,
-			))
+			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "duplicate member in set")
 		})
 	}
 }
