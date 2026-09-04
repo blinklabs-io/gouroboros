@@ -3204,13 +3204,20 @@ func UtxoValidateNativeScripts(
 // - Stake credential registration for non-registration delegations
 //
 // The function tracks in-transaction registrations to handle cases where
-// registration and delegation are in the same transaction.
+// registration and delegation are in the same transaction. Delegation state
+// transitions only apply to phase-2-valid transactions; this guard is kept in
+// the rule itself because Dijkstra and the conformance harness register and
+// invoke it directly rather than through Conway's composed rule groups.
 func UtxoValidateDelegation(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !tx.IsValid() {
+		return nil
+	}
+
 	// Track credential registration state changes within this transaction.
 	// The bool records both registrations and deregistrations so later
 	// certificates observe the state produced by earlier certificates.
