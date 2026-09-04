@@ -16,6 +16,8 @@ package cbor_test
 
 import (
 	"encoding/hex"
+	"math"
+	"math/bits"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -160,6 +162,14 @@ func TestStreamDecoderAdvance(t *testing.T) {
 	err = dec.Advance(1000)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "exceed")
+
+	// A huge advance must not overflow the internal position arithmetic and
+	// wrap negative, which would otherwise bypass the bounds check and
+	// corrupt the decoder's position.
+	err = dec.Advance(math.MaxInt)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "exceed")
+	assert.Equal(t, 2, dec.Position())
 }
 
 func TestStreamDecoderDecodeArrayHeader(t *testing.T) {
@@ -452,10 +462,35 @@ func TestArrayHeaderSize(t *testing.T) {
 		{256, 3},
 		{65535, 3},
 		{65536, 5},
+		// math.MaxInt scales with the platform's int width (2^31-1 on
+		// 32-bit, 2^63-1 on 64-bit), so it stays a valid header-size-9
+		// case everywhere without overflowing a 32-bit int.
+		{math.MaxInt, 9},
 	}
 
 	for _, tt := range tests {
 		size := cbor.ArrayHeaderSize(tt.length)
+		assert.Equal(t, tt.expectSize, size, "length %d", tt.length)
+	}
+
+	// These boundary values don't fit in a 32-bit int at all, so they can
+	// only be constructed and exercised on a 64-bit platform. Build them
+	// as int64 first so the source still compiles on a 32-bit GOARCH.
+	if bits.UintSize < 64 {
+		t.Skip("32-bit int cannot represent the 32-bit CBOR length boundary")
+	}
+	sixtyFourBitOnly := []struct {
+		length     int64
+		expectSize uint32
+	}{
+		{int64(math.MaxUint32) - 1, 5},
+		{int64(math.MaxUint32), 5},
+		// At and above the 32-bit boundary, CBOR requires the 8-byte
+		// length form (9-byte header), not the 4-byte form (5-byte header).
+		{int64(math.MaxUint32) + 1, 9},
+	}
+	for _, tt := range sixtyFourBitOnly {
+		size := cbor.ArrayHeaderSize(int(tt.length))
 		assert.Equal(t, tt.expectSize, size, "length %d", tt.length)
 	}
 }

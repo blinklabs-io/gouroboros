@@ -395,11 +395,13 @@ func (d *StreamDecoder) Advance(n int) error {
 	if n < 0 {
 		return errors.New("cannot advance by negative amount")
 	}
-	newPos := d.consumed + d.dec.NumBytesRead() + n
-	if newPos > len(d.data) {
+	curPos := d.consumed + d.dec.NumBytesRead()
+	// Compare before adding: a huge n could otherwise overflow int and
+	// wrap the sum negative, which would pass a post-addition bounds check.
+	if n > len(d.data)-curPos {
 		return errors.New("advance would exceed data bounds")
 	}
-	d.consumed = newPos
+	d.consumed = curPos + n
 	// Reinitialize decoder with remaining data, reusing cached DecMode
 	d.dec = d.decMode.NewDecoder(bytes.NewReader(d.data[d.consumed:]))
 	return nil
@@ -785,6 +787,9 @@ func ArrayHeaderSize(length int) uint32 {
 		return 2 // 0x98 + 1-byte length
 	} else if length < 65536 {
 		return 3 // 0x99 + 2-byte length
+	} else if int64(length) < (1 << 32) {
+		return 5 // 0x9a + 4-byte length (covers up to 2^32-1 elements)
 	}
-	return 5 // 0x9a + 4-byte length (covers up to 2^32 elements)
+	// At or above the 32-bit boundary, CBOR requires the 8-byte length form
+	return 9 // 0x9b + 8-byte length
 }
