@@ -357,6 +357,9 @@ type LazyValue struct {
 }
 
 func (l *LazyValue) MarshalCBOR() ([]byte, error) {
+	if l.value == nil {
+		l.value = &Value{}
+	}
 	// Return stored CBOR
 	// This is only a stopgap, since it doesn't allow us to build values from scratch
 	return []byte(l.value.cborData), nil
@@ -389,14 +392,23 @@ func (l *LazyValue) MarshalJSON() ([]byte, error) {
 }
 
 func (l *LazyValue) Decode() (any, error) {
+	if l.value == nil {
+		l.value = &Value{}
+	}
 	err := l.value.UnmarshalCBOR([]byte(l.value.cborData))
 	return l.Value(), err
 }
 
 func (l *LazyValue) Value() any {
+	if l.value == nil {
+		return nil
+	}
 	return l.value.Value()
 }
 
 func (l *LazyValue) Cbor() []byte {
+	if l.value == nil {
+		return nil
+	}
 	return l.value.Cbor()
 }

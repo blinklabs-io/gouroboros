@@ -492,3 +492,33 @@ func TestLazyValueMarshalJSONEmptyCborData(t *testing.T) {
 		}
 	})
 }
+
+// TestLazyValueZeroValueMethods ensures every exported LazyValue method is
+// safe to call on a zero-value (never-unmarshaled) LazyValue, rather than
+// dereferencing a nil internal *Value.
+func TestLazyValueZeroValueMethods(t *testing.T) {
+	t.Run("Value", func(t *testing.T) {
+		var tmpValue cbor.LazyValue
+		require.Nil(t, tmpValue.Value())
+	})
+
+	t.Run("Cbor", func(t *testing.T) {
+		var tmpValue cbor.LazyValue
+		require.Nil(t, tmpValue.Cbor())
+	})
+
+	t.Run("MarshalCBOR", func(t *testing.T) {
+		var tmpValue cbor.LazyValue
+		data, err := tmpValue.MarshalCBOR()
+		require.NoError(t, err)
+		require.Empty(t, data)
+	})
+
+	t.Run("Decode", func(t *testing.T) {
+		var tmpValue cbor.LazyValue
+		// No CBOR was ever stored, so decoding is expected to fail with a
+		// normal error rather than panic.
+		_, err := tmpValue.Decode()
+		require.Error(t, err)
+	})
+}
