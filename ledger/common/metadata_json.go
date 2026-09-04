@@ -70,12 +70,11 @@ func NewShelleyAuxiliaryData(
 // nest before parsing is rejected. The mandatory top-level object counts as
 // depth 0, so this many containers may be open at once.
 //
-// The bound matches the CBOR decoder's MaxNestedLevels: metadata that cannot
-// round trip through CBOR is not usable as transaction metadata anyway. It is
-// enforced before descending because the readers below recurse once per
-// level, and exhausting the goroutine stack is a fatal error that recover
-// cannot catch.
-const MetadataJSONMaxNestingDepth = 256
+// The bound is the CBOR decoder's limit: metadata that cannot round trip
+// through CBOR is not usable as transaction metadata anyway. It is enforced
+// before descending because the readers below recurse once per level, and
+// exhausting the goroutine stack is a fatal error that recover cannot catch.
+const MetadataJSONMaxNestingDepth = cbor.MaxNestedLevels
 
 // checkMetadataJSONNestingDepth reports whether a container opened at depth
 // may be descended into.
