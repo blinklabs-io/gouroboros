@@ -166,14 +166,23 @@ func UtxoValidateScriptWitnesses(
 	return common.ValidateScriptWitnesses(tx, ls)
 }
 
-// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+// UtxoValidateNativeScripts evaluates the native scripts this transaction has
+// to satisfy.
 func UtxoValidateNativeScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if scriptHash, failed := common.FirstInvalidNativeScript(tx, slot); failed {
+	nativeScripts, err := common.NativeScriptsForValidation(tx, ls)
+	if err != nil {
+		return err
+	}
+	if scriptHash, failed := common.FirstInvalidNativeScriptIn(
+		tx,
+		slot,
+		nativeScripts,
+	); failed {
 		return NativeScriptFailedError{ScriptHash: scriptHash}
 	}
 	return nil

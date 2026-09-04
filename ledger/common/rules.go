@@ -643,11 +643,10 @@ type scriptRequirement struct {
 }
 
 type transactionScriptRequirements struct {
-	required    map[ScriptHash]struct{}
-	purposes    []scriptRequirement
-	explicit    map[ScriptHash]Script
-	available   map[ScriptHash]Script
-	nativeOrder []ScriptHash
+	required  map[ScriptHash]struct{}
+	purposes  []scriptRequirement
+	explicit  map[ScriptHash]Script
+	available map[ScriptHash]Script
 }
 
 func normalizeAvailableScript(script Script) (Script, error) {
@@ -774,7 +773,6 @@ func collectTransactionScriptRequirements(
 				return err
 			}
 			ret.explicit[hash] = ret.available[hash]
-			ret.nativeOrder = append(ret.nativeOrder, hash)
 		}
 		for _, plutus := range wits.PlutusV1Scripts() {
 			hash, err := addAvailableScript(ret.available, plutus)
@@ -1011,9 +1009,10 @@ func collectTransactionScriptRequirements(
 	return ret, nil
 }
 
-// NativeScriptsForValidation returns all explicit native scripts plus every
-// native reference script required by a concrete transaction purpose. The
-// latter must be evaluated even though it is not carried in the witness set.
+// NativeScriptsForValidation returns the needed native scripts available from
+// the witness set or a reference script. A native script that is merely
+// explicit but does not satisfy a transaction purpose is checked separately
+// as an extraneous witness and must not be evaluated here.
 func NativeScriptsForValidation(
 	tx Transaction,
 	ls LedgerState,
@@ -1023,11 +1022,6 @@ func NativeScriptsForValidation(
 		return nil, err
 	}
 	needed := make(map[ScriptHash]NativeScript)
-	for _, hash := range requirements.nativeOrder {
-		if script, ok := requirements.explicit[hash].(NativeScript); ok {
-			needed[hash] = script
-		}
-	}
 	for hash := range requirements.required {
 		if script, ok := requirements.available[hash].(NativeScript); ok {
 			needed[hash] = script

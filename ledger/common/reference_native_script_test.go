@@ -24,10 +24,12 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
@@ -309,6 +311,121 @@ func TestReferenceProvidedNativeScriptsAreValidated(t *testing.T) {
 					require.Equal(t, scriptHash, failed.ScriptHash)
 				})
 			}
+		})
+	}
+}
+
+// Native-script phase 1 evaluates only scripts needed by a transaction
+// purpose. An implicit-deposit registration carries a script credential but
+// creates no script purpose; its optional script witness must not be evaluated
+// as though it authorized the transaction. Required scripts remain evaluated,
+// and the separate witness rule still rejects a required script when absent.
+func TestNativeScriptEvaluationUsesNeededness(t *testing.T) {
+	optionalScript := testPubkeyNativeScript(
+		t,
+		bytes.Repeat([]byte{0x64}, 32),
+	)
+	optionalCredential := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224(optionalScript.Hash()),
+	}
+	optionalTx := mockledger.NewTransactionBuilder().
+		WithCertificates(&common.StakeRegistrationCertificate{
+			StakeCredential: optionalCredential,
+		}).
+		WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().
+				WithNativeScripts(optionalScript),
+		)
+
+	requiredScript := testPubkeyNativeScript(
+		t,
+		bytes.Repeat([]byte{0x65}, 32),
+	)
+	requiredInput := shelley.NewShelleyTransactionInput(
+		"6666666666666666666666666666666666666666666666666666666666666666",
+		0,
+	)
+	requiredTx := mockledger.NewTransactionBuilder()
+	requiredTx.WithInputs(requiredInput)
+	requiredTx.WithWitnesses(
+		mockledger.NewMockTransactionWitnessSet().
+			WithNativeScripts(requiredScript),
+	)
+	requiredLedgerState := testLedgerState(map[string]common.TransactionOutput{
+		requiredInput.String(): testOutput(
+			testScriptPaymentAddress(t, requiredScript.Hash()),
+			nil,
+		),
+	})
+
+	missingRequiredTx := mockledger.NewTransactionBuilder()
+	missingRequiredTx.WithInputs(requiredInput)
+
+	eras := []struct {
+		name  string
+		rules []common.UtxoValidationRuleFunc
+	}{
+		{name: "Shelley", rules: shelley.UtxoValidationRules},
+		{name: "Allegra", rules: allegra.UtxoValidationRules},
+		{name: "Mary", rules: mary.UtxoValidationRules},
+		{name: "Alonzo", rules: alonzo.UtxoValidationRules},
+		{name: "Babbage", rules: babbage.UtxoValidationRules},
+		{name: "Conway", rules: conway.UtxoValidationRules},
+		{name: "Dijkstra", rules: dijkstra.UtxoValidationRules},
+	}
+	for _, era := range eras {
+		t.Run(era.name, func(t *testing.T) {
+			nativeRule := selectRules(
+				t,
+				era.rules,
+				".UtxoValidateNativeScripts",
+			)
+			optionalNativeScripts, err := common.NativeScriptsForValidation(
+				optionalTx,
+				mockledger.NewLedgerStateBuilder().Build(),
+			)
+			require.NoError(t, err)
+			require.Empty(t, optionalNativeScripts)
+			require.NoError(
+				t,
+				common.VerifyTransaction(
+					optionalTx,
+					0,
+					mockledger.NewLedgerStateBuilder().Build(),
+					nil,
+					nativeRule,
+				),
+			)
+
+			// The required script is provided but unsatisfied, so it must
+			// still reach native evaluation.
+			require.Error(
+				t,
+				common.VerifyTransaction(
+					requiredTx,
+					0,
+					requiredLedgerState,
+					nil,
+					nativeRule,
+				),
+			)
+
+			authorizationRules := selectRules(
+				t,
+				era.rules,
+				".UtxoValidateScriptWitnesses",
+				".UtxoValidateNativeScripts",
+			)
+			var missing common.MissingScriptWitnessesError
+			err = common.VerifyTransaction(
+				missingRequiredTx,
+				0,
+				requiredLedgerState,
+				nil,
+				authorizationRules,
+			)
+			require.ErrorAs(t, err, &missing)
 		})
 	}
 }

@@ -63,7 +63,7 @@ func TestNativeScriptsToEvaluateOrderIsStable(t *testing.T) {
 		return bytes.Compare(a.Bytes(), b.Bytes())
 	})
 	want := append(
-		[]common.ScriptHash{witnessSecond.Hash(), witnessFirst.Hash()},
+		[]common.ScriptHash{witnessFirst.Hash()},
 		referenceTail...,
 	)
 
@@ -125,21 +125,17 @@ func TestNativeScriptsToEvaluateDeduplicates(t *testing.T) {
 	)
 }
 
-// An era before Babbage has no reference scripts and passes the zero view, so
-// the witness set alone has to survive it.
+// An empty view has no needed scripts, so a witness script with no purpose is
+// not evaluated. The pre-Babbage rules provide the needed set through the
+// common transaction requirements rather than by treating every witness as
+// needed.
 func TestNativeScriptsToEvaluateZeroView(t *testing.T) {
 	nativeScript := testNativeScript(t, 1)
 	tx := mockledger.NewTransactionBuilder().WithWitnesses(
 		mockledger.NewMockTransactionWitnessSet().
 			WithNativeScripts(nativeScript),
 	)
-	require.Equal(
-		t,
-		[]common.ScriptHash{nativeScript.Hash()},
-		nativeScriptHashes(
-			script.NativeScriptsToEvaluate(tx, script.TxScriptView{}),
-		),
-	)
+	require.Empty(t, script.NativeScriptsToEvaluate(tx, script.TxScriptView{}))
 	require.Empty(
 		t,
 		script.NativeScriptsToEvaluate(nil, script.TxScriptView{}),
