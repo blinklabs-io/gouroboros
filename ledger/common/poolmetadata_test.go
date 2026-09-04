@@ -16,13 +16,107 @@ package common_test
 
 import (
 	"bytes"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	common "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
+
+func TestPoolMetadataURLDecodeBound(t *testing.T) {
+	const maxURLLength = 128
+	hash := common.NewBlake2b256([]byte{1, 2, 3, 4, 5})
+
+	for _, test := range []struct {
+		name      string
+		urlLength int
+		wantErr   bool
+	}{
+		{name: "maximum", urlLength: maxURLLength},
+		{name: "over maximum", urlLength: maxURLLength + 1, wantErr: true},
+	} {
+		t.Run(test.name+" CBOR marshal", func(t *testing.T) {
+			metadata := &common.PoolMetadata{
+				Url:  strings.Repeat("a", test.urlLength),
+				Hash: hash,
+			}
+			_, err := cbor.Encode(metadata)
+			if test.wantErr {
+				require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
+				return
+			}
+			require.NoError(t, err)
+		})
+
+		t.Run(test.name+" CBOR unmarshal", func(t *testing.T) {
+			wire, err := cbor.Encode([]any{
+				strings.Repeat("a", test.urlLength),
+				hash,
+			})
+			require.NoError(t, err)
+			var metadata common.PoolMetadata
+			_, err = cbor.Decode(wire, &metadata)
+			if test.wantErr {
+				require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
+				return
+			}
+			require.NoError(t, err)
+		})
+
+		t.Run(test.name+" JSON unmarshal", func(t *testing.T) {
+			data, err := json.Marshal(map[string]any{
+				"url":  strings.Repeat("a", test.urlLength),
+				"hash": hash,
+			})
+			require.NoError(t, err)
+			var metadata common.PoolMetadata
+			err = json.Unmarshal(data, &metadata)
+			if test.wantErr {
+				require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
+				return
+			}
+			require.NoError(t, err)
+		})
+
+		t.Run(test.name+" JSON marshal", func(t *testing.T) {
+			metadata := common.PoolMetadata{
+				Url:  strings.Repeat("a", test.urlLength),
+				Hash: hash,
+			}
+			_, err := json.Marshal(metadata)
+			if test.wantErr {
+				require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestPoolMetadataURLLengthUsesBytes(t *testing.T) {
+	hash := common.NewBlake2b256([]byte{1, 2, 3, 4, 5})
+	for _, test := range []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{name: "128 UTF-8 bytes", url: strings.Repeat("é", 64)},
+		{name: "over 128 UTF-8 bytes", url: strings.Repeat("é", 65), wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := cbor.Encode(&common.PoolMetadata{Url: test.url, Hash: hash})
+			if test.wantErr {
+				require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
 
 // Tests for stake pool metadata (CIP-0006)
 func TestPoolMetadataUtxorpc(t *testing.T) {

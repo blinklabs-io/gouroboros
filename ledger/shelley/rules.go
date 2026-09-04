@@ -897,6 +897,7 @@ func UtxoValidatePoolCertificates(
 				ls,
 				networkId,
 				minPoolCost,
+				protocolMajor,
 				checkNetworkId,
 				checkVrfKeys,
 				inTxVrfKeys,
@@ -941,10 +942,18 @@ func validatePoolRegistration(
 	ls common.LedgerState,
 	networkId uint,
 	minPoolCost uint64,
+	protocolMajor uint,
 	checkNetworkId bool,
 	checkVrfKeys bool,
 	inTxVrfKeys map[common.VrfKeyHash]common.PoolKeyHash,
 ) error {
+	if err := common.ValidatePoolMetadataForProtocolVersion(
+		cert.PoolMetadata,
+		protocolMajor,
+	); err != nil {
+		return err
+	}
+
 	// WrongNetworkPOOL: actualNetID == suppliedNetID.
 	//
 	// The supplied value is the network id in the reward account's address

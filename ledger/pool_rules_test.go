@@ -23,6 +23,7 @@ package ledger_test
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -869,6 +870,76 @@ func TestUtxoValidatePoolCertificatesWrongPparams(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pparams are not expected type")
+}
+
+// TestPoolMetadataURLBoundThroughPoolRule proves the metadata URL bound is
+// enforced for constructed certificates by every production-era POOL entry.
+// Wire decoding is covered separately because it reaches the bound through
+// PoolMetadata.UnmarshalCBOR.
+func TestPoolMetadataURLBoundThroughPoolRule(t *testing.T) {
+	const maxURLLength = 128
+	eras := []struct {
+		name string
+		rule common.UtxoValidationRuleFunc
+	}{
+		{name: "shelley", rule: shelley.UtxoValidatePoolCertificates},
+		{name: "allegra", rule: allegra.UtxoValidatePoolCertificates},
+		{name: "mary", rule: mary.UtxoValidatePoolCertificates},
+		{name: "alonzo", rule: alonzo.UtxoValidatePoolCertificates},
+		{name: "babbage", rule: babbage.UtxoValidatePoolCertificates},
+		{name: "conway", rule: conway.UtxoValidatePoolCertificates},
+		{name: "dijkstra", rule: conway.UtxoValidatePoolCertificates},
+	}
+	ls := mockledger.NewLedgerStateBuilder().Build()
+
+	for _, era := range eras {
+		for _, test := range []struct {
+			name          string
+			protocolMajor uint
+			urlLength     int
+			wantErr       bool
+		}{
+			{
+				name:          "pre-Conway maximum",
+				protocolMajor: common.ProtocolVersionBabbage,
+				urlLength:     64,
+			},
+			{
+				name:          "pre-Conway over maximum",
+				protocolMajor: common.ProtocolVersionBabbage,
+				urlLength:     65,
+				wantErr:       true,
+			},
+			{
+				name:          "Conway maximum",
+				protocolMajor: common.ProtocolVersionConway,
+				urlLength:     maxURLLength,
+			},
+			{
+				name:          "Conway over maximum",
+				protocolMajor: common.ProtocolVersionConway,
+				urlLength:     maxURLLength + 1,
+				wantErr:       true,
+			},
+		} {
+			t.Run(era.name+"/"+test.name, func(t *testing.T) {
+				cert := &common.PoolRegistrationCertificate{
+					Operator:   poolKeyHash(0x01),
+					VrfKeyHash: vrfKeyHash(0x02),
+					PoolMetadata: &common.PoolMetadata{
+						Url: strings.Repeat("a", test.urlLength),
+					},
+				}
+				pparams := conwayPparams(test.protocolMajor, 0)
+				err := era.rule(poolCertTx(cert), 0, ls, pparams)
+				if test.wantErr {
+					require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
+					return
+				}
+				require.NoError(t, err)
+			})
+		}
+	}
 }
 
 // TestPoolRuleInEveryEraRuleSet proves the Shelley POOL rule is reachable from

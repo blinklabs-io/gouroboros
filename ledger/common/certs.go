@@ -479,7 +479,103 @@ type PoolMetadata struct {
 	Hash PoolMetadataHash
 }
 
+const (
+	poolMetadataMaxURLLength       = 128
+	poolMetadataMaxURLLengthLegacy = 64
+)
+
+// ErrPoolMetadataURLTooLong identifies a pool metadata URL that exceeds the
+// protocol's 128-byte bound.
+var ErrPoolMetadataURLTooLong = errors.New(
+	"pool metadata URL exceeds the protocol length limit",
+)
+
+// ValidatePoolMetadata verifies the protocol bounds for optional pool
+// metadata. The URL size is measured in bytes, as required by CBOR text-size
+// constraints.
+func ValidatePoolMetadata(metadata *PoolMetadata) error {
+	return validatePoolMetadataURL(metadata, poolMetadataMaxURLLength)
+}
+
+// ValidatePoolMetadataForProtocolVersion verifies the protocol-version-aware
+// URL bound for pool metadata. Protocol versions before Conway use the legacy
+// 64-byte bound; Conway and later use the 128-byte bound.
+func ValidatePoolMetadataForProtocolVersion(
+	metadata *PoolMetadata,
+	protocolMajor uint,
+) error {
+	maxURLLength := poolMetadataMaxURLLength
+	if protocolMajor < ProtocolVersionConway {
+		maxURLLength = poolMetadataMaxURLLengthLegacy
+	}
+	return validatePoolMetadataURL(metadata, maxURLLength)
+}
+
+func validatePoolMetadataURL(metadata *PoolMetadata, maxURLLength int) error {
+	if metadata == nil || len(metadata.Url) <= maxURLLength {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: maximum %d bytes, got %d",
+		ErrPoolMetadataURLTooLong,
+		maxURLLength,
+		len(metadata.Url),
+	)
+}
+
+func (p *PoolMetadata) UnmarshalCBOR(data []byte) error {
+	if p == nil {
+		return errors.New("nil PoolMetadata receiver")
+	}
+	type poolMetadata PoolMetadata
+	var tmp poolMetadata
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	metadata := PoolMetadata(tmp)
+	if err := ValidatePoolMetadata(&metadata); err != nil {
+		return err
+	}
+	*p = metadata
+	return nil
+}
+
+func (p PoolMetadata) MarshalCBOR() ([]byte, error) {
+	if err := ValidatePoolMetadata(&p); err != nil {
+		return nil, err
+	}
+	return cbor.Encode([]any{p.Url, p.Hash})
+}
+
+func (p *PoolMetadata) UnmarshalJSON(data []byte) error {
+	if p == nil {
+		return errors.New("nil PoolMetadata receiver")
+	}
+	type poolMetadata PoolMetadata
+	var tmp poolMetadata
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	metadata := PoolMetadata(tmp)
+	if err := ValidatePoolMetadata(&metadata); err != nil {
+		return err
+	}
+	*p = metadata
+	return nil
+}
+
+func (p PoolMetadata) MarshalJSON() ([]byte, error) {
+	if err := ValidatePoolMetadata(&p); err != nil {
+		return nil, err
+	}
+	type poolMetadata PoolMetadata
+	return json.Marshal(poolMetadata(p))
+}
+
 func (p *PoolMetadata) Utxorpc() (*utxorpc.PoolMetadata, error) {
+	if err := ValidatePoolMetadata(p); err != nil {
+		return nil, err
+	}
 	return &utxorpc.PoolMetadata{
 			Url:  p.Url,
 			Hash: p.Hash[:],
@@ -1047,6 +1143,9 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 func (c PoolRegistrationCertificate) MarshalJSON() ([]byte, error) {
 	if err := ValidatePoolMargin(c.Margin); err != nil {
 		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
+	}
+	if err := ValidatePoolMetadata(c.PoolMetadata); err != nil {
+		return nil, fmt.Errorf("invalid pool registration metadata: %w", err)
 	}
 	type poolRegistrationCertificateJSON PoolRegistrationCertificate
 	//nolint:musttag // The alias preserves PoolRegistrationCertificate's tags.
