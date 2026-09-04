@@ -612,6 +612,44 @@ func TestUtxoValidatePoolCertificatesRetirementRegistered(t *testing.T) {
 	})
 }
 
+func TestUtxoValidateDelegationPoolRetirementKeepsPoolRegistered(
+	t *testing.T,
+) {
+	pool := poolKeyHash(0x04)
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("delegation-stake")),
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithStakeCredentialRegistered(stake.Credential, true).
+		Build()
+	pparams := maryPparams(0)
+	registration := poolRegCertWire(
+		t,
+		pool,
+		vrfKeyHash(0x05),
+		0,
+		common.AddressNetworkMainnet,
+	)
+	delegation := &common.StakeDelegationCertificate{
+		CertType:        uint(common.CertificateTypeStakeDelegation),
+		StakeCredential: &stake,
+		PoolKeyHash:     pool,
+	}
+
+	// poolTransition retains a retired pool in psStakePools until POOLREAP.
+	require.NoError(t, shelley.UtxoValidateDelegation(
+		poolCertTx(
+			registration,
+			poolRetirementCert(pool, 5),
+			delegation,
+		),
+		0,
+		ls,
+		pparams,
+	))
+}
+
 // TestUtxoValidatePoolCertificatesRetirementEpoch covers
 // StakePoolRetirementWrongEpochPOOL and the degrading EpochState capability.
 func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {

@@ -4315,6 +4315,48 @@ func TestUtxoValidateDelegation_DeregistrationBlocksLaterDelegation(
 	}
 }
 
+func TestUtxoValidateDelegation_PoolRetirementKeepsPoolRegistered(
+	t *testing.T,
+) {
+	poolKeyHash := common.PoolKeyHash{0x04, 0x05, 0x06}
+	stakeKeyHash := common.Blake2b224Hash(
+		[]byte("pool-retirement-delegation-stake"),
+	)
+	stakeCred := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: stakeKeyHash,
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithStakeCredentialRegistered(stakeKeyHash, true).
+		Build()
+	newTx := func(certs ...common.Certificate) *conway.ConwayTransaction {
+		wrappers := make([]common.CertificateWrapper, len(certs))
+		for i, cert := range certs {
+			wrappers[i] = common.CertificateWrapper{Certificate: cert}
+		}
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{TxCertificates: wrappers},
+		}
+	}
+	delegation := &common.StakeDelegationCertificate{
+		StakeCredential: &stakeCred,
+		PoolKeyHash:     poolKeyHash,
+	}
+	registration := &common.PoolRegistrationCertificate{Operator: poolKeyHash}
+
+	// RetirePool leaves the pool in psStakePools until POOLREAP.
+	require.NoError(t, conway.UtxoValidateDelegation(
+		newTx(
+			registration,
+			&common.PoolRetirementCertificate{PoolKeyHash: poolKeyHash, Epoch: 5},
+			delegation,
+		),
+		0,
+		ls,
+		&conway.ConwayProtocolParameters{},
+	))
+}
+
 func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 	pool1 := common.PoolKeyHash{0x01, 0x02, 0x03}
 	pool2 := common.PoolKeyHash{0x04, 0x05, 0x06}

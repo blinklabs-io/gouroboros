@@ -712,8 +712,8 @@ func UtxoValidateDelegation(
 			inTxPoolRegs[c.Operator] = true
 
 		case *common.PoolRetirementCertificate:
-			// Remove from in-tx registrations so subsequent delegations fail
-			delete(inTxPoolRegs, c.PoolKeyHash)
+			// Retirement does not remove the pool from the active pool set.
+			// POOLREAP removes it only after the retirement epoch.
 
 		case *common.StakeDelegationCertificate:
 			if !isPoolRegistered(c.PoolKeyHash) {
