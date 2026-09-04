@@ -478,36 +478,28 @@ func (v *HeaderValidator) validateProxySignature(
 		)
 	}
 
-	// Extract certificate components. The epoch is taken twice: as a value
-	// for the checks below, and as its preserved wire encoding, which is
-	// what the certificate signature actually covers.
-	epochOrOmega, err := extractUint64(
-		cert[0],
-	) // epochOrOmega - used for replay protection
-	if err != nil {
-		return fmt.Errorf("failed to extract epoch/omega from cert: %w", err)
-	}
-	epochCbor, err := proxyCertEpochCbor(input.HeaderCbor)
+	// The certificate index is interpreted by proxy type: light delegation
+	// carries an inclusive epoch range, while heavy delegation carries an
+	// unconstrained omega. Its preserved wire encoding is also required for
+	// certificate-signature verification.
+	indexCbor, err := proxyCertIndexCbor(input.HeaderCbor)
 	if err != nil {
 		return fmt.Errorf(
-			"failed to recover delegation certificate epoch encoding: %w",
+			"failed to recover delegation certificate index encoding: %w",
 			err,
 		)
 	}
-	// Confirm the walk through the raw header landed on the same field the
-	// decoded BlockSig holds, so a header whose shape differs from what
-	// proxyCertEpochCbor assumes is rejected rather than verified against
-	// some other field's bytes.
-	var recoveredEpoch uint64
-	if _, err := cbor.Decode(epochCbor, &recoveredEpoch); err != nil {
-		return fmt.Errorf("decode delegation certificate epoch: %w", err)
+	var header byron.ByronMainBlockHeader
+	if _, err := cbor.Decode(input.HeaderCbor, &header); err != nil {
+		return fmt.Errorf("decode proxy-signed Byron header: %w", err)
 	}
-	if recoveredEpoch != epochOrOmega {
-		return fmt.Errorf(
-			"delegation certificate epoch encoding %x decodes to %d, "+
-				"but the header's decoded certificate says %d",
-			epochCbor, recoveredEpoch, epochOrOmega,
-		)
+	if err := validateProxyCertIndex(
+		sigType,
+		cert[0],
+		indexCbor,
+		header.ConsensusData.SlotId.Epoch,
+	); err != nil {
+		return err
 	}
 
 	issuerVK, ok := cert[1].([]byte)
@@ -585,7 +577,7 @@ func (v *HeaderValidator) validateProxySignature(
 	// from cardano-ledger-byron's Delegation/Certificate.hs and
 	// cardano-crypto's Signing/{Tag,Signature}.hs.
 	if err := v.validateDelegationCertSignature(
-		issuerVK, delegateVK, certSig, epochCbor,
+		issuerVK, delegateVK, certSig, indexCbor,
 	); err != nil {
 		return fmt.Errorf(
 			"delegation certificate signature verification failed: %w",
@@ -651,23 +643,130 @@ func (v *HeaderValidator) validateProxySignature(
 	return nil
 }
 
-// proxyCertEpochCbor recovers the preserved wire encoding of the epoch
+// validateProxyCertIndex validates the type-specific certificate index and
+// confirms that the separately decoded BlockSig agrees with the signed wire
+// bytes. Light delegation is constrained to an inclusive epoch range. Heavy
+// delegation uses its scalar index as an unconstrained omega.
+func validateProxyCertIndex(
+	sigType uint64,
+	decoded any,
+	encoded []byte,
+	headerEpoch uint64,
+) error {
+	switch sigType {
+	case byronSigTypeLight:
+		decodedRange, ok := decoded.([]any)
+		if !ok || len(decodedRange) != 2 {
+			return fmt.Errorf(
+				"light delegation certificate index is not a 2-element "+
+					"epoch range, got %T with %d elements",
+				decoded,
+				len(decodedRange),
+			)
+		}
+		lower, err := extractUint64(decodedRange[0])
+		if err != nil {
+			return fmt.Errorf(
+				"extract light delegation epoch lower bound: %w",
+				err,
+			)
+		}
+		upper, err := extractUint64(decodedRange[1])
+		if err != nil {
+			return fmt.Errorf(
+				"extract light delegation epoch upper bound: %w",
+				err,
+			)
+		}
+		var recoveredRange []uint64
+		if _, err := cbor.Decode(encoded, &recoveredRange); err != nil {
+			return fmt.Errorf(
+				"decode light delegation certificate epoch range: %w",
+				err,
+			)
+		}
+		if len(recoveredRange) != 2 {
+			return fmt.Errorf(
+				"light delegation certificate wire index is not a "+
+					"2-element epoch range, got %d elements",
+				len(recoveredRange),
+			)
+		}
+		if recoveredRange[0] != lower || recoveredRange[1] != upper {
+			return fmt.Errorf(
+				"light delegation certificate index encoding %x decodes "+
+					"to [%d, %d], but BlockSig says [%d, %d]",
+				encoded,
+				recoveredRange[0],
+				recoveredRange[1],
+				lower,
+				upper,
+			)
+		}
+		if lower > upper {
+			return fmt.Errorf(
+				"light delegation epoch lower bound %d exceeds upper "+
+					"bound %d",
+				lower,
+				upper,
+			)
+		}
+		if headerEpoch < lower || headerEpoch > upper {
+			return fmt.Errorf(
+				"light delegation epoch range [%d, %d] does not include "+
+					"header epoch %d",
+				lower,
+				upper,
+				headerEpoch,
+			)
+		}
+		return nil
+	case byronSigTypeHeavy:
+		omega, err := extractUint64(decoded)
+		if err != nil {
+			return fmt.Errorf(
+				"extract heavy delegation omega: %w",
+				err,
+			)
+		}
+		var recoveredOmega uint64
+		if _, err := cbor.Decode(encoded, &recoveredOmega); err != nil {
+			return fmt.Errorf(
+				"decode heavy delegation certificate omega: %w",
+				err,
+			)
+		}
+		if recoveredOmega != omega {
+			return fmt.Errorf(
+				"heavy delegation certificate index encoding %x decodes "+
+					"to omega %d, but BlockSig says %d",
+				encoded,
+				recoveredOmega,
+				omega,
+			)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported Byron proxy signature type: %d", sigType)
+	}
+}
+
+// proxyCertIndexCbor recovers the preserved wire encoding of the index
 // field inside a header's proxy delegation certificate, by walking the
 // header's own CBOR:
 //
 //	header[3]         -> consensus_data
 //	consensus_data[3] -> block_sig
 //	block_sig[1]      -> [certificate, block_signature]
-//	certificate[0]    -> epoch
+//	certificate[0]    -> light epoch range or heavy omega
 //
 // The decoded BlockSig cannot supply this. CBOR admits non-shortest integer
-// encodings and this decoder accepts them, so an epoch that arrived as
-// 0x1807 decodes to 7 and re-encodes to 0x07 -- and the issuer signed the
-// bytes on the wire, not the round trip.
-func proxyCertEpochCbor(headerCbor []byte) ([]byte, error) {
+// encodings and this decoder accepts them, so an index that is re-encoded can
+// differ from what the issuer signed on the wire.
+func proxyCertIndexCbor(headerCbor []byte) ([]byte, error) {
 	if len(headerCbor) == 0 {
 		return nil, errors.New(
-			"header CBOR is required to recover the certificate epoch",
+			"header CBOR is required to recover the certificate index",
 		)
 	}
 	path := []struct {
@@ -696,7 +795,7 @@ func proxyCertEpochCbor(headerCbor []byte) ([]byte, error) {
 		current = elements[step.index]
 	}
 	if len(current) == 0 {
-		return nil, errors.New("delegation certificate epoch encoding is empty")
+		return nil, errors.New("delegation certificate index encoding is empty")
 	}
 	return current, nil
 }
@@ -829,11 +928,12 @@ func extractUint64(v any) (uint64, error) {
 // here and delegation payload validation in ledger/byron cannot drift
 // apart.
 //
-// epochCbor is the epoch field's preserved wire encoding, not a re-encoding
-// of its decoded value -- see that function's doc comment.
+// indexCbor is the certificate index's preserved wire encoding, not a
+// re-encoding of its decoded value. It is a light-delegation epoch range or a
+// heavy-delegation omega, depending on the proxy-signature type.
 func (v *HeaderValidator) validateDelegationCertSignature(
 	issuerVK, delegateVK, certSig []byte,
-	epochCbor []byte,
+	indexCbor []byte,
 ) error {
 	// Check if verification should be skipped
 	if v.SkipDelegationCertVerification {
@@ -848,7 +948,7 @@ func (v *HeaderValidator) validateDelegationCertSignature(
 		issuerVK,
 		delegateVK,
 		certSig,
-		epochCbor,
+		indexCbor,
 	)
 }
 
