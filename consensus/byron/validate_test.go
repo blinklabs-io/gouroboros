@@ -837,6 +837,63 @@ func TestValidateProxySignatureEpochConstraint(t *testing.T) {
 	}
 }
 
+func TestValidateProxySignaturePreservesNonShortestEpochRange(t *testing.T) {
+	const currentEpoch = uint64(7)
+	input := proxySignatureInput(
+		t,
+		byronSigTypeLight,
+		[]any{currentEpoch, currentEpoch},
+		currentEpoch,
+	)
+
+	// Re-sign the certificate over a non-shortest encoding of the same range.
+	// The decoded BlockSig remains [7, 7], but the issuer signed 0x1807 for
+	// each bound. A validator that re-encodes the decoded range will reject it.
+	rawRange := []byte{0x82, 0x18, 0x07, 0x18, 0x07}
+	issuerPrivate := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x41}, 32))
+	delegatePrivate := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, 32))
+	delegatePub := delegatePrivate.Public().(ed25519.PublicKey)
+	delegateVK := append(
+		append([]byte(nil), delegatePub...),
+		make([]byte, byron.VerificationKeySize-ed25519.PublicKeySize)...,
+	)
+
+	config := testByronConfig()
+	payload := append([]byte{'0', '0'}, delegateVK...)
+	payload = append(payload, rawRange...)
+	payloadCbor, err := cbor.Encode(payload)
+	require.NoError(t, err)
+	protocolMagicCbor, err := cbor.Encode(config.ProtocolMagic)
+	require.NoError(t, err)
+	certificateSigned := append(
+		[]byte{byron.SignTagCertificate},
+		protocolMagicCbor...,
+	)
+	certificateSigned = append(certificateSigned, payloadCbor...)
+	certificateSignature := ed25519.Sign(issuerPrivate, certificateSigned)
+
+	oldSignature := input.BlockSig[1].([]any)[0].([]any)[3].([]byte)
+	input.BlockSig[1].([]any)[0].([]any)[3] = certificateSignature
+	input.HeaderCbor = bytes.Replace(
+		input.HeaderCbor,
+		[]byte{0x82, 0x07, 0x07},
+		rawRange,
+		1,
+	)
+	input.HeaderCbor = bytes.Replace(
+		input.HeaderCbor,
+		oldSignature,
+		certificateSignature,
+		1,
+	)
+
+	recovered, err := proxyCertIndexCbor(input.HeaderCbor)
+	require.NoError(t, err)
+	require.Equal(t, rawRange, recovered)
+	require.Equal(t, []any{currentEpoch, currentEpoch}, input.BlockSig[1].([]any)[0].([]any)[0])
+	require.NoError(t, NewHeaderValidator(config).validateBlockSignature(input))
+}
+
 func TestValidateGenesisDelegate(t *testing.T) {
 	// Generate test key
 	pubKey, _, err := ed25519.GenerateKey(nil)
