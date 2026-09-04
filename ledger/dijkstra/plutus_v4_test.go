@@ -113,6 +113,72 @@ func dijkstraV4TestLevel(
 	return levels[0]
 }
 
+func TestDijkstraWithdrawalsV4FollowCredentialOrder(t *testing.T) {
+	hash := bytes.Repeat([]byte{0x42}, common.AddressHashSize)
+	scriptAddress, err := common.NewAddressFromParts(
+		common.AddressTypeNoneScript,
+		common.AddressNetworkTestnet,
+		nil,
+		hash,
+	)
+	require.NoError(t, err)
+	keyAddress, err := common.NewAddressFromParts(
+		common.AddressTypeNoneKey,
+		common.AddressNetworkTestnet,
+		nil,
+		hash,
+	)
+	require.NoError(t, err)
+	withdrawals := map[*common.Address]*big.Int{
+		&scriptAddress: big.NewInt(1),
+		&keyAddress:    big.NewInt(2),
+	}
+
+	withdrawalsData, err := dijkstraWithdrawalsV4(withdrawals)
+	require.NoError(t, err)
+	withdrawalMap := requireDijkstraV4Map(t, withdrawalsData, 2)
+	first := requireDijkstraV4Constr(t, withdrawalMap.Pairs[0][0], 1, 1)
+	requireDijkstraV4Bytes(t, first.Fields[0], hash)
+	requireDijkstraV4Integer(t, withdrawalMap.Pairs[0][1], 1)
+	second := requireDijkstraV4Constr(t, withdrawalMap.Pairs[1][0], 0, 1)
+	requireDijkstraV4Bytes(t, second.Fields[0], hash)
+	requireDijkstraV4Integer(t, withdrawalMap.Pairs[1][1], 2)
+}
+
+func TestDijkstraRewardPurposeUsesCredentialOrder(t *testing.T) {
+	hash := bytes.Repeat([]byte{0x42}, common.AddressHashSize)
+	scriptAddress, err := common.NewAddressFromParts(
+		common.AddressTypeNoneScript,
+		common.AddressNetworkTestnet,
+		nil,
+		hash,
+	)
+	require.NoError(t, err)
+	keyAddress, err := common.NewAddressFromParts(
+		common.AddressTypeNoneKey,
+		common.AddressNetworkTestnet,
+		nil,
+		hash,
+	)
+	require.NoError(t, err)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxWithdrawals: map[*common.Address]uint64{
+				&scriptAddress: 1,
+				&keyAddress:    2,
+			},
+		},
+		TxIsValid: true,
+	}
+	level := dijkstraV4TestLevel(t, tx)
+	purposes := dijkstraRequiredScriptPurposes(level)
+	require.Len(t, purposes, 1)
+	require.Equal(t, common.RedeemerKey{
+		Tag:   common.RedeemerTagReward,
+		Index: 0,
+	}, purposes[0].key)
+}
+
 func TestDijkstraTxInfoV4ReleasedSchema(t *testing.T) {
 	var policy common.Blake2b224
 	copy(policy[:], bytes.Repeat([]byte{0x31}, len(policy)))
