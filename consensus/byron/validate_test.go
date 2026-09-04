@@ -747,7 +747,7 @@ func proxySignatureInput(
 	}
 }
 
-func TestValidateProxySignatureWireTypeMapping(t *testing.T) {
+func TestValidateProxySignatureLiteralWireTypes(t *testing.T) {
 	const currentEpoch = uint64(7)
 	tests := []struct {
 		name       string
@@ -755,14 +755,14 @@ func TestValidateProxySignatureWireTypeMapping(t *testing.T) {
 		constraint any
 	}{
 		{
-			name:       "type 1 heavyweight delegation",
+			name:       "type 1 lightweight delegation",
 			sigType:    1,
-			constraint: uint64(0),
+			constraint: []any{currentEpoch, currentEpoch},
 		},
 		{
-			name:       "type 2 lightweight delegation",
+			name:       "type 2 heavyweight delegation",
 			sigType:    2,
-			constraint: []any{currentEpoch, currentEpoch},
+			constraint: uint64(0),
 		},
 	}
 	validator := NewHeaderValidator(testByronConfig())

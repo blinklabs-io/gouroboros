@@ -272,12 +272,12 @@ func (v *HeaderValidator) validateProtocolMagic(
 
 // Byron signature types from the legacy wire format.
 // - Type 0: BlockPSignatureSimple - simple signature [0, signature]
-// - Type 1: BlockPSignatureHeavy - heavyweight delegation
-// - Type 2: BlockPSignatureLight - lightweight delegation
+// - Type 1: BlockPSignatureLight - lightweight delegation
+// - Type 2: BlockPSignatureHeavy - heavyweight delegation
 const (
 	byronSigTypeSimple = 0
-	byronSigTypeHeavy  = 1
-	byronSigTypeLight  = 2
+	byronSigTypeLight  = 1
+	byronSigTypeHeavy  = 2
 )
 
 // validateBlockSignature verifies the block signature based on its type.
