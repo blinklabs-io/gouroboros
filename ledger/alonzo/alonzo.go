@@ -570,13 +570,21 @@ func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 			assetDataMap.Pairs...,
 		)
 	}
+	var datumOptionPd data.PlutusData
+	if o.OutputDatumHash != nil {
+		datumOptionPd = data.NewConstr(
+			1,
+			data.NewByteString(o.OutputDatumHash.Bytes()),
+		)
+	} else {
+		datumOptionPd = data.NewConstr(0)
+	}
 	tmpData := data.NewConstr(
 		0,
 		o.OutputAddress.ToPlutusData(),
 		data.NewMap(valueData),
-		// Empty datum option
-		data.NewConstr(0),
-		// Empty script ref
+		datumOptionPd,
+		// Empty script ref (no era support for script refs pre-Babbage)
 		data.NewConstr(1),
 	)
 	return tmpData
