@@ -42,6 +42,23 @@ func ValidateCollateralVKeyWitnesses(
 	if len(collateral) == 0 {
 		return nil
 	}
+	// Collateral exists to pay for phase-2 script execution that fails, so a
+	// transaction that runs no phase-2 scripts has nothing for it to cover and
+	// is not held to these rules. Declaring collateral it does not need is
+	// pointless but harmless, and the chain accepts it: Preview transaction
+	// 9ce59ee0dc6abee0 at slot 15148509 carries two vkey witnesses, one native
+	// script, no Plutus scripts and no redeemers, and a collateral input at an
+	// enterprise-script address. Holding it to the key-locked rule rejected a
+	// canonical block (blinklabs-io/dingo#3896).
+	//
+	// The presence of redeemers is the condition rather than the presence of
+	// Plutus scripts in the witness set: a script supplied by a reference input
+	// is not in the witness set, and gating on that would skip the check for
+	// exactly the transactions that most need it. Every phase-2 execution has a
+	// redeemer regardless of where its script came from.
+	if !transactionRunsPhase2Scripts(tx) {
+		return nil
+	}
 	// Collect vkey hashes from witnesses
 	w := tx.Witnesses()
 	if w == nil || len(w.Vkey()) == 0 {
@@ -93,4 +110,23 @@ func ValidateCollateralVKeyWitnesses(
 		}
 	}
 	return nil
+}
+
+// transactionRunsPhase2Scripts reports whether the transaction executes any
+// Plutus script, by looking for redeemers rather than for scripts in the
+// witness set. A reference input can supply the script, in which case the
+// witness set holds none but the redeemer is still present.
+func transactionRunsPhase2Scripts(tx Transaction) bool {
+	w := tx.Witnesses()
+	if w == nil {
+		return false
+	}
+	redeemers := w.Redeemers()
+	if redeemers == nil {
+		return false
+	}
+	for range redeemers.Iter() {
+		return true
+	}
+	return false
 }
