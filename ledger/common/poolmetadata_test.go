@@ -108,7 +108,9 @@ func TestPoolMetadataURLLengthUsesBytes(t *testing.T) {
 		{name: "over 128 UTF-8 bytes", url: strings.Repeat("é", 65), wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := cbor.Encode(&common.PoolMetadata{Url: test.url, Hash: hash})
+			_, err := cbor.Encode(
+				&common.PoolMetadata{Url: test.url, Hash: hash},
+			)
 			if test.wantErr {
 				require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
 				return
