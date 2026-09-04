@@ -194,7 +194,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
-		Validator: conway.UtxoValidateWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
 	},
 	{
 		Id:        common.UtxoValidationRuleTransactionNetworkId,
@@ -2773,6 +2773,21 @@ func UtxoValidateTransactionNetworkId(
 		}
 	}
 	return nil
+}
+
+// UtxoValidateWrongNetworkWithdrawal validates only phase-2-valid Dijkstra
+// transactions. A phase-2-invalid transaction does not apply its withdrawal
+// effects, so its withdrawal addresses are not checked by the withdrawal rule.
+func UtxoValidateWrongNetworkWithdrawal(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	return conway.UtxoValidateWrongNetworkWithdrawal(tx, slot, ls, pp)
 }
 
 func UtxoValidateMaxTxSizeUtxo(

@@ -652,6 +652,34 @@ func TestUtxoValidateWithdrawalsDijkstraAmountModes(t *testing.T) {
 	}
 }
 
+func TestDijkstraWrongNetworkWithdrawalPhase2Gate(t *testing.T) {
+	tx, _ := testDijkstraWithdrawalTx(t, 1, nil)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+	pp := &DijkstraProtocolParameters{}
+
+	_, ruleIndex := dijkstraValidationRuleDescriptor(
+		t,
+		common.UtxoValidationRuleWrongNetworkWithdrawal,
+	)
+	validate := func(tx common.Transaction) error {
+		return common.VerifyTransaction(
+			tx,
+			0,
+			ls,
+			pp,
+			UtxoValidationRules[ruleIndex:ruleIndex+1],
+		)
+	}
+
+	var wrongNetworkErr shelley.WrongNetworkWithdrawalError
+	require.ErrorAs(t, validate(tx), &wrongNetworkErr)
+
+	tx.TxIsValid = false
+	require.NoError(t, validate(tx))
+}
+
 func testGuardScriptCredential(script common.PlutusV4Script) common.Credential {
 	return common.Credential{
 		CredType:   common.CredentialTypeScriptHash,
