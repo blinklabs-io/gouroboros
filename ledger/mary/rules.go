@@ -302,11 +302,13 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator))
+			depositDue, err := common.PoolRegistrationDepositDue(
+				ls, slot, common.Blake2b224(tmpCert.Operator),
+			)
 			if err != nil {
 				return err
 			}
-			if reg == nil {
+			if depositDue {
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
