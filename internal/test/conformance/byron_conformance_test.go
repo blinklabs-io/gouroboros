@@ -76,9 +76,11 @@ func extractByronExtendedPubKey(
 
 // extractByronBlockSignature extracts the block signature from a Byron main block header.
 // Byron block signatures are structured as:
-// - [0, signature] for simple block signature (BlockSignature)
-// - [1, [[epoch, issuerVK, delegateVK, cert], signature]] for heavy delegation (BlockPSignatureHeavy)
-// - [2, [[omega, issuerVK, delegateVK, cert], signature]] for lightweight delegation (BlockPSignatureLight)
+//   - [0, signature] for simple block signature (BlockSignature)
+//   - [1, [[epoch range, issuerVK, delegateVK, cert], signature]] for the
+//     legacy lightweight delegation form (BlockPSignatureLight)
+//   - [2, [[epoch, issuerVK, delegateVK, cert], signature]] for the current
+//     heavyweight delegation form (BlockPSignatureHeavy)
 //
 // For types 1 and 2, the signature is inside a nested array structure.
 func extractByronBlockSignature(
@@ -563,7 +565,7 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 			}
 		}
 
-		// For signature type 2 (lightweight), show the full BlockSig structure
+		// For signature type 2 (heavyweight), show the full BlockSig structure
 		sigType, _ := header.ConsensusData.BlockSig[0].(uint64)
 		if sigType == 2 {
 			innerArray, ok := header.ConsensusData.BlockSig[1].([]any)
@@ -574,7 +576,7 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 				header.ConsensusData.BlockSig[1],
 			)
 			t.Logf(
-				"Lightweight delegation inner array: %d elements",
+				"Heavyweight delegation inner array: %d elements",
 				len(innerArray),
 			)
 			for i, elem := range innerArray {
@@ -605,7 +607,7 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 			}
 		}
 
-		// For signature type 1 (heavy), show structure too
+		// For signature type 1 (lightweight), show structure too
 		if sigType == 1 {
 			innerArray, ok := header.ConsensusData.BlockSig[1].([]any)
 			require.True(
@@ -614,7 +616,7 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 				"sigType 1: expected []any for BlockSig[1], got %T",
 				header.ConsensusData.BlockSig[1],
 			)
-			t.Logf("Heavy delegation inner array: %d elements", len(innerArray))
+			t.Logf("Lightweight delegation inner array: %d elements", len(innerArray))
 			for i, elem := range innerArray {
 				switch v := elem.(type) {
 				case []byte:
@@ -662,10 +664,10 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 	case 0:
 		t.Logf("  Signature type: BlockSignature (simple)")
 	case 1:
-		t.Logf("  Signature type: BlockPSignatureHeavy (delegation)")
+		t.Logf("  Signature type: BlockPSignatureLight (legacy delegation)")
 	case 2:
 		t.Logf(
-			"  Signature type: BlockPSignatureLight (lightweight delegation)",
+			"  Signature type: BlockPSignatureHeavy (heavyweight delegation)",
 		)
 	}
 }
@@ -769,6 +771,13 @@ func TestByronFullHeaderValidation(t *testing.T) {
 
 	// Log signature type for debugging
 	sigType, _ := header.ConsensusData.BlockSig[0].(uint64)
+	require.Equal(t, uint64(2), sigType, "historical mainnet header must use Byron heavy type 2")
+	innerArray, ok := header.ConsensusData.BlockSig[1].([]any)
+	require.True(t, ok, "historical type-2 signature must contain a nested array")
+	cert, ok := innerArray[0].([]any)
+	require.True(t, ok, "historical type-2 signature must contain a delegation certificate")
+	_, ok = cert[0].(uint64)
+	require.True(t, ok, "historical type-2 certificate index must be a scalar epoch")
 	t.Logf("Signature type: %d", sigType)
 
 	// Configure the fixture issuer as the test's trust root so the full header
@@ -918,10 +927,10 @@ func TestByronSignatureFormat(t *testing.T) {
 			case 0:
 				t.Logf("  Type: 0 (BlockSignature - simple)")
 			case 1:
-				t.Logf("  Type: 1 (BlockPSignatureHeavy - delegation cert)")
+				t.Logf("  Type: 1 (BlockPSignatureLight - legacy delegation cert)")
 			case 2:
 				t.Logf(
-					"  Type: 2 (BlockPSignatureLight - lightweight delegation)",
+					"  Type: 2 (BlockPSignatureHeavy - heavyweight delegation)",
 				)
 			default:
 				t.Logf("  Type: %d (unknown)", sigType)
@@ -930,9 +939,9 @@ func TestByronSignatureFormat(t *testing.T) {
 	}
 
 	// For delegation signatures, structure is typically:
-	// [1, [[epoch, genesisKey, delegateKey, dlgCertSig], proxySignature]]
+	// [1, [[epoch range, issuerVK, delegateVK, dlgCertSig], proxySignature]]
 	// or
-	// [2, [[omega, issuerVK, delegateVK, dlgCertSig], proxySignature]]
+	// [2, [[epoch, issuerVK, delegateVK, dlgCertSig], proxySignature]]
 
 	// Document the structure for future implementation
 	for i, elem := range blockSig {
@@ -1120,7 +1129,8 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	innerArray := header.ConsensusData.BlockSig[1].([]any)
 	cert := innerArray[0].([]any)
 
-	epoch, _ := cert[0].(uint64)
+	epoch, ok := cert[0].(uint64)
+	require.True(t, ok, "historical type-2 certificate index should be an epoch")
 	issuerVK := cert[1].([]byte)
 	delegateVK := cert[2].([]byte)
 	certSig := cert[3].([]byte)
@@ -1200,7 +1210,7 @@ func TestByronBlockSignatureFormats(t *testing.T) {
 	header := block.BlockHeader
 
 	// Extract the proxy signature components
-	// Structure: [2, [[omega, issuerVK, delegateVK, certSig], blockSig]]
+	// Structure: [2, [[epoch, issuerVK, delegateVK, certSig], blockSig]]
 	innerArray, ok := header.ConsensusData.BlockSig[1].([]any)
 	if !ok {
 		t.Fatalf(

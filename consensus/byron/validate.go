@@ -462,7 +462,7 @@ func (v *HeaderValidator) validateProxySignature(
 		)
 	}
 
-	// Extract the delegation certificate: [epoch/omega, issuerVK, delegateVK, certSig]
+	// Extract the delegation certificate: [epoch, issuerVK, delegateVK, certSig]
 	cert, ok := innerArray[0].([]any)
 	if !ok {
 		return fmt.Errorf(
@@ -479,8 +479,8 @@ func (v *HeaderValidator) validateProxySignature(
 	}
 
 	// The certificate index is interpreted by proxy type: light delegation
-	// carries an inclusive epoch range, while heavy delegation carries an
-	// unconstrained omega. Its preserved wire encoding is also required for
+	// carries an inclusive epoch range, while heavy delegation carries a
+	// scalar activation epoch. Its preserved wire encoding is also required for
 	// certificate-signature verification.
 	indexCbor, err := proxyCertIndexCbor(input.HeaderCbor)
 	if err != nil {
@@ -646,7 +646,7 @@ func (v *HeaderValidator) validateProxySignature(
 // validateProxyCertIndex validates the type-specific certificate index and
 // confirms that the separately decoded BlockSig agrees with the signed wire
 // bytes. Light delegation is constrained to an inclusive epoch range. Heavy
-// delegation uses its scalar index as an unconstrained omega.
+// delegation uses its scalar index as an activation epoch.
 func validateProxyCertIndex(
 	sigType uint64,
 	decoded any,
@@ -722,27 +722,27 @@ func validateProxyCertIndex(
 		}
 		return nil
 	case byronSigTypeHeavy:
-		omega, err := extractUint64(decoded)
+		epoch, err := extractUint64(decoded)
 		if err != nil {
 			return fmt.Errorf(
-				"extract heavy delegation omega: %w",
+				"extract heavy delegation activation epoch: %w",
 				err,
 			)
 		}
-		var recoveredOmega uint64
-		if _, err := cbor.Decode(encoded, &recoveredOmega); err != nil {
+		var recoveredEpoch uint64
+		if _, err := cbor.Decode(encoded, &recoveredEpoch); err != nil {
 			return fmt.Errorf(
-				"decode heavy delegation certificate omega: %w",
+				"decode heavy delegation certificate activation epoch: %w",
 				err,
 			)
 		}
-		if recoveredOmega != omega {
+		if recoveredEpoch != epoch {
 			return fmt.Errorf(
 				"heavy delegation certificate index encoding %x decodes "+
-					"to omega %d, but BlockSig says %d",
+					"to activation epoch %d, but BlockSig says %d",
 				encoded,
-				recoveredOmega,
-				omega,
+				recoveredEpoch,
+				epoch,
 			)
 		}
 		return nil
@@ -758,7 +758,7 @@ func validateProxyCertIndex(
 //	header[3]         -> consensus_data
 //	consensus_data[3] -> block_sig
 //	block_sig[1]      -> [certificate, block_signature]
-//	certificate[0]    -> light epoch range or heavy omega
+//	certificate[0]    -> light epoch range or heavy activation epoch
 //
 // The decoded BlockSig cannot supply this. CBOR admits non-shortest integer
 // encodings and this decoder accepts them, so an index that is re-encoded can
@@ -930,7 +930,7 @@ func extractUint64(v any) (uint64, error) {
 //
 // indexCbor is the certificate index's preserved wire encoding, not a
 // re-encoding of its decoded value. It is a light-delegation epoch range or a
-// heavy-delegation omega, depending on the proxy-signature type.
+// heavy-delegation activation epoch, depending on the proxy-signature type.
 func (v *HeaderValidator) validateDelegationCertSignature(
 	issuerVK, delegateVK, certSig []byte,
 	indexCbor []byte,

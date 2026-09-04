@@ -807,15 +807,15 @@ func TestValidateProxySignatureEpochConstraint(t *testing.T) {
 			wantError:  "extract light delegation epoch lower bound",
 		},
 		{
-			name:       "heavy omega",
+			name:       "heavy activation epoch",
 			sigType:    byronSigTypeHeavy,
 			constraint: uint64(0),
 		},
 		{
-			name:       "heavy range",
+			name:       "heavy epoch range",
 			sigType:    byronSigTypeHeavy,
 			constraint: []any{currentEpoch, currentEpoch},
-			wantError:  "extract heavy delegation omega",
+			wantError:  "extract heavy delegation activation epoch",
 		},
 	}
 	validator := NewHeaderValidator(testByronConfig())
