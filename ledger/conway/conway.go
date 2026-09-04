@@ -679,6 +679,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 	}
+	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
+		return err
+	}
 	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
 		return err
 	}
@@ -726,6 +729,24 @@ func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
 		return nil
 	}
 	return assets.CheckForDuplicateKeys()
+}
+
+func checkDuplicateProposalProcedures(
+	proposalProcedures []ConwayProposalProcedure,
+) error {
+	seen := make(map[string]struct{}, len(proposalProcedures))
+	for _, procedure := range proposalProcedures {
+		encoded, err := cbor.Encode(procedure)
+		if err != nil {
+			return err
+		}
+		key := string(encoded)
+		if _, exists := seen[key]; exists {
+			return errors.New("duplicate member in set")
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
 }
 
 func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {
