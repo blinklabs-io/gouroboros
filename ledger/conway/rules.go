@@ -3349,7 +3349,8 @@ func UtxoValidateDelegation(
 			inTxStakeState[stakeKey(c.StakeCredential)] = false
 
 		case *common.PoolRetirementCertificate:
-			delete(inTxPoolRegs, c.PoolKeyHash)
+			// Retirement leaves the pool active until POOLREAP at the end of
+			// the retirement epoch, so later delegations remain valid.
 
 		case *common.DeregistrationDrepCertificate:
 			delete(inTxDRepRegs, c.DrepCredential.Credential)
