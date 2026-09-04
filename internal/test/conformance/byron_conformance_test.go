@@ -746,9 +746,9 @@ func TestByronBodyHashValidation(t *testing.T) {
 	}
 }
 
-// TestByronFullHeaderValidation tests full header validation with signature verification.
+// TestByronHeavySignatureFullHeaderValidation tests full header validation with signature verification.
 // This test uses EnvelopeOnly: false to enable cryptographic validation.
-func TestByronFullHeaderValidation(t *testing.T) {
+func TestByronHeavySignatureFullHeaderValidation(t *testing.T) {
 	data, err := hex.DecodeString(strings.TrimSpace(mainnetByronBlockHex))
 	require.NoError(t, err, "Failed to decode hex")
 
@@ -756,6 +756,14 @@ func TestByronFullHeaderValidation(t *testing.T) {
 	require.NoError(t, err, "Failed to decode Byron block")
 
 	header := block.BlockHeader
+	// Reuse the historical header's signed payload with the heavyweight wire
+	// discriminant. The outer signature constructor is not part of ToSign.
+	header.ConsensusData.BlockSig[0] = uint64(1)
+	header.SetCbor(nil)
+	heavyHeaderCbor, err := cbor.Encode(header)
+	require.NoError(t, err, "Failed to encode heavyweight Byron header")
+	header, err = byron.NewByronMainBlockHeaderFromCbor(heavyHeaderCbor)
+	require.NoError(t, err, "Failed to decode heavyweight Byron header")
 
 	// Extract consensus data
 	pubKey, err := extractByronIssuerPubKey(header)

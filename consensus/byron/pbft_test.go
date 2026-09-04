@@ -20,12 +20,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
 
-func realPBFTHeaderFixture(
+func heavyPBFTHeaderFixture(
 	t *testing.T,
 ) (*ledgerbyron.ByronMainBlockHeader, ByronConfig, PBFTIssuer) {
 	t.Helper()
@@ -37,6 +38,14 @@ func realPBFTHeaderFixture(
 	)
 	require.NoError(t, err)
 	header := block.BlockHeader
+	// The historical block uses wire type 2. Re-encode its independently
+	// signed header payload as the type 1 heavyweight form exercised by PBFT.
+	header.ConsensusData.BlockSig[0] = uint64(byronSigTypeHeavy)
+	header.SetCbor(nil)
+	headerCbor, err := cbor.Encode(header)
+	require.NoError(t, err)
+	header, err = ledgerbyron.NewByronMainBlockHeaderFromCbor(headerCbor)
+	require.NoError(t, err)
 	inner, ok := header.ConsensusData.BlockSig[1].([]any)
 	require.True(t, ok)
 	certificate, ok := inner[0].([]any)
@@ -63,15 +72,15 @@ func realPBFTHeaderFixture(
 	return header, config, issuer
 }
 
-func TestValidatePBFTHeaderRealMainnet(t *testing.T) {
-	header, config, expectedIssuer := realPBFTHeaderFixture(t)
+func TestValidatePBFTHeaderHeavySignature(t *testing.T) {
+	header, config, expectedIssuer := heavyPBFTHeaderFixture(t)
 	issuer, err := ValidatePBFTHeader(header, config)
 	require.NoError(t, err)
 	require.Equal(t, expectedIssuer, issuer)
 }
 
-func TestPBFTIssuerFromHeaderRealMainnet(t *testing.T) {
-	header, _, expectedIssuer := realPBFTHeaderFixture(t)
+func TestPBFTIssuerFromHeaderHeavySignature(t *testing.T) {
+	header, _, expectedIssuer := heavyPBFTHeaderFixture(t)
 
 	issuer, err := PBFTIssuerFromHeader(header)
 	require.NoError(t, err)
@@ -81,7 +90,7 @@ func TestPBFTIssuerFromHeaderRealMainnet(t *testing.T) {
 }
 
 func TestPBFTIssuerFromHeaderRejectsMalformedIdentity(t *testing.T) {
-	header, _, _ := realPBFTHeaderFixture(t)
+	header, _, _ := heavyPBFTHeaderFixture(t)
 	_, err := PBFTIssuerFromHeader(nil)
 	require.ErrorContains(t, err, "nil")
 
@@ -91,7 +100,7 @@ func TestPBFTIssuerFromHeaderRejectsMalformedIdentity(t *testing.T) {
 }
 
 func TestPBFTIssuerFromHeaderIsParseOnly(t *testing.T) {
-	header, _, expectedIssuer := realPBFTHeaderFixture(t)
+	header, _, expectedIssuer := heavyPBFTHeaderFixture(t)
 	inner := header.ConsensusData.BlockSig[1].([]any)
 	certificate := inner[0].([]any)
 	certificate[0] = header.ConsensusData.SlotId.Epoch + 1
@@ -104,7 +113,7 @@ func TestPBFTIssuerFromHeaderIsParseOnly(t *testing.T) {
 }
 
 func TestValidateProxySignatureRejectsTypeConstraintMismatch(t *testing.T) {
-	header, config, _ := realPBFTHeaderFixture(t)
+	header, config, _ := heavyPBFTHeaderFixture(t)
 	blockSig := append([]any(nil), header.ConsensusData.BlockSig...)
 	blockSig[0] = uint64(byronSigTypeLight)
 	input := &ValidateHeaderInput{
@@ -187,7 +196,7 @@ func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			header, config, _ := realPBFTHeaderFixture(t)
+			header, config, _ := heavyPBFTHeaderFixture(t)
 			test.mutate(t, header, &config)
 			_, err := ValidatePBFTHeader(header, config)
 			require.ErrorContains(t, err, test.wantError)
@@ -325,7 +334,7 @@ func TestNewByronConfigFromGenesisBuildsPBFTDelegationView(t *testing.T) {
 	}
 }
 
-func TestGenesisDerivedConfigValidatesRealPBFTHeader(t *testing.T) {
+func TestGenesisDerivedConfigValidatesHeavyPBFTHeader(t *testing.T) {
 	genesis, err := ledgerbyron.NewByronGenesisFromReader(
 		strings.NewReader(testByronGenesisJSON),
 	)
@@ -333,14 +342,8 @@ func TestGenesisDerivedConfigValidatesRealPBFTHeader(t *testing.T) {
 	config, err := NewByronConfigFromGenesis(&genesis)
 	require.NoError(t, err)
 
-	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
-	require.NoError(t, err)
-	block, err := ledgerbyron.NewByronMainBlockFromCbor(
-		blockBytes,
-		common.VerifyConfig{SkipBodyHashValidation: true},
-	)
-	require.NoError(t, err)
-	issuer, err := ValidatePBFTHeader(block.BlockHeader, config)
+	header, _, _ := heavyPBFTHeaderFixture(t)
+	issuer, err := ValidatePBFTHeader(header, config)
 	require.NoError(t, err)
 	require.Contains(t, config.GenesisKeyHashes, issuer.GenesisKeyHash.Bytes())
 	require.Equal(

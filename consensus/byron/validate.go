@@ -270,16 +270,14 @@ func (v *HeaderValidator) validateProtocolMagic(
 	return nil
 }
 
-// Byron signature types from the legacy wire format. The pinned
-// cardano-ledger Byron implementation only decodes type 2 for current blocks;
-// types 0 and 1 are retained here for the older OBFT compatibility validator.
+// Byron signature types from the legacy wire format.
 // - Type 0: BlockPSignatureSimple - simple signature [0, signature]
-// - Type 1: BlockPSignatureLight - lightweight delegation
-// - Type 2: BlockPSignatureHeavy - heavyweight delegation
+// - Type 1: BlockPSignatureHeavy - heavyweight delegation
+// - Type 2: BlockPSignatureLight - lightweight delegation
 const (
 	byronSigTypeSimple = 0
-	byronSigTypeLight  = 1
-	byronSigTypeHeavy  = 2
+	byronSigTypeHeavy  = 1
+	byronSigTypeLight  = 2
 )
 
 // validateBlockSignature verifies the block signature based on its type.
@@ -489,15 +487,15 @@ func (v *HeaderValidator) validateProxySignature(
 			err,
 		)
 	}
-	var header byron.ByronMainBlockHeader
-	if _, err := cbor.Decode(input.HeaderCbor, &header); err != nil {
-		return fmt.Errorf("decode proxy-signed Byron header: %w", err)
+	toSign, headerEpoch, err := v.buildToSignWithEpoch(input)
+	if err != nil {
+		return fmt.Errorf("failed to build ToSign data: %w", err)
 	}
 	if err := validateProxyCertIndex(
 		sigType,
 		cert[0],
 		indexCbor,
-		header.ConsensusData.SlotId.Epoch,
+		headerEpoch,
 	); err != nil {
 		return err
 	}
@@ -592,12 +590,6 @@ func (v *HeaderValidator) validateProxySignature(
 	// 3. signing tag (0x08 for light, 0x09 for heavy)
 	// 4. CBOR(protocol_magic)
 	// 5. CBOR(ToSign)
-
-	// Build the ToSign data
-	toSign, err := v.buildToSign(input)
-	if err != nil {
-		return fmt.Errorf("failed to build ToSign data: %w", err)
-	}
 
 	// Select the proxy-signature tag encoded by the wire-level signature type.
 	var signingTag byte
@@ -821,8 +813,15 @@ const (
 func (v *HeaderValidator) buildToSign(
 	input *ValidateHeaderInput,
 ) ([]byte, error) {
+	toSign, _, err := v.buildToSignWithEpoch(input)
+	return toSign, err
+}
+
+func (v *HeaderValidator) buildToSignWithEpoch(
+	input *ValidateHeaderInput,
+) ([]byte, uint64, error) {
 	if len(input.HeaderCbor) == 0 {
-		return nil, errors.New(
+		return nil, 0, errors.New(
 			"header CBOR is required for signature verification",
 		)
 	}
@@ -830,7 +829,7 @@ func (v *HeaderValidator) buildToSign(
 	// Parse the header to extract the individual components we need for ToSign
 	var header byron.ByronMainBlockHeader
 	if _, err := cbor.Decode(input.HeaderCbor, &header); err != nil {
-		return nil, fmt.Errorf("failed to decode header CBOR: %w", err)
+		return nil, 0, fmt.Errorf("failed to decode header CBOR: %w", err)
 	}
 
 	// Build the ToSign structure
@@ -886,10 +885,10 @@ func (v *HeaderValidator) buildToSign(
 
 	toSignBytes, err := cbor.Encode(toSign)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode ToSign: %w", err)
+		return nil, 0, fmt.Errorf("failed to encode ToSign: %w", err)
 	}
 
-	return toSignBytes, nil
+	return toSignBytes, header.ConsensusData.SlotId.Epoch, nil
 }
 
 // extractUint64 extracts a uint64 from various numeric types

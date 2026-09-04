@@ -747,6 +747,38 @@ func proxySignatureInput(
 	}
 }
 
+func TestValidateProxySignatureWireTypeMapping(t *testing.T) {
+	const currentEpoch = uint64(7)
+	tests := []struct {
+		name       string
+		sigType    uint64
+		constraint any
+	}{
+		{
+			name:       "type 1 heavyweight delegation",
+			sigType:    1,
+			constraint: uint64(0),
+		},
+		{
+			name:       "type 2 lightweight delegation",
+			sigType:    2,
+			constraint: []any{currentEpoch, currentEpoch},
+		},
+	}
+	validator := NewHeaderValidator(testByronConfig())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := proxySignatureInput(
+				t,
+				test.sigType,
+				test.constraint,
+				currentEpoch,
+			)
+			require.NoError(t, validator.validateBlockSignature(input))
+		})
+	}
+}
+
 func TestValidateProxySignatureEpochConstraint(t *testing.T) {
 	const currentEpoch = uint64(7)
 	tests := []struct {
