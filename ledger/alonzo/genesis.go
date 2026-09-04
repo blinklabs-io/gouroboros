@@ -182,17 +182,17 @@ func NewAlonzoGenesisFromFile(path string) (AlonzoGenesis, error) {
 }
 
 type AlonzoGenesisExUnits struct {
-	Mem   uint `json:"exUnitsMem"`
-	Steps uint `json:"exUnitsSteps"`
+	Mem   uint64 `json:"exUnitsMem"`
+	Steps uint64 `json:"exUnitsSteps"`
 }
 
 func (u *AlonzoGenesisExUnits) UnmarshalJSON(data []byte) error {
 	// We need some custom unmarshal logic to handle alternate key names
 	tmpData := struct {
-		ExUnitsMem   uint `json:"exUnitsMem"`
-		ExUnitsSteps uint `json:"exUnitsSteps"`
-		Memory       uint `json:"memory"`
-		Steps        uint `json:"steps"`
+		ExUnitsMem   uint64 `json:"exUnitsMem"`
+		ExUnitsSteps uint64 `json:"exUnitsSteps"`
+		Memory       uint64 `json:"memory"`
+		Steps        uint64 `json:"steps"`
 	}{}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
