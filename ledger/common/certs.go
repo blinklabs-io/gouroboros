@@ -675,10 +675,26 @@ type PoolRegistrationCertificate struct {
 	// byte of the wire reward_account, which RewardAccount itself does not
 	// retain. rewardAccountNetworkIdKnown is false when the certificate was
 	// not decoded from a CBOR reward account carrying a header byte (a
-	// programmatically constructed certificate, one built from JSON, or the
-	// legacy 28-byte encoding).
-	rewardAccountNetworkId      uint
-	rewardAccountNetworkIdKnown bool
+	// programmatically constructed certificate or one built from JSON/genesis).
+	rewardAccountNetworkId       uint
+	rewardAccountNetworkIdKnown  bool
+	rewardAccountCredentialType  uint
+	rewardAccountCredentialKnown bool
+}
+
+// RewardAccountCredential returns the credential carried by the pool's
+// reward account. Programmatically constructed and JSON/genesis certificates
+// have no wire header and retain the historical key-hash default.
+func (c *PoolRegistrationCertificate) RewardAccountCredential() Credential {
+	cred := Credential{CredType: CredentialTypeAddrKeyHash}
+	if c == nil {
+		return cred
+	}
+	cred.Credential = CredentialHash(c.RewardAccount)
+	if c.rewardAccountCredentialKnown {
+		cred.CredType = c.rewardAccountCredentialType
+	}
+	return cred
 }
 
 // RewardAccountNetworkId returns the network id encoded in the header byte of
@@ -698,6 +714,8 @@ func (c *PoolRegistrationCertificate) SetCbor(cborData []byte) {
 	if cborData != nil {
 		c.rewardAccountNetworkId = 0
 		c.rewardAccountNetworkIdKnown = false
+		c.rewardAccountCredentialType = CredentialTypeAddrKeyHash
+		c.rewardAccountCredentialKnown = false
 	}
 }
 
@@ -1104,7 +1122,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Pledge = tmp.Pledge
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
-		c.RewardAccount = tmp.RewardAccount.credential
+		c.RewardAccount = AddrKeyHash(tmp.RewardAccount.credential.Credential)
+		c.rewardAccountCredentialType = tmp.RewardAccount.credential.CredType
+		c.rewardAccountCredentialKnown = true
 		c.rewardAccountNetworkId = tmp.RewardAccount.networkId
 		c.rewardAccountNetworkIdKnown = tmp.RewardAccount.networkIdKnown
 		c.PoolOwners = tmp.PoolOwners
@@ -1127,7 +1147,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Pledge = tmp.Pledge
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
-		c.RewardAccount = tmp.RewardAccount.credential
+		c.RewardAccount = AddrKeyHash(tmp.RewardAccount.credential.Credential)
+		c.rewardAccountCredentialType = tmp.RewardAccount.credential.CredType
+		c.rewardAccountCredentialKnown = true
 		c.rewardAccountNetworkId = tmp.RewardAccount.networkId
 		c.rewardAccountNetworkIdKnown = tmp.RewardAccount.networkIdKnown
 		c.PoolOwners = tmp.PoolOwners

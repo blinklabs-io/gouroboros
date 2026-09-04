@@ -338,6 +338,7 @@ func TestPoolRegistrationCertificateRewardAccountDecode(t *testing.T) {
 		{
 			name:          "legacy credential",
 			rewardAccount: credential,
+			wantErr:       "invalid reward account length",
 		},
 		{
 			name: "reward address",
@@ -422,6 +423,11 @@ func TestPoolRegistrationCertificateRewardAccountDecode(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, AddrKeyHash(credential), decoded.RewardAccount)
+			if test.rewardAccount[0]&0x10 != 0 {
+				assert.Equal(t, CredentialTypeScriptHash, decoded.RewardAccountCredential().CredType)
+			} else {
+				assert.Equal(t, CredentialTypeAddrKeyHash, decoded.RewardAccountCredential().CredType)
+			}
 			assert.Equal(t, encoded, decoded.Cbor())
 		})
 	}

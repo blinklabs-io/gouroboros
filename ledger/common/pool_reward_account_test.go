@@ -82,17 +82,9 @@ func TestPoolRegistrationRewardAccountNetworkId(t *testing.T) {
 		assert.Equal(t, uint(1), got)
 	})
 
-	t.Run("legacy 28-byte encoding has no network id", func(t *testing.T) {
+	t.Run("legacy 28-byte encoding is rejected", func(t *testing.T) {
 		cert := &PoolRegistrationCertificate{}
-		require.NoError(t, cert.UnmarshalCBOR(encode(t, credential)))
-		assert.Equal(
-			t,
-			AddrKeyHash(NewBlake2b224(credential)),
-			cert.RewardAccount,
-		)
-		got, known := cert.RewardAccountNetworkId()
-		assert.False(t, known)
-		assert.Equal(t, uint(0), got)
+		require.ErrorContains(t, cert.UnmarshalCBOR(encode(t, credential)), "invalid reward account length")
 	})
 
 	t.Run("constructed certificate has no network id", func(t *testing.T) {
