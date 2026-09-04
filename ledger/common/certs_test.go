@@ -242,6 +242,13 @@ func TestPoolRegistrationCertificateLeiosKey(t *testing.T) {
 		Relays:       []PoolRelay{},
 		PoolMetadata: nil,
 	}
+	require.NoError(t, base.SetRewardAccountCredential(
+		Credential{
+			CredType:   CredentialTypeAddrKeyHash,
+			Credential: CredentialHash(base.RewardAccount),
+		},
+		AddressNetworkTestnet,
+	))
 
 	t.Run("legacy certificate remains 10 fields", func(t *testing.T) {
 		encoded, err := cbor.Encode(base)
@@ -293,6 +300,8 @@ func TestPoolRegistrationCertificateLeiosKey(t *testing.T) {
 	})
 
 	t.Run("Dijkstra certificate accepts explicit null key", func(t *testing.T) {
+		rewardAccount, err := base.rewardAccountBytes()
+		require.NoError(t, err)
 		encoded, err := cbor.Encode([]any{
 			base.CertType,
 			base.Operator,
@@ -301,7 +310,7 @@ func TestPoolRegistrationCertificateLeiosKey(t *testing.T) {
 			base.Pledge,
 			base.Cost,
 			base.Margin,
-			base.RewardAccount,
+			rewardAccount,
 			base.PoolOwners,
 			base.Relays,
 			base.PoolMetadata,
@@ -423,11 +432,23 @@ func TestPoolRegistrationCertificateRewardAccountDecode(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, AddrKeyHash(credential), decoded.RewardAccount)
+			provider, ok := any(&decoded).(interface {
+				RewardAccountCredential() Credential
+			})
+			require.True(
+				t,
+				ok,
+				"decoded pool registration must preserve reward credential type",
+			)
+			wantType := uint(CredentialTypeAddrKeyHash)
 			if test.rewardAccount[0]&0x10 != 0 {
-				assert.Equal(t, CredentialTypeScriptHash, decoded.RewardAccountCredential().CredType)
-			} else {
-				assert.Equal(t, CredentialTypeAddrKeyHash, decoded.RewardAccountCredential().CredType)
+				wantType = uint(CredentialTypeScriptHash)
 			}
+			assert.Equal(
+				t,
+				wantType,
+				provider.RewardAccountCredential().CredType,
+			)
 			assert.Equal(t, encoded, decoded.Cbor())
 		})
 	}

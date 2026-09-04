@@ -49,6 +49,10 @@ func testPoolRegistrationCertificate(
 		RewardAccount: NewBlake2b224(
 			bytes.Repeat([]byte{0x03}, Blake2b224Size),
 		),
+		rewardAccountNetworkId:       AddressNetworkTestnet,
+		rewardAccountNetworkIdKnown:  true,
+		rewardAccountCredentialType:  CredentialTypeAddrKeyHash,
+		rewardAccountCredentialKnown: true,
 		PoolOwners: []AddrKeyHash{
 			NewBlake2b224(bytes.Repeat([]byte{0x04}, Blake2b224Size)),
 		},
@@ -69,6 +73,8 @@ func testPoolRegistrationWire(
 ) []byte {
 	t.Helper()
 	cert := testPoolRegistrationCertificate(NewGenesisRat(0, 1))
+	rewardAccount, err := cert.rewardAccountBytes()
+	require.NoError(t, err)
 	fields := []any{
 		cert.CertType,
 		cert.Operator,
@@ -76,7 +82,7 @@ func testPoolRegistrationWire(
 		cert.Pledge,
 		cert.Cost,
 		margin,
-		cert.RewardAccount,
+		rewardAccount,
 		cert.PoolOwners,
 		cert.Relays,
 		cert.PoolMetadata,
