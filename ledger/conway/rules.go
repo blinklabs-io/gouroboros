@@ -873,7 +873,7 @@ func hardForkProposedVersion(
 func govPurposeRoots(
 	ls common.LedgerState,
 ) (*common.GovPurposeRoots, error) {
-	rootsState, ok := ls.(common.GovPurposeRootsState)
+	rootsState, ok := common.UnwrapLedgerState(ls).(common.GovPurposeRootsState)
 	if !ok {
 		return nil, nil
 	}
@@ -2167,7 +2167,7 @@ func UtxoValidateValueNotConservedUtxo(
 			// UtxoValidateCertificateDeposits only needs the capability once a
 			// credential resolves as registered.
 			refund := new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit))
-			if depositState, ok := ls.(common.StakeCredentialDepositState); ok {
+			if depositState, ok := common.UnwrapLedgerState(ls).(common.StakeCredentialDepositState); ok {
 				deposit, err := depositState.StakeCredentialDeposit(
 					tmpCert.StakeCredential,
 				)
@@ -3511,7 +3511,7 @@ func UtxoValidateWithdrawals(
 		}
 		if delegationState == nil {
 			var ok bool
-			delegationState, ok = ls.(common.DRepDelegationState)
+			delegationState, ok = common.UnwrapLedgerState(ls).(common.DRepDelegationState)
 			if !ok {
 				return DRepDelegationStateUnavailableError{}
 			}
@@ -3587,7 +3587,7 @@ func UtxoValidateCertificateDeposits(
 			registered: ls.IsStakeCredentialRegistered(cred),
 		}
 		if state.registered {
-			depositState, ok := ls.(common.StakeCredentialDepositState)
+			depositState, ok := common.UnwrapLedgerState(ls).(common.StakeCredentialDepositState)
 			if !ok {
 				return state, CertificateDepositStateUnavailableError{}
 			}
@@ -3845,7 +3845,7 @@ func UtxoValidateCommitteeCertificates(
 	) (*common.CommitteeMember, error) {
 		if !committeeStateLoaded {
 			var ok bool
-			committeeState, ok = ls.(common.CommitteeCredentialState)
+			committeeState, ok = common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
 			if !ok {
 				return nil, CommitteeMemberLookupError{
 					Credential:       coldCredential.Credential,
@@ -4068,7 +4068,7 @@ func UtxoValidateUnknownVoters(
 			}
 			if committeeState == nil {
 				var ok bool
-				committeeState, ok = ls.(common.CommitteeCredentialState)
+				committeeState, ok = common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
 				if !ok {
 					return lookupError(CommitteeStateUnavailableError{})
 				}
