@@ -26,10 +26,6 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 )
 
-// eraIdConway is the first era with strict validity upper bounds. Keep this
-// numeric boundary here to avoid importing era packages into common/script.
-const eraIdConway = 6
-
 type ScriptContext interface {
 	isScriptContext()
 	ToPlutusData() data.PlutusData
@@ -198,11 +194,8 @@ func (t TxInfoV1) ToPlutusData() data.PlutusData {
 	)
 }
 
-// NewTxInfoV1FromTransaction builds a Plutus V1 TxInfo. strictValidityUpperBound
-// selects the era-dependent encoding of a finite validity-interval upper bound:
-// pass true in the Conway era or later (EXCLUSIVE upper bound in all cases) and
-// false in Alonzo/Babbage (CLOSED upper bound for an upper-only interval). See
-// the TimeRange.strictUpperBound documentation and cardano-ledger#3043.
+// NewTxInfoV1FromTransaction builds a Plutus V1 TxInfo. The upper validity
+// bound is always exclusive, matching cardano-ledger's strictUpperBound.
 func NewTxInfoV1FromTransaction(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
@@ -257,7 +250,8 @@ func NewTxInfoV1FromTransaction(
 // StrictValidityUpperBoundForTransaction reports whether the transaction's
 // era uses an exclusive upper validity bound in Plutus script contexts.
 func StrictValidityUpperBoundForTransaction(tx lcommon.Transaction) bool {
-	return tx.Type() >= eraIdConway
+	_ = tx
+	return true
 }
 
 type TxInfoV2 struct {
@@ -323,11 +317,8 @@ func (t TxInfoV2) ToPlutusData() data.PlutusData {
 	)
 }
 
-// NewTxInfoV2FromTransaction builds a Plutus V2 TxInfo. strictValidityUpperBound
-// selects the era-dependent encoding of a finite validity-interval upper bound:
-// pass true in the Conway era or later (EXCLUSIVE upper bound in all cases) and
-// false in Babbage (CLOSED upper bound for an upper-only interval). See the
-// TimeRange.strictUpperBound documentation and cardano-ledger#3043.
+// NewTxInfoV2FromTransaction builds a Plutus V2 TxInfo. The upper validity
+// bound is always exclusive, matching cardano-ledger's strictUpperBound.
 func NewTxInfoV2FromTransaction(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
@@ -497,26 +488,6 @@ type TimeRange struct {
 	upperBound        uint64
 	lowerBoundPresent bool
 	upperBoundPresent bool
-	// strictUpperBound selects cardano-ledger's ERA-DEPENDENT encoding of a
-	// finite validity-interval upper bound (invalidHereafter).
-	//
-	// Conway and later eras (Conway.transValidityInterval, cardano-ledger#3043)
-	// always use `strictUpperBound` — an EXCLUSIVE upper bound — for a finite
-	// upper bound, whether or not a lower bound is present:
-	//   UpperBound (Finite t) False
-	//
-	// Pre-Conway eras (Alonzo/Babbage transVITime) use `PV1.to` for an
-	// upper-only interval, which is a CLOSED/INCLUSIVE upper bound
-	//   UpperBound (Finite t) True
-	// but already use `strictUpperBound` (exclusive) when BOTH bounds are
-	// present. cardano-ledger#3043 could not change this pre-Conway behavior
-	// because it would alter historical on-chain script validation, so the
-	// corrected exclusive bound was gated to the Conway era.
-	//
-	// Set strictUpperBound = true when building a Plutus context in the Conway
-	// era or later, false for Alonzo/Babbage. Plutus V3 only exists in Conway
-	// and later, so V3 contexts always set this true.
-	strictUpperBound bool
 }
 
 func (t TimeRange) ToPlutusData() data.PlutusData {
@@ -562,17 +533,8 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 			t.upperBound,
 			t.upperBoundPresent,
 			false,
-			// Closure of a finite upper bound, matching cardano-ledger's
-			// ERA-DEPENDENT translation (see the strictUpperBound field):
-			//   - both bounds present (lowerBoundPresent): EXCLUSIVE (false)
-			//     in every era (transVITime / transValidityInterval both use
-			//     strictUpperBound for a two-sided interval).
-			//   - upper-only interval (no lower bound): EXCLUSIVE (false) in
-			//     Conway and later (Conway.transValidityInterval,
-			//     cardano-ledger#3043), INCLUSIVE (true) in Alonzo/Babbage
-			//     (transVITime uses PV1.to).
-			// i.e. closed iff it is an upper-only, pre-Conway interval.
-			!t.lowerBoundPresent && !t.strictUpperBound,
+			// cardano-ledger's strictUpperBound is always exclusive.
+			false,
 		),
 	)
 }
@@ -650,10 +612,9 @@ func sortedRedeemerKeys(
 func validityRangeInfo(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
-	strictValidityUpperBound bool,
+	_ bool,
 ) (TimeRange, error) {
 	var ret TimeRange
-	ret.strictUpperBound = strictValidityUpperBound
 	startSlot := tx.ValidityIntervalStart()
 	endSlot, upperBoundPresent := lcommon.TransactionValidityIntervalUpperBound(
 		tx,

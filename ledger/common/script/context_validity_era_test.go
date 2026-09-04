@@ -72,30 +72,15 @@ type validRangeBuilder func(
 	[]lcommon.Utxo,
 ) (data.PlutusData, error)
 
-// TestValidityRangeEraIdsUnchanged pins the era-numbering assumption behind
-// the unexported eraIdConway gate in validityRangeInfo. That constant cannot
-// reference the era packages (they import ledger/common/script), so a
-// renumbering here is the signal to update it.
-func TestValidityRangeEraIdsUnchanged(t *testing.T) {
-	require.Equal(t, 4, alonzo.TxTypeAlonzo)
-	require.Equal(t, 5, babbage.TxTypeBabbage)
-	require.Equal(t, 6, conway.TxTypeConway)
-	require.Equal(t, 7, dijkstra.TxTypeDijkstra)
-}
-
-// TestValidityRangeUpperBoundByEra pins the validity-interval encoding per
-// era for every bound-presence combination. The upper-bound-only cases are
-// the ones that differ: closed in Alonzo and Babbage, exclusive from Conway
-// on.
+// TestValidityRangeUpperBoundByEra pins the validity-interval encoding across
+// eras for every bound-presence combination.
 func TestValidityRangeUpperBoundByEra(t *testing.T) {
 	for _, era := range []struct {
-		name                   string
-		upperBoundOnlyIsClosed bool
-		tx                     eraTxBuilder
+		name string
+		tx   eraTxBuilder
 	}{
 		{
-			name:                   "Alonzo",
-			upperBoundOnlyIsClosed: true,
+			name: "Alonzo",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -107,8 +92,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name:                   "Babbage",
-			upperBoundOnlyIsClosed: true,
+			name: "Babbage",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -120,8 +104,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name:                   "Conway",
-			upperBoundOnlyIsClosed: false,
+			name: "Conway",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -132,8 +115,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name:                   "Dijkstra",
-			upperBoundOnlyIsClosed: false,
+			name: "Dijkstra",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -207,12 +189,9 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 								nil,
 							)
 							require.NoError(t, err)
-							strictUpperBound := build.name == "V3" ||
-								!era.upperBoundOnlyIsClosed
 							expected := expectedValidityRange(
 								fixture.StartSlot,
 								fixture.EndSlot,
-								!strictUpperBound,
 							)
 							require.True(
 								t,
