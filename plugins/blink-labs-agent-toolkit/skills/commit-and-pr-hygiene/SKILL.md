@@ -339,6 +339,9 @@ human review, not human approval or merge.
 - Set the squash subject to the exact PR title. Never invent a generic subject
   such as `Merge approved changes`, `Merge PR`, or `Squash merge`; those messages
   discard the purpose of the change and are blocked by the merge guard.
+- Keep the pull-request number in the PR title and therefore in the squash
+  subject (for example, `fix(ledger): reject duplicate sets (#2191)`). Do not
+  remove or rewrite that reference when preparing or performing the merge.
 - Write the squash body as real Markdown in a run-owned file and pass it with
   `--body-file`; never encode its line breaks as `\\n` in `--body`. Lock the
   merge to the reviewed head with `--match-head-commit`.
