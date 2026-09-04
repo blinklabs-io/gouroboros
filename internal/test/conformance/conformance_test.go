@@ -156,6 +156,66 @@ var (
 	_ common.CommitteeCredentialState        = (*legacyCommitteeStateProvider)(nil)
 )
 
+type currentEpochStateProvider struct {
+	*legacyCommitteeStateProvider
+	currentEpoch uint64
+}
+
+func (p currentEpochStateProvider) CurrentEpoch() uint64 {
+	return p.currentEpoch
+}
+
+type currentEpochStateManager struct {
+	*committeeStateManager
+	currentEpoch uint64
+}
+
+func newCurrentEpochStateManager() *currentEpochStateManager {
+	return &currentEpochStateManager{
+		committeeStateManager: newCommitteeStateManager(),
+	}
+}
+
+func (m *currentEpochStateManager) LoadInitialState(
+	state *conformance.ParsedInitialState,
+	pp common.ProtocolParameters,
+) error {
+	if err := m.committeeStateManager.LoadInitialState(state, pp); err != nil {
+		return err
+	}
+	m.currentEpoch = state.CurrentEpoch
+	return nil
+}
+
+func (m *currentEpochStateManager) ProcessEpochBoundary(
+	newEpoch uint64,
+) error {
+	if err := m.committeeStateManager.ProcessEpochBoundary(newEpoch); err != nil {
+		return err
+	}
+	m.currentEpoch = newEpoch
+	return nil
+}
+
+func (m *currentEpochStateManager) GetStateProvider() conformance.StateProvider {
+	state, ok := m.committeeStateManager.GetStateProvider().(*legacyCommitteeStateProvider)
+	if !ok {
+		panic("ouroboros-mock returned an unexpected state provider")
+	}
+	return currentEpochStateProvider{
+		legacyCommitteeStateProvider: state,
+		currentEpoch:                 m.currentEpoch,
+	}
+}
+
+func (m *currentEpochStateManager) Reset() error {
+	if err := m.committeeStateManager.Reset(); err != nil {
+		return err
+	}
+	m.currentEpoch = 0
+	return nil
+}
+
 // TestRulesConformanceVectors runs the Amaru ledger rules conformance test vectors
 // using the shared harness from ouroboros-mock/conformance.
 //
@@ -172,7 +232,7 @@ func TestRulesConformanceVectors(t *testing.T) {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
 	}
 
-	sm := newCommitteeStateManager()
+	sm := newCurrentEpochStateManager()
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        testing.Verbose(),
@@ -189,7 +249,7 @@ func TestRulesConformanceVectorsWithResults(t *testing.T) {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
 	}
 
-	sm := newCommitteeStateManager()
+	sm := newCurrentEpochStateManager()
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        false,

@@ -995,6 +995,9 @@ func UtxoValidateGovActionWellFormedness(
 				)
 				return ConflictingCommitteeUpdateError{Credentials: conflicting}
 			}
+			if err := validateCommitteeTerms(a, ls, pp); err != nil {
+				return err
+			}
 		}
 	}
 	return UtxoValidateGuardrailsScriptHash(tx, slot, ls, pp)
@@ -3913,6 +3916,47 @@ func UtxoValidateCommitteeCertificates(
 					ColdCredential: c.ColdCredential,
 					Operation:      "resign",
 				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateCommitteeTerms mirrors validCommitteeTerm in
+// Cardano.Ledger.Conway.Rules.Ratify. The bound applies to the expiry epochs
+// proposed by an UpdateCommittee action, not to certificates operating on a
+// committee member that was already proposed by an earlier action.
+func validateCommitteeTerms(
+	a *common.UpdateCommitteeGovAction,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	termParams, ok := pp.(common.CommitteeMaxTermLengthProvider)
+	if !ok {
+		return CommitteeTermLimitUnavailableError{}
+	}
+	maxTermLength, ok := termParams.CommitteeMaxTermLength()
+	if !ok {
+		return CommitteeTermLimitUnavailableError{}
+	}
+	epochState, ok := ls.(common.CurrentEpochState)
+	if !ok {
+		return CurrentEpochStateUnavailableError{}
+	}
+	currentEpoch := epochState.CurrentEpoch()
+	for credential, expiryEpoch := range a.CredEpochs {
+		if credential == nil {
+			continue
+		}
+		// This is equivalent to expiryEpoch > currentEpoch+maxTermLength,
+		// without overflowing when the sum exceeds uint64.
+		expiry := uint64(expiryEpoch)
+		if expiry > currentEpoch && expiry-currentEpoch > maxTermLength {
+			return CommitteeTermTooLongError{
+				Credential:    credential.Credential,
+				CurrentEpoch:  currentEpoch,
+				ExpiryEpoch:   expiry,
+				MaxTermLength: maxTermLength,
 			}
 		}
 	}

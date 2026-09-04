@@ -149,6 +149,12 @@ type SlotState interface {
 	TimeToSlot(time.Time) (uint64, error)
 }
 
+// CurrentEpochState is the optional ledger-state capability used by rules
+// whose protocol bounds are expressed relative to the current epoch.
+type CurrentEpochState interface {
+	CurrentEpoch() uint64
+}
+
 // Constitution is the current enacted constitution. ScriptHash is the
 // optional guardrails script hash: nil means that the constitution has no
 // guardrails script.
