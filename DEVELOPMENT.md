@@ -267,7 +267,7 @@ make test
 # Specific package
 go test -v ./ledger/shelley/...
 
-# Conformance tests (314 test vectors)
+# Conformance tests (2,574 pinned ledger vectors plus synthetic coverage)
 go test -v ./internal/test/conformance/...
 
 # Single test
@@ -280,14 +280,17 @@ go tool cover -html=coverage.out
 
 ### Conformance Tests
 
-Located in `internal/test/conformance/`. These test against official Cardano ledger specification vectors.
+Located in `internal/test/conformance/`. The ledger layer consumes a pinned
+Cardano Blueprint archive, verifies its revision and checksum, and reports
+coverage by era, rule family, and expected transaction result. Consensus,
+cryptography, and Byron block checks are separate layers.
 
 ```bash
 # Run all conformance tests
 go test -v ./internal/test/conformance/...
 
-# Count passing/failing
-go test -v ./internal/test/conformance/... 2>&1 | grep -E "--- (PASS|FAIL):" | sort | uniq -c
+# Run only the pinned ledger layer
+go test -v ./internal/test/conformance/... -run TestRulesConformanceVectors
 ```
 
 ### Mock Ledger State

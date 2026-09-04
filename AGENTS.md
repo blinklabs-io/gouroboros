@@ -140,7 +140,7 @@ require.NoError(t, err)
 | Protocol client/server | `protocol/{name}/{client,server}.go` |
 | Block verification | `ledger/verify_block.go`, `verify_block_body.go`, `verify_kes.go`, `verify_opcert.go`; `vrf/vrf.go`, `kes/kes.go` |
 | New era | `ledger/{era}/` + compat exports at `ledger/{era}.go` |
-| Conformance failure | grep rule name in `ledger/`; cross-ref `internal/test/cardano-blueprint/src/ledger/`; compare vector JSON in the `github.com/blinklabs-io/ouroboros-mock` module under `conformance/testdata/` (embedded, extracted at test time) |
+| Conformance failure | grep rule name in `ledger/`; cross-ref `internal/test/cardano-blueprint/src/ledger/`; inspect the pinned Blueprint archive and compare vector JSON through the shared `github.com/blinklabs-io/ouroboros-mock` harness |
 
 ## Error catalog
 

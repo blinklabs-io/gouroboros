@@ -7,7 +7,7 @@ Companion to `AGENTS.md`; read that first. This file: Claude-specific facts and 
 | Metric | Value |
 |--------|-------|
 | Test functions | 3470 (100% passing) |
-| Ledger rule vectors | 315/315 (via Amaru) |
+| Ledger rule vectors | 2,574 Blueprint vectors + synthetic rollback (per-category report) |
 | VRF | 29 vectors + 15 unit tests |
 | KES | 14 (input-output-hk/kes) |
 | Consensus | 224 |
@@ -36,7 +36,7 @@ make format
 go test -v ./ledger/...
 go test -v ./protocol/...
 
-# Conformance with capture for grep-back
+# Conformance with capture for category and subtest inspection
 go test -v ./internal/test/conformance/... 2>&1 | tee /tmp/conformance.txt
 grep -cE "^    --- PASS: TestRulesConformanceVectors/" /tmp/conformance.txt
 grep -cE "^    --- FAIL: TestRulesConformanceVectors/" /tmp/conformance.txt

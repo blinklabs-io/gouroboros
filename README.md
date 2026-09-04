@@ -207,11 +207,11 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Byron consensus (OBFT header validation)
 - [X] Testing
   - [X] Test framework for mocking Ouroboros conversations
-  - [X] Conformance tests (3400+ passing)
-    - [X] Ledger rules (315 tests via Amaru vectors)
+  - [X] Layered conformance tests
+    - [X] Ledger rules (2,574 pinned Cardano Blueprint vectors + synthetic rollback)
     - [X] VRF cryptography (29 vectors + 15 unit tests)
     - [X] KES cryptography (14 tests via input-output-hk/kes vectors)
-    - [X] Consensus (222 tests for leader election, threshold, selection)
+    - [X] Consensus (leader election, threshold, selection)
     - [X] Byron blocks (15 tests from mainnet/testnet/conformance)
   - [X] Fuzz testing (19 targets, 14 in nightly CI)
   - [X] CBOR deserialization and serialization

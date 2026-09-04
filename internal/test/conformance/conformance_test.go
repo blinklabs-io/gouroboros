@@ -156,21 +156,12 @@ var (
 	_ common.CommitteeCredentialState        = (*legacyCommitteeStateProvider)(nil)
 )
 
-// TestRulesConformanceVectors runs the Amaru ledger rules conformance test vectors
-// using the shared harness from ouroboros-mock/conformance.
-//
-// The test vectors exercise Conway era ledger rules including:
-// - UTxO validation (inputs, outputs, fees, collateral)
-// - Certificate processing (stake, pool, DRep, committee)
-// - Governance (proposals, voting, enactment)
-// - Script execution (native scripts, Plutus V1/V2/V3)
-//
-// Test vectors are embedded in the ouroboros-mock module and extracted at test time.
+// TestRulesConformanceVectors runs the pinned Cardano Blueprint ledger corpus
+// through the shared harness from ouroboros-mock/conformance. The corpus is
+// extracted from the nested Blueprint submodule by blueprint_testdata_test.go;
+// the harness still supplies its synthetic rollback vector from the module.
 func TestRulesConformanceVectors(t *testing.T) {
-	testdataRoot, err := conformance.ExtractEmbeddedTestdata(t.TempDir())
-	if err != nil {
-		t.Fatalf("failed to extract embedded testdata: %v", err)
-	}
+	testdataRoot, corpus := prepareBlueprintTestdata(t)
 
 	sm := newCommitteeStateManager()
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
@@ -178,54 +169,24 @@ func TestRulesConformanceVectors(t *testing.T) {
 		Debug:        testing.Verbose(),
 	})
 
-	harness.RunAllVectors(t)
-}
-
-// TestRulesConformanceVectorsWithResults runs the conformance tests and reports
-// detailed statistics. This is useful for tracking implementation progress.
-func TestRulesConformanceVectorsWithResults(t *testing.T) {
-	testdataRoot, err := conformance.ExtractEmbeddedTestdata(t.TempDir())
+	vectorPaths, err := collectVectorFiles(testdataRoot)
 	if err != nil {
-		t.Fatalf("failed to extract embedded testdata: %v", err)
+		t.Fatalf("failed to collect conformance vectors: %v", err)
+	}
+	if len(vectorPaths) != corpus.vectorCount+corpus.syntheticCount {
+		t.Fatalf(
+			"unexpected vector count: got %d, want %d ledger plus %d synthetic",
+			len(vectorPaths), corpus.vectorCount, corpus.syntheticCount,
+		)
 	}
 
-	sm := newCommitteeStateManager()
-	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
-		TestdataRoot: testdataRoot,
-		Debug:        false,
-	})
+	coverage := summarizeCoverage(t, testdataRoot, vectorPaths)
 
-	results, err := harness.RunAllVectorsWithResults()
-	if err != nil {
-		t.Fatalf("failed to run vectors: %v", err)
+	for _, vectorPath := range vectorPaths {
+		passed := t.Run(relativeVectorPath(testdataRoot, vectorPath), func(t *testing.T) {
+			harness.RunVector(t, vectorPath)
+		})
+		recordVectorResult(coverage, testdataRoot, vectorPath, passed)
 	}
-
-	var successes, failures int
-	for _, result := range results {
-		if result.Success {
-			successes++
-		} else {
-			failures++
-		}
-	}
-
-	t.Logf("Conformance Test Results:")
-	t.Logf("  Total vectors: %d", len(results))
-	t.Logf("  Passed: %d", successes)
-	t.Logf("  Failed: %d", failures)
-	t.Logf("  Pass rate: %.1f%%", float64(successes)/float64(len(results))*100)
-
-	if failures > 0 && testing.Verbose() {
-		t.Log("First failures:")
-		failCount := 0
-		for _, result := range results {
-			if !result.Success && failCount < 5 {
-				t.Logf("  %s: %v", result.Title, result.Error)
-				failCount++
-			}
-		}
-		if failures > 5 {
-			t.Logf("  ... and %d more failures", failures-5)
-		}
-	}
+	logCoverage(t, coverage)
 }

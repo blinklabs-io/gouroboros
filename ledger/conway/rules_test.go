@@ -5030,10 +5030,13 @@ func TestUtxoValidateUnknownVotersWrapsCommitteeLookupFailures(t *testing.T) {
 			}
 
 			t.Run("provider without committee state", func(t *testing.T) {
+				legacyState := legacyOnlyLedgerState{
+					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+				}
 				err := conway.UtxoValidateUnknownVoters(
 					newTx(voterCase.voterType),
 					0,
-					mockledger.NewLedgerStateBuilder().Build(),
+					legacyState,
 					pp,
 				)
 				var memberErr conway.CommitteeMemberLookupError
