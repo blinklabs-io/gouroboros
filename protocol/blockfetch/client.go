@@ -919,6 +919,15 @@ func (c *Client) resolve(req *rangeRequest, err error) error {
 				c.callbackContextFor(req),
 				err,
 			)
+		} else if !req.pipelined && err != nil &&
+			req.delivery == deliveryCallback &&
+			c.config.BatchDoneFunc != nil {
+			// GetBlockRange returns after MsgStartBatch, so an error that
+			// resolves the request later cannot reach its caller. Report the
+			// terminal outcome through the existing batch callback instead.
+			callbackErr = c.config.BatchDoneFunc(
+				c.callbackContextFor(req),
+			)
 		}
 	})
 	return callbackErr

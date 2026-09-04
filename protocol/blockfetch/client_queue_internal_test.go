@@ -805,6 +805,32 @@ func TestOldProtocolShutdownDoesNotFailRestartedRequests(t *testing.T) {
 	require.Zero(t, c.inFlightBytes)
 }
 
+func TestNonPipelinedShutdownCallsBatchDone(t *testing.T) {
+	completions := make(chan uint64, 1)
+	c := newQueueTestClient(&Config{
+		BatchDoneFunc: func(ctx CallbackContext) error {
+			completions <- ctx.RequestId
+			return nil
+		},
+	})
+	req := c.appendTestRequest(1)
+	req.pipelined = false
+
+	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+
+	select {
+	case id := <-completions:
+		require.Equal(t, req.id, id)
+	case <-time.After(time.Second):
+		t.Fatal("non-pipelined shutdown did not report batch completion")
+	}
+	select {
+	case id := <-completions:
+		t.Fatalf("non-pipelined shutdown reported completion twice for request %d", id)
+	default:
+	}
+}
+
 // idleLimitObservationWindow bounds both halves of the Idle-state ingress
 // limit pair below: the non-pipelining client must report the oversized
 // message within it, and the pipelining client must not.
