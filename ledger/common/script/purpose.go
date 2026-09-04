@@ -485,6 +485,9 @@ func BuildScriptPurpose(
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		addr := sortedAddrs[redeemerKey.Index]
+		if addr == nil {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
 		return ScriptPurposeRewarding{
 			StakeCredential: lcommon.Credential{
 				CredType:   lcommon.CredentialTypeScriptHash,
