@@ -173,6 +173,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: conway.UtxoValidateRequiredRedeemers,
 	},
 	{
+		Id:        common.UtxoValidationRuleBatchWithdrawals,
+		Validator: UtxoValidateBatchWithdrawals,
+	},
+	{
 		Id:        common.UtxoValidationRuleValueNotConserved,
 		Validator: UtxoValidateValueNotConservedUtxo,
 	},
@@ -999,6 +1003,111 @@ func UtxoValidateValueNotConservedUtxo(
 		return err
 	}
 	return conway.UtxoValidateValueNotConservedUtxo(tx, slot, ls, tmpPparams)
+}
+
+type batchWithdrawal struct {
+	address    []byte
+	credential common.Credential
+	amount     *big.Int
+}
+
+// UtxoValidateBatchWithdrawals rejects a Dijkstra transaction when the total
+// withdrawal for an account across the entire batch exceeds its original
+// reward-account balance. This is unconditional: phase-2-invalid transactions
+// still undergo this UTXOW check.
+func UtxoValidateBatchWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return nil
+	}
+
+	bodies := make(
+		[]common.TransactionBody,
+		0,
+		1+len(dijkstraTx.Body.TxSubTransactions.Items()),
+	)
+	bodies = append(bodies, &dijkstraTx.Body)
+	bodies = append(
+		bodies,
+		common.SubTransactionBodiesFromTransaction(dijkstraTx)...)
+
+	withdrawals := make(map[string]batchWithdrawal)
+	for _, body := range bodies {
+		bodyWithdrawals := body.Withdrawals()
+		if len(bodyWithdrawals) == 0 {
+			continue
+		}
+		if err := common.ValidateWithdrawalAddresses(bodyWithdrawals); err != nil {
+			return err
+		}
+		for address, amount := range bodyWithdrawals {
+			credential, err := address.RewardAccountCredential()
+			if err != nil {
+				return err
+			}
+			rawAddress, err := address.Bytes()
+			if err != nil {
+				return fmt.Errorf("encode batch withdrawal address: %w", err)
+			}
+			key := string(rawAddress)
+			entry, exists := withdrawals[key]
+			if !exists {
+				entry = batchWithdrawal{
+					address:    rawAddress,
+					credential: credential,
+					amount:     new(big.Int),
+				}
+			}
+			if amount != nil {
+				entry.amount.Add(entry.amount, amount)
+			}
+			withdrawals[key] = entry
+		}
+	}
+
+	if len(withdrawals) == 0 {
+		return nil
+	}
+	if ls == nil {
+		return errors.New(
+			"ledger state is required for batch withdrawal validation",
+		)
+	}
+
+	mismatches := make(map[cbor.ByteString][]uint64)
+	for _, withdrawal := range withdrawals {
+		balance, err := ls.RewardAccountBalance(withdrawal.credential)
+		if err != nil {
+			return err
+		}
+		var expected uint64
+		if balance != nil {
+			expected = *balance
+		}
+		expectedAmount := new(big.Int).SetUint64(expected)
+		if withdrawal.amount.Cmp(expectedAmount) <= 0 {
+			continue
+		}
+		if !withdrawal.amount.IsUint64() {
+			return fmt.Errorf(
+				"batch withdrawal amount for %x exceeds uint64",
+				withdrawal.address,
+			)
+		}
+		mismatches[cbor.NewByteString(withdrawal.address)] = []uint64{
+			withdrawal.amount.Uint64(),
+			expected,
+		}
+	}
+	if len(mismatches) == 0 {
+		return nil
+	}
+	return WithdrawalsExceedAccountBalanceError{Withdrawals: mismatches}
 }
 
 func UtxoValidateCCVotingRestrictions(
