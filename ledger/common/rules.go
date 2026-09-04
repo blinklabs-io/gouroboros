@@ -170,30 +170,27 @@ func VerifyTransaction(
 // when the transaction actually has the 4-component Alonzo-style envelope.
 const txTypeAlonzo = 4
 
-// TxSizeForFee returns the fee-relevant transaction size as defined by the
-// Cardano ledger spec. For Alonzo through Conway the on-wire CBOR contains a
-// 4-element array [body, witnesses, isValid, metadata]; the Haskell
-// toCBORForSizeComputation function encodes only 3 elements, so the fee-
-// relevant size is the full on-wire length minus 1 byte (the IsValid field).
-// Dijkstra block transactions use a 3-element envelope, so no adjustment is
-// applied unless an explicitly 4-component transaction is being sized.
+// TxSize returns the size of a transaction as the Cardano ledger spec defines
+// it — the measure used both for fees and for maxTxSize.
 //
-// When the transaction has no stored CBOR (e.g. programmatically constructed),
-// the function falls back to encoding the transaction to compute its size.
-// TxSize returns the size of a transaction as the chain measures it.
-//
-// A transaction stored in a block from Alonzo onwards is split across four
-// parallel arrays — bodies, witness sets, IsValid flags and auxiliary data —
-// and the IsValid flag is not part of the transaction the chain sized.
-// Reconstructing a standalone transaction re-attaches it as the third element
-// of a four-element array, one byte the original never had, so that byte is
-// subtracted here.
+// For Alonzo through Conway the on-wire CBOR is a 4-element array
+// [body, witnesses, isValid, metadata], while the Haskell
+// toCBORForSizeComputation encodes only 3 elements. The IsValid flag is not
+// part of the transaction the chain sized: a block stores bodies, witness
+// sets, IsValid flags and auxiliary data in four parallel arrays, and
+// reconstructing a standalone transaction re-attaches that byte. So the size
+// is the full on-wire length minus 1. Dijkstra block transactions use a
+// 3-element envelope, so no adjustment applies unless an explicitly
+// 4-component transaction is being sized.
 //
 // Every rule expressed against a transaction's size must use this, not
 // len(tx.Cbor()). The two differ by exactly one byte, which only matters for a
 // transaction sitting exactly on a limit — rare enough to survive a long way
 // into a replay before a single transaction built to fill maxTxSize exposes
 // it.
+//
+// When the transaction has no stored CBOR (e.g. programmatically constructed),
+// the function falls back to encoding the transaction to compute its size.
 func TxSize(tx Transaction) (int, error) {
 	cborData := tx.Cbor()
 	if len(cborData) == 0 {
