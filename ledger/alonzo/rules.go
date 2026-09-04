@@ -233,8 +233,18 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
+	// Iterate the collapsed view rather than the raw list. The wire format is
+	// a list but the ledger holds a map, so a key appearing more than once
+	// contributes its budget once. Summing the raw list multiplies it by the
+	// number of copies: on Preview, transaction 3ace3bc7f4c5… at slot 12925989
+	// carries the same (mint, 0) redeemer six times at 3322788/843448898, and
+	// summing all six gives 19936728 memory against a 14000000 cap, rejecting
+	// a transaction the network accepted (blinklabs-io/dingo#3875).
+	//
+	// The raw list is still the right thing for the script data hash, which has
+	// to reproduce the bytes as they were signed.
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Iter() {
 		newSteps, ok := common.AddInt64Checked(
 			totalSteps,
 			redeemer.ExUnits.Steps,
