@@ -48,14 +48,10 @@ import (
 // are extremely close to 1 (e.g. f=(2^2000-1)/2^2000, used by
 // TestCertifiedNatThresholdNearOneDenominatorPrecisionLoss in
 // threshold_test.go): doing so requires refPrec on the order of 2000+
-// mantissa bits, at which point refFindE/refLncf's own accumulated
-// rounding pushes exact-rational cutoffs (like the sigma=1, f=0.5 case
-// below) across their integer boundary in the opposite direction --
-// i.e. this reference implementation has exactly the same class of
-// precision sensitivity that this file's regression tests exist to catch
-// in the *production* code, just triggered at a different threshold. The
-// near-one denominator case is therefore exercised only via the
-// production-only exact-value assertions in threshold_test.go, not here.
+// mantissa bits, at which point refFindE/refLncf's accumulated rounding can
+// cross an integer boundary. Exact-rational cutoffs and the near-one
+// denominator case are therefore exercised by exact-value assertions in
+// threshold_test.go instead of this approximate differential reference.
 const refPrec = 2048
 
 // refSeriesTerms bounds the reference continued-fraction/Taylor loops.
@@ -258,8 +254,9 @@ func refLn(x *big.Float) *big.Float {
 	return new(big.Float).SetPrec(prec).Add(nFloat, refLncf(xPrime))
 }
 
-// refThreshold independently computes floor(upperBound * (1-(1-f)^sigma))
-// using refLn/refExp instead of threshold.go's lnOneMinusFloat/expFloat.
+// refThreshold independently computes the integer comparison threshold
+// ceil(upperBound * (1-(1-f)^sigma)) using refLn/refExp instead of
+// threshold.go's lnOneMinusFloat/expFloat.
 func refThreshold(
 	poolStake, totalStake uint64,
 	f *big.Rat,
@@ -286,7 +283,10 @@ func refThreshold(
 		probability,
 		upperBoundFloat,
 	)
-	threshold, _ := thresholdFloat.Int(nil)
+	threshold, accuracy := thresholdFloat.Int(nil)
+	if accuracy == big.Below {
+		threshold.Add(threshold, big.NewInt(1))
+	}
 	return threshold
 }
 
@@ -362,7 +362,7 @@ func TestCertifiedNatThresholdDifferentialAgainstIndependentReference(
 
 						// The two implementations use entirely different
 						// series/range-reduction strategies, so an exact
-						// floor() match is not guaranteed to the very last
+						// ceiling match is not guaranteed to the very last
 						// ULP in pathological cases -- but any real
 						// approximation bug shows up as a large relative
 						// error, not an off-by-a-few-integers rounding
@@ -385,12 +385,12 @@ func TestCertifiedNatThresholdDifferentialAgainstIndependentReference(
 
 // TestLeaderEligibilityBoundaryAgainstIndependentReference checks
 // certified-nat values immediately below, at, and immediately above the
-// true (independently computed) eligibility cutoff, for both TPraos and
+// independently computed integer comparison threshold, for both TPraos and
 // CPraos modes and several active slot coefficients/stake ratios. The
 // eligibility rule is a strict "<" comparison against the threshold, so:
-//   - cutoff-1 must be eligible (below threshold)
-//   - cutoff itself must NOT be eligible (not below threshold)
-//   - cutoff+1 must NOT be eligible
+//   - threshold-1 must be eligible
+//   - threshold itself must NOT be eligible
+//   - threshold+1 must NOT be eligible
 //
 // This is exactly the boundary the issue asked to be covered: values
 // adjacent to the cutoff, not just broad statistical behavior.
@@ -408,19 +408,6 @@ func TestLeaderEligibilityBoundaryAgainstIndependentReference(t *testing.T) {
 		{"f=0.9,sigma=0.9", big.NewRat(9, 10), 9, 10},
 		{"f=0.99,sigma=0.99", big.NewRat(99, 100), 99, 100},
 		{"f=0.999,tiny-sigma", big.NewRat(999, 1000), 1, 1_000_000},
-		// Exact-rational cutoff: full stake (sigma=1) with f=1/2 makes
-		// (1-f)^sigma = 1-f = 0.5 exactly, so the true cutoff lands
-		// exactly on an integer (2^N/2). This is the case that exposed
-		// the off-by-one flooring bug fixed for
-		// CertifiedNatThresholdWithMode's full-stake handling.
-		{"f=0.5,sigma=1(full-stake-exact)", big.NewRat(1, 2), 1, 1},
-		// Partial-stake exact-rational cutoff (PR #1963 review, blocking
-		// finding 1): f=3/4, sigma=1/2 makes (1-f)^sigma=(1/4)^(1/2)=1/2
-		// exactly, so the true cutoff lands exactly on an integer
-		// (2^(N-1)). Feeding an approximate big.Float into the final
-		// floor() previously produced 2^(N-1)-1 instead, incorrectly
-		// rejecting the valid leader value 2^(N-1)-1.
-		{"f=0.75,sigma=0.5(partial-stake-exact)", big.NewRat(3, 4), 1, 2},
 	}
 
 	modes := []struct {
@@ -464,36 +451,10 @@ func TestLeaderEligibilityBoundaryAgainstIndependentReference(t *testing.T) {
 				// for the (deliberately looser) general accuracy bound
 				// against the same reference.
 				//
-				// cubic-dev-ai review (PR #1963, finding 2) questioned
-				// whether this exact-equality check is brittle: refPrec's own
-				// doc comment above notes that refFindE/refLncf's accumulated
-				// rounding can push an exact-rational cutoff across its
-				// integer boundary, and names this file's own two
-				// exact-rational cases (f=0.5/sigma=1, f=0.75/sigma=0.5) as an
-				// example. That drift, however, is specific to raising refPrec
-				// far past its current value (to the ~2000+ mantissa bits the
-				// near-one-f case in threshold_test.go would require), at
-				// which point refSeriesTerms' fixed 4000-iteration cap stops
-				// being enough to converge to the correspondingly tighter
-				// refEpsilon, leaving a much larger residual than usual. It is
-				// not a property of these two cases at refPrec's *current*
-				// value (2048): measured directly, the continued-fraction/
-				// Taylor residual for (1-f)^sigma (which equals exactly 0.5 in
-				// both cases) is on the order of a 2^-1989 relative error, i.e.
-				// an absolute error against even the largest upperBound in use
-				// here (2^512) of around 2^-1477 -- roughly 1450 bits of
-				// margin below what would be needed to shift floor() by even
-				// one integer. That margin would have to shrink by three
-				// orders of magnitude in bit-count before this check could
-				// plausibly flake, so it is kept as an exact equality (not a
-				// tolerance) for these specific cases. This reasoning is tied
-				// to *this* file's current case list at refPrec's current
-				// value: if refPrec, refSeriesTerms, or this file's case list
-				// changes (e.g. to add a near-one-f case), re-derive
-				// below/at/above from threshold instead of cutoff and loosen
-				// this to a tolerance, following the pattern
-				// TestCertifiedNatThresholdDifferentialAgainstIndependentReference
-				// already uses for exactly that reason.
+				// Exact-rational cutoffs are intentionally excluded from this
+				// approximate reference table because an arbitrarily small
+				// reference residual can change ceil(X) at an integral X. They
+				// are covered by exact arithmetic in threshold_test.go.
 				diff := new(big.Int).Sub(threshold, cutoff)
 				require.True(t, diff.Sign() == 0,
 					"production threshold must equal the reference cutoff "+
@@ -514,28 +475,11 @@ func TestLeaderEligibilityBoundaryAgainstIndependentReference(t *testing.T) {
 				// logic the public API applies after hashing.
 				bits := m.outputLen * 8
 
-				// NOTE: gouroboros' eligibility rule compares the raw VRF
-				// leader value v against floor(X) via a strict "<", which
-				// differs from upstream cardano-node's real-number
-				// semantics (certNat < certNatMax*(1-(1-f)^sigma)) by at
-				// most one integer whenever X itself isn't exactly an
-				// integer: upstream would admit v == floor(X) as eligible
-				// in that case, gouroboros rejects it. This is a genuine,
-				// pre-existing, astronomically-low-probability (~2^-256)
-				// boundary discrepancy, known and accepted, and out of
-				// scope for this PR. Once threshold == cutoff exactly (as
-				// asserted above), the "at"/"above" checks below become
-				// tautological with respect to *this* implementation
-				// (threshold < threshold is trivially false) and so can't
-				// catch that discrepancy either way -- they only confirm
-				// this implementation is internally consistent with its
-				// own (integer) threshold value, not that the threshold
-				// itself matches upstream's real-number cutoff to the
-				// last possible integer. Bit-exact boundary agreement
-				// with cardano-node is unattainable by construction
-				// regardless: upstream's own Fixed E34 internal
-				// precision (~113 bits) is far short of exact real-number
-				// arithmetic.
+				// The comparison threshold is ceil(X), where X is the real
+				// cutoff. For every integer leader value v, v < ceil(X) is
+				// equivalent to v < X. This preserves strict rejection at
+				// integral cutoffs while admitting floor(X) when X is
+				// fractional, matching the reference predicate.
 				require.True(
 					t,
 					checkBelowThreshold(t, bits, m.mode, threshold, below),
