@@ -675,10 +675,53 @@ type PoolRegistrationCertificate struct {
 	// byte of the wire reward_account, which RewardAccount itself does not
 	// retain. rewardAccountNetworkIdKnown is false when the certificate was
 	// not decoded from a CBOR reward account carrying a header byte (a
-	// programmatically constructed certificate, one built from JSON, or the
-	// legacy 28-byte encoding).
-	rewardAccountNetworkId      uint
-	rewardAccountNetworkIdKnown bool
+	// programmatically constructed certificate or one built from JSON/genesis).
+	rewardAccountNetworkId       uint
+	rewardAccountNetworkIdKnown  bool
+	rewardAccountCredentialType  uint
+	rewardAccountCredentialKnown bool
+}
+
+// RewardAccountCredential returns the credential carried by the pool's
+// reward account. Programmatically constructed and JSON/genesis certificates
+// have no wire header and retain the historical key-hash default.
+func (c *PoolRegistrationCertificate) RewardAccountCredential() Credential {
+	cred := Credential{CredType: CredentialTypeAddrKeyHash}
+	if c == nil {
+		return cred
+	}
+	cred.Credential = CredentialHash(c.RewardAccount)
+	if c.rewardAccountCredentialKnown {
+		cred.CredType = c.rewardAccountCredentialType
+	}
+	return cred
+}
+
+// SetRewardAccountCredential sets the reward-account credential and the
+// network identity needed for canonical CBOR encoding.
+func (c *PoolRegistrationCertificate) SetRewardAccountCredential(
+	credential Credential,
+	networkId uint,
+) error {
+	if c == nil {
+		return errors.New("nil pool registration certificate receiver")
+	}
+	if credential.CredType > CredentialTypeScriptHash {
+		return fmt.Errorf(
+			"invalid reward account credential type: %d",
+			credential.CredType,
+		)
+	}
+	if networkId > AddressNetworkMainnet {
+		return fmt.Errorf("invalid reward account network id: %d", networkId)
+	}
+	c.RewardAccount = AddrKeyHash(credential.Credential)
+	c.rewardAccountCredentialType = credential.CredType
+	c.rewardAccountCredentialKnown = true
+	c.rewardAccountNetworkId = networkId
+	c.rewardAccountNetworkIdKnown = true
+	c.DecodeStoreCbor.SetCbor(nil)
+	return nil
 }
 
 // RewardAccountNetworkId returns the network id encoded in the header byte of
@@ -690,14 +733,16 @@ func (c *PoolRegistrationCertificate) RewardAccountNetworkId() (uint, bool) {
 	return c.rewardAccountNetworkId, c.rewardAccountNetworkIdKnown
 }
 
-// SetCbor invalidates the decoded reward-account network only when replacing
-// the cached bytes. Clearing the cache before mutating fields must preserve
-// that consensus-relevant metadata.
+// SetCbor invalidates decoded reward-account metadata only when replacing the
+// cached bytes. Clearing the cache before mutating fields must preserve that
+// consensus-relevant metadata.
 func (c *PoolRegistrationCertificate) SetCbor(cborData []byte) {
 	c.DecodeStoreCbor.SetCbor(cborData)
 	if cborData != nil {
 		c.rewardAccountNetworkId = 0
 		c.rewardAccountNetworkIdKnown = false
+		c.rewardAccountCredentialType = CredentialTypeAddrKeyHash
+		c.rewardAccountCredentialKnown = false
 	}
 }
 
@@ -1104,7 +1149,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Pledge = tmp.Pledge
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
-		c.RewardAccount = tmp.RewardAccount.credential
+		c.RewardAccount = AddrKeyHash(tmp.RewardAccount.credential.Credential)
+		c.rewardAccountCredentialType = tmp.RewardAccount.credential.CredType
+		c.rewardAccountCredentialKnown = true
 		c.rewardAccountNetworkId = tmp.RewardAccount.networkId
 		c.rewardAccountNetworkIdKnown = tmp.RewardAccount.networkIdKnown
 		c.PoolOwners = tmp.PoolOwners
@@ -1127,7 +1174,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Pledge = tmp.Pledge
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
-		c.RewardAccount = tmp.RewardAccount.credential
+		c.RewardAccount = AddrKeyHash(tmp.RewardAccount.credential.Credential)
+		c.rewardAccountCredentialType = tmp.RewardAccount.credential.CredType
+		c.rewardAccountCredentialKnown = true
 		c.rewardAccountNetworkId = tmp.RewardAccount.networkId
 		c.rewardAccountNetworkIdKnown = tmp.RewardAccount.networkIdKnown
 		c.PoolOwners = tmp.PoolOwners
@@ -1155,6 +1204,10 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 	if err := ValidatePoolMargin(c.Margin); err != nil {
 		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
 	}
+	rewardAccount, err := c.rewardAccountBytes()
+	if err != nil {
+		return nil, err
+	}
 	if c.LeiosKey == nil {
 		return cbor.Encode([]any{
 			c.CertType,
@@ -1163,7 +1216,7 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 			c.Pledge,
 			c.Cost,
 			c.Margin,
-			c.RewardAccount,
+			rewardAccount,
 			c.PoolOwners,
 			c.Relays,
 			c.PoolMetadata,
@@ -1177,11 +1230,42 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 		c.Pledge,
 		c.Cost,
 		c.Margin,
-		c.RewardAccount,
+		rewardAccount,
 		c.PoolOwners,
 		c.Relays,
 		c.PoolMetadata,
 	})
+}
+
+func (c PoolRegistrationCertificate) rewardAccountBytes() ([]byte, error) {
+	if !c.rewardAccountNetworkIdKnown || !c.rewardAccountCredentialKnown {
+		return nil, errors.New(
+			"pool reward account metadata is required for CBOR encoding",
+		)
+	}
+	if c.rewardAccountNetworkId > AddressNetworkMainnet {
+		return nil, fmt.Errorf(
+			"invalid reward account network id: %d",
+			c.rewardAccountNetworkId,
+		)
+	}
+	if c.rewardAccountCredentialType > CredentialTypeScriptHash {
+		return nil, fmt.Errorf(
+			"invalid reward account credential type: %d",
+			c.rewardAccountCredentialType,
+		)
+	}
+	header := byte(0xE0)
+	if c.rewardAccountNetworkId == AddressNetworkMainnet {
+		header |= 0x01
+	}
+	if c.rewardAccountCredentialType == CredentialTypeScriptHash {
+		header |= 0x10
+	}
+	ret := make([]byte, Blake2b224Size+1)
+	ret[0] = header
+	copy(ret[1:], c.RewardAccount[:])
+	return ret, nil
 }
 
 func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {

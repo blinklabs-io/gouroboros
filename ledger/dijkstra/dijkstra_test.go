@@ -57,7 +57,7 @@ func TestDijkstraTransactionBodiesUnmarshalCBORCertificateTypes(t *testing.T) {
 			},
 		},
 	}
-	certificates := certificateFixturesByType()
+	certificates := certificateFixturesByType(t)
 	testCases := make([]struct {
 		name     string
 		certType common.CertificateType
@@ -124,10 +124,19 @@ func TestDijkstraTransactionBodiesRejectNegativeCurrentTreasuryValue(
 	})
 }
 
-func certificateFixturesByType() map[common.CertificateType]any {
+func certificateFixturesByType(t *testing.T) map[common.CertificateType]any {
+	t.Helper()
 	credential := common.Credential{
 		CredType: common.CredentialTypeAddrKeyHash,
 	}
+	poolRegistration := &common.PoolRegistrationCertificate{
+		CertType: uint(common.CertificateTypePoolRegistration),
+		Margin:   cbor.Rat{Rat: big.NewRat(0, 1)},
+	}
+	require.NoError(t, poolRegistration.SetRewardAccountCredential(
+		credential,
+		common.AddressNetworkTestnet,
+	))
 	return map[common.CertificateType]any{
 		common.CertificateTypeStakeRegistration: &common.StakeRegistrationCertificate{
 			CertType: uint(common.CertificateTypeStakeRegistration),
@@ -139,10 +148,7 @@ func certificateFixturesByType() map[common.CertificateType]any {
 			CertType:        uint(common.CertificateTypeStakeDelegation),
 			StakeCredential: &credential,
 		},
-		common.CertificateTypePoolRegistration: &common.PoolRegistrationCertificate{
-			CertType: uint(common.CertificateTypePoolRegistration),
-			Margin:   cbor.Rat{Rat: big.NewRat(0, 1)},
-		},
+		common.CertificateTypePoolRegistration: poolRegistration,
 		common.CertificateTypePoolRetirement: &common.PoolRetirementCertificate{
 			CertType: uint(common.CertificateTypePoolRetirement),
 		},
@@ -817,7 +823,11 @@ func TestDijkstraRejectsDuplicateUntaggedInputSets(t *testing.T) {
 			require.NoError(t, err)
 
 			var body DijkstraTransactionBody
-			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "duplicate member in set")
+			require.ErrorContains(
+				t,
+				body.UnmarshalCBOR(bodyCbor),
+				"duplicate member in set",
+			)
 		})
 	}
 }
@@ -955,7 +965,11 @@ func TestDijkstraWitnessSetRejectsDuplicateUntaggedVkeyWitness(t *testing.T) {
 		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
 	}
 	var ws DijkstraTransactionWitnessSet
-	require.ErrorContains(t, ws.UnmarshalCBOR(dupCbor), "duplicate member in set")
+	require.ErrorContains(
+		t,
+		ws.UnmarshalCBOR(dupCbor),
+		"duplicate member in set",
+	)
 }
 
 func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
