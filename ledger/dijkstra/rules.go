@@ -1085,10 +1085,11 @@ func UtxoValidateBatchWithdrawals(
 		if err != nil {
 			return err
 		}
-		var expected uint64
-		if balance != nil {
-			expected = *balance
+		if balance == nil {
+			return shelley.WithdrawalFromUnregisteredRewardAccountError{}
 		}
+		var expected uint64
+		expected = *balance
 		expectedAmount := new(big.Int).SetUint64(expected)
 		if withdrawal.amount.Cmp(expectedAmount) <= 0 {
 			continue
