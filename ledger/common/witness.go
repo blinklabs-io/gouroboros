@@ -34,6 +34,23 @@ type BootstrapWitness struct {
 
 // ValidateCollateralVKeyWitnesses ensures collateral inputs are backed by vkey witnesses (payment key).
 // This is a shared helper used across Alonzo, Babbage, and Conway eras.
+//
+// The phase-2 guard below is deliberately broader than the reference's. This
+// helper covers two requirements that cardano-ledger keeps apart:
+//
+//   - collateral must be key-locked, from UTXO's validateScriptsNotPaidUTxO,
+//     which is inside feesOK's redeemer guard; and
+//   - each collateral input must have a matching vkey witness, from UTXOW's
+//     witsVKeyNeeded (Alonzo adds collateral inputs to that set), which is not
+//     redeemer-gated in the reference.
+//
+// Gating both means a no-redeemer transaction with an unwitnessed key-locked
+// collateral input is not rejected here, where the reference would reject it in
+// UTXOW. That is a missed rejection, not a false one: it accepts a transaction
+// the reference rejects rather than rejecting one the reference accepts, so it
+// cannot wedge a node on a canonical block. Splitting the witsVKeyNeeded half
+// back out to run ungated is the correct end state; it is not done here because
+// this change is scoped to the false-rejection fix.
 func ValidateCollateralVKeyWitnesses(
 	tx Transaction,
 	ls LedgerState,
@@ -56,7 +73,7 @@ func ValidateCollateralVKeyWitnesses(
 	// is not in the witness set, and gating on that would skip the check for
 	// exactly the transactions that most need it. Every phase-2 execution has a
 	// redeemer regardless of where its script came from.
-	if !transactionRunsPhase2Scripts(tx) {
+	if !TransactionRunsPhase2Scripts(tx) {
 		return nil
 	}
 	// Collect vkey hashes from witnesses
@@ -112,16 +129,22 @@ func ValidateCollateralVKeyWitnesses(
 	return nil
 }
 
-// transactionRunsPhase2Scripts reports whether the transaction executes any
+// TransactionRunsPhase2Scripts reports whether the transaction executes any
 // Plutus script, by looking for redeemers rather than for scripts in the
 // witness set. A reference input can supply the script, in which case the
 // witness set holds none but the redeemer is still present.
+//
+// This is the condition cardano-ledger's feesOK uses to gate the collateral
+// rule group:
+//
+//	unless (null $ tx ^. witsTxL . rdmrsTxWitsL . unRedeemersL) $
+//	  validateCollateral pp txBody utxoCollateral
 //
 // Sub-transaction witness sets count too. A Dijkstra transaction can carry its
 // redeemers only in a sub-transaction, and reading just the top level would
 // report no phase-2 execution and skip the collateral rules for it — the one
 // direction this guard must never fail in.
-func transactionRunsPhase2Scripts(tx Transaction) bool {
+func TransactionRunsPhase2Scripts(tx Transaction) bool {
 	if witnessSetHasRedeemers(tx.Witnesses()) {
 		return true
 	}

@@ -635,12 +635,24 @@ func UtxoValidateCollateralContainsNonAda(
 }
 
 // UtxoValidateCollateralEqBalance ensures that the collateral return amount is equal to the collateral input amount minus the total collateral
+//
+// This is Part 6 of the reference's validateTotalCollateral, which feesOK runs
+// only when the redeemer map is non-empty, exactly as it does for the rest of
+// the collateral group. A transaction with no redeemers runs no phase-2
+// scripts, so its total_collateral field is not checked and a mismatch is not
+// a rejection. Conway and Dijkstra delegate here, so the guard uses the
+// interface-level helper rather than the Babbage-typed witness set: a Dijkstra
+// transaction can carry its redeemers in a sub-transaction, which the helper
+// counts.
 func UtxoValidateCollateralEqBalance(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !common.TransactionRunsPhase2Scripts(tx) {
+		return nil
+	}
 	totalCollateral := tx.TotalCollateral()
 	if totalCollateral == nil || totalCollateral.Sign() == 0 {
 		return nil

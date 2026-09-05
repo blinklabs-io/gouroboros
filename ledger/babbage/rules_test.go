@@ -1576,6 +1576,15 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				false,
 			),
 		},
+		// total_collateral is only checked for phase-2 transactions, so the
+		// fixture needs a redeemer for the rule to run at all.
+		WitnessSet: babbage.BabbageTransactionWitnessSet{
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					{Tag: common.RedeemerTagSpend, Index: 0},
+				},
+			},
+		},
 	}
 	utxos := []common.Utxo{
 		{

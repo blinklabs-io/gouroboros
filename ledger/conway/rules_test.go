@@ -3006,6 +3006,17 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				false,
 			),
 		},
+		// total_collateral is only checked for phase-2 transactions, so the
+		// fixture needs a redeemer for the rule to run at all.
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
 	}
 	utxos := []common.Utxo{
 		{
