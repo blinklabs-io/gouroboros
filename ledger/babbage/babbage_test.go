@@ -2954,7 +2954,6 @@ func TestBabbageTransactionOutput_Utxorpc_DatumOptionNil(t *testing.T) {
 		OutputAmount: mary.MaryTransactionOutputValue{
 			Amount: 1000,
 		},
-		DatumOption: &BabbageTransactionOutputDatumOption{},
 	}
 
 	txOutput, err := output.Utxorpc()
@@ -2963,7 +2962,8 @@ func TestBabbageTransactionOutput_Utxorpc_DatumOptionNil(t *testing.T) {
 	}
 
 	assert.NotNil(t, txOutput)
-	assert.Equal(t, []byte{}, txOutput.Datum.Hash)
+	assert.NotNil(t, txOutput.Datum)
+	assert.Nil(t, txOutput.Datum.Hash)
 	assert.Equal(t, []byte{0x0}, txOutput.Address)
 	coin := txOutput.Coin
 	if bigUInt := coin.GetBigUInt(); bigUInt != nil {

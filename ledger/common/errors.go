@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"reflect"
 )
 
 // CurrentTreasuryValueMismatchError indicates that a transaction's supplied
@@ -110,6 +111,33 @@ var ErrInputResolution = errors.New(
 
 func (InputResolutionError) Is(target error) bool {
 	return target == ErrInputResolution
+}
+
+// ResolveInputUtxo resolves an input and rejects a state entry without an
+// output. Validators use this for inputs whose absence cannot be treated as an
+// empty value, such as collateral inputs.
+func ResolveInputUtxo(state UtxoState, input TransactionInput) (Utxo, error) {
+	utxo, err := state.UtxoById(input)
+	if err != nil {
+		return Utxo{}, InputResolutionError{Input: input, Err: err}
+	}
+	if utxo.Output == nil {
+		return Utxo{}, InputResolutionError{
+			Input: input,
+			Err:   errors.New("resolved UTxO has nil output"),
+		}
+	}
+	outputValue := reflect.ValueOf(utxo.Output)
+	kind := outputValue.Kind()
+	if (kind == reflect.Chan || kind == reflect.Func ||
+		kind == reflect.Interface || kind == reflect.Map ||
+		kind == reflect.Pointer || kind == reflect.Slice) && outputValue.IsNil() {
+		return Utxo{}, InputResolutionError{
+			Input: input,
+			Err:   errors.New("resolved UTxO has nil output"),
+		}
+	}
+	return utxo, nil
 }
 
 // ReferenceInputResolutionError indicates a failure to resolve a reference input UTxO

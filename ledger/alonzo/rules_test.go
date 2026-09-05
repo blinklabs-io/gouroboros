@@ -1057,6 +1057,62 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateInsufficientCollateralRejectsUnresolvedInput(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
+	tx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			TxCollateral: cbor.NewSetType([]shelley.ShelleyTransactionInput{input}, false),
+		},
+		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{{}},
+			},
+		},
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+	err := alonzo.UtxoValidateInsufficientCollateral(
+		tx,
+		0,
+		state,
+		&alonzo.AlonzoProtocolParameters{},
+	)
+	var resolutionErr common.InputResolutionError
+	assert.ErrorAs(t, err, &resolutionErr)
+}
+
+func TestUtxoValidateInsufficientCollateralRejectsNilOutput(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
+	tx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			TxCollateral: cbor.NewSetType([]shelley.ShelleyTransactionInput{input}, false),
+		},
+		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{{}},
+			},
+		},
+	}
+	state := mockledger.NewLedgerStateBuilder().WithUtxoById(
+		func(common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, nil
+		},
+	).Build()
+	err := alonzo.UtxoValidateInsufficientCollateral(
+		tx,
+		0,
+		state,
+		&alonzo.AlonzoProtocolParameters{},
+	)
+	var resolutionErr common.InputResolutionError
+	assert.ErrorAs(t, err, &resolutionErr)
+}
+
 func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testCollateralAmount uint64 = 100000

@@ -21,6 +21,7 @@ import (
 	"iter"
 	"math/big"
 	"slices"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -874,6 +875,7 @@ type AlonzoTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	hash       *common.Blake2b256
+	hashMu     *sync.Mutex
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
@@ -881,7 +883,18 @@ type AlonzoTransaction struct {
 	auxData    common.AuxiliaryData
 }
 
+func (t *AlonzoTransaction) SetCbor(data []byte) {
+	if t.hashMu == nil {
+		t.hashMu = &sync.Mutex{}
+	}
+	t.hashMu.Lock()
+	defer t.hashMu.Unlock()
+	t.DecodeStoreCbor.SetCbor(data)
+	t.hash = nil
+}
+
 func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
+	t.hashMu = &sync.Mutex{}
 	// Reset cached/derived fields to avoid stale state on receiver reuse
 	t.hash = nil
 	t.TxMetadata = nil
@@ -977,7 +990,12 @@ func (t AlonzoTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t AlonzoTransaction) LeiosHash() common.Blake2b256 {
+func (t *AlonzoTransaction) LeiosHash() common.Blake2b256 {
+	if t.hashMu == nil {
+		return common.Blake2b256Hash(t.Cbor())
+	}
+	t.hashMu.Lock()
+	defer t.hashMu.Unlock()
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash

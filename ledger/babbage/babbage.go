@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -912,28 +913,26 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 
 	var datumHash []byte
-	if o.DatumOption == nil {
-		datumHash = make([]byte, 32) // 32 zero bytes for no datum option
-	} else if o.DatumOption.hash != nil {
-		datumHash = o.DatumOption.hash.Bytes()
-	} else if o.DatumOption.data != nil {
-		datumHash = o.DatumHash().Bytes()
-	} else {
-		// DatumOption present but empty
-		datumHash = []byte{}
+	if o.DatumOption != nil {
+		switch {
+		case o.DatumOption.hash != nil:
+			datumHash = o.DatumOption.hash.Bytes()
+		case o.DatumOption.data != nil:
+			datumHash = o.DatumHash().Bytes()
+		}
 	}
 
-	return &utxorpc.TxOutput{
-			Address: address,
-			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
-			Assets:  assets,
-			Datum: &utxorpc.Datum{
-				Hash: datumHash,
-				// OriginalCbor: o.Datum().Cbor(),
-			},
-			// Script:    o.ScriptRef,
+	ret := &utxorpc.TxOutput{
+		Address: address,
+		Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
+		Assets:  assets,
+		Datum: &utxorpc.Datum{
+			Hash: datumHash,
+			// OriginalCbor: o.Datum().Cbor(),
 		},
-		nil
+		// Script:    o.ScriptRef,
+	}
+	return ret, nil
 }
 
 func (o BabbageTransactionOutput) String() string {
@@ -1053,6 +1052,7 @@ type BabbageTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	hash       *common.Blake2b256
+	hashMu     *sync.Mutex
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	TxIsValid  bool
@@ -1060,7 +1060,18 @@ type BabbageTransaction struct {
 	auxData    common.AuxiliaryData
 }
 
+func (t *BabbageTransaction) SetCbor(data []byte) {
+	if t.hashMu == nil {
+		t.hashMu = &sync.Mutex{}
+	}
+	t.hashMu.Lock()
+	defer t.hashMu.Unlock()
+	t.DecodeStoreCbor.SetCbor(data)
+	t.hash = nil
+}
+
 func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
+	t.hashMu = &sync.Mutex{}
 	// Reset cached/derived fields to avoid stale state on receiver reuse
 	t.hash = nil
 	t.TxMetadata = nil
@@ -1156,7 +1167,12 @@ func (t BabbageTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t BabbageTransaction) LeiosHash() common.Blake2b256 {
+func (t *BabbageTransaction) LeiosHash() common.Blake2b256 {
+	if t.hashMu == nil {
+		return common.Blake2b256Hash(t.Cbor())
+	}
+	t.hashMu.Lock()
+	defer t.hashMu.Unlock()
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash

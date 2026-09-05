@@ -2101,7 +2101,7 @@ func UtxoValidateInsufficientCollateral(
 	}
 	totalCollateral := new(big.Int)
 	for _, collateralInput := range tx.Collateral() {
-		utxo, err := ls.UtxoById(collateralInput)
+		utxo, err := common.ResolveInputUtxo(ls, collateralInput)
 		if err != nil {
 			return err
 		}
@@ -2153,7 +2153,7 @@ func UtxoValidateCollateralContainsNonAda(
 	totalCollateral := new(big.Int)
 	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
-		utxo, err := ls.UtxoById(collateralInput)
+		utxo, err := common.ResolveInputUtxo(ls, collateralInput)
 		if err != nil {
 			return err
 		}

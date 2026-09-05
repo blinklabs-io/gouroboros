@@ -92,7 +92,7 @@ func ValidateCollateralVKeyWitnesses(
 	}
 	// Ensure each collateral input is owned by a provided vkey witness
 	for _, input := range collateral {
-		utxo, err := ls.UtxoById(input)
+		utxo, err := ResolveInputUtxo(ls, input)
 		if err != nil {
 			return NewValidationError(
 				ValidationErrorTypeTransaction,
