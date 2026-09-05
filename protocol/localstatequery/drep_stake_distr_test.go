@@ -331,3 +331,23 @@ func TestDRepStakeDistrResultRejectsUnterminatedIndefiniteMap(t *testing.T) {
 	require.Error(t, err)
 	require.Empty(t, result)
 }
+
+// TestDRepStakeDistrResultRejectsNonCanonicalDuplicateDRep covers a repeat
+// that the encoded keys do not catch. lcommon.Drep reads the type from the
+// list head and ignores any further elements for the predefined options, so
+// [2] and [2, h'00'] are different bytes that decode to the same Abstain
+// DRep. Accepting both would let a caller summing the result count Abstain's
+// stake twice, which is the thing the duplicate check exists to prevent.
+func TestDRepStakeDistrResultRejectsNonCanonicalDuplicateDRep(t *testing.T) {
+	//	81                ; result wrapper, array(1)
+	//	  a2              ; map(2)
+	//	    81 02         ; [2] always-abstain
+	//	    18 32         ; 50
+	//	    82 02 41 00   ; [2, h'00'] -- also decodes to always-abstain
+	//	    18 64         ; 100
+	reply := mustDecodeHex(t, "81a2"+"8102"+"1832"+"82024100"+"1864")
+	var result DRepStakeDistrResult
+	_, err := cbor.Decode(reply, &result)
+	require.ErrorContains(t, err, "duplicate DRep")
+	require.Empty(t, result)
+}

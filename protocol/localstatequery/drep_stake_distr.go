@@ -109,9 +109,21 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 	// (DupMapKeyEnforcedAPF), so every other map-shaped result in this
 	// package gets that for free. Walking this map by hand does not, and a
 	// caller summing a slice that repeats a DRep counts its stake twice.
-	// A CBOR map's keys are unique by their encoding, so that is what the
-	// check compares.
-	seen := make(map[string]struct{}, entryCount)
+	//
+	// Two checks are needed, because a repeat can take two forms. A CBOR
+	// map's keys are unique by their encoding, so seenEncoded rejects a
+	// literally repeated key. That is not enough on its own: lcommon.Drep
+	// reads the type from the list head and ignores any further elements
+	// for the predefined options, so [2] and [2, h'00'] decode to the same
+	// Abstain DRep from different bytes. seenDrep rejects that pair too,
+	// since a caller summing the result would otherwise count Abstain's
+	// stake twice.
+	type drepKey struct {
+		drepType   int
+		credential string
+	}
+	seenEncoded := make(map[string]struct{}, entryCount)
+	seenDrep := make(map[drepKey]struct{}, entryCount)
 	for i := 0; indefinite || i < entryCount; i++ {
 		if indefinite {
 			// A bounds guard before the index below, not a validation
@@ -137,13 +149,24 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 				err,
 			)
 		}
-		if _, dup := seen[string(key)]; dup {
+		if _, dup := seenEncoded[string(key)]; dup {
 			return fmt.Errorf(
 				"DRep stake distribution: duplicate DRep %s",
 				entry.Drep.String(),
 			)
 		}
-		seen[string(key)] = struct{}{}
+		seenEncoded[string(key)] = struct{}{}
+		decoded := drepKey{
+			drepType:   entry.Drep.Type,
+			credential: string(entry.Drep.Credential),
+		}
+		if _, dup := seenDrep[decoded]; dup {
+			return fmt.Errorf(
+				"DRep stake distribution: duplicate DRep %s",
+				entry.Drep.String(),
+			)
+		}
+		seenDrep[decoded] = struct{}{}
 		if _, _, err := dec.Decode(&entry.Stake); err != nil {
 			return fmt.Errorf(
 				"DRep stake distribution: decoding stake: %w",
