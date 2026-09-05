@@ -337,6 +337,13 @@ func (v *HeaderValidator) validateSimpleSignature(
 		}
 		// Permissive fallback (opt-in only): verify directly against HeaderCbor
 		// WARNING: This is less secure and should only be used for testing
+		// Byron signatures are verified permissively on purpose. The reference is
+		// Cardano.Crypto.Signing.Signature.verifySignatureRaw, which calls CC.verify in
+		// cardano-crypto-wallet, whose bundled ed25519-donna ed25519_sign_open checks
+		// only the high bits of S and performs no small-order test on A or R. It
+		// accepts proofs libsodium rejects, and Byron blocks are immutable history, so
+		// routing these through internal/ed25519strict would reject chain the node
+		// accepts. Do not "fix" these to match the non-Byron boundaries.
 		valid := ed25519.Verify(
 			input.IssuerPubKey,
 			input.HeaderCbor,
