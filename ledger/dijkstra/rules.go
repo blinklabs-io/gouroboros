@@ -1006,7 +1006,8 @@ func UtxoValidateValueNotConservedUtxo(
 }
 
 type batchWithdrawal struct {
-	address    []byte
+	address    common.Address
+	rawAddress []byte
 	credential common.Credential
 	amount     *big.Int
 }
@@ -1058,7 +1059,8 @@ func UtxoValidateBatchWithdrawals(
 			entry, exists := withdrawals[key]
 			if !exists {
 				entry = batchWithdrawal{
-					address:    rawAddress,
+					address:    address,
+					rawAddress: rawAddress,
 					credential: credential,
 					amount:     new(big.Int),
 				}
@@ -1099,7 +1101,7 @@ func UtxoValidateBatchWithdrawals(
 		if !withdrawal.amount.IsUint64() {
 			return fmt.Errorf(
 				"batch withdrawal amount for %x exceeds uint64",
-				withdrawal.address,
+				withdrawal.rawAddress,
 			)
 		}
 		mismatches[cbor.NewByteString(withdrawal.address)] = []uint64{
