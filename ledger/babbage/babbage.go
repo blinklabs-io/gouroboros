@@ -437,7 +437,7 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("mint: %w", err)
 	}
 	*b = BabbageTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(cborData, b.Ttl, false); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -513,6 +513,20 @@ func (b *BabbageTransactionBody) TTL() uint64 {
 
 func (b *BabbageTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+// TransactionNetworkId returns the optional transaction network identifier. A non-zero
+// value is necessarily present; zero is present only when the decoder saw
+// transaction-body key 15 (or the caller marked it present explicitly).
+func (b *BabbageTransactionBody) TransactionNetworkId() *uint8 {
+	if b.NetworkIdPresent() || b.NetworkId != 0 {
+		return &b.NetworkId
+	}
+	return nil
+}
+
+func (t BabbageTransaction) TransactionNetworkId() *uint8 {
+	return t.Body.TransactionNetworkId()
 }
 
 func (b *BabbageTransactionBody) SetValidityIntervalUpperBound(

@@ -135,6 +135,43 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateTransactionNetworkId(t *testing.T) {
+	ledgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+	validate := func(tx *babbage.BabbageTransaction) error {
+		return babbage.UtxoValidateTransactionNetworkId(tx, 0, ledgerState, &babbage.BabbageProtocolParameters{})
+	}
+
+	t.Run("absent identifier is accepted", func(t *testing.T) {
+		assert.NoError(t, validate(&babbage.BabbageTransaction{}))
+	})
+	t.Run("matching identifier is accepted", func(t *testing.T) {
+		assert.NoError(t, validate(&babbage.BabbageTransaction{Body: babbage.BabbageTransactionBody{NetworkId: 1}}))
+	})
+	t.Run("mismatched identifier is rejected", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		tx.Body.SetNetworkIdPresence(true)
+		err := validate(tx)
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+	t.Run("explicit testnet identifier decoded from CBOR is present", func(t *testing.T) {
+		bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(0)})
+		require.NoError(t, err)
+		var body babbage.BabbageTransactionBody
+		require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+		err = validate(&babbage.BabbageTransaction{Body: body})
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+	t.Run("invalid identifier is rejected", func(t *testing.T) {
+		err := validate(&babbage.BabbageTransaction{Body: babbage.BabbageTransactionBody{NetworkId: 2}})
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+}
+
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
