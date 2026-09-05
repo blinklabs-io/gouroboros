@@ -1517,13 +1517,17 @@ func validateConwayProtocolParameterUpdate(
 		)
 	}
 	if ppu.PoolVotingThresholds != nil {
-		for name, rat := range map[string]cbor.Rat{
-			"motionNoConfidence":    ppu.PoolVotingThresholds.MotionNoConfidence,
-			"committeeNormal":       ppu.PoolVotingThresholds.CommitteeNormal,
-			"committeeNoConfidence": ppu.PoolVotingThresholds.CommitteeNoConfidence,
-			"hardForkInitiation":    ppu.PoolVotingThresholds.HardForkInitiation,
-			"ppSecurityGroup":       ppu.PoolVotingThresholds.PpSecurityGroup,
+		for _, item := range []struct {
+			name string
+			rat  cbor.Rat
+		}{
+			{"motionNoConfidence", ppu.PoolVotingThresholds.MotionNoConfidence},
+			{"committeeNormal", ppu.PoolVotingThresholds.CommitteeNormal},
+			{"committeeNoConfidence", ppu.PoolVotingThresholds.CommitteeNoConfidence},
+			{"hardForkInitiation", ppu.PoolVotingThresholds.HardForkInitiation},
+			{"ppSecurityGroup", ppu.PoolVotingThresholds.PpSecurityGroup},
 		} {
+			name, rat := item.name, item.rat
 			if !validUnitRat(&rat) {
 				return invalidConwayParameterField(
 					"poolVotingThresholds."+name, "must be in [0,1]",
@@ -1532,18 +1536,22 @@ func validateConwayProtocolParameterUpdate(
 		}
 	}
 	if ppu.DRepVotingThresholds != nil {
-		for name, rat := range map[string]cbor.Rat{
-			"motionNoConfidence":    ppu.DRepVotingThresholds.MotionNoConfidence,
-			"committeeNormal":       ppu.DRepVotingThresholds.CommitteeNormal,
-			"committeeNoConfidence": ppu.DRepVotingThresholds.CommitteeNoConfidence,
-			"updateToConstitution":  ppu.DRepVotingThresholds.UpdateToConstitution,
-			"hardForkInitiation":    ppu.DRepVotingThresholds.HardForkInitiation,
-			"ppNetworkGroup":        ppu.DRepVotingThresholds.PpNetworkGroup,
-			"ppEconomicGroup":       ppu.DRepVotingThresholds.PpEconomicGroup,
-			"ppTechnicalGroup":      ppu.DRepVotingThresholds.PpTechnicalGroup,
-			"ppGovGroup":            ppu.DRepVotingThresholds.PpGovGroup,
-			"treasuryWithdrawal":    ppu.DRepVotingThresholds.TreasuryWithdrawal,
+		for _, item := range []struct {
+			name string
+			rat  cbor.Rat
+		}{
+			{"motionNoConfidence", ppu.DRepVotingThresholds.MotionNoConfidence},
+			{"committeeNormal", ppu.DRepVotingThresholds.CommitteeNormal},
+			{"committeeNoConfidence", ppu.DRepVotingThresholds.CommitteeNoConfidence},
+			{"updateToConstitution", ppu.DRepVotingThresholds.UpdateToConstitution},
+			{"hardForkInitiation", ppu.DRepVotingThresholds.HardForkInitiation},
+			{"ppNetworkGroup", ppu.DRepVotingThresholds.PpNetworkGroup},
+			{"ppEconomicGroup", ppu.DRepVotingThresholds.PpEconomicGroup},
+			{"ppTechnicalGroup", ppu.DRepVotingThresholds.PpTechnicalGroup},
+			{"ppGovGroup", ppu.DRepVotingThresholds.PpGovGroup},
+			{"treasuryWithdrawal", ppu.DRepVotingThresholds.TreasuryWithdrawal},
 		} {
+			name, rat := item.name, item.rat
 			if !validUnitRat(&rat) {
 				return invalidConwayParameterField(
 					"drepVotingThresholds."+name, "must be in [0,1]",
