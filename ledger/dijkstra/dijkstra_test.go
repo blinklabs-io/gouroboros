@@ -1413,4 +1413,7 @@ func TestDijkstraTransactionLeiosHashCaches(t *testing.T) {
 	second := tx.LeiosHash()
 	require.Equal(t, first, second)
 	require.True(t, cached == tx.hash)
+
+	tx.SetCbor([]byte{0x80})
+	require.NotEqual(t, first, tx.LeiosHash())
 }

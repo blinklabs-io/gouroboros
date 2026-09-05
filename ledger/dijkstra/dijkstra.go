@@ -22,6 +22,7 @@ import (
 	"maps"
 	"math/big"
 	"slices"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -1384,6 +1385,7 @@ type DijkstraTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	hash       *common.Blake2b256
+	hashMu     *sync.Mutex
 	Body       DijkstraTransactionBody
 	WitnessSet DijkstraTransactionWitnessSet
 	TxIsValid  bool
@@ -1391,7 +1393,18 @@ type DijkstraTransaction struct {
 	auxData    common.AuxiliaryData
 }
 
+func (t *DijkstraTransaction) SetCbor(data []byte) {
+	if t.hashMu == nil {
+		t.hashMu = &sync.Mutex{}
+	}
+	t.hashMu.Lock()
+	defer t.hashMu.Unlock()
+	t.DecodeStoreCbor.SetCbor(data)
+	t.hash = nil
+}
+
 func (t *DijkstraTransaction) UnmarshalCBOR(cborData []byte) error {
+	t.hashMu = &sync.Mutex{}
 	tmpTx, err := newDijkstraTransactionFromCbor(cborData, true)
 	if err != nil {
 		return err
@@ -1421,6 +1434,11 @@ func (t DijkstraTransaction) Id() common.Blake2b256 {
 }
 
 func (t *DijkstraTransaction) LeiosHash() common.Blake2b256 {
+	if t.hashMu == nil {
+		t.hashMu = &sync.Mutex{}
+	}
+	t.hashMu.Lock()
+	defer t.hashMu.Unlock()
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash

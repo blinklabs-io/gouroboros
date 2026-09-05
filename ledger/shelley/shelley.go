@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -716,13 +717,25 @@ type ShelleyTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	hash       *common.Blake2b256
+	hashMu     *sync.Mutex
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
 	auxData    common.AuxiliaryData
 }
 
+func (t *ShelleyTransaction) SetCbor(data []byte) {
+	if t.hashMu == nil {
+		t.hashMu = &sync.Mutex{}
+	}
+	t.hashMu.Lock()
+	defer t.hashMu.Unlock()
+	t.DecodeStoreCbor.SetCbor(data)
+	t.hash = nil
+}
+
 func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
+	t.hashMu = &sync.Mutex{}
 	// Reset cached/derived fields to avoid stale state on receiver reuse
 	t.hash = nil
 	t.TxMetadata = nil
@@ -814,7 +827,12 @@ func (t ShelleyTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t ShelleyTransaction) LeiosHash() common.Blake2b256 {
+func (t *ShelleyTransaction) LeiosHash() common.Blake2b256 {
+	if t.hashMu == nil {
+		return common.Blake2b256Hash(t.Cbor())
+	}
+	t.hashMu.Lock()
+	defer t.hashMu.Unlock()
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash

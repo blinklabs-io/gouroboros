@@ -427,6 +427,9 @@ func TestConwayTransactionLeiosHashCachesConcurrently(t *testing.T) {
 		assert.Equal(t, want, got)
 	}
 	assert.NotNil(t, tx.hash)
+
+	tx.SetCbor([]byte{0x81, 0xa0})
+	assert.NotEqual(t, want, tx.LeiosHash())
 }
 
 func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
