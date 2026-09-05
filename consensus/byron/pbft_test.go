@@ -103,7 +103,7 @@ func TestPBFTIssuerFromHeaderIsParseOnly(t *testing.T) {
 	require.Equal(t, expectedIssuer, issuer)
 }
 
-func TestValidateProxySignatureUsesWireTypeTag(t *testing.T) {
+func TestValidateProxySignatureRejectsTypeConstraintMismatch(t *testing.T) {
 	header, config, _ := realPBFTHeaderFixture(t)
 	blockSig := append([]any(nil), header.ConsensusData.BlockSig...)
 	blockSig[0] = uint64(byronSigTypeLight)
@@ -117,7 +117,7 @@ func TestValidateProxySignatureUsesWireTypeTag(t *testing.T) {
 	}
 
 	err := NewHeaderValidator(config).validateBlockSignature(input)
-	require.ErrorContains(t, err, "block signature verification failed")
+	require.ErrorContains(t, err, "2-element epoch range")
 }
 
 func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {

@@ -269,7 +269,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateOutputTooBigUtxo,             // UtxoValidationRuleOutputTooBig
 		conway.UtxoValidateOutputBootAddrAttrsTooBig,      // UtxoValidationRuleOutputBootAddrAttrsTooBig
 		conway.UtxoValidateWrongNetwork,                   // UtxoValidationRuleWrongNetwork
-		conway.UtxoValidateWrongNetworkWithdrawal,         // UtxoValidationRuleWrongNetworkWithdrawal
+		dijkstra.UtxoValidateWrongNetworkWithdrawal,       // UtxoValidationRuleWrongNetworkWithdrawal
 		dijkstra.UtxoValidateTransactionNetworkId,         // UtxoValidationRuleTransactionNetworkId
 		dijkstra.UtxoValidateMaxTxSizeUtxo,                // UtxoValidationRuleMaxTxSize
 		dijkstra.UtxoValidateExUnitsTooBigUtxo,            // UtxoValidationRuleExUnitsTooBig

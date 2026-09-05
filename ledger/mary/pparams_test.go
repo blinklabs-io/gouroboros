@@ -614,6 +614,7 @@ func TestMaryUpgradePParams(t *testing.T) {
 				ProtocolMajor:      6,
 				ProtocolMinor:      0,
 				MinUtxoValue:       1000000,
+				MinPoolCost:        123456789,
 			},
 			validate: func(t *testing.T, maryParams mary.MaryProtocolParameters) {
 				if maryParams.MinFeeA != 44 {
@@ -692,10 +693,9 @@ func TestMaryUpgradePParams(t *testing.T) {
 						maryParams.MinUtxoValue,
 					)
 				}
-				// MinPoolCost should default to 340 ADA for Shelley upgrade
-				if maryParams.MinPoolCost != 340000000 {
+				if maryParams.MinPoolCost != 123456789 {
 					t.Errorf(
-						"MinPoolCost: got %d, want 340000000",
+						"MinPoolCost: got %d, want 123456789",
 						maryParams.MinPoolCost,
 					)
 				}
@@ -726,9 +726,9 @@ func TestMaryUpgradePParams(t *testing.T) {
 				if maryParams.MinFeeA != 0 {
 					t.Errorf("MinFeeA should be 0, got %d", maryParams.MinFeeA)
 				}
-				if maryParams.MinPoolCost != 340000000 {
+				if maryParams.MinPoolCost != 0 {
 					t.Errorf(
-						"MinPoolCost should be 340000000, got %d",
+						"MinPoolCost should be 0, got %d",
 						maryParams.MinPoolCost,
 					)
 				}
@@ -768,9 +768,9 @@ func TestMaryUpgradePParams(t *testing.T) {
 				if maryParams.Decentralization != nil {
 					t.Error("Decentralization should be nil")
 				}
-				if maryParams.MinPoolCost != 340000000 {
+				if maryParams.MinPoolCost != 0 {
 					t.Errorf(
-						"MinPoolCost should be 340000000, got %d",
+						"MinPoolCost should be 0, got %d",
 						maryParams.MinPoolCost,
 					)
 				}

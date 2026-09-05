@@ -473,6 +473,48 @@ func TestConwayRejectsDuplicateUntaggedInputSets(t *testing.T) {
 	}
 }
 
+func TestConwayProposalProceduresSetSemantics(t *testing.T) {
+	rewardAccount, err := common.NewAddress(
+		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+	)
+	require.NoError(t, err)
+	action := common.InfoGovAction{Type: uint(common.GovActionTypeInfo)}
+	procedure := ConwayProposalProcedure{
+		PPDeposit:       1_000_000,
+		PPRewardAccount: rewardAccount,
+		PPGovAction:     ConwayGovAction{Action: &action},
+	}
+
+	for _, useTag := range []bool{false, true} {
+		t.Run(fmt.Sprintf("duplicate useTag=%t", useTag), func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{
+				20: cbor.NewSetType(
+					[]ConwayProposalProcedure{procedure, procedure},
+					useTag,
+				),
+			})
+			require.NoError(t, err)
+
+			var body ConwayTransactionBody
+			require.ErrorContains(
+				t,
+				body.UnmarshalCBOR(bodyCbor),
+				"duplicate member in set",
+			)
+		})
+	}
+
+	distinct := procedure
+	distinct.PPDeposit++
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		20: []ConwayProposalProcedure{procedure, distinct},
+	})
+	require.NoError(t, err)
+	var body ConwayTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+	require.Len(t, body.TxProposalProcedures, 2)
+}
+
 func TestConwayTransactionBodyRejectsDuplicateMultiAssetKeys(t *testing.T) {
 	tests := []struct {
 		name string

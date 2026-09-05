@@ -6,7 +6,7 @@ This package contains conformance tests for Gouroboros, validating our implement
 
 | Category | Tests | Source |
 |----------|-------|--------|
-| Ledger Rules (Conway) | 314 | Amaru test vectors |
+| Ledger Rules (Conway) | 315 | Amaru test vectors |
 | VRF Cryptography | 58 | cardano-crypto-praos vectors |
 | KES Cryptography | 14 | input-output-hk/kes vectors |
 | Consensus | 22 | Real blocks + threshold calculation |
@@ -28,8 +28,21 @@ The test vectors are sourced from [Amaru](https://github.com/pragma-org/amaru) a
 ouroboros-mock repository's conformance package.
 
 The testdata directory contains:
-- 314+ test vector files (CBOR binary) in `eras/conway/impl/dump/Conway/`
+- 315 test vector files (CBOR binary) in `eras/conway/impl/dump/Conway/`
 - Protocol parameter files in `pparams-by-hash/`
+
+### Reading a conformance count
+
+A pass count is a statement about one corpus, not about the ledger rules in
+general. The corpus is embedded in the `ouroboros-mock` version pinned in
+`go.mod`, so the count only compares across branches that pin the same version.
+The 315 above is the corpus embedded in `ouroboros-mock` v0.19.0.
+
+Two consequences follow. A count taken against a different `ouroboros-mock`
+(a local `replace`, an unreleased revision, or a refreshed upstream corpus) is
+not comparable with a count taken against the pinned one, and must name the
+revision it used. And raising the pin changes the denominator, so a pin bump
+and a rule change do not belong in the same commit.
 
 ### Running Tests
 
@@ -50,6 +63,12 @@ The test implementation uses the shared conformance harness from `github.com/bli
 - `conformance.NewMockStateManager()` - Creates a state manager for test execution
 - `conformance.NewHarness(sm, config)` - Creates the test harness
 - `harness.RunAllVectors(t)` - Runs all test vectors
+
+The mock state provider must implement `common.CommitteeCredentialState`, which
+resolves committee membership by typed credential rather than by hash alone.
+`TestStateProviderExposesCommitteeCredentials` fails closed if it does not, so
+that a mock without the capability is reported instead of silently lowering
+what the vector count covers.
 
 ## Test Vector CBOR Structure
 

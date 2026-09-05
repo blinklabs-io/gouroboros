@@ -313,6 +313,87 @@ func TestReferenceProvidedNativeScriptsAreValidated(t *testing.T) {
 	}
 }
 
+// UTXOW witness requirements apply before phase-2 validity is interpreted.
+// An invalid transaction may therefore use a native script carried by a
+// reference input, but it may not omit the required script entirely.
+func TestInvalidTransactionsRetainReferenceScriptRequirements(t *testing.T) {
+	vkey := bytes.Repeat([]byte{0x64}, 32)
+	nativeScript := testPubkeyNativeScript(t, vkey)
+	unusedScript := testPubkeyNativeScript(t, bytes.Repeat([]byte{0x65}, 32))
+	scriptAddr := testScriptPaymentAddress(t, nativeScript.Hash())
+	keyAddr := testKeyPaymentAddress(t, vkey)
+
+	spendInput := shelley.NewShelleyTransactionInput(
+		"6666666666666666666666666666666666666666666666666666666666666666",
+		0,
+	)
+	refInput := shelley.NewShelleyTransactionInput(
+		"7777777777777777777777777777777777777777777777777777777777777777",
+		0,
+	)
+
+	eras := []struct {
+		name  string
+		rules []common.UtxoValidationRuleFunc
+	}{
+		{name: "Babbage", rules: babbage.UtxoValidationRules},
+		{name: "Conway", rules: conway.UtxoValidationRules},
+		{name: "Dijkstra", rules: dijkstra.UtxoValidationRules},
+	}
+	tests := []struct {
+		name      string
+		reference common.Script
+		wantError bool
+	}{
+		{
+			name:      "matching reference script satisfies the spend",
+			reference: nativeScript,
+		},
+		{
+			name:      "unrelated reference script does not satisfy the spend",
+			reference: unusedScript,
+			wantError: true,
+		},
+	}
+
+	for _, era := range eras {
+		t.Run(era.name, func(t *testing.T) {
+			rules := selectRules(
+				t,
+				era.rules,
+				".UtxoValidateScriptWitnesses",
+				".UtxoValidateNativeScripts",
+			)
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					tx := mockledger.NewTransactionBuilder()
+					tx.WithValid(false)
+					tx.WithInputs(spendInput)
+					tx.WithReferenceInputs(refInput)
+					tx.WithWitnesses(
+						mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
+							common.VkeyWitness{Vkey: vkey},
+						),
+					)
+					ls := testLedgerState(map[string]common.TransactionOutput{
+						spendInput.String(): testOutput(scriptAddr, nil),
+						refInput.String():   testOutput(keyAddr, test.reference),
+					})
+
+					err := common.VerifyTransaction(tx, 0, ls, nil, rules)
+					if !test.wantError {
+						require.NoError(t, err)
+						return
+					}
+					var missing common.MissingScriptWitnessesError
+					require.ErrorAs(t, err, &missing)
+					require.Equal(t, common.ScriptHash(nativeScript.Hash()), missing.ScriptHash)
+				})
+			}
+		})
+	}
+}
+
 // The native-script rule reads an empty script view when an input cannot be
 // resolved, so it evaluates the witness set alone and contributes no
 // reference-provided script. That is safe only because a transaction with an
