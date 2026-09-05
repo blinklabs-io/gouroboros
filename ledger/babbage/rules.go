@@ -629,12 +629,24 @@ func UtxoValidateCollateralContainsNonAda(
 }
 
 // UtxoValidateCollateralEqBalance ensures that the collateral return amount is equal to the collateral input amount minus the total collateral
+//
+// This is Part 6 of the reference's validateTotalCollateral, which feesOK runs
+// only when the redeemer map is non-empty, exactly as it does for the rest of
+// the collateral group. A transaction with no redeemers runs no phase-2
+// scripts, so its total_collateral field is not checked and a mismatch is not
+// a rejection. Conway and Dijkstra delegate here, so the guard uses the
+// interface-level helper rather than the Babbage-typed witness set: a Dijkstra
+// transaction can carry its redeemers in a sub-transaction, which the helper
+// counts.
 func UtxoValidateCollateralEqBalance(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !common.TransactionRunsPhase2Scripts(tx) {
+		return nil
+	}
 	totalCollateral := tx.TotalCollateral()
 	if totalCollateral == nil || totalCollateral.Sign() == 0 {
 		return nil
@@ -998,15 +1010,15 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	txBytes, err := cbor.Encode(tx)
-	if err != nil {
-		return err
+	txSize, sizeErr := common.TxSize(tx)
+	if sizeErr != nil {
+		return sizeErr
 	}
-	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+	if uint(txSize) <= tmpPparams.MaxTxSize {
 		return nil
 	}
 	return shelley.MaxTxSizeUtxoError{
-		TxSize:    uint(len(txBytes)),
+		TxSize:    uint(txSize),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
 }
@@ -1025,8 +1037,13 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
+	// Iterate the collapsed view rather than the raw list: the wire format is a
+	// list but the ledger holds a map, so a key appearing more than once
+	// contributes its budget once. See the Alonzo rule of the same name; this
+	// is where it bites in practice, since Preview transaction 3ace3bc7f4c5 at
+	// slot 12925989 is a Babbage-era block (blinklabs-io/dingo#3875).
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Iter() {
 		newSteps, ok := common.AddInt64Checked(
 			totalSteps,
 			redeemer.ExUnits.Steps,

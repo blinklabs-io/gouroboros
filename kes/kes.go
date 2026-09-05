@@ -23,12 +23,14 @@
 package kes
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/subtle"
 	"errors"
 	"fmt"
 	"math"
 
+	"filippo.io/edwards25519"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -157,7 +159,43 @@ func (s Sum0KesSig) Verify(
 	pubKey ed25519.PublicKey,
 	msg []byte,
 ) bool {
-	return ed25519.Verify(pubKey, msg, s)
+	return verifyEd25519Strict(pubKey, msg, s)
+}
+
+// verifyEd25519Strict applies the strict verification criteria used by
+// Cardano's KES implementation. In addition to the signature equation, both
+// encoded points must be canonical and non-small-order, and S must be a
+// canonical scalar.
+func verifyEd25519Strict(pubKey, msg, sig []byte) bool {
+	if len(pubKey) != ed25519.PublicKeySize ||
+		len(sig) != ed25519.SignatureSize {
+		return false
+	}
+
+	publicPoint, err := new(edwards25519.Point).SetBytes(pubKey)
+	if err != nil ||
+		!bytes.Equal(publicPoint.Bytes(), pubKey) ||
+		isSmallOrder(publicPoint) {
+		return false
+	}
+
+	rPoint, err := new(edwards25519.Point).SetBytes(sig[:32])
+	if err != nil ||
+		!bytes.Equal(rPoint.Bytes(), sig[:32]) ||
+		isSmallOrder(rPoint) {
+		return false
+	}
+
+	if _, err := new(edwards25519.Scalar).SetCanonicalBytes(sig[32:]); err != nil {
+		return false
+	}
+
+	return ed25519.Verify(pubKey, msg, sig)
+}
+
+func isSmallOrder(point *edwards25519.Point) bool {
+	return new(edwards25519.Point).MultByCofactor(point).
+		Equal(edwards25519.NewIdentityPoint()) == 1
 }
 
 // HashPair computes the Blake2b-256 hash of two public keys concatenated
