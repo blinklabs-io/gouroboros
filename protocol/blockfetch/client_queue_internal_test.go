@@ -805,6 +805,77 @@ func TestOldProtocolShutdownDoesNotFailRestartedRequests(t *testing.T) {
 	require.Zero(t, c.inFlightBytes)
 }
 
+func TestNonPipelinedShutdownCallsBatchDone(t *testing.T) {
+	completions := make(chan uint64, 2)
+	c := newQueueTestClient(&Config{
+		BatchDoneFunc: func(ctx CallbackContext) error {
+			completions <- ctx.RequestId
+			return nil
+		},
+	})
+	req := c.appendTestRequest(1)
+	req.pipelined = false
+	req.started = true
+
+	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+
+	select {
+	case id := <-completions:
+		require.Equal(t, req.id, id)
+	case <-time.After(time.Second):
+		t.Fatal("non-pipelined shutdown did not report batch completion")
+	}
+	select {
+	case id := <-completions:
+		t.Fatalf("non-pipelined shutdown reported completion twice for request %d", id)
+	default:
+	}
+}
+
+func TestNonPipelinedNoBlocksDoesNotCallBatchDone(t *testing.T) {
+	completions := make(chan uint64, 1)
+	c := newQueueTestClient(&Config{
+		BatchDoneFunc: func(ctx CallbackContext) error {
+			completions <- ctx.RequestId
+			return nil
+		},
+	})
+	req := c.appendTestRequest(1)
+	req.pipelined = false
+
+	require.NoError(t, c.handleNoBlocks())
+	select {
+	case id := <-completions:
+		t.Fatalf("no-blocks response reported completion for request %d", id)
+	default:
+	}
+}
+
+func TestNonPipelinedBatchDoneErrorCallsBatchDoneOnce(t *testing.T) {
+	callbackErr := errors.New("batch callback failed")
+	completions := make(chan uint64, 2)
+	c := newQueueTestClient(&Config{
+		BatchDoneFunc: func(ctx CallbackContext) error {
+			completions <- ctx.RequestId
+			return callbackErr
+		},
+	})
+	req := c.appendTestRequest(1)
+	req.pipelined = false
+	req.started = true
+	req.end = pcommon.NewPoint(1, []byte("end"))
+	req.lastPoint = req.end
+	req.hasLastPoint = true
+
+	require.ErrorIs(t, c.handleBatchDone(), callbackErr)
+	require.Equal(t, req.id, <-completions)
+	select {
+	case id := <-completions:
+		t.Fatalf("batch completion reported twice for request %d", id)
+	default:
+	}
+}
+
 // idleLimitObservationWindow bounds both halves of the Idle-state ingress
 // limit pair below: the non-pipelining client must report the oversized
 // message within it, and the pipelining client must not.
