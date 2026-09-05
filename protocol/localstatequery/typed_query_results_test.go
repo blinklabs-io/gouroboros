@@ -104,9 +104,8 @@ func TestStakeDistributionResultRejectsPoolDistr2Entry(t *testing.T) {
 //	      581c 1111.. ; pool key hash
 //	      581c 9999.. ; pool key hash
 //
-// cardano-cli rejects an untagged or unsorted set here ("expected tag" /
-// "Canonicity violation while decoding Set"), so the pool ids are in ascending
-// byte order.
+// The pool ids are in ascending byte order, which is the order the ledger's
+// Set encoder walks them in.
 const stakePoolsReplyHex = "81d9010282581c" + poolIdLowHex +
 	"581c" + poolIdHighHex
 
@@ -127,11 +126,11 @@ func TestStakePoolsResultDecodesTaggedSet(t *testing.T) {
 	)
 }
 
-// TestStakePoolsResultDecodesUntaggedArray covers the untagged form. A
-// cardano-node always tags it: GetStakePools encodes through cardano-binary's
-// encodeSetSkel, which prepends tag 258 with no version gate. Accepting the
-// untagged array is deliberate leniency on the read side, matching the
-// ledger's own decoder, which admits the tag rather than requiring it.
+// TestStakePoolsResultDecodesUntaggedArray covers the untagged form, which a
+// node really does emit. cardano-ledger's set encoder is version-gated: at
+// encoding version 9 and above encodeSet prefixes tag 258, but from version 2
+// through 8 it emits a bare array with no tag. Accepting both forms is
+// therefore required for compatibility, not leniency.
 func TestStakePoolsResultDecodesUntaggedArray(t *testing.T) {
 	untagged := "8182581c" + poolIdLowHex + "581c" + poolIdHighHex
 	var result StakePoolsResult
