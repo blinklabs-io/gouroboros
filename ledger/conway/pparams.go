@@ -546,6 +546,22 @@ func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 			}
 		}
 	}
+	for _, field := range []struct {
+		key  int
+		name string
+	}{
+		{9, "a0"},
+		{10, "rho"},
+		{11, "tau"},
+		{33, "minFeeRefScriptCostPerByte"},
+	} {
+		if raw, ok := fields[field.key]; ok && len(raw) == 1 && raw[0] == 0xf6 {
+			return ConwayProtocolParameterUpdateError{
+				FieldName: field.name,
+				Reason:    "cannot be null",
+			}
+		}
+	}
 	conwayUpdate := ConwayProtocolParameterUpdate(tmp)
 	if err := validateConwayProtocolParameterUpdate(&conwayUpdate); err != nil {
 		return err

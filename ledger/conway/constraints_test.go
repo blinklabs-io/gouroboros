@@ -89,6 +89,30 @@ func TestConwayProtocolParameterUpdateDecodeRejectsNullExecutionPrice(
 	require.ErrorAs(t, err, &updateErr)
 }
 
+func TestConwayProtocolParameterUpdateDecodeRejectsNullUnitIntervals(
+	t *testing.T,
+) {
+	for _, test := range []struct {
+		name string
+		key  uint
+	}{
+		{name: "a0", key: 9},
+		{name: "rho", key: 10},
+		{name: "tau", key: 11},
+		{name: "min fee reference script cost", key: 33},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := cbor.Encode(map[uint]any{test.key: nil})
+			require.NoError(t, err)
+
+			var update ConwayProtocolParameterUpdate
+			_, err = cbor.Decode(raw, &update)
+			var updateErr ConwayProtocolParameterUpdateError
+			require.ErrorAs(t, err, &updateErr)
+		})
+	}
+}
+
 func TestConwayProtocolParameterUpdateAcceptsDomainBoundaries(t *testing.T) {
 	update := ConwayProtocolParameterUpdate{
 		A0:  &cbor.Rat{Rat: big.NewRat(2, 1)},

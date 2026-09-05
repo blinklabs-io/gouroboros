@@ -654,11 +654,11 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	// proposal procedures. Decode the keys first so a pre-Conway body cannot
 	// be silently accepted by a struct that happens to retain compatibility
 	// fields elsewhere in the package.
-	var fields map[int]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &fields); err != nil {
+	hasRemovedField, err := conwayTransactionBodyHasField(cborData, 6)
+	if err != nil {
 		return err
 	}
-	if _, ok := fields[6]; ok {
+	if hasRemovedField {
 		return ConwayTransactionBodyFieldError{FieldKey: 6}
 	}
 	type tConwayTransactionBody ConwayTransactionBody
@@ -721,6 +721,30 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func conwayTransactionBodyHasField(cborData []byte, wanted int) (bool, error) {
+	decoder, err := cbor.NewStreamDecoder(cborData)
+	if err != nil {
+		return false, err
+	}
+	fieldCount, _, _, err := decoder.DecodeMapHeader()
+	if err != nil {
+		return false, err
+	}
+	for range fieldCount {
+		var field int
+		if _, _, err := decoder.Decode(&field); err != nil {
+			return false, err
+		}
+		if field == wanted {
+			return true, nil
+		}
+		if _, _, err := decoder.Skip(); err != nil {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
