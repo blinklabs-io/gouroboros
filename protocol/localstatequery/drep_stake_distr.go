@@ -16,13 +16,23 @@ package localstatequery
 
 import (
 	"bytes"
-	"encoding/binary"
+	"errors"
 	"fmt"
-	"math"
 	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+)
+
+const (
+	// cborIndefiniteMapHeader opens an indefinite-length CBOR map and
+	// cborBreak closes it (RFC 8949 section 3.2.1).
+	cborIndefiniteMapHeader = 0xbf
+	cborBreak               = 0xff
+	// ledgerMapLenThreshold is cardano-ledger's lengthThreshold: encodeMap
+	// emits a definite-length header at or below this many pairs and an
+	// indefinite-length map above it.
+	ledgerMapLenThreshold = 23
 )
 
 // DRepStakeDistrEntry is one DRep's entry in a GetDRepStakeDistr reply: a DRep
@@ -50,8 +60,16 @@ type DRepStakeDistrEntry struct {
 //
 // The map is held as a slice rather than a Go map because [lcommon.Drep]
 // stores its credential in a byte slice and so cannot be a map key. Entries
-// keep the order in which they arrived, which for a node reply is the
-// deterministic order of RFC 8949 section 4.2.1.
+// keep the order in which they arrived. cardano-ledger encodes Map DRep Coin
+// with encodeMap, which walks the map in Haskell's derived Ord order over
+// DRep's constructors, so a node emits the credential-backed DReps first
+// (types 0 then 1) and the predefined options last (types 2 then 3). That is
+// not the RFC 8949 section 4.2.1 order, which would sort the one-element
+// arrays first.
+//
+// encodeMap also switches to an indefinite-length map above
+// [ledgerMapLenThreshold] pairs, so a mainnet-sized distribution arrives as
+// 0xbf ... 0xff rather than a definite-length header.
 type DRepStakeDistrResult []DRepStakeDistrEntry
 
 func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
@@ -70,9 +88,17 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		return err
 	}
-	entryCount, _, _, err := dec.DecodeMapHeader()
-	if err != nil {
-		return fmt.Errorf("DRep stake distribution: %w", err)
+	var entryCount int
+	indefinite := len(distr) > 0 && distr[0] == cborIndefiniteMapHeader
+	if indefinite {
+		if err := dec.Advance(1); err != nil {
+			return fmt.Errorf("DRep stake distribution: %w", err)
+		}
+	} else {
+		entryCount, _, _, err = dec.DecodeMapHeader()
+		if err != nil {
+			return fmt.Errorf("DRep stake distribution: %w", err)
+		}
 	}
 	// distr is a cbor.RawMessage taken out of the result array, so it is one
 	// well-formed CBOR item: a definite-length map header cannot declare more
@@ -86,7 +112,20 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 	// A CBOR map's keys are unique by their encoding, so that is what the
 	// check compares.
 	seen := make(map[string]struct{}, entryCount)
-	for range entryCount {
+	for i := 0; indefinite || i < entryCount; i++ {
+		if indefinite {
+			if dec.EOF() {
+				return errors.New(
+					"DRep stake distribution: unterminated indefinite-length map",
+				)
+			}
+			if distr[dec.Position()] == cborBreak {
+				if err := dec.Advance(1); err != nil {
+					return fmt.Errorf("DRep stake distribution: %w", err)
+				}
+				break
+			}
+		}
 		var entry DRepStakeDistrEntry
 		_, key, err := dec.DecodeRaw(&entry.Drep)
 		if err != nil {
@@ -116,8 +155,10 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 
 func (r DRepStakeDistrResult) MarshalCBOR() ([]byte, error) {
 	type encodedEntry struct {
-		key   []byte
-		value []byte
+		key        []byte
+		value      []byte
+		drepType   int
+		credential []byte
 	}
 	encoded := make([]encodedEntry, 0, len(r))
 	seen := make(map[string]struct{}, len(r))
@@ -147,56 +188,46 @@ func (r DRepStakeDistrResult) MarshalCBOR() ([]byte, error) {
 				err,
 			)
 		}
-		encoded = append(encoded, encodedEntry{key: key, value: value})
+		encoded = append(encoded, encodedEntry{
+			key:        key,
+			value:      value,
+			drepType:   entry.Drep.Type,
+			credential: entry.Drep.Credential,
+		})
 	}
-	// cbor.Encode sorts Go map keys by their encoding (RFC 8949 section
-	// 4.2.1). This map is assembled by hand, so it has to sort itself the
-	// same way to produce the bytes a node would.
+	// cardano-ledger walks Map DRep Coin in Haskell's derived Ord order over
+	// DRep's constructors, which runs DRepKeyHash, DRepScriptHash,
+	// DRepAlwaysAbstain, DRepAlwaysNoConfidence: the same sequence as the
+	// type numbers, with the credential compared bytewise within a type.
+	// Sorting by the encoded key instead would put the one-element arrays
+	// first and emit bytes no node produces.
 	slices.SortFunc(encoded, func(a, b encodedEntry) int {
-		return bytes.Compare(a.key, b.key)
+		if a.drepType != b.drepType {
+			return a.drepType - b.drepType
+		}
+		return bytes.Compare(a.credential, b.credential)
 	})
-	header, err := cborMapHeader(len(encoded))
-	if err != nil {
-		return nil, fmt.Errorf("DRep stake distribution: %w", err)
-	}
 	buf := bytes.NewBuffer(nil)
 	// Single-element array wrapping the era-specific result
 	buf.WriteByte(0x81)
-	buf.Write(header)
+	// encodeMap emits a definite-length header at or below the threshold and
+	// an indefinite-length map above it.
+	indefinite := len(encoded) > ledgerMapLenThreshold
+	if indefinite {
+		buf.WriteByte(cborIndefiniteMapHeader)
+	} else {
+		// Masked rather than converted directly: the branch already
+		// bounds the count by ledgerMapLenThreshold (23), and a
+		// definite-length map header carries a count below 24 in its
+		// low five bits.
+		buf.WriteByte(0xa0 | uint8(len(encoded)&0x1f))
+	}
 	for _, entry := range encoded {
 		buf.Write(entry.key)
 		buf.Write(entry.value)
 	}
+	if indefinite {
+		buf.WriteByte(cborBreak)
+	}
 	return buf.Bytes(), nil
-}
-
-// cborMapHeader returns the head of a definite-length CBOR map (major type 5)
-// holding n pairs. The DRep stake distribution has to be assembled byte by
-// byte because its keys are not Go-comparable and so cannot be handed to
-// cbor.Encode as a map.
-func cborMapHeader(n int) ([]byte, error) {
-	if n < 0 {
-		return nil, fmt.Errorf("negative map length: %d", n)
-	}
-	switch {
-	case n < 24:
-		return []byte{0xa0 | byte(n)}, nil
-	case n <= math.MaxUint8:
-		return []byte{0xb8, byte(n)}, nil
-	case n <= math.MaxUint16:
-		return binary.BigEndian.AppendUint16(
-			[]byte{0xb9},
-			uint16(n), //nolint:gosec // bounded by the case above
-		), nil
-	case n <= math.MaxUint32:
-		return binary.BigEndian.AppendUint32(
-			[]byte{0xba},
-			uint32(n), //nolint:gosec // bounded by the case above
-		), nil
-	default:
-		return binary.BigEndian.AppendUint64(
-			[]byte{0xbb},
-			uint64(n), //nolint:gosec // n is non-negative
-		), nil
-	}
 }

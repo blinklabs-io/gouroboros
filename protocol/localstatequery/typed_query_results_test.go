@@ -126,8 +126,11 @@ func TestStakePoolsResultDecodesTaggedSet(t *testing.T) {
 	)
 }
 
-// TestStakePoolsResultDecodesUntaggedArray covers a node that emits the set
-// without the tag-258 wrapper, which pre-Conway encoders do.
+// TestStakePoolsResultDecodesUntaggedArray covers the untagged form. A
+// cardano-node always tags it: GetStakePools encodes through cardano-binary's
+// encodeSetSkel, which prepends tag 258 with no version gate. Accepting the
+// untagged array is deliberate leniency on the read side, matching the
+// ledger's own decoder, which admits the tag rather than requiring it.
 func TestStakePoolsResultDecodesUntaggedArray(t *testing.T) {
 	untagged := "8182581c" + poolIdLowHex + "581c" + poolIdHighHex
 	var result StakePoolsResult

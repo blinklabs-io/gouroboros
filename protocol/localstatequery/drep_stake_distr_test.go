@@ -15,7 +15,9 @@
 package localstatequery
 
 import (
+	"bytes"
 	"encoding/hex"
+	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -24,32 +26,35 @@ import (
 )
 
 const (
-	drepKeyHashHex    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	drepScriptHashHex = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	drepKeyHashHex    = "e0a714319812c3f773ba04ec5d6b3ffcd5aad85006805b047b082541"
+	drepScriptHashHex = "a646474b8f5431261506b6c273d307c7569a4eb6c96b42dd4a29520a"
 )
 
-// drepStakeDistrReplyHex is a GetDRepStakeDistr reply carrying four DReps: the
-// two predefined options and one of each credential kind.
+// drepStakeDistrReplyHex is a GetDRepStakeDistr reply carrying four DReps: one
+// of each credential kind and the two predefined options. The map is
+// cardano-ledger's own golden vector for this query,
+// libs/cardano-ledger-api/golden/conway/cbor/queryDRepStakeDistr.cbor, with
+// the consensus result wrapper prepended.
 //
 //	81                     ; result wrapper, array(1)
 //	  a4                   ; map(4)
+//	    82 00 581c e0a7..  ; [0, addr_keyhash]
+//	    1a 3b9aca00        ; 1000000000
+//	    82 01 581c a646..  ; [1, scripthash]
+//	    00                 ; 0
 //	    81 02              ; [2] always-abstain
-//	    19 01f4            ; 500
+//	    18 32              ; 50
 //	    81 03              ; [3] always-no-confidence
 //	    18 64              ; 100
-//	    82 00 581c aa..    ; [0, addr_keyhash]
-//	    1a 000f4240        ; 1000000
-//	    82 01 581c bb..    ; [1, scripthash]
-//	    1a 001e8480        ; 2000000
 //
-// The keys are in the deterministic order of RFC 8949 section 4.2.1, which is
-// the order a node emits them in: the one-element arrays sort ahead of the
-// two-element ones.
+// The credential-backed DReps come first because encodeMap walks the map in
+// Haskell's derived Ord order over DRep's constructors, not in the RFC 8949
+// section 4.2.1 order that would sort the one-element arrays ahead of them.
 const drepStakeDistrReplyHex = "81a4" +
-	"8102" + "1901f4" +
-	"8103" + "1864" +
-	"8200581c" + drepKeyHashHex + "1a000f4240" +
-	"8201581c" + drepScriptHashHex + "1a001e8480"
+	"8200581c" + drepKeyHashHex + "1a3b9aca00" +
+	"8201581c" + drepScriptHashHex + "00" +
+	"8102" + "1832" +
+	"8103" + "1864"
 
 func mustDecodeHex(t *testing.T, s string) []byte {
 	t.Helper()
@@ -67,29 +72,29 @@ func TestDRepStakeDistrResultDecodesWrappedMap(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result, 4)
 
-	require.Equal(t, lcommon.DrepTypeAbstain, result[0].Drep.Type)
-	require.Empty(t, result[0].Drep.Credential)
-	require.Equal(t, uint64(500), result[0].Stake)
-
-	require.Equal(t, lcommon.DrepTypeNoConfidence, result[1].Drep.Type)
-	require.Empty(t, result[1].Drep.Credential)
-	require.Equal(t, uint64(100), result[1].Stake)
-
-	require.Equal(t, lcommon.DrepTypeAddrKeyHash, result[2].Drep.Type)
+	require.Equal(t, lcommon.DrepTypeAddrKeyHash, result[0].Drep.Type)
 	require.Equal(
 		t,
 		drepKeyHashHex,
-		hex.EncodeToString(result[2].Drep.Credential),
+		hex.EncodeToString(result[0].Drep.Credential),
 	)
-	require.Equal(t, uint64(1000000), result[2].Stake)
+	require.Equal(t, uint64(1000000000), result[0].Stake)
 
-	require.Equal(t, lcommon.DrepTypeScriptHash, result[3].Drep.Type)
+	require.Equal(t, lcommon.DrepTypeScriptHash, result[1].Drep.Type)
 	require.Equal(
 		t,
 		drepScriptHashHex,
-		hex.EncodeToString(result[3].Drep.Credential),
+		hex.EncodeToString(result[1].Drep.Credential),
 	)
-	require.Equal(t, uint64(2000000), result[3].Stake)
+	require.Equal(t, uint64(0), result[1].Stake)
+
+	require.Equal(t, lcommon.DrepTypeAbstain, result[2].Drep.Type)
+	require.Empty(t, result[2].Drep.Credential)
+	require.Equal(t, uint64(50), result[2].Stake)
+
+	require.Equal(t, lcommon.DrepTypeNoConfidence, result[3].Drep.Type)
+	require.Empty(t, result[3].Drep.Credential)
+	require.Equal(t, uint64(100), result[3].Stake)
 }
 
 // TestDRepStakeDistrResultDecodesEmptyWrappedMap covers a node with no
@@ -156,26 +161,26 @@ func TestDRepStakeDistrResultRejectsTruncatedMap(t *testing.T) {
 func TestDRepStakeDistrResultMarshalsNodeShape(t *testing.T) {
 	result := DRepStakeDistrResult{
 		{
+			Drep:  lcommon.Drep{Type: lcommon.DrepTypeNoConfidence},
+			Stake: 100,
+		},
+		{
 			Drep: lcommon.Drep{
 				Type:       lcommon.DrepTypeScriptHash,
 				Credential: mustDecodeHex(t, drepScriptHashHex),
 			},
-			Stake: 2000000,
+			Stake: 0,
+		},
+		{
+			Drep:  lcommon.Drep{Type: lcommon.DrepTypeAbstain},
+			Stake: 50,
 		},
 		{
 			Drep: lcommon.Drep{
 				Type:       lcommon.DrepTypeAddrKeyHash,
 				Credential: mustDecodeHex(t, drepKeyHashHex),
 			},
-			Stake: 1000000,
-		},
-		{
-			Drep:  lcommon.Drep{Type: lcommon.DrepTypeNoConfidence},
-			Stake: 100,
-		},
-		{
-			Drep:  lcommon.Drep{Type: lcommon.DrepTypeAbstain},
-			Stake: 500,
+			Stake: 1000000000,
 		},
 	}
 	encoded, err := cbor.Encode(result)
@@ -228,4 +233,98 @@ func TestDRepStakeDistrResultRejectsDuplicateKeyInReply(t *testing.T) {
 	var result DRepStakeDistrResult
 	_, err := cbor.Decode(mustDecodeHex(t, duplicate), &result)
 	require.ErrorContains(t, err, "duplicate DRep")
+}
+
+// ledgerStyleReply builds a GetDRepStakeDistr reply the way cardano-ledger's
+// encodeMap does: n credential-backed DReps in Ord order, under a
+// definite-length header at or below the threshold and an indefinite-length
+// map with a break above it.
+func ledgerStyleReply(n int) []byte {
+	body := []byte{}
+	for i := range n {
+		key := append(
+			[]byte{0x82, 0x00, 0x58, 0x1c},
+			bytes.Repeat([]byte{byte(i)}, 28)...,
+		)
+		body = append(body, key...)
+		body = append(body, 0x0a) // stake = 10
+	}
+	out := []byte{0x81}
+	if n <= 23 {
+		out = append(out, 0xa0|byte(n))
+		out = append(out, body...)
+		return out
+	}
+	out = append(out, 0xbf)
+	out = append(out, body...)
+	return append(out, 0xff)
+}
+
+// TestDRepStakeDistrResultDecodesIndefiniteMap covers the reply a real
+// distribution arrives in. cardano-ledger's encodeMap uses
+// variableMapLenEncoding, which switches from a definite-length header to an
+// indefinite-length map above 23 pairs, so every mainnet-sized reply to this
+// query is the 0xbf ... 0xff form. Decoding only the definite form would read
+// no distribution with more than 23 DReps in it.
+func TestDRepStakeDistrResultDecodesIndefiniteMap(t *testing.T) {
+	for _, n := range []int{0, 1, 22, 23, 24, 25, 64} {
+		t.Run(fmt.Sprintf("%d_dreps", n), func(t *testing.T) {
+			reply := ledgerStyleReply(n)
+			if n > 23 {
+				require.Equal(t, byte(0xbf), reply[1],
+					"ledger encodes this size as an indefinite map")
+				require.Equal(t, byte(0xff), reply[len(reply)-1])
+			}
+			var result DRepStakeDistrResult
+			_, err := cbor.Decode(reply, &result)
+			require.NoError(t, err)
+			require.Len(t, result, n)
+			for i, entry := range result {
+				require.Equal(
+					t,
+					lcommon.DrepTypeAddrKeyHash,
+					entry.Drep.Type,
+				)
+				require.Equal(
+					t,
+					bytes.Repeat([]byte{byte(i)}, 28),
+					entry.Drep.Credential,
+				)
+				require.Equal(t, uint64(10), entry.Stake)
+			}
+		})
+	}
+}
+
+// TestDRepStakeDistrResultMarshalsIndefiniteAboveThreshold pins the encoder to
+// the same rule, so a re-encoded distribution is byte-for-byte what the node
+// sent it as.
+func TestDRepStakeDistrResultMarshalsIndefiniteAboveThreshold(t *testing.T) {
+	for _, n := range []int{23, 24} {
+		t.Run(fmt.Sprintf("%d_dreps", n), func(t *testing.T) {
+			reply := ledgerStyleReply(n)
+			var result DRepStakeDistrResult
+			_, err := cbor.Decode(reply, &result)
+			require.NoError(t, err)
+			encoded, err := cbor.Encode(result)
+			require.NoError(t, err)
+			require.Equal(
+				t,
+				hex.EncodeToString(reply),
+				hex.EncodeToString(encoded),
+			)
+		})
+	}
+}
+
+// TestDRepStakeDistrResultRejectsUnterminatedIndefiniteMap covers an
+// indefinite map whose break byte never arrives.
+func TestDRepStakeDistrResultRejectsUnterminatedIndefiniteMap(t *testing.T) {
+	var result DRepStakeDistrResult
+	_, err := cbor.Decode(
+		[]byte{0x81, 0xbf, 0x81, 0x02, 0x18, 0x32},
+		&result,
+	)
+	require.Error(t, err)
+	require.Empty(t, result)
 }

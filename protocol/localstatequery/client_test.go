@@ -1454,10 +1454,10 @@ func TestDebugChainDepState(t *testing.T) {
 // single-element result array.
 func TestGetDRepStakeDistr(t *testing.T) {
 	const replyHex = "81a2" +
-		"8102" + "1901f4" +
 		"8200581c" +
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" +
-		"1a000f4240"
+		"e0a714319812c3f773ba04ec5d6b3ffcd5aad85006805b047b082541" +
+		"1a3b9aca00" +
+		"8102" + "1832"
 	cborData, err := hex.DecodeString(replyHex)
 	require.NoError(t, err)
 	conversation := append(
@@ -1485,21 +1485,21 @@ func TestGetDRepStakeDistr(t *testing.T) {
 			require.Len(t, *distr, 2)
 			assert.Equal(
 				t,
-				lcommon.DrepTypeAbstain,
+				lcommon.DrepTypeAddrKeyHash,
 				(*distr)[0].Drep.Type,
 			)
-			assert.Equal(t, uint64(500), (*distr)[0].Stake)
 			assert.Equal(
 				t,
-				lcommon.DrepTypeAddrKeyHash,
+				"e0a714319812c3f773ba04ec5d6b3ffcd5aad85006805b047b082541",
+				hex.EncodeToString((*distr)[0].Drep.Credential),
+			)
+			assert.Equal(t, uint64(1000000000), (*distr)[0].Stake)
+			assert.Equal(
+				t,
+				lcommon.DrepTypeAbstain,
 				(*distr)[1].Drep.Type,
 			)
-			assert.Equal(
-				t,
-				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				hex.EncodeToString((*distr)[1].Drep.Credential),
-			)
-			assert.Equal(t, uint64(1000000), (*distr)[1].Stake)
+			assert.Equal(t, uint64(50), (*distr)[1].Stake)
 		},
 	)
 }
