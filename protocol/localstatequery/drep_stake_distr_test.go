@@ -176,6 +176,30 @@ func TestDRepStakeDistrResultRejectsDuplicateDRep(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate DRep")
 }
 
+// TestDRepStakeDistrResultRejectsDuplicateAfterEncoding covers two entries
+// that differ as Go values but not on the wire: an Abstain DRep carries no
+// credential, so both encode to the same map key.
+func TestDRepStakeDistrResultRejectsDuplicateAfterEncoding(t *testing.T) {
+	result := DRepStakeDistrResult{
+		{
+			Drep: lcommon.Drep{
+				Type:       lcommon.DrepTypeAbstain,
+				Credential: []byte{0x01},
+			},
+			Stake: 1,
+		},
+		{
+			Drep: lcommon.Drep{
+				Type:       lcommon.DrepTypeAbstain,
+				Credential: []byte{0x02},
+			},
+			Stake: 2,
+		},
+	}
+	_, err := cbor.Encode(result)
+	require.ErrorContains(t, err, "duplicate DRep")
+}
+
 // TestDRepStakeDistrResultRejectsDuplicateKeyInReply covers a reply whose map
 // repeats a DRep. The cbor package's decode modes reject a repeated map key
 // (DupMapKeyEnforcedAPF), which every map-shaped result in this package

@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strconv"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
@@ -91,23 +90,25 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 	// (DupMapKeyEnforcedAPF), so every other map-shaped result in this
 	// package gets that for free. Walking this map by hand does not, and a
 	// caller summing a slice that repeats a DRep counts its stake twice.
+	// A CBOR map's keys are unique by their encoding, so that is what the
+	// check compares.
 	seen := make(map[string]struct{}, entryCount)
 	for range entryCount {
 		var entry DRepStakeDistrEntry
-		if _, _, err := dec.Decode(&entry.Drep); err != nil {
+		_, key, err := dec.DecodeRaw(&entry.Drep)
+		if err != nil {
 			return fmt.Errorf(
 				"DRep stake distribution: decoding DRep: %w",
 				err,
 			)
 		}
-		key := drepMapKey(entry.Drep)
-		if _, dup := seen[key]; dup {
+		if _, dup := seen[string(key)]; dup {
 			return fmt.Errorf(
 				"DRep stake distribution: duplicate DRep %s",
 				entry.Drep.String(),
 			)
 		}
-		seen[key] = struct{}{}
+		seen[string(key)] = struct{}{}
 		if _, _, err := dec.Decode(&entry.Stake); err != nil {
 			return fmt.Errorf(
 				"DRep stake distribution: decoding stake: %w",
@@ -135,14 +136,17 @@ func (r DRepStakeDistrResult) MarshalCBOR() ([]byte, error) {
 				err,
 			)
 		}
-		mapKey := drepMapKey(entry.Drep)
-		if _, dup := seen[mapKey]; dup {
+		// Keyed on the encoding, not on the Go value: an Abstain or
+		// NoConfidence DRep carries no credential on the wire, so two
+		// entries that differ only in a stray credential would collide
+		// into one map key.
+		if _, dup := seen[string(key)]; dup {
 			return nil, fmt.Errorf(
 				"DRep stake distribution: duplicate DRep %s",
 				entry.Drep.String(),
 			)
 		}
-		seen[mapKey] = struct{}{}
+		seen[string(key)] = struct{}{}
 		value, err := cbor.Encode(entry.Stake)
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -171,13 +175,6 @@ func (r DRepStakeDistrResult) MarshalCBOR() ([]byte, error) {
 		buf.Write(entry.value)
 	}
 	return buf.Bytes(), nil
-}
-
-// drepMapKey is a comparable stand-in for a DRep, so that a repeated map key
-// can be spotted on either side of the codec. lcommon.Drep keeps its
-// credential in a byte slice and so cannot be a Go map key itself.
-func drepMapKey(drep lcommon.Drep) string {
-	return strconv.Itoa(drep.Type) + ":" + string(drep.Credential)
 }
 
 // cborMapHeader returns the head of a definite-length CBOR map (major type 5)
