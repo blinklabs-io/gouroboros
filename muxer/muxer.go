@@ -68,8 +68,9 @@ type Muxer struct {
 	doneChan               chan bool
 	waitGroup              sync.WaitGroup
 	waitGroupMutex         sync.Mutex
-	protocolSenders        map[uint16]map[ProtocolRole]chan *Segment
+	protocolSenders        map[uint16]map[ProtocolRole]*segmentSender
 	protocolReceivers      map[uint16]map[ProtocolRole]*segmentChannel
+	protocolTombstones     map[uint16]map[ProtocolRole]struct{}
 	protocolReceiversMutex sync.Mutex
 	diffusionMode          atomic.Int64
 	onceStop               sync.Once
@@ -80,6 +81,18 @@ type segmentChannel struct {
 	ch       chan *Segment
 	done     chan struct{}
 	onceStop sync.Once
+}
+
+type segmentSender struct {
+	ch       chan *Segment
+	done     chan struct{}
+	onceStop sync.Once
+}
+
+func (s *segmentSender) stop() {
+	s.onceStop.Do(func() {
+		close(s.done)
+	})
 }
 
 func (s *segmentChannel) stop() {
@@ -118,12 +131,13 @@ func (e *ConnectionClosedError) Unwrap() error {
 // New creates a new Muxer object and starts the read loop
 func New(conn net.Conn) *Muxer {
 	m := &Muxer{
-		conn:              conn,
-		startChan:         make(chan bool, 1),
-		doneChan:          make(chan bool),
-		errorChan:         make(chan error, 10),
-		protocolSenders:   make(map[uint16]map[ProtocolRole]chan *Segment),
-		protocolReceivers: make(map[uint16]map[ProtocolRole]*segmentChannel),
+		conn:               conn,
+		startChan:          make(chan bool, 1),
+		doneChan:           make(chan bool),
+		errorChan:          make(chan error, 10),
+		protocolSenders:    make(map[uint16]map[ProtocolRole]*segmentSender),
+		protocolReceivers:  make(map[uint16]map[ProtocolRole]*segmentChannel),
+		protocolTombstones: make(map[uint16]map[ProtocolRole]struct{}),
 	}
 	// Start read goroutine
 	m.waitGroup.Add(1)
@@ -220,16 +234,21 @@ func (m *Muxer) RegisterProtocol(
 		ch:   receiver,
 		done: make(chan struct{}),
 	}
+	sender := &segmentSender{ch: senderChan, done: make(chan struct{})}
 	// Record channels in protocol sender/receiver maps
 	m.protocolReceiversMutex.Lock()
 	if _, ok := m.protocolSenders[protocolId]; !ok {
-		m.protocolSenders[protocolId] = make(map[ProtocolRole]chan *Segment)
+		m.protocolSenders[protocolId] = make(map[ProtocolRole]*segmentSender)
 	}
 	if _, ok := m.protocolReceivers[protocolId]; !ok {
 		m.protocolReceivers[protocolId] = make(map[ProtocolRole]*segmentChannel)
 	}
-	m.protocolSenders[protocolId][protocolRole] = senderChan
+	m.protocolSenders[protocolId][protocolRole] = sender
 	m.protocolReceivers[protocolId][protocolRole] = receiverChan
+	if _, ok := m.protocolTombstones[protocolId]; !ok {
+		m.protocolTombstones[protocolId] = make(map[ProtocolRole]struct{})
+	}
+	delete(m.protocolTombstones[protocolId], protocolRole)
 	m.protocolReceiversMutex.Unlock()
 	// Start Goroutine to handle outbound messages
 	m.waitGroup.Go(func() {
@@ -240,6 +259,8 @@ func (m *Muxer) RegisterProtocol(
 				if !ok {
 					return
 				}
+			case <-sender.done:
+				return
 			case msg, ok := <-senderChan:
 				if !ok {
 					return
@@ -262,22 +283,30 @@ func (m *Muxer) UnregisterProtocol(
 ) {
 	m.protocolReceiversMutex.Lock()
 	defer m.protocolReceiversMutex.Unlock()
-	protocolRoles, ok := m.protocolReceivers[protocolId]
-	if !ok {
-		return
+	// Remove both directions while holding the same lock. This prevents a
+	// concurrent re-registration from observing only half of the old mapping.
+	if protocolRoles, ok := m.protocolReceivers[protocolId]; ok {
+		if recvChan, ok := protocolRoles[protocolRole]; ok {
+			recvChan.stop()
+			delete(protocolRoles, protocolRole)
+		}
+		if len(protocolRoles) == 0 {
+			delete(m.protocolReceivers, protocolId)
+		}
 	}
-	recvChan, ok := protocolRoles[protocolRole]
-	if !ok {
-		return
+	if protocolRoles, ok := m.protocolSenders[protocolId]; ok {
+		if sender, ok := protocolRoles[protocolRole]; ok {
+			sender.stop()
+			delete(protocolRoles, protocolRole)
+		}
+		if len(protocolRoles) == 0 {
+			delete(m.protocolSenders, protocolId)
+		}
 	}
-	// Signal shutdown to protocol
-
-	recvChan.stop()
-
-	// Keep the stopped receiver as a tombstone until a subsequent registration
-	// replaces it. Segments already queued for a protocol that is restarting can
-	// then be discarded without treating the brief registration gap as an
-	// unknown-protocol error and closing the shared connection.
+	if _, ok := m.protocolTombstones[protocolId]; !ok {
+		m.protocolTombstones[protocolId] = make(map[ProtocolRole]struct{})
+	}
+	m.protocolTombstones[protocolId][protocolRole] = struct{}{}
 }
 
 // Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than
@@ -428,6 +457,12 @@ func (m *Muxer) readLoop() {
 			}
 		}
 		recvChan := protocolRoles[protocolRole]
+		if recvChan == nil {
+			if _, tombstoned := m.protocolTombstones[msg.GetProtocolId()][protocolRole]; tombstoned {
+				m.protocolReceiversMutex.Unlock()
+				continue
+			}
+		}
 		m.protocolReceiversMutex.Unlock()
 		if recvChan == nil {
 			m.sendError(

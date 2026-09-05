@@ -72,12 +72,13 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 }
 
 func (s *Server) handleMessage(msg protocol.Message) error {
+	proto := s.ProtocolInstance()
 	var err error
 	switch msg.Type() {
 	case MessageTypeShareRequest:
-		err = s.handleShareRequest(msg)
+		err = s.handleShareRequest(proto, msg)
 	case MessageTypeDone:
-		s.handleDone()
+		s.handleDone(proto)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -88,8 +89,8 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 	return err
 }
 
-func (s *Server) handleShareRequest(msg protocol.Message) error {
-	s.Protocol.Logger().
+func (s *Server) handleShareRequest(proto *protocol.Protocol, msg protocol.Message) error {
+	proto.Logger().
 		Debug("share request",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -98,7 +99,7 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 			"local_disabled", s.config != nil && s.config.LocalDisabled,
 		)
 	if s.config != nil && s.config.LocalDisabled {
-		s.Protocol.Logger().
+		proto.Logger().
 			Debug("peer sharing request violates negotiated mode",
 				"component", "network",
 				"protocol", ProtocolName,
@@ -108,12 +109,12 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 		// A peer that sends ShareRequest after we advertised NoPeerSharing is
 		// not following the handshake negotiation. Still answer with an empty
 		// response so an invalid optional request cannot tear down the bearer.
-		return s.SendMessage(NewMsgSharePeers([]PeerAddress{}))
+		return proto.SendMessage(NewMsgSharePeers([]PeerAddress{}))
 	}
 	if s.config == nil || s.config.ShareRequestFunc == nil {
 		// Peer sharing is optional. Keep the protocol in its normal request /
 		// response cycle when the application has no peer source configured.
-		return s.SendMessage(NewMsgSharePeers([]PeerAddress{}))
+		return proto.SendMessage(NewMsgSharePeers([]PeerAddress{}))
 	}
 	msgShareRequest := msg.(*MsgShareRequest)
 	peers, err := s.config.ShareRequestFunc(
@@ -124,14 +125,14 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 		return err
 	}
 	msgResp := NewMsgSharePeers(peers)
-	if err := s.SendMessage(msgResp); err != nil {
+	if err := proto.SendMessage(msgResp); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Server) handleDone() {
-	s.Protocol.Logger().
+func (s *Server) handleDone(proto *protocol.Protocol) {
+	proto.Logger().
 		Debug("done",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -139,7 +140,7 @@ func (s *Server) handleDone() {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	// Restart protocol
-	s.Stop()
+	proto.Stop()
 	s.initProtocol()
 	s.Start()
 }
