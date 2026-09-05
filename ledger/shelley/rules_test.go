@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -714,6 +715,241 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			)
 		},
 	)
+}
+
+// poolDepositEpochLedgerState adds the optional common.EpochState capability to
+// a mock ledger state. PoolRegistrationDepositDue needs the current epoch to
+// decide whether a pending retirement has already taken effect.
+type poolDepositEpochLedgerState struct {
+	common.LedgerState
+	epoch uint64
+}
+
+func (s poolDepositEpochLedgerState) EpochForSlot(uint64) (uint64, error) {
+	return s.epoch, nil
+}
+
+var _ common.EpochState = poolDepositEpochLedgerState{}
+
+// shelleyValueNotConservedRule returns the value-not-conserved validator as it
+// is actually registered for the era. Resolving it through the descriptors
+// rather than naming the function keeps the test on the code path a consumer
+// runs, so an unregistered or misidentified rule fails here.
+func shelleyValueNotConservedRule(t *testing.T) common.UtxoValidationRuleFunc {
+	t.Helper()
+	descriptors := shelley.UtxoValidationRuleDescriptors()
+	require.Len(t, shelley.UtxoValidationRules, len(descriptors))
+	for idx, descriptor := range descriptors {
+		if descriptor.Id == common.UtxoValidationRuleValueNotConserved {
+			return shelley.UtxoValidationRules[idx]
+		}
+	}
+	t.Fatalf(
+		"Shelley validation rule %q is not registered",
+		common.UtxoValidationRuleValueNotConserved,
+	)
+	return nil
+}
+
+// TestUtxoValidateValueNotConservedUtxoPoolDeposits drives the registered
+// value-not-conserved rule and pins how far the produced value moves for pool
+// registration certificates.
+//
+// The unit tests in ledger/common prove the PoolRegistrationDepositDue
+// predicate. These cases prove what the rule does with it. Each case budgets
+// the expected number of deposits and requires conservation, then budgets one
+// deposit more (and, where a deposit is expected, one less) and requires the
+// consumed/produced gap to be exactly one deposit. That bounds the rule from
+// both sides: a re-registration after an effective retirement moves the
+// produced value by exactly one deposit, and a transaction carrying two
+// registration certificates for the same pool is charged exactly once.
+//
+// The per-transaction dedup is what the two-certificate cases exercise. POOL
+// applies certificates in order, and cardano-ledger's
+// shelleyTotalDepositsTxBody counts a Set of not-yet-registered pool ids, so a
+// second certificate for a pool the first one just registered incurs nothing.
+func TestUtxoValidateValueNotConservedUtxoPoolDeposits(t *testing.T) {
+	const (
+		inputAmount     uint64 = 3_000_000_000
+		fee             uint64 = 123_456
+		poolDeposit     uint64 = 500_000_000
+		retirementEpoch uint64 = 197
+	)
+	inputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	exactAmount := inputAmount - fee
+	operator := common.PoolKeyHash(
+		common.NewBlake2b224(
+			bytes.Repeat([]byte{0x42}, common.Blake2b224Size),
+		),
+	)
+	onRecord := &common.PoolRegistrationCertificate{Operator: operator}
+	utxos := []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(inputTxId, 0),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: inputAmount,
+			},
+		},
+	}
+	pparams := &shelley.ShelleyProtocolParameters{
+		PoolDeposit: uint(poolDeposit),
+	}
+
+	// newTx budgets budgetedDeposits pool deposits out of the outputs and
+	// carries the given number of registration certificates, all for the same
+	// operator.
+	newTx := func(
+		budgetedDeposits uint64,
+		registrations int,
+	) *shelley.ShelleyTransaction {
+		certs := make([]common.CertificateWrapper, 0, registrations)
+		for range registrations {
+			certs = append(certs, common.CertificateWrapper{
+				Type: uint(common.CertificateTypePoolRegistration),
+				Certificate: &common.PoolRegistrationCertificate{
+					Operator: operator,
+				},
+			})
+		}
+		return &shelley.ShelleyTransaction{
+			Body: shelley.ShelleyTransactionBody{
+				TxFee: fee,
+				TxInputs: shelley.NewShelleyTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(inputTxId, 0),
+					},
+				),
+				TxOutputs: []shelley.ShelleyTransactionOutput{
+					{
+						OutputAmount: exactAmount - budgetedDeposits*poolDeposit,
+					},
+				},
+				TxCertificates: certs,
+			},
+		}
+	}
+	newLedgerState := func(
+		reg *common.PoolRegistrationCertificate,
+		retirement *uint64,
+	) common.LedgerState {
+		return poolDepositEpochLedgerState{
+			LedgerState: mockledger.NewLedgerStateBuilder().
+				WithUtxos(utxos).
+				WithPoolCurrentState(
+					func(common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
+						return reg, retirement, nil
+					},
+				).Build(),
+			epoch: retirementEpoch,
+		}
+	}
+	retiresAt := func(epoch uint64) *uint64 { return &epoch }
+
+	for _, tc := range []struct {
+		name string
+		// reg and retire are what PoolCurrentState reports for the operator.
+		reg    *common.PoolRegistrationCertificate
+		retire *uint64
+		// registrations is how many registration certificates for that
+		// operator the transaction carries.
+		registrations int
+		// wantDeposits is how many pool deposits the rule must add to the
+		// produced value.
+		wantDeposits uint64
+	}{
+		{
+			name:          "unregistered pool",
+			registrations: 1,
+			wantDeposits:  1,
+		},
+		{
+			name:          "live pool is a parameter update",
+			reg:           onRecord,
+			registrations: 1,
+			wantDeposits:  0,
+		},
+		{
+			name:          "retirement still pending is a parameter update",
+			reg:           onRecord,
+			retire:        retiresAt(retirementEpoch + 1),
+			registrations: 1,
+			wantDeposits:  0,
+		},
+		{
+			name:          "retirement has taken effect",
+			reg:           onRecord,
+			retire:        retiresAt(retirementEpoch),
+			registrations: 1,
+			wantDeposits:  1,
+		},
+		{
+			name:          "two registrations for an unregistered pool",
+			registrations: 2,
+			wantDeposits:  1,
+		},
+		{
+			name:          "two registrations for a retired pool",
+			reg:           onRecord,
+			retire:        retiresAt(retirementEpoch),
+			registrations: 2,
+			wantDeposits:  1,
+		},
+		{
+			name:          "two registrations for a live pool",
+			reg:           onRecord,
+			registrations: 2,
+			wantDeposits:  0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rule := shelleyValueNotConservedRule(t)
+			ls := newLedgerState(tc.reg, tc.retire)
+			// Budgeting exactly the expected deposits must conserve value.
+			require.NoError(
+				t,
+				rule(newTx(tc.wantDeposits, tc.registrations), 0, ls, pparams),
+				"budgeting %d pool deposit(s) should conserve value",
+				tc.wantDeposits,
+			)
+			// Budgeting one deposit either side must miss by exactly one
+			// deposit, which bounds the rule above and below.
+			budgets := []uint64{tc.wantDeposits + 1}
+			if tc.wantDeposits > 0 {
+				budgets = append(budgets, tc.wantDeposits-1)
+			}
+			for _, budget := range budgets {
+				tx := newTx(budget, tc.registrations)
+				err := rule(tx, 0, ls, pparams)
+				var notConserved shelley.ValueNotConservedUtxoError
+				require.ErrorAs(
+					t,
+					err,
+					&notConserved,
+					"budgeting %d pool deposit(s) should not conserve value",
+					budget,
+				)
+				// Consumed minus produced isolates the deposit
+				// difference. The budget is one deposit either side of
+				// wantDeposits, so the gap is one deposit, signed by which
+				// side it is on.
+				want := new(big.Int).SetUint64(poolDeposit)
+				if budget < tc.wantDeposits {
+					want.Neg(want)
+				}
+				gap := new(big.Int).Sub(
+					notConserved.Consumed,
+					notConserved.Produced,
+				)
+				require.Equal(
+					t,
+					want.String(),
+					gap.String(),
+					"budgeting %d pool deposit(s): the rule added the wrong number of deposits",
+					budget,
+				)
+			}
+		})
+	}
 }
 
 func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {

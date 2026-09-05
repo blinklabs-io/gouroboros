@@ -30,6 +30,11 @@ package common
 // deposit. A node that skipped it computed a produced value exactly one deposit
 // short and rejected the block (blinklabs-io/dingo#3908).
 //
+// This relies on the PoolState guarantee that a retirement superseded by a
+// later registration is not returned. Without it a parameter update made after
+// a re-registration would see a retirement epoch the current epoch has already
+// passed and be charged a second deposit.
+//
 // The current epoch comes from the optional EpochState capability. Without it
 // the retirement bound cannot be evaluated, so the pre-existing behaviour is
 // kept: the registration on record is taken at face value. Both possible errors
