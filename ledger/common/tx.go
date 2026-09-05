@@ -247,11 +247,13 @@ type TransactionBodyBase struct {
 	hash                              *Blake2b256
 	validityIntervalUpperBoundPresent bool
 	currentTreasuryValuePresent       bool
+	networkIdPresent                  bool
 }
 
 type transactionBodyFieldPresence struct {
 	validityIntervalUpperBound bool
 	currentTreasuryValue       bool
+	networkId                  bool
 }
 
 // decodeTransactionBodyFieldPresence scans a transaction-body map once and
@@ -266,9 +268,11 @@ func decodeTransactionBodyFieldPresence(
 	}
 	_, upperBoundPresent := bodyFields[3]
 	_, currentTreasuryValuePresent := bodyFields[21]
+	_, networkIdPresent := bodyFields[15]
 	return transactionBodyFieldPresence{
 		validityIntervalUpperBound: upperBoundPresent,
 		currentTreasuryValue:       currentTreasuryValuePresent,
+		networkId:                  networkIdPresent,
 	}, nil
 }
 
@@ -305,6 +309,19 @@ func (b *TransactionBodyBase) SetCurrentTreasuryValuePresence(present bool) {
 // present.
 func (b *TransactionBodyBase) CurrentTreasuryValuePresent() bool {
 	return b.currentTreasuryValuePresent
+}
+
+// SetNetworkIdPresence records whether transaction-body key 15 is present.
+// Calling it for a programmatically constructed body invalidates stored CBOR.
+func (b *TransactionBodyBase) SetNetworkIdPresence(present bool) {
+	b.networkIdPresent = present
+	b.hash = nil
+	b.SetCbor(nil)
+}
+
+// NetworkIdPresent reports whether transaction-body key 15 is present.
+func (b *TransactionBodyBase) NetworkIdPresent() bool {
+	return b.networkIdPresent
 }
 
 // DecodeValidityIntervalUpperBoundPresence records the presence of
@@ -351,6 +368,7 @@ func (b *TransactionBodyBase) DecodeTransactionBodyFieldPresence(
 	if !b.currentTreasuryValuePresent {
 		b.currentTreasuryValuePresent = presence.currentTreasuryValue
 	}
+	b.networkIdPresent = presence.networkId
 	return nil
 }
 
@@ -370,7 +388,16 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 	treasuryValue := body.CurrentTreasuryValue()
 	preserveTreasuryZero := TransactionCurrentTreasuryValuePresent(body) &&
 		treasuryValue != nil && treasuryValue.Sign() == 0
-	if !preserveUpperBoundZero && !preserveTreasuryZero {
+	networkIdValue, networkIdPresent := body.(interface {
+		NetworkIdPresent() bool
+		TransactionNetworkId() *uint8
+	})
+	preserveNetworkIdZero := false
+	if networkIdPresent && networkIdValue.NetworkIdPresent() {
+		value := networkIdValue.TransactionNetworkId()
+		preserveNetworkIdZero = value != nil && *value == 0
+	}
+	if !preserveUpperBoundZero && !preserveTreasuryZero && !preserveNetworkIdZero {
 		return cborData, nil
 	}
 	bodyFields := make(map[uint]cbor.RawMessage)
@@ -390,6 +417,13 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 			return nil, err
 		}
 		bodyFields[21] = encodedTreasuryValue
+	}
+	if preserveNetworkIdZero {
+		encodedNetworkId, err := cbor.Encode(uint8(0))
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[15] = encodedNetworkId
 	}
 	return cbor.Encode(bodyFields)
 }
