@@ -398,37 +398,37 @@ func (p *ConwayProtocolParameters) UpdateFromGenesis(
 
 type ConwayProtocolParameterUpdate struct {
 	cbor.DecodeStoreCbor
-	MinFeeA                    *uint                                     `cbor:"0,keyasint"`
-	MinFeeB                    *uint                                     `cbor:"1,keyasint"`
-	MaxBlockBodySize           *uint                                     `cbor:"2,keyasint"`
-	MaxTxSize                  *uint                                     `cbor:"3,keyasint"`
-	MaxBlockHeaderSize         *uint                                     `cbor:"4,keyasint"`
-	KeyDeposit                 *uint                                     `cbor:"5,keyasint"`
-	PoolDeposit                *uint                                     `cbor:"6,keyasint"`
-	MaxEpoch                   *uint                                     `cbor:"7,keyasint"`
-	NOpt                       *uint                                     `cbor:"8,keyasint"`
-	A0                         *cbor.Rat                                 `cbor:"9,keyasint"`
-	Rho                        *cbor.Rat                                 `cbor:"10,keyasint"`
-	Tau                        *cbor.Rat                                 `cbor:"11,keyasint"`
-	ProtocolVersion            *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
-	MinPoolCost                *uint64                                   `cbor:"16,keyasint"`
-	AdaPerUtxoByte             *uint64                                   `cbor:"17,keyasint"`
-	CostModels                 map[uint][]int64                          `cbor:"18,keyasint"`
-	ExecutionCosts             *common.ExUnitPrice                       `cbor:"19,keyasint"`
-	MaxTxExUnits               *common.ExUnits                           `cbor:"20,keyasint"`
-	MaxBlockExUnits            *common.ExUnits                           `cbor:"21,keyasint"`
-	MaxValueSize               *uint                                     `cbor:"22,keyasint"`
-	CollateralPercentage       *uint                                     `cbor:"23,keyasint"`
-	MaxCollateralInputs        *uint                                     `cbor:"24,keyasint"`
-	PoolVotingThresholds       *PoolVotingThresholds                     `cbor:"25,keyasint"`
-	DRepVotingThresholds       *DRepVotingThresholds                     `cbor:"26,keyasint"`
-	MinCommitteeSize           *uint                                     `cbor:"27,keyasint"`
-	CommitteeTermLimit         *uint64                                   `cbor:"28,keyasint"`
-	GovActionValidityPeriod    *uint64                                   `cbor:"29,keyasint"`
-	GovActionDeposit           *uint64                                   `cbor:"30,keyasint"`
-	DRepDeposit                *uint64                                   `cbor:"31,keyasint"`
-	DRepInactivityPeriod       *uint64                                   `cbor:"32,keyasint"`
-	MinFeeRefScriptCostPerByte *cbor.Rat                                 `cbor:"33,keyasint"`
+	MinFeeA                    *uint                                     `cbor:"0,keyasint,omitempty"`
+	MinFeeB                    *uint                                     `cbor:"1,keyasint,omitempty"`
+	MaxBlockBodySize           *uint                                     `cbor:"2,keyasint,omitempty"`
+	MaxTxSize                  *uint                                     `cbor:"3,keyasint,omitempty"`
+	MaxBlockHeaderSize         *uint                                     `cbor:"4,keyasint,omitempty"`
+	KeyDeposit                 *uint                                     `cbor:"5,keyasint,omitempty"`
+	PoolDeposit                *uint                                     `cbor:"6,keyasint,omitempty"`
+	MaxEpoch                   *uint                                     `cbor:"7,keyasint,omitempty"`
+	NOpt                       *uint                                     `cbor:"8,keyasint,omitempty"`
+	A0                         *cbor.Rat                                 `cbor:"9,keyasint,omitempty"`
+	Rho                        *cbor.Rat                                 `cbor:"10,keyasint,omitempty"`
+	Tau                        *cbor.Rat                                 `cbor:"11,keyasint,omitempty"`
+	ProtocolVersion            *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint,omitempty"`
+	MinPoolCost                *uint64                                   `cbor:"16,keyasint,omitempty"`
+	AdaPerUtxoByte             *uint64                                   `cbor:"17,keyasint,omitempty"`
+	CostModels                 map[uint][]int64                          `cbor:"18,keyasint,omitempty"`
+	ExecutionCosts             *common.ExUnitPrice                       `cbor:"19,keyasint,omitempty"`
+	MaxTxExUnits               *common.ExUnits                           `cbor:"20,keyasint,omitempty"`
+	MaxBlockExUnits            *common.ExUnits                           `cbor:"21,keyasint,omitempty"`
+	MaxValueSize               *uint                                     `cbor:"22,keyasint,omitempty"`
+	CollateralPercentage       *uint                                     `cbor:"23,keyasint,omitempty"`
+	MaxCollateralInputs        *uint                                     `cbor:"24,keyasint,omitempty"`
+	PoolVotingThresholds       *PoolVotingThresholds                     `cbor:"25,keyasint,omitempty"`
+	DRepVotingThresholds       *DRepVotingThresholds                     `cbor:"26,keyasint,omitempty"`
+	MinCommitteeSize           *uint                                     `cbor:"27,keyasint,omitempty"`
+	CommitteeTermLimit         *uint64                                   `cbor:"28,keyasint,omitempty"`
+	GovActionValidityPeriod    *uint64                                   `cbor:"29,keyasint,omitempty"`
+	GovActionDeposit           *uint64                                   `cbor:"30,keyasint,omitempty"`
+	DRepDeposit                *uint64                                   `cbor:"31,keyasint,omitempty"`
+	DRepInactivityPeriod       *uint64                                   `cbor:"32,keyasint,omitempty"`
+	MinFeeRefScriptCostPerByte *cbor.Rat                                 `cbor:"33,keyasint,omitempty"`
 }
 
 // BootstrapRestrictedFields returns the names of parameter fields that this
@@ -474,12 +474,32 @@ func (u *ConwayProtocolParameterUpdate) BootstrapRestrictedFields() []string {
 }
 
 func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
+	var fields map[int]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
 	type tConwayProtocolParameterUpdate ConwayProtocolParameterUpdate
 	var tmp tConwayProtocolParameterUpdate
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*u = ConwayProtocolParameterUpdate(tmp)
+	if _, ok := fields[19]; ok {
+		// The CDDL requires both execution prices. A CBOR null can otherwise
+		// leave either pointer nil and panic during ToPlutusData.
+		if tmp.ExecutionCosts == nil ||
+			tmp.ExecutionCosts.MemPrice == nil ||
+			tmp.ExecutionCosts.StepPrice == nil {
+			return ConwayProtocolParameterUpdateError{
+				FieldName: "executionCosts",
+				Reason:    "execution prices cannot be null",
+			}
+		}
+	}
+	conwayUpdate := ConwayProtocolParameterUpdate(tmp)
+	if err := validateConwayProtocolParameterUpdate(&conwayUpdate); err != nil {
+		return err
+	}
+	*u = conwayUpdate
 	u.SetCbor(cborData)
 	return nil
 }

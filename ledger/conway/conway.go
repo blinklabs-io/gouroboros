@@ -577,6 +577,10 @@ func (s *ConwayTransactionInputSet) SetItems(
 	copy(s.items, items)
 }
 
+// ConwayTransactionPparamUpdate is retained for source compatibility with
+// callers that used the pre-Conway transaction-body update type. Conway moved
+// protocol parameter changes into governance proposal procedures, so this
+// type is not part of ConwayTransactionBody's wire representation.
 type ConwayTransactionPparamUpdate struct {
 	cbor.StructAsArray
 	ProtocolParamUpdates map[common.Blake2b224]babbage.BabbageProtocolParameterUpdate
@@ -591,7 +595,6 @@ type ConwayTransactionBody struct {
 	Ttl                     uint64                                        `cbor:"3,keyasint,omitempty"`
 	TxCertificates          []common.CertificateWrapper                   `cbor:"4,keyasint,omitempty"`
 	TxWithdrawals           map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
-	Update                  *ConwayTransactionPparamUpdate                `cbor:"6,keyasint,omitempty"`
 	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
 	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
 	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
@@ -609,6 +612,17 @@ type ConwayTransactionBody struct {
 }
 
 func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
+	// Conway replaced the Babbage update field (key 6) with governance
+	// proposal procedures. Decode the keys first so a pre-Conway body cannot
+	// be silently accepted by a struct that happens to retain compatibility
+	// fields elsewhere in the package.
+	var fields map[int]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields[6]; ok {
+		return ConwayTransactionBodyFieldError{FieldKey: 6}
+	}
 	type tConwayTransactionBody ConwayTransactionBody
 	var tmp tConwayTransactionBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -686,14 +700,9 @@ func (b *ConwayTransactionBody) ValidityIntervalStart() uint64 {
 }
 
 func (b *ConwayTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
-	if b.Update == nil {
-		return 0, nil
-	}
-	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
-	for k, v := range b.Update.ProtocolParamUpdates {
-		updateMap[k] = v
-	}
-	return b.Update.Epoch, updateMap
+	// Conway protocol parameter changes are governance proposal procedures,
+	// not transaction-body updates.
+	return 0, nil
 }
 
 func (b *ConwayTransactionBody) Certificates() []common.Certificate {
