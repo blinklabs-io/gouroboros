@@ -172,6 +172,27 @@ func TestUtxoValidateTransactionNetworkId(t *testing.T) {
 	})
 }
 
+func TestTransactionNetworkIdPresencePreservesEncodingAndHash(t *testing.T) {
+	bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(1)})
+	require.NoError(t, err)
+	var body babbage.BabbageTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+	firstHash := body.Id()
+	body.NetworkId = 0
+	body.SetNetworkIdPresence(true)
+
+	encoded, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	_, present := fields[15]
+	assert.True(t, present)
+
+	body.SetNetworkIdPresence(false)
+	assert.NotEqual(t, firstHash, body.Id())
+}
+
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{

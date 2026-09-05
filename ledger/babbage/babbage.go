@@ -525,6 +525,11 @@ func (b *BabbageTransactionBody) TransactionNetworkId() *uint8 {
 	return nil
 }
 
+func (b *BabbageTransactionBody) SetNetworkIdPresence(present bool) {
+	b.hash = nil
+	b.TransactionBodyBase.SetNetworkIdPresence(present)
+}
+
 func (t BabbageTransaction) TransactionNetworkId() *uint8 {
 	return t.Body.TransactionNetworkId()
 }
