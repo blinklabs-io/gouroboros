@@ -577,31 +577,32 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 	)
 }
 
-// SortInputs returns a sorted copy of the given inputs, ordered by
-// (TxId, Index) in ascending byte order. This matches the canonical
-// ordering required by the Cardano ledger spec for redeemer index
-// mapping.
+func compareInputs(a, b lcommon.TransactionInput) int {
+	// Compare TX ID
+	x := bytes.Compare(a.Id().Bytes(), b.Id().Bytes())
+	if x != 0 {
+		return x
+	}
+	// Compare index
+	return cmp.Compare(a.Index(), b.Index())
+}
+
+// SortInputs returns a sorted, deduplicated copy of the given inputs, ordered
+// by (TxId, Index) in ascending byte order. cardano-ledger holds both
+// inputsTxBodyL and referenceInputsTxBodyL as Set TxIn and renders them with
+// Set.toList, so a repeated input contributes one entry to txInfoInputs and
+// txInfoReferenceInputs and does not shift the redeemer index of any later
+// spend.
 func SortInputs(inputs []lcommon.TransactionInput) []lcommon.TransactionInput {
 	ret := make([]lcommon.TransactionInput, len(inputs))
 	copy(ret, inputs)
-	slices.SortFunc(
+	slices.SortFunc(ret, compareInputs)
+	return slices.CompactFunc(
 		ret,
-		func(a, b lcommon.TransactionInput) int {
-			// Compare TX ID
-			x := bytes.Compare(a.Id().Bytes(), b.Id().Bytes())
-			if x != 0 {
-				return x
-			}
-			// Compare index
-			if a.Index() < b.Index() {
-				return -1
-			} else if a.Index() > b.Index() {
-				return 1
-			}
-			return 0
+		func(a, b lcommon.TransactionInput) bool {
+			return compareInputs(a, b) == 0
 		},
 	)
-	return ret
 }
 
 func expandInputs(
@@ -803,6 +804,15 @@ func redeemersInfo(
 	return ret, nil
 }
 
+// signatoriesInfo renders txInfoSignatories. cardano-ledger holds
+// reqSignerHashesTxBodyG as Set (KeyHash 'Witness) and translates it with
+// transTxBodyReqSignerHashes = transKeyHash <$> Set.toList, which both sorts
+// and deduplicates. Every era and every Plutus language version routes through
+// that one function, so a transaction body that repeats a required signer
+// still yields a single signatory. Emitting the repeat makes a validator that
+// walks txInfoSignatories execute more reductions than the block producer's
+// evaluator charged for, so its execution units exceed the declared budget and
+// a canonical block is rejected.
 func signatoriesInfo(
 	requiredSigners []lcommon.Blake2b224,
 ) []lcommon.Blake2b224 {
@@ -814,7 +824,12 @@ func signatoriesInfo(
 			return bytes.Compare(a.Bytes(), b.Bytes())
 		},
 	)
-	return tmp
+	return slices.CompactFunc(
+		tmp,
+		func(a, b lcommon.Blake2b224) bool {
+			return bytes.Equal(a.Bytes(), b.Bytes())
+		},
+	)
 }
 
 func votingInfo(
