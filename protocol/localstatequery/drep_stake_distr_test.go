@@ -175,3 +175,15 @@ func TestDRepStakeDistrResultRejectsDuplicateDRep(t *testing.T) {
 	_, err := cbor.Encode(result)
 	require.ErrorContains(t, err, "duplicate DRep")
 }
+
+// TestDRepStakeDistrResultRejectsDuplicateKeyInReply covers a reply whose map
+// repeats a DRep. The cbor package's decode modes reject a repeated map key
+// (DupMapKeyEnforcedAPF), which every map-shaped result in this package
+// inherits; walking this map by hand has to reject it too, or a caller summing
+// the entries counts one DRep's stake twice.
+func TestDRepStakeDistrResultRejectsDuplicateKeyInReply(t *testing.T) {
+	duplicate := "81a2" + "8102" + "1901f4" + "8102" + "1864"
+	var result DRepStakeDistrResult
+	_, err := cbor.Decode(mustDecodeHex(t, duplicate), &result)
+	require.ErrorContains(t, err, "duplicate DRep")
+}
