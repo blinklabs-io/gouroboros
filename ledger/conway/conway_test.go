@@ -21,6 +21,7 @@ import (
 	"math/big"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -403,6 +404,29 @@ func TestConwayTx_Utxorpc(t *testing.T) {
 	if got, want := len(utxoTx.Outputs), len(tx.Outputs()); got != want {
 		t.Errorf("outputs count mismatch: got %d want %d", got, want)
 	}
+}
+
+func TestConwayTransactionLeiosHashCachesConcurrently(t *testing.T) {
+	tx := &ConwayTransaction{}
+	tx.SetCbor([]byte{0x80})
+	want := common.Blake2b256Hash(tx.Cbor())
+
+	const workers = 16
+	results := make(chan common.Blake2b256, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- tx.LeiosHash()
+		}()
+	}
+	wg.Wait()
+	close(results)
+	for got := range results {
+		assert.Equal(t, want, got)
+	}
+	assert.NotNil(t, tx.hash)
 }
 
 func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {

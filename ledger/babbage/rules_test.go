@@ -1671,9 +1671,10 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 			}
 		},
 	)
-	// no valid collateral UTxO, should skip and not underflow
+	// An unresolved collateral UTxO must be reported rather than treated as
+	// an empty balance.
 	t.Run(
-		"no valid collateral UTxO, should skip and not underflow",
+		"unresolved collateral UTxO is rejected",
 		func(t *testing.T) {
 			// Ledger state with NO matching UTxO
 			missingUtxoLedgerState := mockledger.NewLedgerStateBuilder().WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
@@ -1690,12 +1691,8 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				missingUtxoLedgerState,
 				testProtocolParams,
 			)
-			if err != nil {
-				t.Errorf(
-					"Should skip collateral return validation if collBalance == 0. Got error: %v",
-					err,
-				)
-			}
+			var resolutionErr common.InputResolutionError
+			assert.ErrorAs(t, err, &resolutionErr)
 		},
 	)
 }

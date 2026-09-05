@@ -22,6 +22,7 @@ import (
 	"maps"
 	"math/big"
 	"slices"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -901,6 +902,10 @@ type ConwayTransaction struct {
 	auxData    common.AuxiliaryData
 }
 
+// Conway Leios hashes are read concurrently by block-processing consumers.
+// Keep the cache on the transaction while serializing its first population.
+var conwayLeiosHashMu sync.Mutex
+
 func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
 	t.hash = nil
@@ -997,7 +1002,9 @@ func (t ConwayTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t ConwayTransaction) LeiosHash() common.Blake2b256 {
+func (t *ConwayTransaction) LeiosHash() common.Blake2b256 {
+	conwayLeiosHashMu.Lock()
+	defer conwayLeiosHashMu.Unlock()
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash

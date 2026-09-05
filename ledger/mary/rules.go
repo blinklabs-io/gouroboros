@@ -356,10 +356,6 @@ func UtxoValidateValueNotConservedUtxo(
 	// Add minted/burned assets to consumed (positive for mint, negative for burn)
 	if mint := tx.AssetMint(); mint != nil {
 		for _, policy := range mint.Policies() {
-			// Skip ADA (empty policy ID) as it's tracked separately in consumed/produced value
-			if policy == (common.Blake2b224{}) {
-				continue
-			}
 			for _, assetName := range mint.Assets(policy) {
 				amount := mint.Asset(policy, assetName)
 				if amount == nil {

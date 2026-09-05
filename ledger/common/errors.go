@@ -112,6 +112,23 @@ func (InputResolutionError) Is(target error) bool {
 	return target == ErrInputResolution
 }
 
+// ResolveInputUtxo resolves an input and rejects a state entry without an
+// output. Validators use this for inputs whose absence cannot be treated as an
+// empty value, such as collateral inputs.
+func ResolveInputUtxo(state UtxoState, input TransactionInput) (Utxo, error) {
+	utxo, err := state.UtxoById(input)
+	if err != nil {
+		return Utxo{}, InputResolutionError{Input: input, Err: err}
+	}
+	if utxo.Output == nil {
+		return Utxo{}, InputResolutionError{
+			Input: input,
+			Err:   errors.New("resolved UTxO has nil output"),
+		}
+	}
+	return utxo, nil
+}
+
 // ReferenceInputResolutionError indicates a failure to resolve a reference input UTxO
 type ReferenceInputResolutionError struct {
 	Input TransactionInput

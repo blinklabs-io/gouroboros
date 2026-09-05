@@ -912,28 +912,26 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 
 	var datumHash []byte
-	if o.DatumOption == nil {
-		datumHash = make([]byte, 32) // 32 zero bytes for no datum option
-	} else if o.DatumOption.hash != nil {
-		datumHash = o.DatumOption.hash.Bytes()
-	} else if o.DatumOption.data != nil {
-		datumHash = o.DatumHash().Bytes()
-	} else {
-		// DatumOption present but empty
-		datumHash = []byte{}
+	if o.DatumOption != nil {
+		switch {
+		case o.DatumOption.hash != nil:
+			datumHash = o.DatumOption.hash.Bytes()
+		case o.DatumOption.data != nil:
+			datumHash = o.DatumHash().Bytes()
+		}
 	}
 
-	return &utxorpc.TxOutput{
-			Address: address,
-			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
-			Assets:  assets,
-			Datum: &utxorpc.Datum{
-				Hash: datumHash,
-				// OriginalCbor: o.Datum().Cbor(),
-			},
-			// Script:    o.ScriptRef,
+	ret := &utxorpc.TxOutput{
+		Address: address,
+		Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
+		Assets:  assets,
+		Datum: &utxorpc.Datum{
+			Hash: datumHash,
+			// OriginalCbor: o.Datum().Cbor(),
 		},
-		nil
+		// Script:    o.ScriptRef,
+	}
+	return ret, nil
 }
 
 func (o BabbageTransactionOutput) String() string {

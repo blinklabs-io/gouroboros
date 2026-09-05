@@ -474,12 +474,9 @@ func UtxoValidateInsufficientCollateral(
 	}
 	totalCollateral := new(big.Int)
 	for _, collateralInput := range tx.Collateral() {
-		utxo, err := ls.UtxoById(collateralInput)
+		utxo, err := common.ResolveInputUtxo(ls, collateralInput)
 		if err != nil {
 			return err
-		}
-		if utxo.Output == nil {
-			continue
 		}
 		if amount := utxo.Output.Amount(); amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
@@ -529,12 +526,9 @@ func UtxoValidateCollateralContainsNonAda(
 	badOutputs := []common.TransactionOutput{}
 	totalCollateral := new(big.Int)
 	for _, collateralInput := range tx.Collateral() {
-		utxo, err := ls.UtxoById(collateralInput)
+		utxo, err := common.ResolveInputUtxo(ls, collateralInput)
 		if err != nil {
 			return err
-		}
-		if utxo.Output == nil {
-			continue
 		}
 		if amount := utxo.Output.Amount(); amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
