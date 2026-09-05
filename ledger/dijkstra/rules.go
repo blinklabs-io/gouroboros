@@ -1059,7 +1059,7 @@ func UtxoValidateBatchWithdrawals(
 			entry, exists := withdrawals[key]
 			if !exists {
 				entry = batchWithdrawal{
-					address:    address,
+					address:    *address,
 					rawAddress: rawAddress,
 					credential: credential,
 					amount:     new(big.Int),
@@ -1104,7 +1104,7 @@ func UtxoValidateBatchWithdrawals(
 				withdrawal.rawAddress,
 			)
 		}
-		mismatches[cbor.NewByteString(withdrawal.address)] = []uint64{
+		mismatches[cbor.NewByteString(withdrawal.rawAddress)] = []uint64{
 			withdrawal.amount.Uint64(),
 			expected,
 		}
