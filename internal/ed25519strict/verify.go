@@ -16,13 +16,13 @@
 // Cardano node for every signature outside the Byron era.
 //
 // The node reaches libsodium's crypto_sign_ed25519_verify_detached through
-// cardano-crypto-class's Ed25519DSIGN, which rejects non-canonical point and
-// scalar encodings and small-order public and R points. crypto/ed25519.Verify
-// applies none of those checks: it accepts the edwards25519 identity public key
-// with an all-zero signature for any message, because the verification equation
-// [S]B == R + [h]A reduces to identity == identity. Accepting a proof the node
-// rejects is a consensus divergence, so every boundary whose reference is
-// Ed25519DSIGN must verify through Verify below.
+// cardano-crypto-class's Ed25519DSIGN, which rejects small-order public and R
+// points. crypto/ed25519.Verify applies no small-order checks: it accepts the
+// edwards25519 identity public key with an all-zero signature for any message,
+// because the verification equation [S]B == R + [h]A reduces to identity ==
+// identity. Accepting a proof the node rejects is a consensus divergence, so
+// every boundary whose reference is Ed25519DSIGN must verify through Verify
+// below.
 //
 // Byron is deliberately not covered. Byron signatures are verified by
 // cardano-crypto-wallet's bundled ed25519-donna, whose ed25519_sign_open checks
