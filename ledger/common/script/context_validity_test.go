@@ -74,6 +74,7 @@ func expectedValidityRange(
 	end *uint64,
 	upperClosed ...bool,
 ) data.PlutusData {
+	// The optional flag selects the upper-bound encoding for each fixture.
 	startPresent := start != nil
 	endPresent := end != nil
 	var startValue uint64
