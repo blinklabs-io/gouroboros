@@ -436,6 +436,16 @@ func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
 			errString: "invalid blake2b-256 hash",
 		},
 		{
+			name: "legacy metadata URL too long",
+			mutate: func(pool map[string]any) {
+				pool["metadata"] = map[string]any{
+					"url":  strings.Repeat("a", 65),
+					"hash": common.NewBlake2b256([]byte("metadata")),
+				}
+			},
+			errString: "maximum 64 bytes",
+		},
+		{
 			name: "invalid owner hash",
 			mutate: func(pool map[string]any) {
 				pool["owners"] = []string{"01"}

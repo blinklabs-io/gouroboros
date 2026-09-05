@@ -815,6 +815,8 @@ func UtxoValidateWithdrawals(
 //   - WrongNetworkPOOL: a registration's reward account must be on the
 //     ledger's network. Gated on major protocol version > 4
 //     (hardforkAlonzoValidatePoolAccountAddressNetID).
+//   - PoolMetadataURLTooLong: a registration's metadata URL must fit the
+//     era-specific byte bound (64 before protocol version 9, 128 thereafter).
 //   - VRFKeyHashAlreadyRegistered: a registration may not claim a VRF key hash
 //     another pool holds. Gated on major protocol version > 10
 //     (hardforkConwayDisallowDuplicatedVRFKeys).
@@ -893,6 +895,7 @@ func UtxoValidatePoolCertificates(
 				ls,
 				networkId,
 				minPoolCost,
+				protocolMajor,
 				checkNetworkId,
 				checkVrfKeys,
 				inTxVrfKeys,
@@ -937,10 +940,18 @@ func validatePoolRegistration(
 	ls common.LedgerState,
 	networkId uint,
 	minPoolCost uint64,
+	protocolMajor uint,
 	checkNetworkId bool,
 	checkVrfKeys bool,
 	inTxVrfKeys map[common.VrfKeyHash]common.PoolKeyHash,
 ) error {
+	if err := common.ValidatePoolMetadataForProtocolVersion(
+		cert.PoolMetadata,
+		protocolMajor,
+	); err != nil {
+		return err
+	}
+
 	// WrongNetworkPOOL: actualNetID == suppliedNetID.
 	//
 	// The supplied value is the network id in the reward account's address
