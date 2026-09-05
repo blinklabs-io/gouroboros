@@ -148,22 +148,21 @@ func CalculateExecutionUnitsFee(
 	if witnesses == nil || witnesses.Redeemers() == nil {
 		return 0, nil
 	}
-	if witnesses.Redeemers().Len() == 0 {
-		return 0, nil
-	}
-	if prices.MemPrice == nil || prices.MemPrice.Rat == nil {
-		return 0, errors.New("invalid execution memory price")
-	}
-	if prices.StepPrice == nil || prices.StepPrice.Rat == nil {
-		return 0, errors.New("invalid execution step price")
-	}
-	if prices.MemPrice.Sign() < 0 || prices.StepPrice.Sign() < 0 {
-		return 0, errors.New("execution prices must not be negative")
-	}
 	total := new(big.Rat)
-	hasRedeemer := false
+	pricesValidated := false
 	for _, redeemer := range witnesses.Redeemers().Iter() {
-		hasRedeemer = true
+		if !pricesValidated {
+			if prices.MemPrice == nil || prices.MemPrice.Rat == nil {
+				return 0, errors.New("invalid execution memory price")
+			}
+			if prices.StepPrice == nil || prices.StepPrice.Rat == nil {
+				return 0, errors.New("invalid execution step price")
+			}
+			if prices.MemPrice.Sign() < 0 || prices.StepPrice.Sign() < 0 {
+				return 0, errors.New("execution prices must not be negative")
+			}
+			pricesValidated = true
+		}
 		if redeemer.ExUnits.Memory < 0 || redeemer.ExUnits.Steps < 0 {
 			return 0, errors.New("execution units must not be negative")
 		}
@@ -177,13 +176,6 @@ func CalculateExecutionUnitsFee(
 		)
 		total.Add(total, memoryFee)
 		total.Add(total, stepsFee)
-	}
-	if !hasRedeemer {
-		return 0, nil
-	}
-
-	if total.Sign() < 0 {
-		return 0, errors.New("execution fee must not be negative")
 	}
 	fee := new(big.Int).Quo(total.Num(), total.Denom())
 	if new(big.Int).Mod(total.Num(), total.Denom()).Sign() != 0 {
