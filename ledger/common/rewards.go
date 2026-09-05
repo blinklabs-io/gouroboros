@@ -224,13 +224,14 @@ func calculateEta(totalBlocksInEpoch uint32, params RewardParameters) (*big.Rat,
 	return eta, nil
 }
 
-// poolSaturationThreshold (z0) is the relative stake at which a pool counts as
-// fully saturated. Held as an exact rational so the reward split does not
-// depend on the binary representation of 0.05. Read-only: never pass it as a
-// big.Rat receiver.
 // TODO(enhancement): Extract to a parameter for consistency with
 // CalculatePoolSaturation
-var poolSaturationThreshold = big.NewRat(1, 20)
+// poolSaturationThreshold returns (z0), the relative stake at which a pool
+// counts as fully saturated. Constructing a fresh value avoids sharing a
+// mutable big.Rat between concurrent reward calculations.
+func poolSaturationThreshold() *big.Rat {
+	return big.NewRat(1, 20)
+}
 
 // ratFromUint64 converts a lovelace amount to an exact rational
 func ratFromUint64(value uint64) *big.Rat {
@@ -431,6 +432,7 @@ func apportionRewardPot(
 	remainders := make(map[PoolKeyHash]*big.Rat, len(poolIDs))
 
 	potRat := ratFromUint64(pot)
+	potInt := new(big.Int).SetUint64(pot)
 	assigned := new(big.Int)
 	for _, poolID := range poolIDs {
 		// exact = pot * share / totalShare
@@ -440,8 +442,11 @@ func apportionRewardPot(
 			exact = new(big.Rat)
 		}
 		floor := new(big.Int).Quo(exact.Num(), exact.Denom())
-		if !floor.IsUint64() {
-			floor = new(big.Int).SetUint64(pot)
+		remaining := new(big.Int).Sub(potInt, assigned)
+		if remaining.Sign() <= 0 {
+			floor.SetInt64(0)
+		} else if floor.Cmp(remaining) > 0 {
+			floor.Set(remaining)
 		}
 		amounts[poolID] = floor.Uint64()
 		assigned.Add(assigned, floor)
@@ -491,7 +496,7 @@ func calculatePoolShare(
 
 	// Calculate saturation (capped at 1)
 	one := big.NewRat(1, 1)
-	saturation := new(big.Rat).Quo(stakeRatio, poolSaturationThreshold)
+	saturation := new(big.Rat).Quo(stakeRatio, poolSaturationThreshold())
 	if saturation.Cmp(one) > 0 {
 		saturation.Set(one)
 	}
