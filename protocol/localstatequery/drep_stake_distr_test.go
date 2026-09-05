@@ -318,7 +318,10 @@ func TestDRepStakeDistrResultMarshalsIndefiniteAboveThreshold(t *testing.T) {
 }
 
 // TestDRepStakeDistrResultRejectsUnterminatedIndefiniteMap covers an
-// indefinite map whose break byte never arrives.
+// indefinite map whose break byte never arrives. The wrapper decode is what
+// rejects it, for the same reason it rejects an over-declared header: the
+// result array's element is read as a cbor.RawMessage, which requires a
+// complete item.
 func TestDRepStakeDistrResultRejectsUnterminatedIndefiniteMap(t *testing.T) {
 	var result DRepStakeDistrResult
 	_, err := cbor.Decode(

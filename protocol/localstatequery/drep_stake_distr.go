@@ -114,6 +114,9 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 	seen := make(map[string]struct{}, entryCount)
 	for i := 0; indefinite || i < entryCount; i++ {
 		if indefinite {
+			// A bounds guard before the index below, not a validation
+			// path: distr is one complete well-formed CBOR item, so an
+			// indefinite map inside it always carries its break byte.
 			if dec.EOF() {
 				return errors.New(
 					"DRep stake distribution: unterminated indefinite-length map",
