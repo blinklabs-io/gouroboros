@@ -390,8 +390,13 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		treasuryValue != nil && treasuryValue.Sign() == 0
 	networkIdValue, networkIdPresent := body.(interface {
 		NetworkIdPresent() bool
+		TransactionNetworkId() *uint8
 	})
-	preserveNetworkIdZero := networkIdPresent && networkIdValue.NetworkIdPresent()
+	preserveNetworkIdZero := false
+	if networkIdPresent && networkIdValue.NetworkIdPresent() {
+		value := networkIdValue.TransactionNetworkId()
+		preserveNetworkIdZero = value != nil && *value == 0
+	}
 	if !preserveUpperBoundZero && !preserveTreasuryZero && !preserveNetworkIdZero {
 		return cborData, nil
 	}
@@ -414,15 +419,11 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		bodyFields[21] = encodedTreasuryValue
 	}
 	if preserveNetworkIdZero {
-		if networkId, ok := body.(interface{ TransactionNetworkId() *uint8 }); ok {
-			if value := networkId.TransactionNetworkId(); value != nil && *value == 0 {
-				encodedNetworkId, err := cbor.Encode(uint8(0))
-				if err != nil {
-					return nil, err
-				}
-				bodyFields[15] = encodedNetworkId
-			}
+		encodedNetworkId, err := cbor.Encode(uint8(0))
+		if err != nil {
+			return nil, err
 		}
+		bodyFields[15] = encodedNetworkId
 	}
 	return cbor.Encode(bodyFields)
 }

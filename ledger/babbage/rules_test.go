@@ -190,6 +190,14 @@ func TestTransactionNetworkIdPresencePreservesEncodingAndHash(t *testing.T) {
 	assert.True(t, present)
 
 	body.SetNetworkIdPresence(false)
+	encoded, err = body.MarshalCBOR()
+	require.NoError(t, err)
+	fields = make(map[uint]cbor.RawMessage)
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	_, present = fields[15]
+	assert.False(t, present)
+	body.SetCbor(encoded)
 	assert.NotEqual(t, firstHash, body.Id())
 }
 
