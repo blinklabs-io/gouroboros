@@ -15,7 +15,9 @@
 package ledger
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -37,27 +39,38 @@ func NewBlockFromCbor(
 	}
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
+	var block Block
+	var err error
 	switch blockType {
 	case BlockTypeByronEbb:
-		return NewByronEpochBoundaryBlockFromCbor(data, cfg)
+		block, err = NewByronEpochBoundaryBlockFromCbor(data, cfg)
 	case BlockTypeByronMain:
-		return NewByronMainBlockFromCbor(data, cfg)
+		block, err = NewByronMainBlockFromCbor(data, cfg)
 	case BlockTypeShelley:
-		return NewShelleyBlockFromCbor(data, cfg)
+		block, err = NewShelleyBlockFromCbor(data, cfg)
 	case BlockTypeAllegra:
-		return NewAllegraBlockFromCbor(data, cfg)
+		block, err = NewAllegraBlockFromCbor(data, cfg)
 	case BlockTypeMary:
-		return NewMaryBlockFromCbor(data, cfg)
+		block, err = NewMaryBlockFromCbor(data, cfg)
 	case BlockTypeAlonzo:
-		return NewAlonzoBlockFromCbor(data, cfg)
+		block, err = NewAlonzoBlockFromCbor(data, cfg)
 	case BlockTypeBabbage:
-		return NewBabbageBlockFromCbor(data, cfg)
+		block, err = NewBabbageBlockFromCbor(data, cfg)
 	case BlockTypeConway:
-		return NewConwayBlockFromCbor(data, cfg)
+		block, err = NewConwayBlockFromCbor(data, cfg)
 	case BlockTypeDijkstra:
-		return NewDijkstraBlockFromCbor(data, cfg)
+		block, err = NewDijkstraBlockFromCbor(data, cfg)
+	default:
+		return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
 	}
-	return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
+	if err != nil {
+		return nil, err
+	}
+	header := block.Header()
+	if header == nil || reflect.ValueOf(header).IsNil() {
+		return nil, errors.New("block header is nil")
+	}
+	return block, nil
 }
 
 func NewBlockHeaderFromCbor(blockType uint, data []byte) (BlockHeader, error) {

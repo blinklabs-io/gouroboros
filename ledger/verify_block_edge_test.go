@@ -366,3 +366,37 @@ func TestVerifyBlock_BlockTypeEdgeCases(t *testing.T) {
 		)
 	})
 }
+
+// TestNewBlockFromCbor_RejectsNullHeaders verifies that the public block
+// decoder rejects a null header even when body-hash validation is disabled.
+// A null header otherwise leaves a decoded block that panics when callers use
+// its header accessors.
+func TestNewBlockFromCbor_RejectsNullHeaders(t *testing.T) {
+	tests := []struct {
+		name      string
+		blockType uint
+		data      []byte
+	}{
+		{"byron ebb", ledger.BlockTypeByronEbb, []byte{0x83, 0xf6, 0x80, 0x80}},
+		{
+			"byron main",
+			ledger.BlockTypeByronMain,
+			[]byte{0x83, 0xf6, 0x84, 0x80, 0xf6, 0x80, 0x82, 0x80, 0x80, 0x80},
+		},
+		{"shelley", ledger.BlockTypeShelley, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}},
+		{"allegra", ledger.BlockTypeAllegra, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}},
+		{"mary", ledger.BlockTypeMary, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}},
+		{"alonzo", ledger.BlockTypeAlonzo, []byte{0x85, 0xf6, 0x80, 0x80, 0xa0, 0x80}},
+		{"babbage", ledger.BlockTypeBabbage, []byte{0x85, 0xf6, 0x80, 0x80, 0xa0, 0x80}},
+		{"conway", ledger.BlockTypeConway, []byte{0x85, 0xf6, 0x80, 0x80, 0xa0, 0x80}},
+		{"dijkstra", ledger.BlockTypeDijkstra, []byte{0x82, 0xf6, 0x84, 0xf6, 0x80, 0xf6, 0xf6}},
+	}
+	config := skipAllValidationConfig()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ledger.NewBlockFromCbor(tt.blockType, tt.data, config)
+			require.Error(t, err)
+			assert.Contains(t, strings.ToLower(err.Error()), "header")
+		})
+	}
+}

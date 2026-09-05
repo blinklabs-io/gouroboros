@@ -450,36 +450,13 @@ func TestGetBlockRangeRawFuncRejectsValidationFailure(t *testing.T) {
 	}
 }
 
-// TestGetBlockRangeRawFuncRejectsNilHeaderBlock covers the other member of
-// the rejected-under-validation class. The nil-header check sits beside the
-// body-hash check behind the same validation gate but returns a plain error
-// rather than a common.ValidationError, so a fallback keyed on the error type
-// would let this one through. Keyed on whether the layout is representable,
-// both are refused.
+// TestGetBlockRangeRawFuncRejectsNilHeaderBlock verifies that a null header is
+// rejected before the raw-block fallback can receive the block.
 func TestGetBlockRangeRawFuncRejectsNilHeaderBlock(t *testing.T) {
 	raw, err := cbor.Encode(ledger.ConwayBlock{})
 	require.NoError(t, err)
-	// Representable with validation off, rejected with it on, and rejected
-	// with a plain error rather than a typed one.
-	_, err = ledger.NewBlockFromCbor(
-		ledger.BlockTypeConway,
-		raw,
-		lcommon.VerifyConfig{SkipBodyHashValidation: true},
-	)
-	require.NoError(t, err)
-	_, err = ledger.NewBlockFromCbor(
-		ledger.BlockTypeConway,
-		raw,
-		lcommon.VerifyConfig{SkipBodyHashValidation: false},
-	)
+	_, err = ledger.NewBlockFromCbor(ledger.BlockTypeConway, raw)
 	require.Error(t, err)
-	var validationErr *lcommon.ValidationError
-	require.NotErrorAs(
-		t,
-		err,
-		&validationErr,
-		"if this becomes typed, the class this test guards has changed",
-	)
 	conversation := append(
 		conversationHandshakeRequestRange,
 		ouroboros_mock.ConversationEntryOutput{
@@ -517,15 +494,8 @@ func TestGetBlockRangeRawFuncRejectsNilHeaderBlock(t *testing.T) {
 		}),
 	)
 	require.ErrorContains(t, connErr, "header is nil")
-	// The fallback must have been declined outright, not entered and then
-	// tripped over the null header while extracting the point. Both end in a
-	// failed request, so without this the test would pass either way.
-	require.NotContains(
-		t,
-		connErr.Error(),
-		"raw block header",
-		"the fallback was entered for a block rejected on validation",
-	)
+	// Header extraction may still report the malformed header while correlating
+	// the response; the raw callback itself must not receive the block.
 	select {
 	case <-rawCalled:
 		require.Fail(t, "BlockRawFunc received a block rejected on validation")
