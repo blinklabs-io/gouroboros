@@ -4017,6 +4017,7 @@ func TestUtxoValidateDelegation_RejectsDuplicateStakeRegistrations(
 			Body: conway.ConwayTransactionBody{
 				TxCertificates: wrappers,
 			},
+			TxIsValid: true,
 		}
 	}
 
@@ -4266,6 +4267,7 @@ func TestUtxoValidateDelegation_DeregistrationBlocksLaterDelegation(
 			Body: conway.ConwayTransactionBody{
 				TxCertificates: wrappers,
 			},
+			TxIsValid: true,
 		}
 	}
 
@@ -4346,7 +4348,8 @@ func TestUtxoValidateDelegation_PoolRetirementKeepsPoolRegistered(
 			wrappers[i] = common.CertificateWrapper{Certificate: cert}
 		}
 		return &conway.ConwayTransaction{
-			Body: conway.ConwayTransactionBody{TxCertificates: wrappers},
+			Body:      conway.ConwayTransactionBody{TxCertificates: wrappers},
+			TxIsValid: true,
 		}
 	}
 	delegation := &common.StakeDelegationCertificate{
@@ -4401,6 +4404,7 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 
 		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
@@ -4433,6 +4437,7 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 
 		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
@@ -4460,6 +4465,7 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 
 		// PV10 doesn't enforce VRF key uniqueness
@@ -4490,6 +4496,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 	}
 
@@ -4541,6 +4548,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 							}},
 						},
 					},
+					TxIsValid: true,
 				}
 			},
 		},
@@ -4559,6 +4567,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 							}},
 						},
 					},
+					TxIsValid: true,
 				}
 			},
 		},
@@ -4582,6 +4591,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 							}},
 						},
 					},
+					TxIsValid: true,
 				}
 			},
 		},
