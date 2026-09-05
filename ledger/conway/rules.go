@@ -3931,6 +3931,9 @@ func validateCommitteeTerms(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if len(a.CredEpochs) == 0 {
+		return nil
+	}
 	termParams, ok := pp.(common.CommitteeMaxTermLengthProvider)
 	if !ok {
 		return CommitteeTermLimitUnavailableError{}
@@ -3944,13 +3947,34 @@ func validateCommitteeTerms(
 		return CurrentEpochStateUnavailableError{}
 	}
 	currentEpoch := epochState.CurrentEpoch()
+	type committeeTerm struct {
+		credential *common.Credential
+		expiry     uint64
+	}
+	terms := make([]committeeTerm, 0, len(a.CredEpochs))
 	for credential, expiryEpoch := range a.CredEpochs {
 		if credential == nil {
 			continue
 		}
+		terms = append(terms, committeeTerm{
+			credential: credential,
+			expiry:     uint64(expiryEpoch),
+		})
+	}
+	slices.SortFunc(terms, func(a, b committeeTerm) int {
+		if a.credential.CredType != b.credential.CredType {
+			return int(a.credential.CredType) - int(b.credential.CredType)
+		}
+		return bytes.Compare(
+			a.credential.Credential.Bytes(),
+			b.credential.Credential.Bytes(),
+		)
+	})
+	for _, term := range terms {
+		credential := term.credential
 		// This is equivalent to expiryEpoch > currentEpoch+maxTermLength,
 		// without overflowing when the sum exceeds uint64.
-		expiry := uint64(expiryEpoch)
+		expiry := term.expiry
 		if expiry > currentEpoch && expiry-currentEpoch > maxTermLength {
 			return CommitteeTermTooLongError{
 				Credential:    credential.Credential,

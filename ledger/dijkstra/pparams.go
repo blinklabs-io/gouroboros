@@ -36,6 +36,14 @@ type DijkstraProtocolParameters struct {
 
 var _ common.CommitteeMaxTermLengthProvider = (*DijkstraProtocolParameters)(nil)
 
+// CommitteeMaxTermLength returns the configured committee term limit.
+func (p *DijkstraProtocolParameters) CommitteeMaxTermLength() (uint64, bool) {
+	if p == nil {
+		return 0, false
+	}
+	return p.ConwayProtocolParameters.CommitteeMaxTermLength()
+}
+
 type dijkstraProtocolParametersCbor struct {
 	cbor.StructAsArray
 	MinFeeA                    uint
