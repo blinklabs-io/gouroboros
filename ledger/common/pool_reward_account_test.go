@@ -114,11 +114,12 @@ func TestPoolRegistrationRewardAccountNetworkId(t *testing.T) {
 	})
 }
 
-// TestPoolMetadataHashLengthIsFixed proves a pool registration whose metadata
-// hash is not exactly 32 bytes fails to decode. The Shelley POOL rule's
-// PoolMedataHashTooBig predicate is unreachable for that reason, so
-// shelley.UtxoValidatePoolCertificates does not reimplement it.
-func TestPoolMetadataHashLengthIsFixed(t *testing.T) {
+// TestPoolMetadataHashDecodesAnyLength proves a pool registration decodes a
+// metadata hash of any byte-string length and re-encodes it unchanged. pmHash
+// in libs/cardano-ledger-core/src/Cardano/Ledger/State/StakePool.hs is an
+// unbounded ByteArray, so the 32-byte bound is a POOL rule predicate
+// (PoolMedataHashTooBig) rather than a decode constraint.
+func TestPoolMetadataHashDecodesAnyLength(t *testing.T) {
 	encode := func(t *testing.T, metadata any) []byte {
 		t.Helper()
 		wire, err := cbor.Encode([]any{
@@ -140,39 +141,48 @@ func TestPoolMetadataHashLengthIsFixed(t *testing.T) {
 		return wire
 	}
 
-	t.Run("32-byte metadata hash decodes", func(t *testing.T) {
-		wire := encode(t, []any{
-			"https://example.com/pool.json",
-			bytes.Repeat([]byte{0x05}, Blake2b256Size),
-		})
-		cert := &PoolRegistrationCertificate{}
-		require.NoError(t, cert.UnmarshalCBOR(wire))
-		require.NotNil(t, cert.PoolMetadata)
-		assert.Equal(
-			t,
-			PoolMetadataHash(
-				NewBlake2b256(bytes.Repeat([]byte{0x05}, Blake2b256Size)),
-			),
-			cert.PoolMetadata.Hash,
-		)
-	})
-
-	wrongSizes := map[string]int{
-		"one byte short": Blake2b256Size - 1,
-		"one byte long":  Blake2b256Size + 1,
+	sizes := map[string]int{
+		"two byte placeholder": 2,
+		"one byte short":       Blake2b256Size - 1,
+		"32 bytes":             Blake2b256Size,
+		"one byte long":        Blake2b256Size + 1,
 	}
-	for name, size := range wrongSizes {
-		t.Run(name+" fails to decode", func(t *testing.T) {
+	for name, size := range sizes {
+		t.Run(name, func(t *testing.T) {
+			hash := bytes.Repeat([]byte{0x05}, size)
 			wire := encode(t, []any{
 				"https://example.com/pool.json",
-				bytes.Repeat([]byte{0x05}, size),
+				hash,
 			})
 			cert := &PoolRegistrationCertificate{}
-			err := cert.UnmarshalCBOR(wire)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "blake2b-256 hash")
+			require.NoError(t, cert.UnmarshalCBOR(wire))
+			require.NotNil(t, cert.PoolMetadata)
+			assert.Equal(
+				t,
+				PoolMetadataHash(hash),
+				cert.PoolMetadata.Hash,
+			)
+			remarshaled, err := cbor.Encode(cert.PoolMetadata)
+			require.NoError(t, err)
+			expected, err := cbor.Encode([]any{
+				"https://example.com/pool.json",
+				hash,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, expected, remarshaled)
 		})
 	}
+
+	t.Run("non byte string is rejected", func(t *testing.T) {
+		wire := encode(t, []any{
+			"https://example.com/pool.json",
+			"0505050505050505050505050505050505050505050505050505050505050505",
+		})
+		cert := &PoolRegistrationCertificate{}
+		err := cert.UnmarshalCBOR(wire)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pool metadata hash")
+	})
 }
 
 // TestPoolRegistrationSetCborInvalidatesNetworkId pins the cache invalidation

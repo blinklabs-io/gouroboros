@@ -11,7 +11,8 @@ This package contains conformance tests for Gouroboros, validating our implement
 | KES Cryptography | 14 | input-output-hk/kes vectors |
 | Consensus | 22 | Real blocks + threshold calculation |
 | Byron Blocks | 6 | Real mainnet/testnet blocks |
-| **Total** | **415** | |
+| GenTx Goldens | 7 | ouroboros-consensus CardanoNodeToNodeVersion2 goldens |
+| **Total** | **421** | |
 
 All tests passing (100%).
 
@@ -459,6 +460,33 @@ Tests Byron-era block parsing and validation using real mainnet and testnet bloc
 
 ---
 
+## GenTx Conformance Tests
+
+**File**: `gentx_conformance_test.go`
+
+Decodes the `ouroboros-consensus` `CardanoNodeToNodeVersion2` GenTx and GenTxId
+goldens, read from the `ouroboros-mock` module's embedded upstream fixtures.
+
+A GenTx is `[era_id, #6.24(bytes .cbor transaction)]`; the matching GenTxId is
+`[era_id, bytes .size 32]`, where the identifier is the Blake2b-256 hash of the
+transaction body's own CBOR. The era identifier is the ledger transaction type.
+
+| Era | Era id | Transaction array |
+|-----|--------|-------------------|
+| Shelley | 1 | `[body, witness_set, auxiliary_data]` |
+| Allegra | 2 | `[body, witness_set, auxiliary_data]` |
+| Mary | 3 | `[body, witness_set, auxiliary_data]` |
+| Alonzo | 4 | `[body, witness_set, is_valid, auxiliary_data]` |
+| Babbage | 5 | `[body, witness_set, is_valid, auxiliary_data]` |
+| Conway | 6 | `[body, witness_set, is_valid, auxiliary_data]` |
+| Dijkstra | 7 | `[body, witness_set, auxiliary_data]` |
+
+| Test | Purpose |
+|------|---------|
+| `TestConsensusGenTxFixtures` | Decodes each era's GenTx golden, checks the transaction type, that the transaction CBOR is preserved and re-encodes unchanged, and that the transaction id matches the paired GenTxId golden |
+
+---
+
 ## Running All Conformance Tests
 
 ```bash
@@ -471,4 +499,5 @@ go test -v ./internal/test/conformance/... -run "VRF"                   # VRF te
 go test -v ./internal/test/conformance/... -run "KES"                   # KES tests
 go test -v ./internal/test/conformance/... -run "Byron"                 # Byron tests
 go test -v ./internal/test/conformance/... -run "Consensus"             # Consensus tests
+go test -v ./internal/test/conformance/... -run "GenTx"                  # GenTx goldens
 ```

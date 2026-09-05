@@ -291,8 +291,8 @@ func TestGenesisExtraConfigPoolFields(t *testing.T) {
 	)
 	publicKey := strings.Repeat("A", common.LeiosBlsPublicKeySize)
 	proof := strings.Repeat("B", common.LeiosBlsPossessionProofSize)
-	metadataHash := common.NewBlake2b256(
-		[]byte(strings.Repeat("M", common.Blake2b256Size)),
+	metadataHash := common.PoolMetadataHash(
+		strings.Repeat("M", common.Blake2b256Size),
 	)
 	poolJSON := map[string]any{
 		"vrf":    vrf,
@@ -426,14 +426,16 @@ func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
 			errString: "invalid Leios BLS public key length",
 		},
 		{
+			// pool_metadata_hash is an unbounded byte string, so only a
+			// value that is not hex at all is rejected here.
 			name: "invalid metadata hash",
 			mutate: func(pool map[string]any) {
 				pool["metadata"] = map[string]any{
 					"url":  "https://example.com",
-					"hash": "01",
+					"hash": "zz",
 				}
 			},
-			errString: "invalid blake2b-256 hash",
+			errString: "invalid byte",
 		},
 		{
 			name: "invalid owner hash",

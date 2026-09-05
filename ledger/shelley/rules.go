@@ -823,6 +823,11 @@ func UtxoValidateWithdrawals(
 //   - WrongNetworkPOOL: a registration's reward account must be on the
 //     ledger's network. Gated on major protocol version > 4
 //     (hardforkAlonzoValidatePoolAccountAddressNetID).
+//   - PoolMedataHashTooBig: a registration's metadata hash may be at most 32
+//     bytes. Gated on major protocol version > 4
+//     (SoftForks.restrictPoolMetadataHash). The hash is an unbounded byte
+//     string on the wire, so this is a rule predicate rather than a decode
+//     constraint.
 //   - VRFKeyHashAlreadyRegistered: a registration may not claim a VRF key hash
 //     another pool holds. Gated on major protocol version > 10
 //     (hardforkConwayDisallowDuplicatedVRFKeys).
@@ -830,15 +835,6 @@ func UtxoValidateWithdrawals(
 //     pool.
 //   - StakePoolRetirementWrongEpochPOOL: a retirement epoch e must satisfy
 //     cEpoch < e <= cEpoch + eMax.
-//
-// The reference rule's remaining predicate, PoolMedataHashTooBig (a metadata
-// hash longer than 32 bytes, gated on SoftForks.restrictPoolMetadataHash), is
-// not reimplemented because it cannot be reached: PoolMetadata.Hash is a fixed
-// 32-byte PoolMetadataHash whose UnmarshalCBOR rejects any other length, so a
-// certificate carrying an oversized hash never decodes. See
-// TestPoolMetadataHashLengthIsFixed in ledger/common. That makes this package
-// stricter than the reference for protocol versions at or below 4.0, which
-// accepted oversized hashes.
 //
 // The registration and re-registration state updates poolTransition performs
 // (psStakePools, psFutureStakePoolParams, psRetiring, psVRFKeyHashes) are
@@ -880,6 +876,7 @@ func UtxoValidatePoolCertificates(
 	protocolMajor := poolPparams.ProtocolMajorVersion()
 	checkNetworkId := common.PoolAccountNetworkIdValidated(protocolMajor)
 	checkVrfKeys := common.DuplicateVrfKeysDisallowed(protocolMajor)
+	checkMetadataHash := common.PoolMetadataHashRestricted(protocolMajor)
 	minPoolCost := poolPparams.MinPoolCostValue()
 	networkId := ls.NetworkId()
 
@@ -902,6 +899,7 @@ func UtxoValidatePoolCertificates(
 				networkId,
 				minPoolCost,
 				checkNetworkId,
+				checkMetadataHash,
 				checkVrfKeys,
 				inTxVrfKeys,
 			); err != nil {
@@ -946,6 +944,7 @@ func validatePoolRegistration(
 	networkId uint,
 	minPoolCost uint64,
 	checkNetworkId bool,
+	checkMetadataHash bool,
 	checkVrfKeys bool,
 	inTxVrfKeys map[common.VrfKeyHash]common.PoolKeyHash,
 ) error {
@@ -963,6 +962,19 @@ func validatePoolRegistration(
 				Supplied:    suppliedNetworkId,
 				Expected:    networkId,
 			}
+		}
+	}
+
+	// PoolMedataHashTooBig: sizeofByteArray (pmHash pmd) <= hashSize HASH.
+	//
+	// pool_metadata_hash is an unbounded byte string on the wire, so an
+	// oversized hash reaches the rule instead of failing to decode.
+	if checkMetadataHash && cert.PoolMetadata != nil &&
+		len(cert.PoolMetadata.Hash) > common.Blake2b256Size {
+		return PoolMetadataHashTooBigError{
+			PoolKeyHash: cert.Operator,
+			Supplied:    len(cert.PoolMetadata.Hash),
+			Max:         common.Blake2b256Size,
 		}
 	}
 

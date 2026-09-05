@@ -26,7 +26,7 @@ import (
 
 // Tests for stake pool metadata (CIP-0006)
 func TestPoolMetadataUtxorpc(t *testing.T) {
-	hash := common.NewBlake2b256([]byte{1, 2, 3, 4})
+	hash := common.PoolMetadataHash([]byte{1, 2, 3, 4})
 	pm := &common.PoolMetadata{
 		Url:  "https://example.com/poolmeta.json",
 		Hash: hash,
@@ -42,7 +42,7 @@ func TestPoolMetadataUtxorpc(t *testing.T) {
 }
 
 func TestPoolRegistrationCertificateUtxorpcIncludesMetadata(t *testing.T) {
-	hash := common.NewBlake2b256([]byte{9, 8, 7, 6})
+	hash := common.PoolMetadataHash([]byte{9, 8, 7, 6})
 	pm := &common.PoolMetadata{
 		Url:  "https://example.org/pm.json",
 		Hash: hash,
@@ -81,7 +81,7 @@ func TestPoolRegistrationCertificateUtxorpcIncludesMetadata(t *testing.T) {
 
 func TestPoolMetadataCbor(t *testing.T) {
 	// Test CBOR encoding/decoding for CIP-0006 compliance
-	hash := common.NewBlake2b256([]byte{1, 2, 3, 4, 5})
+	hash := common.PoolMetadataHash([]byte{1, 2, 3, 4, 5})
 	pm := &common.PoolMetadata{
 		Url:  "https://pool.example.com/metadata.json",
 		Hash: hash,
