@@ -1034,8 +1034,13 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
+	// Iterate the collapsed view rather than the raw list: the wire format is a
+	// list but the ledger holds a map, so a key appearing more than once
+	// contributes its budget once. See the Alonzo rule of the same name; this
+	// is where it bites in practice, since Preview transaction 3ace3bc7f4c5 at
+	// slot 12925989 is a Babbage-era block (blinklabs-io/dingo#3875).
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Iter() {
 		newSteps, ok := common.AddInt64Checked(
 			totalSteps,
 			redeemer.ExUnits.Steps,
