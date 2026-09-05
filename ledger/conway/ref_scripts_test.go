@@ -348,6 +348,12 @@ func TestMinFeeTxIncludesExecutionAndReferenceScriptCosts(t *testing.T) {
 					}: {
 						ExUnits: common.ExUnits{Memory: 3, Steps: 4},
 					},
+					{
+						Tag:   common.RedeemerTagSpend,
+						Index: 1,
+					}: {
+						ExUnits: common.ExUnits{Memory: 1, Steps: 1},
+					},
 				},
 			},
 		},
@@ -367,7 +373,7 @@ func TestMinFeeTxIncludesExecutionAndReferenceScriptCosts(t *testing.T) {
 	require.NoError(t, err)
 	executionFee, err := conway.CalculateExecutionUnitsFee(tx, pp.ExecutionCosts)
 	require.NoError(t, err)
-	require.Equal(t, uint64(5), executionFee)
+	require.Equal(t, uint64(6), executionFee)
 	minFee, err := conway.MinFeeTx(tx, pp)
 	require.NoError(t, err)
 	require.Equal(t, byteFee+executionFee, minFee)
