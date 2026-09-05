@@ -128,6 +128,7 @@ type protocolStateTransition struct {
 
 type outboundMessage struct {
 	message      Message
+	data         []byte
 	deliveryChan chan error
 }
 
@@ -442,7 +443,9 @@ func (p *Protocol) enqueueMessage(
 	default:
 	}
 
-	// Calculate message size and cache encoded data if necessary
+	// Encode once while queueing and keep the bytes in the queue entry. Do not
+	// populate the message's DecodeStoreCbor cache: callers may reuse a message
+	// instance, and that cache belongs to the caller's message lifecycle.
 	var data []byte
 	if msg.Cbor() != nil {
 		data = msg.Cbor()
@@ -452,8 +455,6 @@ func (p *Protocol) enqueueMessage(
 		if err != nil {
 			return err
 		}
-		// Cache the encoded CBOR data to avoid re-encoding in sendLoop
-		msg.SetCbor(data)
 	}
 	msgLen := len(data)
 	// Check pending send bytes limit for current state
@@ -472,6 +473,7 @@ func (p *Protocol) enqueueMessage(
 	p.pendingBytesMu.Unlock()
 	outbound := outboundMessage{
 		message:      msg,
+		data:         data,
 		deliveryChan: deliveryChan,
 	}
 	var enqueueErr error
@@ -642,17 +644,7 @@ waitSendReadyChan:
 			msg := outbound.message
 			msgCount = msgCount + 1
 
-			// Get raw CBOR from message
-			data := msg.Cbor()
-			// If message has no raw CBOR, encode the message
-			if data == nil {
-				var err error
-				data, err = cbor.Encode(msg)
-				if err != nil {
-					p.SendError(err)
-					return
-				}
-			}
+			data := outbound.data
 			payloadBuf.Write(data)
 			// After sending, decrement pendingSendBytes
 			p.pendingBytesMu.Lock()
