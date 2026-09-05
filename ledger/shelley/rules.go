@@ -1038,7 +1038,7 @@ func validatePoolRetirement(
 	// StakePoolRetirementWrongEpochPOOL: cEpoch < e && e <= cEpoch + eMax.
 	//
 	// The current epoch is required to evaluate the retirement bound.
-	epochState, ok := ls.(common.EpochState)
+	epochState, ok := common.UnwrapLedgerState(ls).(common.EpochState)
 	if !ok {
 		// Epoch zero is invalid for every possible current epoch. For any
 		// other epoch, the optional capability's degrading contract requires
