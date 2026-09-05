@@ -1400,6 +1400,9 @@ func UtxoValidateProposalReturnAccounts(
 
 // validateProtocolParameterUpdate validates that a PPU is well-formed
 func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
+	if err := validateConwayProtocolParameterUpdate(ppu); err != nil {
+		return err
+	}
 	// Check if PPU is empty (no fields set)
 	if ppu.MinFeeA == nil &&
 		ppu.MinFeeB == nil &&
@@ -1464,6 +1467,121 @@ func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
 		}
 	}
 
+	return nil
+}
+
+// validateConwayProtocolParameterUpdate enforces the domains from the
+// Conway protocol-parameter CDDL. It is shared by CBOR decoding and the
+// proposal rule so programmatically constructed updates cannot bypass the
+// wire checks.
+func validateConwayProtocolParameterUpdate(
+	ppu *ConwayProtocolParameterUpdate,
+) error {
+	if ppu == nil {
+		return ConwayProtocolParameterUpdateError{
+			FieldName: "update",
+			Reason:    "cannot be nil",
+		}
+	}
+	if ppu.A0 != nil && !validNonNegativeRat(ppu.A0) {
+		return invalidConwayParameterField("a0", "must be nonnegative")
+	}
+	if ppu.Rho != nil && !validUnitRat(ppu.Rho) {
+		return invalidConwayParameterField("rho", "must be in [0,1]")
+	}
+	if ppu.Tau != nil && !validUnitRat(ppu.Tau) {
+		return invalidConwayParameterField("tau", "must be in [0,1]")
+	}
+	if ppu.ExecutionCosts != nil {
+		if !validNonNegativeRat(ppu.ExecutionCosts.MemPrice) {
+			return invalidConwayParameterField(
+				"executionCosts.memory", "must be nonnegative",
+			)
+		}
+		if !validNonNegativeRat(ppu.ExecutionCosts.StepPrice) {
+			return invalidConwayParameterField(
+				"executionCosts.steps", "must be nonnegative",
+			)
+		}
+	}
+	if err := validateConwayExUnits(ppu.MaxTxExUnits, "maxTxExUnits"); err != nil {
+		return err
+	}
+	if err := validateConwayExUnits(ppu.MaxBlockExUnits, "maxBlockExUnits"); err != nil {
+		return err
+	}
+	if ppu.MinFeeRefScriptCostPerByte != nil &&
+		!validNonNegativeRat(ppu.MinFeeRefScriptCostPerByte) {
+		return invalidConwayParameterField(
+			"minFeeRefScriptCostPerByte", "must be nonnegative",
+		)
+	}
+	if ppu.PoolVotingThresholds != nil {
+		for _, item := range []struct {
+			name string
+			rat  cbor.Rat
+		}{
+			{"motionNoConfidence", ppu.PoolVotingThresholds.MotionNoConfidence},
+			{"committeeNormal", ppu.PoolVotingThresholds.CommitteeNormal},
+			{"committeeNoConfidence", ppu.PoolVotingThresholds.CommitteeNoConfidence},
+			{"hardForkInitiation", ppu.PoolVotingThresholds.HardForkInitiation},
+			{"ppSecurityGroup", ppu.PoolVotingThresholds.PpSecurityGroup},
+		} {
+			name, rat := item.name, item.rat
+			if !validUnitRat(&rat) {
+				return invalidConwayParameterField(
+					"poolVotingThresholds."+name, "must be in [0,1]",
+				)
+			}
+		}
+	}
+	if ppu.DRepVotingThresholds != nil {
+		for _, item := range []struct {
+			name string
+			rat  cbor.Rat
+		}{
+			{"motionNoConfidence", ppu.DRepVotingThresholds.MotionNoConfidence},
+			{"committeeNormal", ppu.DRepVotingThresholds.CommitteeNormal},
+			{"committeeNoConfidence", ppu.DRepVotingThresholds.CommitteeNoConfidence},
+			{"updateToConstitution", ppu.DRepVotingThresholds.UpdateToConstitution},
+			{"hardForkInitiation", ppu.DRepVotingThresholds.HardForkInitiation},
+			{"ppNetworkGroup", ppu.DRepVotingThresholds.PpNetworkGroup},
+			{"ppEconomicGroup", ppu.DRepVotingThresholds.PpEconomicGroup},
+			{"ppTechnicalGroup", ppu.DRepVotingThresholds.PpTechnicalGroup},
+			{"ppGovGroup", ppu.DRepVotingThresholds.PpGovGroup},
+			{"treasuryWithdrawal", ppu.DRepVotingThresholds.TreasuryWithdrawal},
+		} {
+			name, rat := item.name, item.rat
+			if !validUnitRat(&rat) {
+				return invalidConwayParameterField(
+					"drepVotingThresholds."+name, "must be in [0,1]",
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func invalidConwayParameterField(field, reason string) error {
+	return ConwayProtocolParameterUpdateError{FieldName: field, Reason: reason}
+}
+
+func validNonNegativeRat(rat *cbor.Rat) bool {
+	return rat != nil && rat.Rat != nil && rat.Denom().Sign() > 0 &&
+		rat.Num().Sign() >= 0
+}
+
+func validUnitRat(rat *cbor.Rat) bool {
+	return validNonNegativeRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
+}
+
+func validateConwayExUnits(units *common.ExUnits, field string) error {
+	if units == nil {
+		return nil
+	}
+	if units.Memory < 0 || units.Steps < 0 {
+		return invalidConwayParameterField(field, "must be nonnegative")
+	}
 	return nil
 }
 
