@@ -80,11 +80,12 @@ func TestStakeDistributionResultRejectsBareMap(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestStakeDistributionResultRejectsPoolDistr2Entry pins the entry width. From
-// node-to-client version 21 the ledger's own pool distribution (query 36,
-// PoolDistr2Result) carries a third element, the pool's total stake. Query 5
-// is the consensus distribution and keeps two, so accepting three here would
-// silently read a PoolDistr2 reply as a GetStakeDistribution one.
+// TestStakeDistributionResultRejectsPoolDistr2Entry pins the entry width.
+// Query 5 is the consensus distribution and its entry is the two-element
+// [tag(30) fraction, vrf_hash]. The ledger's own pool distribution (query 36,
+// PoolDistr2Result) carries the pool's total stake as a further element, so
+// accepting a wider entry here would silently read a PoolDistr2 reply as a
+// GetStakeDistribution one.
 func TestStakeDistributionResultRejectsPoolDistr2Entry(t *testing.T) {
 	threeElement := "81a1581c" + poolIdLowHex +
 		"83d81e820102" + "1a000f4240" + "5820" + vrfHashHex
