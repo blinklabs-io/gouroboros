@@ -22,7 +22,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
-	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
 // duplicateRequiredSignerTxHex is a transaction body whose required signer set
@@ -119,49 +118,5 @@ func TestTxInfoSignatoriesDeduplicated(t *testing.T) {
 				)
 			}
 		})
-	}
-}
-
-// TestSortInputsDeduplicates pins SortInputs against cardano-ledger, which
-// holds inputsTxBodyL and referenceInputsTxBodyL as Set TxIn and renders them
-// with Set.toList. A repeated input must therefore contribute one entry and
-// must not shift the redeemer index of any later spend.
-func TestSortInputsDeduplicates(t *testing.T) {
-	const (
-		idA = "0000000000000000000000000000000000000000000000000000000000000001"
-		idB = "0000000000000000000000000000000000000000000000000000000000000002"
-	)
-	inputA0 := shelley.NewShelleyTransactionInput(idA, 0)
-	inputA1 := shelley.NewShelleyTransactionInput(idA, 1)
-	inputB0 := shelley.NewShelleyTransactionInput(idB, 0)
-	sorted := script.SortInputs([]lcommon.TransactionInput{
-		&inputB0,
-		&inputA1,
-		&inputA0,
-		&inputB0,
-		&inputA1,
-	})
-	expected := []string{
-		inputA0.String(),
-		inputA1.String(),
-		inputB0.String(),
-	}
-	if len(sorted) != len(expected) {
-		t.Fatalf(
-			"expected %d inputs, got %d: %v",
-			len(expected),
-			len(sorted),
-			sorted,
-		)
-	}
-	for i, want := range expected {
-		if sorted[i].String() != want {
-			t.Fatalf(
-				"input %d: expected %s, got %s",
-				i,
-				want,
-				sorted[i].String(),
-			)
-		}
 	}
 }

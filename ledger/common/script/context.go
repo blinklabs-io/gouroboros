@@ -577,32 +577,31 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 	)
 }
 
-func compareInputs(a, b lcommon.TransactionInput) int {
-	// Compare TX ID
-	x := bytes.Compare(a.Id().Bytes(), b.Id().Bytes())
-	if x != 0 {
-		return x
-	}
-	// Compare index
-	return cmp.Compare(a.Index(), b.Index())
-}
-
-// SortInputs returns a sorted, deduplicated copy of the given inputs, ordered
-// by (TxId, Index) in ascending byte order. cardano-ledger holds both
-// inputsTxBodyL and referenceInputsTxBodyL as Set TxIn and renders them with
-// Set.toList, so a repeated input contributes one entry to txInfoInputs and
-// txInfoReferenceInputs and does not shift the redeemer index of any later
-// spend.
+// SortInputs returns a sorted copy of the given inputs, ordered by
+// (TxId, Index) in ascending byte order. This matches the canonical
+// ordering required by the Cardano ledger spec for redeemer index
+// mapping.
 func SortInputs(inputs []lcommon.TransactionInput) []lcommon.TransactionInput {
 	ret := make([]lcommon.TransactionInput, len(inputs))
 	copy(ret, inputs)
-	slices.SortFunc(ret, compareInputs)
-	return slices.CompactFunc(
+	slices.SortFunc(
 		ret,
-		func(a, b lcommon.TransactionInput) bool {
-			return compareInputs(a, b) == 0
+		func(a, b lcommon.TransactionInput) int {
+			// Compare TX ID
+			x := bytes.Compare(a.Id().Bytes(), b.Id().Bytes())
+			if x != 0 {
+				return x
+			}
+			// Compare index
+			if a.Index() < b.Index() {
+				return -1
+			} else if a.Index() > b.Index() {
+				return 1
+			}
+			return 0
 		},
 	)
+	return ret
 }
 
 func expandInputs(
