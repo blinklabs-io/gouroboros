@@ -382,6 +382,64 @@ func TestValidateRequiredRedeemersMixedInputsBothRedeemed(t *testing.T) {
 	require.NoError(t, script.ValidateRequiredRedeemers(tx, ls))
 }
 
+// TestValidateRequiredRedeemersDeduplicatesInputs ensures duplicate TxIn
+// values do not shift the spend redeemer index of a later input. The
+// duplicate-input phase-1 rule is intentionally bypassed here so this test
+// exercises the derived sorted-input view used by this helper.
+func TestValidateRequiredRedeemersDeduplicatesInputs(t *testing.T) {
+	v1 := common.PlutusV1Script{0x01}
+	first := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		0,
+	)
+	second := shelley.NewShelleyTransactionInput(
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		0,
+	)
+	utxoFirst := common.Utxo{
+		Id: first,
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: scriptAddress(t, v1),
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+		},
+	}
+	utxoSecond := common.Utxo{
+		Id: second,
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: scriptAddress(t, v1),
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+		},
+	}
+
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{first, first, second},
+			),
+		},
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsPlutusV1Scripts: cbor.NewSetType(
+				[]common.PlutusV1Script{v1},
+				false,
+			),
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+					{Tag: common.RedeemerTagSpend, Index: 1}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+
+	ls := ledgerStateWithUtxos(utxoFirst, utxoSecond)
+	require.NoError(t, script.ValidateRequiredRedeemers(tx, ls))
+}
+
 // TestValidateRequiredRedeemersSkipsNonScriptAddress ensures a key-address
 // input is never treated as requiring a redeemer.
 func TestValidateRequiredRedeemersSkipsNonScriptAddress(t *testing.T) {
