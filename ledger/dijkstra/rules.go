@@ -1086,7 +1086,9 @@ func UtxoValidateBatchWithdrawals(
 			return err
 		}
 		if balance == nil {
-			return shelley.WithdrawalFromUnregisteredRewardAccountError{}
+			return shelley.WithdrawalFromUnregisteredRewardAccountError{
+				RewardAddress: withdrawal.address,
+			}
 		}
 		var expected uint64
 		expected = *balance
