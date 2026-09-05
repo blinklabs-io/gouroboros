@@ -124,12 +124,30 @@ func TestDRepStakeDistrResultRejectsEraMismatchWrapper(t *testing.T) {
 	require.ErrorContains(t, err, "single-element result array")
 }
 
-// TestDRepStakeDistrResultRejectsTruncatedMap covers a map header that claims
-// more entries than the reply can hold.
+// TestDRepStakeDistrResultRejectsTruncatedMap pins that a reply whose map
+// header declares more pairs than follow it is rejected rather than decoded
+// into a short distribution. The wrapper decode is what rejects it: the result
+// array's element is read as a cbor.RawMessage, which requires a complete
+// well-formed item, so the over-declared map never reaches the entry loop.
 func TestDRepStakeDistrResultRejectsTruncatedMap(t *testing.T) {
-	var result DRepStakeDistrResult
-	_, err := cbor.Decode([]byte{0x81, 0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, &result)
-	require.Error(t, err)
+	for name, reply := range map[string][]byte{
+		// map(2) carrying a single pair
+		"over-declared header": {
+			0x81, 0xa2, 0x81, 0x02, 0x19, 0x01, 0xf4,
+		},
+		// map(2^64-1) carrying nothing
+		"huge header, empty body": {
+			0x81, 0xbb,
+			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var result DRepStakeDistrResult
+			_, err := cbor.Decode(reply, &result)
+			require.Error(t, err)
+			require.Empty(t, result)
+		})
+	}
 }
 
 // TestDRepStakeDistrResultMarshalsNodeShape proves the encoder emits the

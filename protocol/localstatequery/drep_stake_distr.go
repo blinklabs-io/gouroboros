@@ -74,17 +74,10 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("DRep stake distribution: %w", err)
 	}
-	// A map entry cannot encode in fewer than two bytes, so a declared length
-	// larger than half the map's own encoding is a truncated or hostile reply
-	// rather than a large one. Rejecting it before allocating keeps a bad
-	// header from reserving memory the data can never fill.
-	if entryCount > len(distr)/2 {
-		return fmt.Errorf(
-			"DRep stake distribution: declared %d entries in %d bytes",
-			entryCount,
-			len(distr),
-		)
-	}
+	// distr is a cbor.RawMessage taken out of the result array, so it is one
+	// well-formed CBOR item: a definite-length map header cannot declare more
+	// pairs than the item actually carries, and entryCount is therefore
+	// bounded by len(distr).
 	entries := make(DRepStakeDistrResult, 0, entryCount)
 	// The decode modes in the cbor package reject a repeated map key
 	// (DupMapKeyEnforcedAPF), so every other map-shaped result in this
