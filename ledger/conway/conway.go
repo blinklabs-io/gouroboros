@@ -693,6 +693,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 	}
+	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
+		return err
+	}
 	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
 		return err
 	}
@@ -776,6 +779,12 @@ func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
 		return nil
 	}
 	return assets.CheckForDuplicateKeys()
+}
+
+func checkDuplicateProposalProcedures(
+	proposalProcedures []ConwayProposalProcedure,
+) error {
+	return cbor.CheckForDuplicateCBORMembers(proposalProcedures)
 }
 
 func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {
