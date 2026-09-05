@@ -224,6 +224,7 @@ func testSkipAllValidationConfig() common.VerifyConfig {
 		SkipBodyHashValidation:    true,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,
+		SkipBlockLimitsValidation: true,
 	}
 }
 
@@ -1141,4 +1142,33 @@ func mustBuildOutput(t *testing.T) common.TransactionOutput {
 		Build()
 	require.NoError(t, err)
 	return output
+}
+
+func TestGetTxBodiesRejectsEmptyTransactionRows(t *testing.T) {
+	testCases := []struct {
+		name string
+		row  []string
+	}{
+		{name: "nil row", row: nil},
+		{name: "empty row", row: []string{}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var err error
+			require.NotPanics(t, func() {
+				_, err = GetTxBodies([][]string{tc.row})
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "expected at least 1 field")
+		})
+	}
+}
+
+func TestGetTxBodiesAcceptsBodyOnlyRows(t *testing.T) {
+	bodyCbor := []byte{0xa0}
+
+	bodies, err := GetTxBodies([][]string{{hex.EncodeToString(bodyCbor)}})
+	require.NoError(t, err)
+	require.Len(t, bodies, 1)
 }

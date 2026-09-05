@@ -34,6 +34,21 @@ func (e OutsideValidityIntervalUtxoError) Error() string {
 	)
 }
 
+// OutsideValidityIntervalUpperBoundUtxoError indicates that the current slot
+// reached or passed the transaction's exclusive upper validity bound.
+type OutsideValidityIntervalUpperBoundUtxoError struct {
+	End  uint64
+	Slot uint64
+}
+
+func (e OutsideValidityIntervalUpperBoundUtxoError) Error() string {
+	return fmt.Sprintf(
+		"outside validity interval upper bound: end %d, slot %d",
+		e.End,
+		e.Slot,
+	)
+}
+
 type NativeScriptFailedError struct {
 	ScriptHash common.ScriptHash
 }

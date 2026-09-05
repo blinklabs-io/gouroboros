@@ -473,6 +473,57 @@ func (u *ConwayProtocolParameterUpdate) BootstrapRestrictedFields() []string {
 	return fields
 }
 
+// SecurityGroupFields returns the names of the parameter fields that this
+// update mutates and that belong to the Conway "security group": the only
+// parameters a stake pool is allowed to vote on
+// (Cardano.Ledger.Conway.Governance.Internal.votingStakePoolThresholdInternal
+// treats a ParameterChange as NoVotingAllowed unless at least one modified
+// parameter is security relevant). Order is stable to make error messages
+// deterministic.
+//
+// The set is the parameters annotated 'SecurityGroup in the ConwayPParams
+// record of cardano-ledger
+// eras/conway/impl/src/Cardano/Ledger/Conway/PParams.hs: cppTxFeePerByte,
+// cppTxFeeFixed, cppMaxBBSize, cppMaxTxSize, cppMaxBHSize,
+// cppCoinsPerUTxOByte, cppMaxBlockExUnits, cppMaxValSize,
+// cppGovActionDeposit, and cppMinFeeRefScriptCostPerByte. Every other
+// parameter is 'NoStakePoolGroup, and the protocol version is not
+// changeable by a ParameterChange action at all.
+func (u *ConwayProtocolParameterUpdate) SecurityGroupFields() []string {
+	var fields []string
+	if u.MinFeeA != nil {
+		fields = append(fields, "MinFeeA")
+	}
+	if u.MinFeeB != nil {
+		fields = append(fields, "MinFeeB")
+	}
+	if u.MaxBlockBodySize != nil {
+		fields = append(fields, "MaxBlockBodySize")
+	}
+	if u.MaxTxSize != nil {
+		fields = append(fields, "MaxTxSize")
+	}
+	if u.MaxBlockHeaderSize != nil {
+		fields = append(fields, "MaxBlockHeaderSize")
+	}
+	if u.AdaPerUtxoByte != nil {
+		fields = append(fields, "AdaPerUtxoByte")
+	}
+	if u.MaxBlockExUnits != nil {
+		fields = append(fields, "MaxBlockExUnits")
+	}
+	if u.MaxValueSize != nil {
+		fields = append(fields, "MaxValueSize")
+	}
+	if u.GovActionDeposit != nil {
+		fields = append(fields, "GovActionDeposit")
+	}
+	if u.MinFeeRefScriptCostPerByte != nil {
+		fields = append(fields, "MinFeeRefScriptCostPerByte")
+	}
+	return fields
+}
+
 func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	var fields map[int]cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &fields); err != nil {
@@ -813,4 +864,14 @@ func UpgradePParams(
 		MaxCollateralInputs:  prevPParams.MaxCollateralInputs,
 	}
 	return ret
+}
+
+// MinPoolCostValue returns the minPoolCost protocol parameter.
+func (p *ConwayProtocolParameters) MinPoolCostValue() uint64 {
+	return p.MinPoolCost
+}
+
+// PoolRetirementMaxEpoch returns the eMax protocol parameter.
+func (p *ConwayProtocolParameters) PoolRetirementMaxEpoch() uint64 {
+	return uint64(p.MaxEpoch)
 }

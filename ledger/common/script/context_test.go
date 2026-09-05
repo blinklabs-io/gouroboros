@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
@@ -85,6 +87,7 @@ func buildTxInfoV1(
 		slotState,
 		tx,
 		resolvedInputs,
+		false, // Alonzo era: pre-Conway, closed upper-only validity bound
 	)
 	if err != nil {
 		return nil, err
@@ -144,6 +147,7 @@ func buildTxInfoV2(
 		slotState,
 		tx,
 		resolvedInputs,
+		false, // Babbage era: pre-Conway, closed upper-only validity bound
 	)
 	if err != nil {
 		return nil, err
@@ -232,6 +236,95 @@ var preprodSlotState = mockSlotState{
 	// Shelley start
 	ZeroTime: time.UnixMilli(1596059091000),
 	ZeroSlot: 4492800,
+}
+
+// treasuryPresenceTransaction adds the optional presence capability, which the
+// released mock transaction does not implement. Without it an explicit zero is
+// indistinguishable from an absent field.
+type treasuryPresenceTransaction struct {
+	*mockledger.MockTransaction
+	present bool
+}
+
+func (t treasuryPresenceTransaction) CurrentTreasuryValuePresent() bool {
+	return t.present
+}
+
+func TestTxInfoV3LegacyCurrentTreasuryPresence(t *testing.T) {
+	tests := []struct {
+		name          string
+		treasuryValue *int64
+		withPresence  bool
+		present       bool
+		want          *big.Int
+	}{
+		{
+			name: "default zero is absent",
+		},
+		{
+			// The mock cannot report presence, so an explicit zero is
+			// indistinguishable from an absent field and stays absent.
+			name:          "explicit zero without the presence capability is absent",
+			treasuryValue: func() *int64 { value := int64(0); return &value }(),
+		},
+		{
+			// No presence capability, so this can only be carried by the
+			// nonzero branch of TransactionCurrentTreasuryValuePresent.
+			name:          "nonzero without the presence capability is present",
+			treasuryValue: func() *int64 { value := int64(42); return &value }(),
+			want:          big.NewInt(42),
+		},
+		{
+			name:          "explicit zero with the presence capability is present",
+			treasuryValue: func() *int64 { value := int64(0); return &value }(),
+			withPresence:  true,
+			present:       true,
+			want:          big.NewInt(0),
+		},
+		{
+			name:          "zero with the presence capability reporting absent",
+			treasuryValue: func() *int64 { value := int64(0); return &value }(),
+			withPresence:  true,
+			present:       false,
+		},
+		{
+			name:          "nonzero with the presence capability is present",
+			treasuryValue: func() *int64 { value := int64(42); return &value }(),
+			withPresence:  true,
+			present:       true,
+			want:          big.NewInt(42),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mockTx := mockledger.NewTransactionBuilder()
+			if test.treasuryValue != nil {
+				mockTx.WithTreasuryValue(*test.treasuryValue)
+			}
+			var tx common.Transaction = mockTx
+			if test.withPresence {
+				tx = treasuryPresenceTransaction{
+					MockTransaction: mockTx,
+					present:         test.present,
+				}
+			}
+			txInfo, err := script.NewTxInfoV3FromTransaction(
+				mockledger.NewLedgerStateBuilder().Build(),
+				tx,
+				nil,
+			)
+			require.NoError(t, err)
+			if test.want == nil {
+				require.Nil(t, txInfo.CurrentTreasuryAmount.Value)
+				return
+			}
+			require.Equal(
+				t,
+				test.want,
+				txInfo.CurrentTreasuryAmount.Value,
+			)
+		})
+	}
 }
 
 var scriptContextV1TestDefs = []struct {
@@ -526,10 +619,12 @@ var scriptContextV3TestDefs = []struct {
 		redeemerTag:   lcommon.RedeemerTagReward,
 		redeemerIndex: 0,
 		slotState:     preprodSlotState,
-		// cardano-ledger translates an upper-only interval with PV1.to,
-		// whose finite upper bound is closed. This transaction has key 3
-		// (upper) and no key 8 (lower).
-		expectedCbor: "d8799fd8799f9fd8799fd8799f5820000000000000000000000000000000000000000000000000000000000000000000ffd8799fd8799fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffd8799fd8799fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffffffa140a1401a000f4240d87b9fd87980ffd8799f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffffff809fd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd8799fd8799fd87a9f581c11111111111111111111111111111111111111111111111111111111ffffffffa140a1401a000f4240d87980d87a80ffd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd8799fd87a9f1a00261ec3181b03ffffffa140a1401a000f4240d87980d87a80ffd8799fd8799fd87a9f581c11111111111111111111111111111111111111111111111111111111ffd8799fd87a9f1a00261ec3181b03ffffffa140a1401a000f4240d87980d87a80ffff182aa080a1d87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ff00d8799fd8799fd87980d87a80ffd8799fd87a9f1b000001739c890420ffd87a80ffff9f581c00000000000000000000000000000000000000000000000000000000ffa2d87a9fd8799f5820000000000000000000000000000000000000000000000000000000000000000000ffffd87a81d87980d87b9fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffd87980a0582040bee3b25a585a854fe73f3448a6f6b417fe669c813a1881e665971f34a9e984a080d87a80d8799f01ffffd87980d87b9fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffff",
+		// cardano-ledger translates the validity-interval upper bound
+		// with PV1.strictUpperBound (EXCLUSIVE), so a finite upper bound
+		// is OPEN (closure False) even for an upper-only interval. This
+		// transaction has key 3 (upper, invalidHereafter) and no key 8
+		// (lower).
+		expectedCbor: "d8799fd8799f9fd8799fd8799f5820000000000000000000000000000000000000000000000000000000000000000000ffd8799fd8799fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffd8799fd8799fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffffffa140a1401a000f4240d87b9fd87980ffd8799f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffffff809fd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd8799fd8799fd87a9f581c11111111111111111111111111111111111111111111111111111111ffffffffa140a1401a000f4240d87980d87a80ffd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd8799fd87a9f1a00261ec3181b03ffffffa140a1401a000f4240d87980d87a80ffd8799fd8799fd87a9f581c11111111111111111111111111111111111111111111111111111111ffd8799fd87a9f1a00261ec3181b03ffffffa140a1401a000f4240d87980d87a80ffff182aa080a1d87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ff00d8799fd8799fd87980d87a80ffd8799fd87a9f1b000001739c890420ffd87980ffff9f581c00000000000000000000000000000000000000000000000000000000ffa2d87a9fd8799f5820000000000000000000000000000000000000000000000000000000000000000000ffffd87a81d87980d87b9fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffd87980a0582040bee3b25a585a854fe73f3448a6f6b417fe669c813a1881e665971f34a9e984a080d87a80d8799f01ffffd87980d87b9fd87a9f581c04036eecadc2f19e95f831b4bc08919cde1d1088d74602bd3dcd78a2ffffff",
 	},
 	{
 		name:          "Voting",
@@ -639,6 +734,7 @@ func TestNewTxInfoFromTransactionUnmatchedRedeemer(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			true, // Conway tx (error path; flag does not affect the assertion)
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -650,6 +746,7 @@ func TestNewTxInfoFromTransactionUnmatchedRedeemer(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			true, // Conway tx (error path; flag does not affect the assertion)
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -689,6 +786,7 @@ func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			true, // Conway tx (error path; flag does not affect the assertion)
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -700,6 +798,7 @@ func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			true, // Conway tx (error path; flag does not affect the assertion)
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError

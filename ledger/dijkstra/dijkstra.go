@@ -677,7 +677,7 @@ func (g *DijkstraGuards) UnmarshalCBOR(cborData []byte) error {
 	g.SetCbor(cborData)
 	var credentials cbor.SetType[common.Credential]
 	if _, err := cbor.Decode(cborData, &credentials); err == nil {
-		if err := credentials.CheckForDuplicates(); err != nil {
+		if err := credentials.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 		if len(credentials.Items()) == 0 {
@@ -691,7 +691,7 @@ func (g *DijkstraGuards) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &keyHashes); err != nil {
 		return err
 	}
-	if err := keyHashes.CheckForDuplicates(); err != nil {
+	if err := keyHashes.CheckForDuplicatesAlways(); err != nil {
 		return err
 	}
 	if len(keyHashes.Items()) == 0 {
@@ -761,9 +761,19 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	// Reject duplicate members in any tag-258 set field on the transaction body.
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
+	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
+		return err
+	}
+	// Reject duplicate members in every Dijkstra set encoding, including
+	// untagged arrays.
 	type duplicateChecker interface {
-		CheckForDuplicates() error
+		CheckForDuplicatesAlways() error
 	}
 	for _, c := range []duplicateChecker{
 		&tmp.TxInputs,
@@ -771,12 +781,18 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		&tmp.TxReferenceInputs,
 		&tmp.TxSubTransactions,
 	} {
-		if err := c.CheckForDuplicates(); err != nil {
+		if err := c.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 	}
+	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
+		return err
+	}
 	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
 		return err
+	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
 	}
 	if tmp.TxCollateralReturn != nil {
 		if err := checkMultiAssetDuplicateKeys(
@@ -786,7 +802,40 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	*b = DijkstraTransactionBody(tmp)
+	if err := b.DecodeTransactionBodyFieldPresence(
+		cborData,
+		b.Ttl,
+		b.TxCurrentTreasuryValue != 0,
+	); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
+	return nil
+}
+
+func (b DijkstraTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+}
+
+func validateDijkstraCertificateTypes(
+	certificates []common.CertificateWrapper,
+) error {
+	for idx, certificate := range certificates {
+		certType := common.CertificateType(certificate.Type)
+		if certType == common.CertificateTypeStakeRegistration ||
+			certType == common.CertificateTypeStakeDeregistration ||
+			certType == common.CertificateTypeGenesisKeyDelegation ||
+			certType == common.CertificateTypeMoveInstantaneousRewards {
+			return fmt.Errorf(
+				"certificate type is not valid in Dijkstra: index %d type %d",
+				idx,
+				certificate.Type,
+			)
+		}
+	}
 	return nil
 }
 
@@ -813,6 +862,22 @@ func (b *DijkstraTransactionBody) Fee() *big.Int {
 
 func (b *DijkstraTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *DijkstraTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *DijkstraTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *DijkstraTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *DijkstraTransactionBody) ValidityIntervalStart() uint64 {
@@ -879,7 +944,16 @@ func (b *DijkstraTransactionBody) NetworkId() *uint8 {
 }
 
 func (b *DijkstraTransactionBody) CurrentTreasuryValue() *big.Int {
+	if b.TxCurrentTreasuryValue == 0 &&
+		!b.CurrentTreasuryValuePresent() {
+		return nil
+	}
 	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
+}
+
+func (b *DijkstraTransactionBody) CurrentTreasuryValuePresent() bool {
+	return b.TxCurrentTreasuryValue != 0 ||
+		b.TransactionBodyBase.CurrentTreasuryValuePresent()
 }
 
 func (b *DijkstraTransactionBody) Donation() *big.Int {
@@ -939,7 +1013,11 @@ func dijkstraRequiredSigners(guards *DijkstraGuards) []common.Blake2b224 {
 	if guards == nil {
 		return nil
 	}
-	ret := make([]common.Blake2b224, 0, len(guards.KeyHashes)+len(guards.Credentials))
+	ret := make(
+		[]common.Blake2b224,
+		0,
+		len(guards.KeyHashes)+len(guards.Credentials),
+	)
 	ret = append(ret, guards.KeyHashes...)
 	for _, cred := range guards.Credentials {
 		if cred.CredType == common.CredentialTypeAddrKeyHash {
@@ -999,18 +1077,65 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	if err := tmp.TxInputs.CheckForDuplicates(); err != nil {
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
-	if err := tmp.TxReferenceInputs.CheckForDuplicates(); err != nil {
+	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := tmp.TxInputs.CheckForDuplicatesAlways(); err != nil {
+		return err
+	}
+	if err := tmp.TxReferenceInputs.CheckForDuplicatesAlways(); err != nil {
+		return err
+	}
+	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
 		return err
 	}
 	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
 		return err
 	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
 	*b = DijkstraSubTransactionBody(tmp)
+	if err := b.DecodeTransactionBodyFieldPresence(
+		cborData,
+		b.Ttl,
+		b.TxCurrentTreasuryValue != 0,
+	); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func checkDuplicateProposalProcedures(
+	proposalProcedures []DijkstraProposalProcedure,
+) error {
+	seen := make(map[string]struct{}, len(proposalProcedures))
+	for _, procedure := range proposalProcedures {
+		encoded, err := cbor.Encode(procedure)
+		if err != nil {
+			return err
+		}
+		key := string(encoded)
+		if _, exists := seen[key]; exists {
+			return errors.New("duplicate member in set")
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func (b DijkstraSubTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func (b *DijkstraSubTransactionBody) Inputs() []common.TransactionInput {
@@ -1023,6 +1148,22 @@ func (b *DijkstraSubTransactionBody) Outputs() []common.TransactionOutput {
 
 func (b *DijkstraSubTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *DijkstraSubTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *DijkstraSubTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *DijkstraSubTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *DijkstraSubTransactionBody) ValidityIntervalStart() uint64 {
@@ -1070,7 +1211,16 @@ func (b *DijkstraSubTransactionBody) ProposalProcedures() []common.ProposalProce
 }
 
 func (b *DijkstraSubTransactionBody) CurrentTreasuryValue() *big.Int {
+	if b.TxCurrentTreasuryValue == 0 &&
+		!b.CurrentTreasuryValuePresent() {
+		return nil
+	}
 	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
+}
+
+func (b *DijkstraSubTransactionBody) CurrentTreasuryValuePresent() bool {
+	return b.TxCurrentTreasuryValue != 0 ||
+		b.TransactionBodyBase.CurrentTreasuryValuePresent()
 }
 
 func (b *DijkstraSubTransactionBody) Donation() *big.Int {
@@ -1087,7 +1237,8 @@ type DijkstraRedeemers struct {
 }
 
 func (r *DijkstraRedeemers) UnmarshalCBOR(cborData []byte) error {
-	if len(cborData) == 0 || (cborData[0]&cbor.CborTypeMask) != cbor.CborTypeMap {
+	if len(cborData) == 0 ||
+		(cborData[0]&cbor.CborTypeMask) != cbor.CborTypeMap {
 		return errors.New("dijkstra redeemers must use map encoding")
 	}
 	var redeemers map[common.RedeemerKey]common.RedeemerValue
@@ -1136,7 +1287,10 @@ func (r DijkstraRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	return ret
 }
 
-func (r DijkstraRedeemers) Value(index uint, tag common.RedeemerTag) common.RedeemerValue {
+func (r DijkstraRedeemers) Value(
+	index uint,
+	tag common.RedeemerTag,
+) common.RedeemerValue {
 	redeemerVal, ok := r.Redeemers[common.RedeemerKey{
 		Tag:   tag,
 		Index: uint32(index), // #nosec G115
@@ -1166,10 +1320,10 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	// Reject duplicate members in any tag-258 witness set field.
-	// Untagged array fields are left unchecked so pre-Dijkstra encodings remain valid.
+	// Reject duplicate members in every Dijkstra witness-set encoding, including
+	// untagged arrays.
 	type duplicateChecker interface {
-		CheckForDuplicates() error
+		CheckForDuplicatesAlways() error
 	}
 	for _, c := range []duplicateChecker{
 		&tmp.VkeyWitnesses,
@@ -1181,7 +1335,7 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 		&tmp.WsPlutusV3Scripts,
 		&tmp.WsPlutusV4Scripts,
 	} {
-		if err := c.CheckForDuplicates(); err != nil {
+		if err := c.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 	}
@@ -1290,6 +1444,10 @@ func (t DijkstraTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t DijkstraTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
+}
+
 func (t DijkstraTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
@@ -1350,6 +1508,10 @@ func (t DijkstraTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
+func (t DijkstraTransaction) CurrentTreasuryValuePresent() bool {
+	return t.Body.CurrentTreasuryValuePresent()
+}
+
 func (t DijkstraTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
@@ -1405,6 +1567,33 @@ func (t DijkstraTransaction) Witnesses() common.TransactionWitnessSet {
 	return t.WitnessSet
 }
 
+func (t DijkstraTransaction) SubTransactionWitnessSets() []common.TransactionWitnessSet {
+	subTxs := t.Body.TxSubTransactions.Items()
+	ret := make([]common.TransactionWitnessSet, 0, len(subTxs))
+	for _, subTx := range subTxs {
+		ret = append(ret, subTx.WitnessSet)
+	}
+	return ret
+}
+
+func (t DijkstraTransaction) SubTransactionBodies() []common.TransactionBody {
+	subTxs := t.Body.TxSubTransactions.Items()
+	ret := make([]common.TransactionBody, 0, len(subTxs))
+	for idx := range subTxs {
+		ret = append(ret, &subTxs[idx].Body)
+	}
+	return ret
+}
+
+func (t DijkstraTransaction) SubTransactionOutputs() []common.TransactionOutput {
+	subTxs := t.Body.TxSubTransactions.Items()
+	var ret []common.TransactionOutput
+	for _, subTx := range subTxs {
+		ret = append(ret, subTx.Body.Outputs()...)
+	}
+	return ret
+}
+
 func (t *DijkstraTransaction) MarshalCBOR() ([]byte, error) {
 	if cborData := t.DecodeStoreCbor.Cbor(); cborData != nil {
 		return cborData, nil
@@ -1435,7 +1624,10 @@ func (t *DijkstraTransaction) Cbor() []byte {
 func (t *DijkstraTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := t.Body.Utxorpc()
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert Dijkstra transaction: %w", err)
+		return nil, fmt.Errorf(
+			"failed to convert Dijkstra transaction: %w",
+			err,
+		)
 	}
 	return tx, nil
 }
@@ -1539,7 +1731,10 @@ func NewDijkstraTransactionBodyFromCbor(
 ) (*DijkstraTransactionBody, error) {
 	var dijkstraTx DijkstraTransactionBody
 	if _, err := cbor.Decode(data, &dijkstraTx); err != nil {
-		return nil, fmt.Errorf("decode Dijkstra transaction body error: %w", err)
+		return nil, fmt.Errorf(
+			"decode Dijkstra transaction body error: %w",
+			err,
+		)
 	}
 	return &dijkstraTx, nil
 }
@@ -1606,7 +1801,10 @@ func newDijkstraTransactionFromCborComponents(
 		return nil, fmt.Errorf("failed to decode transaction body: %w", err)
 	}
 	if _, err := cbor.Decode(txArray[1], &ret.WitnessSet); err != nil {
-		return nil, fmt.Errorf("failed to decode transaction witness set: %w", err)
+		return nil, fmt.Errorf(
+			"failed to decode transaction witness set: %w",
+			err,
+		)
 	}
 	auxIdx := 2
 	if len(txArray) == 4 {
@@ -1615,7 +1813,9 @@ func newDijkstraTransactionFromCborComponents(
 			return nil, fmt.Errorf("failed to decode TxIsValid: %w", err)
 		}
 		if !txIsValid {
-			return nil, errors.New("dijkstra transactions cannot encode is_valid=false")
+			return nil, errors.New(
+				"dijkstra transactions cannot encode is_valid=false",
+			)
 		}
 		auxIdx = 3
 	}
@@ -1641,12 +1841,18 @@ func decodeInvalidTransactions(raw cbor.RawMessage) ([]uint, error) {
 	if _, err := cbor.Decode(raw, &txIndices); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra invalid transactions: %w", err)
 	}
-	if err := txIndices.CheckForDuplicates(); err != nil {
+	if err := txIndices.CheckForDuplicatesAlways(); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra invalid transactions: %w", err)
 	}
 	items := txIndices.Items()
 	ret := make([]uint, len(items))
 	for i, idx := range items {
+		if uint64(uint(idx)) != idx {
+			return nil, fmt.Errorf(
+				"decode Dijkstra invalid transactions: index %d overflows platform uint",
+				idx,
+			)
+		}
 		ret[i] = uint(idx)
 	}
 	return ret, nil

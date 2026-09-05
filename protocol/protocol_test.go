@@ -15,6 +15,7 @@
 package protocol
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -75,7 +76,11 @@ func TestEnqueueMessageReturnsWhenFullQueueShutsDown(t *testing.T) {
 			msg.SetCbor([]byte{0x80})
 			resultChan := make(chan error, 1)
 			go func() {
-				resultChan <- p.enqueueMessage(msg, nil)
+				resultChan <- p.enqueueMessage(
+					context.Background(),
+					msg,
+					nil,
+				)
 			}()
 
 			require.Eventually(t, func() bool {
@@ -97,6 +102,43 @@ func TestEnqueueMessageReturnsWhenFullQueueShutsDown(t *testing.T) {
 			require.Zero(t, p.pendingSendBytes)
 		})
 	}
+}
+
+func TestSendMessageContextReturnsWhenFullQueueContextEnds(t *testing.T) {
+	p := &Protocol{
+		stopChan:      make(chan struct{}),
+		doneChan:      make(chan struct{}),
+		muxerDoneChan: make(chan bool),
+		recvDoneChan:  make(chan struct{}),
+		sendDoneChan:  make(chan struct{}),
+		sendQueueChan: make(chan outboundMessage, 1),
+	}
+	p.sendQueueChan <- outboundMessage{}
+
+	msg := &MessageBase{}
+	msg.SetCbor([]byte{0x80})
+	ctx, cancel := context.WithCancel(context.Background())
+	resultChan := make(chan error, 1)
+	go func() {
+		resultChan <- p.SendMessageContext(ctx, msg)
+	}()
+
+	require.Eventually(t, func() bool {
+		p.pendingBytesMu.Lock()
+		defer p.pendingBytesMu.Unlock()
+		return p.pendingSendBytes == 1
+	}, time.Second, time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-resultChan:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("SendMessageContext remained blocked after cancellation")
+	}
+	p.pendingBytesMu.Lock()
+	defer p.pendingBytesMu.Unlock()
+	require.Zero(t, p.pendingSendBytes)
 }
 
 func TestWaitForMessageDeliveryPrefersReportedResult(t *testing.T) {

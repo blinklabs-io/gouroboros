@@ -147,7 +147,8 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] TX inputs
       - [X] TX outputs
       - [X] Parameter updates
-      - [X] Reward withdrawals require a DRep vote delegation at PV10/PV11
+      - [X] Every key-hash reward credential present in withdrawals requires a
+        DRep vote delegation at PV10/PV11, including zero amounts
     - [X] Dijkstra
       - [X] Blocks
       - [X] Transactions

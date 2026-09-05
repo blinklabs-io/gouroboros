@@ -69,9 +69,9 @@ func (c *AlonzoGenesisCostModels) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &tmpMap); err != nil {
 			return fmt.Errorf("decode cost model: %w", err)
 		}
-		paramNames := lang.GetParamNamesForVersion(langVer)
+		paramNames := costModelParamNamesForMap(langVer, tmpMap)
 		for _, param := range paramNames {
-			val, ok := tmpMap[param]
+			val, ok := costModelParamValue(tmpMap, param)
 			// Stop processing if a param name is not present
 			if !ok {
 				break
@@ -82,6 +82,84 @@ func (c *AlonzoGenesisCostModels) UnmarshalJSON(data []byte) error {
 	}
 	*c = AlonzoGenesisCostModels(tmpCostModels)
 	return nil
+}
+
+// costModelParamValue accepts historical map-form Alonzo genesis spellings
+// while keeping Plutigo's current parameter names canonical. PlutusV1 genesis
+// files used these names before later ledger APIs made the builtin names
+// explicit.
+func costModelParamValue(params map[string]int64, name string) (int64, bool) {
+	if value, ok := params[name]; ok {
+		return value, true
+	}
+	var legacyName string
+	switch name {
+	case "blake2b_256-cpu-arguments-intercept":
+		legacyName = "blake2b-cpu-arguments-intercept"
+	case "blake2b_256-cpu-arguments-slope":
+		legacyName = "blake2b-cpu-arguments-slope"
+	case "blake2b_256-memory-arguments":
+		legacyName = "blake2b-memory-arguments"
+	case "verifyEd25519Signature-cpu-arguments-intercept":
+		legacyName = "verifySignature-cpu-arguments-intercept"
+	case "verifyEd25519Signature-cpu-arguments-slope":
+		legacyName = "verifySignature-cpu-arguments-slope"
+	case "verifyEd25519Signature-memory-arguments":
+		legacyName = "verifySignature-memory-arguments"
+	default:
+		return 0, false
+	}
+	value, ok := params[legacyName]
+	return value, ok
+}
+
+// costModelParamNamesForMap preserves the ordering of the older Value cost
+// models. The canonical model replaces five legacy parameters with nine, so
+// those entries cannot be handled as one-for-one aliases. A map using the old
+// valueData spelling is decoded in its original order and length; a shorter
+// model that ends before this section still stops at its first absent key.
+func costModelParamNamesForMap(
+	version lang.LanguageVersion,
+	params map[string]int64,
+) []string {
+	paramNames := lang.GetParamNamesForVersion(version)
+	if _, ok := params["valueData-cpu-arguments"]; !ok {
+		return paramNames
+	}
+	if _, ok := params["valueData-cpu-arguments-intercept"]; ok {
+		return paramNames
+	}
+	const (
+		canonicalStart = "valueData-cpu-arguments-intercept"
+		canonicalEnd   = "unValueData-memory-arguments-slope"
+	)
+	start, end := -1, -1
+	for i, name := range paramNames {
+		if name == canonicalStart {
+			start = i
+		}
+		if name == canonicalEnd {
+			end = i
+			break
+		}
+	}
+	// Released Plutigo versions already expose the legacy table, so there is
+	// nothing to rewrite when the canonical replacement range is absent.
+	if start < 0 || end < start {
+		return paramNames
+	}
+	legacyNames := []string{
+		"valueData-cpu-arguments",
+		"valueData-memory-arguments",
+		"unValueData-cpu-arguments-intercept",
+		"unValueData-cpu-arguments-slope",
+		"unValueData-memory-arguments",
+	}
+	ret := make([]string, 0, len(paramNames)-(end-start+1)+len(legacyNames))
+	ret = append(ret, paramNames[:start]...)
+	ret = append(ret, legacyNames...)
+	ret = append(ret, paramNames[end+1:]...)
+	return ret
 }
 
 func NewAlonzoGenesisFromReader(r io.Reader) (AlonzoGenesis, error) {

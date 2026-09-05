@@ -17,6 +17,7 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -60,6 +61,10 @@ type Protocol struct {
 	onceRegister        sync.Once
 	onceStart           sync.Once
 	onceStop            sync.Once
+	doneOnce            sync.Once
+	lifecycleMu         sync.Mutex
+	started             bool
+	stopped             bool
 	pendingBytesMu      sync.Mutex
 	pendingSendBytes    int
 	pendingRecvBytes    int
@@ -165,10 +170,18 @@ func (p *Protocol) EnsureRegistered() {
 // Start initializes the mini-protocol
 func (p *Protocol) Start() {
 	p.onceStart.Do(func() {
+		p.lifecycleMu.Lock()
+		if p.stopped {
+			p.lifecycleMu.Unlock()
+			return
+		}
+
 		p.EnsureRegistered()
 
 		if p.muxerDoneChan == nil {
+			p.lifecycleMu.Unlock()
 			p.SendError(errors.New("could not register protocol with muxer"))
+			p.closeDone()
 			return
 		}
 
@@ -185,30 +198,50 @@ func (p *Protocol) Start() {
 		go func() {
 			<-p.recvDoneChan
 			<-p.sendDoneChan
-			close(p.doneChan)
+			p.closeDone()
 		}()
 
 		go p.stateLoop(stateTransitionChan)
 		go p.readLoop()
 		go p.recvLoop()
 		go p.sendLoop()
+
+		p.started = true
+		p.lifecycleMu.Unlock()
 	})
 }
 
 // Stop shuts down the mini-protocol
 func (p *Protocol) Stop() {
 	p.onceStop.Do(func() {
+		p.lifecycleMu.Lock()
+		p.stopped = true
+		started := p.started
+		p.lifecycleMu.Unlock()
+
 		close(p.stopChan)
+		if !started {
+			p.closeDone()
+		}
 
 		// Unregister protocol from muxer
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
 		}
+		if p.config.Muxer == nil {
+			return
+		}
 		p.config.Muxer.UnregisterProtocol(
 			p.config.ProtocolId,
 			muxerProtocolRole,
 		)
+	})
+}
+
+func (p *Protocol) closeDone() {
+	p.doneOnce.Do(func() {
+		close(p.doneChan)
 	})
 }
 
@@ -316,9 +349,35 @@ func (p *Protocol) getCurrentState() State {
 	return p.currentState
 }
 
+// pipelinedSendAllowed reports whether the current state permits our role to
+// write queued messages while the peer holds agency. Only the role without
+// agency in the state pipelines; the role with agency uses the normal path.
+func (p *Protocol) pipelinedSendAllowed() bool {
+	entry, ok := p.config.StateMap[p.getCurrentState()]
+	if !ok || !entry.AllowPipelinedSend {
+		return false
+	}
+	switch entry.Agency {
+	case AgencyClient:
+		return p.config.Role == ProtocolRoleServer
+	case AgencyServer:
+		return p.config.Role == ProtocolRoleClient
+	case AgencyNone:
+		return false
+	default:
+		return false
+	}
+}
+
 // SendMessage appends a message to the send queue
 func (p *Protocol) SendMessage(msg Message) error {
-	return p.enqueueMessage(msg, nil)
+	return p.enqueueMessage(context.Background(), msg, nil)
+}
+
+// SendMessageContext appends a message to the send queue, or returns the
+// context's error if the message cannot be queued before the context ends.
+func (p *Protocol) SendMessageContext(ctx context.Context, msg Message) error {
+	return p.enqueueMessage(ctx, msg, nil)
 }
 
 // SendMessageAndWait queues a message and waits until its final muxer segment
@@ -326,7 +385,11 @@ func (p *Protocol) SendMessage(msg Message) error {
 // fails or the protocol shuts down before delivery completes.
 func (p *Protocol) SendMessageAndWait(msg Message) error {
 	deliveryChan := make(chan error, 1)
-	if err := p.enqueueMessage(msg, deliveryChan); err != nil {
+	if err := p.enqueueMessage(
+		context.Background(),
+		msg,
+		deliveryChan,
+	); err != nil {
 		return err
 	}
 	return p.waitForMessageDelivery(deliveryChan)
@@ -356,7 +419,14 @@ func deliveryResultOrShutdown(deliveryChan <-chan error) error {
 	}
 }
 
-func (p *Protocol) enqueueMessage(msg Message, deliveryChan chan error) error {
+func (p *Protocol) enqueueMessage(
+	ctx context.Context,
+	msg Message,
+	deliveryChan chan error,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Immediately return if we're already shutting down
 	select {
 	case <-p.stopChan:
@@ -404,9 +474,12 @@ func (p *Protocol) enqueueMessage(msg Message, deliveryChan chan error) error {
 		message:      msg,
 		deliveryChan: deliveryChan,
 	}
+	var enqueueErr error
 	select {
 	case p.sendQueueChan <- outbound:
 		return nil
+	case <-ctx.Done():
+		enqueueErr = ctx.Err()
 	case <-p.stopChan:
 	case <-p.doneChan:
 	case <-p.muxerDoneChan:
@@ -418,6 +491,9 @@ func (p *Protocol) enqueueMessage(msg Message, deliveryChan chan error) error {
 	p.pendingBytesMu.Lock()
 	p.pendingSendBytes -= msgLen
 	p.pendingBytesMu.Unlock()
+	if enqueueErr != nil {
+		return enqueueErr
+	}
 	return ErrProtocolShuttingDown
 }
 
@@ -440,7 +516,6 @@ func (p *Protocol) SendError(err error) {
 		// Discard error if the buffer is full
 		// The connection will get closed on the first error, so any
 		// additional errors are unnecessary
-		return
 	}
 	// Stop the protocol on any error to prevent further errors from being generated
 	// and to ensure the connection is properly terminated
@@ -459,18 +534,61 @@ func (p *Protocol) sendLoop() {
 	var queuedStateTransitions []Message
 waitSendReadyChan:
 	for {
-		select {
-		case <-p.stopChan:
-			return
-		case <-p.recvDoneChan:
-			// Break out of send loop if we're shutting down
-			return
-		case <-p.sendReadyChan:
-			// We are ready to send based on state map
+		// haveAgency records that we were woken because the state map granted
+		// our role agency, as opposed to being woken by a pipelined message
+		// that may be written while the peer holds agency.
+		haveAgency := false
+		// pipelinedOutbound holds a message dequeued through the pipelined
+		// send path. Its state transition, and those of any messages batched
+		// behind it, are deferred until agency returns.
+		var pipelinedOutbound *outboundMessage
+		if p.pipelinedSendAllowed() {
+			select {
+			case <-p.stopChan:
+				return
+			case <-p.recvDoneChan:
+				// Break out of send loop if we're shutting down
+				return
+			case <-p.sendReadyChan:
+				// We are ready to send based on state map
+				haveAgency = true
+			case outbound, ok := <-p.sendQueueChan:
+				if !ok {
+					// We're shutting down
+					return
+				}
+				tmpOutbound := outbound
+				if !slices.Contains(
+					p.config.StateMap[p.getCurrentState()].PipelinedMessageTypes,
+					outbound.message.Type(),
+				) {
+					p.SendError(fmt.Errorf(
+						"%s: message type %d is not allowed while pipelined in state %s",
+						p.config.Name,
+						outbound.message.Type(),
+						p.getCurrentState(),
+					))
+					return
+				}
+				pipelinedOutbound = &tmpOutbound
+			}
+		} else {
+			select {
+			case <-p.stopChan:
+				return
+			case <-p.recvDoneChan:
+				// Break out of send loop if we're shutting down
+				return
+			case <-p.sendReadyChan:
+				// We are ready to send based on state map
+				haveAgency = true
+			}
 		}
 
-		// Check for queued state transitions
-		if len(queuedStateTransitions) > 0 {
+		// Check for queued state transitions. A pipelined message is written
+		// while the peer holds agency, so it can never satisfy a deferred
+		// transition and must not delay the bytes we already have in hand.
+		if haveAgency && len(queuedStateTransitions) > 0 {
 			if err := p.transitionState(queuedStateTransitions[0]); err != nil {
 				if errors.Is(err, ErrProtocolShuttingDown) {
 					// Graceful shutdown in progress
@@ -494,87 +612,97 @@ waitSendReadyChan:
 		// Read queued messages and write into buffer
 		payloadBuf := bytes.NewBuffer(nil)
 		msgCount := 0
-		queueTransition := false
+		// A message taken from the pipelined send path goes out while the peer
+		// holds agency, so its transition is deferred along with those of any
+		// messages batched behind it.
+		queueTransition := !haveAgency
 		var deliveryChan chan error
 	readSendQueueLoop:
 		for {
 			// Get next message from send queue
-			select {
-			case <-p.stopChan:
-				return
-			case <-p.recvDoneChan:
-				// Break out of send loop if we're shutting down
-				return
-			case outbound, ok := <-p.sendQueueChan:
-				if !ok {
-					// We're shutting down
+			var outbound outboundMessage
+			if pipelinedOutbound != nil {
+				outbound = *pipelinedOutbound
+				pipelinedOutbound = nil
+			} else {
+				select {
+				case <-p.stopChan:
+					return
+				case <-p.recvDoneChan:
+					// Break out of send loop if we're shutting down
+					return
+				case queued, ok := <-p.sendQueueChan:
+					if !ok {
+						// We're shutting down
+						return
+					}
+					outbound = queued
+				}
+			}
+			msg := outbound.message
+			msgCount = msgCount + 1
+
+			// Get raw CBOR from message
+			data := msg.Cbor()
+			// If message has no raw CBOR, encode the message
+			if data == nil {
+				var err error
+				data, err = cbor.Encode(msg)
+				if err != nil {
+					p.SendError(err)
 					return
 				}
-				msg := outbound.message
-				msgCount = msgCount + 1
+			}
+			payloadBuf.Write(data)
+			// After sending, decrement pendingSendBytes
+			p.pendingBytesMu.Lock()
+			p.pendingSendBytes -= len(data)
+			if p.pendingSendBytes < 0 {
+				p.Logger().Warn(
+					"negative pendingSendBytes reset",
+					"protocol", p.config.Name,
+					"value", p.pendingSendBytes,
+				)
+				p.pendingSendBytes = 0
+			}
+			p.pendingBytesMu.Unlock()
 
-				// Get raw CBOR from message
-				data := msg.Cbor()
-				// If message has no raw CBOR, encode the message
-				if data == nil {
-					var err error
-					data, err = cbor.Encode(msg)
-					if err != nil {
-						p.SendError(err)
+			if queueTransition {
+				queuedStateTransitions = append(queuedStateTransitions, msg)
+			} else {
+				if err := p.transitionState(msg); err != nil {
+					if errors.Is(err, ErrProtocolShuttingDown) {
+						// Graceful shutdown in progress
 						return
 					}
-				}
-				payloadBuf.Write(data)
-				// After sending, decrement pendingSendBytes
-				p.pendingBytesMu.Lock()
-				p.pendingSendBytes -= len(data)
-				if p.pendingSendBytes < 0 {
-					p.Logger().Warn(
-						"negative pendingSendBytes reset",
-						"protocol", p.config.Name,
-						"value", p.pendingSendBytes,
+					p.SendError(
+						fmt.Errorf(
+							"%s: error sending message: %w",
+							p.config.Name,
+							err,
+						),
 					)
-					p.pendingSendBytes = 0
+					return
 				}
-				p.pendingBytesMu.Unlock()
+				// Queue any state transitions after the initial one for this message batch
+				queueTransition = true
+			}
+			if outbound.deliveryChan != nil {
+				deliveryChan = outbound.deliveryChan
+				break readSendQueueLoop
+			}
 
-				if queueTransition {
-					queuedStateTransitions = append(queuedStateTransitions, msg)
-				} else {
-					if err := p.transitionState(msg); err != nil {
-						if errors.Is(err, ErrProtocolShuttingDown) {
-							// Graceful shutdown in progress
-							return
-						}
-						p.SendError(
-							fmt.Errorf(
-								"%s: error sending message: %w",
-								p.config.Name,
-								err,
-							),
-						)
-						return
-					}
-					// Queue any state transitions after the initial one for this message batch
-					queueTransition = true
-				}
-				if outbound.deliveryChan != nil {
-					deliveryChan = outbound.deliveryChan
-					break readSendQueueLoop
-				}
-
-				// We don't want more than maxMessagesPerSegment messages in a segment
-				if msgCount >= maxMessagesPerSegment {
-					break readSendQueueLoop
-				}
-				// We don't want to add more messages once we spill over into a second segment
-				if payloadBuf.Len() > muxer.SegmentMaxPayloadLength {
-					break readSendQueueLoop
-				}
-				// Check if there are any more queued messages
-				if len(p.sendQueueChan) == 0 {
-					break readSendQueueLoop
-				}
+			// We don't want more than maxMessagesPerSegment messages in a segment
+			if msgCount >= maxMessagesPerSegment {
+				break readSendQueueLoop
+			}
+			// We don't want to add more messages once we spill over into a second segment
+			if payloadBuf.Len() > muxer.SegmentMaxPayloadLength {
+				break readSendQueueLoop
+			}
+			// Check if there are any more queued messages
+			if len(p.sendQueueChan) == 0 {
+				break readSendQueueLoop
 			}
 		}
 

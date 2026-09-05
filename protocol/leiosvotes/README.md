@@ -44,6 +44,18 @@ Busy --Vote, tokens = 1--> Idle
 Idle --Done--> Done
 ```
 
+## Optional server responder
+
+Leios votes has no state-machine-valid empty batch response. When
+`RequestNextFunc` is unconfigured, the server enters `Busy`, sends no response,
+and leaves the request pending with its `Busy` timeout disabled. This preserves
+the protocol's agency and lets other mini-protocols on the bearer continue
+without a server-side connection error. The requester retains its own `Busy`
+timeout and may eventually close the connection from its side. Invalid request
+counts, configured callback errors, and transport failures still follow the
+normal protocol-error path; configured servers retain the normal `Busy`
+timeout.
+
 ## States
 
 | State | ID | Agency | Description |

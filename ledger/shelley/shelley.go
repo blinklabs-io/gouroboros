@@ -151,6 +151,9 @@ func (b *ShelleyBlock) Era() common.Era {
 }
 
 func (b *ShelleyBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
 	for idx := range b.TransactionBodies {
@@ -231,13 +234,56 @@ type ShelleyBlockHeaderBody struct {
 	ProtoMinorVersion    uint64
 }
 
+type shelleyBlockHeaderBodyWire struct {
+	cbor.StructAsArray
+	BlockNumber          uint64
+	Slot                 uint64
+	PrevHash             cbor.RawMessage
+	IssuerVkey           common.IssuerVkey
+	VrfKey               []byte
+	NonceVrf             common.VrfResult
+	LeaderVrf            common.VrfResult
+	BlockBodySize        uint64
+	BlockBodyHash        common.Blake2b256
+	OpCertHotVkey        []byte
+	OpCertSequenceNumber uint32
+	OpCertKesPeriod      uint32
+	OpCertSignature      []byte
+	ProtoMajorVersion    uint64
+	ProtoMinorVersion    uint64
+}
+
 func (b *ShelleyBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
-	type tShelleyBlockHeaderBody ShelleyBlockHeaderBody
-	var tmp tShelleyBlockHeaderBody
+	var tmp shelleyBlockHeaderBodyWire
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*b = ShelleyBlockHeaderBody(tmp)
+	var prevHash common.Blake2b256
+	// Origin headers encode prev_hash as null. Keep that compatibility scoped
+	// to this field while non-null hashes use the globally strict decoder.
+	// Mirrors BabbageBlockHeaderBody; this body serves Shelley through Alonzo.
+	if len(tmp.PrevHash) != 1 || tmp.PrevHash[0] != 0xf6 {
+		if _, err := cbor.Decode(tmp.PrevHash, &prevHash); err != nil {
+			return fmt.Errorf("decode previous hash: %w", err)
+		}
+	}
+	*b = ShelleyBlockHeaderBody{
+		BlockNumber:          tmp.BlockNumber,
+		Slot:                 tmp.Slot,
+		PrevHash:             prevHash,
+		IssuerVkey:           tmp.IssuerVkey,
+		VrfKey:               tmp.VrfKey,
+		NonceVrf:             tmp.NonceVrf,
+		LeaderVrf:            tmp.LeaderVrf,
+		BlockBodySize:        tmp.BlockBodySize,
+		BlockBodyHash:        tmp.BlockBodyHash,
+		OpCertHotVkey:        tmp.OpCertHotVkey,
+		OpCertSequenceNumber: tmp.OpCertSequenceNumber,
+		OpCertKesPeriod:      tmp.OpCertKesPeriod,
+		OpCertSignature:      tmp.OpCertSignature,
+		ProtoMajorVersion:    tmp.ProtoMajorVersion,
+		ProtoMinorVersion:    tmp.ProtoMinorVersion,
+	}
 	b.SetCbor(cborData)
 	return nil
 }
@@ -313,9 +359,19 @@ func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
 	*b = ShelleyTransactionBody(tmp)
 	b.SetCbor(cborData)
 	return nil
+}
+
+func (b *ShelleyTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return cbor.EncodeGeneric(b)
 }
 
 func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
@@ -382,7 +438,8 @@ func (b *ShelleyTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
 }
 
 type ShelleyTransactionInputSet struct {
-	items []ShelleyTransactionInput
+	items    []ShelleyTransactionInput
+	cborData []byte
 }
 
 func NewShelleyTransactionInputSet(
@@ -405,21 +462,44 @@ func (s *ShelleyTransactionInputSet) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
 	}
-	s.items = tmpData
+	s.items = uniqueShelleyTransactionInputs(tmpData)
+	s.cborData = append(s.cborData[:0], data...)
 	return nil
 }
 
 func (s *ShelleyTransactionInputSet) MarshalCBOR() ([]byte, error) {
+	if s.cborData != nil {
+		return s.cborData, nil
+	}
 	return cbor.Encode(s.items)
 }
 
 func (s *ShelleyTransactionInputSet) Items() []ShelleyTransactionInput {
-	return s.items
+	ret := make([]ShelleyTransactionInput, len(s.items))
+	copy(ret, s.items)
+	return ret
+}
+
+func uniqueShelleyTransactionInputs(
+	items []ShelleyTransactionInput,
+) []ShelleyTransactionInput {
+	ret := make([]ShelleyTransactionInput, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		key := item.String()
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		ret = append(ret, item)
+	}
+	return ret
 }
 
 func (s *ShelleyTransactionInputSet) SetItems(items []ShelleyTransactionInput) {
 	s.items = make([]ShelleyTransactionInput, len(items))
 	copy(s.items, items)
+	s.cborData = nil
 }
 
 type ShelleyTransactionInput struct {
@@ -586,6 +666,13 @@ func (w *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	*w = ShelleyTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil
+}
+
+func (w *ShelleyTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
+	if w.Cbor() != nil {
+		return w.Cbor(), nil
+	}
+	return cbor.EncodeGeneric(w)
 }
 
 func (w ShelleyTransactionWitnessSet) Vkey() []common.VkeyWitness {

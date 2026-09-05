@@ -261,7 +261,8 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 		margin := common.NewGenesisRat(0, 1)
 		if marginJSON := bytes.TrimSpace(extraPool.Margin); len(marginJSON) > 0 &&
 			!bytes.Equal(marginJSON, []byte("null")) {
-			if err := margin.UnmarshalJSON(extraPool.Margin); err != nil {
+			margin, err = common.ParsePoolMarginJSON(extraPool.Margin)
+			if err != nil {
 				return nil, err
 			}
 		}

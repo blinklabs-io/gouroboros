@@ -26,9 +26,21 @@
 //
 // The genesis window is defined as 3k/f slots, matching the forecast range.
 // Once a node finishes syncing, it gracefully converges to standard Praos selection.
+//
+// Relationship to the consensus package: the tip-level ordering surface for
+// candidate chains is consensus.PraosChainSelector.CompareWithDensity, which
+// applies the same windowed block-count rule to ChainTip values and falls
+// through to the ordinary Praos comparison on equal density. This package's
+// GenesisSelector operates on fragment-level data (ChainFragment) and breaks
+// density ties by total block count instead; its Density and ExpectedDensity
+// float helpers predate the integer windowed-count metric and are retained
+// for compatibility. Derive the window itself with ComputeGenesisWindow in
+// both cases so the 3k/f ceiling semantics stay single-sourced.
 package genesis
 
 import (
+	"errors"
+	"fmt"
 	"math/big"
 )
 
@@ -42,18 +54,32 @@ type GenesisConfig struct {
 	ActiveSlotCoeff *big.Rat
 
 	// GenesisWindow is 3k/f slots - the window for density comparison
-	// If zero, computed from SecurityParam and ActiveSlotCoeff
+	// If zero, it is computed from SecurityParam and ActiveSlotCoeff. A
+	// nonzero value must match that checked computation exactly.
 	GenesisWindow uint64
 }
 
-// ComputeGenesisWindow calculates the genesis window (3k/f) from parameters
+// ComputeGenesisWindow calculates the genesis window (ceiling(3k/f)) from
+// parameters. It returns an error when the parameters are invalid or the
+// result cannot be represented as a uint64.
 func ComputeGenesisWindow(
 	securityParam uint64,
 	activeSlotCoeff *big.Rat,
-) uint64 {
-	// Guard against nil or zero activeSlotCoeff to avoid division by zero
-	if activeSlotCoeff == nil || activeSlotCoeff.Sign() == 0 {
-		return 0
+) (uint64, error) {
+	if securityParam == 0 {
+		return 0, errors.New(
+			"genesis security parameter must be greater than zero",
+		)
+	}
+	if activeSlotCoeff == nil {
+		return 0, errors.New("genesis active slot coefficient is required")
+	}
+	if activeSlotCoeff.Sign() <= 0 ||
+		activeSlotCoeff.Cmp(big.NewRat(1, 1)) > 0 {
+		return 0, fmt.Errorf(
+			"genesis active slot coefficient must be greater than zero and at most one: got %s",
+			activeSlotCoeff.String(),
+		)
 	}
 	// Genesis window = 3k/f
 	// With k=2160 and f=0.05, window = 3*2160/0.05 = 129600 slots
@@ -63,17 +89,31 @@ func ComputeGenesisWindow(
 	threeK := new(big.Rat).SetInt(new(big.Int).Mul(three, k))
 	window := new(big.Rat).Quo(threeK, activeSlotCoeff)
 
-	// Convert to uint64 using integer division for deterministic, precise behavior
-	// Num/Denom gives exact integer division result
+	// Convert to uint64 with CEILING division, matching cardano-ledger's
+	// computeStabilityWindow ("ceiling $ (3 * fromIntegral k) /. f",
+	// eras/shelley/impl/src/Cardano/Ledger/Shelley/StabilityWindow.hs) —
+	// ouroboros-consensus uses that value as the Shelley-era genesis window
+	// (shelleyEraParams: eraGenesisWin = GenesisWindow stabilityWindow).
+	// Floor vs ceiling differs whenever 3k/f is not integral; the window is
+	// consensus-relevant, so the rounding must match exactly. On mainnet
+	// (k=2160, f=1/20) 3k/f = 129600 exactly, so both roundings agree.
 	num := window.Num()
 	denom := window.Denom()
-	result := new(big.Int).Div(num, denom)
-
-	// Clamp to uint64 max if result overflows
-	if !result.IsUint64() {
-		return ^uint64(0) // max uint64
+	result, remainder := new(big.Int).QuoRem(
+		num, denom, new(big.Int),
+	)
+	if remainder.Sign() != 0 {
+		result.Add(result, big.NewInt(1))
 	}
-	return result.Uint64()
+
+	if !result.IsUint64() {
+		return 0, fmt.Errorf(
+			"computed genesis window overflows uint64: ceiling(3*%d/%s)",
+			securityParam,
+			activeSlotCoeff.String(),
+		)
+	}
+	return result.Uint64(), nil
 }
 
 // ChainFragment represents a fragment of a chain for selection purposes
@@ -97,15 +137,25 @@ type GenesisSelector struct {
 	config GenesisConfig
 }
 
-// NewGenesisSelector creates a new Genesis chain selector
-func NewGenesisSelector(config GenesisConfig) *GenesisSelector {
-	if config.GenesisWindow == 0 && config.ActiveSlotCoeff != nil {
-		config.GenesisWindow = ComputeGenesisWindow(
-			config.SecurityParam,
-			config.ActiveSlotCoeff,
+// NewGenesisSelector creates a validated Genesis chain selector.
+func NewGenesisSelector(config GenesisConfig) (*GenesisSelector, error) {
+	computedWindow, err := ComputeGenesisWindow(
+		config.SecurityParam,
+		config.ActiveSlotCoeff,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if config.GenesisWindow == 0 {
+		config.GenesisWindow = computedWindow
+	} else if config.GenesisWindow != computedWindow {
+		return nil, fmt.Errorf(
+			"configured genesis window %d does not match computed genesis window %d",
+			config.GenesisWindow,
+			computedWindow,
 		)
 	}
-	return &GenesisSelector{config: config}
+	return &GenesisSelector{config: config}, nil
 }
 
 // Compare compares two chain fragments using Genesis rules

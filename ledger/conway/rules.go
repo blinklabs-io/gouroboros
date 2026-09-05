@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"slices"
 
@@ -32,67 +33,303 @@ import (
 	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
-	"github.com/blinklabs-io/plutigo/syn"
 )
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	UtxoValidateMetadata,
-	UtxoValidateProposalProcedures,
-	UtxoValidateGovActionWellFormedness,
-	UtxoValidateHardForkCanFollow,
-	UtxoValidateProposalAncestry,
-	UtxoValidateProposalDeposit,
-	UtxoValidateProposalNetworkIds,
-	UtxoValidateProposalReturnAccounts,
-	UtxoValidateEmptyTreasuryWithdrawals,
-	UtxoValidateBootstrapAllowedGovActions,
-	UtxoValidateBootstrapParameterGroups,
-	UtxoValidateIsValidFlag,
-	UtxoValidateRequiredVKeyWitnesses,
-	UtxoValidateCollateralVKeyWitnesses,
-	UtxoValidateRedeemerAndScriptWitnesses,
-	UtxoValidateSignatures,
-	UtxoValidateCostModelsPresent,
-	UtxoValidateScriptDataHash,
-	UtxoValidateInlineDatumsWithPlutusV1,
-	UtxoValidateConwayFeaturesWithPlutusV1V2,
-	UtxoValidateDisjointRefInputs,
-	UtxoValidateOutsideValidityIntervalUtxo,
-	UtxoValidateInputSetEmptyUtxo,
-	UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateInsufficientCollateral,
-	UtxoValidateCollateralContainsNonAda,
-	UtxoValidateCollateralEqBalance,
-	UtxoValidateNoCollateralInputs,
-	UtxoValidateBadInputsUtxo,
-	// Ensure script witness presence/absence is validated after redeemer/script relation
-	UtxoValidateScriptWitnesses,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputTooBigUtxo,
-	UtxoValidateOutputBootAddrAttrsTooBig,
-	UtxoValidateWrongNetwork,
-	UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateTransactionNetworkId,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateExUnitsTooBigUtxo,
-	UtxoValidateTooManyCollateralInputs,
-	UtxoValidateSupplementalDatums,
-	UtxoValidateExtraneousRedeemers,
-	UtxoValidatePlutusScripts,
-	UtxoValidateNativeScripts,
-	UtxoValidateDelegation,
-	UtxoValidateWithdrawals,
-	UtxoValidateCommitteeCertificates,
-	UtxoValidateUnknownVoters,
-	UtxoValidateUnknownGovActionIds,
-	UtxoValidateVotingOnExpiredGovAction,
-	UtxoValidateBootstrapVotingRestrictions,
-	UtxoValidateStakePoolVotingRestrictions,
-	UtxoValidateCCVotingRestrictions,
-	UtxoValidateMalformedReferenceScripts,
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{
+		Id:        common.UtxoValidationRuleCurrentTreasuryValue,
+		Validator: common.UtxoValidateCurrentTreasuryValue,
+	},
+	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
+	{
+		Id:        common.UtxoValidationRuleProposalProcedures,
+		Validator: UtxoValidateProposalProcedures,
+	},
+	{
+		Id:        common.UtxoValidationRuleGovActionWellFormedness,
+		Validator: UtxoValidateGovActionWellFormedness,
+	},
+	{
+		Id:        common.UtxoValidationRuleHardForkCanFollow,
+		Validator: UtxoValidateHardForkCanFollow,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalAncestry,
+		Validator: UtxoValidateProposalAncestry,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalDeposit,
+		Validator: UtxoValidateProposalDeposit,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalNetworkIds,
+		Validator: UtxoValidateProposalNetworkIds,
+	},
+	{
+		Id:        common.UtxoValidationRuleProposalReturnAccounts,
+		Validator: UtxoValidateProposalReturnAccounts,
+	},
+	{
+		Id:        common.UtxoValidationRuleEmptyTreasuryWithdrawals,
+		Validator: UtxoValidateEmptyTreasuryWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapAllowedGovActions,
+		Validator: UtxoValidateBootstrapAllowedGovActions,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapParameterGroups,
+		Validator: UtxoValidateBootstrapParameterGroups,
+	},
+	{
+		Id:        common.UtxoValidationRuleIsValidFlag,
+		Validator: UtxoValidateIsValidFlag,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralVKeyWitnesses,
+		Validator: UtxoValidateCollateralVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+		Validator: UtxoValidateRedeemerAndScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleCostModelsPresent,
+		Validator: UtxoValidateCostModelsPresent,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptDataHash,
+		Validator: UtxoValidateScriptDataHash,
+	},
+	{
+		Id:        common.UtxoValidationRuleInlineDatumsWithPlutusV1,
+		Validator: UtxoValidateInlineDatumsWithPlutusV1,
+	},
+	{
+		Id:        common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2,
+		Validator: UtxoValidateConwayFeaturesWithPlutusV1V2,
+	},
+	{
+		Id:        common.UtxoValidationRuleDisjointRefInputs,
+		Validator: UtxoValidateDisjointRefInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideValidityInterval,
+		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInsufficientCollateral,
+		Validator: UtxoValidateInsufficientCollateral,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralContainsNonAda,
+		Validator: UtxoValidateCollateralContainsNonAda,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralEqBalance,
+		Validator: UtxoValidateCollateralEqBalance,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoCollateralInputs,
+		Validator: UtxoValidateNoCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
+	// Ensure script witness presence/absence is validated after the
+	// redeemer/script relation.
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredRedeemers,
+		Validator: UtxoValidateRequiredRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooBig,
+		Validator: UtxoValidateOutputTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleTransactionNetworkId,
+		Validator: UtxoValidateTransactionNetworkId,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleExUnitsTooBig,
+		Validator: UtxoValidateExUnitsTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleTooManyCollateralInputs,
+		Validator: UtxoValidateTooManyCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleSupplementalDatums,
+		Validator: UtxoValidateSupplementalDatums,
+	},
+	{
+		Id:        common.UtxoValidationRuleExtraneousRedeemers,
+		Validator: UtxoValidateExtraneousRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRuleMalformedReferenceScripts,
+		Validator: UtxoValidateMalformedReferenceScripts,
+	},
+	{
+		Id:        common.UtxoValidationRulePlutusScripts,
+		Validator: UtxoValidatePlutusScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleCertificateDeposits,
+		Validator: UtxoValidateCertificateDeposits,
+	},
+	{
+		Id:        common.UtxoValidationRuleCommitteeCertificates,
+		Validator: UtxoValidateCommitteeCertificates,
+	},
+	{
+		Id:        common.UtxoValidationRuleUnknownVoters,
+		Validator: UtxoValidateUnknownVoters,
+	},
+	{
+		Id:        common.UtxoValidationRuleUnknownGovActionIds,
+		Validator: UtxoValidateUnknownGovActionIds,
+	},
+	{
+		Id:        common.UtxoValidationRuleVotingOnExpiredGovAction,
+		Validator: UtxoValidateVotingOnExpiredGovAction,
+	},
+	{
+		Id:        common.UtxoValidationRuleBootstrapVotingRestrictions,
+		Validator: UtxoValidateBootstrapVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleStakePoolVotingRestrictions,
+		Validator: UtxoValidateStakePoolVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleCCVotingRestrictions,
+		Validator: UtxoValidateCCVotingRestrictions,
+	},
+	{
+		Id:        common.UtxoValidationRuleRefScriptSizePerTx,
+		Validator: UtxoValidateRefScriptSizePerTx,
+	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
+	},
 }
+
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
+var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(common.UtxoValidateCurrentTreasuryValue),
+	common.AlwaysUtxoValidationRules(UtxoValidateMetadata),
+	common.Phase2ValidUtxoValidationRules(UtxoValidateProposalProcedures),
+	common.AlwaysUtxoValidationRules(UtxoValidateGovActionWellFormedness),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateHardForkCanFollow, UtxoValidateProposalAncestry,
+		UtxoValidateProposalDeposit, UtxoValidateProposalNetworkIds,
+		UtxoValidateProposalReturnAccounts, UtxoValidateEmptyTreasuryWithdrawals,
+		UtxoValidateBootstrapAllowedGovActions, UtxoValidateBootstrapParameterGroups,
+	),
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateCollateralVKeyWitnesses, UtxoValidateRedeemerAndScriptWitnesses,
+		UtxoValidateSignatures, UtxoValidateCostModelsPresent, UtxoValidateScriptDataHash,
+		UtxoValidateInlineDatumsWithPlutusV1, UtxoValidateConwayFeaturesWithPlutusV1V2,
+		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
+		UtxoValidateNoCollateralInputs, UtxoValidateBadInputsUtxo,
+		UtxoValidateScriptWitnesses, UtxoValidateRequiredRedeemers,
+		UtxoValidateValueNotConservedUtxo, UtxoValidateOutputTooSmallUtxo,
+		UtxoValidateOutputTooBigUtxo, UtxoValidateOutputBootAddrAttrsTooBig,
+		UtxoValidateWrongNetwork, UtxoValidateWrongNetworkWithdrawal,
+		UtxoValidateTransactionNetworkId, UtxoValidateMaxTxSizeUtxo,
+		UtxoValidateExUnitsTooBigUtxo, UtxoValidateTooManyCollateralInputs,
+		UtxoValidateSupplementalDatums, UtxoValidateExtraneousRedeemers,
+		UtxoValidateMalformedReferenceScripts, UtxoValidatePlutusScripts,
+		UtxoValidateNativeScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidateCertificateDeposits,
+		UtxoValidateCommitteeCertificates, UtxoValidateUnknownVoters,
+		UtxoValidateUnknownGovActionIds, UtxoValidateVotingOnExpiredGovAction,
+		UtxoValidateBootstrapVotingRestrictions, UtxoValidateStakePoolVotingRestrictions,
+		UtxoValidateCCVotingRestrictions, UtxoValidateRefScriptSizePerTx,
+		UtxoValidatePoolCertificates,
+	),
+)
 
 // isInConwayBootstrapPhase reports whether the given protocol parameters
 // are in the Conway bootstrap phase: protocol major version in the range
@@ -208,7 +445,7 @@ func UtxoValidateProposalProcedures(
 ) error {
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 
@@ -237,12 +474,13 @@ func UtxoValidateEmptyTreasuryWithdrawals(
 ) error {
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 
 		// Check if this is a TreasuryWithdrawalGovAction with empty withdrawals
-		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok {
+		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok &&
+			twAction != nil {
 			if len(twAction.Withdrawals) == 0 {
 				return EmptyTreasuryWithdrawalsError{}
 			}
@@ -282,7 +520,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 	}
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 		// NOTE: closed-set type-switch over the 7 GovActionType constants in
@@ -335,7 +573,7 @@ func UtxoValidateBootstrapParameterGroups(
 	}
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 		paramChange, ok := govAction.(*ConwayParameterChangeGovAction)
@@ -370,12 +608,13 @@ func UtxoValidateProposalNetworkIds(
 
 		// Check addresses within governance actions
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 
 		// TreasuryWithdrawalGovAction contains withdrawal addresses
-		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok {
+		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok &&
+			twAction != nil {
 			for addr := range twAction.Withdrawals {
 				if addr.NetworkId() != networkId {
 					badAddrs = append(badAddrs, *addr)
@@ -414,9 +653,12 @@ const (
 func govActionAncestor(
 	ga common.GovAction,
 ) (ancestor *common.GovActionId, purpose govActionPurpose, ok bool) {
+	if isNilGovAction(ga) {
+		return nil, 0, false
+	}
 	switch a := ga.(type) {
-	case *ConwayParameterChangeGovAction:
-		return a.ActionId, govPurposePParamUpdate, true
+	case common.ParameterChangeGovAction:
+		return a.PreviousGovActionId(), govPurposePParamUpdate, true
 	case *common.HardForkInitiationGovAction:
 		return a.ActionId, govPurposeHardFork, true
 	case *common.NoConfidenceGovAction:
@@ -467,6 +709,200 @@ func protocolVersionCanFollow(
 	return newMajor == curMajor && newMinor == curMinor+1
 }
 
+// txGovProposal is a governance action proposed by the transaction under
+// validation, together with its position in the transaction's proposal
+// procedures.
+type txGovProposal struct {
+	idx    int
+	action common.GovAction
+}
+
+// governanceProposalIndexFits reports whether an int can be represented by
+// the uint32 index carried in a governance action ID. Converting first to
+// uint64 keeps the comparison well-typed on 32-bit targets, where the
+// untyped math.MaxUint32 constant cannot be represented by int.
+func governanceProposalIndexFits(idx int) bool {
+	return idx >= 0 && int64(idx) <= int64(math.MaxUint32)
+}
+
+// txProposalActions indexes the governance actions proposed by tx itself by
+// the governance action id each one receives once the transaction is
+// accepted, (transaction id, proposal index).
+//
+// cardano-ledger's conwayGovTransition folds processProposal over the
+// proposal procedures in order and threads the accumulated Proposals through
+// every subsequent check, so a proposal may name an earlier proposal of the
+// same transaction as its predecessor, and a vote may refer to an action
+// proposed by its own transaction. Rules that only consult the ledger state
+// would reject those as unknown.
+func txProposalActions(
+	tx common.Transaction,
+) map[common.GovActionId]txGovProposal {
+	proposals := tx.ProposalProcedures()
+	if len(proposals) == 0 {
+		return nil
+	}
+	txId := tx.Hash()
+	ret := make(map[common.GovActionId]txGovProposal, len(proposals))
+	for idx, proposal := range proposals {
+		if !governanceProposalIndexFits(idx) {
+			break
+		}
+		actionId := common.GovActionId{
+			TransactionId: txId,
+			GovActionIdx:  uint32(idx), // #nosec G115 -- bounded above
+		}
+		ret[actionId] = txGovProposal{idx: idx, action: proposal.GovAction()}
+	}
+	return ret
+}
+
+// govActionResolver answers questions about the governance action a voting
+// procedure names, consulting the proposals of the transaction under
+// validation before the ledger state.
+//
+// cardano-ledger's conwayGovTransition folds the transaction's proposals into
+// the proposal set before checking its votes
+// (eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs at commit
+// 08773e9a8f911f67209560a4e401369cbb21a0cb), so a vote may name an action its
+// own transaction proposes. A rule that only consults the ledger state either
+// rejects such a vote as unknown or leaves its restriction unenforced.
+//
+// The proposal index is built lazily, so a transaction with no voting
+// procedures or no proposals pays nothing.
+type govActionResolver struct {
+	tx        common.Transaction
+	ls        common.LedgerState
+	proposals map[common.GovActionId]txGovProposal
+	loaded    bool
+}
+
+// txProposal returns the proposal of the transaction under validation that
+// receives actionId once the transaction is accepted.
+func (r *govActionResolver) txProposal(
+	actionId common.GovActionId,
+) (txGovProposal, bool) {
+	if !r.loaded {
+		r.proposals = txProposalActions(r.tx)
+		r.loaded = true
+	}
+	proposal, ok := r.proposals[actionId]
+	return proposal, ok
+}
+
+// exists reports whether actionId names a governance action the ledger state
+// records or the transaction under validation proposes. A proposal whose
+// action contents are absent still counts as existing: a proposal procedure
+// always carries an action on the wire, and cardano-ledger adds the proposal
+// to the folded proposal set regardless of what it proposes.
+func (r *govActionResolver) exists(actionId common.GovActionId) bool {
+	if r.ls != nil && r.ls.GovActionExists(actionId) {
+		return true
+	}
+	_, ok := r.txProposal(actionId)
+	return ok
+}
+
+// resolve returns the type and, where available, the contents of the
+// governance action named by actionId. ok is false when neither the
+// transaction nor the ledger state can classify the action, which leaves a
+// type-dependent restriction unenforced rather than guessed at.
+func (r *govActionResolver) resolve(
+	actionId common.GovActionId,
+) (actionType common.GovActionType, action common.GovAction, ok bool) {
+	if proposal, found := r.txProposal(actionId); found {
+		if isNilGovAction(proposal.action) {
+			return 0, nil, false
+		}
+		resolvedType, ok := govActionValidationType(proposal.action)
+		if !ok {
+			return 0, nil, false
+		}
+		return resolvedType, proposal.action, true
+	}
+	if r.ls == nil {
+		return 0, nil, false
+	}
+	actionState, err := r.ls.GovActionById(actionId)
+	if err != nil || actionState == nil {
+		return 0, nil, false
+	}
+	action = actionState.Action
+	if isNilGovAction(action) {
+		action = nil
+	}
+	return actionState.ActionType, action, true
+}
+
+// govActionValidationType classifies an action for shared governance rules.
+// Unlike the Conway wire constructor, validation accepts the era-independent
+// parameter-change action contract implemented by later eras.
+func govActionValidationType(
+	action common.GovAction,
+) (common.GovActionType, bool) {
+	if isNilGovAction(action) {
+		return 0, false
+	}
+	if _, ok := action.(common.ParameterChangeGovAction); ok {
+		return common.GovActionTypeParameterChange, true
+	}
+	actionType, err := conwayGovActionType(action)
+	if err != nil {
+		return 0, false
+	}
+	return common.GovActionType(actionType), true
+}
+
+// hardForkProposedVersion returns the protocol version proposed by a
+// HardForkInitiation action. ok is false for any other action type, matching
+// the pattern match on HardForkInitiation in cardano-ledger's
+// preceedingHardFork.
+func hardForkProposedVersion(
+	action common.GovAction,
+) (major, minor uint, ok bool) {
+	hf, isHardFork := action.(*common.HardForkInitiationGovAction)
+	if !isHardFork || hf == nil {
+		return 0, 0, false
+	}
+	return hf.ProtocolVersion.Major, hf.ProtocolVersion.Minor, true
+}
+
+// govPurposeRoots returns the current root of each governance-action purpose
+// chain when the ledger state implements the optional
+// common.GovPurposeRootsState capability, and nil when it does not.
+func govPurposeRoots(
+	ls common.LedgerState,
+) (*common.GovPurposeRoots, error) {
+	rootsState, ok := ls.(common.GovPurposeRootsState)
+	if !ok {
+		return nil, nil
+	}
+	return rootsState.GovPurposeRoots()
+}
+
+// govPurposeRootId returns the root governance action id recorded for a
+// purpose, or nil when nothing of that purpose has been enacted yet.
+func govPurposeRootId(
+	roots *common.GovPurposeRoots,
+	purpose govActionPurpose,
+) *common.GovActionId {
+	if roots == nil {
+		return nil
+	}
+	switch purpose {
+	case govPurposePParamUpdate:
+		return roots.PParamUpdate
+	case govPurposeHardFork:
+		return roots.HardFork
+	case govPurposeCommittee:
+		return roots.Committee
+	case govPurposeConstitution:
+		return roots.Constitution
+	default:
+		return nil
+	}
+}
+
 // UtxoValidateGovActionWellFormedness performs structural well-formedness
 // checks on governance actions beyond the ParameterChange-specific checks in
 // UtxoValidateProposalProcedures (ConwayGovPredFailure.MalformedProposal),
@@ -479,15 +915,17 @@ func UtxoValidateGovActionWellFormedness(
 ) error {
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
-			continue
+		if isNilGovAction(govAction) {
+			return MalformedGovActionError{
+				Reason: "governance action cannot be nil",
+			}
 		}
 
 		// A governance policy hash, when present, must be a 28-byte script
 		// hash.
 		if withPolicy, ok := govAction.(common.GovActionWithPolicy); ok {
 			policyHash := withPolicy.GetPolicyHash()
-			if len(policyHash) != 0 &&
+			if policyHash != nil &&
 				len(policyHash) != common.Blake2b224Size {
 				return MalformedGovActionError{
 					Reason: fmt.Sprintf(
@@ -501,7 +939,7 @@ func UtxoValidateGovActionWellFormedness(
 
 		switch a := govAction.(type) {
 		case *common.NewConstitutionGovAction:
-			if l := len(a.Constitution.ScriptHash); l != 0 &&
+			if l := len(a.Constitution.ScriptHash); a.Constitution.ScriptHash != nil &&
 				l != common.Blake2b224Size {
 				return MalformedGovActionError{
 					Reason: fmt.Sprintf(
@@ -513,6 +951,9 @@ func UtxoValidateGovActionWellFormedness(
 			}
 
 		case *common.UpdateCommitteeGovAction:
+			if !tx.IsValid() {
+				continue
+			}
 			// common.Credential embeds cbor.DecodeStoreCbor (a slice field),
 			// making it non-comparable, so key the set on its logical
 			// (CredType, Credential hash) value instead.
@@ -556,23 +997,99 @@ func UtxoValidateGovActionWellFormedness(
 			}
 		}
 	}
+	return UtxoValidateGuardrailsScriptHash(tx, slot, ls, pp)
+}
+
+// UtxoValidateGuardrailsScriptHash requires parameter-change and
+// treasury-withdrawal proposals to carry exactly the optional guardrails
+// script hash of the current constitution. Nil is the absent representation,
+// so absent/absent succeeds while either one-sided presence or differing
+// hashes fails.
+func UtxoValidateGuardrailsScriptHash(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	var actions []common.GovActionWithPolicy
+	for _, proposal := range tx.ProposalProcedures() {
+		if proposal == nil {
+			continue
+		}
+		govAction := proposal.GovAction()
+		if isNilGovAction(govAction) {
+			continue
+		}
+		withPolicy, ok := govAction.(common.GovActionWithPolicy)
+		if ok {
+			actions = append(actions, withPolicy)
+		}
+	}
+	if len(actions) == 0 {
+		return nil
+	}
+	if ls == nil {
+		return ConstitutionLookupError{
+			Err: errors.New("ledger state is nil"),
+		}
+	}
+	constitution, err := ls.Constitution()
+	if err != nil {
+		return ConstitutionLookupError{Err: err}
+	}
+	var expected []byte
+	if constitution != nil {
+		expected = constitution.ScriptHash
+		if expected != nil && len(expected) != common.Blake2b224Size {
+			return MalformedConstitutionError{
+				ScriptHashLength: len(expected),
+			}
+		}
+	}
+	for _, action := range actions {
+		actual := action.GetPolicyHash()
+		if (actual == nil) != (expected == nil) ||
+			!bytes.Equal(actual, expected) {
+			return InvalidGuardrailsScriptHashError{
+				Actual:   bytes.Clone(actual),
+				Expected: bytes.Clone(expected),
+			}
+		}
+	}
 	return nil
 }
 
 // UtxoValidateHardForkCanFollow checks that a HardForkInitiation governance
-// action's proposed protocol version can legally follow the current
-// protocol version (ConwayGovPredFailure.ProposalCantFollow).
+// action's proposed protocol version can legally follow the protocol version
+// it succeeds (ConwayGovPredFailure.ProposalCantFollow).
 //
-// NOTE: the ledger spec compares against the *referenced ancestor's*
-// proposed protocol version when the proposal has a PrevGovActionId,
-// falling back to the currently enacted protocol version only when there is
-// no ancestor (or the proposed major version already exceeds the current
-// major's direct successor). GovActionState in this codebase only records
-// ActionType and ExpirySlot, not the ancestor's proposed ProtVer, so when an
-// ancestor is referenced this rule intentionally defers the numeric version
-// check (ancestor existence/purpose is validated separately by
-// UtxoValidateProposalAncestry) rather than comparing against the wrong
-// reference version.
+// This mirrors preceedingHardFork plus the pvCanFollow guard in
+// cardano-ledger's conwayGovTransition
+// (eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs lines 488-499 and
+// 673-695 at commit 08773e9a8f911f67209560a4e401369cbb21a0cb):
+//
+//   - a proposed major version more than one above the currently enacted
+//     major version is compared against the enacted version, so a chain of
+//     pending proposals cannot be used to jump ahead;
+//   - otherwise a proposal with a predecessor is compared against that
+//     predecessor's proposed protocol version, taken from the transaction
+//     itself for a predecessor proposed by the same transaction, or from the
+//     ledger state's record of the referenced action;
+//   - a proposal with no predecessor is compared against the enacted
+//     version. The enacted protocol version is always the version proposed
+//     by the hard-fork action that is the current root of the hard-fork
+//     purpose chain, since a ParameterChange action cannot alter the
+//     protocol version, so comparing against the recorded proposed version
+//     of a predecessor that is the root gives the same verdict as the
+//     reference implementation's comparison against the enacted version.
+//
+// A predecessor whose contents the ledger state does not record (see
+// common.GovActionState.Action) leaves the numeric check deferred rather
+// than run against the wrong reference version; the predecessor's existence
+// and purpose are validated by UtxoValidateProposalAncestry.
 func UtxoValidateHardForkCanFollow(
 	tx common.Transaction,
 	slot uint64,
@@ -583,21 +1100,58 @@ func UtxoValidateHardForkCanFollow(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	for _, proposal := range tx.ProposalProcedures() {
+	curPV := conwayPp.ProtocolVersion
+	var txProposals map[common.GovActionId]txGovProposal
+	txProposalsLoaded := false
+	for idx, proposal := range tx.ProposalProcedures() {
 		hf, ok := proposal.GovAction().(*common.HardForkInitiationGovAction)
-		if !ok {
+		if !ok || hf == nil {
 			continue
 		}
-		if hf.ActionId != nil {
-			// See NOTE above: cannot verify the exact version chain without
-			// the ancestor's proposed protocol version.
-			continue
-		}
-		curPV := conwayPp.ProtocolVersion
 		newPV := hf.ProtocolVersion
+		// Equivalent to `Just (pvMajor newProtVer) > succVersion (pvMajor
+		// current)` without risking an overflow on curPV.Major+1.
+		majorTooHigh := newPV.Major > curPV.Major &&
+			newPV.Major-curPV.Major > 1
+		refMajor, refMinor := curPV.Major, curPV.Minor
+		if hf.ActionId != nil && !majorTooHigh {
+			if !txProposalsLoaded {
+				txProposals = txProposalActions(tx)
+				txProposalsLoaded = true
+			}
+			var ancestorAction common.GovAction
+			if txProposal, ok := txProposals[*hf.ActionId]; ok {
+				if txProposal.idx >= idx {
+					// Only an earlier proposal of the same transaction has
+					// been folded into the proposal set at this point; a
+					// forward or self reference is reported by
+					// UtxoValidateProposalAncestry.
+					continue
+				}
+				ancestorAction = txProposal.action
+			} else if ls != nil {
+				ancestorState, err := ls.GovActionById(*hf.ActionId)
+				if err != nil || ancestorState == nil {
+					// A missing predecessor is reported by
+					// UtxoValidateProposalAncestry.
+					continue
+				}
+				ancestorAction = ancestorState.Action
+			}
+			if isNilGovAction(ancestorAction) {
+				continue
+			}
+			major, minor, isHardFork := hardForkProposedVersion(ancestorAction)
+			if !isHardFork {
+				// A predecessor of another purpose is reported by
+				// UtxoValidateProposalAncestry.
+				continue
+			}
+			refMajor, refMinor = major, minor
+		}
 		if !protocolVersionCanFollow(
-			curPV.Major,
-			curPV.Minor,
+			refMajor,
+			refMinor,
 			newPV.Major,
 			newPV.Minor,
 		) {
@@ -606,7 +1160,10 @@ func UtxoValidateHardForkCanFollow(
 					Major: newPV.Major,
 					Minor: newPV.Minor,
 				},
-				Expected: curPV,
+				Expected: common.ProtocolParametersProtocolVersion{
+					Major: refMajor,
+					Minor: refMinor,
+				},
 			}
 		}
 	}
@@ -614,36 +1171,90 @@ func UtxoValidateHardForkCanFollow(
 }
 
 // UtxoValidateProposalAncestry checks that a governance action's optional
-// PrevGovActionId, if present, references an existing governance action
-// belonging to the same purpose chain (ConwayGovPredFailure.InvalidPrevGovActionId).
+// PrevGovActionId names a valid predecessor in its purpose chain
+// (ConwayGovPredFailure.InvalidPrevGovActionId).
 //
-// NOTE: the ledger spec additionally verifies that the referenced ancestor
-// is the *current* root of its purpose chain (i.e., no other pending action
-// of that purpose exists that isn't this proposal's ancestor). GovState in
-// this codebase does not expose per-purpose root tracking, so this rule is
-// limited to existence and purpose-type matching.
+// cardano-ledger accepts a proposal only when runProposalsAddAction can
+// attach it to the purpose's tree
+// (eras/conway/impl/src/Cardano/Ledger/Conway/Governance/Proposals.hs lines
+// 305-334 at commit 08773e9a8f911f67209560a4e401369cbb21a0cb, reached from
+// the proposalsAddAction call in conwayGovTransition,
+// eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs lines 550-556):
+// the proposal's predecessor must either equal the current root of that
+// purpose chain, including the case where both are absent, or be a proposal
+// of that purpose that is still pending.
 //
-// This also means the rule's safety (rejecting when an ancestor isn't
-// found) implicitly depends on the LedgerState implementation keeping
-// enacted governance actions queryable via GovActionById rather than
-// pruning them once enacted, since the current root of a purpose chain is
-// normally an already-enacted action; the LedgerState interface does not
-// explicitly promise this, so a backend that prunes enacted proposals would
-// start incorrectly rejecting valid proposals.
+// The current root is only available when the ledger state implements the
+// optional common.GovPurposeRootsState capability. Without it this rule
+// stays limited to ancestor existence and purpose matching, so a ledger
+// state that cannot report roots is not made to reject proposals it has no
+// way to judge.
 func UtxoValidateProposalAncestry(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	for _, proposal := range tx.ProposalProcedures() {
+	proposals := tx.ProposalProcedures()
+	if len(proposals) == 0 {
+		return nil
+	}
+	roots, err := govPurposeRoots(ls)
+	if err != nil {
+		return fmt.Errorf("governance purpose roots lookup failed: %w", err)
+	}
+	txProposals := txProposalActions(tx)
+	for idx, proposal := range proposals {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 		ancestorId, purpose, hasPurpose := govActionAncestor(govAction)
-		if !hasPurpose || ancestorId == nil {
+		if !hasPurpose {
 			continue
+		}
+		rootId := govPurposeRootId(roots, purpose)
+		if ancestorId == nil {
+			// A proposal without a predecessor is only valid while the
+			// purpose chain has no root. Skip the check entirely when the
+			// roots are unknown.
+			if roots == nil || rootId == nil {
+				continue
+			}
+			return InvalidGovActionAncestorError{
+				ActionId: *rootId,
+				Reason: "proposal has no predecessor but the purpose chain " +
+					"root is set",
+			}
+		}
+		// The predecessor is the current root of its purpose chain.
+		if rootId != nil && rootId.Equal(*ancestorId) {
+			continue
+		}
+		// The predecessor is an earlier proposal of the same purpose in this
+		// same transaction.
+		if txProposal, ok := txProposals[*ancestorId]; ok {
+			if txProposal.idx < idx && txProposal.action != nil {
+				_, txPurpose, txHasPurpose := govActionAncestor(
+					txProposal.action,
+				)
+				if txHasPurpose && txPurpose == purpose {
+					continue
+				}
+			}
+			return InvalidGovActionAncestorError{
+				ActionId: *ancestorId,
+				Reason: "referenced ancestor governance action is not an " +
+					"earlier proposal of the same purpose in this transaction",
+			}
+		}
+		// Otherwise the predecessor must be a pending proposal of the same
+		// purpose recorded in the ledger state.
+		if ls == nil {
+			return InvalidGovActionAncestorError{
+				ActionId: *ancestorId,
+				Reason:   "no ledger state available to resolve the ancestor",
+			}
 		}
 		ancestorState, err := ls.GovActionById(*ancestorId)
 		if err != nil {
@@ -663,6 +1274,20 @@ func UtxoValidateProposalAncestry(
 			return InvalidGovActionAncestorError{
 				ActionId: *ancestorId,
 				Reason:   "referenced ancestor governance action has a mismatched purpose",
+			}
+		}
+		// An expired proposal is no longer in the purpose tree, so it cannot
+		// be a predecessor. ExpirySlot is optional in the LedgerState
+		// contract (see UtxoValidateVotingOnExpiredGovAction): a state
+		// provider that does not model expiry leaves it zero, which is
+		// treated as "expiry not modeled" rather than "expired at slot 0".
+		if ancestorState.ExpirySlot != 0 && slot > ancestorState.ExpirySlot {
+			return InvalidGovActionAncestorError{
+				ActionId: *ancestorId,
+				Reason: fmt.Sprintf(
+					"referenced ancestor governance action expired at slot %d",
+					ancestorState.ExpirySlot,
+				),
 			}
 		}
 	}
@@ -741,7 +1366,7 @@ func UtxoValidateProposalReturnAccounts(
 
 		govAction := proposal.GovAction()
 		twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction)
-		if !ok {
+		if !ok || twAction == nil {
 			continue
 		}
 		var badAddrs []common.Address
@@ -1125,6 +1750,19 @@ func UtxoValidateScriptWitnesses(
 	return common.ValidateScriptWitnesses(tx, ls)
 }
 
+// UtxoValidateRequiredRedeemers checks that every Plutus script-address
+// input -- whether its script is provided as an explicit witness or as a
+// CIP-33 reference script -- has a matching spend redeemer. See
+// script.ValidateRequiredRedeemers for details on the gap this closes.
+func UtxoValidateRequiredRedeemers(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return script.ValidateRequiredRedeemers(tx, ls)
+}
+
 // UtxoValidateExtraneousRedeemers checks that all redeemers have valid purposes.
 // A redeemer is "extraneous" if its index is out of bounds for its purpose type:
 // - Spending redeemer index >= number of transaction inputs
@@ -1254,61 +1892,6 @@ func UtxoValidateScriptDataHash(
 	hasRedeemers := wits.WsRedeemers.Len() > 0
 	hasDatums := len(wits.WsPlutusData.Items()) > 0
 
-	// Determine which Plutus versions are used
-	usedVersions := make(map[uint]struct{})
-	if len(wits.WsPlutusV1Scripts.Items()) > 0 {
-		usedVersions[0] = struct{}{}
-	}
-	if len(wits.WsPlutusV2Scripts.Items()) > 0 {
-		usedVersions[1] = struct{}{}
-	}
-	if len(wits.WsPlutusV3Scripts.Items()) > 0 {
-		usedVersions[2] = struct{}{}
-	}
-	if len(common.PlutusV4ScriptsFromWitnessSet(wits)) > 0 {
-		usedVersions[3] = struct{}{}
-	}
-
-	// Also check reference scripts
-	for _, refInput := range tmpTx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		if version, ok := common.PlutusScriptVersion(script); ok {
-			usedVersions[version] = struct{}{}
-		}
-	}
-
-	// Check reference scripts on regular inputs.
-	// These may provide reference scripts for minting, spending, etc.
-	for _, input := range tmpTx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		if version, ok := common.PlutusScriptVersion(script); ok {
-			usedVersions[version] = struct{}{}
-		}
-	}
-
 	declaredHash := tx.ScriptDataHash()
 
 	// ScriptDataHash is required only when the transaction has redeemers or
@@ -1325,6 +1908,27 @@ func UtxoValidateScriptDataHash(
 	if declaredHash == nil {
 		return common.MissingScriptDataHashError{}
 	}
+
+	// The language views cover the Plutus scripts some script purpose of this
+	// transaction requires, not every script it can reach. A reference script
+	// on a spent or referenced input that no purpose needs is inert data (see
+	// the comment above), and counting it adds a view the producer did not,
+	// which rejects a canonical transaction on a hash it never declared
+	// (gouroboros #2188).
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) {
+			// A spent input that does not resolve is reported by
+			// UtxoValidateBadInputsUtxo, which runs on every transaction in
+			// this same rule list. Reporting it from here would change which
+			// error an invalid transaction produces, and this rule is
+			// registered ahead of that one. A reference input that does not
+			// resolve has no such dedicated rule, so it still surfaces here.
+			return nil
+		}
+		return err
+	}
+	usedVersions := view.UsedPlutusVersions()
 
 	// Verify cost models are present for all used Plutus versions
 	// (required for phase-2 validation even if we can't verify the exact hash)
@@ -1451,7 +2055,7 @@ func UtxoValidateFeeTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	minFee, err := MinFeeTx(tx, pp)
+	minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
 	if err != nil {
 		return err
 	}
@@ -1663,8 +2267,28 @@ func UtxoValidateValueNotConservedUtxo(
 			}
 			consumedValue.Add(consumedValue, big.NewInt(tmpCert.Amount))
 		case *common.StakeDeregistrationCertificate:
-			// Traditional stake deregistration uses protocol KeyDeposit parameter
-			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
+			// A legacy deregistration refunds the deposit recorded when the
+			// credential registered, which may predate a KeyDeposit change.
+			//
+			// The current parameter remains the fallback for a state that
+			// cannot report the recorded deposit. Failing closed here instead
+			// rejects six Amaru conformance vectors, because value
+			// conservation runs for every legacy deregistration while
+			// UtxoValidateCertificateDeposits only needs the capability once a
+			// credential resolves as registered.
+			refund := new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit))
+			if depositState, ok := ls.(common.StakeCredentialDepositState); ok {
+				deposit, err := depositState.StakeCredentialDeposit(
+					tmpCert.StakeCredential,
+				)
+				if err != nil {
+					return err
+				}
+				if deposit != nil {
+					refund = new(big.Int).SetUint64(*deposit)
+				}
+			}
+			consumedValue.Add(consumedValue, refund)
 			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
 			// Pool deposits are refunded at epoch boundary after the retirement epoch has passed.
 		}
@@ -2002,78 +2626,45 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// First check for PlutusV1/V2 scripts in witness set
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) {
+			// UtxoValidateBadInputsUtxo reports regular input failures with the
+			// canonical error. The partial view still contains witness scripts and
+			// script purposes that do not depend on resolving those inputs.
+			return ValidateConwayFeaturesWithPlutusV1V2(tx, view)
+		}
+		return err
+	}
+	return ValidateConwayFeaturesWithPlutusV1V2(tx, view)
+}
+
+// ValidateConwayFeaturesWithPlutusV1V2 applies the Conway compatibility
+// predicate using an already resolved script view. Later eras can share script
+// availability across transaction levels while keeping view.Needed scoped to
+// the body whose Conway features are being checked.
+func ValidateConwayFeaturesWithPlutusV1V2(
+	tx common.Transaction,
+	view script.TxScriptView,
+) error {
 	plutusVersion := ""
-	witnesses := tx.Witnesses()
-	if witnesses != nil {
-		if len(witnesses.PlutusV1Scripts()) > 0 {
-			plutusVersion = "PlutusV1"
-		} else if len(witnesses.PlutusV2Scripts()) > 0 {
-			plutusVersion = "PlutusV2"
-		}
+	if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV1Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV1"
+	} else if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV2Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV2"
 	}
-
-	// Also check reference scripts on reference inputs
-	if plutusVersion == "" {
-		for _, refInput := range tx.ReferenceInputs() {
-			utxo, err := ls.UtxoById(refInput)
-			if err != nil {
-				return common.ReferenceInputResolutionError{
-					Input: refInput,
-					Err:   err,
-				}
-			}
-			if utxo.Output == nil {
-				continue
-			}
-			script := utxo.Output.ScriptRef()
-			if script != nil {
-				switch script.(type) {
-				case common.PlutusV1Script:
-					plutusVersion = "PlutusV1"
-				case common.PlutusV2Script:
-					plutusVersion = "PlutusV2"
-				}
-				if plutusVersion != "" {
-					break
-				}
-			}
-		}
-	}
-
-	// Also check reference scripts on regular inputs
-	if plutusVersion == "" {
-		for _, input := range tx.Inputs() {
-			utxo, err := ls.UtxoById(input)
-			if err != nil {
-				continue
-			}
-			if utxo.Output == nil {
-				continue
-			}
-			script := utxo.Output.ScriptRef()
-			if script != nil {
-				switch script.(type) {
-				case common.PlutusV1Script:
-					plutusVersion = "PlutusV1"
-				case common.PlutusV2Script:
-					plutusVersion = "PlutusV2"
-				}
-				if plutusVersion != "" {
-					break
-				}
-			}
-		}
-	}
-
-	// No V1/V2 scripts found, Conway features are fine
 	if plutusVersion == "" {
 		return nil
 	}
 
 	// Check for Conway-specific features
-	hasCurrentTreasuryValue := tx.CurrentTreasuryValue() != nil &&
-		tx.CurrentTreasuryValue().Sign() > 0
+	hasCurrentTreasuryValue := common.TransactionCurrentTreasuryValuePresent(tx)
 	hasProposalProcedures := len(tx.ProposalProcedures()) > 0
 	hasVotingProcedures := tx.VotingProcedures() != nil &&
 		len(tx.VotingProcedures()) > 0
@@ -2192,15 +2783,15 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	txBytes, err := cbor.Encode(tx)
-	if err != nil {
-		return err
+	txSize, sizeErr := common.TxSize(tx)
+	if sizeErr != nil {
+		return sizeErr
 	}
-	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+	if uint(txSize) <= tmpPparams.MaxTxSize {
 		return nil
 	}
 	return shelley.MaxTxSizeUtxoError{
-		TxSize:    uint(len(txBytes)),
+		TxSize:    uint(txSize),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
 }
@@ -2464,30 +3055,23 @@ func UtxoValidatePlutusScripts(
 	}
 
 	// Resolve all inputs (regular + reference) for building script context
-	inputCount := len(tx.Inputs()) + len(tx.ReferenceInputs())
-	resolvedInputs := make([]common.Utxo, 0, inputCount)
-	resolvedInputsMap := make(map[string]common.Utxo)
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			return common.InputResolutionError{
-				Input: input,
-				Err:   err,
-			}
-		}
-		resolvedInputs = append(resolvedInputs, utxo)
-		resolvedInputsMap[input.String()] = utxo
+	inputsResolved, refInputsResolved, err := script.ResolveTxInputs(tx, ls)
+	if err != nil {
+		return err
 	}
-	for _, refInput := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		resolvedInputs = append(resolvedInputs, utxo)
-		resolvedInputsMap[refInput.String()] = utxo
+	resolvedInputs := script.ConcatResolvedInputs(
+		inputsResolved,
+		refInputsResolved,
+	)
+	resolvedInputsMap := make(
+		map[string]common.Utxo,
+		len(inputsResolved)+len(refInputsResolved),
+	)
+	for i, input := range tx.Inputs() {
+		resolvedInputsMap[input.String()] = inputsResolved[i]
+	}
+	for i, refInput := range tx.ReferenceInputs() {
+		resolvedInputsMap[refInput.String()] = refInputsResolved[i]
 	}
 
 	// Build TxInfo lazily based on script version
@@ -2497,33 +3081,7 @@ func UtxoValidatePlutusScripts(
 	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
 
 	// Collect all available scripts (witness scripts + reference scripts)
-	availableScripts := make(map[common.ScriptHash]common.Script)
-
-	// Add witness scripts
-	for _, s := range witnesses.PlutusV1Scripts() {
-		availableScripts[s.Hash()] = s
-	}
-	for _, s := range witnesses.PlutusV2Scripts() {
-		availableScripts[s.Hash()] = s
-	}
-	for _, s := range witnesses.PlutusV3Scripts() {
-		availableScripts[s.Hash()] = s
-	}
-	for _, s := range common.PlutusV4ScriptsFromWitnessSet(witnesses) {
-		availableScripts[s.Hash()] = s
-	}
-
-	// Add reference scripts from resolved inputs
-	for _, utxo := range resolvedInputs {
-		if utxo.Output == nil {
-			continue
-		}
-		scriptRef := utxo.Output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-		availableScripts[scriptRef.Hash()] = scriptRef
-	}
+	availableScripts := script.AvailablePlutusScripts(tx, resolvedInputs)
 
 	// Get sorted inputs for redeemer index mapping.
 	// The Cardano ledger spec requires spend redeemer indices to
@@ -2661,7 +3219,10 @@ func UtxoValidatePlutusScripts(
 			// Build V2 TxInfo lazily
 			if !txInfoV2Built {
 				var err error
-				txInfoV2, err = script.NewTxInfoV2FromTransaction(ls, tx, resolvedInputs)
+				txInfoV2, err = script.NewTxInfoV2FromTransaction(
+					ls, tx, resolvedInputs,
+					script.StrictValidityUpperBoundForTransaction(tx),
+				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
@@ -2693,7 +3254,10 @@ func UtxoValidatePlutusScripts(
 			// Build V1 TxInfo lazily
 			if !txInfoV1Built {
 				var err error
-				txInfoV1, err = script.NewTxInfoV1FromTransaction(ls, tx, resolvedInputs)
+				txInfoV1, err = script.NewTxInfoV1FromTransaction(
+					ls, tx, resolvedInputs,
+					script.StrictValidityUpperBoundForTransaction(tx),
+				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
@@ -2731,56 +3295,17 @@ func UtxoValidatePlutusScripts(
 	return nil
 }
 
-// UtxoValidateNativeScripts evaluates native scripts in the transaction.
-// Native scripts (timelock scripts) are evaluated based on:
-// - Signatures present in the transaction
-// - Transaction's validity interval
-// This is phase-1 validation for native scripts.
+// UtxoValidateNativeScripts evaluates the native scripts this transaction has
+// to satisfy. Conway inherits Babbage's rule unchanged: the scripts to
+// evaluate are the needed ones the resolved transaction view provides, from
+// the witness set or from a reference script on any resolved input.
 func UtxoValidateNativeScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
-	}
-
-	nativeScripts := witnesses.NativeScripts()
-	if len(nativeScripts) == 0 {
-		return nil
-	}
-
-	// Collect key hashes from VKey witnesses
-	keyHashes := make(map[common.Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		// VKey witnesses contain the public key, we need its hash
-		keyHash := common.Blake2b224Hash(vkw.Vkey)
-		keyHashes[keyHash] = true
-	}
-	// Also collect key hashes from bootstrap witnesses (Byron-era)
-	for _, bw := range witnesses.Bootstrap() {
-		keyHash := common.Blake2b224Hash(bw.PublicKey)
-		keyHashes[keyHash] = true
-	}
-
-	// Get transaction validity interval
-	validityStart := tx.ValidityIntervalStart()
-	validityEnd := tx.TTL()
-	if validityEnd == 0 {
-		validityEnd = ^uint64(0) // Max uint64 if not set
-	}
-
-	// Evaluate each native script
-	for _, nscript := range nativeScripts {
-		scriptHash := nscript.Hash()
-		if !nscript.Evaluate(slot, validityStart, validityEnd, keyHashes) {
-			return NativeScriptFailedError{ScriptHash: scriptHash}
-		}
-	}
-
-	return nil
+	return babbage.UtxoValidateNativeScripts(tx, slot, ls, pp)
 }
 
 // UtxoValidateDelegation validates delegation certificates against ledger state.
@@ -2796,8 +3321,20 @@ func UtxoValidateDelegation(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// Track credentials/pools/DReps registered within this transaction
-	inTxStakeRegs := make(map[common.Blake2b224]bool)
+	// Track credential registration state changes within this transaction.
+	// The bool records both registrations and deregistrations so later
+	// certificates observe the state produced by earlier certificates.
+	type stakeCredentialKey struct {
+		credType uint
+		hash     common.Blake2b224
+	}
+	stakeKey := func(cred common.Credential) stakeCredentialKey {
+		return stakeCredentialKey{
+			credType: cred.CredType,
+			hash:     cred.Credential,
+		}
+	}
+	inTxStakeState := make(map[stakeCredentialKey]bool)
 	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
 	inTxDRepRegs := make(map[common.Blake2b224]bool)
 	// Track VRF keys seen in this transaction (for PV11+ duplicate detection)
@@ -2805,8 +3342,20 @@ func UtxoValidateDelegation(
 
 	// Helper to check if stake credential is registered (in state or in-tx)
 	isStakeRegistered := func(cred common.Credential) bool {
-		return ls.IsStakeCredentialRegistered(cred) ||
-			inTxStakeRegs[cred.Credential]
+		if registered, ok := inTxStakeState[stakeKey(cred)]; ok {
+			return registered
+		}
+		return ls.IsStakeCredentialRegistered(cred)
+	}
+
+	registerStakeCredential := func(cred common.Credential) error {
+		if isStakeRegistered(cred) {
+			return StakeCredentialAlreadyRegisteredError{
+				Credential: cred,
+			}
+		}
+		inTxStakeState[stakeKey(cred)] = true
+		return nil
 	}
 
 	// Helper to check if pool is registered (in state or in-tx)
@@ -2866,10 +3415,14 @@ func UtxoValidateDelegation(
 		switch c := cert.(type) {
 		// Track registrations for in-tx state
 		case *common.RegistrationCertificate:
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 
 		case *common.StakeRegistrationCertificate:
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 
 		case *common.PoolRegistrationCertificate:
 			inTxPoolRegs[c.Operator] = true
@@ -2900,13 +3453,14 @@ func UtxoValidateDelegation(
 
 		// Track deregistrations for in-tx state
 		case *common.StakeDeregistrationCertificate:
-			delete(inTxStakeRegs, c.StakeCredential.Credential)
+			inTxStakeState[stakeKey(c.StakeCredential)] = false
 
 		case *common.DeregistrationCertificate:
-			delete(inTxStakeRegs, c.StakeCredential.Credential)
+			inTxStakeState[stakeKey(c.StakeCredential)] = false
 
 		case *common.PoolRetirementCertificate:
-			delete(inTxPoolRegs, c.PoolKeyHash)
+			// Retirement leaves the pool active until POOLREAP at the end of
+			// the retirement epoch, so later delegations remain valid.
 
 		case *common.DeregistrationDrepCertificate:
 			delete(inTxDRepRegs, c.DrepCredential.Credential)
@@ -2969,16 +3523,18 @@ func UtxoValidateDelegation(
 			}
 
 		case *common.StakeRegistrationDelegationCertificate:
-			// This cert registers AND delegates, so mark as registered first
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 			// Check if pool is registered
 			if !isPoolRegistered(c.PoolKeyHash) {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 
 		case *common.VoteRegistrationDelegationCertificate:
-			// This cert registers AND delegates, so mark as registered first
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 			// Check if target DRep is registered (except for Abstain/NoConfidence)
 			drepRegistered, err := isDRepRegistered(c.Drep)
 			if err != nil {
@@ -2996,8 +3552,9 @@ func UtxoValidateDelegation(
 			}
 
 		case *common.StakeVoteRegistrationDelegationCertificate:
-			// This cert registers AND delegates, so mark as registered first
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			if err := registerStakeCredential(c.StakeCredential); err != nil {
+				return err
+			}
 			// Check if pool is registered
 			if !isPoolRegistered(c.PoolKeyHash) {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
@@ -3025,9 +3582,10 @@ func UtxoValidateDelegation(
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
 // For phase-2 invalid transactions (IsValid=false), withdrawal validation is
 // skipped since their effects are reverted and only collateral rules apply.
-// PV10 and PV11 also require each stake credential withdrawing a non-zero
-// amount to have a DRep vote delegation. PV12 removes that requirement per
-// CIP-181.
+// PV10 and PV11 also require each key-hash stake credential present in the
+// withdrawal map to have a DRep vote delegation, including zero-amount
+// withdrawals. Script-hash stake credentials are exempt. PV12 removes the
+// requirement per CIP-181.
 func UtxoValidateWithdrawals(
 	tx common.Transaction,
 	slot uint64,
@@ -3056,8 +3614,9 @@ func UtxoValidateWithdrawals(
 		return nil
 	}
 	var delegationState common.DRepDelegationState
-	for addr, amount := range withdrawals {
-		if amount == nil || amount.Sign() == 0 {
+	for addr := range withdrawals {
+		credential, ok := addr.StakeCredential()
+		if !ok || credential.CredType != common.CredentialTypeAddrKeyHash {
 			continue
 		}
 		if delegationState == nil {
@@ -3066,10 +3625,6 @@ func UtxoValidateWithdrawals(
 			if !ok {
 				return DRepDelegationStateUnavailableError{}
 			}
-		}
-		credential, ok := addr.StakeCredential()
-		if !ok {
-			continue
 		}
 		delegation, err := delegationState.DRepDelegation(credential)
 		if err != nil {
@@ -3084,38 +3639,390 @@ func UtxoValidateWithdrawals(
 	return nil
 }
 
+type certificateStakeCredentialKey struct {
+	credType uint
+	hash     common.Blake2b224
+}
+
+type certificateStakeState struct {
+	registered bool
+	deposit    uint64
+	balance    uint64
+}
+
+// UtxoValidateCertificateDeposits validates Conway certificate deposits and
+// refunds against the protocol parameters and the certificate state produced
+// by the certificates that precede them in the transaction. Withdrawals are
+// applied to the temporary reward-account state before certificates, matching
+// the Conway LEDGER/CERTS transition ordering.
+func UtxoValidateCertificateDeposits(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	depositPparams, ok := pp.(interface {
+		KeyDepositAmount() *big.Int
+		DRepDepositAmount() *big.Int
+	})
+	if !ok {
+		return errors.New("pparams do not expose Conway certificate deposits")
+	}
+	keyDepositAmount := depositPparams.KeyDepositAmount()
+	if keyDepositAmount == nil || !keyDepositAmount.IsUint64() {
+		return errors.New("key deposit does not fit uint64")
+	}
+	keyDeposit := keyDepositAmount.Uint64()
+	drepDepositAmount := depositPparams.DRepDepositAmount()
+	if drepDepositAmount == nil || !drepDepositAmount.IsUint64() {
+		return errors.New("DRep deposit does not fit uint64")
+	}
+	drepDeposit := drepDepositAmount.Uint64()
+	stakeStates := make(map[certificateStakeCredentialKey]certificateStakeState)
+	stakeKey := func(cred common.Credential) certificateStakeCredentialKey {
+		return certificateStakeCredentialKey{
+			credType: cred.CredType,
+			hash:     cred.Credential,
+		}
+	}
+	loadStakeState := func(cred common.Credential) (certificateStakeState, error) {
+		key := stakeKey(cred)
+		if state, found := stakeStates[key]; found {
+			return state, nil
+		}
+		state := certificateStakeState{
+			registered: ls.IsStakeCredentialRegistered(cred),
+		}
+		if state.registered {
+			depositState, ok := ls.(common.StakeCredentialDepositState)
+			if !ok {
+				return state, CertificateDepositStateUnavailableError{}
+			}
+			deposit, err := depositState.StakeCredentialDeposit(cred)
+			if err != nil {
+				return state, err
+			}
+			if deposit == nil {
+				return state, CertificateDepositStateInconsistentError{
+					Credential: cred,
+				}
+			}
+			state.deposit = *deposit
+			balance, err := ls.RewardAccountBalance(cred)
+			if err != nil {
+				return state, err
+			}
+			if balance == nil {
+				return state, CertificateDepositStateInconsistentError{
+					Credential: cred,
+				}
+			}
+			state.balance = *balance
+		}
+		stakeStates[key] = state
+		return state, nil
+	}
+	storeStakeState := func(cred common.Credential, state certificateStakeState) {
+		stakeStates[stakeKey(cred)] = state
+	}
+
+	deregisteredStakeCredentials := make(
+		map[certificateStakeCredentialKey]struct{},
+	)
+	for _, cert := range tx.Certificates() {
+		switch c := cert.(type) {
+		case *common.StakeDeregistrationCertificate:
+			deregisteredStakeCredentials[stakeKey(c.StakeCredential)] = struct{}{}
+		case *common.DeregistrationCertificate:
+			deregisteredStakeCredentials[stakeKey(c.StakeCredential)] = struct{}{}
+		}
+	}
+
+	// The reference drains withdrawals before running CERTS. Withdrawal
+	// validation runs immediately before this rule, so only valid withdrawal
+	// amounts reach this transition.
+	for addr, amount := range tx.Withdrawals() {
+		cred, found := addr.StakeCredential()
+		if !found || amount == nil || !amount.IsUint64() {
+			continue
+		}
+		if _, found := deregisteredStakeCredentials[stakeKey(cred)]; !found {
+			continue
+		}
+		state, err := loadStakeState(cred)
+		if err != nil {
+			return err
+		}
+		withdrawal := amount.Uint64()
+		if withdrawal <= state.balance {
+			state.balance -= withdrawal
+			storeStakeState(cred, state)
+		}
+	}
+
+	// markStakeRegistered holds the registration transition itself. Legacy
+	// type-0 registration supplies no deposit to check, so it shares this
+	// rather than repeating the already-registered check and the state write.
+	markStakeRegistered := func(cred common.Credential) error {
+		key := stakeKey(cred)
+		state, found := stakeStates[key]
+		if !found {
+			state.registered = ls.IsStakeCredentialRegistered(cred)
+		}
+		if state.registered {
+			return StakeCredentialAlreadyRegisteredError{Credential: cred}
+		}
+		state.registered = true
+		state.deposit = keyDeposit
+		state.balance = 0
+		storeStakeState(cred, state)
+		return nil
+	}
+	registerStake := func(
+		cred common.Credential,
+		certificateType common.CertificateType,
+		supplied int64,
+	) error {
+		if supplied < 0 || uint64(supplied) != keyDeposit {
+			return CertificateDepositIncorrectError{
+				CertificateType: certificateType,
+				Supplied:        supplied,
+				Expected:        keyDeposit,
+			}
+		}
+		return markStakeRegistered(cred)
+	}
+	deregisterStake := func(
+		cred common.Credential,
+		certificateType common.CertificateType,
+		supplied *int64,
+	) error {
+		state, err := loadStakeState(cred)
+		if err != nil {
+			return err
+		}
+		if !state.registered {
+			return StakeCredentialNotRegisteredError{Credential: cred}
+		}
+		if supplied != nil && (*supplied < 0 || uint64(*supplied) != state.deposit) {
+			return CertificateRefundIncorrectError{
+				CertificateType: certificateType,
+				Supplied:        *supplied,
+				Expected:        state.deposit,
+			}
+		}
+		if state.balance != 0 {
+			return StakeCredentialNonZeroRewardBalanceError{
+				Credential: cred,
+				Balance:    state.balance,
+			}
+		}
+		state.registered = false
+		state.deposit = 0
+		storeStakeState(cred, state)
+		return nil
+	}
+
+	drepStates := make(
+		map[certificateStakeCredentialKey]*common.DRepRegistration,
+	)
+	loadDRep := func(cred common.Credential) (*common.DRepRegistration, error) {
+		key := stakeKey(cred)
+		if state, found := drepStates[key]; found {
+			return state, nil
+		}
+		state, err := ls.DRepRegistration(cred.Credential)
+		if err != nil {
+			return nil, err
+		}
+		drepStates[key] = state
+		return state, nil
+	}
+
+	for _, cert := range tx.Certificates() {
+		switch c := cert.(type) {
+		case *common.StakeRegistrationCertificate:
+			if err := markStakeRegistered(c.StakeCredential); err != nil {
+				return err
+			}
+		case *common.RegistrationCertificate:
+			if err := registerStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.StakeRegistrationDelegationCertificate:
+			if err := registerStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.VoteRegistrationDelegationCertificate:
+			if err := registerStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.StakeVoteRegistrationDelegationCertificate:
+			if err := registerStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.StakeDeregistrationCertificate:
+			if err := deregisterStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				nil,
+			); err != nil {
+				return err
+			}
+		case *common.DeregistrationCertificate:
+			if err := deregisterStake(
+				c.StakeCredential,
+				common.CertificateType(c.CertType),
+				&c.Amount,
+			); err != nil {
+				return err
+			}
+		case *common.RegistrationDrepCertificate:
+			if c.Amount < 0 || uint64(c.Amount) != drepDeposit {
+				return CertificateDepositIncorrectError{
+					CertificateType: common.CertificateType(c.CertType),
+					Supplied:        c.Amount,
+					Expected:        drepDeposit,
+				}
+			}
+			registration, err := loadDRep(c.DrepCredential)
+			if err != nil {
+				return err
+			}
+			if registration != nil {
+				return DRepAlreadyRegisteredError{Credential: c.DrepCredential}
+			}
+			drepStates[stakeKey(c.DrepCredential)] = &common.DRepRegistration{
+				Credential: c.DrepCredential.Credential,
+				Deposit:    drepDeposit,
+			}
+		case *common.DeregistrationDrepCertificate:
+			registration, err := loadDRep(c.DrepCredential)
+			if err != nil {
+				return err
+			}
+			if registration == nil {
+				return DRepNotRegisteredError{Credential: c.DrepCredential}
+			}
+			if c.Amount < 0 || uint64(c.Amount) != registration.Deposit {
+				return CertificateRefundIncorrectError{
+					CertificateType: common.CertificateType(c.CertType),
+					Supplied:        c.Amount,
+					Expected:        registration.Deposit,
+				}
+			}
+			drepStates[stakeKey(c.DrepCredential)] = nil
+		}
+	}
+	return nil
+}
+
 func UtxoValidateCommitteeCertificates(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	members, err := ls.CommitteeMembers()
-	hasCommitteeState := err == nil && len(members) > 0
+	// Committee certificates belong to the CERTS state transition. A
+	// phase-2-invalid transaction only applies its collateral effects, so it
+	// must not inspect or reject against committee state.
+	if !tx.IsValid() {
+		return nil
+	}
+	var committeeState common.CommitteeCredentialState
+	committeeStateLoaded := false
+	committeeMember := func(
+		coldCredential common.Credential,
+	) (*common.CommitteeMember, error) {
+		if !committeeStateLoaded {
+			var ok bool
+			committeeState, ok = ls.(common.CommitteeCredentialState)
+			if !ok {
+				return nil, CommitteeMemberLookupError{
+					Credential:       coldCredential.Credential,
+					MemberCredential: coldCredential,
+					Err:              CommitteeStateUnavailableError{},
+				}
+			}
+			available, err := committeeState.CommitteeStateAvailable()
+			if err != nil {
+				return nil, CommitteeMemberLookupError{
+					Credential:       coldCredential.Credential,
+					MemberCredential: coldCredential,
+					Err:              err,
+				}
+			}
+			if !available {
+				return nil, CommitteeMemberLookupError{
+					Credential:       coldCredential.Credential,
+					MemberCredential: coldCredential,
+					Err:              CommitteeStateUnavailableError{},
+				}
+			}
+			committeeStateLoaded = true
+		}
+		member, err := committeeState.CommitteeCredentialMember(coldCredential)
+		if err != nil {
+			return nil, CommitteeMemberLookupError{
+				Credential:       coldCredential.Credential,
+				MemberCredential: coldCredential,
+				Err:              err,
+			}
+		}
+		return member, nil
+	}
 
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *common.AuthCommitteeHotCertificate:
-			coldHash := c.ColdCredential.Credential
-			member, err := ls.CommitteeMember(coldHash)
+			member, err := committeeMember(c.ColdCredential)
 			if err != nil {
-				return CommitteeMemberLookupError{Credential: coldHash, Err: err}
+				return err
 			}
-			if member == nil && hasCommitteeState {
-				return NotCommitteeMemberError{Credential: coldHash, Operation: "authorize hot key"}
+			if member == nil {
+				return NotCommitteeMemberError{
+					Credential:     c.ColdCredential.Credential,
+					ColdCredential: c.ColdCredential,
+					Operation:      "authorize hot key",
+				}
 			}
-			if member != nil && member.Resigned {
-				return ResignedCommitteeMemberHotKeyError{ColdKey: coldHash}
+			if member.Resigned {
+				return ResignedCommitteeMemberHotKeyError{
+					ColdKey:        c.ColdCredential.Credential,
+					ColdCredential: c.ColdCredential,
+				}
 			}
 
 		case *common.ResignCommitteeColdCertificate:
-			coldHash := c.ColdCredential.Credential
-			member, err := ls.CommitteeMember(coldHash)
+			member, err := committeeMember(c.ColdCredential)
 			if err != nil {
-				return CommitteeMemberLookupError{Credential: coldHash, Err: err}
+				return err
 			}
-			if member == nil && hasCommitteeState {
-				return NotCommitteeMemberError{Credential: coldHash, Operation: "resign"}
+			if member == nil {
+				return NotCommitteeMemberError{
+					Credential:     c.ColdCredential.Credential,
+					ColdCredential: c.ColdCredential,
+					Operation:      "resign",
+				}
 			}
 		}
 	}
@@ -3151,16 +4058,26 @@ func PoolValidateVrfKeyUniqueness(
 }
 
 // UtxoValidateUnknownGovActionIds rejects voting procedures that reference a
-// governance action id that does not exist in the ledger state
+// governance action id that neither the ledger state records nor the
+// transaction under validation proposes
 // (ConwayGovPredFailure.GovActionsDoNotExist). This is the rule referenced
 // by the "unknown action ID is handled by other validation rules" comment
 // in UtxoValidateCCVotingRestrictions.
+//
+// An action proposed by the transaction under validation counts as existing:
+// cardano-ledger folds the transaction's proposals into the proposal set
+// before checking its votes, so a transaction that proposes an action and
+// votes on it is not voting on an unknown action. Rejecting it here would
+// also make the same-transaction resolution in
+// UtxoValidateStakePoolVotingRestrictions unreachable, since this rule runs
+// first in UtxoValidationRules.
 func UtxoValidateUnknownGovActionIds(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	resolver := govActionResolver{tx: tx, ls: ls}
 	var unknown []common.GovActionId
 	for _, actionVotes := range tx.VotingProcedures() {
 		for actionId := range actionVotes {
@@ -3173,7 +4090,7 @@ func UtxoValidateUnknownGovActionIds(
 				unknown = append(unknown, common.GovActionId{})
 				continue
 			}
-			if !ls.GovActionExists(*actionId) {
+			if !resolver.exists(*actionId) {
 				unknown = append(unknown, *actionId)
 			}
 		}
@@ -3209,13 +4126,18 @@ func UtxoValidateUnknownVoters(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	// Voter existence belongs to the GOV state transition. A
+	// phase-2-invalid transaction does not apply governance effects and must
+	// not query committee state.
+	if !tx.IsValid() {
+		return nil
+	}
 	votes := tx.VotingProcedures()
 	if len(votes) == 0 {
 		return nil
 	}
 
-	var members []common.CommitteeMember
-	var membersLoaded bool
+	var committeeState common.CommitteeCredentialState
 
 	for voter := range votes {
 		if voter == nil {
@@ -3239,38 +4161,42 @@ func UtxoValidateUnknownVoters(
 
 		case common.VoterTypeConstitutionalCommitteeHotKeyHash,
 			common.VoterTypeConstitutionalCommitteeHotScriptHash:
-			if !membersLoaded {
-				var err error
-				members, err = ls.CommitteeMembers()
+			credentialType := uint(common.CredentialTypeAddrKeyHash)
+			if voter.Type == common.VoterTypeConstitutionalCommitteeHotScriptHash {
+				credentialType = common.CredentialTypeScriptHash
+			}
+			hotCredential := common.Credential{
+				CredType:   credentialType,
+				Credential: common.Blake2b224(voter.Hash),
+			}
+			lookupError := func(err error) error {
+				return CommitteeMemberLookupError{
+					Credential:       hotCredential.Credential,
+					MemberCredential: hotCredential,
+					Err:              err,
+				}
+			}
+			if committeeState == nil {
+				var ok bool
+				committeeState, ok = ls.(common.CommitteeCredentialState)
+				if !ok {
+					return lookupError(CommitteeStateUnavailableError{})
+				}
+				available, err := committeeState.CommitteeStateAvailable()
 				if err != nil {
-					return err
+					return lookupError(err)
 				}
-				membersLoaded = true
-			}
-			// If the ledger state reports no committee members at all,
-			// treat committee state as unmodeled (consistent with
-			// UtxoValidateCommitteeCertificates) rather than rejecting
-			// every CC vote as unknown.
-			if len(members) == 0 {
-				continue
-			}
-			hotHash := common.Blake2b224(voter.Hash)
-			found := false
-			for _, member := range members {
-				// NOTE: this does not check member.ExpiryEpoch. There is
-				// no current-epoch accessor on LedgerState to compare it
-				// against, so an expired-but-not-yet-resigned committee
-				// member's hot key is treated as a valid voter here. This
-				// is the same class of LedgerState-surface limitation
-				// disclosed via NOTE comments elsewhere in this file
-				// (e.g. UtxoValidateProposalAncestry, UtxoValidateHardForkCanFollow).
-				if member.HotKey != nil && *member.HotKey == hotHash &&
-					!member.Resigned {
-					found = true
-					break
+				if !available {
+					return lookupError(CommitteeStateUnavailableError{})
 				}
 			}
-			if !found {
+			member, err := committeeState.CommitteeHotCredentialMember(
+				hotCredential,
+			)
+			if err != nil {
+				return lookupError(err)
+			}
+			if member == nil || member.Resigned {
 				return UnknownVoterError{Voter: *voter}
 			}
 
@@ -3341,6 +4267,10 @@ func UtxoValidateVotingOnExpiredGovAction(
 // InfoAction). A nil action id is rejected directly here (matching
 // UtxoValidateCCVotingRestrictions's convention) rather than silently
 // skipped.
+//
+// The action type is resolved from the transaction's own proposals when the
+// vote names an action that transaction proposes, so a same-transaction
+// propose-and-vote does not escape the restriction.
 func UtxoValidateBootstrapVotingRestrictions(
 	tx common.Transaction,
 	slot uint64,
@@ -3365,6 +4295,7 @@ func UtxoValidateBootstrapVotingRestrictions(
 			return false
 		}
 	}
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range tx.VotingProcedures() {
 		if voter == nil {
 			continue
@@ -3377,16 +4308,16 @@ func UtxoValidateBootstrapVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil || actionState == nil {
+			actionType, _, ok := resolver.resolve(*actionId)
+			if !ok {
 				continue
 			}
 			var allowed bool
 			switch voter.Type {
 			case common.VoterTypeDRepKeyHash, common.VoterTypeDRepScriptHash:
-				allowed = actionState.ActionType == common.GovActionTypeInfo
+				allowed = actionType == common.GovActionTypeInfo
 			default:
-				allowed = isBootstrapAction(actionState.ActionType)
+				allowed = isBootstrapAction(actionType)
 			}
 			if !allowed {
 				return BootstrapVotingRestrictionError{
@@ -3395,7 +4326,7 @@ func UtxoValidateBootstrapVotingRestrictions(
 					Restriction: fmt.Sprintf(
 						"voter type %d cannot vote on action type %d during bootstrap phase",
 						voter.Type,
-						actionState.ActionType,
+						actionType,
 					),
 				}
 			}
@@ -3405,17 +4336,22 @@ func UtxoValidateBootstrapVotingRestrictions(
 }
 
 // UtxoValidateStakePoolVotingRestrictions validates stake pool (SPO) voting
-// restrictions per the Conway ledger's isStakePoolVotingAllowed: SPOs may
-// never vote on NewConstitution or TreasuryWithdrawal actions. A nil action
-// id is rejected directly here (matching UtxoValidateCCVotingRestrictions's
+// restrictions per isStakePoolVotingAllowed and
+// votingStakePoolThresholdInternal in cardano-ledger
+// (eras/conway/impl/src/Cardano/Ledger/Conway/Governance/Internal.hs lines
+// 353-405 at commit 08773e9a8f911f67209560a4e401369cbb21a0cb): SPOs may
+// never vote on NewConstitution or TreasuryWithdrawal actions, and may vote
+// on a ParameterChange only when at least one of the parameters it modifies
+// belongs to the security group (see
+// ConwayProtocolParameterUpdate.SecurityGroupFields). A nil action id is
+// rejected directly here (matching UtxoValidateCCVotingRestrictions's
 // convention) rather than silently skipped.
 //
-// NOTE: the ledger spec also disallows SPO votes on ParameterChange
-// proposals that don't touch "security group" parameters. This codebase
-// does not currently classify ParameterChange fields into security-relevant
-// groups (distinct from the bootstrap-restricted-fields classification), so
-// that narrower restriction is intentionally left unenforced here rather
-// than guessed at.
+// Classifying a ParameterChange requires the proposed parameter update. It
+// is read from the transaction itself when the action is proposed by the
+// same transaction, otherwise from common.GovActionState.Action. A ledger
+// state that does not record the action contents leaves the parameter-group
+// restriction unenforced rather than guessed at.
 func UtxoValidateStakePoolVotingRestrictions(
 	tx common.Transaction,
 	slot uint64,
@@ -3426,6 +4362,7 @@ func UtxoValidateStakePoolVotingRestrictions(
 	if len(votes) == 0 {
 		return nil
 	}
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range votes {
 		if voter == nil || voter.Type != common.VoterTypeStakingPoolKeyHash {
 			continue
@@ -3438,18 +4375,29 @@ func UtxoValidateStakePoolVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil || actionState == nil {
+			actionType, action, ok := resolver.resolve(*actionId)
+			if !ok {
 				continue
 			}
 			var restriction string
-			switch actionState.ActionType {
+			switch actionType {
 			case common.GovActionTypeNewConstitution:
 				restriction = "stake pools cannot vote on NewConstitution"
 			case common.GovActionTypeTreasuryWithdrawal:
 				restriction = "stake pools cannot vote on TreasuryWithdrawal"
-			case common.GovActionTypeParameterChange,
-				common.GovActionTypeHardForkInitiation,
+			case common.GovActionTypeParameterChange:
+				paramChange, ok := action.(common.ParameterChangeGovAction)
+				if !ok {
+					// The action contents are not available, so the
+					// parameter groups it modifies are unknown.
+					continue
+				}
+				if len(paramChange.SecurityGroupFields()) > 0 {
+					continue
+				}
+				restriction = "stake pools cannot vote on a parameter change " +
+					"that does not modify security group parameters"
+			case common.GovActionTypeHardForkInitiation,
 				common.GovActionTypeNoConfidence,
 				common.GovActionTypeUpdateCommittee,
 				common.GovActionTypeInfo:
@@ -3470,6 +4418,10 @@ func UtxoValidateStakePoolVotingRestrictions(
 // UtxoValidateCCVotingRestrictions validates CC voting restrictions per cardano-ledger spec.
 // Constitutional Committee members cannot vote on NoConfidence or UpdateCommittee actions.
 // Enforced at ledger level for PV11+ (ProtocolVersionVanRossem).
+//
+// The action type is resolved from the transaction's own proposals when the
+// vote names an action that transaction proposes, so a same-transaction
+// propose-and-vote does not escape the restriction.
 func UtxoValidateCCVotingRestrictions(
 	tx common.Transaction,
 	slot uint64,
@@ -3491,6 +4443,7 @@ func UtxoValidateCCVotingRestrictions(
 		return nil
 	}
 
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range votes {
 		// Only check CC voters
 		if voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
@@ -3508,22 +4461,19 @@ func UtxoValidateCCVotingRestrictions(
 				}
 			}
 
-			// Look up the action type from governance state
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil {
-				// If we can't look up the action, skip this check
-				// (unknown action ID is handled by other validation rules)
-				continue
-			}
-			if actionState == nil {
+			// Resolve the action type from the transaction's own proposals
+			// or, failing that, from governance state. An action neither
+			// names is reported by UtxoValidateUnknownGovActionIds.
+			actionType, _, ok := resolver.resolve(*actionId)
+			if !ok {
 				continue
 			}
 
 			// CC members cannot vote on NoConfidence or UpdateCommittee
-			if actionState.ActionType == common.GovActionTypeNoConfidence ||
-				actionState.ActionType == common.GovActionTypeUpdateCommittee {
+			if actionType == common.GovActionTypeNoConfidence ||
+				actionType == common.GovActionTypeUpdateCommittee {
 				restriction := "CC cannot vote on NoConfidence"
-				if actionState.ActionType == common.GovActionTypeUpdateCommittee {
+				if actionType == common.GovActionTypeUpdateCommittee {
 					restriction = "CC cannot vote on UpdateCommittee"
 				}
 				return CCVotingRestrictionError{
@@ -3538,44 +4488,35 @@ func UtxoValidateCCVotingRestrictions(
 	return nil
 }
 
-// UtxoValidateMalformedReferenceScripts checks that any reference scripts in
-// transaction outputs are well-formed and can be deserialized.
+// UtxoValidateMalformedReferenceScripts checks that Plutus witnesses and
+// reference scripts are well-formed for the active protocol version.
 func UtxoValidateMalformedReferenceScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	var malformedHashes []common.ScriptHash
-
-	for _, output := range tx.Outputs() {
-		scriptRef := output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-
-		// Check if the script can be decoded properly
-		var innerScript []byte
-		if _, ok := common.PlutusScriptVersion(scriptRef); !ok {
-			// Native scripts don't need UPLC validation
-			continue
-		}
-
-		// Decode the outer CBOR wrapper to get the actual script bytes.
-		if _, err := cbor.Decode(scriptRef.RawScriptBytes(), &innerScript); err != nil {
-			malformedHashes = append(malformedHashes, scriptRef.Hash())
-			continue
-		}
-		// Try to decode as UPLC program.
-		if _, err := syn.Decode[syn.DeBruijn](innerScript); err != nil {
-			malformedHashes = append(malformedHashes, scriptRef.Hash())
-		}
+	params, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
 	}
+	return common.ValidatePlutusScriptsWellFormed(
+		tx,
+		params.ProtocolVersion.Major,
+	)
+}
 
-	if len(malformedHashes) > 0 {
-		return common.MalformedReferenceScriptsError{
-			ScriptHashes: malformedHashes,
-		}
-	}
-	return nil
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Pool.hs declares
+// only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
 }

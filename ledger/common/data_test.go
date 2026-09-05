@@ -316,16 +316,10 @@ func TestDatumMarshalCBORPreservesOriginalBytes(t *testing.T) {
 		hex  string
 	}{
 		{
-			// A definite-length byte string of 100 bytes (wrapped in an
-			// indefinite-length Constr 0 array). It is NOT chunked
-			// itself -- only the surrounding array is indefinite -- but
-			// at 100 bytes it exceeds plutigo's 64-byte chunking
-			// threshold, so a naive re-encode via plutigo would split it
-			// into multiple chunks and fail to reproduce these exact
-			// bytes. This is the original real-world case that motivated
-			// issue #1929.
-			name: "LargeDefiniteByteString100Bytes",
-			hex:  "d8799f5864" + strings.Repeat("ab", 100) + "ff",
+			// A definite-length byte string at plutigo's 64-byte leaf
+			// limit, wrapped in an indefinite-length Constr 0 array.
+			name: "DefiniteByteStringAtLeafLimit",
+			hex:  "d8799f5840" + strings.Repeat("ab", 64) + "ff",
 		},
 		{
 			// A genuinely chunked (indefinite-length, multi-chunk) byte
@@ -387,4 +381,13 @@ func TestDatumMarshalCBORPreservesOriginalBytes(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestDatumDecodeRejectsOversizedByteStringLeaf(t *testing.T) {
+	orig, err := hex.DecodeString("d8799f5841" + strings.Repeat("ab", 65) + "ff")
+	require.NoError(t, err)
+
+	var d common.Datum
+	_, err = cbor.Decode(orig, &d)
+	require.ErrorContains(t, err, "bytestring leaf limit exceeded")
 }

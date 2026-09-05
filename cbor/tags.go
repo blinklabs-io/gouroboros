@@ -172,6 +172,9 @@ func (r *Rat) UnmarshalJSON(data []byte) error {
 		Denominator int64 `json:"denominator"`
 	}
 	if err := json.Unmarshal(data, &tmpData); err == nil {
+		if tmpData.Denominator == 0 {
+			return errors.New("invalid cbor.Rat: denominator cannot be zero")
+		}
 		r.Rat = big.NewRat(tmpData.Numerator, tmpData.Denominator)
 		return nil
 	}
@@ -262,6 +265,17 @@ func (t *SetType[T]) CheckForDuplicates() error {
 	if !t.useTag {
 		return nil
 	}
+	return t.checkForDuplicates()
+}
+
+// CheckForDuplicatesAlways rejects duplicate members regardless of the
+// optional tag-258 wrapper. Conway and later decoders require this for all
+// set encodings.
+func (t *SetType[T]) CheckForDuplicatesAlways() error {
+	return t.checkForDuplicates()
+}
+
+func (t *SetType[T]) checkForDuplicates() error {
 	seen := make(map[string]struct{}, len(t.items))
 	for _, item := range t.items {
 		encoded, err := Encode(item)

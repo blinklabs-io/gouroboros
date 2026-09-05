@@ -221,7 +221,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleReplyTxIds(msg protocol.Message) {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug("reply tx ids",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -235,7 +236,8 @@ func (s *Server) handleReplyTxIds(msg protocol.Message) {
 }
 
 func (s *Server) handleReplyTxs(msg protocol.Message) {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug("reply txs",
 			"component", "network",
 			"protocol", ProtocolName,

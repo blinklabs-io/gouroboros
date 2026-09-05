@@ -2408,3 +2408,95 @@ func TestUtxowFailure_DijkstraUnknownTagBeyond20(t *testing.T) {
 	assert.Equal(t, uint8(EraIdDijkstra), unknownErr.Era)
 	assert.Equal(t, 21, unknownErr.FailureType)
 }
+
+func TestApplyTxErrorRejectsShortUtxowFailure(t *testing.T) {
+	cborData, err := cbor.Encode([]any{
+		[]any{uint(ApplyTxErrorUtxowFailure)},
+	})
+	require.NoError(t, err)
+
+	applyErr := &ApplyTxError{era: EraIdConway}
+	require.NotPanics(t, func() {
+		err = applyErr.UnmarshalCBOR(cborData)
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected at least 2 elements")
+}
+
+func TestNewTxSubmitErrorFromCborHandlesShortApplyTxFailure(t *testing.T) {
+	// A valid ShelleyTxValidationError envelope containing a short
+	// ApplyTxError constructor must fall back to GenericError instead of
+	// panicking while the typed decoder examines it.
+	cborData, err := cbor.Encode([]any{
+		[]any{
+			uint(EraIdConway),
+			[]any{
+				[]any{uint(ApplyTxErrorUtxowFailure)},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	var decodedErr error
+	require.NotPanics(t, func() {
+		decodedErr, err = NewTxSubmitErrorFromCbor(cborData)
+	})
+	require.NoError(t, err)
+	var genericErr *GenericError
+	require.ErrorAs(t, decodedErr, &genericErr)
+}
+
+func TestOutsideValidityIntervalUtxoErrorHandlesMalformedIntervals(
+	t *testing.T,
+) {
+	decodeValue := func(t *testing.T, value any) cbor.Value {
+		t.Helper()
+		data, err := cbor.Encode(value)
+		require.NoError(t, err)
+		var decoded cbor.Value
+		_, err = cbor.Decode(data, &decoded)
+		require.NoError(t, err)
+		return decoded
+	}
+
+	testCases := []struct {
+		name     string
+		interval cbor.Value
+		expected string
+	}{
+		{
+			name:     "valid interval",
+			interval: decodeValue(t, []any{uint64(10), uint64(20)}),
+			expected: "invalidBefore = 10, invalidHereafter = 20",
+		},
+		{
+			name:     "wrong type",
+			interval: decodeValue(t, "not an interval"),
+			expected: "invalid ValidityInterval type string",
+		},
+		{
+			name:     "empty interval",
+			interval: decodeValue(t, []any{}),
+			expected: "invalid ValidityInterval length 0",
+		},
+		{
+			name:     "short interval",
+			interval: decodeValue(t, []any{uint64(10)}),
+			expected: "invalid ValidityInterval length 1",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testErr := &OutsideValidityIntervalUtxo{
+				ValidityInterval: tc.interval,
+				Slot:             30,
+			}
+			var got string
+			require.NotPanics(t, func() {
+				got = testErr.Error()
+			})
+			assert.Contains(t, got, tc.expected)
+		})
+	}
+}

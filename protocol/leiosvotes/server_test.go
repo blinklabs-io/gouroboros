@@ -16,12 +16,135 @@ package leiosvotes
 
 import (
 	"errors"
+	"net"
 	"testing"
+	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUnconfiguredRequestRemainsBusyAndPreservesSharedBearer(t *testing.T) {
+	connA, connB := net.Pipe()
+	m := muxer.New(connA)
+	errs := make(chan error, 1)
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},
+	}
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connId,
+			ErrorChan:    errs,
+			Muxer:        m,
+		},
+		&Config{Timeout: time.Millisecond},
+	)
+	peerSharingCfg := peersharing.NewConfig(
+		peersharing.WithShareRequestFunc(
+			func(
+				peersharing.CallbackContext,
+				int,
+			) ([]peersharing.PeerAddress, error) {
+				return []peersharing.PeerAddress{}, nil
+			},
+		),
+	)
+	peerSharingServer := peersharing.NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connId,
+			ErrorChan:    errs,
+			Muxer:        m,
+		},
+		&peerSharingCfg,
+	)
+	server.Start()
+	peerSharingServer.Start()
+	m.Start()
+	t.Cleanup(func() {
+		server.Stop()
+		peerSharingServer.Stop()
+		m.Stop()
+		_ = connA.Close()
+		_ = connB.Close()
+	})
+
+	data, err := cbor.Encode(NewMsgVotesRequestNext(1))
+	require.NoError(t, err)
+	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
+	require.Never(t, func() bool {
+		select {
+		case <-errs:
+			return true
+		default:
+			return false
+		}
+	}, 20*time.Millisecond, time.Millisecond,
+		"unconfigured responder timed out or reported an error",
+	)
+	require.Eventually(t, func() bool {
+		return !server.ProtocolInstance().IsInTerminalOrIdleState()
+	}, time.Second, time.Millisecond,
+		"unconfigured request did not enter Busy",
+	)
+
+	peerData, err := cbor.Encode(peersharing.NewMsgShareRequest(1))
+	require.NoError(t, err)
+	writeTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(peersharing.ProtocolId, peerData, false),
+	)
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
+	segment := requireReadTestSegment(t, connB)
+	require.Equal(t, uint16(peersharing.ProtocolId), segment.GetProtocolId())
+	require.Equal(
+		t,
+		[]byte{0x82, peersharing.MessageTypeSharePeers, 0x80},
+		segment.Payload,
+	)
+}
+
+func TestUnconfiguredInvalidRequestReportsStateError(t *testing.T) {
+	connA, connB := net.Pipe()
+	m := muxer.New(connA)
+	errs := make(chan error, 1)
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: testConnectionId(),
+			ErrorChan:    errs,
+			Muxer:        m,
+		},
+		nil,
+	)
+	server.Start()
+	m.Start()
+	t.Cleanup(func() {
+		server.Stop()
+		m.Stop()
+		_ = connA.Close()
+		_ = connB.Close()
+	})
+
+	data, err := cbor.Encode(NewMsgVotesRequestNext(0))
+	require.NoError(t, err)
+	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
+	var protocolErr error
+	require.Eventually(t, func() bool {
+		select {
+		case protocolErr = <-errs:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+	assert.ErrorContains(t, protocolErr, "state transition")
+}
 
 func TestNewServer(t *testing.T) {
 	cfg := NewConfig()
@@ -66,8 +189,7 @@ func TestHandleRequestNextNilCallback(t *testing.T) {
 
 	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	assert.NoError(t, err)
 }
 
 func TestHandleRequestNextNilConfig(t *testing.T) {
@@ -79,8 +201,7 @@ func TestHandleRequestNextNilConfig(t *testing.T) {
 
 	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	assert.NoError(t, err)
 }
 
 func TestHandleRequestNextInvalidCount(t *testing.T) {

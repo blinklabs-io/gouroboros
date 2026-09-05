@@ -17,6 +17,8 @@ package alonzo_test
 import (
 	"bytes"
 	"encoding/hex"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //
@@ -194,4 +197,50 @@ func TestAlonzoBlock_Validation(t *testing.T) {
 	block, err := alonzo.NewAlonzoBlockFromCbor(blockCbor)
 	assert.NoError(t, err, "Failed to parse and validate block")
 	assert.NotNil(t, block, "Parsed block is nil")
+}
+
+func TestAlonzoBlockRejectsInvalidTransactionIndices(t *testing.T) {
+	tests := []struct {
+		name           string
+		invalidTxs     []uint64
+		transactionTx  []any
+		expectOverflow bool
+	}{
+		{
+			name:           "large wire index",
+			invalidTxs:     []uint64{math.MaxUint64},
+			transactionTx:  []any{},
+			expectOverflow: true,
+		},
+		{
+			name:          "empty transaction collection",
+			invalidTxs:    []uint64{0},
+			transactionTx: []any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blockCbor, err := cbor.Encode([]any{
+				nil,
+				tt.transactionTx,
+				[]any{},
+				map[uint]any{},
+				tt.invalidTxs,
+			})
+			require.NoError(t, err)
+
+			var block alonzo.AlonzoBlock
+			err = block.UnmarshalCBOR(blockCbor)
+			if tt.expectOverflow {
+				if strconv.IntSize == 32 {
+					require.ErrorContains(t, err, "overflows uint")
+				} else {
+					require.ErrorContains(t, err, "outside transaction list length")
+				}
+			} else {
+				require.ErrorContains(t, err, "outside transaction list length")
+			}
+		})
+	}
 }

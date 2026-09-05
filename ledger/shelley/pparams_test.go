@@ -124,6 +124,7 @@ func TestShelleyUtxorpc(t *testing.T) {
 		Tau:                &cbor.Rat{Rat: big.NewRat(5, 6)},
 		ProtocolMajor:      8,
 		ProtocolMinor:      0,
+		MinPoolCost:        340000000,
 	}
 
 	expectedUtxorpc := &utxorpc.PParams{
@@ -152,6 +153,7 @@ func TestShelleyUtxorpc(t *testing.T) {
 			Major: 8,
 			Minor: 0,
 		},
+		MinPoolCost: common.ToUtxorpcBigInt(340000000),
 	}
 
 	result, err := inputParams.Utxorpc()
@@ -371,4 +373,115 @@ func TestShelleyTransaction_Utxorpc(t *testing.T) {
 			len(tx.Body.Outputs()),
 		)
 	}
+}
+
+// TestShelleyProtocolParamsMinPoolCost covers the minPoolCost protocol
+// parameter for Shelley and Allegra (which alias the same type).
+//
+// minPoolCost is a Shelley-era parameter: ppMinPoolCost is listed in
+// shelleyPParams and carries PParamUpdate key 16 in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/PParams.hs. The reference
+// shelleyPParams list applies unchanged from Shelley through Babbage, so the
+// Shelley wire encoding of the parameters carries the same entries as Mary's.
+// poolTransition reads it for StakePoolCostTooLowPOOL.
+func TestShelleyProtocolParamsMinPoolCost(t *testing.T) {
+	// wireArity decodes the flat CBOR array that ShelleyGenesisProtocolParams
+	// encodes, which is the same 18-entry shape a node reports for the era.
+	// ShelleyProtocolParameters must accept it: the CBOR decoder rejects an
+	// array whose length does not match the struct's field count, so a
+	// missing minPoolCost entry makes the era's parameters undecodable.
+	t.Run("wireArity", func(t *testing.T) {
+		genesisParams := shelley.ShelleyGenesisProtocolParams{
+			MinFeeA:            44,
+			MinFeeB:            155381,
+			MaxBlockBodySize:   65536,
+			MaxTxSize:          16384,
+			MaxBlockHeaderSize: 1100,
+			KeyDeposit:         2000000,
+			PoolDeposit:        500000000,
+			MaxEpoch:           18,
+			NOpt:               500,
+			A0:                 &common.GenesisRat{Rat: big.NewRat(3, 10)},
+			Rho:                &common.GenesisRat{Rat: big.NewRat(3, 1000)},
+			Tau:                &common.GenesisRat{Rat: big.NewRat(2, 10)},
+			Decentralization:   &common.GenesisRat{Rat: big.NewRat(1, 2)},
+			MinUtxoValue:       1000000,
+			MinPoolCost:        340000000,
+		}
+		genesisParams.ProtocolVersion.Major = 2
+		genesisParams.ProtocolVersion.Minor = 0
+		cborBytes, err := genesisParams.MarshalCBOR()
+		if err != nil {
+			t.Fatalf("unexpected error encoding genesis params: %s", err)
+		}
+		// Guard the premise: the encoding really is a flat 18-entry array.
+		var entries []cbor.RawMessage
+		if _, err := cbor.Decode(cborBytes, &entries); err != nil {
+			t.Fatalf("unexpected error decoding as array: %s", err)
+		}
+		if len(entries) != 18 {
+			t.Fatalf("expected 18 encoded entries, got %d", len(entries))
+		}
+		var params shelley.ShelleyProtocolParameters
+		if _, err := cbor.Decode(cborBytes, &params); err != nil {
+			t.Fatalf(
+				"ShelleyProtocolParameters could not decode the era's %d-entry parameter array: %s",
+				len(entries),
+				err,
+			)
+		}
+		if params.MinUtxoValue != 1000000 {
+			t.Errorf("MinUtxoValue: got %d, want 1000000", params.MinUtxoValue)
+		}
+		if params.MinPoolCost != 340000000 {
+			t.Errorf("MinPoolCost: got %d, want 340000000", params.MinPoolCost)
+		}
+	})
+
+	// fromGenesis pins that UpdateFromGenesis carries minPoolCost across.
+	// Mainnet's shelley-genesis.json sets it to 340000000.
+	t.Run("fromGenesis", func(t *testing.T) {
+		genesis, err := shelley.NewShelleyGenesisFromReader(
+			strings.NewReader(
+				`{"protocolParams":{"minPoolCost":340000000}}`,
+			),
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		var params shelley.ShelleyProtocolParameters
+		if err := params.UpdateFromGenesis(&genesis); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if params.MinPoolCost != 340000000 {
+			t.Errorf("MinPoolCost: got %d, want 340000000", params.MinPoolCost)
+		}
+		if params.MinPoolCostValue() != 340000000 {
+			t.Errorf(
+				"MinPoolCostValue(): got %d, want 340000000",
+				params.MinPoolCostValue(),
+			)
+		}
+	})
+
+	// updateKey16 pins the PParamUpdate key the reference assigns to
+	// minPoolCost. The CBOR below is {16: 340000000}.
+	t.Run("updateKey16", func(t *testing.T) {
+		cborBytes, err := hex.DecodeString("a1101a1443fd00")
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		var update shelley.ShelleyProtocolParameterUpdate
+		if _, err := cbor.Decode(cborBytes, &update); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if update.MinPoolCost == nil {
+			t.Fatal("MinPoolCost was not decoded from update key 16")
+		}
+		params := shelley.ShelleyProtocolParameters{}
+		params.Update(&update)
+		if params.MinPoolCost != 340000000 {
+			t.Errorf("MinPoolCost: got %d, want 340000000", params.MinPoolCost)
+		}
+	})
 }

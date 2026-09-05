@@ -79,7 +79,7 @@ func main() {
 	}
 
 	// Create error channel
-	errorChan := make(chan error)
+	errorChan := make(chan error, 1)
 	// Start error handler
 	go func() {
 		for {

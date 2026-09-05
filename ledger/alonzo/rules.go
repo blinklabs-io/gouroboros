@@ -21,42 +21,168 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	UtxoValidateMetadata,
-	UtxoValidateIsValidFlag,
-	UtxoValidateRequiredVKeyWitnesses,
-	UtxoValidateSignatures,
-	UtxoValidateCollateralVKeyWitnesses,
-	UtxoValidateRedeemerAndScriptWitnesses,
-	UtxoValidateCostModelsPresent,
-	UtxoValidateScriptDataHash,
-	UtxoValidateOutsideValidityIntervalUtxo,
-	UtxoValidateInputSetEmptyUtxo,
-	UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateInsufficientCollateral,
-	UtxoValidateCollateralContainsNonAda,
-	UtxoValidateNoCollateralInputs,
-	UtxoValidateBadInputsUtxo,
-	UtxoValidateScriptWitnesses,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputTooBigUtxo,
-	UtxoValidateOutputBootAddrAttrsTooBig,
-	UtxoValidateWrongNetwork,
-	UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateExUnitsTooBigUtxo,
-	UtxoValidateNativeScripts,
-	UtxoValidateExtraneousRedeemers,
-	UtxoValidatePlutusScripts,
-	UtxoValidateDelegation,
-	UtxoValidateWithdrawals,
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
+	{
+		Id:        common.UtxoValidationRuleIsValidFlag,
+		Validator: UtxoValidateIsValidFlag,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralVKeyWitnesses,
+		Validator: UtxoValidateCollateralVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+		Validator: UtxoValidateRedeemerAndScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleCostModelsPresent,
+		Validator: UtxoValidateCostModelsPresent,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptDataHash,
+		Validator: UtxoValidateScriptDataHash,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideValidityInterval,
+		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInsufficientCollateral,
+		Validator: UtxoValidateInsufficientCollateral,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralContainsNonAda,
+		Validator: UtxoValidateCollateralContainsNonAda,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoCollateralInputs,
+		Validator: UtxoValidateNoCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooBig,
+		Validator: UtxoValidateOutputTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleExUnitsTooBig,
+		Validator: UtxoValidateExUnitsTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleExtraneousRedeemers,
+		Validator: UtxoValidateExtraneousRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRulePlutusScripts,
+		Validator: UtxoValidatePlutusScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
+	},
 }
+
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
+var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
+		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda, UtxoValidateNoCollateralInputs,
+		UtxoValidateBadInputsUtxo, UtxoValidateScriptWitnesses, UtxoValidateValueNotConservedUtxo,
+		UtxoValidateOutputTooSmallUtxo, UtxoValidateOutputTooBigUtxo,
+		UtxoValidateOutputBootAddrAttrsTooBig, UtxoValidateWrongNetwork,
+		UtxoValidateWrongNetworkWithdrawal, UtxoValidateMaxTxSizeUtxo,
+		UtxoValidateExUnitsTooBigUtxo, UtxoValidateNativeScripts,
+		UtxoValidateExtraneousRedeemers, UtxoValidatePlutusScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidatePoolCertificates,
+	),
+)
 
 // UtxoValidateOutputTooBigUtxo ensures that transaction output values are not too large
 func UtxoValidateOutputTooBigUtxo(
@@ -107,9 +233,22 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
+	// Iterate the collapsed view rather than the raw list. The wire format is
+	// a list but the ledger holds a map, so a key appearing more than once
+	// contributes its budget once. Summing the raw list multiplies it by the
+	// number of copies: on Preview, transaction 3ace3bc7f4c5… at slot 12925989
+	// carries the same (mint, 0) redeemer six times at 3322788/843448898, and
+	// summing all six gives 19936728 memory against a 14000000 cap, rejecting
+	// a transaction the network accepted (blinklabs-io/dingo#3875).
+	//
+	// The raw list is still the right thing for the script data hash, which has
+	// to reproduce the bytes as they were signed.
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
-		newSteps, ok := common.AddInt64Checked(totalSteps, redeemer.ExUnits.Steps)
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Iter() {
+		newSteps, ok := common.AddInt64Checked(
+			totalSteps,
+			redeemer.ExUnits.Steps,
+		)
 		if !ok {
 			return ExUnitsTooBigUtxoError{
 				TotalExUnits: common.ExUnits{
@@ -120,7 +259,10 @@ func UtxoValidateExUnitsTooBigUtxo(
 			}
 		}
 		totalSteps = newSteps
-		newMemory, ok := common.AddInt64Checked(totalMemory, redeemer.ExUnits.Memory)
+		newMemory, ok := common.AddInt64Checked(
+			totalMemory,
+			redeemer.ExUnits.Memory,
+		)
 		if !ok {
 			return ExUnitsTooBigUtxoError{
 				TotalExUnits: common.ExUnits{
@@ -689,19 +831,15 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	txBytes := tx.Cbor()
-	if len(txBytes) == 0 {
-		var err error
-		txBytes, err = cbor.Encode(tx)
-		if err != nil {
-			return err
-		}
+	txSize, sizeErr := common.TxSize(tx)
+	if sizeErr != nil {
+		return sizeErr
 	}
-	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+	if uint(txSize) <= tmpPparams.MaxTxSize {
 		return nil
 	}
 	return shelley.MaxTxSizeUtxoError{
-		TxSize:    uint(len(txBytes)),
+		TxSize:    uint(txSize),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
 }
@@ -822,12 +960,6 @@ func UtxoValidateScriptDataHash(
 	hasRedeemers := len(wits.WsRedeemers.Redeemers) > 0
 	hasDatums := len(wits.WsPlutusData.Items) > 0
 
-	// Determine which Plutus versions are used (Alonzo only has PlutusV1)
-	usedVersions := make(map[uint]struct{})
-	if len(wits.WsPlutusV1Scripts) > 0 {
-		usedVersions[0] = struct{}{}
-	}
-
 	declaredHash := tx.ScriptDataHash()
 
 	// ScriptDataHash is required only when the transaction has redeemers or
@@ -842,6 +974,28 @@ func UtxoValidateScriptDataHash(
 	if declaredHash == nil {
 		return common.MissingScriptDataHashError{}
 	}
+
+	// The language views cover the Plutus scripts some script purpose of this
+	// transaction requires, not every script the witness set carries. A
+	// witnessed script no purpose needs adds a view the producer did not, so
+	// the hash comes out different and a canonical transaction is rejected
+	// (gouroboros #2188). Alonzo has no reference scripts, so the witness set
+	// is the only source, but the needed-versus-provided distinction is the
+	// same one cardano-ledger draws.
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) {
+			// A spent input that does not resolve is reported by
+			// UtxoValidateBadInputsUtxo, which runs on every transaction in
+			// this same rule list. Reporting it from here would change which
+			// error an invalid transaction produces, and this rule is
+			// registered ahead of that one. A reference input that does not
+			// resolve has no such dedicated rule, so it still surfaces here.
+			return nil
+		}
+		return err
+	}
+	usedVersions := view.UsedPlutusVersions()
 
 	// Verify cost models are present for all used Plutus versions
 	for version := range usedVersions {
@@ -919,4 +1073,30 @@ func UtxoValidateScriptDataHash(
 	}
 
 	return nil
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Rules/Pool.hs declares
+// only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
+}
+
+// UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards
+// certificate is authorized by a quorum of the current genesis delegates
+func UtxoValidateMIRGenesisQuorum(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateMIRGenesisQuorum(tx, slot, ls, pp)
 }

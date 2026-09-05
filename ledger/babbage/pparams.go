@@ -315,3 +315,18 @@ func UpgradePParams(
 	}
 	return ret
 }
+
+// ProtocolMajorVersion returns the active major protocol version.
+func (p *BabbageProtocolParameters) ProtocolMajorVersion() uint {
+	return p.ProtocolMajor
+}
+
+// MinPoolCostValue returns the minPoolCost protocol parameter.
+func (p *BabbageProtocolParameters) MinPoolCostValue() uint64 {
+	return p.MinPoolCost
+}
+
+// PoolRetirementMaxEpoch returns the eMax protocol parameter.
+func (p *BabbageProtocolParameters) PoolRetirementMaxEpoch() uint64 {
+	return uint64(p.MaxEpoch)
+}

@@ -64,7 +64,7 @@ func main() {
 		cfg.NetworkMagic = network.NetworkMagic
 	}
 	// Create error channel
-	errorChan := make(chan error)
+	errorChan := make(chan error, 1)
 	// start error handler
 	go func() {
 		for {

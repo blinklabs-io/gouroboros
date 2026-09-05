@@ -381,58 +381,65 @@ func blockLevelLimits(
 }
 
 // sumBlockExUnits sums the ExUnits (memory, steps) across every redeemer in
-// every transaction in the block. This reuses the same
+// every transaction level in the block. This reuses the same
 // TransactionWitnessRedeemers mechanism that each era's per-transaction
 // UtxoValidateExUnitsTooBigUtxo rule sums over, so the block-wide total is
 // computed from the same source of truth as the per-transaction check.
 func sumBlockExUnits(txs []common.Transaction) (common.ExUnits, error) {
 	var totalMemory, totalSteps int64
 	for _, tx := range txs {
-		witnesses := tx.Witnesses()
-		if witnesses == nil {
-			continue
-		}
-		redeemers := witnesses.Redeemers()
-		if redeemers == nil {
-			continue
-		}
-		for _, value := range redeemers.Iter() {
-			// Execution units are non-negative by protocol definition even
-			// though ExUnits stores them as signed int64. Reject a negative
-			// Memory or Steps before it is added to the running total: a
-			// malformed redeemer with a negative value would otherwise
-			// reduce the block-wide sum and could mask a budget that
-			// actually exceeds ppMaxBlockExUnits.
-			if value.ExUnits.Memory < 0 {
-				return common.ExUnits{}, fmt.Errorf(
-					"negative execution-unit memory in redeemer: %d",
+		subtransactionWitnessSets := common.SubTransactionWitnessSetsFromTransaction(
+			tx,
+		)
+		witnessSets := make(
+			[]common.TransactionWitnessSet,
+			0,
+			len(subtransactionWitnessSets)+1,
+		)
+		witnessSets = append(witnessSets, tx.Witnesses())
+		witnessSets = append(witnessSets, subtransactionWitnessSets...)
+		for _, witnesses := range witnessSets {
+			if witnesses == nil || witnesses.Redeemers() == nil {
+				continue
+			}
+			for _, value := range witnesses.Redeemers().Iter() {
+				// Execution units are non-negative by protocol definition even
+				// though ExUnits stores them as signed int64. Reject a negative
+				// Memory or Steps before it is added to the running total: a
+				// malformed redeemer with a negative value would otherwise
+				// reduce the block-wide sum and could mask a budget that
+				// actually exceeds ppMaxBlockExUnits.
+				if value.ExUnits.Memory < 0 {
+					return common.ExUnits{}, fmt.Errorf(
+						"negative execution-unit memory in redeemer: %d",
+						value.ExUnits.Memory,
+					)
+				}
+				if value.ExUnits.Steps < 0 {
+					return common.ExUnits{}, fmt.Errorf(
+						"negative execution-unit steps in redeemer: %d",
+						value.ExUnits.Steps,
+					)
+				}
+				var ok bool
+				totalMemory, ok = common.AddInt64Checked(
+					totalMemory,
 					value.ExUnits.Memory,
 				)
-			}
-			if value.ExUnits.Steps < 0 {
-				return common.ExUnits{}, fmt.Errorf(
-					"negative execution-unit steps in redeemer: %d",
+				if !ok {
+					return common.ExUnits{}, errors.New(
+						"block total execution-unit memory overflow",
+					)
+				}
+				totalSteps, ok = common.AddInt64Checked(
+					totalSteps,
 					value.ExUnits.Steps,
 				)
-			}
-			var ok bool
-			totalMemory, ok = common.AddInt64Checked(
-				totalMemory,
-				value.ExUnits.Memory,
-			)
-			if !ok {
-				return common.ExUnits{}, errors.New(
-					"block total execution-unit memory overflow",
-				)
-			}
-			totalSteps, ok = common.AddInt64Checked(
-				totalSteps,
-				value.ExUnits.Steps,
-			)
-			if !ok {
-				return common.ExUnits{}, errors.New(
-					"block total execution-unit steps overflow",
-				)
+				if !ok {
+					return common.ExUnits{}, errors.New(
+						"block total execution-unit steps overflow",
+					)
+				}
 			}
 		}
 	}
@@ -937,20 +944,37 @@ func VerifyBlock(
 				)
 			}
 		}
-		if dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock); ok {
-			if err := dijkstra.ValidateRefScriptSizePerBlock(dijkstraBlock, config.ProtocolParameters); err != nil {
-				return false, "", 0, 0, common.NewValidationError(
-					common.ValidationErrorTypeTransaction,
-					"block reference-script size validation failed",
-					map[string]any{
-						"block_slot":   slot,
-						"block_number": blockNo,
-						"era":          era,
-					},
-					err,
-				)
-			}
+	}
+
+	var refScriptSizeErr error
+	if block.Era() != byron.EraByron &&
+		!config.SkipBlockLimitsValidation && len(block.Transactions()) > 0 {
+		switch typedBlock := block.(type) {
+		case *conway.ConwayBlock:
+			refScriptSizeErr = conway.ValidateRefScriptSizePerBlock(
+				typedBlock,
+				config.ProtocolParameters,
+				config.LedgerState,
+			)
+		case *dijkstra.DijkstraBlock:
+			refScriptSizeErr = dijkstra.ValidateRefScriptSizePerBlock(
+				typedBlock,
+				config.ProtocolParameters,
+				config.LedgerState,
+			)
 		}
+	}
+	if refScriptSizeErr != nil {
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeTransaction,
+			"block reference-script size validation failed",
+			map[string]any{
+				"block_slot":   slot,
+				"block_number": blockNo,
+				"era":          era,
+			},
+			refScriptSizeErr,
+		)
 	}
 
 	// Verify stake pool registration (can be skipped via config)

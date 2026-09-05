@@ -26,6 +26,10 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 )
 
+// eraIdConway is the first era with strict validity upper bounds. Keep this
+// numeric boundary here to avoid importing era packages into common/script.
+const eraIdConway = 6
+
 type ScriptContext interface {
 	isScriptContext()
 	ToPlutusData() data.PlutusData
@@ -194,12 +198,18 @@ func (t TxInfoV1) ToPlutusData() data.PlutusData {
 	)
 }
 
+// NewTxInfoV1FromTransaction builds a Plutus V1 TxInfo. strictValidityUpperBound
+// selects the era-dependent encoding of a finite validity-interval upper bound:
+// pass true in the Conway era or later (EXCLUSIVE upper bound in all cases) and
+// false in Alonzo/Babbage (CLOSED upper bound for an upper-only interval). See
+// the TimeRange.strictUpperBound documentation and cardano-ledger#3043.
 func NewTxInfoV1FromTransaction(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
+	strictValidityUpperBound bool,
 ) (TxInfoV1, error) {
-	validityRange, err := validityRangeInfo(slotState, tx)
+	validityRange, err := validityRangeInfo(slotState, tx, strictValidityUpperBound)
 	if err != nil {
 		return TxInfoV1{}, err
 	}
@@ -242,6 +252,12 @@ func NewTxInfoV1FromTransaction(
 		Id:           tx.Id(),
 	}
 	return ret, nil
+}
+
+// StrictValidityUpperBoundForTransaction reports whether the transaction's
+// era uses an exclusive upper validity bound in Plutus script contexts.
+func StrictValidityUpperBoundForTransaction(tx lcommon.Transaction) bool {
+	return tx.Type() >= eraIdConway
 }
 
 type TxInfoV2 struct {
@@ -307,12 +323,18 @@ func (t TxInfoV2) ToPlutusData() data.PlutusData {
 	)
 }
 
+// NewTxInfoV2FromTransaction builds a Plutus V2 TxInfo. strictValidityUpperBound
+// selects the era-dependent encoding of a finite validity-interval upper bound:
+// pass true in the Conway era or later (EXCLUSIVE upper bound in all cases) and
+// false in Babbage (CLOSED upper bound for an upper-only interval). See the
+// TimeRange.strictUpperBound documentation and cardano-ledger#3043.
 func NewTxInfoV2FromTransaction(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
+	strictValidityUpperBound bool,
 ) (TxInfoV2, error) {
-	validityRange, err := validityRangeInfo(slotState, tx)
+	validityRange, err := validityRangeInfo(slotState, tx, strictValidityUpperBound)
 	if err != nil {
 		return TxInfoV2{}, err
 	}
@@ -409,7 +431,9 @@ func NewTxInfoV3FromTransaction(
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
 ) (TxInfoV3, error) {
-	validityRange, err := validityRangeInfo(slotState, tx)
+	// Plutus V3 only exists in the Conway era and later, where cardano-ledger
+	// always uses an EXCLUSIVE (strict) validity-interval upper bound.
+	validityRange, err := validityRangeInfo(slotState, tx, true)
 	if err != nil {
 		return TxInfoV3{}, err
 	}
@@ -458,7 +482,8 @@ func NewTxInfoV3FromTransaction(
 		Votes:              votes,
 		ProposalProcedures: proposalProcedures,
 	}
-	if amt := tx.CurrentTreasuryValue(); amt != nil && amt.Sign() > 0 {
+	if lcommon.TransactionCurrentTreasuryValuePresent(tx) {
+		amt := tx.CurrentTreasuryValue()
 		ret.CurrentTreasuryAmount.Value = amt
 	}
 	if amt := tx.Donation(); amt != nil && amt.Sign() > 0 {
@@ -472,6 +497,26 @@ type TimeRange struct {
 	upperBound        uint64
 	lowerBoundPresent bool
 	upperBoundPresent bool
+	// strictUpperBound selects cardano-ledger's ERA-DEPENDENT encoding of a
+	// finite validity-interval upper bound (invalidHereafter).
+	//
+	// Conway and later eras (Conway.transValidityInterval, cardano-ledger#3043)
+	// always use `strictUpperBound` — an EXCLUSIVE upper bound — for a finite
+	// upper bound, whether or not a lower bound is present:
+	//   UpperBound (Finite t) False
+	//
+	// Pre-Conway eras (Alonzo/Babbage transVITime) use `PV1.to` for an
+	// upper-only interval, which is a CLOSED/INCLUSIVE upper bound
+	//   UpperBound (Finite t) True
+	// but already use `strictUpperBound` (exclusive) when BOTH bounds are
+	// present. cardano-ledger#3043 could not change this pre-Conway behavior
+	// because it would alter historical on-chain script validation, so the
+	// corrected exclusive bound was gated to the Conway era.
+	//
+	// Set strictUpperBound = true when building a Plutus context in the Conway
+	// era or later, false for Alonzo/Babbage. Plutus V3 only exists in Conway
+	// and later, so V3 contexts always set this true.
+	strictUpperBound bool
 }
 
 func (t TimeRange) ToPlutusData() data.PlutusData {
@@ -493,7 +538,7 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 				toPlutusData(closed),
 			)
 		} else {
-			var constrType uint = 0
+			var constrType uint64
 			if !isLower {
 				constrType = 2
 			}
@@ -517,10 +562,17 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 			t.upperBound,
 			t.upperBoundPresent,
 			false,
-			// cardano-ledger uses `to` (closed upper) for an
-			// upper-only interval, but `strictUpperBound` when
-			// both bounds are present.
-			!t.lowerBoundPresent,
+			// Closure of a finite upper bound, matching cardano-ledger's
+			// ERA-DEPENDENT translation (see the strictUpperBound field):
+			//   - both bounds present (lowerBoundPresent): EXCLUSIVE (false)
+			//     in every era (transVITime / transValidityInterval both use
+			//     strictUpperBound for a two-sided interval).
+			//   - upper-only interval (no lower bound): EXCLUSIVE (false) in
+			//     Conway and later (Conway.transValidityInterval,
+			//     cardano-ledger#3043), INCLUSIVE (true) in Alonzo/Babbage
+			//     (transVITime uses PV1.to).
+			// i.e. closed iff it is an upper-only, pre-Conway interval.
+			!t.lowerBoundPresent && !t.strictUpperBound,
 		),
 	)
 }
@@ -598,11 +650,16 @@ func sortedRedeemerKeys(
 func validityRangeInfo(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
+	strictValidityUpperBound bool,
 ) (TimeRange, error) {
 	var ret TimeRange
+	ret.strictUpperBound = strictValidityUpperBound
 	startSlot := tx.ValidityIntervalStart()
-	endSlot := tx.TTL()
-	ret.lowerBoundPresent, ret.upperBoundPresent = validityBoundPresence(tx)
+	endSlot, upperBoundPresent := lcommon.TransactionValidityIntervalUpperBound(
+		tx,
+	)
+	ret.lowerBoundPresent = validityLowerBoundPresent(tx)
+	ret.upperBoundPresent = upperBoundPresent
 	if ret.lowerBoundPresent {
 		startTime, err := slotState.SlotToTime(startSlot)
 		if err != nil {
@@ -620,25 +677,23 @@ func validityRangeInfo(
 	return ret, nil
 }
 
-func validityBoundPresence(tx lcommon.Transaction) (bool, bool) {
+func validityLowerBoundPresent(tx lcommon.Transaction) bool {
 	startPresent := tx.ValidityIntervalStart() > 0
-	endPresent := tx.TTL() > 0
 	txCbor := tx.Cbor()
 	if len(txCbor) == 0 {
-		return startPresent, endPresent
+		return startPresent
 	}
 	var txFields []cbor.RawMessage
 	if _, err := cbor.Decode(txCbor, &txFields); err != nil ||
 		len(txFields) == 0 {
-		return startPresent, endPresent
+		return startPresent
 	}
 	var bodyFields map[uint]cbor.RawMessage
 	if _, err := cbor.Decode(txFields[0], &bodyFields); err != nil {
-		return startPresent, endPresent
+		return startPresent
 	}
 	_, startPresent = bodyFields[8]
-	_, endPresent = bodyFields[3]
-	return startPresent, endPresent
+	return startPresent
 }
 
 func withdrawalsInfo(
@@ -654,19 +709,14 @@ func withdrawalsInfo(
 			},
 		)
 	}
-	// Sort by address bytes
-	// Note: Bytes() errors are ignored here because Address.Bytes() only fails
-	// for malformed Byron addresses during CBOR encoding. In practice, addresses
-	// in valid transactions will always serialize successfully. If both fail,
-	// bytes.Compare(nil, nil) returns 0, preserving original order for that pair.
-	slices.SortFunc(
-		ret,
-		func(a, b KeyValuePair[*lcommon.Address, *big.Int]) int {
-			aBytes, _ := a.Key.Bytes()
-			bBytes, _ := b.Key.Bytes()
-			return bytes.Compare(aBytes, bBytes)
-		},
-	)
+	sorted := sortWithdrawalAddresses(withdrawals)
+	ret = ret[:0]
+	for _, addr := range sorted {
+		ret = append(ret, KeyValuePair[*lcommon.Address, *big.Int]{
+			Key:   addr,
+			Value: withdrawals[addr],
+		})
+	}
 	return ret
 }
 
@@ -770,7 +820,11 @@ func signatoriesInfo(
 func votingInfo(
 	votingProcedures lcommon.VotingProcedures,
 ) KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]] {
-	ret := make(KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]], 0, len(votingProcedures))
+	ret := make(
+		KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
+		0,
+		len(votingProcedures),
+	)
 	for voter, voterData := range votingProcedures {
 		voterPairs := make(
 			KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure],

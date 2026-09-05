@@ -15,6 +15,8 @@
 package common
 
 import (
+	"fmt"
+	"math/big"
 	"reflect"
 	"testing"
 
@@ -23,6 +25,295 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestVoterUnmarshalCBORValidTypes(t *testing.T) {
+	for voterType := uint8(0); voterType <= VoterTypeStakingPoolKeyHash; voterType++ {
+		t.Run(fmt.Sprintf("type_%d", voterType), func(t *testing.T) {
+			encoded, err := cbor.Encode([]any{
+				voterType,
+				make([]byte, Blake2b224Size),
+			})
+			require.NoError(t, err)
+
+			var voter Voter
+			_, err = cbor.Decode(encoded, &voter)
+			require.NoError(t, err)
+			assert.Equal(t, voterType, voter.Type)
+		})
+	}
+}
+
+func TestVoterUnmarshalCBORRejectsInvalidTypes(t *testing.T) {
+	for _, voterType := range []uint8{5, 255} {
+		t.Run(fmt.Sprintf("type_%d", voterType), func(t *testing.T) {
+			encoded, err := cbor.Encode([]any{
+				voterType,
+				make([]byte, Blake2b224Size),
+			})
+			require.NoError(t, err)
+
+			var voter Voter
+			_, err = cbor.Decode(encoded, &voter)
+			require.ErrorContains(t, err, "invalid voter type")
+		})
+	}
+}
+
+func TestGovernanceValueUnmarshalCBORRejectsNullAndUndefined(t *testing.T) {
+	testCases := []struct {
+		name   string
+		decode func([]byte) error
+	}{
+		{
+			name: "voter",
+			decode: func(encoded []byte) error {
+				var voter Voter
+				return voter.UnmarshalCBOR(encoded)
+			},
+		},
+		{
+			name: "voting procedure",
+			decode: func(encoded []byte) error {
+				var procedure VotingProcedure
+				return procedure.UnmarshalCBOR(encoded)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, cborData := range [][]byte{{0xf6}, {0xf7}} {
+				require.Error(t, tc.decode(cborData))
+			}
+		})
+	}
+}
+
+func TestVotingProcedureUnmarshalCBORVoteTypes(t *testing.T) {
+	testCases := []struct {
+		name    string
+		vote    uint8
+		wantErr bool
+	}{
+		{name: "no", vote: GovVoteNo},
+		{name: "yes", vote: GovVoteYes},
+		{name: "abstain", vote: GovVoteAbstain},
+		{name: "invalid 3", vote: 3, wantErr: true},
+		{name: "invalid 255", vote: 255, wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode([]any{tc.vote, nil})
+			require.NoError(t, err)
+
+			var procedure VotingProcedure
+			_, err = cbor.Decode(encoded, &procedure)
+			if tc.wantErr {
+				require.ErrorContains(t, err, "invalid vote type")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.vote, procedure.Vote)
+		})
+	}
+}
+
+func TestVotingProceduresUnmarshalCBORVoterKeys(t *testing.T) {
+	voter := Voter{Type: VoterTypeDRepKeyHash}
+	actionId := GovActionId{}
+	testCases := []struct {
+		name    string
+		votes   VotingProcedures
+		wantErr bool
+	}{
+		{
+			name: "valid voter",
+			votes: VotingProcedures{
+				&voter: {
+					&actionId: {Vote: GovVoteYes},
+				},
+			},
+		},
+		{
+			name: "nil voter",
+			votes: VotingProcedures{
+				nil: {},
+			},
+			wantErr: true,
+		},
+		{
+			name: "nil action id",
+			votes: VotingProcedures{
+				&voter: {
+					nil: {Vote: GovVoteYes},
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(tc.votes)
+			require.NoError(t, err)
+
+			var votes VotingProcedures
+			_, err = cbor.Decode(encoded, &votes)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, votes, 1)
+		})
+	}
+}
+
+func TestVotingProceduresUnmarshalCBORRejectsNullProcedure(t *testing.T) {
+	voter := Voter{Type: VoterTypeDRepKeyHash}
+	actionId := GovActionId{}
+	encoded, err := cbor.Encode(map[*Voter]map[*GovActionId]any{
+		&voter: {
+			&actionId: nil,
+		},
+	})
+	require.NoError(t, err)
+
+	var votes VotingProcedures
+	_, err = cbor.Decode(encoded, &votes)
+	require.Error(t, err)
+}
+
+func TestVotingProceduresUnmarshalCBORRequiresNonEmptyMaps(t *testing.T) {
+	voter := Voter{Type: VoterTypeDRepKeyHash}
+	actionId := GovActionId{}
+	testCases := []struct {
+		name    string
+		encode  func() ([]byte, error)
+		wantErr bool
+	}{
+		{
+			name: "valid nonempty maps",
+			encode: func() ([]byte, error) {
+				return cbor.Encode(VotingProcedures{
+					&voter: {
+						&actionId: {Vote: GovVoteYes},
+					},
+				})
+			},
+		},
+		{
+			name: "top level null",
+			encode: func() ([]byte, error) {
+				return []byte{0xf6}, nil
+			},
+			wantErr: true,
+		},
+		{
+			name: "top level undefined",
+			encode: func() ([]byte, error) {
+				return []byte{0xf7}, nil
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty outer map",
+			encode: func() ([]byte, error) {
+				return cbor.Encode(VotingProcedures{})
+			},
+			wantErr: true,
+		},
+		{
+			name: "null inner map",
+			encode: func() ([]byte, error) {
+				return cbor.Encode(map[*Voter]map[*GovActionId]VotingProcedure{
+					&voter: nil,
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "undefined inner map",
+			encode: func() ([]byte, error) {
+				return cbor.Encode(map[*Voter]cbor.RawMessage{
+					&voter: {0xf7},
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty inner map",
+			encode: func() ([]byte, error) {
+				return cbor.Encode(map[*Voter]map[*GovActionId]VotingProcedure{
+					&voter: {},
+				})
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := tc.encode()
+			require.NoError(t, err)
+
+			var votes VotingProcedures
+			_, err = cbor.Decode(encoded, &votes)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, votes, 1)
+		})
+	}
+}
+
+func TestTreasuryWithdrawalGovActionUnmarshalCBORAddressKeys(t *testing.T) {
+	addressBytes := append([]byte{0xe0}, make([]byte, AddressHashSize)...)
+	address, err := NewAddressFromBytes(addressBytes)
+	require.NoError(t, err)
+	testCases := []struct {
+		name        string
+		withdrawals map[*Address]uint64
+		wantErr     bool
+	}{
+		{
+			name: "valid address",
+			withdrawals: map[*Address]uint64{
+				&address: 1,
+			},
+		},
+		{
+			name: "nil address",
+			withdrawals: map[*Address]uint64{
+				nil: 1,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode([]any{
+				uint(GovActionTypeTreasuryWithdrawal),
+				tc.withdrawals,
+				nil,
+			})
+			require.NoError(t, err)
+
+			var action TreasuryWithdrawalGovAction
+			_, err = cbor.Decode(encoded, &action)
+			if tc.wantErr {
+				require.ErrorContains(t, err, "nil withdrawal address")
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, action.Withdrawals, 1)
+		})
+	}
+}
 
 // Ttests the ToPlutusData method for Voter types
 func TestVoterToPlutusData(t *testing.T) {
@@ -615,7 +906,7 @@ func TestGovActionIdToPlutusData(t *testing.T) {
 	pd := govActionId.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(0), constr.Tag)
+	assert.Equal(t, big.NewInt(0), constr.Tag)
 	assert.Len(t, constr.Fields, 2)
 }
 
@@ -635,7 +926,7 @@ func TestHardForkInitiationGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(1), constr.Tag)
+	assert.Equal(t, big.NewInt(1), constr.Tag)
 	assert.Len(t, constr.Fields, 2)
 }
 
@@ -653,7 +944,7 @@ func TestTreasuryWithdrawalGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(2), constr.Tag)
+	assert.Equal(t, big.NewInt(2), constr.Tag)
 	assert.Len(t, constr.Fields, 2)
 }
 
@@ -665,7 +956,7 @@ func TestNoConfidenceGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(3), constr.Tag)
+	assert.Equal(t, big.NewInt(3), constr.Tag)
 	assert.Len(t, constr.Fields, 1)
 }
 
@@ -693,11 +984,11 @@ func TestUpdateCommitteeGovActionToPlutusData(t *testing.T) {
 
 		constr, ok := pd.(*data.Constr)
 		assert.True(t, ok)
-		assert.Equal(t, uint(4), constr.Tag)
+		assert.Equal(t, big.NewInt(4), constr.Tag)
 
 		innerConstr, ok := constr.Fields[3].(*data.Constr)
 		assert.True(t, ok)
-		assert.Equal(t, uint(0), innerConstr.Tag)
+		assert.Equal(t, big.NewInt(0), innerConstr.Tag)
 
 		// Verify default values were used
 		num, ok := innerConstr.Fields[0].(*data.Integer)
@@ -728,7 +1019,7 @@ func TestNewConstitutionGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(5), constr.Tag)
+	assert.Equal(t, big.NewInt(5), constr.Tag)
 	assert.Len(t, constr.Fields, 2)
 }
 
@@ -738,7 +1029,7 @@ func TestInfoGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(6), constr.Tag)
+	assert.Equal(t, big.NewInt(6), constr.Tag)
 	assert.Len(t, constr.Fields, 0)
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
@@ -647,6 +648,12 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 		var newErr error
 		switch {
 		case failureType == ApplyTxErrorUtxowFailure:
+			if len(tmpFailure) < 2 {
+				return fmt.Errorf(
+					"ApplyTxError UtxowFailure: expected at least 2 elements, got %d",
+					len(tmpFailure),
+				)
+			}
 			// Use era-aware UTXOW failure decoding
 			utxowErr := &UtxowFailure{era: e.era}
 			if _, err := cbor.Decode(tmpFailure[1], utxowErr); err != nil {
@@ -993,29 +1000,7 @@ func (e *UtxowFailure) Error() string {
 // CBOR (constructor payload only, tag already stripped by the caller):
 //
 //	[credential, ...]
-type MissingRequiredGuards struct {
-	Guards []common.Credential
-}
-
-func (e *MissingRequiredGuards) UnmarshalCBOR(cborData []byte) error {
-	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (e *MissingRequiredGuards) Error() string {
-	var sb strings.Builder
-	sb.WriteString("MissingRequiredGuards ([")
-	for idx, cred := range e.Guards {
-		sb.WriteString(cred.Credential.String())
-		if idx < len(e.Guards)-1 {
-			sb.WriteString(", ")
-		}
-	}
-	sb.WriteString("])")
-	return sb.String()
-}
+type MissingRequiredGuards = dijkstra.MissingRequiredGuards
 
 // MalformedGuardDatums represents guard credentials whose datum presence in
 // requiredTopLevelGuards is inconsistent. Dijkstra-only (UTXOW constructor
@@ -1027,29 +1012,7 @@ func (e *MissingRequiredGuards) Error() string {
 // CBOR (constructor payload only, tag already stripped by the caller):
 //
 //	[credential, ...]
-type MalformedGuardDatums struct {
-	Guards []common.Credential
-}
-
-func (e *MalformedGuardDatums) UnmarshalCBOR(cborData []byte) error {
-	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (e *MalformedGuardDatums) Error() string {
-	var sb strings.Builder
-	sb.WriteString("MalformedGuardDatums ([")
-	for idx, cred := range e.Guards {
-		sb.WriteString(cred.Credential.String())
-		if idx < len(e.Guards)-1 {
-			sb.WriteString(", ")
-		}
-	}
-	sb.WriteString("])")
-	return sb.String()
-}
+type MalformedGuardDatums = dijkstra.MalformedGuardDatums
 
 type UtxoFailure struct {
 	cbor.StructAsArray
@@ -1168,7 +1131,22 @@ type OutsideValidityIntervalUtxo struct {
 }
 
 func (e *OutsideValidityIntervalUtxo) Error() string {
-	validityInterval := e.ValidityInterval.Value().([]any)
+	value := e.ValidityInterval.Value()
+	validityInterval, ok := value.([]any)
+	if !ok {
+		return fmt.Sprintf(
+			"OutsideValidityIntervalUtxo (invalid ValidityInterval type %T, Slot %d)",
+			value,
+			e.Slot,
+		)
+	}
+	if len(validityInterval) < 2 {
+		return fmt.Sprintf(
+			"OutsideValidityIntervalUtxo (invalid ValidityInterval length %d, Slot %d)",
+			len(validityInterval),
+			e.Slot,
+		)
+	}
 	return fmt.Sprintf(
 		"OutsideValidityIntervalUtxo (ValidityInterval { invalidBefore = %v, invalidHereafter = %v }, Slot %d)",
 		validityInterval[0],

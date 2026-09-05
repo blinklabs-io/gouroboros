@@ -270,6 +270,12 @@ func CalculateBlockBodyHash(
 func GetTxBodies(txsRaw [][]string) ([]BabbageTransactionBody, error) {
 	bodies := make([]BabbageTransactionBody, 0, len(txsRaw))
 	for index, tx := range txsRaw {
+		if len(tx) == 0 {
+			return nil, fmt.Errorf(
+				"CalculateBlockBodyHash: transaction at index %d: expected at least 1 field, got 0",
+				index,
+			)
+		}
 		var tmp BabbageTransactionBody
 		bodyTmpHex := tx[0]
 		bodyTmpBytes, bodyTmpBytesError := hex.DecodeString(bodyTmpHex)

@@ -31,9 +31,19 @@ The threshold formula is: `T = 2^512 * (1 - (1-f)^σ)` where `f` is the active s
 ### Chain Selection (`selection.go`)
 
 - `PraosChainSelector` - Implements Praos chain selection rules:
-  1. Prefer longer chains (higher block number)
-  2. For equal length, prefer lower VRF output (tiebreaker)
-  3. For deep forks (>k slots), compare chain density
+  1. Ordinary comparison (`Compare`): prefer longer chains (higher block
+     number); for equal length, prefer lower VRF output (tiebreaker)
+  2. `IsDeepFork(fork, tipBlockNumber)` routes between the two regimes: a
+     fork is deep when adopting it would roll back more than k *blocks*
+     (k counts blocks, not slots)
+  3. Genesis density comparison (`CompareWithDensity` /
+     `PreferredWithDensity`): shallow forks use the ordinary comparison,
+     while deep forks prefer the chain with more blocks within the genesis
+     window (3k/f slots after the fork point) regardless of total length;
+     equal density falls through to the ordinary comparison
+
+  Tips that implement the optional `WindowBlockCounter` interface get the
+  canonical integer window metric; others fall back to `ChainTip.Density`.
 
 ### Block Validation (`validate.go`)
 

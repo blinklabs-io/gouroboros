@@ -15,6 +15,7 @@
 package babbage
 
 import (
+	"bytes"
 	"math/big"
 	"reflect"
 	"testing"
@@ -23,9 +24,182 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func encodeBabbageHeaderWithPrevHash(
+	t *testing.T,
+	prevHash cbor.RawMessage,
+) ([]byte, []byte) {
+	t.Helper()
+	bodyCbor, err := cbor.Encode([]any{
+		uint64(0),
+		uint64(0),
+		prevHash,
+		common.IssuerVkey{},
+		[]byte{0},
+		common.VrfResult{},
+		uint64(0),
+		common.Blake2b256{},
+		BabbageOpCert{},
+		BabbageProtoVersion{},
+	})
+	require.NoError(t, err)
+	headerCbor, err := cbor.Encode([]any{
+		cbor.RawMessage(bodyCbor),
+		[]byte{0},
+	})
+	require.NoError(t, err)
+	return headerCbor, bodyCbor
+}
+
+func TestBabbageBlockHeaderPreviousHashDecoding(t *testing.T) {
+	t.Run("origin null", func(t *testing.T) {
+		headerCbor, bodyCbor := encodeBabbageHeaderWithPrevHash(
+			t,
+			cbor.RawMessage{0xf6},
+		)
+		header, err := NewBabbageBlockHeaderFromCbor(headerCbor)
+		require.NoError(t, err)
+		assert.Equal(t, common.Blake2b256{}, header.PrevHash())
+		assert.Equal(t, bodyCbor, header.Body.Cbor())
+		assert.Equal(t, headerCbor, header.Cbor())
+		assert.Equal(t, common.Blake2b256Hash(headerCbor), header.Hash())
+	})
+
+	t.Run("exact hash", func(t *testing.T) {
+		expected := common.Blake2b256(bytes.Repeat([]byte{0x42}, 32))
+		prevHash, err := cbor.Encode(expected)
+		require.NoError(t, err)
+		headerCbor, _ := encodeBabbageHeaderWithPrevHash(
+			t,
+			cbor.RawMessage(prevHash),
+		)
+		header, err := NewBabbageBlockHeaderFromCbor(headerCbor)
+		require.NoError(t, err)
+		assert.Equal(t, expected, header.PrevHash())
+	})
+
+	t.Run("short hash", func(t *testing.T) {
+		prevHash, err := cbor.Encode([]byte{0x42})
+		require.NoError(t, err)
+		headerCbor, _ := encodeBabbageHeaderWithPrevHash(
+			t,
+			cbor.RawMessage(prevHash),
+		)
+		_, err = NewBabbageBlockHeaderFromCbor(headerCbor)
+		require.ErrorContains(t, err, "expected 32 bytes, got 1")
+	})
+
+	t.Run("non-byte value", func(t *testing.T) {
+		headerCbor, _ := encodeBabbageHeaderWithPrevHash(
+			t,
+			cbor.RawMessage{0x00},
+		)
+		_, err := NewBabbageBlockHeaderFromCbor(headerCbor)
+		require.ErrorContains(t, err, "expected CBOR byte string")
+	})
+
+	t.Run("global hash remains strict", func(t *testing.T) {
+		var hash common.Blake2b256
+		_, err := cbor.Decode(cbor.RawMessage{0xf6}, &hash)
+		require.ErrorContains(t, err, "expected CBOR byte string")
+	})
+}
+
+func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) {
+	input1 := shelley.NewShelleyTransactionInput(
+		"0101010101010101010101010101010101010101010101010101010101010101",
+		0,
+	)
+	input2 := shelley.NewShelleyTransactionInput(
+		"0202020202020202020202020202020202020202020202020202020202020202",
+		1,
+	)
+	var signer common.Blake2b224
+	signer[0] = 3
+	collateralSet := cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{input1, input2, input1},
+		false,
+	)
+	collateralWire, err := cbor.Encode(&collateralSet)
+	require.NoError(t, err)
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		0:  []shelley.ShelleyTransactionInput{input2, input1, input2},
+		13: collateralSet,
+		14: cbor.NewSetType([]common.Blake2b224{signer, signer}, false),
+		18: cbor.NewSetType([]shelley.ShelleyTransactionInput{input2, input1, input2}, false),
+	})
+	require.NoError(t, err)
+
+	var body BabbageTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+	assert.Equal(t, bodyCbor, body.Cbor())
+	assert.Equal(t, []common.TransactionInput{input2, input1}, body.Inputs())
+	assert.Equal(t, []common.TransactionInput{input1, input2}, body.Collateral())
+	assert.Equal(t, []common.TransactionInput{&input2, &input1}, body.ReferenceInputs())
+	assert.Equal(t, []common.Blake2b224{signer, signer}, body.RequiredSigners())
+	decodedCollateralWire, err := cbor.Encode(&body.TxCollateral)
+	require.NoError(t, err)
+	assert.Equal(t, collateralWire, decodedCollateralWire)
+
+	tx := &BabbageTransaction{Body: body}
+	assert.NoError(t, shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil))
+}
+
+func TestBabbageTransactionBodyRejectsDuplicateTaggedSets(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"0101010101010101010101010101010101010101010101010101010101010101",
+		0,
+	)
+	var signer common.Blake2b224
+	signer[0] = 3
+	tests := []struct {
+		name string
+		body map[uint]any
+	}{
+		{
+			name: "collateral",
+			body: map[uint]any{
+				13: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					true,
+				),
+			},
+		},
+		{
+			name: "required signers",
+			body: map[uint]any{
+				14: cbor.NewSetType(
+					[]common.Blake2b224{signer, signer},
+					true,
+				),
+			},
+		},
+		{
+			name: "reference inputs",
+			body: map[uint]any{
+				18: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					true,
+				),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(test.body)
+			require.NoError(t, err)
+
+			var body BabbageTransactionBody
+			err = body.UnmarshalCBOR(bodyCbor)
+			require.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
 
 func TestBabbageBlockTransactions(t *testing.T) {
 	b := &BabbageBlock{}

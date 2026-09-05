@@ -15,9 +15,11 @@
 package consensus
 
 import (
+	"context"
 	"math"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +27,18 @@ import (
 
 // Test seed (exactly 32 bytes)
 var testVRFSeed = []byte("test_vrf_seed_for_consensus!!!!!")
+
+type fixedOutputVRFSigner struct {
+	output []byte
+}
+
+func (s fixedOutputVRFSigner) Prove([]byte) ([]byte, []byte, error) {
+	return make([]byte, 80), append([]byte(nil), s.output...), nil
+}
+
+func (fixedOutputVRFSigner) PublicKey() []byte {
+	return make([]byte, 32)
+}
 
 func TestNewSimpleVRFSigner(t *testing.T) {
 	signer, err := NewSimpleVRFSigner(testVRFSeed)
@@ -79,6 +93,100 @@ func TestIsSlotLeader(t *testing.T) {
 	}
 	if result.Eligible && (result.Proof == nil || result.Output == nil) {
 		t.Error("if eligible, proof and output should not be nil")
+	}
+}
+
+func TestIsSlotLeaderWithModeRealThresholdBoundaries(t *testing.T) {
+	vrfOutput := make([]byte, 64)
+	vrfOutput[0] = 0x40
+	vrfOutput[63] = 0x01
+	signer := fixedOutputVRFSigner{output: vrfOutput}
+
+	modes := []struct {
+		name       string
+		mode       ConsensusMode
+		upperBound *big.Int
+		leader     *big.Int
+	}{
+		{
+			name:       "CPraos",
+			mode:       ConsensusModeCPraos,
+			upperBound: twoTo256,
+			leader:     new(big.Int).SetBytes(VrfLeaderValue(vrfOutput)),
+		},
+		{
+			name:       "TPraos",
+			mode:       ConsensusModeTPraos,
+			upperBound: twoTo512,
+			leader:     new(big.Int).SetBytes(vrfOutput),
+		},
+	}
+
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			require.Positive(t, mode.leader.Sign())
+			require.Negative(t, mode.leader.Cmp(mode.upperBound))
+
+			cases := []struct {
+				name              string
+				cutoffNumerator   *big.Int
+				cutoffDenominator *big.Int
+				wantThreshold     *big.Int
+				wantEligible      bool
+			}{
+				{
+					name: "below-fractional-cutoff",
+					cutoffNumerator: new(big.Int).Add(
+						new(big.Int).Mul(mode.leader, big.NewInt(2)),
+						big.NewInt(1),
+					),
+					cutoffDenominator: big.NewInt(2),
+					wantThreshold:     new(big.Int).Add(mode.leader, big.NewInt(1)),
+					wantEligible:      true,
+				},
+				{
+					name:              "equal-integral-cutoff",
+					cutoffNumerator:   new(big.Int).Set(mode.leader),
+					cutoffDenominator: big.NewInt(1),
+					wantThreshold:     new(big.Int).Set(mode.leader),
+					wantEligible:      false,
+				},
+				{
+					name: "above-fractional-cutoff",
+					cutoffNumerator: new(big.Int).Sub(
+						new(big.Int).Mul(mode.leader, big.NewInt(2)),
+						big.NewInt(1),
+					),
+					cutoffDenominator: big.NewInt(2),
+					wantThreshold:     new(big.Int).Set(mode.leader),
+					wantEligible:      false,
+				},
+			}
+
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					// With full stake, the real-valued leadership cutoff is
+					// upperBound*f. Construct f so the fixed leader value is
+					// immediately below, exactly at, or immediately above it.
+					f := new(big.Rat).SetFrac(
+						tc.cutoffNumerator,
+						new(big.Int).Mul(mode.upperBound, tc.cutoffDenominator),
+					)
+					result, err := IsSlotLeaderWithMode(
+						42,
+						make([]byte, 32),
+						1,
+						1,
+						f,
+						signer,
+						mode.mode,
+					)
+					require.NoError(t, err)
+					require.Equal(t, tc.wantThreshold, result.Threshold)
+					require.Equal(t, tc.wantEligible, result.Eligible)
+				})
+			}
+		})
 	}
 }
 
@@ -380,6 +488,62 @@ func TestFindNextSlotLeadershipNoEligibility(t *testing.T) {
 	if slot != 0 || proof != nil || output != nil {
 		t.Error("should not find eligibility with zero stake")
 	}
+}
+
+func TestFindNextSlotLeadershipContextRejectsOversizedRange(t *testing.T) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+	_, _, _, err = FindNextSlotLeadershipContext(
+		context.Background(),
+		0,
+		MaxLeadershipSearchSlots,
+		make([]byte, 32),
+		1,
+		1,
+		big.NewRat(1, 2),
+		signer,
+	)
+	require.Error(t, err)
+}
+
+func TestFindNextSlotLeadershipContextHonorsCancellation(t *testing.T) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, _, err = FindNextSlotLeadershipContext(
+		ctx,
+		0,
+		10,
+		make([]byte, 32),
+		1,
+		1,
+		big.NewRat(1, 2),
+		signer,
+	)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestFindNextSlotLeadershipContextHandlesMaxUint64Boundary(t *testing.T) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	slot, proof, output, err := FindNextSlotLeadershipContext(
+		ctx,
+		math.MaxUint64,
+		math.MaxUint64,
+		make([]byte, 32),
+		0,
+		1,
+		big.NewRat(1, 2),
+		signer,
+	)
+	require.NoError(t, err)
+	require.Zero(t, slot)
+	require.Nil(t, proof)
+	require.Nil(t, output)
 }
 
 func TestIsSlotLeaderWithModeSlotOverflow(t *testing.T) {

@@ -33,3 +33,14 @@ var ErrBlockNotFound = errors.New(
 var ErrBlockTxsNotFound = errors.New(
 	"endorser block transactions not available",
 )
+
+// ErrRequestSlotAbandoned signals that an earlier request on the same
+// leios-fetch connection timed out before its response arrived, and the peer
+// still had not answered after the bounded grace period. The connection cannot
+// safely issue another request until the protocol receives and discards the
+// late response, and the mini-protocol cannot even write one while the peer
+// holds agency, so the client fails the connection when it returns this error.
+// Callers should fail over to another connection.
+var ErrRequestSlotAbandoned = errors.New(
+	"leios-fetch request slot awaiting abandoned response",
+)

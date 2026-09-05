@@ -90,6 +90,7 @@ func TestAllegraUtxorpc(t *testing.T) {
 		ProtocolMajor:      8,
 		ProtocolMinor:      0,
 		MinUtxoValue:       1000000,
+		MinPoolCost:        340000000,
 	}
 
 	expectedUtxorpc := &utxorpc.PParams{
@@ -118,6 +119,7 @@ func TestAllegraUtxorpc(t *testing.T) {
 			Major: 8,
 			Minor: 0,
 		},
+		MinPoolCost: common.ToUtxorpcBigInt(340000000),
 	}
 
 	result, err := inputParams.Utxorpc()

@@ -118,13 +118,15 @@ type ConwayParameterChangeGovAction struct {
 	PolicyHash  []byte
 }
 
+var _ common.ParameterChangeGovAction = (*ConwayParameterChangeGovAction)(nil)
+
 func (a *ConwayParameterChangeGovAction) ToPlutusData() data.PlutusData {
 	actionId := data.NewConstr(1)
 	if a.ActionId != nil {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
 	}
 	policyHash := data.NewConstr(1)
-	if len(a.PolicyHash) > 0 {
+	if a.PolicyHash != nil {
 		policyHash = data.NewConstr(
 			0,
 			data.NewByteString(a.PolicyHash),
@@ -139,7 +141,27 @@ func (a *ConwayParameterChangeGovAction) ToPlutusData() data.PlutusData {
 
 // GetPolicyHash returns the policy script hash for this governance action
 func (a *ConwayParameterChangeGovAction) GetPolicyHash() []byte {
+	if a == nil {
+		return nil
+	}
 	return a.PolicyHash
+}
+
+// PreviousGovActionId returns the parameter-change action this action follows.
+func (a *ConwayParameterChangeGovAction) PreviousGovActionId() *common.GovActionId {
+	if a == nil {
+		return nil
+	}
+	return a.ActionId
+}
+
+// SecurityGroupFields returns the security-group parameters changed by this
+// action.
+func (a *ConwayParameterChangeGovAction) SecurityGroupFields() []string {
+	if a == nil {
+		return nil
+	}
+	return a.ParamUpdate.SecurityGroupFields()
 }
 
 // NewConwayParameterChangeGovAction builds a parameter change governance
@@ -150,7 +172,7 @@ func NewConwayParameterChangeGovAction(
 	paramUpdate ConwayProtocolParameterUpdate,
 	policyHash []byte,
 ) (*ConwayParameterChangeGovAction, error) {
-	if len(policyHash) != 0 && len(policyHash) != common.Blake2b224Size {
+	if policyHash != nil && len(policyHash) != common.Blake2b224Size {
 		return nil, fmt.Errorf(
 			"invalid policy hash length: expected %d bytes, got %d",
 			common.Blake2b224Size,
@@ -185,14 +207,7 @@ func NewConwayGovAction(action common.GovAction) (ConwayGovAction, error) {
 // silently defaulting to discriminant 0, which would be indistinguishable from a
 // valid parameter change action.
 func conwayGovActionType(action common.GovAction) (uint, error) {
-	if action == nil {
-		return 0, errors.New("governance action cannot be nil")
-	}
-	// A typed-nil pointer would otherwise match its concrete case below and wrap
-	// a nil action that encodes to CBOR null or panics in ToPlutusData; reject
-	// it before the type switch.
-	if rv := reflect.ValueOf(action); rv.Kind() == reflect.Pointer &&
-		rv.IsNil() {
+	if isNilGovAction(action) {
 		return 0, errors.New("governance action cannot be nil")
 	}
 	switch action.(type) {
@@ -213,6 +228,16 @@ func conwayGovActionType(action common.GovAction) (uint, error) {
 	default:
 		return 0, fmt.Errorf("unsupported governance action type: %T", action)
 	}
+}
+
+// isNilGovAction reports whether action is nil, including an interface that
+// contains a typed-nil pointer.
+func isNilGovAction(action common.GovAction) bool {
+	if action == nil {
+		return true
+	}
+	rv := reflect.ValueOf(action)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
 // NewConwayProposalProcedure builds a Conway proposal procedure from a deposit,

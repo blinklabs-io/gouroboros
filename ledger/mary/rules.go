@@ -28,26 +28,102 @@ const (
 	maxTransactionOutputValueSize = 4000
 )
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	UtxoValidateMetadata,
-	UtxoValidateRequiredVKeyWitnesses,
-	UtxoValidateSignatures,
-	UtxoValidateOutsideValidityIntervalUtxo,
-	UtxoValidateInputSetEmptyUtxo,
-	UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateBadInputsUtxo,
-	UtxoValidateWrongNetwork,
-	UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputTooBigUtxo,
-	UtxoValidateOutputBootAddrAttrsTooBig,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateNativeScripts,
-	UtxoValidateDelegation,
-	UtxoValidateWithdrawals,
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideValidityInterval,
+		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooBig,
+		Validator: UtxoValidateOutputTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
+	},
 }
+
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
+var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
+	utxoValidationRuleDescriptors,
+)
 
 func UtxoValidateRequiredVKeyWitnesses(
 	tx common.Transaction,
@@ -104,6 +180,16 @@ func UtxoValidateInputSetEmptyUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
+}
+
+// UtxoValidateScriptWitnesses checks that every required script is provided.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateScriptWitnesses(tx, slot, ls, pp)
 }
 
 func UtxoValidateNoDuplicateInputs(
@@ -383,19 +469,15 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	txBytes := tx.Cbor()
-	if len(txBytes) == 0 {
-		var err error
-		txBytes, err = cbor.Encode(tx)
-		if err != nil {
-			return err
-		}
+	txSize, sizeErr := common.TxSize(tx)
+	if sizeErr != nil {
+		return sizeErr
 	}
-	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+	if uint(txSize) <= tmpPparams.MaxTxSize {
 		return nil
 	}
 	return shelley.MaxTxSizeUtxoError{
-		TxSize:    uint(len(txBytes)),
+		TxSize:    uint(txSize),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
 }
@@ -487,4 +569,30 @@ func UtxoValidateWithdrawals(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/mary/impl/src/Cardano/Ledger/Mary/Rules/Pool.hs declares
+// only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
+}
+
+// UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards
+// certificate is authorized by a quorum of the current genesis delegates
+func UtxoValidateMIRGenesisQuorum(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateMIRGenesisQuorum(tx, slot, ls, pp)
 }

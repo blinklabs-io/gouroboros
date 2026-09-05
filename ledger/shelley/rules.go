@@ -24,31 +24,107 @@ package shelley
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 )
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	UtxoValidateMetadata,
-	UtxoValidateRequiredVKeyWitnesses,
-	UtxoValidateSignatures,
-	UtxoValidateTimeToLive,
-	UtxoValidateInputSetEmptyUtxo,
-	UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateBadInputsUtxo,
-	UtxoValidateWrongNetwork,
-	UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputBootAddrAttrsTooBig,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateDelegation,
-	UtxoValidateWithdrawals,
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleTimeToLive,
+		Validator: UtxoValidateTimeToLive,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
+	},
 }
+
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
+var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
+	utxoValidationRuleDescriptors,
+)
 
 // UtxoValidateTimeToLive ensures that the current tip slot is not after the specified TTL value
 func UtxoValidateTimeToLive(
@@ -78,6 +154,29 @@ func UtxoValidateInputSetEmptyUtxo(
 		return nil
 	}
 	return InputSetEmptyUtxoError{}
+}
+
+// UtxoValidateScriptWitnesses checks that every required script is provided.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateScriptWitnesses(tx, ls)
+}
+
+// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+func UtxoValidateNativeScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if scriptHash, failed := common.FirstInvalidNativeScript(tx, slot); failed {
+		return NativeScriptFailedError{ScriptHash: scriptHash}
+	}
+	return nil
 }
 
 // UtxoValidateNoDuplicateInputs ensures that there are no duplicate inputs in any input set
@@ -205,7 +304,7 @@ func UtxoValidateWrongNetworkWithdrawal(
 		badAddrs = append(badAddrs, *addr)
 	}
 	if len(badAddrs) == 0 {
-		return nil
+		return common.ValidateWithdrawalAddresses(tx.Withdrawals())
 	}
 	return WrongNetworkWithdrawalError{
 		NetId: networkId,
@@ -366,19 +465,15 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	txBytes := tx.Cbor()
-	if len(txBytes) == 0 {
-		var err error
-		txBytes, err = cbor.Encode(tx)
-		if err != nil {
-			return err
-		}
+	txSize, sizeErr := common.TxSize(tx)
+	if sizeErr != nil {
+		return sizeErr
 	}
-	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+	if uint(txSize) <= tmpPparams.MaxTxSize {
 		return nil
 	}
 	return MaxTxSizeUtxoError{
-		TxSize:    uint(len(txBytes)),
+		TxSize:    uint(txSize),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
 }
@@ -391,6 +486,23 @@ func UtxoValidateRequiredVKeyWitnesses(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateRequiredVKeyWitnesses(tx)
+}
+
+// UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards
+// certificate is authorized by a quorum of the current genesis delegates.
+//
+// Not yet registered in any era's UtxoValidationRules. The rule fails closed
+// for a ledger state that does not implement common.GenesisDelegationState, so
+// registering it before a consumer implements the capability would stop a
+// syncing node on the first MIR certificate in Shelley-through-Babbage
+// history. Register it once consumers are wired: blinklabs-io/dingo#3748.
+func UtxoValidateMIRGenesisQuorum(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateMIRGenesisQuorum(tx, ls)
 }
 
 // MinFeeTx calculates the minimum required fee for a transaction based on
@@ -596,8 +708,8 @@ func UtxoValidateDelegation(
 			inTxPoolRegs[c.Operator] = true
 
 		case *common.PoolRetirementCertificate:
-			// Remove from in-tx registrations so subsequent delegations fail
-			delete(inTxPoolRegs, c.PoolKeyHash)
+			// Retirement does not remove the pool from the active pool set.
+			// POOLREAP removes it only after the retirement epoch.
 
 		case *common.StakeDelegationCertificate:
 			if !isPoolRegistered(c.PoolKeyHash) {
@@ -612,7 +724,10 @@ func UtxoValidateDelegation(
 }
 
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
-// It checks that reward accounts are registered.
+// Before Dijkstra, every withdrawal must drain a registered reward account's
+// current balance exactly. Dijkstra permits partial withdrawals when the
+// transaction does not use Plutus V1-V3, but no withdrawal may exceed the
+// account balance.
 func UtxoValidateWithdrawals(
 	tx common.Transaction,
 	slot uint64,
@@ -623,18 +738,339 @@ func UtxoValidateWithdrawals(
 	if withdrawals == nil {
 		return nil
 	}
+	if err := common.ValidateWithdrawalAddresses(withdrawals); err != nil {
+		return err
+	}
 
-	for addr := range withdrawals {
-		cred, ok := addr.StakeCredential()
-		if !ok {
-			continue
+	requireExactAmount := true
+	if versionedPparams, ok := pp.(interface {
+		ProtocolMajorVersion() uint
+	}); ok {
+		if versionedPparams.ProtocolMajorVersion() >=
+			common.ProtocolVersionDijkstra {
+			view, err := script.NewTxScriptView(tx, ls)
+			if err != nil {
+				return err
+			}
+			requireExactAmount = view.NeedsAny(func(s common.Script) bool {
+				version, ok := common.PlutusScriptVersion(s)
+				return ok && version <= 2
+			})
+		}
+	}
+
+	for addr, amount := range withdrawals {
+		cred, err := addr.RewardAccountCredential()
+		if err != nil {
+			return err
 		}
 
-		// Check if reward account is registered
-		if !ls.IsRewardAccountRegistered(cred) {
+		balance, err := ls.RewardAccountBalance(cred)
+		if err != nil {
+			return err
+		}
+		if balance == nil {
 			return WithdrawalFromUnregisteredRewardAccountError{
 				RewardAddress: *addr,
 			}
+		}
+		amountValid := amount != nil && amount.IsUint64()
+		if amountValid {
+			if requireExactAmount {
+				amountValid = amount.Uint64() == *balance
+			} else {
+				amountValid = amount.Uint64() <= *balance
+			}
+		}
+		if !amountValid {
+			var provided *big.Int
+			if amount != nil {
+				provided = new(big.Int).Set(amount)
+			}
+			return IncorrectWithdrawalAmountError{
+				RewardAddress: *addr,
+				Provided:      provided,
+				Balance:       *balance,
+			}
+		}
+	}
+	return nil
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule to every stake
+// pool certificate in a transaction, in certificate order.
+//
+// Reference: poolTransition in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs. Every later era
+// re-exports that transition unchanged: Rules/Pool.hs in eras/allegra,
+// eras/mary, eras/alonzo, eras/babbage, eras/conway and eras/dijkstra each
+// declare only the EraRuleFailure and EraRuleEvent instances and import
+// Cardano.Ledger.Shelley.Rules. So every era from Shelley onwards runs the
+// same predicates and differs only in the protocol version that gates them.
+//
+// Predicates enforced here, all from that file:
+//
+//   - StakePoolCostTooLowPOOL: a registration's cost must be at least
+//     minPoolCost. Unconditional in every era.
+//   - WrongNetworkPOOL: a registration's reward account must be on the
+//     ledger's network. Gated on major protocol version > 4
+//     (hardforkAlonzoValidatePoolAccountAddressNetID).
+//   - VRFKeyHashAlreadyRegistered: a registration may not claim a VRF key hash
+//     another pool holds. Gated on major protocol version > 10
+//     (hardforkConwayDisallowDuplicatedVRFKeys).
+//   - StakePoolNotRegisteredOnKeyPOOL: a retirement must name a registered
+//     pool.
+//   - StakePoolRetirementWrongEpochPOOL: a retirement epoch e must satisfy
+//     cEpoch < e <= cEpoch + eMax.
+//
+// The reference rule's remaining predicate, PoolMedataHashTooBig (a metadata
+// hash longer than 32 bytes, gated on SoftForks.restrictPoolMetadataHash), is
+// not reimplemented because it cannot be reached: PoolMetadata.Hash is a fixed
+// 32-byte PoolMetadataHash whose UnmarshalCBOR rejects any other length, so a
+// certificate carrying an oversized hash never decodes. See
+// TestPoolMetadataHashLengthIsFixed in ledger/common. That makes this package
+// stricter than the reference for protocol versions at or below 4.0, which
+// accepted oversized hashes.
+//
+// The registration and re-registration state updates poolTransition performs
+// (psStakePools, psFutureStakePoolParams, psRetiring, psVRFKeyHashes) are
+// ledger-state transitions rather than predicates, and belong to the consumer
+// applying the certificate.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// A phase-2-invalid transaction never reaches the POOL rule. From
+	// Alonzo onwards ledgerTransition runs DELEGS, and so DELPL and POOL,
+	// only for a phase-2-valid transaction:
+	//
+	//	certState' <-
+	//	  if tx ^. isPhase2ValidTxL == Phase2Valid
+	//	    then ... trans @(EraRule "DELEGS" era) ...
+	//	    else pure certState
+	//
+	// in eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Rules/Ledger.hs. Its
+	// certificates are not applied, so none of the predicates below may
+	// reject it. IsValid reports true in the eras before the phase-2
+	// concept exists, so this is inert for Shelley through Mary.
+	if !tx.IsValid() {
+		return nil
+	}
+	certs := tx.Certificates()
+	if !hasPoolCertificate(certs) {
+		// Leave transactions that carry no pool certificate untouched,
+		// including their protocol parameters, so the rule cannot reject
+		// anything the POOL transition would never have seen.
+		return nil
+	}
+	poolPparams, ok := pp.(common.PoolRuleProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	protocolMajor := poolPparams.ProtocolMajorVersion()
+	checkNetworkId := common.PoolAccountNetworkIdValidated(protocolMajor)
+	checkVrfKeys := common.DuplicateVrfKeysDisallowed(protocolMajor)
+	minPoolCost := poolPparams.MinPoolCostValue()
+	networkId := ls.NetworkId()
+
+	// Certificates are applied in order, so a pool registered by an earlier
+	// certificate in the same transaction is registered for the purposes of
+	// a later one. A retirement certificate does not undo that: the
+	// reference rule only adds the pool to psRetiring and leaves it in
+	// psStakePools until POOLREAP runs at the epoch boundary.
+	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
+	// VRF key hashes claimed by earlier registrations in this transaction,
+	// mirroring the psVRFKeyHashes insert that poolTransition performs.
+	inTxVrfKeys := make(map[common.VrfKeyHash]common.PoolKeyHash)
+
+	for _, cert := range certs {
+		switch c := cert.(type) {
+		case *common.PoolRegistrationCertificate:
+			if err := validatePoolRegistration(
+				c,
+				ls,
+				networkId,
+				minPoolCost,
+				checkNetworkId,
+				checkVrfKeys,
+				inTxVrfKeys,
+			); err != nil {
+				return err
+			}
+			inTxPoolRegs[c.Operator] = true
+			if checkVrfKeys {
+				inTxVrfKeys[c.VrfKeyHash] = c.Operator
+			}
+		case *common.PoolRetirementCertificate:
+			if err := validatePoolRetirement(
+				c,
+				slot,
+				ls,
+				poolPparams,
+				inTxPoolRegs,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// hasPoolCertificate reports whether any certificate is a pool registration or
+// pool retirement, the two signals the POOL rule handles.
+func hasPoolCertificate(certs []common.Certificate) bool {
+	for _, cert := range certs {
+		switch cert.(type) {
+		case *common.PoolRegistrationCertificate,
+			*common.PoolRetirementCertificate:
+			return true
+		}
+	}
+	return false
+}
+
+// validatePoolRegistration applies the RegPool branch of poolTransition.
+func validatePoolRegistration(
+	cert *common.PoolRegistrationCertificate,
+	ls common.LedgerState,
+	networkId uint,
+	minPoolCost uint64,
+	checkNetworkId bool,
+	checkVrfKeys bool,
+	inTxVrfKeys map[common.VrfKeyHash]common.PoolKeyHash,
+) error {
+	// WrongNetworkPOOL: actualNetID == suppliedNetID.
+	//
+	// The supplied value is the network id in the reward account's address
+	// header byte. When the certificate was not decoded from a wire
+	// reward_account carrying that header there is nothing to compare, so
+	// the check is skipped rather than assuming a network.
+	if checkNetworkId {
+		if suppliedNetworkId, known := cert.RewardAccountNetworkId(); known &&
+			suppliedNetworkId != networkId {
+			return WrongNetworkPoolError{
+				PoolKeyHash: cert.Operator,
+				Supplied:    suppliedNetworkId,
+				Expected:    networkId,
+			}
+		}
+	}
+
+	// StakePoolCostTooLowPOOL: sppCost >= minPoolCost.
+	if cert.Cost < minPoolCost {
+		return StakePoolCostTooLowError{
+			PoolKeyHash: cert.Operator,
+			Supplied:    cert.Cost,
+			Min:         minPoolCost,
+		}
+	}
+
+	if !checkVrfKeys {
+		return nil
+	}
+	// VRFKeyHashAlreadyRegistered. The reference splits on whether the pool
+	// is already in psStakePools: a new registration requires
+	// Map.notMember sppVrf psVRFKeyHashes, while a re-registration also
+	// accepts sppVrf == the pool's own registered VRF key hash. Only
+	// registrations put entries into psVRFKeyHashes, so both branches
+	// reduce to the same predicate here: the VRF key hash must be unused,
+	// or held by this same pool.
+	//
+	// One narrow case is not reproduced. psVRFKeyHashes also retains the
+	// VRF key hash of an earlier same-epoch re-registration held in
+	// psFutureStakePoolParams, which the reference rejects because it is
+	// neither absent nor equal to the pool's current VRF key hash. This
+	// package has no future-pool-parameter state, so a pool reverting to
+	// such a key hash is accepted. That direction cannot reject a valid
+	// registration.
+	if owner, claimed := inTxVrfKeys[cert.VrfKeyHash]; claimed &&
+		owner != cert.Operator {
+		return VrfKeyHashAlreadyRegisteredError{
+			PoolKeyHash:  cert.Operator,
+			VrfKeyHash:   cert.VrfKeyHash,
+			RegisteredBy: owner,
+		}
+	}
+	inUse, owningPool, err := ls.IsVrfKeyInUse(cert.VrfKeyHash)
+	if err != nil {
+		return err
+	}
+	if inUse && owningPool == cert.Operator {
+		current, _, err := ls.PoolCurrentState(cert.Operator)
+		if err != nil {
+			return err
+		}
+		if current == nil || current.VrfKeyHash != cert.VrfKeyHash {
+			return VrfKeyHashAlreadyRegisteredError{
+				PoolKeyHash:  cert.Operator,
+				VrfKeyHash:   cert.VrfKeyHash,
+				RegisteredBy: owningPool,
+			}
+		}
+	}
+	if inUse && owningPool != cert.Operator {
+		return VrfKeyHashAlreadyRegisteredError{
+			PoolKeyHash:  cert.Operator,
+			VrfKeyHash:   cert.VrfKeyHash,
+			RegisteredBy: owningPool,
+		}
+	}
+	return nil
+}
+
+// validatePoolRetirement applies the RetirePool branch of poolTransition.
+func validatePoolRetirement(
+	cert *common.PoolRetirementCertificate,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.PoolRuleProtocolParameters,
+	inTxPoolRegs map[common.PoolKeyHash]bool,
+) error {
+	// StakePoolNotRegisteredOnKeyPOOL: Map.member sppId psStakePools.
+	if !ls.IsPoolRegistered(cert.PoolKeyHash) &&
+		!inTxPoolRegs[cert.PoolKeyHash] {
+		return StakePoolNotRegisteredOnKeyError{
+			PoolKeyHash: cert.PoolKeyHash,
+		}
+	}
+	// StakePoolRetirementWrongEpochPOOL: cEpoch < e && e <= cEpoch + eMax.
+	//
+	// The current epoch is required to evaluate the retirement bound.
+	epochState, ok := ls.(common.EpochState)
+	if !ok {
+		// Epoch zero is invalid for every possible current epoch. For any
+		// other epoch, the optional capability's degrading contract requires
+		// us to skip only the bound that cannot be evaluated here.
+		if cert.Epoch == 0 {
+			return StakePoolRetirementWrongEpochError{
+				PoolKeyHash:  cert.PoolKeyHash,
+				Supplied:     cert.Epoch,
+				CurrentEpoch: 0,
+				LimitEpoch:   0,
+			}
+		}
+		return nil
+	}
+	currentEpoch, err := epochState.EpochForSlot(slot)
+	if err != nil {
+		return err
+	}
+	// addEpochInterval in cardano-base adds a Word32 interval to a Word64
+	// epoch and cannot overflow for real values. eMax is a uint here, so
+	// saturate instead of wrapping: a saturated limit leaves the upper
+	// bound vacuous rather than rejecting a valid retirement.
+	limitEpoch := currentEpoch + pp.PoolRetirementMaxEpoch()
+	if limitEpoch < currentEpoch {
+		limitEpoch = math.MaxUint64
+	}
+	if cert.Epoch <= currentEpoch || cert.Epoch > limitEpoch {
+		return StakePoolRetirementWrongEpochError{
+			PoolKeyHash:  cert.PoolKeyHash,
+			Supplied:     cert.Epoch,
+			CurrentEpoch: currentEpoch,
+			LimitEpoch:   limitEpoch,
 		}
 	}
 	return nil

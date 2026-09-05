@@ -96,7 +96,10 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 		}
 		converted := uint(val)
 		if uint64(converted) != val {
-			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+			return fmt.Errorf(
+				"invalid transaction index %d overflows uint",
+				val,
+			)
 		}
 		result = append(result, converted)
 	}
@@ -124,6 +127,23 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 		len(b.TransactionWitnessSets),
 	); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateConwayCertificateTypes(
+	certificates []common.CertificateWrapper,
+) error {
+	for idx, certificate := range certificates {
+		certType := common.CertificateType(certificate.Type)
+		if certType == common.CertificateTypeGenesisKeyDelegation ||
+			certType == common.CertificateTypeMoveInstantaneousRewards {
+			return fmt.Errorf(
+				"certificate type is not valid in Conway: index %d type %d",
+				idx,
+				certificate.Type,
+			)
+		}
 	}
 	return nil
 }
@@ -197,6 +217,9 @@ func (b *ConwayBlock) Era() common.Era {
 }
 
 func (b *ConwayBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
@@ -276,7 +299,7 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 		// Modern map form — clear any stale legacy state
 		r.legacy = false
 		r.legacyRedeemers = alonzo.AlonzoRedeemers{}
-		if _, err := cbor.Decode(cborData, &(r.Redeemers)); err != nil {
+		if _, err := cbor.Decode(cborData, &r.Redeemers); err != nil {
 			if !cbor.IsDuplicateMapKeyError(err) {
 				return err
 			}
@@ -290,7 +313,7 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 			// the stored raw CBOR (SetCbor above), so lenient struct decoding
 			// never changes them.
 			r.Redeemers = nil
-			if _, err := cbor.DecodeLenient(cborData, &(r.Redeemers)); err != nil {
+			if _, err := cbor.DecodeLenient(cborData, &r.Redeemers); err != nil {
 				return err
 			}
 		}
@@ -298,7 +321,7 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	}
 	// Legacy array form — clear any stale map state
 	r.Redeemers = nil
-	_, err := cbor.Decode(cborData, &(r.legacyRedeemers))
+	_, err := cbor.Decode(cborData, &r.legacyRedeemers)
 	if err != nil {
 		return err
 	}
@@ -342,14 +365,21 @@ func (r *ConwayRedeemers) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return err
 	}
-	r.Redeemers = make(map[common.RedeemerKey]common.RedeemerValue, len(entries))
+	r.Redeemers = make(
+		map[common.RedeemerKey]common.RedeemerValue,
+		len(entries),
+	)
 	for _, entry := range entries {
 		key := common.RedeemerKey{
 			Tag:   entry.Tag,
 			Index: entry.Index,
 		}
 		if _, exists := r.Redeemers[key]; exists {
-			return fmt.Errorf("duplicate redeemer key: tag=%d index=%d", entry.Tag, entry.Index)
+			return fmt.Errorf(
+				"duplicate redeemer key: tag=%d index=%d",
+				entry.Tag,
+				entry.Index,
+			)
 		}
 		r.Redeemers[key] = common.RedeemerValue{
 			Data:    entry.Data,
@@ -450,17 +480,17 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	// (cardano-ledger scriptDecoderV9 / decodeMapLikeEnforceNoDuplicates), like
 	// the tx-body sets. Only enforce the fields cardano-ledger enforces in
 	// Conway; enforcing the tolerated fields rejects valid historical blocks at
-	// decode (issue #1853). Untagged array fields are left unchecked so
-	// pre-Conway encodings remain valid.
+	// decode (issue #1853). The checked Plutus script sets reject duplicates in
+	// both tagged and untagged encodings.
 	type duplicateChecker interface {
-		CheckForDuplicates() error
+		CheckForDuplicatesAlways() error
 	}
 	for _, c := range []duplicateChecker{
 		&tmp.WsPlutusV1Scripts,
 		&tmp.WsPlutusV2Scripts,
 		&tmp.WsPlutusV3Scripts,
 	} {
-		if err := c.CheckForDuplicates(); err != nil {
+		if err := c.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 	}
@@ -539,6 +569,14 @@ func (s *ConwayTransactionInputSet) CheckForDuplicates() error {
 	if !s.useSet {
 		return nil
 	}
+	return s.checkForDuplicates()
+}
+
+func (s *ConwayTransactionInputSet) CheckForDuplicatesAlways() error {
+	return s.checkForDuplicates()
+}
+
+func (s *ConwayTransactionInputSet) checkForDuplicates() error {
 	seen := make(map[string]struct{}, len(s.items))
 	for _, item := range s.items {
 		encoded, err := cbor.Encode(item)
@@ -628,9 +666,22 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	// Reject duplicate members in any tag-258 set field on the transaction body.
+	if tmp.TxCurrentTreasuryValue < 0 {
+		return errors.New("current treasury value must not be negative")
+	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
+	if err := validateConwayCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
+		return err
+	}
+	// Reject duplicate members in every Conway set encoding, including
+	// untagged arrays.
 	type duplicateChecker interface {
-		CheckForDuplicates() error
+		CheckForDuplicatesAlways() error
 	}
 	for _, c := range []duplicateChecker{
 		&tmp.TxInputs,
@@ -638,12 +689,15 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		&tmp.TxRequiredSigners,
 		&tmp.TxReferenceInputs,
 	} {
-		if err := c.CheckForDuplicates(); err != nil {
+		if err := c.CheckForDuplicatesAlways(); err != nil {
 			return err
 		}
 	}
 	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
 		return err
+	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
 	}
 	for idx := range tmp.TxOutputs {
 		if err := checkMultiAssetDuplicateKeys(tmp.TxOutputs[idx].Assets()); err != nil {
@@ -658,8 +712,25 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	*b = ConwayTransactionBody(tmp)
+	if err := b.DecodeTransactionBodyFieldPresence(
+		cborData,
+		b.Ttl,
+		b.TxCurrentTreasuryValue != 0,
+	); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.TxCurrentTreasuryValue < 0 {
+		return nil, errors.New("current treasury value must not be negative")
+	}
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
@@ -693,6 +764,22 @@ func (b *ConwayTransactionBody) Fee() *big.Int {
 
 func (b *ConwayTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *ConwayTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *ConwayTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *ConwayTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *ConwayTransactionBody) ValidityIntervalStart() uint64 {
@@ -792,7 +879,16 @@ func (b *ConwayTransactionBody) NetworkId() *uint8 {
 }
 
 func (b *ConwayTransactionBody) CurrentTreasuryValue() *big.Int {
+	if b.TxCurrentTreasuryValue == 0 &&
+		!b.CurrentTreasuryValuePresent() {
+		return nil
+	}
 	return big.NewInt(b.TxCurrentTreasuryValue)
+}
+
+func (b *ConwayTransactionBody) CurrentTreasuryValuePresent() bool {
+	return b.TxCurrentTreasuryValue != 0 ||
+		b.TransactionBodyBase.CurrentTreasuryValuePresent()
 }
 
 func (b *ConwayTransactionBody) Donation() *big.Int {
@@ -934,6 +1030,10 @@ func (t ConwayTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t ConwayTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
+}
+
 func (t ConwayTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
@@ -992,6 +1092,10 @@ func (t ConwayTransaction) ProposalProcedures() []common.ProposalProcedure {
 
 func (t ConwayTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
+}
+
+func (t ConwayTransaction) CurrentTreasuryValuePresent() bool {
+	return t.Body.CurrentTreasuryValuePresent()
 }
 
 func (t ConwayTransaction) Donation() *big.Int {

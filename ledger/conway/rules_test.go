@@ -23,6 +23,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -31,6 +32,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -67,6 +69,118 @@ func makeConwayBaseAddress(
 	addr, err := common.NewAddressFromBytes(addrBytes)
 	require.NoError(t, err)
 	return addr
+}
+
+// committeeMembersErrorLedgerState decorates the shared mock state with a
+// deterministic CommitteeMembers failure. The shared mock already provides
+// the remaining committee lookup behavior exercised by these tests.
+type committeeMembersErrorLedgerState struct {
+	common.LedgerState
+	err error
+}
+
+// legacyOnlyLedgerState masks optional capabilities implemented by the
+// concrete state so tests can exercise absence of authoritative committee
+// state even when composed with a newer ouroboros-mock.
+type legacyOnlyLedgerState struct {
+	common.LedgerState
+}
+
+type committeeCredentialLedgerState struct {
+	common.LedgerState
+	available       bool
+	availabilityErr error
+	coldLookup      func(common.Credential) (*common.CommitteeMember, error)
+	hotLookup       func(common.Credential) (*common.CommitteeMember, error)
+}
+
+type erroringCommitteeCredentialLedgerState struct {
+	common.LedgerState
+	err     error
+	queries int
+}
+
+func (s *erroringCommitteeCredentialLedgerState) CommitteeStateAvailable() (
+	bool,
+	error,
+) {
+	s.queries++
+	return false, s.err
+}
+
+func (s *erroringCommitteeCredentialLedgerState) CommitteeCredentialMember(
+	common.Credential,
+) (*common.CommitteeMember, error) {
+	s.queries++
+	return nil, s.err
+}
+
+func (s *erroringCommitteeCredentialLedgerState) CommitteeHotCredentialMember(
+	common.Credential,
+) (*common.CommitteeMember, error) {
+	s.queries++
+	return nil, s.err
+}
+
+func (s committeeCredentialLedgerState) CommitteeStateAvailable() (
+	bool,
+	error,
+) {
+	return s.available, s.availabilityErr
+}
+
+func (s committeeCredentialLedgerState) CommitteeCredentialMember(
+	credential common.Credential,
+) (*common.CommitteeMember, error) {
+	if s.coldLookup == nil {
+		return nil, nil
+	}
+	return s.coldLookup(credential)
+}
+
+func (s committeeCredentialLedgerState) CommitteeHotCredentialMember(
+	credential common.Credential,
+) (*common.CommitteeMember, error) {
+	if s.hotLookup == nil {
+		return nil, nil
+	}
+	return s.hotLookup(credential)
+}
+
+func authoritativeLegacyCommitteeState(
+	ls common.LedgerState,
+) common.LedgerState {
+	return committeeCredentialLedgerState{
+		LedgerState: ls,
+		available:   true,
+		coldLookup: func(
+			credential common.Credential,
+		) (*common.CommitteeMember, error) {
+			return ls.CommitteeMember(credential.Credential)
+		},
+		hotLookup: func(
+			credential common.Credential,
+		) (*common.CommitteeMember, error) {
+			members, err := ls.CommitteeMembers()
+			if err != nil {
+				return nil, err
+			}
+			for idx := range members {
+				if members[idx].HotKey != nil &&
+					*members[idx].HotKey == credential.Credential {
+					return &members[idx], nil
+				}
+			}
+			return nil, nil
+		},
+	}
+}
+
+func (s committeeMembersErrorLedgerState) CommitteeMembers() (
+	[]common.CommitteeMember,
+	error,
+) {
+	return nil, s.err
 }
 
 func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
@@ -160,26 +274,195 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 		common.ProtocolVersionPlomin,
 		common.ProtocolVersionVanRossem,
 	} {
-		t.Run(fmt.Sprintf("PV%d zero amount", major), func(t *testing.T) {
-			zeroTx := *tx
-			zeroTx.Body.TxWithdrawals = map[*common.Address]uint64{
-				&rewardAddr: 0,
+		t.Run(fmt.Sprintf("PV%d script credential", major), func(t *testing.T) {
+			// cardano-ledger applies the PV10/PV11 DRep requirement only to
+			// key-hash reward credentials.
+			rewardAddr, err := common.NewAddress(
+				"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+			)
+			require.NoError(t, err)
+			credential, ok := rewardAddr.StakeCredential()
+			require.True(t, ok)
+			require.Equal(
+				t,
+				uint(common.CredentialTypeScriptHash),
+				credential.CredType,
+			)
+
+			state := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountCredentialBalance(credential, 1_000_000).
+				Build()
+			stateWithoutDRepDelegation := struct{ common.LedgerState }{
+				LedgerState: state,
+			}
+			tx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxWithdrawals: map[*common.Address]uint64{
+						&rewardAddr: 1_000_000,
+					},
+				},
+				TxIsValid: true,
 			}
 			pp := &conway.ConwayProtocolParameters{
 				ProtocolVersion: common.ProtocolParametersProtocolVersion{
 					Major: major,
 				},
 			}
+
 			require.NoError(t, conway.UtxoValidateWithdrawals(
-				&zeroTx,
+				tx,
 				0,
-				struct{ common.LedgerState }{LedgerState: baseState},
+				stateWithoutDRepDelegation,
 				pp,
 			))
 		})
 	}
 
-	t.Run("PV10 mixed amounts checks non-zero withdrawal", func(t *testing.T) {
+	t.Run(
+		"PV10 script and undelegated key check the key every time",
+		func(t *testing.T) {
+			scriptRewardAddr, err := common.NewAddress(
+				"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+			)
+			require.NoError(t, err)
+			scriptCredential, ok := scriptRewardAddr.StakeCredential()
+			require.True(t, ok)
+			keyRewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
+			mixedTx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxWithdrawals: map[*common.Address]uint64{
+						&scriptRewardAddr: 1_000_000,
+						&keyRewardAddr:    1_000_000,
+					},
+				},
+				TxIsValid: true,
+			}
+			state := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountCredentialBalance(scriptCredential, 1_000_000).
+				WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+				WithDRepDelegation(func(
+					common.Credential,
+				) (*common.Drep, error) {
+					return nil, nil
+				}).
+				Build()
+			pp := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: common.ProtocolVersionPlomin,
+				},
+			}
+
+			for range 100 {
+				err := conway.UtxoValidateWithdrawals(mixedTx, 0, state, pp)
+				var target conway.WithdrawalNotDelegatedToDRepError
+				require.ErrorAs(t, err, &target)
+				require.Equal(t, keyRewardAddr, target.RewardAddress)
+			}
+		},
+	)
+
+	t.Run("PV11 unregistered script credential", func(t *testing.T) {
+		rewardAddr, err := common.NewAddress(
+			"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+		)
+		require.NoError(t, err)
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					&rewardAddr: 1_000_000,
+				},
+			},
+			TxIsValid: true,
+		}
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionVanRossem,
+			},
+		}
+		state := mockledger.NewLedgerStateBuilder().Build()
+
+		err = conway.UtxoValidateWithdrawals(tx, 0, state, pp)
+		var target shelley.WithdrawalFromUnregisteredRewardAccountError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, rewardAddr, target.RewardAddress)
+	})
+
+	t.Run("PV12 permits a partial withdrawal", func(t *testing.T) {
+		partialTx := *tx
+		partialTx.Body.TxWithdrawals = map[*common.Address]uint64{
+			&rewardAddr: 500_000,
+		}
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionDijkstra,
+			},
+		}
+		require.NoError(t, conway.UtxoValidateWithdrawals(
+			&partialTx,
+			0,
+			baseState,
+			pp,
+		))
+	})
+
+	t.Run("PV11 rejects a partial withdrawal", func(t *testing.T) {
+		partialTx := *tx
+		partialTx.Body.TxWithdrawals = map[*common.Address]uint64{
+			&rewardAddr: 500_000,
+		}
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionVanRossem,
+			},
+		}
+		var target shelley.IncorrectWithdrawalAmountError
+		require.ErrorAs(t, conway.UtxoValidateWithdrawals(
+			&partialTx,
+			0,
+			baseState,
+			pp,
+		), &target)
+	})
+
+	for _, major := range []uint{
+		common.ProtocolVersionPlomin,
+		common.ProtocolVersionVanRossem,
+	} {
+		t.Run(fmt.Sprintf("PV%d undelegated zero amount", major), func(t *testing.T) {
+			zeroTx := *tx
+			zeroTx.Body.TxWithdrawals = map[*common.Address]uint64{
+				&rewardAddr: 0,
+			}
+			lookups := 0
+			zeroBalanceState := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountBalance(stakeKeyHash, 0).
+				WithDRepDelegation(func(
+					credential common.Credential,
+				) (*common.Drep, error) {
+					lookups++
+					assert.Equal(t, stakeKeyHash, credential.Credential)
+					return nil, nil
+				}).
+				Build()
+			pp := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: major,
+				},
+			}
+			err := conway.UtxoValidateWithdrawals(
+				&zeroTx,
+				0,
+				zeroBalanceState,
+				pp,
+			)
+			var target conway.WithdrawalNotDelegatedToDRepError
+			require.ErrorAs(t, err, &target)
+			assert.Equal(t, rewardAddr, target.RewardAddress)
+			assert.Equal(t, 1, lookups)
+		})
+	}
+
+	t.Run("PV10 mixed amounts check every key credential", func(t *testing.T) {
 		otherStakeKeyHash := common.Blake2b224Hash(
 			[]byte("other-withdrawal-stake-key"),
 		)
@@ -189,14 +472,15 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 			&rewardAddr:      0,
 			&otherRewardAddr: 1_000_000,
 		}
+		lookups := make(map[common.Blake2b224]int)
 		mixedState := mockledger.NewLedgerStateBuilder().
-			WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+			WithRewardAccountBalance(stakeKeyHash, 0).
 			WithRewardAccountBalance(otherStakeKeyHash, 1_000_000).
 			WithDRepDelegation(func(
 				credential common.Credential,
 			) (*common.Drep, error) {
-				assert.Equal(t, otherStakeKeyHash, credential.Credential)
-				return nil, nil
+				lookups[credential.Credential]++
+				return &common.Drep{}, nil
 			}).
 			Build()
 		pp := &conway.ConwayProtocolParameters{
@@ -204,15 +488,16 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 				Major: common.ProtocolVersionPlomin,
 			},
 		}
-		err := conway.UtxoValidateWithdrawals(
+		require.NoError(t, conway.UtxoValidateWithdrawals(
 			&mixedTx,
 			0,
 			mixedState,
 			pp,
-		)
-		var target conway.WithdrawalNotDelegatedToDRepError
-		require.ErrorAs(t, err, &target)
-		assert.Equal(t, otherRewardAddr, target.RewardAddress)
+		))
+		assert.Equal(t, map[common.Blake2b224]int{
+			stakeKeyHash:      1,
+			otherStakeKeyHash: 1,
+		}, lookups)
 	})
 
 	t.Run("PV10 requires delegation lookup support", func(t *testing.T) {
@@ -245,6 +530,86 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 			baseState,
 			pp,
 		))
+	})
+}
+
+func TestUtxoValidateWithdrawals_ScriptCredentialDRepBoundary(t *testing.T) {
+	stakeKeyHash := common.Blake2b224Hash([]byte("withdrawal-stake-key"))
+	keyRewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
+	scriptRewardAddr, err := common.NewAddress(
+		"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+	)
+	require.NoError(t, err)
+	scriptCredential, ok := scriptRewardAddr.StakeCredential()
+	require.True(t, ok)
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: common.ProtocolVersionVanRossem,
+		},
+	}
+
+	t.Run("script credential needs no DRep state", func(t *testing.T) {
+		state := mockledger.NewLedgerStateBuilder().
+			WithRewardAccountCredentialBalance(scriptCredential, 1_000_000).
+			Build()
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					&scriptRewardAddr: 1_000_000,
+				},
+			},
+			TxIsValid: true,
+		}
+
+		require.NoError(t, conway.UtxoValidateWithdrawals(
+			tx,
+			0,
+			struct{ common.LedgerState }{LedgerState: state},
+			pp,
+		))
+	})
+
+	t.Run("mixed script and undelegated key credentials", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					&keyRewardAddr:    1_000_000,
+					&scriptRewardAddr: 1_000_000,
+				},
+			},
+			TxIsValid: true,
+		}
+		delegatedState := mockledger.NewLedgerStateBuilder().
+			WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+			WithRewardAccountCredentialBalance(scriptCredential, 1_000_000).
+			WithDRepDelegation(func(
+				credential common.Credential,
+			) (*common.Drep, error) {
+				assert.Equal(t, stakeKeyHash, credential.Credential)
+				return &common.Drep{}, nil
+			}).
+			Build()
+		require.NoError(t, conway.UtxoValidateWithdrawals(
+			tx,
+			0,
+			delegatedState,
+			pp,
+		))
+
+		undelegatedState := mockledger.NewLedgerStateBuilder().
+			WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+			WithRewardAccountCredentialBalance(scriptCredential, 1_000_000).
+			WithDRepDelegation(func(
+				credential common.Credential,
+			) (*common.Drep, error) {
+				assert.Equal(t, stakeKeyHash, credential.Credential)
+				return nil, nil
+			}).
+			Build()
+		err = conway.UtxoValidateWithdrawals(tx, 0, undelegatedState, pp)
+		var target conway.WithdrawalNotDelegatedToDRepError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, keyRewardAddr, target.RewardAddress)
 	})
 }
 
@@ -628,6 +993,170 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 			assert.NoError(t, err)
 		},
 	)
+}
+
+// TestUtxoValidateRequiredRedeemersRegistered pins that Conway registers
+// UtxoValidateRequiredRedeemers in its production rule list (issue #2147).
+func TestUtxoValidateRequiredRedeemersRegistered(t *testing.T) {
+	indexOf := func(rule common.UtxoValidationRuleFunc) int {
+		t.Helper()
+		want := reflect.ValueOf(rule).Pointer()
+		for idx, r := range conway.UtxoValidationRules {
+			if reflect.ValueOf(r).Pointer() == want {
+				return idx
+			}
+		}
+		t.Fatalf(
+			"rule %s is not registered in UtxoValidationRules",
+			runtime.FuncForPC(want).Name(),
+		)
+		return -1
+	}
+
+	requiredRedeemersIdx := indexOf(conway.UtxoValidateRequiredRedeemers)
+	badInputsIdx := indexOf(conway.UtxoValidateBadInputsUtxo)
+	scriptWitnessesIdx := indexOf(conway.UtxoValidateScriptWitnesses)
+
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		badInputsIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateBadInputsUtxo "+
+			"so an unresolvable input surfaces as BadInputsUtxo, not a raw "+
+			"input-resolution error",
+	)
+	require.Greater(
+		t,
+		requiredRedeemersIdx,
+		scriptWitnessesIdx,
+		"UtxoValidateRequiredRedeemers must run after UtxoValidateScriptWitnesses "+
+			"so a missing script is reported by the latter, not masked as a "+
+			"missing redeemer",
+	)
+}
+
+// TestUtxoValidateRequiredRedeemers covers issue #2147's acceptance
+// criteria directly: a Plutus script-address input satisfied by a CIP-33
+// reference script must not spend without a matching redeemer, a regular
+// (non-script) input is unaffected, and a valid redeemer passes.
+func TestUtxoValidateRequiredRedeemers(t *testing.T) {
+	v1 := common.PlutusV1Script{0x01, 0x02, 0x03}
+	scriptAddr, err := common.NewAddressFromParts(
+		common.AddressTypeScriptNone,
+		common.AddressNetworkTestnet,
+		v1.Hash().Bytes(),
+		nil,
+	)
+	require.NoError(t, err)
+
+	input := shelley.NewShelleyTransactionInput(
+		"7777777777777777777777777777777777777777777777777777777777777777",
+		0,
+	)
+	utxo := common.Utxo{
+		Id: input,
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: scriptAddr,
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   common.ScriptRefTypePlutusV1,
+				Script: v1,
+			},
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+			if id.String() == input.String() {
+				return utxo, nil
+			}
+			return common.Utxo{}, errors.New("not found")
+		}).
+		Build()
+
+	newTx := func() *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				),
+			},
+			TxIsValid: true,
+		}
+	}
+
+	t.Run("missing redeemer for reference script rejected", func(t *testing.T) {
+		err := conway.UtxoValidateRequiredRedeemers(
+			newTx(),
+			0,
+			ls,
+			&conway.ConwayProtocolParameters{},
+		)
+		var missingErr common.MissingRedeemerForScriptError
+		require.ErrorAs(t, err, &missingErr)
+		require.Equal(t, v1.Hash(), missingErr.ScriptHash)
+		require.Equal(t, common.RedeemerTagSpend, missingErr.Tag)
+		require.Equal(t, uint32(0), missingErr.Index)
+	})
+
+	t.Run("valid redeemer accepted", func(t *testing.T) {
+		tx := newTx()
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		require.NoError(t, conway.UtxoValidateRequiredRedeemers(
+			tx,
+			0,
+			ls,
+			&conway.ConwayProtocolParameters{},
+		))
+	})
+
+	t.Run("non-script input unaffected", func(t *testing.T) {
+		keyInput := shelley.NewShelleyTransactionInput(
+			"8888888888888888888888888888888888888888888888888888888888888888",
+			0,
+		)
+		keyAddr, err := common.NewAddressFromParts(
+			common.AddressTypeKeyNone,
+			common.AddressNetworkTestnet,
+			make([]byte, 28),
+			nil,
+		)
+		require.NoError(t, err)
+		keyUtxo := common.Utxo{
+			Id: keyInput,
+			Output: &babbage.BabbageTransactionOutput{
+				OutputAddress: keyAddr,
+				OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			},
+		}
+		keyLs := mockledger.NewLedgerStateBuilder().
+			WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+				if id.String() == keyInput.String() {
+					return keyUtxo, nil
+				}
+				return common.Utxo{}, errors.New("not found")
+			}).
+			Build()
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{keyInput},
+				),
+			},
+			TxIsValid: true,
+		}
+		require.NoError(t, conway.UtxoValidateRequiredRedeemers(
+			tx,
+			0,
+			keyLs,
+			&conway.ConwayProtocolParameters{},
+		))
+	})
 }
 
 func TestUtxoValidateExtraneousRedeemersUnknownTag(t *testing.T) {
@@ -1047,10 +1576,10 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 
 func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	testCorrectNetworkAddr, _ := common.NewAddress(
-		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
+		"stake1uyehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gh6ffgw",
 	)
 	testWrongNetworkAddr, _ := common.NewAddress(
-		"addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07",
+		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
@@ -1142,7 +1671,19 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	// UtxoValidateValueNotConservedUtxo reads a legacy deregistration's refund
+	// from ledger state, so the state must report the recorded deposit.
+	testLedgerState := certificateDepositLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithUtxos(utxos).
+			Build(),
+		deposits: map[certificateDepositCredentialKey]uint64{
+			{
+				credType: common.CredentialTypeAddrKeyHash,
+				hash:     common.Blake2b224{},
+			}: testStakeDeposit,
+		},
+	}
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -2465,6 +3006,17 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				false,
 			),
 		},
+		// total_collateral is only checked for phase-2 transactions, so the
+		// fixture needs a redeemer for the rule to run at all.
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
 	}
 	utxos := []common.Utxo{
 		{
@@ -2833,6 +3385,490 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 	})
 }
 
+func TestUtxoValidateCommitteeCertificates(t *testing.T) {
+	coldHash := common.Blake2b224Hash([]byte("committee-cold-key"))
+	hotHash := common.Blake2b224Hash([]byte("committee-hot-key"))
+	coldCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: coldHash,
+	}
+	hotCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hotHash,
+	}
+	newTx := func(cert common.Certificate) *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			TxIsValid: true,
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: cert},
+				},
+			},
+		}
+	}
+	operations := []struct {
+		name string
+		cert func() common.Certificate
+	}{
+		{
+			name: "authorize hot key",
+			cert: func() common.Certificate {
+				return &common.AuthCommitteeHotCertificate{
+					CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+					ColdCredential: coldCredential,
+					HotCredential:  hotCredential,
+				}
+			},
+		},
+		{
+			name: "resign",
+			cert: func() common.Certificate {
+				return &common.ResignCommitteeColdCertificate{
+					CertType:       uint(common.CertificateTypeResignCommitteeCold),
+					ColdCredential: coldCredential,
+				}
+			},
+		},
+	}
+
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			t.Run("seated member", func(t *testing.T) {
+				baseState := mockledger.NewLedgerStateBuilder().
+					WithCommitteeMembers([]common.CommitteeMember{
+						{ColdKey: coldHash, ExpiryEpoch: 100},
+					}).
+					Build()
+				ls := authoritativeLegacyCommitteeState(baseState)
+				require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				))
+			})
+
+			t.Run("proposed member", func(t *testing.T) {
+				baseState := mockledger.NewLedgerStateBuilder().
+					WithProposedCommitteeMembers(
+						map[common.Blake2b224]uint64{coldHash: 100},
+					).
+					Build()
+				ls := authoritativeLegacyCommitteeState(baseState)
+				require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				))
+			})
+
+			t.Run("empty committee fails closed", func(t *testing.T) {
+				ls := authoritativeLegacyCommitteeState(
+					mockledger.NewLedgerStateBuilder().Build(),
+				)
+				err := conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				)
+				var memberErr conway.NotCommitteeMemberError
+				require.ErrorAs(t, err, &memberErr)
+				assert.Equal(t, coldHash, memberErr.Credential)
+			})
+
+			t.Run(
+				"committee availability lookup error fails closed",
+				func(t *testing.T) {
+					lookupErr := errors.New("committee state unavailable")
+					ls := committeeCredentialLedgerState{
+						LedgerState:     mockledger.NewLedgerStateBuilder().Build(),
+						availabilityErr: lookupErr,
+					}
+					err := conway.UtxoValidateCommitteeCertificates(
+						newTx(operation.cert()),
+						0,
+						ls,
+						&conway.ConwayProtocolParameters{},
+					)
+					require.ErrorIs(t, err, lookupErr)
+					var memberErr conway.CommitteeMemberLookupError
+					require.ErrorAs(t, err, &memberErr)
+					assert.Equal(
+						t,
+						coldCredential,
+						memberErr.MemberCredential,
+					)
+				},
+			)
+
+			t.Run("provider reports committee state unavailable", func(t *testing.T) {
+				ls := committeeCredentialLedgerState{
+					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+					coldLookup: func(
+						common.Credential,
+					) (*common.CommitteeMember, error) {
+						t.Fatal(
+							"member lookup called for unavailable committee state",
+						)
+						return nil, nil
+					},
+				}
+				err := conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				)
+				var unavailableErr conway.CommitteeStateUnavailableError
+				require.ErrorAs(t, err, &unavailableErr)
+			})
+
+			t.Run("member lookup error fails closed", func(t *testing.T) {
+				lookupErr := errors.New("committee member unavailable")
+				ls := committeeCredentialLedgerState{
+					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+					available:   true,
+					coldLookup: func(
+						common.Credential,
+					) (*common.CommitteeMember, error) {
+						return nil, lookupErr
+					},
+				}
+				err := conway.UtxoValidateCommitteeCertificates(
+					newTx(operation.cert()),
+					0,
+					ls,
+					&conway.ConwayProtocolParameters{},
+				)
+				require.ErrorIs(t, err, lookupErr)
+				var memberErr conway.CommitteeMemberLookupError
+				require.ErrorAs(t, err, &memberErr)
+				assert.Equal(t, coldCredential, memberErr.MemberCredential)
+			})
+		})
+	}
+
+	t.Run(
+		"same hash with different cold credential tag does not alias",
+		func(t *testing.T) {
+			scriptCredential := coldCredential
+			scriptCredential.CredType = common.CredentialTypeScriptHash
+			ls := committeeCredentialLedgerState{
+				LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+				available:   true,
+				coldLookup: func(
+					credential common.Credential,
+				) (*common.CommitteeMember, error) {
+					if credential.CredType == coldCredential.CredType &&
+						credential.Credential == coldCredential.Credential {
+						return &common.CommitteeMember{ColdKey: coldHash}, nil
+					}
+					return nil, nil
+				},
+			}
+			tx := newTx(&common.ResignCommitteeColdCertificate{
+				CertType: uint(
+					common.CertificateTypeResignCommitteeCold,
+				),
+				ColdCredential: scriptCredential,
+			})
+			err := conway.UtxoValidateCommitteeCertificates(
+				tx,
+				0,
+				ls,
+				&conway.ConwayProtocolParameters{},
+			)
+			var memberErr conway.NotCommitteeMemberError
+			require.ErrorAs(t, err, &memberErr)
+			assert.Equal(t, scriptCredential, memberErr.ColdCredential)
+		},
+	)
+
+	t.Run(
+		"provider without authoritative committee state fails closed",
+		func(t *testing.T) {
+			ls := legacyOnlyLedgerState{
+				LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+			}
+			err := conway.UtxoValidateCommitteeCertificates(
+				newTx(&common.ResignCommitteeColdCertificate{
+					CertType: uint(
+						common.CertificateTypeResignCommitteeCold,
+					),
+					ColdCredential: coldCredential,
+				}),
+				0,
+				ls,
+				&conway.ConwayProtocolParameters{},
+			)
+			var unavailableErr conway.CommitteeStateUnavailableError
+			require.ErrorAs(t, err, &unavailableErr)
+		},
+	)
+
+	t.Run("unrelated certificate does not require committee state", func(t *testing.T) {
+		lookupErr := errors.New("committee state unavailable")
+		ls := committeeMembersErrorLedgerState{
+			LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+			err:         lookupErr,
+		}
+		tx := newTx(&common.RegistrationDrepCertificate{})
+		require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+			tx,
+			0,
+			ls,
+			&conway.ConwayProtocolParameters{},
+		))
+	})
+}
+
+func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
+	t *testing.T,
+) {
+	registeredRules := func(
+		t *testing.T,
+		production []common.UtxoValidationRuleFunc,
+		wanted ...common.UtxoValidationRuleFunc,
+	) []common.UtxoValidationRuleFunc {
+		t.Helper()
+		wantedPointers := make(map[uintptr]struct{}, len(wanted))
+		for _, rule := range wanted {
+			wantedPointers[reflect.ValueOf(rule).Pointer()] = struct{}{}
+		}
+		ret := make([]common.UtxoValidationRuleFunc, 0, len(wanted))
+		for _, rule := range production {
+			if _, ok := wantedPointers[reflect.ValueOf(rule).Pointer()]; ok {
+				ret = append(ret, rule)
+			}
+		}
+		require.Len(t, ret, len(wanted), "production validation rules")
+		return ret
+	}
+
+	coldCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("phase-2-invalid-cold-key")),
+	}
+	hotCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("phase-2-invalid-hot-key")),
+	}
+	committeeVoter := common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		Hash: hotCredential.Credential,
+	}
+	actionId := common.GovActionId{
+		TransactionId: common.Blake2b256Hash([]byte("phase-2-invalid-action")),
+	}
+
+	operations := []struct {
+		name string
+		tx   func() *conway.ConwayTransaction
+		rule common.UtxoValidationRuleFunc
+	}{
+		{
+			name: "committee hot-key authorization",
+			tx: func() *conway.ConwayTransaction {
+				return &conway.ConwayTransaction{
+					Body: conway.ConwayTransactionBody{
+						TxCertificates: []common.CertificateWrapper{{
+							Certificate: &common.AuthCommitteeHotCertificate{
+								CertType: uint(
+									common.CertificateTypeAuthCommitteeHot,
+								),
+								ColdCredential: coldCredential,
+								HotCredential:  hotCredential,
+							},
+						}},
+					},
+				}
+			},
+			rule: conway.UtxoValidateCommitteeCertificates,
+		},
+		{
+			name: "committee resignation",
+			tx: func() *conway.ConwayTransaction {
+				return &conway.ConwayTransaction{
+					Body: conway.ConwayTransactionBody{
+						TxCertificates: []common.CertificateWrapper{{
+							Certificate: &common.ResignCommitteeColdCertificate{
+								CertType: uint(
+									common.CertificateTypeResignCommitteeCold,
+								),
+								ColdCredential: coldCredential,
+							},
+						}},
+					},
+				}
+			},
+			rule: conway.UtxoValidateCommitteeCertificates,
+		},
+		{
+			name: "committee voter",
+			tx: func() *conway.ConwayTransaction {
+				return mkVoteTx(
+					committeeVoter,
+					actionId,
+					common.GovVoteYes,
+				)
+			},
+			rule: conway.UtxoValidateUnknownVoters,
+		},
+	}
+
+	for _, era := range []struct {
+		name  string
+		rules []common.UtxoValidationRuleFunc
+	}{
+		{name: "Conway", rules: conway.UtxoValidationRules},
+		{name: "Dijkstra", rules: dijkstra.UtxoValidationRules},
+	} {
+		t.Run(era.name, func(t *testing.T) {
+			for _, operation := range operations {
+				t.Run(operation.name, func(t *testing.T) {
+					tx := operation.tx()
+					tx.TxIsValid = false
+					tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+							{}: {},
+						},
+					}
+					state := &erroringCommitteeCredentialLedgerState{
+						LedgerState: mockledger.NewLedgerStateBuilder().
+							WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
+								return common.Utxo{
+									Id: input,
+									Output: babbage.BabbageTransactionOutput{
+										OutputAmount: mary.MaryTransactionOutputValue{Amount: 1_000_000},
+									},
+								}, nil
+							}).
+							Build(),
+						err: errors.New("committee provider queried"),
+					}
+					// The composed rule list wraps every phase-2-gated
+					// rule in an identical closure, so a gated rule cannot be
+					// selected out by function pointer. Run the whole list and
+					// assert the property this test is named for: a
+					// phase-2-invalid transaction never reaches the committee
+					// provider, and no committee error is produced.
+					err := common.VerifyTransaction(
+						tx,
+						0,
+						state,
+						nil,
+						era.rules,
+					)
+					var lookupErr conway.CommitteeMemberLookupError
+					require.False(
+						t,
+						errors.As(err, &lookupErr),
+						"phase-2-invalid transaction reached %s: %v",
+						operation.name,
+						err,
+					)
+					var notMemberErr conway.NotCommitteeMemberError
+					require.False(
+						t,
+						errors.As(err, &notMemberErr),
+						"phase-2-invalid transaction reached %s: %v",
+						operation.name,
+						err,
+					)
+					var unknownVoterErr conway.UnknownVoterError
+					require.False(
+						t,
+						errors.As(err, &unknownVoterErr),
+						"phase-2-invalid transaction reached %s: %v",
+						operation.name,
+						err,
+					)
+					require.Zero(t, state.queries, "committee provider queries")
+				})
+			}
+
+			if era.name != "Conway" {
+				return
+			}
+			t.Run("phase-2 valid transaction runs committee rules", func(t *testing.T) {
+				newState := func() *erroringCommitteeCredentialLedgerState {
+					return &erroringCommitteeCredentialLedgerState{
+						LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+						err:         errors.New("committee provider queried"),
+					}
+				}
+				pp := &conway.ConwayProtocolParameters{}
+				validTx := operations[0].tx()
+				validTx.TxIsValid = true
+
+				// The composition wraps every gated rule in an identical
+				// closure, so the committee rule cannot be selected out of the
+				// production list by function pointer. Locate the composed
+				// position by the lookup error only it reports for a valid
+				// transaction, then assert that same position for an invalid
+				// one. Selecting the rule by pointer instead would test the
+				// function rather than its place in the composed list.
+				var matched []common.UtxoValidationRuleFunc
+				for _, rule := range era.rules {
+					state := newState()
+					err := rule(validTx, 0, state, pp)
+					var lookupErr conway.CommitteeMemberLookupError
+					if !errors.As(err, &lookupErr) {
+						continue
+					}
+					require.Positivef(
+						t,
+						state.queries,
+						"committee provider queries: %v",
+						err,
+					)
+					matched = append(matched, rule)
+				}
+				require.NotEmpty(
+					t,
+					matched,
+					"no composed rule reached the committee provider",
+				)
+
+				invalidTx := operations[0].tx()
+				invalidTx.TxIsValid = false
+				for _, rule := range matched {
+					state := newState()
+					require.NoError(t, rule(invalidTx, 0, state, pp))
+					require.Zero(
+						t,
+						state.queries,
+						"committee provider queries",
+					)
+				}
+			})
+
+			t.Run("phase-1 invalid flag still runs", func(t *testing.T) {
+				tx := operations[0].tx()
+				tx.TxIsValid = false
+				state := &erroringCommitteeCredentialLedgerState{
+					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+					err:         errors.New("committee provider queried"),
+				}
+				// UtxoValidateIsValidFlag is always-run, so it is still
+				// selectable by pointer; the committee rule is gated and is
+				// covered by the whole-list run above.
+				rules := registeredRules(
+					t,
+					era.rules,
+					conway.UtxoValidateIsValidFlag,
+				)
+				err := common.VerifyTransaction(tx, 0, state, nil, rules)
+				var invalidFlag common.InvalidIsValidFlagError
+				require.ErrorAs(t, err, &invalidFlag)
+				require.Zero(t, state.queries, "committee provider queries")
+			})
+		})
+	}
+}
+
 func TestPoolValidateVrfKeyUniqueness(t *testing.T) {
 	existingPoolId := common.PoolKeyHash{0x01, 0x02, 0x03}
 	newPoolId := common.PoolKeyHash{0x04, 0x05, 0x06}
@@ -2950,6 +3986,386 @@ func TestPoolValidateVrfKeyUniqueness(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, expectedErr)
 	})
+}
+
+func TestUtxoValidateDelegation_RejectsDuplicateStakeRegistrations(
+	t *testing.T,
+) {
+	stakeKeyHash := common.Blake2b224Hash(
+		[]byte("duplicate-registration-stake-key"),
+	)
+	stakeCred := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: stakeKeyHash,
+	}
+	poolKeyHash := common.PoolKeyHash{0x01, 0x02, 0x03}
+	poolCert := &common.PoolRegistrationCertificate{
+		Operator: poolKeyHash,
+	}
+	newLedgerState := func(registered bool) common.LedgerState {
+		return mockledger.NewLedgerStateBuilder().
+			WithStakeCredentialRegistered(stakeKeyHash, registered).
+			WithPools([]*common.PoolRegistrationCertificate{poolCert}).
+			Build()
+	}
+	newTx := func(certs ...common.Certificate) *conway.ConwayTransaction {
+		wrappers := make([]common.CertificateWrapper, len(certs))
+		for i, cert := range certs {
+			wrappers[i] = common.CertificateWrapper{Certificate: cert}
+		}
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: wrappers,
+			},
+		}
+	}
+
+	registrationCases := []struct {
+		name string
+		cert func() common.Certificate
+	}{
+		{
+			name: "stake registration",
+			cert: func() common.Certificate {
+				return &common.StakeRegistrationCertificate{
+					StakeCredential: stakeCred,
+				}
+			},
+		},
+		{
+			name: "registration",
+			cert: func() common.Certificate {
+				return &common.RegistrationCertificate{
+					StakeCredential: stakeCred,
+				}
+			},
+		},
+		{
+			name: "stake registration delegation",
+			cert: func() common.Certificate {
+				return &common.StakeRegistrationDelegationCertificate{
+					StakeCredential: stakeCred,
+					PoolKeyHash:     poolKeyHash,
+				}
+			},
+		},
+		{
+			name: "vote registration delegation",
+			cert: func() common.Certificate {
+				return &common.VoteRegistrationDelegationCertificate{
+					StakeCredential: stakeCred,
+					Drep: common.Drep{
+						Type: common.DrepTypeAbstain,
+					},
+				}
+			},
+		},
+		{
+			name: "stake vote registration delegation",
+			cert: func() common.Certificate {
+				return &common.StakeVoteRegistrationDelegationCertificate{
+					StakeCredential: stakeCred,
+					PoolKeyHash:     poolKeyHash,
+					Drep: common.Drep{
+						Type: common.DrepTypeNoConfidence,
+					},
+				}
+			},
+		},
+	}
+
+	for _, tc := range registrationCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Run("ledger state duplicate", func(t *testing.T) {
+				err := conway.UtxoValidateDelegation(
+					newTx(tc.cert()),
+					0,
+					newLedgerState(true),
+					&conway.ConwayProtocolParameters{},
+				)
+				require.Error(t, err)
+				var duplicateErr conway.StakeCredentialAlreadyRegisteredError
+				require.ErrorAs(t, err, &duplicateErr)
+				assert.Equal(t, stakeCred, duplicateErr.Credential)
+			})
+
+			t.Run("same transaction duplicate", func(t *testing.T) {
+				firstRegistration := &common.RegistrationCertificate{
+					StakeCredential: stakeCred,
+				}
+				err := conway.UtxoValidateDelegation(
+					newTx(firstRegistration, tc.cert()),
+					0,
+					newLedgerState(false),
+					&conway.ConwayProtocolParameters{},
+				)
+				require.Error(t, err)
+				var duplicateErr conway.StakeCredentialAlreadyRegisteredError
+				require.ErrorAs(t, err, &duplicateErr)
+				assert.Equal(t, stakeCred, duplicateErr.Credential)
+			})
+
+			t.Run("unregistered", func(t *testing.T) {
+				err := conway.UtxoValidateDelegation(
+					newTx(tc.cert()),
+					0,
+					newLedgerState(false),
+					&conway.ConwayProtocolParameters{},
+				)
+				require.NoError(t, err)
+			})
+
+			t.Run("registered then deregistered", func(t *testing.T) {
+				deregistration := &common.DeregistrationCertificate{
+					StakeCredential: stakeCred,
+				}
+				err := conway.UtxoValidateDelegation(
+					newTx(deregistration, tc.cert()),
+					0,
+					newLedgerState(true),
+					&conway.ConwayProtocolParameters{},
+				)
+				require.NoError(t, err)
+			})
+		})
+	}
+
+	t.Run(
+		"duplicate registration precedes delegatee validation",
+		func(t *testing.T) {
+			unregisteredPoolKeyHash := common.PoolKeyHash{0x04, 0x05, 0x06}
+			unregisteredDRepHash := common.Blake2b224Hash(
+				[]byte("unregistered-duplicate-registration-drep"),
+			)
+			orderingCases := []struct {
+				name string
+				cert func() common.Certificate
+			}{
+				{
+					name: "stake registration delegation",
+					cert: func() common.Certificate {
+						return &common.StakeRegistrationDelegationCertificate{
+							StakeCredential: stakeCred,
+							PoolKeyHash:     unregisteredPoolKeyHash,
+						}
+					},
+				},
+				{
+					name: "vote registration delegation",
+					cert: func() common.Certificate {
+						return &common.VoteRegistrationDelegationCertificate{
+							StakeCredential: stakeCred,
+							Drep: common.Drep{
+								Type:       common.DrepTypeAddrKeyHash,
+								Credential: unregisteredDRepHash.Bytes(),
+							},
+						}
+					},
+				},
+				{
+					name: "stake vote registration delegation",
+					cert: func() common.Certificate {
+						return &common.StakeVoteRegistrationDelegationCertificate{
+							StakeCredential: stakeCred,
+							PoolKeyHash:     unregisteredPoolKeyHash,
+							Drep: common.Drep{
+								Type:       common.DrepTypeAddrKeyHash,
+								Credential: unregisteredDRepHash.Bytes(),
+							},
+						}
+					},
+				},
+			}
+
+			for _, tc := range orderingCases {
+				t.Run(tc.name, func(t *testing.T) {
+					err := conway.UtxoValidateDelegation(
+						newTx(tc.cert()),
+						0,
+						newLedgerState(true),
+						&conway.ConwayProtocolParameters{},
+					)
+					require.Error(t, err)
+					var duplicateErr conway.StakeCredentialAlreadyRegisteredError
+					require.ErrorAs(t, err, &duplicateErr)
+					assert.Equal(t, stakeCred, duplicateErr.Credential)
+				})
+			}
+		},
+	)
+
+	t.Run("same hash distinct credential types", func(t *testing.T) {
+		scriptCred := stakeCred
+		scriptCred.CredType = common.CredentialTypeScriptHash
+		err := conway.UtxoValidateDelegation(
+			newTx(
+				&common.RegistrationCertificate{
+					StakeCredential: stakeCred,
+				},
+				&common.RegistrationCertificate{
+					StakeCredential: scriptCred,
+				},
+			),
+			0,
+			newLedgerState(false),
+			&conway.ConwayProtocolParameters{},
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("deregistration preserves the other credential type", func(t *testing.T) {
+		scriptCred := stakeCred
+		scriptCred.CredType = common.CredentialTypeScriptHash
+		err := conway.UtxoValidateDelegation(
+			newTx(
+				&common.RegistrationCertificate{
+					StakeCredential: scriptCred,
+				},
+				&common.DeregistrationCertificate{
+					StakeCredential: stakeCred,
+				},
+				&common.RegistrationCertificate{
+					StakeCredential: scriptCred,
+				},
+			),
+			0,
+			newLedgerState(false),
+			&conway.ConwayProtocolParameters{},
+		)
+		require.Error(t, err)
+		var duplicateErr conway.StakeCredentialAlreadyRegisteredError
+		require.ErrorAs(t, err, &duplicateErr)
+		assert.Equal(t, scriptCred, duplicateErr.Credential)
+	})
+}
+
+func TestUtxoValidateDelegation_DeregistrationBlocksLaterDelegation(
+	t *testing.T,
+) {
+	stakeKeyHash := common.Blake2b224Hash(
+		[]byte("deregistered-delegation-stake-key"),
+	)
+	stakeCred := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: stakeKeyHash,
+	}
+	poolKeyHash := common.PoolKeyHash{0x01, 0x02, 0x03}
+	poolCert := &common.PoolRegistrationCertificate{
+		Operator: poolKeyHash,
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithStakeCredentialRegistered(stakeKeyHash, true).
+		WithPools([]*common.PoolRegistrationCertificate{poolCert}).
+		Build()
+	newTx := func(certs ...common.Certificate) *conway.ConwayTransaction {
+		wrappers := make([]common.CertificateWrapper, len(certs))
+		for i, cert := range certs {
+			wrappers[i] = common.CertificateWrapper{Certificate: cert}
+		}
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: wrappers,
+			},
+		}
+	}
+
+	delegationCases := []struct {
+		name string
+		cert func() common.Certificate
+	}{
+		{
+			name: "stake delegation",
+			cert: func() common.Certificate {
+				return &common.StakeDelegationCertificate{
+					StakeCredential: &stakeCred,
+					PoolKeyHash:     poolKeyHash,
+				}
+			},
+		},
+		{
+			name: "vote delegation",
+			cert: func() common.Certificate {
+				return &common.VoteDelegationCertificate{
+					StakeCredential: stakeCred,
+					Drep: common.Drep{
+						Type: common.DrepTypeAbstain,
+					},
+				}
+			},
+		},
+		{
+			name: "stake vote delegation",
+			cert: func() common.Certificate {
+				return &common.StakeVoteDelegationCertificate{
+					StakeCredential: stakeCred,
+					PoolKeyHash:     poolKeyHash,
+					Drep: common.Drep{
+						Type: common.DrepTypeNoConfidence,
+					},
+				}
+			},
+		},
+	}
+
+	for _, tc := range delegationCases {
+		t.Run(tc.name, func(t *testing.T) {
+			deregistration := &common.StakeDeregistrationCertificate{
+				StakeCredential: stakeCred,
+			}
+			err := conway.UtxoValidateDelegation(
+				newTx(deregistration, tc.cert()),
+				0,
+				ls,
+				&conway.ConwayProtocolParameters{},
+			)
+			require.Error(t, err)
+			var delegationErr conway.DelegateUnregisteredStakeCredentialError
+			require.ErrorAs(t, err, &delegationErr)
+			assert.Equal(t, stakeCred, delegationErr.Credential)
+		})
+	}
+}
+
+func TestUtxoValidateDelegation_PoolRetirementKeepsPoolRegistered(
+	t *testing.T,
+) {
+	poolKeyHash := common.PoolKeyHash{0x04, 0x05, 0x06}
+	stakeKeyHash := common.Blake2b224Hash(
+		[]byte("pool-retirement-delegation-stake"),
+	)
+	stakeCred := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: stakeKeyHash,
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithStakeCredentialRegistered(stakeKeyHash, true).
+		Build()
+	newTx := func(certs ...common.Certificate) *conway.ConwayTransaction {
+		wrappers := make([]common.CertificateWrapper, len(certs))
+		for i, cert := range certs {
+			wrappers[i] = common.CertificateWrapper{Certificate: cert}
+		}
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{TxCertificates: wrappers},
+		}
+	}
+	delegation := &common.StakeDelegationCertificate{
+		StakeCredential: &stakeCred,
+		PoolKeyHash:     poolKeyHash,
+	}
+	registration := &common.PoolRegistrationCertificate{Operator: poolKeyHash}
+
+	// RetirePool leaves the pool in psStakePools until POOLREAP.
+	require.NoError(t, conway.UtxoValidateDelegation(
+		newTx(
+			registration,
+			&common.PoolRetirementCertificate{PoolKeyHash: poolKeyHash, Epoch: 5},
+			delegation,
+		),
+		0,
+		ls,
+		&conway.ConwayProtocolParameters{},
+	))
 }
 
 func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
@@ -3577,4 +4993,88 @@ func TestUtxoValidateBootstrapParameterGroups(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+}
+
+// Voter committee lookups report the same CommitteeMemberLookupError shape as
+// certificate lookups, so a caller gets the credential and its type rather than
+// a bare provider error.
+func TestUtxoValidateUnknownVotersWrapsCommitteeLookupFailures(t *testing.T) {
+	hotHash := common.Blake2b224{0x0a}
+	newTx := func(voterType uint8) *conway.ConwayTransaction {
+		voter := &common.Voter{Type: voterType, Hash: hotHash}
+		actionId := &common.GovActionId{
+			TransactionId: common.Blake2b256{0x01},
+		}
+		return &conway.ConwayTransaction{
+			TxIsValid: true,
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {actionId: {Vote: common.GovVoteYes}},
+				},
+			},
+		}
+	}
+	pp := &conway.ConwayProtocolParameters{}
+
+	voterTypes := []struct {
+		name      string
+		voterType uint8
+		credType  uint
+	}{
+		{
+			name:      "hot key hash",
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			credType:  common.CredentialTypeAddrKeyHash,
+		},
+		{
+			name:      "hot script hash",
+			voterType: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+			credType:  common.CredentialTypeScriptHash,
+		},
+	}
+
+	for _, voterCase := range voterTypes {
+		t.Run(voterCase.name, func(t *testing.T) {
+			wantCredential := common.Credential{
+				CredType:   voterCase.credType,
+				Credential: hotHash,
+			}
+
+			t.Run("provider without committee state", func(t *testing.T) {
+				err := conway.UtxoValidateUnknownVoters(
+					newTx(voterCase.voterType),
+					0,
+					mockledger.NewLedgerStateBuilder().Build(),
+					pp,
+				)
+				var memberErr conway.CommitteeMemberLookupError
+				require.ErrorAs(t, err, &memberErr)
+				assert.Equal(t, wantCredential, memberErr.MemberCredential)
+				assert.Equal(t, hotHash, memberErr.Credential)
+				require.ErrorAs(
+					t,
+					err,
+					&conway.CommitteeStateUnavailableError{},
+				)
+			})
+
+			t.Run("provider lookup error", func(t *testing.T) {
+				lookupErr := errors.New("hot credential lookup failed")
+				ls := &erroringCommitteeCredentialLedgerState{
+					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+					err:         lookupErr,
+				}
+				err := conway.UtxoValidateUnknownVoters(
+					newTx(voterCase.voterType),
+					0,
+					ls,
+					pp,
+				)
+				require.ErrorIs(t, err, lookupErr)
+				var memberErr conway.CommitteeMemberLookupError
+				require.ErrorAs(t, err, &memberErr)
+				assert.Equal(t, wantCredential, memberErr.MemberCredential)
+			})
+		})
+	}
 }

@@ -259,6 +259,63 @@ func TestSetTypeWithoutTag(t *testing.T) {
 	}
 }
 
+func TestSetTypeWithoutTagRetainsItems(t *testing.T) {
+	// [2, 1, 2, 3, 1], with the second 2 encoded non-canonically. Generic
+	// SetType consumers decide whether their era and field coalesce duplicates.
+	origHex := "85020118020301"
+	orig, err := hex.DecodeString(origHex)
+	require.NoError(t, err)
+
+	var setType cbor.SetType[uint64]
+	_, err = cbor.Decode(orig, &setType)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{2, 1, 2, 3, 1}, setType.Items())
+
+	wire, err := cbor.Encode(&setType)
+	require.NoError(t, err)
+	assert.Equal(t, orig, wire, "decoded SetType must preserve original CBOR")
+}
+
+type countingSetItem struct {
+	marshalCalls *int
+}
+
+func (i countingSetItem) MarshalCBOR() ([]byte, error) {
+	(*i.marshalCalls)++
+	return []byte{0}, nil
+}
+
+func TestSetTypeItemsDoesNotEncodeMembers(t *testing.T) {
+	marshalCalls := 0
+	setType := cbor.NewSetType(
+		[]countingSetItem{
+			{marshalCalls: &marshalCalls},
+			{marshalCalls: &marshalCalls},
+		},
+		false,
+	)
+
+	assert.Len(t, setType.Items(), 2)
+	assert.Zero(t, marshalCalls)
+}
+
+func TestSetTypeTaggedItemsRetainDuplicates(t *testing.T) {
+	orig, err := hex.DecodeString("d9010283010201")
+	require.NoError(t, err)
+
+	var setType cbor.SetType[uint64]
+	_, err = cbor.Decode(orig, &setType)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{1, 2, 1}, setType.Items())
+	assert.ErrorContains(t, setType.CheckForDuplicates(), "duplicate member in set")
+}
+
+func TestSetTypeAlwaysRejectsUntaggedDuplicates(t *testing.T) {
+	setType := cbor.NewSetType([]uint64{1, 2, 1}, false)
+	assert.NoError(t, setType.CheckForDuplicates())
+	assert.ErrorContains(t, setType.CheckForDuplicatesAlways(), "duplicate member in set")
+}
+
 func TestSetTypeMarshalCBOR(t *testing.T) {
 	// Create SetType with tag
 	setType := cbor.NewSetType([]uint64{1, 2, 3}, true)

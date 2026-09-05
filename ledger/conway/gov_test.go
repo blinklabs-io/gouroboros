@@ -15,6 +15,7 @@
 package conway
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -37,7 +38,7 @@ func TestConwayProposalProcedureToPlutusData(t *testing.T) {
 	pd := pp.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(0), constr.Tag)
+	assert.Equal(t, big.NewInt(0), constr.Tag)
 	assert.Len(t, constr.Fields, 3)
 }
 

@@ -21,25 +21,98 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	UtxoValidateMetadata,
-	UtxoValidateRequiredVKeyWitnesses,
-	UtxoValidateSignatures,
-	UtxoValidateOutsideValidityIntervalUtxo,
-	UtxoValidateInputSetEmptyUtxo,
-	UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateBadInputsUtxo,
-	UtxoValidateWrongNetwork,
-	UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputBootAddrAttrsTooBig,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateNativeScripts,
-	UtxoValidateDelegation,
-	UtxoValidateWithdrawals,
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideValidityInterval,
+		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
+	},
 }
+
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
+var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
+	utxoValidationRuleDescriptors,
+)
 
 func UtxoValidateRequiredVKeyWitnesses(
 	tx common.Transaction,
@@ -50,7 +123,8 @@ func UtxoValidateRequiredVKeyWitnesses(
 	return shelley.UtxoValidateRequiredVKeyWitnesses(tx, slot, ls, pp)
 }
 
-// UtxoValidateOutsideValidityIntervalUtxo ensures that the current tip slot has reached the specified validity interval
+// UtxoValidateOutsideValidityIntervalUtxo ensures that the current tip slot is
+// within the transaction's half-open validity interval.
 func UtxoValidateOutsideValidityIntervalUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -58,13 +132,22 @@ func UtxoValidateOutsideValidityIntervalUtxo(
 	_ common.ProtocolParameters,
 ) error {
 	validityIntervalStart := tx.ValidityIntervalStart()
-	if validityIntervalStart == 0 || slot >= validityIntervalStart {
-		return nil
+	if validityIntervalStart != 0 && slot < validityIntervalStart {
+		return OutsideValidityIntervalUtxoError{
+			ValidityIntervalStart: validityIntervalStart,
+			Slot:                  slot,
+		}
 	}
-	return OutsideValidityIntervalUtxoError{
-		ValidityIntervalStart: validityIntervalStart,
-		Slot:                  slot,
+	validityIntervalEnd, validityIntervalEndPresent := common.TransactionValidityIntervalUpperBound(
+		tx,
+	)
+	if validityIntervalEndPresent && slot >= validityIntervalEnd {
+		return OutsideValidityIntervalUpperBoundUtxoError{
+			End:  validityIntervalEnd,
+			Slot: slot,
+		}
 	}
+	return nil
 }
 
 func UtxoValidateInputSetEmptyUtxo(
@@ -74,6 +157,16 @@ func UtxoValidateInputSetEmptyUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
+}
+
+// UtxoValidateScriptWitnesses checks that every required script is provided.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateScriptWitnesses(tx, slot, ls, pp)
 }
 
 func UtxoValidateNoDuplicateInputs(
@@ -228,43 +321,17 @@ func UtxoValidateNativeScripts(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
+	nativeScripts, err := common.NativeScriptsForValidation(tx, ls)
+	if err != nil {
+		return err
 	}
-
-	nativeScripts := witnesses.NativeScripts()
-	if len(nativeScripts) == 0 {
-		return nil
+	if scriptHash, failed := common.FirstInvalidNativeScriptIn(
+		tx,
+		slot,
+		nativeScripts,
+	); failed {
+		return NativeScriptFailedError{ScriptHash: scriptHash}
 	}
-
-	// Collect key hashes from VKey witnesses
-	keyHashes := make(map[common.Blake2b224]bool)
-	for _, vkw := range witnesses.Vkey() {
-		keyHash := common.Blake2b224Hash(vkw.Vkey)
-		keyHashes[keyHash] = true
-	}
-	// Also collect key hashes from bootstrap witnesses (Byron-era)
-	for _, bw := range witnesses.Bootstrap() {
-		keyHash := common.Blake2b224Hash(bw.PublicKey)
-		keyHashes[keyHash] = true
-	}
-
-	// Get transaction validity interval
-	validityStart := tx.ValidityIntervalStart()
-	validityEnd := tx.TTL()
-	if validityEnd == 0 {
-		validityEnd = ^uint64(0) // Max uint64 if not set
-	}
-
-	// Evaluate each native script
-	for _, nscript := range nativeScripts {
-		scriptHash := nscript.Hash()
-		if !nscript.Evaluate(slot, validityStart, validityEnd, keyHashes) {
-			return NativeScriptFailedError{ScriptHash: scriptHash}
-		}
-	}
-
 	return nil
 }
 
@@ -276,4 +343,30 @@ func UtxoValidateWithdrawals(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
+}
+
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/allegra/impl/src/Cardano/Ledger/Allegra/Rules/Pool.hs
+// declares only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
+}
+
+// UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards
+// certificate is authorized by a quorum of the current genesis delegates
+func UtxoValidateMIRGenesisQuorum(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateMIRGenesisQuorum(tx, slot, ls, pp)
 }

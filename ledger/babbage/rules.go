@@ -22,48 +22,196 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/blinklabs-io/plutigo/syn"
 )
 
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-	UtxoValidateMetadata,
-	UtxoValidateIsValidFlag,
-	UtxoValidateRequiredVKeyWitnesses,
-	UtxoValidateSignatures,
-	UtxoValidateCollateralVKeyWitnesses,
-	UtxoValidateRedeemerAndScriptWitnesses,
-	UtxoValidateCostModelsPresent,
-	UtxoValidateScriptDataHash,
-	UtxoValidateInlineDatumsWithPlutusV1,
-	UtxoValidateDisjointRefInputs,
-	UtxoValidateOutsideValidityIntervalUtxo,
-	UtxoValidateInputSetEmptyUtxo,
-	UtxoValidateNoDuplicateInputs,
-	UtxoValidateFeeTooSmallUtxo,
-	UtxoValidateInsufficientCollateral,
-	UtxoValidateCollateralContainsNonAda,
-	UtxoValidateCollateralEqBalance,
-	UtxoValidateNoCollateralInputs,
-	UtxoValidateBadInputsUtxo,
-	UtxoValidateScriptWitnesses,
-	UtxoValidateValueNotConservedUtxo,
-	UtxoValidateOutputTooSmallUtxo,
-	UtxoValidateOutputTooBigUtxo,
-	UtxoValidateOutputBootAddrAttrsTooBig,
-	UtxoValidateWrongNetwork,
-	UtxoValidateWrongNetworkWithdrawal,
-	UtxoValidateMaxTxSizeUtxo,
-	UtxoValidateExUnitsTooBigUtxo,
-	UtxoValidateTooManyCollateralInputs,
-	UtxoValidateNativeScripts,
-	UtxoValidateExtraneousRedeemers,
-	UtxoValidatePlutusScripts,
-	UtxoValidateDelegation,
-	UtxoValidateWithdrawals,
-	UtxoValidateMalformedReferenceScripts,
+var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
+	{
+		Id:        common.UtxoValidationRuleIsValidFlag,
+		Validator: UtxoValidateIsValidFlag,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredVKeyWitnesses,
+		Validator: UtxoValidateRequiredVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleSignatures,
+		Validator: UtxoValidateSignatures,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralVKeyWitnesses,
+		Validator: UtxoValidateCollateralVKeyWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+		Validator: UtxoValidateRedeemerAndScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleCostModelsPresent,
+		Validator: UtxoValidateCostModelsPresent,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptDataHash,
+		Validator: UtxoValidateScriptDataHash,
+	},
+	{
+		Id:        common.UtxoValidationRuleInlineDatumsWithPlutusV1,
+		Validator: UtxoValidateInlineDatumsWithPlutusV1,
+	},
+	{
+		Id:        common.UtxoValidationRuleDisjointRefInputs,
+		Validator: UtxoValidateDisjointRefInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideValidityInterval,
+		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInputSetEmpty,
+		Validator: UtxoValidateInputSetEmptyUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleFeeTooSmall,
+		Validator: UtxoValidateFeeTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleInsufficientCollateral,
+		Validator: UtxoValidateInsufficientCollateral,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralContainsNonAda,
+		Validator: UtxoValidateCollateralContainsNonAda,
+	},
+	{
+		Id:        common.UtxoValidationRuleCollateralEqBalance,
+		Validator: UtxoValidateCollateralEqBalance,
+	},
+	{
+		Id:        common.UtxoValidationRuleNoCollateralInputs,
+		Validator: UtxoValidateNoCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleScriptWitnesses,
+		Validator: UtxoValidateScriptWitnesses,
+	},
+	{
+		Id:        common.UtxoValidationRuleRequiredRedeemers,
+		Validator: UtxoValidateRequiredRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConserved,
+		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooSmall,
+		Validator: UtxoValidateOutputTooSmallUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputTooBig,
+		Validator: UtxoValidateOutputTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
+	},
+	{
+		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
+	},
+	{
+		Id:        common.UtxoValidationRuleMaxTxSize,
+		Validator: UtxoValidateMaxTxSizeUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleExUnitsTooBig,
+		Validator: UtxoValidateExUnitsTooBigUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleTooManyCollateralInputs,
+		Validator: UtxoValidateTooManyCollateralInputs,
+	},
+	{
+		Id:        common.UtxoValidationRuleNativeScripts,
+		Validator: UtxoValidateNativeScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleExtraneousRedeemers,
+		Validator: UtxoValidateExtraneousRedeemers,
+	},
+	{
+		Id:        common.UtxoValidationRuleMalformedReferenceScripts,
+		Validator: UtxoValidateMalformedReferenceScripts,
+	},
+	{
+		Id:        common.UtxoValidationRulePlutusScripts,
+		Validator: UtxoValidatePlutusScripts,
+	},
+	{
+		Id:        common.UtxoValidationRuleDelegation,
+		Validator: UtxoValidateDelegation,
+	},
+	{
+		Id:        common.UtxoValidationRuleWithdrawals,
+		Validator: UtxoValidateWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRulePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
+	},
 }
+
+// UtxoValidationRuleDescriptors returns the authoritative ordered rule
+// descriptors. The returned slice is a defensive copy and may be modified by
+// callers without changing package state.
+func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
+	return append(
+		[]common.UtxoValidationRuleDescriptor(nil),
+		utxoValidationRuleDescriptors...,
+	)
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors. It
+// remains mutable for compatibility; mutations are not reflected by
+// UtxoValidationRuleDescriptors.
+var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
+		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash, UtxoValidateInlineDatumsWithPlutusV1,
+		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
+		UtxoValidateNoCollateralInputs, UtxoValidateBadInputsUtxo,
+		UtxoValidateScriptWitnesses, UtxoValidateRequiredRedeemers,
+		UtxoValidateValueNotConservedUtxo, UtxoValidateOutputTooSmallUtxo,
+		UtxoValidateOutputTooBigUtxo, UtxoValidateOutputBootAddrAttrsTooBig,
+		UtxoValidateWrongNetwork, UtxoValidateWrongNetworkWithdrawal,
+		UtxoValidateMaxTxSizeUtxo, UtxoValidateExUnitsTooBigUtxo,
+		UtxoValidateTooManyCollateralInputs, UtxoValidateNativeScripts,
+		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
+		UtxoValidatePlutusScripts,
+	),
+	common.Phase2ValidUtxoValidationRules(
+		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidatePoolCertificates,
+	),
+)
 
 func UtxoValidateOutsideValidityIntervalUtxo(
 	tx common.Transaction,
@@ -239,94 +387,96 @@ func UtxoValidateCostModelsPresent(
 	return nil
 }
 
-// UtxoValidateInlineDatumsWithPlutusV1 rejects transactions that use inline datums with PlutusV1 scripts
-// Inline datums are a Babbage-era feature and are only supported with PlutusV2+
+// UtxoValidateInlineDatumsWithPlutusV1 rejects a transaction that requires a
+// PlutusV1 script while carrying an inline datum. Inline datums are a Babbage
+// feature the PlutusV1 script context cannot represent, so translating an output
+// that carries one into the V1 context fails.
+//
+// Three properties matter, and getting any of them wrong diverges from
+// cardano-node:
+//
+//   - Only a *needed* script constrains the transaction. A V1 script that is
+//     merely reachable -- sitting in the witness set, or as a reference script
+//     on some UTxO being spent -- but required by no script purpose does not
+//     make the transaction invalid. Rejecting on availability turns an ordinary
+//     transaction that happens to spend a UTxO carrying an unrelated V1
+//     reference script into a permanent validation failure.
+//   - The inline datum is disqualifying wherever the V1 context would have to
+//     represent it: on a consumed input, on a reference input, or on one of this
+//     transaction's own outputs. cardano-ledger's Conway PlutusV1 instance runs
+//     transTxOutV1 over all three -- inputs via transTxInInfoV1, reference
+//     inputs via the same function under mapM_, and outputs directly
+//     (eras/conway/impl/src/Cardano/Ledger/Conway/TxInfo.hs, instance
+//     EraPlutusTxInfo 'PlutusV1 ConwayEra).
+//   - A reference script is *not* disqualifying, anywhere. Conway's
+//     transTxOutV1 checks only the inline datum; unlike the Babbage-era
+//     transTxOutV1 it shadows, it has no ReferenceScriptsNotSupported branch.
+//     So neither a reference script on a consumed or reference input nor one on
+//     a produced output invalidates a V1-needing transaction.
+//
+// Datum presence is read through the TransactionOutput interface rather than a
+// concrete Babbage type assertion, so outputs wrapped by a later era are still
+// inspected. Datum-*hash* outputs are correctly not treated as inline, because
+// Datum() reports nil for them.
+//
+// Conway semantics are applied uniformly, including for the Babbage era that
+// also registers this rule and for Dijkstra, which delegates to it through
+// Conway. cardano-ledger's Babbage-era PlutusV1 instance is stricter than
+// Conway's on both counts above: its transTxOutV1 does carry a
+// ReferenceScriptsNotSupported branch, and it rejects a transaction that needs a
+// V1 script and carries any reference input at all. Splitting the rule per era
+// needs Babbage-era conformance vectors, which the suite does not contain, so
+// the divergence stays here rather than in untested era-specific code.
 func UtxoValidateInlineDatumsWithPlutusV1(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// Check if transaction spends any UTxOs with inline datums
-	hasInlineDatums := false
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// Input not found in ledger state, skip
-			continue
-		}
-		babbageOutput, ok := utxo.Output.(*BabbageTransactionOutput)
-		if !ok {
-			continue
-		}
-		if babbageOutput.DatumOption != nil &&
-			babbageOutput.DatumOption.data != nil {
-			hasInlineDatums = true
-			break
-		}
+	// An unresolvable input yields an empty view rather than an error:
+	// UtxoValidateBadInputsUtxo reports it with the right error, and reporting
+	// it here as well would make this rule a second, competing source of
+	// input-resolution failures.
+	view, err := script.NewTxScriptViewSkippingUnresolved(tx, ls)
+	if err != nil {
+		return err
 	}
-
-	if !hasInlineDatums {
+	needsV1 := view.NeedsAny(func(s common.Script) bool {
+		_, ok := s.(common.PlutusV1Script)
+		return ok
+	})
+	if !needsV1 {
 		return nil
 	}
-
-	// Check if transaction uses PlutusV1 scripts in witnesses
-	witnesses := tx.Witnesses()
-	if witnesses != nil {
-		v1Scripts := witnesses.PlutusV1Scripts()
-		if len(v1Scripts) > 0 {
+	// Datum() only, deliberately: ScriptRef() is not consulted on a resolved
+	// input, nor on a produced output below. The Conway conformance vector
+	// "UTXOS/can use regular inputs for reference" expects success for a
+	// transaction that needs a PlutusV1 script and spends a regular input
+	// carrying a reference script, so rejecting that shape fails the suite.
+	for _, utxo := range view.AllResolvedInputs() {
+		if utxo.Output != nil && utxo.Output.Datum() != nil {
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
 		}
 	}
-
-	// Check reference scripts on reference inputs
-	for _, refInput := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
+	for _, output := range tx.Outputs() {
+		if output == nil {
 			continue
 		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
+		if output.Datum() != nil {
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
 		}
 	}
-
-	// Per CIP-33, also check reference scripts on regular (spent) inputs
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// Skip errors - BadInputsUtxo will catch this
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			return common.InlineDatumsNotSupportedError{
-				PlutusVersion: "PlutusV1",
-			}
-		}
-	}
-
+	// Deliberately no restriction on the mere presence of reference inputs.
+	// Asserting one here failed the Conway conformance vector
+	// "UTXOS/can use reference scripts" (tx 3), which expects success for a
+	// transaction that requires a PlutusV1 script and carries reference
+	// inputs. The vector is authoritative; a reading of the V1 context
+	// translation that forbids reference inputs outright is not what the
+	// reference implementation does at this protocol version.
 	return nil
 }
 
@@ -485,12 +635,24 @@ func UtxoValidateCollateralContainsNonAda(
 }
 
 // UtxoValidateCollateralEqBalance ensures that the collateral return amount is equal to the collateral input amount minus the total collateral
+//
+// This is Part 6 of the reference's validateTotalCollateral, which feesOK runs
+// only when the redeemer map is non-empty, exactly as it does for the rest of
+// the collateral group. A transaction with no redeemers runs no phase-2
+// scripts, so its total_collateral field is not checked and a mismatch is not
+// a rejection. Conway and Dijkstra delegate here, so the guard uses the
+// interface-level helper rather than the Babbage-typed witness set: a Dijkstra
+// transaction can carry its redeemers in a sub-transaction, which the helper
+// counts.
 func UtxoValidateCollateralEqBalance(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !common.TransactionRunsPhase2Scripts(tx) {
+		return nil
+	}
 	totalCollateral := tx.TotalCollateral()
 	if totalCollateral == nil || totalCollateral.Sign() == 0 {
 		return nil
@@ -857,15 +1019,15 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	txBytes, err := cbor.Encode(tx)
-	if err != nil {
-		return err
+	txSize, sizeErr := common.TxSize(tx)
+	if sizeErr != nil {
+		return sizeErr
 	}
-	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+	if uint(txSize) <= tmpPparams.MaxTxSize {
 		return nil
 	}
 	return shelley.MaxTxSizeUtxoError{
-		TxSize:    uint(len(txBytes)),
+		TxSize:    uint(txSize),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
 }
@@ -884,9 +1046,17 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
+	// Iterate the collapsed view rather than the raw list: the wire format is a
+	// list but the ledger holds a map, so a key appearing more than once
+	// contributes its budget once. See the Alonzo rule of the same name; this
+	// is where it bites in practice, since Preview transaction 3ace3bc7f4c5 at
+	// slot 12925989 is a Babbage-era block (blinklabs-io/dingo#3875).
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
-		newSteps, ok := common.AddInt64Checked(totalSteps, redeemer.ExUnits.Steps)
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Iter() {
+		newSteps, ok := common.AddInt64Checked(
+			totalSteps,
+			redeemer.ExUnits.Steps,
+		)
 		if !ok {
 			return alonzo.ExUnitsTooBigUtxoError{
 				TotalExUnits: common.ExUnits{
@@ -897,7 +1067,10 @@ func UtxoValidateExUnitsTooBigUtxo(
 			}
 		}
 		totalSteps = newSteps
-		newMemory, ok := common.AddInt64Checked(totalMemory, redeemer.ExUnits.Memory)
+		newMemory, ok := common.AddInt64Checked(
+			totalMemory,
+			redeemer.ExUnits.Memory,
+		)
 		if !ok {
 			return alonzo.ExUnitsTooBigUtxoError{
 				TotalExUnits: common.ExUnits{
@@ -1062,14 +1235,57 @@ func UtxoValidateScriptWitnesses(
 	return common.ValidateScriptWitnesses(tx, ls)
 }
 
-// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+// UtxoValidateRequiredRedeemers checks that every Plutus script-address
+// input -- whether its script is provided as an explicit witness or as a
+// CIP-33 reference script -- has a matching spend redeemer. See
+// script.ValidateRequiredRedeemers for details on the gap this closes.
+// Babbage never executes Plutus itself (see UtxoValidatePlutusScripts
+// below), but a reference-script-backed input with no redeemer must still
+// be rejected rather than silently spent unexecuted.
+func UtxoValidateRequiredRedeemers(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return script.ValidateRequiredRedeemers(tx, ls)
+}
+
+// UtxoValidateNativeScripts evaluates the native scripts this transaction has
+// to satisfy.
+//
+// Babbage is the first era in which a script can reach a transaction as a
+// reference script rather than a witness, so unlike the Alonzo rule this
+// replaces, the scripts to evaluate come from the resolved transaction view
+// rather than the witness set alone: a native script some script purpose
+// requires counts whether the witness set, a reference input, or the spent
+// input's own reference-script field supplies it -- the same three sources
+// UtxoValidateScriptWitnesses accepts a required script from, so a script that
+// rule counts as provided is a script this rule evaluates rather than ignores.
 func UtxoValidateNativeScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return alonzo.UtxoValidateNativeScripts(tx, slot, ls, pp)
+	view, err := script.NewTxScriptViewSkippingUnresolved(tx, ls)
+	if err != nil {
+		return err
+	}
+	env := script.NewNativeScriptEnv(tx, slot)
+	for _, nativeScript := range script.NativeScriptsToEvaluate(tx, view) {
+		if !nativeScript.Evaluate(
+			env.Slot,
+			env.ValidityStart,
+			env.ValidityEnd,
+			env.KeyHashes,
+		) {
+			return allegra.NativeScriptFailedError{
+				ScriptHash: nativeScript.Hash(),
+			}
+		}
+	}
+	return nil
 }
 
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
@@ -1109,61 +1325,6 @@ func UtxoValidateScriptDataHash(
 	hasRedeemers := len(wits.WsRedeemers.Redeemers) > 0
 	hasDatums := len(wits.WsPlutusData.Items) > 0
 
-	// Determine which Plutus versions are used (Babbage has PlutusV1 and V2)
-	usedVersions := make(map[uint]struct{})
-	if len(wits.WsPlutusV1Scripts) > 0 {
-		usedVersions[0] = struct{}{}
-	}
-	if len(wits.WsPlutusV2Scripts) > 0 {
-		usedVersions[1] = struct{}{}
-	}
-
-	// Also check reference scripts on reference inputs
-	for _, refInput := range tmpTx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
-			usedVersions[1] = struct{}{}
-		}
-	}
-
-	// Check reference scripts on regular inputs.
-	// These may provide reference scripts for minting, spending, etc.
-	for _, input := range tmpTx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
-			usedVersions[1] = struct{}{}
-		}
-	}
-
 	declaredHash := tx.ScriptDataHash()
 
 	// ScriptDataHash is required only when the transaction has redeemers or
@@ -1180,6 +1341,27 @@ func UtxoValidateScriptDataHash(
 	if declaredHash == nil {
 		return common.MissingScriptDataHashError{}
 	}
+
+	// The language views cover the Plutus scripts some script purpose of this
+	// transaction requires, not every script it can reach. A reference script
+	// on a spent or referenced input that no purpose needs is inert data (see
+	// the comment above), and counting it adds a view the producer did not,
+	// which rejects a canonical transaction on a hash it never declared
+	// (gouroboros #2188).
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) {
+			// A spent input that does not resolve is reported by
+			// UtxoValidateBadInputsUtxo, which runs on every transaction in
+			// this same rule list. Reporting it from here would change which
+			// error an invalid transaction produces, and this rule is
+			// registered ahead of that one. A reference input that does not
+			// resolve has no such dedicated rule, so it still surfaces here.
+			return nil
+		}
+		return err
+	}
+	usedVersions := view.UsedPlutusVersions()
 
 	// Verify cost models are present for all used Plutus versions
 	for version := range usedVersions {
@@ -1261,59 +1443,43 @@ func UtxoValidateScriptDataHash(
 	return nil
 }
 
-// UtxoValidateMalformedReferenceScripts checks that any reference scripts in
-// transaction outputs are well-formed and can be deserialized.
+// UtxoValidateMalformedReferenceScripts checks that Plutus witnesses and
+// reference scripts are well-formed for the active protocol version.
 func UtxoValidateMalformedReferenceScripts(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	var malformedHashes []common.ScriptHash
-
-	for _, output := range tx.Outputs() {
-		scriptRef := output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-
-		// Check if the script can be decoded properly
-		var innerScript []byte
-		var isPlutus bool
-		var scriptBytes []byte
-		var scriptHash common.ScriptHash
-
-		switch s := scriptRef.(type) {
-		case common.PlutusV1Script:
-			isPlutus = true
-			scriptBytes = []byte(s)
-			scriptHash = s.Hash()
-		case common.PlutusV2Script:
-			isPlutus = true
-			scriptBytes = []byte(s)
-			scriptHash = s.Hash()
-		default:
-			// Native scripts don't need UPLC validation
-			continue
-		}
-
-		if isPlutus {
-			// Decode the outer CBOR wrapper to get the actual script bytes
-			if _, err := cbor.Decode(scriptBytes, &innerScript); err != nil {
-				malformedHashes = append(malformedHashes, scriptHash)
-				continue
-			}
-			// Try to decode as UPLC program
-			if _, err := syn.Decode[syn.DeBruijn](innerScript); err != nil {
-				malformedHashes = append(malformedHashes, scriptHash)
-			}
-		}
+	params, ok := pp.(*BabbageProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
 	}
+	return common.ValidatePlutusScriptsWellFormed(tx, params.ProtocolMajor)
+}
 
-	if len(malformedHashes) > 0 {
-		return common.MalformedReferenceScriptsError{
-			ScriptHashes: malformedHashes,
-		}
-	}
-	return nil
+// UtxoValidatePoolCertificates applies the Shelley POOL rule, which this era
+// inherits unchanged.
+//
+// Reference: eras/babbage/impl/src/Cardano/Ledger/Babbage/Rules/Pool.hs
+// declares only the EraRuleFailure and EraRuleEvent instances and reuses
+// Shelley.poolTransition.
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidatePoolCertificates(tx, slot, ls, pp)
+}
+
+// UtxoValidateMIRGenesisQuorum ensures a move instantaneous rewards
+// certificate is authorized by a quorum of the current genesis delegates
+func UtxoValidateMIRGenesisQuorum(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateMIRGenesisQuorum(tx, slot, ls, pp)
 }

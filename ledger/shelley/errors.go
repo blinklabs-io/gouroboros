@@ -85,6 +85,14 @@ func (e BadInputsUtxoError) Error() string {
 	return "bad input(s): " + strings.Join(tmpInputs, ", ")
 }
 
+type NativeScriptFailedError struct {
+	ScriptHash common.ScriptHash
+}
+
+func (e NativeScriptFailedError) Error() string {
+	return fmt.Sprintf("native script failed (hash=%x)", e.ScriptHash[:])
+}
+
 type WrongNetworkError struct {
 	NetId uint
 	Addrs []common.Address
@@ -225,4 +233,124 @@ type WithdrawalFromUnregisteredRewardAccountError struct {
 
 func (e WithdrawalFromUnregisteredRewardAccountError) Error() string {
 	return "withdrawal from unregistered reward account: " + e.RewardAddress.String()
+}
+
+// IncorrectWithdrawalAmountError indicates that a withdrawal violates the
+// active era's required relationship to the reward account's current balance.
+type IncorrectWithdrawalAmountError struct {
+	RewardAddress common.Address
+	Provided      *big.Int
+	Balance       uint64
+}
+
+func (e IncorrectWithdrawalAmountError) Error() string {
+	provided := "<nil>"
+	if e.Provided != nil {
+		provided = e.Provided.String()
+	}
+	return fmt.Sprintf(
+		"incorrect withdrawal amount for %s: provided %s, balance %d",
+		e.RewardAddress.String(),
+		provided,
+		e.Balance,
+	)
+}
+
+// StakePoolNotRegisteredOnKeyError indicates a pool retirement certificate for
+// a stake pool that is not registered.
+//
+// Reference: StakePoolNotRegisteredOnKeyPOOL in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs
+type StakePoolNotRegisteredOnKeyError struct {
+	PoolKeyHash common.PoolKeyHash
+}
+
+func (e StakePoolNotRegisteredOnKeyError) Error() string {
+	return "stake pool not registered: " + e.PoolKeyHash.String()
+}
+
+// StakePoolRetirementWrongEpochError indicates a pool retirement certificate
+// whose retirement epoch is not after the current epoch and at most eMax
+// epochs beyond it.
+//
+// Reference: StakePoolRetirementWrongEpochPOOL in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs
+type StakePoolRetirementWrongEpochError struct {
+	PoolKeyHash  common.PoolKeyHash
+	Supplied     uint64
+	CurrentEpoch uint64
+	LimitEpoch   uint64
+}
+
+func (e StakePoolRetirementWrongEpochError) Error() string {
+	return fmt.Sprintf(
+		"stake pool %s retirement epoch %d outside allowed range (%d, %d]",
+		e.PoolKeyHash.String(),
+		e.Supplied,
+		e.CurrentEpoch,
+		e.LimitEpoch,
+	)
+}
+
+// StakePoolCostTooLowError indicates a pool registration certificate whose
+// declared cost is below the minPoolCost protocol parameter.
+//
+// Reference: StakePoolCostTooLowPOOL in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs
+type StakePoolCostTooLowError struct {
+	PoolKeyHash common.PoolKeyHash
+	Supplied    uint64
+	Min         uint64
+}
+
+func (e StakePoolCostTooLowError) Error() string {
+	return fmt.Sprintf(
+		"stake pool %s cost %d below minimum %d",
+		e.PoolKeyHash.String(),
+		e.Supplied,
+		e.Min,
+	)
+}
+
+// WrongNetworkPoolError indicates a pool registration certificate whose reward
+// account is on a different network than the ledger state.
+//
+// Reference: WrongNetworkPOOL in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs
+type WrongNetworkPoolError struct {
+	PoolKeyHash common.PoolKeyHash
+	Supplied    uint
+	Expected    uint
+}
+
+func (e WrongNetworkPoolError) Error() string {
+	return fmt.Sprintf(
+		"stake pool %s reward account network %d, expected %d",
+		e.PoolKeyHash.String(),
+		e.Supplied,
+		e.Expected,
+	)
+}
+
+// VrfKeyHashAlreadyRegisteredError indicates a pool registration certificate
+// claiming a VRF key hash that another stake pool already uses.
+//
+// Reference: VRFKeyHashAlreadyRegistered in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs
+type VrfKeyHashAlreadyRegisteredError struct {
+	PoolKeyHash common.PoolKeyHash
+	VrfKeyHash  common.VrfKeyHash
+	// RegisteredBy is the pool that already holds the VRF key hash. It is
+	// reported for diagnostics only; the reference predicate is a set
+	// membership test that does not name the holder.
+	RegisteredBy common.PoolKeyHash
+}
+
+func (e VrfKeyHashAlreadyRegisteredError) Error() string {
+	return fmt.Sprintf(
+		"stake pool %s VRF key hash %s already registered by pool %s",
+		e.PoolKeyHash.String(),
+		e.VrfKeyHash.String(),
+		e.RegisteredBy.String(),
+	)
 }

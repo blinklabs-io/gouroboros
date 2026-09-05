@@ -76,6 +76,27 @@ func expRational(x *big.Rat) *big.Rat {
 	return rat
 }
 
+func TestCeilBigFloat(t *testing.T) {
+	testCases := []struct {
+		name string
+		x    *big.Rat
+		want int64
+	}{
+		{name: "negative-fraction", x: big.NewRat(-3, 2), want: -1},
+		{name: "negative-subunit", x: big.NewRat(-1, 2), want: 0},
+		{name: "zero", x: big.NewRat(0, 1), want: 0},
+		{name: "positive-fraction", x: big.NewRat(3, 2), want: 2},
+		{name: "positive-integer", x: big.NewRat(2, 1), want: 2},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			x := new(big.Float).SetPrec(128).SetRat(tc.x)
+			require.Equal(t, big.NewInt(tc.want), ceilBigFloat(x))
+		})
+	}
+}
+
 func TestCertifiedNatThresholdZeroStake(t *testing.T) {
 	activeSlotCoeff := big.NewRat(1, 20) // 0.05
 
@@ -814,6 +835,19 @@ func TestIsVRFOutputBelowThresholdEmptyOutput(t *testing.T) {
 	}
 }
 
+func TestIsVRFOutputBelowThresholdRejectsMalformedLength(t *testing.T) {
+	threshold := new(big.Int).SetUint64(1)
+	for _, size := range []int{63, 65} {
+		eligible, err := IsVRFOutputBelowThresholdWithMode(
+			make([]byte, size),
+			threshold,
+			ConsensusModeTPraos,
+		)
+		require.False(t, eligible)
+		require.Error(t, err)
+	}
+}
+
 // TestIsVRFOutputBelowThresholdZeroThreshold tests handling of zero threshold.
 func TestIsVRFOutputBelowThresholdZeroThreshold(t *testing.T) {
 	vrfOutput := make([]byte, 64)
@@ -1043,9 +1077,14 @@ func TestThresholdAccuracyFullStake(t *testing.T) {
 				tc.f,
 			)
 
-			// Exact expected value: floor(2^256 * f)
-			expected := new(big.Int).Mul(twoTo256, tc.f.Num())
-			expected.Div(expected, tc.f.Denom())
+			// Exact expected comparison threshold: ceil(2^256 * f).
+			expectedNumerator := new(big.Int).Mul(twoTo256, tc.f.Num())
+			expected := new(big.Int)
+			remainder := new(big.Int)
+			expected.QuoRem(expectedNumerator, tc.f.Denom(), remainder)
+			if remainder.Sign() != 0 {
+				expected.Add(expected, big.NewInt(1))
+			}
 
 			require.True(t, threshold.Sign() > 0,
 				"threshold must be positive")
@@ -1315,7 +1354,7 @@ func TestCertifiedNatThresholdFullStakeExactHalf(t *testing.T) {
 // blocking review finding: f=3/4 with sigma=1/2 (e.g. poolStake=1,
 // totalStake=2) has (1-f)^sigma = (1/4)^(1/2) = 1/2 exactly, so the
 // mathematically exact threshold is precisely 2^(N-1) for an N-bit upper
-// bound. Feeding an *approximate* big.Float into the final floor()
+// bound. Feeding an *approximate* big.Float into the final integer conversion
 // previously produced 2^(N-1)-1 instead -- one integer below the exact
 // cutoff -- which, combined with the strict "<" eligibility comparison,
 // incorrectly rejected the valid leader value 2^(N-1)-1.
@@ -1392,8 +1431,8 @@ func TestCertifiedNatThresholdPartialStakeExactCutoff(t *testing.T) {
 // With sigma=1/2, 1-f = 2^-2000 is a perfect square, so
 // (1-f)^sigma = 2^-1000 exactly, giving an exact mathematical threshold of
 // upperBound*(1-2^-1000) = upperBound - 2^(N-1000). Since N (256 or 512)
-// is far smaller than 1000, that fractional term is far less than 1, so
-// floor(exact threshold) = upperBound-1 for both consensus modes.
+// is far smaller than 1000, that fractional term is far less than 1, so the
+// comparison threshold ceil(exact cutoff) is upperBound for both modes.
 func TestCertifiedNatThresholdNearOneDenominatorPrecisionLoss(t *testing.T) {
 	denomExp := int64(2000)
 	den := new(big.Int).Exp(big.NewInt(2), big.NewInt(denomExp), nil)
@@ -1415,10 +1454,10 @@ func TestCertifiedNatThresholdNearOneDenominatorPrecisionLoss(t *testing.T) {
 			threshold, err := CertifiedNatThresholdWithMode(1, 2, f, c.mode)
 			require.NoError(t, err)
 
-			expected := new(big.Int).Sub(c.upperBound, big.NewInt(1))
+			expected := new(big.Int).Set(c.upperBound)
 			require.Equal(t, 0, threshold.Cmp(expected),
 				"f=(2^2000-1)/2^2000,sigma=1/2 threshold must be "+
-					"exactly upperBound-1: got %s, want %s",
+					"exactly upperBound: got %s, want %s",
 				threshold.String(), expected.String())
 		})
 	}

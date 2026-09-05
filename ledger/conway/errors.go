@@ -210,17 +210,8 @@ func (e ExtraRedeemerError) Error() string {
 	)
 }
 
-// MissingRedeemerForScriptError indicates a script purpose requires a redeemer but none was provided
-type MissingRedeemerForScriptError struct {
-	ScriptHash common.ScriptHash
-	Tag        common.RedeemerTag
-	Index      uint32
-}
-
-func (e MissingRedeemerForScriptError) Error() string {
-	return fmt.Sprintf("missing redeemer for script %x: tag=%d, index=%d",
-		e.ScriptHash[:], e.Tag, e.Index)
-}
+// MissingRedeemerForScriptError is an alias to common.MissingRedeemerForScriptError
+type MissingRedeemerForScriptError = common.MissingRedeemerForScriptError
 
 // ProtocolParameterUpdateEmptyError indicates that a PPU has no fields set
 type ProtocolParameterUpdateEmptyError struct{}
@@ -365,7 +356,7 @@ func (e InvalidDRepTypeError) Error() string {
 type WithdrawalFromUnregisteredRewardAccountError = shelley.WithdrawalFromUnregisteredRewardAccountError
 
 // WithdrawalNotDelegatedToDRepError indicates a PV10/PV11 reward withdrawal
-// whose stake credential has no governance vote delegation.
+// whose key-hash stake credential has no governance vote delegation.
 type WithdrawalNotDelegatedToDRepError struct {
 	RewardAddress common.Address
 }
@@ -381,6 +372,102 @@ type DRepDelegationStateUnavailableError struct{}
 
 func (DRepDelegationStateUnavailableError) Error() string {
 	return "ledger state does not support DRep delegation lookups"
+}
+
+// CertificateDepositIncorrectError indicates that a registration certificate
+// does not carry the active protocol-parameter deposit.
+type CertificateDepositIncorrectError struct {
+	CertificateType common.CertificateType
+	Supplied        int64
+	Expected        uint64
+}
+
+func (e CertificateDepositIncorrectError) Error() string {
+	return fmt.Sprintf(
+		"incorrect deposit for certificate type %d: supplied %d, expected %d",
+		e.CertificateType,
+		e.Supplied,
+		e.Expected,
+	)
+}
+
+// CertificateRefundIncorrectError indicates that a deregistration certificate
+// does not refund the deposit recorded for the credential.
+type CertificateRefundIncorrectError struct {
+	CertificateType common.CertificateType
+	Supplied        int64
+	Expected        uint64
+}
+
+func (e CertificateRefundIncorrectError) Error() string {
+	return fmt.Sprintf(
+		"incorrect refund for certificate type %d: supplied %d, expected %d",
+		e.CertificateType,
+		e.Supplied,
+		e.Expected,
+	)
+}
+
+// CertificateDepositStateUnavailableError indicates that ledger state cannot
+// provide the held stake-credential deposits needed for refund validation.
+type CertificateDepositStateUnavailableError struct{}
+
+func (CertificateDepositStateUnavailableError) Error() string {
+	return "ledger state does not support stake credential deposit lookups"
+}
+
+// CertificateDepositStateInconsistentError indicates that a registered stake
+// credential has no corresponding deposit or reward-account state.
+type CertificateDepositStateInconsistentError struct {
+	Credential common.Credential
+}
+
+func (e CertificateDepositStateInconsistentError) Error() string {
+	return fmt.Sprintf(
+		"registered stake credential has incomplete deposit state: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// StakeCredentialNotRegisteredError indicates a deregistration certificate
+// for a credential absent from the left-folded certificate state.
+type StakeCredentialNotRegisteredError struct {
+	Credential common.Credential
+}
+
+func (e StakeCredentialNotRegisteredError) Error() string {
+	return fmt.Sprintf(
+		"stake credential is not registered: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// StakeCredentialNonZeroRewardBalanceError indicates a deregistration whose
+// post-withdrawal reward balance is not zero.
+type StakeCredentialNonZeroRewardBalanceError struct {
+	Credential common.Credential
+	Balance    uint64
+}
+
+func (e StakeCredentialNonZeroRewardBalanceError) Error() string {
+	return fmt.Sprintf(
+		"stake credential has nonzero reward balance: %x (%d)",
+		e.Credential.Credential[:],
+		e.Balance,
+	)
+}
+
+// DRepNotRegisteredError indicates a DRep deregistration certificate for a
+// credential absent from the left-folded DRep state.
+type DRepNotRegisteredError struct {
+	Credential common.Credential
+}
+
+func (e DRepNotRegisteredError) Error() string {
+	return fmt.Sprintf(
+		"DRep is not registered: %x",
+		e.Credential.Credential[:],
+	)
 }
 
 // StakeCredentialAlreadyRegisteredError indicates attempting to register an already registered stake credential
@@ -409,8 +496,9 @@ func (e DRepAlreadyRegisteredError) Error() string {
 
 // NotCommitteeMemberError indicates an operation on a credential that is not a CC member
 type NotCommitteeMemberError struct {
-	Credential common.Blake2b224
-	Operation  string
+	Credential     common.Blake2b224
+	ColdCredential common.Credential
+	Operation      string
 }
 
 func (e NotCommitteeMemberError) Error() string {
@@ -423,7 +511,8 @@ func (e NotCommitteeMemberError) Error() string {
 
 // ResignedCommitteeMemberHotKeyError indicates trying to authorize hot key for resigned CC member
 type ResignedCommitteeMemberHotKeyError struct {
-	ColdKey common.Blake2b224
+	ColdKey        common.Blake2b224
+	ColdCredential common.Credential
 }
 
 func (e ResignedCommitteeMemberHotKeyError) Error() string {
@@ -433,10 +522,22 @@ func (e ResignedCommitteeMemberHotKeyError) Error() string {
 	)
 }
 
-// CommitteeMemberLookupError indicates a failure to look up a committee member
+// CommitteeMemberLookupError indicates a failure to look up a committee member.
+// MemberCredential carries the credential type alongside the hash, which a bare
+// Blake2b224 cannot distinguish: it is the cold credential for a certificate
+// lookup and the hot credential for a voter lookup.
 type CommitteeMemberLookupError struct {
-	Credential common.Blake2b224
-	Err        error
+	Credential       common.Blake2b224
+	MemberCredential common.Credential
+	Err              error
+}
+
+// CommitteeStateUnavailableError indicates that a ledger-state provider cannot
+// authoritatively resolve committee credentials for this validation snapshot.
+type CommitteeStateUnavailableError struct{}
+
+func (CommitteeStateUnavailableError) Error() string {
+	return "authoritative committee state unavailable"
 }
 
 func (e CommitteeMemberLookupError) Error() string {
@@ -647,6 +748,57 @@ type MalformedGovActionError struct {
 
 func (e MalformedGovActionError) Error() string {
 	return "malformed governance action: " + e.Reason
+}
+
+// ConstitutionLookupError indicates that the current constitution could not
+// be read while validating a governance action.
+type ConstitutionLookupError struct {
+	Err error
+}
+
+func (e ConstitutionLookupError) Error() string {
+	return fmt.Sprintf("failed to look up current constitution: %v", e.Err)
+}
+
+func (e ConstitutionLookupError) Unwrap() error {
+	return e.Err
+}
+
+// MalformedConstitutionError indicates that the current constitution carries
+// a non-nil guardrails script hash of an invalid length.
+type MalformedConstitutionError struct {
+	ScriptHashLength int
+}
+
+func (e MalformedConstitutionError) Error() string {
+	return fmt.Sprintf(
+		"current constitution guardrails script hash has invalid length %d, expected %d",
+		e.ScriptHashLength,
+		common.Blake2b224Size,
+	)
+}
+
+// InvalidGuardrailsScriptHashError indicates that a parameter-change or
+// treasury-withdrawal proposal's optional policy hash does not exactly match
+// the current constitution's optional guardrails script hash.
+type InvalidGuardrailsScriptHashError struct {
+	Actual   []byte
+	Expected []byte
+}
+
+func (e InvalidGuardrailsScriptHashError) Error() string {
+	return fmt.Sprintf(
+		"invalid guardrails script hash: supplied %s, expected %s",
+		formatOptionalScriptHash(e.Actual),
+		formatOptionalScriptHash(e.Expected),
+	)
+}
+
+func formatOptionalScriptHash(hash []byte) string {
+	if hash == nil {
+		return "<absent>"
+	}
+	return hex.EncodeToString(hash)
 }
 
 // BadHardForkProtocolVersionError indicates a HardForkInitiation governance

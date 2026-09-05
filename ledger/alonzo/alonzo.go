@@ -68,12 +68,49 @@ type AlonzoBlock struct {
 }
 
 func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
-	type tAlonzoBlock AlonzoBlock
-	var tmp tAlonzoBlock
+	// Decode wire transaction indices into a fixed-width type before converting
+	// them to the platform type used by the block model.
+	type tmpAlonzoBlock struct {
+		cbor.StructAsArray
+		BlockHeader            *AlonzoBlockHeader
+		TransactionBodies      []AlonzoTransactionBody
+		TransactionWitnessSets []AlonzoTransactionWitnessSet
+		TransactionMetadataSet common.TransactionMetadataSet
+		InvalidTransactions    []uint64
+	}
+
+	var tmp tmpAlonzoBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*b = AlonzoBlock(tmp)
+
+	// Convert the wire indices to the platform type without discarding values.
+	result := make([]uint, 0, len(tmp.InvalidTransactions))
+	for _, val := range tmp.InvalidTransactions {
+		converted := uint(val)
+		if uint64(converted) != val {
+			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+		}
+		if val >= uint64(len(tmp.TransactionBodies)) {
+			return fmt.Errorf(
+				"invalid transaction index %d outside transaction list length %d",
+				val,
+				len(tmp.TransactionBodies),
+			)
+		}
+		result = append(result, converted)
+	}
+	if len(result) == 0 {
+		b.InvalidTransactions = nil
+	} else {
+		b.InvalidTransactions = result
+	}
+
+	// Assign the other fields.
+	b.BlockHeader = tmp.BlockHeader
+	b.TransactionBodies = tmp.TransactionBodies
+	b.TransactionWitnessSets = tmp.TransactionWitnessSets
+	b.TransactionMetadataSet = tmp.TransactionMetadataSet
 	b.SetCbor(cborData)
 
 	// Extract and store CBOR for each component
@@ -177,6 +214,9 @@ func (b *AlonzoBlock) Era() common.Era {
 }
 
 func (b *AlonzoBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
@@ -273,9 +313,59 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
+	tmp.TxCollateral = coalesceUntaggedTransactionInputs(tmp.TxCollateral)
+	if err := tmp.TxCollateral.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("collateral inputs: %w", err)
+	}
+	if err := tmp.TxRequiredSigners.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("required signers: %w", err)
+	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
 	*b = AlonzoTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func (b AlonzoTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+}
+
+func coalesceUntaggedTransactionInputs(
+	set cbor.SetType[shelley.ShelleyTransactionInput],
+) cbor.SetType[shelley.ShelleyTransactionInput] {
+	wire := set.Cbor()
+	if wire == nil {
+		return set
+	}
+	var tag cbor.RawTag
+	if _, err := cbor.Decode(wire, &tag); err == nil {
+		return set
+	}
+	items := set.Items()
+	seen := make(map[string]struct{}, len(items))
+	uniqueItems := make([]shelley.ShelleyTransactionInput, 0, len(items))
+	for _, item := range items {
+		key := item.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		uniqueItems = append(uniqueItems, item)
+	}
+	ret := cbor.NewSetType(uniqueItems, false)
+	ret.SetCbor(wire)
+	return ret
 }
 
 func (b *AlonzoTransactionBody) Inputs() []common.TransactionInput {
@@ -301,6 +391,22 @@ func (b *AlonzoTransactionBody) Fee() *big.Int {
 
 func (b *AlonzoTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *AlonzoTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *AlonzoTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *AlonzoTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *AlonzoTransactionBody) ValidityIntervalStart() uint64 {
@@ -614,31 +720,31 @@ func (r AlonzoRedeemers) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(r.Redeemers)
 }
 
+// Iter projects the list-form encoding into the map held by cardano-ledger.
+// Duplicate keys therefore resolve to their last value and are yielded once.
 func (r AlonzoRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
 	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
-		// Sort redeemers
-		sorted := make([]AlonzoRedeemer, len(r.Redeemers))
-		copy(sorted, r.Redeemers)
-		slices.SortFunc(
-			sorted,
-			func(a, b AlonzoRedeemer) int {
-				return common.CompareRedeemerKeys(
-					common.RedeemerKey{Tag: a.Tag, Index: a.Index},
-					common.RedeemerKey{Tag: b.Tag, Index: b.Index},
-				)
-			},
+		byKey := make(
+			map[common.RedeemerKey]common.RedeemerValue,
+			len(r.Redeemers),
 		)
-		// Yield keys
-		for _, redeemer := range sorted {
-			tmpKey := common.RedeemerKey{
+		for _, redeemer := range r.Redeemers {
+			key := common.RedeemerKey{
 				Tag:   redeemer.Tag,
 				Index: redeemer.Index,
 			}
-			tmpVal := common.RedeemerValue{
+			byKey[key] = common.RedeemerValue{
 				Data:    redeemer.Data,
 				ExUnits: redeemer.ExUnits,
 			}
-			if !yield(tmpKey, tmpVal) {
+		}
+		keys := make([]common.RedeemerKey, 0, len(byKey))
+		for key := range byKey {
+			keys = append(keys, key)
+		}
+		slices.SortFunc(keys, common.CompareRedeemerKeys)
+		for _, key := range keys {
+			if !yield(key, byKey[key]) {
 				return
 			}
 		}
@@ -659,7 +765,9 @@ func (r AlonzoRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
 ) common.RedeemerValue {
-	for _, redeemer := range r.Redeemers {
+	// Walk backward so duplicate keys resolve like Map.fromList: last wins.
+	for i := len(r.Redeemers) - 1; i >= 0; i-- {
+		redeemer := r.Redeemers[i]
 		if redeemer.Tag == tag && uint(redeemer.Index) == index {
 			return common.RedeemerValue{
 				Data:    redeemer.Data,
@@ -883,6 +991,10 @@ func (t AlonzoTransaction) Fee() *big.Int {
 
 func (t AlonzoTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t AlonzoTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t AlonzoTransaction) ValidityIntervalStart() uint64 {

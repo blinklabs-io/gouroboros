@@ -70,6 +70,54 @@ type TransactionBody interface {
 	Utxorpc() (*utxorpc.Tx, error)
 }
 
+// TransactionWithValidityIntervalUpperBound is implemented by transactions
+// and transaction bodies that can distinguish an absent upper validity bound
+// from an explicitly encoded bound of zero.
+//
+// TTL predates optional validity intervals and cannot represent that
+// distinction by itself. Consumers should use
+// TransactionValidityIntervalUpperBound when presence affects validation.
+type TransactionWithValidityIntervalUpperBound interface {
+	ValidityIntervalUpperBound() (uint64, bool)
+}
+
+// TransactionValidityIntervalUpperBound returns the upper validity bound and
+// whether it is present. Implementations that do not expose presence retain the
+// legacy behavior where a non-zero TTL is treated as present.
+func TransactionValidityIntervalUpperBound(
+	tx TransactionBody,
+) (uint64, bool) {
+	if txWithUpperBound, ok := tx.(TransactionWithValidityIntervalUpperBound); ok {
+		return txWithUpperBound.ValidityIntervalUpperBound()
+	}
+	upperBound := tx.TTL()
+	return upperBound, upperBound != 0
+}
+
+// TransactionWithCurrentTreasuryValuePresence is implemented by transactions
+// and transaction bodies that can distinguish an absent current treasury value
+// from an explicitly encoded value of zero.
+type TransactionWithCurrentTreasuryValuePresence interface {
+	CurrentTreasuryValuePresent() bool
+}
+
+// TransactionCurrentTreasuryValuePresent reports whether a transaction body's
+// current treasury value is present. A nonzero value implies presence for
+// legacy implementations. Zero is present only when the optional presence
+// capability reports it explicitly, so legacy implementations that return a
+// non-nil zero value for an absent field remain compatible.
+func TransactionCurrentTreasuryValuePresent(tx TransactionBody) bool {
+	value := tx.CurrentTreasuryValue()
+	if value == nil {
+		return false
+	}
+	if value.Sign() != 0 {
+		return true
+	}
+	txWithPresence, ok := tx.(TransactionWithCurrentTreasuryValuePresence)
+	return ok && txWithPresence.CurrentTreasuryValuePresent()
+}
+
 type TransactionInput interface {
 	Id() Blake2b256
 	Index() uint32
@@ -106,6 +154,27 @@ type TransactionWitnessSetWithPlutusV4 interface {
 	PlutusV4Scripts() []PlutusV4Script
 }
 
+// TransactionWithSubTransactionWitnessSets exposes witness sets whose scripts
+// are available to the top-level transaction. Dijkstra sub-transactions can
+// provide a script needed by a top-level script purpose.
+type TransactionWithSubTransactionWitnessSets interface {
+	SubTransactionWitnessSets() []TransactionWitnessSet
+}
+
+// TransactionWithSubTransactionBodies exposes sub-transaction bodies in
+// ledger-transition order. Dijkstra validates each sub-transaction before the
+// top-level transaction.
+type TransactionWithSubTransactionBodies interface {
+	SubTransactionBodies() []TransactionBody
+}
+
+// TransactionWithSubTransactionOutputs exposes outputs created by nested
+// transactions. Their reference scripts undergo the same phase-1 admission
+// checks as top-level output reference scripts.
+type TransactionWithSubTransactionOutputs interface {
+	SubTransactionOutputs() []TransactionOutput
+}
+
 func PlutusV4ScriptsFromWitnessSet(
 	w TransactionWitnessSet,
 ) []PlutusV4Script {
@@ -117,6 +186,45 @@ func PlutusV4ScriptsFromWitnessSet(
 		return nil
 	}
 	return w4.PlutusV4Scripts()
+}
+
+func SubTransactionWitnessSetsFromTransaction(
+	t Transaction,
+) []TransactionWitnessSet {
+	if t == nil {
+		return nil
+	}
+	withSubTxs, ok := t.(TransactionWithSubTransactionWitnessSets)
+	if !ok {
+		return nil
+	}
+	return withSubTxs.SubTransactionWitnessSets()
+}
+
+func SubTransactionBodiesFromTransaction(
+	t Transaction,
+) []TransactionBody {
+	if t == nil {
+		return nil
+	}
+	withSubTxs, ok := t.(TransactionWithSubTransactionBodies)
+	if !ok {
+		return nil
+	}
+	return withSubTxs.SubTransactionBodies()
+}
+
+func SubTransactionOutputsFromTransaction(
+	t Transaction,
+) []TransactionOutput {
+	if t == nil {
+		return nil
+	}
+	withSubTxs, ok := t.(TransactionWithSubTransactionOutputs)
+	if !ok {
+		return nil
+	}
+	return withSubTxs.SubTransactionOutputs()
 }
 
 type TransactionWitnessRedeemers interface {
@@ -136,7 +244,154 @@ type Utxo struct {
 // and storing/retrieving the original CBOR
 type TransactionBodyBase struct {
 	cbor.DecodeStoreCbor
-	hash *Blake2b256
+	hash                              *Blake2b256
+	validityIntervalUpperBoundPresent bool
+	currentTreasuryValuePresent       bool
+}
+
+type transactionBodyFieldPresence struct {
+	validityIntervalUpperBound bool
+	currentTreasuryValue       bool
+}
+
+// decodeTransactionBodyFieldPresence scans a transaction-body map once and
+// returns the presence of optional scalar fields whose zero values cannot be
+// distinguished by the typed decode.
+func decodeTransactionBodyFieldPresence(
+	cborData []byte,
+) (transactionBodyFieldPresence, error) {
+	var bodyFields map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
+		return transactionBodyFieldPresence{}, err
+	}
+	_, upperBoundPresent := bodyFields[3]
+	_, currentTreasuryValuePresent := bodyFields[21]
+	return transactionBodyFieldPresence{
+		validityIntervalUpperBound: upperBoundPresent,
+		currentTreasuryValue:       currentTreasuryValuePresent,
+	}, nil
+}
+
+// SetValidityIntervalUpperBoundPresence records whether transaction-body key 3
+// is present. Era-specific transaction body decoders use this to preserve the
+// distinction between an absent upper bound and an explicit zero. Calling it
+// for a programmatically constructed body invalidates any stored CBOR.
+func (b *TransactionBodyBase) SetValidityIntervalUpperBoundPresence(
+	present bool,
+) {
+	b.validityIntervalUpperBoundPresent = present
+	b.hash = nil
+	b.SetCbor(nil)
+}
+
+// ValidityIntervalUpperBoundPresent reports whether transaction-body key 3 is
+// present.
+func (b *TransactionBodyBase) ValidityIntervalUpperBoundPresent() bool {
+	return b.validityIntervalUpperBoundPresent
+}
+
+// SetCurrentTreasuryValuePresence records whether transaction-body key 21 is
+// present. Era-specific transaction bodies keep the value in their existing
+// scalar fields; this presence bit preserves the distinction between an absent
+// value and an explicitly encoded zero. Calling it for a programmatically
+// constructed body invalidates any stored CBOR.
+func (b *TransactionBodyBase) SetCurrentTreasuryValuePresence(present bool) {
+	b.currentTreasuryValuePresent = present
+	b.hash = nil
+	b.SetCbor(nil)
+}
+
+// CurrentTreasuryValuePresent reports whether transaction-body key 21 is
+// present.
+func (b *TransactionBodyBase) CurrentTreasuryValuePresent() bool {
+	return b.currentTreasuryValuePresent
+}
+
+// DecodeValidityIntervalUpperBoundPresence records the presence of
+// transaction-body key 3 from decoded CBOR. It must be called by era-specific
+// body decoders after their typed decode succeeds.
+func (b *TransactionBodyBase) DecodeValidityIntervalUpperBoundPresence(
+	cborData []byte,
+	upperBound uint64,
+) error {
+	if upperBound != 0 {
+		b.validityIntervalUpperBoundPresent = true
+		return nil
+	}
+	presence, err := decodeTransactionBodyFieldPresence(cborData)
+	if err != nil {
+		return err
+	}
+	b.validityIntervalUpperBoundPresent = presence.validityIntervalUpperBound
+	return nil
+}
+
+// DecodeTransactionBodyFieldPresence records the presence of transaction-body
+// keys 3 and 21 after a typed decode. Nonzero typed values imply presence. If
+// either value is zero, the method performs one shared raw-map scan to retain
+// the distinction between an absent field and an explicitly encoded zero.
+func (b *TransactionBodyBase) DecodeTransactionBodyFieldPresence(
+	cborData []byte,
+	upperBound uint64,
+	currentTreasuryValueNonzero bool,
+) error {
+	b.validityIntervalUpperBoundPresent = upperBound != 0
+	b.currentTreasuryValuePresent = currentTreasuryValueNonzero
+	if b.validityIntervalUpperBoundPresent &&
+		b.currentTreasuryValuePresent {
+		return nil
+	}
+	presence, err := decodeTransactionBodyFieldPresence(cborData)
+	if err != nil {
+		return err
+	}
+	if !b.validityIntervalUpperBoundPresent {
+		b.validityIntervalUpperBoundPresent = presence.validityIntervalUpperBound
+	}
+	if !b.currentTreasuryValuePresent {
+		b.currentTreasuryValuePresent = presence.currentTreasuryValue
+	}
+	return nil
+}
+
+// EncodeTransactionBodyWithValidityIntervalUpperBound encodes a constructed
+// transaction body while retaining explicitly present zero values for the
+// validity upper bound and current treasury value. Non-zero and absent values
+// retain the normal generic transaction-body encoding.
+func EncodeTransactionBodyWithValidityIntervalUpperBound(
+	body TransactionBody,
+) ([]byte, error) {
+	cborData, err := cbor.EncodeGeneric(body)
+	if err != nil {
+		return nil, err
+	}
+	upperBound, present := TransactionValidityIntervalUpperBound(body)
+	preserveUpperBoundZero := present && upperBound == 0
+	treasuryValue := body.CurrentTreasuryValue()
+	preserveTreasuryZero := TransactionCurrentTreasuryValuePresent(body) &&
+		treasuryValue != nil && treasuryValue.Sign() == 0
+	if !preserveUpperBoundZero && !preserveTreasuryZero {
+		return cborData, nil
+	}
+	bodyFields := make(map[uint]cbor.RawMessage)
+	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
+		return nil, err
+	}
+	if preserveUpperBoundZero {
+		encodedUpperBound, err := cbor.Encode(upperBound)
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[3] = encodedUpperBound
+	}
+	if preserveTreasuryZero {
+		encodedTreasuryValue, err := cbor.Encode(uint64(0))
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[21] = encodedTreasuryValue
+	}
+	return cbor.Encode(bodyFields)
 }
 
 func (b *TransactionBodyBase) Id() Blake2b256 {

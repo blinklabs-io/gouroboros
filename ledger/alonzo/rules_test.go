@@ -437,10 +437,10 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 
 func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	testCorrectNetworkAddr, _ := common.NewAddress(
-		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
+		"stake1uyehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gh6ffgw",
 	)
 	testWrongNetworkAddr, _ := common.NewAddress(
-		"addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07",
+		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
@@ -1256,6 +1256,39 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 			Steps:  5_000,
 		},
 	}
+	// A duplicated key contributes its budget once, as it does in the map the
+	// ledger holds. Preview transaction 3ace3bc7f4c5 at slot 12925989 carries
+	// the same (mint, 0) redeemer six times; summing the raw list rejected a
+	// transaction the network accepted (blinklabs-io/dingo#3875). That block is
+	// Babbage, but the rule is duplicated per era and the Alonzo copy summed
+	// the raw list the same way.
+	t.Run(
+		"duplicate redeemer key counts once",
+		func(t *testing.T) {
+			dup := alonzo.AlonzoRedeemer{
+				Tag:   common.RedeemerTagMint,
+				Index: 0,
+				ExUnits: common.ExUnits{
+					Memory: 3_000_000,
+					Steps:  3_000,
+				},
+			}
+			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{dup, dup, dup, dup, dup, dup},
+			}
+			// One copy is inside the 5,000,000 / 5,000 cap and two already
+			// exceed it, so only a collapse to exactly one entry passes: an
+			// over-count of any size, not just all six, fails here.
+			if err := alonzo.UtxoValidateExUnitsTooBigUtxo(
+				testTx, testSlot, testLedgerState, testProtocolParams,
+			); err != nil {
+				t.Errorf(
+					"six copies of one redeemer must count once, got: %v", err,
+				)
+			}
+		},
+	)
+
 	// Ex-units too large
 	t.Run(
 		"ExUnits too large",
@@ -1311,15 +1344,20 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	t.Run(
 		"ExUnits overflow",
 		func(t *testing.T) {
+			// Distinct keys: this case is about addition overflowing, and
+			// two entries sharing a key would collapse to one before the
+			// sum ever happens.
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
 				Redeemers: []alonzo.AlonzoRedeemer{
 					{
+						Index: 0,
 						ExUnits: common.ExUnits{
 							Memory: math.MaxInt64 - 10,
 							Steps:  math.MaxInt64 - 10,
 						},
 					},
 					{
+						Index: 1,
 						ExUnits: common.ExUnits{
 							Memory: 100,
 							Steps:  100,

@@ -147,6 +147,9 @@ func (b *MaryBlock) Era() common.Era {
 }
 
 func (b *MaryBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
 	for idx := range b.TransactionBodies {
@@ -233,16 +236,25 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
 	*b = MaryTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
 }
 
-func (b *MaryTransactionBody) MarshalCBOR() ([]byte, error) {
+func (b MaryTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return cbor.EncodeGeneric(b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
@@ -267,6 +279,22 @@ func (b *MaryTransactionBody) Fee() *big.Int {
 
 func (b *MaryTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *MaryTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *MaryTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *MaryTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *MaryTransactionBody) ValidityIntervalStart() uint64 {
@@ -443,6 +471,10 @@ func (t MaryTransaction) Fee() *big.Int {
 
 func (t MaryTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t MaryTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t MaryTransaction) ValidityIntervalStart() uint64 {
@@ -724,7 +756,7 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 		return errors.New("empty Mary transaction output value")
 	}
 	if (data[0] & cbor.CborTypeMask) != cbor.CborTypeArray {
-		if _, err := cbor.Decode(data, &(v.Amount)); err != nil {
+		if _, err := cbor.Decode(data, &v.Amount); err != nil {
 			return err
 		}
 		v.Assets = nil
@@ -734,6 +766,9 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 	var tmp tMaryTransactionOutputValue
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
+	}
+	if err := tmp.Assets.ValidateOutputQuantities(); err != nil {
+		return fmt.Errorf("multiasset value: %w", err)
 	}
 	*v = MaryTransactionOutputValue(tmp)
 	return nil

@@ -17,6 +17,8 @@ package conway
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 	"testing"
@@ -125,6 +127,198 @@ func TestConwayRedeemersIter(t *testing.T) {
 	}
 }
 
+func TestConwayTransactionInputSetConditionalDuplicateCheck(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		0,
+	)
+	encoded, err := cbor.Encode([]shelley.ShelleyTransactionInput{input, input})
+	require.NoError(t, err)
+
+	var inputSet ConwayTransactionInputSet
+	_, err = cbor.Decode(encoded, &inputSet)
+	require.NoError(t, err)
+	require.NoError(t, inputSet.CheckForDuplicates())
+}
+
+func TestConwayTransactionBodyUnmarshalCBORCertificateTypes(t *testing.T) {
+	testCases := []struct {
+		name            string
+		certificate     []any
+		wantErr         bool
+		wantCertificate common.CertificateType
+	}{
+		{
+			name: "pool retirement",
+			certificate: []any{
+				uint(common.CertificateTypePoolRetirement),
+				make([]byte, common.Blake2b224Size),
+				uint64(0),
+			},
+			wantCertificate: common.CertificateTypePoolRetirement,
+		},
+		{
+			name: "registration",
+			certificate: []any{
+				uint(common.CertificateTypeRegistration),
+				[]any{
+					uint(common.CredentialTypeAddrKeyHash),
+					make([]byte, common.Blake2b224Size),
+				},
+				int64(0),
+			},
+			wantCertificate: common.CertificateTypeRegistration,
+		},
+		{
+			name: "genesis key delegation",
+			certificate: []any{
+				uint(common.CertificateTypeGenesisKeyDelegation),
+				make([]byte, common.Blake2b224Size),
+				make([]byte, common.Blake2b224Size),
+				make([]byte, common.Blake2b256Size),
+			},
+			wantErr: true,
+		},
+		{
+			name: "move instantaneous rewards",
+			certificate: []any{
+				uint(common.CertificateTypeMoveInstantaneousRewards),
+				[]any{uint(0), uint64(0)},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(map[uint]any{
+				4: []any{tc.certificate},
+			})
+			require.NoError(t, err)
+
+			var body ConwayTransactionBody
+			err = body.UnmarshalCBOR(encoded)
+			if tc.wantErr {
+				require.ErrorContains(
+					t,
+					err,
+					"certificate type is not valid in Conway",
+				)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, body.TxCertificates, 1)
+			assert.Equal(
+				t,
+				uint(tc.wantCertificate),
+				body.TxCertificates[0].Type,
+			)
+		})
+	}
+}
+
+func TestConwayTransactionBodyUnmarshalCBORCertificateTagRange(t *testing.T) {
+	certificates := conwayCertificateFixturesByType()
+	for certType := common.CertificateTypeStakeRegistration; certType <= common.CertificateTypeUpdateDrep; certType++ {
+		certType := certType
+		t.Run(fmt.Sprintf("type %d", certType), func(t *testing.T) {
+			encoded, err := cbor.Encode(map[uint]any{
+				4: []any{certificates[certType]},
+			})
+			require.NoError(t, err)
+
+			var body ConwayTransactionBody
+			err = body.UnmarshalCBOR(encoded)
+			if certType == common.CertificateTypeGenesisKeyDelegation ||
+				certType == common.CertificateTypeMoveInstantaneousRewards {
+				require.ErrorContains(
+					t,
+					err,
+					"certificate type is not valid in Conway",
+				)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, body.TxCertificates, 1)
+			assert.Equal(t, uint(certType), body.TxCertificates[0].Type)
+		})
+	}
+}
+
+func conwayCertificateFixturesByType() map[common.CertificateType]any {
+	credential := common.Credential{
+		CredType: common.CredentialTypeAddrKeyHash,
+	}
+	return map[common.CertificateType]any{
+		common.CertificateTypeStakeRegistration: &common.StakeRegistrationCertificate{
+			CertType: uint(common.CertificateTypeStakeRegistration),
+		},
+		common.CertificateTypeStakeDeregistration: &common.StakeDeregistrationCertificate{
+			CertType: uint(common.CertificateTypeStakeDeregistration),
+		},
+		common.CertificateTypeStakeDelegation: &common.StakeDelegationCertificate{
+			CertType:        uint(common.CertificateTypeStakeDelegation),
+			StakeCredential: &credential,
+		},
+		common.CertificateTypePoolRegistration: &common.PoolRegistrationCertificate{
+			CertType: uint(common.CertificateTypePoolRegistration),
+			Margin:   cbor.Rat{Rat: big.NewRat(0, 1)},
+		},
+		common.CertificateTypePoolRetirement: &common.PoolRetirementCertificate{
+			CertType: uint(common.CertificateTypePoolRetirement),
+		},
+		common.CertificateTypeGenesisKeyDelegation: &common.GenesisKeyDelegationCertificate{
+			CertType: uint(common.CertificateTypeGenesisKeyDelegation),
+		},
+		common.CertificateTypeMoveInstantaneousRewards: []any{
+			uint(common.CertificateTypeMoveInstantaneousRewards),
+			[]any{uint(0), uint64(0)},
+		},
+		common.CertificateTypeRegistration: &common.RegistrationCertificate{
+			CertType: uint(common.CertificateTypeRegistration),
+		},
+		common.CertificateTypeDeregistration: &common.DeregistrationCertificate{
+			CertType: uint(common.CertificateTypeDeregistration),
+		},
+		common.CertificateTypeVoteDelegation: &common.VoteDelegationCertificate{
+			CertType: uint(common.CertificateTypeVoteDelegation),
+			Drep:     common.Drep{Type: common.DrepTypeAbstain},
+		},
+		common.CertificateTypeStakeVoteDelegation: &common.StakeVoteDelegationCertificate{
+			CertType: uint(common.CertificateTypeStakeVoteDelegation),
+			Drep:     common.Drep{Type: common.DrepTypeAbstain},
+		},
+		common.CertificateTypeStakeRegistrationDelegation: &common.StakeRegistrationDelegationCertificate{
+			CertType: uint(common.CertificateTypeStakeRegistrationDelegation),
+		},
+		common.CertificateTypeVoteRegistrationDelegation: &common.VoteRegistrationDelegationCertificate{
+			CertType: uint(common.CertificateTypeVoteRegistrationDelegation),
+			Drep:     common.Drep{Type: common.DrepTypeAbstain},
+		},
+		common.CertificateTypeStakeVoteRegistrationDelegation: &common.StakeVoteRegistrationDelegationCertificate{
+			CertType: uint(
+				common.CertificateTypeStakeVoteRegistrationDelegation,
+			),
+			Drep: common.Drep{Type: common.DrepTypeAbstain},
+		},
+		common.CertificateTypeAuthCommitteeHot: &common.AuthCommitteeHotCertificate{
+			CertType: uint(common.CertificateTypeAuthCommitteeHot),
+		},
+		common.CertificateTypeResignCommitteeCold: &common.ResignCommitteeColdCertificate{
+			CertType: uint(common.CertificateTypeResignCommitteeCold),
+		},
+		common.CertificateTypeRegistrationDrep: &common.RegistrationDrepCertificate{
+			CertType: uint(common.CertificateTypeRegistrationDrep),
+		},
+		common.CertificateTypeDeregistrationDrep: &common.DeregistrationDrepCertificate{
+			CertType: uint(common.CertificateTypeDeregistrationDrep),
+		},
+		common.CertificateTypeUpdateDrep: &common.UpdateDrepCertificate{
+			CertType: uint(common.CertificateTypeUpdateDrep),
+		},
+	}
+}
+
 // Transaction taken from https://cexplorer.io/tx/6e6e15e39da0b8283b6c6d10b88b29adcac12e67edcf502c84cd2adb38a68880
 // HASH: 6e6e15e39da0b8283b6c6d10b88b29adcac12e67edcf502c84cd2adb38a68880
 
@@ -214,13 +408,69 @@ func TestConwayTx_Utxorpc(t *testing.T) {
 func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	input := testConwayShelleyInput()
 	bodyCbor, err := cbor.Encode(map[uint]any{
-		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{input, input}, true),
+		0: cbor.NewSetType(
+			[]shelley.ShelleyTransactionInput{input, input},
+			true,
+		),
 	})
 	assert.NoError(t, err)
 
 	var body ConwayTransactionBody
 	err = body.UnmarshalCBOR(bodyCbor)
 	assert.ErrorContains(t, err, "duplicate member in set")
+}
+
+func TestConwayTransactionRejectsNegativeCurrentTreasuryValue(t *testing.T) {
+	encoded, err := cbor.Encode([]any{
+		map[uint]any{21: int64(-1)},
+		map[uint]any{},
+		false,
+		nil,
+	})
+	require.NoError(t, err)
+
+	var tx ConwayTransaction
+	err = tx.UnmarshalCBOR(encoded)
+	require.ErrorContains(t, err, "current treasury value")
+}
+
+func TestConwayTransactionMarshalRejectsNegativeCurrentTreasuryValue(
+	t *testing.T,
+) {
+	tx := ConwayTransaction{
+		Body: ConwayTransactionBody{
+			TxCurrentTreasuryValue: -1,
+		},
+		TxIsValid: false,
+	}
+	_, err := tx.MarshalCBOR()
+	require.ErrorContains(t, err, "current treasury value")
+}
+
+func TestConwayRejectsDuplicateUntaggedInputSets(t *testing.T) {
+	input := testConwayShelleyInput()
+	tests := []struct {
+		name  string
+		field uint
+	}{
+		{name: "regular", field: 0},
+		{name: "collateral", field: 13},
+		{name: "reference", field: 18},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{
+				tt.field: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					false,
+				),
+			})
+			require.NoError(t, err)
+
+			var body ConwayTransactionBody
+			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "duplicate member in set")
+		})
+	}
 }
 
 func TestConwayTransactionBodyRejectsDuplicateMultiAssetKeys(t *testing.T) {
@@ -323,11 +573,16 @@ func TestConwayWitnessSetToleratesDuplicateTaggedVkeyWitness(t *testing.T) {
 
 	var ws ConwayTransactionWitnessSet
 	err := ws.UnmarshalCBOR(dupCbor)
-	assert.NoError(t, err,
-		"Conway must tolerate duplicate vkey witnesses (dedup at decode, matching cardano-ledger pv 9-11)")
+	assert.NoError(
+		t,
+		err,
+		"Conway must tolerate duplicate vkey witnesses (dedup at decode, matching cardano-ledger pv 9-11)",
+	)
 }
 
-func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(t *testing.T) {
+func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(
+	t *testing.T,
+) {
 	tests := []struct {
 		name   string
 		field  byte
@@ -381,7 +636,9 @@ func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV1Script(t *testing.T) {
 	assert.ErrorContains(t, err, "duplicate member in set")
 }
 
-func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV2AndV3Scripts(t *testing.T) {
+func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV2AndV3Scripts(
+	t *testing.T,
+) {
 	tests := []struct {
 		name  string
 		field byte

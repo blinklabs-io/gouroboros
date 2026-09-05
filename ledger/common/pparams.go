@@ -40,6 +40,26 @@ type ProtocolParameters interface {
 	Utxorpc() (*cardano.PParams, error)
 }
 
+// PoolRuleProtocolParameters is the protocol-parameter view required by the
+// Shelley POOL rules. Every protocol parameter type in this repository from
+// Shelley onwards implements it, so it is an internal accessor rather than a
+// capability a consumer has to supply. Byron has no POOL rule.
+//
+// Reference: poolTransition in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs reads
+// ppProtocolVersionL, ppMinPoolCostL and ppEMaxL.
+type PoolRuleProtocolParameters interface {
+	// ProtocolMajorVersion returns the active major protocol version, used
+	// to gate the era-dependent POOL predicates.
+	ProtocolMajorVersion() uint
+	// MinPoolCostValue returns the minPoolCost protocol parameter.
+	MinPoolCostValue() uint64
+	// PoolRetirementMaxEpoch returns the eMax protocol parameter, the
+	// number of epochs after the current one within which a scheduled pool
+	// retirement must fall.
+	PoolRetirementMaxEpoch() uint64
+}
+
 type ExUnitPrice struct {
 	cbor.StructAsArray
 	MemPrice  *cbor.Rat

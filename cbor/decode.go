@@ -177,9 +177,9 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 	if len(cborData) < 2 {
 		return 0, errors.New("CBOR data too short for list with ID")
 	}
-	// If the list length is <= the max simple uint and the first list value
-	// is <= the max simple uint, then we can extract the value straight from
-	// the byte slice
+	// If both the list header and first value use their canonical one-byte
+	// forms, then we can extract the value straight from the byte slice.
+	// A non-shortest list header puts its length at byte one instead.
 	listLen, err := ListLength(cborData)
 	if err != nil {
 		return 0, err
@@ -187,10 +187,10 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 	if listLen == 0 {
 		return 0, errors.New("cannot return first item from empty list")
 	}
-	if listLen < int(CborMaxUintSimple) {
-		if cborData[1] <= CborMaxUintSimple {
-			return int(cborData[1]), nil
-		}
+	if cborData[0] >= CborTypeArray &&
+		cborData[0] <= (CborTypeArray+CborMaxUintSimple) &&
+		cborData[1] <= CborMaxUintSimple {
+		return int(cborData[1]), nil
 	}
 	// If we couldn't use the shortcut above, actually decode the list
 	var tmp Value
@@ -395,11 +395,13 @@ func (d *StreamDecoder) Advance(n int) error {
 	if n < 0 {
 		return errors.New("cannot advance by negative amount")
 	}
-	newPos := d.consumed + d.dec.NumBytesRead() + n
-	if newPos > len(d.data) {
+	curPos := d.consumed + d.dec.NumBytesRead()
+	// Compare before adding: a huge n could otherwise overflow int and
+	// wrap the sum negative, which would pass a post-addition bounds check.
+	if n > len(d.data)-curPos {
 		return errors.New("advance would exceed data bounds")
 	}
-	d.consumed = newPos
+	d.consumed = curPos + n
 	// Reinitialize decoder with remaining data, reusing cached DecMode
 	d.dec = d.decMode.NewDecoder(bytes.NewReader(d.data[d.consumed:]))
 	return nil
@@ -785,6 +787,9 @@ func ArrayHeaderSize(length int) uint32 {
 		return 2 // 0x98 + 1-byte length
 	} else if length < 65536 {
 		return 3 // 0x99 + 2-byte length
+	} else if int64(length) < (1 << 32) {
+		return 5 // 0x9a + 4-byte length (covers up to 2^32-1 elements)
 	}
-	return 5 // 0x9a + 4-byte length (covers up to 2^32 elements)
+	// At or above the 32-bit boundary, CBOR requires the 8-byte length form
+	return 9 // 0x9b + 8-byte length
 }

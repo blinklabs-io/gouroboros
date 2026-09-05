@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 )
@@ -67,6 +68,35 @@ func ScriptHashToBech32(s ScriptHash) string {
 type ScriptRef struct {
 	Type   uint
 	Script Script
+}
+
+func decodePlutusScript(script []byte, rejectTrailing bool) ([]byte, error) {
+	var innerScript []byte
+	bytesRead, err := cbor.Decode(script, &innerScript)
+	if err != nil {
+		return nil, err
+	}
+	if rejectTrailing && bytesRead != len(script) {
+		return nil, fmt.Errorf(
+			"trailing bytes after CBOR script wrapper: %d",
+			len(script)-bytesRead,
+		)
+	}
+	return innerScript, nil
+}
+
+func decodePlutusProgram(
+	innerScript []byte,
+	ledgerLanguage lang.LanguageVersion,
+	evalContext *cek.EvalContext,
+) (*syn.Program[syn.DeBruijn], error) {
+	if evalContext == nil {
+		return nil, errors.New("evaluation context is required")
+	}
+	return syn.DecodeDeBruijnWithContext(innerScript, syn.ProgramContext{
+		LedgerLanguage: ledgerLanguage,
+		ProtocolMajor:  evalContext.ProtoMajor,
+	})
 }
 
 func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
@@ -182,12 +212,16 @@ func (s PlutusV1Script) Evaluate(
 		}
 	}
 	// Decode raw script as bytestring to get actual script bytes
-	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	innerScript, err := decodePlutusScript([]byte(s), false)
+	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	program, err = decodePlutusProgram(
+		innerScript,
+		lang.LanguageVersionV1,
+		evalContext,
+	)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
@@ -264,12 +298,16 @@ func (s PlutusV2Script) Evaluate(
 		}
 	}
 	// Decode raw script as bytestring to get actual script bytes
-	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	innerScript, err := decodePlutusScript([]byte(s), false)
+	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	program, err = decodePlutusProgram(
+		innerScript,
+		lang.LanguageVersionV2,
+		evalContext,
+	)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
@@ -342,12 +380,16 @@ func (s PlutusV3Script) Evaluate(
 		}
 	}
 	// Decode raw script as bytestring to get actual script bytes
-	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	innerScript, err := decodePlutusScript([]byte(s), true)
+	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	program, err = decodePlutusProgram(
+		innerScript,
+		lang.LanguageVersionV3,
+		evalContext,
+	)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
@@ -411,11 +453,15 @@ func (s PlutusV4Script) Evaluate(
 			Mem: budget.Memory,
 		}
 	}
-	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	innerScript, err := decodePlutusScript([]byte(s), true)
+	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
-	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	program, err = decodePlutusProgram(
+		innerScript,
+		lang.LanguageVersionV4,
+		evalContext,
+	)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
@@ -457,6 +503,182 @@ func PlutusScriptVersion(script Script) (uint, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func plutusScriptLanguage(
+	script Script,
+) (lang.LanguageVersion, bool, bool, error) {
+	switch s := script.(type) {
+	case PlutusV1Script:
+		return lang.LanguageVersionV1, false, true, nil
+	case *PlutusV1Script:
+		if s == nil {
+			return lang.LanguageVersion{}, false, true,
+				errors.New("plutus V1 script is nil")
+		}
+		return lang.LanguageVersionV1, false, true, nil
+	case PlutusV2Script:
+		return lang.LanguageVersionV2, false, true, nil
+	case *PlutusV2Script:
+		if s == nil {
+			return lang.LanguageVersion{}, false, true,
+				errors.New("plutus V2 script is nil")
+		}
+		return lang.LanguageVersionV2, false, true, nil
+	case PlutusV3Script:
+		return lang.LanguageVersionV3, true, true, nil
+	case *PlutusV3Script:
+		if s == nil {
+			return lang.LanguageVersion{}, false, true,
+				errors.New("plutus V3 script is nil")
+		}
+		return lang.LanguageVersionV3, true, true, nil
+	case PlutusV4Script:
+		return lang.LanguageVersionV4, true, true, nil
+	case *PlutusV4Script:
+		if s == nil {
+			return lang.LanguageVersion{}, false, true,
+				errors.New("plutus V4 script is nil")
+		}
+		return lang.LanguageVersionV4, true, true, nil
+	default:
+		return lang.LanguageVersion{}, false, false, nil
+	}
+}
+
+func validatePlutusScriptWellFormed(
+	script Script,
+	protocolMajor uint,
+) (ScriptHash, error) {
+	ledgerLanguage, rejectTrailing, ok, err := plutusScriptLanguage(script)
+	if err != nil {
+		return ScriptHash{}, err
+	}
+	if !ok {
+		return ScriptHash{}, nil
+	}
+	scriptHash := script.Hash()
+	innerScript, err := decodePlutusScript(
+		script.RawScriptBytes(),
+		rejectTrailing,
+	)
+	if err != nil {
+		return scriptHash, fmt.Errorf("decode CBOR script wrapper: %w", err)
+	}
+	_, err = syn.DecodeDeBruijnWithContext(innerScript, syn.ProgramContext{
+		LedgerLanguage: ledgerLanguage,
+		ProtocolMajor:  protocolMajor,
+	})
+	if err != nil {
+		return scriptHash, fmt.Errorf("decode Plutus program: %w", err)
+	}
+	return scriptHash, nil
+}
+
+func plutusWitnessScripts(witnesses TransactionWitnessSet) []Script {
+	if witnesses == nil {
+		return nil
+	}
+	ret := make([]Script, 0)
+	for _, script := range witnesses.PlutusV1Scripts() {
+		ret = append(ret, script)
+	}
+	for _, script := range witnesses.PlutusV2Scripts() {
+		ret = append(ret, script)
+	}
+	for _, script := range witnesses.PlutusV3Scripts() {
+		ret = append(ret, script)
+	}
+	for _, script := range PlutusV4ScriptsFromWitnessSet(witnesses) {
+		ret = append(ret, script)
+	}
+	return ret
+}
+
+// ValidatePlutusScriptsWellFormed contextually validates every Plutus witness
+// and newly produced reference script before phase-2 execution. Validation is
+// independent of the transaction's IsValid flag.
+func ValidatePlutusScriptsWellFormed(
+	tx Transaction,
+	protocolMajor uint,
+) error {
+	if tx == nil {
+		return errors.New("transaction is required")
+	}
+	subTransactionWitnesses := SubTransactionWitnessSetsFromTransaction(tx)
+	witnessSets := make(
+		[]TransactionWitnessSet,
+		0,
+		1+len(subTransactionWitnesses),
+	)
+	witnessSets = append(witnessSets, tx.Witnesses())
+	witnessSets = append(witnessSets, subTransactionWitnesses...)
+	var malformedWitnesses []ScriptHash
+	var witnessCause error
+	for _, witnesses := range witnessSets {
+		for _, script := range plutusWitnessScripts(witnesses) {
+			scriptHash, err := validatePlutusScriptWellFormed(
+				script,
+				protocolMajor,
+			)
+			if err != nil {
+				malformedWitnesses = append(
+					malformedWitnesses,
+					scriptHash,
+				)
+				if witnessCause == nil {
+					witnessCause = err
+				}
+			}
+		}
+	}
+
+	outputs := append([]TransactionOutput(nil), tx.Outputs()...)
+	outputs = append(outputs, SubTransactionOutputsFromTransaction(tx)...)
+	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+		outputs = append(outputs, collateralReturn)
+	}
+	var malformedReferences []ScriptHash
+	for _, output := range outputs {
+		if output == nil {
+			continue
+		}
+		script := output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		scriptHash, err := validatePlutusScriptWellFormed(
+			script,
+			protocolMajor,
+		)
+		if err != nil {
+			malformedReferences = append(
+				malformedReferences,
+				scriptHash,
+			)
+		}
+	}
+
+	var witnessErr error
+	if len(malformedWitnesses) > 0 {
+		witnessErr = MalformedScriptWitnessesError{
+			ScriptHashes: malformedWitnesses,
+			Cause:        witnessCause,
+		}
+	}
+	var referenceErr error
+	if len(malformedReferences) > 0 {
+		referenceErr = MalformedReferenceScriptsError{
+			ScriptHashes: malformedReferences,
+		}
+	}
+	if witnessErr != nil && referenceErr != nil {
+		return errors.Join(witnessErr, referenceErr)
+	}
+	if witnessErr != nil {
+		return witnessErr
+	}
+	return referenceErr
 }
 
 type NativeScript struct {
@@ -523,6 +745,63 @@ func (n NativeScript) MarshalCBOR() ([]byte, error) {
 		return nil, errors.New("native script has no backing item")
 	}
 	return cbor.Encode(n.item)
+}
+
+// FirstInvalidNativeScript evaluates each native-script witness against the
+// transaction's validity interval and key witnesses. It returns the hash of
+// the first script that fails.
+func FirstInvalidNativeScript(
+	tx Transaction,
+	slot uint64,
+) (ScriptHash, bool) {
+	witnesses := tx.Witnesses()
+	if witnesses == nil {
+		return ScriptHash{}, false
+	}
+	return FirstInvalidNativeScriptIn(tx, slot, witnesses.NativeScripts())
+}
+
+// FirstInvalidNativeScriptIn evaluates the given native scripts against the
+// transaction's witness key hashes and validity interval. Eras that must also
+// evaluate reference scripts pass the resolved list from
+// NativeScriptsForValidation; the evaluation itself is identical.
+func FirstInvalidNativeScriptIn(
+	tx Transaction,
+	slot uint64,
+	nativeScripts []NativeScript,
+) (ScriptHash, bool) {
+	if len(nativeScripts) == 0 {
+		return ScriptHash{}, false
+	}
+	witnesses := tx.Witnesses()
+
+	keyHashes := make(map[Blake2b224]bool)
+	if witnesses != nil {
+		for _, vkw := range witnesses.Vkey() {
+			keyHashes[Blake2b224Hash(vkw.Vkey)] = true
+		}
+		for _, bw := range witnesses.Bootstrap() {
+			keyHashes[Blake2b224Hash(bw.PublicKey)] = true
+		}
+	}
+
+	validityStart := tx.ValidityIntervalStart()
+	validityEnd, validityEndPresent := TransactionValidityIntervalUpperBound(tx)
+	if !validityEndPresent {
+		validityEnd = ^uint64(0)
+	}
+
+	for _, nativeScript := range nativeScripts {
+		if !nativeScript.Evaluate(
+			slot,
+			validityStart,
+			validityEnd,
+			keyHashes,
+		) {
+			return nativeScript.Hash(), true
+		}
+	}
+	return ScriptHash{}, false
 }
 
 type NativeScriptPubkey struct {

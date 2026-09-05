@@ -5,7 +5,6 @@
 *.so
 *.dylib
 /gouroboros
-/tx-submission
 
 # Test binary, built with `go test -c`
 *.test
@@ -27,3 +26,26 @@
 
 # Git worktrees
 .worktrees/
+
+# Example build output. `make build` writes each example to the repository
+# root; `go build` inside an example writes examples/<name>/<name>. Each
+# binary is named for its own directory, so both paths are listed by name
+# rather than ignoring all of examples/*/* -- a blanket ignore there would
+# silently drop any extensionless file an example adds (Dockerfile, Makefile,
+# LICENSE) and no re-include by extension can cover those.
+/block-fetch
+/chain-sync
+/chain-tip
+/peer-sharing
+/ping
+/state-query
+/tx-monitor
+/tx-submission
+/examples/block-fetch/block-fetch
+/examples/chain-sync/chain-sync
+/examples/chain-tip/chain-tip
+/examples/peer-sharing/peer-sharing
+/examples/ping/ping
+/examples/state-query/state-query
+/examples/tx-monitor/tx-monitor
+/examples/tx-submission/tx-submission

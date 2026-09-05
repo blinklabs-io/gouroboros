@@ -195,6 +195,9 @@ func (b *BabbageBlock) Era() common.Era {
 }
 
 func (b *BabbageBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
@@ -276,13 +279,45 @@ type BabbageBlockHeaderBody struct {
 	ProtoVersion  BabbageProtoVersion
 }
 
+type babbageBlockHeaderBodyWire struct {
+	cbor.StructAsArray
+	BlockNumber   uint64
+	Slot          uint64
+	PrevHash      cbor.RawMessage
+	IssuerVkey    common.IssuerVkey
+	VrfKey        []byte
+	VrfResult     common.VrfResult
+	BlockBodySize uint64
+	BlockBodyHash common.Blake2b256
+	OpCert        BabbageOpCert
+	ProtoVersion  BabbageProtoVersion
+}
+
 func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
-	type tBabbageBlockHeaderBody BabbageBlockHeaderBody
-	var tmp tBabbageBlockHeaderBody
+	var tmp babbageBlockHeaderBodyWire
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*b = BabbageBlockHeaderBody(tmp)
+	var prevHash common.Blake2b256
+	// Origin headers encode prev_hash as null. Keep that compatibility scoped
+	// to this field while non-null hashes use the globally strict decoder.
+	if len(tmp.PrevHash) != 1 || tmp.PrevHash[0] != 0xf6 {
+		if _, err := cbor.Decode(tmp.PrevHash, &prevHash); err != nil {
+			return fmt.Errorf("decode previous hash: %w", err)
+		}
+	}
+	*b = BabbageBlockHeaderBody{
+		BlockNumber:   tmp.BlockNumber,
+		Slot:          tmp.Slot,
+		PrevHash:      prevHash,
+		IssuerVkey:    tmp.IssuerVkey,
+		VrfKey:        tmp.VrfKey,
+		VrfResult:     tmp.VrfResult,
+		BlockBodySize: tmp.BlockBodySize,
+		BlockBodyHash: tmp.BlockBodyHash,
+		OpCert:        tmp.OpCert,
+		ProtoVersion:  tmp.ProtoVersion,
+	}
 	b.SetCbor(cborData)
 	return nil
 }
@@ -382,9 +417,65 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
+		return err
+	}
+	tmp.TxCollateral = coalesceUntaggedTransactionInputs(tmp.TxCollateral)
+	tmp.TxReferenceInputs = coalesceUntaggedTransactionInputs(
+		tmp.TxReferenceInputs,
+	)
+	if err := tmp.TxCollateral.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("collateral inputs: %w", err)
+	}
+	if err := tmp.TxRequiredSigners.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("required signers: %w", err)
+	}
+	if err := tmp.TxReferenceInputs.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("reference inputs: %w", err)
+	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
 	*b = BabbageTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func (b BabbageTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+}
+
+func coalesceUntaggedTransactionInputs(
+	set cbor.SetType[shelley.ShelleyTransactionInput],
+) cbor.SetType[shelley.ShelleyTransactionInput] {
+	wire := set.Cbor()
+	if wire == nil {
+		return set
+	}
+	var tag cbor.RawTag
+	if _, err := cbor.Decode(wire, &tag); err == nil {
+		return set
+	}
+	items := set.Items()
+	seen := make(map[string]struct{}, len(items))
+	uniqueItems := make([]shelley.ShelleyTransactionInput, 0, len(items))
+	for _, item := range items {
+		key := item.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		uniqueItems = append(uniqueItems, item)
+	}
+	ret := cbor.NewSetType(uniqueItems, false)
+	ret.SetCbor(wire)
+	return ret
 }
 
 func (b *BabbageTransactionBody) Id() common.Blake2b256 {
@@ -418,6 +509,24 @@ func (b *BabbageTransactionBody) Fee() *big.Int {
 
 func (b *BabbageTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *BabbageTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *BabbageTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.hash = nil
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *BabbageTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.hash = nil
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *BabbageTransactionBody) ValidityIntervalStart() uint64 {
@@ -1069,6 +1178,10 @@ func (t BabbageTransaction) Fee() *big.Int {
 
 func (t BabbageTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t BabbageTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t BabbageTransaction) ValidityIntervalStart() uint64 {

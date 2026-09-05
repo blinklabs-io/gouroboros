@@ -161,7 +161,8 @@ require.NoError(t, err)
 
 | Error | Rule | Cause |
 |-------|------|-------|
-| `OutsideValidityIntervalUtxoError` | `UtxoValidateValidityInterval` | slot outside validity range |
+| `OutsideValidityIntervalUtxoError` | `UtxoValidateOutsideValidityIntervalUtxo` | slot before lower validity bound |
+| `OutsideValidityIntervalUpperBoundUtxoError` | `UtxoValidateOutsideValidityIntervalUtxo` | slot at or after exclusive upper validity bound |
 | `NativeScriptFailedError` | script evaluation | native script failed |
 
 ### Alonzo
@@ -201,7 +202,12 @@ Error files: `ledger/{shelley,allegra,alonzo,babbage,conway,common}/errors.go`.
 5. Era delegation is not universal — read the function body. Conway `UtxoValidateWithdrawals` has a custom impl.
 6. Hash from preserved CBOR bytes, not re-encoded data.
 7. `DecodeStoreCbor` requires a custom `UnmarshalCBOR` calling `SetCbor()`.
-8. Withdrawal amount validation is intentionally disabled (see `NOTE:` at `conway/rules.go` `UtxoValidateWithdrawals`). Spec requires `amount == balance`, not `amount > 0`; zero-amount withdrawals from zero-balance accounts are spec-valid. Multi-tx balance tracking is deferred.
+8. Withdrawal amount validation requires the exact reward balance before
+   Dijkstra, while Dijkstra permits qualifying partial withdrawals. At
+   PV10/PV11, the DRep gate applies only to key-hash reward credentials;
+   script-hash reward credentials still undergo registration and amount
+   validation. The DRep gate is amount-independent, so a zero withdrawal from
+   a registered zero-balance key-hash account still requires delegation.
 9. Read code before claiming "just delegates" or "missing check". `NOTE:` comments mark deliberate decisions.
 10. Mutating a decoded `DecodeStoreCbor`-embedding struct and re-marshaling does not pick up the change — `MarshalCBOR()` returns the stored bytes as-is. Call `SetCbor(nil)` first.
 

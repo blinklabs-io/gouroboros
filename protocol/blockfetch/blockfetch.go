@@ -66,6 +66,7 @@ var StateMap = protocol.StateMap{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: BusyMaxPendingMessageBytes,
 		Timeout:                 BusyTimeout, // Timeout for server to start batch or respond no blocks
+		PipelinedMessageTypes:   []uint8{MessageTypeRequestRange},
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeStartBatch,
@@ -81,6 +82,7 @@ var StateMap = protocol.StateMap{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: StreamingMaxPendingMessageBytes,
 		Timeout:                 StreamingTimeout, // Timeout for server to send next block in batch
+		PipelinedMessageTypes:   []uint8{MessageTypeRequestRange},
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlock,
@@ -108,12 +110,22 @@ type Config struct {
 	BlockFunc           BlockFunc               // Callback for decoded blocks
 	BlockRawFunc        BlockRawFunc            // Callback for raw block data
 	BatchDoneFunc       BatchDoneFunc           // Callback when a batch is done
+	RangeDoneFunc       RangeDoneFunc           // Callback when a pipelined range request completes
 	RequestRangeFunc    RequestRangeFunc        // Callback for range requests
 	BatchStartTimeout   time.Duration           // Timeout for starting a batch
 	BlockTimeout        time.Duration           // Timeout for receiving a block
 	RecvQueueSize       int                     // Size of the receive queue
 	SkipBlockValidation bool                    // Skip block validation during parsing
 	Pipeline            *pipeline.BlockPipeline // Pipeline enables the block processing pipeline for batch operations
+	// RequestPipelining allows the client to keep more than one
+	// MsgRequestRange outstanding through Client.RequestRange. This is
+	// protocol request pipelining and is unrelated to Pipeline above, which
+	// is a processing pipeline for blocks that have already been received.
+	RequestPipelining bool
+	// MaxInFlightBytes bounds the total expected size of the range requests
+	// a pipelining client keeps outstanding. Zero means
+	// DefaultMaxInFlightBytes.
+	MaxInFlightBytes uint64
 }
 
 // MaxRecvQueueSize is the maximum allowed receive queue size (messages).
@@ -130,12 +142,34 @@ const StreamingMaxPendingMessageBytes = 2500000
 // are sent in this state, so the limit can be small.
 const IdleMaxPendingMessageBytes = 65535
 
+// PipelinedIdleMaxPendingMessageBytes is the pending message byte limit used
+// for the Idle state by a client with RequestPipelining enabled. With more
+// than one request outstanding, the peer's MsgBlock for the next request can
+// arrive while the local state machine is momentarily back in Idle, between
+// the previous MsgBatchDone and the deferred transition for the next
+// MsgRequestRange. The Idle limit therefore has to admit a block, for the
+// same reason BusyMaxPendingMessageBytes does.
+const PipelinedIdleMaxPendingMessageBytes = StreamingMaxPendingMessageBytes
+
 // BusyMaxPendingMessageBytes is the maximum allowed pending message bytes
 // in the Busy state. This must match StreamingMaxPendingMessageBytes because
 // MsgBlock can arrive while the protocol state machine is still in Busy
 // (before recvLoop processes MsgStartBatch to transition to Streaming),
 // creating a race between muxerRecvLoop limit checks and state transitions.
 const BusyMaxPendingMessageBytes = StreamingMaxPendingMessageBytes
+
+// DefaultRequestExpectedBytes is the size assumed for a range request whose
+// caller did not estimate one. It is one maximum-size mainnet block body
+// (maxBlockBodySize = 88 KiB), which makes DefaultMaxInFlightBytes degrade to
+// cardano-node's blockFetchPipeliningMax of 100 outstanding requests for
+// callers that cannot estimate.
+const DefaultRequestExpectedBytes uint64 = 88 * 1024
+
+// DefaultMaxInFlightBytes is the default bound on the total expected size of
+// outstanding pipelined range requests. It matches the ingress allowance
+// cardano-node sizes for block-fetch in blockFetchProtocolLimits:
+// blockFetchPipeliningMax (100) times the maximum block body size (88 KiB).
+const DefaultMaxInFlightBytes uint64 = 100 * DefaultRequestExpectedBytes
 
 // BusyTimeout is the timeout for the server to start a batch or respond no blocks.
 const BusyTimeout = 60 * time.Second
@@ -148,6 +182,12 @@ type CallbackContext struct {
 	ConnectionId connection.ConnectionId // Connection ID
 	Client       *Client                 // Client instance (if applicable)
 	Server       *Server                 // Server instance (if applicable)
+	// RequestId identifies the client range request that produced this
+	// callback. Requests are numbered from 1 in the order they were sent,
+	// and block-fetch responses are ordered, so this attributes each block
+	// and completion to the MsgRequestRange that asked for it. It is zero
+	// for server-side callbacks.
+	RequestId uint64
 }
 
 // BlockFunc is a callback for handling decoded blocks.
@@ -156,8 +196,17 @@ type BlockFunc func(CallbackContext, uint, ledger.Block) error
 // BlockRawFunc is a callback for handling raw block data.
 type BlockRawFunc func(CallbackContext, uint, []byte) error
 
-// BatchDoneFunc is a callback invoked when a batch is complete.
+// BatchDoneFunc is a callback invoked when a batch is complete. It is not
+// used for requests made through Client.RequestRange, which report
+// completion through RangeDoneFunc instead.
 type BatchDoneFunc func(CallbackContext) error
+
+// RangeDoneFunc is a callback invoked exactly once for each request made
+// through Client.RequestRange. The error is nil when the peer completed the
+// batch, and otherwise reports why the request will not be completed: the
+// range was unavailable, the peer violated the protocol, or the protocol shut
+// down with the request still outstanding.
+type RangeDoneFunc func(CallbackContext, error) error
 
 // RequestRangeFunc is a callback for handling block range requests.
 type RequestRangeFunc func(CallbackContext, pcommon.Point, pcommon.Point) error
@@ -181,6 +230,7 @@ func NewConfig(options ...BlockFetchOptionFunc) (Config, error) {
 		BatchStartTimeout: 5 * time.Second,
 		BlockTimeout:      60 * time.Second,
 		RecvQueueSize:     DefaultRecvQueueSize,
+		MaxInFlightBytes:  DefaultMaxInFlightBytes,
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -224,6 +274,30 @@ func WithBlockFunc(blockFunc BlockFunc) BlockFetchOptionFunc {
 func WithBlockRawFunc(blockRawFunc BlockRawFunc) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockRawFunc = blockRawFunc
+	}
+}
+
+// WithRangeDoneFunc sets the RangeDoneFunc callback in the Config.
+func WithRangeDoneFunc(rangeDoneFunc RangeDoneFunc) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.RangeDoneFunc = rangeDoneFunc
+	}
+}
+
+// WithRequestPipelining enables or disables client request pipelining, which
+// allows Client.RequestRange to keep multiple MsgRequestRange outstanding.
+func WithRequestPipelining(enabled bool) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.RequestPipelining = enabled
+	}
+}
+
+// WithMaxInFlightBytes sets the bound on the total expected size of
+// outstanding pipelined range requests. Zero selects
+// DefaultMaxInFlightBytes.
+func WithMaxInFlightBytes(maxBytes uint64) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.MaxInFlightBytes = maxBytes
 	}
 }
 
