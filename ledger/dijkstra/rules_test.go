@@ -726,6 +726,74 @@ func TestDijkstraWrongNetworkWithdrawalPhase2Gate(t *testing.T) {
 	require.NoError(t, validate(tx))
 }
 
+func TestUtxoValidateBatchWithdrawals(t *testing.T) {
+	const balance = uint64(1_000_000)
+	const topWithdrawal = uint64(400_000)
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+
+	newBatchTx := func(
+		subWithdrawal uint64,
+		isValid bool,
+	) (*DijkstraTransaction, *common.Address, common.Credential) {
+		tx, credential := testDijkstraWithdrawalTx(t, topWithdrawal, nil)
+		var address *common.Address
+		for candidate := range tx.Body.TxWithdrawals {
+			address = candidate
+		}
+		tx.Body.TxSubTransactions = cbor.NewSetType(
+			[]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{
+					TxWithdrawals: map[*common.Address]uint64{
+						address: subWithdrawal,
+					},
+				},
+			}},
+			false,
+		)
+		tx.TxIsValid = isValid
+		return tx, address, credential
+	}
+
+	rule, batchIdx := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateBatchWithdrawals",
+	)
+	_, valueIdx := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateValueNotConservedUtxo",
+	)
+	require.Less(t, batchIdx, valueIdx)
+
+	tx, address, credential := newBatchTx(balance-topWithdrawal, true)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithRewardAccountCredentialBalance(credential, balance).
+		Build()
+	require.NoError(t, rule(tx, 0, ls, pp))
+
+	tx, address, _ = newBatchTx(balance-topWithdrawal+1, true)
+	require.NotNil(t, address)
+	err := rule(tx, 0, ls, pp)
+	var balanceErr WithdrawalsExceedAccountBalanceError
+	require.ErrorAs(t, err, &balanceErr)
+	require.Equal(
+		t,
+		[]uint64{balance + 1, balance},
+		balanceErr.Withdrawals[cbor.NewByteString(mustAddressBytes(t, address))],
+	)
+
+	tx, _, _ = newBatchTx(balance-topWithdrawal+1, false)
+	err = rule(tx, 0, ls, pp)
+	require.ErrorAs(t, err, &balanceErr)
+}
+
+func mustAddressBytes(t *testing.T, address *common.Address) []byte {
+	t.Helper()
+	rawAddress, err := address.Bytes()
+	require.NoError(t, err)
+	return rawAddress
+}
+
 func testGuardScriptCredential(script common.PlutusV4Script) common.Credential {
 	return common.Credential{
 		CredType:   common.CredentialTypeScriptHash,
