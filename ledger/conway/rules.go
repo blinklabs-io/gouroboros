@@ -1483,8 +1483,8 @@ func validateConwayProtocolParameterUpdate(
 			Reason:    "cannot be nil",
 		}
 	}
-	if ppu.A0 != nil && !validUnitRat(ppu.A0) {
-		return invalidConwayParameterField("a0", "must be in [0,1]")
+	if ppu.A0 != nil && !validNonNegativeRat(ppu.A0) {
+		return invalidConwayParameterField("a0", "must be nonnegative")
 	}
 	if ppu.Rho != nil && !validUnitRat(ppu.Rho) {
 		return invalidConwayParameterField("rho", "must be in [0,1]")

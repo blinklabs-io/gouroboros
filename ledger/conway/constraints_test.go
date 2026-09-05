@@ -44,12 +44,6 @@ func TestValidateConwayProtocolParameterUpdateRejectsInvalidDomains(
 			},
 		},
 		{
-			name: "a0 above one",
-			update: ConwayProtocolParameterUpdate{
-				A0: &cbor.Rat{Rat: big.NewRat(2, 1)},
-			},
-		},
-		{
 			name: "negative rho",
 			update: ConwayProtocolParameterUpdate{
 				Rho: &cbor.Rat{Rat: big.NewRat(-1, 2)},
