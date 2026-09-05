@@ -75,6 +75,18 @@ type PoolState interface {
 	// PoolCurrentState returns the latest active registration certificate for the given pool key hash.
 	// It also returns the epoch of a pending retirement certificate, if one exists.
 	// If the pool is not registered, the registration certificate will be nil.
+	//
+	// The returned retirement epoch must be pending relative to the returned
+	// registration. A retirement that a later registration superseded is no
+	// longer pending and must be reported as nil, not as the pool's most
+	// recent retirement.
+	//
+	// PoolRegistrationDepositDue reads the pair together and treats a
+	// retirement epoch the current epoch has reached as evidence that the pool
+	// is no longer registered, so an implementation that returned the latest
+	// retirement unconditionally would charge a second pool deposit on every
+	// parameter update made after a re-registration and reject a canonical
+	// block for failing value conservation.
 	PoolCurrentState(PoolKeyHash) (*PoolRegistrationCertificate, *uint64, error)
 	// IsPoolRegistered checks if a pool is currently registered
 	IsPoolRegistered(PoolKeyHash) bool
