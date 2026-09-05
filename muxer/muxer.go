@@ -443,6 +443,10 @@ func (m *Muxer) readLoop() {
 		m.protocolReceiversMutex.Lock()
 		protocolRoles, ok := m.protocolReceivers[msg.GetProtocolId()]
 		if !ok {
+			if _, tombstoned := m.protocolTombstones[msg.GetProtocolId()][protocolRole]; tombstoned {
+				m.protocolReceiversMutex.Unlock()
+				continue
+			}
 			// Try the "unknown protocol" receiver if we didn't find an explicit one
 			protocolRoles, ok = m.protocolReceivers[ProtocolUnknown]
 			if !ok {
