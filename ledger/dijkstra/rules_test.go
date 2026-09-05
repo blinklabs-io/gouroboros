@@ -698,6 +698,7 @@ func TestUtxoValidateBatchWithdrawals(t *testing.T) {
 	require.NoError(t, rule(tx, 0, ls, pp))
 
 	tx, address, _ = newBatchTx(balance-topWithdrawal+1, true)
+	require.NotNil(t, address)
 	err := rule(tx, 0, ls, pp)
 	var balanceErr WithdrawalsExceedAccountBalanceError
 	require.ErrorAs(t, err, &balanceErr)

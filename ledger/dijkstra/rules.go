@@ -1092,8 +1092,7 @@ func UtxoValidateBatchWithdrawals(
 				RewardAddress: withdrawal.address,
 			}
 		}
-		var expected uint64
-		expected = *balance
+		expected := *balance
 		expectedAmount := new(big.Int).SetUint64(expected)
 		if withdrawal.amount.Cmp(expectedAmount) <= 0 {
 			continue
