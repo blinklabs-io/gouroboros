@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 // mirCertWire builds the wire form of a move instantaneous rewards certificate
@@ -87,9 +88,11 @@ func TestMirRewardDeltaDecodesAsSigned(t *testing.T) {
 			assert.Equal(t, uint(0), cert.Reward.Source)
 			assert.Equal(t, uint64(0), cert.Reward.OtherPot)
 			require.Len(t, cert.Reward.Rewards, 1)
-			// Read the delta through RewardsAmount so that this test
-			// compiles against the unsigned value type it replaces and
-			// fails on the decode rather than on the build.
+			// RewardsAmount returns map[*Credential]*big.Int both
+			// before and after the value type of Rewards widens, so
+			// reading the delta through it makes this test compile
+			// against the unsigned map and fail on the decode rather
+			// than on the build.
 			amounts := cert.Reward.RewardsAmount()
 			require.Len(t, amounts, 1)
 			for credential, amount := range amounts {
@@ -168,4 +171,78 @@ func TestMirOppositePotDecode(t *testing.T) {
 		var cert common.MoveInstantaneousRewardsCertificate
 		require.Error(t, cert.UnmarshalCBOR(wire))
 	})
+}
+
+// TestMirRewardDeltaUtxorpcKeepsTheSign covers the UTxORPC projection of a
+// signed delta. big.Int.Bytes returns the absolute value, so a magnitude that
+// does not fit in an int64 has to use the negative variant of the BigInt oneof
+// or the reported delta flips sign.
+func TestMirRewardDeltaUtxorpcKeepsTheSign(t *testing.T) {
+	beyondInt64 := new(big.Int).Lsh(big.NewInt(1), 64)
+
+	for _, testDef := range []struct {
+		name     string
+		deltaHex string
+		expected *utxorpc.BigInt
+	}{
+		{
+			"positiveInt64",
+			"184d",
+			&utxorpc.BigInt{BigInt: &utxorpc.BigInt_Int{Int: 77}},
+		},
+		{
+			"negativeInt64",
+			"20",
+			&utxorpc.BigInt{BigInt: &utxorpc.BigInt_Int{Int: -1}},
+		},
+		{
+			"beyondInt64Positive",
+			"c249010000000000000000",
+			&utxorpc.BigInt{
+				BigInt: &utxorpc.BigInt_BigUInt{
+					BigUInt: beyondInt64.Bytes(),
+				},
+			},
+		},
+		{
+			"beyondInt64Negative",
+			"c349010000000000000000",
+			&utxorpc.BigInt{
+				BigInt: &utxorpc.BigInt_BigNInt{
+					BigNInt: new(big.Int).Add(
+						beyondInt64,
+						big.NewInt(1),
+					).Bytes(),
+				},
+			},
+		},
+	} {
+		t.Run(testDef.name, func(t *testing.T) {
+			var cert common.MoveInstantaneousRewardsCertificate
+			require.NoError(
+				t,
+				cert.UnmarshalCBOR(mirCertWire(t, testDef.deltaHex)),
+			)
+			converted, err := cert.Utxorpc()
+			require.NoError(t, err)
+			mirCert := converted.GetMirCert()
+			require.NotNil(t, mirCert)
+			require.Len(t, mirCert.GetTo(), 1)
+			assert.Equal(
+				t,
+				testDef.expected.GetInt(),
+				mirCert.GetTo()[0].GetDeltaCoin().GetInt(),
+			)
+			assert.Equal(
+				t,
+				testDef.expected.GetBigUInt(),
+				mirCert.GetTo()[0].GetDeltaCoin().GetBigUInt(),
+			)
+			assert.Equal(
+				t,
+				testDef.expected.GetBigNInt(),
+				mirCert.GetTo()[0].GetDeltaCoin().GetBigNInt(),
+			)
+		})
+	}
 }

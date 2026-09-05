@@ -55,6 +55,19 @@ func mirCert(
 	}
 }
 
+func mirOppositePotCert(
+	source uint,
+	amount uint64,
+) *common.MoveInstantaneousRewardsCertificate {
+	return &common.MoveInstantaneousRewardsCertificate{
+		CertType: uint(common.CertificateTypeMoveInstantaneousRewards),
+		Reward: common.MoveInstantaneousRewardsCertificateReward{
+			Source:   source,
+			OtherPot: amount,
+		},
+	}
+}
+
 // TestUtxoValidateDelegationMirNegativeDelta covers
 // MIRNegativesNotCurrentlyAllowed. delta_coin is int on the wire, so the
 // decoder accepts a negative delta and the DELEG rule decides whether it is
@@ -104,8 +117,13 @@ func TestUtxoValidateDelegationMirNegativeDelta(t *testing.T) {
 	})
 
 	t.Run("pot-to-pot transfer is untouched before Alonzo", func(t *testing.T) {
+		// The opposite-pot amount is coin, which is uint, so this branch
+		// carries no sign for the predicate to reject. Whether the
+		// transfer itself is embargoed before Alonzo
+		// (MIRTransferNotCurrentlyAllowed) is a separate predicate that
+		// this rule does not implement.
 		require.NoError(t, shelley.UtxoValidateDelegation(
-			poolCertTx(mirCert(0, nil)),
+			poolCertTx(mirOppositePotCert(0, 1_000_000)),
 			0,
 			ls,
 			maryPparams(0),
