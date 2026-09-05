@@ -462,16 +462,19 @@ func TestArrayHeaderSize(t *testing.T) {
 		{256, 3},
 		{65535, 3},
 		{65536, 5},
-		// math.MaxInt scales with the platform's int width (2^31-1 on
-		// 32-bit, 2^63-1 on 64-bit), so it stays a valid header-size-9
-		// case everywhere without overflowing a 32-bit int.
-		{math.MaxInt, 9},
 	}
 
 	for _, tt := range tests {
 		size := cbor.ArrayHeaderSize(tt.length)
 		assert.Equal(t, tt.expectSize, size, "length %d", tt.length)
 	}
+	maxIntExpected := uint32(9)
+	if bits.UintSize < 64 {
+		// On 32-bit platforms math.MaxInt is below the 32-bit CBOR
+		// length boundary and therefore uses the 4-byte length form.
+		maxIntExpected = 5
+	}
+	assert.Equal(t, maxIntExpected, cbor.ArrayHeaderSize(math.MaxInt), "length %d", math.MaxInt)
 
 	// These boundary values don't fit in a 32-bit int at all, so they can
 	// only be constructed and exercised on a 64-bit platform. Build them
