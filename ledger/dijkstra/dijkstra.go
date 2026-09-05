@@ -88,15 +88,18 @@ func (b *DijkstraBlock) UnmarshalCBOR(cborData []byte) error {
 			len(items),
 		)
 	}
-	var header DijkstraBlockHeader
+	var header *DijkstraBlockHeader
 	if _, err := cbor.Decode(items[0], &header); err != nil {
 		return fmt.Errorf("decode Dijkstra block header: %w", err)
+	}
+	if header == nil {
+		return errors.New("dijkstra block header is nil")
 	}
 	var body DijkstraBlockBody
 	if _, err := cbor.Decode(items[1], &body); err != nil {
 		return fmt.Errorf("decode Dijkstra block body: %w", err)
 	}
-	b.BlockHeader = &header
+	b.BlockHeader = header
 	b.BlockBody = body
 	b.SetCbor(cborData)
 	return nil

@@ -50,7 +50,10 @@ func blockLayoutRepresentable(blockType uint, raw []byte) bool {
 	_, err := ledger.NewBlockFromCbor(
 		blockType,
 		raw,
-		lcommon.VerifyConfig{SkipBodyHashValidation: true},
+		lcommon.VerifyConfig{
+			SkipBodyHashValidation: true,
+			SkipHeaderValidation:   true,
+		},
 	)
 	return err == nil
 }
