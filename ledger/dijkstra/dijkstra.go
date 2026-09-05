@@ -49,11 +49,6 @@ const (
 	BlockHeaderTypeDijkstra = 7
 
 	TxTypeDijkstra = 7
-
-	// MaxTxSize is the decode-time Dijkstra transaction CBOR limit. It
-	// mirrors the current Cardano max_tx_size until protocol parameters are
-	// available for validation.
-	MaxTxSize = 16 * 1024
 )
 
 var EraDijkstra = common.Era{
@@ -1749,35 +1744,24 @@ func NewDijkstraTransactionFromCborComponents(
 	data []byte,
 	txArray []cbor.RawMessage,
 ) (*DijkstraTransaction, error) {
-	if err := validateDijkstraTransactionCborSize(data); err != nil {
-		return nil, err
-	}
 	return newDijkstraTransactionFromCborComponents(data, txArray, true)
 }
 
+// newDijkstraTransactionFromCbor applies no transaction size limit. The
+// reference decoder does not either (decodeDijkstraTopTx in
+// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Tx.hs), and no transaction
+// decoder in any era does. max_tx_size is a protocol parameter enforced by the
+// UTxO rule UtxoValidateMaxTxSizeUtxo, which is registered for Dijkstra in
+// rules.go.
 func newDijkstraTransactionFromCbor(
 	data []byte,
 	allowIsValid bool,
 ) (*DijkstraTransaction, error) {
-	if err := validateDijkstraTransactionCborSize(data); err != nil {
-		return nil, err
-	}
 	var txArray []cbor.RawMessage
 	if _, err := cbor.Decode(data, &txArray); err != nil {
 		return nil, err
 	}
 	return newDijkstraTransactionFromCborComponents(data, txArray, allowIsValid)
-}
-
-func validateDijkstraTransactionCborSize(data []byte) error {
-	if len(data) <= MaxTxSize {
-		return nil
-	}
-	return fmt.Errorf(
-		"newDijkstraTransactionFromCbor: transaction size %d exceeds MaxTxSize %d",
-		len(data),
-		MaxTxSize,
-	)
 }
 
 func newDijkstraTransactionFromCborComponents(

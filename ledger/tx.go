@@ -210,12 +210,14 @@ func decodeTxComponents(
 	return txArray, txBody, nil
 }
 
+// looksLikeDijkstraTransaction applies no transaction size limit. A limit here
+// would not report an oversized Dijkstra transaction, it would drop the
+// candidate and let DetermineTransactionType classify it as an earlier era or
+// as unknown. max_tx_size is a protocol parameter enforced by the UTxO rule
+// dijkstra.UtxoValidateMaxTxSizeUtxo.
 func looksLikeDijkstraTransaction(
 	data []byte,
 ) (bool, []cbor.RawMessage, map[uint]cbor.RawMessage, error) {
-	if len(data) > dijkstraera.MaxTxSize {
-		return false, nil, nil, nil
-	}
 	txArray, txBody, err := decodeTxComponents(data)
 	if err != nil {
 		return false, nil, nil, err
