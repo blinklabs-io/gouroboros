@@ -724,15 +724,27 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 func conwayTransactionBodyHasField(cborData []byte, wanted int) (bool, error) {
+	fieldCount, headerSize, indefinite := cbor.MapInfo(cborData)
+	if fieldCount < 0 {
+		return false, errors.New("invalid Conway transaction body map")
+	}
 	decoder, err := cbor.NewStreamDecoder(cborData)
 	if err != nil {
 		return false, err
 	}
-	fieldCount, _, _, err := decoder.DecodeMapHeader()
-	if err != nil {
+	if err := decoder.Advance(int(headerSize)); err != nil {
 		return false, err
 	}
-	for range fieldCount {
+	for i := 0; indefinite || i < fieldCount; i++ {
+		if indefinite {
+			pos := decoder.Position()
+			if pos >= len(cborData) {
+				return false, errors.New("unterminated Conway transaction body map")
+			}
+			if cborData[pos] == 0xff {
+				return false, nil
+			}
+		}
 		var field int
 		if _, _, err := decoder.Decode(&field); err != nil {
 			return false, err

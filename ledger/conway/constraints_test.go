@@ -143,3 +143,11 @@ func TestConwayTransactionBodyDecodeRejectsRemovedUpdateField(t *testing.T) {
 	require.ErrorAs(t, err, &bodyErr)
 	require.Equal(t, 6, bodyErr.FieldKey)
 }
+
+func TestConwayTransactionBodyDecodeAcceptsIndefiniteMap(t *testing.T) {
+	raw, err := cbor.Encode(cbor.IndefLengthMap{uint(2): uint64(0)})
+	require.NoError(t, err)
+
+	_, err = NewConwayTransactionBodyFromCbor(raw)
+	require.NoError(t, err)
+}
