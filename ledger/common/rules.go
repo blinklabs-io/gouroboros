@@ -170,17 +170,28 @@ func VerifyTransaction(
 // when the transaction actually has the 4-component Alonzo-style envelope.
 const txTypeAlonzo = 4
 
-// TxSizeForFee returns the fee-relevant transaction size as defined by the
-// Cardano ledger spec. For Alonzo through Conway the on-wire CBOR contains a
-// 4-element array [body, witnesses, isValid, metadata]; the Haskell
-// toCBORForSizeComputation function encodes only 3 elements, so the fee-
-// relevant size is the full on-wire length minus 1 byte (the IsValid field).
-// Dijkstra block transactions use a 3-element envelope, so no adjustment is
-// applied unless an explicitly 4-component transaction is being sized.
+// TxSize returns the size of a transaction as the Cardano ledger spec defines
+// it — the measure used both for fees and for maxTxSize.
+//
+// For Alonzo through Conway the on-wire CBOR is a 4-element array
+// [body, witnesses, isValid, metadata], while the Haskell
+// toCBORForSizeComputation encodes only 3 elements. The IsValid flag is not
+// part of the transaction the chain sized: a block stores bodies, witness
+// sets, IsValid flags and auxiliary data in four parallel arrays, and
+// reconstructing a standalone transaction re-attaches that byte. So the size
+// is the full on-wire length minus 1. Dijkstra block transactions use a
+// 3-element envelope, so no adjustment applies unless an explicitly
+// 4-component transaction is being sized.
+//
+// Every rule expressed against a transaction's size must use this, not
+// len(tx.Cbor()). The two differ by exactly one byte, which only matters for a
+// transaction sitting exactly on a limit — rare enough to survive a long way
+// into a replay before a single transaction built to fill maxTxSize exposes
+// it.
 //
 // When the transaction has no stored CBOR (e.g. programmatically constructed),
 // the function falls back to encoding the transaction to compute its size.
-func TxSizeForFee(tx Transaction) (int, error) {
+func TxSize(tx Transaction) (int, error) {
 	cborData := tx.Cbor()
 	if len(cborData) == 0 {
 		// Fallback: encode the transaction to compute its size.
@@ -189,7 +200,7 @@ func TxSizeForFee(tx Transaction) (int, error) {
 		var err error
 		cborData, err = cbor.Encode(tx)
 		if err != nil {
-			return 0, fmt.Errorf("failed to encode transaction for fee size: %w", err)
+			return 0, fmt.Errorf("failed to encode transaction for size: %w", err)
 		}
 	}
 	fullSize := len(cborData)
@@ -197,16 +208,18 @@ func TxSizeForFee(tx Transaction) (int, error) {
 		dec, err := cbor.NewStreamDecoder(cborData)
 		if err == nil {
 			arrayLen, _, _, decodeErr := dec.DecodeArrayHeader()
-			if decodeErr == nil {
-				if arrayLen == 4 {
-					return fullSize - 1, nil
-				}
-				return fullSize, nil
+			if decodeErr == nil && arrayLen == 4 {
+				return fullSize - 1, nil
 			}
 		}
-		return fullSize, nil
 	}
 	return fullSize, nil
+}
+
+// TxSizeForFee returns the fee-relevant size of a transaction. It is the same
+// measure as TxSize; the name is kept for the fee rules that already call it.
+func TxSizeForFee(tx Transaction) (int, error) {
+	return TxSize(tx)
 }
 
 // CalculateMinFee computes the minimum fee for a transaction given its
