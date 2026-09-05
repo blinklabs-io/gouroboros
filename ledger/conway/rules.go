@@ -2915,7 +2915,14 @@ func MinFeeTx(
 	if err != nil {
 		return 0, err
 	}
-	return minFee, nil
+	executionFee, err := CalculateExecutionUnitsFee(tx, tmpPparams.ExecutionCosts)
+	if err != nil {
+		return 0, err
+	}
+	if minFee > math.MaxUint64-executionFee {
+		return 0, errors.New("minimum transaction fee overflow")
+	}
+	return minFee + executionFee, nil
 }
 
 // MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters.
