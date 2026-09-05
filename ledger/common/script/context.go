@@ -720,7 +720,7 @@ func withdrawalsInfo(
 			},
 		)
 	}
-	sorted := sortWithdrawalAddresses(withdrawals)
+	sorted := SortWithdrawalAddresses(withdrawals)
 	ret = ret[:0]
 	for _, addr := range sorted {
 		ret = append(ret, KeyValuePair[*lcommon.Address, *big.Int]{

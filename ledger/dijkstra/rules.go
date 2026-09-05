@@ -22,7 +22,6 @@ import (
 	"math"
 	"math/big"
 	"slices"
-	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -1209,24 +1208,7 @@ func dijkstraRequiredScriptPurposes(
 		)
 	}
 
-	withdrawals := make([]*common.Address, 0, len(level.tx.Withdrawals()))
-	for address := range level.tx.Withdrawals() {
-		withdrawals = append(withdrawals, address)
-	}
-	slices.SortFunc(withdrawals, func(a, b *common.Address) int {
-		if a == nil {
-			return -1
-		}
-		if b == nil {
-			return 1
-		}
-		aBytes, aErr := a.Bytes()
-		bBytes, bErr := b.Bytes()
-		if aErr != nil || bErr != nil {
-			return strings.Compare(a.String(), b.String())
-		}
-		return bytes.Compare(aBytes, bBytes)
-	})
+	withdrawals := script.SortWithdrawalAddresses(level.tx.Withdrawals())
 	for idx, address := range withdrawals {
 		if address == nil ||
 			address.Type()&common.AddressTypeScriptBit == 0 {
