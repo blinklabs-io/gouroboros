@@ -803,6 +803,15 @@ func redeemersInfo(
 	return ret, nil
 }
 
+// signatoriesInfo renders txInfoSignatories. cardano-ledger holds
+// reqSignerHashesTxBodyG as Set (KeyHash 'Witness) and translates it with
+// transTxBodyReqSignerHashes = transKeyHash <$> Set.toList, which both sorts
+// and deduplicates. Every era and every Plutus language version routes through
+// that one function, so a transaction body that repeats a required signer
+// still yields a single signatory. Emitting the repeat makes a validator that
+// walks txInfoSignatories execute more reductions than the block producer's
+// evaluator charged for, so its execution units exceed the declared budget and
+// a canonical block is rejected.
 func signatoriesInfo(
 	requiredSigners []lcommon.Blake2b224,
 ) []lcommon.Blake2b224 {
@@ -814,7 +823,12 @@ func signatoriesInfo(
 			return bytes.Compare(a.Bytes(), b.Bytes())
 		},
 	)
-	return tmp
+	return slices.CompactFunc(
+		tmp,
+		func(a, b lcommon.Blake2b224) bool {
+			return bytes.Equal(a.Bytes(), b.Bytes())
+		},
+	)
 }
 
 func votingInfo(
