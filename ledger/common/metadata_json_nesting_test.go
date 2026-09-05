@@ -32,10 +32,10 @@ func nestedNoSchemaJSON(arrays int) []byte {
 }
 
 func TestParseMetadataJSONNoSchemaAcceptsMaximumNesting(t *testing.T) {
-	// The top-level object occupies depth 0, leaving one less array than the
-	// limit before the limit is reached.
+	// The top-level object occupies depth 0, so the maximum number of nested
+	// arrays is the configured depth bound.
 	metadata, err := ParseCardanoCLIMetadataJSONNoSchema(
-		nestedNoSchemaJSON(MetadataJSONMaxNestingDepth - 1),
+		nestedNoSchemaJSON(MetadataJSONMaxNestingDepth),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, metadata)
@@ -46,7 +46,7 @@ func TestParseMetadataJSONNoSchemaRejectsExcessiveNesting(t *testing.T) {
 		name   string
 		arrays int
 	}{
-		{name: "first invalid", arrays: MetadataJSONMaxNestingDepth},
+		{name: "first invalid", arrays: MetadataJSONMaxNestingDepth + 1},
 		{name: "far beyond limit", arrays: 100_000},
 	} {
 		t.Run(test.name, func(t *testing.T) {
