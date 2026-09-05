@@ -97,7 +97,10 @@ func (s *segmentSender) stop() {
 		close(s.done)
 		for {
 			select {
-			case msg := <-s.ch:
+			case msg, ok := <-s.ch:
+				if !ok {
+					return
+				}
 				if msg != nil {
 					msg.reportDelivery(errors.New("protocol unregistered"))
 				}
@@ -286,8 +289,8 @@ func (m *Muxer) RegisterProtocol(
 					continue
 				default:
 				}
-				err := m.Send(msg)
 				sender.mu.Unlock()
+				err := m.Send(msg)
 				msg.reportDelivery(err)
 				if err != nil {
 					m.sendError(err)
