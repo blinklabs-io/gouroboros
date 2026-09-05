@@ -15,6 +15,7 @@
 package byron
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -648,6 +649,281 @@ func TestValidateDelegationCertSignature_Deterministic(t *testing.T) {
 		issuerVK, delegateVK, certSig[:32], epochBytes,
 	)
 	require.Error(t, err, "short certSig must be rejected")
+}
+
+func proxySignatureInput(
+	t *testing.T,
+	sigType uint64,
+	constraint any,
+	headerEpoch uint64,
+) *ValidateHeaderInput {
+	t.Helper()
+	config := testByronConfig()
+	issuerPrivate := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x41}, 32))
+	issuerPub := issuerPrivate.Public().(ed25519.PublicKey)
+	delegatePrivate := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, 32))
+	delegatePub := delegatePrivate.Public().(ed25519.PublicKey)
+	issuerVK := append(
+		append([]byte(nil), issuerPub...),
+		make([]byte, byron.VerificationKeySize-ed25519.PublicKeySize)...,
+	)
+	delegateVK := append(
+		append([]byte(nil), delegatePub...),
+		make([]byte, byron.VerificationKeySize-ed25519.PublicKeySize)...,
+	)
+	constraintCbor, err := cbor.Encode(constraint)
+	require.NoError(t, err)
+	certificatePayload := make(
+		[]byte,
+		0,
+		2+len(delegateVK)+len(constraintCbor),
+	)
+	certificatePayload = append(certificatePayload, '0', '0')
+	certificatePayload = append(certificatePayload, delegateVK...)
+	certificatePayload = append(certificatePayload, constraintCbor...)
+	certificatePayloadCbor, err := cbor.Encode(certificatePayload)
+	require.NoError(t, err)
+	protocolMagicCbor, err := cbor.Encode(config.ProtocolMagic)
+	require.NoError(t, err)
+	certificateSigned := append(
+		[]byte{byron.SignTagCertificate},
+		protocolMagicCbor...,
+	)
+	certificateSigned = append(certificateSigned, certificatePayloadCbor...)
+	certificateSignature := ed25519.Sign(
+		issuerPrivate,
+		certificateSigned,
+	)
+	certificate := []any{
+		constraint,
+		issuerVK,
+		delegateVK,
+		certificateSignature,
+	}
+	header := &byron.ByronMainBlockHeader{
+		ProtocolMagic: config.ProtocolMagic,
+		BodyProof:     []any{},
+	}
+	header.ConsensusData.SlotId.Epoch = headerEpoch
+	header.ConsensusData.PubKey = issuerVK
+	header.ConsensusData.BlockSig = []any{
+		sigType,
+		[]any{certificate, make([]byte, ed25519.SignatureSize)},
+	}
+	headerCbor, err := cbor.Encode(header)
+	require.NoError(t, err)
+	validator := NewHeaderValidator(config)
+	toSign, err := validator.buildToSign(
+		&ValidateHeaderInput{HeaderCbor: headerCbor},
+	)
+	require.NoError(t, err)
+	signingTag := byron.SignTagMainBlockHeavy
+	if sigType == byronSigTypeLight {
+		signingTag = byron.SignTagMainBlockLight
+	}
+	blockSigned := make(
+		[]byte,
+		0,
+		2+len(issuerVK)+1+len(protocolMagicCbor)+len(toSign),
+	)
+	blockSigned = append(blockSigned, '0', '1')
+	blockSigned = append(blockSigned, issuerVK...)
+	blockSigned = append(blockSigned, signingTag)
+	blockSigned = append(blockSigned, protocolMagicCbor...)
+	blockSigned = append(blockSigned, toSign...)
+	header.ConsensusData.BlockSig[1].([]any)[1] = ed25519.Sign(
+		delegatePrivate,
+		blockSigned,
+	)
+	headerCbor, err = cbor.Encode(header)
+	require.NoError(t, err)
+	return &ValidateHeaderInput{
+		Slot:          headerEpoch * config.SlotsPerEpoch,
+		BlockNumber:   1,
+		ProtocolMagic: config.ProtocolMagic,
+		IssuerPubKey:  issuerPub,
+		BlockSig:      header.ConsensusData.BlockSig,
+		HeaderCbor:    headerCbor,
+	}
+}
+
+func TestValidateProxySignatureLiteralWireTypes(t *testing.T) {
+	const currentEpoch = uint64(7)
+	tests := []struct {
+		name       string
+		sigType    uint64
+		constraint any
+	}{
+		{
+			name:       "type 1 lightweight delegation",
+			sigType:    1,
+			constraint: []any{currentEpoch, currentEpoch},
+		},
+		{
+			name:       "type 2 heavyweight delegation",
+			sigType:    2,
+			constraint: uint64(0),
+		},
+	}
+	validator := NewHeaderValidator(testByronConfig())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := proxySignatureInput(
+				t,
+				test.sigType,
+				test.constraint,
+				currentEpoch,
+			)
+			require.NoError(t, validator.validateBlockSignature(input))
+		})
+	}
+}
+
+func TestValidateProxySignatureEpochConstraint(t *testing.T) {
+	const currentEpoch = uint64(7)
+	tests := []struct {
+		name       string
+		sigType    uint64
+		constraint any
+		wantError  string
+	}{
+		{
+			name:       "light exact current epoch",
+			sigType:    byronSigTypeLight,
+			constraint: []any{currentEpoch, currentEpoch},
+		},
+		{
+			name:       "light inclusive lower bound",
+			sigType:    byronSigTypeLight,
+			constraint: []any{currentEpoch, currentEpoch + 1},
+		},
+		{
+			name:       "light inclusive upper bound",
+			sigType:    byronSigTypeLight,
+			constraint: []any{currentEpoch - 1, currentEpoch},
+		},
+		{
+			name:       "light expired",
+			sigType:    byronSigTypeLight,
+			constraint: []any{currentEpoch - 2, currentEpoch - 1},
+			wantError:  "does not include header epoch",
+		},
+		{
+			name:       "light premature",
+			sigType:    byronSigTypeLight,
+			constraint: []any{currentEpoch + 1, currentEpoch + 2},
+			wantError:  "does not include header epoch",
+		},
+		{
+			name:       "light inverted",
+			sigType:    byronSigTypeLight,
+			constraint: []any{currentEpoch + 1, currentEpoch},
+			wantError:  "lower bound",
+		},
+		{
+			name:       "light scalar",
+			sigType:    byronSigTypeLight,
+			constraint: currentEpoch,
+			wantError:  "2-element epoch range",
+		},
+		{
+			name:       "light short range",
+			sigType:    byronSigTypeLight,
+			constraint: []any{currentEpoch},
+			wantError:  "2-element epoch range",
+		},
+		{
+			name:       "light nonnumeric lower bound",
+			sigType:    byronSigTypeLight,
+			constraint: []any{"epoch", currentEpoch},
+			wantError:  "extract light delegation epoch lower bound",
+		},
+		{
+			name:       "heavy omega",
+			sigType:    byronSigTypeHeavy,
+			constraint: uint64(0),
+		},
+		{
+			name:       "heavy range",
+			sigType:    byronSigTypeHeavy,
+			constraint: []any{currentEpoch, currentEpoch},
+			wantError:  "extract heavy delegation omega",
+		},
+	}
+	validator := NewHeaderValidator(testByronConfig())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := proxySignatureInput(
+				t,
+				test.sigType,
+				test.constraint,
+				currentEpoch,
+			)
+			err := validator.validateBlockSignature(input)
+			if test.wantError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, test.wantError)
+		})
+	}
+}
+
+func TestValidateProxySignaturePreservesNonShortestEpochRange(t *testing.T) {
+	const currentEpoch = uint64(7)
+	input := proxySignatureInput(
+		t,
+		byronSigTypeLight,
+		[]any{currentEpoch, currentEpoch},
+		currentEpoch,
+	)
+
+	// Re-sign the certificate over a non-shortest encoding of the same range.
+	// The decoded BlockSig remains [7, 7], but the issuer signed 0x1807 for
+	// each bound. A validator that re-encodes the decoded range will reject it.
+	rawRange := []byte{0x82, 0x18, 0x07, 0x18, 0x07}
+	issuerPrivate := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x41}, 32))
+	delegatePrivate := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, 32))
+	delegatePub := delegatePrivate.Public().(ed25519.PublicKey)
+	delegateVK := append(
+		append([]byte(nil), delegatePub...),
+		make([]byte, byron.VerificationKeySize-ed25519.PublicKeySize)...,
+	)
+
+	config := testByronConfig()
+	payload := append([]byte{'0', '0'}, delegateVK...)
+	payload = append(payload, rawRange...)
+	payloadCbor, err := cbor.Encode(payload)
+	require.NoError(t, err)
+	protocolMagicCbor, err := cbor.Encode(config.ProtocolMagic)
+	require.NoError(t, err)
+	certificateSigned := append(
+		[]byte{byron.SignTagCertificate},
+		protocolMagicCbor...,
+	)
+	certificateSigned = append(certificateSigned, payloadCbor...)
+	certificateSignature := ed25519.Sign(issuerPrivate, certificateSigned)
+
+	oldSignature := input.BlockSig[1].([]any)[0].([]any)[3].([]byte)
+	input.BlockSig[1].([]any)[0].([]any)[3] = certificateSignature
+	input.HeaderCbor = bytes.Replace(
+		input.HeaderCbor,
+		[]byte{0x82, 0x07, 0x07},
+		rawRange,
+		1,
+	)
+	input.HeaderCbor = bytes.Replace(
+		input.HeaderCbor,
+		oldSignature,
+		certificateSignature,
+		1,
+	)
+
+	recovered, err := proxyCertIndexCbor(input.HeaderCbor)
+	require.NoError(t, err)
+	require.Equal(t, rawRange, recovered)
+	require.Equal(t, []any{currentEpoch, currentEpoch}, input.BlockSig[1].([]any)[0].([]any)[0])
+	require.NoError(t, NewHeaderValidator(config).validateBlockSignature(input))
 }
 
 func TestValidateGenesisDelegate(t *testing.T) {

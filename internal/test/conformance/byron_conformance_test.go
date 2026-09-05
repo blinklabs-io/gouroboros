@@ -77,8 +77,8 @@ func extractByronExtendedPubKey(
 // extractByronBlockSignature extracts the block signature from a Byron main block header.
 // Byron block signatures are structured as:
 // - [0, signature] for simple block signature (BlockSignature)
-// - [1, [[epoch, issuerVK, delegateVK, cert], signature]] for heavy delegation (BlockPSignatureHeavy)
-// - [2, [[omega, issuerVK, delegateVK, cert], signature]] for lightweight delegation (BlockPSignatureLight)
+// - [1, [[epoch range, issuerVK, delegateVK, cert], signature]] for lightweight delegation (BlockPSignatureLight)
+// - [2, [[omega, issuerVK, delegateVK, cert], signature]] for heavy delegation (BlockPSignatureHeavy)
 //
 // For types 1 and 2, the signature is inside a nested array structure.
 func extractByronBlockSignature(
@@ -563,7 +563,7 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 			}
 		}
 
-		// For signature type 2 (lightweight), show the full BlockSig structure
+		// For signature type 2 (heavyweight), show the full BlockSig structure
 		sigType, _ := header.ConsensusData.BlockSig[0].(uint64)
 		if sigType == 2 {
 			innerArray, ok := header.ConsensusData.BlockSig[1].([]any)
@@ -573,10 +573,7 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 				"sigType 2: expected []any for BlockSig[1], got %T",
 				header.ConsensusData.BlockSig[1],
 			)
-			t.Logf(
-				"Lightweight delegation inner array: %d elements",
-				len(innerArray),
-			)
+			t.Logf("Heavy delegation inner array: %d elements", len(innerArray))
 			for i, elem := range innerArray {
 				switch v := elem.(type) {
 				case []byte:
@@ -605,7 +602,7 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 			}
 		}
 
-		// For signature type 1 (heavy), show structure too
+		// For signature type 1 (lightweight), show structure too
 		if sigType == 1 {
 			innerArray, ok := header.ConsensusData.BlockSig[1].([]any)
 			require.True(
@@ -614,7 +611,10 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 				"sigType 1: expected []any for BlockSig[1], got %T",
 				header.ConsensusData.BlockSig[1],
 			)
-			t.Logf("Heavy delegation inner array: %d elements", len(innerArray))
+			t.Logf(
+				"Lightweight delegation inner array: %d elements",
+				len(innerArray),
+			)
 			for i, elem := range innerArray {
 				switch v := elem.(type) {
 				case []byte:
@@ -662,11 +662,11 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 	case 0:
 		t.Logf("  Signature type: BlockSignature (simple)")
 	case 1:
-		t.Logf("  Signature type: BlockPSignatureHeavy (delegation)")
-	case 2:
 		t.Logf(
 			"  Signature type: BlockPSignatureLight (lightweight delegation)",
 		)
+	case 2:
+		t.Logf("  Signature type: BlockPSignatureHeavy (delegation)")
 	}
 }
 
@@ -918,11 +918,11 @@ func TestByronSignatureFormat(t *testing.T) {
 			case 0:
 				t.Logf("  Type: 0 (BlockSignature - simple)")
 			case 1:
-				t.Logf("  Type: 1 (BlockPSignatureHeavy - delegation cert)")
-			case 2:
 				t.Logf(
-					"  Type: 2 (BlockPSignatureLight - lightweight delegation)",
+					"  Type: 1 (BlockPSignatureLight - lightweight delegation)",
 				)
+			case 2:
+				t.Logf("  Type: 2 (BlockPSignatureHeavy - delegation cert)")
 			default:
 				t.Logf("  Type: %d (unknown)", sigType)
 			}
@@ -930,7 +930,7 @@ func TestByronSignatureFormat(t *testing.T) {
 	}
 
 	// For delegation signatures, structure is typically:
-	// [1, [[epoch, genesisKey, delegateKey, dlgCertSig], proxySignature]]
+	// [1, [[epoch range, genesisKey, delegateKey, dlgCertSig], proxySignature]]
 	// or
 	// [2, [[omega, issuerVK, delegateVK, dlgCertSig], proxySignature]]
 
@@ -1116,16 +1116,16 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	header := block.BlockHeader
 
 	// Extract the delegation certificate components
-	// Structure: [2, [[epoch, issuerVK, delegateVK, certSig], blockSig]]
+	// Structure: [2, [[omega, issuerVK, delegateVK, certSig], blockSig]]
 	innerArray := header.ConsensusData.BlockSig[1].([]any)
 	cert := innerArray[0].([]any)
 
-	epoch, _ := cert[0].(uint64)
+	omega, _ := cert[0].(uint64)
 	issuerVK := cert[1].([]byte)
 	delegateVK := cert[2].([]byte)
 	certSig := cert[3].([]byte)
 
-	t.Logf("Epoch: %d", epoch)
+	t.Logf("Omega: %d", omega)
 	t.Logf("IssuerVK: %x", issuerVK)
 	t.Logf("DelegateVK: %x", delegateVK)
 	t.Logf("CertSig: %x", certSig)
@@ -1134,16 +1134,16 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	// The issuer's Ed25519 public key is the first 32 bytes of the extended key
 	issuerPubKey := issuerVK[:32]
 
-	buildSignedMessage := func(epoch uint64, delegateVK []byte) []byte {
+	buildSignedMessage := func(omega uint64, delegateVK []byte) []byte {
 		pm, err := cbor.Encode(header.ProtocolMagic)
 		require.NoError(t, err)
-		epochBytes, err := cbor.Encode(epoch)
+		omegaBytes, err := cbor.Encode(omega)
 		require.NoError(t, err)
 
-		inner := make([]byte, 0, 2+len(delegateVK)+len(epochBytes))
+		inner := make([]byte, 0, 2+len(delegateVK)+len(omegaBytes))
 		inner = append(inner, '0', '0')
 		inner = append(inner, delegateVK...)
-		inner = append(inner, epochBytes...)
+		inner = append(inner, omegaBytes...)
 
 		innerCbor, err := cbor.Encode(inner)
 		require.NoError(t, err)
@@ -1156,7 +1156,7 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	}
 
 	// Positive case: the real certificate signature must verify.
-	signed := buildSignedMessage(epoch, delegateVK)
+	signed := buildSignedMessage(omega, delegateVK)
 	require.True(
 		t,
 		ed25519.Verify(issuerPubKey, signed, certSig),
@@ -1164,16 +1164,16 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	)
 
 	// Negative cases: fail closed on tampering.
-	wrongEpoch := buildSignedMessage(epoch+1, delegateVK)
+	wrongOmega := buildSignedMessage(omega+1, delegateVK)
 	assert.False(
 		t,
-		ed25519.Verify(issuerPubKey, wrongEpoch, certSig),
+		ed25519.Verify(issuerPubKey, wrongOmega, certSig),
 		"signature must not verify against a different epoch",
 	)
 
 	tamperedDelegateVK := append([]byte{}, delegateVK...)
 	tamperedDelegateVK[0] ^= 0xFF
-	wrongDelegate := buildSignedMessage(epoch, tamperedDelegateVK)
+	wrongDelegate := buildSignedMessage(omega, tamperedDelegateVK)
 	assert.False(
 		t,
 		ed25519.Verify(issuerPubKey, wrongDelegate, certSig),

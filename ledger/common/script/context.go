@@ -577,10 +577,9 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 	)
 }
 
-// SortInputs returns a sorted copy of the given inputs, ordered by
-// (TxId, Index) in ascending byte order. This matches the canonical
-// ordering required by the Cardano ledger spec for redeemer index
-// mapping.
+// SortInputs returns a sorted, deduplicated copy of the given inputs, ordered
+// by (TxId, Index) in ascending byte order. This matches the canonical
+// ordering required by the Cardano ledger spec for redeemer index mapping.
 func SortInputs(inputs []lcommon.TransactionInput) []lcommon.TransactionInput {
 	ret := make([]lcommon.TransactionInput, len(inputs))
 	copy(ret, inputs)
@@ -601,7 +600,19 @@ func SortInputs(inputs []lcommon.TransactionInput) []lcommon.TransactionInput {
 			return 0
 		},
 	)
-	return ret
+	if len(ret) < 2 {
+		return ret
+	}
+	unique := 1
+	for _, input := range ret[1:] {
+		previous := ret[unique-1]
+		if input.Id() == previous.Id() && input.Index() == previous.Index() {
+			continue
+		}
+		ret[unique] = input
+		unique++
+	}
+	return ret[:unique]
 }
 
 func expandInputs(
@@ -709,7 +720,7 @@ func withdrawalsInfo(
 			},
 		)
 	}
-	sorted := sortWithdrawalAddresses(withdrawals)
+	sorted := SortWithdrawalAddresses(withdrawals)
 	ret = ret[:0]
 	for _, addr := range sorted {
 		ret = append(ret, KeyValuePair[*lcommon.Address, *big.Int]{

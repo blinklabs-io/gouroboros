@@ -184,6 +184,52 @@ func TestDijkstraGovernanceValidationRules(t *testing.T) {
 	}
 }
 
+func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
+	credential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x01},
+	}
+	certificates := []common.CertificateWrapper{{
+		Type: uint(common.CertificateTypeStakeDelegation),
+		Certificate: &common.StakeDelegationCertificate{
+			CertType:        uint(common.CertificateTypeStakeDelegation),
+			StakeCredential: &credential,
+			PoolKeyHash:     common.PoolKeyHash{0x02},
+		},
+	}}
+	state := mockledger.NewLedgerStateBuilder().Build()
+	params := &DijkstraProtocolParameters{}
+
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/conway.UtxoValidateDelegation",
+	)
+	validTx := &DijkstraTransaction{
+		Body:      DijkstraTransactionBody{TxCertificates: certificates},
+		TxIsValid: true,
+	}
+	invalidTx := &DijkstraTransaction{
+		Body:      DijkstraTransactionBody{TxCertificates: certificates},
+		TxIsValid: false,
+	}
+
+	var poolError shelley.DelegateToUnregisteredPoolError
+	require.ErrorAs(t, rule(validTx, 0, state, params), &poolError)
+	require.NoError(t, rule(invalidTx, 0, state, params))
+
+	// The phase-2-valid gate must not replace the always-run structural check
+	// that rejects an invalid transaction without a phase-2 redeemer.
+	var invalidFlag common.InvalidIsValidFlagError
+	err := common.VerifyTransaction(
+		invalidTx,
+		0,
+		state,
+		params,
+		UtxoValidationRules,
+	)
+	require.ErrorAs(t, err, &invalidFlag)
+}
+
 func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
 	guardrailsHash := common.Blake2b224Hash([]byte("constitution-guardrails"))
 	newTx := func(isValid bool, policyHash []byte) *DijkstraTransaction {
@@ -650,6 +696,34 @@ func TestUtxoValidateWithdrawalsDijkstraAmountModes(t *testing.T) {
 			require.NoError(t, conway.UtxoValidateWithdrawals(tx, 0, ls, pp))
 		})
 	}
+}
+
+func TestDijkstraWrongNetworkWithdrawalPhase2Gate(t *testing.T) {
+	tx, _ := testDijkstraWithdrawalTx(t, 1, nil)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+	pp := &DijkstraProtocolParameters{}
+
+	_, ruleIndex := dijkstraValidationRuleDescriptor(
+		t,
+		common.UtxoValidationRuleWrongNetworkWithdrawal,
+	)
+	validate := func(tx common.Transaction) error {
+		return common.VerifyTransaction(
+			tx,
+			0,
+			ls,
+			pp,
+			UtxoValidationRules[ruleIndex:ruleIndex+1],
+		)
+	}
+
+	var wrongNetworkErr shelley.WrongNetworkWithdrawalError
+	require.ErrorAs(t, validate(tx), &wrongNetworkErr)
+
+	tx.TxIsValid = false
+	require.NoError(t, validate(tx))
 }
 
 func TestUtxoValidateBatchWithdrawals(t *testing.T) {

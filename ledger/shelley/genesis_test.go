@@ -758,8 +758,8 @@ func TestGenesisStaking(t *testing.T) {
 				t.Errorf("Expected testnet address, got network ID %d", delegs[0].NetworkId())
 			}
 
-			if delegs[0].Type() != common.AddressTypeNoneScript {
-				t.Errorf("Expected script stake address type, got %d", delegs[0].Type())
+			if delegs[0].Type() != common.AddressTypeNoneKey {
+				t.Errorf("Expected key stake address type, got %d", delegs[0].Type())
 			}
 
 			// Verify stake key matches
@@ -813,8 +813,8 @@ func TestGenesisStaking(t *testing.T) {
 				t.Errorf("Expected testnet address, got network ID %d", delegators[0].NetworkId())
 			}
 
-			if delegators[0].Type() != common.AddressTypeNoneScript {
-				t.Errorf("Expected script stake address type, got %d", delegators[0].Type())
+			if delegators[0].Type() != common.AddressTypeNoneKey {
+				t.Errorf("Expected key stake address type, got %d", delegators[0].Type())
 			}
 
 			// Verify stake key matches
