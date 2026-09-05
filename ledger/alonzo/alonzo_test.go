@@ -146,9 +146,9 @@ func TestAlonzoTransactionOutputToPlutusDataCoinOnly(t *testing.T) {
 				},
 			},
 		),
-		// TODO: empty datum option
+		// Empty datum option (no OutputDatumHash set)
 		data.NewConstr(0),
-		// TODO: empty script ref
+		// Empty script ref
 		data.NewConstr(1),
 	)
 	tmpData := testTxOut.ToPlutusData()
@@ -258,6 +258,72 @@ func TestAlonzoTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 		),
 		// Empty datum option
 		data.NewConstr(0),
+		// Empty script ref
+		data.NewConstr(1),
+	)
+	tmpData := testTxOut.ToPlutusData()
+	if !reflect.DeepEqual(tmpData, expectedData) {
+		t.Fatalf(
+			"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+			tmpData,
+			expectedData,
+		)
+	}
+}
+
+func TestAlonzoTransactionOutputToPlutusDataWithDatumHash(t *testing.T) {
+	testAddr := "addr_test1vqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygxrcya6"
+	var testAmount uint64 = 123_456_789
+	testDatumHash := common.NewBlake2b256(
+		test.DecodeHexString(
+			"7354f11eaa78d3ca25ac79edadf4ae3a99db9201527c16f43ae93283ff409a7a",
+		),
+	)
+	testTxOut := AlonzoTransactionOutput{
+		OutputAddress: func() common.Address { foo, _ := common.NewAddress(testAddr); return foo }(),
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: testAmount,
+		},
+		OutputDatumHash: &testDatumHash,
+	}
+	expectedData := data.NewConstr(
+		0,
+		// Address
+		data.NewConstr(
+			0,
+			data.NewConstr(
+				0,
+				data.NewByteString(
+					[]byte{
+						0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+					},
+				),
+			),
+			data.NewConstr(
+				1,
+			),
+		),
+		// Value
+		data.NewMap(
+			[][2]data.PlutusData{
+				{
+					data.NewByteString(nil),
+					data.NewMap(
+						[][2]data.PlutusData{
+							{
+								data.NewByteString(nil),
+								data.NewInteger(big.NewInt(int64(testAmount))),
+							},
+						},
+					),
+				},
+			},
+		),
+		// Datum option: hash present -> constructor 1 wrapping the hash bytes
+		data.NewConstr(
+			1,
+			data.NewByteString(testDatumHash.Bytes()),
+		),
 		// Empty script ref
 		data.NewConstr(1),
 	)

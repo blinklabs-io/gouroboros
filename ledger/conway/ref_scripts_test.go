@@ -337,6 +337,52 @@ func TestConwayRefScriptFeeAndLimitUseSameConsumedSet(t *testing.T) {
 	require.Zero(t, publishingFee)
 }
 
+func TestMinFeeTxIncludesExecutionAndReferenceScriptCosts(t *testing.T) {
+	tx := &conway.ConwayTransaction{
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{
+						Tag:   common.RedeemerTagSpend,
+						Index: 0,
+					}: {
+						ExUnits: common.ExUnits{Memory: 3, Steps: 4},
+					},
+					{
+						Tag:   common.RedeemerTagSpend,
+						Index: 1,
+					}: {
+						ExUnits: common.ExUnits{Memory: 1, Steps: 1},
+					},
+				},
+			},
+		},
+	}
+	tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
+	pp := &conway.ConwayProtocolParameters{
+		MinFeeA: 2,
+		MinFeeB: 3,
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+		MinFeeRefScriptCostPerByte: &cbor.Rat{Rat: big.NewRat(1, 1)},
+	}
+
+	byteFee, err := common.CalculateMinFee(4, pp.MinFeeA, pp.MinFeeB)
+	require.NoError(t, err)
+	executionFee, err := conway.CalculateExecutionUnitsFee(tx, pp.ExecutionCosts)
+	require.NoError(t, err)
+	require.Equal(t, uint64(6), executionFee)
+	minFee, err := conway.MinFeeTx(tx, pp)
+	require.NoError(t, err)
+	require.Equal(t, byteFee+executionFee, minFee)
+
+	combinedFee, err := conway.MinFeeTxWithRefScriptSize(tx, pp, 2)
+	require.NoError(t, err)
+	require.Equal(t, minFee+2, combinedFee)
+}
+
 func TestCalculateRefScriptFeeFloorsFractionalTotal(t *testing.T) {
 	fee, err := conway.CalculateRefScriptFee(
 		51_201,

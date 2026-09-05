@@ -226,6 +226,34 @@ type ProtocolParameterUpdateFieldZeroError struct {
 	Value     uint
 }
 
+// ConwayTransactionBodyFieldError indicates a field that is not valid in a
+// Conway transaction body.
+type ConwayTransactionBodyFieldError struct {
+	FieldKey int
+}
+
+func (e ConwayTransactionBodyFieldError) Error() string {
+	return fmt.Sprintf(
+		"invalid Conway transaction body field: %d",
+		e.FieldKey,
+	)
+}
+
+// ConwayProtocolParameterUpdateError indicates that a Conway protocol
+// parameter update contains a value outside its CDDL-defined domain.
+type ConwayProtocolParameterUpdateError struct {
+	FieldName string
+	Reason    string
+}
+
+func (e ConwayProtocolParameterUpdateError) Error() string {
+	return fmt.Sprintf(
+		"invalid Conway protocol parameter update field %s: %s",
+		e.FieldName,
+		e.Reason,
+	)
+}
+
 func (e ProtocolParameterUpdateFieldZeroError) Error() string {
 	return fmt.Sprintf(
 		"protocol parameter update field %s cannot be 0, got %d",

@@ -3006,6 +3006,17 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				false,
 			),
 		},
+		// total_collateral is only checked for phase-2 transactions, so the
+		// fixture needs a redeemer for the rule to run at all.
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
 	}
 	utxos := []common.Utxo{
 		{
@@ -4006,6 +4017,7 @@ func TestUtxoValidateDelegation_RejectsDuplicateStakeRegistrations(
 			Body: conway.ConwayTransactionBody{
 				TxCertificates: wrappers,
 			},
+			TxIsValid: true,
 		}
 	}
 
@@ -4255,6 +4267,7 @@ func TestUtxoValidateDelegation_DeregistrationBlocksLaterDelegation(
 			Body: conway.ConwayTransactionBody{
 				TxCertificates: wrappers,
 			},
+			TxIsValid: true,
 		}
 	}
 
@@ -4335,7 +4348,8 @@ func TestUtxoValidateDelegation_PoolRetirementKeepsPoolRegistered(
 			wrappers[i] = common.CertificateWrapper{Certificate: cert}
 		}
 		return &conway.ConwayTransaction{
-			Body: conway.ConwayTransactionBody{TxCertificates: wrappers},
+			Body:      conway.ConwayTransactionBody{TxCertificates: wrappers},
+			TxIsValid: true,
 		}
 	}
 	delegation := &common.StakeDelegationCertificate{
@@ -4390,6 +4404,7 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 
 		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
@@ -4422,6 +4437,7 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 
 		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
@@ -4449,6 +4465,7 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 
 		// PV10 doesn't enforce VRF key uniqueness
@@ -4479,6 +4496,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 	}
 
@@ -4530,6 +4548,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 							}},
 						},
 					},
+					TxIsValid: true,
 				}
 			},
 		},
@@ -4548,6 +4567,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 							}},
 						},
 					},
+					TxIsValid: true,
 				}
 			},
 		},
@@ -4571,6 +4591,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 							}},
 						},
 					},
+					TxIsValid: true,
 				}
 			},
 		},
@@ -5033,7 +5054,10 @@ func TestUtxoValidateUnknownVotersWrapsCommitteeLookupFailures(t *testing.T) {
 				err := conway.UtxoValidateUnknownVoters(
 					newTx(voterCase.voterType),
 					0,
-					mockledger.NewLedgerStateBuilder().Build(),
+					legacyOnlyLedgerState{
+						LedgerState: mockledger.NewLedgerStateBuilder().
+							Build(),
+					},
 					pp,
 				)
 				var memberErr conway.CommitteeMemberLookupError

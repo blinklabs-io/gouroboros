@@ -1400,6 +1400,9 @@ func UtxoValidateProposalReturnAccounts(
 
 // validateProtocolParameterUpdate validates that a PPU is well-formed
 func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
+	if err := validateConwayProtocolParameterUpdate(ppu); err != nil {
+		return err
+	}
 	// Check if PPU is empty (no fields set)
 	if ppu.MinFeeA == nil &&
 		ppu.MinFeeB == nil &&
@@ -1464,6 +1467,121 @@ func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
 		}
 	}
 
+	return nil
+}
+
+// validateConwayProtocolParameterUpdate enforces the domains from the
+// Conway protocol-parameter CDDL. It is shared by CBOR decoding and the
+// proposal rule so programmatically constructed updates cannot bypass the
+// wire checks.
+func validateConwayProtocolParameterUpdate(
+	ppu *ConwayProtocolParameterUpdate,
+) error {
+	if ppu == nil {
+		return ConwayProtocolParameterUpdateError{
+			FieldName: "update",
+			Reason:    "cannot be nil",
+		}
+	}
+	if ppu.A0 != nil && !validNonNegativeRat(ppu.A0) {
+		return invalidConwayParameterField("a0", "must be nonnegative")
+	}
+	if ppu.Rho != nil && !validUnitRat(ppu.Rho) {
+		return invalidConwayParameterField("rho", "must be in [0,1]")
+	}
+	if ppu.Tau != nil && !validUnitRat(ppu.Tau) {
+		return invalidConwayParameterField("tau", "must be in [0,1]")
+	}
+	if ppu.ExecutionCosts != nil {
+		if !validNonNegativeRat(ppu.ExecutionCosts.MemPrice) {
+			return invalidConwayParameterField(
+				"executionCosts.memory", "must be nonnegative",
+			)
+		}
+		if !validNonNegativeRat(ppu.ExecutionCosts.StepPrice) {
+			return invalidConwayParameterField(
+				"executionCosts.steps", "must be nonnegative",
+			)
+		}
+	}
+	if err := validateConwayExUnits(ppu.MaxTxExUnits, "maxTxExUnits"); err != nil {
+		return err
+	}
+	if err := validateConwayExUnits(ppu.MaxBlockExUnits, "maxBlockExUnits"); err != nil {
+		return err
+	}
+	if ppu.MinFeeRefScriptCostPerByte != nil &&
+		!validNonNegativeRat(ppu.MinFeeRefScriptCostPerByte) {
+		return invalidConwayParameterField(
+			"minFeeRefScriptCostPerByte", "must be nonnegative",
+		)
+	}
+	if ppu.PoolVotingThresholds != nil {
+		for _, item := range []struct {
+			name string
+			rat  cbor.Rat
+		}{
+			{"motionNoConfidence", ppu.PoolVotingThresholds.MotionNoConfidence},
+			{"committeeNormal", ppu.PoolVotingThresholds.CommitteeNormal},
+			{"committeeNoConfidence", ppu.PoolVotingThresholds.CommitteeNoConfidence},
+			{"hardForkInitiation", ppu.PoolVotingThresholds.HardForkInitiation},
+			{"ppSecurityGroup", ppu.PoolVotingThresholds.PpSecurityGroup},
+		} {
+			name, rat := item.name, item.rat
+			if !validUnitRat(&rat) {
+				return invalidConwayParameterField(
+					"poolVotingThresholds."+name, "must be in [0,1]",
+				)
+			}
+		}
+	}
+	if ppu.DRepVotingThresholds != nil {
+		for _, item := range []struct {
+			name string
+			rat  cbor.Rat
+		}{
+			{"motionNoConfidence", ppu.DRepVotingThresholds.MotionNoConfidence},
+			{"committeeNormal", ppu.DRepVotingThresholds.CommitteeNormal},
+			{"committeeNoConfidence", ppu.DRepVotingThresholds.CommitteeNoConfidence},
+			{"updateToConstitution", ppu.DRepVotingThresholds.UpdateToConstitution},
+			{"hardForkInitiation", ppu.DRepVotingThresholds.HardForkInitiation},
+			{"ppNetworkGroup", ppu.DRepVotingThresholds.PpNetworkGroup},
+			{"ppEconomicGroup", ppu.DRepVotingThresholds.PpEconomicGroup},
+			{"ppTechnicalGroup", ppu.DRepVotingThresholds.PpTechnicalGroup},
+			{"ppGovGroup", ppu.DRepVotingThresholds.PpGovGroup},
+			{"treasuryWithdrawal", ppu.DRepVotingThresholds.TreasuryWithdrawal},
+		} {
+			name, rat := item.name, item.rat
+			if !validUnitRat(&rat) {
+				return invalidConwayParameterField(
+					"drepVotingThresholds."+name, "must be in [0,1]",
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func invalidConwayParameterField(field, reason string) error {
+	return ConwayProtocolParameterUpdateError{FieldName: field, Reason: reason}
+}
+
+func validNonNegativeRat(rat *cbor.Rat) bool {
+	return rat != nil && rat.Rat != nil && rat.Denom().Sign() > 0 &&
+		rat.Num().Sign() >= 0
+}
+
+func validUnitRat(rat *cbor.Rat) bool {
+	return validNonNegativeRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
+}
+
+func validateConwayExUnits(units *common.ExUnits, field string) error {
+	if units == nil {
+		return nil
+	}
+	if units.Memory < 0 || units.Steps < 0 {
+		return invalidConwayParameterField(field, "must be nonnegative")
+	}
 	return nil
 }
 
@@ -2137,6 +2255,7 @@ func UtxoValidateValueNotConservedUtxo(
 			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
 		}
 	}
+	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.DeregistrationCertificate:
@@ -2204,11 +2323,18 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator))
+			operator := common.Blake2b224(tmpCert.Operator)
+			if _, seen := seenPoolRegistrations[operator]; seen {
+				continue
+			}
+			seenPoolRegistrations[operator] = struct{}{}
+			depositDue, err := common.PoolRegistrationDepositDue(
+				ls, slot, operator,
+			)
 			if err != nil {
 				return err
 			}
-			if reg == nil {
+			if depositDue {
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.RegistrationCertificate:
@@ -2673,15 +2799,15 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	txBytes, err := cbor.Encode(tx)
-	if err != nil {
-		return err
+	txSize, sizeErr := common.TxSize(tx)
+	if sizeErr != nil {
+		return sizeErr
 	}
-	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+	if uint(txSize) <= tmpPparams.MaxTxSize {
 		return nil
 	}
 	return shelley.MaxTxSizeUtxoError{
-		TxSize:    uint(len(txBytes)),
+		TxSize:    uint(txSize),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
 }
@@ -2789,7 +2915,14 @@ func MinFeeTx(
 	if err != nil {
 		return 0, err
 	}
-	return minFee, nil
+	executionFee, err := CalculateExecutionUnitsFee(tx, tmpPparams.ExecutionCosts)
+	if err != nil {
+		return 0, err
+	}
+	if minFee > math.MaxUint64-executionFee {
+		return 0, errors.New("minimum transaction fee overflow")
+	}
+	return minFee + executionFee, nil
 }
 
 // MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters.
@@ -3204,13 +3337,20 @@ func UtxoValidateNativeScripts(
 // - Stake credential registration for non-registration delegations
 //
 // The function tracks in-transaction registrations to handle cases where
-// registration and delegation are in the same transaction.
+// registration and delegation are in the same transaction. Delegation state
+// transitions only apply to phase-2-valid transactions; this guard is kept in
+// the rule itself because Dijkstra and the conformance harness register and
+// invoke it directly rather than through Conway's composed rule groups.
 func UtxoValidateDelegation(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !tx.IsValid() {
+		return nil
+	}
+
 	// Track credential registration state changes within this transaction.
 	// The bool records both registrations and deregistrations so later
 	// certificates observe the state produced by earlier certificates.
