@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/blinklabs-io/gouroboros/internal/ed25519strict"
 	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/vrf"
@@ -574,7 +575,7 @@ func (v *HeaderValidator) validateOpCertSignature(
 	)
 
 	// Verify Ed25519 signature
-	valid := ed25519.Verify(
+	valid := ed25519strict.Verify(
 		input.IssuerVkey,
 		opCertBody,
 		input.OpCertSignature,
