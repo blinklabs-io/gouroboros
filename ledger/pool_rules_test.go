@@ -90,15 +90,17 @@ func conwayPparams(
 	return &pparams
 }
 
-// poolRegCertWire builds a pool registration certificate by encoding the wire
-// form and decoding it, so that the reward account keeps its address header
-// byte. rewardAccountNetworkId is the low nibble of that header.
-func poolRegCertWire(
+// decodePoolRegCertWire builds a pool registration certificate by encoding the
+// wire form and decoding it, so that the reward account keeps its address
+// header byte. rewardAccountNetworkId is the low nibble of that header, and
+// metadata is the pool_metadata entry or nil.
+func decodePoolRegCertWire(
 	t *testing.T,
 	operator common.PoolKeyHash,
 	vrf common.VrfKeyHash,
 	cost uint64,
 	rewardAccountNetworkId byte,
+	metadata any,
 ) *common.PoolRegistrationCertificate {
 	t.Helper()
 	rewardAccount := make([]byte, common.Blake2b224Size+1)
@@ -117,7 +119,7 @@ func poolRegCertWire(
 		rewardAccount,
 		[]common.AddrKeyHash{poolKeyHash(0x09)},
 		[]common.PoolRelay{},
-		nil,
+		metadata,
 	})
 	require.NoError(t, err)
 	cert := &common.PoolRegistrationCertificate{}
@@ -128,6 +130,26 @@ func poolRegCertWire(
 	require.True(t, known)
 	require.Equal(t, uint(rewardAccountNetworkId&0x0F), netId)
 	return cert
+}
+
+// poolRegCertWire builds a pool registration certificate with no
+// pool_metadata entry.
+func poolRegCertWire(
+	t *testing.T,
+	operator common.PoolKeyHash,
+	vrf common.VrfKeyHash,
+	cost uint64,
+	rewardAccountNetworkId byte,
+) *common.PoolRegistrationCertificate {
+	t.Helper()
+	return decodePoolRegCertWire(
+		t,
+		operator,
+		vrf,
+		cost,
+		rewardAccountNetworkId,
+		nil,
+	)
 }
 
 func poolRetirementCert(
@@ -1105,29 +1127,17 @@ func poolRegCertWireWithMetadata(
 	hashLen int,
 ) *common.PoolRegistrationCertificate {
 	t.Helper()
-	rewardAccount := make([]byte, common.Blake2b224Size+1)
-	rewardAccount[0] = 0xe0 | common.AddressNetworkMainnet
-	for i := 1; i < len(rewardAccount); i++ {
-		rewardAccount[i] = 0x07
-	}
-	wire, err := cbor.Encode([]any{
-		uint(common.CertificateTypePoolRegistration),
+	cert := decodePoolRegCertWire(
+		t,
 		operator,
 		vrf,
-		uint64(1_000_000),
-		uint64(340_000_000),
-		common.NewGenesisRat(0, 1),
-		rewardAccount,
-		[]common.AddrKeyHash{poolKeyHash(0x09)},
-		[]common.PoolRelay{},
+		340_000_000,
+		common.AddressNetworkMainnet,
 		[]any{
 			"https://example.com/pool.json",
 			bytes.Repeat([]byte{0x05}, hashLen),
 		},
-	})
-	require.NoError(t, err)
-	cert := &common.PoolRegistrationCertificate{}
-	require.NoError(t, cert.UnmarshalCBOR(wire))
+	)
 	require.NotNil(t, cert.PoolMetadata)
 	require.Len(t, cert.PoolMetadata.Hash, hashLen)
 	return cert
