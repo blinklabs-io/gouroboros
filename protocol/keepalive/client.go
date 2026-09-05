@@ -27,6 +27,7 @@ type Client struct {
 	*protocol.Protocol
 	config          *Config
 	cookie          uint16
+	inFlight        bool
 	cookieMutex     sync.Mutex
 	callbackContext CallbackContext
 	timer           *time.Timer
@@ -102,10 +103,19 @@ func (c *Client) Start() {
 // sendKeepAlive sends a keep-alive message and schedules the next one.
 func (c *Client) sendKeepAlive() {
 	c.cookieMutex.Lock()
+	if c.inFlight {
+		c.cookieMutex.Unlock()
+		c.startTimer()
+		return
+	}
 	cookie := c.cookie
+	c.inFlight = true
 	c.cookieMutex.Unlock()
 	msg := NewMsgKeepAlive(cookie)
 	if err := c.SendMessage(msg); err != nil {
+		c.cookieMutex.Lock()
+		c.inFlight = false
+		c.cookieMutex.Unlock()
 		c.SendError(err)
 	}
 	// Schedule timer
@@ -154,6 +164,7 @@ func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	expectedCookie := c.cookie
 	if msg.Cookie == expectedCookie {
 		c.cookie++
+		c.inFlight = false
 	}
 	c.cookieMutex.Unlock()
 	if msg.Cookie != expectedCookie {

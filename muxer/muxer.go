@@ -87,11 +87,24 @@ type segmentSender struct {
 	ch       chan *Segment
 	done     chan struct{}
 	onceStop sync.Once
+	mu       sync.Mutex
 }
 
 func (s *segmentSender) stop() {
 	s.onceStop.Do(func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		close(s.done)
+		for {
+			select {
+			case msg := <-s.ch:
+				if msg != nil {
+					msg.reportDelivery(errors.New("protocol unregistered"))
+				}
+			default:
+				return
+			}
+		}
 	})
 }
 
@@ -265,7 +278,16 @@ func (m *Muxer) RegisterProtocol(
 				if !ok {
 					return
 				}
+				sender.mu.Lock()
+				select {
+				case <-sender.done:
+					sender.mu.Unlock()
+					msg.reportDelivery(errors.New("protocol unregistered"))
+					continue
+				default:
+				}
 				err := m.Send(msg)
+				sender.mu.Unlock()
 				msg.reportDelivery(err)
 				if err != nil {
 					m.sendError(err)
@@ -283,10 +305,12 @@ func (m *Muxer) UnregisterProtocol(
 ) {
 	m.protocolReceiversMutex.Lock()
 	defer m.protocolReceiversMutex.Unlock()
+	removed := false
 	// Remove both directions while holding the same lock. This prevents a
 	// concurrent re-registration from observing only half of the old mapping.
 	if protocolRoles, ok := m.protocolReceivers[protocolId]; ok {
 		if recvChan, ok := protocolRoles[protocolRole]; ok {
+			removed = true
 			recvChan.stop()
 			delete(protocolRoles, protocolRole)
 		}
@@ -296,6 +320,7 @@ func (m *Muxer) UnregisterProtocol(
 	}
 	if protocolRoles, ok := m.protocolSenders[protocolId]; ok {
 		if sender, ok := protocolRoles[protocolRole]; ok {
+			removed = true
 			sender.stop()
 			delete(protocolRoles, protocolRole)
 		}
@@ -303,10 +328,12 @@ func (m *Muxer) UnregisterProtocol(
 			delete(m.protocolSenders, protocolId)
 		}
 	}
-	if _, ok := m.protocolTombstones[protocolId]; !ok {
-		m.protocolTombstones[protocolId] = make(map[ProtocolRole]struct{})
+	if removed {
+		if _, ok := m.protocolTombstones[protocolId]; !ok {
+			m.protocolTombstones[protocolId] = make(map[ProtocolRole]struct{})
+		}
+		m.protocolTombstones[protocolId][protocolRole] = struct{}{}
 	}
-	m.protocolTombstones[protocolId][protocolRole] = struct{}{}
 }
 
 // Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than
