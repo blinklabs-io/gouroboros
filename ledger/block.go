@@ -66,9 +66,11 @@ func NewBlockFromCbor(
 	if err != nil {
 		return nil, err
 	}
-	header := block.Header()
-	if header == nil || reflect.ValueOf(header).IsNil() {
-		return nil, errors.New("block header is nil")
+	if !cfg.SkipHeaderValidation {
+		header := block.Header()
+		if header == nil || reflect.ValueOf(header).IsNil() {
+			return nil, errors.New("block header is nil")
+		}
 	}
 	return block, nil
 }

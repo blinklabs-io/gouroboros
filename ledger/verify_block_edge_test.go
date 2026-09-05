@@ -376,27 +376,29 @@ func TestNewBlockFromCbor_RejectsNullHeaders(t *testing.T) {
 		name      string
 		blockType uint
 		data      []byte
+		wantError string
 	}{
-		{"byron ebb", ledger.BlockTypeByronEbb, []byte{0x83, 0xf6, 0x80, 0x80}},
+		{"byron ebb", ledger.BlockTypeByronEbb, []byte{0x83, 0xf6, 0x80, 0x80}, "decode Byron EBB block error: byron EBB block missing header"},
 		{
 			"byron main",
 			ledger.BlockTypeByronMain,
 			[]byte{0x83, 0xf6, 0x84, 0x80, 0xf6, 0x80, 0x82, 0x80, 0x80, 0x80},
+			"block header is nil",
 		},
-		{"shelley", ledger.BlockTypeShelley, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}},
-		{"allegra", ledger.BlockTypeAllegra, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}},
-		{"mary", ledger.BlockTypeMary, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}},
-		{"alonzo", ledger.BlockTypeAlonzo, []byte{0x85, 0xf6, 0x80, 0x80, 0xa0, 0x80}},
-		{"babbage", ledger.BlockTypeBabbage, []byte{0x85, 0xf6, 0x80, 0x80, 0xa0, 0x80}},
-		{"conway", ledger.BlockTypeConway, []byte{0x85, 0xf6, 0x80, 0x80, 0xa0, 0x80}},
-		{"dijkstra", ledger.BlockTypeDijkstra, []byte{0x82, 0xf6, 0x84, 0xf6, 0x80, 0xf6, 0xf6}},
+		{"shelley", ledger.BlockTypeShelley, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}, "block header is nil"},
+		{"allegra", ledger.BlockTypeAllegra, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}, "block header is nil"},
+		{"mary", ledger.BlockTypeMary, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}, "block header is nil"},
+		{"alonzo", ledger.BlockTypeAlonzo, []byte{0x85, 0xf6, 0x80, 0x80, 0xa0, 0x80}, "block header is nil"},
+		{"babbage", ledger.BlockTypeBabbage, []byte{0x85, 0xf6, 0x80, 0x80, 0xa0, 0x80}, "block header is nil"},
+		{"conway", ledger.BlockTypeConway, []byte{0x85, 0xf6, 0x80, 0x80, 0xa0, 0x80}, "block header is nil"},
+		{"dijkstra", ledger.BlockTypeDijkstra, []byte{0x82, 0xf6, 0x84, 0xf6, 0x80, 0xf6, 0xf6}, "decode Dijkstra block error: dijkstra block header is nil"},
 	}
 	config := skipAllValidationConfig()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := ledger.NewBlockFromCbor(tt.blockType, tt.data, config)
 			require.Error(t, err)
-			assert.Contains(t, strings.ToLower(err.Error()), "header")
+			require.EqualError(t, err, tt.wantError)
 		})
 	}
 }
