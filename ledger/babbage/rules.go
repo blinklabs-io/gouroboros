@@ -651,8 +651,7 @@ func UtxoValidateCollateralEqBalance(
 		}
 	}
 
-	// Skip validation if no valid collateral UTxOs were found
-	// This avoids subtracting from zero and prevents uint underflow
+	// Resolved collateral with zero value has no amount to compare.
 	if collBalance.Sign() == 0 {
 		return nil
 	}

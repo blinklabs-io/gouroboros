@@ -894,6 +894,7 @@ func (b *ConwayTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
 type ConwayTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hashMu     sync.Mutex
 	hash       *common.Blake2b256
 	Body       ConwayTransactionBody
 	WitnessSet ConwayTransactionWitnessSet
@@ -902,13 +903,11 @@ type ConwayTransaction struct {
 	auxData    common.AuxiliaryData
 }
 
-// Conway Leios hashes are read concurrently by block-processing consumers.
-// Keep the cache on the transaction while serializing its first population.
-var conwayLeiosHashMu sync.Mutex
-
 func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
+	t.hashMu.Lock()
 	t.hash = nil
+	t.hashMu.Unlock()
 	t.TxMetadata = nil
 	t.auxData = nil
 
@@ -990,6 +989,13 @@ func (t *ConwayTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
+func (t *ConwayTransaction) SetCbor(cborData []byte) {
+	t.hashMu.Lock()
+	t.hash = nil
+	t.DecodeStoreCbor.SetCbor(cborData)
+	t.hashMu.Unlock()
+}
+
 func (ConwayTransaction) Type() int {
 	return TxTypeConway
 }
@@ -1003,8 +1009,8 @@ func (t ConwayTransaction) Id() common.Blake2b256 {
 }
 
 func (t *ConwayTransaction) LeiosHash() common.Blake2b256 {
-	conwayLeiosHashMu.Lock()
-	defer conwayLeiosHashMu.Unlock()
+	t.hashMu.Lock()
+	defer t.hashMu.Unlock()
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
