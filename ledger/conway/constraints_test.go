@@ -91,7 +91,7 @@ func TestConwayProtocolParameterUpdateDecodeRejectsNullExecutionPrice(
 
 func TestConwayProtocolParameterUpdateAcceptsDomainBoundaries(t *testing.T) {
 	update := ConwayProtocolParameterUpdate{
-		A0:  &cbor.Rat{Rat: big.NewRat(0, 1)},
+		A0:  &cbor.Rat{Rat: big.NewRat(2, 1)},
 		Rho: &cbor.Rat{Rat: big.NewRat(0, 1)},
 		Tau: &cbor.Rat{Rat: big.NewRat(1, 1)},
 		ExecutionCosts: &common.ExUnitPrice{
