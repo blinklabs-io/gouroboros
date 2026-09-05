@@ -1,6 +1,6 @@
 ---
 name: cross-boundary-changes
-description: Change a shape that crosses a boundary — an HTTP response and its SPA consumer, a Go interface and its callers, a datum decoder and its parser, a stored key format and its persisted data — without breaking the other side. Use before editing any response body, error path, struct field, ID format, or return contract, and whenever a review finding names only one side of such a boundary.
+description: Change a shape that crosses a boundary — an HTTP response and its SPA consumer, a Go interface and its callers, a datum decoder and its parser, a stored key format and its persisted data — without breaking the other side. Use before editing any response body, error path, struct field, ID format, or return contract; before widening a type or removing a bound, which makes previously dead branches live; when a name or comment asserts a property nothing checks, such as a Clone that aliases or a guard whose comment overstates it; and whenever a review finding names only one side of such a boundary.
 ---
 
 # Cross-Boundary Changes
@@ -47,6 +47,54 @@ When a review comment pushes back, re-derive the answer from the contract
 rather than adjusting to the comment. Changing the shape once per round of
 feedback is the signature of reacting instead of deciding, and it costs a review
 cycle every time.
+
+## Widening a type makes dead branches live
+
+A bound is often the only thing keeping a wrong branch unreachable. Remove or
+widen it and the branch runs for the first time — so the defect arrives in code
+you did not touch, and blames the change that made it reachable.
+
+Three instances of this in one workspace, one day:
+
+- A map value widened from `uint64` to a signed type made a `BigInt` conversion
+  reachable for negative input. It sent any out-of-int64 magnitude to the
+  unsigned variant, and the absolute-value bytes reported a negative number as
+  positive. Every existing caller passed a non-negative coin, so the branch had
+  never run.
+- A cache field assigned through a value receiver was written to the copy and
+  discarded. The memo had never worked, so nothing depended on it — and the
+  moment a receiver was made a pointer, the field became live and unsynchronized.
+- A `copier.CopyWithOption(..., DeepCopy: true)` over an array of pointers
+  performed a shallow copy. The name asserted a property nothing checked, and
+  every consumer had been sharing state since it was written.
+
+**Before widening a type, enumerate what it currently makes impossible.** Then
+read each branch that becomes reachable, on the assumption it was never tested.
+Grep the whole workspace: the consumer that breaks may be in another repository
+and may break at *runtime* rather than at compile time. A pipeline that is
+unsigned end to end will accept the new type and then reject its values further
+down, which moves the failure rather than removing it.
+
+## A stated guarantee the type system does not enforce
+
+The commonest shape here is a name or a comment claiming a property no compiler
+and no test checks: a `Clone` that aliases, a `DeepCopy` that is shallow, a
+precheck whose comment says it proves chain membership while it queries a store,
+a rule documented as unreachable *because* of a bug.
+
+The detector is cheap and mechanical: **mutate one side and observe the other.**
+Two independently built values that move together are shared. A cache that
+survives no call did not persist. A guard that admits the thing its comment
+forbids is not that guard.
+
+Two corollaries worth applying by reflex:
+
+- A comment that justifies not implementing something is a claim to verify, not
+  a reason to skip. One documented a validation predicate as unreachable because
+  a type was fixed-width; the type was the defect, and the predicate was needed.
+- When you find one instance, sweep for the class before you fix it. An
+  incidental sample is usually a minority of the members, and the ones you have
+  not seen often include the case that changes the fix.
 
 ## Read paths degrade, write paths fail
 
