@@ -995,6 +995,9 @@ func UtxoValidateGovActionWellFormedness(
 				)
 				return ConflictingCommitteeUpdateError{Credentials: conflicting}
 			}
+			if err := validateCommitteeTerms(a, ls, pp); err != nil {
+				return err
+			}
 		}
 	}
 	return UtxoValidateGuardrailsScriptHash(tx, slot, ls, pp)
@@ -3913,6 +3916,71 @@ func UtxoValidateCommitteeCertificates(
 					ColdCredential: c.ColdCredential,
 					Operation:      "resign",
 				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateCommitteeTerms mirrors validCommitteeTerm in
+// Cardano.Ledger.Conway.Rules.Ratify. The bound applies to the expiry epochs
+// proposed by an UpdateCommittee action, not to certificates operating on a
+// committee member that was already proposed by an earlier action.
+func validateCommitteeTerms(
+	a *common.UpdateCommitteeGovAction,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if len(a.CredEpochs) == 0 {
+		return nil
+	}
+	termParams, ok := pp.(common.CommitteeMaxTermLengthProvider)
+	if !ok {
+		return CommitteeTermLimitUnavailableError{}
+	}
+	maxTermLength, ok := termParams.CommitteeMaxTermLength()
+	if !ok {
+		return CommitteeTermLimitUnavailableError{}
+	}
+	epochState, ok := ls.(common.CurrentEpochState)
+	if !ok {
+		return CurrentEpochStateUnavailableError{}
+	}
+	currentEpoch := epochState.CurrentEpoch()
+	type committeeTerm struct {
+		credential *common.Credential
+		expiry     uint64
+	}
+	terms := make([]committeeTerm, 0, len(a.CredEpochs))
+	for credential, expiryEpoch := range a.CredEpochs {
+		if credential == nil {
+			continue
+		}
+		terms = append(terms, committeeTerm{
+			credential: credential,
+			expiry:     uint64(expiryEpoch),
+		})
+	}
+	slices.SortFunc(terms, func(a, b committeeTerm) int {
+		if a.credential.CredType != b.credential.CredType {
+			return int(a.credential.CredType) - int(b.credential.CredType)
+		}
+		return bytes.Compare(
+			a.credential.Credential.Bytes(),
+			b.credential.Credential.Bytes(),
+		)
+	})
+	for _, term := range terms {
+		credential := term.credential
+		// This is equivalent to expiryEpoch > currentEpoch+maxTermLength,
+		// without overflowing when the sum exceeds uint64.
+		expiry := term.expiry
+		if expiry > currentEpoch && expiry-currentEpoch > maxTermLength {
+			return CommitteeTermTooLongError{
+				Credential:    credential.Credential,
+				CurrentEpoch:  currentEpoch,
+				ExpiryEpoch:   expiry,
+				MaxTermLength: maxTermLength,
 			}
 		}
 	}

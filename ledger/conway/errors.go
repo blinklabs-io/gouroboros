@@ -524,6 +524,41 @@ func (e CommitteeMemberLookupError) Unwrap() error {
 	return e.Err
 }
 
+// CommitteeTermLimitUnavailableError indicates that protocol parameters do
+// not expose the constitutional committee maximum term length.
+type CommitteeTermLimitUnavailableError struct{}
+
+func (CommitteeTermLimitUnavailableError) Error() string {
+	return "constitutional committee maximum term length is unavailable"
+}
+
+// CurrentEpochStateUnavailableError indicates that committee term validation
+// cannot determine the current epoch.
+type CurrentEpochStateUnavailableError struct{}
+
+func (CurrentEpochStateUnavailableError) Error() string {
+	return "ledger state does not expose the current epoch"
+}
+
+// CommitteeTermTooLongError indicates that a committee member's expiry is
+// beyond the configured maximum term measured from the current epoch.
+type CommitteeTermTooLongError struct {
+	Credential    common.Blake2b224
+	CurrentEpoch  uint64
+	ExpiryEpoch   uint64
+	MaxTermLength uint64
+}
+
+func (e CommitteeTermTooLongError) Error() string {
+	return fmt.Sprintf(
+		"CC member %x expires at epoch %d, beyond current epoch %d plus maximum term length %d",
+		e.Credential[:],
+		e.ExpiryEpoch,
+		e.CurrentEpoch,
+		e.MaxTermLength,
+	)
+}
+
 // DuplicateVrfKeyError indicates a pool registration attempted to use a VRF key
 // already registered by another pool. Introduced in Protocol Version 11.
 type DuplicateVrfKeyError struct {
