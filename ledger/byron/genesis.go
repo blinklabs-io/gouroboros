@@ -45,26 +45,26 @@ type ByronGenesis struct {
 }
 
 type ByronGenesisBlockVersionData struct {
-	HeavyDelThd       int                                      `json:"heavyDelThd,string"`
+	HeavyDelThd       int64                                    `json:"heavyDelThd,string"`
 	MaxBlockSize      int                                      `json:"maxBlockSize,string"`
 	MaxHeaderSize     int                                      `json:"maxHeaderSize,string"`
 	MaxProposalSize   int                                      `json:"maxProposalSize,string"`
 	MaxTxSize         int                                      `json:"maxTxSize,string"`
-	MpcThd            int                                      `json:"mpcThd,string"`
+	MpcThd            int64                                    `json:"mpcThd,string"`
 	ScriptVersion     int                                      `json:"scriptVersion"`
 	SlotDuration      int                                      `json:"slotDuration,string"`
 	SoftforkRule      ByronGenesisBlockVersionDataSoftforkRule `json:"softforkRule"`
 	TxFeePolicy       ByronGenesisBlockVersionDataTxFeePolicy  `json:"txFeePolicy"`
 	UnlockStakeEpoch  uint64                                   `json:"unlockStakeEpoch,string"`
 	UpdateImplicit    int                                      `json:"updateImplicit,string"`
-	UpdateProposalThd int                                      `json:"updateProposalThd,string"`
-	UpdateVoteThd     int                                      `json:"updateVoteThd,string"`
+	UpdateProposalThd int64                                    `json:"updateProposalThd,string"`
+	UpdateVoteThd     int64                                    `json:"updateVoteThd,string"`
 }
 
 type ByronGenesisBlockVersionDataSoftforkRule struct {
-	InitThd      int `json:"initThd,string"`
-	MinThd       int `json:"minThd,string"`
-	ThdDecrement int `json:"thdDecrement,string"`
+	InitThd      int64 `json:"initThd,string"`
+	MinThd       int64 `json:"minThd,string"`
+	ThdDecrement int64 `json:"thdDecrement,string"`
 }
 
 type ByronGenesisBlockVersionDataTxFeePolicy struct {

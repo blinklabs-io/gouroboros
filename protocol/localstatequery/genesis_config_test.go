@@ -76,17 +76,17 @@ func genesisProtocolParamsCurrent() []any {
 
 func genesisConfigCommonPrefix(pparams []any) []any {
 	return []any{
-		[]any{2017, 254, 71856000000000}, // system start
-		42,                               // network magic
-		0,                                // network id
-		[]any{1, 20},                     // active slots coeff
-		2160,                             // security param
-		432000,                           // epoch length
-		129600,                           // slots per KES period
-		62,                               // max KES evolutions
-		1,                                // slot length
-		5,                                // update quorum
-		45000000000000000,                // max lovelace supply
+		[]any{2017, 254, int64(71856000000000)}, // system start
+		42,                                      // network magic
+		0,                                       // network id
+		[]any{1, 20},                            // active slots coeff
+		2160,                                    // security param
+		432000,                                  // epoch length
+		129600,                                  // slots per KES period
+		62,                                      // max KES evolutions
+		1,                                       // slot length
+		5,                                       // update quorum
+		int64(45000000000000000),                // max lovelace supply
 		pparams,
 		map[any]any{},                 // genesis delegates
 		[]any{},                       // initial funds
