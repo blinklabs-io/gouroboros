@@ -121,10 +121,10 @@ func ResolveInputUtxo(state UtxoState, input TransactionInput) (Utxo, error) {
 	if err != nil {
 		return Utxo{}, InputResolutionError{Input: input, Err: err}
 	}
-	outputValue := reflect.ValueOf(utxo.Output)
 	if utxo.Output == nil ||
-		((outputValue.Kind() == reflect.Ptr || outputValue.Kind() == reflect.Interface) &&
-			outputValue.IsNil()) {
+		((reflect.ValueOf(utxo.Output).Kind() == reflect.Ptr ||
+			reflect.ValueOf(utxo.Output).Kind() == reflect.Interface) &&
+			reflect.ValueOf(utxo.Output).IsNil()) {
 		return Utxo{}, InputResolutionError{
 			Input: input,
 			Err:   errors.New("resolved UTxO has nil output"),
