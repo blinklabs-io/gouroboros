@@ -73,9 +73,7 @@ type validRangeBuilder func(
 ) (data.PlutusData, error)
 
 // TestValidityRangeEraIdsUnchanged pins the era-numbering assumption behind
-// the unexported eraIdConway gate in validityRangeInfo. That constant cannot
-// reference the era packages (they import ledger/common/script), so a
-// renumbering here is the signal to update it.
+// the unexported eraIdConway gate in validityRangeInfo.
 func TestValidityRangeEraIdsUnchanged(t *testing.T) {
 	require.Equal(t, 4, alonzo.TxTypeAlonzo)
 	require.Equal(t, 5, babbage.TxTypeBabbage)
@@ -89,13 +87,11 @@ func TestValidityRangeEraIdsUnchanged(t *testing.T) {
 // on.
 func TestValidityRangeUpperBoundByEra(t *testing.T) {
 	for _, era := range []struct {
-		name                   string
-		upperBoundOnlyIsClosed bool
-		tx                     eraTxBuilder
+		name string
+		tx   eraTxBuilder
 	}{
 		{
-			name:                   "Alonzo",
-			upperBoundOnlyIsClosed: true,
+			name: "Alonzo",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -107,8 +103,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name:                   "Babbage",
-			upperBoundOnlyIsClosed: true,
+			name: "Babbage",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -120,8 +115,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name:                   "Conway",
-			upperBoundOnlyIsClosed: false,
+			name: "Conway",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -132,8 +126,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 			},
 		},
 		{
-			name:                   "Dijkstra",
-			upperBoundOnlyIsClosed: false,
+			name: "Dijkstra",
 			tx: func(
 				t *testing.T,
 				f mockledger.ValidityIntervalFixture,
@@ -208,7 +201,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 							)
 							require.NoError(t, err)
 							strictUpperBound := build.name == "V3" ||
-								!era.upperBoundOnlyIsClosed
+								era.name == "Conway" || era.name == "Dijkstra"
 							expected := expectedValidityRange(
 								fixture.StartSlot,
 								fixture.EndSlot,
