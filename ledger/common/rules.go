@@ -1074,9 +1074,6 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		// tightening it as a side effect.
 		return nil
 	}
-	if !tx.IsValid() {
-		return nil
-	}
 	requirements, err := collectTransactionScriptRequirements(tx, ls)
 	if err != nil {
 		return err
