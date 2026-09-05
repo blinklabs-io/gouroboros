@@ -1249,11 +1249,15 @@ func (c *Client) GetDRepState(
 		QueryTypeShelleyDRepState,
 		credSet,
 	)
-	var result DRepStateResult
-	if err := c.runQuery(query, &result); err != nil {
+	// The result is wrapped in a single-element array.
+	var wrappedResult []DRepStateResult
+	if err := c.runQuery(query, &wrappedResult); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(wrappedResult) == 0 {
+		return nil, errors.New("empty result from DRep state query")
+	}
+	return &wrappedResult[0], nil
 }
 
 // GetDRepStakeDistr returns the stake distribution across DReps (CIP-1694).

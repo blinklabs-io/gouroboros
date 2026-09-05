@@ -29,6 +29,7 @@ import (
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
@@ -815,4 +816,82 @@ func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
 		var unmatchedErr script.UnmatchedRedeemerError
 		require.ErrorAs(t, err, &unmatchedErr)
 	})
+}
+
+// TestTxInfoV3AlonzoResolvedInputDatumHash asserts that a V3 TxInfo built
+// from a resolved input whose Output is an *alonzo.AlonzoTransactionOutput
+// (the legacy pre-Babbage array output encoding, which only supports a
+// datum hash) carries that hash through to the rendered PlutusData at the
+// datum-option position, rather than silently dropping it. This exercises
+// the actual production path (NewTxInfoV3FromTransaction -> expandInputs ->
+// ResolvedInput.ToPlutusData -> AlonzoTransactionOutput.ToPlutusData), so a
+// future change routing V3 output rendering through a different path would
+// be caught here even if the per-type alonzo package tests still passed.
+func TestTxInfoV3AlonzoResolvedInputDatumHash(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"6107c3019b9d3f119f1b8755a51d0031d82450cf1126302eacbc0dc32ebf6cdb",
+		1,
+	)
+	addr, err := common.NewAddress(
+		"addr_test1vqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygxrcya6",
+	)
+	require.NoError(t, err)
+	datumHashBytes, err := hex.DecodeString(
+		"7354f11eaa78d3ca25ac79edadf4ae3a99db9201527c16f43ae93283ff409a7a",
+	)
+	require.NoError(t, err)
+	datumHash := common.NewBlake2b256(datumHashBytes)
+	resolvedInputs := []lcommon.Utxo{
+		{
+			Id: input,
+			Output: alonzo.AlonzoTransactionOutput{
+				OutputAddress: addr,
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: 4_400_000,
+				},
+				OutputDatumHash: &datumHash,
+			},
+		},
+	}
+
+	mockTx := mockledger.NewTransactionBuilder()
+	mockTx.WithInputs(input)
+	var tx common.Transaction = mockTx
+
+	txInfo, err := script.NewTxInfoV3FromTransaction(
+		preprodSlotState,
+		tx,
+		resolvedInputs,
+	)
+	require.NoError(t, err)
+	require.Len(t, txInfo.Inputs, 1)
+
+	expectedOutputPd := data.NewConstr(
+		0,
+		addr.ToPlutusData(),
+		data.NewMap(
+			[][2]data.PlutusData{
+				{
+					data.NewByteString(nil),
+					data.NewMap(
+						[][2]data.PlutusData{
+							{
+								data.NewByteString(nil),
+								data.NewInteger(big.NewInt(4_400_000)),
+							},
+						},
+					),
+				},
+			},
+		),
+		// Datum option: hash present -> constructor 1 wrapping the hash
+		data.NewConstr(1, data.NewByteString(datumHash.Bytes())),
+		// Empty script ref (no era support for script refs pre-Babbage)
+		data.NewConstr(1),
+	)
+	require.Equal(
+		t,
+		expectedOutputPd,
+		txInfo.Inputs[0].Output.ToPlutusData(),
+	)
 }

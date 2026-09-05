@@ -357,6 +357,34 @@ func TestGetConstitution(t *testing.T) {
 	)
 }
 
+func TestGetDRepStateEmptyWrapper(t *testing.T) {
+	cborData, err := cbor.Encode([]any{})
+	require.NoError(t, err, "unexpected error encoding empty DRep state wrapper")
+
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			_, err := oConn.LocalStateQuery().Client.GetDRepState(nil)
+			require.EqualError(t, err, "empty result from DRep state query")
+		},
+	)
+}
+
 func TestGetConstitutionPreConway(t *testing.T) {
 	// Test that GetConstitution returns an error on pre-Conway eras
 	runTest(
@@ -857,7 +885,7 @@ func TestGetDRepState(t *testing.T) {
 			Deposit: 500000000,
 		},
 	}
-	cborData, err := cbor.Encode(expectedResult)
+	cborData, err := cbor.Encode([]any{expectedResult})
 	require.NoError(t, err, "unexpected error encoding DRepStateResult")
 
 	conversation := append(
@@ -899,7 +927,7 @@ func TestGetDRepState(t *testing.T) {
 func TestGetDRepStateEmpty(t *testing.T) {
 	// Test with empty result
 	expectedResult := localstatequery.DRepStateResult{}
-	cborData, err := cbor.Encode(expectedResult)
+	cborData, err := cbor.Encode([]any{expectedResult})
 	require.NoError(t, err, "unexpected error encoding empty DRepStateResult")
 
 	conversation := append(
