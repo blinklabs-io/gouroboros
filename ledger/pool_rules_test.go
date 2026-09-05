@@ -1095,3 +1095,107 @@ func TestPoolRulePparamsWiring(t *testing.T) {
 		})
 	}
 }
+
+// poolRegCertWireWithMetadata builds a pool registration certificate carrying a
+// pool_metadata entry whose hash is hashLen bytes long.
+func poolRegCertWireWithMetadata(
+	t *testing.T,
+	operator common.PoolKeyHash,
+	vrf common.VrfKeyHash,
+	hashLen int,
+) *common.PoolRegistrationCertificate {
+	t.Helper()
+	rewardAccount := make([]byte, common.Blake2b224Size+1)
+	rewardAccount[0] = 0xe0 | common.AddressNetworkMainnet
+	for i := 1; i < len(rewardAccount); i++ {
+		rewardAccount[i] = 0x07
+	}
+	wire, err := cbor.Encode([]any{
+		uint(common.CertificateTypePoolRegistration),
+		operator,
+		vrf,
+		uint64(1_000_000),
+		uint64(340_000_000),
+		common.NewGenesisRat(0, 1),
+		rewardAccount,
+		[]common.AddrKeyHash{poolKeyHash(0x09)},
+		[]common.PoolRelay{},
+		[]any{
+			"https://example.com/pool.json",
+			bytes.Repeat([]byte{0x05}, hashLen),
+		},
+	})
+	require.NoError(t, err)
+	cert := &common.PoolRegistrationCertificate{}
+	require.NoError(t, cert.UnmarshalCBOR(wire))
+	require.NotNil(t, cert.PoolMetadata)
+	require.Len(t, cert.PoolMetadata.Hash, hashLen)
+	return cert
+}
+
+// TestUtxoValidatePoolCertificatesMetadataHashTooBig covers
+// PoolMedataHashTooBig.
+// The hash is an unbounded byte string on the wire, so the bound is a rule
+// predicate: it applies from major protocol version 5 and rejects only hashes
+// longer than 32 bytes.
+func TestUtxoValidatePoolCertificatesMetadataHashTooBig(t *testing.T) {
+	ls := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+
+	t.Run("oversized hash is rejected from major version 5", func(t *testing.T) {
+		cert := poolRegCertWireWithMetadata(
+			t,
+			poolKeyHash(0x01),
+			vrfKeyHash(0x02),
+			common.Blake2b256Size+1,
+		)
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(cert),
+			0,
+			ls,
+			alonzoPparams(340_000_000),
+		)
+		var target shelley.PoolMetadataHashTooBigError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, poolKeyHash(0x01), target.PoolKeyHash)
+		assert.Equal(t, common.Blake2b256Size+1, target.Supplied)
+		assert.Equal(t, common.Blake2b256Size, target.Max)
+	})
+
+	t.Run("oversized hash is accepted at major version 4", func(t *testing.T) {
+		cert := poolRegCertWireWithMetadata(
+			t,
+			poolKeyHash(0x01),
+			vrfKeyHash(0x02),
+			common.Blake2b256Size+1,
+		)
+		require.NoError(t, shelley.UtxoValidatePoolCertificates(
+			poolCertTx(cert),
+			0,
+			ls,
+			maryPparams(340_000_000),
+		))
+	})
+
+	accepted := map[string]int{
+		"two byte hash": 2,
+		"32 byte hash":  common.Blake2b256Size,
+	}
+	for name, hashLen := range accepted {
+		t.Run(name+" is accepted", func(t *testing.T) {
+			cert := poolRegCertWireWithMetadata(
+				t,
+				poolKeyHash(0x01),
+				vrfKeyHash(0x02),
+				hashLen,
+			)
+			require.NoError(t, shelley.UtxoValidatePoolCertificates(
+				poolCertTx(cert),
+				0,
+				ls,
+				alonzoPparams(340_000_000),
+			))
+		})
+	}
+}

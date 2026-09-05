@@ -55,7 +55,7 @@ func testPoolRegistrationCertificate(
 		Relays: []PoolRelay{},
 		PoolMetadata: &PoolMetadata{
 			Url: "https://example.com/pool.json",
-			Hash: NewBlake2b256(
+			Hash: PoolMetadataHash(
 				bytes.Repeat([]byte{0x05}, Blake2b256Size),
 			),
 		},

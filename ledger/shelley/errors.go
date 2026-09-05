@@ -312,6 +312,26 @@ func (e StakePoolCostTooLowError) Error() string {
 	)
 }
 
+// PoolMetadataHashTooBigError indicates a pool registration certificate whose
+// metadata hash is longer than a 32-byte hash.
+//
+// Reference: PoolMedataHashTooBig in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs
+type PoolMetadataHashTooBigError struct {
+	PoolKeyHash common.PoolKeyHash
+	Supplied    int
+	Max         int
+}
+
+func (e PoolMetadataHashTooBigError) Error() string {
+	return fmt.Sprintf(
+		"stake pool %s metadata hash is %d bytes, maximum %d",
+		e.PoolKeyHash.String(),
+		e.Supplied,
+		e.Max,
+	)
+}
+
 // WrongNetworkPoolError indicates a pool registration certificate whose reward
 // account is on a different network than the ledger state.
 //

@@ -59,3 +59,18 @@ func PoolAccountNetworkIdValidated(major uint) bool {
 func DuplicateVrfKeysDisallowed(major uint) bool {
 	return major > 10
 }
+
+// PoolMetadataHashRestricted reports whether the POOL rule rejects a stake pool
+// registration whose metadata hash is longer than 32 bytes.
+//
+// Reference: eras/shelley/impl/src/Cardano/Ledger/Shelley/SoftForks.hs,
+// restrictPoolMetadataHash (pv > ProtVer (natVersion @4) 0), consumed by
+// poolTransition in eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs.
+//
+// The reference compares the whole protocol version, so a 4.x version with a
+// non-zero minor would also restrict. Only the major version reaches the POOL
+// rule here, and no 4.x protocol version with a non-zero minor exists, so the
+// comparison is on the major version alone.
+func PoolMetadataHashRestricted(major uint) bool {
+	return major > 4
+}
