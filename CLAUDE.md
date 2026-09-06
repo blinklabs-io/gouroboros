@@ -176,3 +176,44 @@ reachable
 class that turns out to be complete is a result worth stating, not a null one.
 Reply to every bot thread, including already-fixed and rejected ones, and expect
 another bot pass after each push.
+
+## Efficient token use
+
+Cost is dominated by the number of API round trips, not by the size of what
+each one returns. Every request re-sends the whole accumulated conversation,
+so spend grows roughly quadratically with request count. Measured across a
+25-agent pull-request review sweep: 3.3 MB of total tool output against 161M
+tokens of context re-reads, for 25.3M input-token-equivalents overall.
+
+Batch aggressively:
+
+- Combine independent commands into one call. `go build ./... && go vet ./...
+  && gofmt -l . && golangci-lint run ./...` is one round trip, not four.
+- Read many files in one call:
+  `for f in a.go b.go c.go; do echo "=== $f"; sed -n '1,250p' "$f"; done`.
+- Fetch pull-request metadata, diff, review threads, check runs, and comments
+  in a single `gh` call with `--jq` field selection.
+
+Trim round trips, never rigor. Fail-before reverts, class audits, and
+merged-tree checks cost little and are where findings come from. Batched
+reviews averaged 31 requests and 0.55M equivalents against 75 requests and
+1.07M unbatched — half the cost, and each still found a blocker both review
+bots had missed.
+
+Subagents start from a fresh context: the agent definition plus its dispatch
+prompt. Clearing the parent conversation does not reduce subagent cost, and a
+subagent never sees the parent's history unless it is a fork. Put everything
+the agent needs into the dispatch prompt.
+
+The parent thread is its own cost centre. One sweep's orchestrator reached a
+302K-token context and 2.21M equivalents, more than any single review it
+dispatched. Write durable cross-task facts to a scratch file and clear between
+units of work rather than carrying the whole transcript forward.
+
+A cache entry becomes readable only once the first response begins streaming,
+so agents dispatched simultaneously all miss the shared prefix. Stagger a
+concurrent batch by a few seconds and the later agents read what the first
+one wrote.
+
+Keep the cached prefix stable: switching model or effort mid-run invalidates
+it, and so does editing an earlier turn.
