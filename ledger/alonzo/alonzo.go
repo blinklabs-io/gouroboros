@@ -327,7 +327,7 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("mint: %w", err)
 	}
 	*b = AlonzoTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(cborData, b.Ttl, false); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -395,6 +395,20 @@ func (b *AlonzoTransactionBody) TTL() uint64 {
 
 func (b *AlonzoTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+// TransactionNetworkId returns the optional transaction network identifier. A non-zero
+// value is necessarily present; zero is present only when the decoder saw
+// transaction-body key 15 (or the caller marked it present explicitly).
+func (b *AlonzoTransactionBody) TransactionNetworkId() *uint8 {
+	if b.NetworkIdPresent() || b.NetworkId != 0 {
+		return &b.NetworkId
+	}
+	return nil
+}
+
+func (t AlonzoTransaction) TransactionNetworkId() *uint8 {
+	return t.Body.TransactionNetworkId()
 }
 
 func (b *AlonzoTransactionBody) SetValidityIntervalUpperBound(

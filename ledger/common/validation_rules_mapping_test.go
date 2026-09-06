@@ -120,6 +120,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateOutputBootAddrAttrsTooBig,   // UtxoValidationRuleOutputBootAddrAttrsTooBig
 		alonzo.UtxoValidateWrongNetwork,                // UtxoValidationRuleWrongNetwork
 		alonzo.UtxoValidateWrongNetworkWithdrawal,      // UtxoValidationRuleWrongNetworkWithdrawal
+		alonzo.UtxoValidateTransactionNetworkId,        // UtxoValidationRuleTransactionNetworkId
 		alonzo.UtxoValidateMaxTxSizeUtxo,               // UtxoValidationRuleMaxTxSize
 		alonzo.UtxoValidateExUnitsTooBigUtxo,           // UtxoValidationRuleExUnitsTooBig
 		alonzo.UtxoValidateNativeScripts,               // UtxoValidationRuleNativeScripts
@@ -157,6 +158,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateOutputBootAddrAttrsTooBig,   // UtxoValidationRuleOutputBootAddrAttrsTooBig
 		babbage.UtxoValidateWrongNetwork,                // UtxoValidationRuleWrongNetwork
 		babbage.UtxoValidateWrongNetworkWithdrawal,      // UtxoValidationRuleWrongNetworkWithdrawal
+		babbage.UtxoValidateTransactionNetworkId,        // UtxoValidationRuleTransactionNetworkId
 		babbage.UtxoValidateMaxTxSizeUtxo,               // UtxoValidationRuleMaxTxSize
 		babbage.UtxoValidateExUnitsTooBigUtxo,           // UtxoValidationRuleExUnitsTooBig
 		babbage.UtxoValidateTooManyCollateralInputs,     // UtxoValidationRuleTooManyCollateralInputs

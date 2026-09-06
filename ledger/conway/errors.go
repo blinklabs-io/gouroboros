@@ -49,18 +49,7 @@ type (
 	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
 )
 
-type WrongTransactionNetworkIdError struct {
-	TxNetworkId     uint8
-	LedgerNetworkId uint
-}
-
-func (e WrongTransactionNetworkIdError) Error() string {
-	return fmt.Sprintf(
-		"wrong transaction network ID: transaction has %d, ledger expects %d",
-		e.TxNetworkId,
-		e.LedgerNetworkId,
-	)
-}
+type WrongTransactionNetworkIdError = common.WrongTransactionNetworkIdError
 
 type TreasuryDonationWithPlutusV1V2Error struct {
 	Donation      uint64
