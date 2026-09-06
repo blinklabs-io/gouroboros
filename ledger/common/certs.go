@@ -1348,22 +1348,49 @@ const (
 	MirSourceTreasury    MirSource = 2
 )
 
+// MoveInstantaneousRewardsCertificateReward is the MIR target: either a map
+// of stake credentials to signed reward deltas, or a coin transferred to the
+// opposite accounting pot.
+//
+// Rewards holds delta_coin values, which the CDDL types as int
+// (eras/mary/impl/cddl/data/mary.cddl) and the reference decodes as the signed
+// unbounded Integer newtype DeltaCoin
+// (libs/cardano-ledger-core/src/Cardano/Ledger/Coin.hs). A negative delta is a
+// decoding matter only; whether it is permitted is decided by the DELEG rule.
 type MoveInstantaneousRewardsCertificateReward struct {
 	Source   uint
-	Rewards  map[*Credential]uint64
+	Rewards  map[*Credential]*big.Int
 	OtherPot uint64
 }
 
 func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 	data []byte,
 ) error {
-	// Try to parse as map
+	// Try to parse as map. The reference dispatches on the CBOR major type
+	// of the second element and reads Map (Credential Staking) DeltaCoin
+	// with no sign or range constraint
+	// (eras/shelley/impl/src/Cardano/Ledger/Shelley/TxCert.hs, instance
+	// DecCBOR MIRTarget), so this branch has to accept a negative delta.
 	tmpMapData := struct {
 		cbor.StructAsArray
 		Source  uint
-		Rewards map[*Credential]uint64
+		Rewards map[*Credential]*big.Int
 	}{}
 	if _, err := cbor.Decode(data, &tmpMapData); err == nil {
+		if tmpMapData.Rewards == nil {
+			return errors.New(
+				"instantaneous rewards target is CBOR null or undefined",
+			)
+		}
+		for _, delta := range tmpMapData.Rewards {
+			// A *big.Int target accepts CBOR null and undefined as a
+			// nil pointer. delta_coin is int, so reject them.
+			if delta == nil {
+				return errors.New(
+					"instantaneous rewards delta is CBOR null or undefined",
+				)
+			}
+		}
 		if err := validateCredentialMapKeys(
 			tmpMapData.Rewards,
 			"instantaneous rewards",
@@ -1374,7 +1401,8 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 		r.Source = tmpMapData.Source
 		return nil
 	}
-	// Try to parse as coin
+	// Try to parse as coin. The opposite-pot amount is coin, which the CDDL
+	// types as uint.
 	tmpCoinData := struct {
 		cbor.StructAsArray
 		Source uint
@@ -1382,7 +1410,7 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 	}{}
 	if _, err := cbor.Decode(data, &tmpCoinData); err == nil {
 		r.OtherPot = tmpCoinData.Coin
-		r.Source = tmpMapData.Source
+		r.Source = tmpCoinData.Source
 		return nil
 	}
 	return errors.New("failed to decode as known types")
@@ -1413,6 +1441,15 @@ func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(
 func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	tmpMirTargets := []*utxorpc.MirTarget{}
 	for stakeCred, deltaCoin := range c.Reward.Rewards {
+		// MIR delta_coin is unbounded on the Cardano wire, but
+		// BigIntToUtxorpcBigInt's fallback is unsigned. Reject negative values
+		// outside int64 here instead of emitting their absolute magnitude.
+		if deltaCoin != nil && deltaCoin.Sign() < 0 && !deltaCoin.IsInt64() {
+			return nil, fmt.Errorf(
+				"MIR reward delta does not fit in int64: %s",
+				deltaCoin,
+			)
+		}
 		stakeCr, err := stakeCred.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -1421,7 +1458,7 @@ func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, e
 			tmpMirTargets,
 			&utxorpc.MirTarget{
 				StakeCredential: stakeCr,
-				DeltaCoin:       ToUtxorpcBigInt(deltaCoin),
+				DeltaCoin:       BigIntToUtxorpcBigInt(deltaCoin),
 			},
 		)
 	}
@@ -1449,7 +1486,11 @@ func (r *MoveInstantaneousRewardsCertificateReward) RewardsAmount() map[*Credent
 	}
 	result := make(map[*Credential]*big.Int)
 	for cred, amount := range r.Rewards {
-		result[cred] = new(big.Int).SetUint64(amount)
+		if amount == nil {
+			result[cred] = new(big.Int)
+			continue
+		}
+		result[cred] = new(big.Int).Set(amount)
 	}
 	return result
 }
