@@ -20,6 +20,7 @@ import (
 	"io"
 	"math/big"
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -103,13 +104,14 @@ func (m MetaMap) TypeName() string   { return "map" }
 // The decode is single pass: the initial byte of each item is read once, each
 // node references a subslice of b rather than a copy, and no nested item is
 // scanned more than once. That matters because the reference decoder places no
-// bound on metadatum nesting (see cborMaxNestedLevels in the cbor package for
+// bound on metadatum nesting (see cbor.MaxNestedLevels in the cbor package for
 // the reference and the derivation), so decode cost has to stay linear in the
 // size of the value rather than growing with its depth.
 //
-// Because each node's Cbor() is a subslice of b rather than a copy, b must not
-// be modified after this returns.
+// The input is copied before decoding so each node owns the bytes returned by
+// Cbor() and remains stable if the caller reuses b.
 func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
+	b = slices.Clone(b)
 	md, n, err := decodeMetadatumAt(b, 0, 0)
 	if err != nil {
 		return nil, err
@@ -202,6 +204,9 @@ func decodeMetadatumStringAt(
 			return nil, 0, io.ErrUnexpectedEOF
 		}
 		end := chunkNext + int(chunkArg) //nolint:gosec // bounded above
+		if major == cborTypeTextString && !utf8.Valid(b[chunkNext:end]) {
+			return nil, 0, errors.New("invalid UTF-8 in metadata text string")
+		}
 		chunks = append(chunks, b[chunkNext:end]...)
 		pos = end
 	}
@@ -210,17 +215,33 @@ func decodeMetadatumStringAt(
 // metadatumKeyIdentity returns a comparable identity for a map key, used to
 // reject duplicate keys. Scalars compare by value so that two encodings of the
 // same number collide, matching the duplicate-key enforcement the CBOR decode
-// modes apply elsewhere; containers compare by their encoding.
+// modes apply elsewhere; containers compare by their decoded semantics.
 func metadatumKeyIdentity(md TransactionMetadatum) string {
 	switch k := md.(type) {
 	case MetaInt:
 		return "i:" + k.Value.String()
 	case MetaText:
-		return "t:" + k.Value
+		return fmt.Sprintf("t:%d:%s", len(k.Value), k.Value)
 	case MetaBytes:
-		return "b:" + string(k.Value)
+		return fmt.Sprintf("b:%d:%x", len(k.Value), k.Value)
+	case MetaList:
+		parts := make([]string, len(k.Items))
+		for i, item := range k.Items {
+			identity := metadatumKeyIdentity(item)
+			parts[i] = fmt.Sprintf("%d:%s", len(identity), identity)
+		}
+		return "l:" + strings.Join(parts, "|")
+	case MetaMap:
+		parts := make([]string, len(k.Pairs))
+		for i, pair := range k.Pairs {
+			key := metadatumKeyIdentity(pair.Key)
+			value := metadatumKeyIdentity(pair.Value)
+			parts[i] = fmt.Sprintf("%d:%s%d:%s", len(key), key, len(value), value)
+		}
+		slices.Sort(parts)
+		return "m:" + strings.Join(parts, "|")
 	default:
-		return "r:" + string(md.Cbor())
+		return "r:" + fmt.Sprintf("%x", md.Cbor())
 	}
 }
 

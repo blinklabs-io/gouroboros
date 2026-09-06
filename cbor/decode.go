@@ -70,6 +70,12 @@ var (
 // the message, which the mini-protocol and block size limits already bound.
 const MaxNestedLevels = 65535
 
+// MaxUntrustedNestedLevels bounds recursive parsing of values received from
+// untrusted peers. Keep the general decoder limit at MaxNestedLevels for wire
+// compatibility; callers decoding network-controlled messages should use
+// DecodeStrict.
+const MaxUntrustedNestedLevels = 1024
+
 // getDecMode returns a cached DecMode, initializing it on first use.
 // Uses sync.Once for thread-safe lazy initialization.
 // Returns the cached error if initialization failed.
@@ -120,7 +126,7 @@ func getStrictDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			MaxNestedLevels:   MaxNestedLevels,
+			MaxNestedLevels:   MaxUntrustedNestedLevels,
 			// Stricter limits for untrusted network messages to prevent
 			// OOM from crafted payloads claiming excessive collection sizes.
 			MaxMapPairs:      131072,

@@ -15,6 +15,7 @@
 package common_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"runtime"
 	"strings"
@@ -31,6 +32,18 @@ func nestedListMetadatum(depth int) []byte {
 		out = append(out, 0x81)
 	}
 	return append(out, 0x00)
+}
+
+func TestDecodeMetadatumRawOwnsInputBytes(t *testing.T) {
+	data := []byte{0x81, 0x01}
+	md, err := common.DecodeMetadatumRaw(data)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data[0] = 0x00
+	if got := md.Cbor(); !bytes.Equal(got, []byte{0x81, 0x01}) {
+		t.Fatalf("metadata CBOR changed with input mutation: %x", got)
+	}
 }
 
 // nestedMapMetadatum builds depth nested single-entry maps keyed by zero,
@@ -126,8 +139,11 @@ func TestMetadatumDecodeShapes(t *testing.T) {
 		{"tag", "d81841ff", true},
 		{"duplicate key", "a20100016161", true},
 		{"duplicate key same value", "a201000100", true},
+		{"duplicate list key encodings", "a28101009f01ff00", true},
+		{"duplicate map key encodings", "a2a1010200bf0102ff00", true},
+		{"invalid UTF-8 text chunk", "7f42c3286161ff", true},
 		{"trailing data", "010101", true},
-		{"truncated", "8101", false},
+		{"truncated", "81", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			data, err := hex.DecodeString(tc.cbor)
