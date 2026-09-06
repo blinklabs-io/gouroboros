@@ -739,11 +739,15 @@ func (c *PoolRegistrationCertificate) RewardAccountNetworkId() (uint, bool) {
 func (c *PoolRegistrationCertificate) SetCbor(cborData []byte) {
 	c.DecodeStoreCbor.SetCbor(cborData)
 	if cborData != nil {
-		c.rewardAccountNetworkId = 0
-		c.rewardAccountNetworkIdKnown = false
-		c.rewardAccountCredentialType = CredentialTypeAddrKeyHash
-		c.rewardAccountCredentialKnown = false
+		c.clearRewardAccountMetadata()
 	}
+}
+
+func (c *PoolRegistrationCertificate) clearRewardAccountMetadata() {
+	c.rewardAccountNetworkId = 0
+	c.rewardAccountNetworkIdKnown = false
+	c.rewardAccountCredentialType = CredentialTypeAddrKeyHash
+	c.rewardAccountCredentialKnown = false
 }
 
 // ErrPoolMarginOutsideUnitInterval identifies a stake-pool margin outside the
@@ -1083,6 +1087,12 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		}
 		p.PoolOwners = owners
 	}
+
+	// JSON reward accounts do not carry the wire header needed to recover
+	// credential type or network identity. The decoded-CBOR cache is likewise
+	// stale after JSON replaces certificate fields.
+	p.DecodeStoreCbor.SetCbor(nil)
+	p.clearRewardAccountMetadata()
 
 	return nil
 }

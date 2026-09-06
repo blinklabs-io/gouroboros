@@ -16,6 +16,8 @@ package common
 
 import (
 	"bytes"
+	"encoding/hex"
+	"encoding/json"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -168,6 +170,51 @@ func TestPoolRegistrationRewardAccountNetworkId(t *testing.T) {
 			assert.Equal(t, wire, remarshaled)
 		},
 	)
+
+	t.Run("JSON replacement clears decoded identity", func(t *testing.T) {
+		rewardAccount := append([]byte{0xf1}, credential...)
+		cert := &PoolRegistrationCertificate{}
+		require.NoError(t, cert.UnmarshalCBOR(encode(t, rewardAccount)))
+		assert.Equal(
+			t,
+			uint(CredentialTypeScriptHash),
+			cert.RewardAccountCredential().CredType,
+		)
+
+		replacementCredential := bytes.Repeat(
+			[]byte{0x08},
+			Blake2b224Size,
+		)
+		jsonData, err := json.Marshal(map[string]any{
+			"margin": map[string]any{
+				"numerator":   0,
+				"denominator": 1,
+			},
+			"rewardAccount": map[string]any{
+				"credential": map[string]any{
+					"key hash": hex.EncodeToString(replacementCredential),
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(jsonData, cert))
+
+		assert.Nil(t, cert.Cbor())
+		assert.Equal(
+			t,
+			AddrKeyHash(replacementCredential),
+			cert.RewardAccount,
+		)
+		assert.Equal(
+			t,
+			uint(CredentialTypeAddrKeyHash),
+			cert.RewardAccountCredential().CredType,
+		)
+		_, known := cert.RewardAccountNetworkId()
+		assert.False(t, known)
+		_, err = cert.MarshalCBOR()
+		require.ErrorContains(t, err, "reward account metadata is required")
+	})
 }
 
 // TestPoolMetadataHashLengthIsFixed proves a pool registration whose metadata
