@@ -420,17 +420,14 @@ func TestJavaReferenceScenarios(t *testing.T) {
 			snapshot,
 			params,
 		)
-		assert.Equal(t, 2.5, performance)
+		assert.Zero(t, performance.Cmp(big.NewRat(5, 2)))
 
 		// Test with lower performance
 		snapshot.PoolBlocks[PoolKeyHash{1}] = 200 // 200 blocks
 		snapshot.TotalBlocksInEpoch = 2000
 		performance = calculatePoolPerformance(PoolKeyHash{1}, snapshot, params)
-		assert.Equal(
-			t,
-			0.5,
-			performance,
-		) // (200/2000) * (100000000/20000000) = 0.1 * 5 = 0.5
+		// (200/2000) * (100000000/20000000) = 0.1 * 5 = 0.5
+		assert.Zero(t, performance.Cmp(big.NewRat(1, 2)))
 	})
 
 	t.Run("MonetaryExpansion_With_Eta", func(t *testing.T) {
@@ -630,7 +627,7 @@ func TestAmaruCompatibility(t *testing.T) {
 			snapshot,
 			RewardParameters{},
 		)
-		assert.Equal(t, 2.5, performance)
+		assert.Zero(t, performance.Cmp(big.NewRat(5, 2)))
 
 		// Test with lower performance
 		snapshot.PoolBlocks[PoolKeyHash{1}] = 20 // 20 blocks
@@ -640,11 +637,8 @@ func TestAmaruCompatibility(t *testing.T) {
 			snapshot,
 			RewardParameters{},
 		)
-		assert.Equal(
-			t,
-			0.5,
-			performance,
-		) // (20/200) * (1000000/200000) = 0.1 * 5 = 0.5
+		// (20/200) * (1000000/200000) = 0.1 * 5 = 0.5
+		assert.Zero(t, performance.Cmp(big.NewRat(1, 2)))
 	})
 
 	t.Run("MonetaryExpansion_With_Eta_Amaru", func(t *testing.T) {
