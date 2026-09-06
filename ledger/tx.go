@@ -193,9 +193,53 @@ func DetermineTransactionType(data []byte) (uint, error) {
 func decodeTxComponents(
 	data []byte,
 ) ([]cbor.RawMessage, map[uint]cbor.RawMessage, error) {
-	var txArray []cbor.RawMessage
-	if _, err := cbor.Decode(data, &txArray); err != nil {
+	componentCount, headerSize, indefinite := cbor.ArrayInfo(data)
+	if componentCount < 0 {
+		return nil, nil, errors.New("invalid transaction array header")
+	}
+	if !indefinite && componentCount != 3 && componentCount != 4 {
+		return nil, nil, fmt.Errorf(
+			"invalid transaction component count %d",
+			componentCount,
+		)
+	}
+
+	decoder, err := cbor.NewStreamDecoder(data)
+	if err != nil {
 		return nil, nil, err
+	}
+	if err := decoder.Advance(int(headerSize)); err != nil {
+		return nil, nil, err
+	}
+	capacity := componentCount
+	if indefinite {
+		capacity = 4
+	}
+	txArray := make([]cbor.RawMessage, 0, capacity)
+	for indefinite || len(txArray) < componentCount {
+		position := decoder.Position()
+		if position >= len(data) {
+			return nil, nil, errors.New("unterminated transaction array")
+		}
+		if indefinite && data[position] == 0xff {
+			if err := decoder.Advance(1); err != nil {
+				return nil, nil, err
+			}
+			break
+		}
+		if len(txArray) == 4 {
+			return nil, nil, errors.New(
+				"invalid transaction component count: more than 4",
+			)
+		}
+		offset, length, err := decoder.Skip()
+		if err != nil {
+			return nil, nil, err
+		}
+		txArray = append(
+			txArray,
+			cbor.RawMessage(data[offset:offset+length]),
+		)
 	}
 	if len(txArray) != 3 && len(txArray) != 4 {
 		return nil, nil, fmt.Errorf(
