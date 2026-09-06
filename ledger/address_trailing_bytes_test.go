@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -75,6 +76,38 @@ func mapOutput(addrCbor []byte) []byte {
 	out := []byte{0xa2, 0x00}
 	out = append(out, addrCbor...)
 	return append(out, 0x01, 0x1a, 0x00, 0x0f, 0x42, 0x40)
+}
+
+func proposalProcedureCbor(addrCbor []byte) []byte {
+	return mustEncodeCbor([]any{
+		0,
+		cbor.RawMessage(addrCbor),
+		[]any{uint(6)},
+		[]any{"", make([]byte, 32)},
+	})
+}
+
+func mustEncodeCbor(value any) []byte {
+	encoded, err := cbor.Encode(value)
+	if err != nil {
+		panic(err)
+	}
+	return encoded
+}
+
+func proposalReturnAddressCbor(trailer byte) []byte {
+	raw := append(
+		append(
+			[]byte{
+				byte(
+					common.AddressTypeNoneKey<<4,
+				) | common.AddressNetworkMainnet,
+			},
+			make([]byte, common.AddressHashSize)...,
+		),
+		trailer,
+	)
+	return mustEncodeCbor(raw)
 }
 
 func decodedAddress(t *testing.T, out common.TransactionOutput) common.Address {
@@ -231,7 +264,11 @@ func TestRewardAccountRejectsTrailingBytes(t *testing.T) {
 	// 28 byte credential
 	raw := append(
 		append(
-			[]byte{byte(common.AddressTypeNoneKey<<4) | common.AddressNetworkMainnet},
+			[]byte{
+				byte(
+					common.AddressTypeNoneKey<<4,
+				) | common.AddressNetworkMainnet,
+			},
 			make([]byte, common.AddressHashSize)...,
 		),
 		0xFF,
@@ -250,5 +287,59 @@ func TestRewardAccountRejectsTrailingBytes(t *testing.T) {
 	}
 	if _, err := good.RewardAccountCredential(); err != nil {
 		t.Fatalf("well-formed reward account rejected: %v", err)
+	}
+}
+
+func TestProposalReturnAddressesRejectTrailingBytes(t *testing.T) {
+	trailerAddr := proposalReturnAddressCbor(0xFF)
+	validAddr := mustEncodeCbor(append(
+		[]byte{
+			byte(common.AddressTypeNoneKey<<4) | common.AddressNetworkMainnet,
+		},
+		make([]byte, common.AddressHashSize)...,
+	))
+	for _, tc := range []struct {
+		name    string
+		newBody func() any
+	}{
+		{
+			name:    "conway",
+			newBody: func() any { return &conway.ConwayTransactionBody{} },
+		},
+		{
+			name:    "dijkstra",
+			newBody: func() any { return &dijkstra.DijkstraTransactionBody{} },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bodyCbor := mustEncodeCbor(map[uint]any{
+				20: []cbor.RawMessage{proposalProcedureCbor(trailerAddr)},
+			})
+			_, err := cbor.Decode(
+				bodyCbor,
+				tc.newBody(),
+			)
+			if err == nil {
+				t.Fatal(
+					"expected trailing proposal return address bytes to be rejected",
+				)
+			}
+			if !strings.Contains(err.Error(), "unexpected trailing byte") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			validBodyCbor := mustEncodeCbor(map[uint]any{
+				20: []cbor.RawMessage{proposalProcedureCbor(validAddr)},
+			})
+			if _, err := cbor.Decode(
+				validBodyCbor,
+				tc.newBody(),
+			); err != nil {
+				t.Fatalf(
+					"well-formed proposal return address rejected: %v",
+					err,
+				)
+			}
+		})
 	}
 }
