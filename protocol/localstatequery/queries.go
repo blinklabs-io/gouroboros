@@ -611,7 +611,7 @@ type SystemStartQuery struct {
 type SystemStartResult struct {
 	cbor.StructAsArray
 	Year        big.Int
-	Day         int
+	Day         int64
 	Picoseconds big.Int
 }
 
@@ -627,7 +627,7 @@ func (s SystemStartResult) String() string {
 func (s SystemStartResult) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Year        string `json:"year"`
-		Day         int    `json:"day"`
+		Day         int64  `json:"day"`
 		Picoseconds string `json:"picoseconds"`
 	}{
 		Year:        s.Year.String(),
@@ -639,7 +639,7 @@ func (s SystemStartResult) MarshalJSON() ([]byte, error) {
 func (s *SystemStartResult) UnmarshalJSON(data []byte) error {
 	var tmp struct {
 		Year        string `json:"year"`
-		Day         int    `json:"day"`
+		Day         int64  `json:"day"`
 		Picoseconds string `json:"picoseconds"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
