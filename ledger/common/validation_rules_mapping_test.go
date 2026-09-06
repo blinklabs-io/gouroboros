@@ -264,6 +264,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateBadInputsUtxo,                  // UtxoValidationRuleBadInputs
 		dijkstra.UtxoValidateScriptWitnesses,              // UtxoValidationRuleScriptWitnesses
 		conway.UtxoValidateRequiredRedeemers,              // UtxoValidationRuleRequiredRedeemers
+		dijkstra.UtxoValidateBatchWithdrawals,             // UtxoValidationRuleBatchWithdrawals
 		dijkstra.UtxoValidateValueNotConservedUtxo,        // UtxoValidationRuleValueNotConserved
 		dijkstra.UtxoValidateOutputTooSmallUtxo,           // UtxoValidationRuleOutputTooSmall
 		dijkstra.UtxoValidateOutputTooBigUtxo,             // UtxoValidationRuleOutputTooBig
