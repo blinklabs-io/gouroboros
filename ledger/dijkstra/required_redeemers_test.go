@@ -443,14 +443,6 @@ func TestUtxoValidateRequiredRedeemersSubTransactionReferenceScriptOnly(t *testi
 // UtxoById on the nil pointer.
 func TestUtxoValidateRequiredRedeemersTypedNilLedgerState(t *testing.T) {
 	v3 := common.PlutusV3Script{0x2a, 0x2b, 0x2c}
-	scriptAddr, err := common.NewAddressFromParts(
-		common.AddressTypeScriptNone,
-		common.AddressNetworkTestnet,
-		v3.Hash().Bytes(),
-		nil,
-	)
-	require.NoError(t, err)
-	_ = scriptAddr
 	input := shelley.NewShelleyTransactionInput(
 		"9999999999999999999999999999999999999999999999999999999999999999",
 		0,
