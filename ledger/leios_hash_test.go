@@ -196,38 +196,73 @@ func TestLeiosHashConcurrent(t *testing.T) {
 }
 
 // TestLeiosHashNoCacheField pins that no era transaction type carries a hash
-// cache or a synchronization primitive of its own. Either one would reopen
-// this contract: a cache needs invalidating on every CBOR change, and a
-// synchronization primitive -- including one held behind a pointer, which
-// go vet's copylocks check does not flag -- makes copying the transaction
-// unsafe.
+// cache of its own, and that nothing reachable from it by value carries a
+// synchronization primitive. Either one would reopen this contract: a cache
+// needs invalidating on every CBOR change, and a synchronization primitive --
+// including one held behind a pointer, which go vet's copylocks check does not
+// flag -- makes copying the transaction unsafe.
+//
+// The hash check is deliberately shallow. Transaction *bodies* and block
+// headers do keep a hash cache, populated through a pointer receiver, and
+// those are outside this contract; only the transaction-level cache removed
+// here is forbidden. The locker check is deep, because a primitive anywhere
+// in the transaction's value graph makes the transaction itself unsafe to
+// copy. Fields reached only through an interface cannot be inspected
+// statically and are not covered.
 func TestLeiosHashNoCacheField(t *testing.T) {
-	lockerType := reflect.TypeOf((*sync.Locker)(nil)).Elem()
 	for _, era := range leiosHashEras {
 		t.Run(era.name, func(t *testing.T) {
 			txType := reflect.TypeOf(era.newTx()).Elem()
 			for i := range txType.NumField() {
-				field := txType.Field(i)
-				if field.Name == "hash" {
+				if name := txType.Field(i).Name; name == "hash" {
 					t.Errorf(
 						"%s has a %q field: LeiosHash is contractually recomputed, not cached",
 						txType,
-						field.Name,
-					)
-				}
-				fieldType := field.Type
-				for fieldType.Kind() == reflect.Pointer {
-					fieldType = fieldType.Elem()
-				}
-				if reflect.PointerTo(fieldType).Implements(lockerType) {
-					t.Errorf(
-						"%s field %q is a synchronization primitive (%s); era transaction types must stay copyable",
-						txType,
-						field.Name,
-						field.Type,
+						name,
 					)
 				}
 			}
+			assertNoLocker(t, txType, txType.String(), map[reflect.Type]bool{})
 		})
+	}
+}
+
+// assertNoLocker reports any synchronization primitive reachable from typ,
+// following struct fields and pointer, slice, array and map element types.
+// visited breaks the cycles those indirections allow.
+func assertNoLocker(
+	t *testing.T,
+	typ reflect.Type,
+	path string,
+	visited map[reflect.Type]bool,
+) {
+	t.Helper()
+	if visited[typ] {
+		return
+	}
+	visited[typ] = true
+
+	lockerType := reflect.TypeOf((*sync.Locker)(nil)).Elem()
+	if typ.Kind() != reflect.Interface &&
+		reflect.PointerTo(typ).Implements(lockerType) {
+		t.Errorf(
+			"%s is a synchronization primitive (%s); era transaction types must stay copyable",
+			path,
+			typ,
+		)
+		return
+	}
+
+	switch typ.Kind() {
+	case reflect.Struct:
+		for i := range typ.NumField() {
+			field := typ.Field(i)
+			assertNoLocker(t, field.Type, path+"."+field.Name, visited)
+		}
+	case reflect.Pointer, reflect.Slice, reflect.Array:
+		assertNoLocker(t, typ.Elem(), path+"[]", visited)
+	case reflect.Map:
+		assertNoLocker(t, typ.Key(), path+"[key]", visited)
+		assertNoLocker(t, typ.Elem(), path+"[value]", visited)
 	}
 }
