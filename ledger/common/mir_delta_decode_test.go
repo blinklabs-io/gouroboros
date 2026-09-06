@@ -88,11 +88,8 @@ func TestMirRewardDeltaDecodesAsSigned(t *testing.T) {
 			assert.Equal(t, uint(0), cert.Reward.Source)
 			assert.Equal(t, uint64(0), cert.Reward.OtherPot)
 			require.Len(t, cert.Reward.Rewards, 1)
-			// RewardsAmount returns map[*Credential]*big.Int both
-			// before and after the value type of Rewards widens, so
-			// reading the delta through it makes this test compile
-			// against the unsigned map and fail on the decode rather
-			// than on the build.
+			// Read the delta through RewardsAmount so the assertion
+			// compares *big.Int values decoded from the map.
 			amounts := cert.Reward.RewardsAmount()
 			require.Len(t, amounts, 1)
 			for credential, amount := range amounts {
@@ -173,10 +170,8 @@ func TestMirOppositePotDecode(t *testing.T) {
 	})
 }
 
-// TestMirRewardDeltaUtxorpcKeepsTheSign covers the UTxORPC projection of a
-// signed delta. big.Int.Bytes returns the absolute value, so a magnitude that
-// does not fit in an int64 has to use the negative variant of the BigInt oneof
-// or the reported delta flips sign.
+// TestMirRewardDeltaUtxorpcKeepsTheSign covers values the MIR UTxORPC
+// projection can represent without changing their sign or magnitude.
 func TestMirRewardDeltaUtxorpcKeepsTheSign(t *testing.T) {
 	beyondInt64 := new(big.Int).Lsh(big.NewInt(1), 64)
 
@@ -196,23 +191,16 @@ func TestMirRewardDeltaUtxorpcKeepsTheSign(t *testing.T) {
 			&utxorpc.BigInt{BigInt: &utxorpc.BigInt_Int{Int: -1}},
 		},
 		{
+			"minInt64",
+			"3b7fffffffffffffff",
+			&utxorpc.BigInt{BigInt: &utxorpc.BigInt_Int{Int: -1 << 63}},
+		},
+		{
 			"beyondInt64Positive",
 			"c249010000000000000000",
 			&utxorpc.BigInt{
 				BigInt: &utxorpc.BigInt_BigUInt{
 					BigUInt: beyondInt64.Bytes(),
-				},
-			},
-		},
-		{
-			"beyondInt64Negative",
-			"c349010000000000000000",
-			&utxorpc.BigInt{
-				BigInt: &utxorpc.BigInt_BigNInt{
-					BigNInt: new(big.Int).Add(
-						beyondInt64,
-						big.NewInt(1),
-					).Bytes(),
 				},
 			},
 		},
@@ -245,4 +233,17 @@ func TestMirRewardDeltaUtxorpcKeepsTheSign(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestMirRewardDeltaUtxorpcRejectsNegativeOverflow(t *testing.T) {
+	// CBOR tag 3 encodes -1-n. With n=2^63, this is math.MinInt64-1:
+	// valid delta_coin on the wire, but outside the supported MIR projection.
+	var cert common.MoveInstantaneousRewardsCertificate
+	require.NoError(
+		t,
+		cert.UnmarshalCBOR(mirCertWire(t, "c3488000000000000000")),
+	)
+
+	_, err := cert.Utxorpc()
+	require.ErrorContains(t, err, "MIR reward delta does not fit in int64")
 }

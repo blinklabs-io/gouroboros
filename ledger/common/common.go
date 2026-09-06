@@ -889,16 +889,7 @@ func BigIntToUtxorpcBigInt(v *big.Int) *utxorpc.BigInt {
 			BigInt: &utxorpc.BigInt_Int{Int: v.Int64()},
 		}
 	}
-	// Otherwise use the big int bytes representation. big.Int.Bytes returns
-	// the absolute value, so a negative magnitude has to go in the negative
-	// variant or the sign is lost.
-	if v.Sign() < 0 {
-		return &utxorpc.BigInt{
-			BigInt: &utxorpc.BigInt_BigNInt{
-				BigNInt: v.Bytes(),
-			},
-		}
-	}
+	// Otherwise use the big int bytes representation
 	return &utxorpc.BigInt{
 		BigInt: &utxorpc.BigInt_BigUInt{
 			BigUInt: v.Bytes(),

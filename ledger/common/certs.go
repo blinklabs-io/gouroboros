@@ -1436,6 +1436,15 @@ func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(
 func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	tmpMirTargets := []*utxorpc.MirTarget{}
 	for stakeCred, deltaCoin := range c.Reward.Rewards {
+		// MIR delta_coin is unbounded on the Cardano wire, but
+		// BigIntToUtxorpcBigInt's fallback is unsigned. Reject negative values
+		// outside int64 here instead of emitting their absolute magnitude.
+		if deltaCoin != nil && deltaCoin.Sign() < 0 && !deltaCoin.IsInt64() {
+			return nil, fmt.Errorf(
+				"MIR reward delta does not fit in int64: %s",
+				deltaCoin,
+			)
+		}
 		stakeCr, err := stakeCred.Utxorpc()
 		if err != nil {
 			return nil, err
