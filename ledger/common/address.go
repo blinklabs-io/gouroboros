@@ -952,6 +952,7 @@ type byronAddressPayload struct {
 }
 
 type ByronAddressAttributes struct {
+	cbor.DecodeStoreCbor
 	Payload []byte
 	Network *uint32
 	// Unparsed holds the attribute keys this decoder does not interpret,
@@ -975,6 +976,7 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
 	}
+	a.SetCbor(data)
 	a.Payload = nil
 	a.Network = nil
 	a.Unparsed = nil
@@ -1011,7 +1013,10 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (a *ByronAddressAttributes) MarshalCBOR() ([]byte, error) {
+func (a ByronAddressAttributes) MarshalCBOR() ([]byte, error) {
+	if data := a.Cbor(); data != nil {
+		return data, nil
+	}
 	tmpData := make(map[uint8][]byte, len(a.Unparsed)+2)
 	for key, value := range a.Unparsed {
 		if key == byronAddressAttrDerivationPath ||

@@ -249,6 +249,28 @@ func TestByronAddressAttributesEncodeAsValue(t *testing.T) {
 	}
 }
 
+func TestByronAddressPreservesNonCanonicalAttributeEncoding(t *testing.T) {
+	// The attribute map uses a non-canonical map-length encoding and an
+	// indefinite-length byte string. Both forms are accepted by the Byron
+	// decoder and are part of the bytes hashed into the address root.
+	attrCbor, err := hex.DecodeString("b802035f41c041deff014a1c010203040506070809")
+	if err != nil {
+		t.Fatalf("bad test attribute hex: %v", err)
+	}
+	addrBytes := buildByronAddress(t, attrCbor)
+	var addr common.Address
+	if _, err := cbor.Decode(addrBytes, &addr); err != nil {
+		t.Fatalf("decode Byron address: %v", err)
+	}
+	roundTrip, err := addr.Bytes()
+	if err != nil {
+		t.Fatalf("re-encode Byron address: %v", err)
+	}
+	if !bytes.Equal(roundTrip, addrBytes) {
+		t.Fatalf("round trip: got %x, want %x", roundTrip, addrBytes)
+	}
+}
+
 // TestByronAddressAttributesRejectShadowedKey covers the case
 // encCBORAttributes panics on: a key that is both interpreted and carried as
 // unparsed.
