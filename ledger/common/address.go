@@ -21,6 +21,7 @@ import (
 	"hash/crc32"
 	"io"
 	"math/big"
+	"slices"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -304,6 +305,8 @@ func (a *Address) populateFromBytes(data []byte) error {
 	if len(data) == 0 {
 		return errors.New("invalid address data: empty byte slice")
 	}
+	// Clear trailer state before decoding into a reused address.
+	a.trailingBytes = nil
 	// Extract header info
 	header := data[0]
 	a.addressType = (header & AddressHeaderTypeMask) >> 4
@@ -342,7 +345,7 @@ func (a *Address) populateFromBytes(data []byte) error {
 			Hash: AddrKeyHash(NewBlake2b224(byronAddr.Hash)),
 		}
 		if byronLen < len(data) {
-			a.trailingBytes = data[byronLen:]
+			a.trailingBytes = slices.Clone(data[byronLen:])
 		}
 		return nil
 	}
@@ -435,7 +438,7 @@ func (a *Address) populateFromBytes(data []byte) error {
 	// every era for a reward account, whose decodeAccountAddressT calls
 	// ensureBufIsConsumed with no version gate.
 	if len(payload) > 0 {
-		a.trailingBytes = payload[:]
+		a.trailingBytes = slices.Clone(payload)
 	}
 	return nil
 }
@@ -462,7 +465,7 @@ func CheckAddressFullyConsumed(a Address) error {
 // them below decoder version 7, and are non-empty only for an address that a
 // stricter era has to reject.
 func (a Address) TrailingBytes() []byte {
-	return a.trailingBytes
+	return slices.Clone(a.trailingBytes)
 }
 
 func (a *Address) UnmarshalCBOR(data []byte) error {

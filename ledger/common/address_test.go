@@ -1809,6 +1809,25 @@ func TestPopulateFromBytesCropsTrailingBytes(t *testing.T) {
 	})
 }
 
+func TestPopulateFromBytesClearsAndCopiesTrailingBytes(t *testing.T) {
+	header := byte(AddressTypeKeyNone<<4) | byte(AddressNetworkMainnet)
+	consumed := append([]byte{header}, make([]byte, AddressHashSize)...)
+	trailer := []byte{0x01, 0x02}
+	encoded := append(append([]byte{}, consumed...), trailer...)
+	addr, err := NewAddressFromBytes(encoded)
+	require.NoError(t, err)
+
+	got := addr.TrailingBytes()
+	require.Equal(t, trailer, got)
+	got[0] = 0xff
+	encoded[len(consumed)] = 0xee
+	assert.Equal(t, trailer, addr.TrailingBytes())
+
+	require.NoError(t, addr.UnmarshalCBOR(consumed))
+	assert.Empty(t, addr.TrailingBytes())
+	assert.NoError(t, CheckAddressFullyConsumed(addr))
+}
+
 // TestKnownMalformedMainnetAddressesCrop covers the addresses known to exist
 // on Cardano mainnet with bytes past their payload (see
 // https://github.com/IntersectMBO/cardano-ledger/issues/2729 and
