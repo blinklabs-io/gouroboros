@@ -334,3 +334,99 @@ func TestUtxoValidateRequiredRedeemersGuardingPurpose(t *testing.T) {
 		pp,
 	))
 }
+
+// TestUtxoValidateRequiredRedeemersSubTransactionReferenceScriptOnly is the
+// reference-script case of the sub-transaction walk, and the one that decides
+// where the empty-availability fast path may sit.
+//
+// availableScripts folds witness sets from every level but resolves reference
+// scripts only from the top-level transaction's own inputs, so a
+// sub-transaction whose script arrives purely as a CIP-33 reference script on
+// its own input leaves TxScriptView.Available empty. Taking the
+// nothing-is-available shortcut before the sub-transaction inputs are resolved
+// would skip this transaction entirely -- the same reference-script-implies-no-
+// redeemer shape as issue #2147, one level down.
+func TestUtxoValidateRequiredRedeemersSubTransactionReferenceScriptOnly(t *testing.T) {
+	v3 := common.PlutusV3Script{0x1a, 0x1b, 0x1c}
+	scriptAddr, err := common.NewAddressFromParts(
+		common.AddressTypeScriptNone,
+		common.AddressNetworkTestnet,
+		v3.Hash().Bytes(),
+		nil,
+	)
+	require.NoError(t, err)
+	input := shelley.NewShelleyTransactionInput(
+		"8888888888888888888888888888888888888888888888888888888888888888",
+		0,
+	)
+	// The script is carried only as a reference script on the very output the
+	// sub-transaction spends. No witness set at any level holds a script.
+	utxo := common.Utxo{
+		Id: input,
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: scriptAddr,
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   common.ScriptRefTypePlutusV3,
+				Script: v3,
+			},
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+			if id.String() == input.String() {
+				return utxo, nil
+			}
+			return common.Utxo{}, errors.New("not found")
+		}).
+		Build()
+
+	newTx := func(redeemers DijkstraRedeemers) *DijkstraTransaction {
+		return &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxSubTransactions: cbor.NewSetType(
+					[]DijkstraSubTransaction{
+						{
+							Body: DijkstraSubTransactionBody{
+								TxInputs: conway.NewConwayTransactionInputSet(
+									[]shelley.ShelleyTransactionInput{input},
+								),
+							},
+							WitnessSet: DijkstraTransactionWitnessSet{
+								WsRedeemers: redeemers,
+							},
+						},
+					},
+					false,
+				),
+			},
+			TxIsValid: true,
+		}
+	}
+	pp := &DijkstraProtocolParameters{}
+
+	err = conway.UtxoValidateRequiredRedeemers(
+		newTx(DijkstraRedeemers{}),
+		0,
+		ls,
+		pp,
+	)
+	var missingErr common.MissingRedeemerForScriptError
+	require.ErrorAs(t, err, &missingErr)
+	require.Equal(t, v3.Hash(), missingErr.ScriptHash)
+	require.Equal(t, common.RedeemerTagSpend, missingErr.Tag)
+	require.Equal(t, uint32(0), missingErr.Index)
+
+	require.NoError(t, conway.UtxoValidateRequiredRedeemers(
+		newTx(DijkstraRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}),
+		0,
+		ls,
+		pp,
+	))
+}

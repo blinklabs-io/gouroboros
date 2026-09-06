@@ -85,9 +85,6 @@ func ValidateRequiredRedeemers(
 	if err != nil {
 		return err
 	}
-	if len(view.Available) == 0 {
-		return nil
-	}
 	subBodies := lcommon.SubTransactionBodiesFromTransaction(tx)
 	subWitnesses := lcommon.SubTransactionWitnessSetsFromTransaction(tx)
 	// The two accessors project the same ordered sub-transaction list, so a
@@ -120,6 +117,17 @@ func ValidateRequiredRedeemers(
 			}
 		}
 		available = augmented
+	}
+	// Checked only once the sub-transaction reference scripts are folded in.
+	// availableScripts resolves reference scripts from the top-level inputs
+	// alone, so a sub-transaction whose script arrives purely as a CIP-33
+	// reference script on its own input leaves view.Available empty; taking
+	// the shortcut on that would skip the level that needs the check. For a
+	// transaction with no sub-transactions -- every era before Dijkstra, and
+	// the overwhelming majority during a sync -- available is still
+	// view.Available and this is the same early return as before.
+	if len(available) == 0 {
+		return nil
 	}
 	if err := validateLevelRedeemers(
 		tx,
