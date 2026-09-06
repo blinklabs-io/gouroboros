@@ -276,8 +276,14 @@ func (t *SetType[T]) CheckForDuplicatesAlways() error {
 }
 
 func (t *SetType[T]) checkForDuplicates() error {
-	seen := make(map[string]struct{}, len(t.items))
-	for _, item := range t.items {
+	return CheckForDuplicateCBORMembers(t.items)
+}
+
+// CheckForDuplicateCBORMembers rejects duplicate values compared by their
+// canonical CBOR encoding.
+func CheckForDuplicateCBORMembers[T any](items []T) error {
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
 		encoded, err := Encode(item)
 		if err != nil {
 			return err

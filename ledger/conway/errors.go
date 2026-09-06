@@ -49,18 +49,7 @@ type (
 	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
 )
 
-type WrongTransactionNetworkIdError struct {
-	TxNetworkId     uint8
-	LedgerNetworkId uint
-}
-
-func (e WrongTransactionNetworkIdError) Error() string {
-	return fmt.Sprintf(
-		"wrong transaction network ID: transaction has %d, ledger expects %d",
-		e.TxNetworkId,
-		e.LedgerNetworkId,
-	)
-}
+type WrongTransactionNetworkIdError = common.WrongTransactionNetworkIdError
 
 type TreasuryDonationWithPlutusV1V2Error struct {
 	Donation      uint64
@@ -224,6 +213,34 @@ func (e ProtocolParameterUpdateEmptyError) Error() string {
 type ProtocolParameterUpdateFieldZeroError struct {
 	FieldName string
 	Value     uint
+}
+
+// ConwayTransactionBodyFieldError indicates a field that is not valid in a
+// Conway transaction body.
+type ConwayTransactionBodyFieldError struct {
+	FieldKey int
+}
+
+func (e ConwayTransactionBodyFieldError) Error() string {
+	return fmt.Sprintf(
+		"invalid Conway transaction body field: %d",
+		e.FieldKey,
+	)
+}
+
+// ConwayProtocolParameterUpdateError indicates that a Conway protocol
+// parameter update contains a value outside its CDDL-defined domain.
+type ConwayProtocolParameterUpdateError struct {
+	FieldName string
+	Reason    string
+}
+
+func (e ConwayProtocolParameterUpdateError) Error() string {
+	return fmt.Sprintf(
+		"invalid Conway protocol parameter update field %s: %s",
+		e.FieldName,
+		e.Reason,
+	)
 }
 
 func (e ProtocolParameterUpdateFieldZeroError) Error() string {

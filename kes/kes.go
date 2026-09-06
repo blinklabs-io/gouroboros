@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/blinklabs-io/gouroboros/internal/ed25519strict"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -157,7 +158,14 @@ func (s Sum0KesSig) Verify(
 	pubKey ed25519.PublicKey,
 	msg []byte,
 ) bool {
-	return ed25519.Verify(pubKey, msg, s)
+	return verifyEd25519Strict(pubKey, msg, s)
+}
+
+// verifyEd25519Strict applies the strict verification criteria used by
+// Cardano's KES implementation. The criteria are shared with every non-Byron
+// signature boundary; see internal/ed25519strict.
+func verifyEd25519Strict(pubKey, msg, sig []byte) bool {
+	return ed25519strict.Verify(pubKey, msg, sig)
 }
 
 // HashPair computes the Blake2b-256 hash of two public keys concatenated

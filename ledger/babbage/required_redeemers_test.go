@@ -153,3 +153,119 @@ func TestBabbageUtxoValidateRequiredRedeemers(t *testing.T) {
 		))
 	})
 }
+
+// TestBabbageUtxoValidateRequiredRedeemersDuplicateCertificates pins the
+// Alonzo/Babbage duplicate-certificate redeemer index. Babbage encodes
+// certificates as a list, so two logically identical entries are decodable;
+// Conway onward encodes them as a set and common.ValidateCertificateSet
+// rejects a duplicate at decode time, so this case only exists here.
+//
+// cardano-ledger's getAlonzoScriptsNeeded gives the second occurrence the
+// first's index rather than its own -- addUniqueTxCertPurpose in
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/UTxO.hs, whose comment works the
+// example through -- so one certificate redeemer at index 0 covers both.
+// Assigning the duplicate its own positional index would demand a redeemer
+// index 1 that cardano-ledger never asks for, and would reject a Babbage
+// block during sync.
+func TestBabbageUtxoValidateRequiredRedeemersDuplicateCertificates(t *testing.T) {
+	v2 := common.PlutusV2Script{0x04, 0x05, 0x06}
+	cert := func() common.CertificateWrapper {
+		return common.CertificateWrapper{
+			Type: 1,
+			Certificate: &common.StakeDeregistrationCertificate{
+				StakeCredential: common.Credential{
+					CredType:   common.CredentialTypeScriptHash,
+					Credential: common.Blake2b224(v2.Hash()),
+				},
+			},
+		}
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, errors.New("not found")
+		}).
+		Build()
+
+	newTx := func() *babbage.BabbageTransaction {
+		return &babbage.BabbageTransaction{
+			Body: babbage.BabbageTransactionBody{
+				// The same certificate twice: index 0 and index 1.
+				TxCertificates: []common.CertificateWrapper{cert(), cert()},
+			},
+			WitnessSet: babbage.BabbageTransactionWitnessSet{
+				WsPlutusV2Scripts: []common.PlutusV2Script{v2},
+			},
+			TxIsValid: true,
+		}
+	}
+
+	t.Run("one redeemer at index 0 covers both", func(t *testing.T) {
+		tx := newTx()
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{
+					Tag:     common.RedeemerTagCert,
+					Index:   0,
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		require.NoError(t, babbage.UtxoValidateRequiredRedeemers(
+			tx,
+			0,
+			ls,
+			&babbage.BabbageProtocolParameters{},
+		))
+	})
+
+	t.Run("no redeemer still rejected at index 0", func(t *testing.T) {
+		err := babbage.UtxoValidateRequiredRedeemers(
+			newTx(),
+			0,
+			ls,
+			&babbage.BabbageProtocolParameters{},
+		)
+		var missingErr common.MissingRedeemerForScriptError
+		require.ErrorAs(t, err, &missingErr)
+		require.Equal(t, common.RedeemerTagCert, missingErr.Tag)
+		require.Equal(t, uint32(0), missingErr.Index)
+	})
+
+	t.Run("distinct certificates each need their own", func(t *testing.T) {
+		other := common.PlutusV2Script{0x07, 0x08, 0x09}
+		tx := newTx()
+		tx.Body.TxCertificates = []common.CertificateWrapper{
+			cert(),
+			{
+				Type: 1,
+				Certificate: &common.StakeDeregistrationCertificate{
+					StakeCredential: common.Credential{
+						CredType:   common.CredentialTypeScriptHash,
+						Credential: common.Blake2b224(other.Hash()),
+					},
+				},
+			},
+		}
+		tx.WitnessSet.WsPlutusV2Scripts = []common.PlutusV2Script{v2, other}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{
+					Tag:     common.RedeemerTagCert,
+					Index:   0,
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		err := babbage.UtxoValidateRequiredRedeemers(
+			tx,
+			0,
+			ls,
+			&babbage.BabbageProtocolParameters{},
+		)
+		var missingErr common.MissingRedeemerForScriptError
+		require.ErrorAs(t, err, &missingErr)
+		require.Equal(t, other.Hash(), missingErr.ScriptHash)
+		require.Equal(t, common.RedeemerTagCert, missingErr.Tag)
+		require.Equal(t, uint32(1), missingErr.Index)
+	})
+}

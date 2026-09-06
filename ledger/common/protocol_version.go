@@ -59,3 +59,20 @@ func PoolAccountNetworkIdValidated(major uint) bool {
 func DuplicateVrfKeysDisallowed(major uint) bool {
 	return major > 10
 }
+
+// MirTransferAllowed reports whether the DELEG rule permits a move
+// instantaneous rewards certificate to move funds to the opposite accounting
+// pot and to carry a negative reward delta. Before it, a negative delta fails
+// with MIRNegativesNotCurrentlyAllowed and a pot-to-pot transfer fails with
+// MIRTransferNotCurrentlyAllowed.
+//
+// Reference: eras/shelley/impl/src/Cardano/Ledger/Shelley/Era.hs,
+// hardforkAlonzoAllowMIRTransfer (pvMajor pv > natVersion @4), consumed by
+// delegTransition in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+//
+// Note that this is major version 5, the first Alonzo protocol version, not
+// ProtocolVersionAlonzo (6, the second one).
+func MirTransferAllowed(major uint) bool {
+	return major > 4
+}

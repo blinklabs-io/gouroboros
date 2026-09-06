@@ -325,8 +325,8 @@ func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
 type BabbageOpCert struct {
 	cbor.StructAsArray
 	HotVkey        []byte
-	SequenceNumber uint32
-	KesPeriod      uint32
+	SequenceNumber uint64
+	KesPeriod      uint64
 	Signature      []byte
 }
 
@@ -437,7 +437,7 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("mint: %w", err)
 	}
 	*b = BabbageTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(cborData, b.Ttl, false); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -513,6 +513,25 @@ func (b *BabbageTransactionBody) TTL() uint64 {
 
 func (b *BabbageTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+// TransactionNetworkId returns the optional transaction network identifier. A non-zero
+// value is necessarily present; zero is present only when the decoder saw
+// transaction-body key 15 (or the caller marked it present explicitly).
+func (b *BabbageTransactionBody) TransactionNetworkId() *uint8 {
+	if b.NetworkIdPresent() || b.NetworkId != 0 {
+		return &b.NetworkId
+	}
+	return nil
+}
+
+func (b *BabbageTransactionBody) SetNetworkIdPresence(present bool) {
+	b.hash = nil
+	b.TransactionBodyBase.SetNetworkIdPresence(present)
+}
+
+func (t BabbageTransaction) TransactionNetworkId() *uint8 {
+	return t.Body.TransactionNetworkId()
 }
 
 func (b *BabbageTransactionBody) SetValidityIntervalUpperBound(
@@ -1052,7 +1071,6 @@ func (w BabbageTransactionWitnessSet) Redeemers() common.TransactionWitnessRedee
 type BabbageTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	TxIsValid  bool
@@ -1062,7 +1080,6 @@ type BabbageTransaction struct {
 
 func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
-	t.hash = nil
 	t.TxMetadata = nil
 	t.auxData = nil
 
@@ -1156,12 +1173,12 @@ func (t BabbageTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t BabbageTransaction) LeiosHash() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t BabbageTransaction) Inputs() []common.TransactionInput {

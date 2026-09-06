@@ -137,6 +137,56 @@ func CalculateRefScriptFee(
 	return fee.Uint64(), nil
 }
 
+// CalculateExecutionUnitsFee calculates the fee for all redeemer execution
+// unit budgets. The rational total is rounded up once, after all redeemers
+// have been accumulated, as required by the Conway ledger specification.
+func CalculateExecutionUnitsFee(
+	tx common.Transaction,
+	prices common.ExUnitPrice,
+) (uint64, error) {
+	witnesses := tx.Witnesses()
+	if witnesses == nil || witnesses.Redeemers() == nil {
+		return 0, nil
+	}
+	total := new(big.Rat)
+	pricesValidated := false
+	for _, redeemer := range witnesses.Redeemers().Iter() {
+		if !pricesValidated {
+			if prices.MemPrice == nil || prices.MemPrice.Rat == nil {
+				return 0, errors.New("invalid execution memory price")
+			}
+			if prices.StepPrice == nil || prices.StepPrice.Rat == nil {
+				return 0, errors.New("invalid execution step price")
+			}
+			if prices.MemPrice.Sign() < 0 || prices.StepPrice.Sign() < 0 {
+				return 0, errors.New("execution prices must not be negative")
+			}
+			pricesValidated = true
+		}
+		if redeemer.ExUnits.Memory < 0 || redeemer.ExUnits.Steps < 0 {
+			return 0, errors.New("execution units must not be negative")
+		}
+		memoryFee := new(big.Rat).Mul(
+			new(big.Rat).SetInt64(redeemer.ExUnits.Memory),
+			prices.MemPrice.Rat,
+		)
+		stepsFee := new(big.Rat).Mul(
+			new(big.Rat).SetInt64(redeemer.ExUnits.Steps),
+			prices.StepPrice.Rat,
+		)
+		total.Add(total, memoryFee)
+		total.Add(total, stepsFee)
+	}
+	fee := new(big.Int).Quo(total.Num(), total.Denom())
+	if new(big.Int).Mod(total.Num(), total.Denom()).Sign() != 0 {
+		fee.Add(fee, big.NewInt(1))
+	}
+	if !fee.IsUint64() {
+		return 0, fmt.Errorf("execution fee overflow: %s", fee)
+	}
+	return fee.Uint64(), nil
+}
+
 // MinFeeTxWithRefScriptSize adds the Conway tiered reference-script fee to
 // the size-based transaction fee. Callers that already resolved the UTxO set
 // can use this function without repeating the lookup.

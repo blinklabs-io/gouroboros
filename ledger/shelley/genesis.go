@@ -562,7 +562,7 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 		}
 
 		addr, err := common.NewAddressFromParts(
-			common.AddressTypeNoneScript, // Script stake address
+			common.AddressTypeNoneKey,
 			networkId,
 			nil,
 			stakeKey,
@@ -628,7 +628,7 @@ func (g *ShelleyGenesis) PoolById(
 			}
 
 			addr, err := common.NewAddressFromParts(
-				common.AddressTypeNoneScript,
+				common.AddressTypeNoneKey,
 				networkId,
 				nil,
 				stakeKey,

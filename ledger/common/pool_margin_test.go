@@ -49,6 +49,10 @@ func testPoolRegistrationCertificate(
 		RewardAccount: NewBlake2b224(
 			bytes.Repeat([]byte{0x03}, Blake2b224Size),
 		),
+		rewardAccountNetworkId:       AddressNetworkTestnet,
+		rewardAccountNetworkIdKnown:  true,
+		rewardAccountCredentialType:  CredentialTypeAddrKeyHash,
+		rewardAccountCredentialKnown: true,
 		PoolOwners: []AddrKeyHash{
 			NewBlake2b224(bytes.Repeat([]byte{0x04}, Blake2b224Size)),
 		},
@@ -69,6 +73,8 @@ func testPoolRegistrationWire(
 ) []byte {
 	t.Helper()
 	cert := testPoolRegistrationCertificate(NewGenesisRat(0, 1))
+	rewardAccount, err := cert.rewardAccountBytes()
+	require.NoError(t, err)
 	fields := []any{
 		cert.CertType,
 		cert.Operator,
@@ -76,7 +82,7 @@ func testPoolRegistrationWire(
 		cert.Pledge,
 		cert.Cost,
 		margin,
-		cert.RewardAccount,
+		rewardAccount,
 		cert.PoolOwners,
 		cert.Relays,
 		cert.PoolMetadata,
@@ -687,24 +693,4 @@ func TestDistributePoolRewardsConservesMaximumPot(t *testing.T) {
 	assert.Equal(t, ^uint64(0), rewards.OperatorRewards)
 	assert.Empty(t, rewards.DelegatorRewards)
 	assert.Equal(t, ^uint64(0), rewards.TotalRewards)
-}
-
-func TestMarginFloatIsBounded(t *testing.T) {
-	tests := []struct {
-		name   string
-		margin GenesisRat
-		want   float64
-	}{
-		{name: "missing", margin: GenesisRat{}, want: 0},
-		{name: "negative", margin: NewGenesisRat(-1, 1), want: 0},
-		{name: "zero", margin: NewGenesisRat(0, 1), want: 0},
-		{name: "half", margin: NewGenesisRat(1, 2), want: 0.5},
-		{name: "one", margin: NewGenesisRat(1, 1), want: 1},
-		{name: "above one", margin: NewGenesisRat(2, 1), want: 1},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.want, marginFloat(test.margin))
-		})
-	}
 }

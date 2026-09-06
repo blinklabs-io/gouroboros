@@ -350,7 +350,6 @@ func (t *ByronTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Bl
 type ByronTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
 	Body       ByronTransactionBody
 	Twit       []cbor.Value
 	twitCbor   []byte // Original CBOR of witnesses for merkle tree computation
@@ -520,12 +519,12 @@ func (t *ByronTransaction) AuxiliaryData() common.AuxiliaryData {
 	return nil
 }
 
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t *ByronTransaction) LeiosHash() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t *ByronTransaction) IsValid() bool {
