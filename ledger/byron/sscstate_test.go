@@ -662,7 +662,13 @@ func TestByronEpochSscStateRejectsProofPayloadTypeMismatch(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mismatchedBlock.ValidateBodyProof()
+	require.NoError(
+		t, mismatchedBlock.ValidateBodyProof(),
+		"dropSscProof and dropSscPayload never compare their tags, so a "+
+			"type mismatch must not fail the decode",
+	)
+
+	err = mismatchedBlock.ValidateSscProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
@@ -708,7 +714,13 @@ func TestByronEpochSscStateRejectsUntaggedCertificateSet(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = block.ValidateBodyProof()
+	require.NoError(
+		t, block.ValidateBodyProof(),
+		"dropSet accepts any tag number, so an untagged set must not "+
+			"fail the decode",
+	)
+
+	err = block.ValidateSscProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
@@ -799,11 +811,17 @@ func TestByronEpochSscStateRejectsUntaggedCommitmentsSet(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = forgedBlock.ValidateBodyProof()
+	require.NoError(
+		t, forgedBlock.ValidateBodyProof(),
+		"ValidateBodyProof must not check ssc_proof field shapes that "+
+			"cardano-ledger drops",
+	)
+
+	err = forgedBlock.ValidateSscProof()
 	require.Error(
 		t, err,
-		"ValidateBodyProof must reject an untagged commitments field even "+
-			"when the header's ssc_proof hash genuinely matches it",
+		"ValidateSscProof must reject an untagged commitments field "+
+			"even when the header's ssc_proof hash genuinely matches it",
 	)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
@@ -880,11 +898,17 @@ func TestByronEpochSscStateRejectsNonMapOpeningsField(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = forgedBlock.ValidateBodyProof()
+	require.NoError(
+		t, forgedBlock.ValidateBodyProof(),
+		"ValidateBodyProof must not check ssc_proof field shapes that "+
+			"cardano-ledger drops",
+	)
+
+	err = forgedBlock.ValidateSscProof()
 	require.Error(
 		t, err,
-		"ValidateBodyProof must reject a non-map openings field even when "+
-			"the header's ssc_proof hash genuinely matches it",
+		"ValidateSscProof must reject a non-map openings field even "+
+			"when the header's ssc_proof hash genuinely matches it",
 	)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }

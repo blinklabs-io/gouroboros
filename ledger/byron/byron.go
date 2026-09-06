@@ -67,7 +67,12 @@ type ByronMainBlockHeader struct {
 		SlotId struct {
 			cbor.StructAsArray
 			Epoch uint64
-			Slot  uint16
+			// Slot is the slot count within the epoch. cardano-ledger
+			// types it as SlotCount, a Word64 newtype with a derived
+			// DecCBOR (Cardano/Chain/Slotting/SlotCount.hs:15-19,
+			// EpochAndSlotCount.hs:38-41), and toSlotNumber adds it to
+			// the flattened epoch with no bound of its own.
+			Slot uint64
 		}
 		PubKey     []byte
 		Difficulty struct {
@@ -81,7 +86,11 @@ type ByronMainBlockHeader struct {
 		BlockVersion    ByronBlockVersion
 		SoftwareVersion ByronSoftwareVersion
 		Attributes      any
-		ExtraProof      common.Blake2b256
+		// ExtraProof is dropped by the reference decoder:
+		// decCBORBlockVersions ends with dropBytes, which accepts a
+		// byte string of any length and never interprets it
+		// (Cardano/Chain/Block/Header.hs:392-395).
+		ExtraProof []byte
 	}
 }
 
@@ -121,9 +130,8 @@ func (h *ByronMainBlockHeader) BlockNumber() uint64 {
 }
 
 func (h *ByronMainBlockHeader) SlotNumber() uint64 {
-	return (h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) + uint64(
-		h.ConsensusData.SlotId.Slot,
-	)
+	return (h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) +
+		h.ConsensusData.SlotId.Slot
 }
 
 func (h *ByronMainBlockHeader) IssuerVkey() common.IssuerVkey {
@@ -977,14 +985,24 @@ func (p *ByronUpdateProposal) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+// ByronUpdateProposalBlockVersionMod is cardano-ledger's
+// ProtocolParametersUpdate: fourteen optional fields, each encoded as a
+// zero- or one-element list, decoded by fourteen bare decCBORs
+// (Cardano/Chain/Update/ProtocolParametersUpdate.hs:36-42, :135-152).
+//
+// The five size and duration fields are Natural there, an unbounded
+// non-negative integer, so they are big.Int here rather than uint64.
+// decodeNatural accepts any integer and rejects only negatives
+// (Cardano/Ledger/Binary/Decoding/Decoder.hs:1463-1469); that is the one
+// bound this type still carries, enforced in UnmarshalCBOR.
 type ByronUpdateProposalBlockVersionMod struct {
 	cbor.StructAsArray
 	ScriptVersion     []uint16
-	SlotDuration      []uint64
-	MaxBlockSize      []uint64
-	MaxHeaderSize     []uint64
-	MaxTxSize         []uint64
-	MaxProposalSize   []uint64
+	SlotDuration      []*big.Int
+	MaxBlockSize      []*big.Int
+	MaxHeaderSize     []*big.Int
+	MaxTxSize         []*big.Int
+	MaxProposalSize   []*big.Int
 	MpcThd            []uint64
 	HeavyDelThd       []uint64
 	UpdateVoteThd     []uint64
@@ -993,6 +1011,44 @@ type ByronUpdateProposalBlockVersionMod struct {
 	SoftForkRule      []any
 	TxFeePolicy       []any
 	UnlockStakeEpoch  []uint64
+}
+
+func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	type tByronUpdateProposalBlockVersionMod ByronUpdateProposalBlockVersionMod
+	var tmp tByronUpdateProposalBlockVersionMod
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	for _, field := range []struct {
+		name   string
+		values []*big.Int
+	}{
+		{name: "slotDuration", values: tmp.SlotDuration},
+		{name: "maxBlockSize", values: tmp.MaxBlockSize},
+		{name: "maxHeaderSize", values: tmp.MaxHeaderSize},
+		{name: "maxTxSize", values: tmp.MaxTxSize},
+		{name: "maxProposalSize", values: tmp.MaxProposalSize},
+	} {
+		for _, value := range field.values {
+			if value == nil {
+				return fmt.Errorf(
+					"byron update proposal %s is null",
+					field.name,
+				)
+			}
+			if value.Sign() < 0 {
+				return fmt.Errorf(
+					"byron update proposal %s is negative: %s",
+					field.name,
+					value.String(),
+				)
+			}
+		}
+	}
+	*m = ByronUpdateProposalBlockVersionMod(tmp)
+	return nil
 }
 
 type ByronMainBlockBody struct {
@@ -1077,8 +1133,12 @@ func (b *ByronMainBlockBody) MarshalCBOR() ([]byte, error) {
 type ByronEpochBoundaryBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash          *common.Blake2b256
-	ProtocolMagic uint32
+	hash *common.Blake2b256
+	// ProtocolMagic is dropped by the reference decoder:
+	// decCBORABoundaryHeader opens with dropInt32, which accepts the
+	// full signed 32-bit range and never interprets the value
+	// (Cardano/Chain/Block/Header.hs:613-616).
+	ProtocolMagic int32
 	PrevBlock     common.Blake2b256
 	BodyProof     any
 	ConsensusData struct {
@@ -1264,8 +1324,12 @@ type ByronEpochBoundaryBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	BlockHeader *ByronEpochBoundaryBlockHeader
-	Body        []common.Blake2b224
-	Extra       []any
+	// Body entries are dropped by the reference decoder:
+	// dropBoundaryBody is dropList dropBytes, so each entry is a byte
+	// string of any length that is never interpreted
+	// (Cardano/Chain/Block/Boundary.hs:73-74).
+	Body  [][]byte
+	Extra []any
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {

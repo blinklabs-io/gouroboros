@@ -345,11 +345,17 @@ func TestByronSscGoldenVectorsRejectMutatedShape(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			err = forgedBlock.ValidateBodyProof()
+			require.NoError(
+				t, forgedBlock.ValidateBodyProof(),
+				"ValidateBodyProof must not check ssc_proof field "+
+					"shapes that cardano-ledger drops",
+			)
+
+			err = forgedBlock.ValidateSscProof()
 			require.Error(
 				t, err,
-				"ValidateBodyProof must reject a mutated-shape primary "+
-					"field even when the header's ssc_proof hash "+
+				"ValidateSscProof must reject a mutated-shape "+
+					"primary field even when the header's ssc_proof hash "+
 					"genuinely matches it",
 			)
 			assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
@@ -418,12 +424,19 @@ func TestByronSscGoldenVectorsRejectMutatedShape(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		err = forgedBlock.ValidateBodyProof()
+		require.NoError(
+			t, forgedBlock.ValidateBodyProof(),
+			"ValidateBodyProof must not check ssc_proof field shapes "+
+				"that cardano-ledger drops",
+		)
+
+		err = forgedBlock.ValidateSscProof()
 		require.Error(
 			t, err,
-			"ValidateBodyProof must reject an untagged VSS certificates "+
-				"field even when the header's ssc_proof hash genuinely "+
-				"matches what a shape-check-free decode would compute",
+			"ValidateSscProof must reject an untagged VSS "+
+				"certificates field even when the header's ssc_proof hash "+
+				"genuinely matches what a shape-check-free decode would "+
+				"compute",
 		)
 		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 	})

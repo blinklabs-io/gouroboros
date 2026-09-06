@@ -234,8 +234,7 @@ func decodePrimaryEntries(
 // already-decoded SscPayload parts (rest, as returned by
 // decodeSscPayloadParts) -- no cross-block state needed.
 //
-// This is the opt-in, full-hash-comparison form (checkSscProofCore with
-// verifyHashes=true): it recomputes each hash the header claims and rejects
+// This is the opt-in, full-hash-comparison form (checkSscProofCore): it recomputes each hash the header claims and rejects
 // the block unless the header's value matches exactly. ValidateBodyProof
 // does NOT call this by default -- see checkSscProofCore's doc comment
 // and common.VerifyConfig.EnableByronSscProofHashValidation for why that
@@ -359,36 +358,92 @@ func checkSscProofLocal(
 	expectedType uint64,
 	rest []cbor.RawMessage,
 ) error {
-	return checkSscProofCore(rawProof, expectedType, rest, true)
+	return checkSscProofCore(rawProof, expectedType, rest)
 }
 
-// checkSscProofShape validates a block's ssc_proof the same way
-// checkSscProofLocal does -- proof type, element counts, and the wire shape
-// of every field the proof hashes -- but does NOT compare any hash value
-// against the header. This is what ValidateBodyProof runs by default for
-// every decoded Byron main block (see NewByronMainBlockFromCbor);
-// checkSscProofLocal's full hash comparison is opt-in via
+// checkSscProofShape validates a block's ssc_proof exactly as far as
+// cardano-ledger's dropSscProof does, and no further. This is what
+// ValidateBodyProof runs by default for every decoded Byron main block
+// (see NewByronMainBlockFromCbor), so anything it rejects is a whole-block
+// decode failure; checkSscProofLocal's full hash comparison, and the
+// stricter wire shapes it needs to compute those hashes, are opt-in via
 // common.VerifyConfig.EnableByronSscProofHashValidation, exposed through
 // ByronMainBlock.ValidateSscProof.
 //
-// See checkSscProofCore's doc comment for why the hash comparison itself,
-// specifically, is not run unconditionally the way tx_proof/dlg_proof/
-// upd_proof's comparisons are.
+// dropSscProof reads a list length, then a Word8 tag, then matchSize
+// against 3 for tags 0-2 and 2 for tag 3, then a dropBytes per hash slot,
+// and errors on any other tag (Cardano/Chain/Ssc.hs:169-188). dropBytes is
+// void decodeBytes: a byte string of any length, never interpreted
+// (Cardano/Ledger/Binary/Decoding/Drop.hs:28-29). So the hash slots are
+// checked for being byte strings and nothing more.
+//
+// dropSscPayload is a separate decoder run over a separate field and never
+// sees the proof's tag (Cardano/Chain/Ssc.hs:75-90), so the payload's own
+// arity is checked against the payload's own type here rather than against
+// the proof's, and the two types are not compared. expectedType is the
+// payload's type, already validated by decodeSscPayloadParts.
 func checkSscProofShape(
 	rawProof any,
 	expectedType uint64,
 	rest []cbor.RawMessage,
 ) error {
-	return checkSscProofCore(rawProof, expectedType, rest, false)
+	proofSlice, ok := rawProof.([]any)
+	if !ok || len(proofSlice) < 2 {
+		return fmt.Errorf(
+			"%w: ssc proof is not an array of at least 2 elements, got %T",
+			ErrBodyProofMismatch, rawProof,
+		)
+	}
+	sscType, err := asUint(proofSlice[0])
+	if err != nil {
+		return fmt.Errorf("%w: ssc proof type: %w", ErrBodyProofMismatch, err)
+	}
+	proofHashes := 0
+	switch sscType {
+	case SscTypeCommitments, SscTypeOpenings, SscTypeShares:
+		proofHashes = 2
+	case SscTypeCertificates:
+		proofHashes = 1
+	default:
+		return fmt.Errorf(
+			"%w: unknown ssc proof type %d", ErrBodyProofMismatch, sscType,
+		)
+	}
+	if len(proofSlice) != proofHashes+1 {
+		return fmt.Errorf(
+			"%w: ssc proof type %d requires %d elements, got %d",
+			ErrBodyProofMismatch, sscType, proofHashes+1, len(proofSlice),
+		)
+	}
+	for i := 1; i <= proofHashes; i++ {
+		if _, ok := proofSlice[i].([]byte); !ok {
+			return fmt.Errorf(
+				"%w: ssc proof element %d is not a byte string, got %T",
+				ErrBodyProofMismatch, i, proofSlice[i],
+			)
+		}
+	}
+	payloadFields := 2
+	if expectedType == SscTypeCertificates {
+		payloadFields = 1
+	}
+	if len(rest) != payloadFields {
+		return fmt.Errorf(
+			"%w: ssc payload type %d requires %d elements after the type, "+
+				"got %d",
+			ErrBodyProofMismatch, expectedType, payloadFields, len(rest),
+		)
+	}
+	return nil
 }
 
-// checkSscProofCore implements both checkSscProofLocal (verifyHashes=true)
-// and checkSscProofShape (verifyHashes=false): the proof type, element
-// counts, and wire shape of every field are always validated; the actual
-// hash comparison against the header's claimed value is only performed
-// when verifyHashes is true.
+// checkSscProofCore implements checkSscProofLocal: it validates the proof
+// type against the payload's, the element counts, the wire shape of every
+// field it hashes, and the hash values themselves. checkSscProofShape does
+// not share it -- that function is bounded by cardano-ledger's dropSscProof
+// and cannot use any of the shapes below.
 //
-// Splitting the hash comparison out behind verifyHashes exists because,
+// This is a separate function from checkSscProofShape because,
 // unlike tx_proof/dlg_proof/upd_proof, ssc_proof has no upstream reference
 // implementation to cross-check this package's own hash construction
 // against: modern cardano-ledger decodes SscProof as a unit type and
@@ -421,7 +476,6 @@ func checkSscProofCore(
 	rawProof any,
 	expectedType uint64,
 	rest []cbor.RawMessage,
-	verifyHashes bool,
 ) error {
 	proofSlice, ok := rawProof.([]any)
 	if !ok || len(proofSlice) < 2 {
@@ -464,11 +518,10 @@ func checkSscProofCore(
 				ErrBodyProofMismatch, sscType, err,
 			)
 		}
-		if err := checkHashOrShape(
+		if err := checkHash(
 			"ssc primary hash",
 			proofSlice[1],
 			common.Blake2b256Hash(rest[0]),
-			verifyHashes,
 		); err != nil {
 			return err
 		}
@@ -479,8 +532,8 @@ func checkSscProofCore(
 				ErrBodyProofMismatch, err,
 			)
 		}
-		return checkHashOrShape(
-			"ssc vss certificates hash", proofSlice[2], certsHash, verifyHashes,
+		return checkHash(
+			"ssc vss certificates hash", proofSlice[2], certsHash,
 		)
 	case SscTypeCertificates:
 		if len(proofSlice) != 2 {
@@ -503,8 +556,8 @@ func checkSscProofCore(
 				ErrBodyProofMismatch, err,
 			)
 		}
-		return checkHashOrShape(
-			"ssc vss certificates hash", proofSlice[1], certsHash, verifyHashes,
+		return checkHash(
+			"ssc vss certificates hash", proofSlice[1], certsHash,
 		)
 	default:
 		return fmt.Errorf(

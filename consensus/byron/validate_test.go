@@ -428,7 +428,7 @@ func TestValidateSimpleSignatureRequiresMainBlockDomain(t *testing.T) {
 	header.ConsensusData.Difficulty.Value = 3
 	header.ConsensusData.BlockSig = []any{}
 	header.ExtraData.Attributes = []byte{}
-	header.ExtraData.ExtraProof = common.Blake2b256{}
+	header.ExtraData.ExtraProof = make([]byte, common.Blake2b256Size)
 	headerCbor, err := cbor.Encode(header)
 	require.NoError(t, err)
 	input := &ValidateHeaderInput{
@@ -1550,12 +1550,12 @@ func TestParseByronBodyProof_ValidInput(t *testing.T) {
 	if proof.SscProof.Type != 0 {
 		t.Errorf("SscProof.Type = %d, want 0", proof.SscProof.Type)
 	}
-	if proof.SscProof.Hash1 != common.Blake2b256(sscHash1) {
+	if !bytes.Equal(proof.SscProof.Hash1, sscHash1) {
 		t.Error("SscProof.Hash1 mismatch")
 	}
 	if proof.SscProof.Hash2 == nil {
 		t.Error("SscProof.Hash2 should not be nil for type 0")
-	} else if *proof.SscProof.Hash2 != common.Blake2b256(sscHash2) {
+	} else if !bytes.Equal(proof.SscProof.Hash2, sscHash2) {
 		t.Error("SscProof.Hash2 mismatch")
 	}
 	if proof.DlgProof != common.Blake2b256(dlgProof) {
@@ -1600,7 +1600,7 @@ func TestParseByronBodyProof_CertificatesProof(t *testing.T) {
 	if proof.SscProof.Type != 3 {
 		t.Errorf("SscProof.Type = %d, want 3", proof.SscProof.Type)
 	}
-	if proof.SscProof.Hash1 != common.Blake2b256(sscHash) {
+	if !bytes.Equal(proof.SscProof.Hash1, sscHash) {
 		t.Error("SscProof.Hash1 mismatch")
 	}
 	if proof.SscProof.Hash2 != nil {
@@ -1619,10 +1619,10 @@ func TestParseSscProof_InvalidInputs(t *testing.T) {
 		{"only type", []any{uint64(0)}},
 		{"invalid type", []any{uint64(4), make([]byte, 32)}},
 		{"type 0 missing second hash", []any{uint64(0), make([]byte, 32)}},
-		{"invalid hash1 length", []any{uint64(3), make([]byte, 31)}},
+		{"hash1 is not a byte string", []any{uint64(3), uint64(0)}},
 		{
-			"invalid hash2 length",
-			[]any{uint64(0), make([]byte, 32), make([]byte, 31)},
+			"hash2 is not a byte string",
+			[]any{uint64(0), make([]byte, 32), uint64(0)},
 		},
 	}
 
@@ -1631,6 +1631,30 @@ func TestParseSscProof_InvalidInputs(t *testing.T) {
 			_, err := parseSscProof(tc.input)
 			if err == nil {
 				t.Error("expected error but got nil")
+			}
+		})
+	}
+}
+
+// TestParseSscProof_AcceptsAnyHashLength pins the hash slots to dropBytes,
+// which takes a byte string of any length and never interprets it
+// (Cardano/Chain/Ssc.hs:169-188, Drop.hs:28-29). The 32-byte pin these
+// slots used to carry turned a short hash into a whole-block failure for a
+// block cardano-node accepts.
+func TestParseSscProof_AcceptsAnyHashLength(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input []any
+	}{
+		{"short certificates hash", []any{uint64(3), make([]byte, 31)}},
+		{
+			"short commitments hashes",
+			[]any{uint64(0), []byte{}, make([]byte, 33)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseSscProof(tc.input); err != nil {
+				t.Errorf("unexpected error: %v", err)
 			}
 		})
 	}
@@ -1736,9 +1760,9 @@ func TestValidateBodyHash_RealMainnetBlock(t *testing.T) {
 
 	// Verify SSC proof parsing works correctly
 	t.Logf("SSC Proof Type: %d", proof.SscProof.Type)
-	t.Logf("SSC Proof Hash1: %s", proof.SscProof.Hash1.String())
+	t.Logf("SSC Proof Hash1: %x", proof.SscProof.Hash1)
 	if proof.SscProof.Hash2 != nil {
-		t.Logf("SSC Proof Hash2: %s", proof.SscProof.Hash2.String())
+		t.Logf("SSC Proof Hash2: %x", proof.SscProof.Hash2)
 	} else {
 		t.Logf("SSC Proof Hash2: nil (correct for type 3)")
 	}
@@ -2012,36 +2036,20 @@ func TestValidateBodyHash_OptInRejectsHashMismatch(t *testing.T) {
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
 
-// TestValidateBodyHash_DefaultRejectsMalformedSscShape is the regression
-// test for B1: before this test's fix, ValidateBodyHash's ssc_proof check,
-// when the opt-in hash comparison is off (the default), called only the
-// local, much-thinner validateSscProof -- which checks the proof's declared
-// type and hash count against the payload's own type, but never inspects
-// the wire shape of the fields it hashes -- with no fallback to the ledger
-// package's real shape gate (tag-258 set enforcement, pubkey byte-string
-// major-type checks, empty-pubkey rejection, and the rest of the chain
-// ledger.ByronMainBlock.ValidateSscProofShape runs). That gap meant a block
-// whose commitments field is a plain, untagged CBOR array -- a shape the
-// real Byron wire format could never produce -- passed ValidateBodyHash
-// cleanly by default, exactly the failure mode a caller relying on
-// SkipBodyHashValidation plus ValidateBodyHash for body binding (as this
-// test file's own TestValidateBodyHash_RealMainnetBlock and
-// TestValidateBodyHash_SscProofSuccess already do) would hit in practice.
-//
-// This is the test TestValidateBodyHash_DefaultLeniencyOnHashMismatch
-// cannot be, precisely because it targets the shape gate rather than the
-// hash comparison: reverting ValidateBodyHash's fix (dropping its
-// `else if err := block.ValidateSscProofShape(); err != nil` branch) makes
-// this test fail, while leaving the hash-mismatch tests above passing
-// unchanged.
-func TestValidateBodyHash_DefaultRejectsMalformedSscShape(t *testing.T) {
-	// An untagged (rather than tag-258-wrapped) commitments array: the
-	// exact malformed shape the real Byron wire format could never
-	// produce, per ledger.byron's decodeIdentitySet.
+// TestValidateBodyHash_DefaultAcceptsDroppedSscShapes pins ValidateBodyHash's
+// default ssc_proof check to cardano-ledger's dropSscProof and dropSscPayload
+// and no further. Those two decoders never compare their tags, dropSet takes
+// any tag number rather than requiring 258, and each hash slot is a dropBytes
+// of any length (Cardano/Chain/Ssc.hs:75-90, :169-188; Drop.hs:28-29, :44-47),
+// so a block carrying any of those shapes must pass by default. The opt-in
+// hash comparison, which recomputes the hashes from the payload and therefore
+// needs the stricter wire shapes, still rejects it.
+func TestValidateBodyHash_DefaultAcceptsDroppedSscShapes(t *testing.T) {
+	// An untagged (rather than tag-258-wrapped) commitments array.
 	untaggedComms, err := cbor.Encode([]any{})
 	require.NoError(t, err)
 	// A well-formed, empty tag-258 VSS certificates set, so the only
-	// malformed field is the commitments one.
+	// dropped-shape field is the commitments one.
 	emptyCertSet, err := cbor.Encode(cbor.Set{})
 	require.NoError(t, err)
 
@@ -2052,34 +2060,34 @@ func TestValidateBodyHash_DefaultRejectsMalformedSscShape(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// A structurally-consistent (proof type matches payload type, hash
-	// count matches) but otherwise arbitrary ssc_proof: the local
-	// validateSscProof this scenario exists to show is insufficient asks
-	// for nothing more than that.
+	// Hash slots shorter than 32 bytes: dropBytes places no bound on them.
 	sscProof, err := cbor.Encode([]any{
 		uint64(byron.SscTypeCommitments),
-		make([]byte, common.Blake2b256Size),
-		make([]byte, common.Blake2b256Size),
+		make([]byte, common.Blake2b256Size-1),
+		[]byte{},
 	})
 	require.NoError(t, err)
 
 	tampered := withSscPayloadAndProof(t, sscPayload, sscProof)
 
-	// Decoding requires SkipBodyHashValidation: the ledger package's own
-	// decode-time structural check already rejects this malformed shape --
-	// this test is specifically about a caller who bypasses that (as the
-	// reviewer's confirmed failure scenario does) and relies on
-	// ValidateBodyHash alone for body binding.
 	block, err := byron.NewByronMainBlockFromCbor(
 		tampered, common.VerifyConfig{SkipBodyHashValidation: true},
 	)
 	require.NoError(t, err)
 
-	err = ValidateBodyHash(block)
+	require.NoError(
+		t, ValidateBodyHash(block),
+		"ValidateBodyHash must accept ssc_proof shapes cardano-ledger "+
+			"drops",
+	)
+
+	err = ValidateBodyHash(
+		block,
+		common.VerifyConfig{EnableByronSscProofHashValidation: true},
+	)
 	require.Error(
 		t, err,
-		"ValidateBodyHash must reject an untagged commitments field by "+
-			"default, even with the opt-in hash comparison off",
+		"the opt-in hash comparison must still reject these shapes",
 	)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
