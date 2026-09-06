@@ -29,6 +29,8 @@ the same `SKILL.md` files.
 | `blink-go-module-auditor` | Module graph, nested modules, replacements, module identity, provenance |
 | `blink-release-auditor` | Dockerfiles, architecture coverage, manifests, tags, publishing workflows |
 | `blink-validation-runner` | Executes repository-native checks in isolation and reports commands and exit codes |
+| `blink-tdd-developer` | Implements a change test-first on Sonnet and stops at a signed local commit, handing off before anything is pushed |
+| `blink-review-shepherd` | Reviews that commit on Opus, publishes the PR, and drives CI, bot, and human review to merge; also reviews other contributors' PRs |
 
 ## Skills
 
@@ -81,6 +83,7 @@ the same `SKILL.md` files.
 |---|---|---|
 | `git-commit-guard.py` | `PreToolUse` on `Bash` | Denies a `git commit` missing DCO sign-off or a Conventional Commit subject; warns when a plan file is staged. Bypass with `BLINK_SKIP_COMMIT_GUARD=1` |
 | `submodule-boundary-notice.py` | `PreToolUse` on edits | Emits one notice per submodule per session when editing under `repos/`. Never blocks. Disable with `BLINK_SKIP_BOUNDARY_NOTICE=1` |
+| `handoff-notice.py` | `SubagentStop` | Tells the parent to dispatch `blink-review-shepherd` when `blink-tdd-developer` stops at its commit, identifying it by payload field or by its `HANDOFF:` marker line. Never interrupts a stop. Disable with `BLINK_SKIP_HANDOFF_NOTICE=1` |
 | `workspace-brief.py` | `SessionStart` | Reports uninitialized submodules, already-moved pointers, and dirty submodules. Disable with `BLINK_SKIP_WORKSPACE_BRIEF=1` |
 
 All guards fail open: unparseable input exits without blocking.

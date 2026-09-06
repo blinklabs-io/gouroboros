@@ -308,6 +308,88 @@ print(json.dumps({"tool_name": "Bash", "cwd": sys.argv[1],
 	rm -rf "$fixture"
 fi
 
+# The handoff notice is what makes the developer-to-reviewer split automatic
+# rather than advisory: blink-tdd-developer cannot dispatch a subagent itself,
+# so the harness has to tell the parent. The payload field naming the stopping
+# agent is not something this repository controls, so the hook accepts several
+# and falls back to the marker line in the transcript; these cases pin each path.
+handoff="$PLUGIN/hooks/handoff-notice.py"
+if [ ! -f "$handoff" ]; then
+	fail "hooks/handoff-notice.py is missing"
+else
+	check_handoff() {
+		local label=$1 payload=$2 expect=$3 out
+		if ! out=$(printf '%s' "$payload" | python3 "$handoff"); then
+			fail "handoff notice exited non-zero on $label"
+			return
+		fi
+		case "$out" in
+		*blink-review-shepherd*)
+			if [ "$expect" = fires ]; then
+				pass "handoff notice fires on $label"
+			else
+				fail "handoff notice should stay quiet on $label"
+			fi
+			;;
+		*)
+			if [ "$expect" = quiet ]; then
+				pass "handoff notice stays quiet on $label"
+			else
+				fail "handoff notice should fire on $label"
+			fi
+			;;
+		esac
+		case "$out" in
+		*'"decision"'* | *'"block"'*)
+			fail "handoff notice must never block a subagent stop ($label)" ;;
+		esac
+	}
+
+	check_handoff "the developer agent under agent_type" \
+		'{"hook_event_name":"SubagentStop","agent_type":"blink-tdd-developer"}' fires
+	check_handoff "the developer agent under subagent_type" \
+		'{"hook_event_name":"SubagentStop","subagent_type":"blink-tdd-developer"}' fires
+	check_handoff "the reviewer stopping" \
+		'{"hook_event_name":"SubagentStop","agent_type":"blink-review-shepherd"}' quiet
+	check_handoff "an unrelated agent" \
+		'{"hook_event_name":"SubagentStop","agent_type":"blink-repo-scout"}' quiet
+	check_handoff "an unparseable payload" 'not json at all' quiet
+	check_handoff "a payload naming no agent" \
+		'{"hook_event_name":"SubagentStop"}' quiet
+
+	# The marker is line-anchored: an agent quoting the instruction in prose
+	# must not trigger a dispatch.
+	transcript=$(mktemp)
+	write_transcript() { python3 -c '
+import json, sys
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    fh.write(json.dumps({"type": "user", "message": {"content": "go"}}) + "\n")
+    fh.write(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": sys.argv[2]}]}}) + "\n")
+' "$1" "$2"; }
+
+	write_transcript "$transcript" "Committed 1 change.
+HANDOFF: blink-review-shepherd"
+	check_handoff "a transcript carrying the handoff marker" \
+		"{\"hook_event_name\":\"SubagentStop\",\"transcript_path\":\"$transcript\"}" fires
+
+	write_transcript "$transcript" "The developer agent should end with \`HANDOFF: blink-review-shepherd\` on its own line."
+	check_handoff "a transcript quoting the marker mid-sentence" \
+		"{\"hook_event_name\":\"SubagentStop\",\"transcript_path\":\"$transcript\"}" quiet
+
+	write_transcript "$transcript" "Found the owning repository; no changes made."
+	check_handoff "a transcript with no marker" \
+		"{\"hook_event_name\":\"SubagentStop\",\"transcript_path\":\"$transcript\"}" quiet
+	rm -f "$transcript"
+
+	out=$(printf '%s' '{"agent_type":"blink-tdd-developer"}' |
+		BLINK_SKIP_HANDOFF_NOTICE=1 python3 "$handoff")
+	case "$out" in
+	*blink-review-shepherd*) fail "handoff notice ignores BLINK_SKIP_HANDOFF_NOTICE" ;;
+	*) pass "handoff notice honors BLINK_SKIP_HANDOFF_NOTICE" ;;
+	esac
+fi
+
 echo "== Shell scripts =="
 if require_cmd shellcheck "shell linting"; then
 	for script in scripts/*.sh; do

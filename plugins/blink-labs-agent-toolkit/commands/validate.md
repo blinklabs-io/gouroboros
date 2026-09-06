@@ -20,7 +20,9 @@ report a check as run unless you have its command line, exit code, and output.
 
 2. **Prefer repository-native targets.** Read the `Makefile` first. Use its
    targets (`make test`, `make lint`, `make import-boundaries`, `make sql-check`,
-   `make gorm-check`, `make docs-parity`) before inventing a command.
+   `make docs-parity`, `make govulncheck`) before inventing a command. Confirm a
+   target exists in that repository's `Makefile` before running it; the set
+   differs per repository.
 
 3. **Start narrow, then widen** as the affected contract requires:
    - Go: `gofmt -l`, focused `go test -run`, `go test ./...`, `go vet ./...`,

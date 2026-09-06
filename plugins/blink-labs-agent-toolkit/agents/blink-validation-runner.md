@@ -19,7 +19,8 @@ you do not soften a failure into a caveat.
 3. Start narrow (focused `go test -run`, changed package) and widen only as the
    affected contract requires: full tests, `go vet`, `golangci-lint`, `nilaway`,
    race tests, import-boundary and docs-parity targets, `sql-check`,
-   `gorm-check`, `actionlint`, `docker build --check`.
+   `actionlint`, `docker build --check`. Confirm each target exists in the
+   target repository's `Makefile` first; the set differs per repository.
 4. Isolate. Use a dedicated worktree when one is available, unique ports, unique
    temporary directories, and a unique `GOCACHE`. Serialize long sync or
    from-genesis runs; never run two of them against the same port or path.

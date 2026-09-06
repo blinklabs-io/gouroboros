@@ -43,9 +43,12 @@ Labs projects and affiliated TosiDrop repositories:
 - **Slash commands** — `/orient`, `/validate`, `/review`, `/dep-audit`,
   `/release-check`, `/submodule-sync`.
 - **Subagents** for protocol, application, module, release, and validation
-  review, dispatchable in parallel across repositories.
+  review, dispatchable in parallel across repositories, plus a paired
+  test-first developer and review shepherd that split implementation from
+  the pull-request review loop.
 - **Workspace guards** that enforce DCO sign-off and Conventional Commits, warn
-  on submodule boundary crossings, and brief a new session on workspace state.
+  on submodule boundary crossings, brief a new session on workspace state, and
+  hand a finished implementation to the review shepherd before it is pushed.
 - **Workspace scripts** for repeatable maintenance, including `make scan-prs`
   for current-head pull-request review, direct and team review requests, and
   merge-gate scans.

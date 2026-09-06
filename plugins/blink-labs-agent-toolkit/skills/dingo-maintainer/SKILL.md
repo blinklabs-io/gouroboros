@@ -65,9 +65,11 @@ make docs-parity
 make golines
 ```
 
-Run `make sql-check` when SQL or `sqlc.yaml` is affected, and run
-`make gorm-check` for database changes. Do not interpret a root lint result
-without checking whether the failure is pre-existing or in generated code.
+Run `make sql-check` when SQL queries or `sqlc.yaml` are affected. Dingo's
+metadata layer is sqlc-generated `database/sql`, not an ORM, so there is no
+`gorm-check` target -- read the `Makefile` rather than assuming a target exists.
+Do not interpret a root lint result without checking whether the failure is
+pre-existing or in generated code.
 
 Never use `time.Sleep()` to synchronize tests. Use
 `internal/test/testutil/WaitForCondition`, `RequireReceive`, or a context with
