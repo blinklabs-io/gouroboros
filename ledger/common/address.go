@@ -52,6 +52,12 @@ const (
 
 	AddressTypeScriptBit = 0x01
 
+	// Byron address attribute keys, from the EncCBOR and DecCBOR instances
+	// for Attributes AddrAttributes (cardano-ledger
+	// eras/byron/ledger/impl/src/Cardano/Chain/Common/AddrAttributes.hs)
+	byronAddressAttrDerivationPath = 1
+	byronAddressAttrNetworkMagic   = 2
+
 	ByronAddressTypePubkey = 0
 	ByronAddressTypeScript = 1
 	ByronAddressTypeRedeem = 2
@@ -948,38 +954,84 @@ type byronAddressPayload struct {
 type ByronAddressAttributes struct {
 	Payload []byte
 	Network *uint32
+	// Unparsed holds the attribute keys this decoder does not interpret,
+	// mapped to their raw values. The reference updater returns Nothing for
+	// every key other than 1 and 2
+	// (cardano-ledger
+	// eras/byron/ledger/impl/src/Cardano/Chain/Common/AddrAttributes.hs:121-143),
+	// and decCBORAttributes retains those keys in attrRemain, which
+	// encCBORAttributes writes back
+	// (.../Common/Attributes.hs:213-234). The attribute map is hashed into the
+	// Byron address root, so an unknown key that is dropped rather than
+	// carried through changes the address it belongs to.
+	Unparsed map[uint8][]byte
 }
 
 func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
-	var tmpData struct {
-		Payload    []byte `cbor:"1,keyasint,omitempty"`
-		NetworkRaw []byte `cbor:"2,keyasint,omitempty"`
-	}
+	// decCBORAttributes decodes the whole map as Map Word8 LByteString before
+	// interpreting any key, so an unrecognised key is data rather than an
+	// error.
+	var tmpData map[uint8][]byte
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
 	}
-	a.Payload = tmpData.Payload
-	if len(tmpData.NetworkRaw) > 0 {
-		var tmpNetwork uint32
-		if _, err := cbor.Decode(tmpData.NetworkRaw, &tmpNetwork); err != nil {
-			return err
+	a.Payload = nil
+	a.Network = nil
+	a.Unparsed = nil
+	for key, value := range tmpData {
+		switch key {
+		case byronAddressAttrDerivationPath:
+			// The reference runs decodeFull over this value, which cannot
+			// succeed on an empty one, and an empty value would also be
+			// dropped by MarshalCBOR and so break the round trip.
+			if len(value) == 0 {
+				return errors.New(
+					"invalid Byron address attributes: empty derivation path",
+				)
+			}
+			a.Payload = value
+		case byronAddressAttrNetworkMagic:
+			if len(value) == 0 {
+				return errors.New(
+					"invalid Byron address attributes: empty network magic",
+				)
+			}
+			var tmpNetwork uint32
+			if _, err := cbor.Decode(value, &tmpNetwork); err != nil {
+				return err
+			}
+			a.Network = &tmpNetwork
+		default:
+			if a.Unparsed == nil {
+				a.Unparsed = make(map[uint8][]byte)
+			}
+			a.Unparsed[key] = value
 		}
-		a.Network = &tmpNetwork
 	}
 	return nil
 }
 
 func (a *ByronAddressAttributes) MarshalCBOR() ([]byte, error) {
-	tmpData := make(map[int]any)
+	tmpData := make(map[uint8][]byte, len(a.Unparsed)+2)
+	for key, value := range a.Unparsed {
+		if key == byronAddressAttrDerivationPath ||
+			key == byronAddressAttrNetworkMagic {
+			return nil, fmt.Errorf(
+				"byron address attribute %d is both parsed and unparsed",
+				key,
+			)
+		}
+		tmpData[key] = value
+	}
 	if len(a.Payload) > 0 {
-		tmpData[1] = a.Payload
+		tmpData[byronAddressAttrDerivationPath] = a.Payload
 	}
 	if a.Network != nil {
 		networkRaw, err := cbor.Encode(a.Network)
 		if err != nil {
 			return nil, err
 		}
-		tmpData[2] = networkRaw
+		tmpData[byronAddressAttrNetworkMagic] = networkRaw
 	}
 	return cbor.Encode(tmpData)
 }
