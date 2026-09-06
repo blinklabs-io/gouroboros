@@ -325,8 +325,8 @@ func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
 type BabbageOpCert struct {
 	cbor.StructAsArray
 	HotVkey        []byte
-	SequenceNumber uint32
-	KesPeriod      uint32
+	SequenceNumber uint64
+	KesPeriod      uint64
 	Signature      []byte
 }
 

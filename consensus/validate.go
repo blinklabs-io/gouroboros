@@ -88,8 +88,8 @@ type ValidateHeaderInput struct {
 
 	// OpCert fields
 	OpCertHotVkey        []byte
-	OpCertSequenceNumber uint32
-	OpCertKesPeriod      uint32
+	OpCertSequenceNumber uint64
+	OpCertKesPeriod      uint64
 	OpCertSignature      []byte
 
 	// Previous header for chain validation
@@ -457,7 +457,7 @@ func (v *HeaderValidator) validateKESPeriod(input *ValidateHeaderInput) error {
 	}
 
 	currentKESPeriod := input.Slot / v.slotsPerKESPeriod
-	opCertKESPeriod := uint64(input.OpCertKesPeriod)
+	opCertKESPeriod := input.OpCertKesPeriod
 
 	// OpCert cannot be from the future
 	if currentKESPeriod < opCertKESPeriod {
@@ -511,7 +511,7 @@ func (v *HeaderValidator) validateKESSignature(
 
 	// Calculate evolution period
 	currentKESPeriod := input.Slot / v.slotsPerKESPeriod
-	opCertKESPeriod := uint64(input.OpCertKesPeriod)
+	opCertKESPeriod := input.OpCertKesPeriod
 	// Guard against underflow if OpCert KES period is in the future
 	if currentKESPeriod < opCertKESPeriod {
 		return fmt.Errorf(
@@ -570,8 +570,8 @@ func (v *HeaderValidator) validateOpCertSignature(
 	// (hot_vkey || sequence_number || kes_period), not a CBOR encoding.
 	opCertBody := common.OpCertSignableBytes(
 		input.OpCertHotVkey,
-		uint64(input.OpCertSequenceNumber),
-		uint64(input.OpCertKesPeriod),
+		input.OpCertSequenceNumber,
+		input.OpCertKesPeriod,
 	)
 
 	// Verify Ed25519 signature

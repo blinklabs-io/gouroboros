@@ -45,19 +45,19 @@ func ExtractKesFields(
 ) (signature []byte, hotVkey []byte, kesPeriod uint64, err error) {
 	switch h := header.(type) {
 	case *shelley.ShelleyBlockHeader:
-		return h.Signature, h.Body.OpCertHotVkey, uint64(h.Body.OpCertKesPeriod), nil
+		return h.Signature, h.Body.OpCertHotVkey, h.Body.OpCertKesPeriod, nil
 	case *allegra.AllegraBlockHeader:
-		return h.Signature, h.Body.OpCertHotVkey, uint64(h.Body.OpCertKesPeriod), nil
+		return h.Signature, h.Body.OpCertHotVkey, h.Body.OpCertKesPeriod, nil
 	case *mary.MaryBlockHeader:
-		return h.Signature, h.Body.OpCertHotVkey, uint64(h.Body.OpCertKesPeriod), nil
+		return h.Signature, h.Body.OpCertHotVkey, h.Body.OpCertKesPeriod, nil
 	case *alonzo.AlonzoBlockHeader:
-		return h.Signature, h.Body.OpCertHotVkey, uint64(h.Body.OpCertKesPeriod), nil
+		return h.Signature, h.Body.OpCertHotVkey, h.Body.OpCertKesPeriod, nil
 	case *babbage.BabbageBlockHeader:
-		return h.Signature, h.Body.OpCert.HotVkey, uint64(h.Body.OpCert.KesPeriod), nil
+		return h.Signature, h.Body.OpCert.HotVkey, h.Body.OpCert.KesPeriod, nil
 	case *conway.ConwayBlockHeader:
-		return h.Signature, h.Body.OpCert.HotVkey, uint64(h.Body.OpCert.KesPeriod), nil
+		return h.Signature, h.Body.OpCert.HotVkey, h.Body.OpCert.KesPeriod, nil
 	case *dijkstra.DijkstraBlockHeader:
-		return h.Signature, h.Body.OpCert.HotVkey, uint64(h.Body.OpCert.KesPeriod), nil
+		return h.Signature, h.Body.OpCert.HotVkey, h.Body.OpCert.KesPeriod, nil
 	default:
 		return nil, nil, 0, common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
