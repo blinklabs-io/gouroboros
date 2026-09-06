@@ -750,7 +750,7 @@ func dataInfo(
 			ret,
 			KeyValuePair[lcommon.DatumHash, data.PlutusData]{
 				Key:   hash,
-				Value: datum.Data,
+				Value: data.Normalize(datum.Data),
 			},
 		)
 	}
@@ -805,7 +805,7 @@ func redeemersInfo(
 				Value: Redeemer{
 					Tag:     key.Tag,
 					Index:   key.Index,
-					Data:    redeemerValue.Data.Data,
+					Data:    data.Normalize(redeemerValue.Data.Data),
 					ExUnits: redeemerValue.ExUnits,
 				},
 			},

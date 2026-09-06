@@ -60,7 +60,7 @@ func dijkstraPlutusV4Context(
 	return data.NewConstr(
 		0,
 		txInfo,
-		value.Data.Data,
+		data.Normalize(value.Data.Data),
 		scriptInfo,
 		data.NewByteString(purpose.ScriptHash().Bytes()),
 	), nil
@@ -963,7 +963,7 @@ func dijkstraOutputV4(
 	var datumData data.PlutusData
 	switch {
 	case output.Datum() != nil:
-		datumData = data.NewConstr(2, output.Datum().Data)
+		datumData = data.NewConstr(2, data.Normalize(output.Datum().Data))
 	case output.DatumHash() != nil:
 		datumData = data.NewConstr(
 			1,
@@ -1035,7 +1035,7 @@ func dijkstraRedeemersV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		if err != nil {
 			return nil, err
 		}
-		pairs = append(pairs, [2]data.PlutusData{purposeData, value.Data.Data})
+		pairs = append(pairs, [2]data.PlutusData{purposeData, data.Normalize(value.Data.Data)})
 	}
 	return data.NewMap(pairs), nil
 }

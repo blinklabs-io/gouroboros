@@ -833,7 +833,7 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 	case o.DatumOption.data != nil:
 		datumOptionPd = data.NewConstr(
 			2,
-			o.DatumOption.data.Data,
+			data.Normalize(o.DatumOption.data.Data),
 		)
 	}
 	var scriptRefPd data.PlutusData
