@@ -279,14 +279,8 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 			PoolMetadata:  metadata,
 		}
 	}
-	for poolID, pool := range out {
-		if err := common.ValidatePoolMetadataForProtocolVersion(
-			pool.PoolMetadata,
-			g.ProtocolParameters.ProtocolVersion.Major,
-		); err != nil {
-			return nil, fmt.Errorf("invalid pool %s metadata: %w", poolID, err)
-		}
-	}
+	// Genesis pool loading is not a POOL transition. Pool metadata URL bounds
+	// are enforced by PoolMetadata decoding/encoding and POOL validation.
 	return out, nil
 }
 
