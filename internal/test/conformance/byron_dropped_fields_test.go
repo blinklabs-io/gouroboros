@@ -65,7 +65,7 @@ func setNested(
 ) []byte {
 	t.Helper()
 	require.NotEmpty(t, indices)
-	var elements []cbor.RawMessage
+	elements := []cbor.RawMessage{}
 	_, err := cbor.Decode(data, &elements)
 	require.NoError(t, err, "decode array at %v", indices)
 	require.Greaterf(
