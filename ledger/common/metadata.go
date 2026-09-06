@@ -15,13 +15,13 @@
 package common
 
 import (
-	"encoding/hex"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"slices"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -218,32 +218,57 @@ func decodeMetadatumStringAt(
 // same number collide, matching the duplicate-key enforcement the CBOR decode
 // modes apply elsewhere; containers compare by their decoded semantics.
 func metadatumKeyIdentity(md TransactionMetadatum) string {
+	digest := metadatumKeyDigest(md)
+	return string(digest[:])
+}
+
+func metadatumKeyDigest(md TransactionMetadatum) [sha256.Size]byte {
+	h := sha256.New()
+	writePart := func(prefix byte, value []byte) {
+		_, _ = h.Write([]byte{prefix})
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
+		_, _ = h.Write(length[:])
+		_, _ = h.Write(value)
+	}
+	finish := func() (digest [sha256.Size]byte) {
+		copy(digest[:], h.Sum(nil))
+		return digest
+	}
+
 	switch k := md.(type) {
 	case MetaInt:
-		return "i:" + k.Value.String()
+		writePart('i', []byte(k.Value.String()))
 	case MetaText:
-		return fmt.Sprintf("t:%d:%s", len(k.Value), k.Value)
+		writePart('t', []byte(k.Value))
 	case MetaBytes:
-		return fmt.Sprintf("b:%d:%x", len(k.Value), k.Value)
+		writePart('b', k.Value)
 	case MetaList:
-		parts := make([]string, len(k.Items))
-		for i, item := range k.Items {
-			identity := metadatumKeyIdentity(item)
-			parts[i] = fmt.Sprintf("%d:%s", len(identity), identity)
+		_, _ = h.Write([]byte{'l'})
+		for _, item := range k.Items {
+			digest := metadatumKeyDigest(item)
+			_, _ = h.Write(digest[:])
 		}
-		return "l:" + strings.Join(parts, "")
 	case MetaMap:
 		parts := make([]string, len(k.Pairs))
 		for i, pair := range k.Pairs {
-			key := metadatumKeyIdentity(pair.Key)
-			value := metadatumKeyIdentity(pair.Value)
-			parts[i] = fmt.Sprintf("%d:%s%d:%s", len(key), key, len(value), value)
+			key := metadatumKeyDigest(pair.Key)
+			value := metadatumKeyDigest(pair.Value)
+			pairHash := sha256.New()
+			_, _ = pairHash.Write([]byte{'p'})
+			_, _ = pairHash.Write(key[:])
+			_, _ = pairHash.Write(value[:])
+			parts[i] = string(pairHash.Sum(nil))
 		}
 		slices.Sort(parts)
-		return "m:" + strings.Join(parts, "")
+		_, _ = h.Write([]byte{'m'})
+		for _, part := range parts {
+			_, _ = h.Write([]byte(part))
+		}
 	default:
-		return "r:" + hex.EncodeToString(md.Cbor())
+		writePart('r', md.Cbor())
 	}
+	return finish()
 }
 
 // decodeMetadatumAt decodes the metadatum starting at offset and returns it

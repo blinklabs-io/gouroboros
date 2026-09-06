@@ -192,15 +192,15 @@ func TestParseDiagnosticIndefiniteTextString(t *testing.T) {
 }
 
 func TestParseDiagnosticMaxNestedLevels(t *testing.T) {
-	data := make([]byte, 0, 260)
-	for range 257 {
+	data := make([]byte, 0, cbor.MaxNestedLevels+2)
+	for range cbor.MaxNestedLevels + 1 {
 		data = append(data, 0x81)
 	}
 	data = append(data, 0x00)
 
 	_, err := cbor.ParseDiagnostic(data)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "max depth of 256")
+	assert.Contains(t, err.Error(), "max depth of 1024")
 }
 
 func TestDiagnosticGetNodeAtOffset(t *testing.T) {

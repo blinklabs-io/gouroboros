@@ -23,7 +23,7 @@ import (
 	"strings"
 )
 
-const maxDiagnosticNestedLevels = 256
+const maxDiagnosticNestedLevels = MaxNestedLevels
 
 // DiagnosticNode represents a CBOR element with metadata for display.
 type DiagnosticNode struct {

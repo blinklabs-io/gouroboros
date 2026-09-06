@@ -41,40 +41,19 @@ var (
 )
 
 // MaxNestedLevels bounds the CBOR nesting depth accepted by every decode
-// mode in this package. It is 65535, the maximum the underlying CBOR library
-// accepts (fxamacker/cbor DecOptions.MaxNestedLevels is limited to [4, 65535]).
-//
-// The reference decoders place no bound on nesting. Neither
-// decodeMetadatum (cardano-ledger
-// libs/cardano-ledger-core/src/Cardano/Ledger/Metadata.hs) nor the Plutus
-// Data decoder (plutus plutus-core/plutus-core/src/PlutusCore/Data.hs)
-// carries a depth counter, and the CDDL rule
-// "metadatum = {* metadatum => metadatum} / [* metadatum] / int / ..."
-// is unbounded. There is therefore no depth at which the reference rejects a
-// value, and any finite cap here rejects wire data cardano-node accepts.
-// Because an address, a metadatum and a datum are all decoded as part of the
-// enclosing block, such a rejection fails the whole block rather than one
-// transaction.
-//
-// The only bound the protocol actually places on nesting is transaction size.
-// Every nesting level costs at least one byte on the wire (an array, map or
-// tag head is one byte minimum), so a structure inside a transaction can be
-// at most maxTxSize levels deep; at the current mainnet maxTxSize of 16384
-// that is 16384 levels, plus the handful of levels the block envelope adds
-// above it. 65535 clears that by a factor of four and leaves room for
-// maxTxSize to be raised, so this cap is not reachable by a transaction that
-// the protocol itself accepts.
-//
-// This is not an amplification vector: reaching depth N requires at least N
-// bytes of input, so decoder work and stack use stay linear in the size of
-// the message, which the mini-protocol and block size limits already bound.
-const MaxNestedLevels = 65535
+// mode in this package. The limit is deliberately below the underlying
+// library's maximum: public decoders can receive peer-controlled data, and
+// custom UnmarshalCBOR implementations recurse on the Go stack. A limit of
+// 1024 preserves values accepted by the former 256-level default while
+// preventing tens of thousands of recursive calls. The protocol payload-size
+// limit remains an independent, larger wire-compatibility bound; it is not a
+// safe substitute for a stack cap.
+const MaxNestedLevels = 1024
 
 // MaxUntrustedNestedLevels bounds recursive parsing of values received from
-// untrusted peers. Keep the general decoder limit at MaxNestedLevels for wire
-// compatibility; callers decoding network-controlled messages should use
-// DecodeStrict.
-const MaxUntrustedNestedLevels = 1024
+// untrusted peers. It is retained as a named limit for callers that need to
+// document the untrusted-decoding contract.
+const MaxUntrustedNestedLevels = MaxNestedLevels
 
 // getDecMode returns a cached DecMode, initializing it on first use.
 // Uses sync.Once for thread-safe lazy initialization.

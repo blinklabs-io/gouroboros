@@ -23,7 +23,7 @@ import (
 
 func TestDumpCborStructureMaxDepthNoPanic(t *testing.T) {
 	// Independent of MaxNestedLevels: a decoder mode cannot be built past
-	// the library maximum, which MaxNestedLevels now sits at.
+	// the library maximum, which is higher than MaxNestedLevels.
 	const dumpDepthLimit = 256
 	depth := dumpDepthLimit + 100
 	cborData := deeplyNestedArrayCbor(depth)

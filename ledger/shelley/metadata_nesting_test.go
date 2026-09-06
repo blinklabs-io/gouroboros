@@ -88,11 +88,9 @@ func metadatumDepth(md common.TransactionMetadatum) int {
 // decodeMetadatum in cardano-ledger
 // (libs/cardano-ledger-core/src/Cardano/Ledger/Metadata.hs) recurses through
 // decodeListN with no depth counter, so the reference accepts every depth
-// here.
+// here; the local decoder still applies its explicit resource bound.
 func TestShelleyBlockDecodesDeeplyNestedMetadatum(t *testing.T) {
-	// 16000 is inside the current mainnet max_tx_size of 16384, which is the
-	// only bound the protocol places on nesting depth.
-	for _, depth := range []int{257, 300, 1000, 16000} {
+	for _, depth := range []int{257, 300, 1000} {
 		blockBytes := blockWithNestedMetadatum(t, depth)
 		block, err := shelley.NewShelleyBlockFromCbor(
 			blockBytes,
@@ -116,18 +114,15 @@ func TestShelleyBlockDecodesDeeplyNestedMetadatum(t *testing.T) {
 	}
 }
 
-// TestShelleyBlockRejectsMetadatumPastLibraryMaximum is the negative control:
-// the cap is raised to the maximum the CBOR library supports, not removed.
-func TestShelleyBlockRejectsMetadatumPastLibraryMaximum(t *testing.T) {
-	blockBytes := blockWithNestedMetadatum(t, 65536)
+// TestShelleyBlockRejectsMetadatumPastConfiguredLimit is the negative control
+// for the explicit decoder resource bound.
+func TestShelleyBlockRejectsMetadatumPastConfiguredLimit(t *testing.T) {
+	blockBytes := blockWithNestedMetadatum(t, cbor.MaxNestedLevels+1)
 	_, err := shelley.NewShelleyBlockFromCbor(
 		blockBytes,
 		common.VerifyConfig{SkipBodyHashValidation: true},
 	)
 	if err == nil {
-		t.Fatal("expected metadatum nesting depth 65536 to be rejected")
-	}
-	if !strings.Contains(err.Error(), "max nested level") {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("expected metadatum nesting depth %d to be rejected", cbor.MaxNestedLevels+1)
 	}
 }

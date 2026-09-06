@@ -62,25 +62,29 @@ func TestDecodeAcceptsNestingPastPreviousCap(t *testing.T) {
 	}
 }
 
-func TestDecodePreservesWireCompatibleNesting(t *testing.T) {
+func TestDecodeAcceptsNestingAtConfiguredLimit(t *testing.T) {
 	var dest any
-	if _, err := cbor.Decode(nestedArrays(16384), &dest); err != nil {
-		t.Fatalf("Decode rejected wire-compatible nesting: %v", err)
+	if _, err := cbor.Decode(nestedArrays(cbor.MaxNestedLevels), &dest); err != nil {
+		t.Fatalf("Decode rejected configured nesting limit: %v", err)
+	}
+	var value cbor.Value
+	if _, err := cbor.Decode(nestedArrays(cbor.MaxNestedLevels), &value); err != nil {
+		t.Fatalf("Decode rejected Value at configured nesting limit: %v", err)
 	}
 }
 
-// TestDecodeRejectsNestingPastLibraryMaximum is the negative control: the cap
-// is raised to the maximum the CBOR library supports, not removed, so a value
-// past it is still rejected rather than being decoded or overflowing the
-// stack.
-func TestDecodeRejectsNestingPastLibraryMaximum(t *testing.T) {
-	data := nestedArrays(65536)
+func TestDecodeRejectsNestingPastConfiguredLimit(t *testing.T) {
+	data := nestedArrays(cbor.MaxNestedLevels + 1)
 	var dest any
 	_, err := cbor.Decode(data, &dest)
 	if err == nil {
-		t.Fatal("expected nesting depth 65536 to be rejected")
+		t.Fatalf("expected nesting depth %d to be rejected", cbor.MaxNestedLevels+1)
 	}
 	if !strings.Contains(err.Error(), "max nested level") {
-		t.Fatalf("unexpected error for nesting depth 65536: %v", err)
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var value cbor.Value
+	if _, err := cbor.Decode(data, &value); err == nil {
+		t.Fatal("expected Value to reject nesting past configured limit")
 	}
 }

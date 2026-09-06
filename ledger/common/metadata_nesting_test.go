@@ -57,7 +57,7 @@ func nestedMapMetadatum(depth int) []byte {
 }
 
 func TestDeeplyNestedMetadatumDecodes(t *testing.T) {
-	for _, depth := range []int{257, 1000, 16000} {
+	for _, depth := range []int{257, 1000} {
 		list, err := common.DecodeMetadatumRaw(nestedListMetadatum(depth))
 		if err != nil {
 			t.Fatalf("nested lists at depth %d: %v", depth, err)
@@ -93,9 +93,9 @@ func TestDeeplyNestedMetadatumDecodes(t *testing.T) {
 // TestDeeplyNestedMetadatumDecodesInLinearSpace pins the decode to one pass
 // over the input. Re-entering the CBOR library once per nesting level made
 // both the work and the retained bytes grow with the product of size and
-// depth: a 16001 byte value allocated 581 MiB.
+// depth: the previous implementation allocated quadratically with depth.
 func TestDeeplyNestedMetadatumDecodesInLinearSpace(t *testing.T) {
-	data := nestedListMetadatum(16000)
+	data := nestedListMetadatum(1000)
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
@@ -103,7 +103,7 @@ func TestDeeplyNestedMetadatumDecodesInLinearSpace(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	runtime.ReadMemStats(&after)
-	const limit = 64 << 20
+	const limit = 8 << 20
 	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > limit {
 		t.Fatalf(
 			"decoding a %d byte metadatum allocated %d bytes, over the %d byte limit",
