@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -351,8 +350,6 @@ func (t *ByronTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Bl
 type ByronTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
-	hashMu     *sync.Mutex
 	Body       ByronTransactionBody
 	Twit       []cbor.Value
 	twitCbor   []byte // Original CBOR of witnesses for merkle tree computation
@@ -360,17 +357,10 @@ type ByronTransaction struct {
 }
 
 func (t *ByronTransaction) SetCbor(data []byte) {
-	if t.hashMu == nil {
-		t.hashMu = &sync.Mutex{}
-	}
-	t.hashMu.Lock()
-	defer t.hashMu.Unlock()
 	t.DecodeStoreCbor.SetCbor(data)
-	t.hash = nil
 }
 
 func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
-	t.hashMu = &sync.Mutex{}
 	var txArray []cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &txArray); err != nil {
 		return err
@@ -533,17 +523,9 @@ func (t *ByronTransaction) AuxiliaryData() common.AuxiliaryData {
 	return nil
 }
 
-func (t *ByronTransaction) LeiosHash() common.Blake2b256 {
-	if t.hashMu == nil {
-		t.hashMu = &sync.Mutex{}
-	}
-	t.hashMu.Lock()
-	defer t.hashMu.Unlock()
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR.
+func (t ByronTransaction) LeiosHash() common.Blake2b256 {
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t *ByronTransaction) IsValid() bool {

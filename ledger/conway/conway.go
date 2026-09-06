@@ -22,7 +22,6 @@ import (
 	"maps"
 	"math/big"
 	"slices"
-	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -894,8 +893,6 @@ func (b *ConwayTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
 type ConwayTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
-	hashMu     *sync.Mutex
 	Body       ConwayTransactionBody
 	WitnessSet ConwayTransactionWitnessSet
 	TxIsValid  bool
@@ -904,19 +901,11 @@ type ConwayTransaction struct {
 }
 
 func (t *ConwayTransaction) SetCbor(data []byte) {
-	if t.hashMu == nil {
-		t.hashMu = &sync.Mutex{}
-	}
-	t.hashMu.Lock()
-	defer t.hashMu.Unlock()
 	t.DecodeStoreCbor.SetCbor(data)
-	t.hash = nil
 }
 
 func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
-	t.hashMu = &sync.Mutex{}
 	// Reset cached/derived fields to avoid stale state on receiver reuse
-	t.hash = nil
 	t.TxMetadata = nil
 	t.auxData = nil
 
@@ -1010,17 +999,9 @@ func (t ConwayTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t *ConwayTransaction) LeiosHash() common.Blake2b256 {
-	if t.hashMu == nil {
-		t.hashMu = &sync.Mutex{}
-	}
-	t.hashMu.Lock()
-	defer t.hashMu.Unlock()
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR.
+func (t ConwayTransaction) LeiosHash() common.Blake2b256 {
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t ConwayTransaction) Inputs() []common.TransactionInput {

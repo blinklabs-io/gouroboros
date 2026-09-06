@@ -101,6 +101,14 @@ func ValidateCollateralVKeyWitnesses(
 				err,
 			)
 		}
+		if utxo.Output == nil {
+			return NewValidationError(
+				ValidationErrorTypeTransaction,
+				"resolved UTxO has nil output",
+				map[string]any{"input": input.String()},
+				nil,
+			)
+		}
 		addr := utxo.Output.Address()
 		cred := addr.PayloadPayload()
 		pk, ok := cred.(AddressPayloadKeyHash)

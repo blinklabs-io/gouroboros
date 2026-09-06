@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
@@ -27,4 +28,28 @@ func TestResolveInputUtxoRejectsTypedNilOutput(t *testing.T) {
 
 	_, err := common.ResolveInputUtxo(state, input)
 	require.ErrorIs(t, err, common.ErrInputResolution)
+}
+
+func TestValidateCollateralVKeyWitnessesRejectsNilOutput(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000000", 0,
+	)
+	state := mockledger.NewLedgerStateBuilder().WithUtxoById(
+		func(common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, nil
+		},
+	).Build()
+	redeemers := conway.ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			{Tag: common.RedeemerTagSpend, Index: 0}: {},
+		},
+	}
+	tx := mockledger.NewTransactionBuilder().
+		WithCollateral(input).
+		WithWitnesses(mockledger.NewMockTransactionWitnessSet().WithRedeemers(redeemers))
+
+	require.NotPanics(t, func() {
+		err := common.ValidateCollateralVKeyWitnesses(tx, state)
+		require.Error(t, err)
+	})
 }
