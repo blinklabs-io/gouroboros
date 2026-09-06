@@ -707,6 +707,9 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 		*o = BabbageTransactionOutput(tmp)
+		if err := common.CheckAddressFullyConsumed(o.OutputAddress); err != nil {
+			return err
+		}
 	} else {
 		// Legacy outputs use the pre-Babbage array form.
 		var tmpOutput alonzo.AlonzoTransactionOutput
@@ -715,6 +718,11 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		}
 		// Clear Babbage-only fields to avoid leaking state from a prior decode
 		o.TxOutScriptRef = nil
+		if err := common.CheckAddressFullyConsumed(
+			tmpOutput.OutputAddress,
+		); err != nil {
+			return err
+		}
 		// Copy from temp legacy object to Babbage format
 		o.OutputAddress = tmpOutput.OutputAddress
 		o.OutputAmount = tmpOutput.OutputAmount

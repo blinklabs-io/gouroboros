@@ -601,6 +601,13 @@ func (o *DijkstraTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		if _, err := cbor.Decode(cborData, &tmp); err != nil {
 			return err
 		}
+		// Dijkstra is past decoder version 7, so an output address must be
+		// fully consumed even in the historical array form.
+		if err := common.CheckAddressFullyConsumed(
+			tmp.OutputAddress,
+		); err != nil {
+			return err
+		}
 		o.Output = &tmp
 	case cbor.CborTypeMap:
 		var tmp babbage.BabbageTransactionOutput
