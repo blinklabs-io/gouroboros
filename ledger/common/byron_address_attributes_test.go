@@ -283,3 +283,18 @@ func TestByronAddressAttributesRejectShadowedKey(t *testing.T) {
 		t.Fatal("expected a shadowed attribute key to be rejected")
 	}
 }
+
+func TestDecodedByronAddressAttributesRejectShadowedKey(t *testing.T) {
+	attrCbor, err := hex.DecodeString("a202410203420102")
+	if err != nil {
+		t.Fatalf("bad test attribute hex: %v", err)
+	}
+	var attrs common.ByronAddressAttributes
+	if _, err := cbor.Decode(attrCbor, &attrs); err != nil {
+		t.Fatalf("decode attributes: %v", err)
+	}
+	attrs.Unparsed[1] = []byte{0x41, 0x01}
+	if _, err := attrs.MarshalCBOR(); err == nil {
+		t.Fatal("expected a shadowed attribute key to be rejected")
+	}
+}

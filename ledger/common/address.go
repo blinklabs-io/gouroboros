@@ -1014,11 +1014,7 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 }
 
 func (a ByronAddressAttributes) MarshalCBOR() ([]byte, error) {
-	if data := a.Cbor(); data != nil {
-		return data, nil
-	}
-	tmpData := make(map[uint8][]byte, len(a.Unparsed)+2)
-	for key, value := range a.Unparsed {
+	for key := range a.Unparsed {
 		if key == byronAddressAttrDerivationPath ||
 			key == byronAddressAttrNetworkMagic {
 			return nil, fmt.Errorf(
@@ -1026,6 +1022,12 @@ func (a ByronAddressAttributes) MarshalCBOR() ([]byte, error) {
 				key,
 			)
 		}
+	}
+	if data := a.Cbor(); data != nil {
+		return data, nil
+	}
+	tmpData := make(map[uint8][]byte, len(a.Unparsed)+2)
+	for key, value := range a.Unparsed {
 		tmpData[key] = value
 	}
 	if len(a.Payload) > 0 {
