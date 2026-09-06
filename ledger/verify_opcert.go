@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/blinklabs-io/gouroboros/internal/ed25519strict"
 	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -92,8 +93,7 @@ func VerifyOpCertSignature(opCert *OpCert, coldVkey []byte) error {
 	)
 
 	// Verify signature using cold verification key
-	pubKey := ed25519.PublicKey(coldVkey)
-	if !ed25519.Verify(pubKey, signable, opCert.ColdSignature) {
+	if !ed25519strict.Verify(coldVkey, signable, opCert.ColdSignature) {
 		return &OpCertError{
 			Field:   "cold_signature",
 			Message: "signature verification failed",
