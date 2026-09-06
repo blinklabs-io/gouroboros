@@ -85,39 +85,7 @@ func ValidateRequiredRedeemers(
 	if err != nil {
 		return err
 	}
-	subBodies := lcommon.SubTransactionBodiesFromTransaction(tx)
-	subWitnesses := lcommon.SubTransactionWitnessSetsFromTransaction(tx)
-	// The two accessors project the same ordered sub-transaction list, so a
-	// length disagreement means the pairing is not trustworthy. Checking the
-	// levels we cannot pair would attribute one sub-transaction's redeemers to
-	// another's purposes and reject a valid transaction, so the sub-levels are
-	// left to the era's own per-level rules instead.
-	pairable := len(subBodies) == len(subWitnesses)
-	available := view.Available
-	subResolved := make([][]lcommon.Utxo, len(subBodies))
-	if pairable && len(subBodies) > 0 {
-		// A reference script carried by a sub-transaction's own input is part
-		// of the aggregated ScriptsProvided in getDijkstraScriptsProvided, so
-		// it has to be visible before any level is checked against it.
-		augmented := make(
-			map[lcommon.ScriptHash]lcommon.Script,
-			len(view.Available),
-		)
-		maps.Copy(augmented, view.Available)
-		for idx, body := range subBodies {
-			resolved := resolveBodyInputs(body, ls)
-			subResolved[idx] = resolved
-			for _, utxo := range resolved {
-				if utxo.Output == nil {
-					continue
-				}
-				if s := utxo.Output.ScriptRef(); s != nil {
-					augmented[s.Hash()] = s
-				}
-			}
-		}
-		available = augmented
-	}
+	subLevels, available := subTransactionLevels(tx, ls, view.Available)
 	// Checked only once the sub-transaction reference scripts are folded in.
 	// availableScripts resolves reference scripts from the top-level inputs
 	// alone, so a sub-transaction whose script arrives purely as a CIP-33
@@ -137,20 +105,73 @@ func ValidateRequiredRedeemers(
 	); err != nil {
 		return err
 	}
-	if !pairable {
-		return nil
-	}
-	for idx, body := range subBodies {
+	for _, level := range subLevels {
 		if err := validateLevelRedeemers(
-			body,
-			subWitnesses[idx],
-			subResolved[idx],
+			level.body,
+			level.witnesses,
+			level.resolved,
 			available,
 		); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// subTransactionLevel is one Dijkstra sub-transaction: a body, the witness set
+// holding its own redeemers, and whatever of its inputs resolved.
+type subTransactionLevel struct {
+	body      lcommon.TransactionBody
+	witnesses lcommon.TransactionWitnessSet
+	resolved  []lcommon.Utxo
+}
+
+// subTransactionLevels pairs each sub-transaction body with its witness set and
+// returns them alongside the script availability the whole transaction has,
+// which is topLevel plus any reference script a sub-transaction's own input
+// carries. cardano-ledger aggregates availability the same way, in
+// getDijkstraScriptsProvided
+// (eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/UTxO.hs).
+//
+// A length disagreement between the two accessors means the pairing is not
+// trustworthy. Checking levels that cannot be paired would attribute one
+// sub-transaction's redeemers to another's purposes and reject a valid
+// transaction, so no level is returned and the sub-transactions are left to the
+// era's own per-level rules. For every era before Dijkstra both accessors
+// return nothing and this is the identity.
+func subTransactionLevels(
+	tx lcommon.Transaction,
+	ls lcommon.LedgerState,
+	topLevel map[lcommon.ScriptHash]lcommon.Script,
+) ([]subTransactionLevel, map[lcommon.ScriptHash]lcommon.Script) {
+	bodies := lcommon.SubTransactionBodiesFromTransaction(tx)
+	witnessSets := lcommon.SubTransactionWitnessSetsFromTransaction(tx)
+	if len(bodies) == 0 || len(bodies) != len(witnessSets) {
+		return nil, topLevel
+	}
+	available := make(
+		map[lcommon.ScriptHash]lcommon.Script,
+		len(topLevel),
+	)
+	maps.Copy(available, topLevel)
+	levels := make([]subTransactionLevel, 0, len(bodies))
+	for idx, witnesses := range witnessSets {
+		resolved := resolveBodyInputs(bodies[idx], ls)
+		for _, utxo := range resolved {
+			if utxo.Output == nil {
+				continue
+			}
+			if s := utxo.Output.ScriptRef(); s != nil {
+				available[s.Hash()] = s
+			}
+		}
+		levels = append(levels, subTransactionLevel{
+			body:      bodies[idx],
+			witnesses: witnesses,
+			resolved:  resolved,
+		})
+	}
+	return levels, available
 }
 
 // validateLevelRedeemers requires a redeemer for every Plutus script purpose
