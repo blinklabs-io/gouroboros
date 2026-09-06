@@ -138,6 +138,36 @@ func TestMirRewardDeltaRejectsNonInteger(t *testing.T) {
 	}
 }
 
+func TestMirRewardTargetRejectsNullOrUndefined(t *testing.T) {
+	t.Run("empty map", func(t *testing.T) {
+		wire, err := hex.DecodeString("8206" + "8200" + "a0")
+		require.NoError(t, err)
+		var cert common.MoveInstantaneousRewardsCertificate
+		require.NoError(t, cert.UnmarshalCBOR(wire))
+		require.NotNil(t, cert.Reward.Rewards)
+		assert.Empty(t, cert.Reward.Rewards)
+	})
+
+	for _, testDef := range []struct {
+		name      string
+		targetHex string
+	}{
+		{"null", "f6"},
+		{"undefined", "f7"},
+	} {
+		t.Run(testDef.name, func(t *testing.T) {
+			wire, err := hex.DecodeString("8206" + "8200" + testDef.targetHex)
+			require.NoError(t, err)
+			var cert common.MoveInstantaneousRewardsCertificate
+			require.ErrorContains(
+				t,
+				cert.UnmarshalCBOR(wire),
+				"instantaneous rewards target is CBOR null or undefined",
+			)
+		})
+	}
+}
+
 // TestMirOppositePotDecode covers the other MIRTarget branch. The CDDL types
 // the opposite-pot amount as coin, which is uint, so it stays unsigned, and the
 // source pot must come from the branch that decoded.

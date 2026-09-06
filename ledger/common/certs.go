@@ -1377,6 +1377,11 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 		Rewards map[*Credential]*big.Int
 	}{}
 	if _, err := cbor.Decode(data, &tmpMapData); err == nil {
+		if tmpMapData.Rewards == nil {
+			return errors.New(
+				"instantaneous rewards target is CBOR null or undefined",
+			)
+		}
 		for _, delta := range tmpMapData.Rewards {
 			// A *big.Int target accepts CBOR null and undefined as a
 			// nil pointer. delta_coin is int, so reject them.
