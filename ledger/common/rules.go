@@ -33,7 +33,9 @@ import (
 )
 
 // UtxoValidationRuleFunc represents a function that validates a transaction
-// against a specific UTXO validation rule.
+// against a specific UTXO validation rule. Rules invoked by VerifyTransaction
+// receive a transaction-scoped cached ledger state; use UnwrapLedgerState
+// before asserting optional ledger-state capabilities.
 type UtxoValidationRuleFunc func(
 	tx Transaction,
 	slot uint64,
@@ -60,7 +62,9 @@ func (s *cachedLedgerState) UnderlyingLedgerState() LedgerState {
 
 // UnwrapLedgerState returns the caller's ledger state when validation is
 // running with the transaction-scoped UTxO lookup cache. Rules that inspect
-// optional LedgerState capabilities should use this before type assertions.
+// optional LedgerState capabilities must use this before type assertions; the
+// cache wrapper preserves UTxO lookup behavior but cannot preserve assertions
+// against arbitrary provider types.
 func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
 	if cached, ok := ledgerState.(interface {
 		UnderlyingLedgerState() LedgerState
@@ -179,7 +183,9 @@ func ComposeUtxoValidationRules(
 }
 
 // VerifyTransaction runs the provided validation rules in order and wraps
-// the first error encountered into a ValidationError.
+// the first error encountered into a ValidationError. Each rule receives a
+// transaction-scoped UTxO cache; rules asserting optional ledger-state
+// capabilities must call UnwrapLedgerState first.
 func VerifyTransaction(
 	tx Transaction,
 	slot uint64,

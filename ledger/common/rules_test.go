@@ -1450,6 +1450,33 @@ func TestVerifyTransactionCachesUtxoLookupsAcrossScriptRules(t *testing.T) {
 	require.Equal(t, 1, lookupCount)
 }
 
+func TestVerifyTransactionUnwrapsOptionalLedgerStateCapabilities(t *testing.T) {
+	state := mirGenesisQuorumState(1, []byte("genesis-delegate"))
+	tx := mirTransaction()
+	called := false
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		state,
+		nil,
+		[]common.UtxoValidationRuleFunc{
+			func(
+				_ common.Transaction,
+				_ uint64,
+				ledgerState common.LedgerState,
+				_ common.ProtocolParameters,
+			) error {
+				called = true
+				_, ok := common.UnwrapLedgerState(ledgerState).(common.GenesisDelegationState)
+				require.True(t, ok, "unwrapped state must retain optional capabilities")
+				return nil
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.True(t, called)
+}
+
 func TestComposeUtxoValidationRules(t *testing.T) {
 	var calls []string
 	rule := func(name string) common.UtxoValidationRuleFunc {
