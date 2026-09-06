@@ -1,8 +1,6 @@
 module github.com/blinklabs-io/gouroboros
 
-go 1.25.7
-
-toolchain go1.25.8
+go 1.26.0
 
 require (
 	filippo.io/edwards25519 v1.2.0
@@ -14,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/utxorpc/go-codegen v0.19.2
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	google.golang.org/protobuf v1.36.12
 )
 
