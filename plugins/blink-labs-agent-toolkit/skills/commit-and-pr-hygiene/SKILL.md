@@ -8,6 +8,34 @@ description: Write Blink Labs commits, pull request descriptions, issues, review
 Policy in this organization is narrow and enforced. Getting it wrong costs a
 round trip, and in a submodule it can cost a bad pointer.
 
+## Cross-check open issues before opening a PR or filing a new one
+
+A repository with a large issue count accumulates several issues describing one
+defect class from different symptoms. A change that silently overlaps an open
+issue leaves that issue to be re-investigated by someone who does not know it is
+already fixed.
+
+Before opening a pull request, and before filing an issue:
+
+1. **Search on what the change touches, not on the issue you were handed.** The
+   function and type names, the error text a user would actually see, and the
+   file path. `gh issue list --repo <repo> --state open --search "<term>"`, once
+   per distinct thing.
+2. **Search `--state closed` too.** A closed issue whose class survives in
+   another form is worth saying so on — and a recently closed one may have left
+   a follow-up nobody opened, which is often exactly the work in hand.
+3. **Link precisely.** `Fixes #N` only for what the change actually closes.
+   Everything adjacent gets named in words: "related to #N", "supersedes the
+   workaround in #N", "does not close #N because ...". A reader should never
+   have to discover the relationship.
+4. **If the work fully duplicates an existing issue or PR, stop and say so**
+   rather than opening a second one.
+
+Report the searches and what each returned, **including the ones that returned
+nothing**. A clean search is a result: it says the class was checked, not that
+nobody looked.
+
+
 ## Direct pushes are clanker-only; product repos need a PR
 
 Push straight to `main` in the **clanker workspace superrepo only** — and only
