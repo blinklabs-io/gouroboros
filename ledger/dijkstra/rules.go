@@ -21,7 +21,6 @@ import (
 	"iter"
 	"math"
 	"math/big"
-	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -675,17 +674,13 @@ func (t dijkstraConwayFeatureTransaction) Produced() []common.Utxo {
 // shared script-purpose resolver. Script availability is aggregated across
 // levels separately by UtxoValidateConwayFeaturesWithPlutusV1V2.
 func (t dijkstraConwayFeatureTransaction) GuardingCredentials() []common.Credential {
-	switch body := t.body.(type) {
-	case *DijkstraTransactionBody:
-		if body.TxGuards != nil {
-			return body.TxGuards.Credentials
-		}
-	case *DijkstraSubTransactionBody:
-		if body.TxGuards != nil {
-			return body.TxGuards.Credentials
-		}
+	guardingBody, ok := t.body.(interface {
+		GuardingCredentials() []common.Credential
+	})
+	if !ok {
+		return nil
 	}
-	return nil
+	return guardingBody.GuardingCredentials()
 }
 
 func dijkstraTransactionLevels(
@@ -1246,163 +1241,24 @@ func dijkstraRequiredPlutusPurposes(
 	return ret
 }
 
+// dijkstraRequiredScriptPurposes lists the script purposes one transaction
+// level defines, with the redeemer pointer each one requires.
+//
+// The walk itself is script.ScriptPurposes, shared with neededScripts and
+// script.ValidateRequiredRedeemers. Dijkstra kept its own copy of the six-way
+// purpose walk until issue #2250; a second list is how a purpose comes to be
+// enforced in one place and not the other, which is the defect that issue
+// records for the non-spending purposes.
 func dijkstraRequiredScriptPurposes(
 	level dijkstraScriptLevel,
 ) []dijkstraRequiredScriptPurpose {
-	ret := make([]dijkstraRequiredScriptPurpose, 0)
-	appendPurpose := func(
-		key common.RedeemerKey,
-		purpose script.ScriptPurpose,
-	) {
-		if purpose == nil || purpose.ScriptHash() == (common.ScriptHash{}) {
-			return
-		}
+	purposes := script.ScriptPurposes(level.tx, level.view.ResolvedInputs)
+	ret := make([]dijkstraRequiredScriptPurpose, 0, len(purposes))
+	for _, needed := range purposes {
 		ret = append(ret, dijkstraRequiredScriptPurpose{
-			key:     key,
-			purpose: purpose,
+			key:     needed.Key,
+			purpose: needed.Purpose,
 		})
-	}
-
-	resolved := make(map[string]common.Utxo, len(level.view.ResolvedInputs))
-	for _, utxo := range level.view.ResolvedInputs {
-		if utxo.Id != nil {
-			resolved[utxo.Id.String()] = utxo
-		}
-	}
-	for idx, input := range script.SortInputs(level.tx.Inputs()) {
-		utxo, ok := resolved[input.String()]
-		if !ok || utxo.Output == nil ||
-			utxo.Output.Address().Type()&common.AddressTypeScriptBit == 0 {
-			continue
-		}
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagSpend,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeSpending{Input: utxo},
-		)
-	}
-
-	if mint := level.tx.AssetMint(); mint != nil {
-		policies := mint.Policies()
-		slices.SortFunc(policies, func(a, b common.Blake2b224) int {
-			return bytes.Compare(a.Bytes(), b.Bytes())
-		})
-		for idx, policy := range policies {
-			appendPurpose(
-				common.RedeemerKey{
-					Tag: common.RedeemerTagMint,
-					Index: uint32(
-						idx,
-					), // #nosec G115 -- bounded by transaction size
-				},
-				script.ScriptPurposeMinting{PolicyId: policy},
-			)
-		}
-	}
-
-	for idx, certificate := range level.tx.Certificates() {
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagCert,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeCertifying{
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-				Certificate: certificate,
-			},
-		)
-	}
-
-	withdrawals := script.SortWithdrawalAddresses(level.tx.Withdrawals())
-	for idx, address := range withdrawals {
-		if address == nil ||
-			address.Type()&common.AddressTypeScriptBit == 0 {
-			continue
-		}
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagReward,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeRewarding{
-				StakeCredential: common.Credential{
-					CredType:   common.CredentialTypeScriptHash,
-					Credential: address.StakeKeyHash(),
-				},
-			},
-		)
-	}
-
-	voters := make([]*common.Voter, 0, len(level.tx.VotingProcedures()))
-	for voter := range level.tx.VotingProcedures() {
-		voters = append(voters, voter)
-	}
-	slices.SortFunc(voters, func(a, b *common.Voter) int {
-		if a == nil {
-			return -1
-		}
-		if b == nil {
-			return 1
-		}
-		aTag := dijkstraVoterTag(a)
-		bTag := dijkstraVoterTag(b)
-		if aTag != bTag {
-			return aTag - bTag
-		}
-		return bytes.Compare(a.Hash[:], b.Hash[:])
-	})
-	for idx, voter := range voters {
-		if voter == nil || !dijkstraVoterUsesScriptCredential(*voter) {
-			continue
-		}
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagVoting,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeVoting{Voter: *voter},
-		)
-	}
-
-	for idx, proposal := range level.tx.ProposalProcedures() {
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagProposing,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeProposing{
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-				ProposalProcedure: proposal,
-			},
-		)
-	}
-
-	for idx, guard := range level.tx.GuardingCredentials() {
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagGuarding,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeGuarding{Guard: guard},
-		)
 	}
 	return ret
 }
@@ -1438,33 +1294,6 @@ func validateDijkstraPlutusRedeemers(
 		}
 	}
 	return nil
-}
-
-func dijkstraVoterUsesScriptCredential(voter common.Voter) bool {
-	switch voter.Type {
-	case common.VoterTypeConstitutionalCommitteeHotScriptHash,
-		common.VoterTypeDRepScriptHash:
-		return true
-	default:
-		return false
-	}
-}
-
-func dijkstraVoterTag(voter *common.Voter) int {
-	switch voter.Type {
-	case common.VoterTypeConstitutionalCommitteeHotScriptHash:
-		return 0
-	case common.VoterTypeConstitutionalCommitteeHotKeyHash:
-		return 1
-	case common.VoterTypeDRepScriptHash:
-		return 2
-	case common.VoterTypeDRepKeyHash:
-		return 3
-	case common.VoterTypeStakingPoolKeyHash:
-		return 4
-	default:
-		return -1
-	}
 }
 
 func dijkstraPlutusV4RedeemerKeys(
