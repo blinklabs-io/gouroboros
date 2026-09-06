@@ -75,13 +75,39 @@ func readGoldenHeader(t *testing.T, name string) (uint, []byte) {
 }
 
 // setOCertFields rewrites the operational certificate sequence number and KES
-// period in a header, leaving every other byte of the header untouched.
+// period while retaining the raw CBOR for every other header field.
 func setOCertFields(
 	t *testing.T,
 	headerCbor []byte,
 	tpraos bool,
 	sequenceNumber uint64,
 	kesPeriod uint64,
+) []byte {
+	t.Helper()
+	encode := func(v uint64) cbor.RawMessage {
+		encoded, err := cbor.Encode(v)
+		if err != nil {
+			t.Fatalf("encode %d: %v", v, err)
+		}
+		return encoded
+	}
+	return setOCertRawFields(
+		t,
+		headerCbor,
+		tpraos,
+		encode(sequenceNumber),
+		encode(kesPeriod),
+	)
+}
+
+// setOCertRawFields replaces the operational certificate sequence number or
+// KES period when its replacement is non-nil. Other header fields are retained.
+func setOCertRawFields(
+	t *testing.T,
+	headerCbor []byte,
+	tpraos bool,
+	sequenceNumber cbor.RawMessage,
+	kesPeriod cbor.RawMessage,
 ) []byte {
 	t.Helper()
 	var header []cbor.RawMessage
@@ -95,19 +121,16 @@ func setOCertFields(
 	if _, err := cbor.Decode(header[0], &body); err != nil {
 		t.Fatalf("decode header body array: %v", err)
 	}
-	encode := func(v uint64) cbor.RawMessage {
-		encoded, err := cbor.Encode(v)
-		if err != nil {
-			t.Fatalf("encode %d: %v", v, err)
-		}
-		return encoded
-	}
 	if tpraos {
 		if len(body) <= tPraosOCertOffset+1 {
 			t.Fatalf("TPraos header body has %d elements", len(body))
 		}
-		body[tPraosOCertOffset] = encode(sequenceNumber)
-		body[tPraosOCertOffset+1] = encode(kesPeriod)
+		if sequenceNumber != nil {
+			body[tPraosOCertOffset] = sequenceNumber
+		}
+		if kesPeriod != nil {
+			body[tPraosOCertOffset+1] = kesPeriod
+		}
 	} else {
 		if len(body) <= cPraosOCertIndex {
 			t.Fatalf("CPraos header body has %d elements", len(body))
@@ -122,8 +145,12 @@ func setOCertFields(
 				len(ocert),
 			)
 		}
-		ocert[1] = encode(sequenceNumber)
-		ocert[2] = encode(kesPeriod)
+		if sequenceNumber != nil {
+			ocert[1] = sequenceNumber
+		}
+		if kesPeriod != nil {
+			ocert[2] = kesPeriod
+		}
 		encodedOCert, err := cbor.Encode(ocert)
 		if err != nil {
 			t.Fatalf("encode operational certificate array: %v", err)
@@ -270,8 +297,11 @@ func TestGoldenHeaderOCertFieldsRejectNonIntegers(t *testing.T) {
 	} {
 		t.Run(testDef.name, func(t *testing.T) {
 			eraId, headerCbor := readGoldenHeader(t, testDef.golden)
-			blockType := ledger.BlockHeaderToBlockTypeMap[eraId]
-			for _, badCase := range []struct {
+			blockType, ok := ledger.BlockHeaderToBlockTypeMap[eraId]
+			if !ok {
+				t.Fatalf("no block type for era id %d", eraId)
+			}
+			badCases := []struct {
 				name  string
 				value cbor.RawMessage
 			}{
@@ -288,65 +318,45 @@ func TestGoldenHeaderOCertFieldsRejectNonIntegers(t *testing.T) {
 						0x00,
 					},
 				},
+			}
+			for _, field := range []struct {
+				name     string
+				sequence bool
+			}{
+				{name: "sequence number", sequence: true},
+				{name: "KES period"},
 			} {
-				t.Run(badCase.name, func(t *testing.T) {
-					modified := setOCertRaw(
-						t,
-						headerCbor,
-						testDef.tpraos,
-						badCase.value,
-					)
-					if _, err := ledger.NewBlockHeaderFromCbor(blockType, modified); err == nil {
-						t.Errorf(
-							"header with a %s sequence number decoded",
-							badCase.name,
-						)
+				t.Run(field.name, func(t *testing.T) {
+					for _, badCase := range badCases {
+						t.Run(badCase.name, func(t *testing.T) {
+							var sequenceNumber cbor.RawMessage
+							var kesPeriod cbor.RawMessage
+							if field.sequence {
+								sequenceNumber = badCase.value
+							} else {
+								kesPeriod = badCase.value
+							}
+							modified := setOCertRawFields(
+								t,
+								headerCbor,
+								testDef.tpraos,
+								sequenceNumber,
+								kesPeriod,
+							)
+							if _, err := ledger.NewBlockHeaderFromCbor(
+								blockType,
+								modified,
+							); err == nil {
+								t.Errorf(
+									"header with a %s %s decoded",
+									badCase.name,
+									field.name,
+								)
+							}
+						})
 					}
 				})
 			}
 		})
 	}
-}
-
-// setOCertRaw replaces the operational certificate sequence number with
-// arbitrary CBOR.
-func setOCertRaw(
-	t *testing.T,
-	headerCbor []byte,
-	tpraos bool,
-	value cbor.RawMessage,
-) []byte {
-	t.Helper()
-	var header []cbor.RawMessage
-	if _, err := cbor.Decode(headerCbor, &header); err != nil {
-		t.Fatalf("decode header array: %v", err)
-	}
-	var body []cbor.RawMessage
-	if _, err := cbor.Decode(header[0], &body); err != nil {
-		t.Fatalf("decode header body array: %v", err)
-	}
-	if tpraos {
-		body[tPraosOCertOffset] = value
-	} else {
-		var ocert []cbor.RawMessage
-		if _, err := cbor.Decode(body[cPraosOCertIndex], &ocert); err != nil {
-			t.Fatalf("decode operational certificate array: %v", err)
-		}
-		ocert[1] = value
-		encodedOCert, err := cbor.Encode(ocert)
-		if err != nil {
-			t.Fatalf("encode operational certificate array: %v", err)
-		}
-		body[cPraosOCertIndex] = encodedOCert
-	}
-	encodedBody, err := cbor.Encode(body)
-	if err != nil {
-		t.Fatalf("encode header body array: %v", err)
-	}
-	header[0] = encodedBody
-	encodedHeader, err := cbor.Encode(header)
-	if err != nil {
-		t.Fatalf("encode header array: %v", err)
-	}
-	return encodedHeader
 }
