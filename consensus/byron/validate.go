@@ -367,7 +367,10 @@ func (v *HeaderValidator) validateSimpleSignature(
 		return fmt.Errorf("failed to domain-separate ToSign: %w", err)
 	}
 
-	// Verify Ed25519 signature on the domain-separated ToSign.
+	// Byron verification stays permissive at this primary path. Its
+	// ed25519-donna reference accepts small-order public and R points, and
+	// tightening immutable Byron history to the non-Byron criteria would break
+	// sync from genesis. Do not route this through internal/ed25519strict.
 	valid := ed25519.Verify(
 		input.IssuerPubKey,
 		signed,
@@ -645,6 +648,10 @@ func (v *HeaderValidator) validateProxySignature(
 	// Use the Ed25519 portion of the delegate's extended key (first 32 bytes)
 	delegatePubKey := delegateVK[:32]
 
+	// Byron verification stays permissive at this delegated block-signature
+	// path. Its ed25519-donna reference accepts small-order public and R points,
+	// and tightening immutable Byron history to the non-Byron criteria would
+	// break sync from genesis. Do not route this through internal/ed25519strict.
 	valid := ed25519.Verify(delegatePubKey, signedBuf, blockSig)
 	if !valid {
 		return fmt.Errorf(
