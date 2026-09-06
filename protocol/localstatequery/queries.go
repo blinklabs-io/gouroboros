@@ -1333,9 +1333,8 @@ func (e *DRepStateEntry) UnmarshalCBOR(data []byte) error {
 // The result is a map of stake credentials to DRep state entries.
 type DRepStateResult map[StakeCredential]DRepStateEntry
 
-// DRepStakeDistrResult represents the DRep stake distribution
-// The result is returned as raw CBOR that maps DReps to stake amounts
-type DRepStakeDistrResult cbor.RawMessage
+// DRepStakeDistrResult and DRepStakeDistrEntry are defined in
+// drep_stake_distr.go, which carries the reply's wire layout.
 
 // HotCredAuthStatus represents the authorization status of a hot credential
 type HotCredAuthStatus int
