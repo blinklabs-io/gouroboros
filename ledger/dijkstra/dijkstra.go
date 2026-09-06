@@ -912,6 +912,14 @@ func (b *DijkstraTransactionBody) RequiredSigners() []common.Blake2b224 {
 	return dijkstraRequiredSigners(b.TxGuards)
 }
 
+// GuardingCredentials exposes this body's guards to the shared script-purpose
+// walk. It is defined on the body rather than only on the transaction so a
+// sub-transaction body, which is never a standalone Transaction, contributes
+// its own guards and only its own.
+func (b *DijkstraTransactionBody) GuardingCredentials() []common.Credential {
+	return dijkstraGuardingCredentials(b.TxGuards)
+}
+
 func (b *DijkstraTransactionBody) ScriptDataHash() *common.Blake2b256 {
 	return b.TxScriptDataHash
 }
@@ -1007,6 +1015,19 @@ func dijkstraWithdrawals(
 		ret[addr] = new(big.Int).SetUint64(amount)
 	}
 	return ret
+}
+
+// dijkstraGuardingCredentials returns the guard credentials that define
+// guarding script purposes. cardano-ledger's getDijkstraScriptsNeeded adds one
+// guarding purpose per guard whose credential is a script hash
+// (eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/UTxO.hs); key-hash guards
+// contribute required signers instead, which dijkstraRequiredSigners handles.
+// The whole list is returned because the purpose index is a position in it.
+func dijkstraGuardingCredentials(guards *DijkstraGuards) []common.Credential {
+	if guards == nil {
+		return nil
+	}
+	return guards.Credentials
 }
 
 func dijkstraRequiredSigners(guards *DijkstraGuards) []common.Blake2b224 {
@@ -1192,6 +1213,12 @@ func (b *DijkstraSubTransactionBody) AssetMint() *common.MultiAsset[common.Multi
 
 func (b *DijkstraSubTransactionBody) RequiredSigners() []common.Blake2b224 {
 	return dijkstraRequiredSigners(b.TxGuards)
+}
+
+// GuardingCredentials exposes this sub-transaction's own guards. See the
+// comment on DijkstraTransactionBody.GuardingCredentials.
+func (b *DijkstraSubTransactionBody) GuardingCredentials() []common.Credential {
+	return dijkstraGuardingCredentials(b.TxGuards)
 }
 
 func (b *DijkstraSubTransactionBody) ScriptDataHash() *common.Blake2b256 {
@@ -1565,6 +1592,13 @@ func (t DijkstraTransaction) Produced() []common.Utxo {
 
 func (t DijkstraTransaction) Witnesses() common.TransactionWitnessSet {
 	return t.WitnessSet
+}
+
+// GuardingCredentials forwards the top-level body's guards, so a script rule
+// handed the concrete transaction sees the same guarding purposes as one
+// handed a transaction level.
+func (t DijkstraTransaction) GuardingCredentials() []common.Credential {
+	return t.Body.GuardingCredentials()
 }
 
 func (t DijkstraTransaction) SubTransactionWitnessSets() []common.TransactionWitnessSet {
