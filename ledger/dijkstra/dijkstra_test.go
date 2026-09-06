@@ -1457,16 +1457,3 @@ func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(
 		*decodedAction.ParamUpdate.MaxRefScriptSizePerBlock,
 	)
 }
-
-func TestDijkstraTransactionLeiosHashCaches(t *testing.T) {
-	tx := &DijkstraTransaction{}
-	tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xa0})
-
-	first := tx.LeiosHash()
-	require.NotNil(t, tx.hash)
-	cached := tx.hash
-
-	second := tx.LeiosHash()
-	require.Equal(t, first, second)
-	require.True(t, cached == tx.hash)
-}

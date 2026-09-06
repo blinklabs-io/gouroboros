@@ -35,6 +35,10 @@ type Transaction interface {
 	Type() int
 	Cbor() []byte
 	Hash() Blake2b256
+	// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR.
+	// Implementations recompute it on every call rather than caching it on
+	// the transaction: era transaction types are copied by value, so an
+	// in-struct cache cannot be populated safely from a shared receiver.
 	LeiosHash() Blake2b256
 	Metadata() TransactionMetadatum
 	AuxiliaryData() AuxiliaryData
