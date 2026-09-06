@@ -15,6 +15,7 @@
 package common
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -241,7 +242,7 @@ func metadatumKeyIdentity(md TransactionMetadatum) string {
 		slices.Sort(parts)
 		return "m:" + strings.Join(parts, "")
 	default:
-		return "r:" + fmt.Sprintf("%x", md.Cbor())
+		return "r:" + hex.EncodeToString(md.Cbor())
 	}
 }
 
