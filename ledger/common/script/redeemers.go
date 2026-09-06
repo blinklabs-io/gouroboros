@@ -210,7 +210,12 @@ func resolveBodyInputs(
 	body lcommon.TransactionBody,
 	ls lcommon.LedgerState,
 ) []lcommon.Utxo {
-	if body == nil || ls == nil {
+	// ledgerStateIsNil additionally covers a LedgerState interface holding a
+	// nil pointer, which ls == nil does not. NewTxScriptView guards the same
+	// case, but it reports the transaction's first input as unresolvable and a
+	// transaction whose only inputs live in a sub-transaction has no top-level
+	// input to report, so it returns no error and this walk still runs.
+	if body == nil || ls == nil || ledgerStateIsNil(ls) {
 		return nil
 	}
 	inputs := body.Inputs()

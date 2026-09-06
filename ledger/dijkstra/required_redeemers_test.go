@@ -430,3 +430,71 @@ func TestUtxoValidateRequiredRedeemersSubTransactionReferenceScriptOnly(t *testi
 		pp,
 	))
 }
+
+// TestUtxoValidateRequiredRedeemersTypedNilLedgerState pins that a typed-nil
+// ledger state cannot reach a UTxO lookup through the sub-transaction walk.
+//
+// A LedgerState interface holding a nil pointer is not == nil, so the plain
+// nil check at the top of ValidateRequiredRedeemers lets it through.
+// NewTxScriptView guards it with ledgerStateIsNil and reports the transaction's
+// first input as unresolvable, but a transaction whose only inputs live in a
+// sub-transaction has no top-level input to report, so it returns no error and
+// the sub-transaction walk runs. Resolving those inputs would then call
+// UtxoById on the nil pointer.
+func TestUtxoValidateRequiredRedeemersTypedNilLedgerState(t *testing.T) {
+	v3 := common.PlutusV3Script{0x2a, 0x2b, 0x2c}
+	scriptAddr, err := common.NewAddressFromParts(
+		common.AddressTypeScriptNone,
+		common.AddressNetworkTestnet,
+		v3.Hash().Bytes(),
+		nil,
+	)
+	require.NoError(t, err)
+	_ = scriptAddr
+	input := shelley.NewShelleyTransactionInput(
+		"9999999999999999999999999999999999999999999999999999999999999999",
+		0,
+	)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{
+					{
+						Body: DijkstraSubTransactionBody{
+							TxInputs: conway.NewConwayTransactionInputSet(
+								[]shelley.ShelleyTransactionInput{input},
+							),
+						},
+						WitnessSet: DijkstraTransactionWitnessSet{
+							WsPlutusV3Scripts: cbor.NewSetType(
+								[]common.PlutusV3Script{v3},
+								true,
+							),
+						},
+					},
+				},
+				false,
+			),
+		},
+		TxIsValid: true,
+	}
+
+	var nilState *mockledger.MockLedgerState
+	var ls common.LedgerState = nilState
+	require.True(
+		t,
+		ls != nil,
+		"a LedgerState holding a nil pointer is not an untyped nil interface",
+	)
+
+	require.NotPanics(t, func() {
+		// Nothing resolves, so no purpose can be checked and no redeemer can
+		// be required. The point is that it returns rather than dereferences.
+		_ = conway.UtxoValidateRequiredRedeemers(
+			tx,
+			0,
+			ls,
+			&DijkstraProtocolParameters{},
+		)
+	})
+}
