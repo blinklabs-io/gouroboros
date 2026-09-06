@@ -230,7 +230,7 @@ func metadatumKeyIdentity(md TransactionMetadatum) string {
 			identity := metadatumKeyIdentity(item)
 			parts[i] = fmt.Sprintf("%d:%s", len(identity), identity)
 		}
-		return "l:" + strings.Join(parts, "|")
+		return "l:" + strings.Join(parts, "")
 	case MetaMap:
 		parts := make([]string, len(k.Pairs))
 		for i, pair := range k.Pairs {
@@ -239,7 +239,7 @@ func metadatumKeyIdentity(md TransactionMetadatum) string {
 			parts[i] = fmt.Sprintf("%d:%s%d:%s", len(key), key, len(value), value)
 		}
 		slices.Sort(parts)
-		return "m:" + strings.Join(parts, "|")
+		return "m:" + strings.Join(parts, "")
 	default:
 		return "r:" + fmt.Sprintf("%x", md.Cbor())
 	}

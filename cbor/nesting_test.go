@@ -33,9 +33,8 @@ func nestedArrays(depth int) []byte {
 	return append(out, 0x00)
 }
 
-// TestDecodeAcceptsNestingPastPreviousCap covers nesting depths that the
-// previous fixed cap of 256 rejected. The reference decoders carry no depth
-// counter, so every depth a transaction can encode has to decode.
+// TestDecodeAcceptsNestingPastPreviousCap covers safe recursive parsing depths
+// beyond the previous fixed cap of 256.
 func TestDecodeAcceptsNestingPastPreviousCap(t *testing.T) {
 	// 16384 is the current mainnet max_tx_size, and therefore the deepest
 	// structure a transaction can carry, since a nesting level costs at
@@ -60,6 +59,13 @@ func TestDecodeAcceptsNestingPastPreviousCap(t *testing.T) {
 				)
 			}
 		}
+	}
+}
+
+func TestDecodePreservesWireCompatibleNesting(t *testing.T) {
+	var dest any
+	if _, err := cbor.Decode(nestedArrays(16384), &dest); err != nil {
+		t.Fatalf("Decode rejected wire-compatible nesting: %v", err)
 	}
 }
 
