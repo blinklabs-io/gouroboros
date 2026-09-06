@@ -873,7 +873,6 @@ func (w AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeem
 type AlonzoTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
@@ -883,7 +882,6 @@ type AlonzoTransaction struct {
 
 func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
-	t.hash = nil
 	t.TxMetadata = nil
 	t.auxData = nil
 
@@ -977,12 +975,12 @@ func (t AlonzoTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t AlonzoTransaction) LeiosHash() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t AlonzoTransaction) Inputs() []common.TransactionInput {
