@@ -22,7 +22,10 @@ import (
 )
 
 func TestDumpCborStructureMaxDepthNoPanic(t *testing.T) {
-	depth := cborMaxNestedLevels + 100
+	// Independent of MaxNestedLevels: a decoder mode cannot be built past
+	// the library maximum, which MaxNestedLevels now sits at.
+	const dumpDepthLimit = 256
+	depth := dumpDepthLimit + 100
 	cborData := deeplyNestedArrayCbor(depth)
 
 	decMode, err := (_cbor.DecOptions{
@@ -43,7 +46,7 @@ func TestDumpCborStructureMaxDepthNoPanic(t *testing.T) {
 		}
 	}()
 
-	out := DumpCborStructure(decoded, "", cborMaxNestedLevels)
+	out := DumpCborStructure(decoded, "", dumpDepthLimit)
 	if !strings.Contains(out, "...\n") {
 		t.Fatalf("expected depth-limit placeholder in output, got: %q", out)
 	}

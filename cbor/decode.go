@@ -40,7 +40,35 @@ var (
 	cachedLenientDecModeOnce sync.Once
 )
 
-const cborMaxNestedLevels = 256
+// MaxNestedLevels bounds the CBOR nesting depth accepted by every decode
+// mode in this package. It is 65535, the maximum the underlying CBOR library
+// accepts (fxamacker/cbor DecOptions.MaxNestedLevels is limited to [4, 65535]).
+//
+// The reference decoders place no bound on nesting. Neither
+// decodeMetadatum (cardano-ledger
+// libs/cardano-ledger-core/src/Cardano/Ledger/Metadata.hs) nor the Plutus
+// Data decoder (plutus plutus-core/plutus-core/src/PlutusCore/Data.hs)
+// carries a depth counter, and the CDDL rule
+// "metadatum = {* metadatum => metadatum} / [* metadatum] / int / ..."
+// is unbounded. There is therefore no depth at which the reference rejects a
+// value, and any finite cap here rejects wire data cardano-node accepts.
+// Because an address, a metadatum and a datum are all decoded as part of the
+// enclosing block, such a rejection fails the whole block rather than one
+// transaction.
+//
+// The only bound the protocol actually places on nesting is transaction size.
+// Every nesting level costs at least one byte on the wire (an array, map or
+// tag head is one byte minimum), so a structure inside a transaction can be
+// at most maxTxSize levels deep; at the current mainnet maxTxSize of 16384
+// that is 16384 levels, plus the handful of levels the block envelope adds
+// above it. 65535 clears that by a factor of four and leaves room for
+// maxTxSize to be raised, so this cap is not reachable by a transaction that
+// the protocol itself accepts.
+//
+// This is not an amplification vector: reaching depth N requires at least N
+// bytes of input, so decoder work and stack use stay linear in the size of
+// the message, which the mini-protocol and block size limits already bound.
+const MaxNestedLevels = 65535
 
 // getDecMode returns a cached DecMode, initializing it on first use.
 // Uses sync.Once for thread-safe lazy initialization.
@@ -50,8 +78,8 @@ func getDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			// This defaults to 32, but there are blocks in the wild using >64 nested levels
-			MaxNestedLevels: cborMaxNestedLevels,
+			// The library default is 32. See MaxNestedLevels.
+			MaxNestedLevels: MaxNestedLevels,
 			// The fxamacker default is 131072, but Cardano ledger state
 			// snapshots contain stake distribution maps that can exceed
 			// 1M entries on mainnet.
@@ -92,7 +120,7 @@ func getStrictDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			MaxNestedLevels:   cborMaxNestedLevels,
+			MaxNestedLevels:   MaxNestedLevels,
 			// Stricter limits for untrusted network messages to prevent
 			// OOM from crafted payloads claiming excessive collection sizes.
 			MaxMapPairs:      131072,
@@ -135,7 +163,7 @@ func getLenientDecMode() (_cbor.DecMode, error) {
 			// entry, so a repeated key overwrites, which is byte-for-byte the
 			// same resolution as cardano-ledger's Map.fromList for PV < 9.
 			DupMapKey:       _cbor.DupMapKeyQuiet,
-			MaxNestedLevels: cborMaxNestedLevels,
+			MaxNestedLevels: MaxNestedLevels,
 			// Match getDecMode() limits: Cardano ledger state snapshots contain
 			// stake distribution maps that can exceed 1M entries on mainnet.
 			MaxMapPairs:      10_000_000,
