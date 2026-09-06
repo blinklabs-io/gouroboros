@@ -227,8 +227,8 @@ type ShelleyBlockHeaderBody struct {
 	BlockBodySize        uint64
 	BlockBodyHash        common.Blake2b256
 	OpCertHotVkey        []byte
-	OpCertSequenceNumber uint32
-	OpCertKesPeriod      uint32
+	OpCertSequenceNumber uint64
+	OpCertKesPeriod      uint64
 	OpCertSignature      []byte
 	ProtoMajorVersion    uint64
 	ProtoMinorVersion    uint64
@@ -246,8 +246,8 @@ type shelleyBlockHeaderBodyWire struct {
 	BlockBodySize        uint64
 	BlockBodyHash        common.Blake2b256
 	OpCertHotVkey        []byte
-	OpCertSequenceNumber uint32
-	OpCertKesPeriod      uint32
+	OpCertSequenceNumber uint64
+	OpCertKesPeriod      uint64
 	OpCertSignature      []byte
 	ProtoMajorVersion    uint64
 	ProtoMinorVersion    uint64

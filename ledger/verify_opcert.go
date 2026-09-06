@@ -204,8 +204,8 @@ func ValidateOpCert(
 // This is a convenience function for working with block headers.
 type OpCertExtractor interface {
 	OpCertHotVkey() []byte
-	OpCertSequenceNumber() uint32
-	OpCertKesPeriod() uint32
+	OpCertSequenceNumber() uint64
+	OpCertKesPeriod() uint64
 	OpCertSignature() []byte
 }
 
@@ -217,8 +217,8 @@ func ExtractOpCert(header OpCertExtractor) *OpCert {
 	}
 	return &OpCert{
 		KesVkey:       header.OpCertHotVkey(),
-		IssueNumber:   uint64(header.OpCertSequenceNumber()),
-		KesPeriod:     uint64(header.OpCertKesPeriod()),
+		IssueNumber:   header.OpCertSequenceNumber(),
+		KesPeriod:     header.OpCertKesPeriod(),
 		ColdSignature: header.OpCertSignature(),
 	}
 }
