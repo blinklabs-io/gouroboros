@@ -361,8 +361,9 @@ func checkSscProofLocal(
 	return checkSscProofCore(rawProof, expectedType, rest)
 }
 
-// checkSscProofShape validates a block's ssc_proof exactly as far as
-// cardano-ledger's dropSscProof does, and no further. This is what
+// checkSscProofShape validates a block's ssc_proof as far as
+// cardano-ledger's dropSscProof does, and validates the separately decoded
+// SSC payload as far as dropSscPayload does. This is what
 // ValidateBodyProof runs by default for every decoded Byron main block
 // (see NewByronMainBlockFromCbor), so anything it rejects is a whole-block
 // decode failure; checkSscProofLocal's full hash comparison, and the
@@ -379,9 +380,8 @@ func checkSscProofLocal(
 //
 // dropSscPayload is a separate decoder run over a separate field and never
 // sees the proof's tag (Cardano/Chain/Ssc.hs:75-90), so the payload's own
-// arity is checked against the payload's own type here rather than against
-// the proof's, and the two types are not compared. expectedType is the
-// payload's type, already validated by decodeSscPayloadParts.
+// arity and nested wire shapes are checked against the payload's own type
+// here rather than against the proof's, and the two types are not compared.
 func checkSscProofShape(
 	rawProof any,
 	expectedType uint64,
@@ -423,16 +423,271 @@ func checkSscProofShape(
 			)
 		}
 	}
-	payloadFields := 2
-	if expectedType == SscTypeCertificates {
-		payloadFields = 1
+	if err := validateSscPayloadShape(expectedType, rest); err != nil {
+		return fmt.Errorf("%w: ssc payload shape: %w", ErrBodyProofMismatch, err)
 	}
-	if len(rest) != payloadFields {
+	return nil
+}
+
+func validateSscPayloadShape(
+	sscType uint64,
+	rest []cbor.RawMessage,
+) error {
+	switch sscType {
+	case SscTypeCommitments:
+		if len(rest) != 2 {
+			return fmt.Errorf(
+				"ssc payload type %d requires 2 elements after the type, got %d",
+				sscType, len(rest),
+			)
+		}
+		if err := validateSscSet(rest[0], validateSignedCommitment); err != nil {
+			return fmt.Errorf("commitments: %w", err)
+		}
+		return validateSscSet(rest[1], validateVssCertificate)
+	case SscTypeOpenings:
+		if len(rest) != 2 {
+			return fmt.Errorf(
+				"ssc payload type %d requires 2 elements after the type, got %d",
+				sscType, len(rest),
+			)
+		}
+		if err := validateSscByteStringMap(
+			rest[0], validateSscByteString, "openings",
+		); err != nil {
+			return err
+		}
+		return validateSscSet(rest[1], validateVssCertificate)
+	case SscTypeShares:
+		if len(rest) != 2 {
+			return fmt.Errorf(
+				"ssc payload type %d requires 2 elements after the type, got %d",
+				sscType, len(rest),
+			)
+		}
+		if err := validateSscSharesMap(rest[0]); err != nil {
+			return err
+		}
+		return validateSscSet(rest[1], validateVssCertificate)
+	case SscTypeCertificates:
+		if len(rest) != 1 {
+			return fmt.Errorf(
+				"ssc payload type %d requires 1 element after the type, got %d",
+				sscType, len(rest),
+			)
+		}
+		return validateSscSet(rest[0], validateVssCertificate)
+	default:
+		return fmt.Errorf("unknown ssc payload type %d", sscType)
+	}
+}
+
+func validateSscSet(
+	raw cbor.RawMessage,
+	validateEntry func(cbor.RawMessage) error,
+) error {
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeTag {
+		return errors.New("expected a tagged set")
+	}
+	var tag cbor.RawTag
+	if _, err := cbor.Decode(raw, &tag); err != nil {
+		return fmt.Errorf("decode set tag: %w", err)
+	}
+	if len(tag.Content) == 0 ||
+		tag.Content[0]&cbor.CborTypeMask != cbor.CborTypeArray {
+		return errors.New("set tag content must be a CBOR list")
+	}
+	itemCount, _, indefinite := cbor.ArrayInfo(tag.Content)
+	if itemCount < 0 || indefinite {
+		return errors.New("set tag content must be a definite-length CBOR list")
+	}
+	var entries []cbor.RawMessage
+	if _, err := cbor.Decode(tag.Content, &entries); err != nil {
+		return fmt.Errorf("decode set entries: %w", err)
+	}
+	if len(entries) != itemCount {
 		return fmt.Errorf(
-			"%w: ssc payload type %d requires %d elements after the type, "+
-				"got %d",
-			ErrBodyProofMismatch, expectedType, payloadFields, len(rest),
+			"set has %d decoded entries, expected %d", len(entries), itemCount,
 		)
+	}
+	for idx, entry := range entries {
+		if err := validateEntry(entry); err != nil {
+			return fmt.Errorf("set entry %d: %w", idx, err)
+		}
+	}
+	return nil
+}
+
+func validateSscByteString(raw cbor.RawMessage) error {
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
+		return errors.New("expected a CBOR byte string")
+	}
+	return nil
+}
+
+func validateSscByteStringMap(
+	raw cbor.RawMessage,
+	validateValue func(cbor.RawMessage) error,
+	name string,
+) error {
+	return validateSscMap(
+		raw, validateSscByteString, validateValue, name,
+	)
+}
+
+func validateSscMap(
+	raw cbor.RawMessage,
+	validateKey func(cbor.RawMessage) error,
+	validateValue func(cbor.RawMessage) error,
+	name string,
+) error {
+	decoder, err := cbor.NewStreamDecoder(raw)
+	if err != nil {
+		return fmt.Errorf("decode %s map: %w", name, err)
+	}
+	pairCount, _, _, err := decoder.DecodeMapHeader()
+	if err != nil {
+		return fmt.Errorf("%s must be a definite-length CBOR map: %w", name, err)
+	}
+	for idx := 0; idx < pairCount; idx++ {
+		keyOffset, keyLength, err := decoder.Skip()
+		if err != nil {
+			return fmt.Errorf("decode %s map key %d: %w", name, idx, err)
+		}
+		key := cbor.RawMessage(decoder.RawBytes(keyOffset, keyLength))
+		if err := validateKey(key); err != nil {
+			return fmt.Errorf("%s map key %d: %w", name, idx, err)
+		}
+		valueOffset, valueLength, err := decoder.Skip()
+		if err != nil {
+			return fmt.Errorf("decode %s map value %d: %w", name, idx, err)
+		}
+		value := cbor.RawMessage(decoder.RawBytes(valueOffset, valueLength))
+		if err := validateValue(value); err != nil {
+			return fmt.Errorf("%s map value %d: %w", name, idx, err)
+		}
+	}
+	if !decoder.EOF() {
+		return fmt.Errorf("%s map has trailing CBOR data", name)
+	}
+	return nil
+}
+
+func validateSscSharesMap(raw cbor.RawMessage) error {
+	return validateSscByteStringMap(raw, func(value cbor.RawMessage) error {
+		return validateSscByteStringMap(value, func(inner cbor.RawMessage) error {
+			return validateSscByteStringList(inner, "share value")
+		}, "inner shares")
+	}, "shares")
+}
+
+func validateSscByteStringList(raw cbor.RawMessage, name string) error {
+	itemCount, _, indefinite := cbor.ArrayInfo(raw)
+	if itemCount < 0 || !indefinite {
+		return fmt.Errorf("%s must be an indefinite-length CBOR list", name)
+	}
+	var items []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &items); err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	for idx, item := range items {
+		if err := validateSscByteString(item); err != nil {
+			return fmt.Errorf("%s item %d: %w", name, idx, err)
+		}
+	}
+	return nil
+}
+
+func validateSscArray(
+	raw cbor.RawMessage,
+	length int,
+	name string,
+) ([]cbor.RawMessage, error) {
+	itemCount, _, indefinite := cbor.ArrayInfo(raw)
+	if itemCount < 0 || indefinite {
+		return nil, fmt.Errorf("%s must be a definite-length CBOR list", name)
+	}
+	if itemCount != length {
+		return nil, fmt.Errorf(
+			"%s has %d fields, expected %d", name, itemCount, length,
+		)
+	}
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &fields); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", name, err)
+	}
+	if len(fields) != itemCount {
+		return nil, fmt.Errorf(
+			"%s has %d decoded fields, expected %d",
+			name, len(fields), itemCount,
+		)
+	}
+	return fields, nil
+}
+
+func validateSignedCommitment(raw cbor.RawMessage) error {
+	fields, err := validateSscArray(raw, 3, "signed commitment")
+	if err != nil {
+		return err
+	}
+	if err := validateSscByteString(fields[0]); err != nil {
+		return fmt.Errorf("verification key: %w", err)
+	}
+	if err := validateCommitment(fields[1]); err != nil {
+		return err
+	}
+	return validateSscByteString(fields[2])
+}
+
+func validateCommitment(raw cbor.RawMessage) error {
+	fields, err := validateSscArray(raw, 2, "commitment")
+	if err != nil {
+		return err
+	}
+	if err := validateSscByteStringMap(
+		fields[0], func(value cbor.RawMessage) error {
+			return validateSscByteStringList(value, "commitment shares")
+		}, "commitment shares",
+	); err != nil {
+		return err
+	}
+	return validateSecretProof(fields[1])
+}
+
+func validateSecretProof(raw cbor.RawMessage) error {
+	fields, err := validateSscArray(raw, 4, "secret proof")
+	if err != nil {
+		return err
+	}
+	for idx := 0; idx < 3; idx++ {
+		if err := validateSscByteString(fields[idx]); err != nil {
+			return fmt.Errorf("secret proof field %d: %w", idx, err)
+		}
+	}
+	return validateSscByteStringList(
+		fields[3], "secret proof commitments",
+	)
+}
+
+func validateVssCertificate(raw cbor.RawMessage) error {
+	fields, err := validateSscArray(raw, 4, "VSS certificate")
+	if err != nil {
+		return err
+	}
+	if err := validateSscByteString(fields[0]); err != nil {
+		return fmt.Errorf("verification key: %w", err)
+	}
+	if len(fields[1]) == 0 || fields[1][0]&cbor.CborTypeMask != 0x00 {
+		return errors.New("epoch must be an unsigned integer")
+	}
+	var epoch uint64
+	if _, err := cbor.Decode(fields[1], &epoch); err != nil {
+		return fmt.Errorf("decode epoch: %w", err)
+	}
+	for idx := 2; idx < 4; idx++ {
+		if err := validateSscByteString(fields[idx]); err != nil {
+			return fmt.Errorf("certificate field %d: %w", idx, err)
+		}
 	}
 	return nil
 }
@@ -631,12 +886,24 @@ func decodeSscPayloadParts(
 	if len(raw) == 0 {
 		return 0, nil, errors.New("ssc payload has no preserved CBOR")
 	}
+	itemCount, _, indefinite := cbor.ArrayInfo(raw)
+	if itemCount < 0 || indefinite {
+		return 0, nil, errors.New(
+			"ssc payload must be a definite-length CBOR list",
+		)
+	}
 	var parts []cbor.RawMessage
 	if _, err := cbor.Decode(raw, &parts); err != nil {
 		return 0, nil, fmt.Errorf("decoding ssc payload array: %w", err)
 	}
 	if len(parts) < 1 {
 		return 0, nil, errors.New("ssc payload array is empty")
+	}
+	if len(parts) != itemCount {
+		return 0, nil, fmt.Errorf(
+			"ssc payload has %d decoded fields, expected %d",
+			len(parts), itemCount,
+		)
 	}
 	var sscType uint64
 	if _, err := cbor.Decode(parts[0], &sscType); err != nil {

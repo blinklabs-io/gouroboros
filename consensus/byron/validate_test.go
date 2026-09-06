@@ -704,6 +704,7 @@ func proxySignatureInput(
 		ProtocolMagic: config.ProtocolMagic,
 		BodyProof:     []any{},
 	}
+	header.ExtraData.ExtraProof = []byte{}
 	header.ConsensusData.SlotId.Epoch = headerEpoch
 	header.ConsensusData.PubKey = issuerVK
 	header.ConsensusData.BlockSig = []any{
@@ -2036,15 +2037,11 @@ func TestValidateBodyHash_OptInRejectsHashMismatch(t *testing.T) {
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
 
-// TestValidateBodyHash_DefaultAcceptsDroppedSscShapes pins ValidateBodyHash's
-// default ssc_proof check to cardano-ledger's dropSscProof and dropSscPayload
-// and no further. Those two decoders never compare their tags, dropSet takes
-// any tag number rather than requiring 258, and each hash slot is a dropBytes
-// of any length (Cardano/Chain/Ssc.hs:75-90, :169-188; Drop.hs:28-29, :44-47),
-// so a block carrying any of those shapes must pass by default. The opt-in
-// hash comparison, which recomputes the hashes from the payload and therefore
-// needs the stricter wire shapes, still rejects it.
-func TestValidateBodyHash_DefaultAcceptsDroppedSscShapes(t *testing.T) {
+// TestValidateBodyHash_DefaultRejectsMalformedSscPayload pins
+// ValidateBodyHash's default SSC payload check to cardano-ledger's
+// dropSscPayload. The malformed untagged commitments set is rejected before
+// the optional hash comparison is considered.
+func TestValidateBodyHash_DefaultRejectsMalformedSscPayload(t *testing.T) {
 	// An untagged (rather than tag-258-wrapped) commitments array.
 	untaggedComms, err := cbor.Encode([]any{})
 	require.NoError(t, err)
@@ -2075,11 +2072,9 @@ func TestValidateBodyHash_DefaultAcceptsDroppedSscShapes(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(
-		t, ValidateBodyHash(block),
-		"ValidateBodyHash must accept ssc_proof shapes cardano-ledger "+
-			"drops",
-	)
+	err = ValidateBodyHash(block)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
 	err = ValidateBodyHash(
 		block,

@@ -121,7 +121,8 @@ func TestByronGoldenBlockDroppedHeaderFields(t *testing.T) {
 
 	t.Run("extra data proof must still be a byte string", func(t *testing.T) {
 		mutated := setNested(
-			t, blockCbor, []int{0, 4, 3}, mustEncodeCbor(t, uint64(0)),
+			t, blockCbor, []int{0, 4, 3},
+			mustEncodeCbor(t, []uint64{1, 2}),
 		)
 		_, err := ledger.NewBlockFromCbor(blockType, mutated)
 		require.Error(t, err)
@@ -173,7 +174,9 @@ func TestByronGoldenEbbDroppedFields(t *testing.T) {
 	t.Run("body entries of any length", func(t *testing.T) {
 		mutated := setNested(
 			t, blockCbor, []int{1},
-			mustEncodeCbor(t, [][]byte{make([]byte, common.Blake2b256Size)}),
+			mustEncodeCbor(t, cbor.IndefLengthList{
+				make([]byte, common.Blake2b256Size),
+			}),
 		)
 		decoded, err := ledger.NewBlockFromCbor(blockType, mutated, skipBodyHash)
 		require.NoError(t, err)
@@ -185,7 +188,8 @@ func TestByronGoldenEbbDroppedFields(t *testing.T) {
 
 	t.Run("body entries must still be byte strings", func(t *testing.T) {
 		mutated := setNested(
-			t, blockCbor, []int{1}, mustEncodeCbor(t, []uint64{1}),
+			t, blockCbor, []int{1},
+			mustEncodeCbor(t, cbor.IndefLengthList{[]uint64{1, 2}}),
 		)
 		_, err := ledger.NewBlockFromCbor(blockType, mutated, skipBodyHash)
 		require.Error(t, err)
@@ -238,13 +242,17 @@ func TestByronUpdateProposalParametersAreNatural(t *testing.T) {
 	// 2^64, one past the widest value the previous uint64 fields held.
 	twoPow64 := new(big.Int).Lsh(big.NewInt(1), 64)
 
-	encodeMod := func(t *testing.T, maxBlockSize cbor.RawMessage) []byte {
+	encodeMod := func(
+		t *testing.T,
+		fieldIndex int,
+		value cbor.RawMessage,
+	) []byte {
 		t.Helper()
 		fields := make([]any, 14)
 		for i := range fields {
 			fields[i] = []any{}
 		}
-		fields[2] = maxBlockSize
+		fields[fieldIndex] = value
 		encoded, err := cbor.Encode(fields)
 		require.NoError(t, err)
 		return encoded
@@ -253,7 +261,7 @@ func TestByronUpdateProposalParametersAreNatural(t *testing.T) {
 	t.Run("value above 2^64", func(t *testing.T) {
 		var mod byron.ByronUpdateProposalBlockVersionMod
 		_, err := cbor.Decode(
-			encodeMod(t, mustEncodeCbor(t, []*big.Int{twoPow64})), &mod,
+			encodeMod(t, 2, mustEncodeCbor(t, []*big.Int{twoPow64})), &mod,
 		)
 		require.NoError(t, err)
 		require.Len(t, mod.MaxBlockSize, 1)
@@ -263,7 +271,7 @@ func TestByronUpdateProposalParametersAreNatural(t *testing.T) {
 	t.Run("ordinary value", func(t *testing.T) {
 		var mod byron.ByronUpdateProposalBlockVersionMod
 		_, err := cbor.Decode(
-			encodeMod(t, mustEncodeCbor(t, []uint64{2000000})), &mod,
+			encodeMod(t, 2, mustEncodeCbor(t, []uint64{2000000})), &mod,
 		)
 		require.NoError(t, err)
 		require.Len(t, mod.MaxBlockSize, 1)
@@ -272,7 +280,9 @@ func TestByronUpdateProposalParametersAreNatural(t *testing.T) {
 
 	t.Run("absent value", func(t *testing.T) {
 		var mod byron.ByronUpdateProposalBlockVersionMod
-		_, err := cbor.Decode(encodeMod(t, mustEncodeCbor(t, []any{})), &mod)
+		_, err := cbor.Decode(
+			encodeMod(t, 2, mustEncodeCbor(t, []any{})), &mod,
+		)
 		require.NoError(t, err)
 		assert.Empty(t, mod.MaxBlockSize)
 	})
@@ -280,7 +290,18 @@ func TestByronUpdateProposalParametersAreNatural(t *testing.T) {
 	t.Run("negative value rejected", func(t *testing.T) {
 		var mod byron.ByronUpdateProposalBlockVersionMod
 		_, err := cbor.Decode(
-			encodeMod(t, mustEncodeCbor(t, []int64{-1})), &mod,
+			encodeMod(t, 2, mustEncodeCbor(t, []int64{-1})), &mod,
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("multiple values rejected", func(t *testing.T) {
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		_, err := cbor.Decode(
+			encodeMod(t, 2, mustEncodeCbor(t, []*big.Int{
+				big.NewInt(1), big.NewInt(2),
+			})),
+			&mod,
 		)
 		require.Error(t, err)
 	})
@@ -288,7 +309,15 @@ func TestByronUpdateProposalParametersAreNatural(t *testing.T) {
 	t.Run("non-integer value rejected", func(t *testing.T) {
 		var mod byron.ByronUpdateProposalBlockVersionMod
 		_, err := cbor.Decode(
-			encodeMod(t, mustEncodeCbor(t, [][]byte{{0x00}})), &mod,
+			encodeMod(t, 2, mustEncodeCbor(t, [][]byte{{0x00}})), &mod,
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("multiple values rejected for unchanged field", func(t *testing.T) {
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		_, err := cbor.Decode(
+			encodeMod(t, 6, mustEncodeCbor(t, []uint64{1, 2})), &mod,
 		)
 		require.Error(t, err)
 	})

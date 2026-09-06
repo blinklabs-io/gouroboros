@@ -95,6 +95,31 @@ type ByronMainBlockHeader struct {
 }
 
 func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
+	var rawParts []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+		return err
+	}
+	if len(rawParts) <= 4 {
+		return fmt.Errorf(
+			"byron main block header has %d fields, need extra data at index 4",
+			len(rawParts),
+		)
+	}
+	var extraData []cbor.RawMessage
+	if _, err := cbor.Decode(rawParts[4], &extraData); err != nil {
+		return fmt.Errorf("decode byron main block extra data: %w", err)
+	}
+	if len(extraData) <= 3 {
+		return fmt.Errorf(
+			"byron main block extra data has %d fields, need extra proof at index 3",
+			len(extraData),
+		)
+	}
+	if err := requireCborByteString(
+		extraData[3], "byron main block extra data proof",
+	); err != nil {
+		return err
+	}
 	type tByronMainBlockHeader ByronMainBlockHeader
 	var tmp tByronMainBlockHeader
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -1023,6 +1048,32 @@ func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 	}
 	for _, field := range []struct {
 		name   string
+		length int
+	}{
+		{name: "scriptVersion", length: len(tmp.ScriptVersion)},
+		{name: "slotDuration", length: len(tmp.SlotDuration)},
+		{name: "maxBlockSize", length: len(tmp.MaxBlockSize)},
+		{name: "maxHeaderSize", length: len(tmp.MaxHeaderSize)},
+		{name: "maxTxSize", length: len(tmp.MaxTxSize)},
+		{name: "maxProposalSize", length: len(tmp.MaxProposalSize)},
+		{name: "mpcThd", length: len(tmp.MpcThd)},
+		{name: "heavyDelThd", length: len(tmp.HeavyDelThd)},
+		{name: "updateVoteThd", length: len(tmp.UpdateVoteThd)},
+		{name: "updateProposalThd", length: len(tmp.UpdateProposalThd)},
+		{name: "updateImplicit", length: len(tmp.UpdateImplicit)},
+		{name: "softForkRule", length: len(tmp.SoftForkRule)},
+		{name: "txFeePolicy", length: len(tmp.TxFeePolicy)},
+		{name: "unlockStakeEpoch", length: len(tmp.UnlockStakeEpoch)},
+	} {
+		if field.length > 1 {
+			return fmt.Errorf(
+				"byron update proposal %s has %d values, expected at most 1",
+				field.name, field.length,
+			)
+		}
+	}
+	for _, field := range []struct {
+		name   string
 		values []*big.Int
 	}{
 		{name: "slotDuration", values: tmp.SlotDuration},
@@ -1333,6 +1384,26 @@ type ByronEpochBoundaryBlock struct {
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
+	var rawParts []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+		return err
+	}
+	if len(rawParts) <= 1 {
+		return fmt.Errorf(
+			"byron EBB has %d fields, need body at index 1", len(rawParts),
+		)
+	}
+	var body []cbor.RawMessage
+	if _, err := cbor.Decode(rawParts[1], &body); err != nil {
+		return fmt.Errorf("decode byron EBB body: %w", err)
+	}
+	for idx, entry := range body {
+		if err := requireCborByteString(
+			entry, fmt.Sprintf("byron EBB body entry %d", idx),
+		); err != nil {
+			return err
+		}
+	}
 	type tByronEpochBoundaryBlock ByronEpochBoundaryBlock
 	var tmp tByronEpochBoundaryBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -1343,6 +1414,13 @@ func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 	}
 	*b = ByronEpochBoundaryBlock(tmp)
 	b.SetCbor(cborData)
+	return nil
+}
+
+func requireCborByteString(raw cbor.RawMessage, field string) error {
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
+		return fmt.Errorf("%s must be a CBOR byte string", field)
+	}
 	return nil
 }
 

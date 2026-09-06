@@ -345,11 +345,9 @@ func TestByronSscGoldenVectorsRejectMutatedShape(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			require.NoError(
-				t, forgedBlock.ValidateBodyProof(),
-				"ValidateBodyProof must not check ssc_proof field "+
-					"shapes that cardano-ledger drops",
-			)
+			err = forgedBlock.ValidateBodyProof()
+			require.Error(t, err)
+			assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
 			err = forgedBlock.ValidateSscProof()
 			require.Error(
@@ -424,11 +422,9 @@ func TestByronSscGoldenVectorsRejectMutatedShape(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		require.NoError(
-			t, forgedBlock.ValidateBodyProof(),
-			"ValidateBodyProof must not check ssc_proof field shapes "+
-				"that cardano-ledger drops",
-		)
+		err = forgedBlock.ValidateBodyProof()
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
 		err = forgedBlock.ValidateSscProof()
 		require.Error(
