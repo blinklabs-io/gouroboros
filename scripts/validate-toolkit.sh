@@ -453,6 +453,80 @@ HANDOFF: blink-review-shepherd"
 	esac
 fi
 
+echo "== Workflows =="
+# A workflow script is JavaScript the harness runs with a top-level return and
+# without Date.now/Math.random/new Date (they would break resume). Parsing it as
+# an async function body is the only way to catch a syntax error before a run
+# spends agents on it.
+workflow_dir="$PLUGIN/workflows"
+if [ ! -d "$workflow_dir" ]; then
+	pass "no workflows directory; nothing to check"
+elif ! command -v node >/dev/null 2>&1; then
+	echo "SKIP  node unavailable; skipping workflow script checks"
+else
+	for script in "$workflow_dir"/*.js; do
+		[ -e "$script" ] || continue
+		name=$(basename "$script" .js)
+		if out=$(node -e '
+const fs = require("fs");
+const path = process.argv[1];
+const stem = process.argv[2];
+const src = fs.readFileSync(path, "utf8").replace("export const meta", "const meta");
+const problems = [];
+try {
+  new Function("args", "log", "agent", "pipeline", "parallel", "phase", "budget", "workflow",
+    "\"use strict\"; return (async () => {" + src + "})()");
+} catch (e) {
+  problems.push("does not parse: " + e.message);
+}
+// Brace-match rather than regex: a one-line meta literal is as valid as a
+// multi-line one, and a false failure here is worse than the check is worth.
+const start = src.indexOf("const meta = {");
+let literal = null;
+if (start !== -1) {
+  let depth = 0;
+  for (let i = src.indexOf("{", start); i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}" && --depth === 0) { literal = src.slice(src.indexOf("{", start), i + 1); break; }
+  }
+}
+if (!literal) {
+  problems.push("no `export const meta = { ... }` literal at the top");
+} else {
+  let meta;
+  try { meta = eval("(" + literal + ")"); } catch (e) { problems.push("meta is not a pure literal: " + e.message); }
+  if (meta) {
+    if (!meta.name) problems.push("meta.name is missing");
+    else if (meta.name !== stem) problems.push(`meta.name "${meta.name}" does not match filename "${stem}"`);
+    if (!meta.description) problems.push("meta.description is missing");
+    const titles = (meta.phases || []).map((p) => p.title);
+    const used = [...new Set([...src.matchAll(/phase: *[\x27"]([^\x27"]+)/g)].map((x) => x[1]))];
+    for (const u of used) {
+      if (!titles.includes(u)) problems.push(`phase "${u}" is used but not declared in meta.phases`);
+    }
+  }
+}
+for (const forbidden of ["Date.now(", "Math.random(", "new Date(", "require(", "process."]) {
+  if (src.includes(forbidden)) problems.push(`uses ${forbidden}, which is unavailable in a workflow script`);
+}
+if (problems.length) { console.log(problems.join("; ")); process.exit(1); }
+' "$script" "$name" 2>&1); then
+			pass "workflow $name parses, meta matches, phases declared"
+		else
+			fail "workflow $name: $out"
+		fi
+
+		link="$ROOT/.claude/workflows/$name.js"
+		if [ ! -L "$link" ]; then
+			fail "workflow $name is not linked from .claude/workflows/$name.js"
+		elif [ ! -e "$link" ]; then
+			fail ".claude/workflows/$name.js is a broken symlink"
+		else
+			pass "workflow $name is reachable by name from .claude/workflows"
+		fi
+	done
+fi
+
 echo "== Shell scripts =="
 if require_cmd shellcheck "shell linting"; then
 	for script in scripts/*.sh; do

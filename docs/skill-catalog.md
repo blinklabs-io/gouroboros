@@ -19,6 +19,20 @@ the same `SKILL.md` files.
 | `/release-check` | Review a Docker image or release workflow from Dockerfile through manifest and tags |
 | `/submodule-sync` | Inspect and record submodule pointer changes without crossing repository boundaries |
 | `/review-prs` | Sweep the organization for ready-to-review PRs, dispatch a shepherd per PR three at a time, and aggregate the sweep's token usage |
+| `/issue-to-pr` | Triage assigned issues, then run the `issue-to-pr` workflow so every commit reaches a reviewed pull request |
+
+## Workflows
+
+| Workflow | Use it to |
+|---|---|
+| `issue-to-pr` | Implement each issue test-first, then shepherd every resulting commit to a reviewed pull request |
+
+A workflow encodes control flow the orchestrator would otherwise have to
+remember. `blink-tdd-developer` has no dispatch tool and cannot start
+`blink-review-shepherd` itself, and no `SubagentStop` hook output reaches the
+parent's context, so as a reminder that handoff can be dropped — it was. As a
+pipeline stage it cannot be. Scripts live in `plugins/blink-labs-agent-toolkit/workflows/`
+and are linked into `.claude/workflows/` so they resolve by name.
 
 ## Subagents
 

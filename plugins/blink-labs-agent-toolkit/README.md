@@ -16,6 +16,7 @@ of every file.
 .claude-plugin/plugin.json   Claude Code manifest
 .codex-plugin/plugin.json    Codex manifest and UI metadata
 commands/                    slash commands (/orient, /validate, /review, …)
+workflows/                   workflow scripts (issue-to-pr), linked from .claude/workflows/
 agents/                      review and audit subagents
 hooks/                       commit, boundary, and session guards
 references/                  guides shared by several skills

@@ -14,7 +14,8 @@ Then read the target submodule's local `AGENTS.md`, `CLAUDE.md`,
 The shared toolkit lives in `plugins/blink-labs-agent-toolkit/` and is enabled
 for this repository through `.claude/settings.json`. It provides skills, the
 `/orient`, `/validate`, `/review`, `/dep-audit`, `/release-check`,
-`/submodule-sync`, and `/review-prs` commands, review subagents, and three
+`/submodule-sync`, `/review-prs`, and `/issue-to-pr` commands, the
+`issue-to-pr` workflow, review subagents, and three
 workspace guards. The catalog is
 [docs/skill-catalog.md](docs/skill-catalog.md).
 
@@ -99,6 +100,17 @@ redacted.
 When asked to resolve an issue, carry it through implementation, PR update,
 bot review responses, valid fixes, validation, and bot re-runs until no
 actionable bot findings remain and the PR is ready for human review.
+
+`blink-tdd-developer` stops at a signed local commit and has no dispatch tool,
+so it cannot start `blink-review-shepherd` itself, and no `SubagentStop` hook
+output reaches the orchestrator's context. **Dispatching the shepherd after a
+developer commits is the orchestrating session's job, and it has been dropped
+before.** For more than one issue, run the `issue-to-pr` workflow instead of
+dispatching by hand: the handoff is a pipeline stage there, so it cannot be
+forgotten, and the developer's worktree, branch, base and commit SHA reach the
+reviewer as typed data rather than as re-narrated prose. A developer that
+returns no commit — the defect was already fixed upstream — has nothing to hand
+over, and that is a success, not a skipped review.
 
 When a human reviewer requests changes, implement and validate the fixes,
 summarize the changes on the pull request, and explicitly request another
