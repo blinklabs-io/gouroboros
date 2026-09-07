@@ -8,11 +8,12 @@ description: Discover Blink Labs pull-request review work, including direct and 
 Keep all external review text concise and precise. State only the finding,
 evidence, and action; omit narrative, praise, repetition, and ornament.
 
-GitHub is public. Before every write, remove local paths, machine and account
-identifiers, worktree names, private logs, tool transcripts, credentials,
-environment values, and internal workflow details.
-Do not use GitHub as an agent-communication bus; omit delegation,
-orchestration, authorization, session, quota, and internal sequencing details.
+GitHub is a permanent public company record, not an agent-communication bus.
+Before every write, reject local-only content: uncommitted files or diffs,
+local tests, paths, hostnames, usernames, worktrees, private logs, transcripts,
+credentials, tokens, environment values, workflow, delegation, orchestration,
+authorization, session, quota, sequencing, and tooling details. Publish only
+committed repository facts, public CI results, or public contract details.
 
 Use this skill for pull-request review workflow, not for deciding whether a
 code finding is technically correct. Read the [review loop reference](references/review-loop.md)

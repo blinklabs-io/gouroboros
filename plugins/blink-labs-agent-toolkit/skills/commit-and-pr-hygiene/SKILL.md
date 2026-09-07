@@ -10,15 +10,19 @@ commit message, issue, and review comment concise and precise. Use the fewest
 words that preserve the technical meaning; omit narrative, praise, repetition,
 and ornamental prose.
 
-## GitHub is public
+## GitHub publication boundary
 
 Treat every GitHub issue, PR, review, comment, commit message, and workflow
-record as public. Never copy local paths, usernames, hostnames, worktrees,
-private logs, tool transcripts, credentials, tokens, or environment values into
-GitHub. Publish only sanitized technical facts and repository-relative paths.
-GitHub is not a communication bus: never publish agent workflow, delegation,
-bot quotas, orchestration, authorization, session mechanics, internal
-sequencing, or tooling details.
+record as a permanent public company record. GitHub is not a communication bus.
+Publish only facts present in committed repository content, public CI, or the
+public API contract.
+
+Never publish anything from the local machine that is not committed: local
+files, uncommitted diffs, local test results, local paths, hostnames, usernames,
+worktrees, private logs, tool transcripts, credentials, tokens, environment
+values, or conversation content. Also omit agent workflow, delegation, bot
+quotas, orchestration, authorization, session mechanics, internal sequencing,
+and tooling details. If a fact exists only locally, keep it private.
 
 ## Cross-check open issues before opening a PR or filing a new one
 
