@@ -4646,7 +4646,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 			ls := mockledger.NewLedgerStateBuilder().
 				WithStakeCredentialRegistered(stakeKeyHash, true).
 				WithDRepRegistration(func(
-					common.Blake2b224,
+					common.Credential,
 				) (*common.DRepRegistration, error) {
 					return nil, nil
 				}).
@@ -4684,7 +4684,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 			ls := mockledger.NewLedgerStateBuilder().
 				WithStakeCredentialRegistered(stakeKeyHash, true).
 				WithDRepRegistration(func(
-					common.Blake2b224,
+					common.Credential,
 				) (*common.DRepRegistration, error) {
 					return &common.DRepRegistration{}, nil
 				}).
@@ -4710,7 +4710,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 			ls := mockledger.NewLedgerStateBuilder().
 				WithStakeCredentialRegistered(stakeKeyHash, true).
 				WithDRepRegistration(func(
-					common.Blake2b224,
+					common.Credential,
 				) (*common.DRepRegistration, error) {
 					return nil, nil
 				}).
