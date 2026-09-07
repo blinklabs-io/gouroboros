@@ -3443,7 +3443,7 @@ func UtxoValidateDelegation(
 				return true, nil
 			}
 			// Check ledger state
-			reg, err := ls.DRepRegistration(cred)
+			reg, err := ls.DRepRegistration(cred.Credential)
 			return err == nil && reg != nil, nil
 		default:
 			return false, InvalidDRepTypeError{DrepType: drep.Type}
@@ -3873,7 +3873,7 @@ func UtxoValidateCertificateDeposits(
 		if state, found := drepStates[key]; found {
 			return state, nil
 		}
-		state, err := ls.DRepRegistration(cred)
+		state, err := ls.DRepRegistration(cred.Credential)
 		if err != nil {
 			return nil, err
 		}
@@ -3952,7 +3952,7 @@ func UtxoValidateCertificateDeposits(
 			}
 			registered := drepDeposit
 			drepStates[stakeKey(c.DrepCredential)] = &common.DRepRegistration{
-				Credential: c.DrepCredential,
+				Credential: c.DrepCredential.Credential,
 				Deposit:    &registered,
 			}
 		case *common.DeregistrationDrepCertificate:
@@ -4195,18 +4195,12 @@ func UtxoValidateUnknownVoters(
 		}
 		switch voter.Type {
 		case common.VoterTypeDRepKeyHash, common.VoterTypeDRepScriptHash:
-			// The voter type fixes the DRep credential type, which is
-			// part of the DRep's identity. Resolving the bare hash
-			// would accept a key-hash voter against a script-hash DRep
-			// registration that happens to share the hash.
-			credentialType := uint(common.CredentialTypeAddrKeyHash)
-			if voter.Type == common.VoterTypeDRepScriptHash {
-				credentialType = common.CredentialTypeScriptHash
-			}
-			reg, err := ls.DRepRegistration(common.Credential{
-				CredType:   credentialType,
-				Credential: common.Blake2b224(voter.Hash),
-			})
+			// DRepRegistration resolves a bare hash, so a key-hash
+			// voter and a script-hash DRep registration sharing the
+			// same 28 bytes are indistinguishable here. Distinguishing
+			// them needs the credential type in the lookup, which is a
+			// breaking interface change and is deferred.
+			reg, err := ls.DRepRegistration(common.Blake2b224(voter.Hash))
 			if err != nil {
 				return err
 			}

@@ -624,7 +624,7 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 				}}).
 				WithNetworkId(1).
 				WithDRepRegistrations([]common.DRepRegistration{{
-					Credential: fixture.credential,
+					Credential: fixture.credential.Credential,
 					Deposit:    &recordedDRepDeposit,
 				}}).
 				Build()

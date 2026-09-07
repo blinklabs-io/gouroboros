@@ -201,12 +201,12 @@ type CommitteeCredentialState interface {
 
 // DRepRegistration is the ledger state held for a registered DRep.
 type DRepRegistration struct {
-	// Credential identifies the DRep by its full credential, credential
-	// type included. The reference ledger keys DRep state by Credential
-	// (Cardano.Ledger.Conway.Governance vsDReps), so the same 28 hash
-	// bytes under a key-hash and a script-hash credential are two
-	// distinct DReps; a hash alone does not identify one.
-	Credential Credential
+	// Credential is the DRep's credential hash. The reference ledger keys
+	// DRep state by Credential (Cardano.Ledger.Conway.Governance vsDReps),
+	// so the same 28 bytes under a key-hash and a script-hash credential
+	// are two distinct DReps and this hash alone does not identify one.
+	// Widening it is a breaking change for implementors and is deferred.
+	Credential Blake2b224
 	Anchor     *GovAnchor
 	// Deposit is the deposit recorded against this DRep's registration.
 	// It is a pointer for the same reason StakeCredentialDeposit returns
@@ -295,7 +295,7 @@ type GovState interface {
 	// credential, or nil when that credential is not a registered DRep.
 	// The credential carries its type: a key-hash and a script-hash DRep
 	// sharing the same hash are distinct registrations.
-	DRepRegistration(credential Credential) (*DRepRegistration, error)
+	DRepRegistration(credential Blake2b224) (*DRepRegistration, error)
 	DRepRegistrations() ([]DRepRegistration, error)
 
 	// Constitution
