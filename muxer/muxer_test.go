@@ -33,10 +33,11 @@ import (
 
 // mockConn implements net.Conn for testing
 type mockConn struct {
-	readBuf  *bytes.Buffer
-	writeBuf *bytes.Buffer
-	closed   bool
-	mu       sync.Mutex
+	readBuf    *bytes.Buffer
+	writeBuf   *bytes.Buffer
+	closed     bool
+	writeCalls int
+	mu         sync.Mutex
 }
 
 type failingWriteConn struct {
@@ -71,6 +72,7 @@ func (m *mockConn) Read(b []byte) (int, error) {
 func (m *mockConn) Write(b []byte) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.writeCalls++
 	if m.closed {
 		return 0, io.ErrClosedPipe
 	}
@@ -110,6 +112,12 @@ func (m *mockConn) WrittenLen() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.writeBuf.Len()
+}
+
+func (m *mockConn) WriteCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.writeCalls
 }
 
 // TestSegmentCreation tests segment creation and basic properties
@@ -838,10 +846,7 @@ func TestMuxerSendAfterStop(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-
-	// Start and then stop the muxer
-	m.Start()
-	m.Stop()
+	defer m.Stop()
 
 	// Create a segment
 	segment := muxer.NewSegment(0x01, []byte("test"), false)
@@ -849,12 +854,19 @@ func TestMuxerSendAfterStop(t *testing.T) {
 		t.Fatal("failed to create segment")
 	}
 
-	// Stop closes doneChan before it returns, and Send selects on that
-	// channel before touching the connection, so the error is required
-	// rather than timing-dependent.
-	if err := m.Send(segment); err == nil {
-		t.Fatal("Send after Stop returned nil, want an error")
-	}
+	// A live muxer writes the segment, establishing that the counter observes
+	// Send before testing the shutdown guard.
+	require.NoError(t, m.Send(segment))
+	require.Equal(t, 1, conn.WriteCalls())
+	m.Start()
+	m.Stop()
+
+	// Connection cleanup is asynchronous and can independently make Write
+	// fail. Check attempted writes, including failures on a closed connection,
+	// so that cleanup cannot hide a missing Send shutdown guard.
+	err := m.Send(segment)
+	require.Equal(t, 1, conn.WriteCalls(), "Send after Stop attempted a write")
+	require.Error(t, err)
 }
 
 // TestProtocolRoleConstants tests protocol role constants
