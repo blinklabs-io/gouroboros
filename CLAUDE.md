@@ -183,7 +183,15 @@ Cost is dominated by the number of API round trips, not by the size of what
 each one returns. Every request re-sends the whole accumulated conversation,
 so spend grows roughly quadratically with request count. Measured across a
 25-agent pull-request review sweep: 3.3 MB of total tool output against 161M
-tokens of context re-reads, for 25.3M input-token-equivalents overall.
+tokens of context re-reads, for 25.3M input-token-equivalents overall — 69.4
+requests and 845K equivalents per review.
+
+A later 9-review sweep of the same repositories, dispatched with the batching
+rules below stated in each prompt, ran at 18.7 requests and 324K equivalents
+per review: 73% fewer round trips and 62% less spend, with no loss of rigor —
+it still produced seven blockers, including two the review bots never saw
+because they were quota-blocked. Per-request cost rose (12.2K to 17.3K
+equivalents) because the requests are fatter; total spend is what matters.
 
 Batch aggressively:
 
@@ -210,10 +218,29 @@ The parent thread is its own cost centre. One sweep's orchestrator reached a
 dispatched. Write durable cross-task facts to a scratch file and clear between
 units of work rather than carrying the whole transcript forward.
 
-A cache entry becomes readable only once the first response begins streaming,
-so agents dispatched simultaneously all miss the shared prefix. Stagger a
-concurrent batch by a few seconds and the later agents read what the first
-one wrote.
+Do not stagger a concurrent batch to warm the cache. Measured over nine
+dispatches: the first agent of a simultaneous trio created the 19.5K-token
+shared prefix and read none of it, and both siblings dispatched in the same
+message read all 19.5K of it — identical to every later staggered agent.
+Staggering bought nothing and cost wall-clock time.
 
 Keep the cached prefix stable: switching model or effort mid-run invalidates
 it, and so does editing an earlier turn.
+
+Never wait on CI inside a review agent. The one agent that blocked ~16 minutes
+on an in-progress job cost 640K equivalents against a 197K-324K sweep norm —
+the single most expensive review, for a check the parent can poll once and
+cheaply re-dispatch on. Read the check runs; if they are still pending, record
+the disposition as withheld and return.
+
+Front-load what earlier agents discovered. Facts the parent learns once and
+injects into later prompts — the base branch's own `gofmt` noise, which bots
+are quota-blocked on this head, the sibling-PR map — stop each agent from
+rediscovering them. The three cold-start reviews averaged 23.3 requests; the
+five later ones carrying those facts averaged 13.6, a 42% drop.
+
+Measure round trips from the session transcript
+(`~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl`, deduped by
+`requestId`), not from what an agent reports about itself. Self-reported counts
+were wrong in both directions: one agent claimed 44 tool calls against 28 real
+requests, another claimed 21 against 30.
