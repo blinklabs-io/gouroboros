@@ -16,6 +16,9 @@ Treat every GitHub issue, PR, review, comment, commit message, and workflow
 record as public. Never copy local paths, usernames, hostnames, worktrees,
 private logs, tool transcripts, credentials, tokens, or environment values into
 GitHub. Publish only sanitized technical facts and repository-relative paths.
+GitHub is not a communication bus: never publish agent workflow, delegation,
+bot quotas, orchestration, authorization, session mechanics, internal
+sequencing, or tooling details.
 
 ## Cross-check open issues before opening a PR or filing a new one
 

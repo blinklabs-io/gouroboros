@@ -467,6 +467,8 @@ else
 	for script in "$workflow_dir"/*.js; do
 		[ -e "$script" ] || continue
 		name=$(basename "$script" .js)
+		# The embedded JavaScript intentionally uses ${...} template literals.
+		# shellcheck disable=SC2016
 		if out=$(node -e '
 const fs = require("fs");
 const path = process.argv[1];

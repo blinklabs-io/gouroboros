@@ -12,6 +12,8 @@ The evidence ledger is private task-handoff material. Never paste it, local
 paths, machine or account identifiers, private logs, tool transcripts, or
 environment values into GitHub. Public records get sanitized technical facts
 and repository-relative paths only.
+Keep workflow, delegation, orchestration, authorization, session, quota, and
+sequencing details in the private handoff.
 
 ## The rule
 

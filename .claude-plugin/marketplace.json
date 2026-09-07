@@ -9,7 +9,7 @@
     {
       "name": "blink-labs-agent-toolkit",
       "source": "./plugins/blink-labs-agent-toolkit",
-      "version": "0.9.2",
+      "version": "0.9.3",
       "description": "Repository maintenance, Cardano protocol and application review, Go API and dependency auditing, Docker release, infrastructure-as-code maintenance and operations, and GitHub review-loop coordination for Blink Labs and separately governed TosiDrop projects. Includes slash commands, review subagents, and workspace guards.",
       "author": {
         "name": "Blink Labs"
