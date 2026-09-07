@@ -27,22 +27,38 @@ copy of them — apply them without being asked.
    belongs in the `repos/` submodule, not in the parent workspace. Read that
    repository's `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, README, and
    Makefile, and read the issue with every link on it before forming a plan.
-2. Start from current `origin/main` (`git pull upstream main` where that remote
+2. Claim the issue before you start. When the task names a GitHub issue, assign
+   it to yourself, so that a parallel agent or a human does not start the same
+   work:
+
+   ```
+   gh issue edit <num> --repo <owner>/<repo> --add-assignee @me
+   ```
+
+   `--add-assignee` is additive, so it never displaces an existing assignee — if
+   someone else is already on the issue, say so in the handoff rather than
+   removing them. Skip this step entirely for a task that names no issue. If the
+   call fails — no write access, a wrong repository, an issue since closed —
+   record it in the skipped list and carry on: claiming the issue must never
+   block the change. If you finish without a commit because the defect was
+   already fixed, drop your assignment again so the issue does not read as
+   claimed.
+3. Start from current `origin/main` (`git pull upstream main` where that remote
    is the canonical one) in a dedicated worktree with unique ports, temporary
    directories, and caches. Never develop on top of a stale base.
-3. Write the failing test first. Run it and confirm it fails at the assertion
+4. Write the failing test first. Run it and confirm it fails at the assertion
    that names the defect — not on a build error, a missing fixture, a setup
    failure, a timeout, or an empty `-run` filter. A test that "errored, close
    enough" is not fail-before evidence. Record the command and the failure
    message.
-4. Implement the smallest change that turns that failure into a pass. Re-run the
+5. Implement the smallest change that turns that failure into a pass. Re-run the
    test, then restore the failing state once more if the fix looked suspiciously
    easy.
-5. Widen the checks as the contract requires: the changed package, the module's
+6. Widen the checks as the contract requires: the changed package, the module's
    full suite, every nested `go.mod` separately, `go vet`, the repository's own
    `make lint` / `make test` targets. A root `go test ./...` does not cover
    nested modules.
-6. Commit with `git commit -s` and a Conventional Commit subject. No issue
+7. Commit with `git commit -s` and a Conventional Commit subject. No issue
    numbers in the subject. The workspace guard denies an unsigned or
    non-conventional commit — fix the command, never work around the guard.
 
@@ -68,6 +84,11 @@ so that output matches is a defect, not a fix.
 Never `git push`, open or edit a pull request, tag, release, or merge. The
 signed local commit is where your work ends; publication belongs to the review
 agent and requires authorization you do not have.
+
+Assigning yourself the issue you were given (Method step 2) is the one GitHub
+write you are authorized to make. It claims the work; it does not publish it.
+Do not otherwise edit the issue — no labels, no milestones, no closing it, and
+no comment announcing that you have started.
 
 Do not commit plan files or working notes. Do not re-pin submodules, edit a
 nested repository incidentally, or expand scope past what was asked. Do not
