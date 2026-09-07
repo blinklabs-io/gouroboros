@@ -410,10 +410,77 @@ func (c *StakeDelegationCertificate) Type() uint {
 }
 
 type (
-	PoolKeyHash      = Blake2b224
-	PoolMetadataHash = Blake2b256
-	VrfKeyHash       = Blake2b256
+	PoolKeyHash = Blake2b224
+	VrfKeyHash  = Blake2b256
 )
+
+// PoolMetadataHash holds the hash bytes of a pool_metadata entry.
+//
+// The reference ledger stores the field as an unbounded byte string: pmHash in
+// libs/cardano-ledger-core/src/Cardano/Ledger/State/StakePool.hs is a
+// ByteArray, and the DecCBOR instance for PoolMetadata applies no length
+// check. The length bound belongs to the POOL rule instead
+// (PoolMedataHashTooBig in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs, gated on
+// SoftForks.restrictPoolMetadataHash), which rejects only hashes longer than
+// 32 bytes and only from protocol version 5 onwards. A fixed 32-byte type
+// would reject registrations the node accepts, so the bound is applied in
+// shelley.UtxoValidatePoolCertificates.
+type PoolMetadataHash []byte
+
+// Bytes returns the raw hash bytes.
+func (h PoolMetadataHash) Bytes() []byte {
+	return []byte(h)
+}
+
+// String returns the hex encoding of the hash bytes.
+func (h PoolMetadataHash) String() string {
+	return hex.EncodeToString(h)
+}
+
+func (h PoolMetadataHash) MarshalJSON() ([]byte, error) {
+	return json.Marshal(h.String())
+}
+
+func (h PoolMetadataHash) MarshalText() ([]byte, error) {
+	return []byte(h.String()), nil
+}
+
+func (h *PoolMetadataHash) UnmarshalText(text []byte) error {
+	decoded, err := hex.DecodeString(string(text))
+	if err != nil {
+		return err
+	}
+	*h = PoolMetadataHash(decoded)
+	return nil
+}
+
+func (h PoolMetadataHash) MarshalCBOR() ([]byte, error) {
+	// A nil value still encodes as a byte string, because
+	// pool_metadata_hash has no null alternative.
+	hashBytes := []byte(h)
+	if hashBytes == nil {
+		hashBytes = []byte{}
+	}
+	return cbor.Encode(hashBytes)
+}
+
+func (h *PoolMetadataHash) UnmarshalCBOR(cborData []byte) error {
+	if h == nil {
+		return errors.New("nil PoolMetadataHash receiver")
+	}
+	// Reject anything that is not a byte string before decoding, so a tag,
+	// an array or a text string cannot reach the hash.
+	if _, _, _, err := byteStringHeader(cborData); err != nil {
+		return fmt.Errorf("decode pool metadata hash: %w", err)
+	}
+	var decoded []byte
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		return fmt.Errorf("decode pool metadata hash: %w", err)
+	}
+	*h = PoolMetadataHash(decoded)
+	return nil
+}
 
 const (
 	LeiosBlsPublicKeySize       = 96
