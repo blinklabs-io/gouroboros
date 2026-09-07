@@ -292,9 +292,16 @@ type GovState interface {
 
 	// DRep queries
 	// DRepRegistration returns the registration held for the given DRep
-	// credential, or nil when that credential is not a registered DRep.
-	// The credential carries its type: a key-hash and a script-hash DRep
-	// sharing the same hash are distinct registrations.
+	// credential hash, or nil when that hash is not a registered DRep.
+	//
+	// The reference ledger keys DRep state by Credential
+	// (Cardano.Ledger.Conway.Governance vsDReps), so a key-hash and a
+	// script-hash DRep sharing the same 28 bytes are distinct DReps. This
+	// lookup takes a bare hash and therefore cannot distinguish them, and
+	// the records DRepRegistrations returns carry the same bare hash.
+	// Widening both to a full Credential is a breaking change for every
+	// implementor and is deferred; until then a same-hash key/script pair
+	// resolves to whichever registration the state holds.
 	DRepRegistration(credential Blake2b224) (*DRepRegistration, error)
 	DRepRegistrations() ([]DRepRegistration, error)
 

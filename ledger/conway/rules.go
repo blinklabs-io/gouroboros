@@ -3428,10 +3428,11 @@ func UtxoValidateDelegation(
 			if len(drep.Credential) != 28 {
 				return false, nil
 			}
-			// The DRep type fixes the credential type, and the
-			// credential type is part of the DRep's identity: looking
-			// the hash up on its own would answer for whichever of a
-			// same-hash key/script pair the state happened to hold.
+			// The DRep type fixes the credential type, which the
+			// in-transaction registration set below is keyed by so a
+			// same-hash key/script pair does not collide there. The
+			// ledger-state lookup still takes a bare hash and cannot
+			// make that distinction; widening it is deferred.
 			credType, err := drepTypeToCredType(drep.Type)
 			if err != nil {
 				return false, err
@@ -3442,9 +3443,14 @@ func UtxoValidateDelegation(
 			if inTxDRepRegs[stakeKey(cred)] {
 				return true, nil
 			}
-			// Check ledger state
+			// Check ledger state. A lookup failure is not an
+			// unregistered DRep: reporting it as one rejects a valid
+			// transaction with DelegateVoteToUnregisteredDRepError.
 			reg, err := ls.DRepRegistration(cred.Credential)
-			return err == nil && reg != nil, nil
+			if err != nil {
+				return false, err
+			}
+			return reg != nil, nil
 		default:
 			return false, InvalidDRepTypeError{DrepType: drep.Type}
 		}
