@@ -44,7 +44,7 @@ and are linked into `.claude/workflows/` so they resolve by name.
 | `blink-go-module-auditor` | Module graph, nested modules, replacements, module identity, provenance |
 | `blink-release-auditor` | Dockerfiles, architecture coverage, manifests, tags, publishing workflows |
 | `blink-validation-runner` | Executes repository-native checks in isolation and reports commands and exit codes |
-| `blink-tdd-developer` | Implements a change test-first on Sonnet and stops at a signed local commit, handing off before anything is pushed |
+| `blink-tdd-developer` | Implements a change test-first on Sonnet and stops at a signed local commit, handing off before anything is pushed. Preloads `blink-repo-maintainer`, `regression-test-discipline`, `commit-and-pr-hygiene`, and `evidence-based-handoff` |
 | `blink-review-shepherd` | Reviews that commit on Opus, publishes the PR, and drives CI, bot, and human review to merge; also reviews other contributors' PRs. Preloads `commit-and-pr-hygiene` and `evidence-based-handoff` |
 
 ## Skills
