@@ -418,6 +418,22 @@ func (e CertificateDepositStateInconsistentError) Error() string {
 	)
 }
 
+// DRepDepositStateInconsistentError indicates that the ledger state reports a
+// DRep as registered but holds no deposit recorded against that registration.
+// The reference ledger's DRepState always carries a deposit, so there is no
+// refund amount a deregistration certificate could be checked against.
+type DRepDepositStateInconsistentError struct {
+	Credential common.Credential
+}
+
+func (e DRepDepositStateInconsistentError) Error() string {
+	return fmt.Sprintf(
+		"registered DRep credential has no recorded deposit: type %d hash %x",
+		e.Credential.CredType,
+		e.Credential.Credential[:],
+	)
+}
+
 // StakeCredentialNotRegisteredError indicates a deregistration certificate
 // for a credential absent from the left-folded certificate state.
 type StakeCredentialNotRegisteredError struct {
