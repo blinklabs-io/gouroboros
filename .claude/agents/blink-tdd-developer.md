@@ -1,1 +1,0 @@
-../../plugins/blink-labs-agent-toolkit/agents/blink-tdd-developer.md
