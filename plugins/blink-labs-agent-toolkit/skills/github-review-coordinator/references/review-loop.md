@@ -27,7 +27,9 @@ the rendered context string from a run.
    empty thread list as a clean pass, and record the local review standing in
    for any that did not run.
 3. Re-run affected checks and document dispositions for false positives or
-   accepted risks.
+   accepted risks. Valid findings are fixed in scope; they are not converted
+   into recommendations for somebody else or deferred merely because a
+   downstream consumer also needs inspection.
 4. For UI changes, verify that the PR includes screenshots of affected states
    at the relevant viewport or platform, with secrets and user data redacted.
 5. Request human review. Human review is mandatory and may be AI-assisted.
@@ -49,7 +51,9 @@ labeling a pull request ready for human review or merge:
 2. Query GraphQL `reviewThreads` and require zero unresolved threads. Paginate
    when `pageInfo.hasNextPage` is true. REST review submissions, inline
    comments, and issue comments are separate surfaces and none substitutes for
-   thread resolution.
+   thread resolution. Read every review and comment for requested work: an
+   `APPROVED` review with actionable comments is not clean and must not be
+   treated as approval.
 3. Inspect the bot result, not only its check conclusion. CodeRabbit can report
    a green check while rate-limited or while incremental review is disabled;
    Cubic can skip without reviewing. CodeRabbit may publish its verdict in an
@@ -75,17 +79,22 @@ the signal to diagnose; if the failure is network connectivity, retry with the
 approved elevated network path. Do not claim success until GitHub shows the
 review.
 
-For a clean review with only non-blocking recommendations, submit an empty-body
-approval:
+For a clean review with no requested changes, submit an empty-body approval:
 
 ```sh
 gh pr review <number> --repo <owner>/<repo> --approve
 ```
 
-For actionable blockers, request changes and attach each code-specific finding
-inline through GitHub's UI or API. Keep the review body empty when approving;
-do not turn a trivial test or accessibility recommendation into a blocking
-changes-requested review.
+For any requested code, test, documentation, configuration, or follow-up fix,
+request changes and attach each code-specific finding inline through GitHub's UI
+or API. Do not approve a review that carries required work. A purely optional
+idea may be a comment, but label it optional and do not use it as a reason to
+withhold or grant approval.
+
+Never submit a review, comment, or issue through a human account unless the
+human explicitly authorized that exact external action. Preserve bot identity
+and attribution; bot silence, bot prose copied into a human review, and a bot
+check are not human approval.
 
 After posting, verify the review list against the current head SHA and confirm
 the reviewer login, state, and body. If the authenticated `gh` read path cannot
@@ -108,8 +117,9 @@ it — hand an approved PR back to its author rather than merging it for them.
 The sole exception is `dependabot[bot]`, which cannot merge its own PRs.
 
 Squash merge is allowed when the PR's author is us, GitHub shows a human
-`APPROVED` review attached to the current head SHA, required checks pass, and
-configured bots have no actionable findings. Use one concise factual squash
+`APPROVED` review attached to the current head SHA with no actionable comments
+or requested work, required checks pass, and configured bots have no actionable
+findings. Use one concise factual squash
 summary and preserve the DCO `Signed-off-by:` line. A review for an earlier head
 is stale after a push.
 

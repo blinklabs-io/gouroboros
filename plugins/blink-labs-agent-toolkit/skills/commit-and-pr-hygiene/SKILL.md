@@ -5,8 +5,10 @@ description: Write Blink Labs commits, pull request descriptions, issues, review
 
 # Commit and PR Hygiene
 
-Policy in this organization is narrow and enforced. Getting it wrong costs a
-round trip, and in a submodule it can cost a bad pointer.
+Policy in this organization is narrow and enforced. Keep every PR title,
+commit message, issue, and review comment concise and precise. Use the fewest
+words that preserve the technical meaning; omit narrative, praise, repetition,
+and ornamental prose.
 
 ## Cross-check open issues before opening a PR or filing a new one
 
@@ -34,6 +36,21 @@ Before opening a pull request, and before filing an issue:
 Report the searches and what each returned, **including the ones that returned
 nothing**. A clean search is a result: it says the class was checked, not that
 nobody looked.
+
+### A review finding needs an owner
+
+Never recommend “create an issue” as a substitute for fixing a valid problem.
+If the defect is in the current scope, fix it, test it, and include the result
+in the change. If it belongs elsewhere, the authorized agent opens the issue in
+the owning repository with the reproduction, boundary, and acceptance criteria,
+then links it from the review. If issue creation is not authorized, report that
+as a blocker and ask for authority; do not hand the requester an unowned task.
+
+Downstream impact is not a generic blocker. Inspect the downstream consumer and
+fix the source-side contract in the current change. When separate repositories
+must move together, make the coordinated changes when authorized or create the
+owned follow-up issue yourself. Name the exact incompatibility and required
+change; “downstream” alone is not a disposition.
 
 
 ## Direct pushes are clanker-only; product repos need a PR
@@ -149,7 +166,8 @@ release usable.
   to `git rebase`, which fails the same way mid-operation and leaves the rebase
   half-applied; `-c commit.gpgsign=false` is available but is subject to the
   same permission.
-- Subjects stay short and factual — the change, not the story.
+- Subjects stay short and factual — the change, not the story. Shorten them
+  whenever fewer precise words will do.
 - A body is optional. When present, it holds only short factual lines tied
   directly to the changed code, tests, or review. Never a chat transcript,
   narrative, roadmap, future plan, or unrelated context.
@@ -251,7 +269,8 @@ file after the live record is verified.
   edit to fields no UI consumer renders does not require screenshots. Trace the
   consumers before claiming the rendered site is unchanged.
 - Put code-specific feedback in inline comments. Reserve PR-level comments for
-  concise code summaries and review dispositions.
+  concise code summaries and review dispositions. State the observation,
+  evidence, and action in the fewest precise words.
 - Do not list out-of-scope work or checks that were not run. If a missing
   required check creates a concrete merge risk, state that risk in one factual
   sentence instead of adding a generic `Skipped` section.
@@ -329,8 +348,10 @@ The sequence is bots first, humans second, and it does not compress:
    reviews. If CodeRabbit is rate-limited, document it; a completed Cubic
    review is sufficient for bot review.
 3. Reproduce or disprove each finding against the current checkout, then
-   classify it: merge blocker, non-blocking recommendation, false positive, or
-   already addressed. Do not copy bot prose into durable documentation.
+   classify it: required fix, optional suggestion, false positive, or already
+   addressed. Fix every valid required finding in scope. Do not copy bot prose
+   into durable documentation or leave a valid finding as an unowned issue
+   recommendation.
 4. Request the required human review. Bot approval or silence is never human
    approval, and human review is mandatory even when AI-assisted.
 5. When a human requests changes: implement and validate the fixes, summarize
@@ -341,7 +362,14 @@ The sequence is bots first, humans second, and it does not compress:
    appropriate human review.
 
 Do not claim a review, approval, re-request, or dismissal happened unless GitHub
-shows it.
+shows it. An approval with actionable comments is not a clean approval: require
+the fixes or use `CHANGES_REQUESTED`.
+
+Bots may review and fix code only under explicit human authorization for the
+current task. They must not post comments, approvals, requested changes, issue
+updates, or other human-seeming actions through a human account without
+consent for that exact write. Preserve bot attribution in every durable record;
+never rewrite bot output as a human's finding or decision.
 
 When asked to resolve an issue, continue through the initial implementation and
 PR update, configured bot reviews, valid bot fixes, validation, and bot re-runs

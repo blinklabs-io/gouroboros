@@ -5,6 +5,9 @@ description: Discover Blink Labs pull-request review work, including direct and 
 
 # GitHub Review Coordinator
 
+Keep all external review text concise and precise. State only the finding,
+evidence, and action; omit narrative, praise, repetition, and ornament.
+
 Use this skill for pull-request review workflow, not for deciding whether a
 code finding is technically correct. Read the [review loop reference](references/review-loop.md)
 and the target repository's contribution guidance.
@@ -30,8 +33,10 @@ and the target repository's contribution guidance.
    rather than inferring it from an empty thread list, and when none did, say so
    and record the local review that stands in its place. Reproduce findings
    against the current checkout.
-3. Address actionable bot findings, document false positives or accepted
-   risks, rerun affected checks, and update the PR.
+3. Reproduce every bot finding against the current head. Fix valid findings
+   that are in scope, rerun affected checks, and update the PR. A finding is
+   not discharged by paraphrasing it, recommending that somebody else fix it,
+   or saying that a downstream repository will need attention.
 4. For UI changes, verify that the PR includes screenshots of affected states
    at the relevant viewport or platform, with secrets and user data redacted.
 5. Request the required human review. Human review is mandatory and may be
@@ -67,11 +72,39 @@ Read the body or requested teams back through REST before claiming the update
 landed. Keep the temporary body file run-owned and remove it after verification.
 
 Choose the review disposition from the findings. Use an approval-only review
-with an empty body when there are no merge-blocking findings; do not turn
-trivial recommendations into `CHANGES_REQUESTED`. Use `CHANGES_REQUESTED`
-only for actionable blockers and put those findings in inline comments through
-GitHub's UI or API. After every write, verify the review record, reviewer, state,
-empty or non-empty body as intended, and current head SHA through GitHub.
+with an empty body only when there are no required changes anywhere in the
+review. An approval must never carry comments that ask for a code, test,
+documentation, configuration, or follow-up fix. If a comment asks for work,
+fix the work before approving or submit `CHANGES_REQUESTED`; reserve optional
+comments for genuinely optional ideas that do not ask the author to change the
+current patch. Put actionable findings inline through GitHub's UI or API.
+After every write, verify the review record, reviewer, state, empty or
+non-empty body as intended, and current head SHA through GitHub.
+
+## Bot ownership and review actions
+
+Bots may inspect code, draft findings, apply fixes, and open issues only when a
+human has authorized that action for the current task. They must not submit an
+`APPROVED`, `CHANGES_REQUESTED`, or ordinary PR comment through a human
+account without explicit human consent for that write. Never make bot output
+look human-authored by copying it into a human review, removing its bot
+attribution, or describing a bot's decision as the user's decision. If a bot
+account posts, preserve the bot login and state clearly who authorized the
+action.
+
+When a bot finds a real problem, the default disposition is to fix and validate
+it in the current scope. If it truly belongs in another repository or cannot
+be fixed in the current change, the authorized agent must open the issue in
+the owning repository, include the concrete reproduction and boundary, and
+link it from the review. “Please file an issue” is not a disposition; without
+authority to create the issue, stop and report the missing authority rather
+than assigning the work to the requester.
+
+Downstream impact is a contract to inspect, not a reason to defer an upstream
+fix. Read the downstream consumer, fix the compatible source-side behavior,
+and make the coordinated consumer change or create the owned follow-up issue
+when the boundary requires separate repositories. Do not use “downstream” as a
+blocker without naming the exact incompatible behavior and the concrete fix.
 
 When the user asks to resolve an issue, iterate after the initial PR update:
 wait for CodeRabbit and Cubic, or document CodeRabbit rate limiting and use
