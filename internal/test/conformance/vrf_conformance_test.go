@@ -202,6 +202,26 @@ func TestVRFProveConformance(t *testing.T) {
 		testedCount,
 		skippedCount,
 	)
+	// A vector is skipped when its sk does not regenerate the listed pk. A
+	// regression in KeyGen skips every vector, which leaves the conformance
+	// assertions below unexecuted while the test still passes, so the
+	// denominator is asserted rather than logged.
+	if testedCount == 0 {
+		t.Fatalf(
+			"no prove vector was tested; %d of %d skipped on a derived-pubkey mismatch",
+			skippedCount,
+			len(vectors.Vectors),
+		)
+	}
+	if testedCount+skippedCount != len(vectors.Vectors) {
+		t.Fatalf(
+			"accounted for %d vectors (%d tested, %d skipped), want %d",
+			testedCount+skippedCount,
+			testedCount,
+			skippedCount,
+			len(vectors.Vectors),
+		)
+	}
 }
 
 // formatVectorName creates a descriptive test name from vector index and alpha

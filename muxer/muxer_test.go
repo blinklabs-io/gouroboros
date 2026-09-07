@@ -843,20 +843,17 @@ func TestMuxerSendAfterStop(t *testing.T) {
 	m.Start()
 	m.Stop()
 
-	// Give time for shutdown
-	time.Sleep(10 * time.Millisecond)
-
 	// Create a segment
 	segment := muxer.NewSegment(0x01, []byte("test"), false)
 	if segment == nil {
 		t.Fatal("failed to create segment")
 	}
 
-	// Send should return an error (or silently fail) after shutdown
-	err := m.Send(segment)
-	// After stop, Send should return an error
-	if err == nil {
-		t.Log("Send after stop returned nil (acceptable behavior)")
+	// Stop closes doneChan before it returns, and Send selects on that
+	// channel before touching the connection, so the error is required
+	// rather than timing-dependent.
+	if err := m.Send(segment); err == nil {
+		t.Fatal("Send after Stop returned nil, want an error")
 	}
 }
 
