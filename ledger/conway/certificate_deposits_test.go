@@ -611,7 +611,6 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 				refund,
 				0,
 			)
-			recordedDRepDeposit := pp.DRepDeposit
 			baseState := mockledger.NewLedgerStateBuilder().
 				WithUtxos([]common.Utxo{{
 					Id: shelley.NewShelleyTransactionInput(
@@ -624,8 +623,8 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 				}}).
 				WithNetworkId(1).
 				WithDRepRegistrations([]common.DRepRegistration{{
-					Credential: fixture.credential,
-					Deposit:    &recordedDRepDeposit,
+					Credential: fixture.credential.Credential,
+					Deposit:    pp.DRepDeposit,
 				}}).
 				Build()
 			ls := certificateDepositLedgerState{
