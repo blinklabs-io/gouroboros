@@ -104,6 +104,25 @@ func TestEnqueueMessageReturnsWhenFullQueueShutsDown(t *testing.T) {
 	}
 }
 
+func TestEnqueueMessageKeepsEncodingOutOfCallerMessage(t *testing.T) {
+	p := &Protocol{
+		stopChan:      make(chan struct{}),
+		doneChan:      make(chan struct{}),
+		muxerDoneChan: make(chan bool),
+		recvDoneChan:  make(chan struct{}),
+		sendDoneChan:  make(chan struct{}),
+		sendQueueChan: make(chan outboundMessage, 1),
+		config:        ProtocolConfig{Name: "test"},
+	}
+	msg := &MessageBase{MessageType: 1}
+
+	require.NoError(t, p.SendMessage(msg))
+	require.Nil(t, msg.Cbor())
+	queued := <-p.sendQueueChan
+	require.NotEmpty(t, queued.data)
+	require.Same(t, msg, queued.message)
+}
+
 func TestSendMessageContextReturnsWhenFullQueueContextEnds(t *testing.T) {
 	p := &Protocol{
 		stopChan:      make(chan struct{}),

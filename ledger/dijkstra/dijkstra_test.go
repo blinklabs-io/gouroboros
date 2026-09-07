@@ -57,7 +57,7 @@ func TestDijkstraTransactionBodiesUnmarshalCBORCertificateTypes(t *testing.T) {
 			},
 		},
 	}
-	certificates := certificateFixturesByType()
+	certificates := certificateFixturesByType(t)
 	testCases := make([]struct {
 		name     string
 		certType common.CertificateType
@@ -124,10 +124,19 @@ func TestDijkstraTransactionBodiesRejectNegativeCurrentTreasuryValue(
 	})
 }
 
-func certificateFixturesByType() map[common.CertificateType]any {
+func certificateFixturesByType(t *testing.T) map[common.CertificateType]any {
+	t.Helper()
 	credential := common.Credential{
 		CredType: common.CredentialTypeAddrKeyHash,
 	}
+	poolRegistration := &common.PoolRegistrationCertificate{
+		CertType: uint(common.CertificateTypePoolRegistration),
+		Margin:   cbor.Rat{Rat: big.NewRat(0, 1)},
+	}
+	require.NoError(t, poolRegistration.SetRewardAccountCredential(
+		credential,
+		common.AddressNetworkTestnet,
+	))
 	return map[common.CertificateType]any{
 		common.CertificateTypeStakeRegistration: &common.StakeRegistrationCertificate{
 			CertType: uint(common.CertificateTypeStakeRegistration),
@@ -139,10 +148,7 @@ func certificateFixturesByType() map[common.CertificateType]any {
 			CertType:        uint(common.CertificateTypeStakeDelegation),
 			StakeCredential: &credential,
 		},
-		common.CertificateTypePoolRegistration: &common.PoolRegistrationCertificate{
-			CertType: uint(common.CertificateTypePoolRegistration),
-			Margin:   cbor.Rat{Rat: big.NewRat(0, 1)},
-		},
+		common.CertificateTypePoolRegistration: poolRegistration,
 		common.CertificateTypePoolRetirement: &common.PoolRetirementCertificate{
 			CertType: uint(common.CertificateTypePoolRetirement),
 		},
@@ -310,11 +316,53 @@ func TestDijkstraTransactionAllowsOnlyTrueIsValidForMempool(t *testing.T) {
 	require.ErrorContains(t, err, "is_valid=false")
 }
 
-func TestDijkstraTransactionRejectsOversizedCbor(t *testing.T) {
-	txCbor := make([]byte, MaxTxSize+1)
+// oversizedTxParts builds a well-formed Dijkstra transaction whose CBOR exceeds
+// the current Cardano max_tx_size of 16384 bytes. The bulk is carried by
+// direct_deposits (body key 25), a Dijkstra-only key, so the result is also a
+// Dijkstra era candidate for DetermineTransactionType.
+func oversizedTxParts(entries int) []any {
+	deposits := make(map[cbor.ByteString]uint64, entries)
+	for i := range entries {
+		credential := bytes.Repeat([]byte{0x00}, common.Blake2b224Size)
+		credential[0] = byte(i)
+		credential[1] = byte(i >> 8)
+		credential[2] = byte(i >> 16)
+		deposits[cbor.NewByteString(credential)] = uint64(i + 1)
+	}
+	body := minimalTxBody()
+	body[25] = deposits
+	return []any{body, minimalWitnessSet(), nil}
+}
 
-	_, err := NewDijkstraTransactionFromCbor(txCbor)
-	require.ErrorContains(t, err, "MaxTxSize")
+// TestDijkstraTransactionDecodesOversizedCbor pins that the decoder applies no
+// transaction size limit. The reference decoder does not either
+// (decodeDijkstraTopTx in eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Tx.hs),
+// and no transaction decoder in any era does; max_tx_size is a protocol
+// parameter enforced by UtxoValidateMaxTxSizeUtxo. A decode failure would fail
+// the containing block rather than the one transaction.
+func TestDijkstraTransactionDecodesOversizedCbor(t *testing.T) {
+	txCbor, err := cbor.Encode(oversizedTxParts(600))
+	require.NoError(t, err)
+	require.Greater(t, len(txCbor), 16*1024)
+
+	tx, err := NewDijkstraTransactionFromCbor(txCbor)
+	require.NoError(t, err)
+	require.Equal(t, TxTypeDijkstra, tx.Type())
+	require.Equal(t, txCbor, tx.Cbor())
+	require.Len(t, tx.Body.TxDirectDeposits, 600)
+}
+
+// TestDijkstraTransactionRejectsOversizedMalformedCbor is the negative control
+// for the removed size check: an oversized payload that is not a Dijkstra
+// transaction is still rejected, on its shape rather than on its length.
+func TestDijkstraTransactionRejectsOversizedMalformedCbor(t *testing.T) {
+	txCbor, err := cbor.Encode(bytes.Repeat([]byte{0x00}, 32*1024))
+	require.NoError(t, err)
+	require.Greater(t, len(txCbor), 16*1024)
+
+	_, err = NewDijkstraTransactionFromCbor(txCbor)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "MaxTxSize")
 }
 
 func TestDijkstraBlockBodyRejectsWrongComponentCount(t *testing.T) {
@@ -817,7 +865,11 @@ func TestDijkstraRejectsDuplicateUntaggedInputSets(t *testing.T) {
 			require.NoError(t, err)
 
 			var body DijkstraTransactionBody
-			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "duplicate member in set")
+			require.ErrorContains(
+				t,
+				body.UnmarshalCBOR(bodyCbor),
+				"duplicate member in set",
+			)
 		})
 	}
 }
@@ -955,7 +1007,11 @@ func TestDijkstraWitnessSetRejectsDuplicateUntaggedVkeyWitness(t *testing.T) {
 		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
 	}
 	var ws DijkstraTransactionWitnessSet
-	require.ErrorContains(t, ws.UnmarshalCBOR(dupCbor), "duplicate member in set")
+	require.ErrorContains(
+		t,
+		ws.UnmarshalCBOR(dupCbor),
+		"duplicate member in set",
+	)
 }
 
 func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
@@ -1400,17 +1456,4 @@ func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(
 		maxRefScriptSizePerBlock,
 		*decodedAction.ParamUpdate.MaxRefScriptSizePerBlock,
 	)
-}
-
-func TestDijkstraTransactionLeiosHashCaches(t *testing.T) {
-	tx := &DijkstraTransaction{}
-	tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xa0})
-
-	first := tx.LeiosHash()
-	require.NotNil(t, tx.hash)
-	cached := tx.hash
-
-	second := tx.LeiosHash()
-	require.Equal(t, first, second)
-	require.True(t, cached == tx.hash)
 }

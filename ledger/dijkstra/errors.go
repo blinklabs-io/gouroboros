@@ -83,6 +83,19 @@ type UnsupportedScriptInSubtransactionError struct {
 	TransactionId       common.Blake2b256
 }
 
+// WithdrawalsExceedAccountBalanceError reports aggregate Dijkstra batch
+// withdrawals that exceed their accounts' original balances.
+type WithdrawalsExceedAccountBalanceError struct {
+	Withdrawals map[cbor.ByteString][]uint64
+}
+
+func (e WithdrawalsExceedAccountBalanceError) Error() string {
+	return fmt.Sprintf(
+		"withdrawals exceed account balance: %v",
+		e.Withdrawals,
+	)
+}
+
 func (e UnsupportedScriptInSubtransactionError) Error() string {
 	return fmt.Sprintf(
 		"PlutusV%d script is unsupported in Dijkstra subtransaction %d (%x)",

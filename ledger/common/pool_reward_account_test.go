@@ -16,6 +16,8 @@ package common
 
 import (
 	"bytes"
+	"encoding/hex"
+	"encoding/json"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -82,35 +84,136 @@ func TestPoolRegistrationRewardAccountNetworkId(t *testing.T) {
 		assert.Equal(t, uint(1), got)
 	})
 
-	t.Run("legacy 28-byte encoding has no network id", func(t *testing.T) {
+	t.Run("legacy 28-byte encoding is rejected", func(t *testing.T) {
 		cert := &PoolRegistrationCertificate{}
-		require.NoError(t, cert.UnmarshalCBOR(encode(t, credential)))
-		assert.Equal(
+		require.ErrorContains(
 			t,
-			AddrKeyHash(NewBlake2b224(credential)),
-			cert.RewardAccount,
+			cert.UnmarshalCBOR(encode(t, credential)),
+			"invalid reward account length",
 		)
-		got, known := cert.RewardAccountNetworkId()
-		assert.False(t, known)
-		assert.Equal(t, uint(0), got)
 	})
 
 	t.Run("constructed certificate has no network id", func(t *testing.T) {
 		cert := &PoolRegistrationCertificate{
 			RewardAccount: NewBlake2b224(credential),
+			Margin:        NewGenesisRat(0, 1),
 		}
 		_, known := cert.RewardAccountNetworkId()
 		assert.False(t, known)
+		assert.Equal(
+			t,
+			uint(CredentialTypeAddrKeyHash),
+			cert.RewardAccountCredential().CredType,
+		)
+		_, err := cert.MarshalCBOR()
+		require.ErrorContains(t, err, "reward account metadata is required")
 	})
 
-	t.Run("decoding preserves the wire bytes", func(t *testing.T) {
-		rewardAccount := append([]byte{0xe1}, credential...)
-		wire := encode(t, rewardAccount)
+	t.Run(
+		"constructed certificate can set canonical identity",
+		func(t *testing.T) {
+			cert := &PoolRegistrationCertificate{}
+			err := cert.SetRewardAccountCredential(
+				Credential{
+					CredType:   CredentialTypeScriptHash,
+					Credential: NewBlake2b224(credential),
+				},
+				AddressNetworkMainnet,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, AddrKeyHash(credential), cert.RewardAccount)
+			assert.Equal(
+				t,
+				uint(CredentialTypeScriptHash),
+				cert.RewardAccountCredential().CredType,
+			)
+			gotNetwork, known := cert.RewardAccountNetworkId()
+			require.True(t, known)
+			assert.Equal(t, uint(AddressNetworkMainnet), gotNetwork)
+			encodedReward, err := cert.rewardAccountBytes()
+			require.NoError(t, err)
+			assert.Equal(t, append([]byte{0xf1}, credential...), encodedReward)
+		},
+	)
+
+	t.Run(
+		"constructed certificate rejects invalid identity",
+		func(t *testing.T) {
+			cert := &PoolRegistrationCertificate{}
+			err := cert.SetRewardAccountCredential(
+				Credential{CredType: CredentialTypeScriptHash + 1},
+				AddressNetworkMainnet,
+			)
+			require.ErrorContains(
+				t,
+				err,
+				"invalid reward account credential type",
+			)
+			err = cert.SetRewardAccountCredential(
+				Credential{CredType: CredentialTypeAddrKeyHash},
+				AddressNetworkMainnet+1,
+			)
+			require.ErrorContains(t, err, "invalid reward account network id")
+		},
+	)
+
+	t.Run(
+		"decoding preserves canonical identity after cache clear",
+		func(t *testing.T) {
+			rewardAccount := append([]byte{0xf1}, credential...)
+			wire := encode(t, rewardAccount)
+			cert := &PoolRegistrationCertificate{}
+			require.NoError(t, cert.UnmarshalCBOR(wire))
+			cert.SetCbor(nil)
+			remarshaled, err := cert.MarshalCBOR()
+			require.NoError(t, err)
+			assert.Equal(t, wire, remarshaled)
+		},
+	)
+
+	t.Run("JSON replacement clears decoded identity", func(t *testing.T) {
+		rewardAccount := append([]byte{0xf1}, credential...)
 		cert := &PoolRegistrationCertificate{}
-		require.NoError(t, cert.UnmarshalCBOR(wire))
-		remarshaled, err := cert.MarshalCBOR()
+		require.NoError(t, cert.UnmarshalCBOR(encode(t, rewardAccount)))
+		assert.Equal(
+			t,
+			uint(CredentialTypeScriptHash),
+			cert.RewardAccountCredential().CredType,
+		)
+
+		replacementCredential := bytes.Repeat(
+			[]byte{0x08},
+			Blake2b224Size,
+		)
+		jsonData, err := json.Marshal(map[string]any{
+			"margin": map[string]any{
+				"numerator":   0,
+				"denominator": 1,
+			},
+			"rewardAccount": map[string]any{
+				"credential": map[string]any{
+					"key hash": hex.EncodeToString(replacementCredential),
+				},
+			},
+		})
 		require.NoError(t, err)
-		assert.Equal(t, wire, remarshaled)
+		require.NoError(t, json.Unmarshal(jsonData, cert))
+
+		assert.Nil(t, cert.Cbor())
+		assert.Equal(
+			t,
+			AddrKeyHash(replacementCredential),
+			cert.RewardAccount,
+		)
+		assert.Equal(
+			t,
+			uint(CredentialTypeAddrKeyHash),
+			cert.RewardAccountCredential().CredType,
+		)
+		_, known := cert.RewardAccountNetworkId()
+		assert.False(t, known)
+		_, err = cert.MarshalCBOR()
+		require.ErrorContains(t, err, "reward account metadata is required")
 	})
 }
 
