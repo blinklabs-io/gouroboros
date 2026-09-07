@@ -41,7 +41,7 @@ Labs projects and affiliated TosiDrop repositories:
 - **Skills** that load automatically when a task matches them, from protocol and
   application review to dependency auditing and validation discipline.
 - **Slash commands** — `/orient`, `/validate`, `/review`, `/dep-audit`,
-  `/release-check`, `/submodule-sync`.
+  `/release-check`, `/submodule-sync`, `/blink-review-prs`.
 - **Subagents** for protocol, application, module, release, and validation
   review, dispatchable in parallel across repositories, plus a paired
   test-first developer and review shepherd that split implementation from

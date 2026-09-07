@@ -18,6 +18,7 @@ the same `SKILL.md` files.
 | `/dep-audit` | Audit Go module graphs, nested modules, replacements, and fork provenance |
 | `/release-check` | Review a Docker image or release workflow from Dockerfile through manifest and tags |
 | `/submodule-sync` | Inspect and record submodule pointer changes without crossing repository boundaries |
+| `/blink-review-prs` | Sweep the organization for ready-to-review PRs, dispatch a shepherd per PR three at a time, and aggregate the sweep's token usage |
 
 ## Subagents
 
