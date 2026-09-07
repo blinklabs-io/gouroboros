@@ -84,5 +84,11 @@ change under `plugins/`, `skills/`, or `docs/`.
 ## Keep the documentation in step
 
 A new skill, command, or subagent must also appear in `docs/skill-catalog.md`,
-and in `AGENTS.md` or `README.md` when it changes how work starts. Bump the
-plugin `version` in both manifests when the toolkit's contents change.
+and in `AGENTS.md` or `README.md` when it changes how work starts.
+
+When the toolkit's contents change, bump the plugin `version` in all three
+places that declare it — `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`,
+and the plugin's entry in the workspace `.claude-plugin/marketplace.json`.
+`make validate` fails when they disagree. The marketplace entry is the one
+that is easy to miss, and it is the one Claude Code resolves an installed
+version from.

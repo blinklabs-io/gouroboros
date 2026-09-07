@@ -99,6 +99,39 @@ if not bad:
 sys.exit(1 if bad else 0)
 PY
 
+echo "== Manifest versions =="
+python3 - "$ROOT" "$PLUGIN" <<'PYVER' || failures=$((failures + 1))
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+name = pathlib.Path(sys.argv[2]).name
+declared = {}
+for relative in (
+    ".claude-plugin/marketplace.json",
+    f"{sys.argv[2]}/.claude-plugin/plugin.json",
+    f"{sys.argv[2]}/.codex-plugin/plugin.json",
+):
+    data = json.loads((root / relative).read_text(encoding="utf-8"))
+    if "plugins" in data:
+        entry = next((p for p in data["plugins"] if p.get("name") == name), None)
+        if entry is None:
+            print(f"FAIL  {relative}: no entry for {name}")
+            sys.exit(1)
+        declared[relative] = entry.get("version")
+    else:
+        declared[relative] = data.get("version")
+
+unique = set(declared.values())
+if len(unique) != 1 or None in unique:
+    print("FAIL  plugin version disagrees across manifests:")
+    for relative, version in declared.items():
+        print(f"        {version}  {relative}")
+    sys.exit(1)
+print(f"ok    plugin version {unique.pop()} matches in all three manifests")
+PYVER
+
 echo "== Commands and subagents =="
 python3 - "$ROOT/$PLUGIN" <<'PY' || failures=$((failures + 1))
 import pathlib
