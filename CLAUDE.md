@@ -14,8 +14,9 @@ Then read the target submodule's local `AGENTS.md`, `CLAUDE.md`,
 The shared toolkit lives in `plugins/blink-labs-agent-toolkit/` and is enabled
 for this repository through `.claude/settings.json`. It provides skills, the
 `/orient`, `/validate`, `/review`, `/dep-audit`, `/release-check`,
-`/submodule-sync`, and `/blink-review-prs` commands, review subagents, and three workspace guards. The
-catalog is [docs/skill-catalog.md](docs/skill-catalog.md).
+`/submodule-sync`, and `/review-prs` commands, review subagents, and three
+workspace guards. The catalog is
+[docs/skill-catalog.md](docs/skill-catalog.md).
 
 Start a cross-repository task with `/orient`, or with the
 [`blink-workspace-navigator`](skills/blink-workspace-navigator/SKILL.md) skill,

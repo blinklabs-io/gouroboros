@@ -1,5 +1,5 @@
 ---
-description: "Sweep blinklabs-io for pull requests that are ready for review, dispatch a review shepherd for each three at a time, and aggregate the sweep's token usage into concrete efficiency findings"
+description: "Sweep blinklabs-io for pull requests that are ready for review, dispatch a review shepherd for each three at a time, then aggregate the sweep's token usage and update the workspace CLAUDE.md efficiency findings with what it measured"
 argument-hint: "[how many PRs, or a repository to prefer]"
 allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 ---
@@ -100,11 +100,30 @@ said so.
    `GOLANGCI_LINT_CACHE`, a domain note on what the change can break, and the
    authorization to post.
 
+   State that authorization explicitly. `blink-labs-agent-toolkit:review`
+   forbids posting to GitHub unless told to, so a shepherd whose prompt omits
+   it will correctly review and then publish nothing. Carry through whatever
+   the user answered in the confirmation above — if they chose a local report
+   only, say that instead, and no review is posted.
+
    Front-load everything the sweep has already learned, so each agent does not
    rediscover it: the base branch's own `gofmt`/lint noise, which bots are
    quota-blocked on this head, the sibling-PR map for the same class, and any
    finding a previous agent proved or disproved. Measured across one sweep,
    this cut later reviews from 23.3 requests to 13.6.
+
+   Tell each shepherd to run the toolkit's own review workflow rather than
+   improvising one: invoke the `blink-labs-agent-toolkit:review` command and
+   follow its steps. That keeps every review in the sweep on the same rules —
+   owner and boundary, bot reconciliation, cause over symptom, negative-case
+   coverage, the repository's change bar, and finding order — instead of
+   depending on how well each dispatch prompt was written.
+
+   The shepherd has no `Task` tool, so it does the domain analysis itself
+   rather than dispatching the auditor subagents step 2 of
+   `blink-labs-agent-toolkit:review` lists.
+   That is deliberate: nested fan-out is the most expensive thing a review
+   can do, and it is what a sweep must not pay per PR.
 
    Require in every prompt: check findings against the current head; prove a new
    test fails without the fix by reverting the fix in place; audit the whole
@@ -126,11 +145,28 @@ said so.
    it lands and keep the parent thread lean — the orchestrator is routinely the
    most expensive single line item in the sweep.
 
-7. **Aggregate and report strategies.** When every review is settled, total the
-   sweep, compare requests-per-review and equivalents-per-review against prior
-   sweeps in the same project, and name the specific cost drivers with numbers.
-   Record durable findings in the `Efficient token use` section of the
-   workspace `CLAUDE.md`; do not leave them only in the transcript.
+7. **Aggregate, then update `CLAUDE.md`.** When every review is settled, total
+   the sweep and compare it against the figures already recorded in the
+   `Efficient token use` section of the workspace `CLAUDE.md`: requests per
+   review, input-token-equivalents per review, and the cost of the parent
+   thread against the agents it dispatched.
+
+   Then edit that section — this step is part of the command, not an optional
+   follow-up. A finding earns its place only if a number in this sweep supports
+   it, and it must say which:
+
+   - **Confirm** an existing claim by adding the new measurement beside it.
+   - **Correct** a claim this sweep contradicts, and say what was measured
+     instead. One sweep overturned the advice to stagger concurrent dispatches
+     this way.
+   - **Add** a driver the section does not name yet, with the number that
+     exposed it.
+   - **Drop** nothing on a single sweep's evidence; note the disagreement
+     instead and let the next sweep settle it.
+
+   Keep the section's terse style, run `make validate`, and commit the edit
+   with the sweep's own numbers in the commit body. Do not record a finding
+   from an agent's self-report — only from the transcript totals.
 
 ## Report
 
@@ -142,5 +178,6 @@ a review, and that is common enough to expect on most heads.
 
 Then the usage table: per agent requests, cache creation, cache read, output,
 and equivalents, plus the parent's own row and the sweep total. Close with the
-measured efficiency findings, each tied to the number that supports it, and the
-list of PRs deferred because their pipeline was still running.
+measured efficiency findings, each tied to the number that supports it, the
+`CLAUDE.md` edit those findings produced, and the list of PRs deferred because
+their pipeline was still running.
