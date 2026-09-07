@@ -8,6 +8,10 @@ description: Discover Blink Labs pull-request review work, including direct and 
 Keep all external review text concise and precise. State only the finding,
 evidence, and action; omit narrative, praise, repetition, and ornament.
 
+GitHub is public. Before every write, remove local paths, machine and account
+identifiers, worktree names, private logs, tool transcripts, credentials,
+environment values, and internal workflow details.
+
 Use this skill for pull-request review workflow, not for deciding whether a
 code finding is technically correct. Read the [review loop reference](references/review-loop.md)
 and the target repository's contribution guidance.

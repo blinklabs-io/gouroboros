@@ -10,6 +10,13 @@ commit message, issue, and review comment concise and precise. Use the fewest
 words that preserve the technical meaning; omit narrative, praise, repetition,
 and ornamental prose.
 
+## GitHub is public
+
+Treat every GitHub issue, PR, review, comment, commit message, and workflow
+record as public. Never copy local paths, usernames, hostnames, worktrees,
+private logs, tool transcripts, credentials, tokens, or environment values into
+GitHub. Publish only sanitized technical facts and repository-relative paths.
+
 ## Cross-check open issues before opening a PR or filing a new one
 
 A repository with a large issue count accumulates several issues describing one
@@ -275,7 +282,7 @@ file after the live record is verified.
   required check creates a concrete merge risk, state that risk in one factual
   sentence instead of adding a generic `Skipped` section.
 
-### Never leak the conversation into a PR or issue
+### Never leak local state or conversation into a PR or issue
 
 Anything posted to GitHub is a technical record for whoever reads it months from
 now. It is not a reply to whoever asked for the work, and the chat that produced

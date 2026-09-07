@@ -8,6 +8,11 @@ description: Report Blink Labs work to the requester so the result can be truste
 Use this skill when about to say work is done, fixed, passing, or reviewed. The
 standard is simple: every claim traces to output you actually read.
 
+The evidence ledger is private task-handoff material. Never paste it, local
+paths, machine or account identifiers, private logs, tool transcripts, or
+environment values into GitHub. Public records get sanitized technical facts
+and repository-relative paths only.
+
 ## The rule
 
 State only what you ran. If a check was not run, it is in the skipped list with
