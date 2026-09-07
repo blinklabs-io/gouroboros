@@ -415,6 +415,36 @@ HANDOFF: blink-review-shepherd"
 		"{\"hook_event_name\":\"SubagentStop\",\"transcript_path\":\"$transcript\"}" quiet
 	rm -f "$transcript"
 
+	# additionalContext on SubagentStop is delivered to the agent that just
+	# stopped, not to its parent, and it revives that agent -- which stops
+	# again and re-fires this hook. One developer run spent 16 of 29 requests
+	# replying "No change." to its own replayed notice.
+	out=$(printf '%s' '{"hook_event_name":"SubagentStop","agent_type":"blink-tdd-developer"}' |
+		python3 "$handoff")
+	case "$out" in
+	*additionalContext*)
+		fail "handoff notice must not emit additionalContext (it revives the stopped agent)" ;;
+	*) pass "handoff notice carries no additionalContext" ;;
+	esac
+
+	# A stop hook can fire more than once for the same agent; the second one
+	# must not restart the cycle.
+	replay=$(mktemp)
+	replay_payload="{\"hook_event_name\":\"SubagentStop\",\"agent_type\":\"blink-tdd-developer\",\"transcript_path\":\"$replay\"}"
+	first=$(printf '%s' "$replay_payload" | python3 "$handoff")
+	second=$(printf '%s' "$replay_payload" | python3 "$handoff")
+	case "$first" in
+	*blink-review-shepherd*)
+		case "$second" in
+		*blink-review-shepherd*)
+			fail "handoff notice re-fires on a replayed stop for the same transcript" ;;
+		*) pass "handoff notice fires once per transcript" ;;
+		esac
+		;;
+	*) fail "handoff notice did not fire on the first stop for a transcript" ;;
+	esac
+	rm -f "$replay" "$replay.handoff-notified"
+
 	out=$(printf '%s' '{"agent_type":"blink-tdd-developer"}' |
 		BLINK_SKIP_HANDOFF_NOTICE=1 python3 "$handoff")
 	case "$out" in

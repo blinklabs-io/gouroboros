@@ -7,6 +7,14 @@ otherwise only a request in its report that the parent may or may not act on.
 This hook closes that gap from the harness side, where it does not depend on
 the parent model remembering.
 
+The notice is emitted as `systemMessage` only. `additionalContext` on
+SubagentStop is delivered to the agent that just stopped, not to its parent,
+and delivering it revives that agent -- which then stops again and re-fires
+this hook. Measured once: a developer that produced no commit spent 16 of its
+29 requests and 47% of its tokens replying "No change." to its own replayed
+notice. A once-per-transcript guard backs the same invariant up, so a replay
+from any other cause cannot restart the cycle either.
+
 Which payload field names the stopping agent is not under this repository's
 control, so every plausible key is checked and the agent's own marker line is
 used as a fallback. The notice never denies or interrupts a stop; it adds
@@ -116,6 +124,27 @@ def should_notify(event):
     return False
 
 
+def already_notified(event):
+    """True when this stopping agent has been notified once already.
+
+    Keyed on the transcript path, which is stable for one agent across
+    replays. A hook that cannot record its marker returns False and notifies
+    again rather than swallowing a first, genuine handoff.
+    """
+    transcript = event.get("transcript_path")
+    if not isinstance(transcript, str) or not transcript:
+        return False
+    marker = transcript + ".handoff-notified"
+    try:
+        with open(marker, "x", encoding="utf-8") as handle:
+            handle.write(NOTICE.split(":")[0] + "\n")
+    except FileExistsError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def main():
     if os.environ.get("BLINK_SKIP_HANDOFF_NOTICE") == "1":
         sys.exit(0)
@@ -128,17 +157,12 @@ def main():
     if not isinstance(event, dict) or not should_notify(event):
         sys.exit(0)
 
-    print(
-        json.dumps(
-            {
-                "systemMessage": NOTICE,
-                "hookSpecificOutput": {
-                    "hookEventName": "SubagentStop",
-                    "additionalContext": NOTICE,
-                },
-            }
-        )
-    )
+    if already_notified(event):
+        sys.exit(0)
+
+    # systemMessage only: see the module docstring. additionalContext here
+    # would be injected into the stopped subagent and restart it.
+    print(json.dumps({"systemMessage": NOTICE}))
     sys.exit(0)
 
 
