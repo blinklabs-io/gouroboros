@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,13 +33,51 @@ func nestedNoSchemaJSON(arrays int) []byte {
 }
 
 func TestParseMetadataJSONNoSchemaAcceptsMaximumNesting(t *testing.T) {
-	// The top-level object occupies depth 0, so the maximum number of nested
-	// arrays is the configured depth bound.
+	// The top-level object is itself one of the containers counted by the
+	// bound, so the deepest accepted document holds one fewer array.
 	metadata, err := ParseCardanoCLIMetadataJSONNoSchema(
-		nestedNoSchemaJSON(MetadataJSONMaxNestingDepth),
+		nestedNoSchemaJSON(MetadataJSONMaxNestingDepth - 1),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, metadata)
+}
+
+// TestParseMetadataJSONNoSchemaAcceptBoundaryIsDecodable pins the accept
+// boundary to what this repository's CBOR decoder accepts rather than to the
+// constant alone. No-schema JSON containers map one to one onto CBOR nesting,
+// so every document the parser accepts has to encode to auxiliary data that
+// decodes again.
+func TestParseMetadataJSONNoSchemaAcceptBoundaryIsDecodable(t *testing.T) {
+	deepestAccepted := 0
+	for arrays := MetadataJSONMaxNestingDepth - 2; arrays <= MetadataJSONMaxNestingDepth+1; arrays++ {
+		metadata, err := ParseCardanoCLIMetadataJSONNoSchema(
+			nestedNoSchemaJSON(arrays),
+		)
+		if err != nil {
+			continue
+		}
+		deepestAccepted = arrays
+		encoded, err := cbor.Encode(NewShelleyAuxiliaryData(metadata))
+		require.NoError(t, err, "%d arrays: encode accepted metadata", arrays)
+
+		var auxData ShelleyAuxiliaryData
+		_, err = cbor.Decode(encoded, &auxData)
+		require.NoError(
+			t,
+			err,
+			"%d arrays: parser accepted metadata that cbor.Decode rejects",
+			arrays,
+		)
+
+		_, err = DecodeMetadatumRaw(encoded)
+		require.NoError(
+			t,
+			err,
+			"%d arrays: parser accepted metadata that DecodeMetadatumRaw rejects",
+			arrays,
+		)
+	}
+	require.Equal(t, MetadataJSONMaxNestingDepth-1, deepestAccepted)
 }
 
 func TestParseMetadataJSONNoSchemaRejectsExcessiveNesting(t *testing.T) {
@@ -46,7 +85,7 @@ func TestParseMetadataJSONNoSchemaRejectsExcessiveNesting(t *testing.T) {
 		name   string
 		arrays int
 	}{
-		{name: "first invalid", arrays: MetadataJSONMaxNestingDepth + 1},
+		{name: "first invalid", arrays: MetadataJSONMaxNestingDepth},
 		{name: "far beyond limit", arrays: 100_000},
 	} {
 		t.Run(test.name, func(t *testing.T) {

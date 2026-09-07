@@ -66,19 +66,26 @@ func NewShelleyAuxiliaryData(
 	return &ShelleyAuxiliaryData{metadata: metadata}
 }
 
-// MetadataJSONMaxNestingDepth is the deepest container depth a metadata JSON
-// document may nest. It matches cbor.MaxNestedLevels, which is the limit used
-// by the CBOR decoder. The mandatory top-level object is at depth 0, and a
-// container at that depth is allowed; deeper containers are rejected only
-// after they exceed the same bound used by CBOR. This is enforced before
-// descending because the readers below recurse once per level, and exhausting
-// the goroutine stack is a fatal error that recover cannot catch.
+// MetadataJSONMaxNestingDepth is the deepest a metadata JSON document may
+// nest before parsing is rejected. The mandatory top-level object counts as
+// depth 0, so this many containers may be open at once.
+//
+// The bound is cbor.MaxNestedLevels, gouroboros's own CBOR decoder setting.
+// It has no counterpart in cardano-ledger and is not a protocol constant.
+// Metadata that cannot round trip through that decoder is not usable as
+// transaction metadata, so the deepest document accepted here is exactly the
+// deepest one cbor.Decode accepts: MetadataJSONMaxNestingDepth containers
+// open at once, counting the top-level object.
+//
+// The check runs before descending because the readers below recurse once per
+// level, and exhausting the goroutine stack is a fatal error that recover
+// cannot catch.
 const MetadataJSONMaxNestingDepth = cbor.MaxNestedLevels
 
 // checkMetadataJSONNestingDepth reports whether a container opened at depth
 // may be descended into.
 func checkMetadataJSONNestingDepth(depth int) error {
-	if depth > MetadataJSONMaxNestingDepth {
+	if depth >= MetadataJSONMaxNestingDepth {
 		return fmt.Errorf(
 			"metadata JSON exceeds maximum nesting depth %d",
 			MetadataJSONMaxNestingDepth,
