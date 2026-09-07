@@ -245,3 +245,49 @@ Measure round trips from the session transcript
 `requestId`), not from what an agent reports about itself. Self-reported counts
 were wrong in both directions: one agent claimed 44 tool calls against 28 real
 requests, another claimed 21 against 30.
+
+Filter the backlog on `.current_reviews`, not `.human_reviews`. `scan-prs.py`
+requires a non-empty review body for `human_reviews`, deliberately, so that
+blocking prose in a `COMMENTED` review surfaces. The side effect is that a
+*bodiless* `APPROVED` review — what a bare `gh pr review --approve` produces —
+is absent from that field entirely. A third sweep used it as the
+"has a human reviewed this head?" predicate and re-reviewed two already-approved
+pull requests: 417K equivalents, 10.6% of the sweep, spent on duplicates. The
+backlog was 75 by that predicate and 64 by the correct one, so 15% of the
+apparent queue was already reviewed. Use:
+
+```sh
+select([.current_reviews|to_entries[]|select(.key|test("\\[bot\\]")|not)]|length==0)
+```
+
+`current_reviews` keeps only the latest review per reviewer, so an `APPROVED`
+followed by a `COMMENTED` reads as `COMMENTED` — test for the presence of any
+human key, not for `state == "APPROVED"` — and it carries no `commit_id`, so
+cross-check the reviews API when "on this head" actually matters.
+
+Diff size, not repository or subject, is the dominant per-review cost driver.
+In that same sweep the two largest changes (3741 and 1484 lines) cost 45.5
+requests and 707K equivalents each — 43% of all subagent spend for 22% of the
+pull requests — while the other seven averaged 23.3 requests and 267K. Budget a
+sweep by summed diff size, and expect a 3000-line review to cost roughly three
+small ones.
+
+Verify bot coverage by the `commit_id` stamped on each review record, never by
+check colour and not merely by `output.summary`. Measured over nine heads:
+Cubic genuinely reviewed 2, CodeRabbit 1. The other green checks read "This
+commit only merges another branch into the PR branch, so cubic completed this
+check without running an AI review", conclusion `neutral` with "could not start
+the incremental review", state `skipping`, "Review limit reached", or "auto
+incremental reviews are disabled" — and some CodeRabbit review bodies are empty,
+which is also not a review. Coverage is per-head and erratic: CodeRabbit
+reviewed one head while rate-limited on another in the same sweep, so scope the
+claim to the head you measured.
+
+Attribute a red check by running the linter at both head and base rather than
+reading CI logs. One `golangci-lint run ./ledger/` at each end gave 1 issue at
+head and 0 at base, which settled attribution in one extra command.
+
+Orchestrator discipline is worth roughly 1.5M equivalents. Logging each verdict
+to a scratch file and keeping findings out of the parent thread held the
+orchestrator to 649K equivalents over 42 requests — 16.5% of a 3.93M sweep,
+against the 2.21M an earlier orchestrator spent on a comparable run.
