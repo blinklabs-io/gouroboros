@@ -3366,20 +3366,9 @@ func UtxoValidateDelegation(
 	}
 	inTxStakeState := make(map[stakeCredentialKey]bool)
 	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
+	// Keyed by the full DRep credential, not the bare hash: a key-hash and
+	// a script-hash DRep sharing a hash are distinct registrations.
 	inTxDRepRegs := make(map[stakeCredentialKey]bool)
-	// A ledger state implementing common.DRepCredentialState resolves a
-	// DRep by its full credential, so in-transaction DRep registrations
-	// are keyed the same way and a key-hash and a script-hash DRep sharing
-	// a hash stay distinct. Without the capability the state can only be
-	// asked about the bare hash, so the in-transaction map is keyed by the
-	// hash alone to match what the query can answer.
-	drepCredentialState, hasDRepCredentialState := ls.(common.DRepCredentialState)
-	drepKey := func(cred common.Credential) stakeCredentialKey {
-		if hasDRepCredentialState {
-			return stakeKey(cred)
-		}
-		return stakeCredentialKey{hash: cred.Credential}
-	}
 	// Track VRF keys seen in this transaction (for PV11+ duplicate detection)
 	inTxVrfKeys := make(map[common.Blake2b256]common.PoolKeyHash)
 
@@ -3450,17 +3439,11 @@ func UtxoValidateDelegation(
 			cred := common.Credential{CredType: credType}
 			copy(cred.Credential[:], drep.Credential)
 			// Check in-tx registrations first
-			if inTxDRepRegs[drepKey(cred)] {
+			if inTxDRepRegs[stakeKey(cred)] {
 				return true, nil
 			}
 			// Check ledger state
-			if hasDRepCredentialState {
-				reg, err := drepCredentialState.DRepCredentialRegistration(
-					cred,
-				)
-				return err == nil && reg != nil, nil
-			}
-			reg, err := ls.DRepRegistration(cred.Credential)
+			reg, err := ls.DRepRegistration(cred)
 			return err == nil && reg != nil, nil
 		default:
 			return false, InvalidDRepTypeError{DrepType: drep.Type}
@@ -3505,7 +3488,7 @@ func UtxoValidateDelegation(
 			}
 
 		case *common.RegistrationDrepCertificate:
-			inTxDRepRegs[drepKey(c.DrepCredential)] = true
+			inTxDRepRegs[stakeKey(c.DrepCredential)] = true
 
 		// Track deregistrations for in-tx state
 		case *common.StakeDeregistrationCertificate:
@@ -3519,7 +3502,7 @@ func UtxoValidateDelegation(
 			// the retirement epoch, so later delegations remain valid.
 
 		case *common.DeregistrationDrepCertificate:
-			delete(inTxDRepRegs, drepKey(c.DrepCredential))
+			delete(inTxDRepRegs, stakeKey(c.DrepCredential))
 
 		// Check delegations
 		case *common.StakeDelegationCertificate:
@@ -3706,16 +3689,6 @@ type certificateStakeState struct {
 	balance    uint64
 }
 
-// certificateDRepState is the DRep registration state left-folded across a
-// transaction's certificates. deposit is nil only when the ledger state
-// reported the DRep as registered without a recorded deposit, which the
-// hash-keyed common.GovState.DRepRegistration path cannot express and the
-// optional common.DRepCredentialState capability can.
-type certificateDRepState struct {
-	registered bool
-	deposit    *uint64
-}
-
 // UtxoValidateCertificateDeposits validates Conway certificate deposits and
 // refunds against the protocol parameters and the certificate state produced
 // by the certificates that precede them in the transaction. Withdrawals are
@@ -3893,40 +3866,16 @@ func UtxoValidateCertificateDeposits(
 	}
 
 	drepStates := make(
-		map[certificateStakeCredentialKey]*certificateDRepState,
+		map[certificateStakeCredentialKey]*common.DRepRegistration,
 	)
-	// A ledger state implementing common.DRepCredentialState is asked for
-	// the full credential, so a deregistration certificate is checked
-	// against the registration of its own credential type rather than
-	// against whichever same-hash DRep the state holds. One that does not
-	// implement it keeps the hash-keyed common.GovState.DRepRegistration
-	// query, whose non-optional Deposit is always a recorded deposit.
-	drepCredentialState, hasDRepCredentialState := ls.(common.DRepCredentialState)
-	loadDRep := func(cred common.Credential) (*certificateDRepState, error) {
+	loadDRep := func(cred common.Credential) (*common.DRepRegistration, error) {
 		key := stakeKey(cred)
 		if state, found := drepStates[key]; found {
 			return state, nil
 		}
-		state := &certificateDRepState{}
-		if hasDRepCredentialState {
-			reg, err := drepCredentialState.DRepCredentialRegistration(cred)
-			if err != nil {
-				return nil, err
-			}
-			if reg != nil {
-				state.registered = true
-				state.deposit = reg.Deposit
-			}
-		} else {
-			reg, err := ls.DRepRegistration(cred.Credential)
-			if err != nil {
-				return nil, err
-			}
-			if reg != nil {
-				deposit := reg.Deposit
-				state.registered = true
-				state.deposit = &deposit
-			}
+		state, err := ls.DRepRegistration(cred)
+		if err != nil {
+			return nil, err
 		}
 		drepStates[key] = state
 		return state, nil
@@ -3998,42 +3947,40 @@ func UtxoValidateCertificateDeposits(
 			if err != nil {
 				return err
 			}
-			if registration.registered {
+			if registration != nil {
 				return DRepAlreadyRegisteredError{Credential: c.DrepCredential}
 			}
 			registered := drepDeposit
-			drepStates[stakeKey(c.DrepCredential)] = &certificateDRepState{
-				registered: true,
-				deposit:    &registered,
+			drepStates[stakeKey(c.DrepCredential)] = &common.DRepRegistration{
+				Credential: c.DrepCredential,
+				Deposit:    &registered,
 			}
 		case *common.DeregistrationDrepCertificate:
 			registration, err := loadDRep(c.DrepCredential)
 			if err != nil {
 				return err
 			}
-			if !registration.registered {
+			if registration == nil {
 				return DRepNotRegisteredError{Credential: c.DrepCredential}
 			}
 			// A registration without a recorded deposit is a state the
 			// reference ledger cannot hold, so there is no correct
 			// refund to compare against. Fail closed instead of
 			// reading the absence as a refund of zero, which would
-			// reject the refund the network accepts. Only reachable
-			// through common.DRepCredentialState; the hash-keyed
-			// fallback always reports a deposit.
-			if registration.deposit == nil {
+			// reject the refund the network accepts.
+			if registration.Deposit == nil {
 				return DRepDepositStateInconsistentError{
 					Credential: c.DrepCredential,
 				}
 			}
-			if c.Amount < 0 || uint64(c.Amount) != *registration.deposit {
+			if c.Amount < 0 || uint64(c.Amount) != *registration.Deposit {
 				return CertificateRefundIncorrectError{
 					CertificateType: common.CertificateType(c.CertType),
 					Supplied:        c.Amount,
-					Expected:        *registration.deposit,
+					Expected:        *registration.Deposit,
 				}
 			}
-			drepStates[stakeKey(c.DrepCredential)] = &certificateDRepState{}
+			drepStates[stakeKey(c.DrepCredential)] = nil
 		}
 	}
 	return nil
@@ -4241,7 +4188,6 @@ func UtxoValidateUnknownVoters(
 	}
 
 	var committeeState common.CommitteeCredentialState
-	drepCredentialState, hasDRepCredentialState := ls.(common.DRepCredentialState)
 
 	for voter := range votes {
 		if voter == nil {
@@ -4250,40 +4196,21 @@ func UtxoValidateUnknownVoters(
 		switch voter.Type {
 		case common.VoterTypeDRepKeyHash, common.VoterTypeDRepScriptHash:
 			// The voter type fixes the DRep credential type, which is
-			// part of the DRep's identity, so a ledger state that can
-			// resolve a DRep by credential is asked for the full
-			// credential. Resolving the bare hash accepts a key-hash
-			// voter against a script-hash DRep registration that
-			// happens to share the hash.
+			// part of the DRep's identity. Resolving the bare hash
+			// would accept a key-hash voter against a script-hash DRep
+			// registration that happens to share the hash.
 			credentialType := uint(common.CredentialTypeAddrKeyHash)
 			if voter.Type == common.VoterTypeDRepScriptHash {
 				credentialType = common.CredentialTypeScriptHash
 			}
-			var registered bool
-			if hasDRepCredentialState {
-				reg, err := drepCredentialState.DRepCredentialRegistration(
-					common.Credential{
-						CredType:   credentialType,
-						Credential: common.Blake2b224(voter.Hash),
-					},
-				)
-				if err != nil {
-					return err
-				}
-				registered = reg != nil
-			} else {
-				// Without the capability only the bare hash can be
-				// resolved, so a key-hash voter still matches a
-				// script-hash registration sharing that hash.
-				reg, err := ls.DRepRegistration(
-					common.Blake2b224(voter.Hash),
-				)
-				if err != nil {
-					return err
-				}
-				registered = reg != nil
+			reg, err := ls.DRepRegistration(common.Credential{
+				CredType:   credentialType,
+				Credential: common.Blake2b224(voter.Hash),
+			})
+			if err != nil {
+				return err
 			}
-			if !registered {
+			if reg == nil {
 				return UnknownVoterError{Voter: *voter}
 			}
 

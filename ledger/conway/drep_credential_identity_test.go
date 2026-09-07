@@ -35,104 +35,25 @@ func drepIdentityCredential(credType uint) common.Credential {
 	}
 }
 
-// drepIdentityHashKeyedState returns a ledger state that answers DRep queries
-// only through the hash-keyed common.GovState.DRepRegistration method and does
-// not implement common.DRepCredentialState. Its answer is the same for a
-// key-hash and a script-hash DRep sharing drepIdentityHash, because a bare
-// hash cannot distinguish them.
-func drepIdentityHashKeyedState(deposit uint64) common.LedgerState {
-	return mockledger.NewLedgerStateBuilder().
-		WithStakeCredentialRegistered(drepIdentityHash, true).
-		WithDRepRegistration(func(
-			hash common.Blake2b224,
-		) (*common.DRepRegistration, error) {
-			if hash != drepIdentityHash {
-				return nil, nil
-			}
-			return &common.DRepRegistration{
-				Credential: hash,
-				Deposit:    deposit,
-			}, nil
-		}).
-		Build()
-}
-
-// drepIdentityEmptyState returns a hash-keyed ledger state holding no DRep
-// registration at all, so only in-transaction certificates can register one.
-func drepIdentityEmptyState() common.LedgerState {
-	return mockledger.NewLedgerStateBuilder().
-		WithStakeCredentialRegistered(drepIdentityHash, true).
-		WithDRepRegistration(func(
-			common.Blake2b224,
-		) (*common.DRepRegistration, error) {
-			return nil, nil
-		}).
-		Build()
-}
-
-// drepCredentialLedgerState adds the optional common.DRepCredentialState
-// capability to a ledger state that otherwise only answers hash-keyed DRep
-// queries.
-type drepCredentialLedgerState struct {
-	common.LedgerState
-	registration func(
-		common.Credential,
-	) (*common.DRepCredentialRegistration, error)
-}
-
-func (s drepCredentialLedgerState) DRepCredentialRegistration(
-	credential common.Credential,
-) (*common.DRepCredentialRegistration, error) {
-	return s.registration(credential)
-}
-
-// scriptOnlyDRepState returns a ledger state implementing
-// common.DRepCredentialState in which the script-hash DRep with
-// drepIdentityHash is registered and the key-hash DRep sharing that hash is
-// not, with the given deposit recorded against the registration.
-//
-// The state it wraps reports a registration for the bare hash with a deposit
-// of dRepDepositFallbackSentinel, so any answer that distinguishes the two
-// credential types, or that reports the recorded deposit, came from the
-// capability rather than from the hash-keyed fallback.
+// scriptOnlyDRepState returns a ledger state in which the script-hash DRep
+// with drepIdentityHash is registered and the key-hash DRep sharing that hash
+// is not, with the given deposit recorded against the registration.
 func scriptOnlyDRepState(deposit *uint64) common.LedgerState {
-	return drepCredentialLedgerState{
-		LedgerState: drepIdentityHashKeyedState(
-			dRepDepositFallbackSentinel,
-		),
-		registration: func(
+	return mockledger.NewLedgerStateBuilder().
+		WithStakeCredentialRegistered(drepIdentityHash, true).
+		WithDRepRegistration(func(
 			credential common.Credential,
-		) (*common.DRepCredentialRegistration, error) {
+		) (*common.DRepRegistration, error) {
 			if credential.CredType != common.CredentialTypeScriptHash ||
 				credential.Credential != drepIdentityHash {
 				return nil, nil
 			}
-			return &common.DRepCredentialRegistration{
+			return &common.DRepRegistration{
 				Credential: credential,
 				Deposit:    deposit,
 			}, nil
-		},
-	}
-}
-
-// dRepDepositFallbackSentinel is the deposit the hash-keyed state underneath
-// scriptOnlyDRepState reports. It is never a value a capability-path
-// assertion expects, so a refund checked against it identifies a fallback the
-// capability path should not have taken.
-const dRepDepositFallbackSentinel = uint64(123_456_789)
-
-// noDRepCredentialState returns a ledger state implementing
-// common.DRepCredentialState that holds no DRep registration, so only
-// in-transaction certificates can register one.
-func noDRepCredentialState() common.LedgerState {
-	return drepCredentialLedgerState{
-		LedgerState: drepIdentityEmptyState(),
-		registration: func(
-			common.Credential,
-		) (*common.DRepCredentialRegistration, error) {
-			return nil, nil
-		},
-	}
+		}).
+		Build()
 }
 
 func drepIdentityPparams(drepDeposit uint64) *conway.ConwayProtocolParameters {
@@ -159,57 +80,10 @@ func drepDeregistrationTx(
 	}
 }
 
-func drepVoteDelegationTx(drepType int) *conway.ConwayTransaction {
-	return &conway.ConwayTransaction{
-		Body: conway.ConwayTransactionBody{
-			TxCertificates: []common.CertificateWrapper{
-				{Certificate: &common.VoteDelegationCertificate{
-					StakeCredential: drepIdentityCredential(
-						common.CredentialTypeAddrKeyHash,
-					),
-					Drep: common.Drep{
-						Type:       drepType,
-						Credential: drepIdentityHash[:],
-					},
-				}},
-			},
-		},
-		TxIsValid: true,
-	}
-}
-
-// drepRegisterThenDelegateTx registers a script-hash DRep and then delegates
-// to a DRep of the given type, both sharing drepIdentityHash.
-func drepRegisterThenDelegateTx(drepType int) *conway.ConwayTransaction {
-	return &conway.ConwayTransaction{
-		Body: conway.ConwayTransactionBody{
-			TxCertificates: []common.CertificateWrapper{
-				{Certificate: &common.RegistrationDrepCertificate{
-					CertType: uint(
-						common.CertificateTypeRegistrationDrep,
-					),
-					DrepCredential: drepIdentityCredential(
-						common.CredentialTypeScriptHash,
-					),
-				}},
-				{Certificate: &common.VoteDelegationCertificate{
-					StakeCredential: drepIdentityCredential(
-						common.CredentialTypeAddrKeyHash,
-					),
-					Drep: common.Drep{
-						Type:       drepType,
-						Credential: drepIdentityHash[:],
-					},
-				}},
-			},
-		},
-		TxIsValid: true,
-	}
-}
-
 // TestUnknownVotersDistinguishesDRepCredentialType pins that the voter type
 // selects which of a same-hash key/script DRep pair a vote is resolved
-// against when the ledger state implements common.DRepCredentialState.
+// against. Resolving the bare hash accepts either voter type against
+// whichever registration the state happens to hold.
 func TestUnknownVotersDistinguishesDRepCredentialType(t *testing.T) {
 	deposit := uint64(500_000_000)
 	ls := scriptOnlyDRepState(&deposit)
@@ -243,47 +117,6 @@ func TestUnknownVotersDistinguishesDRepCredentialType(t *testing.T) {
 	})
 }
 
-// TestUnknownVotersHashKeyedFallback pins the behaviour a ledger state
-// without common.DRepCredentialState keeps: the voter is resolved through the
-// bare hash, so either voter type matches the single hash-keyed registration.
-func TestUnknownVotersHashKeyedFallback(t *testing.T) {
-	deposit := uint64(500_000_000)
-	ls := drepIdentityHashKeyedState(deposit)
-	pp := drepIdentityPparams(deposit)
-	actionId := common.GovActionId{TransactionId: common.Blake2b256{0x01}}
-
-	for name, voterType := range map[string]uint8{
-		"key voter":    common.VoterTypeDRepKeyHash,
-		"script voter": common.VoterTypeDRepScriptHash,
-	} {
-		t.Run(name, func(t *testing.T) {
-			tx := mkVoteTx(
-				common.Voter{Type: voterType, Hash: drepIdentityHash},
-				actionId,
-				common.GovVoteYes,
-			)
-			require.NoError(
-				t,
-				conway.UtxoValidateUnknownVoters(tx, 0, ls, pp),
-			)
-		})
-	}
-
-	t.Run("unknown hash is still rejected", func(t *testing.T) {
-		tx := mkVoteTx(
-			common.Voter{
-				Type: common.VoterTypeDRepKeyHash,
-				Hash: common.Blake2b224{0x99},
-			},
-			actionId,
-			common.GovVoteYes,
-		)
-		err := conway.UtxoValidateUnknownVoters(tx, 0, ls, pp)
-		var target conway.UnknownVoterError
-		require.ErrorAs(t, err, &target)
-	})
-}
-
 // TestVoteDelegationDistinguishesDRepCredentialType pins the same identity
 // for the delegation rule: the DRep type in the certificate selects the
 // credential type the registration is looked up under.
@@ -291,16 +124,34 @@ func TestVoteDelegationDistinguishesDRepCredentialType(t *testing.T) {
 	deposit := uint64(500_000_000)
 	ls := scriptOnlyDRepState(&deposit)
 	pp := drepIdentityPparams(deposit)
+	mkTx := func(drepType int) *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: &common.VoteDelegationCertificate{
+						StakeCredential: drepIdentityCredential(
+							common.CredentialTypeAddrKeyHash,
+						),
+						Drep: common.Drep{
+							Type:       drepType,
+							Credential: drepIdentityHash[:],
+						},
+					}},
+				},
+			},
+			TxIsValid: true,
+		}
+	}
 
 	t.Run("script DRep target is registered", func(t *testing.T) {
 		require.NoError(t, conway.UtxoValidateDelegation(
-			drepVoteDelegationTx(common.DrepTypeScriptHash), 0, ls, pp,
+			mkTx(common.DrepTypeScriptHash), 0, ls, pp,
 		))
 	})
 
 	t.Run("key DRep target is not", func(t *testing.T) {
 		err := conway.UtxoValidateDelegation(
-			drepVoteDelegationTx(common.DrepTypeAddrKeyHash), 0, ls, pp,
+			mkTx(common.DrepTypeAddrKeyHash), 0, ls, pp,
 		)
 		var target conway.DelegateVoteToUnregisteredDRepError
 		require.ErrorAs(t, err, &target)
@@ -309,71 +160,6 @@ func TestVoteDelegationDistinguishesDRepCredentialType(t *testing.T) {
 			uint(common.CredentialTypeAddrKeyHash),
 			target.DRepCredential.CredType,
 		)
-	})
-}
-
-// TestVoteDelegationDistinguishesInTxDRepCredentialType pins that an
-// in-transaction DRep registration is recorded under its full credential when
-// the ledger state implements common.DRepCredentialState, so a delegation to
-// the same-hash DRep of the other credential type does not resolve against it.
-func TestVoteDelegationDistinguishesInTxDRepCredentialType(t *testing.T) {
-	ls := noDRepCredentialState()
-	pp := drepIdentityPparams(500_000_000)
-
-	t.Run("script DRep registered in this tx", func(t *testing.T) {
-		require.NoError(t, conway.UtxoValidateDelegation(
-			drepRegisterThenDelegateTx(common.DrepTypeScriptHash), 0, ls, pp,
-		))
-	})
-
-	t.Run("key DRep sharing its hash is not", func(t *testing.T) {
-		err := conway.UtxoValidateDelegation(
-			drepRegisterThenDelegateTx(common.DrepTypeAddrKeyHash), 0, ls, pp,
-		)
-		var target conway.DelegateVoteToUnregisteredDRepError
-		require.ErrorAs(t, err, &target)
-	})
-}
-
-// TestVoteDelegationHashKeyedFallback pins the behaviour a ledger state
-// without common.DRepCredentialState keeps: both the state lookup and the
-// in-transaction registration map are keyed by the bare hash, so a delegation
-// of either DRep type resolves against a same-hash registration.
-func TestVoteDelegationHashKeyedFallback(t *testing.T) {
-	deposit := uint64(500_000_000)
-	pp := drepIdentityPparams(deposit)
-
-	t.Run("state registration matches either type", func(t *testing.T) {
-		ls := drepIdentityHashKeyedState(deposit)
-		for _, drepType := range []int{
-			common.DrepTypeAddrKeyHash,
-			common.DrepTypeScriptHash,
-		} {
-			require.NoError(t, conway.UtxoValidateDelegation(
-				drepVoteDelegationTx(drepType), 0, ls, pp,
-			))
-		}
-	})
-
-	t.Run("in-tx registration matches either type", func(t *testing.T) {
-		ls := drepIdentityEmptyState()
-		for _, drepType := range []int{
-			common.DrepTypeAddrKeyHash,
-			common.DrepTypeScriptHash,
-		} {
-			require.NoError(t, conway.UtxoValidateDelegation(
-				drepRegisterThenDelegateTx(drepType), 0, ls, pp,
-			))
-		}
-	})
-
-	t.Run("unregistered hash is still rejected", func(t *testing.T) {
-		ls := drepIdentityEmptyState()
-		err := conway.UtxoValidateDelegation(
-			drepVoteDelegationTx(common.DrepTypeAddrKeyHash), 0, ls, pp,
-		)
-		var target conway.DelegateVoteToUnregisteredDRepError
-		require.ErrorAs(t, err, &target)
 	})
 }
 
@@ -407,48 +193,11 @@ func TestCertificateDepositsDistinguishesDRepCredentialType(t *testing.T) {
 	})
 }
 
-// TestCertificateDepositsHashKeyedFallback pins the behaviour a ledger state
-// without common.DRepCredentialState keeps: the registration is resolved
-// through the bare hash and the refund is compared against the non-optional
-// common.DRepRegistration.Deposit.
-func TestCertificateDepositsHashKeyedFallback(t *testing.T) {
-	deposit := uint64(500_000_000)
-	ls := drepIdentityHashKeyedState(deposit)
-	pp := drepIdentityPparams(deposit)
-
-	for name, credType := range map[string]uint{
-		"key credential":    common.CredentialTypeAddrKeyHash,
-		"script credential": common.CredentialTypeScriptHash,
-	} {
-		t.Run(name+" refunds the recorded deposit", func(t *testing.T) {
-			tx := drepDeregistrationTx(
-				drepIdentityCredential(credType),
-				int64(deposit),
-			)
-			require.NoError(
-				t,
-				conway.UtxoValidateCertificateDeposits(tx, 0, ls, pp),
-			)
-		})
-	}
-
-	t.Run("a wrong refund reports the recorded deposit", func(t *testing.T) {
-		tx := drepDeregistrationTx(
-			drepIdentityCredential(common.CredentialTypeAddrKeyHash),
-			int64(deposit)+1,
-		)
-		err := conway.UtxoValidateCertificateDeposits(tx, 0, ls, pp)
-		var target conway.CertificateRefundIncorrectError
-		require.ErrorAs(t, err, &target)
-		require.Equal(t, int64(deposit), int64(target.Expected))
-	})
-}
-
 // TestCertificateDepositsRejectsDRepWithoutRecordedDeposit pins that a
-// registration reported through common.DRepCredentialState carrying no
-// recorded deposit fails closed. The reference ledger's DRepState always
-// carries a deposit, so there is no refund to compare against; reading the
-// absence as zero rejects the refund the network accepts.
+// registration carrying no recorded deposit fails closed. The reference
+// ledger's DRepState always carries a deposit, so there is no refund to
+// compare against; reading the absence as zero rejects the refund the network
+// accepts.
 func TestCertificateDepositsRejectsDRepWithoutRecordedDeposit(t *testing.T) {
 	const paid = uint64(500_000_000)
 	ls := scriptOnlyDRepState(nil)

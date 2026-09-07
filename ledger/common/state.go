@@ -199,15 +199,8 @@ type CommitteeCredentialState interface {
 	CommitteeHotCredentialMember(Credential) (*CommitteeMember, error)
 }
 
+// DRepRegistration is the ledger state held for a registered DRep.
 type DRepRegistration struct {
-	Credential Blake2b224
-	Anchor     *GovAnchor
-	Deposit    uint64
-}
-
-// DRepCredentialRegistration is the DRep registration state reported by the
-// optional DRepCredentialState capability.
-type DRepCredentialRegistration struct {
 	// Credential identifies the DRep by its full credential, credential
 	// type included. The reference ledger keys DRep state by Credential
 	// (Cardano.Ledger.Conway.Governance vsDReps), so the same 28 hash
@@ -223,26 +216,6 @@ type DRepCredentialRegistration struct {
 	// registration without one is internally inconsistent, and refund
 	// validation fails closed on nil rather than reading it as zero.
 	Deposit *uint64
-}
-
-// DRepCredentialState is the optional ledger-state capability used by Conway
-// DRep validation to resolve a DRep by its full credential. The returned
-// pointer is nil when that credential is not a registered DRep.
-//
-// It exists alongside GovState.DRepRegistration rather than replacing it
-// because that method keys DRep state by a bare Blake2b224, which cannot
-// express the reference ledger's identity: a key-hash and a script-hash DRep
-// sharing the same 28 hash bytes are two distinct registrations, and a hash
-// alone resolves to whichever of the pair the state happens to hold.
-//
-// It is deliberately optional and additive: a ledger state that implements it
-// gets full-credential DRep identity and fails closed on a registration
-// carrying no recorded deposit, while one that does not keeps the hash-keyed
-// GovState.DRepRegistration path and its existing behaviour, so adopting a
-// gouroboros release containing this capability cannot break a consumer that
-// has not implemented the method yet.
-type DRepCredentialState interface {
-	DRepCredentialRegistration(Credential) (*DRepCredentialRegistration, error)
 }
 
 // DRepDelegationState is the optional ledger-state capability used to query
@@ -319,10 +292,10 @@ type GovState interface {
 
 	// DRep queries
 	// DRepRegistration returns the registration held for the given DRep
-	// hash. It cannot distinguish a key-hash DRep from a script-hash DRep
-	// sharing that hash; the optional DRepCredentialState capability
-	// resolves a DRep by its full credential instead.
-	DRepRegistration(credential Blake2b224) (*DRepRegistration, error)
+	// credential, or nil when that credential is not a registered DRep.
+	// The credential carries its type: a key-hash and a script-hash DRep
+	// sharing the same hash are distinct registrations.
+	DRepRegistration(credential Credential) (*DRepRegistration, error)
 	DRepRegistrations() ([]DRepRegistration, error)
 
 	// Constitution
