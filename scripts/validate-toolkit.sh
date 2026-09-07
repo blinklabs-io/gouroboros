@@ -160,6 +160,14 @@ for kind, required in (("commands", ["description"]), ("agents", ["name", "descr
         if kind == "agents" and fields.get("name", "").strip() != path.stem:
             print(f"FAIL  agents/{path.name}: name does not match filename")
             bad += 1
+        # A preloaded skill that does not resolve fails silently at spawn time:
+        # Claude Code logs a warning and starts the agent without it.
+        block = re.search(r"^skills:[ \t]*\n((?:[ \t]+-[ \t]*\S+[ \t]*\n?)+)", front.group(1), re.M)
+        for entry in re.findall(r"-[ \t]*(\S+)", block.group(1)) if block else []:
+            name = entry.split(":")[-1]
+            if not (plugin / "skills" / name / "SKILL.md").is_file():
+                print(f"FAIL  {kind}/{path.name}: preloads unknown skill {entry}")
+                bad += 1
     print(f"ok    {len(files)} {kind} valid")
 sys.exit(1 if bad else 0)
 PY

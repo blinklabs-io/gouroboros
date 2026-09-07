@@ -303,3 +303,69 @@ Orchestrator discipline is worth roughly 1.5M equivalents. Logging each verdict
 to a scratch file and keeping findings out of the parent thread held the
 orchestrator to 649K equivalents over 42 requests — 16.5% of a 3.93M sweep,
 against the 2.21M an earlier orchestrator spent on a comparable run.
+
+Below roughly 2000 diff lines, diff size stops predicting review cost. A
+six-review dingo sweep spanning 63 to 2046 lines cost 261K equivalents per
+review at 21.2 requests, and the ranking barely tracked size: 204 lines cost
+293K while 2046 lines cost 285K, and equivalents-per-line swung 15x, from 139
+to 2043. What actually drove cost was the number of verification actions — the
+204-line review ran `make docs-parity`, `make import-boundaries`, race tests
+across 19 packages, a merged-tree check and two separate fail-before reverts.
+The earlier "diff size dominates" finding was measured against 3741- and
+1484-line changes; it holds at that range, not below it. Budget a small-PR
+sweep by verification depth and a fixed floor near 130K, not by summed lines.
+
+Front-loading earlier agents' discoveries did not reduce request count in that
+sweep, and the effect may not generalize. The three cold-start agents averaged
+17.3 requests; the three carrying a baseline, a bot-coverage map, a sibling-PR
+map and two prior findings averaged 25.0, at 12% higher per-request cost
+(12.9K vs 11.5K equivalents) because the prompts were fatter. The later agents
+also reviewed the harder changes and found the two worst blockers, so this is
+not evidence that front-loading is wasteful — only that it does not reliably
+buy back round trips, and should be justified by finding quality rather than by
+a predicted request-count drop.
+
+Orchestrator cost is roughly fixed, so its share scales inversely with sweep
+size. A disciplined parent that logged every verdict to a scratch file and kept
+findings out of the thread spent 536K equivalents over 36 requests — close to
+the 649K/42 of a nine-review sweep, but 25.5% of this six-review sweep's 2.11M
+against that one's 16.5%. Amortize the orchestrator over more reviews, and do
+not read a high parent share on a small sweep as indiscipline.
+
+Subagents run on the 5-minute prompt-cache TTL, not the parent's 1-hour one.
+Measured across six shepherds: 608K tokens of `ephemeral_5m_input_tokens` and
+**zero** `ephemeral_1h_input_tokens`, while the parent alone created 110K at the
+1-hour TTL. An agent that stalls more than five minutes — waiting on CI, a long
+sync, a slow test binary — re-pays its entire prefix. This is the mechanism
+behind "never wait on CI inside a review agent", and it also means a subagent's
+cache read, not its cache creation, is where the spend accumulates: cache reads
+were 8.08M tokens, 51% of subagent equivalents.
+
+`golangci-lint` takes a global lock, and an isolated `GOLANGCI_LINT_CACHE` does
+not prevent contention. A concurrent agent hit exit 3, "parallel golangci-lint
+is running", despite a correctly isolated cache; the isolated cache prevents
+stale cross-worktree findings, which is a different problem. With three
+shepherds in flight, scope each run to the packages the change touches
+(`golangci-lint run ./ledger/...`), and treat exit 3 as contention to retry,
+never as a lint failure to report.
+
+`scan-prs.py`'s `current_reviews` is scoped to the current head, so "no human
+review" there means "none on this head" and hides earlier ones. One sweep PR
+showed an empty `current_reviews` while carrying two prior human
+`CHANGES_REQUESTED` at older commits, both already addressed. Say "no review at
+this head" in a dispatch prompt, and have the agent check the reviews API when
+the review history matters. Posting also perturbs the field: a decision review
+followed by bodiless `COMMENTED` records carrying inline comments leaves
+`current_reviews` reading `COMMENTED`, which is why the backlog predicate must
+test for the presence of any human key rather than for `state == "APPROVED"`.
+
+Bot coverage stayed erratic and mostly absent. Across six dingo heads, verified
+by the `commit_id` on each review record: CodeRabbit genuinely reviewed one,
+Cubic two. The rest were green checks that were not reviews — "cubic could not
+start the incremental review", "This commit only merges another branch into the
+PR branch", "Review rate limit", a review record stamped at an older commit, and
+CodeRabbit issue comments reading "No actionable comments were generated" with
+no review record at all. A `cubic` check reporting "0 issues found across 1
+file" with no corresponding review record is a check, not a review. Where both
+bots did review, both posted the same finding and both were false positives.
+Four of the six blockers this sweep found were on heads no bot had reviewed.
