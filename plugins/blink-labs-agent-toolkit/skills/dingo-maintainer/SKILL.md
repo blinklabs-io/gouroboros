@@ -196,16 +196,18 @@ Use the context-aware variant (`EventBus.UnsubscribeAndWaitContext`), and keep
 the unsubscribe itself unconditional so future deliveries stop even when the
 wait is cut short.
 
-Related, and still open as issue #3217: the API servers call `net.Listen` and
-hand the listener to `Serve` in a goroutine nobody waits for, while `Stop` calls
+Related to issue #3217, now fixed in all three API servers: `net.Listen` handed
+its listener to `Serve` in a goroutine nobody waited for, while `Stop` called
 only `srv.Shutdown` — which closes only listeners `Serve` has already
-registered. Stopping inside that window returns with the port still bound, and
-`reinitializeAPIServers` then fails to rebind on a live Restore/Truncate. Fixed
-in `api/mesh`; `api/blockfrost` and `api/utxorpc` still have it. The shape that
-works: record the listener, detach it with the server under one lock, close it
-after `Shutdown` (tolerating `net.ErrClosed`), publish it only while the
-call's server is still current, and make `Stop` wait for an in-flight bind and
-for a teardown another caller won.
+registered. Stopping inside that window returned with the port still bound, and
+`reinitializeAPIServers` then failed to rebind on a live Restore/Truncate.
+`api/mesh`, `api/blockfrost`, and `api/utxorpc` now share this fix through
+`internal/apilistener`: it records the listener, detaches it with the server
+under one lock, closes it after `Shutdown` (tolerating `net.ErrClosed`),
+publishes it only while the call's server is still current, and makes `Stop`
+wait for an in-flight bind and for a teardown another caller won. A new API
+server should adopt `internal/apilistener` rather than reimplementing this
+protocol.
 
 ## Documentation and delivery
 
