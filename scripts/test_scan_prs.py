@@ -158,6 +158,61 @@ class ScanPrsTests(unittest.TestCase):
             item = scan_prs.inspect_pr(pr)
         self.assertEqual(item["assignees"], [])
 
+    def _inspect(self, number: int, head: str, checks: list) -> dict:
+        pr = {
+            "repository": {"nameWithOwner": "blinklabs-io/example"},
+            "number": number,
+            "title": "Example",
+            "url": f"https://github.com/blinklabs-io/example/pull/{number}",
+            "author": {"login": "author"},
+            "updatedAt": "2026-01-01T00:00:00Z",
+        }
+        responses = {
+            f"repos/blinklabs-io/example/pulls/{number}": {
+                "head": {"sha": head},
+                "mergeable_state": "clean",
+                "requested_reviewers": [],
+                "requested_teams": [],
+                "assignees": [],
+            },
+            f"repos/blinklabs-io/example/pulls/{number}/reviews?per_page=100": [],
+            f"repos/blinklabs-io/example/issues/{number}/comments?per_page=100": [],
+            f"repos/blinklabs-io/example/commits/{head}/check-runs?per_page=100": {
+                "check_runs": checks
+            },
+        }
+        with mock.patch.object(scan_prs, "gh_json", lambda args: responses[args[1]]):
+            return scan_prs.inspect_pr(pr)
+
+    def test_checks_completed_at_uses_latest_across_all_runs(self) -> None:
+        # A re-review sweep asks "did CI finish anything since I last reviewed?".
+        # That has to consider passing runs too: a pipeline going red to green
+        # leaves no entry in problem_checks at all, so a problem-only timestamp
+        # would report no change on exactly the transition worth revisiting.
+        item = self._inspect(21, "abc123", [
+            {"name": "lint", "status": "completed", "conclusion": "success",
+             "completed_at": "2026-01-02T10:00:00Z"},
+            {"name": "test", "status": "completed", "conclusion": "success",
+             "completed_at": "2026-01-02T12:30:00Z"},
+        ])
+        self.assertEqual(item["problem_checks"], [])
+        self.assertEqual(item["checks_completed_at"], "2026-01-02T12:30:00Z")
+
+    def test_problem_checks_carry_completed_at(self) -> None:
+        item = self._inspect(22, "def456", [
+            {"name": "lint", "status": "completed", "conclusion": "failure",
+             "completed_at": "2026-01-02T09:00:00Z"},
+        ])
+        self.assertEqual(item["problem_checks"][0]["completed_at"],
+                         "2026-01-02T09:00:00Z")
+        self.assertEqual(item["checks_completed_at"], "2026-01-02T09:00:00Z")
+
+    def test_checks_completed_at_empty_while_running(self) -> None:
+        item = self._inspect(23, "ghi789", [
+            {"name": "test", "status": "in_progress", "conclusion": None},
+        ])
+        self.assertEqual(item["checks_completed_at"], "")
+
     def test_text_report_includes_team_review_request(self) -> None:
         item = result(review_request_sources=["team:blinklabs-io/core"])
         output = io.StringIO()

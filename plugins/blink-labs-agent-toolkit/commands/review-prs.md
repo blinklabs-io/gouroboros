@@ -49,10 +49,15 @@ said so.
      outright, so a shepherd dispatched at one will do the whole review and then
      fail to post it. Compare against `.user` from the scan, not a hardcoded
      login.
-   - **anything already assigned to someone else.** An assignee is how this
+   - **anything assigned to someone else.** An assignee is how this
      organization signals that a review is taken; duplicating it wastes both the
      sweep's tokens and the other reviewer's time. An empty assignee list is
-     unclaimed and fair game.
+     unclaimed and fair game. **A pull request assigned to the authenticated
+     user is the exception** — that is this sweep's own claim, and it goes to
+     the re-review triage in step 2a rather than being dropped.
+   - **anything another human has reviewed at the current head.** Their review
+     is the one in play. A head carrying only the authenticated user's own
+     review is not dropped here; it goes to step 2a.
    - **a pipeline still running** — any entry in `problem_checks` whose
      `status` is not `completed`. Reviewing these is what makes a sweep
      expensive: a shepherd that blocks on an in-progress job costs roughly
@@ -65,9 +70,25 @@ said so.
       | select([.problem_checks[]? | select(.status != "completed")] | length == 0)
       | select(.author != $me)
       | select([.assignees[]? | select(. != $me)] | length == 0)
+      | . as $pr
+      | select([$pr.current_reviews | to_entries[]
+                | select(.key | test("\\[bot\\]") | not)
+                | select(.key != $pr.author)] | length == 0)
       | [.repository, (.number|tostring), .author, .updated_at, .title] | @tsv' \
       "$SCRATCH/scan.json"
    ```
+
+   **Exclude the pull request's own author from that human-review test.** An
+   author answering a reviewer posts a `COMMENTED` review record, which lands in
+   `current_reviews` and reads exactly like someone else's review — so a
+   predicate that only filters bots treats the author's own reply as coverage and
+   hides the pull request from the sweep. Measured on a 147-PR blinklabs-io
+   backlog: 78 ready by the bots-only predicate against 96 with the author also
+   excluded. **18 pull requests, 19% of the real backlog, were invisible**, and
+   they skew towards the ones that need attention most — an author replies
+   precisely when they have just pushed a fix. An author cannot approve their own
+   pull request, so their review never satisfies the human-review requirement and
+   must never suppress one.
 
    Count both sides before dispatching, so the deferred set is a reported
    number rather than a silent omission:
@@ -89,6 +110,67 @@ said so.
    A PR whose `problem_checks` are all `completed` but not passing is still
    worth reviewing — a red pipeline blocks approval, not review. Keep it and
    let the shepherd attribute the failure.
+
+2a. **Triage the pull requests already assigned to the authenticated user.**
+   These are the sweep's own prior claims. Re-reviewing one that has not moved
+   is pure duplicate spend; skipping one that *has* moved strands a contributor
+   waiting on the review loop. Two things make one ready for another round.
+
+   **New commits handle themselves.** `current_reviews` is head-scoped — the
+   scanner drops any review whose `commit_id` is not the current head — so a
+   push moves the head, the previous review falls out of the field, and the
+   pull request reappears in the ordinary backlog of step 2 with no human
+   review at head. Nothing extra is needed to catch new changes; do not build a
+   second mechanism for it.
+
+   **A pipeline transition at an unchanged head is the case that needs work.**
+   The review may have been written against a red or still-running pipeline and
+   withheld a disposition. Compare the latest check completion against the
+   authenticated user's own review time:
+
+   ```sh
+   jq -r --arg me "$(jq -r .user "$SCRATCH/scan.json")" '
+      .pull_requests[] | select(.error==null)
+      | select(.author != $me)
+      | select([.assignees[]? | select(. != $me)] | length == 0)
+      | select([.assignees[]? | select(. == $me)] | length > 0)
+      | . as $pr
+      | select([$pr.current_reviews | to_entries[]
+                | select(.key | test("\\[bot\\]") | not)
+                | select(.key != $me)
+                | select(.key != $pr.author)] | length == 0)
+      | select(.current_reviews[$me] != null)
+      | select([.problem_checks[]? | select(.status != "completed")] | length == 0)
+      | select(.checks_completed_at > .current_reviews[$me].submitted_at)
+      | [.repository, (.number|tostring),
+         .current_reviews[$me].state, .checks_completed_at, .title] | @tsv' \
+      "$SCRATCH/scan.json"
+   ```
+
+   `checks_completed_at` is the latest completion across **every** check run,
+   not just the failing ones, precisely so a red-to-green transition is
+   visible — that transition empties `problem_checks`, so a problem-only
+   timestamp would report no change on the one case most worth revisiting.
+
+   Anything assigned to the user that this query does not return is **held**:
+   same head, same pipeline, review already delivered. Report the held set as a
+   count with its reason rather than dropping it silently, and re-queue a
+   still-running pipeline exactly as step 2 does.
+
+   **Do not trust `current_reviews[$me].state` for what the prior review
+   decided.** It keeps only the latest record per reviewer, and a decision review
+   followed by the bodiless `COMMENTED` records that carry inline comments reads
+   as `COMMENTED`. Measured on one such pull request: `current_reviews` said
+   `COMMENTED`, the reviews API said `CHANGES_REQUESTED then COMMENTED`, and
+   GitHub's own `reviewDecision` said `CHANGES_REQUESTED`. Read `reviewDecision`
+   or the reviews API before telling a shepherd what it previously concluded —
+   dispatching a re-review that believes it approved when it requested changes
+   inverts the whole task.
+
+   Dispatch a re-review with the prior review's own findings in the prompt, and
+   say what changed since it was written. It is a re-review, not a first read:
+   the shepherd's most valuable output is clearing or restating its own earlier
+   points, not rediscovering them.
 
 3. **Rank.** Prefer the most recent `dingo` and `gouroboros` pull requests,
    then the rest by `updated_at`. Report the count and the chosen slice before

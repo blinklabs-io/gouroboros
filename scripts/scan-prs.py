@@ -233,12 +233,21 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
                 "name": check.get("name", ""),
                 "status": check.get("status", ""),
                 "conclusion": check.get("conclusion"),
+                "completed_at": check.get("completed_at") or "",
                 "details_url": check.get("details_url", ""),
             }
             for check in checks
             if check.get("status") != "completed"
             or str(check.get("conclusion", "")).lower() not in PASS_CONCLUSIONS
         ]
+        # Latest completion across *every* run, not just the failing ones. A
+        # re-review asks whether CI finished anything since the last review, and
+        # a pipeline going red to green empties problem_checks entirely — so a
+        # problem-only timestamp would report no change on the one transition
+        # most worth revisiting.
+        checks_completed_at = max(
+            (check.get("completed_at") or "" for check in checks), default=""
+        )
         return {
             "repository": repo,
             "number": number,
@@ -273,6 +282,7 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
             "human_reviews": human_reviews,
             "last_author_reply": last_author_reply,
             "problem_checks": problem_checks,
+            "checks_completed_at": checks_completed_at,
             "error": None,
         }
     except (KeyError, RuntimeError, json.JSONDecodeError) as error:

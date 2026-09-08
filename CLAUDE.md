@@ -275,7 +275,26 @@ select([.current_reviews|to_entries[]|select(.key|test("\\[bot\\]")|not)]|length
 `current_reviews` keeps only the latest review per reviewer, so an `APPROVED`
 followed by a `COMMENTED` reads as `COMMENTED` — test for the presence of any
 human key, not for `state == "APPROVED"` — and it carries no `commit_id`, so
-cross-check the reviews API when "on this head" actually matters.
+cross-check the reviews API when "on this head" actually matters. Measured on
+one PR: `current_reviews` read `COMMENTED`, the reviews API read
+`CHANGES_REQUESTED then COMMENTED`, and `reviewDecision` read
+`CHANGES_REQUESTED`. Use `reviewDecision` when the prior decision matters.
+
+**Exclude the pull request's own author from that predicate too.** An author
+answering a reviewer posts a `COMMENTED` review record, which enters
+`current_reviews` indistinguishable from someone else's review, so a bots-only
+filter reads the author's own reply as coverage and hides the PR. Measured on a
+147-PR blinklabs-io backlog: 78 ready by the bots-only predicate against 96 with
+the author also excluded — **18 PRs, 19% of the real backlog, invisible**, and
+biased toward the ones most worth reviewing, since an author replies precisely
+when they have just pushed a fix. `scan-prs.py` already excludes the author from
+`human_reviews`; `current_reviews` does not. Use:
+
+```sh
+. as $pr | select([$pr.current_reviews | to_entries[]
+  | select(.key | test("\\[bot\\]") | not)
+  | select(.key != $pr.author)] | length == 0)
+```
 
 Diff size, not repository or subject, is the dominant per-review cost driver.
 In that same sweep the two largest changes (3741 and 1484 lines) cost 45.5
