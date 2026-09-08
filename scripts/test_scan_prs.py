@@ -94,6 +94,70 @@ class ScanPrsTests(unittest.TestCase):
         self.assertEqual(teams, ["blinklabs-io/core", "blinklabs-io/docs"])
         self.assertEqual(gh_json.call_count, 2)
 
+    def test_inspect_pr_reports_assignees(self) -> None:
+        # A sweep self-assigns what it reviews so a teammate can see the work is
+        # taken, and skips anything already assigned to someone else. Both rules
+        # need the assignee list in the scan output.
+        pr = {
+            "repository": {"nameWithOwner": "blinklabs-io/example"},
+            "number": 17,
+            "title": "Example",
+            "url": "https://github.com/blinklabs-io/example/pull/17",
+            "author": {"login": "author"},
+            "updatedAt": "2026-01-01T00:00:00Z",
+        }
+        responses = {
+            "repos/blinklabs-io/example/pulls/17": {
+                "head": {"sha": "abc123"},
+                "mergeable_state": "clean",
+                "requested_reviewers": [],
+                "requested_teams": [],
+                "assignees": [{"login": "reviewer-one"}, {"login": "reviewer-two"}],
+            },
+            "repos/blinklabs-io/example/pulls/17/reviews?per_page=100": [],
+            "repos/blinklabs-io/example/issues/17/comments?per_page=100": [],
+            "repos/blinklabs-io/example/commits/abc123/check-runs?per_page=100": {
+                "check_runs": []
+            },
+        }
+
+        def fake_gh_json(args: list[str]) -> object:
+            return responses[args[1]]
+
+        with mock.patch.object(scan_prs, "gh_json", fake_gh_json):
+            item = scan_prs.inspect_pr(pr)
+        self.assertEqual(item["assignees"], ["reviewer-one", "reviewer-two"])
+
+    def test_inspect_pr_reports_empty_assignees(self) -> None:
+        pr = {
+            "repository": {"nameWithOwner": "blinklabs-io/example"},
+            "number": 18,
+            "title": "Example",
+            "url": "https://github.com/blinklabs-io/example/pull/18",
+            "author": {"login": "author"},
+            "updatedAt": "2026-01-01T00:00:00Z",
+        }
+        responses = {
+            "repos/blinklabs-io/example/pulls/18": {
+                "head": {"sha": "def456"},
+                "mergeable_state": "clean",
+                "requested_reviewers": [],
+                "requested_teams": [],
+            },
+            "repos/blinklabs-io/example/pulls/18/reviews?per_page=100": [],
+            "repos/blinklabs-io/example/issues/18/comments?per_page=100": [],
+            "repos/blinklabs-io/example/commits/def456/check-runs?per_page=100": {
+                "check_runs": []
+            },
+        }
+
+        def fake_gh_json(args: list[str]) -> object:
+            return responses[args[1]]
+
+        with mock.patch.object(scan_prs, "gh_json", fake_gh_json):
+            item = scan_prs.inspect_pr(pr)
+        self.assertEqual(item["assignees"], [])
+
     def test_text_report_includes_team_review_request(self) -> None:
         item = result(review_request_sources=["team:blinklabs-io/core"])
         output = io.StringIO()

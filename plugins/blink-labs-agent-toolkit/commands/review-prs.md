@@ -43,6 +43,16 @@ said so.
 2. **Filter to genuinely ready.** From the scan, keep pull requests with no
    human review on the current head, then drop:
    - **drafts** (already excluded by the scanner);
+   - **anything the authenticated user authored.** A self-approval does not
+     satisfy the human-review requirement, so reviewing your own pull request
+     cannot unblock it — it needs a teammate. GitHub refuses the approval
+     outright, so a shepherd dispatched at one will do the whole review and then
+     fail to post it. Compare against `.user` from the scan, not a hardcoded
+     login.
+   - **anything already assigned to someone else.** An assignee is how this
+     organization signals that a review is taken; duplicating it wastes both the
+     sweep's tokens and the other reviewer's time. An empty assignee list is
+     unclaimed and fair game.
    - **a pipeline still running** — any entry in `problem_checks` whose
      `status` is not `completed`. Reviewing these is what makes a sweep
      expensive: a shepherd that blocks on an in-progress job costs roughly
@@ -50,8 +60,11 @@ said so.
      them at the end of the sweep instead.
 
    ```sh
-   jq -r '.pull_requests[] | select(.error==null)
+   jq -r --arg me "$(jq -r .user "$SCRATCH/scan.json")" '
+      .pull_requests[] | select(.error==null)
       | select([.problem_checks[]? | select(.status != "completed")] | length == 0)
+      | select(.author != $me)
+      | select([.assignees[]? | select(. != $me)] | length == 0)
       | [.repository, (.number|tostring), .author, .updated_at, .title] | @tsv' \
       "$SCRATCH/scan.json"
    ```
@@ -69,7 +82,9 @@ said so.
 
    A representative run: 114 open PRs, 96 ready, 18 deferred for a running
    pipeline. Entries with a non-null `.error` failed inspection and are neither
-   ready nor deferred — report them separately.
+   ready nor deferred — report them separately. Report the self-authored and
+   already-assigned counts too, so the skipped set is a stated number rather
+   than a silent omission.
 
    A PR whose `problem_checks` are all `completed` but not passing is still
    worth reviewing — a red pipeline blocks approval, not review. Keep it and
@@ -78,6 +93,19 @@ said so.
 3. **Rank.** Prefer the most recent `dingo` and `gouroboros` pull requests,
    then the rest by `updated_at`. Report the count and the chosen slice before
    dispatching; a full `REVIEW_REQUIRED` backlog can exceed thirty PRs.
+
+   **Then claim the slice by self-assigning it, before the first dispatch:**
+
+   ```sh
+   gh pr edit "$number" --repo "$repository" --add-assignee @me
+   ```
+
+   Assign every pull request the sweep will review, not just the one in flight.
+   The point is to tell the rest of the team that these are taken while the
+   sweep runs, so it has to happen up front — assigning as each shepherd starts
+   leaves the tail of the slice looking unclaimed for the length of the sweep.
+   Assignment is an outward-facing action and is covered by the same
+   confirmation as posting.
 
 4. **Dispatch three at a time.** One `blink-review-shepherd` per pull request,
    in Mode B. Keep exactly three in flight: when one finishes, launch the next

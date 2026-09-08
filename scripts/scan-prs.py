@@ -256,6 +256,13 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
                 team.get("name", "")
                 for team in metadata.get("requested_teams", [])
             ],
+            # A sweep self-assigns what it picks up so a teammate can see the
+            # work is taken, and skips whatever is already assigned to someone
+            # else. Both rules need the assignee list here.
+            "assignees": [
+                assignee.get("login", "")
+                for assignee in metadata.get("assignees", [])
+            ],
             "requested_team_slugs": [
                 f"{repo.split('/', 1)[0]}/{team.get('slug', '')}"
                 for team in metadata.get("requested_teams", [])
