@@ -192,275 +192,149 @@ another bot pass after each push.
 
 ## Efficient token use
 
-Cost is dominated by the number of API round trips, not by the size of what
-each one returns. Every request re-sends the whole accumulated conversation,
-so spend grows roughly quadratically with request count. Measured across a
-25-agent pull-request review sweep: 3.3 MB of total tool output against 161M
-tokens of context re-reads, for 25.3M input-token-equivalents overall — 69.4
-requests and 845K equivalents per review.
+Costs here are quoted in **input-token-equivalents**: `input + 1.25 *
+cache_creation_5m + 2.0 * cache_creation_1h + 0.1 * cache_read`, summed over
+requests deduped by `requestId`. The weights are the API's cache pricing
+multipliers, so the figure is a single price-weighted number comparable across
+agents and sweeps.
 
-A later 9-review sweep of the same repositories, dispatched with the batching
-rules below stated in each prompt, ran at 18.7 requests and 324K equivalents
-per review: 73% fewer round trips and 62% less spend, with no loss of rigor —
-it still produced seven blockers, including two the review bots never saw
-because they were quota-blocked. Per-request cost rose (12.2K to 17.3K
-equivalents) because the requests are fatter; total spend is what matters.
+**The one lever is round trips.** Every request re-sends the whole accumulated
+conversation, so spend grows roughly quadratically with request count. Cache
+reads are 64% of a sweep's cost (33.4M of 39.9M input tokens in a nine-review
+dingo sweep; cache creation 24%, output 5%), and the only way to shrink them is
+to make fewer requests. Round trips predict cost at r=0.955 over nine reviews;
+diff size only at r=0.759. Control round trips; never trade away rigor to do it.
 
-Batch aggressively:
+### 1. Batch every call
 
-- Combine independent commands into one call. `go build ./... && go vet ./...
-  && gofmt -l . && golangci-lint run ./...` is one round trip, not four.
-- Read many files in one call:
-  `for f in a.go b.go c.go; do echo "=== $f"; sed -n '1,250p' "$f"; done`.
-- Fetch pull-request metadata, diff, review threads, check runs, and comments
-  in a single `gh` call with `--jq` field selection.
+1. Chain independent commands: `go build ./... && go vet ./... && gofmt -l . &&
+   golangci-lint run ./...` is one trip, not four.
+2. Read files in a loop: `for f in a.go b.go c.go; do echo "=== $f"; sed -n
+   '1,250p' "$f"; done`.
+3. Pull pull-request metadata, diff, review threads, check runs and comments in
+   a single `gh` call with `--jq` field selection.
+4. Keep the fail-before reverts, class audits and merged-tree checks. They cost
+   little and are where findings come from.
+5. Measured: 18.7 requests and 324K equivalents per review batched, against 69.4
+   and 845K unbatched — 73% fewer trips, 62% less spend, with seven blockers
+   still found including two the review bots never saw.
 
-Trim round trips, never rigor. Fail-before reverts, class audits, and
-merged-tree checks cost little and are where findings come from. Batched
-reviews averaged 31 requests and 0.55M equivalents against 75 requests and
-1.07M unbatched — half the cost, and each still found a blocker both review
-bots had missed.
+### 2. Subagent discipline
 
-Subagents start from a fresh context: the agent definition plus its dispatch
-prompt. Clearing the parent conversation does not reduce subagent cost, and a
-subagent never sees the parent's history unless it is a fork. Put everything
-the agent needs into the dispatch prompt.
+1. Put everything the agent needs into the dispatch prompt. A subagent starts
+   from a fresh context — the agent definition plus its prompt — and never sees
+   the parent's history unless it is a fork. Clearing the parent conversation
+   does not reduce subagent cost.
+2. **Never wait on CI inside a review agent.** Subagents run on the 5-minute
+   prompt-cache TTL, not the parent's 1-hour one: measured across six shepherds,
+   608K `ephemeral_5m_input_tokens` and zero at the 1-hour TTL, and a
+   nine-shepherd sweep split identically. Any stall over five minutes re-pays
+   the entire prefix. One CI-blocked agent cost 640K against a 197K-324K norm.
+   Read the check runs; if they are pending, record the disposition as withheld
+   and return, and let the parent poll and re-dispatch.
+3. Dispatch a concurrent batch in one message. Staggering to warm the cache buys
+   nothing — measured over nine dispatches, the first agent of a simultaneous
+   trio created the 19.5K shared prefix and both siblings read all of it,
+   identical to every later staggered agent — and it costs wall-clock time.
+4. Keep the cached prefix stable. Switching model or effort mid-run invalidates
+   it, and so does editing an earlier turn.
+5. Scope `golangci-lint` to the packages the change touches
+   (`golangci-lint run ./ledger/...`). It takes a global lock that an isolated
+   `GOLANGCI_LINT_CACHE` does not prevent — that isolation solves stale
+   cross-worktree findings, a different problem. Treat exit 3, "parallel
+   golangci-lint is running", as contention to retry, never as a lint failure.
 
-The parent thread is its own cost centre. One sweep's orchestrator reached a
-302K-token context and 2.21M equivalents, more than any single review it
-dispatched. Write durable cross-task facts to a scratch file and clear between
-units of work rather than carrying the whole transcript forward.
+### 3. Orchestrator discipline
 
-Do not stagger a concurrent batch to warm the cache. Measured over nine
-dispatches: the first agent of a simultaneous trio created the 19.5K-token
-shared prefix and read none of it, and both siblings dispatched in the same
-message read all 19.5K of it — identical to every later staggered agent.
-Staggering bought nothing and cost wall-clock time.
+1. Log each verdict to a scratch file as it lands and keep findings out of the
+   parent thread. A disciplined parent held 649K equivalents over 42 requests
+   against the 2.21M an undisciplined one spent on a comparable run.
+2. Write durable cross-task facts to that scratch file and clear between units
+   of work rather than carrying the whole transcript forward.
+3. Budget the parent at about a sixth of a nine-review sweep: 16.5% of 3.93M and
+   16.6% of 5.19M across two independent sweeps. A materially higher share is a
+   signal that findings are being carried in the parent thread.
+4. Orchestrator cost is roughly fixed (536K-861K), so its share scales inversely
+   with sweep size — 25.5% of a six-review sweep at the same absolute spend.
+   Amortize it over more reviews, and do not read a high share on a small sweep
+   as indiscipline.
 
-Keep the cached prefix stable: switching model or effort mid-run invalidates
-it, and so does editing an earlier turn.
+### 4. Get these queries right the first time
 
-Never wait on CI inside a review agent. The one agent that blocked ~16 minutes
-on an in-progress job cost 640K equivalents against a 197K-324K sweep norm —
-the single most expensive review, for a check the parent can poll once and
-cheaply re-dispatch on. Read the check runs; if they are still pending, record
-the disposition as withheld and return.
+1. Filter the backlog on `current_reviews`, excluding bots **and the pull
+   request's own author**. An author answering a reviewer posts a `COMMENTED`
+   review record that a bots-only filter reads as coverage: measured on a 147-PR
+   blinklabs-io backlog, 78 ready by the bots-only predicate against 96 with the
+   author also excluded — 18 PRs, 19% of the real backlog, invisible, and biased
+   toward the ones most worth reviewing. Do not use `human_reviews`: it requires
+   a non-empty body by design, so a bare `gh pr review --approve` is absent from
+   it, and one sweep re-reviewed two already-approved PRs for 417K equivalents.
 
-Front-load what earlier agents discovered. Facts the parent learns once and
-injects into later prompts — the base branch's own `gofmt` noise, which bots
-are quota-blocked on this head, the sibling-PR map — stop each agent from
-rediscovering them. The three cold-start reviews averaged 23.3 requests; the
-five later ones carrying those facts averaged 13.6, a 42% drop.
+   ```sh
+   . as $pr | select([$pr.current_reviews | to_entries[]
+     | select(.key | test("\\[bot\\]") | not)
+     | select(.key != $pr.author)] | length == 0)
+   ```
 
-Measure round trips from the session transcript
-(`~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl`, deduped by
-`requestId`), not from what an agent reports about itself. Self-reported counts
-were wrong in both directions: one agent claimed 44 tool calls against 28 real
-requests, another claimed 21 against 30.
+2. Test for the presence of any human key, not for `state == "APPROVED"`.
+   `current_reviews` keeps only the latest review per reviewer, so an `APPROVED`
+   followed by a `COMMENTED` reads as `COMMENTED`. It also carries no
+   `commit_id` and is scoped to the current head, so it hides earlier reviews:
+   one PR showed an empty `current_reviews` while carrying two prior
+   `CHANGES_REQUESTED`. Say "no review at this head", and read the reviews API
+   when history matters or `reviewDecision` when the prior decision does — one
+   PR read `COMMENTED`, `CHANGES_REQUESTED then COMMENTED`, and
+   `CHANGES_REQUESTED` by those three sources respectively.
+3. Verify bot coverage by the `commit_id` stamped on each review record, never
+   by check colour and not merely by `output.summary`. Green routinely means
+   "this commit only merges another branch into the PR branch", "could not start
+   the incremental review", "Review limit reached", or "auto incremental reviews
+   are disabled". Coverage is per-head and erratic — measured across three
+   sweeps, Cubic genuinely reviewed 2 of 9, 4 of 9 and 2 of 6 heads; CodeRabbit
+   1, 1 and 1 — so scope the claim to the head you measured. An empty review
+   body is not proof that no review happened: CodeRabbit's empty-bodied records
+   have been containers for substantive inline comments, so reconcile
+   `pulls/<n>/comments` against review records before calling a head unreviewed.
+   A `cubic` check reporting "0 issues found" with no review record is a check,
+   not a review. Most blockers land on heads no bot reviewed.
+4. Attribute a red lint check by running the linter at head and at base rather
+   than reading CI logs — one `golangci-lint run ./ledger/` at each end settled
+   attribution in one extra command. A known cause: `.golangci.yml` sets
+   `run.tests: false`, so rewriting the last production call site of a helper
+   leaves it referenced only from `_test.go` and trips `unused`. Also check
+   whether a red run was superseded by a later passing run on the same SHA.
+5. Re-read the reviews API at dispatch time rather than trusting the scan. The
+   scan is a snapshot and a long sweep outruns it: one sweep took 7h41m from
+   scan to last verdict, and a teammate reviewed two of its pull requests at
+   7h11m, after dispatch. Both agents were told as established fact that no
+   human had reviewed, and both found it false.
 
-Filter the backlog on `.current_reviews`, not `.human_reviews`. `scan-prs.py`
-requires a non-empty review body for `human_reviews`, deliberately, so that
-blocking prose in a `COMMENTED` review surfaces. The side effect is that a
-*bodiless* `APPROVED` review — what a bare `gh pr review --approve` produces —
-is absent from that field entirely. A third sweep used it as the
-"has a human reviewed this head?" predicate and re-reviewed two already-approved
-pull requests: 417K equivalents, 10.6% of the sweep, spent on duplicates. The
-backlog was 75 by that predicate and 64 by the correct one, so 15% of the
-apparent queue was already reviewed. Use:
+### 5. Budgeting and measuring
 
-```sh
-select([.current_reviews|to_entries[]|select(.key|test("\\[bot\\]")|not)]|length==0)
-```
-
-`current_reviews` keeps only the latest review per reviewer, so an `APPROVED`
-followed by a `COMMENTED` reads as `COMMENTED` — test for the presence of any
-human key, not for `state == "APPROVED"` — and it carries no `commit_id`, so
-cross-check the reviews API when "on this head" actually matters. Measured on
-one PR: `current_reviews` read `COMMENTED`, the reviews API read
-`CHANGES_REQUESTED then COMMENTED`, and `reviewDecision` read
-`CHANGES_REQUESTED`. Use `reviewDecision` when the prior decision matters.
-
-**Exclude the pull request's own author from that predicate too.** An author
-answering a reviewer posts a `COMMENTED` review record, which enters
-`current_reviews` indistinguishable from someone else's review, so a bots-only
-filter reads the author's own reply as coverage and hides the PR. Measured on a
-147-PR blinklabs-io backlog: 78 ready by the bots-only predicate against 96 with
-the author also excluded — **18 PRs, 19% of the real backlog, invisible**, and
-biased toward the ones most worth reviewing, since an author replies precisely
-when they have just pushed a fix. `scan-prs.py` already excludes the author from
-`human_reviews`; `current_reviews` does not. Use:
-
-```sh
-. as $pr | select([$pr.current_reviews | to_entries[]
-  | select(.key | test("\\[bot\\]") | not)
-  | select(.key != $pr.author)] | length == 0)
-```
-
-Diff size, not repository or subject, is the dominant per-review cost driver.
-In that same sweep the two largest changes (3741 and 1484 lines) cost 45.5
-requests and 707K equivalents each — 43% of all subagent spend for 22% of the
-pull requests — while the other seven averaged 23.3 requests and 267K. Budget a
-sweep by summed diff size, and expect a 3000-line review to cost roughly three
-small ones.
-
-Verify bot coverage by the `commit_id` stamped on each review record, never by
-check colour and not merely by `output.summary`. Measured over nine heads:
-Cubic genuinely reviewed 2, CodeRabbit 1. The other green checks read "This
-commit only merges another branch into the PR branch, so cubic completed this
-check without running an AI review", conclusion `neutral` with "could not start
-the incremental review", state `skipping`, "Review limit reached", or "auto
-incremental reviews are disabled". Coverage is per-head and erratic: CodeRabbit
-reviewed one head while rate-limited on another in the same sweep, so scope the
-claim to the head you measured. A second nine-head dingo sweep measured Cubic 4
-and CodeRabbit 1, with 4 heads carrying no bot review at all.
-
-**An empty review body is not proof that no review happened**, correcting the
-earlier reading. On one head CodeRabbit's two empty-bodied review records were
-containers for a substantive Major inline comment, while the cubic check on the
-same head read `skipping`. Fetch `pulls/<n>/comments` and reconcile inline
-comments against review records before calling a head unreviewed; a Cubic "No
-issues found" record that carries zero inline comments is the genuinely empty
-case. Three of that sweep's seven blockers were on heads no bot had reviewed,
-and two more were on heads where a bot had reported "No issues found".
-
-Attribute a red check by running the linter at both head and base rather than
-reading CI logs. One `golangci-lint run ./ledger/` at each end gave 1 issue at
-head and 0 at base, which settled attribution in one extra command. Repeated on
-a `connmanager` change: 1 at head, 0 at base `86c0be79`. The cause there is worth
-knowing — `.golangci.yml` sets `run.tests: false`, so rewriting the last
-production call site of a helper leaves it referenced only from `_test.go` and
-trips `unused`, failing the required `lint` check. Also check whether a red run
-was superseded: one PR's `cancelled` Windows job at 12:04 was followed by a
-passing run on the same SHA at 13:55.
-
-Orchestrator discipline is worth roughly 1.5M equivalents. Logging each verdict
-to a scratch file and keeping findings out of the parent thread held the
-orchestrator to 649K equivalents over 42 requests — 16.5% of a 3.93M sweep,
-against the 2.21M an earlier orchestrator spent on a comparable run.
-
-Below roughly 2000 diff lines, diff size stops predicting review cost. A
-six-review dingo sweep spanning 63 to 2046 lines cost 261K equivalents per
-review at 21.2 requests, and the ranking barely tracked size: 204 lines cost
-293K while 2046 lines cost 285K, and equivalents-per-line swung 15x, from 139
-to 2043. What actually drove cost was the number of verification actions — the
-204-line review ran `make docs-parity`, `make import-boundaries`, race tests
-across 19 packages, a merged-tree check and two separate fail-before reverts.
-The earlier "diff size dominates" finding was measured against 3741- and
-1484-line changes; it holds at that range, not below it. Budget a small-PR
-sweep by verification depth and a fixed floor near 130K, not by summed lines.
-
-**Round trips predict cost far better than diff size does.** Over nine dingo
-reviews spanning 136 to 4428 lines, requests correlate with equivalents at
-r=0.955; diff size only at r=0.759. Equivalents-per-line swung 15x again, 176 at
-4428 lines to 2671 at 137. The floor is also higher than 130K: the three
-smallest reviews (136-210 lines) still cost 284K, 366K and 372K. Budget by
-expected verification actions and count round trips as the thing to control;
-diff size is a weak proxy for both.
-
-That sweep cost 481K equivalents per review at 29.6 requests, well above the
-261K-324K band recorded above, and the reason is verification depth rather than
-size. These reviews ran in-tree probe binaries to reproduce defects, fail-before
-reverts performed in place, head-versus-base lint attribution, merged-tree
-builds, and `-race -count=4` runs. It bought seven blockers in nine reviews,
-including a chain-halt, a silent-forging-stop, a vote-stealing path and a
-red-lint attribution. A cheaper sweep is available; it is a different product.
-
-Front-loading earlier agents' discoveries did not reduce request count in that
-sweep, and the effect may not generalize. The three cold-start agents averaged
-17.3 requests; the three carrying a baseline, a bot-coverage map, a sibling-PR
-map and two prior findings averaged 25.0, at 12% higher per-request cost
-(12.9K vs 11.5K equivalents) because the prompts were fatter. The later agents
-also reviewed the harder changes and found the two worst blockers, so this is
-not evidence that front-loading is wasteful — only that it does not reliably
-buy back round trips, and should be justified by finding quality rather than by
-a predicted request-count drop.
-
-A later nine-review sweep disagrees, and the disagreement is unresolved because
-both measurements are confounded. Its three cold-start agents averaged 39.3
-requests and 666K equivalents; the six carrying accumulated findings averaged
-24.7 and 388K — 37% fewer round trips and 42% less spend. But the cold-start
-wave was deliberately the three largest changes (2413 lines average against
-675), so size and front-loading move together and this sweep cannot separate
-them any more than the previous one could. Two sweeps now point opposite ways.
-Settle it by front-loading a wave of *comparable* size to the cold-start wave
-rather than by adding a third confounded measurement.
-
-A second nine-review dingo sweep put the orchestrator at 861K equivalents over
-53 requests — 16.6% of a 5.19M sweep, against 16.5% of a 3.93M one. Two
-independent nine-review sweeps landing within 0.1 percentage points makes the
-parent share predictable enough to budget: assume the orchestrator costs about a
-sixth of a nine-review sweep, and treat a materially higher share as a signal
-that findings are being carried in the parent thread.
-
-Orchestrator cost is roughly fixed, so its share scales inversely with sweep
-size. A disciplined parent that logged every verdict to a scratch file and kept
-findings out of the thread spent 536K equivalents over 36 requests — close to
-the 649K/42 of a nine-review sweep, but 25.5% of this six-review sweep's 2.11M
-against that one's 16.5%. Amortize the orchestrator over more reviews, and do
-not read a high parent share on a small sweep as indiscipline.
-
-Cache *reads* are where a sweep's money goes, and the share is growing. In a
-nine-review dingo sweep, 33.4M of the 39.9M total input tokens were cache reads:
-weighted, 3.34M of 5.19M equivalents, **64%** — against the 51% measured earlier.
-Cache creation was 1.24M (24%) and output only 244K (5%). Trimming what each
-agent re-reads therefore beats trimming what it writes, and the lever on cache
-reads is round trips, since every one re-reads the whole accumulated prefix.
-
-Subagents run on the 5-minute prompt-cache TTL, not the parent's 1-hour one.
-Measured across six shepherds: 608K tokens of `ephemeral_5m_input_tokens` and
-**zero** `ephemeral_1h_input_tokens`, while the parent alone created 110K at the
-1-hour TTL. A nine-shepherd sweep split identically with no exceptions: 1.24M at
-the 5-minute TTL across the nine agents and zero at the 1-hour, against the
-parent's 147K at the 1-hour TTL and zero at the 5-minute. An agent that stalls more than five minutes — waiting on CI, a long
-sync, a slow test binary — re-pays its entire prefix. This is the mechanism
-behind "never wait on CI inside a review agent", and it also means a subagent's
-cache read, not its cache creation, is where the spend accumulates: cache reads
-were 8.08M tokens, 51% of subagent equivalents.
-
-`golangci-lint` takes a global lock, and an isolated `GOLANGCI_LINT_CACHE` does
-not prevent contention. A concurrent agent hit exit 3, "parallel golangci-lint
-is running", despite a correctly isolated cache; the isolated cache prevents
-stale cross-worktree findings, which is a different problem. With three
-shepherds in flight, scope each run to the packages the change touches
-(`golangci-lint run ./ledger/...`), and treat exit 3 as contention to retry,
-never as a lint failure to report.
-
-**The scan is a snapshot, and a long sweep outruns it.** A nine-review sweep took
-7h41m from scan to last verdict, and a teammate reviewed two of its pull requests
-at 7h11m — after dispatch, before the shepherd posted. Both agents were told "no
-human has reviewed this PR" as established fact and both found it false; one
-produced a redundant second approval. Re-read the reviews API at dispatch time
-rather than trusting the scan, and write front-loaded review state as "none at
-scan time" rather than as a fact. Do not misattribute this to the
-`human_reviews` predicate: one of those reviews was a bodiless `APPROVED`, which
-that predicate does drop, but the timestamps show it did not exist when the scan
-ran.
-
-Front-loaded facts decay in general, so mark them as observations rather than
-invariants. Of this sweep's front-loaded claims, three were wrong by the time an
-agent checked: the empty-body bot reading above, the stale review state, and a
-pinned dependency version asserted sweep-wide when it was per-branch
-(`v0.204.0` front-loaded, `v0.202.10` actually pinned on one branch — resolve
-with `go list -m` per worktree). Agents caught all three, which is the argument
-for telling them what a fact's provenance is instead of only its value.
-
-`scan-prs.py`'s `current_reviews` is scoped to the current head, so "no human
-review" there means "none on this head" and hides earlier ones. One sweep PR
-showed an empty `current_reviews` while carrying two prior human
-`CHANGES_REQUESTED` at older commits, both already addressed. Say "no review at
-this head" in a dispatch prompt, and have the agent check the reviews API when
-the review history matters. Posting also perturbs the field: a decision review
-followed by bodiless `COMMENTED` records carrying inline comments leaves
-`current_reviews` reading `COMMENTED`, which is why the backlog predicate must
-test for the presence of any human key rather than for `state == "APPROVED"`.
-
-Bot coverage stayed erratic and mostly absent. Across six dingo heads, verified
-by the `commit_id` on each review record: CodeRabbit genuinely reviewed one,
-Cubic two. The rest were green checks that were not reviews — "cubic could not
-start the incremental review", "This commit only merges another branch into the
-PR branch", "Review rate limit", a review record stamped at an older commit, and
-CodeRabbit issue comments reading "No actionable comments were generated" with
-no review record at all. A `cubic` check reporting "0 issues found across 1
-file" with no corresponding review record is a check, not a review. Where both
-bots did review, both posted the same finding and both were false positives.
-Four of the six blockers this sweep found were on heads no bot had reviewed.
+1. Budget by expected verification actions, not by diff lines. Below roughly
+   2000 lines diff size stops predicting cost: equivalents-per-line swung 15x in
+   two separate sweeps, and a 204-line review that ran `make docs-parity`,
+   `make import-boundaries`, race tests across 19 packages, a merged-tree check
+   and two fail-before reverts cost 293K against a 2046-line review's 285K.
+2. Assume a floor near 300K equivalents per review — the three smallest reviews
+   of a nine-review sweep (136-210 lines) cost 284K, 366K and 372K. Above ~3000
+   lines diff size does dominate: two changes of 3741 and 1484 lines cost 45.5
+   requests and 707K each, 43% of subagent spend for 22% of the pull requests.
+3. Expect a deep sweep to cost more and to be worth it. One at 481K per review
+   and 29.6 requests ran in-tree probe binaries, in-place fail-before reverts,
+   head-versus-base lint attribution, merged-tree builds and `-race -count=4`,
+   and returned seven blockers in nine reviews. A cheaper sweep is available; it
+   is a different product.
+4. Measure round trips from the session transcript
+   (`~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl`, deduped by
+   `requestId`), never from what an agent reports about itself. Self-reported
+   counts were wrong in both directions: 44 claimed against 28 real, 21 against
+   30.
+5. Front-load earlier agents' findings for finding quality, not to cut requests.
+   Two sweeps point opposite ways and both are confounded by diff size, so
+   settle it with a front-loaded wave of comparable size rather than a third
+   confounded measurement. Front-loaded facts decay: mark each with its
+   provenance ("no human review **at scan time**", "`v0.204.0` observed
+   sweep-wide, confirm per worktree with `go list -m`") rather than as an
+   invariant. Three such facts were stale by the time an agent checked, and the
+   agents caught all three.
