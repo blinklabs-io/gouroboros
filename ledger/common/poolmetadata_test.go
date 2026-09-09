@@ -29,7 +29,7 @@ import (
 
 func TestPoolMetadataURLDecodeBound(t *testing.T) {
 	const maxURLLength = 128
-	hash := common.NewBlake2b256([]byte{1, 2, 3, 4, 5})
+	hash := common.PoolMetadataHash([]byte{1, 2, 3, 4, 5})
 
 	for _, test := range []struct {
 		name      string
@@ -98,7 +98,7 @@ func TestPoolMetadataURLDecodeBound(t *testing.T) {
 }
 
 func TestPoolMetadataURLLengthUsesBytes(t *testing.T) {
-	hash := common.NewBlake2b256([]byte{1, 2, 3, 4, 5})
+	hash := common.PoolMetadataHash([]byte{1, 2, 3, 4, 5})
 	for _, test := range []struct {
 		name    string
 		url     string
