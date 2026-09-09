@@ -434,8 +434,7 @@ func TestFindNextSlotLeadership(t *testing.T) {
 		10,
 	) // 90% active slot coefficient for faster tests
 
-	// With 100% stake and f=0.9, probability per slot ≈ 0.9
-	// We should find eligibility very quickly
+	// With 100% stake and these fixed inputs, slot 1 is eligible.
 	slot, proof, output, err := FindNextSlotLeadership(
 		1,   // start slot
 		100, // max slot (reduced from 1000)
@@ -449,17 +448,11 @@ func TestFindNextSlotLeadership(t *testing.T) {
 		t.Fatalf("FindNextSlotLeadership failed: %v", err)
 	}
 
-	if slot == 0 {
-		// This is probabilistically unlikely but possible
-		t.Log("no slot leadership found in range (may be valid but unlikely)")
-	} else {
-		if proof == nil || output == nil {
-			t.Error("if slot found, proof and output should not be nil")
-		}
-		if slot < 1 || slot > 100 {
-			t.Errorf("found slot %d outside search range", slot)
-		}
-	}
+	// Slot 1 is deterministic for these fixed inputs; require the search to
+	// return it rather than silently accepting an untested no-leader result.
+	require.Equal(t, uint64(1), slot)
+	require.NotNil(t, proof)
+	require.NotNil(t, output)
 }
 
 func TestFindNextSlotLeadershipNoEligibility(t *testing.T) {
