@@ -363,6 +363,11 @@ type ShelleyUtxoWholeQuery struct {
 // comment. CursorTxId/CursorIdx name the last UtxoId returned by the
 // previous page (both zero-valued/empty for the first page); the server
 // returns up to Limit live UTxOs ordered strictly after that reference.
+// Limit must be greater than zero -- GetUTxOWholePaginated rejects a zero
+// limit before sending the query, since a server could otherwise read 0 as
+// "no limit" or as "return no rows," and the latter would return an empty
+// page with HasMore still true, stalling a paging caller on a repeated
+// no-progress request.
 type ShelleyUtxoWholePaginatedQuery struct {
 	cbor.StructAsArray
 	Type       int

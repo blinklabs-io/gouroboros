@@ -310,6 +310,19 @@ var conversationConwayEra = append(
 	},
 )
 
+// TestGetUTxOWholePaginatedRejectsZeroLimit proves the client refuses a
+// zero limit before ever touching the connection -- see
+// ShelleyUtxoWholePaginatedQuery's doc comment for why a zero limit is
+// ambiguous (no limit vs. no rows) and could otherwise stall a paging
+// caller on a repeated no-progress request.
+func TestGetUTxOWholePaginatedRejectsZeroLimit(t *testing.T) {
+	c := &localstatequery.Client{}
+	_, err := c.GetUTxOWholePaginated(nil, 0, 0)
+	if err == nil {
+		t.Fatal("expected an error for a zero limit, got nil")
+	}
+}
+
 func TestGetConstitution(t *testing.T) {
 	// Constitution result: [anchor, script_hash]
 	// anchor: [url, data_hash]

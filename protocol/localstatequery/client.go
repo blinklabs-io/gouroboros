@@ -574,14 +574,22 @@ func (c *Client) GetUTxOWhole() (*UTxOsResult, error) {
 // GetUTxOWholePaginated is GetUTxOWhole's paginated vendor-extension form --
 // see QueryTypeShelleyUtxoWholePaginated's doc comment. cursorTxId/cursorIdx
 // name the last UtxoId the previous call returned (nil/0 for the first
-// page); limit bounds how many UTxOs this call returns. Only a
-// Dingo-aware server answers this; sending it to a real cardano-node fails
-// with an unknown-query error.
+// page); limit bounds how many UTxOs this call returns and must be greater
+// than zero (see ShelleyUtxoWholePaginatedQuery's doc comment for why).
+// Only a Dingo-aware server answers this: cardano-node's own decoder does
+// not register this query type at all, so sending it to a real cardano-node
+// fails the whole LocalStateQuery connection on an unknown-query decode
+// error rather than returning a recoverable per-query error.
 func (c *Client) GetUTxOWholePaginated(
 	cursorTxId []byte,
 	cursorIdx uint32,
 	limit uint32,
 ) (*UTxOWholePaginatedResult, error) {
+	if limit == 0 {
+		return nil, errors.New(
+			"GetUTxOWholePaginated: limit must be greater than zero",
+		)
+	}
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf(
 			"calling GetUTxOWholePaginated(cursorTxId: %x, cursorIdx: %d, limit: %d)",

@@ -157,4 +157,21 @@ func TestUtxoWholePaginatedResultDecodes(t *testing.T) {
 	if len(result.Results) != 1 {
 		t.Fatalf("results: got %d entries, want 1", len(result.Results))
 	}
+	decodedOutput, ok := result.Results[utxoId]
+	if !ok {
+		t.Fatalf("results: missing entry for key %+v", utxoId)
+	}
+	if decodedOutput.Amount().Uint64() != 5_000_000 {
+		t.Errorf(
+			"decoded output amount: got %d, want 5000000",
+			decodedOutput.Amount().Uint64(),
+		)
+	}
+	if decodedOutput.Address().String() != addr.String() {
+		t.Errorf(
+			"decoded output address: got %s, want %s",
+			decodedOutput.Address().String(),
+			addr.String(),
+		)
+	}
 }
