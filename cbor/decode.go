@@ -40,7 +40,12 @@ var (
 	cachedLenientDecModeOnce sync.Once
 )
 
-const cborMaxNestedLevels = 256
+// MaxNestedLevels is the deepest nesting the CBOR decoder accepts. It
+// defaults to 32 in fxamacker, but there are blocks in the wild using
+// more than 64 nested levels. Callers that build CBOR-bound structures
+// from another format should bound themselves by this value rather than
+// repeating the literal.
+const MaxNestedLevels = 256
 
 // getDecMode returns a cached DecMode, initializing it on first use.
 // Uses sync.Once for thread-safe lazy initialization.
@@ -50,8 +55,7 @@ func getDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			// This defaults to 32, but there are blocks in the wild using >64 nested levels
-			MaxNestedLevels: cborMaxNestedLevels,
+			MaxNestedLevels:   MaxNestedLevels,
 			// The fxamacker default is 131072, but Cardano ledger state
 			// snapshots contain stake distribution maps that can exceed
 			// 1M entries on mainnet.
@@ -92,7 +96,7 @@ func getStrictDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			MaxNestedLevels:   cborMaxNestedLevels,
+			MaxNestedLevels:   MaxNestedLevels,
 			// Stricter limits for untrusted network messages to prevent
 			// OOM from crafted payloads claiming excessive collection sizes.
 			MaxMapPairs:      131072,
@@ -135,7 +139,7 @@ func getLenientDecMode() (_cbor.DecMode, error) {
 			// entry, so a repeated key overwrites, which is byte-for-byte the
 			// same resolution as cardano-ledger's Map.fromList for PV < 9.
 			DupMapKey:       _cbor.DupMapKeyQuiet,
-			MaxNestedLevels: cborMaxNestedLevels,
+			MaxNestedLevels: MaxNestedLevels,
 			// Match getDecMode() limits: Cardano ledger state snapshots contain
 			// stake distribution maps that can exceed 1M entries on mainnet.
 			MaxMapPairs:      10_000_000,
