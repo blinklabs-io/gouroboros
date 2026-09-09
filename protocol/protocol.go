@@ -87,6 +87,10 @@ type ProtocolConfig struct {
 	StateMap            StateMap
 	StateContext        any
 	InitialState        State
+	// InitialStateTimeout enables the initial state's configured timeout.
+	// It is disabled by default because most protocols begin timing out only
+	// after their first state transition.
+	InitialStateTimeout bool
 	RecvQueueSize       int
 }
 
@@ -1019,8 +1023,9 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			}
 		}
 
-		// Don't activate timeouts on initial protocol state
-		if !initialStateSet {
+		// Don't activate timeouts on initial protocol state unless explicitly
+		// enabled by the protocol owner.
+		if !initialStateSet && !p.config.InitialStateTimeout {
 			return
 		}
 

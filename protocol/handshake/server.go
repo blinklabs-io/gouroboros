@@ -64,6 +64,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        statePropose,
+		InitialStateTimeout: protoOptions.Mode == protocol.ProtocolModeNodeToNode,
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
