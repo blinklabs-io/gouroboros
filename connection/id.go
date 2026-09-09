@@ -25,9 +25,16 @@ type ConnectionId struct {
 }
 
 func (c ConnectionId) String() string {
+	local, remote := "<nil>", "<nil>"
+	if c.LocalAddr != nil {
+		local = c.LocalAddr.String()
+	}
+	if c.RemoteAddr != nil {
+		remote = c.RemoteAddr.String()
+	}
 	return fmt.Sprintf(
 		"%s<->%s",
-		c.LocalAddr.String(),
-		c.RemoteAddr.String(),
+		local,
+		remote,
 	)
 }
