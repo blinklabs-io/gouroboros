@@ -571,6 +571,47 @@ func (c *Client) GetUTxOWhole() (*UTxOsResult, error) {
 	return &result, nil
 }
 
+// GetUTxOWholePaginated is GetUTxOWhole's paginated vendor-extension form --
+// see QueryTypeShelleyUtxoWholePaginated's doc comment. cursorTxId/cursorIdx
+// name the last UtxoId the previous call returned (nil/0 for the first
+// page); limit bounds how many UTxOs this call returns. Only a
+// Dingo-aware server answers this; sending it to a real cardano-node fails
+// with an unknown-query error.
+func (c *Client) GetUTxOWholePaginated(
+	cursorTxId []byte,
+	cursorIdx uint32,
+	limit uint32,
+) (*UTxOWholePaginatedResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf(
+			"calling GetUTxOWholePaginated(cursorTxId: %x, cursorIdx: %d, limit: %d)",
+			cursorTxId, cursorIdx, limit,
+		),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyUtxoWholePaginated,
+		cursorTxId,
+		cursorIdx,
+		limit,
+	)
+	var result UTxOWholePaginatedResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling DebugEpochState()",

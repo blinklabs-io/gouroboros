@@ -84,6 +84,25 @@ const (
 	// GetPoolDistr2 (Shelley sub-query 36) replaces GetPoolDistr from NtC v21.
 	// cardano-cli sends it while computing a leadership schedule.
 	QueryTypeShelleyPoolDistr2 = 36
+
+	// QueryTypeShelleyUtxoWholePaginated is a blinklabs-io vendor extension,
+	// not part of the real Ouroboros/cardano-ledger CDDL spec: no real
+	// cardano-node understands it, and it is never sent to one. It exists
+	// so a Dingo-aware client (e.g. dingo's own node-parity tool) can pull
+	// GetUTxOWhole's answer in bounded pages instead of one single-shot
+	// reply, working around LocalStateQuery's synchronous one-request/
+	// one-reply design: the server cannot send anything until the whole
+	// query result is ready (see Server.handleQuery), so an answer that
+	// takes minutes to assemble silently exceeds the muxer's fixed 120s
+	// segment-read timeout with nothing the client can do about it
+	// (blinklabs-io/dingo#4082). Paging the query itself, rather than the
+	// reply, keeps every individual request/reply cycle fast regardless of
+	// how large the whole answer is.
+	//
+	// Tag chosen far outside the real spec's currently-assigned range
+	// (0-36) specifically to avoid ever colliding with a genuine future
+	// protocol addition.
+	QueryTypeShelleyUtxoWholePaginated = 9001
 )
 
 // LedgerPeerKind selects which ledger peers the snapshot covers.
@@ -255,6 +274,7 @@ func shelleyQueryTypes() map[int]any {
 		QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
 		QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
 		QueryTypeShelleyGetLedgerPeerSnapshot:  &ShelleyGetLedgerPeerSnapshotQuery{},
+		QueryTypeShelleyUtxoWholePaginated:     &ShelleyUtxoWholePaginatedQuery{},
 	}
 }
 
@@ -336,6 +356,19 @@ type ShelleyUtxoByAddressQuery struct {
 
 type ShelleyUtxoWholeQuery struct {
 	simpleQueryBase
+}
+
+// ShelleyUtxoWholePaginatedQuery is the vendor-extension paginated form of
+// ShelleyUtxoWholeQuery -- see QueryTypeShelleyUtxoWholePaginated's doc
+// comment. CursorTxId/CursorIdx name the last UtxoId returned by the
+// previous page (both zero-valued/empty for the first page); the server
+// returns up to Limit live UTxOs ordered strictly after that reference.
+type ShelleyUtxoWholePaginatedQuery struct {
+	cbor.StructAsArray
+	Type       int
+	CursorTxId []byte
+	CursorIdx  uint32
+	Limit      uint32
 }
 
 type ShelleyDebugEpochStateQuery struct {
@@ -735,6 +768,18 @@ type (
 	UTxOByAddressResult = UTxOsResult
 	UTxOWholeResult     = UTxOsResult
 )
+
+// UTxOWholePaginatedResult is ShelleyUtxoWholePaginatedQuery's result: one
+// page of live UTxOs, plus a cursor for the next page. HasMore is false on
+// the final page, at which point NextCursorTxId/NextCursorIdx are
+// meaningless and should be ignored.
+type UTxOWholePaginatedResult struct {
+	cbor.StructAsArray
+	Results        map[UtxoId]ledger.BabbageTransactionOutput
+	HasMore        bool
+	NextCursorTxId []byte
+	NextCursorIdx  uint32
+}
 
 type UtxoId struct {
 	cbor.StructAsArray
