@@ -412,6 +412,14 @@ human review, not human approval or merge.
 - Keep the pull-request number in the PR title and therefore in the squash
   subject (for example, `fix(ledger): reject duplicate sets (#2191)`). Do not
   remove or rewrite that reference when preparing or performing the merge.
+- Budget the reference against the 72-character subject limit. When the title
+  does not already carry it, the forge appends ` (#N)` on squash — up to eight
+  characters at four-digit numbers — so a title that fits on its own can still
+  land over the limit. Keep titles at or under 64 characters, and check the
+  final subject rather than the title you typed. `validate-squash-merge.py`
+  catches this, but only when someone runs it: a merge performed through the
+  web UI skips it entirely, which is how two over-long subjects reached
+  clanker's `main`.
 - Write the squash body as real Markdown in a run-owned file and pass it with
   `--body-file`; never encode its line breaks as `\\n` in `--body`. Lock the
   merge to the reviewed head with `--match-head-commit`.

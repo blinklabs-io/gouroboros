@@ -236,10 +236,46 @@ print(json.dumps({"tool_name": "Bash", "cwd": sys.argv[2],
 docs: update the guide
 EOF
 )"' allow
-	check_guard "an amend reusing a signed-off message" \
-		'git commit --amend --no-edit' allow "$ROOT"
-	check_guard "an amend with a bad new subject" \
-		'git commit --amend -s -m "wip"' deny "$ROOT"
+	# An amend with no new message inherits HEAD's, so the guard reads the
+	# repository at cwd. Build a fixture with a known HEAD instead of pointing
+	# these checks at $ROOT: there, the assertion silently depends on whichever
+	# subject the newest squash merge happened to produce, and a merge whose
+	# subject exceeds the guard's own 72-character limit turns this check red
+	# for a reason that has nothing to do with the toolkit.
+	fixture_repo() {
+		local dir subject=$1
+		dir=$(mktemp -d) || return 1
+		git -C "$dir" init -q 2>/dev/null || return 1
+		git -C "$dir" \
+			-c user.name="Toolkit Fixture" \
+			-c user.email="fixture@example.invalid" \
+			-c commit.gpgsign=false \
+			commit -q --allow-empty -m "$subject
+
+Signed-off-by: Toolkit Fixture <fixture@example.invalid>" 2>/dev/null || return 1
+		printf '%s\n' "$dir"
+	}
+
+	if conforming=$(fixture_repo "docs: update the guide"); then
+		check_guard "an amend reusing a signed-off message" \
+			'git commit --amend --no-edit' allow "$conforming"
+		check_guard "an amend with a bad new subject" \
+			'git commit --amend -s -m "wip"' deny "$conforming"
+		rm -rf "$conforming"
+	else
+		fail "could not build the conforming amend fixture"
+	fi
+
+	# The converse, pinned deliberately rather than discovered through $ROOT:
+	# when HEAD's own subject breaks policy, an amend that reuses it is denied.
+	long_subject="docs: $(printf 'x%.0s' $(seq 1 80))"
+	if overlong=$(fixture_repo "$long_subject"); then
+		check_guard "an amend inheriting an over-long subject" \
+			'git commit --amend --no-edit' deny "$overlong"
+		rm -rf "$overlong"
+	else
+		fail "could not build the over-long amend fixture"
+	fi
 
 	# The identity warning is a note, not a denial: it must not block a commit,
 	# but it has to fire when an override disagrees with the repository's
