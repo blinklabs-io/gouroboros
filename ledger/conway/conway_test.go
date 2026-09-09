@@ -218,7 +218,7 @@ func TestConwayTransactionBodyUnmarshalCBORCertificateTypes(t *testing.T) {
 }
 
 func TestConwayTransactionBodyUnmarshalCBORCertificateTagRange(t *testing.T) {
-	certificates := conwayCertificateFixturesByType()
+	certificates := conwayCertificateFixturesByType(t)
 	for certType := common.CertificateTypeStakeRegistration; certType <= common.CertificateTypeUpdateDrep; certType++ {
 		certType := certType
 		t.Run(fmt.Sprintf("type %d", certType), func(t *testing.T) {
@@ -245,10 +245,21 @@ func TestConwayTransactionBodyUnmarshalCBORCertificateTagRange(t *testing.T) {
 	}
 }
 
-func conwayCertificateFixturesByType() map[common.CertificateType]any {
+func conwayCertificateFixturesByType(
+	t *testing.T,
+) map[common.CertificateType]any {
+	t.Helper()
 	credential := common.Credential{
 		CredType: common.CredentialTypeAddrKeyHash,
 	}
+	poolRegistration := &common.PoolRegistrationCertificate{
+		CertType: uint(common.CertificateTypePoolRegistration),
+		Margin:   cbor.Rat{Rat: big.NewRat(0, 1)},
+	}
+	require.NoError(t, poolRegistration.SetRewardAccountCredential(
+		credential,
+		common.AddressNetworkTestnet,
+	))
 	return map[common.CertificateType]any{
 		common.CertificateTypeStakeRegistration: &common.StakeRegistrationCertificate{
 			CertType: uint(common.CertificateTypeStakeRegistration),
@@ -260,10 +271,7 @@ func conwayCertificateFixturesByType() map[common.CertificateType]any {
 			CertType:        uint(common.CertificateTypeStakeDelegation),
 			StakeCredential: &credential,
 		},
-		common.CertificateTypePoolRegistration: &common.PoolRegistrationCertificate{
-			CertType: uint(common.CertificateTypePoolRegistration),
-			Margin:   cbor.Rat{Rat: big.NewRat(0, 1)},
-		},
+		common.CertificateTypePoolRegistration: poolRegistration,
 		common.CertificateTypePoolRetirement: &common.PoolRetirementCertificate{
 			CertType: uint(common.CertificateTypePoolRetirement),
 		},
@@ -468,9 +476,55 @@ func TestConwayRejectsDuplicateUntaggedInputSets(t *testing.T) {
 			require.NoError(t, err)
 
 			var body ConwayTransactionBody
-			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "duplicate member in set")
+			require.ErrorContains(
+				t,
+				body.UnmarshalCBOR(bodyCbor),
+				"duplicate member in set",
+			)
 		})
 	}
+}
+
+func TestConwayProposalProceduresSetSemantics(t *testing.T) {
+	rewardAccount, err := common.NewAddress(
+		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+	)
+	require.NoError(t, err)
+	action := common.InfoGovAction{Type: uint(common.GovActionTypeInfo)}
+	procedure := ConwayProposalProcedure{
+		PPDeposit:       1_000_000,
+		PPRewardAccount: rewardAccount,
+		PPGovAction:     ConwayGovAction{Action: &action},
+	}
+
+	for _, useTag := range []bool{false, true} {
+		t.Run(fmt.Sprintf("duplicate useTag=%t", useTag), func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{
+				20: cbor.NewSetType(
+					[]ConwayProposalProcedure{procedure, procedure},
+					useTag,
+				),
+			})
+			require.NoError(t, err)
+
+			var body ConwayTransactionBody
+			require.ErrorContains(
+				t,
+				body.UnmarshalCBOR(bodyCbor),
+				"duplicate member in set",
+			)
+		})
+	}
+
+	distinct := procedure
+	distinct.PPDeposit++
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		20: []ConwayProposalProcedure{procedure, distinct},
+	})
+	require.NoError(t, err)
+	var body ConwayTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+	require.Len(t, body.TxProposalProcedures, 2)
 }
 
 func TestConwayTransactionBodyRejectsDuplicateMultiAssetKeys(t *testing.T) {

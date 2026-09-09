@@ -6,12 +6,13 @@ This package contains conformance tests for Gouroboros, validating our implement
 
 | Category | Tests | Source |
 |----------|-------|--------|
-| Ledger Rules (Conway) | 314 | Amaru test vectors |
+| Ledger Rules (Conway) | 315 | Amaru test vectors |
 | VRF Cryptography | 58 | cardano-crypto-praos vectors |
 | KES Cryptography | 14 | input-output-hk/kes vectors |
 | Consensus | 22 | Real blocks + threshold calculation |
 | Byron Blocks | 6 | Real mainnet/testnet blocks |
-| **Total** | **414** | |
+| GenTx Goldens | 7 | ouroboros-consensus CardanoNodeToNodeVersion2 goldens |
+| **Total** | **421** | |
 
 All tests passing (100%).
 
@@ -27,8 +28,21 @@ The test vectors are sourced from [Amaru](https://github.com/pragma-org/amaru) a
 ouroboros-mock repository's conformance package.
 
 The testdata directory contains:
-- 314+ test vector files (CBOR binary) in `eras/conway/impl/dump/Conway/`
+- 315 test vector files (CBOR binary) in `eras/conway/impl/dump/Conway/`
 - Protocol parameter files in `pparams-by-hash/`
+
+### Reading a conformance count
+
+A pass count is a statement about one corpus, not about the ledger rules in
+general. The corpus is embedded in the `ouroboros-mock` version pinned in
+`go.mod`, so the count only compares across branches that pin the same version.
+The 315 above is the corpus embedded in `ouroboros-mock` v0.19.0.
+
+Two consequences follow. A count taken against a different `ouroboros-mock`
+(a local `replace`, an unreleased revision, or a refreshed upstream corpus) is
+not comparable with a count taken against the pinned one, and must name the
+revision it used. And raising the pin changes the denominator, so a pin bump
+and a rule change do not belong in the same commit.
 
 ### Running Tests
 
@@ -49,6 +63,12 @@ The test implementation uses the shared conformance harness from `github.com/bli
 - `conformance.NewMockStateManager()` - Creates a state manager for test execution
 - `conformance.NewHarness(sm, config)` - Creates the test harness
 - `harness.RunAllVectors(t)` - Runs all test vectors
+
+The mock state provider must implement `common.CommitteeCredentialState`, which
+resolves committee membership by typed credential rather than by hash alone.
+`TestStateProviderExposesCommitteeCredentials` fails closed if it does not, so
+that a mock without the capability is reported instead of silently lowering
+what the vector count covers.
 
 ## Test Vector CBOR Structure
 
@@ -440,6 +460,33 @@ Tests Byron-era block parsing and validation using real mainnet and testnet bloc
 
 ---
 
+## GenTx Conformance Tests
+
+**File**: `gentx_conformance_test.go`
+
+Decodes the `ouroboros-consensus` `CardanoNodeToNodeVersion2` GenTx and GenTxId
+goldens, read from the `ouroboros-mock` module's embedded upstream fixtures.
+
+A GenTx is `[era_id, #6.24(bytes .cbor transaction)]`; the matching GenTxId is
+`[era_id, bytes .size 32]`, where the identifier is the Blake2b-256 hash of the
+transaction body's own CBOR. The era identifier is the ledger transaction type.
+
+| Era | Era id | Transaction array |
+|-----|--------|-------------------|
+| Shelley | 1 | `[body, witness_set, auxiliary_data]` |
+| Allegra | 2 | `[body, witness_set, auxiliary_data]` |
+| Mary | 3 | `[body, witness_set, auxiliary_data]` |
+| Alonzo | 4 | `[body, witness_set, is_valid, auxiliary_data]` |
+| Babbage | 5 | `[body, witness_set, is_valid, auxiliary_data]` |
+| Conway | 6 | `[body, witness_set, is_valid, auxiliary_data]` |
+| Dijkstra | 7 | `[body, witness_set, auxiliary_data]` |
+
+| Test | Purpose |
+|------|---------|
+| `TestConsensusGenTxFixtures` | Decodes each era's GenTx golden, checks the transaction type, that the transaction CBOR is preserved and re-encodes unchanged, and that the transaction id matches the paired GenTxId golden |
+
+---
+
 ## Running All Conformance Tests
 
 ```bash
@@ -452,4 +499,5 @@ go test -v ./internal/test/conformance/... -run "VRF"                   # VRF te
 go test -v ./internal/test/conformance/... -run "KES"                   # KES tests
 go test -v ./internal/test/conformance/... -run "Byron"                 # Byron tests
 go test -v ./internal/test/conformance/... -run "Consensus"             # Consensus tests
+go test -v ./internal/test/conformance/... -run "GenTx"                  # GenTx goldens
 ```

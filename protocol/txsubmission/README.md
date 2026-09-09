@@ -130,7 +130,6 @@ txsubmission.NewConfig(
     txsubmission.WithRequestTxsFunc(requestTxsCallback),
     txsubmission.WithInitFunc(initCallback),
     txsubmission.WithDoneFunc(doneCallback),
-    txsubmission.WithIdleTimeout(0), // no timeout per spec
 )
 ```
 

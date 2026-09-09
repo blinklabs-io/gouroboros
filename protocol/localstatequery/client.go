@@ -1249,11 +1249,15 @@ func (c *Client) GetDRepState(
 		QueryTypeShelleyDRepState,
 		credSet,
 	)
-	var result DRepStateResult
-	if err := c.runQuery(query, &result); err != nil {
+	// The result is wrapped in a single-element array.
+	var wrappedResult []DRepStateResult
+	if err := c.runQuery(query, &wrappedResult); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(wrappedResult) == 0 {
+		return nil, errors.New("empty result from DRep state query")
+	}
+	return &wrappedResult[0], nil
 }
 
 // GetDRepStakeDistr returns the stake distribution across DReps (CIP-1694).
@@ -1264,9 +1268,8 @@ func (c *Client) GetDRepState(
 // full distribution. Note the [lcommon.Drep] type also covers the predefined
 // Abstain and NoConfidence options, not only credential-backed DReps.
 //
-// Response: a [DRepStakeDistrResult] containing the raw CBOR map of DReps to
-// stake amounts. It is returned undecoded because its key encoding is
-// era-specific; decode it with [cbor.Decode] against an era-appropriate type.
+// Response: a [DRepStakeDistrResult], one [DRepStakeDistrEntry] per DRep in
+// the reply, carrying the DRep and the lovelace delegated to it.
 //
 // Era: requires the Conway era or later. Returns an error if the acquired
 // ledger state is on an earlier era.

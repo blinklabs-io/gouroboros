@@ -134,6 +134,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateWrongNetworkWithdrawal,
 	},
 	{
+		Id:        common.UtxoValidationRuleTransactionNetworkId,
+		Validator: UtxoValidateTransactionNetworkId,
+	},
+	{
 		Id:        common.UtxoValidationRuleMaxTxSize,
 		Validator: UtxoValidateMaxTxSizeUtxo,
 	},
@@ -203,7 +207,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateValueNotConservedUtxo, UtxoValidateOutputTooSmallUtxo,
 		UtxoValidateOutputTooBigUtxo, UtxoValidateOutputBootAddrAttrsTooBig,
 		UtxoValidateWrongNetwork, UtxoValidateWrongNetworkWithdrawal,
-		UtxoValidateMaxTxSizeUtxo, UtxoValidateExUnitsTooBigUtxo,
+		UtxoValidateTransactionNetworkId, UtxoValidateMaxTxSizeUtxo,
+		UtxoValidateExUnitsTooBigUtxo,
 		UtxoValidateTooManyCollateralInputs, UtxoValidateNativeScripts,
 		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
 		UtxoValidatePlutusScripts,
@@ -635,12 +640,24 @@ func UtxoValidateCollateralContainsNonAda(
 }
 
 // UtxoValidateCollateralEqBalance ensures that the collateral return amount is equal to the collateral input amount minus the total collateral
+//
+// This is Part 6 of the reference's validateTotalCollateral, which feesOK runs
+// only when the redeemer map is non-empty, exactly as it does for the rest of
+// the collateral group. A transaction with no redeemers runs no phase-2
+// scripts, so its total_collateral field is not checked and a mismatch is not
+// a rejection. Conway and Dijkstra delegate here, so the guard uses the
+// interface-level helper rather than the Babbage-typed witness set: a Dijkstra
+// transaction can carry its redeemers in a sub-transaction, which the helper
+// counts.
 func UtxoValidateCollateralEqBalance(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !common.TransactionRunsPhase2Scripts(tx) {
+		return nil
+	}
 	totalCollateral := tx.TotalCollateral()
 	if totalCollateral == nil || totalCollateral.Sign() == 0 {
 		return nil
@@ -767,6 +784,7 @@ func UtxoValidateValueNotConservedUtxo(
 			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
 		}
 	}
+	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
 	for _, cert := range tx.Certificates() {
 		switch cert.(type) {
 		case *common.StakeDeregistrationCertificate:
@@ -789,11 +807,18 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator))
+			operator := common.Blake2b224(tmpCert.Operator)
+			if _, seen := seenPoolRegistrations[operator]; seen {
+				continue
+			}
+			seenPoolRegistrations[operator] = struct{}{}
+			depositDue, err := common.PoolRegistrationDepositDue(
+				ls, slot, operator,
+			)
 			if err != nil {
 				return err
 			}
-			if reg == nil {
+			if depositDue {
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
@@ -997,6 +1022,29 @@ func UtxoValidateWrongNetworkWithdrawal(
 	return shelley.UtxoValidateWrongNetworkWithdrawal(tx, slot, ls, pp)
 }
 
+// UtxoValidateTransactionNetworkId validates a present transaction network
+// identifier against the active ledger network. An absent identifier retains
+// the Babbage-era behavior and is accepted.
+func UtxoValidateTransactionNetworkId(
+	tx common.Transaction,
+	_ uint64,
+	ls common.LedgerState,
+	_ common.ProtocolParameters,
+) error {
+	txWithNetworkId, ok := tx.(interface{ TransactionNetworkId() *uint8 })
+	if !ok {
+		return errors.New("transaction does not expose a network identifier")
+	}
+	txNetworkId := txWithNetworkId.TransactionNetworkId()
+	if txNetworkId == nil || uint(*txNetworkId) == ls.NetworkId() {
+		return nil
+	}
+	return common.WrongTransactionNetworkIdError{
+		TxNetworkId:     *txNetworkId,
+		LedgerNetworkId: ls.NetworkId(),
+	}
+}
+
 func UtxoValidateMaxTxSizeUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -1007,15 +1055,15 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	txBytes, err := cbor.Encode(tx)
-	if err != nil {
-		return err
+	txSize, sizeErr := common.TxSize(tx)
+	if sizeErr != nil {
+		return sizeErr
 	}
-	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+	if uint(txSize) <= tmpPparams.MaxTxSize {
 		return nil
 	}
 	return shelley.MaxTxSizeUtxoError{
-		TxSize:    uint(len(txBytes)),
+		TxSize:    uint(txSize),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
 }
@@ -1034,8 +1082,13 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
+	// Iterate the collapsed view rather than the raw list: the wire format is a
+	// list but the ledger holds a map, so a key appearing more than once
+	// contributes its budget once. See the Alonzo rule of the same name; this
+	// is where it bites in practice, since Preview transaction 3ace3bc7f4c5 at
+	// slot 12925989 is a Babbage-era block (blinklabs-io/dingo#3875).
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Iter() {
 		newSteps, ok := common.AddInt64Checked(
 			totalSteps,
 			redeemer.ExUnits.Steps,

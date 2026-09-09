@@ -21,8 +21,6 @@ import (
 	"iter"
 	"math"
 	"math/big"
-	"slices"
-	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -173,6 +171,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: conway.UtxoValidateRequiredRedeemers,
 	},
 	{
+		Id:        common.UtxoValidationRuleBatchWithdrawals,
+		Validator: UtxoValidateBatchWithdrawals,
+	},
+	{
 		Id:        common.UtxoValidationRuleValueNotConserved,
 		Validator: UtxoValidateValueNotConservedUtxo,
 	},
@@ -194,7 +196,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
-		Validator: conway.UtxoValidateWrongNetworkWithdrawal,
+		Validator: UtxoValidateWrongNetworkWithdrawal,
 	},
 	{
 		Id:        common.UtxoValidationRuleTransactionNetworkId,
@@ -672,17 +674,13 @@ func (t dijkstraConwayFeatureTransaction) Produced() []common.Utxo {
 // shared script-purpose resolver. Script availability is aggregated across
 // levels separately by UtxoValidateConwayFeaturesWithPlutusV1V2.
 func (t dijkstraConwayFeatureTransaction) GuardingCredentials() []common.Credential {
-	switch body := t.body.(type) {
-	case *DijkstraTransactionBody:
-		if body.TxGuards != nil {
-			return body.TxGuards.Credentials
-		}
-	case *DijkstraSubTransactionBody:
-		if body.TxGuards != nil {
-			return body.TxGuards.Credentials
-		}
+	guardingBody, ok := t.body.(interface {
+		GuardingCredentials() []common.Credential
+	})
+	if !ok {
+		return nil
 	}
-	return nil
+	return guardingBody.GuardingCredentials()
 }
 
 func dijkstraTransactionLevels(
@@ -1001,6 +999,115 @@ func UtxoValidateValueNotConservedUtxo(
 	return conway.UtxoValidateValueNotConservedUtxo(tx, slot, ls, tmpPparams)
 }
 
+type batchWithdrawal struct {
+	address    common.Address
+	rawAddress []byte
+	credential common.Credential
+	amount     *big.Int
+}
+
+// UtxoValidateBatchWithdrawals rejects a Dijkstra transaction when the total
+// withdrawal for an account across the entire batch exceeds its original
+// reward-account balance. This is unconditional: phase-2-invalid transactions
+// still undergo this UTXOW check.
+func UtxoValidateBatchWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return nil
+	}
+
+	bodies := make(
+		[]common.TransactionBody,
+		0,
+		1+len(dijkstraTx.Body.TxSubTransactions.Items()),
+	)
+	bodies = append(bodies, &dijkstraTx.Body)
+	bodies = append(
+		bodies,
+		common.SubTransactionBodiesFromTransaction(dijkstraTx)...)
+
+	withdrawals := make(map[string]batchWithdrawal)
+	for _, body := range bodies {
+		bodyWithdrawals := body.Withdrawals()
+		if len(bodyWithdrawals) == 0 {
+			continue
+		}
+		if err := common.ValidateWithdrawalAddresses(bodyWithdrawals); err != nil {
+			return err
+		}
+		for address, amount := range bodyWithdrawals {
+			credential, err := address.RewardAccountCredential()
+			if err != nil {
+				return err
+			}
+			rawAddress, err := address.Bytes()
+			if err != nil {
+				return fmt.Errorf("encode batch withdrawal address: %w", err)
+			}
+			key := string(rawAddress)
+			entry, exists := withdrawals[key]
+			if !exists {
+				entry = batchWithdrawal{
+					address:    *address,
+					rawAddress: rawAddress,
+					credential: credential,
+					amount:     new(big.Int),
+				}
+			}
+			if amount != nil {
+				entry.amount.Add(entry.amount, amount)
+			}
+			withdrawals[key] = entry
+		}
+	}
+
+	if len(withdrawals) == 0 {
+		return nil
+	}
+	if ls == nil {
+		return errors.New(
+			"ledger state is required for batch withdrawal validation",
+		)
+	}
+
+	mismatches := make(map[cbor.ByteString][]uint64)
+	for _, withdrawal := range withdrawals {
+		balance, err := ls.RewardAccountBalance(withdrawal.credential)
+		if err != nil {
+			return err
+		}
+		if balance == nil {
+			return shelley.WithdrawalFromUnregisteredRewardAccountError{
+				RewardAddress: withdrawal.address,
+			}
+		}
+		expected := *balance
+		expectedAmount := new(big.Int).SetUint64(expected)
+		if withdrawal.amount.Cmp(expectedAmount) <= 0 {
+			continue
+		}
+		if !withdrawal.amount.IsUint64() {
+			return fmt.Errorf(
+				"batch withdrawal amount for %x exceeds uint64",
+				withdrawal.rawAddress,
+			)
+		}
+		mismatches[cbor.NewByteString(withdrawal.rawAddress)] = []uint64{
+			withdrawal.amount.Uint64(),
+			expected,
+		}
+	}
+	if len(mismatches) == 0 {
+		return nil
+	}
+	return WithdrawalsExceedAccountBalanceError{Withdrawals: mismatches}
+}
+
 func UtxoValidateCCVotingRestrictions(
 	tx common.Transaction,
 	slot uint64,
@@ -1134,180 +1241,24 @@ func dijkstraRequiredPlutusPurposes(
 	return ret
 }
 
+// dijkstraRequiredScriptPurposes lists the script purposes one transaction
+// level defines, with the redeemer pointer each one requires.
+//
+// The walk itself is script.ScriptPurposes, shared with neededScripts and
+// script.ValidateRequiredRedeemers. Dijkstra kept its own copy of the six-way
+// purpose walk until issue #2250; a second list is how a purpose comes to be
+// enforced in one place and not the other, which is the defect that issue
+// records for the non-spending purposes.
 func dijkstraRequiredScriptPurposes(
 	level dijkstraScriptLevel,
 ) []dijkstraRequiredScriptPurpose {
-	ret := make([]dijkstraRequiredScriptPurpose, 0)
-	appendPurpose := func(
-		key common.RedeemerKey,
-		purpose script.ScriptPurpose,
-	) {
-		if purpose == nil || purpose.ScriptHash() == (common.ScriptHash{}) {
-			return
-		}
+	purposes := script.ScriptPurposes(level.tx, level.view.ResolvedInputs)
+	ret := make([]dijkstraRequiredScriptPurpose, 0, len(purposes))
+	for _, needed := range purposes {
 		ret = append(ret, dijkstraRequiredScriptPurpose{
-			key:     key,
-			purpose: purpose,
+			key:     needed.Key,
+			purpose: needed.Purpose,
 		})
-	}
-
-	resolved := make(map[string]common.Utxo, len(level.view.ResolvedInputs))
-	for _, utxo := range level.view.ResolvedInputs {
-		if utxo.Id != nil {
-			resolved[utxo.Id.String()] = utxo
-		}
-	}
-	for idx, input := range script.SortInputs(level.tx.Inputs()) {
-		utxo, ok := resolved[input.String()]
-		if !ok || utxo.Output == nil ||
-			utxo.Output.Address().Type()&common.AddressTypeScriptBit == 0 {
-			continue
-		}
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagSpend,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeSpending{Input: utxo},
-		)
-	}
-
-	if mint := level.tx.AssetMint(); mint != nil {
-		policies := mint.Policies()
-		slices.SortFunc(policies, func(a, b common.Blake2b224) int {
-			return bytes.Compare(a.Bytes(), b.Bytes())
-		})
-		for idx, policy := range policies {
-			appendPurpose(
-				common.RedeemerKey{
-					Tag: common.RedeemerTagMint,
-					Index: uint32(
-						idx,
-					), // #nosec G115 -- bounded by transaction size
-				},
-				script.ScriptPurposeMinting{PolicyId: policy},
-			)
-		}
-	}
-
-	for idx, certificate := range level.tx.Certificates() {
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagCert,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeCertifying{
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-				Certificate: certificate,
-			},
-		)
-	}
-
-	withdrawals := make([]*common.Address, 0, len(level.tx.Withdrawals()))
-	for address := range level.tx.Withdrawals() {
-		withdrawals = append(withdrawals, address)
-	}
-	slices.SortFunc(withdrawals, func(a, b *common.Address) int {
-		if a == nil {
-			return -1
-		}
-		if b == nil {
-			return 1
-		}
-		aBytes, aErr := a.Bytes()
-		bBytes, bErr := b.Bytes()
-		if aErr != nil || bErr != nil {
-			return strings.Compare(a.String(), b.String())
-		}
-		return bytes.Compare(aBytes, bBytes)
-	})
-	for idx, address := range withdrawals {
-		if address == nil ||
-			address.Type()&common.AddressTypeScriptBit == 0 {
-			continue
-		}
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagReward,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeRewarding{
-				StakeCredential: common.Credential{
-					CredType:   common.CredentialTypeScriptHash,
-					Credential: address.StakeKeyHash(),
-				},
-			},
-		)
-	}
-
-	voters := make([]*common.Voter, 0, len(level.tx.VotingProcedures()))
-	for voter := range level.tx.VotingProcedures() {
-		voters = append(voters, voter)
-	}
-	slices.SortFunc(voters, func(a, b *common.Voter) int {
-		if a == nil {
-			return -1
-		}
-		if b == nil {
-			return 1
-		}
-		aTag := dijkstraVoterTag(a)
-		bTag := dijkstraVoterTag(b)
-		if aTag != bTag {
-			return aTag - bTag
-		}
-		return bytes.Compare(a.Hash[:], b.Hash[:])
-	})
-	for idx, voter := range voters {
-		if voter == nil || !dijkstraVoterUsesScriptCredential(*voter) {
-			continue
-		}
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagVoting,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeVoting{Voter: *voter},
-		)
-	}
-
-	for idx, proposal := range level.tx.ProposalProcedures() {
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagProposing,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeProposing{
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-				ProposalProcedure: proposal,
-			},
-		)
-	}
-
-	for idx, guard := range level.tx.GuardingCredentials() {
-		appendPurpose(
-			common.RedeemerKey{
-				Tag: common.RedeemerTagGuarding,
-				Index: uint32(
-					idx,
-				), // #nosec G115 -- bounded by transaction size
-			},
-			script.ScriptPurposeGuarding{Guard: guard},
-		)
 	}
 	return ret
 }
@@ -1343,33 +1294,6 @@ func validateDijkstraPlutusRedeemers(
 		}
 	}
 	return nil
-}
-
-func dijkstraVoterUsesScriptCredential(voter common.Voter) bool {
-	switch voter.Type {
-	case common.VoterTypeConstitutionalCommitteeHotScriptHash,
-		common.VoterTypeDRepScriptHash:
-		return true
-	default:
-		return false
-	}
-}
-
-func dijkstraVoterTag(voter *common.Voter) int {
-	switch voter.Type {
-	case common.VoterTypeConstitutionalCommitteeHotScriptHash:
-		return 0
-	case common.VoterTypeConstitutionalCommitteeHotKeyHash:
-		return 1
-	case common.VoterTypeDRepScriptHash:
-		return 2
-	case common.VoterTypeDRepKeyHash:
-		return 3
-	case common.VoterTypeStakingPoolKeyHash:
-		return 4
-	default:
-		return -1
-	}
 }
 
 func dijkstraPlutusV4RedeemerKeys(
@@ -2775,6 +2699,21 @@ func UtxoValidateTransactionNetworkId(
 	return nil
 }
 
+// UtxoValidateWrongNetworkWithdrawal validates only phase-2-valid Dijkstra
+// transactions. A phase-2-invalid transaction does not apply its withdrawal
+// effects, so its withdrawal addresses are not checked by the withdrawal rule.
+func UtxoValidateWrongNetworkWithdrawal(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	return conway.UtxoValidateWrongNetworkWithdrawal(tx, slot, ls, pp)
+}
+
 func UtxoValidateMaxTxSizeUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2785,18 +2724,15 @@ func UtxoValidateMaxTxSizeUtxo(
 	if err != nil {
 		return err
 	}
-	txBytes := tx.Cbor()
-	if len(txBytes) == 0 {
-		txBytes, err = cbor.Encode(tx)
-		if err != nil {
-			return err
-		}
+	txSize, sizeErr := common.TxSize(tx)
+	if sizeErr != nil {
+		return sizeErr
 	}
-	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+	if uint(txSize) <= tmpPparams.MaxTxSize {
 		return nil
 	}
 	return shelley.MaxTxSizeUtxoError{
-		TxSize:    uint(len(txBytes)),
+		TxSize:    uint(txSize),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
 }

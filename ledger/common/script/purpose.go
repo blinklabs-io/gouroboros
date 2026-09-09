@@ -480,11 +480,14 @@ func BuildScriptPurpose(
 			Certificate: certificates[redeemerKey.Index],
 		}, nil
 	case lcommon.RedeemerTagReward:
-		sortedAddrs := sortWithdrawalAddresses(withdrawals)
+		sortedAddrs := SortWithdrawalAddresses(withdrawals)
 		if uint64(redeemerKey.Index) >= uint64(len(sortedAddrs)) {
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		addr := sortedAddrs[redeemerKey.Index]
+		if addr == nil {
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		}
 		return ScriptPurposeRewarding{
 			StakeCredential: lcommon.Credential{
 				CredType:   lcommon.CredentialTypeScriptHash,
@@ -546,9 +549,9 @@ func BuildScriptPurpose(
 	}
 }
 
-// sortWithdrawalAddresses matches cardano-ledger's Ord instance for reward
+// SortWithdrawalAddresses matches cardano-ledger's Ord instance for reward
 // accounts: network first, then credential type, then credential hash.
-func sortWithdrawalAddresses(
+func SortWithdrawalAddresses(
 	withdrawals map[*lcommon.Address]*big.Int,
 ) []*lcommon.Address {
 	sorted := make([]*lcommon.Address, 0, len(withdrawals))
@@ -556,6 +559,12 @@ func sortWithdrawalAddresses(
 		sorted = append(sorted, addr)
 	}
 	slices.SortFunc(sorted, func(a, b *lcommon.Address) int {
+		if a == nil {
+			return -1
+		}
+		if b == nil {
+			return 1
+		}
 		aCred, aErr := a.RewardAccountCredential()
 		bCred, bErr := b.RewardAccountCredential()
 		if aErr != nil || bErr != nil {
