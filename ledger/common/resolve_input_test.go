@@ -46,7 +46,9 @@ func TestValidateCollateralVKeyWitnessesRejectsNilOutput(t *testing.T) {
 	}
 	tx := mockledger.NewTransactionBuilder().
 		WithCollateral(input).
-		WithWitnesses(mockledger.NewMockTransactionWitnessSet().WithRedeemers(redeemers))
+		WithWitnesses(mockledger.NewMockTransactionWitnessSet().
+			WithRedeemers(redeemers).
+			WithVkeyWitnesses(common.VkeyWitness{Vkey: []byte("collateral-key")}))
 
 	require.NotPanics(t, func() {
 		err := common.ValidateCollateralVKeyWitnesses(tx, state)
