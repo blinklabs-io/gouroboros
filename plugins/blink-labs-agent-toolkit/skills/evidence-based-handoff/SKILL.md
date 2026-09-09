@@ -137,3 +137,33 @@ distinguish merge blockers from non-blocking recommendations.
 Keep it short and factual. A handoff is a record, not a narrative: no
 storytelling, no transcript, no roadmap, no speculation about future work
 beyond the named follow-ups.
+
+## Write it so the next agent can skip what you did
+
+When the handoff feeds another agent rather than a person — a developer handing
+to a reviewer, a reviewer handing to the next reviewer — its job is to stop that
+agent repeating your work. A receiving agent that re-runs a ×20 race sweep you
+already ran spends an hour to learn what your ledger already says.
+
+That only works if the ledger is precise enough to rely on. Make each row
+reproducible on its face: the exact command, the directory, the exit code, and
+the count where you ran something repeatedly (`13/20 fail`, not "often fails").
+A vague row gets re-run, and rightly.
+
+Then separate three things the reader cannot otherwise tell apart:
+
+- **Established** — you ran it, and the ledger row shows what.
+- **Asserted** — you believe it and reasoned about it, but did not verify it.
+  Say so in those words. "The lane has a single worker" read from a comment is
+  not the same as read from the code, and the difference decides whether the
+  next agent must open that file.
+- **Observational versus causal** — "the assertion never failed across 100 runs"
+  is weaker than "the assertion fails when I break the code". If you did not run
+  the in-place revert, say the verdict rests on observation, so the reviewer
+  knows to close that gap rather than re-measure what you already measured.
+
+Name what you did **not** check, beyond the skipped-check list: the assumption
+you took on trust, the case you could not construct, the branch you covered by
+inspection instead of by test. Those are where the next agent's budget belongs,
+and a handoff that hides them sends the reviewer back over ground you have
+already covered while the real gap goes unexamined.

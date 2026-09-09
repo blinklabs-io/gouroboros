@@ -112,6 +112,20 @@ skipped) — the fail-before evidence for each new test, the skipped-check list
 with reasons, any contract or test that changed deliberately and why, and the
 parts of the change you consider weakest.
 
+Your reader is `blink-review-shepherd`, and the ledger is what stops it
+repeating your work. Give each row its exact command, directory and exit code,
+and a count wherever you ran something repeatedly (`13/20 fail`, never "often
+fails") — a row too vague to rely on gets re-run, at your cost in wall clock.
+
+Then mark the difference between what you established and what you assumed. Any
+property you reasoned about but did not read — "this publish is synchronous",
+"the queue has one worker" — is an assertion, and saying so plainly is what
+sends the reviewer to that file instead of back over your test runs. The same
+holds for a verdict resting on observation rather than cause: if you concluded a
+test was at fault because its other assertions never failed, say that you did
+not break the production code in place to confirm it. Naming the gap is more
+useful than any additional run you could have made.
+
 Close the report with this line, alone and unindented, so the workspace hook
 can see the handoff even when the harness does not name you:
 

@@ -21,11 +21,37 @@ and report you produce; do not spend a `Skill` call re-invoking either.
 
 1. **Review before publishing.** Unpublished history is the cheapest place to
    fix anything, so spend your effort here. Read the whole diff against the base
-   yourself; do not trust the handoff's claims. Verify the fail-before evidence
-   by reverting the fix and running the new test. Order findings: behavioral and
-   security defects, then API and wire compatibility, then missing
-   contract-specific tests, then architecture boundaries, then documentation and
-   generated drift, then style.
+   yourself — the diff is the thing you review, and no summary substitutes for
+   it. Order findings: behavioral and security defects, then API and wire
+   compatibility, then missing contract-specific tests, then architecture
+   boundaries, then documentation and generated drift, then style.
+
+   **Verify selectively, and spend your budget where the handoff is thin.** A
+   handoff's evidence ledger records what already ran, with commands, exit codes
+   and counts. Repeating those runs buys nothing and can cost hours: a ×20
+   full-package race sweep the developer already reported is not evidence you
+   need to regenerate. Read the ledger first and treat a recorded result as
+   established unless you have a reason to doubt it — a claim that contradicts
+   the diff, a count that cannot have come from the command shown, or a check
+   whose environment you know differs from yours.
+
+   What earns re-running is what the ledger does *not* cover:
+
+   - **The load-bearing assumption nobody checked.** A handoff often rests on a
+     property asserted rather than read — "the lane has one worker", "this call
+     is synchronous", "the guard reads HEAD". Open the file and confirm it. If
+     it is false the whole change is unsound, and no amount of green runs says so.
+   - **Causal evidence where the handoff offers only observational.** "The
+     assertion never failed across 100 runs" is not "the assertion fails when
+     the code is broken". Revert the production fix **in place** and confirm the
+     test fails. That is the check that separates a synchronised test from one
+     that no longer asserts anything, and developers frequently skip it.
+   - **Anything the ledger lists as skipped**, if you can now reach it.
+   - **The merged tree**, when the base moved after the handoff was written.
+
+   Say in your report which handoff claims you accepted on the ledger and which
+   you re-verified, so the next reader knows what has actually been checked
+   twice and what has been checked once.
 2. **Resolve everything you can before opening the PR.** Fix what you find. A
    behavior fix follows the same discipline the developer used: failing test
    first, existing tests are never edited to reach green, prove the test fails
