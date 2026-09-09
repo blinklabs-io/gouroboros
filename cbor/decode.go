@@ -40,19 +40,16 @@ var (
 	cachedLenientDecModeOnce sync.Once
 )
 
-// MaxNestedLevels bounds the CBOR nesting depth accepted by every decode
-// mode in this package. The limit is deliberately below the underlying
-// library's maximum: public decoders can receive peer-controlled data, and
-// custom UnmarshalCBOR implementations recurse on the Go stack. A limit of
-// 1024 preserves values accepted by the former 256-level default while
-// preventing tens of thousands of recursive calls. The protocol payload-size
-// limit remains an independent, larger wire-compatibility bound; it is not a
-// safe substitute for a stack cap.
-const MaxNestedLevels = 1024
+// MaxNestedLevels is the deepest nesting the CBOR decoder accepts. It
+// defaults to 32 in fxamacker, but there are blocks in the wild using
+// more than 64 nested levels. Callers that build CBOR-bound structures
+// from another format should bound themselves by this value rather than
+// repeating the literal.
+const MaxNestedLevels = 256
 
-// MaxUntrustedNestedLevels bounds recursive parsing of values received from
-// untrusted peers. It is retained as a named limit for callers that need to
-// document the untrusted-decoding contract.
+// MaxUntrustedNestedLevels names the limit used by decoders that process
+// peer-controlled data. Keep it equal to MaxNestedLevels until recursive
+// custom unmarshallers are removed from the public decode path.
 const MaxUntrustedNestedLevels = MaxNestedLevels
 
 // getDecMode returns a cached DecMode, initializing it on first use.
@@ -63,8 +60,7 @@ func getDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			// The library default is 32. See MaxNestedLevels.
-			MaxNestedLevels: MaxNestedLevels,
+			MaxNestedLevels:   MaxNestedLevels,
 			// The fxamacker default is 131072, but Cardano ledger state
 			// snapshots contain stake distribution maps that can exceed
 			// 1M entries on mainnet.

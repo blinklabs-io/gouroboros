@@ -200,7 +200,7 @@ func TestParseDiagnosticMaxNestedLevels(t *testing.T) {
 
 	_, err := cbor.ParseDiagnostic(data)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "max depth of 1024")
+	assert.Contains(t, err.Error(), "max depth of 256")
 }
 
 func TestDiagnosticGetNodeAtOffset(t *testing.T) {

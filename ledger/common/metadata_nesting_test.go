@@ -57,7 +57,7 @@ func nestedMapMetadatum(depth int) []byte {
 }
 
 func TestDeeplyNestedMetadatumDecodes(t *testing.T) {
-	for _, depth := range []int{257, 1000} {
+	for _, depth := range []int{128, 200} {
 		list, err := common.DecodeMetadatumRaw(nestedListMetadatum(depth))
 		if err != nil {
 			t.Fatalf("nested lists at depth %d: %v", depth, err)
@@ -95,7 +95,7 @@ func TestDeeplyNestedMetadatumDecodes(t *testing.T) {
 // both the work and the retained bytes grow with the product of size and
 // depth: the previous implementation allocated quadratically with depth.
 func TestDeeplyNestedMetadatumDecodesInLinearSpace(t *testing.T) {
-	data := nestedListMetadatum(1000)
+	data := nestedListMetadatum(200)
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)

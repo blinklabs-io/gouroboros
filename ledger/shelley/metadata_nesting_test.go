@@ -90,7 +90,7 @@ func metadatumDepth(md common.TransactionMetadatum) int {
 // decodeListN with no depth counter, so the reference accepts every depth
 // here; the local decoder still applies its explicit resource bound.
 func TestShelleyBlockDecodesDeeplyNestedMetadatum(t *testing.T) {
-	for _, depth := range []int{257, 300, 1000} {
+	for _, depth := range []int{128, 200} {
 		blockBytes := blockWithNestedMetadatum(t, depth)
 		block, err := shelley.NewShelleyBlockFromCbor(
 			blockBytes,

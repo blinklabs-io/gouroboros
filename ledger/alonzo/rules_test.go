@@ -134,6 +134,43 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateTransactionNetworkId(t *testing.T) {
+	ledgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+	validate := func(tx *alonzo.AlonzoTransaction) error {
+		return alonzo.UtxoValidateTransactionNetworkId(tx, 0, ledgerState, &alonzo.AlonzoProtocolParameters{})
+	}
+
+	t.Run("absent identifier is accepted", func(t *testing.T) {
+		assert.NoError(t, validate(&alonzo.AlonzoTransaction{}))
+	})
+	t.Run("matching identifier is accepted", func(t *testing.T) {
+		assert.NoError(t, validate(&alonzo.AlonzoTransaction{Body: alonzo.AlonzoTransactionBody{NetworkId: 1}}))
+	})
+	t.Run("mismatched identifier is rejected", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		tx.Body.SetNetworkIdPresence(true)
+		err := validate(tx)
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+	t.Run("explicit testnet identifier decoded from CBOR is present", func(t *testing.T) {
+		bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(0)})
+		require.NoError(t, err)
+		var body alonzo.AlonzoTransactionBody
+		require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+		err = validate(&alonzo.AlonzoTransaction{Body: body})
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+	t.Run("invalid identifier is rejected", func(t *testing.T) {
+		err := validate(&alonzo.AlonzoTransaction{Body: alonzo.AlonzoTransactionBody{NetworkId: 2}})
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+}
+
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{

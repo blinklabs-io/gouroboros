@@ -859,8 +859,8 @@ func TestBuildHeaderTPraosRoundTripsWithHeaderValidator(t *testing.T) {
 	coldPrivateKey := ed25519.NewKeyFromSeed(coldSeed)
 	coldPublicKey := coldPrivateKey.Public().(ed25519.PublicKey)
 
-	opCertSeqNum := uint32(1)
-	opCertKesPeriod := uint32(0)
+	opCertSeqNum := uint64(1)
+	opCertKesPeriod := uint64(0)
 	opCertBody := common.OpCertSignableBytes(
 		kesSigner.PublicKey(),
 		uint64(opCertSeqNum),

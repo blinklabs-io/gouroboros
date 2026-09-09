@@ -15,7 +15,6 @@
 package cbor_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -33,32 +32,25 @@ func nestedArrays(depth int) []byte {
 	return append(out, 0x00)
 }
 
-// TestDecodeAcceptsNestingPastPreviousCap covers safe recursive parsing depths
-// beyond the previous fixed cap of 256.
-func TestDecodeAcceptsNestingPastPreviousCap(t *testing.T) {
-	// 16384 is the current mainnet max_tx_size, and therefore the deepest
-	// structure a transaction can carry, since a nesting level costs at
-	// least one byte.
-	for _, depth := range []int{257, 300, 1000} {
-		data := nestedArrays(depth)
-		for _, tc := range []struct {
-			name   string
-			decode func([]byte, any) (int, error)
-		}{
-			{"Decode", cbor.Decode},
-			{"DecodeStrict", cbor.DecodeStrict},
-			{"DecodeLenient", cbor.DecodeLenient},
-		} {
+// TestDecodeRejectsNestingPastConfiguredLimit keeps all public decode modes
+// behind the stack-safety bound. These paths process peer-controlled payloads
+// and custom UnmarshalCBOR implementations can recurse on the Go stack.
+func TestDecodeRejectsNestingPastConfiguredLimit(t *testing.T) {
+	data := nestedArrays(cbor.MaxNestedLevels + 1)
+	for _, tc := range []struct {
+		name   string
+		decode func([]byte, any) (int, error)
+	}{
+		{"Decode", cbor.Decode},
+		{"DecodeStrict", cbor.DecodeStrict},
+		{"DecodeLenient", cbor.DecodeLenient},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			var dest cbor.Value
-			if _, err := tc.decode(data, &dest); err != nil {
-				t.Errorf(
-					"%s rejected nesting depth %d: %v",
-					tc.name,
-					depth,
-					err,
-				)
+			if _, err := tc.decode(data, &dest); err == nil {
+				t.Fatalf("accepted nesting depth %d", cbor.MaxNestedLevels+1)
 			}
-		}
+		})
 	}
 }
 
@@ -70,21 +62,5 @@ func TestDecodeAcceptsNestingAtConfiguredLimit(t *testing.T) {
 	var value cbor.Value
 	if _, err := cbor.Decode(nestedArrays(cbor.MaxNestedLevels), &value); err != nil {
 		t.Fatalf("Decode rejected Value at configured nesting limit: %v", err)
-	}
-}
-
-func TestDecodeRejectsNestingPastConfiguredLimit(t *testing.T) {
-	data := nestedArrays(cbor.MaxNestedLevels + 1)
-	var dest any
-	_, err := cbor.Decode(data, &dest)
-	if err == nil {
-		t.Fatalf("expected nesting depth %d to be rejected", cbor.MaxNestedLevels+1)
-	}
-	if !strings.Contains(err.Error(), "max nested level") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var value cbor.Value
-	if _, err := cbor.Decode(data, &value); err == nil {
-		t.Fatal("expected Value to reject nesting past configured limit")
 	}
 }
