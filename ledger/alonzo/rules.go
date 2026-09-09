@@ -117,6 +117,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateWrongNetworkWithdrawal,
 	},
 	{
+		Id:        common.UtxoValidationRuleTransactionNetworkId,
+		Validator: UtxoValidateTransactionNetworkId,
+	},
+	{
 		Id:        common.UtxoValidationRuleMaxTxSize,
 		Validator: UtxoValidateMaxTxSizeUtxo,
 	},
@@ -175,7 +179,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateBadInputsUtxo, UtxoValidateScriptWitnesses, UtxoValidateValueNotConservedUtxo,
 		UtxoValidateOutputTooSmallUtxo, UtxoValidateOutputTooBigUtxo,
 		UtxoValidateOutputBootAddrAttrsTooBig, UtxoValidateWrongNetwork,
-		UtxoValidateWrongNetworkWithdrawal, UtxoValidateMaxTxSizeUtxo,
+		UtxoValidateWrongNetworkWithdrawal, UtxoValidateTransactionNetworkId,
+		UtxoValidateMaxTxSizeUtxo,
 		UtxoValidateExUnitsTooBigUtxo, UtxoValidateNativeScripts,
 		UtxoValidateExtraneousRedeemers, UtxoValidatePlutusScripts,
 	),
@@ -618,6 +623,7 @@ func UtxoValidateValueNotConservedUtxo(
 			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
 		}
 	}
+	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
 	for _, cert := range tx.Certificates() {
 		switch cert.(type) {
 		case *common.StakeDeregistrationCertificate:
@@ -640,11 +646,18 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator))
+			operator := common.Blake2b224(tmpCert.Operator)
+			if _, seen := seenPoolRegistrations[operator]; seen {
+				continue
+			}
+			seenPoolRegistrations[operator] = struct{}{}
+			depositDue, err := common.PoolRegistrationDepositDue(
+				ls, slot, operator,
+			)
 			if err != nil {
 				return err
 			}
-			if reg == nil {
+			if depositDue {
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
@@ -813,6 +826,29 @@ func UtxoValidateWrongNetworkWithdrawal(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateWrongNetworkWithdrawal(tx, slot, ls, pp)
+}
+
+// UtxoValidateTransactionNetworkId validates a present transaction network
+// identifier against the active ledger network. An absent identifier retains
+// the Alonzo-era behavior and is accepted.
+func UtxoValidateTransactionNetworkId(
+	tx common.Transaction,
+	_ uint64,
+	ls common.LedgerState,
+	_ common.ProtocolParameters,
+) error {
+	txWithNetworkId, ok := tx.(interface{ TransactionNetworkId() *uint8 })
+	if !ok {
+		return errors.New("transaction does not expose a network identifier")
+	}
+	txNetworkId := txWithNetworkId.TransactionNetworkId()
+	if txNetworkId == nil || uint(*txNetworkId) == ls.NetworkId() {
+		return nil
+	}
+	return common.WrongTransactionNetworkIdError{
+		TxNetworkId:     *txNetworkId,
+		LedgerNetworkId: ls.NetworkId(),
+	}
 }
 
 func UtxoValidateMaxTxSizeUtxo(

@@ -26,6 +26,9 @@ import (
 type Client struct {
 	*protocol.Protocol
 	config          *Config
+	cookie          uint16
+	inFlight        bool
+	cookieMutex     sync.Mutex
 	callbackContext CallbackContext
 	timer           *time.Timer
 	timerMutex      sync.Mutex
@@ -40,6 +43,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config: cfg,
+		cookie: cfg.Cookie,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -72,6 +76,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 // Start begins the keep-alive protocol client and starts sending keep-alive messages at the configured interval.
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.cookieMutex.Lock()
+		c.cookie = c.config.Cookie
+		c.cookieMutex.Unlock()
 		c.Protocol.Logger().
 			Debug("starting client protocol",
 				"component", "network",
@@ -95,8 +102,20 @@ func (c *Client) Start() {
 
 // sendKeepAlive sends a keep-alive message and schedules the next one.
 func (c *Client) sendKeepAlive() {
-	msg := NewMsgKeepAlive(c.config.Cookie)
+	c.cookieMutex.Lock()
+	if c.inFlight {
+		c.cookieMutex.Unlock()
+		c.startTimer()
+		return
+	}
+	cookie := c.cookie
+	c.inFlight = true
+	c.cookieMutex.Unlock()
+	msg := NewMsgKeepAlive(cookie)
 	if err := c.SendMessage(msg); err != nil {
+		c.cookieMutex.Lock()
+		c.inFlight = false
+		c.cookieMutex.Unlock()
 		c.SendError(err)
 	}
 	// Schedule timer
@@ -141,11 +160,18 @@ func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msg := msgGeneric.(*MsgKeepAliveResponse)
-	if msg.Cookie != c.config.Cookie {
+	c.cookieMutex.Lock()
+	expectedCookie := c.cookie
+	if msg.Cookie == expectedCookie {
+		c.cookie++
+		c.inFlight = false
+	}
+	c.cookieMutex.Unlock()
+	if msg.Cookie != expectedCookie {
 		return fmt.Errorf(
 			"%s: unexpected cookie in response, expected %d but received %d",
 			ProtocolName,
-			c.config.Cookie,
+			expectedCookie,
 			msg.Cookie,
 		)
 	}

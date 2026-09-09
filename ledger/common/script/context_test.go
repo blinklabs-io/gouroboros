@@ -15,6 +15,7 @@
 package script_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -35,6 +36,63 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTxInfoWithdrawalOrderFollowsCredentialOrder(t *testing.T) {
+	hash := bytes.Repeat([]byte{0x42}, common.AddressHashSize)
+	scriptAddress, err := common.NewAddressFromParts(
+		common.AddressTypeNoneScript,
+		common.AddressNetworkTestnet,
+		nil,
+		hash,
+	)
+	require.NoError(t, err)
+	keyAddress, err := common.NewAddressFromParts(
+		common.AddressTypeNoneKey,
+		common.AddressNetworkTestnet,
+		nil,
+		hash,
+	)
+	require.NoError(t, err)
+	tx := mockledger.NewTransactionBuilder().WithWithdrawals(
+		map[*common.Address]uint64{
+			&scriptAddress: 1,
+			&keyAddress:    2,
+		},
+	)
+
+	assertOrder := func(
+		t *testing.T,
+		withdrawals script.KeyValuePairs[*common.Address, *big.Int],
+	) {
+		require.Len(t, withdrawals, 2)
+		require.Same(t, &scriptAddress, withdrawals[0].Key)
+		require.Same(t, &keyAddress, withdrawals[1].Key)
+	}
+
+	t.Run("Plutus V1", func(t *testing.T) {
+		txInfo, err := script.NewTxInfoV1FromTransaction(
+			mockSlotState{}, tx, nil, false,
+		)
+		require.NoError(t, err)
+		require.Len(t, txInfo.Withdrawals, 2)
+		require.Same(t, &scriptAddress, txInfo.Withdrawals[0].T1)
+		require.Same(t, &keyAddress, txInfo.Withdrawals[1].T1)
+	})
+	t.Run("Plutus V2", func(t *testing.T) {
+		txInfo, err := script.NewTxInfoV2FromTransaction(
+			mockSlotState{}, tx, nil, false,
+		)
+		require.NoError(t, err)
+		assertOrder(t, txInfo.Withdrawals)
+	})
+	t.Run("Plutus V3", func(t *testing.T) {
+		txInfo, err := script.NewTxInfoV3FromTransaction(
+			mockSlotState{}, tx, nil,
+		)
+		require.NoError(t, err)
+		assertOrder(t, txInfo.Withdrawals)
+	})
+}
 
 func buildTxInfoV1(
 	slotState lcommon.SlotState,

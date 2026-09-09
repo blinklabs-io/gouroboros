@@ -21,6 +21,21 @@ import (
 	"reflect"
 )
 
+// WrongTransactionNetworkIdError reports a transaction-body network ID that
+// does not match the active ledger network.
+type WrongTransactionNetworkIdError struct {
+	TxNetworkId     uint8
+	LedgerNetworkId uint
+}
+
+func (e WrongTransactionNetworkIdError) Error() string {
+	return fmt.Sprintf(
+		"wrong transaction network ID: transaction has %d, ledger expects %d",
+		e.TxNetworkId,
+		e.LedgerNetworkId,
+	)
+}
+
 // CurrentTreasuryValueMismatchError indicates that a transaction's supplied
 // current treasury value differs from the ledger state.
 type CurrentTreasuryValueMismatchError struct {

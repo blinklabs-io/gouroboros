@@ -12,9 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Tests that pin the LeiosHash contract for every era transaction type:
+// LeiosHash is the Blake2b-256 hash of the transaction's current CBOR, it is
+// recomputed on every call rather than memoized, the transaction types stay
+// copyable, and concurrent callers on one shared transaction agree. They live
+// in package ledger_test rather than in each era package so that a new era
+// cannot be added without being listed here.
+
 package ledger_test
 
 import (
+	"reflect"
 	"sync"
 	"testing"
 
@@ -22,121 +30,239 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
-	"github.com/blinklabs-io/gouroboros/ledger/common"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/stretchr/testify/require"
 )
 
-const testTransactionCbor = "\x83\xa0\xa0\xa0"
+// leiosHashTx is the part of common.Transaction these tests exercise. Every
+// era transaction type satisfies it through its pointer type.
+type leiosHashTx interface {
+	SetCbor([]byte)
+	Cbor() []byte
+	LeiosHash() lcommon.Blake2b256
+}
 
-func TestLeiosHashFreshFirstCallRace(t *testing.T) {
-	for _, test := range leiosHashTests() {
-		t.Run(test.name, func(t *testing.T) {
-			tx := test.new()
-			const workers = 32
-			results := make(chan common.Blake2b256, workers)
-			var wg sync.WaitGroup
-			for range workers {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					results <- tx.LeiosHash()
-				}()
+// leiosHashEras lists one entry per era transaction type. Adding an era
+// without adding it here leaves that era's LeiosHash unpinned.
+var leiosHashEras = []struct {
+	name  string
+	newTx func() leiosHashTx
+}{
+	{"byron", func() leiosHashTx { return &byron.ByronTransaction{} }},
+	{"shelley", func() leiosHashTx { return &shelley.ShelleyTransaction{} }},
+	{"allegra", func() leiosHashTx { return &allegra.AllegraTransaction{} }},
+	{"mary", func() leiosHashTx { return &mary.MaryTransaction{} }},
+	{"alonzo", func() leiosHashTx { return &alonzo.AlonzoTransaction{} }},
+	{"babbage", func() leiosHashTx { return &babbage.BabbageTransaction{} }},
+	{"conway", func() leiosHashTx { return &conway.ConwayTransaction{} }},
+	{"dijkstra", func() leiosHashTx { return &dijkstra.DijkstraTransaction{} }},
+}
+
+// Two distinct, well-formed transaction-shaped CBOR payloads. The bytes only
+// have to differ: LeiosHash hashes the stored CBOR without interpreting it.
+var (
+	leiosHashCborA = []byte{0x83, 0xa0, 0xa0, 0xa0}
+	leiosHashCborB = []byte{0x83, 0xa0, 0xa0, 0xf6}
+)
+
+// TestLeiosHashMatchesCbor pins that LeiosHash is the Blake2b-256 hash of the
+// transaction's CBOR and is stable across repeated calls.
+func TestLeiosHashMatchesCbor(t *testing.T) {
+	want := lcommon.Blake2b256Hash(leiosHashCborA)
+	for _, era := range leiosHashEras {
+		t.Run(era.name, func(t *testing.T) {
+			tx := era.newTx()
+			tx.SetCbor(leiosHashCborA)
+			first := tx.LeiosHash()
+			if first != want {
+				t.Fatalf(
+					"LeiosHash = %s, want Blake2b256Hash(Cbor()) = %s",
+					first,
+					want,
+				)
 			}
-			wg.Wait()
-			close(results)
-			want := common.Blake2b256Hash([]byte(testTransactionCbor))
-			for got := range results {
-				require.Equal(t, want, got)
+			for i := range 4 {
+				if got := tx.LeiosHash(); got != first {
+					t.Fatalf("call %d returned %s, want %s", i+2, got, first)
+				}
 			}
 		})
 	}
 }
 
-func TestLeiosHashValueAndPointerReceivers(t *testing.T) {
-	for _, test := range leiosHashTests() {
-		t.Run(test.name, func(t *testing.T) {
-			tx := test.new()
-			require.Equal(t, test.valueHash(tx), tx.LeiosHash())
+// TestLeiosHashTracksCbor pins that LeiosHash follows the transaction's
+// current CBOR. A memo populated on the first call and never invalidated
+// would keep returning the first payload's hash.
+func TestLeiosHashTracksCbor(t *testing.T) {
+	wantA := lcommon.Blake2b256Hash(leiosHashCborA)
+	wantB := lcommon.Blake2b256Hash(leiosHashCborB)
+	if wantA == wantB {
+		t.Fatal("test payloads must hash differently")
+	}
+	for _, era := range leiosHashEras {
+		t.Run(era.name, func(t *testing.T) {
+			tx := era.newTx()
+			tx.SetCbor(leiosHashCborA)
+			if got := tx.LeiosHash(); got != wantA {
+				t.Fatalf("first payload: LeiosHash = %s, want %s", got, wantA)
+			}
+			tx.SetCbor(leiosHashCborB)
+			if got := tx.LeiosHash(); got != wantB {
+				t.Fatalf(
+					"second payload: LeiosHash = %s, want %s (stale cache from the first payload?)",
+					got,
+					wantB,
+				)
+			}
 		})
 	}
 }
 
-type leiosHashTest struct {
-	name      string
-	new       func() common.Transaction
-	valueHash func(common.Transaction) common.Blake2b256
+// TestLeiosHashCopyIsIndependent pins that a value copy of a transaction
+// carries no state shared with its source: replacing the copy's CBOR must
+// change only the copy's LeiosHash.
+func TestLeiosHashCopyIsIndependent(t *testing.T) {
+	wantA := lcommon.Blake2b256Hash(leiosHashCborA)
+	wantB := lcommon.Blake2b256Hash(leiosHashCborB)
+	for _, era := range leiosHashEras {
+		t.Run(era.name, func(t *testing.T) {
+			tx := era.newTx()
+			tx.SetCbor(leiosHashCborA)
+			// Populate anything the original might cache before copying.
+			if got := tx.LeiosHash(); got != wantA {
+				t.Fatalf("original: LeiosHash = %s, want %s", got, wantA)
+			}
+			// Copy the transaction by value, the way the tree passes these
+			// types around, and give the copy different CBOR.
+			src := reflect.ValueOf(tx).Elem()
+			cp, ok := reflect.New(src.Type()).Interface().(leiosHashTx)
+			if !ok {
+				t.Fatalf("copy of %s does not satisfy leiosHashTx", src.Type())
+			}
+			reflect.ValueOf(cp).Elem().Set(src)
+			cp.SetCbor(leiosHashCborB)
+			if got := cp.LeiosHash(); got != wantB {
+				t.Fatalf(
+					"copy: LeiosHash = %s, want %s (state shared with the original?)",
+					got,
+					wantB,
+				)
+			}
+			if got := tx.LeiosHash(); got != wantA {
+				t.Fatalf(
+					"original after copy was modified: LeiosHash = %s, want %s",
+					got,
+					wantA,
+				)
+			}
+		})
+	}
 }
 
-func leiosHashTests() []leiosHashTest {
-	data := []byte(testTransactionCbor)
-	return []leiosHashTest{
-		{
-			"byron",
-			func() common.Transaction { tx := &byron.ByronTransaction{}; tx.SetCbor(data); return tx },
-			func(tx common.Transaction) common.Blake2b256 {
-				value := *tx.(*byron.ByronTransaction)
-				return value.LeiosHash()
-			},
-		},
-		{
-			"shelley",
-			func() common.Transaction { tx := &shelley.ShelleyTransaction{}; tx.SetCbor(data); return tx },
-			func(tx common.Transaction) common.Blake2b256 {
-				value := *tx.(*shelley.ShelleyTransaction)
-				return value.LeiosHash()
-			},
-		},
-		{
-			"allegra",
-			func() common.Transaction { tx := &allegra.AllegraTransaction{}; tx.SetCbor(data); return tx },
-			func(tx common.Transaction) common.Blake2b256 {
-				value := *tx.(*allegra.AllegraTransaction)
-				return value.LeiosHash()
-			},
-		},
-		{
-			"mary",
-			func() common.Transaction { tx := &mary.MaryTransaction{}; tx.SetCbor(data); return tx },
-			func(tx common.Transaction) common.Blake2b256 {
-				value := *tx.(*mary.MaryTransaction)
-				return value.LeiosHash()
-			},
-		},
-		{
-			"alonzo",
-			func() common.Transaction { tx := &alonzo.AlonzoTransaction{}; tx.SetCbor(data); return tx },
-			func(tx common.Transaction) common.Blake2b256 {
-				value := *tx.(*alonzo.AlonzoTransaction)
-				return value.LeiosHash()
-			},
-		},
-		{
-			"babbage",
-			func() common.Transaction { tx := &babbage.BabbageTransaction{}; tx.SetCbor(data); return tx },
-			func(tx common.Transaction) common.Blake2b256 {
-				value := *tx.(*babbage.BabbageTransaction)
-				return value.LeiosHash()
-			},
-		},
-		{
-			"conway",
-			func() common.Transaction { tx := &conway.ConwayTransaction{}; tx.SetCbor(data); return tx },
-			func(tx common.Transaction) common.Blake2b256 {
-				value := *tx.(*conway.ConwayTransaction)
-				return value.LeiosHash()
-			},
-		},
-		{
-			"dijkstra",
-			func() common.Transaction { tx := &dijkstra.DijkstraTransaction{}; tx.SetCbor(data); return tx },
-			func(tx common.Transaction) common.Blake2b256 {
-				value := *tx.(*dijkstra.DijkstraTransaction)
-				return value.LeiosHash()
-			},
-		},
+// TestLeiosHashConcurrent pins that concurrent LeiosHash calls on one shared
+// transaction are safe and agree. Run under -race, this fails if LeiosHash
+// writes to the receiver.
+func TestLeiosHashConcurrent(t *testing.T) {
+	const goroutines = 16
+	want := lcommon.Blake2b256Hash(leiosHashCborA)
+	for _, era := range leiosHashEras {
+		t.Run(era.name, func(t *testing.T) {
+			tx := era.newTx()
+			tx.SetCbor(leiosHashCborA)
+			results := make([]lcommon.Blake2b256, goroutines)
+			var start sync.WaitGroup
+			var done sync.WaitGroup
+			start.Add(1)
+			for i := range goroutines {
+				done.Add(1)
+				go func(i int) {
+					defer done.Done()
+					start.Wait()
+					results[i] = tx.LeiosHash()
+				}(i)
+			}
+			start.Done()
+			done.Wait()
+			for i, got := range results {
+				if got != want {
+					t.Fatalf("goroutine %d: LeiosHash = %s, want %s", i, got, want)
+				}
+			}
+		})
+	}
+}
+
+// TestLeiosHashNoCacheField pins that no era transaction type carries a hash
+// cache of its own, and that nothing reachable from it by value carries a
+// synchronization primitive. Either one would reopen this contract: a cache
+// needs invalidating on every CBOR change, and a synchronization primitive --
+// including one held behind a pointer, which go vet's copylocks check does not
+// flag -- makes copying the transaction unsafe.
+//
+// The hash check is deliberately shallow. Transaction *bodies* and block
+// headers do keep a hash cache, populated through a pointer receiver, and
+// those are outside this contract; only the transaction-level cache removed
+// here is forbidden. The locker check is deep, because a primitive anywhere
+// in the transaction's value graph makes the transaction itself unsafe to
+// copy. Fields reached only through an interface cannot be inspected
+// statically and are not covered.
+func TestLeiosHashNoCacheField(t *testing.T) {
+	for _, era := range leiosHashEras {
+		t.Run(era.name, func(t *testing.T) {
+			txType := reflect.TypeOf(era.newTx()).Elem()
+			for i := range txType.NumField() {
+				if name := txType.Field(i).Name; name == "hash" {
+					t.Errorf(
+						"%s has a %q field: LeiosHash is contractually recomputed, not cached",
+						txType,
+						name,
+					)
+				}
+			}
+			assertNoLocker(t, txType, txType.String(), map[reflect.Type]bool{})
+		})
+	}
+}
+
+// assertNoLocker reports any synchronization primitive reachable from typ,
+// following struct fields and pointer, slice, array and map element types.
+// visited breaks the cycles those indirections allow.
+func assertNoLocker(
+	t *testing.T,
+	typ reflect.Type,
+	path string,
+	visited map[reflect.Type]bool,
+) {
+	t.Helper()
+	if visited[typ] {
+		return
+	}
+	visited[typ] = true
+
+	lockerType := reflect.TypeOf((*sync.Locker)(nil)).Elem()
+	if typ.Kind() != reflect.Interface &&
+		reflect.PointerTo(typ).Implements(lockerType) {
+		t.Errorf(
+			"%s is a synchronization primitive (%s); era transaction types must stay copyable",
+			path,
+			typ,
+		)
+		return
+	}
+
+	switch typ.Kind() {
+	case reflect.Struct:
+		for i := range typ.NumField() {
+			field := typ.Field(i)
+			assertNoLocker(t, field.Type, path+"."+field.Name, visited)
+		}
+	case reflect.Pointer, reflect.Slice, reflect.Array:
+		assertNoLocker(t, typ.Elem(), path+"[]", visited)
+	case reflect.Map:
+		assertNoLocker(t, typ.Key(), path+"[key]", visited)
+		assertNoLocker(t, typ.Elem(), path+"[value]", visited)
 	}
 }

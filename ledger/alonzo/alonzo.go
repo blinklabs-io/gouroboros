@@ -327,7 +327,7 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("mint: %w", err)
 	}
 	*b = AlonzoTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(cborData, b.Ttl, false); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -395,6 +395,20 @@ func (b *AlonzoTransactionBody) TTL() uint64 {
 
 func (b *AlonzoTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+// TransactionNetworkId returns the optional transaction network identifier. A non-zero
+// value is necessarily present; zero is present only when the decoder saw
+// transaction-body key 15 (or the caller marked it present explicitly).
+func (b *AlonzoTransactionBody) TransactionNetworkId() *uint8 {
+	if b.NetworkIdPresent() || b.NetworkId != 0 {
+		return &b.NetworkId
+	}
+	return nil
+}
+
+func (t AlonzoTransaction) TransactionNetworkId() *uint8 {
+	return t.Body.TransactionNetworkId()
 }
 
 func (b *AlonzoTransactionBody) SetValidityIntervalUpperBound(
@@ -880,10 +894,6 @@ type AlonzoTransaction struct {
 	auxData    common.AuxiliaryData
 }
 
-func (t *AlonzoTransaction) SetCbor(data []byte) {
-	t.DecodeStoreCbor.SetCbor(data)
-}
-
 func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
 	t.TxMetadata = nil
@@ -979,7 +989,10 @@ func (t AlonzoTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR.
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t AlonzoTransaction) LeiosHash() common.Blake2b256 {
 	return common.Blake2b256Hash(t.Cbor())
 }

@@ -16,7 +16,6 @@ package common
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -27,6 +26,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ed25519strict"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -271,8 +271,7 @@ func (m *MessageAuthenticator) verifyOperationalCertificate(
 	}
 
 	// Verify signature using cold verification key
-	pubKey := ed25519.PublicKey(coldVerificationKey)
-	if !ed25519.Verify(pubKey, certCbor, opcert.ColdSignature) {
+	if !ed25519strict.Verify(coldVerificationKey, certCbor, opcert.ColdSignature) {
 		return errors.New("cold signature verification failed")
 	}
 

@@ -355,10 +355,6 @@ type MaryTransaction struct {
 	auxData    common.AuxiliaryData
 }
 
-func (t *MaryTransaction) SetCbor(data []byte) {
-	t.DecodeStoreCbor.SetCbor(data)
-}
-
 func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
 	t.TxMetadata = nil
@@ -451,7 +447,10 @@ func (t MaryTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR.
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t MaryTransaction) LeiosHash() common.Blake2b256 {
 	return common.Blake2b256Hash(t.Cbor())
 }

@@ -184,6 +184,52 @@ func TestDijkstraGovernanceValidationRules(t *testing.T) {
 	}
 }
 
+func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
+	credential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x01},
+	}
+	certificates := []common.CertificateWrapper{{
+		Type: uint(common.CertificateTypeStakeDelegation),
+		Certificate: &common.StakeDelegationCertificate{
+			CertType:        uint(common.CertificateTypeStakeDelegation),
+			StakeCredential: &credential,
+			PoolKeyHash:     common.PoolKeyHash{0x02},
+		},
+	}}
+	state := mockledger.NewLedgerStateBuilder().Build()
+	params := &DijkstraProtocolParameters{}
+
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/conway.UtxoValidateDelegation",
+	)
+	validTx := &DijkstraTransaction{
+		Body:      DijkstraTransactionBody{TxCertificates: certificates},
+		TxIsValid: true,
+	}
+	invalidTx := &DijkstraTransaction{
+		Body:      DijkstraTransactionBody{TxCertificates: certificates},
+		TxIsValid: false,
+	}
+
+	var poolError shelley.DelegateToUnregisteredPoolError
+	require.ErrorAs(t, rule(validTx, 0, state, params), &poolError)
+	require.NoError(t, rule(invalidTx, 0, state, params))
+
+	// The phase-2-valid gate must not replace the always-run structural check
+	// that rejects an invalid transaction without a phase-2 redeemer.
+	var invalidFlag common.InvalidIsValidFlagError
+	err := common.VerifyTransaction(
+		invalidTx,
+		0,
+		state,
+		params,
+		UtxoValidationRules,
+	)
+	require.ErrorAs(t, err, &invalidFlag)
+}
+
 func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
 	guardrailsHash := common.Blake2b224Hash([]byte("constitution-guardrails"))
 	newTx := func(isValid bool, policyHash []byte) *DijkstraTransaction {
@@ -650,6 +696,102 @@ func TestUtxoValidateWithdrawalsDijkstraAmountModes(t *testing.T) {
 			require.NoError(t, conway.UtxoValidateWithdrawals(tx, 0, ls, pp))
 		})
 	}
+}
+
+func TestDijkstraWrongNetworkWithdrawalPhase2Gate(t *testing.T) {
+	tx, _ := testDijkstraWithdrawalTx(t, 1, nil)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+	pp := &DijkstraProtocolParameters{}
+
+	_, ruleIndex := dijkstraValidationRuleDescriptor(
+		t,
+		common.UtxoValidationRuleWrongNetworkWithdrawal,
+	)
+	validate := func(tx common.Transaction) error {
+		return common.VerifyTransaction(
+			tx,
+			0,
+			ls,
+			pp,
+			UtxoValidationRules[ruleIndex:ruleIndex+1],
+		)
+	}
+
+	var wrongNetworkErr shelley.WrongNetworkWithdrawalError
+	require.ErrorAs(t, validate(tx), &wrongNetworkErr)
+
+	tx.TxIsValid = false
+	require.NoError(t, validate(tx))
+}
+
+func TestUtxoValidateBatchWithdrawals(t *testing.T) {
+	const balance = uint64(1_000_000)
+	const topWithdrawal = uint64(400_000)
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+
+	newBatchTx := func(
+		subWithdrawal uint64,
+		isValid bool,
+	) (*DijkstraTransaction, *common.Address, common.Credential) {
+		tx, credential := testDijkstraWithdrawalTx(t, topWithdrawal, nil)
+		var address *common.Address
+		for candidate := range tx.Body.TxWithdrawals {
+			address = candidate
+		}
+		tx.Body.TxSubTransactions = cbor.NewSetType(
+			[]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{
+					TxWithdrawals: map[*common.Address]uint64{
+						address: subWithdrawal,
+					},
+				},
+			}},
+			false,
+		)
+		tx.TxIsValid = isValid
+		return tx, address, credential
+	}
+
+	rule, batchIdx := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateBatchWithdrawals",
+	)
+	_, valueIdx := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateValueNotConservedUtxo",
+	)
+	require.Less(t, batchIdx, valueIdx)
+
+	tx, address, credential := newBatchTx(balance-topWithdrawal, true)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithRewardAccountCredentialBalance(credential, balance).
+		Build()
+	require.NoError(t, rule(tx, 0, ls, pp))
+
+	tx, address, _ = newBatchTx(balance-topWithdrawal+1, true)
+	require.NotNil(t, address)
+	err := rule(tx, 0, ls, pp)
+	var balanceErr WithdrawalsExceedAccountBalanceError
+	require.ErrorAs(t, err, &balanceErr)
+	require.Equal(
+		t,
+		[]uint64{balance + 1, balance},
+		balanceErr.Withdrawals[cbor.NewByteString(mustAddressBytes(t, address))],
+	)
+
+	tx, _, _ = newBatchTx(balance-topWithdrawal+1, false)
+	err = rule(tx, 0, ls, pp)
+	require.ErrorAs(t, err, &balanceErr)
+}
+
+func mustAddressBytes(t *testing.T, address *common.Address) []byte {
+	t.Helper()
+	rawAddress, err := address.Bytes()
+	require.NoError(t, err)
+	return rawAddress
 }
 
 func testGuardScriptCredential(script common.PlutusV4Script) common.Credential {

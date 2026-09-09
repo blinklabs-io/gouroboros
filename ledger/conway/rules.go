@@ -1400,6 +1400,9 @@ func UtxoValidateProposalReturnAccounts(
 
 // validateProtocolParameterUpdate validates that a PPU is well-formed
 func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
+	if err := validateConwayProtocolParameterUpdate(ppu); err != nil {
+		return err
+	}
 	// Check if PPU is empty (no fields set)
 	if ppu.MinFeeA == nil &&
 		ppu.MinFeeB == nil &&
@@ -1464,6 +1467,121 @@ func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
 		}
 	}
 
+	return nil
+}
+
+// validateConwayProtocolParameterUpdate enforces the domains from the
+// Conway protocol-parameter CDDL. It is shared by CBOR decoding and the
+// proposal rule so programmatically constructed updates cannot bypass the
+// wire checks.
+func validateConwayProtocolParameterUpdate(
+	ppu *ConwayProtocolParameterUpdate,
+) error {
+	if ppu == nil {
+		return ConwayProtocolParameterUpdateError{
+			FieldName: "update",
+			Reason:    "cannot be nil",
+		}
+	}
+	if ppu.A0 != nil && !validNonNegativeRat(ppu.A0) {
+		return invalidConwayParameterField("a0", "must be nonnegative")
+	}
+	if ppu.Rho != nil && !validUnitRat(ppu.Rho) {
+		return invalidConwayParameterField("rho", "must be in [0,1]")
+	}
+	if ppu.Tau != nil && !validUnitRat(ppu.Tau) {
+		return invalidConwayParameterField("tau", "must be in [0,1]")
+	}
+	if ppu.ExecutionCosts != nil {
+		if !validNonNegativeRat(ppu.ExecutionCosts.MemPrice) {
+			return invalidConwayParameterField(
+				"executionCosts.memory", "must be nonnegative",
+			)
+		}
+		if !validNonNegativeRat(ppu.ExecutionCosts.StepPrice) {
+			return invalidConwayParameterField(
+				"executionCosts.steps", "must be nonnegative",
+			)
+		}
+	}
+	if err := validateConwayExUnits(ppu.MaxTxExUnits, "maxTxExUnits"); err != nil {
+		return err
+	}
+	if err := validateConwayExUnits(ppu.MaxBlockExUnits, "maxBlockExUnits"); err != nil {
+		return err
+	}
+	if ppu.MinFeeRefScriptCostPerByte != nil &&
+		!validNonNegativeRat(ppu.MinFeeRefScriptCostPerByte) {
+		return invalidConwayParameterField(
+			"minFeeRefScriptCostPerByte", "must be nonnegative",
+		)
+	}
+	if ppu.PoolVotingThresholds != nil {
+		for _, item := range []struct {
+			name string
+			rat  cbor.Rat
+		}{
+			{"motionNoConfidence", ppu.PoolVotingThresholds.MotionNoConfidence},
+			{"committeeNormal", ppu.PoolVotingThresholds.CommitteeNormal},
+			{"committeeNoConfidence", ppu.PoolVotingThresholds.CommitteeNoConfidence},
+			{"hardForkInitiation", ppu.PoolVotingThresholds.HardForkInitiation},
+			{"ppSecurityGroup", ppu.PoolVotingThresholds.PpSecurityGroup},
+		} {
+			name, rat := item.name, item.rat
+			if !validUnitRat(&rat) {
+				return invalidConwayParameterField(
+					"poolVotingThresholds."+name, "must be in [0,1]",
+				)
+			}
+		}
+	}
+	if ppu.DRepVotingThresholds != nil {
+		for _, item := range []struct {
+			name string
+			rat  cbor.Rat
+		}{
+			{"motionNoConfidence", ppu.DRepVotingThresholds.MotionNoConfidence},
+			{"committeeNormal", ppu.DRepVotingThresholds.CommitteeNormal},
+			{"committeeNoConfidence", ppu.DRepVotingThresholds.CommitteeNoConfidence},
+			{"updateToConstitution", ppu.DRepVotingThresholds.UpdateToConstitution},
+			{"hardForkInitiation", ppu.DRepVotingThresholds.HardForkInitiation},
+			{"ppNetworkGroup", ppu.DRepVotingThresholds.PpNetworkGroup},
+			{"ppEconomicGroup", ppu.DRepVotingThresholds.PpEconomicGroup},
+			{"ppTechnicalGroup", ppu.DRepVotingThresholds.PpTechnicalGroup},
+			{"ppGovGroup", ppu.DRepVotingThresholds.PpGovGroup},
+			{"treasuryWithdrawal", ppu.DRepVotingThresholds.TreasuryWithdrawal},
+		} {
+			name, rat := item.name, item.rat
+			if !validUnitRat(&rat) {
+				return invalidConwayParameterField(
+					"drepVotingThresholds."+name, "must be in [0,1]",
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func invalidConwayParameterField(field, reason string) error {
+	return ConwayProtocolParameterUpdateError{FieldName: field, Reason: reason}
+}
+
+func validNonNegativeRat(rat *cbor.Rat) bool {
+	return rat != nil && rat.Rat != nil && rat.Denom().Sign() > 0 &&
+		rat.Num().Sign() >= 0
+}
+
+func validUnitRat(rat *cbor.Rat) bool {
+	return validNonNegativeRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
+}
+
+func validateConwayExUnits(units *common.ExUnits, field string) error {
+	if units == nil {
+		return nil
+	}
+	if units.Memory < 0 || units.Steps < 0 {
+		return invalidConwayParameterField(field, "must be nonnegative")
+	}
 	return nil
 }
 
@@ -2137,6 +2255,7 @@ func UtxoValidateValueNotConservedUtxo(
 			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
 		}
 	}
+	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.DeregistrationCertificate:
@@ -2204,11 +2323,18 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator))
+			operator := common.Blake2b224(tmpCert.Operator)
+			if _, seen := seenPoolRegistrations[operator]; seen {
+				continue
+			}
+			seenPoolRegistrations[operator] = struct{}{}
+			depositDue, err := common.PoolRegistrationDepositDue(
+				ls, slot, operator,
+			)
 			if err != nil {
 				return err
 			}
-			if reg == nil {
+			if depositDue {
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.RegistrationCertificate:
@@ -2789,7 +2915,14 @@ func MinFeeTx(
 	if err != nil {
 		return 0, err
 	}
-	return minFee, nil
+	executionFee, err := CalculateExecutionUnitsFee(tx, tmpPparams.ExecutionCosts)
+	if err != nil {
+		return 0, err
+	}
+	if minFee > math.MaxUint64-executionFee {
+		return 0, errors.New("minimum transaction fee overflow")
+	}
+	return minFee + executionFee, nil
 }
 
 // MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters.
@@ -3204,13 +3337,20 @@ func UtxoValidateNativeScripts(
 // - Stake credential registration for non-registration delegations
 //
 // The function tracks in-transaction registrations to handle cases where
-// registration and delegation are in the same transaction.
+// registration and delegation are in the same transaction. Delegation state
+// transitions only apply to phase-2-valid transactions; this guard is kept in
+// the rule itself because Dijkstra and the conformance harness register and
+// invoke it directly rather than through Conway's composed rule groups.
 func UtxoValidateDelegation(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !tx.IsValid() {
+		return nil
+	}
+
 	// Track credential registration state changes within this transaction.
 	// The bool records both registrations and deregistrations so later
 	// certificates observe the state produced by earlier certificates.
@@ -3226,7 +3366,9 @@ func UtxoValidateDelegation(
 	}
 	inTxStakeState := make(map[stakeCredentialKey]bool)
 	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
-	inTxDRepRegs := make(map[common.Blake2b224]bool)
+	// Keyed by the full DRep credential, not the bare hash: a key-hash and
+	// a script-hash DRep sharing a hash are distinct registrations.
+	inTxDRepRegs := make(map[stakeCredentialKey]bool)
 	// Track VRF keys seen in this transaction (for PV11+ duplicate detection)
 	inTxVrfKeys := make(map[common.Blake2b256]common.PoolKeyHash)
 
@@ -3253,6 +3395,21 @@ func UtxoValidateDelegation(
 		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
 	}
 
+	// Helper to convert Drep type to credential type. Any type other than
+	// DrepTypeAddrKeyHash/DrepTypeScriptHash is rejected rather than
+	// mapped to a default, so no caller can silently treat an
+	// out-of-range type as a key-hash credential.
+	drepTypeToCredType := func(drepType int) (uint, error) {
+		switch drepType {
+		case common.DrepTypeAddrKeyHash:
+			return common.CredentialTypeAddrKeyHash, nil
+		case common.DrepTypeScriptHash:
+			return common.CredentialTypeScriptHash, nil
+		default:
+			return 0, InvalidDRepTypeError{DrepType: drepType}
+		}
+	}
+
 	// Helper to check if DRep is registered (in state or in-tx).
 	// Returns true for special DRep types (Abstain, NoConfidence) as they
 	// don't need registration. Any DRep type other than key hash, script
@@ -3271,33 +3428,31 @@ func UtxoValidateDelegation(
 			if len(drep.Credential) != 28 {
 				return false, nil
 			}
-			var credHash common.Blake2b224
-			copy(credHash[:], drep.Credential)
+			// The DRep type fixes the credential type, which the
+			// in-transaction registration set below is keyed by so a
+			// same-hash key/script pair does not collide there. The
+			// ledger-state lookup still takes a bare hash and cannot
+			// make that distinction; widening it is deferred.
+			credType, err := drepTypeToCredType(drep.Type)
+			if err != nil {
+				return false, err
+			}
+			cred := common.Credential{CredType: credType}
+			copy(cred.Credential[:], drep.Credential)
 			// Check in-tx registrations first
-			if inTxDRepRegs[credHash] {
+			if inTxDRepRegs[stakeKey(cred)] {
 				return true, nil
 			}
-			// Check ledger state
-			reg, err := ls.DRepRegistration(credHash)
-			return err == nil && reg != nil, nil
+			// Check ledger state. A lookup failure is not an
+			// unregistered DRep: reporting it as one rejects a valid
+			// transaction with DelegateVoteToUnregisteredDRepError.
+			reg, err := ls.DRepRegistration(cred.Credential)
+			if err != nil {
+				return false, err
+			}
+			return reg != nil, nil
 		default:
 			return false, InvalidDRepTypeError{DrepType: drep.Type}
-		}
-	}
-
-	// Helper to convert Drep type to credential type. Only ever invoked
-	// after isDRepRegistered has confirmed the type is one of
-	// DrepTypeAddrKeyHash/DrepTypeScriptHash (any other type returns an
-	// error from isDRepRegistered before this is reached), so the default
-	// case below is unreachable and does not fall back silently.
-	drepTypeToCredType := func(drepType int) (uint, error) {
-		switch drepType {
-		case common.DrepTypeAddrKeyHash:
-			return common.CredentialTypeAddrKeyHash, nil
-		case common.DrepTypeScriptHash:
-			return common.CredentialTypeScriptHash, nil
-		default:
-			return 0, InvalidDRepTypeError{DrepType: drepType}
 		}
 	}
 
@@ -3339,7 +3494,7 @@ func UtxoValidateDelegation(
 			}
 
 		case *common.RegistrationDrepCertificate:
-			inTxDRepRegs[c.DrepCredential.Credential] = true
+			inTxDRepRegs[stakeKey(c.DrepCredential)] = true
 
 		// Track deregistrations for in-tx state
 		case *common.StakeDeregistrationCertificate:
@@ -3353,7 +3508,7 @@ func UtxoValidateDelegation(
 			// the retirement epoch, so later delegations remain valid.
 
 		case *common.DeregistrationDrepCertificate:
-			delete(inTxDRepRegs, c.DrepCredential.Credential)
+			delete(inTxDRepRegs, stakeKey(c.DrepCredential))
 
 		// Check delegations
 		case *common.StakeDelegationCertificate:
@@ -3801,9 +3956,10 @@ func UtxoValidateCertificateDeposits(
 			if registration != nil {
 				return DRepAlreadyRegisteredError{Credential: c.DrepCredential}
 			}
+			registered := drepDeposit
 			drepStates[stakeKey(c.DrepCredential)] = &common.DRepRegistration{
 				Credential: c.DrepCredential.Credential,
-				Deposit:    drepDeposit,
+				Deposit:    &registered,
 			}
 		case *common.DeregistrationDrepCertificate:
 			registration, err := loadDRep(c.DrepCredential)
@@ -3813,11 +3969,21 @@ func UtxoValidateCertificateDeposits(
 			if registration == nil {
 				return DRepNotRegisteredError{Credential: c.DrepCredential}
 			}
-			if c.Amount < 0 || uint64(c.Amount) != registration.Deposit {
+			// A registration without a recorded deposit is a state the
+			// reference ledger cannot hold, so there is no correct
+			// refund to compare against. Fail closed instead of
+			// reading the absence as a refund of zero, which would
+			// reject the refund the network accepts.
+			if registration.Deposit == nil {
+				return DRepDepositStateInconsistentError{
+					Credential: c.DrepCredential,
+				}
+			}
+			if c.Amount < 0 || uint64(c.Amount) != *registration.Deposit {
 				return CertificateRefundIncorrectError{
 					CertificateType: common.CertificateType(c.CertType),
 					Supplied:        c.Amount,
-					Expected:        registration.Deposit,
+					Expected:        *registration.Deposit,
 				}
 			}
 			drepStates[stakeKey(c.DrepCredential)] = nil
@@ -4035,8 +4201,12 @@ func UtxoValidateUnknownVoters(
 		}
 		switch voter.Type {
 		case common.VoterTypeDRepKeyHash, common.VoterTypeDRepScriptHash:
-			credHash := common.Blake2b224(voter.Hash)
-			reg, err := ls.DRepRegistration(credHash)
+			// DRepRegistration resolves a bare hash, so a key-hash
+			// voter and a script-hash DRep registration sharing the
+			// same 28 bytes are indistinguishable here. Distinguishing
+			// them needs the credential type in the lookup, which is a
+			// breaking interface change and is deferred.
+			reg, err := ls.DRepRegistration(common.Blake2b224(voter.Hash))
 			if err != nil {
 				return err
 			}

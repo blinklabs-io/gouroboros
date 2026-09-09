@@ -356,10 +356,6 @@ type ByronTransaction struct {
 	witnessSet *ByronTransactionWitnessSet
 }
 
-func (t *ByronTransaction) SetCbor(data []byte) {
-	t.DecodeStoreCbor.SetCbor(data)
-}
-
 func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
 	var txArray []cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &txArray); err != nil {
@@ -523,8 +519,11 @@ func (t *ByronTransaction) AuxiliaryData() common.AuxiliaryData {
 	return nil
 }
 
-// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR.
-func (t ByronTransaction) LeiosHash() common.Blake2b256 {
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
+func (t *ByronTransaction) LeiosHash() common.Blake2b256 {
 	return common.Blake2b256Hash(t.Cbor())
 }
 

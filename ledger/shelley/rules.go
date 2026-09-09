@@ -341,6 +341,7 @@ func UtxoValidateValueNotConservedUtxo(
 			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
 		}
 	}
+	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
 	for _, cert := range tx.Certificates() {
 		switch cert.(type) {
 		case *common.StakeDeregistrationCertificate:
@@ -363,11 +364,18 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator))
+			operator := common.Blake2b224(tmpCert.Operator)
+			if _, seen := seenPoolRegistrations[operator]; seen {
+				continue
+			}
+			seenPoolRegistrations[operator] = struct{}{}
+			depositDue, err := common.PoolRegistrationDepositDue(
+				ls, slot, operator,
+			)
 			if err != nil {
 				return err
 			}
-			if reg == nil {
+			if depositDue {
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
@@ -676,12 +684,22 @@ func UtxoValidateMetadata(
 // For Shelley, it checks StakeDelegationCertificate:
 // - Pool registration status
 // - Stake credential registration status
+//
+// It also enforces the DELEG predicate that bounds the sign of a move
+// instantaneous rewards delta. The wire format types delta_coin as int, so the
+// decoder accepts a negative delta; the reference rejects one before the Alonzo
+// hard fork with MIRNegativesNotCurrentlyAllowed
+// (eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs, delegTransition).
 func UtxoValidateDelegation(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if err := validateMirDeltaSigns(tx, pp); err != nil {
+		return err
+	}
+
 	// Track credentials/pools registered within this transaction
 	inTxStakeRegs := make(map[common.Blake2b224]bool)
 	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
@@ -717,6 +735,59 @@ func UtxoValidateDelegation(
 			}
 			if c.StakeCredential != nil && !isStakeRegistered(*c.StakeCredential) {
 				return DelegateUnregisteredStakeCredentialError{Credential: *c.StakeCredential}
+			}
+		}
+	}
+	return nil
+}
+
+// validateMirDeltaSigns rejects a negative move instantaneous rewards delta at
+// a protocol version that does not permit one. From the Alonzo hard fork
+// onwards a negative delta is permitted as long as the resulting reward is not
+// negative, a check that needs the pending InstantaneousRewards accumulated by
+// earlier certificates in the epoch and so is not expressible against the
+// LedgerState interface.
+//
+// Reference: MIRNegativesNotCurrentlyAllowed and MIRProducesNegativeUpdate in
+// delegTransition, eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+func validateMirDeltaSigns(
+	tx common.Transaction,
+	pp common.ProtocolParameters,
+) error {
+	mirCerts := make([]*common.MoveInstantaneousRewardsCertificate, 0)
+	for _, cert := range tx.Certificates() {
+		if c, ok := cert.(*common.MoveInstantaneousRewardsCertificate); ok &&
+			c != nil {
+			mirCerts = append(mirCerts, c)
+		}
+	}
+	if len(mirCerts) == 0 {
+		// Leave transactions that carry no MIR certificate untouched,
+		// including their protocol parameters, so the rule cannot reject
+		// anything the DELEG transition would never have seen.
+		return nil
+	}
+	versionedPparams, ok := pp.(interface {
+		ProtocolMajorVersion() uint
+	})
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	if common.MirTransferAllowed(versionedPparams.ProtocolMajorVersion()) {
+		return nil
+	}
+	for _, cert := range mirCerts {
+		for cred, delta := range cert.Reward.Rewards {
+			if delta == nil || delta.Sign() >= 0 {
+				continue
+			}
+			var tmpCred common.Credential
+			if cred != nil {
+				tmpCred = *cred
+			}
+			return MIRNegativesNotCurrentlyAllowedError{
+				Credential: tmpCred,
+				Delta:      new(big.Int).Set(delta),
 			}
 		}
 	}
@@ -815,6 +886,11 @@ func UtxoValidateWithdrawals(
 //   - WrongNetworkPOOL: a registration's reward account must be on the
 //     ledger's network. Gated on major protocol version > 4
 //     (hardforkAlonzoValidatePoolAccountAddressNetID).
+//   - PoolMedataHashTooBig: a registration's metadata hash may be at most 32
+//     bytes. Gated on major protocol version > 4
+//     (SoftForks.restrictPoolMetadataHash). The hash is an unbounded byte
+//     string on the wire, so this is a rule predicate rather than a decode
+//     constraint.
 //   - VRFKeyHashAlreadyRegistered: a registration may not claim a VRF key hash
 //     another pool holds. Gated on major protocol version > 10
 //     (hardforkConwayDisallowDuplicatedVRFKeys).
@@ -822,15 +898,6 @@ func UtxoValidateWithdrawals(
 //     pool.
 //   - StakePoolRetirementWrongEpochPOOL: a retirement epoch e must satisfy
 //     cEpoch < e <= cEpoch + eMax.
-//
-// The reference rule's remaining predicate, PoolMedataHashTooBig (a metadata
-// hash longer than 32 bytes, gated on SoftForks.restrictPoolMetadataHash), is
-// not reimplemented because it cannot be reached: PoolMetadata.Hash is a fixed
-// 32-byte PoolMetadataHash whose UnmarshalCBOR rejects any other length, so a
-// certificate carrying an oversized hash never decodes. See
-// TestPoolMetadataHashLengthIsFixed in ledger/common. That makes this package
-// stricter than the reference for protocol versions at or below 4.0, which
-// accepted oversized hashes.
 //
 // The registration and re-registration state updates poolTransition performs
 // (psStakePools, psFutureStakePoolParams, psRetiring, psVRFKeyHashes) are
@@ -872,6 +939,7 @@ func UtxoValidatePoolCertificates(
 	protocolMajor := poolPparams.ProtocolMajorVersion()
 	checkNetworkId := common.PoolAccountNetworkIdValidated(protocolMajor)
 	checkVrfKeys := common.DuplicateVrfKeysDisallowed(protocolMajor)
+	checkMetadataHash := common.PoolMetadataHashRestricted(protocolMajor)
 	minPoolCost := poolPparams.MinPoolCostValue()
 	networkId := ls.NetworkId()
 
@@ -894,6 +962,7 @@ func UtxoValidatePoolCertificates(
 				networkId,
 				minPoolCost,
 				checkNetworkId,
+				checkMetadataHash,
 				checkVrfKeys,
 				inTxVrfKeys,
 			); err != nil {
@@ -938,6 +1007,7 @@ func validatePoolRegistration(
 	networkId uint,
 	minPoolCost uint64,
 	checkNetworkId bool,
+	checkMetadataHash bool,
 	checkVrfKeys bool,
 	inTxVrfKeys map[common.VrfKeyHash]common.PoolKeyHash,
 ) error {
@@ -955,6 +1025,19 @@ func validatePoolRegistration(
 				Supplied:    suppliedNetworkId,
 				Expected:    networkId,
 			}
+		}
+	}
+
+	// PoolMedataHashTooBig: sizeofByteArray (pmHash pmd) <= hashSize HASH.
+	//
+	// pool_metadata_hash is an unbounded byte string on the wire, so an
+	// oversized hash reaches the rule instead of failing to decode.
+	if checkMetadataHash && cert.PoolMetadata != nil &&
+		len(cert.PoolMetadata.Hash) > common.Blake2b256Size {
+		return PoolMetadataHashTooBigError{
+			PoolKeyHash: cert.Operator,
+			Supplied:    len(cert.PoolMetadata.Hash),
+			Max:         common.Blake2b256Size,
 		}
 	}
 
