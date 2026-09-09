@@ -32,6 +32,25 @@ func nestedNoSchemaJSON(arrays int) []byte {
 	)
 }
 
+// nestedNoSchemaObjectJSON is nestedNoSchemaJSON for the object reader. Both
+// readers carry their own copy of the bound, so each needs its own boundary
+// coverage; a no-schema object nests exactly like an array.
+func nestedNoSchemaObjectJSON(objects int) []byte {
+	return []byte(
+		`{"1":` + strings.Repeat(`{"a":`, objects) + `1` +
+			strings.Repeat("}", objects) + `}`,
+	)
+}
+
+// nestedNoSchemaBuilders covers both container readers at the boundary.
+var nestedNoSchemaBuilders = []struct {
+	name  string
+	build func(int) []byte
+}{
+	{name: "array", build: nestedNoSchemaJSON},
+	{name: "object", build: nestedNoSchemaObjectJSON},
+}
+
 func TestParseMetadataJSONNoSchemaAcceptsMaximumNesting(t *testing.T) {
 	// The top-level object is itself one of the containers counted by the
 	// bound, so the deepest accepted document holds one fewer array.
@@ -48,55 +67,77 @@ func TestParseMetadataJSONNoSchemaAcceptsMaximumNesting(t *testing.T) {
 // so every document the parser accepts has to encode to auxiliary data that
 // decodes again.
 func TestParseMetadataJSONNoSchemaAcceptBoundaryIsDecodable(t *testing.T) {
-	deepestAccepted := 0
-	for arrays := MetadataJSONMaxNestingDepth - 2; arrays <= MetadataJSONMaxNestingDepth+1; arrays++ {
-		metadata, err := ParseCardanoCLIMetadataJSONNoSchema(
-			nestedNoSchemaJSON(arrays),
-		)
-		if err != nil {
-			continue
-		}
-		deepestAccepted = arrays
-		encoded, err := cbor.Encode(NewShelleyAuxiliaryData(metadata))
-		require.NoError(t, err, "%d arrays: encode accepted metadata", arrays)
+	for _, builder := range nestedNoSchemaBuilders {
+		t.Run(builder.name, func(t *testing.T) {
+			deepestAccepted := 0
+			for depth := MetadataJSONMaxNestingDepth - 2; depth <= MetadataJSONMaxNestingDepth+1; depth++ {
+				metadata, err := ParseCardanoCLIMetadataJSONNoSchema(
+					builder.build(depth),
+				)
+				if err != nil {
+					continue
+				}
+				deepestAccepted = depth
+				encoded, err := cbor.Encode(
+					NewShelleyAuxiliaryData(metadata),
+				)
+				require.NoError(
+					t,
+					err,
+					"%d %ss: encode accepted metadata",
+					depth,
+					builder.name,
+				)
 
-		var auxData ShelleyAuxiliaryData
-		_, err = cbor.Decode(encoded, &auxData)
-		require.NoError(
-			t,
-			err,
-			"%d arrays: parser accepted metadata that cbor.Decode rejects",
-			arrays,
-		)
+				var auxData ShelleyAuxiliaryData
+				_, err = cbor.Decode(encoded, &auxData)
+				require.NoError(
+					t,
+					err,
+					"%d %ss: parser accepted metadata that cbor.Decode rejects",
+					depth,
+					builder.name,
+				)
 
-		_, err = DecodeMetadatumRaw(encoded)
-		require.NoError(
-			t,
-			err,
-			"%d arrays: parser accepted metadata that DecodeMetadatumRaw rejects",
-			arrays,
-		)
+				_, err = DecodeMetadatumRaw(encoded)
+				require.NoError(
+					t,
+					err,
+					"%d %ss: parser accepted metadata that DecodeMetadatumRaw rejects",
+					depth,
+					builder.name,
+				)
+			}
+			require.Equal(
+				t,
+				MetadataJSONMaxNestingDepth-1,
+				deepestAccepted,
+			)
+		})
 	}
-	require.Equal(t, MetadataJSONMaxNestingDepth-1, deepestAccepted)
 }
 
 func TestParseMetadataJSONNoSchemaRejectsExcessiveNesting(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		arrays int
-	}{
-		{name: "first invalid", arrays: MetadataJSONMaxNestingDepth},
-		{name: "far beyond limit", arrays: 100_000},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// A stack overflow is a fatal error that recover cannot catch, so
-			// the limit has to reject before descending, not after.
-			metadata, err := ParseCardanoCLIMetadataJSONNoSchema(
-				nestedNoSchemaJSON(test.arrays),
-			)
-			require.Error(t, err)
-			assert.Nil(t, metadata)
-			assert.ErrorContains(t, err, "nesting depth")
+	for _, builder := range nestedNoSchemaBuilders {
+		t.Run(builder.name, func(t *testing.T) {
+			for _, test := range []struct {
+				name  string
+				depth int
+			}{
+				{name: "first invalid", depth: MetadataJSONMaxNestingDepth},
+				{name: "far beyond limit", depth: 100_000},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					// The limit has to reject before descending, not after,
+					// so the readers never recurse past it.
+					metadata, err := ParseCardanoCLIMetadataJSONNoSchema(
+						builder.build(test.depth),
+					)
+					require.Error(t, err)
+					assert.Nil(t, metadata)
+					assert.ErrorContains(t, err, "nesting depth")
+				})
+			}
 		})
 	}
 }
