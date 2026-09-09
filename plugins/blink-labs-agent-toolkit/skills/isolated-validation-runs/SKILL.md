@@ -158,6 +158,35 @@ Do not stop, restart, or reconfigure a live node or an in-flight validation run
 while diagnosing it unless the task explicitly authorizes that intervention.
 The running state is usually the only evidence.
 
+## Green on the branch is not green on the merge
+
+A pull request's checks run on its own head. They say nothing about the tree
+that results from merging it, and the gap widens with every commit the base
+gains after the branch forked. A branch whose base is days old can be green on
+every platform and still turn `main` red the moment it lands, because the merge
+combines its code with base commits it was never tested against — and that
+combination is first executed by the merge itself.
+
+Before treating a green pipeline as evidence about the base branch:
+
+1. `git rev-list --count <branch>..origin/main` — how far behind is it.
+2. `git merge-base <branch> origin/main` — when did it fork, and what has landed
+   since that touches the same packages or the same test infrastructure.
+3. Merge current `origin/main` into a scratch worktree and run the affected
+   packages there. `git merge` reporting no conflicts is not the check; the
+   build and the tests are. A semantic conflict auto-merges silently — a call
+   site in a file the branch never touched, a helper the base deleted, a test
+   fixture whose contract moved.
+
+Merging the base branch in before review, rather than after, is what makes the
+green check mean something. Where the repository offers "require branches to be
+up to date before merging", that is the same rule enforced by the forge.
+
+dingo#4145 is the worked example: a change forked two days before independent
+tests were made parallel, passed all four `go-test` jobs on its own head because
+its tree had no parallelism in it, and broke `main` on merge — the first time
+the two ever ran together.
+
 ## Triage a failure before attributing it
 
 1. Reproduce it. A failure seen once is a report, not a finding.

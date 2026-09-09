@@ -168,6 +168,50 @@ Never `time.Sleep()` to synchronize. Assert the invariant directly where you
 can: "the mutex is acquirable while Close waits" is checkable without ordering
 two goroutines at all.
 
+## A test that can observe zero is not synchronised
+
+A non-blocking read is not a wait. `select` with a `default` arm, a `len(ch)`
+check, or a drain loop that returns as soon as the channel is momentarily empty
+all read whatever happens to be there *now* and return immediately when nothing
+is. Pair one with a count assertion and the test asserts on a race:
+
+```go
+// Broken: returns instantly if the producer has not run yet.
+for {
+    select {
+    case evt := <-ch:
+        out = append(out, evt)
+    default:
+        return out
+    }
+}
+...
+require.Len(t, out, 1)   // reports "0" when the test merely looked too early
+```
+
+There is no happens-before edge between the producer and the assertion, so the
+test does not fail when the code is wrong — it fails when the scheduler is
+unkind. It passes while the producer reliably wins the race and starts failing
+when anything changes the odds: a new sibling `t.Parallel()`, a slower runner, a
+busier CI host. Nothing about the test changed at that point; only the odds did.
+
+The tell is the failure message. `should have 1 item(s), but has 0` and
+`"0" is not positive` are the shape of an unsynchronised read, not of a
+regression — a genuinely broken producer usually publishes the *wrong* event,
+not none at all. Treat a zero-observation failure as a missing wait until you
+have proved otherwise.
+
+Block on the event instead: `RequireReceive` (Dingo's helper) or a bare
+`case <-ch:` against a timeout, waiting for each event the scenario promises,
+then drain for unexpected extras. Assert "the first event is X" by receiving it,
+and "there are no others" by draining after — those are two different
+assertions and only the second may use `default`.
+
+This is the failure mode behind dingo#4145: two frontier-flap tests drained
+non-blockingly and asserted a count, passed on every platform for as long as
+they ran alone, and turned `main` red for hours once independent tests began
+running in parallel.
+
 ## Make the unreachable reachable
 
 A branch that cannot be driven from a test is a branch nobody has verified. When

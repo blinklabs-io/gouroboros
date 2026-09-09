@@ -51,6 +51,14 @@ copy of them — apply them without being asked.
    failure, a timeout, or an empty `-run` filter. A test that "errored, close
    enough" is not fail-before evidence. Record the command and the failure
    message.
+
+   When the assertion observes something another goroutine produces, wait for
+   it. A `select` with a `default` arm, a `len(ch)` check, or a drain loop that
+   stops at the first empty read is not a wait — it can legitimately observe
+   nothing and turn "I looked too early" into a failed count assertion. Block on
+   each event the scenario promises, then drain for unexpected extras. Run the
+   whole package, not a `-run` filter: sibling `t.Parallel()` tests are the
+   contention that exposes a missing wait, and a filtered run hides it.
 5. Implement the smallest change that turns that failure into a pass. Re-run the
    test, then restore the failing state once more if the fix looked suspiciously
    easy.

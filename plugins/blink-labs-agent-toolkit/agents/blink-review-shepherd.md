@@ -106,7 +106,17 @@ step, and the first real error in the log. Establish ownership by reproducing
 against an `origin/main` baseline: a failure that reproduces there is the base
 branch's and belongs to a separate fix, and one that does not is the change's.
 Check the merged tree too — a branch that passes at its head can still break
-against code that landed on main after its merge base. Post a comment carrying
+against code that landed on main after its merge base.
+
+Do that check when the pipeline is **green**, not only when it fails. A green
+branch with a stale base is the dangerous case: its checks ran on a tree that
+never contained the base's newer commits, so they are evidence about the branch
+and not about main. Before approving or handing back as ready, read
+`git rev-list --count <branch>..origin/main`, and if the branch is behind, merge
+current `origin/main` in a scratch worktree and run the affected packages there
+— a clean `git merge` is not the check, the build and the tests are. Ask for the
+base branch to be merged before review rather than after; that is what makes the
+green check mean something. Post a comment carrying
 that diagnosis and the concrete fix, then set the disposition from the review
 on its own merits: `CHANGES_REQUESTED` when the change caused the failure or
 the review found blockers, otherwise a `COMMENTED` review that records the
