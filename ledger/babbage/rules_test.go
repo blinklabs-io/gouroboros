@@ -135,6 +135,72 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateTransactionNetworkId(t *testing.T) {
+	ledgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+	validate := func(tx *babbage.BabbageTransaction) error {
+		return babbage.UtxoValidateTransactionNetworkId(tx, 0, ledgerState, &babbage.BabbageProtocolParameters{})
+	}
+
+	t.Run("absent identifier is accepted", func(t *testing.T) {
+		assert.NoError(t, validate(&babbage.BabbageTransaction{}))
+	})
+	t.Run("matching identifier is accepted", func(t *testing.T) {
+		assert.NoError(t, validate(&babbage.BabbageTransaction{Body: babbage.BabbageTransactionBody{NetworkId: 1}}))
+	})
+	t.Run("mismatched identifier is rejected", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		tx.Body.SetNetworkIdPresence(true)
+		err := validate(tx)
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+	t.Run("explicit testnet identifier decoded from CBOR is present", func(t *testing.T) {
+		bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(0)})
+		require.NoError(t, err)
+		var body babbage.BabbageTransactionBody
+		require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+		err = validate(&babbage.BabbageTransaction{Body: body})
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+	t.Run("invalid identifier is rejected", func(t *testing.T) {
+		err := validate(&babbage.BabbageTransaction{Body: babbage.BabbageTransactionBody{NetworkId: 2}})
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+}
+
+func TestTransactionNetworkIdPresencePreservesEncodingAndHash(t *testing.T) {
+	bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(1)})
+	require.NoError(t, err)
+	var body babbage.BabbageTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+	firstHash := body.Id()
+	body.NetworkId = 0
+	body.SetNetworkIdPresence(true)
+
+	encoded, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	_, present := fields[15]
+	assert.True(t, present)
+
+	body.SetNetworkIdPresence(false)
+	encoded, err = body.MarshalCBOR()
+	require.NoError(t, err)
+	fields = make(map[uint]cbor.RawMessage)
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	_, present = fields[15]
+	assert.False(t, present)
+	body.SetCbor(encoded)
+	assert.NotEqual(t, firstHash, body.Id())
+}
+
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
@@ -1336,6 +1402,38 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 			Steps:  5_000,
 		},
 	}
+	// A duplicated key contributes its budget once, as it does in the map the
+	// ledger holds. Preview transaction 3ace3bc7f4c5 at slot 12925989 is a
+	// Babbage block carrying the same (mint, 0) redeemer six times; summing the
+	// raw list rejected a transaction the network accepted
+	// (blinklabs-io/dingo#3875).
+	t.Run(
+		"duplicate redeemer key counts once",
+		func(t *testing.T) {
+			dup := alonzo.AlonzoRedeemer{
+				Tag:   common.RedeemerTagMint,
+				Index: 0,
+				ExUnits: common.ExUnits{
+					Memory: 3_000_000,
+					Steps:  3_000,
+				},
+			}
+			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{dup, dup, dup, dup, dup, dup},
+			}
+			// One copy is inside the 5,000,000 / 5,000 cap and two already
+			// exceed it, so only a collapse to exactly one entry passes: an
+			// over-count of any size, not just all six, fails here.
+			if err := babbage.UtxoValidateExUnitsTooBigUtxo(
+				testTx, testSlot, testLedgerState, testProtocolParams,
+			); err != nil {
+				t.Errorf(
+					"six copies of one redeemer must count once, got: %v", err,
+				)
+			}
+		},
+	)
+
 	// Ex-units too large
 	t.Run(
 		"ExUnits too large",
@@ -1391,15 +1489,20 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	t.Run(
 		"ExUnits overflow",
 		func(t *testing.T) {
+			// Distinct keys: this case is about addition overflowing, and
+			// two entries sharing a key would collapse to one before the
+			// sum ever happens.
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
 				Redeemers: []alonzo.AlonzoRedeemer{
 					{
+						Index: 0,
 						ExUnits: common.ExUnits{
 							Memory: math.MaxInt64 - 10,
 							Steps:  math.MaxInt64 - 10,
 						},
 					},
 					{
+						Index: 1,
 						ExUnits: common.ExUnits{
 							Memory: 100,
 							Steps:  100,
@@ -1575,6 +1678,15 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				},
 				false,
 			),
+		},
+		// total_collateral is only checked for phase-2 transactions, so the
+		// fixture needs a redeemer for the rule to run at all.
+		WitnessSet: babbage.BabbageTransactionWitnessSet{
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					{Tag: common.RedeemerTagSpend, Index: 0},
+				},
+			},
 		},
 	}
 	utxos := []common.Utxo{

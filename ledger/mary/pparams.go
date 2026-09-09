@@ -244,7 +244,7 @@ func UpgradePParams(
 		ProtocolMajor:      prevPParams.ProtocolMajor,
 		ProtocolMinor:      prevPParams.ProtocolMinor,
 		MinUtxoValue:       prevPParams.MinUtxoValue,
-		MinPoolCost:        340000000, // initial MinPoolCost at Mary on mainnet
+		MinPoolCost:        prevPParams.MinPoolCost,
 	}
 }
 

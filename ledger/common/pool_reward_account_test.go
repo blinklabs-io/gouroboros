@@ -16,6 +16,8 @@ package common
 
 import (
 	"bytes"
+	"encoding/hex"
+	"encoding/json"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -82,43 +84,145 @@ func TestPoolRegistrationRewardAccountNetworkId(t *testing.T) {
 		assert.Equal(t, uint(1), got)
 	})
 
-	t.Run("legacy 28-byte encoding has no network id", func(t *testing.T) {
+	t.Run("legacy 28-byte encoding is rejected", func(t *testing.T) {
 		cert := &PoolRegistrationCertificate{}
-		require.NoError(t, cert.UnmarshalCBOR(encode(t, credential)))
-		assert.Equal(
+		require.ErrorContains(
 			t,
-			AddrKeyHash(NewBlake2b224(credential)),
-			cert.RewardAccount,
+			cert.UnmarshalCBOR(encode(t, credential)),
+			"invalid reward account length",
 		)
-		got, known := cert.RewardAccountNetworkId()
-		assert.False(t, known)
-		assert.Equal(t, uint(0), got)
 	})
 
 	t.Run("constructed certificate has no network id", func(t *testing.T) {
 		cert := &PoolRegistrationCertificate{
 			RewardAccount: NewBlake2b224(credential),
+			Margin:        NewGenesisRat(0, 1),
 		}
 		_, known := cert.RewardAccountNetworkId()
 		assert.False(t, known)
+		assert.Equal(
+			t,
+			uint(CredentialTypeAddrKeyHash),
+			cert.RewardAccountCredential().CredType,
+		)
+		_, err := cert.MarshalCBOR()
+		require.ErrorContains(t, err, "reward account metadata is required")
 	})
 
-	t.Run("decoding preserves the wire bytes", func(t *testing.T) {
-		rewardAccount := append([]byte{0xe1}, credential...)
-		wire := encode(t, rewardAccount)
+	t.Run(
+		"constructed certificate can set canonical identity",
+		func(t *testing.T) {
+			cert := &PoolRegistrationCertificate{}
+			err := cert.SetRewardAccountCredential(
+				Credential{
+					CredType:   CredentialTypeScriptHash,
+					Credential: NewBlake2b224(credential),
+				},
+				AddressNetworkMainnet,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, AddrKeyHash(credential), cert.RewardAccount)
+			assert.Equal(
+				t,
+				uint(CredentialTypeScriptHash),
+				cert.RewardAccountCredential().CredType,
+			)
+			gotNetwork, known := cert.RewardAccountNetworkId()
+			require.True(t, known)
+			assert.Equal(t, uint(AddressNetworkMainnet), gotNetwork)
+			encodedReward, err := cert.rewardAccountBytes()
+			require.NoError(t, err)
+			assert.Equal(t, append([]byte{0xf1}, credential...), encodedReward)
+		},
+	)
+
+	t.Run(
+		"constructed certificate rejects invalid identity",
+		func(t *testing.T) {
+			cert := &PoolRegistrationCertificate{}
+			err := cert.SetRewardAccountCredential(
+				Credential{CredType: CredentialTypeScriptHash + 1},
+				AddressNetworkMainnet,
+			)
+			require.ErrorContains(
+				t,
+				err,
+				"invalid reward account credential type",
+			)
+			err = cert.SetRewardAccountCredential(
+				Credential{CredType: CredentialTypeAddrKeyHash},
+				AddressNetworkMainnet+1,
+			)
+			require.ErrorContains(t, err, "invalid reward account network id")
+		},
+	)
+
+	t.Run(
+		"decoding preserves canonical identity after cache clear",
+		func(t *testing.T) {
+			rewardAccount := append([]byte{0xf1}, credential...)
+			wire := encode(t, rewardAccount)
+			cert := &PoolRegistrationCertificate{}
+			require.NoError(t, cert.UnmarshalCBOR(wire))
+			cert.SetCbor(nil)
+			remarshaled, err := cert.MarshalCBOR()
+			require.NoError(t, err)
+			assert.Equal(t, wire, remarshaled)
+		},
+	)
+
+	t.Run("JSON replacement clears decoded identity", func(t *testing.T) {
+		rewardAccount := append([]byte{0xf1}, credential...)
 		cert := &PoolRegistrationCertificate{}
-		require.NoError(t, cert.UnmarshalCBOR(wire))
-		remarshaled, err := cert.MarshalCBOR()
+		require.NoError(t, cert.UnmarshalCBOR(encode(t, rewardAccount)))
+		assert.Equal(
+			t,
+			uint(CredentialTypeScriptHash),
+			cert.RewardAccountCredential().CredType,
+		)
+
+		replacementCredential := bytes.Repeat(
+			[]byte{0x08},
+			Blake2b224Size,
+		)
+		jsonData, err := json.Marshal(map[string]any{
+			"margin": map[string]any{
+				"numerator":   0,
+				"denominator": 1,
+			},
+			"rewardAccount": map[string]any{
+				"credential": map[string]any{
+					"key hash": hex.EncodeToString(replacementCredential),
+				},
+			},
+		})
 		require.NoError(t, err)
-		assert.Equal(t, wire, remarshaled)
+		require.NoError(t, json.Unmarshal(jsonData, cert))
+
+		assert.Nil(t, cert.Cbor())
+		assert.Equal(
+			t,
+			AddrKeyHash(replacementCredential),
+			cert.RewardAccount,
+		)
+		assert.Equal(
+			t,
+			uint(CredentialTypeAddrKeyHash),
+			cert.RewardAccountCredential().CredType,
+		)
+		_, known := cert.RewardAccountNetworkId()
+		assert.False(t, known)
+		_, err = cert.MarshalCBOR()
+		require.ErrorContains(t, err, "reward account metadata is required")
 	})
 }
 
-// TestPoolMetadataHashLengthIsFixed proves a pool registration whose metadata
-// hash is not exactly 32 bytes fails to decode. The Shelley POOL rule's
-// PoolMedataHashTooBig predicate is unreachable for that reason, so
-// shelley.UtxoValidatePoolCertificates does not reimplement it.
-func TestPoolMetadataHashLengthIsFixed(t *testing.T) {
+// TestPoolMetadataHashDecodesAnyLength proves a pool registration decodes a
+// metadata hash of any byte-string length and re-encodes it unchanged. pmHash
+// in libs/cardano-ledger-core/src/Cardano/Ledger/State/StakePool.hs is an
+// unbounded ByteArray, so the 32-byte bound is a POOL rule predicate
+// (PoolMedataHashTooBig) rather than a decode constraint.
+func TestPoolMetadataHashDecodesAnyLength(t *testing.T) {
 	encode := func(t *testing.T, metadata any) []byte {
 		t.Helper()
 		wire, err := cbor.Encode([]any{
@@ -140,39 +244,48 @@ func TestPoolMetadataHashLengthIsFixed(t *testing.T) {
 		return wire
 	}
 
-	t.Run("32-byte metadata hash decodes", func(t *testing.T) {
-		wire := encode(t, []any{
-			"https://example.com/pool.json",
-			bytes.Repeat([]byte{0x05}, Blake2b256Size),
-		})
-		cert := &PoolRegistrationCertificate{}
-		require.NoError(t, cert.UnmarshalCBOR(wire))
-		require.NotNil(t, cert.PoolMetadata)
-		assert.Equal(
-			t,
-			PoolMetadataHash(
-				NewBlake2b256(bytes.Repeat([]byte{0x05}, Blake2b256Size)),
-			),
-			cert.PoolMetadata.Hash,
-		)
-	})
-
-	wrongSizes := map[string]int{
-		"one byte short": Blake2b256Size - 1,
-		"one byte long":  Blake2b256Size + 1,
+	sizes := map[string]int{
+		"two byte placeholder": 2,
+		"one byte short":       Blake2b256Size - 1,
+		"32 bytes":             Blake2b256Size,
+		"one byte long":        Blake2b256Size + 1,
 	}
-	for name, size := range wrongSizes {
-		t.Run(name+" fails to decode", func(t *testing.T) {
+	for name, size := range sizes {
+		t.Run(name, func(t *testing.T) {
+			hash := bytes.Repeat([]byte{0x05}, size)
 			wire := encode(t, []any{
 				"https://example.com/pool.json",
-				bytes.Repeat([]byte{0x05}, size),
+				hash,
 			})
 			cert := &PoolRegistrationCertificate{}
-			err := cert.UnmarshalCBOR(wire)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "blake2b-256 hash")
+			require.NoError(t, cert.UnmarshalCBOR(wire))
+			require.NotNil(t, cert.PoolMetadata)
+			assert.Equal(
+				t,
+				PoolMetadataHash(hash),
+				cert.PoolMetadata.Hash,
+			)
+			remarshaled, err := cbor.Encode(cert.PoolMetadata)
+			require.NoError(t, err)
+			expected, err := cbor.Encode([]any{
+				"https://example.com/pool.json",
+				hash,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, expected, remarshaled)
 		})
 	}
+
+	t.Run("non byte string is rejected", func(t *testing.T) {
+		wire := encode(t, []any{
+			"https://example.com/pool.json",
+			"0505050505050505050505050505050505050505050505050505050505050505",
+		})
+		cert := &PoolRegistrationCertificate{}
+		err := cert.UnmarshalCBOR(wire)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pool metadata hash")
+	})
 }
 
 // TestPoolRegistrationSetCborInvalidatesNetworkId pins the cache invalidation

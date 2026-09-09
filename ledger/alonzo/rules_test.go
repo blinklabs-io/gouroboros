@@ -134,6 +134,43 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateTransactionNetworkId(t *testing.T) {
+	ledgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+	validate := func(tx *alonzo.AlonzoTransaction) error {
+		return alonzo.UtxoValidateTransactionNetworkId(tx, 0, ledgerState, &alonzo.AlonzoProtocolParameters{})
+	}
+
+	t.Run("absent identifier is accepted", func(t *testing.T) {
+		assert.NoError(t, validate(&alonzo.AlonzoTransaction{}))
+	})
+	t.Run("matching identifier is accepted", func(t *testing.T) {
+		assert.NoError(t, validate(&alonzo.AlonzoTransaction{Body: alonzo.AlonzoTransactionBody{NetworkId: 1}}))
+	})
+	t.Run("mismatched identifier is rejected", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		tx.Body.SetNetworkIdPresence(true)
+		err := validate(tx)
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+	t.Run("explicit testnet identifier decoded from CBOR is present", func(t *testing.T) {
+		bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(0)})
+		require.NoError(t, err)
+		var body alonzo.AlonzoTransactionBody
+		require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+		err = validate(&alonzo.AlonzoTransaction{Body: body})
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+	t.Run("invalid identifier is rejected", func(t *testing.T) {
+		err := validate(&alonzo.AlonzoTransaction{Body: alonzo.AlonzoTransactionBody{NetworkId: 2}})
+		require.Error(t, err)
+		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+	})
+}
+
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
@@ -1256,6 +1293,39 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 			Steps:  5_000,
 		},
 	}
+	// A duplicated key contributes its budget once, as it does in the map the
+	// ledger holds. Preview transaction 3ace3bc7f4c5 at slot 12925989 carries
+	// the same (mint, 0) redeemer six times; summing the raw list rejected a
+	// transaction the network accepted (blinklabs-io/dingo#3875). That block is
+	// Babbage, but the rule is duplicated per era and the Alonzo copy summed
+	// the raw list the same way.
+	t.Run(
+		"duplicate redeemer key counts once",
+		func(t *testing.T) {
+			dup := alonzo.AlonzoRedeemer{
+				Tag:   common.RedeemerTagMint,
+				Index: 0,
+				ExUnits: common.ExUnits{
+					Memory: 3_000_000,
+					Steps:  3_000,
+				},
+			}
+			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{dup, dup, dup, dup, dup, dup},
+			}
+			// One copy is inside the 5,000,000 / 5,000 cap and two already
+			// exceed it, so only a collapse to exactly one entry passes: an
+			// over-count of any size, not just all six, fails here.
+			if err := alonzo.UtxoValidateExUnitsTooBigUtxo(
+				testTx, testSlot, testLedgerState, testProtocolParams,
+			); err != nil {
+				t.Errorf(
+					"six copies of one redeemer must count once, got: %v", err,
+				)
+			}
+		},
+	)
+
 	// Ex-units too large
 	t.Run(
 		"ExUnits too large",
@@ -1311,15 +1381,20 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	t.Run(
 		"ExUnits overflow",
 		func(t *testing.T) {
+			// Distinct keys: this case is about addition overflowing, and
+			// two entries sharing a key would collapse to one before the
+			// sum ever happens.
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
 				Redeemers: []alonzo.AlonzoRedeemer{
 					{
+						Index: 0,
 						ExUnits: common.ExUnits{
 							Memory: math.MaxInt64 - 10,
 							Steps:  math.MaxInt64 - 10,
 						},
 					},
 					{
+						Index: 1,
 						ExUnits: common.ExUnits{
 							Memory: 100,
 							Steps:  100,

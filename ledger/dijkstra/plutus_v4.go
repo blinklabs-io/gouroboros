@@ -1140,31 +1140,15 @@ func dijkstraPurposeV4(
 func dijkstraWithdrawalsV4(
 	withdrawals map[*common.Address]*big.Int,
 ) (data.PlutusData, error) {
-	type entry struct {
-		credential common.Credential
-		amount     *big.Int
-	}
-	entries := make([]entry, 0, len(withdrawals))
-	for address, amount := range withdrawals {
+	sortedAddresses := script.SortWithdrawalAddresses(withdrawals)
+	pairs := make([][2]data.PlutusData, len(sortedAddresses))
+	for idx, address := range sortedAddresses {
 		credential, err := address.RewardAccountCredential()
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, entry{credential: credential, amount: amount})
-	}
-	slices.SortFunc(entries, func(a, b entry) int {
-		if a.credential.CredType != b.credential.CredType {
-			return int(a.credential.CredType) - int(b.credential.CredType)
-		}
-		return bytes.Compare(
-			a.credential.Credential.Bytes(),
-			b.credential.Credential.Bytes(),
-		)
-	})
-	pairs := make([][2]data.PlutusData, len(entries))
-	for idx, item := range entries {
 		pairs[idx] = [2]data.PlutusData{
-			item.credential.ToPlutusData(), data.NewInteger(item.amount),
+			credential.ToPlutusData(), data.NewInteger(withdrawals[address]),
 		}
 	}
 	return data.NewMap(pairs), nil

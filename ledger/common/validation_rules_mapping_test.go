@@ -120,6 +120,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateOutputBootAddrAttrsTooBig,   // UtxoValidationRuleOutputBootAddrAttrsTooBig
 		alonzo.UtxoValidateWrongNetwork,                // UtxoValidationRuleWrongNetwork
 		alonzo.UtxoValidateWrongNetworkWithdrawal,      // UtxoValidationRuleWrongNetworkWithdrawal
+		alonzo.UtxoValidateTransactionNetworkId,        // UtxoValidationRuleTransactionNetworkId
 		alonzo.UtxoValidateMaxTxSizeUtxo,               // UtxoValidationRuleMaxTxSize
 		alonzo.UtxoValidateExUnitsTooBigUtxo,           // UtxoValidationRuleExUnitsTooBig
 		alonzo.UtxoValidateNativeScripts,               // UtxoValidationRuleNativeScripts
@@ -157,6 +158,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateOutputBootAddrAttrsTooBig,   // UtxoValidationRuleOutputBootAddrAttrsTooBig
 		babbage.UtxoValidateWrongNetwork,                // UtxoValidationRuleWrongNetwork
 		babbage.UtxoValidateWrongNetworkWithdrawal,      // UtxoValidationRuleWrongNetworkWithdrawal
+		babbage.UtxoValidateTransactionNetworkId,        // UtxoValidationRuleTransactionNetworkId
 		babbage.UtxoValidateMaxTxSizeUtxo,               // UtxoValidationRuleMaxTxSize
 		babbage.UtxoValidateExUnitsTooBigUtxo,           // UtxoValidationRuleExUnitsTooBig
 		babbage.UtxoValidateTooManyCollateralInputs,     // UtxoValidationRuleTooManyCollateralInputs
@@ -264,12 +266,13 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateBadInputsUtxo,                  // UtxoValidationRuleBadInputs
 		dijkstra.UtxoValidateScriptWitnesses,              // UtxoValidationRuleScriptWitnesses
 		conway.UtxoValidateRequiredRedeemers,              // UtxoValidationRuleRequiredRedeemers
+		dijkstra.UtxoValidateBatchWithdrawals,             // UtxoValidationRuleBatchWithdrawals
 		dijkstra.UtxoValidateValueNotConservedUtxo,        // UtxoValidationRuleValueNotConserved
 		dijkstra.UtxoValidateOutputTooSmallUtxo,           // UtxoValidationRuleOutputTooSmall
 		dijkstra.UtxoValidateOutputTooBigUtxo,             // UtxoValidationRuleOutputTooBig
 		conway.UtxoValidateOutputBootAddrAttrsTooBig,      // UtxoValidationRuleOutputBootAddrAttrsTooBig
 		conway.UtxoValidateWrongNetwork,                   // UtxoValidationRuleWrongNetwork
-		conway.UtxoValidateWrongNetworkWithdrawal,         // UtxoValidationRuleWrongNetworkWithdrawal
+		dijkstra.UtxoValidateWrongNetworkWithdrawal,       // UtxoValidationRuleWrongNetworkWithdrawal
 		dijkstra.UtxoValidateTransactionNetworkId,         // UtxoValidationRuleTransactionNetworkId
 		dijkstra.UtxoValidateMaxTxSizeUtxo,                // UtxoValidationRuleMaxTxSize
 		dijkstra.UtxoValidateExUnitsTooBigUtxo,            // UtxoValidationRuleExUnitsTooBig

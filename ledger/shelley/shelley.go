@@ -227,8 +227,8 @@ type ShelleyBlockHeaderBody struct {
 	BlockBodySize        uint64
 	BlockBodyHash        common.Blake2b256
 	OpCertHotVkey        []byte
-	OpCertSequenceNumber uint32
-	OpCertKesPeriod      uint32
+	OpCertSequenceNumber uint64
+	OpCertKesPeriod      uint64
 	OpCertSignature      []byte
 	ProtoMajorVersion    uint64
 	ProtoMinorVersion    uint64
@@ -246,8 +246,8 @@ type shelleyBlockHeaderBodyWire struct {
 	BlockBodySize        uint64
 	BlockBodyHash        common.Blake2b256
 	OpCertHotVkey        []byte
-	OpCertSequenceNumber uint32
-	OpCertKesPeriod      uint32
+	OpCertSequenceNumber uint64
+	OpCertKesPeriod      uint64
 	OpCertSignature      []byte
 	ProtoMajorVersion    uint64
 	ProtoMinorVersion    uint64
@@ -715,7 +715,6 @@ func (w ShelleyTransactionWitnessSet) Redeemers() common.TransactionWitnessRedee
 type ShelleyTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
@@ -724,7 +723,6 @@ type ShelleyTransaction struct {
 
 func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
-	t.hash = nil
 	t.TxMetadata = nil
 	t.auxData = nil
 
@@ -814,12 +812,12 @@ func (t ShelleyTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t ShelleyTransaction) LeiosHash() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t ShelleyTransaction) Inputs() []common.TransactionInput {
