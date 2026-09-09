@@ -17,6 +17,7 @@ package common
 import (
 	"runtime"
 	"sync/atomic"
+	"unsafe"
 )
 
 const (
@@ -26,23 +27,45 @@ const (
 )
 
 type Blake2b256Cache struct {
-	value Blake2b256
-	state uint32
+	state unsafe.Pointer
 }
 
 func (c *Blake2b256Cache) Get(compute func() Blake2b256) Blake2b256 {
+	state := atomic.LoadPointer(&c.state)
+	if state == nil {
+		newState := &blake2b256CacheState{}
+		if atomic.CompareAndSwapPointer(&c.state, nil, unsafe.Pointer(newState)) {
+			state = unsafe.Pointer(newState)
+		} else {
+			state = atomic.LoadPointer(&c.state)
+		}
+	}
+	cacheState := (*blake2b256CacheState)(state)
 	for {
-		switch atomic.LoadUint32(&c.state) {
+		switch atomic.LoadUint32(&cacheState.state) {
 		case hashCacheReady:
-			return c.value
+			return cacheState.value
 		case hashCacheEmpty:
-			if atomic.CompareAndSwapUint32(&c.state, hashCacheEmpty, hashCacheComputing) {
-				c.value = compute()
-				atomic.StoreUint32(&c.state, hashCacheReady)
-				return c.value
+			if atomic.CompareAndSwapUint32(&cacheState.state, hashCacheEmpty, hashCacheComputing) {
+				func() {
+					defer func() {
+						if recovered := recover(); recovered != nil {
+							atomic.StoreUint32(&cacheState.state, hashCacheEmpty)
+							panic(recovered)
+						}
+					}()
+					cacheState.value = compute()
+				}()
+				atomic.StoreUint32(&cacheState.state, hashCacheReady)
+				return cacheState.value
 			}
 		default:
 			runtime.Gosched()
 		}
 	}
+}
+
+type blake2b256CacheState struct {
+	value Blake2b256
+	state uint32
 }

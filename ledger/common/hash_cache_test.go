@@ -42,3 +42,58 @@ func TestBlake2b256CacheConcurrentFirstFill(t *testing.T) {
 	start.Done()
 	workers.Wait()
 }
+
+func TestBlake2b256CacheRetriesAfterPanic(t *testing.T) {
+	var cache Blake2b256Cache
+	called := 0
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("expected compute panic")
+			}
+		}()
+		cache.Get(func() Blake2b256 {
+			called++
+			panic("compute failed")
+		})
+	}()
+
+	want := Blake2b256{1}
+	if got := cache.Get(func() Blake2b256 {
+		called++
+		return want
+	}); got != want {
+		t.Fatalf("unexpected hash: got %x, want %x", got, want)
+	}
+	if called != 2 {
+		t.Fatalf("unexpected compute count: got %d, want 2", called)
+	}
+}
+
+func TestBlake2b256CacheCopyDuringCompute(t *testing.T) {
+	var cache Blake2b256Cache
+	started := make(chan struct{})
+	release := make(chan struct{})
+	want := Blake2b256{2}
+	done := make(chan Blake2b256)
+	go func() {
+		done <- cache.Get(func() Blake2b256 {
+			close(started)
+			<-release
+			return want
+		})
+	}()
+	<-started
+
+	copy := cache
+	close(release)
+	if got := <-done; got != want {
+		t.Fatalf("unexpected original hash: got %x, want %x", got, want)
+	}
+	if got := copy.Get(func() Blake2b256 {
+		t.Fatal("copied cache recomputed while original was in flight")
+		return Blake2b256{}
+	}); got != want {
+		t.Fatalf("unexpected copied hash: got %x, want %x", got, want)
+	}
+}

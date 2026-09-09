@@ -46,6 +46,15 @@ func TestHeaderHashConcurrentFirstFill(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			hashData := cborData
+			switch test.name {
+			case "byron":
+				hashData = append([]byte{0x82, byron.BlockTypeByronMain}, cborData...)
+			case "byron ebb":
+				hashData = append([]byte{0x82, byron.BlockTypeByronEbb}, cborData...)
+			}
+			want := common.Blake2b256Hash(hashData)
+			results := make(chan common.Blake2b256, 32)
 			var start sync.WaitGroup
 			start.Add(1)
 			var workers sync.WaitGroup
@@ -54,11 +63,17 @@ func TestHeaderHashConcurrentFirstFill(t *testing.T) {
 				go func() {
 					defer workers.Done()
 					start.Wait()
-					test.hash()
+					results <- test.hash()
 				}()
 			}
 			start.Done()
 			workers.Wait()
+			close(results)
+			for got := range results {
+				if got != want {
+					t.Fatalf("unexpected hash: got %x, want %x", got, want)
+				}
+			}
 		})
 	}
 }
