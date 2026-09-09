@@ -11,12 +11,6 @@ make the expected transition before the timeout expires. These are transport
 and state-machine safeguards, not application-level transaction or block
 validation.
 
-The framework does not arm a timeout when entering a protocol's initial state.
-It may arm the configured timer on subsequent state entries, so the timeout
-entries below describe post-initial state transitions unless a protocol adds
-its own initial-entry timer. Caller and transport deadlines remain independent
-of framework state timers.
-
 ## Chain Sync
 
 The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
@@ -90,13 +84,9 @@ counts outside those bounds with `ErrProtocolViolationRequestExceeded`.
 
 ## Handshake
 
-For N2N, `Propose` and `Confirm` each have a 10-second timeout entry. Because
-the framework exempts the initial state, an N2N server waiting in its initial
-`Propose` state has no framework state timer; independent caller or transport
-deadlines may still apply. The `Confirm` timer starts after the proposal
-transition. N2C has no state timeouts. Client and server instances copy the
-N2N map and can override the applicable timeout with `WithTimeout`; the N2C map
-remains timeout-free.
+For N2N, `Propose` and `Confirm` each have a 10-second timeout. N2C has no
+state timeouts. Client and server instances copy the N2N map and can override
+the applicable timeout with `WithTimeout`; the N2C map remains timeout-free.
 
 ## Keep Alive
 
