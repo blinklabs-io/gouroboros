@@ -17,14 +17,87 @@ package kes
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/sha512"
 	"testing"
 
+	"filippo.io/edwards25519"
 	"github.com/stretchr/testify/require"
 )
 
 // Test seed (exactly 32 bytes)
 // Note: "lenght" typo is intentional - matches canonical test vectors from input-output-hk/kes
 var testSeed = []byte("test string of 32 byte of lenght")
+
+var ed25519GeneratorEncoding = []byte{
+	0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+	0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+	0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+	0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+}
+
+func makeKESProof(
+	t *testing.T,
+	depth uint64,
+	leafPublicKey ed25519.PublicKey,
+	leafSignature []byte,
+) ([]byte, ed25519.PublicKey) {
+	t.Helper()
+	require.Len(t, leafPublicKey, ed25519.PublicKeySize)
+	require.Len(t, leafSignature, ed25519.SignatureSize)
+
+	proof := append([]byte(nil), leafSignature...)
+	root := append(ed25519.PublicKey(nil), leafPublicKey...)
+	for level := range depth {
+		right := make(ed25519.PublicKey, ed25519.PublicKeySize)
+		right[0] = byte(level + 2)
+		proof = append(proof, root...)
+		proof = append(proof, right...)
+		root = HashPair(root, right)
+	}
+	require.Len(t, proof, SignatureSize(depth))
+	return proof, root
+}
+
+func universalIdentitySignature(rEncoding []byte) []byte {
+	sig := make([]byte, ed25519.SignatureSize)
+	copy(sig[:32], rEncoding)
+	// S=1 makes [S]B equal the generator R. With an identity public key,
+	// the challenge term is always the identity, regardless of the message.
+	sig[32] = 1
+	return sig
+}
+
+func smallOrderRSignature(
+	t *testing.T,
+	msg []byte,
+) (ed25519.PublicKey, []byte) {
+	t.Helper()
+	seed := make([]byte, ed25519.SeedSize)
+	seed[0] = 42
+	expanded := sha512.Sum512(seed)
+	privateScalar, err := new(edwards25519.Scalar).
+		SetBytesWithClamping(expanded[:32])
+	require.NoError(t, err)
+	publicKey := ed25519.PublicKey(
+		new(edwards25519.Point).ScalarBaseMult(privateScalar).Bytes(),
+	)
+
+	rEncoding := make([]byte, 32)
+	rEncoding[0] = 1
+	h := sha512.New()
+	_, _ = h.Write(rEncoding)
+	_, _ = h.Write(publicKey)
+	_, _ = h.Write(msg)
+	challenge, err := new(edwards25519.Scalar).SetUniformBytes(h.Sum(nil))
+	require.NoError(t, err)
+	s := new(edwards25519.Scalar).Multiply(challenge, privateScalar)
+
+	sig := make([]byte, ed25519.SignatureSize)
+	copy(sig[:32], rEncoding)
+	copy(sig[32:], s.Bytes())
+	return publicKey, sig
+}
 
 func TestKeyGen(t *testing.T) {
 	sk, pk, err := KeyGen(CardanoKesDepth, testSeed)
@@ -142,6 +215,139 @@ func TestVerifySignedKES(t *testing.T) {
 		VerifySignedKES(pk, 0, message, sig),
 		"VerifySignedKES failed",
 	)
+
+	wrongMessage := append([]byte(nil), message...)
+	wrongMessage[0] ^= 0xff
+	require.False(
+		t,
+		VerifySignedKES(pk, 0, wrongMessage, sig),
+		"signature verified for the wrong message",
+	)
+	wrongRoot := append([]byte(nil), pk...)
+	wrongRoot[0] ^= 0xff
+	require.False(
+		t,
+		VerifySignedKES(wrongRoot, 0, message, sig),
+		"signature verified for the wrong root",
+	)
+	require.False(
+		t,
+		VerifySignedKES(pk, 1, message, sig),
+		"signature verified for the wrong period",
+	)
+}
+
+func TestSum0KesSigVerifyRejectsMalformedInputs(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	signature := Sum0KesSig(make([]byte, ed25519.SignatureSize))
+
+	require.NotPanics(t, func() {
+		require.False(t, signature.Verify(0, publicKey[:31], nil))
+	})
+	require.False(
+		t,
+		Sum0KesSig(signature[:63]).Verify(0, publicKey, nil),
+		"short leaf signature accepted",
+	)
+}
+
+func TestVerifySignedKESRejectsNonStrictEd25519Leaves(t *testing.T) {
+	message := []byte("header body")
+	identity := make(ed25519.PublicKey, ed25519.PublicKeySize)
+	identity[0] = 1
+	nonCanonicalIdentity := ed25519.PublicKey{
+		0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
+	}
+	nonCanonicalIdentityR := append([]byte(nil), nonCanonicalIdentity...)
+	groupOrder := []byte{
+		0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
+		0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+	}
+
+	nonCanonicalScalar := make([]byte, ed25519.SignatureSize)
+	copy(nonCanonicalScalar[:32], ed25519GeneratorEncoding)
+	copy(nonCanonicalScalar[32:], groupOrder)
+	smallOrderRPublicKey, smallOrderR := smallOrderRSignature(t, message)
+	nonCanonicalR := make([]byte, ed25519.SignatureSize)
+	copy(nonCanonicalR[:32], nonCanonicalIdentityR)
+	malformedPoint := make(ed25519.PublicKey, ed25519.PublicKeySize)
+	for i := range malformedPoint {
+		malformedPoint[i] = 0xff
+	}
+
+	tests := []struct {
+		name                   string
+		leafPublicKey          ed25519.PublicKey
+		leafSignature          []byte
+		standardLibraryAccepts bool
+	}{
+		{
+			name:                   "small-order public key",
+			leafPublicKey:          identity,
+			leafSignature:          universalIdentitySignature(ed25519GeneratorEncoding),
+			standardLibraryAccepts: true,
+		},
+		{
+			name:                   "non-canonical public key",
+			leafPublicKey:          nonCanonicalIdentity,
+			leafSignature:          universalIdentitySignature(ed25519GeneratorEncoding),
+			standardLibraryAccepts: true,
+		},
+		{
+			name:                   "small-order R",
+			leafPublicKey:          smallOrderRPublicKey,
+			leafSignature:          smallOrderR,
+			standardLibraryAccepts: true,
+		},
+		{
+			name:          "non-canonical R",
+			leafPublicKey: identity,
+			leafSignature: nonCanonicalR,
+		},
+		{
+			name:          "non-canonical scalar",
+			leafPublicKey: identity,
+			leafSignature: nonCanonicalScalar,
+		},
+		{
+			name:          "malformed public key",
+			leafPublicKey: malformedPoint,
+			leafSignature: universalIdentitySignature(ed25519GeneratorEncoding),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.standardLibraryAccepts {
+				require.True(
+					t,
+					ed25519.Verify(
+						test.leafPublicKey,
+						message,
+						test.leafSignature,
+					),
+					"test vector does not exercise stricter verification",
+				)
+			}
+			proof, root := makeKESProof(
+				t,
+				CardanoKesDepth,
+				test.leafPublicKey,
+				test.leafSignature,
+			)
+			require.False(
+				t,
+				VerifySignedKES(root, 0, message, proof),
+				"non-strict Ed25519 leaf accepted",
+			)
+		})
+	}
 }
 
 func TestUpdateErasesSpentKey(t *testing.T) {

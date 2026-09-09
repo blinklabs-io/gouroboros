@@ -32,7 +32,7 @@ type LeaderElectionResult struct {
 	Proof []byte
 	// Output is the VRF output (nil only on early-return cases like zero stake)
 	Output []byte
-	// Threshold is the leadership threshold that was used
+	// Threshold is the integer comparison threshold ceil(T) that was used
 	Threshold *big.Int
 }
 

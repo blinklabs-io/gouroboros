@@ -101,6 +101,10 @@ func NewValidationError(
 // VerifyConfig holds runtime verification toggles.
 // Default values favor safety; tests or specific flows can opt out.
 type VerifyConfig struct {
+	// SkipHeaderValidation disables the public decoder's nil-header check.
+	// This is for callers that need to distinguish a representable block from
+	// a validation failure before applying their own validation.
+	SkipHeaderValidation bool
 	// SkipBodyHashValidation disables body hash verification in VerifyBlock().
 	// When false (default), full block CBOR must be available for validation.
 	// Useful for scenarios where full block CBOR is unavailable.

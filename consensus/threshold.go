@@ -79,9 +79,9 @@ var bigIntOne = big.NewInt(1)
 //   - f is the active slot coefficient (e.g., 0.05 on mainnet)
 //   - σ = poolStake / totalStake (the pool's relative stake)
 //
-// If the VRF leader value (BLAKE2b-256 hash of VRF output with "L" prefix,
-// interpreted as an unsigned integer) is less than T, the pool is eligible
-// to be a slot leader.
+// The returned integer is ceil(T). Comparing an integer VRF leader value to
+// that threshold with "<" is therefore exactly equivalent to comparing it to
+// the real-valued cutoff T, including when T is not an integer.
 //
 // This implementation uses arbitrary precision arithmetic to match
 // Cardano's ledger specification.
@@ -127,7 +127,9 @@ func CertifiedNatThreshold(
 //
 //	T = 2^512 * (1 - (1-f)^σ)
 //
-// Returns an error if the consensus mode is unknown.
+// The returned integer is ceil(T), preserving the real-valued strict
+// comparison when used with an integer VRF leader value. Returns an error if
+// the consensus mode is unknown.
 func CertifiedNatThresholdWithMode(
 	poolStake uint64,
 	totalStake uint64,
@@ -217,7 +219,7 @@ func CertifiedNatThresholdWithMode(
 	// General case: (1-f)^sigma is generically irrational, so compute it
 	// via the range-reduced ln/exp pipeline with a rigorously bounded
 	// error, escalating precision if the resulting interval straddles an
-	// integer boundary closely enough that floor(probability*upperBound)
+	// integer boundary closely enough that ceil(probability*upperBound)
 	// cannot yet be determined unambiguously. This never runs the
 	// pipeline more than once per precision level (see
 	// oneMinusFPowerSigmaBounds), so the common, well-separated-from-any-
@@ -237,7 +239,8 @@ func CertifiedNatThresholdWithMode(
 // precision-escalation loop for the general (non-exact-rational) case:
 // starting at startBits, it repeatedly widens the accuracy target passed
 // to thresholdFromBoundedProbability until either the resulting interval
-// resolves to a single integer floor (the provably correct threshold), or
+// resolves to a single integer ceiling (the provably correct comparison
+// threshold), or
 // targetBits reaches capBits without resolving.
 //
 // Reaching the cap without resolving does NOT fall back to returning the
@@ -464,8 +467,8 @@ func exactOneMinusFPowerSigma(
 
 // exactOneMinusFPowerSigmaThreshold attempts the exact-rational fast path
 // (see exactOneMinusFPowerSigma) and, if successful, returns the exact
-// integer threshold floor(upperBound * (1-(1-f)^sigma)) computed via
-// integer arithmetic alone.
+// integer comparison threshold ceil(upperBound * (1-(1-f)^sigma)) computed
+// via integer arithmetic alone.
 func exactOneMinusFPowerSigmaThreshold(
 	oneMinusF *big.Rat,
 	poolStake, totalStake uint64,
@@ -476,19 +479,31 @@ func exactOneMinusFPowerSigmaThreshold(
 		return nil, false
 	}
 	probabilityExact := new(big.Rat).Sub(bigRatOne, powerExact)
-	threshold := new(big.Int).Mul(upperBound, probabilityExact.Num())
-	threshold.Quo(threshold, probabilityExact.Denom())
+	thresholdNumerator := new(big.Int).Mul(
+		upperBound,
+		probabilityExact.Num(),
+	)
+	threshold := new(big.Int)
+	remainder := new(big.Int)
+	threshold.QuoRem(
+		thresholdNumerator,
+		probabilityExact.Denom(),
+		remainder,
+	)
+	if remainder.Sign() != 0 {
+		threshold.Add(threshold, bigIntOne)
+	}
 	return threshold, true
 }
 
 // thresholdFromBoundedProbability computes rigorous lower/upper bounds on
-// the true integer threshold floor(upperBound*(1-(1-f)^sigma)) at the given
-// targetBits of accuracy (see oneMinusFPowerSigmaBounds), and reports
-// whether they agree (in which case the shared value is provably the
-// correct threshold). If they disagree, the caller should retry at a
-// higher targetBits; the returned threshold in that case is the (not yet
-// proven correct) lower bound. escalateThreshold discards this
-// not-yet-proven value rather than returning it once its own escalation
+// the true integer comparison threshold
+// ceil(upperBound*(1-(1-f)^sigma)) at the given targetBits of accuracy (see
+// oneMinusFPowerSigmaBounds), and reports whether they agree (in which case
+// the shared value is provably the correct threshold). If they disagree, the
+// caller should retry at a higher targetBits; the returned threshold in that
+// case is the (not yet proven correct) lower bound. escalateThreshold discards
+// this not-yet-proven value rather than returning it once its own escalation
 // cap is reached -- see that function's doc comment.
 func thresholdFromBoundedProbability(
 	oneMinusF *big.Rat,
@@ -521,10 +536,19 @@ func thresholdFromBoundedProbability(
 		upperBoundFloat,
 	)
 
-	thresholdLo, _ := thresholdLoFloat.Int(nil)
-	thresholdHi, _ := thresholdHiFloat.Int(nil)
+	thresholdLo := ceilBigFloat(thresholdLoFloat)
+	thresholdHi := ceilBigFloat(thresholdHiFloat)
 
 	return thresholdLo, thresholdLo.Cmp(thresholdHi) == 0
+}
+
+// ceilBigFloat returns the least integer greater than or equal to x.
+func ceilBigFloat(x *big.Float) *big.Int {
+	ret, accuracy := x.Int(nil)
+	if accuracy == big.Below {
+		ret.Add(ret, bigIntOne)
+	}
+	return ret
 }
 
 // oneMinusFPowerSigmaBounds computes conservative lower/upper bounds

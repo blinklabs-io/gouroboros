@@ -168,6 +168,24 @@ func appendLogicalAnchor(dst []byte, anchor *GovAnchor) []byte {
 // so two encodings of the same certificate compare equal without re-encoding
 // it. Types that aggregate over slices or maps fall back to a canonical
 // re-encoding, which keeps the reflection cost off the ordinary decode path.
+// CertificateLogicalKey returns a stable identity for a transaction
+// certificate, built from decoded fields so that equivalent definite,
+// indefinite, and non-shortest encodings compare equal.
+//
+// cardano-ledger compares decoded certificate values directly
+// (Map.lookup txCert in getAlonzoScriptsNeeded,
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/UTxO.hs). Any caller that needs
+// that same "is this the same certificate" question -- duplicate rejection
+// here, and the Alonzo/Babbage first-occurrence redeemer index in
+// ledger/common/script -- must use this one identity rather than re-deriving
+// its own, which would disagree on encoding variants.
+func CertificateLogicalKey(certificate Certificate) (string, error) {
+	if certificate == nil {
+		return "", errors.New("certificate is nil")
+	}
+	return certificateLogicalKey(certificate)
+}
+
 func certificateLogicalKey(certificate Certificate) (string, error) {
 	key := appendLogicalNumber(
 		make([]byte, 0, 64),

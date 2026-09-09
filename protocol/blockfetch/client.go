@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -92,6 +93,9 @@ type rangeRequest struct {
 	// resolveOnce ensures a request is resolved exactly once, whichever of
 	// the response path and the shutdown path reaches it first.
 	resolveOnce sync.Once
+	// batchDoneReported prevents resolve from invoking BatchDoneFunc again
+	// after handleBatchDone has already reported it.
+	batchDoneReported atomic.Bool
 }
 
 // RangeRequest describes a single block range request queued through
@@ -919,6 +923,17 @@ func (c *Client) resolve(req *rangeRequest, err error) error {
 				c.callbackContextFor(req),
 				err,
 			)
+		} else if !req.pipelined && err != nil &&
+			req.started &&
+			req.delivery == deliveryCallback &&
+			c.config.BatchDoneFunc != nil &&
+			!req.batchDoneReported.Load() {
+			// GetBlockRange returns after MsgStartBatch, so an error that
+			// resolves the request later cannot reach its caller. Report the
+			// terminal outcome through the existing batch callback instead.
+			callbackErr = c.config.BatchDoneFunc(
+				c.callbackContextFor(req),
+			)
 		}
 	})
 	return callbackErr
@@ -1374,6 +1389,10 @@ func (c *Client) handleBatchDone() error {
 				req.end.Hash,
 			),
 		)
+	}
+	if !req.pipelined && req.delivery == deliveryCallback &&
+		c.config.BatchDoneFunc != nil {
+		req.batchDoneReported.Store(true)
 	}
 	c.removeLocked(req)
 	c.queueMutex.Unlock()

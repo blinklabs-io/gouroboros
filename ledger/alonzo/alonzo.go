@@ -327,7 +327,7 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("mint: %w", err)
 	}
 	*b = AlonzoTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(cborData, b.Ttl, false); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -395,6 +395,20 @@ func (b *AlonzoTransactionBody) TTL() uint64 {
 
 func (b *AlonzoTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+// TransactionNetworkId returns the optional transaction network identifier. A non-zero
+// value is necessarily present; zero is present only when the decoder saw
+// transaction-body key 15 (or the caller marked it present explicitly).
+func (b *AlonzoTransactionBody) TransactionNetworkId() *uint8 {
+	if b.NetworkIdPresent() || b.NetworkId != 0 {
+		return &b.NetworkId
+	}
+	return nil
+}
+
+func (t AlonzoTransaction) TransactionNetworkId() *uint8 {
+	return t.Body.TransactionNetworkId()
 }
 
 func (b *AlonzoTransactionBody) SetValidityIntervalUpperBound(
@@ -570,13 +584,21 @@ func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 			assetDataMap.Pairs...,
 		)
 	}
+	var datumOptionPd data.PlutusData
+	if o.OutputDatumHash != nil {
+		datumOptionPd = data.NewConstr(
+			1,
+			data.NewByteString(o.OutputDatumHash.Bytes()),
+		)
+	} else {
+		datumOptionPd = data.NewConstr(0)
+	}
 	tmpData := data.NewConstr(
 		0,
 		o.OutputAddress.ToPlutusData(),
 		data.NewMap(valueData),
-		// Empty datum option
-		data.NewConstr(0),
-		// Empty script ref
+		datumOptionPd,
+		// Empty script ref (no era support for script refs pre-Babbage)
 		data.NewConstr(1),
 	)
 	return tmpData
@@ -720,31 +742,31 @@ func (r AlonzoRedeemers) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(r.Redeemers)
 }
 
+// Iter projects the list-form encoding into the map held by cardano-ledger.
+// Duplicate keys therefore resolve to their last value and are yielded once.
 func (r AlonzoRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
 	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
-		// Sort redeemers
-		sorted := make([]AlonzoRedeemer, len(r.Redeemers))
-		copy(sorted, r.Redeemers)
-		slices.SortFunc(
-			sorted,
-			func(a, b AlonzoRedeemer) int {
-				return common.CompareRedeemerKeys(
-					common.RedeemerKey{Tag: a.Tag, Index: a.Index},
-					common.RedeemerKey{Tag: b.Tag, Index: b.Index},
-				)
-			},
+		byKey := make(
+			map[common.RedeemerKey]common.RedeemerValue,
+			len(r.Redeemers),
 		)
-		// Yield keys
-		for _, redeemer := range sorted {
-			tmpKey := common.RedeemerKey{
+		for _, redeemer := range r.Redeemers {
+			key := common.RedeemerKey{
 				Tag:   redeemer.Tag,
 				Index: redeemer.Index,
 			}
-			tmpVal := common.RedeemerValue{
+			byKey[key] = common.RedeemerValue{
 				Data:    redeemer.Data,
 				ExUnits: redeemer.ExUnits,
 			}
-			if !yield(tmpKey, tmpVal) {
+		}
+		keys := make([]common.RedeemerKey, 0, len(byKey))
+		for key := range byKey {
+			keys = append(keys, key)
+		}
+		slices.SortFunc(keys, common.CompareRedeemerKeys)
+		for _, key := range keys {
+			if !yield(key, byKey[key]) {
 				return
 			}
 		}
@@ -765,7 +787,9 @@ func (r AlonzoRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
 ) common.RedeemerValue {
-	for _, redeemer := range r.Redeemers {
+	// Walk backward so duplicate keys resolve like Map.fromList: last wins.
+	for i := len(r.Redeemers) - 1; i >= 0; i-- {
+		redeemer := r.Redeemers[i]
 		if redeemer.Tag == tag && uint(redeemer.Index) == index {
 			return common.RedeemerValue{
 				Data:    redeemer.Data,
@@ -863,7 +887,6 @@ func (w AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeem
 type AlonzoTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
@@ -873,7 +896,6 @@ type AlonzoTransaction struct {
 
 func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
-	t.hash = nil
 	t.TxMetadata = nil
 	t.auxData = nil
 
@@ -967,12 +989,12 @@ func (t AlonzoTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t AlonzoTransaction) LeiosHash() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t AlonzoTransaction) Inputs() []common.TransactionInput {

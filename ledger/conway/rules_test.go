@@ -3006,6 +3006,17 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				false,
 			),
 		},
+		// total_collateral is only checked for phase-2 transactions, so the
+		// fixture needs a redeemer for the rule to run at all.
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
 	}
 	utxos := []common.Utxo{
 		{
@@ -4006,6 +4017,7 @@ func TestUtxoValidateDelegation_RejectsDuplicateStakeRegistrations(
 			Body: conway.ConwayTransactionBody{
 				TxCertificates: wrappers,
 			},
+			TxIsValid: true,
 		}
 	}
 
@@ -4255,6 +4267,7 @@ func TestUtxoValidateDelegation_DeregistrationBlocksLaterDelegation(
 			Body: conway.ConwayTransactionBody{
 				TxCertificates: wrappers,
 			},
+			TxIsValid: true,
 		}
 	}
 
@@ -4315,6 +4328,49 @@ func TestUtxoValidateDelegation_DeregistrationBlocksLaterDelegation(
 	}
 }
 
+func TestUtxoValidateDelegation_PoolRetirementKeepsPoolRegistered(
+	t *testing.T,
+) {
+	poolKeyHash := common.PoolKeyHash{0x04, 0x05, 0x06}
+	stakeKeyHash := common.Blake2b224Hash(
+		[]byte("pool-retirement-delegation-stake"),
+	)
+	stakeCred := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: stakeKeyHash,
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithStakeCredentialRegistered(stakeKeyHash, true).
+		Build()
+	newTx := func(certs ...common.Certificate) *conway.ConwayTransaction {
+		wrappers := make([]common.CertificateWrapper, len(certs))
+		for i, cert := range certs {
+			wrappers[i] = common.CertificateWrapper{Certificate: cert}
+		}
+		return &conway.ConwayTransaction{
+			Body:      conway.ConwayTransactionBody{TxCertificates: wrappers},
+			TxIsValid: true,
+		}
+	}
+	delegation := &common.StakeDelegationCertificate{
+		StakeCredential: &stakeCred,
+		PoolKeyHash:     poolKeyHash,
+	}
+	registration := &common.PoolRegistrationCertificate{Operator: poolKeyHash}
+
+	// RetirePool leaves the pool in psStakePools until POOLREAP.
+	require.NoError(t, conway.UtxoValidateDelegation(
+		newTx(
+			registration,
+			&common.PoolRetirementCertificate{PoolKeyHash: poolKeyHash, Epoch: 5},
+			delegation,
+		),
+		0,
+		ls,
+		&conway.ConwayProtocolParameters{},
+	))
+}
+
 func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 	pool1 := common.PoolKeyHash{0x01, 0x02, 0x03}
 	pool2 := common.PoolKeyHash{0x04, 0x05, 0x06}
@@ -4348,6 +4404,7 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 
 		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
@@ -4380,6 +4437,7 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 
 		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
@@ -4407,6 +4465,7 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 
 		// PV10 doesn't enforce VRF key uniqueness
@@ -4437,6 +4496,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 					}},
 				},
 			},
+			TxIsValid: true,
 		}
 	}
 
@@ -4488,6 +4548,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 							}},
 						},
 					},
+					TxIsValid: true,
 				}
 			},
 		},
@@ -4506,6 +4567,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 							}},
 						},
 					},
+					TxIsValid: true,
 				}
 			},
 		},
@@ -4529,6 +4591,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 							}},
 						},
 					},
+					TxIsValid: true,
 				}
 			},
 		},
@@ -4991,7 +5054,10 @@ func TestUtxoValidateUnknownVotersWrapsCommitteeLookupFailures(t *testing.T) {
 				err := conway.UtxoValidateUnknownVoters(
 					newTx(voterCase.voterType),
 					0,
-					mockledger.NewLedgerStateBuilder().Build(),
+					legacyOnlyLedgerState{
+						LedgerState: mockledger.NewLedgerStateBuilder().
+							Build(),
+					},
 					pp,
 				)
 				var memberErr conway.CommitteeMemberLookupError

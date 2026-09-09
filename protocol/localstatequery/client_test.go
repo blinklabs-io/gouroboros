@@ -15,6 +15,7 @@
 package localstatequery_test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -352,6 +353,34 @@ func TestGetConstitution(t *testing.T) {
 					expectedResult,
 				)
 			}
+		},
+	)
+}
+
+func TestGetDRepStateEmptyWrapper(t *testing.T) {
+	cborData, err := cbor.Encode([]any{})
+	require.NoError(t, err, "unexpected error encoding empty DRep state wrapper")
+
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			_, err := oConn.LocalStateQuery().Client.GetDRepState(nil)
+			require.EqualError(t, err, "empty result from DRep state query")
 		},
 	)
 }
@@ -856,7 +885,7 @@ func TestGetDRepState(t *testing.T) {
 			Deposit: 500000000,
 		},
 	}
-	cborData, err := cbor.Encode(expectedResult)
+	cborData, err := cbor.Encode([]any{expectedResult})
 	require.NoError(t, err, "unexpected error encoding DRepStateResult")
 
 	conversation := append(
@@ -898,7 +927,7 @@ func TestGetDRepState(t *testing.T) {
 func TestGetDRepStateEmpty(t *testing.T) {
 	// Test with empty result
 	expectedResult := localstatequery.DRepStateResult{}
-	cborData, err := cbor.Encode(expectedResult)
+	cborData, err := cbor.Encode([]any{expectedResult})
 	require.NoError(t, err, "unexpected error encoding empty DRepStateResult")
 
 	conversation := append(
@@ -1444,6 +1473,61 @@ func TestDebugChainDepState(t *testing.T) {
 				"pool must survive the unwrap into the counter map",
 			)
 			require.Equal(t, uint64(3), counters[expectedPool])
+		},
+	)
+}
+
+// TestGetDRepStakeDistr drives the client against the reply bytes a node
+// sends for query 26: the DRep-to-lovelace map inside the era codec's
+// single-element result array.
+func TestGetDRepStakeDistr(t *testing.T) {
+	const replyHex = "81a2" +
+		"8200581c" +
+		"e0a714319812c3f773ba04ec5d6b3ffcd5aad85006805b047b082541" +
+		"1a3b9aca00" +
+		"8102" + "1832"
+	cborData, err := hex.DecodeString(replyHex)
+	require.NoError(t, err)
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			distr, err := oConn.LocalStateQuery().
+				Client.GetDRepStakeDistr(nil)
+			require.NoError(t, err, "GetDRepStakeDistr against a mocked node")
+			require.NotNil(t, distr)
+			require.Len(t, *distr, 2)
+			assert.Equal(
+				t,
+				lcommon.DrepTypeAddrKeyHash,
+				(*distr)[0].Drep.Type,
+			)
+			assert.Equal(
+				t,
+				"e0a714319812c3f773ba04ec5d6b3ffcd5aad85006805b047b082541",
+				hex.EncodeToString((*distr)[0].Drep.Credential),
+			)
+			assert.Equal(t, uint64(1000000000), (*distr)[0].Stake)
+			assert.Equal(
+				t,
+				lcommon.DrepTypeAbstain,
+				(*distr)[1].Drep.Type,
+			)
+			assert.Equal(t, uint64(50), (*distr)[1].Stake)
 		},
 	)
 }
