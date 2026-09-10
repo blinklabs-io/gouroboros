@@ -510,8 +510,8 @@ func TestDiffusionModes(t *testing.T) {
 			defer m.Stop()
 
 			// Register protocols for both roles
-			_, _, _ = m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
-			_, _, _ = m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+			_, recvInitiator, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
+			_, recvResponder, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 
 			// Start the muxer
 			m.Start()
@@ -527,13 +527,10 @@ func TestDiffusionModes(t *testing.T) {
 				data := createSegmentData(testSegment)
 				conn.WriteToReadBuf(data)
 
-				// Give time for processing
-				time.Sleep(10 * time.Millisecond)
-
-				// Check for errors
-				select {
-				case err := <-m.ErrorChan():
-					if tt.expectError {
+				if tt.expectError {
+					select {
+					case err := <-m.ErrorChan():
+						require.Error(t, err)
 						if !strings.Contains(err.Error(), tt.errorContains) {
 							t.Errorf(
 								"expected error containing %q, got: %v",
@@ -541,12 +538,24 @@ func TestDiffusionModes(t *testing.T) {
 								err,
 							)
 						}
-					} else {
-						t.Errorf("unexpected error: %v", err)
+					case <-time.After(time.Second):
+						t.Fatalf("timed out waiting for error containing %q", tt.errorContains)
 					}
-				default:
-					if tt.expectError {
-						t.Errorf("expected error but got none")
+				} else {
+					expectedReceiver := recvResponder
+					if testSegment.IsResponse() {
+						expectedReceiver = recvInitiator
+					}
+					select {
+					case err := <-m.ErrorChan():
+						t.Fatalf("unexpected error: %v", err)
+					case received, ok := <-expectedReceiver:
+						if !ok {
+							t.Fatal("expected received segment, channel closed")
+						}
+						require.Equal(t, testSegment.Payload, received.Payload)
+					case <-time.After(time.Second):
+						t.Fatal("timed out waiting for received segment")
 					}
 				}
 			}
@@ -581,8 +590,6 @@ func TestErrorHandling(t *testing.T) {
 		}
 		conn.WriteToReadBuf(buf.Bytes())
 
-		time.Sleep(10 * time.Millisecond)
-
 		// Should receive error
 		select {
 		case err := <-m.ErrorChan():
@@ -590,8 +597,8 @@ func TestErrorHandling(t *testing.T) {
 				!strings.Contains(err.Error(), "zero-byte segment payload") {
 				t.Errorf("expected zero-byte payload error, got: %v", err)
 			}
-		default:
-			t.Error("expected error for zero-byte payload")
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for zero-byte payload error")
 		}
 	})
 
@@ -607,8 +614,6 @@ func TestErrorHandling(t *testing.T) {
 		data := createSegmentData(segment)
 		conn.WriteToReadBuf(data)
 
-		time.Sleep(10 * time.Millisecond)
-
 		// Should receive error
 		select {
 		case err := <-m.ErrorChan():
@@ -616,8 +621,8 @@ func TestErrorHandling(t *testing.T) {
 				!strings.Contains(err.Error(), "unknown protocol ID") {
 				t.Errorf("expected unknown protocol error, got: %v", err)
 			}
-		default:
-			t.Error("expected error for unknown protocol")
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for unknown protocol error")
 		}
 	})
 
@@ -633,8 +638,6 @@ func TestErrorHandling(t *testing.T) {
 		// Close connection
 		conn.Close()
 
-		time.Sleep(10 * time.Millisecond)
-
 		// Should receive connection closed error
 		select {
 		case err := <-m.ErrorChan():
@@ -645,8 +648,8 @@ func TestErrorHandling(t *testing.T) {
 			if !errors.As(err, &connErr) {
 				t.Errorf("expected ConnectionClosedError, got: %T", err)
 			}
-		default:
-			t.Error("expected connection closed error")
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for connection closed error")
 		}
 	})
 }
@@ -790,11 +793,17 @@ func TestStartOnce(t *testing.T) {
 	if segment == nil {
 		t.Fatal("failed to create segment")
 	}
+	deliveryChan := make(chan error, 1)
+	segment.SetDeliveryChan(deliveryChan)
 
 	sendChan <- segment
 
-	// Give time for processing
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case err := <-deliveryChan:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for segment delivery")
+	}
 
 	// Verify data was written
 	written := conn.ReadWritten()
