@@ -52,7 +52,7 @@ func getTestDefinitions() []testDefinition {
 			Message: NewMsgBlockOffer(
 				pcommon.NewPoint(
 					12345,
-					[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+					testPointHash(0x01),
 				),
 				12345,
 			),
@@ -63,7 +63,7 @@ func getTestDefinitions() []testDefinition {
 			Message: NewMsgBlockTxsOffer(
 				pcommon.NewPoint(
 					67890,
-					[]byte{0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+					testPointHash(0x09),
 				),
 			),
 			MessageType: MessageTypeBlockTxsOffer,
@@ -161,7 +161,7 @@ func TestMsgBlockAnnouncement(t *testing.T) {
 
 func TestMsgBlockOffer(t *testing.T) {
 	slot := uint64(123456)
-	hash := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	hash := testPointHash(0x01)
 
 	msg := NewMsgBlockOffer(pcommon.NewPoint(slot, hash), 12345)
 
@@ -172,7 +172,7 @@ func TestMsgBlockOffer(t *testing.T) {
 
 func TestMsgBlockTxsOffer(t *testing.T) {
 	slot := uint64(123456)
-	hash := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	hash := testPointHash(0x01)
 
 	msg := NewMsgBlockTxsOffer(pcommon.NewPoint(slot, hash))
 

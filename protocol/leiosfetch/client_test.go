@@ -303,7 +303,7 @@ func TestClientMessageHandlerUnexpectedType(t *testing.T) {
 	client := NewClient(protoOptions, nil)
 
 	// Create a message with an unexpected type
-	msg := NewMsgBlockRequest(pcommon.NewPoint(123, []byte{0x01, 0x02}))
+	msg := NewMsgBlockRequest(pcommon.NewPoint(123, testPointHash(0x01)))
 
 	err := client.messageHandler(msg)
 

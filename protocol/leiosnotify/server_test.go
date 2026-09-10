@@ -448,7 +448,7 @@ func TestServerMessageHandler_UnexpectedType(t *testing.T) {
 	server := NewServer(protoOptions, &cfg)
 
 	// Create a message with an unexpected type for the server
-	msg := NewMsgBlockOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02}), 12345)
+	msg := NewMsgBlockOffer(pcommon.NewPoint(12345, testPointHash(0x01)), 12345)
 
 	err := server.messageHandler(msg)
 
@@ -532,11 +532,11 @@ func TestCallbackResponseTypes(t *testing.T) {
 		},
 		{
 			name:     "BlockOffer response",
-			response: NewMsgBlockOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}), 12345),
+			response: NewMsgBlockOffer(pcommon.NewPoint(12345, testPointHash(0x01)), 12345),
 		},
 		{
 			name:     "BlockTxsOffer response",
-			response: NewMsgBlockTxsOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04})),
+			response: NewMsgBlockTxsOffer(pcommon.NewPoint(12345, testPointHash(0x01))),
 		},
 		{
 			name: "VotesOffer response",

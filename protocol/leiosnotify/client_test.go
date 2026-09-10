@@ -83,12 +83,12 @@ func TestClientMessageHandler(t *testing.T) {
 		},
 		{
 			name:        "BlockOffer message",
-			msg:         NewMsgBlockOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}), 12345),
+			msg:         NewMsgBlockOffer(pcommon.NewPoint(12345, testPointHash(0x01)), 12345),
 			expectError: false,
 		},
 		{
 			name:        "BlockTxsOffer message",
-			msg:         NewMsgBlockTxsOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04})),
+			msg:         NewMsgBlockTxsOffer(pcommon.NewPoint(12345, testPointHash(0x01))),
 			expectError: false,
 		},
 		{
@@ -275,7 +275,7 @@ func TestClientHandleBlockOffer(t *testing.T) {
 	}
 	client := NewClient(protoOptions, nil)
 
-	msg := NewMsgBlockOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}), 12345)
+	msg := NewMsgBlockOffer(pcommon.NewPoint(12345, testPointHash(0x01)), 12345)
 
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)
@@ -303,7 +303,7 @@ func TestClientHandleBlockTxsOffer(t *testing.T) {
 	}
 	client := NewClient(protoOptions, nil)
 
-	msg := NewMsgBlockTxsOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}))
+	msg := NewMsgBlockTxsOffer(pcommon.NewPoint(12345, testPointHash(0x01)))
 
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)
