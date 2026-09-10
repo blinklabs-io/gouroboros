@@ -85,6 +85,7 @@ func TestSegmentReadTimeout_DisabledNeverFires(t *testing.T) {
 	// late-arriving segment, proving this is a genuinely unbounded wait,
 	// not just a longer bound.
 	segment := muxer.NewSegment(0x01, []byte("late reply"), false)
+	require.NotNil(t, segment, "payload is well within NewSegment's size limit")
 	data := createSegmentData(segment)
 	writeErrChan := make(chan error, 1)
 	go func() {
