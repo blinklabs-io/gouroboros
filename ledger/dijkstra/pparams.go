@@ -15,6 +15,7 @@
 package dijkstra
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -140,7 +141,7 @@ func decodeDijkstraProtocolParametersCbor(
 ) (dijkstraProtocolParametersCbor, error) {
 	arrayLen, _, indefinite := cbor.ArrayInfo(cborData)
 	if arrayLen < 0 || indefinite {
-		return dijkstraProtocolParametersCbor{}, fmt.Errorf(
+		return dijkstraProtocolParametersCbor{}, errors.New(
 			"decode Dijkstra protocol parameters: invalid array header",
 		)
 	}
