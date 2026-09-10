@@ -314,6 +314,9 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		if err != nil {
 			return fmt.Errorf("decode Dijkstra transaction %d: %w", idx, err)
 		}
+		if tx == nil {
+			return fmt.Errorf("decode Dijkstra transaction %d: constructor returned nil", idx)
+		}
 		txs[idx] = *tx
 	}
 	if legacy {
@@ -385,31 +388,6 @@ func (b DijkstraBlockBody) Hash() common.Blake2b256 {
 		panic("CBOR encoding that should never fail has failed: " + err.Error())
 	}
 	return common.Blake2b256Hash(cborData)
-}
-
-// invalidTransactionsForEncoding derives the sorted invalid_transactions index
-// set from the block body's transactions and any explicitly set indices. A
-// transaction is invalid when its IsValid() is false. The result feeds the
-// nonempty_set / nil field: an empty result is encoded as CBOR null.
-func (b DijkstraBlockBody) invalidTransactionsForEncoding() []uint {
-	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
-	for _, invalidTxIdx := range b.InvalidTransactions {
-		invalidTxMap[invalidTxIdx] = true
-	}
-	for idx, tx := range b.Transactions {
-		if !tx.IsValid() {
-			invalidTxMap[uint(idx)] = true
-		}
-	}
-	if len(invalidTxMap) == 0 {
-		return nil
-	}
-	ret := make([]uint, 0, len(invalidTxMap))
-	for idx := range invalidTxMap {
-		ret = append(ret, idx)
-	}
-	slices.Sort(ret)
-	return ret
 }
 
 func marshalDijkstraBlockTransaction(t *DijkstraTransaction) ([]byte, error) {
