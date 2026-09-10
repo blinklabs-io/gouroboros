@@ -42,6 +42,7 @@ type DijkstraGenesis struct {
 	MaxEndorserBlockTxsSize          uint32             `json:"maxEndorserBlockTxsSize"`
 	MaxEndorserBlockExUnits          common.ExUnits     `json:"maxEndorserBlockExecutionUnits"`
 	MaxRefScriptSizePerEndorserBlock uint32             `json:"maxRefScriptSizePerEndorserBlock"`
+	PlutusV4CostModel                []int64            `json:"plutusV4CostModel"`
 	CommitteeStakeCoverage           *common.GenesisRat `json:"committeeStakeCoverage"`
 	QuorumStakeThreshold             *common.GenesisRat `json:"quorumStakeThreshold"`
 }
@@ -99,6 +100,16 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.MaxEndorserBlockTxsSize = genesis.MaxEndorserBlockTxsSize
 	p.MaxEndorserBlockExUnits = genesis.MaxEndorserBlockExUnits
 	p.MaxRefScriptSizePerEndorserBlock = genesis.MaxRefScriptSizePerEndorserBlock
+	if len(genesis.PlutusV4CostModel) > 0 {
+		if p.CostModels == nil {
+			p.CostModels = make(map[uint][]int64)
+		}
+		// Cost models are keyed by zero-based Plutus language index, so
+		// PlutusV4 is 3. This is the key the PlutusV4 evaluation context is
+		// built from in validateDijkstraPlutusV4Scripts, and it matches the
+		// way the Conway genesis stores plutusV3CostModel under key 2.
+		p.CostModels[3] = genesis.PlutusV4CostModel
+	}
 	applyConwayRefScriptFeeDefaults(p)
 	p.CommitteeStakeCoverage = committeeStakeCoverage
 	p.QuorumStakeThreshold = quorumStakeThreshold
