@@ -62,10 +62,15 @@ type PraosChainSelector struct {
 	SecurityParam uint64
 	// GenesisWindowSlots is the Ouroboros Genesis density window sgen, in
 	// SLOTS after the fork point. For Shelley-family eras this is 3k/f
-	// (see genesis.ComputeGenesisWindow; mainnet 129600). When it is zero,
-	// or when the tips being compared do not implement WindowBlockCounter,
-	// deep-fork comparison falls back to the legacy ChainTip.Density
-	// ratio; see compareDensity.
+	// (see genesis.ComputeGenesisWindow; mainnet 129600).
+	//
+	// When it is non-zero, every candidate is ordered by its block count
+	// within that window: a tip implementing WindowBlockCounter answers
+	// directly, and a tip that does not has its ChainTip.Density ratio
+	// projected onto the window so that one scale orders the whole set.
+	//
+	// Only when it is zero does comparison fall back to the ChainTip.Density
+	// ratio. See compareDensity.
 	GenesisWindowSlots uint64
 
 	// warnFallbackDensity throttles the legacy-metric warning to once per
