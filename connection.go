@@ -530,10 +530,11 @@ func (c *Connection) setupConnection() error {
 		}
 	})
 	protoOptions := protocol.ProtocolOptions{
-		ConnectionId: c.id,
-		Muxer:        c.muxer,
-		Logger:       c.logger,
-		ErrorChan:    c.protoErrorChan,
+		ConnectionId:       c.id,
+		ConnectionDoneChan: c.doneChan,
+		Muxer:              c.muxer,
+		Logger:             c.logger,
+		ErrorChan:          c.protoErrorChan,
 	}
 	if c.useNodeToNodeProto {
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
