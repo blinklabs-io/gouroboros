@@ -1220,18 +1220,53 @@ func TestDijkstraProtocolParametersRoundTrip(t *testing.T) {
 }
 
 func TestDijkstraProtocolParametersDecodesLegacyArray(t *testing.T) {
+	rat := func(num, denom int64) *cbor.Rat {
+		return &cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
+	ratValue := func(num, denom int64) cbor.Rat {
+		return cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
 	params := DijkstraProtocolParameters{
 		ConwayProtocolParameters: conway.ConwayProtocolParameters{
 			MinFeeA:   44,
 			MaxTxSize: 16384,
+			A0:        rat(1, 2),
+			Rho:       rat(3, 1000),
+			Tau:       rat(1, 5),
+			ExecutionCosts: common.ExUnitPrice{
+				MemPrice:  rat(1, 10),
+				StepPrice: rat(2, 10),
+			},
+			MaxTxExUnits: common.ExUnits{Memory: 1, Steps: 2},
 			MaxBlockExUnits: common.ExUnits{
 				Memory: 100,
 				Steps:  200,
 			},
+			PoolVotingThresholds: conway.PoolVotingThresholds{
+				MotionNoConfidence:    ratValue(1, 2),
+				CommitteeNormal:       ratValue(1, 2),
+				CommitteeNoConfidence: ratValue(1, 2),
+				HardForkInitiation:    ratValue(1, 2),
+				PpSecurityGroup:       ratValue(1, 2),
+			},
+			DRepVotingThresholds: conway.DRepVotingThresholds{
+				MotionNoConfidence:    ratValue(1, 2),
+				CommitteeNormal:       ratValue(1, 2),
+				CommitteeNoConfidence: ratValue(1, 2),
+				UpdateToConstitution:  ratValue(1, 2),
+				HardForkInitiation:    ratValue(1, 2),
+				PpNetworkGroup:        ratValue(1, 2),
+				PpEconomicGroup:       ratValue(1, 2),
+				PpTechnicalGroup:      ratValue(1, 2),
+				PpGovGroup:            ratValue(1, 2),
+				TreasuryWithdrawal:    ratValue(1, 2),
+			},
+			MinFeeRefScriptCostPerByte: rat(15, 1000),
 		},
 		MaxRefScriptSizePerBlock: 1000,
 		MaxRefScriptSizePerTx:    2000,
 		RefScriptCostStride:      3000,
+		RefScriptCostMultiplier:  rat(2, 1),
 	}
 	full, err := cbor.Encode(params.toCbor())
 	require.NoError(t, err)
