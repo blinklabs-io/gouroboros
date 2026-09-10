@@ -262,7 +262,32 @@ func (p *PraosChainSelector) compareDensity(
 
 	p.warnLegacyDensity()
 
-	return compareFloat64(a.Density(fork.Slot), b.Density(fork.Slot))
+	return compareFloat64(
+		legacyDensity(a, fork.Slot),
+		legacyDensity(b, fork.Slot),
+	)
+}
+
+// legacyDensity reads a tip's ratio for the no-window path, mapping NaN to
+// zero the way windowBlocks does.
+//
+// NaN is the one value that would break the ordering rather than merely sort
+// low: every comparison against NaN is false, so compareFloat64 returns 0 and
+// the pair falls through to the ordinary Compare. Finite pairs would still be
+// ordered by density, so the relation would mix two orderings and stop being
+// transitive — the same defect this selector exists to avoid, reached through
+// the no-window path.
+//
+// Infinities and negative densities need no such treatment: they are totally
+// ordered by `<`, so they sort to the ends and transitivity holds. They are
+// deliberately left to order naturally rather than collapsed to zero, which
+// would discard the distinction between a negative ratio and an absent one.
+func legacyDensity(tip ChainTip, forkSlot uint64) float64 {
+	density := tip.Density(forkSlot)
+	if math.IsNaN(density) {
+		return 0
+	}
+	return density
 }
 
 // windowBlocks returns the tip's block count within the genesis window.
@@ -289,7 +314,14 @@ func (p *PraosChainSelector) windowBlocks(
 		return 0
 	}
 	projected := math.Round(density * float64(p.GenesisWindowSlots))
-	if math.IsInf(projected, 1) || projected > math.MaxUint64 {
+	// Reject at the boundary rather than reasoning about the conversion.
+	// float64(math.MaxUint64) is exactly 2^64, so `>` would let a projected
+	// value of 2^64 reach uint64(), and Go leaves an out-of-range float to
+	// integer conversion implementation-defined. `>=` keeps the value out of
+	// the conversion entirely, which is correct on every platform rather than
+	// on the ones we happened to measure. The largest float64 below 2^64 is
+	// 2^64-2048 and converts exactly, so nothing is lost by clamping here.
+	if math.IsInf(projected, 1) || projected >= float64(math.MaxUint64) {
 		return math.MaxUint64
 	}
 	return uint64(projected)

@@ -1231,6 +1231,18 @@ func TestSelectorRemainsCopyable(t *testing.T) {
 	assert.Equal(t, uint64(2160), byValue.SecurityParam)
 	assert.Equal(t, mainnetWindow, byValue.GenesisWindowSlots)
 
+	// Assert the property that makes the copy safe, not merely that a copy
+	// compiles. copylocks lives in `go vet`, which `go test` does not run, so
+	// a bare copy here would pass even if the field went back to a sync.Once
+	// value. Requiring a shared pointer fails under `go test` if it does.
+	require.NotNil(t, selector.warnFallbackDensity)
+	assert.Same(
+		t,
+		selector.warnFallbackDensity,
+		byValue.warnFallbackDensity,
+		"copies must share the throttle, so the field must stay a pointer",
+	)
+
 	// A zero-value selector must not panic on the warning path.
 	var zero PraosChainSelector
 	assert.NotPanics(t, func() {
@@ -1241,4 +1253,194 @@ func TestSelectorRemainsCopyable(t *testing.T) {
 			10,
 		)
 	})
+}
+
+// --- Degenerate density inputs -------------------------------------------
+
+// oddTip implements only ChainTip and reports whatever density it is given,
+// with a distinct VRF per instance so ties resolve rather than dead-heat.
+type oddTip struct {
+	name    string
+	block   uint64
+	vrf     byte
+	density float64
+}
+
+func (o oddTip) Slot() uint64             { return o.block * 20 }
+func (o oddTip) BlockNumber() uint64      { return o.block }
+func (o oddTip) VRFOutput() []byte        { return vrfByte(o.vrf) }
+func (o oddTip) Density(_ uint64) float64 { return o.density }
+
+// degeneratePopulation covers the value classes a float64 density can take.
+// The earlier sweeps carried only plausible densities, which is why they could
+// not detect a defect that only appears at the edges.
+func degeneratePopulation() []ChainTip {
+	// Block numbers are assigned to CONFLICT with the density ordering, and
+	// NaN sits in the middle of the block range rather than at either end.
+	// Both are load-bearing. A NaN tip parked at the lowest block number loses
+	// every fallthrough comparison and no cycle can form, so a population
+	// built that way passes even with the NaN handling removed - it cannot
+	// express the defect it exists to detect.
+	//
+	// With this layout the triple (one > mainnet-f by density, mainnet-f > nan
+	// by block, nan > one by block) closes a cycle the moment NaN is left
+	// unnormalised.
+	specs := []struct {
+		name    string
+		block   uint64
+		density float64
+	}{
+		{"one", 10, 1.0},
+		{"+inf", 15, math.Inf(1)},
+		{"half", 20, 0.5},
+		{"nan", 50, math.NaN()},
+		{"zero", 80, 0},
+		{"negative", 85, -0.25},
+		{"mainnet-f", 90, 0.05},
+		{"-inf", 95, math.Inf(-1)},
+	}
+	out := make([]ChainTip, 0, len(specs))
+	for i, sp := range specs {
+		out = append(out, oddTip{
+			name:    sp.name,
+			block:   sp.block,
+			vrf:     byte(i + 1),
+			density: sp.density,
+		})
+	}
+	return out
+}
+
+// TestDegenerateDensitiesKeepOrderingTotal is the population fix. It runs the
+// same value classes through BOTH configurations, because the two take
+// different paths: with a window the density is projected onto the window, and
+// without one it is compared as a raw ratio. A guard added to one path is not
+// a guard on the other.
+func TestDegenerateDensitiesKeepOrderingTotal(t *testing.T) {
+	fork := ForkPoint{Slot: 1000, BlockNumber: 0}
+	tipBlockNumber := uint64(100000) // deep fork: the density rule governs
+
+	for _, cfg := range []struct {
+		name     string
+		selector *PraosChainSelector
+	}{
+		{"windowed", NewPraosChainSelectorWithWindow(2160, mainnetWindow)},
+		{"no-window", NewPraosChainSelector(2160)},
+	} {
+		t.Run(cfg.name, func(t *testing.T) {
+			pop := degeneratePopulation()
+			sel := cfg.selector
+
+			cmp := func(x, y ChainTip) int {
+				return sign(sel.CompareWithDensity(x, y, fork, tipBlockNumber))
+			}
+
+			for _, a := range pop {
+				for _, b := range pop {
+					require.Equal(
+						t, cmp(a, b), -cmp(b, a),
+						"antisymmetry: %s vs %s",
+						a.(oddTip).name, b.(oddTip).name,
+					)
+				}
+			}
+
+			for _, a := range pop {
+				for _, b := range pop {
+					for _, c := range pop {
+						if cmp(a, b) >= 0 && cmp(b, c) >= 0 {
+							require.GreaterOrEqual(
+								t, cmp(a, c), 0,
+								"transitivity: %s >= %s >= %s",
+								a.(oddTip).name, b.(oddTip).name,
+								c.(oddTip).name,
+							)
+						}
+					}
+				}
+			}
+
+			// The consequence a caller sees: one winner, whatever the order.
+			want := sel.PreferredWithDensity(pop, fork, tipBlockNumber)
+			shuffled := make([]ChainTip, len(pop))
+			for i := range pop {
+				shuffled[i] = pop[len(pop)-1-i]
+			}
+			got := sel.PreferredWithDensity(shuffled, fork, tipBlockNumber)
+			assert.Equal(
+				t, want.(oddTip).name, got.(oddTip).name,
+				"selection must not depend on candidate order",
+			)
+		})
+	}
+}
+
+// TestNaNDensityIsDecidedByDensityNotFallthrough is the named case behind the
+// NaN normalisation. A sweep that only checks transitivity proves the ordering
+// is total but does not show WHICH rule decided, so this pins the mechanism.
+//
+// The two candidates are arranged so density and the ordinary Compare would
+// give OPPOSITE answers: the denser chain has the LOWER block number. If NaN
+// were left unnormalised the pair would compare equal on density and fall
+// through to Compare, and the NaN chain would win on block number. Density
+// must decide instead.
+func TestNaNDensityIsDecidedByDensityNotFallthrough(t *testing.T) {
+	selector := NewPraosChainSelector(2160) // no window: the legacy path
+	fork := ForkPoint{Slot: 1000, BlockNumber: 0}
+	tipBlockNumber := uint64(100000)
+	require.True(t, selector.IsDeepFork(fork, tipBlockNumber))
+
+	nan := oddTip{name: "nan", block: 90, vrf: 1, density: math.NaN()}
+	dense := oddTip{name: "dense", block: 10, vrf: 2, density: 0.9}
+
+	require.Negative(
+		t,
+		selector.Compare(dense, nan),
+		"setup: the ordinary rule alone would prefer the NaN chain",
+	)
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(dense, nan, fork, tipBlockNumber),
+		"density must decide, not the Compare fallthrough",
+	)
+
+	// NaN normalises to zero, so a NaN chain and a genuine zero-density chain
+	// are equal under the metric and legitimately fall through to Compare.
+	// That is a tie between equals, not a NaN artefact, and it stays
+	// transitive - pinned here so the distinction is not lost later.
+	zero := oddTip{name: "zero", block: 20, vrf: 3, density: 0}
+	assert.Equal(
+		t,
+		selector.Compare(nan, zero),
+		selector.CompareWithDensity(nan, zero, fork, tipBlockNumber),
+		"NaN and zero density tie, so the ordinary rule breaks the tie",
+	)
+}
+
+// TestProjectionSaturatesAtTheBoundary pins the clamp. With a window at
+// math.MaxUint64 a density of 1 projects to exactly 2^64, which is not
+// representable as a uint64; the value must be rejected before the conversion
+// rather than converted and hoped for.
+func TestProjectionSaturatesAtTheBoundary(t *testing.T) {
+	sel := NewPraosChainSelectorWithWindow(2160, math.MaxUint64)
+	fork := ForkPoint{Slot: 0, BlockNumber: 0}
+
+	dense := oddTip{name: "one", block: 10, vrf: 1, density: 1.0}
+	half := oddTip{name: "half", block: 20, vrf: 2, density: 0.5}
+
+	assert.Equal(
+		t, uint64(math.MaxUint64), sel.windowBlocks(dense, fork),
+		"a density of 1 must saturate, not convert out of range",
+	)
+
+	// Unclamped, both of these land on 2^63 and compare equal, which is a
+	// spurious tie between the densest possible chain and a half-density one.
+	assert.Greater(
+		t, sel.windowBlocks(dense, fork), sel.windowBlocks(half, fork),
+		"the densest chain must outrank a half-density chain",
+	)
+	assert.Positive(
+		t, sel.compareDensity(dense, half, fork),
+		"density 1.0 must beat density 0.5 at the window boundary",
+	)
 }
