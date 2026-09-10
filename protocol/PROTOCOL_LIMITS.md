@@ -84,9 +84,12 @@ counts outside those bounds with `ErrProtocolViolationRequestExceeded`.
 
 ## Handshake
 
-For N2N, `Propose` and `Confirm` each have a 10-second timeout. N2C has no
-state timeouts. Client and server instances copy the N2N map and can override
-the applicable timeout with `WithTimeout`; the N2C map remains timeout-free.
+For N2N, `Propose` and `Confirm` each have a 10-second timeout. The framework
+does not arm the initial state's timer by default; the N2N handshake server
+opts into its configured `Propose` timeout. N2C has no state timeouts and does
+not opt in. After the initial transition, `Confirm` uses the normal state
+timeout. Client and server instances copy the N2N map and can override the
+applicable timeout with `WithTimeout`; the N2C map remains timeout-free.
 
 ## Keep Alive
 
