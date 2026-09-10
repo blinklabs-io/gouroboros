@@ -34,9 +34,28 @@ import (
 // Magic number chosen to represent unknown protocols
 const ProtocolUnknown uint16 = 0xabcd
 
-// segmentReadTimeout is the maximum time to wait for a complete segment read
-// before closing the connection. This prevents slowloris-style DoS attacks.
-const segmentReadTimeout = 120 * time.Second
+// defaultSegmentReadTimeout is the default maximum time to wait for the next
+// segment before closing the connection. This is meant to prevent
+// slowloris-style DoS attacks against an untrusted remote peer.
+//
+// This is a gouroboros-specific implementation choice, not a requirement of
+// the Ouroboros Network Specification: the spec's Multiplexing chapter
+// defines no timeout at the mux/transport layer at all, and per-protocol
+// timeouts are instead specified individually, per state, in each
+// mini-protocol's own chapter. LocalStateQuery's own timeout table
+// (section 3.13.4) reads "No timeouts" -- a large query is expected to be
+// able to take an arbitrarily long time. The real ouroboros-network
+// (Haskell) implementation matches this: its own mux-level SDU timeout (30s)
+// only bounds an already-in-progress segment read (a minimum-bandwidth
+// guard), never how long a peer may take before replying at all, and it is
+// not applied at all on local Unix-domain-socket connections -- exactly the
+// transport LocalStateQuery normally uses. Applying a fixed, unconditional
+// deadline to every connection (as this constant did on its own, with no
+// way to disable it) killed legitimate, still-computing LocalStateQuery
+// replies that the spec says must not be timed out. See
+// WithMuxerSegmentReadTimeout to override or disable this for a connection
+// known to be a trusted NtC channel.
+const defaultSegmentReadTimeout = 120 * time.Second
 
 // DiffusionMode is an enum for the valid muxer diffusion modes
 type DiffusionMode int
@@ -74,6 +93,12 @@ type Muxer struct {
 	protocolReceiversMutex sync.Mutex
 	diffusionMode          atomic.Int64
 	onceStop               sync.Once
+	// segmentReadTimeout bounds how long the read loop waits for the next
+	// segment before closing the connection. <= 0 disables the deadline
+	// entirely (no timeout, matching real cardano-node's own behavior on a
+	// trusted local/NtC connection). See defaultSegmentReadTimeout's doc
+	// comment for the full rationale.
+	segmentReadTimeout time.Duration
 }
 
 type segmentChannel struct {
@@ -144,8 +169,23 @@ func (e *ConnectionClosedError) Unwrap() error {
 	return e.Err
 }
 
-// New creates a new Muxer object and starts the read loop
+// New creates a new Muxer object and starts the read loop, using
+// defaultSegmentReadTimeout. Use NewWithSegmentReadTimeout to override or
+// disable that timeout for a connection known to be a trusted NtC channel.
 func New(conn net.Conn) *Muxer {
+	return NewWithSegmentReadTimeout(conn, defaultSegmentReadTimeout)
+}
+
+// NewWithSegmentReadTimeout is like New, but lets the caller override how
+// long the read loop waits for the next segment before closing the
+// connection. segmentReadTimeout <= 0 disables the deadline entirely --
+// see defaultSegmentReadTimeout's doc comment for why a caller might want
+// that (e.g. a local/NtC LocalStateQuery connection, which the Ouroboros
+// Network Specification says must not be timed out at all).
+func NewWithSegmentReadTimeout(
+	conn net.Conn,
+	segmentReadTimeout time.Duration,
+) *Muxer {
 	m := &Muxer{
 		conn:               conn,
 		startChan:          make(chan bool, 1),
@@ -154,6 +194,7 @@ func New(conn net.Conn) *Muxer {
 		protocolSenders:    make(map[uint16]map[ProtocolRole]*segmentSender),
 		protocolReceivers:  make(map[uint16]map[ProtocolRole]*segmentChannel),
 		protocolTombstones: make(map[uint16]map[ProtocolRole]struct{}),
+		segmentReadTimeout: segmentReadTimeout,
 	}
 	// Start read goroutine
 	m.waitGroup.Add(1)
@@ -401,8 +442,15 @@ func (m *Muxer) readLoop() {
 				started = v
 			}
 		}
-		// Set read deadline to prevent slowloris-style DoS attacks
-		_ = m.conn.SetReadDeadline(time.Now().Add(segmentReadTimeout))
+		// Set read deadline to prevent slowloris-style DoS attacks against an
+		// untrusted remote peer. A non-positive segmentReadTimeout disables
+		// this entirely (time.Time{} clears any previously set deadline) --
+		// see its doc comment for why a caller may need that.
+		if m.segmentReadTimeout > 0 {
+			_ = m.conn.SetReadDeadline(time.Now().Add(m.segmentReadTimeout))
+		} else {
+			_ = m.conn.SetReadDeadline(time.Time{})
+		}
 		header := SegmentHeader{}
 		if err := binary.Read(m.conn, binary.BigEndian, &header); err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {

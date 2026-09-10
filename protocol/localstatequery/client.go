@@ -104,6 +104,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        stateIdle,
+		MaxReadBufferSize:   cfg.MaxReadBufferSize,
 	}
 	// Enable version-dependent features
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {
