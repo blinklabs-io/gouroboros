@@ -292,6 +292,14 @@ func (p *Protocol) IsDone() bool {
 	return false
 }
 
+// IsStopping reports whether shutdown has been requested, even if the
+// protocol's worker goroutines have not finished closing DoneChan yet.
+func (p *Protocol) IsStopping() bool {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	return p.stopped
+}
+
 // IsInTerminalOrIdleState returns true if the protocol is in a state where connection
 // close should not be treated as an error. This includes:
 // - Protocol stop/done channel is closed
