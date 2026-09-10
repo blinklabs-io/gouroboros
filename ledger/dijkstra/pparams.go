@@ -138,11 +138,13 @@ type dijkstraProtocolParametersCborLegacy struct {
 func decodeDijkstraProtocolParametersCbor(
 	cborData []byte,
 ) (dijkstraProtocolParametersCbor, error) {
-	var items []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &items); err != nil {
-		return dijkstraProtocolParametersCbor{}, err
+	arrayLen, _, indefinite := cbor.ArrayInfo(cborData)
+	if arrayLen < 0 || indefinite {
+		return dijkstraProtocolParametersCbor{}, fmt.Errorf(
+			"decode Dijkstra protocol parameters: invalid array header",
+		)
 	}
-	switch len(items) {
+	switch arrayLen {
 	case 35:
 		var legacy dijkstraProtocolParametersCborLegacy
 		if _, err := cbor.Decode(cborData, &legacy); err != nil {
@@ -192,14 +194,10 @@ func decodeDijkstraProtocolParametersCbor(
 		}
 		return current, nil
 	default:
-		var current dijkstraProtocolParametersCbor
-		if _, err := cbor.Decode(cborData, &current); err != nil {
-			return dijkstraProtocolParametersCbor{}, fmt.Errorf(
-				"decode Dijkstra protocol parameters with %d fields: %w",
-				len(items), err,
-			)
-		}
-		return current, nil
+		return dijkstraProtocolParametersCbor{}, fmt.Errorf(
+			"decode Dijkstra protocol parameters: unsupported array length %d",
+			arrayLen,
+		)
 	}
 }
 

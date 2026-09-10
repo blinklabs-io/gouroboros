@@ -1295,6 +1295,14 @@ func TestDijkstraProtocolParametersRejectsUnsupportedArrayLength(t *testing.T) {
 	require.Error(t, decoded.UnmarshalCBOR(data))
 }
 
+func TestDijkstraProtocolParametersRejectsOversizedArrayHeader(t *testing.T) {
+	// The arity guard must reject an array whose declared length cannot be
+	// represented before attempting to decode all of its elements.
+	data := []byte{0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	var decoded DijkstraProtocolParameters
+	require.Error(t, decoded.UnmarshalCBOR(data))
+}
+
 func TestDijkstraProtocolParametersUpdateNil(t *testing.T) {
 	pparams := DijkstraProtocolParameters{
 		MaxRefScriptSizePerBlock: 1000,
