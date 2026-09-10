@@ -522,7 +522,11 @@ func TestMuxerSendWriteDeadlineFailureDoesNotWrite(t *testing.T) {
 	m := muxer.New(conn)
 	defer m.Stop()
 
-	err := m.Send(muxer.NewSegment(0x01, []byte("test"), false))
+	segment := muxer.NewSegment(0x01, []byte("test"), false)
+	if segment == nil {
+		t.Fatal("failed to create segment")
+	}
+	err := m.Send(segment)
 	require.ErrorIs(t, err, deadlineErr)
 	require.Zero(t, conn.writeCnt)
 }
@@ -533,11 +537,12 @@ func TestMuxerSendRefreshesWriteDeadline(t *testing.T) {
 	defer m.Stop()
 
 	for i := range 2 {
+		segment := muxer.NewSegment(0x01, []byte("test"), false)
+		if segment == nil {
+			t.Fatal("failed to create segment")
+		}
 		before := time.Now().Add(2 * time.Minute)
-		require.NoError(
-			t,
-			m.Send(muxer.NewSegment(0x01, []byte("test"), false)),
-		)
+		require.NoError(t, m.Send(segment))
 		after := time.Now().Add(2 * time.Minute)
 		require.Len(t, conn.deadlines, i+1)
 		require.False(t, conn.deadlines[i].Before(before))
@@ -558,8 +563,12 @@ func TestMuxerSendBlockedWriteHonorsDeadline(t *testing.T) {
 	defer m.Stop()
 
 	result := make(chan error, 1)
+	segment := muxer.NewSegment(0x01, []byte("blocked"), false)
+	if segment == nil {
+		t.Fatal("failed to create segment")
+	}
 	go func() {
-		result <- m.Send(muxer.NewSegment(0x01, []byte("blocked"), false))
+		result <- m.Send(segment)
 	}()
 
 	var requestedAt time.Time
@@ -594,8 +603,12 @@ func TestMuxerSendBlockedWriteUnblocksOnStop(t *testing.T) {
 	defer m.Stop()
 
 	result := make(chan error, 1)
+	segment := muxer.NewSegment(0x01, []byte("blocked"), false)
+	if segment == nil {
+		t.Fatal("failed to create segment")
+	}
 	go func() {
-		result <- m.Send(muxer.NewSegment(0x01, []byte("blocked"), false))
+		result <- m.Send(segment)
 	}()
 	select {
 	case <-requested:
