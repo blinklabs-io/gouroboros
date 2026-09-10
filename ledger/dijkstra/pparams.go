@@ -26,51 +26,73 @@ import (
 
 type DijkstraProtocolParameters struct {
 	conway.ConwayProtocolParameters
-	MaxRefScriptSizePerBlock uint32
-	MaxRefScriptSizePerTx    uint32
-	RefScriptCostStride      uint32
-	RefScriptCostMultiplier  *cbor.Rat
-	CommitteeStakeCoverage   *cbor.Rat
-	QuorumStakeThreshold     *cbor.Rat
+	MaxRefScriptSizePerBlock         uint32
+	MaxRefScriptSizePerTx            uint32
+	RefScriptCostStride              uint32
+	RefScriptCostMultiplier          *cbor.Rat
+	MaxPledgeLeverage                *cbor.Rat
+	MinPoolMargin                    *cbor.Rat
+	LeiosAnnouncementPeriodLength    uint32
+	LeiosVotePeriodLength            uint32
+	LeiosDiffusionPeriodLength       uint32
+	LeiosCommitteeSize               uint16
+	LeiosQuorumStakeThreshold        *cbor.Rat
+	MaxEndorserBlockReferencesSize   uint32
+	MaxEndorserBlockTxsSize          uint32
+	MaxEndorserBlockExUnits          common.ExUnits
+	MaxRefScriptSizePerEndorserBlock uint32
+	CommitteeStakeCoverage           *cbor.Rat
+	QuorumStakeThreshold             *cbor.Rat
 }
 
 type dijkstraProtocolParametersCbor struct {
 	cbor.StructAsArray
-	MinFeeA                    uint
-	MinFeeB                    uint
-	MaxBlockBodySize           uint
-	MaxTxSize                  uint
-	MaxBlockHeaderSize         uint
-	KeyDeposit                 uint
-	PoolDeposit                uint
-	MaxEpoch                   uint
-	NOpt                       uint
-	A0                         *cbor.Rat
-	Rho                        *cbor.Rat
-	Tau                        *cbor.Rat
-	ProtocolVersion            common.ProtocolParametersProtocolVersion
-	MinPoolCost                uint64
-	AdaPerUtxoByte             uint64
-	CostModels                 map[uint][]int64
-	ExecutionCosts             common.ExUnitPrice
-	MaxTxExUnits               common.ExUnits
-	MaxBlockExUnits            common.ExUnits
-	MaxValueSize               uint
-	CollateralPercentage       uint
-	MaxCollateralInputs        uint
-	PoolVotingThresholds       conway.PoolVotingThresholds
-	DRepVotingThresholds       conway.DRepVotingThresholds
-	MinCommitteeSize           uint
-	CommitteeTermLimit         uint64
-	GovActionValidityPeriod    uint64
-	GovActionDeposit           uint64
-	DRepDeposit                uint64
-	DRepInactivityPeriod       uint64
-	MinFeeRefScriptCostPerByte *cbor.Rat
-	MaxRefScriptSizePerBlock   uint32
-	MaxRefScriptSizePerTx      uint32
-	RefScriptCostStride        uint32
-	RefScriptCostMultiplier    *cbor.Rat
+	MinFeeA                          uint
+	MinFeeB                          uint
+	MaxBlockBodySize                 uint
+	MaxTxSize                        uint
+	MaxBlockHeaderSize               uint
+	KeyDeposit                       uint
+	PoolDeposit                      uint
+	MaxEpoch                         uint
+	NOpt                             uint
+	A0                               *cbor.Rat
+	Rho                              *cbor.Rat
+	Tau                              *cbor.Rat
+	ProtocolVersion                  common.ProtocolParametersProtocolVersion
+	MinPoolCost                      uint64
+	AdaPerUtxoByte                   uint64
+	CostModels                       map[uint][]int64
+	ExecutionCosts                   common.ExUnitPrice
+	MaxTxExUnits                     common.ExUnits
+	MaxBlockExUnits                  common.ExUnits
+	MaxValueSize                     uint
+	CollateralPercentage             uint
+	MaxCollateralInputs              uint
+	PoolVotingThresholds             conway.PoolVotingThresholds
+	DRepVotingThresholds             conway.DRepVotingThresholds
+	MinCommitteeSize                 uint
+	CommitteeTermLimit               uint64
+	GovActionValidityPeriod          uint64
+	GovActionDeposit                 uint64
+	DRepDeposit                      uint64
+	DRepInactivityPeriod             uint64
+	MinFeeRefScriptCostPerByte       *cbor.Rat
+	MaxRefScriptSizePerBlock         uint32
+	MaxRefScriptSizePerTx            uint32
+	RefScriptCostStride              uint32
+	RefScriptCostMultiplier          *cbor.Rat
+	MaxPledgeLeverage                *cbor.Rat
+	MinPoolMargin                    *cbor.Rat
+	LeiosAnnouncementPeriodLength    uint32
+	LeiosVotePeriodLength            uint32
+	LeiosDiffusionPeriodLength       uint32
+	LeiosCommitteeSize               uint16
+	LeiosQuorumStakeThreshold        *cbor.Rat
+	MaxEndorserBlockReferencesSize   uint32
+	MaxEndorserBlockTxsSize          uint32
+	MaxEndorserBlockExUnits          common.ExUnits
+	MaxRefScriptSizePerEndorserBlock uint32
 }
 
 func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
@@ -115,6 +137,17 @@ func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
 	p.MaxRefScriptSizePerTx = tmp.MaxRefScriptSizePerTx
 	p.RefScriptCostStride = tmp.RefScriptCostStride
 	p.RefScriptCostMultiplier = tmp.RefScriptCostMultiplier
+	p.MaxPledgeLeverage = tmp.MaxPledgeLeverage
+	p.MinPoolMargin = tmp.MinPoolMargin
+	p.LeiosAnnouncementPeriodLength = tmp.LeiosAnnouncementPeriodLength
+	p.LeiosVotePeriodLength = tmp.LeiosVotePeriodLength
+	p.LeiosDiffusionPeriodLength = tmp.LeiosDiffusionPeriodLength
+	p.LeiosCommitteeSize = tmp.LeiosCommitteeSize
+	p.LeiosQuorumStakeThreshold = tmp.LeiosQuorumStakeThreshold
+	p.MaxEndorserBlockReferencesSize = tmp.MaxEndorserBlockReferencesSize
+	p.MaxEndorserBlockTxsSize = tmp.MaxEndorserBlockTxsSize
+	p.MaxEndorserBlockExUnits = tmp.MaxEndorserBlockExUnits
+	p.MaxRefScriptSizePerEndorserBlock = tmp.MaxRefScriptSizePerEndorserBlock
 	return nil
 }
 
@@ -124,41 +157,52 @@ func (p DijkstraProtocolParameters) MarshalCBOR() ([]byte, error) {
 
 func (p DijkstraProtocolParameters) toCbor() dijkstraProtocolParametersCbor {
 	return dijkstraProtocolParametersCbor{
-		MinFeeA:                    p.MinFeeA,
-		MinFeeB:                    p.MinFeeB,
-		MaxBlockBodySize:           p.MaxBlockBodySize,
-		MaxTxSize:                  p.MaxTxSize,
-		MaxBlockHeaderSize:         p.MaxBlockHeaderSize,
-		KeyDeposit:                 p.KeyDeposit,
-		PoolDeposit:                p.PoolDeposit,
-		MaxEpoch:                   p.MaxEpoch,
-		NOpt:                       p.NOpt,
-		A0:                         p.A0,
-		Rho:                        p.Rho,
-		Tau:                        p.Tau,
-		ProtocolVersion:            p.ProtocolVersion,
-		MinPoolCost:                p.MinPoolCost,
-		AdaPerUtxoByte:             p.AdaPerUtxoByte,
-		CostModels:                 p.CostModels,
-		ExecutionCosts:             p.ExecutionCosts,
-		MaxTxExUnits:               p.MaxTxExUnits,
-		MaxBlockExUnits:            p.MaxBlockExUnits,
-		MaxValueSize:               p.MaxValueSize,
-		CollateralPercentage:       p.CollateralPercentage,
-		MaxCollateralInputs:        p.MaxCollateralInputs,
-		PoolVotingThresholds:       p.PoolVotingThresholds,
-		DRepVotingThresholds:       p.DRepVotingThresholds,
-		MinCommitteeSize:           p.MinCommitteeSize,
-		CommitteeTermLimit:         p.CommitteeTermLimit,
-		GovActionValidityPeriod:    p.GovActionValidityPeriod,
-		GovActionDeposit:           p.GovActionDeposit,
-		DRepDeposit:                p.DRepDeposit,
-		DRepInactivityPeriod:       p.DRepInactivityPeriod,
-		MinFeeRefScriptCostPerByte: p.MinFeeRefScriptCostPerByte,
-		MaxRefScriptSizePerBlock:   p.MaxRefScriptSizePerBlock,
-		MaxRefScriptSizePerTx:      p.MaxRefScriptSizePerTx,
-		RefScriptCostStride:        p.RefScriptCostStride,
-		RefScriptCostMultiplier:    p.RefScriptCostMultiplier,
+		MinFeeA:                          p.MinFeeA,
+		MinFeeB:                          p.MinFeeB,
+		MaxBlockBodySize:                 p.MaxBlockBodySize,
+		MaxTxSize:                        p.MaxTxSize,
+		MaxBlockHeaderSize:               p.MaxBlockHeaderSize,
+		KeyDeposit:                       p.KeyDeposit,
+		PoolDeposit:                      p.PoolDeposit,
+		MaxEpoch:                         p.MaxEpoch,
+		NOpt:                             p.NOpt,
+		A0:                               p.A0,
+		Rho:                              p.Rho,
+		Tau:                              p.Tau,
+		ProtocolVersion:                  p.ProtocolVersion,
+		MinPoolCost:                      p.MinPoolCost,
+		AdaPerUtxoByte:                   p.AdaPerUtxoByte,
+		CostModels:                       p.CostModels,
+		ExecutionCosts:                   p.ExecutionCosts,
+		MaxTxExUnits:                     p.MaxTxExUnits,
+		MaxBlockExUnits:                  p.MaxBlockExUnits,
+		MaxValueSize:                     p.MaxValueSize,
+		CollateralPercentage:             p.CollateralPercentage,
+		MaxCollateralInputs:              p.MaxCollateralInputs,
+		PoolVotingThresholds:             p.PoolVotingThresholds,
+		DRepVotingThresholds:             p.DRepVotingThresholds,
+		MinCommitteeSize:                 p.MinCommitteeSize,
+		CommitteeTermLimit:               p.CommitteeTermLimit,
+		GovActionValidityPeriod:          p.GovActionValidityPeriod,
+		GovActionDeposit:                 p.GovActionDeposit,
+		DRepDeposit:                      p.DRepDeposit,
+		DRepInactivityPeriod:             p.DRepInactivityPeriod,
+		MinFeeRefScriptCostPerByte:       p.MinFeeRefScriptCostPerByte,
+		MaxRefScriptSizePerBlock:         p.MaxRefScriptSizePerBlock,
+		MaxRefScriptSizePerTx:            p.MaxRefScriptSizePerTx,
+		RefScriptCostStride:              p.RefScriptCostStride,
+		RefScriptCostMultiplier:          p.RefScriptCostMultiplier,
+		MaxPledgeLeverage:                p.MaxPledgeLeverage,
+		MinPoolMargin:                    p.MinPoolMargin,
+		LeiosAnnouncementPeriodLength:    p.LeiosAnnouncementPeriodLength,
+		LeiosVotePeriodLength:            p.LeiosVotePeriodLength,
+		LeiosDiffusionPeriodLength:       p.LeiosDiffusionPeriodLength,
+		LeiosCommitteeSize:               p.LeiosCommitteeSize,
+		LeiosQuorumStakeThreshold:        p.LeiosQuorumStakeThreshold,
+		MaxEndorserBlockReferencesSize:   p.MaxEndorserBlockReferencesSize,
+		MaxEndorserBlockTxsSize:          p.MaxEndorserBlockTxsSize,
+		MaxEndorserBlockExUnits:          p.MaxEndorserBlockExUnits,
+		MaxRefScriptSizePerEndorserBlock: p.MaxRefScriptSizePerEndorserBlock,
 	}
 }
 
@@ -186,6 +230,39 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 	}
 	if paramUpdate.RefScriptCostMultiplier != nil {
 		p.RefScriptCostMultiplier = paramUpdate.RefScriptCostMultiplier
+	}
+	if paramUpdate.MaxPledgeLeverage != nil {
+		p.MaxPledgeLeverage = paramUpdate.MaxPledgeLeverage
+	}
+	if paramUpdate.MinPoolMargin != nil {
+		p.MinPoolMargin = paramUpdate.MinPoolMargin
+	}
+	if paramUpdate.LeiosAnnouncementPeriodLength != nil {
+		p.LeiosAnnouncementPeriodLength = *paramUpdate.LeiosAnnouncementPeriodLength
+	}
+	if paramUpdate.LeiosVotePeriodLength != nil {
+		p.LeiosVotePeriodLength = *paramUpdate.LeiosVotePeriodLength
+	}
+	if paramUpdate.LeiosDiffusionPeriodLength != nil {
+		p.LeiosDiffusionPeriodLength = *paramUpdate.LeiosDiffusionPeriodLength
+	}
+	if paramUpdate.LeiosCommitteeSize != nil {
+		p.LeiosCommitteeSize = *paramUpdate.LeiosCommitteeSize
+	}
+	if paramUpdate.LeiosQuorumStakeThreshold != nil {
+		p.LeiosQuorumStakeThreshold = paramUpdate.LeiosQuorumStakeThreshold
+	}
+	if paramUpdate.MaxEndorserBlockReferencesSize != nil {
+		p.MaxEndorserBlockReferencesSize = *paramUpdate.MaxEndorserBlockReferencesSize
+	}
+	if paramUpdate.MaxEndorserBlockTxsSize != nil {
+		p.MaxEndorserBlockTxsSize = *paramUpdate.MaxEndorserBlockTxsSize
+	}
+	if paramUpdate.MaxEndorserBlockExUnits != nil {
+		p.MaxEndorserBlockExUnits = *paramUpdate.MaxEndorserBlockExUnits
+	}
+	if paramUpdate.MaxRefScriptSizePerEndorserBlock != nil {
+		p.MaxRefScriptSizePerEndorserBlock = *paramUpdate.MaxRefScriptSizePerEndorserBlock
 	}
 	if paramUpdate.CommitteeStakeCoverage != nil {
 		p.CommitteeStakeCoverage = paramUpdate.CommitteeStakeCoverage
@@ -256,45 +333,53 @@ func (p *DijkstraProtocolParameters) DRepDepositAmount() *big.Int {
 
 type DijkstraProtocolParameterUpdate struct {
 	cbor.DecodeStoreCbor
-	MinFeeA                    *uint                                     `cbor:"0,keyasint"`
-	MinFeeB                    *uint                                     `cbor:"1,keyasint"`
-	MaxBlockBodySize           *uint                                     `cbor:"2,keyasint"`
-	MaxTxSize                  *uint                                     `cbor:"3,keyasint"`
-	MaxBlockHeaderSize         *uint                                     `cbor:"4,keyasint"`
-	KeyDeposit                 *uint                                     `cbor:"5,keyasint"`
-	PoolDeposit                *uint                                     `cbor:"6,keyasint"`
-	MaxEpoch                   *uint                                     `cbor:"7,keyasint"`
-	NOpt                       *uint                                     `cbor:"8,keyasint"`
-	A0                         *cbor.Rat                                 `cbor:"9,keyasint"`
-	Rho                        *cbor.Rat                                 `cbor:"10,keyasint"`
-	Tau                        *cbor.Rat                                 `cbor:"11,keyasint"`
-	ProtocolVersion            *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
-	MinPoolCost                *uint64                                   `cbor:"16,keyasint"`
-	AdaPerUtxoByte             *uint64                                   `cbor:"17,keyasint"`
-	CostModels                 map[uint][]int64                          `cbor:"18,keyasint"`
-	ExecutionCosts             *common.ExUnitPrice                       `cbor:"19,keyasint"`
-	MaxTxExUnits               *common.ExUnits                           `cbor:"20,keyasint"`
-	MaxBlockExUnits            *common.ExUnits                           `cbor:"21,keyasint"`
-	MaxValueSize               *uint                                     `cbor:"22,keyasint"`
-	CollateralPercentage       *uint                                     `cbor:"23,keyasint"`
-	MaxCollateralInputs        *uint                                     `cbor:"24,keyasint"`
-	PoolVotingThresholds       *conway.PoolVotingThresholds              `cbor:"25,keyasint"`
-	DRepVotingThresholds       *conway.DRepVotingThresholds              `cbor:"26,keyasint"`
-	MinCommitteeSize           *uint                                     `cbor:"27,keyasint"`
-	CommitteeTermLimit         *uint64                                   `cbor:"28,keyasint"`
-	GovActionValidityPeriod    *uint64                                   `cbor:"29,keyasint"`
-	GovActionDeposit           *uint64                                   `cbor:"30,keyasint"`
-	DRepDeposit                *uint64                                   `cbor:"31,keyasint"`
-	DRepInactivityPeriod       *uint64                                   `cbor:"32,keyasint"`
-	MinFeeRefScriptCostPerByte *cbor.Rat                                 `cbor:"33,keyasint"`
-	MaxRefScriptSizePerBlock   *uint32                                   `cbor:"34,keyasint"`
-	MaxRefScriptSizePerTx      *uint32                                   `cbor:"35,keyasint"`
-	RefScriptCostStride        *uint32                                   `cbor:"36,keyasint"`
-	RefScriptCostMultiplier    *cbor.Rat                                 `cbor:"37,keyasint"`
-	// The current Dijkstra CDDL assigns protocol_param_update keys through 37.
-	// These Leios stake parameters have no confirmed on-chain update keys yet,
-	// so they are intentionally excluded from CBOR and can only be applied from
-	// local genesis/configuration data for now.
+	MinFeeA                          *uint                                     `cbor:"0,keyasint"`
+	MinFeeB                          *uint                                     `cbor:"1,keyasint"`
+	MaxBlockBodySize                 *uint                                     `cbor:"2,keyasint"`
+	MaxTxSize                        *uint                                     `cbor:"3,keyasint"`
+	MaxBlockHeaderSize               *uint                                     `cbor:"4,keyasint"`
+	KeyDeposit                       *uint                                     `cbor:"5,keyasint"`
+	PoolDeposit                      *uint                                     `cbor:"6,keyasint"`
+	MaxEpoch                         *uint                                     `cbor:"7,keyasint"`
+	NOpt                             *uint                                     `cbor:"8,keyasint"`
+	A0                               *cbor.Rat                                 `cbor:"9,keyasint"`
+	Rho                              *cbor.Rat                                 `cbor:"10,keyasint"`
+	Tau                              *cbor.Rat                                 `cbor:"11,keyasint"`
+	ProtocolVersion                  *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
+	MinPoolCost                      *uint64                                   `cbor:"16,keyasint"`
+	AdaPerUtxoByte                   *uint64                                   `cbor:"17,keyasint"`
+	CostModels                       map[uint][]int64                          `cbor:"18,keyasint"`
+	ExecutionCosts                   *common.ExUnitPrice                       `cbor:"19,keyasint"`
+	MaxTxExUnits                     *common.ExUnits                           `cbor:"20,keyasint"`
+	MaxBlockExUnits                  *common.ExUnits                           `cbor:"21,keyasint"`
+	MaxValueSize                     *uint                                     `cbor:"22,keyasint"`
+	CollateralPercentage             *uint                                     `cbor:"23,keyasint"`
+	MaxCollateralInputs              *uint                                     `cbor:"24,keyasint"`
+	PoolVotingThresholds             *conway.PoolVotingThresholds              `cbor:"25,keyasint"`
+	DRepVotingThresholds             *conway.DRepVotingThresholds              `cbor:"26,keyasint"`
+	MinCommitteeSize                 *uint                                     `cbor:"27,keyasint"`
+	CommitteeTermLimit               *uint64                                   `cbor:"28,keyasint"`
+	GovActionValidityPeriod          *uint64                                   `cbor:"29,keyasint"`
+	GovActionDeposit                 *uint64                                   `cbor:"30,keyasint"`
+	DRepDeposit                      *uint64                                   `cbor:"31,keyasint"`
+	DRepInactivityPeriod             *uint64                                   `cbor:"32,keyasint"`
+	MinFeeRefScriptCostPerByte       *cbor.Rat                                 `cbor:"33,keyasint"`
+	MaxRefScriptSizePerBlock         *uint32                                   `cbor:"34,keyasint"`
+	MaxRefScriptSizePerTx            *uint32                                   `cbor:"35,keyasint"`
+	RefScriptCostStride              *uint32                                   `cbor:"36,keyasint"`
+	RefScriptCostMultiplier          *cbor.Rat                                 `cbor:"37,keyasint"`
+	MaxPledgeLeverage                *cbor.Rat                                 `cbor:"38,keyasint"`
+	MinPoolMargin                    *cbor.Rat                                 `cbor:"39,keyasint"`
+	LeiosAnnouncementPeriodLength    *uint32                                   `cbor:"40,keyasint"`
+	LeiosVotePeriodLength            *uint32                                   `cbor:"41,keyasint"`
+	LeiosDiffusionPeriodLength       *uint32                                   `cbor:"42,keyasint"`
+	LeiosCommitteeSize               *uint16                                   `cbor:"43,keyasint"`
+	LeiosQuorumStakeThreshold        *cbor.Rat                                 `cbor:"44,keyasint"`
+	MaxEndorserBlockReferencesSize   *uint32                                   `cbor:"45,keyasint"`
+	MaxEndorserBlockTxsSize          *uint32                                   `cbor:"46,keyasint"`
+	MaxEndorserBlockExUnits          *common.ExUnits                           `cbor:"47,keyasint"`
+	MaxRefScriptSizePerEndorserBlock *uint32                                   `cbor:"48,keyasint"`
+	// These legacy stake parameters remain local-only prototype settings.
 	CommitteeStakeCoverage *cbor.Rat `cbor:"-"`
 	QuorumStakeThreshold   *cbor.Rat `cbor:"-"`
 }
@@ -426,6 +511,39 @@ func (u DijkstraProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
 	if u.RefScriptCostMultiplier != nil {
 		fields[37] = u.RefScriptCostMultiplier
 	}
+	if u.MaxPledgeLeverage != nil {
+		fields[38] = u.MaxPledgeLeverage
+	}
+	if u.MinPoolMargin != nil {
+		fields[39] = u.MinPoolMargin
+	}
+	if u.LeiosAnnouncementPeriodLength != nil {
+		fields[40] = *u.LeiosAnnouncementPeriodLength
+	}
+	if u.LeiosVotePeriodLength != nil {
+		fields[41] = *u.LeiosVotePeriodLength
+	}
+	if u.LeiosDiffusionPeriodLength != nil {
+		fields[42] = *u.LeiosDiffusionPeriodLength
+	}
+	if u.LeiosCommitteeSize != nil {
+		fields[43] = *u.LeiosCommitteeSize
+	}
+	if u.LeiosQuorumStakeThreshold != nil {
+		fields[44] = u.LeiosQuorumStakeThreshold
+	}
+	if u.MaxEndorserBlockReferencesSize != nil {
+		fields[45] = *u.MaxEndorserBlockReferencesSize
+	}
+	if u.MaxEndorserBlockTxsSize != nil {
+		fields[46] = *u.MaxEndorserBlockTxsSize
+	}
+	if u.MaxEndorserBlockExUnits != nil {
+		fields[47] = *u.MaxEndorserBlockExUnits
+	}
+	if u.MaxRefScriptSizePerEndorserBlock != nil {
+		fields[48] = *u.MaxRefScriptSizePerEndorserBlock
+	}
 	return cbor.Encode(fields)
 }
 
@@ -465,6 +583,17 @@ func (u *DijkstraProtocolParameterUpdate) hasUpdate() bool {
 		u.MaxRefScriptSizePerTx != nil ||
 		u.RefScriptCostStride != nil ||
 		u.RefScriptCostMultiplier != nil ||
+		u.MaxPledgeLeverage != nil ||
+		u.MinPoolMargin != nil ||
+		u.LeiosAnnouncementPeriodLength != nil ||
+		u.LeiosVotePeriodLength != nil ||
+		u.LeiosDiffusionPeriodLength != nil ||
+		u.LeiosCommitteeSize != nil ||
+		u.LeiosQuorumStakeThreshold != nil ||
+		u.MaxEndorserBlockReferencesSize != nil ||
+		u.MaxEndorserBlockTxsSize != nil ||
+		u.MaxEndorserBlockExUnits != nil ||
+		u.MaxRefScriptSizePerEndorserBlock != nil ||
 		u.CommitteeStakeCoverage != nil ||
 		u.QuorumStakeThreshold != nil
 }
@@ -482,6 +611,39 @@ func (u *DijkstraProtocolParameterUpdate) BootstrapRestrictedFields() []string {
 	}
 	if u.RefScriptCostMultiplier != nil {
 		fields = append(fields, "RefScriptCostMultiplier")
+	}
+	if u.MaxPledgeLeverage != nil {
+		fields = append(fields, "MaxPledgeLeverage")
+	}
+	if u.MinPoolMargin != nil {
+		fields = append(fields, "MinPoolMargin")
+	}
+	if u.LeiosAnnouncementPeriodLength != nil {
+		fields = append(fields, "LeiosAnnouncementPeriodLength")
+	}
+	if u.LeiosVotePeriodLength != nil {
+		fields = append(fields, "LeiosVotePeriodLength")
+	}
+	if u.LeiosDiffusionPeriodLength != nil {
+		fields = append(fields, "LeiosDiffusionPeriodLength")
+	}
+	if u.LeiosCommitteeSize != nil {
+		fields = append(fields, "LeiosCommitteeSize")
+	}
+	if u.LeiosQuorumStakeThreshold != nil {
+		fields = append(fields, "LeiosQuorumStakeThreshold")
+	}
+	if u.MaxEndorserBlockReferencesSize != nil {
+		fields = append(fields, "MaxEndorserBlockReferencesSize")
+	}
+	if u.MaxEndorserBlockTxsSize != nil {
+		fields = append(fields, "MaxEndorserBlockTxsSize")
+	}
+	if u.MaxEndorserBlockExUnits != nil {
+		fields = append(fields, "MaxEndorserBlockExUnits")
+	}
+	if u.MaxRefScriptSizePerEndorserBlock != nil {
+		fields = append(fields, "MaxRefScriptSizePerEndorserBlock")
 	}
 	if u.CommitteeStakeCoverage != nil {
 		fields = append(fields, "CommitteeStakeCoverage")
@@ -688,6 +850,42 @@ func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 	}
 	if u.RefScriptCostMultiplier != nil {
 		pushRat(37, u.RefScriptCostMultiplier)
+	}
+	if u.MaxPledgeLeverage != nil {
+		pushRat(38, u.MaxPledgeLeverage)
+	}
+	if u.MinPoolMargin != nil {
+		pushRat(39, u.MinPoolMargin)
+	}
+	if u.LeiosAnnouncementPeriodLength != nil {
+		push(40, data.NewInteger(new(big.Int).SetUint64(uint64(*u.LeiosAnnouncementPeriodLength))))
+	}
+	if u.LeiosVotePeriodLength != nil {
+		push(41, data.NewInteger(new(big.Int).SetUint64(uint64(*u.LeiosVotePeriodLength))))
+	}
+	if u.LeiosDiffusionPeriodLength != nil {
+		push(42, data.NewInteger(new(big.Int).SetUint64(uint64(*u.LeiosDiffusionPeriodLength))))
+	}
+	if u.LeiosCommitteeSize != nil {
+		push(43, data.NewInteger(new(big.Int).SetUint64(uint64(*u.LeiosCommitteeSize))))
+	}
+	if u.LeiosQuorumStakeThreshold != nil {
+		pushRat(44, u.LeiosQuorumStakeThreshold)
+	}
+	if u.MaxEndorserBlockReferencesSize != nil {
+		push(45, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxEndorserBlockReferencesSize))))
+	}
+	if u.MaxEndorserBlockTxsSize != nil {
+		push(46, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxEndorserBlockTxsSize))))
+	}
+	if u.MaxEndorserBlockExUnits != nil {
+		push(47, data.NewList(
+			data.NewInteger(big.NewInt(u.MaxEndorserBlockExUnits.Memory)),
+			data.NewInteger(big.NewInt(u.MaxEndorserBlockExUnits.Steps)),
+		))
+	}
+	if u.MaxRefScriptSizePerEndorserBlock != nil {
+		push(48, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxRefScriptSizePerEndorserBlock))))
 	}
 	return data.NewMap(tmpPairs)
 }

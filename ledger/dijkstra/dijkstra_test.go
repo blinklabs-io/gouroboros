@@ -1203,6 +1203,76 @@ func TestDijkstraProtocolParameterUpdateDecodesConwayAndDijkstraFields(
 	require.Equal(t, 0, pparams.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
 }
 
+func TestDijkstraProtocolParameterUpdateDecodesLeiosFields(t *testing.T) {
+	quorum := cbor.Rat{Rat: big.NewRat(3, 4)}
+	exUnits := common.ExUnits{Memory: 123, Steps: 456}
+	updateCbor, err := cbor.Encode(map[uint]any{
+		40: uint32(1000),
+		41: uint32(2000),
+		42: uint32(3000),
+		43: uint16(42),
+		44: quorum,
+		45: uint32(500000),
+		46: uint32(12000000),
+		47: exUnits,
+		48: uint32(1048576),
+	})
+	require.NoError(t, err)
+
+	var update DijkstraProtocolParameterUpdate
+	_, err = cbor.Decode(updateCbor, &update)
+	require.NoError(t, err)
+	require.Equal(t, updateCbor, update.Cbor())
+	require.Equal(t, uint32(1000), *update.LeiosAnnouncementPeriodLength)
+	require.Equal(t, uint32(2000), *update.LeiosVotePeriodLength)
+	require.Equal(t, uint32(3000), *update.LeiosDiffusionPeriodLength)
+	require.Equal(t, uint16(42), *update.LeiosCommitteeSize)
+	require.Equal(t, 0, update.LeiosQuorumStakeThreshold.Cmp(quorum.Rat))
+	require.Equal(t, uint32(500000), *update.MaxEndorserBlockReferencesSize)
+	require.Equal(t, uint32(12000000), *update.MaxEndorserBlockTxsSize)
+	require.Equal(t, exUnits, *update.MaxEndorserBlockExUnits)
+	require.Equal(t, uint32(1048576), *update.MaxRefScriptSizePerEndorserBlock)
+
+	var params DijkstraProtocolParameters
+	params.Update(&update)
+	require.Equal(t, uint32(1000), params.LeiosAnnouncementPeriodLength)
+	require.Equal(t, uint32(2000), params.LeiosVotePeriodLength)
+	require.Equal(t, uint32(3000), params.LeiosDiffusionPeriodLength)
+	require.Equal(t, uint16(42), params.LeiosCommitteeSize)
+	require.Equal(t, 0, params.LeiosQuorumStakeThreshold.Cmp(quorum.Rat))
+	require.Equal(t, uint32(500000), params.MaxEndorserBlockReferencesSize)
+	require.Equal(t, uint32(12000000), params.MaxEndorserBlockTxsSize)
+	require.Equal(t, exUnits, params.MaxEndorserBlockExUnits)
+	require.Equal(t, uint32(1048576), params.MaxRefScriptSizePerEndorserBlock)
+}
+
+func TestDijkstraProtocolParameterUpdateEncodesLeiosFields(t *testing.T) {
+	announcement, vote, diffusion := uint32(1000), uint32(2000), uint32(3000)
+	committee := uint16(42)
+	references, txs, refScripts := uint32(500000), uint32(12000000), uint32(1048576)
+	exUnits := common.ExUnits{Memory: 123, Steps: 456}
+	update := DijkstraProtocolParameterUpdate{
+		LeiosAnnouncementPeriodLength:    &announcement,
+		LeiosVotePeriodLength:            &vote,
+		LeiosDiffusionPeriodLength:       &diffusion,
+		LeiosCommitteeSize:               &committee,
+		LeiosQuorumStakeThreshold:        &cbor.Rat{Rat: big.NewRat(3, 4)},
+		MaxEndorserBlockReferencesSize:   &references,
+		MaxEndorserBlockTxsSize:          &txs,
+		MaxEndorserBlockExUnits:          &exUnits,
+		MaxRefScriptSizePerEndorserBlock: &refScripts,
+	}
+	encoded, err := cbor.Encode(update)
+	require.NoError(t, err)
+
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	for _, key := range []uint{40, 41, 42, 43, 44, 45, 46, 47, 48} {
+		require.Contains(t, fields, key)
+	}
+}
+
 func TestDijkstraProtocolParameterUpdateLeiosStakeFieldsExcludedFromCbor(
 	t *testing.T,
 ) {
@@ -1258,6 +1328,33 @@ func TestDijkstraGenesisLeiosStakeParameters(t *testing.T) {
 		0,
 		pparams.QuorumStakeThreshold.Cmp(big.NewRat(3, 4)),
 	)
+}
+
+func TestDijkstraGenesisDecodesLeiosProtocolParameters(t *testing.T) {
+	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
+  "leiosAnnouncementPeriodLength": 1000,
+  "leiosVotePeriodLength": 2000,
+  "leiosDiffusionPeriodLength": 3000,
+  "leiosCommitteeSize": 42,
+  "leiosQuorumStakeThreshold": 0.75,
+  "maxEndorserBlockReferencesSize": 500000,
+  "maxEndorserBlockTxsSize": 12000000,
+  "maxEndorserBlockExecutionUnits": {"memory": 123, "steps": 456},
+  "maxRefScriptSizePerEndorserBlock": 1048576
+}`))
+	require.NoError(t, err)
+
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
+	require.Equal(t, uint32(1000), params.LeiosAnnouncementPeriodLength)
+	require.Equal(t, uint32(2000), params.LeiosVotePeriodLength)
+	require.Equal(t, uint32(3000), params.LeiosDiffusionPeriodLength)
+	require.Equal(t, uint16(42), params.LeiosCommitteeSize)
+	require.Equal(t, 0, params.LeiosQuorumStakeThreshold.Cmp(big.NewRat(3, 4)))
+	require.Equal(t, uint32(500000), params.MaxEndorserBlockReferencesSize)
+	require.Equal(t, uint32(12000000), params.MaxEndorserBlockTxsSize)
+	require.Equal(t, common.ExUnits{Memory: 123, Steps: 456}, params.MaxEndorserBlockExUnits)
+	require.Equal(t, uint32(1048576), params.MaxRefScriptSizePerEndorserBlock)
 }
 
 func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {

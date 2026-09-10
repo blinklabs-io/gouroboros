@@ -27,12 +27,23 @@ import (
 
 type DijkstraGenesis struct {
 	conway.ConwayGenesis
-	MaxRefScriptSizePerBlock uint32             `json:"maxRefScriptSizePerBlock"`
-	MaxRefScriptSizePerTx    uint32             `json:"maxRefScriptSizePerTx"`
-	RefScriptCostStride      uint32             `json:"refScriptCostStride"`
-	RefScriptCostMultiplier  *common.GenesisRat `json:"refScriptCostMultiplier"`
-	CommitteeStakeCoverage   *common.GenesisRat `json:"committeeStakeCoverage"`
-	QuorumStakeThreshold     *common.GenesisRat `json:"quorumStakeThreshold"`
+	MaxRefScriptSizePerBlock         uint32             `json:"maxRefScriptSizePerBlock"`
+	MaxRefScriptSizePerTx            uint32             `json:"maxRefScriptSizePerTx"`
+	RefScriptCostStride              uint32             `json:"refScriptCostStride"`
+	RefScriptCostMultiplier          *common.GenesisRat `json:"refScriptCostMultiplier"`
+	MaxPledgeLeverage                *common.GenesisRat `json:"maxPledgeLeverage"`
+	MinPoolMargin                    *common.GenesisRat `json:"minPoolMargin"`
+	LeiosAnnouncementPeriodLength    uint32             `json:"leiosAnnouncementPeriodLength"`
+	LeiosVotePeriodLength            uint32             `json:"leiosVotePeriodLength"`
+	LeiosDiffusionPeriodLength       uint32             `json:"leiosDiffusionPeriodLength"`
+	LeiosCommitteeSize               uint16             `json:"leiosCommitteeSize"`
+	LeiosQuorumStakeThreshold        *common.GenesisRat `json:"leiosQuorumStakeThreshold"`
+	MaxEndorserBlockReferencesSize   uint32             `json:"maxEndorserBlockReferencesSize"`
+	MaxEndorserBlockTxsSize          uint32             `json:"maxEndorserBlockTxsSize"`
+	MaxEndorserBlockExUnits          common.ExUnits     `json:"maxEndorserBlockExecutionUnits"`
+	MaxRefScriptSizePerEndorserBlock uint32             `json:"maxRefScriptSizePerEndorserBlock"`
+	CommitteeStakeCoverage           *common.GenesisRat `json:"committeeStakeCoverage"`
+	QuorumStakeThreshold             *common.GenesisRat `json:"quorumStakeThreshold"`
 }
 
 func NewDijkstraGenesisFromReader(r io.Reader) (DijkstraGenesis, error) {
@@ -77,6 +88,17 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.MaxRefScriptSizePerTx = genesis.MaxRefScriptSizePerTx
 	p.RefScriptCostStride = genesis.RefScriptCostStride
 	p.RefScriptCostMultiplier = genesisRatToRat(genesis.RefScriptCostMultiplier)
+	p.MaxPledgeLeverage = genesisRatToRat(genesis.MaxPledgeLeverage)
+	p.MinPoolMargin = genesisRatToRat(genesis.MinPoolMargin)
+	p.LeiosAnnouncementPeriodLength = genesis.LeiosAnnouncementPeriodLength
+	p.LeiosVotePeriodLength = genesis.LeiosVotePeriodLength
+	p.LeiosDiffusionPeriodLength = genesis.LeiosDiffusionPeriodLength
+	p.LeiosCommitteeSize = genesis.LeiosCommitteeSize
+	p.LeiosQuorumStakeThreshold = genesisRatToRat(genesis.LeiosQuorumStakeThreshold)
+	p.MaxEndorserBlockReferencesSize = genesis.MaxEndorserBlockReferencesSize
+	p.MaxEndorserBlockTxsSize = genesis.MaxEndorserBlockTxsSize
+	p.MaxEndorserBlockExUnits = genesis.MaxEndorserBlockExUnits
+	p.MaxRefScriptSizePerEndorserBlock = genesis.MaxRefScriptSizePerEndorserBlock
 	applyConwayRefScriptFeeDefaults(p)
 	p.CommitteeStakeCoverage = committeeStakeCoverage
 	p.QuorumStakeThreshold = quorumStakeThreshold
