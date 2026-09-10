@@ -116,10 +116,13 @@ const (
 // ProtocolOptions provides common arguments for all mini-protocols
 type ProtocolOptions struct {
 	ConnectionId connection.ConnectionId
-	Muxer        *muxer.Muxer
-	Logger       *slog.Logger
-	ErrorChan    chan error
-	Mode         ProtocolMode
+	// ConnectionDoneChan is closed when the owning connection begins
+	// shutdown, before protocol goroutines have necessarily returned.
+	ConnectionDoneChan <-chan any
+	Muxer              *muxer.Muxer
+	Logger             *slog.Logger
+	ErrorChan          chan error
+	Mode               ProtocolMode
 	// TODO(cleanup): Role field may be redundant with Mode - evaluate removal
 	Role    ProtocolRole
 	Version uint16

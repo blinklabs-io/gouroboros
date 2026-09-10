@@ -110,8 +110,9 @@ func NewClient(
 		readyForNextBlockChan: nil,
 	}
 	c.callbackContext = CallbackContext{
-		Client:       c,
-		ConnectionId: protoOptions.ConnectionId,
+		Client:             c,
+		ConnectionId:       protoOptions.ConnectionId,
+		ConnectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
 	c.initProtocol()
 	return c
