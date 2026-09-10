@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -42,6 +43,45 @@ type mockConn struct {
 
 type failingWriteConn struct {
 	*mockConn
+}
+
+type writeDeadlineErrorConn struct {
+	*mockConn
+	setErr   error
+	writeCnt int
+}
+
+func (c *writeDeadlineErrorConn) SetWriteDeadline(time.Time) error {
+	return c.setErr
+}
+
+func (c *writeDeadlineErrorConn) Write([]byte) (int, error) {
+	c.writeCnt++
+	return 0, errors.New("write should not be attempted")
+}
+
+type trackingWriteDeadlineConn struct {
+	*mockConn
+	deadlines []time.Time
+}
+
+func (c *trackingWriteDeadlineConn) SetWriteDeadline(deadline time.Time) error {
+	c.deadlines = append(c.deadlines, deadline)
+	return nil
+}
+
+type clampedPipeConn struct {
+	net.Conn
+	requestedDeadline chan time.Time
+	clamp             bool
+}
+
+func (c *clampedPipeConn) SetWriteDeadline(deadline time.Time) error {
+	c.requestedDeadline <- deadline
+	if c.clamp {
+		deadline = time.Now().Add(25 * time.Millisecond)
+	}
+	return c.Conn.SetWriteDeadline(deadline)
 }
 
 func (*failingWriteConn) Write([]byte) (int, error) {
@@ -470,6 +510,104 @@ func TestMuxerReportsSegmentDelivery(t *testing.T) {
 				t.Fatal("timed out waiting for segment delivery result")
 			}
 		})
+	}
+}
+
+func TestMuxerSendWriteDeadlineFailureDoesNotWrite(t *testing.T) {
+	deadlineErr := errors.New("test: write deadline failure")
+	conn := &writeDeadlineErrorConn{
+		mockConn: newMockConn(),
+		setErr:   deadlineErr,
+	}
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	err := m.Send(muxer.NewSegment(0x01, []byte("test"), false))
+	require.ErrorIs(t, err, deadlineErr)
+	require.Zero(t, conn.writeCnt)
+}
+
+func TestMuxerSendRefreshesWriteDeadline(t *testing.T) {
+	conn := &trackingWriteDeadlineConn{mockConn: newMockConn()}
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	for i := range 2 {
+		before := time.Now().Add(2 * time.Minute)
+		require.NoError(
+			t,
+			m.Send(muxer.NewSegment(0x01, []byte("test"), false)),
+		)
+		after := time.Now().Add(2 * time.Minute)
+		require.Len(t, conn.deadlines, i+1)
+		require.False(t, conn.deadlines[i].Before(before))
+		require.False(t, conn.deadlines[i].After(after))
+	}
+}
+
+func TestMuxerSendBlockedWriteHonorsDeadline(t *testing.T) {
+	local, remote := net.Pipe()
+	defer remote.Close()
+	requested := make(chan time.Time, 1)
+	conn := &clampedPipeConn{
+		Conn:              local,
+		requestedDeadline: requested,
+		clamp:             true,
+	}
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	result := make(chan error, 1)
+	go func() {
+		result <- m.Send(muxer.NewSegment(0x01, []byte("blocked"), false))
+	}()
+
+	var requestedAt time.Time
+	select {
+	case requestedAt = <-requested:
+	case <-time.After(time.Second):
+		t.Fatal("muxer did not set a write deadline")
+	}
+	require.True(t, requestedAt.After(time.Now()))
+	require.WithinDuration(
+		t,
+		time.Now().Add(2*time.Minute),
+		requestedAt,
+		2*time.Second,
+	)
+
+	select {
+	case err := <-result:
+		require.Error(t, err)
+		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+	case <-time.After(time.Second):
+		t.Fatal("blocked write did not honor its deadline")
+	}
+}
+
+func TestMuxerSendBlockedWriteUnblocksOnStop(t *testing.T) {
+	local, remote := net.Pipe()
+	defer remote.Close()
+	requested := make(chan time.Time, 1)
+	conn := &clampedPipeConn{Conn: local, requestedDeadline: requested}
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	result := make(chan error, 1)
+	go func() {
+		result <- m.Send(muxer.NewSegment(0x01, []byte("blocked"), false))
+	}()
+	select {
+	case <-requested:
+	case <-time.After(time.Second):
+		t.Fatal("muxer did not start the blocked write")
+	}
+	m.Stop()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, io.ErrClosedPipe)
+	case <-time.After(time.Second):
+		t.Fatal("stopped muxer did not unblock the blocked write")
 	}
 }
 

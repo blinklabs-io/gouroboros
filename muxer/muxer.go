@@ -38,6 +38,11 @@ const ProtocolUnknown uint16 = 0xabcd
 // before closing the connection. This prevents slowloris-style DoS attacks.
 const segmentReadTimeout = 120 * time.Second
 
+// segmentWriteTimeout is the maximum time to wait for a complete segment
+// write. The deadline is refreshed for every segment so long-lived healthy
+// connections are not killed by one absolute connection deadline.
+const segmentWriteTimeout = 2 * time.Minute
+
 // DiffusionMode is an enum for the valid muxer diffusion modes
 type DiffusionMode int
 
@@ -357,6 +362,9 @@ func (m *Muxer) Send(msg *Segment) error {
 		return err
 	}
 	buf.Write(msg.Payload)
+	if err := m.conn.SetWriteDeadline(time.Now().Add(segmentWriteTimeout)); err != nil {
+		return err
+	}
 	_, err = m.conn.Write(buf.Bytes())
 	if err != nil {
 		return err
