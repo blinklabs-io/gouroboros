@@ -17,11 +17,121 @@ package protocol
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/stretchr/testify/require"
 )
+
+func TestInitialStateTimeoutOptIn(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		enabled     bool
+		timeout     time.Duration
+		wantTimeout bool
+	}{
+		{"disabled by default", false, 20 * time.Millisecond, false},
+		{"enabled explicitly", true, 20 * time.Millisecond, true},
+		{"enabled with zero timeout", true, 0, false},
+		{"enabled with negative timeout", true, -time.Second, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			serverConn, peerConn := net.Pipe()
+			defer serverConn.Close()
+			defer peerConn.Close()
+			m := muxer.New(serverConn)
+			m.Start()
+			defer m.Stop()
+			errorChan := make(chan error, 1)
+			state := NewState(1, "Initial")
+			p := New(ProtocolConfig{
+				ErrorChan: errorChan,
+				Muxer:     m,
+				Role:      ProtocolRoleServer,
+				StateMap: StateMap{state: {
+					Agency:  AgencyClient,
+					Timeout: test.timeout,
+				}},
+				InitialState:        state,
+				InitialStateTimeout: test.enabled,
+			})
+			p.Start()
+			defer p.Stop()
+
+			if test.wantTimeout {
+				select {
+				case err := <-errorChan:
+					require.NotNil(t, err)
+					require.Contains(t, err.Error(), "timeout waiting on transition")
+				case <-time.After(time.Second):
+					t.Fatal("initial timeout was not enforced")
+				}
+				return
+			}
+			select {
+			case err := <-errorChan:
+				t.Fatalf("unexpected initial timeout: %v", err)
+			case <-time.After(50 * time.Millisecond):
+			}
+		})
+	}
+}
+
+func TestSubsequentStateTimeoutRemainsActive(t *testing.T) {
+	for _, initialStateTimeout := range []bool{false, true} {
+		t.Run(fmt.Sprintf("initial timeout enabled=%t", initialStateTimeout), func(t *testing.T) {
+			testSubsequentStateTimeoutRemainsActive(t, initialStateTimeout)
+		})
+	}
+}
+
+func testSubsequentStateTimeoutRemainsActive(t *testing.T, initialStateTimeout bool) {
+	serverConn, peerConn := net.Pipe()
+	defer serverConn.Close()
+	defer peerConn.Close()
+	m := muxer.New(serverConn)
+	m.Start()
+	defer m.Stop()
+	errorChan := make(chan error, 1)
+	initialState := NewState(1, "Initial")
+	confirmState := NewState(2, "Confirm")
+	p := New(ProtocolConfig{
+		ErrorChan: errorChan,
+		Muxer:     m,
+		Role:      ProtocolRoleServer,
+		StateMap: StateMap{
+			initialState: {
+				Agency: AgencyClient,
+				Transitions: []StateTransition{{
+					MsgType:  1,
+					NewState: confirmState,
+				}},
+			},
+			confirmState: {
+				Agency:  AgencyServer,
+				Timeout: 20 * time.Millisecond,
+			},
+		},
+		InitialState:        initialState,
+		InitialStateTimeout: initialStateTimeout,
+	})
+	p.Start()
+	defer p.Stop()
+
+	msg := &MessageBase{MessageType: 1}
+	require.NoError(t, p.transitionState(msg))
+
+	select {
+	case err := <-errorChan:
+		require.NotNil(t, err)
+		require.Contains(t, err.Error(), "timeout waiting on transition")
+	case <-time.After(time.Second):
+		t.Fatal("subsequent state timeout was not enforced")
+	}
+}
 
 func TestEnqueueMessageReturnsWhenFullQueueShutsDown(t *testing.T) {
 	tests := []struct {
