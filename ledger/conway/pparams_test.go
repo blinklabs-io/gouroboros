@@ -645,10 +645,12 @@ func TestUtxorpc(t *testing.T) {
 					Memory: 5000000,
 					Steps:  1000000,
 				},
+				// Keys follow the real cardano-ledger wire convention:
+				// 0-indexed (0=PlutusV1, 1=PlutusV2, 2=PlutusV3).
 				CostModels: map[uint][]int64{
-					1: {100, 200, 300},
-					2: {400, 500, 600},
-					3: {700, 800, 900},
+					0: {100, 200, 300},
+					1: {400, 500, 600},
+					2: {700, 800, 900},
 				},
 			},
 			expectedUtxorpc: &utxorpc.PParams{
@@ -723,6 +725,16 @@ func TestUtxorpc(t *testing.T) {
 					Memory: 5000000,
 					Steps:  1000000,
 				},
+				// GovActionDeposit/DRepDeposit are plain uint64 fields (not
+				// pointers) on ConwayProtocolParameters, so
+				// common.ToUtxorpcBigInt always returns a non-nil BigInt,
+				// even for the zero value left unset by this test case.
+				GovernanceActionDeposit: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 0},
+				},
+				DrepDeposit: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 0},
+				},
 			},
 		},
 	}
@@ -741,6 +753,178 @@ func TestUtxorpc(t *testing.T) {
 			)
 		}
 	}
+}
+
+// TestConwayUtxorpc_GovernanceFields is the regression test for the
+// node-parity audit finding that Utxorpc() silently omitted every Conway
+// governance parameter: GovActionDeposit, DRepDeposit, voting thresholds,
+// committee settings, governance-action validity period, and the
+// reference-script fee rational. Before this fix, changing e.g.
+// GovActionDeposit produced an identical, empty node-parity diff because
+// none of these fields ever reached the returned *utxorpc.PParams. Each
+// field below is given a distinct value (and, for the voting-threshold
+// lists, distinct per-position values) so a mapping mistake -- a dropped
+// field or a misordered threshold list -- makes this test fail rather than
+// passing by coincidence.
+func TestConwayUtxorpc_GovernanceFields(t *testing.T) {
+	rat := func(num, den int64) cbor.Rat {
+		return cbor.Rat{Rat: big.NewRat(num, den)}
+	}
+	params := conway.ConwayProtocolParameters{
+		// Fields required by Utxorpc()'s existing sanity checks.
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+		// Newly-mapped governance fields under test, each a distinct value.
+		MinFeeRefScriptCostPerByte: &cbor.Rat{Rat: big.NewRat(15, 2)},
+		PoolVotingThresholds: conway.PoolVotingThresholds{
+			MotionNoConfidence:    rat(1, 11),
+			CommitteeNormal:       rat(2, 11),
+			CommitteeNoConfidence: rat(3, 11),
+			HardForkInitiation:    rat(4, 11),
+			PpSecurityGroup:       rat(5, 11),
+		},
+		DRepVotingThresholds: conway.DRepVotingThresholds{
+			MotionNoConfidence:    rat(1, 13),
+			CommitteeNormal:       rat(2, 13),
+			CommitteeNoConfidence: rat(3, 13),
+			UpdateToConstitution:  rat(4, 13),
+			HardForkInitiation:    rat(5, 13),
+			PpNetworkGroup:        rat(6, 13),
+			PpEconomicGroup:       rat(7, 13),
+			PpTechnicalGroup:      rat(8, 13),
+			PpGovGroup:            rat(9, 13),
+			TreasuryWithdrawal:    rat(10, 13),
+		},
+		MinCommitteeSize:        7,
+		CommitteeTermLimit:      365,
+		GovActionValidityPeriod: 30000,
+		// Matches the exact scenario from the node-parity audit: a changed
+		// GovActionDeposit must produce a different Utxorpc() value.
+		GovActionDeposit:     100000000001,
+		DRepDeposit:          500000000,
+		DRepInactivityPeriod: 20,
+	}
+
+	result, err := params.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed: %v", err)
+	}
+
+	assert.Equal(t,
+		&utxorpc.RationalNumber{Numerator: 15, Denominator: 2},
+		result.MinFeeScriptRefCostPerByte,
+		"MinFeeScriptRefCostPerByte",
+	)
+	assert.Equal(t,
+		&utxorpc.VotingThresholds{
+			Thresholds: []*utxorpc.RationalNumber{
+				{Numerator: 1, Denominator: 11},
+				{Numerator: 2, Denominator: 11},
+				{Numerator: 3, Denominator: 11},
+				{Numerator: 4, Denominator: 11},
+				{Numerator: 5, Denominator: 11},
+			},
+		},
+		result.PoolVotingThresholds,
+		"PoolVotingThresholds",
+	)
+	assert.Equal(t,
+		&utxorpc.VotingThresholds{
+			Thresholds: []*utxorpc.RationalNumber{
+				{Numerator: 1, Denominator: 13},
+				{Numerator: 2, Denominator: 13},
+				{Numerator: 3, Denominator: 13},
+				{Numerator: 4, Denominator: 13},
+				{Numerator: 5, Denominator: 13},
+				{Numerator: 6, Denominator: 13},
+				{Numerator: 7, Denominator: 13},
+				{Numerator: 8, Denominator: 13},
+				{Numerator: 9, Denominator: 13},
+				{Numerator: 10, Denominator: 13},
+			},
+		},
+		result.DrepVotingThresholds,
+		"DrepVotingThresholds",
+	)
+	assert.Equal(t, uint32(7), result.MinCommitteeSize, "MinCommitteeSize")
+	assert.Equal(
+		t,
+		uint64(365),
+		result.CommitteeTermLimit,
+		"CommitteeTermLimit",
+	)
+	assert.Equal(
+		t,
+		uint64(30000),
+		result.GovernanceActionValidityPeriod,
+		"GovernanceActionValidityPeriod",
+	)
+	assert.Equal(t,
+		common.ToUtxorpcBigInt(100000000001),
+		result.GovernanceActionDeposit,
+		"GovernanceActionDeposit",
+	)
+	assert.Equal(t,
+		common.ToUtxorpcBigInt(500000000),
+		result.DrepDeposit,
+		"DrepDeposit",
+	)
+	assert.Equal(
+		t,
+		uint64(20),
+		result.DrepInactivityPeriod,
+		"DrepInactivityPeriod",
+	)
+
+	// Changing GovActionDeposit must change the converted value -- this is
+	// the exact audit scenario (100000000000 -> 100000000001 previously
+	// produced an identical, empty diff).
+	changed := params
+	changed.GovActionDeposit = 100000000000
+	changedResult, err := changed.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed: %v", err)
+	}
+	assert.NotEqual(
+		t,
+		result.GovernanceActionDeposit,
+		changedResult.GovernanceActionDeposit,
+		"GovActionDeposit change must be visible in Utxorpc() output",
+	)
+}
+
+// TestConwayUtxorpc_GovernanceFields_UnsetVotingThresholdsOmitted verifies
+// that a ConwayProtocolParameters value with unset (zero-value)
+// PoolVotingThresholds/DRepVotingThresholds/MinFeeRefScriptCostPerByte -- as
+// happens when a value is constructed directly rather than decoded from a
+// full on-chain protocol-parameters value or genesis -- leaves the
+// corresponding utxorpc fields nil instead of emitting a spurious all-zero
+// VotingThresholds list, which would misrepresent a real 0/0 rational as a
+// present-but-degenerate threshold.
+func TestConwayUtxorpc_GovernanceFields_UnsetVotingThresholdsOmitted(
+	t *testing.T,
+) {
+	params := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+	}
+	result, err := params.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed: %v", err)
+	}
+	assert.Nil(t, result.MinFeeScriptRefCostPerByte)
+	assert.Nil(t, result.PoolVotingThresholds)
+	assert.Nil(t, result.DrepVotingThresholds)
 }
 
 // Unit test for ConwayTransactionBody.Utxorpc()

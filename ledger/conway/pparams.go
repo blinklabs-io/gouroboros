@@ -138,6 +138,16 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 		p.MaxBlockExUnits.Memory < 0 || p.MaxBlockExUnits.Steps < 0 {
 		return nil, errors.New("invalid execution unit values")
 	}
+	if p.MinFeeRefScriptCostPerByte != nil {
+		if p.MinFeeRefScriptCostPerByte.Num().Int64() < math.MinInt32 ||
+			p.MinFeeRefScriptCostPerByte.Num().Int64() > math.MaxInt32 ||
+			p.MinFeeRefScriptCostPerByte.Denom().Int64() < 0 ||
+			p.MinFeeRefScriptCostPerByte.Denom().Int64() > math.MaxUint32 {
+			return nil, errors.New(
+				"invalid MinFeeRefScriptCostPerByte rational number values",
+			)
+		}
+	}
 	// #nosec G115
 	return &utxorpc.PParams{
 		CoinsPerUtxoByte:         common.ToUtxorpcBigInt(p.AdaPerUtxoByte),
@@ -191,7 +201,122 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 			Memory: uint64(p.MaxBlockExUnits.Memory),
 			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
+		MinFeeScriptRefCostPerByte: ratPtrToUtxorpcRationalNumber(
+			p.MinFeeRefScriptCostPerByte,
+		),
+		PoolVotingThresholds: poolVotingThresholdsUtxorpc(
+			p.PoolVotingThresholds,
+		),
+		DrepVotingThresholds: drepVotingThresholdsUtxorpc(
+			p.DRepVotingThresholds,
+		),
+		MinCommitteeSize:               uint32(p.MinCommitteeSize),
+		CommitteeTermLimit:             p.CommitteeTermLimit,
+		GovernanceActionValidityPeriod: p.GovActionValidityPeriod,
+		GovernanceActionDeposit: common.ToUtxorpcBigInt(
+			p.GovActionDeposit,
+		),
+		DrepDeposit:          common.ToUtxorpcBigInt(p.DRepDeposit),
+		DrepInactivityPeriod: p.DRepInactivityPeriod,
 	}, nil
+}
+
+// ratToUtxorpcRationalNumber converts a cbor.Rat to a *utxorpc.RationalNumber.
+// It returns nil when the rational is unset (embedded *big.Rat is nil), which
+// happens for a ConwayProtocolParameters value that was never populated with
+// this particular threshold (e.g. constructed directly rather than decoded
+// from a full on-chain protocol-parameters value or genesis).
+func ratToUtxorpcRationalNumber(r cbor.Rat) *utxorpc.RationalNumber {
+	if r.Rat == nil {
+		return nil
+	}
+	return &utxorpc.RationalNumber{
+		// #nosec G115
+		Numerator: int32(r.Num().Int64()),
+		// #nosec G115
+		Denominator: uint32(r.Denom().Int64()),
+	}
+}
+
+// ratPtrToUtxorpcRationalNumber is the nil-safe pointer variant of
+// ratToUtxorpcRationalNumber, for the optional *cbor.Rat protocol-parameter
+// fields (e.g. MinFeeRefScriptCostPerByte).
+func ratPtrToUtxorpcRationalNumber(r *cbor.Rat) *utxorpc.RationalNumber {
+	if r == nil {
+		return nil
+	}
+	return ratToUtxorpcRationalNumber(*r)
+}
+
+// poolVotingThresholdsUtxorpc converts PoolVotingThresholds into the flat
+// utxorpc.VotingThresholds list. The order matches the field order of this
+// repo's own PoolVotingThresholds struct, which in turn matches the named
+// utxorpc.PoolVotingThresholds genesis message
+// (github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano): MotionNoConfidence,
+// CommitteeNormal, CommitteeNoConfidence, HardForkInitiation,
+// PpSecurityGroup.
+//
+// Returns nil unless every threshold is populated: utxorpc.PParams only
+// supports one flat, position-based list, so a partially populated set of
+// thresholds (not expected for a fully decoded on-chain protocol-parameters
+// value) cannot be represented without corrupting the positions of the
+// thresholds that are present.
+func poolVotingThresholdsUtxorpc(
+	t PoolVotingThresholds,
+) *utxorpc.VotingThresholds {
+	rats := [...]cbor.Rat{
+		t.MotionNoConfidence,
+		t.CommitteeNormal,
+		t.CommitteeNoConfidence,
+		t.HardForkInitiation,
+		t.PpSecurityGroup,
+	}
+	thresholds := make([]*utxorpc.RationalNumber, len(rats))
+	for i, r := range rats {
+		rn := ratToUtxorpcRationalNumber(r)
+		if rn == nil {
+			return nil
+		}
+		thresholds[i] = rn
+	}
+	return &utxorpc.VotingThresholds{Thresholds: thresholds}
+}
+
+// drepVotingThresholdsUtxorpc converts DRepVotingThresholds into the flat
+// utxorpc.VotingThresholds list. The order matches the field order of this
+// repo's own DRepVotingThresholds struct, which in turn matches the named
+// utxorpc.DRepVotingThresholds genesis message
+// (github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano): MotionNoConfidence,
+// CommitteeNormal, CommitteeNoConfidence, UpdateToConstitution,
+// HardForkInitiation, PpNetworkGroup, PpEconomicGroup, PpTechnicalGroup,
+// PpGovGroup, TreasuryWithdrawal.
+//
+// Returns nil unless every threshold is populated; see
+// poolVotingThresholdsUtxorpc for why a partial list cannot be represented.
+func drepVotingThresholdsUtxorpc(
+	t DRepVotingThresholds,
+) *utxorpc.VotingThresholds {
+	rats := [...]cbor.Rat{
+		t.MotionNoConfidence,
+		t.CommitteeNormal,
+		t.CommitteeNoConfidence,
+		t.UpdateToConstitution,
+		t.HardForkInitiation,
+		t.PpNetworkGroup,
+		t.PpEconomicGroup,
+		t.PpTechnicalGroup,
+		t.PpGovGroup,
+		t.TreasuryWithdrawal,
+	}
+	thresholds := make([]*utxorpc.RationalNumber, len(rats))
+	for i, r := range rats {
+		rn := ratToUtxorpcRationalNumber(r)
+		if rn == nil {
+			return nil
+		}
+		thresholds[i] = rn
+	}
+	return &utxorpc.VotingThresholds{Thresholds: thresholds}
 }
 
 func (p *ConwayProtocolParameters) Update(
