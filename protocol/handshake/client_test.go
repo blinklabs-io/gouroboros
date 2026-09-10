@@ -16,16 +16,159 @@ package handshake_test
 
 import (
 	"fmt"
+	"net"
 	"reflect"
 	"testing"
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 )
+
+func TestClientAcceptVersionValidation(t *testing.T) {
+	for _, version := range []uint16{
+		7, 11, 13,
+		14 + protocol.ProtocolVersionNtCOffset,
+		15 + protocol.ProtocolVersionNtCOffset,
+		1 + protocol.ProtocolVersionDMQNtCOffset,
+		protocol.ProtocolVersionDMQNtN1,
+		protocol.ProtocolVersionDMQNtN2,
+	} {
+		t.Run(fmt.Sprintf("version_%d", version), func(t *testing.T) {
+			for _, scenario := range []struct {
+				name          string
+				returnedMagic uint32
+				unproposed    bool
+				wantError     string
+			}{
+				{
+					name:          "matching",
+					returnedMagic: ouroboros_mock.MockNetworkMagic,
+				},
+				{
+					name:          "wrong_network",
+					returnedMagic: ouroboros_mock.MockNetworkMagic + 1,
+					wantError:     "network magic mismatch",
+				},
+				{
+					name:          "unproposed",
+					returnedMagic: ouroboros_mock.MockNetworkMagic,
+					unproposed:    true,
+					wantError:     "unproposed protocol version",
+				},
+			} {
+				t.Run(scenario.name, func(t *testing.T) {
+					defer goleak.VerifyNone(t)
+					mode := protocol.ProtocolModeNodeToNode
+					if version >= protocol.ProtocolVersionNtCOffset {
+						mode = protocol.ProtocolModeNodeToClient
+					}
+					versionMap := func(magic uint32) protocol.ProtocolVersionMap {
+						switch version {
+						case 1 + protocol.ProtocolVersionDMQNtCOffset:
+							return protocol.GetProtocolVersionMapDMQNtC(magic, false)
+						case protocol.ProtocolVersionDMQNtN1,
+							protocol.ProtocolVersionDMQNtN2:
+							return protocol.GetProtocolVersionMapDMQNtN(
+								magic, protocol.DiffusionModeInitiatorOnly, false, false,
+							)
+						default:
+							return protocol.GetProtocolVersionMap(
+								mode, magic, protocol.DiffusionModeInitiatorOnly,
+								false, false,
+							)
+						}
+					}
+					proposedData := versionMap(ouroboros_mock.MockNetworkMagic)[version]
+					returnedData := versionMap(scenario.returnedMagic)[version]
+					require.NotNil(t, proposedData)
+					require.NotNil(t, returnedData)
+					proposedVersions := protocol.ProtocolVersionMap{
+						version: proposedData,
+					}
+					if scenario.unproposed {
+						delete(proposedVersions, version)
+						for otherVersion, otherData := range versionMap(
+							ouroboros_mock.MockNetworkMagic,
+						) {
+							if otherVersion != version {
+								proposedVersions[otherVersion] = otherData
+							}
+						}
+					}
+					mockConn := ouroboros_mock.NewConnection(
+						ouroboros_mock.ProtocolRoleClient,
+						[]ouroboros_mock.ConversationEntry{
+							ouroboros_mock.ConversationEntryInput{
+								ProtocolId:      handshake.ProtocolId,
+								MsgFromCborFunc: handshake.NewMsgFromCbor,
+								Message:         handshake.NewMsgProposeVersions(proposedVersions),
+							},
+							ouroboros_mock.ConversationEntryOutput{
+								ProtocolId: handshake.ProtocolId,
+								IsResponse: true,
+								Messages: []protocol.Message{
+									handshake.NewMsgAcceptVersion(version, returnedData),
+								},
+							},
+						},
+					)
+					protoMuxer := muxer.New(mockConn)
+					defer protoMuxer.Stop()
+					errorChan := make(chan error, 1)
+					finishedChan := make(chan struct {
+						version uint16
+						data    protocol.VersionData
+					}, 1)
+					config := handshake.NewConfig(
+						handshake.WithProtocolVersionMap(proposedVersions),
+						handshake.WithFinishedFunc(func(
+							_ handshake.CallbackContext,
+							acceptedVersion uint16,
+							acceptedData protocol.VersionData,
+						) error {
+							finishedChan <- struct {
+								version uint16
+								data    protocol.VersionData
+							}{acceptedVersion, acceptedData}
+							return nil
+						}),
+					)
+					client := handshake.NewClient(protocol.ProtocolOptions{
+						ConnectionId: connection.ConnectionId{
+							LocalAddr:  &net.TCPAddr{},
+							RemoteAddr: &net.TCPAddr{},
+						},
+						Muxer: protoMuxer, ErrorChan: errorChan, Mode: mode,
+					}, &config)
+					defer client.Stop()
+					client.Start()
+					protoMuxer.StartOnce()
+					select {
+					case err := <-errorChan:
+						require.NotEmpty(t, scenario.wantError)
+						require.ErrorContains(t, err, scenario.wantError)
+						require.Empty(t, finishedChan,
+							"invalid acceptance invoked FinishedFunc")
+					case finished := <-finishedChan:
+						require.Empty(t, scenario.wantError,
+							"invalid acceptance invoked FinishedFunc")
+						require.Equal(t, version, finished.version)
+						require.Equal(t, returnedData, finished.data)
+					case <-time.After(5 * time.Second):
+						t.Fatal("timed out waiting for handshake result")
+					}
+				})
+			}
+		})
+	}
+}
 
 const (
 	mockProtocolVersionNtC    uint16 = (14 + protocol.ProtocolVersionNtCOffset)
