@@ -60,6 +60,9 @@ func TestServerRefusalDeliveryWaitCanBeCancelled(t *testing.T) {
 	))
 	require.NoError(t, err)
 	segment := muxer.NewSegment(handshake.ProtocolId, proposal, false)
+	if segment == nil {
+		t.Fatal("failed to construct proposal segment")
+	}
 	var wire bytes.Buffer
 	require.NoError(t, binary.Write(&wire, binary.BigEndian, segment.SegmentHeader))
 	wire.Write(segment.Payload)
@@ -100,6 +103,9 @@ func TestServerEmptyVersionDataRefusalReachesClientAsText(t *testing.T) {
 	case err := <-clientErrors:
 		var refusal *handshake.DecodeError
 		require.ErrorAs(t, err, &refusal)
+		if refusal == nil {
+			t.Fatal("errors.As matched a nil decode refusal")
+		}
 		require.Equal(t, version, refusal.Version)
 		require.Equal(t,
 			"handshake failed: refused due to empty version data", refusal.Message)
