@@ -144,9 +144,8 @@ func (b *DijkstraBlock) Era() common.Era {
 }
 
 func (b *DijkstraBlock) Transactions() []common.Transaction {
-	// Each transaction's IsValid() already reflects membership in the block
-	// body's invalid_transactions index set (applied at decode time); a tx at
-	// index i is invalid iff i is in that set.
+	// Each transaction's IsValid() reflects the per-transaction validity flag;
+	// legacy invalid-transaction indexes are converted to that flag at decode.
 	ret := make([]common.Transaction, len(b.BlockBody.Transactions))
 	for idx := range b.BlockBody.Transactions {
 		ret[idx] = &b.BlockBody.Transactions[idx]
@@ -333,6 +332,7 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		for idx := range txs {
 			txs[idx].TxIsValid = !invalid[uint(idx)]
 		}
+		b.InvalidTransactions = append([]uint(nil), legacyInvalidTxs...)
 	}
 	// items[1] (or items[2] for the compatibility form): leios_certificate.
 	leiosCert, err := decodeDijkstraLeiosCertificate(items[txField+1])
@@ -345,6 +345,9 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	b.Transactions = txs
+	if !legacy {
+		b.InvalidTransactions = nil
+	}
 	b.LeiosCertificate = leiosCert
 	b.PerasCertificate = perasCert
 	b.SetCbor(cborData)
@@ -368,8 +371,17 @@ func (b DijkstraBlockBody) MarshalCBOR() ([]byte, error) {
 		perasField = b.PerasCertificate
 	}
 	rawTxs := make([]cbor.RawMessage, len(txs))
+	invalid := make(map[uint]struct{}, len(b.InvalidTransactions))
+	for _, idx := range b.InvalidTransactions {
+		invalid[idx] = struct{}{}
+	}
 	for idx := range txs {
-		data, err := marshalDijkstraBlockTransaction(&txs[idx])
+		tx := txs[idx]
+		if _, ok := invalid[uint(idx)]; ok {
+			tx.TxIsValid = false
+			tx.SetCbor(nil)
+		}
+		data, err := marshalDijkstraBlockTransaction(&tx)
 		if err != nil {
 			return nil, fmt.Errorf("encode Dijkstra transaction %d: %w", idx, err)
 		}
@@ -391,6 +403,9 @@ func (b DijkstraBlockBody) Hash() common.Blake2b256 {
 }
 
 func marshalDijkstraBlockTransaction(t *DijkstraTransaction) ([]byte, error) {
+	if raw := t.DecodeStoreCbor.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
 	var aux any
 	if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
 		aux = cbor.RawMessage(t.auxData.Cbor())

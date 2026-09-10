@@ -257,16 +257,23 @@ func testDijkstraOutputWithAssetsCbor(t *testing.T, assets []byte) []byte {
 }
 
 // minimalBlockBodyParts builds a Dijkstra 3-element block_body containing a
-// single 4-field block transaction:
+// single 4-field block transaction with the requested validity.
 //
 //	[ [transaction], leios_cert/nil, peras_cert/nil ]
-func minimalBlockBodyParts(invalidTxs []uint) []any {
-	valid := true
-	if len(invalidTxs) > 0 {
-		valid = false
-	}
+func minimalBlockBodyParts(valid bool) []any {
 	return []any{
 		[]any{[]any{minimalTxParts()[0], minimalTxParts()[1], minimalTxParts()[2], valid}},
+		nil,
+		nil,
+	}
+}
+
+// minimalLegacyBlockBodyParts builds the pre-respin four-element block_body
+// containing a legacy invalid_transactions set and a three-field transaction.
+func minimalLegacyBlockBodyParts(invalidTxs []uint64) []any {
+	return []any{
+		invalidTxs,
+		[]any{minimalTxParts()},
 		nil,
 		nil,
 	}
@@ -376,11 +383,98 @@ func TestDijkstraBlockBodyRejectsWrongComponentCount(t *testing.T) {
 }
 
 func TestDijkstraBlockBodyAppliesInvalidTransactionIndices(t *testing.T) {
-	bodyCbor, err := cbor.Encode(minimalBlockBodyParts([]uint{0}))
+	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{0}))
 	require.NoError(t, err)
 
 	var blockBody DijkstraBlockBody
 	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
+	require.Equal(t, []uint{0}, blockBody.InvalidTransactions)
+	require.Len(t, blockBody.Transactions, 1)
+	require.False(t, blockBody.Transactions[0].IsValid())
+}
+
+func TestDijkstraBlockBodyRejectsLegacyInvalidTransactionIndexOutOfRange(t *testing.T) {
+	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{1}))
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.ErrorContains(
+		t,
+		blockBody.UnmarshalCBOR(bodyCbor),
+		"outside transaction list length",
+	)
+}
+
+func TestDijkstraBlockBodyRejectsDuplicateLegacyInvalidTransactionIndex(t *testing.T) {
+	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{0, 0}))
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.ErrorContains(
+		t,
+		blockBody.UnmarshalCBOR(bodyCbor),
+		"duplicate",
+	)
+}
+
+func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
+	parts := minimalTxParts()
+	body, err := cbor.Encode(parts[0])
+	require.NoError(t, err)
+	witnesses, err := cbor.Encode(parts[1])
+	require.NoError(t, err)
+	auxiliary, err := cbor.Encode(parts[2])
+	require.NoError(t, err)
+	rawTx := []byte{0x9f}
+	rawTx = append(rawTx, body...)
+	rawTx = append(rawTx, witnesses...)
+	rawTx = append(rawTx, auxiliary...)
+	rawTx = append(rawTx, 0xf5, 0xff)
+	bodyCbor, err := cbor.Encode([]any{
+		[]cbor.RawMessage{rawTx},
+		nil,
+		nil,
+	})
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
+	blockBody.SetCbor(nil)
+	encoded, err := blockBody.MarshalCBOR()
+	require.NoError(t, err)
+	var encodedBody []cbor.RawMessage
+	_, err = cbor.Decode(encoded, &encodedBody)
+	require.NoError(t, err)
+	var encodedTxs []cbor.RawMessage
+	_, err = cbor.Decode(encodedBody[0], &encodedTxs)
+	require.NoError(t, err)
+	require.Equal(t, rawTx, []byte(encodedTxs[0]))
+}
+
+func TestDijkstraBlockBodyEncodesCompatibilityInvalidTransactionIndices(t *testing.T) {
+	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts(nil))
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
+	blockBody.InvalidTransactions = []uint{0}
+	blockBody.SetCbor(nil)
+
+	encoded, err := blockBody.MarshalCBOR()
+	require.NoError(t, err)
+	var decoded DijkstraBlockBody
+	require.NoError(t, decoded.UnmarshalCBOR(encoded))
+	require.Len(t, decoded.Transactions, 1)
+	require.False(t, decoded.Transactions[0].IsValid())
+}
+
+func TestDijkstraBlockBodyUsesPerTransactionValidity(t *testing.T) {
+	bodyCbor, err := cbor.Encode(minimalBlockBodyParts(false))
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
+	require.Empty(t, blockBody.InvalidTransactions)
 	require.Len(t, blockBody.Transactions, 1)
 	require.False(t, blockBody.Transactions[0].IsValid())
 }
@@ -592,12 +686,10 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 	require.Equal(t, []byte(raw[0]), decoded.BlockHeader.Cbor())
 }
 
-// TestDijkstraBlockNonEmptyTransactionsInvalidSet exercises a synthetic block
-// with two inline transactions and an invalid_transactions set that marks the
-// second transaction invalid. It confirms the 2-element block / 4-element body
-// wire shape, body-hash validation, and that Transactions()[i].IsValid()
-// reflects membership in the invalid set (never a per-tx flag).
-func TestDijkstraBlockNonEmptyTransactionsInvalidSet(t *testing.T) {
+// TestDijkstraBlockNonEmptyTransactionsValidity exercises a synthetic block
+// with two inline transactions and per-transaction validity flags. It confirms
+// the block/body wire shape, body-hash validation, and validity propagation.
+func TestDijkstraBlockNonEmptyTransactionsValidity(t *testing.T) {
 	sig := make([]byte, common.LeiosBlsSignatureSize)
 	leiosCert := &DijkstraLeiosCertificate{
 		Signers:             []byte{0x0f},
