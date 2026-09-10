@@ -93,7 +93,11 @@ type BlockPipeline struct {
 	completionChan chan struct{}
 	// Test hooks must be installed before Start. They make blocked Submit/Fence
 	// interleavings deterministic without changing production behavior.
-	testSubmitLocked  func()
+	testSubmitLocked func()
+	// testSubmitReady is called after Submit's cancellation and stopping checks,
+	// immediately before its enqueue select. It is nil in production and lets
+	// tests synchronize cancellation at the backpressure boundary.
+	testSubmitReady   func()
 	testFenceBoundary func(uint64)
 }
 
@@ -300,6 +304,9 @@ func (p *BlockPipeline) Submit(
 	// follows the context checks so caller cancellation keeps precedence.
 	if p.stopping.Load() || p.stopped.Load() {
 		return ErrPipelineStopped
+	}
+	if p.testSubmitReady != nil {
+		p.testSubmitReady()
 	}
 
 	select {
