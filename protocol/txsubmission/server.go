@@ -161,6 +161,14 @@ func (s *Server) RequestTxIds(
 		if result.err != nil {
 			return nil, result.err
 		}
+		if len(result.txIds) > reqCount {
+			p.Logger().Error(
+				"TxSubmission reply count exceeded request",
+				"returned", len(result.txIds),
+				"requested", reqCount,
+			)
+			return nil, protocol.ErrProtocolViolationRequestExceeded
+		}
 		// Update ack count for next call
 		s.ackCount = len(result.txIds)
 		return result.txIds, nil
