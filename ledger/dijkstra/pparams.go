@@ -15,6 +15,7 @@
 package dijkstra
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -95,9 +96,116 @@ type dijkstraProtocolParametersCbor struct {
 	MaxRefScriptSizePerEndorserBlock uint32
 }
 
+type dijkstraProtocolParametersCborLegacy struct {
+	cbor.StructAsArray
+	MinFeeA                    uint
+	MinFeeB                    uint
+	MaxBlockBodySize           uint
+	MaxTxSize                  uint
+	MaxBlockHeaderSize         uint
+	KeyDeposit                 uint
+	PoolDeposit                uint
+	MaxEpoch                   uint
+	NOpt                       uint
+	A0                         *cbor.Rat
+	Rho                        *cbor.Rat
+	Tau                        *cbor.Rat
+	ProtocolVersion            common.ProtocolParametersProtocolVersion
+	MinPoolCost                uint64
+	AdaPerUtxoByte             uint64
+	CostModels                 map[uint][]int64
+	ExecutionCosts             common.ExUnitPrice
+	MaxTxExUnits               common.ExUnits
+	MaxBlockExUnits            common.ExUnits
+	MaxValueSize               uint
+	CollateralPercentage       uint
+	MaxCollateralInputs        uint
+	PoolVotingThresholds       conway.PoolVotingThresholds
+	DRepVotingThresholds       conway.DRepVotingThresholds
+	MinCommitteeSize           uint
+	CommitteeTermLimit         uint64
+	GovActionValidityPeriod    uint64
+	GovActionDeposit           uint64
+	DRepDeposit                uint64
+	DRepInactivityPeriod       uint64
+	MinFeeRefScriptCostPerByte *cbor.Rat
+	MaxRefScriptSizePerBlock   uint32
+	MaxRefScriptSizePerTx      uint32
+	RefScriptCostStride        uint32
+	RefScriptCostMultiplier    *cbor.Rat
+}
+
+func decodeDijkstraProtocolParametersCbor(
+	cborData []byte,
+) (dijkstraProtocolParametersCbor, error) {
+	var items []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &items); err != nil {
+		return dijkstraProtocolParametersCbor{}, err
+	}
+	switch len(items) {
+	case 35:
+		var legacy dijkstraProtocolParametersCborLegacy
+		if _, err := cbor.Decode(cborData, &legacy); err != nil {
+			return dijkstraProtocolParametersCbor{}, err
+		}
+		return dijkstraProtocolParametersCbor{
+			MinFeeA:                    legacy.MinFeeA,
+			MinFeeB:                    legacy.MinFeeB,
+			MaxBlockBodySize:           legacy.MaxBlockBodySize,
+			MaxTxSize:                  legacy.MaxTxSize,
+			MaxBlockHeaderSize:         legacy.MaxBlockHeaderSize,
+			KeyDeposit:                 legacy.KeyDeposit,
+			PoolDeposit:                legacy.PoolDeposit,
+			MaxEpoch:                   legacy.MaxEpoch,
+			NOpt:                       legacy.NOpt,
+			A0:                         legacy.A0,
+			Rho:                        legacy.Rho,
+			Tau:                        legacy.Tau,
+			ProtocolVersion:            legacy.ProtocolVersion,
+			MinPoolCost:                legacy.MinPoolCost,
+			AdaPerUtxoByte:             legacy.AdaPerUtxoByte,
+			CostModels:                 legacy.CostModels,
+			ExecutionCosts:             legacy.ExecutionCosts,
+			MaxTxExUnits:               legacy.MaxTxExUnits,
+			MaxBlockExUnits:            legacy.MaxBlockExUnits,
+			MaxValueSize:               legacy.MaxValueSize,
+			CollateralPercentage:       legacy.CollateralPercentage,
+			MaxCollateralInputs:        legacy.MaxCollateralInputs,
+			PoolVotingThresholds:       legacy.PoolVotingThresholds,
+			DRepVotingThresholds:       legacy.DRepVotingThresholds,
+			MinCommitteeSize:           legacy.MinCommitteeSize,
+			CommitteeTermLimit:         legacy.CommitteeTermLimit,
+			GovActionValidityPeriod:    legacy.GovActionValidityPeriod,
+			GovActionDeposit:           legacy.GovActionDeposit,
+			DRepDeposit:                legacy.DRepDeposit,
+			DRepInactivityPeriod:       legacy.DRepInactivityPeriod,
+			MinFeeRefScriptCostPerByte: legacy.MinFeeRefScriptCostPerByte,
+			MaxRefScriptSizePerBlock:   legacy.MaxRefScriptSizePerBlock,
+			MaxRefScriptSizePerTx:      legacy.MaxRefScriptSizePerTx,
+			RefScriptCostStride:        legacy.RefScriptCostStride,
+			RefScriptCostMultiplier:    legacy.RefScriptCostMultiplier,
+		}, nil
+	case 46:
+		var current dijkstraProtocolParametersCbor
+		if _, err := cbor.Decode(cborData, &current); err != nil {
+			return dijkstraProtocolParametersCbor{}, err
+		}
+		return current, nil
+	default:
+		var current dijkstraProtocolParametersCbor
+		if _, err := cbor.Decode(cborData, &current); err != nil {
+			return dijkstraProtocolParametersCbor{}, fmt.Errorf(
+				"decode Dijkstra protocol parameters with %d fields: %w",
+				len(items), err,
+			)
+		}
+		return current, nil
+	}
+}
+
 func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
-	var tmp dijkstraProtocolParametersCbor
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	tmp, err := decodeDijkstraProtocolParametersCbor(cborData)
+	if err != nil {
 		return err
 	}
 	p.ConwayProtocolParameters = conway.ConwayProtocolParameters{

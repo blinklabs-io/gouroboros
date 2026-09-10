@@ -1219,6 +1219,47 @@ func TestDijkstraProtocolParametersRoundTrip(t *testing.T) {
 	require.Equal(t, 0, decoded.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
 }
 
+func TestDijkstraProtocolParametersDecodesLegacyArray(t *testing.T) {
+	params := DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			MinFeeA:   44,
+			MaxTxSize: 16384,
+			MaxBlockExUnits: common.ExUnits{
+				Memory: 100,
+				Steps:  200,
+			},
+		},
+		MaxRefScriptSizePerBlock: 1000,
+		MaxRefScriptSizePerTx:    2000,
+		RefScriptCostStride:      3000,
+	}
+	full, err := cbor.Encode(params.toCbor())
+	require.NoError(t, err)
+	var fields []cbor.RawMessage
+	_, err = cbor.Decode(full, &fields)
+	require.NoError(t, err)
+	require.Len(t, fields, 46)
+	legacy, err := cbor.Encode(fields[:35])
+	require.NoError(t, err)
+
+	var decoded DijkstraProtocolParameters
+	require.NoError(t, decoded.UnmarshalCBOR(legacy))
+	require.Equal(t, uint(44), decoded.MinFeeA)
+	require.Equal(t, uint(16384), decoded.MaxTxSize)
+	require.Equal(t, uint32(1000), decoded.MaxRefScriptSizePerBlock)
+	require.Equal(t, uint32(2000), decoded.MaxRefScriptSizePerTx)
+	require.Equal(t, uint32(3000), decoded.RefScriptCostStride)
+	require.Zero(t, decoded.MaxPledgeLeverage)
+	require.Zero(t, decoded.LeiosAnnouncementPeriodLength)
+}
+
+func TestDijkstraProtocolParametersRejectsUnsupportedArrayLength(t *testing.T) {
+	data, err := cbor.Encode(make([]any, 34))
+	require.NoError(t, err)
+	var decoded DijkstraProtocolParameters
+	require.Error(t, decoded.UnmarshalCBOR(data))
+}
+
 func TestDijkstraProtocolParametersUpdateNil(t *testing.T) {
 	pparams := DijkstraProtocolParameters{
 		MaxRefScriptSizePerBlock: 1000,
