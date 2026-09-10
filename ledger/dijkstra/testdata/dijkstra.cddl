@@ -15,7 +15,7 @@ block_transaction =
 ;
 ; In the next era `is_valid` flags will not be allowed even in mempool
 ; transactions, so it's strongly recommended to encode transactions
-; according to the `transaction` rule.
+; using the flag-less three-element form below.
 transaction_mempool =
   [ transaction_body, transaction_witness_set, auxiliary_data/ nil
   ]

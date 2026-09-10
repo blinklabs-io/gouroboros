@@ -445,9 +445,15 @@ func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
 	var encodedBody []cbor.RawMessage
 	_, err = cbor.Decode(encoded, &encodedBody)
 	require.NoError(t, err)
+	if len(encodedBody) == 0 {
+		t.Fatal("encoded block body is empty")
+	}
 	var encodedTxs []cbor.RawMessage
 	_, err = cbor.Decode(encodedBody[0], &encodedTxs)
 	require.NoError(t, err)
+	if len(encodedTxs) == 0 {
+		t.Fatal("encoded transaction list is empty")
+	}
 	require.Equal(t, rawTx, []byte(encodedTxs[0]))
 }
 

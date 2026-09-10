@@ -404,7 +404,10 @@ func (b DijkstraBlockBody) Hash() common.Blake2b256 {
 
 func marshalDijkstraBlockTransaction(t *DijkstraTransaction) ([]byte, error) {
 	if raw := t.DecodeStoreCbor.Cbor(); len(raw) > 0 {
-		return raw, nil
+		var fields []cbor.RawMessage
+		if _, err := cbor.Decode(raw, &fields); err == nil && len(fields) == 4 {
+			return raw, nil
+		}
 	}
 	var aux any
 	if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
