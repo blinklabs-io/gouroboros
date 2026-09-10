@@ -1480,6 +1480,7 @@ func TestDijkstraGenesisDecodesLeiosProtocolParameters(t *testing.T) {
   "leiosDiffusionPeriodLength": 3000,
   "leiosCommitteeSize": 42,
   "leiosQuorumStakeThreshold": 0.75,
+  "plutusV4CostModel": [4000, 5000, 6000],
   "maxEndorserBlockReferencesSize": 500000,
   "maxEndorserBlockTxsSize": 12000000,
   "maxEndorserBlockExecutionUnits": {"memory": 123, "steps": 456},
@@ -1498,6 +1499,7 @@ func TestDijkstraGenesisDecodesLeiosProtocolParameters(t *testing.T) {
 	require.Equal(t, uint32(12000000), params.MaxEndorserBlockTxsSize)
 	require.Equal(t, common.ExUnits{Memory: 123, Steps: 456}, params.MaxEndorserBlockExUnits)
 	require.Equal(t, uint32(1048576), params.MaxRefScriptSizePerEndorserBlock)
+	require.Equal(t, []int64{4000, 5000, 6000}, params.CostModels[3])
 }
 
 func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {
