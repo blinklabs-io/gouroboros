@@ -3443,7 +3443,10 @@ func UtxoValidateDelegation(
 			}
 			// Check ledger state
 			reg, err := ls.DRepRegistration(cred)
-			return err == nil && reg != nil, nil
+			if err != nil {
+				return false, err
+			}
+			return reg != nil, nil
 		default:
 			return false, InvalidDRepTypeError{DrepType: drep.Type}
 		}

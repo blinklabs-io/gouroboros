@@ -4704,6 +4704,29 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 		},
 	)
 
+	t.Run("DRep lookup failures are propagated", func(t *testing.T) {
+		lookupErr := errors.New("DRep lookup failed")
+		ls := mockledger.NewLedgerStateBuilder().
+			WithStakeCredentialRegistered(stakeKeyHash, true).
+			WithDRepRegistration(func(
+				common.Credential,
+			) (*common.DRepRegistration, error) {
+				return nil, lookupErr
+			}).
+			Build()
+		tx := mkTx(common.Drep{
+			Type:       common.DrepTypeAddrKeyHash,
+			Credential: drepKeyHash.Bytes(),
+		})
+
+		require.ErrorIs(t, conway.UtxoValidateDelegation(
+			tx,
+			0,
+			ls,
+			&conway.ConwayProtocolParameters{},
+		), lookupErr)
+	})
+
 	t.Run(
 		"known script hash DRep type behaves as before: unregistered is rejected",
 		func(t *testing.T) {
