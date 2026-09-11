@@ -11,6 +11,19 @@ make the expected transition before the timeout expires. These are transport
 and state-machine safeguards, not application-level transaction or block
 validation.
 
+## Muxer socket deadlines
+
+The muxer sets a 120-second write deadline immediately before each segment
+write, after acquiring its connection-wide send lock. A deadline-setting error
+is returned without attempting the write. The deadline bounds the socket write,
+not time spent waiting for the send lock or the protocol's outbound queue.
+
+Read deadlines remain independently managed per segment. Connection wrappers
+must preserve those read deadlines and support `SetWriteDeadline`. The muxer
+replaces an existing write deadline; wrappers that enforce a shorter external
+deadline must cap the requested value. Stopping the muxer closes the underlying
+connection to interrupt pending socket operations.
+
 ## Chain Sync
 
 The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
