@@ -19,20 +19,76 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/ouroboros-mock/conformance"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+)
+
+// currentEpochStateProvider adds the current epoch capability required by
+// committee-term validation to the released mock state provider.
+type currentEpochStateProvider struct {
+	*mockledger.MockLedgerState
+	currentEpoch uint64
+}
+
+func (p currentEpochStateProvider) CurrentEpoch() uint64 {
+	return p.currentEpoch
+}
+
+type currentEpochStateManager struct {
+	*conformance.MockStateManager
+	currentEpoch uint64
+}
+
+func newCurrentEpochStateManager() *currentEpochStateManager {
+	return &currentEpochStateManager{
+		MockStateManager: conformance.NewMockStateManager(),
+	}
+}
+
+func (m *currentEpochStateManager) LoadInitialState(
+	state *conformance.ParsedInitialState,
+	pp common.ProtocolParameters,
+) error {
+	if err := m.MockStateManager.LoadInitialState(state, pp); err != nil {
+		return err
+	}
+	m.currentEpoch = state.CurrentEpoch
+	return nil
+}
+
+func (m *currentEpochStateManager) ProcessEpochBoundary(newEpoch uint64) error {
+	if err := m.MockStateManager.ProcessEpochBoundary(newEpoch); err != nil {
+		return err
+	}
+	m.currentEpoch = newEpoch
+	return nil
+}
+
+func (m *currentEpochStateManager) GetStateProvider() conformance.StateProvider {
+	provider, ok := m.MockStateManager.GetStateProvider().(*mockledger.MockLedgerState)
+	if !ok {
+		panic("ouroboros-mock returned an unexpected state provider")
+	}
+	return currentEpochStateProvider{
+		MockLedgerState: provider,
+		currentEpoch:    m.currentEpoch,
+	}
+}
+
+func (m *currentEpochStateManager) Reset() error {
+	if err := m.MockStateManager.Reset(); err != nil {
+		return err
+	}
+	m.currentEpoch = 0
+	return nil
+}
+
+var (
+	_ conformance.StateManager = (*currentEpochStateManager)(nil)
+	_ common.CurrentEpochState = currentEpochStateProvider{}
 )
 
 // TestStateProviderExposesCommitteeCredentials pins the committee capability
 // the vector runs below depend on.
-//
-// ouroboros-mock v0.19.0 makes the mock state provider implement
-// common.CommitteeCredentialState, so committee membership resolves by typed
-// credential. Earlier releases exposed committee state keyed by hash alone,
-// which cannot distinguish a script member from a key-hash member sharing that
-// hash, and this package carried a local adapter to bridge the gap. The
-// adapter is gone; if a future mock stops implementing the interface the
-// harness would silently answer committee lookups from hash-only state, so
-// fail here instead of reporting a vector count that no longer covers
-// committee credential identity.
 func TestStateProviderExposesCommitteeCredentials(t *testing.T) {
 	provider := conformance.NewMockStateManager().GetStateProvider()
 	if _, ok := provider.(common.CommitteeCredentialState); !ok {
@@ -45,21 +101,13 @@ func TestStateProviderExposesCommitteeCredentials(t *testing.T) {
 
 // TestRulesConformanceVectors runs the Amaru ledger rules conformance test vectors
 // using the shared harness from ouroboros-mock/conformance.
-//
-// The test vectors exercise Conway era ledger rules including:
-// - UTxO validation (inputs, outputs, fees, collateral)
-// - Certificate processing (stake, pool, DRep, committee)
-// - Governance (proposals, voting, enactment)
-// - Script execution (native scripts, Plutus V1/V2/V3)
-//
-// Test vectors are embedded in the ouroboros-mock module and extracted at test time.
 func TestRulesConformanceVectors(t *testing.T) {
 	testdataRoot, err := conformance.ExtractEmbeddedTestdata(t.TempDir())
 	if err != nil {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
 	}
 
-	sm := conformance.NewMockStateManager()
+	sm := newCurrentEpochStateManager()
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        testing.Verbose(),
@@ -76,7 +124,7 @@ func TestRulesConformanceVectorsWithResults(t *testing.T) {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
 	}
 
-	sm := conformance.NewMockStateManager()
+	sm := newCurrentEpochStateManager()
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        false,
