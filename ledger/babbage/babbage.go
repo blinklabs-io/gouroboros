@@ -929,13 +929,11 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 
 	var datumHash []byte
-	if o.DatumOption == nil {
-		datumHash = make([]byte, 32) // 32 zero bytes for no datum option
-	} else if o.DatumOption.hash != nil {
+	if o.DatumOption != nil && o.DatumOption.hash != nil {
 		datumHash = o.DatumOption.hash.Bytes()
-	} else if o.DatumOption.data != nil {
+	} else if o.DatumOption != nil && o.DatumOption.data != nil {
 		datumHash = o.DatumHash().Bytes()
-	} else {
+	} else if o.DatumOption != nil {
 		// DatumOption present but empty
 		datumHash = []byte{}
 	}

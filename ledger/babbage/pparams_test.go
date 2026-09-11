@@ -644,9 +644,7 @@ func TestBabbageTransactionOutput_Utxorpc(t *testing.T) {
 	want := &utxorpc.TxOutput{
 		Address: addr,
 		Coin:    common.ToUtxorpcBigInt(amount),
-		Datum: &utxorpc.Datum{
-			Hash: make([]byte, 32),
-		},
+		Datum:   &utxorpc.Datum{},
 	}
 
 	if !proto.Equal(got, want) {
