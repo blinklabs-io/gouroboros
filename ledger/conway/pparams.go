@@ -119,20 +119,33 @@ func ratOutOfRange(r *big.Rat) bool {
 
 func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	// sanity check
-	if p.A0 == nil || ratOutOfRange(p.A0.Rat) {
+	//
+	// Checks the embedded *big.Rat for nil separately from the *cbor.Rat
+	// pointer itself: A0/Rho/Tau/the execution-cost prices are mandatory
+	// fields here (unlike the optional MinFeeRefScriptCostPerByte, whose
+	// nil-embedded-Rat case legitimately means "unset" via
+	// ratPtrToUtxorpcRationalNumber), so a non-nil *cbor.Rat with a nil
+	// embedded Rat -- the same shape that panic was found on for
+	// MinFeeRefScriptCostPerByte -- must be rejected as invalid too,
+	// rather than reaching ratOutOfRange's Num()/Denom() calls, which
+	// require their receiver to be non-nil (review-caught on
+	// blinklabs-io/gouroboros#2292).
+	if p.A0 == nil || p.A0.Rat == nil || ratOutOfRange(p.A0.Rat) {
 		return nil, errors.New("invalid A0 rational number values")
 	}
-	if p.Rho == nil || ratOutOfRange(p.Rho.Rat) {
+	if p.Rho == nil || p.Rho.Rat == nil || ratOutOfRange(p.Rho.Rat) {
 		return nil, errors.New("invalid Rho rational number values")
 	}
-	if p.Tau == nil || ratOutOfRange(p.Tau.Rat) {
+	if p.Tau == nil || p.Tau.Rat == nil || ratOutOfRange(p.Tau.Rat) {
 		return nil, errors.New("invalid Tau rational number values")
 	}
 	if p.ExecutionCosts.MemPrice == nil ||
+		p.ExecutionCosts.MemPrice.Rat == nil ||
 		ratOutOfRange(p.ExecutionCosts.MemPrice.Rat) {
 		return nil, errors.New("invalid memory price rational number values")
 	}
 	if p.ExecutionCosts.StepPrice == nil ||
+		p.ExecutionCosts.StepPrice.Rat == nil ||
 		ratOutOfRange(p.ExecutionCosts.StepPrice.Rat) {
 		return nil, errors.New("invalid step price rational number values")
 	}

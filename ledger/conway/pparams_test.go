@@ -964,6 +964,65 @@ func TestConwayUtxorpc_MinFeeRefScriptCostPerByteNilEmbeddedRatDoesNotPanic(
 	})
 }
 
+// TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic is the
+// regression test for a CodeRabbit finding on blinklabs-io/gouroboros#2292:
+// unlike the optional MinFeeRefScriptCostPerByte above (where a nil
+// embedded *big.Rat legitimately means "unset"), A0, Rho, Tau, and the two
+// execution-cost prices are mandatory -- Utxorpc()'s own validation guard
+// for each already rejects a nil *cbor.Rat pointer with an "invalid ...
+// rational number values" error, but only checked that outer pointer, not
+// whether a non-nil *cbor.Rat's embedded *big.Rat was itself nil. That
+// shape reached ratOutOfRange's Num()/Denom() calls, which panic on a nil
+// receiver, instead of being rejected with the same existing error a nil
+// outer pointer already gets.
+func TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic(
+	t *testing.T,
+) {
+	validBase := func() conway.ConwayProtocolParameters {
+		return conway.ConwayProtocolParameters{
+			A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+			Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+			ExecutionCosts: common.ExUnitPrice{
+				MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+				StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+			},
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*conway.ConwayProtocolParameters)
+	}{
+		{"A0", func(p *conway.ConwayProtocolParameters) {
+			p.A0 = &cbor.Rat{}
+		}},
+		{"Rho", func(p *conway.ConwayProtocolParameters) {
+			p.Rho = &cbor.Rat{}
+		}},
+		{"Tau", func(p *conway.ConwayProtocolParameters) {
+			p.Tau = &cbor.Rat{}
+		}},
+		{"memory price", func(p *conway.ConwayProtocolParameters) {
+			p.ExecutionCosts.MemPrice = &cbor.Rat{}
+		}},
+		{"step price", func(p *conway.ConwayProtocolParameters) {
+			p.ExecutionCosts.StepPrice = &cbor.Rat{}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := validBase()
+			tt.mutate(&params)
+
+			require.NotPanics(t, func() {
+				_, err := params.Utxorpc()
+				require.Error(t, err)
+			})
+		})
+	}
+}
+
 // TestConwayUtxorpc_VotingThresholdOutOfRangeRejected is the regression
 // test for a review finding on blinklabs-io/gouroboros#2292:
 // ratToUtxorpcRationalNumber cast a threshold's numerator/denominator to
