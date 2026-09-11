@@ -303,15 +303,20 @@ func poolVotingThresholdsUtxorpc(
 		t.PpSecurityGroup,
 	}
 	thresholds := make([]*utxorpc.RationalNumber, len(rats))
+	allPopulated := true
 	for i, r := range rats {
 		rn, err := ratToUtxorpcRationalNumber(r)
 		if err != nil {
 			return nil, fmt.Errorf("threshold %d: %w", i, err)
 		}
 		if rn == nil {
-			return nil, nil
+			allPopulated = false
+			continue
 		}
 		thresholds[i] = rn
+	}
+	if !allPopulated {
+		return nil, nil
 	}
 	return &utxorpc.VotingThresholds{Thresholds: thresholds}, nil
 }
@@ -344,15 +349,20 @@ func drepVotingThresholdsUtxorpc(
 		t.TreasuryWithdrawal,
 	}
 	thresholds := make([]*utxorpc.RationalNumber, len(rats))
+	allPopulated := true
 	for i, r := range rats {
 		rn, err := ratToUtxorpcRationalNumber(r)
 		if err != nil {
 			return nil, fmt.Errorf("threshold %d: %w", i, err)
 		}
 		if rn == nil {
-			return nil, nil
+			allPopulated = false
+			continue
 		}
 		thresholds[i] = rn
+	}
+	if !allPopulated {
+		return nil, nil
 	}
 	return &utxorpc.VotingThresholds{Thresholds: thresholds}, nil
 }

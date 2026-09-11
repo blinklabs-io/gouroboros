@@ -1049,6 +1049,54 @@ func TestConwayUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
 	})
 }
 
+// TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField is the
+// regression test for a review finding on blinklabs-io/gouroboros#2292:
+// poolVotingThresholdsUtxorpc/drepVotingThresholdsUtxorpc returned (nil, nil)
+// as soon as the scan reached the first unset threshold, before ever
+// checking any threshold that came after it in field order. An out-of-range
+// threshold positioned after an earlier unset one was therefore never
+// caught -- the whole set was silently treated as "not fully populated"
+// instead of surfacing the real range error. Leaves MotionNoConfidence
+// (the first field in both structs' order) unset and puts the out-of-range
+// value on CommitteeNormal (the second field) to prove the scan still
+// reaches and validates it.
+func TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField(
+	t *testing.T,
+) {
+	base := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+	}
+	outOfRange := cbor.Rat{
+		Rat: big.NewRat(int64(math.MaxInt32)+1, 1),
+	}
+
+	t.Run("pool voting threshold", func(t *testing.T) {
+		params := base
+		params.PoolVotingThresholds = conway.PoolVotingThresholds{
+			// MotionNoConfidence left unset (zero-value cbor.Rat).
+			CommitteeNormal: outOfRange,
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+
+	t.Run("drep voting threshold", func(t *testing.T) {
+		params := base
+		params.DRepVotingThresholds = conway.DRepVotingThresholds{
+			// MotionNoConfidence left unset (zero-value cbor.Rat).
+			CommitteeNormal: outOfRange,
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+}
+
 // Unit test for ConwayTransactionBody.Utxorpc()
 func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 	input := shelley.NewShelleyTransactionInput(
