@@ -1004,6 +1004,51 @@ func TestConwayUtxorpc_VotingThresholdOutOfRangeRejected(t *testing.T) {
 	})
 }
 
+// TestConwayUtxorpc_ValueBeyondInt64RangeRejected is the regression test
+// for a review finding on blinklabs-io/gouroboros#2292: the range check
+// (both the voting-threshold one just added, and the pre-existing A0/Rho/
+// Tau/execution-cost-price ones it was modeled on) compared
+// r.Num().Int64() against math.MinInt32/MaxInt32 -- but big.Int.Int64() is
+// undefined (silently wraps, per math/big's own documentation) for a value
+// that does not fit in int64 at all, which is a much lower bar to clear
+// than not fitting in int32. A numerator like 2^64+1 could pass that
+// Int64()-based comparison completely undetected instead of being
+// rejected. Covers both a pre-existing guard (A0) and the new
+// voting-threshold path, since both used the same flawed pattern.
+func TestConwayUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
+	beyondInt64 := new(big.Int).Lsh(big.NewInt(1), 64) // 2^64
+	beyondInt64.Add(beyondInt64, big.NewInt(1))        // 2^64 + 1
+	badRat := new(big.Rat).SetFrac(beyondInt64, big.NewInt(1))
+
+	validBase := func() conway.ConwayProtocolParameters {
+		return conway.ConwayProtocolParameters{
+			A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+			Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+			ExecutionCosts: common.ExUnitPrice{
+				MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+				StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+			},
+		}
+	}
+
+	t.Run("pre-existing A0 guard", func(t *testing.T) {
+		params := validBase()
+		params.A0 = &cbor.Rat{Rat: badRat}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+
+	t.Run("voting threshold", func(t *testing.T) {
+		params := validBase()
+		params.PoolVotingThresholds = conway.PoolVotingThresholds{
+			MotionNoConfidence: cbor.Rat{Rat: badRat},
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+}
+
 // Unit test for ConwayTransactionBody.Utxorpc()
 func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 	input := shelley.NewShelleyTransactionInput(
