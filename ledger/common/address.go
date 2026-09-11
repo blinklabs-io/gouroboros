@@ -15,13 +15,13 @@
 package common
 
 import (
-	"bytes"
 	"crypto/sha3"
 	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
 	"math/big"
+	"slices"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -89,7 +89,7 @@ type Address struct {
 	networkId        uint8
 	paymentPayload   AddressPayload
 	stakingPayload   AddressPayload
-	extraData        []byte
+	trailingBytes    []byte
 	byronAddressType uint64
 	byronAddressAttr ByronAddressAttributes
 }
@@ -208,8 +208,8 @@ func NewAddressFromParts(
 			)
 		}
 	case AddressTypeKeyPointer, AddressTypeScriptPointer:
-		// Preserve pointer-address behavior via the existing byte path so
-		// extra trailing data continues to round-trip unchanged.
+		// Preserve pointer-address behavior via the existing byte path, which
+		// normalizes the pointer encoding the way the reference does.
 		fallthrough
 	default:
 		addrBytes := make([]byte, 1+len(paymentAddr)+len(stakingAddr))
@@ -311,6 +311,8 @@ func (a *Address) populateFromBytes(data []byte) error {
 	if len(data) == 0 {
 		return errors.New("invalid address data: empty byte slice")
 	}
+	// Clear trailer state before decoding into a reused address.
+	a.trailingBytes = nil
 	// Extract header info
 	header := data[0]
 	a.addressType = (header & AddressHeaderTypeMask) >> 4
@@ -318,7 +320,8 @@ func (a *Address) populateFromBytes(data []byte) error {
 	// Byron Addresses
 	if a.addressType == AddressTypeByron {
 		var rawAddr byronAddress
-		if _, err := cbor.Decode(data, &rawAddr); err != nil {
+		byronLen, err := cbor.Decode(data, &rawAddr)
+		if err != nil {
 			return err
 		}
 		payloadBytes, ok := rawAddr.Payload.Content.([]byte)
@@ -346,6 +349,9 @@ func (a *Address) populateFromBytes(data []byte) error {
 		a.byronAddressAttr = byronAddr.Attr
 		a.paymentPayload = AddressPayloadKeyHash{
 			Hash: AddrKeyHash(NewBlake2b224(byronAddr.Hash)),
+		}
+		if byronLen < len(data) {
+			a.trailingBytes = slices.Clone(data[byronLen:])
 		}
 		return nil
 	}
@@ -425,78 +431,47 @@ func (a *Address) populateFromBytes(data []byte) error {
 		a.stakingPayload = tmpPointer
 		payload = payload[n:]
 	}
-	// A well-formed address of a given type has an exact, computable
-	// length, so nothing should remain in payload at this point. However,
-	// a small, fixed set of addresses were minted on Cardano mainnet with
-	// extra trailing bytes due to a historical wallet/ledger bug (see
-	// https://github.com/IntersectMBO/cardano-ledger/issues/2729 and
-	// https://github.com/blinklabs-io/gouroboros/issues/519). Those
-	// addresses are permanently part of the chain, so we special-case the
-	// exact trailing byte sequences known to have appeared on mainnet
-	// (mirroring the TRAILING_WHITELIST approach taken by
-	// cardano-multiplatform-lib) to allow them to keep decoding, while
-	// rejecting any other unexpected trailing data outright. The known
-	// malformed addresses are all mainnet addresses, so we only consult
-	// the whitelist for mainnet; a testnet address is never exempted, even
-	// if its trailing bytes happen to collide with a whitelisted sequence.
+	// A well-formed address of a given type has an exact, computable length,
+	// so nothing should remain in payload at this point. Prior to Babbage the
+	// reference decoder does not require the address buffer to be fully
+	// consumed: below decoder version 7 fromCborBothAddr uses
+	// fromCborBackwardsBothAddr, which decodes with decodeAddrStateLenientT
+	// True True and keeps only the consumed prefix
+	// (cardano-ledger libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs).
+	// The unconsumed bytes are recorded here rather than returned by Bytes(),
+	// matching that crop, and the eras that do require full consumption reject
+	// them at their own decode: Babbage onward for a transaction output, and
+	// every era for a reward account, whose decodeAccountAddressT calls
+	// ensureBufIsConsumed with no version gate.
 	if len(payload) > 0 {
-		if a.networkId != AddressNetworkMainnet ||
-			!isKnownMalformedAddressTrailer(payload) {
-			return fmt.Errorf(
-				"invalid address data: %d unexpected trailing byte(s)",
-				len(payload),
-			)
-		}
-		a.extraData = payload[:]
+		a.trailingBytes = slices.Clone(payload)
 	}
 	return nil
 }
 
-// knownMalformedAddressTrailers holds the exact trailing byte sequences of
-// the small set of addresses known to exist on Cardano mainnet with extra
-// bytes appended beyond their expected length, due to a historical
-// wallet/ledger bug. See:
-// https://github.com/IntersectMBO/cardano-ledger/issues/2729
-// https://github.com/blinklabs-io/gouroboros/issues/519
-// This list mirrors the TRAILING_WHITELIST constant maintained by
-// cardano-multiplatform-lib, the canonical reference for these addresses.
-var knownMalformedAddressTrailers = [][]byte{
-	{
-		203, 87, 175, 176, 179, 95, 200, 156, 99, 6, 28, 153, 20, 224, 85, 0,
-		26, 81, 140, 117, 22,
-	},
-	{
-		19, 213, 244, 163, 254, 4, 120, 178, 36, 30, 1, 104, 227, 203, 165, 0,
-		26, 34, 193, 90, 17,
-	},
-	{0},
-	{
-		106, 51, 48, 102, 53, 97, 109, 107, 119, 104, 119, 113, 97, 52, 119,
-		118, 102, 121, 106, 100, 101, 122, 121, 97, 101, 108, 109, 110, 110,
-		103, 100, 54, 100, 52, 101,
-	},
-	{
-		53, 97, 99, 121, 50, 114, 48, 101, 107, 114, 112, 113, 122, 113, 106,
-		108, 113, 100, 107, 56, 108, 122, 113, 110, 53, 114, 52, 53, 110,
-	},
-	{
-		6, 29, 7, 12, 13, 4, 27, 7, 2, 15, 11, 13, 11, 15, 2, 9, 18, 5, 29,
-		28, 16, 9, 17, 4, 14, 31, 7, 19, 17, 3, 1, 0, 11, 16, 22, 0,
-	},
-	{
-		18, 110, 119, 53, 51, 53, 103, 54, 118, 115, 112, 55, 120, 55, 102,
-		104, 120, 112, 113, 50, 112, 116, 115, 104, 57, 103, 107, 114,
-	},
-	{44},
+// CheckAddressFullyConsumed rejects an address whose encoding carried bytes
+// past its payload. From decoder version 7 (Babbage) fromCborBothAddr selects
+// fromCborRigorousBothAddr, whose decodeAddrStateLenientT reaches
+// "unless isLenient $ ensureBufIsConsumed" (cardano-ledger
+// libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs), so an output
+// address from Babbage onward must be rejected where Shelley through Alonzo
+// crop it.
+func CheckAddressFullyConsumed(a Address) error {
+	if n := len(a.trailingBytes); n > 0 {
+		return fmt.Errorf(
+			"invalid address data: %d unexpected trailing byte(s)",
+			n,
+		)
+	}
+	return nil
 }
 
-func isKnownMalformedAddressTrailer(trailer []byte) bool {
-	for _, known := range knownMalformedAddressTrailers {
-		if bytes.Equal(trailer, known) {
-			return true
-		}
-	}
-	return false
+// TrailingBytes returns the bytes that followed the address payload and were
+// not consumed by it. They are dropped from Bytes(), as the reference drops
+// them below decoder version 7, and are non-empty only for an address that a
+// stricter era has to reject.
+func (a Address) TrailingBytes() []byte {
+	return slices.Clone(a.trailingBytes)
 }
 
 func (a *Address) UnmarshalCBOR(data []byte) error {
@@ -781,6 +756,12 @@ func (a *Address) RewardAccountCredential() (Credential, error) {
 			1+AddressHashSize,
 		)
 	}
+	if len(a.trailingBytes) > 0 {
+		return Credential{}, fmt.Errorf(
+			"withdrawal address has %d unconsumed trailing byte(s)",
+			len(a.trailingBytes),
+		)
+	}
 	credential, ok := a.StakeCredential()
 	if !ok || credential.CredType != wantType {
 		return Credential{}, errors.New(
@@ -884,14 +865,12 @@ func (a Address) Bytes() ([]byte, error) {
 		}
 	}
 
-	ret := make(
-		[]byte,
-		1+len(paymentPayload)+len(stakingPayload)+len(a.extraData),
-	)
+	// Trailing bytes are deliberately not re-emitted: the reference keeps
+	// only the consumed prefix for the eras that accept them.
+	ret := make([]byte, 1+len(paymentPayload)+len(stakingPayload))
 	ret[0] = (a.addressType << 4) | (a.networkId & AddressHeaderNetworkMask)
 	offset := 1 + copy(ret[1:], paymentPayload)
-	offset += copy(ret[offset:], stakingPayload)
-	copy(ret[offset:], a.extraData)
+	copy(ret[offset:], stakingPayload)
 	return ret, nil
 }
 
