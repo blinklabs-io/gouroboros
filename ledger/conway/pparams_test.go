@@ -16,6 +16,7 @@ package conway_test
 
 import (
 	"encoding/hex"
+	"math"
 	"math/big"
 	"reflect"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -925,6 +927,81 @@ func TestConwayUtxorpc_GovernanceFields_UnsetVotingThresholdsOmitted(
 	assert.Nil(t, result.MinFeeScriptRefCostPerByte)
 	assert.Nil(t, result.PoolVotingThresholds)
 	assert.Nil(t, result.DrepVotingThresholds)
+}
+
+// TestConwayUtxorpc_MinFeeRefScriptCostPerByteNilEmbeddedRatDoesNotPanic is
+// the regression test for a review finding on
+// blinklabs-io/gouroboros#2292: MinFeeRefScriptCostPerByte is a *cbor.Rat,
+// and the nil check in Utxorpc()'s original validation guard only covered
+// that outer pointer -- a non-nil *cbor.Rat whose embedded *big.Rat is
+// itself nil (the same "unset" representation
+// TestConwayUtxorpc_GovernanceFields_UnsetVotingThresholdsOmitted's
+// zero-value fields use, just wrapped in a non-nil pointer instead of a
+// nil one) reached a call to Num() on a nil *big.Rat and panicked, before
+// the nil-safe ratPtrToUtxorpcRationalNumber conversion ever got a chance
+// to correctly return nil for it.
+func TestConwayUtxorpc_MinFeeRefScriptCostPerByteNilEmbeddedRatDoesNotPanic(
+	t *testing.T,
+) {
+	params := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+		// Non-nil *cbor.Rat, nil embedded *big.Rat -- the panic-inducing
+		// shape, distinct from a nil MinFeeRefScriptCostPerByte pointer
+		// entirely (already covered by the unset-fields test above).
+		MinFeeRefScriptCostPerByte: &cbor.Rat{},
+	}
+
+	require.NotPanics(t, func() {
+		result, err := params.Utxorpc()
+		require.NoError(t, err)
+		assert.Nil(t, result.MinFeeScriptRefCostPerByte)
+	})
+}
+
+// TestConwayUtxorpc_VotingThresholdOutOfRangeRejected is the regression
+// test for a review finding on blinklabs-io/gouroboros#2292:
+// ratToUtxorpcRationalNumber cast a threshold's numerator/denominator to
+// int32/uint32 unconditionally, unlike every sibling rational field in this
+// file (A0, Rho, Tau, the execution-cost prices), which reject an
+// out-of-range value with an error rather than silently wrapping it during
+// the cast. An out-of-range voting threshold must fail the same way.
+func TestConwayUtxorpc_VotingThresholdOutOfRangeRejected(t *testing.T) {
+	base := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+	}
+	outOfRange := cbor.Rat{
+		Rat: big.NewRat(int64(math.MaxInt32)+1, 1),
+	}
+
+	t.Run("pool voting threshold", func(t *testing.T) {
+		params := base
+		params.PoolVotingThresholds = conway.PoolVotingThresholds{
+			MotionNoConfidence: outOfRange,
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+
+	t.Run("drep voting threshold", func(t *testing.T) {
+		params := base
+		params.DRepVotingThresholds = conway.DRepVotingThresholds{
+			MotionNoConfidence: outOfRange,
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
 }
 
 // Unit test for ConwayTransactionBody.Utxorpc()
