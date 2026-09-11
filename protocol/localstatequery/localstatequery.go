@@ -125,6 +125,13 @@ type Config struct {
 	ReleaseFunc    ReleaseFunc
 	AcquireTimeout time.Duration
 	QueryTimeout   time.Duration
+	// MaxReadBufferSize overrides protocol.Protocol's default 16MB cap on a
+	// reassembling multi-segment message's size. Zero means "use the
+	// default". A whole-UTxO-set reply (GetUTxOWhole) is bounded only by
+	// how much live state the query names, and can exceed 16MB well before
+	// it exceeds anything a trusted peer's caller actually wants rejected
+	// (blinklabs-io/dingo#1900).
+	MaxReadBufferSize int
 }
 
 // Acquire target types
@@ -217,5 +224,13 @@ func WithAcquireTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
 func WithQueryTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.QueryTimeout = timeout
+	}
+}
+
+// WithMaxReadBufferSize overrides the default 16MB cap on a reassembling
+// multi-segment message's size (protocol.ProtocolConfig.MaxReadBufferSize).
+func WithMaxReadBufferSize(size int) LocalStateQueryOptionFunc {
+	return func(c *Config) {
+		c.MaxReadBufferSize = size
 	}
 }
