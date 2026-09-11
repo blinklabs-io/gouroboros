@@ -542,13 +542,16 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 	)
 
 	muxerRecvChan := make(chan *muxer.Segment, numSegments)
-	// A byte-string header declaring a ~4GB length, with no chance of ever
-	// supplying that much content: cbor.Decode always reports
-	// io.ErrUnexpectedEOF on this (not the unrelated max-nested-level guard
-	// a repeated indefinite-array-start would trip), so readLoop keeps
-	// draining and never completes a message -- exactly the "peer never
-	// finishes" case the buffer-size guard exists for.
-	header := muxer.NewSegment(0, []byte{0x5A, 0xFF, 0xFF, 0xFF, 0xFF}, false)
+	// A byte-string header declaring a 100MB length -- comfortably more
+	// than this test's ~1MB flood could ever supply, but safely under
+	// math.MaxInt32 so it doesn't itself overflow int on a 32-bit build
+	// (0xFFFFFFFF did, tripping cbor's own integer-overflow guard instead
+	// of the io.ErrUnexpectedEOF this test means to exercise). Either way
+	// cbor.Decode never completes this message (not the unrelated
+	// max-nested-level guard a repeated indefinite-array-start would
+	// trip), so readLoop keeps draining forever -- exactly the "peer
+	// never finishes" case the buffer-size guard exists for.
+	header := muxer.NewSegment(0, []byte{0x5A, 0x05, 0xF5, 0xE1, 0x00}, false)
 	require.NotNil(t, header)
 	muxerRecvChan <- header
 	filler := bytes.Repeat([]byte{0x00}, segmentPayloadSize)
