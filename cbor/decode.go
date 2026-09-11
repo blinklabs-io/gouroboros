@@ -47,6 +47,11 @@ var (
 // repeating the literal.
 const MaxNestedLevels = 256
 
+// MaxUntrustedNestedLevels names the limit used by decoders that process
+// peer-controlled data. Keep it equal to MaxNestedLevels until recursive
+// custom unmarshallers are removed from the public decode path.
+const MaxUntrustedNestedLevels = MaxNestedLevels
+
 // getDecMode returns a cached DecMode, initializing it on first use.
 // Uses sync.Once for thread-safe lazy initialization.
 // Returns the cached error if initialization failed.
@@ -96,7 +101,7 @@ func getStrictDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			MaxNestedLevels:   MaxNestedLevels,
+			MaxNestedLevels:   MaxUntrustedNestedLevels,
 			// Stricter limits for untrusted network messages to prevent
 			// OOM from crafted payloads claiming excessive collection sizes.
 			MaxMapPairs:      131072,
