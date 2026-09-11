@@ -19,6 +19,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/stretchr/testify/require"
 )
 
 // epochAware adds the optional EpochState capability to a ledger state, which
@@ -108,4 +109,47 @@ func TestPoolRegistrationDepositDueAfterRetirement(t *testing.T) {
 			t.Error("without the epoch capability the bound cannot be evaluated")
 		}
 	})
+}
+
+func TestPoolRegistrationDepositDueThroughVerifyTransaction(t *testing.T) {
+	operator := common.PoolKeyHash(common.NewBlake2b224([]byte{0x42}))
+	retirementEpoch := uint64(197)
+	state := epochAware{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithPoolCurrentState(
+				func(common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
+					return &common.PoolRegistrationCertificate{Operator: operator}, &retirementEpoch, nil
+				},
+			).Build(),
+		epoch: retirementEpoch,
+	}
+
+	err := common.VerifyTransaction(
+		nil,
+		0,
+		state,
+		nil,
+		[]common.UtxoValidationRuleFunc{
+			func(
+				_ common.Transaction,
+				_ uint64,
+				ledgerState common.LedgerState,
+				_ common.ProtocolParameters,
+			) error {
+				depositDue, err := common.PoolRegistrationDepositDue(
+					ledgerState,
+					0,
+					operator,
+				)
+				if err != nil {
+					return err
+				}
+				if !depositDue {
+					t.Fatalf("pool deposit should be due after retirement")
+				}
+				return nil
+			},
+		},
+	)
+	require.NoError(t, err)
 }

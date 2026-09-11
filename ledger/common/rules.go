@@ -33,13 +33,56 @@ import (
 )
 
 // UtxoValidationRuleFunc represents a function that validates a transaction
-// against a specific UTXO validation rule.
+// against a specific UTXO validation rule. Rules invoked by VerifyTransaction
+// receive a transaction-scoped cached ledger state; use UnwrapLedgerState
+// before asserting optional ledger-state capabilities.
 type UtxoValidationRuleFunc func(
 	tx Transaction,
 	slot uint64,
 	ledgerState LedgerState,
 	protocolParams ProtocolParameters,
 ) error
+
+type cachedUtxoLookup struct {
+	utxo Utxo
+	err  error
+}
+
+// cachedLedgerState keeps read-only UTxO lookups transaction-scoped. Several
+// validation rules need the same transaction view; sharing these results
+// avoids resolving each input again as the rule list advances.
+type cachedLedgerState struct {
+	LedgerState
+	lookups map[string]cachedUtxoLookup
+}
+
+func (s *cachedLedgerState) UnderlyingLedgerState() LedgerState {
+	return s.LedgerState
+}
+
+// UnwrapLedgerState returns the caller's ledger state when validation is
+// running with the transaction-scoped UTxO lookup cache. Rules that inspect
+// optional LedgerState capabilities must use this before type assertions; the
+// cache wrapper preserves UTxO lookup behavior but cannot preserve assertions
+// against arbitrary provider types.
+func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
+	if cached, ok := ledgerState.(interface {
+		UnderlyingLedgerState() LedgerState
+	}); ok {
+		return cached.UnderlyingLedgerState()
+	}
+	return ledgerState
+}
+
+func (s *cachedLedgerState) UtxoById(input TransactionInput) (Utxo, error) {
+	key := input.String()
+	if result, ok := s.lookups[key]; ok {
+		return result.utxo, result.err
+	}
+	utxo, err := s.LedgerState.UtxoById(input)
+	s.lookups[key] = cachedUtxoLookup{utxo: utxo, err: err}
+	return utxo, err
+}
 
 // UtxoValidateCurrentTreasuryValue checks a transaction's optional current
 // treasury value against the ledger state.
@@ -140,7 +183,9 @@ func ComposeUtxoValidationRules(
 }
 
 // VerifyTransaction runs the provided validation rules in order and wraps
-// the first error encountered into a ValidationError.
+// the first error encountered into a ValidationError. Each rule receives a
+// transaction-scoped UTxO cache; rules asserting optional ledger-state
+// capabilities must call UnwrapLedgerState first.
 func VerifyTransaction(
 	tx Transaction,
 	slot uint64,
@@ -148,6 +193,14 @@ func VerifyTransaction(
 	protocolParams ProtocolParameters,
 	validationRules []UtxoValidationRuleFunc,
 ) error {
+	if ledgerState != nil &&
+		(reflect.ValueOf(ledgerState).Kind() != reflect.Pointer ||
+			!reflect.ValueOf(ledgerState).IsNil()) {
+		ledgerState = &cachedLedgerState{
+			LedgerState: ledgerState,
+			lookups:     make(map[string]cachedUtxoLookup),
+		}
+	}
 	for i, rule := range validationRules {
 		if err := rule(tx, slot, ledgerState, protocolParams); err != nil {
 			details := map[string]any{"rule_index": i, "slot": slot}
@@ -598,7 +651,7 @@ func ValidateMIRGenesisQuorum(tx Transaction, ls LedgerState) error {
 	if !hasMIR {
 		return nil
 	}
-	genesisState, ok := ls.(GenesisDelegationState)
+	genesisState, ok := UnwrapLedgerState(ls).(GenesisDelegationState)
 	if !ok {
 		return GenesisDelegationStateUnavailableError{}
 	}
