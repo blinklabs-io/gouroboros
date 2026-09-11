@@ -824,14 +824,36 @@ func (p *Protocol) readLoop() {
 			// bounded fallback -- e.g. a short timeout alongside the drain
 			// select -- rather than an unconditional size gate; left as
 			// future work rather than shipped without full validation.
+			//
+			// This select must watch the same shutdown channels the outer
+			// one above does, and must bound readBuffer's growth itself
+			// (not just rely on the existing post-decode check below): a
+			// peer that keeps the channel non-empty by sending segments as
+			// fast as this loop drains them would otherwise let it spin
+			// unboundedly on both counts -- ignoring shutdown, and growing
+			// readBuffer past p.config.maxReadBufferSize() before ever
+			// returning control to check it (CWE-400, caught in review on
+			// blinklabs-io/gouroboros#2291). Breaking out once the bound is
+			// exceeded (rather than erroring here directly) lets the
+			// existing check just below do the actual rejection, so there
+			// is one place that decides "too big", not two.
 		drainQueued:
 			for {
 				select {
+				case <-p.stopChan:
+					return
+				case <-p.sendDoneChan:
+					return
+				case <-p.muxerDoneChan:
+					return
 				case segment, ok := <-p.muxerRecvChan:
 					if !ok {
 						return
 					}
 					readBuffer.Write(segment.Payload)
+					if readBuffer.Len() > p.config.maxReadBufferSize() {
+						break drainQueued
+					}
 				default:
 					break drainQueued
 				}
