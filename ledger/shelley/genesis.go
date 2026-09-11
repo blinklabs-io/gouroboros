@@ -165,6 +165,14 @@ func (g *ShelleyGenesis) effectiveStake() map[string]string {
 
 func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCertificate, error) {
 	if g.ExtraConfig == nil || len(g.ExtraConfig.StakePools.Data) == 0 {
+		for _, pool := range g.Staking.Pools {
+			if err := common.ValidatePoolMetadataForProtocolVersion(
+				pool.PoolMetadata,
+				g.ProtocolParameters.ProtocolVersion.Major,
+			); err != nil {
+				return nil, fmt.Errorf("invalid genesis pool metadata: %w", err)
+			}
+		}
 		return g.Staking.Pools, nil
 	}
 	out := make(
@@ -172,6 +180,12 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 		len(g.Staking.Pools)+len(g.ExtraConfig.StakePools.Data),
 	)
 	for poolID, pool := range g.Staking.Pools {
+		if err := common.ValidatePoolMetadataForProtocolVersion(
+			pool.PoolMetadata,
+			g.ProtocolParameters.ProtocolVersion.Major,
+		); err != nil {
+			return nil, fmt.Errorf("invalid genesis pool metadata: %w", err)
+		}
 		out[poolID] = pool
 	}
 	for poolID, extraPool := range g.ExtraConfig.StakePools.Data {
@@ -230,6 +244,12 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 		); err != nil {
 			return nil, err
 		}
+		if err := common.ValidatePoolMetadataForProtocolVersion(
+			metadata,
+			g.ProtocolParameters.ProtocolVersion.Major,
+		); err != nil {
+			return nil, fmt.Errorf("invalid extraConfig pool metadata: %w", err)
+		}
 
 		var owners []common.AddrKeyHash
 		if err := decodeExtraPoolField(
@@ -279,6 +299,8 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 			PoolMetadata:  metadata,
 		}
 	}
+	// Genesis pool loading is not a POOL transition. Pool metadata URL bounds
+	// are enforced by PoolMetadata decoding/encoding and POOL validation.
 	return out, nil
 }
 
