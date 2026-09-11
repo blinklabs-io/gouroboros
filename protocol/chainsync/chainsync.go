@@ -220,8 +220,12 @@ const (
 // Callback context
 type CallbackContext struct {
 	ConnectionId connection.ConnectionId
-	Client       *Client
-	Server       *Server
+	// ConnectionDoneChan is closed when the owning connection begins shutdown.
+	// It is distinct from the current protocol instance's DoneChan and is nil
+	// when the protocol was constructed without an owning connection.
+	ConnectionDoneChan <-chan any
+	Client             *Client
+	Server             *Server
 }
 
 // Callback function types
