@@ -336,12 +336,8 @@ func FindNextSlotLeadership(
 	)
 }
 
-// MaxLeadershipSearchSlots bounds one leadership search so callers cannot
-// accidentally turn a scheduling query into an unbounded VRF workload.
-const MaxLeadershipSearchSlots uint64 = 1_000_000
-
 // FindNextSlotLeadershipContext searches for leadership with cancellation and
-// an explicit maximum range. The legacy function delegates here with a
+// an inclusive maximum slot. The legacy function delegates here with a
 // background context.
 func FindNextSlotLeadershipContext(
 	ctx context.Context,
@@ -358,12 +354,6 @@ func FindNextSlotLeadershipContext(
 	}
 	if maxSlot < startSlot {
 		return 0, nil, nil, errors.New("maxSlot must not precede startSlot")
-	}
-	if maxSlot-startSlot >= MaxLeadershipSearchSlots {
-		return 0, nil, nil, fmt.Errorf(
-			"leadership search range exceeds maximum of %d slots",
-			MaxLeadershipSearchSlots,
-		)
 	}
 	for slot := startSlot; ; slot++ {
 		if err := ctx.Err(); err != nil {
