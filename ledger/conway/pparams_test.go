@@ -1063,6 +1063,39 @@ func TestConwayUtxorpc_VotingThresholdOutOfRangeRejected(t *testing.T) {
 	})
 }
 
+// TestConwayUtxorpc_MinCommitteeSizeOutOfRangeRejected is the regression
+// test for a chrisguiney review finding on blinklabs-io/gouroboros#2292:
+// MinCommitteeSize is a uint (64 bits wide on a 64-bit build) narrowed
+// unchecked to utxorpc.PParams.MinCommitteeSize's uint32. A value of
+// 1<<32 silently converted to 0 instead of surfacing an error, unlike
+// every rational field and MaxTxExUnits/MaxBlockExUnits in the same
+// function.
+func TestConwayUtxorpc_MinCommitteeSizeOutOfRangeRejected(t *testing.T) {
+	base := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+	}
+
+	t.Run("in range", func(t *testing.T) {
+		params := base
+		params.MinCommitteeSize = 7
+		_, err := params.Utxorpc()
+		require.NoError(t, err)
+	})
+
+	t.Run("beyond uint32 range", func(t *testing.T) {
+		params := base
+		params.MinCommitteeSize = uint(1) << 32
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+}
+
 // TestConwayUtxorpc_ValueBeyondInt64RangeRejected is the regression test
 // for a review finding on blinklabs-io/gouroboros#2292: the range check
 // (both the voting-threshold one just added, and the pre-existing A0/Rho/

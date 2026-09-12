@@ -153,6 +153,17 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 		p.MaxBlockExUnits.Memory < 0 || p.MaxBlockExUnits.Steps < 0 {
 		return nil, errors.New("invalid execution unit values")
 	}
+	// p.MinCommitteeSize is a uint (64 bits wide on a 64-bit build) decoded
+	// straight from CBOR key 27 and assigned unchecked in Update(); the
+	// struct literal below narrows it to utxorpc.PParams.MinCommitteeSize's
+	// uint32 with a plain conversion. Without this check, a value like
+	// 1<<32 silently becomes 0 -- a real, materially different governance
+	// parameter turned invisible to any comparison built on this field,
+	// the same failure mode every other guard in this function exists to
+	// reject rather than let through (chrisguiney review).
+	if uint64(p.MinCommitteeSize) > math.MaxUint32 {
+		return nil, errors.New("invalid MinCommitteeSize value")
+	}
 	// minFeeRefScriptCost, poolVotingThresholds, and drepVotingThresholds are
 	// resolved before constructing the reply below, rather than inline in
 	// the struct literal, so a range violation in any of them (silently
