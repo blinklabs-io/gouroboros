@@ -45,8 +45,8 @@ var constructorDecoderTestDefs = []struct {
 		fields:  []any{uint64(3), uint64(4), uint64(5)},
 	},
 	{
-		name:    "alternative 999 (tag 101)",
-		cborHex: "D865821903E7820607",
+		name:    "alternative 999 (tag 102)",
+		cborHex: "D866821903E7820607",
 		tag:     999,
 		fields:  []any{uint64(6), uint64(7)},
 	},
@@ -173,9 +173,9 @@ func TestConstructorDecoderAllAlternativeRanges(t *testing.T) {
 		{"alternative 6 (max range 1)", 6},
 		{"alternative 7 (min range 2)", 7},
 		{"alternative 127 (max range 2)", 127},
-		{"alternative 128 (min range 3)", 128},
-		{"alternative 256 (range 3)", 256},
-		{"alternative 65535 (large range 3)", 65535},
+		{"alternative 128 (general tag 102)", 128},
+		{"alternative 256 (general tag 102)", 256},
+		{"alternative 65535 (general tag 102)", 65535},
 	}
 
 	for _, tt := range tests {
@@ -205,6 +205,105 @@ func TestConstructorDecoderAllAlternativeRanges(t *testing.T) {
 			assert.Equal(t, encoded, reEncoded)
 		})
 	}
+}
+
+func TestPlutusConstructorWireVectors(t *testing.T) {
+	tests := []struct {
+		name string
+		alt  uint
+		hex  string
+	}{
+		{"compact maximum 127", 127, "d9057881182a"},
+		{"first general-encoder alternative 128", 128, "d86682188081182a"},
+		{"general 256", 256, "d8668219010081182a"},
+		{"general 65535", 65535, "d8668219ffff81182a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want, err := hex.DecodeString(tt.hex)
+			require.NoError(t, err)
+			encoded, err := cbor.Encode(
+				cbor.NewConstructorEncoder(tt.alt, []any{uint64(42)}),
+			)
+			require.NoError(t, err)
+			assert.Equal(t, want, encoded)
+
+			var decoded cbor.ConstructorDecoder
+			_, err = cbor.Decode(want, &decoded)
+			require.NoError(t, err)
+			assert.Equal(t, tt.alt, decoded.Tag())
+			var decodedFields []uint64
+			require.NoError(t, decoded.DecodeFields(&decodedFields))
+			assert.Equal(t, []uint64{42}, decodedFields)
+
+			var value cbor.Value
+			_, err = cbor.Decode(want, &value)
+			require.NoError(t, err)
+			valueConstructor, ok := value.Value().(cbor.ConstructorDecoder)
+			require.True(t, ok, "Value must classify tag %d as a constructor", tt.alt)
+			assert.Equal(t, tt.alt, valueConstructor.Tag())
+			var valueFields []uint64
+			require.NoError(t, valueConstructor.DecodeFields(&valueFields))
+			assert.Equal(t, []uint64{42}, valueFields)
+		})
+	}
+}
+
+func TestPlutusConstructorGeneralTagAcceptsAnyIndex(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		alt  uint
+		hex  string
+	}{
+		{"index zero", 0, "d866820081182a"},
+		{"index 127", 127, "d86682187f81182a"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := hex.DecodeString(tt.hex)
+			require.NoError(t, err)
+			var decoded cbor.ConstructorDecoder
+			_, err = cbor.Decode(data, &decoded)
+			require.NoError(t, err)
+			assert.Equal(t, tt.alt, decoded.Tag())
+		})
+	}
+}
+
+func TestPlutusConstructorGeneralAlternativeWidth(t *testing.T) {
+	const maxUint32 = uint64(1<<32 - 1)
+	tests := []struct {
+		name   string
+		alt    uint64
+		hex    string
+		reject bool
+	}{
+		{"maximum uint32", maxUint32, "d866821aFFFFFFFF81182a", false},
+		{"beyond uint32", 1 << 32, "d866821b000000010000000081182a", uint64(^uint(0)) == maxUint32},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := hex.DecodeString(tt.hex)
+			require.NoError(t, err)
+			var decoded cbor.ConstructorDecoder
+			_, err = cbor.Decode(data, &decoded)
+			if tt.reject {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "overflows uint")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, uint(tt.alt), decoded.Tag())
+		})
+	}
+}
+
+func TestPlutusConstructorRejectsAlternativeDataTag101(t *testing.T) {
+	data, err := hex.DecodeString("d86582188081182a")
+	require.NoError(t, err)
+	var decoded cbor.ConstructorDecoder
+	_, err = cbor.Decode(data, &decoded)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported constructor tag: 101")
 }
 
 func TestConstructorDecoderEmptyFields(t *testing.T) {
@@ -259,7 +358,8 @@ func TestIsAlternativeTag(t *testing.T) {
 		{124, true},  // mid range 1
 		{127, true},  // max range 1
 		{128, false}, // gap
-		{101, true},  // alternative 3
+		{101, false}, // unrelated alternative-data tag
+		{102, true},  // Plutus general constructor
 		{100, false},
 		{1279, false},
 		{1280, true},  // min range 2

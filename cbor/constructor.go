@@ -29,16 +29,16 @@ func alternativeToTag(alt uint) (uint64, bool) {
 	case alt <= 127:
 		return uint64(alt) - 7 + CborTagAlternative2Min, false
 	default:
-		return CborTagAlternative3, true
+		return PlutusConstrGeneral, true
 	}
 }
 
 // IsAlternativeTag returns true if the given CBOR tag number represents
-// a constructor/alternative (tags 121-127, 1280-1400, or 101).
+// a constructor/alternative (tags 121-127, 1280-1400, or 102).
 func IsAlternativeTag(tagNum uint64) bool {
 	return (tagNum >= CborTagAlternative1Min && tagNum <= CborTagAlternative1Max) ||
 		(tagNum >= CborTagAlternative2Min && tagNum <= CborTagAlternative2Max) ||
-		tagNum == CborTagAlternative3
+		tagNum == PlutusConstrGeneral
 }
 
 // ConstructorEncoder builds a CBOR constructor/alternative for encoding.
@@ -165,8 +165,8 @@ func (cd *ConstructorDecoder) UnmarshalCBOR(data []byte) error {
 		// Alternatives 7-127 (tags 1280-1400)
 		cd.tag = uint(tmpTag.Number - CborTagAlternative2Min + 7)
 		cd.fields = RawMessage(tmpTag.Content)
-	case tmpTag.Number == CborTagAlternative3:
-		// Alternatives 128+ (tag 101): content is [constructor_number, fields]
+	case tmpTag.Number == PlutusConstrGeneral:
+		// General constructors (tag 102): content is [constructor_number, fields]
 		var outerArray []RawMessage
 		if _, err := Decode(tmpTag.Content, &outerArray); err != nil {
 			return fmt.Errorf("decode alternative 128+ content: %w", err)
@@ -180,6 +180,9 @@ func (cd *ConstructorDecoder) UnmarshalCBOR(data []byte) error {
 		var altNum uint64
 		if _, err := Decode(outerArray[0], &altNum); err != nil {
 			return fmt.Errorf("decode alternative number: %w", err)
+		}
+		if altNum > uint64(^uint(0)) {
+			return fmt.Errorf("alternative number %d overflows uint", altNum)
 		}
 		cd.tag = uint(altNum)
 		cd.fields = outerArray[1]
