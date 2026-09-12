@@ -147,8 +147,8 @@ func TestDijkstraPerasCertificateRoundTrip(t *testing.T) {
 	var items []cbor.RawMessage
 	_, err = cbor.Decode(rawNil, &items)
 	require.NoError(t, err)
-	require.Len(t, items, 4)
-	assert.Equal(t, []byte{0xf6}, []byte(items[3])) // peras field is CBOR null
+	require.Len(t, items, 3)
+	assert.Equal(t, []byte{0xf6}, []byte(items[2])) // peras field is CBOR null
 	var decodedNil DijkstraBlockBody
 	require.NoError(t, decodedNil.UnmarshalCBOR(rawNil))
 	assert.Nil(t, decodedNil.PerasCertificate)

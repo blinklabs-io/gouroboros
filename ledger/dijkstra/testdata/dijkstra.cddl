@@ -2,7 +2,10 @@
 
 block = [header, block_body]
 
-transaction = [transaction_body, transaction_witness_set, auxiliary_data/ nil]
+; Transactions in a block carry a trailing `is_valid` flag, which is set by
+; the block producer.
+block_transaction =
+  [transaction_body, transaction_witness_set, auxiliary_data/ nil, bool]
 
 ; In Dijkstra we're deprecating the `is_valid` flag, but for backwards
 ; compatibility we still allow this flag to be present in incoming
@@ -12,9 +15,10 @@ transaction = [transaction_body, transaction_witness_set, auxiliary_data/ nil]
 ;
 ; In the next era `is_valid` flags will not be allowed even in mempool
 ; transactions, so it's strongly recommended to encode transactions
-; according to the `transaction` rule.
+; using the flag-less three-element form below.
 transaction_mempool =
-  transaction
+  [ transaction_body, transaction_witness_set, auxiliary_data/ nil
+  ]
   / [transaction_body, transaction_witness_set, true, auxiliary_data/ nil]
 
 kes_signature = bytes .size 448
@@ -60,6 +64,8 @@ header_body =
   , block_body_hash  : hash32       ; merkle triple root
   , operational_cert
   , protocol_version
+  , block_body_contains_leios_cert : bool
+  , eb_announcement                : eb_announcement/ nil
   ]
 
 block_number = uint .size 8
@@ -72,7 +78,7 @@ vkey = bytes .size 32
 
 vrf_vkey = bytes .size 32
 
-vrf_cert = [bytes, bytes .size 80]
+vrf_cert = [bytes .size 64, bytes .size 80]
 
 operational_cert =
   [ hot_vkey        : kes_vkey
@@ -93,19 +99,16 @@ protocol_version = [major_protocol_version, uint .size 4]
 
 major_protocol_version = 0 .. 13
 
-; Note that every transaction_index must be strictly smaller than the length of transaction_bodies
+eb_announcement =
+  [ eb_hash : hash32
+  , eb_size : uint .size 4 ; size of the EB block closure
+  ]
+
 block_body =
-  [ invalid_transactions : invalid_transactions/ nil
-  , transactions      : [* transaction]
+  [ transactions      : [* block_transaction]
   , leios_certificate : leios_certificate/ nil
   , peras_certificate : peras_certificate/ nil
   ]
-
-invalid_transactions = nonempty_set<transaction_index>
-
-nonempty_set<a0> = #6.258([+ a0])/ [+ a0]
-
-transaction_index = uint .size 2
 
 transaction_body =
   {   0  : set<transaction_input>
@@ -129,8 +132,10 @@ transaction_body =
   , ? 21 : coin                            ; current treasury value
   , ? 22 : positive_coin                   ; donation
   , ? 23 : sub_transactions                ; sub-transactions (NEW)
+  , ? 24 : required_top_level_guards       ; required top-level guards
   , ? 25 : direct_deposits                 ; direct deposits
   , ? 26 : account_balance_intervals       ; account balance intervals
+  , ? 27 : starting_account_balance_intervals ; starting account balance intervals
   }
 
 set<a0> = #6.258([* a0])/ [* a0]
@@ -459,6 +464,7 @@ pool_registration_cert = (3, pool_params)
 pool_params =
   ( operator       : pool_keyhash
   , vrf_keyhash    : vrf_keyhash
+  , ? bls_key      : bls_key/ nil
   , pledge         : coin
   , cost           : coin
   , margin         : unit_interval
@@ -469,6 +475,9 @@ pool_params =
   )
 
 vrf_keyhash = hash32
+
+; BLS key
+bls_key = [bls_pubkey : bytes .size 96, bls_possession_proof : bytes .size 48]
 
 ; A unit interval is a number in the range between 0 and 1, which
 ; means there are two extra constraints:
@@ -627,6 +636,8 @@ positive_int64 = 1 .. max_int64
 ; representation for empty redeemers.
 script_data_hash = hash32
 
+nonempty_set<a0> = #6.258([+ a0])/ [+ a0]
+
 guards = nonempty_set<addr_keyhash>/ nonempty_oset<credential>
 
 network_id = 0/ 1
@@ -700,6 +711,17 @@ protocol_param_update =
   , ? 35 : uint .size 4           ; max refScript size per tx
   , ? 36 : positive_word32        ; refScript cost stride
   , ? 37 : positive_interval      ; refScript cost multiplier
+  , ? 38 : max_pledge_leverage    ; max pledge leverage
+  , ? 39 : unit_interval           ; min pool margin
+  , ? 40 : uint .size 4           ; leios announcement period length in ms
+  , ? 41 : uint .size 4           ; leios vote period length in ms
+  , ? 42 : uint .size 4           ; leios diffusion period length in ms
+  , ? 43 : uint .size 2           ; leios committee size
+  , ? 44 : unit_interval          ; leios quorum stake threshold
+  , ? 45 : uint .size 4           ; max endorser block references size
+  , ? 46 : uint .size 4           ; max endorser block txs size
+  , ? 47 : ex_units               ; max endorser block ex units
+  , ? 48 : uint .size 4           ; max ref script size per endorser block
   }
 
 epoch_interval = uint .size 4
@@ -757,6 +779,8 @@ max_word32 = 4294967295
 
 positive_interval = #6.30([positive_int, positive_int])
 
+max_pledge_leverage = nonnegative_interval/ nil
+
 guardrails_script_hash = script_hash
 
 hard_fork_initiation_action = (1, gov_action_id/ nil, protocol_version)
@@ -811,12 +835,15 @@ required_top_level_guards = {+ credential => plutus_data/ nil}
 
 direct_deposits = {+ reward_account => coin}
 
-account_balance_intervals = {+ credential => account_balance_interval}
+account_balance_intervals = {+ reward_account => account_balance_interval}
 
 account_balance_interval =
-  [  inclusive_lower_bound : coin, exclusive_upper_bound : coin/ nil
-  // inclusive_lower_bound : coin/ nil, exclusive_upper_bound : coin
-  ]
+  [inclusive_lower_bound : coin, exclusive_upper_bound : coin/ nil]
+  / [inclusive_lower_bound : coin/ nil, exclusive_upper_bound : coin]
+  / coin
+
+starting_account_balance_intervals =
+  {+ reward_account => account_balance_interval}
 
 transaction_witness_set =
   { ? 0 : nonempty_set<vkeywitness>
@@ -890,11 +917,10 @@ auxiliary_data_map =
   )
 
 leios_certificate =
-  [ signers              : bytes           ;bitfield
-  , aggregated_signature : leios_signature
+  [ signers   : bytes .size (0 .. 8192) ;bitfield with up to 65536 entries
+  , signature : leios_signature
   ]
 
 leios_signature = bytes .size 48
 
 peras_certificate = bytes
-

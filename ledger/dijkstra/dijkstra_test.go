@@ -256,19 +256,23 @@ func testDijkstraOutputWithAssetsCbor(t *testing.T, assets []byte) []byte {
 	return ret
 }
 
-// minimalBlockBodyParts builds a Dijkstra 4-element block_body containing a
-// single 3-field transaction:
+// minimalBlockBodyParts builds a Dijkstra 3-element block_body containing a
+// single 4-field block transaction with the requested validity.
 //
-//	[ invalid_transactions/nil, [transaction], leios_cert/nil, peras_cert/nil ]
-//
-// invalid_transactions is encoded as CBOR null when empty (a nonempty_set/nil).
-func minimalBlockBodyParts(invalidTxs []uint) []any {
-	var invalidField any
-	if len(invalidTxs) > 0 {
-		invalidField = invalidTxs
-	}
+//	[ [transaction], leios_cert/nil, peras_cert/nil ]
+func minimalBlockBodyParts(valid bool) []any {
 	return []any{
-		invalidField,
+		[]any{[]any{minimalTxParts()[0], minimalTxParts()[1], minimalTxParts()[2], valid}},
+		nil,
+		nil,
+	}
+}
+
+// minimalLegacyBlockBodyParts builds the pre-respin four-element block_body
+// containing a legacy invalid_transactions set and a three-field transaction.
+func minimalLegacyBlockBodyParts(invalidTxs []uint64) []any {
+	return []any{
+		invalidTxs,
 		[]any{minimalTxParts()},
 		nil,
 		nil,
@@ -366,71 +370,132 @@ func TestDijkstraTransactionRejectsOversizedMalformedCbor(t *testing.T) {
 }
 
 func TestDijkstraBlockBodyRejectsWrongComponentCount(t *testing.T) {
-	// A Dijkstra block body must be a 4-element array; the pre-Dijkstra
-	// 6-component segwit layout is no longer valid.
+	// A Dijkstra block body must be a 3-element array.
 	bodyCbor, err := cbor.Encode([]any{
 		nil,
-		[]any{minimalTxParts()},
 		nil,
+	})
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	err = blockBody.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "expected 3 components")
+}
+
+func TestDijkstraBlockBodyAppliesInvalidTransactionIndices(t *testing.T) {
+	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{0}))
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
+	require.Equal(t, []uint{0}, blockBody.InvalidTransactions)
+	require.Len(t, blockBody.Transactions, 1)
+	require.False(t, blockBody.Transactions[0].IsValid())
+}
+
+func TestDijkstraBlockBodyRejectsLegacyInvalidTransactionIndexOutOfRange(t *testing.T) {
+	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{1}))
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.ErrorContains(
+		t,
+		blockBody.UnmarshalCBOR(bodyCbor),
+		"outside transaction list length",
+	)
+}
+
+func TestDijkstraBlockBodyRejectsDuplicateLegacyInvalidTransactionIndex(t *testing.T) {
+	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{0, 0}))
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.ErrorContains(
+		t,
+		blockBody.UnmarshalCBOR(bodyCbor),
+		"duplicate",
+	)
+}
+
+func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
+	parts := minimalTxParts()
+	body, err := cbor.Encode(parts[0])
+	require.NoError(t, err)
+	witnesses, err := cbor.Encode(parts[1])
+	require.NoError(t, err)
+	auxiliary, err := cbor.Encode(parts[2])
+	require.NoError(t, err)
+	rawTx := []byte{0x9f}
+	rawTx = append(rawTx, body...)
+	rawTx = append(rawTx, witnesses...)
+	rawTx = append(rawTx, auxiliary...)
+	rawTx = append(rawTx, 0xf5, 0xff)
+	bodyCbor, err := cbor.Encode([]any{
+		[]cbor.RawMessage{rawTx},
+		nil,
+		nil,
+	})
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
+	blockBody.SetCbor(nil)
+	encoded, err := blockBody.MarshalCBOR()
+	require.NoError(t, err)
+	var encodedBody []cbor.RawMessage
+	_, err = cbor.Decode(encoded, &encodedBody)
+	require.NoError(t, err)
+	if len(encodedBody) == 0 {
+		t.Fatal("encoded block body is empty")
+	}
+	var encodedTxs []cbor.RawMessage
+	_, err = cbor.Decode(encodedBody[0], &encodedTxs)
+	require.NoError(t, err)
+	if len(encodedTxs) == 0 {
+		t.Fatal("encoded transaction list is empty")
+	}
+	require.Equal(t, rawTx, []byte(encodedTxs[0]))
+}
+
+func TestDijkstraBlockBodyEncodesCompatibilityInvalidTransactionIndices(t *testing.T) {
+	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts(nil))
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
+	blockBody.InvalidTransactions = []uint{0}
+	blockBody.SetCbor(nil)
+
+	encoded, err := blockBody.MarshalCBOR()
+	require.NoError(t, err)
+	var decoded DijkstraBlockBody
+	require.NoError(t, decoded.UnmarshalCBOR(encoded))
+	require.Len(t, decoded.Transactions, 1)
+	require.False(t, decoded.Transactions[0].IsValid())
+}
+
+func TestDijkstraBlockBodyUsesPerTransactionValidity(t *testing.T) {
+	bodyCbor, err := cbor.Encode(minimalBlockBodyParts(false))
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
+	require.Empty(t, blockBody.InvalidTransactions)
+	require.Len(t, blockBody.Transactions, 1)
+	require.False(t, blockBody.Transactions[0].IsValid())
+}
+
+func TestDijkstraBlockBodyRequiresTrailingTransactionIsValidFlag(t *testing.T) {
+	parts := minimalTxParts()
+	withoutFlag := []any{parts[0], parts[1], parts[2]}
+	bodyCbor, err := cbor.Encode([]any{
+		[]any{withoutFlag}, nil, nil,
 	})
 	require.NoError(t, err)
 
 	var blockBody DijkstraBlockBody
 	err = blockBody.UnmarshalCBOR(bodyCbor)
 	require.ErrorContains(t, err, "expected 4 components")
-}
-
-func TestDijkstraBlockBodyAppliesInvalidTransactionIndices(t *testing.T) {
-	bodyCbor, err := cbor.Encode(minimalBlockBodyParts([]uint{0}))
-	require.NoError(t, err)
-
-	var blockBody DijkstraBlockBody
-	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
-	require.Len(t, blockBody.Transactions, 1)
-	require.False(t, blockBody.Transactions[0].IsValid())
-}
-
-func TestDijkstraBlockBodyRejectsTransactionIsValidFlag(t *testing.T) {
-	parts := minimalTxParts()
-	withTrue := []any{parts[0], parts[1], true, parts[2]}
-	bodyCbor, err := cbor.Encode([]any{
-		nil,
-		[]any{withTrue},
-		nil,
-		nil,
-	})
-	require.NoError(t, err)
-
-	var blockBody DijkstraBlockBody
-	err = blockBody.UnmarshalCBOR(bodyCbor)
-	require.ErrorContains(t, err, "cannot include is_valid")
-}
-
-func TestDijkstraBlockBodyRejectsDuplicateTaggedInvalidTransactions(
-	t *testing.T,
-) {
-	bodyCbor, err := cbor.Encode([]any{
-		cbor.NewSetType([]uint64{0, 0}, true),
-		[]any{minimalTxParts()},
-		nil,
-		nil,
-	})
-	require.NoError(t, err)
-
-	var blockBody DijkstraBlockBody
-	err = blockBody.UnmarshalCBOR(bodyCbor)
-	require.ErrorContains(t, err, "duplicate member in set")
-}
-
-func TestDijkstraBlockBodyRejectsInvalidTransactionIndexOutOfRange(
-	t *testing.T,
-) {
-	bodyCbor, err := cbor.Encode(minimalBlockBodyParts([]uint{1}))
-	require.NoError(t, err)
-
-	var blockBody DijkstraBlockBody
-	err = blockBody.UnmarshalCBOR(bodyCbor)
-	require.ErrorContains(t, err, "outside transaction list length")
 }
 
 func TestDijkstraBlockMarshalUsesTwoItemEnvelope(t *testing.T) {
@@ -456,21 +521,19 @@ func TestDijkstraBlockMarshalUsesTwoItemEnvelope(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, raw, 2)
 
-	// block_body = [invalid_transactions/nil, transactions, leios_cert/nil, peras_cert/nil]
+	// block_body = [transactions, leios_cert/nil, peras_cert/nil]
 	var body []cbor.RawMessage
 	_, err = cbor.Decode(raw[1], &body)
 	require.NoError(t, err)
-	require.Len(t, body, 4)
-	// Empty invalid set encodes as CBOR null.
-	require.Equal(t, []byte{0xf6}, []byte(body[0]))
+	require.Len(t, body, 3)
 	// No transactions.
-	require.Equal(t, []byte{0x80}, []byte(body[1]))
+	require.Equal(t, []byte{0x80}, []byte(body[0]))
 	// Real Leios certificate [signers, aggregated_signature].
 	expectedCert, err := cbor.Encode([]any{[]byte{0x01}, sig})
 	require.NoError(t, err)
-	require.Equal(t, expectedCert, []byte(body[2]))
+	require.Equal(t, expectedCert, []byte(body[1]))
 	// No Peras certificate.
-	require.Equal(t, []byte{0xf6}, []byte(body[3]))
+	require.Equal(t, []byte{0xf6}, []byte(body[2]))
 }
 
 // leiosExtendedHeaderHex is a real Dijkstra block header captured from the
@@ -629,12 +692,10 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 	require.Equal(t, []byte(raw[0]), decoded.BlockHeader.Cbor())
 }
 
-// TestDijkstraBlockNonEmptyTransactionsInvalidSet exercises a synthetic block
-// with two inline transactions and an invalid_transactions set that marks the
-// second transaction invalid. It confirms the 2-element block / 4-element body
-// wire shape, body-hash validation, and that Transactions()[i].IsValid()
-// reflects membership in the invalid set (never a per-tx flag).
-func TestDijkstraBlockNonEmptyTransactionsInvalidSet(t *testing.T) {
+// TestDijkstraBlockNonEmptyTransactionsValidity exercises a synthetic block
+// with two inline transactions and per-transaction validity flags. It confirms
+// the block/body wire shape, body-hash validation, and validity propagation.
+func TestDijkstraBlockNonEmptyTransactionsValidity(t *testing.T) {
 	sig := make([]byte, common.LeiosBlsSignatureSize)
 	leiosCert := &DijkstraLeiosCertificate{
 		Signers:             []byte{0x0f},
@@ -675,7 +736,7 @@ func TestDijkstraBlockNonEmptyTransactionsInvalidSet(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wire shape: block = [header, block_body];
-	// block_body = [invalid_transactions, [tx1, tx2], leios_cert, nil]
+	// block_body = [[tx1, tx2], leios_cert, nil]
 	var raw []cbor.RawMessage
 	_, err = cbor.Decode(blockCbor, &raw)
 	require.NoError(t, err)
@@ -683,26 +744,24 @@ func TestDijkstraBlockNonEmptyTransactionsInvalidSet(t *testing.T) {
 	var body []cbor.RawMessage
 	_, err = cbor.Decode(raw[1], &body)
 	require.NoError(t, err)
-	require.Len(t, body, 4)
+	require.Len(t, body, 3)
 	var wireTxs []cbor.RawMessage
-	_, err = cbor.Decode(body[1], &wireTxs)
+	_, err = cbor.Decode(body[0], &wireTxs)
 	require.NoError(t, err)
 	require.Len(t, wireTxs, 2)
-	// Each transaction is a 3-field array; is_valid is never stored per-tx.
+	// Each block transaction has a trailing is_valid flag.
 	for _, wt := range wireTxs {
 		var txFields []cbor.RawMessage
 		_, err = cbor.Decode(wt, &txFields)
 		require.NoError(t, err)
-		require.Len(t, txFields, 3)
+		require.Len(t, txFields, 4)
 	}
-	require.Equal(t, []byte{0xf6}, []byte(body[3])) // no peras cert
+	require.Equal(t, []byte{0xf6}, []byte(body[2])) // no peras cert
 
 	// Body-hash validation is enabled by default and must pass.
 	decoded, err := NewDijkstraBlockFromCbor(blockCbor)
 	require.NoError(t, err)
 	require.Equal(t, blockBody.Hash(), decoded.BlockBodyHash())
-	require.Equal(t, []uint{1}, decoded.BlockBody.InvalidTransactions)
-
 	txs := decoded.Transactions()
 	require.Len(t, txs, 2)
 	require.True(t, txs[0].IsValid())
@@ -1160,6 +1219,90 @@ func TestDijkstraProtocolParametersRoundTrip(t *testing.T) {
 	require.Equal(t, 0, decoded.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
 }
 
+func TestDijkstraProtocolParametersDecodesLegacyArray(t *testing.T) {
+	rat := func(num, denom int64) *cbor.Rat {
+		return &cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
+	ratValue := func(num, denom int64) cbor.Rat {
+		return cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
+	params := DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			MinFeeA:   44,
+			MaxTxSize: 16384,
+			A0:        rat(1, 2),
+			Rho:       rat(3, 1000),
+			Tau:       rat(1, 5),
+			ExecutionCosts: common.ExUnitPrice{
+				MemPrice:  rat(1, 10),
+				StepPrice: rat(2, 10),
+			},
+			MaxTxExUnits: common.ExUnits{Memory: 1, Steps: 2},
+			MaxBlockExUnits: common.ExUnits{
+				Memory: 100,
+				Steps:  200,
+			},
+			PoolVotingThresholds: conway.PoolVotingThresholds{
+				MotionNoConfidence:    ratValue(1, 2),
+				CommitteeNormal:       ratValue(1, 2),
+				CommitteeNoConfidence: ratValue(1, 2),
+				HardForkInitiation:    ratValue(1, 2),
+				PpSecurityGroup:       ratValue(1, 2),
+			},
+			DRepVotingThresholds: conway.DRepVotingThresholds{
+				MotionNoConfidence:    ratValue(1, 2),
+				CommitteeNormal:       ratValue(1, 2),
+				CommitteeNoConfidence: ratValue(1, 2),
+				UpdateToConstitution:  ratValue(1, 2),
+				HardForkInitiation:    ratValue(1, 2),
+				PpNetworkGroup:        ratValue(1, 2),
+				PpEconomicGroup:       ratValue(1, 2),
+				PpTechnicalGroup:      ratValue(1, 2),
+				PpGovGroup:            ratValue(1, 2),
+				TreasuryWithdrawal:    ratValue(1, 2),
+			},
+			MinFeeRefScriptCostPerByte: rat(15, 1000),
+		},
+		MaxRefScriptSizePerBlock: 1000,
+		MaxRefScriptSizePerTx:    2000,
+		RefScriptCostStride:      3000,
+		RefScriptCostMultiplier:  rat(2, 1),
+	}
+	full, err := cbor.Encode(params.toCbor())
+	require.NoError(t, err)
+	var fields []cbor.RawMessage
+	_, err = cbor.Decode(full, &fields)
+	require.NoError(t, err)
+	require.Len(t, fields, 46)
+	legacy, err := cbor.Encode(fields[:35])
+	require.NoError(t, err)
+
+	var decoded DijkstraProtocolParameters
+	require.NoError(t, decoded.UnmarshalCBOR(legacy))
+	require.Equal(t, uint(44), decoded.MinFeeA)
+	require.Equal(t, uint(16384), decoded.MaxTxSize)
+	require.Equal(t, uint32(1000), decoded.MaxRefScriptSizePerBlock)
+	require.Equal(t, uint32(2000), decoded.MaxRefScriptSizePerTx)
+	require.Equal(t, uint32(3000), decoded.RefScriptCostStride)
+	require.Zero(t, decoded.MaxPledgeLeverage)
+	require.Zero(t, decoded.LeiosAnnouncementPeriodLength)
+}
+
+func TestDijkstraProtocolParametersRejectsUnsupportedArrayLength(t *testing.T) {
+	data, err := cbor.Encode(make([]any, 34))
+	require.NoError(t, err)
+	var decoded DijkstraProtocolParameters
+	require.Error(t, decoded.UnmarshalCBOR(data))
+}
+
+func TestDijkstraProtocolParametersRejectsOversizedArrayHeader(t *testing.T) {
+	// The arity guard must reject an array whose declared length cannot be
+	// represented before attempting to decode all of its elements.
+	data := []byte{0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	var decoded DijkstraProtocolParameters
+	require.Error(t, decoded.UnmarshalCBOR(data))
+}
+
 func TestDijkstraProtocolParametersUpdateNil(t *testing.T) {
 	pparams := DijkstraProtocolParameters{
 		MaxRefScriptSizePerBlock: 1000,
@@ -1201,6 +1344,76 @@ func TestDijkstraProtocolParameterUpdateDecodesConwayAndDijkstraFields(
 	require.Equal(t, uint32(2000), pparams.MaxRefScriptSizePerTx)
 	require.Equal(t, uint32(16), pparams.RefScriptCostStride)
 	require.Equal(t, 0, pparams.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
+}
+
+func TestDijkstraProtocolParameterUpdateDecodesLeiosFields(t *testing.T) {
+	quorum := cbor.Rat{Rat: big.NewRat(3, 4)}
+	exUnits := common.ExUnits{Memory: 123, Steps: 456}
+	updateCbor, err := cbor.Encode(map[uint]any{
+		40: uint32(1000),
+		41: uint32(2000),
+		42: uint32(3000),
+		43: uint16(42),
+		44: quorum,
+		45: uint32(500000),
+		46: uint32(12000000),
+		47: exUnits,
+		48: uint32(1048576),
+	})
+	require.NoError(t, err)
+
+	var update DijkstraProtocolParameterUpdate
+	_, err = cbor.Decode(updateCbor, &update)
+	require.NoError(t, err)
+	require.Equal(t, updateCbor, update.Cbor())
+	require.Equal(t, uint32(1000), *update.LeiosAnnouncementPeriodLength)
+	require.Equal(t, uint32(2000), *update.LeiosVotePeriodLength)
+	require.Equal(t, uint32(3000), *update.LeiosDiffusionPeriodLength)
+	require.Equal(t, uint16(42), *update.LeiosCommitteeSize)
+	require.Equal(t, 0, update.LeiosQuorumStakeThreshold.Cmp(quorum.Rat))
+	require.Equal(t, uint32(500000), *update.MaxEndorserBlockReferencesSize)
+	require.Equal(t, uint32(12000000), *update.MaxEndorserBlockTxsSize)
+	require.Equal(t, exUnits, *update.MaxEndorserBlockExUnits)
+	require.Equal(t, uint32(1048576), *update.MaxRefScriptSizePerEndorserBlock)
+
+	var params DijkstraProtocolParameters
+	params.Update(&update)
+	require.Equal(t, uint32(1000), params.LeiosAnnouncementPeriodLength)
+	require.Equal(t, uint32(2000), params.LeiosVotePeriodLength)
+	require.Equal(t, uint32(3000), params.LeiosDiffusionPeriodLength)
+	require.Equal(t, uint16(42), params.LeiosCommitteeSize)
+	require.Equal(t, 0, params.LeiosQuorumStakeThreshold.Cmp(quorum.Rat))
+	require.Equal(t, uint32(500000), params.MaxEndorserBlockReferencesSize)
+	require.Equal(t, uint32(12000000), params.MaxEndorserBlockTxsSize)
+	require.Equal(t, exUnits, params.MaxEndorserBlockExUnits)
+	require.Equal(t, uint32(1048576), params.MaxRefScriptSizePerEndorserBlock)
+}
+
+func TestDijkstraProtocolParameterUpdateEncodesLeiosFields(t *testing.T) {
+	announcement, vote, diffusion := uint32(1000), uint32(2000), uint32(3000)
+	committee := uint16(42)
+	references, txs, refScripts := uint32(500000), uint32(12000000), uint32(1048576)
+	exUnits := common.ExUnits{Memory: 123, Steps: 456}
+	update := DijkstraProtocolParameterUpdate{
+		LeiosAnnouncementPeriodLength:    &announcement,
+		LeiosVotePeriodLength:            &vote,
+		LeiosDiffusionPeriodLength:       &diffusion,
+		LeiosCommitteeSize:               &committee,
+		LeiosQuorumStakeThreshold:        &cbor.Rat{Rat: big.NewRat(3, 4)},
+		MaxEndorserBlockReferencesSize:   &references,
+		MaxEndorserBlockTxsSize:          &txs,
+		MaxEndorserBlockExUnits:          &exUnits,
+		MaxRefScriptSizePerEndorserBlock: &refScripts,
+	}
+	encoded, err := cbor.Encode(update)
+	require.NoError(t, err)
+
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	for _, key := range []uint{40, 41, 42, 43, 44, 45, 46, 47, 48} {
+		require.Contains(t, fields, key)
+	}
 }
 
 func TestDijkstraProtocolParameterUpdateLeiosStakeFieldsExcludedFromCbor(
@@ -1258,6 +1471,35 @@ func TestDijkstraGenesisLeiosStakeParameters(t *testing.T) {
 		0,
 		pparams.QuorumStakeThreshold.Cmp(big.NewRat(3, 4)),
 	)
+}
+
+func TestDijkstraGenesisDecodesLeiosProtocolParameters(t *testing.T) {
+	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
+  "leiosAnnouncementPeriodLength": 1000,
+  "leiosVotePeriodLength": 2000,
+  "leiosDiffusionPeriodLength": 3000,
+  "leiosCommitteeSize": 42,
+  "leiosQuorumStakeThreshold": 0.75,
+  "plutusV4CostModel": [4000, 5000, 6000],
+  "maxEndorserBlockReferencesSize": 500000,
+  "maxEndorserBlockTxsSize": 12000000,
+  "maxEndorserBlockExecutionUnits": {"memory": 123, "steps": 456},
+  "maxRefScriptSizePerEndorserBlock": 1048576
+}`))
+	require.NoError(t, err)
+
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
+	require.Equal(t, uint32(1000), params.LeiosAnnouncementPeriodLength)
+	require.Equal(t, uint32(2000), params.LeiosVotePeriodLength)
+	require.Equal(t, uint32(3000), params.LeiosDiffusionPeriodLength)
+	require.Equal(t, uint16(42), params.LeiosCommitteeSize)
+	require.Equal(t, 0, params.LeiosQuorumStakeThreshold.Cmp(big.NewRat(3, 4)))
+	require.Equal(t, uint32(500000), params.MaxEndorserBlockReferencesSize)
+	require.Equal(t, uint32(12000000), params.MaxEndorserBlockTxsSize)
+	require.Equal(t, common.ExUnits{Memory: 123, Steps: 456}, params.MaxEndorserBlockExUnits)
+	require.Equal(t, uint32(1048576), params.MaxRefScriptSizePerEndorserBlock)
+	require.Equal(t, []int64{4000, 5000, 6000}, params.CostModels[3])
 }
 
 func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {
