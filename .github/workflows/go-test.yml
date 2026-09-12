@@ -16,7 +16,7 @@ jobs:
     name: go-test (${{ matrix.go-version }}, ${{ matrix.platform }}, ${{ matrix.go-arch }})
     strategy:
       matrix:
-        go-version: [1.25.x, 1.26.x]
+        go-version: [1.26.x]
         platform: [ubuntu-latest]
         go-arch: [amd64, 386]
     runs-on: ${{ matrix.platform }}

@@ -123,6 +123,9 @@ func costModelParamNamesForMap(
 	params map[string]int64,
 ) []string {
 	paramNames := lang.GetParamNamesForVersion(version)
+	if paramNames == nil {
+		return nil
+	}
 	if _, ok := params["valueData-cpu-arguments"]; !ok {
 		return paramNames
 	}
