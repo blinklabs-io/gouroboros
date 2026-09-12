@@ -505,10 +505,12 @@ func TestBabbageUtxorpc(t *testing.T) {
 					Memory: 5000000,
 					Steps:  1000000,
 				},
+				// Keys follow the real cardano-ledger wire convention:
+				// 0-indexed (0=PlutusV1, 1=PlutusV2, 2=PlutusV3).
 				CostModels: map[uint][]int64{
-					1: {100, 200, 300},
-					2: {400, 500, 600},
-					3: {700, 800, 900},
+					0: {100, 200, 300},
+					1: {400, 500, 600},
+					2: {700, 800, 900},
 				},
 			},
 			expectedUtxorpc: &utxorpc.PParams{

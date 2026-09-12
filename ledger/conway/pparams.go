@@ -16,6 +16,7 @@ package conway
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"math"
 	"math/big"
@@ -97,46 +98,97 @@ func (p *ConwayProtocolParameters) DRepDepositAmount() *big.Int {
 	return new(big.Int).SetUint64(p.DRepDeposit)
 }
 
+// ratOutOfRange reports whether r's numerator or denominator cannot be
+// represented in utxorpc.RationalNumber's int32/uint32 fields. Compares the
+// underlying *big.Int values directly against the bounds, not via Int64()
+// first: Int64() is undefined for a value that does not fit in int64 at all
+// (silently wraps rather than erroring, per math/big's own documentation),
+// so a value far outside range (e.g. 2^64+1) could pass an
+// Int64()-based comparison completely undetected -- review-caught on
+// blinklabs-io/gouroboros#2292, in both this file's pre-existing
+// rational-number guards below (A0, Rho, Tau, the execution-cost prices)
+// and the voting-threshold one added alongside them (ratToUtxorpcRationalNumber).
+// r itself must be non-nil; every caller already guards that separately
+// (e.g. "p.A0 == nil ||", short-circuiting before this runs).
+func ratOutOfRange(r *big.Rat) bool {
+	return r.Num().Cmp(big.NewInt(math.MinInt32)) < 0 ||
+		r.Num().Cmp(big.NewInt(math.MaxInt32)) > 0 ||
+		r.Denom().Sign() < 0 ||
+		r.Denom().Cmp(new(big.Int).SetUint64(math.MaxUint32)) > 0
+}
+
 func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	// sanity check
-	if p.A0 == nil ||
-		p.A0.Num().Int64() < math.MinInt32 ||
-		p.A0.Num().Int64() > math.MaxInt32 ||
-		p.A0.Denom().Int64() < 0 ||
-		p.A0.Denom().Int64() > math.MaxUint32 {
+	//
+	// Checks the embedded *big.Rat for nil separately from the *cbor.Rat
+	// pointer itself: A0/Rho/Tau/the execution-cost prices are mandatory
+	// fields here (unlike the optional MinFeeRefScriptCostPerByte, whose
+	// nil-embedded-Rat case legitimately means "unset" via
+	// ratPtrToUtxorpcRationalNumber), so a non-nil *cbor.Rat with a nil
+	// embedded Rat -- the same shape that panic was found on for
+	// MinFeeRefScriptCostPerByte -- must be rejected as invalid too,
+	// rather than reaching ratOutOfRange's Num()/Denom() calls, which
+	// require their receiver to be non-nil (review-caught on
+	// blinklabs-io/gouroboros#2292).
+	if p.A0 == nil || p.A0.Rat == nil || ratOutOfRange(p.A0.Rat) {
 		return nil, errors.New("invalid A0 rational number values")
 	}
-	if p.Rho == nil ||
-		p.Rho.Num().Int64() < math.MinInt32 ||
-		p.Rho.Num().Int64() > math.MaxInt32 ||
-		p.Rho.Denom().Int64() < 0 ||
-		p.Rho.Denom().Int64() > math.MaxUint32 {
+	if p.Rho == nil || p.Rho.Rat == nil || ratOutOfRange(p.Rho.Rat) {
 		return nil, errors.New("invalid Rho rational number values")
 	}
-	if p.Tau == nil ||
-		p.Tau.Num().Int64() < math.MinInt32 ||
-		p.Tau.Num().Int64() > math.MaxInt32 ||
-		p.Tau.Denom().Int64() < 0 ||
-		p.Tau.Denom().Int64() > math.MaxUint32 {
+	if p.Tau == nil || p.Tau.Rat == nil || ratOutOfRange(p.Tau.Rat) {
 		return nil, errors.New("invalid Tau rational number values")
 	}
 	if p.ExecutionCosts.MemPrice == nil ||
-		p.ExecutionCosts.MemPrice.Num().Int64() < math.MinInt32 ||
-		p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
-		p.ExecutionCosts.MemPrice.Denom().Int64() < 0 ||
-		p.ExecutionCosts.MemPrice.Denom().Int64() > math.MaxUint32 {
+		p.ExecutionCosts.MemPrice.Rat == nil ||
+		ratOutOfRange(p.ExecutionCosts.MemPrice.Rat) {
 		return nil, errors.New("invalid memory price rational number values")
 	}
 	if p.ExecutionCosts.StepPrice == nil ||
-		p.ExecutionCosts.StepPrice.Num().Int64() < math.MinInt32 ||
-		p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
-		p.ExecutionCosts.StepPrice.Denom().Int64() < 0 ||
-		p.ExecutionCosts.StepPrice.Denom().Int64() > math.MaxUint32 {
+		p.ExecutionCosts.StepPrice.Rat == nil ||
+		ratOutOfRange(p.ExecutionCosts.StepPrice.Rat) {
 		return nil, errors.New("invalid step price rational number values")
 	}
 	if p.MaxTxExUnits.Memory < 0 || p.MaxTxExUnits.Steps < 0 ||
 		p.MaxBlockExUnits.Memory < 0 || p.MaxBlockExUnits.Steps < 0 {
 		return nil, errors.New("invalid execution unit values")
+	}
+	// p.MinCommitteeSize is a uint (64 bits wide on a 64-bit build) decoded
+	// straight from CBOR key 27 and assigned unchecked in Update(); the
+	// struct literal below narrows it to utxorpc.PParams.MinCommitteeSize's
+	// uint32 with a plain conversion. Without this check, a value like
+	// 1<<32 silently becomes 0 -- a real, materially different governance
+	// parameter turned invisible to any comparison built on this field,
+	// the same failure mode every other guard in this function exists to
+	// reject rather than let through (chrisguiney review).
+	if uint64(p.MinCommitteeSize) > math.MaxUint32 {
+		return nil, errors.New("invalid MinCommitteeSize value")
+	}
+	// minFeeRefScriptCost, poolVotingThresholds, and drepVotingThresholds are
+	// resolved before constructing the reply below, rather than inline in
+	// the struct literal, so a range violation in any of them (silently
+	// wrapping during the int32/uint32 cast otherwise, review-caught on
+	// blinklabs-io/gouroboros#2292) is rejected the same way every other
+	// rational field above is, instead of only MinFeeRefScriptCostPerByte
+	// getting a dedicated (and, before this fix, embedded-Rat-unsafe) guard
+	// while the voting thresholds got none at all.
+	minFeeRefScriptCost, err := ratPtrToUtxorpcRationalNumber(
+		p.MinFeeRefScriptCostPerByte,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid MinFeeRefScriptCostPerByte: %w", err)
+	}
+	poolVotingThresholds, err := poolVotingThresholdsUtxorpc(
+		p.PoolVotingThresholds,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pool voting thresholds: %w", err)
+	}
+	drepVotingThresholds, err := drepVotingThresholdsUtxorpc(
+		p.DRepVotingThresholds,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid drep voting thresholds: %w", err)
 	}
 	// #nosec G115
 	return &utxorpc.PParams{
@@ -191,7 +243,152 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 			Memory: uint64(p.MaxBlockExUnits.Memory),
 			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
+		MinFeeScriptRefCostPerByte:     minFeeRefScriptCost,
+		PoolVotingThresholds:           poolVotingThresholds,
+		DrepVotingThresholds:           drepVotingThresholds,
+		MinCommitteeSize:               uint32(p.MinCommitteeSize),
+		CommitteeTermLimit:             p.CommitteeTermLimit,
+		GovernanceActionValidityPeriod: p.GovActionValidityPeriod,
+		GovernanceActionDeposit: common.ToUtxorpcBigInt(
+			p.GovActionDeposit,
+		),
+		DrepDeposit:          common.ToUtxorpcBigInt(p.DRepDeposit),
+		DrepInactivityPeriod: p.DRepInactivityPeriod,
 	}, nil
+}
+
+// ratToUtxorpcRationalNumber converts a cbor.Rat to a *utxorpc.RationalNumber.
+// It returns (nil, nil) when the rational is unset (embedded *big.Rat is
+// nil), which happens for a ConwayProtocolParameters value that was never
+// populated with this particular threshold (e.g. constructed directly
+// rather than decoded from a full on-chain protocol-parameters value or
+// genesis).
+// It also validates the value fits utxorpc.RationalNumber's int32/uint32
+// fields the same way every other rational conversion in this file does
+// (A0, Rho, Tau, the execution-cost prices): an out-of-range numerator or
+// denominator returns an error instead of silently wrapping during the
+// int32/uint32 cast (review-caught on blinklabs-io/gouroboros#2292 -- this
+// helper originally cast unconditionally, unlike its callers' sibling
+// fields above).
+func ratToUtxorpcRationalNumber(r cbor.Rat) (*utxorpc.RationalNumber, error) {
+	if r.Rat == nil {
+		return nil, nil
+	}
+	if ratOutOfRange(r.Rat) {
+		return nil, errors.New("invalid rational number values")
+	}
+	return &utxorpc.RationalNumber{
+		// #nosec G115
+		Numerator: int32(r.Num().Int64()),
+		// #nosec G115
+		Denominator: uint32(r.Denom().Int64()),
+	}, nil
+}
+
+// ratPtrToUtxorpcRationalNumber is the nil-safe pointer variant of
+// ratToUtxorpcRationalNumber, for the optional *cbor.Rat protocol-parameter
+// fields (e.g. MinFeeRefScriptCostPerByte). A non-nil *cbor.Rat whose
+// embedded *big.Rat is itself nil is treated the same as an unset field
+// (returns (nil, nil), not a panic on the nil embedded value): both mean
+// "this ConwayProtocolParameters value was never populated with this
+// threshold."
+func ratPtrToUtxorpcRationalNumber(
+	r *cbor.Rat,
+) (*utxorpc.RationalNumber, error) {
+	if r == nil {
+		return nil, nil
+	}
+	return ratToUtxorpcRationalNumber(*r)
+}
+
+// poolVotingThresholdsUtxorpc converts PoolVotingThresholds into the flat
+// utxorpc.VotingThresholds list. The order matches the field order of this
+// repo's own PoolVotingThresholds struct, which in turn matches the named
+// utxorpc.PoolVotingThresholds genesis message
+// (github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano): MotionNoConfidence,
+// CommitteeNormal, CommitteeNoConfidence, HardForkInitiation,
+// PpSecurityGroup.
+//
+// Returns (nil, nil) unless every threshold is populated: utxorpc.PParams
+// only supports one flat, position-based list, so a partially populated set
+// of thresholds (not expected for a fully decoded on-chain
+// protocol-parameters value) cannot be represented without corrupting the
+// positions of the thresholds that are present. Returns an error instead if
+// any populated threshold is out of utxorpc.RationalNumber's representable
+// range -- see ratToUtxorpcRationalNumber.
+func poolVotingThresholdsUtxorpc(
+	t PoolVotingThresholds,
+) (*utxorpc.VotingThresholds, error) {
+	rats := [...]cbor.Rat{
+		t.MotionNoConfidence,
+		t.CommitteeNormal,
+		t.CommitteeNoConfidence,
+		t.HardForkInitiation,
+		t.PpSecurityGroup,
+	}
+	thresholds := make([]*utxorpc.RationalNumber, len(rats))
+	allPopulated := true
+	for i, r := range rats {
+		rn, err := ratToUtxorpcRationalNumber(r)
+		if err != nil {
+			return nil, fmt.Errorf("threshold %d: %w", i, err)
+		}
+		if rn == nil {
+			allPopulated = false
+			continue
+		}
+		thresholds[i] = rn
+	}
+	if !allPopulated {
+		return nil, nil
+	}
+	return &utxorpc.VotingThresholds{Thresholds: thresholds}, nil
+}
+
+// drepVotingThresholdsUtxorpc converts DRepVotingThresholds into the flat
+// utxorpc.VotingThresholds list. The order matches the field order of this
+// repo's own DRepVotingThresholds struct, which in turn matches the named
+// utxorpc.DRepVotingThresholds genesis message
+// (github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano): MotionNoConfidence,
+// CommitteeNormal, CommitteeNoConfidence, UpdateToConstitution,
+// HardForkInitiation, PpNetworkGroup, PpEconomicGroup, PpTechnicalGroup,
+// PpGovGroup, TreasuryWithdrawal.
+//
+// Returns (nil, nil) unless every threshold is populated, and an error if
+// any populated threshold is out of range; see poolVotingThresholdsUtxorpc
+// for both.
+func drepVotingThresholdsUtxorpc(
+	t DRepVotingThresholds,
+) (*utxorpc.VotingThresholds, error) {
+	rats := [...]cbor.Rat{
+		t.MotionNoConfidence,
+		t.CommitteeNormal,
+		t.CommitteeNoConfidence,
+		t.UpdateToConstitution,
+		t.HardForkInitiation,
+		t.PpNetworkGroup,
+		t.PpEconomicGroup,
+		t.PpTechnicalGroup,
+		t.PpGovGroup,
+		t.TreasuryWithdrawal,
+	}
+	thresholds := make([]*utxorpc.RationalNumber, len(rats))
+	allPopulated := true
+	for i, r := range rats {
+		rn, err := ratToUtxorpcRationalNumber(r)
+		if err != nil {
+			return nil, fmt.Errorf("threshold %d: %w", i, err)
+		}
+		if rn == nil {
+			allPopulated = false
+			continue
+		}
+		thresholds[i] = rn
+	}
+	if !allPopulated {
+		return nil, nil
+	}
+	return &utxorpc.VotingThresholds{Thresholds: thresholds}, nil
 }
 
 func (p *ConwayProtocolParameters) Update(
