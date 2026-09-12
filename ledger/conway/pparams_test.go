@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"math"
 	"math/big"
+	"math/bits"
 	"reflect"
 	"strings"
 	"testing"
@@ -1089,8 +1090,17 @@ func TestConwayUtxorpc_MinCommitteeSizeOutOfRangeRejected(t *testing.T) {
 	})
 
 	t.Run("beyond uint32 range", func(t *testing.T) {
+		if bits.UintSize <= 32 {
+			// uint(1) << 32 as a constant overflows a 32-bit uint at
+			// compile time (breaks the build on 386, not just this
+			// test), and uint itself cannot hold a value beyond
+			// uint32's range on such a build in the first place -- so
+			// there is nothing this subtest can exercise there.
+			t.Skip("uint cannot exceed uint32 range on a 32-bit build")
+		}
 		params := base
-		params.MinCommitteeSize = uint(1) << 32
+		var beyondUint32 uint64 = 1 << 32
+		params.MinCommitteeSize = uint(beyondUint32)
 		_, err := params.Utxorpc()
 		require.Error(t, err)
 	})
