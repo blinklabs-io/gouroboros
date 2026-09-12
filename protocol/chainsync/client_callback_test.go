@@ -30,8 +30,8 @@ import (
 )
 
 func TestExactTipCallbacksExposeIntersectionBeforeAwaitReply(t *testing.T) {
-	intersect := pcommon.NewPoint(100, []byte("intersection"))
-	tip := Tip{Point: pcommon.NewPoint(100, []byte("tip")), BlockNumber: 10}
+	intersect := pcommon.NewPoint(100, testPointHash(0x01))
+	tip := Tip{Point: pcommon.NewPoint(100, testPointHash(0x02)), BlockNumber: 10}
 	var callbacks []string
 	client := NewClient(
 		protocol.ProtocolOptions{ConnectionId: testConnectionId()},
@@ -64,8 +64,8 @@ func TestExactTipCallbacksExposeIntersectionBeforeAwaitReply(t *testing.T) {
 func TestAtTipCallbackErrorsPropagate(t *testing.T) {
 	awaitReplyErr := errors.New("await reply callback failed")
 	intersectFoundErr := errors.New("intersect found callback failed")
-	intersect := pcommon.NewPoint(100, []byte("intersection"))
-	tip := Tip{Point: pcommon.NewPoint(100, []byte("tip")), BlockNumber: 10}
+	intersect := pcommon.NewPoint(100, testPointHash(0x01))
+	tip := Tip{Point: pcommon.NewPoint(100, testPointHash(0x02)), BlockNumber: 10}
 
 	t.Run("await reply", func(t *testing.T) {
 		client := NewClient(

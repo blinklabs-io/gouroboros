@@ -95,7 +95,7 @@ func TestUnconfiguredBlockResponderAnswersAbsence(t *testing.T) {
 		{
 			name: "block",
 			request: NewMsgBlockRequest(
-				pcommon.NewPoint(12345, []byte{0x01, 0x02}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
 			),
 			expectedType:    uint(MessageTypeNoBlock),
 			expectedPayload: []byte{0x81, MessageTypeNoBlock},
@@ -103,7 +103,7 @@ func TestUnconfiguredBlockResponderAnswersAbsence(t *testing.T) {
 		{
 			name: "block transactions",
 			request: NewMsgBlockTxsRequest(
-				pcommon.NewPoint(12345, []byte{0x01, 0x02}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
 				nil,
 			),
 			expectedType:    uint(MessageTypeNoBlockTxs),
@@ -147,7 +147,7 @@ func TestUnconfiguredBlockResponderAnswersAbsenceNilConfig(t *testing.T) {
 	})
 
 	requestData, err := cbor.Encode(
-		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
+		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, testPointHash(0x01)), nil),
 	)
 	require.NoError(t, err)
 	writeLeiosFetchTestSegment(
@@ -198,8 +198,8 @@ func TestUnconfiguredBlockRangeResponderFailsConnection(t *testing.T) {
 
 	requestData, err := cbor.Encode(
 		NewMsgBlockRangeRequest(
-			pcommon.NewPoint(12345, []byte{0x01, 0x02}),
-			pcommon.NewPoint(23456, []byte{0x03, 0x04}),
+			pcommon.NewPoint(12345, testPointHash(0x01)),
+			pcommon.NewPoint(23456, testPointHash(0x03)),
 		),
 	)
 	require.NoError(t, err)
@@ -338,7 +338,7 @@ func TestHandleBlockRequest_CallbackIsCalled(t *testing.T) {
 
 	called := false
 	expectedSlot := uint64(12345)
-	expectedHash := []byte{0x01, 0x02, 0x03, 0x04}
+	expectedHash := testPointHash(0x01)
 
 	cfg := NewConfig(
 		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
@@ -368,7 +368,7 @@ func TestHandleBlockRequest_NilCallback(t *testing.T) {
 	msgType, payload := sendNotFoundTest(
 		t,
 		NewConfig(),
-		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+		NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01))),
 	)
 	require.Equal(t, uint(MessageTypeNoBlock), msgType)
 	require.Equal(t, []byte{0x81, MessageTypeNoBlock}, payload)
@@ -393,7 +393,7 @@ func TestHandleBlockRequest_CallbackError(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
+	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01)))
 	err := server.handleBlockRequest(msg)
 
 	assert.Error(t, err)
@@ -418,7 +418,7 @@ func TestHandleBlockRequest_NilResponse(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
+	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01)))
 	err := server.handleBlockRequest(msg)
 
 	assert.Error(t, err)
@@ -434,7 +434,7 @@ func TestHandleBlockRequestNotFoundSendsMsgNoBlock(t *testing.T) {
 	msgType, _ := sendNotFoundTest(
 		t,
 		cfg,
-		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+		NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01))),
 	)
 	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
 }
@@ -452,7 +452,7 @@ func TestHandleBlockRequestWrappedNotFoundSendsMsgNoBlock(t *testing.T) {
 	msgType, _ := sendNotFoundTest(
 		t,
 		cfg,
-		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+		NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01))),
 	)
 	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
 }
@@ -466,7 +466,7 @@ func TestHandleBlockTxsRequestNotFoundSendsMsgNoBlockTxs(t *testing.T) {
 	msgType, _ := sendNotFoundTest(
 		t,
 		cfg,
-		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
+		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, testPointHash(0x01)), nil),
 	)
 	require.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
 }
@@ -490,7 +490,7 @@ func TestHandleBlockRequest_NonNotFoundErrorPropagates(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
+	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01)))
 	err := server.handleBlockRequest(msg)
 
 	// A non-not-found error is still propagated as a protocol violation
@@ -506,7 +506,7 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 
 	called := false
 	expectedSlot := uint64(12345)
-	expectedHash := []byte{0x01, 0x02, 0x03, 0x04}
+	expectedHash := testPointHash(0x01)
 	expectedBitmaps := map[uint16]uint64{
 		0: 0xff00000000000000,
 	}
@@ -540,7 +540,7 @@ func TestHandleBlockTxsRequest_NilCallback(t *testing.T) {
 	msgType, payload := sendNotFoundTest(
 		t,
 		NewConfig(),
-		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
+		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, testPointHash(0x01)), nil),
 	)
 	require.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
 	require.Equal(t, []byte{0x81, MessageTypeNoBlockTxs}, payload)
@@ -594,8 +594,8 @@ func TestHandleBlockRangeRequest_Callback(t *testing.T) {
 	}
 
 	called := false
-	expectedStart := pcommon.NewPoint(100, []byte{0x01, 0x02, 0x03, 0x04})
-	expectedEnd := pcommon.NewPoint(200, []byte{0x05, 0x06, 0x07, 0x08})
+	expectedStart := pcommon.NewPoint(100, testPointHash(0x01))
+	expectedEnd := pcommon.NewPoint(200, testPointHash(0x05))
 
 	cfg := NewConfig(
 		WithBlockRangeRequestFunc(func(ctx CallbackContext, start, end pcommon.Point) error {
@@ -685,11 +685,11 @@ func TestServerMessageHandler_AllTypes(t *testing.T) {
 	}{
 		{
 			name: "BlockRequest",
-			msg:  NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+			msg:  NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01))),
 		},
 		{
 			name: "BlockTxsRequest",
-			msg:  NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
+			msg:  NewMsgBlockTxsRequest(pcommon.NewPoint(12345, testPointHash(0x01)), nil),
 		},
 		{
 			name: "VotesRequest",

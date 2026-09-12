@@ -67,7 +67,7 @@ func TestLogRollForwardDoesNotLogBlockData(t *testing.T) {
 	tip := Tip{
 		Point: pcommon.Point{
 			Slot: 42,
-			Hash: []byte{0xca, 0xfe},
+			Hash: testPointHash(0xca),
 		},
 		BlockNumber: 24,
 	}

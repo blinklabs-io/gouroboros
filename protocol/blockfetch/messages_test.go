@@ -34,15 +34,15 @@ type testDefinition struct {
 
 var tests = []testDefinition{
 	{
-		CborHex: "830082187b480102030405060708821901c848090a0b0c0d0e0f10",
+		CborHex: "830082187b58200101010101010101010101010101010101010101010101010101010101010101821901c858200909090909090909090909090909090909090909090909090909090909090909",
 		Message: NewMsgRequestRange(
 			pcommon.NewPoint(
 				123,
-				[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+				testPointHash(0x01),
 			),
 			pcommon.NewPoint(
 				456,
-				[]byte{0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+				testPointHash(0x09),
 			),
 		),
 		MessageType: MessageTypeRequestRange,

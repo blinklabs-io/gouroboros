@@ -24,7 +24,6 @@ import (
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
@@ -153,7 +152,7 @@ func TestGetCurrentTip(t *testing.T) {
 		BlockNumber: 12345,
 		Point: pcommon.NewPoint(
 			23456,
-			test.DecodeHexString("0123456789abcdef"),
+			testPointHash(0x01),
 		),
 	}
 	conversation := append(
@@ -191,13 +190,13 @@ func TestGetCurrentTip(t *testing.T) {
 func TestGetAvailableBlockRange(t *testing.T) {
 	expectedIntersect := pcommon.NewPoint(
 		20001,
-		test.DecodeHexString("123456789abcdef0"),
+		testPointHash(0x12),
 	)
 	expectedTip := chainsync.Tip{
 		BlockNumber: 12345,
 		Point: pcommon.NewPoint(
 			23456,
-			test.DecodeHexString("0123456789abcdef"),
+			testPointHash(0x01),
 		),
 	}
 	// Create basic block and round-trip it through the CBOR encoder to get the hash populated
@@ -332,14 +331,14 @@ func TestUseCase_GetCurrentTip_Stop_Start_GetCurrentTip(t *testing.T) {
 		BlockNumber: 111,
 		Point: pcommon.NewPoint(
 			222,
-			test.DecodeHexString("0123456789abcdef"),
+			testPointHash(0x01),
 		),
 	}
 	expectedTip2 := chainsync.Tip{
 		BlockNumber: 333,
 		Point: pcommon.NewPoint(
 			444,
-			test.DecodeHexString("fedcba9876543210"),
+			testPointHash(0xfe),
 		),
 	}
 	conversation := []ouroboros_mock.ConversationEntry{
@@ -427,7 +426,7 @@ func TestSyncPipelining(t *testing.T) {
 
 	expectedIntersect := pcommon.NewPoint(
 		0,
-		test.DecodeHexString("0000000000000000"),
+		testPointHash(0x00),
 	)
 
 	// Create test blocks
@@ -636,13 +635,13 @@ func TestSyncPipelining(t *testing.T) {
 func TestSyncCallbacksExposeExactTipIntersection(t *testing.T) {
 	intersect := pcommon.NewPoint(
 		100,
-		test.DecodeHexString("0102030405060708"),
+		testPointHash(0x01),
 	)
 	tip := chainsync.Tip{
 		BlockNumber: 10,
 		Point: pcommon.NewPoint(
 			100,
-			test.DecodeHexString("1112131415161718"),
+			testPointHash(0x11),
 		),
 	}
 	conversation := append(
@@ -737,21 +736,21 @@ func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 		BlockNumber: 1,
 		Point: pcommon.NewPoint(
 			10,
-			test.DecodeHexString("0102030405060708"),
+			testPointHash(0x01),
 		),
 	}
 	expectedTip2 := chainsync.Tip{
 		BlockNumber: 2,
 		Point: pcommon.NewPoint(
 			20,
-			test.DecodeHexString("1112131415161718"),
+			testPointHash(0x11),
 		),
 	}
 	expectedTip3 := chainsync.Tip{
 		BlockNumber: 3,
 		Point: pcommon.NewPoint(
 			30,
-			test.DecodeHexString("2122232425262728"),
+			testPointHash(0x21),
 		),
 	}
 
