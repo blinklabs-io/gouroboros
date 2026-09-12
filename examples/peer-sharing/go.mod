@@ -1,8 +1,6 @@
 module github.com/blinklabs-io/gouroboros/examples/peer-sharing
 
-go 1.25.7
-
-toolchain go1.25.8
+go 1.26.5
 
 require (
 	github.com/blinklabs-io/gouroboros v0.0.0
@@ -12,7 +10,7 @@ require (
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/bits-and-blooms/bitset v1.24.6 // indirect
-	github.com/blinklabs-io/plutigo v0.5.0 // indirect
+	github.com/blinklabs-io/plutigo v0.5.1 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0 // indirect
 	github.com/btcsuite/btcd/btcutil v1.2.0 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0 // indirect
@@ -26,7 +24,7 @@ require (
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/utxorpc/go-codegen v0.19.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
