@@ -1,20 +1,18 @@
 module github.com/blinklabs-io/gouroboros
 
-go 1.25.7
-
-toolchain go1.25.8
+go 1.26.5
 
 require (
 	filippo.io/edwards25519 v1.2.0
-	github.com/blinklabs-io/ouroboros-mock v0.19.0
-	github.com/blinklabs-io/plutigo v0.5.0
+	github.com/blinklabs-io/ouroboros-mock v0.19.1-0.20260912142638-f7ba750ec5ac
+	github.com/blinklabs-io/plutigo v0.5.1
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/fxamacker/cbor/v2 v2.9.3
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.12.1
 	github.com/utxorpc/go-codegen v0.19.2
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	google.golang.org/protobuf v1.36.12
 )
 
