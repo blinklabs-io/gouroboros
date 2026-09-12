@@ -69,6 +69,20 @@ func mustEncodeSet(t *testing.T, items ...[]any) cbor.RawMessage {
 	return cbor.RawMessage(b)
 }
 
+// mustEncodeTaggedSet CBOR-encodes items as a definite list under the given
+// tag. cardano-ledger's dropSet requires the tag wrapper but drops its number.
+func mustEncodeTaggedSet(
+	t *testing.T,
+	tagNumber uint64,
+	items ...[]any,
+) cbor.RawMessage {
+	t.Helper()
+	tag := cbor.Tag{Number: tagNumber, Content: items}
+	b, err := cbor.Encode(tag)
+	require.NoError(t, err)
+	return cbor.RawMessage(b)
+}
+
 // mustEncodeUntaggedArray CBOR-encodes items as a plain, untagged array --
 // the shape decodeIdentitySet must reject for ssccomms/ssccerts, which are
 // always tag-258 sets on the real Byron wire, never a bare array.
@@ -83,21 +97,34 @@ func mustEncodeUntaggedArray(t *testing.T, items ...[]any) cbor.RawMessage {
 	return cbor.RawMessage(b)
 }
 
-// sscCommEntry builds an ssccomm entry: [pubkey, ..., signature]. Only the
-// pubkey field (index 0) is ever interpreted by decodeIdentitySet; the rest
-// only needs to be valid CBOR distinguishing one entry from another.
+// sscCommEntry builds an ssccomm entry with the complete wire shape required
+// by cardano-ledger's dropSignedCommitment decoder.
 func sscCommEntry(pubkey []byte, tag string) []any {
-	return []any{pubkey, tag + "-shares", tag + "-sig"}
+	return []any{
+		pubkey,
+		[]any{
+			map[cbor.ByteString]any{
+				cbor.NewByteString([]byte(tag + "-vss-key")): cbor.IndefLengthList{
+					[]byte(tag + "-share"),
+				},
+			},
+			[]any{
+				[]byte(tag + "-extra-gen"),
+				[]byte(tag + "-proof"),
+				[]byte(tag + "-parallel-proof"),
+				cbor.IndefLengthList{[]byte(tag + "-commitment")},
+			},
+		},
+		[]byte(tag + "-sig"),
+	}
 }
 
 // sscCertEntry builds an ssccert entry: [vsspubkey, epochid, signature,
-// pubkey]. Only the pubkey field (index 3) is ever interpreted by
-// decodeIdentitySet -- see certificatePubkeyFieldIndex's doc comment for
-// why this field order, confirmed against real mainnet data, differs from
-// cardano-ledger's own published (but apparently incorrect, for this one
-// field) Byron CDDL comment.
+// pubkey], with each field using the shape required by dropVssCertificate.
 func sscCertEntry(pubkey []byte, tag string) []any {
-	return []any{tag + "-vsspubkey", uint64(0), tag + "-sig", pubkey}
+	return []any{
+		[]byte(tag + "-vsspubkey"), uint64(0), []byte(tag + "-sig"), pubkey,
+	}
 }
 
 // toStakeholderCborMap builds a real CBOR map keyed by 28-byte IDs, matching
@@ -662,7 +689,38 @@ func TestByronEpochSscStateRejectsProofPayloadTypeMismatch(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mismatchedBlock.ValidateBodyProof()
+	require.NoError(
+		t, mismatchedBlock.ValidateBodyProof(),
+		"dropSscProof and dropSscPayload never compare their tags, so a "+
+			"type mismatch must not fail the decode",
+	)
+
+	err = mismatchedBlock.ValidateSscProof()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+}
+
+// TestByronEpochSscStateRejectsUnknownPayloadType keeps the payload
+// discriminant in the same 0-3 range as cardano-ledger's dropSscPayload.
+func TestByronEpochSscStateRejectsUnknownPayloadType(t *testing.T) {
+	comms := mustEncodeSet(t, sscCommEntry(sscPubkey(0xa1), "unknown-type"))
+	certs := mustEncodeSet(t, sscCertEntry(sscPubkey(0xa2), "unknown-type"))
+	payload, err := cbor.Encode([]any{uint64(4), comms, certs})
+	require.NoError(t, err)
+	proof := mustEncode(t, []any{
+		uint64(byron.SscTypeCommitments),
+		make([]byte, common.Blake2b256Size),
+		make([]byte, common.Blake2b256Size),
+	})
+	blockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), payload, proof,
+	)
+	block, err := byron.NewByronMainBlockFromCbor(
+		blockCbor, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+
+	err = block.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
@@ -709,6 +767,10 @@ func TestByronEpochSscStateRejectsUntaggedCertificateSet(t *testing.T) {
 	require.NoError(t, err)
 
 	err = block.ValidateBodyProof()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+
+	err = block.ValidateSscProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
@@ -800,10 +862,14 @@ func TestByronEpochSscStateRejectsUntaggedCommitmentsSet(t *testing.T) {
 	require.NoError(t, err)
 
 	err = forgedBlock.ValidateBodyProof()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+
+	err = forgedBlock.ValidateSscProof()
 	require.Error(
 		t, err,
-		"ValidateBodyProof must reject an untagged commitments field even "+
-			"when the header's ssc_proof hash genuinely matches it",
+		"ValidateSscProof must reject an untagged commitments field "+
+			"even when the header's ssc_proof hash genuinely matches it",
 	)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
@@ -881,10 +947,14 @@ func TestByronEpochSscStateRejectsNonMapOpeningsField(t *testing.T) {
 	require.NoError(t, err)
 
 	err = forgedBlock.ValidateBodyProof()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+
+	err = forgedBlock.ValidateSscProof()
 	require.Error(
 		t, err,
-		"ValidateBodyProof must reject a non-map openings field even when "+
-			"the header's ssc_proof hash genuinely matches it",
+		"ValidateSscProof must reject a non-map openings field even "+
+			"when the header's ssc_proof hash genuinely matches it",
 	)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }

@@ -1275,7 +1275,7 @@ func TestByronBlockSignatureFormats(t *testing.T) {
 		EpochSlot: struct {
 			cbor.StructAsArray
 			Epoch uint64
-			Slot  uint16
+			Slot  uint64
 		}{
 			Epoch: header.ConsensusData.SlotId.Epoch,
 			Slot:  header.ConsensusData.SlotId.Slot,
@@ -1291,7 +1291,7 @@ func TestByronBlockSignatureFormats(t *testing.T) {
 			BlockVersion    byron.ByronBlockVersion
 			SoftwareVersion byron.ByronSoftwareVersion
 			Attributes      any
-			ExtraProof      common.Blake2b256
+			ExtraProof      []byte
 		}{
 			BlockVersion:    header.ExtraData.BlockVersion,
 			SoftwareVersion: header.ExtraData.SoftwareVersion,

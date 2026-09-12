@@ -128,51 +128,224 @@ func TestByronMainBlockOptInRejectsHashMismatch(t *testing.T) {
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
 
-// TestByronMainBlockValidateSscProofShapeRejectsMalformedShape directly
+// TestByronMainBlockValidateSscProofShapeMatchesDropSscProof directly
 // exercises ValidateSscProofShape (rather than going through the top-level
-// ValidateBodyProof, as TestByronEpochSscStateRejectsUntaggedCommitmentsSet
-// already does) to confirm it, alone, still rejects a structurally-invalid
-// payload -- a plain, untagged CBOR array in place of the required tag-258
-// commitments set -- under the default/no-config path. This pins down that
-// the "shape is always checked" claim in ValidateBodyProof's and
-// ValidateSscProofShape's doc comments is genuinely backed by a test that
-// calls ValidateSscProofShape itself, not only indirectly through a
-// higher-level function that might stop delegating to it in the future
-// without any test noticing.
-func TestByronMainBlockValidateSscProofShapeRejectsMalformedShape(
+// ValidateBodyProof) to pin the proof and separately decoded payload
+// boundaries to cardano-ledger's dropSscProof/dropSscPayload.
+func TestByronMainBlockValidateSscProofShapeMatchesDropSscProof(
 	t *testing.T,
 ) {
 	pubkey := sscPubkey(0xc3)
 	certPubkey := sscPubkey(0xd4)
-	untaggedComms := mustEncodeUntaggedArray(
-		t, sscCommEntry(pubkey, "commitment-shape-untagged"),
-	)
+	comms := mustEncodeSet(t, sscCommEntry(pubkey, "commitment-shape"))
 	certs := mustEncodeSet(t, sscCertEntry(certPubkey, "cert-shape-d4"))
-	payload := encodeSscCommitmentsPayload(t, untaggedComms, certs)
+	payload := encodeSscCommitmentsPayload(t, comms, certs)
 
-	// Placeholder proof: this test is about ValidateSscProofShape's
-	// wire-shape check, which never compares hash values, so the proof's
-	// actual hash bytes are irrelevant -- only its structural shape (type,
-	// element count) needs to be internally consistent.
-	placeholderProof, err := cbor.Encode([]any{
-		uint64(byron.SscTypeCommitments),
-		make([]byte, common.Blake2b256Size),
-		make([]byte, common.Blake2b256Size),
+	shapeErr := func(t *testing.T, proof []any) error {
+		t.Helper()
+		encodedProof, err := cbor.Encode(proof)
+		require.NoError(t, err)
+		tampered := withSscPayloadAndProof(
+			t, mainnetByronBlock(t), payload, encodedProof,
+		)
+		block, err := byron.NewByronMainBlockFromCbor(
+			tampered, common.VerifyConfig{SkipBodyHashValidation: true},
+		)
+		require.NoError(t, err)
+		return block.ValidateSscProofShape()
+	}
+
+	t.Run("untagged commitments set", func(t *testing.T) {
+		untaggedComms := mustEncodeUntaggedArray(
+			t, sscCommEntry(pubkey, "commitment-shape-untagged"),
+		)
+		payload = encodeSscCommitmentsPayload(t, untaggedComms, certs)
+		err := shapeErr(t, []any{
+			uint64(byron.SscTypeCommitments),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 	})
-	require.NoError(t, err)
 
-	tampered := withSscPayloadAndProof(
-		t, mainnetByronBlock(t), payload, placeholderProof,
-	)
-	block, err := byron.NewByronMainBlockFromCbor(
-		tampered, common.VerifyConfig{SkipBodyHashValidation: true},
-	)
-	require.NoError(t, err)
+	t.Run("alternate set tag number", func(t *testing.T) {
+		alternateTagComms := mustEncodeTaggedSet(
+			t, 42, sscCommEntry(pubkey, "commitment-shape-alternate-tag"),
+		)
+		payload = encodeSscCommitmentsPayload(t, alternateTagComms, certs)
+		require.NoError(t, shapeErr(t, []any{
+			uint64(byron.SscTypeCommitments),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		}))
+	})
 
-	err = block.ValidateSscProofShape()
-	require.Error(
-		t, err,
-		"ValidateSscProofShape must reject an untagged commitments field",
-	)
-	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	t.Run("commitments field is a byte string", func(t *testing.T) {
+		payload = encodeSscCommitmentsPayload(
+			t, mustEncode(t, []byte("not-a-set")), certs,
+		)
+		err := shapeErr(t, []any{
+			uint64(byron.SscTypeCommitments),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	})
+
+	t.Run("short certificate entry", func(t *testing.T) {
+		shortCerts := mustEncodeSet(t, []any{[]byte("vss"), uint64(0)})
+		payload = encodeSscCommitmentsPayload(t, comms, shortCerts)
+		err := shapeErr(t, []any{
+			uint64(byron.SscTypeCommitments),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	})
+
+	t.Run("commitment share list must be indefinite", func(t *testing.T) {
+		malformedCommitment := []any{
+			pubkey,
+			[]any{
+				map[cbor.ByteString]any{
+					cbor.NewByteString([]byte("vss-key")): []any{
+						[]byte("share"),
+					},
+				},
+				[]any{
+					[]byte("extra-gen"),
+					[]byte("proof"),
+					[]byte("parallel-proof"),
+					cbor.IndefLengthList{[]byte("commitment")},
+				},
+			},
+			[]byte("signature"),
+		}
+		payload = encodeSscCommitmentsPayload(
+			t, mustEncodeSet(t, malformedCommitment), certs,
+		)
+		err := shapeErr(t, []any{
+			uint64(byron.SscTypeCommitments),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	})
+
+	t.Run("opening values must be byte strings", func(t *testing.T) {
+		openings := mustEncode(t, map[cbor.ByteString]any{
+			cbor.NewByteString([]byte("stakeholder")): []any{uint64(1)},
+		})
+		encodedPayload, err := cbor.Encode([]any{
+			uint64(byron.SscTypeOpenings), openings, certs,
+		})
+		require.NoError(t, err)
+		payload = encodedPayload
+		err = shapeErr(t, []any{
+			uint64(byron.SscTypeOpenings),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	})
+
+	t.Run("share lists must be indefinite", func(t *testing.T) {
+		shares := mustEncode(t, map[cbor.ByteString]any{
+			cbor.NewByteString([]byte("stakeholder")): map[cbor.ByteString]any{
+				cbor.NewByteString([]byte("recipient")): []any{
+					[]byte("share"),
+				},
+			},
+		})
+		encodedPayload, err := cbor.Encode([]any{
+			uint64(byron.SscTypeShares), shares, certs,
+		})
+		require.NoError(t, err)
+		payload = encodedPayload
+		err = shapeErr(t, []any{
+			uint64(byron.SscTypeShares),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	})
+
+	t.Run("top-level payload list must be definite", func(t *testing.T) {
+		encodedPayload, err := cbor.Encode(cbor.IndefLengthList{
+			uint64(byron.SscTypeCommitments), comms, certs,
+		})
+		require.NoError(t, err)
+		payload = encodedPayload
+		err = shapeErr(t, []any{
+			uint64(byron.SscTypeCommitments),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	})
+
+	t.Run("duplicate opening keys remain decodable", func(t *testing.T) {
+		duplicateOpenings := cbor.RawMessage{
+			0xa2,
+			0x41, 0xaa, 0x41, 0xbb,
+			0x41, 0xaa, 0x41, 0xcc,
+		}
+		encodedPayload, err := cbor.Encode([]any{
+			uint64(byron.SscTypeOpenings), duplicateOpenings, certs,
+		})
+		require.NoError(t, err)
+		payload = encodedPayload
+		require.NoError(t, shapeErr(t, []any{
+			uint64(byron.SscTypeOpenings),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		}))
+	})
+
+	t.Run("short hash slots", func(t *testing.T) {
+		payload = encodeSscCommitmentsPayload(t, comms, certs)
+		require.NoError(t, shapeErr(t, []any{
+			uint64(byron.SscTypeCommitments),
+			make([]byte, common.Blake2b256Size-1),
+			[]byte{},
+		}))
+	})
+
+	t.Run("hash slot is not a byte string", func(t *testing.T) {
+		err := shapeErr(t, []any{
+			uint64(byron.SscTypeCommitments),
+			uint64(0),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	})
+
+	t.Run("wrong element count for tag", func(t *testing.T) {
+		err := shapeErr(t, []any{
+			uint64(byron.SscTypeCommitments),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	})
+
+	t.Run("unknown tag", func(t *testing.T) {
+		err := shapeErr(t, []any{
+			uint64(4),
+			make([]byte, common.Blake2b256Size),
+			make([]byte, common.Blake2b256Size),
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	})
 }
