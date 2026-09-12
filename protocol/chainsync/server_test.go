@@ -108,3 +108,37 @@ func TestRollForwardNtNRejectsUnknownBlockType(t *testing.T) {
 
 	require.EqualError(t, err, "unknown block type: 999")
 }
+
+func TestNewServerPropagatesConnectionDoneChan(t *testing.T) {
+	done := make(chan any)
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId:       testConnectionId(),
+			ConnectionDoneChan: done,
+		},
+		nil,
+	)
+	close(done)
+	select {
+	case <-server.callbackContext.ConnectionDoneChan:
+	default:
+		t.Fatal("connection lifecycle channel did not close")
+	}
+}
+
+func TestNewClientPropagatesConnectionDoneChan(t *testing.T) {
+	done := make(chan any)
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId:       testConnectionId(),
+			ConnectionDoneChan: done,
+		},
+		nil,
+	)
+	close(done)
+	select {
+	case <-client.callbackContext.ConnectionDoneChan:
+	default:
+		t.Fatal("connection lifecycle channel did not close")
+	}
+}

@@ -49,11 +49,6 @@ const (
 	BlockHeaderTypeDijkstra = 7
 
 	TxTypeDijkstra = 7
-
-	// MaxTxSize is the decode-time Dijkstra transaction CBOR limit. It
-	// mirrors the current Cardano max_tx_size until protocol parameters are
-	// available for validation.
-	MaxTxSize = 16 * 1024
 )
 
 var EraDijkstra = common.Era{
@@ -88,15 +83,18 @@ func (b *DijkstraBlock) UnmarshalCBOR(cborData []byte) error {
 			len(items),
 		)
 	}
-	var header DijkstraBlockHeader
+	var header *DijkstraBlockHeader
 	if _, err := cbor.Decode(items[0], &header); err != nil {
 		return fmt.Errorf("decode Dijkstra block header: %w", err)
+	}
+	if header == nil {
+		return errors.New("dijkstra block header is nil")
 	}
 	var body DijkstraBlockBody
 	if _, err := cbor.Decode(items[1], &body); err != nil {
 		return fmt.Errorf("decode Dijkstra block body: %w", err)
 	}
-	b.BlockHeader = &header
+	b.BlockHeader = header
 	b.BlockBody = body
 	b.SetCbor(cborData)
 	return nil
@@ -912,6 +910,14 @@ func (b *DijkstraTransactionBody) RequiredSigners() []common.Blake2b224 {
 	return dijkstraRequiredSigners(b.TxGuards)
 }
 
+// GuardingCredentials exposes this body's guards to the shared script-purpose
+// walk. It is defined on the body rather than only on the transaction so a
+// sub-transaction body, which is never a standalone Transaction, contributes
+// its own guards and only its own.
+func (b *DijkstraTransactionBody) GuardingCredentials() []common.Credential {
+	return dijkstraGuardingCredentials(b.TxGuards)
+}
+
 func (b *DijkstraTransactionBody) ScriptDataHash() *common.Blake2b256 {
 	return b.TxScriptDataHash
 }
@@ -1007,6 +1013,19 @@ func dijkstraWithdrawals(
 		ret[addr] = new(big.Int).SetUint64(amount)
 	}
 	return ret
+}
+
+// dijkstraGuardingCredentials returns the guard credentials that define
+// guarding script purposes. cardano-ledger's getDijkstraScriptsNeeded adds one
+// guarding purpose per guard whose credential is a script hash
+// (eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/UTxO.hs); key-hash guards
+// contribute required signers instead, which dijkstraRequiredSigners handles.
+// The whole list is returned because the purpose index is a position in it.
+func dijkstraGuardingCredentials(guards *DijkstraGuards) []common.Credential {
+	if guards == nil {
+		return nil
+	}
+	return guards.Credentials
 }
 
 func dijkstraRequiredSigners(guards *DijkstraGuards) []common.Blake2b224 {
@@ -1192,6 +1211,12 @@ func (b *DijkstraSubTransactionBody) AssetMint() *common.MultiAsset[common.Multi
 
 func (b *DijkstraSubTransactionBody) RequiredSigners() []common.Blake2b224 {
 	return dijkstraRequiredSigners(b.TxGuards)
+}
+
+// GuardingCredentials exposes this sub-transaction's own guards. See the
+// comment on DijkstraTransactionBody.GuardingCredentials.
+func (b *DijkstraSubTransactionBody) GuardingCredentials() []common.Credential {
+	return dijkstraGuardingCredentials(b.TxGuards)
 }
 
 func (b *DijkstraSubTransactionBody) ScriptDataHash() *common.Blake2b256 {
@@ -1383,7 +1408,6 @@ func (w DijkstraTransactionWitnessSet) Redeemers() common.TransactionWitnessRede
 type DijkstraTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
 	Body       DijkstraTransactionBody
 	WitnessSet DijkstraTransactionWitnessSet
 	TxIsValid  bool
@@ -1420,12 +1444,12 @@ func (t DijkstraTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t *DijkstraTransaction) LeiosHash() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t DijkstraTransaction) Inputs() []common.TransactionInput {
@@ -1565,6 +1589,13 @@ func (t DijkstraTransaction) Produced() []common.Utxo {
 
 func (t DijkstraTransaction) Witnesses() common.TransactionWitnessSet {
 	return t.WitnessSet
+}
+
+// GuardingCredentials forwards the top-level body's guards, so a script rule
+// handed the concrete transaction sees the same guarding purposes as one
+// handed a transaction level.
+func (t DijkstraTransaction) GuardingCredentials() []common.Credential {
+	return t.Body.GuardingCredentials()
 }
 
 func (t DijkstraTransaction) SubTransactionWitnessSets() []common.TransactionWitnessSet {
@@ -1749,35 +1780,24 @@ func NewDijkstraTransactionFromCborComponents(
 	data []byte,
 	txArray []cbor.RawMessage,
 ) (*DijkstraTransaction, error) {
-	if err := validateDijkstraTransactionCborSize(data); err != nil {
-		return nil, err
-	}
 	return newDijkstraTransactionFromCborComponents(data, txArray, true)
 }
 
+// newDijkstraTransactionFromCbor applies no transaction size limit. The
+// reference decoder does not either (decodeDijkstraTopTx in
+// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Tx.hs), and no transaction
+// decoder in any era does. max_tx_size is a protocol parameter enforced by the
+// UTxO rule UtxoValidateMaxTxSizeUtxo, which is registered for Dijkstra in
+// rules.go.
 func newDijkstraTransactionFromCbor(
 	data []byte,
 	allowIsValid bool,
 ) (*DijkstraTransaction, error) {
-	if err := validateDijkstraTransactionCborSize(data); err != nil {
-		return nil, err
-	}
 	var txArray []cbor.RawMessage
 	if _, err := cbor.Decode(data, &txArray); err != nil {
 		return nil, err
 	}
 	return newDijkstraTransactionFromCborComponents(data, txArray, allowIsValid)
-}
-
-func validateDijkstraTransactionCborSize(data []byte) error {
-	if len(data) <= MaxTxSize {
-		return nil
-	}
-	return fmt.Errorf(
-		"newDijkstraTransactionFromCbor: transaction size %d exceeds MaxTxSize %d",
-		len(data),
-		MaxTxSize,
-	)
 }
 
 func newDijkstraTransactionFromCborComponents(

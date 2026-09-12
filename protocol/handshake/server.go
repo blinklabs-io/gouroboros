@@ -64,6 +64,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        statePropose,
+		InitialStateTimeout: protoOptions.Mode == protocol.ProtocolModeNodeToNode,
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
@@ -99,6 +100,8 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	}
 	msgProposeVersions := msg.(*MsgProposeVersions)
 
+	// Query and refusal responses must reach the transport before returning
+	// a terminal error, which stops the protocol and can discard queued sends.
 	for proposedVersion, versionDataCbor := range msgProposeVersions.VersionMap {
 		versionInfo := protocol.GetProtocolVersion(proposedVersion)
 		if versionInfo.NewVersionDataFromCborFunc != nil {
@@ -108,7 +111,7 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			if err == nil && proposedVersionData != nil &&
 				proposedVersionData.Query() {
 				msgQueryReply := NewMsgQueryReply(s.config.ProtocolVersionMap)
-				if err := s.SendMessage(msgQueryReply); err != nil {
+				if err := s.SendMessageAndWait(msgQueryReply); err != nil {
 					return err
 				}
 				return errors.New(
@@ -141,7 +144,7 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 				supportedVersions,
 			},
 		)
-		if err := s.SendMessage(msgRefuse); err != nil {
+		if err := s.SendMessageAndWait(msgRefuse); err != nil {
 			return err
 		}
 		return errors.New("handshake failed: refused due to version mismatch")
@@ -161,12 +164,10 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			[]any{
 				RefuseReasonDecodeError,
 				proposedVersion,
-				errors.New(
-					"handshake failed: refused due to empty version data",
-				),
+				"handshake failed: refused due to empty version data",
 			},
 		)
-		if err := s.SendMessage(msgRefuse); err != nil {
+		if err := s.SendMessageAndWait(msgRefuse); err != nil {
 			return err
 		}
 		return errors.New("handshake failed: refused due to empty version data")
@@ -182,7 +183,7 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 				err.Error(),
 			},
 		)
-		if err := s.SendMessage(msgRefuse); err != nil {
+		if err := s.SendMessageAndWait(msgRefuse); err != nil {
 			return err
 		}
 		return fmt.Errorf(
@@ -195,12 +196,10 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			[]any{
 				RefuseReasonDecodeError,
 				proposedVersion,
-				errors.New(
-					"handshake failed: refused due to empty version map",
-				),
+				"handshake failed: refused due to empty version map",
 			},
 		)
-		if err := s.SendMessage(msgRefuse); err != nil {
+		if err := s.SendMessageAndWait(msgRefuse); err != nil {
 			return err
 		}
 		return errors.New("handshake failed: refused due to empty version map")
@@ -216,7 +215,7 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 				errMsg,
 			},
 		)
-		if err := s.SendMessage(msgRefuse); err != nil {
+		if err := s.SendMessageAndWait(msgRefuse); err != nil {
 			return err
 		}
 		return fmt.Errorf(

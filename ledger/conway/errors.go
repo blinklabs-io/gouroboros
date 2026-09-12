@@ -49,18 +49,7 @@ type (
 	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
 )
 
-type WrongTransactionNetworkIdError struct {
-	TxNetworkId     uint8
-	LedgerNetworkId uint
-}
-
-func (e WrongTransactionNetworkIdError) Error() string {
-	return fmt.Sprintf(
-		"wrong transaction network ID: transaction has %d, ledger expects %d",
-		e.TxNetworkId,
-		e.LedgerNetworkId,
-	)
-}
+type WrongTransactionNetworkIdError = common.WrongTransactionNetworkIdError
 
 type TreasuryDonationWithPlutusV1V2Error struct {
 	Donation      uint64
@@ -425,6 +414,22 @@ type CertificateDepositStateInconsistentError struct {
 func (e CertificateDepositStateInconsistentError) Error() string {
 	return fmt.Sprintf(
 		"registered stake credential has incomplete deposit state: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// DRepDepositStateInconsistentError indicates that the ledger state reports a
+// DRep as registered but holds no deposit recorded against that registration.
+// The reference ledger's DRepState always carries a deposit, so there is no
+// refund amount a deregistration certificate could be checked against.
+type DRepDepositStateInconsistentError struct {
+	Credential common.Credential
+}
+
+func (e DRepDepositStateInconsistentError) Error() string {
+	return fmt.Sprintf(
+		"registered DRep credential has no recorded deposit: type %d hash %x",
+		e.Credential.CredType,
 		e.Credential.Credential[:],
 	)
 }

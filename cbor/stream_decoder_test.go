@@ -450,6 +450,10 @@ func TestMapInfo(t *testing.T) {
 }
 
 func TestArrayHeaderSize(t *testing.T) {
+	maxIntHeaderSize := uint32(5)
+	if bits.UintSize == 64 {
+		maxIntHeaderSize = 9
+	}
 	tests := []struct {
 		length     int
 		expectSize uint32
@@ -462,6 +466,10 @@ func TestArrayHeaderSize(t *testing.T) {
 		{256, 3},
 		{65535, 3},
 		{65536, 5},
+		// math.MaxInt scales with the platform's int width (2^31-1 on
+		// 32-bit, 2^63-1 on 64-bit), so its expected header size follows
+		// the largest length representable by that platform's int.
+		{math.MaxInt, maxIntHeaderSize},
 	}
 
 	for _, tt := range tests {

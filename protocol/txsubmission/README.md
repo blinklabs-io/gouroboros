@@ -112,8 +112,8 @@ The TxSubmission protocol propagates transactions between nodes. It uses a pull-
 |-------|-------|-------------|
 | Max Request Count | 65535 | Max transactions per request (uint16) |
 | Max Ack Count | 65535 | Max transaction acknowledgments (uint16) |
-| Default Request Limit | 1000 | Default request limit |
-| Default Ack Limit | 1000 | Default ack limit |
+| `DefaultRequestLimit` | 1000 | Exported guidance constant; not applied automatically |
+| `DefaultAckLimit` | 1000 | Exported guidance constant; not applied automatically |
 
 ## Request Parameters
 

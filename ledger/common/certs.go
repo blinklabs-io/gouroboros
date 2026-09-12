@@ -410,10 +410,77 @@ func (c *StakeDelegationCertificate) Type() uint {
 }
 
 type (
-	PoolKeyHash      = Blake2b224
-	PoolMetadataHash = Blake2b256
-	VrfKeyHash       = Blake2b256
+	PoolKeyHash = Blake2b224
+	VrfKeyHash  = Blake2b256
 )
+
+// PoolMetadataHash holds the hash bytes of a pool_metadata entry.
+//
+// The reference ledger stores the field as an unbounded byte string: pmHash in
+// libs/cardano-ledger-core/src/Cardano/Ledger/State/StakePool.hs is a
+// ByteArray, and the DecCBOR instance for PoolMetadata applies no length
+// check. The length bound belongs to the POOL rule instead
+// (PoolMedataHashTooBig in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs, gated on
+// SoftForks.restrictPoolMetadataHash), which rejects only hashes longer than
+// 32 bytes and only from protocol version 5 onwards. A fixed 32-byte type
+// would reject registrations the node accepts, so the bound is applied in
+// shelley.UtxoValidatePoolCertificates.
+type PoolMetadataHash []byte
+
+// Bytes returns the raw hash bytes.
+func (h PoolMetadataHash) Bytes() []byte {
+	return []byte(h)
+}
+
+// String returns the hex encoding of the hash bytes.
+func (h PoolMetadataHash) String() string {
+	return hex.EncodeToString(h)
+}
+
+func (h PoolMetadataHash) MarshalJSON() ([]byte, error) {
+	return json.Marshal(h.String())
+}
+
+func (h PoolMetadataHash) MarshalText() ([]byte, error) {
+	return []byte(h.String()), nil
+}
+
+func (h *PoolMetadataHash) UnmarshalText(text []byte) error {
+	decoded, err := hex.DecodeString(string(text))
+	if err != nil {
+		return err
+	}
+	*h = PoolMetadataHash(decoded)
+	return nil
+}
+
+func (h PoolMetadataHash) MarshalCBOR() ([]byte, error) {
+	// A nil value still encodes as a byte string, because
+	// pool_metadata_hash has no null alternative.
+	hashBytes := []byte(h)
+	if hashBytes == nil {
+		hashBytes = []byte{}
+	}
+	return cbor.Encode(hashBytes)
+}
+
+func (h *PoolMetadataHash) UnmarshalCBOR(cborData []byte) error {
+	if h == nil {
+		return errors.New("nil PoolMetadataHash receiver")
+	}
+	// Reject anything that is not a byte string before decoding, so a tag,
+	// an array or a text string cannot reach the hash.
+	if _, _, _, err := byteStringHeader(cborData); err != nil {
+		return fmt.Errorf("decode pool metadata hash: %w", err)
+	}
+	var decoded []byte
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		return fmt.Errorf("decode pool metadata hash: %w", err)
+	}
+	*h = PoolMetadataHash(decoded)
+	return nil
+}
 
 const (
 	LeiosBlsPublicKeySize       = 96
@@ -675,10 +742,53 @@ type PoolRegistrationCertificate struct {
 	// byte of the wire reward_account, which RewardAccount itself does not
 	// retain. rewardAccountNetworkIdKnown is false when the certificate was
 	// not decoded from a CBOR reward account carrying a header byte (a
-	// programmatically constructed certificate, one built from JSON, or the
-	// legacy 28-byte encoding).
-	rewardAccountNetworkId      uint
-	rewardAccountNetworkIdKnown bool
+	// programmatically constructed certificate or one built from JSON/genesis).
+	rewardAccountNetworkId       uint
+	rewardAccountNetworkIdKnown  bool
+	rewardAccountCredentialType  uint
+	rewardAccountCredentialKnown bool
+}
+
+// RewardAccountCredential returns the credential carried by the pool's
+// reward account. Programmatically constructed and JSON/genesis certificates
+// have no wire header and retain the historical key-hash default.
+func (c *PoolRegistrationCertificate) RewardAccountCredential() Credential {
+	cred := Credential{CredType: CredentialTypeAddrKeyHash}
+	if c == nil {
+		return cred
+	}
+	cred.Credential = CredentialHash(c.RewardAccount)
+	if c.rewardAccountCredentialKnown {
+		cred.CredType = c.rewardAccountCredentialType
+	}
+	return cred
+}
+
+// SetRewardAccountCredential sets the reward-account credential and the
+// network identity needed for canonical CBOR encoding.
+func (c *PoolRegistrationCertificate) SetRewardAccountCredential(
+	credential Credential,
+	networkId uint,
+) error {
+	if c == nil {
+		return errors.New("nil pool registration certificate receiver")
+	}
+	if credential.CredType > CredentialTypeScriptHash {
+		return fmt.Errorf(
+			"invalid reward account credential type: %d",
+			credential.CredType,
+		)
+	}
+	if networkId > AddressNetworkMainnet {
+		return fmt.Errorf("invalid reward account network id: %d", networkId)
+	}
+	c.RewardAccount = AddrKeyHash(credential.Credential)
+	c.rewardAccountCredentialType = credential.CredType
+	c.rewardAccountCredentialKnown = true
+	c.rewardAccountNetworkId = networkId
+	c.rewardAccountNetworkIdKnown = true
+	c.DecodeStoreCbor.SetCbor(nil)
+	return nil
 }
 
 // RewardAccountNetworkId returns the network id encoded in the header byte of
@@ -690,15 +800,21 @@ func (c *PoolRegistrationCertificate) RewardAccountNetworkId() (uint, bool) {
 	return c.rewardAccountNetworkId, c.rewardAccountNetworkIdKnown
 }
 
-// SetCbor invalidates the decoded reward-account network only when replacing
-// the cached bytes. Clearing the cache before mutating fields must preserve
-// that consensus-relevant metadata.
+// SetCbor invalidates decoded reward-account metadata only when replacing the
+// cached bytes. Clearing the cache before mutating fields must preserve that
+// consensus-relevant metadata.
 func (c *PoolRegistrationCertificate) SetCbor(cborData []byte) {
 	c.DecodeStoreCbor.SetCbor(cborData)
 	if cborData != nil {
-		c.rewardAccountNetworkId = 0
-		c.rewardAccountNetworkIdKnown = false
+		c.clearRewardAccountMetadata()
 	}
+}
+
+func (c *PoolRegistrationCertificate) clearRewardAccountMetadata() {
+	c.rewardAccountNetworkId = 0
+	c.rewardAccountNetworkIdKnown = false
+	c.rewardAccountCredentialType = CredentialTypeAddrKeyHash
+	c.rewardAccountCredentialKnown = false
 }
 
 // ErrPoolMarginOutsideUnitInterval identifies a stake-pool margin outside the
@@ -1039,6 +1155,12 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		p.PoolOwners = owners
 	}
 
+	// JSON reward accounts do not carry the wire header needed to recover
+	// credential type or network identity. The decoded-CBOR cache is likewise
+	// stale after JSON replaces certificate fields.
+	p.DecodeStoreCbor.SetCbor(nil)
+	p.clearRewardAccountMetadata()
+
 	return nil
 }
 
@@ -1104,7 +1226,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Pledge = tmp.Pledge
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
-		c.RewardAccount = tmp.RewardAccount.credential
+		c.RewardAccount = AddrKeyHash(tmp.RewardAccount.credential.Credential)
+		c.rewardAccountCredentialType = tmp.RewardAccount.credential.CredType
+		c.rewardAccountCredentialKnown = true
 		c.rewardAccountNetworkId = tmp.RewardAccount.networkId
 		c.rewardAccountNetworkIdKnown = tmp.RewardAccount.networkIdKnown
 		c.PoolOwners = tmp.PoolOwners
@@ -1127,7 +1251,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Pledge = tmp.Pledge
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
-		c.RewardAccount = tmp.RewardAccount.credential
+		c.RewardAccount = AddrKeyHash(tmp.RewardAccount.credential.Credential)
+		c.rewardAccountCredentialType = tmp.RewardAccount.credential.CredType
+		c.rewardAccountCredentialKnown = true
 		c.rewardAccountNetworkId = tmp.RewardAccount.networkId
 		c.rewardAccountNetworkIdKnown = tmp.RewardAccount.networkIdKnown
 		c.PoolOwners = tmp.PoolOwners
@@ -1155,6 +1281,10 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 	if err := ValidatePoolMargin(c.Margin); err != nil {
 		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
 	}
+	rewardAccount, err := c.rewardAccountBytes()
+	if err != nil {
+		return nil, err
+	}
 	if c.LeiosKey == nil {
 		return cbor.Encode([]any{
 			c.CertType,
@@ -1163,7 +1293,7 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 			c.Pledge,
 			c.Cost,
 			c.Margin,
-			c.RewardAccount,
+			rewardAccount,
 			c.PoolOwners,
 			c.Relays,
 			c.PoolMetadata,
@@ -1177,11 +1307,42 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 		c.Pledge,
 		c.Cost,
 		c.Margin,
-		c.RewardAccount,
+		rewardAccount,
 		c.PoolOwners,
 		c.Relays,
 		c.PoolMetadata,
 	})
+}
+
+func (c PoolRegistrationCertificate) rewardAccountBytes() ([]byte, error) {
+	if !c.rewardAccountNetworkIdKnown || !c.rewardAccountCredentialKnown {
+		return nil, errors.New(
+			"pool reward account metadata is required for CBOR encoding",
+		)
+	}
+	if c.rewardAccountNetworkId > AddressNetworkMainnet {
+		return nil, fmt.Errorf(
+			"invalid reward account network id: %d",
+			c.rewardAccountNetworkId,
+		)
+	}
+	if c.rewardAccountCredentialType > CredentialTypeScriptHash {
+		return nil, fmt.Errorf(
+			"invalid reward account credential type: %d",
+			c.rewardAccountCredentialType,
+		)
+	}
+	header := byte(0xE0)
+	if c.rewardAccountNetworkId == AddressNetworkMainnet {
+		header |= 0x01
+	}
+	if c.rewardAccountCredentialType == CredentialTypeScriptHash {
+		header |= 0x10
+	}
+	ret := make([]byte, Blake2b224Size+1)
+	ret[0] = header
+	copy(ret[1:], c.RewardAccount[:])
+	return ret, nil
 }
 
 func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
@@ -1348,22 +1509,49 @@ const (
 	MirSourceTreasury    MirSource = 2
 )
 
+// MoveInstantaneousRewardsCertificateReward is the MIR target: either a map
+// of stake credentials to signed reward deltas, or a coin transferred to the
+// opposite accounting pot.
+//
+// Rewards holds delta_coin values, which the CDDL types as int
+// (eras/mary/impl/cddl/data/mary.cddl) and the reference decodes as the signed
+// unbounded Integer newtype DeltaCoin
+// (libs/cardano-ledger-core/src/Cardano/Ledger/Coin.hs). A negative delta is a
+// decoding matter only; whether it is permitted is decided by the DELEG rule.
 type MoveInstantaneousRewardsCertificateReward struct {
 	Source   uint
-	Rewards  map[*Credential]uint64
+	Rewards  map[*Credential]*big.Int
 	OtherPot uint64
 }
 
 func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 	data []byte,
 ) error {
-	// Try to parse as map
+	// Try to parse as map. The reference dispatches on the CBOR major type
+	// of the second element and reads Map (Credential Staking) DeltaCoin
+	// with no sign or range constraint
+	// (eras/shelley/impl/src/Cardano/Ledger/Shelley/TxCert.hs, instance
+	// DecCBOR MIRTarget), so this branch has to accept a negative delta.
 	tmpMapData := struct {
 		cbor.StructAsArray
 		Source  uint
-		Rewards map[*Credential]uint64
+		Rewards map[*Credential]*big.Int
 	}{}
 	if _, err := cbor.Decode(data, &tmpMapData); err == nil {
+		if tmpMapData.Rewards == nil {
+			return errors.New(
+				"instantaneous rewards target is CBOR null or undefined",
+			)
+		}
+		for _, delta := range tmpMapData.Rewards {
+			// A *big.Int target accepts CBOR null and undefined as a
+			// nil pointer. delta_coin is int, so reject them.
+			if delta == nil {
+				return errors.New(
+					"instantaneous rewards delta is CBOR null or undefined",
+				)
+			}
+		}
 		if err := validateCredentialMapKeys(
 			tmpMapData.Rewards,
 			"instantaneous rewards",
@@ -1374,7 +1562,8 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 		r.Source = tmpMapData.Source
 		return nil
 	}
-	// Try to parse as coin
+	// Try to parse as coin. The opposite-pot amount is coin, which the CDDL
+	// types as uint.
 	tmpCoinData := struct {
 		cbor.StructAsArray
 		Source uint
@@ -1382,7 +1571,7 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 	}{}
 	if _, err := cbor.Decode(data, &tmpCoinData); err == nil {
 		r.OtherPot = tmpCoinData.Coin
-		r.Source = tmpMapData.Source
+		r.Source = tmpCoinData.Source
 		return nil
 	}
 	return errors.New("failed to decode as known types")
@@ -1413,6 +1602,15 @@ func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(
 func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	tmpMirTargets := []*utxorpc.MirTarget{}
 	for stakeCred, deltaCoin := range c.Reward.Rewards {
+		// MIR delta_coin is unbounded on the Cardano wire, but
+		// BigIntToUtxorpcBigInt's fallback is unsigned. Reject negative values
+		// outside int64 here instead of emitting their absolute magnitude.
+		if deltaCoin != nil && deltaCoin.Sign() < 0 && !deltaCoin.IsInt64() {
+			return nil, fmt.Errorf(
+				"MIR reward delta does not fit in int64: %s",
+				deltaCoin,
+			)
+		}
 		stakeCr, err := stakeCred.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -1421,7 +1619,7 @@ func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, e
 			tmpMirTargets,
 			&utxorpc.MirTarget{
 				StakeCredential: stakeCr,
-				DeltaCoin:       ToUtxorpcBigInt(deltaCoin),
+				DeltaCoin:       BigIntToUtxorpcBigInt(deltaCoin),
 			},
 		)
 	}
@@ -1449,7 +1647,11 @@ func (r *MoveInstantaneousRewardsCertificateReward) RewardsAmount() map[*Credent
 	}
 	result := make(map[*Credential]*big.Int)
 	for cred, amount := range r.Rewards {
-		result[cred] = new(big.Int).SetUint64(amount)
+		if amount == nil {
+			result[cred] = new(big.Int)
+			continue
+		}
+		result[cred] = new(big.Int).Set(amount)
 	}
 	return result
 }

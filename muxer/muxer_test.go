@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -33,14 +34,54 @@ import (
 
 // mockConn implements net.Conn for testing
 type mockConn struct {
-	readBuf  *bytes.Buffer
-	writeBuf *bytes.Buffer
-	closed   bool
-	mu       sync.Mutex
+	readBuf    *bytes.Buffer
+	writeBuf   *bytes.Buffer
+	closed     bool
+	writeCalls int
+	mu         sync.Mutex
 }
 
 type failingWriteConn struct {
 	*mockConn
+}
+
+type writeDeadlineErrorConn struct {
+	*mockConn
+	setErr   error
+	writeCnt int
+}
+
+func (c *writeDeadlineErrorConn) SetWriteDeadline(time.Time) error {
+	return c.setErr
+}
+
+func (c *writeDeadlineErrorConn) Write([]byte) (int, error) {
+	c.writeCnt++
+	return 0, errors.New("write should not be attempted")
+}
+
+type trackingWriteDeadlineConn struct {
+	*mockConn
+	deadlines []time.Time
+}
+
+func (c *trackingWriteDeadlineConn) SetWriteDeadline(deadline time.Time) error {
+	c.deadlines = append(c.deadlines, deadline)
+	return nil
+}
+
+type clampedPipeConn struct {
+	net.Conn
+	requestedDeadline chan time.Time
+	clamp             bool
+}
+
+func (c *clampedPipeConn) SetWriteDeadline(deadline time.Time) error {
+	c.requestedDeadline <- deadline
+	if c.clamp {
+		deadline = time.Now().Add(25 * time.Millisecond)
+	}
+	return c.Conn.SetWriteDeadline(deadline)
 }
 
 func (*failingWriteConn) Write([]byte) (int, error) {
@@ -71,6 +112,7 @@ func (m *mockConn) Read(b []byte) (int, error) {
 func (m *mockConn) Write(b []byte) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.writeCalls++
 	if m.closed {
 		return 0, io.ErrClosedPipe
 	}
@@ -110,6 +152,12 @@ func (m *mockConn) WrittenLen() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.writeBuf.Len()
+}
+
+func (m *mockConn) WriteCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.writeCalls
 }
 
 // TestSegmentCreation tests segment creation and basic properties
@@ -465,6 +513,117 @@ func TestMuxerReportsSegmentDelivery(t *testing.T) {
 	}
 }
 
+func TestMuxerSendWriteDeadlineFailureDoesNotWrite(t *testing.T) {
+	deadlineErr := errors.New("test: write deadline failure")
+	conn := &writeDeadlineErrorConn{
+		mockConn: newMockConn(),
+		setErr:   deadlineErr,
+	}
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	segment := muxer.NewSegment(0x01, []byte("test"), false)
+	if segment == nil {
+		t.Fatal("failed to create segment")
+	}
+	err := m.Send(segment)
+	require.ErrorIs(t, err, deadlineErr)
+	require.Zero(t, conn.writeCnt)
+}
+
+func TestMuxerSendRefreshesWriteDeadline(t *testing.T) {
+	conn := &trackingWriteDeadlineConn{mockConn: newMockConn()}
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	for i := range 2 {
+		segment := muxer.NewSegment(0x01, []byte("test"), false)
+		if segment == nil {
+			t.Fatal("failed to create segment")
+		}
+		before := time.Now().Add(2 * time.Minute)
+		require.NoError(t, m.Send(segment))
+		after := time.Now().Add(2 * time.Minute)
+		require.Len(t, conn.deadlines, i+1)
+		require.False(t, conn.deadlines[i].Before(before))
+		require.False(t, conn.deadlines[i].After(after))
+	}
+}
+
+func TestMuxerSendBlockedWriteHonorsDeadline(t *testing.T) {
+	local, remote := net.Pipe()
+	defer remote.Close()
+	requested := make(chan time.Time, 1)
+	conn := &clampedPipeConn{
+		Conn:              local,
+		requestedDeadline: requested,
+		clamp:             true,
+	}
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	result := make(chan error, 1)
+	segment := muxer.NewSegment(0x01, []byte("blocked"), false)
+	if segment == nil {
+		t.Fatal("failed to create segment")
+	}
+	go func() {
+		result <- m.Send(segment)
+	}()
+
+	var requestedAt time.Time
+	select {
+	case requestedAt = <-requested:
+	case <-time.After(time.Second):
+		t.Fatal("muxer did not set a write deadline")
+	}
+	require.True(t, requestedAt.After(time.Now()))
+	require.WithinDuration(
+		t,
+		time.Now().Add(2*time.Minute),
+		requestedAt,
+		2*time.Second,
+	)
+
+	select {
+	case err := <-result:
+		require.Error(t, err)
+		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+	case <-time.After(time.Second):
+		t.Fatal("blocked write did not honor its deadline")
+	}
+}
+
+func TestMuxerSendBlockedWriteUnblocksOnStop(t *testing.T) {
+	local, remote := net.Pipe()
+	defer remote.Close()
+	requested := make(chan time.Time, 1)
+	conn := &clampedPipeConn{Conn: local, requestedDeadline: requested}
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	result := make(chan error, 1)
+	segment := muxer.NewSegment(0x01, []byte("blocked"), false)
+	if segment == nil {
+		t.Fatal("failed to create segment")
+	}
+	go func() {
+		result <- m.Send(segment)
+	}()
+	select {
+	case <-requested:
+	case <-time.After(time.Second):
+		t.Fatal("muxer did not start the blocked write")
+	}
+	m.Stop()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, io.ErrClosedPipe)
+	case <-time.After(time.Second):
+		t.Fatal("stopped muxer did not unblock the blocked write")
+	}
+}
+
 // TestDiffusionModes tests different diffusion modes
 func TestDiffusionModes(t *testing.T) {
 	defer goleak.VerifyNone(t)
@@ -510,8 +669,8 @@ func TestDiffusionModes(t *testing.T) {
 			defer m.Stop()
 
 			// Register protocols for both roles
-			_, _, _ = m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
-			_, _, _ = m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+			_, recvInitiator, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
+			_, recvResponder, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 
 			// Start the muxer
 			m.Start()
@@ -527,13 +686,10 @@ func TestDiffusionModes(t *testing.T) {
 				data := createSegmentData(testSegment)
 				conn.WriteToReadBuf(data)
 
-				// Give time for processing
-				time.Sleep(10 * time.Millisecond)
-
-				// Check for errors
-				select {
-				case err := <-m.ErrorChan():
-					if tt.expectError {
+				if tt.expectError {
+					select {
+					case err := <-m.ErrorChan():
+						require.Error(t, err)
 						if !strings.Contains(err.Error(), tt.errorContains) {
 							t.Errorf(
 								"expected error containing %q, got: %v",
@@ -541,12 +697,24 @@ func TestDiffusionModes(t *testing.T) {
 								err,
 							)
 						}
-					} else {
-						t.Errorf("unexpected error: %v", err)
+					case <-time.After(time.Second):
+						t.Fatalf("timed out waiting for error containing %q", tt.errorContains)
 					}
-				default:
-					if tt.expectError {
-						t.Errorf("expected error but got none")
+				} else {
+					expectedReceiver := recvResponder
+					if testSegment.IsResponse() {
+						expectedReceiver = recvInitiator
+					}
+					select {
+					case err := <-m.ErrorChan():
+						t.Fatalf("unexpected error: %v", err)
+					case received, ok := <-expectedReceiver:
+						if !ok {
+							t.Fatal("expected received segment, channel closed")
+						}
+						require.Equal(t, testSegment.Payload, received.Payload)
+					case <-time.After(time.Second):
+						t.Fatal("timed out waiting for received segment")
 					}
 				}
 			}
@@ -581,8 +749,6 @@ func TestErrorHandling(t *testing.T) {
 		}
 		conn.WriteToReadBuf(buf.Bytes())
 
-		time.Sleep(10 * time.Millisecond)
-
 		// Should receive error
 		select {
 		case err := <-m.ErrorChan():
@@ -590,8 +756,8 @@ func TestErrorHandling(t *testing.T) {
 				!strings.Contains(err.Error(), "zero-byte segment payload") {
 				t.Errorf("expected zero-byte payload error, got: %v", err)
 			}
-		default:
-			t.Error("expected error for zero-byte payload")
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for zero-byte payload error")
 		}
 	})
 
@@ -607,8 +773,6 @@ func TestErrorHandling(t *testing.T) {
 		data := createSegmentData(segment)
 		conn.WriteToReadBuf(data)
 
-		time.Sleep(10 * time.Millisecond)
-
 		// Should receive error
 		select {
 		case err := <-m.ErrorChan():
@@ -616,8 +780,8 @@ func TestErrorHandling(t *testing.T) {
 				!strings.Contains(err.Error(), "unknown protocol ID") {
 				t.Errorf("expected unknown protocol error, got: %v", err)
 			}
-		default:
-			t.Error("expected error for unknown protocol")
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for unknown protocol error")
 		}
 	})
 
@@ -633,8 +797,6 @@ func TestErrorHandling(t *testing.T) {
 		// Close connection
 		conn.Close()
 
-		time.Sleep(10 * time.Millisecond)
-
 		// Should receive connection closed error
 		select {
 		case err := <-m.ErrorChan():
@@ -645,8 +807,8 @@ func TestErrorHandling(t *testing.T) {
 			if !errors.As(err, &connErr) {
 				t.Errorf("expected ConnectionClosedError, got: %T", err)
 			}
-		default:
-			t.Error("expected connection closed error")
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for connection closed error")
 		}
 	})
 }
@@ -790,11 +952,17 @@ func TestStartOnce(t *testing.T) {
 	if segment == nil {
 		t.Fatal("failed to create segment")
 	}
+	deliveryChan := make(chan error, 1)
+	segment.SetDeliveryChan(deliveryChan)
 
 	sendChan <- segment
 
-	// Give time for processing
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case err := <-deliveryChan:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for segment delivery")
+	}
 
 	// Verify data was written
 	written := conn.ReadWritten()
@@ -838,13 +1006,7 @@ func TestMuxerSendAfterStop(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-
-	// Start and then stop the muxer
-	m.Start()
-	m.Stop()
-
-	// Give time for shutdown
-	time.Sleep(10 * time.Millisecond)
+	defer m.Stop()
 
 	// Create a segment
 	segment := muxer.NewSegment(0x01, []byte("test"), false)
@@ -852,12 +1014,19 @@ func TestMuxerSendAfterStop(t *testing.T) {
 		t.Fatal("failed to create segment")
 	}
 
-	// Send should return an error (or silently fail) after shutdown
+	// A live muxer writes the segment, establishing that the counter observes
+	// Send before testing the shutdown guard.
+	require.NoError(t, m.Send(segment))
+	require.Equal(t, 1, conn.WriteCalls())
+	m.Start()
+	m.Stop()
+
+	// Connection cleanup is asynchronous and can independently make Write
+	// fail. Check attempted writes, including failures on a closed connection,
+	// so that cleanup cannot hide a missing Send shutdown guard.
 	err := m.Send(segment)
-	// After stop, Send should return an error
-	if err == nil {
-		t.Log("Send after stop returned nil (acceptable behavior)")
-	}
+	require.Equal(t, 1, conn.WriteCalls(), "Send after Stop attempted a write")
+	require.Error(t, err)
 }
 
 // TestProtocolRoleConstants tests protocol role constants

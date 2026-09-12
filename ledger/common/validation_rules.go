@@ -40,6 +40,7 @@ const (
 	UtxoValidationRuleMaxTxSize                    UtxoValidationRuleId = "max-transaction-size"
 	UtxoValidationRuleDelegation                   UtxoValidationRuleId = "delegation"
 	UtxoValidationRuleWithdrawals                  UtxoValidationRuleId = "withdrawals"
+	UtxoValidationRuleBatchWithdrawals             UtxoValidationRuleId = "batch-withdrawals"
 	UtxoValidationRuleCertificateDeposits          UtxoValidationRuleId = "certificate-deposits"
 	UtxoValidationRuleOutsideValidityInterval      UtxoValidationRuleId = "outside-validity-interval"
 	UtxoValidationRuleOutputTooBig                 UtxoValidationRuleId = "output-too-big"

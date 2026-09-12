@@ -17,7 +17,6 @@ package consensus
 import (
 	"bytes"
 	"crypto/ed25519"
-	"errors"
 	"math/big"
 	"testing"
 
@@ -131,7 +130,7 @@ func TestBuildHeaderEligible(t *testing.T) {
 	}
 	poolId := make([]byte, 28)
 
-	// Use high active slot coefficient to increase chance of eligibility
+	// Use a high active slot coefficient with fixed inputs for deterministic eligibility.
 	builder := NewBlockBuilder(
 		vrfSigner,
 		kesSigner,
@@ -149,33 +148,22 @@ func TestBuildHeaderEligible(t *testing.T) {
 	prevHash := make([]byte, 32)
 	bodyHash := make([]byte, 32)
 
-	// Try multiple slots to find one where we're eligible
-	var header *Header
-	var result *LeaderElectionResult
-
-	for slot := uint64(1); slot <= 100; slot++ {
-		input := BuildHeaderInput{
-			Slot:          slot,
-			BlockNumber:   slot,
-			PrevHash:      prevHash,
-			EpochNonce:    epochNonce,
-			PoolStake:     1000000000,
-			TotalStake:    1000000000, // 100% stake
-			BlockBodyHash: bodyHash,
-			BlockBodySize: 1024,
-			ProtoMajor:    9,
-			ProtoMinor:    0,
-		}
-
-		header, result, err = builder.BuildHeader(input)
-		if err == nil && header != nil {
-			break
-		}
+	// Slot 1 is a deterministic eligible case for these fixed test inputs.
+	input := BuildHeaderInput{
+		Slot:          1,
+		BlockNumber:   1,
+		PrevHash:      prevHash,
+		EpochNonce:    epochNonce,
+		PoolStake:     1000000000,
+		TotalStake:    1000000000, // 100% stake
+		BlockBodyHash: bodyHash,
+		BlockBodySize: 1024,
+		ProtoMajor:    9,
+		ProtoMinor:    0,
 	}
-
-	if header == nil {
-		t.Skip("no eligible slot found in range (unlikely but possible)")
-	}
+	header, result, err := builder.BuildHeader(input)
+	require.NoError(t, err)
+	require.NotNil(t, header)
 
 	// Verify header structure
 	if header.Body.BlockNumber == 0 {
@@ -202,9 +190,8 @@ func TestBuildHeaderEligible(t *testing.T) {
 			len(header.Signature),
 		)
 	}
-	if result == nil || !result.Eligible {
-		t.Error("expected eligible result")
-	}
+	require.NotNil(t, result)
+	require.True(t, result.Eligible)
 }
 
 func TestBuildHeaderNotEligible(t *testing.T) {
@@ -255,16 +242,7 @@ func TestBuildHeaderNotEligible(t *testing.T) {
 	}
 
 	_, _, err = builder.BuildHeader(input)
-
-	// Most likely not eligible with such small relative stake
-	if err == nil {
-		// If somehow eligible, that's fine - just skip
-		t.Skip("unexpectedly eligible (very unlikely but possible)")
-	}
-
-	if !errors.Is(err, ErrNotSlotLeader) {
-		t.Fatalf("expected ErrNotSlotLeader, got: %v", err)
-	}
+	require.ErrorIs(t, err, ErrNotSlotLeader)
 }
 
 func TestBuildHeaderMissingInputs(t *testing.T) {
@@ -859,8 +837,8 @@ func TestBuildHeaderTPraosRoundTripsWithHeaderValidator(t *testing.T) {
 	coldPrivateKey := ed25519.NewKeyFromSeed(coldSeed)
 	coldPublicKey := coldPrivateKey.Public().(ed25519.PublicKey)
 
-	opCertSeqNum := uint32(1)
-	opCertKesPeriod := uint32(0)
+	opCertSeqNum := uint64(1)
+	opCertKesPeriod := uint64(0)
 	opCertBody := common.OpCertSignableBytes(
 		kesSigner.PublicKey(),
 		uint64(opCertSeqNum),

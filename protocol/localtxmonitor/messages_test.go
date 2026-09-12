@@ -65,12 +65,12 @@ var tests = []testDefinition{
 		Message:     NewMsgReplyNextTx(0, nil),
 	},
 	{
-		CborHex:     fmt.Sprintf("82068205d81844%x", 0xDEADBEEF),
+		CborHex:     fmt.Sprintf("82068205d81844%x", uint32(0xDEADBEEF)),
 		MessageType: MessageTypeReplyNextTx,
 		Message:     NewMsgReplyNextTx(5, []byte{0xDE, 0xAD, 0xBE, 0xEF}),
 	},
 	{
-		CborHex:     fmt.Sprintf("820744%x", 0xDEADBEEF),
+		CborHex:     fmt.Sprintf("820744%x", uint32(0xDEADBEEF)),
 		MessageType: MessageTypeHasTx,
 		Message:     NewMsgHasTx([]byte{0xDE, 0xAD, 0xBE, 0xEF}),
 	},

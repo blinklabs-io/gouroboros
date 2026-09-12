@@ -34,9 +34,33 @@ import (
 // Magic number chosen to represent unknown protocols
 const ProtocolUnknown uint16 = 0xabcd
 
-// segmentReadTimeout is the maximum time to wait for a complete segment read
-// before closing the connection. This prevents slowloris-style DoS attacks.
-const segmentReadTimeout = 120 * time.Second
+// defaultSegmentReadTimeout is the default maximum time to wait for the next
+// segment before closing the connection. This is meant to prevent
+// slowloris-style DoS attacks against an untrusted remote peer.
+//
+// This is a gouroboros-specific implementation choice, not a requirement of
+// the Ouroboros Network Specification: the spec's Multiplexing chapter
+// defines no timeout at the mux/transport layer at all, and per-protocol
+// timeouts are instead specified individually, per state, in each
+// mini-protocol's own chapter. LocalStateQuery's own timeout table
+// (section 3.13.4) reads "No timeouts" -- a large query is expected to be
+// able to take an arbitrarily long time. The real ouroboros-network
+// (Haskell) implementation matches this: its own mux-level SDU timeout (30s)
+// only bounds an already-in-progress segment read (a minimum-bandwidth
+// guard), never how long a peer may take before replying at all, and it is
+// not applied at all on local Unix-domain-socket connections -- exactly the
+// transport LocalStateQuery normally uses. Applying a fixed, unconditional
+// deadline to every connection (as this constant did on its own, with no
+// way to disable it) killed legitimate, still-computing LocalStateQuery
+// replies that the spec says must not be timed out. See
+// WithMuxerSegmentReadTimeout to override or disable this for a connection
+// known to be a trusted NtC channel.
+const defaultSegmentReadTimeout = 120 * time.Second
+
+// segmentWriteTimeout is the maximum time to wait for a complete segment
+// write. The deadline is refreshed for every segment so long-lived healthy
+// connections are not killed by one absolute connection deadline.
+const segmentWriteTimeout = 2 * time.Minute
 
 // DiffusionMode is an enum for the valid muxer diffusion modes
 type DiffusionMode int
@@ -68,11 +92,18 @@ type Muxer struct {
 	doneChan               chan bool
 	waitGroup              sync.WaitGroup
 	waitGroupMutex         sync.Mutex
-	protocolSenders        map[uint16]map[ProtocolRole]chan *Segment
+	protocolSenders        map[uint16]map[ProtocolRole]*segmentSender
 	protocolReceivers      map[uint16]map[ProtocolRole]*segmentChannel
+	protocolTombstones     map[uint16]map[ProtocolRole]struct{}
 	protocolReceiversMutex sync.Mutex
 	diffusionMode          atomic.Int64
 	onceStop               sync.Once
+	// segmentReadTimeout bounds how long the read loop waits for the next
+	// segment before closing the connection. <= 0 disables the deadline
+	// entirely (no timeout, matching real cardano-node's own behavior on a
+	// trusted local/NtC connection). See defaultSegmentReadTimeout's doc
+	// comment for the full rationale.
+	segmentReadTimeout time.Duration
 }
 
 type segmentChannel struct {
@@ -80,6 +111,34 @@ type segmentChannel struct {
 	ch       chan *Segment
 	done     chan struct{}
 	onceStop sync.Once
+}
+
+type segmentSender struct {
+	ch       chan *Segment
+	done     chan struct{}
+	onceStop sync.Once
+	mu       sync.Mutex
+}
+
+func (s *segmentSender) stop() {
+	s.onceStop.Do(func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		close(s.done)
+		for {
+			select {
+			case msg, ok := <-s.ch:
+				if !ok {
+					return
+				}
+				if msg != nil {
+					msg.reportDelivery(errors.New("protocol unregistered"))
+				}
+			default:
+				return
+			}
+		}
+	})
 }
 
 func (s *segmentChannel) stop() {
@@ -115,15 +174,32 @@ func (e *ConnectionClosedError) Unwrap() error {
 	return e.Err
 }
 
-// New creates a new Muxer object and starts the read loop
+// New creates a new Muxer object and starts the read loop, using
+// defaultSegmentReadTimeout. Use NewWithSegmentReadTimeout to override or
+// disable that timeout for a connection known to be a trusted NtC channel.
 func New(conn net.Conn) *Muxer {
+	return NewWithSegmentReadTimeout(conn, defaultSegmentReadTimeout)
+}
+
+// NewWithSegmentReadTimeout is like New, but lets the caller override how
+// long the read loop waits for the next segment before closing the
+// connection. segmentReadTimeout <= 0 disables the deadline entirely --
+// see defaultSegmentReadTimeout's doc comment for why a caller might want
+// that (e.g. a local/NtC LocalStateQuery connection, which the Ouroboros
+// Network Specification says must not be timed out at all).
+func NewWithSegmentReadTimeout(
+	conn net.Conn,
+	segmentReadTimeout time.Duration,
+) *Muxer {
 	m := &Muxer{
-		conn:              conn,
-		startChan:         make(chan bool, 1),
-		doneChan:          make(chan bool),
-		errorChan:         make(chan error, 10),
-		protocolSenders:   make(map[uint16]map[ProtocolRole]chan *Segment),
-		protocolReceivers: make(map[uint16]map[ProtocolRole]*segmentChannel),
+		conn:               conn,
+		startChan:          make(chan bool, 1),
+		doneChan:           make(chan bool),
+		errorChan:          make(chan error, 10),
+		protocolSenders:    make(map[uint16]map[ProtocolRole]*segmentSender),
+		protocolReceivers:  make(map[uint16]map[ProtocolRole]*segmentChannel),
+		protocolTombstones: make(map[uint16]map[ProtocolRole]struct{}),
+		segmentReadTimeout: segmentReadTimeout,
 	}
 	// Start read goroutine
 	m.waitGroup.Add(1)
@@ -220,16 +296,21 @@ func (m *Muxer) RegisterProtocol(
 		ch:   receiver,
 		done: make(chan struct{}),
 	}
+	sender := &segmentSender{ch: senderChan, done: make(chan struct{})}
 	// Record channels in protocol sender/receiver maps
 	m.protocolReceiversMutex.Lock()
 	if _, ok := m.protocolSenders[protocolId]; !ok {
-		m.protocolSenders[protocolId] = make(map[ProtocolRole]chan *Segment)
+		m.protocolSenders[protocolId] = make(map[ProtocolRole]*segmentSender)
 	}
 	if _, ok := m.protocolReceivers[protocolId]; !ok {
 		m.protocolReceivers[protocolId] = make(map[ProtocolRole]*segmentChannel)
 	}
-	m.protocolSenders[protocolId][protocolRole] = senderChan
+	m.protocolSenders[protocolId][protocolRole] = sender
 	m.protocolReceivers[protocolId][protocolRole] = receiverChan
+	if _, ok := m.protocolTombstones[protocolId]; !ok {
+		m.protocolTombstones[protocolId] = make(map[ProtocolRole]struct{})
+	}
+	delete(m.protocolTombstones[protocolId], protocolRole)
 	m.protocolReceiversMutex.Unlock()
 	// Start Goroutine to handle outbound messages
 	m.waitGroup.Go(func() {
@@ -240,10 +321,21 @@ func (m *Muxer) RegisterProtocol(
 				if !ok {
 					return
 				}
+			case <-sender.done:
+				return
 			case msg, ok := <-senderChan:
 				if !ok {
 					return
 				}
+				sender.mu.Lock()
+				select {
+				case <-sender.done:
+					sender.mu.Unlock()
+					msg.reportDelivery(errors.New("protocol unregistered"))
+					continue
+				default:
+				}
+				sender.mu.Unlock()
 				err := m.Send(msg)
 				msg.reportDelivery(err)
 				if err != nil {
@@ -262,22 +354,35 @@ func (m *Muxer) UnregisterProtocol(
 ) {
 	m.protocolReceiversMutex.Lock()
 	defer m.protocolReceiversMutex.Unlock()
-	protocolRoles, ok := m.protocolReceivers[protocolId]
-	if !ok {
-		return
+	removed := false
+	// Remove both directions while holding the same lock. This prevents a
+	// concurrent re-registration from observing only half of the old mapping.
+	if protocolRoles, ok := m.protocolReceivers[protocolId]; ok {
+		if recvChan, ok := protocolRoles[protocolRole]; ok {
+			removed = true
+			recvChan.stop()
+			delete(protocolRoles, protocolRole)
+		}
+		if len(protocolRoles) == 0 {
+			delete(m.protocolReceivers, protocolId)
+		}
 	}
-	recvChan, ok := protocolRoles[protocolRole]
-	if !ok {
-		return
+	if protocolRoles, ok := m.protocolSenders[protocolId]; ok {
+		if sender, ok := protocolRoles[protocolRole]; ok {
+			removed = true
+			sender.stop()
+			delete(protocolRoles, protocolRole)
+		}
+		if len(protocolRoles) == 0 {
+			delete(m.protocolSenders, protocolId)
+		}
 	}
-	// Signal shutdown to protocol
-
-	recvChan.stop()
-
-	// Keep the stopped receiver as a tombstone until a subsequent registration
-	// replaces it. Segments already queued for a protocol that is restarting can
-	// then be discarded without treating the brief registration gap as an
-	// unknown-protocol error and closing the shared connection.
+	if removed {
+		if _, ok := m.protocolTombstones[protocolId]; !ok {
+			m.protocolTombstones[protocolId] = make(map[ProtocolRole]struct{})
+		}
+		m.protocolTombstones[protocolId][protocolRole] = struct{}{}
+	}
 }
 
 // Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than
@@ -298,6 +403,9 @@ func (m *Muxer) Send(msg *Segment) error {
 		return err
 	}
 	buf.Write(msg.Payload)
+	if err := m.conn.SetWriteDeadline(time.Now().Add(segmentWriteTimeout)); err != nil {
+		return err
+	}
 	_, err = m.conn.Write(buf.Bytes())
 	if err != nil {
 		return err
@@ -342,8 +450,15 @@ func (m *Muxer) readLoop() {
 				started = v
 			}
 		}
-		// Set read deadline to prevent slowloris-style DoS attacks
-		_ = m.conn.SetReadDeadline(time.Now().Add(segmentReadTimeout))
+		// Set read deadline to prevent slowloris-style DoS attacks against an
+		// untrusted remote peer. A non-positive segmentReadTimeout disables
+		// this entirely (time.Time{} clears any previously set deadline) --
+		// see its doc comment for why a caller may need that.
+		if m.segmentReadTimeout > 0 {
+			_ = m.conn.SetReadDeadline(time.Now().Add(m.segmentReadTimeout))
+		} else {
+			_ = m.conn.SetReadDeadline(time.Time{})
+		}
 		header := SegmentHeader{}
 		if err := binary.Read(m.conn, binary.BigEndian, &header); err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
@@ -414,6 +529,10 @@ func (m *Muxer) readLoop() {
 		m.protocolReceiversMutex.Lock()
 		protocolRoles, ok := m.protocolReceivers[msg.GetProtocolId()]
 		if !ok {
+			if _, tombstoned := m.protocolTombstones[msg.GetProtocolId()][protocolRole]; tombstoned {
+				m.protocolReceiversMutex.Unlock()
+				continue
+			}
 			// Try the "unknown protocol" receiver if we didn't find an explicit one
 			protocolRoles, ok = m.protocolReceivers[ProtocolUnknown]
 			if !ok {
@@ -428,6 +547,12 @@ func (m *Muxer) readLoop() {
 			}
 		}
 		recvChan := protocolRoles[protocolRole]
+		if recvChan == nil {
+			if _, tombstoned := m.protocolTombstones[msg.GetProtocolId()][protocolRole]; tombstoned {
+				m.protocolReceiversMutex.Unlock()
+				continue
+			}
+		}
 		m.protocolReceiversMutex.Unlock()
 		if recvChan == nil {
 			m.sendError(

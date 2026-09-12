@@ -58,6 +58,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            StateMap,
 		InitialState:        stateIdle,
+		MaxReadBufferSize:   cfg.MaxReadBufferSize,
 	}
 	// Enable version-dependent features
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {

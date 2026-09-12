@@ -335,6 +335,13 @@ func (v *HeaderValidator) validateSimpleSignature(
 		}
 		// Permissive fallback (opt-in only): verify directly against HeaderCbor
 		// WARNING: This is less secure and should only be used for testing
+		// Byron signatures are verified permissively on purpose. The reference is
+		// Cardano.Crypto.Signing.Signature.verifySignatureRaw, which calls CC.verify in
+		// cardano-crypto-wallet, whose bundled ed25519-donna ed25519_sign_open checks
+		// only the high bits of S and performs no small-order test on A or R. It
+		// accepts proofs libsodium rejects, and Byron blocks are immutable history, so
+		// routing these through internal/ed25519strict would reject chain the node
+		// accepts. Do not "fix" these to match the non-Byron boundaries.
 		valid := ed25519.Verify(
 			input.IssuerPubKey,
 			input.HeaderCbor,
@@ -358,7 +365,10 @@ func (v *HeaderValidator) validateSimpleSignature(
 		return fmt.Errorf("failed to domain-separate ToSign: %w", err)
 	}
 
-	// Verify Ed25519 signature on the domain-separated ToSign.
+	// Byron verification stays permissive at this primary path. Its
+	// ed25519-donna reference accepts small-order public and R points, and
+	// tightening immutable Byron history to the non-Byron criteria would break
+	// sync from genesis. Do not route this through internal/ed25519strict.
 	valid := ed25519.Verify(
 		input.IssuerPubKey,
 		signed,
@@ -622,6 +632,10 @@ func (v *HeaderValidator) validateProxySignature(
 	// Use the Ed25519 portion of the delegate's extended key (first 32 bytes)
 	delegatePubKey := delegateVK[:32]
 
+	// Byron verification stays permissive at this delegated block-signature
+	// path. Its ed25519-donna reference accepts small-order public and R points,
+	// and tightening immutable Byron history to the non-Byron criteria would
+	// break sync from genesis. Do not route this through internal/ed25519strict.
 	valid := ed25519.Verify(delegatePubKey, signedBuf, blockSig)
 	if !valid {
 		return fmt.Errorf(
