@@ -47,6 +47,8 @@ const (
 // on.
 var ErrNoBlocks = errors.New("block(s) not found")
 
+var errRequestNotCreated = errors.New("block-fetch request was not created")
+
 // ErrRequestPipeliningDisabled is returned by RequestRange when the client
 // was not configured with RequestPipelining.
 var ErrRequestPipeliningDisabled = errors.New(
@@ -478,6 +480,10 @@ func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 		c.releaseBusy(token)
 		return err
 	}
+	if req == nil {
+		c.releaseBusy(token)
+		return errRequestNotCreated
+	}
 	// Wait for batch start
 	if err := c.waitForBatchStart(req, protocolDone); err != nil {
 		c.releaseBusy(token)
@@ -512,6 +518,10 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 	if err != nil {
 		c.releaseBusy(token)
 		return nil, err
+	}
+	if req == nil {
+		c.releaseBusy(token)
+		return nil, errRequestNotCreated
 	}
 	// Wait for batch start
 	if err := c.waitForBatchStart(req, protocolDone); err != nil {
@@ -664,6 +674,9 @@ func (c *Client) RequestRange(
 	)
 	if err != nil {
 		return 0, err
+	}
+	if sent == nil {
+		return 0, errRequestNotCreated
 	}
 	return sent.id, nil
 }
