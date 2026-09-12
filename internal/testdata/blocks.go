@@ -31,6 +31,20 @@ import (
 //go:embed byron_block.hex
 var ByronBlockHex string
 
+// Conway one-shot mint transaction from mainnet. Its Plutus V3 policy
+// derives the minted asset name as blake2b_256(serialiseData(txOutRef)),
+// which makes the transaction a fixed reference for the CBOR encoding a
+// script observes: the redeemer arrives definite-length on the wire, and
+// the asset name recorded on chain corresponds to the canonical
+// indefinite-length encoding of the same value.
+//
+// https://cexplorer.io/tx/deab9ef3ce7415e492dd6f1eb5ff2920b34bccc0dcee8f4bbc76e97736de8a56
+// Slot: 196791729
+// Policy: eb55e440da235c80974c7883b0920c06b31ddac66c12c238626266e9
+//
+//go:embed mainnet_tx_oneshot_mint.hex
+var MainnetOneShotMintTxHex string
+
 // Shelley block from mainnet
 // https://cexplorer.io/block/2308cdd4c0bf8b8bf92523bdd1dd31640c0f42ff079d985fcc07c36cbf915c2b
 // Slot: 16156972
