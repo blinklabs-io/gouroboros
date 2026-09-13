@@ -57,7 +57,7 @@ func init() {
 type ByronMainBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash          *common.Blake2b256
+	hash          common.Blake2b256Cache
 	ProtocolMagic uint32
 	PrevBlock     common.Blake2b256
 	BodyProof     any
@@ -97,19 +97,14 @@ func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (h *ByronMainBlockHeader) Hash() common.Blake2b256 {
-	if h.hash == nil {
-		// Prepend bytes for CBOR list wrapper
-		// The block hash is calculated with these extra bytes, so we have to add them to
-		// get the correct value
-		tmpHash := common.Blake2b256Hash(
+	return h.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(
 			append(
 				[]byte{0x82, BlockTypeByronMain},
 				h.Cbor()...,
 			),
 		)
-		h.hash = &tmpHash
-	}
-	return *h.hash
+	})
 }
 
 func (h *ByronMainBlockHeader) PrevHash() common.Blake2b256 {
@@ -1076,7 +1071,7 @@ func (b *ByronMainBlockBody) MarshalCBOR() ([]byte, error) {
 type ByronEpochBoundaryBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash          *common.Blake2b256
+	hash          common.Blake2b256Cache
 	ProtocolMagic uint32
 	PrevBlock     common.Blake2b256
 	BodyProof     any
@@ -1103,19 +1098,14 @@ func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) Hash() common.Blake2b256 {
-	if h.hash == nil {
-		// Prepend bytes for CBOR list wrapper
-		// The block hash is calculated with these extra bytes, so we have to add them to
-		// get the correct value
-		tmpHash := common.Blake2b256Hash(
+	return h.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(
 			append(
 				[]byte{0x82, BlockTypeByronEbb},
 				h.Cbor()...,
 			),
 		)
-		h.hash = &tmpHash
-	}
-	return *h.hash
+	})
 }
 
 func (h *ByronEpochBoundaryBlockHeader) PrevHash() common.Blake2b256 {

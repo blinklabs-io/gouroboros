@@ -15,9 +15,11 @@
 package common
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -204,6 +206,31 @@ func certificateLogicalKey(certificate Certificate) (string, error) {
 		}
 		key = appendLogicalCredential(key, *c.StakeCredential)
 		key = append(key, c.PoolKeyHash[:]...)
+	case *PoolRegistrationCertificate:
+		// cardano-ledger StakePoolParams compares owners as a Set, while
+		// relays retain sequence order. Sort a copy to preserve the decoded
+		// certificate and its original bytes.
+		normalized := *c
+		normalized.PoolOwners = slices.Clone(c.PoolOwners)
+		slices.SortFunc(normalized.PoolOwners, func(a, b AddrKeyHash) int {
+			return bytes.Compare(a[:], b[:])
+		})
+		normalized.PoolOwners = slices.Compact(normalized.PoolOwners)
+		encoded, err := cbor.EncodeGeneric(&normalized)
+		if err != nil {
+			return "", fmt.Errorf("encode pool certificate: %w", err)
+		}
+		key = appendLogicalBytes(key, encoded)
+		// EncodeGeneric omits private fields. The reward account's header
+		// carries both credential type and network, and both affect identity.
+		key = appendLogicalCredential(key, c.RewardAccountCredential())
+		network, known := c.RewardAccountNetworkId()
+		if known {
+			key = append(key, 1)
+		} else {
+			key = append(key, 0)
+		}
+		key = appendLogicalNumber(key, network)
 	case *PoolRetirementCertificate:
 		key = append(key, c.PoolKeyHash[:]...)
 		key = appendLogicalNumber(key, c.Epoch)
@@ -254,9 +281,9 @@ func certificateLogicalKey(certificate Certificate) (string, error) {
 		key = appendLogicalCredential(key, c.DrepCredential)
 		key = appendLogicalAnchor(key, c.Anchor)
 	default:
-		// PoolRegistrationCertificate and MoveInstantaneousRewardsCertificate
-		// aggregate over slices and maps, and a certificate type added later
-		// has no enumerated identity here yet. A canonical re-encoding is a
+		// MoveInstantaneousRewardsCertificate aggregates over maps. Types
+		// added later have no enumerated identity here yet. A canonical
+		// re-encoding is a
 		// correct identity for all of them, so a new certificate type keeps
 		// working without touching this file.
 		encoded, err := cbor.EncodeGeneric(certificate)

@@ -200,7 +200,7 @@ func TestMsgRollForwardNodeToNode_CorruptedCBOR(t *testing.T) {
 		Tip{
 			Point: pcommon.Point{
 				Slot: 1,
-				Hash: []byte{0xDE, 0xAD, 0xBE, 0xEF},
+				Hash: testPointHash(0xde),
 			},
 			BlockNumber: 1,
 		},

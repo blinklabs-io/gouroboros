@@ -259,7 +259,7 @@ func (b *BabbageBlock) BlockBodyHash() common.Blake2b256 {
 type BabbageBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash      *common.Blake2b256
+	hash      common.Blake2b256Cache
 	Body      BabbageBlockHeaderBody
 	Signature []byte
 }
@@ -348,11 +348,9 @@ func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (h *BabbageBlockHeader) Hash() common.Blake2b256 {
-	if h.hash == nil {
-		tmpHash := common.Blake2b256Hash(h.Cbor())
-		h.hash = &tmpHash
-	}
-	return *h.hash
+	return h.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(h.Cbor())
+	})
 }
 
 func (h *BabbageBlockHeader) PrevHash() common.Blake2b256 {
@@ -831,9 +829,13 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 			data.NewByteString(o.DatumOption.hash.Bytes()),
 		)
 	case o.DatumOption.data != nil:
+		// Normalize: cardano-ledger rebuilds every script-visible value, so a
+		// script always observes the encoding the Plutus encoder writes, never
+		// the definite/indefinite-length choice this transaction was built
+		// with. serialiseData exposes the difference.
 		datumOptionPd = data.NewConstr(
 			2,
-			o.DatumOption.data.Data,
+			data.Normalize(o.DatumOption.data.Data),
 		)
 	}
 	var scriptRefPd data.PlutusData

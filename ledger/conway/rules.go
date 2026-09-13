@@ -3217,7 +3217,7 @@ func UtxoValidatePlutusScripts(
 			redeemer := script.Redeemer{
 				Tag:     redeemerKey.Tag,
 				Index:   redeemerKey.Index,
-				Data:    redeemerValue.Data.Data,
+				Data:    data.Normalize(redeemerValue.Data.Data),
 				ExUnits: redeemerValue.ExUnits,
 			}
 			ctx := script.NewScriptContextV3(txInfoV3, redeemer, purpose)
@@ -3268,7 +3268,7 @@ func UtxoValidatePlutusScripts(
 			if err != nil {
 				return fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits, evalContext)
+			_, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, redeemerValue.ExUnits, evalContext)
 		case common.PlutusV1Script:
 			// V1 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
@@ -3303,7 +3303,7 @@ func UtxoValidatePlutusScripts(
 			if err != nil {
 				return fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits, evalContext)
+			_, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, redeemerValue.ExUnits, evalContext)
 		default:
 			continue
 		}

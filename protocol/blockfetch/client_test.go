@@ -21,7 +21,6 @@ import (
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
@@ -200,7 +199,7 @@ func TestGetBlockNoBlocks(t *testing.T) {
 			_, err := oConn.BlockFetch().Client.GetBlock(
 				pcommon.NewPoint(
 					12345,
-					test.DecodeHexString("abcdef0123456789"),
+					testPointHash(0xab),
 				),
 			)
 			if err == nil {
@@ -437,7 +436,7 @@ func TestGetBlockRangeReleasesBusyOnDisconnectBeforeBatchDone(t *testing.T) {
 	client := oConn.BlockFetch().Client
 	point := pcommon.NewPoint(
 		12345,
-		test.DecodeHexString("abcdef0123456789"),
+		testPointHash(0xab),
 	)
 	require.NoError(t, client.GetBlockRange(point, point))
 
