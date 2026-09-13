@@ -389,7 +389,6 @@ type BabbageTransactionPparamUpdate struct {
 
 type BabbageTransactionBody struct {
 	common.TransactionBodyBase
-	hash                    *common.Blake2b256
 	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
 	TxOutputs               []BabbageTransactionOutput                    `cbor:"1,keyasint,omitempty"`
 	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
@@ -477,11 +476,7 @@ func coalesceUntaggedTransactionInputs(
 }
 
 func (b *BabbageTransactionBody) Id() common.Blake2b256 {
-	if b.hash == nil {
-		tmpHash := common.Blake2b256Hash(b.Cbor())
-		b.hash = &tmpHash
-	}
-	return *b.hash
+	return b.TransactionBodyBase.Id()
 }
 
 func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
@@ -524,7 +519,6 @@ func (b *BabbageTransactionBody) TransactionNetworkId() *uint8 {
 }
 
 func (b *BabbageTransactionBody) SetNetworkIdPresence(present bool) {
-	b.hash = nil
 	b.TransactionBodyBase.SetNetworkIdPresence(present)
 }
 
@@ -536,13 +530,11 @@ func (b *BabbageTransactionBody) SetValidityIntervalUpperBound(
 	upperBound uint64,
 ) {
 	b.Ttl = upperBound
-	b.hash = nil
 	b.SetValidityIntervalUpperBoundPresence(true)
 }
 
 func (b *BabbageTransactionBody) ClearValidityIntervalUpperBound() {
 	b.Ttl = 0
-	b.hash = nil
 	b.SetValidityIntervalUpperBoundPresence(false)
 }
 

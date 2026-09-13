@@ -205,10 +205,24 @@ func (h *ByronMainBlockHeader) BlockBodyHash() common.Blake2b256 {
 type ByronTransactionBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
+	hash       common.Blake2b256Cache
 	TxInputs   []ByronTransactionInput
 	TxOutputs  []ByronTransactionOutput
 	Attributes cbor.RawMessage
+}
+
+func (t *ByronTransactionBody) SetCbor(cborData []byte) {
+	// Replacing CBOR invalidates the hash memo; callers must not mutate the
+	// body concurrently with Id or this setter.
+	t.DecodeStoreCbor.SetCbor(cborData)
+	t.hash.Reset()
+}
+
+func (t *ByronTransactionBody) SetCborReference(cborData []byte) {
+	// Replacing CBOR invalidates the hash memo; callers must not mutate the
+	// body concurrently with Id or this setter.
+	t.DecodeStoreCbor.SetCborReference(cborData)
+	t.hash.Reset()
 }
 
 func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -223,11 +237,9 @@ func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (t *ByronTransactionBody) Id() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return t.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(t.Cbor())
+	})
 }
 
 func (t *ByronTransactionBody) Inputs() []common.TransactionInput {
