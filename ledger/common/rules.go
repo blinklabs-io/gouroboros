@@ -28,6 +28,7 @@ import (
 	"math/bits"
 	"reflect"
 	"sort"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -48,39 +49,55 @@ type cachedUtxoLookup struct {
 	err  error
 }
 
+// utxoCacheKey is the ledger's own identity for a transaction input: the hash
+// of the transaction that produced the output and the output index. Keying on
+// those components avoids formatting the 32-byte hash on every cache probe.
+type utxoCacheKey struct {
+	id    Blake2b256
+	index uint32
+}
+
 // cachedLedgerState keeps read-only UTxO lookups transaction-scoped. Several
 // validation rules need the same transaction view; sharing these results
 // avoids resolving each input again as the rule list advances.
+//
+// VerifyTransaction substitutes this wrapper for the state the caller passed
+// in, so it must not weaken that state's concurrency guarantees: mu guards the
+// cache for rules that resolve inputs from more than one goroutine. The
+// wrapped lookup runs with mu released, so concurrent misses on the same input
+// can reach the wrapped state twice. The UTxO view is fixed for the duration
+// of validation, so both calls observe the same result.
 type cachedLedgerState struct {
 	LedgerState
-	lookups map[string]cachedUtxoLookup
-}
-
-func (s *cachedLedgerState) UnderlyingLedgerState() LedgerState {
-	return s.LedgerState
+	mu      sync.Mutex
+	lookups map[utxoCacheKey]cachedUtxoLookup
 }
 
 // UnwrapLedgerState returns the caller's ledger state when validation is
 // running with the transaction-scoped UTxO lookup cache. Rules that inspect
 // optional LedgerState capabilities must use this before type assertions; the
 // cache wrapper preserves UTxO lookup behavior but cannot preserve assertions
-// against arbitrary provider types.
+// against arbitrary provider types. A state this package did not wrap is
+// returned unchanged.
 func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
-	if cached, ok := ledgerState.(interface {
-		UnderlyingLedgerState() LedgerState
-	}); ok {
-		return cached.UnderlyingLedgerState()
+	if cached, ok := ledgerState.(*cachedLedgerState); ok {
+		return cached.LedgerState
 	}
 	return ledgerState
 }
 
 func (s *cachedLedgerState) UtxoById(input TransactionInput) (Utxo, error) {
-	key := input.String()
-	if result, ok := s.lookups[key]; ok {
+	key := utxoCacheKey{id: input.Id(), index: input.Index()}
+	s.mu.Lock()
+	result, ok := s.lookups[key]
+	s.mu.Unlock()
+	if ok {
 		return result.utxo, result.err
 	}
 	utxo, err := s.LedgerState.UtxoById(input)
+	s.mu.Lock()
 	s.lookups[key] = cachedUtxoLookup{utxo: utxo, err: err}
+	s.mu.Unlock()
 	return utxo, err
 }
 
@@ -198,7 +215,7 @@ func VerifyTransaction(
 			!reflect.ValueOf(ledgerState).IsNil()) {
 		ledgerState = &cachedLedgerState{
 			LedgerState: ledgerState,
-			lookups:     make(map[string]cachedUtxoLookup),
+			lookups:     make(map[utxoCacheKey]cachedUtxoLookup),
 		}
 	}
 	for i, rule := range validationRules {
