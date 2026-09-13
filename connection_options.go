@@ -17,6 +17,7 @@ package ouroboros
 import (
 	"log/slog"
 	"net"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
@@ -106,6 +107,32 @@ func WithDMQ(useDMQ bool) ConnectionOptionFunc {
 func WithKeepAlive(keepAlive bool) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.sendKeepAlives = keepAlive
+	}
+}
+
+// WithMuxerSegmentReadTimeout overrides how long the muxer waits for the
+// next segment before closing the connection (the default,
+// muxer.defaultSegmentReadTimeout, is 120s). Pass a duration <= 0 to disable
+// the timeout entirely.
+//
+// The default exists to guard an untrusted remote peer (a slowloris-style
+// DoS) and is appropriate for node-to-node connections. It is not a
+// requirement of the Ouroboros Network Specification, which defines no
+// timeout at the mux/transport layer at all -- timeouts are specified per
+// mini-protocol, per state, in each protocol's own chapter, and
+// LocalStateQuery's own timeout table (section 3.13.4) reads "No timeouts":
+// a query is expected to be able to take an arbitrarily long time. Real
+// cardano-node's own mux implementation matches this -- it applies no
+// bearer-level read timeout at all on local Unix-domain-socket connections,
+// which is what node-to-client (and so LocalStateQuery) normally uses.
+//
+// A node-to-client connection over a channel you already trust (a local
+// socket, or a bridge you control) should generally disable this, so a
+// legitimate, still-computing LocalStateQuery reply (e.g. a whole-UTxO-set
+// dump against a large chain) is never killed mid-flight.
+func WithMuxerSegmentReadTimeout(timeout time.Duration) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.muxerSegmentReadTimeout = &timeout
 	}
 }
 

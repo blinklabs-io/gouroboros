@@ -117,6 +117,9 @@ type Connection struct {
 	localMessageSubmissionConfig   *localmessagesubmission.Config
 	localMessageNotification       *localmessagenotification.LocalMessageNotification
 	localMessageNotificationConfig *localmessagenotification.Config
+	// muxerSegmentReadTimeout overrides the muxer's default segment-read
+	// timeout when non-nil; see WithMuxerSegmentReadTimeout.
+	muxerSegmentReadTimeout *time.Duration
 }
 
 // NewConnection returns a new Connection object with the specified options. If a connection is provided, the
@@ -496,7 +499,14 @@ func (c *Connection) setupConnection() error {
 		RemoteAddr: c.conn.RemoteAddr(),
 	}
 	// Create muxer instance
-	c.muxer = muxer.New(c.conn)
+	if c.muxerSegmentReadTimeout != nil {
+		c.muxer = muxer.NewWithSegmentReadTimeout(
+			c.conn,
+			*c.muxerSegmentReadTimeout,
+		)
+	} else {
+		c.muxer = muxer.New(c.conn)
+	}
 	// Start Goroutine to pass along errors from the muxer
 	c.waitGroup.Go(func() {
 		select {

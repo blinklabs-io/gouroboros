@@ -483,20 +483,25 @@ func TestFindNextSlotLeadershipNoEligibility(t *testing.T) {
 	}
 }
 
-func TestFindNextSlotLeadershipContextRejectsOversizedRange(t *testing.T) {
+func TestFindNextSlotLeadershipContextAllowsLargeRange(t *testing.T) {
 	signer, err := NewSimpleVRFSigner(testVRFSeed)
 	require.NoError(t, err)
-	_, _, _, err = FindNextSlotLeadershipContext(
+	startSlot := uint64(42)
+	maxSlot := startSlot + 1_000_000
+	slot, proof, output, err := FindNextSlotLeadershipContext(
 		context.Background(),
-		0,
-		MaxLeadershipSearchSlots,
+		startSlot,
+		maxSlot,
 		make([]byte, 32),
 		1,
 		1,
-		big.NewRat(1, 2),
+		big.NewRat(1, 1),
 		signer,
 	)
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.Equal(t, startSlot, slot)
+	require.NotNil(t, proof)
+	require.NotNil(t, output)
 }
 
 func TestFindNextSlotLeadershipContextHonorsCancellation(t *testing.T) {
@@ -512,6 +517,27 @@ func TestFindNextSlotLeadershipContextHonorsCancellation(t *testing.T) {
 		1,
 		1,
 		big.NewRat(1, 2),
+		signer,
+	)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestFindNextSlotLeadershipContextHonorsCancellationForLargeRange(
+	t *testing.T,
+) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	startSlot := uint64(42)
+	_, _, _, err = FindNextSlotLeadershipContext(
+		ctx,
+		startSlot,
+		startSlot+1_000_000,
+		make([]byte, 32),
+		1,
+		1,
+		big.NewRat(1, 1),
 		signer,
 	)
 	require.ErrorIs(t, err, context.Canceled)
