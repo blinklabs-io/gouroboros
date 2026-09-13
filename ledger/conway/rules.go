@@ -995,9 +995,6 @@ func UtxoValidateGovActionWellFormedness(
 				)
 				return ConflictingCommitteeUpdateError{Credentials: conflicting}
 			}
-			if err := validateCommitteeTerms(a, ls, pp); err != nil {
-				return err
-			}
 		}
 	}
 	return UtxoValidateGuardrailsScriptHash(tx, slot, ls, pp)
@@ -4088,16 +4085,33 @@ func UtxoValidateCommitteeCertificates(
 	return nil
 }
 
-// validateCommitteeTerms mirrors validCommitteeTerm in
-// Cardano.Ledger.Conway.Rules.Ratify. The bound applies to the expiry epochs
-// proposed by an UpdateCommittee action, not to certificates operating on a
-// committee member that was already proposed by an earlier action.
-func validateCommitteeTerms(
+// ValidateCommitteeTerm reports whether the expiry epochs proposed by an
+// UpdateCommittee governance action are within the constitutional committee
+// maximum term measured from currentEpoch. It mirrors validCommitteeTerm in
+// Cardano.Ledger.Conway.Rules.Ratify.
+//
+// This is a ratification predicate, not a transaction-validity predicate. The
+// reference evaluates it in ratifyTransition to gate enactment; the GOV rule
+// that admits a proposal into the ledger does not bound committee terms, so a
+// transaction proposing an over-limit expiry is valid and is simply not
+// ratified. Two properties follow and both are lost if the predicate is moved
+// onto the UTxO path. The verdict depends on the validating node's current
+// epoch rather than on anything in the transaction, so mempool admission,
+// block-body re-validation and replay would not agree; and the bound loosens
+// every epoch, so a proposal outside it now becomes ratifiable later. Call
+// this at the epoch boundary, never from a transaction or block validation
+// rule: doing so would reject blocks the Haskell node accepts.
+//
+// An action with no proposed expiry epochs, such as a removal-only update, is
+// within the bound. pp must implement common.CommitteeMaxTermLengthProvider;
+// when it does not, the limit is unknown and the action is reported as
+// unratifiable rather than enacted unchecked.
+func ValidateCommitteeTerm(
 	a *common.UpdateCommitteeGovAction,
-	ls common.LedgerState,
 	pp common.ProtocolParameters,
+	currentEpoch uint64,
 ) error {
-	if len(a.CredEpochs) == 0 {
+	if a == nil || len(a.CredEpochs) == 0 {
 		return nil
 	}
 	termParams, ok := pp.(common.CommitteeMaxTermLengthProvider)
@@ -4108,11 +4122,6 @@ func validateCommitteeTerms(
 	if !ok {
 		return CommitteeTermLimitUnavailableError{}
 	}
-	epochState, ok := ls.(common.CurrentEpochState)
-	if !ok {
-		return CurrentEpochStateUnavailableError{}
-	}
-	currentEpoch := epochState.CurrentEpoch()
 	type committeeTerm struct {
 		credential *common.Credential
 		expiry     uint64
@@ -4127,6 +4136,9 @@ func validateCommitteeTerms(
 			expiry:     expiryEpoch,
 		})
 	}
+	// Map iteration order is unspecified, so sort before reporting a single
+	// offending credential; otherwise the error names a different member
+	// across runs.
 	slices.SortFunc(terms, func(a, b committeeTerm) int {
 		if a.credential.CredType != b.credential.CredType {
 			return int(a.credential.CredType) - int(b.credential.CredType)
@@ -4136,16 +4148,19 @@ func validateCommitteeTerms(
 			b.credential.Credential.Bytes(),
 		)
 	})
+	// The reference bound is addEpochInterval currentEpoch
+	// committeeMaxTermLength, defined as EpochNo (n + fromIntegral m) on
+	// Word64, so it wraps on overflow. Go's uint64 addition wraps identically.
+	// Computing the bound directly keeps that behavior: rearranging the
+	// comparison to saturate instead would accept expiries near 2^64 that the
+	// reference rejects against a wrapped bound.
+	bound := currentEpoch + maxTermLength
 	for _, term := range terms {
-		credential := term.credential
-		// This is equivalent to expiryEpoch > currentEpoch+maxTermLength,
-		// without overflowing when the sum exceeds uint64.
-		expiry := term.expiry
-		if expiry > currentEpoch && expiry-currentEpoch > maxTermLength {
+		if term.expiry > bound {
 			return CommitteeTermTooLongError{
-				Credential:    credential.Credential,
+				Credential:    term.credential.Credential,
 				CurrentEpoch:  currentEpoch,
-				ExpiryEpoch:   expiry,
+				ExpiryEpoch:   term.expiry,
 				MaxTermLength: maxTermLength,
 			}
 		}

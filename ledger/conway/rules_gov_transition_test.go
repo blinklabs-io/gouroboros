@@ -295,12 +295,7 @@ func TestUtxoValidateGovActionWellFormedness(t *testing.T) {
 			},
 		}
 		tx := mkProposalTx(0, common.Address{}, action)
-		err := conway.UtxoValidateGovActionWellFormedness(
-			tx,
-			0,
-			committeeTermLedgerState{currentEpoch: 0},
-			&conway.ConwayProtocolParameters{CommitteeTermLimit: 500},
-		)
+		err := conway.UtxoValidateGovActionWellFormedness(tx, 0, nil, pp)
 		require.NoError(t, err)
 	})
 

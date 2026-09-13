@@ -565,14 +565,6 @@ func (CommitteeTermLimitUnavailableError) Error() string {
 	return "constitutional committee maximum term length is unavailable"
 }
 
-// CurrentEpochStateUnavailableError indicates that committee term validation
-// cannot determine the current epoch.
-type CurrentEpochStateUnavailableError struct{}
-
-func (CurrentEpochStateUnavailableError) Error() string {
-	return "ledger state does not expose the current epoch"
-}
-
 // CommitteeTermTooLongError indicates that a committee member's expiry is
 // beyond the configured maximum term measured from the current epoch.
 type CommitteeTermTooLongError struct {

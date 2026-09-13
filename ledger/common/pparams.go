@@ -61,8 +61,9 @@ type PoolRuleProtocolParameters interface {
 }
 
 // CommitteeMaxTermLengthProvider is the optional protocol-parameter
-// capability used by Conway committee certificate validation. The boolean is
-// false when the parameter is unavailable; zero is a present, valid limit.
+// capability exposing the constitutional committee maximum term length, used
+// by the Conway committee-term ratification predicate. The boolean is false
+// when the parameter is unavailable; zero is a present, valid limit.
 type CommitteeMaxTermLengthProvider interface {
 	CommitteeMaxTermLength() (uint64, bool)
 }
