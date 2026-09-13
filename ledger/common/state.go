@@ -199,10 +199,23 @@ type CommitteeCredentialState interface {
 	CommitteeHotCredentialMember(Credential) (*CommitteeMember, error)
 }
 
+// DRepRegistration is the ledger state held for a registered DRep.
 type DRepRegistration struct {
+	// Credential is the DRep's credential hash. The reference ledger keys
+	// DRep state by Credential (Cardano.Ledger.Conway.Governance vsDReps),
+	// so the same 28 bytes under a key-hash and a script-hash credential
+	// are two distinct DReps and this hash alone does not identify one.
+	// Widening it is a breaking change for implementors and is deferred.
 	Credential Blake2b224
 	Anchor     *GovAnchor
-	Deposit    uint64
+	// Deposit is the deposit recorded against this DRep's registration.
+	// It is a pointer for the same reason StakeCredentialDeposit returns
+	// one: nil is the absence of a recorded deposit, distinct from a
+	// recorded zero. The reference ledger's DRepState carries a
+	// non-optional drepDeposit, so a ledger state that reports a
+	// registration without one is internally inconsistent, and refund
+	// validation fails closed on nil rather than reading it as zero.
+	Deposit *uint64
 }
 
 // DRepDelegationState is the optional ledger-state capability used to query
@@ -278,6 +291,17 @@ type GovState interface {
 	CommitteeMembers() ([]CommitteeMember, error)
 
 	// DRep queries
+	// DRepRegistration returns the registration held for the given DRep
+	// credential hash, or nil when that hash is not a registered DRep.
+	//
+	// The reference ledger keys DRep state by Credential
+	// (Cardano.Ledger.Conway.Governance vsDReps), so a key-hash and a
+	// script-hash DRep sharing the same 28 bytes are distinct DReps. This
+	// lookup takes a bare hash and therefore cannot distinguish them, and
+	// the records DRepRegistrations returns carry the same bare hash.
+	// Widening both to a full Credential is a breaking change for every
+	// implementor and is deferred; until then a same-hash key/script pair
+	// resolves to whichever registration the state holds.
 	DRepRegistration(credential Blake2b224) (*DRepRegistration, error)
 	DRepRegistrations() ([]DRepRegistration, error)
 

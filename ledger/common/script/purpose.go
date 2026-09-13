@@ -360,7 +360,7 @@ func scriptPurposeBuilder(
 			}
 			return ScriptPurposeSpending{
 				Input: resolvedInput,
-				Datum: datum,
+				Datum: data.Normalize(datum),
 			}, nil
 		case lcommon.RedeemerTagMint:
 			mintPolicies := mint.Policies()
@@ -457,7 +457,7 @@ func BuildScriptPurpose(
 		}
 		return ScriptPurposeSpending{
 			Input: utxo,
-			Datum: datum,
+			Datum: data.Normalize(datum),
 		}, nil
 	case lcommon.RedeemerTagMint:
 		policies := mint.Policies()

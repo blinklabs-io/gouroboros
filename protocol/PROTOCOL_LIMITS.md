@@ -11,6 +11,19 @@ make the expected transition before the timeout expires. These are transport
 and state-machine safeguards, not application-level transaction or block
 validation.
 
+## Muxer socket deadlines
+
+The muxer sets a 120-second write deadline immediately before each segment
+write, after acquiring its connection-wide send lock. A deadline-setting error
+is returned without attempting the write. The deadline bounds the socket write,
+not time spent waiting for the send lock or the protocol's outbound queue.
+
+Read deadlines remain independently managed per segment. Connection wrappers
+must preserve those read deadlines and support `SetWriteDeadline`. The muxer
+replaces an existing write deadline; wrappers that enforce a shorter external
+deadline must cap the requested value. Stopping the muxer closes the underlying
+connection to interrupt pending socket operations.
+
 ## Chain Sync
 
 The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
@@ -84,9 +97,12 @@ counts outside those bounds with `ErrProtocolViolationRequestExceeded`.
 
 ## Handshake
 
-For N2N, `Propose` and `Confirm` each have a 10-second timeout. N2C has no
-state timeouts. Client and server instances copy the N2N map and can override
-the applicable timeout with `WithTimeout`; the N2C map remains timeout-free.
+For N2N, `Propose` and `Confirm` each have a 10-second timeout. The framework
+does not arm the initial state's timer by default; the N2N handshake server
+opts into its configured `Propose` timeout. N2C has no state timeouts and does
+not opt in. After the initial transition, `Confirm` uses the normal state
+timeout. Client and server instances copy the N2N map and can override the
+applicable timeout with `WithTimeout`; the N2C map remains timeout-free.
 
 ## Keep Alive
 

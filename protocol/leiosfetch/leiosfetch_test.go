@@ -181,7 +181,7 @@ func TestBlockRequestNoBlock(t *testing.T) {
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			resp, err := oConn.LeiosFetch().Client.BlockRequest(
 				context.Background(),
-				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
 			)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, leiosfetch.ErrBlockNotFound)
@@ -213,7 +213,7 @@ func TestBlockTxsRequestNoBlockTxs(t *testing.T) {
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			resp, err := oConn.LeiosFetch().Client.BlockTxsRequest(
 				context.Background(),
-				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
 				map[uint16]uint64{0: 0xff00000000000000},
 			)
 			require.Error(t, err)
@@ -249,7 +249,7 @@ func TestBlockRequestSuccess(t *testing.T) {
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			resp, err := oConn.LeiosFetch().Client.BlockRequest(
 				context.Background(),
-				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
 			)
 			require.NoError(t, err)
 			require.IsType(t, &leiosfetch.MsgBlock{}, resp)
@@ -300,7 +300,7 @@ func TestBlockRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
 			defer cancel1()
 			resp1, err1 := client.BlockRequest(
 				ctx1,
-				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
 			)
 			require.ErrorIs(t, err1, context.DeadlineExceeded)
 			assert.Nil(t, resp1)
@@ -318,7 +318,7 @@ func TestBlockRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
 			go func() {
 				resp, err := client.BlockRequest(
 					context.Background(),
-					pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
+					pcommon.NewPoint(23456, testPointHash(0x05)),
 				)
 				resultChan <- reqResult{resp: resp, err: err}
 			}()
@@ -379,7 +379,7 @@ func TestBlockTxsRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
 			defer cancel1()
 			_, err1 := client.BlockTxsRequest(
 				ctx1,
-				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
 				bitmaps,
 			)
 			require.ErrorIs(t, err1, context.DeadlineExceeded)
@@ -388,7 +388,7 @@ func TestBlockTxsRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
 			go func() {
 				_, err := client.BlockTxsRequest(
 					context.Background(),
-					pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
+					pcommon.NewPoint(23456, testPointHash(0x05)),
 					bitmaps,
 				)
 				errChan <- err
@@ -440,7 +440,7 @@ func TestBlockRequestContextCancelledNonFatal(t *testing.T) {
 			defer cancel()
 			resp, err := oConn.LeiosFetch().Client.BlockRequest(
 				ctx,
-				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
 			)
 			require.Error(t, err)
 			assert.True(
@@ -506,7 +506,7 @@ func TestBlockRequestSubsequentAfterAbandoned(t *testing.T) {
 			defer cancel1()
 			resp1, err1 := client.BlockRequest(
 				ctx1,
-				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
 			)
 			require.Error(t, err1)
 			assert.True(
@@ -525,7 +525,7 @@ func TestBlockRequestSubsequentAfterAbandoned(t *testing.T) {
 			defer cancel2()
 			resp2, err2 := client.BlockRequest(
 				ctx2,
-				pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
+				pcommon.NewPoint(23456, testPointHash(0x05)),
 			)
 			require.NoError(t, err2)
 			require.NotNil(t, resp2)
@@ -595,8 +595,8 @@ func TestBlockRangeRequestSubsequentAfterAbandoned(t *testing.T) {
 			defer cancel1()
 			resp1, err1 := client.BlockRangeRequest(
 				ctx1,
-				pcommon.NewPoint(12345, []byte{0x01}),
-				pcommon.NewPoint(12346, []byte{0x02}),
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+				pcommon.NewPoint(12346, testPointHash(0x02)),
 			)
 			require.ErrorIs(t, err1, context.DeadlineExceeded)
 			assert.Nil(t, resp1)
@@ -608,8 +608,8 @@ func TestBlockRangeRequestSubsequentAfterAbandoned(t *testing.T) {
 			defer cancel2()
 			resp2, err2 := client.BlockRangeRequest(
 				ctx2,
-				pcommon.NewPoint(23456, []byte{0x03}),
-				pcommon.NewPoint(23457, []byte{0x04}),
+				pcommon.NewPoint(23456, testPointHash(0x03)),
+				pcommon.NewPoint(23457, testPointHash(0x04)),
 			)
 			require.NoError(t, err2)
 			require.Len(t, resp2, 1)
@@ -641,8 +641,8 @@ func TestBlockRangeRequestStreamsMultipleMessages(t *testing.T) {
 		client := oConn.LeiosFetch().Client
 		resp, err := client.BlockRangeRequest(
 			context.Background(),
-			pcommon.NewPoint(12345, []byte{0x01}),
-			pcommon.NewPoint(12346, []byte{0x02}),
+			pcommon.NewPoint(12345, testPointHash(0x01)),
+			pcommon.NewPoint(12346, testPointHash(0x02)),
 		)
 		require.NoError(t, err)
 		require.Len(t, resp, 3)
@@ -677,8 +677,8 @@ func TestNonBlockRequestsAfterAbandonedBlockRequestFailFast(t *testing.T) {
 			request: func(c *leiosfetch.Client) error {
 				_, err := c.BlockRangeRequest(
 					context.Background(),
-					pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
-					pcommon.NewPoint(34567, []byte{0x09, 0x0a, 0x0b, 0x0c}),
+					pcommon.NewPoint(23456, testPointHash(0x05)),
+					pcommon.NewPoint(34567, testPointHash(0x09)),
 				)
 				return err
 			},
@@ -710,7 +710,7 @@ func TestNonBlockRequestsAfterAbandonedBlockRequestFailFast(t *testing.T) {
 						ctx1,
 						pcommon.NewPoint(
 							12345,
-							[]byte{0x01, 0x02, 0x03, 0x04},
+							testPointHash(0x01),
 						),
 					)
 					require.ErrorIs(t, err1, context.DeadlineExceeded)

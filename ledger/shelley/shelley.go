@@ -210,7 +210,7 @@ func (b *ShelleyBlock) BlockBodyHash() common.Blake2b256 {
 type ShelleyBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash      *common.Blake2b256
+	hash      common.Blake2b256Cache
 	Body      ShelleyBlockHeaderBody
 	Signature []byte
 }
@@ -300,11 +300,9 @@ func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (h *ShelleyBlockHeader) Hash() common.Blake2b256 {
-	if h.hash == nil {
-		tmpHash := common.Blake2b256Hash(h.Cbor())
-		h.hash = &tmpHash
-	}
-	return *h.hash
+	return h.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(h.Cbor())
+	})
 }
 
 func (h *ShelleyBlockHeader) PrevHash() common.Blake2b256 {

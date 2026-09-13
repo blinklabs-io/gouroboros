@@ -151,7 +151,7 @@ func TestGetCurrentEra(t *testing.T) {
 }
 
 func TestGetChainPoint(t *testing.T) {
-	expectedPoint := pcommon.NewPoint(123, []byte{0xa, 0xb, 0xc})
+	expectedPoint := pcommon.NewPoint(123, testPointHash(0x0a))
 	cborData, err := cbor.Encode(expectedPoint)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)

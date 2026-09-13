@@ -434,8 +434,7 @@ func TestFindNextSlotLeadership(t *testing.T) {
 		10,
 	) // 90% active slot coefficient for faster tests
 
-	// With 100% stake and f=0.9, probability per slot ≈ 0.9
-	// We should find eligibility very quickly
+	// With 100% stake and these fixed inputs, slot 1 is eligible.
 	slot, proof, output, err := FindNextSlotLeadership(
 		1,   // start slot
 		100, // max slot (reduced from 1000)
@@ -449,17 +448,11 @@ func TestFindNextSlotLeadership(t *testing.T) {
 		t.Fatalf("FindNextSlotLeadership failed: %v", err)
 	}
 
-	if slot == 0 {
-		// This is probabilistically unlikely but possible
-		t.Log("no slot leadership found in range (may be valid but unlikely)")
-	} else {
-		if proof == nil || output == nil {
-			t.Error("if slot found, proof and output should not be nil")
-		}
-		if slot < 1 || slot > 100 {
-			t.Errorf("found slot %d outside search range", slot)
-		}
-	}
+	// Slot 1 is deterministic for these fixed inputs; require the search to
+	// return it rather than silently accepting an untested no-leader result.
+	require.Equal(t, uint64(1), slot)
+	require.NotNil(t, proof)
+	require.NotNil(t, output)
 }
 
 func TestFindNextSlotLeadershipNoEligibility(t *testing.T) {
@@ -490,20 +483,25 @@ func TestFindNextSlotLeadershipNoEligibility(t *testing.T) {
 	}
 }
 
-func TestFindNextSlotLeadershipContextRejectsOversizedRange(t *testing.T) {
+func TestFindNextSlotLeadershipContextAllowsLargeRange(t *testing.T) {
 	signer, err := NewSimpleVRFSigner(testVRFSeed)
 	require.NoError(t, err)
-	_, _, _, err = FindNextSlotLeadershipContext(
+	startSlot := uint64(42)
+	maxSlot := startSlot + 1_000_000
+	slot, proof, output, err := FindNextSlotLeadershipContext(
 		context.Background(),
-		0,
-		MaxLeadershipSearchSlots,
+		startSlot,
+		maxSlot,
 		make([]byte, 32),
 		1,
 		1,
-		big.NewRat(1, 2),
+		big.NewRat(1, 1),
 		signer,
 	)
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.Equal(t, startSlot, slot)
+	require.NotNil(t, proof)
+	require.NotNil(t, output)
 }
 
 func TestFindNextSlotLeadershipContextHonorsCancellation(t *testing.T) {
@@ -519,6 +517,27 @@ func TestFindNextSlotLeadershipContextHonorsCancellation(t *testing.T) {
 		1,
 		1,
 		big.NewRat(1, 2),
+		signer,
+	)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestFindNextSlotLeadershipContextHonorsCancellationForLargeRange(
+	t *testing.T,
+) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	startSlot := uint64(42)
+	_, _, _, err = FindNextSlotLeadershipContext(
+		ctx,
+		startSlot,
+		startSlot+1_000_000,
+		make([]byte, 32),
+		1,
+		1,
+		big.NewRat(1, 1),
 		signer,
 	)
 	require.ErrorIs(t, err, context.Canceled)
