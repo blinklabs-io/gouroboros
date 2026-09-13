@@ -851,7 +851,7 @@ type UpdateCommitteeGovAction struct {
 	Type        uint
 	ActionId    *GovActionId
 	Credentials []Credential
-	CredEpochs  map[*Credential]uint
+	CredEpochs  map[*Credential]uint64
 	Quorum      cbor.Rat
 }
 
@@ -890,7 +890,7 @@ func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 	for cred, epoch := range a.CredEpochs {
 		addedPairs = append(addedPairs, [2]data.PlutusData{
 			cred.ToPlutusData(),
-			data.NewInteger(new(big.Int).SetUint64(uint64(epoch))),
+			data.NewInteger(new(big.Int).SetUint64(epoch)),
 		})
 	}
 
@@ -925,7 +925,7 @@ func (a UpdateCommitteeGovAction) isGovAction() {}
 func NewUpdateCommitteeGovAction(
 	actionId *GovActionId,
 	credentials []Credential,
-	credEpochs map[*Credential]uint,
+	credEpochs map[*Credential]uint64,
 	quorum cbor.Rat,
 ) (*UpdateCommitteeGovAction, error) {
 	// A zero-value cbor.Rat has a nil inner *big.Rat and panics when CBOR

@@ -149,7 +149,7 @@ func TestNewUpdateCommitteeGovAction(t *testing.T) {
 		Credential: NewBlake2b224([]byte("test")),
 	}
 	creds := []Credential{cred}
-	credEpochs := map[*Credential]uint{&cred: 42}
+	credEpochs := map[*Credential]uint64{&cred: 42}
 
 	// Negative: a zero-value Rat has a nil inner value and panics when CBOR
 	// encoded, so the constructor must reject it up front.
@@ -180,7 +180,7 @@ func TestNewUpdateCommitteeGovAction(t *testing.T) {
 	_, err = NewUpdateCommitteeGovAction(
 		nil,
 		creds,
-		map[*Credential]uint{nil: 1},
+		map[*Credential]uint64{nil: 1},
 		cbor.Rat{Rat: big.NewRat(2, 3)},
 	)
 	require.Error(t, err)
@@ -189,7 +189,7 @@ func TestNewUpdateCommitteeGovAction(t *testing.T) {
 func TestUpdateCommitteeGovActionUnmarshalCBORRejectsNilCredEpochKey(t *testing.T) {
 	encoded, err := cbor.Encode(UpdateCommitteeGovAction{
 		Type:       uint(GovActionTypeUpdateCommittee),
-		CredEpochs: map[*Credential]uint{nil: 42},
+		CredEpochs: map[*Credential]uint64{nil: 42},
 		Quorum:     cbor.Rat{Rat: big.NewRat(2, 3)},
 	})
 	require.NoError(t, err)

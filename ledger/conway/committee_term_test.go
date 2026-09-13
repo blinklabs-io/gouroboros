@@ -36,13 +36,13 @@ func (s committeeTermLedgerState) CurrentEpoch() uint64 {
 
 func committeeTermProposal(
 	credential common.Credential,
-	expiry uint,
+	expiry uint64,
 ) *conway.ConwayTransaction {
 	return mkProposalTx(
 		0,
 		common.Address{},
 		&common.UpdateCommitteeGovAction{
-			CredEpochs: map[*common.Credential]uint{&credential: expiry},
+			CredEpochs: map[*common.Credential]uint64{&credential: expiry},
 		},
 	)
 }
@@ -55,7 +55,7 @@ func TestCommitteeTermLimitProductionRule(t *testing.T) {
 	tests := []struct {
 		name         string
 		currentEpoch uint64
-		expiry       uint
+		expiry       uint64
 		maxTerm      uint64
 		wantError    bool
 	}{
@@ -103,7 +103,7 @@ func TestCommitteeTermLimitProductionRule(t *testing.T) {
 			require.ErrorAs(t, err, &termErr)
 			assert.Equal(t, credential.Credential, termErr.Credential)
 			assert.Equal(t, tt.currentEpoch, termErr.CurrentEpoch)
-			assert.Equal(t, uint64(tt.expiry), termErr.ExpiryEpoch)
+			assert.Equal(t, tt.expiry, termErr.ExpiryEpoch)
 			assert.Equal(t, tt.maxTerm, termErr.MaxTermLength)
 		})
 	}

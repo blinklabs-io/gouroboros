@@ -4124,7 +4124,7 @@ func validateCommitteeTerms(
 		}
 		terms = append(terms, committeeTerm{
 			credential: credential,
-			expiry:     uint64(expiryEpoch),
+			expiry:     expiryEpoch,
 		})
 	}
 	slices.SortFunc(terms, func(a, b committeeTerm) int {
