@@ -345,11 +345,11 @@ func scriptPurposeBuilder(
 					}
 					if tmpDatum := resolvedInput.Output.Datum(); tmpDatum != nil {
 						// Inline datum - use it directly
-						datum = tmpDatum.Data
+						datum = data.Normalize(tmpDatum.Data)
 					} else if datumHash := resolvedInput.Output.DatumHash(); datumHash != nil {
 						// No inline datum - check witness datums by hash
 						if witnessDatum, exists := witnessDatums[*datumHash]; exists && witnessDatum != nil {
-							datum = witnessDatum.Data
+							datum = data.Normalize(witnessDatum.Data)
 						}
 					}
 					break
@@ -448,11 +448,11 @@ func BuildScriptPurpose(
 		var datum data.PlutusData
 		if d := utxo.Output.Datum(); d != nil {
 			// Inline datum - use it directly
-			datum = d.Data
+			datum = data.Normalize(d.Data)
 		} else if datumHash := utxo.Output.DatumHash(); datumHash != nil {
 			// No inline datum - check witness datums by hash
 			if witnessDatum, exists := witnessDatums[*datumHash]; exists && witnessDatum != nil {
-				datum = witnessDatum.Data
+				datum = data.Normalize(witnessDatum.Data)
 			}
 		}
 		return ScriptPurposeSpending{

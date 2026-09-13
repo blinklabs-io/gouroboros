@@ -494,13 +494,15 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 		addr := v.Address()
 		datumOption := data.NewConstr(0)
 		if tmp := v.Datum(); tmp != nil {
+			// Normalize, not Clone: Clone preserves the wire's
+			// definite/indefinite array encoding, so a definite-encoded inline
+			// datum would reach the script with bytes the reference
+			// implementation never produces (it rebuilds script-visible values
+			// fresh). A script that hashes or compares serialiseData of this
+			// datum then diverges from cardano-ledger. Matches the inline-datum
+			// handling in BabbageTransactionOutput.ToPlutusData.
 			datumOption = data.NewConstr(
 				2,
-				// Normalize rather than Clone: Clone carries the wire
-				// definite/indefinite-length choice, and cardano-ledger
-				// rebuilds every script-visible value. This is the V1/V2
-				// rendering path, which does not go through the era TxOut
-				// ToPlutusData at all.
 				data.Normalize(tmp.Data),
 			)
 		} else if tmp := v.DatumHash(); tmp != nil {

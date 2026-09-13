@@ -1333,6 +1333,11 @@ func dijkstraRequiredGuardsV4(raw []byte) (data.PlutusData, error) {
 			if _, err := cbor.Decode(rawDatum, &datum); err != nil {
 				return nil, fmt.Errorf("decode required guard datum: %w", err)
 			}
+			// Normalize: datum.Data comes straight off cbor.Decode above, so
+			// it still carries the wire's definite/indefinite encoding. Every
+			// other script-visible boundary in this file normalizes; this one
+			// must too, or a required top-level guard datum reaches a PlutusV4
+			// script with non-canonical bytes.
 			value = data.NewConstr(0, data.Normalize(datum.Data))
 		}
 		pairs = append(pairs, [2]data.PlutusData{
