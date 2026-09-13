@@ -829,9 +829,13 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 			data.NewByteString(o.DatumOption.hash.Bytes()),
 		)
 	case o.DatumOption.data != nil:
+		// Normalize: cardano-ledger rebuilds every script-visible value, so a
+		// script always observes the encoding the Plutus encoder writes, never
+		// the definite/indefinite-length choice this transaction was built
+		// with. serialiseData exposes the difference.
 		datumOptionPd = data.NewConstr(
 			2,
-			o.DatumOption.data.Data,
+			data.Normalize(o.DatumOption.data.Data),
 		)
 	}
 	var scriptRefPd data.PlutusData

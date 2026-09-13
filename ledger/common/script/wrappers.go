@@ -496,7 +496,12 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 		if tmp := v.Datum(); tmp != nil {
 			datumOption = data.NewConstr(
 				2,
-				tmp.Data.Clone(),
+				// Normalize rather than Clone: Clone carries the wire
+				// definite/indefinite-length choice, and cardano-ledger
+				// rebuilds every script-visible value. This is the V1/V2
+				// rendering path, which does not go through the era TxOut
+				// ToPlutusData at all.
+				data.Normalize(tmp.Data),
 			)
 		} else if tmp := v.DatumHash(); tmp != nil {
 			datumOption = data.NewConstr(
