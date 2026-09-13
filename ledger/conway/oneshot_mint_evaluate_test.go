@@ -285,6 +285,12 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	t.Logf("mint policy: %s", policies[0].String())
 
 	redeemers := witnesses.Redeemers()
+	// Redeemers() is declared on the witness-set interface and some eras
+	// (Byron) return nil for it, so guard before ranging rather than relying
+	// on this fixture happening to be Conway.
+	if redeemers == nil {
+		t.Fatal("transaction witness set carries no redeemers")
+	}
 	var redeemerKey lcommon.RedeemerKey
 	var redeemerValue lcommon.RedeemerValue
 	found := false
