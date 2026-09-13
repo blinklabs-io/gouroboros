@@ -749,8 +749,12 @@ func dataInfo(
 		ret = append(
 			ret,
 			KeyValuePair[lcommon.DatumHash, data.PlutusData]{
-				Key:   hash,
-				Value: datum.Data,
+				Key: hash,
+				// Normalize: cardano-ledger rebuilds every script-visible value, so a
+				// script always observes the encoding the Plutus encoder writes, never
+				// the definite/indefinite-length choice this transaction was built
+				// with. serialiseData exposes the difference.
+				Value: data.Normalize(datum.Data),
 			},
 		)
 	}
@@ -805,7 +809,7 @@ func redeemersInfo(
 				Value: Redeemer{
 					Tag:     key.Tag,
 					Index:   key.Index,
-					Data:    redeemerValue.Data.Data,
+					Data:    data.Normalize(redeemerValue.Data.Data),
 					ExUnits: redeemerValue.ExUnits,
 				},
 			},
