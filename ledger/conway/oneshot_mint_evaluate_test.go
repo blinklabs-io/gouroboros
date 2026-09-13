@@ -434,9 +434,25 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	t.Logf("  normalized: %x", hashOrPanic(data.Encode(normRedeemerData)))
 	t.Logf("  raw:        %x", hashOrPanic(data.Encode(rawRedeemerData)))
 
-	if postExecErr == nil || !bypassExecErrIsExpected(bypassExecErr, postExecErr) {
-		// Honest reporting: whatever the bypass verdict is, print it plainly.
-		t.Logf("FINAL post-fix=%s bypass=%s", postVerdict, bypassVerdict)
+	t.Logf("FINAL post-fix=%s bypass=%s", postVerdict, bypassVerdict)
+
+	// The fix working: a script context built with Normalize evaluates.
+	if postExecErr != nil {
+		t.Fatalf(
+			"normalized script context failed to evaluate: %v",
+			postExecErr,
+		)
+	}
+	// The bug still reproducing: the same context built with the decoder's
+	// preserved definite/indefinite fidelity must still fail. Without this the
+	// test cannot tell "Normalize fixes the divergence" from "the fixture no
+	// longer exhibits the divergence at all", and would keep passing after it
+	// had stopped testing anything.
+	if bypassExecErr == nil {
+		t.Fatal(
+			"fidelity-preserving script context unexpectedly evaluated; " +
+				"this fixture no longer reproduces the encoding divergence",
+		)
 	}
 }
 
@@ -445,10 +461,4 @@ func hashOrPanic(b []byte, err error) string {
 		panic(err)
 	}
 	return fmt.Sprintf("%x", b)
-}
-
-func bypassExecErrIsExpected(bypassErr, postErr error) bool {
-	// Placeholder for readability; the actual verdict is reported plainly
-	// in the run() logs. We only require that post-fix SUCCEEDS.
-	return bypassErr == nil
 }
