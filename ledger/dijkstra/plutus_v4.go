@@ -963,7 +963,7 @@ func dijkstraOutputV4(
 	var datumData data.PlutusData
 	switch {
 	case output.Datum() != nil:
-		datumData = data.NewConstr(2, output.Datum().Data)
+		datumData = data.NewConstr(2, data.Normalize(output.Datum().Data))
 	case output.DatumHash() != nil:
 		datumData = data.NewConstr(
 			1,
@@ -1333,7 +1333,7 @@ func dijkstraRequiredGuardsV4(raw []byte) (data.PlutusData, error) {
 			if _, err := cbor.Decode(rawDatum, &datum); err != nil {
 				return nil, fmt.Errorf("decode required guard datum: %w", err)
 			}
-			value = data.NewConstr(0, datum.Data)
+			value = data.NewConstr(0, data.Normalize(datum.Data))
 		}
 		pairs = append(pairs, [2]data.PlutusData{
 			credential.credential().ToPlutusData(), value,
