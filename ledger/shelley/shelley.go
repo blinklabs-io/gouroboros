@@ -214,6 +214,19 @@ type ShelleyBlockHeader struct {
 	Body      ShelleyBlockHeaderBody
 	Signature []byte
 }
+
+func (h *ShelleyBlockHeader) SetCbor(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCbor(cborData)
+	h.hash.Reset()
+}
+
+func (h *ShelleyBlockHeader) SetCborReference(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCborReference(cborData)
+	h.hash.Reset()
+}
+
 type ShelleyBlockHeaderBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor

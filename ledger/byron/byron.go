@@ -85,6 +85,18 @@ type ByronMainBlockHeader struct {
 	}
 }
 
+func (h *ByronMainBlockHeader) SetCbor(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCbor(cborData)
+	h.hash.Reset()
+}
+
+func (h *ByronMainBlockHeader) SetCborReference(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCborReference(cborData)
+	h.hash.Reset()
+}
+
 func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	type tByronMainBlockHeader ByronMainBlockHeader
 	var tmp tByronMainBlockHeader
@@ -1096,6 +1108,18 @@ type ByronEpochBoundaryBlockHeader struct {
 		}
 	}
 	ExtraData any
+}
+
+func (h *ByronEpochBoundaryBlockHeader) SetCbor(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCbor(cborData)
+	h.hash.Reset()
+}
+
+func (h *ByronEpochBoundaryBlockHeader) SetCborReference(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCborReference(cborData)
+	h.hash.Reset()
 }
 
 func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {

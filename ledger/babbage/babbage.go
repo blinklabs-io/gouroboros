@@ -264,6 +264,18 @@ type BabbageBlockHeader struct {
 	Signature []byte
 }
 
+func (h *BabbageBlockHeader) SetCbor(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCbor(cborData)
+	h.hash.Reset()
+}
+
+func (h *BabbageBlockHeader) SetCborReference(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCborReference(cborData)
+	h.hash.Reset()
+}
+
 type BabbageBlockHeaderBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
