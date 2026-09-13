@@ -104,6 +104,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        stateIdle,
+		MaxReadBufferSize:   cfg.MaxReadBufferSize,
 	}
 	// Enable version-dependent features
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {
@@ -1704,8 +1705,17 @@ func (c *Client) handleAcquired() error {
 	default:
 	}
 	c.acquired = true
-	c.acquireResultChan <- nil
+	// Invalidate the cached era before signaling completion on
+	// acquireResultChan, not after: a caller blocked in acquire() wakes up
+	// on that channel receive and can immediately call a query that reads
+	// currentEra (getCurrentEra, via GetCurrentProtocolParams/GetEpochNo/
+	// etc.). Writing it after the send has no happens-before relationship
+	// to that caller's subsequent read -- a data race under the Go memory
+	// model, confirmed live under -race with a low-latency (fast, local)
+	// server, where the window between the two statements is otherwise
+	// too narrow to hit against normal network latency.
 	c.currentEra = -1
+	c.acquireResultChan <- nil
 	return nil
 }
 

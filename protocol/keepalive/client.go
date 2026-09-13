@@ -33,6 +33,8 @@ type Client struct {
 	timer           *time.Timer
 	timerMutex      sync.Mutex
 	onceStart       sync.Once
+	// scheduleHook is test-only synchronization for the shutdown race.
+	scheduleHook func()
 }
 
 // NewClient creates and returns a new keep-alive protocol client with the given options and configuration.
@@ -119,13 +121,22 @@ func (c *Client) sendKeepAlive() {
 		c.SendError(err)
 	}
 	// Schedule timer
+	if c.scheduleHook != nil {
+		c.scheduleHook()
+	}
 	c.startTimer()
 }
 
 // startTimer starts or resets the keep-alive timer for periodic keep-alive messages.
 func (c *Client) startTimer() {
+	if c.IsStopping() || c.IsDone() {
+		return
+	}
 	c.timerMutex.Lock()
 	defer c.timerMutex.Unlock()
+	if c.IsStopping() || c.IsDone() {
+		return
+	}
 	// Stop any existing timer
 	if c.timer != nil {
 		c.timer.Stop()

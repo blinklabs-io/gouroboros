@@ -16,7 +16,9 @@ package conway_test
 
 import (
 	"encoding/hex"
+	"math"
 	"math/big"
+	"math/bits"
 	"reflect"
 	"strings"
 	"testing"
@@ -29,6 +31,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -645,10 +648,12 @@ func TestUtxorpc(t *testing.T) {
 					Memory: 5000000,
 					Steps:  1000000,
 				},
+				// Keys follow the real cardano-ledger wire convention:
+				// 0-indexed (0=PlutusV1, 1=PlutusV2, 2=PlutusV3).
 				CostModels: map[uint][]int64{
-					1: {100, 200, 300},
-					2: {400, 500, 600},
-					3: {700, 800, 900},
+					0: {100, 200, 300},
+					1: {400, 500, 600},
+					2: {700, 800, 900},
 				},
 			},
 			expectedUtxorpc: &utxorpc.PParams{
@@ -723,6 +728,16 @@ func TestUtxorpc(t *testing.T) {
 					Memory: 5000000,
 					Steps:  1000000,
 				},
+				// GovActionDeposit/DRepDeposit are plain uint64 fields (not
+				// pointers) on ConwayProtocolParameters, so
+				// common.ToUtxorpcBigInt always returns a non-nil BigInt,
+				// even for the zero value left unset by this test case.
+				GovernanceActionDeposit: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 0},
+				},
+				DrepDeposit: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 0},
+				},
 			},
 		},
 	}
@@ -741,6 +756,447 @@ func TestUtxorpc(t *testing.T) {
 			)
 		}
 	}
+}
+
+// TestConwayUtxorpc_GovernanceFields is the regression test for the
+// node-parity audit finding that Utxorpc() silently omitted every Conway
+// governance parameter: GovActionDeposit, DRepDeposit, voting thresholds,
+// committee settings, governance-action validity period, and the
+// reference-script fee rational. Before this fix, changing e.g.
+// GovActionDeposit produced an identical, empty node-parity diff because
+// none of these fields ever reached the returned *utxorpc.PParams. Each
+// field below is given a distinct value (and, for the voting-threshold
+// lists, distinct per-position values) so a mapping mistake -- a dropped
+// field or a misordered threshold list -- makes this test fail rather than
+// passing by coincidence.
+func TestConwayUtxorpc_GovernanceFields(t *testing.T) {
+	rat := func(num, den int64) cbor.Rat {
+		return cbor.Rat{Rat: big.NewRat(num, den)}
+	}
+	params := conway.ConwayProtocolParameters{
+		// Fields required by Utxorpc()'s existing sanity checks.
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+		// Newly-mapped governance fields under test, each a distinct value.
+		MinFeeRefScriptCostPerByte: &cbor.Rat{Rat: big.NewRat(15, 2)},
+		PoolVotingThresholds: conway.PoolVotingThresholds{
+			MotionNoConfidence:    rat(1, 11),
+			CommitteeNormal:       rat(2, 11),
+			CommitteeNoConfidence: rat(3, 11),
+			HardForkInitiation:    rat(4, 11),
+			PpSecurityGroup:       rat(5, 11),
+		},
+		DRepVotingThresholds: conway.DRepVotingThresholds{
+			MotionNoConfidence:    rat(1, 13),
+			CommitteeNormal:       rat(2, 13),
+			CommitteeNoConfidence: rat(3, 13),
+			UpdateToConstitution:  rat(4, 13),
+			HardForkInitiation:    rat(5, 13),
+			PpNetworkGroup:        rat(6, 13),
+			PpEconomicGroup:       rat(7, 13),
+			PpTechnicalGroup:      rat(8, 13),
+			PpGovGroup:            rat(9, 13),
+			TreasuryWithdrawal:    rat(10, 13),
+		},
+		MinCommitteeSize:        7,
+		CommitteeTermLimit:      365,
+		GovActionValidityPeriod: 30000,
+		// Matches the exact scenario from the node-parity audit: a changed
+		// GovActionDeposit must produce a different Utxorpc() value.
+		GovActionDeposit:     100000000001,
+		DRepDeposit:          500000000,
+		DRepInactivityPeriod: 20,
+	}
+
+	result, err := params.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed: %v", err)
+	}
+
+	assert.Equal(t,
+		&utxorpc.RationalNumber{Numerator: 15, Denominator: 2},
+		result.MinFeeScriptRefCostPerByte,
+		"MinFeeScriptRefCostPerByte",
+	)
+	assert.Equal(t,
+		&utxorpc.VotingThresholds{
+			Thresholds: []*utxorpc.RationalNumber{
+				{Numerator: 1, Denominator: 11},
+				{Numerator: 2, Denominator: 11},
+				{Numerator: 3, Denominator: 11},
+				{Numerator: 4, Denominator: 11},
+				{Numerator: 5, Denominator: 11},
+			},
+		},
+		result.PoolVotingThresholds,
+		"PoolVotingThresholds",
+	)
+	assert.Equal(t,
+		&utxorpc.VotingThresholds{
+			Thresholds: []*utxorpc.RationalNumber{
+				{Numerator: 1, Denominator: 13},
+				{Numerator: 2, Denominator: 13},
+				{Numerator: 3, Denominator: 13},
+				{Numerator: 4, Denominator: 13},
+				{Numerator: 5, Denominator: 13},
+				{Numerator: 6, Denominator: 13},
+				{Numerator: 7, Denominator: 13},
+				{Numerator: 8, Denominator: 13},
+				{Numerator: 9, Denominator: 13},
+				{Numerator: 10, Denominator: 13},
+			},
+		},
+		result.DrepVotingThresholds,
+		"DrepVotingThresholds",
+	)
+	assert.Equal(t, uint32(7), result.MinCommitteeSize, "MinCommitteeSize")
+	assert.Equal(
+		t,
+		uint64(365),
+		result.CommitteeTermLimit,
+		"CommitteeTermLimit",
+	)
+	assert.Equal(
+		t,
+		uint64(30000),
+		result.GovernanceActionValidityPeriod,
+		"GovernanceActionValidityPeriod",
+	)
+	assert.Equal(t,
+		common.ToUtxorpcBigInt(100000000001),
+		result.GovernanceActionDeposit,
+		"GovernanceActionDeposit",
+	)
+	assert.Equal(t,
+		common.ToUtxorpcBigInt(500000000),
+		result.DrepDeposit,
+		"DrepDeposit",
+	)
+	assert.Equal(
+		t,
+		uint64(20),
+		result.DrepInactivityPeriod,
+		"DrepInactivityPeriod",
+	)
+
+	// Changing GovActionDeposit must change the converted value -- this is
+	// the exact audit scenario (100000000000 -> 100000000001 previously
+	// produced an identical, empty diff).
+	changed := params
+	changed.GovActionDeposit = 100000000000
+	changedResult, err := changed.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed: %v", err)
+	}
+	assert.NotEqual(
+		t,
+		result.GovernanceActionDeposit,
+		changedResult.GovernanceActionDeposit,
+		"GovActionDeposit change must be visible in Utxorpc() output",
+	)
+}
+
+// TestConwayUtxorpc_GovernanceFields_UnsetVotingThresholdsOmitted verifies
+// that a ConwayProtocolParameters value with unset (zero-value)
+// PoolVotingThresholds/DRepVotingThresholds/MinFeeRefScriptCostPerByte -- as
+// happens when a value is constructed directly rather than decoded from a
+// full on-chain protocol-parameters value or genesis -- leaves the
+// corresponding utxorpc fields nil instead of emitting a spurious all-zero
+// VotingThresholds list, which would misrepresent a real 0/0 rational as a
+// present-but-degenerate threshold.
+func TestConwayUtxorpc_GovernanceFields_UnsetVotingThresholdsOmitted(
+	t *testing.T,
+) {
+	params := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+	}
+	result, err := params.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed: %v", err)
+	}
+	assert.Nil(t, result.MinFeeScriptRefCostPerByte)
+	assert.Nil(t, result.PoolVotingThresholds)
+	assert.Nil(t, result.DrepVotingThresholds)
+}
+
+// TestConwayUtxorpc_MinFeeRefScriptCostPerByteNilEmbeddedRatDoesNotPanic is
+// the regression test for a review finding on
+// blinklabs-io/gouroboros#2292: MinFeeRefScriptCostPerByte is a *cbor.Rat,
+// and the nil check in Utxorpc()'s original validation guard only covered
+// that outer pointer -- a non-nil *cbor.Rat whose embedded *big.Rat is
+// itself nil (the same "unset" representation
+// TestConwayUtxorpc_GovernanceFields_UnsetVotingThresholdsOmitted's
+// zero-value fields use, just wrapped in a non-nil pointer instead of a
+// nil one) reached a call to Num() on a nil *big.Rat and panicked, before
+// the nil-safe ratPtrToUtxorpcRationalNumber conversion ever got a chance
+// to correctly return nil for it.
+func TestConwayUtxorpc_MinFeeRefScriptCostPerByteNilEmbeddedRatDoesNotPanic(
+	t *testing.T,
+) {
+	params := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+		// Non-nil *cbor.Rat, nil embedded *big.Rat -- the panic-inducing
+		// shape, distinct from a nil MinFeeRefScriptCostPerByte pointer
+		// entirely (already covered by the unset-fields test above).
+		MinFeeRefScriptCostPerByte: &cbor.Rat{},
+	}
+
+	require.NotPanics(t, func() {
+		result, err := params.Utxorpc()
+		require.NoError(t, err)
+		assert.Nil(t, result.MinFeeScriptRefCostPerByte)
+	})
+}
+
+// TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic is the
+// regression test for a CodeRabbit finding on blinklabs-io/gouroboros#2292:
+// unlike the optional MinFeeRefScriptCostPerByte above (where a nil
+// embedded *big.Rat legitimately means "unset"), A0, Rho, Tau, and the two
+// execution-cost prices are mandatory -- Utxorpc()'s own validation guard
+// for each already rejects a nil *cbor.Rat pointer with an "invalid ...
+// rational number values" error, but only checked that outer pointer, not
+// whether a non-nil *cbor.Rat's embedded *big.Rat was itself nil. That
+// shape reached ratOutOfRange's Num()/Denom() calls, which panic on a nil
+// receiver, instead of being rejected with the same existing error a nil
+// outer pointer already gets.
+func TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic(
+	t *testing.T,
+) {
+	validBase := func() conway.ConwayProtocolParameters {
+		return conway.ConwayProtocolParameters{
+			A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+			Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+			ExecutionCosts: common.ExUnitPrice{
+				MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+				StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+			},
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*conway.ConwayProtocolParameters)
+	}{
+		{"A0", func(p *conway.ConwayProtocolParameters) {
+			p.A0 = &cbor.Rat{}
+		}},
+		{"Rho", func(p *conway.ConwayProtocolParameters) {
+			p.Rho = &cbor.Rat{}
+		}},
+		{"Tau", func(p *conway.ConwayProtocolParameters) {
+			p.Tau = &cbor.Rat{}
+		}},
+		{"memory price", func(p *conway.ConwayProtocolParameters) {
+			p.ExecutionCosts.MemPrice = &cbor.Rat{}
+		}},
+		{"step price", func(p *conway.ConwayProtocolParameters) {
+			p.ExecutionCosts.StepPrice = &cbor.Rat{}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := validBase()
+			tt.mutate(&params)
+
+			require.NotPanics(t, func() {
+				_, err := params.Utxorpc()
+				require.Error(t, err)
+			})
+		})
+	}
+}
+
+// TestConwayUtxorpc_VotingThresholdOutOfRangeRejected is the regression
+// test for a review finding on blinklabs-io/gouroboros#2292:
+// ratToUtxorpcRationalNumber cast a threshold's numerator/denominator to
+// int32/uint32 unconditionally, unlike every sibling rational field in this
+// file (A0, Rho, Tau, the execution-cost prices), which reject an
+// out-of-range value with an error rather than silently wrapping it during
+// the cast. An out-of-range voting threshold must fail the same way.
+func TestConwayUtxorpc_VotingThresholdOutOfRangeRejected(t *testing.T) {
+	base := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+	}
+	outOfRange := cbor.Rat{
+		Rat: big.NewRat(int64(math.MaxInt32)+1, 1),
+	}
+
+	t.Run("pool voting threshold", func(t *testing.T) {
+		params := base
+		params.PoolVotingThresholds = conway.PoolVotingThresholds{
+			MotionNoConfidence: outOfRange,
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+
+	t.Run("drep voting threshold", func(t *testing.T) {
+		params := base
+		params.DRepVotingThresholds = conway.DRepVotingThresholds{
+			MotionNoConfidence: outOfRange,
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+}
+
+// TestConwayUtxorpc_MinCommitteeSizeOutOfRangeRejected is the regression
+// test for a chrisguiney review finding on blinklabs-io/gouroboros#2292:
+// MinCommitteeSize is a uint (64 bits wide on a 64-bit build) narrowed
+// unchecked to utxorpc.PParams.MinCommitteeSize's uint32. A value of
+// 1<<32 silently converted to 0 instead of surfacing an error, unlike
+// every rational field and MaxTxExUnits/MaxBlockExUnits in the same
+// function.
+func TestConwayUtxorpc_MinCommitteeSizeOutOfRangeRejected(t *testing.T) {
+	base := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+	}
+
+	t.Run("in range", func(t *testing.T) {
+		params := base
+		params.MinCommitteeSize = 7
+		_, err := params.Utxorpc()
+		require.NoError(t, err)
+	})
+
+	t.Run("beyond uint32 range", func(t *testing.T) {
+		if bits.UintSize <= 32 {
+			// uint(1) << 32 as a constant overflows a 32-bit uint at
+			// compile time (breaks the build on 386, not just this
+			// test), and uint itself cannot hold a value beyond
+			// uint32's range on such a build in the first place -- so
+			// there is nothing this subtest can exercise there.
+			t.Skip("uint cannot exceed uint32 range on a 32-bit build")
+		}
+		params := base
+		var beyondUint32 uint64 = 1 << 32
+		params.MinCommitteeSize = uint(beyondUint32)
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+}
+
+// TestConwayUtxorpc_ValueBeyondInt64RangeRejected is the regression test
+// for a review finding on blinklabs-io/gouroboros#2292: the range check
+// (both the voting-threshold one just added, and the pre-existing A0/Rho/
+// Tau/execution-cost-price ones it was modeled on) compared
+// r.Num().Int64() against math.MinInt32/MaxInt32 -- but big.Int.Int64() is
+// undefined (silently wraps, per math/big's own documentation) for a value
+// that does not fit in int64 at all, which is a much lower bar to clear
+// than not fitting in int32. A numerator like 2^64+1 could pass that
+// Int64()-based comparison completely undetected instead of being
+// rejected. Covers both a pre-existing guard (A0) and the new
+// voting-threshold path, since both used the same flawed pattern.
+func TestConwayUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
+	beyondInt64 := new(big.Int).Lsh(big.NewInt(1), 64) // 2^64
+	beyondInt64.Add(beyondInt64, big.NewInt(1))        // 2^64 + 1
+	badRat := new(big.Rat).SetFrac(beyondInt64, big.NewInt(1))
+
+	validBase := func() conway.ConwayProtocolParameters {
+		return conway.ConwayProtocolParameters{
+			A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+			Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+			ExecutionCosts: common.ExUnitPrice{
+				MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+				StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+			},
+		}
+	}
+
+	t.Run("pre-existing A0 guard", func(t *testing.T) {
+		params := validBase()
+		params.A0 = &cbor.Rat{Rat: badRat}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+
+	t.Run("voting threshold", func(t *testing.T) {
+		params := validBase()
+		params.PoolVotingThresholds = conway.PoolVotingThresholds{
+			MotionNoConfidence: cbor.Rat{Rat: badRat},
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+}
+
+// TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField is the
+// regression test for a review finding on blinklabs-io/gouroboros#2292:
+// poolVotingThresholdsUtxorpc/drepVotingThresholdsUtxorpc returned (nil, nil)
+// as soon as the scan reached the first unset threshold, before ever
+// checking any threshold that came after it in field order. An out-of-range
+// threshold positioned after an earlier unset one was therefore never
+// caught -- the whole set was silently treated as "not fully populated"
+// instead of surfacing the real range error. Leaves MotionNoConfidence
+// (the first field in both structs' order) unset and puts the out-of-range
+// value on CommitteeNormal (the second field) to prove the scan still
+// reaches and validates it.
+func TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField(
+	t *testing.T,
+) {
+	base := conway.ConwayProtocolParameters{
+		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
+		},
+	}
+	outOfRange := cbor.Rat{
+		Rat: big.NewRat(int64(math.MaxInt32)+1, 1),
+	}
+
+	t.Run("pool voting threshold", func(t *testing.T) {
+		params := base
+		params.PoolVotingThresholds = conway.PoolVotingThresholds{
+			// MotionNoConfidence left unset (zero-value cbor.Rat).
+			CommitteeNormal: outOfRange,
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
+
+	t.Run("drep voting threshold", func(t *testing.T) {
+		params := base
+		params.DRepVotingThresholds = conway.DRepVotingThresholds{
+			// MotionNoConfidence left unset (zero-value cbor.Rat).
+			CommitteeNormal: outOfRange,
+		}
+		_, err := params.Utxorpc()
+		require.Error(t, err)
+	})
 }
 
 // Unit test for ConwayTransactionBody.Utxorpc()

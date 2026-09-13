@@ -17,18 +17,76 @@ package handshake_test
 import (
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
 )
 
-func TestServerBasicHandshake(t *testing.T) {
+func TestServerInitialProposeTimeout(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	for _, test := range []struct {
+		name        string
+		mode        protocol.ProtocolMode
+		timeout     time.Duration
+		wantTimeout bool
+	}{
+		{"node-to-node", protocol.ProtocolModeNodeToNode, 20 * time.Millisecond, true},
+		{"node-to-client", protocol.ProtocolModeNodeToClient, 20 * time.Millisecond, false},
+		{"node-to-node zero timeout", protocol.ProtocolModeNodeToNode, 0, false},
+		{"node-to-node negative timeout", protocol.ProtocolModeNodeToNode, -time.Second, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			serverConn, peerConn := net.Pipe()
+			defer serverConn.Close()
+			defer peerConn.Close()
+			m := muxer.New(serverConn)
+			m.Start()
+			defer m.Stop()
+			errorChan := make(chan error, 1)
+			cfg := handshake.NewConfig(
+				handshake.WithTimeout(test.timeout),
+			)
+			s := handshake.NewServer(protocol.ProtocolOptions{
+				Muxer:     m,
+				ErrorChan: errorChan,
+				Mode:      test.mode,
+				Role:      protocol.ProtocolRoleServer,
+			}, &cfg)
+			s.Start()
+			defer s.Stop()
+
+			if test.wantTimeout {
+				select {
+				case err := <-errorChan:
+					if err == nil {
+						t.Fatal("received nil timeout error")
+					}
+					if !strings.Contains(err.Error(), "timeout waiting on transition") {
+						t.Fatalf("unexpected timeout error: %v", err)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("server did not enforce initial Propose timeout")
+				}
+				return
+			}
+			select {
+			case err := <-errorChan:
+				t.Fatalf("unexpected initial timeout: %v", err)
+			case <-time.After(50 * time.Millisecond):
+			}
+		})
+	}
+}
+
+func TestServerBasicN2NHandshake(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleServer,
@@ -39,15 +97,10 @@ func TestServerBasicHandshake(t *testing.T) {
 				Messages: []protocol.Message{
 					handshake.NewMsgProposeVersions(
 						protocol.ProtocolVersionMap{
-							(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
-								ouroboros_mock.MockNetworkMagic,
-							),
-							(11 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
-								ouroboros_mock.MockNetworkMagic,
-							),
-							(12 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
-								ouroboros_mock.MockNetworkMagic,
-							),
+							10: protocol.VersionDataNtN7to10{
+								CborNetworkMagic:                       ouroboros_mock.MockNetworkMagic,
+								CborInitiatorAndResponderDiffusionMode: true,
+							},
 						},
 					),
 				},
@@ -58,10 +111,11 @@ func TestServerBasicHandshake(t *testing.T) {
 				IsResponse:      true,
 				MsgFromCborFunc: handshake.NewMsgFromCbor,
 				Message: handshake.NewMsgAcceptVersion(
-					(12 + protocol.ProtocolVersionNtCOffset),
-					protocol.VersionDataNtC9to14(
-						ouroboros_mock.MockNetworkMagic,
-					),
+					10,
+					protocol.VersionDataNtN7to10{
+						CborNetworkMagic:                       ouroboros_mock.MockNetworkMagic,
+						CborInitiatorAndResponderDiffusionMode: true,
+					},
 				),
 			},
 		},
@@ -69,6 +123,7 @@ func TestServerBasicHandshake(t *testing.T) {
 	oConn, err := ouroboros.New(
 		ouroboros.WithConnection(mockConn),
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
 		ouroboros.WithServer(true),
 	)
 	if err != nil {
@@ -88,6 +143,65 @@ func TestServerBasicHandshake(t *testing.T) {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
+}
+
+func TestServerBasicHandshake(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleServer,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				Messages: []protocol.Message{
+					handshake.NewMsgProposeVersions(
+						protocol.ProtocolVersionMap{
+							(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
+							(11 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
+							(12 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
+						},
+					),
+				},
+			},
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:      handshake.ProtocolId,
+				IsResponse:      true,
+				MsgFromCborFunc: handshake.NewMsgFromCbor,
+				Message: handshake.NewMsgAcceptVersion(
+					(12 + protocol.ProtocolVersionNtCOffset),
+					protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
+				),
+			},
+		},
+	)
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithServer(true),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+	go func() {
+		err, ok := <-oConn.ErrorChan()
+		if !ok {
+			return
+		}
+		panic(fmt.Sprintf("unexpected Ouroboros error: %s", err))
+	}()
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
 	select {
 	case <-oConn.ErrorChan():
 	case <-time.After(10 * time.Second):
