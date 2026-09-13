@@ -44,8 +44,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		notificationChan: make(chan protocol.Message),
 	}
 	c.callbackContext = CallbackContext{
-		Client:       c,
-		ConnectionId: protoOptions.ConnectionId,
+		Client:             c,
+		ConnectionId:       protoOptions.ConnectionId,
+		ConnectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
