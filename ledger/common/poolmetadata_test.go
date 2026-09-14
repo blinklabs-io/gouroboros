@@ -25,7 +25,59 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	"google.golang.org/protobuf/proto"
 )
+
+func TestPoolMetadataUtxorpcAbsent(t *testing.T) {
+	var metadata *common.PoolMetadata
+	require.NotPanics(t, func() {
+		converted, err := metadata.Utxorpc()
+		require.NoError(t, err)
+		require.Nil(t, converted)
+	})
+}
+
+func TestPoolRegistrationUtxorpcOptionalMetadata(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		metadata *common.PoolMetadata
+	}{
+		{name: "absent"},
+		{name: "present empty", metadata: &common.PoolMetadata{}},
+		{name: "populated", metadata: &common.PoolMetadata{
+			Url:  "https://example.com/pool.json",
+			Hash: common.PoolMetadataHash{1, 2, 3},
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cert := common.PoolRegistrationCertificate{
+				Operator:     common.PoolKeyHash{0x22},
+				Margin:       common.NewGenesisRat(0, 1),
+				PoolMetadata: test.metadata,
+			}
+			var converted *utxorpc.Certificate
+			require.NotPanics(t, func() {
+				var err error
+				converted, err = cert.Utxorpc()
+				require.NoError(t, err)
+			})
+			wire, err := proto.Marshal(converted)
+			require.NoError(t, err)
+			var decoded utxorpc.Certificate
+			require.NoError(t, proto.Unmarshal(wire, &decoded))
+			pool := decoded.GetPoolRegistration()
+			require.NotNil(t, pool)
+			require.Equal(t, cert.Operator.Bytes(), pool.GetOperator())
+			if test.metadata == nil {
+				require.Nil(t, pool.GetPoolMetadata())
+				return
+			}
+			require.NotNil(t, pool.GetPoolMetadata())
+			require.Equal(t, test.metadata.Url, pool.PoolMetadata.Url)
+			require.Equal(t, []byte(test.metadata.Hash), pool.PoolMetadata.Hash)
+		})
+	}
+}
 
 func TestPoolMetadataURLDecodeBound(t *testing.T) {
 	const maxURLLength = 128

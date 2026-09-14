@@ -650,6 +650,9 @@ func (p PoolMetadata) MarshalJSON() ([]byte, error) {
 }
 
 func (p *PoolMetadata) Utxorpc() (*utxorpc.PoolMetadata, error) {
+	if p == nil {
+		return nil, nil
+	}
 	if err := ValidatePoolMetadata(p); err != nil {
 		return nil, err
 	}
