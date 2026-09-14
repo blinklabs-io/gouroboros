@@ -93,10 +93,11 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 			return err
 		}
 	}
-	if s.config.Authenticator != nil {
-		if err := s.config.Authenticator.VerifyMessage(msg); err != nil {
-			return err
-		}
+	if s.config.Authenticator == nil {
+		return errors.New("dmq: message authenticator not configured")
+	}
+	if err := s.config.Authenticator.VerifyMessage(msg); err != nil {
+		return err
 	}
 
 	s.lock.Lock()
@@ -450,18 +451,19 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 				return err
 			}
 		}
-		if s.config.Authenticator != nil {
-			if err := s.config.Authenticator.VerifyMessage(&msgReply.Messages[i]); err != nil {
-				s.Protocol.Logger().
-					Warn("message authentication failed",
-						"component", "network",
-						"protocol", ProtocolName,
-						"role", "server",
-						"connection_id", s.callbackContext.ConnectionId.String(),
-						"error", err,
-					)
-				return err
-			}
+		if s.config.Authenticator == nil {
+			return errors.New("dmq: message authenticator not configured")
+		}
+		if err := s.config.Authenticator.VerifyMessage(&msgReply.Messages[i]); err != nil {
+			s.Protocol.Logger().
+				Warn("message authentication failed",
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "server",
+					"connection_id", s.callbackContext.ConnectionId.String(),
+					"error", err,
+				)
+			return err
 		}
 	}
 

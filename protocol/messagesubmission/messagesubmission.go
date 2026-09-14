@@ -321,10 +321,12 @@ func NewConfig(options ...MessageSubmissionOptionFunc) Config {
 		option(&c)
 	}
 	// Set defaults
-	if c.Authenticator == nil {
-		c.Authenticator = pcommon.NewMessageAuthenticator(nil)
-		pcommon.ApplyDefaultKESVerifier(c.Authenticator)
-	}
+	// Authenticator has no default: constructing a real one requires a
+	// StakeAuthority backed by live chain state, which this package has no
+	// access to. A nil Authenticator is a deliberate fail-closed
+	// configuration error (see server.go) rather than a silent skip of
+	// verification -- callers must explicitly supply one, or
+	// common.NewNoOpAuthenticator() to intentionally disable authentication.
 	if c.TTLValidator == nil {
 		c.TTLValidator = pcommon.NewTTLValidator(0, nil)
 	}
