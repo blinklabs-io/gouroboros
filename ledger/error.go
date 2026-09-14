@@ -657,11 +657,7 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 			if err != nil {
 				return err
 			}
-<<<<<<< HEAD
 		case isLedgerUtxowFailure(e.era, failureType):
-=======
-		case isLedgerUtxowFailure(e.era, failureType):
->>>>>>> ed734c7ee5b2c7e52fd4b43a390fb226f48134d0
 			if len(tmpFailure) < 2 {
 				return fmt.Errorf(
 					"ApplyTxError UtxowFailure: expected at least 2 elements, got %d",
