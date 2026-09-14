@@ -34,7 +34,8 @@ func TestShelleyTxValidationErrorDecodesNestedUtxoFailureByEra(t *testing.T) {
 		{"Alonzo", "818204818200820082048103"},
 		{"Babbage", "818205818200820282018103"},
 		{"Conway", "81820681820082008104"},
-		{"Dijkstra", "81820781820082008104"},
+		// Dijkstra: MEMPOOL LedgerFailure -> LEDGER UtxowFailure.
+		{"Dijkstra", "818207818201820182008104"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -91,7 +92,7 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 		{"Babbage singleton Alonzo wrapper", "8182058182008101"},
 		{"Babbage singleton UTXO wrapper", "8182058182008102"},
 		{"Conway singleton UTXOW", "8182068182008100"},
-		{"Dijkstra singleton UTXOW", "8182078182008100"},
+		{"Dijkstra singleton UTXOW", "81820781820182018100"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			wire, err := hex.DecodeString(tt.wire)
@@ -111,7 +112,9 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 	})
 
 	t.Run("Conway unknown constructor", func(t *testing.T) {
-		data, err := cbor.Encode([]any{ConwayUtxowUtxoFailure, []any{uint(250)}})
+		data, err := cbor.Encode(
+			[]any{ConwayUtxowUtxoFailure, []any{uint(250)}},
+		)
 		require.NoError(t, err)
 		decoded := UtxowFailure{era: EraIdConway}
 		require.NoError(t, decoded.UnmarshalCBOR(data))
@@ -133,7 +136,9 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 	})
 
 	t.Run("Babbage nested Alonzo", func(t *testing.T) {
-		data, err := cbor.Encode([]any{BabbageUtxoAlonzoInBabbage, []any{uint(3)}})
+		data, err := cbor.Encode(
+			[]any{BabbageUtxoAlonzoInBabbage, []any{uint(3)}},
+		)
 		require.NoError(t, err)
 		decoded := BabbageUtxoFailure{}
 		require.NoError(t, decoded.UnmarshalCBOR(data))
@@ -157,8 +162,48 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 		require.NoError(t, err)
 		decoded, err := NewShelleyTxValidationErrorFromCbor(data)
 		require.NoError(t, err)
-		require.True(t, containsInputSetEmpty(decoded), "%T: %v", decoded, decoded)
+		require.True(
+			t,
+			containsInputSetEmpty(decoded),
+			"%T: %v",
+			decoded,
+			decoded,
+		)
 	})
+}
+
+func TestDijkstraMempoolFailureEnvelope(t *testing.T) {
+	// cardano-ledger 2c33b4f858c0e62b300d121996a479f505d8c0e5:
+	// Dijkstra/Rules/Mempool.hs and Dijkstra/Rules/Ledger.hs.
+	for _, failure := range [][]any{
+		{0, []any{0, []any{4}}}, // Conway's ledger tag is not Dijkstra MEMPOOL.
+		{1, []any{2, []any{0}}}, // Unhandled Dijkstra LEDGER constructor.
+		{2, "mempool rejected transaction"},
+		{3}, // AllInputsAreSpent.
+		{250, []any{1}},
+	} {
+		raw, err := cbor.Encode(failure)
+		require.NoError(t, err)
+		wire, err := cbor.Encode(
+			[]any{[]any{EraIdDijkstra, []any{cbor.RawMessage(raw)}}},
+		)
+		require.NoError(t, err)
+		decoded, err := NewShelleyTxValidationErrorFromCbor(wire)
+		require.NoError(t, err)
+		outer := decoded.(*ShelleyTxValidationError)
+		require.Len(t, outer.Err.Failures, 1)
+		unknown, ok := outer.Err.Failures[0].(*UnknownApplyTxFailureError)
+		require.True(t, ok, "unexpected failure: %T", outer.Err.Failures[0])
+		require.Equal(t, uint8(EraIdDijkstra), unknown.Era)
+		require.Equal(t, failure[0], unknown.FailureType)
+		require.Equal(t, raw, []byte(unknown.Cbor))
+	}
+	for _, failure := range [][]any{{1}, {1, []any{1}}} {
+		wire, err := cbor.Encode([]any{[]any{EraIdDijkstra, []any{failure}}})
+		require.NoError(t, err)
+		_, err = NewShelleyTxValidationErrorFromCbor(wire)
+		require.Error(t, err, "missing Dijkstra wrapper payload")
+	}
 }
 
 func TestNestedUnknownUtxowFailureRetainsEnclosingEra(t *testing.T) {
@@ -255,8 +300,11 @@ func TestErrorDispatchersAcceptListLengthEncodings(t *testing.T) {
 		decode    func(*testing.T, []byte) error
 	}{
 		{
-			name:      "ShelleyUtxowFailure",
-			canonical: mustEncodeDispatchFixture(t, []any{ShelleyUtxowInvalidMetadata}),
+			name: "ShelleyUtxowFailure",
+			canonical: mustEncodeDispatchFixture(
+				t,
+				[]any{ShelleyUtxowInvalidMetadata},
+			),
 			decode: func(t *testing.T, data []byte) error {
 				var decoded ShelleyUtxowFailure
 				err := decoded.UnmarshalCBOR(data)
@@ -295,8 +343,11 @@ func TestErrorDispatchersAcceptListLengthEncodings(t *testing.T) {
 			},
 		},
 		{
-			name:      "ConwayUtxowFailure",
-			canonical: mustEncodeDispatchFixture(t, []any{ConwayUtxowInvalidMetadata}),
+			name: "ConwayUtxowFailure",
+			canonical: mustEncodeDispatchFixture(
+				t,
+				[]any{ConwayUtxowInvalidMetadata},
+			),
 			decode: func(t *testing.T, data []byte) error {
 				var decoded ConwayUtxowFailure
 				err := decoded.UnmarshalCBOR(data)
