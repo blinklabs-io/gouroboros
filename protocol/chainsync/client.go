@@ -313,6 +313,9 @@ func (c *Client) Start() {
 }
 
 // Stop sends a Done message and transitions the client to the Stopped state.
+// After waiting for any busy operation, it allows up to 250ms for delivery.
+// Delivery errors are returned after shutdown; an already shutting-down
+// protocol is treated as successfully stopped.
 func (c *Client) Stop() error {
 	c.lifecycleMutex.Lock()
 	switch c.lifecycleState {
@@ -391,11 +394,15 @@ func (c *Client) stopRunning(
 	// Check if protocol is already done before sending Done message
 	if !proto.IsDone() {
 		msg := NewMsgDone()
-		sendErr = proto.SendMessage(msg)
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			250*time.Millisecond,
+		)
+		sendErr = proto.SendMessageContextAndWait(ctx, msg)
+		cancel()
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
 		}
-		_ = proto.WaitSendQueueDrained(250 * time.Millisecond)
 	}
 	if busyLocked {
 		c.busyMutex.Unlock()
