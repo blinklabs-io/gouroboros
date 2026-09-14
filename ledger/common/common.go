@@ -1352,12 +1352,6 @@ func classifyDijkstraBlock(
 	if len(blockArray) != dijkstraBlockComponents {
 		return dijkstraShapeNone, nil
 	}
-	// A two-element value is only eligible for Dijkstra-specific malformed
-	// shape errors when its header is accepted by the Dijkstra decoder. This
-	// preserves the generic offset-walker fall-through for unrelated values.
-	if !isDijkstraCompatibleHeader([]byte(blockArray[0])) {
-		return dijkstraShapeNone, nil
-	}
 	// block_body must be an array; anything else is not a Dijkstra block.
 	bodyParts, ok := cborArrayItems([]byte(blockArray[1]))
 	if !ok {
@@ -1365,6 +1359,15 @@ func classifyDijkstraBlock(
 	}
 	txField, shape := dijkstraBodyTxField(len(bodyParts))
 	if shape == dijkstraShapeMalformed {
+		// A two-element value is only eligible for Dijkstra-specific
+		// malformed shape errors when its header is accepted by the Dijkstra
+		// decoder. This preserves the generic offset-walker fall-through for
+		// unrelated values. Valid Dijkstra body shapes are recognized without
+		// this check because existing callers may provide only a structural
+		// header placeholder.
+		if !isDijkstraCompatibleHeader([]byte(blockArray[0])) {
+			return dijkstraShapeNone, nil
+		}
 		return shape, fmt.Errorf(
 			"dijkstra block body has %d elements, expected %d or %d",
 			len(bodyParts),
@@ -1386,6 +1389,9 @@ func classifyDijkstraBlock(
 		}
 		if len(tx) != dijkstraTxComponents &&
 			len(tx) != dijkstraBlockTxComponents {
+			if !isDijkstraCompatibleHeader([]byte(blockArray[0])) {
+				return dijkstraShapeNone, nil
+			}
 			return dijkstraShapeMalformed, fmt.Errorf(
 				"dijkstra transaction 0 has %d elements, expected %d or %d",
 				len(tx),
