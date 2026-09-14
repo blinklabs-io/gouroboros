@@ -40,12 +40,19 @@ var (
 	cachedLenientDecModeOnce sync.Once
 )
 
-// MaxNestedLevels is the deepest nesting the CBOR decoder accepts. It
-// defaults to 32 in fxamacker, but there are blocks in the wild using
-// more than 64 nested levels. Callers that build CBOR-bound structures
-// from another format should bound themselves by this value rather than
-// repeating the literal.
-const MaxNestedLevels = 256
+// MaxNestedLevels is the deepest nesting the CBOR decoder accepts. It is
+// large enough for a maximum-sized Cardano transaction and its enclosing
+// structure, while bounding recursion in both the CBOR library and custom
+// decoders. Cardano's reference decoders do not impose a nesting limit on
+// transaction metadata or Plutus data, so this cap is derived from the wire
+// size limit rather than an arbitrary structural rule.
+const MaxNestedLevels = 16384
+
+// MaxUntrustedNestedLevels names the limit used by decoders that process
+// peer-controlled data. Keep it equal to MaxNestedLevels because Decode is
+// also used by protocol message and block decoders; a separate strict mode
+// cannot protect those callers until they are migrated.
+const MaxUntrustedNestedLevels = MaxNestedLevels
 
 // getDecMode returns a cached DecMode, initializing it on first use.
 // Uses sync.Once for thread-safe lazy initialization.
@@ -96,7 +103,7 @@ func getStrictDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			MaxNestedLevels:   MaxNestedLevels,
+			MaxNestedLevels:   MaxUntrustedNestedLevels,
 			// Stricter limits for untrusted network messages to prevent
 			// OOM from crafted payloads claiming excessive collection sizes.
 			MaxMapPairs:      131072,

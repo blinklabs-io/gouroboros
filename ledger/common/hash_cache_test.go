@@ -97,3 +97,25 @@ func TestBlake2b256CacheCopyDuringCompute(t *testing.T) {
 		t.Fatalf("unexpected copied hash: got %x, want %x", got, want)
 	}
 }
+
+func TestBlake2b256CacheConcurrentReset(t *testing.T) {
+	var cache Blake2b256Cache
+	want := Blake2b256{3}
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	for range 32 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			for range 1000 {
+				if got := cache.Get(func() Blake2b256 { return want }); got != want {
+					t.Errorf("unexpected hash: got %x, want %x", got, want)
+				}
+				cache.Reset()
+			}
+		}()
+	}
+	close(start)
+	workers.Wait()
+}

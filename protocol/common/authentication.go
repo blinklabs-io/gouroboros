@@ -16,6 +16,7 @@ package common
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -58,6 +59,9 @@ type MessageAuthenticator struct {
 	allowInsecureKES atomic.Bool
 	// kesVerifier holds the optional KES verifier callback. If set, it will be used to verify KES signatures.
 	// Signature: func(wrappedPayload []byte, signature []byte, vkey []byte, kesPeriod uint64, slot uint64, slotsPerKesPeriod uint64) (bool, error)
+	// kesPeriod is the operational certificate's own issuance period (mirroring
+	// ledger.ValidateKesPeriod's opCertKesPeriod parameter), not the message's
+	// claimed signing period — see verifyKESSignature.
 	// Uses atomic.Value for race-free concurrent access (typically set once at init, read many times).
 	kesVerifier atomic.Value // stores func([]byte,[]byte,[]byte,uint64,uint64,uint64)(bool,error) or nil
 }
@@ -258,29 +262,57 @@ func (m *MessageAuthenticator) verifyOperationalCertificate(
 		)
 	}
 
-	// Create the message to verify: [KES vkey, issue number, KES period]
-	certData := []any{
+	// The cold key signs the raw OCertSignable representation used by
+	// cardano-node/cardano-ledger — KES vkey || issue number (8-byte BE) ||
+	// KES period (8-byte BE) — NOT a CBOR encoding. A DMQ message's
+	// operational certificate is the pool's existing, already-issued
+	// certificate (the same one used for block production), so verifying it
+	// against any other byte representation rejects every real pool's
+	// message. This mirrors ledger.VerifyOpCertSignature /
+	// ledger/common.OpCertSignableBytes; it is reimplemented locally
+	// (opCertSignableBytes below) rather than imported, to avoid a package
+	// import cycle (ledger -> ledger/common -> protocol/common).
+	signable := opCertSignableBytes(
 		opcert.KESVerificationKey,
 		opcert.IssueNumber,
 		opcert.KESPeriod,
-	}
-
-	certCbor, err := cbor.Encode(certData)
-	if err != nil {
-		return fmt.Errorf("failed to encode certificate data: %w", err)
-	}
+	)
 
 	// Verify signature using cold verification key
-	if !ed25519strict.Verify(coldVerificationKey, certCbor, opcert.ColdSignature) {
+	if !ed25519strict.Verify(coldVerificationKey, signable, opcert.ColdSignature) {
 		return errors.New("cold signature verification failed")
 	}
 
 	return nil
 }
 
+// opCertSignableBytes returns the bytes an operational certificate's cold key
+// signs: the raw concatenation of the KES (hot) verification key, the issue
+// number as big-endian uint64, and the KES period as big-endian uint64. This
+// is the cardano-ledger OCertSignable representation
+// (Cardano.Protocol.TPraos.OCert.OCertSignable), not a CBOR encoding. Kept in
+// sync with ledger/common.OpCertSignableBytes, which this package cannot
+// import without an import cycle (ledger -> ledger/common -> protocol/common).
+func opCertSignableBytes(
+	kesVkey []byte,
+	issueNumber uint64,
+	kesPeriod uint64,
+) []byte {
+	out := make([]byte, 0, len(kesVkey)+16)
+	out = append(out, kesVkey...)
+	out = binary.BigEndian.AppendUint64(out, issueNumber)
+	out = binary.BigEndian.AppendUint64(out, kesPeriod)
+	return out
+}
+
 // verifyKESSignature verifies the KES signature over the message payload (CBOR encoded).
-// If slot is nil, a slot will be computed from the KES period and configured
-// slots per KES period.
+// If slot is nil, a slot will be computed from the message's claimed signing
+// period and configured slots per KES period. The certificate's own issuance
+// period (msg.OperationalCertificate.KESPeriod) — not the message's claimed
+// signing period (msg.Payload.KESPeriod) — is what a real KES evolution check
+// needs as its baseline (see ledger.ValidateKesPeriod's opCertKesPeriod
+// parameter); this function keeps them distinct and rejects a message that
+// claims to have been signed before its own certificate was issued.
 func (m *MessageAuthenticator) verifyKESSignature(
 	msg *DmqMessage,
 	slot *uint64,
@@ -313,13 +345,28 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		return errors.New("KES verification key must be 32 bytes")
 	}
 
+	// The certificate's own issuance period is the evolution baseline; the
+	// message's claimed signing period must not precede it, or the message
+	// is claiming a KES evolution that predates the key it was allegedly
+	// signed with.
+	certPeriod := msg.OperationalCertificate.KESPeriod
+	msgPeriod := msg.Payload.KESPeriod
+	if msgPeriod < certPeriod {
+		return fmt.Errorf(
+			"message KES period %d precedes certificate issuance period %d",
+			msgPeriod,
+			certPeriod,
+		)
+	}
+
 	// If a KES verifier has been injected, use it.
 	kesVerifierVal := m.kesVerifier.Load()
 	if kesVerifierVal != nil {
 		kesVerifier, ok := kesVerifierVal.(func([]byte, []byte, []byte, uint64, uint64, uint64) (bool, error))
 		if ok {
-			kesPeriod := msg.Payload.KESPeriod
-			computedSlot := kesPeriod * m.slotsPerKesPeriod
+			// Absent an explicit slot, fall back to the slot implied by the
+			// message's own claimed signing period.
+			computedSlot := msgPeriod * m.slotsPerKesPeriod
 			if slot != nil {
 				computedSlot = *slot
 			}
@@ -328,14 +375,16 @@ func (m *MessageAuthenticator) verifyKESSignature(
 				"KES verification using slot",
 				"slot",
 				computedSlot,
-				"kes_period",
-				kesPeriod,
+				"cert_period",
+				certPeriod,
+				"msg_period",
+				msgPeriod,
 			)
 			valid, err := kesVerifier(
 				wrappedCbor,
 				msg.KESSignature,
 				msg.OperationalCertificate.KESVerificationKey,
-				kesPeriod,
+				certPeriod,
 				computedSlot,
 				m.slotsPerKesPeriod,
 			)

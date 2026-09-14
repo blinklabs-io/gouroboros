@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	filippo.io/edwards25519 v1.2.0
 	github.com/blinklabs-io/ouroboros-mock v0.20.0
-	github.com/blinklabs-io/plutigo v0.6.1
+	github.com/blinklabs-io/plutigo v0.7.0
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/fxamacker/cbor/v2 v2.9.3
 	github.com/jinzhu/copier v0.4.0
