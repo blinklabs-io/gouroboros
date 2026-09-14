@@ -95,6 +95,101 @@ func TestNewServer(t *testing.T) {
 	assert.NotNil(t, server.config)
 }
 
+func TestNewServerPropagatesConnectionDoneChan(t *testing.T) {
+	done := make(chan any)
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId:       connection.ConnectionId{},
+			ConnectionDoneChan: done,
+		},
+		nil,
+	)
+	close(done)
+	select {
+	case <-server.callbackContext.ConnectionDoneChan:
+	default:
+		t.Fatal("connection lifecycle channel did not close")
+	}
+}
+
+func TestNewClientPropagatesConnectionDoneChan(t *testing.T) {
+	done := make(chan any)
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId:       connection.ConnectionId{},
+			ConnectionDoneChan: done,
+		},
+		nil,
+	)
+	close(done)
+	select {
+	case <-client.callbackContext.ConnectionDoneChan:
+	default:
+		t.Fatal("connection lifecycle channel did not close")
+	}
+}
+
+func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(connA)
+	defer m.Stop()
+
+	connectionDone := make(chan any)
+	testCleanup := make(chan struct{})
+	callbackEntered := make(chan struct{})
+	callbackReturned := make(chan struct{})
+	cfg := NewConfig(
+		WithRequestNextFunc(
+			func(ctx CallbackContext) (protocol.Message, error) {
+				close(callbackEntered)
+				select {
+				case <-ctx.ConnectionDoneChan:
+				case <-testCleanup:
+					return nil, errors.New("test: cleanup")
+				}
+				close(callbackReturned)
+				return nil, errors.New("test: connection shutdown")
+			},
+		),
+	)
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId:       connection.ConnectionId{},
+		ConnectionDoneChan: connectionDone,
+		Muxer:              m,
+	}, &cfg)
+	server.Start()
+	defer server.Protocol.Stop()
+	defer close(testCleanup)
+	m.Start()
+
+	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
+	require.NoError(t, err)
+	require.NoError(t, connB.SetWriteDeadline(time.Now().Add(time.Second)))
+	writeLeiosNotifyTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, requestData, false),
+	)
+	select {
+	case <-callbackEntered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for started protocol callback")
+	}
+	close(connectionDone)
+	select {
+	case <-callbackReturned:
+	case <-time.After(time.Second):
+		t.Fatal("callback did not observe connection shutdown")
+	}
+	select {
+	case <-server.DoneChan():
+	case <-time.After(time.Second):
+		t.Fatal("started protocol did not stop after callback returned")
+	}
+}
+
 func TestHandleRequestNext_CallbackIsCalled(t *testing.T) {
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
