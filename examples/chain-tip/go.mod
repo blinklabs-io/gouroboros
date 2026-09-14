@@ -1,8 +1,6 @@
 module github.com/blinklabs-io/gouroboros/examples/chain-tip
 
-go 1.25.7
-
-toolchain go1.25.8
+go 1.26.0
 
 require (
 	github.com/blinklabs-io/gouroboros v0.0.0
@@ -26,7 +24,7 @@ require (
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/utxorpc/go-codegen v0.19.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
