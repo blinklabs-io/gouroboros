@@ -405,7 +405,16 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		return nil, err
 	}
 
-	slotLengthMs := &big.Rat{}
+	slotLengthMicros := new(big.Rat).Mul(
+		g.SlotLength.Rat,
+		big.NewRat(1_000_000, 1),
+	)
+	if !slotLengthMicros.IsInt() {
+		return nil, fmt.Errorf(
+			"slot length %s seconds cannot be represented as integer microseconds",
+			g.SlotLength.Rat,
+		)
+	}
 	tmpData := []any{
 		[]any{
 			g.SystemStart.Year(),
@@ -422,7 +431,7 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		g.EpochLength,
 		g.SlotsPerKESPeriod,
 		g.MaxKESEvolutions,
-		slotLengthMs.Mul(g.SlotLength.Rat, big.NewRat(1_000_000, 1)),
+		slotLengthMicros.Num(),
 		g.UpdateQuorum,
 		g.MaxLovelaceSupply,
 		g.ProtocolParameters,

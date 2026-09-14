@@ -612,6 +612,48 @@ func TestGenesisMarshalCBORValidNetworkId(t *testing.T) {
 	}
 }
 
+func TestGenesisMarshalCBORSlotLength(t *testing.T) {
+	testDefs := []struct {
+		name           string
+		slotLength     *big.Rat
+		expectedMicros uint64
+	}{
+		{name: "integral", slotLength: big.NewRat(1, 1), expectedMicros: 1_000_000},
+		{name: "fractional", slotLength: big.NewRat(1, 4), expectedMicros: 250_000},
+	}
+	for _, testDef := range testDefs {
+		t.Run(testDef.name, func(t *testing.T) {
+			tmpGenesis := expectedGenesisObj
+			tmpGenesis.SlotLength = common.GenesisRat{Rat: testDef.slotLength}
+
+			cborData, err := tmpGenesis.MarshalCBOR()
+			require.NoError(t, err)
+
+			var fields []cbor.RawMessage
+			_, err = cbor.Decode(cborData, &fields)
+			require.NoError(t, err)
+			require.Greater(t, len(fields), 8)
+
+			var gotMicros uint64
+			_, err = cbor.Decode(fields[8], &gotMicros)
+			require.NoError(t, err)
+			assert.Equal(t, testDef.expectedMicros, gotMicros)
+		})
+	}
+}
+
+func TestGenesisMarshalCBORRejectsSubMicrosecondSlotLength(t *testing.T) {
+	tmpGenesis := expectedGenesisObj
+	tmpGenesis.SlotLength = common.GenesisRat{Rat: big.NewRat(1, 3)}
+
+	_, err := tmpGenesis.MarshalCBOR()
+	require.EqualError(
+		t,
+		err,
+		"slot length 1/3 seconds cannot be represented as integer microseconds",
+	)
+}
+
 func TestGenesisUtxos(t *testing.T) {
 	testHexAddr := "000045183c1dcaeb0ca5cf583a68b9e31a6301bcbde487065bd35b955a98ba9d3061e1bd15749cc857e94b30583c120e3255adb93b44681bad"
 	testAmount := uint64(120_000_000_000_000)
