@@ -94,7 +94,7 @@ func TestDeeplyNestedMetadatumDecodes(t *testing.T) {
 // over the input. Re-entering the CBOR library once per nesting level made
 // both the work and retained bytes stay bounded by the input size.
 func TestDeeplyNestedMetadatumDecodesInLinearSpace(t *testing.T) {
-	data := nestedListMetadatum(200)
+	data := nestedListMetadatum(16000)
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
@@ -102,7 +102,7 @@ func TestDeeplyNestedMetadatumDecodesInLinearSpace(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	runtime.ReadMemStats(&after)
-	const limit = 8 << 20
+	const limit = 64 << 20
 	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > limit {
 		t.Fatalf(
 			"decoding a %d byte metadatum allocated %d bytes, over the %d byte limit",
