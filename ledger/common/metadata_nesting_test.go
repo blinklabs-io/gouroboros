@@ -114,46 +114,71 @@ func TestDeeplyNestedMetadatumDecodesInLinearSpace(t *testing.T) {
 
 // TestMetadatumDecodeShapes covers the shapes the single-pass decoder has to
 // handle directly, including the ones the reference rejects.
+//
+// A nested metadatum map's duplicate keys are NOT rejected (see
+// blinklabs-io/gouroboros#2323): upstream cardano-ledger's decodeMapN
+// (libs/cardano-ledger-core/src/Cardano/Ledger/Metadata.hs) conses every pair
+// unconditionally, at every era, so a duplicate key here must decode and keep
+// every pair rather than error or silently drop one. wantPairs checks the
+// count directly so a future regression that silently deduplicates instead of
+// rejecting is also caught.
 func TestMetadatumDecodeShapes(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
-		name    string
-		cbor    string
-		wantErr bool
+		name      string
+		cbor      string
+		wantErr   bool
+		wantPairs int // 0 means "don't check"
 	}{
-		{"indefinite list", "9f0102ff", false},
-		{"indefinite map", "bf0102ff", false},
-		{"indefinite bytes", "5f4201024103ff", false},
-		{"indefinite text", "7f61616162ff", false},
-		{"empty map", "a0", false},
-		{"empty list", "80", false},
-		{"max uint", "1bffffffffffffffff", false},
-		{"min negative", "3bffffffffffffffff", false},
-		{"container key", "a1810102", false},
-		{"mixed key types", "a2010061610a", false},
+		{"indefinite list", "9f0102ff", false, 0},
+		{"indefinite map", "bf0102ff", false, 0},
+		{"indefinite bytes", "5f4201024103ff", false, 0},
+		{"indefinite text", "7f61616162ff", false, 0},
+		{"empty map", "a0", false, 0},
+		{"empty list", "80", false, 0},
+		{"max uint", "1bffffffffffffffff", false, 0},
+		{"min negative", "3bffffffffffffffff", false, 0},
+		{"container key", "a1810102", false, 0},
+		{"mixed key types", "a2010061610a", false, 0},
 		// decodeMetadatum in cardano-ledger accepts neither bignums nor any
 		// other tag, nor simple values
-		{"bignum", "c249010000000000000000", true},
-		{"null", "f6", true},
-		{"tag", "d81841ff", true},
-		{"duplicate key", "a20100016161", true},
-		{"duplicate key same value", "a201000100", true},
-		{"duplicate list key encodings", "a28101009f01ff00", true},
-		{"duplicate map key encodings", "a2a1010200bf0102ff00", true},
-		{"invalid UTF-8 text chunk", "7f42c3286161ff", true},
-		{"trailing data", "010101", true},
-		{"truncated", "81", true},
+		{"bignum", "c249010000000000000000", true, 0},
+		{"null", "f6", true, 0},
+		{"tag", "d81841ff", true, 0},
+		{"duplicate key", "a20100016161", false, 2},
+		{"duplicate key same value", "a201000100", false, 2},
+		{"duplicate list key encodings", "a28101009f01ff00", false, 2},
+		{"duplicate map key encodings", "a2a1010200bf0102ff00", false, 2},
+		{"invalid UTF-8 text chunk", "7f42c3286161ff", true, 0},
+		{"trailing data", "010101", true, 0},
+		{"truncated", "81", true, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			data, err := hex.DecodeString(tc.cbor)
 			if err != nil {
 				t.Fatalf("bad test hex: %v", err)
 			}
-			_, err = common.DecodeMetadatumRaw(data)
+			md, err := common.DecodeMetadatumRaw(data)
 			if tc.wantErr && err == nil {
 				t.Fatalf("expected an error for %s", tc.cbor)
 			}
 			if !tc.wantErr && err != nil {
 				t.Fatalf("unexpected error for %s: %v", tc.cbor, err)
+			}
+			if tc.wantPairs != 0 {
+				mm, ok := md.(common.MetaMap)
+				if !ok {
+					t.Fatalf("expected MetaMap for %s, got %T", tc.cbor, md)
+				}
+				if len(mm.Pairs) != tc.wantPairs {
+					t.Fatalf(
+						"expected %d pair(s) for %s, got %d",
+						tc.wantPairs,
+						tc.cbor,
+						len(mm.Pairs),
+					)
+				}
 			}
 		})
 	}
