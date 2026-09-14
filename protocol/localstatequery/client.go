@@ -258,14 +258,25 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 	query := buildQuery(
 		QueryTypeChainBlockNo,
 	)
-	result := []int64{}
+	result := []any{}
 	if err := c.runQuery(query, &result); err != nil {
 		return 0, err
 	}
-	if len(result) < 2 {
+	switch {
+	case len(result) == 1 && result[0] == uint64(0):
+		return 0, nil
+	case len(result) == 2 && result[0] == uint64(1):
+		blockNo, ok := result[1].(uint64)
+		if !ok {
+			return 0, errors.New("malformed chain block number result")
+		}
+		if blockNo > uint64(1<<63-1) {
+			return 0, errors.New("chain block number is outside int64 API range")
+		}
+		return int64(blockNo), nil
+	default:
 		return 0, errors.New("malformed chain block number result")
 	}
-	return result[1], nil
 }
 
 // GetChainPoint returns the current chain tip

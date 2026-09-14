@@ -369,7 +369,16 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 		Data:    rawRedeemerData,
 		ExUnits: redeemerValue.ExUnits,
 	}
-	bypassCtx := script.NewScriptContextV3(&bypassTxInfo, bypassRedeemer, purpose)
+	// Built as a struct literal on purpose: NewScriptContextV3 normalizes the
+	// redeemer it is handed, so the constructor can no longer produce a
+	// fidelity-preserving context. Assembling the value directly is the only
+	// way left to reconstruct the pre-fix encoding and prove the divergence
+	// it caused is real rather than merely absent from this fixture.
+	bypassCtx := script.ScriptContextV3{
+		TxInfo:     &bypassTxInfo,
+		Redeemer:   bypassRedeemer,
+		ScriptInfo: purpose.ToScriptInfo(),
+	}
 	bypassCtxData := bypassCtx.ToPlutusData()
 
 	postEnc, err := data.Encode(postCtxData)
@@ -454,6 +463,38 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 				"this fixture no longer reproduces the encoding divergence",
 		)
 	}
+
+	// NewScriptContextV3 must normalize the redeemer it is given, so a caller
+	// that hands it raw decoded data still gets the reference
+	// implementation's encoding. A caller with its own evaluation path built
+	// its V3 context from an unnormalized redeemer and froze a mainnet node
+	// on this very script.
+	ctorCtx := script.NewScriptContextV3(
+		txInfoV3,
+		script.Redeemer{
+			Tag:     lcommon.RedeemerTagMint,
+			Index:   redeemerKey.Index,
+			Data:    rawRedeemerData,
+			ExUnits: redeemerValue.ExUnits,
+		},
+		purpose,
+	)
+	ctorEnc, err := data.Encode(ctorCtx.ToPlutusData())
+	if err != nil {
+		t.Fatalf("encode constructor ctx: %v", err)
+	}
+	if !bytes.Equal(ctorEnc, postEnc) {
+		t.Fatalf(
+			"NewScriptContextV3 did not normalize a raw redeemer:\n  got  %x\n  want %x",
+			ctorEnc, postEnc,
+		)
+	}
+	if _, err := plutusScript.Evaluate(
+		ctorCtx.ToPlutusData(), redeemerValue.ExUnits, evalContext,
+	); err != nil {
+		t.Fatalf("constructor-built context failed to evaluate: %v", err)
+	}
+	t.Log("NewScriptContextV3 normalizes a raw redeemer: VERIFIED")
 }
 
 func hashOrPanic(b []byte, err error) string {
