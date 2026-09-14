@@ -15,20 +15,69 @@
 package handshake_test
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 )
+
+type gatedWriteConn struct {
+	net.Conn
+	writeStarted chan struct{}
+	writeDone    chan struct{}
+	release      chan struct{}
+	writeOnce    sync.Once
+	releaseOnce  sync.Once
+	doneOnce     sync.Once
+}
+
+func (c *gatedWriteConn) Write(p []byte) (int, error) {
+	c.writeOnce.Do(func() { close(c.writeStarted) })
+	<-c.release
+	n, err := c.Conn.Write(p)
+	c.doneOnce.Do(func() { close(c.writeDone) })
+	return n, err
+}
+
+func (c *gatedWriteConn) releaseWrite() {
+	c.releaseOnce.Do(func() { close(c.release) })
+}
+
+func writeSegment(t *testing.T, conn net.Conn, segment *muxer.Segment) {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	require.NoError(t, binary.Write(buf, binary.BigEndian, segment.SegmentHeader))
+	_, err := buf.Write(segment.Payload)
+	require.NoError(t, err)
+	_, err = conn.Write(buf.Bytes())
+	require.NoError(t, err)
+}
+
+func readSegment(t *testing.T, conn net.Conn) *muxer.Segment {
+	t.Helper()
+	var header muxer.SegmentHeader
+	require.NoError(t, binary.Read(conn, binary.BigEndian, &header))
+	payload := make([]byte, header.PayloadLength)
+	_, err := io.ReadFull(conn, payload)
+	require.NoError(t, err)
+	return &muxer.Segment{SegmentHeader: header, Payload: payload}
+}
 
 func TestServerInitialProposeTimeout(t *testing.T) {
 	defer goleak.VerifyNone(t)
@@ -148,6 +197,89 @@ func TestServerBasicN2NHandshake(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Errorf("did not shutdown within timeout")
 	}
+}
+
+func TestServerFinishedWaitsForAcceptVersionDelivery(t *testing.T) {
+	serverConn, peerConn := net.Pipe()
+	deadline := time.Now().Add(time.Second)
+	require.NoError(t, serverConn.SetDeadline(deadline))
+	require.NoError(t, peerConn.SetDeadline(deadline))
+
+	gatedConn := &gatedWriteConn{
+		Conn:         serverConn,
+		writeStarted: make(chan struct{}),
+		writeDone:    make(chan struct{}),
+		release:      make(chan struct{}),
+	}
+	m := muxer.New(gatedConn)
+	errorChan := make(chan error, 1)
+	finished := make(chan struct{})
+	callbackBeforeWrite := atomic.Bool{}
+	cfg := handshake.NewConfig(
+		handshake.WithProtocolVersionMap(protocol.ProtocolVersionMap{
+			10: protocol.VersionDataNtN7to10{
+				CborNetworkMagic: ouroboros_mock.MockNetworkMagic,
+			},
+		}),
+		handshake.WithFinishedFunc(func(handshake.CallbackContext, uint16, protocol.VersionData) error {
+			select {
+			case <-gatedConn.writeDone:
+			default:
+				callbackBeforeWrite.Store(true)
+			}
+			close(finished)
+			return nil
+		}),
+	)
+	s := handshake.NewServer(protocol.ProtocolOptions{
+		Muxer:     m,
+		ErrorChan: errorChan,
+		Mode:      protocol.ProtocolModeNodeToNode,
+		Role:      protocol.ProtocolRoleServer,
+	}, &cfg)
+	s.Start()
+	defer func() {
+		gatedConn.releaseWrite()
+		_ = peerConn.Close()
+		_ = serverConn.Close()
+		s.Stop()
+		m.Stop()
+	}()
+	m.Start()
+
+	proposal := handshake.NewMsgProposeVersions(protocol.ProtocolVersionMap{
+		10: protocol.VersionDataNtN7to10{
+			CborNetworkMagic: ouroboros_mock.MockNetworkMagic,
+		},
+	})
+	payload, err := cbor.Encode(proposal)
+	require.NoError(t, err)
+	writeSegment(t, peerConn, muxer.NewSegment(handshake.ProtocolId, payload, false))
+
+	select {
+	case <-gatedConn.writeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("server did not begin writing AcceptVersion")
+	}
+
+	gatedConn.releaseWrite()
+	segment := readSegment(t, peerConn)
+	require.True(t, segment.IsResponse())
+	require.Equal(t, uint16(handshake.ProtocolId), segment.GetProtocolId())
+	msg, err := handshake.NewMsgFromCbor(
+		handshake.MessageTypeAcceptVersion,
+		segment.Payload,
+	)
+	require.NoError(t, err)
+	accept, ok := msg.(*handshake.MsgAcceptVersion)
+	require.True(t, ok)
+	require.Equal(t, uint16(10), accept.Version)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("FinishedFunc did not run after AcceptVersion delivery")
+	}
+	require.False(t, callbackBeforeWrite.Load())
 }
 
 func TestServerBasicHandshake(t *testing.T) {

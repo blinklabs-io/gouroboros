@@ -226,7 +226,7 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	// Accept the proposed version
 	// We send our version data in the response and the proposed version data in the callback
 	msgAcceptVersion := NewMsgAcceptVersion(proposedVersion, versionData)
-	if err := s.SendMessage(msgAcceptVersion); err != nil {
+	if err := s.SendMessageAndWait(msgAcceptVersion); err != nil {
 		return err
 	}
 	return s.config.FinishedFunc(
