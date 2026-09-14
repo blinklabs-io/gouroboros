@@ -1044,30 +1044,23 @@ func TestWindowedTipComparedOnTheWindowScale(t *testing.T) {
 	burst := NewWindowedChainTip(1100, 10, make([]byte, 64), slots)
 	require.Equal(t, uint64(10), burst.BlocksInWindow(1000, mainnetWindow))
 
-	// A tip sustaining mainnet density over the window projects to
-	// 0.05 * 129600 = 6480 blocks there, so it is far denser and must win.
+	// A legacy tip has no canonical count for the configured window, so the
+	// direct mixed comparison uses the legacy ratio for both candidates.
 	sustained := legacyTip{blockNumber: 10, density: 0.05}
-	require.Equal(
-		t, uint64(6480), selector.windowBlocks(sustained, fork),
-	)
-	assert.Negative(
+	assert.Zero(t, selector.windowBlocks(sustained, fork))
+	assert.Positive(
 		t,
 		selector.CompareWithDensity(burst, sustained, fork, tip),
-		"a short burst must lose to a chain dense across the whole window",
+		"the direct mixed comparison must use one legacy scale",
 	)
 
 	// The converse, so the direction is not an artefact: a windowed tip
-	// with more blocks in the window than the projection wins.
+	// with a higher legacy density wins the direct mixed comparison.
 	dense := make([]uint64, 0, 8000)
 	for i := uint64(1); i <= 8000; i++ {
 		dense = append(dense, 1000+i*15)
 	}
 	rich := NewWindowedChainTip(1000+8000*15, 8000, make([]byte, 64), dense)
-	require.Greater(
-		t,
-		rich.BlocksInWindow(1000, mainnetWindow),
-		selector.windowBlocks(sustained, fork),
-	)
 	assert.Positive(
 		t,
 		selector.CompareWithDensity(rich, sustained, fork, tip),
@@ -1097,7 +1090,7 @@ func TestMixedCandidateSetIsTransitive(t *testing.T) {
 		1050, 100, vrf, []uint64{1010, 1020, 1030, 1040, 1050},
 	)
 	b := NewWindowedChainTip(1002, 100, vrf, []uint64{1001, 1002})
-	c := NewSimpleChainTipWithDensity(1010, 100, vrf, 5, 10)
+	c := NewWindowedChainTip(1010, 100, vrf, []uint64{1002, 1004, 1006, 1008, 1010})
 
 	candidates := []ChainTip{a, b, c}
 	for _, x := range candidates {
@@ -1192,16 +1185,15 @@ func assertSelectionIsOrderIndependent(
 	}
 }
 
-// TestLegacyTipProjectedOntoWindow documents the mechanism: with a window
-// configured, a tip that cannot count is ordered by its ratio projected onto
-// the window, so it shares one scale with the tips that can count.
+// TestLegacyTipWithoutWindowCount documents that a legacy tip is not assigned
+// an invented count for a configured window.
 func TestLegacyTipProjectedOntoWindow(t *testing.T) {
 	selector := NewPraosChainSelectorWithWindow(2160, 1000)
 	fork := ForkPoint{Slot: 1000, BlockNumber: 0}
 
-	// ratio 0.5 over a 1000-slot window projects to 500 blocks.
+	// The legacy ratio is not converted into a window count.
 	legacy := legacyTip{blockNumber: 10, density: 0.5}
-	assert.Equal(t, uint64(500), selector.windowBlocks(legacy, fork))
+	assert.Zero(t, selector.windowBlocks(legacy, fork))
 
 	// A windowed tip answers exactly, with no projection.
 	windowed := NewWindowedChainTip(
@@ -1209,14 +1201,14 @@ func TestLegacyTipProjectedOntoWindow(t *testing.T) {
 	)
 	assert.Equal(t, uint64(3), selector.windowBlocks(windowed, fork))
 
-	// Degenerate ratios project to zero rather than to a wrapped value.
+	// Degenerate ratios also have no window count.
 	assert.Zero(t, selector.windowBlocks(
 		legacyTip{blockNumber: 1, density: 0}, fork,
 	))
 	assert.Zero(t, selector.windowBlocks(
 		legacyTip{blockNumber: 1, density: math.NaN()}, fork,
 	))
-	assert.Equal(t, uint64(math.MaxUint64), selector.windowBlocks(
+	assert.Zero(t, selector.windowBlocks(
 		legacyTip{blockNumber: 1, density: math.Inf(1)}, fork,
 	))
 }
@@ -1417,28 +1409,16 @@ func TestNaNDensityIsDecidedByDensityNotFallthrough(t *testing.T) {
 	)
 }
 
-// TestProjectionSaturatesAtTheBoundary pins the clamp. With a window at
-// math.MaxUint64 a density of 1 projects to exactly 2^64, which is not
-// representable as a uint64; the value must be rejected before the conversion
-// rather than converted and hoped for.
-func TestProjectionSaturatesAtTheBoundary(t *testing.T) {
+// TestLegacyTipAtWindowBoundary has no synthetic projection at the boundary.
+func TestLegacyTipAtWindowBoundary(t *testing.T) {
 	sel := NewPraosChainSelectorWithWindow(2160, math.MaxUint64)
 	fork := ForkPoint{Slot: 0, BlockNumber: 0}
 
 	dense := oddTip{name: "one", block: 10, vrf: 1, density: 1.0}
 	half := oddTip{name: "half", block: 20, vrf: 2, density: 0.5}
 
-	assert.Equal(
-		t, uint64(math.MaxUint64), sel.windowBlocks(dense, fork),
-		"a density of 1 must saturate, not convert out of range",
-	)
-
-	// Unclamped, both of these land on 2^63 and compare equal, which is a
-	// spurious tie between the densest possible chain and a half-density one.
-	assert.Greater(
-		t, sel.windowBlocks(dense, fork), sel.windowBlocks(half, fork),
-		"the densest chain must outrank a half-density chain",
-	)
+	assert.Zero(t, sel.windowBlocks(dense, fork))
+	assert.Zero(t, sel.windowBlocks(half, fork))
 	assert.Positive(
 		t, sel.compareDensity(dense, half, fork),
 		"density 1.0 must beat density 0.5 at the window boundary",

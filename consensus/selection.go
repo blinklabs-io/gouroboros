@@ -259,9 +259,21 @@ func (p *PraosChainSelector) compareDensity(
 	fork ForkPoint,
 ) int {
 	if p.GenesisWindowSlots > 0 {
+		_, aOK := a.(WindowBlockCounter)
+		_, bOK := b.(WindowBlockCounter)
+		if !aOK || !bOK {
+			// A legacy tip has no canonical count for this window. Compare
+			// both tips using the same legacy metric rather than inventing a
+			// window count from a ratio measured over an unknown span.
+			p.warnLegacyDensity()
+			return compareFloat64(
+				legacyDensity(a, fork.Slot),
+				legacyDensity(b, fork.Slot),
+			)
+		}
 		return compareUint64(
-			p.windowBlocks(a, fork),
-			p.windowBlocks(b, fork),
+			a.(WindowBlockCounter).BlocksInWindow(fork.Slot, p.GenesisWindowSlots),
+			b.(WindowBlockCounter).BlocksInWindow(fork.Slot, p.GenesisWindowSlots),
 		)
 	}
 
@@ -298,12 +310,8 @@ func legacyDensity(tip ChainTip, forkSlot uint64) float64 {
 // windowBlocks returns the tip's block count within the genesis window.
 //
 // A tip implementing WindowBlockCounter answers directly. A tip that does
-// not is projected onto the window from its legacy ratio — density times
-// window length, rounded — so that it is ordered on the same scale as the
-// rest of the candidate set rather than being compared on a different one.
-// The projection is an approximation of a metric the tip cannot supply
-// exactly, which is why it warns; it is not a substitute for implementing
-// WindowBlockCounter.
+// not have a canonical count returns zero here; callers that compare mixed
+// candidate sets use the legacy ratio for every candidate instead.
 func (p *PraosChainSelector) windowBlocks(
 	tip ChainTip,
 	fork ForkPoint,
@@ -314,22 +322,7 @@ func (p *PraosChainSelector) windowBlocks(
 
 	p.warnLegacyDensity()
 
-	density := tip.Density(fork.Slot)
-	if density <= 0 || math.IsNaN(density) {
-		return 0
-	}
-	projected := math.Round(density * float64(p.GenesisWindowSlots))
-	// Reject at the boundary rather than reasoning about the conversion.
-	// float64(math.MaxUint64) is exactly 2^64, so `>` would let a projected
-	// value of 2^64 reach uint64(), and Go leaves an out-of-range float to
-	// integer conversion implementation-defined. `>=` keeps the value out of
-	// the conversion entirely, which is correct on every platform rather than
-	// on the ones we happened to measure. The largest float64 below 2^64 is
-	// 2^64-2048 and converts exactly, so nothing is lost by clamping here.
-	if math.IsInf(projected, 1) || projected >= float64(math.MaxUint64) {
-		return math.MaxUint64
-	}
-	return uint64(projected)
+	return 0
 }
 
 // warnLegacyDensity reports once per selector that a comparison could not
@@ -462,8 +455,34 @@ func (p *PraosChainSelector) PreferredWithDensity(
 	fork ForkPoint,
 	tipBlockNumber uint64,
 ) ChainTip {
+	useWindow := p.GenesisWindowSlots > 0
+	if useWindow {
+		for _, candidate := range candidates {
+			if _, ok := candidate.(WindowBlockCounter); !ok {
+				useWindow = false
+				break
+			}
+		}
+	}
 	return p.selectPreferred(candidates, func(a, b ChainTip) int {
-		return p.CompareWithDensity(a, b, fork, tipBlockNumber)
+		if !p.IsDeepFork(fork, tipBlockNumber) {
+			return p.Compare(a, b)
+		}
+		if useWindow {
+			if result := compareUint64(
+				a.(WindowBlockCounter).BlocksInWindow(fork.Slot, p.GenesisWindowSlots),
+				b.(WindowBlockCounter).BlocksInWindow(fork.Slot, p.GenesisWindowSlots),
+			); result != 0 {
+				return result
+			}
+			return p.Compare(a, b)
+		}
+		if result := compareFloat64(
+			legacyDensity(a, fork.Slot), legacyDensity(b, fork.Slot),
+		); result != 0 {
+			return result
+		}
+		return p.Compare(a, b)
 	})
 }
 
