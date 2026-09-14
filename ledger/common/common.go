@@ -1352,6 +1352,12 @@ func classifyDijkstraBlock(
 	if len(blockArray) != dijkstraBlockComponents {
 		return dijkstraShapeNone, nil
 	}
+	// A two-element value is only eligible for Dijkstra-specific malformed
+	// shape errors when its header is accepted by the Dijkstra decoder. This
+	// preserves the generic offset-walker fall-through for unrelated values.
+	if !isDijkstraCompatibleHeader([]byte(blockArray[0])) {
+		return dijkstraShapeNone, nil
+	}
 	// block_body must be an array; anything else is not a Dijkstra block.
 	bodyParts, ok := cborArrayItems([]byte(blockArray[1]))
 	if !ok {
@@ -1389,6 +1395,18 @@ func classifyDijkstraBlock(
 		}
 	}
 	return shape, nil
+}
+
+// isDijkstraCompatibleHeader checks the structural portion shared by the
+// plain Babbage-shaped and extended Dijkstra headers. The common package
+// cannot import ledger/dijkstra because that package depends on common.
+func isDijkstraCompatibleHeader(data []byte) bool {
+	top, ok := cborArrayItems(data)
+	if !ok || len(top) != 2 {
+		return false
+	}
+	body, ok := cborArrayItems([]byte(top[0]))
+	return ok && len(body) >= 10
 }
 
 // extractDijkstraTransactionOffsets extracts transaction offsets from a

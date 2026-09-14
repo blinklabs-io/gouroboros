@@ -291,6 +291,10 @@ func TestExtractTransactionOffsetsTwoElementNonDijkstra(t *testing.T) {
 			name:  "body holds bytestrings, not transactions",
 			block: []any{[]byte{0x01}, []any{[]byte{0x02}, []byte{0x03}, []byte{0x04}}},
 		},
+		{
+			name:  "malformed body with unrelated header",
+			block: []any{[]byte{0x01}, []any{[]any{}, nil}},
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
