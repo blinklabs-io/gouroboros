@@ -1858,5 +1858,6 @@ func (c *Client) getCurrentEra() (int, error) {
 	if err := c.runQuery(query, &result); err != nil {
 		return -1, err
 	}
+	c.currentEra = result
 	return result, nil
 }
