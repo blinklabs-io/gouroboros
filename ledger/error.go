@@ -2081,7 +2081,7 @@ func (e *ShelleyUtxowFailure) unmarshalCBORWithEra(data []byte, era uint8) error
 		newErr = &ExtraneousScriptWitnessesUTXOW{}
 	default:
 		e.Err = &UnknownUtxowFailureError{
-			Era:         EraIdShelley,
+			Era:         era,
 			FailureType: failureType,
 			Cbor:        data,
 		}
@@ -2146,7 +2146,7 @@ func (e *AlonzoUtxowFailure) unmarshalCBORWithEra(data []byte, era uint8) error 
 		newErr = &ExtraRedeemers{}
 	default:
 		e.Err = &UnknownUtxowFailureError{
-			Era:         EraIdAlonzo,
+			Era:         era,
 			FailureType: failureType,
 			Cbor:        data,
 		}

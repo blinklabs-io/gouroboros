@@ -161,6 +161,45 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 	})
 }
 
+func TestNestedUnknownUtxowFailureRetainsEnclosingEra(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		era     uint8
+		payload []any
+		unknown []byte
+	}{
+		{"Alonzo Shelley wrapper", EraIdAlonzo,
+			[]any{0, []any{250}}, []byte{0x81, 0x18, 0xfa}},
+		{"Babbage Alonzo wrapper", EraIdBabbage,
+			[]any{1, []any{250, []any{}}}, []byte{0x82, 0x18, 0xfa, 0x80}},
+		{"Babbage Shelley wrapper", EraIdBabbage,
+			[]any{1, []any{0, []any{250}}}, []byte{0x81, 0x18, 0xfa}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			wire, err := cbor.Encode([]any{[]any{
+				tt.era, []any{[]any{0, tt.payload}},
+			}})
+			require.NoError(t, err)
+			decoded, err := NewShelleyTxValidationErrorFromCbor(wire)
+			require.NoError(t, err)
+			outer := decoded.(*ShelleyTxValidationError)
+			require.Len(t, outer.Err.Failures, 1)
+			failure := outer.Err.Failures[0].(*UtxowFailure).Err
+			if wrapped, ok := failure.(*AlonzoUtxowFailure); ok {
+				failure = wrapped.Err
+			}
+			if wrapped, ok := failure.(*ShelleyUtxowFailure); ok {
+				failure = wrapped.Err
+			}
+			unknown, ok := failure.(*UnknownUtxowFailureError)
+			require.True(t, ok, "unexpected nested failure: %T", failure)
+			require.Equal(t, tt.era, unknown.Era)
+			require.Equal(t, 250, unknown.FailureType)
+			require.Equal(t, tt.unknown, []byte(unknown.Cbor))
+		})
+	}
+}
+
 func TestErrorDispatchersAcceptListLengthEncodings(t *testing.T) {
 	t.Run("ApplyTxError", func(t *testing.T) {
 		failure, err := cbor.Encode([]any{42})
