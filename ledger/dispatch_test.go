@@ -33,7 +33,7 @@ func TestShelleyTxValidationErrorDecodesNestedUtxoFailureByEra(t *testing.T) {
 		{"Mary", "81820381820082048103"},
 		{"Alonzo", "818204818200820082048103"},
 		{"Babbage", "818205818200820282018103"},
-		{"Conway", "81820681820082008104"},
+		{"Conway", "81820681820182008104"},
 		// Dijkstra: MEMPOOL LedgerFailure -> LEDGER UtxowFailure.
 		{"Dijkstra", "818207818201820182008104"},
 	}
@@ -91,7 +91,7 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 		{"Alonzo singleton UTXOW", "8182048182008100"},
 		{"Babbage singleton Alonzo wrapper", "8182058182008101"},
 		{"Babbage singleton UTXO wrapper", "8182058182008102"},
-		{"Conway singleton UTXOW", "8182068182008100"},
+		{"Conway singleton UTXOW", "8182068182018100"},
 		{"Dijkstra singleton UTXOW", "81820781820182018100"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -176,7 +176,8 @@ func TestDijkstraMempoolFailureEnvelope(t *testing.T) {
 	// cardano-ledger 2c33b4f858c0e62b300d121996a479f505d8c0e5:
 	// Dijkstra/Rules/Mempool.hs and Dijkstra/Rules/Ledger.hs.
 	for _, failure := range [][]any{
-		{0, []any{0, []any{4}}}, // Conway's ledger tag is not Dijkstra MEMPOOL.
+		{0, []any{0, []any{4}}}, // Unhandled Dijkstra MEMPOOL constructor.
+		{1, []any{0, []any{4}}}, // Conway LEDGER is not Dijkstra MEMPOOL.
 		{1, []any{2, []any{0}}}, // Unhandled Dijkstra LEDGER constructor.
 		{2, "mempool rejected transaction"},
 		{3}, // AllInputsAreSpent.
@@ -204,6 +205,23 @@ func TestDijkstraMempoolFailureEnvelope(t *testing.T) {
 		_, err = NewShelleyTxValidationErrorFromCbor(wire)
 		require.Error(t, err, "missing Dijkstra wrapper payload")
 	}
+}
+
+func TestConwayLedgerDoesNotDecodeShelleyUtxowTag(t *testing.T) {
+	// Conway/Rules/Ledger.hs at cardano-ledger
+	// 2c33b4f858c0e62b300d121996a479f505d8c0e5 uses tag 1, not tag 0.
+	raw := []byte{0x82, 0x00, 0x82, 0x00, 0x81, 0x04}
+	wire, err := cbor.Encode([]any{[]any{EraIdConway, []any{cbor.RawMessage(raw)}}})
+	require.NoError(t, err)
+	decoded, err := NewShelleyTxValidationErrorFromCbor(wire)
+	require.NoError(t, err)
+	outer := decoded.(*ShelleyTxValidationError)
+	require.Len(t, outer.Err.Failures, 1)
+	unknown, ok := outer.Err.Failures[0].(*UnknownApplyTxFailureError)
+	require.True(t, ok, "unexpected failure: %T", outer.Err.Failures[0])
+	require.Equal(t, uint8(EraIdConway), unknown.Era)
+	require.Equal(t, 0, unknown.FailureType)
+	require.Equal(t, raw, []byte(unknown.Cbor))
 }
 
 func TestNestedUnknownUtxowFailureRetainsEnclosingEra(t *testing.T) {

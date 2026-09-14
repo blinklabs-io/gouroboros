@@ -656,7 +656,7 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 			if err != nil {
 				return err
 			}
-		case failureType == ApplyTxErrorUtxowFailure:
+		case isLedgerUtxowFailure(e.era, failureType):
 			if len(tmpFailure) < 2 {
 				return fmt.Errorf(
 					"ApplyTxError UtxowFailure: expected at least 2 elements, got %d",
@@ -730,6 +730,14 @@ func decodeDijkstraMempoolFailure(
 		return nil, err
 	}
 	return utxow, nil
+}
+
+func isLedgerUtxowFailure(era uint8, failureType int) bool {
+	if era == EraIdConway {
+		// Conway LEDGER renumbers UtxowFailure from 0 to 1.
+		return failureType == 1
+	}
+	return failureType == ApplyTxErrorUtxowFailure
 }
 
 func isLedgerIncompleteWithdrawalsFailure(era uint8, failureType int) bool {
