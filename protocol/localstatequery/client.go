@@ -1745,14 +1745,20 @@ func (c *Client) handleFailure(msg protocol.Message) error {
 	default:
 	}
 	msgFailure := msg.(*MsgFailure)
+	var acquireErr error
 	switch msgFailure.Failure {
 	case AcquireFailurePointTooOld:
-		c.acquireResultChan <- ErrAcquireFailurePointTooOld
+		acquireErr = ErrAcquireFailurePointTooOld
 	case AcquireFailurePointNotOnChain:
-		c.acquireResultChan <- ErrAcquireFailurePointNotOnChain
+		acquireErr = ErrAcquireFailurePointNotOnChain
 	default:
 		return fmt.Errorf("unknown failure type: %d", msgFailure.Failure)
 	}
+	// Failure releases the snapshot even after ReAcquire. Publish idle state
+	// before waking a caller that can immediately acquire or query again.
+	c.acquired = false
+	c.currentEra = -1
+	c.acquireResultChan <- acquireErr
 	return nil
 }
 
