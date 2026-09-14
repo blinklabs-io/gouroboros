@@ -32,6 +32,7 @@ const (
 
 	// LEDGER incomplete withdrawals failure tags.
 	ShelleyLedgerIncompleteWithdrawals = 3
+	ConwayLedgerUtxowFailure           = 1
 	ConwayLedgerIncompleteWithdrawals  = 9
 
 	// Shelley UTXOW failure tags (also used by Allegra and Mary)

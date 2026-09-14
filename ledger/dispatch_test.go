@@ -83,6 +83,21 @@ func containsInputSetEmpty(err error) bool {
 }
 
 func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
+	t.Run("Conway LEDGER UTXOW constructor", func(t *testing.T) {
+		wire, err := cbor.Encode([]any{[]any{
+			EraIdConway,
+			[]any{[]any{ConwayLedgerUtxowFailure, []any{
+				ConwayUtxowUtxoFailure, []any{ShelleyUtxowUtxoFailure},
+			}}},
+		}})
+		require.NoError(t, err)
+		decoded, err := NewShelleyTxValidationErrorFromCbor(wire)
+		require.NoError(t, err)
+		outer := decoded.(*ShelleyTxValidationError)
+		require.Len(t, outer.Err.Failures, 1)
+		require.IsType(t, &UtxowFailure{}, outer.Err.Failures[0])
+	})
+
 	for _, tt := range []struct {
 		name string
 		wire string
