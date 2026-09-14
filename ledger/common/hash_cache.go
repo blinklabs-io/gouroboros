@@ -30,18 +30,26 @@ type Blake2b256Cache struct {
 	state unsafe.Pointer
 }
 
+// Reset discards the memo for this cache value. Copies of a cache retain their
+// own state pointer, so resetting one copy does not invalidate another copy.
+// Callers must externally synchronize Reset with mutations of the data used by
+// Get's compute function.
+func (c *Blake2b256Cache) Reset() {
+	atomic.StorePointer(&c.state, nil)
+}
+
 func (c *Blake2b256Cache) Get(compute func() Blake2b256) Blake2b256 {
-	state := atomic.LoadPointer(&c.state)
-	if state == nil {
-		newState := &blake2b256CacheState{}
-		if atomic.CompareAndSwapPointer(&c.state, nil, unsafe.Pointer(newState)) {
-			state = unsafe.Pointer(newState)
-		} else {
-			state = atomic.LoadPointer(&c.state)
-		}
-	}
-	cacheState := (*blake2b256CacheState)(state)
 	for {
+		state := atomic.LoadPointer(&c.state)
+		if state == nil {
+			newState := &blake2b256CacheState{}
+			if atomic.CompareAndSwapPointer(&c.state, nil, unsafe.Pointer(newState)) {
+				state = unsafe.Pointer(newState)
+			} else {
+				continue
+			}
+		}
+		cacheState := (*blake2b256CacheState)(state)
 		switch atomic.LoadUint32(&cacheState.state) {
 		case hashCacheReady:
 			return cacheState.value
