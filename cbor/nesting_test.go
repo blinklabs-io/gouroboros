@@ -64,3 +64,10 @@ func TestDecodeAcceptsNestingAtConfiguredLimit(t *testing.T) {
 		t.Fatalf("Decode rejected Value at configured nesting limit: %v", err)
 	}
 }
+
+func TestDecodeStrictAcceptsDeepTransactionNesting(t *testing.T) {
+	var value cbor.Value
+	if _, err := cbor.DecodeStrict(nestedArrays(257), &value); err != nil {
+		t.Fatalf("DecodeStrict rejected valid deep transaction nesting: %v", err)
+	}
+}

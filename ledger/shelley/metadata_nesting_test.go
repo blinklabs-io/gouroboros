@@ -46,9 +46,9 @@ func blockWithNestedMetadatum(t *testing.T, depth int) []byte {
 	if len(parts) != 4 {
 		t.Fatalf("unexpected Shelley block shape: %d elements", len(parts))
 	}
-	// Built by hand rather than through cbor.Encode: the encoder applies the
-	// same nesting cap as the decoder, so the negative control past that cap
-	// cannot be produced by encoding.
+	// Built by hand rather than through cbor.Encode: the encoder does not apply
+	// the decoder's nesting cap, so hand-built bytes keep this boundary test
+	// independent of encoder behavior.
 	metadatum := make([]byte, 0, depth+1)
 	for range depth {
 		metadatum = append(metadatum, 0x81)
@@ -82,9 +82,9 @@ func metadatumDepth(md common.TransactionMetadatum) int {
 	}
 }
 
-// TestShelleyBlockDecodesDeeplyNestedMetadatum decodes a metadatum nested past
-// the previous fixed cap of 256 inside a real mainnet block, so that the
-// levels the block envelope consumes are counted against the same budget.
+// TestShelleyBlockDecodesDeeplyNestedMetadatum decodes a deeply nested
+// metadatum inside a real mainnet block, so that the levels the block envelope
+// consumes are counted against the same budget.
 // decodeMetadatum in cardano-ledger
 // (libs/cardano-ledger-core/src/Cardano/Ledger/Metadata.hs) recurses through
 // decodeListN with no depth counter, so the reference accepts every depth

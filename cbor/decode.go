@@ -41,12 +41,12 @@ var (
 )
 
 // MaxNestedLevels is the deepest nesting the CBOR decoder accepts. It is
-// higher than fxamacker's default because Cardano blocks in the wild contain
-// more than 64 nested containers, but remains a finite bound for recursive
-// custom unmarshallers on peer-controlled input. Keep this value below the
-// largest payload a protocol segment can carry so depth remains a stronger
-// stack-safety bound than message size alone.
-const MaxNestedLevels = 512
+// large enough for a maximum-sized Cardano transaction and its enclosing
+// structure, while bounding recursion in both the CBOR library and custom
+// decoders. Cardano's reference decoders do not impose a nesting limit on
+// transaction metadata or Plutus data, so this cap is derived from the wire
+// size limit rather than an arbitrary structural rule.
+const MaxNestedLevels = 16384
 
 // MaxUntrustedNestedLevels names the limit used by decoders that process
 // peer-controlled data. Keep it equal to MaxNestedLevels because Decode is

@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -113,7 +114,7 @@ func (m MetaMap) TypeName() string   { return "map" }
 // Cbor() and remains stable if the caller reuses b.
 func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 	b = slices.Clone(b)
-	md, n, err := decodeMetadatumAt(b, 0, 0)
+	md, n, _, err := decodeMetadatumAt(b, 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -217,12 +218,7 @@ func decodeMetadatumStringAt(
 // reject duplicate keys. Scalars compare by value so that two encodings of the
 // same number collide, matching the duplicate-key enforcement the CBOR decode
 // modes apply elsewhere; containers compare by their decoded semantics.
-func metadatumKeyIdentity(md TransactionMetadatum) string {
-	digest := metadatumKeyDigest(md)
-	return string(digest[:])
-}
-
-func metadatumKeyDigest(md TransactionMetadatum) [sha256.Size]byte {
+func metadatumKeyDigest(md TransactionMetadatum, children [][sha256.Size]byte) [sha256.Size]byte {
 	h := sha256.New()
 	writePart := func(prefix byte, value []byte) {
 		_, _ = h.Write([]byte{prefix})
@@ -245,25 +241,26 @@ func metadatumKeyDigest(md TransactionMetadatum) [sha256.Size]byte {
 		writePart('b', k.Value)
 	case MetaList:
 		_, _ = h.Write([]byte{'l'})
-		for _, item := range k.Items {
-			digest := metadatumKeyDigest(item)
+		for _, digest := range children {
 			_, _ = h.Write(digest[:])
 		}
 	case MetaMap:
-		parts := make([]string, len(k.Pairs))
-		for i, pair := range k.Pairs {
-			key := metadatumKeyDigest(pair.Key)
-			value := metadatumKeyDigest(pair.Value)
+		parts := make([][sha256.Size]byte, 0, len(children)/2)
+		for i := 0; i < len(children); i += 2 {
 			pairHash := sha256.New()
 			_, _ = pairHash.Write([]byte{'p'})
-			_, _ = pairHash.Write(key[:])
-			_, _ = pairHash.Write(value[:])
-			parts[i] = string(pairHash.Sum(nil))
+			_, _ = pairHash.Write(children[i][:])
+			_, _ = pairHash.Write(children[i+1][:])
+			var part [sha256.Size]byte
+			copy(part[:], pairHash.Sum(nil))
+			parts = append(parts, part)
 		}
-		slices.Sort(parts)
+		slices.SortFunc(parts, func(a, b [sha256.Size]byte) int {
+			return bytes.Compare(a[:], b[:])
+		})
 		_, _ = h.Write([]byte{'m'})
 		for _, part := range parts {
-			_, _ = h.Write([]byte(part))
+			_, _ = h.Write(part[:])
 		}
 	default:
 		writePart('r', md.Cbor())
@@ -277,25 +274,26 @@ func decodeMetadatumAt(
 	b []byte,
 	offset int,
 	depth int,
-) (TransactionMetadatum, int, error) {
+) (TransactionMetadatum, int, [sha256.Size]byte, error) {
+	var zeroDigest [sha256.Size]byte
 	// The reference decoder has no depth bound, but this one recurses on the
 	// Go stack, so it holds the same bound the CBOR decode modes apply. A
 	// metadatum reached through a block is already bounded by that decode;
 	// this covers a direct call on an isolated value.
 	if depth > cbor.MaxNestedLevels {
-		return nil, 0, fmt.Errorf(
+		return nil, 0, zeroDigest, fmt.Errorf(
 			"metadata nesting exceeds %d levels",
 			cbor.MaxNestedLevels,
 		)
 	}
 	major, arg, next, indefinite, err := cborItemHead(b, offset)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, zeroDigest, err
 	}
 	switch major {
 	case cborTypeUnsigned, cborTypeNegative:
 		if indefinite {
-			return nil, 0, errors.New("invalid indefinite-length integer in metadata")
+			return nil, 0, zeroDigest, errors.New("invalid indefinite-length integer in metadata")
 		}
 		value := new(big.Int).SetUint64(arg)
 		if major == cborTypeNegative {
@@ -304,92 +302,96 @@ func decodeMetadatumAt(
 		}
 		m := MetaInt{Value: value}
 		m.SetCborReference(b[offset:next])
-		return m, next, nil
+		return m, next, metadatumKeyDigest(m, nil), nil
 
 	case cborTypeByteString:
 		content, end, err := decodeMetadatumStringAt(
 			b, major, arg, next, indefinite,
 		)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, zeroDigest, err
 		}
 		m := MetaBytes{Value: slices.Clone(content)}
 		m.SetCborReference(b[offset:end])
-		return m, end, nil
+		return m, end, metadatumKeyDigest(m, nil), nil
 
 	case cborTypeTextString:
 		content, end, err := decodeMetadatumStringAt(
 			b, major, arg, next, indefinite,
 		)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, zeroDigest, err
 		}
 		if !utf8.Valid(content) {
-			return nil, 0, errors.New("invalid UTF-8 in metadata text string")
+			return nil, 0, zeroDigest, errors.New("invalid UTF-8 in metadata text string")
 		}
 		m := MetaText{Value: string(content)}
 		m.SetCborReference(b[offset:end])
-		return m, end, nil
+		return m, end, metadatumKeyDigest(m, nil), nil
 
 	case cborTypeArray:
 		items := []TransactionMetadatum{}
+		children := [][sha256.Size]byte{}
 		pos := next
 		for i := uint64(0); indefinite || i < arg; i++ {
 			if pos >= len(b) {
-				return nil, 0, io.ErrUnexpectedEOF
+				return nil, 0, zeroDigest, io.ErrUnexpectedEOF
 			}
 			if indefinite && b[pos] == cborBreak {
 				pos++
 				break
 			}
-			item, itemEnd, err := decodeMetadatumAt(b, pos, depth+1)
+			item, itemEnd, itemDigest, err := decodeMetadatumAt(b, pos, depth+1)
 			if err != nil {
-				return nil, 0, err
+				return nil, 0, zeroDigest, err
 			}
 			items = append(items, item)
+			children = append(children, itemDigest)
 			pos = itemEnd
 		}
 		if !indefinite && pos > len(b) {
-			return nil, 0, io.ErrUnexpectedEOF
+			return nil, 0, zeroDigest, io.ErrUnexpectedEOF
 		}
 		m := MetaList{Items: items}
 		m.SetCborReference(b[offset:pos])
-		return m, pos, nil
+		return m, pos, metadatumKeyDigest(m, children), nil
 
 	case cborTypeMap:
 		pairs := []MetaPair{}
 		seen := map[string]struct{}{}
+		children := [][sha256.Size]byte{}
 		pos := next
 		for i := uint64(0); indefinite || i < arg; i++ {
 			if pos >= len(b) {
-				return nil, 0, io.ErrUnexpectedEOF
+				return nil, 0, zeroDigest, io.ErrUnexpectedEOF
 			}
 			if indefinite && b[pos] == cborBreak {
 				pos++
 				break
 			}
-			key, keyEnd, err := decodeMetadatumAt(b, pos, depth+1)
+			key, keyEnd, keyDigest, err := decodeMetadatumAt(b, pos, depth+1)
 			if err != nil {
-				return nil, 0, err
+				return nil, 0, zeroDigest, err
 			}
-			identity := metadatumKeyIdentity(key)
+			identity := string(keyDigest[:])
 			if _, ok := seen[identity]; ok {
-				return nil, 0, errors.New("duplicate key in metadata map")
+				return nil, 0, zeroDigest, errors.New("duplicate key in metadata map")
 			}
 			seen[identity] = struct{}{}
-			value, valueEnd, err := decodeMetadatumAt(b, keyEnd, depth+1)
+			value, valueEnd, valueDigest, err := decodeMetadatumAt(b, keyEnd, depth+1)
 			if err != nil {
-				return nil, 0, err
+				return nil, 0, zeroDigest, err
 			}
 			pairs = append(pairs, MetaPair{Key: key, Value: value})
+			children = append(children, keyDigest, valueDigest)
 			pos = valueEnd
 		}
 		m := MetaMap{Pairs: pairs}
 		m.SetCborReference(b[offset:pos])
-		return m, pos, nil
+		return m, pos, metadatumKeyDigest(m, children), nil
 
 	default:
-		return nil, 0, fmt.Errorf(
+		return nil, 0, zeroDigest, fmt.Errorf(
 			"unsupported CBOR major type 0x%x in metadata",
 			major,
 		)

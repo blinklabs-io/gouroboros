@@ -92,8 +92,7 @@ func TestDeeplyNestedMetadatumDecodes(t *testing.T) {
 
 // TestDeeplyNestedMetadatumDecodesInLinearSpace pins the decode to one pass
 // over the input. Re-entering the CBOR library once per nesting level made
-// both the work and the retained bytes grow with the product of size and
-// depth: the previous implementation allocated quadratically with depth.
+// both the work and retained bytes stay bounded by the input size.
 func TestDeeplyNestedMetadatumDecodesInLinearSpace(t *testing.T) {
 	data := nestedListMetadatum(200)
 	runtime.GC()
