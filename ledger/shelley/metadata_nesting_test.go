@@ -46,9 +46,9 @@ func blockWithNestedMetadatum(t *testing.T, depth int) []byte {
 	if len(parts) != 4 {
 		t.Fatalf("unexpected Shelley block shape: %d elements", len(parts))
 	}
-	// Built by hand rather than through cbor.Encode: the encoder does not apply
-	// the decoder's nesting cap, so hand-built bytes keep this boundary test
-	// independent of encoder behavior.
+	// Built by hand rather than through cbor.Encode: the encoder has no nesting
+	// limit, so hand-built bytes keep this boundary test independent of encoder
+	// behavior.
 	metadatum := make([]byte, 0, depth+1)
 	for range depth {
 		metadatum = append(metadatum, 0x81)
@@ -117,12 +117,12 @@ func TestShelleyBlockDecodesDeeplyNestedMetadatum(t *testing.T) {
 // TestShelleyBlockRejectsMetadatumPastConfiguredLimit is the negative control
 // for the explicit decoder resource bound.
 func TestShelleyBlockRejectsMetadatumPastConfiguredLimit(t *testing.T) {
-	blockBytes := blockWithNestedMetadatum(t, cbor.MaxNestedLevels+1)
+	blockBytes := blockWithNestedMetadatum(t, common.MaxMetadataNestedLevels+1)
 	_, err := shelley.NewShelleyBlockFromCbor(
 		blockBytes,
 		common.VerifyConfig{SkipBodyHashValidation: true},
 	)
 	if err == nil {
-		t.Fatalf("expected metadatum nesting depth %d to be rejected", cbor.MaxNestedLevels+1)
+		t.Fatalf("expected metadatum nesting depth %d to be rejected", common.MaxMetadataNestedLevels+1)
 	}
 }

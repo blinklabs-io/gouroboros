@@ -21,7 +21,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -94,7 +93,7 @@ func TestDeeplyNestedMetadatumDecodes(t *testing.T) {
 // over the input. Re-entering the CBOR library once per nesting level made
 // both the work and retained bytes stay bounded by the input size.
 func TestDeeplyNestedMetadatumDecodesInLinearSpace(t *testing.T) {
-	data := nestedListMetadatum(16000)
+	data := nestedListMetadatum(common.MaxMetadataNestedLevels)
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
@@ -165,15 +164,15 @@ func TestMetadatumDecodeShapes(t *testing.T) {
 // same bound the CBOR decode modes apply rather than none at all.
 func TestMetadatumNestingBound(t *testing.T) {
 	if _, err := common.DecodeMetadatumRaw(
-		nestedListMetadatum(cbor.MaxNestedLevels),
+		nestedListMetadatum(common.MaxMetadataNestedLevels),
 	); err != nil {
-		t.Fatalf("depth %d rejected: %v", cbor.MaxNestedLevels, err)
+		t.Fatalf("depth %d rejected: %v", common.MaxMetadataNestedLevels, err)
 	}
 	_, err := common.DecodeMetadatumRaw(
-		nestedListMetadatum(cbor.MaxNestedLevels + 1),
+		nestedListMetadatum(common.MaxMetadataNestedLevels + 1),
 	)
 	if err == nil {
-		t.Fatalf("expected depth %d to be rejected", cbor.MaxNestedLevels+1)
+		t.Fatalf("expected depth %d to be rejected", common.MaxMetadataNestedLevels+1)
 	}
 	if !strings.Contains(err.Error(), "nesting exceeds") {
 		t.Fatalf("unexpected error: %v", err)

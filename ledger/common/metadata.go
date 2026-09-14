@@ -89,6 +89,12 @@ type MetaMap struct {
 	Pairs []MetaPair
 }
 
+// MaxMetadataNestedLevels is the deepest nesting accepted by the custom
+// metadata decoder. Metadata decoding uses recursive Go code and therefore
+// needs a smaller bound than the general CBOR decoder's wire-compatibility
+// limit.
+const MaxMetadataNestedLevels = 1024
+
 func (MetaInt) isTransactionMetadatum()   {}
 func (MetaBytes) isTransactionMetadatum() {}
 func (MetaText) isTransactionMetadatum()  {}
@@ -106,9 +112,8 @@ func (m MetaMap) TypeName() string   { return "map" }
 // The decode is single pass: the initial byte of each item is read once, each
 // node references a subslice of b rather than a copy, and no nested item is
 // scanned more than once. That matters because the reference decoder places no
-// bound on metadatum nesting (see cbor.MaxNestedLevels in the cbor package for
-// the reference and the derivation), so decode cost has to stay linear in the
-// size of the value rather than growing with its depth.
+// bound on metadatum nesting, so decode cost has to stay linear in the size of
+// the value rather than growing with its depth.
 //
 // The input is copied before decoding so each node owns the bytes returned by
 // Cbor() and remains stable if the caller reuses b.
@@ -277,13 +282,12 @@ func decodeMetadatumAt(
 ) (TransactionMetadatum, int, [sha256.Size]byte, error) {
 	var zeroDigest [sha256.Size]byte
 	// The reference decoder has no depth bound, but this one recurses on the
-	// Go stack, so it holds the same bound the CBOR decode modes apply. A
-	// metadatum reached through a block is already bounded by that decode;
-	// this covers a direct call on an isolated value.
-	if depth > cbor.MaxNestedLevels {
+	// Go stack, so it has a dedicated metadata bound. A metadatum reached
+	// through a block is also checked here after the enclosing CBOR decode.
+	if depth > MaxMetadataNestedLevels {
 		return nil, 0, zeroDigest, fmt.Errorf(
 			"metadata nesting exceeds %d levels",
-			cbor.MaxNestedLevels,
+			MaxMetadataNestedLevels,
 		)
 	}
 	major, arg, next, indefinite, err := cborItemHead(b, offset)
