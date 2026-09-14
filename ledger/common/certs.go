@@ -1693,6 +1693,7 @@ func (c *RegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 		Certificate: &utxorpc.Certificate_RegCert{
 			RegCert: &utxorpc.RegCert{
 				StakeCredential: stakeCred,
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -1739,6 +1740,7 @@ func (c *DeregistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 		Certificate: &utxorpc.Certificate_UnregCert{
 			UnregCert: &utxorpc.UnRegCert{
 				StakeCredential: stakeCred,
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -1882,6 +1884,7 @@ func (c *StakeRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate
 			StakeRegDelegCert: &utxorpc.StakeRegDelegCert{
 				StakeCredential: stakeCred,
 				PoolKeyhash:     c.PoolKeyHash.Bytes(),
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -1935,6 +1938,7 @@ func (c *VoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate,
 			VoteRegDelegCert: &utxorpc.VoteRegDelegCert{
 				StakeCredential: stakeCred,
 				Drep:            drep,
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -1981,16 +1985,6 @@ func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certifi
 		return nil, fmt.Errorf("failed to convert DRep: %w", err)
 	}
 
-	var drepBytes []byte
-
-	if drepProto != nil {
-		switch drepProto.GetDrep().(type) {
-		case *utxorpc.DRep_AddrKeyHash:
-			drepBytes = drepProto.GetAddrKeyHash()
-		case *utxorpc.DRep_ScriptHash:
-			drepBytes = drepProto.GetScriptHash()
-		}
-	}
 	stakeCred, err := c.StakeCredential.Utxorpc()
 	if err != nil {
 		return nil, err
@@ -1999,8 +1993,9 @@ func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certifi
 		Certificate: &utxorpc.Certificate_StakeVoteRegDelegCert{
 			StakeVoteRegDelegCert: &utxorpc.StakeVoteRegDelegCert{
 				StakeCredential: stakeCred,
-				PoolKeyhash:     drepBytes,
+				PoolKeyhash:     c.PoolKeyHash.Bytes(),
 				Drep:            drepProto,
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -2152,6 +2147,7 @@ func (c *RegistrationDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 			RegDrepCert: &utxorpc.RegDRepCert{
 				DrepCredential: drepCred,
 				Anchor:         anchor,
+				Coin:           BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -2198,6 +2194,7 @@ func (c *DeregistrationDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) 
 		Certificate: &utxorpc.Certificate_UnregDrepCert{
 			UnregDrepCert: &utxorpc.UnRegDRepCert{
 				DrepCredential: drepCred,
+				Coin:           BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
