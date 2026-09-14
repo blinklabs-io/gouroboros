@@ -637,13 +637,19 @@ func (a Address) ByronType() uint64 {
 	return a.byronAddressType
 }
 
-// PaymentAddress returns a new Address with only the payment address portion. This will return nil for anything other than payment and script addresses
+// PaymentAddress returns the enterprise address for the payment credential.
+// Byron and reward addresses do not contain a Shelley payment credential and
+// return nil. Pointer addresses retain their payment credential.
 func (a Address) PaymentAddress() *Address {
 	var addrType uint8
 	switch a.addressType {
-	case AddressTypeKeyKey, AddressTypeKeyNone:
+	case AddressTypeKeyKey, AddressTypeKeyScript, AddressTypeKeyPointer,
+		AddressTypeKeyNone:
 		addrType = AddressTypeKeyNone
-	case AddressTypeScriptKey, AddressTypeScriptNone, AddressTypeScriptScript:
+	case AddressTypeScriptKey,
+		AddressTypeScriptScript,
+		AddressTypeScriptPointer,
+		AddressTypeScriptNone:
 		addrType = AddressTypeScriptNone
 	default:
 		// Unsupported address type
@@ -679,13 +685,15 @@ func (a *Address) PayloadPayload() AddressPayload {
 	return a.paymentPayload
 }
 
-// StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
+// StakeAddress returns the reward address for the staking credential.
+// Byron, enterprise and pointer addresses return nil; a pointer cannot be
+// resolved to a staking credential without ledger state.
 func (a Address) StakeAddress() *Address {
 	var addrType uint8
 	switch a.addressType {
-	case AddressTypeKeyKey, AddressTypeScriptKey:
+	case AddressTypeKeyKey, AddressTypeScriptKey, AddressTypeNoneKey:
 		addrType = AddressTypeNoneKey
-	case AddressTypeScriptScript, AddressTypeNoneScript:
+	case AddressTypeKeyScript, AddressTypeScriptScript, AddressTypeNoneScript:
 		addrType = AddressTypeNoneScript
 	default:
 		// Unsupported address type
