@@ -1,20 +1,18 @@
 module github.com/blinklabs-io/gouroboros
 
-go 1.25.7
-
-toolchain go1.25.8
+go 1.26.0
 
 require (
 	filippo.io/edwards25519 v1.2.0
 	github.com/blinklabs-io/ouroboros-mock v0.19.0
-	github.com/blinklabs-io/plutigo v0.5.0
+	github.com/blinklabs-io/plutigo v0.7.0
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/fxamacker/cbor/v2 v2.9.3
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.12.1
 	github.com/utxorpc/go-codegen v0.19.2
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.57.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -30,7 +28,7 @@ require (
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 )
 
 // replace github.com/blinklabs-io/plutigo => ../plutigo

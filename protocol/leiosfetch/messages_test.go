@@ -47,7 +47,7 @@ func getTestDefinitions() []testDefinition {
 			Message: NewMsgBlockRequest(
 				pcommon.NewPoint(
 					12345,
-					[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+					testPointHash(0x01),
 				),
 			),
 			MessageType: MessageTypeBlockRequest,
@@ -64,7 +64,7 @@ func getTestDefinitions() []testDefinition {
 			Message: NewMsgBlockTxsRequest(
 				pcommon.NewPoint(
 					12345,
-					[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+					testPointHash(0x01),
 				),
 				map[uint16]uint64{
 					0:  0xff00000000000000,
@@ -108,11 +108,11 @@ func getTestDefinitions() []testDefinition {
 			Message: NewMsgBlockRangeRequest(
 				pcommon.NewPoint(
 					123,
-					[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+					testPointHash(0x01),
 				),
 				pcommon.NewPoint(
 					456,
-					[]byte{0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+					testPointHash(0x09),
 				),
 			),
 			MessageType: MessageTypeBlockRangeRequest,
@@ -216,7 +216,7 @@ func TestEncode(t *testing.T) {
 
 func TestMsgBlockRequest(t *testing.T) {
 	slot := uint64(123456)
-	hash := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	hash := testPointHash(0x01)
 
 	msg := NewMsgBlockRequest(pcommon.NewPoint(slot, hash))
 
@@ -236,7 +236,7 @@ func TestMsgBlock(t *testing.T) {
 
 func TestMsgBlockTxsRequest(t *testing.T) {
 	slot := uint64(123456)
-	hash := []byte{0x01, 0x02, 0x03, 0x04}
+	hash := testPointHash(0x01)
 	bitmaps := map[uint16]uint64{
 		0: 0xff00000000000000,
 	}
@@ -262,7 +262,7 @@ func TestMsgBlockTxs(t *testing.T) {
 }
 
 func TestMsgBlockTxsFullUsesRequestBitmapEncoding(t *testing.T) {
-	point := pcommon.NewPoint(123, []byte{0x01, 0x02})
+	point := pcommon.NewPoint(123, testPointHash(0x01))
 	bitmaps := map[uint16]uint64{
 		0:  1,
 		64: 0x00ff000000000000,
@@ -363,8 +363,8 @@ func TestMsgVotesDecodeVotesRejectsInvalidVote(t *testing.T) {
 }
 
 func TestMsgBlockRangeRequest(t *testing.T) {
-	start := pcommon.NewPoint(100, []byte{0x01, 0x02, 0x03, 0x04})
-	end := pcommon.NewPoint(200, []byte{0x05, 0x06, 0x07, 0x08})
+	start := pcommon.NewPoint(100, testPointHash(0x01))
+	end := pcommon.NewPoint(200, testPointHash(0x05))
 
 	msg := NewMsgBlockRangeRequest(start, end)
 
@@ -446,7 +446,7 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 
 func TestMsgBlockTxsRequestEmptyBitmaps(t *testing.T) {
 	slot := uint64(123)
-	hash := []byte{0x01, 0x02}
+	hash := testPointHash(0x01)
 	bitmaps := map[uint16]uint64{}
 
 	msg := NewMsgBlockTxsRequest(pcommon.NewPoint(slot, hash), bitmaps)

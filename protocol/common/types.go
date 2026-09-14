@@ -16,6 +16,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -44,11 +45,22 @@ func NewPointOrigin() Point {
 // UnmarshalCBOR is a helper function for decoding a Point object from CBOR. The object content can vary,
 // so we need to do some special handling when decoding. It is not intended to be called directly.
 func (p *Point) UnmarshalCBOR(data []byte) error {
+	// Points use a definite-length array: [] for origin or [slot, hash].
+	if len(data) == 0 || data[0]>>5 != 4 || data[0] == 0x9f {
+		return errors.New("Point must be a definite-length array")
+	}
 	var tmp []any
-	if _, err := cbor.Decode(data, &tmp); err != nil {
+	consumed, err := cbor.Decode(data, &tmp)
+	if err != nil {
 		return err
 	}
-	if len(tmp) == 2 {
+	if consumed != len(data) {
+		return errors.New("Point contains trailing CBOR data")
+	}
+	switch len(tmp) {
+	case 0:
+		*p = NewPointOrigin()
+	case 2:
 		slot, ok := tmp[0].(uint64)
 		if !ok {
 			return fmt.Errorf("Point slot must be uint64, got %T", tmp[0])
@@ -57,8 +69,14 @@ func (p *Point) UnmarshalCBOR(data []byte) error {
 		if !ok {
 			return fmt.Errorf("Point hash must be []byte, got %T", tmp[1])
 		}
+		// Cardano block-header hashes are Blake2b-256 in every era.
+		if len(hash) != 32 {
+			return fmt.Errorf("Point hash must be 32 bytes, got %d", len(hash))
+		}
 		p.Slot = slot
 		p.Hash = hash
+	default:
+		return fmt.Errorf("Point must contain 0 or 2 elements, got %d", len(tmp))
 	}
 	return nil
 }

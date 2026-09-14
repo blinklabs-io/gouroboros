@@ -93,10 +93,31 @@ func decodePlutusProgram(
 	if evalContext == nil {
 		return nil, errors.New("evaluation context is required")
 	}
-	return syn.DecodeDeBruijnWithContext(innerScript, syn.ProgramContext{
+	programContext := syn.ProgramContext{
 		LedgerLanguage: ledgerLanguage,
 		ProtocolMajor:  evalContext.ProtoMajor,
-	})
+	}
+	program, err := syn.DecodeDeBruijnWithContext(innerScript, programContext)
+	if err != nil {
+		return nil, err
+	}
+	// The UPLC term-version-vs-ledger-language legality gate (the "van
+	// Rossem" gate: UPLC 1.1.0 requires protocol major >= 11 for
+	// PlutusV1/PlutusV2) is a phase-2, execution-time check in real
+	// cardano-ledger (mkTermToEvaluate), not a decode-time well-formedness
+	// check. decodePlutusProgram is only reached immediately before a
+	// program is actually run through the CEK machine, so this is the
+	// correct place to enforce it -- unlike the shared decode/well-formedness
+	// path used for a transaction's own stored-but-unexecuted reference
+	// scripts, which must never apply this gate. See
+	// syn.ValidateTermVersionForExecution.
+	if err := syn.ValidateTermVersionForExecution(
+		program.Version,
+		programContext,
+	); err != nil {
+		return nil, err
+	}
+	return program, nil
 }
 
 func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
@@ -200,6 +221,18 @@ func (s PlutusV1Script) Evaluate(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	// Normalize the script-visible arguments rather than trusting every
+	// caller to do it. Decode preserves each container's definite/indefinite
+	// length choice so a decoded value re-encodes to its original bytes, but
+	// cardano-ledger rebuilds these values instead, which is equivalent to the
+	// package default encoding. A datum or redeemer applied straight from the
+	// wire can therefore serialise to different bytes than the reference
+	// implementation's for the same semantic value, and a script that hashes or
+	// compares SerialiseData output diverges from the rest of the network.
+	// V3 takes no datum or redeemer argument -- its redeemer travels inside the
+	// script context, which NewScriptContextV3 normalizes.
+	datum = data.Normalize(datum)
+	redeemer = data.Normalize(redeemer)
 	var usedExUnits ExUnits
 	var err error
 	var program *syn.Program[syn.DeBruijn]
@@ -286,6 +319,18 @@ func (s PlutusV2Script) Evaluate(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	// Normalize the script-visible arguments rather than trusting every
+	// caller to do it. Decode preserves each container's definite/indefinite
+	// length choice so a decoded value re-encodes to its original bytes, but
+	// cardano-ledger rebuilds these values instead, which is equivalent to the
+	// package default encoding. A datum or redeemer applied straight from the
+	// wire can therefore serialise to different bytes than the reference
+	// implementation's for the same semantic value, and a script that hashes or
+	// compares SerialiseData output diverges from the rest of the network.
+	// V3 takes no datum or redeemer argument -- its redeemer travels inside the
+	// script context, which NewScriptContextV3 normalizes.
+	datum = data.Normalize(datum)
+	redeemer = data.Normalize(redeemer)
 	var usedExUnits ExUnits
 	var err error
 	var program *syn.Program[syn.DeBruijn]

@@ -248,7 +248,7 @@ type Utxo struct {
 // and storing/retrieving the original CBOR
 type TransactionBodyBase struct {
 	cbor.DecodeStoreCbor
-	hash                              *Blake2b256
+	hash                              Blake2b256Cache
 	validityIntervalUpperBoundPresent bool
 	currentTreasuryValuePresent       bool
 	networkIdPresent                  bool
@@ -258,6 +258,20 @@ type transactionBodyFieldPresence struct {
 	validityIntervalUpperBound bool
 	currentTreasuryValue       bool
 	networkId                  bool
+}
+
+func (b *TransactionBodyBase) SetCbor(cborData []byte) {
+	// Replacing CBOR invalidates the hash memo; callers must not mutate the
+	// body concurrently with Id or this setter.
+	b.DecodeStoreCbor.SetCbor(cborData)
+	b.hash.Reset()
+}
+
+func (b *TransactionBodyBase) SetCborReference(cborData []byte) {
+	// Replacing CBOR invalidates the hash memo; callers must not mutate the
+	// body concurrently with Id or this setter.
+	b.DecodeStoreCbor.SetCborReference(cborData)
+	b.hash.Reset()
 }
 
 // decodeTransactionBodyFieldPresence scans a transaction-body map once and
@@ -288,7 +302,6 @@ func (b *TransactionBodyBase) SetValidityIntervalUpperBoundPresence(
 	present bool,
 ) {
 	b.validityIntervalUpperBoundPresent = present
-	b.hash = nil
 	b.SetCbor(nil)
 }
 
@@ -305,7 +318,6 @@ func (b *TransactionBodyBase) ValidityIntervalUpperBoundPresent() bool {
 // constructed body invalidates any stored CBOR.
 func (b *TransactionBodyBase) SetCurrentTreasuryValuePresence(present bool) {
 	b.currentTreasuryValuePresent = present
-	b.hash = nil
 	b.SetCbor(nil)
 }
 
@@ -319,7 +331,6 @@ func (b *TransactionBodyBase) CurrentTreasuryValuePresent() bool {
 // Calling it for a programmatically constructed body invalidates stored CBOR.
 func (b *TransactionBodyBase) SetNetworkIdPresence(present bool) {
 	b.networkIdPresent = present
-	b.hash = nil
 	b.SetCbor(nil)
 }
 
@@ -433,11 +444,9 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 }
 
 func (b *TransactionBodyBase) Id() Blake2b256 {
-	if b.hash == nil {
-		tmpHash := Blake2b256Hash(b.Cbor())
-		b.hash = &tmpHash
-	}
-	return *b.hash
+	return b.hash.Get(func() Blake2b256 {
+		return Blake2b256Hash(b.Cbor())
+	})
 }
 
 func (b *TransactionBodyBase) Inputs() []TransactionInput {
