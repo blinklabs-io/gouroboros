@@ -17,6 +17,7 @@ package common_test
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -127,11 +128,8 @@ func TestPoolMetadataURLDecodeBound(t *testing.T) {
 			require.NoError(t, err)
 			var metadata common.PoolMetadata
 			err = json.Unmarshal(data, &metadata)
-			if test.wantErr {
-				require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
-				return
-			}
 			require.NoError(t, err)
+			require.Equal(t, strings.Repeat("a", test.urlLength), metadata.Url)
 		})
 
 		t.Run(test.name+" JSON marshal", func(t *testing.T) {
@@ -140,10 +138,6 @@ func TestPoolMetadataURLDecodeBound(t *testing.T) {
 				Hash: hash,
 			}
 			_, err := json.Marshal(metadata)
-			if test.wantErr {
-				require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
-				return
-			}
 			require.NoError(t, err)
 		})
 	}
@@ -168,6 +162,24 @@ func TestPoolMetadataURLLengthUsesBytes(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestPoolMetadataJSONURLIsUnbounded(t *testing.T) {
+	hash := common.PoolMetadataHash([]byte{1, 2, 3})
+	for _, length := range []int{65, 129} {
+		t.Run(strconv.Itoa(length)+" bytes", func(t *testing.T) {
+			metadata := common.PoolMetadata{
+				Url:  strings.Repeat("a", length),
+				Hash: hash,
+			}
+			data, err := json.Marshal(metadata)
+			require.NoError(t, err)
+			var decoded common.PoolMetadata
+			require.NoError(t, json.Unmarshal(data, &decoded))
+			require.Equal(t, metadata.Url, decoded.Url)
+			require.Equal(t, metadata.Hash, decoded.Hash)
 		})
 	}
 }

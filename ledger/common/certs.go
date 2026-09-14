@@ -557,9 +557,9 @@ var ErrPoolMetadataURLTooLong = errors.New(
 	"pool metadata URL exceeds the protocol length limit",
 )
 
-// ValidatePoolMetadata verifies the protocol bounds for optional pool
-// metadata. The URL size is measured in bytes, as required by CBOR text-size
-// constraints.
+// ValidatePoolMetadata verifies the maximum URL size used when encoding pool
+// metadata to CBOR or exposing it through UTxO RPC. JSON uses the reference
+// ledger's unbounded Url/Text representation and does not call this helper.
 func ValidatePoolMetadata(metadata *PoolMetadata) error {
 	return validatePoolMetadataURL(metadata, poolMetadataMaxURLLength)
 }
@@ -629,17 +629,11 @@ func (p *PoolMetadata) UnmarshalJSON(data []byte) error {
 		Url:  tmp.Url,
 		Hash: tmp.Hash,
 	}
-	if err := ValidatePoolMetadata(&metadata); err != nil {
-		return err
-	}
 	*p = metadata
 	return nil
 }
 
 func (p PoolMetadata) MarshalJSON() ([]byte, error) {
-	if err := ValidatePoolMetadata(&p); err != nil {
-		return nil, err
-	}
 	return json.Marshal(struct {
 		Url  string           `json:"url"`
 		Hash PoolMetadataHash `json:"hash"`

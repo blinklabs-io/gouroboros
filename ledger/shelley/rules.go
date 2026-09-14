@@ -886,8 +886,6 @@ func UtxoValidateWithdrawals(
 //   - WrongNetworkPOOL: a registration's reward account must be on the
 //     ledger's network. Gated on major protocol version > 4
 //     (hardforkAlonzoValidatePoolAccountAddressNetID).
-//   - PoolMetadataURLTooLong: a registration's metadata URL must fit the
-//     era-specific byte bound (64 before protocol version 9, 128 thereafter).
 //   - PoolMedataHashTooBig: a registration's metadata hash may be at most 32
 //     bytes. Gated on major protocol version > 4
 //     (SoftForks.restrictPoolMetadataHash). The hash is an unbounded byte
@@ -905,6 +903,10 @@ func UtxoValidateWithdrawals(
 // (psStakePools, psFutureStakePoolParams, psRetiring, psVRFKeyHashes) are
 // ledger-state transitions rather than predicates, and belong to the consumer
 // applying the certificate.
+//
+// The era-specific pool metadata URL bound (64 bytes before protocol version 9,
+// 128 thereafter) is enforced by CBOR decoding, not by the reference POOL
+// predicate.
 func UtxoValidatePoolCertificates(
 	tx common.Transaction,
 	slot uint64,

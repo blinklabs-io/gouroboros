@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -508,6 +509,63 @@ func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
 			require.NoError(t, err)
 			_, _, err = genesis.InitialPools()
 			require.ErrorContains(t, err, test.errString)
+		})
+	}
+}
+
+func TestGenesisPoolMetadataJSONURLIsUnbounded(t *testing.T) {
+	const poolID = "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+	const vrf = "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+	const reward = "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+
+	for _, length := range []int{65, 129} {
+		t.Run("standard pool "+strconv.Itoa(length), func(t *testing.T) {
+			var config map[string]any
+			require.NoError(t, json.Unmarshal(
+				[]byte(shelleyGenesisConfig), &config,
+			))
+			staking, ok := config["staking"].(map[string]any)
+			if !ok {
+				staking = map[string]any{}
+				config["staking"] = staking
+			}
+			staking["pools"] = map[string]any{poolID: map[string]any{
+				"cost": 340000000, "margin": 0.0, "pledge": 0,
+				"publicKey": poolID, "vrf": vrf,
+				"rewardAccount": map[string]any{
+					"credential": map[string]any{"key hash": reward},
+					"network":    "Mainnet",
+				},
+				"metadata": map[string]any{
+					"url": strings.Repeat("a", length),
+				},
+			}}
+			data, err := json.Marshal(config)
+			require.NoError(t, err)
+			genesis, err := shelley.NewShelleyGenesisFromReader(
+				strings.NewReader(string(data)),
+			)
+			require.NoError(t, err)
+			pools, _, err := genesis.InitialPools()
+			require.NoError(t, err)
+			require.Equal(t, strings.Repeat("a", length), pools[poolID].PoolMetadata.Url)
+		})
+
+		t.Run("extra pool "+strconv.Itoa(length), func(t *testing.T) {
+			genesis, err := genesisWithExtraPool(poolID, map[string]any{
+				"vrf": vrf,
+				"accountAddress": map[string]any{
+					"credential": map[string]any{"keyHash": reward},
+					"network":    "Mainnet",
+				},
+				"metadata": map[string]any{
+					"url": strings.Repeat("a", length),
+				},
+			})
+			require.NoError(t, err)
+			pools, _, err := genesis.InitialPools()
+			require.NoError(t, err)
+			require.Equal(t, strings.Repeat("a", length), pools[poolID].PoolMetadata.Url)
 		})
 	}
 }
