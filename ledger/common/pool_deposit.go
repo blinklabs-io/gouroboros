@@ -55,7 +55,7 @@ func PoolRegistrationDepositDue(
 	if retirementEpoch == nil {
 		return false, nil
 	}
-	epochState, ok := ls.(EpochState)
+	epochState, ok := UnwrapLedgerState(ls).(EpochState)
 	if !ok {
 		return false, nil
 	}
