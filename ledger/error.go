@@ -2139,12 +2139,20 @@ func (e *ShelleyUtxowFailure) unmarshalCBORWithEra(
 	case ShelleyUtxowScriptWitnessNotValidating:
 		newErr = &ScriptWitnessNotValidatingUTXOW{}
 	case ShelleyUtxowUtxoFailure:
-		utxoErr := &UtxoFailure{}
 		if len(tmpFailure) < 2 {
 			return errors.New(
 				"ShelleyUtxowFailure: expected at least 2 elements",
 			)
 		}
+		if era == EraIdBabbage {
+			utxoErr := &BabbageUtxoFailure{}
+			if err := utxoErr.unmarshalPayload(tmpFailure[1], era); err != nil {
+				return err
+			}
+			e.Err = utxoErr
+			return nil
+		}
+		utxoErr := &UtxoFailure{}
 		if err := utxoErr.unmarshalPayload(tmpFailure[1], era); err != nil {
 			return err
 		}
@@ -2294,7 +2302,7 @@ func (e *BabbageUtxoFailure) unmarshalPayload(data []byte, era uint8) error {
 		}
 		return nil
 	}
-	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+	if _, err := cbor.Decode(data, newErr); err != nil {
 		return err
 	}
 	e.Err = newErr

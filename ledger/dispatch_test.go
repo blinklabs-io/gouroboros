@@ -154,12 +154,22 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 					uint(BabbageUtxowAlonzoInBabbage),
 					[]any{
 						uint(AlonzoUtxowShelleyInAlonzo),
-						[]any{uint(ShelleyUtxowUtxoFailure), []any{uint(3)}},
+						[]any{
+							uint(ShelleyUtxowUtxoFailure),
+							[]any{
+								uint(BabbageUtxoAlonzoInBabbage),
+								[]any{uint(3)},
+							},
+						},
 					},
 				},
 			}},
 		}})
 		require.NoError(t, err)
+		require.Equal(t,
+			"81820581820082018200820482018103",
+			hex.EncodeToString(data),
+		)
 		decoded, err := NewShelleyTxValidationErrorFromCbor(data)
 		require.NoError(t, err)
 		require.True(
@@ -170,6 +180,120 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 			decoded,
 		)
 	})
+
+	t.Run("direct Shelley UTXOW in Babbage", func(t *testing.T) {
+		data, err := cbor.Encode([]any{
+			uint(ShelleyUtxowUtxoFailure),
+			[]any{uint(BabbageUtxoAlonzoInBabbage), []any{uint(3)}},
+		})
+		require.NoError(t, err)
+		decoded := &ShelleyUtxowFailure{}
+		require.NoError(t, decoded.unmarshalCBORWithEra(data, EraIdBabbage))
+		require.IsType(t, &BabbageUtxoFailure{}, decoded.Err)
+		require.True(t, containsInputSetEmpty(decoded.Err))
+	})
+}
+
+func TestShelleyUtxowBabbagePayloadBoundaries(t *testing.T) {
+	for _, payload := range []any{
+		[]any{uint(BabbageUtxoAlonzoInBabbage)},
+		[]any{uint(BabbageUtxoAlonzoInBabbage), "invalid"},
+	} {
+		wire, err := cbor.Encode([]any{ShelleyUtxowUtxoFailure, payload})
+		require.NoError(t, err)
+		decoded := &ShelleyUtxowFailure{}
+		require.Error(t, decoded.unmarshalCBORWithEra(wire, EraIdBabbage))
+	}
+	inner := []byte{0x81, 0x18, 0xfa}
+	wire, err := cbor.Encode([]any{
+		ShelleyUtxowUtxoFailure,
+		[]any{BabbageUtxoAlonzoInBabbage, cbor.RawMessage(inner)},
+	})
+	require.NoError(t, err)
+	decoded := &ShelleyUtxowFailure{}
+	require.NoError(t, decoded.unmarshalCBORWithEra(wire, EraIdBabbage))
+	babbage, ok := decoded.Err.(*BabbageUtxoFailure)
+	require.True(t, ok)
+	utxo, ok := babbage.Err.(*UtxoFailure)
+	require.True(t, ok)
+	unknown, ok := utxo.Err.(*UnknownUtxoFailureError)
+	require.True(t, ok)
+	require.Equal(t, uint8(EraIdBabbage), unknown.Era)
+	require.Equal(t, 250, unknown.FailureType)
+	require.Equal(t, inner, []byte(unknown.Cbor))
+
+	// The public standalone decoder keeps its Shelley-era default.
+	shelleyWire, err := cbor.Encode([]any{
+		ShelleyUtxowUtxoFailure, []any{uint(3)},
+	})
+	require.NoError(t, err)
+	require.NoError(t, decoded.UnmarshalCBOR(shelleyWire))
+	standalone, ok := decoded.Err.(*UtxoFailure)
+	require.True(t, ok)
+	require.Equal(t, uint8(EraIdShelley), standalone.Era)
+	require.True(t, containsInputSetEmpty(standalone))
+}
+
+func TestNestedBabbageSpecificUtxoFailures(t *testing.T) {
+	address := append([]byte{0x60}, make([]byte, 28)...)
+	tests := []struct {
+		name    string
+		payload any
+		check   func(*testing.T, error)
+	}{
+		{"collateral", []any{uint(2), int64(-100), uint64(500)},
+			func(t *testing.T, err error) {
+				v, ok := err.(*IncorrectTotalCollateralField)
+				require.True(t, ok)
+				require.Equal(t, uint8(2), v.Type)
+				require.Equal(t, int64(-100), v.BalanceComputed)
+				require.Equal(t, uint64(500), v.TotalCollateral)
+			}},
+		{"output", []any{uint(3), []any{[]any{
+			[]any{address, uint64(1000000)}, uint64(2000000),
+		}}}, func(t *testing.T, err error) {
+			v, ok := err.(*BabbageOutputTooSmallUTxO)
+			require.True(t, ok)
+			require.Equal(t, uint8(3), v.Type)
+			require.Len(t, v.Outputs, 1)
+			require.Equal(t, uint64(2000000), v.Outputs[0].MinRequired)
+		}},
+		{"reference inputs", []any{uint(4), []any{
+			[]any{make([]byte, 32), uint64(0)},
+		}}, func(t *testing.T, err error) {
+			v, ok := err.(*BabbageNonDisjointRefInputs)
+			require.True(t, ok)
+			require.Equal(t, uint8(4), v.Type)
+			require.Len(t, v.Inputs, 1)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, inherited := range []bool{false, true} {
+				var wrapper any = []any{BabbageUtxowUtxoFailure, tc.payload}
+				if inherited {
+					wrapper = []any{BabbageUtxowAlonzoInBabbage,
+						[]any{AlonzoUtxowShelleyInAlonzo,
+							[]any{ShelleyUtxowUtxoFailure, tc.payload}}}
+				}
+				wire, err := cbor.Encode(wrapper)
+				require.NoError(t, err)
+				decoded := UtxowFailure{era: EraIdBabbage}
+				require.NoError(t, decoded.UnmarshalCBOR(wire))
+				leaf := decoded.Err
+				if inherited {
+					alonzo, ok := leaf.(*AlonzoUtxowFailure)
+					require.True(t, ok)
+					shelley, ok := alonzo.Err.(*ShelleyUtxowFailure)
+					require.True(t, ok)
+					leaf = shelley.Err
+				}
+				babbage, ok := leaf.(*BabbageUtxoFailure)
+				require.True(t, ok)
+				tc.check(t, babbage.Err)
+			}
+		})
+	}
 }
 
 func TestDijkstraMempoolFailureEnvelope(t *testing.T) {
