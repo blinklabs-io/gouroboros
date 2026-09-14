@@ -4645,7 +4645,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 		func(t *testing.T) {
 			ls := mockledger.NewLedgerStateBuilder().
 				WithStakeCredentialRegistered(stakeKeyHash, true).
-				WithDRepRegistration(func(
+				WithDRepCredentialRegistration(func(
 					common.Credential,
 				) (*common.DRepRegistration, error) {
 					return nil, nil
@@ -4683,7 +4683,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 		func(t *testing.T) {
 			ls := mockledger.NewLedgerStateBuilder().
 				WithStakeCredentialRegistered(stakeKeyHash, true).
-				WithDRepRegistration(func(
+				WithDRepCredentialRegistration(func(
 					common.Credential,
 				) (*common.DRepRegistration, error) {
 					return &common.DRepRegistration{}, nil
@@ -4708,7 +4708,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 		lookupErr := errors.New("DRep lookup failed")
 		ls := mockledger.NewLedgerStateBuilder().
 			WithStakeCredentialRegistered(stakeKeyHash, true).
-			WithDRepRegistration(func(
+			WithDRepCredentialRegistration(func(
 				common.Credential,
 			) (*common.DRepRegistration, error) {
 				return nil, lookupErr
@@ -4732,7 +4732,7 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 		func(t *testing.T) {
 			ls := mockledger.NewLedgerStateBuilder().
 				WithStakeCredentialRegistered(stakeKeyHash, true).
-				WithDRepRegistration(func(
+				WithDRepCredentialRegistration(func(
 					common.Credential,
 				) (*common.DRepRegistration, error) {
 					return nil, nil

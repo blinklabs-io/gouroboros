@@ -22,7 +22,7 @@ func drepIdentityCredential(credType uint) common.Credential {
 func scriptOnlyDRepState(deposit *uint64) common.LedgerState {
 	return mockledger.NewLedgerStateBuilder().
 		WithStakeCredentialRegistered(drepIdentityHash, true).
-		WithDRepRegistration(func(credential common.Credential) (*common.DRepRegistration, error) {
+		WithDRepCredentialRegistration(func(credential common.Credential) (*common.DRepRegistration, error) {
 			if credential.CredType != common.CredentialTypeScriptHash || credential.Credential != drepIdentityHash {
 				return nil, nil
 			}
