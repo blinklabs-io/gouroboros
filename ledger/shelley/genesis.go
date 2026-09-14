@@ -164,10 +164,24 @@ func (g *ShelleyGenesis) effectiveStake() map[string]string {
 }
 
 func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCertificate, error) {
-	if g.ExtraConfig == nil || len(g.ExtraConfig.StakePools.Data) == 0 {
-		return g.Staking.Pools, nil
-	}
 	out := make(
+		map[string]common.PoolRegistrationCertificate,
+		len(g.Staking.Pools),
+	)
+	for poolID, pool := range g.Staking.Pools {
+		out[poolID] = pool
+	}
+	if g.ExtraConfig == nil || len(g.ExtraConfig.StakePools.Data) == 0 {
+		for poolID, pool := range out {
+			if err := common.ValidatePoolMetadataForProtocolVersion(
+				pool.PoolMetadata, g.ProtocolParameters.ProtocolVersion.Major,
+			); err != nil {
+				return nil, fmt.Errorf("invalid pool %s metadata: %w", poolID, err)
+			}
+		}
+		return out, nil
+	}
+	out = make(
 		map[string]common.PoolRegistrationCertificate,
 		len(g.Staking.Pools)+len(g.ExtraConfig.StakePools.Data),
 	)
@@ -278,9 +292,13 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 			PoolMetadata:  metadata,
 		}
 	}
-	// Genesis pool loading is not a POOL transition. The reference genesis
-	// decoder accepts the JSON Url/Text value without the on-chain CBOR bound;
-	// the era-specific URL bound applies when pool metadata is CBOR-decoded.
+	for poolID, pool := range out {
+		if err := common.ValidatePoolMetadataForProtocolVersion(
+			pool.PoolMetadata, g.ProtocolParameters.ProtocolVersion.Major,
+		); err != nil {
+			return nil, fmt.Errorf("invalid pool %s metadata: %w", poolID, err)
+		}
+	}
 	return out, nil
 }
 

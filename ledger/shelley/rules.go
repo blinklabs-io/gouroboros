@@ -905,8 +905,8 @@ func UtxoValidateWithdrawals(
 // applying the certificate.
 //
 // The era-specific pool metadata URL bound (64 bytes before protocol version 9,
-// 128 thereafter) is enforced by CBOR decoding, not by the reference POOL
-// predicate.
+// 128 thereafter) is enforced while decoding pool metadata, including genesis
+// pool configuration, rather than by the reference POOL predicate.
 func UtxoValidatePoolCertificates(
 	tx common.Transaction,
 	slot uint64,

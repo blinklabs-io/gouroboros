@@ -513,7 +513,7 @@ func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
 	}
 }
 
-func TestGenesisPoolMetadataJSONURLIsUnbounded(t *testing.T) {
+func TestGenesisPoolMetadataJSONURLHonorsProtocolBound(t *testing.T) {
 	const poolID = "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
 	const vrf = "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
 	const reward = "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
@@ -546,9 +546,8 @@ func TestGenesisPoolMetadataJSONURLIsUnbounded(t *testing.T) {
 				strings.NewReader(string(data)),
 			)
 			require.NoError(t, err)
-			pools, _, err := genesis.InitialPools()
-			require.NoError(t, err)
-			require.Equal(t, strings.Repeat("a", length), pools[poolID].PoolMetadata.Url)
+			_, _, err = genesis.InitialPools()
+			require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
 		})
 
 		t.Run("extra pool "+strconv.Itoa(length), func(t *testing.T) {
@@ -563,9 +562,8 @@ func TestGenesisPoolMetadataJSONURLIsUnbounded(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-			pools, _, err := genesis.InitialPools()
-			require.NoError(t, err)
-			require.Equal(t, strings.Repeat("a", length), pools[poolID].PoolMetadata.Url)
+			_, _, err = genesis.InitialPools()
+			require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
 		})
 	}
 }
