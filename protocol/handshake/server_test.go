@@ -63,6 +63,7 @@ func writeSegment(t *testing.T, conn net.Conn, segment *muxer.Segment) {
 	t.Helper()
 	if segment == nil {
 		t.Fatal("cannot write a nil mux segment")
+		return
 	}
 	buf := new(bytes.Buffer)
 	require.NoError(t, binary.Write(buf, binary.BigEndian, segment.SegmentHeader))
