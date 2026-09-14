@@ -67,7 +67,7 @@ func TestLogRollForwardDoesNotLogBlockData(t *testing.T) {
 	tip := Tip{
 		Point: pcommon.Point{
 			Slot: 42,
-			Hash: []byte{0xca, 0xfe},
+			Hash: testPointHash(0xca),
 		},
 		BlockNumber: 24,
 	}
@@ -107,4 +107,38 @@ func TestRollForwardNtNRejectsUnknownBlockType(t *testing.T) {
 	err := server.RollForward(999, nil, Tip{})
 
 	require.EqualError(t, err, "unknown block type: 999")
+}
+
+func TestNewServerPropagatesConnectionDoneChan(t *testing.T) {
+	done := make(chan any)
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId:       testConnectionId(),
+			ConnectionDoneChan: done,
+		},
+		nil,
+	)
+	close(done)
+	select {
+	case <-server.callbackContext.ConnectionDoneChan:
+	default:
+		t.Fatal("connection lifecycle channel did not close")
+	}
+}
+
+func TestNewClientPropagatesConnectionDoneChan(t *testing.T) {
+	done := make(chan any)
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId:       testConnectionId(),
+			ConnectionDoneChan: done,
+		},
+		nil,
+	)
+	close(done)
+	select {
+	case <-client.callbackContext.ConnectionDoneChan:
+	default:
+		t.Fatal("connection lifecycle channel did not close")
+	}
 }

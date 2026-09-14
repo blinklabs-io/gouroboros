@@ -259,9 +259,21 @@ func (b *BabbageBlock) BlockBodyHash() common.Blake2b256 {
 type BabbageBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash      *common.Blake2b256
+	hash      common.Blake2b256Cache
 	Body      BabbageBlockHeaderBody
 	Signature []byte
+}
+
+func (h *BabbageBlockHeader) SetCbor(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCbor(cborData)
+	h.hash.Reset()
+}
+
+func (h *BabbageBlockHeader) SetCborReference(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCborReference(cborData)
+	h.hash.Reset()
 }
 
 type BabbageBlockHeaderBody struct {
@@ -325,8 +337,8 @@ func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
 type BabbageOpCert struct {
 	cbor.StructAsArray
 	HotVkey        []byte
-	SequenceNumber uint32
-	KesPeriod      uint32
+	SequenceNumber uint64
+	KesPeriod      uint64
 	Signature      []byte
 }
 
@@ -348,11 +360,9 @@ func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (h *BabbageBlockHeader) Hash() common.Blake2b256 {
-	if h.hash == nil {
-		tmpHash := common.Blake2b256Hash(h.Cbor())
-		h.hash = &tmpHash
-	}
-	return *h.hash
+	return h.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(h.Cbor())
+	})
 }
 
 func (h *BabbageBlockHeader) PrevHash() common.Blake2b256 {
@@ -391,7 +401,6 @@ type BabbageTransactionPparamUpdate struct {
 
 type BabbageTransactionBody struct {
 	common.TransactionBodyBase
-	hash                    *common.Blake2b256
 	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
 	TxOutputs               []BabbageTransactionOutput                    `cbor:"1,keyasint,omitempty"`
 	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
@@ -437,7 +446,7 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("mint: %w", err)
 	}
 	*b = BabbageTransactionBody(tmp)
-	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+	if err := b.DecodeTransactionBodyFieldPresence(cborData, b.Ttl, false); err != nil {
 		return err
 	}
 	b.SetCborReference(cborData)
@@ -479,11 +488,7 @@ func coalesceUntaggedTransactionInputs(
 }
 
 func (b *BabbageTransactionBody) Id() common.Blake2b256 {
-	if b.hash == nil {
-		tmpHash := common.Blake2b256Hash(b.Cbor())
-		b.hash = &tmpHash
-	}
-	return *b.hash
+	return b.TransactionBodyBase.Id()
 }
 
 func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
@@ -515,17 +520,33 @@ func (b *BabbageTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
 }
 
+// TransactionNetworkId returns the optional transaction network identifier. A non-zero
+// value is necessarily present; zero is present only when the decoder saw
+// transaction-body key 15 (or the caller marked it present explicitly).
+func (b *BabbageTransactionBody) TransactionNetworkId() *uint8 {
+	if b.NetworkIdPresent() || b.NetworkId != 0 {
+		return &b.NetworkId
+	}
+	return nil
+}
+
+func (b *BabbageTransactionBody) SetNetworkIdPresence(present bool) {
+	b.TransactionBodyBase.SetNetworkIdPresence(present)
+}
+
+func (t BabbageTransaction) TransactionNetworkId() *uint8 {
+	return t.Body.TransactionNetworkId()
+}
+
 func (b *BabbageTransactionBody) SetValidityIntervalUpperBound(
 	upperBound uint64,
 ) {
 	b.Ttl = upperBound
-	b.hash = nil
 	b.SetValidityIntervalUpperBoundPresence(true)
 }
 
 func (b *BabbageTransactionBody) ClearValidityIntervalUpperBound() {
 	b.Ttl = 0
-	b.hash = nil
 	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
@@ -820,9 +841,13 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 			data.NewByteString(o.DatumOption.hash.Bytes()),
 		)
 	case o.DatumOption.data != nil:
+		// Normalize: cardano-ledger rebuilds every script-visible value, so a
+		// script always observes the encoding the Plutus encoder writes, never
+		// the definite/indefinite-length choice this transaction was built
+		// with. serialiseData exposes the difference.
 		datumOptionPd = data.NewConstr(
 			2,
-			o.DatumOption.data.Data,
+			data.Normalize(o.DatumOption.data.Data),
 		)
 	}
 	var scriptRefPd data.PlutusData
@@ -1060,7 +1085,6 @@ func (w BabbageTransactionWitnessSet) Redeemers() common.TransactionWitnessRedee
 type BabbageTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	TxIsValid  bool
@@ -1070,7 +1094,6 @@ type BabbageTransaction struct {
 
 func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
-	t.hash = nil
 	t.TxMetadata = nil
 	t.auxData = nil
 
@@ -1164,12 +1187,12 @@ func (t BabbageTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t BabbageTransaction) LeiosHash() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t BabbageTransaction) Inputs() []common.TransactionInput {

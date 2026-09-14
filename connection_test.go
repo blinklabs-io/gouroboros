@@ -17,6 +17,7 @@ package ouroboros_test
 import (
 	"fmt"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -461,10 +462,14 @@ func TestErrorOnUngracefulClose(t *testing.T) {
 	// Use a long-running FindIntersect callback so the protocol stays in a
 	// non-idle (Intersect) state when the connection is closed.
 	callbackDone := make(chan struct{})
-	defer close(callbackDone)
+	callbackEntered := make(chan (<-chan any), 1)
+	var releaseCallback sync.Once
+	release := func() { releaseCallback.Do(func() { close(callbackDone) }) }
+	defer release()
 	chainSyncCfg := chainsync.NewConfig(
 		chainsync.WithFindIntersectFunc(
-			func(_ chainsync.CallbackContext, _ []pcommon.Point) (pcommon.Point, chainsync.Tip, error) {
+			func(ctx chainsync.CallbackContext, _ []pcommon.Point) (pcommon.Point, chainsync.Tip, error) {
+				callbackEntered <- ctx.ConnectionDoneChan
 				// Block until test cleanup – the connection will be closed before this returns
 				<-callbackDone
 				return pcommon.Point{}, chainsync.Tip{}, fmt.Errorf("test done")
@@ -526,6 +531,12 @@ func TestErrorOnUngracefulClose(t *testing.T) {
 	require.NoError(t, err, "unexpected error when creating Connection object")
 
 	// We should receive a connection error since the protocol was in a non-idle state
+	var connectionDone <-chan any
+	select {
+	case connectionDone = <-callbackEntered:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "timed out waiting for FindIntersect callback")
+	}
 	select {
 	case err, ok := <-oConn.ErrorChan():
 		require.True(t, ok, "error channel closed without receiving an error")
@@ -534,6 +545,12 @@ func TestErrorOnUngracefulClose(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		require.Fail(t, "timed out waiting for connection error")
 	}
+	select {
+	case <-connectionDone:
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "connection lifecycle channel did not close")
+	}
 
-	oConn.Close()
+	release()
+	require.NoError(t, oConn.Close())
 }

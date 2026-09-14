@@ -34,10 +34,19 @@ import (
 // This is completely arbitrary, but the line had to be drawn somewhere
 const maxMessagesPerSegment = 20
 
-// maxReadBufferSize is the upper bound on the read buffer in readLoop.
-// This prevents a malicious peer from sending incomplete CBOR indefinitely
-// to cause unbounded memory growth (OOM). 16MB accommodates large legitimate
-// messages such as ledger state query responses.
+// maxReadBufferSize is the default upper bound on the read buffer in
+// readLoop, used whenever a ProtocolConfig doesn't override it via
+// MaxReadBufferSize. This prevents a malicious peer from sending incomplete
+// CBOR indefinitely to cause unbounded memory growth (OOM). 16MB
+// accommodates most legitimate messages, but not every one: a
+// LocalStateQuery reply is bounded only by the size of whatever the query
+// asks for, and a whole-UTxO-set dump against a large enough chain can
+// exceed 16MB by a wide margin (confirmed live against a real ~3.17M-UTxO
+// Preview node, blinklabs-io/dingo#1900's node-parity tool). A caller
+// talking to a peer it trusts with that kind of query (a local socket, or a
+// bridge it controls) should override this via MaxReadBufferSize rather
+// than have a legitimate reply rejected as if it were the DoS this constant
+// guards against.
 const maxReadBufferSize = 16 * 1024 * 1024 // 16MB
 
 // DefaultRecvQueueSize is the default capacity for the recv queue channel
@@ -87,7 +96,27 @@ type ProtocolConfig struct {
 	StateMap            StateMap
 	StateContext        any
 	InitialState        State
+	// InitialStateTimeout enables the initial state's configured timeout.
+	// It is disabled by default because most protocols begin timing out only
+	// after their first state transition.
+	InitialStateTimeout bool
 	RecvQueueSize       int
+	// MaxReadBufferSize overrides maxReadBufferSize's default 16MB cap on
+	// how large an incomplete, still-reassembling multi-segment message may
+	// grow before readLoop gives up and errors out. Zero means "use the
+	// default" -- there is no sensible "unbounded" spelling here (unlike a
+	// timeout, where 0 means "wait forever"), since a literal zero-byte
+	// buffer could never hold even the smallest message.
+	MaxReadBufferSize int
+}
+
+// maxReadBufferSize returns the effective read-buffer cap for this config:
+// its own MaxReadBufferSize when set, otherwise the package default.
+func (c ProtocolConfig) maxReadBufferSize() int {
+	if c.MaxReadBufferSize > 0 {
+		return c.MaxReadBufferSize
+	}
+	return maxReadBufferSize
 }
 
 // ProtocolMode is an enum of the protocol modes
@@ -112,10 +141,13 @@ const (
 // ProtocolOptions provides common arguments for all mini-protocols
 type ProtocolOptions struct {
 	ConnectionId connection.ConnectionId
-	Muxer        *muxer.Muxer
-	Logger       *slog.Logger
-	ErrorChan    chan error
-	Mode         ProtocolMode
+	// ConnectionDoneChan is closed when the owning connection begins
+	// shutdown, before protocol goroutines have necessarily returned.
+	ConnectionDoneChan <-chan any
+	Muxer              *muxer.Muxer
+	Logger             *slog.Logger
+	ErrorChan          chan error
+	Mode               ProtocolMode
 	// TODO(cleanup): Role field may be redundant with Mode - evaluate removal
 	Role    ProtocolRole
 	Version uint16
@@ -128,6 +160,7 @@ type protocolStateTransition struct {
 
 type outboundMessage struct {
 	message      Message
+	data         []byte
 	deliveryChan chan error
 }
 
@@ -287,6 +320,14 @@ func (p *Protocol) IsDone() bool {
 	return false
 }
 
+// IsStopping reports whether shutdown has been requested, even if the
+// protocol's worker goroutines have not finished closing DoneChan yet.
+func (p *Protocol) IsStopping() bool {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	return p.stopped
+}
+
 // IsInTerminalOrIdleState returns true if the protocol is in a state where connection
 // close should not be treated as an error. This includes:
 // - Protocol stop/done channel is closed
@@ -442,7 +483,9 @@ func (p *Protocol) enqueueMessage(
 	default:
 	}
 
-	// Calculate message size and cache encoded data if necessary
+	// Encode once while queueing and keep the bytes in the queue entry. Do not
+	// populate the message's DecodeStoreCbor cache: callers may reuse a message
+	// instance, and that cache belongs to the caller's message lifecycle.
 	var data []byte
 	if msg.Cbor() != nil {
 		data = msg.Cbor()
@@ -452,8 +495,6 @@ func (p *Protocol) enqueueMessage(
 		if err != nil {
 			return err
 		}
-		// Cache the encoded CBOR data to avoid re-encoding in sendLoop
-		msg.SetCbor(data)
 	}
 	msgLen := len(data)
 	// Check pending send bytes limit for current state
@@ -472,6 +513,7 @@ func (p *Protocol) enqueueMessage(
 	p.pendingBytesMu.Unlock()
 	outbound := outboundMessage{
 		message:      msg,
+		data:         data,
 		deliveryChan: deliveryChan,
 	}
 	var enqueueErr error
@@ -642,17 +684,7 @@ waitSendReadyChan:
 			msg := outbound.message
 			msgCount = msgCount + 1
 
-			// Get raw CBOR from message
-			data := msg.Cbor()
-			// If message has no raw CBOR, encode the message
-			if data == nil {
-				var err error
-				data, err = cbor.Encode(msg)
-				if err != nil {
-					p.SendError(err)
-					return
-				}
-			}
+			data := outbound.data
 			payloadBuf.Write(data)
 			// After sending, decrement pendingSendBytes
 			p.pendingBytesMu.Lock()
@@ -775,6 +807,68 @@ func (p *Protocol) readLoop() {
 				// Add segment payload to buffer
 				readBuffer.Write(segment.Payload)
 			}
+			// Opportunistically drain any additional segments the muxer
+			// has already queued for us before spending a decode attempt.
+			// cbor.Decode has no way to resume a prior partial parse -- on
+			// an incomplete buffer it walks from byte 0 through every
+			// already-buffered element before rediscovering
+			// io.ErrUnexpectedEOF, so a message spanning many segments
+			// pays that full-buffer cost again on every single one.
+			// Batching whatever the muxer has already queued into one
+			// attempt reduces how many times that happens for a message
+			// arriving as a fast back-to-back segment burst -- confirmed
+			// live against a real ~3.17M-entry LocalStateQuery
+			// GetUTxOWhole reply, which pegged the receiving process at
+			// 100% CPU for 25+ minutes and never finished
+			// (blinklabs-io/dingo#1900) -- without changing behavior for
+			// the common case (nothing to drain when a message completes
+			// in its first segment or two).
+			//
+			// A further, size-growth-gated skip (only re-attempt once the
+			// buffer has grown substantially since the last attempt) was
+			// tried here and reverted: it broke
+			// TestUnpipelinedIdleLimitRejectsMainnetSizedBlock by skipping
+			// forever once a message's growth stopped satisfying the gate
+			// with no further segments ever arriving to satisfy it (the
+			// message was already fully buffered and complete, but never
+			// got decoded). A correct version of that optimization needs a
+			// bounded fallback -- e.g. a short timeout alongside the drain
+			// select -- rather than an unconditional size gate; left as
+			// future work rather than shipped without full validation.
+			//
+			// This select must watch the same shutdown channels the outer
+			// one above does, and must bound readBuffer's growth itself
+			// (not just rely on the existing post-decode check below): a
+			// peer that keeps the channel non-empty by sending segments as
+			// fast as this loop drains them would otherwise let it spin
+			// unboundedly on both counts -- ignoring shutdown, and growing
+			// readBuffer past p.config.maxReadBufferSize() before ever
+			// returning control to check it (CWE-400, caught in review on
+			// blinklabs-io/gouroboros#2291). Breaking out once the bound is
+			// exceeded (rather than erroring here directly) lets the
+			// existing check just below do the actual rejection, so there
+			// is one place that decides "too big", not two.
+		drainQueued:
+			for {
+				select {
+				case <-p.stopChan:
+					return
+				case <-p.sendDoneChan:
+					return
+				case <-p.muxerDoneChan:
+					return
+				case segment, ok := <-p.muxerRecvChan:
+					if !ok {
+						return
+					}
+					readBuffer.Write(segment.Payload)
+					if readBuffer.Len() > p.config.maxReadBufferSize() {
+						break drainQueued
+					}
+				default:
+					break drainQueued
+				}
+			}
 		}
 		leftoverData = false
 		// Check for zero-byte read before attempting to decode
@@ -802,7 +896,7 @@ func (p *Protocol) readLoop() {
 			if errors.Is(err, io.ErrUnexpectedEOF) && readBuffer.Len() > 0 {
 				// This is probably a multi-part message, so we wait until we get more of the message
 				// before trying to process it
-				if readBuffer.Len() > maxReadBufferSize {
+				if readBuffer.Len() > p.config.maxReadBufferSize() {
 					p.SendError(
 						fmt.Errorf(
 							"%s: read buffer exceeded maximum size (%d bytes)",
@@ -1027,8 +1121,9 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			}
 		}
 
-		// Don't activate timeouts on initial protocol state
-		if !initialStateSet {
+		// Don't activate timeouts on initial protocol state unless explicitly
+		// enabled by the protocol owner.
+		if !initialStateSet && !p.config.InitialStateTimeout {
 			return
 		}
 

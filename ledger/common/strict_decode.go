@@ -25,14 +25,12 @@ import (
 // rewardAccountCBOR isolates reward addresses from the Blake2b224 decoder.
 // The ledger wire value is a one-byte address header followed by a 28-byte
 // credential, while the exported certificate field retains only the
-// credential. Accept the repository's legacy 28-byte encoding as well so
-// existing constructed values round-trip.
+// credential. Keep the credential kind as well as its hash so decoding does
+// not erase the distinction between key and script reward accounts.
 type rewardAccountCBOR struct {
-	credential AddrKeyHash
+	credential Credential
 	// networkId holds the low nibble of the address header byte, and
 	// networkIdKnown records whether a header byte was present at all. The
-	// legacy 28-byte encoding carries no header, so no network id can be
-	// recovered from it.
 	networkId      uint
 	networkIdKnown bool
 }
@@ -214,15 +212,13 @@ func (r *rewardAccountCBOR) UnmarshalCBOR(cborData []byte) error {
 	if err != nil {
 		return fmt.Errorf("decode reward account: %w", err)
 	}
-	if decodedLength != Blake2b224Size && decodedLength != Blake2b224Size+1 {
+	if decodedLength != Blake2b224Size+1 {
 		return fmt.Errorf(
-			"invalid reward account length: expected 28 or 29 bytes, got %d",
+			"invalid reward account length: expected 29 bytes, got %d",
 			decodedLength,
 		)
 	}
-	credentialOffset := 0
-	if decodedLength == Blake2b224Size+1 {
-		credentialOffset = 1
+	{
 		// headerIsAccountAddress in Cardano.Ledger.Address:
 		// header .&. 0b11101110 == 0b11100000. Bits 7-5 are the account
 		// address prefix, bit 4 is the script flag and is free, bits 3-1
@@ -235,11 +231,12 @@ func (r *rewardAccountCBOR) UnmarshalCBOR(cborData []byte) error {
 			)
 		}
 	}
-	copy(
-		r.credential[:],
-		decoded[credentialOffset:credentialOffset+Blake2b224Size],
-	)
-	if credentialOffset == 1 {
+	r.credential.CredType = CredentialTypeAddrKeyHash
+	if decoded[0]&0x10 != 0 {
+		r.credential.CredType = CredentialTypeScriptHash
+	}
+	copy(r.credential.Credential[:], decoded[1:])
+	{
 		// Bit 0 of a reward address header byte is the network id,
 		// which the header check above has already constrained to 0 or
 		// 1. See Cardano.Ledger.Address (aaNetworkId), read by

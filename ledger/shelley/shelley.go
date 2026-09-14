@@ -210,10 +210,23 @@ func (b *ShelleyBlock) BlockBodyHash() common.Blake2b256 {
 type ShelleyBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash      *common.Blake2b256
+	hash      common.Blake2b256Cache
 	Body      ShelleyBlockHeaderBody
 	Signature []byte
 }
+
+func (h *ShelleyBlockHeader) SetCbor(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCbor(cborData)
+	h.hash.Reset()
+}
+
+func (h *ShelleyBlockHeader) SetCborReference(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCborReference(cborData)
+	h.hash.Reset()
+}
+
 type ShelleyBlockHeaderBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -227,8 +240,8 @@ type ShelleyBlockHeaderBody struct {
 	BlockBodySize        uint64
 	BlockBodyHash        common.Blake2b256
 	OpCertHotVkey        []byte
-	OpCertSequenceNumber uint32
-	OpCertKesPeriod      uint32
+	OpCertSequenceNumber uint64
+	OpCertKesPeriod      uint64
 	OpCertSignature      []byte
 	ProtoMajorVersion    uint64
 	ProtoMinorVersion    uint64
@@ -246,8 +259,8 @@ type shelleyBlockHeaderBodyWire struct {
 	BlockBodySize        uint64
 	BlockBodyHash        common.Blake2b256
 	OpCertHotVkey        []byte
-	OpCertSequenceNumber uint32
-	OpCertKesPeriod      uint32
+	OpCertSequenceNumber uint64
+	OpCertKesPeriod      uint64
 	OpCertSignature      []byte
 	ProtoMajorVersion    uint64
 	ProtoMinorVersion    uint64
@@ -300,11 +313,9 @@ func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (h *ShelleyBlockHeader) Hash() common.Blake2b256 {
-	if h.hash == nil {
-		tmpHash := common.Blake2b256Hash(h.Cbor())
-		h.hash = &tmpHash
-	}
-	return *h.hash
+	return h.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(h.Cbor())
+	})
 }
 
 func (h *ShelleyBlockHeader) PrevHash() common.Blake2b256 {
@@ -715,7 +726,6 @@ func (w ShelleyTransactionWitnessSet) Redeemers() common.TransactionWitnessRedee
 type ShelleyTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
@@ -724,7 +734,6 @@ type ShelleyTransaction struct {
 
 func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Reset cached/derived fields to avoid stale state on receiver reuse
-	t.hash = nil
 	t.TxMetadata = nil
 	t.auxData = nil
 
@@ -814,12 +823,12 @@ func (t ShelleyTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t ShelleyTransaction) LeiosHash() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t ShelleyTransaction) Inputs() []common.TransactionInput {

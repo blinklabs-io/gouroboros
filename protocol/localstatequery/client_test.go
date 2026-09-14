@@ -15,6 +15,7 @@
 package localstatequery_test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -75,7 +76,7 @@ func runTest(
 	conversation []ouroboros_mock.ConversationEntry,
 	innerFunc testInnerFunc,
 ) {
-	defer goleak.VerifyNone(t)
+	t.Cleanup(func() { goleak.VerifyNone(t) })
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		conversation,
@@ -96,15 +97,36 @@ func runTest(
 	if err != nil {
 		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
 	}
-	// Async error handler
+	ouroborosErrChan := make(chan error, 1)
 	go func() {
 		err, ok := <-oConn.ErrorChan()
-		if !ok {
-			return
+		if ok && err != nil {
+			ouroborosErrChan <- err
 		}
-		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
-		panic(fmt.Sprintf("unexpected Ouroboros error: %s", err))
+		close(ouroborosErrChan)
 	}()
+	t.Cleanup(func() {
+		if err := oConn.Close(); err != nil {
+			t.Errorf("unexpected error when closing Ouroboros object: %s", err)
+		}
+		select {
+		case err, ok := <-ouroborosErrChan:
+			if ok && err != nil &&
+				!strings.Contains(err.Error(), "peer closed the connection while reading header: EOF") {
+				t.Errorf("received unexpected Ouroboros error: %s", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Errorf("did not shutdown within timeout")
+		}
+		select {
+		case err, ok := <-asyncErrChan:
+			if ok {
+				t.Errorf("received unexpected error: %s", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Errorf("did not shutdown mock connection within timeout")
+		}
+	})
 	// Run test inner function
 	innerFunc(t, oConn)
 	// Wait for mock connection shutdown
@@ -115,16 +137,6 @@ func runTest(
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("did not complete within timeout")
-	}
-	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
-		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
-	}
-	// Wait for connection shutdown
-	select {
-	case <-oConn.ErrorChan():
-	case <-time.After(10 * time.Second):
-		t.Errorf("did not shutdown within timeout")
 	}
 }
 
@@ -150,7 +162,7 @@ func TestGetCurrentEra(t *testing.T) {
 }
 
 func TestGetChainPoint(t *testing.T) {
-	expectedPoint := pcommon.NewPoint(123, []byte{0xa, 0xb, 0xc})
+	expectedPoint := pcommon.NewPoint(123, testPointHash(0x0a))
 	cborData, err := cbor.Encode(expectedPoint)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
@@ -186,6 +198,54 @@ func TestGetChainPoint(t *testing.T) {
 			}
 		},
 	)
+}
+
+func TestGetChainBlockNo(t *testing.T) {
+	tests := []struct {
+		name    string
+		wire    []byte
+		want    int64
+		wantErr bool
+	}{
+		{name: "origin", wire: test.DecodeHexString("8100")},
+		{name: "first block", wire: test.DecodeHexString("820100")},
+		{name: "ordinary block", wire: test.DecodeHexString("8201182a"), want: 42},
+		{name: "maximum int64 block", wire: test.DecodeHexString("82011b7fffffffffffffff"), want: 1<<63 - 1},
+		{name: "empty result", wire: test.DecodeHexString("80"), wantErr: true},
+		{name: "origin with extra value", wire: test.DecodeHexString("820000"), wantErr: true},
+		{name: "at with missing block number", wire: test.DecodeHexString("8101"), wantErr: true},
+		{name: "unknown variant", wire: test.DecodeHexString("820200"), wantErr: true},
+		{name: "negative block number", wire: test.DecodeHexString("820120"), wantErr: true},
+		{name: "outside int64 API range", wire: test.DecodeHexString("82011b8000000000000000"), wantErr: true},
+		{name: "null origin", wire: test.DecodeHexString("81f6"), wantErr: true},
+		{name: "null block number", wire: test.DecodeHexString("8201f6"), wantErr: true},
+		{name: "null discriminator", wire: test.DecodeHexString("82f600"), wantErr: true},
+		{name: "noninteger value", wire: test.DecodeHexString("8201f93c00"), wantErr: true},
+		{name: "noninteger discriminator", wire: test.DecodeHexString("82f93c0000"), wantErr: true},
+		{name: "array discriminator", wire: test.DecodeHexString("828000"), wantErr: true},
+		{name: "map discriminator", wire: test.DecodeHexString("82a000"), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conversation := append(
+				append([]ouroboros_mock.ConversationEntry{}, conversationHandshakeAcquire...),
+				ouroboros_mock.ConversationEntryInput{ProtocolId: localstatequery.ProtocolId, MessageType: localstatequery.MessageTypeQuery},
+				ouroboros_mock.ConversationEntryOutput{
+					ProtocolId: localstatequery.ProtocolId, IsResponse: true,
+					Messages: []protocol.Message{localstatequery.NewMsgResult(tt.wire)},
+				},
+			)
+			runTest(t, conversation, func(t *testing.T, oConn *ouroboros.Connection) {
+				got, err := oConn.LocalStateQuery().Client.GetChainBlockNo()
+				if tt.wantErr {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
+			})
+		})
+	}
 }
 
 func TestGetEpochNo(t *testing.T) {
@@ -1472,6 +1532,61 @@ func TestDebugChainDepState(t *testing.T) {
 				"pool must survive the unwrap into the counter map",
 			)
 			require.Equal(t, uint64(3), counters[expectedPool])
+		},
+	)
+}
+
+// TestGetDRepStakeDistr drives the client against the reply bytes a node
+// sends for query 26: the DRep-to-lovelace map inside the era codec's
+// single-element result array.
+func TestGetDRepStakeDistr(t *testing.T) {
+	const replyHex = "81a2" +
+		"8200581c" +
+		"e0a714319812c3f773ba04ec5d6b3ffcd5aad85006805b047b082541" +
+		"1a3b9aca00" +
+		"8102" + "1832"
+	cborData, err := hex.DecodeString(replyHex)
+	require.NoError(t, err)
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			distr, err := oConn.LocalStateQuery().
+				Client.GetDRepStakeDistr(nil)
+			require.NoError(t, err, "GetDRepStakeDistr against a mocked node")
+			require.NotNil(t, distr)
+			require.Len(t, *distr, 2)
+			assert.Equal(
+				t,
+				lcommon.DrepTypeAddrKeyHash,
+				(*distr)[0].Drep.Type,
+			)
+			assert.Equal(
+				t,
+				"e0a714319812c3f773ba04ec5d6b3ffcd5aad85006805b047b082541",
+				hex.EncodeToString((*distr)[0].Drep.Credential),
+			)
+			assert.Equal(t, uint64(1000000000), (*distr)[0].Stake)
+			assert.Equal(
+				t,
+				lcommon.DrepTypeAbstain,
+				(*distr)[1].Drep.Type,
+			)
+			assert.Equal(t, uint64(50), (*distr)[1].Stake)
 		},
 	)
 }

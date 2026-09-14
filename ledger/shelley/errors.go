@@ -226,6 +226,29 @@ func (e DelegateUnregisteredStakeCredentialError) Error() string {
 	)
 }
 
+// MIRNegativesNotCurrentlyAllowedError indicates a move instantaneous rewards
+// certificate carrying a negative reward delta at a protocol version before
+// the Alonzo hard fork, which is the first version that permits one.
+//
+// Reference: MIRNegativesNotCurrentlyAllowed in delegTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type MIRNegativesNotCurrentlyAllowedError struct {
+	Credential common.Credential
+	Delta      *big.Int
+}
+
+func (e MIRNegativesNotCurrentlyAllowedError) Error() string {
+	delta := "nil"
+	if e.Delta != nil {
+		delta = e.Delta.String()
+	}
+	return fmt.Sprintf(
+		"negative instantaneous rewards delta not allowed at this protocol version: credential %x delta %s",
+		e.Credential.Credential[:],
+		delta,
+	)
+}
+
 // WithdrawalFromUnregisteredRewardAccountError indicates withdrawal from an unregistered reward account
 type WithdrawalFromUnregisteredRewardAccountError struct {
 	RewardAddress common.Address
@@ -309,6 +332,26 @@ func (e StakePoolCostTooLowError) Error() string {
 		e.PoolKeyHash.String(),
 		e.Supplied,
 		e.Min,
+	)
+}
+
+// PoolMetadataHashTooBigError indicates a pool registration certificate whose
+// metadata hash is longer than a 32-byte hash.
+//
+// Reference: PoolMedataHashTooBig in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs
+type PoolMetadataHashTooBigError struct {
+	PoolKeyHash common.PoolKeyHash
+	Supplied    int
+	Max         int
+}
+
+func (e PoolMetadataHashTooBigError) Error() string {
+	return fmt.Sprintf(
+		"stake pool %s metadata hash is %d bytes, maximum %d",
+		e.PoolKeyHash.String(),
+		e.Supplied,
+		e.Max,
 	)
 }
 

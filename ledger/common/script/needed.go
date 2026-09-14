@@ -16,6 +16,7 @@ package script
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"reflect"
 	"slices"
@@ -393,16 +394,245 @@ type transactionWithGuardingCredentials interface {
 	GuardingCredentials() []lcommon.Credential
 }
 
-// neededScripts walks every script purpose the transaction requires and keeps
-// the available script each one resolves to.
+// NeededScriptPurpose pairs a script purpose the transaction defines with the
+// redeemer pointer cardano-ledger's rdptr derives for it.
+type NeededScriptPurpose struct {
+	Key     lcommon.RedeemerKey
+	Purpose ScriptPurpose
+}
+
+// ScriptPurposes walks every script purpose a transaction level defines, in
+// the order and at the redeemer indices cardano-ledger's scriptsNeeded
+// assigns, and returns those that resolve to a script credential.
 //
-// The result is a map, so the walk order is not observable and no order is
-// promised. Concretely: spending inputs and minting policies are walked in
-// canonical order, but withdrawals and voting procedures come from Go maps and
-// so are walked in randomized order. A future caller that wants redeemer
-// indices must impose an order on those two itself; Transaction.Withdrawals and
-// Transaction.VotingProcedures are both keyed by pointer, so that means
-// deriving a canonical key rather than sorting the keys in place.
+// This is the single enumeration of "which script purposes does this
+// transaction have". neededScripts, ValidateRequiredRedeemers and Dijkstra's
+// per-level witness rules all derive from it, so none of them can grow a
+// purpose the others do not know about. Availability and Plutus-versus-native
+// filtering are deliberately left to the caller: the needed-script set and the
+// required-redeemer set keep different subsets of the same walk, and Dijkstra's
+// missing-script-witness check needs the unfiltered list.
+//
+// Indices are positions in the full collection, not in the filtered result,
+// matching zipAsIxItem in cardano-ledger
+// (eras/alonzo/impl/src/Cardano/Ledger/Alonzo/UTxO.hs): a purpose that carries
+// no script credential still consumes its index. The collections are walked in
+// the canonical order the reference's Set and Map key ordering implies --
+// sorted inputs, sorted mint policies, reward accounts by
+// SortWithdrawalAddresses and voters by SortVoters -- because the index is what
+// the redeemer pointer names.
+//
+// The purpose list is a transaction-body property. Taking a body rather than a
+// Transaction lets a Dijkstra sub-transaction, which is a body plus its own
+// witness set and never a standalone Transaction, be walked by this same
+// function instead of a parallel copy.
+func ScriptPurposes(
+	body lcommon.TransactionBody,
+	resolvedInputs []lcommon.Utxo,
+) []NeededScriptPurpose {
+	if body == nil {
+		return nil
+	}
+	ret := make([]NeededScriptPurpose, 0)
+	add := func(tag lcommon.RedeemerTag, index uint32, purpose ScriptPurpose) {
+		if purpose == nil || purpose.ScriptHash() == (lcommon.ScriptHash{}) {
+			return
+		}
+		ret = append(ret, NeededScriptPurpose{
+			Key:     lcommon.RedeemerKey{Tag: tag, Index: index},
+			Purpose: purpose,
+		})
+	}
+	byId := make(map[string]lcommon.Utxo, len(resolvedInputs))
+	for _, utxo := range resolvedInputs {
+		if utxo.Id != nil {
+			byId[utxo.Id.String()] = utxo
+		}
+	}
+	for idx, input := range SortInputs(body.Inputs()) {
+		utxo, ok := byId[input.String()]
+		if !ok || utxo.Output == nil {
+			continue
+		}
+		addr := utxo.Output.Address()
+		if addr.Type()&lcommon.AddressTypeScriptBit == 0 {
+			continue
+		}
+		add(
+			lcommon.RedeemerTagSpend,
+			uint32(idx), // #nosec G115 -- input count is bounded
+			ScriptPurposeSpending{Input: utxo},
+		)
+	}
+	if mint := body.AssetMint(); mint != nil {
+		policies := mint.Policies()
+		slices.SortFunc(policies, func(a, b lcommon.Blake2b224) int {
+			return bytes.Compare(a.Bytes(), b.Bytes())
+		})
+		for idx, policy := range policies {
+			add(
+				lcommon.RedeemerTagMint,
+				uint32(idx), // #nosec G115 -- policy count is bounded
+				ScriptPurposeMinting{PolicyId: policy},
+			)
+		}
+	}
+	for _, purpose := range certifyingPurposes(body.Certificates()) {
+		add(lcommon.RedeemerTagCert, purpose.Index, purpose)
+	}
+	for idx, addr := range SortWithdrawalAddresses(body.Withdrawals()) {
+		if addr == nil || addr.Type()&lcommon.AddressTypeScriptBit == 0 {
+			continue
+		}
+		add(
+			lcommon.RedeemerTagReward,
+			uint32(idx), // #nosec G115 -- withdrawal count is bounded
+			ScriptPurposeRewarding{
+				StakeCredential: lcommon.Credential{
+					CredType:   lcommon.CredentialTypeScriptHash,
+					Credential: addr.StakeKeyHash(),
+				},
+			},
+		)
+	}
+	for idx, voter := range SortVoters(body.VotingProcedures()) {
+		if voter == nil || !voterUsesScriptCredential(*voter) {
+			continue
+		}
+		add(
+			lcommon.RedeemerTagVoting,
+			uint32(idx), // #nosec G115 -- voter count is bounded
+			ScriptPurposeVoting{Voter: *voter},
+		)
+	}
+	for idx, proposal := range body.ProposalProcedures() {
+		index := uint32(idx) // #nosec G115 -- proposal count is bounded
+		add(
+			lcommon.RedeemerTagProposing,
+			index,
+			ScriptPurposeProposing{
+				Index:             index,
+				ProposalProcedure: proposal,
+			},
+		)
+	}
+	if guardingTx, ok := body.(transactionWithGuardingCredentials); ok {
+		for idx, guard := range guardingTx.GuardingCredentials() {
+			add(
+				lcommon.RedeemerTagGuarding,
+				uint32(idx), // #nosec G115 -- guard count is bounded
+				ScriptPurposeGuarding{Guard: guard},
+			)
+		}
+	}
+	return ret
+}
+
+// certifyingPurposes assigns each certificate the redeemer index
+// cardano-ledger's getAlonzoScriptsNeeded assigns it
+// (eras/alonzo/impl/src/Cardano/Ledger/Alonzo/UTxO.hs, addUniqueTxCertPurpose).
+//
+// The subtlety is duplicate certificates. Alonzo and Babbage encode
+// certificates as a list and so admit two logically identical entries; the
+// second one reuses the first's index rather than taking its own, which means
+// one redeemer covers both. Conway onward encodes them as a set --
+// common.ValidateCertificateSet rejects a duplicate at decode time -- so the
+// rule degenerates to plain positional indexing there and this stays a single
+// implementation for every era.
+//
+// Getting this wrong is not symmetric. Assigning the second duplicate its own
+// positional index would demand a redeemer cardano-ledger never asks for, and
+// a Babbage block carrying duplicate script-witnessed certificates would be
+// rejected during sync.
+func certifyingPurposes(
+	certificates []lcommon.Certificate,
+) []ScriptPurposeCertifying {
+	ret := make([]ScriptPurposeCertifying, 0, len(certificates))
+	seen := make(map[string]uint32, len(certificates))
+	for idx, certificate := range certificates {
+		if certificate == nil {
+			continue
+		}
+		index := uint32(idx) // #nosec G115 -- certificate count is bounded
+		purpose := ScriptPurposeCertifying{
+			Index:       index,
+			Certificate: certificate,
+		}
+		if purpose.ScriptHash() == (lcommon.ScriptHash{}) {
+			// A certificate with no script credential defines no purpose. It
+			// still consumes its index, and cardano-ledger does not record it
+			// as "seen", so it cannot lend its index to a later duplicate.
+			continue
+		}
+		key, err := lcommon.CertificateLogicalKey(certificate)
+		if err != nil {
+			// No identity means no duplicate can be proven. Keeping the
+			// positional index is the reference's behavior for a
+			// non-duplicate, which is what an unidentifiable certificate is
+			// as far as this walk can tell.
+			ret = append(ret, purpose)
+			continue
+		}
+		if first, ok := seen[key]; ok {
+			purpose.Index = first
+		} else {
+			seen[key] = index
+		}
+		ret = append(ret, purpose)
+	}
+	return ret
+}
+
+// SortVoters orders a transaction's voters the way cardano-ledger's Map of
+// voting procedures is keyed, so that a voting redeemer index names the same
+// voter on both sides.
+//
+// getConwayScriptsNeeded indexes voters by Map.keys
+// (eras/conway/impl/src/Cardano/Ledger/Conway/UTxO.hs), which is the Voter Ord
+// instance: constructor order first, then the credential hash.
+func SortVoters(votes lcommon.VotingProcedures) []*lcommon.Voter {
+	sorted := make([]*lcommon.Voter, 0, len(votes))
+	for voter := range votes {
+		sorted = append(sorted, voter)
+	}
+	slices.SortFunc(sorted, func(a, b *lcommon.Voter) int {
+		if a == nil {
+			return -1
+		}
+		if b == nil {
+			return 1
+		}
+		if c := cmp.Compare(voterOrder(a), voterOrder(b)); c != 0 {
+			return c
+		}
+		return bytes.Compare(a.Hash[:], b.Hash[:])
+	})
+	return sorted
+}
+
+func voterOrder(voter *lcommon.Voter) int {
+	switch voter.Type {
+	case lcommon.VoterTypeConstitutionalCommitteeHotScriptHash:
+		return 0
+	case lcommon.VoterTypeConstitutionalCommitteeHotKeyHash:
+		return 1
+	case lcommon.VoterTypeDRepScriptHash:
+		return 2
+	case lcommon.VoterTypeDRepKeyHash:
+		return 3
+	case lcommon.VoterTypeStakingPoolKeyHash:
+		return 4
+	default:
+		return -1
+	}
+}
+
+// neededScripts keeps the available script each of the transaction's script
+// purposes resolves to.
+//
+// The walk itself is ScriptPurposes; this only filters it by availability. The
+// result is a map, so neither the walk order nor the redeemer indices are
+// observable here.
 func neededScripts(
 	tx lcommon.Transaction,
 	view TxScriptView,
@@ -416,80 +646,10 @@ func neededScripts(
 		// computation per purpose.
 		return out
 	}
-	byId := make(map[string]lcommon.Utxo, len(view.ResolvedInputs))
-	for _, utxo := range view.ResolvedInputs {
-		if utxo.Id != nil {
-			byId[utxo.Id.String()] = utxo
-		}
-	}
-	keep := func(purpose ScriptPurpose) {
-		if purpose == nil {
-			return
-		}
-		hash := purpose.ScriptHash()
-		if hash == (lcommon.ScriptHash{}) {
-			return
-		}
+	for _, needed := range ScriptPurposes(tx, view.ResolvedInputs) {
+		hash := needed.Purpose.ScriptHash()
 		if s, ok := view.Available[hash]; ok {
 			out[hash] = s
-		}
-	}
-	for _, input := range SortInputs(tx.Inputs()) {
-		utxo, ok := byId[input.String()]
-		if !ok || utxo.Output == nil {
-			continue
-		}
-		addr := utxo.Output.Address()
-		if addr.Type()&lcommon.AddressTypeScriptBit == 0 {
-			continue
-		}
-		keep(ScriptPurposeSpending{Input: utxo})
-	}
-	if mint := tx.AssetMint(); mint != nil {
-		policies := mint.Policies()
-		slices.SortFunc(policies, func(a, b lcommon.Blake2b224) int {
-			return bytes.Compare(a.Bytes(), b.Bytes())
-		})
-		for _, policy := range policies {
-			keep(ScriptPurposeMinting{PolicyId: policy})
-		}
-	}
-	for idx, cert := range tx.Certificates() {
-		keep(ScriptPurposeCertifying{
-			Index: uint32(
-				idx,
-			), // #nosec G115 -- certificate count is bounded
-			Certificate: cert,
-		})
-	}
-	for addr := range tx.Withdrawals() {
-		if addr == nil || addr.Type()&lcommon.AddressTypeScriptBit == 0 {
-			continue
-		}
-		keep(ScriptPurposeRewarding{
-			StakeCredential: lcommon.Credential{
-				CredType:   lcommon.CredentialTypeScriptHash,
-				Credential: addr.StakeKeyHash(),
-			},
-		})
-	}
-	for voter := range tx.VotingProcedures() {
-		if voter == nil || !voterUsesScriptCredential(*voter) {
-			continue
-		}
-		keep(ScriptPurposeVoting{Voter: *voter})
-	}
-	for idx, proposal := range tx.ProposalProcedures() {
-		keep(ScriptPurposeProposing{
-			Index: uint32(
-				idx,
-			), // #nosec G115 -- proposal count is bounded
-			ProposalProcedure: proposal,
-		})
-	}
-	if guardingTx, ok := tx.(transactionWithGuardingCredentials); ok {
-		for _, guard := range guardingTx.GuardingCredentials() {
-			keep(ScriptPurposeGuarding{Guard: guard})
 		}
 	}
 	return out

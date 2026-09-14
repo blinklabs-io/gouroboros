@@ -57,7 +57,7 @@ func init() {
 type ByronMainBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash          *common.Blake2b256
+	hash          common.Blake2b256Cache
 	ProtocolMagic uint32
 	PrevBlock     common.Blake2b256
 	BodyProof     any
@@ -85,6 +85,18 @@ type ByronMainBlockHeader struct {
 	}
 }
 
+func (h *ByronMainBlockHeader) SetCbor(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCbor(cborData)
+	h.hash.Reset()
+}
+
+func (h *ByronMainBlockHeader) SetCborReference(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCborReference(cborData)
+	h.hash.Reset()
+}
+
 func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	type tByronMainBlockHeader ByronMainBlockHeader
 	var tmp tByronMainBlockHeader
@@ -97,19 +109,14 @@ func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (h *ByronMainBlockHeader) Hash() common.Blake2b256 {
-	if h.hash == nil {
-		// Prepend bytes for CBOR list wrapper
-		// The block hash is calculated with these extra bytes, so we have to add them to
-		// get the correct value
-		tmpHash := common.Blake2b256Hash(
+	return h.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(
 			append(
 				[]byte{0x82, BlockTypeByronMain},
 				h.Cbor()...,
 			),
 		)
-		h.hash = &tmpHash
-	}
-	return *h.hash
+	})
 }
 
 func (h *ByronMainBlockHeader) PrevHash() common.Blake2b256 {
@@ -210,10 +217,24 @@ func (h *ByronMainBlockHeader) BlockBodyHash() common.Blake2b256 {
 type ByronTransactionBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
+	hash       common.Blake2b256Cache
 	TxInputs   []ByronTransactionInput
 	TxOutputs  []ByronTransactionOutput
 	Attributes cbor.RawMessage
+}
+
+func (t *ByronTransactionBody) SetCbor(cborData []byte) {
+	// Replacing CBOR invalidates the hash memo; callers must not mutate the
+	// body concurrently with Id or this setter.
+	t.DecodeStoreCbor.SetCbor(cborData)
+	t.hash.Reset()
+}
+
+func (t *ByronTransactionBody) SetCborReference(cborData []byte) {
+	// Replacing CBOR invalidates the hash memo; callers must not mutate the
+	// body concurrently with Id or this setter.
+	t.DecodeStoreCbor.SetCborReference(cborData)
+	t.hash.Reset()
 }
 
 func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -228,11 +249,9 @@ func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (t *ByronTransactionBody) Id() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return t.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(t.Cbor())
+	})
 }
 
 func (t *ByronTransactionBody) Inputs() []common.TransactionInput {
@@ -350,7 +369,6 @@ func (t *ByronTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Bl
 type ByronTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       *common.Blake2b256
 	Body       ByronTransactionBody
 	Twit       []cbor.Value
 	twitCbor   []byte // Original CBOR of witnesses for merkle tree computation
@@ -520,12 +538,12 @@ func (t *ByronTransaction) AuxiliaryData() common.AuxiliaryData {
 	return nil
 }
 
+// LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
+// is recomputed on every call: it is not memoized on the transaction, because
+// era transaction types are copied by value and an in-struct cache cannot be
+// populated safely from a shared receiver.
 func (t *ByronTransaction) LeiosHash() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t *ByronTransaction) IsValid() bool {
@@ -1077,7 +1095,7 @@ func (b *ByronMainBlockBody) MarshalCBOR() ([]byte, error) {
 type ByronEpochBoundaryBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash          *common.Blake2b256
+	hash          common.Blake2b256Cache
 	ProtocolMagic uint32
 	PrevBlock     common.Blake2b256
 	BodyProof     any
@@ -1092,6 +1110,18 @@ type ByronEpochBoundaryBlockHeader struct {
 	ExtraData any
 }
 
+func (h *ByronEpochBoundaryBlockHeader) SetCbor(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCbor(cborData)
+	h.hash.Reset()
+}
+
+func (h *ByronEpochBoundaryBlockHeader) SetCborReference(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCborReference(cborData)
+	h.hash.Reset()
+}
+
 func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	type tByronEpochBoundaryBlockHeader ByronEpochBoundaryBlockHeader
 	var tmp tByronEpochBoundaryBlockHeader
@@ -1104,19 +1134,14 @@ func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) Hash() common.Blake2b256 {
-	if h.hash == nil {
-		// Prepend bytes for CBOR list wrapper
-		// The block hash is calculated with these extra bytes, so we have to add them to
-		// get the correct value
-		tmpHash := common.Blake2b256Hash(
+	return h.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(
 			append(
 				[]byte{0x82, BlockTypeByronEbb},
 				h.Cbor()...,
 			),
 		)
-		h.hash = &tmpHash
-	}
-	return *h.hash
+	})
 }
 
 func (h *ByronEpochBoundaryBlockHeader) PrevHash() common.Blake2b256 {

@@ -495,8 +495,8 @@ func TestValidateHeaderFull(t *testing.T) {
 
 	// Create OpCert signature: cold key signs the raw OCertSignable
 	// representation (hot_vkey || sequence_number || kes_period).
-	opCertSeqNum := uint32(0)
-	opCertKesPeriod := uint32(0)
+	opCertSeqNum := uint64(0)
+	opCertKesPeriod := uint64(0)
 	opCertBody := common.OpCertSignableBytes(
 		kesPk,
 		uint64(opCertSeqNum),
@@ -607,8 +607,8 @@ func TestValidateOpCertSignature(t *testing.T) {
 
 	// Create valid OpCert signature over the raw OCertSignable representation
 	// (hot_vkey || sequence_number || kes_period).
-	opCertSeqNum := uint32(5)
-	opCertKesPeriod := uint32(10)
+	opCertSeqNum := uint64(5)
+	opCertKesPeriod := uint64(10)
 	opCertBody := common.OpCertSignableBytes(
 		kesPk,
 		uint64(opCertSeqNum),
@@ -981,8 +981,8 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 	kesSig, err := kes.Sign(kesSk, 0, message)
 	require.NoError(t, err)
 
-	opCertSeqNum := uint32(0)
-	opCertKesPeriod := uint32(0)
+	opCertSeqNum := uint64(0)
+	opCertKesPeriod := uint64(0)
 	opCertBody := common.OpCertSignableBytes(
 		kesPk,
 		uint64(opCertSeqNum),

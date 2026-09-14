@@ -90,15 +90,17 @@ func conwayPparams(
 	return &pparams
 }
 
-// poolRegCertWire builds a pool registration certificate by encoding the wire
-// form and decoding it, so that the reward account keeps its address header
-// byte. rewardAccountNetworkId is the low nibble of that header.
-func poolRegCertWire(
+// decodePoolRegCertWire builds a pool registration certificate by encoding the
+// wire form and decoding it, so that the reward account keeps its address
+// header byte. rewardAccountNetworkId is the low nibble of that header, and
+// metadata is the pool_metadata entry or nil.
+func decodePoolRegCertWire(
 	t *testing.T,
 	operator common.PoolKeyHash,
 	vrf common.VrfKeyHash,
 	cost uint64,
 	rewardAccountNetworkId byte,
+	metadata any,
 ) *common.PoolRegistrationCertificate {
 	t.Helper()
 	rewardAccount := make([]byte, common.Blake2b224Size+1)
@@ -117,7 +119,7 @@ func poolRegCertWire(
 		rewardAccount,
 		[]common.AddrKeyHash{poolKeyHash(0x09)},
 		[]common.PoolRelay{},
-		nil,
+		metadata,
 	})
 	require.NoError(t, err)
 	cert := &common.PoolRegistrationCertificate{}
@@ -128,6 +130,26 @@ func poolRegCertWire(
 	require.True(t, known)
 	require.Equal(t, uint(rewardAccountNetworkId&0x0F), netId)
 	return cert
+}
+
+// poolRegCertWire builds a pool registration certificate with no
+// pool_metadata entry.
+func poolRegCertWire(
+	t *testing.T,
+	operator common.PoolKeyHash,
+	vrf common.VrfKeyHash,
+	cost uint64,
+	rewardAccountNetworkId byte,
+) *common.PoolRegistrationCertificate {
+	t.Helper()
+	return decodePoolRegCertWire(
+		t,
+		operator,
+		vrf,
+		cost,
+		rewardAccountNetworkId,
+		nil,
+	)
 }
 
 func poolRetirementCert(
@@ -1092,6 +1114,98 @@ func TestPoolRulePparamsWiring(t *testing.T) {
 				test.wantMaxEpoch,
 				poolPparams.PoolRetirementMaxEpoch(),
 			)
+		})
+	}
+}
+
+// poolRegCertWireWithMetadata builds a pool registration certificate carrying a
+// pool_metadata entry whose hash is hashLen bytes long.
+func poolRegCertWireWithMetadata(
+	t *testing.T,
+	operator common.PoolKeyHash,
+	vrf common.VrfKeyHash,
+	hashLen int,
+) *common.PoolRegistrationCertificate {
+	t.Helper()
+	cert := decodePoolRegCertWire(
+		t,
+		operator,
+		vrf,
+		340_000_000,
+		common.AddressNetworkMainnet,
+		[]any{
+			"https://example.com/pool.json",
+			bytes.Repeat([]byte{0x05}, hashLen),
+		},
+	)
+	require.NotNil(t, cert.PoolMetadata)
+	require.Len(t, cert.PoolMetadata.Hash, hashLen)
+	return cert
+}
+
+// TestUtxoValidatePoolCertificatesMetadataHashTooBig covers
+// PoolMedataHashTooBig.
+// The hash is an unbounded byte string on the wire, so the bound is a rule
+// predicate: it applies from major protocol version 5 and rejects only hashes
+// longer than 32 bytes.
+func TestUtxoValidatePoolCertificatesMetadataHashTooBig(t *testing.T) {
+	ls := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
+
+	t.Run("oversized hash is rejected from major version 5", func(t *testing.T) {
+		cert := poolRegCertWireWithMetadata(
+			t,
+			poolKeyHash(0x01),
+			vrfKeyHash(0x02),
+			common.Blake2b256Size+1,
+		)
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(cert),
+			0,
+			ls,
+			alonzoPparams(340_000_000),
+		)
+		var target shelley.PoolMetadataHashTooBigError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, poolKeyHash(0x01), target.PoolKeyHash)
+		assert.Equal(t, common.Blake2b256Size+1, target.Supplied)
+		assert.Equal(t, common.Blake2b256Size, target.Max)
+	})
+
+	t.Run("oversized hash is accepted at major version 4", func(t *testing.T) {
+		cert := poolRegCertWireWithMetadata(
+			t,
+			poolKeyHash(0x01),
+			vrfKeyHash(0x02),
+			common.Blake2b256Size+1,
+		)
+		require.NoError(t, shelley.UtxoValidatePoolCertificates(
+			poolCertTx(cert),
+			0,
+			ls,
+			maryPparams(340_000_000),
+		))
+	})
+
+	accepted := map[string]int{
+		"two byte hash": 2,
+		"32 byte hash":  common.Blake2b256Size,
+	}
+	for name, hashLen := range accepted {
+		t.Run(name+" is accepted", func(t *testing.T) {
+			cert := poolRegCertWireWithMetadata(
+				t,
+				poolKeyHash(0x01),
+				vrfKeyHash(0x02),
+				hashLen,
+			)
+			require.NoError(t, shelley.UtxoValidatePoolCertificates(
+				poolCertTx(cert),
+				0,
+				ls,
+				alonzoPparams(340_000_000),
+			))
 		})
 	}
 }

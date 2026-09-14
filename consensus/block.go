@@ -40,8 +40,8 @@ type BlockBuilder struct {
 // OperationalCert represents an operational certificate for block production.
 type OperationalCert struct {
 	HotVkey        []byte // KES verification key (32 bytes)
-	SequenceNumber uint32 // Monotonically increasing counter
-	KesPeriod      uint32 // Starting KES period for this cert
+	SequenceNumber uint64 // Monotonically increasing counter
+	KesPeriod      uint64 // Starting KES period for this cert
 	Signature      []byte // Cold key signature (64 bytes)
 }
 
@@ -131,8 +131,8 @@ type HeaderBody struct {
 	BlockBodySize        uint64
 	BlockBodyHash        []byte // 32 bytes
 	OpCertHotVkey        []byte // 32 bytes
-	OpCertSequenceNumber uint32
-	OpCertKesPeriod      uint32
+	OpCertSequenceNumber uint64
+	OpCertKesPeriod      uint64
 	OpCertSignature      []byte // 64 bytes
 	ProtoMajor           uint64
 	ProtoMinor           uint64

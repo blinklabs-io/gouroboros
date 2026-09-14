@@ -54,6 +54,60 @@ func testByronConfig() ByronConfig {
 	}
 }
 
+func testByronIdentityPair() (ed25519.PublicKey, []byte) {
+	publicKey := make(ed25519.PublicKey, ed25519.PublicKeySize)
+	publicKey[0] = 0x01
+	signature := make([]byte, ed25519.SignatureSize)
+	signature[0] = 0x01
+	return publicKey, signature
+}
+
+func testByronHeaderCbor(t *testing.T) []byte {
+	t.Helper()
+	header := &byron.ByronMainBlockHeader{
+		ProtocolMagic: testByronProtocolMagicMainnet,
+	}
+	headerCbor, err := cbor.Encode(header)
+	require.NoError(t, err)
+	return headerCbor
+}
+
+func testByronProxyInput(
+	t *testing.T,
+	delegatePublicKey, blockSignature []byte,
+) *ValidateHeaderInput {
+	t.Helper()
+	issuerVK := make([]byte, byron.VerificationKeySize)
+	issuerVK[0] = 0x02
+	delegateVK := make([]byte, byron.VerificationKeySize)
+	copy(delegateVK, delegatePublicKey)
+	certSignature := make([]byte, ed25519.SignatureSize)
+
+	header := &byron.ByronMainBlockHeader{
+		ProtocolMagic: testByronProtocolMagicMainnet,
+	}
+	header.ConsensusData.BlockSig = []any{
+		uint64(byronSigTypeHeavy),
+		[]any{
+			[]any{uint64(7), issuerVK, delegateVK, certSignature},
+			blockSignature,
+		},
+	}
+	headerCbor, err := cbor.Encode(header)
+	require.NoError(t, err)
+
+	// Real callers populate BlockSig and HeaderCbor from the same decoded
+	// header. Round-trip here because proxyCertEpochCbor walks the raw bytes.
+	var decoded byron.ByronMainBlockHeader
+	_, err = cbor.Decode(headerCbor, &decoded)
+	require.NoError(t, err)
+
+	return &ValidateHeaderInput{
+		HeaderCbor: headerCbor,
+		BlockSig:   decoded.ConsensusData.BlockSig,
+	}
+}
+
 func TestNewHeaderValidator(t *testing.T) {
 	config := testByronConfig()
 	validator := NewHeaderValidator(config)
@@ -446,6 +500,78 @@ func TestValidateSimpleSignatureRequiresMainBlockDomain(t *testing.T) {
 	// The raw ToSign signature must not verify in the main-block domain.
 	input.BlockSignature = ed25519.Sign(privKey, toSign)
 	assert.Error(t, validator.validateSimpleSignature(input))
+}
+
+// TestValidateSimpleSignatureStaysPermissive pins the primary,
+// domain-separated Byron signature path. Byron's ed25519-donna reference
+// accepts the identity public key and R point; changing this call to strict
+// verification would reject immutable chain history.
+func TestValidateSimpleSignatureStaysPermissive(t *testing.T) {
+	publicKey, signature := testByronIdentityPair()
+	validator := NewHeaderValidator(testByronConfig())
+	require.False(t, validator.AllowSignatureFallback)
+	input := &ValidateHeaderInput{
+		IssuerPubKey:   publicKey,
+		BlockSignature: signature,
+		HeaderCbor:     testByronHeaderCbor(t),
+	}
+
+	require.NoError(t, validator.validateSimpleSignature(input))
+}
+
+func TestValidateSimpleSignatureRejectsGarbage(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	validator := NewHeaderValidator(testByronConfig())
+	input := &ValidateHeaderInput{
+		IssuerPubKey: publicKey,
+		BlockSignature: ed25519.Sign(
+			privateKey,
+			[]byte("not the domain-separated header"),
+		),
+		HeaderCbor: testByronHeaderCbor(t),
+	}
+
+	require.ErrorContains(
+		t,
+		validator.validateSimpleSignature(input),
+		"block signature verification failed",
+	)
+}
+
+// TestValidateProxySignatureStaysPermissive pins the delegate block-signature
+// half of Byron proxy signatures. Byron's ed25519-donna reference accepts the
+// identity public key and R point; changing this call to strict verification
+// would reject immutable chain history.
+func TestValidateProxySignatureStaysPermissive(t *testing.T) {
+	publicKey, signature := testByronIdentityPair()
+	validator := NewHeaderValidator(testByronConfig())
+	validator.SkipDelegationCertVerification = true
+
+	require.NoError(
+		t,
+		validator.validateProxySignature(
+			testByronProxyInput(t, publicKey, signature),
+			byronSigTypeHeavy,
+		),
+	)
+}
+
+func TestValidateProxySignatureRejectsGarbage(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	validator := NewHeaderValidator(testByronConfig())
+	validator.SkipDelegationCertVerification = true
+
+	err = validator.validateProxySignature(
+		testByronProxyInput(
+			t,
+			publicKey,
+			ed25519.Sign(privateKey, []byte("not the delegated header")),
+		),
+		byronSigTypeHeavy,
+	)
+	require.ErrorContains(t, err, "block signature verification failed")
 }
 
 func TestValidateSimpleSignatureReferenceVector(t *testing.T) {

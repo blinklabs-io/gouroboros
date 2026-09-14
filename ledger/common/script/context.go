@@ -84,6 +84,20 @@ func NewScriptContextV3(
 	redeemer Redeemer,
 	purpose ScriptPurpose,
 ) ScriptContext {
+	// Normalize the redeemer here rather than trusting every caller to do
+	// it. Decode preserves each container's definite/indefinite-length
+	// choice so a decoded value re-encodes to its original bytes, but
+	// cardano-ledger carries no such fidelity into script-visible data: it
+	// rebuilds those values, which is equivalent to the package default
+	// encoding. A redeemer handed to a script straight from the wire can
+	// therefore serialise to different bytes than the reference
+	// implementation produces for the same semantic value, and a script
+	// that hashes or compares SerialiseData output -- a one-shot mint
+	// checking an asset name against blake2b_256 of its seed TxOutRef, for
+	// example -- then diverges from the rest of the network. The redeemers
+	// map inside TxInfo is normalized where it is built; this covers the
+	// copy the V3 context carries alongside it.
+	redeemer.Data = data.Normalize(redeemer.Data)
 	return ScriptContextV3{
 		TxInfo:     txInfo,
 		Redeemer:   redeemer,
@@ -749,8 +763,12 @@ func dataInfo(
 		ret = append(
 			ret,
 			KeyValuePair[lcommon.DatumHash, data.PlutusData]{
-				Key:   hash,
-				Value: datum.Data,
+				Key: hash,
+				// Normalize: cardano-ledger rebuilds every script-visible value, so a
+				// script always observes the encoding the Plutus encoder writes, never
+				// the definite/indefinite-length choice this transaction was built
+				// with. serialiseData exposes the difference.
+				Value: data.Normalize(datum.Data),
 			},
 		)
 	}
@@ -805,7 +823,7 @@ func redeemersInfo(
 				Value: Redeemer{
 					Tag:     key.Tag,
 					Index:   key.Index,
-					Data:    redeemerValue.Data.Data,
+					Data:    data.Normalize(redeemerValue.Data.Data),
 					ExUnits: redeemerValue.ExUnits,
 				},
 			},
@@ -814,6 +832,15 @@ func redeemersInfo(
 	return ret, nil
 }
 
+// signatoriesInfo renders txInfoSignatories. cardano-ledger holds
+// reqSignerHashesTxBodyG as Set (KeyHash 'Witness) and translates it with
+// transTxBodyReqSignerHashes = transKeyHash <$> Set.toList, which both sorts
+// and deduplicates. Every era and every Plutus language version routes through
+// that one function, so a transaction body that repeats a required signer
+// still yields a single signatory. Emitting the repeat makes a validator that
+// walks txInfoSignatories execute more reductions than the block producer's
+// evaluator charged for, so its execution units exceed the declared budget and
+// a canonical block is rejected.
 func signatoriesInfo(
 	requiredSigners []lcommon.Blake2b224,
 ) []lcommon.Blake2b224 {
@@ -825,7 +852,12 @@ func signatoriesInfo(
 			return bytes.Compare(a.Bytes(), b.Bytes())
 		},
 	)
-	return tmp
+	return slices.CompactFunc(
+		tmp,
+		func(a, b lcommon.Blake2b224) bool {
+			return bytes.Equal(a.Bytes(), b.Bytes())
+		},
+	)
 }
 
 func votingInfo(

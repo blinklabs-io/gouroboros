@@ -19,6 +19,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -1510,22 +1511,29 @@ func TestCalculateMinFee(t *testing.T) {
 	})
 
 	t.Run("multiplication_overflow", func(t *testing.T) {
+		if strconv.IntSize < 64 {
+			t.Skip("overflow boundary requires a 64-bit int")
+		}
 		// Choose minFeeA and bodySize whose product exceeds math.MaxUint64.
 		// math.MaxUint64 ≈ 1.8e19, so (1<<32+1) * (1<<32+1) > 2^64.
-		bigA := uint(1<<32 + 1)
-		bigSize := int(1<<32 + 1)
-		_, err := common.CalculateMinFee(bigSize, bigA, 0)
+		bigA := uint64(1<<32 + 1)
+		bigSize := int64(1<<32 + 1)
+		_, err := common.CalculateMinFee(int(bigSize), uint(bigA), 0)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "overflow")
 	})
 
 	t.Run("addition_overflow", func(t *testing.T) {
+		if strconv.IntSize < 64 {
+			t.Skip("uint64 fee boundary requires a 64-bit uint")
+		}
 		// Product fits but adding minFeeB pushes past MaxUint64.
-		fee, err := common.CalculateMinFee(1, uint(math.MaxUint64), 0)
+		maxUint64 := uint64(math.MaxUint64)
+		fee, err := common.CalculateMinFee(1, uint(maxUint64), 0)
 		require.NoError(t, err)
 		require.Equal(t, uint64(math.MaxUint64), fee)
 
-		_, err = common.CalculateMinFee(1, uint(math.MaxUint64), 1)
+		_, err = common.CalculateMinFee(1, uint(maxUint64), 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "overflow")
 	})

@@ -211,6 +211,19 @@ Error files: `ledger/{shelley,allegra,alonzo,babbage,conway,common}/errors.go`.
 9. Read code before claiming "just delegates" or "missing check". `NOTE:` comments mark deliberate decisions.
 10. Mutating a decoded `DecodeStoreCbor`-embedding struct and re-marshaling does not pick up the change — `MarshalCBOR()` returns the stored bytes as-is. Call `SetCbor(nil)` first.
 
+## Comments
+
+Comments explain an invariant, a non-obvious algorithm, or a gotcha: why this
+order, why this bound, why the obvious thing is wrong. Delete comments that
+restate the code below them, label sections, or narrate a change's history.
+Prose explaining how a system works belongs in documentation.
+
+Doc comments on exported identifiers are the exception. They are published API
+documentation: keep them accurate and in `// Name ...` form.
+
+`NOTE:` comments marking a deliberate spec deviation or intentional
+omission are warranted and stay.
+
 ## Reviewer guardrails
 
 1. Do not hallucinate APIs. `UtxoValidateNoDuplicateInputs` and `DuplicateInputError` do not exist. The `TransactionBuilder` interface has no `WithWithdrawals` (the concrete `*MockTransaction` does).

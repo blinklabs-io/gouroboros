@@ -107,11 +107,11 @@ func TestPoolDistr2ResultDecodes(t *testing.T) {
 			map[any]any{
 				poolId: []any{
 					&cbor.Rat{Rat: big.NewRat(1, 3)},
-					4200000000,
+					uint64(4200000000),
 					vrfHash,
 				},
 			},
-			12600000000,
+			uint64(12600000000),
 		},
 	)
 	if err != nil {

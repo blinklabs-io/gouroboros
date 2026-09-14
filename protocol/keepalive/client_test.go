@@ -73,11 +73,36 @@ var ConversationKeepAliveDifferentCookie = []ouroboros_mock.ConversationEntry{
 	},
 }
 
+var ConversationKeepAliveAdvancingCookie = func() []ouroboros_mock.ConversationEntry {
+	conversation := append([]ouroboros_mock.ConversationEntry(nil),
+		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+		ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+	)
+	for i := uint16(0); i < 4; i++ {
+		cookie := ouroboros_mock.MockKeepAliveCookie + i
+		conversation = append(conversation,
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:      keepalive.ProtocolId,
+				Message:         keepalive.NewMsgKeepAlive(cookie),
+				MsgFromCborFunc: keepalive.NewMsgFromCbor,
+			},
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: keepalive.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					keepalive.NewMsgKeepAliveResponse(cookie),
+				},
+			},
+		)
+	}
+	return conversation
+}()
+
 func TestServerKeepaliveHandling(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
-		ouroboros_mock.ConversationKeepAlive,
+		ConversationKeepAliveAdvancingCookie,
 	).(*ouroboros_mock.Connection)
 
 	// Async mock connection error handler

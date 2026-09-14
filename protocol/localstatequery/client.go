@@ -104,6 +104,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        stateIdle,
+		MaxReadBufferSize:   cfg.MaxReadBufferSize,
 	}
 	// Enable version-dependent features
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {
@@ -257,14 +258,25 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 	query := buildQuery(
 		QueryTypeChainBlockNo,
 	)
-	result := []int64{}
+	result := []any{}
 	if err := c.runQuery(query, &result); err != nil {
 		return 0, err
 	}
-	if len(result) < 2 {
+	switch {
+	case len(result) == 1 && result[0] == uint64(0):
+		return 0, nil
+	case len(result) == 2 && result[0] == uint64(1):
+		blockNo, ok := result[1].(uint64)
+		if !ok {
+			return 0, errors.New("malformed chain block number result")
+		}
+		if blockNo > uint64(1<<63-1) {
+			return 0, errors.New("chain block number is outside int64 API range")
+		}
+		return int64(blockNo), nil
+	default:
 		return 0, errors.New("malformed chain block number result")
 	}
-	return result[1], nil
 }
 
 // GetChainPoint returns the current chain tip
@@ -1268,9 +1280,8 @@ func (c *Client) GetDRepState(
 // full distribution. Note the [lcommon.Drep] type also covers the predefined
 // Abstain and NoConfidence options, not only credential-backed DReps.
 //
-// Response: a [DRepStakeDistrResult] containing the raw CBOR map of DReps to
-// stake amounts. It is returned undecoded because its key encoding is
-// era-specific; decode it with [cbor.Decode] against an era-appropriate type.
+// Response: a [DRepStakeDistrResult], one [DRepStakeDistrEntry] per DRep in
+// the reply, carrying the DRep and the lovelace delegated to it.
 //
 // Era: requires the Conway era or later. Returns an error if the acquired
 // ledger state is on an earlier era.
@@ -1705,8 +1716,17 @@ func (c *Client) handleAcquired() error {
 	default:
 	}
 	c.acquired = true
-	c.acquireResultChan <- nil
+	// Invalidate the cached era before signaling completion on
+	// acquireResultChan, not after: a caller blocked in acquire() wakes up
+	// on that channel receive and can immediately call a query that reads
+	// currentEra (getCurrentEra, via GetCurrentProtocolParams/GetEpochNo/
+	// etc.). Writing it after the send has no happens-before relationship
+	// to that caller's subsequent read -- a data race under the Go memory
+	// model, confirmed live under -race with a low-latency (fast, local)
+	// server, where the window between the two statements is otherwise
+	// too narrow to hit against normal network latency.
 	c.currentEra = -1
+	c.acquireResultChan <- nil
 	return nil
 }
 
