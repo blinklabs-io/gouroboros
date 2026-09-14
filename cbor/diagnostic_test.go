@@ -16,6 +16,7 @@ package cbor_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -200,7 +201,11 @@ func TestParseDiagnosticMaxNestedLevels(t *testing.T) {
 
 	_, err := cbor.ParseDiagnostic(data)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "max depth of 256")
+	assert.Contains(
+		t,
+		err.Error(),
+		fmt.Sprintf("max depth of %d", cbor.MaxNestedLevels),
+	)
 }
 
 func TestDiagnosticGetNodeAtOffset(t *testing.T) {
