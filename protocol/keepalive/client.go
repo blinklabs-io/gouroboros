@@ -161,6 +161,9 @@ func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 		)
 	}
 
+	if c.config != nil && c.config.KeepAliveResponseFunc != nil {
+		return c.config.KeepAliveResponseFunc(c.callbackContext, msg.Cookie)
+	}
 	// Call optional notification callback if provided
 	if c.config != nil && c.config.OnKeepAliveResponseReceived != nil {
 		c.config.OnKeepAliveResponseReceived(c.callbackContext.ConnectionId, msg.Cookie)

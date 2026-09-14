@@ -64,7 +64,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeKeepAlive:
 		err = s.handleKeepAlive(msg)
 	case MessageTypeDone:
-		s.handleDone()
+		err = s.handleDone()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -85,6 +85,9 @@ func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	msg := msgGeneric.(*MsgKeepAlive)
+	if s.config != nil && s.config.KeepAliveFunc != nil {
+		return s.config.KeepAliveFunc(s.callbackContext, msg.Cookie)
+	}
 
 	// Call optional notification callback if provided
 	if s.config != nil && s.config.OnKeepAliveReceived != nil {
@@ -97,7 +100,7 @@ func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 }
 
 // handleDone processes a done message from the client and performs any necessary cleanup.
-func (s *Server) handleDone() {
+func (s *Server) handleDone() error {
 	s.Protocol.Logger().
 		Debug("done",
 			"component", "network",
@@ -105,6 +108,10 @@ func (s *Server) handleDone() {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	if s.config != nil && s.config.DoneFunc != nil {
+		return s.config.DoneFunc(s.callbackContext)
+	}
+	return nil
 }
 
 // Stop stops the keep-alive protocol server.

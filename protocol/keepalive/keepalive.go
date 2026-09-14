@@ -89,12 +89,34 @@ type KeepAlive struct {
 
 // Config contains configuration options for the keep-alive protocol, including optional notification callbacks and timing parameters.
 type Config struct {
+	// Deprecated: use OnKeepAliveReceived for notifications. When set, the
+	// callback retains the pre-v0.XX response-handling behavior.
+	KeepAliveFunc KeepAliveFunc
+	// Deprecated: use OnKeepAliveResponseReceived for notifications.
+	KeepAliveResponseFunc KeepAliveResponseFunc
+	// Deprecated: use the protocol lifecycle instead.
+	DoneFunc                    DoneFunc
 	OnKeepAliveReceived         func(connection.ConnectionId, uint16)
 	OnKeepAliveResponseReceived func(connection.ConnectionId, uint16)
 	Timeout                     time.Duration
 	Period                      time.Duration
 	Cookie                      uint16
 }
+
+// KeepAliveFunc is the legacy keep-alive callback type.
+//
+// Deprecated: use OnKeepAliveReceived.
+type KeepAliveFunc func(CallbackContext, uint16) error
+
+// KeepAliveResponseFunc is the legacy response callback type.
+//
+// Deprecated: use OnKeepAliveResponseReceived.
+type KeepAliveResponseFunc func(CallbackContext, uint16) error
+
+// DoneFunc is the legacy done callback type.
+//
+// Deprecated: use the protocol lifecycle instead.
+type DoneFunc func(CallbackContext) error
 
 // CallbackContext provides context information to keep-alive protocol callbacks, including connection and role references.
 type CallbackContext struct {
@@ -153,6 +175,27 @@ func WithOnKeepAliveReceived(callback func(connection.ConnectionId, uint16)) Kee
 	return func(c *Config) {
 		c.OnKeepAliveReceived = callback
 	}
+}
+
+// WithKeepAliveFunc sets the legacy keep-alive callback.
+//
+// Deprecated: use WithOnKeepAliveReceived.
+func WithKeepAliveFunc(callback KeepAliveFunc) KeepAliveOptionFunc {
+	return func(c *Config) { c.KeepAliveFunc = callback }
+}
+
+// WithKeepAliveResponseFunc sets the legacy response callback.
+//
+// Deprecated: use WithOnKeepAliveResponseReceived.
+func WithKeepAliveResponseFunc(callback KeepAliveResponseFunc) KeepAliveOptionFunc {
+	return func(c *Config) { c.KeepAliveResponseFunc = callback }
+}
+
+// WithDoneFunc sets the legacy done callback.
+//
+// Deprecated: use the protocol lifecycle instead.
+func WithDoneFunc(callback DoneFunc) KeepAliveOptionFunc {
+	return func(c *Config) { c.DoneFunc = callback }
 }
 
 // WithOnKeepAliveResponseReceived sets an optional notification callback that is called when a keep-alive response is received (client side).
