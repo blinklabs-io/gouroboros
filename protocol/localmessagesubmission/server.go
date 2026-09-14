@@ -144,24 +144,25 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 			return s.SendMessage(rejectMsg)
 		}
 	}
-	if s.config.Authenticator != nil {
-		if err := s.config.Authenticator.VerifyMessage(&msgSubmit.Message); err != nil {
-			s.Protocol.Logger().
-				Warn("message authentication failed",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "server",
-					"connection_id", s.callbackContext.ConnectionId.String(),
-					"error", err,
-				)
-			rejectMsg, err := NewMsgRejectMessage(
-				pcommon.InvalidReason{Message: err.Error()},
+	if s.config.Authenticator == nil {
+		return errors.New("dmq: message authenticator not configured")
+	}
+	if err := s.config.Authenticator.VerifyMessage(&msgSubmit.Message); err != nil {
+		s.Protocol.Logger().
+			Warn("message authentication failed",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+				"error", err,
 			)
-			if err != nil {
-				return err
-			}
-			return s.SendMessage(rejectMsg)
+		rejectMsg, err := NewMsgRejectMessage(
+			pcommon.InvalidReason{Message: err.Error()},
+		)
+		if err != nil {
+			return err
 		}
+		return s.SendMessage(rejectMsg)
 	}
 
 	// Call the user callback function and send Accept/RejectMessage based on result

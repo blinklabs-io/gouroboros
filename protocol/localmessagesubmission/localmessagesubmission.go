@@ -147,18 +147,16 @@ func NewConfig(options ...LocalMessageSubmissionOptionFunc) Config {
 		option(&c)
 	}
 	// Set defaults
-	if c.Authenticator == nil {
-		c.Authenticator = pcommon.NewMessageAuthenticator(nil)
-		pcommon.ApplyDefaultKESVerifier(c.Authenticator)
-	}
+	// Authenticator has no default: constructing a real one requires a
+	// StakeAuthority backed by live chain state, which this package has no
+	// access to. A nil Authenticator is a deliberate fail-closed
+	// configuration error (see server.go/client.go) rather than a silent
+	// skip of verification -- callers must explicitly supply one via
+	// WithAuthenticator, or common.NewNoOpAuthenticator() to intentionally
+	// disable authentication.
 	if c.TTLValidator == nil {
 		c.TTLValidator = pcommon.NewTTLValidator(0, nil)
 	}
-	// Note: The above applies defaults when Authenticator or TTLValidator are
-	// nil. Explicitly setting these fields to nil via option functions will be
-	// overridden by defaults here; opt-out of defaults is not currently
-	// supported. If callers need to explicitly disable validation/authentication
-	// they should pass a no-op implementation instead of nil.
 	return c
 }
 
