@@ -87,7 +87,7 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 		wire, err := cbor.Encode([]any{[]any{
 			EraIdConway,
 			[]any{[]any{ConwayLedgerUtxowFailure, []any{
-				ConwayUtxowUtxoFailure, []any{ShelleyUtxowUtxoFailure},
+				ConwayUtxowUtxoFailure, []any{ConwayUtxoInputSetEmptyUTxO},
 			}}},
 		}})
 		require.NoError(t, err)
@@ -96,6 +96,7 @@ func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
 		outer := decoded.(*ShelleyTxValidationError)
 		require.Len(t, outer.Err.Failures, 1)
 		require.IsType(t, &UtxowFailure{}, outer.Err.Failures[0])
+		require.True(t, containsInputSetEmpty(outer.Err.Failures[0]))
 	})
 
 	for _, tt := range []struct {
