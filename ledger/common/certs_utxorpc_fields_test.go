@@ -106,8 +106,12 @@ func TestRegistrationDelegationUtxorpcDeposits(t *testing.T) {
 				t.Run(fmt.Sprintf("%T", cert), func(t *testing.T) {
 					converted, err := cert.Utxorpc()
 					require.NoError(t, err)
+					wire, err := proto.Marshal(converted)
+					require.NoError(t, err)
+					var decoded utxorpc.Certificate
+					require.NoError(t, proto.Unmarshal(wire, &decoded))
 					var coin *utxorpc.BigInt
-					switch value := converted.Certificate.(type) {
+					switch value := decoded.Certificate.(type) {
 					case *utxorpc.Certificate_RegCert:
 						coin = value.RegCert.GetCoin()
 					case *utxorpc.Certificate_UnregCert:
