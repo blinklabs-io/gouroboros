@@ -1265,71 +1265,202 @@ func extractByronOutputOffsets(
 	}
 }
 
-// isDijkstraBlock checks whether a decoded block array represents a Dijkstra
-// (prototype-2026w27) block. A Dijkstra block is a 2-element array
-// [header, block_body] where block_body is a 4-element array
-// [invalid_transactions/nil, transactions, leios_certificate/nil,
-// peras_certificate/nil] and each transaction is a 3-element array
-// [transaction_body, transaction_witness_set, auxiliary_data/nil].
+// Dijkstra block component counts. A Dijkstra block is always
+// [header, block_body], but two block_body shapes exist and the era decoder
+// (DijkstraBlockBody.UnmarshalCBOR) accepts both.
+const (
+	dijkstraBlockComponents = 2
+	// dijkstraBodyComponents is the block_body arity defined by the Dijkstra
+	// CDDL: [transactions, leios_certificate/nil, peras_certificate/nil].
+	dijkstraBodyComponents = 3
+	// dijkstraLegacyBodyComponents is the block_body arity of the earlier
+	// prototype-2026w27 layout, which carries a leading invalid_transactions
+	// field: [invalid_transactions/nil, transactions,
+	// leios_certificate/nil, peras_certificate/nil].
+	dijkstraLegacyBodyComponents = 4
+	// dijkstraTxComponents is the arity of a transaction without a validity
+	// flag: [transaction_body, transaction_witness_set, auxiliary_data/nil].
+	// It is the block transaction arity of the prototype-2026w27 layout.
+	dijkstraTxComponents = 3
+	// dijkstraBlockTxComponents is the arity of the block_transaction defined
+	// by the Dijkstra CDDL, whose final element is the is_valid flag set by
+	// the block producer: [transaction_body, transaction_witness_set,
+	// auxiliary_data/nil, bool].
+	dijkstraBlockTxComponents = 4
+)
+
+// dijkstraBlockShape describes how a decoded top-level block array relates to
+// the Dijkstra block layout.
+type dijkstraBlockShape int
+
+const (
+	// dijkstraShapeNone means the value is not a Dijkstra block.
+	dijkstraShapeNone dijkstraBlockShape = iota
+	// dijkstraShapeCurrent means the block_body has the CDDL arity, with the
+	// transactions array as its first element.
+	dijkstraShapeCurrent
+	// dijkstraShapeLegacy means the block_body has the prototype-2026w27
+	// arity, with the transactions array as its second element.
+	dijkstraShapeLegacy
+	// dijkstraShapeMalformed means only a Dijkstra block could carry this
+	// layout, but its block_body or transaction arity is not understood.
+	// Callers must fail rather than silently report no transactions.
+	dijkstraShapeMalformed
+)
+
+// cborArrayItems decodes a CBOR array into its raw elements, reporting whether
+// the value was an array at all. A decode failure is a shape signal for the
+// Dijkstra block classifier rather than an error to propagate.
+func cborArrayItems(data []byte) ([]cbor.RawMessage, bool) {
+	items := []cbor.RawMessage{}
+	if _, err := cbor.Decode(data, &items); err != nil {
+		return []cbor.RawMessage{}, false
+	}
+	return items, true
+}
+
+// dijkstraBodyTxField maps a decoded block_body arity to the index of its
+// transactions field and to the matching block shape.
+func dijkstraBodyTxField(bodyLen int) (int, dijkstraBlockShape) {
+	switch bodyLen {
+	case dijkstraBodyComponents:
+		return 0, dijkstraShapeCurrent
+	case dijkstraLegacyBodyComponents:
+		return 1, dijkstraShapeLegacy
+	default:
+		return 0, dijkstraShapeMalformed
+	}
+}
+
+// classifyDijkstraBlock checks whether a decoded block array represents a
+// Dijkstra block and, if so, which block_body shape it uses. The returned
+// error is non-nil only for dijkstraShapeMalformed and describes the arity
+// that was not understood.
 //
 // The 2-element top level distinguishes Dijkstra from Byron (3-element) and
-// Shelley+ (4+ element) blocks. The nested shape check guards against
-// misclassifying an unrelated 2-element value (e.g. a Byron epoch-boundary
-// block, whose second element is a bytestring array, not a 4-element array).
-func isDijkstraBlock(blockArray []cbor.RawMessage) bool {
-	if len(blockArray) != 2 {
-		return false
+// Shelley+ (4+ element) blocks. The nested shape checks guard against
+// misclassifying an unrelated 2-element value (e.g. a value whose second
+// element is a bytestring array rather than an array of transactions).
+//
+// Transaction arity is not tied to the block_body shape here: the walker only
+// needs to find byte ranges, and pairing the two (a prototype-2026w27 body
+// carries flagless transactions, a CDDL body carries block transactions with
+// a trailing is_valid) is enforced by the era decoder.
+func classifyDijkstraBlock(
+	blockArray []cbor.RawMessage,
+) (dijkstraBlockShape, error) {
+	if len(blockArray) != dijkstraBlockComponents {
+		return dijkstraShapeNone, nil
 	}
-	var bodyParts []cbor.RawMessage
-	if _, err := cbor.Decode([]byte(blockArray[1]), &bodyParts); err != nil {
-		return false
+	// block_body must be an array; anything else is not a Dijkstra block.
+	bodyParts, ok := cborArrayItems([]byte(blockArray[1]))
+	if !ok {
+		return dijkstraShapeNone, nil
 	}
-	if len(bodyParts) != 4 {
-		return false
+	txField, shape := dijkstraBodyTxField(len(bodyParts))
+	if shape == dijkstraShapeMalformed {
+		// A two-element value is only eligible for Dijkstra-specific
+		// malformed shape errors when its header is accepted by the Dijkstra
+		// decoder. This preserves the generic offset-walker fall-through for
+		// unrelated values. Valid Dijkstra body shapes are recognized without
+		// this check because existing callers may provide only a structural
+		// header placeholder.
+		if !isDijkstraCompatibleHeader([]byte(blockArray[0])) {
+			return dijkstraShapeNone, nil
+		}
+		return shape, fmt.Errorf(
+			"dijkstra block body has %d elements, expected %d or %d",
+			len(bodyParts),
+			dijkstraBodyComponents,
+			dijkstraLegacyBodyComponents,
+		)
 	}
-	// bodyParts[1] is the transactions array.
-	var txs []cbor.RawMessage
-	if _, err := cbor.Decode([]byte(bodyParts[1]), &txs); err != nil {
-		return false
+	// The transactions field must be an array, otherwise this 2-element value
+	// is not a Dijkstra block.
+	txs, ok := cborArrayItems([]byte(bodyParts[txField]))
+	if !ok {
+		return dijkstraShapeNone, nil
 	}
-	// If there are transactions, verify the first one is a 3-element array.
+	// If there are transactions, verify the first one has a known arity.
 	if len(txs) > 0 {
-		var tx []cbor.RawMessage
-		if _, err := cbor.Decode([]byte(txs[0]), &tx); err != nil {
-			return false
+		tx, ok := cborArrayItems([]byte(txs[0]))
+		if !ok {
+			return dijkstraShapeNone, nil
 		}
-		if len(tx) != 3 {
-			return false
+		if len(tx) != dijkstraTxComponents &&
+			len(tx) != dijkstraBlockTxComponents {
+			if !isDijkstraCompatibleHeader([]byte(blockArray[0])) {
+				return dijkstraShapeNone, nil
+			}
+			return dijkstraShapeMalformed, fmt.Errorf(
+				"dijkstra transaction 0 has %d elements, expected %d or %d",
+				len(tx),
+				dijkstraTxComponents,
+				dijkstraBlockTxComponents,
+			)
 		}
 	}
-	return true
+	return shape, nil
+}
+
+// isDijkstraCompatibleHeader checks the structural portion shared by the
+// plain Babbage-shaped and extended Dijkstra headers. The common package
+// cannot import ledger/dijkstra because that package depends on common.
+func isDijkstraCompatibleHeader(data []byte) bool {
+	top, ok := cborArrayItems(data)
+	if !ok || len(top) != 2 {
+		return false
+	}
+	body, ok := cborArrayItems([]byte(top[0]))
+	return ok && len(body) >= 10
 }
 
 // extractDijkstraTransactionOffsets extracts transaction offsets from a
-// Dijkstra (prototype-2026w27) block. The block is [header, block_body] with
-// block_body = [invalid_transactions/nil, transactions, leios_certificate/nil,
-// peras_certificate/nil] and each transaction a complete
-// [transaction_body, transaction_witness_set, auxiliary_data/nil] array (not
-// the pre-Dijkstra parallel body/witness/metadata segments).
+// Dijkstra block, which is [header, block_body]. Unlike the pre-Dijkstra eras
+// there are no parallel body/witness/metadata segments: each transaction is a
+// complete array inside block_body.
+//
+// Both block_body shapes are supported, selected by shape:
+//
+//   - dijkstraShapeCurrent: block_body = [transactions,
+//     leios_certificate/nil, peras_certificate/nil], each block transaction
+//     [transaction_body, transaction_witness_set, auxiliary_data/nil,
+//     is_valid].
+//   - dijkstraShapeLegacy: the prototype-2026w27 block_body =
+//     [invalid_transactions/nil, transactions, leios_certificate/nil,
+//     peras_certificate/nil], each transaction
+//     [transaction_body, transaction_witness_set, auxiliary_data/nil].
+//
+// The trailing is_valid flag of a block transaction is a bool rather than a
+// byte range, so it needs no entry in TransactionLocation and is simply not
+// walked.
 func extractDijkstraTransactionOffsets(
 	cborData []byte,
 	blockArray []cbor.RawMessage,
+	shape dijkstraBlockShape,
 ) (*BlockTransactionOffsets, error) {
-	if len(blockArray) != 2 {
+	if len(blockArray) != dijkstraBlockComponents {
 		return nil, fmt.Errorf(
-			"dijkstra block has %d elements, expected 2",
+			"dijkstra block has %d elements, expected %d",
 			len(blockArray),
+			dijkstraBlockComponents,
 		)
+	}
+	legacyBody := shape == dijkstraShapeLegacy
+	expectedBodyComponents := dijkstraBodyComponents
+	if legacyBody {
+		expectedBodyComponents = dijkstraLegacyBodyComponents
 	}
 
 	topCount, topHeaderSize, topIndefinite := cborArrayInfo(cborData)
 	if topCount < 0 && !topIndefinite {
 		return nil, errors.New("invalid Dijkstra block array")
 	}
-	if !topIndefinite && topCount != 2 {
+	if !topIndefinite && topCount != dijkstraBlockComponents {
 		return nil, fmt.Errorf(
-			"dijkstra block has %d elements, expected 2",
+			"dijkstra block has %d elements, expected %d",
 			topCount,
+			dijkstraBlockComponents,
 		)
 	}
 
@@ -1337,10 +1468,11 @@ func extractDijkstraTransactionOffsets(
 	if _, err := cbor.Decode([]byte(blockArray[1]), &bodyParts); err != nil {
 		return nil, fmt.Errorf("failed to decode Dijkstra block body: %w", err)
 	}
-	if len(bodyParts) != 4 {
+	if len(bodyParts) != expectedBodyComponents {
 		return nil, fmt.Errorf(
-			"dijkstra block body has %d elements, expected 4",
+			"dijkstra block body has %d elements, expected %d",
 			len(bodyParts),
+			expectedBodyComponents,
 		)
 	}
 
@@ -1363,10 +1495,11 @@ func extractDijkstraTransactionOffsets(
 	if bodyCount < 0 && !bodyIndefinite {
 		return nil, errors.New("invalid Dijkstra block body array")
 	}
-	if !bodyIndefinite && bodyCount != 4 {
+	if !bodyIndefinite && bodyCount != expectedBodyComponents {
 		return nil, fmt.Errorf(
-			"dijkstra block body has %d elements, expected 4",
+			"dijkstra block body has %d elements, expected %d",
 			bodyCount,
+			expectedBodyComponents,
 		)
 	}
 
@@ -1374,8 +1507,15 @@ func extractDijkstraTransactionOffsets(
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := bodyDecoder.Skip(); err != nil {
-		return nil, fmt.Errorf("failed to skip invalid_transactions: %w", err)
+	// Only the prototype-2026w27 body carries a leading invalid_transactions
+	// field; in the CDDL body the transactions array is the first element.
+	if legacyBody {
+		if _, _, err := bodyDecoder.Skip(); err != nil {
+			return nil, fmt.Errorf(
+				"failed to skip invalid_transactions: %w",
+				err,
+			)
+		}
 	}
 	txsOffset, txsRaw, err := bodyDecoder.DecodeRaw(new(cbor.RawMessage))
 	if err != nil {
@@ -1417,7 +1557,9 @@ func extractDijkstraTransactionOffsets(
 		Transactions: make([]TransactionLocation, len(txs)),
 	}
 
-	// Walk each transaction [transaction_body, transaction_witness_set, aux/nil].
+	// Walk each transaction
+	// [transaction_body, transaction_witness_set, aux/nil] plus, for a block
+	// transaction, the trailing is_valid flag.
 	txsDecoder, err := cbor.NewStreamDecoder(txsRaw[txsHeaderSize:])
 	if err != nil {
 		return nil, err
@@ -1441,10 +1583,14 @@ func extractDijkstraTransactionOffsets(
 				"failed to decode Dijkstra transaction %d: %w", i, err,
 			)
 		}
-		if len(txParts) != 3 {
+		if len(txParts) != dijkstraTxComponents &&
+			len(txParts) != dijkstraBlockTxComponents {
 			return nil, fmt.Errorf(
-				"dijkstra transaction %d has %d elements, expected 3",
-				i, len(txParts),
+				"dijkstra transaction %d has %d elements, expected %d or %d",
+				i,
+				len(txParts),
+				dijkstraTxComponents,
+				dijkstraBlockTxComponents,
 			)
 		}
 
@@ -1455,11 +1601,12 @@ func extractDijkstraTransactionOffsets(
 				i,
 			)
 		}
-		if !txIndefinite && txCount != 3 {
+		if !txIndefinite && txCount != len(txParts) {
 			return nil, fmt.Errorf(
-				"dijkstra transaction %d has %d elements, expected 3",
+				"dijkstra transaction %d array has %d elements, decoded %d",
 				i,
 				txCount,
+				len(txParts),
 			)
 		}
 
@@ -1553,8 +1700,9 @@ func extractDijkstraTransactionOffsets(
 // The function parses the block CBOR structure to find where each transaction body,
 // witness set, and metadata starts and ends within the raw block bytes.
 //
-// It supports both Byron-era blocks (3-element: [header, body, extra]) and
-// Shelley+ blocks (4+ element: [header, tx_bodies, witnesses, metadata, ...]).
+// It supports Byron-era blocks (3-element: [header, body, extra]), Shelley+
+// blocks (4+ element: [header, tx_bodies, witnesses, metadata, ...]) and
+// Dijkstra blocks (2-element: [header, block_body]).
 func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error) {
 	// First pass: decode block as array of RawMessages to get component boundaries
 	var blockArray []cbor.RawMessage
@@ -1562,12 +1710,24 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 		return nil, fmt.Errorf("failed to decode block array: %w", err)
 	}
 
-	// Detect Dijkstra (prototype-2026w27) blocks. Unlike pre-Dijkstra eras,
-	// these are a 2-element array [header, block_body] where transactions live
-	// inline inside block_body rather than as parallel top-level segments, so
-	// they must be recognized before the generic short-block early return.
-	if isDijkstraBlock(blockArray) {
-		return extractDijkstraTransactionOffsets(cborData, blockArray)
+	// Detect Dijkstra blocks. Unlike pre-Dijkstra eras, these are a 2-element
+	// array [header, block_body] where transactions live inline inside
+	// block_body rather than as parallel top-level segments, so they must be
+	// recognized before the generic short-block early return. Both the CDDL
+	// block_body shape and the earlier prototype-2026w27 shape are handled.
+	blockShape, err := classifyDijkstraBlock(blockArray)
+	if err != nil {
+		// The layout can only be a Dijkstra block, but its shape is not
+		// understood. Failing here keeps a future layout change loud instead
+		// of silently indexing none of the block's transactions.
+		return nil, err
+	}
+	if blockShape != dijkstraShapeNone {
+		return extractDijkstraTransactionOffsets(
+			cborData,
+			blockArray,
+			blockShape,
+		)
 	}
 
 	if len(blockArray) < 3 {
