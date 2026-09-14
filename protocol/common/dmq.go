@@ -162,6 +162,9 @@ func ToRejectReasonData(rr RejectReason) RejectReasonData {
 	case OtherReason:
 		return RejectReasonData{Type: 3, Message: v.Message}
 	case *RejectReasonData:
+		if v == nil {
+			return RejectReasonData{}
+		}
 		return *v
 	default:
 		// Fallback: encode as OtherReason with type 3

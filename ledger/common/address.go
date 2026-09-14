@@ -628,7 +628,7 @@ func (a *Address) String() string {
 	}
 }
 
-func (a *Address) MarshalJSON() ([]byte, error) {
+func (a Address) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + a.String() + `"`), nil
 }
 

@@ -350,7 +350,7 @@ func (c *Constructor) MarshalCBOR() ([]byte, error) {
 	return Encode(&tmpTag)
 }
 
-func (v *Constructor) MarshalJSON() ([]byte, error) {
+func (v Constructor) MarshalJSON() ([]byte, error) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf(`{"constructor":%d,"fields":[`, v.constructor))
 	tmpList := [][]byte{}
