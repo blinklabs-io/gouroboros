@@ -692,15 +692,11 @@ func TestVerifyKESSignatureInvalidSize(t *testing.T) {
 		KESPeriod:          1,
 	}
 
-	certData := []any{
+	sig := ed25519.Sign(priv, opCertSignableBytes(
 		opcert.KESVerificationKey,
 		opcert.IssueNumber,
 		opcert.KESPeriod,
-	}
-	certCbor, err := cbor.Encode(certData)
-	assert.NoError(t, err)
-
-	sig := ed25519.Sign(priv, certCbor)
+	))
 	opcert.ColdSignature = sig
 
 	msg := &DmqMessage{
@@ -738,17 +734,13 @@ func buildTestMessage(t *testing.T) *DmqMessage {
 		KESPeriod:          100,
 	}
 
-	// build cert cbor and sign it with cold key
-	certData := []any{
+	// Sign the raw OCertSignable representation, matching what a real,
+	// already-issued Cardano operational certificate carries.
+	opcert.ColdSignature = ed25519.Sign(priv, opCertSignableBytes(
 		opcert.KESVerificationKey,
 		opcert.IssueNumber,
 		opcert.KESPeriod,
-	}
-	certCbor, err := cbor.Encode(certData)
-	if err != nil {
-		t.Fatalf("failed to encode cert cbor: %v", err)
-	}
-	opcert.ColdSignature = ed25519.Sign(priv, certCbor)
+	))
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
@@ -796,7 +788,7 @@ func TestVerifyMessageWithSlot_CallsInjectedVerifier_Success(t *testing.T) {
 	err := auth.VerifyMessageWithSlot(msg, 12345)
 	assert.NoError(t, err)
 	assert.True(t, called, "expected verifier to be called")
-	assert.Equal(t, uint64(msg.Payload.KESPeriod), gotKesPeriod)
+	assert.Equal(t, uint64(msg.OperationalCertificate.KESPeriod), gotKesPeriod)
 	assert.Equal(t, uint64(12345), gotSlot)
 	assert.Equal(t, msg.KESSignature, gotSignature)
 	assert.Equal(t, msg.OperationalCertificate.KESVerificationKey, gotVkey)
@@ -870,4 +862,108 @@ func TestDefaultKESVerifier_IsAppliedAndCalled(t *testing.T) {
 	err := auth.VerifyMessageWithSlot(msg, 0)
 	assert.NoError(t, err)
 	assert.True(t, called, "expected default verifier to be called")
+}
+
+// TestVerifyOperationalCertificate_RawOCertSignableRepresentation verifies a
+// real, already-issued Cardano operational certificate — signed over the raw
+// OCertSignable representation (KES vkey || issue number BE || KES period
+// BE), matching cardano-node/cardano-ledger, not a CBOR encoding.
+func TestVerifyOperationalCertificate_RawOCertSignableRepresentation(t *testing.T) {
+	auth := NewMessageAuthenticator(nil)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	opcert := &OperationalCertificate{
+		KESVerificationKey: make([]byte, 32),
+		IssueNumber:        7,
+		KESPeriod:          42,
+	}
+	opcert.ColdSignature = ed25519.Sign(priv, opCertSignableBytes(
+		opcert.KESVerificationKey,
+		opcert.IssueNumber,
+		opcert.KESPeriod,
+	))
+
+	err = auth.verifyOperationalCertificate(opcert, pub)
+	assert.NoError(t, err)
+}
+
+// TestVerifyOperationalCertificate_RejectsCBORArraySignature proves a
+// certificate signed the old, incorrect way — a CBOR array of
+// [kesVkey, issueNumber, kesPeriod] — no longer verifies. A real pool's
+// operational certificate is never signed this way, so accepting it would
+// mean the check can't actually authenticate real Cardano pool credentials.
+func TestVerifyOperationalCertificate_RejectsCBORArraySignature(t *testing.T) {
+	auth := NewMessageAuthenticator(nil)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	opcert := &OperationalCertificate{
+		KESVerificationKey: make([]byte, 32),
+		IssueNumber:        7,
+		KESPeriod:          42,
+	}
+	certData := []any{
+		opcert.KESVerificationKey,
+		opcert.IssueNumber,
+		opcert.KESPeriod,
+	}
+	certCbor, err := cbor.Encode(certData)
+	require.NoError(t, err)
+	opcert.ColdSignature = ed25519.Sign(priv, certCbor)
+
+	err = auth.verifyOperationalCertificate(opcert, pub)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cold signature verification failed")
+}
+
+// TestVerifyKESSignature_UsesCertificatePeriodNotPayloadPeriod proves the
+// injected KES verifier receives the certificate's own issuance period
+// (OperationalCertificate.KESPeriod) as the evolution baseline, not the
+// message's self-reported signing period (Payload.KESPeriod) — the two are
+// deliberately set to different values here so a regression collapsing them
+// back together is caught.
+func TestVerifyKESSignature_UsesCertificatePeriodNotPayloadPeriod(t *testing.T) {
+	auth := NewMessageAuthenticator(nil)
+	msg := buildTestMessage(t)
+	msg.OperationalCertificate.KESPeriod = 50
+	msg.Payload.KESPeriod = 80
+	require.NoError(t, msg.SetComputedMessageID())
+
+	var gotKesPeriod uint64
+	auth.SetKESVerifier(
+		func(_ []byte, _ []byte, _ []byte, kesPeriod uint64, _ uint64, _ uint64) (bool, error) {
+			gotKesPeriod = kesPeriod
+			return true, nil
+		},
+	)
+
+	err := auth.verifyKESSignature(msg, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(50), gotKesPeriod)
+}
+
+// TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance proves
+// a message claiming to have been signed at a KES period earlier than its own
+// certificate's issuance period is rejected outright, rather than silently
+// verified against whatever period it claims.
+func TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance(t *testing.T) {
+	auth := NewMessageAuthenticator(nil)
+	msg := buildTestMessage(t)
+	msg.OperationalCertificate.KESPeriod = 80
+	msg.Payload.KESPeriod = 50
+	require.NoError(t, msg.SetComputedMessageID())
+
+	verifierCalled := false
+	auth.SetKESVerifier(
+		func(_ []byte, _ []byte, _ []byte, _ uint64, _ uint64, _ uint64) (bool, error) {
+			verifierCalled = true
+			return false, nil
+		},
+	)
+
+	err := auth.verifyKESSignature(msg, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "precedes certificate issuance period")
+	assert.False(t, verifierCalled, "verifier should not be called when the period check fails")
 }
