@@ -2101,7 +2101,7 @@ func UtxoValidateInsufficientCollateral(
 	}
 	totalCollateral := new(big.Int)
 	for _, collateralInput := range tx.Collateral() {
-		utxo, err := ls.UtxoById(collateralInput)
+		utxo, err := common.ResolveInputUtxo(ls, collateralInput)
 		if err != nil {
 			return err
 		}
@@ -2153,7 +2153,7 @@ func UtxoValidateCollateralContainsNonAda(
 	totalCollateral := new(big.Int)
 	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
-		utxo, err := ls.UtxoById(collateralInput)
+		utxo, err := common.ResolveInputUtxo(ls, collateralInput)
 		if err != nil {
 			return err
 		}
@@ -2487,11 +2487,10 @@ func UtxoValidateValueNotConservedUtxo(
 	// Add minted/burned assets to consumed (positive for mint, negative for burn)
 	if mint := tx.AssetMint(); mint != nil {
 		for _, policy := range mint.Policies() {
-			// Skip ADA (empty policy ID) as it's tracked separately in consumed/produced value
-			if policy == (common.Blake2b224{}) {
-				continue
-			}
 			for _, assetName := range mint.Assets(policy) {
+				if policy == (common.Blake2b224{}) && len(assetName) == 0 {
+					continue
+				}
 				amount := mint.Asset(policy, assetName)
 				if amount == nil {
 					continue
