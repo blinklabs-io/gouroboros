@@ -15,12 +15,151 @@
 package ledger
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	test "github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/stretchr/testify/require"
 )
+
+func TestShelleyTxValidationErrorDecodesNestedUtxoFailureByEra(t *testing.T) {
+	tests := []struct {
+		name string
+		wire string
+	}{
+		{"Shelley", "81820181820082048103"},
+		{"Allegra", "81820281820082048103"},
+		{"Mary", "81820381820082048103"},
+		{"Alonzo", "818204818200820082048103"},
+		{"Babbage", "818205818200820282018103"},
+		{"Conway", "81820681820082008104"},
+		{"Dijkstra", "81820781820082008104"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wire, err := hex.DecodeString(tt.wire)
+			require.NoError(t, err)
+
+			decoded, err := NewTxSubmitErrorFromCbor(wire)
+			require.NoError(t, err)
+			require.True(
+				t, containsInputSetEmpty(decoded),
+				"decoded error was %T: %v", decoded, decoded,
+			)
+
+			decoded, err = NewShelleyTxValidationErrorFromCbor(wire)
+			require.NoError(t, err)
+			require.True(t, containsInputSetEmpty(decoded))
+		})
+	}
+}
+
+func containsInputSetEmpty(err error) bool {
+	switch err := err.(type) {
+	case *InputSetEmptyUtxo:
+		return true
+	case *ShelleyTxValidationError:
+		return containsInputSetEmpty(&err.Err)
+	case *ApplyTxError:
+		for _, failure := range err.Failures {
+			if containsInputSetEmpty(failure) {
+				return true
+			}
+		}
+	case *UtxowFailure:
+		return containsInputSetEmpty(err.Err)
+	case *UtxoFailure:
+		return containsInputSetEmpty(err.Err)
+	case *ShelleyUtxowFailure:
+		return containsInputSetEmpty(err.Err)
+	case *AlonzoUtxowFailure:
+		return containsInputSetEmpty(err.Err)
+	case *BabbageUtxoFailure:
+		return containsInputSetEmpty(err.Err)
+	}
+	return false
+}
+
+func TestNestedUtxoFailureMalformedUnknownAndDijkstra(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		wire string
+	}{
+		{"Shelley singleton UTXOW", "8182018182008104"},
+		{"Alonzo singleton UTXOW", "8182048182008100"},
+		{"Babbage singleton Alonzo wrapper", "8182058182008101"},
+		{"Babbage singleton UTXO wrapper", "8182058182008102"},
+		{"Conway singleton UTXOW", "8182068182008100"},
+		{"Dijkstra singleton UTXOW", "8182078182008100"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			wire, err := hex.DecodeString(tt.wire)
+			require.NoError(t, err)
+			require.NotPanics(t, func() {
+				_, err = NewShelleyTxValidationErrorFromCbor(wire)
+			})
+			require.ErrorContains(t, err, "UtxowFailure")
+		})
+	}
+
+	t.Run("Conway malformed payload", func(t *testing.T) {
+		data, err := cbor.Encode([]any{ConwayUtxowUtxoFailure, "malformed"})
+		require.NoError(t, err)
+		decoded := UtxowFailure{era: EraIdConway}
+		require.Error(t, decoded.UnmarshalCBOR(data))
+	})
+
+	t.Run("Conway unknown constructor", func(t *testing.T) {
+		data, err := cbor.Encode([]any{ConwayUtxowUtxoFailure, []any{uint(250)}})
+		require.NoError(t, err)
+		decoded := UtxowFailure{era: EraIdConway}
+		require.NoError(t, decoded.UnmarshalCBOR(data))
+		utxo, ok := decoded.Err.(*UtxoFailure)
+		require.True(t, ok)
+		unknown, ok := utxo.Err.(*UnknownUtxoFailureError)
+		require.True(t, ok)
+		require.Equal(t, uint8(EraIdConway), unknown.Era)
+		require.Equal(t, 250, unknown.FailureType)
+		require.Equal(t, []byte{0x81, 0x18, 0xfa}, []byte(unknown.Cbor))
+	})
+
+	t.Run("Dijkstra input set empty", func(t *testing.T) {
+		data, err := cbor.Encode([]any{ConwayUtxowUtxoFailure, []any{uint(4)}})
+		require.NoError(t, err)
+		decoded := UtxowFailure{era: EraIdDijkstra}
+		require.NoError(t, decoded.UnmarshalCBOR(data))
+		require.True(t, containsInputSetEmpty(decoded.Err))
+	})
+
+	t.Run("Babbage nested Alonzo", func(t *testing.T) {
+		data, err := cbor.Encode([]any{BabbageUtxoAlonzoInBabbage, []any{uint(3)}})
+		require.NoError(t, err)
+		decoded := BabbageUtxoFailure{}
+		require.NoError(t, decoded.UnmarshalCBOR(data))
+		require.True(t, containsInputSetEmpty(decoded.Err))
+	})
+
+	t.Run("Babbage UTXOW nested Alonzo", func(t *testing.T) {
+		data, err := cbor.Encode([]any{[]any{
+			uint8(EraIdBabbage),
+			[]any{[]any{
+				uint(ApplyTxErrorUtxowFailure),
+				[]any{
+					uint(BabbageUtxowAlonzoInBabbage),
+					[]any{
+						uint(AlonzoUtxowShelleyInAlonzo),
+						[]any{uint(ShelleyUtxowUtxoFailure), []any{uint(3)}},
+					},
+				},
+			}},
+		}})
+		require.NoError(t, err)
+		decoded, err := NewShelleyTxValidationErrorFromCbor(data)
+		require.NoError(t, err)
+		require.True(t, containsInputSetEmpty(decoded), "%T: %v", decoded, decoded)
+	})
+}
 
 func TestErrorDispatchersAcceptListLengthEncodings(t *testing.T) {
 	t.Run("ApplyTxError", func(t *testing.T) {
