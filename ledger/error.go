@@ -32,6 +32,7 @@ const (
 
 	// LEDGER incomplete withdrawals failure tags.
 	ShelleyLedgerIncompleteWithdrawals = 3
+	ConwayLedgerUtxowFailure           = 1
 	ConwayLedgerIncompleteWithdrawals  = 9
 
 	// Shelley UTXOW failure tags (also used by Allegra and Mary)
@@ -656,7 +657,8 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 			if err != nil {
 				return err
 			}
-		case failureType == ApplyTxErrorUtxowFailure:
+		case failureType == ApplyTxErrorUtxowFailure ||
+			(e.era == EraIdConway && failureType == ConwayLedgerUtxowFailure):
 			if len(tmpFailure) < 2 {
 				return fmt.Errorf(
 					"ApplyTxError UtxowFailure: expected at least 2 elements, got %d",
