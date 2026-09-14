@@ -2411,7 +2411,7 @@ func TestUtxowFailure_DijkstraUnknownTagBeyond20(t *testing.T) {
 
 func TestApplyTxErrorRejectsShortUtxowFailure(t *testing.T) {
 	cborData, err := cbor.Encode([]any{
-		[]any{uint(ApplyTxErrorUtxowFailure)},
+		[]any{uint(1)}, // Conway LEDGER UtxowFailure.
 	})
 	require.NoError(t, err)
 
@@ -2431,7 +2431,7 @@ func TestNewTxSubmitErrorFromCborHandlesShortApplyTxFailure(t *testing.T) {
 		[]any{
 			uint(EraIdConway),
 			[]any{
-				[]any{uint(ApplyTxErrorUtxowFailure)},
+				[]any{uint(1)}, // Conway LEDGER UtxowFailure.
 			},
 		},
 	})
