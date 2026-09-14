@@ -93,10 +93,31 @@ func decodePlutusProgram(
 	if evalContext == nil {
 		return nil, errors.New("evaluation context is required")
 	}
-	return syn.DecodeDeBruijnWithContext(innerScript, syn.ProgramContext{
+	programContext := syn.ProgramContext{
 		LedgerLanguage: ledgerLanguage,
 		ProtocolMajor:  evalContext.ProtoMajor,
-	})
+	}
+	program, err := syn.DecodeDeBruijnWithContext(innerScript, programContext)
+	if err != nil {
+		return nil, err
+	}
+	// The UPLC term-version-vs-ledger-language legality gate (the "van
+	// Rossem" gate: UPLC 1.1.0 requires protocol major >= 11 for
+	// PlutusV1/PlutusV2) is a phase-2, execution-time check in real
+	// cardano-ledger (mkTermToEvaluate), not a decode-time well-formedness
+	// check. decodePlutusProgram is only reached immediately before a
+	// program is actually run through the CEK machine, so this is the
+	// correct place to enforce it -- unlike the shared decode/well-formedness
+	// path used for a transaction's own stored-but-unexecuted reference
+	// scripts, which must never apply this gate. See
+	// syn.ValidateTermVersionForExecution.
+	if err := syn.ValidateTermVersionForExecution(
+		program.Version,
+		programContext,
+	); err != nil {
+		return nil, err
+	}
+	return program, nil
 }
 
 func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
