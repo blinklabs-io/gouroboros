@@ -51,34 +51,29 @@ func dijkstraGuardRedeemers() DijkstraRedeemers {
 	}
 }
 
-func dijkstraRequiredGuardsRaw(
-	t *testing.T,
+func dijkstraRequiredGuards(
 	guard common.Credential,
 	datum *common.Datum,
-) *DijkstraRawCbor {
-	t.Helper()
-	value := cbor.RawMessage{0xf6}
-	if datum != nil {
-		var err error
-		value, err = cbor.Encode(*datum)
-		require.NoError(t, err)
-	}
-	return dijkstraRequiredGuardsRawDatum(t, guard, value)
+) DijkstraRequiredTopLevelGuards {
+	return DijkstraRequiredTopLevelGuards{&guard: datum}
 }
 
+// dijkstraRequiredGuardsRawDatum CBOR-encodes a single-entry
+// required_top_level_guards map with an arbitrary, possibly malformed, raw
+// datum value, bypassing DijkstraRequiredTopLevelGuards entirely so tests can
+// exercise its UnmarshalCBOR against wire shapes the type itself would never
+// construct.
 func dijkstraRequiredGuardsRawDatum(
 	t *testing.T,
 	guard common.Credential,
 	datum cbor.RawMessage,
-) *DijkstraRawCbor {
+) []byte {
 	t.Helper()
 	raw, err := cbor.Encode(map[dijkstraV4TestCredentialKey]cbor.RawMessage{
 		{Type: guard.CredType, Hash: guard.Credential}: datum,
 	})
 	require.NoError(t, err)
-	ret := &DijkstraRawCbor{}
-	ret.SetCbor(raw)
-	return ret
+	return raw
 }
 
 func dijkstraSingleSubTx(sub DijkstraSubTransaction) *DijkstraTransaction {
@@ -282,7 +277,7 @@ func TestDijkstraRequiresGuardScriptsAndRedeemersPerLevel(t *testing.T) {
 func TestDijkstraRequiredTopLevelGuards(t *testing.T) {
 	required := testGuardCredential()
 	sub := DijkstraSubTransaction{Body: DijkstraSubTransactionBody{
-		TxRequiredTopLevelGuards: dijkstraRequiredGuardsRaw(t, required, nil),
+		TxRequiredTopLevelGuards: dijkstraRequiredGuards(required, nil),
 	}}
 	t.Run("missing", func(t *testing.T) {
 		err := UtxoValidateRedeemerAndScriptWitnesses(
@@ -359,8 +354,7 @@ func TestDijkstraRequiredGuardDatumShapes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			tx := dijkstraSingleSubTx(
 				DijkstraSubTransaction{Body: DijkstraSubTransactionBody{
-					TxRequiredTopLevelGuards: dijkstraRequiredGuardsRaw(
-						t,
+					TxRequiredTopLevelGuards: dijkstraRequiredGuards(
 						test.guard,
 						test.datum,
 					),
@@ -388,13 +382,20 @@ func TestDijkstraRequiredGuardDatumShapes(t *testing.T) {
 	}
 }
 
-func TestDijkstraRequiredTopLevelGuardDatumCBOR(t *testing.T) {
+// TestDijkstraRequiredTopLevelGuardsDecode exercises
+// DijkstraRequiredTopLevelGuards.UnmarshalCBOR directly against wire shapes a
+// well-formed encoder would never produce. This also covers what used to be
+// TestDijkstraInvalidTransactionRejectsNonPlutusGuardDatum: since the field is
+// now typed and decoded eagerly, a transaction with a non-Plutus-data guard
+// datum can no longer be constructed at all, so the rejection this proved at
+// witness-validation time is now structurally guaranteed at decode time
+// instead.
+func TestDijkstraRequiredTopLevelGuardsDecode(t *testing.T) {
 	guard := testGuardCredential()
 	tests := []struct {
-		name     string
-		datum    cbor.RawMessage
-		trailing bool
-		wantErr  string
+		name    string
+		datum   cbor.RawMessage
+		wantErr string
 	}{
 		{
 			name:  "null optional datum",
@@ -414,74 +415,32 @@ func TestDijkstraRequiredTopLevelGuardDatumCBOR(t *testing.T) {
 			datum:   cbor.RawMessage{0xf7},
 			wantErr: "decode required guard datum",
 		},
-		{
-			name:     "trailing top-level bytes",
-			datum:    cbor.RawMessage{0x01},
-			trailing: true,
-			wantErr:  "decode required top-level guards",
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			required := dijkstraRequiredGuardsRawDatum(t, guard, test.datum)
-			if test.trailing {
-				raw := append([]byte(nil), required.Cbor()...)
-				required.SetCbor(append(raw, 0xf6))
-			}
-			decoded, err := dijkstraRequiredTopLevelGuards(
-				&DijkstraSubTransactionBody{
-					TxRequiredTopLevelGuards: required,
-				},
-			)
+			raw := dijkstraRequiredGuardsRawDatum(t, guard, test.datum)
+			var decoded DijkstraRequiredTopLevelGuards
+			_, err := cbor.Decode(raw, &decoded)
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(
-				t,
-				test.datum,
-				decoded[dijkstraCredentialKey{
-					Type: guard.CredType,
-					Hash: guard.Credential,
-				}],
-			)
+			require.Len(t, decoded, 1)
+			for credential, datum := range decoded {
+				require.Equal(t, guard.CredType, credential.CredType)
+				require.Equal(t, guard.Credential, credential.Credential)
+				if bytes.Equal(test.datum, []byte{0xf6}) {
+					require.Nil(t, datum)
+					continue
+				}
+				require.NotNil(t, datum)
+				encoded, err := cbor.Encode(*datum)
+				require.NoError(t, err)
+				require.Equal(t, []byte(test.datum), encoded)
+			}
 		})
 	}
-}
-
-func TestDijkstraInvalidTransactionRejectsNonPlutusGuardDatum(t *testing.T) {
-	plutus := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
-	guard := dijkstraGuardCredentialForScript(plutus)
-	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
-		Body: DijkstraSubTransactionBody{
-			TxRequiredTopLevelGuards: dijkstraRequiredGuardsRawDatum(
-				t,
-				guard,
-				cbor.RawMessage{0xf5},
-			),
-		},
-	})
-	tx.TxIsValid = false
-	tx.Body.TxGuards = &DijkstraGuards{
-		Credentials: []common.Credential{guard},
-	}
-	tx.WitnessSet = testDijkstraWitnessSet(t, plutus)
-	tx.WitnessSet.WsRedeemers = dijkstraGuardRedeemers()
-
-	err := common.VerifyTransaction(
-		tx,
-		0,
-		mockledger.NewLedgerStateBuilder().Build(),
-		dijkstraGuardTestPParams(),
-		[]common.UtxoValidationRuleFunc{
-			dijkstraRule(
-				t,
-				common.UtxoValidationRuleRedeemerAndScriptWitnesses,
-			),
-		},
-	)
-	require.ErrorContains(t, err, "decode required guard datum")
 }
 
 func TestDijkstraSubtransactionKeyGuardAuthorization(t *testing.T) {
