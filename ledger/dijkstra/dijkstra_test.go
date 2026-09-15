@@ -1056,6 +1056,247 @@ func TestDijkstraTransactionBodyRejectsDuplicateKeyHashGuards(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
+func TestDijkstraAccountBalanceIntervalCBOR(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     []any
+		wantErr string
+		check   func(t *testing.T, interval DijkstraAccountBalanceInterval)
+	}{
+		{
+			name: "both bounds",
+			raw:  []any{uint64(10), uint64(20)},
+			check: func(t *testing.T, interval DijkstraAccountBalanceInterval) {
+				require.Equal(t, uint64(10), *interval.LowerBound)
+				require.Equal(t, uint64(20), *interval.UpperBound)
+				require.Nil(t, interval.Exact)
+			},
+		},
+		{
+			name: "lower only",
+			raw:  []any{uint64(10), nil},
+			check: func(t *testing.T, interval DijkstraAccountBalanceInterval) {
+				require.Equal(t, uint64(10), *interval.LowerBound)
+				require.Nil(t, interval.UpperBound)
+			},
+		},
+		{
+			name: "upper only",
+			raw:  []any{nil, uint64(20)},
+			check: func(t *testing.T, interval DijkstraAccountBalanceInterval) {
+				require.Nil(t, interval.LowerBound)
+				require.Equal(t, uint64(20), *interval.UpperBound)
+			},
+		},
+		{
+			name:    "both bounds nil is rejected",
+			raw:     []any{nil, nil},
+			wantErr: "requires a lower or upper bound",
+		},
+		{
+			name:    "wrong array length is rejected",
+			raw:     []any{uint64(10), uint64(20), uint64(30)},
+			wantErr: "invalid Dijkstra account balance interval encoding",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := cbor.Encode(test.raw)
+			require.NoError(t, err)
+			var interval DijkstraAccountBalanceInterval
+			_, err = cbor.Decode(raw, &interval)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			test.check(t, interval)
+			reencoded, err := cbor.Encode(interval)
+			require.NoError(t, err)
+			require.Equal(t, raw, reencoded)
+		})
+	}
+}
+
+func TestDijkstraAccountBalanceIntervalExactCBOR(t *testing.T) {
+	raw, err := cbor.Encode(uint64(42))
+	require.NoError(t, err)
+	var interval DijkstraAccountBalanceInterval
+	_, err = cbor.Decode(raw, &interval)
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), *interval.Exact)
+	require.Nil(t, interval.LowerBound)
+	require.Nil(t, interval.UpperBound)
+	reencoded, err := cbor.Encode(interval)
+	require.NoError(t, err)
+	require.Equal(t, raw, reencoded)
+}
+
+func TestDijkstraTransactionBodyBalanceIntervalsRejectsEmptyMap(t *testing.T) {
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		26: map[*common.Credential]*DijkstraAccountBalanceInterval{},
+	})
+	require.NoError(t, err)
+
+	var body DijkstraTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "must not be empty")
+}
+
+func TestDijkstraAccountBalanceIntervalMarshalCBORRejectsAllNilBounds(t *testing.T) {
+	_, err := DijkstraAccountBalanceInterval{}.MarshalCBOR()
+	require.ErrorContains(t, err, "requires a lower or upper bound")
+}
+
+// TestDijkstraTransactionBodyOmitsNilAccountBalanceIntervalsField guards
+// against a regression: giving DijkstraAccountBalanceIntervals (or
+// DijkstraRequiredTopLevelGuards) a custom MarshalCBOR makes fxamacker treat
+// it as always non-empty for omitempty purposes, so a nil (field-absent) map
+// would stop being omitted and every Dijkstra body would gain a spurious
+// empty key 26/24. Both types are documented as deliberately having no
+// MarshalCBOR for exactly this reason; this test would fail if one were
+// added back without also solving the omitempty problem.
+func TestDijkstraTransactionBodyOmitsNilAccountBalanceIntervalsField(t *testing.T) {
+	body := DijkstraTransactionBody{TxFee: 1}
+	encoded, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	_, present := fields[26]
+	require.False(t, present, "key 26 should be omitted when the field is nil")
+
+	subBody := DijkstraSubTransactionBody{Ttl: 1}
+	encodedSub, err := subBody.MarshalCBOR()
+	require.NoError(t, err)
+	var subFields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encodedSub, &subFields)
+	require.NoError(t, err)
+	_, present = subFields[24]
+	require.False(t, present, "key 24 should be omitted when the field is nil")
+	_, present = subFields[26]
+	require.False(t, present, "key 26 should be omitted when the field is nil")
+}
+
+// TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps proves
+// the containing body's MarshalCBOR validates a directly constructed
+// DijkstraAccountBalanceIntervals/DijkstraRequiredTopLevelGuards before wire
+// encoding, without breaking omitempty for a nil (field-absent) map. Decoding
+// from CBOR can never produce these malformed states (UnmarshalCBOR already
+// rejects them); this covers a caller that builds one of these exported map
+// types directly and encodes it without ever decoding first.
+func TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps(t *testing.T) {
+	t.Run("transaction body: all-nil-bounds interval", func(t *testing.T) {
+		guard := testGuardCredential()
+		body := DijkstraTransactionBody{
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
+				&guard: {},
+			},
+		}
+		_, err := body.MarshalCBOR()
+		require.ErrorContains(t, err, "requires a lower or upper bound")
+	})
+
+	t.Run("sub-transaction body: nil interval", func(t *testing.T) {
+		guard := testGuardCredential()
+		body := DijkstraSubTransactionBody{
+			TxAccountBalanceIntervals: DijkstraAccountBalanceIntervals{
+				&guard: nil,
+			},
+		}
+		_, err := body.MarshalCBOR()
+		require.ErrorContains(t, err, "must not be nil")
+	})
+
+	t.Run("sub-transaction body: required guard datum missing Plutus data", func(t *testing.T) {
+		guard := testGuardCredential()
+		body := DijkstraSubTransactionBody{
+			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+				&guard: {},
+			},
+		}
+		_, err := body.MarshalCBOR()
+		require.ErrorContains(t, err, "missing Plutus data")
+	})
+}
+
+func TestDijkstraTransactionBodyBalanceIntervalsRejectsDuplicateCredential(t *testing.T) {
+	var hash common.Blake2b224
+	hash[0] = 1
+	cred1 := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hash,
+	}
+	cred2 := cred1
+	lower := uint64(5)
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		26: map[*common.Credential]*DijkstraAccountBalanceInterval{
+			&cred1: {LowerBound: &lower},
+			&cred2: {LowerBound: &lower},
+		},
+	})
+	require.NoError(t, err)
+
+	var body DijkstraTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "contains a duplicate credential")
+}
+
+func TestDijkstraSubTransactionBodyAccountBalanceIntervalsRejectsNilInterval(
+	t *testing.T,
+) {
+	var hash common.Blake2b224
+	hash[0] = 1
+	cred := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hash,
+	}
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		26: map[*common.Credential]any{&cred: nil},
+	})
+	require.NoError(t, err)
+
+	var body DijkstraSubTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "must not contain a nil interval")
+}
+
+func TestDijkstraSubTransactionBodyRequiredTopLevelGuardsRejectsEmptyMap(
+	t *testing.T,
+) {
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		24: map[*common.Credential]*common.Datum{},
+	})
+	require.NoError(t, err)
+
+	var body DijkstraSubTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "must not be empty")
+}
+
+func TestDijkstraSubTransactionBodyRequiredTopLevelGuardsRejectsDuplicateCredential(
+	t *testing.T,
+) {
+	var hash common.Blake2b224
+	hash[0] = 1
+	cred1 := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: hash,
+	}
+	cred2 := cred1
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		24: map[*common.Credential]*common.Datum{
+			&cred1: nil,
+			&cred2: nil,
+		},
+	})
+	require.NoError(t, err)
+
+	var body DijkstraSubTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "contains a duplicate credential")
+}
+
 func TestDijkstraWitnessSetRejectsDuplicateUntaggedVkeyWitness(t *testing.T) {
 	dupCbor := []byte{
 		0xa1, // map(1)

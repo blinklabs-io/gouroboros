@@ -314,6 +314,172 @@ func TestDijkstraTxInfoV4POSIXTimeRange(t *testing.T) {
 	}
 }
 
+func TestDijkstraBodyFieldsV4AccountBalanceIntervals(t *testing.T) {
+	var hash1, hash2 common.Blake2b224
+	hash1[0] = 1
+	hash2[0] = 2
+	cred1 := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hash1,
+	}
+	cred2 := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hash2,
+	}
+	lower := uint64(10)
+	upper := uint64(20)
+	exact := uint64(30)
+	body := &DijkstraTransactionBody{
+		TxBalanceIntervals: DijkstraAccountBalanceIntervals{
+			// Inserted out of sorted order to confirm the output is sorted
+			// by credential rather than by map iteration order.
+			&cred2: {Exact: &exact},
+			&cred1: {LowerBound: &lower, UpperBound: &upper},
+		},
+	}
+	_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
+	require.NoError(t, err)
+	dataMap := requireDijkstraV4Map(t, balanceIntervals, 2)
+	firstKey := requireDijkstraV4Constr(t, dataMap.Pairs[0][0], 0, 1)
+	requireDijkstraV4Bytes(t, firstKey.Fields[0], cred1.Credential.Bytes())
+	both := requireDijkstraV4Constr(t, dataMap.Pairs[0][1], 2, 2)
+	requireDijkstraV4Integer(t, both.Fields[0], 10)
+	requireDijkstraV4Integer(t, both.Fields[1], 20)
+	secondKey := requireDijkstraV4Constr(t, dataMap.Pairs[1][0], 0, 1)
+	requireDijkstraV4Bytes(t, secondKey.Fields[0], cred2.Credential.Bytes())
+	exactField := requireDijkstraV4Constr(t, dataMap.Pairs[1][1], 3, 1)
+	requireDijkstraV4Integer(t, exactField.Fields[0], 30)
+}
+
+func TestDijkstraBodyFieldsV4AccountBalanceIntervalBoundShapes(t *testing.T) {
+	guard := testGuardCredential()
+	lower := uint64(7)
+	upper := uint64(9)
+	tests := []struct {
+		name     string
+		interval *DijkstraAccountBalanceInterval
+		wantTag  uint64
+	}{
+		{
+			name:     "lower only",
+			interval: &DijkstraAccountBalanceInterval{LowerBound: &lower},
+			wantTag:  0,
+		},
+		{
+			name:     "upper only",
+			interval: &DijkstraAccountBalanceInterval{UpperBound: &upper},
+			wantTag:  1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := &DijkstraSubTransactionBody{
+				TxAccountBalanceIntervals: DijkstraAccountBalanceIntervals{
+					&guard: test.interval,
+				},
+			}
+			_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
+			require.NoError(t, err)
+			dataMap := requireDijkstraV4Map(t, balanceIntervals, 1)
+			requireDijkstraV4Constr(t, dataMap.Pairs[0][1], test.wantTag, 1)
+		})
+	}
+}
+
+func TestDijkstraBodyFieldsV4RequiredTopLevelGuards(t *testing.T) {
+	guard := testGuardCredential()
+	tests := []struct {
+		name  string
+		datum *common.Datum
+	}{
+		{name: "no datum"},
+		{
+			name:  "with datum",
+			datum: &common.Datum{Data: data.NewInteger(big.NewInt(7))},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := &DijkstraSubTransactionBody{
+				TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+					&guard: test.datum,
+				},
+			}
+			_, _, _, requiredGuards, err := dijkstraBodyFieldsV4(body)
+			require.NoError(t, err)
+			dataMap := requireDijkstraV4Map(t, requiredGuards, 1)
+			if test.datum == nil {
+				requireDijkstraV4Constr(t, dataMap.Pairs[0][1], 1, 0)
+				return
+			}
+			present := requireDijkstraV4Constr(t, dataMap.Pairs[0][1], 0, 1)
+			requireDijkstraV4Integer(t, present.Fields[0], 7)
+		})
+	}
+}
+
+// TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps proves
+// dijkstraBodyFieldsV4 validates a directly constructed
+// DijkstraAccountBalanceIntervals/DijkstraRequiredTopLevelGuards rather than
+// panicking or silently emitting invalid Plutus data for it. Decoding a
+// transaction from CBOR can never produce these states (UnmarshalCBOR
+// already rejects them), but nothing stops a caller from building one of
+// these exported map types by hand.
+func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.T) {
+	guard := testGuardCredential()
+	unsupported := guard
+	unsupported.CredType = 2
+	lower := uint64(1)
+
+	t.Run("balance intervals: unsupported credential type", func(t *testing.T) {
+		body := &DijkstraTransactionBody{
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
+				&unsupported: {LowerBound: &lower},
+			},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "unsupported credential type")
+	})
+
+	t.Run("balance intervals: nil interval", func(t *testing.T) {
+		body := &DijkstraTransactionBody{
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{&guard: nil},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "nil interval")
+	})
+
+	t.Run("balance intervals: all-nil bounds", func(t *testing.T) {
+		body := &DijkstraTransactionBody{
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
+				&guard: {},
+			},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "requires a lower or upper bound")
+	})
+
+	t.Run("required top-level guards: unsupported credential type", func(t *testing.T) {
+		body := &DijkstraSubTransactionBody{
+			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+				&unsupported: nil,
+			},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "unsupported credential type")
+	})
+
+	t.Run("required top-level guards: datum missing Plutus data", func(t *testing.T) {
+		body := &DijkstraSubTransactionBody{
+			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+				&guard: {},
+			},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "missing Plutus data")
+	})
+}
+
 func TestDijkstraPlutusV4GuardingTopTxInfo(t *testing.T) {
 	guard := common.Credential{
 		CredType: common.CredentialTypeScriptHash,
@@ -326,19 +492,10 @@ func TestDijkstraPlutusV4GuardingTopTxInfo(t *testing.T) {
 		otherGuard.Credential[:],
 		bytes.Repeat([]byte{0x52}, len(otherGuard.Credential)),
 	)
-	requiredRaw, err := cbor.Encode(
-		map[dijkstraV4TestCredentialKey]common.Datum{
-			{Type: guard.CredType, Hash: guard.Credential}: {
-				Data: data.NewInteger(big.NewInt(123)),
-			},
-			{Type: otherGuard.CredType, Hash: otherGuard.Credential}: {
-				Data: data.NewInteger(big.NewInt(456)),
-			},
-		},
-	)
-	require.NoError(t, err)
-	requiredGuards := &DijkstraRawCbor{}
-	requiredGuards.SetCbor(requiredRaw)
+	requiredGuards := DijkstraRequiredTopLevelGuards{
+		&guard:      &common.Datum{Data: data.NewInteger(big.NewInt(123))},
+		&otherGuard: &common.Datum{Data: data.NewInteger(big.NewInt(456))},
+	}
 	var policy common.Blake2b224
 	copy(policy[:], bytes.Repeat([]byte{0x53}, len(policy)))
 	subMint := common.NewMultiAsset(

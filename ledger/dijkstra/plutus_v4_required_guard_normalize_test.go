@@ -18,18 +18,17 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
 
 // TestDijkstraRequiredGuardsV4NormalizesDatum exercises the
-// dijkstraRequiredGuardsV4 code path with a deliberately definite-encoded
-// inline datum. The fix at plutus_v4.go:1341 (data.Normalize(datum.Data))
-// ensures that a required top-level guard datum reaches a PlutusV4 script
-// with canonical indefinite-length encoding, matching cardano-ledger's
-// fresh reconstruction of script-visible data.
+// dijkstraRequiredTopLevelGuardsV4 code path with a deliberately
+// definite-encoded inline datum. The fix at plutus_v4.go
+// (data.Normalize(datum.Data)) ensures that a required top-level guard datum
+// reaches a PlutusV4 script with canonical indefinite-length encoding,
+// matching cardano-ledger's fresh reconstruction of script-visible data.
 func TestDijkstraRequiredGuardsV4NormalizesDatum(t *testing.T) {
 	// DEFINITE-encoded datum on the wire.
 	//   d8 79       tag(121) -- datum
@@ -75,22 +74,12 @@ func TestDijkstraRequiredGuardsV4NormalizesDatum(t *testing.T) {
 		Credential: guardHash,
 	}
 
-	// Encode the required-guards map exactly as it appears in a Dijkstra
-	// sub-transaction body (map from credential to optional datum).
-	// The credential key is a struct-as-array [Type, Hash].
-	credKey := dijkstraV4TestCredentialKey{
-		Type: uint(guardCred.CredType),
-		Hash: guardCred.Credential,
-	}
-	datumCbor, err := cbor.Encode(datum)
-	require.NoError(t, err)
-	requiredGuardsRaw, err := cbor.Encode(map[dijkstraV4TestCredentialKey]cbor.RawMessage{
-		credKey: datumCbor,
-	})
-	require.NoError(t, err)
+	// Build the required-guards map exactly as DijkstraRequiredTopLevelGuards
+	// decodes it: a credential pointer keying the already-decoded datum.
+	required := DijkstraRequiredTopLevelGuards{&guardCred: &datum}
 
 	// Call the internal function under test.
-	rendered, err := dijkstraRequiredGuardsV4(requiredGuardsRaw)
+	rendered, err := dijkstraRequiredTopLevelGuardsV4(required)
 	require.NoError(t, err)
 
 	renderedBytes, err := data.Encode(rendered)
@@ -104,6 +93,6 @@ func TestDijkstraRequiredGuardsV4NormalizesDatum(t *testing.T) {
 	require.NotContains(
 		t, renderedHex, wireDatumHex,
 		"rendered required-guards still embeds the definite-length wire datum: "+
-			"dijkstraRequiredGuardsV4 is handing unnormalized PlutusData to the script",
+			"dijkstraRequiredTopLevelGuardsV4 is handing unnormalized PlutusData to the script",
 	)
 }

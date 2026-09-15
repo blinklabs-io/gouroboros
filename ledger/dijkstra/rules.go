@@ -15,7 +15,6 @@
 package dijkstra
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"iter"
@@ -1808,61 +1807,26 @@ func guardingRedeemer(
 	}
 }
 
+// dijkstraRequiredTopLevelGuards re-keys a sub-transaction's already-decoded
+// and validated DijkstraRequiredTopLevelGuards by dijkstraCredentialKey, the
+// comparable key the guard-validation rules below use for set membership.
 func dijkstraRequiredTopLevelGuards(
 	body *DijkstraSubTransactionBody,
-) (map[dijkstraCredentialKey]cbor.RawMessage, error) {
-	if body == nil || body.TxRequiredTopLevelGuards == nil {
-		return nil, nil
+) map[dijkstraCredentialKey]*common.Datum {
+	if body == nil || len(body.TxRequiredTopLevelGuards) == 0 {
+		return nil
 	}
-	raw := body.TxRequiredTopLevelGuards.Cbor()
-	var required map[dijkstraCredentialKey]cbor.RawMessage
-	consumed, err := cbor.Decode(raw, &required)
-	if err != nil {
-		return nil, fmt.Errorf("decode required top-level guards: %w", err)
+	required := make(
+		map[dijkstraCredentialKey]*common.Datum,
+		len(body.TxRequiredTopLevelGuards),
+	)
+	for credential, datum := range body.TxRequiredTopLevelGuards {
+		required[dijkstraCredentialKey{
+			Type: credential.CredType,
+			Hash: credential.Credential,
+		}] = datum
 	}
-	if consumed != len(raw) {
-		return nil, fmt.Errorf(
-			"decode required top-level guards: %d trailing bytes",
-			len(raw)-consumed,
-		)
-	}
-	credentials := make([]dijkstraCredentialKey, 0, len(required))
-	for credential := range required {
-		credentials = append(credentials, credential)
-	}
-	dijkstraSortCredentialKeys(credentials)
-	for _, credential := range credentials {
-		rawDatum := required[credential]
-		if bytes.Equal(rawDatum, []byte{0xf6}) {
-			continue
-		}
-		var datum common.Datum
-		consumed, err := cbor.Decode(rawDatum, &datum)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"decode required guard datum for credential %d:%x: %w",
-				credential.Type,
-				credential.Hash[:],
-				err,
-			)
-		}
-		if consumed != len(rawDatum) {
-			return nil, fmt.Errorf(
-				"decode required guard datum for credential %d:%x: %d trailing bytes",
-				credential.Type,
-				credential.Hash[:],
-				len(rawDatum)-consumed,
-			)
-		}
-		if datum.Data == nil {
-			return nil, fmt.Errorf(
-				"decode required guard datum for credential %d:%x: nil Plutus data",
-				credential.Type,
-				credential.Hash[:],
-			)
-		}
-	}
-	return required, nil
+	return required
 }
 
 func dijkstraSortedCredentials(
@@ -1898,10 +1862,7 @@ func validateDijkstraRequiredTopLevelGuards(
 	missing := make(map[dijkstraCredentialKey]struct{})
 	subTxs := tx.Body.TxSubTransactions.Items()
 	for idx := range subTxs {
-		required, err := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
-		if err != nil {
-			return err
-		}
+		required := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
 		for credential := range required {
 			if _, ok := topLevel[credential]; !ok {
 				missing[credential] = struct{}{}
@@ -1923,12 +1884,9 @@ func validateDijkstraGuardDatums(
 	malformed := make(map[dijkstraCredentialKey]struct{})
 	subTxs := tx.Body.TxSubTransactions.Items()
 	for idx := range subTxs {
-		required, err := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
-		if err != nil {
-			return err
-		}
-		for credential, rawDatum := range required {
-			hasDatum := !bytes.Equal(rawDatum, []byte{0xf6})
+		required := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
+		for credential, datum := range required {
+			hasDatum := datum != nil
 			switch credential.Type {
 			case common.CredentialTypeAddrKeyHash:
 				if hasDatum {

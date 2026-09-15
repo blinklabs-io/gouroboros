@@ -729,20 +729,296 @@ func (g DijkstraGuards) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(cbor.NewSetType(g.KeyHashes, true))
 }
 
-type DijkstraRawCbor struct {
-	cbor.DecodeStoreCbor
+// DijkstraAccountBalanceInterval is CIP-159's account_balance_interval: an
+// exact balance, or an inclusive-lower/exclusive-upper coin bound pair where
+// exactly one bound may be omitted.
+type DijkstraAccountBalanceInterval struct {
+	Exact      *uint64
+	LowerBound *uint64
+	UpperBound *uint64
 }
 
-func (r *DijkstraRawCbor) UnmarshalCBOR(cborData []byte) error {
-	r.SetCbor(cborData)
+func (i *DijkstraAccountBalanceInterval) UnmarshalCBOR(cborData []byte) error {
+	var exact uint64
+	if _, err := cbor.Decode(cborData, &exact); err == nil {
+		*i = DijkstraAccountBalanceInterval{Exact: &exact}
+		return nil
+	}
+	var bounds []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &bounds); err != nil || len(bounds) != 2 {
+		return errors.New(
+			"invalid Dijkstra account balance interval encoding",
+		)
+	}
+	lower, err := decodeDijkstraOptionalCoin(bounds[0])
+	if err != nil {
+		return fmt.Errorf(
+			"decode account balance interval lower bound: %w",
+			err,
+		)
+	}
+	upper, err := decodeDijkstraOptionalCoin(bounds[1])
+	if err != nil {
+		return fmt.Errorf(
+			"decode account balance interval upper bound: %w",
+			err,
+		)
+	}
+	if lower == nil && upper == nil {
+		return errors.New(
+			"dijkstra account balance interval requires a lower or upper bound",
+		)
+	}
+	*i = DijkstraAccountBalanceInterval{LowerBound: lower, UpperBound: upper}
 	return nil
 }
 
-func (r DijkstraRawCbor) MarshalCBOR() ([]byte, error) {
-	if raw := r.Cbor(); len(raw) > 0 {
-		return raw, nil
+func decodeDijkstraOptionalCoin(raw cbor.RawMessage) (*uint64, error) {
+	if isCborNull(raw) {
+		return nil, nil
 	}
-	return cbor.Encode(nil)
+	var value uint64
+	if _, err := cbor.Decode(raw, &value); err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func (i DijkstraAccountBalanceInterval) MarshalCBOR() ([]byte, error) {
+	if err := validateDijkstraAccountBalanceInterval(&i); err != nil {
+		return nil, err
+	}
+	if i.Exact != nil {
+		return cbor.Encode(*i.Exact)
+	}
+	encodeBound := func(v *uint64) any {
+		if v == nil {
+			return nil
+		}
+		return *v
+	}
+	return cbor.Encode(
+		[]any{encodeBound(i.LowerBound), encodeBound(i.UpperBound)},
+	)
+}
+
+// validateDijkstraAccountBalanceInterval rejects a nil interval, and an
+// interval with every bound nil: the one state
+// DijkstraAccountBalanceInterval's own UnmarshalCBOR refuses to decode
+// (encodeBound(nil), encodeBound(nil) round-trips to [null, null], which
+// UnmarshalCBOR then rejects) but that a directly constructed zero-value
+// DijkstraAccountBalanceInterval{} can still produce.
+func validateDijkstraAccountBalanceInterval(
+	interval *DijkstraAccountBalanceInterval,
+) error {
+	if interval == nil {
+		return errors.New("account balance interval must not be nil")
+	}
+	if interval.Exact == nil && interval.LowerBound == nil &&
+		interval.UpperBound == nil {
+		return errors.New(
+			"dijkstra account balance interval requires a lower or upper bound",
+		)
+	}
+	return nil
+}
+
+// DijkstraAccountBalanceIntervals is CIP-159's account_balance_intervals: a
+// non-empty credential-keyed map of account balance intervals. It backs both
+// the main transaction body's balance_intervals (key 26) and each
+// sub-transaction body's account_balance_intervals (key 26).
+//
+// The pinned CDDL's prose currently reads this map as reward_account-keyed
+// (updated in 2ea1f663, "align Dijkstra with Leios prototype 2026w36"), but
+// the golden transaction from cardano-ledger PR #5940
+// (testdata/cardano_ledger_dijkstra_w30_tx.hex) — real reference-
+// implementation output, not hand-transcribed spec prose — encodes this
+// field's keys as two-element credential arrays ([CredType, Hash]), matching
+// this issue's own field description. Credential wins as the byte-accurate,
+// evidence-backed shape; the CDDL comment may be ahead of what the
+// reference implementation actually produces for this field.
+type DijkstraAccountBalanceIntervals map[*common.Credential]*DijkstraAccountBalanceInterval
+
+// UnmarshalCBOR decodes each value from raw CBOR rather than directly into
+// *DijkstraAccountBalanceInterval. fxamacker treats CBOR null the same as
+// CBOR undefined for a pointer-typed map value and sets it to nil without
+// calling UnmarshalCBOR, but the CDDL account_balance_interval value is never
+// nilable; decoding through cbor.RawMessage lets isCborNull reject only the
+// exact wire byte the CDDL forbids instead of silently admitting a nil
+// interval that would later panic when converted to Plutus data.
+func (m *DijkstraAccountBalanceIntervals) UnmarshalCBOR(cborData []byte) error {
+	var raw map[*common.Credential]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &raw); err != nil {
+		return err
+	}
+	if err := validateDijkstraCredentialMapKeys(
+		raw,
+		"account balance intervals",
+	); err != nil {
+		return err
+	}
+	intervals := make(DijkstraAccountBalanceIntervals, len(raw))
+	for credential, rawInterval := range raw {
+		if isCborNull(rawInterval) {
+			return errors.New(
+				"account balance intervals must not contain a nil interval",
+			)
+		}
+		var interval DijkstraAccountBalanceInterval
+		if _, err := cbor.Decode(rawInterval, &interval); err != nil {
+			return fmt.Errorf("decode account balance interval: %w", err)
+		}
+		intervals[credential] = &interval
+	}
+	*m = intervals
+	return nil
+}
+
+// DijkstraAccountBalanceIntervals deliberately has no custom MarshalCBOR.
+// fxamacker's omitempty treats any type implementing cbor.Marshaler as
+// always non-empty (getEncodeFuncInternal special-cases exactly this), so a
+// custom Marshal method here would stop a nil (field-absent) map from being
+// omitted — every Dijkstra body would gain a spurious empty key 26. Encode
+// validation for a directly constructed map instead happens at its two
+// consumers: dijkstraAccountBalanceIntervalsV4, which turns it into
+// script-visible output, and validateDijkstraAccountBalanceIntervalsForEncoding,
+// called from the containing body's MarshalCBOR before wire encoding.
+func validateDijkstraAccountBalanceIntervalsForEncoding(
+	intervals DijkstraAccountBalanceIntervals,
+) error {
+	if intervals == nil {
+		return nil
+	}
+	if err := validateDijkstraCredentialMapKeys(
+		map[*common.Credential]*DijkstraAccountBalanceInterval(intervals),
+		"account balance intervals",
+	); err != nil {
+		return err
+	}
+	for _, interval := range intervals {
+		if err := validateDijkstraAccountBalanceInterval(interval); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DijkstraRequiredTopLevelGuards is CIP-118's required_top_level_guards: a
+// non-empty credential-keyed map of optional Plutus datums that a
+// sub-transaction requires its enclosing transaction's guards to satisfy.
+type DijkstraRequiredTopLevelGuards map[*common.Credential]*common.Datum
+
+// UnmarshalCBOR decodes each datum from raw CBOR rather than directly into
+// *common.Datum. fxamacker treats CBOR undefined the same as CBOR null for a
+// pointer-typed map value and sets it to nil without calling UnmarshalCBOR,
+// but the CDDL only permits CBOR null for "no datum"; decoding through
+// cbor.RawMessage lets isCborNull reject undefined (and anything else that
+// is not valid Plutus data) instead of silently treating it as absent.
+func (m *DijkstraRequiredTopLevelGuards) UnmarshalCBOR(cborData []byte) error {
+	var raw map[*common.Credential]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &raw); err != nil {
+		return err
+	}
+	if err := validateDijkstraCredentialMapKeys(
+		raw,
+		"required top-level guards",
+	); err != nil {
+		return err
+	}
+	required := make(DijkstraRequiredTopLevelGuards, len(raw))
+	for credential, rawDatum := range raw {
+		if isCborNull(rawDatum) {
+			required[credential] = nil
+			continue
+		}
+		var datum common.Datum
+		if _, err := cbor.Decode(rawDatum, &datum); err != nil {
+			return fmt.Errorf("decode required guard datum: %w", err)
+		}
+		required[credential] = &datum
+	}
+	*m = required
+	return nil
+}
+
+// DijkstraRequiredTopLevelGuards deliberately has no custom MarshalCBOR, for
+// the same reason DijkstraAccountBalanceIntervals has none: fxamacker's
+// omitempty would stop treating a nil (field-absent) map as empty. Encode
+// validation for a directly constructed map instead happens at its two
+// consumers: dijkstraRequiredTopLevelGuardsV4, which turns it into
+// script-visible output, and validateDijkstraRequiredTopLevelGuardsForEncoding,
+// called from the containing sub-transaction body's MarshalCBOR before wire
+// encoding.
+func validateDijkstraRequiredTopLevelGuardsForEncoding(
+	required DijkstraRequiredTopLevelGuards,
+) error {
+	if required == nil {
+		return nil
+	}
+	if err := validateDijkstraCredentialMapKeys(
+		map[*common.Credential]*common.Datum(required),
+		"required top-level guards",
+	); err != nil {
+		return err
+	}
+	for _, datum := range required {
+		if err := validateDijkstraRequiredTopLevelGuardDatum(datum); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateDijkstraRequiredTopLevelGuardDatum rejects a non-nil datum whose
+// Data is nil. A legitimately decoded or constructed datum always has Data
+// set; a nil Data on a non-nil *common.Datum only arises when raw bytes were
+// set directly via SetCbor without going through UnmarshalCBOR, and
+// common.Datum.MarshalCBOR prefers those preserved raw bytes verbatim, so an
+// invalid wire value (such as CBOR undefined) would otherwise round-trip
+// straight through.
+func validateDijkstraRequiredTopLevelGuardDatum(datum *common.Datum) error {
+	if datum != nil && datum.Data == nil {
+		return errors.New(
+			"required top-level guard datum is missing Plutus data",
+		)
+	}
+	return nil
+}
+
+// validateDijkstraCredentialMapKeys enforces the CDDL "+" (non-empty) map
+// constraint shared by DijkstraAccountBalanceIntervals and
+// DijkstraRequiredTopLevelGuards, and rejects nil, unsupported-type, or
+// logically duplicate credential keys that a pointer-keyed Go map cannot
+// reject on its own.
+func validateDijkstraCredentialMapKeys[V any](
+	values map[*common.Credential]V,
+	field string,
+) error {
+	if len(values) == 0 {
+		return fmt.Errorf("%s must not be empty", field)
+	}
+	seen := make(map[dijkstraCredentialKey]struct{}, len(values))
+	for credential := range values {
+		if credential == nil {
+			return fmt.Errorf("%s contains a nil credential", field)
+		}
+		if credential.CredType > common.CredentialTypeScriptHash {
+			return fmt.Errorf(
+				"%s contains an unsupported credential type: %d",
+				field,
+				credential.CredType,
+			)
+		}
+		key := dijkstraCredentialKey{
+			Type: credential.CredType,
+			Hash: credential.Credential,
+		}
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("%s contains a duplicate credential", field)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
 }
 
 type DijkstraTransactionBody struct {
@@ -769,7 +1045,7 @@ type DijkstraTransactionBody struct {
 	TxDonation              uint64                                        `cbor:"22,keyasint,omitempty"`
 	TxSubTransactions       cbor.SetType[DijkstraSubTransaction]          `cbor:"23,keyasint,omitempty,omitzero"`
 	TxDirectDeposits        map[cbor.ByteString]uint64                    `cbor:"25,keyasint,omitempty"`
-	TxBalanceIntervals      *DijkstraRawCbor                              `cbor:"26,keyasint,omitempty"`
+	TxBalanceIntervals      DijkstraAccountBalanceIntervals               `cbor:"26,keyasint,omitempty"`
 }
 
 func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -833,6 +1109,11 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 func (b DijkstraTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
+	}
+	if err := validateDijkstraAccountBalanceIntervalsForEncoding(
+		b.TxBalanceIntervals,
+	); err != nil {
+		return nil, err
 	}
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
@@ -1104,9 +1385,9 @@ type DijkstraSubTransactionBody struct {
 	TxProposalProcedures      []DijkstraProposalProcedure                   `cbor:"20,keyasint,omitempty"`
 	TxCurrentTreasuryValue    uint64                                        `cbor:"21,keyasint,omitempty"`
 	TxDonation                uint64                                        `cbor:"22,keyasint,omitempty"`
-	TxRequiredTopLevelGuards  *DijkstraRawCbor                              `cbor:"24,keyasint,omitempty"`
+	TxRequiredTopLevelGuards  DijkstraRequiredTopLevelGuards                `cbor:"24,keyasint,omitempty"`
 	TxDirectDeposits          map[cbor.ByteString]uint64                    `cbor:"25,keyasint,omitempty"`
-	TxAccountBalanceIntervals *DijkstraRawCbor                              `cbor:"26,keyasint,omitempty"`
+	TxAccountBalanceIntervals DijkstraAccountBalanceIntervals               `cbor:"26,keyasint,omitempty"`
 }
 
 func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -1172,6 +1453,16 @@ func checkDuplicateProposalProcedures(
 func (b DijkstraSubTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
+	}
+	if err := validateDijkstraRequiredTopLevelGuardsForEncoding(
+		b.TxRequiredTopLevelGuards,
+	); err != nil {
+		return nil, err
+	}
+	if err := validateDijkstraAccountBalanceIntervalsForEncoding(
+		b.TxAccountBalanceIntervals,
+	); err != nil {
+		return nil, err
 	}
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }

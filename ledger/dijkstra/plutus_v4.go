@@ -1165,9 +1165,9 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 	guards = data.NewList()
 	requiredGuards = data.NewMap(nil)
 	var deposits map[cbor.ByteString]uint64
-	var intervals *DijkstraRawCbor
+	var intervals DijkstraAccountBalanceIntervals
 	var guardSet *DijkstraGuards
-	var required *DijkstraRawCbor
+	var required DijkstraRequiredTopLevelGuards
 	switch b := body.(type) {
 	case *DijkstraTransactionBody:
 		deposits = b.TxDirectDeposits
@@ -1188,8 +1188,8 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	if intervals != nil && len(intervals.Cbor()) > 0 {
-		balanceIntervals, err = dijkstraBalanceIntervalsV4(intervals.Cbor())
+	if len(intervals) > 0 {
+		balanceIntervals, err = dijkstraAccountBalanceIntervalsV4(intervals)
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
@@ -1201,13 +1201,130 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 		}
 		guards = data.NewList(items...)
 	}
-	if required != nil && len(required.Cbor()) > 0 {
-		requiredGuards, err = dijkstraRequiredGuardsV4(required.Cbor())
+	if len(required) > 0 {
+		requiredGuards, err = dijkstraRequiredTopLevelGuardsV4(required)
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
 	}
 	return directDeposits, balanceIntervals, guards, requiredGuards, nil
+}
+
+// sortedDijkstraCredentials returns the keys of a credential-keyed map in
+// deterministic (CredType, then hash bytes) order, matching
+// dijkstraSortCredentialKeys, so Plutus V4 map encodings are reproducible.
+func sortedDijkstraCredentials[V any](
+	values map[*common.Credential]V,
+) []*common.Credential {
+	credentials := make([]*common.Credential, 0, len(values))
+	for credential := range values {
+		credentials = append(credentials, credential)
+	}
+	slices.SortFunc(credentials, func(a, b *common.Credential) int {
+		if a.CredType != b.CredType {
+			return int(a.CredType) - int(b.CredType)
+		}
+		return bytes.Compare(a.Credential.Bytes(), b.Credential.Bytes())
+	})
+	return credentials
+}
+
+func dijkstraAccountBalanceIntervalsV4(
+	intervals DijkstraAccountBalanceIntervals,
+) (data.PlutusData, error) {
+	rawIntervals := map[*common.Credential]*DijkstraAccountBalanceInterval(
+		intervals,
+	)
+	if err := validateDijkstraCredentialMapKeys(
+		rawIntervals,
+		"account balance intervals",
+	); err != nil {
+		return nil, err
+	}
+	credentials := sortedDijkstraCredentials(rawIntervals)
+	pairs := make([][2]data.PlutusData, 0, len(credentials))
+	for _, credential := range credentials {
+		interval := intervals[credential]
+		if interval == nil {
+			return nil, errors.New(
+				"account balance intervals contains a nil interval",
+			)
+		}
+		if err := validateDijkstraAccountBalanceInterval(interval); err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, [2]data.PlutusData{
+			credential.ToPlutusData(),
+			dijkstraAccountBalanceIntervalV4(interval),
+		})
+	}
+	return data.NewMap(pairs), nil
+}
+
+func dijkstraAccountBalanceIntervalV4(
+	interval *DijkstraAccountBalanceInterval,
+) data.PlutusData {
+	switch {
+	case interval.Exact != nil:
+		return data.NewConstr(
+			3,
+			data.NewInteger(new(big.Int).SetUint64(*interval.Exact)),
+		)
+	case interval.LowerBound != nil && interval.UpperBound != nil:
+		return data.NewConstr(
+			2,
+			data.NewInteger(new(big.Int).SetUint64(*interval.LowerBound)),
+			data.NewInteger(new(big.Int).SetUint64(*interval.UpperBound)),
+		)
+	case interval.LowerBound != nil:
+		return data.NewConstr(
+			0,
+			data.NewInteger(new(big.Int).SetUint64(*interval.LowerBound)),
+		)
+	case interval.UpperBound != nil:
+		return data.NewConstr(
+			1,
+			data.NewInteger(new(big.Int).SetUint64(*interval.UpperBound)),
+		)
+	default:
+		// Unreachable for a decoded value: DijkstraAccountBalanceInterval's
+		// own UnmarshalCBOR rejects an interval with every bound nil. Only a
+		// manually-constructed zero-value interval can reach this case.
+		return data.NewConstr(1, data.NewInteger(new(big.Int)))
+	}
+}
+
+func dijkstraRequiredTopLevelGuardsV4(
+	required DijkstraRequiredTopLevelGuards,
+) (data.PlutusData, error) {
+	rawRequired := map[*common.Credential]*common.Datum(required)
+	if err := validateDijkstraCredentialMapKeys(
+		rawRequired,
+		"required top-level guards",
+	); err != nil {
+		return nil, err
+	}
+	credentials := sortedDijkstraCredentials(rawRequired)
+	pairs := make([][2]data.PlutusData, 0, len(credentials))
+	for _, credential := range credentials {
+		value := data.NewConstr(1)
+		datum := required[credential]
+		if err := validateDijkstraRequiredTopLevelGuardDatum(datum); err != nil {
+			return nil, err
+		}
+		if datum != nil {
+			// Normalize: datum.Data comes straight off cbor.Decode, so it
+			// still carries the wire's definite/indefinite encoding. Every
+			// other script-visible boundary in this file normalizes; this
+			// one must too, or a required top-level guard datum reaches a
+			// PlutusV4 script with non-canonical bytes.
+			value = data.NewConstr(0, data.Normalize(datum.Data))
+		}
+		pairs = append(pairs, [2]data.PlutusData{
+			credential.ToPlutusData(), value,
+		})
+	}
+	return data.NewMap(pairs), nil
 }
 
 func dijkstraDirectDepositsV4(
@@ -1241,108 +1358,6 @@ func dijkstraDirectDepositsV4(
 			credential.ToPlutusData(),
 			data.NewInteger(new(big.Int).SetUint64(item.amount)),
 		}
-	}
-	return data.NewMap(pairs), nil
-}
-
-func dijkstraBalanceIntervalsV4(raw []byte) (data.PlutusData, error) {
-	var encoded map[dijkstraCredentialKey]cbor.RawMessage
-	if _, err := cbor.Decode(raw, &encoded); err != nil {
-		return nil, fmt.Errorf("decode account balance intervals: %w", err)
-	}
-	credentials := make([]dijkstraCredentialKey, 0, len(encoded))
-	for credential := range encoded {
-		credentials = append(credentials, credential)
-	}
-	dijkstraSortCredentialKeys(credentials)
-	pairs := make([][2]data.PlutusData, 0, len(credentials))
-	for _, credential := range credentials {
-		interval, err := dijkstraBalanceIntervalV4(encoded[credential])
-		if err != nil {
-			return nil, err
-		}
-		pairs = append(pairs, [2]data.PlutusData{
-			credential.credential().ToPlutusData(), interval,
-		})
-	}
-	return data.NewMap(pairs), nil
-}
-
-func dijkstraBalanceIntervalV4(raw cbor.RawMessage) (data.PlutusData, error) {
-	var exact uint64
-	if _, err := cbor.Decode(raw, &exact); err == nil {
-		return data.NewConstr(
-			3,
-			data.NewInteger(new(big.Int).SetUint64(exact)),
-		), nil
-	}
-	var bounds []cbor.RawMessage
-	if _, err := cbor.Decode(raw, &bounds); err != nil || len(bounds) != 2 {
-		return nil, errors.New("invalid account balance interval encoding")
-	}
-	decodeBound := func(value cbor.RawMessage) (*big.Int, error) {
-		if bytes.Equal(value, []byte{0xf6}) {
-			return nil, nil
-		}
-		var amount uint64
-		if _, err := cbor.Decode(value, &amount); err != nil {
-			return nil, err
-		}
-		return new(big.Int).SetUint64(amount), nil
-	}
-	lower, err := decodeBound(bounds[0])
-	if err != nil {
-		return nil, err
-	}
-	upper, err := decodeBound(bounds[1])
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case lower != nil && upper != nil:
-		return data.NewConstr(
-			2,
-			data.NewInteger(lower),
-			data.NewInteger(upper),
-		), nil
-	case lower != nil:
-		return data.NewConstr(0, data.NewInteger(lower)), nil
-	case upper != nil:
-		return data.NewConstr(1, data.NewInteger(upper)), nil
-	default:
-		return nil, errors.New("account balance interval has no bounds")
-	}
-}
-
-func dijkstraRequiredGuardsV4(raw []byte) (data.PlutusData, error) {
-	var encoded map[dijkstraCredentialKey]cbor.RawMessage
-	if _, err := cbor.Decode(raw, &encoded); err != nil {
-		return nil, fmt.Errorf("decode required top-level guards: %w", err)
-	}
-	credentials := make([]dijkstraCredentialKey, 0, len(encoded))
-	for credential := range encoded {
-		credentials = append(credentials, credential)
-	}
-	dijkstraSortCredentialKeys(credentials)
-	pairs := make([][2]data.PlutusData, 0, len(credentials))
-	for _, credential := range credentials {
-		value := data.NewConstr(1)
-		rawDatum := encoded[credential]
-		if !bytes.Equal(rawDatum, []byte{0xf6}) {
-			var datum common.Datum
-			if _, err := cbor.Decode(rawDatum, &datum); err != nil {
-				return nil, fmt.Errorf("decode required guard datum: %w", err)
-			}
-			// Normalize: datum.Data comes straight off cbor.Decode above, so
-			// it still carries the wire's definite/indefinite encoding. Every
-			// other script-visible boundary in this file normalizes; this one
-			// must too, or a required top-level guard datum reaches a PlutusV4
-			// script with non-canonical bytes.
-			value = data.NewConstr(0, data.Normalize(datum.Data))
-		}
-		pairs = append(pairs, [2]data.PlutusData{
-			credential.credential().ToPlutusData(), value,
-		})
 	}
 	return data.NewMap(pairs), nil
 }
