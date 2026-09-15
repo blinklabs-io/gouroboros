@@ -144,9 +144,8 @@ func (b *DijkstraBlock) Era() common.Era {
 }
 
 func (b *DijkstraBlock) Transactions() []common.Transaction {
-	// Each transaction's IsValid() already reflects membership in the block
-	// body's invalid_transactions index set (applied at decode time); a tx at
-	// index i is invalid iff i is in that set.
+	// Each transaction's IsValid() reflects the per-transaction validity flag;
+	// legacy invalid-transaction indexes are converted to that flag at decode.
 	ret := make([]common.Transaction, len(b.BlockBody.Transactions))
 	for idx := range b.BlockBody.Transactions {
 		ret[idx] = &b.BlockBody.Transactions[idx]
@@ -314,6 +313,9 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		if err != nil {
 			return fmt.Errorf("decode Dijkstra transaction %d: %w", idx, err)
 		}
+		if tx == nil {
+			return fmt.Errorf("decode Dijkstra transaction %d: constructor returned nil", idx)
+		}
 		txs[idx] = *tx
 	}
 	if legacy {
@@ -330,6 +332,7 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		for idx := range txs {
 			txs[idx].TxIsValid = !invalid[uint(idx)]
 		}
+		b.InvalidTransactions = append([]uint(nil), legacyInvalidTxs...)
 	}
 	// items[1] (or items[2] for the compatibility form): leios_certificate.
 	leiosCert, err := decodeDijkstraLeiosCertificate(items[txField+1])
@@ -342,6 +345,9 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	b.Transactions = txs
+	if !legacy {
+		b.InvalidTransactions = nil
+	}
 	b.LeiosCertificate = leiosCert
 	b.PerasCertificate = perasCert
 	b.SetCbor(cborData)
@@ -365,8 +371,17 @@ func (b DijkstraBlockBody) MarshalCBOR() ([]byte, error) {
 		perasField = b.PerasCertificate
 	}
 	rawTxs := make([]cbor.RawMessage, len(txs))
+	invalid := make(map[uint]struct{}, len(b.InvalidTransactions))
+	for _, idx := range b.InvalidTransactions {
+		invalid[idx] = struct{}{}
+	}
 	for idx := range txs {
-		data, err := marshalDijkstraBlockTransaction(&txs[idx])
+		tx := txs[idx]
+		if _, ok := invalid[uint(idx)]; ok {
+			tx.TxIsValid = false
+			tx.SetCbor(nil)
+		}
+		data, err := marshalDijkstraBlockTransaction(&tx)
 		if err != nil {
 			return nil, fmt.Errorf("encode Dijkstra transaction %d: %w", idx, err)
 		}
@@ -387,32 +402,13 @@ func (b DijkstraBlockBody) Hash() common.Blake2b256 {
 	return common.Blake2b256Hash(cborData)
 }
 
-// invalidTransactionsForEncoding derives the sorted invalid_transactions index
-// set from the block body's transactions and any explicitly set indices. A
-// transaction is invalid when its IsValid() is false. The result feeds the
-// nonempty_set / nil field: an empty result is encoded as CBOR null.
-func (b DijkstraBlockBody) invalidTransactionsForEncoding() []uint {
-	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
-	for _, invalidTxIdx := range b.InvalidTransactions {
-		invalidTxMap[invalidTxIdx] = true
-	}
-	for idx, tx := range b.Transactions {
-		if !tx.IsValid() {
-			invalidTxMap[uint(idx)] = true
+func marshalDijkstraBlockTransaction(t *DijkstraTransaction) ([]byte, error) {
+	if raw := t.DecodeStoreCbor.Cbor(); len(raw) > 0 {
+		var fields []cbor.RawMessage
+		if _, err := cbor.Decode(raw, &fields); err == nil && len(fields) == 4 {
+			return raw, nil
 		}
 	}
-	if len(invalidTxMap) == 0 {
-		return nil
-	}
-	ret := make([]uint, 0, len(invalidTxMap))
-	for idx := range invalidTxMap {
-		ret = append(ret, idx)
-	}
-	slices.Sort(ret)
-	return ret
-}
-
-func marshalDijkstraBlockTransaction(t *DijkstraTransaction) ([]byte, error) {
 	var aux any
 	if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
 		aux = cbor.RawMessage(t.auxData.Cbor())
@@ -807,6 +803,16 @@ func (i DijkstraAccountBalanceInterval) MarshalCBOR() ([]byte, error) {
 // non-empty credential-keyed map of account balance intervals. It backs both
 // the main transaction body's balance_intervals (key 26) and each
 // sub-transaction body's account_balance_intervals (key 26).
+//
+// The pinned CDDL's prose currently reads this map as reward_account-keyed
+// (updated in 2ea1f663, "align Dijkstra with Leios prototype 2026w36"), but
+// the golden transaction from cardano-ledger PR #5940
+// (testdata/cardano_ledger_dijkstra_w30_tx.hex) — real reference-
+// implementation output, not hand-transcribed spec prose — encodes this
+// field's keys as two-element credential arrays ([CredType, Hash]), matching
+// this issue's own field description. Credential wins as the byte-accurate,
+// evidence-backed shape; the CDDL comment may be ahead of what the
+// reference implementation actually produces for this field.
 type DijkstraAccountBalanceIntervals map[*common.Credential]*DijkstraAccountBalanceInterval
 
 // UnmarshalCBOR decodes each value from raw CBOR rather than directly into

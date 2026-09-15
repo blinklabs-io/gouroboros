@@ -485,3 +485,80 @@ func TestShelleyProtocolParamsMinPoolCost(t *testing.T) {
 		}
 	})
 }
+
+// TestShelleyUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic is the
+// regression test for blinklabs-io/gouroboros#2296: A0, Rho, and Tau are
+// mandatory *cbor.Rat fields whose nil check only covered the outer
+// pointer, not whether a non-nil *cbor.Rat's embedded *big.Rat was itself
+// nil. That shape reached Num()/Denom() calls on a nil receiver and
+// panicked instead of being rejected with the same error a nil outer
+// pointer already gets. Ported from conway's regression test for the same
+// finding.
+func TestShelleyUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic(
+	t *testing.T,
+) {
+	validBase := func() shelley.ShelleyProtocolParameters {
+		return shelley.ShelleyProtocolParameters{
+			A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+			Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+			Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*shelley.ShelleyProtocolParameters)
+	}{
+		{"A0", func(p *shelley.ShelleyProtocolParameters) {
+			p.A0 = &cbor.Rat{}
+		}},
+		{"Rho", func(p *shelley.ShelleyProtocolParameters) {
+			p.Rho = &cbor.Rat{}
+		}},
+		{"Tau", func(p *shelley.ShelleyProtocolParameters) {
+			p.Tau = &cbor.Rat{}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("Utxorpc() panicked: %v", r)
+				}
+			}()
+			params := validBase()
+			tt.mutate(&params)
+			if _, err := params.Utxorpc(); err == nil {
+				t.Fatal("expected error, got nil")
+			}
+		})
+	}
+}
+
+// TestShelleyUtxorpc_ValueBeyondInt64RangeRejected is the regression test
+// for blinklabs-io/gouroboros#2296: the range check compared
+// r.Num().Int64() against math.MinInt32/MaxInt32, but big.Int.Int64() is
+// undefined (silently wraps, per math/big's own documentation) for a value
+// that does not fit in int64 at all. A numerator like 2^64+1 could pass
+// that Int64()-based comparison completely undetected instead of being
+// rejected. Ported from conway's regression test for the same finding.
+func TestShelleyUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
+	beyondInt64 := new(big.Int).Lsh(big.NewInt(1), 64) // 2^64
+	beyondInt64.Add(beyondInt64, big.NewInt(1))        // 2^64 + 1
+	badRat := new(big.Rat).SetFrac(beyondInt64, big.NewInt(1))
+
+	params := shelley.ShelleyProtocolParameters{
+		A0:  &cbor.Rat{Rat: badRat},
+		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau: &cbor.Rat{Rat: big.NewRat(5, 6)},
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Utxorpc() panicked: %v", r)
+		}
+	}()
+	if _, err := params.Utxorpc(); err == nil {
+		t.Fatal("expected error for out-of-range A0 numerator, got nil")
+	}
+}

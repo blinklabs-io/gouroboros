@@ -1160,6 +1160,11 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	config.SkipBodyHashValidation = true
 	var appliedSequences []uint64
 	var appliedMu sync.Mutex
+	readyToEnqueue := make(chan struct{})
+	var submitInvocations atomic.Uint64
+	fenceCtx, cancelFence := context.WithCancel(context.Background())
+	defer cancelFence()
+	var fenceBoundaryInvocations atomic.Uint64
 	p := NewBlockPipeline(
 		WithConfig(config),
 		WithApplyFunc(func(item *BlockItem) error {
@@ -1174,6 +1179,18 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 			return nil
 		}),
 	)
+	p.testFenceBoundary = func(uint64) {
+		if fenceBoundaryInvocations.Add(1) == 1 {
+			// Cancel only after Fence has captured the target. This keeps the
+			// completion wait reachable while the first apply remains blocked.
+			cancelFence()
+		}
+	}
+	p.testSubmitReady = func() {
+		if submitInvocations.Add(1) == 5 {
+			close(readyToEnqueue)
+		}
+	}
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
@@ -1209,6 +1226,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	)
 
 	backpressuredCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	backpressuredSubmit := make(chan error, 1)
 	go func() {
 		backpressuredSubmit <- p.Submit(
@@ -1219,9 +1237,11 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 		)
 	}()
 	select {
+	case <-readyToEnqueue:
 	case err := <-backpressuredSubmit:
-		t.Fatalf("submission escaped backpressure before cancellation: %v", err)
-	default:
+		t.Fatalf("submission completed before reaching enqueue boundary: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("backpressured submission did not reach enqueue boundary")
 	}
 	cancel()
 	select {
@@ -1230,33 +1250,60 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	case <-time.After(time.Second):
 		t.Fatal("backpressured submission did not cancel")
 	}
-	processedResults := make(chan struct{}, 4)
+	assert.Equal(t, uint64(4), p.sequenceCounter.Load())
+	resultCtx, cancelResults := context.WithCancel(context.Background())
+	defer cancelResults()
+	processedResults := make(chan struct{}, 5)
 	go func() {
-		for range 4 {
-			<-p.Results()
-			processedResults <- struct{}{}
+		for range 5 {
+			select {
+			case <-resultCtx.Done():
+				return
+			case _, ok := <-p.Results():
+				if !ok {
+					return
+				}
+				processedResults <- struct{}{}
+			}
 		}
 	}()
 
-	fenceDone := make(chan error, 1)
-	go func() { fenceDone <- p.Fence(context.Background()) }()
+	fenceBeforeRelease := make(chan error, 1)
+	go func() { fenceBeforeRelease <- p.Fence(fenceCtx) }()
 	select {
-	case err := <-fenceDone:
-		t.Fatalf(
-			"fence returned before successful submissions completed: %v",
-			err,
-		)
-	default:
+	case err := <-fenceBeforeRelease:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("canceled fence did not return while the first apply was blocked")
 	}
 
 	release()
+	fenceAfterRelease := make(chan error, 1)
+	go func() { fenceAfterRelease <- p.Fence(resultCtx) }()
+	select {
+	case err := <-fenceAfterRelease:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("fresh fence did not complete after the first apply was released")
+	}
+	require.NoError(
+		t,
+		p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			tip,
+		),
+	)
+	fenceDone := make(chan error, 1)
+	go func() { fenceDone <- p.Fence(resultCtx) }()
 	select {
 	case err := <-fenceDone:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("fence waited for the canceled submission")
+		t.Fatal("fence did not complete after the subsequent successful submission")
 	}
-	for range 4 {
+	for range 5 {
 		select {
 		case <-processedResults:
 		case <-time.After(time.Second):
@@ -1264,7 +1311,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 		}
 	}
 	appliedMu.Lock()
-	require.Equal(t, []uint64{0, 1, 2, 3}, appliedSequences)
+	require.Equal(t, []uint64{0, 1, 2, 3, 4}, appliedSequences)
 	appliedMu.Unlock()
 }
 

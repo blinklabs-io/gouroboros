@@ -164,10 +164,24 @@ func (g *ShelleyGenesis) effectiveStake() map[string]string {
 }
 
 func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCertificate, error) {
-	if g.ExtraConfig == nil || len(g.ExtraConfig.StakePools.Data) == 0 {
-		return g.Staking.Pools, nil
-	}
 	out := make(
+		map[string]common.PoolRegistrationCertificate,
+		len(g.Staking.Pools),
+	)
+	for poolID, pool := range g.Staking.Pools {
+		out[poolID] = pool
+	}
+	if g.ExtraConfig == nil || len(g.ExtraConfig.StakePools.Data) == 0 {
+		for poolID, pool := range out {
+			if err := common.ValidatePoolMetadataForProtocolVersion(
+				pool.PoolMetadata, g.ProtocolParameters.ProtocolVersion.Major,
+			); err != nil {
+				return nil, fmt.Errorf("invalid pool %s metadata: %w", poolID, err)
+			}
+		}
+		return out, nil
+	}
+	out = make(
 		map[string]common.PoolRegistrationCertificate,
 		len(g.Staking.Pools)+len(g.ExtraConfig.StakePools.Data),
 	)
@@ -230,7 +244,6 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 		); err != nil {
 			return nil, err
 		}
-
 		var owners []common.AddrKeyHash
 		if err := decodeExtraPoolField(
 			extraPool.Owners,
@@ -277,6 +290,13 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 			PoolOwners:    owners,
 			Relays:        relays,
 			PoolMetadata:  metadata,
+		}
+	}
+	for poolID, pool := range out {
+		if err := common.ValidatePoolMetadataForProtocolVersion(
+			pool.PoolMetadata, g.ProtocolParameters.ProtocolVersion.Major,
+		); err != nil {
+			return nil, fmt.Errorf("invalid pool %s metadata: %w", poolID, err)
 		}
 	}
 	return out, nil
@@ -405,7 +425,16 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		return nil, err
 	}
 
-	slotLengthMs := &big.Rat{}
+	slotLengthMicros := new(big.Rat).Mul(
+		g.SlotLength.Rat,
+		big.NewRat(1_000_000, 1),
+	)
+	if !slotLengthMicros.IsInt() {
+		return nil, fmt.Errorf(
+			"slot length %s seconds cannot be represented as integer microseconds",
+			g.SlotLength.Rat,
+		)
+	}
 	tmpData := []any{
 		[]any{
 			g.SystemStart.Year(),
@@ -422,7 +451,7 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		g.EpochLength,
 		g.SlotsPerKESPeriod,
 		g.MaxKESEvolutions,
-		slotLengthMs.Mul(g.SlotLength.Rat, big.NewRat(1_000_000, 1)),
+		slotLengthMicros.Num(),
 		g.UpdateQuorum,
 		g.MaxLovelaceSupply,
 		g.ProtocolParameters,

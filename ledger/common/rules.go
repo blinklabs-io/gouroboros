@@ -28,18 +28,78 @@ import (
 	"math/bits"
 	"reflect"
 	"sort"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
 // UtxoValidationRuleFunc represents a function that validates a transaction
-// against a specific UTXO validation rule.
+// against a specific UTXO validation rule. Rules invoked by VerifyTransaction
+// receive a transaction-scoped cached ledger state; use UnwrapLedgerState
+// before asserting optional ledger-state capabilities.
 type UtxoValidationRuleFunc func(
 	tx Transaction,
 	slot uint64,
 	ledgerState LedgerState,
 	protocolParams ProtocolParameters,
 ) error
+
+type cachedUtxoLookup struct {
+	utxo Utxo
+	err  error
+}
+
+// utxoCacheKey is the ledger's own identity for a transaction input: the hash
+// of the transaction that produced the output and the output index. Keying on
+// those components avoids formatting the 32-byte hash on every cache probe.
+type utxoCacheKey struct {
+	id    Blake2b256
+	index uint32
+}
+
+// cachedLedgerState keeps read-only UTxO lookups transaction-scoped. Several
+// validation rules need the same transaction view; sharing these results
+// avoids resolving each input again as the rule list advances.
+//
+// VerifyTransaction substitutes this wrapper for the state the caller passed
+// in, so it must not weaken that state's concurrency guarantees: mu guards the
+// cache for rules that resolve inputs from more than one goroutine. The
+// wrapped lookup runs with mu released, so concurrent misses on the same input
+// can reach the wrapped state twice. The UTxO view is fixed for the duration
+// of validation, so both calls observe the same result.
+type cachedLedgerState struct {
+	LedgerState
+	mu      sync.Mutex
+	lookups map[utxoCacheKey]cachedUtxoLookup
+}
+
+// UnwrapLedgerState returns the caller's ledger state when validation is
+// running with the transaction-scoped UTxO lookup cache. Rules that inspect
+// optional LedgerState capabilities must use this before type assertions; the
+// cache wrapper preserves UTxO lookup behavior but cannot preserve assertions
+// against arbitrary provider types. A state this package did not wrap is
+// returned unchanged.
+func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
+	if cached, ok := ledgerState.(*cachedLedgerState); ok {
+		return cached.LedgerState
+	}
+	return ledgerState
+}
+
+func (s *cachedLedgerState) UtxoById(input TransactionInput) (Utxo, error) {
+	key := utxoCacheKey{id: input.Id(), index: input.Index()}
+	s.mu.Lock()
+	result, ok := s.lookups[key]
+	s.mu.Unlock()
+	if ok {
+		return result.utxo, result.err
+	}
+	utxo, err := s.LedgerState.UtxoById(input)
+	s.mu.Lock()
+	s.lookups[key] = cachedUtxoLookup{utxo: utxo, err: err}
+	s.mu.Unlock()
+	return utxo, err
+}
 
 // UtxoValidateCurrentTreasuryValue checks a transaction's optional current
 // treasury value against the ledger state.
@@ -140,7 +200,9 @@ func ComposeUtxoValidationRules(
 }
 
 // VerifyTransaction runs the provided validation rules in order and wraps
-// the first error encountered into a ValidationError.
+// the first error encountered into a ValidationError. Each rule receives a
+// transaction-scoped UTxO cache; rules asserting optional ledger-state
+// capabilities must call UnwrapLedgerState first.
 func VerifyTransaction(
 	tx Transaction,
 	slot uint64,
@@ -148,6 +210,14 @@ func VerifyTransaction(
 	protocolParams ProtocolParameters,
 	validationRules []UtxoValidationRuleFunc,
 ) error {
+	if ledgerState != nil &&
+		(reflect.ValueOf(ledgerState).Kind() != reflect.Pointer ||
+			!reflect.ValueOf(ledgerState).IsNil()) {
+		ledgerState = &cachedLedgerState{
+			LedgerState: ledgerState,
+			lookups:     make(map[utxoCacheKey]cachedUtxoLookup),
+		}
+	}
 	for i, rule := range validationRules {
 		if err := rule(tx, slot, ledgerState, protocolParams); err != nil {
 			details := map[string]any{"rule_index": i, "slot": slot}
@@ -598,7 +668,7 @@ func ValidateMIRGenesisQuorum(tx Transaction, ls LedgerState) error {
 	if !hasMIR {
 		return nil
 	}
-	genesisState, ok := ls.(GenesisDelegationState)
+	genesisState, ok := UnwrapLedgerState(ls).(GenesisDelegationState)
 	if !ok {
 		return GenesisDelegationStateUnavailableError{}
 	}

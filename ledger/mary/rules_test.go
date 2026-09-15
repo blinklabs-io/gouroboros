@@ -726,6 +726,45 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateValueNotConservedChecksZeroPolicyMint(t *testing.T) {
+	mint := common.NewMultiAsset[common.MultiAssetTypeMint](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
+			{}: {cbor.NewByteString([]byte("token")): big.NewInt(1)},
+		},
+	)
+	outputAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+			{}: {cbor.NewByteString([]byte("token")): big.NewInt(1)},
+		},
+	)
+	validTx := &mary.MaryTransaction{
+		Body: mary.MaryTransactionBody{
+			TxMint: &mint,
+			TxOutputs: []mary.MaryTransactionOutput{{
+				OutputAmount: mary.MaryTransactionOutputValue{Assets: &outputAssets},
+			}},
+		},
+	}
+	assert.NoError(t, mary.UtxoValidateValueNotConservedUtxo(
+		validTx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&mary.MaryProtocolParameters{},
+	))
+
+	tx := &mary.MaryTransaction{
+		Body: mary.MaryTransactionBody{TxMint: &mint},
+	}
+
+	err := mary.UtxoValidateValueNotConservedUtxo(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&mary.MaryProtocolParameters{},
+	)
+	assert.ErrorAs(t, err, &shelley.ValueNotConservedUtxoError{})
+}
+
 func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	var testOutputValueGood = mary.MaryTransactionOutputValue{
 		Amount: 1234567,

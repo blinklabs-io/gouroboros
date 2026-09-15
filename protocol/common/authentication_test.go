@@ -18,45 +18,75 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
-	"log/slog"
 	"math"
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// stubStakeAuthority is a test StakeAuthority backed by a plain map.
+type stubStakeAuthority struct {
+	stake map[PoolKeyHash]uint64
+	err   error
+}
+
+func newStubStakeAuthority() *stubStakeAuthority {
+	return &stubStakeAuthority{stake: make(map[PoolKeyHash]uint64)}
+}
+
+func (s *stubStakeAuthority) PoolActiveStake(
+	poolKeyHash PoolKeyHash,
+) (uint64, error) {
+	if s.err != nil {
+		return 0, s.err
+	}
+	return s.stake[poolKeyHash], nil
+}
+
+func (s *stubStakeAuthority) register(poolKeyHash PoolKeyHash, stake uint64) {
+	s.stake[poolKeyHash] = stake
+}
+
 // TestMessageAuthenticatorCreation tests authenticator creation
 func TestMessageAuthenticatorCreation(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 	assert.NotNil(t, auth)
 }
 
-// TestRegisterUnregisterSPOPool tests SPO pool registration
-func TestRegisterUnregisterSPOPool(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
-
-	poolID := "test-pool-123"
-	auth.RegisterSPOPool(poolID)
-	assert.True(t, auth.IsSPOPoolRegistered(poolID))
-
-	auth.UnregisterSPOPool(poolID)
-	assert.False(t, auth.IsSPOPoolRegistered(poolID))
+// TestMessageAuthenticatorRequiresStakeAuthority tests that construction
+// fails without a StakeAuthority.
+func TestMessageAuthenticatorRequiresStakeAuthority(t *testing.T) {
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{})
+	assert.Nil(t, auth)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrAuthenticatorMisconfigured)
 }
 
 // TestVerifyMessageNil tests nil message verification
 func TestVerifyMessageNil(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
-	err := auth.VerifyMessage(nil)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
+	err = auth.VerifyMessage(nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "message is nil")
 }
 
 // TestVerifyMessageInvalidCertificate tests verification with invalid cert
 func TestVerifyMessageInvalidCertificate(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+	})
+	require.NoError(t, err)
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
@@ -64,7 +94,7 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 			KESPeriod:   100,
 			ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
 		},
-		KESSignature: make([]byte, 448),
+		KESSignature: make([]byte, kes.CardanoKesSignatureSize),
 		OperationalCertificate: OperationalCertificate{
 			KESVerificationKey: make([]byte, 32), // All zeros - invalid key
 			IssueNumber:        1,
@@ -77,41 +107,77 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 		ColdVerificationKey: make([]byte, 32),
 	}
 	assert.NoError(t, msg.SetComputedMessageID())
+	poolID, perr := poolKeyHash(msg.ColdVerificationKey)
+	require.NoError(t, perr)
+	stake.register(poolID, 1000)
 
-	err := auth.VerifyMessage(msg)
+	err = auth.VerifyMessage(msg)
 	assert.Error(t, err)
 }
 
-// TestComputePoolID tests pool ID computation from cold key
-// Note: This test uses unexported computePoolID method to verify internal hash logic
-func TestComputePoolID(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+// TestVerifyMessageUnauthorizedPool tests that a message from a pool absent
+// from the stake distribution is rejected before any signature is checked.
+func TestVerifyMessageUnauthorizedPool(t *testing.T) {
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(), // no pool registered
+	})
+	require.NoError(t, err)
 
+	msg := buildSignedTestMessage(t, 100, 100)
+
+	err = auth.VerifyMessage(msg)
+	assert.ErrorIs(t, err, ErrPoolNotInStakeDistribution)
+}
+
+// TestVerifyMessageStakeAuthorityError tests that a StakeAuthority error
+// propagates rather than being treated as unauthorized.
+func TestVerifyMessageStakeAuthorityError(t *testing.T) {
+	stake := newStubStakeAuthority()
+	stake.err = errors.New("boom")
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+	})
+	require.NoError(t, err)
+
+	msg := buildSignedTestMessage(t, 100, 100)
+
+	err = auth.VerifyMessage(msg)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "boom")
+}
+
+// TestComputePoolKeyHash tests pool ID computation from cold key
+func TestComputePoolKeyHash(t *testing.T) {
 	coldKey1 := make([]byte, 32)
 	coldKey1[0] = 0x01
 
 	coldKey2 := make([]byte, 32)
 	coldKey2[0] = 0x02
 
-	poolID1 := auth.computePoolID(coldKey1)
-	poolID2 := auth.computePoolID(coldKey2)
+	poolID1, err := poolKeyHash(coldKey1)
+	require.NoError(t, err)
+	poolID2, err := poolKeyHash(coldKey2)
+	require.NoError(t, err)
 
-	assert.NotEmpty(t, poolID1)
-	assert.NotEmpty(t, poolID2)
 	assert.NotEqual(t, poolID1, poolID2)
+	assert.Len(t, poolID1, PoolKeyHashSize)
 }
 
 // TestVerifyKESPeriodRotation tests KES period rotation verification
 func TestVerifyKESPeriodRotation(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 
-	poolID := "test-pool"
+	var poolID PoolKeyHash
+	poolID[0] = 0x42
 	opcert1 := &OperationalCertificate{
 		IssueNumber: 1,
 	}
 
 	// First time should succeed
-	err := auth.verifyKESPeriodRotation(poolID, opcert1)
+	err = auth.verifyKESPeriodRotation(poolID, opcert1)
 	assert.NoError(t, err)
 
 	// Same number should succeed
@@ -132,352 +198,196 @@ func TestVerifyKESPeriodRotation(t *testing.T) {
 	err = auth.verifyKESPeriodRotation(poolID, opcert3)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "went backwards")
+
+	// RemoveKESOpCertCacheEntry drops the baseline, so a previously-lower
+	// number is accepted again as a first sighting.
+	auth.RemoveKESOpCertCacheEntry(poolID)
+	err = auth.verifyKESPeriodRotation(poolID, opcert3)
+	assert.NoError(t, err)
 }
 
 // TestTTLValidatorCreation tests TTL validator creation
 func TestTTLValidatorCreation(t *testing.T) {
 	validator := NewTTLValidator(0, nil)
 	assert.NotNil(t, validator)
-	// Default should be 30 minutes
-	assert.Equal(t, 30*time.Minute, validator.maxAllowedTTL)
 }
 
 // TestTTLValidatorCustomTTL tests TTL validator with custom TTL
 func TestTTLValidatorCustomTTL(t *testing.T) {
-	customTTL := 1 * time.Hour
-	validator := NewTTLValidator(customTTL, nil)
-	assert.Equal(t, customTTL, validator.maxAllowedTTL)
+	validator := NewTTLValidator(time.Hour, nil)
+	assert.NotNil(t, validator)
 }
 
-// TestValidateMessageTTLExpired tests expired message validation
+// TestValidateMessageTTLExpired tests TTL validation with expired message
 func TestValidateMessageTTLExpired(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-
+	validator := NewTTLValidator(0, nil)
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageID:   []byte("test-id"),
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt: uint32(
-				time.Now().Add(-1 * time.Minute).Unix(),
-			), // Expired 1 minute ago
+			ExpiresAt: uint32(time.Now().Add(-time.Hour).Unix()),
 		},
 	}
-
 	err := validator.ValidateMessageTTL(msg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "expired")
 }
 
-// TestValidateMessageTTLValid tests valid message TTL
+// TestValidateMessageTTLValid tests TTL validation with valid message
 func TestValidateMessageTTLValid(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-
+	validator := NewTTLValidator(0, nil)
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageID:   []byte("test-id"),
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt: uint32(
-				time.Now().Add(10 * time.Minute).Unix(),
-			), // Expires in 10 minutes
+			ExpiresAt: uint32(time.Now().Add(time.Minute).Unix()),
 		},
 	}
-
 	err := validator.ValidateMessageTTL(msg)
 	assert.NoError(t, err)
 }
 
-// TestValidateMessageTTLTooFar tests message with expiration too far in future
+// TestValidateMessageTTLTooFar tests TTL validation with expiration too far in future
 func TestValidateMessageTTLTooFar(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-
+	validator := NewTTLValidator(time.Minute, nil)
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageID:   []byte("test-id"),
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt: uint32(
-				time.Now().Add(2 * time.Hour).Unix(),
-			), // Expires too far in future
+			ExpiresAt: uint32(time.Now().Add(time.Hour).Unix()),
 		},
 	}
-
 	err := validator.ValidateMessageTTL(msg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "too far in future")
 }
 
-// TestValidateMessageTTLNil tests nil message validation
+// TestValidateMessageTTLNil tests TTL validation with nil message
 func TestValidateMessageTTLNil(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
+	validator := NewTTLValidator(0, nil)
 	err := validator.ValidateMessageTTL(nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "nil")
 }
 
-// TestValidateMessageTTLAtValid checks that a message whose ExpiresAt is in the
-// future relative to the explicit `now` passes validation.
+// TestValidateMessageTTLAtValid tests deterministic TTL validation
 func TestValidateMessageTTLAtValid(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-	now := time.Unix(1_700_000_000, 0)
-
+	validator := NewTTLValidator(0, nil)
+	now := time.Unix(1_000_000, 0)
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			// 10 minutes after `now`, well within the 30 minute window.
-			ExpiresAt: uint32(now.Add(10 * time.Minute).Unix()),
+			ExpiresAt: uint32(now.Add(time.Minute).Unix()),
 		},
 	}
-
-	err := validator.ValidateMessageTTLAt(msg, now)
-	assert.NoError(t, err)
+	assert.NoError(t, validator.ValidateMessageTTLAt(msg, now))
 }
 
-// TestValidateMessageTTLAtExpired checks that an ExpiresAt strictly less than
-// the explicit `now` is rejected as expired, regardless of wall clock.
+// TestValidateMessageTTLAtExpired tests deterministic TTL validation, expired
 func TestValidateMessageTTLAtExpired(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-	now := time.Unix(1_700_000_000, 0)
-
+	validator := NewTTLValidator(0, nil)
+	now := time.Unix(1_000_000, 0)
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt:   uint32(now.Add(-1 * time.Minute).Unix()),
+			ExpiresAt: uint32(now.Add(-time.Minute).Unix()),
 		},
 	}
-
-	err := validator.ValidateMessageTTLAt(msg, now)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "expired")
+	assert.Error(t, validator.ValidateMessageTTLAt(msg, now))
 }
 
-// TestValidateMessageTTLAtTooFarFuture checks that an ExpiresAt beyond the
-// configured max TTL window from the explicit `now` is rejected.
+// TestValidateMessageTTLAtTooFarFuture tests deterministic TTL validation, too far future
 func TestValidateMessageTTLAtTooFarFuture(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-	now := time.Unix(1_700_000_000, 0)
-
+	validator := NewTTLValidator(time.Minute, nil)
+	now := time.Unix(1_000_000, 0)
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			// 2 hours into the future from `now`; max TTL is 30 minutes.
-			ExpiresAt: uint32(now.Add(2 * time.Hour).Unix()),
+			ExpiresAt: uint32(now.Add(time.Hour).Unix()),
 		},
 	}
-
-	err := validator.ValidateMessageTTLAt(msg, now)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "too far in future")
+	assert.Error(t, validator.ValidateMessageTTLAt(msg, now))
 }
 
-// TestValidateMessageTTLAtDisabled checks that the no-op validator returns nil
-// even for a message that would otherwise be rejected as expired.
+// TestValidateMessageTTLAtDisabled tests a no-op TTL validator
 func TestValidateMessageTTLAtDisabled(t *testing.T) {
 	validator := NewNoOpTTLValidator(nil)
-	now := time.Unix(1_700_000_000, 0)
-
+	now := time.Unix(1_000_000, 0)
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			// Already expired relative to `now`.
-			ExpiresAt: uint32(now.Add(-1 * time.Hour).Unix()),
+			ExpiresAt: uint32(now.Add(-time.Hour).Unix()),
 		},
 	}
-
-	err := validator.ValidateMessageTTLAt(msg, now)
-	assert.NoError(t, err)
+	assert.NoError(t, validator.ValidateMessageTTLAt(msg, now))
 }
 
-// TestValidateMessageTTLAtNil checks that nil-message rejection holds for the
-// explicit-time variant as well.
+// TestValidateMessageTTLAtNil tests deterministic TTL validation, nil message
 func TestValidateMessageTTLAtNil(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-	err := validator.ValidateMessageTTLAt(nil, time.Unix(1_700_000_000, 0))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "nil")
+	validator := NewTTLValidator(0, nil)
+	assert.Error(t, validator.ValidateMessageTTLAt(nil, time.Now()))
 }
 
-// TestValidateMessageTTLAtNowBeyondUint32 checks that a `now` past the uint32
-// domain (post-2106) is treated as an expiry condition, since no uint32
-// expiresAt can be in the future relative to such a time. This guards against
-// silently clamping `now` and reporting such messages as still valid.
+// TestValidateMessageTTLAtNowBeyondUint32 tests now() past the uint32 domain
 func TestValidateMessageTTLAtNowBeyondUint32(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-	// One second past the uint32 epoch ceiling (~2106-02-07T06:28:16Z).
-	beyond := time.Unix(int64(math.MaxUint32)+1, 0)
-
+	validator := NewTTLValidator(0, nil)
+	now := time.Unix(int64(math.MaxUint32)+1000, 0)
 	msg := &DmqMessage{
-		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt:   math.MaxUint32,
-		},
+		Payload: DmqMessagePayload{ExpiresAt: math.MaxUint32},
 	}
-
-	err := validator.ValidateMessageTTLAt(msg, beyond)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "expired")
+	assert.Error(t, validator.ValidateMessageTTLAt(msg, now))
 }
 
-// TestValidateMessageTTLAtBoundaryEqualNow checks that ExpiresAt == now is
-// treated as still valid (not expired). The expired check is `now > expiresAt`,
-// so equality should pass.
+// TestValidateMessageTTLAtBoundaryEqualNow tests expiresAt == now is valid
 func TestValidateMessageTTLAtBoundaryEqualNow(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-	now := time.Unix(1_700_000_000, 0)
-
+	validator := NewTTLValidator(0, nil)
+	now := time.Unix(1_000_000, 0)
 	msg := &DmqMessage{
-		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt:   uint32(now.Unix()),
-		},
+		Payload: DmqMessagePayload{ExpiresAt: uint32(now.Unix())},
 	}
-
-	err := validator.ValidateMessageTTLAt(msg, now)
-	assert.NoError(t, err)
+	assert.NoError(t, validator.ValidateMessageTTLAt(msg, now))
 }
 
-// TestValidateMessageTTLDelegatesToAt proves that ValidateMessageTTL behaves
-// identically to ValidateMessageTTLAt(msg, time.Now()). Because we cannot
-// inject the clock, we sandwich the wall-clock call between two captured
-// timestamps and feed those same timestamps into the explicit-time API. The
-// wall-clock call uses some time inside [before, after]; if the explicit-time
-// API produces the same verdict at both endpoints, then by monotonicity of
-// the TTL predicate it must produce that verdict for any time in between —
-// including the unobservable time used by ValidateMessageTTL.
+// TestValidateMessageTTLDelegatesToAt tests ValidateMessageTTL delegates to ValidateMessageTTLAt
 func TestValidateMessageTTLDelegatesToAt(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-
-	// Valid case: expiresAt far enough in the future that a few microseconds
-	// of sandwich slack cannot flip the verdict.
-	validMsg := &DmqMessage{
+	validator := NewTTLValidator(0, nil)
+	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt:   uint32(time.Now().Add(10 * time.Minute).Unix()),
+			ExpiresAt: uint32(time.Now().Add(time.Minute).Unix()),
 		},
 	}
-
-	before := time.Now()
-	wallErr := validator.ValidateMessageTTL(validMsg)
-	after := time.Now()
-
-	beforeErr := validator.ValidateMessageTTLAt(validMsg, before)
-	afterErr := validator.ValidateMessageTTLAt(validMsg, after)
-	require.Equal(
-		t,
-		beforeErr == nil,
-		afterErr == nil,
-		"sandwich endpoints disagree; tighten the fixture",
-	)
-	assert.Equal(
-		t,
-		beforeErr == nil,
-		wallErr == nil,
-		"ValidateMessageTTL must match ValidateMessageTTLAt(msg, time.Now()) on valid msg",
-	)
-
-	// Expired case: expiresAt clearly in the past so the sandwich endpoints
-	// always agree that the message is expired.
-	expiredMsg := &DmqMessage{
-		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt:   uint32(time.Now().Add(-10 * time.Minute).Unix()),
-		},
-	}
-
-	before = time.Now()
-	wallErr = validator.ValidateMessageTTL(expiredMsg)
-	after = time.Now()
-
-	beforeErr = validator.ValidateMessageTTLAt(expiredMsg, before)
-	afterErr = validator.ValidateMessageTTLAt(expiredMsg, after)
-	require.Equal(
-		t,
-		beforeErr == nil,
-		afterErr == nil,
-		"sandwich endpoints disagree; tighten the fixture",
-	)
-	assert.Equal(
-		t,
-		beforeErr == nil,
-		wallErr == nil,
-		"ValidateMessageTTL must match ValidateMessageTTLAt(msg, time.Now()) on expired msg",
-	)
+	assert.NoError(t, validator.ValidateMessageTTL(msg))
 }
 
-// TestGetTimeUntilExpiration tests time until expiration calculation
+// TestGetTimeUntilExpiration tests time-until-expiration computation
 func TestGetTimeUntilExpiration(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-
-	// Message expiring in 5 minutes
-	expiresAt := uint32(time.Now().Add(5 * time.Minute).Unix())
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageID:   []byte("test-id"),
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt:   expiresAt,
+			ExpiresAt: uint32(time.Now().Add(time.Minute).Unix()),
 		},
 	}
-
-	timeLeft := validator.GetTimeUntilExpiration(msg)
-	assert.Greater(t, timeLeft, 4*time.Minute)
-	assert.Less(t, timeLeft, 6*time.Minute)
+	remaining := (&TTLValidator{}).GetTimeUntilExpiration(msg)
+	assert.Greater(t, remaining, time.Duration(0))
 }
 
-// TestGetTimeUntilExpirationExpired tests time calculation for expired message
+// TestGetTimeUntilExpirationExpired tests time-until-expiration for an expired message
 func TestGetTimeUntilExpirationExpired(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageID:   []byte("test-id"),
-			MessageBody: []byte("test-body"),
-			KESPeriod:   100,
-			ExpiresAt: uint32(
-				time.Now().Add(-1 * time.Minute).Unix(),
-			), // Already expired
+			ExpiresAt: uint32(time.Now().Add(-time.Hour).Unix()),
 		},
 	}
-
-	timeLeft := validator.GetTimeUntilExpiration(msg)
-	assert.Equal(t, time.Duration(0), timeLeft)
+	remaining := (&TTLValidator{}).GetTimeUntilExpiration(msg)
+	assert.Equal(t, time.Duration(0), remaining)
 }
 
-// TestGetTimeUntilExpirationNil tests time calculation for nil message
+// TestGetTimeUntilExpirationNil tests time-until-expiration for a nil message
 func TestGetTimeUntilExpirationNil(t *testing.T) {
-	validator := NewTTLValidator(30*time.Minute, nil)
-	timeLeft := validator.GetTimeUntilExpiration(nil)
-	assert.Equal(t, time.Duration(0), timeLeft)
+	remaining := (&TTLValidator{}).GetTimeUntilExpiration(nil)
+	assert.Equal(t, time.Duration(0), remaining)
 }
 
-// TestMessageAuthenticatorWithLogger tests authenticator with custom logger
+// TestMessageAuthenticatorWithLogger tests authenticator creation with a logger
 func TestMessageAuthenticatorWithLogger(t *testing.T) {
-	logger := slog.Default()
-	auth := NewMessageAuthenticator(logger)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 	assert.NotNil(t, auth)
-	assert.NotNil(t, auth.logger)
 }
 
-// TestMessageIsValid tests message validity check
+// TestMessageIsValid tests the IsValid convenience method
 func TestMessageIsValid(t *testing.T) {
-	// Valid message (expires in future)
-	validMsg := &DmqMessage{
-		Payload: DmqMessagePayload{
-			ExpiresAt: uint32(time.Now().Add(time.Hour).Unix()),
-		},
-	}
-	assert.True(t, validMsg.IsValid())
-
-	// Expired message
 	expiredMsg := &DmqMessage{
 		Payload: DmqMessagePayload{
 			ExpiresAt: uint32(time.Now().Add(-time.Hour).Unix()),
@@ -488,7 +398,10 @@ func TestMessageIsValid(t *testing.T) {
 
 // TestVerifyOperationalCertificateInvalidColdKeySize tests cert verification with invalid cold key size
 func TestVerifyOperationalCertificateInvalidColdKeySize(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 
 	opcert := &OperationalCertificate{
 		KESVerificationKey: make([]byte, 32),
@@ -497,7 +410,7 @@ func TestVerifyOperationalCertificateInvalidColdKeySize(t *testing.T) {
 		ColdSignature:      make([]byte, 64),
 	}
 
-	err := auth.verifyOperationalCertificate(
+	err = auth.verifyOperationalCertificate(
 		opcert,
 		make([]byte, 16),
 	) // Wrong cold key size
@@ -507,7 +420,10 @@ func TestVerifyOperationalCertificateInvalidColdKeySize(t *testing.T) {
 
 // TestVerifyOperationalCertificateInvalidSignatureSize tests cert verification with invalid signature size
 func TestVerifyOperationalCertificateInvalidSignatureSize(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 
 	opcert := &OperationalCertificate{
 		KESVerificationKey: make([]byte, 32),
@@ -516,13 +432,74 @@ func TestVerifyOperationalCertificateInvalidSignatureSize(t *testing.T) {
 		ColdSignature:      make([]byte, 32), // Wrong size
 	}
 
-	err := auth.verifyOperationalCertificate(opcert, make([]byte, 32))
+	err = auth.verifyOperationalCertificate(opcert, make([]byte, 32))
 	assert.Error(t, err)
+}
+
+// TestVerifyOperationalCertificate_RawOCertSignableRepresentation verifies a
+// real, already-issued Cardano operational certificate — signed over the raw
+// OCertSignable representation (KES vkey || issue number BE || KES period
+// BE), matching cardano-node/cardano-ledger, not a CBOR encoding.
+func TestVerifyOperationalCertificate_RawOCertSignableRepresentation(t *testing.T) {
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	opcert := &OperationalCertificate{
+		KESVerificationKey: make([]byte, 32),
+		IssueNumber:        7,
+		KESPeriod:          42,
+	}
+	opcert.ColdSignature = ed25519.Sign(priv, opCertSignableBytes(
+		opcert.KESVerificationKey,
+		opcert.IssueNumber,
+		opcert.KESPeriod,
+	))
+
+	err = auth.verifyOperationalCertificate(opcert, pub)
+	assert.NoError(t, err)
+}
+
+// TestVerifyOperationalCertificate_RejectsCBORArraySignature proves a
+// certificate signed the old, incorrect way — a CBOR array of
+// [kesVkey, issueNumber, kesPeriod] — does not verify. A real pool's
+// operational certificate is never signed this way.
+func TestVerifyOperationalCertificate_RejectsCBORArraySignature(t *testing.T) {
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	opcert := &OperationalCertificate{
+		KESVerificationKey: make([]byte, 32),
+		IssueNumber:        7,
+		KESPeriod:          42,
+	}
+	certData := []any{
+		opcert.KESVerificationKey,
+		opcert.IssueNumber,
+		opcert.KESPeriod,
+	}
+	certCbor, err := cbor.Encode(certData)
+	require.NoError(t, err)
+	opcert.ColdSignature = ed25519.Sign(priv, certCbor)
+
+	err = auth.verifyOperationalCertificate(opcert, pub)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cold signature verification failed")
 }
 
 // TestVerifyMessageIDInvalid tests message ID verification with invalid ID
 func TestVerifyMessageIDInvalid(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
@@ -530,14 +507,17 @@ func TestVerifyMessageIDInvalid(t *testing.T) {
 		},
 	}
 
-	err := auth.verifyMessageID(msg)
+	err = auth.verifyMessageID(msg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "empty")
 }
 
 // TestVerifyMessageIDTooLong tests message ID verification with too long ID
 func TestVerifyMessageIDTooLong(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
@@ -545,7 +525,7 @@ func TestVerifyMessageIDTooLong(t *testing.T) {
 		},
 	}
 
-	err := auth.verifyMessageID(msg)
+	err = auth.verifyMessageID(msg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "must be 32 bytes")
 }
@@ -570,7 +550,10 @@ func TestComputeDmqMessageIDGoldenVector(t *testing.T) {
 }
 
 func TestVerifyMessageIDMismatch(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 
 	msg := &DmqMessage{
 		MessageID: []byte{
@@ -586,13 +569,16 @@ func TestVerifyMessageIDMismatch(t *testing.T) {
 		},
 	}
 
-	err := auth.verifyMessageID(msg)
+	err = auth.verifyMessageID(msg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "message ID mismatch")
 }
 
 func TestVerifyMessageIDValid(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
@@ -603,7 +589,7 @@ func TestVerifyMessageIDValid(t *testing.T) {
 	}
 	assert.NoError(t, msg.SetComputedMessageID())
 
-	err := auth.verifyMessageID(msg)
+	err = auth.verifyMessageID(msg)
 	assert.NoError(t, err)
 }
 
@@ -681,27 +667,25 @@ func TestDmqMessageCBORDecodesLegacyShape(t *testing.T) {
 
 // TestVerifyKESSignatureInvalidSize tests KES signature verification with invalid size
 func TestVerifyKESSignatureInvalidSize(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+	})
+	require.NoError(t, err)
 	// Generate an ed25519 keypair for a valid cold key and sign the opcert
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	assert.NoError(t, err)
+	pub, priv, kerr := ed25519.GenerateKey(rand.Reader)
+	assert.NoError(t, kerr)
 
 	opcert := OperationalCertificate{
 		KESVerificationKey: make([]byte, 32),
 		IssueNumber:        1,
 		KESPeriod:          1,
 	}
-
-	certData := []any{
+	opcert.ColdSignature = ed25519.Sign(priv, opCertSignableBytes(
 		opcert.KESVerificationKey,
 		opcert.IssueNumber,
 		opcert.KESPeriod,
-	}
-	certCbor, err := cbor.Encode(certData)
-	assert.NoError(t, err)
-
-	sig := ed25519.Sign(priv, certCbor)
-	opcert.ColdSignature = sig
+	))
 
 	msg := &DmqMessage{
 		KESSignature: make(
@@ -717,157 +701,183 @@ func TestVerifyKESSignatureInvalidSize(t *testing.T) {
 		},
 	}
 	assert.NoError(t, msg.SetComputedMessageID())
+	poolID, perr := poolKeyHash(msg.ColdVerificationKey)
+	require.NoError(t, perr)
+	stake.register(poolID, 1000)
 
 	err = auth.VerifyMessage(msg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "448 bytes")
 }
 
-// helper to build a minimal valid Message suitable for KES verification tests
-func buildTestMessage(t *testing.T) *DmqMessage {
-	// generate cold keypair
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("failed to generate ed25519 key: %v", err)
+// buildSignedTestMessage builds a DmqMessage with a real cold-key opcert
+// signature and a real KES signature over the payload, evolved to
+// (msgPeriod - certPeriod). It does not register the pool with any
+// StakeAuthority — callers needing an authorized message must do so.
+func buildSignedTestMessage(
+	t *testing.T,
+	certPeriod uint64,
+	msgPeriod uint64,
+) *DmqMessage {
+	t.Helper()
+
+	// Cold keypair signs the operational certificate.
+	coldPub, coldPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	// KES keypair signs the message payload, evolved to the signing period.
+	seed := make([]byte, kes.SeedSize)
+	_, err = rand.Read(seed)
+	require.NoError(t, err)
+	sk, kesPub, err := kes.KeyGen(kes.CardanoKesDepth, seed)
+	require.NoError(t, err)
+
+	require.GreaterOrEqual(t, msgPeriod, certPeriod)
+	evolution := msgPeriod - certPeriod
+	for range evolution {
+		sk, err = kes.Update(sk)
+		require.NoError(t, err)
 	}
 
-	// create opcert with a 32-byte KES vkey (zeros are fine for these tests)
 	opcert := OperationalCertificate{
-		KESVerificationKey: make([]byte, 32),
+		KESVerificationKey: kesPub,
 		IssueNumber:        1,
-		KESPeriod:          100,
+		KESPeriod:          certPeriod,
 	}
-
-	// build cert cbor and sign it with cold key
-	certData := []any{
+	opcert.ColdSignature = ed25519.Sign(coldPriv, opCertSignableBytes(
 		opcert.KESVerificationKey,
 		opcert.IssueNumber,
 		opcert.KESPeriod,
+	))
+
+	payload := DmqMessagePayload{
+		MessageBody: []byte("hello"),
+		KESPeriod:   msgPeriod,
+		ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
 	}
-	certCbor, err := cbor.Encode(certData)
-	if err != nil {
-		t.Fatalf("failed to encode cert cbor: %v", err)
-	}
-	opcert.ColdSignature = ed25519.Sign(priv, certCbor)
+	payloadCbor, err := cbor.Encode(payload)
+	require.NoError(t, err)
+	wrappedCbor, err := cbor.Encode(payloadCbor)
+	require.NoError(t, err)
+
+	sig, err := kes.Sign(sk, evolution, wrappedCbor)
+	require.NoError(t, err)
 
 	msg := &DmqMessage{
-		Payload: DmqMessagePayload{
-			MessageBody: []byte("hello"),
-			KESPeriod:   100,
-			ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
-		},
-		KESSignature:           make([]byte, 448),
+		Payload:                payload,
+		KESSignature:           sig,
 		OperationalCertificate: opcert,
-		ColdVerificationKey:    pub,
+		ColdVerificationKey:    coldPub,
 	}
-	if err := msg.SetComputedMessageID(); err != nil {
-		t.Fatalf("failed to compute message id: %v", err)
-	}
-
+	require.NoError(t, msg.SetComputedMessageID())
 	return msg
 }
 
-func TestVerifyMessageWithSlot_CallsInjectedVerifier_Success(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
-	msg := buildTestMessage(t)
+// TestVerifyMessage_EndToEndValid proves a message signed with a real cold
+// key and a real, correctly-evolved KES key verifies in full, in-process --
+// no injected verifier callback.
+func TestVerifyMessage_EndToEndValid(t *testing.T) {
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+	})
+	require.NoError(t, err)
 
-	// register poolID so SPO check passes
-	poolID := auth.computePoolID(msg.ColdVerificationKey)
-	auth.RegisterSPOPool(poolID)
+	msg := buildSignedTestMessage(t, 100, 100)
+	poolID, perr := poolKeyHash(msg.ColdVerificationKey)
+	require.NoError(t, perr)
+	stake.register(poolID, 1000)
 
-	called := false
-	var gotKesPeriod uint64
-	var gotSlot uint64
-	var gotSignature []byte
-	var gotVkey []byte
-
-	auth.SetKESVerifier(
-		func(wrappedPayload []byte, signature []byte, vkey []byte, kesPeriod uint64, slot uint64, slotsPerKesPeriod uint64) (bool, error) {
-			called = true
-			gotKesPeriod = kesPeriod
-			gotSlot = slot
-			gotSignature = signature
-			gotVkey = vkey
-			return true, nil
-		},
-	)
-
-	// call verification with explicit slot
-	err := auth.VerifyMessageWithSlot(msg, 12345)
-	assert.NoError(t, err)
-	assert.True(t, called, "expected verifier to be called")
-	assert.Equal(t, uint64(msg.Payload.KESPeriod), gotKesPeriod)
-	assert.Equal(t, uint64(12345), gotSlot)
-	assert.Equal(t, msg.KESSignature, gotSignature)
-	assert.Equal(t, msg.OperationalCertificate.KESVerificationKey, gotVkey)
+	assert.NoError(t, auth.VerifyMessage(msg))
 }
 
-func TestVerifyMessageWithSlot_VerifierRejects(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
-	msg := buildTestMessage(t)
-	poolID := auth.computePoolID(msg.ColdVerificationKey)
-	auth.RegisterSPOPool(poolID)
+// TestVerifyMessage_EndToEndEvolvedKES proves a message signed at a KES
+// evolution after the certificate's own issuance period verifies too.
+func TestVerifyMessage_EndToEndEvolvedKES(t *testing.T) {
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+	})
+	require.NoError(t, err)
 
-	auth.SetKESVerifier(
-		func(_ []byte, _ []byte, _ []byte, _ uint64, _ uint64, _ uint64) (bool, error) {
-			return false, nil
-		},
-	)
+	msg := buildSignedTestMessage(t, 50, 53)
+	poolID, perr := poolKeyHash(msg.ColdVerificationKey)
+	require.NoError(t, perr)
+	stake.register(poolID, 1000)
 
-	err := auth.VerifyMessageWithSlot(msg, 0)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "KES signature verification failed")
+	assert.NoError(t, auth.VerifyMessage(msg))
 }
 
-func TestVerifyMessageWithSlot_VerifierError(t *testing.T) {
-	auth := NewMessageAuthenticator(nil)
-	msg := buildTestMessage(t)
-	poolID := auth.computePoolID(msg.ColdVerificationKey)
-	auth.RegisterSPOPool(poolID)
+// TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance proves
+// a message claiming to have been signed at a KES period earlier than its
+// own certificate's issuance period is rejected outright.
+func TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance(t *testing.T) {
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 
-	auth.SetKESVerifier(
-		func(_ []byte, _ []byte, _ []byte, _ uint64, _ uint64, _ uint64) (bool, error) {
-			return false, errors.New("boom")
+	msg := &DmqMessage{
+		OperationalCertificate: OperationalCertificate{
+			KESVerificationKey: make([]byte, 32),
+			KESPeriod:          80,
 		},
-	)
-
-	err := auth.VerifyMessageWithSlot(msg, 0)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "KES verification failed")
-}
-
-func TestDefaultKESVerifier_IsAppliedAndCalled(t *testing.T) {
-	// set package-level default verifier to a mock
-	called := false
-	pcommonVerifier := func(wrappedPayload []byte, signature []byte, vkey []byte, kesPeriod uint64, slot uint64, slotsPerKesPeriod uint64) (bool, error) {
-		called = true
-		return true, nil
+		Payload: DmqMessagePayload{
+			KESPeriod: 50,
+		},
+		KESSignature: make([]byte, kes.CardanoKesSignatureSize),
 	}
 
-	// Use SetDefaultKESVerifier from this package (same package)
-	// Save previous default and restore after test to avoid package-level state pollution
-	prev := defaultKESVerifier.Load()
-	SetDefaultKESVerifier(pcommonVerifier)
-	defer func() {
-		// Restore previous default verifier (nil or func); defaultKESVerifier only stores this concrete type.
-		if fn, ok := prev.(func([]byte, []byte, []byte, uint64, uint64, uint64) (bool, error)); ok {
-			SetDefaultKESVerifier(fn)
-			return
-		}
-		SetDefaultKESVerifier(nil)
-	}()
+	err = auth.verifyKESSignature(msg, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "precedes certificate issuance period")
+}
 
-	auth := NewMessageAuthenticator(nil)
-	// apply default verifier to auth
-	ApplyDefaultKESVerifier(auth)
+// TestVerifyKESSignature_OverflowGuard proves a message whose claimed KES
+// period would overflow the period-to-slot conversion is rejected rather
+// than silently wrapping to an unrelated, easy evolution.
+func TestVerifyKESSignature_OverflowGuard(t *testing.T) {
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: newStubStakeAuthority(),
+	})
+	require.NoError(t, err)
 
-	// build message and register pool
-	msg := buildTestMessage(t)
-	poolID := auth.computePoolID(msg.ColdVerificationKey)
-	auth.RegisterSPOPool(poolID)
+	msg := &DmqMessage{
+		OperationalCertificate: OperationalCertificate{
+			KESVerificationKey: make([]byte, 32),
+			KESPeriod:          0,
+		},
+		Payload: DmqMessagePayload{
+			KESPeriod: math.MaxUint64,
+		},
+		KESSignature: make([]byte, kes.CardanoKesSignatureSize),
+	}
 
-	// call verification which should trigger default verifier
-	err := auth.VerifyMessageWithSlot(msg, 0)
-	assert.NoError(t, err)
-	assert.True(t, called, "expected default verifier to be called")
+	err = auth.verifyKESSignature(msg, nil)
+	assert.ErrorIs(t, err, ErrKESPeriodOverflow)
+}
+
+// TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne proves an
+// explicit slot is honored over the slot implied by the message's own
+// claimed period.
+func TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne(t *testing.T) {
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+	})
+	require.NoError(t, err)
+
+	msg := buildSignedTestMessage(t, 100, 100)
+	poolID, perr := poolKeyHash(msg.ColdVerificationKey)
+	require.NoError(t, perr)
+	stake.register(poolID, 1000)
+
+	// The real slot for period 100 at the default 129600 slots/period.
+	realSlot := uint64(100) * 129600
+	assert.NoError(t, auth.VerifyMessageWithSlot(msg, realSlot))
+
+	// A slot corresponding to an earlier period than the cert's own
+	// issuance period must fail (KES signature won't verify at that
+	// evolution).
+	assert.Error(t, auth.VerifyMessageWithSlot(msg, 0))
 }

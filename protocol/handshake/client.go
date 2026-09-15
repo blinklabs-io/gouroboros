@@ -134,6 +134,13 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 		)
 	}
 	msgAcceptVersion := msg.(*MsgAcceptVersion)
+	proposedData, ok := c.config.ProtocolVersionMap[msgAcceptVersion.Version]
+	if !ok {
+		return fmt.Errorf(
+			"unproposed protocol version accepted by peer: %d",
+			msgAcceptVersion.Version,
+		)
+	}
 	protoVersion := protocol.GetProtocolVersion(msgAcceptVersion.Version)
 	if protoVersion.NewVersionDataFromCborFunc == nil {
 		return fmt.Errorf(
@@ -146,6 +153,14 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 	)
 	if err != nil {
 		return err
+	}
+	if versionData.NetworkMagic() != proposedData.NetworkMagic() {
+		return fmt.Errorf(
+			"network magic mismatch for accepted protocol version %d: got %d, want %d",
+			msgAcceptVersion.Version,
+			versionData.NetworkMagic(),
+			proposedData.NetworkMagic(),
+		)
 	}
 	return c.config.FinishedFunc(
 		c.callbackContext,

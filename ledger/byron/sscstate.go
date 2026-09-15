@@ -234,8 +234,7 @@ func decodePrimaryEntries(
 // already-decoded SscPayload parts (rest, as returned by
 // decodeSscPayloadParts) -- no cross-block state needed.
 //
-// This is the opt-in, full-hash-comparison form (checkSscProofCore with
-// verifyHashes=true): it recomputes each hash the header claims and rejects
+// This is the opt-in, full-hash-comparison form (checkSscProofCore): it recomputes each hash the header claims and rejects
 // the block unless the header's value matches exactly. ValidateBodyProof
 // does NOT call this by default -- see checkSscProofCore's doc comment
 // and common.VerifyConfig.EnableByronSscProofHashValidation for why that
@@ -359,36 +358,347 @@ func checkSscProofLocal(
 	expectedType uint64,
 	rest []cbor.RawMessage,
 ) error {
-	return checkSscProofCore(rawProof, expectedType, rest, true)
+	return checkSscProofCore(rawProof, expectedType, rest)
 }
 
-// checkSscProofShape validates a block's ssc_proof the same way
-// checkSscProofLocal does -- proof type, element counts, and the wire shape
-// of every field the proof hashes -- but does NOT compare any hash value
-// against the header. This is what ValidateBodyProof runs by default for
-// every decoded Byron main block (see NewByronMainBlockFromCbor);
-// checkSscProofLocal's full hash comparison is opt-in via
+// checkSscProofShape validates a block's ssc_proof as far as
+// cardano-ledger's dropSscProof does, and validates the separately decoded
+// SSC payload as far as dropSscPayload does. This is what
+// ValidateBodyProof runs by default for every decoded Byron main block
+// (see NewByronMainBlockFromCbor), so anything it rejects is a whole-block
+// decode failure; checkSscProofLocal's full hash comparison, and the
+// stricter wire shapes it needs to compute those hashes, are opt-in via
 // common.VerifyConfig.EnableByronSscProofHashValidation, exposed through
 // ByronMainBlock.ValidateSscProof.
 //
-// See checkSscProofCore's doc comment for why the hash comparison itself,
-// specifically, is not run unconditionally the way tx_proof/dlg_proof/
-// upd_proof's comparisons are.
+// dropSscProof reads a list length, then a Word8 tag, then matchSize
+// against 3 for tags 0-2 and 2 for tag 3, then a dropBytes per hash slot,
+// and errors on any other tag (Cardano/Chain/Ssc.hs:169-188). dropBytes is
+// void decodeBytes: a byte string of any length, never interpreted
+// (Cardano/Ledger/Binary/Decoding/Drop.hs:28-29). So the hash slots are
+// checked for being byte strings and nothing more.
+//
+// dropSscPayload is a separate decoder run over a separate field and never
+// sees the proof's tag (Cardano/Chain/Ssc.hs:75-90), so the payload's own
+// arity and nested wire shapes are checked against the payload's own type
+// here rather than against the proof's, and the two types are not compared.
 func checkSscProofShape(
 	rawProof any,
 	expectedType uint64,
 	rest []cbor.RawMessage,
 ) error {
-	return checkSscProofCore(rawProof, expectedType, rest, false)
+	proofSlice, ok := rawProof.([]any)
+	if !ok || len(proofSlice) < 2 {
+		return fmt.Errorf(
+			"%w: ssc proof is not an array of at least 2 elements, got %T",
+			ErrBodyProofMismatch, rawProof,
+		)
+	}
+	sscType, err := asUint(proofSlice[0])
+	if err != nil {
+		return fmt.Errorf("%w: ssc proof type: %w", ErrBodyProofMismatch, err)
+	}
+	proofHashes := 0
+	switch sscType {
+	case SscTypeCommitments, SscTypeOpenings, SscTypeShares:
+		proofHashes = 2
+	case SscTypeCertificates:
+		proofHashes = 1
+	default:
+		return fmt.Errorf(
+			"%w: unknown ssc proof type %d", ErrBodyProofMismatch, sscType,
+		)
+	}
+	if len(proofSlice) != proofHashes+1 {
+		return fmt.Errorf(
+			"%w: ssc proof type %d requires %d elements, got %d",
+			ErrBodyProofMismatch, sscType, proofHashes+1, len(proofSlice),
+		)
+	}
+	for i := 1; i <= proofHashes; i++ {
+		if _, ok := proofSlice[i].([]byte); !ok {
+			return fmt.Errorf(
+				"%w: ssc proof element %d is not a byte string, got %T",
+				ErrBodyProofMismatch, i, proofSlice[i],
+			)
+		}
+	}
+	if err := validateSscPayloadShape(expectedType, rest); err != nil {
+		return fmt.Errorf("%w: ssc payload shape: %w", ErrBodyProofMismatch, err)
+	}
+	return nil
 }
 
-// checkSscProofCore implements both checkSscProofLocal (verifyHashes=true)
-// and checkSscProofShape (verifyHashes=false): the proof type, element
-// counts, and wire shape of every field are always validated; the actual
-// hash comparison against the header's claimed value is only performed
-// when verifyHashes is true.
+func validateSscPayloadShape(
+	sscType uint64,
+	rest []cbor.RawMessage,
+) error {
+	switch sscType {
+	case SscTypeCommitments:
+		if len(rest) != 2 {
+			return fmt.Errorf(
+				"ssc payload type %d requires 2 elements after the type, got %d",
+				sscType, len(rest),
+			)
+		}
+		if err := validateSscSet(rest[0], validateSignedCommitment); err != nil {
+			return fmt.Errorf("commitments: %w", err)
+		}
+		return validateSscSet(rest[1], validateVssCertificate)
+	case SscTypeOpenings:
+		if len(rest) != 2 {
+			return fmt.Errorf(
+				"ssc payload type %d requires 2 elements after the type, got %d",
+				sscType, len(rest),
+			)
+		}
+		if err := validateSscByteStringMap(
+			rest[0], validateSscByteString, "openings",
+		); err != nil {
+			return err
+		}
+		return validateSscSet(rest[1], validateVssCertificate)
+	case SscTypeShares:
+		if len(rest) != 2 {
+			return fmt.Errorf(
+				"ssc payload type %d requires 2 elements after the type, got %d",
+				sscType, len(rest),
+			)
+		}
+		if err := validateSscSharesMap(rest[0]); err != nil {
+			return err
+		}
+		return validateSscSet(rest[1], validateVssCertificate)
+	case SscTypeCertificates:
+		if len(rest) != 1 {
+			return fmt.Errorf(
+				"ssc payload type %d requires 1 element after the type, got %d",
+				sscType, len(rest),
+			)
+		}
+		return validateSscSet(rest[0], validateVssCertificate)
+	default:
+		return fmt.Errorf("unknown ssc payload type %d", sscType)
+	}
+}
+
+func validateSscSet(
+	raw cbor.RawMessage,
+	validateEntry func(cbor.RawMessage) error,
+) error {
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeTag {
+		return errors.New("expected a tagged set")
+	}
+	var tag cbor.RawTag
+	if _, err := cbor.Decode(raw, &tag); err != nil {
+		return fmt.Errorf("decode set tag: %w", err)
+	}
+	if len(tag.Content) == 0 ||
+		tag.Content[0]&cbor.CborTypeMask != cbor.CborTypeArray {
+		return errors.New("set tag content must be a CBOR list")
+	}
+	itemCount, _, indefinite := cbor.ArrayInfo(tag.Content)
+	if itemCount < 0 || indefinite {
+		return errors.New("set tag content must be a definite-length CBOR list")
+	}
+	var entries []cbor.RawMessage
+	if _, err := cbor.Decode(tag.Content, &entries); err != nil {
+		return fmt.Errorf("decode set entries: %w", err)
+	}
+	if len(entries) != itemCount {
+		return fmt.Errorf(
+			"set has %d decoded entries, expected %d", len(entries), itemCount,
+		)
+	}
+	for idx, entry := range entries {
+		if err := validateEntry(entry); err != nil {
+			return fmt.Errorf("set entry %d: %w", idx, err)
+		}
+	}
+	return nil
+}
+
+func validateSscByteString(raw cbor.RawMessage) error {
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
+		return errors.New("expected a CBOR byte string")
+	}
+	return nil
+}
+
+func validateSscByteStringMap(
+	raw cbor.RawMessage,
+	validateValue func(cbor.RawMessage) error,
+	name string,
+) error {
+	return validateSscMap(
+		raw, validateSscByteString, validateValue, name,
+	)
+}
+
+func validateSscMap(
+	raw cbor.RawMessage,
+	validateKey func(cbor.RawMessage) error,
+	validateValue func(cbor.RawMessage) error,
+	name string,
+) error {
+	decoder, err := cbor.NewStreamDecoder(raw)
+	if err != nil {
+		return fmt.Errorf("decode %s map: %w", name, err)
+	}
+	pairCount, _, _, err := decoder.DecodeMapHeader()
+	if err != nil {
+		return fmt.Errorf("%s must be a definite-length CBOR map: %w", name, err)
+	}
+	for idx := 0; idx < pairCount; idx++ {
+		keyOffset, keyLength, err := decoder.Skip()
+		if err != nil {
+			return fmt.Errorf("decode %s map key %d: %w", name, idx, err)
+		}
+		key := cbor.RawMessage(decoder.RawBytes(keyOffset, keyLength))
+		if err := validateKey(key); err != nil {
+			return fmt.Errorf("%s map key %d: %w", name, idx, err)
+		}
+		valueOffset, valueLength, err := decoder.Skip()
+		if err != nil {
+			return fmt.Errorf("decode %s map value %d: %w", name, idx, err)
+		}
+		value := cbor.RawMessage(decoder.RawBytes(valueOffset, valueLength))
+		if err := validateValue(value); err != nil {
+			return fmt.Errorf("%s map value %d: %w", name, idx, err)
+		}
+	}
+	if !decoder.EOF() {
+		return fmt.Errorf("%s map has trailing CBOR data", name)
+	}
+	return nil
+}
+
+func validateSscSharesMap(raw cbor.RawMessage) error {
+	return validateSscByteStringMap(raw, func(value cbor.RawMessage) error {
+		return validateSscByteStringMap(value, func(inner cbor.RawMessage) error {
+			return validateSscByteStringList(inner, "share value")
+		}, "inner shares")
+	}, "shares")
+}
+
+func validateSscByteStringList(raw cbor.RawMessage, name string) error {
+	itemCount, _, indefinite := cbor.ArrayInfo(raw)
+	if itemCount < 0 || !indefinite {
+		return fmt.Errorf("%s must be an indefinite-length CBOR list", name)
+	}
+	var items []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &items); err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	for idx, item := range items {
+		if err := validateSscByteString(item); err != nil {
+			return fmt.Errorf("%s item %d: %w", name, idx, err)
+		}
+	}
+	return nil
+}
+
+func validateSscArray(
+	raw cbor.RawMessage,
+	length int,
+	name string,
+) ([]cbor.RawMessage, error) {
+	itemCount, _, indefinite := cbor.ArrayInfo(raw)
+	if itemCount < 0 || indefinite {
+		return nil, fmt.Errorf("%s must be a definite-length CBOR list", name)
+	}
+	if itemCount != length {
+		return nil, fmt.Errorf(
+			"%s has %d fields, expected %d", name, itemCount, length,
+		)
+	}
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &fields); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", name, err)
+	}
+	if len(fields) != itemCount {
+		return nil, fmt.Errorf(
+			"%s has %d decoded fields, expected %d",
+			name, len(fields), itemCount,
+		)
+	}
+	return fields, nil
+}
+
+func validateSignedCommitment(raw cbor.RawMessage) error {
+	fields, err := validateSscArray(raw, 3, "signed commitment")
+	if err != nil {
+		return err
+	}
+	if err := validateSscByteString(fields[0]); err != nil {
+		return fmt.Errorf("verification key: %w", err)
+	}
+	if err := validateCommitment(fields[1]); err != nil {
+		return err
+	}
+	return validateSscByteString(fields[2])
+}
+
+func validateCommitment(raw cbor.RawMessage) error {
+	fields, err := validateSscArray(raw, 2, "commitment")
+	if err != nil {
+		return err
+	}
+	if err := validateSscByteStringMap(
+		fields[0], func(value cbor.RawMessage) error {
+			return validateSscByteStringList(value, "commitment shares")
+		}, "commitment shares",
+	); err != nil {
+		return err
+	}
+	return validateSecretProof(fields[1])
+}
+
+func validateSecretProof(raw cbor.RawMessage) error {
+	fields, err := validateSscArray(raw, 4, "secret proof")
+	if err != nil {
+		return err
+	}
+	for idx := 0; idx < 3; idx++ {
+		if err := validateSscByteString(fields[idx]); err != nil {
+			return fmt.Errorf("secret proof field %d: %w", idx, err)
+		}
+	}
+	return validateSscByteStringList(
+		fields[3], "secret proof commitments",
+	)
+}
+
+func validateVssCertificate(raw cbor.RawMessage) error {
+	fields, err := validateSscArray(raw, 4, "VSS certificate")
+	if err != nil {
+		return err
+	}
+	if err := validateSscByteString(fields[0]); err != nil {
+		return fmt.Errorf("verification key: %w", err)
+	}
+	if len(fields[1]) == 0 || fields[1][0]&cbor.CborTypeMask != 0x00 {
+		return errors.New("epoch must be an unsigned integer")
+	}
+	var epoch uint64
+	if _, err := cbor.Decode(fields[1], &epoch); err != nil {
+		return fmt.Errorf("decode epoch: %w", err)
+	}
+	for idx := 2; idx < 4; idx++ {
+		if err := validateSscByteString(fields[idx]); err != nil {
+			return fmt.Errorf("certificate field %d: %w", idx, err)
+		}
+	}
+	return nil
+}
+
+// checkSscProofCore implements checkSscProofLocal: it validates the proof
+// type against the payload's, the element counts, the wire shape of every
+// field it hashes, and the hash values themselves. checkSscProofShape does
+// not share it -- that function is bounded by cardano-ledger's dropSscProof
+// and cannot use any of the shapes below.
 //
-// Splitting the hash comparison out behind verifyHashes exists because,
+// This is a separate function from checkSscProofShape because,
 // unlike tx_proof/dlg_proof/upd_proof, ssc_proof has no upstream reference
 // implementation to cross-check this package's own hash construction
 // against: modern cardano-ledger decodes SscProof as a unit type and
@@ -421,7 +731,6 @@ func checkSscProofCore(
 	rawProof any,
 	expectedType uint64,
 	rest []cbor.RawMessage,
-	verifyHashes bool,
 ) error {
 	proofSlice, ok := rawProof.([]any)
 	if !ok || len(proofSlice) < 2 {
@@ -464,11 +773,10 @@ func checkSscProofCore(
 				ErrBodyProofMismatch, sscType, err,
 			)
 		}
-		if err := checkHashOrShape(
+		if err := checkHash(
 			"ssc primary hash",
 			proofSlice[1],
 			common.Blake2b256Hash(rest[0]),
-			verifyHashes,
 		); err != nil {
 			return err
 		}
@@ -479,8 +787,8 @@ func checkSscProofCore(
 				ErrBodyProofMismatch, err,
 			)
 		}
-		return checkHashOrShape(
-			"ssc vss certificates hash", proofSlice[2], certsHash, verifyHashes,
+		return checkHash(
+			"ssc vss certificates hash", proofSlice[2], certsHash,
 		)
 	case SscTypeCertificates:
 		if len(proofSlice) != 2 {
@@ -503,8 +811,8 @@ func checkSscProofCore(
 				ErrBodyProofMismatch, err,
 			)
 		}
-		return checkHashOrShape(
-			"ssc vss certificates hash", proofSlice[1], certsHash, verifyHashes,
+		return checkHash(
+			"ssc vss certificates hash", proofSlice[1], certsHash,
 		)
 	default:
 		return fmt.Errorf(
@@ -578,12 +886,24 @@ func decodeSscPayloadParts(
 	if len(raw) == 0 {
 		return 0, nil, errors.New("ssc payload has no preserved CBOR")
 	}
+	itemCount, _, indefinite := cbor.ArrayInfo(raw)
+	if itemCount < 0 || indefinite {
+		return 0, nil, errors.New(
+			"ssc payload must be a definite-length CBOR list",
+		)
+	}
 	var parts []cbor.RawMessage
 	if _, err := cbor.Decode(raw, &parts); err != nil {
 		return 0, nil, fmt.Errorf("decoding ssc payload array: %w", err)
 	}
 	if len(parts) < 1 {
 		return 0, nil, errors.New("ssc payload array is empty")
+	}
+	if len(parts) != itemCount {
+		return 0, nil, fmt.Errorf(
+			"ssc payload has %d decoded fields, expected %d",
+			len(parts), itemCount,
+		)
 	}
 	var sscType uint64
 	if _, err := cbor.Decode(parts[0], &sscType); err != nil {

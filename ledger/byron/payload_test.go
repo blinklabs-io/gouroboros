@@ -17,6 +17,7 @@ package byron_test
 import (
 	"bytes"
 	"crypto/ed25519"
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -148,7 +149,9 @@ func signedUpdateProposal(
 	blockVersion := mustEncode(t, byron.ByronBlockVersion{Major: 1, Minor: 0})
 	blockVersionMod := mustEncode(
 		t,
-		byron.ByronUpdateProposalBlockVersionMod{MaxTxSize: []uint64{4096}},
+		byron.ByronUpdateProposalBlockVersionMod{
+			MaxTxSize: []*big.Int{big.NewInt(4096)},
+		},
 	)
 	softwareVersion := mustEncode(
 		t,

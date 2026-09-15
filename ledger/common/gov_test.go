@@ -966,7 +966,7 @@ func TestUpdateCommitteeGovActionToPlutusData(t *testing.T) {
 		Credential: NewBlake2b224([]byte("test")),
 	}
 	creds := []Credential{cred}
-	credEpochs := map[*Credential]uint{
+	credEpochs := map[*Credential]uint64{
 		&cred: 42,
 	}
 

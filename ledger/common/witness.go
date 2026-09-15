@@ -92,13 +92,21 @@ func ValidateCollateralVKeyWitnesses(
 	}
 	// Ensure each collateral input is owned by a provided vkey witness
 	for _, input := range collateral {
-		utxo, err := ls.UtxoById(input)
+		utxo, err := ResolveInputUtxo(ls, input)
 		if err != nil {
 			return NewValidationError(
 				ValidationErrorTypeTransaction,
 				"UTxO not found for collateral input",
 				map[string]any{"input": input.String()},
 				err,
+			)
+		}
+		if utxo.Output == nil {
+			return NewValidationError(
+				ValidationErrorTypeTransaction,
+				"resolved UTxO has nil output",
+				map[string]any{"input": input.String()},
+				nil,
 			)
 		}
 		addr := utxo.Output.Address()

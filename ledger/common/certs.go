@@ -546,7 +546,110 @@ type PoolMetadata struct {
 	Hash PoolMetadataHash
 }
 
+const (
+	poolMetadataMaxURLLength       = 128
+	poolMetadataMaxURLLengthLegacy = 64
+)
+
+// ErrPoolMetadataURLTooLong identifies a pool metadata URL that exceeds the
+// protocol's 128-byte bound.
+var ErrPoolMetadataURLTooLong = errors.New(
+	"pool metadata URL exceeds the protocol length limit",
+)
+
+// ValidatePoolMetadata verifies the maximum URL size used when encoding pool
+// metadata to CBOR or exposing it through UTxO RPC. JSON uses the reference
+// ledger's unbounded Url/Text representation and does not call this helper.
+func ValidatePoolMetadata(metadata *PoolMetadata) error {
+	return validatePoolMetadataURL(metadata, poolMetadataMaxURLLength)
+}
+
+// ValidatePoolMetadataForProtocolVersion verifies the protocol-version-aware
+// URL bound for pool metadata. Protocol versions before Conway use the legacy
+// 64-byte bound; Conway and later use the 128-byte bound.
+func ValidatePoolMetadataForProtocolVersion(
+	metadata *PoolMetadata,
+	protocolMajor uint,
+) error {
+	maxURLLength := poolMetadataMaxURLLength
+	if protocolMajor < ProtocolVersionConway {
+		maxURLLength = poolMetadataMaxURLLengthLegacy
+	}
+	return validatePoolMetadataURL(metadata, maxURLLength)
+}
+
+func validatePoolMetadataURL(metadata *PoolMetadata, maxURLLength int) error {
+	if metadata == nil || len(metadata.Url) <= maxURLLength {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: maximum %d bytes, got %d",
+		ErrPoolMetadataURLTooLong,
+		maxURLLength,
+		len(metadata.Url),
+	)
+}
+
+func (p *PoolMetadata) UnmarshalCBOR(data []byte) error {
+	if p == nil {
+		return errors.New("nil PoolMetadata receiver")
+	}
+	type poolMetadata PoolMetadata
+	var tmp poolMetadata
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	metadata := PoolMetadata(tmp)
+	if err := ValidatePoolMetadata(&metadata); err != nil {
+		return err
+	}
+	*p = metadata
+	return nil
+}
+
+func (p PoolMetadata) MarshalCBOR() ([]byte, error) {
+	if err := ValidatePoolMetadata(&p); err != nil {
+		return nil, err
+	}
+	return cbor.Encode([]any{p.Url, p.Hash})
+}
+
+func (p *PoolMetadata) UnmarshalJSON(data []byte) error {
+	if p == nil {
+		return errors.New("nil PoolMetadata receiver")
+	}
+	var tmp struct {
+		Url  string           `json:"url"`
+		Hash PoolMetadataHash `json:"hash"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	metadata := PoolMetadata{
+		Url:  tmp.Url,
+		Hash: tmp.Hash,
+	}
+	*p = metadata
+	return nil
+}
+
+func (p PoolMetadata) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Url  string           `json:"url"`
+		Hash PoolMetadataHash `json:"hash"`
+	}{
+		Url:  p.Url,
+		Hash: p.Hash,
+	})
+}
+
 func (p *PoolMetadata) Utxorpc() (*utxorpc.PoolMetadata, error) {
+	if p == nil {
+		return nil, nil
+	}
+	if err := ValidatePoolMetadata(p); err != nil {
+		return nil, err
+	}
 	return &utxorpc.PoolMetadata{
 			Url:  p.Url,
 			Hash: p.Hash[:],
@@ -1170,6 +1273,9 @@ func (c PoolRegistrationCertificate) MarshalJSON() ([]byte, error) {
 	if err := ValidatePoolMargin(c.Margin); err != nil {
 		return nil, fmt.Errorf("invalid pool registration margin: %w", err)
 	}
+	if err := ValidatePoolMetadata(c.PoolMetadata); err != nil {
+		return nil, fmt.Errorf("invalid pool registration metadata: %w", err)
+	}
 	type poolRegistrationCertificateJSON PoolRegistrationCertificate
 	//nolint:musttag // The alias preserves PoolRegistrationCertificate's tags.
 	return json.Marshal(poolRegistrationCertificateJSON(c))
@@ -1693,6 +1799,7 @@ func (c *RegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 		Certificate: &utxorpc.Certificate_RegCert{
 			RegCert: &utxorpc.RegCert{
 				StakeCredential: stakeCred,
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -1739,6 +1846,7 @@ func (c *DeregistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 		Certificate: &utxorpc.Certificate_UnregCert{
 			UnregCert: &utxorpc.UnRegCert{
 				StakeCredential: stakeCred,
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -1882,6 +1990,7 @@ func (c *StakeRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate
 			StakeRegDelegCert: &utxorpc.StakeRegDelegCert{
 				StakeCredential: stakeCred,
 				PoolKeyhash:     c.PoolKeyHash.Bytes(),
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -1935,6 +2044,7 @@ func (c *VoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate,
 			VoteRegDelegCert: &utxorpc.VoteRegDelegCert{
 				StakeCredential: stakeCred,
 				Drep:            drep,
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -1981,16 +2091,6 @@ func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certifi
 		return nil, fmt.Errorf("failed to convert DRep: %w", err)
 	}
 
-	var drepBytes []byte
-
-	if drepProto != nil {
-		switch drepProto.GetDrep().(type) {
-		case *utxorpc.DRep_AddrKeyHash:
-			drepBytes = drepProto.GetAddrKeyHash()
-		case *utxorpc.DRep_ScriptHash:
-			drepBytes = drepProto.GetScriptHash()
-		}
-	}
 	stakeCred, err := c.StakeCredential.Utxorpc()
 	if err != nil {
 		return nil, err
@@ -1999,8 +2099,9 @@ func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certifi
 		Certificate: &utxorpc.Certificate_StakeVoteRegDelegCert{
 			StakeVoteRegDelegCert: &utxorpc.StakeVoteRegDelegCert{
 				StakeCredential: stakeCred,
-				PoolKeyhash:     drepBytes,
+				PoolKeyhash:     c.PoolKeyHash.Bytes(),
 				Drep:            drepProto,
+				Coin:            BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -2152,6 +2253,7 @@ func (c *RegistrationDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 			RegDrepCert: &utxorpc.RegDRepCert{
 				DrepCredential: drepCred,
 				Anchor:         anchor,
+				Coin:           BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil
@@ -2198,6 +2300,7 @@ func (c *DeregistrationDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) 
 		Certificate: &utxorpc.Certificate_UnregDrepCert{
 			UnregDrepCert: &utxorpc.UnRegDRepCert{
 				DrepCredential: drepCred,
+				Coin:           BigIntToUtxorpcBigInt(c.DepositAmount()),
 			},
 		},
 	}, nil

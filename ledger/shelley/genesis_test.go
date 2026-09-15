@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -512,6 +513,61 @@ func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
 	}
 }
 
+func TestGenesisPoolMetadataJSONURLHonorsProtocolBound(t *testing.T) {
+	const poolID = "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+	const vrf = "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+	const reward = "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+
+	for _, length := range []int{65, 129} {
+		t.Run("standard pool "+strconv.Itoa(length), func(t *testing.T) {
+			var config map[string]any
+			require.NoError(t, json.Unmarshal(
+				[]byte(shelleyGenesisConfig), &config,
+			))
+			staking, ok := config["staking"].(map[string]any)
+			if !ok {
+				staking = map[string]any{}
+				config["staking"] = staking
+			}
+			staking["pools"] = map[string]any{poolID: map[string]any{
+				"cost": 340000000, "margin": 0.0, "pledge": 0,
+				"publicKey": poolID, "vrf": vrf,
+				"rewardAccount": map[string]any{
+					"credential": map[string]any{"key hash": reward},
+					"network":    "Mainnet",
+				},
+				"metadata": map[string]any{
+					"url": strings.Repeat("a", length),
+				},
+			}}
+			data, err := json.Marshal(config)
+			require.NoError(t, err)
+			genesis, err := shelley.NewShelleyGenesisFromReader(
+				strings.NewReader(string(data)),
+			)
+			require.NoError(t, err)
+			_, _, err = genesis.InitialPools()
+			require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
+		})
+
+		t.Run("extra pool "+strconv.Itoa(length), func(t *testing.T) {
+			genesis, err := genesisWithExtraPool(poolID, map[string]any{
+				"vrf": vrf,
+				"accountAddress": map[string]any{
+					"credential": map[string]any{"keyHash": reward},
+					"network":    "Mainnet",
+				},
+				"metadata": map[string]any{
+					"url": strings.Repeat("a", length),
+				},
+			})
+			require.NoError(t, err)
+			_, _, err = genesis.InitialPools()
+			require.ErrorIs(t, err, common.ErrPoolMetadataURLTooLong)
+		})
+	}
+}
+
 func genesisWithExtraPool(
 	poolID string,
 	pool map[string]any,
@@ -610,6 +666,48 @@ func TestGenesisMarshalCBORValidNetworkId(t *testing.T) {
 		require.True(t, ok, "expected network ID field to decode as uint64, got %T", decoded[2])
 		assert.Equal(t, testDef.expectedNetworkIdCbor, gotNetworkId, "for %s", testDef.networkId)
 	}
+}
+
+func TestGenesisMarshalCBORSlotLength(t *testing.T) {
+	testDefs := []struct {
+		name           string
+		slotLength     *big.Rat
+		expectedMicros uint64
+	}{
+		{name: "integral", slotLength: big.NewRat(1, 1), expectedMicros: 1_000_000},
+		{name: "fractional", slotLength: big.NewRat(1, 4), expectedMicros: 250_000},
+	}
+	for _, testDef := range testDefs {
+		t.Run(testDef.name, func(t *testing.T) {
+			tmpGenesis := expectedGenesisObj
+			tmpGenesis.SlotLength = common.GenesisRat{Rat: testDef.slotLength}
+
+			cborData, err := tmpGenesis.MarshalCBOR()
+			require.NoError(t, err)
+
+			var fields []cbor.RawMessage
+			_, err = cbor.Decode(cborData, &fields)
+			require.NoError(t, err)
+			require.Greater(t, len(fields), 8)
+
+			var gotMicros uint64
+			_, err = cbor.Decode(fields[8], &gotMicros)
+			require.NoError(t, err)
+			assert.Equal(t, testDef.expectedMicros, gotMicros)
+		})
+	}
+}
+
+func TestGenesisMarshalCBORRejectsSubMicrosecondSlotLength(t *testing.T) {
+	tmpGenesis := expectedGenesisObj
+	tmpGenesis.SlotLength = common.GenesisRat{Rat: big.NewRat(1, 3)}
+
+	_, err := tmpGenesis.MarshalCBOR()
+	require.EqualError(
+		t,
+		err,
+		"slot length 1/3 seconds cannot be represented as integer microseconds",
+	)
 }
 
 func TestGenesisUtxos(t *testing.T) {

@@ -259,9 +259,21 @@ func (b *BabbageBlock) BlockBodyHash() common.Blake2b256 {
 type BabbageBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash      *common.Blake2b256
+	hash      common.Blake2b256Cache
 	Body      BabbageBlockHeaderBody
 	Signature []byte
+}
+
+func (h *BabbageBlockHeader) SetCbor(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCbor(cborData)
+	h.hash.Reset()
+}
+
+func (h *BabbageBlockHeader) SetCborReference(cborData []byte) {
+	// Callers must externally synchronize this with Hash and other mutations.
+	h.DecodeStoreCbor.SetCborReference(cborData)
+	h.hash.Reset()
 }
 
 type BabbageBlockHeaderBody struct {
@@ -348,11 +360,9 @@ func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (h *BabbageBlockHeader) Hash() common.Blake2b256 {
-	if h.hash == nil {
-		tmpHash := common.Blake2b256Hash(h.Cbor())
-		h.hash = &tmpHash
-	}
-	return *h.hash
+	return h.hash.Get(func() common.Blake2b256 {
+		return common.Blake2b256Hash(h.Cbor())
+	})
 }
 
 func (h *BabbageBlockHeader) PrevHash() common.Blake2b256 {
@@ -391,7 +401,6 @@ type BabbageTransactionPparamUpdate struct {
 
 type BabbageTransactionBody struct {
 	common.TransactionBodyBase
-	hash                    *common.Blake2b256
 	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
 	TxOutputs               []BabbageTransactionOutput                    `cbor:"1,keyasint,omitempty"`
 	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
@@ -479,11 +488,7 @@ func coalesceUntaggedTransactionInputs(
 }
 
 func (b *BabbageTransactionBody) Id() common.Blake2b256 {
-	if b.hash == nil {
-		tmpHash := common.Blake2b256Hash(b.Cbor())
-		b.hash = &tmpHash
-	}
-	return *b.hash
+	return b.TransactionBodyBase.Id()
 }
 
 func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
@@ -526,7 +531,6 @@ func (b *BabbageTransactionBody) TransactionNetworkId() *uint8 {
 }
 
 func (b *BabbageTransactionBody) SetNetworkIdPresence(present bool) {
-	b.hash = nil
 	b.TransactionBodyBase.SetNetworkIdPresence(present)
 }
 
@@ -538,13 +542,11 @@ func (b *BabbageTransactionBody) SetValidityIntervalUpperBound(
 	upperBound uint64,
 ) {
 	b.Ttl = upperBound
-	b.hash = nil
 	b.SetValidityIntervalUpperBoundPresence(true)
 }
 
 func (b *BabbageTransactionBody) ClearValidityIntervalUpperBound() {
 	b.Ttl = 0
-	b.hash = nil
 	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
@@ -831,9 +833,13 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 			data.NewByteString(o.DatumOption.hash.Bytes()),
 		)
 	case o.DatumOption.data != nil:
+		// Normalize: cardano-ledger rebuilds every script-visible value, so a
+		// script always observes the encoding the Plutus encoder writes, never
+		// the definite/indefinite-length choice this transaction was built
+		// with. serialiseData exposes the difference.
 		datumOptionPd = data.NewConstr(
 			2,
-			o.DatumOption.data.Data,
+			data.Normalize(o.DatumOption.data.Data),
 		)
 	}
 	var scriptRefPd data.PlutusData
@@ -931,13 +937,11 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 
 	var datumHash []byte
-	if o.DatumOption == nil {
-		datumHash = make([]byte, 32) // 32 zero bytes for no datum option
-	} else if o.DatumOption.hash != nil {
+	if o.DatumOption != nil && o.DatumOption.hash != nil {
 		datumHash = o.DatumOption.hash.Bytes()
-	} else if o.DatumOption.data != nil {
+	} else if o.DatumOption != nil && o.DatumOption.data != nil {
 		datumHash = o.DatumHash().Bytes()
-	} else {
+	} else if o.DatumOption != nil {
 		// DatumOption present but empty
 		datumHash = []byte{}
 	}

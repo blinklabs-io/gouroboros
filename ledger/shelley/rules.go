@@ -903,6 +903,10 @@ func UtxoValidateWithdrawals(
 // (psStakePools, psFutureStakePoolParams, psRetiring, psVRFKeyHashes) are
 // ledger-state transitions rather than predicates, and belong to the consumer
 // applying the certificate.
+//
+// The era-specific pool metadata URL bound (64 bytes before protocol version 9,
+// 128 thereafter) is enforced while decoding pool metadata, including genesis
+// pool configuration, rather than by the reference POOL predicate.
 func UtxoValidatePoolCertificates(
 	tx common.Transaction,
 	slot uint64,
@@ -961,6 +965,7 @@ func UtxoValidatePoolCertificates(
 				ls,
 				networkId,
 				minPoolCost,
+				protocolMajor,
 				checkNetworkId,
 				checkMetadataHash,
 				checkVrfKeys,
@@ -1006,11 +1011,19 @@ func validatePoolRegistration(
 	ls common.LedgerState,
 	networkId uint,
 	minPoolCost uint64,
+	protocolMajor uint,
 	checkNetworkId bool,
 	checkMetadataHash bool,
 	checkVrfKeys bool,
 	inTxVrfKeys map[common.VrfKeyHash]common.PoolKeyHash,
 ) error {
+	if err := common.ValidatePoolMetadataForProtocolVersion(
+		cert.PoolMetadata,
+		protocolMajor,
+	); err != nil {
+		return err
+	}
+
 	// WrongNetworkPOOL: actualNetID == suppliedNetID.
 	//
 	// The supplied value is the network id in the reward account's address
@@ -1121,7 +1134,7 @@ func validatePoolRetirement(
 	// StakePoolRetirementWrongEpochPOOL: cEpoch < e && e <= cEpoch + eMax.
 	//
 	// The current epoch is required to evaluate the retirement bound.
-	epochState, ok := ls.(common.EpochState)
+	epochState, ok := common.UnwrapLedgerState(ls).(common.EpochState)
 	if !ok {
 		// Epoch zero is invalid for every possible current epoch. For any
 		// other epoch, the optional capability's degrading contract requires

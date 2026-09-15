@@ -89,10 +89,11 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 			return err
 		}
 	}
-	if s.config.Authenticator != nil {
-		if err := s.config.Authenticator.VerifyMessage(msg); err != nil {
-			return err
-		}
+	if s.config.Authenticator == nil {
+		return errors.New("dmq: message authenticator not configured")
+	}
+	if err := s.config.Authenticator.VerifyMessage(msg); err != nil {
+		return err
 	}
 
 	s.lock.Lock()

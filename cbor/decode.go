@@ -40,7 +40,19 @@ var (
 	cachedLenientDecModeOnce sync.Once
 )
 
-const cborMaxNestedLevels = 256
+// MaxNestedLevels is the deepest nesting the CBOR decoder accepts. It is
+// large enough for a maximum-sized Cardano transaction and its enclosing
+// structure, while bounding recursion in both the CBOR library and custom
+// decoders. Cardano's reference decoders do not impose a nesting limit on
+// transaction metadata or Plutus data, so this cap is derived from the wire
+// size limit rather than an arbitrary structural rule.
+const MaxNestedLevels = 16384
+
+// MaxUntrustedNestedLevels names the limit used by decoders that process
+// peer-controlled data. Keep it equal to MaxNestedLevels because Decode is
+// also used by protocol message and block decoders; a separate strict mode
+// cannot protect those callers until they are migrated.
+const MaxUntrustedNestedLevels = MaxNestedLevels
 
 // getDecMode returns a cached DecMode, initializing it on first use.
 // Uses sync.Once for thread-safe lazy initialization.
@@ -50,8 +62,7 @@ func getDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			// This defaults to 32, but there are blocks in the wild using >64 nested levels
-			MaxNestedLevels: cborMaxNestedLevels,
+			MaxNestedLevels:   MaxNestedLevels,
 			// The fxamacker default is 131072, but Cardano ledger state
 			// snapshots contain stake distribution maps that can exceed
 			// 1M entries on mainnet.
@@ -92,7 +103,7 @@ func getStrictDecMode() (_cbor.DecMode, error) {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
-			MaxNestedLevels:   cborMaxNestedLevels,
+			MaxNestedLevels:   MaxUntrustedNestedLevels,
 			// Stricter limits for untrusted network messages to prevent
 			// OOM from crafted payloads claiming excessive collection sizes.
 			MaxMapPairs:      131072,
@@ -135,7 +146,7 @@ func getLenientDecMode() (_cbor.DecMode, error) {
 			// entry, so a repeated key overwrites, which is byte-for-byte the
 			// same resolution as cardano-ledger's Map.fromList for PV < 9.
 			DupMapKey:       _cbor.DupMapKeyQuiet,
-			MaxNestedLevels: cborMaxNestedLevels,
+			MaxNestedLevels: MaxNestedLevels,
 			// Match getDecMode() limits: Cardano ledger state snapshots contain
 			// stake distribution maps that can exceed 1M entries on mainnet.
 			MaxMapPairs:      10_000_000,

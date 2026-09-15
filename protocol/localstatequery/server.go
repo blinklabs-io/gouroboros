@@ -58,6 +58,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            StateMap,
 		InitialState:        stateIdle,
+		MaxReadBufferSize:   cfg.MaxReadBufferSize,
 	}
 	// Enable version-dependent features
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {
@@ -104,7 +105,11 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 		err = s.handleReAcquire(msg)
 	case MessageTypeAcquireVolatileTip:
 		err = s.handleAcquire(msg)
+	case MessageTypeAcquireImmutableTip:
+		err = s.handleAcquire(msg)
 	case MessageTypeReacquireVolatileTip:
+		err = s.handleReAcquire(msg)
+	case MessageTypeReacquireImmutableTip:
 		err = s.handleReAcquire(msg)
 	case MessageTypeDone:
 		s.handleDone()
@@ -158,6 +163,7 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 		} else {
 			return err
 		}
+		return nil
 	}
 	respMsg := NewMsgAcquired()
 	if err := s.SendMessage(respMsg); err != nil {
@@ -264,6 +270,11 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 		} else {
 			return err
 		}
+		return nil
+	}
+	respMsg := NewMsgAcquired()
+	if err := s.SendMessage(respMsg); err != nil {
+		return err
 	}
 	return nil
 }

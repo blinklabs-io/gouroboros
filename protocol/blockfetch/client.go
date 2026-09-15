@@ -377,6 +377,9 @@ func (c *Client) Start() {
 }
 
 // Stop stops the Block Fetch client protocol and sends a ClientDone message.
+// It waits up to 250ms for message delivery before shutting down the protocol,
+// returning delivery errors, including context.DeadlineExceeded. An already
+// shutting-down protocol is treated as successfully stopped.
 func (c *Client) Stop() error {
 	c.lifecycleMutex.Lock()
 	defer c.lifecycleMutex.Unlock()
@@ -412,11 +415,15 @@ func (c *Client) Stop() error {
 	// Check if protocol is already done before sending ClientDone message
 	if !c.IsDone() {
 		msg := NewMsgClientDone()
-		sendErr = c.SendMessage(msg)
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			250*time.Millisecond,
+		)
+		sendErr = c.SendMessageContextAndWait(ctx, msg)
+		cancel()
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
 		}
-		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
 	}
 
 	// Stop/unregister the underlying protocol instance first, then wait for

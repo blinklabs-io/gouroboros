@@ -853,7 +853,7 @@ func (v *HeaderValidator) buildToSignWithEpoch(
 	epochAndSlot := struct {
 		cbor.StructAsArray
 		Epoch uint64
-		Slot  uint16
+		Slot  uint64
 	}{
 		Epoch: header.ConsensusData.SlotId.Epoch,
 		Slot:  header.ConsensusData.SlotId.Slot,
@@ -873,7 +873,7 @@ func (v *HeaderValidator) buildToSignWithEpoch(
 		BlockVersion    byron.ByronBlockVersion
 		SoftwareVersion byron.ByronSoftwareVersion
 		Attributes      any
-		ExtraProof      common.Blake2b256
+		ExtraProof      []byte
 	}{
 		BlockVersion:    header.ExtraData.BlockVersion,
 		SoftwareVersion: header.ExtraData.SoftwareVersion,
@@ -1156,10 +1156,13 @@ type ByronSscProof struct {
 	// Type indicates the SSC payload type:
 	// 0 = CommitmentsPayload, 1 = OpeningsPayload, 2 = SharesPayload, 3 = CertificatesPayload
 	Type uint64
-	// Hash1 is the primary hash (commitments/openings/shares hash, or vss certs for type 3)
-	Hash1 common.Blake2b256
-	// Hash2 is the VSS certificates hash (only present for types 0, 1, 2; nil for type 3)
-	Hash2 *common.Blake2b256
+	// Hash1 is the primary hash (commitments/openings/shares hash, or vss
+	// certs for type 3). dropSscProof reads it with dropBytes, a byte
+	// string of any length, so it is not a fixed-size hash type here.
+	Hash1 []byte
+	// Hash2 is the VSS certificates hash (only present for types 0, 1, 2;
+	// nil for type 3), likewise read with dropBytes.
+	Hash2 []byte
 }
 
 // SSC payload types
@@ -1183,17 +1186,19 @@ const (
 //  2. Computing the merkle roots from transaction bodies and witnesses
 //  3. Hashing the delegation and update payloads
 //  4. Comparing computed values against the header's body proof
-//  5. Validating the ssc_proof structurally: its declared type and hash
-//     count must match the payload's own type (via the local
-//     validateSscProof), and every field it would hash has the wire shape
-//     the real Byron format requires -- tag-258 set vs. genuine CBOR map
-//     (via byron.ByronMainBlock.ValidateSscProofShape in the ledger
-//     package)
+//  5. Validating the ssc_proof as far as cardano-ledger's dropSscProof
+//     does -- the proof's tag, its element count for that tag, that each
+//     hash slot is a byte string, and the payload's element count for the
+//     payload's own tag -- via byron.ByronMainBlock.ValidateSscProofShape
+//     in the ledger package. dropSscProof and dropSscPayload are
+//     independent decoders, so their tags are not compared, and dropBytes
+//     places no bound on a hash slot's length
+//     (Cardano/Chain/Ssc.hs:75-90, :169-188).
 //
 // tx_proof/dlg_proof/upd_proof (steps 2-4) are always checked by full hash
 // comparison. ssc_proof's hash comparison is different: by default this
-// function only checks ssc_proof structurally (step 5, both halves of it)
-// and does NOT compare its hash values against the header. Pass a
+// function only checks ssc_proof structurally (step 5) and does NOT
+// compare its hash values against the header. Pass a
 // common.VerifyConfig with EnableByronSscProofHashValidation set to true to
 // additionally run the full comparison, via byron.ByronMainBlock.
 // ValidateSscProof in the ledger package, against the real hashes of the
@@ -1268,16 +1273,15 @@ func ValidateBodyHash(
 		}
 	}
 
-	// Validate SSC proof structurally: confirms the proof's declared type
-	// and hash count match the payload's own type. This always runs.
-	if err := validateSscProof(headerBodyProof.SscProof, block.Body.SscPayload); err != nil {
-		return err
-	}
-
-	// Validate the ssc_proof's actual hashes against the block's own SSC
-	// payload -- opt-in only (EnableByronSscProofHashValidation). See this
-	// function's doc comment for why the hash comparison, specifically, is
-	// not run by default.
+	// Validate the ssc_proof. By default this is the structural check
+	// cardano-ledger's dropSscProof performs and nothing more -- the
+	// proof's tag, its element count for that tag, that each hash slot is
+	// a byte string, and the payload's element count for the payload's own
+	// tag (Cardano/Chain/Ssc.hs:75-90, :169-188). dropSscProof and
+	// dropSscPayload are independent decoders, so their tags are not
+	// compared. Recomputing and comparing the hashes themselves is opt-in
+	// (EnableByronSscProofHashValidation); see this function's doc comment
+	// for why.
 	if cfg.EnableByronSscProofHashValidation {
 		if err := block.ValidateSscProof(); err != nil {
 			return &common.ValidationError{
@@ -1347,16 +1351,16 @@ func parseSscProof(proof any) (*ByronSscProof, error) {
 		return nil, fmt.Errorf("unknown sscProof type: %d", proofType)
 	}
 
-	// Parse hash1 (always present)
+	// Parse hash1 (always present). dropBytes takes a byte string of any
+	// length and never interprets it.
 	hash1, ok := proofSlice[1].([]byte)
-	if !ok || len(hash1) != common.Blake2b256Size {
+	if !ok {
 		return nil, fmt.Errorf(
-			"invalid sscProof hash1: expected 32 bytes, got %T (len %d)",
+			"invalid sscProof hash1: expected a byte string, got %T",
 			proofSlice[1],
-			len(hash1),
 		)
 	}
-	copy(result.Hash1[:], hash1)
+	result.Hash1 = hash1
 
 	// For types 0-2, there should be a second hash (VSS certificates hash)
 	if proofType != SscTypeCertificates {
@@ -1368,120 +1372,16 @@ func parseSscProof(proof any) (*ByronSscProof, error) {
 			)
 		}
 		hash2, ok := proofSlice[2].([]byte)
-		if !ok || len(hash2) != common.Blake2b256Size {
+		if !ok {
 			return nil, fmt.Errorf(
-				"invalid sscProof hash2: expected 32 bytes, got %T",
+				"invalid sscProof hash2: expected a byte string, got %T",
 				proofSlice[2],
 			)
 		}
-		h2 := common.Blake2b256{}
-		copy(h2[:], hash2)
-		result.Hash2 = &h2
+		result.Hash2 = hash2
 	}
 
 	return result, nil
-}
-
-// validateSscProof performs the structural half of ssc_proof validation:
-// it checks the proof's shape, not its hash values.
-//
-// The SSC (Shared Seed Computation) protocol was used in Byron's Ouroboros
-// Classic for generating randomness. This function only validates that:
-//   - The proof type is consistent with the payload type
-//   - The proof structure (number of hashes present) matches what its type
-//     requires
-//
-// It deliberately does not check the actual hash values here, and this
-// structural check always runs regardless of configuration. The actual
-// hash values are, when a caller opts in via
-// common.VerifyConfig.EnableByronSscProofHashValidation, checked
-// afterward in ValidateBodyHash via block.ValidateSscProof (ledger
-// package), which recomputes the proof's hashes from this same block's
-// own SSC payload and compares them against the header. See
-// ValidateBodyHash's doc comment and ByronSscProof's doc comment for why
-// that hash check is entirely block-local (and so requires no epoch-wide
-// state) but is opt-in rather than run unconditionally here.
-func validateSscProof(proof ByronSscProof, payload cbor.Value) error {
-	// Extract the payload type from the SSC payload
-	// SSC payload structure: [type, data]
-	payloadType, err := extractSscPayloadType(payload)
-	if err != nil {
-		return &common.ValidationError{
-			Type:    common.ValidationErrorTypeBodyHash,
-			Message: "failed to extract SSC payload type",
-			Cause:   err,
-		}
-	}
-
-	// Validate that proof type matches payload type
-	if proof.Type != payloadType {
-		return &common.ValidationError{
-			Type:    common.ValidationErrorTypeBodyHash,
-			Message: "SSC proof type mismatch",
-			Details: map[string]any{
-				"proof_type":   proof.Type,
-				"payload_type": payloadType,
-			},
-		}
-	}
-
-	// Validate proof structure based on type
-	if proof.Type != SscTypeCertificates && proof.Hash2 == nil {
-		return &common.ValidationError{
-			Type: common.ValidationErrorTypeBodyHash,
-			Message: fmt.Sprintf(
-				"SSC proof type %d requires two hashes",
-				proof.Type,
-			),
-		}
-	}
-
-	if proof.Type == SscTypeCertificates && proof.Hash2 != nil {
-		return &common.ValidationError{
-			Type:    common.ValidationErrorTypeBodyHash,
-			Message: "SSC proof type 3 (certificates) should have only one hash",
-		}
-	}
-
-	return nil
-}
-
-// extractSscPayloadType extracts the type from an SSC payload.
-// SSC payload structure: [type, data] where type is 0-3
-func extractSscPayloadType(payload cbor.Value) (uint64, error) {
-	innerValue := payload.Value()
-	if innerValue == nil {
-		return 0, errors.New("SSC payload is nil")
-	}
-
-	// The payload could be decoded as []any or as a cbor.Value wrapping []any
-	var arr []any
-
-	switch v := innerValue.(type) {
-	case cbor.ConstructorDecoder:
-		// Constructor form: the constructor number is the type
-		return uint64(v.Tag()), nil
-	case []any:
-		arr = v
-	default:
-		return 0, fmt.Errorf("unexpected SSC payload type: %T", innerValue)
-	}
-
-	if len(arr) < 1 {
-		return 0, errors.New("SSC payload array is empty")
-	}
-
-	// First element is the type
-	payloadType, err := extractUint64(arr[0])
-	if err != nil {
-		return 0, fmt.Errorf("failed to extract SSC payload type: %w", err)
-	}
-
-	if payloadType > SscTypeCertificates {
-		return 0, fmt.Errorf("unknown SSC payload type: %d", payloadType)
-	}
-
-	return payloadType, nil
 }
 
 // ValidateEBBBodyHash validates that a Byron EBB's body hash matches the

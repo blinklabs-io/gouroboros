@@ -33,6 +33,8 @@ type Client struct {
 	timer           *time.Timer
 	timerMutex      sync.Mutex
 	onceStart       sync.Once
+	// scheduleHook is test-only synchronization for the shutdown race.
+	scheduleHook func()
 }
 
 // NewClient creates and returns a new keep-alive protocol client with the given options and configuration.
@@ -119,19 +121,39 @@ func (c *Client) sendKeepAlive() {
 		c.SendError(err)
 	}
 	// Schedule timer
+	if c.scheduleHook != nil {
+		c.scheduleHook()
+	}
 	c.startTimer()
 }
 
 // startTimer starts or resets the keep-alive timer for periodic keep-alive messages.
 func (c *Client) startTimer() {
+	if c.IsStopping() || c.IsDone() {
+		return
+	}
 	c.timerMutex.Lock()
 	defer c.timerMutex.Unlock()
+	if c.IsStopping() || c.IsDone() {
+		return
+	}
 	// Stop any existing timer
 	if c.timer != nil {
 		c.timer.Stop()
 	}
 	// Create new timer
 	c.timer = time.AfterFunc(c.config.Period, c.sendKeepAlive)
+}
+
+// Stop stops the keep-alive protocol client and cancels any pending timers.
+func (c *Client) Stop() {
+	c.timerMutex.Lock()
+	if c.timer != nil {
+		c.timer.Stop()
+		c.timer = nil
+	}
+	c.timerMutex.Unlock()
+	c.Protocol.Stop()
 }
 
 // messageHandler handles incoming protocol messages for the client.
@@ -175,9 +197,14 @@ func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 			msg.Cookie,
 		)
 	}
+
 	if c.config != nil && c.config.KeepAliveResponseFunc != nil {
-		// Call the user callback function
 		return c.config.KeepAliveResponseFunc(c.callbackContext, msg.Cookie)
 	}
+	// Call optional notification callback if provided
+	if c.config != nil && c.config.OnKeepAliveResponseReceived != nil {
+		c.config.OnKeepAliveResponseReceived(c.callbackContext.ConnectionId, msg.Cookie)
+	}
+
 	return nil
 }

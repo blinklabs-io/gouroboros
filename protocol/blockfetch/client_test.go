@@ -16,12 +16,12 @@ package blockfetch_test
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
@@ -55,12 +55,14 @@ func runTest(
 	)
 	// Async mock connection error handler
 	asyncErrChan := make(chan error, 1)
+	mockDone := make(chan struct{})
 	go func() {
+		defer close(asyncErrChan)
+		defer close(mockDone)
 		err := <-mockConn.(*ouroboros_mock.Connection).ErrorChan()
 		if err != nil {
 			asyncErrChan <- fmt.Errorf("received unexpected error: %w", err)
 		}
-		close(asyncErrChan)
 	}()
 	// Build options list
 	opts := []ouroboros.ConnectionOptionFunc{
@@ -74,14 +76,51 @@ func runTest(
 	if err != nil {
 		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
 	}
-	// Async error handler
+	connDone := make(chan struct{})
+	var connErrsMu sync.Mutex
+	var connErrs []error
 	go func() {
-		err, ok := <-oConn.ErrorChan()
-		if !ok {
-			return
+		defer close(connDone)
+		for err := range oConn.ErrorChan() {
+			if err != nil {
+				connErrsMu.Lock()
+				connErrs = append(connErrs, fmt.Errorf(
+					"unexpected Ouroboros error: %w", err,
+				))
+				connErrsMu.Unlock()
+			}
 		}
-		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
-		panic(fmt.Sprintf("unexpected Ouroboros error: %s", err))
+	}()
+	defer func() {
+		if err := oConn.Close(); err != nil {
+			t.Errorf("unexpected error when closing Ouroboros object: %s", err)
+		}
+		select {
+		case <-connDone:
+		case <-time.After(10 * time.Second):
+			t.Error("did not shutdown within timeout")
+		}
+		connErrsMu.Lock()
+		for _, err := range connErrs {
+			t.Error(err)
+		}
+		connErrsMu.Unlock()
+		select {
+		case <-mockDone:
+		case <-time.After(10 * time.Second):
+			t.Error("mock connection did not shut down within timeout")
+		}
+		for {
+			select {
+			case err, ok := <-asyncErrChan:
+				if !ok {
+					return
+				}
+				t.Error(err)
+			default:
+				return
+			}
+		}
 	}()
 	// Run test inner function
 	innerFunc(t, oConn)
@@ -93,16 +132,6 @@ func runTest(
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("did not complete within timeout")
-	}
-	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
-		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
-	}
-	// Wait for connection shutdown
-	select {
-	case <-oConn.ErrorChan():
-	case <-time.After(10 * time.Second):
-		t.Errorf("did not shutdown within timeout")
 	}
 }
 
@@ -200,7 +229,7 @@ func TestGetBlockNoBlocks(t *testing.T) {
 			_, err := oConn.BlockFetch().Client.GetBlock(
 				pcommon.NewPoint(
 					12345,
-					test.DecodeHexString("abcdef0123456789"),
+					testPointHash(0xab),
 				),
 			)
 			if err == nil {
@@ -437,7 +466,7 @@ func TestGetBlockRangeReleasesBusyOnDisconnectBeforeBatchDone(t *testing.T) {
 	client := oConn.BlockFetch().Client
 	point := pcommon.NewPoint(
 		12345,
-		test.DecodeHexString("abcdef0123456789"),
+		testPointHash(0xab),
 	)
 	require.NoError(t, client.GetBlockRange(point, point))
 

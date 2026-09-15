@@ -112,10 +112,11 @@ func (c *Client) SubmitMessage(msg *pcommon.DmqMessage) error {
 	} else if !msg.IsValid() {
 		return errors.New("message has expired")
 	}
-	if c.config.Authenticator != nil {
-		if err := c.config.Authenticator.VerifyMessage(msg); err != nil {
-			return err
-		}
+	if c.config.Authenticator == nil {
+		return errors.New("dmq: message authenticator not configured")
+	}
+	if err := c.config.Authenticator.VerifyMessage(msg); err != nil {
+		return err
 	}
 
 	submitMsg := NewMsgSubmitMessage(*msg)

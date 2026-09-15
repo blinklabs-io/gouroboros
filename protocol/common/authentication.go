@@ -16,160 +16,159 @@ package common
 
 import (
 	"bytes"
-	"encoding/hex"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/ed25519strict"
+	"github.com/blinklabs-io/gouroboros/kes"
 	"golang.org/x/crypto/blake2b"
 )
 
-// MessageAuthenticator handles DMQ message authentication verification per CIP-0137.
-// It verifies message signatures, operational certificates, SPO pool registration,
-// and KES period rotation to prevent replay attacks and unauthorized messages.
+// PoolKeyHashSize is the byte width of a Cardano pool ID: Blake2b-224 of the
+// pool's cold verification key.
+const PoolKeyHashSize = 28
+
+// PoolKeyHash identifies a Cardano stake pool: Blake2b-224 of its cold
+// verification key. This is a true alias for [PoolKeyHashSize]byte (not a
+// defined type), so it accepts ledger/common.PoolKeyHash values (and any
+// other [28]byte-shaped pool ID) directly, with no conversion required —
+// this package cannot import ledger/common without an import cycle
+// (ledger -> ledger/common -> protocol/common).
+type PoolKeyHash = [PoolKeyHashSize]byte
+
+// StakeAuthority reports a pool's active stake for CIP-0137 message
+// authorization. A message's issuing pool must hold stake in the current
+// distribution for MessageAuthenticator to accept it.
+//
+// A pool absent from the current stake distribution snapshot should return
+// (0, nil), not an error. Implementations typically adapt a node's live
+// ledger state (e.g. ledger.LedgerView.GetPoolStake against the Praos-active
+// epoch) to this interface.
+type StakeAuthority interface {
+	PoolActiveStake(poolKeyHash PoolKeyHash) (uint64, error)
+}
+
+// Sentinel errors returned by MessageAuthenticator. Wrap with errors.Is
+// rather than matching message text.
+var (
+	// ErrAuthenticatorMisconfigured is returned by NewMessageAuthenticator
+	// when a required config field is missing.
+	ErrAuthenticatorMisconfigured = errors.New(
+		"protocol/common: message authenticator missing required configuration",
+	)
+	// ErrPoolNotInStakeDistribution is returned when the issuing pool holds
+	// no stake in the current distribution.
+	ErrPoolNotInStakeDistribution = errors.New(
+		"protocol/common: issuing pool holds no stake in the current distribution",
+	)
+	// ErrKESPeriodOverflow is returned when a message's claimed KES period
+	// is so large that converting it to a slot (period * slotsPerKesPeriod)
+	// would overflow uint64. Rejecting it outright, rather than letting the
+	// multiplication wrap, matters because the wrapped slot can land on a
+	// small, easy-to-produce evolution that has nothing to do with the
+	// claimed period -- silently verifying it there would let a large
+	// claimed period smuggle through a signature made at a completely
+	// different, attacker-chosen evolution.
+	ErrKESPeriodOverflow = errors.New(
+		"protocol/common: message KES period would overflow when converted to a slot",
+	)
+)
+
+// MessageAuthenticator handles DMQ message authentication verification per
+// CIP-0137. It verifies message-ID integrity, pool-ID derivation and
+// stake-distribution authorization, the operational certificate's cold-key
+// signature, the KES signature over the message payload, and
+// operational-certificate issue-number monotonicity (replay protection).
 type MessageAuthenticator struct {
 	logger *slog.Logger
-	// protect maps with mutex
-	mu sync.RWMutex
 
 	// When true, all authentication checks are skipped. Intended for testing or
 	// environments that explicitly opt out; use NewNoOpAuthenticator to create.
 	disableValidation bool
 
-	// SPO stake distribution and registration info
-	spoPoolIDs map[string]bool // poolID -> active
+	// stakeAuthority backs pool authorization. Immutable after construction,
+	// so it needs no lock.
+	stakeAuthority StakeAuthority
 
-	// KES period tracking from opcerts. No automatic eviction; callers running long-lived
-	// nodes should remove inactive pool entries (see RemoveKESOpCertCacheEntry) or wrap
-	// this with their own TTL/LRU policy to avoid unbounded growth.
-	kesOpCertCache map[string]uint64 // poolID -> latest opcert number
+	// KES period tracking from opcerts, keyed by pool ID. No automatic
+	// eviction; callers running long-lived nodes should remove inactive pool
+	// entries (see RemoveKESOpCertCacheEntry) or wrap this with their own
+	// TTL/LRU policy to avoid unbounded growth.
+	mu             sync.Mutex
+	kesOpCertCache map[PoolKeyHash]uint64
 
-	// Slots per KES period used for ledger KES verification. Default is Cardano standard.
+	// Slots per KES period used for KES verification. Default is Cardano standard.
 	slotsPerKesPeriod uint64
-	// allowInsecureKES when true will accept KES signatures without running
-	// a real KES verification (for tests or environments without ledger verifier).
-	// This must be false in production. Use SetAllowInsecureKES to modify.
-	allowInsecureKES atomic.Bool
-	// kesVerifier holds the optional KES verifier callback. If set, it will be used to verify KES signatures.
-	// Signature: func(wrappedPayload []byte, signature []byte, vkey []byte, kesPeriod uint64, slot uint64, slotsPerKesPeriod uint64) (bool, error)
-	// Uses atomic.Value for race-free concurrent access (typically set once at init, read many times).
-	kesVerifier atomic.Value // stores func([]byte,[]byte,[]byte,uint64,uint64,uint64)(bool,error) or nil
 }
 
-// package-level default KES verifier used when set by application startup.
-// defaultKESVerifier holds an optional package-level KES verifier used when set by application startup.
-// Use atomic.Value to allow concurrent, race-free access.
-var defaultKESVerifier atomic.Value // stores func([]byte,[]byte,[]byte,uint64,uint64,uint64)(bool,error)
-
-// SetDefaultKESVerifier sets a package-level default KES verifier. Callers (e.g. main)
-// can set this once at startup to avoid per-constructor imports of ledger.
-func SetDefaultKESVerifier(
-	v func([]byte, []byte, []byte, uint64, uint64, uint64) (bool, error),
-) {
-	defaultKESVerifier.Store(v)
+// MessageAuthenticatorConfig configures a MessageAuthenticator.
+type MessageAuthenticatorConfig struct {
+	// StakeAuthority backs the pool-authorization check. Required; a nil
+	// StakeAuthority is a configuration error rather than a silent skip of
+	// the check.
+	StakeAuthority StakeAuthority
+	// SlotsPerKESPeriod is the Shelley genesis slotsPerKESPeriod parameter.
+	// Defaults to 129600 (Cardano mainnet) when zero.
+	SlotsPerKESPeriod uint64
+	// Logger, when nil, defaults to slog.Default().
+	Logger *slog.Logger
 }
 
-// ApplyDefaultKESVerifier applies the package-level default KES verifier to the provided
-// authenticator if a default has been set.
-func ApplyDefaultKESVerifier(auth *MessageAuthenticator) {
-	if auth == nil {
-		return
+// NewMessageAuthenticator constructs a MessageAuthenticator. It returns
+// ErrAuthenticatorMisconfigured if cfg.StakeAuthority is nil.
+func NewMessageAuthenticator(
+	cfg MessageAuthenticatorConfig,
+) (*MessageAuthenticator, error) {
+	if cfg.StakeAuthority == nil {
+		return nil, fmt.Errorf(
+			"%w: StakeAuthority is required",
+			ErrAuthenticatorMisconfigured,
+		)
 	}
-	// Load via atomic.Value and type-assert
-	if val := defaultKESVerifier.Load(); val != nil {
-		if fn, ok := val.(func([]byte, []byte, []byte, uint64, uint64, uint64) (bool, error)); ok {
-			auth.SetKESVerifier(fn)
-		}
-	}
-}
-
-// NewMessageAuthenticator creates a new message authenticator.
-func NewMessageAuthenticator(logger *slog.Logger) *MessageAuthenticator {
+	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-
-	return &MessageAuthenticator{
-		logger:         logger,
-		spoPoolIDs:     make(map[string]bool),
-		kesOpCertCache: make(map[string]uint64),
+	slotsPerKesPeriod := cfg.SlotsPerKESPeriod
+	if slotsPerKesPeriod == 0 {
 		// Default Cardano slots per KES period (standard mainnet value)
-		slotsPerKesPeriod: 129600,
+		slotsPerKesPeriod = 129600
 	}
+	return &MessageAuthenticator{
+		logger:            logger,
+		stakeAuthority:    cfg.StakeAuthority,
+		kesOpCertCache:    make(map[PoolKeyHash]uint64),
+		slotsPerKesPeriod: slotsPerKesPeriod,
+	}, nil
 }
 
 // NewNoOpAuthenticator returns an authenticator that performs no validation.
 // Suitable for testing or trusted environments where authentication is
-// intentionally disabled.
+// intentionally disabled. Unlike NewMessageAuthenticator, it needs no
+// StakeAuthority since no check ever runs.
 func NewNoOpAuthenticator(logger *slog.Logger) *MessageAuthenticator {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &MessageAuthenticator{
 		logger:            logger,
-		spoPoolIDs:        make(map[string]bool),
-		kesOpCertCache:    make(map[string]uint64),
+		kesOpCertCache:    make(map[PoolKeyHash]uint64),
 		slotsPerKesPeriod: 129600,
 		disableValidation: true,
 	}
 }
 
-// SetKESVerifier sets a custom KES verifier function used by VerifyMessage.
-// This avoids hard dependency on the ledger package in the protocol/common package
-// and lets callers inject the ledger verifier when available.
-// Thread-safe; uses atomic.Value for concurrent access.
-func (m *MessageAuthenticator) SetKESVerifier(
-	v func([]byte, []byte, []byte, uint64, uint64, uint64) (bool, error),
-) {
-	m.kesVerifier.Store(v)
-}
-
-// SetAllowInsecureKES enables or disables insecure KES verification bypass.
-// WARNING: Setting this to true disables cryptographic verification of block
-// producer identity. Only use for testing or when KES verification is handled
-// externally.
-func (m *MessageAuthenticator) SetAllowInsecureKES(allow bool) {
-	if allow {
-		m.logger.Warn(
-			"Insecure KES bypass is being enabled: cryptographic verification of block producer identity will be skipped",
-		)
-	}
-	m.allowInsecureKES.Store(allow)
-}
-
-// RegisterSPOPool adds an SPO pool ID to the known active pools.
-func (m *MessageAuthenticator) RegisterSPOPool(poolID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.spoPoolIDs[poolID] = true
-}
-
-// UnregisterSPOPool removes an SPO pool ID from known pools.
-func (m *MessageAuthenticator) UnregisterSPOPool(poolID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.spoPoolIDs, poolID)
-}
-
-// IsSPOPoolRegistered returns whether a poolID is known and registered.
-// This provides a stable public API for tests and callers instead of
-// accessing internal maps directly.
-func (m *MessageAuthenticator) IsSPOPoolRegistered(poolID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.spoPoolIDs[poolID]
-}
-
 // VerifyMessage performs complete message authentication as per CIP-0137.
-// It verifies: operational certificate, KES signature, SPO pool registration,
-// message ID, and KES period rotation. Returns error if verification fails
-// (which is a protocol violation and should result in peer disconnection).
+// It verifies: message ID, pool-ID derivation and stake-distribution
+// authorization, operational certificate, KES signature, and KES period
+// rotation. Returns error if verification fails (which is a protocol
+// violation and should result in peer disconnection).
 // VerifyMessage verifies a message using no explicit slot. Use VerifyMessageWithSlot
 // when the caller has an explicit slot value to supply.
 func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
@@ -187,7 +186,15 @@ func (m *MessageAuthenticator) VerifyMessageWithSlot(
 }
 
 // verifyMessageInternal contains the core verification logic. A nil slot means
-// that the verifier should derive the slot from the KES period.
+// that the verifier should derive the slot from the message's claimed KES period.
+//
+// Stake authorization runs before either signature check. Deriving a pool ID
+// from ColdVerificationKey needs no signature -- anyone can self-sign an
+// internally consistent opcert/KES chain over freshly generated keys, so the
+// signature checks only prove the sender holds the claimed private keys, not
+// that those keys belong to a real, staked pool. Checking authorization
+// first turns away a message from an unregistered identity before paying
+// for an ed25519 verify and the KES verify, rather than after.
 func (m *MessageAuthenticator) verifyMessageInternal(
 	msg *DmqMessage,
 	slot *uint64,
@@ -205,7 +212,21 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 		return fmt.Errorf("message ID verification failed: %w", err)
 	}
 
-	// Step 2: Verify operational certificate validity
+	// Step 2: Stake authorization before either signature check -- see the
+	// doc comment above for why.
+	poolID, err := poolKeyHash(msg.ColdVerificationKey)
+	if err != nil {
+		return fmt.Errorf("compute pool id: %w", err)
+	}
+	stake, err := m.stakeAuthority.PoolActiveStake(poolID)
+	if err != nil {
+		return fmt.Errorf("look up pool stake: %w", err)
+	}
+	if stake == 0 {
+		return ErrPoolNotInStakeDistribution
+	}
+
+	// Step 3: Verify operational certificate validity
 	if err := m.verifyOperationalCertificate(&msg.OperationalCertificate, msg.ColdVerificationKey); err != nil {
 		return fmt.Errorf(
 			"operational certificate verification failed: %w",
@@ -213,21 +234,15 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 		)
 	}
 
-	// Step 3: Verify KES signature over message payload
+	// Step 4: Verify KES signature over message payload
 	if err := m.verifyKESSignature(msg, slot); err != nil {
 		return fmt.Errorf("KES signature verification failed: %w", err)
 	}
 
-	// Step 4: Compute SPO pool ID from cold key and verify it's registered and active
-	poolID := m.computePoolID(msg.ColdVerificationKey)
-	m.mu.RLock()
-	registered := m.spoPoolIDs[poolID]
-	m.mu.RUnlock()
-	if !registered {
-		return fmt.Errorf("SPO pool %s is not registered or not active", poolID)
-	}
-
-	// Step 5: Verify KES period rotation (opcert number doesn't go backwards)
+	// Step 5: Verify KES period rotation (opcert number doesn't go backwards).
+	// Not updated until every earlier check has passed, so a message that
+	// fails an earlier check cannot poison replay protection for a later,
+	// legitimately higher-numbered certificate from the same pool.
 	if err := m.verifyKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
 		return fmt.Errorf("KES period rotation verification failed: %w", err)
 	}
@@ -258,36 +273,65 @@ func (m *MessageAuthenticator) verifyOperationalCertificate(
 		)
 	}
 
-	// Create the message to verify: [KES vkey, issue number, KES period]
-	certData := []any{
+	// The cold key signs the raw OCertSignable representation used by
+	// cardano-node/cardano-ledger — KES vkey || issue number (8-byte BE) ||
+	// KES period (8-byte BE) — NOT a CBOR encoding. A DMQ message's
+	// operational certificate is the pool's existing, already-issued
+	// certificate (the same one used for block production), so verifying it
+	// against any other byte representation rejects every real pool's
+	// message. This mirrors ledger.VerifyOpCertSignature /
+	// ledger/common.OpCertSignableBytes; it is reimplemented locally
+	// (opCertSignableBytes below) rather than imported, to avoid a package
+	// import cycle (ledger -> ledger/common -> protocol/common).
+	signable := opCertSignableBytes(
 		opcert.KESVerificationKey,
 		opcert.IssueNumber,
 		opcert.KESPeriod,
-	}
-
-	certCbor, err := cbor.Encode(certData)
-	if err != nil {
-		return fmt.Errorf("failed to encode certificate data: %w", err)
-	}
+	)
 
 	// Verify signature using cold verification key
-	if !ed25519strict.Verify(coldVerificationKey, certCbor, opcert.ColdSignature) {
+	if !ed25519strict.Verify(coldVerificationKey, signable, opcert.ColdSignature) {
 		return errors.New("cold signature verification failed")
 	}
 
 	return nil
 }
 
+// opCertSignableBytes returns the bytes an operational certificate's cold key
+// signs: the raw concatenation of the KES (hot) verification key, the issue
+// number as big-endian uint64, and the KES period as big-endian uint64. This
+// is the cardano-ledger OCertSignable representation
+// (Cardano.Protocol.TPraos.OCert.OCertSignable), not a CBOR encoding. Kept in
+// sync with ledger/common.OpCertSignableBytes, which this package cannot
+// import without an import cycle (ledger -> ledger/common -> protocol/common).
+func opCertSignableBytes(
+	kesVkey []byte,
+	issueNumber uint64,
+	kesPeriod uint64,
+) []byte {
+	out := make([]byte, 0, len(kesVkey)+16)
+	out = append(out, kesVkey...)
+	out = binary.BigEndian.AppendUint64(out, issueNumber)
+	out = binary.BigEndian.AppendUint64(out, kesPeriod)
+	return out
+}
+
 // verifyKESSignature verifies the KES signature over the message payload (CBOR encoded).
-// If slot is nil, a slot will be computed from the KES period and configured
-// slots per KES period.
+// If slot is nil, a slot will be computed from the message's claimed signing
+// period and configured slots per KES period. The certificate's own issuance
+// period (msg.OperationalCertificate.KESPeriod) — not the message's claimed
+// signing period (msg.Payload.KESPeriod) — is what a real KES evolution check
+// needs as its baseline; this function keeps them distinct and rejects a
+// message that claims to have been signed before its own certificate was
+// issued.
 func (m *MessageAuthenticator) verifyKESSignature(
 	msg *DmqMessage,
 	slot *uint64,
 ) error {
-	if len(msg.KESSignature) != 448 {
+	if len(msg.KESSignature) != kes.CardanoKesSignatureSize {
 		return fmt.Errorf(
-			"KES signature must be 448 bytes, got %d",
+			"KES signature must be %d bytes, got %d",
+			kes.CardanoKesSignatureSize,
 			len(msg.KESSignature),
 		)
 	}
@@ -306,69 +350,100 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		return fmt.Errorf("failed to encode wrapped payload as bstr: %w", err)
 	}
 
-	// KES signature verification with KES verification key
-	// Note: Real KES verification would be more complex and require the KES scheme implementation
-	// For now, we verify the basic structure
 	if len(msg.OperationalCertificate.KESVerificationKey) != 32 {
 		return errors.New("KES verification key must be 32 bytes")
 	}
 
-	// If a KES verifier has been injected, use it.
-	kesVerifierVal := m.kesVerifier.Load()
-	if kesVerifierVal != nil {
-		kesVerifier, ok := kesVerifierVal.(func([]byte, []byte, []byte, uint64, uint64, uint64) (bool, error))
-		if ok {
-			kesPeriod := msg.Payload.KESPeriod
-			computedSlot := kesPeriod * m.slotsPerKesPeriod
-			if slot != nil {
-				computedSlot = *slot
-			}
-			// Log the slot used for verification to aid debugging
-			m.logger.Debug(
-				"KES verification using slot",
-				"slot",
-				computedSlot,
-				"kes_period",
-				kesPeriod,
-			)
-			valid, err := kesVerifier(
-				wrappedCbor,
-				msg.KESSignature,
-				msg.OperationalCertificate.KESVerificationKey,
-				kesPeriod,
-				computedSlot,
-				m.slotsPerKesPeriod,
-			)
-			if err != nil {
-				return fmt.Errorf("KES verification failed: %w", err)
-			}
-			if !valid {
-				return errors.New("KES signature verification failed")
-			}
-			m.logger.Debug(
-				"KES signature verified",
-				"payload_size",
-				len(wrappedCbor),
-			)
-			return nil
-		}
-	}
-
-	// No verifier injected: either allow insecure bypass (tests/dev) or error.
-	if m.allowInsecureKES.Load() {
-		m.logger.Warn(
-			"Insecure KES bypass enabled: accepting KES signature without cryptographic verification",
-			"payload_size",
-			len(wrappedCbor),
+	// The certificate's own issuance period is the evolution baseline; the
+	// message's claimed signing period must not precede it, or the message
+	// is claiming a KES evolution that predates the key it was allegedly
+	// signed with.
+	certPeriod := msg.OperationalCertificate.KESPeriod
+	msgPeriod := msg.Payload.KESPeriod
+	if msgPeriod < certPeriod {
+		return fmt.Errorf(
+			"message KES period %d precedes certificate issuance period %d",
+			msgPeriod,
+			certPeriod,
 		)
-		return nil
 	}
 
-	// Strong failure: production should set a real verifier
-	m.logger.Error("No KES verifier available and insecure bypass disabled")
-	return errors.New(
-		"KES verification not implemented: no verifier injected and allowInsecureKES is false",
+	// Absent an explicit slot, fall back to the slot implied by the
+	// message's own claimed signing period. msgPeriod is attacker-controlled
+	// (CIP-0137's CDDL says word32, but decoding doesn't enforce that range),
+	// so reject outright when the conversion would overflow uint64 rather
+	// than let it wrap to an unrelated, easy evolution.
+	var computedSlot uint64
+	if slot != nil {
+		computedSlot = *slot
+	} else {
+		if m.slotsPerKesPeriod != 0 &&
+			msgPeriod > math.MaxUint64/m.slotsPerKesPeriod {
+			return ErrKESPeriodOverflow
+		}
+		computedSlot = msgPeriod * m.slotsPerKesPeriod
+	}
+
+	m.logger.Debug(
+		"KES verification using slot",
+		"slot", computedSlot,
+		"cert_period", certPeriod,
+		"msg_period", msgPeriod,
 	)
+
+	valid, err := verifyKesComponents(
+		wrappedCbor,
+		msg.KESSignature,
+		msg.OperationalCertificate.KESVerificationKey,
+		certPeriod,
+		computedSlot,
+		m.slotsPerKesPeriod,
+	)
+	if err != nil {
+		return fmt.Errorf("KES verification failed: %w", err)
+	}
+	if !valid {
+		return errors.New("KES signature verification failed")
+	}
+	m.logger.Debug(
+		"KES signature verified",
+		"payload_size", len(wrappedCbor),
+	)
+	return nil
+}
+
+// verifyKesComponents verifies a KES signature the same way
+// ledger.VerifyKesComponents does for block headers: it converts (kesPeriod,
+// slot, slotsPerKesPeriod) into a KES evolution index and checks the
+// signature at that evolution with kes.VerifySignedKES. Reimplemented
+// locally (rather than imported) to avoid the import cycle importing
+// ledger would create (ledger -> ledger/common -> protocol/common); the kes
+// package itself has no such dependency and is imported directly.
+func verifyKesComponents(
+	message []byte,
+	signature []byte,
+	hotVkey []byte,
+	kesPeriod uint64,
+	slot uint64,
+	slotsPerKesPeriod uint64,
+) (bool, error) {
+	if slotsPerKesPeriod == 0 {
+		return false, errors.New("slotsPerKesPeriod must be greater than 0")
+	}
+	if len(signature) != kes.CardanoKesSignatureSize {
+		return false, fmt.Errorf(
+			"invalid KES signature length: expected %d bytes, got %d",
+			kes.CardanoKesSignatureSize,
+			len(signature),
+		)
+	}
+	currentKesPeriod := slot / slotsPerKesPeriod
+	if currentKesPeriod < kesPeriod {
+		// Certificate start period is in the future - invalid.
+		return false, nil
+	}
+	t := currentKesPeriod - kesPeriod
+	return kes.VerifySignedKES(hotVkey, t, message, signature), nil
 }
 
 // verifyMessageID verifies the message ID format and size constraints.
@@ -401,20 +476,28 @@ func (m *MessageAuthenticator) verifyMessageID(msg *DmqMessage) error {
 	return nil
 }
 
-// computePoolID computes the SPO pool ID from the cold verification key.
-// Pool ID = blake2b-256(coldVerificationKey)
-func (m *MessageAuthenticator) computePoolID(
-	coldVerificationKey []byte,
-) string {
-	hash := blake2b.Sum256(coldVerificationKey)
-	// Convert to hex string for use as pool ID
-	return hex.EncodeToString(hash[:])
+// poolKeyHash derives a Cardano pool ID from its cold verification key:
+// Blake2b-224(coldVerificationKey). This matches
+// ledger/common.Blake2b224Hash byte-for-byte; reimplemented locally to
+// avoid the ledger -> ledger/common -> protocol/common import cycle.
+func poolKeyHash(coldVerificationKey []byte) (PoolKeyHash, error) {
+	var out PoolKeyHash
+	h, err := blake2b.New(PoolKeyHashSize, nil)
+	if err != nil {
+		return out, fmt.Errorf(
+			"unexpected error generating empty blake2b-224 hash: %w",
+			err,
+		)
+	}
+	h.Write(coldVerificationKey)
+	copy(out[:], h.Sum(nil))
+	return out, nil
 }
 
 // verifyKESPeriodRotation verifies that the opcert number doesn't go backwards for each pool,
 // preventing replay attacks with stale credentials.
 func (m *MessageAuthenticator) verifyKESPeriodRotation(
-	poolID string,
+	poolID PoolKeyHash,
 	opcert *OperationalCertificate,
 ) error {
 	m.mu.Lock()
@@ -440,7 +523,7 @@ func (m *MessageAuthenticator) verifyKESPeriodRotation(
 // The cache does not evict automatically, so long-running nodes should call
 // this (or wrap the authenticator with their own TTL/LRU policy) when pools
 // are unregistered or otherwise inactive to avoid unbounded growth.
-func (m *MessageAuthenticator) RemoveKESOpCertCacheEntry(poolID string) {
+func (m *MessageAuthenticator) RemoveKESOpCertCacheEntry(poolID PoolKeyHash) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.kesOpCertCache, poolID)

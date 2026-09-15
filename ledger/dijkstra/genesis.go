@@ -33,6 +33,7 @@ type DijkstraGenesis struct {
 	RefScriptCostMultiplier          *common.GenesisRat `json:"refScriptCostMultiplier"`
 	MaxPledgeLeverage                *common.GenesisRat `json:"maxPledgeLeverage"`
 	MinPoolMargin                    *common.GenesisRat `json:"minPoolMargin"`
+	PlutusV4CostModel                []int64            `json:"plutusV4CostModel"`
 	LeiosAnnouncementPeriodLength    uint32             `json:"leiosAnnouncementPeriodLength"`
 	LeiosVotePeriodLength            uint32             `json:"leiosVotePeriodLength"`
 	LeiosDiffusionPeriodLength       uint32             `json:"leiosDiffusionPeriodLength"`
@@ -83,6 +84,12 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 		&genesis.ConwayGenesis,
 	); err != nil {
 		return err
+	}
+	if len(genesis.PlutusV4CostModel) > 0 {
+		if p.CostModels == nil {
+			p.CostModels = make(map[uint][]int64)
+		}
+		p.CostModels[3] = genesis.PlutusV4CostModel
 	}
 	p.MaxRefScriptSizePerBlock = genesis.MaxRefScriptSizePerBlock
 	p.MaxRefScriptSizePerTx = genesis.MaxRefScriptSizePerTx

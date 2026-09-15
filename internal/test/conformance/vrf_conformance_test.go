@@ -41,11 +41,13 @@ type VRFTestVector struct {
 	Alpha string `json:"alpha"` // Input message (variable length hex)
 }
 
+// The corpus excludes the two verification-only vectors from the original 31.
+// All remaining vectors must exercise both proof generation and verification.
+const requiredVRFVectorCount = 29
+
 // TestVRFVerifyConformance tests VRF verification against official test vectors.
 // These vectors test that the proof verifies correctly with the given public key,
 // and that ProofToHash produces the expected output.
-// Note: Some vectors have sk/pk pairs that don't match (they're testing verification
-// with known-good proofs, not key generation).
 func TestVRFVerifyConformance(t *testing.T) {
 	// Load test vectors
 	vectorsPath := filepath.Join(".", "vrf_vectors.json")
@@ -57,6 +59,10 @@ func TestVRFVerifyConformance(t *testing.T) {
 	var vectors VRFTestVectors
 	if err := json.Unmarshal(data, &vectors); err != nil {
 		t.Fatalf("Failed to parse VRF vectors: %v", err)
+	}
+	if len(vectors.Vectors) != requiredVRFVectorCount {
+		t.Fatalf("VRF corpus has %d vectors, want %d",
+			len(vectors.Vectors), requiredVRFVectorCount)
 	}
 
 	t.Logf(
@@ -114,7 +120,7 @@ func TestVRFVerifyConformance(t *testing.T) {
 }
 
 // TestVRFProveConformance tests that our Prove function produces correct outputs
-// for vectors where the sk/pk pair is consistent (sk generates the listed pk).
+// for every required vector, including its secret/public key correspondence.
 func TestVRFProveConformance(t *testing.T) {
 	// Load test vectors
 	vectorsPath := filepath.Join(".", "vrf_vectors.json")
@@ -127,9 +133,12 @@ func TestVRFProveConformance(t *testing.T) {
 	if err := json.Unmarshal(data, &vectors); err != nil {
 		t.Fatalf("Failed to parse VRF vectors: %v", err)
 	}
+	if len(vectors.Vectors) != requiredVRFVectorCount {
+		t.Fatalf("VRF corpus has %d vectors, want %d",
+			len(vectors.Vectors), requiredVRFVectorCount)
+	}
 
 	testedCount := 0
-	skippedCount := 0
 
 	for i, v := range vectors.Vectors {
 		t.Run(formatVectorName(i, v.Alpha), func(t *testing.T) {
@@ -144,20 +153,12 @@ func TestVRFProveConformance(t *testing.T) {
 				t.Fatalf("Failed to decode alpha: %v", err)
 			}
 
-			// First check if sk generates the expected pk
-			// Some test vectors have mismatched sk/pk pairs for verification testing
 			pk, _, err := vrf.KeyGen(sk)
 			if err != nil {
 				t.Fatalf("KeyGen failed: %v", err)
 			}
-
 			if hex.EncodeToString(pk) != v.PK {
-				// Skip this vector - sk doesn't match pk (this is expected for some vectors)
-				skippedCount++
-				t.Skipf(
-					"Skipping: sk does not generate listed pk (verification-only vector)",
-				)
-				return
+				t.Fatal("KeyGen public key differs from required vector")
 			}
 
 			testedCount++
@@ -197,11 +198,11 @@ func TestVRFProveConformance(t *testing.T) {
 		})
 	}
 
-	t.Logf(
-		"Tested %d vectors, skipped %d verification-only vectors",
-		testedCount,
-		skippedCount,
-	)
+	t.Logf("Tested %d required prove vectors", testedCount)
+	if testedCount != requiredVRFVectorCount {
+		t.Fatalf("tested %d prove vectors, want %d",
+			testedCount, requiredVRFVectorCount)
+	}
 }
 
 // formatVectorName creates a descriptive test name from vector index and alpha
