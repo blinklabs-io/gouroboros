@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"reflect"
@@ -1506,12 +1507,12 @@ func TestCIP0019_PaymentAndStakeAddressExtraction(t *testing.T) {
 			name:              "Type 14 (NoneKey) - stake only",
 			address:           "stake1uyehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gh6ffgw",
 			hasPaymentAddress: false,
-			hasStakeAddress:   false, // StakeAddress() returns nil for reward addresses
+			hasStakeAddress:   true,
 		},
 		{
-			name:              "Type 4 (KeyPointer) - no payment/stake address extraction",
+			name:              "Type 4 (KeyPointer) - payment only",
 			address:           "addr1gx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer5pnz75xxcrzqf96k",
-			hasPaymentAddress: false, // PaymentAddress() returns nil for pointer addresses
+			hasPaymentAddress: true,
 			hasStakeAddress:   false, // Pointer addresses don't extract stake address
 		},
 	}
@@ -1533,6 +1534,82 @@ func TestCIP0019_PaymentAndStakeAddressExtraction(t *testing.T) {
 				assert.Nil(t, addr.StakeAddress())
 			}
 		})
+	}
+}
+
+func TestAddressComponentVariants(t *testing.T) {
+	for _, network := range []uint8{0, 1} {
+		for _, tc := range []struct {
+			kind    uint8
+			payment int
+			stake   int
+		}{
+			{AddressTypeKeyKey, AddressTypeKeyNone, AddressTypeNoneKey},
+			{AddressTypeScriptKey, AddressTypeScriptNone, AddressTypeNoneKey},
+			{AddressTypeKeyScript, AddressTypeKeyNone, AddressTypeNoneScript},
+			{AddressTypeScriptScript, AddressTypeScriptNone, AddressTypeNoneScript},
+			{AddressTypeKeyPointer, AddressTypeKeyNone, -1},
+			{AddressTypeScriptPointer, AddressTypeScriptNone, -1},
+			{AddressTypeKeyNone, AddressTypeKeyNone, -1},
+			{AddressTypeScriptNone, AddressTypeScriptNone, -1},
+			{AddressTypeNoneKey, -1, AddressTypeNoneKey},
+			{AddressTypeNoneScript, -1, AddressTypeNoneScript},
+		} {
+			t.Run(
+				fmt.Sprintf("network%d/type%d", network, tc.kind),
+				func(t *testing.T) {
+					payment := bytes.Repeat([]byte{0x11}, AddressHashSize)
+					stake := bytes.Repeat([]byte{0x22}, AddressHashSize)
+					raw := []byte{tc.kind<<4 | network}
+					if tc.payment >= 0 {
+						raw = append(raw, payment...)
+					}
+					if tc.stake >= 0 {
+						raw = append(raw, stake...)
+					} else if tc.kind == AddressTypeKeyPointer ||
+						tc.kind == AddressTypeScriptPointer {
+						raw = append(raw, 1, 2, 3)
+					}
+					addr, err := NewAddressFromBytes(raw)
+					require.NoError(t, err)
+					for _, part := range []struct {
+						name string
+						got  *Address
+						kind int
+						hash []byte
+					}{
+						{"payment", addr.PaymentAddress(), tc.payment, payment},
+						{"stake", addr.StakeAddress(), tc.stake, stake},
+					} {
+						t.Run(part.name, func(t *testing.T) {
+							if part.kind < 0 {
+								require.Nil(t, part.got)
+								return
+							}
+							require.NotNil(
+								t,
+								part.got,
+								"credential component lost",
+							)
+							want := append(
+								[]byte{byte(part.kind)<<4 | network},
+								part.hash...)
+							encoded, err := part.got.Bytes()
+							require.NoError(t, err)
+							require.Equal(t, want, encoded)
+							decoded, err := NewAddress(part.got.String())
+							require.NoError(t, err)
+							roundTrip, err := decoded.Bytes()
+							require.NoError(t, err)
+							require.Equal(t, want, roundTrip)
+						})
+					}
+					unchanged, err := addr.Bytes()
+					require.NoError(t, err)
+					require.Equal(t, raw, unchanged)
+				},
+			)
+		}
 	}
 }
 
