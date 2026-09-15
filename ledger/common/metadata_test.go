@@ -150,6 +150,121 @@ func TestDecodeMetadatumRawRejectsNilGenericMapKey(t *testing.T) {
 	}
 }
 
+// TestDuplicateNestedMetadataKeyDecodes reproduces
+// blinklabs-io/gouroboros#2323: a nested metadata map (a label's own value,
+// e.g. the CIP-25/CIP-721 shape) with a duplicate key must decode
+// successfully and preserve every pair, matching upstream cardano-ledger's
+// decodeMapN (libs/cardano-ledger-core/src/Cardano/Ledger/Metadata.hs), which
+// has never rejected duplicate keys at this position in any era. Only the
+// separately era-gated outer label map has ever had duplicate-key handling;
+// see TestOuterAuxiliaryDataLabelMapRejectsDuplicateKeys.
+func TestDuplicateNestedMetadataKeyDecodes(t *testing.T) {
+	t.Parallel()
+
+	// {721: {1: "a", 1: "b"}}, the exact bytes from the issue.
+	const nestedDuplicateKeyHex = "a11902d1a2016161016162"
+
+	requirePairs := func(t *testing.T, md TransactionMetadatum) {
+		t.Helper()
+		outer, ok := md.(MetaMap)
+		require.True(t, ok, "expected outer MetaMap, got %T", md)
+		require.Len(t, outer.Pairs, 1)
+		inner, ok := outer.Pairs[0].Value.(MetaMap)
+		require.True(t, ok, "expected inner MetaMap, got %T", outer.Pairs[0].Value)
+		require.Len(
+			t,
+			inner.Pairs,
+			2,
+			"both pairs of the duplicate key must be preserved, not deduplicated",
+		)
+		for i, want := range []string{"a", "b"} {
+			key, ok := inner.Pairs[i].Key.(MetaInt)
+			require.True(t, ok)
+			require.Equal(t, uint64(1), key.Value.Uint64())
+			value, ok := inner.Pairs[i].Value.(MetaText)
+			require.True(t, ok)
+			require.Equal(t, want, value.Value)
+		}
+	}
+
+	t.Run("Shelley", func(t *testing.T) {
+		t.Parallel()
+		raw, err := hex.DecodeString(nestedDuplicateKeyHex)
+		require.NoError(t, err)
+		var aux ShelleyAuxiliaryData
+		require.NoError(t, aux.UnmarshalCBOR(raw))
+		md, err := aux.Metadata()
+		require.NoError(t, err)
+		requirePairs(t, md)
+	})
+
+	t.Run("ShelleyMa", func(t *testing.T) {
+		t.Parallel()
+		// [metadata_map, native_scripts]
+		raw, err := hex.DecodeString("82" + nestedDuplicateKeyHex + "80")
+		require.NoError(t, err)
+		var aux ShelleyMaAuxiliaryData
+		require.NoError(t, aux.UnmarshalCBOR(raw))
+		md, err := aux.Metadata()
+		require.NoError(t, err)
+		requirePairs(t, md)
+	})
+
+	t.Run("Alonzo", func(t *testing.T) {
+		t.Parallel()
+		// #6.259({0: metadata_map})
+		raw, err := hex.DecodeString("d90103a100" + nestedDuplicateKeyHex)
+		require.NoError(t, err)
+		var aux AlonzoAuxiliaryData
+		require.NoError(t, aux.UnmarshalCBOR(raw))
+		md, err := aux.Metadata()
+		require.NoError(t, err)
+		requirePairs(t, md)
+	})
+}
+
+// TestOuterAuxiliaryDataLabelMapRejectsDuplicateKeys proves the fix for #2323
+// is scoped to the inner, per-label Metadatum value's own nested-map decode.
+// The outer Word64-keyed label map is decoded by the general-purpose CBOR
+// decoder (cbor.Decode, DupMapKeyEnforcedAPF) via TransactionMetadataSet and
+// AlonzoAuxiliaryData, an unrelated code path this fix must not touch.
+func TestOuterAuxiliaryDataLabelMapRejectsDuplicateKeys(t *testing.T) {
+	t.Parallel()
+
+	t.Run("TransactionMetadataSet", func(t *testing.T) {
+		t.Parallel()
+		// {1: 0, 1: 0} - duplicate outer label 1.
+		raw, err := hex.DecodeString("a201000100")
+		require.NoError(t, err)
+		var set TransactionMetadataSet
+		_, err = cbor.Decode(raw, &set)
+		require.Error(t, err)
+		require.True(
+			t,
+			cbor.IsDuplicateMapKeyError(err),
+			"expected a duplicate map key error, got %v",
+			err,
+		)
+	})
+
+	t.Run("AlonzoAuxiliaryData", func(t *testing.T) {
+		t.Parallel()
+		// #6.259({0: 0, 0: 0}) - duplicate outer key 0 in the tagged aux map,
+		// bypassing the decodeAuxiliaryMetadataOnly fast path (2 entries).
+		raw, err := hex.DecodeString("d90103a200000000")
+		require.NoError(t, err)
+		var aux AlonzoAuxiliaryData
+		err = aux.UnmarshalCBOR(raw)
+		require.Error(t, err)
+		require.True(
+			t,
+			cbor.IsDuplicateMapKeyError(err),
+			"expected a duplicate map key error, got %v",
+			err,
+		)
+	})
+}
+
 func assertMetadataEntry(t *testing.T, md TransactionMetadatum) {
 	t.Helper()
 
