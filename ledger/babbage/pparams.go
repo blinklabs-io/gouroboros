@@ -188,41 +188,48 @@ func (u *BabbageProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+// ratOutOfRange reports whether r's numerator or denominator cannot be
+// represented in utxorpc.RationalNumber's int32/uint32 fields. Compares the
+// underlying *big.Int values directly against the bounds, not via Int64()
+// first: Int64() is undefined for a value that does not fit in int64 at all
+// (silently wraps rather than erroring, per math/big's own documentation),
+// so a value far outside range (e.g. 2^64+1) could pass an
+// Int64()-based comparison completely undetected (blinklabs-io/gouroboros#2296,
+// porting the fix from conway.ratOutOfRange).
+// r itself must be non-nil; every caller already guards that separately
+// (e.g. "p.A0 == nil ||", short-circuiting before this runs).
+func ratOutOfRange(r *big.Rat) bool {
+	return r.Num().Cmp(big.NewInt(math.MinInt32)) < 0 ||
+		r.Num().Cmp(big.NewInt(math.MaxInt32)) > 0 ||
+		r.Denom().Sign() < 0 ||
+		r.Denom().Cmp(new(big.Int).SetUint64(math.MaxUint32)) > 0
+}
+
 func (p *BabbageProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	// sanity check
-	if p.A0 == nil ||
-		p.A0.Num().Int64() < math.MinInt32 ||
-		p.A0.Num().Int64() > math.MaxInt32 ||
-		p.A0.Denom().Int64() < 0 ||
-		p.A0.Denom().Int64() > math.MaxUint32 {
+	//
+	// Checks the embedded *big.Rat for nil separately from the *cbor.Rat
+	// pointer itself: a non-nil *cbor.Rat with a nil embedded Rat must be
+	// rejected as invalid rather than reaching ratOutOfRange's Num()/Denom()
+	// calls, which require their receiver to be non-nil
+	// (blinklabs-io/gouroboros#2296, porting the fix from conway.Utxorpc).
+	if p.A0 == nil || p.A0.Rat == nil || ratOutOfRange(p.A0.Rat) {
 		return nil, errors.New("invalid A0 rational number values")
 	}
-	if p.Rho == nil ||
-		p.Rho.Num().Int64() < math.MinInt32 ||
-		p.Rho.Num().Int64() > math.MaxInt32 ||
-		p.Rho.Denom().Int64() < 0 ||
-		p.Rho.Denom().Int64() > math.MaxUint32 {
+	if p.Rho == nil || p.Rho.Rat == nil || ratOutOfRange(p.Rho.Rat) {
 		return nil, errors.New("invalid Rho rational number values")
 	}
-	if p.Tau == nil ||
-		p.Tau.Num().Int64() < math.MinInt32 ||
-		p.Tau.Num().Int64() > math.MaxInt32 ||
-		p.Tau.Denom().Int64() < 0 ||
-		p.Tau.Denom().Int64() > math.MaxUint32 {
+	if p.Tau == nil || p.Tau.Rat == nil || ratOutOfRange(p.Tau.Rat) {
 		return nil, errors.New("invalid Tau rational number values")
 	}
 	if p.ExecutionCosts.MemPrice == nil ||
-		p.ExecutionCosts.MemPrice.Num().Int64() < math.MinInt32 ||
-		p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
-		p.ExecutionCosts.MemPrice.Denom().Int64() < 0 ||
-		p.ExecutionCosts.MemPrice.Denom().Int64() > math.MaxUint32 {
+		p.ExecutionCosts.MemPrice.Rat == nil ||
+		ratOutOfRange(p.ExecutionCosts.MemPrice.Rat) {
 		return nil, errors.New("invalid memory price rational number values")
 	}
 	if p.ExecutionCosts.StepPrice == nil ||
-		p.ExecutionCosts.StepPrice.Num().Int64() < math.MinInt32 ||
-		p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
-		p.ExecutionCosts.StepPrice.Denom().Int64() < 0 ||
-		p.ExecutionCosts.StepPrice.Denom().Int64() > math.MaxUint32 {
+		p.ExecutionCosts.StepPrice.Rat == nil ||
+		ratOutOfRange(p.ExecutionCosts.StepPrice.Rat) {
 		return nil, errors.New("invalid step price rational number values")
 	}
 	if p.MaxTxExUnits.Memory < 0 || p.MaxTxExUnits.Steps < 0 ||
