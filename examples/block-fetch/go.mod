@@ -1,6 +1,6 @@
 module github.com/blinklabs-io/gouroboros/examples/block-fetch
 
-go 1.26.0
+go 1.26.5
 
 require (
 	github.com/blinklabs-io/gouroboros v0.0.0
