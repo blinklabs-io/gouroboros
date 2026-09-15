@@ -15,6 +15,7 @@
 package genesis
 
 import (
+	"fmt"
 	"math/big"
 	"reflect"
 	"testing"
@@ -148,6 +149,9 @@ func callNewGenesisSelector(
 		[]reflect.Value{reflect.ValueOf(config)},
 	)
 	require.Contains(t, []int{1, 2}, len(results))
+	if len(results) == 0 || !results[0].IsValid() {
+		return nil, fmt.Errorf("genesis selector constructor returned no selector")
+	}
 	selector, _ := results[0].Interface().(*GenesisSelector)
 	if len(results) == 1 || results[1].IsNil() {
 		return selector, nil

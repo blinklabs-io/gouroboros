@@ -644,7 +644,10 @@ func TestUtxoValidateUnknownVoters(t *testing.T) {
 
 	baseLs := mockledger.NewLedgerStateBuilder().
 		WithDRepRegistrations([]common.DRepRegistration{
-			{Credential: drepHash},
+			{Credential: common.Credential{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: drepHash,
+			}},
 		}).
 		WithPools([]*common.PoolRegistrationCertificate{
 			{Operator: common.PoolKeyHash(poolHash)},

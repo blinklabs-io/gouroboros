@@ -31,10 +31,10 @@ var drepDepositHash = common.Blake2b224{0x71}
 func drepStateWithDeposit(deposit *uint64) common.LedgerState {
 	return mockledger.NewLedgerStateBuilder().
 		WithStakeCredentialRegistered(drepDepositHash, true).
-		WithDRepRegistration(func(
-			credential common.Blake2b224,
+		WithDRepCredentialRegistration(func(
+			credential common.Credential,
 		) (*common.DRepRegistration, error) {
-			if credential != drepDepositHash {
+			if credential.Credential != drepDepositHash {
 				return nil, nil
 			}
 			return &common.DRepRegistration{
