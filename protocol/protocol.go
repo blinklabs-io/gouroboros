@@ -425,21 +425,36 @@ func (p *Protocol) SendMessageContext(ctx context.Context, msg Message) error {
 // is written to the underlying connection. It returns an error if the write
 // fails or the protocol shuts down before delivery completes.
 func (p *Protocol) SendMessageAndWait(msg Message) error {
+	return p.SendMessageContextAndWait(context.Background(), msg)
+}
+
+// SendMessageContextAndWait queues a message and waits until its final muxer
+// segment is written, or the context is canceled. Cancellation stops waiting;
+// an already queued message may still be delivered.
+func (p *Protocol) SendMessageContextAndWait(
+	ctx context.Context,
+	msg Message,
+) error {
 	deliveryChan := make(chan error, 1)
 	if err := p.enqueueMessage(
-		context.Background(),
+		ctx,
 		msg,
 		deliveryChan,
 	); err != nil {
 		return err
 	}
-	return p.waitForMessageDelivery(deliveryChan)
+	return p.waitForMessageDeliveryContext(ctx, deliveryChan)
 }
 
-func (p *Protocol) waitForMessageDelivery(deliveryChan <-chan error) error {
+func (p *Protocol) waitForMessageDeliveryContext(
+	ctx context.Context,
+	deliveryChan <-chan error,
+) error {
 	select {
 	case err := <-deliveryChan:
 		return err
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-p.stopChan:
 		return deliveryResultOrShutdown(deliveryChan)
 	case <-p.doneChan:

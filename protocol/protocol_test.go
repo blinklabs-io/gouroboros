@@ -314,7 +314,9 @@ func TestWaitForMessageDeliveryPrefersReportedResult(t *testing.T) {
 
 				require.ErrorIs(
 					t,
-					p.waitForMessageDelivery(deliveryChan),
+					p.waitForMessageDeliveryContext(
+						context.Background(), deliveryChan,
+					),
 					deliveryErr,
 				)
 			}
@@ -332,9 +334,71 @@ func TestWaitForMessageDeliveryReportsShutdownWithoutResult(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		p.waitForMessageDelivery(make(chan error, 1)),
+		p.waitForMessageDeliveryContext(
+			context.Background(), make(chan error, 1),
+		),
 		ErrProtocolShuttingDown,
 	)
+}
+
+func TestWaitForMessageDeliveryContextCancellation(t *testing.T) {
+	p := &Protocol{
+		stopChan:      make(chan struct{}),
+		doneChan:      make(chan struct{}),
+		muxerDoneChan: make(chan bool),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.ErrorIs(
+		t,
+		p.waitForMessageDeliveryContext(ctx, make(chan error, 1)),
+		context.Canceled,
+	)
+}
+
+func TestWaitForMessageDeliveryContextResults(t *testing.T) {
+	for name, want := range map[string]error{
+		"nil delivery":   nil,
+		"error delivery": errors.New("write failed"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := &Protocol{
+				stopChan:      make(chan struct{}),
+				doneChan:      make(chan struct{}),
+				muxerDoneChan: make(chan bool),
+			}
+			deliveryChan := make(chan error, 1)
+			deliveryChan <- want
+			require.Equal(t, want, p.waitForMessageDeliveryContext(
+				context.Background(), deliveryChan,
+			))
+		})
+	}
+}
+
+func TestWaitForMessageDeliveryContextReportsShutdown(t *testing.T) {
+	for name, shutdown := range map[string]func(*Protocol){
+		"stop":       func(p *Protocol) { close(p.stopChan) },
+		"done":       func(p *Protocol) { close(p.doneChan) },
+		"muxer done": func(p *Protocol) { close(p.muxerDoneChan) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := &Protocol{
+				stopChan:      make(chan struct{}),
+				doneChan:      make(chan struct{}),
+				muxerDoneChan: make(chan bool),
+			}
+			shutdown(p)
+			require.ErrorIs(
+				t,
+				p.waitForMessageDeliveryContext(
+					context.Background(), make(chan error, 1),
+				),
+				ErrProtocolShuttingDown,
+			)
+		})
+	}
 }
 
 func TestIsDone(t *testing.T) {
