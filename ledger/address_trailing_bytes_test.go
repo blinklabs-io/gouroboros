@@ -273,7 +273,7 @@ func TestRewardAccountRejectsTrailingBytes(t *testing.T) {
 		),
 		0xFF,
 	)
-	addr, err := common.NewAddressFromBytes(raw)
+	addr, err := common.NewAddressFromBytesLenient(raw)
 	if err != nil {
 		t.Fatalf("decode reward account: %v", err)
 	}

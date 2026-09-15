@@ -624,12 +624,20 @@ type MaryTransactionOutput struct {
 }
 
 func (o *MaryTransactionOutput) UnmarshalCBOR(cborData []byte) error {
-	type tMaryTransactionOutput MaryTransactionOutput
-	var tmp tMaryTransactionOutput
+	var tmp struct {
+		cbor.StructAsArray
+		OutputAddress []byte
+		OutputAmount  MaryTransactionOutputValue
+	}
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*o = MaryTransactionOutput(tmp)
+	address, err := common.NewAddressFromBytesLenient(tmp.OutputAddress)
+	if err != nil {
+		return err
+	}
+	o.OutputAddress = address
+	o.OutputAmount = tmp.OutputAmount
 	o.SetCborReference(cborData)
 	return nil
 }

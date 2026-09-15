@@ -118,7 +118,7 @@ func NewAddress(addr string) (Address, error) {
 		}
 	}
 	a := Address{}
-	err = a.populateFromBytes(decoded)
+	err = a.populateFromBytes(decoded, false)
 	if err != nil {
 		return Address{}, err
 	}
@@ -155,7 +155,19 @@ func hasFoldedPrefix(value, prefix string) bool {
 // NewAddressFromBytes returns an Address based on the raw bytes provided
 func NewAddressFromBytes(addrBytes []byte) (Address, error) {
 	var ret Address
-	if err := ret.populateFromBytes(addrBytes); err != nil {
+	if err := ret.populateFromBytes(addrBytes, false); err != nil {
+		return Address{}, err
+	}
+	return ret, nil
+}
+
+// NewAddressFromBytesLenient decodes an address using the pre-Babbage output
+// rule, which crops bytes after the address payload. Callers decoding a
+// transaction output must apply the era-specific strictness at that boundary;
+// general address validation should use NewAddressFromBytes instead.
+func NewAddressFromBytesLenient(addrBytes []byte) (Address, error) {
+	var ret Address
+	if err := ret.populateFromBytes(addrBytes, true); err != nil {
 		return Address{}, err
 	}
 	return ret, nil
@@ -307,7 +319,7 @@ func NewByronAddressRedeem(
 	}, nil
 }
 
-func (a *Address) populateFromBytes(data []byte) error {
+func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 	if len(data) == 0 {
 		return errors.New("invalid address data: empty byte slice")
 	}
@@ -351,6 +363,12 @@ func (a *Address) populateFromBytes(data []byte) error {
 			Hash: AddrKeyHash(NewBlake2b224(byronAddr.Hash)),
 		}
 		if byronLen < len(data) {
+			if !allowTrailing {
+				return fmt.Errorf(
+					"invalid address data: %d unexpected trailing byte(s)",
+					len(data)-byronLen,
+				)
+			}
 			a.trailingBytes = slices.Clone(data[byronLen:])
 		}
 		return nil
@@ -444,6 +462,12 @@ func (a *Address) populateFromBytes(data []byte) error {
 	// every era for a reward account, whose decodeAccountAddressT calls
 	// ensureBufIsConsumed with no version gate.
 	if len(payload) > 0 {
+		if !allowTrailing {
+			return fmt.Errorf(
+				"invalid address data: %d unexpected trailing byte(s)",
+				len(payload),
+			)
+		}
 		a.trailingBytes = slices.Clone(payload)
 	}
 	return nil
@@ -478,13 +502,13 @@ func (a *Address) UnmarshalCBOR(data []byte) error {
 	// Try to unwrap as bytestring (Shelley and forward)
 	tmpData := []byte{}
 	if _, err := cbor.Decode(data, &tmpData); err == nil {
-		err := a.populateFromBytes(tmpData)
+		err := a.populateFromBytes(tmpData, false)
 		if err != nil {
 			return err
 		}
 	} else {
 		// Probably a Byron address
-		if err := a.populateFromBytes(data); err != nil {
+		if err := a.populateFromBytes(data, false); err != nil {
 			return err
 		}
 	}

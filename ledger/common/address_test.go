@@ -104,7 +104,7 @@ func TestAddressFromBytes(t *testing.T) {
 		},
 	}
 	for _, testDef := range testDefs {
-		addr, err := NewAddressFromBytes(
+		addr, err := NewAddressFromBytesLenient(
 			test.DecodeHexString(testDef.addressBytesHex),
 		)
 		if err != nil {
@@ -1247,7 +1247,7 @@ func TestCIP0019_MaximumLengthAddresses(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectLen, len(addrBytes))
 
-			addr, err := NewAddressFromBytes(addrBytes)
+			addr, err := NewAddressFromBytesLenient(addrBytes)
 			require.NoError(t, err)
 
 			// Round-trip preserves the consumed prefix
@@ -1787,7 +1787,7 @@ func TestPopulateFromBytesCropsTrailingBytes(t *testing.T) {
 					append([]byte{}, consumed...),
 					tc.trailer...,
 				)
-				addr, err := NewAddressFromBytes(addrBytes)
+				addr, err := NewAddressFromBytesLenient(addrBytes)
 				require.NoError(t, err)
 				assert.Equal(t, tc.trailer, addr.TrailingBytes())
 				roundTrip, err := addr.Bytes()
@@ -1814,7 +1814,7 @@ func TestPopulateFromBytesClearsAndCopiesTrailingBytes(t *testing.T) {
 	consumed := append([]byte{header}, make([]byte, AddressHashSize)...)
 	trailer := []byte{0x01, 0x02}
 	encoded := append(append([]byte{}, consumed...), trailer...)
-	addr, err := NewAddressFromBytes(encoded)
+	addr, err := NewAddressFromBytesLenient(encoded)
 	require.NoError(t, err)
 
 	got := addr.TrailingBytes()
@@ -1856,7 +1856,7 @@ func TestKnownMalformedMainnetAddressesCrop(t *testing.T) {
 			require.NoError(t, err)
 			consumed, err := hex.DecodeString(tt.consumedHex)
 			require.NoError(t, err)
-			addr, err := NewAddressFromBytes(addrBytes)
+			addr, err := NewAddressFromBytesLenient(addrBytes)
 			require.NoError(t, err)
 			roundTrip, err := addr.Bytes()
 			require.NoError(t, err)
@@ -1868,4 +1868,14 @@ func TestKnownMalformedMainnetAddressesCrop(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestNewAddressFromBytesRejectsTrailingBytes(t *testing.T) {
+	address := append(
+		[]byte{AddressTypeKeyNone<<4 | AddressNetworkMainnet},
+		make([]byte, AddressHashSize)...,
+	)
+	address = append(address, 0xff)
+	_, err := NewAddressFromBytes(address)
+	require.EqualError(t, err, "invalid address data: 1 unexpected trailing byte(s)")
 }
