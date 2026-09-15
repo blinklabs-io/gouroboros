@@ -879,9 +879,29 @@ func (m *DijkstraAccountBalanceIntervals) UnmarshalCBOR(cborData []byte) error {
 // always non-empty (getEncodeFuncInternal special-cases exactly this), so a
 // custom Marshal method here would stop a nil (field-absent) map from being
 // omitted — every Dijkstra body would gain a spurious empty key 26. Encode
-// validation for a directly constructed map is intentionally left to
-// dijkstraAccountBalanceIntervalsV4, the one path that turns this map into
-// script-visible output without going through UnmarshalCBOR first.
+// validation for a directly constructed map instead happens at its two
+// consumers: dijkstraAccountBalanceIntervalsV4, which turns it into
+// script-visible output, and validateDijkstraAccountBalanceIntervalsForEncoding,
+// called from the containing body's MarshalCBOR before wire encoding.
+func validateDijkstraAccountBalanceIntervalsForEncoding(
+	intervals DijkstraAccountBalanceIntervals,
+) error {
+	if intervals == nil {
+		return nil
+	}
+	if err := validateDijkstraCredentialMapKeys(
+		map[*common.Credential]*DijkstraAccountBalanceInterval(intervals),
+		"account balance intervals",
+	); err != nil {
+		return err
+	}
+	for _, interval := range intervals {
+		if err := validateDijkstraAccountBalanceInterval(interval); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // DijkstraRequiredTopLevelGuards is CIP-118's required_top_level_guards: a
 // non-empty credential-keyed map of optional Plutus datums that a
@@ -924,9 +944,30 @@ func (m *DijkstraRequiredTopLevelGuards) UnmarshalCBOR(cborData []byte) error {
 // DijkstraRequiredTopLevelGuards deliberately has no custom MarshalCBOR, for
 // the same reason DijkstraAccountBalanceIntervals has none: fxamacker's
 // omitempty would stop treating a nil (field-absent) map as empty. Encode
-// validation for a directly constructed map is intentionally left to
-// dijkstraRequiredTopLevelGuardsV4, the one path that turns this map into
-// script-visible output without going through UnmarshalCBOR first.
+// validation for a directly constructed map instead happens at its two
+// consumers: dijkstraRequiredTopLevelGuardsV4, which turns it into
+// script-visible output, and validateDijkstraRequiredTopLevelGuardsForEncoding,
+// called from the containing sub-transaction body's MarshalCBOR before wire
+// encoding.
+func validateDijkstraRequiredTopLevelGuardsForEncoding(
+	required DijkstraRequiredTopLevelGuards,
+) error {
+	if required == nil {
+		return nil
+	}
+	if err := validateDijkstraCredentialMapKeys(
+		map[*common.Credential]*common.Datum(required),
+		"required top-level guards",
+	); err != nil {
+		return err
+	}
+	for _, datum := range required {
+		if err := validateDijkstraRequiredTopLevelGuardDatum(datum); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // validateDijkstraRequiredTopLevelGuardDatum rejects a non-nil datum whose
 // Data is nil. A legitimately decoded or constructed datum always has Data
@@ -1068,6 +1109,11 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 func (b DijkstraTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
+	}
+	if err := validateDijkstraAccountBalanceIntervalsForEncoding(
+		b.TxBalanceIntervals,
+	); err != nil {
+		return nil, err
 	}
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
@@ -1407,6 +1453,16 @@ func checkDuplicateProposalProcedures(
 func (b DijkstraSubTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
+	}
+	if err := validateDijkstraRequiredTopLevelGuardsForEncoding(
+		b.TxRequiredTopLevelGuards,
+	); err != nil {
+		return nil, err
+	}
+	if err := validateDijkstraAccountBalanceIntervalsForEncoding(
+		b.TxAccountBalanceIntervals,
+	); err != nil {
+		return nil, err
 	}
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }

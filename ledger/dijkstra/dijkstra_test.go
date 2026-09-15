@@ -1178,6 +1178,48 @@ func TestDijkstraTransactionBodyOmitsNilAccountBalanceIntervalsField(t *testing.
 	require.False(t, present, "key 26 should be omitted when the field is nil")
 }
 
+// TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps proves
+// the containing body's MarshalCBOR validates a directly constructed
+// DijkstraAccountBalanceIntervals/DijkstraRequiredTopLevelGuards before wire
+// encoding, without breaking omitempty for a nil (field-absent) map. Decoding
+// from CBOR can never produce these malformed states (UnmarshalCBOR already
+// rejects them); this covers a caller that builds one of these exported map
+// types directly and encodes it without ever decoding first.
+func TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps(t *testing.T) {
+	t.Run("transaction body: all-nil-bounds interval", func(t *testing.T) {
+		guard := testGuardCredential()
+		body := DijkstraTransactionBody{
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
+				&guard: {},
+			},
+		}
+		_, err := body.MarshalCBOR()
+		require.ErrorContains(t, err, "requires a lower or upper bound")
+	})
+
+	t.Run("sub-transaction body: nil interval", func(t *testing.T) {
+		guard := testGuardCredential()
+		body := DijkstraSubTransactionBody{
+			TxAccountBalanceIntervals: DijkstraAccountBalanceIntervals{
+				&guard: nil,
+			},
+		}
+		_, err := body.MarshalCBOR()
+		require.ErrorContains(t, err, "must not be nil")
+	})
+
+	t.Run("sub-transaction body: required guard datum missing Plutus data", func(t *testing.T) {
+		guard := testGuardCredential()
+		body := DijkstraSubTransactionBody{
+			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+				&guard: {},
+			},
+		}
+		_, err := body.MarshalCBOR()
+		require.ErrorContains(t, err, "missing Plutus data")
+	})
+}
+
 func TestDijkstraTransactionBodyBalanceIntervalsRejectsDuplicateCredential(t *testing.T) {
 	var hash common.Blake2b224
 	hash[0] = 1
