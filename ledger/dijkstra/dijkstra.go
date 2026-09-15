@@ -785,6 +785,9 @@ func decodeDijkstraOptionalCoin(raw cbor.RawMessage) (*uint64, error) {
 }
 
 func (i DijkstraAccountBalanceInterval) MarshalCBOR() ([]byte, error) {
+	if err := validateDijkstraAccountBalanceInterval(&i); err != nil {
+		return nil, err
+	}
 	if i.Exact != nil {
 		return cbor.Encode(*i.Exact)
 	}
@@ -797,6 +800,27 @@ func (i DijkstraAccountBalanceInterval) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(
 		[]any{encodeBound(i.LowerBound), encodeBound(i.UpperBound)},
 	)
+}
+
+// validateDijkstraAccountBalanceInterval rejects a nil interval, and an
+// interval with every bound nil: the one state
+// DijkstraAccountBalanceInterval's own UnmarshalCBOR refuses to decode
+// (encodeBound(nil), encodeBound(nil) round-trips to [null, null], which
+// UnmarshalCBOR then rejects) but that a directly constructed zero-value
+// DijkstraAccountBalanceInterval{} can still produce.
+func validateDijkstraAccountBalanceInterval(
+	interval *DijkstraAccountBalanceInterval,
+) error {
+	if interval == nil {
+		return errors.New("account balance interval must not be nil")
+	}
+	if interval.Exact == nil && interval.LowerBound == nil &&
+		interval.UpperBound == nil {
+		return errors.New(
+			"dijkstra account balance interval requires a lower or upper bound",
+		)
+	}
+	return nil
 }
 
 // DijkstraAccountBalanceIntervals is CIP-159's account_balance_intervals: a
@@ -850,6 +874,15 @@ func (m *DijkstraAccountBalanceIntervals) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+// DijkstraAccountBalanceIntervals deliberately has no custom MarshalCBOR.
+// fxamacker's omitempty treats any type implementing cbor.Marshaler as
+// always non-empty (getEncodeFuncInternal special-cases exactly this), so a
+// custom Marshal method here would stop a nil (field-absent) map from being
+// omitted — every Dijkstra body would gain a spurious empty key 26. Encode
+// validation for a directly constructed map is intentionally left to
+// dijkstraAccountBalanceIntervalsV4, the one path that turns this map into
+// script-visible output without going through UnmarshalCBOR first.
+
 // DijkstraRequiredTopLevelGuards is CIP-118's required_top_level_guards: a
 // non-empty credential-keyed map of optional Plutus datums that a
 // sub-transaction requires its enclosing transaction's guards to satisfy.
@@ -888,10 +921,34 @@ func (m *DijkstraRequiredTopLevelGuards) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+// DijkstraRequiredTopLevelGuards deliberately has no custom MarshalCBOR, for
+// the same reason DijkstraAccountBalanceIntervals has none: fxamacker's
+// omitempty would stop treating a nil (field-absent) map as empty. Encode
+// validation for a directly constructed map is intentionally left to
+// dijkstraRequiredTopLevelGuardsV4, the one path that turns this map into
+// script-visible output without going through UnmarshalCBOR first.
+
+// validateDijkstraRequiredTopLevelGuardDatum rejects a non-nil datum whose
+// Data is nil. A legitimately decoded or constructed datum always has Data
+// set; a nil Data on a non-nil *common.Datum only arises when raw bytes were
+// set directly via SetCbor without going through UnmarshalCBOR, and
+// common.Datum.MarshalCBOR prefers those preserved raw bytes verbatim, so an
+// invalid wire value (such as CBOR undefined) would otherwise round-trip
+// straight through.
+func validateDijkstraRequiredTopLevelGuardDatum(datum *common.Datum) error {
+	if datum != nil && datum.Data == nil {
+		return errors.New(
+			"required top-level guard datum is missing Plutus data",
+		)
+	}
+	return nil
+}
+
 // validateDijkstraCredentialMapKeys enforces the CDDL "+" (non-empty) map
 // constraint shared by DijkstraAccountBalanceIntervals and
-// DijkstraRequiredTopLevelGuards, and rejects nil or logically duplicate
-// credential keys that a pointer-keyed Go map cannot reject on its own.
+// DijkstraRequiredTopLevelGuards, and rejects nil, unsupported-type, or
+// logically duplicate credential keys that a pointer-keyed Go map cannot
+// reject on its own.
 func validateDijkstraCredentialMapKeys[V any](
 	values map[*common.Credential]V,
 	field string,
@@ -903,6 +960,13 @@ func validateDijkstraCredentialMapKeys[V any](
 	for credential := range values {
 		if credential == nil {
 			return fmt.Errorf("%s contains a nil credential", field)
+		}
+		if credential.CredType > common.CredentialTypeScriptHash {
+			return fmt.Errorf(
+				"%s contains an unsupported credential type: %d",
+				field,
+				credential.CredType,
+			)
 		}
 		key := dijkstraCredentialKey{
 			Type: credential.CredType,

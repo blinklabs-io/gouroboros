@@ -79,7 +79,8 @@ func TestDijkstraRequiredGuardsV4NormalizesDatum(t *testing.T) {
 	required := DijkstraRequiredTopLevelGuards{&guardCred: &datum}
 
 	// Call the internal function under test.
-	rendered := dijkstraRequiredTopLevelGuardsV4(required)
+	rendered, err := dijkstraRequiredTopLevelGuardsV4(required)
+	require.NoError(t, err)
 
 	renderedBytes, err := data.Encode(rendered)
 	require.NoError(t, err)

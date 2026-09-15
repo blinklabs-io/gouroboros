@@ -1189,7 +1189,10 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 		return nil, nil, nil, nil, err
 	}
 	if len(intervals) > 0 {
-		balanceIntervals = dijkstraAccountBalanceIntervalsV4(intervals)
+		balanceIntervals, err = dijkstraAccountBalanceIntervalsV4(intervals)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
 	}
 	if guardSet != nil {
 		items := make([]data.PlutusData, len(guardSet.Credentials))
@@ -1199,7 +1202,10 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 		guards = data.NewList(items...)
 	}
 	if len(required) > 0 {
-		requiredGuards = dijkstraRequiredTopLevelGuardsV4(required)
+		requiredGuards, err = dijkstraRequiredTopLevelGuardsV4(required)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
 	}
 	return directDeposits, balanceIntervals, guards, requiredGuards, nil
 }
@@ -1225,18 +1231,34 @@ func sortedDijkstraCredentials[V any](
 
 func dijkstraAccountBalanceIntervalsV4(
 	intervals DijkstraAccountBalanceIntervals,
-) data.PlutusData {
-	credentials := sortedDijkstraCredentials(
-		map[*common.Credential]*DijkstraAccountBalanceInterval(intervals),
+) (data.PlutusData, error) {
+	rawIntervals := map[*common.Credential]*DijkstraAccountBalanceInterval(
+		intervals,
 	)
+	if err := validateDijkstraCredentialMapKeys(
+		rawIntervals,
+		"account balance intervals",
+	); err != nil {
+		return nil, err
+	}
+	credentials := sortedDijkstraCredentials(rawIntervals)
 	pairs := make([][2]data.PlutusData, 0, len(credentials))
 	for _, credential := range credentials {
+		interval := intervals[credential]
+		if interval == nil {
+			return nil, errors.New(
+				"account balance intervals contains a nil interval",
+			)
+		}
+		if err := validateDijkstraAccountBalanceInterval(interval); err != nil {
+			return nil, err
+		}
 		pairs = append(pairs, [2]data.PlutusData{
 			credential.ToPlutusData(),
-			dijkstraAccountBalanceIntervalV4(intervals[credential]),
+			dijkstraAccountBalanceIntervalV4(interval),
 		})
 	}
-	return data.NewMap(pairs)
+	return data.NewMap(pairs), nil
 }
 
 func dijkstraAccountBalanceIntervalV4(
@@ -1259,24 +1281,38 @@ func dijkstraAccountBalanceIntervalV4(
 			0,
 			data.NewInteger(new(big.Int).SetUint64(*interval.LowerBound)),
 		)
-	default:
+	case interval.UpperBound != nil:
 		return data.NewConstr(
 			1,
 			data.NewInteger(new(big.Int).SetUint64(*interval.UpperBound)),
 		)
+	default:
+		// Unreachable for a decoded value: DijkstraAccountBalanceInterval's
+		// own UnmarshalCBOR rejects an interval with every bound nil. Only a
+		// manually-constructed zero-value interval can reach this case.
+		return data.NewConstr(1, data.NewInteger(new(big.Int)))
 	}
 }
 
 func dijkstraRequiredTopLevelGuardsV4(
 	required DijkstraRequiredTopLevelGuards,
-) data.PlutusData {
-	credentials := sortedDijkstraCredentials(
-		map[*common.Credential]*common.Datum(required),
-	)
+) (data.PlutusData, error) {
+	rawRequired := map[*common.Credential]*common.Datum(required)
+	if err := validateDijkstraCredentialMapKeys(
+		rawRequired,
+		"required top-level guards",
+	); err != nil {
+		return nil, err
+	}
+	credentials := sortedDijkstraCredentials(rawRequired)
 	pairs := make([][2]data.PlutusData, 0, len(credentials))
 	for _, credential := range credentials {
 		value := data.NewConstr(1)
-		if datum := required[credential]; datum != nil {
+		datum := required[credential]
+		if err := validateDijkstraRequiredTopLevelGuardDatum(datum); err != nil {
+			return nil, err
+		}
+		if datum != nil {
 			// Normalize: datum.Data comes straight off cbor.Decode, so it
 			// still carries the wire's definite/indefinite encoding. Every
 			// other script-visible boundary in this file normalizes; this
@@ -1288,7 +1324,7 @@ func dijkstraRequiredTopLevelGuardsV4(
 			credential.ToPlutusData(), value,
 		})
 	}
-	return data.NewMap(pairs)
+	return data.NewMap(pairs), nil
 }
 
 func dijkstraDirectDepositsV4(

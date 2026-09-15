@@ -418,6 +418,68 @@ func TestDijkstraBodyFieldsV4RequiredTopLevelGuards(t *testing.T) {
 	}
 }
 
+// TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps proves
+// dijkstraBodyFieldsV4 validates a directly constructed
+// DijkstraAccountBalanceIntervals/DijkstraRequiredTopLevelGuards rather than
+// panicking or silently emitting invalid Plutus data for it. Decoding a
+// transaction from CBOR can never produce these states (UnmarshalCBOR
+// already rejects them), but nothing stops a caller from building one of
+// these exported map types by hand.
+func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.T) {
+	guard := testGuardCredential()
+	unsupported := guard
+	unsupported.CredType = 2
+	lower := uint64(1)
+
+	t.Run("balance intervals: unsupported credential type", func(t *testing.T) {
+		body := &DijkstraTransactionBody{
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
+				&unsupported: {LowerBound: &lower},
+			},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "unsupported credential type")
+	})
+
+	t.Run("balance intervals: nil interval", func(t *testing.T) {
+		body := &DijkstraTransactionBody{
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{&guard: nil},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "nil interval")
+	})
+
+	t.Run("balance intervals: all-nil bounds", func(t *testing.T) {
+		body := &DijkstraTransactionBody{
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
+				&guard: {},
+			},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "requires a lower or upper bound")
+	})
+
+	t.Run("required top-level guards: unsupported credential type", func(t *testing.T) {
+		body := &DijkstraSubTransactionBody{
+			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+				&unsupported: nil,
+			},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "unsupported credential type")
+	})
+
+	t.Run("required top-level guards: datum missing Plutus data", func(t *testing.T) {
+		body := &DijkstraSubTransactionBody{
+			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+				&guard: {},
+			},
+		}
+		_, _, _, _, err := dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "missing Plutus data")
+	})
+}
+
 func TestDijkstraPlutusV4GuardingTopTxInfo(t *testing.T) {
 	guard := common.Credential{
 		CredType: common.CredentialTypeScriptHash,

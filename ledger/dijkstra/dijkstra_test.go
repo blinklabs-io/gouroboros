@@ -1143,6 +1143,41 @@ func TestDijkstraTransactionBodyBalanceIntervalsRejectsEmptyMap(t *testing.T) {
 	require.ErrorContains(t, err, "must not be empty")
 }
 
+func TestDijkstraAccountBalanceIntervalMarshalCBORRejectsAllNilBounds(t *testing.T) {
+	_, err := DijkstraAccountBalanceInterval{}.MarshalCBOR()
+	require.ErrorContains(t, err, "requires a lower or upper bound")
+}
+
+// TestDijkstraTransactionBodyOmitsNilAccountBalanceIntervalsField guards
+// against a regression: giving DijkstraAccountBalanceIntervals (or
+// DijkstraRequiredTopLevelGuards) a custom MarshalCBOR makes fxamacker treat
+// it as always non-empty for omitempty purposes, so a nil (field-absent) map
+// would stop being omitted and every Dijkstra body would gain a spurious
+// empty key 26/24. Both types are documented as deliberately having no
+// MarshalCBOR for exactly this reason; this test would fail if one were
+// added back without also solving the omitempty problem.
+func TestDijkstraTransactionBodyOmitsNilAccountBalanceIntervalsField(t *testing.T) {
+	body := DijkstraTransactionBody{TxFee: 1}
+	encoded, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	_, present := fields[26]
+	require.False(t, present, "key 26 should be omitted when the field is nil")
+
+	subBody := DijkstraSubTransactionBody{Ttl: 1}
+	encodedSub, err := subBody.MarshalCBOR()
+	require.NoError(t, err)
+	var subFields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encodedSub, &subFields)
+	require.NoError(t, err)
+	_, present = subFields[24]
+	require.False(t, present, "key 24 should be omitted when the field is nil")
+	_, present = subFields[26]
+	require.False(t, present, "key 26 should be omitted when the field is nil")
+}
+
 func TestDijkstraTransactionBodyBalanceIntervalsRejectsDuplicateCredential(t *testing.T) {
 	var hash common.Blake2b224
 	hash[0] = 1
