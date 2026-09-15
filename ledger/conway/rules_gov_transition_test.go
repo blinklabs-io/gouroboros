@@ -268,7 +268,7 @@ func TestUtxoValidateGovActionWellFormedness(t *testing.T) {
 		}
 		action := &common.UpdateCommitteeGovAction{
 			Credentials: []common.Credential{cred},
-			CredEpochs: map[*common.Credential]uint{
+			CredEpochs: map[*common.Credential]uint64{
 				&cred: 500,
 			},
 		}
@@ -290,7 +290,7 @@ func TestUtxoValidateGovActionWellFormedness(t *testing.T) {
 		}
 		action := &common.UpdateCommitteeGovAction{
 			Credentials: []common.Credential{removeCred},
-			CredEpochs: map[*common.Credential]uint{
+			CredEpochs: map[*common.Credential]uint64{
 				&addCred: 500,
 			},
 		}
@@ -341,7 +341,7 @@ func TestUtxoValidateGovActionWellFormedness(t *testing.T) {
 			}
 			action := &common.UpdateCommitteeGovAction{
 				Credentials: []common.Credential{credA, credB},
-				CredEpochs: map[*common.Credential]uint{
+				CredEpochs: map[*common.Credential]uint64{
 					&credA: 500,
 					&credB: 600,
 				},

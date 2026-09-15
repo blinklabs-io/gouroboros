@@ -270,7 +270,7 @@ func TestGovActionRepresentabilityIsNotPhase2Gated(t *testing.T) {
 		action := func() common.GovAction {
 			return &common.UpdateCommitteeGovAction{
 				Credentials: []common.Credential{credential},
-				CredEpochs:  map[*common.Credential]uint{&conflicting: 100},
+				CredEpochs:  map[*common.Credential]uint64{&conflicting: 100},
 				Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
 			}
 		}

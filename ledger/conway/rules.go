@@ -4084,6 +4084,89 @@ func UtxoValidateCommitteeCertificates(
 	return nil
 }
 
+// ValidateCommitteeTerm reports whether the expiry epochs proposed by an
+// UpdateCommittee governance action are within the constitutional committee
+// maximum term measured from currentEpoch. It mirrors validCommitteeTerm in
+// Cardano.Ledger.Conway.Rules.Ratify.
+//
+// This is a ratification predicate, not a transaction-validity predicate. The
+// reference evaluates it in ratifyTransition to gate enactment; the GOV rule
+// that admits a proposal into the ledger does not bound committee terms, so a
+// transaction proposing an over-limit expiry is valid and is simply not
+// ratified. Two properties follow and both are lost if the predicate is moved
+// onto the UTxO path. The verdict depends on the validating node's current
+// epoch rather than on anything in the transaction, so mempool admission,
+// block-body re-validation and replay would not agree; and the bound loosens
+// every epoch, so a proposal outside it now becomes ratifiable later. Call
+// this at the epoch boundary, never from a transaction or block validation
+// rule: doing so would reject blocks the Haskell node accepts.
+//
+// An action with no proposed expiry epochs, such as a removal-only update, is
+// within the bound. pp must implement common.CommitteeMaxTermLengthProvider;
+// when it does not, the limit is unknown and the action is reported as
+// unratifiable rather than enacted unchecked.
+func ValidateCommitteeTerm(
+	a *common.UpdateCommitteeGovAction,
+	pp common.ProtocolParameters,
+	currentEpoch uint64,
+) error {
+	if a == nil || len(a.CredEpochs) == 0 {
+		return nil
+	}
+	termParams, ok := pp.(common.CommitteeMaxTermLengthProvider)
+	if !ok {
+		return CommitteeTermLimitUnavailableError{}
+	}
+	maxTermLength, ok := termParams.CommitteeMaxTermLength()
+	if !ok {
+		return CommitteeTermLimitUnavailableError{}
+	}
+	type committeeTerm struct {
+		credential *common.Credential
+		expiry     uint64
+	}
+	terms := make([]committeeTerm, 0, len(a.CredEpochs))
+	for credential, expiryEpoch := range a.CredEpochs {
+		if credential == nil {
+			continue
+		}
+		terms = append(terms, committeeTerm{
+			credential: credential,
+			expiry:     expiryEpoch,
+		})
+	}
+	// Map iteration order is unspecified, so sort before reporting a single
+	// offending credential; otherwise the error names a different member
+	// across runs.
+	slices.SortFunc(terms, func(a, b committeeTerm) int {
+		if a.credential.CredType != b.credential.CredType {
+			return int(a.credential.CredType) - int(b.credential.CredType)
+		}
+		return bytes.Compare(
+			a.credential.Credential.Bytes(),
+			b.credential.Credential.Bytes(),
+		)
+	})
+	// The reference bound is addEpochInterval currentEpoch
+	// committeeMaxTermLength, defined as EpochNo (n + fromIntegral m) on
+	// Word64, so it wraps on overflow. Go's uint64 addition wraps identically.
+	// Computing the bound directly keeps that behavior: rearranging the
+	// comparison to saturate instead would accept expiries near 2^64 that the
+	// reference rejects against a wrapped bound.
+	bound := currentEpoch + maxTermLength
+	for _, term := range terms {
+		if term.expiry > bound {
+			return CommitteeTermTooLongError{
+				Credential:    term.credential.Credential,
+				CurrentEpoch:  currentEpoch,
+				ExpiryEpoch:   term.expiry,
+				MaxTermLength: maxTermLength,
+			}
+		}
+	}
+	return nil
+}
+
 // PoolValidateVrfKeyUniqueness ensures no two pools use the same VRF key.
 // Enforced only for Protocol Version 11+.
 func PoolValidateVrfKeyUniqueness(

@@ -60,6 +60,14 @@ type PoolRuleProtocolParameters interface {
 	PoolRetirementMaxEpoch() uint64
 }
 
+// CommitteeMaxTermLengthProvider is the optional protocol-parameter
+// capability exposing the constitutional committee maximum term length, used
+// by the Conway committee-term ratification predicate. The boolean is false
+// when the parameter is unavailable; zero is a present, valid limit.
+type CommitteeMaxTermLengthProvider interface {
+	CommitteeMaxTermLength() (uint64, bool)
+}
+
 type ExUnitPrice struct {
 	cbor.StructAsArray
 	MemPrice  *cbor.Rat
