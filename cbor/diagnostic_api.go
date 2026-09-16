@@ -75,8 +75,8 @@ type DiagnosticStats struct {
 //
 // Two safety gates apply before tree construction: an input-size guard
 // (maxDiagnosticInputBytes, 16 MiB) and the depth cap that
-// ParseDiagnostic / parseDiagnosticNode enforce internally
-// (maxDiagnosticNestedLevels, MaxNestedLevels). Inputs that violate either are
+// ParseDiagnostic and parseDiagnosticNode enforce internally. The depth cap
+// is MaxNestedLevels. Inputs that violate this limit are
 // rejected without producing a partial tree.
 //
 // opts is part of the signature so callers and the Cardano-aware wrappers
