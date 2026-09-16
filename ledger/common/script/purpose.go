@@ -31,7 +31,7 @@ import (
 // BuildScriptPurpose can construct for the transaction (e.g. the index is
 // out of range for its tag's category, the referenced input could not be
 // resolved, or the tag itself is not a purpose these builders support, such
-// as RedeemerTagGuarding).
+// as RedeemerTagGuarding or RedeemerTagObserve).
 type UnmatchedRedeemerError struct {
 	RedeemerKey lcommon.RedeemerKey
 }
@@ -409,6 +409,9 @@ func scriptPurposeBuilder(
 			}, nil
 		case lcommon.RedeemerTagGuarding:
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+		case lcommon.RedeemerTagObserve:
+			// CIP-0112 Observe has no active purpose in any era yet.
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		default:
 			// Any unrecognized tag isn't a purpose this builder can
 			// construct.
@@ -542,6 +545,9 @@ func BuildScriptPurpose(
 			ProposalProcedure: proposalProcedures[redeemerKey.Index],
 		}, nil
 	case lcommon.RedeemerTagGuarding:
+		return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+	case lcommon.RedeemerTagObserve:
+		// CIP-0112 Observe has no active purpose in any era yet.
 		return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 	default:
 		// Any unrecognized tag isn't a purpose this function can construct.

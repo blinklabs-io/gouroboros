@@ -1692,6 +1692,18 @@ func TestUtxoValidateExtraneousRedeemers_Alonzo(t *testing.T) {
 		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
 	})
 
+	t.Run("observe tag is extraneous", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{Tag: common.RedeemerTagObserve},
+			},
+		}
+		err := alonzo.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+		require.Error(t, err)
+		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
+	})
+
 	t.Run("spend index out of range", func(t *testing.T) {
 		tx := &alonzo.AlonzoTransaction{Body: baseBody()}
 		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{

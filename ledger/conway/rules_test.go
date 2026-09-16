@@ -1173,6 +1173,25 @@ func TestUtxoValidateExtraneousRedeemersUnknownTag(t *testing.T) {
 	assert.IsType(t, conway.ExtraRedeemerError{}, err)
 }
 
+// TestUtxoValidateExtraneousRedeemersObserveTag pins that CIP-0112's
+// Observe purpose (RedeemerTagObserve) is a recognized tag with no active
+// script purpose in Conway. Only Dijkstra sub-transaction guarding has an
+// active non-spend/mint/cert/reward/voting/proposing purpose so far; Observe
+// stays extraneous everywhere until the CIP activates.
+func TestUtxoValidateExtraneousRedeemersObserveTag(t *testing.T) {
+	redeemerKey := common.RedeemerKey{Tag: common.RedeemerTagObserve}
+	tx := &conway.ConwayTransaction{}
+	tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			redeemerKey: {},
+		},
+	}
+
+	err := conway.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+	require.Error(t, err)
+	assert.IsType(t, conway.ExtraRedeemerError{}, err)
+}
+
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testSlot uint64 = 555666777
 	var testZeroSlot uint64 = 0

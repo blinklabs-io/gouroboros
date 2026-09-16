@@ -1289,6 +1289,28 @@ func TestUtxoValidateExtraneousRedeemersGuarding(t *testing.T) {
 	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
 }
 
+// TestUtxoValidateExtraneousRedeemersObserveTag pins that CIP-0112's Observe
+// purpose (RedeemerTagObserve) has no active script purpose in Dijkstra yet,
+// unlike RedeemerTagGuarding: it stays extraneous until the CIP activates,
+// falling through the same default branch an unrecognized tag would.
+func TestUtxoValidateExtraneousRedeemersObserveTag(t *testing.T) {
+	tx := &DijkstraTransaction{
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagObserve, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+
+	err := UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
+}
+
 func TestUtxoValidatePlutusScriptsGuardingRedeemer(t *testing.T) {
 	guardScript := common.PlutusV4Script{0x41, 0x00}
 	guardCred := testGuardScriptCredential(guardScript)

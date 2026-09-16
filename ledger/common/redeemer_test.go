@@ -16,8 +16,11 @@ package common
 
 import (
 	"encoding/json"
+	"math/big"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,6 +37,7 @@ func TestRedeemerTagMarshalJSON(t *testing.T) {
 		{RedeemerTagVoting, `"voting"`},
 		{RedeemerTagProposing, `"proposing"`},
 		{RedeemerTagGuarding, `"guarding"`},
+		{RedeemerTagObserve, `"observe"`},
 	}
 	for _, tc := range tests {
 		data, err := json.Marshal(tc.tag)
@@ -54,6 +58,7 @@ func TestRedeemerTagUnmarshalJSON(t *testing.T) {
 		{`"voting"`, RedeemerTagVoting},
 		{`"proposing"`, RedeemerTagProposing},
 		{`"guarding"`, RedeemerTagGuarding},
+		{`"observe"`, RedeemerTagObserve},
 	}
 	for _, tc := range tests {
 		var tag RedeemerTag
@@ -76,7 +81,7 @@ func TestRedeemerTagUnmarshalJSONUnknown(t *testing.T) {
 }
 
 func TestRedeemerTagRoundTrip(t *testing.T) {
-	for tag := RedeemerTagSpend; tag <= RedeemerTagGuarding; tag++ {
+	for tag := RedeemerTagSpend; tag <= RedeemerTagObserve; tag++ {
 		data, err := json.Marshal(tag)
 		require.NoError(t, err)
 
@@ -123,6 +128,42 @@ func TestRedeemerKeyRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, key.Tag, decoded.Tag)
 	assert.Equal(t, key.Index, decoded.Index)
+}
+
+// TestRedeemerKeyCborRoundTripObserveTag pins CIP-0112's Observe tag through
+// RedeemerKey's raw CBOR tuple ([tag, index]) encoding. cbor.Encode/Decode
+// on RedeemerKey never validate the tag against redeemerTagNames -- that
+// only happens in the JSON codec -- so an Observe-tagged key must round-trip
+// exactly like any other tag.
+func TestRedeemerKeyCborRoundTripObserveTag(t *testing.T) {
+	key := RedeemerKey{Tag: RedeemerTagObserve, Index: 7}
+	encoded, err := cbor.Encode(key)
+	require.NoError(t, err)
+
+	var decoded RedeemerKey
+	_, err = cbor.Decode(encoded, &decoded)
+	require.NoError(t, err)
+	assert.Equal(t, key.Tag, decoded.Tag)
+	assert.Equal(t, key.Index, decoded.Index)
+}
+
+// TestRedeemerValueCborRoundTripWithObserveKey pins that a RedeemerValue
+// paired with an Observe-tagged RedeemerKey round-trips through CBOR
+// unaffected by the key's tag -- the value's own encoding has no
+// tag-dependent behavior.
+func TestRedeemerValueCborRoundTripWithObserveKey(t *testing.T) {
+	val := RedeemerValue{
+		Data:    Datum{Data: data.NewInteger(big.NewInt(42))},
+		ExUnits: ExUnits{Memory: 100, Steps: 200},
+	}
+	encoded, err := cbor.Encode(val)
+	require.NoError(t, err)
+
+	var decoded RedeemerValue
+	_, err = cbor.Decode(encoded, &decoded)
+	require.NoError(t, err)
+	assert.Equal(t, val.ExUnits.Memory, decoded.ExUnits.Memory)
+	assert.Equal(t, val.ExUnits.Steps, decoded.ExUnits.Steps)
 }
 
 func TestRedeemerValueMarshalJSON(t *testing.T) {

@@ -32,6 +32,12 @@ const (
 	RedeemerTagVoting    RedeemerTag = 4
 	RedeemerTagProposing RedeemerTag = 5
 	RedeemerTagGuarding  RedeemerTag = 6
+	// RedeemerTagObserve is CIP-0112's Observe script purpose. No era
+	// currently activates it -- it decodes and round-trips like any other
+	// tag, but every purpose builder and extraneous-redeemer check treats it
+	// as unmatched/extraneous until the CIP lands (expected PlutusV4 under
+	// Dijkstra). See https://cips.cardano.org/cip/CIP-0112.
+	RedeemerTagObserve RedeemerTag = 7
 )
 
 var redeemerTagNames = map[RedeemerTag]string{
@@ -42,6 +48,7 @@ var redeemerTagNames = map[RedeemerTag]string{
 	RedeemerTagVoting:    "voting",
 	RedeemerTagProposing: "proposing",
 	RedeemerTagGuarding:  "guarding",
+	RedeemerTagObserve:   "observe",
 }
 
 var redeemerTagValues = map[string]RedeemerTag{
@@ -52,6 +59,7 @@ var redeemerTagValues = map[string]RedeemerTag{
 	"voting":    RedeemerTagVoting,
 	"proposing": RedeemerTagProposing,
 	"guarding":  RedeemerTagGuarding,
+	"observe":   RedeemerTagObserve,
 }
 
 func (t RedeemerTag) MarshalJSON() ([]byte, error) {

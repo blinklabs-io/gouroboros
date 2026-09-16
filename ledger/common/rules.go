@@ -1202,12 +1202,13 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 // withdrawal, a voting redeemer an existing voter, and a proposing redeemer
 // an existing proposal procedure. Any redeemer whose index is out of range
 // for its tag's category, or whose tag is not one of the above (e.g.
-// RedeemerTagGuarding, which this shared check always treats as
-// extraneous), causes ExtraneousRedeemerError to be returned for that
-// redeemer. Eras that define additional redeemer purposes (e.g. Dijkstra's
-// guarding redeemers) must check for and accept those before delegating the
-// remaining redeemers to this function, since it fails closed on anything
-// it doesn't recognize.
+// RedeemerTagGuarding or RedeemerTagObserve, which this shared check always
+// treats as extraneous), causes ExtraneousRedeemerError to be returned for
+// that redeemer. Eras that define additional redeemer purposes (e.g.
+// Dijkstra's guarding redeemers) must check for and accept those before
+// delegating the remaining redeemers to this function, since it fails closed
+// on anything it doesn't recognize. RedeemerTagObserve (CIP-0112) has no
+// active purpose in any era yet, so it stays extraneous everywhere.
 func ValidateExtraneousRedeemers(tx Transaction) error {
 	wits := tx.Witnesses()
 	if wits == nil {
@@ -1253,6 +1254,8 @@ func ValidateExtraneousRedeemers(tx Transaction) error {
 		case RedeemerTagProposing:
 			maxIndex = countToUint64(proposalCount)
 		case RedeemerTagGuarding:
+			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
+		case RedeemerTagObserve:
 			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
 		default:
 			// Any unrecognized tag doesn't map to a purpose this shared

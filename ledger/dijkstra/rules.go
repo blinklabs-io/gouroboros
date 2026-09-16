@@ -2854,6 +2854,9 @@ func validateDijkstraExtraneousRedeemers(
 				continue
 			}
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
+		case common.RedeemerTagObserve:
+			// CIP-0112 Observe has no active purpose in Dijkstra yet.
+			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		default:
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}

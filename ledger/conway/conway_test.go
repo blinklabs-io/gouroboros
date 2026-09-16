@@ -29,6 +29,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	plutusdata "github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -125,6 +126,47 @@ func TestConwayRedeemersIter(t *testing.T) {
 		}
 		iterIdx++
 	}
+}
+
+// TestConwayRedeemersCborRoundTripObserveTag pins CIP-0112's Observe tag
+// (RedeemerTagObserve) through ConwayRedeemers' map-form CBOR encode/decode
+// path (MarshalCBOR/UnmarshalCBOR), alongside a recognized tag in the same
+// map. Decoding does not validate the tag against any known set, so an
+// Observe entry must survive the round trip unchanged even though no era
+// currently accepts it in a real transaction.
+func TestConwayRedeemersCborRoundTripObserveTag(t *testing.T) {
+	observeKey := common.RedeemerKey{Tag: common.RedeemerTagObserve, Index: 1}
+	spendKey := common.RedeemerKey{Tag: common.RedeemerTagSpend, Index: 0}
+	redeemers := ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			observeKey: {
+				Data:    common.Datum{Data: plutusdata.NewInteger(big.NewInt(1))},
+				ExUnits: common.ExUnits{Memory: 111, Steps: 222},
+			},
+			spendKey: {
+				Data:    common.Datum{Data: plutusdata.NewInteger(big.NewInt(2))},
+				ExUnits: common.ExUnits{Memory: 333, Steps: 444},
+			},
+		},
+	}
+
+	encoded, err := cbor.Encode(redeemers)
+	require.NoError(t, err)
+
+	var decoded ConwayRedeemers
+	_, err = cbor.Decode(encoded, &decoded)
+	require.NoError(t, err)
+
+	require.Len(t, decoded.Redeemers, 2)
+	observeVal, ok := decoded.Redeemers[observeKey]
+	require.True(t, ok)
+	assert.Equal(t, int64(111), observeVal.ExUnits.Memory)
+	assert.Equal(t, int64(222), observeVal.ExUnits.Steps)
+
+	spendVal, ok := decoded.Redeemers[spendKey]
+	require.True(t, ok)
+	assert.Equal(t, int64(333), spendVal.ExUnits.Memory)
+	assert.Equal(t, int64(444), spendVal.ExUnits.Steps)
 }
 
 func TestConwayTransactionInputSetConditionalDuplicateCheck(t *testing.T) {

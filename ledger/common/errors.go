@@ -340,8 +340,8 @@ func (RefScriptSizePerBlockTooLargeError) Is(target error) bool {
 // correspond to a valid script purpose in the transaction: the index is out
 // of range for its purpose category (spend/mint/cert/reward/voting/
 // proposing), or its tag is not one this validation recognizes as a valid
-// purpose (e.g. RedeemerTagGuarding, unless the caller has already
-// special-cased it).
+// purpose (e.g. RedeemerTagGuarding or RedeemerTagObserve, unless the caller
+// has already special-cased it).
 type ExtraneousRedeemerError struct {
 	RedeemerKey RedeemerKey
 }

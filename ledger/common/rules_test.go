@@ -1670,6 +1670,18 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
 	})
 
+	t.Run("observe tag is extraneous", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagObserve}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+	})
+
 	t.Run("voting index out of range", func(t *testing.T) {
 		tx := &conway.ConwayTransaction{Body: baseBody()}
 		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{

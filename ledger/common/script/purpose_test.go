@@ -43,6 +43,26 @@ func TestBuildScriptPurposeGuardingRedeemerDoesNotPanic(t *testing.T) {
 	require.ErrorAs(t, err, &script.UnmatchedRedeemerError{})
 }
 
+func TestBuildScriptPurposeObserveRedeemerDoesNotPanic(t *testing.T) {
+	var purpose script.ScriptPurpose
+	var err error
+	require.NotPanics(t, func() {
+		purpose, err = script.BuildScriptPurpose(
+			common.RedeemerKey{Tag: common.RedeemerTagObserve},
+			nil,
+			nil,
+			common.MultiAsset[common.MultiAssetTypeMint]{},
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+		)
+	})
+	require.Nil(t, purpose)
+	require.ErrorAs(t, err, &script.UnmatchedRedeemerError{})
+}
+
 func TestBuildScriptPurposeSpendingNilOutputDoesNotPanic(t *testing.T) {
 	input := shelley.NewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000001",
