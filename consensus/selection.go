@@ -66,8 +66,9 @@ type PraosChainSelector struct {
 	//
 	// When it is non-zero, every candidate is ordered by its block count
 	// within that window: a tip implementing WindowBlockCounter answers
-	// directly, and a tip that does not has its ChainTip.Density ratio
-	// projected onto the window so that one scale orders the whole set.
+	// directly, and a legacy tip that does not has its ChainTip.Density ratio
+	// projected onto the window as an explicitly non-canonical compatibility
+	// approximation. This keeps every candidate on one comparison scale.
 	//
 	// Only when it is zero does comparison fall back to the ChainTip.Density
 	// ratio. See compareDensity.
@@ -249,31 +250,19 @@ func (p *PraosChainSelector) IsDeepFork(
 // candidates happen to arrive in — two honest nodes holding the same
 // candidates would disagree.
 //
-// So: with a genesis window configured every candidate is ordered by the
-// canonical integer count, including one that does not implement
-// WindowBlockCounter — its legacy ratio is projected onto the window by
-// windowBlocks so it lands on the same scale. With no window configured
-// every candidate is ordered by the legacy ratio. One scale either way.
+// So: with a genesis window configured every candidate is ordered by one
+// integer count. WindowBlockCounter supplies the canonical count; a legacy
+// tip's ratio is projected onto the window by windowBlocks as an explicitly
+// non-canonical compatibility approximation. With no window configured every
+// candidate is ordered by the legacy ratio. One scale either way.
 func (p *PraosChainSelector) compareDensity(
 	a, b ChainTip,
 	fork ForkPoint,
 ) int {
 	if p.GenesisWindowSlots > 0 {
-		_, aOK := a.(WindowBlockCounter)
-		_, bOK := b.(WindowBlockCounter)
-		if !aOK || !bOK {
-			// A legacy tip has no canonical count for this window. Compare
-			// both tips using the same legacy metric rather than inventing a
-			// window count from a ratio measured over an unknown span.
-			p.warnLegacyDensity()
-			return compareFloat64(
-				legacyDensity(a, fork.Slot),
-				legacyDensity(b, fork.Slot),
-			)
-		}
 		return compareUint64(
-			a.(WindowBlockCounter).BlocksInWindow(fork.Slot, p.GenesisWindowSlots),
-			b.(WindowBlockCounter).BlocksInWindow(fork.Slot, p.GenesisWindowSlots),
+			p.windowBlocks(a, fork),
+			p.windowBlocks(b, fork),
 		)
 	}
 
@@ -310,8 +299,10 @@ func legacyDensity(tip ChainTip, forkSlot uint64) float64 {
 // windowBlocks returns the tip's block count within the genesis window.
 //
 // A tip implementing WindowBlockCounter answers directly. A tip that does
-// not have a canonical count returns zero here; callers that compare mixed
-// candidate sets use the legacy ratio for every candidate instead.
+// not has its legacy density ratio projected onto the configured window.
+// That projection is explicitly non-canonical, but it preserves compatibility
+// with ChainTip-only implementations while keeping mixed candidate sets on
+// one total-order scale.
 func (p *PraosChainSelector) windowBlocks(
 	tip ChainTip,
 	fork ForkPoint,
@@ -322,7 +313,15 @@ func (p *PraosChainSelector) windowBlocks(
 
 	p.warnLegacyDensity()
 
-	return 0
+	density := legacyDensity(tip, fork.Slot)
+	if density <= 0 {
+		return 0
+	}
+	projected := math.Round(density * float64(p.GenesisWindowSlots))
+	if math.IsInf(projected, 1) || projected >= float64(math.MaxUint64) {
+		return math.MaxUint64
+	}
+	return uint64(projected)
 }
 
 // warnLegacyDensity reports once per selector that a comparison could not
@@ -455,34 +454,8 @@ func (p *PraosChainSelector) PreferredWithDensity(
 	fork ForkPoint,
 	tipBlockNumber uint64,
 ) ChainTip {
-	useWindow := p.GenesisWindowSlots > 0
-	if useWindow {
-		for _, candidate := range candidates {
-			if _, ok := candidate.(WindowBlockCounter); !ok {
-				useWindow = false
-				break
-			}
-		}
-	}
 	return p.selectPreferred(candidates, func(a, b ChainTip) int {
-		if !p.IsDeepFork(fork, tipBlockNumber) {
-			return p.Compare(a, b)
-		}
-		if useWindow {
-			if result := compareUint64(
-				a.(WindowBlockCounter).BlocksInWindow(fork.Slot, p.GenesisWindowSlots),
-				b.(WindowBlockCounter).BlocksInWindow(fork.Slot, p.GenesisWindowSlots),
-			); result != 0 {
-				return result
-			}
-			return p.Compare(a, b)
-		}
-		if result := compareFloat64(
-			legacyDensity(a, fork.Slot), legacyDensity(b, fork.Slot),
-		); result != 0 {
-			return result
-		}
-		return p.Compare(a, b)
+		return p.CompareWithDensity(a, b, fork, tipBlockNumber)
 	})
 }
 

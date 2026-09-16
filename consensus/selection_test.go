@@ -426,6 +426,28 @@ func TestPreferredWithDensity(t *testing.T) {
 	}
 }
 
+func TestPreferredWithDensityNilCandidate(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	fork, tip := deepFork(1000)
+	valid := NewWindowedChainTip(
+		1500, 100, make([]byte, 64), []uint64{1100, 1200},
+	)
+	var nilTip ChainTip
+
+	assert.Same(
+		t,
+		valid,
+		selector.PreferredWithDensity([]ChainTip{valid, nilTip}, fork, tip),
+		"a nil candidate must lose without panicking",
+	)
+	assert.Same(
+		t,
+		valid,
+		selector.PreferredWithDensity([]ChainTip{nilTip, valid}, fork, tip),
+		"a nil incumbent must lose without panicking",
+	)
+}
+
 func TestSimpleChainTipDensityCalculation(t *testing.T) {
 	vrf := make([]byte, 64)
 
@@ -1044,18 +1066,19 @@ func TestWindowedTipComparedOnTheWindowScale(t *testing.T) {
 	burst := NewWindowedChainTip(1100, 10, make([]byte, 64), slots)
 	require.Equal(t, uint64(10), burst.BlocksInWindow(1000, mainnetWindow))
 
-	// A legacy tip has no canonical count for the configured window, so the
-	// direct mixed comparison uses the legacy ratio for both candidates.
+	// A legacy tip has no canonical count for the configured window, so its
+	// ratio is projected onto the configured window as the explicit
+	// non-canonical compatibility fallback.
 	sustained := legacyTip{blockNumber: 10, density: 0.05}
-	assert.Zero(t, selector.windowBlocks(sustained, fork))
-	assert.Positive(
+	assert.Equal(t, uint64(6480), selector.windowBlocks(sustained, fork))
+	assert.Negative(
 		t,
 		selector.CompareWithDensity(burst, sustained, fork, tip),
-		"the direct mixed comparison must use one legacy scale",
+		"the direct mixed comparison must use one window-count scale",
 	)
 
 	// The converse, so the direction is not an artefact: a windowed tip
-	// with a higher legacy density wins the direct mixed comparison.
+	// whose count exceeds the projected legacy count wins.
 	dense := make([]uint64, 0, 8000)
 	for i := uint64(1); i <= 8000; i++ {
 		dense = append(dense, 1000+i*15)
@@ -1090,7 +1113,7 @@ func TestMixedCandidateSetIsTransitive(t *testing.T) {
 		1050, 100, vrf, []uint64{1010, 1020, 1030, 1040, 1050},
 	)
 	b := NewWindowedChainTip(1002, 100, vrf, []uint64{1001, 1002})
-	c := NewWindowedChainTip(1010, 100, vrf, []uint64{1002, 1004, 1006, 1008, 1010})
+	c := NewSimpleChainTipWithDensity(1010, 100, vrf, 5, 10)
 
 	candidates := []ChainTip{a, b, c}
 	for _, x := range candidates {
@@ -1185,15 +1208,15 @@ func assertSelectionIsOrderIndependent(
 	}
 }
 
-// TestLegacyTipWithoutWindowCount documents that a legacy tip is not assigned
-// an invented count for a configured window.
+// TestLegacyTipProjectedOntoWindow documents the explicit non-canonical
+// compatibility projection used when a legacy tip lacks a window counter.
 func TestLegacyTipProjectedOntoWindow(t *testing.T) {
 	selector := NewPraosChainSelectorWithWindow(2160, 1000)
 	fork := ForkPoint{Slot: 1000, BlockNumber: 0}
 
-	// The legacy ratio is not converted into a window count.
+	// A ratio of 0.5 over a 1000-slot window projects to 500 blocks.
 	legacy := legacyTip{blockNumber: 10, density: 0.5}
-	assert.Zero(t, selector.windowBlocks(legacy, fork))
+	assert.Equal(t, uint64(500), selector.windowBlocks(legacy, fork))
 
 	// A windowed tip answers exactly, with no projection.
 	windowed := NewWindowedChainTip(
@@ -1201,14 +1224,15 @@ func TestLegacyTipProjectedOntoWindow(t *testing.T) {
 	)
 	assert.Equal(t, uint64(3), selector.windowBlocks(windowed, fork))
 
-	// Degenerate ratios also have no window count.
+	// Zero and NaN project to zero; positive infinity saturates rather than
+	// wrapping during the float-to-integer conversion.
 	assert.Zero(t, selector.windowBlocks(
 		legacyTip{blockNumber: 1, density: 0}, fork,
 	))
 	assert.Zero(t, selector.windowBlocks(
 		legacyTip{blockNumber: 1, density: math.NaN()}, fork,
 	))
-	assert.Zero(t, selector.windowBlocks(
+	assert.Equal(t, uint64(math.MaxUint64), selector.windowBlocks(
 		legacyTip{blockNumber: 1, density: math.Inf(1)}, fork,
 	))
 }
@@ -1409,7 +1433,8 @@ func TestNaNDensityIsDecidedByDensityNotFallthrough(t *testing.T) {
 	)
 }
 
-// TestLegacyTipAtWindowBoundary has no synthetic projection at the boundary.
+// TestLegacyTipAtWindowBoundary saturates synthetic projection at the uint64
+// boundary before converting the rounded float to an integer.
 func TestLegacyTipAtWindowBoundary(t *testing.T) {
 	sel := NewPraosChainSelectorWithWindow(2160, math.MaxUint64)
 	fork := ForkPoint{Slot: 0, BlockNumber: 0}
@@ -1417,10 +1442,10 @@ func TestLegacyTipAtWindowBoundary(t *testing.T) {
 	dense := oddTip{name: "one", block: 10, vrf: 1, density: 1.0}
 	half := oddTip{name: "half", block: 20, vrf: 2, density: 0.5}
 
-	assert.Zero(t, sel.windowBlocks(dense, fork))
-	assert.Zero(t, sel.windowBlocks(half, fork))
+	assert.Equal(t, uint64(math.MaxUint64), sel.windowBlocks(dense, fork))
+	assert.Equal(t, uint64(1)<<63, sel.windowBlocks(half, fork))
 	assert.Positive(
 		t, sel.compareDensity(dense, half, fork),
-		"density 1.0 must beat density 0.5 at the window boundary",
+		"density 1.0 must beat density 0.5 after saturation",
 	)
 }
