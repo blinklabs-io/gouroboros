@@ -1291,8 +1291,10 @@ func TestUtxoValidateExtraneousRedeemersGuarding(t *testing.T) {
 
 // TestUtxoValidateExtraneousRedeemersObserveTag pins that CIP-0112's Observe
 // purpose (RedeemerTagObserve) has no active script purpose in Dijkstra yet,
-// unlike RedeemerTagGuarding: it stays extraneous until the CIP activates,
-// falling through the same default branch an unrecognized tag would.
+// unlike RedeemerTagGuarding: validateDijkstraExtraneousRedeemers rejects it
+// via its own explicit case (required by the exhaustive linter), returning
+// the same conway.ExtraRedeemerError an unrecognized tag's default branch
+// would, until the CIP activates.
 func TestUtxoValidateExtraneousRedeemersObserveTag(t *testing.T) {
 	tx := &DijkstraTransaction{
 		WitnessSet: DijkstraTransactionWitnessSet{

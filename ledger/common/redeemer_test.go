@@ -164,6 +164,8 @@ func TestRedeemerValueCborRoundTripWithObserveKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, val.ExUnits.Memory, decoded.ExUnits.Memory)
 	assert.Equal(t, val.ExUnits.Steps, decoded.ExUnits.Steps)
+	require.NotNil(t, decoded.Data.Data)
+	assert.True(t, val.Data.Data.Equal(decoded.Data.Data))
 }
 
 func TestRedeemerValueMarshalJSON(t *testing.T) {

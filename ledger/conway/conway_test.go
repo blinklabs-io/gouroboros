@@ -162,11 +162,21 @@ func TestConwayRedeemersCborRoundTripObserveTag(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, int64(111), observeVal.ExUnits.Memory)
 	assert.Equal(t, int64(222), observeVal.ExUnits.Steps)
+	require.NotNil(t, observeVal.Data.Data)
+	assert.True(
+		t,
+		plutusdata.NewInteger(big.NewInt(1)).Equal(observeVal.Data.Data),
+	)
 
 	spendVal, ok := decoded.Redeemers[spendKey]
 	require.True(t, ok)
 	assert.Equal(t, int64(333), spendVal.ExUnits.Memory)
 	assert.Equal(t, int64(444), spendVal.ExUnits.Steps)
+	require.NotNil(t, spendVal.Data.Data)
+	assert.True(
+		t,
+		plutusdata.NewInteger(big.NewInt(2)).Equal(spendVal.Data.Data),
+	)
 }
 
 func TestConwayTransactionInputSetConditionalDuplicateCheck(t *testing.T) {
