@@ -46,13 +46,19 @@ var (
 // decoders. Cardano's reference decoders do not impose a nesting limit on
 // transaction metadata or Plutus data, so this cap is derived from the wire
 // size limit rather than an arbitrary structural rule.
-const MaxNestedLevels = 16384
+//
+// It is a var so an application that decodes deeper structures (for example an
+// indexer reading trusted archival data) can raise it. The decode modes are
+// built once and cached on first use, so set this before the first Decode call
+// for the change to take effect.
+var MaxNestedLevels = 16384
 
 // MaxUntrustedNestedLevels names the limit used by decoders that process
-// peer-controlled data. Keep it equal to MaxNestedLevels because Decode is
-// also used by protocol message and block decoders; a separate strict mode
-// cannot protect those callers until they are migrated.
-const MaxUntrustedNestedLevels = MaxNestedLevels
+// peer-controlled data. It defaults to MaxNestedLevels because Decode is also
+// used by protocol message and block decoders; a separate strict mode cannot
+// protect those callers until they are migrated. Like MaxNestedLevels it is a
+// var; set it before the first Decode call for the change to take effect.
+var MaxUntrustedNestedLevels = MaxNestedLevels
 
 // getDecMode returns a cached DecMode, initializing it on first use.
 // Uses sync.Once for thread-safe lazy initialization.
