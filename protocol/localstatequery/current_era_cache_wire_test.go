@@ -15,12 +15,14 @@
 package localstatequery_test
 
 import (
+	"errors"
 	"net"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"github.com/stretchr/testify/require"
@@ -28,12 +30,13 @@ import (
 )
 
 type wireCacheHarness struct {
-	client  *ouroboros.Connection
-	server  *ouroboros.Connection
-	queries atomic.Int32
+	client   *ouroboros.Connection
+	server   *ouroboros.Connection
+	queries  atomic.Int32
+	acquires atomic.Int32
 }
 
-func newWireCacheHarness(t *testing.T, failFirst bool) *wireCacheHarness {
+func newWireCacheHarness(t *testing.T, failFirst, failReacquire bool) *wireCacheHarness {
 	t.Helper()
 	clientRaw, serverRaw := net.Pipe()
 	t.Cleanup(func() {
@@ -46,6 +49,9 @@ func newWireCacheHarness(t *testing.T, failFirst bool) *wireCacheHarness {
 		localstatequery.WithQueryTimeout(time.Second),
 		localstatequery.WithAcquireFunc(
 			func(localstatequery.CallbackContext, localstatequery.AcquireTarget, bool) error {
+				if failReacquire && h.acquires.Add(1) == 2 {
+					return localstatequery.ErrAcquireFailurePointTooOld
+				}
 				return nil
 			},
 		),
@@ -110,7 +116,7 @@ func newWireCacheHarness(t *testing.T, failFirst bool) *wireCacheHarness {
 }
 
 func TestCurrentEraCacheAcrossSnapshotTransitions(t *testing.T) {
-	h := newWireCacheHarness(t, false)
+	h := newWireCacheHarness(t, false, false)
 	client := h.client.LocalStateQuery().Client
 	era, err := client.GetCurrentEra()
 	require.NoError(t, err)
@@ -138,7 +144,7 @@ func TestCurrentEraCacheAcrossSnapshotTransitions(t *testing.T) {
 }
 
 func TestCurrentEraCacheInvalidatesAfterReacquire(t *testing.T) {
-	h := newWireCacheHarness(t, false)
+	h := newWireCacheHarness(t, false, false)
 	client := h.client.LocalStateQuery().Client
 	era, err := client.GetCurrentEra()
 	require.NoError(t, err)
@@ -156,7 +162,7 @@ func TestCurrentEraCacheInvalidatesAfterReacquire(t *testing.T) {
 }
 
 func TestCurrentEraQueryFailureDoesNotPopulateCache(t *testing.T) {
-	h := newWireCacheHarness(t, true)
+	h := newWireCacheHarness(t, true, false)
 	client := h.client.LocalStateQuery().Client
 	_, err := client.GetCurrentEra()
 	require.Error(t, err)
@@ -169,4 +175,44 @@ func TestCurrentEraQueryFailureDoesNotPopulateCache(t *testing.T) {
 		h.queries.Load(),
 		"failed result must not populate cache",
 	)
+}
+
+func TestCurrentEraCacheRejectsAfterShutdown(t *testing.T) {
+	h := newWireCacheHarness(t, false, false)
+	client := h.client.LocalStateQuery().Client
+	_, err := client.GetCurrentEra()
+	require.NoError(t, err)
+	require.NoError(t, h.client.Close())
+	select {
+	case <-client.DoneChan():
+	case <-time.After(5 * time.Second):
+		t.Fatal("local-state-query client did not shut down")
+	}
+	_, err = client.GetCurrentEra()
+	require.Error(t, err)
+	require.True(t, errors.Is(err, protocol.ErrProtocolShuttingDown))
+}
+
+func TestCurrentEraCacheInvalidatesAfterRelease(t *testing.T) {
+	h := newWireCacheHarness(t, false, false)
+	client := h.client.LocalStateQuery().Client
+	_, err := client.GetCurrentEra()
+	require.NoError(t, err)
+	require.NoError(t, client.Release())
+	era, err := client.GetCurrentEra()
+	require.NoError(t, err)
+	require.Equal(t, 6, era)
+	require.Equal(t, int32(2), h.queries.Load())
+}
+
+func TestCurrentEraCacheInvalidatesAfterFailedReacquire(t *testing.T) {
+	h := newWireCacheHarness(t, false, true)
+	client := h.client.LocalStateQuery().Client
+	_, err := client.GetCurrentEra()
+	require.NoError(t, err)
+	require.ErrorIs(t, client.AcquireVolatileTip(), localstatequery.ErrAcquireFailurePointTooOld)
+	era, err := client.GetCurrentEra()
+	require.NoError(t, err)
+	require.Equal(t, 6, era)
+	require.Equal(t, int32(2), h.queries.Load())
 }

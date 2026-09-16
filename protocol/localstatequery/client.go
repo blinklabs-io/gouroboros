@@ -1849,6 +1849,11 @@ func (c *Client) runQuery(query any, result any) error {
 // Helper function for getting the current era
 // The current era is needed for many other queries
 func (c *Client) getCurrentEra() (int, error) {
+	select {
+	case <-c.DoneChan():
+		return -1, protocol.ErrProtocolShuttingDown
+	default:
+	}
 	// Return cached era, if available
 	if c.currentEra > -1 {
 		return c.currentEra, nil
