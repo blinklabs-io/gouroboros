@@ -45,6 +45,7 @@ func TestUnknownVotersDistinguishesDRepCredentialType(t *testing.T) {
 		tx := mkVoteTx(common.Voter{Type: common.VoterTypeDRepKeyHash, Hash: drepIdentityHash}, actionID, common.GovVoteYes)
 		var target conway.UnknownVoterError
 		require.ErrorAs(t, conway.UtxoValidateUnknownVoters(tx, 0, ls, pp), &target)
+		require.Equal(t, common.Voter{Type: common.VoterTypeDRepKeyHash, Hash: drepIdentityHash}, target.Voter)
 	})
 }
 
@@ -61,6 +62,7 @@ func TestVoteDelegationDistinguishesDRepCredentialType(t *testing.T) {
 	require.NoError(t, conway.UtxoValidateDelegation(makeTx(common.DrepTypeScriptHash), 0, ls, pp))
 	var target conway.DelegateVoteToUnregisteredDRepError
 	require.ErrorAs(t, conway.UtxoValidateDelegation(makeTx(common.DrepTypeAddrKeyHash), 0, ls, pp), &target)
+	require.Equal(t, drepIdentityCredential(common.CredentialTypeAddrKeyHash), target.DRepCredential)
 }
 
 func TestCertificateDepositsDistinguishesDRepCredentialType(t *testing.T) {
@@ -70,4 +72,5 @@ func TestCertificateDepositsDistinguishesDRepCredentialType(t *testing.T) {
 	require.NoError(t, conway.UtxoValidateCertificateDeposits(drepDeregistrationTx(drepIdentityCredential(common.CredentialTypeScriptHash), int64(deposit)), 0, ls, pp))
 	var target conway.DRepNotRegisteredError
 	require.ErrorAs(t, conway.UtxoValidateCertificateDeposits(drepDeregistrationTx(drepIdentityCredential(common.CredentialTypeAddrKeyHash), int64(deposit)), 0, ls, pp), &target)
+	require.Equal(t, drepIdentityCredential(common.CredentialTypeAddrKeyHash), target.Credential)
 }

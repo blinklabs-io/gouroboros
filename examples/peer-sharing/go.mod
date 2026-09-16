@@ -1,6 +1,6 @@
 module github.com/blinklabs-io/gouroboros/examples/peer-sharing
 
-go 1.26.5
+go 1.26.0
 
 require (
 	github.com/blinklabs-io/gouroboros v0.0.0

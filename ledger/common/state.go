@@ -295,6 +295,8 @@ type GovState interface {
 	// credential, or nil when that credential is not a registered DRep.
 	// The credential carries its type: a key-hash and a script-hash DRep
 	// sharing the same hash are distinct registrations.
+	// Callers migrating from the hash-only API must provide the matching
+	// CredentialType in Credential.CredType.
 	DRepRegistration(credential Credential) (*DRepRegistration, error)
 	DRepRegistrations() ([]DRepRegistration, error)
 
