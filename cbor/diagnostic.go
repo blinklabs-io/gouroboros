@@ -23,9 +23,8 @@ import (
 	"strings"
 )
 
-const maxDiagnosticNestedLevels = MaxNestedLevels
-
 // DiagnosticNode represents a CBOR element with metadata for display.
+
 type DiagnosticNode struct {
 	Type       DiagnosticType
 	Value      any
@@ -89,10 +88,10 @@ func ParseDiagnostic(data []byte) (*DiagnosticNode, error) {
 }
 
 func parseDiagnosticNode(dec *StreamDecoder, depth int) (*DiagnosticNode, error) {
-	if depth > maxDiagnosticNestedLevels {
+	if depth > MaxNestedLevels {
 		return nil, fmt.Errorf(
 			"CBOR nesting exceeds max depth of %d",
-			maxDiagnosticNestedLevels,
+			MaxNestedLevels,
 		)
 	}
 	start := dec.Position()
