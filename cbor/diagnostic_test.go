@@ -208,6 +208,19 @@ func TestParseDiagnosticMaxNestedLevels(t *testing.T) {
 	)
 }
 
+func TestParseDiagnosticUsesConfiguredMaxNestedLevels(t *testing.T) {
+	previousMaxNestedLevels := cbor.MaxNestedLevels
+	cbor.MaxNestedLevels = 2
+	defer func() {
+		cbor.MaxNestedLevels = previousMaxNestedLevels
+	}()
+
+	data := []byte{0x81, 0x81, 0x81, 0x00}
+	_, err := cbor.ParseDiagnostic(data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max depth of 2")
+}
+
 func TestDiagnosticGetNodeAtOffset(t *testing.T) {
 	// {"a": [1, 2]}
 	data, err := hex.DecodeString("a16161820102")
