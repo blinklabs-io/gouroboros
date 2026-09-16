@@ -23,7 +23,13 @@ import (
 	"strings"
 )
 
-var maxDiagnosticNestedLevels = MaxNestedLevels
+- var maxDiagnosticNestedLevels = MaxNestedLevels
+...
+- if depth > maxDiagnosticNestedLevels {
++ if depth > MaxNestedLevels {
+...
+-     maxDiagnosticNestedLevels,
++     MaxNestedLevels,
 
 // DiagnosticNode represents a CBOR element with metadata for display.
 type DiagnosticNode struct {
