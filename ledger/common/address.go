@@ -220,8 +220,7 @@ func NewAddressFromParts(
 			)
 		}
 	case AddressTypeKeyPointer, AddressTypeScriptPointer:
-		// Preserve pointer-address behavior via the existing byte path, which
-		// normalizes the pointer encoding the way the reference does.
+		// Preserve pointer-address behavior via the existing byte path.
 		fallthrough
 	default:
 		addrBytes := make([]byte, 1+len(paymentAddr)+len(stakingAddr))
