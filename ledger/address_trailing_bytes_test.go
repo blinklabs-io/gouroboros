@@ -28,6 +28,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/btcsuite/btcd/btcutil/bech32"
 )
 
 // mainnetTrailerAddress is a type 6 (payment key, no staking) mainnet address
@@ -287,6 +288,61 @@ func TestRewardAccountRejectsTrailingBytes(t *testing.T) {
 	}
 	if _, err := good.RewardAccountCredential(); err != nil {
 		t.Fatalf("well-formed reward account rejected: %v", err)
+	}
+}
+
+func TestGeneralAddressDecodersRejectTrailingBytes(t *testing.T) {
+	raw, err := hex.DecodeString(mainnetTrailerAddress)
+	if err != nil {
+		t.Fatalf("bad test address hex: %v", err)
+	}
+	if _, err := common.NewAddressFromBytes(raw); err == nil {
+		t.Fatal("expected NewAddressFromBytes to reject trailing bytes")
+	}
+
+	encoded, err := cbor.Encode(raw)
+	if err != nil {
+		t.Fatalf("encode address: %v", err)
+	}
+	var addr common.Address
+	if _, err := cbor.Decode(encoded, &addr); err == nil {
+		t.Fatal("expected CBOR address decoding to reject trailing bytes")
+	}
+
+	data, err := bech32.ConvertBits(raw, 8, 5, true)
+	if err != nil {
+		t.Fatalf("convert address bits: %v", err)
+	}
+	bech32Addr, err := bech32.Encode("addr", data)
+	if err != nil {
+		t.Fatalf("encode address: %v", err)
+	}
+	if _, err := common.NewAddress(bech32Addr); err == nil {
+		t.Fatal("expected NewAddress to reject trailing bytes")
+	}
+}
+
+func TestAlonzoOutputReusePreservesDatumHash(t *testing.T) {
+	addrCbor := trailerAddressCbor(t, mainnetTrailerAddress[:len(mainnetTrailerAddress)-2])
+	withDatum := mustEncodeCbor([]any{
+		cbor.RawMessage(addrCbor),
+		uint64(1_000_000),
+		make([]byte, 32),
+	})
+	withoutDatum := arrayOutput(addrCbor)
+	var output alonzo.AlonzoTransactionOutput
+	if _, err := cbor.Decode(withoutDatum, &output); err != nil {
+		t.Fatalf("decode legacy output: %v", err)
+	}
+	if _, err := cbor.Decode(withDatum, &output); err != nil {
+		t.Fatalf("decode datum output: %v", err)
+	}
+	encoded, err := cbor.Encode(&output)
+	if err != nil {
+		t.Fatalf("encode reused output: %v", err)
+	}
+	if !bytes.Equal(encoded, withDatum) {
+		t.Fatalf("reused output lost datum hash: got %x, want %x", encoded, withDatum)
 	}
 }
 

@@ -363,13 +363,10 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 			Hash: AddrKeyHash(NewBlake2b224(byronAddr.Hash)),
 		}
 		if byronLen < len(data) {
-			if !allowTrailing {
-				return fmt.Errorf(
-					"invalid address data: %d unexpected trailing byte(s)",
-					len(data)-byronLen,
-				)
-			}
-			a.trailingBytes = slices.Clone(data[byronLen:])
+			return fmt.Errorf(
+				"invalid address data: %d unexpected trailing byte(s)",
+				len(data)-byronLen,
+			)
 		}
 		return nil
 	}

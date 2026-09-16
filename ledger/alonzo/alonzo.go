@@ -496,6 +496,9 @@ type AlonzoTransactionOutput struct {
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	// Reset shape-dependent fields when decoding into a reused output.
+	o.legacyOutput = false
+	o.OutputDatumHash = nil
 	if len(cborData) > 0 && cborData[0] == 0x83 {
 		var tmp struct {
 			cbor.StructAsArray
