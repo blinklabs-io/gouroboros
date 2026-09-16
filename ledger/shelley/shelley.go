@@ -575,12 +575,20 @@ type ShelleyTransactionOutput struct {
 }
 
 func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
-	type tShelleyTransactionOutput ShelleyTransactionOutput
-	var tmp tShelleyTransactionOutput
+	var tmp struct {
+		cbor.StructAsArray
+		OutputAddress []byte
+		OutputAmount  uint64
+	}
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*o = ShelleyTransactionOutput(tmp)
+	address, err := common.NewAddressFromBytesLenient(tmp.OutputAddress)
+	if err != nil {
+		return err
+	}
+	o.OutputAddress = address
+	o.OutputAmount = tmp.OutputAmount
 	o.SetCbor(cborData)
 	return nil
 }

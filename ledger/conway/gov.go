@@ -34,6 +34,19 @@ type ConwayProposalProcedure struct {
 	PPAnchor        common.GovAnchor
 }
 
+func (p *ConwayProposalProcedure) UnmarshalCBOR(cborData []byte) error {
+	type tConwayProposalProcedure ConwayProposalProcedure
+	var tmp tConwayProposalProcedure
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := common.CheckAddressFullyConsumed(tmp.PPRewardAccount); err != nil {
+		return err
+	}
+	*p = ConwayProposalProcedure(tmp)
+	return nil
+}
+
 func (p ConwayProposalProcedure) ToPlutusData() data.PlutusData {
 	return data.NewConstr(0,
 		data.NewInteger(new(big.Int).SetUint64(p.PPDeposit)),

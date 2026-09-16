@@ -496,13 +496,26 @@ type AlonzoTransactionOutput struct {
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	// Reset shape-dependent fields when decoding into a reused output.
+	o.legacyOutput = false
+	o.OutputDatumHash = nil
 	if len(cborData) > 0 && cborData[0] == 0x83 {
-		type tAlonzoTransactionOutput AlonzoTransactionOutput
-		var tmp tAlonzoTransactionOutput
+		var tmp struct {
+			cbor.StructAsArray
+			OutputAddress   []byte
+			OutputAmount    mary.MaryTransactionOutputValue
+			OutputDatumHash *common.Blake2b256
+		}
 		if _, err := cbor.Decode(cborData, &tmp); err != nil {
 			return err
 		}
-		*o = AlonzoTransactionOutput(tmp)
+		address, err := common.NewAddressFromBytesLenient(tmp.OutputAddress)
+		if err != nil {
+			return err
+		}
+		o.OutputAddress = address
+		o.OutputAmount = tmp.OutputAmount
+		o.OutputDatumHash = tmp.OutputDatumHash
 	} else {
 		var tmpOutput mary.MaryTransactionOutput
 		if _, err := cbor.Decode(cborData, &tmpOutput); err != nil {

@@ -33,6 +33,19 @@ type DijkstraProposalProcedure struct {
 	PPAnchor        common.GovAnchor
 }
 
+func (p *DijkstraProposalProcedure) UnmarshalCBOR(cborData []byte) error {
+	type tDijkstraProposalProcedure DijkstraProposalProcedure
+	var tmp tDijkstraProposalProcedure
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := common.CheckAddressFullyConsumed(tmp.PPRewardAccount); err != nil {
+		return err
+	}
+	*p = DijkstraProposalProcedure(tmp)
+	return nil
+}
+
 func (p DijkstraProposalProcedure) ToPlutusData() data.PlutusData {
 	return data.NewConstr(0,
 		data.NewInteger(new(big.Int).SetUint64(p.PPDeposit)),
