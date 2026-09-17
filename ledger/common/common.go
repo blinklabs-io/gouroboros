@@ -1065,6 +1065,25 @@ type TransactionLocation struct {
 type BlockTransactionOffsets struct {
 	// Transactions maps transaction index to its location information
 	Transactions []TransactionLocation
+
+	// InvalidTransactions contains the transaction indexes listed in the
+	// block's invalid_transactions field. It is nil for block formats without
+	// that field or when the field is empty.
+	InvalidTransactions []uint
+}
+
+// decodeInvalidTransactionIndices decodes the optional invalid_transactions
+// field without requiring a full ledger-era block decode. Keeping this in the
+// offset pass lets callers avoid parsing the block a second time.
+func decodeInvalidTransactionIndices(raw cbor.RawMessage) ([]uint, error) {
+	var indices []uint
+	if _, err := cbor.Decode([]byte(raw), &indices); err != nil {
+		return nil, fmt.Errorf("decode invalid transaction indices: %w", err)
+	}
+	if len(indices) == 0 {
+		return nil, nil
+	}
+	return indices, nil
 }
 
 // isByronBlock checks whether a decoded block array represents a Byron-era block.
@@ -1507,14 +1526,20 @@ func extractDijkstraTransactionOffsets(
 	if err != nil {
 		return nil, err
 	}
+	var invalidTransactions []uint
 	// Only the prototype-2026w27 body carries a leading invalid_transactions
 	// field; in the CDDL body the transactions array is the first element.
 	if legacyBody {
-		if _, _, err := bodyDecoder.Skip(); err != nil {
+		_, invalidRaw, err := bodyDecoder.DecodeRaw(new(cbor.RawMessage))
+		if err != nil {
 			return nil, fmt.Errorf(
-				"failed to skip invalid_transactions: %w",
+				"failed to decode invalid_transactions: %w",
 				err,
 			)
+		}
+		invalidTransactions, err = decodeInvalidTransactionIndices(invalidRaw)
+		if err != nil {
+			return nil, err
 		}
 	}
 	txsOffset, txsRaw, err := bodyDecoder.DecodeRaw(new(cbor.RawMessage))
@@ -1537,7 +1562,8 @@ func extractDijkstraTransactionOffsets(
 	}
 	if len(txs) == 0 {
 		return &BlockTransactionOffsets{
-			Transactions: []TransactionLocation{},
+			Transactions:        []TransactionLocation{},
+			InvalidTransactions: invalidTransactions,
 		}, nil
 	}
 
@@ -1554,7 +1580,8 @@ func extractDijkstraTransactionOffsets(
 	}
 
 	result := &BlockTransactionOffsets{
-		Transactions: make([]TransactionLocation, len(txs)),
+		Transactions:        make([]TransactionLocation, len(txs)),
+		InvalidTransactions: invalidTransactions,
 	}
 
 	// Walk each transaction
@@ -1741,6 +1768,15 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 		return extractByronTransactionOffsets(cborData, blockArray)
 	}
 
+	var invalidTransactions []uint
+	if len(blockArray) > 4 {
+		var err error
+		invalidTransactions, err = decodeInvalidTransactionIndices(blockArray[4])
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Shelley+ block layout: [header, tx_bodies[], witnesses[], metadata_map, ...]
 	// Calculate header size by finding where blockArray[0] starts
 	// CBOR array header is 1 byte for arrays < 24 elements, more for larger
@@ -1796,7 +1832,8 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 
 	// Build transaction locations
 	result := &BlockTransactionOffsets{
-		Transactions: make([]TransactionLocation, len(txBodiesRaw)),
+		Transactions:        make([]TransactionLocation, len(txBodiesRaw)),
+		InvalidTransactions: invalidTransactions,
 	}
 
 	// Calculate body offsets within the tx bodies array.

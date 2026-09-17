@@ -220,6 +220,29 @@ func TestExtractTransactionOffsetsDijkstraBlockShapes(t *testing.T) {
 	}
 }
 
+func TestExtractTransactionOffsetsDijkstraReturnsInvalidTransactions(t *testing.T) {
+	header, leios, peras, tx3 := dijkstraFixtureParts(t)
+	txs := []cbor.RawMessage{
+		encodeCbor(t, tx3),
+		encodeCbor(t, tx3),
+	}
+	body := []cbor.RawMessage{
+		encodeCbor(t, []uint{1}), // invalid_transactions
+		encodeCbor(t, txs),
+		leios,
+		peras,
+	}
+	blockCbor := []byte(encodeCbor(t, []cbor.RawMessage{
+		header,
+		encodeCbor(t, body),
+	}))
+
+	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	require.NoError(t, err)
+	require.Len(t, offsets.Transactions, 2)
+	require.Equal(t, []uint{1}, offsets.InvalidTransactions)
+}
+
 // TestExtractTransactionOffsetsDijkstraMalformed verifies that a block which
 // can only be a Dijkstra block but whose shape is not understood fails loudly.
 // Returning an empty offset set with a nil error lets a consumer store a block
