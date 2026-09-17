@@ -622,6 +622,98 @@ func TestValidateSimpleSignatureReferenceVector(t *testing.T) {
 	require.NoError(t, validator.validateBlockSignature(input))
 }
 
+// TestValidateSimpleSignaturePreservesNonShortestToSignEncodings is the
+// blinklabs-io/gouroboros#2349 regression: buildToSign must reproduce each
+// ToSign component's own wire bytes -- previous hash, body proof,
+// epoch/slot, difficulty, and extra header data -- rather than decode them
+// into Go values and re-encode. CBOR admits non-shortest integer encodings
+// and this decoder accepts them, so an issuer who signed a non-canonical
+// difficulty or epoch/slot encoding must still verify.
+//
+// Every header piece below is a raw byte literal, built and reused by both
+// buildHeader (what the "node" receives) and expectedToSign (what the
+// "issuer" actually signed), so the test can never accidentally derive its
+// expectation from the implementation under test.
+func TestValidateSimpleSignaturePreservesNonShortestToSignEncodings(t *testing.T) {
+	prevHashRaw := append([]byte{0x58, 0x20}, make([]byte, 32)...) // bstr(32 zero bytes)
+	bodyProofRaw := []byte{0xf6}                                   // null
+	pubKeyRaw := []byte{0xf6}                                      // null
+	blockSigRaw := []byte{0xf6}                                    // null
+	extraHeaderRaw := append(
+		[]byte{0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00, 0xf6, 0x58, 0x20},
+		make([]byte, 32)...,
+	) // [[0,0,0], ["",0], null, bstr(32 zero bytes)]
+
+	buildHeader := func(epochAndSlotRaw, difficultyRaw []byte) []byte {
+		consensusData := []byte{0x84}
+		consensusData = append(consensusData, epochAndSlotRaw...)
+		consensusData = append(consensusData, pubKeyRaw...)
+		consensusData = append(consensusData, difficultyRaw...)
+		consensusData = append(consensusData, blockSigRaw...)
+
+		header := []byte{0x85, 0x00} // array(5), protocolMagic=0
+		header = append(header, prevHashRaw...)
+		header = append(header, bodyProofRaw...)
+		header = append(header, consensusData...)
+		header = append(header, extraHeaderRaw...)
+		return header
+	}
+
+	expectedToSign := func(epochAndSlotRaw, difficultyRaw []byte) []byte {
+		toSign := []byte{0x85}
+		toSign = append(toSign, prevHashRaw...)
+		toSign = append(toSign, bodyProofRaw...)
+		toSign = append(toSign, epochAndSlotRaw...)
+		toSign = append(toSign, difficultyRaw...)
+		toSign = append(toSign, extraHeaderRaw...)
+		return toSign
+	}
+
+	config := testByronConfig()
+	issuerPrivate := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x43}, 32))
+	issuerPub := issuerPrivate.Public().(ed25519.PublicKey)
+
+	verify := func(t *testing.T, epochAndSlotRaw, difficultyRaw []byte) {
+		t.Helper()
+		validator := NewHeaderValidator(config)
+		headerCbor := buildHeader(epochAndSlotRaw, difficultyRaw)
+		toSign := expectedToSign(epochAndSlotRaw, difficultyRaw)
+
+		got, err := validator.buildToSign(
+			&ValidateHeaderInput{HeaderCbor: headerCbor},
+		)
+		require.NoError(t, err)
+		require.Equal(t, toSign, got)
+
+		domain, err := validator.domainSeparateMainBlock(toSign)
+		require.NoError(t, err)
+		signature := ed25519.Sign(issuerPrivate, domain)
+
+		input := &ValidateHeaderInput{
+			IssuerPubKey: issuerPub,
+			HeaderCbor:   headerCbor,
+			BlockSig:     []any{uint64(byronSigTypeSimple), signature},
+		}
+		require.NoError(t, validator.validateBlockSignature(input))
+	}
+
+	t.Run("non-shortest difficulty", func(t *testing.T) {
+		epochAndSlotRaw := []byte{0x82, 0x07, 0x0b} // canonical [7, 11]
+		// Canonical [19] is 0x81 0x13; this signs the same value 19 encoded
+		// with an extra byte (major type 0, additional info 24).
+		difficultyRaw := []byte{0x81, 0x18, 0x13}
+		verify(t, epochAndSlotRaw, difficultyRaw)
+	})
+
+	t.Run("non-shortest epoch and slot", func(t *testing.T) {
+		// Canonical [7, 11] is 0x82 0x07 0x0b; this signs the same values
+		// each encoded with an extra byte.
+		epochAndSlotRaw := []byte{0x82, 0x18, 0x07, 0x18, 0x0b}
+		difficultyRaw := []byte{0x81, 0x13} // canonical [19]
+		verify(t, epochAndSlotRaw, difficultyRaw)
+	})
+}
+
 // TestValidateDelegationCertSignature_RealMainnetVector verifies a real
 // delegation certificate signature extracted from a mainnet Byron block
 // (slot 4471207), confirming the byte layout reproduced from
