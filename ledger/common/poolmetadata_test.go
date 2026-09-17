@@ -193,10 +193,8 @@ func TestPoolMetadataUtxorpc(t *testing.T) {
 	}
 
 	rpc, err := pm.Utxorpc()
-	assert.NoError(t, err)
-	if !assert.NotNil(t, rpc) {
-		t.FailNow()
-	}
+	require.NoError(t, err)
+	require.NotNil(t, rpc)
 	assert.Equal(t, pm.Url, rpc.Url)
 	assert.True(t, bytes.Equal(pm.Hash[:], rpc.Hash))
 }
