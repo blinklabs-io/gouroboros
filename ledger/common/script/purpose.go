@@ -337,7 +337,12 @@ func scriptPurposeBuilder(
 			var resolvedInput lcommon.Utxo
 			resolved := false
 			for _, tmpResolvedInput := range resolvedInputs {
-				if tmpResolvedInput.Id.String() == tmpInput.String() {
+				// Compare by (TxId, Index) directly rather than formatting
+				// both sides through String(): this is called once per spend
+				// redeemer and scans resolvedInputs each time, and String()
+				// hex-encodes and Sprintf-formats a new string per comparison.
+				if tmpResolvedInput.Id.Id() == tmpInput.Id() &&
+					tmpResolvedInput.Id.Index() == tmpInput.Index() {
 					resolvedInput = tmpResolvedInput
 					resolved = true
 					if resolvedInput.Output == nil {
