@@ -1,25 +1,14 @@
-name: golangci-lint
+# Generated automatically by org-governance-bot. Do not edit manually.
+name: "golangci-lint"
+
 on:
+  pull_request:
   push:
-    tags:
-      - v*
     branches:
       - main
-  pull_request:
-
-permissions:
-  contents: read
+    tags:
+      - v*
 
 jobs:
-  golangci:
-    name: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 https://github.com/actions/setup-go/releases/tag/v7.0.0
-        with:
-          go-version: 1.26.x
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0 https://github.com/golangci/golangci-lint-action/releases/tag/v9.3.0
+  orchestrate:
+    uses: blinklabs-io/actions/.github/workflows/reuseable-golangci-lint.yml@main
