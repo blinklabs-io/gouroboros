@@ -35,22 +35,19 @@ type BootstrapWitness struct {
 // ValidateCollateralVKeyWitnesses ensures collateral inputs are backed by vkey witnesses (payment key).
 // This is a shared helper used across Alonzo, Babbage, and Conway eras.
 //
-// The phase-2 guard below is deliberately broader than the reference's. This
-// helper covers two requirements that cardano-ledger keeps apart:
+// This helper covers two requirements that cardano-ledger keeps apart, and
+// checks them independently:
 //
 //   - collateral must be key-locked, from UTXO's validateScriptsNotPaidUTxO,
-//     which is inside feesOK's redeemer guard; and
+//     which is inside feesOK's redeemer guard, so it only applies when the
+//     transaction runs phase-2 scripts (blinklabs-io/dingo#3896: declaring
+//     unused script-locked collateral must not be rejected); and
 //   - each collateral input must have a matching vkey witness, from UTXOW's
-//     witsVKeyNeeded (Alonzo adds collateral inputs to that set), which is not
-//     redeemer-gated in the reference.
-//
-// Gating both means a no-redeemer transaction with an unwitnessed key-locked
-// collateral input is not rejected here, where the reference would reject it in
-// UTXOW. That is a missed rejection, not a false one: it accepts a transaction
-// the reference rejects rather than rejecting one the reference accepts, so it
-// cannot wedge a node on a canonical block. Splitting the witsVKeyNeeded half
-// back out to run ungated is the correct end state; it is not done here because
-// this change is scoped to the false-rejection fix.
+//     witsVKeyNeeded (Alonzo adds collateral inputs to that set), which is
+//     not redeemer-gated in the reference, so it applies to every key-locked
+//     collateral input regardless of phase-2 execution
+//     (blinklabs-io/dingo#4350: an unwitnessed key-locked collateral input is
+//     rejected by UTXOW even with no redeemers).
 func ValidateCollateralVKeyWitnesses(
 	tx Transaction,
 	ls LedgerState,
@@ -61,36 +58,28 @@ func ValidateCollateralVKeyWitnesses(
 	}
 	// Collateral exists to pay for phase-2 script execution that fails, so a
 	// transaction that runs no phase-2 scripts has nothing for it to cover and
-	// is not held to these rules. Declaring collateral it does not need is
-	// pointless but harmless, and the chain accepts it: Preview transaction
-	// 9ce59ee0dc6abee0 at slot 15148509 carries two vkey witnesses, one native
-	// script, no Plutus scripts and no redeemers, and a collateral input at an
-	// enterprise-script address. Holding it to the key-locked rule rejected a
-	// canonical block (blinklabs-io/dingo#3896).
+	// is not held to the key-locked rule below. Declaring collateral it does
+	// not need is pointless but harmless, and the chain accepts it: Preview
+	// transaction 9ce59ee0dc6abee0 at slot 15148509 carries two vkey
+	// witnesses, one native script, no Plutus scripts and no redeemers, and a
+	// collateral input at an enterprise-script address. Holding it to the
+	// key-locked rule rejected a canonical block (blinklabs-io/dingo#3896).
 	//
 	// The presence of redeemers is the condition rather than the presence of
 	// Plutus scripts in the witness set: a script supplied by a reference input
 	// is not in the witness set, and gating on that would skip the check for
 	// exactly the transactions that most need it. Every phase-2 execution has a
 	// redeemer regardless of where its script came from.
-	if !TransactionRunsPhase2Scripts(tx) {
-		return nil
+	runsPhase2 := TransactionRunsPhase2Scripts(tx)
+	// Collect vkey hashes from witnesses. A nil witness set or no vkey
+	// witnesses at all is not itself an error here: only a key-locked
+	// collateral input needs a matching one, checked per input below.
+	hashes := make(map[Blake2b224]struct{})
+	if w := tx.Witnesses(); w != nil {
+		for _, vw := range w.Vkey() {
+			hashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
+		}
 	}
-	// Collect vkey hashes from witnesses
-	w := tx.Witnesses()
-	if w == nil || len(w.Vkey()) == 0 {
-		return NewValidationError(
-			ValidationErrorTypeTransaction,
-			"missing vkey witnesses for collateral",
-			nil,
-			nil,
-		)
-	}
-	hashes := make(map[Blake2b224]struct{}, len(w.Vkey()))
-	for _, vw := range w.Vkey() {
-		hashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
-	}
-	// Ensure each collateral input is owned by a provided vkey witness
 	for _, input := range collateral {
 		utxo, err := ResolveInputUtxo(ls, input)
 		if err != nil {
@@ -113,7 +102,12 @@ func ValidateCollateralVKeyWitnesses(
 		cred := addr.PayloadPayload()
 		pk, ok := cred.(AddressPayloadKeyHash)
 		if !ok {
-			// Collateral should be key-locked; scripts cannot serve
+			// Collateral should be key-locked; scripts cannot serve. Only
+			// held to this when the transaction runs phase-2 scripts --
+			// see blinklabs-io/dingo#3896 above.
+			if !runsPhase2 {
+				continue
+			}
 			return NewValidationError(
 				ValidationErrorTypeTransaction,
 				"collateral input must be key-locked",
@@ -121,6 +115,9 @@ func ValidateCollateralVKeyWitnesses(
 				nil,
 			)
 		}
+		// witsVKeyNeeded is not redeemer-gated in the reference, so a
+		// key-locked collateral input needs its vkey witness regardless of
+		// phase-2 execution -- see blinklabs-io/dingo#4350 above.
 		h := pk.Hash
 		if _, ok := hashes[h]; !ok {
 			return NewValidationError(

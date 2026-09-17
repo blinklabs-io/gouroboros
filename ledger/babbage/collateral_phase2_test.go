@@ -1,6 +1,7 @@
 package babbage_test
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 
@@ -215,6 +216,160 @@ func TestCollateralEqBalanceOnlyForPhase2(t *testing.T) {
 				"a transaction that runs phase-2 scripts must still be held " +
 					"to the total_collateral rule; the guard must not become " +
 					"a way to skip it",
+			)
+		}
+	})
+}
+
+// keyLockedCollateralFixtureTxId is the input the key-locked collateral
+// fixtures spend as collateral, distinct from collateralFixtureTxId's
+// script-locked address.
+const keyLockedCollateralFixtureTxId = "2222222222222222222222222222222222222222222222222222222222222222"
+
+// keyLockedCollateralVkey backs the key-locked fixture address's payment
+// credential.
+var keyLockedCollateralVkey = bytes.Repeat([]byte{0x42}, 32)
+
+func keyLockedCollateralKeyHash() common.Blake2b224 {
+	return common.Blake2b224Hash(keyLockedCollateralVkey)
+}
+
+// keyLockedCollateralFixtureLedgerState holds a single collateral UTxO at a
+// key-locked enterprise address, matching keyLockedCollateralVkey.
+func keyLockedCollateralFixtureLedgerState(t *testing.T) common.LedgerState {
+	t.Helper()
+	keyAddr, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		keyLockedCollateralKeyHash().Bytes(),
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("fixture address: %v", err)
+	}
+	return mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(
+				keyLockedCollateralFixtureTxId,
+				0,
+			),
+			Output: babbage.BabbageTransactionOutput{
+				OutputAddress: keyAddr,
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: 100_000_000,
+				},
+			},
+		},
+	}).Build()
+}
+
+// keyLockedCollateralFixtureTx builds a transaction declaring the key-locked
+// fixture collateral input, optionally with a redeemer (phase-2 execution)
+// and optionally with a vkey witness matching the fixture's key hash.
+func keyLockedCollateralFixtureTx(
+	withRedeemer bool,
+	withMatchingVkey bool,
+) *babbage.BabbageTransaction {
+	wits := babbage.BabbageTransactionWitnessSet{}
+	if withMatchingVkey {
+		wits.VkeyWitnesses = []common.VkeyWitness{
+			{Vkey: keyLockedCollateralVkey, Signature: []byte{0x02}},
+		}
+	}
+	if withRedeemer {
+		wits.WsRedeemers = spendRedeemers()
+	}
+	return &babbage.BabbageTransaction{
+		Body: babbage.BabbageTransactionBody{
+			TxCollateral: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(
+						keyLockedCollateralFixtureTxId,
+						0,
+					),
+				},
+				false,
+			),
+		},
+		WitnessSet: wits,
+	}
+}
+
+// TestCollateralVKeyWitnessRequiredWithoutPhase2 is the
+// blinklabs-io/dingo#4350 regression.
+//
+// witsVKeyNeeded (Alonzo adds collateral inputs to that set) is not
+// redeemer-gated in the reference -- only the key-locked/script-locked rule
+// (validateScriptsNotPaidUTxO, blinklabs-io/dingo#3896) is. A key-locked
+// collateral input with no matching vkey witness must therefore be rejected
+// even when the transaction runs no phase-2 scripts at all.
+func TestCollateralVKeyWitnessRequiredWithoutPhase2(t *testing.T) {
+	ls := keyLockedCollateralFixtureLedgerState(t)
+	pp := &babbage.BabbageProtocolParameters{}
+	rule := productionRule(
+		t,
+		"UtxoValidateCollateralVKeyWitnesses",
+		babbage.UtxoValidateCollateralVKeyWitnesses,
+	)
+
+	t.Run("no phase-2, no vkey witness: key-locked collateral is rejected", func(t *testing.T) {
+		tx := keyLockedCollateralFixtureTx(false, false)
+		if err := rule(tx, 0, ls, pp); err == nil {
+			t.Error(
+				"witsVKeyNeeded is not redeemer-gated in the reference, so a " +
+					"key-locked collateral input with no matching vkey " +
+					"witness must be rejected even when the transaction runs " +
+					"no phase-2 scripts",
+			)
+		}
+	})
+
+	t.Run("no phase-2, matching vkey witness: key-locked collateral is accepted", func(t *testing.T) {
+		tx := keyLockedCollateralFixtureTx(false, true)
+		if err := rule(tx, 0, ls, pp); err != nil {
+			t.Errorf(
+				"a key-locked collateral input with a matching vkey witness "+
+					"must be accepted regardless of phase-2 execution; got: %v",
+				err,
+			)
+		}
+	})
+
+	t.Run("phase-2, no vkey witness: key-locked collateral is still rejected", func(t *testing.T) {
+		tx := keyLockedCollateralFixtureTx(true, false)
+		if err := rule(tx, 0, ls, pp); err == nil {
+			t.Error(
+				"a key-locked collateral input with no matching vkey " +
+					"witness must be rejected when the transaction runs " +
+					"phase-2 scripts too",
+			)
+		}
+	})
+
+	t.Run("no phase-2: script-locked collateral is accepted with zero vkey witnesses", func(t *testing.T) {
+		// Same shape as TestCollateralKeyLockedOnlyForPhase2, but with zero
+		// vkey witnesses at all (not even one for an unrelated input), to
+		// pin that the vkey-witness membership check never applies to a
+		// script-locked collateral input: only the key-locked/script-locked
+		// rule is phase-2-gated, and it is not held to needing any witness.
+		tx := &babbage.BabbageTransaction{
+			Body: babbage.BabbageTransactionBody{
+				TxCollateral: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(
+							collateralFixtureTxId,
+							0,
+						),
+					},
+					false,
+				),
+			},
+		}
+		if err := rule(tx, 0, collateralFixtureLedgerState(t), pp); err != nil {
+			t.Errorf(
+				"script-locked collateral with no phase-2 execution and no "+
+					"vkey witnesses at all must still be accepted; got: %v",
+				err,
 			)
 		}
 	})
