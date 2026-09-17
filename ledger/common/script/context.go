@@ -636,12 +636,10 @@ func expandInputs(
 	ret := make([]ResolvedInput, len(inputs))
 	for i, input := range inputs {
 		for _, resolvedInput := range resolvedInputs {
-			// Compare by (TxId, Index) directly rather than formatting both
-			// sides through String(): this loop is O(inputs x resolvedInputs)
-			// per transaction, and String() hex-encodes and Sprintf-formats a
-			// new string on every comparison.
-			if input.Id() == resolvedInput.Id.Id() &&
-				input.Index() == resolvedInput.Id.Index() {
+			// ResolvedInput.Equals compares by (TxId, Index) directly rather
+			// than formatting both sides through String(): this loop is
+			// O(inputs x resolvedInputs) per transaction.
+			if ResolvedInput(resolvedInput).Equals(input) {
 				ret[i] = ResolvedInput(resolvedInput)
 				break
 			}

@@ -177,3 +177,52 @@ func TestNewTxInfoV2SpendRedeemerAllocationBound(t *testing.T) {
 		txInputCompareAllocFixtureSize,
 	)
 }
+
+// TestResolvedInputEquals covers script.ResolvedInput.Equals directly: the
+// single definition of the (TxId, Index) comparison expandInputs and
+// scriptPurposeBuilder both call through, so a future change to what
+// "the same input" means only needs to change in one place.
+func TestResolvedInputEquals(t *testing.T) {
+	txIdA := bytes.Repeat([]byte{0xaa}, lcommon.Blake2b256Size)
+	txIdB := bytes.Repeat([]byte{0xbb}, lcommon.Blake2b256Size)
+
+	utxoA0, err := mockledger.NewUtxoBuilder().
+		WithTxId(txIdA).
+		WithIndex(0).
+		WithAddress(benchmarkKeyAddress).
+		WithLovelace(2_000_000).
+		Build()
+	require.NoError(t, err)
+	utxoA1, err := mockledger.NewUtxoBuilder().
+		WithTxId(txIdA).
+		WithIndex(1).
+		WithAddress(benchmarkKeyAddress).
+		WithLovelace(2_000_000).
+		Build()
+	require.NoError(t, err)
+	utxoB0, err := mockledger.NewUtxoBuilder().
+		WithTxId(txIdB).
+		WithIndex(0).
+		WithAddress(benchmarkKeyAddress).
+		WithLovelace(2_000_000).
+		Build()
+	require.NoError(t, err)
+
+	resolvedA0 := script.ResolvedInput(utxoA0)
+
+	require.True(
+		t,
+		resolvedA0.Equals(utxoA0.Id),
+		"same TxId and Index must match",
+	)
+	require.False(
+		t,
+		resolvedA0.Equals(utxoA1.Id),
+		"same TxId but different Index must not match",
+	)
+	require.False(
+		t,
+		resolvedA0.Equals(utxoB0.Id),
+		"different TxId but same Index must not match",
+	)
+}
