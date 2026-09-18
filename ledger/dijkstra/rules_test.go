@@ -1121,7 +1121,12 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 
-func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
+// TestBootstrapPhaseAllowsDijkstraParameterChangeFields covers the Dijkstra
+// side of the bootstrap rule set with a ParameterChange carrying a
+// Dijkstra-only parameter. Every bootstrap-phase rule must accept it: the
+// bootstrap gate restricts governance action types, never the parameters a
+// ParameterChange updates.
+func TestBootstrapPhaseAllowsDijkstraParameterChangeFields(t *testing.T) {
 	refScriptCostStride := uint32(25600)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
@@ -1145,24 +1150,62 @@ func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
 			},
 		},
 	}
-	err := UtxoValidateBootstrapParameterGroups(tx, 0, nil, pv9Params)
-	var bootstrapErr conway.BootstrapDisallowedParameterChangeError
-	require.ErrorAs(t, err, &bootstrapErr)
-	require.Equal(t, []string{"RefScriptCostStride"}, bootstrapErr.Fields)
 
-	pv10Params := &DijkstraProtocolParameters{
-		ConwayProtocolParameters: conway.ConwayProtocolParameters{
-			ProtocolVersion: common.ProtocolParametersProtocolVersion{
-				Major: common.ProtocolVersionPlomin,
+	var bootstrapRules int
+	for _, descriptor := range UtxoValidationRuleDescriptors() {
+		if !strings.HasPrefix(string(descriptor.Id), "bootstrap-") {
+			continue
+		}
+		bootstrapRules++
+		require.NoErrorf(
+			t,
+			descriptor.Validator(tx, 0, nil, pv9Params),
+			"rule %q rejected a bootstrap-phase ParameterChange",
+			descriptor.Id,
+		)
+	}
+	require.NotZero(t, bootstrapRules, "no bootstrap-phase rule descriptors")
+}
+
+// TestUtxoValidateBootstrapAllowedGovActionsAcceptsDijkstraParameterChange
+// pins the specific function named in review on PR #2385: a pre-Plomin
+// DijkstraParameterChangeGovAction carrying a Dijkstra-only field
+// (RefScriptCostStride) must be accepted by
+// UtxoValidateBootstrapAllowedGovActions directly, not merely by some
+// bootstrap-prefixed rule in the aggregate loop above. The bootstrap gate
+// restricts governance action types, never which parameters a
+// ParameterChange updates.
+func TestUtxoValidateBootstrapAllowedGovActionsAcceptsDijkstraParameterChange(
+	t *testing.T,
+) {
+	refScriptCostStride := uint32(25600)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{
+				{
+					PPGovAction: DijkstraGovAction{
+						Action: &DijkstraParameterChangeGovAction{
+							ParamUpdate: DijkstraProtocolParameterUpdate{
+								RefScriptCostStride: &refScriptCostStride,
+							},
+						},
+					},
+				},
 			},
 		},
 	}
-	require.NoError(t, UtxoValidateBootstrapParameterGroups(
-		tx,
-		0,
-		nil,
-		pv10Params,
-	))
+	pv9Params := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionConway,
+			},
+		},
+	}
+
+	require.NoError(
+		t,
+		UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, pv9Params),
+	)
 }
 
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {

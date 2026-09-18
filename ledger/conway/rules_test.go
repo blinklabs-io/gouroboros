@@ -4927,107 +4927,6 @@ func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 
 }
 
-func TestUtxoValidateBootstrapParameterGroups(t *testing.T) {
-	mkPp := func(major uint) *conway.ConwayProtocolParameters {
-		return &conway.ConwayProtocolParameters{
-			ProtocolVersion: common.ProtocolParametersProtocolVersion{
-				Major: major,
-			},
-		}
-	}
-	dep := uint64(500_000_000)
-	fee := uint(44)
-
-	mkTxWithParamChange := func(
-		update conway.ConwayProtocolParameterUpdate,
-	) *conway.ConwayTransaction {
-		tx := &conway.ConwayTransaction{}
-		tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
-			{
-				PPGovAction: conway.ConwayGovAction{
-					Action: &conway.ConwayParameterChangeGovAction{
-						ParamUpdate: update,
-					},
-				},
-			},
-		}
-		return tx
-	}
-
-	t.Run("PV9 with non-restricted ParameterChange is allowed", func(t *testing.T) {
-		tx := mkTxWithParamChange(
-			conway.ConwayProtocolParameterUpdate{MinFeeA: &fee},
-		)
-		if err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9)); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("PV9 with restricted ParameterChange is rejected", func(t *testing.T) {
-		tx := mkTxWithParamChange(
-			conway.ConwayProtocolParameterUpdate{DRepDeposit: &dep},
-		)
-		err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9))
-		var bgErr conway.BootstrapDisallowedParameterChangeError
-		if !errors.As(err, &bgErr) {
-			t.Fatalf(
-				"got %T (%v), want BootstrapDisallowedParameterChangeError",
-				err,
-				err,
-			)
-		}
-		if !reflect.DeepEqual(bgErr.Fields, []string{"DRepDeposit"}) {
-			t.Fatalf("got fields %v, want [DRepDeposit]", bgErr.Fields)
-		}
-	})
-
-	t.Run("PV10 with restricted ParameterChange is allowed", func(t *testing.T) {
-		tx := mkTxWithParamChange(
-			conway.ConwayProtocolParameterUpdate{DRepDeposit: &dep},
-		)
-		if err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(10)); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("PV9 with MinFeeRefScriptCostPerByte ParameterChange is rejected", func(t *testing.T) {
-		rate := &cbor.Rat{Rat: big.NewRat(15, 1000)}
-		tx := mkTxWithParamChange(conway.ConwayProtocolParameterUpdate{MinFeeRefScriptCostPerByte: rate})
-		err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9))
-		var bgErr conway.BootstrapDisallowedParameterChangeError
-		if !errors.As(err, &bgErr) {
-			t.Fatalf("got %T (%v), want BootstrapDisallowedParameterChangeError", err, err)
-		}
-		if !reflect.DeepEqual(bgErr.Fields, []string{"MinFeeRefScriptCostPerByte"}) {
-			t.Fatalf("got fields %v, want [MinFeeRefScriptCostPerByte]", bgErr.Fields)
-		}
-	})
-
-	t.Run("PV9 with multi-field restricted ParameterChange surfaces all fields", func(t *testing.T) {
-		size := uint(7)
-		tx := mkTxWithParamChange(conway.ConwayProtocolParameterUpdate{
-			MinCommitteeSize: &size,
-			DRepDeposit:      &dep,
-		})
-		err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9))
-		var bgErr conway.BootstrapDisallowedParameterChangeError
-		if !errors.As(err, &bgErr) {
-			t.Fatalf("got %T (%v), want BootstrapDisallowedParameterChangeError", err, err)
-		}
-		want := []string{"MinCommitteeSize", "DRepDeposit"}
-		if !reflect.DeepEqual(bgErr.Fields, want) {
-			t.Fatalf("got fields %v, want %v", bgErr.Fields, want)
-		}
-	})
-
-	t.Run("PV9 with empty proposals is allowed", func(t *testing.T) {
-		tx := &conway.ConwayTransaction{}
-		if err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9)); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-}
-
 // Voter committee lookups report the same CommitteeMemberLookupError shape as
 // certificate lookups, so a caller gets the credential and its type rather than
 // a bare provider error.
@@ -5112,5 +5011,60 @@ func TestUtxoValidateUnknownVotersWrapsCommitteeLookupFailures(t *testing.T) {
 				assert.Equal(t, wantCredential, memberErr.MemberCredential)
 			})
 		})
+	}
+}
+
+// TestBootstrapPhaseAllowsAnyParameterChange pins the Conway bootstrap-phase
+// treatment of ParameterChange proposals to cardano-ledger's.
+//
+// checkBootstrapProposal (Cardano.Ledger.Conway.Rules.Gov) defers entirely to
+// isBootstrapAction, whose "ParameterChange {} -> True" arm matches
+// unconditionally: every ParameterChange is permitted during bootstrap
+// whatever parameters it updates. The only other proposal-time check applied
+// to one, actionWellFormed calling ppuWellFormed, references
+// hardforkConwayBootstrapPhase solely to *relax* a CoinsPerUTxOByte
+// constraint, and treats DRepDeposit only as a non-zero well-formedness check.
+// No parameter field is gated on protocol version.
+//
+// Preview tx 2841a581076167a0662f1b4f1a38bcc8eff386f9ce45c33ae33b1fe8289de210
+// (block height 2570678, epoch 718, absolute slot 62103362) updates
+// DRepDeposit while Preview reported protocol_major 9, and is on the canonical
+// chain, so a field-level restriction here stalls a replay at that slot.
+func TestBootstrapPhaseAllowsAnyParameterChange(t *testing.T) {
+	dep := uint64(500_000_000)
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 9},
+	}
+	tx := &conway.ConwayTransaction{}
+	tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
+		{
+			PPGovAction: conway.ConwayGovAction{
+				Action: &conway.ConwayParameterChangeGovAction{
+					ParamUpdate: conway.ConwayProtocolParameterUpdate{
+						DRepDeposit: &dep,
+					},
+				},
+			},
+		},
+	}
+
+	if err := conway.UtxoValidateBootstrapAllowedGovActions(
+		tx, 0, nil, pp,
+	); err != nil {
+		t.Fatalf(
+			"a ParameterChange proposal must be allowed during the bootstrap phase: %v",
+			err,
+		)
+	}
+
+	// The id is spelled literally rather than via its constant so this keeps
+	// compiling once the rule and its constant are gone.
+	for _, d := range conway.UtxoValidationRuleDescriptors() {
+		if string(d.Id) == "bootstrap-parameter-groups" {
+			t.Fatalf(
+				"rule %q imposes a field-level bootstrap restriction that cardano-ledger does not have, and rejects canonical transactions; it must not be registered",
+				d.Id,
+			)
+		}
 	}
 }

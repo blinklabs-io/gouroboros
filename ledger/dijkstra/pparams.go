@@ -715,62 +715,6 @@ func (u *DijkstraProtocolParameterUpdate) hasUpdate() bool {
 		u.QuorumStakeThreshold != nil
 }
 
-func (u *DijkstraProtocolParameterUpdate) BootstrapRestrictedFields() []string {
-	fields := u.conwayUpdate().BootstrapRestrictedFields()
-	if u.MaxRefScriptSizePerBlock != nil {
-		fields = append(fields, "MaxRefScriptSizePerBlock")
-	}
-	if u.MaxRefScriptSizePerTx != nil {
-		fields = append(fields, "MaxRefScriptSizePerTx")
-	}
-	if u.RefScriptCostStride != nil {
-		fields = append(fields, "RefScriptCostStride")
-	}
-	if u.RefScriptCostMultiplier != nil {
-		fields = append(fields, "RefScriptCostMultiplier")
-	}
-	if u.MaxPledgeLeverage != nil {
-		fields = append(fields, "MaxPledgeLeverage")
-	}
-	if u.MinPoolMargin != nil {
-		fields = append(fields, "MinPoolMargin")
-	}
-	if u.LeiosAnnouncementPeriodLength != nil {
-		fields = append(fields, "LeiosAnnouncementPeriodLength")
-	}
-	if u.LeiosVotePeriodLength != nil {
-		fields = append(fields, "LeiosVotePeriodLength")
-	}
-	if u.LeiosDiffusionPeriodLength != nil {
-		fields = append(fields, "LeiosDiffusionPeriodLength")
-	}
-	if u.LeiosCommitteeSize != nil {
-		fields = append(fields, "LeiosCommitteeSize")
-	}
-	if u.LeiosQuorumStakeThreshold != nil {
-		fields = append(fields, "LeiosQuorumStakeThreshold")
-	}
-	if u.MaxEndorserBlockReferencesSize != nil {
-		fields = append(fields, "MaxEndorserBlockReferencesSize")
-	}
-	if u.MaxEndorserBlockTxsSize != nil {
-		fields = append(fields, "MaxEndorserBlockTxsSize")
-	}
-	if u.MaxEndorserBlockExUnits != nil {
-		fields = append(fields, "MaxEndorserBlockExUnits")
-	}
-	if u.MaxRefScriptSizePerEndorserBlock != nil {
-		fields = append(fields, "MaxRefScriptSizePerEndorserBlock")
-	}
-	if u.CommitteeStakeCoverage != nil {
-		fields = append(fields, "CommitteeStakeCoverage")
-	}
-	if u.QuorumStakeThreshold != nil {
-		fields = append(fields, "QuorumStakeThreshold")
-	}
-	return fields
-}
-
 func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 	tmpPairs := make([][2]data.PlutusData, 0, 37)
 	push := func(idx int, pd data.PlutusData) {
