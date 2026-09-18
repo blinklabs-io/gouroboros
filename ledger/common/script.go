@@ -769,6 +769,47 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+// ValidatePreAllegraNativeScripts rejects native-script forms that are not
+// valid before Allegra. Allegra and later eras use signed N-of-K thresholds.
+func ValidatePreAllegraNativeScripts(scripts []NativeScript) error {
+	for _, script := range scripts {
+		if err := validatePreAllegraNativeScript(script); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePreAllegraNativeScript(script NativeScript) error {
+	switch item := script.Item().(type) {
+	case *NativeScriptNofK:
+		if item.N < 0 {
+			return fmt.Errorf(
+				"negative N-of-K threshold %d is invalid before Allegra",
+				item.N,
+			)
+		}
+		for _, child := range item.Scripts {
+			if err := validatePreAllegraNativeScript(child); err != nil {
+				return err
+			}
+		}
+	case *NativeScriptAll:
+		for _, child := range item.Scripts {
+			if err := validatePreAllegraNativeScript(child); err != nil {
+				return err
+			}
+		}
+	case *NativeScriptAny:
+		for _, child := range item.Scripts {
+			if err := validatePreAllegraNativeScript(child); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (s NativeScript) Hash() ScriptHash {
 	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
@@ -867,10 +908,12 @@ type NativeScriptAny struct {
 	Scripts []NativeScript
 }
 
+// NativeScriptNofK is script_n_of_k. The CDDL types n as int64 (Allegra
+// onwards), and a threshold of zero or less is always satisfied.
 type NativeScriptNofK struct {
 	cbor.StructAsArray
 	Type    uint
-	N       uint
+	N       int64
 	Scripts []NativeScript
 }
 
@@ -980,7 +1023,7 @@ func (n *NativeScript) evaluate(ctx nativeScriptEvalContext) bool {
 
 	case *NativeScriptNofK:
 		// At least N of K sub-scripts must pass
-		count := uint(0)
+		count := int64(0)
 		for i := range s.Scripts {
 			if s.Scripts[i].evaluate(ctx) {
 				count++
