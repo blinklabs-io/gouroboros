@@ -234,3 +234,28 @@ func TestMetadatumAcceptsIssue4351Vector(t *testing.T) {
 		t.Fatalf("innermost value: unexpected %T", md)
 	}
 }
+
+// TestMetadatumUsesConfiguredMaxNestedLevels proves MaxMetadataNestedLevels
+// is a live var an application can raise or lower, matching the pattern
+// cbor.MaxNestedLevels already established (blinklabs-io/gouroboros#2335):
+// unlike that var, this one is read fresh on every decode rather than cached
+// behind a sync.Once, so the change takes effect immediately, not only
+// before the first Decode call ever made.
+func TestMetadatumUsesConfiguredMaxNestedLevels(t *testing.T) {
+	previous := common.MaxMetadataNestedLevels
+	common.MaxMetadataNestedLevels = 2
+	defer func() {
+		common.MaxMetadataNestedLevels = previous
+	}()
+
+	if _, err := common.DecodeMetadatumRaw(nestedListMetadatum(2)); err != nil {
+		t.Fatalf("depth 2 rejected at configured limit 2: %v", err)
+	}
+	_, err := common.DecodeMetadatumRaw(nestedListMetadatum(3))
+	if err == nil {
+		t.Fatalf("expected depth 3 to be rejected at configured limit 2")
+	}
+	if !strings.Contains(err.Error(), "nesting exceeds 2 levels") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
