@@ -203,3 +203,34 @@ func TestMetadatumNestingBound(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// TestMetadatumAcceptsIssue4351Vector is the exact minimal vector from
+// blinklabs-io/dingo#4351: a Shelley-era auxiliary metadata value consisting
+// of 1025 nested one-element lists around integer 0. Cardano's reference
+// decoder places no nesting bound on transaction metadata, so it accepts
+// this value; only gouroboros's own resource bound (MaxMetadataNestedLevels,
+// which must recurse on the Go stack) can reject it. Before this fix that
+// bound was 1024, a value with no derivation from anything the ledger
+// actually enforces, so this exact input was rejected. It must now decode.
+func TestMetadatumAcceptsIssue4351Vector(t *testing.T) {
+	const issue4351Depth = 1025
+	md, err := common.DecodeMetadatumRaw(nestedListMetadatum(issue4351Depth))
+	if err != nil {
+		t.Fatalf("depth %d rejected: %v", issue4351Depth, err)
+	}
+	depth := 0
+	for {
+		list, ok := md.(common.MetaList)
+		if !ok || len(list.Items) != 1 {
+			break
+		}
+		depth++
+		md = list.Items[0]
+	}
+	if depth != issue4351Depth {
+		t.Fatalf("decoded depth %d, want %d", depth, issue4351Depth)
+	}
+	if _, ok := md.(common.MetaInt); !ok {
+		t.Fatalf("innermost value: unexpected %T", md)
+	}
+}

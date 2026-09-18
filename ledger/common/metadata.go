@@ -87,10 +87,20 @@ type MetaMap struct {
 }
 
 // MaxMetadataNestedLevels is the deepest nesting accepted by the custom
-// metadata decoder. Metadata decoding uses recursive Go code and therefore
-// needs a smaller bound than the general CBOR decoder's wire-compatibility
-// limit.
-const MaxMetadataNestedLevels = 1024
+// metadata decoder, which recurses on the Go stack. It matches
+// cbor.MaxNestedLevels's default rather than using an independent, arbitrary
+// value: that constant's own doc comment already accounts for this exact
+// case, sizing itself to bound recursion "in both the CBOR library and
+// custom decoders". Cardano's reference decoders impose no nesting bound on
+// transaction metadata at all (blinklabs-io/dingo#4351); a value smaller
+// than cbor.MaxNestedLevels here would reject metadata the enclosing
+// block/transaction CBOR itself accepts. This is a plain constant, not a
+// live reference to cbor.MaxNestedLevels, so an application that raises
+// cbor.MaxNestedLevels must raise this one to match if it needs metadata
+// nested deeper than the default. MetadataJSONMaxNestingDepth in
+// metadata_json.go is deliberately independent of this constant -- see its
+// own doc comment.
+const MaxMetadataNestedLevels = 16384
 
 func (MetaInt) isTransactionMetadatum()   {}
 func (MetaBytes) isTransactionMetadatum() {}
