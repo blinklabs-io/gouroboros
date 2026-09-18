@@ -39,7 +39,11 @@ func TestConwayBlockNofKInt64Threshold(t *testing.T) {
 	)
 	txs := blk.Transactions()
 	require.Len(t, txs, 2)
-	scripts := txs[0].Witnesses().NativeScripts()
+	witnesses := txs[0].Witnesses()
+	if witnesses == nil {
+		t.Fatal("transaction 0 has no witness set")
+	}
+	scripts := witnesses.NativeScripts()
 	require.Len(t, scripts, 1)
 	require.Equal(t,
 		"678f1ce0680cd787baac04fe6e30a82c1fbf2998bee934cc040960d4",
