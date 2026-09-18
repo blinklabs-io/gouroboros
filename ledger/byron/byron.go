@@ -1499,6 +1499,13 @@ func requireCborByteString(raw cbor.RawMessage, field string) error {
 // whether it was encoded in shortest form, matching decodeMapLen's own
 // length-only check.
 func requireEmptyCborMap(raw cbor.RawMessage, field string) error {
+	// CBOR null (0xf6) and undefined (0xf7) both decode into a nil
+	// map[any]any with no error, and len(nil) == 0, so the length check
+	// below would otherwise accept either in place of a real empty map.
+	// The reference's decodeMapLen requires an actual map header.
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeMap {
+		return fmt.Errorf("%s must be a CBOR map", field)
+	}
 	var m map[any]any
 	if _, err := cbor.Decode(raw, &m); err != nil {
 		return fmt.Errorf("%s must be an empty CBOR map: %w", field, err)

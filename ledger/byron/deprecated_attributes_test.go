@@ -202,6 +202,11 @@ func TestByronMainBlockRejectsMalformedExtraBodyData(t *testing.T) {
 		{"zero elements", []byte{0x80}},
 		{"two elements", []byte{0x82, 0xa0, 0xa0}},
 		{"single non-map element", []byte{0x81, 0x00}},
+		// CBOR null/undefined both decode into a nil map[any]any with no
+		// error, and len(nil) == 0, so a naive length-only check would
+		// accept either in place of a real empty map.
+		{"null instead of map", []byte{0x81, 0xf6}},
+		{"undefined instead of map", []byte{0x81, 0xf7}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -231,11 +236,26 @@ func TestByronMainBlockHeaderRejectsNonEmptyBlockVersionsAttributes(t *testing.T
 	_, extraDataParts := byronHeaderExtraDataParts(t, blockParts[0])
 	require.Equal(t, []byte{0xa0}, []byte(extraDataParts[2]))
 
-	mutated := mutateHeaderExtraData(t, raw, 2, nonEmptyCborMap)
-	mutatedBlockParts := byronBlockParts(t, mutated)
+	tests := []struct {
+		name        string
+		replacement []byte
+	}{
+		{"non-empty map", nonEmptyCborMap},
+		// CBOR null/undefined both decode into a nil map[any]any with no
+		// error, and len(nil) == 0, so a naive length-only check would
+		// accept either in place of a real empty map.
+		{"null instead of map", []byte{0xf6}},
+		{"undefined instead of map", []byte{0xf7}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := mutateHeaderExtraData(t, raw, 2, tc.replacement)
+			mutatedBlockParts := byronBlockParts(t, mutated)
 
-	var header byron.ByronMainBlockHeader
-	require.Error(t, header.UnmarshalCBOR(mutatedBlockParts[0]))
+			var header byron.ByronMainBlockHeader
+			require.Error(t, header.UnmarshalCBOR(mutatedBlockParts[0]))
+		})
+	}
 }
 
 // TestByronMainBlockHeaderPreservesExtraProofOfArbitraryLength confirms the
