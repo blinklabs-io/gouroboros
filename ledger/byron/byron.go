@@ -127,6 +127,17 @@ func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
 			len(extraData),
 		)
 	}
+	// The reference's decCBORBlockVersions requires this field's map to be
+	// empty (Cardano.Chain.Common.Attributes.dropEmptyAttributes), even
+	// though it never interprets the map's contents otherwise. It is not
+	// covered by any signature or hash check that treats it as opaque, so a
+	// mutated non-empty map here would decode without detection
+	// (blinklabs-io/gouroboros#2340).
+	if err := requireEmptyCborMap(
+		extraData[2], "byron main block header attributes",
+	); err != nil {
+		return err
+	}
 	if err := requireCborByteString(
 		extraData[3], "byron main block extra data proof",
 	); err != nil {
@@ -1323,6 +1334,39 @@ type ByronMainBlock struct {
 }
 
 func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
+	var rawParts []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+		return err
+	}
+	if len(rawParts) != 3 {
+		return fmt.Errorf(
+			"byron main block has %d fields, expected 3",
+			len(rawParts),
+		)
+	}
+	// The reference's decCBORABlock requires this field to be exactly
+	// [Attributes], and Attributes must be empty
+	// (Cardano.Chain.Block.Block.hs: "enforceSize \"ExtraBodyData\" 1 >>
+	// dropEmptyAttributes"). ExtraBodyData sits outside the header entirely,
+	// so mutating it changes neither the header hash, the PBFT signature, nor
+	// the body proofs, and would decode undetected otherwise
+	// (blinklabs-io/gouroboros#2340).
+	var extra []cbor.RawMessage
+	if _, err := cbor.Decode(rawParts[2], &extra); err != nil {
+		return fmt.Errorf("decode byron main block extra body data: %w", err)
+	}
+	if len(extra) != 1 {
+		return fmt.Errorf(
+			"byron main block extra body data has %d fields, expected 1",
+			len(extra),
+		)
+	}
+	if err := requireEmptyCborMap(
+		extra[0], "byron main block extra body data attributes",
+	); err != nil {
+		return err
+	}
+
 	type tByronMainBlock ByronMainBlock
 	var tmp tByronMainBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -1445,6 +1489,26 @@ func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 func requireCborByteString(raw cbor.RawMessage, field string) error {
 	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
 		return fmt.Errorf("%s must be a CBOR byte string", field)
+	}
+	return nil
+}
+
+// requireEmptyCborMap enforces the reference's dropEmptyAttributes check: the
+// value must be a CBOR map, and it must have zero entries. Decoding into
+// map[any]any rejects the type mismatch and reads the length regardless of
+// whether it was encoded in shortest form, matching decodeMapLen's own
+// length-only check.
+func requireEmptyCborMap(raw cbor.RawMessage, field string) error {
+	var m map[any]any
+	if _, err := cbor.Decode(raw, &m); err != nil {
+		return fmt.Errorf("%s must be an empty CBOR map: %w", field, err)
+	}
+	if len(m) != 0 {
+		return fmt.Errorf(
+			"%s must be empty, got %d entries",
+			field,
+			len(m),
+		)
 	}
 	return nil
 }
