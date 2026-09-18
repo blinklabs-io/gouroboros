@@ -831,6 +831,18 @@ func (v *HeaderValidator) buildToSign(
 	return toSign, err
 }
 
+// buildToSignWithEpoch recovers ToSign's preserved wire encoding directly
+// from the header's own CBOR, by walking it as raw sub-slices the same way
+// proxyCertIndexCbor does, rather than decoding into Go values and
+// re-encoding them.
+//
+// ToSign is not a value copied verbatim from anywhere in the header; it is
+// its own 5-element array combining the previous hash, body proof,
+// epoch/slot, difficulty, and extra header data (blinklabs-io/gouroboros#2349).
+// CBOR admits non-shortest integer and other accepted encodings, and this
+// decoder accepts them, so re-encoding any of those five components from its
+// decoded Go value can produce different wire bytes than what the issuer
+// actually signed, rejecting an otherwise-valid block.
 func (v *HeaderValidator) buildToSignWithEpoch(
 	input *ValidateHeaderInput,
 ) ([]byte, uint64, error) {
@@ -840,69 +852,61 @@ func (v *HeaderValidator) buildToSignWithEpoch(
 		)
 	}
 
-	// Parse the header to extract the individual components we need for ToSign
-	var header byron.ByronMainBlockHeader
-	if _, err := cbor.Decode(input.HeaderCbor, &header); err != nil {
-		return nil, 0, fmt.Errorf("failed to decode header CBOR: %w", err)
+	// header: [protocolMagic, prevHash, bodyProof, consensusData, extraHeader]
+	var headerElems []cbor.RawMessage
+	if _, err := cbor.Decode(input.HeaderCbor, &headerElems); err != nil {
+		return nil, 0, fmt.Errorf("decode header: %w", err)
 	}
+	if len(headerElems) != 5 {
+		return nil, 0, fmt.Errorf(
+			"header is not a 5-element array, got %d elements",
+			len(headerElems),
+		)
+	}
+	prevHash := headerElems[1]
+	bodyProof := headerElems[2]
+	extraHeader := headerElems[4]
 
-	// Build the ToSign structure
-	// Format: [prevHash, bodyProof, epochAndSlot, difficulty, [protocolVersion, softwareVersion]]
+	// consensusData: [epochAndSlot, pubKey, difficulty, blockSig]
+	var consensusElems []cbor.RawMessage
+	if _, err := cbor.Decode(headerElems[3], &consensusElems); err != nil {
+		return nil, 0, fmt.Errorf("decode consensus data: %w", err)
+	}
+	if len(consensusElems) != 4 {
+		return nil, 0, fmt.Errorf(
+			"consensus data is not a 4-element array, got %d elements",
+			len(consensusElems),
+		)
+	}
+	epochAndSlot := consensusElems[0]
+	difficulty := consensusElems[2]
 
-	// Create EpochAndSlotCount structure
-	epochAndSlot := struct {
+	// The epoch number is only used by the caller to select an epoch's
+	// delegation state; decoding it here does not affect the bytes signed
+	// below, which reuse epochAndSlot's raw encoding unchanged.
+	var slotId struct {
 		cbor.StructAsArray
 		Epoch uint64
 		Slot  uint64
-	}{
-		Epoch: header.ConsensusData.SlotId.Epoch,
-		Slot:  header.ConsensusData.SlotId.Slot,
+	}
+	if _, err := cbor.Decode(epochAndSlot, &slotId); err != nil {
+		return nil, 0, fmt.Errorf("decode epoch/slot: %w", err)
 	}
 
-	// Create difficulty structure
-	difficulty := struct {
-		cbor.StructAsArray
-		Value uint64
-	}{
-		Value: header.ConsensusData.Difficulty.Value,
-	}
+	toSignBytes := make(
+		[]byte,
+		0,
+		1+len(prevHash)+len(bodyProof)+len(epochAndSlot)+len(difficulty)+
+			len(extraHeader),
+	)
+	toSignBytes = append(toSignBytes, 0x85) // array(5)
+	toSignBytes = append(toSignBytes, prevHash...)
+	toSignBytes = append(toSignBytes, bodyProof...)
+	toSignBytes = append(toSignBytes, epochAndSlot...)
+	toSignBytes = append(toSignBytes, difficulty...)
+	toSignBytes = append(toSignBytes, extraHeader...)
 
-	// Create extra header data (protocol version + software version + attributes + extraProof)
-	extraData := struct {
-		cbor.StructAsArray
-		BlockVersion    byron.ByronBlockVersion
-		SoftwareVersion byron.ByronSoftwareVersion
-		Attributes      any
-		ExtraProof      []byte
-	}{
-		BlockVersion:    header.ExtraData.BlockVersion,
-		SoftwareVersion: header.ExtraData.SoftwareVersion,
-		Attributes:      header.ExtraData.Attributes,
-		ExtraProof:      header.ExtraData.ExtraProof,
-	}
-
-	// Build the ToSign tuple
-	toSign := struct {
-		cbor.StructAsArray
-		PrevHash    common.Blake2b256
-		BodyProof   any
-		EpochSlot   any
-		Difficulty  any
-		ExtraHeader any
-	}{
-		PrevHash:    header.PrevBlock,
-		BodyProof:   header.BodyProof,
-		EpochSlot:   epochAndSlot,
-		Difficulty:  difficulty,
-		ExtraHeader: extraData,
-	}
-
-	toSignBytes, err := cbor.Encode(toSign)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to encode ToSign: %w", err)
-	}
-
-	return toSignBytes, header.ConsensusData.SlotId.Epoch, nil
+	return toSignBytes, slotId.Epoch, nil
 }
 
 // extractUint64 extracts a uint64 from various numeric types
