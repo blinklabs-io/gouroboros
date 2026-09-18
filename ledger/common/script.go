@@ -867,10 +867,12 @@ type NativeScriptAny struct {
 	Scripts []NativeScript
 }
 
+// NativeScriptNofK is script_n_of_k. The CDDL types n as int64 (Allegra
+// onwards), and a threshold of zero or less is always satisfied.
 type NativeScriptNofK struct {
 	cbor.StructAsArray
 	Type    uint
-	N       uint
+	N       int64
 	Scripts []NativeScript
 }
 
@@ -980,7 +982,7 @@ func (n *NativeScript) evaluate(ctx nativeScriptEvalContext) bool {
 
 	case *NativeScriptNofK:
 		// At least N of K sub-scripts must pass
-		count := uint(0)
+		count := int64(0)
 		for i := range s.Scripts {
 			if s.Scripts[i].evaluate(ctx) {
 				count++

@@ -90,7 +90,7 @@ func createAnyScript(scripts ...common.NativeScript) common.NativeScript {
 
 // createNofKScript creates a native script requiring N of K scripts to pass
 func createNofKScript(
-	n uint,
+	n int64,
 	scripts ...common.NativeScript,
 ) common.NativeScript {
 	script := common.NativeScriptNofK{

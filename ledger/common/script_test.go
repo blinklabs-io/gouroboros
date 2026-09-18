@@ -339,3 +339,47 @@ func TestNewScriptHashFromBech32_Negative(t *testing.T) {
 		})
 	}
 }
+
+// script_n_of_k types n as int64 (conway.cddl), and the reference evaluator
+// treats n <= 0 as satisfied (isValidMOf n _ = n <= 0 || ...).
+func TestNativeScriptNofKThresholdIsInt64(t *testing.T) {
+	var key1, key2 common.Blake2b224
+	key1[0] = 1
+	key2[0] = 2
+	pubkey := func(h common.Blake2b224) common.NativeScript {
+		b, err := cbor.Encode(common.NativeScriptPubkey{Type: 0, Hash: h[:]})
+		require.NoError(t, err)
+		var s common.NativeScript
+		require.NoError(t, s.UnmarshalCBOR(b))
+		return s
+	}
+	signedBy := map[common.Blake2b224]bool{key1: true}
+	testCases := []struct {
+		n        int64
+		noSigner bool
+		oneSign  bool
+	}{
+		{n: -1, noSigner: true, oneSign: true},
+		{n: 0, noSigner: true, oneSign: true},
+		{n: 1, noSigner: false, oneSign: true},
+		{n: 2, noSigner: false, oneSign: false},
+	}
+	for _, tc := range testCases {
+		scriptCbor, err := cbor.Encode(common.NativeScriptNofK{
+			Type:    3,
+			N:       tc.n,
+			Scripts: []common.NativeScript{pubkey(key1), pubkey(key2)},
+		})
+		require.NoError(t, err)
+		var script common.NativeScript
+		require.NoError(t, script.UnmarshalCBOR(scriptCbor), "n=%d", tc.n)
+		nofk, ok := script.Item().(*common.NativeScriptNofK)
+		require.True(t, ok)
+		require.Equal(t, tc.n, nofk.N)
+		reencoded, err := cbor.Encode(&script)
+		require.NoError(t, err)
+		require.Equal(t, scriptCbor, reencoded, "n=%d", tc.n)
+		require.Equal(t, tc.noSigner, script.Evaluate(0, 0, 0, nil), "n=%d", tc.n)
+		require.Equal(t, tc.oneSign, script.Evaluate(0, 0, 0, signedBy), "n=%d", tc.n)
+	}
+}
