@@ -1121,50 +1121,6 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 
-func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
-	refScriptCostStride := uint32(25600)
-	tx := &DijkstraTransaction{
-		Body: DijkstraTransactionBody{
-			TxProposalProcedures: []DijkstraProposalProcedure{
-				{
-					PPGovAction: DijkstraGovAction{
-						Action: &DijkstraParameterChangeGovAction{
-							ParamUpdate: DijkstraProtocolParameterUpdate{
-								RefScriptCostStride: &refScriptCostStride,
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	pv9Params := &DijkstraProtocolParameters{
-		ConwayProtocolParameters: conway.ConwayProtocolParameters{
-			ProtocolVersion: common.ProtocolParametersProtocolVersion{
-				Major: common.ProtocolVersionConway,
-			},
-		},
-	}
-	err := UtxoValidateBootstrapParameterGroups(tx, 0, nil, pv9Params)
-	var bootstrapErr conway.BootstrapDisallowedParameterChangeError
-	require.ErrorAs(t, err, &bootstrapErr)
-	require.Equal(t, []string{"RefScriptCostStride"}, bootstrapErr.Fields)
-
-	pv10Params := &DijkstraProtocolParameters{
-		ConwayProtocolParameters: conway.ConwayProtocolParameters{
-			ProtocolVersion: common.ProtocolParametersProtocolVersion{
-				Major: common.ProtocolVersionPlomin,
-			},
-		},
-	}
-	require.NoError(t, UtxoValidateBootstrapParameterGroups(
-		tx,
-		0,
-		nil,
-		pv10Params,
-	))
-}
-
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
 	plutusScript := common.PlutusV4Script{0x41, 0x00}
 	guardCred := testGuardScriptCredential(plutusScript)

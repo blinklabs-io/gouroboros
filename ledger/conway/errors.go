@@ -278,21 +278,6 @@ func (e BootstrapDisallowedGovActionError) Error() string {
 	)
 }
 
-// BootstrapDisallowedParameterChangeError indicates a ParameterChange proposal
-// that updates one or more bootstrap-restricted fields, which is not permitted
-// during the Conway bootstrap phase (PV9). The Plomin hard fork (PV10) lifts
-// the restriction.
-type BootstrapDisallowedParameterChangeError struct {
-	Fields []string
-}
-
-func (e BootstrapDisallowedParameterChangeError) Error() string {
-	return fmt.Sprintf(
-		"ParameterChange proposal updates bootstrap-restricted fields %v which are not allowed during the Conway bootstrap phase (PV9); requires PV10 (Plomin) or later",
-		e.Fields,
-	)
-}
-
 // WrongNetworkProposalAddressError indicates that a proposal address has wrong network ID
 type WrongNetworkProposalAddressError struct {
 	NetId uint
