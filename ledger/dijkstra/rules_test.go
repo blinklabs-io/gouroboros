@@ -1121,6 +1121,52 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 
+// TestBootstrapPhaseAllowsDijkstraParameterChangeFields covers the Dijkstra
+// side of the bootstrap rule set with a ParameterChange carrying a
+// Dijkstra-only parameter. Every bootstrap-phase rule must accept it: the
+// bootstrap gate restricts governance action types, never the parameters a
+// ParameterChange updates.
+func TestBootstrapPhaseAllowsDijkstraParameterChangeFields(t *testing.T) {
+	refScriptCostStride := uint32(25600)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{
+				{
+					PPGovAction: DijkstraGovAction{
+						Action: &DijkstraParameterChangeGovAction{
+							ParamUpdate: DijkstraProtocolParameterUpdate{
+								RefScriptCostStride: &refScriptCostStride,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	pv9Params := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionConway,
+			},
+		},
+	}
+
+	var bootstrapRules int
+	for _, descriptor := range UtxoValidationRuleDescriptors() {
+		if !strings.HasPrefix(string(descriptor.Id), "bootstrap-") {
+			continue
+		}
+		bootstrapRules++
+		require.NoErrorf(
+			t,
+			descriptor.Validator(tx, 0, nil, pv9Params),
+			"rule %q rejected a bootstrap-phase ParameterChange",
+			descriptor.Id,
+		)
+	}
+	require.NotZero(t, bootstrapRules, "no bootstrap-phase rule descriptors")
+}
+
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
 	plutusScript := common.PlutusV4Script{0x41, 0x00}
 	guardCred := testGuardScriptCredential(plutusScript)
