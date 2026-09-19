@@ -469,6 +469,49 @@ func UtxoValidateFeeTooSmallUtxo(
 	}
 }
 
+// ValidateInsufficientCollateral applies the Alonzo collateral balance rule,
+// which every later era inherits unchanged.
+//
+// The comparison is cross-multiplied, balance * 100 >= fee * collateralPercent,
+// rather than dividing the requirement by 100: dividing truncates, which
+// accepts a balance one lovelace below the true requirement whenever
+// fee * collateralPercent is not a multiple of 100. The amount reported on
+// failure is the corresponding ceiling. Both totalCollateral and fee are
+// non-negative, so the ceiling can be taken by adding 99 before dividing.
+//
+// Reference: validateInsufficientCollateral in
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Rules/Utxo.hs, which tests
+// `Val.scale 100 bal >= Val.scale collPerc (toDeltaCoin txfee)` and reports
+// `rationalToCoinViaCeiling ((collPerc * txfee) %. 100)`.
+func ValidateInsufficientCollateral(
+	totalCollateral *big.Int,
+	fee *big.Int,
+	collateralPercentage uint,
+) error {
+	scaledCollateral := new(big.Int).Mul(totalCollateral, big.NewInt(100))
+	scaledFee := new(big.Int).Mul(
+		fee,
+		new(big.Int).SetUint64(uint64(collateralPercentage)),
+	)
+	if scaledCollateral.Cmp(scaledFee) >= 0 {
+		return nil
+	}
+	required := new(big.Int).Add(scaledFee, big.NewInt(99))
+	required.Div(required, big.NewInt(100))
+	// Convert to uint64 for error struct (best effort)
+	var providedU, requiredU uint64
+	if totalCollateral.IsUint64() {
+		providedU = totalCollateral.Uint64()
+	}
+	if required.IsUint64() {
+		requiredU = required.Uint64()
+	}
+	return InsufficientCollateralError{
+		Provided: providedU,
+		Required: requiredU,
+	}
+}
+
 // UtxoValidateInsufficientCollateral ensures that there is sufficient collateral provided
 func UtxoValidateInsufficientCollateral(
 	tx common.Transaction,
@@ -498,30 +541,15 @@ func UtxoValidateInsufficientCollateral(
 			totalCollateral.Add(totalCollateral, amount)
 		}
 	}
-	// minCollateral = fee * collateralPercentage / 100
 	fee := tmpTx.Fee()
 	if fee == nil {
 		fee = new(big.Int)
 	}
-	minCollateral := new(
-		big.Int,
-	).Mul(fee, new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)))
-	minCollateral.Div(minCollateral, big.NewInt(100))
-	if totalCollateral.Cmp(minCollateral) >= 0 {
-		return nil
-	}
-	// Convert to uint64 for error struct (best effort)
-	var providedU, requiredU uint64
-	if totalCollateral.IsUint64() {
-		providedU = totalCollateral.Uint64()
-	}
-	if minCollateral.IsUint64() {
-		requiredU = minCollateral.Uint64()
-	}
-	return InsufficientCollateralError{
-		Provided: providedU,
-		Required: requiredU,
-	}
+	return ValidateInsufficientCollateral(
+		totalCollateral,
+		fee,
+		tmpPparams.CollateralPercentage,
+	)
 }
 
 // UtxoValidateCollateralContainsNonAda ensures that collateral inputs don't contain non-ADA

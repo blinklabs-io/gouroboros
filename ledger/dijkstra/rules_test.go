@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
@@ -1842,4 +1843,72 @@ func TestDijkstraRefScriptFeeUsesConwayDefaults(t *testing.T) {
 			require.Equal(t, uint64(56_320), minFee)
 		})
 	}
+}
+
+// See TestUtxoValidateInsufficientCollateralRoundsUp in ledger/alonzo:
+// Dijkstra inherits the Alonzo collateral balance rule unchanged.
+func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
+	t.Parallel()
+	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	testProtocolParams := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			CollateralPercentage: 150,
+		},
+	}
+	validate := func(t *testing.T, fee, collateral uint64) error {
+		t.Helper()
+		tx := &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxFee: fee,
+				TxCollateral: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(
+							testInputTxId,
+							0,
+						),
+					},
+					false,
+				),
+			},
+			WitnessSet: DijkstraTransactionWitnessSet{
+				WsRedeemers: DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{}: {},
+					},
+				},
+			},
+		}
+		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
+			[]common.Utxo{
+				{
+					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Output: shelley.ShelleyTransactionOutput{
+						OutputAmount: collateral,
+					},
+				},
+			},
+		).Build()
+		return UtxoValidateInsufficientCollateral(
+			tx,
+			0,
+			ls,
+			testProtocolParams,
+		)
+	}
+	t.Run("one lovelace short of the ceiling", func(t *testing.T) {
+		t.Parallel()
+		err := validate(t, 101, 151)
+		var collateralErr alonzo.InsufficientCollateralError
+		require.ErrorAs(t, err, &collateralErr)
+		require.Equal(t, uint64(152), collateralErr.Required)
+		require.Equal(t, uint64(151), collateralErr.Provided)
+	})
+	t.Run("exactly the ceiling", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, validate(t, 101, 152))
+	})
+	t.Run("exact multiple of 100 is not rounded up", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, validate(t, 100, 150))
+	})
 }

@@ -2458,25 +2458,11 @@ func UtxoValidateInsufficientCollateral(
 	if fee == nil {
 		fee = new(big.Int)
 	}
-	minCollateral := new(big.Int).Mul(
+	return alonzo.ValidateInsufficientCollateral(
+		totalCollateral,
 		fee,
-		new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)),
+		tmpPparams.CollateralPercentage,
 	)
-	minCollateral.Div(minCollateral, big.NewInt(100))
-	if totalCollateral.Cmp(minCollateral) >= 0 {
-		return nil
-	}
-	var providedU, requiredU uint64
-	if totalCollateral.IsUint64() {
-		providedU = totalCollateral.Uint64()
-	}
-	if minCollateral.IsUint64() {
-		requiredU = minCollateral.Uint64()
-	}
-	return alonzo.InsufficientCollateralError{
-		Provided: providedU,
-		Required: requiredU,
-	}
 }
 
 func UtxoValidateCollateralContainsNonAda(
