@@ -15,6 +15,7 @@
 package alonzo_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"math"
@@ -720,8 +721,11 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	}
 	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
+	// Alonzo gates outputs on utxoEntrySize * coinsPerUTxOWord. The
+	// placeholder output is ada-only with no datum hash, so its entry size
+	// is 29 words and the minimum is 29 * 34482 = 999978 lovelace.
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
-		MinUtxoValue: 100000,
+		AdaPerUtxoByte: 34482,
 	}
 	// Good
 	t.Run(
@@ -1759,4 +1763,113 @@ func TestUtxoValidateExtraneousRedeemers_Alonzo(t *testing.T) {
 		err := alonzo.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
 		assert.NoError(t, err)
 	})
+}
+
+// Alonzo prices a UTxO entry by utxoEntrySize(txOut) * coinsPerUTxOWord, where
+// utxoEntrySize is 27 + Val.size(value) + dataHashSize(datumHash) in 8-byte
+// words. The expected values below are derived from that formula with the
+// mainnet Alonzo lovelacePerUTxOWord of 34482, not from this implementation.
+//
+// Reference: utxoEntrySize and getMinCoinTxOut in
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxOut.hs; Val.size for MaryValue
+// and representationSize in eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs.
+func TestAlonzoMinCoinTxOut(t *testing.T) {
+	t.Parallel()
+	const lovelacePerUtxoWord = 34482
+	testDatumHash := common.NewBlake2b256(make([]byte, 32))
+	policyOne := common.NewBlake2b224(bytes.Repeat([]byte{0x01}, 28))
+	policyTwo := common.NewBlake2b224(bytes.Repeat([]byte{0x02}, 28))
+	oneAssetOnePolicy := common.NewMultiAsset(
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+			policyOne: {
+				cbor.NewByteString([]byte("token")): big.NewInt(1),
+			},
+		},
+	)
+	twoAssetsTwoPolicies := common.NewMultiAsset(
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+			policyOne: {
+				cbor.NewByteString([]byte("token")): big.NewInt(1),
+			},
+			policyTwo: {
+				cbor.NewByteString([]byte("other")): big.NewInt(2),
+			},
+		},
+	)
+	testCases := []struct {
+		name      string
+		output    alonzo.AlonzoTransactionOutput
+		entrySize uint64
+	}{
+		{
+			// 27 + 2 = 29 words
+			name:      "ada only",
+			output:    alonzo.AlonzoTransactionOutput{},
+			entrySize: 29,
+		},
+		{
+			// 27 + 2 + 10 = 39 words
+			name: "ada only with datum hash",
+			output: alonzo.AlonzoTransactionOutput{
+				OutputDatumHash: &testDatumHash,
+			},
+			entrySize: 39,
+		},
+		{
+			// representationSize = 1*12 + 1*28 + len("token") = 45,
+			// roundupBytesToWords(45) = 6, + repOverhead 6 = 12,
+			// so 27 + 12 = 39 words
+			name: "one asset one policy",
+			output: alonzo.AlonzoTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Assets: &oneAssetOnePolicy,
+				},
+			},
+			entrySize: 39,
+		},
+		{
+			// representationSize = 2*12 + 2*28 + len("token") +
+			// len("other") = 90, roundupBytesToWords(90) = 12,
+			// + repOverhead 6 = 18, so 27 + 18 = 45 words
+			name: "two assets two policies",
+			output: alonzo.AlonzoTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Assets: &twoAssetsTwoPolicies,
+				},
+			},
+			entrySize: 45,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			minCoin, err := alonzo.MinCoinTxOut(
+				&testCase.output,
+				&alonzo.AlonzoProtocolParameters{
+					AdaPerUtxoByte: lovelacePerUtxoWord,
+					// A non-zero flat Shelley minUTxOValue must not
+					// influence the Alonzo result.
+					MinUtxoValue: 100000,
+				},
+			)
+			require.NoError(t, err)
+			require.Equal(
+				t,
+				testCase.entrySize*lovelacePerUtxoWord,
+				minCoin,
+				"min-UTxO must be utxoEntrySize * coinsPerUTxOWord",
+			)
+		})
+	}
+}
+
+func TestAlonzoMinCoinTxOutOverflow(t *testing.T) {
+	t.Parallel()
+	_, err := alonzo.MinCoinTxOut(
+		&alonzo.AlonzoTransactionOutput{},
+		&alonzo.AlonzoProtocolParameters{
+			AdaPerUtxoByte: math.MaxUint64,
+		},
+	)
+	require.ErrorContains(t, err, "overflow")
 }

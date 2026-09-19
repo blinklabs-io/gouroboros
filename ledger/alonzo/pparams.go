@@ -41,6 +41,17 @@ var plutusParamCounts = map[uint]int{
 	PlutusV3Key: 187,
 }
 
+// AlonzoProtocolParameters holds the Alonzo-era protocol parameters.
+//
+// AdaPerUtxoByte carries key 17, which in Alonzo is coinsPerUTxOWord: a price
+// per 8-byte word of the UTxO entry size estimate, not per serialized byte.
+// Babbage converts it to a genuine per-byte price by dividing by 8 at the era
+// boundary, so the value held here is 8x the Babbage-era price for the same
+// UTxO cost. MinUtxoValue is the flat Shelley parameter, which Alonzo replaced
+// and no Alonzo rule reads.
+//
+// Reference: appCoinsPerUTxOWord in
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/PParams.hs.
 type AlonzoProtocolParameters struct {
 	cbor.StructAsArray
 	MinFeeA              uint
@@ -91,7 +102,8 @@ func (p *AlonzoProtocolParameters) MinPoolCostAmount() *big.Int {
 	return new(big.Int).SetUint64(p.MinPoolCost)
 }
 
-// AdaPerUtxoByteAmount returns the ADA per UTxO byte as a *big.Int
+// AdaPerUtxoByteAmount returns protocol parameter key 17 as a *big.Int. In
+// Alonzo that parameter is coinsPerUTxOWord; see AdaPerUtxoByte.
 func (p *AlonzoProtocolParameters) AdaPerUtxoByteAmount() *big.Int {
 	return new(big.Int).SetUint64(p.AdaPerUtxoByte)
 }
@@ -145,9 +157,6 @@ func (p *AlonzoProtocolParameters) Update(
 	if paramUpdate.ExtraEntropy != nil {
 		p.ExtraEntropy = *paramUpdate.ExtraEntropy
 	}
-	if paramUpdate.MinUtxoValue != nil {
-		p.MinUtxoValue = *paramUpdate.MinUtxoValue
-	}
 	if paramUpdate.MinPoolCost != nil {
 		p.MinPoolCost = *paramUpdate.MinPoolCost
 	}
@@ -188,7 +197,9 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 	}
 
 	// Common parameter updates
-	p.AdaPerUtxoByte = genesis.LovelacePerUtxoWord / 8
+	// Alonzo stores lovelacePerUTxOWord verbatim; the division to a
+	// per-byte price belongs at the Babbage era boundary, not here.
+	p.AdaPerUtxoByte = genesis.LovelacePerUtxoWord
 	p.MaxValueSize = genesis.MaxValueSize
 	p.CollateralPercentage = genesis.CollateralPercentage
 	p.MaxCollateralInputs = genesis.MaxCollateralInputs
@@ -247,6 +258,12 @@ func plutusVersionToKey(version string) (uint, bool) {
 	}
 }
 
+// AlonzoProtocolParameterUpdate holds an Alonzo-era protocol parameter update.
+//
+// MinUtxoValue carries no CBOR key and is never populated from the wire: the
+// Alonzo CDDL removed protocol_param_update key 15 and UnmarshalCBOR rejects
+// an update carrying it. The field is retained so that existing Go callers
+// still compile, and Update does not apply it.
 type AlonzoProtocolParameterUpdate struct {
 	cbor.DecodeStoreCbor
 	MinFeeA              *uint                                     `cbor:"0,keyasint"`
@@ -264,7 +281,7 @@ type AlonzoProtocolParameterUpdate struct {
 	Decentralization     *cbor.Rat                                 `cbor:"12,keyasint"`
 	ExtraEntropy         *common.Nonce                             `cbor:"13,keyasint"`
 	ProtocolVersion      *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
-	MinUtxoValue         *uint                                     `cbor:"15,keyasint"`
+	MinUtxoValue         *uint                                     `cbor:"-"`
 	MinPoolCost          *uint64                                   `cbor:"16,keyasint"`
 	AdaPerUtxoByte       *uint64                                   `cbor:"17,keyasint"`
 	CostModels           map[uint][]int64                          `cbor:"18,keyasint"`
@@ -278,7 +295,28 @@ type AlonzoProtocolParameterUpdate struct {
 
 func (AlonzoProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
+// removedMinUtxoValueKey is protocol_param_update key 15 (minUTxOValue). The
+// Alonzo CDDL dropped it and the reference decoder routes any key it does not
+// recognize to Invalid, failing the decode rather than ignoring the entry, so
+// an update carrying key 15 must be rejected outright.
+//
+// Reference: updateField in
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/PParams.hs, whose final clause is
+// `updateField k = field (\_x up -> up) (Invalid k)`.
+const removedMinUtxoValueKey = 15
+
 func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
+	var rawKeys map[uint64]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &rawKeys); err != nil {
+		return err
+	}
+	if _, ok := rawKeys[removedMinUtxoValueKey]; ok {
+		return fmt.Errorf(
+			"alonzo protocol parameter update contains key %d"+
+				" (minUTxOValue), removed in the Alonzo era",
+			removedMinUtxoValueKey,
+		)
+	}
 	type tAlonzoProtocolParameterUpdate AlonzoProtocolParameterUpdate
 	var tmp tAlonzoProtocolParameterUpdate
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
