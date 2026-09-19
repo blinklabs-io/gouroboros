@@ -1115,15 +1115,16 @@ func (t AlonzoTransaction) Consumed() []common.TransactionInput {
 func (t AlonzoTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		outputs := t.Outputs()
+		txId := t.Hash()
 		ret := make([]common.Utxo, 0, len(outputs))
 		for idx, output := range outputs {
 			ret = append(
 				ret,
 				common.Utxo{
-					Id: shelley.NewShelleyTransactionInput(
-						t.Hash().String(),
-						idx,
-					),
+					Id: shelley.ShelleyTransactionInput{
+						TxId:        txId,
+						OutputIndex: uint32(idx),
+					},
 					Output: output,
 				},
 			)

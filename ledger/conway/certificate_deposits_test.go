@@ -128,7 +128,7 @@ func certificateDepositTransaction(
 ) *conway.ConwayTransaction {
 	t.Helper()
 	inputCbor, err := cbor.Encode(
-		shelley.NewShelleyTransactionInput(certificateDepositTxId, 0),
+		shelley.MustNewShelleyTransactionInput(certificateDepositTxId, 0),
 	)
 	require.NoError(t, err)
 	outputAmount := int64(certificateDepositInputAmount) +
@@ -223,7 +223,7 @@ func certificateDepositBaseState(
 ) *mockledger.MockLedgerState {
 	return mockledger.NewLedgerStateBuilder().
 		WithUtxos([]common.Utxo{{
-			Id: shelley.NewShelleyTransactionInput(
+			Id: shelley.MustNewShelleyTransactionInput(
 				certificateDepositTxId,
 				0,
 			),
@@ -420,7 +420,7 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 			buildState := func(registered bool, balance, deposit uint64) common.LedgerState {
 				builder := mockledger.NewLedgerStateBuilder().
 					WithUtxos([]common.Utxo{{
-						Id: shelley.NewShelleyTransactionInput(certificateDepositTxId, 0),
+						Id: shelley.MustNewShelleyTransactionInput(certificateDepositTxId, 0),
 						Output: shelley.ShelleyTransactionOutput{
 							OutputAmount: certificateDepositInputAmount,
 						},
@@ -609,7 +609,7 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 			recordedDRepDeposit := pp.DRepDeposit
 			baseState := mockledger.NewLedgerStateBuilder().
 				WithUtxos([]common.Utxo{{
-					Id: shelley.NewShelleyTransactionInput(
+					Id: shelley.MustNewShelleyTransactionInput(
 						certificateDepositTxId,
 						0,
 					),
@@ -651,7 +651,7 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 		ls := certificateDepositLedgerState{
 			LedgerState: mockledger.NewLedgerStateBuilder().
 				WithUtxos([]common.Utxo{{
-					Id: shelley.NewShelleyTransactionInput(
+					Id: shelley.MustNewShelleyTransactionInput(
 						certificateDepositTxId,
 						0,
 					),

@@ -1324,15 +1324,16 @@ func (t BabbageTransaction) Consumed() []common.TransactionInput {
 func (t BabbageTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		outputs := t.Outputs()
+		txId := t.Hash()
 		ret := make([]common.Utxo, 0, len(outputs))
 		for idx, output := range outputs {
 			ret = append(
 				ret,
 				common.Utxo{
-					Id: shelley.NewShelleyTransactionInput(
-						t.Hash().String(),
-						idx,
-					),
+					Id: shelley.ShelleyTransactionInput{
+						TxId:        txId,
+						OutputIndex: uint32(idx),
+					},
 					Output: output,
 				},
 			)
@@ -1344,7 +1345,13 @@ func (t BabbageTransaction) Produced() []common.Utxo {
 		}
 		return []common.Utxo{
 			{
-				Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), len(t.Outputs())),
+				Id: shelley.ShelleyTransactionInput{
+					TxId: t.Hash(),
+					// The output count is bounded by the transaction size
+					// limit, orders of magnitude below MaxUint32.
+					//nolint:gosec // G115: see above
+					OutputIndex: uint32(len(t.Outputs())),
+				},
 				Output: t.CollateralReturn(),
 			},
 		}

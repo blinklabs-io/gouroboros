@@ -1315,7 +1315,7 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeReferenceScriptGuard(
 		CredType:   common.CredentialTypeScriptHash,
 		Credential: nativeScript.Hash(),
 	}
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"4444444444444444444444444444444444444444444444444444444444444444",
 		0,
 	)
@@ -1997,7 +1997,7 @@ func dijkstraRefScriptInput(
 	scriptSize int,
 ) (shelley.ShelleyTransactionInput, common.Utxo) {
 	t.Helper()
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		strings.Repeat(fmt.Sprintf("%02x", hashByte), 32),
 		index,
 	)

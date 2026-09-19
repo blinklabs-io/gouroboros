@@ -130,7 +130,7 @@ func TestConwayRedeemersIter(t *testing.T) {
 }
 
 func TestConwayTransactionInputSetConditionalDuplicateCheck(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
@@ -967,7 +967,7 @@ func TestConwayTx_WithReferenceInputs_CborRoundTrip(t *testing.T) {
 	tx := &ConwayTransaction{}
 	tx.Body.TxInputs = NewConwayTransactionInputSet(
 		[]shelley.ShelleyTransactionInput{
-			shelley.NewShelleyTransactionInput(
+			shelley.MustNewShelleyTransactionInput(
 				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				0,
 			),
@@ -975,7 +975,7 @@ func TestConwayTx_WithReferenceInputs_CborRoundTrip(t *testing.T) {
 	)
 	tx.Body.TxReferenceInputs = cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{
-			shelley.NewShelleyTransactionInput(
+			shelley.MustNewShelleyTransactionInput(
 				"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				1,
 			),
@@ -1039,7 +1039,7 @@ func TestConwayTx_WithReferenceScripts_CborRoundTrip(t *testing.T) {
 	tx := &ConwayTransaction{}
 	tx.Body.TxInputs = NewConwayTransactionInputSet(
 		[]shelley.ShelleyTransactionInput{
-			shelley.NewShelleyTransactionInput(
+			shelley.MustNewShelleyTransactionInput(
 				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				0,
 			),

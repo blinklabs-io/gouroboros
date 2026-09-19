@@ -688,11 +688,11 @@ func TestVerifyTransactionChecksSubtransactionWitnesses(t *testing.T) {
 
 func TestUtxoValidateExtraneousRedeemersPerTransactionLevel(t *testing.T) {
 	inputs := []shelley.ShelleyTransactionInput{
-		shelley.NewShelleyTransactionInput(
+		shelley.MustNewShelleyTransactionInput(
 			"0000000000000000000000000000000000000000000000000000000000000001",
 			0,
 		),
-		shelley.NewShelleyTransactionInput(
+		shelley.MustNewShelleyTransactionInput(
 			"0000000000000000000000000000000000000000000000000000000000000002",
 			0,
 		),

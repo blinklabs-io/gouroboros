@@ -1398,10 +1398,14 @@ func (t dijkstraConwayFeatureTransaction) Consumed() []common.TransactionInput {
 
 func (t dijkstraConwayFeatureTransaction) Produced() []common.Utxo {
 	outputs := t.Outputs()
+	txId := t.Id()
 	ret := make([]common.Utxo, 0, len(outputs))
 	for idx, output := range outputs {
 		ret = append(ret, common.Utxo{
-			Id:     shelley.NewShelleyTransactionInput(t.Id().String(), idx),
+			Id: shelley.ShelleyTransactionInput{
+				TxId:        txId,
+				OutputIndex: uint32(idx),
+			},
 			Output: output,
 		})
 	}

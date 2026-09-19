@@ -38,7 +38,7 @@ func TestShelleyTransactionInputSetCoalescesUntaggedDuplicates(t *testing.T) {
 }
 
 func TestShelleyTransactionInputSetOnlyCoalescesOnDecode(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0101010101010101010101010101010101010101010101010101010101010101",
 		0,
 	)

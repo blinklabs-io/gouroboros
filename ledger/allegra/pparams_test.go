@@ -138,7 +138,7 @@ func TestAllegraUtxorpc(t *testing.T) {
 // Unit test for AllegraTransactionBody.Utxorpc()
 func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
 	// mock input
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		1,
 	)
@@ -201,7 +201,7 @@ func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
 // Unit test for AllegraTransaction.Utxorpc()
 func TestAllegraTransaction_Utxorpc(t *testing.T) {
 	// Prepare mock input
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		0,
 	)

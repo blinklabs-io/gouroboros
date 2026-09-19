@@ -31,11 +31,11 @@ import (
 )
 
 func TestAlonzoUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) {
-	input1 := shelley.NewShelleyTransactionInput(
+	input1 := shelley.MustNewShelleyTransactionInput(
 		"0101010101010101010101010101010101010101010101010101010101010101",
 		0,
 	)
-	input2 := shelley.NewShelleyTransactionInput(
+	input2 := shelley.MustNewShelleyTransactionInput(
 		"0202020202020202020202020202020202020202020202020202020202020202",
 		1,
 	)
@@ -63,7 +63,7 @@ func TestAlonzoUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) 
 }
 
 func TestAlonzoTransactionBodyRejectsDuplicateTaggedSets(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0101010101010101010101010101010101010101010101010101010101010101",
 		0,
 	)

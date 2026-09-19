@@ -1249,7 +1249,7 @@ func TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField(
 
 // Unit test for ConwayTransactionBody.Utxorpc()
 func TestConwayTransactionBody_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		1,
 	)
@@ -1332,7 +1332,7 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 
 // Unit test for ConwayTransaction.Utxorpc()
 func TestConwayTransaction_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
