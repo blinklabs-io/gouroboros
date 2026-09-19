@@ -181,6 +181,7 @@ func TestVerifyBlock_RejectsSubstitutedOpCertHotKey(t *testing.T) {
 	require.False(t, valid)
 	var validationErr *common.ValidationError
 	require.ErrorAs(t, err, &validationErr)
+	require.NotNil(t, validationErr)
 	require.Equal(t, common.ValidationErrorTypeOpCert, validationErr.Type)
 }
 
