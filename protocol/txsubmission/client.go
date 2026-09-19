@@ -349,6 +349,19 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 		)
 	}
 	msgRequestTxs := msg.(*MsgRequestTxs)
+	// A peer may only request transactions it has left unacknowledged, so a
+	// larger request cannot be satisfied: the reply is bounded by
+	// MaxPendingMessageBytes, which is derived from the same window. Refuse
+	// it here rather than let the callback materialize every body first and
+	// have SendMessage reject the result as a violation of our own.
+	if len(msgRequestTxs.TxIds) > MaxUnackedTxIds {
+		c.Protocol.Logger().
+			Error("TxSubmission tx request count exceeded",
+				"requested", len(msgRequestTxs.TxIds),
+				"limit", MaxUnackedTxIds,
+			)
+		return protocol.ErrProtocolViolationRequestExceeded
+	}
 	// Call the user callback function
 	txs, err := c.config.RequestTxsFunc(c.callbackContext, msgRequestTxs.TxIds)
 	if err != nil {

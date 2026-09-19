@@ -122,6 +122,13 @@ are the ranges of the wire fields, not an in-flight window, which is why
 `DefaultRequestLimit` and `DefaultAckLimit` are exported guidance constants
 (1,000); they are not configuration fields and are not applied automatically.
 
+A request for transaction bodies is bounded by the in-flight window instead:
+`Server.RequestTxs` and the client's request handler both reject more than
+`MaxUnackedTxIds` (10) transaction IDs with
+`ErrProtocolViolationRequestExceeded`. A peer may only request transactions it
+has left unacknowledged, and a reply to a larger request cannot fit
+`MaxPendingMessageBytes`, which is derived from that same window.
+
 ## Handshake
 
 For N2N, `Propose` and `Confirm` each have a 10-second timeout. The framework

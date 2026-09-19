@@ -179,13 +179,24 @@ func (s *Server) RequestTxIds(
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
 func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
+	p := s.ProtocolInstance()
+	// Requesting more than the unacknowledged window asks the peer for a
+	// reply larger than MaxPendingMessageBytes, which is derived from that
+	// window, so the peer is entitled to refuse it.
+	if len(txIds) > MaxUnackedTxIds {
+		p.Logger().
+			Error("TxSubmission tx request count exceeded",
+				"requested", len(txIds),
+				"limit", MaxUnackedTxIds,
+			)
+		return nil, protocol.ErrProtocolViolationRequestExceeded
+	}
 	// Pre-allocate slice to avoid repeated allocations
 	txString := make([]string, 0, len(txIds))
 	for _, t := range txIds {
 		// Convert TxId directly to Blake2b256 without intermediate slice
 		txString = append(txString, common.NewBlake2b256(t.TxId[:]).String())
 	}
-	p := s.ProtocolInstance()
 	p.Logger().
 		Debug(
 			fmt.Sprintf("calling RequestTxs(txIds: %+v)", txString),

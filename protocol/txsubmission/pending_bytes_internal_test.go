@@ -16,9 +16,11 @@ package txsubmission
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -206,6 +208,112 @@ func TestStateMapBoundsPendingMessageBytes(t *testing.T) {
 			entry.PendingMessageByteLimit,
 			"state %s has no pending-message byte limit",
 			state,
+		)
+	}
+}
+
+// windowTxIds returns n distinct transaction IDs, as a peer's MsgRequestTxs
+// carries them.
+func windowTxIds(n int) []TxId {
+	txIds := make([]TxId, 0, n)
+	for i := range n {
+		txId := TxId{EraId: 6}
+		txId.TxId[0] = byte(i)
+		txIds = append(txIds, txId)
+	}
+	return txIds
+}
+
+// TestRequestTxsOverUnackedWindowIsRefused proves the client refuses a
+// request for more transactions than the unacknowledged window before the
+// callback assembles any body. MaxPendingMessageBytes is derived from that
+// window, so without this refusal a peer can make the client materialize and
+// encode an unbounded reply that SendMessage then rejects as a violation of
+// our own.
+func TestRequestTxsOverUnackedWindowIsRefused(t *testing.T) {
+	t.Parallel()
+	var called atomic.Bool
+	c := NewClient(
+		protocol.ProtocolOptions{Mode: protocol.ProtocolModeNodeToNode},
+		&Config{
+			RequestTxsFunc: func(CallbackContext, []TxId) ([]TxBody, error) {
+				called.Store(true)
+				return []TxBody{{EraId: 6}}, nil
+			},
+		},
+	)
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- c.handleRequestTxs(
+			NewMsgRequestTxs(windowTxIds(MaxUnackedTxIds + 1)),
+		)
+	}()
+	select {
+	case err := <-errChan:
+		require.ErrorIs(t, err, protocol.ErrProtocolViolationRequestExceeded)
+	case <-time.After(pendingBytesWindow):
+		t.Fatal(
+			"the client began replying to a request beyond the" +
+				" unacknowledged window instead of refusing it",
+		)
+	}
+	require.False(
+		t,
+		called.Load(),
+		"the client assembled a reply for a request beyond the window",
+	)
+}
+
+// TestRequestTxsAtUnackedWindowReachesCallback is the paired boundary case:
+// a full window must still be served, so the refusal above cannot be the
+// reason this request fails.
+func TestRequestTxsAtUnackedWindowReachesCallback(t *testing.T) {
+	t.Parallel()
+	errCallbackReached := errors.New("callback reached")
+	c := NewClient(
+		protocol.ProtocolOptions{Mode: protocol.ProtocolModeNodeToNode},
+		&Config{
+			RequestTxsFunc: func(CallbackContext, []TxId) ([]TxBody, error) {
+				return nil, errCallbackReached
+			},
+		},
+	)
+	err := c.handleRequestTxs(
+		NewMsgRequestTxs(windowTxIds(MaxUnackedTxIds)),
+	)
+	require.ErrorIs(t, err, errCallbackReached)
+}
+
+// TestServerRequestTxsOverUnackedWindowIsRefused is the sending half: our
+// own server must not put a request beyond the window on the wire, where a
+// conforming peer is entitled to refuse it.
+func TestServerRequestTxsOverUnackedWindowIsRefused(t *testing.T) {
+	t.Parallel()
+	s := NewServer(
+		protocol.ProtocolOptions{Mode: protocol.ProtocolModeNodeToNode},
+		&Config{},
+	)
+	type requestTxsResult struct {
+		txs []TxBody
+		err error
+	}
+	resultChan := make(chan requestTxsResult, 1)
+	go func() {
+		txs, err := s.RequestTxs(windowTxIds(MaxUnackedTxIds + 1))
+		resultChan <- requestTxsResult{txs: txs, err: err}
+	}()
+	select {
+	case result := <-resultChan:
+		require.ErrorIs(
+			t,
+			result.err,
+			protocol.ErrProtocolViolationRequestExceeded,
+		)
+		require.Nil(t, result.txs)
+	case <-time.After(pendingBytesWindow):
+		t.Fatal(
+			"the server queued a request beyond the unacknowledged" +
+				" window instead of refusing it",
 		)
 	}
 }
