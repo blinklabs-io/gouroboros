@@ -191,3 +191,76 @@ func TestNewBlake2bCheckedPreservesBytes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, got)
 }
+
+func TestPoolRegistrationUnmarshalJSONRejectsWrongLengthHashes(t *testing.T) {
+	t.Parallel()
+	vrf := make([]byte, common.Blake2b256Size)
+	owner := make([]byte, common.Blake2b224Size)
+	for i := range vrf {
+		vrf[i] = 0xCC
+	}
+	for i := range owner {
+		owner[i] = 0xDD
+	}
+	vrf[common.Blake2b256Size-1] = 0x00
+	owner[common.Blake2b224Size-1] = 0x00
+	operator := hex.EncodeToString(make([]byte, common.Blake2b224Size))
+	testCases := []struct {
+		name    string
+		vrf     []byte
+		owner   []byte
+		wantErr bool
+	}{
+		{name: "exact lengths accepted", vrf: vrf, owner: owner},
+		{
+			name:    "short vrf key hash rejected",
+			vrf:     vrf[:common.Blake2b256Size-1],
+			owner:   owner,
+			wantErr: true,
+		},
+		{
+			name:    "long vrf key hash rejected",
+			vrf:     slices.Concat(vrf, []byte{0xFF}),
+			owner:   owner,
+			wantErr: true,
+		},
+		{
+			name:    "short pool owner rejected",
+			vrf:     vrf,
+			owner:   owner[:common.Blake2b224Size-1],
+			wantErr: true,
+		},
+		{
+			name:    "long pool owner rejected",
+			vrf:     vrf,
+			owner:   slices.Concat(owner, []byte{0xFF}),
+			wantErr: true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			raw := fmt.Sprintf(
+				`{"operator":%q,"vrfKeyHash":%q,"pledge":0,"cost":0,`+
+					`"margin":{"numerator":0,"denominator":1},`+
+					`"poolOwners":[%q],"relays":[]}`,
+				operator,
+				hex.EncodeToString(testCase.vrf),
+				hex.EncodeToString(testCase.owner),
+			)
+			var cert common.PoolRegistrationCertificate
+			err := json.Unmarshal([]byte(raw), &cert)
+			if testCase.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, vrf, cert.VrfKeyHash[:])
+			require.Equal(
+				t,
+				[]common.AddrKeyHash{common.AddrKeyHash(owner)},
+				cert.PoolOwners,
+			)
+		})
+	}
+}
