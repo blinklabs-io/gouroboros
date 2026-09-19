@@ -48,6 +48,7 @@ const (
 	ValidationErrorTypeStakePool     ValidationErrorType = "stake_pool"
 	ValidationErrorTypeVRF           ValidationErrorType = "vrf"
 	ValidationErrorTypeKES           ValidationErrorType = "kes"
+	ValidationErrorTypeOpCert        ValidationErrorType = "opcert"
 	ValidationErrorTypeProtocol      ValidationErrorType = "protocol"
 	ValidationErrorTypeConfiguration ValidationErrorType = "configuration"
 )
