@@ -47,6 +47,12 @@ const maxMessagesPerSegment = 20
 // bridge it controls) should override this via MaxReadBufferSize rather
 // than have a legitimate reply rejected as if it were the DoS this constant
 // guards against.
+//
+// This bound is per ProtocolConfig, so it bounds one mini-protocol in one
+// role. The connection-wide total is bounded separately by the muxer's
+// reassembly allowance (muxer.Muxer.RaiseReadBufferBudget), which every
+// protocol raises to its own cap as it registers; raising MaxReadBufferSize
+// therefore raises the connection allowance with it.
 const maxReadBufferSize = 16 * 1024 * 1024 // 16MB
 
 // DefaultRecvQueueSize is the default capacity for the recv queue channel
@@ -193,6 +199,10 @@ func (p *Protocol) EnsureRegistered() {
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
 		}
+		// Contribute this protocol's own read-buffer cap to the
+		// connection-wide reassembly allowance before any segment can
+		// arrive for it.
+		p.config.Muxer.RaiseReadBufferBudget(p.config.maxReadBufferSize())
 		p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(
 			p.config.ProtocolId,
 			muxerProtocolRole,
@@ -799,9 +809,54 @@ waitSendReadyChan:
 	}
 }
 
+// reserveReadBuffer aligns this protocol's share of the connection-wide
+// reassembly allowance with readBuffer's current length, reporting whether
+// the connection still had room. Shrinking always succeeds.
+func (p *Protocol) reserveReadBuffer(current int, reserved *int) bool {
+	if p.config.Muxer == nil {
+		*reserved = current
+		return true
+	}
+	switch {
+	case current > *reserved:
+		if !p.config.Muxer.ReserveReadBuffer(current - *reserved) {
+			return false
+		}
+	case current < *reserved:
+		p.config.Muxer.ReleaseReadBuffer(*reserved - current)
+	}
+	*reserved = current
+	return true
+}
+
+// errReadBufferBudget reports that other mini-protocols on this connection
+// already hold its reassembly allowance.
+func (p *Protocol) errReadBufferBudget(size int) error {
+	budget := 0
+	if p.config.Muxer != nil {
+		budget = p.config.Muxer.ReadBufferBudget()
+	}
+	return fmt.Errorf(
+		"%s: connection read buffer budget exhausted reassembling"+
+			" %d bytes (connection limit %d bytes)",
+		p.config.Name,
+		size,
+		budget,
+	)
+}
+
 func (p *Protocol) readLoop() {
 	leftoverData := false
 	readBuffer := bytes.NewBuffer(nil)
+	// Bytes this protocol holds against the connection-wide reassembly
+	// allowance. The per-protocol cap below bounds one mini-protocol; this
+	// is what keeps every mini-protocol on the connection bounded together.
+	reserved := 0
+	defer func() {
+		if p.config.Muxer != nil && reserved > 0 {
+			p.config.Muxer.ReleaseReadBuffer(reserved)
+		}
+	}()
 
 	for {
 		// Don't grab the next segment from the muxer if we still have data in the buffer
@@ -821,6 +876,10 @@ func (p *Protocol) readLoop() {
 				}
 				// Add segment payload to buffer
 				readBuffer.Write(segment.Payload)
+				if !p.reserveReadBuffer(readBuffer.Len(), &reserved) {
+					p.SendError(p.errReadBufferBudget(readBuffer.Len()))
+					return
+				}
 			}
 			// Opportunistically drain any additional segments the muxer
 			// has already queued for us before spending a decode attempt.
@@ -877,6 +936,10 @@ func (p *Protocol) readLoop() {
 						return
 					}
 					readBuffer.Write(segment.Payload)
+					if !p.reserveReadBuffer(readBuffer.Len(), &reserved) {
+						p.SendError(p.errReadBufferBudget(readBuffer.Len()))
+						return
+					}
 					if readBuffer.Len() > p.config.maxReadBufferSize() {
 						break drainQueued
 					}
@@ -1030,6 +1093,8 @@ func (p *Protocol) readLoop() {
 			// Empty out our buffer since we successfully processed the message
 			readBuffer.Reset()
 		}
+		// Hand the consumed bytes back to the connection-wide allowance.
+		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
 	}
 }
 

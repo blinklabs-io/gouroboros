@@ -104,6 +104,90 @@ type Muxer struct {
 	// trusted local/NtC connection). See defaultSegmentReadTimeout's doc
 	// comment for the full rationale.
 	segmentReadTimeout time.Duration
+	// readBufferMu guards the connection-wide message reassembly
+	// allowance below.
+	readBufferMu sync.Mutex
+	// readBufferBudget is the total bytes every mini-protocol on this
+	// connection may hold in an incomplete-message reassembly buffer at
+	// once. Each mini-protocol caps its own buffer independently, so
+	// without this the connection's exposure is that cap times the number
+	// of registered protocol roles -- 16 on a full-duplex node-to-node
+	// connection. Zero means unmetered, which is what a Muxer with no
+	// registered protocol has.
+	readBufferBudget int
+	// readBufferUsed is the portion of readBufferBudget currently reserved.
+	readBufferUsed int
+}
+
+// RaiseReadBufferBudget raises this connection's message reassembly
+// allowance to at least n bytes. Protocols call it as they register, with
+// their own read-buffer cap, which makes the connection allowance the
+// largest single protocol's cap rather than the sum of all of them. The
+// largest message any node-to-node mini-protocol admits is bounded by its
+// own pending-message byte limit -- block-fetch's 2,500,000 bytes is the
+// largest of those -- so one protocol's default 16MB cap covers every
+// legitimate reassembly on the connection with room to spare. A caller that
+// needs more headroom raises the cap of the protocol that needs it, which
+// raises this allowance with it.
+func (m *Muxer) RaiseReadBufferBudget(n int) {
+	if n <= 0 {
+		return
+	}
+	m.readBufferMu.Lock()
+	defer m.readBufferMu.Unlock()
+	if n > m.readBufferBudget {
+		m.readBufferBudget = n
+	}
+}
+
+// ReserveReadBuffer claims n more bytes of this connection's reassembly
+// allowance, reporting whether the claim fit. A refused claim means another
+// mini-protocol on the same connection is already holding the allowance;
+// the caller must fail its protocol rather than retry, since nothing
+// guarantees the holder ever completes its message.
+func (m *Muxer) ReserveReadBuffer(n int) bool {
+	if n <= 0 {
+		return true
+	}
+	m.readBufferMu.Lock()
+	defer m.readBufferMu.Unlock()
+	if m.readBufferBudget <= 0 {
+		return true
+	}
+	if m.readBufferUsed+n > m.readBufferBudget {
+		return false
+	}
+	m.readBufferUsed += n
+	return true
+}
+
+// ReleaseReadBuffer returns n bytes of previously reserved allowance.
+func (m *Muxer) ReleaseReadBuffer(n int) {
+	if n <= 0 {
+		return
+	}
+	m.readBufferMu.Lock()
+	defer m.readBufferMu.Unlock()
+	m.readBufferUsed -= n
+	if m.readBufferUsed < 0 {
+		m.readBufferUsed = 0
+	}
+}
+
+// ReadBufferBudget returns this connection's total message reassembly
+// allowance in bytes. Zero means unmetered.
+func (m *Muxer) ReadBufferBudget() int {
+	m.readBufferMu.Lock()
+	defer m.readBufferMu.Unlock()
+	return m.readBufferBudget
+}
+
+// ReadBufferInUse returns how much of this connection's message reassembly
+// allowance is currently reserved by its mini-protocols.
+func (m *Muxer) ReadBufferInUse() int {
+	m.readBufferMu.Lock()
+	defer m.readBufferMu.Unlock()
+	return m.readBufferUsed
 }
 
 type segmentChannel struct {
