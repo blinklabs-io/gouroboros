@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"runtime"
@@ -1911,4 +1912,31 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		t.Parallel()
 		require.NoError(t, validate(t, 100, 150))
 	})
+}
+
+// See TestBabbageMinCoinTxOutOverflow: Dijkstra carries the same uint64
+// multiply.
+func TestDijkstraMinCoinTxOutOverflow(t *testing.T) {
+	t.Parallel()
+	txOut := DijkstraTransactionOutput{}
+	_, err := MinCoinTxOut(
+		txOut,
+		&DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				AdaPerUtxoByte: math.MaxUint64,
+			},
+		},
+	)
+	require.ErrorContains(t, err, "overflow")
+
+	minCoin, err := MinCoinTxOut(
+		txOut,
+		&DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				AdaPerUtxoByte: 4310,
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.Positive(t, minCoin)
 }

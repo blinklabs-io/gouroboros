@@ -5180,3 +5180,21 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		require.NoError(t, validate(t, 100, 150))
 	})
 }
+
+// See TestBabbageMinCoinTxOutOverflow: Conway carries the same uint64 multiply.
+func TestConwayMinCoinTxOutOverflow(t *testing.T) {
+	t.Parallel()
+	txOut := babbage.BabbageTransactionOutput{}
+	_, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: math.MaxUint64},
+	)
+	require.ErrorContains(t, err, "overflow")
+
+	minCoin, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: 4310},
+	)
+	require.NoError(t, err)
+	require.Positive(t, minCoin)
+}

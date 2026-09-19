@@ -2109,3 +2109,29 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		require.NoError(t, validate(t, 100, 150))
 	})
 }
+
+// Coin is unbounded in the reference, so (160 + size) * coinsPerUTxOByte
+// cannot wrap there and no output can satisfy a requirement above 2^64. A
+// uint64 multiply wraps to a small requirement instead, admitting outputs the
+// reference rejects.
+//
+// Reference: babbageMinUTxOValue in
+// eras/babbage/impl/src/Cardano/Ledger/Babbage/TxOut.hs.
+func TestBabbageMinCoinTxOutOverflow(t *testing.T) {
+	t.Parallel()
+	txOut := babbage.BabbageTransactionOutput{}
+	_, err := babbage.MinCoinTxOut(
+		txOut,
+		&babbage.BabbageProtocolParameters{
+			AdaPerUtxoByte: math.MaxUint64,
+		},
+	)
+	require.ErrorContains(t, err, "overflow")
+
+	minCoin, err := babbage.MinCoinTxOut(
+		txOut,
+		&babbage.BabbageProtocolParameters{AdaPerUtxoByte: 4310},
+	)
+	require.NoError(t, err)
+	require.Positive(t, minCoin)
+}

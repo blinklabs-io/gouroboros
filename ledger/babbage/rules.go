@@ -16,6 +16,7 @@ package babbage
 
 import (
 	"errors"
+	"math"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -1173,8 +1174,16 @@ func MinCoinTxOut(
 	if err != nil {
 		return 0, err
 	}
-	minCoinTxOut := tmpPparams.AdaPerUtxoByte * (minUtxoOverheadBytes + uint64(len(txOutBytes)))
-	return minCoinTxOut, nil
+	// The reference computes this in unbounded Integer arithmetic, so a
+	// coinsPerUTxOByte large enough to overflow uint64 yields a requirement
+	// no output can meet. Wrapping would instead produce a small
+	// requirement and admit those outputs.
+	entrySize := minUtxoOverheadBytes + uint64(len(txOutBytes))
+	if tmpPparams.AdaPerUtxoByte != 0 &&
+		entrySize > math.MaxUint64/tmpPparams.AdaPerUtxoByte {
+		return 0, errors.New("minimum UTxO value overflow")
+	}
+	return tmpPparams.AdaPerUtxoByte * entrySize, nil
 }
 
 func UtxoValidateMetadata(
