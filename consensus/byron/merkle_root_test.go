@@ -112,6 +112,7 @@ func TestValidateBodyHashRejectsWrongTxMerkleRoot(t *testing.T) {
 	require.Error(t, err)
 	var valErr *common.ValidationError
 	require.ErrorAs(t, err, &valErr)
+	require.NotNil(t, valErr)
 	assert.Equal(t, common.ValidationErrorTypeBodyHash, valErr.Type)
 	assert.Equal(t, "transaction body merkle root mismatch", valErr.Message)
 }
