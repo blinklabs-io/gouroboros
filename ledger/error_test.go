@@ -171,14 +171,20 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	}
 
 	// Test with Byron transaction inputs
-	byronInput1 := byron.NewByronTransactionInput(
-		"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab",
+	byronInput1, err := byron.NewByronTransactionInput(
+		"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 		0,
 	)
-	byronInput2 := byron.NewByronTransactionInput(
-		"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fe",
+	if err != nil {
+		t.Fatalf("Failed to create byron input 1: %v", err)
+	}
+	byronInput2, err := byron.NewByronTransactionInput(
+		"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
 		1,
 	)
+	if err != nil {
+		t.Fatalf("Failed to create byron input 2: %v", err)
+	}
 
 	// Create test UTxOs with Byron inputs
 	byronUtxos := []common.Utxo{

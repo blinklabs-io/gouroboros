@@ -386,7 +386,7 @@ func TestNewBlockFromCbor_RejectsNullHeaders(t *testing.T) {
 			"byron main",
 			ledger.BlockTypeByronMain,
 			[]byte{0x83, 0xf6, 0x84, 0x80, 0xf6, 0x80, 0x82, 0x80, 0x80, 0x81, 0xa0},
-			"block header is nil",
+			"decode Byron main block error: byron main block missing header",
 		},
 		{"shelley", ledger.BlockTypeShelley, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}, "block header is nil"},
 		{"allegra", ledger.BlockTypeAllegra, []byte{0x84, 0xf6, 0x80, 0x80, 0xa0}, "block header is nil"},
