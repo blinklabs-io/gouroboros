@@ -1242,7 +1242,11 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid VRF key hash: %w", err)
 		}
-		p.VrfKeyHash = VrfKeyHash(NewBlake2b256(vrfBytes))
+		vrfHash, err := NewBlake2b256Checked(vrfBytes)
+		if err != nil {
+			return fmt.Errorf("invalid VRF key hash: %w", err)
+		}
+		p.VrfKeyHash = VrfKeyHash(vrfHash)
 	}
 
 	// Convert pool owners
@@ -1253,7 +1257,11 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 			if err != nil {
 				return fmt.Errorf("invalid pool owner key: %w", err)
 			}
-			owners[i] = AddrKeyHash(NewBlake2b224(ownerBytes))
+			ownerHash, err := NewBlake2b224Checked(ownerBytes)
+			if err != nil {
+				return fmt.Errorf("invalid pool owner key: %w", err)
+			}
+			owners[i] = AddrKeyHash(ownerHash)
 		}
 		p.PoolOwners = owners
 	}
