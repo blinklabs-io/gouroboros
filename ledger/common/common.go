@@ -269,6 +269,13 @@ type (
 type MultiAsset[T int64 | uint64 | *big.Int] struct {
 	data             map[Blake2b224]map[cbor.ByteString]T
 	duplicateMapKeys bool
+	// Wire-form conditions that pre-Conway decoding prunes away but that
+	// later decoder versions reject outright. They are recorded here because
+	// UnmarshalCBOR has no protocol version, and reported by
+	// CheckForZeroAssets and CheckForEmptyMultiAsset.
+	zeroQuantity    bool
+	emptyAssets     bool
+	emptyMultiAsset bool
 }
 
 // NewMultiAsset creates a MultiAsset with the specified data
@@ -334,16 +341,30 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 			return err
 		}
 	}
+	// Record the wire form before pruning: pruning is what makes a zero
+	// quantity and an empty asset map indistinguishable from an absent one.
+	zeroQuantity := false
+	emptyAssets := false
+	emptyMultiAsset := len(decoded) == 0
 	for _, assets := range decoded {
-		for name := range assets {
+		if len(assets) == 0 {
+			emptyAssets = true
+		}
+		for name, amount := range assets {
 			if len(name.Bytes()) > 32 {
 				return fmt.Errorf(
 					"invalid asset name length: expected at most 32 bytes, got %d",
 					len(name.Bytes()),
 				)
 			}
+			if amountIsZero(amount) {
+				zeroQuantity = true
+			}
 		}
 	}
+	m.zeroQuantity = zeroQuantity
+	m.emptyAssets = emptyAssets
+	m.emptyMultiAsset = emptyMultiAsset
 	m.data = pruneZeroAssets(decoded)
 	m.duplicateMapKeys = duplicateMapKeys
 	return nil
@@ -358,6 +379,40 @@ func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
 func (m *MultiAsset[T]) CheckForDuplicateKeys() error {
 	if m != nil && m.duplicateMapKeys {
 		return errors.New("duplicate map key in multiasset")
+	}
+	return nil
+}
+
+// CheckForZeroAssets reports a decoded wire form that cardano-ledger rejects
+// from protocol version 9 (Conway): an asset quantity of zero, or a policy
+// whose asset map is empty. Its decodeMultiAsset
+// (eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs) switches at that version
+// from pruneZeroMultiAsset to decodeNonEmptyMap decodeNonZeroAmount, which
+// fails with "MultiAsset cannot contain zeros" and "Empty Assets are not
+// allowed". Pre-Conway decoders must keep pruning instead of calling this.
+func (m *MultiAsset[T]) CheckForZeroAssets() error {
+	if m == nil {
+		return nil
+	}
+	if m.zeroQuantity {
+		return errors.New("multiasset cannot contain zeros")
+	}
+	if m.emptyAssets {
+		return errors.New("empty assets are not allowed in multiasset")
+	}
+	return nil
+}
+
+// CheckForEmptyMultiAsset reports a decoded empty multiasset map. Only
+// protocol version 12 (Dijkstra) rejects it, where decodeMultiAsset wraps the
+// outer map in decodeNonEmptyMap as well; Conway still accepts an empty outer
+// map, so only Dijkstra decoders call this.
+func (m *MultiAsset[T]) CheckForEmptyMultiAsset() error {
+	if m == nil {
+		return nil
+	}
+	if m.emptyMultiAsset {
+		return errors.New("empty multiasset map is not allowed")
 	}
 	return nil
 }
@@ -430,6 +485,9 @@ func (m *MultiAsset[T]) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	m.duplicateMapKeys = false
+	m.zeroQuantity = false
+	m.emptyAssets = false
+	m.emptyMultiAsset = false
 	if m.data == nil {
 		m.data = make(map[Blake2b224]map[cbor.ByteString]T)
 	}
