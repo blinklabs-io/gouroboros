@@ -549,17 +549,28 @@ func (id *GovActionId) ToPlutusData() data.PlutusData {
 	)
 }
 
-// String returns a CIP-0129 bech32-encoded representation of the governance action ID.
-// The format is: gov_action prefix with tx_id (32 bytes) + action_index (1 byte).
-// Per CIP-0129, the action index must fit in a single byte (0-255).
+// MaxCip0129GovActionIdx is the largest governance action index CIP-0129's
+// bech32 form can carry: its payload is a 32-byte transaction ID followed by
+// a single index byte.
+//
+// The Conway CDDL types the wire field as `uint .size 2`, so a decoded
+// GovActionId may legitimately exceed this. Rejecting such an index at decode
+// would refuse data the ledger accepts, so the excess is handled at
+// rendering instead.
+const MaxCip0129GovActionIdx = 255
+
+// String returns a CIP-0129 bech32-encoded representation of the governance
+// action ID: the gov_action prefix over tx_id (32 bytes) + action_index
+// (1 byte).
+//
+// An index above MaxCip0129GovActionIdx has no CIP-0129 representation, and
+// String has no way to report that, so it renders "<tx_id>#<index>" instead.
+// That form is not valid bech32 and will not round-trip through
+// UnmarshalText. Callers that need the difference reported must use
+// MarshalText, which returns an error for the same values.
 func (id *GovActionId) String() string {
-	if id.GovActionIdx > 255 {
-		panic(
-			fmt.Sprintf(
-				"gov action index %d exceeds maximum value 255 allowed by CIP-0129",
-				id.GovActionIdx,
-			),
-		)
+	if id.GovActionIdx > MaxCip0129GovActionIdx {
+		return fmt.Sprintf("%x#%d", id.TransactionId, id.GovActionIdx)
 	}
 
 	// Build payload: 32-byte transaction ID followed by 1-byte action index
@@ -590,10 +601,11 @@ func (id *GovActionId) MarshalText() ([]byte, error) {
 	if id == nil {
 		return nil, errors.New("nil GovActionId")
 	}
-	if id.GovActionIdx > 255 {
+	if id.GovActionIdx > MaxCip0129GovActionIdx {
 		return nil, fmt.Errorf(
-			"gov action index %d exceeds maximum value 255 allowed by CIP-0129",
+			"gov action index %d exceeds maximum value %d allowed by CIP-0129",
 			id.GovActionIdx,
+			MaxCip0129GovActionIdx,
 		)
 	}
 	return []byte(id.String()), nil

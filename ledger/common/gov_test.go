@@ -1121,27 +1121,26 @@ func TestGovActionIdString(t *testing.T) {
 		})
 	}
 
-	// Test panic on index exceeding CIP-0129 limit (must fit in single byte)
-	t.Run("PanicOnIndexExceedsLimit", func(t *testing.T) {
-		assert.Panics(t, func() {
-			govActionId := GovActionId{
-				TransactionId: [32]byte{},
-				GovActionIdx:  256,
-			}
-			_ = govActionId.String()
-		})
-	})
-
-	// Test panic on large index value
-	t.Run("PanicOnLargeIndex", func(t *testing.T) {
-		assert.Panics(t, func() {
-			govActionId := GovActionId{
-				TransactionId: [32]byte{},
-				GovActionIdx:  65535,
-			}
-			_ = govActionId.String()
-		})
-	})
+	// An index the CIP-0129 bech32 payload cannot carry renders as the
+	// non-bech32 sentinel instead, in both cases the wire format allows.
+	for _, idx := range []uint32{256, 65535} {
+		t.Run(
+			fmt.Sprintf("SentinelOnIndexExceedsLimit/%d", idx),
+			func(t *testing.T) {
+				govActionId := GovActionId{
+					TransactionId: [32]byte{},
+					GovActionIdx:  idx,
+				}
+				result := govActionId.String()
+				assert.Equal(
+					t,
+					fmt.Sprintf("%x#%d", [32]byte{}, idx),
+					result,
+				)
+				assert.NotContains(t, result, "gov_action1")
+			},
+		)
+	}
 }
 
 func TestVoterTextRoundTrip(t *testing.T) {
