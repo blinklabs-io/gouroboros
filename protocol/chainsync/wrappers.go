@@ -53,6 +53,11 @@ func NewWrappedHeader(
 	byronType uint,
 	blockCbor []byte,
 ) (*WrappedHeader, error) {
+	if era == ledger.BlockHeaderTypeByron {
+		if err := validateByronBlockType(byronType); err != nil {
+			return nil, err
+		}
+	}
 	w := &WrappedHeader{
 		Era:       era,
 		byronType: byronType,
@@ -94,7 +99,11 @@ func (w *WrappedHeader) UnmarshalCBOR(data []byte) error {
 		if _, err := cbor.Decode(tmpHeader.HeaderRaw, &wrappedHeaderByron); err != nil {
 			return err
 		}
-		w.byronType = wrappedHeaderByron.Metadata.Type
+		byronType := wrappedHeaderByron.Metadata.Type
+		if err := validateByronBlockType(byronType); err != nil {
+			return err
+		}
+		w.byronType = byronType
 		w.byronSize = wrappedHeaderByron.Metadata.Size
 		headerCbor, ok := wrappedHeaderByron.RawHeader.Content.([]byte)
 		if !ok {
@@ -160,6 +169,28 @@ func (w *WrappedHeader) HeaderCbor() []byte {
 // ByronType returns the block type for Byron blocks
 func (w *WrappedHeader) ByronType() uint {
 	return w.byronType
+}
+
+// validateByronBlockType bounds the block type a peer supplies in a Byron
+// header's metadata. cardano-ledger's decCBORABlockOrBoundaryHdr accepts only
+// 0 (boundary) and 1 (regular) and fails with "Unknown tag in encoded
+// HeaderOrBoundary" otherwise; ouroboros-consensus' DecodeDiskDepIx instance
+// for (NestedCtxt Header) ByronBlock, which produces this [type, size] pair,
+// rejects the same values with DecoderErrorUnknownTag. Without this the value
+// reaches RollForwardRawFunc as a block type, unchecked whenever no header
+// decode is requested.
+func validateByronBlockType(byronType uint) error {
+	switch byronType {
+	case ledger.BlockTypeByronEbb, ledger.BlockTypeByronMain:
+		return nil
+	default:
+		return fmt.Errorf(
+			"invalid byron block type %d: must be %d (EBB) or %d (main)",
+			byronType,
+			ledger.BlockTypeByronEbb,
+			ledger.BlockTypeByronMain,
+		)
+	}
 }
 
 type wrappedHeaderByron struct {
