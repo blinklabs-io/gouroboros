@@ -80,27 +80,38 @@ func TestByronMainBlockAcceptsRealHeader(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, block.BlockHeader)
 }
+
 func TestNewByronTransactionInputRejectsBadArguments(t *testing.T) {
 	t.Parallel()
 
 	validHash := strings.Repeat("ab", 32)
 
-	for _, test := range []struct {
+	type inputCase struct {
 		name string
 		hash string
 		idx  int
-	}{
+	}
+	cases := []inputCase{
 		{name: "non-hex hash", hash: "not-hex", idx: 0},
+		// A hash of any other length reached the slice-to-array
+		// conversion, which panics rather than truncating.
+		{name: "short hash", hash: strings.Repeat("ab", 31), idx: 0},
+		{name: "long hash", hash: strings.Repeat("ab", 33), idx: 0},
+		{name: "empty hash", hash: "", idx: 0},
 		{name: "negative index", hash: validHash, idx: -1},
-		{
+	}
+	// math.MaxUint32+1 is not representable as an int where int is 32 bits,
+	// so the case is built at run time and omitted on those GOARCHs, where
+	// the bound it probes cannot be reached.
+	if math.MaxInt > math.MaxUint32 {
+		aboveUint32 := int64(math.MaxUint32) + 1
+		cases = append(cases, inputCase{
 			name: "index above uint32",
 			hash: validHash,
-			idx:  math.MaxUint32 + 1,
-		},
-	} {
-		if test.idx > math.MaxInt32 && math.MaxInt == math.MaxInt32 {
-			continue
-		}
+			idx:  int(aboveUint32),
+		})
+	}
+	for _, test := range cases {
 		require.NotPanics(t, func() {
 			_, err := byron.NewByronTransactionInput(test.hash, test.idx)
 			require.Error(t, err, test.name)
