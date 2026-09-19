@@ -761,12 +761,19 @@ func TestReadLoopBoundsConnectionWideReadBuffers(t *testing.T) {
 			t, m, name, maxBufferSize,
 			incompleteMessageSegments(t, maxBufferSize),
 		)
+		// These protocols hold a private muxerDoneChan, so m.Stop() cannot
+		// wake them: whichever read loop is not refused stays blocked on
+		// its receive channel until its own stopChan closes. Stop is
+		// once-guarded, so it is also safe for the protocol that already
+		// stopped itself by reporting the budget error.
+		stopChan := p.proto.stopChan
+		t.Cleanup(p.proto.Stop)
 		go p.proto.readLoop()
 		go func() {
 			select {
 			case err := <-p.errorChan:
 				refused <- err
-			case <-time.After(10 * time.Second):
+			case <-stopChan:
 			}
 		}()
 	}

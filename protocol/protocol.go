@@ -874,12 +874,16 @@ func (p *Protocol) readLoop() {
 				if !ok {
 					return
 				}
-				// Add segment payload to buffer
-				readBuffer.Write(segment.Payload)
-				if !p.reserveReadBuffer(readBuffer.Len(), &reserved) {
-					p.SendError(p.errReadBufferBudget(readBuffer.Len()))
+				// Reserve before the write. bytes.Buffer.Write grows and
+				// copies, so writing first takes the allocation the
+				// connection allowance exists to refuse.
+				pendingLen := readBuffer.Len() + len(segment.Payload)
+				if !p.reserveReadBuffer(pendingLen, &reserved) {
+					p.SendError(p.errReadBufferBudget(pendingLen))
 					return
 				}
+				// Add segment payload to buffer
+				readBuffer.Write(segment.Payload)
 			}
 			// Opportunistically drain any additional segments the muxer
 			// has already queued for us before spending a decode attempt.
@@ -935,11 +939,12 @@ func (p *Protocol) readLoop() {
 					if !ok {
 						return
 					}
-					readBuffer.Write(segment.Payload)
-					if !p.reserveReadBuffer(readBuffer.Len(), &reserved) {
-						p.SendError(p.errReadBufferBudget(readBuffer.Len()))
+					pendingLen := readBuffer.Len() + len(segment.Payload)
+					if !p.reserveReadBuffer(pendingLen, &reserved) {
+						p.SendError(p.errReadBufferBudget(pendingLen))
 						return
 					}
+					readBuffer.Write(segment.Payload)
 					if readBuffer.Len() > p.config.maxReadBufferSize() {
 						break drainQueued
 					}
