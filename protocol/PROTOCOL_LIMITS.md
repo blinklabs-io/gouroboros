@@ -78,20 +78,26 @@ request caller when the bound is full; it does not terminate the connection.
 
 ## Transaction Submission
 
-The TxSubmission state map has no pending-message byte limits:
+| State | Timeout | Pending bytes |
+| --- | ---: | ---: |
+| Init | none | 721,424 |
+| Idle | none | 721,424 |
+| TxIdsBlocking | none | 721,424 |
+| TxIdsNonBlocking | 10 seconds | 721,424 |
+| Txs | 10 seconds | 721,424 |
+| Done | none | 721,424 |
 
-| State | Timeout |
-| --- | ---: |
-| Init | none |
-| Idle | none |
-| TxIdsBlocking | none |
-| TxIdsNonBlocking | 10 seconds |
-| Txs | 10 seconds |
-| Done | none |
+`MaxPendingMessageBytes` is 721,424 bytes: `MaxUnackedTxIds` (10) maximum-size
+transactions of `MaxTxSizeBytes` (65,540) plus the `TxIdReplyEntryBytes` (44)
+tx-id reply entry that announced each, with a 10% safety margin. It matches
+the tx-submission mux ingress limit the reference implementation enforces, so
+a conforming peer never exceeds it.
 
 The protocol accepts at most 65,535 transaction IDs in a request and at most
 65,535 acknowledgements (`uint16` wire fields). Both client and server reject
-counts outside those bounds with `ErrProtocolViolationRequestExceeded`.
+counts outside those bounds with `ErrProtocolViolationRequestExceeded`. Those
+are the ranges of the wire fields, not an in-flight window, which is why
+`MaxUnackedTxIds` rather than `MaxRequestCount` sizes the byte limit.
 `DefaultRequestLimit` and `DefaultAckLimit` are exported guidance constants
 (1,000); they are not configuration fields and are not applied automatically.
 
