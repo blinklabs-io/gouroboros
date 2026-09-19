@@ -361,10 +361,13 @@ type ShelleyTransactionPparamUpdate struct {
 
 type ShelleyTransactionBody struct {
 	common.TransactionBodyBase
-	TxInputs       ShelleyTransactionInputSet      `cbor:"0,keyasint,omitempty"`
-	TxOutputs      []ShelleyTransactionOutput      `cbor:"1,keyasint,omitempty"`
-	TxFee          uint64                          `cbor:"2,keyasint,omitempty"`
-	Ttl            uint64                          `cbor:"3,keyasint,omitempty"`
+	TxInputs  ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`
+	TxOutputs []ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
+	TxFee     uint64                     `cbor:"2,keyasint,omitempty"`
+	// Key 3 is mandatory in the Shelley CDDL, so it carries no omitempty:
+	// cardano-ledger's txSparse emits Key 3 (To ttl) unconditionally, and a
+	// dropped zero would be a body the reference cannot decode.
+	Ttl            uint64                          `cbor:"3,keyasint"`
 	TxCertificates []common.CertificateWrapper     `cbor:"4,keyasint,omitempty"`
 	TxWithdrawals  map[*common.Address]uint64      `cbor:"5,keyasint,omitempty"`
 	Update         *ShelleyTransactionPparamUpdate `cbor:"6,keyasint,omitempty"`
@@ -381,8 +384,32 @@ func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	*b = ShelleyTransactionBody(tmp)
+	// cardano-ledger decodes the Shelley body with
+	// SparseKeyed "TxBody" basicShelleyTxBodyRaw boxBody
+	// [(0,"inputs"),(1,"outputs"),(2,"fee"),(3,"ttl")]; that final list is
+	// the required fields, so a body without key 3 is not decodable there.
+	// Recording presence separately is what keeps an explicit zero TTL
+	// distinguishable from the absent field a zero value would otherwise
+	// look like.
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
+	if !b.ValidityIntervalUpperBoundPresent() {
+		return errors.New(
+			"shelley transaction body is missing mandatory ttl (key 3)",
+		)
+	}
 	b.SetCbor(cborData)
 	return nil
+}
+
+// ValidityIntervalUpperBound returns the TTL and whether it is present. Key 3
+// is mandatory in Shelley, so every decoded body reports it as present,
+// including when its value is zero. A body constructed in Go rather than
+// decoded reports presence only once a nonzero TTL or an explicit
+// SetValidityIntervalUpperBoundPresence has set it.
+func (b *ShelleyTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
 }
 
 func (b *ShelleyTransactionBody) MarshalCBOR() ([]byte, error) {
@@ -861,6 +888,10 @@ func (t ShelleyTransaction) Outputs() []common.TransactionOutput {
 
 func (t ShelleyTransaction) Fee() *big.Int {
 	return t.Body.Fee()
+}
+
+func (t ShelleyTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t ShelleyTransaction) TTL() uint64 {
