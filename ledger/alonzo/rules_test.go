@@ -1942,3 +1942,29 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		require.NoError(t, validate(t, 100, 150))
 	})
 }
+
+// The guard must sit exactly at the uint64 boundary: the largest product that
+// still fits is a valid requirement and has to be returned exactly, while the
+// next one up has to be rejected rather than wrapped to a small requirement.
+func TestAlonzoMinCoinTxOutBoundary(t *testing.T) {
+	t.Parallel()
+	txOut := &alonzo.AlonzoTransactionOutput{}
+	entrySize, err := alonzo.MinCoinTxOut(
+		txOut,
+		&alonzo.AlonzoProtocolParameters{AdaPerUtxoByte: 1},
+	)
+	require.NoError(t, err)
+	require.Positive(t, entrySize)
+	largest := uint64(math.MaxUint64) / entrySize
+	minCoin, err := alonzo.MinCoinTxOut(
+		txOut,
+		&alonzo.AlonzoProtocolParameters{AdaPerUtxoByte: largest},
+	)
+	require.NoError(t, err)
+	require.Equal(t, largest*entrySize, minCoin)
+	_, err = alonzo.MinCoinTxOut(
+		txOut,
+		&alonzo.AlonzoProtocolParameters{AdaPerUtxoByte: largest + 1},
+	)
+	require.ErrorContains(t, err, "overflow")
+}

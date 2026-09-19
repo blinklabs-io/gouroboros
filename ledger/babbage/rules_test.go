@@ -2135,3 +2135,29 @@ func TestBabbageMinCoinTxOutOverflow(t *testing.T) {
 	require.NoError(t, err)
 	require.Positive(t, minCoin)
 }
+
+// The guard must sit exactly at the uint64 boundary: the largest product that
+// still fits is a valid requirement and has to be returned exactly, while the
+// next one up has to be rejected rather than wrapped to a small requirement.
+func TestBabbageMinCoinTxOutBoundary(t *testing.T) {
+	t.Parallel()
+	txOut := babbage.BabbageTransactionOutput{}
+	entrySize, err := babbage.MinCoinTxOut(
+		txOut,
+		&babbage.BabbageProtocolParameters{AdaPerUtxoByte: 1},
+	)
+	require.NoError(t, err)
+	require.Positive(t, entrySize)
+	largest := uint64(math.MaxUint64) / entrySize
+	minCoin, err := babbage.MinCoinTxOut(
+		txOut,
+		&babbage.BabbageProtocolParameters{AdaPerUtxoByte: largest},
+	)
+	require.NoError(t, err)
+	require.Equal(t, largest*entrySize, minCoin)
+	_, err = babbage.MinCoinTxOut(
+		txOut,
+		&babbage.BabbageProtocolParameters{AdaPerUtxoByte: largest + 1},
+	)
+	require.ErrorContains(t, err, "overflow")
+}
