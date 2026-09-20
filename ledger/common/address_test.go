@@ -717,7 +717,7 @@ func BenchmarkAddressPointerDecode(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		var decoded AddressPayloadPointer
-		_, err := decoded.decode(data)
+		_, err := decoded.decode(data, true)
 		if err != nil {
 			b.Fatal(err)
 		}

@@ -15,11 +15,13 @@
 package common
 
 import (
+	"bytes"
 	"crypto/sha3"
 	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"math/big"
 	"slices"
 	"strings"
@@ -438,7 +440,9 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 		payload = payload[AddressHashSize:]
 	case AddressTypeKeyPointer, AddressTypeScriptPointer:
 		var tmpPointer AddressPayloadPointer
-		n, err := tmpPointer.decode(payload)
+		// allowTrailing marks the pre-Babbage output path, the same eras for
+		// which cardano-ledger keeps the pointer decoder lenient.
+		n, err := tmpPointer.decode(payload, !allowTrailing)
 		if err != nil {
 			return err
 		}
@@ -1074,33 +1078,147 @@ type AddressPayloadPointer struct {
 
 func (AddressPayloadPointer) isAddressPayload() {}
 
-func (a *AddressPayloadPointer) decode(data []byte) (int, error) {
-	readVarUint := func(data []byte, offset int) (uint64, int, error) {
-		var ret uint64
-		for offset < len(data) {
-			byt := data[offset]
-			offset++
+// Bounds on the three components of a pointer address, from cardano-ledger's
+// Ptr, which is "Ptr !SlotNo32 !TxIx !CertIx" over "newtype SlotNo32 = SlotNo32
+// Word32", "newtype TxIx = TxIx Word16" and "newtype CertIx = CertIx Word16"
+// (libs/cardano-ledger-core/src/Cardano/Ledger/Credential.hs). The components
+// are not the same width: the slot is 32 bits and both indices are 16.
+const (
+	addressPointerSlotMax  = uint64(math.MaxUint32)
+	addressPointerIndexMax = uint64(math.MaxUint16)
+
+	// Maximum number of 7-bit groups each component may occupy. From Conway
+	// onward decodeVariableLengthWord32 and decodeVariableLengthWord16 accept
+	// at most five and three groups respectively and fail with "too many
+	// bytes." on a sixth or fourth
+	// (libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs).
+	addressPointerSlotGroups  = 5
+	addressPointerIndexGroups = 3
+
+	// A uint64 accumulator holds ten 7-bit groups. Past that the leading bits
+	// are shifted away, which is the silent narrowing this bound exists to
+	// detect.
+	addressPointerUint64Groups = 10
+)
+
+// ErrAddressPointerOutOfRange reports a pointer address whose slot, transaction
+// index or certificate index is wider than cardano-ledger's Ptr allows.
+var ErrAddressPointerOutOfRange = errors.New(
+	"invalid pointer address: component out of range",
+)
+
+// ErrAddressPointerNotCanonical reports a pointer address whose components are
+// in range but whose encoding is not the one they re-encode to, so the address
+// would not round-trip through Bytes().
+var ErrAddressPointerNotCanonical = errors.New(
+	"invalid pointer address: non-canonical component encoding",
+)
+
+// readAddressPointerVarUint reads one big-endian 7-bit variable-length natural,
+// stopping after the first byte whose continuation bit is clear. It mirrors
+// decode7BitVarLength in cardano-ledger, but stops accumulating once the value
+// can no longer be represented, so a long encoding cannot wrap silently. The
+// reported flag is false when the component exceeded maxGroups or maxValue;
+// input is still consumed to the terminating byte either way, so a caller that
+// tolerates an out-of-range pointer sees the same offset the reference would.
+// maxGroups must not exceed addressPointerUint64Groups.
+func readAddressPointerVarUint(
+	data []byte,
+	offset int,
+	maxGroups int,
+	maxValue uint64,
+) (uint64, int, bool, error) {
+	var ret uint64
+	groups := 0
+	inRange := true
+	for offset < len(data) {
+		byt := data[offset]
+		offset++
+		groups++
+		if groups > maxGroups {
+			inRange = false
+		} else {
 			ret = (ret << 7) | uint64(byt&0x7F)
-			if (byt & 0x80) == 0 {
-				return ret, offset, nil
+			if ret > maxValue {
+				inRange = false
 			}
 		}
-		return 0, offset, io.ErrUnexpectedEOF
+		if (byt & 0x80) == 0 {
+			if !inRange {
+				return 0, offset, false, nil
+			}
+			return ret, offset, true, nil
+		}
 	}
+	return 0, offset, false, io.ErrUnexpectedEOF
+}
 
+// decode reads a StakePointer from the bytes following an address's payment
+// credential and returns the number of bytes consumed.
+//
+// In strict mode a component wider than its Ptr type is rejected, matching
+// decodePtr from Conway (decoder version 9) onward. In lenient mode an
+// out-of-range component instead zeroes all three, matching decodePtrLenient
+// and mkPtrNormalized, which cardano-ledger keeps for the eras that already
+// accepted such addresses.
+func (a *AddressPayloadPointer) decode(data []byte, strict bool) (int, error) {
+	slotGroups := addressPointerUint64Groups
+	indexGroups := addressPointerUint64Groups
+	if strict {
+		slotGroups = addressPointerSlotGroups
+		indexGroups = addressPointerIndexGroups
+	}
 	var offset int
-	var err error
-	a.Slot, offset, err = readVarUint(data, offset)
+	inRange := true
+	read := func(name string, maxGroups int, maxValue uint64) (uint64, error) {
+		val, next, ok, err := readAddressPointerVarUint(
+			data,
+			offset,
+			maxGroups,
+			maxValue,
+		)
+		offset = next
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			if strict {
+				return 0, fmt.Errorf(
+					"%w: %s",
+					ErrAddressPointerOutOfRange,
+					name,
+				)
+			}
+			inRange = false
+		}
+		return val, nil
+	}
+	slot, err := read("slot", slotGroups, addressPointerSlotMax)
 	if err != nil {
 		return 0, err
 	}
-	a.TxIndex, offset, err = readVarUint(data, offset)
+	txIndex, err := read("transaction index", indexGroups, addressPointerIndexMax)
 	if err != nil {
 		return 0, err
 	}
-	a.CertIndex, offset, err = readVarUint(data, offset)
+	certIndex, err := read("certificate index", indexGroups, addressPointerIndexMax)
 	if err != nil {
 		return 0, err
+	}
+	if !inRange {
+		// mkPtrNormalized clamps every component to zero when any one of them
+		// does not fit, because the result is a dangling pointer regardless.
+		slot, txIndex, certIndex = 0, 0, 0
+	}
+	a.Slot, a.TxIndex, a.CertIndex = slot, txIndex, certIndex
+	// Bytes() re-encodes the pointer rather than replaying the input, so a
+	// strict decode is only sound if the two agree. Lenient decoding is exempt:
+	// the reference also replaces a normalized pointer's bytes with the
+	// re-encoded form.
+	if strict {
+		if !bytes.Equal(a.encode(), data[:offset]) {
+			return 0, ErrAddressPointerNotCanonical
+		}
 	}
 	return offset, nil
 }
