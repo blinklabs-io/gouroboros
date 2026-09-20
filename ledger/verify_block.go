@@ -448,8 +448,9 @@ func sumBlockExUnits(txs []common.Transaction) (common.ExUnits, error) {
 
 // VerifyBlock performs block-local structural, cryptographic, and ledger
 // validation. It checks data available from the block and supplied verification
-// config, including body hash, VRF proof bytes, KES signature, transactions,
-// and optional stake pool registration.
+// config, including body hash, VRF proof bytes, the operational certificate's
+// cold-key signature, KES signature, transactions, and optional stake pool
+// registration.
 //
 // VerifyBlock is not full chain-context consensus validation. It does not
 // receive the previous header, active stake distribution, active slot
@@ -655,6 +656,48 @@ func VerifyBlock(
 			nil,
 		)
 	}
+	// Operational certificate cold-key signature, before the KES check that
+	// depends on it. The KES signature is verified against the hot vkey the
+	// header itself carries, so on its own it proves only that whoever wrote
+	// the header holds the matching KES secret -- not that the pool named by
+	// IssuerVkey ever authorized that hot key. Without this check a header
+	// naming a real pool, carrying an attacker's hot vkey and re-signed with
+	// the attacker's KES key, passes every other test in VerifyBlock.
+	//
+	// The issuer vkey is the cold verification key: a registered pool's pool
+	// id is the Blake2b-224 hash of exactly that key, so verifying against
+	// header.IssuerVkey is verifying against the registered cold key.
+	//
+	// Counter monotonicity and the max-KES-evolutions bound are not checked
+	// here: both need state VerifyBlock does not receive -- the pool's
+	// last-seen counter, and the Shelley genesis maxKESEvolutions.
+	//
+	// A header type ExtractOpCertFromHeader does not recognize is not a hole:
+	// ExtractKesFields below rejects exactly the same set of types outright,
+	// so no such header reaches the end of this function.
+	if opCert, ok := ExtractOpCertFromHeader(block.Header()); ok {
+		issuerVkey, _, err := extractHeaderFields(block.Header())
+		if err != nil {
+			return false, "", 0, 0, err
+		}
+		if err := VerifyOpCertSignature(opCert, issuerVkey); err != nil {
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeOpCert,
+				"operational certificate cold signature invalid",
+				map[string]any{
+					"slot":               slot,
+					"block_number":       blockNo,
+					"era":                era,
+					"opcert_counter":     opCert.IssueNumber,
+					"opcert_kes_period":  opCert.KesPeriod,
+					"issuer_vkey_len":    len(issuerVkey),
+					"cold_signature_len": len(opCert.ColdSignature),
+				},
+				err,
+			)
+		}
+	}
+
 	signature, hotVkey, kesPeriod, err := ExtractKesFields(block.Header())
 	if err != nil {
 		return false, "", 0, 0, err

@@ -600,12 +600,20 @@ func (t *ByronTransaction) Consumed() []common.TransactionInput {
 
 func (t *ByronTransaction) Produced() []common.Utxo {
 	outputs := t.Outputs()
+	txId := t.Id()
 	ret := make([]common.Utxo, 0, len(outputs))
 	for idx, output := range outputs {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     NewByronTransactionInput(t.Id().String(), idx),
+				Id: ByronTransactionInput{
+					TxId: txId,
+					// The output count is bounded by the Byron
+					// transaction size limit, orders of magnitude
+					// below MaxUint32.
+					//nolint:gosec // G115: see above
+					OutputIndex: uint32(idx),
+				},
 				Output: output,
 			},
 		)
@@ -815,21 +823,42 @@ type ByronTransactionInput struct {
 	OutputIndex uint32
 }
 
-func NewByronTransactionInput(hash string, idx int) ByronTransactionInput {
+// NewByronTransactionInput builds a transaction input from a hex-encoded
+// 32-byte transaction hash and an output index.
+//
+// It returns an error rather than panicking, so a caller passing a value it
+// did not produce itself -- a hash off the wire, out of an API request, or
+// out of a config file -- can reject it. A hash shorter than 32 bytes would
+// otherwise panic in the slice-to-array conversion below, before any check
+// on it ran.
+func NewByronTransactionInput(
+	hash string,
+	idx int,
+) (ByronTransactionInput, error) {
 	tmpHash, err := hex.DecodeString(hash)
 	if err != nil {
-		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
+		return ByronTransactionInput{}, fmt.Errorf(
+			"decode transaction hash: %w", err,
+		)
+	}
+	if len(tmpHash) != common.Blake2b256Size {
+		return ByronTransactionInput{}, fmt.Errorf(
+			"transaction hash is %d bytes, expected %d",
+			len(tmpHash), common.Blake2b256Size,
+		)
 	}
 	// Compare the upper bound via int64 so this builds on 32-bit GOARCHs, where
 	// int is 32-bit and the untyped math.MaxUint32 constant would overflow the
 	// int comparison type. On 32-bit a positive int can never exceed MaxUint32.
 	if idx < 0 || int64(idx) > math.MaxUint32 {
-		panic("index out of range")
+		return ByronTransactionInput{}, fmt.Errorf(
+			"output index %d out of range", idx,
+		)
 	}
 	return ByronTransactionInput{
 		TxId:        common.Blake2b256(tmpHash),
 		OutputIndex: uint32(idx),
-	}
+	}, nil
 }
 
 func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
@@ -1371,6 +1400,13 @@ func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
 	var tmp tByronMainBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	// A CBOR null header decodes into a nil pointer without error, and every
+	// accessor on the block dereferences it. Rejecting it here keeps the
+	// non-nil invariant whatever VerifyConfig a caller passes, matching the
+	// epoch boundary block's own check.
+	if tmp.BlockHeader == nil {
+		return errors.New("byron main block missing header")
 	}
 	*b = ByronMainBlock(tmp)
 	b.SetCbor(cborData)

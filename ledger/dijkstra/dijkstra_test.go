@@ -696,17 +696,11 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 // with two inline transactions and per-transaction validity flags. It confirms
 // the block/body wire shape, body-hash validation, and validity propagation.
 func TestDijkstraBlockNonEmptyTransactionsValidity(t *testing.T) {
-	sig := make([]byte, common.LeiosBlsSignatureSize)
-	leiosCert := &DijkstraLeiosCertificate{
-		Signers:             []byte{0x0f},
-		AggregatedSignature: sig,
-	}
 	blockBody := DijkstraBlockBody{
 		Transactions: []DijkstraTransaction{
 			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
 			{Body: DijkstraTransactionBody{TxFee: 2}, TxIsValid: false},
 		},
-		LeiosCertificate: leiosCert,
 	}
 	block := DijkstraBlock{
 		BlockHeader: &DijkstraBlockHeader{
@@ -736,7 +730,7 @@ func TestDijkstraBlockNonEmptyTransactionsValidity(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wire shape: block = [header, block_body];
-	// block_body = [[tx1, tx2], leios_cert, nil]
+	// block_body = [[tx1, tx2], nil, nil]
 	var raw []cbor.RawMessage
 	_, err = cbor.Decode(blockCbor, &raw)
 	require.NoError(t, err)
@@ -769,8 +763,7 @@ func TestDijkstraBlockNonEmptyTransactionsValidity(t *testing.T) {
 	require.Equal(t, int64(1), txs[0].Fee().Int64())
 	require.Equal(t, int64(2), txs[1].Fee().Int64())
 
-	require.NotNil(t, decoded.BlockBody.LeiosCertificate)
-	require.Equal(t, []byte{0x0f}, decoded.BlockBody.LeiosCertificate.Signers)
+	require.Nil(t, decoded.BlockBody.LeiosCertificate)
 }
 
 func TestDijkstraRedeemersRejectsDuplicateMapKey(t *testing.T) {

@@ -52,7 +52,16 @@ func VerifyBlockBody(
 	blockBodyHash string,
 	invalidTxIndices []uint,
 ) (bool, error) {
-	rawDataBytes, _ := hex.DecodeString(data)
+	// hex.DecodeString returns the bytes decoded before the offending
+	// character alongside its error, so discarding the error would verify a
+	// silently truncated body against the caller's hash.
+	rawDataBytes, decodeDataError := hex.DecodeString(data)
+	if decodeDataError != nil {
+		return false, fmt.Errorf(
+			"VerifyBlockBody: data decode error, %v",
+			decodeDataError.Error(),
+		)
+	}
 	var txsRaw [][]string
 	_, err := cbor.Decode(rawDataBytes, &txsRaw)
 	if err != nil {

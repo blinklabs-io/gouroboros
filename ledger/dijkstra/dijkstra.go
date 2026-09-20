@@ -189,7 +189,7 @@ func (b *DijkstraBlock) CalculatedBlockBodyHash() common.Blake2b256 {
 // ouroboros-leios prototype-2026w27 release (IntersectMBO/cardano-ledger #5872):
 //
 //	block_body = [..., leios_certificate : leios_certificate / nil, peras_certificate : peras_certificate / nil]
-//	leios_certificate = [ signers : bytes ; committee signer bitfield
+//	leios_certificate = [ signers : bytes .size (0 .. 8192) ; signer bitfield
 //	                    , aggregated_signature : leios_signature ]
 //	leios_signature = bytes .size 48
 //
@@ -220,6 +220,9 @@ func (c *DijkstraLeiosCertificate) UnmarshalCBOR(cborData []byte) error {
 			"decode Dijkstra Leios certificate signers: %w",
 			err,
 		)
+	}
+	if err := common.ValidateLeiosSignerBitfieldSize(signers); err != nil {
+		return err
 	}
 	var aggSig []byte
 	if _, err := cbor.Decode(items[1], &aggSig); err != nil {
@@ -343,6 +346,11 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 	perasCert, err := decodeDijkstraPerasCertificate(items[txField+2])
 	if err != nil {
 		return err
+	}
+	if leiosCert != nil && len(txs) > 0 {
+		return &LeiosCertifiedBlockTransactionsError{
+			TransactionCount: len(txs),
+		}
 	}
 	b.Transactions = txs
 	if !legacy {

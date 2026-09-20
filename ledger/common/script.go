@@ -998,9 +998,16 @@ func (n *NativeScript) evaluate(ctx nativeScriptEvalContext) bool {
 
 	switch s := n.item.(type) {
 	case *NativeScriptPubkey:
-		// Check if the required key hash is in the witness set
-		var hash Blake2b224
-		copy(hash[:], s.Hash)
+		// The CDDL types this as a 28-byte addr_keyhash, but the field decodes
+		// as an unbounded bytestring. Building the lookup key with an unchecked
+		// copy would zero-pad a short hash and truncate a long one, so a
+		// wrong-length hash could match a witness key hash it is not equal to
+		// and an invalid witness would satisfy the script. A hash that is not
+		// exactly Blake2b224Size bytes is satisfied by nothing.
+		hash, err := NewBlake2b224Checked(s.Hash)
+		if err != nil {
+			return false
+		}
 		return ctx.keyHashes[hash]
 
 	case *NativeScriptAll:

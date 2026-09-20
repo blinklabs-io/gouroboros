@@ -167,7 +167,17 @@ func TestStopUnblocksInitialRequestEnqueue(t *testing.T) {
 	}
 	select {
 	case err := <-stopDone:
-		require.NoError(t, err)
+		// Stop's MsgDone races the MsgRequestNext released above, and the
+		// client may only send MsgDone while it holds agency. If Done wins it
+		// goes out from stateIdle and Stop returns nil; if RequestNext wins,
+		// agency has moved to the peer, the fixture peer never replies, and
+		// Stop's bounded send can only expire. Both outcomes are specified --
+		// TestStopCancelsAwaitReplyPipelineFence asserts the second one -- so
+		// require the expiry to be the only error this can produce rather
+		// than asserting one side of a race the test does not sequence.
+		if err != nil {
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("Stop did not finish")
 	}

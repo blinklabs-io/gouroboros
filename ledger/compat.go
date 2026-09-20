@@ -31,8 +31,22 @@ func NewBlake2b224(data []byte) Blake2b224 {
 	return common.NewBlake2b224(data)
 }
 
+// NewBlake2b224Checked builds a Blake2b224 from data, returning an error
+// unless data is exactly 28 bytes long. Use it instead of NewBlake2b224
+// wherever the length is not statically guaranteed.
+func NewBlake2b224Checked(data []byte) (Blake2b224, error) {
+	return common.NewBlake2b224Checked(data)
+}
+
 func NewBlake2b256(data []byte) Blake2b256 {
 	return common.NewBlake2b256(data)
+}
+
+// NewBlake2b256Checked builds a Blake2b256 from data, returning an error
+// unless data is exactly 32 bytes long. Use it instead of NewBlake2b256
+// wherever the length is not statically guaranteed.
+func NewBlake2b256Checked(data []byte) (Blake2b256, error) {
+	return common.NewBlake2b256Checked(data)
 }
 
 // Address
