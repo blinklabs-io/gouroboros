@@ -26,7 +26,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRequestTxIdsRejectsReplyExceedingRequest(t *testing.T) {
+// TestRequestTxIdsOverReturningCallbackNeverReachesThePeer pins where an
+// over-returning RequestTxIdsFunc is stopped: the client refuses it rather
+// than putting a reply larger than the request on the wire, so the peer
+// never has to reject one. Server.RequestTxIds keeps its own check for a
+// peer under no such constraint, covered separately.
+func TestRequestTxIdsOverReturningCallbackNeverReachesThePeer(t *testing.T) {
 	localConn, remoteConn := net.Pipe()
 	t.Cleanup(func() {
 		require.NoError(t, localConn.Close())
@@ -43,6 +48,7 @@ func TestRequestTxIdsRejectsReplyExceedingRequest(t *testing.T) {
 		RemoteAddr: &net.UnixAddr{Name: "remote", Net: "unix"},
 	}
 
+	clientErrors := make(chan error, 10)
 	returned := []TxIdAndSize{
 		{TxId: TxId{EraId: 1}},
 		{TxId: TxId{EraId: 1}},
@@ -52,7 +58,11 @@ func TestRequestTxIdsRejectsReplyExceedingRequest(t *testing.T) {
 	requests := 0
 	acknowledged := make(chan uint16, 2)
 	client := NewClient(
-		protocol.ProtocolOptions{Muxer: clientMuxer, ConnectionId: connectionId},
+		protocol.ProtocolOptions{
+			Muxer:        clientMuxer,
+			ConnectionId: connectionId,
+			ErrorChan:    clientErrors,
+		},
 		&Config{RequestTxIdsFunc: func(
 			_ CallbackContext,
 			_ bool,
@@ -93,13 +103,20 @@ func TestRequestTxIdsRejectsReplyExceedingRequest(t *testing.T) {
 	require.Equal(t, uint16(0), <-acknowledged)
 
 	result, err = server.RequestTxIds(false, 1)
-	// The client rejects an over-returning callback before putting the invalid
-	// reply on the wire, so the peer observes protocol shutdown rather than
-	// receiving a reply it must reject itself.
 	require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
 	require.Nil(t, result)
 	require.Equal(t, 1, server.ackCount)
 	require.Equal(t, uint16(1), <-acknowledged)
+	select {
+	case err := <-clientErrors:
+		require.ErrorIs(
+			t,
+			err,
+			protocol.ErrProtocolViolationRequestExceeded,
+		)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the client sent a reply larger than the request")
+	}
 }
 
 func TestRequestTxIdsAcceptsReplyWithinRequest(t *testing.T) {
