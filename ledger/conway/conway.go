@@ -696,19 +696,19 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
 		return err
 	}
-	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
+	if err := checkMultiAssetEncoding(tmp.TxMint); err != nil {
 		return err
 	}
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}
 	for idx := range tmp.TxOutputs {
-		if err := checkMultiAssetDuplicateKeys(tmp.TxOutputs[idx].Assets()); err != nil {
+		if err := checkMultiAssetEncoding(tmp.TxOutputs[idx].Assets()); err != nil {
 			return fmt.Errorf("transaction output %d: %w", idx, err)
 		}
 	}
 	if tmp.TxCollateralReturn != nil {
-		if err := checkMultiAssetDuplicateKeys(
+		if err := checkMultiAssetEncoding(
 			tmp.TxCollateralReturn.Assets(),
 		); err != nil {
 			return fmt.Errorf("collateral return: %w", err)
@@ -772,13 +772,20 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
-func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
+// checkMultiAssetEncoding rejects the multiasset wire forms cardano-ledger
+// refuses from protocol version 9: a duplicate map key, a zero asset quantity,
+// and a policy with an empty asset map. An empty outer map remains legal until
+// Dijkstra, so it is not checked here.
+func checkMultiAssetEncoding[T int64 | uint64 | *big.Int](
 	assets *common.MultiAsset[T],
 ) error {
 	if assets == nil {
 		return nil
 	}
-	return assets.CheckForDuplicateKeys()
+	if err := assets.CheckForDuplicateKeys(); err != nil {
+		return err
+	}
+	return assets.CheckForZeroAssets()
 }
 
 func checkDuplicateProposalProcedures(
