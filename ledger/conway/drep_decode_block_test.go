@@ -41,7 +41,9 @@ func conwayBlockWithVoteDelegation(
 	require.NoError(t, err)
 	require.Len(t, txComponents, 4)
 
-	var body map[uint64]cbor.RawMessage
+	// Initialized rather than declared nil: the map is written to by
+	// index below, and a decode that yielded a nil map would panic there.
+	body := map[uint64]cbor.RawMessage{}
 	_, err = cbor.Decode(txComponents[0], &body)
 	require.NoError(t, err)
 
