@@ -16,6 +16,7 @@ package alonzo
 
 import (
 	"errors"
+	"math"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -468,6 +469,49 @@ func UtxoValidateFeeTooSmallUtxo(
 	}
 }
 
+// ValidateInsufficientCollateral applies the Alonzo collateral balance rule,
+// which every later era inherits unchanged.
+//
+// The comparison is cross-multiplied, balance * 100 >= fee * collateralPercent,
+// rather than dividing the requirement by 100: dividing truncates, which
+// accepts a balance one lovelace below the true requirement whenever
+// fee * collateralPercent is not a multiple of 100. The amount reported on
+// failure is the corresponding ceiling. Both totalCollateral and fee are
+// non-negative, so the ceiling can be taken by adding 99 before dividing.
+//
+// Reference: validateInsufficientCollateral in
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Rules/Utxo.hs, which tests
+// `Val.scale 100 bal >= Val.scale collPerc (toDeltaCoin txfee)` and reports
+// `rationalToCoinViaCeiling ((collPerc * txfee) %. 100)`.
+func ValidateInsufficientCollateral(
+	totalCollateral *big.Int,
+	fee *big.Int,
+	collateralPercentage uint,
+) error {
+	scaledCollateral := new(big.Int).Mul(totalCollateral, big.NewInt(100))
+	scaledFee := new(big.Int).Mul(
+		fee,
+		new(big.Int).SetUint64(uint64(collateralPercentage)),
+	)
+	if scaledCollateral.Cmp(scaledFee) >= 0 {
+		return nil
+	}
+	required := new(big.Int).Add(scaledFee, big.NewInt(99))
+	required.Div(required, big.NewInt(100))
+	// Convert to uint64 for error struct (best effort)
+	var providedU, requiredU uint64
+	if totalCollateral.IsUint64() {
+		providedU = totalCollateral.Uint64()
+	}
+	if required.IsUint64() {
+		requiredU = required.Uint64()
+	}
+	return InsufficientCollateralError{
+		Provided: providedU,
+		Required: requiredU,
+	}
+}
+
 // UtxoValidateInsufficientCollateral ensures that there is sufficient collateral provided
 func UtxoValidateInsufficientCollateral(
 	tx common.Transaction,
@@ -497,30 +541,15 @@ func UtxoValidateInsufficientCollateral(
 			totalCollateral.Add(totalCollateral, amount)
 		}
 	}
-	// minCollateral = fee * collateralPercentage / 100
 	fee := tmpTx.Fee()
 	if fee == nil {
 		fee = new(big.Int)
 	}
-	minCollateral := new(
-		big.Int,
-	).Mul(fee, new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)))
-	minCollateral.Div(minCollateral, big.NewInt(100))
-	if totalCollateral.Cmp(minCollateral) >= 0 {
-		return nil
-	}
-	// Convert to uint64 for error struct (best effort)
-	var providedU, requiredU uint64
-	if totalCollateral.IsUint64() {
-		providedU = totalCollateral.Uint64()
-	}
-	if minCollateral.IsUint64() {
-		requiredU = minCollateral.Uint64()
-	}
-	return InsufficientCollateralError{
-		Provided: providedU,
-		Required: requiredU,
-	}
+	return ValidateInsufficientCollateral(
+		totalCollateral,
+		fee,
+		tmpPparams.CollateralPercentage,
+	)
 }
 
 // UtxoValidateCollateralContainsNonAda ensures that collateral inputs don't contain non-ADA
@@ -777,13 +806,13 @@ func UtxoValidateOutputTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	minCoin, err := MinCoinTxOut(tx, pp)
-	if err != nil {
-		return err
-	}
-	minCoinBig := new(big.Int).SetUint64(minCoin)
 	var badOutputs []common.TransactionOutput
 	for _, tmpOutput := range tx.Outputs() {
+		minCoin, err := MinCoinTxOut(tmpOutput, pp)
+		if err != nil {
+			return err
+		}
+		minCoinBig := new(big.Int).SetUint64(minCoin)
 		amount := tmpOutput.Amount()
 		if amount == nil {
 			amount = new(big.Int)
@@ -901,17 +930,102 @@ func MinFeeTx(
 	return minFee, nil
 }
 
-// MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters
+// Alonzo prices a UTxO entry by an estimate of its in-memory size in 8-byte
+// words rather than by its serialized length, so these constants are heap-word
+// estimates and are not derived from the CBOR encoding.
+//
+// Reference: utxoEntrySize and getMinCoinTxOut in
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxOut.hs, and Val.size for
+// MaryValue in eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs.
+const (
+	// alonzoUtxoEntrySizeWithoutVal is 6 + txoutLenNoVal(14) + txinLen(7).
+	alonzoUtxoEntrySizeWithoutVal = 27
+	// alonzoAdaOnlyValueSize is Val.size for a value holding only ada.
+	alonzoAdaOnlyValueSize = 2
+	// alonzoDataHashSize is dataHashSize for an output with a datum hash.
+	alonzoDataHashSize = 10
+	// alonzoValueRepOverhead is repOverhead: 4 + adaWords(1) +
+	// numberMulAssets(1).
+	alonzoValueRepOverhead = 6
+	// alonzoWordLength is the word size the estimate is expressed in.
+	alonzoWordLength = 8
+	// alonzoPolicyIdSize is the ADDRHASH length used by representationSize.
+	alonzoPolicyIdSize = 28
+	// alonzoAssetTripleSize is the abcRegion cost of one (policy, name,
+	// quantity) triple.
+	alonzoAssetTripleSize = 12
+)
+
+// alonzoValueSize implements Val.size for a Mary value in the Alonzo era.
+//
+// The ada-only branch returns 2, which the reference flags as wrong for Mary
+// itself and correct only from Alonzo onwards; do not reuse it for Mary.
+func alonzoValueSize(
+	assets *common.MultiAsset[common.MultiAssetTypeOutput],
+) uint64 {
+	if assets == nil {
+		return alonzoAdaOnlyValueSize
+	}
+	numAssets := 0
+	numPolicies := 0
+	assetNames := make(map[string]struct{})
+	for _, policyId := range assets.Policies() {
+		names := assets.Assets(policyId)
+		if len(names) == 0 {
+			// representationSize counts policy IDs appearing in the
+			// flattened triples, so a policy with no assets contributes
+			// nothing.
+			continue
+		}
+		numPolicies++
+		for _, name := range names {
+			numAssets++
+			assetNames[string(name)] = struct{}{}
+		}
+	}
+	if numAssets == 0 {
+		return alonzoAdaOnlyValueSize
+	}
+	nameBytes := 0
+	for name := range assetNames {
+		nameBytes += len(name)
+	}
+	repSize := numAssets*alonzoAssetTripleSize +
+		numPolicies*alonzoPolicyIdSize +
+		nameBytes
+	words := (repSize + alonzoWordLength - 1) / alonzoWordLength
+	return uint64(words + alonzoValueRepOverhead) // #nosec G115
+}
+
+// alonzoUtxoEntrySize implements utxoEntrySize, the Alonzo estimate of the
+// size of one UTxO entry in 8-byte words.
+func alonzoUtxoEntrySize(txOut common.TransactionOutput) uint64 {
+	ret := uint64(alonzoUtxoEntrySizeWithoutVal)
+	ret += alonzoValueSize(txOut.Assets())
+	if txOut.DatumHash() != nil {
+		ret += alonzoDataHashSize
+	}
+	return ret
+}
+
+// MinCoinTxOut calculates the minimum coin for a transaction output.
+//
+// Alonzo replaced the flat Shelley minUTxOValue with a size-based price:
+// utxoEntrySize(txOut) * coinsPerUTxOWord.
 func MinCoinTxOut(
-	_ common.Transaction,
+	txOut common.TransactionOutput,
 	pparams common.ProtocolParameters,
 ) (uint64, error) {
 	tmpPparams, ok := pparams.(*AlonzoProtocolParameters)
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}
-	minCoinTxOut := uint64(tmpPparams.MinUtxoValue)
-	return minCoinTxOut, nil
+	entrySize := alonzoUtxoEntrySize(txOut)
+	if tmpPparams.AdaPerUtxoByte != 0 &&
+		entrySize > math.MaxUint64/tmpPparams.AdaPerUtxoByte {
+		return 0, errors.New("minimum UTxO value overflow")
+	}
+	return entrySize * tmpPparams.AdaPerUtxoByte, nil
 }
 
 func UtxoValidateMetadata(
