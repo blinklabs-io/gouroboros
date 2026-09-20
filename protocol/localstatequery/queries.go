@@ -952,8 +952,11 @@ type StakePoolParamsResult struct {
 		Relays        []ledger.PoolRelay
 		PoolMetadata  *struct {
 			cbor.StructAsArray
-			Url          string
-			MetadataHash ledger.Blake2b256
+			Url string
+			// The reference ledger stores pmHash as an unbounded byte string and
+			// applies the 32-byte bound in the POOL rule from protocol version 5,
+			// so ledger state can hold a registration with a shorter hash.
+			MetadataHash lcommon.PoolMetadataHash
 		}
 	}
 }
@@ -1039,8 +1042,11 @@ type PoolStateParams struct {
 	Relays        []ledger.PoolRelay
 	PoolMetadata  *struct {
 		cbor.StructAsArray
-		Url          string
-		MetadataHash ledger.Blake2b256
+		Url string
+		// The reference ledger stores pmHash as an unbounded byte string and
+		// applies the 32-byte bound in the POOL rule from protocol version 5,
+		// so ledger state can hold a registration with a shorter hash.
+		MetadataHash lcommon.PoolMetadataHash
 	}
 }
 
