@@ -56,6 +56,7 @@ func TestDijkstraLeiosCertificateRejectsOversizedSigners(t *testing.T) {
 	require.Error(t, err)
 	var target *common.LeiosSignerBitfieldTooLargeError
 	require.ErrorAs(t, err, &target)
+	require.NotNil(t, target)
 	require.Equal(t, common.MaxLeiosSignerBitfieldSize+1, target.Size)
 	require.Equal(t, common.MaxLeiosSignerBitfieldSize, target.Max)
 }
@@ -91,6 +92,7 @@ func TestDijkstraBlockBodyRejectsCertifiedBodyWithTransactions(t *testing.T) {
 	require.Error(t, err)
 	var target *LeiosCertifiedBlockTransactionsError
 	require.ErrorAs(t, err, &target)
+	require.NotNil(t, target)
 	require.Equal(t, 1, target.TransactionCount)
 }
 
@@ -111,6 +113,7 @@ func TestDijkstraLegacyBlockBodyRejectsCertifiedBodyWithTransactions(
 	require.Error(t, err)
 	var target *LeiosCertifiedBlockTransactionsError
 	require.ErrorAs(t, err, &target)
+	require.NotNil(t, target)
 	require.Equal(t, 1, target.TransactionCount)
 }
 

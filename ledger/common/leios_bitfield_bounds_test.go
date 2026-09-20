@@ -41,6 +41,7 @@ func TestLeiosEbCertificateRejectsOversizedSigners(t *testing.T) {
 	require.Error(t, err)
 	var target *LeiosSignerBitfieldTooLargeError
 	require.ErrorAs(t, err, &target)
+	require.NotNil(t, target)
 	require.Equal(t, MaxLeiosSignerBitfieldSize+1, target.Size)
 	require.Equal(t, MaxLeiosSignerBitfieldSize, target.Max)
 }
