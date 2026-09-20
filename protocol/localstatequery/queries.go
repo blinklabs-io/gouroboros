@@ -958,6 +958,38 @@ type StakePoolParamsResult struct {
 	}
 }
 
+// validateQueryPoolMetadataURL applies the shared pool metadata URL bound to a
+// URL decoded through one of the inline metadata structs in this package.
+// Those structs are unnamed, so they cannot carry a decoder and
+// common.PoolMetadata.UnmarshalCBOR never runs on a query result path.
+func validateQueryPoolMetadataURL(url string) error {
+	return lcommon.ValidatePoolMetadata(&lcommon.PoolMetadata{Url: url})
+}
+
+// UnmarshalCBOR decodes a stake pool parameters query result and bounds each
+// pool metadata URL. The map value is an unnamed struct type, so the bound
+// runs here rather than in a decoder of its own.
+func (r *StakePoolParamsResult) UnmarshalCBOR(data []byte) error {
+	if r == nil {
+		return errors.New("nil StakePoolParamsResult receiver")
+	}
+	type stakePoolParamsResult StakePoolParamsResult
+	var tmp stakePoolParamsResult
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	for poolId, params := range tmp.Results {
+		if params.PoolMetadata == nil {
+			continue
+		}
+		if err := validateQueryPoolMetadataURL(params.PoolMetadata.Url); err != nil {
+			return fmt.Errorf("pool %s: %w", poolId, err)
+		}
+	}
+	*r = StakePoolParamsResult(tmp)
+	return nil
+}
+
 // RewardParams represents the global reward calculation parameters
 // for the current epoch.
 // CBOR: array(4) [nOpt, a0, rPot, totalStake]
@@ -1042,6 +1074,27 @@ type PoolStateParams struct {
 		Url          string
 		MetadataHash ledger.Blake2b256
 	}
+}
+
+// UnmarshalCBOR decodes pool registration parameters and bounds the pool
+// metadata URL. The inline metadata struct is unnamed, so the bound runs here
+// rather than in a decoder of its own.
+func (p *PoolStateParams) UnmarshalCBOR(data []byte) error {
+	if p == nil {
+		return errors.New("nil PoolStateParams receiver")
+	}
+	type poolStateParams PoolStateParams
+	var tmp poolStateParams
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	if tmp.PoolMetadata != nil {
+		if err := validateQueryPoolMetadataURL(tmp.PoolMetadata.Url); err != nil {
+			return err
+		}
+	}
+	*p = PoolStateParams(tmp)
+	return nil
 }
 
 // PoolStateResult represents the pool state result
