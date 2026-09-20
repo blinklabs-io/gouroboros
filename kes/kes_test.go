@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"filippo.io/edwards25519"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -389,9 +390,12 @@ func TestZeroize(t *testing.T) {
 	require.NoError(t, err, "KeyGen failed")
 
 	data := sk.Data
+	publicKey := append([]byte(nil), PublicKey(sk)...)
 	sk.Zeroize()
 
 	require.Nil(t, sk.Data, "Data not cleared after Zeroize")
+	require.Equal(t, uint64(0), sk.Period, "period not reset after Zeroize")
+	require.Equal(t, publicKey, PublicKey(sk), "public key changed after Zeroize")
 	require.Equal(
 		t,
 		make([]byte, len(data)),
@@ -449,7 +453,7 @@ func TestFullEvolveChainVerifies(t *testing.T) {
 	for period := range maxPeriod {
 		sig, err := Sign(sk, period, message)
 		require.NoErrorf(t, err, "sign failed at period %d", period)
-		require.Truef(
+		assert.Truef(
 			t,
 			VerifySignedKES(pk, period, message, sig),
 			"verify failed at period %d",
