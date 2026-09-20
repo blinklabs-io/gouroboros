@@ -22,7 +22,14 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/internal/ed25519strict"
 	"github.com/blinklabs-io/gouroboros/kes"
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
 // OpCert represents an Operational Certificate used in Cardano consensus.
@@ -198,6 +205,58 @@ func ValidateOpCert(
 	}
 
 	return evolutionPeriod, nil
+}
+
+// ExtractOpCertFromHeader returns the operational certificate carried by a
+// Praos or TPraos block header. The Shelley-family headers (Shelley through
+// Alonzo) carry the certificate's fields flat on the header body; the
+// Babbage-family headers (Babbage, Conway, Dijkstra) nest them under an
+// OpCert field. Byron and unrecognized headers carry no operational
+// certificate at all, so ok is false and opCert is nil.
+//
+// Dijkstra needs its own case even though DijkstraBlockHeader embeds
+// BabbageBlockHeader: it is a distinct concrete type, so a type switch on the
+// Babbage case does not match it and the certificate would be silently
+// skipped.
+func ExtractOpCertFromHeader(
+	header common.BlockHeader,
+) (opCert *OpCert, ok bool) {
+	switch h := header.(type) {
+	case *shelley.ShelleyBlockHeader:
+		return shelleyHeaderOpCert(&h.Body), true
+	case *allegra.AllegraBlockHeader:
+		return shelleyHeaderOpCert(&h.Body), true
+	case *mary.MaryBlockHeader:
+		return shelleyHeaderOpCert(&h.Body), true
+	case *alonzo.AlonzoBlockHeader:
+		return shelleyHeaderOpCert(&h.Body), true
+	case *babbage.BabbageBlockHeader:
+		return babbageHeaderOpCert(h.Body.OpCert), true
+	case *conway.ConwayBlockHeader:
+		return babbageHeaderOpCert(h.Body.OpCert), true
+	case *dijkstra.DijkstraBlockHeader:
+		return babbageHeaderOpCert(h.Body.OpCert), true
+	default:
+		return nil, false
+	}
+}
+
+func shelleyHeaderOpCert(body *shelley.ShelleyBlockHeaderBody) *OpCert {
+	return &OpCert{
+		KesVkey:       body.OpCertHotVkey,
+		IssueNumber:   body.OpCertSequenceNumber,
+		KesPeriod:     body.OpCertKesPeriod,
+		ColdSignature: body.OpCertSignature,
+	}
+}
+
+func babbageHeaderOpCert(oc babbage.BabbageOpCert) *OpCert {
+	return &OpCert{
+		KesVkey:       oc.HotVkey,
+		IssueNumber:   oc.SequenceNumber,
+		KesPeriod:     oc.KesPeriod,
+		ColdSignature: oc.Signature,
+	}
 }
 
 // OpCertFromBlockHeader extracts an OpCert from a block header.
