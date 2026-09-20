@@ -39,6 +39,13 @@ var ErrLocalPeerSharingDisabled = errors.New(
 	"peer sharing: received ShareRequest but local node advertised NoPeerSharing during handshake",
 )
 
+// ErrTooManyPeersShared is returned by the client when a peer answers a
+// ShareRequest with more addresses than were requested. The protocol permits
+// a smaller reply; a larger one is a protocol violation.
+var ErrTooManyPeersShared = errors.New(
+	"peer sharing: received more peer addresses than requested",
+)
+
 // Protocol identifiers
 const (
 	ProtocolName = "peer-sharing"
@@ -50,6 +57,26 @@ const (
 	BusyTimeout = 60 * time.Second // Timeout for server to respond with peers
 )
 
+// MaxPendingMessageBytes is the maximum allowed pending message bytes in each
+// active peer-sharing state. The value is the reference implementation's
+// figure, used there both as the mini-protocol ingress queue
+// (peerSharingProtocolLimits) and as the per-state codec size limit
+// (byteLimitsPeerSharing): four 1440-byte TCP segments, one initial congestion
+// window, so a request and its reply complete within a single round trip.
+const MaxPendingMessageBytes = 4 * 1440
+
+// MaxSharedPeers is the largest number of addresses a SharePeers message may
+// carry and still encode within MaxPendingMessageBytes.
+//
+// A PeerAddress encodes to at most 25 bytes, its IPv6 form: a 6-element array
+// header, the peer type, four uint32 words at 5 bytes each, and a 3-byte port.
+// The IPv4 form is 10 bytes. A SharePeers message adds a 2-byte frame (outer
+// 2-element array header plus message type) and a 2-byte address-array header
+// above 23 entries, so 230 IPv6 addresses encode to 5,754 bytes and 231 to
+// 5,779. ShareRequest.Amount is a uint8, so a peer may ask for 255, whose
+// reply would encode to 6,379 bytes and exceed MaxPendingMessageBytes.
+const MaxSharedPeers = 230
+
 var (
 	stateIdle = protocol.NewState(1, "Idle")
 	stateBusy = protocol.NewState(2, "Busy")
@@ -59,7 +86,8 @@ var (
 // PeerSharing protocol state machine
 var StateMap = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeShareRequest,
@@ -72,8 +100,9 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateBusy: protocol.StateMapEntry{
-		Agency:  protocol.AgencyServer,
-		Timeout: BusyTimeout,
+		Agency:                  protocol.AgencyServer,
+		Timeout:                 BusyTimeout,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeSharePeers,

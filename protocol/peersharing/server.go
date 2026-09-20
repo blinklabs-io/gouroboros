@@ -124,6 +124,23 @@ func (s *Server) handleShareRequest(proto *protocol.Protocol, msg protocol.Messa
 	if err != nil {
 		return err
 	}
+	// Clamp the callback's result twice over. A reply larger than the
+	// requested count is a protocol violation the remote is entitled to
+	// reject, and one that encodes past MaxPendingMessageBytes would fail
+	// this protocol on its own outbound queue check and drop the bearer.
+	if maxPeers := min(int(msgShareRequest.Amount), MaxSharedPeers); len(peers) > maxPeers {
+		proto.Logger().
+			Debug("truncating peer sharing response",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+				"requested", msgShareRequest.Amount,
+				"available", len(peers),
+				"sent", maxPeers,
+			)
+		peers = peers[:maxPeers]
+	}
 	msgResp := NewMsgSharePeers(peers)
 	if err := proto.SendMessage(msgResp); err != nil {
 		return err
