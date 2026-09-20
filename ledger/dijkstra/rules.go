@@ -135,7 +135,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleNoDuplicateInputs,
-		Validator: conway.UtxoValidateNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
 	},
 	{
 		Id:        common.UtxoValidationRuleFeeTooSmall,
@@ -159,7 +159,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleBadInputs,
-		Validator: conway.UtxoValidateBadInputsUtxo,
+		Validator: UtxoValidateBadInputsUtxo,
 	},
 	{
 		Id:        common.UtxoValidationRuleScriptWitnesses,
@@ -187,11 +187,11 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
-		Validator: conway.UtxoValidateOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
 	},
 	{
 		Id:        common.UtxoValidationRuleWrongNetwork,
-		Validator: conway.UtxoValidateWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
 	},
 	{
 		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
@@ -985,6 +985,129 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	return nil
 }
 
+// dijkstraBatchTransaction presents a Dijkstra transaction's top-level body
+// and every sub-transaction body as a single transaction, so a rule that folds
+// inputs, outputs, certificates, withdrawals, mints, proposals or donations
+// covers the whole batch.
+//
+// Cardano's DIJKSTRA UTXO rule checks value conservation once over the batch,
+// against the UTxO set as it stood before any of the batch was applied, and
+// its SUBUTXO rule repeats the per-body input and output checks for each
+// sub-transaction. Fee is deliberately not overridden: the reference counts it
+// once from the top-level body, and a sub-transaction body has no fee field.
+//
+// Reference inputs are also not overridden. A sub-transaction may legitimately
+// reference the same UTxO as another level, so folding them would make the
+// duplicate-input rule reject a valid batch.
+type dijkstraBatchTransaction struct {
+	common.Transaction
+	bodies []common.TransactionBody
+}
+
+// dijkstraBatchView returns tx flattened across its transaction levels when it
+// is a Dijkstra transaction carrying sub-transactions, and tx itself
+// otherwise.
+func dijkstraBatchView(tx common.Transaction) common.Transaction {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return tx
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	if len(subTxs) == 0 {
+		return tx
+	}
+	bodies := make([]common.TransactionBody, 0, len(subTxs)+1)
+	bodies = append(bodies, &dijkstraTx.Body)
+	for idx := range subTxs {
+		bodies = append(bodies, &subTxs[idx].Body)
+	}
+	return dijkstraBatchTransaction{Transaction: dijkstraTx, bodies: bodies}
+}
+
+func (t dijkstraBatchTransaction) Inputs() []common.TransactionInput {
+	var ret []common.TransactionInput
+	for _, body := range t.bodies {
+		ret = append(ret, body.Inputs()...)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) Outputs() []common.TransactionOutput {
+	var ret []common.TransactionOutput
+	for _, body := range t.bodies {
+		ret = append(ret, body.Outputs()...)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) Certificates() []common.Certificate {
+	var ret []common.Certificate
+	for _, body := range t.bodies {
+		ret = append(ret, body.Certificates()...)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) Withdrawals() map[*common.Address]*big.Int {
+	ret := make(map[*common.Address]*big.Int)
+	for _, body := range t.bodies {
+		for address, amount := range body.Withdrawals() {
+			if amount == nil {
+				continue
+			}
+			if existing, ok := ret[address]; ok {
+				ret[address] = new(big.Int).Add(existing, amount)
+				continue
+			}
+			ret[address] = amount
+		}
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) ProposalProcedures() []common.ProposalProcedure {
+	var ret []common.ProposalProcedure
+	for _, body := range t.bodies {
+		ret = append(ret, body.ProposalProcedures()...)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) Donation() *big.Int {
+	var ret *big.Int
+	for _, body := range t.bodies {
+		donation := body.Donation()
+		if donation == nil {
+			continue
+		}
+		if ret == nil {
+			ret = new(big.Int)
+		}
+		ret.Add(ret, donation)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	var ret *common.MultiAsset[common.MultiAssetTypeMint]
+	for _, body := range t.bodies {
+		mint := body.AssetMint()
+		if mint == nil {
+			continue
+		}
+		if ret == nil {
+			merged := common.NewMultiAsset[common.MultiAssetTypeMint](nil)
+			ret = &merged
+		}
+		ret.Add(mint)
+	}
+	return ret
+}
+
+// UtxoValidateValueNotConservedUtxo balances consumed against produced value
+// across every transaction level. A sub-transaction's inputs, outputs,
+// withdrawals, certificates, mints, proposal deposits and treasury donation
+// all count towards the enclosing transaction's balance.
 func UtxoValidateValueNotConservedUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -995,7 +1118,77 @@ func UtxoValidateValueNotConservedUtxo(
 	if err != nil {
 		return err
 	}
-	return conway.UtxoValidateValueNotConservedUtxo(tx, slot, ls, tmpPparams)
+	return conway.UtxoValidateValueNotConservedUtxo(
+		dijkstraBatchView(tx),
+		slot,
+		ls,
+		tmpPparams,
+	)
+}
+
+// UtxoValidateBadInputsUtxo requires every transaction level's inputs to
+// resolve against the UTxO set.
+func UtxoValidateBadInputsUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateBadInputsUtxo(
+		dijkstraBatchView(tx),
+		slot,
+		ls,
+		pp,
+	)
+}
+
+// UtxoValidateNoDuplicateInputs rejects an input spent by more than one
+// transaction level, which would otherwise count towards consumed value once
+// per level.
+func UtxoValidateNoDuplicateInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateNoDuplicateInputs(
+		dijkstraBatchView(tx),
+		slot,
+		ls,
+		pp,
+	)
+}
+
+// UtxoValidateWrongNetwork checks every transaction level's output addresses
+// against the ledger network.
+func UtxoValidateWrongNetwork(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateWrongNetwork(
+		dijkstraBatchView(tx),
+		slot,
+		ls,
+		pp,
+	)
+}
+
+// UtxoValidateOutputBootAddrAttrsTooBig checks every transaction level's
+// bootstrap output addresses.
+func UtxoValidateOutputBootAddrAttrsTooBig(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateOutputBootAddrAttrsTooBig(
+		dijkstraBatchView(tx),
+		slot,
+		ls,
+		pp,
+	)
 }
 
 type batchWithdrawal struct {
@@ -2537,6 +2730,8 @@ func UtxoValidateNoCollateralInputs(
 	return alonzo.NoCollateralInputsError{}
 }
 
+// UtxoValidateOutputTooSmallUtxo applies the minimum-coin check to every
+// transaction level's outputs.
 func UtxoValidateOutputTooSmallUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2544,7 +2739,7 @@ func UtxoValidateOutputTooSmallUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	var badOutputs []common.TransactionOutput
-	for _, tmpOutput := range tx.Outputs() {
+	for _, tmpOutput := range dijkstraBatchView(tx).Outputs() {
 		minCoin, err := MinCoinTxOut(tmpOutput, pp)
 		if err != nil {
 			return err
@@ -2580,6 +2775,8 @@ func MinCoinTxOut(
 		(minUtxoOverheadBytes + uint64(len(txOutBytes))), nil
 }
 
+// UtxoValidateOutputTooBigUtxo applies the maximum-value-size check to every
+// transaction level's outputs.
 func UtxoValidateOutputTooBigUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2591,7 +2788,7 @@ func UtxoValidateOutputTooBigUtxo(
 		return err
 	}
 	var badOutputs []common.TransactionOutput
-	for _, txOutput := range tx.Outputs() {
+	for _, txOutput := range dijkstraBatchView(tx).Outputs() {
 		outputVal, err := outputValue(txOutput)
 		if err != nil {
 			return err

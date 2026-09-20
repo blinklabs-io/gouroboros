@@ -257,21 +257,21 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateDisjointRefInputs,            // UtxoValidationRuleDisjointRefInputs
 		conway.UtxoValidateOutsideValidityIntervalUtxo,    // UtxoValidationRuleOutsideValidityInterval
 		conway.UtxoValidateInputSetEmptyUtxo,              // UtxoValidationRuleInputSetEmpty
-		conway.UtxoValidateNoDuplicateInputs,              // UtxoValidationRuleNoDuplicateInputs
+		dijkstra.UtxoValidateNoDuplicateInputs,            // UtxoValidationRuleNoDuplicateInputs
 		dijkstra.UtxoValidateFeeTooSmallUtxo,              // UtxoValidationRuleFeeTooSmall
 		dijkstra.UtxoValidateInsufficientCollateral,       // UtxoValidationRuleInsufficientCollateral
 		dijkstra.UtxoValidateCollateralContainsNonAda,     // UtxoValidationRuleCollateralContainsNonAda
 		conway.UtxoValidateCollateralEqBalance,            // UtxoValidationRuleCollateralEqBalance
 		dijkstra.UtxoValidateNoCollateralInputs,           // UtxoValidationRuleNoCollateralInputs
-		conway.UtxoValidateBadInputsUtxo,                  // UtxoValidationRuleBadInputs
+		dijkstra.UtxoValidateBadInputsUtxo,                // UtxoValidationRuleBadInputs
 		dijkstra.UtxoValidateScriptWitnesses,              // UtxoValidationRuleScriptWitnesses
 		conway.UtxoValidateRequiredRedeemers,              // UtxoValidationRuleRequiredRedeemers
 		dijkstra.UtxoValidateBatchWithdrawals,             // UtxoValidationRuleBatchWithdrawals
 		dijkstra.UtxoValidateValueNotConservedUtxo,        // UtxoValidationRuleValueNotConserved
 		dijkstra.UtxoValidateOutputTooSmallUtxo,           // UtxoValidationRuleOutputTooSmall
 		dijkstra.UtxoValidateOutputTooBigUtxo,             // UtxoValidationRuleOutputTooBig
-		conway.UtxoValidateOutputBootAddrAttrsTooBig,      // UtxoValidationRuleOutputBootAddrAttrsTooBig
-		conway.UtxoValidateWrongNetwork,                   // UtxoValidationRuleWrongNetwork
+		dijkstra.UtxoValidateOutputBootAddrAttrsTooBig,    // UtxoValidationRuleOutputBootAddrAttrsTooBig
+		dijkstra.UtxoValidateWrongNetwork,                 // UtxoValidationRuleWrongNetwork
 		dijkstra.UtxoValidateWrongNetworkWithdrawal,       // UtxoValidationRuleWrongNetworkWithdrawal
 		dijkstra.UtxoValidateTransactionNetworkId,         // UtxoValidationRuleTransactionNetworkId
 		dijkstra.UtxoValidateMaxTxSizeUtxo,                // UtxoValidationRuleMaxTxSize
