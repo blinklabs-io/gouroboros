@@ -625,10 +625,23 @@ func (o *DijkstraTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		); err != nil {
 			return err
 		}
+		// Dijkstra is past decoder version 9, where fromCborBothAddr replaces
+		// decodePtrLenient with decodePtr, so an out-of-range pointer is
+		// rejected rather than normalized.
+		if err := common.CheckAddressPointerInRange(
+			tmp.OutputAddress,
+		); err != nil {
+			return err
+		}
 		o.Output = &tmp
 	case cbor.CborTypeMap:
 		var tmp babbage.BabbageTransactionOutput
 		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		if err := common.CheckAddressPointerInRange(
+			tmp.OutputAddress,
+		); err != nil {
 			return err
 		}
 		o.Output = &tmp

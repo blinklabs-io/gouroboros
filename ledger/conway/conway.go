@@ -706,10 +706,23 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		if err := checkMultiAssetDuplicateKeys(tmp.TxOutputs[idx].Assets()); err != nil {
 			return fmt.Errorf("transaction output %d: %w", idx, err)
 		}
+		// Conway is decoder version 9, where fromCborBothAddr switches from
+		// decodePtrLenient to decodePtr. The output type is Babbage's, which
+		// still has to normalize, so the stricter rule is applied here.
+		if err := common.CheckAddressPointerInRange(
+			tmp.TxOutputs[idx].OutputAddress,
+		); err != nil {
+			return fmt.Errorf("transaction output %d: %w", idx, err)
+		}
 	}
 	if tmp.TxCollateralReturn != nil {
 		if err := checkMultiAssetDuplicateKeys(
 			tmp.TxCollateralReturn.Assets(),
+		); err != nil {
+			return fmt.Errorf("collateral return: %w", err)
+		}
+		if err := common.CheckAddressPointerInRange(
+			tmp.TxCollateralReturn.OutputAddress,
 		); err != nil {
 			return fmt.Errorf("collateral return: %w", err)
 		}

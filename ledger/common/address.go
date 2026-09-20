@@ -15,7 +15,6 @@
 package common
 
 import (
-	"bytes"
 	"crypto/sha3"
 	"errors"
 	"fmt"
@@ -87,13 +86,18 @@ func init() {
 type AddrKeyHash = Blake2b224
 
 type Address struct {
-	addressType      uint8
-	networkId        uint8
-	paymentPayload   AddressPayload
-	stakingPayload   AddressPayload
-	trailingBytes    []byte
-	byronAddressType uint64
-	byronAddressAttr ByronAddressAttributes
+	addressType    uint8
+	networkId      uint8
+	paymentPayload AddressPayload
+	stakingPayload AddressPayload
+	trailingBytes  []byte
+	// pointerOutOfRange names the first pointer component that decodePtr would
+	// reject, and is empty for every other address. Decoding normalizes such a
+	// pointer as decodePtrLenient does; CheckAddressPointerInRange turns the
+	// record into the rejection that decoder version 9 onward requires.
+	pointerOutOfRange string
+	byronAddressType  uint64
+	byronAddressAttr  ByronAddressAttributes
 }
 
 // NewAddress returns an Address based on the provided bech32/base58 address
@@ -324,8 +328,9 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 	if len(data) == 0 {
 		return errors.New("invalid address data: empty byte slice")
 	}
-	// Clear trailer state before decoding into a reused address.
+	// Clear trailer and pointer state before decoding into a reused address.
 	a.trailingBytes = nil
+	a.pointerOutOfRange = ""
 	// Extract header info
 	header := data[0]
 	a.addressType = (header & AddressHeaderTypeMask) >> 4
@@ -440,12 +445,17 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 		payload = payload[AddressHashSize:]
 	case AddressTypeKeyPointer, AddressTypeScriptPointer:
 		var tmpPointer AddressPayloadPointer
-		// allowTrailing marks the pre-Babbage output path, the same eras for
-		// which cardano-ledger keeps the pointer decoder lenient.
-		n, err := tmpPointer.decode(payload, !allowTrailing)
+		// Pointer strictness does not follow allowTrailing. Every decoder
+		// version below 9 reaches decodePtrLenient: below 7 through
+		// fromCborBackwardsBothAddr and at 7 and 8 through
+		// fromCborRigorousBothAddr True, which is Babbage. Decoding therefore
+		// normalizes in every era, and the eras that need decodePtr call
+		// CheckAddressPointerInRange on the result.
+		n, outOfRange, err := tmpPointer.decode(payload)
 		if err != nil {
 			return err
 		}
+		a.pointerOutOfRange = outOfRange
 		a.stakingPayload = tmpPointer
 		payload = payload[n:]
 	}
@@ -488,6 +498,26 @@ func CheckAddressFullyConsumed(a Address) error {
 		)
 	}
 	return nil
+}
+
+// CheckAddressPointerInRange rejects a pointer address whose slot, transaction
+// index or certificate index is wider than cardano-ledger's Ptr allows. From
+// decoder version 9 (Conway) fromCborBothAddr selects
+// fromCborRigorousBothAddr False, whose decodeStakeReference uses decodePtr;
+// versions 7 and 8 (Babbage) pass True and reach decodePtrLenient, which
+// normalizes such a pointer to all zeros instead
+// (cardano-ledger libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs).
+// Conway reuses the Babbage output type, so the two eras are separated at their
+// own decoders rather than at this one.
+func CheckAddressPointerInRange(a Address) error {
+	if a.pointerOutOfRange == "" {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: %s",
+		ErrAddressPointerOutOfRange,
+		a.pointerOutOfRange,
+	)
 }
 
 // TrailingBytes returns the bytes that followed the address payload and were
@@ -1087,140 +1117,109 @@ const (
 	addressPointerSlotMax  = uint64(math.MaxUint32)
 	addressPointerIndexMax = uint64(math.MaxUint16)
 
-	// Maximum number of 7-bit groups each component may occupy. From Conway
-	// onward decodeVariableLengthWord32 and decodeVariableLengthWord16 accept
-	// at most five and three groups respectively and fail with "too many
-	// bytes." on a sixth or fourth
+	// Maximum number of 7-bit groups each component may occupy under decodePtr.
+	// decodeVariableLengthWord32 and decodeVariableLengthWord16 accept at most
+	// five and three groups respectively and fail with "too many bytes." on a
+	// sixth or fourth
 	// (libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs).
 	addressPointerSlotGroups  = 5
 	addressPointerIndexGroups = 3
-
-	// A uint64 accumulator holds ten 7-bit groups. Past that the leading bits
-	// are shifted away, which is the silent narrowing this bound exists to
-	// detect.
-	addressPointerUint64Groups = 10
 )
 
 // ErrAddressPointerOutOfRange reports a pointer address whose slot, transaction
-// index or certificate index is wider than cardano-ledger's Ptr allows.
+// index or certificate index is wider than cardano-ledger's Ptr allows. It is
+// returned by CheckAddressPointerInRange, not by decoding, because every era
+// below decoder version 9 accepts such a pointer in normalized form.
 var ErrAddressPointerOutOfRange = errors.New(
 	"invalid pointer address: component out of range",
 )
 
-// ErrAddressPointerNotCanonical reports a pointer address whose components are
-// in range but whose encoding is not the one they re-encode to, so the address
-// would not round-trip through Bytes().
-var ErrAddressPointerNotCanonical = errors.New(
-	"invalid pointer address: non-canonical component encoding",
-)
-
 // readAddressPointerVarUint reads one big-endian 7-bit variable-length natural,
-// stopping after the first byte whose continuation bit is clear. It mirrors
-// decode7BitVarLength in cardano-ledger, but stops accumulating once the value
-// can no longer be represented, so a long encoding cannot wrap silently. The
-// reported flag is false when the component exceeded maxGroups or maxValue;
-// input is still consumed to the terminating byte either way, so a caller that
-// tolerates an out-of-range pointer sees the same offset the reference would.
-// maxGroups must not exceed addressPointerUint64Groups.
+// stopping after the first byte whose continuation bit is clear, and reports how
+// many groups it consumed. It mirrors decode7BitVarLength in cardano-ledger,
+// including the silent wrap of its accumulator: decodeVariableLengthWord64 is
+// "fix (decode7BitVarLength name buf) 0", so it has no group cap and an
+// encoding past ten groups shifts its leading groups away. A lenient decode has
+// to reproduce that wrapped value rather than reject it, because the chain
+// already accepted whatever the reference produced.
 func readAddressPointerVarUint(
 	data []byte,
 	offset int,
-	maxGroups int,
-	maxValue uint64,
-) (uint64, int, bool, error) {
+) (uint64, int, int, error) {
 	var ret uint64
 	groups := 0
-	inRange := true
 	for offset < len(data) {
 		byt := data[offset]
 		offset++
 		groups++
-		if groups > maxGroups {
-			inRange = false
-		} else {
-			ret = (ret << 7) | uint64(byt&0x7F)
-			if ret > maxValue {
-				inRange = false
-			}
-		}
+		ret = (ret << 7) | uint64(byt&0x7F)
 		if (byt & 0x80) == 0 {
-			if !inRange {
-				return 0, offset, false, nil
-			}
-			return ret, offset, true, nil
+			return ret, offset, groups, nil
 		}
 	}
-	return 0, offset, false, io.ErrUnexpectedEOF
+	return 0, offset, groups, io.ErrUnexpectedEOF
 }
 
 // decode reads a StakePointer from the bytes following an address's payment
-// credential and returns the number of bytes consumed.
+// credential. It returns the number of bytes consumed and the name of the first
+// component that decodePtr would have rejected, which is empty when decodePtr
+// would have accepted the encoding.
 //
-// In strict mode a component wider than its Ptr type is rejected, matching
-// decodePtr from Conway (decoder version 9) onward. In lenient mode an
-// out-of-range component instead zeroes all three, matching decodePtrLenient
-// and mkPtrNormalized, which cardano-ledger keeps for the eras that already
-// accepted such addresses.
-func (a *AddressPayloadPointer) decode(data []byte, strict bool) (int, error) {
-	slotGroups := addressPointerUint64Groups
-	indexGroups := addressPointerUint64Groups
-	if strict {
-		slotGroups = addressPointerSlotGroups
-		indexGroups = addressPointerIndexGroups
-	}
+// The decode itself is always lenient, reproducing decodePtrLenient: the
+// components are read as wrapping Word64s and then passed through
+// mkPtrNormalized, which clamps all three to zero when any one of them does not
+// fit its Ptr field. Only decoder version 9 onward substitutes decodePtr, so its
+// narrower rule is reported here and applied by CheckAddressPointerInRange at
+// the era's own decoder.
+func (a *AddressPayloadPointer) decode(data []byte) (int, string, error) {
 	var offset int
-	inRange := true
+	var outOfRange string
 	read := func(name string, maxGroups int, maxValue uint64) (uint64, error) {
-		val, next, ok, err := readAddressPointerVarUint(
-			data,
-			offset,
-			maxGroups,
-			maxValue,
-		)
+		val, next, groups, err := readAddressPointerVarUint(data, offset)
 		offset = next
 		if err != nil {
 			return 0, err
 		}
-		if !ok {
-			if strict {
-				return 0, fmt.Errorf(
-					"%w: %s",
-					ErrAddressPointerOutOfRange,
-					name,
-				)
-			}
-			inRange = false
+		// decodePtr caps the group count and, in the final group only, requires
+		// the spare high bits of the first byte to be clear. That check admits
+		// exactly the first-group values that keep the result inside the
+		// component's width, so a group cap plus one range test reproduces it.
+		// Below the cap no wrap is possible, so the range test reads a value
+		// the reference computed the same way.
+		if outOfRange == "" && (groups > maxGroups || val > maxValue) {
+			outOfRange = name
 		}
 		return val, nil
 	}
-	slot, err := read("slot", slotGroups, addressPointerSlotMax)
+	slot, err := read("slot", addressPointerSlotGroups, addressPointerSlotMax)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	txIndex, err := read("transaction index", indexGroups, addressPointerIndexMax)
+	txIndex, err := read(
+		"transaction index",
+		addressPointerIndexGroups,
+		addressPointerIndexMax,
+	)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	certIndex, err := read("certificate index", indexGroups, addressPointerIndexMax)
+	certIndex, err := read(
+		"certificate index",
+		addressPointerIndexGroups,
+		addressPointerIndexMax,
+	)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	if !inRange {
+	if slot > addressPointerSlotMax ||
+		txIndex > addressPointerIndexMax ||
+		certIndex > addressPointerIndexMax {
 		// mkPtrNormalized clamps every component to zero when any one of them
 		// does not fit, because the result is a dangling pointer regardless.
 		slot, txIndex, certIndex = 0, 0, 0
 	}
 	a.Slot, a.TxIndex, a.CertIndex = slot, txIndex, certIndex
-	// Bytes() re-encodes the pointer rather than replaying the input, so a
-	// strict decode is only sound if the two agree. Lenient decoding is exempt:
-	// the reference also replaces a normalized pointer's bytes with the
-	// re-encoded form.
-	if strict {
-		if !bytes.Equal(a.encode(), data[:offset]) {
-			return 0, ErrAddressPointerNotCanonical
-		}
-	}
-	return offset, nil
+	return offset, outOfRange, nil
 }
 
 func (a *AddressPayloadPointer) encode() []byte {
