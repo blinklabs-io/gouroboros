@@ -606,6 +606,13 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 	)
 
 	muxerRecvChan := make(chan *muxer.Segment, numSegments)
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() {
+		m.Stop()
+		_ = peerConn.Close()
+	})
+	m.RaiseReadBufferBudget(maxBufferSize)
 	// A byte-string header declaring a 100MB length -- comfortably more
 	// than this test's ~1MB flood could ever supply, but safely under
 	// math.MaxInt32 so it doesn't itself overflow int on a 32-bit build
@@ -630,6 +637,7 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 		config: ProtocolConfig{
 			Name:              "test",
 			ErrorChan:         errorChan,
+			Muxer:             m,
 			MaxReadBufferSize: maxBufferSize,
 		},
 		doneChan:      make(chan struct{}),
@@ -638,6 +646,7 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 		muxerDoneChan: make(chan bool),
 		muxerRecvChan: muxerRecvChan,
 	}
+	t.Cleanup(p.Stop)
 	go p.readLoop()
 
 	select {

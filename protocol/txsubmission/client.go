@@ -328,6 +328,14 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 		}
 		return nil
 	}
+	if len(txIds) > int(msgRequestTxIds.Req) {
+		c.Protocol.Logger().
+			Error("TxSubmission reply count exceeded request",
+				"returned", len(txIds),
+				"requested", msgRequestTxIds.Req,
+			)
+		return protocol.ErrProtocolViolationRequestExceeded
+	}
 	resp := NewMsgReplyTxIds(txIds)
 	if err := c.SendMessage(resp); err != nil {
 		return err
@@ -366,6 +374,14 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 	txs, err := c.config.RequestTxsFunc(c.callbackContext, msgRequestTxs.TxIds)
 	if err != nil {
 		return err
+	}
+	if len(txs) > len(msgRequestTxs.TxIds) {
+		c.Protocol.Logger().
+			Error("TxSubmission transaction reply count exceeded request",
+				"returned", len(txs),
+				"requested", len(msgRequestTxs.TxIds),
+			)
+		return protocol.ErrProtocolViolationRequestExceeded
 	}
 	resp := NewMsgReplyTxs(txs)
 	if err := c.SendMessage(resp); err != nil {

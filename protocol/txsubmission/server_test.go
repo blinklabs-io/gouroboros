@@ -93,7 +93,10 @@ func TestRequestTxIdsRejectsReplyExceedingRequest(t *testing.T) {
 	require.Equal(t, uint16(0), <-acknowledged)
 
 	result, err = server.RequestTxIds(false, 1)
-	require.ErrorIs(t, err, protocol.ErrProtocolViolationRequestExceeded)
+	// The client rejects an over-returning callback before putting the invalid
+	// reply on the wire, so the peer observes protocol shutdown rather than
+	// receiving a reply it must reject itself.
+	require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
 	require.Nil(t, result)
 	require.Equal(t, 1, server.ackCount)
 	require.Equal(t, uint16(1), <-acknowledged)

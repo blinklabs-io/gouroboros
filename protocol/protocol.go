@@ -883,6 +883,14 @@ func (p *Protocol) readLoop() {
 					return
 				}
 				// Add segment payload to buffer
+				if pendingLen > p.config.maxReadBufferSize() {
+					p.SendError(fmt.Errorf(
+						"%s: read buffer exceeded maximum size (%d bytes)",
+						p.config.Name,
+						pendingLen,
+					))
+					return
+				}
 				readBuffer.Write(segment.Payload)
 			}
 			// Opportunistically drain any additional segments the muxer
@@ -940,6 +948,14 @@ func (p *Protocol) readLoop() {
 						return
 					}
 					pendingLen := readBuffer.Len() + len(segment.Payload)
+					if pendingLen > p.config.maxReadBufferSize() {
+						p.SendError(fmt.Errorf(
+							"%s: read buffer exceeded maximum size (%d bytes)",
+							p.config.Name,
+							pendingLen,
+						))
+						return
+					}
 					if !p.reserveReadBuffer(pendingLen, &reserved) {
 						p.SendError(p.errReadBufferBudget(pendingLen))
 						return
