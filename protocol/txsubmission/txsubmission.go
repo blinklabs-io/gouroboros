@@ -41,7 +41,7 @@ var (
 var StateMap = protocol.StateMap{
 	stateInit: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: 0,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Timeout:                 InitTimeout, // Timeout for client to send init message
 		Transitions: []protocol.StateTransition{
 			{
@@ -52,7 +52,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateIdle: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: 0,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Timeout:                 IdleTimeout, // Timeout for server to send tx request when idle
 		Transitions: []protocol.StateTransition{
 			{
@@ -81,7 +81,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateTxIdsBlocking: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: 0,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Timeout:                 TxIdsBlockingTimeout, // No timeout per spec: client blocks until tx available
 		Transitions: []protocol.StateTransition{
 			{
@@ -96,7 +96,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateTxIdsNonblocking: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: 0,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Timeout:                 TxIdsNonblockingTimeout, // Timeout for client to reply with tx IDs (non-blocking)
 		Transitions: []protocol.StateTransition{
 			{
@@ -107,7 +107,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateTxs: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: 0,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Timeout:                 TxsTimeout, // Timeout for client to reply with full transactions
 		Transitions: []protocol.StateTransition{
 			{
@@ -118,7 +118,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyNone,
-		PendingMessageByteLimit: 0,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 	},
 }
 
@@ -136,12 +136,60 @@ type Config struct {
 	DoneFunc         DoneFunc
 }
 
-// Protocol limits per Ouroboros Network Specification
+// Wire ranges of the MsgRequestTxIds count fields. They are the ranges of the
+// uint16 fields, not an in-flight window, so they do not bound a request:
+// MaxUnackedTxIds does. See the window check in Client.handleRequestTxIds and
+// Server.RequestTxIds.
 const (
-	MaxRequestCount     = 65535 // Max transactions per request (uint16)
-	MaxAckCount         = 65535 // Max transaction acks (uint16)
-	DefaultRequestLimit = 1000  // Default request limit
-	DefaultAckLimit     = 1000  // Default ack limit
+	// MaxRequestCount is the range of the MsgRequestTxIds request field.
+	MaxRequestCount = 65535
+	// MaxAckCount is the range of the MsgRequestTxIds acknowledgement field.
+	MaxAckCount = 65535
+	// DefaultRequestLimit is an exported guidance constant. It is not a
+	// configuration field, is not applied automatically, and exceeds
+	// MaxUnackedTxIds, so a request of this size is refused.
+	DefaultRequestLimit = 1000
+	// DefaultAckLimit is an exported guidance constant. It is not a
+	// configuration field and is not applied automatically.
+	DefaultAckLimit = 1000
+)
+
+// Pending-message byte limits. Protocol.readLoop rejects an oversized single
+// message and applies inbound backpressure only while a state's
+// PendingMessageByteLimit is nonzero, and Protocol.SendMessage checks the
+// outbound queue against it on the same condition. TxSubmission is
+// node-to-node, so a zero limit leaves an untrusted peer unbounded on both
+// paths.
+const (
+	// MaxTxSizeBytes is the largest MsgReplyTxs transaction body a peer may
+	// send, matching max_TX_SIZE in the reference implementation
+	// (ouroboros-network, Ouroboros.Network.TxSubmission.Inbound.V2.Policy).
+	// It is deliberately larger than any Cardano protocol maxTxSize to date,
+	// because a peer's reply is bounded by the wire limit rather than by the
+	// era's protocol parameters.
+	MaxTxSizeBytes = 65540
+	// TxIdReplyEntryBytes is the wire cost of one (txId, size) pair in a
+	// MsgReplyTxIds: 4 bytes of CBOR structure, a 34-byte transaction ID and
+	// a 6-byte size, per the reference implementation's derivation of the
+	// same limit.
+	TxIdReplyEntryBytes = 44
+	// MaxUnackedTxIds is the number of transaction IDs a peer may leave
+	// unacknowledged, and therefore the number of transactions it can have
+	// in flight. It matches txSubmissionMaxUnacked in the reference
+	// implementation. MaxRequestCount and MaxAckCount are the uint16 wire
+	// ranges of the count fields, not an in-flight window, so they cannot
+	// serve as the multiplier here. Every txid and tx request is bounded
+	// against this window, so a request a peer could not satisfy within
+	// MaxPendingMessageBytes is refused rather than attempted.
+	MaxUnackedTxIds = 10
+	// MaxPendingMessageBytes bounds pending message bytes in every
+	// TxSubmission state: a full unacknowledged window of maximum-size
+	// transactions plus the tx-id reply that announced them, with the
+	// reference implementation's 10% safety margin. This is the value
+	// cardano-node enforces as its own tx-submission mux ingress limit, so a
+	// conforming peer never exceeds it.
+	MaxPendingMessageBytes = MaxUnackedTxIds *
+		(TxIdReplyEntryBytes + MaxTxSizeBytes) * 11 / 10
 )
 
 // Protocol state timeout constants per Ouroboros Network Specification (Table 3.11).

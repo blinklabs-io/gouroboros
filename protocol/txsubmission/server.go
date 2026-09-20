@@ -26,11 +26,15 @@ import (
 // Server implements the TxSubmission server
 type Server struct {
 	*protocol.Protocol
-	protocolMu             sync.RWMutex
-	config                 *Config
-	callbackContext        CallbackContext
-	protoOptions           protocol.ProtocolOptions
-	ackCount               int
+	protocolMu      sync.RWMutex
+	config          *Config
+	callbackContext CallbackContext
+	protoOptions    protocol.ProtocolOptions
+	ackCount        int
+	// unackedCount counts the transaction IDs received from the peer that we
+	// have not yet acknowledged. It is the window RequestTxIds bounds its own
+	// request against.
+	unackedCount           int
 	requestTxIdsResultChan chan requestTxIdsResult
 	requestTxsResultChan   chan []TxBody
 }
@@ -127,6 +131,9 @@ func (s *Server) RequestTxIds(
 			Error("TxSubmission request count must be non-negative", "requested", reqCount)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
+	// Keep the wire-range check ahead of the window check below: it bounds
+	// reqCount before it is added to a counter, and it is what licenses the
+	// uint16 conversion.
 	if reqCount > MaxRequestCount {
 		p.Logger().
 			Error("TxSubmission request count exceeded", "requested", reqCount, "limit", MaxRequestCount)
@@ -140,6 +147,23 @@ func (s *Server) RequestTxIds(
 	if s.ackCount > MaxAckCount {
 		p.Logger().
 			Error("TxSubmission ack count exceeded", "ack_count", s.ackCount, "limit", MaxAckCount)
+		return nil, protocol.ErrProtocolViolationRequestExceeded
+	}
+	// A request must also leave the peer inside the outstanding window, or a
+	// conforming peer refuses it: the reference implementation's outbound side
+	// throws ProtocolErrorRequestedTooManyTxids when
+	// unackedNo - ackNo + reqNo exceeds maxUnacked
+	// (Ouroboros.Network.TxSubmission.Outbound). Our own client applies the
+	// same condition, and MaxPendingMessageBytes is derived from that window,
+	// so a reply to a larger request could not fit it.
+	if s.unackedCount-s.ackCount+reqCount > MaxUnackedTxIds {
+		p.Logger().
+			Error("TxSubmission request count exceeded",
+				"requested", reqCount,
+				"ack", s.ackCount,
+				"unacknowledged", s.unackedCount,
+				"limit", MaxUnackedTxIds,
+			)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
 
@@ -169,7 +193,10 @@ func (s *Server) RequestTxIds(
 			)
 			return nil, protocol.ErrProtocolViolationRequestExceeded
 		}
-		// Update ack count for next call
+		// Update the outstanding window and the ack for the next call. The
+		// request just sent acknowledged ack of the IDs we were holding, and
+		// the reply adds its own.
+		s.unackedCount = s.unackedCount - int(ack) + len(result.txIds)
 		s.ackCount = len(result.txIds)
 		return result.txIds, nil
 	case <-p.DoneChan():
@@ -179,13 +206,24 @@ func (s *Server) RequestTxIds(
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
 func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
+	p := s.ProtocolInstance()
+	// Requesting more than the unacknowledged window asks the peer for a
+	// reply larger than MaxPendingMessageBytes, which is derived from that
+	// window, so the peer is entitled to refuse it.
+	if len(txIds) > MaxUnackedTxIds {
+		p.Logger().
+			Error("TxSubmission tx request count exceeded",
+				"requested", len(txIds),
+				"limit", MaxUnackedTxIds,
+			)
+		return nil, protocol.ErrProtocolViolationRequestExceeded
+	}
 	// Pre-allocate slice to avoid repeated allocations
 	txString := make([]string, 0, len(txIds))
 	for _, t := range txIds {
 		// Convert TxId directly to Blake2b256 without intermediate slice
 		txString = append(txString, common.NewBlake2b256(t.TxId[:]).String())
 	}
-	p := s.ProtocolInstance()
 	p.Logger().
 		Debug(
 			fmt.Sprintf("calling RequestTxs(txIds: %+v)", txString),
@@ -280,6 +318,7 @@ func (s *Server) handleDone() error {
 	s.requestTxIdsResultChan = make(chan requestTxIdsResult)
 	s.requestTxsResultChan = make(chan []TxBody)
 	s.ackCount = 0
+	s.unackedCount = 0
 	s.Start()
 	return nil
 }
