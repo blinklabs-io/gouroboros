@@ -114,20 +114,36 @@ tx-id reply entry that announced each, with a 10% safety margin. It matches
 the tx-submission mux ingress limit the reference implementation enforces, so
 a conforming peer never exceeds it.
 
-The protocol accepts at most 65,535 transaction IDs in a request and at most
-65,535 acknowledgements (`uint16` wire fields). Both client and server reject
-counts outside those bounds with `ErrProtocolViolationRequestExceeded`. Those
-are the ranges of the wire fields, not an in-flight window, which is why
-`MaxUnackedTxIds` rather than `MaxRequestCount` sizes the byte limit.
-`DefaultRequestLimit` and `DefaultAckLimit` are exported guidance constants
-(1,000); they are not configuration fields and are not applied automatically.
+Both requests are bounded by the outstanding window, not by the `uint16` wire
+ranges. `MaxRequestCount` and `MaxAckCount` (65,535) describe the ranges of the
+`MsgRequestTxIds` count fields and no longer bound either request path;
+`MaxUnackedTxIds` (10) does, and it is also what sizes the byte limit.
 
-A request for transaction bodies is bounded by the in-flight window instead:
-`Server.RequestTxs` and the client's request handler both reject more than
-`MaxUnackedTxIds` (10) transaction IDs with
-`ErrProtocolViolationRequestExceeded`. A peer may only request transactions it
-has left unacknowledged, and a reply to a larger request cannot fit
+A request for transaction IDs must leave the peer inside that window. The
+client's `MsgRequestTxIds` handler rejects an acknowledgement larger than what
+it has outstanding, and rejects a request where `unacknowledged - ack + req`
+exceeds `MaxUnackedTxIds`; `Server.RequestTxIds` applies the same condition
+before putting a request on the wire. Both return
+`ErrProtocolViolationRequestExceeded`. This is the reference implementation's
+condition in `Ouroboros.Network.TxSubmission.Outbound`, which throws
+`ProtocolErrorAckedTooManyTxids` and `ProtocolErrorRequestedTooManyTxids`
+respectively.
+
+A request for transaction bodies is bounded the same way: `Server.RequestTxs`
+and the client's request handler both reject more than `MaxUnackedTxIds`
+transaction IDs. A peer may only request transactions it has left
+unacknowledged, and a reply to a larger request cannot fit
 `MaxPendingMessageBytes`, which is derived from that same window.
+
+Without these bounds a peer requesting 65,535 transaction IDs draws a reply of
+roughly 2.6 MB, which `Protocol.enqueueMessage` refuses against
+`MaxPendingMessageBytes` and then fails the protocol over, dropping the
+connection.
+
+`DefaultRequestLimit` and `DefaultAckLimit` are exported guidance constants
+(1,000). They are not configuration fields, are not applied automatically, and
+are larger than `MaxUnackedTxIds`: a caller using either as a request count is
+refused.
 
 ## Handshake
 

@@ -136,12 +136,22 @@ type Config struct {
 	DoneFunc         DoneFunc
 }
 
-// Protocol limits per Ouroboros Network Specification
+// Wire ranges of the MsgRequestTxIds count fields. They are the ranges of the
+// uint16 fields, not an in-flight window, so they do not bound a request:
+// MaxUnackedTxIds does. See the window check in Client.handleRequestTxIds and
+// Server.RequestTxIds.
 const (
-	MaxRequestCount     = 65535 // Max transactions per request (uint16)
-	MaxAckCount         = 65535 // Max transaction acks (uint16)
-	DefaultRequestLimit = 1000  // Default request limit
-	DefaultAckLimit     = 1000  // Default ack limit
+	// MaxRequestCount is the range of the MsgRequestTxIds request field.
+	MaxRequestCount = 65535
+	// MaxAckCount is the range of the MsgRequestTxIds acknowledgement field.
+	MaxAckCount = 65535
+	// DefaultRequestLimit is an exported guidance constant. It is not a
+	// configuration field, is not applied automatically, and exceeds
+	// MaxUnackedTxIds, so a request of this size is refused.
+	DefaultRequestLimit = 1000
+	// DefaultAckLimit is an exported guidance constant. It is not a
+	// configuration field and is not applied automatically.
+	DefaultAckLimit = 1000
 )
 
 // Pending-message byte limits. Protocol.readLoop rejects an oversized single
@@ -168,7 +178,9 @@ const (
 	// in flight. It matches txSubmissionMaxUnacked in the reference
 	// implementation. MaxRequestCount and MaxAckCount are the uint16 wire
 	// ranges of the count fields, not an in-flight window, so they cannot
-	// serve as the multiplier here.
+	// serve as the multiplier here. Every txid and tx request is bounded
+	// against this window, so a request a peer could not satisfy within
+	// MaxPendingMessageBytes is refused rather than attempted.
 	MaxUnackedTxIds = 10
 	// MaxPendingMessageBytes bounds pending message bytes in every
 	// TxSubmission state: a full unacknowledged window of maximum-size
