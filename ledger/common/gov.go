@@ -483,6 +483,12 @@ func (vp VotingProcedure) ToPlutusData() data.PlutusData {
 	return Vote(vp.Vote).ToPlutusData()
 }
 
+// ErrGovAnchorURLTooLong identifies a governance anchor URL that exceeds the
+// protocol's 128-byte bound.
+var ErrGovAnchorURLTooLong = errors.New(
+	"governance anchor URL exceeds the protocol length limit",
+)
+
 type GovAnchor struct {
 	cbor.StructAsArray
 	Url      string

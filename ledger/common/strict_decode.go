@@ -259,6 +259,17 @@ func (a *GovAnchor) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &decoded); err != nil {
 		return fmt.Errorf("decode governance anchor: %w", err)
 	}
+	// anchor_url is the CDDL url rule, bounded at 128 bytes. The 64-byte
+	// legacy bound cannot apply here: anchors first exist in Conway, which
+	// is the protocol version at which the bound is already 128.
+	if len(decoded.Url) > urlMaxLength {
+		return fmt.Errorf(
+			"%w: maximum %d bytes, got %d",
+			ErrGovAnchorURLTooLong,
+			urlMaxLength,
+			len(decoded.Url),
+		)
+	}
 	a.Url = decoded.Url
 	copy(a.DataHash[:], decoded.DataHash[:])
 	return nil

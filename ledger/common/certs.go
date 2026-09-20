@@ -546,9 +546,14 @@ type PoolMetadata struct {
 	Hash PoolMetadataHash
 }
 
+// urlMaxLength and urlMaxLengthLegacy bound the shared CDDL rule
+// url = text .size (0 .. 128), which covers both pool_metadata and anchor.
+// cardano-ledger reaches the same bound through the DecCBOR instance of its
+// Url type, which decodes at 128 bytes from decoder version 9 and at 64 bytes
+// before it.
 const (
-	poolMetadataMaxURLLength       = 128
-	poolMetadataMaxURLLengthLegacy = 64
+	urlMaxLength       = 128
+	urlMaxLengthLegacy = 64
 )
 
 // ErrPoolMetadataURLTooLong identifies a pool metadata URL that exceeds the
@@ -561,7 +566,7 @@ var ErrPoolMetadataURLTooLong = errors.New(
 // metadata to CBOR or exposing it through UTxO RPC. JSON uses the reference
 // ledger's unbounded Url/Text representation and does not call this helper.
 func ValidatePoolMetadata(metadata *PoolMetadata) error {
-	return validatePoolMetadataURL(metadata, poolMetadataMaxURLLength)
+	return validatePoolMetadataURL(metadata, urlMaxLength)
 }
 
 // ValidatePoolMetadataForProtocolVersion verifies the protocol-version-aware
@@ -571,9 +576,9 @@ func ValidatePoolMetadataForProtocolVersion(
 	metadata *PoolMetadata,
 	protocolMajor uint,
 ) error {
-	maxURLLength := poolMetadataMaxURLLength
+	maxURLLength := urlMaxLength
 	if protocolMajor < ProtocolVersionConway {
-		maxURLLength = poolMetadataMaxURLLengthLegacy
+		maxURLLength = urlMaxLengthLegacy
 	}
 	return validatePoolMetadataURL(metadata, maxURLLength)
 }
