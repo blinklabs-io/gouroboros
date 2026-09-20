@@ -7,7 +7,7 @@ require (
 	github.com/blinklabs-io/ouroboros-mock v0.20.2
 	github.com/blinklabs-io/plutigo v0.7.1
 	github.com/btcsuite/btcd/btcutil v1.2.0
-	github.com/fxamacker/cbor/v2 v2.9.3
+	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.12.1
 	github.com/utxorpc/go-codegen v0.19.2
