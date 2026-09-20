@@ -22,6 +22,46 @@ import (
 
 const LeiosBlsSignatureSize = 48
 
+// MaxLeiosCommitteeSize is the largest Leios committee a signer bitfield can
+// address. cardano-ledger derives its decode-time ceiling from the same value
+// (Cardano.Ledger.Binary.Decoding.DecCBOR.maxLeiosCertSignersBytes), which the
+// generated Dijkstra CDDL emits as `signers : bytes .size (0 .. 8192)` with the
+// comment "bitfield with up to 65536 entries".
+const MaxLeiosCommitteeSize = 65536
+
+// MaxLeiosSignerBitfieldSize is the largest signer bitfield, in bytes, that any
+// legal Leios committee can occupy. It bounds the field at decode; the exact
+// length still depends on the committee and is checked by
+// ValidateLeiosSignerBitfield once that size is known.
+const MaxLeiosSignerBitfieldSize = MaxLeiosCommitteeSize / 8
+
+// LeiosSignerBitfieldTooLargeError reports a Leios signer bitfield that is
+// larger than any addressable committee, and so cannot be interpreted.
+type LeiosSignerBitfieldTooLargeError struct {
+	Size int
+	Max  int
+}
+
+func (e *LeiosSignerBitfieldTooLargeError) Error() string {
+	return fmt.Sprintf(
+		"leios signer bitfield of %d bytes exceeds the maximum of %d",
+		e.Size,
+		e.Max,
+	)
+}
+
+// ValidateLeiosSignerBitfieldSize enforces the CDDL bound on a signer bitfield
+// without reference to a committee size.
+func ValidateLeiosSignerBitfieldSize(signers []byte) error {
+	if len(signers) > MaxLeiosSignerBitfieldSize {
+		return &LeiosSignerBitfieldTooLargeError{
+			Size: len(signers),
+			Max:  MaxLeiosSignerBitfieldSize,
+		}
+	}
+	return nil
+}
+
 type LeiosVoteId struct {
 	cbor.StructAsArray
 	SlotNo  uint64
@@ -136,6 +176,9 @@ func (c *LeiosEbCertificate) UnmarshalCBOR(
 			LeiosBlsSignatureSize,
 			len(tmp.AggregatedSignature),
 		)
+	}
+	if err := ValidateLeiosSignerBitfieldSize(tmp.Signers); err != nil {
+		return err
 	}
 	*c = LeiosEbCertificate(tmp)
 	c.SetCbor(cborData)
