@@ -28,6 +28,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/internal/panics"
 	"github.com/blinklabs-io/gouroboros/muxer"
 )
 
@@ -579,6 +580,34 @@ func (p *Protocol) SendError(err error) {
 	p.Stop()
 }
 
+// recoverLoop is the panic backstop for the goroutines this protocol runs. It
+// must be deferred directly so that recover sees the panic.
+//
+// Each of those goroutines is started by this package, so nothing above it on
+// the stack belongs to the consumer and an escaping panic takes the process
+// down -- every other connection with it -- over one peer's message. Reporting
+// the panic with SendError gives it the disposition a decode error or a
+// protocol violation already has: the consumer reads it from the protocol's
+// error channel and the connection is torn down.
+//
+// Continuing is not on offer here. A panic can leave a half-applied state
+// transition, an un-decremented byte count or a partly consumed read buffer
+// behind it, and a mini-protocol that resumes from any of those has silently
+// desynchronised from its peer rather than failed. Failing the one connection
+// is the honest containment; the process surviving is the point.
+//
+// Panics raised by this library's own decoding and panics raised by a callback
+// the consumer registered are treated identically, because both run in this
+// goroutine and neither is distinguishable from here. The error carries the
+// panic value and the stack, which does name the responsible frame, so a
+// consumer's programming error stays diagnosable rather than being absorbed.
+func (p *Protocol) recoverLoop(where string) {
+	err := panics.New(ErrHandlerPanic, p.config.Name+": "+where, recover())
+	if err != nil {
+		p.SendError(err)
+	}
+}
+
 func (p *Protocol) sendLoop() {
 	defer func() {
 		// Close muxer send channel
@@ -587,6 +616,10 @@ func (p *Protocol) sendLoop() {
 		close(p.muxerSendChan)
 		close(p.sendDoneChan)
 	}()
+	// Registered after the cleanup above so that it runs first and the
+	// cleanup still runs on the way out, leaving the muxer's accounting
+	// correct whether this loop ends normally or in a panic.
+	defer p.recoverLoop("send loop")
 
 	var queuedStateTransitions []Message
 waitSendReadyChan:
@@ -800,6 +833,7 @@ waitSendReadyChan:
 }
 
 func (p *Protocol) readLoop() {
+	defer p.recoverLoop("read loop")
 	leftoverData := false
 	readBuffer := bytes.NewBuffer(nil)
 
@@ -1037,6 +1071,7 @@ func (p *Protocol) recvLoop() {
 	defer func() {
 		close(p.recvDoneChan)
 	}()
+	defer p.recoverLoop("receive loop")
 
 	for {
 		// Wait until ready to receive based on state map
@@ -1085,6 +1120,7 @@ func (p *Protocol) recvLoop() {
 }
 
 func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
+	defer p.recoverLoop("state loop")
 	var transitionTimer *time.Timer
 	var initialStateSet bool
 

@@ -19,6 +19,8 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+
+	"github.com/blinklabs-io/gouroboros/internal/panics"
 )
 
 // MetricsRecorder is a function that records metrics for a processed block item.
@@ -123,7 +125,7 @@ func (p *StageWorkerPool) worker(ctx context.Context) {
 				return
 			}
 
-			err := p.stage.Process(ctx, item)
+			err := p.process(ctx, item)
 
 			// Record metrics only for actual processing attempts (not context cancellation)
 			// and only if the shouldRecord check passes (or is nil)
@@ -151,6 +153,24 @@ func (p *StageWorkerPool) worker(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// process runs the stage for one item, containing any panic so that it fails
+// that item instead of this worker. The item is still forwarded, so the
+// pipeline's per-item accounting and the caller's Results channel see it, and
+// markUnresolvedPhase makes sure it does not arrive downstream looking
+// successfully processed.
+func (p *StageWorkerPool) process(
+	ctx context.Context,
+	item *BlockItem,
+) (err error) {
+	defer func() {
+		if recovered := panics.New(ErrStagePanic, p.stage.Name()+" stage", recover()); recovered != nil {
+			err = recovered
+			markUnresolvedPhase(item, recovered)
+		}
+	}()
+	return p.stage.Process(ctx, item)
 }
 
 // DecodeMetricsRecorder returns a MetricsRecorder for the decode stage.

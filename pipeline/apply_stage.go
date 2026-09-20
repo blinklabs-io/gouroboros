@@ -19,6 +19,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/blinklabs-io/gouroboros/internal/panics"
 )
 
 // ErrPendingLimitExceeded is returned when the apply stage's pending buffer is full.
@@ -172,10 +174,7 @@ func (s *ApplyStage) applyItem(ctx context.Context, item *BlockItem) {
 	}()
 
 	start := time.Now()
-	var err error
-	if s.applyFunc != nil {
-		err = s.applyFunc(item)
-	}
+	err := s.callApplyFunc(item)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -183,6 +182,22 @@ func (s *ApplyStage) applyItem(ctx context.Context, item *BlockItem) {
 	} else {
 		item.SetApplied(true, nil, duration)
 	}
+}
+
+// callApplyFunc invokes the consumer's ApplyFunc for an item, containing any
+// panic so that it becomes this item's apply error.
+//
+// Guarding the callback here rather than around the runner's loop is what
+// keeps ordered application intact: applyPending has already advanced
+// nextSequence past this item and holds items it has processed but not yet
+// returned, so unwinding out of it would drop them and leave WaitForDrain
+// waiting on blocks that will never be reported.
+func (s *ApplyStage) callApplyFunc(item *BlockItem) (err error) {
+	if s.applyFunc == nil {
+		return nil
+	}
+	defer panics.Guard(ErrStagePanic, "apply function", &err)
+	return s.applyFunc(item)
 }
 
 // applyPending applies any pending items that are now in order.
@@ -328,7 +343,7 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 				return
 			}
 
-			processed, err := r.stage.ProcessWithStatus(ctx, item)
+			processed, err := r.process(ctx, item)
 			if err != nil {
 				select {
 				case r.errors <- err:
@@ -352,6 +367,25 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// process runs the apply stage for one item, containing any panic so that it
+// fails that item rather than this runner: the runner is the pipeline's only
+// apply goroutine, so losing it stops application permanently and leaves
+// WaitForDrain waiting forever. The consumer's ApplyFunc is guarded closer in,
+// by callApplyFunc, so a panic reaching here comes from the stage's own
+// ordering bookkeeping.
+func (r *ApplyStageRunner) process(
+	ctx context.Context,
+	item *BlockItem,
+) (processed []*BlockItem, err error) {
+	defer func() {
+		if recovered := panics.New(ErrStagePanic, "apply stage", recover()); recovered != nil {
+			err = recovered
+			markUnresolvedPhase(item, recovered)
+		}
+	}()
+	return r.stage.ProcessWithStatus(ctx, item)
 }
 
 // forwardItem sends an item to output and reports any apply errors.
