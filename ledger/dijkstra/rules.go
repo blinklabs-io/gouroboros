@@ -15,11 +15,13 @@
 package dijkstra
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"iter"
 	"math"
 	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -172,6 +174,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleBatchWithdrawals,
 		Validator: UtxoValidateBatchWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleAccountBalanceIntervals,
+		Validator: UtxoValidateAccountBalanceIntervals,
 	},
 	{
 		Id:        common.UtxoValidationRuleValueNotConserved,
@@ -1355,6 +1361,177 @@ func UtxoValidateBatchWithdrawals(
 		return nil
 	}
 	return WithdrawalsExceedAccountBalanceError{Withdrawals: mismatches}
+}
+
+// dijkstraAccountBalanceIntervalContains reports whether balance satisfies
+// interval. cardano-ledger's accountBalanceIntervalContains
+// (Cardano.Ledger.Dijkstra.Rules.Entities) reads the lower bound as inclusive
+// and the upper bound as exclusive. An interval with no bound at all is
+// unsatisfiable rather than vacuously true: the wire decoder rejects that
+// shape, and a directly constructed one asserts nothing.
+func dijkstraAccountBalanceIntervalContains(
+	balance uint64,
+	interval *DijkstraAccountBalanceInterval,
+) bool {
+	if interval == nil {
+		return false
+	}
+	if interval.Exact != nil {
+		return balance == *interval.Exact
+	}
+	if interval.LowerBound == nil && interval.UpperBound == nil {
+		return false
+	}
+	if interval.LowerBound != nil && balance < *interval.LowerBound {
+		return false
+	}
+	if interval.UpperBound != nil && balance >= *interval.UpperBound {
+		return false
+	}
+	return true
+}
+
+func dijkstraCompareCredentials(a, b common.Credential) int {
+	if a.CredType != b.CredType {
+		if a.CredType < b.CredType {
+			return -1
+		}
+		return 1
+	}
+	return bytes.Compare(a.Credential[:], b.Credential[:])
+}
+
+// dijkstraValidateAccountBalanceIntervals checks one transaction level's
+// intervals against the reward-account balances in ls. Failures are collected
+// per category and reported in cardano-ledger's order, missing accounts
+// before out-of-range balances, with credentials sorted so a level with more
+// than one failure produces the same error on every run.
+func dijkstraValidateAccountBalanceIntervals(
+	intervals DijkstraAccountBalanceIntervals,
+	ls common.LedgerState,
+) error {
+	var missing []common.Credential
+	var outside []AccountBalanceIntervalMismatch
+	for credential, interval := range intervals {
+		if credential == nil {
+			return errors.New(
+				"account balance intervals must not contain a nil credential",
+			)
+		}
+		if interval == nil {
+			return errors.New(
+				"account balance intervals must not contain a nil interval",
+			)
+		}
+		balance, err := ls.RewardAccountBalance(*credential)
+		if err != nil {
+			return err
+		}
+		if balance == nil {
+			missing = append(missing, *credential)
+			continue
+		}
+		if dijkstraAccountBalanceIntervalContains(*balance, interval) {
+			continue
+		}
+		outside = append(outside, AccountBalanceIntervalMismatch{
+			Credential: *credential,
+			Balance:    *balance,
+			Interval:   *interval,
+		})
+	}
+	if len(missing) > 0 {
+		slices.SortFunc(missing, dijkstraCompareCredentials)
+		return MissingAccountsInBalanceIntervalsError{Credentials: missing}
+	}
+	if len(outside) > 0 {
+		slices.SortFunc(
+			outside,
+			func(a, b AccountBalanceIntervalMismatch) int {
+				return dijkstraCompareCredentials(a.Credential, b.Credential)
+			},
+		)
+		return BalancesOutsideAccountBalanceIntervalsError{Mismatches: outside}
+	}
+	return nil
+}
+
+// UtxoValidateAccountBalanceIntervals checks a transaction level's
+// account_balance_intervals (body key 26) against current reward-account
+// balances: the account must be registered, and its balance must satisfy the
+// asserted interval.
+//
+// cardano-ledger runs validateAccountBalanceIntervals
+// (Cardano.Ledger.Dijkstra.Rules.Entities) once per transaction level, from
+// SUBENTITIES for each sub-transaction and from ENTITIES for the top level,
+// each against the account state threaded through the levels before it.
+// Dijkstra's LEDGER rule runs SUBLEDGERS before ENTITIES, so that order is
+// the sub-transactions in body order, then the top level.
+//
+// gouroboros evaluates UTxO rules against the ledger state as it stood before
+// the transaction and threads no account state between levels, so a level is
+// checked only while the pre-transaction balances are still the balances the
+// reference would see: up to and including the first level carrying a
+// withdrawal, a certificate or a direct deposit. A transaction with no
+// sub-transactions is therefore always checked in full. Later levels are left
+// unchecked rather than checked against a state the reference does not use,
+// which would reject batches the reference accepts.
+//
+// The reference's third check, WrongNetworkInAccountBalanceIntervals, has no
+// counterpart here. cardano-ledger keys this map by AccountAddress, which
+// carries a network id; on the wire the keys are bare credentials, which do
+// not. DijkstraAccountBalanceIntervals records the evidence for that shape.
+func UtxoValidateAccountBalanceIntervals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return nil
+	}
+	type intervalLevel struct {
+		intervals     DijkstraAccountBalanceIntervals
+		body          common.TransactionBody
+		directDeposit bool
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	levels := make([]intervalLevel, 0, len(subTxs)+1)
+	for idx := range subTxs {
+		body := &subTxs[idx].Body
+		levels = append(levels, intervalLevel{
+			intervals:     body.TxAccountBalanceIntervals,
+			body:          body,
+			directDeposit: len(body.TxDirectDeposits) > 0,
+		})
+	}
+	levels = append(levels, intervalLevel{
+		intervals:     dijkstraTx.Body.TxBalanceIntervals,
+		body:          &dijkstraTx.Body,
+		directDeposit: len(dijkstraTx.Body.TxDirectDeposits) > 0,
+	})
+	for _, level := range levels {
+		if len(level.intervals) > 0 {
+			if ls == nil {
+				return errors.New(
+					"ledger state is required for account balance interval validation",
+				)
+			}
+			if err := dijkstraValidateAccountBalanceIntervals(
+				level.intervals,
+				ls,
+			); err != nil {
+				return err
+			}
+		}
+		if level.directDeposit ||
+			len(level.body.Withdrawals()) > 0 ||
+			len(level.body.Certificates()) > 0 {
+			break
+		}
+	}
+	return nil
 }
 
 func UtxoValidateCCVotingRestrictions(

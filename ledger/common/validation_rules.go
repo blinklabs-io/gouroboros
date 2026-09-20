@@ -41,6 +41,7 @@ const (
 	UtxoValidationRuleDelegation                   UtxoValidationRuleId = "delegation"
 	UtxoValidationRuleWithdrawals                  UtxoValidationRuleId = "withdrawals"
 	UtxoValidationRuleBatchWithdrawals             UtxoValidationRuleId = "batch-withdrawals"
+	UtxoValidationRuleAccountBalanceIntervals      UtxoValidationRuleId = "account-balance-intervals"
 	UtxoValidationRuleCertificateDeposits          UtxoValidationRuleId = "certificate-deposits"
 	UtxoValidationRuleOutsideValidityInterval      UtxoValidationRuleId = "outside-validity-interval"
 	UtxoValidationRuleOutputTooBig                 UtxoValidationRuleId = "output-too-big"

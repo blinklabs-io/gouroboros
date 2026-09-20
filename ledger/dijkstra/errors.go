@@ -153,3 +153,41 @@ func validateLeiosCommitteeStakeParameters(
 	}
 	return nil
 }
+
+// AccountBalanceIntervalMismatch is one account_balance_intervals entry whose
+// current reward-account balance falls outside the interval it asserts.
+type AccountBalanceIntervalMismatch struct {
+	Credential common.Credential
+	Balance    uint64
+	Interval   DijkstraAccountBalanceInterval
+}
+
+// MissingAccountsInBalanceIntervalsError reports account_balance_intervals
+// (body key 26) entries whose reward account is not registered. It
+// corresponds to cardano-ledger's
+// MissingAccountsInAccountBalanceIntervals.
+type MissingAccountsInBalanceIntervalsError struct {
+	Credentials []common.Credential
+}
+
+func (e MissingAccountsInBalanceIntervalsError) Error() string {
+	return fmt.Sprintf(
+		"account balance intervals reference unregistered accounts: %v",
+		e.Credentials,
+	)
+}
+
+// BalancesOutsideAccountBalanceIntervalsError reports
+// account_balance_intervals entries whose reward-account balance falls
+// outside the asserted interval. It corresponds to cardano-ledger's
+// BalancesOutsideAccountBalanceIntervals.
+type BalancesOutsideAccountBalanceIntervalsError struct {
+	Mismatches []AccountBalanceIntervalMismatch
+}
+
+func (e BalancesOutsideAccountBalanceIntervalsError) Error() string {
+	return fmt.Sprintf(
+		"account balances outside asserted intervals: %v",
+		e.Mismatches,
+	)
+}
