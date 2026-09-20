@@ -153,3 +153,18 @@ func validateLeiosCommitteeStakeParameters(
 	}
 	return nil
 }
+
+// LeiosCertifiedBlockTransactionsError reports a block body that carries both
+// a Leios certificate and Dijkstra transactions. CIP-0164 admits one or the
+// other: "RB' contains either a certificate for the EB announced in RB, or a
+// list of transactions forming a valid extension of RB."
+type LeiosCertifiedBlockTransactionsError struct {
+	TransactionCount int
+}
+
+func (e *LeiosCertifiedBlockTransactionsError) Error() string {
+	return fmt.Sprintf(
+		"dijkstra block body carries a Leios certificate and %d transactions; CIP-0164 permits a certificate or transactions, not both",
+		e.TransactionCount,
+	)
+}
