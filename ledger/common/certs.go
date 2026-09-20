@@ -697,6 +697,23 @@ const (
 	PoolRelayTypeMultiHostName            = 2
 	poolRelayMaxPort               uint32 = 65535
 	poolRelayMaxHostnameLen               = 128
+	poolRelayIpv4Size                     = 4
+	poolRelayIpv6Size                     = 16
+)
+
+// ErrPoolRelayAddressWidth identifies a single_host_addr relay whose ipv4 or
+// ipv6 byte string is not the width the CDDL fixes.
+var ErrPoolRelayAddressWidth = errors.New(
+	"pool relay address has the wrong width",
+)
+
+// ErrPoolRelayMissingHostname identifies a single_host_name or multi_host_name
+// relay whose dns_name slot holds a CBOR null. Both CDDL productions take
+// dns_name unconditionally, with no nil alternative, and cardano-ledger
+// decodes the slot with the plain DecCBOR DnsName instance rather than
+// decodeNullStrictMaybe, so a null fails there as a type error.
+var ErrPoolRelayMissingHostname = errors.New(
+	"pool relay is missing its dns_name",
 )
 
 type PoolRelay struct {
@@ -729,6 +746,38 @@ func (p PoolRelay) validateCBORBounds() error {
 	return nil
 }
 
+// validateDecodedAddressWidths enforces the fixed widths the CDDL gives the
+// relay address fields: ipv4 = bytes .size 4 and ipv6 = bytes .size 16
+// (ledger/dijkstra/testdata/dijkstra.cddl lines 500 and 502, identical in
+// every era from shelley.cddl onwards). cardano-ledger decodes both through
+// binaryGetDecoder, which fails a short byte string in the binary Get and
+// raises DecoderErrorLeftover on a long one, so the reference rejects any
+// other width rather than normalizing it
+// (libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Decoding/DecCBOR.hs).
+//
+// The check is decode-only. MarshalCBOR normalizes through net.IP.To4 and
+// To16, which a relay built from genesis or JSON needs: net.ParseIP yields
+// the 16-byte IPv4-in-IPv6 form for a dotted-quad address.
+func (p *PoolRelay) validateDecodedAddressWidths() error {
+	if p.Ipv4 != nil && len(*p.Ipv4) != poolRelayIpv4Size {
+		return fmt.Errorf(
+			"%w: ipv4 must be %d bytes, got %d",
+			ErrPoolRelayAddressWidth,
+			poolRelayIpv4Size,
+			len(*p.Ipv4),
+		)
+	}
+	if p.Ipv6 != nil && len(*p.Ipv6) != poolRelayIpv6Size {
+		return fmt.Errorf(
+			"%w: ipv6 must be %d bytes, got %d",
+			ErrPoolRelayAddressWidth,
+			poolRelayIpv6Size,
+			len(*p.Ipv6),
+		)
+	}
+	return nil
+}
+
 func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 	tmpId, err := cbor.DecodeIdFromList(data)
 	if err != nil {
@@ -750,6 +799,9 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 		p.Port = tmpData.Port
 		p.Ipv4 = tmpData.Ipv4
 		p.Ipv6 = tmpData.Ipv6
+		if err := p.validateDecodedAddressWidths(); err != nil {
+			return err
+		}
 	case PoolRelayTypeSingleHostName:
 		var tmpData struct {
 			cbor.StructAsArray
@@ -759,6 +811,9 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 		}
 		if _, err := cbor.Decode(data, &tmpData); err != nil {
 			return err
+		}
+		if tmpData.Hostname == nil {
+			return ErrPoolRelayMissingHostname
 		}
 		p.Port = tmpData.Port
 		p.Hostname = tmpData.Hostname
@@ -770,6 +825,9 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 		}
 		if _, err := cbor.Decode(data, &tmpData); err != nil {
 			return err
+		}
+		if tmpData.Hostname == nil {
+			return ErrPoolRelayMissingHostname
 		}
 		p.Hostname = tmpData.Hostname
 	default:
