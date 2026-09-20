@@ -27,10 +27,12 @@ import "errors"
 // goroutine, so a panic from a consumer-supplied ApplyFunc, Eta0Provider or
 // Stage remains diagnosable.
 //
-// Unlike a mini-protocol, a contained panic here fails only the block item
-// being processed, not the pipeline: stages process items independently, so
-// the item is marked failed and carries that failure downstream exactly as a
-// returned error would, and the worker takes the next item.
+// Unlike a mini-protocol, a panic in an independent decode or validation stage
+// fails only the block item being processed, which carries the failure
+// downstream while the worker takes the next item. Apply-stage runner and
+// completion-accounting panics stop the pipeline instead: their ordered state
+// may already have changed, so continuing could move a completion fence across
+// an unresolved sequence gap.
 var ErrStagePanic = errors.New("recovered panic")
 
 // markUnresolvedPhase records err against the earliest processing phase the

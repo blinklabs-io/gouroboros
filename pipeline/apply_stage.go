@@ -252,6 +252,7 @@ type ApplyStageRunner struct {
 	errors        chan<- error
 	metrics       *PipelineMetrics
 	processedFunc func(uint64)
+	fatalFunc     func()
 	done          chan struct{}
 	running       bool
 	mu            sync.Mutex
@@ -294,6 +295,12 @@ func (r *ApplyStageRunner) SetMetrics(metrics *PipelineMetrics) {
 // through the supplied sequence number. It must be called before Start.
 func (r *ApplyStageRunner) SetProcessedFunc(processedFunc func(uint64)) {
 	r.processedFunc = processedFunc
+}
+
+// setFatalFunc sets the pipeline cancellation hook used when runner
+// bookkeeping can no longer be trusted. It must be called before Start.
+func (r *ApplyStageRunner) setFatalFunc(fatalFunc func()) {
+	r.fatalFunc = fatalFunc
 }
 
 // Start starts the apply stage runner.
@@ -350,12 +357,30 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				}
+				if errors.Is(err, ErrStagePanic) {
+					// ProcessWithStatus owns ordering state. A panic can occur after
+					// it advanced nextSequence or removed pending items, so treating
+					// the input as an ordered singleton could move a Fence across an
+					// unresolved gap. Stop this runner and cancel its owning pipeline.
+					if r.fatalFunc != nil {
+						r.fatalFunc()
+					}
+					return
+				}
 				continue
 			}
+			var processedErr error
 			if len(processed) > 0 && r.processedFunc != nil {
-				r.processedFunc(
+				processedErr = r.callProcessedFunc(
 					processed[len(processed)-1].SequenceNumber() + 1,
 				)
+				if processedErr != nil {
+					select {
+					case r.errors <- processedErr:
+					case <-ctx.Done():
+						return
+					}
+				}
 			}
 
 			// Forward all processed items (includes input item + any buffered items
@@ -364,6 +389,12 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 			// the pending queue overflowed.
 			for _, p := range processed {
 				r.forwardItem(ctx, p)
+			}
+			if processedErr != nil {
+				if r.fatalFunc != nil {
+					r.fatalFunc()
+				}
+				return
 			}
 		}
 	}
@@ -382,10 +413,26 @@ func (r *ApplyStageRunner) process(
 	defer func() {
 		if recovered := panics.New(ErrStagePanic, "apply stage", recover()); recovered != nil {
 			err = recovered
-			markUnresolvedPhase(item, recovered)
+			if item != nil {
+				item.SetApplied(false, recovered, 0)
+			}
 		}
 	}()
 	return r.stage.ProcessWithStatus(ctx, item)
+}
+
+func (r *ApplyStageRunner) callProcessedFunc(sequence uint64) (err error) {
+	defer func() {
+		if recovered := panics.New(
+			ErrStagePanic,
+			"apply processed callback",
+			recover(),
+		); recovered != nil {
+			err = recovered
+		}
+	}()
+	r.processedFunc(sequence)
+	return nil
 }
 
 // forwardItem sends an item to output and reports any apply errors.

@@ -126,14 +126,12 @@ func (p *StageWorkerPool) worker(ctx context.Context) {
 			}
 
 			err := p.process(ctx, item)
-
-			// Record metrics only for actual processing attempts (not context cancellation)
-			// and only if the shouldRecord check passes (or is nil)
-			if p.recordMetrics != nil &&
-				!errors.Is(err, context.Canceled) &&
-				!errors.Is(err, context.DeadlineExceeded) &&
-				(p.shouldRecord == nil || p.shouldRecord(item)) {
-				p.recordMetrics(item, err)
+			if metricsErr := p.recordItemMetrics(item, err); metricsErr != nil {
+				if err == nil {
+					err = metricsErr
+				} else {
+					err = errors.Join(err, metricsErr)
+				}
 			}
 
 			if err != nil && p.errors != nil {
@@ -155,6 +153,32 @@ func (p *StageWorkerPool) worker(ctx context.Context) {
 	}
 }
 
+// recordItemMetrics contains consumer-supplied metrics callbacks separately
+// from stage processing. Their failure must be reported, but it does not turn a
+// successfully transformed item into a decode or validation failure.
+func (p *StageWorkerPool) recordItemMetrics(
+	item *BlockItem,
+	stageErr error,
+) (err error) {
+	if p.recordMetrics == nil ||
+		errors.Is(stageErr, context.Canceled) ||
+		errors.Is(stageErr, context.DeadlineExceeded) {
+		return nil
+	}
+	where := "pipeline metrics predicate"
+	defer func() {
+		if recovered := panics.New(ErrStagePanic, where, recover()); recovered != nil {
+			err = recovered
+		}
+	}()
+	if p.shouldRecord != nil && !p.shouldRecord(item) {
+		return nil
+	}
+	where = "pipeline metrics recorder"
+	p.recordMetrics(item, stageErr)
+	return nil
+}
+
 // process runs the stage for one item, containing any panic so that it fails
 // that item instead of this worker. The item is still forwarded, so the
 // pipeline's per-item accounting and the caller's Results channel see it, and
@@ -164,12 +188,14 @@ func (p *StageWorkerPool) process(
 	ctx context.Context,
 	item *BlockItem,
 ) (err error) {
+	where := "pipeline stage"
 	defer func() {
-		if recovered := panics.New(ErrStagePanic, p.stage.Name()+" stage", recover()); recovered != nil {
+		if recovered := panics.New(ErrStagePanic, where, recover()); recovered != nil {
 			err = recovered
 			markUnresolvedPhase(item, recovered)
 		}
 	}()
+	where = p.stage.Name() + " stage"
 	return p.stage.Process(ctx, item)
 }
 

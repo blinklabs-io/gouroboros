@@ -604,8 +604,24 @@ func (p *Protocol) SendError(err error) {
 func (p *Protocol) recoverLoop(where string) {
 	err := panics.New(ErrHandlerPanic, p.config.Name+": "+where, recover())
 	if err != nil {
-		p.SendError(err)
+		// Report directly instead of using SendError: a protocol-owned
+		// shutdown watcher can execute a consumer callback after DoneChan is
+		// closed, and SendError deliberately ignores ordinary errors once
+		// shutdown has begun. A panic still needs to remain diagnosable.
+		select {
+		case p.config.ErrorChan <- err:
+		default:
+		}
+		p.Stop()
 	}
+}
+
+// RunLoop runs a mini-protocol-owned loop in the current goroutine with the
+// same panic containment as Protocol's common loops. Callers normally start it
+// with go and must supply a stable, diagnostic loop name.
+func (p *Protocol) RunLoop(where string, loop func()) {
+	defer p.recoverLoop(where)
+	loop()
 }
 
 func (p *Protocol) sendLoop() {

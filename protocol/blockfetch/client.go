@@ -359,7 +359,9 @@ func (c *Client) Start() {
 			c.lifecycleState = clientStateRunning
 			// Resolve any request left outstanding when the protocol shuts
 			// down, so no caller and no callback consumer is left waiting.
-			go c.failOutstandingOnProtocolDone(proto)
+			go proto.RunLoop("shutdown watcher", func() {
+				c.failOutstandingOnProtocolDone(proto)
+			})
 			if c.startingDone == ch {
 				close(ch)
 				c.startingDone = nil

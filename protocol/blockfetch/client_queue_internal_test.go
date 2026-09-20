@@ -805,6 +805,54 @@ func TestOldProtocolShutdownDoesNotFailRestartedRequests(t *testing.T) {
 	require.Zero(t, c.inFlightBytes)
 }
 
+func TestShutdownWatcherContainsRangeDonePanic(t *testing.T) {
+	errorChan := make(chan error, 1)
+	c := NewClient(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  &net.TCPAddr{},
+			RemoteAddr: &net.TCPAddr{},
+		},
+		ErrorChan: errorChan,
+	}, &Config{
+		RequestPipelining: true,
+		RangeDoneFunc: func(CallbackContext, error) error {
+			panic("injected range completion callback panic")
+		},
+	})
+	req := c.appendTestRequest(1)
+	proto := c.ProtocolInstance()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proto.RunLoop("shutdown watcher", func() {
+			c.failOutstandingOnProtocolDone(proto)
+		})
+	}()
+	proto.Stop()
+
+	select {
+	case err := <-errorChan:
+		require.ErrorIs(t, err, protocol.ErrHandlerPanic)
+		require.ErrorContains(t, err, "shutdown watcher")
+		require.ErrorContains(
+			t, err, "injected range completion callback panic",
+		)
+	case <-time.After(5 * time.Second):
+		t.Fatal("range completion callback panic was not reported")
+	}
+	select {
+	case err := <-req.doneChan:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not resolve the outstanding range")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown watcher did not return after callback panic")
+	}
+}
+
 func TestNonPipelinedShutdownCallsBatchDone(t *testing.T) {
 	completions := make(chan uint64, 2)
 	c := newQueueTestClient(&Config{

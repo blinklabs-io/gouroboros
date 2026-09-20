@@ -143,6 +143,43 @@ func TestNewClientWithConfig(t *testing.T) {
 	assert.Equal(t, 2, client.config.PipelineLimit)
 }
 
+func TestVoteCallbackPanicFailsProtocol(t *testing.T) {
+	errorChan := make(chan error, 1)
+	cfg := NewConfig(WithVoteFunc(func(CallbackContext, Vote) error {
+		panic("injected vote callback panic")
+	}))
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: testConnectionId(),
+		ErrorChan:    errorChan,
+	}, &cfg)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		client.Protocol.RunLoop("vote loop", func() {
+			client.voteLoop(1)
+		})
+	}()
+
+	select {
+	case client.voteChan <- testVote():
+	case <-time.After(time.Second):
+		t.Fatal("vote loop did not accept the test vote")
+	}
+	select {
+	case err := <-errorChan:
+		require.ErrorIs(t, err, protocol.ErrHandlerPanic)
+		require.ErrorContains(t, err, "vote loop")
+		require.ErrorContains(t, err, "injected vote callback panic")
+	case <-time.After(5 * time.Second):
+		t.Fatal("vote callback panic was not reported")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("vote loop did not stop after callback panic")
+	}
+}
+
 func TestClientMessageHandler(t *testing.T) {
 	client := NewClient(
 		protocol.ProtocolOptions{ConnectionId: testConnectionId()},

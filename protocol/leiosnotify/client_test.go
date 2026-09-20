@@ -366,6 +366,43 @@ func TestSyncRequiresNotificationFunc(t *testing.T) {
 	assert.Contains(t, err.Error(), "NotificationFunc")
 }
 
+func TestNotificationCallbackPanicFailsProtocol(t *testing.T) {
+	errorChan := make(chan error, 1)
+	cfg := NewConfig(WithNotificationFunc(
+		func(CallbackContext, protocol.Message) error {
+			panic("injected notification callback panic")
+		},
+	))
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{},
+		ErrorChan:    errorChan,
+	}, &cfg)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		client.Protocol.RunLoop("notification loop", client.notificationLoop)
+	}()
+
+	select {
+	case client.notificationChan <- NewMsgBlockAnnouncement([]byte{0x01}):
+	case <-time.After(time.Second):
+		t.Fatal("notification loop did not accept the test message")
+	}
+	select {
+	case err := <-errorChan:
+		require.ErrorIs(t, err, protocol.ErrHandlerPanic)
+		require.ErrorContains(t, err, "notification loop")
+		require.ErrorContains(t, err, "injected notification callback panic")
+	case <-time.After(5 * time.Second):
+		t.Fatal("notification callback panic was not reported")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("notification loop did not stop after callback panic")
+	}
+}
+
 func TestSyncPreventsMultipleCalls(t *testing.T) {
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},

@@ -123,7 +123,7 @@ func (c *Client) Sync() error {
 	c.pipelinedRequestNext = 0
 	c.notificationRunning = true
 	// Start notification loop
-	go c.notificationLoop()
+	go c.Protocol.RunLoop("notification loop", c.notificationLoop)
 	return nil
 }
 

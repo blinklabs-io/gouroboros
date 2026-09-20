@@ -381,6 +381,36 @@ func TestRecoverLoopReportsAndStops(t *testing.T) {
 	require.True(t, p.IsStopping())
 }
 
+func TestRunLoopReportsAndStops(t *testing.T) {
+	errorChan := make(chan error, 1)
+	p := New(ProtocolConfig{
+		ErrorChan:    errorChan,
+		Name:         "paniced",
+		InitialState: panicTestInitialState,
+		StateMap: StateMap{
+			panicTestInitialState: {Agency: AgencyClient},
+		},
+	})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.RunLoop("callback loop", func() { panic(panicValue) })
+	}()
+
+	requireContainedPanic(
+		t,
+		errorChan,
+		"callback loop",
+		"TestRunLoopReportsAndStops",
+	)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("guarded callback loop did not return")
+	}
+	require.True(t, p.IsStopping())
+}
+
 // TestRecoverLoopIgnoresNormalReturn confirms the backstop reports nothing
 // when the guarded function simply returns.
 func TestRecoverLoopIgnoresNormalReturn(t *testing.T) {

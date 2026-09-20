@@ -17,6 +17,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -116,6 +117,74 @@ func TestStageWorkerPoolContainsStagePanic(t *testing.T) {
 	require.False(t, gotItems[0].IsDecoded())
 }
 
+func TestStageWorkerPoolContainsMetricsCallbackPanic(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		shouldRecord ShouldRecordMetrics
+		record       MetricsRecorder
+	}{
+		{
+			name: "predicate",
+			shouldRecord: func(item *BlockItem) bool {
+				if item.SequenceNumber() == 0 {
+					panic(stagePanicValue)
+				}
+				return true
+			},
+			record: func(*BlockItem, error) {},
+		},
+		{
+			name: "recorder",
+			record: func(item *BlockItem, _ error) {
+				if item.SequenceNumber() == 0 {
+					panic(stagePanicValue)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := make(chan *BlockItem, 2)
+			output := make(chan *BlockItem, 2)
+			errorChan := make(chan error, 2)
+			input <- newPanicTestItem(0)
+			input <- newPanicTestItem(1)
+			close(input)
+			pool := NewStageWorkerPool(StageWorkerPoolConfig{
+				Stage: NewStageFunc(
+					"decode",
+					func(context.Context, *BlockItem) error { return nil },
+				),
+				NumWorkers:    1,
+				Input:         input,
+				Output:        output,
+				Errors:        errorChan,
+				RecordMetrics: test.record,
+				ShouldRecord:  test.shouldRecord,
+			})
+			pool.Start(context.Background())
+			pool.Stop()
+			close(output)
+			close(errorChan)
+
+			items := make([]*BlockItem, 0, 2)
+			for item := range output {
+				items = append(items, item)
+			}
+			require.Len(t, items, 2)
+			require.Equal(t, uint64(0), items[0].SequenceNumber())
+			require.Equal(t, uint64(1), items[1].SequenceNumber())
+			require.NoError(t, items[0].DecodeError())
+
+			errs := make([]error, 0, 1)
+			for err := range errorChan {
+				errs = append(errs, err)
+			}
+			require.Len(t, errs, 1)
+			requireContainedStagePanic(t, errs[0])
+		})
+	}
+}
+
 // TestApplyFuncPanicBecomesApplyError covers the consumer-callback boundary in
 // the apply stage. The panic must become the item's apply error without
 // disturbing ordered application of the items behind it.
@@ -159,25 +228,114 @@ func TestApplyFuncPanicBecomesApplyError(t *testing.T) {
 // consumer's own ApplyFunc is guarded closer in by callApplyFunc, so this
 // backstop only ever sees a fault in the stage itself.
 func TestApplyStageRunnerContainsStagePanic(t *testing.T) {
-	input := make(chan *BlockItem, 1)
-	output := make(chan *BlockItem, 1)
-	errorChan := make(chan error, 1)
+	input := make(chan *BlockItem, 2)
+	output := make(chan *BlockItem, 2)
+	errorChan := make(chan error, 2)
+	processedChan := make(chan uint64, 2)
+	fatalChan := make(chan struct{}, 1)
 	runner := NewApplyStageRunner(nil, input, output, errorChan, 0)
+	runner.SetProcessedFunc(func(sequence uint64) {
+		processedChan <- sequence
+	})
+	runner.setFatalFunc(func() { fatalChan <- struct{}{} })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	runner.Start(ctx)
+	runner.Start(context.Background())
+	outOfOrder := newPanicTestItem(1)
+	input <- outOfOrder
 	input <- newPanicTestItem(0)
 
 	select {
 	case err := <-errorChan:
-		require.Error(t, err)
 		require.ErrorIs(t, err, ErrStagePanic)
+		require.ErrorContains(t, err, "apply stage")
 	case <-time.After(5 * time.Second):
-		t.Fatal("the apply runner reported nothing and is no longer running")
+		t.Fatal("the apply runner did not report the contained panic")
 	}
-	cancel()
 	runner.Stop()
+	require.ErrorIs(t, outOfOrder.ApplyError(), ErrStagePanic)
+	select {
+	case completed := <-processedChan:
+		t.Fatalf("stage panic advanced completion to %d across an ordering gap", completed)
+	default:
+	}
+	select {
+	case item := <-output:
+		t.Fatalf("stage panic forwarded out-of-order item %d", item.SequenceNumber())
+	default:
+	}
+	select {
+	case <-fatalChan:
+	default:
+		t.Fatal("stage panic did not trigger fatal pipeline cancellation")
+	}
+}
+
+func TestApplyStageRunnerContainsProcessedCallbackPanic(t *testing.T) {
+	input := make(chan *BlockItem, 1)
+	output := make(chan *BlockItem, 1)
+	errorChan := make(chan error, 1)
+	fatalChan := make(chan struct{}, 1)
+	runner := NewApplyStageRunner(
+		NewApplyStage(nil, 0), input, output, errorChan, 0,
+	)
+	runner.SetProcessedFunc(func(uint64) { panic(stagePanicValue) })
+	runner.setFatalFunc(func() { fatalChan <- struct{}{} })
+	runner.Start(context.Background())
+	input <- newPanicTestItem(0)
+
+	select {
+	case err := <-errorChan:
+		requireContainedStagePanic(t, err)
+		require.ErrorContains(t, err, "apply processed callback")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the processed callback panic was not reported")
+	}
+	select {
+	case item := <-output:
+		require.Equal(t, uint64(0), item.SequenceNumber())
+		require.True(t, item.IsApplied())
+	case <-time.After(5 * time.Second):
+		t.Fatal("the completed item was not forwarded")
+	}
+	runner.Stop()
+	select {
+	case <-fatalChan:
+	default:
+		t.Fatal("processed callback panic did not trigger fatal cancellation")
+	}
+}
+
+type panicAfterNameStage struct {
+	processStarted atomic.Bool
+}
+
+func (s *panicAfterNameStage) Name() string {
+	if s.processStarted.Load() {
+		panic("stage name panic")
+	}
+	return "decode"
+}
+
+func (s *panicAfterNameStage) Process(context.Context, *BlockItem) error {
+	s.processStarted.Store(true)
+	panic(stagePanicValue)
+}
+
+// TestStageWorkerPoolRecoveryDoesNotCallStageName proves that recovery does
+// not execute consumer code. Name succeeds before Process starts and panics
+// afterward, so calling it from the deferred handler would replace the
+// original panic and escape the worker goroutine.
+func TestStageWorkerPoolRecoveryDoesNotCallStageName(t *testing.T) {
+	item := newPanicTestItem(0)
+	gotItems, gotErrors := runPanicTestPool(
+		t, &panicAfterNameStage{}, []*BlockItem{item},
+	)
+
+	require.Len(t, gotErrors, 1)
+	requireContainedStagePanic(t, gotErrors[0])
+	require.NotContains(t, gotErrors[0].Error(), "stage name panic")
+	require.Len(t, gotItems, 1)
+	require.ErrorIs(t, gotItems[0].DecodeError(), ErrStagePanic)
 }
 
 // TestStagePipelineUnaffectedByContainment covers the cases that must not
