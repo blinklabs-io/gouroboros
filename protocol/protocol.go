@@ -845,6 +845,33 @@ func (p *Protocol) errReadBufferBudget(size int) error {
 	)
 }
 
+// appendSegment bounds readBuffer before it grows. The per-protocol cap
+// decides "too big" and is therefore checked first: the connection-wide
+// allowance is the largest registered cap, so reserving first would report
+// contention against a message that simply exceeds this protocol's own
+// limit. Both checks precede bytes.Buffer.Write, which grows and copies,
+// so writing first would take the allocation the allowance exists to
+// refuse.
+func (p *Protocol) appendSegment(
+	readBuffer *bytes.Buffer,
+	payload []byte,
+	reserved *int,
+) error {
+	pendingLen := readBuffer.Len() + len(payload)
+	if pendingLen > p.config.maxReadBufferSize() {
+		return fmt.Errorf(
+			"%s: read buffer exceeded maximum size (%d bytes)",
+			p.config.Name,
+			pendingLen,
+		)
+	}
+	if !p.reserveReadBuffer(pendingLen, reserved) {
+		return p.errReadBufferBudget(pendingLen)
+	}
+	readBuffer.Write(payload)
+	return nil
+}
+
 func (p *Protocol) readLoop() {
 	leftoverData := false
 	readBuffer := bytes.NewBuffer(nil)
@@ -874,24 +901,12 @@ func (p *Protocol) readLoop() {
 				if !ok {
 					return
 				}
-				// Reserve before the write. bytes.Buffer.Write grows and
-				// copies, so writing first takes the allocation the
-				// connection allowance exists to refuse.
-				pendingLen := readBuffer.Len() + len(segment.Payload)
-				if !p.reserveReadBuffer(pendingLen, &reserved) {
-					p.SendError(p.errReadBufferBudget(pendingLen))
+				if err := p.appendSegment(
+					readBuffer, segment.Payload, &reserved,
+				); err != nil {
+					p.SendError(err)
 					return
 				}
-				// Add segment payload to buffer
-				if pendingLen > p.config.maxReadBufferSize() {
-					p.SendError(fmt.Errorf(
-						"%s: read buffer exceeded maximum size (%d bytes)",
-						p.config.Name,
-						pendingLen,
-					))
-					return
-				}
-				readBuffer.Write(segment.Payload)
 			}
 			// Opportunistically drain any additional segments the muxer
 			// has already queued for us before spending a decode attempt.
@@ -923,17 +938,14 @@ func (p *Protocol) readLoop() {
 			// future work rather than shipped without full validation.
 			//
 			// This select must watch the same shutdown channels the outer
-			// one above does, and must bound readBuffer's growth itself
-			// (not just rely on the existing post-decode check below): a
-			// peer that keeps the channel non-empty by sending segments as
-			// fast as this loop drains them would otherwise let it spin
-			// unboundedly on both counts -- ignoring shutdown, and growing
-			// readBuffer past p.config.maxReadBufferSize() before ever
-			// returning control to check it (CWE-400, caught in review on
-			// blinklabs-io/gouroboros#2291). Breaking out once the bound is
-			// exceeded (rather than erroring here directly) lets the
-			// existing check just below do the actual rejection, so there
-			// is one place that decides "too big", not two.
+			// one above does, and must bound readBuffer itself: a peer that
+			// keeps the channel non-empty by sending segments as fast as this
+			// loop drains them would otherwise let it spin unboundedly on both
+			// counts -- ignoring shutdown, and growing readBuffer past
+			// p.config.maxReadBufferSize() before ever returning control to
+			// check it (CWE-400, caught in review on
+			// blinklabs-io/gouroboros#2291). appendSegment is that bound, and
+			// is the one place that decides "too big" for both receive paths.
 		drainQueued:
 			for {
 				select {
@@ -947,22 +959,11 @@ func (p *Protocol) readLoop() {
 					if !ok {
 						return
 					}
-					pendingLen := readBuffer.Len() + len(segment.Payload)
-					if pendingLen > p.config.maxReadBufferSize() {
-						p.SendError(fmt.Errorf(
-							"%s: read buffer exceeded maximum size (%d bytes)",
-							p.config.Name,
-							pendingLen,
-						))
+					if err := p.appendSegment(
+						readBuffer, segment.Payload, &reserved,
+					); err != nil {
+						p.SendError(err)
 						return
-					}
-					if !p.reserveReadBuffer(pendingLen, &reserved) {
-						p.SendError(p.errReadBufferBudget(pendingLen))
-						return
-					}
-					readBuffer.Write(segment.Payload)
-					if readBuffer.Len() > p.config.maxReadBufferSize() {
-						break drainQueued
 					}
 				default:
 					break drainQueued
@@ -995,16 +996,6 @@ func (p *Protocol) readLoop() {
 			if errors.Is(err, io.ErrUnexpectedEOF) && readBuffer.Len() > 0 {
 				// This is probably a multi-part message, so we wait until we get more of the message
 				// before trying to process it
-				if readBuffer.Len() > p.config.maxReadBufferSize() {
-					p.SendError(
-						fmt.Errorf(
-							"%s: read buffer exceeded maximum size (%d bytes)",
-							p.config.Name,
-							readBuffer.Len(),
-						),
-					)
-					return
-				}
 				continue
 			}
 			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
