@@ -1104,10 +1104,60 @@ func (t dijkstraBatchTransaction) AssetMint() *common.MultiAsset[common.MultiAss
 	return ret
 }
 
+// dijkstraDirectDepositsTotal sums the direct deposits (body key 25) of every
+// transaction level.
+func dijkstraDirectDepositsTotal(tx common.Transaction) *big.Int {
+	ret := new(big.Int)
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return ret
+	}
+	for _, amount := range dijkstraTx.Body.TxDirectDeposits {
+		ret.Add(ret, new(big.Int).SetUint64(amount))
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	for idx := range subTxs {
+		for _, amount := range subTxs[idx].Body.TxDirectDeposits {
+			ret.Add(ret, new(big.Int).SetUint64(amount))
+		}
+	}
+	return ret
+}
+
+// dijkstraDirectDepositTransaction adds a batch's direct deposits to the
+// produced side of value conservation.
+//
+// Cardano's localProducedValue (Cardano.Ledger.Dijkstra.UTxO) sums a body's
+// outputs, treasury donation, proposal deposits, burned multi-assets and
+// direct deposits; dijkstraProducedValue applies it to the top-level body and
+// to every sub-transaction body, then adds the fee once. Direct deposits are
+// an independent produced-side term, disjoint from the proposal deposits and
+// treasury donations dijkstraBatchTransaction already folds, so counting them
+// as well cannot double-count either.
+//
+// conway.UtxoValidateValueNotConservedUtxo derives its produced coin total
+// from Outputs(), Fee(), certificate deposits, ProposalProcedures() and
+// Donation(), and has no direct deposit term. The batch total is therefore
+// carried on Fee(), the one produced-side term that is a bare coin with no
+// other meaning inside that rule. Donation() would be wrong: it additionally
+// triggers the PlutusV1/V2 rejection that does not apply to a deposit.
+type dijkstraDirectDepositTransaction struct {
+	common.Transaction
+	directDeposits *big.Int
+}
+
+func (t dijkstraDirectDepositTransaction) Fee() *big.Int {
+	ret := new(big.Int).Set(t.directDeposits)
+	if fee := t.Transaction.Fee(); fee != nil {
+		ret.Add(ret, fee)
+	}
+	return ret
+}
+
 // UtxoValidateValueNotConservedUtxo balances consumed against produced value
 // across every transaction level. A sub-transaction's inputs, outputs,
-// withdrawals, certificates, mints, proposal deposits and treasury donation
-// all count towards the enclosing transaction's balance.
+// withdrawals, certificates, mints, proposal deposits, treasury donation and
+// direct deposits all count towards the enclosing transaction's balance.
 func UtxoValidateValueNotConservedUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -1118,8 +1168,15 @@ func UtxoValidateValueNotConservedUtxo(
 	if err != nil {
 		return err
 	}
+	view := dijkstraBatchView(tx)
+	if directDeposits := dijkstraDirectDepositsTotal(tx); directDeposits.Sign() > 0 {
+		view = dijkstraDirectDepositTransaction{
+			Transaction:    view,
+			directDeposits: directDeposits,
+		}
+	}
 	return conway.UtxoValidateValueNotConservedUtxo(
-		dijkstraBatchView(tx),
+		view,
 		slot,
 		ls,
 		tmpPparams,
