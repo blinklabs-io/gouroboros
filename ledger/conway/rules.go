@@ -1343,6 +1343,12 @@ func UtxoValidateProposalReturnAccounts(
 	if isInConwayBootstrapPhase(pp) {
 		return nil
 	}
+	// The reference (conwayGovTransition, processProposal) checks the
+	// return address and treasury withdrawal addresses against
+	// certStateAfterCERTS, not against pre-transaction ledger state: a
+	// stake account this same transaction registers via an earlier
+	// certificate is a valid return account (gouroboros#2386).
+	overlay := newConwayCertsOverlay(tx, ls)
 	isRegistered := func(addr common.Address) bool {
 		// The CDDL reward_account type only permits the two
 		// none-payment-credential address types (AddressTypeNoneKey /
@@ -1356,7 +1362,7 @@ func UtxoValidateProposalReturnAccounts(
 			return false
 		}
 		cred, ok := addr.StakeCredential()
-		return ok && ls.IsStakeCredentialRegistered(cred)
+		return ok && overlay.IsStakeCredentialRegistered(cred)
 	}
 	for _, proposal := range tx.ProposalProcedures() {
 		returnAddr := proposal.RewardAccount()
@@ -4272,7 +4278,15 @@ func UtxoValidateUnknownVoters(
 		return nil
 	}
 
-	var committeeState common.CommitteeCredentialState
+	// The reference (conwayGovTransition, internVoter) resolves every
+	// voter type against certStateAfterCERTS, not against pre-transaction
+	// ledger state: a DRep, pool, or committee hot key this same
+	// transaction registers or authorizes via an earlier certificate is a
+	// known voter (gouroboros#2386).
+	overlay := newConwayCertsOverlay(tx, ls)
+	committeeStateChecked := false
+	var committeeStateAvailable bool
+	var committeeStateErr error
 
 	for voter := range votes {
 		if voter == nil {
@@ -4288,7 +4302,7 @@ func UtxoValidateUnknownVoters(
 			if voter.Type == common.VoterTypeDRepScriptHash {
 				credentialType = common.CredentialTypeScriptHash
 			}
-			reg, err := ls.DRepRegistration(common.Credential{
+			reg, err := overlay.DRepRegistration(common.Credential{
 				CredType:   credentialType,
 				Credential: common.Blake2b224(voter.Hash),
 			})
@@ -4300,7 +4314,7 @@ func UtxoValidateUnknownVoters(
 			}
 
 		case common.VoterTypeStakingPoolKeyHash:
-			if !ls.IsPoolRegistered(common.PoolKeyHash(voter.Hash)) {
+			if !overlay.IsPoolRegistered(common.PoolKeyHash(voter.Hash)) {
 				return UnknownVoterError{Voter: *voter}
 			}
 
@@ -4321,21 +4335,17 @@ func UtxoValidateUnknownVoters(
 					Err:              err,
 				}
 			}
-			if committeeState == nil {
-				var ok bool
-				committeeState, ok = common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
-				if !ok {
-					return lookupError(CommitteeStateUnavailableError{})
-				}
-				available, err := committeeState.CommitteeStateAvailable()
-				if err != nil {
-					return lookupError(err)
-				}
-				if !available {
-					return lookupError(CommitteeStateUnavailableError{})
-				}
+			if !committeeStateChecked {
+				committeeStateChecked = true
+				committeeStateAvailable, committeeStateErr = overlay.CommitteeStateAvailable()
 			}
-			member, err := committeeState.CommitteeHotCredentialMember(
+			if committeeStateErr != nil {
+				return lookupError(committeeStateErr)
+			}
+			if !committeeStateAvailable {
+				return lookupError(CommitteeStateUnavailableError{})
+			}
+			member, err := overlay.CommitteeHotCredentialMember(
 				hotCredential,
 			)
 			if err != nil {
