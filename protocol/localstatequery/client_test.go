@@ -15,6 +15,7 @@
 package localstatequery_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -1284,7 +1285,7 @@ func TestFilteredVoteDelegateesResultDecode(t *testing.T) {
 		Tag:   0,
 		Bytes: credBytes,
 	}
-	drepCredBytes := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+	drepCredBytes := bytes.Repeat([]byte{0xaa}, lcommon.Blake2b224Size)
 
 	// Drep has a custom UnmarshalCBOR that expects a CBOR array [type, credential],
 	// but no MarshalCBOR, so we encode using a helper struct with StructAsArray
@@ -1321,7 +1322,7 @@ func TestGetFilteredVoteDelegatees(t *testing.T) {
 		Tag:   0,
 		Bytes: credBytes,
 	}
-	drepCredBytes := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+	drepCredBytes := bytes.Repeat([]byte{0xaa}, lcommon.Blake2b224Size)
 
 	// Encode manually since Drep lacks MarshalCBOR
 	type drepEnc struct {

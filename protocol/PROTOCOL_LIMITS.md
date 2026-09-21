@@ -11,6 +11,27 @@ make the expected transition before the timeout expires. These are transport
 and state-machine safeguards, not application-level transaction or block
 validation.
 
+## Connection read buffer allowance
+
+`MaxReadBufferSize` bounds one mini-protocol in one role. A full-duplex
+node-to-node connection runs eight mini-protocols in both roles, so sixteen
+read loops each hold their own buffer.
+
+The muxer carries a connection-wide allowance for those buffers. Each
+protocol raises it to its own effective `MaxReadBufferSize` as it registers,
+so the allowance is the largest registered cap (16 MB by default), not the
+sum of all of them. A mini-protocol whose reassembly would take the
+connection past the allowance fails with a
+`connection read buffer budget exhausted` error rather than growing; the
+allowance is returned as messages are consumed and when a read loop exits.
+
+The largest message any node-to-node mini-protocol admits is bounded by its
+own pending-message byte limit, and the largest of those is Block Fetch's
+2,500,000 bytes, so one protocol's 16 MB cap covers every legitimate
+reassembly on the connection with room to spare. A caller that needs more
+headroom raises `MaxReadBufferSize` on the protocol that needs it, which
+raises the connection allowance with it.
+
 ## Muxer socket deadlines
 
 The muxer sets a 120-second write deadline immediately before each segment
@@ -78,22 +99,51 @@ request caller when the bound is full; it does not terminate the connection.
 
 ## Transaction Submission
 
-The TxSubmission state map has no pending-message byte limits:
+| State | Timeout | Pending bytes |
+| --- | ---: | ---: |
+| Init | none | 721,424 |
+| Idle | none | 721,424 |
+| TxIdsBlocking | none | 721,424 |
+| TxIdsNonBlocking | 10 seconds | 721,424 |
+| Txs | 10 seconds | 721,424 |
+| Done | none | 721,424 |
 
-| State | Timeout |
-| --- | ---: |
-| Init | none |
-| Idle | none |
-| TxIdsBlocking | none |
-| TxIdsNonBlocking | 10 seconds |
-| Txs | 10 seconds |
-| Done | none |
+`MaxPendingMessageBytes` is 721,424 bytes: `MaxUnackedTxIds` (10) maximum-size
+transactions of `MaxTxSizeBytes` (65,540) plus the `TxIdReplyEntryBytes` (44)
+tx-id reply entry that announced each, with a 10% safety margin. It matches
+the tx-submission mux ingress limit the reference implementation enforces, so
+a conforming peer never exceeds it.
 
-The protocol accepts at most 65,535 transaction IDs in a request and at most
-65,535 acknowledgements (`uint16` wire fields). Both client and server reject
-counts outside those bounds with `ErrProtocolViolationRequestExceeded`.
+Both requests are bounded by the outstanding window, not by the `uint16` wire
+ranges. `MaxRequestCount` and `MaxAckCount` (65,535) describe the ranges of the
+`MsgRequestTxIds` count fields and no longer bound either request path;
+`MaxUnackedTxIds` (10) does, and it is also what sizes the byte limit.
+
+A request for transaction IDs must leave the peer inside that window. The
+client's `MsgRequestTxIds` handler rejects an acknowledgement larger than what
+it has outstanding, and rejects a request where `unacknowledged - ack + req`
+exceeds `MaxUnackedTxIds`; `Server.RequestTxIds` applies the same condition
+before putting a request on the wire. Both return
+`ErrProtocolViolationRequestExceeded`. This is the reference implementation's
+condition in `Ouroboros.Network.TxSubmission.Outbound`, which throws
+`ProtocolErrorAckedTooManyTxids` and `ProtocolErrorRequestedTooManyTxids`
+respectively.
+
+A request for transaction bodies is bounded the same way: `Server.RequestTxs`
+and the client's request handler both reject more than `MaxUnackedTxIds`
+transaction IDs. A peer may only request transactions it has left
+unacknowledged, and a reply to a larger request cannot fit
+`MaxPendingMessageBytes`, which is derived from that same window.
+
+Without these bounds a peer requesting 65,535 transaction IDs draws a reply of
+roughly 2.6 MB, which `Protocol.enqueueMessage` refuses against
+`MaxPendingMessageBytes` and then fails the protocol over, dropping the
+connection.
+
 `DefaultRequestLimit` and `DefaultAckLimit` are exported guidance constants
-(1,000); they are not configuration fields and are not applied automatically.
+(1,000). They are not configuration fields, are not applied automatically, and
+are larger than `MaxUnackedTxIds`: a caller using either as a request count is
+refused.
 
 ## Handshake
 

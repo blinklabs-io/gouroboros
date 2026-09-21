@@ -42,10 +42,31 @@ const (
 
 type Blake2b256 [Blake2b256Size]byte
 
+// NewBlake2b256 builds a Blake2b256 from data, zero-padding a short slice
+// and truncating a long one. Use it only where the source is itself 32
+// bytes wide, such as another fixed-size hash array. For any length that is
+// not statically guaranteed -- CBOR, JSON, hex, or database input -- use
+// NewBlake2b256Checked, because a silently padded or truncated hash can
+// collide with an unrelated one and mis-key ledger state.
 func NewBlake2b256(data []byte) Blake2b256 {
 	b := Blake2b256{}
 	copy(b[:], data)
 	return b
+}
+
+// NewBlake2b256Checked builds a Blake2b256 from data, returning an error
+// unless data is exactly Blake2b256Size bytes long.
+func NewBlake2b256Checked(data []byte) (Blake2b256, error) {
+	b := Blake2b256{}
+	if len(data) != Blake2b256Size {
+		return b, fmt.Errorf(
+			"invalid blake2b-256 hash: expected %d bytes, got %d",
+			Blake2b256Size,
+			len(data),
+		)
+	}
+	copy(b[:], data)
+	return b, nil
 }
 
 func (b Blake2b256) String() string {
@@ -119,10 +140,31 @@ func Blake2b256Hash(data []byte) Blake2b256 {
 
 type Blake2b224 [Blake2b224Size]byte
 
+// NewBlake2b224 builds a Blake2b224 from data, zero-padding a short slice
+// and truncating a long one. Use it only where the source is itself 28
+// bytes wide, such as another fixed-size hash array. For any length that is
+// not statically guaranteed -- CBOR, JSON, hex, or database input -- use
+// NewBlake2b224Checked, because a silently padded or truncated hash can
+// collide with an unrelated one and mis-key ledger state.
 func NewBlake2b224(data []byte) Blake2b224 {
 	b := Blake2b224{}
 	copy(b[:], data)
 	return b
+}
+
+// NewBlake2b224Checked builds a Blake2b224 from data, returning an error
+// unless data is exactly Blake2b224Size bytes long.
+func NewBlake2b224Checked(data []byte) (Blake2b224, error) {
+	b := Blake2b224{}
+	if len(data) != Blake2b224Size {
+		return b, fmt.Errorf(
+			"invalid blake2b-224 hash: expected %d bytes, got %d",
+			Blake2b224Size,
+			len(data),
+		)
+	}
+	copy(b[:], data)
+	return b, nil
 }
 
 func (b Blake2b224) String() string {
@@ -199,10 +241,31 @@ type GenesisHash = Blake2b224
 
 type Blake2b160 [Blake2b160Size]byte
 
+// NewBlake2b160 builds a Blake2b160 from data, zero-padding a short slice
+// and truncating a long one. Use it only where the source is itself 20
+// bytes wide, such as another fixed-size hash array. For any length that is
+// not statically guaranteed -- CBOR, JSON, hex, or database input -- use
+// NewBlake2b160Checked, because a silently padded or truncated hash can
+// collide with an unrelated one and mis-key ledger state.
 func NewBlake2b160(data []byte) Blake2b160 {
 	b := Blake2b160{}
 	copy(b[:], data)
 	return b
+}
+
+// NewBlake2b160Checked builds a Blake2b160 from data, returning an error
+// unless data is exactly Blake2b160Size bytes long.
+func NewBlake2b160Checked(data []byte) (Blake2b160, error) {
+	b := Blake2b160{}
+	if len(data) != Blake2b160Size {
+		return b, fmt.Errorf(
+			"invalid blake2b-160 hash: expected %d bytes, got %d",
+			Blake2b160Size,
+			len(data),
+		)
+	}
+	copy(b[:], data)
+	return b, nil
 }
 
 func (b Blake2b160) String() string {
@@ -269,6 +332,13 @@ type (
 type MultiAsset[T int64 | uint64 | *big.Int] struct {
 	data             map[Blake2b224]map[cbor.ByteString]T
 	duplicateMapKeys bool
+	// Wire-form conditions that pre-Conway decoding prunes away but that
+	// later decoder versions reject outright. They are recorded here because
+	// UnmarshalCBOR has no protocol version, and reported by
+	// CheckForZeroAssets and CheckForEmptyMultiAsset.
+	zeroQuantity    bool
+	emptyAssets     bool
+	emptyMultiAsset bool
 }
 
 // NewMultiAsset creates a MultiAsset with the specified data
@@ -334,16 +404,30 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 			return err
 		}
 	}
+	// Record the wire form before pruning: pruning is what makes a zero
+	// quantity and an empty asset map indistinguishable from an absent one.
+	zeroQuantity := false
+	emptyAssets := false
+	emptyMultiAsset := len(decoded) == 0
 	for _, assets := range decoded {
-		for name := range assets {
+		if len(assets) == 0 {
+			emptyAssets = true
+		}
+		for name, amount := range assets {
 			if len(name.Bytes()) > 32 {
 				return fmt.Errorf(
 					"invalid asset name length: expected at most 32 bytes, got %d",
 					len(name.Bytes()),
 				)
 			}
+			if amountIsZero(amount) {
+				zeroQuantity = true
+			}
 		}
 	}
+	m.zeroQuantity = zeroQuantity
+	m.emptyAssets = emptyAssets
+	m.emptyMultiAsset = emptyMultiAsset
 	m.data = pruneZeroAssets(decoded)
 	m.duplicateMapKeys = duplicateMapKeys
 	return nil
@@ -358,6 +442,40 @@ func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
 func (m *MultiAsset[T]) CheckForDuplicateKeys() error {
 	if m != nil && m.duplicateMapKeys {
 		return errors.New("duplicate map key in multiasset")
+	}
+	return nil
+}
+
+// CheckForZeroAssets reports a decoded wire form that cardano-ledger rejects
+// from protocol version 9 (Conway): an asset quantity of zero, or a policy
+// whose asset map is empty. Its decodeMultiAsset
+// (eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs) switches at that version
+// from pruneZeroMultiAsset to decodeNonEmptyMap decodeNonZeroAmount, which
+// fails with "MultiAsset cannot contain zeros" and "Empty Assets are not
+// allowed". Pre-Conway decoders must keep pruning instead of calling this.
+func (m *MultiAsset[T]) CheckForZeroAssets() error {
+	if m == nil {
+		return nil
+	}
+	if m.zeroQuantity {
+		return errors.New("multiasset cannot contain zeros")
+	}
+	if m.emptyAssets {
+		return errors.New("empty assets are not allowed in multiasset")
+	}
+	return nil
+}
+
+// CheckForEmptyMultiAsset reports a decoded empty multiasset map. Only
+// protocol version 12 (Dijkstra) rejects it, where decodeMultiAsset wraps the
+// outer map in decodeNonEmptyMap as well; Conway still accepts an empty outer
+// map, so only Dijkstra decoders call this.
+func (m *MultiAsset[T]) CheckForEmptyMultiAsset() error {
+	if m == nil {
+		return nil
+	}
+	if m.emptyMultiAsset {
+		return errors.New("empty multiasset map is not allowed")
 	}
 	return nil
 }
@@ -430,6 +548,9 @@ func (m *MultiAsset[T]) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	m.duplicateMapKeys = false
+	m.zeroQuantity = false
+	m.emptyAssets = false
+	m.emptyMultiAsset = false
 	if m.data == nil {
 		m.data = make(map[Blake2b224]map[cbor.ByteString]T)
 	}
@@ -438,8 +559,10 @@ func (m *MultiAsset[T]) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		var policy Blake2b224
-		copy(policy[:], policyBytes)
+		policy, err := NewBlake2b224Checked(policyBytes)
+		if err != nil {
+			return err
+		}
 		nameBytes, err := hex.DecodeString(tmp.NameHex)
 		if err != nil {
 			return err

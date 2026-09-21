@@ -91,9 +91,14 @@ func TestOutputQuantityBounds(t *testing.T) {
 }
 
 func TestMintQuantityBoundsAcrossEras(t *testing.T) {
+	// rejectsZero marks the eras whose decoder version is at least 9, where
+	// cardano-ledger's decodeMultiAsset switches from pruneZeroMultiAsset to
+	// decodeNonZeroAmount and a zero mint quantity fails to decode instead of
+	// being pruned away.
 	decoders := []struct {
-		name   string
-		decode func([]byte) error
+		name        string
+		decode      func([]byte) error
+		rejectsZero bool
 	}{
 		{
 			name: "Mary",
@@ -117,21 +122,24 @@ func TestMintQuantityBoundsAcrossEras(t *testing.T) {
 			},
 		},
 		{
-			name: "Conway",
+			name:        "Conway",
+			rejectsZero: true,
 			decode: func(wire []byte) error {
 				_, err := conway.NewConwayTransactionBodyFromCbor(wire)
 				return err
 			},
 		},
 		{
-			name: "Dijkstra",
+			name:        "Dijkstra",
+			rejectsZero: true,
 			decode: func(wire []byte) error {
 				_, err := dijkstra.NewDijkstraTransactionBodyFromCbor(wire)
 				return err
 			},
 		},
 		{
-			name: "Dijkstra subtransaction",
+			name:        "Dijkstra subtransaction",
+			rejectsZero: true,
 			decode: func(wire []byte) error {
 				var body dijkstra.DijkstraSubTransactionBody
 				_, err := cbor.Decode(wire, &body)
@@ -153,7 +161,7 @@ func TestMintQuantityBoundsAcrossEras(t *testing.T) {
 		},
 		{name: "minimum int64", quantity: minInt64},
 		{name: "negative one", quantity: big.NewInt(-1)},
-		{name: "zero pruned", quantity: new(big.Int)},
+		{name: "zero", quantity: new(big.Int)},
 		{name: "one", quantity: big.NewInt(1)},
 		{name: "maximum int64", quantity: maxInt64},
 		{
@@ -166,9 +174,16 @@ func TestMintQuantityBoundsAcrossEras(t *testing.T) {
 		for _, quantity := range quantities {
 			t.Run(decoder.name+"/"+quantity.name, func(t *testing.T) {
 				err := decoder.decode(encodeMintBody(t, quantity.quantity))
-				if quantity.wantErr {
+				switch {
+				case quantity.wantErr:
 					assert.Error(t, err)
-				} else {
+				case quantity.quantity.Sign() == 0 && decoder.rejectsZero:
+					assert.ErrorContains(
+						t,
+						err,
+						"multiasset cannot contain zeros",
+					)
+				default:
 					assert.NoError(t, err)
 				}
 			})

@@ -112,12 +112,11 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 	//
 	// Two checks are needed, because a repeat can take two forms. A CBOR
 	// map's keys are unique by their encoding, so seenEncoded rejects a
-	// literally repeated key. That is not enough on its own: lcommon.Drep
-	// reads the type from the list head and ignores any further elements
-	// for the predefined options, so [2] and [2, h'00'] decode to the same
-	// Abstain DRep from different bytes. seenDrep rejects that pair too,
-	// since a caller summing the result would otherwise count Abstain's
-	// stake twice.
+	// literally repeated key. That is not enough on its own: a credential
+	// written as indefinite-length chunks decodes to the same lcommon.Drep
+	// as the definite-length form from different bytes. seenDrep rejects
+	// that pair too, since a caller summing the result would otherwise
+	// count one DRep's stake twice.
 	type drepKey struct {
 		drepType   int
 		credential string

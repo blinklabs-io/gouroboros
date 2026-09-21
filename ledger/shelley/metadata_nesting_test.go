@@ -126,3 +126,33 @@ func TestShelleyBlockRejectsMetadatumPastConfiguredLimit(t *testing.T) {
 		t.Fatalf("expected metadatum nesting depth %d to be rejected", common.MaxMetadataNestedLevels+1)
 	}
 }
+
+// TestShelleyBlockAcceptsIssue4351Vector decodes the exact minimal vector
+// from blinklabs-io/dingo#4351 -- a Shelley-era auxiliary metadata value of
+// 1025 nested one-element lists around integer 0 -- through a real block,
+// so the levels the block envelope itself consumes are counted against the
+// same budget. The reference accepts this value; before this fix
+// gouroboros's own resource bound of 1024 (an arbitrary, undersized figure
+// with no relation to anything the ledger enforces) rejected it.
+func TestShelleyBlockAcceptsIssue4351Vector(t *testing.T) {
+	const issue4351Depth = 1025
+	blockBytes := blockWithNestedMetadatum(t, issue4351Depth)
+	block, err := shelley.NewShelleyBlockFromCbor(
+		blockBytes,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	if err != nil {
+		t.Fatalf("decode block with metadatum depth %d: %v", issue4351Depth, err)
+	}
+	md, ok := block.TransactionMetadataSet.GetMetadata(0)
+	if !ok {
+		t.Fatalf("metadatum missing at depth %d", issue4351Depth)
+	}
+	labels, ok := md.(common.MetaMap)
+	if !ok || len(labels.Pairs) != 1 {
+		t.Fatalf("unexpected auxiliary data shape: %T", md)
+	}
+	if got := metadatumDepth(labels.Pairs[0].Value); got != issue4351Depth {
+		t.Fatalf("metadatum depth: got %d, want %d", got, issue4351Depth)
+	}
+}

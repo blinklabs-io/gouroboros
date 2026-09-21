@@ -71,15 +71,22 @@ func NewShelleyAuxiliaryData(
 // depth 0, so this many containers may be open at once.
 //
 // The bound has no counterpart in cardano-ledger and is not a protocol
-// constant. Metadata that cannot round trip through the custom metadata
-// decoder is not usable as transaction metadata, so the deepest document
-// accepted here matches MaxMetadataNestedLevels containers open at once,
-// counting the top-level object.
+// constant.
 //
 // The check runs before descending because the readers below recurse once per
 // level, and exhausting the goroutine stack is a fatal error that recover
 // cannot catch.
-const MetadataJSONMaxNestingDepth = MaxMetadataNestedLevels
+//
+// This is deliberately independent of MaxMetadataNestedLevels, not derived
+// from it: readMetadataJSONObject/readMetadataJSONArray recurse through
+// encoding/json.Decoder, whose own Token() calls a private nesting-depth
+// check that rejects before this package's own check ever runs (fixed at a
+// depth well under MaxMetadataNestedLevels's 16384, confirmed empirically by
+// TestParseMetadataJSONNoSchemaRejectsExcessiveNesting starting to report
+// "exceeded max depth" -- encoding/json's own error text -- instead of this
+// package's "nesting depth" once linked to 16384 in blinklabs-io/dingo#4351's
+// fix). 1024 already stays comfortably under that stdlib bound.
+const MetadataJSONMaxNestingDepth = 1024
 
 // checkMetadataJSONNestingDepth reports whether a container opened at depth
 // may be descended into.

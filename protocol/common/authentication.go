@@ -96,10 +96,18 @@ type MessageAuthenticator struct {
 	// so it needs no lock.
 	stakeAuthority StakeAuthority
 
-	// KES period tracking from opcerts, keyed by pool ID. No automatic
-	// eviction; callers running long-lived nodes should remove inactive pool
-	// entries (see RemoveKESOpCertCacheEntry) or wrap this with their own
-	// TTL/LRU policy to avoid unbounded growth.
+	// KES period tracking from opcerts, keyed by pool ID. Only
+	// verifyKESPeriodRotation writes here, and it runs after stake
+	// authorization and both signature checks, so a pool ID is recorded
+	// only once its holder has proved active stake and possession of the
+	// matching cold and KES keys. The key space is the stake distribution
+	// -- a few thousand 36-byte entries on mainnet -- not anything a remote
+	// peer can choose, so the map needs no size bound.
+	//
+	// There is deliberately no automatic eviction. Dropping an entry
+	// restores the pool to "never seen" and lets a stale operational
+	// certificate be replayed, so a TTL or LRU policy would trade replay
+	// protection away for memory that is already bounded.
 	mu             sync.Mutex
 	kesOpCertCache map[PoolKeyHash]uint64
 
@@ -520,9 +528,12 @@ func (m *MessageAuthenticator) verifyKESPeriodRotation(
 }
 
 // RemoveKESOpCertCacheEntry removes a pool entry from the KES opcert cache.
-// The cache does not evict automatically, so long-running nodes should call
-// this (or wrap the authenticator with their own TTL/LRU policy) when pools
-// are unregistered or otherwise inactive to avoid unbounded growth.
+//
+// Removing an entry restores the pool to "never seen", so the next message
+// from it is accepted at any issue number -- including one this
+// authenticator has already rejected as stale. Call it only for a pool known
+// to have retired. It is not needed to bound memory: the cache only ever
+// holds pools that passed stake authorization and signature verification.
 func (m *MessageAuthenticator) RemoveKESOpCertCacheEntry(poolID PoolKeyHash) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

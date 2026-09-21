@@ -87,6 +87,7 @@ func testByronProxyInput(
 	header := &byron.ByronMainBlockHeader{
 		ProtocolMagic: testByronProtocolMagicMainnet,
 	}
+	header.ExtraData.Attributes = map[any]any{}
 	header.ExtraData.ExtraProof = []byte{}
 	header.ConsensusData.BlockSig = []any{
 		uint64(byronSigTypeHeavy),

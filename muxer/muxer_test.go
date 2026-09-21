@@ -1134,3 +1134,50 @@ func TestMultipleProtocolRoles(t *testing.T) {
 		t.Error("expected different receive channels for different roles")
 	}
 }
+
+// TestReadBufferBudget covers the connection-wide message reassembly
+// allowance: the allowance is the largest per-protocol cap registered on the
+// connection, reservations are refused once it is taken, and a release makes
+// room again.
+func TestReadBufferBudget(t *testing.T) {
+	t.Parallel()
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() {
+		m.Stop()
+		_ = peerConn.Close()
+	})
+
+	// An unmetered muxer admits anything: a Muxer with no registered
+	// protocol has no allowance to enforce.
+	require.Zero(t, m.ReadBufferBudget())
+	require.True(t, m.ReserveReadBuffer(1<<30))
+	m.ReleaseReadBuffer(1 << 30)
+
+	m.RaiseReadBufferBudget(4096)
+	m.RaiseReadBufferBudget(1024)
+	require.Equal(
+		t,
+		4096,
+		m.ReadBufferBudget(),
+		"a smaller cap must not lower the allowance",
+	)
+
+	require.True(t, m.ReserveReadBuffer(4000))
+	require.Equal(t, 4000, m.ReadBufferInUse())
+	require.False(
+		t,
+		m.ReserveReadBuffer(97),
+		"a reservation past the allowance must be refused",
+	)
+	require.True(t, m.ReserveReadBuffer(96))
+	require.Equal(t, 4096, m.ReadBufferInUse())
+
+	m.ReleaseReadBuffer(4096)
+	require.Zero(t, m.ReadBufferInUse())
+	require.True(t, m.ReserveReadBuffer(4096))
+
+	// Over-releasing floors at zero rather than manufacturing allowance.
+	m.ReleaseReadBuffer(1 << 30)
+	require.Zero(t, m.ReadBufferInUse())
+}

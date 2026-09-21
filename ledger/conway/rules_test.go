@@ -5068,3 +5068,113 @@ func TestBootstrapPhaseAllowsAnyParameterChange(t *testing.T) {
 		}
 	}
 }
+
+// See TestUtxoValidateInsufficientCollateralRoundsUp in ledger/alonzo: Conway
+// inherits the Alonzo collateral balance rule unchanged.
+func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
+	t.Parallel()
+	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	testProtocolParams := &conway.ConwayProtocolParameters{
+		CollateralPercentage: 150,
+	}
+	validate := func(t *testing.T, fee, collateral uint64) error {
+		t.Helper()
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxFee: fee,
+				TxCollateral: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(
+							testInputTxId,
+							0,
+						),
+					},
+					false,
+				),
+			},
+			WitnessSet: conway.ConwayTransactionWitnessSet{
+				WsRedeemers: conway.ConwayRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{}: {},
+					},
+				},
+			},
+		}
+		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
+			[]common.Utxo{
+				{
+					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Output: shelley.ShelleyTransactionOutput{
+						OutputAmount: collateral,
+					},
+				},
+			},
+		).Build()
+		return conway.UtxoValidateInsufficientCollateral(
+			tx,
+			0,
+			ls,
+			testProtocolParams,
+		)
+	}
+	t.Run("one lovelace short of the ceiling", func(t *testing.T) {
+		t.Parallel()
+		err := validate(t, 101, 151)
+		var collateralErr alonzo.InsufficientCollateralError
+		require.ErrorAs(t, err, &collateralErr)
+		require.Equal(t, uint64(152), collateralErr.Required)
+		require.Equal(t, uint64(151), collateralErr.Provided)
+	})
+	t.Run("exactly the ceiling", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, validate(t, 101, 152))
+	})
+	t.Run("exact multiple of 100 is not rounded up", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, validate(t, 100, 150))
+	})
+}
+
+// See TestBabbageMinCoinTxOutOverflow: Conway carries the same uint64 multiply.
+func TestConwayMinCoinTxOutOverflow(t *testing.T) {
+	t.Parallel()
+	txOut := babbage.BabbageTransactionOutput{}
+	_, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: math.MaxUint64},
+	)
+	require.ErrorContains(t, err, "overflow")
+
+	minCoin, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: 4310},
+	)
+	require.NoError(t, err)
+	require.Positive(t, minCoin)
+}
+
+// The guard must sit exactly at the uint64 boundary: the largest product that
+// still fits is a valid requirement and has to be returned exactly, while the
+// next one up has to be rejected rather than wrapped to a small requirement.
+func TestConwayMinCoinTxOutBoundary(t *testing.T) {
+	t.Parallel()
+	txOut := babbage.BabbageTransactionOutput{}
+	entrySize, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: 1},
+	)
+	require.NoError(t, err)
+	require.Positive(t, entrySize)
+	largest := uint64(math.MaxUint64) / entrySize
+	minCoin, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: largest},
+	)
+	require.NoError(t, err)
+	require.Equal(t, largest*entrySize, minCoin)
+	_, err = conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: largest + 1},
+	)
+	require.ErrorContains(t, err, "overflow")
+}

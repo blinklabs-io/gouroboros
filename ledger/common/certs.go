@@ -155,25 +155,59 @@ func (d Drep) MarshalCBOR() ([]byte, error) {
 	}
 }
 
+// UnmarshalCBOR decodes the drep union the Conway and Dijkstra CDDL define:
+//
+//	drep = [0, addr_keyhash// 1, script_hash// 2// 3]
+//
+// Both hash alternatives alias hash28, so types 0 and 1 carry exactly 28
+// bytes and nothing else, and types 2 and 3 carry nothing at all. The arity
+// is read off the decoded array rather than inferred, because a trailing
+// element on a predefined option would otherwise make [2] and [2, x] the same
+// DRep from different bytes.
 func (d *Drep) UnmarshalCBOR(data []byte) error {
-	drepType, err := cbor.DecodeIdFromList(data)
-	if err != nil {
+	if d == nil {
+		return errors.New("nil Drep receiver")
+	}
+	var tmpItems []cbor.RawMessage
+	if _, err := cbor.Decode(data, &tmpItems); err != nil {
+		return err
+	}
+	if len(tmpItems) == 0 {
+		return errors.New("drep is an empty list")
+	}
+	var drepType int
+	if _, err := cbor.Decode(tmpItems[0], &drepType); err != nil {
 		return err
 	}
 	switch drepType {
 	case DrepTypeAddrKeyHash, DrepTypeScriptHash:
-		d.Type = drepType
-		tmpData := struct {
-			cbor.StructAsArray
-			Type       int
-			Credential []byte
-		}{}
-		if _, err := cbor.Decode(data, &tmpData); err != nil {
-			return err
+		if len(tmpItems) != 2 {
+			return fmt.Errorf(
+				"drep type %d takes exactly 2 list items, got %d",
+				drepType,
+				len(tmpItems),
+			)
 		}
-		d.Credential = tmpData.Credential[:]
-	case DrepTypeAbstain, DrepTypeNoConfidence:
+		// Blake2b224 is the repository's strict hash28 decoder: it rejects
+		// any byte string that is not 28 bytes, which is what keeps a
+		// wrong-length credential away from the zero-padding conversions
+		// in the era rule packages.
+		var credential Blake2b224
+		if err := credential.UnmarshalCBOR(tmpItems[1]); err != nil {
+			return fmt.Errorf("decode drep credential: %w", err)
+		}
 		d.Type = drepType
+		d.Credential = credential[:]
+	case DrepTypeAbstain, DrepTypeNoConfidence:
+		if len(tmpItems) != 1 {
+			return fmt.Errorf(
+				"drep type %d takes exactly 1 list item, got %d",
+				drepType,
+				len(tmpItems),
+			)
+		}
+		d.Type = drepType
+		d.Credential = nil
 	default:
 		return fmt.Errorf("unknown drep type: %d", drepType)
 	}
@@ -1242,7 +1276,11 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid VRF key hash: %w", err)
 		}
-		p.VrfKeyHash = VrfKeyHash(NewBlake2b256(vrfBytes))
+		vrfHash, err := NewBlake2b256Checked(vrfBytes)
+		if err != nil {
+			return fmt.Errorf("invalid VRF key hash: %w", err)
+		}
+		p.VrfKeyHash = VrfKeyHash(vrfHash)
 	}
 
 	// Convert pool owners
@@ -1253,7 +1291,11 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 			if err != nil {
 				return fmt.Errorf("invalid pool owner key: %w", err)
 			}
-			owners[i] = AddrKeyHash(NewBlake2b224(ownerBytes))
+			ownerHash, err := NewBlake2b224Checked(ownerBytes)
+			if err != nil {
+				return fmt.Errorf("invalid pool owner key: %w", err)
+			}
+			owners[i] = AddrKeyHash(ownerHash)
 		}
 		p.PoolOwners = owners
 	}

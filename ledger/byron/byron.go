@@ -127,6 +127,17 @@ func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
 			len(extraData),
 		)
 	}
+	// The reference's decCBORBlockVersions requires this field's map to be
+	// empty (Cardano.Chain.Common.Attributes.dropEmptyAttributes), even
+	// though it never interprets the map's contents otherwise. It is not
+	// covered by any signature or hash check that treats it as opaque, so a
+	// mutated non-empty map here would decode without detection
+	// (blinklabs-io/gouroboros#2340).
+	if err := requireEmptyCborMap(
+		extraData[2], "byron main block header attributes",
+	); err != nil {
+		return err
+	}
 	if err := requireCborByteString(
 		extraData[3], "byron main block extra data proof",
 	); err != nil {
@@ -589,12 +600,20 @@ func (t *ByronTransaction) Consumed() []common.TransactionInput {
 
 func (t *ByronTransaction) Produced() []common.Utxo {
 	outputs := t.Outputs()
+	txId := t.Id()
 	ret := make([]common.Utxo, 0, len(outputs))
 	for idx, output := range outputs {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     NewByronTransactionInput(t.Id().String(), idx),
+				Id: ByronTransactionInput{
+					TxId: txId,
+					// The output count is bounded by the Byron
+					// transaction size limit, orders of magnitude
+					// below MaxUint32.
+					//nolint:gosec // G115: see above
+					OutputIndex: uint32(idx),
+				},
 				Output: output,
 			},
 		)
@@ -804,21 +823,42 @@ type ByronTransactionInput struct {
 	OutputIndex uint32
 }
 
-func NewByronTransactionInput(hash string, idx int) ByronTransactionInput {
+// NewByronTransactionInput builds a transaction input from a hex-encoded
+// 32-byte transaction hash and an output index.
+//
+// It returns an error rather than panicking, so a caller passing a value it
+// did not produce itself -- a hash off the wire, out of an API request, or
+// out of a config file -- can reject it. A hash shorter than 32 bytes would
+// otherwise panic in the slice-to-array conversion below, before any check
+// on it ran.
+func NewByronTransactionInput(
+	hash string,
+	idx int,
+) (ByronTransactionInput, error) {
 	tmpHash, err := hex.DecodeString(hash)
 	if err != nil {
-		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
+		return ByronTransactionInput{}, fmt.Errorf(
+			"decode transaction hash: %w", err,
+		)
+	}
+	if len(tmpHash) != common.Blake2b256Size {
+		return ByronTransactionInput{}, fmt.Errorf(
+			"transaction hash is %d bytes, expected %d",
+			len(tmpHash), common.Blake2b256Size,
+		)
 	}
 	// Compare the upper bound via int64 so this builds on 32-bit GOARCHs, where
 	// int is 32-bit and the untyped math.MaxUint32 constant would overflow the
 	// int comparison type. On 32-bit a positive int can never exceed MaxUint32.
 	if idx < 0 || int64(idx) > math.MaxUint32 {
-		panic("index out of range")
+		return ByronTransactionInput{}, fmt.Errorf(
+			"output index %d out of range", idx,
+		)
 	}
 	return ByronTransactionInput{
 		TxId:        common.Blake2b256(tmpHash),
 		OutputIndex: uint32(idx),
-	}
+	}, nil
 }
 
 func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
@@ -1323,10 +1363,50 @@ type ByronMainBlock struct {
 }
 
 func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
+	var rawParts []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+		return err
+	}
+	if len(rawParts) != 3 {
+		return fmt.Errorf(
+			"byron main block has %d fields, expected 3",
+			len(rawParts),
+		)
+	}
+	// The reference's decCBORABlock requires this field to be exactly
+	// [Attributes], and Attributes must be empty
+	// (Cardano.Chain.Block.Block.hs: "enforceSize \"ExtraBodyData\" 1 >>
+	// dropEmptyAttributes"). ExtraBodyData sits outside the header entirely,
+	// so mutating it changes neither the header hash, the PBFT signature, nor
+	// the body proofs, and would decode undetected otherwise
+	// (blinklabs-io/gouroboros#2340).
+	var extra []cbor.RawMessage
+	if _, err := cbor.Decode(rawParts[2], &extra); err != nil {
+		return fmt.Errorf("decode byron main block extra body data: %w", err)
+	}
+	if len(extra) != 1 {
+		return fmt.Errorf(
+			"byron main block extra body data has %d fields, expected 1",
+			len(extra),
+		)
+	}
+	if err := requireEmptyCborMap(
+		extra[0], "byron main block extra body data attributes",
+	); err != nil {
+		return err
+	}
+
 	type tByronMainBlock ByronMainBlock
 	var tmp tByronMainBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	// A CBOR null header decodes into a nil pointer without error, and every
+	// accessor on the block dereferences it. Rejecting it here keeps the
+	// non-nil invariant whatever VerifyConfig a caller passes, matching the
+	// epoch boundary block's own check.
+	if tmp.BlockHeader == nil {
+		return errors.New("byron main block missing header")
 	}
 	*b = ByronMainBlock(tmp)
 	b.SetCbor(cborData)
@@ -1445,6 +1525,33 @@ func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 func requireCborByteString(raw cbor.RawMessage, field string) error {
 	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
 		return fmt.Errorf("%s must be a CBOR byte string", field)
+	}
+	return nil
+}
+
+// requireEmptyCborMap enforces the reference's dropEmptyAttributes check: the
+// value must be a CBOR map, and it must have zero entries. Decoding into
+// map[any]any rejects the type mismatch and reads the length regardless of
+// whether it was encoded in shortest form, matching decodeMapLen's own
+// length-only check.
+func requireEmptyCborMap(raw cbor.RawMessage, field string) error {
+	// CBOR null (0xf6) and undefined (0xf7) both decode into a nil
+	// map[any]any with no error, and len(nil) == 0, so the length check
+	// below would otherwise accept either in place of a real empty map.
+	// The reference's decodeMapLen requires an actual map header.
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeMap {
+		return fmt.Errorf("%s must be a CBOR map", field)
+	}
+	var m map[any]any
+	if _, err := cbor.Decode(raw, &m); err != nil {
+		return fmt.Errorf("%s must be an empty CBOR map: %w", field, err)
+	}
+	if len(m) != 0 {
+		return fmt.Errorf(
+			"%s must be empty, got %d entries",
+			field,
+			len(m),
+		)
 	}
 	return nil
 }
