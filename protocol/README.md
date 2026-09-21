@@ -21,6 +21,7 @@ This directory contains implementations of the Ouroboros mini-protocols used for
 | [LeiosNotify](leiosnotify/) | 18 | NtN | Leios notifications |
 | [LeiosFetch](leiosfetch/) | 19 | NtN | Leios data retrieval |
 | [LeiosVotes](leiosvotes/) | 20 | NtN | Leios vote diffusion |
+| [PerasVotes](perasvotes/) | 17 | NtN | Peras vote diffusion ([CIP-0140](https://cips.cardano.org/cip/CIP-0140), number reserved, not yet implemented) |
 
 **Mode Key:**
 - **NtN**: Node-to-Node (between full nodes)
@@ -102,6 +103,9 @@ Init → Idle → (request/reply cycle)
 - **LeiosNotify**: Block announcements and availability notifications
 - **LeiosFetch**: Block and transaction retrieval
 - **LeiosVotes**: Vote diffusion
+
+### Peras (Reserved)
+- **PerasVotes**: Mini-protocol number reserved for [CIP-0140](https://cips.cardano.org/cip/CIP-0140) vote diffusion; number 17 matches the reference implementation (`perasVoteDiffusionMiniProtocolNum` in [IntersectMBO/ouroboros-network](https://github.com/IntersectMBO/ouroboros-network)) for the design proposed by the [Tweag cardano-peras](https://github.com/tweag/cardano-peras) prototype. State machine and wire format are not yet implemented (tracked separately).
 
 ## Usage
 
