@@ -53,6 +53,12 @@ const previewDRepDepositProposalTxHex = "" +
 // previewDRepDepositProposalTxHex.
 const previewDRepDepositProposalSlot = 62103362
 
+// previewDRepDepositProposalTxId is the id the bytes above hash to. The test
+// rests on these being the bytes of a transaction the network accepted, so the
+// id is asserted rather than assumed: any other DRep deposit proposal would
+// satisfy the field checks while making that claim false.
+const previewDRepDepositProposalTxId = "2841a581076167a0662f1b4f1a38bcc8eff386f9ce45c33ae33b1fe8289de210"
+
 // TestBootstrapRulesAcceptCanonicalPreviewDRepDepositProposal pins the absence
 // of a field-level bootstrap restriction on ParameterChange proposals against
 // the transaction that exposed it, decoded from its own chain bytes rather
@@ -69,6 +75,13 @@ func TestBootstrapRulesAcceptCanonicalPreviewDRepDepositProposal(t *testing.T) {
 	tx, err := conway.NewConwayTransactionFromCbor(txBytes)
 	if err != nil {
 		t.Fatalf("decoding transaction: %v", err)
+	}
+	if got := tx.Hash().String(); got != previewDRepDepositProposalTxId {
+		t.Fatalf(
+			"fixture decodes to transaction %s, want %s",
+			got,
+			previewDRepDepositProposalTxId,
+		)
 	}
 	proposals := tx.ProposalProcedures()
 	if len(proposals) != 1 {
