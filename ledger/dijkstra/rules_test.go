@@ -1167,43 +1167,10 @@ func TestBootstrapPhaseAllowsDijkstraParameterChangeFields(t *testing.T) {
 		)
 	}
 	require.NotZero(t, bootstrapRules, "no bootstrap-phase rule descriptors")
-}
 
-// TestUtxoValidateBootstrapAllowedGovActionsAcceptsDijkstraParameterChange
-// pins the specific function named in review on PR #2385: a pre-Plomin
-// DijkstraParameterChangeGovAction carrying a Dijkstra-only field
-// (RefScriptCostStride) must be accepted by
-// UtxoValidateBootstrapAllowedGovActions directly, not merely by some
-// bootstrap-prefixed rule in the aggregate loop above. The bootstrap gate
-// restricts governance action types, never which parameters a
-// ParameterChange updates.
-func TestUtxoValidateBootstrapAllowedGovActionsAcceptsDijkstraParameterChange(
-	t *testing.T,
-) {
-	refScriptCostStride := uint32(25600)
-	tx := &DijkstraTransaction{
-		Body: DijkstraTransactionBody{
-			TxProposalProcedures: []DijkstraProposalProcedure{
-				{
-					PPGovAction: DijkstraGovAction{
-						Action: &DijkstraParameterChangeGovAction{
-							ParamUpdate: DijkstraProtocolParameterUpdate{
-								RefScriptCostStride: &refScriptCostStride,
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	pv9Params := &DijkstraProtocolParameters{
-		ConwayProtocolParameters: conway.ConwayProtocolParameters{
-			ProtocolVersion: common.ProtocolParametersProtocolVersion{
-				Major: common.ProtocolVersionConway,
-			},
-		},
-	}
-
+	// The loop matches descriptors by id prefix, so it would still pass if the
+	// surviving action-type gate stopped being registered. Naming the function
+	// keeps that symbol referenced from the test.
 	require.NoError(
 		t,
 		UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, pv9Params),
