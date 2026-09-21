@@ -104,6 +104,9 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] LocalMessageNotification ([CIP-0137](https://cips.cardano.org/cip/CIP-0137) DMQ)
       - [X] Client support
       - [X] Server support
+    - [ ] PerasVotes ([CIP-0140](https://cips.cardano.org/cip/CIP-0140), [Tweag cardano-peras](https://github.com/tweag/cardano-peras)) - mini-protocol number reserved (17); client/server not yet implemented
+      - [ ] Client support
+      - [ ] Server support
 - [ ] Ledger
   - [ ] Eras
     - [X] Byron
