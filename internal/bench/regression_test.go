@@ -423,8 +423,12 @@ func TestRegressionConsensus(t *testing.T) {
 				activeSlotCoeff,
 			)
 		})
-		// Baseline: 1220 allocs - uses Taylor series with big.Rat operations
-		limit := 1350.0 * multiplier
+		// Baseline: 6 allocs - the threshold is memoized on its exact
+		// input tuple, so a repeated call is a cache hit (a key copy plus
+		// the returned big.Int). A miss recomputes the big.Float ln/exp
+		// series at ~1164 allocs, so this limit has to stay far below
+		// that to still catch a cache that has stopped hitting.
+		limit := 20.0 * multiplier
 		require.LessOrEqualf(
 			t,
 			allocs,
@@ -445,8 +449,8 @@ func TestRegressionConsensus(t *testing.T) {
 			_ = consensus.IsSlotLeaderFromComponents(
 				vrfOutput, poolStake, totalStake, activeSlotCoeff)
 		})
-		// Baseline: 1225 allocs - includes threshold calculation
-		limit := 1350.0 * multiplier
+		// Baseline: 10 allocs - includes the memoized threshold lookup.
+		limit := 30.0 * multiplier
 		require.LessOrEqualf(
 			t,
 			allocs,

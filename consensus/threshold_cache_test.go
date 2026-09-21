@@ -346,6 +346,105 @@ func TestCertifiedNatThresholdWithModeConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
+// natThresholdCacheSizes reports a cache's map and intrusive-list lengths
+// under its own lock. The two must always agree: a divergence means an
+// eviction dropped a list element without dropping its map entry (or vice
+// versa), which is exactly what turns this bounded cache into an unbounded
+// leak on a long-running node.
+func natThresholdCacheSizes(c *natThresholdCache) (mapLen, listLen int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.entries), c.order.Len()
+}
+
+// natThresholdTestKey builds a distinct cache key per i, varying only
+// poolStake.
+func natThresholdTestKey(i uint64) natThresholdCacheKey {
+	return natThresholdCacheKeyFor(
+		i,
+		1_000_000,
+		big.NewRat(1, 20),
+		ConsensusModeCPraos,
+	)
+}
+
+// TestNatThresholdCacheEvictsLeastRecentlyUsed proves the bounded LRU
+// actually bounds. Inserting more distinct keys than maxSize must hold both
+// the map and the list at exactly maxSize, must evict in least-recently-used
+// order, and must keep an entry that a get() promoted. Re-putting an
+// existing key must replace its value in place rather than growing the
+// cache.
+//
+// Not t.Parallel: sequential ordering keeps the shared-cache assertions
+// elsewhere in this file deterministic.
+func TestNatThresholdCacheEvictsLeastRecentlyUsed(t *testing.T) {
+	const maxSize = 4
+	c := newNatThresholdCache(maxSize)
+
+	for i := uint64(0); i < maxSize; i++ {
+		c.put(natThresholdTestKey(i), big.NewInt(int64(i)), nil)
+	}
+	mapLen, listLen := natThresholdCacheSizes(c)
+	require.Equal(t, maxSize, mapLen)
+	require.Equal(t, maxSize, listLen)
+
+	// Promote key 0, so key 1 becomes the least recently used.
+	got, _, ok := c.get(natThresholdTestKey(0))
+	require.True(t, ok)
+	require.Equal(t, int64(0), got.Int64())
+
+	// One more insertion must evict exactly one entry, and it must be
+	// key 1 rather than the just-promoted key 0.
+	c.put(natThresholdTestKey(maxSize), big.NewInt(maxSize), nil)
+	mapLen, listLen = natThresholdCacheSizes(c)
+	require.Equal(t, maxSize, mapLen, "cache must not grow past maxSize")
+	require.Equal(t, maxSize, listLen, "list and map must stay in sync")
+
+	_, _, ok = c.get(natThresholdTestKey(0))
+	require.True(t, ok, "a get()-promoted key must survive the next eviction")
+	_, _, ok = c.get(natThresholdTestKey(1))
+	require.False(t, ok, "the least recently used key must be the evicted one")
+
+	// Overwriting an existing key replaces its value without growing.
+	c.put(natThresholdTestKey(maxSize), big.NewInt(99), nil)
+	mapLen, listLen = natThresholdCacheSizes(c)
+	require.Equal(t, maxSize, mapLen,
+		"re-putting an existing key must not grow the cache")
+	require.Equal(t, maxSize, listLen)
+	got, _, ok = c.get(natThresholdTestKey(maxSize))
+	require.True(t, ok)
+	require.Equal(t, int64(99), got.Int64(),
+		"re-putting an existing key must replace the stored value")
+}
+
+// TestNatThresholdMemoIsBounded proves the package-level cache that
+// CertifiedNatThresholdWithMode actually uses is bounded at
+// natThresholdCacheMaxEntries -- not merely that a separately constructed
+// cache would be, which would still pass if the production instance were
+// wired up without its cap. It drives more distinct keys than the cap
+// through the public entry point, using poolStake==0 inputs so each call
+// short-circuits before the arbitrary-precision pipeline while still
+// occupying a cache entry of its own.
+//
+// Not t.Parallel: fills and evicts the shared package-level cache.
+func TestNatThresholdMemoIsBounded(t *testing.T) {
+	coeff := big.NewRat(1, 20)
+	for i := uint64(0); i < natThresholdCacheMaxEntries+512; i++ {
+		_, err := CertifiedNatThresholdWithMode(
+			0,
+			i+1,
+			coeff,
+			ConsensusModeCPraos,
+		)
+		require.NoError(t, err)
+	}
+	mapLen, listLen := natThresholdCacheSizes(natThresholdMemo)
+	require.Equal(t, natThresholdCacheMaxEntries, mapLen,
+		"the package cache must stay bounded at its configured cap")
+	require.Equal(t, natThresholdCacheMaxEntries, listLen,
+		"the package cache's list and map must stay in sync")
+}
+
 // benchmarkThresholdInputs holds a representative, moderately-precise
 // input tuple shared by the cached/uncached benchmarks below, so both
 // exercise the same escalating-precision ln/exp computation on a miss.
