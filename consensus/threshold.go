@@ -130,7 +130,49 @@ func CertifiedNatThreshold(
 // The returned integer is ceil(T), preserving the real-valued strict
 // comparison when used with an integer VRF leader value. Returns an error if
 // the consensus mode is unknown.
+//
+// This is a pure function of its four inputs (no I/O, no other state), so
+// the result is memoized in natThresholdMemo by the exact literal input
+// tuple: correctness follows directly from exact-input equality, with no
+// epoch-boundary or other invalidation logic needed. See natThresholdMemo's
+// doc comment for why this is safe and bounded. The returned *big.Int is
+// always the caller's own copy, safe to mutate without corrupting the cache.
 func CertifiedNatThresholdWithMode(
+	poolStake uint64,
+	totalStake uint64,
+	activeSlotCoeff *big.Rat,
+	mode ConsensusMode,
+) (*big.Int, error) {
+	key := natThresholdCacheKeyFor(poolStake, totalStake, activeSlotCoeff, mode)
+	if cached, cachedErr, ok := natThresholdMemo.get(key); ok {
+		if cached == nil {
+			return nil, cachedErr
+		}
+		return new(big.Int).Set(cached), cachedErr
+	}
+
+	result, err := certifiedNatThresholdWithModeUncached(
+		poolStake,
+		totalStake,
+		activeSlotCoeff,
+		mode,
+	)
+	if natThresholdOnCompute != nil {
+		natThresholdOnCompute()
+	}
+	natThresholdMemo.put(key, result, err)
+	if result == nil {
+		return nil, err
+	}
+	return new(big.Int).Set(result), err
+}
+
+// certifiedNatThresholdWithModeUncached is CertifiedNatThresholdWithMode's
+// actual computation, without the memoization wrapper. Exported behavior
+// lives on CertifiedNatThresholdWithMode; this exists so the cache wrapper
+// and the computation it wraps are each easy to reason about (and test)
+// separately.
+func certifiedNatThresholdWithModeUncached(
 	poolStake uint64,
 	totalStake uint64,
 	activeSlotCoeff *big.Rat,
