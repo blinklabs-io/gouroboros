@@ -82,10 +82,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateBootstrapAllowedGovActions,
 	},
 	{
-		Id:        common.UtxoValidationRuleBootstrapParameterGroups,
-		Validator: UtxoValidateBootstrapParameterGroups,
-	},
-	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
 		Validator: UtxoValidateIsValidFlag,
 	},
@@ -453,37 +449,6 @@ func UtxoValidateBootstrapAllowedGovActions(
 			}
 		default:
 			return fmt.Errorf("unknown governance action type %T", govAction)
-		}
-	}
-	return nil
-}
-
-func UtxoValidateBootstrapParameterGroups(
-	tx common.Transaction,
-	slot uint64,
-	ls common.LedgerState,
-	pp common.ProtocolParameters,
-) error {
-	inBootstrap, err := isInDijkstraBootstrapPhase(pp)
-	if err != nil {
-		return err
-	}
-	if !inBootstrap {
-		return nil
-	}
-	for _, proposal := range tx.ProposalProcedures() {
-		govAction := proposal.GovAction()
-		if isNilGovAction(govAction) {
-			continue
-		}
-		switch paramChange := govAction.(type) {
-		case *DijkstraParameterChangeGovAction:
-			fields := paramChange.ParamUpdate.BootstrapRestrictedFields()
-			if len(fields) > 0 {
-				return conway.BootstrapDisallowedParameterChangeError{
-					Fields: fields,
-				}
-			}
 		}
 	}
 	return nil

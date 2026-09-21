@@ -78,10 +78,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateBootstrapAllowedGovActions,
 	},
 	{
-		Id:        common.UtxoValidationRuleBootstrapParameterGroups,
-		Validator: UtxoValidateBootstrapParameterGroups,
-	},
-	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
 		Validator: UtxoValidateIsValidFlag,
 	},
@@ -299,7 +295,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateHardForkCanFollow, UtxoValidateProposalAncestry,
 		UtxoValidateProposalDeposit, UtxoValidateProposalNetworkIds,
 		UtxoValidateProposalReturnAccounts, UtxoValidateEmptyTreasuryWithdrawals,
-		UtxoValidateBootstrapAllowedGovActions, UtxoValidateBootstrapParameterGroups,
+		UtxoValidateBootstrapAllowedGovActions,
 	),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
@@ -504,9 +500,11 @@ func UtxoValidateEmptyTreasuryWithdrawals(
 // restriction on which governance action types may be proposed.
 //
 // Pre-Plomin (PV9), only InfoAction, HardForkInitiation, and ParameterChange
-// are permitted (ParameterChange's restricted parameter groups are enforced
-// separately by UtxoValidateBootstrapParameterGroups). TreasuryWithdrawal,
-// NoConfidence, UpdateCommittee, and NewConstitution are rejected.
+// are permitted; TreasuryWithdrawal, NoConfidence, UpdateCommittee, and
+// NewConstitution are rejected. A permitted ParameterChange is unrestricted in
+// which parameters it updates, matching cardano-ledger's isBootstrapAction
+// (Cardano.Ledger.Conway.Rules.Gov), whose ParameterChange arm matches
+// unconditionally.
 //
 // At PV10 (Plomin) and later, all governance action types are allowed.
 func UtxoValidateBootstrapAllowedGovActions(
@@ -532,7 +530,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 		case *common.HardForkInitiationGovAction:
 			// allowed because it is the path out of bootstrap
 		case *ConwayParameterChangeGovAction:
-			// allowed shape; group restriction enforced separately
+			// allowed whatever parameters it updates
 		case *common.TreasuryWithdrawalGovAction:
 			return BootstrapDisallowedGovActionError{
 				ActionType: common.GovActionTypeTreasuryWithdrawal,
@@ -551,39 +549,6 @@ func UtxoValidateBootstrapAllowedGovActions(
 			}
 		default:
 			return fmt.Errorf("unknown governance action type %T", govAction)
-		}
-	}
-	return nil
-}
-
-// UtxoValidateBootstrapParameterGroups enforces the Conway bootstrap-phase
-// restriction that ParameterChange proposals may not touch fields restricted
-// during bootstrap. The Plomin hard fork (PV10) lifts this restriction.
-//
-// See UtxoValidateBootstrapAllowedGovActions for the action-type-level
-// restriction enforced first.
-func UtxoValidateBootstrapParameterGroups(
-	tx common.Transaction,
-	slot uint64,
-	ls common.LedgerState,
-	pp common.ProtocolParameters,
-) error {
-	if !isInConwayBootstrapPhase(pp) {
-		return nil
-	}
-	for _, proposal := range tx.ProposalProcedures() {
-		govAction := proposal.GovAction()
-		if isNilGovAction(govAction) {
-			continue
-		}
-		paramChange, ok := govAction.(*ConwayParameterChangeGovAction)
-		if !ok {
-			continue
-		}
-		if fields := paramChange.ParamUpdate.BootstrapRestrictedFields(); len(
-			fields,
-		) > 0 {
-			return BootstrapDisallowedParameterChangeError{Fields: fields}
 		}
 	}
 	return nil

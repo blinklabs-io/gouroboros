@@ -473,12 +473,3 @@ func TestBootstrapDisallowedGovActionError_String(t *testing.T) {
 		t.Fatalf("Error() = %q, want %q", got, want)
 	}
 }
-
-func TestBootstrapDisallowedParameterChangeError_String(t *testing.T) {
-	err := conway.BootstrapDisallowedParameterChangeError{Fields: []string{"DRepDeposit", "MinCommitteeSize"}}
-	got := err.Error()
-	want := "ParameterChange proposal updates bootstrap-restricted fields [DRepDeposit MinCommitteeSize] which are not allowed during the Conway bootstrap phase (PV9); requires PV10 (Plomin) or later"
-	if got != want {
-		t.Fatalf("Error() = %q, want %q", got, want)
-	}
-}

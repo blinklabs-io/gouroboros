@@ -1123,7 +1123,12 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 
-func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
+// TestBootstrapPhaseAllowsDijkstraParameterChangeFields covers the Dijkstra
+// side of the bootstrap rule set with a ParameterChange carrying a
+// Dijkstra-only parameter. Every bootstrap-phase rule must accept it: the
+// bootstrap gate restricts governance action types, never the parameters a
+// ParameterChange updates.
+func TestBootstrapPhaseAllowsDijkstraParameterChangeFields(t *testing.T) {
 	refScriptCostStride := uint32(25600)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
@@ -1147,24 +1152,29 @@ func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
 			},
 		},
 	}
-	err := UtxoValidateBootstrapParameterGroups(tx, 0, nil, pv9Params)
-	var bootstrapErr conway.BootstrapDisallowedParameterChangeError
-	require.ErrorAs(t, err, &bootstrapErr)
-	require.Equal(t, []string{"RefScriptCostStride"}, bootstrapErr.Fields)
 
-	pv10Params := &DijkstraProtocolParameters{
-		ConwayProtocolParameters: conway.ConwayProtocolParameters{
-			ProtocolVersion: common.ProtocolParametersProtocolVersion{
-				Major: common.ProtocolVersionPlomin,
-			},
-		},
+	var bootstrapRules int
+	for _, descriptor := range UtxoValidationRuleDescriptors() {
+		if !strings.HasPrefix(string(descriptor.Id), "bootstrap-") {
+			continue
+		}
+		bootstrapRules++
+		require.NoErrorf(
+			t,
+			descriptor.Validator(tx, 0, nil, pv9Params),
+			"rule %q rejected a bootstrap-phase ParameterChange",
+			descriptor.Id,
+		)
 	}
-	require.NoError(t, UtxoValidateBootstrapParameterGroups(
-		tx,
-		0,
-		nil,
-		pv10Params,
-	))
+	require.NotZero(t, bootstrapRules, "no bootstrap-phase rule descriptors")
+
+	// The loop matches descriptors by id prefix, so it would still pass if the
+	// surviving action-type gate stopped being registered. Naming the function
+	// keeps that symbol referenced from the test.
+	require.NoError(
+		t,
+		UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, pv9Params),
+	)
 }
 
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
