@@ -178,10 +178,29 @@ applies the configured operation timeout where indicated:
 | Local Tx Monitor | Acquiring | 5 seconds |
 | Local Tx Monitor | Busy queries | 30 seconds |
 | Local Tx Submission | Busy submit | 30 seconds |
-| Peer Sharing | Busy response | 60 seconds |
 
-The local protocols and Peer Sharing have no additional queue, pipeline, or
-pending-message byte limits in their state maps.
+The local protocols have no additional queue, pipeline, or pending-message
+byte limits in their state maps.
+
+## Peer Sharing
+
+The map (`protocol/peersharing/peersharing.go`) is:
+
+| State | Timeout | Pending bytes |
+| --- | ---: | ---: |
+| Idle | none | 5,760 |
+| Busy | 60 seconds | 5,760 |
+| Done | none | none |
+
+`MaxPendingMessageBytes` is 5,760 bytes, the reference implementation's
+`peerSharingProtocolLimits` ingress queue and `byteLimitsPeerSharing` per-state
+limit (4 x 1440, one TCP initial congestion window). The Busy timeout is
+configurable via `WithTimeout`.
+
+The server clamps a `SharePeers` reply to the smaller of the requested
+`Amount` and `MaxSharedPeers` (230), the largest number of addresses that
+still encodes within `MaxPendingMessageBytes`. The client rejects a reply
+carrying more addresses than it requested.
 
 ## Leios mini-protocols
 

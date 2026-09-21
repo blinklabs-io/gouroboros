@@ -16,6 +16,7 @@ package peersharing
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -26,6 +27,8 @@ type Client struct {
 	config          *Config
 	callbackContext CallbackContext
 	sharePeersChan  chan []PeerAddress
+	requestedMutex  sync.Mutex
+	requestedAmount int
 }
 
 // NewClient returns a new PeerSharing client object
@@ -81,6 +84,12 @@ func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// The reply's legal length is bounded by this count. Record it before
+	// the request goes out, under a mutex: the handler that checks it runs
+	// on the protocol's receive goroutine.
+	c.requestedMutex.Lock()
+	c.requestedAmount = int(amount)
+	c.requestedMutex.Unlock()
 	msg := NewMsgShareRequest(amount)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
@@ -100,7 +109,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeSharePeers:
-		c.handleSharePeers(msg)
+		err = c.handleSharePeers(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -111,7 +120,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (c *Client) handleSharePeers(msg protocol.Message) {
+func (c *Client) handleSharePeers(msg protocol.Message) error {
 	c.Protocol.Logger().
 		Debug("share peers",
 			"component", "network",
@@ -120,8 +129,20 @@ func (c *Client) handleSharePeers(msg protocol.Message) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgSharePeers := msg.(*MsgSharePeers)
+	c.requestedMutex.Lock()
+	requested := c.requestedAmount
+	c.requestedMutex.Unlock()
+	if len(msgSharePeers.PeerAddresses) > requested {
+		return fmt.Errorf(
+			"%w: requested %d, received %d",
+			ErrTooManyPeersShared,
+			requested,
+			len(msgSharePeers.PeerAddresses),
+		)
+	}
 	select {
 	case <-c.DoneChan():
 	case c.sharePeersChan <- msgSharePeers.PeerAddresses:
 	}
+	return nil
 }
