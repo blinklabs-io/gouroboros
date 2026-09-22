@@ -86,6 +86,24 @@ type Protocol struct {
 	pendingRecvSizes    []int // Track sizes of pending received messages for accurate decrement
 	currentStateMu      sync.RWMutex
 	currentState        State
+	// pipelinedDequeueHook, when non-nil, is invoked by sendLoop immediately
+	// after dequeuing a message through the pipelined-send path, before the
+	// state re-check that decides eligibility or promotion (see
+	// resolvePipelinedDequeue). It exists only to let a test deterministically
+	// land a concurrent stateLoop transition inside that window, which is
+	// otherwise a genuine data race and cannot be forced without it.
+	// Production code never sets this.
+	pipelinedDequeueHook func()
+	// resolvePipelinedDequeuePostFlushHook, when non-nil, is invoked by
+	// resolvePipelinedDequeue immediately before its post-flush drain of
+	// sendReadyChan and the state read that decides this call's outcome
+	// (see observeStateAndDrainSendReady). It exists only to let a test
+	// position a concurrent stateLoop transition -- one independent of this
+	// call's own flush, e.g. standing in for recvLoop handling a real peer
+	// reply -- as close as possible to that decision point; the window is a
+	// few adjacent statements wide and a real reproduction only lands it
+	// probabilistically. Production code never sets this.
+	resolvePipelinedDequeuePostFlushHook func()
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -400,6 +418,30 @@ func (p *Protocol) getCurrentState() State {
 	return p.currentState
 }
 
+// observeStateAndDrainSendReady atomically drains any pending sendReadyChan
+// token and reads the current state as a single critical section under
+// currentStateMu -- the same lock stateLoop's setState now holds across its
+// own state write and token write (see stateLoop). That pairing is what
+// makes this call safe against a concurrent transition landing between a
+// drain and a state read taken as two separate steps: this call's critical
+// section can only run entirely before a given setState call or entirely
+// after it, never interleaved with it, so it either sees the old state with
+// nothing to drain, or the new state with that state's own token already in
+// the channel (if the new state's agency produces one at all) ready to be
+// drained here. Used by resolvePipelinedDequeue's post-flush decision,
+// where the prior two-step version could leak a token produced by a
+// concurrent recvLoop-driven transition -- not only this call's own flush
+// -- into a later, unrelated sendLoop iteration (blinklabs-io/gouroboros#2494).
+func (p *Protocol) observeStateAndDrainSendReady() State {
+	p.currentStateMu.Lock()
+	defer p.currentStateMu.Unlock()
+	select {
+	case <-p.sendReadyChan:
+	default:
+	}
+	return p.currentState
+}
+
 // pipelinedSendAllowed reports whether the current state permits our role to
 // write queued messages while the peer holds agency. Only the role without
 // agency in the state pipelines; the role with agency uses the normal path.
@@ -413,6 +455,27 @@ func (p *Protocol) pipelinedSendAllowed() bool {
 		return p.config.Role == ProtocolRoleServer
 	case AgencyServer:
 		return p.config.Role == ProtocolRoleClient
+	case AgencyNone:
+		return false
+	default:
+		return false
+	}
+}
+
+// roleHasAgency reports whether this role holds ordinary send agency in the
+// given state -- the mirror image of pipelinedSendAllowed's role check,
+// which instead asks whether this role is the one *without* agency (and
+// therefore the one that pipelines) in the current state.
+func (p *Protocol) roleHasAgency(state State) bool {
+	entry, ok := p.config.StateMap[state]
+	if !ok {
+		return false
+	}
+	switch entry.Agency {
+	case AgencyClient:
+		return p.config.Role == ProtocolRoleClient
+	case AgencyServer:
+		return p.config.Role == ProtocolRoleServer
 	case AgencyNone:
 		return false
 	default:
@@ -589,6 +652,160 @@ func (p *Protocol) SendError(err error) {
 	p.Stop()
 }
 
+// flushQueuedStateTransitions applies each deferred pipelined-send state
+// transition in send order, stopping at the first error. The messages were
+// already written to the wire earlier (while the peer held agency), so their
+// transitions must be applied before any later message's own transition.
+func (p *Protocol) flushQueuedStateTransitions(
+	queuedStateTransitions []Message,
+) ([]Message, error) {
+	for len(queuedStateTransitions) > 0 {
+		if err := p.transitionState(queuedStateTransitions[0]); err != nil {
+			return queuedStateTransitions, err
+		}
+		queuedStateTransitions = slices.Delete(queuedStateTransitions, 0, 1)
+	}
+	return queuedStateTransitions, nil
+}
+
+// pipelinedMessageFits reports whether msg is still eligible for the
+// pipelined-send path in the given state.
+func (p *Protocol) pipelinedMessageFits(state State, msg Message) bool {
+	return slices.Contains(
+		p.config.StateMap[state].PipelinedMessageTypes,
+		msg.Type(),
+	)
+}
+
+// errPipelinedMessageNotAllowed reports that msg fits neither the pipelined
+// path nor an ordinary transition in state.
+func (p *Protocol) errPipelinedMessageNotAllowed(
+	state State,
+	msg Message,
+) error {
+	return fmt.Errorf(
+		"%s: message type %d is not allowed while pipelined in state %s",
+		p.config.Name,
+		msg.Type(),
+		state,
+	)
+}
+
+// resolvePipelinedDequeue decides how to handle a message dequeued through
+// the pipelined-send path once its type is checked against the *current*
+// protocol state, which can legitimately have advanced since
+// pipelinedSendAllowed() was last checked at the top of the loop -- e.g. the
+// peer's own terminal event (a block-fetch BatchDone) moving
+// Busy/Streaming to Idle while a message pipelined earlier is still queued.
+//
+// If the message is still valid for the pipelined path in the current
+// state, it is returned unchanged for the pipelined send below. If this
+// role has no ordinary send agency in the current state either, the
+// message is a genuine caller ordering violation and is rejected.
+//
+// Otherwise a real stateLoop transition landed concurrently and granted
+// this role ordinary send agency: setState put a token on sendReadyChan for
+// it (see setState's AgencyClient/AgencyServer cases), and this dequeue --
+// having taken the pipelined path instead of waking via that channel -- has
+// not consumed it. The message is held here rather than promoted in place,
+// so its fate is decided against the state the protocol actually settles in
+// once any deferred work finishes, not the state this dequeue started in.
+//
+// Any transitions deferred by earlier pipelined sends are flushed as far as
+// the current real state allows before that decision is made. Each
+// deferred transition needs its own real round trip with the peer, so a
+// backlog more than one message deep can only be partly flushed by the
+// single concurrent transition that landed here -- flushQueuedStateTransitions
+// stopping partway through and returning the remainder is an expected
+// outcome, not a fatal error; only a shutdown signal from the flush is
+// fatal here.
+//
+// A flushed transition applies through the same setState this function's
+// own entry token came from, so it can grant this role a fresh token of its
+// own for any state the flush passes through, not only the one it finally
+// settles in -- sendReadyChan holds at most one token regardless of how
+// many transitions produce one, so a drain after the flush clears whichever
+// is pending, if any. Left undrained, it would outlive this function and be
+// misread as a grant for an unrelated state once the loop runs again.
+//
+// That drain and the state read that follows it are taken together via
+// observeStateAndDrainSendReady, as a single critical section under
+// currentStateMu, rather than as two independent steps. A concurrent
+// transition is not only this function's own flush: recvLoop can process a
+// genuine, independent peer reply at any point while this function runs,
+// including in the gap between a drain and a state read taken separately.
+// Reading the two under the same lock setState uses for its own state-and-token
+// write means such a transition can never leave its token visible without
+// its state also being visible here, or the reverse -- this call's critical
+// section is entirely before that setState call or entirely after it, never
+// interleaved with it.
+//
+// The message is then re-checked against the state the flush actually
+// reached: pipelined again there, promoted to an ordinary transition there,
+// or -- if neither -- rejected, naming the settled state rather than the
+// stale one this dequeue started with. Promotion additionally requires the
+// backlog to be fully drained: sendLoop applies any remaining queued
+// transition before it ever sends a promoted message and loops without
+// sending it, so promoting here while a remainder is still queued would
+// silently drop the message.
+func (p *Protocol) resolvePipelinedDequeue(
+	outbound *outboundMessage,
+	haveAgency bool,
+	queuedStateTransitions *[]Message,
+) (*outboundMessage, bool, error) {
+	currentState := p.getCurrentState()
+	if p.pipelinedMessageFits(currentState, outbound.message) {
+		return outbound, haveAgency, nil
+	}
+	if !p.roleHasAgency(currentState) {
+		return nil, haveAgency, p.errPipelinedMessageNotAllowed(
+			currentState,
+			outbound.message,
+		)
+	}
+
+	// Drain the agency token the concurrent transition produced before
+	// doing anything else with this message.
+	select {
+	case <-p.stopChan:
+		return nil, haveAgency, ErrProtocolShuttingDown
+	case <-p.recvDoneChan:
+		return nil, haveAgency, ErrProtocolShuttingDown
+	case <-p.sendReadyChan:
+	}
+
+	remaining, flushErr := p.flushQueuedStateTransitions(
+		*queuedStateTransitions,
+	)
+	*queuedStateTransitions = remaining
+	if flushErr != nil && errors.Is(flushErr, ErrProtocolShuttingDown) {
+		return nil, haveAgency, flushErr
+	}
+
+	if p.resolvePipelinedDequeuePostFlushHook != nil {
+		p.resolvePipelinedDequeuePostFlushHook()
+	}
+	// Drain any post-flush token and read the resulting state as a single
+	// atomic step (see observeStateAndDrainSendReady above): a token here
+	// could come from this function's own flush, or from an entirely
+	// independent, concurrent stateLoop transition -- e.g. recvLoop handling
+	// a real peer reply -- and either way it must not be observable
+	// separately from the state it belongs to.
+	postFlushState := p.observeStateAndDrainSendReady()
+	if p.pipelinedMessageFits(postFlushState, outbound.message) {
+		return outbound, haveAgency, nil
+	}
+	if len(*queuedStateTransitions) == 0 && p.roleHasAgency(postFlushState) {
+		if _, err := p.nextState(postFlushState, outbound.message); err == nil {
+			return outbound, true, nil
+		}
+	}
+	return nil, haveAgency, p.errPipelinedMessageNotAllowed(
+		postFlushState,
+		outbound.message,
+	)
+}
+
 func (p *Protocol) sendLoop() {
 	defer func() {
 		// Close muxer send channel
@@ -625,19 +842,22 @@ waitSendReadyChan:
 					return
 				}
 				tmpOutbound := outbound
-				if !slices.Contains(
-					p.config.StateMap[p.getCurrentState()].PipelinedMessageTypes,
-					outbound.message.Type(),
-				) {
-					p.SendError(fmt.Errorf(
-						"%s: message type %d is not allowed while pipelined in state %s",
-						p.config.Name,
-						outbound.message.Type(),
-						p.getCurrentState(),
-					))
+				if p.pipelinedDequeueHook != nil {
+					p.pipelinedDequeueHook()
+				}
+				var err error
+				pipelinedOutbound, haveAgency, err = p.resolvePipelinedDequeue(
+					&tmpOutbound,
+					haveAgency,
+					&queuedStateTransitions,
+				)
+				if err != nil {
+					if errors.Is(err, ErrProtocolShuttingDown) {
+						return
+					}
+					p.SendError(err)
 					return
 				}
-				pipelinedOutbound = &tmpOutbound
 			}
 		} else {
 			select {
@@ -1172,19 +1392,33 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		}
 		transitionTimer = nil
 
-		// Set the new state
+		// Set the new state and, in the same critical section, mark the
+		// protocol ready to send/receive based on the new state's role and
+		// agency. Folding the sendReadyChan/recvReadyChan signal into the
+		// same lock as the state write is what makes
+		// observeStateAndDrainSendReady's paired read-and-drain sound: any
+		// caller taking currentStateMu is now guaranteed to see this whole
+		// state transition -- state and its token together -- or none of
+		// it, never a state visible with its token still pending. Before
+		// this, the token write happened after Unlock with no
+		// synchronization of its own, so a concurrent reader could observe
+		// the new state via currentStateMu while the token that belongs to
+		// it had not yet been written, and a non-blocking drain taken just
+		// before that reader's state read would miss it entirely --
+		// stranding the token to be misread by a later, unrelated
+		// sendLoop iteration as agency for a different state (see
+		// resolvePipelinedDequeue and blinklabs-io/gouroboros#2494).
 		p.currentStateMu.Lock()
 		p.currentState = s
-		p.currentStateMu.Unlock()
-
-		// Mark protocol as ready to send/receive based on role and agency of the new state
-		switch p.config.StateMap[s].Agency {
+		agency := p.config.StateMap[s].Agency
+		skipTimeout := agency == AgencyNone
+		switch agency {
 		case AgencyNone:
-			return
+			// skipTimeout already covers this case; nothing to signal.
 		case AgencyClient:
 			switch p.config.Role {
 			case ProtocolRoleNone:
-				return
+				skipTimeout = true
 			case ProtocolRoleClient:
 				select {
 				case p.sendReadyChan <- true:
@@ -1199,7 +1433,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		case AgencyServer:
 			switch p.config.Role {
 			case ProtocolRoleNone:
-				return
+				skipTimeout = true
 			case ProtocolRoleServer:
 				select {
 				case p.sendReadyChan <- true:
@@ -1211,6 +1445,11 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 				default:
 				}
 			}
+		}
+		p.currentStateMu.Unlock()
+
+		if skipTimeout {
+			return
 		}
 
 		// Don't activate timeouts on initial protocol state unless explicitly
