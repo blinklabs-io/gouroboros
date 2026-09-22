@@ -193,7 +193,7 @@ func TestStakePoolParamsResultURLBound(t *testing.T) {
 	require.Equal(
 		t,
 		testPoolMetadataHashBytes(),
-		params.PoolMetadata.MetadataHash[:],
+		[]byte(params.PoolMetadata.MetadataHash[:]),
 	)
 
 	overLimit := testPoolURL(queryPoolMetadataURLMaxBytes + 1)
@@ -220,12 +220,15 @@ func TestPoolStateResultURLBound(t *testing.T) {
 	params, ok := accepted.PState[testPoolOperator()]
 	require.True(t, ok)
 	require.NotNil(t, params)
+	if params == nil {
+		t.Fatal("expected pool state params")
+	}
 	require.NotNil(t, params.PoolMetadata)
 	require.Equal(t, atLimit, params.PoolMetadata.Url)
 	require.Equal(
 		t,
 		testPoolMetadataHashBytes(),
-		params.PoolMetadata.MetadataHash[:],
+		[]byte(params.PoolMetadata.MetadataHash[:]),
 	)
 
 	overLimit := testPoolURL(queryPoolMetadataURLMaxBytes + 1)
