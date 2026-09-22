@@ -983,11 +983,24 @@ func (r *StakePoolParamsResult) UnmarshalCBOR(data []byte) error {
 			continue
 		}
 		if err := validateQueryPoolMetadataURL(params.PoolMetadata.Url); err != nil {
-			return fmt.Errorf("pool %s: %w", poolId, err)
+			delete(tmp.Results, poolId)
 		}
 	}
 	*r = StakePoolParamsResult(tmp)
 	return nil
+}
+
+func (r StakePoolParamsResult) MarshalCBOR() ([]byte, error) {
+	for poolId, params := range r.Results {
+		if params.PoolMetadata == nil {
+			continue
+		}
+		if err := validateQueryPoolMetadataURL(params.PoolMetadata.Url); err != nil {
+			return nil, fmt.Errorf("pool %s: %w", poolId, err)
+		}
+	}
+	type stakePoolParamsResult StakePoolParamsResult
+	return cbor.Encode(stakePoolParamsResult(r))
 }
 
 // RewardParams represents the global reward calculation parameters
@@ -1097,6 +1110,16 @@ func (p *PoolStateParams) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (p PoolStateParams) MarshalCBOR() ([]byte, error) {
+	if p.PoolMetadata != nil {
+		if err := validateQueryPoolMetadataURL(p.PoolMetadata.Url); err != nil {
+			return nil, err
+		}
+	}
+	type poolStateParams PoolStateParams
+	return cbor.Encode(poolStateParams(p))
+}
+
 // PoolStateResult represents the pool state result
 // The result is a 4-element array: [pstate, fstate, retiring, deposits]
 // where pstate maps pool IDs to their registration parameters
@@ -1107,6 +1130,60 @@ type PoolStateResult struct {
 	// Retiring contains pools scheduled to retire (epoch number)
 	Retiring map[ledger.Blake2b224]uint64
 	Deposits map[ledger.Blake2b224]uint64 // Pool deposits
+}
+
+func (r *PoolStateResult) UnmarshalCBOR(data []byte) error {
+	if r == nil {
+		return errors.New("nil PoolStateResult receiver")
+	}
+	type rawPoolStateParams PoolStateParams
+	var tmp struct {
+		cbor.StructAsArray
+		PState   map[ledger.Blake2b224]*rawPoolStateParams
+		FState   map[ledger.Blake2b224]*rawPoolStateParams
+		Retiring map[ledger.Blake2b224]uint64
+		Deposits map[ledger.Blake2b224]uint64
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	convert := func(
+		name string,
+		params map[ledger.Blake2b224]*rawPoolStateParams,
+	) (map[ledger.Blake2b224]*PoolStateParams, error) {
+		result := make(map[ledger.Blake2b224]*PoolStateParams, len(params))
+		for poolId, value := range params {
+			if value == nil {
+				result[poolId] = nil
+				continue
+			}
+			if value.PoolMetadata != nil {
+				if err := validateQueryPoolMetadataURL(
+					value.PoolMetadata.Url,
+				); err != nil {
+					return nil, fmt.Errorf(
+						"%s pool %x: %w", name, poolId[:], err,
+					)
+				}
+			}
+			converted := PoolStateParams(*value)
+			result[poolId] = &converted
+		}
+		return result, nil
+	}
+	pstate, err := convert("pstate", tmp.PState)
+	if err != nil {
+		return err
+	}
+	fstate, err := convert("fstate", tmp.FState)
+	if err != nil {
+		return err
+	}
+	*r = PoolStateResult{
+		PState: pstate, FState: fstate,
+		Retiring: tmp.Retiring, Deposits: tmp.Deposits,
+	}
+	return nil
 }
 
 // PoolStakeSnapshot represents the stake distribution for a pool

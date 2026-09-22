@@ -82,6 +82,11 @@ func testPoolMetadataHash() ledger.Blake2b256 {
 	return hash
 }
 
+func testPoolMetadataHashBytes() []byte {
+	hash := testPoolMetadataHash()
+	return hash[:]
+}
+
 // testRewardAccount builds a mainnet reward address, which the Address
 // decoder requires to be a 29-byte payload.
 func testRewardAccount(t *testing.T) ledger.Address {
@@ -140,6 +145,20 @@ func stakePoolParamsCBOR(t *testing.T, url string) []byte {
 	return encoded
 }
 
+func stakePoolParamsCBORMixed(t *testing.T) []byte {
+	t.Helper()
+	badPool := testPoolId()
+	badPool[0] = 0x02
+	encoded, err := cbor.Encode(fixtureStakePoolParamsResult{
+		Results: map[ledger.PoolId]fixturePoolParams{
+			testPoolId(): testPoolParams(t, "https://valid.example/"),
+			badPool:      testPoolParams(t, testPoolURL(129)),
+		},
+	})
+	require.NoError(t, err)
+	return encoded
+}
+
 func poolStateCBOR(t *testing.T, url string) []byte {
 	t.Helper()
 	params := testPoolParams(t, url)
@@ -171,16 +190,24 @@ func TestStakePoolParamsResultURLBound(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, params.PoolMetadata)
 	require.Equal(t, atLimit, params.PoolMetadata.Url)
-	require.Equal(t, testPoolMetadataHash(), params.PoolMetadata.MetadataHash)
+	require.Equal(
+		t,
+		testPoolMetadataHashBytes(),
+		params.PoolMetadata.MetadataHash[:],
+	)
 
 	overLimit := testPoolURL(queryPoolMetadataURLMaxBytes + 1)
 	require.Len(t, overLimit, queryPoolMetadataURLMaxBytes+1)
 
-	var rejected StakePoolParamsResult
-	err := rejected.UnmarshalCBOR(stakePoolParamsCBOR(t, overLimit))
-	require.NotNil(t, err)
-	require.ErrorIs(t, err, lcommon.ErrPoolMetadataURLTooLong)
-	require.Contains(t, err.Error(), testPoolId().String())
+	var filtered StakePoolParamsResult
+	require.NoError(t, filtered.UnmarshalCBOR(stakePoolParamsCBORMixed(t)))
+	params, ok = filtered.Results[testPoolId()]
+	require.True(t, ok)
+	require.Equal(t, "https://valid.example/", params.PoolMetadata.Url)
+	badPool := testPoolId()
+	badPool[0] = 0x02
+	_, ok = filtered.Results[badPool]
+	require.False(t, ok)
 }
 
 // TestPoolStateResultURLBound covers the same rule on the GetPoolState result,
@@ -195,13 +222,17 @@ func TestPoolStateResultURLBound(t *testing.T) {
 	require.NotNil(t, params)
 	require.NotNil(t, params.PoolMetadata)
 	require.Equal(t, atLimit, params.PoolMetadata.Url)
-	require.Equal(t, testPoolMetadataHash(), params.PoolMetadata.MetadataHash)
+	require.Equal(
+		t,
+		testPoolMetadataHashBytes(),
+		params.PoolMetadata.MetadataHash[:],
+	)
 
 	overLimit := testPoolURL(queryPoolMetadataURLMaxBytes + 1)
 
 	_, err = decodePoolStateResult(poolStateCBOR(t, overLimit))
-	require.NotNil(t, err)
 	require.ErrorIs(t, err, lcommon.ErrPoolMetadataURLTooLong)
+	require.Contains(t, err.Error(), "pstate pool "+strings.Repeat("01", len(testPoolOperator())))
 }
 
 // TestPoolStateParamsURLBound exercises the PoolStateParams decoder on its
@@ -222,7 +253,30 @@ func TestPoolStateParamsURLBound(t *testing.T) {
 
 	var rejected PoolStateParams
 	err := rejected.UnmarshalCBOR(encode(testPoolURL(queryPoolMetadataURLMaxBytes + 1)))
-	require.NotNil(t, err)
+	require.Error(t, err)
+	require.ErrorIs(t, err, lcommon.ErrPoolMetadataURLTooLong)
+}
+
+func TestQueryPoolMetadataURLEncodingBound(t *testing.T) {
+	tooLong := testPoolURL(queryPoolMetadataURLMaxBytes + 1)
+	decoded, err := decodePoolStateResult(
+		poolStateCBOR(t, "https://pool.example/"),
+	)
+	require.NoError(t, err)
+	params := *decoded.PState[testPoolOperator()]
+	params.PoolMetadata.Url = tooLong
+	_, err = cbor.Encode(params)
+	require.ErrorIs(t, err, lcommon.ErrPoolMetadataURLTooLong)
+
+	var stakeResult StakePoolParamsResult
+	require.NoError(
+		t,
+		stakeResult.UnmarshalCBOR(stakePoolParamsCBOR(t, "https://pool.example/")),
+	)
+	poolParams := stakeResult.Results[testPoolId()]
+	poolParams.PoolMetadata.Url = tooLong
+	stakeResult.Results[testPoolId()] = poolParams
+	_, err = cbor.Encode(stakeResult)
 	require.ErrorIs(t, err, lcommon.ErrPoolMetadataURLTooLong)
 }
 
@@ -239,11 +293,12 @@ func TestPoolMetadataURLBoundMeasuredInBytes(t *testing.T) {
 		acceptedParams.UnmarshalCBOR(stakePoolParamsCBOR(t, atLimit)),
 	)
 	var rejectedParams StakePoolParamsResult
-	require.ErrorIs(
+	require.NoError(
 		t,
 		rejectedParams.UnmarshalCBOR(stakePoolParamsCBOR(t, overLimit)),
-		lcommon.ErrPoolMetadataURLTooLong,
 	)
+	_, ok := rejectedParams.Results[testPoolId()]
+	require.False(t, ok)
 
 	_, err := decodePoolStateResult(poolStateCBOR(t, atLimit))
 	require.NoError(t, err)
