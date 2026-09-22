@@ -51,7 +51,8 @@ import "github.com/blinklabs-io/gouroboros/ledger/common"
 // amounts, double registration, resigned-member authorization) is
 // out of scope: that is validated separately by UtxoValidateDelegation,
 // UtxoValidateCertificateDeposits, and UtxoValidateCommitteeCertificates
-// (individual certificate-legality issues gouroboros#2384, #4377, #4433).
+// (individual certificate-legality issues gouroboros#2384,
+// blinklabs-io/dingo#4377, blinklabs-io/dingo#4433).
 // This overlay only answers "what would the registration/authorization
 // state be after this transaction's certificates ran", for predicates that
 // read that state, not certificates themselves.

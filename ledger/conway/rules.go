@@ -1343,6 +1343,10 @@ func UtxoValidateProposalReturnAccounts(
 	if isInConwayBootstrapPhase(pp) {
 		return nil
 	}
+	proposals := tx.ProposalProcedures()
+	if len(proposals) == 0 {
+		return nil
+	}
 	// The reference (conwayGovTransition, processProposal) checks the
 	// return address and treasury withdrawal addresses against
 	// certStateAfterCERTS, not against pre-transaction ledger state: a
@@ -1364,7 +1368,7 @@ func UtxoValidateProposalReturnAccounts(
 		cred, ok := addr.StakeCredential()
 		return ok && overlay.IsStakeCredentialRegistered(cred)
 	}
-	for _, proposal := range tx.ProposalProcedures() {
+	for _, proposal := range proposals {
 		returnAddr := proposal.RewardAccount()
 		if !isRegistered(returnAddr) {
 			return ProposalReturnAccountDoesNotExistError{Address: returnAddr}
