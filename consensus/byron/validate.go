@@ -1414,14 +1414,14 @@ func ValidateEBBBodyHash(block *byron.ByronEpochBoundaryBlock) error {
 		}
 	}
 
-	// Compute the actual body hash
-	// EBB body is a list of stakeholder IDs ([]Blake2b224)
-	bodyBytes, err := cbor.Encode(block.Body)
-	if err != nil {
+	// Hash the preserved body bytes. Re-encoding block.Body would emit a
+	// definite-length list, while the reference only accepts the
+	// indefinite-length form, so it could never match a genuine EBB.
+	bodyBytes := block.BodyCbor()
+	if len(bodyBytes) == 0 {
 		return &common.ValidationError{
 			Type:    common.ValidationErrorTypeBodyHash,
-			Message: "failed to encode EBB body",
-			Cause:   err,
+			Message: "EBB has no preserved body CBOR",
 		}
 	}
 

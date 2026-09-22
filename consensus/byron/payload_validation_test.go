@@ -18,6 +18,9 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
@@ -142,4 +145,24 @@ func TestValidateEBBBodyHashMalformedProof(t *testing.T) {
 		validationErr.Type,
 	)
 	require.Contains(t, validationErr.Message, "malformed EBB body proof")
+}
+
+// TestValidateEBBBodyHashRealBlock pins that the hash is taken over the
+// preserved body bytes: a genuine EBB body is an indefinite-length list,
+// which re-encoding the decoded entries does not reproduce.
+func TestValidateEBBBodyHashRealBlock(t *testing.T) {
+	hexData, err := os.ReadFile(filepath.Join(
+		"..",
+		"..",
+		"protocol",
+		"chainsync",
+		"testdata",
+		"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
+	))
+	require.NoError(t, err)
+	raw, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
+	require.NoError(t, err)
+	block, err := byron.NewByronEpochBoundaryBlockFromCbor(raw)
+	require.NoError(t, err)
+	require.NoError(t, ValidateEBBBodyHash(block))
 }
