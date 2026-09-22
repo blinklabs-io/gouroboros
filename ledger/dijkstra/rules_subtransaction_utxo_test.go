@@ -19,6 +19,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
@@ -197,6 +198,132 @@ func TestDijkstraDuplicateInputAcrossTransactionLevels(t *testing.T) {
 	var duplicateErr shelley.DuplicateInputError
 	require.ErrorAs(t, rule(tx, 0, ls, pp), &duplicateErr)
 	require.Equal(t, "regular", duplicateErr.InputType)
+
+	secondLevel := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{
+					{Body: DijkstraSubTransactionBody{
+						TxInputs: conway.NewConwayTransactionInputSet(inputs),
+					}},
+					{Body: DijkstraSubTransactionBody{
+						TxInputs: conway.NewConwayTransactionInputSet(inputs),
+					}},
+				},
+				true,
+			),
+		},
+		TxIsValid: true,
+	}
+	var acrossSubs shelley.DuplicateInputError
+	require.ErrorAs(t, rule(secondLevel, 0, ls, pp), &acrossSubs)
+}
+
+func TestDijkstraDuplicateInputRulePrecedesValueConservation(t *testing.T) {
+	index := func(id common.UtxoValidationRuleId) int {
+		for idx, descriptor := range utxoValidationRuleDescriptors {
+			if descriptor.Id == id {
+				return idx
+			}
+		}
+		return -1
+	}
+	duplicateIndex := index(common.UtxoValidationRuleNoDuplicateInputs)
+	valueIndex := index(common.UtxoValidationRuleValueNotConserved)
+	require.GreaterOrEqual(t, duplicateIndex, 0)
+	require.Greater(t, valueIndex, duplicateIndex)
+}
+
+func TestDijkstraDisjointRefInputsCoversSubTransactions(t *testing.T) {
+	input, utxo := dijkstraSubUtxoInput(0)
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).
+		Build()
+	pp := &DijkstraProtocolParameters{}
+	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input}, true,
+			),
+		},
+	})
+	var overlap babbage.NonDisjointRefInputsError
+	require.ErrorAs(
+		t,
+		UtxoValidateDisjointRefInputs(tx, 0, ls, pp),
+		&overlap,
+	)
+}
+
+func TestDijkstraBootstrapOutputAttributesCoverSubTransactions(t *testing.T) {
+	address, err := common.NewByronAddressFromParts(
+		common.ByronAddressTypePubkey,
+		bytes.Repeat([]byte{0x11}, common.AddressHashSize),
+		common.ByronAddressAttributes{Payload: bytes.Repeat([]byte{0x22}, 100)},
+	)
+	require.NoError(t, err)
+	output := DijkstraTransactionOutput{Output: &babbage.BabbageTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 2_000_000},
+	}}
+	tx := dijkstraSubUtxoSubTx(nil, []DijkstraTransactionOutput{output})
+	var attrsErr shelley.OutputBootAddrAttrsTooBigError
+	require.ErrorAs(
+		t,
+		UtxoValidateOutputBootAddrAttrsTooBig(
+			tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{},
+		),
+		&attrsErr,
+	)
+}
+
+func TestDijkstraDonationScriptCheckIsPerLevel(t *testing.T) {
+	input, utxo := dijkstraSubUtxoInput(0)
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).
+		Build()
+	pp := &DijkstraProtocolParameters{}
+	rule := dijkstraRule(t, common.UtxoValidationRuleValueNotConserved)
+	v1 := DijkstraTransactionWitnessSet{
+		WsPlutusV1Scripts: cbor.NewSetType(
+			[]common.PlutusV1Script{{0x41, 0}}, false,
+		),
+	}
+
+	newTx := func(
+		subWitnesses DijkstraTransactionWitnessSet,
+	) *DijkstraTransaction {
+		return &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				),
+				TxSubTransactions: cbor.NewSetType(
+					[]DijkstraSubTransaction{{
+						Body: DijkstraSubTransactionBody{
+							TxDonation: dijkstraSubUtxoInputAmount,
+						},
+						WitnessSet: subWitnesses,
+					}}, true,
+				),
+			},
+			WitnessSet: v1,
+			TxIsValid:  true,
+		}
+	}
+
+	// The top-level witness does not make a sub-transaction donation invalid.
+	require.NoError(t, rule(newTx(DijkstraTransactionWitnessSet{}), 0, ls, pp))
+
+	// The same-level PlutusV1 witness and donation are rejected.
+	var donationErr conway.TreasuryDonationWithPlutusV1V2Error
+	require.ErrorAs(
+		t,
+		rule(newTx(v1), 0, ls, pp),
+		&donationErr,
+	)
 }
 
 // TestDijkstraBadInputsCoversSubTransactions pins that an unresolvable input

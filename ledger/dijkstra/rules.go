@@ -547,7 +547,18 @@ func UtxoValidateDisjointRefInputs(
 	if err != nil {
 		return err
 	}
-	return conway.UtxoValidateDisjointRefInputs(tx, slot, ls, tmpPparams)
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateDisjointRefInputs(tx, slot, ls, tmpPparams)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.UtxoValidateDisjointRefInputs(
+			level, slot, ls, tmpPparams,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // dijkstraConwayFeatureTransaction presents one sub-transaction's body and
@@ -1130,8 +1141,8 @@ func dijkstraDirectDepositsTotal(tx common.Transaction) *big.Int {
 	return ret
 }
 
-// dijkstraDirectDepositTransaction adds a batch's direct deposits to the
-// produced side of value conservation.
+// dijkstraProducedAdjustmentTransaction adds batch deposits and donations to
+// the produced side of value conservation.
 //
 // Cardano's localProducedValue (Cardano.Ledger.Dijkstra.UTxO) sums a body's
 // outputs, treasury donation, proposal deposits, burned multi-assets and
@@ -1139,25 +1150,31 @@ func dijkstraDirectDepositsTotal(tx common.Transaction) *big.Int {
 // to every sub-transaction body, then adds the fee once. Direct deposits are
 // an independent produced-side term, disjoint from the proposal deposits and
 // treasury donations dijkstraBatchTransaction already folds, so counting them
-// as well cannot double-count either.
+// as well cannot double-count either. Donations are included here after their
+// Plutus compatibility check has run at each transaction level.
 //
 // conway.UtxoValidateValueNotConservedUtxo derives its produced coin total
 // from Outputs(), Fee(), certificate deposits, ProposalProcedures() and
-// Donation(), and has no direct deposit term. The batch total is therefore
-// carried on Fee(), the one produced-side term that is a bare coin with no
-// other meaning inside that rule. Donation() would be wrong: it additionally
-// triggers the PlutusV1/V2 rejection that does not apply to a deposit.
-type dijkstraDirectDepositTransaction struct {
+// Donation(), and has no direct deposit term. Both batch totals are therefore
+// carried on Fee(), the produced-side term with no other meaning inside that
+// rule. Donation() is suppressed because its Plutus gate was checked per level.
+type dijkstraProducedAdjustmentTransaction struct {
 	common.Transaction
 	directDeposits *big.Int
+	donations      *big.Int
 }
 
-func (t dijkstraDirectDepositTransaction) Fee() *big.Int {
+func (t dijkstraProducedAdjustmentTransaction) Fee() *big.Int {
 	ret := new(big.Int).Set(t.directDeposits)
+	ret.Add(ret, t.donations)
 	if fee := t.Transaction.Fee(); fee != nil {
 		ret.Add(ret, fee)
 	}
 	return ret
+}
+
+func (t dijkstraProducedAdjustmentTransaction) Donation() *big.Int {
+	return nil
 }
 
 // UtxoValidateValueNotConservedUtxo balances consumed against produced value
@@ -1175,10 +1192,25 @@ func UtxoValidateValueNotConservedUtxo(
 		return err
 	}
 	view := dijkstraBatchView(tx)
-	if directDeposits := dijkstraDirectDepositsTotal(tx); directDeposits.Sign() > 0 {
-		view = dijkstraDirectDepositTransaction{
+	directDeposits := dijkstraDirectDepositsTotal(tx)
+	donations := new(big.Int)
+	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
+		for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+			if err := conway.ValidateTreasuryDonationScriptCompatibility(
+				level, ls,
+			); err != nil {
+				return err
+			}
+			if donation := level.Donation(); donation != nil {
+				donations.Add(donations, donation)
+			}
+		}
+	}
+	if directDeposits.Sign() > 0 || donations.Sign() > 0 {
+		view = dijkstraProducedAdjustmentTransaction{
 			Transaction:    view,
 			directDeposits: directDeposits,
+			donations:      donations,
 		}
 	}
 	return conway.UtxoValidateValueNotConservedUtxo(
@@ -1468,14 +1500,9 @@ func dijkstraValidateAccountBalanceIntervals(
 // Dijkstra's LEDGER rule runs SUBLEDGERS before ENTITIES, so that order is
 // the sub-transactions in body order, then the top level.
 //
-// gouroboros evaluates UTxO rules against the ledger state as it stood before
-// the transaction and threads no account state between levels, so a level is
-// checked only while the pre-transaction balances are still the balances the
-// reference would see: up to and including the first level carrying a
-// withdrawal, a certificate or a direct deposit. A transaction with no
-// sub-transactions is therefore always checked in full. Later levels are left
-// unchecked rather than checked against a state the reference does not use,
-// which would reject batches the reference accepts.
+// gouroboros evaluates UTxO rules against the pre-transaction account state
+// and threads no account state between levels. It therefore skips only the
+// credentials whose balances an earlier level changed.
 //
 // The reference's third check, WrongNetworkInAccountBalanceIntervals, has no
 // counterpart here. cardano-ledger keys this map by AccountAddress, which
@@ -1492,43 +1519,94 @@ func UtxoValidateAccountBalanceIntervals(
 		return nil
 	}
 	type intervalLevel struct {
-		intervals     DijkstraAccountBalanceIntervals
-		body          common.TransactionBody
-		directDeposit bool
+		intervals DijkstraAccountBalanceIntervals
+		body      common.TransactionBody
 	}
 	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
 	levels := make([]intervalLevel, 0, len(subTxs)+1)
 	for idx := range subTxs {
 		body := &subTxs[idx].Body
 		levels = append(levels, intervalLevel{
-			intervals:     body.TxAccountBalanceIntervals,
-			body:          body,
-			directDeposit: len(body.TxDirectDeposits) > 0,
+			intervals: body.TxAccountBalanceIntervals,
+			body:      body,
 		})
 	}
 	levels = append(levels, intervalLevel{
-		intervals:     dijkstraTx.Body.TxBalanceIntervals,
-		body:          &dijkstraTx.Body,
-		directDeposit: len(dijkstraTx.Body.TxDirectDeposits) > 0,
+		intervals: dijkstraTx.Body.TxBalanceIntervals,
+		body:      &dijkstraTx.Body,
 	})
+	type credentialID struct {
+		kind uint
+		hash common.CredentialHash
+	}
+	keyFor := func(credential common.Credential) credentialID {
+		return credentialID{kind: credential.CredType, hash: credential.Credential}
+	}
+	moved := make(map[credentialID]struct{})
 	for _, level := range levels {
-		if len(level.intervals) > 0 {
+		checked := make(DijkstraAccountBalanceIntervals)
+		for credential, interval := range level.intervals {
+			if credential == nil {
+				continue
+			}
+			if _, changed := moved[keyFor(*credential)]; !changed {
+				checked[credential] = interval
+			}
+		}
+		if len(checked) > 0 {
 			if ls == nil {
 				return errors.New(
 					"ledger state is required for account balance interval validation",
 				)
 			}
 			if err := dijkstraValidateAccountBalanceIntervals(
-				level.intervals,
+				checked,
 				ls,
 			); err != nil {
 				return err
 			}
 		}
-		if level.directDeposit ||
-			len(level.body.Withdrawals()) > 0 ||
-			len(level.body.Certificates()) > 0 {
-			break
+		for address := range level.body.Withdrawals() {
+			if credential, err := address.RewardAccountCredential(); err == nil {
+				moved[keyFor(credential)] = struct{}{}
+			}
+		}
+		for _, cert := range level.body.Certificates() {
+			var credential *common.Credential
+			switch cert := cert.(type) {
+			case *common.StakeRegistrationCertificate:
+				credential = &cert.StakeCredential
+			case *common.StakeDeregistrationCertificate:
+				credential = &cert.StakeCredential
+			case *common.RegistrationCertificate:
+				credential = &cert.StakeCredential
+			case *common.DeregistrationCertificate:
+				credential = &cert.StakeCredential
+			case *common.StakeRegistrationDelegationCertificate:
+				credential = &cert.StakeCredential
+			case *common.VoteRegistrationDelegationCertificate:
+				credential = &cert.StakeCredential
+			case *common.StakeVoteRegistrationDelegationCertificate:
+				credential = &cert.StakeCredential
+			}
+			if credential != nil {
+				moved[keyFor(*credential)] = struct{}{}
+			}
+		}
+		var directDeposits map[cbor.ByteString]uint64
+		switch body := level.body.(type) {
+		case *DijkstraSubTransactionBody:
+			directDeposits = body.TxDirectDeposits
+		case *DijkstraTransactionBody:
+			directDeposits = body.TxDirectDeposits
+		}
+		for account := range directDeposits {
+			address, err := common.NewAddressFromBytes(account.Bytes())
+			if err == nil {
+				if credential, err := address.RewardAccountCredential(); err == nil {
+					moved[keyFor(credential)] = struct{}{}
+				}
+			}
 		}
 	}
 	return nil

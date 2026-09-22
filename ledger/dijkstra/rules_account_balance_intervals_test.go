@@ -116,16 +116,16 @@ func TestDijkstraAccountBalanceIntervalsAgainstLedgerState(t *testing.T) {
 	require.Len(t, boundErr.Mismatches, 1)
 }
 
-// TestDijkstraAccountBalanceIntervalsCoverSubTransactions pins the rule
-// against a sub-transaction body's key 26, and pins the documented boundary:
-// once a level moves account balances the following levels are left
-// unchecked, because gouroboros has no account state threaded between levels
-// to check them against.
+// TestDijkstraAccountBalanceIntervalsCoverSubTransactions checks sub-level
+// and top-level assertions, including that only changed credentials are
+// skipped when gouroboros cannot thread account state between levels.
 func TestDijkstraAccountBalanceIntervalsCoverSubTransactions(t *testing.T) {
 	credential := dijkstraIntervalCredential(0x11)
+	otherCredential := dijkstraIntervalCredential(0x22)
 	const balance = uint64(5_000_000)
 	ls := mockledger.NewLedgerStateBuilder().
 		WithRewardAccountCredentialBalance(*credential, balance).
+		WithRewardAccountCredentialBalance(*otherCredential, balance).
 		Build()
 	pp := &DijkstraProtocolParameters{}
 	rule := dijkstraRule(t, common.UtxoValidationRuleAccountBalanceIntervals)
@@ -135,6 +135,9 @@ func TestDijkstraAccountBalanceIntervalsCoverSubTransactions(t *testing.T) {
 	}
 	right := DijkstraAccountBalanceIntervals{
 		credential: dijkstraIntervalExact(balance),
+	}
+	unrelatedWrong := DijkstraAccountBalanceIntervals{
+		otherCredential: dijkstraIntervalExact(balance + 1),
 	}
 	address, err := common.NewAddressFromParts(
 		common.AddressTypeNoneKey,
@@ -179,16 +182,30 @@ func TestDijkstraAccountBalanceIntervalsCoverSubTransactions(t *testing.T) {
 	)
 	require.Len(t, topErr.Mismatches, 1)
 
-	// A sub-transaction withdrawal, certificate or direct deposit moves the
-	// balance the top level would be checked against, so the top level is
-	// left unchecked rather than checked against a state cardano-ledger does
-	// not use there.
+	// A sub-transaction withdrawal or direct deposit leaves only that
+	// credential unchecked at the later top-level assertion.
 	require.NoError(t, rule(newTx(
 		DijkstraSubTransactionBody{
 			TxWithdrawals: map[*common.Address]uint64{&address: balance},
 		},
 		wrong,
 	), 0, ls, pp))
+	var unrelatedErr BalancesOutsideAccountBalanceIntervalsError
+	require.ErrorAs(t, rule(newTx(
+		DijkstraSubTransactionBody{
+			TxDirectDeposits: map[cbor.ByteString]uint64{
+				dijkstraDepositAccount(0x11): 1,
+			},
+		},
+		unrelatedWrong,
+	), 0, ls, pp), &unrelatedErr)
+	require.Len(t, unrelatedErr.Mismatches, 1)
+	require.ErrorAs(t, rule(newTx(
+		DijkstraSubTransactionBody{
+			TxWithdrawals: map[*common.Address]uint64{&address: balance},
+		},
+		unrelatedWrong,
+	), 0, ls, pp), &unrelatedErr)
 	require.NoError(t, rule(newTx(
 		DijkstraSubTransactionBody{
 			TxDirectDeposits: map[cbor.ByteString]uint64{
