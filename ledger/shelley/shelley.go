@@ -404,12 +404,10 @@ func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 // ValidityIntervalUpperBound returns the TTL and whether it is present. Key 3
-// is mandatory in Shelley, so every decoded body reports it as present,
-// including when its value is zero. A body constructed in Go rather than
-// decoded reports presence only once a nonzero TTL or an explicit
-// SetValidityIntervalUpperBoundPresence has set it.
+// is mandatory in Shelley, so every body reports it as present, including a
+// Go-constructed zero value that encodes key 3 with value zero.
 func (b *ShelleyTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
-	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+	return b.Ttl, true
 }
 
 func (b *ShelleyTransactionBody) MarshalCBOR() ([]byte, error) {
