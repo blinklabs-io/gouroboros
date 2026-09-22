@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,9 +64,28 @@ func TestGovAnchorURLBoundAtDecode(t *testing.T) {
 
 	var rejected common.GovAnchor
 	err := rejected.UnmarshalCBOR(govAnchorCBOR(t, overLimit))
-	require.NotNil(t, err)
+	require.Error(t, err)
 	require.ErrorIs(t, err, common.ErrGovAnchorURLTooLong)
-	require.Contains(t, err.Error(), "got 129")
+}
+
+func TestGovAnchorURLBoundAtConstructionAndEncoding(t *testing.T) {
+	tooLong := govAnchorURL("https://example.com/", govAnchorURLMaxBytes+1)
+	_, err := common.NewGovAnchor(tooLong, govAnchorTestHash())
+	require.ErrorIs(t, err, common.ErrGovAnchorURLTooLong)
+
+	anchor := common.GovAnchor{Url: tooLong}
+	_, err = cbor.Encode(anchor)
+	require.ErrorIs(t, err, common.ErrGovAnchorURLTooLong)
+
+	atLimit := common.GovAnchor{
+		Url:      govAnchorURL("https://example.com/", govAnchorURLMaxBytes),
+		DataHash: [32]byte{1},
+	}
+	encoded, err := cbor.Encode(atLimit)
+	require.NoError(t, err)
+	var decoded common.GovAnchor
+	require.NoError(t, decoded.UnmarshalCBOR(encoded))
+	require.Equal(t, atLimit, decoded)
 }
 
 // TestGovAnchorURLBoundMeasuredInBytes checks that the limit counts UTF-8
@@ -146,4 +166,30 @@ func TestGovAnchorURLBoundAtEveryDecodeSite(t *testing.T) {
 			)
 		})
 	}
+
+	proposalCBOR, err := cbor.Encode([]any{
+		uint64(0),
+		append([]byte{0x60}, make([]byte, 28)...),
+		[]any{uint(6)}, anchor,
+	})
+	require.NoError(t, err)
+	var proposal conway.ConwayProposalProcedure
+	require.ErrorIs(
+		t,
+		proposal.UnmarshalCBOR(proposalCBOR),
+		common.ErrGovAnchorURLTooLong,
+	)
+
+	constitutionCBOR, err := cbor.Encode([]any{
+		uint(common.GovActionTypeNewConstitution), nil,
+		[]any{anchor, nil},
+	})
+	require.NoError(t, err)
+	var constitution common.NewConstitutionGovAction
+	_, err = cbor.Decode(constitutionCBOR, &constitution)
+	require.ErrorIs(
+		t,
+		err,
+		common.ErrGovAnchorURLTooLong,
+	)
 }
