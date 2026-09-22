@@ -112,6 +112,29 @@ func TestNewClient(t *testing.T) {
 	assert.NotNil(t, client.config)
 }
 
+func TestVoteLoopStartupContainsCallbackPanic(t *testing.T) {
+	errorChan := make(chan error, 1)
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: testConnectionId(),
+		ErrorChan:    errorChan,
+	}, &Config{
+		VoteFunc: func(CallbackContext, Vote) error {
+			panic("injected vote callback panic")
+		},
+	})
+	client.startVoteLoop(1)
+	client.voteChan <- Vote{}
+
+	select {
+	case err := <-errorChan:
+		require.ErrorIs(t, err, protocol.ErrHandlerPanic)
+		require.ErrorContains(t, err, "vote loop")
+		require.ErrorContains(t, err, "injected vote callback panic")
+	case <-time.After(5 * time.Second):
+		t.Fatal("vote callback panic was not reported")
+	}
+}
+
 func TestNewClientNormalizesZeroValueConfig(t *testing.T) {
 	cfg := Config{}
 	client := NewClient(

@@ -821,13 +821,7 @@ func TestShutdownWatcherContainsRangeDonePanic(t *testing.T) {
 	})
 	req := c.appendTestRequest(1)
 	proto := c.ProtocolInstance()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		proto.RunLoop("shutdown watcher", func() {
-			c.failOutstandingOnProtocolDone(proto)
-		})
-	}()
+	done := c.startShutdownWatcher(proto)
 	proto.Stop()
 
 	select {

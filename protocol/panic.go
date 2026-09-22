@@ -33,6 +33,7 @@ import "errors"
 //
 // Containment is never a licence to carry on. A contained panic takes the
 // path a decode error or a protocol violation already takes: it is reported
-// on the protocol's error channel and the protocol is stopped, terminating
-// the connection. The message that triggered it is never treated as handled.
+// on the protocol's error channel, or logged if that channel is full, and the
+// protocol is stopped, terminating the connection. The message that triggered
+// it is never treated as handled.
 var ErrHandlerPanic = errors.New("recovered panic")

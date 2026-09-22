@@ -588,7 +588,8 @@ func (p *Protocol) SendError(err error) {
 // down -- every other connection with it -- over one peer's message. Reporting
 // the panic with SendError gives it the disposition a decode error or a
 // protocol violation already has: the consumer reads it from the protocol's
-// error channel and the connection is torn down.
+// error channel on a best-effort basis and the connection is torn down. If the
+// channel is full, the panic is logged so its stack is not lost.
 //
 // Continuing is not on offer here. A panic can leave a half-applied state
 // transition, an un-decremented byte count or a partly consumed read buffer
@@ -611,6 +612,7 @@ func (p *Protocol) recoverLoop(where string) {
 		select {
 		case p.config.ErrorChan <- err:
 		default:
+			p.Logger().Error("contained panic with a full error channel", "error", err)
 		}
 		p.Stop()
 	}

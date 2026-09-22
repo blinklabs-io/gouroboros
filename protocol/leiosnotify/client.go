@@ -122,9 +122,12 @@ func (c *Client) Sync() error {
 	// Reset pipelined message counter
 	c.pipelinedRequestNext = 0
 	c.notificationRunning = true
-	// Start notification loop
-	go c.Protocol.RunLoop("notification loop", c.notificationLoop)
+	c.startNotificationLoop()
 	return nil
+}
+
+func (c *Client) startNotificationLoop() {
+	go c.RunLoop("notification loop", c.notificationLoop)
 }
 
 func (c *Client) notificationLoop() {
@@ -163,14 +166,15 @@ func (c *Client) notificationLoop() {
 		}
 		// Request the next notification(s)
 		msgCount := max(c.config.PipelineLimit, 1)
+		c.busyMutex.Unlock()
 		for range msgCount {
 			msg := NewMsgNotificationRequestNext()
 			if err := c.SendMessage(msg); err != nil {
 				c.SendError(err)
-				c.busyMutex.Unlock()
 				return
 			}
 		}
+		c.busyMutex.Lock()
 		c.pipelinedRequestNext = msgCount - 1
 		c.busyMutex.Unlock()
 	}

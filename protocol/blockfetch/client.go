@@ -359,9 +359,7 @@ func (c *Client) Start() {
 			c.lifecycleState = clientStateRunning
 			// Resolve any request left outstanding when the protocol shuts
 			// down, so no caller and no callback consumer is left waiting.
-			go proto.RunLoop("shutdown watcher", func() {
-				c.failOutstandingOnProtocolDone(proto)
-			})
+			c.startShutdownWatcher(proto)
 			if c.startingDone == ch {
 				close(ch)
 				c.startingDone = nil
@@ -376,6 +374,19 @@ func (c *Client) Start() {
 			continue
 		}
 	}
+}
+
+func (c *Client) startShutdownWatcher(
+	proto *protocol.Protocol,
+) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proto.RunLoop("shutdown watcher", func() {
+			c.failOutstandingOnProtocolDone(proto)
+		})
+	}()
+	return done
 }
 
 // Stop stops the Block Fetch client protocol and sends a ClientDone message.

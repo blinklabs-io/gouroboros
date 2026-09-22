@@ -61,6 +61,32 @@ func TestNewClientWithConfig(t *testing.T) {
 	assert.Equal(t, 30*time.Second, client.config.Timeout)
 }
 
+func TestNotificationLoopStartupContainsCallbackPanic(t *testing.T) {
+	errorChan := make(chan error, 1)
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  &net.TCPAddr{},
+			RemoteAddr: &net.TCPAddr{},
+		},
+		ErrorChan: errorChan,
+	}, &Config{
+		NotificationFunc: func(CallbackContext, protocol.Message) error {
+			panic("injected notification callback panic")
+		},
+	})
+	client.startNotificationLoop()
+	client.notificationChan <- nil
+
+	select {
+	case err := <-errorChan:
+		require.ErrorIs(t, err, protocol.ErrHandlerPanic)
+		require.ErrorContains(t, err, "notification loop")
+		require.ErrorContains(t, err, "injected notification callback panic")
+	case <-time.After(5 * time.Second):
+		t.Fatal("notification callback panic was not reported")
+	}
+}
+
 func TestClientMessageHandler(t *testing.T) {
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
