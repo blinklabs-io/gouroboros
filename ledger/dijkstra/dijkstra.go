@@ -1733,7 +1733,7 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	for _, witness := range tmp.BootstrapWitnesses.Items() {
 		if len(witness.ChainCode) != 32 {
 			return fmt.Errorf(
-				"Dijkstra bootstrap witness chain code must be 32 bytes, got %d",
+				"bootstrap witness chain code must be 32 bytes, got %d",
 				len(witness.ChainCode),
 			)
 		}
