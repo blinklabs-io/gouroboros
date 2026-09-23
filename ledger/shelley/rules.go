@@ -126,15 +126,23 @@ var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
 	utxoValidationRuleDescriptors,
 )
 
-// UtxoValidateTimeToLive ensures that the current tip slot is not after the specified TTL value
+// UtxoValidateTimeToLive ensures that the current tip slot is not after the
+// specified TTL value, matching cardano-ledger's validateTimeToLive
+// (Cardano.Ledger.Shelley.Rules.Utxo): failureUnless (ttl >= slot).
+//
+// The reference has no exemption for a zero TTL, because key 3 is mandatory
+// in Shelley and zero is a real bound that expires at every slot above zero.
+// Presence is consulted rather than the value so that a transaction type
+// unable to express presence keeps the legacy "nonzero means present"
+// behavior.
 func UtxoValidateTimeToLive(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	ttl := tx.TTL()
-	if ttl == 0 || ttl >= slot {
+	ttl, present := common.TransactionValidityIntervalUpperBound(tx)
+	if !present || ttl >= slot {
 		return nil
 	}
 	return ExpiredUtxoError{

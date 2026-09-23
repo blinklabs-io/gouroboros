@@ -194,11 +194,14 @@ func TestValidityIntervalUpperBoundConstructedZeroRoundTrip(t *testing.T) {
 	}
 }
 
-func TestTransactionValidityIntervalUpperBoundLegacyFallback(t *testing.T) {
+func TestShelleyValidityIntervalUpperBoundIsAlwaysPresent(t *testing.T) {
 	body := &shelley.ShelleyTransactionBody{}
-	requireValidityUpperBound(t, body, 0, false)
+	requireValidityUpperBound(t, body, 0, true)
 
 	body.Ttl = 42
+	requireValidityUpperBound(t, body, 42, true)
+
+	body.SetValidityIntervalUpperBoundPresence(false)
 	requireValidityUpperBound(t, body, 42, true)
 }
 

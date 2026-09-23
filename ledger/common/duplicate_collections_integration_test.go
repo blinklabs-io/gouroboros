@@ -90,11 +90,17 @@ func TestTransactionBodiesRejectDuplicateLogicalWithdrawalKeys(t *testing.T) {
 		&address1: 1,
 		&address2: 2,
 	}
-	duplicateBody, err := cbor.Encode(map[uint]any{5: duplicateWithdrawals})
+	// Key 3 is mandatory in the Shelley body and optional but harmless from
+	// Allegra on, so one body shape decodes in every era under test.
+	duplicateBody, err := cbor.Encode(map[uint]any{
+		3: uint64(0),
+		5: duplicateWithdrawals,
+	})
 	require.NoError(t, err)
 
 	validAddress := testRewardAddress(t)
 	validBody, err := cbor.Encode(map[uint]any{
+		3: uint64(0),
 		5: map[*common.Address]uint64{&validAddress: 1},
 	})
 	require.NoError(t, err)
@@ -143,10 +149,14 @@ func TestTransactionBodyDuplicateCertificateSemanticsByEra(t *testing.T) {
 				)
 			}
 			duplicateBody, err := cbor.Encode(map[uint]any{
+				3: uint64(0),
 				4: duplicateCertificates,
 			})
 			require.NoError(t, err)
-			validBody, err := cbor.Encode(map[uint]any{4: validCertificates})
+			validBody, err := cbor.Encode(map[uint]any{
+				3: uint64(0),
+				4: validCertificates,
+			})
 			require.NoError(t, err)
 
 			if !tagged {
@@ -180,6 +190,7 @@ func TestTransactionBodiesRejectEquivalentCertificateEncodings(t *testing.T) {
 	nonShortestAmount := append([]byte(nil), canonical[:len(canonical)-1]...)
 	nonShortestAmount = append(nonShortestAmount, 0x18, 0x01)
 	body, err := cbor.Encode(map[uint]any{
+		3: uint64(0),
 		4: []any{
 			cbor.RawMessage(canonical),
 			cbor.RawMessage(nonShortestAmount),

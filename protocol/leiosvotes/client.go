@@ -168,8 +168,14 @@ func (c *Client) Sync() error {
 	}
 	c.syncRunning = true
 	c.sendMutex.Unlock()
-	go c.voteLoop(uint64(pipelineLimit) * c.config.RequestNextCount)
+	c.startVoteLoop(uint64(uint(pipelineLimit)) * c.config.RequestNextCount)
 	return nil
+}
+
+func (c *Client) startVoteLoop(outstanding uint64) {
+	go c.RunLoop("vote loop", func() {
+		c.voteLoop(outstanding)
+	})
 }
 
 func (c *Client) voteLoop(outstanding uint64) {

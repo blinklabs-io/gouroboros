@@ -26,7 +26,9 @@ import (
 func negativeNofKTransactionCbor(t *testing.T) []byte {
 	t.Helper()
 	data, err := cbor.Encode([]any{
-		map[uint64]any{},
+		// Key 3 (ttl) is mandatory in the Shelley body; this fixture is
+		// about the witness set, so it carries the minimum that decodes.
+		map[uint64]any{3: uint64(0)},
 		map[uint64]any{
 			1: []any{
 				[]any{uint64(3), int64(-1), []any{}},

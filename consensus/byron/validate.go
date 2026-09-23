@@ -1568,7 +1568,12 @@ func validateTxProof(
 		}
 		txBodyHashes[i] = txBodyCbor
 	}
-	computedTxBodyRoot := computeMerkleRoot(txBodyHashes)
+	// byron.MerkleRoot is the reference construction (cardano-ledger
+	// Cardano.Chain.Common.Merkle): it splits at the largest power of two
+	// strictly below the item count. Reimplementing it here once produced a
+	// duplicate-last-padded tree that rejected genuine blocks whose
+	// transaction count was not a power of two.
+	computedTxBodyRoot := byron.MerkleRoot(txBodyHashes)
 
 	if !bytes.Equal(computedTxBodyRoot[:], txProof.TxBodyMerkleRoot[:]) {
 		return &common.ValidationError{
@@ -1733,64 +1738,6 @@ func validateUpdProof(
 	}
 
 	return nil
-}
-
-// computeMerkleRoot computes a Byron-style merkle root from a list of items.
-//
-// Byron merkle tree structure:
-// - Empty list: hash of empty bytes
-// - Leaf node: hash(0x00 || cbor_data)
-// - Branch node: hash(0x01 || left_hash || right_hash)
-//
-// The tree is built by padding to the next power of 2 and combining nodes pairwise.
-func computeMerkleRoot(items [][]byte) common.Blake2b256 {
-	if len(items) == 0 {
-		// Empty tree: hash of empty bytes
-		return blake2b.Sum256(nil)
-	}
-
-	// Compute leaf hashes
-	// Find max item size to allocate a reusable buffer
-	maxLen := 0
-	for _, item := range items {
-		if len(item) > maxLen {
-			maxLen = len(item)
-		}
-	}
-	leafBuf := make([]byte, 1+maxLen)
-	leafBuf[0] = 0x00
-
-	leaves := make([][32]byte, len(items))
-	for i, item := range items {
-		// Leaf hash: hash(0x00 || item)
-		copy(leafBuf[1:], item)
-		leaves[i] = blake2b.Sum256(leafBuf[:1+len(item)])
-	}
-
-	// Build tree bottom-up
-	// Use fixed-size array for branch data (1 byte tag + 32 bytes left + 32 bytes right)
-	var branchData [65]byte
-	branchData[0] = 0x01
-
-	nodes := leaves
-	for len(nodes) > 1 {
-		// Pad to even number if necessary
-		if len(nodes)%2 == 1 {
-			nodes = append(nodes, nodes[len(nodes)-1])
-		}
-
-		// Combine pairs
-		newNodes := make([][32]byte, len(nodes)/2)
-		for i := 0; i < len(nodes); i += 2 {
-			// Branch hash: hash(0x01 || left || right)
-			copy(branchData[1:33], nodes[i][:])
-			copy(branchData[33:65], nodes[i+1][:])
-			newNodes[i/2] = blake2b.Sum256(branchData[:])
-		}
-		nodes = newNodes
-	}
-
-	return common.Blake2b256(nodes[0])
 }
 
 // toUint32 converts various numeric types to uint32.
