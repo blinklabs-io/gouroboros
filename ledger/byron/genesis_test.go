@@ -420,10 +420,13 @@ func genesisWithParameter(t *testing.T, path []string, value any) string {
 	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
 		t.Fatal(err)
 	}
+	if document == nil {
+		t.Fatal("decoded genesis document is nil")
+	}
 	current := document
 	for _, key := range path[:len(path)-1] {
 		next, ok := current[key].(map[string]any)
-		if !ok {
+		if !ok || next == nil {
 			t.Fatalf("missing genesis object %q", key)
 		}
 		current = next
@@ -501,14 +504,17 @@ func TestNewByronGenesisFromReaderIgnoresUnknownFields(t *testing.T) {
 	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
 		t.Fatal(err)
 	}
+	if document == nil {
+		t.Fatal("decoded genesis document is nil")
+	}
 	document["futureExtension"] = true
 	blockVersionData, ok := document["blockVersionData"].(map[string]any)
-	if !ok {
+	if !ok || blockVersionData == nil {
 		t.Fatal("missing blockVersionData object")
 	}
 	blockVersionData["futureParameter"] = "ignored"
 	softforkRule, ok := blockVersionData["softforkRule"].(map[string]any)
-	if !ok {
+	if !ok || softforkRule == nil {
 		t.Fatal("missing softforkRule object")
 	}
 	softforkRule["futureRule"] = "ignored"
