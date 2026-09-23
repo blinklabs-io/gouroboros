@@ -123,16 +123,34 @@ func signedUpdateVote(
 	proposalIdField []byte,
 ) cbor.RawMessage {
 	t.Helper()
+	return signedUpdateVoteWithDecision(
+		t, protocolMagic, voterVK, voterPrivate, proposalIdField, 0xf5, 0xf5,
+	)
+}
+
+// signedUpdateVoteWithDecision builds a vote whose wire decision field and
+// signed decision byte can differ, since the reference verifies every vote
+// as True whatever the wire carries.
+func signedUpdateVoteWithDecision(
+	t *testing.T,
+	protocolMagic uint32,
+	voterVK []byte,
+	voterPrivate ed25519.PrivateKey,
+	proposalIdField []byte,
+	wireDecision byte,
+	signedDecision byte,
+) cbor.RawMessage {
+	t.Helper()
 	inner := []byte{0x82}
 	inner = append(inner, proposalIdField...)
-	inner = append(inner, 0xf5)
+	inner = append(inner, signedDecision)
 	signed := []byte{byron.SignTagUSVote}
 	signed = append(signed, mustEncode(t, protocolMagic)...)
 	signed = append(signed, inner...)
 	return rawArray(
 		mustEncode(t, voterVK),
 		proposalIdField,
-		mustEncode(t, true),
+		[]byte{wireDecision},
 		mustEncode(t, ed25519.Sign(voterPrivate, signed)),
 	)
 }
@@ -668,6 +686,26 @@ func TestParseUpdateVoteMalformed(t *testing.T) {
 			),
 		},
 		{
+			name: "decision null",
+			raw:  rawArray(valid[0], valid[1], []byte{0xf6}, valid[3]),
+		},
+		{
+			name: "decision undefined",
+			raw:  rawArray(valid[0], valid[1], []byte{0xf7}, valid[3]),
+		},
+		{
+			name: "decision text",
+			raw: rawArray(
+				valid[0], valid[1], mustEncode(t, "true"), valid[3],
+			),
+		},
+		{
+			name: "decision tagged",
+			raw: rawArray(
+				valid[0], valid[1], []byte{0xd8, 0x18, 0xf5}, valid[3],
+			),
+		},
+		{
 			name: "signature truncated",
 			raw: rawArray(
 				valid[0], valid[1], valid[2], mustEncode(t, make([]byte, 8)),
@@ -678,6 +716,47 @@ func TestParseUpdateVoteMalformed(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, err := byron.ParseUpdateVote(testCase.raw)
 			require.ErrorIs(t, err, byron.ErrInvalidPayload)
+		})
+	}
+}
+
+// TestUpdateVoteDecisionDiscarded covers the reference's handling of the
+// decision field: both wire values decode, and the signature is always
+// checked against True.
+func TestUpdateVoteDecisionDiscarded(t *testing.T) {
+	voterVK, voterPrivate := testKeyPair(0x44)
+	idField := shortestProposalId(
+		t, bytes.Repeat([]byte{0x5a}, common.Blake2b256Size),
+	)
+	const (
+		cborFalse byte = 0xf4
+		cborTrue  byte = 0xf5
+	)
+	testCases := []struct {
+		name           string
+		wireDecision   byte
+		signedDecision byte
+		verifies       bool
+	}{
+		{"wire true, signed true", cborTrue, cborTrue, true},
+		{"wire false, signed true", cborFalse, cborTrue, true},
+		{"wire false, signed false", cborFalse, cborFalse, false},
+		{"wire true, signed false", cborTrue, cborFalse, false},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			vote, err := byron.ParseUpdateVote(signedUpdateVoteWithDecision(
+				t, testPayloadProtocolMagic, voterVK, voterPrivate, idField,
+				testCase.wireDecision, testCase.signedDecision,
+			))
+			require.NoError(t, err)
+			require.True(t, vote.Decision)
+			err = vote.Verify(testPayloadProtocolMagic)
+			if testCase.verifies {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, byron.ErrInvalidSignature)
+			}
 		})
 	}
 }
