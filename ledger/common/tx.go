@@ -22,6 +22,7 @@ package common
 //   - rules.go: Validation rules that operate on Transaction
 
 import (
+	"fmt"
 	"iter"
 	"math/big"
 
@@ -388,11 +389,11 @@ func (b *TransactionBodyBase) DecodeTransactionBodyFieldPresence(
 }
 
 // EncodeTransactionBodyWithValidityIntervalUpperBound encodes a constructed
-// transaction body while retaining explicitly present zero values for the
-// validity upper bound and current treasury value. Non-zero and absent values
-// retain the normal generic transaction-body encoding.
+// transaction body while retaining explicitly present zero values. Required
+// fields are supplied by eras whose wire schema requires them.
 func EncodeTransactionBodyWithValidityIntervalUpperBound(
 	body TransactionBody,
+	requiredFields ...uint,
 ) ([]byte, error) {
 	cborData, err := cbor.EncodeGeneric(body)
 	if err != nil {
@@ -412,12 +413,30 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		value := networkIdValue.TransactionNetworkId()
 		preserveNetworkIdZero = value != nil && *value == 0
 	}
-	if !preserveUpperBoundZero && !preserveTreasuryZero && !preserveNetworkIdZero {
-		return cborData, nil
-	}
 	bodyFields := make(map[uint]cbor.RawMessage)
 	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
 		return nil, err
+	}
+	for _, key := range requiredFields {
+		if _, found := bodyFields[key]; found {
+			continue
+		}
+		var value any
+		switch key {
+		case 0:
+			value = cbor.NewSetType([]any{}, false)
+		case 1:
+			value = []any{}
+		case 2:
+			value = uint64(0)
+		default:
+			return nil, fmt.Errorf("unsupported required transaction body field %d", key)
+		}
+		encoded, err := cbor.Encode(value)
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[key] = encoded
 	}
 	if preserveUpperBoundZero {
 		encodedUpperBound, err := cbor.Encode(upperBound)
