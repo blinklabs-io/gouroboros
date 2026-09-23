@@ -15,14 +15,12 @@
 package common
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
-	"sort"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -819,8 +817,7 @@ func (a *TreasuryWithdrawalGovAction) UnmarshalCBOR(cborData []byte) error {
 
 func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 	pairs := make([][2]data.PlutusData, 0, len(a.Withdrawals))
-	for _, addr := range SortRewardAccountAddresses(a.Withdrawals) {
-		amount := a.Withdrawals[addr]
+	for addr, amount := range a.Withdrawals {
 		pairs = append(pairs, [2]data.PlutusData{
 			addr.ToPlutusData(),
 			data.NewInteger(new(big.Int).SetUint64(amount)),
@@ -924,50 +921,18 @@ func (a *UpdateCommitteeGovAction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	decoded := UpdateCommitteeGovAction(tmp)
-	if err := decoded.Validate(); err != nil {
-		return err
-	}
-	*a = decoded
-	return nil
-}
-
-// Validate checks the value domains and logical set identities carried by an
-// UpdateCommittee action. It is called while decoding and by ledger validation
-// for actions built directly by callers.
-func (a *UpdateCommitteeGovAction) Validate() error {
-	if a == nil {
-		return errors.New("update committee action cannot be nil")
-	}
-	for credential := range a.CredEpochs {
+	for credential := range tmp.CredEpochs {
 		if credential == nil {
 			return errors.New("update committee contains a nil credential")
 		}
 	}
 	if err := validateCredentialMapKeys(
-		a.CredEpochs,
+		tmp.CredEpochs,
 		"update committee credential epochs",
 	); err != nil {
 		return err
 	}
-	seen := make(map[string]struct{}, len(a.Credentials))
-	for _, credential := range a.Credentials {
-		key, err := credentialLogicalKey(&credential)
-		if err != nil {
-			return err
-		}
-		if _, exists := seen[key]; exists {
-			return fmt.Errorf(
-				"update committee contains duplicate removal credential %x",
-				credential.Credential,
-			)
-		}
-		seen[key] = struct{}{}
-	}
-	if quorum := a.Quorum.ToBigRat(); quorum != nil &&
-		(quorum.Sign() < 0 || quorum.Cmp(big.NewRat(1, 1)) > 0) {
-		return fmt.Errorf("update committee quorum %s is outside [0,1]", quorum)
-	}
+	*a = UpdateCommitteeGovAction(tmp)
 	return nil
 }
 
@@ -976,37 +941,16 @@ func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 	if a.ActionId != nil {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
 	}
-	removedCredentials := append([]Credential(nil), a.Credentials...)
-	sort.Slice(removedCredentials, func(i, j int) bool {
-		return committeeCredentialLess(removedCredentials[i], removedCredentials[j])
-	})
-	removedItems := make([]data.PlutusData, 0, len(removedCredentials))
-	for _, cred := range removedCredentials {
+	removedItems := make([]data.PlutusData, 0, len(a.Credentials))
+	for _, cred := range a.Credentials {
 		removedItems = append(removedItems, cred.ToPlutusData())
 	}
 
-	type credentialEpoch struct {
-		credential Credential
-		epoch      uint64
-	}
-	addedCredentials := make([]credentialEpoch, 0, len(a.CredEpochs))
+	addedPairs := make([][2]data.PlutusData, 0, len(a.CredEpochs))
 	for cred, epoch := range a.CredEpochs {
-		addedCredentials = append(addedCredentials, credentialEpoch{
-			credential: *cred,
-			epoch:      epoch,
-		})
-	}
-	sort.Slice(addedCredentials, func(i, j int) bool {
-		return committeeCredentialLess(
-			addedCredentials[i].credential,
-			addedCredentials[j].credential,
-		)
-	})
-	addedPairs := make([][2]data.PlutusData, 0, len(addedCredentials))
-	for _, entry := range addedCredentials {
 		addedPairs = append(addedPairs, [2]data.PlutusData{
-			entry.credential.ToPlutusData(),
-			data.NewInteger(new(big.Int).SetUint64(entry.epoch)),
+			cred.ToPlutusData(),
+			data.NewInteger(new(big.Int).SetUint64(epoch)),
 		})
 	}
 
@@ -1030,13 +974,6 @@ func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 			data.NewInteger(den),
 		),
 	)
-}
-
-func committeeCredentialLess(a, b Credential) bool {
-	if a.CredType != b.CredType {
-		return a.CredType == CredentialTypeScriptHash
-	}
-	return bytes.Compare(a.Credential[:], b.Credential[:]) < 0
 }
 
 func (a UpdateCommitteeGovAction) isGovAction() {}
@@ -1064,17 +1001,13 @@ func NewUpdateCommitteeGovAction(
 			)
 		}
 	}
-	action := &UpdateCommitteeGovAction{
+	return &UpdateCommitteeGovAction{
 		Type:        uint(GovActionTypeUpdateCommittee),
 		ActionId:    actionId,
 		Credentials: credentials,
 		CredEpochs:  credEpochs,
 		Quorum:      quorum,
-	}
-	if err := action.Validate(); err != nil {
-		return nil, err
-	}
-	return action, nil
+	}, nil
 }
 
 type NewConstitutionGovAction struct {

@@ -15,7 +15,6 @@
 package common
 
 import (
-	"bytes"
 	"crypto/sha3"
 	"errors"
 	"fmt"
@@ -338,24 +337,6 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 	a.networkId = header & AddressHeaderNetworkMask
 	// Byron Addresses
 	if a.addressType == AddressTypeByron {
-		payloadField, err := byronAddressArrayField(data, 0, 2)
-		if err != nil {
-			return err
-		}
-		if len(payloadField) == 0 || payloadField[0]&cbor.CborTypeMask != cbor.CborTypeTag {
-			return errors.New("invalid Byron address data: payload is not tag 24")
-		}
-		tagNumber, tagHeaderSize, err := addressCBORArgument(
-			payloadField,
-			payloadField[0]&0x1f,
-		)
-		if err != nil || tagNumber != 24 || tagHeaderSize >= len(payloadField) {
-			return errors.New("invalid Byron address data: payload is not tag 24")
-		}
-		byteString := payloadField[tagHeaderSize:]
-		if byteString[0]&cbor.CborTypeMask != cbor.CborTypeByteString || byteString[0]&0x1f == 31 {
-			return errors.New("invalid Byron address data: tag 24 content must be a definite byte string")
-		}
 		var rawAddr byronAddress
 		byronLen, err := cbor.Decode(data, &rawAddr)
 		if err != nil {
@@ -373,23 +354,9 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 				"invalid Byron address data: checksum does not match",
 			)
 		}
-		if err := requireByronAddressArrayLength(data, "Byron address", 2); err != nil {
-			return err
-		}
 		var byronAddr byronAddressPayload
-		if err := requireByronAddressArrayLength(payloadBytes, "Byron address payload", 3); err != nil {
-			return err
-		}
-		typeRaw, err := byronAddressArrayField(payloadBytes, 2, 3)
-		if err != nil {
-			return err
-		}
 		if _, err := cbor.Decode(payloadBytes, &byronAddr); err != nil {
 			return err
-		}
-		if byronAddr.AddrType > 0xff || len(typeRaw) != 1 || typeRaw[0] != byte(byronAddr.AddrType) ||
-			(byronAddr.AddrType != ByronAddressTypePubkey && byronAddr.AddrType != ByronAddressTypeRedeem) {
-			return fmt.Errorf("invalid Byron address type: %d", byronAddr.AddrType)
 		}
 		if len(byronAddr.Hash) != AddressHashSize {
 			return errors.New(
@@ -512,138 +479,6 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 			)
 		}
 		a.trailingBytes = slices.Clone(payload)
-	}
-	return nil
-}
-
-func requireByronAddressArrayLength(raw []byte, name string, expected int) error {
-	length, _, indefinite := cbor.ArrayInfo(raw)
-	if indefinite || length != expected {
-		return fmt.Errorf("%s must be a definite-length array of %d fields", name, expected)
-	}
-	return nil
-}
-
-func byronAddressArrayField(raw []byte, index, expected int) ([]byte, error) {
-	length, headerSize, indefinite := cbor.ArrayInfo(raw)
-	if indefinite || length != expected || index < 0 || index >= length {
-		return nil, errors.New("invalid Byron address payload array")
-	}
-	pos := int(headerSize)
-	for field := 0; field < length; field++ {
-		start := pos
-		var err error
-		pos, err = addressCBORItemEnd(raw, pos, 0)
-		if err != nil {
-			return nil, err
-		}
-		if field == index {
-			if pos != len(raw) && field == length-1 {
-				return nil, errors.New("byron address payload has trailing CBOR data")
-			}
-			return raw[start:pos], nil
-		}
-	}
-	return nil, errors.New("missing Byron address payload field")
-}
-
-func addressCBORItemEnd(raw []byte, pos, depth int) (int, error) {
-	if depth > cbor.MaxNestedLevels || pos >= len(raw) {
-		return 0, errors.New("invalid Byron address CBOR item")
-	}
-	first := raw[pos]
-	major, additional := first>>5, first&0x1f
-	if additional == 31 {
-		return 0, errors.New("indefinite-length Byron address item")
-	}
-	arg, headLen, err := addressCBORArgument(raw[pos:], additional)
-	if err != nil {
-		return 0, err
-	}
-	pos += headLen
-	switch major {
-	case 0, 1, 7:
-		return pos, nil
-	case 2, 3:
-		// pos is inside raw, so the remaining length fits int and its
-		// conversion to uint64 cannot overflow.
-		if arg > uint64(len(raw)-pos) { //nolint:gosec
-			return 0, errors.New("truncated Byron address CBOR string")
-		}
-		// arg is bounded by the remaining slice length, so it fits int.
-		return pos + int(arg), nil //nolint:gosec
-	case 4, 5:
-		count := arg
-		if major == 5 {
-			count *= 2
-		}
-		for i := uint64(0); i < count; i++ {
-			pos, err = addressCBORItemEnd(raw, pos, depth+1)
-			if err != nil {
-				return 0, err
-			}
-		}
-		return pos, nil
-	case 6:
-		return addressCBORItemEnd(raw, pos, depth+1)
-	default:
-		return 0, errors.New("invalid Byron address CBOR major type")
-	}
-}
-
-func addressCBORArgument(raw []byte, additional byte) (uint64, int, error) {
-	switch {
-	case additional < 24:
-		return uint64(additional), 1, nil
-	case additional == 24 && len(raw) >= 2:
-		return uint64(raw[1]), 2, nil
-	case additional == 25 && len(raw) >= 3:
-		return uint64(raw[1])<<8 | uint64(raw[2]), 3, nil
-	case additional == 26 && len(raw) >= 5:
-		return uint64(raw[1])<<24 | uint64(raw[2])<<16 | uint64(raw[3])<<8 | uint64(raw[4]), 5, nil
-	case additional == 27 && len(raw) >= 9:
-		var value uint64
-		for _, b := range raw[1:9] {
-			value = value<<8 | uint64(b)
-		}
-		return value, 9, nil
-	default:
-		return 0, 0, errors.New("invalid Byron address CBOR argument")
-	}
-}
-
-func validateByronAddressAttributeWire(raw []byte) error {
-	length, headerSize, indefinite := cbor.MapInfo(raw)
-	if indefinite || length < 0 {
-		return errors.New("byron address attributes must be a definite map")
-	}
-	pos := int(headerSize)
-	for i := 0; i < length; i++ {
-		keyStart := pos
-		if keyStart >= len(raw) || raw[keyStart]&cbor.CborTypeMask != 0 {
-			return fmt.Errorf("byron address attribute key %d must be an unsigned integer", i)
-		}
-		var err error
-		pos, err = addressCBORItemEnd(raw, pos, 0)
-		if err != nil {
-			return err
-		}
-		var key uint64
-		if consumed, err := cbor.Decode(raw[keyStart:pos], &key); err != nil || consumed != pos-keyStart || key > 0xff {
-			return fmt.Errorf("byron address attribute key %d is not a Word8", i)
-		}
-		valueStart := pos
-		pos, err = addressCBORItemEnd(raw, pos, 0)
-		if err != nil {
-			return err
-		}
-		valueRaw := raw[valueStart:pos]
-		if len(valueRaw) == 0 || valueRaw[0]&cbor.CborTypeMask != cbor.CborTypeByteString || valueRaw[0]&0x1f == 31 {
-			return fmt.Errorf("byron address attribute %d must be a definite byte string", key)
-		}
-	}
-	if pos != len(raw) {
-		return errors.New("byron address attributes have trailing CBOR data")
 	}
 	return nil
 }
@@ -1192,9 +1027,6 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 	// decCBORAttributes decodes the whole map as Map Word8 LByteString before
 	// interpreting any key, so an unrecognised key is data rather than an
 	// error.
-	if err := validateByronAddressAttributeWire(data); err != nil {
-		return err
-	}
 	var tmpData map[uint8][]byte
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
@@ -1214,15 +1046,6 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 					"invalid Byron address attributes: empty derivation path",
 				)
 			}
-			var payload []byte
-			consumed, err := cbor.Decode(value, &payload)
-			if err != nil || consumed != len(value) {
-				return errors.New("invalid Byron address derivation path CBOR")
-			}
-			canonical, err := cbor.Encode(payload)
-			if err != nil || !bytes.Equal(canonical, value) {
-				return errors.New("non-canonical Byron address derivation path CBOR")
-			}
 			a.Payload = value
 		case byronAddressAttrNetworkMagic:
 			if len(value) == 0 {
@@ -1231,16 +1054,8 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 				)
 			}
 			var tmpNetwork uint32
-			consumed, err := cbor.Decode(value, &tmpNetwork)
-			if err != nil {
+			if _, err := cbor.Decode(value, &tmpNetwork); err != nil {
 				return err
-			}
-			if consumed != len(value) {
-				return errors.New("trailing Byron address network magic CBOR")
-			}
-			canonical, err := cbor.Encode(tmpNetwork)
-			if err != nil || !bytes.Equal(canonical, value) {
-				return errors.New("non-canonical Byron address network magic CBOR")
 			}
 			a.Network = &tmpNetwork
 		default:

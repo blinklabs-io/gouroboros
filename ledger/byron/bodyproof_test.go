@@ -15,6 +15,7 @@
 package byron_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -54,7 +55,7 @@ func withTxPayload(t *testing.T, blockCbor []byte, txPayload []any) []byte {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(body), 4)
 
-	newTxPayload, err := cbor.Encode(cbor.IndefLengthList(txPayload))
+	newTxPayload, err := cbor.Encode(txPayload)
 	require.NoError(t, err)
 	body[0] = newTxPayload
 
@@ -76,115 +77,6 @@ func TestByronMainBlockBodyProofValidates(t *testing.T) {
 	require.Len(t, block.Body.TxPayload, 2,
 		"fixture must carry two transactions to exercise a merkle branch")
 	require.NoError(t, block.ValidateBodyProof())
-}
-
-func TestByronMainBlockRejectsMalformedUpdateVote(t *testing.T) {
-	var blockFields []cbor.RawMessage
-	_, err := cbor.Decode(mainnetByronBlock(t), &blockFields)
-	require.NoError(t, err)
-	if blockFields == nil {
-		t.Fatal("expected Byron block fields")
-	}
-	var bodyFields []cbor.RawMessage
-	_, err = cbor.Decode(blockFields[1], &bodyFields)
-	require.NoError(t, err)
-	if bodyFields == nil {
-		t.Fatal("expected Byron block body fields")
-	}
-	var updateFields []cbor.RawMessage
-	_, err = cbor.Decode(bodyFields[3], &updateFields)
-	require.NoError(t, err)
-	if updateFields == nil {
-		t.Fatal("expected Byron update fields")
-	}
-	updateFields[1] = cbor.RawMessage{0x9f, 0x00, 0xff}
-	bodyFields[3], err = cbor.Encode(updateFields)
-	require.NoError(t, err)
-	blockFields[1], err = cbor.Encode(bodyFields)
-	require.NoError(t, err)
-	mutatedBlock, err := cbor.Encode(blockFields)
-	require.NoError(t, err)
-
-	var decoded byron.ByronMainBlock
-	_, err = cbor.Decode(mutatedBlock, &decoded)
-	require.ErrorContains(t, err, "update vote 0")
-}
-
-func TestByronMainBlockRejectsMalformedUpdateProposal(t *testing.T) {
-	var blockFields []cbor.RawMessage
-	_, err := cbor.Decode(mainnetByronBlock(t), &blockFields)
-	require.NoError(t, err)
-	if blockFields == nil {
-		t.Fatal("expected Byron block fields")
-	}
-	var bodyFields []cbor.RawMessage
-	_, err = cbor.Decode(blockFields[1], &bodyFields)
-	require.NoError(t, err)
-	if bodyFields == nil {
-		t.Fatal("expected Byron block body fields")
-	}
-	var updateFields []cbor.RawMessage
-	_, err = cbor.Decode(bodyFields[3], &updateFields)
-	require.NoError(t, err)
-	if updateFields == nil {
-		t.Fatal("expected Byron update fields")
-	}
-	updateFields[0] = cbor.RawMessage{0x81, 0x00}
-	bodyFields[3], err = cbor.Encode(updateFields)
-	require.NoError(t, err)
-	blockFields[1], err = cbor.Encode(bodyFields)
-	require.NoError(t, err)
-	mutatedBlock, err := cbor.Encode(blockFields)
-	require.NoError(t, err)
-
-	var decoded byron.ByronMainBlock
-	_, err = cbor.Decode(mutatedBlock, &decoded)
-	require.Error(t, err)
-}
-
-func TestByronMainBlockBodyRequiresIndefiniteLegacyPayloadLists(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		listIndex int
-		want      string
-	}{
-		{name: "delegation certificates", listIndex: 2, want: "delegation certificates must use indefinite-list framing"},
-		{name: "update votes", listIndex: 3, want: "update votes must use indefinite-list framing"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var blockFields []cbor.RawMessage
-			_, err := cbor.Decode(mainnetByronBlock(t), &blockFields)
-			require.NoError(t, err)
-			if blockFields == nil {
-				t.Fatal("expected Byron block fields")
-			}
-			var bodyFields []cbor.RawMessage
-			_, err = cbor.Decode(blockFields[1], &bodyFields)
-			require.NoError(t, err)
-			if bodyFields == nil {
-				t.Fatal("expected Byron block body fields")
-			}
-			if tc.listIndex == 3 {
-				var updateFields []cbor.RawMessage
-				_, err = cbor.Decode(bodyFields[3], &updateFields)
-				require.NoError(t, err)
-				if updateFields == nil {
-					t.Fatal("expected Byron update fields")
-				}
-				updateFields[1] = cbor.RawMessage{0x80}
-				bodyFields[3], err = cbor.Encode(updateFields)
-				require.NoError(t, err)
-			} else {
-				bodyFields[2] = cbor.RawMessage{0x80}
-			}
-			mutatedBody, err := cbor.Encode(bodyFields)
-			require.NoError(t, err)
-
-			var decoded byron.ByronMainBlockBody
-			_, err = cbor.Decode(mutatedBody, &decoded)
-			require.ErrorContains(t, err, tc.want)
-		})
-	}
 }
 
 // TestByronMainBlockRejectsSubstitutedBody is the regression for a hostile
@@ -227,10 +119,10 @@ func TestByronMainBlockSkipBodyHashValidation(t *testing.T) {
 		"skipping validation must still decode a structurally valid block")
 }
 
-// TestByronEpochBoundaryBlockBodyProofValidates checks a real testnet EBB
-// against its own body hash. EBBs carry no transactions, so the whole body is
-// covered by a single hash rather than a merkle root.
-func TestByronEpochBoundaryBlockBodyProofValidates(t *testing.T) {
+// testnetByronEbb returns the CBOR of the bundled testnet Byron epoch
+// boundary block.
+func testnetByronEbb(t *testing.T) []byte {
+	t.Helper()
 	ebbPath := filepath.Join(
 		"..", "..", "protocol", "chainsync", "testdata",
 		"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
@@ -239,15 +131,55 @@ func TestByronEpochBoundaryBlockBodyProofValidates(t *testing.T) {
 	require.NoError(t, err)
 	raw, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
 	require.NoError(t, err)
+	return raw
+}
 
-	block, err := byron.NewByronEpochBoundaryBlockFromCbor(raw)
+// withEbbBodyProof re-encodes an EBB with its header body-proof field
+// replaced by an arbitrary raw CBOR value, preserving every other component
+// byte-for-byte. This models the header field the reference decoder decodes
+// but never interprets or compares against the body.
+func withEbbBodyProof(
+	t *testing.T,
+	blockCbor []byte,
+	newProof cbor.RawMessage,
+) []byte {
+	t.Helper()
+	var block []cbor.RawMessage
+	_, err := cbor.Decode(blockCbor, &block)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(block), 1, "byron EBB is [header, body, extra]")
+
+	var header []cbor.RawMessage
+	_, err = cbor.Decode(block[0], &header)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(header), 3,
+		"byron EBB header is [protocol_magic, prev_block, body_proof, consensus_data, extra_data]")
+
+	header[2] = newProof
+	newHeader, err := cbor.Encode(header)
+	require.NoError(t, err)
+	block[0] = newHeader
+
+	tampered, err := cbor.Encode(block)
+	require.NoError(t, err)
+	return tampered
+}
+
+// TestByronEpochBoundaryBlockBodyProofValidates checks a real testnet EBB
+// decodes and validates against its own header body-proof field.
+func TestByronEpochBoundaryBlockBodyProofValidates(t *testing.T) {
+	block, err := byron.NewByronEpochBoundaryBlockFromCbor(testnetByronEbb(t))
 	require.NoError(t, err)
 	require.NoError(t, block.ValidateBodyProof())
 }
 
-// TestByronEpochBoundaryBlockRejectsSubstitutedBody covers the same
-// substitution attack for epoch boundary blocks.
-func TestByronEpochBoundaryBlockRejectsSubstitutedBody(t *testing.T) {
+// TestByronEpochBoundaryBlockAcceptsSubstitutedStakeholderList is the
+// reference-parity regression for #2341, from the body side rather than the
+// header's proof field: the reference never binds an EBB's body-proof to
+// its body, so replacing the stakeholder list outright must still decode
+// and validate, provided the replacement is otherwise well-formed (the
+// indefinite-length form #2493 requires).
+func TestByronEpochBoundaryBlockAcceptsSubstitutedStakeholderList(t *testing.T) {
 	ebbPath := filepath.Join(
 		"..", "..", "protocol", "chainsync", "testdata",
 		"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
@@ -262,16 +194,67 @@ func TestByronEpochBoundaryBlockRejectsSubstitutedBody(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(block), 2)
 
-	// Replace the stakeholder list with an empty one. The reference only
-	// accepts the indefinite-length form, so a definite empty list would be
-	// rejected at decode before the proof is checked.
+	// Replace the stakeholder list with an empty one, using the
+	// indefinite-length form #2493 requires so this substitution survives
+	// structural decode and exercises body-proof handling specifically.
 	block[1] = cbor.RawMessage{0x9f, 0xff}
 	tampered, err := cbor.Encode(block)
 	require.NoError(t, err)
 
+	tamperedBlock, err := byron.NewByronEpochBoundaryBlockFromCbor(tampered)
+	require.NoError(t, err)
+	require.NoError(t, tamperedBlock.ValidateBodyProof())
+}
+
+// TestByronEpochBoundaryBlockAcceptsShortProof is the reference-parity
+// regression for #2341: the Byron reference decodes an EBB's body-proof
+// field as a byte string with no length restriction, so a proof shorter
+// than the usual 32-byte hash must still decode and validate.
+func TestByronEpochBoundaryBlockAcceptsShortProof(t *testing.T) {
+	shortProof := bytes.Repeat([]byte{0xAB}, 31)
+	encodedProof, err := cbor.Encode(shortProof)
+	require.NoError(t, err)
+
+	tampered := withEbbBodyProof(t, testnetByronEbb(t), encodedProof)
+	block, err := byron.NewByronEpochBoundaryBlockFromCbor(tampered)
+	require.NoError(t, err)
+	require.NoError(t, block.ValidateBodyProof())
+}
+
+// TestByronEpochBoundaryBlockAcceptsWrongValueProof is the reference-parity
+// regression for #2341: the reference never compares the EBB body-proof
+// value against the body, so a 32-byte proof that does not match
+// blake2b256(bodyCbor) must still decode and validate.
+func TestByronEpochBoundaryBlockAcceptsWrongValueProof(t *testing.T) {
+	genuine := testnetByronEbb(t)
+	genuineBlock, err := byron.NewByronEpochBoundaryBlockFromCbor(genuine)
+	require.NoError(t, err)
+	genuineProof, ok := genuineBlock.BlockHeader.BodyProof.([]byte)
+	require.True(t, ok)
+
+	wrongProof := bytes.Clone(genuineProof)
+	wrongProof[0] ^= 0xFF
+	require.NotEqual(t, genuineProof, wrongProof)
+	encodedProof, err := cbor.Encode(wrongProof)
+	require.NoError(t, err)
+
+	tampered := withEbbBodyProof(t, genuine, encodedProof)
+	block, err := byron.NewByronEpochBoundaryBlockFromCbor(tampered)
+	require.NoError(t, err)
+	require.NoError(t, block.ValidateBodyProof())
+}
+
+// TestByronEpochBoundaryBlockRejectsNonByteStringProof covers the one shape
+// the reference does reject: a body-proof field that is not a byte string at
+// all.
+func TestByronEpochBoundaryBlockRejectsNonByteStringProof(t *testing.T) {
+	encodedProof, err := cbor.Encode(uint64(1234))
+	require.NoError(t, err)
+
+	tampered := withEbbBodyProof(t, testnetByronEbb(t), encodedProof)
 	_, err = byron.NewByronEpochBoundaryBlockFromCbor(tampered)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	assert.ErrorIs(t, err, byron.ErrMalformedBodyProof)
 }
 
 // TestByronMainBlockHeaderUnchangedByTampering documents why the body proof is

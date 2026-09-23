@@ -1186,37 +1186,6 @@ func TestCIP0019_ByronAddressCRC32Validation(t *testing.T) {
 	}
 }
 
-func TestByronAddressRejectsIndefiniteTag24ByteString(t *testing.T) {
-	encoded, err := hex.DecodeString("82d818584283581caf56de241bcca83d72c51e74d18487aa5bc68b45e2caa170fa329d3aa101581e581cea1425ccdd649b25af5deb7e6335da2eb8167353a55e77925122e95f001a3a858621")
-	require.NoError(t, err)
-	taggedPayload, err := byronAddressArrayField(encoded, 0, 2)
-	require.NoError(t, err)
-	_, tagHeaderSize, err := addressCBORArgument(taggedPayload, taggedPayload[0]&0x1f)
-	require.NoError(t, err)
-	var tag cbor.Tag
-	_, err = cbor.Decode(taggedPayload, &tag)
-	require.NoError(t, err)
-	payload, ok := tag.Content.([]byte)
-	require.True(t, ok)
-	chunk, err := cbor.Encode(payload)
-	require.NoError(t, err)
-	indefiniteByteString := append([]byte{0x5f}, chunk...)
-	indefiniteByteString = append(indefiniteByteString, 0xff)
-	checksum, err := byronAddressArrayField(encoded, 1, 2)
-	require.NoError(t, err)
-	malformed := append([]byte{0x82}, taggedPayload[:tagHeaderSize]...)
-	malformed = append(malformed, indefiniteByteString...)
-	malformed = append(malformed, checksum...)
-
-	_, err = NewAddressFromBytes(malformed)
-	require.ErrorContains(t, err, "indefinite-length Byron address item")
-}
-
-func TestByronAddressAttributesRejectTaggedIntegerKeys(t *testing.T) {
-	err := validateByronAddressAttributeWire([]byte{0xa1, 0xd8, 0x64, 0x03, 0x41, 0x00})
-	require.ErrorContains(t, err, "must be an unsigned integer")
-}
-
 func TestCIP0019_EmptyAndNilInputHandling(t *testing.T) {
 	t.Run("empty bytes", func(t *testing.T) {
 		_, err := NewAddressFromBytes([]byte{})

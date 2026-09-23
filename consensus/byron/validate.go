@@ -1388,11 +1388,16 @@ func parseSscProof(proof any) (*ByronSscProof, error) {
 	return result, nil
 }
 
-// ValidateEBBBodyHash validates that a Byron EBB's body hash matches the
-// computed hash from the block body contents.
+// ValidateEBBBodyHash checks a Byron EBB's header body-proof field for wire
+// well-formedness only.
 //
-// EBB body proof is simply the blake2b-256 hash of the CBOR-encoded body
-// (which is a list of stakeholder IDs).
+// The Byron reference decoder decodes this field as a byte string and never
+// interprets or compares it against the block body: it carries no protocol
+// meaning and has no length restriction beyond "byte string" -- a 31-byte
+// proof, and an arbitrary incorrect 32-byte value, are both valid to the
+// reference. See https://github.com/blinklabs-io/gouroboros/issues/2341 and
+// (*byron.ByronEpochBoundaryBlock).ValidateBodyProof, which this delegates
+// to so the two validators cannot drift apart.
 func ValidateEBBBodyHash(block *byron.ByronEpochBoundaryBlock) error {
 	if block == nil {
 		return &common.ValidationError{
@@ -1400,41 +1405,11 @@ func ValidateEBBBodyHash(block *byron.ByronEpochBoundaryBlock) error {
 			Message: "block is nil",
 		}
 	}
-
-	// Get the expected body hash from the header. The checked accessor is
-	// used so a body proof that is not a hash at all is reported as
-	// malformed, rather than yielding a zero hash that the comparison
-	// below would report as an ordinary mismatch.
-	expectedHash, err := block.BlockHeader.BlockBodyHashChecked()
-	if err != nil {
+	if err := block.ValidateBodyProof(); err != nil {
 		return &common.ValidationError{
 			Type:    common.ValidationErrorTypeBodyHash,
 			Message: "malformed EBB body proof in header",
 			Cause:   err,
-		}
-	}
-
-	// Compute the actual body hash
-	// EBB body is a list of stakeholder IDs ([]Blake2b224)
-	bodyBytes, err := cbor.Encode(block.Body)
-	if err != nil {
-		return &common.ValidationError{
-			Type:    common.ValidationErrorTypeBodyHash,
-			Message: "failed to encode EBB body",
-			Cause:   err,
-		}
-	}
-
-	actualHash := blake2b.Sum256(bodyBytes)
-
-	if !bytes.Equal(actualHash[:], expectedHash.Bytes()) {
-		return &common.ValidationError{
-			Type:    common.ValidationErrorTypeBodyHash,
-			Message: "EBB body hash mismatch",
-			Details: map[string]any{
-				"expected": expectedHash.String(),
-				"actual":   common.Blake2b256(actualHash).String(),
-			},
 		}
 	}
 

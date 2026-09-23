@@ -24,7 +24,6 @@ package conway_test
 import (
 	"bytes"
 	"fmt"
-	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -77,80 +76,9 @@ func (s epochTestLedgerState) EpochForSlot(uint64) (uint64, error) {
 	return s.epoch, s.err
 }
 
-func TestUtxoValidateGovActionWellFormednessValidatesUpdateCommitteeValues(t *testing.T) {
-	credential := common.Credential{
-		CredType:   common.CredentialTypeAddrKeyHash,
-		Credential: common.Blake2b224Hash([]byte("committee-member")),
-	}
-	for _, test := range []struct {
-		name    string
-		action  *common.UpdateCommitteeGovAction
-		wantErr string
-	}{
-		{
-			name: "negative quorum",
-			action: &common.UpdateCommitteeGovAction{
-				Quorum: cbor.Rat{Rat: big.NewRat(-1, 2)},
-			},
-			wantErr: "outside [0,1]",
-		},
-		{
-			name: "duplicate removal",
-			action: &common.UpdateCommitteeGovAction{
-				Credentials: []common.Credential{credential, credential},
-				Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
-			},
-			wantErr: "duplicate removal credential",
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			tx := mkProposalTx(0, common.Address{}, test.action)
-			err := conway.UtxoValidateGovActionWellFormedness(
-				tx, 0, mockledger.NewLedgerStateBuilder().Build(),
-				mkConwayPp(10, 0),
-			)
-			var malformed conway.MalformedGovActionError
-			require.ErrorAs(t, err, &malformed)
-			assert.Contains(t, malformed.Reason, test.wantErr)
-		})
-	}
-	state := mockledger.NewLedgerStateBuilder().Build()
-	pp := mkConwayPp(10, 0)
-	for _, test := range []struct {
-		name   string
-		action *common.UpdateCommitteeGovAction
-	}{
-		{
-			name: "out-of-range quorum",
-			action: &common.UpdateCommitteeGovAction{
-				Quorum: cbor.Rat{Rat: big.NewRat(3, 2)},
-			},
-		},
-		{
-			name: "duplicate removals",
-			action: &common.UpdateCommitteeGovAction{
-				Credentials: []common.Credential{credential, credential},
-				Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
-			},
-		},
-	} {
-		t.Run("through validation pipeline: "+test.name, func(t *testing.T) {
-			tx := mkProposalTx(0, common.Address{}, test.action)
-			err := common.VerifyTransaction(
-				tx,
-				0,
-				state,
-				pp,
-				[]common.UtxoValidationRuleFunc{
-					conway.UtxoValidateGovActionWellFormedness,
-				},
-			)
-			require.Error(t, err)
-		})
-	}
-}
-
-func TestUtxoValidateProposalProceduresRejectsExpiredCommitteeAdditions(t *testing.T) {
+func TestUtxoValidateProposalProceduresRejectsExpiredCommitteeAdditions(
+	t *testing.T,
+) {
 	credential := common.Credential{
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: common.Blake2b224Hash([]byte("committee-addition")),

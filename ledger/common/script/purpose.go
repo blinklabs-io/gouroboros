@@ -16,9 +16,11 @@ package script
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"math/big"
 	"slices"
+	"strings"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
@@ -556,5 +558,31 @@ func BuildScriptPurpose(
 func SortWithdrawalAddresses(
 	withdrawals map[*lcommon.Address]*big.Int,
 ) []*lcommon.Address {
-	return lcommon.SortRewardAccountAddresses(withdrawals)
+	sorted := make([]*lcommon.Address, 0, len(withdrawals))
+	for addr := range withdrawals {
+		sorted = append(sorted, addr)
+	}
+	slices.SortFunc(sorted, func(a, b *lcommon.Address) int {
+		if a == nil {
+			return -1
+		}
+		if b == nil {
+			return 1
+		}
+		aCred, aErr := a.RewardAccountCredential()
+		bCred, bErr := b.RewardAccountCredential()
+		if aErr != nil || bErr != nil {
+			return strings.Compare(a.String(), b.String())
+		}
+		if c := cmp.Compare(a.NetworkId(), b.NetworkId()); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(aCred.CredType, bCred.CredType); c != 0 {
+			// Credential's numeric order is key before script, while
+			// cardano-ledger's Ord instance places ScriptHashObj first.
+			return -c
+		}
+		return bytes.Compare(aCred.Credential[:], bCred.Credential[:])
+	})
+	return sorted
 }

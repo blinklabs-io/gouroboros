@@ -1993,10 +1993,6 @@ func (t DijkstraTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
-func (t DijkstraTransaction) TotalCollateralPresent() bool {
-	return t.Body.TotalCollateralPresent() || t.Body.TxTotalCollateral != 0
-}
-
 func (t DijkstraTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }

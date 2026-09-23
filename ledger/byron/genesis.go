@@ -15,7 +15,6 @@
 package byron
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -218,164 +217,12 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 
 func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
 	var ret ByronGenesis
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return ret, err
-	}
-	if err := validateGenesisRequiredFields(data); err != nil {
-		return ret, err
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
+	dec := json.NewDecoder(r)
+	dec.DisallowUnknownFields()
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}
-	if err := validateGenesisParameterDomains(ret); err != nil {
-		return ret, err
-	}
 	return ret, nil
-}
-
-func validateGenesisRequiredFields(data []byte) error {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return err
-	}
-	if err := requireGenesisFields("", fields,
-		"avvmDistr",
-		"blockVersionData",
-		"protocolConsts",
-		"startTime",
-		"bootStakeholders",
-		"heavyDelegation",
-		"nonAvvmBalances",
-	); err != nil {
-		return err
-	}
-	var blockVersionData map[string]json.RawMessage
-	if err := json.Unmarshal(fields["blockVersionData"], &blockVersionData); err != nil {
-		return fmt.Errorf("blockVersionData: %w", err)
-	}
-	if err := requireGenesisFields("blockVersionData", blockVersionData,
-		"heavyDelThd",
-		"maxBlockSize",
-		"maxHeaderSize",
-		"maxProposalSize",
-		"maxTxSize",
-		"mpcThd",
-		"scriptVersion",
-		"slotDuration",
-		"softforkRule",
-		"txFeePolicy",
-		"unlockStakeEpoch",
-		"updateImplicit",
-		"updateProposalThd",
-		"updateVoteThd",
-	); err != nil {
-		return err
-	}
-	var softforkRule map[string]json.RawMessage
-	if err := json.Unmarshal(blockVersionData["softforkRule"], &softforkRule); err != nil {
-		return fmt.Errorf("blockVersionData.softforkRule: %w", err)
-	}
-	if err := requireGenesisFields("blockVersionData.softforkRule", softforkRule,
-		"initThd", "minThd", "thdDecrement",
-	); err != nil {
-		return err
-	}
-	var txFeePolicy map[string]json.RawMessage
-	if err := json.Unmarshal(blockVersionData["txFeePolicy"], &txFeePolicy); err != nil {
-		return fmt.Errorf("blockVersionData.txFeePolicy: %w", err)
-	}
-	if err := requireGenesisFields("blockVersionData.txFeePolicy", txFeePolicy,
-		"multiplier", "summand",
-	); err != nil {
-		return err
-	}
-	var protocolConsts map[string]json.RawMessage
-	if err := json.Unmarshal(fields["protocolConsts"], &protocolConsts); err != nil {
-		return fmt.Errorf("protocolConsts: %w", err)
-	}
-	return requireGenesisFields("protocolConsts", protocolConsts,
-		"k", "protocolMagic",
-	)
-}
-
-func requireGenesisFields(
-	object string,
-	fields map[string]json.RawMessage,
-	names ...string,
-) error {
-	for _, name := range names {
-		value, ok := fields[name]
-		field := name
-		if object != "" {
-			field = object + "." + name
-		}
-		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return fmt.Errorf("missing required Byron genesis field %s", field)
-		}
-	}
-	return nil
-}
-
-func validateGenesisParameterDomains(genesis ByronGenesis) error {
-	const maxLovelacePortion = int64(1_000_000_000_000_000)
-	const maxTxFeeSummand = int64(45_000_000_000_000_000)
-	thresholds := []struct {
-		name  string
-		value int64
-	}{
-		{"blockVersionData.heavyDelThd", genesis.BlockVersionData.HeavyDelThd},
-		{"blockVersionData.mpcThd", genesis.BlockVersionData.MpcThd},
-		{"blockVersionData.updateProposalThd", genesis.BlockVersionData.UpdateProposalThd},
-		{"blockVersionData.updateVoteThd", genesis.BlockVersionData.UpdateVoteThd},
-		{"blockVersionData.softforkRule.initThd", genesis.BlockVersionData.SoftforkRule.InitThd},
-		{"blockVersionData.softforkRule.minThd", genesis.BlockVersionData.SoftforkRule.MinThd},
-		{"blockVersionData.softforkRule.thdDecrement", genesis.BlockVersionData.SoftforkRule.ThdDecrement},
-	}
-	for _, threshold := range thresholds {
-		if threshold.value < 0 || threshold.value > maxLovelacePortion {
-			return fmt.Errorf(
-				"%s must be between 0 and %d, got %d",
-				threshold.name,
-				maxLovelacePortion,
-				threshold.value,
-			)
-		}
-	}
-	if scriptVersion := genesis.BlockVersionData.ScriptVersion; scriptVersion < 0 || scriptVersion > 1<<16-1 {
-		return fmt.Errorf(
-			"blockVersionData.scriptVersion must be between 0 and %d, got %d",
-			1<<16-1,
-			scriptVersion,
-		)
-	}
-	summand := genesis.BlockVersionData.TxFeePolicy.Summand
-	if summand < 0 || summand > maxTxFeeSummand {
-		return fmt.Errorf(
-			"blockVersionData.txFeePolicy.summand must be between 0 and %d, got %d",
-			maxTxFeeSummand,
-			summand,
-		)
-	}
-
-	unsigned := []struct {
-		name  string
-		value int
-	}{
-		{"blockVersionData.slotDuration", genesis.BlockVersionData.SlotDuration},
-		{"blockVersionData.maxBlockSize", genesis.BlockVersionData.MaxBlockSize},
-		{"blockVersionData.maxHeaderSize", genesis.BlockVersionData.MaxHeaderSize},
-		{"blockVersionData.maxTxSize", genesis.BlockVersionData.MaxTxSize},
-		{"blockVersionData.maxProposalSize", genesis.BlockVersionData.MaxProposalSize},
-		{"blockVersionData.updateImplicit", genesis.BlockVersionData.UpdateImplicit},
-	}
-	for _, parameter := range unsigned {
-		if parameter.value < 0 {
-			return fmt.Errorf("%s must be non-negative, got %d", parameter.name, parameter.value)
-		}
-	}
-	return nil
 }
 
 func NewByronGenesisFromFile(path string) (ByronGenesis, error) {
