@@ -18,8 +18,34 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
+
+func TestValidateNonNegativeBoundedRatArrayCBORRequiresArray(t *testing.T) {
+	for name, value := range map[string]any{
+		"null":    nil,
+		"integer": 1,
+		"map":     map[int]any{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := cbor.Encode(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateNonNegativeBoundedRatArrayCBOR(raw); err == nil {
+				t.Fatal("expected non-array CBOR value to be rejected")
+			}
+		})
+	}
+	raw, err := cbor.Encode([]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateNonNegativeBoundedRatArrayCBOR(raw); err != nil {
+		t.Fatalf("empty array: %v", err)
+	}
+}
 
 // TestConvertToUtxorpcCardanoCostModels_Mapping pins the real cardano-ledger
 // wire convention for the cost-models map: 0-indexed language keys

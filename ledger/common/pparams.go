@@ -95,6 +95,9 @@ func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
 // ValidateNonNegativeBoundedRatArrayCBOR validates every raw tag-30 rational
 // in a struct-as-array CBOR value.
 func ValidateNonNegativeBoundedRatArrayCBOR(raw []byte) error {
+	if len(raw) == 0 || raw[0]>>5 != 4 {
+		return errors.New("expected CBOR array")
+	}
 	var values []cbor.RawMessage
 	if _, err := cbor.Decode(raw, &values); err != nil {
 		return err
