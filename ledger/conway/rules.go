@@ -3951,6 +3951,14 @@ func UtxoValidateCertificateDeposits(
 				}
 			}
 			drepStates[stakeKey(c.DrepCredential)] = nil
+		case *common.UpdateDrepCertificate:
+			registration, err := loadDRep(c.DrepCredential)
+			if err != nil {
+				return err
+			}
+			if registration == nil {
+				return DRepNotRegisteredError{Credential: c.DrepCredential}
+			}
 		}
 	}
 	return nil
