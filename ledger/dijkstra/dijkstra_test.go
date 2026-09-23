@@ -1995,3 +1995,148 @@ func TestDijkstraWitnessSetMarshalRejectsField8(t *testing.T) {
 	_, err := cbor.Encode(witnesses)
 	require.ErrorContains(t, err, "does not support field 8")
 }
+
+func TestDijkstraTransactionBodiesRequiredAndGuardedFields(t *testing.T) {
+	topRequired := map[uint]any{
+		0: cbor.NewSetType([]any{}, false),
+		1: []any{},
+		2: uint64(0),
+	}
+	for _, key := range []uint{0, 1, 2} {
+		fields := cloneDijkstraBodyFields(topRequired)
+		delete(fields, key)
+		wire, err := cbor.Encode(fields)
+		require.NoError(t, err)
+		var body DijkstraTransactionBody
+		require.ErrorContains(
+			t,
+			body.UnmarshalCBOR(wire),
+			fmt.Sprintf("field %d is missing", key),
+		)
+	}
+	topGuarded := map[uint]any{
+		4:  []any{},
+		5:  map[uint]any{},
+		13: cbor.NewSetType([]any{}, false),
+		18: cbor.NewSetType([]any{}, false),
+		20: []any{},
+		23: cbor.NewSetType([]any{}, false),
+	}
+	for key, value := range topGuarded {
+		fields := cloneDijkstraBodyFields(topRequired)
+		fields[key] = value
+		wire, err := cbor.Encode(fields)
+		require.NoError(t, err)
+		var body DijkstraTransactionBody
+		require.Error(t, body.UnmarshalCBOR(wire), "empty key %d", key)
+	}
+	wire, err := cbor.Encode(topRequired)
+	require.NoError(t, err)
+	var topBody DijkstraTransactionBody
+	require.NoError(t, topBody.UnmarshalCBOR(wire))
+
+	subRequired := map[uint]any{
+		0: cbor.NewSetType([]any{}, false),
+		1: []any{},
+	}
+	for _, key := range []uint{0, 1} {
+		fields := cloneDijkstraBodyFields(subRequired)
+		delete(fields, key)
+		wire, err := cbor.Encode(fields)
+		require.NoError(t, err)
+		var body DijkstraSubTransactionBody
+		require.ErrorContains(
+			t,
+			body.UnmarshalCBOR(wire),
+			fmt.Sprintf("field %d is missing", key),
+		)
+	}
+	subGuarded := map[uint]any{
+		4:  []any{},
+		5:  map[uint]any{},
+		18: cbor.NewSetType([]any{}, false),
+		20: []any{},
+	}
+	for key, value := range subGuarded {
+		fields := cloneDijkstraBodyFields(subRequired)
+		fields[key] = value
+		wire, err := cbor.Encode(fields)
+		require.NoError(t, err)
+		var body DijkstraSubTransactionBody
+		require.Error(t, body.UnmarshalCBOR(wire), "empty key %d", key)
+	}
+	wire, err = cbor.Encode(subRequired)
+	require.NoError(t, err)
+	var subBody DijkstraSubTransactionBody
+	require.NoError(t, subBody.UnmarshalCBOR(wire))
+}
+
+func cloneDijkstraBodyFields(fields map[uint]any) map[uint]any {
+	clone := make(map[uint]any, len(fields))
+	for key, value := range fields {
+		clone[key] = value
+	}
+	return clone
+}
+
+func TestDijkstraWitnessSetRejectsEveryPresentEmptyField(t *testing.T) {
+	var absent DijkstraTransactionWitnessSet
+	require.NoError(t, absent.UnmarshalCBOR([]byte{0xa0}))
+	for key := uint(0); key <= 7; key++ {
+		values := []any{[]any{}}
+		if key == 0 || key == 1 || key == 2 || key == 3 || key == 4 ||
+			key == 6 || key == 7 {
+			values = append(values, cbor.Set{})
+		}
+		if key == 5 {
+			values = append(values, map[uint]any{})
+		}
+		for _, value := range values {
+			wire, err := cbor.Encode(map[uint]any{key: value})
+			require.NoError(t, err)
+			var witnesses DijkstraTransactionWitnessSet
+			require.Error(t, witnesses.UnmarshalCBOR(wire), "empty key %d", key)
+		}
+	}
+	legacyEmptyRedeemer, err := cbor.Encode(
+		map[uint]any{5: []any{}},
+	)
+	require.NoError(t, err)
+	var witnesses DijkstraTransactionWitnessSet
+	require.Error(t, witnesses.UnmarshalCBOR(legacyEmptyRedeemer))
+
+	bodyWire, err := cbor.Encode(map[uint]any{
+		0: cbor.NewSetType([]any{}, false),
+		1: []any{},
+		2: uint64(0),
+	})
+	require.NoError(t, err)
+	witnessWire, err := cbor.Encode(map[uint]any{0: []any{}})
+	require.NoError(t, err)
+	txWire, err := cbor.Encode([]any{
+		cbor.RawMessage(bodyWire),
+		cbor.RawMessage(witnessWire),
+		nil,
+	})
+	require.NoError(t, err)
+	_, err = NewDijkstraTransactionFromCbor(txWire)
+	require.ErrorContains(t, err, "failed to decode transaction witness set")
+}
+
+func TestDijkstraWitnessSetRejectsField8TaggedAndUntagged(t *testing.T) {
+	for _, value := range []any{
+		[]any{},
+		[]any{[]byte{0x01}},
+		cbor.Set{},
+		cbor.Set{[]byte{0x01}},
+	} {
+		wire, err := cbor.Encode(map[uint]any{8: value})
+		require.NoError(t, err)
+		var witnesses DijkstraTransactionWitnessSet
+		require.ErrorContains(
+			t,
+			witnesses.UnmarshalCBOR(wire),
+			"does not support field 8",
+		)
+	}
+}

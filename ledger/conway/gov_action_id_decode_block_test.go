@@ -144,3 +144,48 @@ func TestConwayBlockAcceptsUint16GovActionIdx(t *testing.T) {
 		})
 	}
 }
+
+func TestConwayBlockDecoderRejectsRequiredAndEmptyBodyFields(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		mutate    func(map[uint]cbor.RawMessage)
+		wantError string
+	}{
+		{
+			name: "missing required input field",
+			mutate: func(fields map[uint]cbor.RawMessage) {
+				delete(fields, 0)
+			},
+			wantError: "required CBOR map field 0 is missing",
+		},
+		{
+			name: "empty certificates",
+			mutate: func(fields map[uint]cbor.RawMessage) {
+				empty, err := cbor.Encode([]any{})
+				require.NoError(t, err)
+				fields[4] = empty
+			},
+			wantError: "CBOR map field 4 must not be empty",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var components []cbor.RawMessage
+			_, err := cbor.Decode(previewPoolRegistrationTxCbor(t), &components)
+			require.NoError(t, err)
+			var bodyFields map[uint]cbor.RawMessage
+			_, err = cbor.Decode(components[0], &bodyFields)
+			require.NoError(t, err)
+			test.mutate(bodyFields)
+			components[0], err = cbor.Encode(bodyFields)
+			require.NoError(t, err)
+			txCbor, err := cbor.Encode(components)
+			require.NoError(t, err)
+			blockCbor := syntheticConwayBlockWithTransaction(t, txCbor)
+			_, err = conway.NewConwayBlockFromCbor(
+				blockCbor,
+				common.VerifyConfig{SkipBodyHashValidation: true},
+			)
+			require.ErrorContains(t, err, test.wantError)
+		})
+	}
+}

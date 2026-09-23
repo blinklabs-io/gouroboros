@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"reflect"
@@ -5182,30 +5183,120 @@ func TestConwayMinCoinTxOutBoundary(t *testing.T) {
 func TestConwayWitnessSetNonEmptyCollectionsFollowProtocolVersion(
 	t *testing.T,
 ) {
-	var tx conway.ConwayTransaction
-	require.NoError(t, tx.WitnessSet.UnmarshalCBOR([]byte{0xa1, 0x00, 0x80}))
+	for key := uint(0); key <= 7; key++ {
+		values := []any{[]any{}}
+		if key == 0 || key == 1 || key == 2 || key == 3 || key == 4 ||
+			key == 6 || key == 7 {
+			values = append(values, cbor.Set{})
+		}
+		if key == 5 {
+			values = append(values, map[uint]any{})
+		}
+		for _, value := range values {
+			wire, err := cbor.Encode(map[uint]any{key: value})
+			require.NoError(t, err)
+			var tx conway.ConwayTransaction
+			require.NoError(t, tx.WitnessSet.UnmarshalCBOR(wire))
+			for _, major := range []uint{9, 10, 11} {
+				t.Run(fmt.Sprintf("key%d/PV%d", key, major), func(t *testing.T) {
+					pp := &conway.ConwayProtocolParameters{
+						ProtocolVersion: common.ProtocolParametersProtocolVersion{
+							Major: major,
+						},
+					}
+					err := common.VerifyTransaction(
+						&tx,
+						0,
+						nil,
+						pp,
+						[]common.UtxoValidationRuleFunc{
+							conway.UtxoValidateRedeemerAndScriptWitnesses,
+						},
+					)
+					require.ErrorContains(
+						t,
+						err,
+						"invalid Conway witness set",
+					)
+				})
+			}
+		}
+	}
 
+	var pv8Tx conway.ConwayTransaction
+	require.NoError(t, pv8Tx.WitnessSet.UnmarshalCBOR([]byte{0xa1, 0x00, 0x80}))
 	pv8 := &conway.ConwayProtocolParameters{
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 8},
 	}
-	require.NoError(
-		t,
-		conway.UtxoValidateRedeemerAndScriptWitnesses(&tx, 0, nil, pv8),
-	)
-
-	pv9 := &conway.ConwayProtocolParameters{
-		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 9},
-	}
-	require.ErrorContains(
-		t,
-		conway.UtxoValidateRedeemerAndScriptWitnesses(&tx, 0, nil, pv9),
-		"witness set",
-	)
+	require.NoError(t, common.VerifyTransaction(
+		&pv8Tx,
+		0,
+		nil,
+		pv8,
+		[]common.UtxoValidationRuleFunc{
+			conway.UtxoValidateRedeemerAndScriptWitnesses,
+		},
+	))
 
 	var absent conway.ConwayTransaction
 	require.NoError(t, absent.WitnessSet.UnmarshalCBOR([]byte{0xa0}))
-	require.NoError(
-		t,
-		conway.UtxoValidateRedeemerAndScriptWitnesses(&absent, 0, nil, pv9),
-	)
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 9},
+	}
+	require.NoError(t, common.VerifyTransaction(
+		&absent,
+		0,
+		nil,
+		pp,
+		[]common.UtxoValidationRuleFunc{
+			conway.UtxoValidateRedeemerAndScriptWitnesses,
+		},
+	))
+}
+
+func TestConwayTransactionBodyRequiredAndGuardedFields(t *testing.T) {
+	requiredBody := map[uint]any{
+		0: cbor.NewSetType([]any{}, false),
+		1: []any{},
+		2: uint64(0),
+	}
+	for _, key := range []uint{0, 1, 2} {
+		t.Run(fmt.Sprintf("missing required key %d", key), func(t *testing.T) {
+			fields := maps.Clone(requiredBody)
+			delete(fields, key)
+			wire, err := cbor.Encode(fields)
+			require.NoError(t, err)
+			var body conway.ConwayTransactionBody
+			require.ErrorContains(
+				t,
+				body.UnmarshalCBOR(wire),
+				fmt.Sprintf("field %d is missing", key),
+			)
+		})
+	}
+
+	guardedEmptyValues := map[uint]any{
+		4:  []any{},
+		5:  map[uint]any{},
+		9:  map[uint]any{},
+		13: cbor.NewSetType([]any{}, false),
+		14: cbor.NewSetType([]any{}, false),
+		18: cbor.NewSetType([]any{}, false),
+		20: []any{},
+	}
+	for key, value := range guardedEmptyValues {
+		t.Run(fmt.Sprintf("empty optional key %d", key), func(t *testing.T) {
+			fields := maps.Clone(requiredBody)
+			fields[key] = value
+			wire, err := cbor.Encode(fields)
+			require.NoError(t, err)
+			var body conway.ConwayTransactionBody
+			require.Error(t, body.UnmarshalCBOR(wire))
+		})
+	}
+
+	wire, err := cbor.Encode(requiredBody)
+	require.NoError(t, err)
+	var body conway.ConwayTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(wire))
 }
