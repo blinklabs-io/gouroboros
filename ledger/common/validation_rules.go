@@ -70,6 +70,7 @@ const (
 	UtxoValidationRuleProposalDeposit              UtxoValidationRuleId = "proposal-deposit"
 	UtxoValidationRuleProposalNetworkIds           UtxoValidationRuleId = "proposal-network-ids"
 	UtxoValidationRuleProposalReturnAccounts       UtxoValidationRuleId = "proposal-return-accounts"
+	UtxoValidationRuleProposalReturnAddressShape   UtxoValidationRuleId = "proposal-return-address-shape"
 	UtxoValidationRuleEmptyTreasuryWithdrawals     UtxoValidationRuleId = "empty-treasury-withdrawals"
 	UtxoValidationRuleBootstrapAllowedGovActions   UtxoValidationRuleId = "bootstrap-allowed-governance-actions"
 	UtxoValidationRuleConwayFeaturesWithPlutusV1V2 UtxoValidationRuleId = "conway-features-with-plutus-v1-v2"

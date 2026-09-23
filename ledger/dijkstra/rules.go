@@ -84,6 +84,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateBootstrapAllowedGovActions,
 	},
 	{
+		Id:        common.UtxoValidationRuleProposalReturnAddressShape,
+		Validator: common.UtxoValidateProposalReturnAddressShape,
+	},
+	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
 		Validator: UtxoValidateIsValidFlag,
 	},
@@ -315,6 +319,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleProposalDeposit:              dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleProposalNetworkIds:           dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleProposalReturnAccounts:       dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalReturnAddressShape:   dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleEmptyTreasuryWithdrawals:     dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleBootstrapAllowedGovActions:   dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleIsValidFlag:                  dijkstraUtxoValidationAlways,

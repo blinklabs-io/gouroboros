@@ -1168,7 +1168,8 @@ func mkProposalsTx(
 		tx.Body.TxProposalProcedures = append(
 			tx.Body.TxProposalProcedures,
 			conway.ConwayProposalProcedure{
-				PPGovAction: conway.ConwayGovAction{Action: action},
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction:     conway.ConwayGovAction{Action: action},
 			},
 		)
 	}

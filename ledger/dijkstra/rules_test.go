@@ -278,7 +278,8 @@ func TestDijkstraPhase2InvalidSkipsHardForkCanFollow(t *testing.T) {
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
-				PPGovAction: DijkstraGovAction{Action: action},
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction:     DijkstraGovAction{Action: action},
 			}},
 		},
 		TxIsValid: false,
@@ -365,6 +366,24 @@ func TestDijkstraPhase2InvalidStillChecksCollateral(t *testing.T) {
 	require.ErrorAs(t, rule(tx, 0, state, &DijkstraProtocolParameters{}), &collateralErr)
 }
 
+func TestDijkstraPhase2InvalidChecksProposalReturnAddressShape(t *testing.T) {
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/common.UtxoValidateProposalReturnAddressShape",
+	)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPGovAction: DijkstraGovAction{
+					Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+				},
+			}},
+		},
+		TxIsValid: false,
+	}
+	require.ErrorContains(t, rule(tx, 0, nil, nil), "invalid account address type")
+}
+
 func TestUtxoValidatePtrPresentInCollateralReturn(t *testing.T) {
 	rule, _ := dijkstraValidationRule(
 		t,
@@ -405,6 +424,7 @@ func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
 		return &DijkstraTransaction{
 			Body: DijkstraTransactionBody{
 				TxProposalProcedures: []DijkstraProposalProcedure{{
+					PPRewardAccount: testAccountAddress(t),
 					PPGovAction: DijkstraGovAction{
 						Action: &DijkstraParameterChangeGovAction{
 							PolicyHash: policyHash,
@@ -452,7 +472,8 @@ func TestDijkstraGovernanceValidationRejectsTypedNilParameterChange(
 	var action *DijkstraParameterChangeGovAction
 	tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 		TxProposalProcedures: []DijkstraProposalProcedure{{
-			PPGovAction: DijkstraGovAction{Action: action},
+			PPRewardAccount: testAccountAddress(t),
+			PPGovAction:     DijkstraGovAction{Action: action},
 		}},
 	}}
 	var err error
@@ -473,7 +494,8 @@ func TestDijkstraBootstrapVotingRestrictionsAreRegistered(t *testing.T) {
 	newTx := func(action common.GovAction) *DijkstraTransaction {
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
-				PPGovAction: DijkstraGovAction{Action: action},
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction:     DijkstraGovAction{Action: action},
 			}},
 		}, TxIsValid: true}
 		encodedBody, err := cbor.Encode(&tx.Body)
@@ -547,8 +569,9 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 	t.Run("proposal deposit", func(t *testing.T) {
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
-				PPDeposit:   1,
-				PPGovAction: DijkstraGovAction{Action: &common.InfoGovAction{}},
+				PPDeposit:       1,
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction:     DijkstraGovAction{Action: &common.InfoGovAction{}},
 			}},
 		}, TxIsValid: true}
 		rule, _ := dijkstraValidationRule(
@@ -566,6 +589,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		missing := common.GovActionId{TransactionId: common.Blake2b256{0x01}}
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
 						ActionId: &missing,
@@ -589,6 +613,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		keyDeposit := uint(2_000_000)
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
 						ParamUpdate: DijkstraProtocolParameterUpdate{
@@ -627,6 +652,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		maxRefScriptSizePerTx := uint32(200_000)
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
 						ParamUpdate: DijkstraProtocolParameterUpdate{
@@ -661,6 +687,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 func TestUtxoValidateBootstrapAllowedGovActionsRejectsUnknown(t *testing.T) {
 	tx := &DijkstraTransaction{}
 	tx.Body.TxProposalProcedures = []DijkstraProposalProcedure{{
+		PPRewardAccount: testAccountAddress(t),
 		PPGovAction: DijkstraGovAction{
 			Action: commontestdata.UnsupportedGovAction{},
 		},
@@ -1278,6 +1305,7 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 		Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{
 				{
+					PPRewardAccount: testAccountAddress(t),
 					PPGovAction: DijkstraGovAction{
 						Action: &DijkstraParameterChangeGovAction{
 							ParamUpdate: DijkstraProtocolParameterUpdate{},
@@ -1310,6 +1338,7 @@ func TestBootstrapPhaseAllowsDijkstraParameterChangeFields(t *testing.T) {
 		Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{
 				{
+					PPRewardAccount: testAccountAddress(t),
 					PPGovAction: DijkstraGovAction{
 						Action: &DijkstraParameterChangeGovAction{
 							ParamUpdate: DijkstraProtocolParameterUpdate{

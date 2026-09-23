@@ -47,7 +47,7 @@ func makeConwayRewardAddress(
 ) common.Address {
 	t.Helper()
 	addrBytes := make([]byte, 0, 29)
-	addrBytes = append(addrBytes, 0xE1)
+	addrBytes = append(addrBytes, 0xE0)
 	addrBytes = append(addrBytes, keyHash.Bytes()...)
 	addr, err := common.NewAddressFromBytes(addrBytes)
 	require.NoError(t, err)
@@ -4809,7 +4809,8 @@ func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 			tx.Body.TxProposalProcedures = append(
 				tx.Body.TxProposalProcedures,
 				conway.ConwayProposalProcedure{
-					PPGovAction: conway.ConwayGovAction{Action: a},
+					PPRewardAccount: testAccountAddress(t),
+					PPGovAction:     conway.ConwayGovAction{Action: a},
 				},
 			)
 		}
@@ -5039,6 +5040,7 @@ func TestBootstrapPhaseAllowsAnyParameterChange(t *testing.T) {
 	tx := &conway.ConwayTransaction{}
 	tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
 		{
+			PPRewardAccount: testAccountAddress(t),
 			PPGovAction: conway.ConwayGovAction{
 				Action: &conway.ConwayParameterChangeGovAction{
 					ParamUpdate: conway.ConwayProtocolParameterUpdate{
