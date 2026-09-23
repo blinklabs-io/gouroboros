@@ -1760,7 +1760,7 @@ func UtxoValidateExtraneousRedeemers(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if err := common.ValidateExtraneousRedeemers(tx); err != nil {
+	if err := common.ValidateExactExtraneousRedeemers(tx, ls); err != nil {
 		var extraErr common.ExtraneousRedeemerError
 		if errors.As(err, &extraErr) {
 			return ExtraRedeemerError{RedeemerKey: extraErr.RedeemerKey}
@@ -1781,63 +1781,9 @@ func UtxoValidateCostModelsPresent(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*ConwayTransaction)
-	if !ok {
-		return errors.New("transaction is not expected type")
-	}
-
-	required := map[uint]struct{}{}
-	wits := tmpTx.WitnessSet
-	if len(wits.WsPlutusV1Scripts.Items()) > 0 {
-		required[0] = struct{}{}
-	}
-	if len(wits.WsPlutusV2Scripts.Items()) > 0 {
-		required[1] = struct{}{}
-	}
-	if len(wits.WsPlutusV3Scripts.Items()) > 0 {
-		required[2] = struct{}{}
-	}
-	if len(common.PlutusV4ScriptsFromWitnessSet(wits)) > 0 {
-		required[3] = struct{}{}
-	}
-	// Also include reference scripts on reference inputs
-	for _, refInput := range tmpTx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		if version, ok := common.PlutusScriptVersion(script); ok {
-			required[version] = struct{}{}
-		}
-	}
-
-	// Per CIP-33, also include reference scripts on regular (spent) inputs
-	for _, input := range tmpTx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// Skip errors - BadInputsUtxo will catch this
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		if version, ok := common.PlutusScriptVersion(script); ok {
-			required[version] = struct{}{}
-		}
+	required, err := common.UsedPlutusVersions(tx, ls)
+	if err != nil {
+		return err
 	}
 
 	if len(required) == 0 {

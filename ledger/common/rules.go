@@ -729,6 +729,7 @@ type transactionScriptRequirements struct {
 	required    map[ScriptHash]struct{}
 	purposes    []scriptRequirement
 	explicit    map[ScriptHash]Script
+	referenced  map[ScriptHash]struct{}
 	available   map[ScriptHash]Script
 	nativeOrder []ScriptHash
 }
@@ -833,9 +834,10 @@ func collectTransactionScriptRequirements(
 	ls LedgerState,
 ) (transactionScriptRequirements, error) {
 	ret := transactionScriptRequirements{
-		required:  make(map[ScriptHash]struct{}),
-		explicit:  make(map[ScriptHash]Script),
-		available: make(map[ScriptHash]Script),
+		required:   make(map[ScriptHash]struct{}),
+		explicit:   make(map[ScriptHash]Script),
+		referenced: make(map[ScriptHash]struct{}),
+		available:  make(map[ScriptHash]Script),
 	}
 	addRequirement := func(hash ScriptHash, tag RedeemerTag, index int) {
 		ret.required[hash] = struct{}{}
@@ -904,12 +906,14 @@ func collectTransactionScriptRequirements(
 			}
 			resolvedInputs[input.String()] = utxo
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
-				if _, err := addAvailableScript(
+				hash, err := addAvailableScript(
 					ret.available,
 					utxo.Output.ScriptRef(),
-				); err != nil {
+				)
+				if err != nil {
 					return ret, err
 				}
+				ret.referenced[hash] = struct{}{}
 			}
 		}
 		for _, input := range tx.ReferenceInputs() {
@@ -918,12 +922,14 @@ func collectTransactionScriptRequirements(
 				return ret, ReferenceInputResolutionError{Input: input, Err: err}
 			}
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
-				if _, err := addAvailableScript(
+				hash, err := addAvailableScript(
 					ret.available,
 					utxo.Output.ScriptRef(),
-				); err != nil {
+				)
+				if err != nil {
 					return ret, err
 				}
+				ret.referenced[hash] = struct{}{}
 			}
 		}
 	}
@@ -1154,6 +1160,11 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 	for provided := range requirements.explicit {
+		if _, isReferenced := requirements.referenced[provided]; isReferenced {
+			return ExtraneousScriptWitnessesError{ScriptHash: provided}
+		}
+	}
+	for provided := range requirements.explicit {
 		if _, ok := requirements.required[provided]; !ok {
 			// A witness-set script with no script purpose is extraneous. See
 			// validateMissingScripts in
@@ -1189,6 +1200,62 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 		if _, isNative := available.(NativeScript); isNative && hasRedeemer {
 			return ExtraneousRedeemerError{RedeemerKey: purpose.redeemer}
+		}
+	}
+	return nil
+}
+
+// UsedPlutusVersions returns the languages of Plutus scripts needed by a
+// transaction's script purposes. Unused witness and reference scripts do not
+// require cost models.
+func UsedPlutusVersions(
+	tx Transaction,
+	ls LedgerState,
+) (map[uint]struct{}, error) {
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		return nil, err
+	}
+	used := make(map[uint]struct{})
+	for _, purpose := range requirements.purposes {
+		if script, ok := requirements.available[purpose.hash]; ok {
+			if version, isPlutus := PlutusScriptVersion(script); isPlutus {
+				used[version] = struct{}{}
+			}
+		}
+	}
+	return used, nil
+}
+
+// ValidateExactExtraneousRedeemers rejects every supplied redeemer that does
+// not point to a needed Plutus script purpose. Missing redeemers are reported
+// by ValidateScriptWitnesses earlier in UTXOW rule order.
+func ValidateExactExtraneousRedeemers(
+	tx Transaction,
+	ls LedgerState,
+) error {
+	witnesses := tx.Witnesses()
+	if witnesses == nil || witnesses.Redeemers() == nil {
+		return nil
+	}
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		// Other UTXOW rules own malformed withdrawals and unresolved regular
+		// inputs. Preserve the bounds-only result when this helper cannot
+		// derive purposes because of such an earlier error.
+		return ValidateExtraneousRedeemers(tx)
+	}
+	needed := make(map[RedeemerKey]struct{}, len(requirements.purposes))
+	for _, purpose := range requirements.purposes {
+		if script, ok := requirements.available[purpose.hash]; ok {
+			if _, isPlutus := PlutusScriptVersion(script); isPlutus {
+				needed[purpose.redeemer] = struct{}{}
+			}
+		}
+	}
+	for provided := range witnesses.Redeemers().Iter() {
+		if _, ok := needed[provided]; !ok {
+			return ExtraneousRedeemerError{RedeemerKey: provided}
 		}
 	}
 	return nil

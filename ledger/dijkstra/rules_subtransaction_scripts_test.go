@@ -579,6 +579,7 @@ func TestUtxoValidateExtraneousRedeemersPerTransactionLevel(t *testing.T) {
 			name:      "subtransaction in-range index",
 			subInputs: 1,
 			subKey:    &spendZero,
+			expected:  &spendZero,
 		},
 		{
 			name:     "top-level unknown tag",
@@ -596,6 +597,7 @@ func TestUtxoValidateExtraneousRedeemersPerTransactionLevel(t *testing.T) {
 			name:      "top-level in-range index",
 			topInputs: 1,
 			topKey:    &spendZero,
+			expected:  &spendZero,
 		},
 	}
 	for _, test := range tests {

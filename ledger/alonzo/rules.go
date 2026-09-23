@@ -333,7 +333,7 @@ func UtxoValidateExtraneousRedeemers(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return common.ValidateExtraneousRedeemers(tx)
+	return common.ValidateExactExtraneousRedeemers(tx, ls)
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(
@@ -411,15 +411,9 @@ func UtxoValidateCostModelsPresent(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*AlonzoTransaction)
-	if !ok {
-		return errors.New("transaction is not expected type")
-	}
-
-	required := map[uint]struct{}{}
-	wits := tmpTx.WitnessSet
-	if len(wits.WsPlutusV1Scripts) > 0 {
-		required[0] = struct{}{}
+	required, err := common.UsedPlutusVersions(tx, ls)
+	if err != nil {
+		return err
 	}
 
 	if len(required) == 0 {

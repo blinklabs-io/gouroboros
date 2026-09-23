@@ -2749,7 +2749,7 @@ func UtxoValidateExtraneousRedeemers(
 	}
 	for _, level := range levels {
 		if err := validateDijkstraExtraneousRedeemers(
-			level.tx,
+			level,
 			available,
 		); err != nil {
 			return err
@@ -2759,9 +2759,10 @@ func UtxoValidateExtraneousRedeemers(
 }
 
 func validateDijkstraExtraneousRedeemers(
-	tx common.Transaction,
+	level dijkstraScriptLevel,
 	available map[common.ScriptHash]common.Script,
 ) error {
+	tx := level.tx
 	wits := tx.Witnesses()
 	if wits == nil {
 		return nil
@@ -2771,39 +2772,13 @@ func validateDijkstraExtraneousRedeemers(
 		return nil
 	}
 
-	// Collection lengths are kept at wire width so that a redeemer index near
-	// the top of its uint32 range is compared, not narrowed to a platform int.
-	inputCount := uint64(len(tx.Inputs()))
-	certCount := uint64(len(tx.Certificates()))
-	withdrawalCount := uint64(len(tx.Withdrawals()))
-	proposalCount := uint64(len(tx.ProposalProcedures()))
-
-	mintPolicyCount := uint64(0)
-	if mint := tx.AssetMint(); mint != nil {
-		mintPolicyCount = uint64(len(mint.Policies()))
-	}
-
-	voterCount := uint64(0)
-	if votingProcs := tx.VotingProcedures(); votingProcs != nil {
-		voterCount = uint64(len(votingProcs))
+	needed := make(map[common.RedeemerKey]struct{})
+	for _, required := range dijkstraRequiredPlutusPurposes(level, available) {
+		needed[required.key] = struct{}{}
 	}
 
 	for redeemerKey := range redeemers.Iter() {
-		var maxIndex uint64
-		switch redeemerKey.Tag {
-		case common.RedeemerTagSpend:
-			maxIndex = inputCount
-		case common.RedeemerTagMint:
-			maxIndex = mintPolicyCount
-		case common.RedeemerTagCert:
-			maxIndex = certCount
-		case common.RedeemerTagReward:
-			maxIndex = withdrawalCount
-		case common.RedeemerTagVoting:
-			maxIndex = voterCount
-		case common.RedeemerTagProposing:
-			maxIndex = proposalCount
-		case common.RedeemerTagGuarding:
+		if redeemerKey.Tag == common.RedeemerTagGuarding {
 			needsPlutus := dijkstraGuardNeedsPlutusRedeemer(
 				tx,
 				available,
@@ -2813,11 +2788,8 @@ func validateDijkstraExtraneousRedeemers(
 				continue
 			}
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
-		default:
-			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
-
-		if uint64(redeemerKey.Index) >= maxIndex {
+		if _, ok := needed[redeemerKey]; !ok {
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 	}
