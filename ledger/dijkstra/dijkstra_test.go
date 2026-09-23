@@ -2136,7 +2136,7 @@ func TestDijkstraMaxPledgeLeverageNullUpdate(t *testing.T) {
 }
 
 func TestDijkstraProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
-	tags := []int{0, 1, 5, 6, 14, 16, 17, 20, 21, 30, 31}
+	tags := []int{0, 1, 5, 6, 14, 16, 17, 18, 20, 21, 25, 26, 30, 31}
 	for tag := 34; tag <= 48; tag++ {
 		if tag != 38 {
 			tags = append(tags, tag)

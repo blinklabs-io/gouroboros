@@ -526,7 +526,9 @@ func TestConwayProtocolParameterUpdateCostModelLanguageIDDomain(t *testing.T) {
 }
 
 func TestConwayProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
-	for _, tag := range []int{0, 1, 5, 6, 14, 16, 17, 20, 21, 30, 31} {
+	for _, tag := range []int{
+		0, 1, 5, 6, 14, 16, 17, 18, 20, 21, 25, 26, 30, 31,
+	} {
 		t.Run(fmt.Sprintf("tag_%d", tag), func(t *testing.T) {
 			encoded, err := cbor.Encode(map[int]any{tag: nil})
 			require.NoError(t, err)
