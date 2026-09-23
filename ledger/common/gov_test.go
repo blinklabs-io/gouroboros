@@ -1004,6 +1004,69 @@ func TestUpdateCommitteeGovActionToPlutusData(t *testing.T) {
 	})
 }
 
+func TestUpdateCommitteeGovActionToPlutusDataCanonicalizesCollections(
+	t *testing.T,
+) {
+	key := Credential{
+		CredType: CredentialTypeAddrKeyHash,
+		Credential: Blake2b224{
+			0x02,
+		},
+	}
+	scriptLow := Credential{
+		CredType: CredentialTypeScriptHash,
+		Credential: Blake2b224{
+			0x01,
+		},
+	}
+	scriptHigh := Credential{
+		CredType: CredentialTypeScriptHash,
+		Credential: Blake2b224{
+			0x02,
+		},
+	}
+	keyPtr, scriptLowPtr, scriptHighPtr := key, scriptLow, scriptHigh
+	first := &UpdateCommitteeGovAction{
+		Credentials: []Credential{key, scriptHigh, scriptLow},
+		CredEpochs: map[*Credential]uint64{
+			&keyPtr:        3,
+			&scriptHighPtr: 2,
+			&scriptLowPtr:  1,
+		},
+		Quorum: cbor.Rat{Rat: big.NewRat(1, 2)},
+	}
+	second := &UpdateCommitteeGovAction{
+		Credentials: []Credential{scriptLow, key, scriptHigh},
+		CredEpochs: map[*Credential]uint64{
+			&scriptLowPtr:  1,
+			&keyPtr:        3,
+			&scriptHighPtr: 2,
+		},
+		Quorum: cbor.Rat{Rat: big.NewRat(1, 2)},
+	}
+	firstData := first.ToPlutusData()
+	secondData := second.ToPlutusData()
+	require.Equal(t, firstData, secondData)
+	wantCredentialOrder := []data.PlutusData{
+		scriptLow.ToPlutusData(),
+		scriptHigh.ToPlutusData(),
+		key.ToPlutusData(),
+	}
+	constr := firstData.(*data.Constr)
+	removals := constr.Fields[1].(*data.List)
+	require.Equal(t, wantCredentialOrder, removals.Items)
+	additions := constr.Fields[2].(*data.Map)
+	require.Len(t, additions.Pairs, 3)
+	for idx, pair := range additions.Pairs {
+		require.Equal(t, wantCredentialOrder[idx], pair[0])
+	}
+	firstCbor, err := data.Encode(firstData)
+	require.NoError(t, err)
+	secondCbor, err := data.Encode(secondData)
+	require.NoError(t, err)
+	require.Equal(t, firstCbor, secondCbor)
+}
+
 func TestNewConstitutionGovActionToPlutusData(t *testing.T) {
 	action := &NewConstitutionGovAction{
 		ActionId: &GovActionId{},
