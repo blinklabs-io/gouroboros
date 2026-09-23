@@ -1250,6 +1250,10 @@ func (t BabbageTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
+func (t BabbageTransaction) TotalCollateralPresent() bool {
+	return t.Body.TotalCollateralPresent() || t.Body.TxTotalCollateral != 0
+}
+
 func (t BabbageTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }

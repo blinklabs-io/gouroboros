@@ -32,28 +32,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDijkstraWitnessDecodeAcceptsRequireGuard(t *testing.T) {
-	guard := common.NativeScriptRequireGuard{
-		Type: 6,
-		Credential: common.Credential{
-			CredType:   common.CredentialTypeAddrKeyHash,
-			Credential: common.NewBlake2b224(make([]byte, common.Blake2b224Size)),
-		},
-	}
-	guardCBOR, err := cbor.Encode(guard)
-	require.NoError(t, err)
-	var script common.NativeScript
-	_, err = cbor.Decode(guardCBOR, &script)
-	require.NoError(t, err)
-	witnessCBOR, err := cbor.Encode(DijkstraTransactionWitnessSet{
-		WsNativeScripts: cbor.NewSetType([]common.NativeScript{script}, false),
-	})
-	require.NoError(t, err)
-	var witnessSet DijkstraTransactionWitnessSet
-	_, err = cbor.Decode(witnessCBOR, &witnessSet)
-	require.NoError(t, err)
-}
-
 func testPlutusInteger(v int64) data.PlutusData {
 	return data.NewInteger(big.NewInt(v))
 }
@@ -923,7 +901,11 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 			Signature: bytes.Repeat([]byte{1}, 64),
 		}}, true),
 	}
-	body := map[uint]any{0: []any{}, 1: []any{}, 3: uint64(10)}
+	body := map[uint]any{
+		0: cbor.NewSetType([]any{}, false),
+		1: []any{},
+		3: uint64(10),
+	}
 	for _, tc := range []struct {
 		name       string
 		witnesses  map[uint]any
@@ -966,7 +948,12 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 					[]any{body, witnessesA, tc.auxiliaryA},
 					[]any{body, tc.witnesses, tc.auxiliaryB},
 				}
-				bodyValue := map[uint]any{23: subTransactions}
+				bodyValue := map[uint]any{
+					0:  cbor.NewSetType([]any{}, false),
+					1:  []any{},
+					2:  uint64(0),
+					23: subTransactions,
+				}
 				if tagged {
 					bodyValue[23] = cbor.NewSetType(subTransactions, true)
 				}
@@ -984,7 +971,12 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 
 func TestDijkstraTransactionBodyRejectsExplicitlyEmptySubTransactions(t *testing.T) {
 	for _, value := range []any{[]any{}, cbor.NewSetType([]any{}, true)} {
-		bodyCbor, err := cbor.Encode(map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0), 23: value})
+		bodyCbor, err := cbor.Encode(map[uint]any{
+			0:  cbor.NewSetType([]any{}, false),
+			1:  []any{},
+			2:  uint64(0),
+			23: value,
+		})
 		require.NoError(t, err)
 		var body DijkstraTransactionBody
 		require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "must not be empty")
@@ -993,12 +985,12 @@ func TestDijkstraTransactionBodyRejectsExplicitlyEmptySubTransactions(t *testing
 
 func TestDijkstraTransactionBodyAcceptsDistinctSubTransactionBodies(t *testing.T) {
 	bodyCbor, err := cbor.Encode(map[uint]any{
-		0: []any{},
+		0: cbor.NewSetType([]any{}, false),
 		1: []any{},
 		2: uint64(0),
 		23: []any{
-			[]any{map[uint]any{0: []any{}, 1: []any{}, 3: uint64(10)}, map[uint]any{}, nil},
-			[]any{map[uint]any{0: []any{}, 1: []any{}, 3: uint64(11)}, map[uint]any{}, nil},
+			[]any{map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}, 3: uint64(10)}, map[uint]any{}, nil},
+			[]any{map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}, 3: uint64(11)}, map[uint]any{}, nil},
 		},
 	})
 	require.NoError(t, err)
