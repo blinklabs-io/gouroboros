@@ -66,6 +66,27 @@ func (e NotAllowedSupplementalDatumsError) Error() string {
 	return "not allowed supplemental datums in witness set: " + strings.Join(hashes, ", ")
 }
 
+// TxOut preserves an opaque transaction output embedded in a ledger failure.
+type TxOut struct {
+	cbor.Value
+}
+
+func (t *TxOut) String() string {
+	return fmt.Sprintf("TxOut (%v)", t.Value.Value())
+}
+
+// PtrPresentInCollateralReturn is the Dijkstra UTxO failure for a pointer
+// address in the collateral return output.
+type PtrPresentInCollateralReturn struct {
+	cbor.StructAsArray
+	Type   uint8
+	Output TxOut
+}
+
+func (e *PtrPresentInCollateralReturn) Error() string {
+	return fmt.Sprintf("PtrPresentInCollateralReturn (Output %s)", e.Output.String())
+}
+
 // WrongTransactionNetworkIdError reports a transaction-body network ID that
 // does not match the active ledger network.
 type WrongTransactionNetworkIdError struct {

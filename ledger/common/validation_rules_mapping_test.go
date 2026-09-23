@@ -188,6 +188,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateProposalReturnAccounts,       // UtxoValidationRuleProposalReturnAccounts
 		conway.UtxoValidateEmptyTreasuryWithdrawals,     // UtxoValidationRuleEmptyTreasuryWithdrawals
 		conway.UtxoValidateBootstrapAllowedGovActions,   // UtxoValidationRuleBootstrapAllowedGovActions
+		common.UtxoValidateProposalReturnAddressShape,   // UtxoValidationRuleProposalReturnAddressShape
 		conway.UtxoValidateIsValidFlag,                  // UtxoValidationRuleIsValidFlag
 		conway.UtxoValidateRequiredVKeyWitnesses,        // UtxoValidationRuleRequiredVKeyWitnesses
 		conway.UtxoValidateCollateralVKeyWitnesses,      // UtxoValidationRuleCollateralVKeyWitnesses
@@ -251,6 +252,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateProposalReturnAccounts,         // UtxoValidationRuleProposalReturnAccounts
 		conway.UtxoValidateEmptyTreasuryWithdrawals,       // UtxoValidationRuleEmptyTreasuryWithdrawals
 		dijkstra.UtxoValidateBootstrapAllowedGovActions,   // UtxoValidationRuleBootstrapAllowedGovActions
+		common.UtxoValidateProposalReturnAddressShape,     // UtxoValidationRuleProposalReturnAddressShape
 		dijkstra.UtxoValidateIsValidFlag,                  // UtxoValidationRuleIsValidFlag
 		dijkstra.UtxoValidateRequiredVKeyWitnesses,        // UtxoValidationRuleRequiredVKeyWitnesses
 		conway.UtxoValidateCollateralVKeyWitnesses,        // UtxoValidationRuleCollateralVKeyWitnesses
@@ -261,25 +263,26 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateScriptDataHash,               // UtxoValidationRuleScriptDataHash
 		conway.UtxoValidateInlineDatumsWithPlutusV1,       // UtxoValidationRuleInlineDatumsWithPlutusV1
 		dijkstra.UtxoValidateConwayFeaturesWithPlutusV1V2, // UtxoValidationRuleConwayFeaturesWithPlutusV1V2
-		dijkstra.UtxoValidateDisjointRefInputs,            // UtxoValidationRuleDisjointRefInputs
 		conway.UtxoValidateOutsideValidityIntervalUtxo,    // UtxoValidationRuleOutsideValidityInterval
 		dijkstra.UtxoValidateOutsideForecast,              // UtxoValidationRuleOutsideForecast
 		conway.UtxoValidateInputSetEmptyUtxo,              // UtxoValidationRuleInputSetEmpty
-		conway.UtxoValidateNoDuplicateInputs,              // UtxoValidationRuleNoDuplicateInputs
+		dijkstra.UtxoValidateNoDuplicateInputs,            // UtxoValidationRuleNoDuplicateInputs
 		dijkstra.UtxoValidateFeeTooSmallUtxo,              // UtxoValidationRuleFeeTooSmall
 		dijkstra.UtxoValidateInsufficientCollateral,       // UtxoValidationRuleInsufficientCollateral
 		dijkstra.UtxoValidateCollateralContainsNonAda,     // UtxoValidationRuleCollateralContainsNonAda
 		conway.UtxoValidateCollateralEqBalance,            // UtxoValidationRuleCollateralEqBalance
+		dijkstra.UtxoValidatePtrPresentInCollateralReturn, // UtxoValidationRulePtrPresentInCollateralReturn
 		dijkstra.UtxoValidateNoCollateralInputs,           // UtxoValidationRuleNoCollateralInputs
-		conway.UtxoValidateBadInputsUtxo,                  // UtxoValidationRuleBadInputs
+		dijkstra.UtxoValidateBadInputsUtxo,                // UtxoValidationRuleBadInputs
 		dijkstra.UtxoValidateScriptWitnesses,              // UtxoValidationRuleScriptWitnesses
 		conway.UtxoValidateRequiredRedeemers,              // UtxoValidationRuleRequiredRedeemers
 		dijkstra.UtxoValidateBatchWithdrawals,             // UtxoValidationRuleBatchWithdrawals
+		dijkstra.UtxoValidateAccountBalanceIntervals,      // UtxoValidationRuleAccountBalanceIntervals
 		dijkstra.UtxoValidateValueNotConservedUtxo,        // UtxoValidationRuleValueNotConserved
 		dijkstra.UtxoValidateOutputTooSmallUtxo,           // UtxoValidationRuleOutputTooSmall
 		dijkstra.UtxoValidateOutputTooBigUtxo,             // UtxoValidationRuleOutputTooBig
-		conway.UtxoValidateOutputBootAddrAttrsTooBig,      // UtxoValidationRuleOutputBootAddrAttrsTooBig
-		conway.UtxoValidateWrongNetwork,                   // UtxoValidationRuleWrongNetwork
+		dijkstra.UtxoValidateOutputBootAddrAttrsTooBig,    // UtxoValidationRuleOutputBootAddrAttrsTooBig
+		dijkstra.UtxoValidateWrongNetwork,                 // UtxoValidationRuleWrongNetwork
 		dijkstra.UtxoValidateWrongNetworkWithdrawal,       // UtxoValidationRuleWrongNetworkWithdrawal
 		dijkstra.UtxoValidateTransactionNetworkId,         // UtxoValidationRuleTransactionNetworkId
 		dijkstra.UtxoValidateMaxTxSizeUtxo,                // UtxoValidationRuleMaxTxSize

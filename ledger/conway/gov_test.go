@@ -45,7 +45,7 @@ func TestConwayProposalProcedureToPlutusData(t *testing.T) {
 func TestConwayProposalProcedureCbor(t *testing.T) {
 	// Test CBOR encoding/decoding for CIP-1694 governance proposal procedures
 	addr, err := common.NewAddress(
-		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
 	require.NoError(t, err)
 	action := &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)}
@@ -78,6 +78,18 @@ func TestConwayProposalProcedureCbor(t *testing.T) {
 	decodedAction, ok := decoded.PPGovAction.Action.(*common.InfoGovAction)
 	require.True(t, ok, "expected InfoGovAction type")
 	assert.Equal(t, uint(common.GovActionTypeInfo), decodedAction.Type)
+}
+
+func TestConwayProposalProcedureRejectsBaseAddress(t *testing.T) {
+	baseBytes := append([]byte{common.AddressTypeKeyKey << 4}, make([]byte, 56)...)
+	actionWire, err := cbor.Encode(common.InfoGovAction{Type: uint(common.GovActionTypeInfo)})
+	require.NoError(t, err)
+	wire, err := cbor.Encode([]any{
+		uint64(0), baseBytes, cbor.RawMessage(actionWire), common.GovAnchor{},
+	})
+	require.NoError(t, err)
+	var decoded ConwayProposalProcedure
+	require.ErrorContains(t, decoded.UnmarshalCBOR(wire), "invalid account address type")
 }
 
 func TestConwayGovActionCbor(t *testing.T) {

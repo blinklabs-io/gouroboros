@@ -1347,13 +1347,7 @@ func (e *OutputTooSmallUtxo) Error() string {
 	return sb.String()
 }
 
-type TxOut struct {
-	cbor.Value
-}
-
-func (t *TxOut) String() string {
-	return fmt.Sprintf("TxOut (%v)", t.Value.Value())
-}
+type TxOut = common.TxOut
 
 type UtxosFailure struct {
 	UtxoFailureErrorBase
@@ -1920,17 +1914,7 @@ func (e *BabbageNonDisjointRefInputs) Error() string {
 // return output uses a pointer-address stake reference, which Dijkstra
 // disallows.
 // CBOR: [22, txout]
-type PtrPresentInCollateralReturn struct {
-	UtxoFailureErrorBase
-	Output TxOut
-}
-
-func (e *PtrPresentInCollateralReturn) Error() string {
-	return fmt.Sprintf(
-		"PtrPresentInCollateralReturn (Output %s)",
-		e.Output.String(),
-	)
-}
+type PtrPresentInCollateralReturn = common.PtrPresentInCollateralReturn
 
 // WithdrawalsExceedAccountBalance represents the Dijkstra-only
 // WithdrawalsExceedAccountBalance error from cardano-ledger: total

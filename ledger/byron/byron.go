@@ -925,6 +925,13 @@ func (i ByronTransactionInput) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + i.String() + "\""), nil
 }
 
+// MaxLovelace is the largest value the Byron reference decoder accepts for
+// a single Lovelace amount (Cardano.Chain.Common.Lovelace.maxLovelaceVal),
+// the total supply of ADA expressed in Lovelace. It bounds each individual
+// transaction-output amount at decode time, independent of any later
+// aggregate balance or fee check.
+const MaxLovelace uint64 = 45_000_000_000_000_000
+
 type ByronTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -942,6 +949,13 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 	}
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
+	}
+	if tmpData.Amount > MaxLovelace {
+		return fmt.Errorf(
+			"byron transaction output amount %d exceeds maximum Lovelace value %d",
+			tmpData.Amount,
+			MaxLovelace,
+		)
 	}
 	o.OutputAmount = tmpData.Amount
 	if _, err := cbor.Decode(tmpData.WrappedAddress, &o.OutputAddress); err != nil {

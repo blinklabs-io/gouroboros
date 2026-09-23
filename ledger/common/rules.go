@@ -218,6 +218,25 @@ func UtxoValidateCurrentTreasuryValue(
 	return nil
 }
 
+// UtxoValidateProposalReturnAddressShape enforces the wire-level account
+// address shape for proposal return accounts, regardless of phase-2 validity.
+func UtxoValidateProposalReturnAddressShape(
+	tx Transaction,
+	_ uint64,
+	_ LedgerState,
+	_ ProtocolParameters,
+) error {
+	if tx == nil {
+		return nil
+	}
+	for _, proposal := range tx.ProposalProcedures() {
+		if err := CheckAccountAddress(proposal.RewardAccount()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UtxoValidationRuleGroup describes a consecutive group of transaction
 // validation rules with the same phase-2 validity scope. Construct groups with
 // AlwaysUtxoValidationRules or Phase2ValidUtxoValidationRules and flatten them
