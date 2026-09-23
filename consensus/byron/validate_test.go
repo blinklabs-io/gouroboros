@@ -20,7 +20,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -67,10 +66,20 @@ func testByronHeaderCbor(t *testing.T) []byte {
 	header := &byron.ByronMainBlockHeader{
 		ProtocolMagic: testByronProtocolMagicMainnet,
 	}
-	header.ExtraData.ExtraProof = []byte{}
+	initializeByronTestHeader(header)
 	headerCbor, err := cbor.Encode(header)
 	require.NoError(t, err)
 	return headerCbor
+}
+
+func initializeByronTestHeader(header *byron.ByronMainBlockHeader) {
+	header.BodyProof = []any{
+		[]any{uint64(0), make([]byte, 32), make([]byte, 32)},
+		[]any{}, []any{}, []any{},
+	}
+	header.ConsensusData.PubKey = make([]byte, byron.VerificationKeySize)
+	header.ExtraData.Attributes = map[any]any{}
+	header.ExtraData.ExtraProof = []byte{}
 }
 
 func testByronProxyInput(
@@ -87,8 +96,7 @@ func testByronProxyInput(
 	header := &byron.ByronMainBlockHeader{
 		ProtocolMagic: testByronProtocolMagicMainnet,
 	}
-	header.ExtraData.Attributes = map[any]any{}
-	header.ExtraData.ExtraProof = []byte{}
+	initializeByronTestHeader(header)
 	header.ConsensusData.BlockSig = []any{
 		uint64(byronSigTypeHeavy),
 		[]any{
@@ -2344,15 +2352,11 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 
 func parseSecurityParameterGenesis(t *testing.T, k int) byron.ByronGenesis {
 	t.Helper()
-	genesisJSON := fmt.Sprintf(
-		`{"protocolConsts":{"k":%d,"protocolMagic":%d}}`,
-		k,
-		testByronProtocolMagicMainnet,
-	)
 	genesis, err := byron.NewByronGenesisFromReader(
-		strings.NewReader(genesisJSON),
+		strings.NewReader(testByronGenesisJSON),
 	)
 	require.NoError(t, err)
+	genesis.ProtocolConsts.K = k
 	return genesis
 }
 
@@ -2360,6 +2364,29 @@ func TestNewByronConfigFromGenesisRejectsZeroSecurityParameter(t *testing.T) {
 	genesis := parseSecurityParameterGenesis(t, 0)
 	_, err := NewByronConfigFromGenesis(&genesis)
 	require.ErrorContains(t, err, "must be positive")
+}
+
+func TestNewByronConfigFromGenesisRejectsNegativeSlotDuration(t *testing.T) {
+	genesis := parseSecurityParameterGenesis(t, testByronSecurityParam)
+	genesis.BlockVersionData.SlotDuration = -1
+	_, err := NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "slot duration")
+}
+
+func TestNewByronConfigFromGenesisSlotDurationTimeLimit(t *testing.T) {
+	if strconv.IntSize < 64 {
+		t.Skip("time.Duration overflow boundary cannot be represented by int")
+	}
+	maxMilliseconds := math.MaxInt64 / int64(time.Millisecond)
+	genesis := parseSecurityParameterGenesis(t, testByronSecurityParam)
+	genesis.BlockVersionData.SlotDuration = int(maxMilliseconds)
+	config, err := NewByronConfigFromGenesis(&genesis)
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(maxMilliseconds)*time.Millisecond, config.SlotDuration)
+
+	genesis.BlockVersionData.SlotDuration = int(maxMilliseconds + 1)
+	_, err = NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "slot duration")
 }
 
 func TestNewByronConfigFromGenesisRejectsSecurityParameterOverflow(

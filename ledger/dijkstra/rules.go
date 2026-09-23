@@ -3284,6 +3284,11 @@ func UtxoValidateInsufficientCollateral(
 			totalCollateral.Add(totalCollateral, amount)
 		}
 	}
+	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+		if amount := collateralReturn.Amount(); amount != nil {
+			totalCollateral.Sub(totalCollateral, amount)
+		}
+	}
 	fee := tx.Fee()
 	if fee == nil {
 		fee = new(big.Int)
@@ -3390,7 +3395,9 @@ func UtxoValidateOutputTooSmallUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	var badOutputs []common.TransactionOutput
-	for _, tmpOutput := range dijkstraBatchView(tx).Outputs() {
+	for _, tmpOutput := range common.TransactionOutputsAndCollateralReturn(
+		dijkstraBatchView(tx),
+	) {
 		minCoin, err := MinCoinTxOut(tmpOutput, pp)
 		if err != nil {
 			return err
@@ -3447,7 +3454,9 @@ func UtxoValidateOutputTooBigUtxo(
 		return err
 	}
 	var badOutputs []common.TransactionOutput
-	for _, txOutput := range dijkstraBatchView(tx).Outputs() {
+	for _, txOutput := range common.TransactionOutputsAndCollateralReturn(
+		dijkstraBatchView(tx),
+	) {
 		outputVal, err := outputValue(txOutput)
 		if err != nil {
 			return err

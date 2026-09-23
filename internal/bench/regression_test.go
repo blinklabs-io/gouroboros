@@ -508,7 +508,16 @@ func TestRegressionCBOR(t *testing.T) {
 		// pre-SSC-validation-at-all 500. See
 		// TestByronEpochSscStateRealMainnet in ledger/byron for the
 		// opt-in hash check's own correctness evidence.
-		"Byron":   620,  // Baseline: 561
+		//
+		// Bumped from 620 to 706 on 2026-09-23: ByronTransaction.UnmarshalCBOR
+		// now decodes and validates every transaction witness eagerly
+		// (decodeByronWitness), instead of deferring that to the lazy
+		// Witnesses() accessor, so an unrecognized TxInWitness encoding
+		// fails the whole transaction rather than silently shrinking its
+		// exposed witness set (gouroboros#2361 review finding). That
+		// validation re-decodes each witness's tag-24 payload, which is
+		// the added allocation cost.
+		"Byron":   706,  // Baseline: 639
 		"Shelley": 485,  // Baseline: 441
 		"Allegra": 1180, // Baseline: 1072
 		"Mary":    1230, // Baseline: 1116
