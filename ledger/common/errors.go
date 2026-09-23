@@ -21,7 +21,21 @@ import (
 	"math/big"
 	"reflect"
 	"strings"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 )
+
+// OutsideForecastError reports a transaction whose validity upper bound
+// cannot be converted to time by the validation slot state.
+type OutsideForecastError struct {
+	cbor.StructAsArray
+	Type uint8
+	Slot uint64
+}
+
+func (e *OutsideForecastError) Error() string {
+	return fmt.Sprintf("OutsideForecast (Slot %d)", e.Slot)
+}
 
 // MissingDatumForSpendingScriptError reports a Plutus V1/V2 spending input
 // whose datum hash has no matching witness datum.

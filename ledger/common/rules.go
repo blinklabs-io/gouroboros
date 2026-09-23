@@ -33,6 +33,87 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
+const (
+	OutsideForecastTypeAlonzoBabbage uint8 = 18
+	OutsideForecastTypeConway        uint8 = 17
+	OutsideForecastTypeDijkstra      uint8 = 16
+)
+
+// ValidateOutsideForecast checks the top-level transaction and, when present,
+// each Dijkstra sub-transaction against the validation SlotState's forecast.
+func ValidateOutsideForecast(
+	tx Transaction,
+	_ uint64,
+	ls LedgerState,
+	failureType uint8,
+) error {
+	if tx == nil || ls == nil {
+		return nil
+	}
+	if err := validateOutsideForecastLevel(tx, tx.Witnesses(), ls, failureType); err != nil {
+		return err
+	}
+	bodies := SubTransactionBodiesFromTransaction(tx)
+	witnessSets := SubTransactionWitnessSetsFromTransaction(tx)
+	for i, body := range bodies {
+		if i >= len(witnessSets) {
+			return fmt.Errorf("sub-transaction %d has no witness set", i)
+		}
+		if err := validateOutsideForecastLevel(
+			body,
+			witnessSets[i],
+			ls,
+			failureType,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UtxoValidateCollateralKeyLocked applies the phase-2-gated collateral
+// key-lock predicate.
+func UtxoValidateCollateralKeyLocked(
+	tx Transaction,
+	_ uint64,
+	ls LedgerState,
+	_ ProtocolParameters,
+) error {
+	return ValidateCollateralKeyLocked(tx, ls)
+}
+
+// UtxoValidateOutsideForecast applies the Alonzo/Babbage OutsideForecast
+// predicate to redeemer-bearing transaction levels.
+func UtxoValidateOutsideForecast(
+	tx Transaction,
+	slot uint64,
+	ls LedgerState,
+	_ ProtocolParameters,
+) error {
+	return ValidateOutsideForecast(
+		tx,
+		slot,
+		ls,
+		OutsideForecastTypeAlonzoBabbage,
+	)
+}
+
+func validateOutsideForecastLevel(
+	body TransactionBody,
+	witnesses TransactionWitnessSet,
+	ls LedgerState,
+	failureType uint8,
+) error {
+	upperBound, present := TransactionValidityIntervalUpperBound(body)
+	if !present || !witnessSetHasRedeemers(witnesses) {
+		return nil
+	}
+	if _, err := ls.SlotToTime(upperBound); err != nil {
+		return &OutsideForecastError{Type: failureType, Slot: upperBound}
+	}
+	return nil
+}
+
 // UtxoValidationRuleFunc represents a function that validates a transaction
 // against a specific UTXO validation rule. Rules invoked by VerifyTransaction
 // receive a transaction-scoped cached ledger state; use UnwrapLedgerState

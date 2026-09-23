@@ -39,6 +39,21 @@ func productionRule(
 	return nil
 }
 
+func productionRuleByID(
+	t *testing.T,
+	id common.UtxoValidationRuleId,
+) common.UtxoValidationRuleFunc {
+	t.Helper()
+	descriptors := babbage.UtxoValidationRuleDescriptors()
+	for i, descriptor := range descriptors {
+		if descriptor.Id == id {
+			return babbage.UtxoValidationRules[i]
+		}
+	}
+	t.Fatalf("%s is not registered in babbage.UtxoValidationRules", id)
+	return nil
+}
+
 // collateralFixtureLedgerState holds the single collateral UTxO the fixtures
 // spend: 100 ADA at an enterprise address with a script payment credential,
 // which is the shape that wedged the node.
@@ -97,6 +112,7 @@ func collateralFixtureTx(
 			),
 		},
 		WitnessSet: wits,
+		TxIsValid:  true,
 	}
 }
 
@@ -123,11 +139,7 @@ func withSubTxRedeemers(tx *babbage.BabbageTransaction) *subTxCarrier {
 func TestCollateralKeyLockedOnlyForPhase2(t *testing.T) {
 	ls := collateralFixtureLedgerState(t)
 	pp := &babbage.BabbageProtocolParameters{}
-	rule := productionRule(
-		t,
-		"UtxoValidateCollateralVKeyWitnesses",
-		babbage.UtxoValidateCollateralVKeyWitnesses,
-	)
+	rule := productionRuleByID(t, common.UtxoValidationRuleCollateralKeyLocked)
 
 	t.Run("no phase-2 scripts: script collateral is accepted", func(t *testing.T) {
 		if err := rule(collateralFixtureTx(false, 0), 0, ls, pp); err != nil {
