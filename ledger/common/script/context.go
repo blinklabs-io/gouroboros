@@ -17,6 +17,7 @@ package script
 import (
 	"bytes"
 	"cmp"
+	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -26,9 +27,11 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 )
 
-// eraIdConway is the first era with strict validity upper bounds. Keep this
-// numeric boundary here to avoid importing era packages into common/script.
-const eraIdConway = 6
+// Era transaction type values avoid importing the ledger era packages here.
+const (
+	eraIdAlonzo = 4
+	eraIdConway = 6
+)
 
 type ScriptContext interface {
 	isScriptContext()
@@ -252,9 +255,20 @@ func NewTxInfoV1FromTransaction(
 		return TxInfoV1{}, err
 	}
 	tmpData := dataInfo(tx.Witnesses())
+	allowByronFiltering := tx.Type() == eraIdAlonzo
+	contextInputs, err := contextInputsForPlutus(
+		expandInputs(inputs, resolvedInputs), allowByronFiltering,
+	)
+	if err != nil {
+		return TxInfoV1{}, err
+	}
+	contextOutputs, err := contextOutputsForPlutus(tx.Outputs(), allowByronFiltering)
+	if err != nil {
+		return TxInfoV1{}, err
+	}
 	ret := TxInfoV1{
-		Inputs:       expandInputs(inputs, resolvedInputs),
-		Outputs:      collapseOutputs(tx.Produced()),
+		Inputs:       contextInputs,
+		Outputs:      contextOutputs,
 		Fee:          tx.Fee(),
 		Mint:         *assetMint,
 		ValidRange:   validityRange,
@@ -377,22 +391,35 @@ func NewTxInfoV2FromTransaction(
 		return TxInfoV2{}, err
 	}
 	tmpData := dataInfo(tx.Witnesses())
+	contextInputs, err := contextInputsForPlutus(
+		expandInputs(inputs, resolvedInputs), false,
+	)
+	if err != nil {
+		return TxInfoV2{}, err
+	}
+	contextReferenceInputs, err := contextInputsForPlutus(
+		expandInputs(SortInputs(tx.ReferenceInputs()), resolvedInputs), false,
+	)
+	if err != nil {
+		return TxInfoV2{}, err
+	}
+	contextOutputs, err := contextOutputsForPlutus(tx.Outputs(), false)
+	if err != nil {
+		return TxInfoV2{}, err
+	}
 	ret := TxInfoV2{
-		Inputs: expandInputs(inputs, resolvedInputs),
-		ReferenceInputs: expandInputs(
-			SortInputs(tx.ReferenceInputs()),
-			resolvedInputs,
-		),
-		Outputs:      collapseOutputs(tx.Produced()),
-		Fee:          tx.Fee(),
-		Mint:         *assetMint,
-		ValidRange:   validityRange,
-		Certificates: certs,
-		Withdrawals:  withdrawals,
-		Signatories:  signatoriesInfo(tx.RequiredSigners()),
-		Redeemers:    redeemers,
-		Data:         tmpData,
-		Id:           tx.Id(),
+		Inputs:          contextInputs,
+		ReferenceInputs: contextReferenceInputs,
+		Outputs:         contextOutputs,
+		Fee:             tx.Fee(),
+		Mint:            *assetMint,
+		ValidRange:      validityRange,
+		Certificates:    certs,
+		Withdrawals:     withdrawals,
+		Signatories:     signatoriesInfo(tx.RequiredSigners()),
+		Redeemers:       redeemers,
+		Data:            tmpData,
+		Id:              tx.Id(),
 	}
 	return ret, nil
 }
@@ -477,13 +504,26 @@ func NewTxInfoV3FromTransaction(
 		return TxInfoV3{}, err
 	}
 	tmpData := dataInfo(tx.Witnesses())
+	contextInputs, err := contextInputsForPlutus(
+		expandInputs(inputs, resolvedInputs), false,
+	)
+	if err != nil {
+		return TxInfoV3{}, err
+	}
+	contextReferenceInputs, err := contextInputsForPlutus(
+		expandInputs(SortInputs(tx.ReferenceInputs()), resolvedInputs), false,
+	)
+	if err != nil {
+		return TxInfoV3{}, err
+	}
+	contextOutputs, err := contextOutputsForPlutus(tx.Outputs(), false)
+	if err != nil {
+		return TxInfoV3{}, err
+	}
 	ret := TxInfoV3{
-		Inputs: expandInputs(inputs, resolvedInputs),
-		ReferenceInputs: expandInputs(
-			SortInputs(tx.ReferenceInputs()),
-			resolvedInputs,
-		),
-		Outputs:            collapseOutputs(tx.Produced()),
+		Inputs:             contextInputs,
+		ReferenceInputs:    contextReferenceInputs,
+		Outputs:            contextOutputs,
 		Fee:                tx.Fee(),
 		Mint:               *assetMint,
 		ValidRange:         validityRange,
@@ -648,12 +688,42 @@ func expandInputs(
 	return ret
 }
 
-func collapseOutputs(outputs []lcommon.Utxo) []lcommon.TransactionOutput {
-	ret := make([]lcommon.TransactionOutput, len(outputs))
-	for i, item := range outputs {
-		ret[i] = item.Output
+var errByronTxOutInPlutusContext = errors.New(
+	"Byron TxOut cannot be represented in Plutus context",
+)
+
+func contextInputsForPlutus(
+	inputs []ResolvedInput,
+	filterByron bool,
+) ([]ResolvedInput, error) {
+	ret := make([]ResolvedInput, 0, len(inputs))
+	for _, input := range inputs {
+		if input.Output != nil && input.Output.Address().Type() == lcommon.AddressTypeByron {
+			if filterByron {
+				continue
+			}
+			return nil, errByronTxOutInPlutusContext
+		}
+		ret = append(ret, input)
 	}
-	return ret
+	return ret, nil
+}
+
+func contextOutputsForPlutus(
+	outputs []lcommon.TransactionOutput,
+	filterByron bool,
+) ([]lcommon.TransactionOutput, error) {
+	ret := make([]lcommon.TransactionOutput, 0, len(outputs))
+	for _, output := range outputs {
+		if output != nil && output.Address().Type() == lcommon.AddressTypeByron {
+			if filterByron {
+				continue
+			}
+			return nil, errByronTxOutInPlutusContext
+		}
+		ret = append(ret, output)
+	}
+	return ret, nil
 }
 
 func sortedRedeemerKeys(

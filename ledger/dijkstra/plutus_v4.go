@@ -44,18 +44,6 @@ func dijkstraPlutusV4Context(
 	if err != nil {
 		return nil, err
 	}
-	if guarding, ok := purpose.(script.ScriptPurposeGuarding); ok &&
-		level.subTxIndex == nil {
-		topTxInfo, err := dijkstraTopTxInfoV4(level, guarding.Guard)
-		if err != nil {
-			return nil, err
-		}
-		scriptInfo = data.NewConstr(
-			6,
-			data.NewInteger(new(big.Int).SetUint64(uint64(key.Index))),
-			data.NewConstr(0, topTxInfo),
-		)
-	}
 	_ = purposeData // The purpose is represented in txInfoRedeemers.
 	return data.NewConstr(
 		0,
@@ -136,7 +124,7 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 	return data.NewConstr(
 		0,
 		data.NewByteString(level.tx.Id().Bytes()),
-		dijkstraOptionalIndex(level.subTxIndex),
+		data.NewConstr(1),
 		data.NewList(inputs...),
 		data.NewList(referenceInputs...),
 		data.NewList(outputs...),
@@ -879,16 +867,6 @@ func dijkstraSortKeyV4(d data.PlutusData) []byte {
 
 func dijkstraCompareDataV4(a, b data.PlutusData) int {
 	return bytes.Compare(dijkstraSortKeyV4(a), dijkstraSortKeyV4(b))
-}
-
-func dijkstraOptionalIndex(index *uint32) data.PlutusData {
-	if index == nil {
-		return data.NewConstr(1)
-	}
-	return data.NewConstr(
-		0,
-		data.NewInteger(new(big.Int).SetUint64(uint64(*index))),
-	)
 }
 
 func dijkstraInputsV4(
