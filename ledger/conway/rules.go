@@ -4652,7 +4652,6 @@ func UtxoValidateCCVotingRestrictions(
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
-
 ) error {
 	if _, ok := pp.(*ConwayProtocolParameters); !ok {
 		return errors.New("pparams are not expected type")
@@ -4733,8 +4732,7 @@ func UtxoValidateUnelectedCommitteeVoters(
 		return nil
 	}
 
-	state := common.UnwrapLedgerState(ls)
-	committeeState, ok := state.(common.CommitteeCredentialState)
+	committeeState, ok := common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
 	if !ok {
 		return CommitteeStateUnavailableError{}
 	}
@@ -4745,7 +4743,7 @@ func UtxoValidateUnelectedCommitteeVoters(
 	if !available {
 		return CommitteeStateUnavailableError{}
 	}
-	votingState, ok := state.(common.CommitteeVotingState)
+	votingState, ok := common.UnwrapLedgerState(ls).(common.CommitteeVotingState)
 	if !ok {
 		return CommitteeStateUnavailableError{}
 	}
