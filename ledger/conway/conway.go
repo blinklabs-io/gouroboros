@@ -471,6 +471,9 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 5); err != nil {
+		return err
+	}
 	// Conway (protocol versions 9-11) tolerates duplicate members in the
 	// witness-set sets that cardano-ledger decodes via Set/Map.fromList: vkey
 	// witnesses, bootstrap witnesses, native scripts, and plutus data all
@@ -665,6 +668,16 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	var tmp tConwayTransactionBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	for idx := range tmp.TxOutputs {
+		if err := common.ValidateNativeScriptOutputConstructor(&tmp.TxOutputs[idx], 5); err != nil {
+			return fmt.Errorf("transaction output %d: %w", idx, err)
+		}
+	}
+	if tmp.TxCollateralReturn != nil {
+		if err := common.ValidateNativeScriptOutputConstructor(tmp.TxCollateralReturn, 5); err != nil {
+			return fmt.Errorf("collateral return: %w", err)
+		}
 	}
 	if tmp.TxCurrentTreasuryValue < 0 {
 		return errors.New("current treasury value must not be negative")
