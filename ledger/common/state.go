@@ -199,6 +199,15 @@ type CommitteeCredentialState interface {
 	CommitteeHotCredentialMember(Credential) (*CommitteeMember, error)
 }
 
+// CommitteeVotingState is the optional exact-identity capability used to
+// validate elected committee voters. It distinguishes enacted committee
+// credentials from members that appear only in pending UpdateCommittee
+// proposals, and preserves the credential tags on both hot and cold keys.
+type CommitteeVotingState interface {
+	CommitteeHotCredentialColdCredentials(Credential) ([]Credential, error)
+	CommitteeCredentialIsElected(Credential) (bool, error)
+}
+
 // DRepRegistration is the ledger state held for a registered DRep.
 type DRepRegistration struct {
 	// Credential identifies the DRep by its full credential, credential

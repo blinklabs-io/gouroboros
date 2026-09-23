@@ -171,6 +171,7 @@ func TestDijkstraGovernanceValidationRules(t *testing.T) {
 		"ledger/dijkstra.UtxoValidateBootstrapVotingRestrictions",
 		"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
 		"ledger/dijkstra.UtxoValidateCCVotingRestrictions",
+		"ledger/dijkstra.UtxoValidateUnelectedCommitteeVoters",
 	}
 
 	previous := -1
@@ -255,6 +256,7 @@ func TestDijkstraValidationRulePhasesAreComplete(t *testing.T) {
 		common.UtxoValidationRuleBootstrapVotingRestrictions: {},
 		common.UtxoValidationRuleStakePoolVotingRestrictions: {},
 		common.UtxoValidationRuleCCVotingRestrictions:        {},
+		common.UtxoValidationRuleUnelectedCommitteeVoters:    {},
 		common.UtxoValidationRuleRefScriptSizePerTx:          {},
 		common.UtxoValidationRulePoolCertificates:            {},
 	}

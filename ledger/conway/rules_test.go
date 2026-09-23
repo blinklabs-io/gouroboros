@@ -93,6 +93,8 @@ type committeeCredentialLedgerState struct {
 	availabilityErr error
 	coldLookup      func(common.Credential) (*common.CommitteeMember, error)
 	hotLookup       func(common.Credential) (*common.CommitteeMember, error)
+	hotColdLookup   func(common.Credential) ([]common.Credential, error)
+	electedLookup   func(common.Credential) (bool, error)
 }
 
 type erroringCommitteeCredentialLedgerState struct {
@@ -148,6 +150,24 @@ func (s committeeCredentialLedgerState) CommitteeHotCredentialMember(
 	return s.hotLookup(credential)
 }
 
+func (s committeeCredentialLedgerState) CommitteeHotCredentialColdCredentials(
+	credential common.Credential,
+) ([]common.Credential, error) {
+	if s.hotColdLookup == nil {
+		return nil, nil
+	}
+	return s.hotColdLookup(credential)
+}
+
+func (s committeeCredentialLedgerState) CommitteeCredentialIsElected(
+	credential common.Credential,
+) (bool, error) {
+	if s.electedLookup == nil {
+		return false, nil
+	}
+	return s.electedLookup(credential)
+}
+
 func authoritativeLegacyCommitteeState(
 	ls common.LedgerState,
 ) common.LedgerState {
@@ -188,12 +208,12 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 	stakeKeyHash := common.Blake2b224Hash([]byte("withdrawal-stake-key"))
 	rewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
 	tx := &conway.ConwayTransaction{
+		TxIsValid: true,
 		Body: conway.ConwayTransactionBody{
 			TxWithdrawals: map[*common.Address]uint64{
 				&rewardAddr: 1_000_000,
 			},
 		},
-		TxIsValid: true,
 	}
 	baseState := mockledger.NewLedgerStateBuilder().
 		WithRewardAccountBalance(stakeKeyHash, 1_000_000).
@@ -3345,7 +3365,7 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 		assert.Contains(t, ccErr.Restriction, "UpdateCommittee")
 	})
 
-	t.Run("pre-PV11 allows CC to vote on NoConfidence", func(t *testing.T) {
+	t.Run("pre-PV11 rejects CC vote on NoConfidence", func(t *testing.T) {
 		voter := &common.Voter{
 			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
 			Hash: common.Blake2b224{0x50},
@@ -3360,7 +3380,48 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 			},
 		}
 		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, prePv11Params)
-		assert.NoError(t, err, "pre-PV11 should not enforce CC voting restrictions at ledger level")
+		var ccErr conway.CCVotingRestrictionError
+		require.ErrorAs(t, err, &ccErr)
+		assert.Contains(t, ccErr.Restriction, "NoConfidence")
+	})
+
+	t.Run("pre-PV11 rejects CC vote on UpdateCommittee", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+			Hash: common.Blake2b224{0x51},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&updateCommitteeActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, prePv11Params)
+		var ccErr conway.CCVotingRestrictionError
+		require.ErrorAs(t, err, &ccErr)
+		assert.Contains(t, ccErr.Restriction, "UpdateCommittee")
+	})
+
+	t.Run("pre-PV11 permits CC vote on allowed action", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x52},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&infoActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		require.NoError(t, conway.UtxoValidateCCVotingRestrictions(
+			tx, testSlot, testLedgerState, prePv11Params,
+		))
 	})
 
 	t.Run("nil action ID returns error", func(t *testing.T) {
@@ -3384,6 +3445,59 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 		assert.True(t, errors.As(err, &ccErr))
 		assert.Contains(t, ccErr.Restriction, "nil action ID")
 	})
+}
+
+func TestUtxoValidateUnelectedCommitteeVoters(t *testing.T) {
+	hotHash := common.Blake2b224{0x41}
+	cold := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x42},
+	}
+	hot := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hotHash,
+	}
+	voter := &common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		Hash: hotHash,
+	}
+	action := common.GovActionId{TransactionId: common.Blake2b256{0x43}}
+	tx := &conway.ConwayTransaction{
+		TxIsValid: true,
+		Body: conway.ConwayTransactionBody{
+			TxVotingProcedures: common.VotingProcedures{
+				voter: {&action: common.VotingProcedure{Vote: 1}},
+			},
+		},
+	}
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11},
+	}
+	state := committeeCredentialLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		available:   true,
+		hotColdLookup: func(credential common.Credential) ([]common.Credential, error) {
+			if credential.CredType != hot.CredType ||
+				credential.Credential != hot.Credential {
+				t.Fatalf("unexpected hot credential: %+v", credential)
+			}
+			return []common.Credential{cold}, nil
+		},
+		electedLookup: func(credential common.Credential) (bool, error) {
+			return credential.CredType == cold.CredType &&
+				credential.Credential == cold.Credential, nil
+		},
+	}
+
+	require.NoError(t, conway.UtxoValidateUnelectedCommitteeVoters(tx, 0, state, pp))
+
+	state.electedLookup = func(common.Credential) (bool, error) { return false, nil }
+	var unelected conway.UnelectedCommitteeVoterError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateUnelectedCommitteeVoters(tx, 0, state, pp),
+		&unelected,
+	)
 }
 
 func TestUtxoValidateCommitteeCertificates(t *testing.T) {
@@ -3622,6 +3736,68 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 			ls,
 			&conway.ConwayProtocolParameters{},
 		))
+	})
+}
+
+func TestUtxoValidateCommitteeCertificatesUsesSequentialState(t *testing.T) {
+	coldHash := common.Blake2b224Hash([]byte("committee-sequential-cold"))
+	cold := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: coldHash,
+	}
+	hot := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("committee-sequential-hot")),
+	}
+	certificate := func(cert common.Certificate) common.CertificateWrapper {
+		return common.CertificateWrapper{Certificate: cert}
+	}
+	authorize := func() common.Certificate {
+		return &common.AuthCommitteeHotCertificate{
+			CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+			ColdCredential: cold,
+			HotCredential:  hot,
+		}
+	}
+	resign := func() common.Certificate {
+		return &common.ResignCommitteeColdCertificate{
+			CertType:       uint(common.CertificateTypeResignCommitteeCold),
+			ColdCredential: cold,
+		}
+	}
+	ledgerState := authoritativeLegacyCommitteeState(
+		mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+			[]common.CommitteeMember{{ColdKey: coldHash, ExpiryEpoch: 100}},
+		).Build(),
+	)
+	validate := func(certs ...common.Certificate) error {
+		tx := &conway.ConwayTransaction{
+			TxIsValid: true,
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: make([]common.CertificateWrapper, 0, len(certs)),
+			},
+		}
+		for _, cert := range certs {
+			tx.Body.TxCertificates = append(tx.Body.TxCertificates, certificate(cert))
+		}
+		return conway.UtxoValidateCommitteeCertificates(
+			tx, 0, ledgerState, &conway.ConwayProtocolParameters{},
+		)
+	}
+
+	t.Run("resign then authorize rejects", func(t *testing.T) {
+		var err conway.ResignedCommitteeMemberHotKeyError
+		require.ErrorAs(t, validate(resign(), authorize()), &err)
+	})
+	t.Run("resign then resign rejects", func(t *testing.T) {
+		var err conway.ResignedCommitteeMemberError
+		require.ErrorAs(t, validate(resign(), resign()), &err)
+	})
+	t.Run("authorize then resign remains valid", func(t *testing.T) {
+		require.NoError(t, validate(authorize(), resign()))
+	})
+	t.Run("authorize then authorize remains valid", func(t *testing.T) {
+		require.NoError(t, validate(authorize(), authorize()))
 	})
 }
 

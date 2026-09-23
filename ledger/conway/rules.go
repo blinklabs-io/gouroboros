@@ -268,6 +268,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateCCVotingRestrictions,
 	},
 	{
+		Id:        common.UtxoValidationRuleUnelectedCommitteeVoters,
+		Validator: UtxoValidateUnelectedCommitteeVoters,
+	},
+	{
 		Id:        common.UtxoValidationRuleRefScriptSizePerTx,
 		Validator: UtxoValidateRefScriptSizePerTx,
 	},
@@ -327,7 +331,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateCommitteeCertificates, UtxoValidateUnknownVoters,
 		UtxoValidateUnknownGovActionIds, UtxoValidateVotingOnExpiredGovAction,
 		UtxoValidateBootstrapVotingRestrictions, UtxoValidateStakePoolVotingRestrictions,
-		UtxoValidateCCVotingRestrictions, UtxoValidateRefScriptSizePerTx,
+		UtxoValidateCCVotingRestrictions, UtxoValidateUnelectedCommitteeVoters,
+		UtxoValidateRefScriptSizePerTx,
 		UtxoValidatePoolCertificates,
 	),
 )
@@ -3993,6 +3998,7 @@ func UtxoValidateCommitteeCertificates(
 	if !tx.IsValid() {
 		return nil
 	}
+	committeeMembers := make(map[credOverlayKey]*common.CommitteeMember)
 	var committeeState common.CommitteeCredentialState
 	committeeStateLoaded := false
 	committeeMember := func(
@@ -4033,6 +4039,17 @@ func UtxoValidateCommitteeCertificates(
 				Err:              err,
 			}
 		}
+		key := credKey(coldCredential)
+		if cached, ok := committeeMembers[key]; ok {
+			return cached, nil
+		}
+		if member != nil {
+			// Keep transaction-local certificate effects separate from the
+			// snapshot returned by the caller's ledger state.
+			memberCopy := *member
+			member = &memberCopy
+		}
+		committeeMembers[key] = member
 		return member, nil
 	}
 
@@ -4056,6 +4073,10 @@ func UtxoValidateCommitteeCertificates(
 					ColdCredential: c.ColdCredential,
 				}
 			}
+			memberCopy := *member
+			memberCopy.HotKey = &c.HotCredential.Credential
+			memberCopy.Resigned = false
+			committeeMembers[credKey(c.ColdCredential)] = &memberCopy
 
 		case *common.ResignCommitteeColdCertificate:
 			member, err := committeeMember(c.ColdCredential)
@@ -4069,6 +4090,15 @@ func UtxoValidateCommitteeCertificates(
 					Operation:      "resign",
 				}
 			}
+			if member.Resigned {
+				return ResignedCommitteeMemberError{
+					ColdCredential: c.ColdCredential,
+				}
+			}
+			memberCopy := *member
+			memberCopy.HotKey = nil
+			memberCopy.Resigned = true
+			committeeMembers[credKey(c.ColdCredential)] = &memberCopy
 		}
 	}
 	return nil
@@ -4559,7 +4589,8 @@ func UtxoValidateStakePoolVotingRestrictions(
 
 // UtxoValidateCCVotingRestrictions validates CC voting restrictions per cardano-ledger spec.
 // Constitutional Committee members cannot vote on NoConfidence or UpdateCommittee actions.
-// Enforced at ledger level for PV11+ (ProtocolVersionVanRossem).
+// These action restrictions apply at every Conway protocol version. PV11 adds
+// the separate UnelectedCommitteeVoters membership restriction.
 //
 // The action type is resolved from the transaction's own proposals when the
 // vote names an action that transaction proposes, so a same-transaction
@@ -4570,16 +4601,9 @@ func UtxoValidateCCVotingRestrictions(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	conwayPp, ok := pp.(*ConwayProtocolParameters)
-	if !ok {
+	if _, ok := pp.(*ConwayProtocolParameters); !ok {
 		return errors.New("pparams are not expected type")
 	}
-	if !common.IsProtocolVersionAtLeast(
-		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
-	) {
-		return nil // Pre-PV11: checked by mempool sanitizer only
-	}
-
 	votes := tx.VotingProcedures()
 	if len(votes) == 0 {
 		return nil
@@ -4627,6 +4651,130 @@ func UtxoValidateCCVotingRestrictions(
 		}
 	}
 
+	return nil
+}
+
+// UtxoValidateUnelectedCommitteeVoters enforces the PV11+ elected committee
+// membership restriction. Committee voter existence and action restrictions
+// are validated separately by UtxoValidateUnknownVoters and
+// UtxoValidateCCVotingRestrictions.
+func UtxoValidateUnelectedCommitteeVoters(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	conwayPp, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	if conwayPp.ProtocolVersion.Major < common.ProtocolVersionVanRossem {
+		return nil
+	}
+
+	votes := tx.VotingProcedures()
+	if len(votes) == 0 {
+		return nil
+	}
+
+	state := common.UnwrapLedgerState(ls)
+	committeeState, ok := state.(common.CommitteeCredentialState)
+	if !ok {
+		return CommitteeStateUnavailableError{}
+	}
+	available, err := committeeState.CommitteeStateAvailable()
+	if err != nil {
+		return err
+	}
+	if !available {
+		return CommitteeStateUnavailableError{}
+	}
+	votingState, ok := state.(common.CommitteeVotingState)
+	if !ok {
+		return CommitteeStateUnavailableError{}
+	}
+
+	voters := make([]*common.Voter, 0, len(votes))
+	for voter := range votes {
+		if voter == nil || (voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
+			voter.Type != common.VoterTypeConstitutionalCommitteeHotScriptHash) {
+			continue
+		}
+		voters = append(voters, voter)
+	}
+	slices.SortFunc(voters, func(a, b *common.Voter) int {
+		if a.Type != b.Type {
+			return int(a.Type) - int(b.Type)
+		}
+		return bytes.Compare(a.Hash[:], b.Hash[:])
+	})
+
+	for _, voter := range voters {
+		hotType := uint(common.CredentialTypeAddrKeyHash)
+		if voter.Type == common.VoterTypeConstitutionalCommitteeHotScriptHash {
+			hotType = common.CredentialTypeScriptHash
+		}
+		hotCredential := common.Credential{
+			CredType:   hotType,
+			Credential: common.Blake2b224(voter.Hash),
+		}
+		lookupError := func(err error) error {
+			return CommitteeMemberLookupError{
+				Credential:       hotCredential.Credential,
+				MemberCredential: hotCredential,
+				Err:              err,
+			}
+		}
+		coldCredentials, err := votingState.CommitteeHotCredentialColdCredentials(
+			hotCredential,
+		)
+		if err != nil {
+			return lookupError(err)
+		}
+		credentialKey := func(credential common.Credential) string {
+			return fmt.Sprintf("%d:%x", credential.CredType, credential.Credential)
+		}
+		elected := make(map[string]struct{}, len(coldCredentials))
+		for _, coldCredential := range coldCredentials {
+			isElected, err := votingState.CommitteeCredentialIsElected(
+				coldCredential,
+			)
+			if err != nil {
+				return lookupError(err)
+			}
+			if isElected {
+				elected[credentialKey(coldCredential)] = struct{}{}
+			}
+		}
+		for _, cert := range tx.Certificates() {
+			switch c := cert.(type) {
+			case *common.AuthCommitteeHotCertificate:
+				if credentialKey(c.HotCredential) == credentialKey(hotCredential) {
+					isElected, err := votingState.CommitteeCredentialIsElected(
+						c.ColdCredential,
+					)
+					if err != nil {
+						return lookupError(err)
+					}
+					if isElected {
+						elected[credentialKey(c.ColdCredential)] = struct{}{}
+					} else {
+						delete(elected, credentialKey(c.ColdCredential))
+					}
+				} else {
+					delete(elected, credentialKey(c.ColdCredential))
+				}
+			case *common.ResignCommitteeColdCertificate:
+				delete(elected, credentialKey(c.ColdCredential))
+			}
+		}
+		if len(elected) == 0 {
+			return UnelectedCommitteeVoterError{Voter: *voter}
+		}
+	}
 	return nil
 }
 

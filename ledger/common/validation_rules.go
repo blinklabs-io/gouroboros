@@ -83,6 +83,7 @@ const (
 	UtxoValidationRuleBootstrapVotingRestrictions  UtxoValidationRuleId = "bootstrap-voting-restrictions"
 	UtxoValidationRuleStakePoolVotingRestrictions  UtxoValidationRuleId = "stake-pool-voting-restrictions"
 	UtxoValidationRuleCCVotingRestrictions         UtxoValidationRuleId = "constitutional-committee-voting-restrictions"
+	UtxoValidationRuleUnelectedCommitteeVoters     UtxoValidationRuleId = "unelected-committee-voters"
 	UtxoValidationRuleRefScriptSizePerTx           UtxoValidationRuleId = "reference-script-size-per-transaction"
 	UtxoValidationRuleRequiredRedeemers            UtxoValidationRuleId = "required-redeemers"
 	UtxoValidationRulePoolCertificates             UtxoValidationRuleId = "pool-certificates"
