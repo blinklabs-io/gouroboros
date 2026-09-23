@@ -16,7 +16,11 @@ package byron
 
 import (
 	"crypto/ed25519"
+	"math/big"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // TestVerifyEd25519StaysPermissive is the guard against a well-meaning sweep.
@@ -63,4 +67,85 @@ func TestVerifyEd25519AcceptsHonestSignature(t *testing.T) {
 	if verifyEd25519(verificationKey, []byte("a different payload"), sig) {
 		t.Error("accepted a Byron signature over a different payload")
 	}
+}
+
+func TestVerifyEd25519ReducesSModuloOrder(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := []byte("Byron signature scalar reduction")
+	sig := ed25519.Sign(priv, msg)
+	order, ok := new(big.Int).SetString(
+		"7237005577332262213973186563042994240857116359379907606001950938285454250989",
+		10,
+	)
+	if !ok {
+		t.Fatal("parse Ed25519 group order")
+	}
+	scalar := littleEndianInt(sig[32:])
+	scalar.Add(scalar, order)
+	copy(sig[32:], intLittleEndian(scalar, 32))
+	if !verifyEd25519(append(pub, make([]byte, 32)...), msg, sig) {
+		t.Fatal("Byron verifier rejected a valid signature with S + L")
+	}
+}
+
+func TestByronTransactionVKeyWitnessUsesLegacyVerifier(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := &ByronTransaction{
+		Body: ByronTransactionBody{
+			TxInputs:   []ByronTransactionInput{},
+			TxOutputs:  []ByronTransactionOutput{},
+			Attributes: cbor.RawMessage{0xa0},
+		},
+	}
+	txHash := tx.Hash()
+	sig := ed25519.Sign(priv, txHash[:])
+	order, ok := new(big.Int).SetString(
+		"7237005577332262213973186563042994240857116359379907606001950938285454250989",
+		10,
+	)
+	if !ok {
+		t.Fatal("parse Ed25519 group order")
+	}
+	scalar := littleEndianInt(sig[32:])
+	scalar.Add(scalar, order)
+	copy(sig[32:], intLittleEndian(scalar, 32))
+	inner, err := cbor.Encode([]any{pub, sig})
+	if err != nil {
+		t.Fatal(err)
+	}
+	witness, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value cbor.Value
+	if err := value.UnmarshalCBOR(witness); err != nil {
+		t.Fatal(err)
+	}
+	tx.Twit = []cbor.Value{value}
+	if err := common.ValidateVKeyWitnesses(tx); err != nil {
+		t.Fatalf("Byron transaction rejected S + L witness: %v", err)
+	}
+}
+
+func littleEndianInt(encoded []byte) *big.Int {
+	be := make([]byte, len(encoded))
+	for i := range encoded {
+		be[len(encoded)-1-i] = encoded[i]
+	}
+	return new(big.Int).SetBytes(be)
+}
+
+func intLittleEndian(value *big.Int, length int) []byte {
+	be := value.Bytes()
+	out := make([]byte, length)
+	for i := 0; i < len(be) && i < length; i++ {
+		out[i] = be[len(be)-1-i]
+	}
+	return out
 }

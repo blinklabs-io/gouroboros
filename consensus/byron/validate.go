@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ed25519byron"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"golang.org/x/crypto/blake2b"
@@ -419,7 +420,7 @@ func (v *HeaderValidator) validateSimpleSignature(
 		// accepts proofs libsodium rejects, and Byron blocks are immutable history, so
 		// routing these through internal/ed25519strict would reject chain the node
 		// accepts. Do not "fix" these to match the non-Byron boundaries.
-		valid := ed25519.Verify(
+		valid := ed25519byron.Verify(
 			input.IssuerPubKey,
 			input.HeaderCbor,
 			input.BlockSignature,
@@ -446,7 +447,7 @@ func (v *HeaderValidator) validateSimpleSignature(
 	// ed25519-donna reference accepts small-order public and R points, and
 	// tightening immutable Byron history to the non-Byron criteria would break
 	// sync from genesis. Do not route this through internal/ed25519strict.
-	valid := ed25519.Verify(
+	valid := ed25519byron.Verify(
 		input.IssuerPubKey,
 		signed,
 		input.BlockSignature,
@@ -713,7 +714,7 @@ func (v *HeaderValidator) validateProxySignature(
 	// path. Its ed25519-donna reference accepts small-order public and R points,
 	// and tightening immutable Byron history to the non-Byron criteria would
 	// break sync from genesis. Do not route this through internal/ed25519strict.
-	valid := ed25519.Verify(delegatePubKey, signedBuf, blockSig)
+	valid := ed25519byron.Verify(delegatePubKey, signedBuf, blockSig)
 	if !valid {
 		return fmt.Errorf(
 			"block signature verification failed at slot %d, block %d (proxy signature, type %d)",

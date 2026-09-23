@@ -22,6 +22,7 @@ import (
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ed25519byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
@@ -506,6 +507,17 @@ func (ByronTransaction) Type() int {
 
 func (t *ByronTransaction) Hash() common.Blake2b256 {
 	return t.Id()
+}
+
+// VerifyByronVKeyWitness applies the historical Byron signature rules to a
+// legacy transaction witness. Bootstrap witnesses remain on the strict
+// Cardano DSIGN path in ledger/common.
+func (t *ByronTransaction) VerifyByronVKeyWitness(
+	pubKey,
+	sig,
+	msg []byte,
+) bool {
+	return ed25519byron.Verify(pubKey, msg, sig)
 }
 
 func (t *ByronTransaction) Id() common.Blake2b256 {

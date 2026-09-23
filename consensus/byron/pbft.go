@@ -23,6 +23,7 @@ import (
 	"math/bits"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ed25519byron"
 	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -187,7 +188,7 @@ func validatePBFTDelegateBlockSignature(
 	signed = append(signed, byronSignTagMainBlockHeavy)
 	signed = append(signed, protocolMagicCbor...)
 	signed = append(signed, toSign...)
-	if !ed25519.Verify(
+	if !ed25519byron.Verify(
 		ed25519.PublicKey(delegateKey[:ed25519.PublicKeySize]),
 		signed,
 		blockSignature,

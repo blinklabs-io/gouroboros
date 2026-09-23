@@ -46,7 +46,15 @@ func ValidateVKeyWitnesses(tx Transaction) error {
 	msg := txHash[:]
 	if w != nil {
 		for _, vw := range w.Vkey() {
-			if err := VerifyVKeySignature(vw.Vkey, vw.Signature, msg); err != nil {
+			var err error
+			if verifier, ok := tx.(ByronVKeyWitnessVerifier); ok {
+				if !verifier.VerifyByronVKeyWitness(vw.Vkey, vw.Signature, msg) {
+					err = errors.New("Byron signature verification failed")
+				}
+			} else {
+				err = VerifyVKeySignature(vw.Vkey, vw.Signature, msg)
+			}
+			if err != nil {
 				return NewValidationError(
 					ValidationErrorTypeTransaction,
 					"invalid vkey signature",
@@ -57,6 +65,13 @@ func ValidateVKeyWitnesses(tx Transaction) error {
 		}
 	}
 	return nil
+}
+
+// ByronVKeyWitnessVerifier marks transaction eras whose legacy vkey witnesses
+// use Byron's historical Ed25519 verification rules. Other eras continue to
+// use VerifyVKeySignature and the stricter Cardano DSIGN criteria.
+type ByronVKeyWitnessVerifier interface {
+	VerifyByronVKeyWitness(pubKey, sig, msg []byte) bool
 }
 
 // computeByronAddressRoot computes the address root for a Byron address
