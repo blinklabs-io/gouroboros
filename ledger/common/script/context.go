@@ -689,7 +689,7 @@ func expandInputs(
 }
 
 var errByronTxOutInPlutusContext = errors.New(
-	"Byron TxOut cannot be represented in Plutus context",
+	"cannot represent a Byron TxOut in Plutus context",
 )
 
 func contextInputsForPlutus(

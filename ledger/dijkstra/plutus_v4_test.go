@@ -496,12 +496,12 @@ func TestDijkstraTxInfoV4SubTxIndexIsAlwaysNothing(t *testing.T) {
 	for _, level := range levels {
 		infoData, err := dijkstraTxInfoV4(level)
 		require.NoError(t, err)
-		info := requireDijkstraV4Constr(t, infoData, 0, dijkstraTxInfoV4FieldCount)
-		requireDijkstraV4Constr(t, info.Fields[dijkstraTxInfoV4SubTxIndex], 1, 0)
+		info := requireDijkstraV4Constr(t, infoData, 0, 19)
+		requireDijkstraV4Constr(t, info.Fields[1], 1, 0)
 	}
 }
 
-func TestDijkstraPlutusV4GuardingTopTxInfo(t *testing.T) {
+func TestDijkstraPlutusV4GuardingTopTxInfoIsAlwaysNothing(t *testing.T) {
 	guard := common.Credential{
 		CredType: common.CredentialTypeScriptHash,
 	}
