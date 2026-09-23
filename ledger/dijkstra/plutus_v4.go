@@ -1173,6 +1173,7 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 		deposits = b.TxDirectDeposits
 		intervals = b.TxBalanceIntervals
 		guardSet = b.TxGuards
+		required = b.TxRequiredTopLevelGuards
 	case *DijkstraSubTransactionBody:
 		deposits = b.TxDirectDeposits
 		intervals = b.TxAccountBalanceIntervals

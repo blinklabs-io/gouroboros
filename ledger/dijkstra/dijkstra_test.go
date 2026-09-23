@@ -1201,6 +1201,39 @@ func TestDijkstraTransactionBodyOmitsNilAccountBalanceIntervalsField(t *testing.
 	require.False(t, present, "key 26 should be omitted when the field is nil")
 }
 
+func TestDijkstraTransactionBodyRequiredTopLevelGuards(t *testing.T) {
+	guard := testGuardCredential()
+	body := DijkstraTransactionBody{
+		TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{&guard: nil},
+	}
+	encoded, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	require.Contains(t, fields, uint(24))
+
+	decoded := DijkstraTransactionBody{}
+	require.NoError(t, decoded.UnmarshalCBOR(encoded))
+	require.Len(t, decoded.TxRequiredTopLevelGuards, 1)
+	for _, datum := range decoded.TxRequiredTopLevelGuards {
+		require.Nil(t, datum)
+	}
+
+	empty, err := cbor.Encode(map[uint]any{
+		24: map[*common.Credential]*common.Datum{},
+	})
+	require.NoError(t, err)
+	var emptyBody DijkstraTransactionBody
+	require.ErrorContains(t, emptyBody.UnmarshalCBOR(empty), "must not be empty")
+
+	malformed := DijkstraTransactionBody{
+		TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{&guard: {}},
+	}
+	_, err = malformed.MarshalCBOR()
+	require.ErrorContains(t, err, "missing Plutus data")
+}
+
 // TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps proves
 // the containing body's MarshalCBOR validates a directly constructed
 // DijkstraAccountBalanceIntervals/DijkstraRequiredTopLevelGuards before wire

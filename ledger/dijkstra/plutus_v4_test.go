@@ -416,6 +416,18 @@ func TestDijkstraBodyFieldsV4RequiredTopLevelGuards(t *testing.T) {
 			requireDijkstraV4Integer(t, present.Fields[0], 7)
 		})
 	}
+	t.Run("transaction body", func(t *testing.T) {
+		body := &DijkstraTransactionBody{
+			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+				&guard: {Data: data.NewInteger(big.NewInt(9))},
+			},
+		}
+		_, _, _, requiredGuards, err := dijkstraBodyFieldsV4(body)
+		require.NoError(t, err)
+		dataMap := requireDijkstraV4Map(t, requiredGuards, 1)
+		present := requireDijkstraV4Constr(t, dataMap.Pairs[0][1], 0, 1)
+		requireDijkstraV4Integer(t, present.Fields[0], 9)
+	})
 }
 
 // TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps proves
