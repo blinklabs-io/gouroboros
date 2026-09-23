@@ -799,29 +799,41 @@ func decodeByronWitness(
 // BootstrapWitness encoding for spending legacy Byron UTxOs from a
 // Shelley-era transaction, not to Byron's own TxInWitness; it must not be
 // accepted here. Byron's own HD/bootstrap-style witnesses are ordinary
-// VKWitness (ctor 0) values with 64-byte extended key and signature fields,
-// already handled by the case below.
+// VKWitness (ctor 0) values, decoded below with their reference field
+// lengths: the reference decodes VKWitness's key as CC.xpub (64 canonical
+// bytes) and its signature as XSignature (64 bytes); RedeemWitness's key is
+// a plain Ed25519 PublicKey (32 bytes) and its signature is 64 bytes.
 func decodeByronWitnessFromConstructor(
 	ctor uint64,
 	fields []any,
 ) (vkey *common.VkeyWitness, bootstrap *common.BootstrapWitness, ok bool) {
+	const (
+		vkWitnessKeySize     = 64
+		vkWitnessSigSize     = 64
+		redeemWitnessKeySize = 32
+		redeemWitnessSigSize = 64
+	)
+	var keySize, sigSize int
 	switch ctor {
-	case 0, 2:
-		if len(fields) != 2 {
-			return nil, nil, false
-		}
-		pk, okPk := asBytes(fields[0])
-		sig, okSig := asBytes(fields[1])
-		if !okPk || !okSig {
-			return nil, nil, false
-		}
-		return &common.VkeyWitness{Vkey: pk, Signature: sig}, nil, true
+	case 0:
+		keySize, sigSize = vkWitnessKeySize, vkWitnessSigSize
+	case 2:
+		keySize, sigSize = redeemWitnessKeySize, redeemWitnessSigSize
 	default:
 		// The reference decoder's TxInWitness sum type has no catch-all
 		// case: an unrecognized constructor is invalid regardless of
 		// whether its field count happens to match a known variant.
 		return nil, nil, false
 	}
+	if len(fields) != 2 {
+		return nil, nil, false
+	}
+	pk, okPk := asBytes(fields[0])
+	sig, okSig := asBytes(fields[1])
+	if !okPk || !okSig || len(pk) != keySize || len(sig) != sigSize {
+		return nil, nil, false
+	}
+	return &common.VkeyWitness{Vkey: pk, Signature: sig}, nil, true
 }
 
 func asUint64(v any) (uint64, bool) {

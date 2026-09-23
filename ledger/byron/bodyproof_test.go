@@ -15,6 +15,7 @@
 package byron_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -186,16 +187,22 @@ func TestByronMainBlockRejectsMalformedExtraWitnessDespiteMatchingProof(
 		"encodeIndefiniteWitnessList must reproduce the real witnesses_hash",
 	)
 
-	// A malformed extra witness: constructor 1 (ScriptWitness) is defined by
-	// the reference sum type but has no reachable decoder on any real
-	// chain, so it must be rejected exactly like any other unrecognized
-	// constructor.
+	// A malformed extra witness: constructor 3 is the four-field "bootstrap
+	// witness" shape this change stops accepting -- unlike an arbitrary
+	// unknown constructor (which the decoder already rejected before this
+	// change), this pins the rejection to the actual behavior this change
+	// adds.
 	innerFields, err := cbor.Encode(
-		[]any{[]byte{1, 2, 3, 4}, []byte{5, 6, 7, 8}},
+		[]any{
+			bytes.Repeat([]byte{0xAB}, 64),
+			bytes.Repeat([]byte{0xCD}, 64),
+			bytes.Repeat([]byte{0xEF}, 32),
+			[]byte{1, 2, 3, 4},
+		},
 	)
 	require.NoError(t, err)
 	malformedWitness, err := cbor.Encode(
-		[]any{uint64(1), cbor.WrappedCbor(innerFields)},
+		[]any{uint64(3), cbor.WrappedCbor(innerFields)},
 	)
 	require.NoError(t, err)
 
