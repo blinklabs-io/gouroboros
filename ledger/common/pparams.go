@@ -30,10 +30,24 @@ type ProtocolParameterUpdate interface {
 	Cbor() []byte
 }
 
+// ProtocolParameterUpdateVersionValidator validates fields whose reference
+// domain depends on the active protocol version.
+type ProtocolParameterUpdateVersionValidator interface {
+	ValidateProtocolParameterUpdateVersion(ProtocolParametersProtocolVersion) error
+}
+
+type ProtocolParameterVersionUpdateProvider interface {
+	ProtocolParameterVersionUpdate() *ProtocolParametersProtocolVersion
+}
+
 type ProtocolParametersProtocolVersion struct {
 	cbor.StructAsArray
 	Major uint
 	Minor uint
+}
+
+type ProtocolParametersProtocolVersionProvider interface {
+	ProtocolParametersProtocolVersion() ProtocolParametersProtocolVersion
 }
 
 type ProtocolParameters interface {

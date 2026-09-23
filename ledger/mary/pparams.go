@@ -149,7 +149,17 @@ type MaryProtocolParameterUpdate struct {
 
 func (MaryProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
+func (u MaryProtocolParameterUpdate) ProtocolParameterVersionUpdate() *common.ProtocolParametersProtocolVersion {
+	return u.ProtocolVersion
+}
+
 func (u *MaryProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
+	if err := common.ValidateProtocolParameterUpdateDomains(
+		cborData,
+		common.ProtocolParameterUpdateEraMary,
+	); err != nil {
+		return err
+	}
 	type tMaryProtocolParameterUpdate MaryProtocolParameterUpdate
 	var tmp tMaryProtocolParameterUpdate
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -262,6 +272,10 @@ func UpgradePParams(
 // ProtocolMajorVersion returns the active major protocol version.
 func (p *MaryProtocolParameters) ProtocolMajorVersion() uint {
 	return p.ProtocolMajor
+}
+
+func (p *MaryProtocolParameters) ProtocolParametersProtocolVersion() common.ProtocolParametersProtocolVersion {
+	return common.ProtocolParametersProtocolVersion{Major: p.ProtocolMajor, Minor: p.ProtocolMinor}
 }
 
 // MinPoolCostValue returns the minPoolCost protocol parameter.

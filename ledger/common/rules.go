@@ -704,6 +704,117 @@ func ValidateMIRGenesisQuorum(tx Transaction, ls LedgerState) error {
 	return nil
 }
 
+// ValidateClassicProtocolParameterUpdates enforces Shelley-family PPUP
+// authorization, voting-window, and protocol-version-dependent update rules.
+func ValidateClassicProtocolParameterUpdates(
+	tx Transaction,
+	slot uint64,
+	ls LedgerState,
+	pp ProtocolParameters,
+) error {
+	targetEpoch, updates := tx.ProtocolParameterUpdates()
+	if len(updates) == 0 {
+		return nil
+	}
+	genesisState, ok := UnwrapLedgerState(ls).(GenesisDelegationState)
+	if !ok {
+		return GenesisDelegationStateUnavailableError{}
+	}
+	windowState, ok := UnwrapLedgerState(ls).(ClassicProtocolParameterUpdateWindowState)
+	if !ok {
+		return ClassicProtocolParameterUpdateWindowStateUnavailableError{}
+	}
+	delegates, err := genesisState.GenesisDelegateKeyHashes()
+	if err != nil {
+		return err
+	}
+	delegateSet := make(map[Blake2b224]struct{}, len(delegates))
+	for _, delegate := range delegates {
+		delegateSet[delegate] = struct{}{}
+	}
+	for delegate := range updates {
+		if _, ok := delegateSet[delegate]; !ok {
+			return ProtocolParameterUpdateDelegateError{Delegate: delegate}
+		}
+	}
+	signedDelegates := make(map[Blake2b224]struct{})
+	if w := tx.Witnesses(); w != nil {
+		for _, witness := range w.Vkey() {
+			signedDelegates[Blake2b224Hash(witness.Vkey)] = struct{}{}
+		}
+	}
+	for delegate := range updates {
+		if _, ok := signedDelegates[delegate]; !ok {
+			return ProtocolParameterUpdateWitnessError{Delegate: delegate}
+		}
+	}
+	currentEpoch, slotOfNoReturn, err := windowState.ProtocolParameterUpdateWindow(slot)
+	if err != nil {
+		return err
+	}
+	expectedEpoch := currentEpoch
+	forNextEpoch := slot >= slotOfNoReturn
+	if forNextEpoch {
+		if currentEpoch == ^uint64(0) {
+			return fmt.Errorf("current epoch overflows next-epoch calculation")
+		}
+		expectedEpoch++
+	}
+	if targetEpoch != expectedEpoch {
+		return ProtocolParameterUpdateEpochError{
+			Current:      currentEpoch,
+			Expected:     expectedEpoch,
+			Proposed:     targetEpoch,
+			ForNextEpoch: forNextEpoch,
+		}
+	}
+	currentVersion, hasCurrentVersion := ProtocolParametersProtocolVersion{}, false
+	if provider, ok := pp.(ProtocolParametersProtocolVersionProvider); ok {
+		currentVersion = provider.ProtocolParametersProtocolVersion()
+		hasCurrentVersion = true
+	}
+	for _, update := range updates {
+		if versionUpdate, ok := update.(ProtocolParameterVersionUpdateProvider); ok {
+			proposed := versionUpdate.ProtocolParameterVersionUpdate()
+			if proposed != nil {
+				if !hasCurrentVersion {
+					return ProtocolParameterUpdateProtocolVersionUnavailableError{}
+				}
+				if !protocolVersionCanFollow(currentVersion, *proposed) {
+					return ProtocolParameterUpdateVersionError{
+						CurrentMajor:  currentVersion.Major,
+						CurrentMinor:  currentVersion.Minor,
+						ProposedMajor: proposed.Major,
+						ProposedMinor: proposed.Minor,
+					}
+				}
+			}
+		}
+		versioned, ok := update.(ProtocolParameterUpdateVersionValidator)
+		if !ok {
+			continue
+		}
+		if !hasCurrentVersion {
+			return ProtocolParameterUpdateProtocolVersionUnavailableError{}
+		}
+		if err := versioned.ValidateProtocolParameterUpdateVersion(currentVersion); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func protocolVersionCanFollow(
+	current ProtocolParametersProtocolVersion,
+	proposed ProtocolParametersProtocolVersion,
+) bool {
+	majorIncrement := current.Major < ^uint(0) &&
+		proposed.Major == current.Major+1 && proposed.Minor == 0
+	minorIncrement := proposed.Major == current.Major &&
+		current.Minor < ^uint(0) && proposed.Minor == current.Minor+1
+	return majorIncrement || minorIncrement
+}
+
 // ValidateUnsupportedPlutusExecution fails closed when a transaction requires
 // phase-2 Plutus execution in an era that does not implement it.
 func ValidateUnsupportedPlutusExecution(tx Transaction, era string) error {

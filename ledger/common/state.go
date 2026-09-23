@@ -70,6 +70,13 @@ type EpochState interface {
 	EpochForSlot(slot uint64) (uint64, error)
 }
 
+// ClassicProtocolParameterUpdateWindowState supplies the Shelley-family PPUP
+// voting boundary for a slot. SlotOfNoReturn is the first slot at which
+// proposals target the following epoch rather than the current one.
+type ClassicProtocolParameterUpdateWindowState interface {
+	ProtocolParameterUpdateWindow(slot uint64) (currentEpoch, slotOfNoReturn uint64, err error)
+}
+
 // PoolState defines the interface for querying the current pool state
 type PoolState interface {
 	// PoolCurrentState returns the latest active registration certificate for the given pool key hash.

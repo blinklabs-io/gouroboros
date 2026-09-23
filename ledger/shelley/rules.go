@@ -44,6 +44,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateSignatures,
 	},
 	{
+		Id:        common.UtxoValidationRuleProtocolParameterUpdates,
+		Validator: UtxoValidateProtocolParameterUpdates,
+	},
+	{
 		Id:        common.UtxoValidationRuleTimeToLive,
 		Validator: UtxoValidateTimeToLive,
 	},
@@ -519,6 +523,17 @@ func UtxoValidateMIRGenesisQuorum(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateMIRGenesisQuorum(tx, ls)
+}
+
+// UtxoValidateProtocolParameterUpdates validates classic PPUP authorization,
+// target epoch, and version-dependent cost-model updates.
+func UtxoValidateProtocolParameterUpdates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateClassicProtocolParameterUpdates(tx, slot, ls, pp)
 }
 
 // MinFeeTx calculates the minimum required fee for a transaction based on
