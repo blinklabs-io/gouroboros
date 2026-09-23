@@ -1988,3 +1988,59 @@ func TestDijkstraMinCoinTxOutBoundary(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "overflow")
 }
+
+func TestMinFeeIncludesDeclaredExecutionUnitsAcrossBatch(t *testing.T) {
+	prices := common.ExUnitPrice{
+		MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		StepPrice: &cbor.Rat{Rat: big.NewRat(1, 4)},
+	}
+	key := common.RedeemerKey{Tag: common.RedeemerTagSpend}
+	tx := &DijkstraTransaction{
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					key: {ExUnits: common.ExUnits{Memory: 2}},
+				},
+			},
+		},
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				WitnessSet: DijkstraTransactionWitnessSet{
+					WsRedeemers: DijkstraRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+							key: {ExUnits: common.ExUnits{Memory: 1}},
+						},
+					},
+				},
+			}}, false),
+		},
+		TxIsValid: true,
+	}
+	tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			MinFeeA:        2,
+			MinFeeB:        3,
+			ExecutionCosts: prices,
+		},
+	}
+	txSize, err := common.TxSizeForFee(tx)
+	require.NoError(t, err)
+	baseFee, err := common.CalculateMinFee(txSize, pp.MinFeeA, pp.MinFeeB)
+	require.NoError(t, err)
+	minFee, err := MinFeeTx(tx, pp)
+	require.NoError(t, err)
+	require.Equal(t, baseFee+2, minFee)
+
+	state := mockledger.NewLedgerStateBuilder().Build()
+	tx.Body.TxFee = baseFee
+	require.ErrorAs(t, UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp), &shelley.FeeTooSmallUtxoError{})
+	tx.Body.TxFee = minFee
+	require.NoError(t, UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp))
+
+	tx.WitnessSet = DijkstraTransactionWitnessSet{}
+	tx.Body.TxSubTransactions = cbor.SetType[DijkstraSubTransaction]{}
+	noRedeemerFee, err := MinFeeTx(tx, pp)
+	require.NoError(t, err)
+	require.Equal(t, baseFee, noRedeemerFee)
+}
