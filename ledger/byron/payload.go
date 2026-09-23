@@ -120,18 +120,16 @@ func ParseDelegationCertificate(
 			"%w: delegation certificate epoch: %w", ErrInvalidPayload, err,
 		)
 	}
-	issuerVK, err := payloadBytes(
+	issuerVK, err := payloadVerificationKey(
 		"delegation certificate issuer verification key",
 		fields[delegationCertIssuerIndex],
-		VerificationKeySize,
 	)
 	if err != nil {
 		return nil, err
 	}
-	delegateVK, err := payloadBytes(
+	delegateVK, err := payloadVerificationKey(
 		"delegation certificate delegate verification key",
 		fields[delegationCertDelegateIndex],
-		VerificationKeySize,
 	)
 	if err != nil {
 		return nil, err
@@ -188,10 +186,9 @@ func ParseUpdateVote(raw cbor.RawMessage) (*UpdateVote, error) {
 	if err != nil {
 		return nil, err
 	}
-	voterVK, err := payloadBytes(
+	voterVK, err := payloadVerificationKey(
 		"update vote voter verification key",
 		fields[updateVoteVoterIndex],
-		VerificationKeySize,
 	)
 	if err != nil {
 		return nil, err
@@ -382,21 +379,45 @@ func (p *ByronUpdateProposal) Validate(protocolMagic uint32) error {
 //     -- InstallerHash's enforceSize "InstallerHash" 4, which drops
 //     elements 0, 2, and 3 and reads the hash out of element 1.
 func validateProposalMetadata(raw cbor.RawMessage) error {
-	var metadata map[string]cbor.RawMessage
-	if _, err := cbor.Decode(raw, &metadata); err != nil {
-		return fmt.Errorf(
-			"%w: update proposal metadata is not a map of system tags to "+
-				"installer hashes: %w",
-			ErrInvalidPayload, err,
-		)
+	length, headerSize, indefinite := cbor.MapInfo(raw)
+	if indefinite || length < 0 {
+		return fmt.Errorf("%w: update proposal metadata must be a definite map", ErrInvalidPayload)
 	}
-	for tag, installerHash := range metadata {
+	pos := int(headerSize)
+	var previous string
+	for i := 0; i < length; i++ {
+		keyStart := pos
+		var err error
+		pos, err = scanByronItem(raw, pos, 0)
+		if err != nil {
+			return fmt.Errorf("%w: update proposal metadata key %d: %w", ErrInvalidPayload, i, err)
+		}
+		keyRaw := raw[keyStart:pos]
+		if err := requireByronTextString(keyRaw, "update proposal system tag"); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidPayload, err)
+		}
+		var tag string
+		if consumed, err := cbor.Decode(keyRaw, &tag); err != nil || consumed != len(keyRaw) {
+			return fmt.Errorf("%w: invalid update proposal system tag", ErrInvalidPayload)
+		}
+		if i > 0 && tag <= previous {
+			return fmt.Errorf("%w: update proposal system tags must be strictly increasing", ErrInvalidPayload)
+		}
+		previous = tag
+		valueStart := pos
+		pos, err = scanByronItem(raw, pos, 0)
+		if err != nil {
+			return fmt.Errorf("%w: update proposal installer hash for %q: %w", ErrInvalidPayload, tag, err)
+		}
 		if err := validateSystemTag(tag); err != nil {
 			return err
 		}
-		if err := validateInstallerHash(tag, installerHash); err != nil {
+		if err := validateInstallerHash(tag, raw[valueStart:pos]); err != nil {
 			return err
 		}
+	}
+	if pos != len(raw) {
+		return fmt.Errorf("%w: update proposal metadata has trailing CBOR data", ErrInvalidPayload)
 	}
 	return nil
 }
@@ -428,9 +449,7 @@ func validateSystemTag(tag string) error {
 // remains of cardano-sl's UpdateData record, of which only one hash
 // survived into cardano-ledger-byron.
 //
-// Elements 0, 2, and 3 are deliberately left unchecked: the reference
-// discards them without interpreting them, so constraining them here could
-// only reject something the reference accepts.
+// The reference discards fields 0, 2, and 3 after decoding them as bytes.
 func validateInstallerHash(tag string, raw cbor.RawMessage) error {
 	label := fmt.Sprintf(
 		"update proposal installer hash for system tag %q", tag,
@@ -438,6 +457,11 @@ func validateInstallerHash(tag string, raw cbor.RawMessage) error {
 	fields, err := payloadFields(label, raw, installerHashElementCount)
 	if err != nil {
 		return err
+	}
+	for _, index := range []int{0, 2, 3} {
+		if err := requireByronByteString(fields[index], label); err != nil {
+			return fmt.Errorf("%w: %s dropped field %d must be bytes: %w", ErrInvalidPayload, label, index, err)
+		}
 	}
 	_, err = payloadBytes(
 		label, fields[installerHashHashIndex], common.Blake2b256Size,
@@ -454,11 +478,8 @@ func validateInstallerHash(tag string, raw cbor.RawMessage) error {
 // map, because the field's key type is not fixed -- the reference drops it
 // without ever decoding the keys -- and a decode would have to guess one.
 //
-// The reference reads the length with decodeMapLenCanonical, so a
-// non-shortest length header is rejected too. That is safe to reproduce:
-// Byron's decoders are canonical throughout (enforceSize is
-// decodeListLenCanonical), so every attributes map a node ever accepted on
-// mainnet is canonically encoded.
+// The reference reads an ordinary definite map length, so non-shortest
+// encodings of the empty map remain valid.
 func validateProposalAttributes(raw cbor.RawMessage) error {
 	length, err := cborMapLen(raw)
 	if err != nil {
@@ -472,12 +493,15 @@ func validateProposalAttributes(raw cbor.RawMessage) error {
 			ErrInvalidPayload, length,
 		)
 	}
+	if _, headerSize, indefinite := cbor.MapInfo(raw); indefinite || int(headerSize) != len(raw) {
+		return fmt.Errorf("%w: update proposal attributes have trailing CBOR data", ErrInvalidPayload)
+	}
 	return nil
 }
 
 // cborMapLen reads the entry count out of a definite-length CBOR map
-// header, requiring the shortest encoding of that count and rejecting
-// indefinite-length maps -- matching the reference's decodeMapLenCanonical.
+// header, rejecting indefinite-length maps while accepting non-shortest
+// definite encodings.
 func cborMapLen(raw []byte) (uint64, error) {
 	const (
 		majorTypeMap       = 5
@@ -514,31 +538,7 @@ func cborMapLen(raw []byte) (uint64, error) {
 	for _, b := range raw[1 : 1+width] {
 		length = length<<8 | uint64(b)
 	}
-	if shortestMapArgumentWidth(length) != width {
-		return 0, fmt.Errorf(
-			"map length %d is not encoded in its shortest form", length,
-		)
-	}
 	return length, nil
-}
-
-// shortestMapArgumentWidth returns how many argument bytes the canonical
-// encoding of a map length uses. Lengths up to 23 are carried in the
-// initial byte itself, so they use none -- which is what makes an empty
-// attributes map written as 0xb8 0x00 non-canonical.
-func shortestMapArgumentWidth(length uint64) int {
-	switch {
-	case length <= 23:
-		return 0
-	case length <= 0xff:
-		return 1
-	case length <= 0xffff:
-		return 2
-	case length <= 0xffffffff:
-		return 4
-	default:
-		return 8
-	}
 }
 
 // ValidateDelegationPayload structurally validates every heavyweight
@@ -652,6 +652,45 @@ func (b *ByronMainBlock) updateVotesCbor() ([]cbor.RawMessage, error) {
 	)
 }
 
+func validateUpdateVotesWire(raw []byte) error {
+	parts, err := byronArrayFields(raw, "byron update payload")
+	if err != nil {
+		return err
+	}
+	if len(parts) != updatePayloadElementCount {
+		return fmt.Errorf("byron update payload has %d fields, expected %d", len(parts), updatePayloadElementCount)
+	}
+	if len(parts[updatePayloadVotesIndex]) == 0 || parts[updatePayloadVotesIndex][0] != 0x9f {
+		return errors.New("Byron update votes must use indefinite-list framing")
+	}
+	var votes []cbor.RawMessage
+	if _, err := cbor.Decode(parts[updatePayloadVotesIndex], &votes); err != nil {
+		return fmt.Errorf("decode Byron update payload votes: %w", err)
+	}
+	for i, rawVote := range votes {
+		if _, err := ParseUpdateVote(rawVote); err != nil {
+			return fmt.Errorf("Byron update vote %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validateDelegationPayloadWire(raw []byte) error {
+	if len(raw) == 0 || raw[0] != 0x9f {
+		return errors.New("Byron delegation certificates must use indefinite-list framing")
+	}
+	var certificates []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &certificates); err != nil {
+		return fmt.Errorf("decode Byron delegation certificates: %w", err)
+	}
+	for i, rawCertificate := range certificates {
+		if _, err := ParseDelegationCertificate(rawCertificate); err != nil {
+			return fmt.Errorf("Byron delegation certificate %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
 // ValidatePayloads runs ValidateDelegationPayload and
 // ValidateUpdatePayload. This is what ValidateBodyProof calls when a caller
 // opts in via common.VerifyConfig.EnableByronPayloadValidation.
@@ -706,8 +745,8 @@ func payloadFields(
 			"%w: %s has no preserved CBOR", ErrInvalidPayload, label,
 		)
 	}
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(raw, &fields); err != nil {
+	fields, err := byronArrayFields(raw, label)
+	if err != nil {
 		return nil, fmt.Errorf(
 			"%w: %s is not a %d-element array: %w",
 			ErrInvalidPayload, label, count, err,
@@ -730,8 +769,8 @@ func payloadBytes(
 	raw cbor.RawMessage,
 	size int,
 ) ([]byte, error) {
-	var value []byte
-	if _, err := cbor.Decode(raw, &value); err != nil {
+	value, err := decodeByronByteString(raw, false)
+	if err != nil {
 		return nil, fmt.Errorf(
 			"%w: %s is not a %d-byte string: %w",
 			ErrInvalidPayload, label, size, err,
@@ -743,5 +782,19 @@ func payloadBytes(
 			ErrInvalidPayload, label, size, len(value),
 		)
 	}
-	return value, nil
+	return append([]byte(nil), value...), nil
+}
+
+func payloadVerificationKey(label string, raw cbor.RawMessage) ([]byte, error) {
+	value, err := requireCanonicalByronByteString(raw, label)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s: %w", ErrInvalidPayload, label, err)
+	}
+	if len(value) != VerificationKeySize {
+		return nil, fmt.Errorf(
+			"%w: %s is %d bytes, expected %d",
+			ErrInvalidPayload, label, len(value), VerificationKeySize,
+		)
+	}
+	return append([]byte(nil), value...), nil
 }

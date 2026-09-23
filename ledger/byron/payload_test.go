@@ -243,6 +243,21 @@ func installerMetadata(t *testing.T, tag string) []byte {
 	return metadataMap(t, tag, installerHashField(t))
 }
 
+func rawMapEntries(
+	t *testing.T,
+	firstTag string,
+	firstValue []byte,
+	secondTag string,
+	secondValue []byte,
+) []byte {
+	t.Helper()
+	out := []byte{0xa2}
+	out = append(out, mustEncode(t, firstTag)...)
+	out = append(out, firstValue...)
+	out = append(out, mustEncode(t, secondTag)...)
+	return append(out, secondValue...)
+}
+
 func decodeProposal(
 	t *testing.T,
 	raw cbor.RawMessage,
@@ -274,11 +289,18 @@ func testMainBlock(
 			[]byte{byte(0x80 + len(entries))}, out...,
 		)
 	}
+	rawIndefiniteList := func(entries []cbor.RawMessage) []byte {
+		out := []byte{0x9f}
+		for _, entry := range entries {
+			out = append(out, entry...)
+		}
+		return append(out, 0xff)
+	}
 	body := rawArray(
-		[]byte{0x80},                             // empty tx payload
+		[]byte{0x9f, 0xff},                       // empty indefinite tx payload
 		mustEncode(t, []any{uint64(3), []any{}}), // certificates ssc payload
-		rawList(certificates),
-		rawArray(rawList(proposals), rawList(votes)),
+		rawIndefiniteList(certificates),
+		rawArray(rawList(proposals), rawIndefiniteList(votes)),
 	)
 	var decoded byron.ByronMainBlockBody
 	_, err := cbor.Decode(body, &decoded)
@@ -789,19 +811,31 @@ func TestUpdateProposalShapes(t *testing.T) {
 			attributes: emptyMap(),
 		},
 		{
+			name:       "non-shortest empty attributes map",
+			metadata:   emptyMap(),
+			attributes: nonCanonicalEmptyMap(),
+		},
+		{
+			name: "system tags in ascending order",
+			metadata: rawMapEntries(t,
+				"a", installerHashField(t),
+				"b", installerHashField(t),
+			),
+			attributes: emptyMap(),
+		},
+		{
 			name:       "system tag at the length limit",
 			metadata:   installerMetadata(t, "0123456789"),
 			attributes: emptyMap(),
 		},
 		{
-			// Elements 0, 2 and 3 are dropped by the reference without
-			// being interpreted, so their content must not be constrained.
+			// Elements 0, 2 and 3 are dropped after decoding as bytes.
 			name: "installer hash with arbitrary dropped elements",
 			metadata: metadataMap(t, "linux", rawArray(
-				mustEncode(t, uint64(1)),
+				mustEncode(t, []byte{0x01}),
 				mustEncode(t, bytes.Repeat([]byte{0x7c}, 32)),
-				mustEncode(t, "anything"),
-				mustEncode(t, []any{}),
+				mustEncode(t, []byte("anything")),
+				mustEncode(t, []byte{}),
 			)),
 			attributes: emptyMap(),
 		},
@@ -845,14 +879,22 @@ func TestUpdateProposalShapes(t *testing.T) {
 			attributes: emptyMap(),
 		},
 		{
+			name:       "indefinite metadata map",
+			metadata:   append(append([]byte{0xbf}, mustEncode(t, "linux")...), append(installerHashField(t), 0xff)...),
+			attributes: emptyMap(),
+		},
+		{
+			name: "system tags out of order",
+			metadata: rawMapEntries(t,
+				"b", installerHashField(t),
+				"a", installerHashField(t),
+			),
+			attributes: emptyMap(),
+		},
+		{
 			name:       "non-empty attributes",
 			metadata:   emptyMap(),
 			attributes: installerMetadata(t, "linux"),
-		},
-		{
-			name:       "non-canonical empty attributes",
-			metadata:   emptyMap(),
-			attributes: nonCanonicalEmptyMap(),
 		},
 		{
 			name:       "system tag over the length limit",
@@ -892,6 +934,16 @@ func TestUpdateProposalShapes(t *testing.T) {
 			attributes: emptyMap(),
 		},
 		{
+			name: "installer hash dropped field is not bytes",
+			metadata: metadataMap(t, "linux", rawArray(
+				mustEncode(t, uint64(1)),
+				mustEncode(t, bytes.Repeat([]byte{0x7c}, 32)),
+				mustEncode(t, []byte{0x02}),
+				mustEncode(t, []byte{}),
+			)),
+			attributes: emptyMap(),
+		},
+		{
 			name: "installer hash wrong length",
 			metadata: metadataMap(t, "linux", rawArray(
 				mustEncode(t, bytes.Repeat([]byte{0x00}, 32)),
@@ -908,13 +960,9 @@ func TestUpdateProposalShapes(t *testing.T) {
 				t, testPayloadProtocolMagic, issuerVK, issuerPrivate,
 				testCase.metadata, testCase.attributes,
 			)
-			proposal := decodeProposal(t, raw)
-			// The signature is genuine; only the shape is wrong.
-			require.ErrorIs(
-				t,
-				proposal.Validate(testPayloadProtocolMagic),
-				byron.ErrInvalidPayload,
-			)
+			var proposal byron.ByronUpdateProposal
+			_, err := cbor.Decode(raw, &proposal)
+			require.Error(t, err, "malformed proposal shape must reject during decoding")
 		})
 	}
 }
@@ -1092,16 +1140,19 @@ func TestValidatePayloadsReportsOffendingIndex(t *testing.T) {
 		issuerPrivate, delegateVK,
 	)
 
-	block := testMainBlock(
-		t,
-		testPayloadProtocolMagic,
-		[]cbor.RawMessage{good, rawArray(mustEncode(t, uint64(1)))},
-		nil,
-		nil,
+	bad := rawArray(mustEncode(t, uint64(1)))
+	certificates := append([]byte{0x9f}, good...)
+	certificates = append(certificates, bad...)
+	certificates = append(certificates, 0xff)
+	body := rawArray(
+		[]byte{0x9f, 0xff},
+		mustEncode(t, []any{uint64(3), []any{}}),
+		certificates,
+		rawArray([]byte{0x80}, []byte{0x9f, 0xff}),
 	)
-	err := block.ValidateDelegationPayload()
-	require.ErrorIs(t, err, byron.ErrInvalidPayload)
-	require.ErrorContains(t, err, "delegation certificate 1")
+	var decoded byron.ByronMainBlockBody
+	_, err := cbor.Decode(body, &decoded)
+	require.ErrorContains(t, err, "Byron delegation certificate 1")
 }
 
 func TestValidatePayloadsWrongNetwork(t *testing.T) {
