@@ -87,18 +87,24 @@ func TestDijkstraWitnessSetRejectsLegacyEmptyRedeemerList(t *testing.T) {
 }
 
 func TestDijkstraTransactionMarshalRejectsPlutusV4Witnesses(t *testing.T) {
-	tx := &DijkstraTransaction{
-		WitnessSet: DijkstraTransactionWitnessSet{
-			WsPlutusV4Scripts: cbor.NewSetType(
-				[]common.PlutusV4Script{{0x01}},
-				true,
-			),
-		},
+	for _, tc := range []struct {
+		name   string
+		cached bool
+	}{{name: "uncached"}, {name: "cached", cached: true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := &DijkstraTransaction{
+				WitnessSet: DijkstraTransactionWitnessSet{
+					WsPlutusV4Scripts: cbor.NewSetType(
+						[]common.PlutusV4Script{{0x01}},
+						true,
+					),
+				},
+			}
+			if tc.cached {
+				tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xf6})
+			}
+			_, err := tx.MarshalCBOR()
+			require.ErrorContains(t, err, "must be supplied by reference scripts")
+		})
 	}
-	_, err := tx.MarshalCBOR()
-	require.ErrorContains(
-		t,
-		err,
-		"Dijkstra Plutus V4 scripts must be supplied by reference scripts",
-	)
 }
