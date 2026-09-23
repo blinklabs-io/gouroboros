@@ -241,6 +241,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.completedSequence.Store(0)
 	p.completionMu.Unlock()
 	p.applyRunner.SetProcessedFunc(p.markProcessed)
+	p.applyRunner.setFatalFunc(p.cancel)
 
 	// Start all stages
 	// Note: p.ctx is derived from the passed ctx via context.WithCancel above
