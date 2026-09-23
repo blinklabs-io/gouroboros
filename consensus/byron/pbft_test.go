@@ -459,3 +459,50 @@ func TestNewByronConfigFromGenesisRejectsNonBootStakeholderIssuer(
 	_, err = NewByronConfigFromGenesis(&genesis)
 	require.ErrorContains(t, err, "not a boot stakeholder")
 }
+
+func TestNewByronConfigFromGenesisRejectsIssuerAsDelegate(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string]ledgerbyron.ByronGenesisHeavyDelegation)
+	}{
+		{
+			name: "self reference",
+			mutate: func(
+				delegations map[string]ledgerbyron.ByronGenesisHeavyDelegation,
+			) {
+				for issuer, delegation := range delegations {
+					delegation.DelegatePk = delegation.IssuerPk
+					delegations[issuer] = delegation
+					return
+				}
+			},
+		},
+		{
+			name: "transitive chain",
+			mutate: func(
+				delegations map[string]ledgerbyron.ByronGenesisHeavyDelegation,
+			) {
+				issuers := make([]string, 0, len(delegations))
+				for issuer := range delegations {
+					issuers = append(issuers, issuer)
+				}
+				require.GreaterOrEqual(t, len(issuers), 2)
+				first := delegations[issuers[0]]
+				second := delegations[issuers[1]]
+				first.DelegatePk = second.IssuerPk
+				delegations[issuers[0]] = first
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			genesis, err := ledgerbyron.NewByronGenesisFromReader(
+				strings.NewReader(testByronGenesisJSON),
+			)
+			require.NoError(t, err)
+			test.mutate(genesis.HeavyDelegation)
+			_, err = NewByronConfigFromGenesis(&genesis)
+			require.ErrorContains(t, err, "heavy-certificate graph")
+		})
+	}
+}

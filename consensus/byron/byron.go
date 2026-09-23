@@ -274,6 +274,13 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				err,
 			)
 		}
+		if _, isIssuer := genesisIssuers[delegateHash]; isIssuer {
+			return ByronConfig{}, fmt.Errorf(
+				"invalid Byron genesis heavy-certificate graph: "+
+					"delegate %s is also an issuer",
+				delegateHash.String(),
+			)
+		}
 		if delegation.Omega < 0 {
 			return ByronConfig{}, fmt.Errorf(
 				"invalid delegation omega for genesis key %s: %d",
