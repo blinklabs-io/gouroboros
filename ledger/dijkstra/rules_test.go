@@ -405,8 +405,11 @@ func TestUtxoValidatePtrPresentInCollateralReturn(t *testing.T) {
 				Output: output,
 			},
 		}}
-		var pointerErr *common.PtrPresentInCollateralReturn
-		require.ErrorAs(t, rule(tx, 0, nil, nil), &pointerErr)
+		err = rule(tx, 0, nil, nil)
+		pointerErr, ok := err.(*common.PtrPresentInCollateralReturn)
+		if !ok || pointerErr == nil {
+			t.Fatalf("expected *PtrPresentInCollateralReturn, got %T", err)
+		}
 		require.EqualValues(t, 22, pointerErr.Type)
 	}
 
