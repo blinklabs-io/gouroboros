@@ -287,6 +287,7 @@ func requireGenesisFields(
 
 func validateGenesisParameterDomains(genesis ByronGenesis) error {
 	const maxLovelacePortion = int64(1_000_000_000_000_000)
+	const maxTxFeeSummand = int64(45_000_000_000_000_000)
 	thresholds := []struct {
 		name  string
 		value int64
@@ -308,6 +309,21 @@ func validateGenesisParameterDomains(genesis ByronGenesis) error {
 				threshold.value,
 			)
 		}
+	}
+	if scriptVersion := genesis.BlockVersionData.ScriptVersion; scriptVersion < 0 || scriptVersion > 1<<16-1 {
+		return fmt.Errorf(
+			"blockVersionData.scriptVersion must be between 0 and %d, got %d",
+			1<<16-1,
+			scriptVersion,
+		)
+	}
+	summand := genesis.BlockVersionData.TxFeePolicy.Summand
+	if summand < 0 || summand > maxTxFeeSummand {
+		return fmt.Errorf(
+			"blockVersionData.txFeePolicy.summand must be between 0 and %d, got %d",
+			maxTxFeeSummand,
+			summand,
+		)
 	}
 
 	unsigned := []struct {

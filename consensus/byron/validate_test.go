@@ -2364,6 +2364,22 @@ func TestNewByronConfigFromGenesisRejectsNegativeSlotDuration(t *testing.T) {
 	require.ErrorContains(t, err, "slot duration")
 }
 
+func TestNewByronConfigFromGenesisSlotDurationTimeLimit(t *testing.T) {
+	if strconv.IntSize < 64 {
+		t.Skip("time.Duration overflow boundary cannot be represented by int")
+	}
+	maxMilliseconds := math.MaxInt64 / int64(time.Millisecond)
+	genesis := parseSecurityParameterGenesis(t, testByronSecurityParam)
+	genesis.BlockVersionData.SlotDuration = int(maxMilliseconds)
+	config, err := NewByronConfigFromGenesis(&genesis)
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(maxMilliseconds)*time.Millisecond, config.SlotDuration)
+
+	genesis.BlockVersionData.SlotDuration = int(maxMilliseconds + 1)
+	_, err = NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "slot duration")
+}
+
 func TestNewByronConfigFromGenesisRejectsSecurityParameterOverflow(
 	t *testing.T,
 ) {

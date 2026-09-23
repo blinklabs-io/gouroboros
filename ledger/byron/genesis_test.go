@@ -16,6 +16,7 @@ package byron_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -413,23 +414,17 @@ func TestNewByronGenesisFromReader(t *testing.T) {
 	}
 }
 
-func genesisWithParameter(t *testing.T, path []string, value string) string {
+func genesisWithParameter(t *testing.T, path []string, value any) string {
 	t.Helper()
 	var document map[string]any
 	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
 		t.Fatal(err)
-		return ""
-	}
-	if document == nil {
-		t.Fatal("genesis fixture is not an object")
-		return ""
 	}
 	current := document
 	for _, key := range path[:len(path)-1] {
 		next, ok := current[key].(map[string]any)
-		if !ok || next == nil {
+		if !ok {
 			t.Fatalf("missing genesis object %q", key)
-			return ""
 		}
 		current = next
 	}
@@ -444,18 +439,12 @@ func genesisWithoutField(t *testing.T, path []string) string {
 	var document map[string]any
 	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
 		t.Fatal(err)
-		return ""
-	}
-	if document == nil {
-		t.Fatal("genesis fixture is not an object")
-		return ""
 	}
 	current := document
 	for _, key := range path[:len(path)-1] {
 		next, ok := current[key].(map[string]any)
-		if !ok || next == nil {
+		if !ok {
 			t.Fatalf("missing genesis object %q", key)
-			return ""
 		}
 		current = next
 	}
@@ -511,23 +500,16 @@ func TestNewByronGenesisFromReaderIgnoresUnknownFields(t *testing.T) {
 	var document map[string]any
 	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
 		t.Fatal(err)
-		return
-	}
-	if document == nil {
-		t.Fatal("genesis fixture is not an object")
-		return
 	}
 	document["futureExtension"] = true
 	blockVersionData, ok := document["blockVersionData"].(map[string]any)
-	if !ok || blockVersionData == nil {
+	if !ok {
 		t.Fatal("missing blockVersionData object")
-		return
 	}
 	blockVersionData["futureParameter"] = "ignored"
 	softforkRule, ok := blockVersionData["softforkRule"].(map[string]any)
-	if !ok || softforkRule == nil {
+	if !ok {
 		t.Fatal("missing softforkRule object")
-		return
 	}
 	softforkRule["futureRule"] = "ignored"
 	encoded, err := json.Marshal(document)
@@ -575,6 +557,7 @@ func TestNewByronGenesisFromReaderRejectsNegativeUnsignedProtocolParameters(
 		{"blockVersionData", "maxTxSize"},
 		{"blockVersionData", "maxProposalSize"},
 		{"blockVersionData", "updateImplicit"},
+		{"blockVersionData", "txFeePolicy", "summand"},
 	}
 	for _, path := range parameters {
 		name := strings.Join(path, ".")
@@ -588,6 +571,52 @@ func TestNewByronGenesisFromReaderRejectsNegativeUnsignedProtocolParameters(
 				genesisWithParameter(t, path, "0"),
 			))
 			require.NoErrorf(t, err, "%s = 0", name)
+		})
+	}
+}
+
+func TestNewByronGenesisFromReaderScriptVersionRange(t *testing.T) {
+	path := []string{"blockVersionData", "scriptVersion"}
+	for _, tc := range []struct {
+		value   int
+		wantErr bool
+	}{
+		{value: -1, wantErr: true},
+		{value: 0},
+		{value: 65535},
+		{value: 65536, wantErr: true},
+	} {
+		t.Run(fmt.Sprint(tc.value), func(t *testing.T) {
+			_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+				genesisWithParameter(t, path, tc.value),
+			))
+			if tc.wantErr {
+				require.ErrorContains(t, err, "blockVersionData.scriptVersion")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestNewByronGenesisFromReaderTxFeeSummandUpperBound(t *testing.T) {
+	path := []string{"blockVersionData", "txFeePolicy", "summand"}
+	for _, tc := range []struct {
+		value   string
+		wantErr bool
+	}{
+		{value: "45000000000000000"},
+		{value: "45000000000000001", wantErr: true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+				genesisWithParameter(t, path, tc.value),
+			))
+			if tc.wantErr {
+				require.ErrorContains(t, err, "blockVersionData.txFeePolicy.summand")
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }

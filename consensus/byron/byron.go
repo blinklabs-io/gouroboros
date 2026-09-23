@@ -166,6 +166,13 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 			genesis.BlockVersionData.SlotDuration,
 		)
 	}
+	maxSlotDurationMilliseconds := uint64(math.MaxInt64 / int64(time.Millisecond))
+	if uint64(genesis.BlockVersionData.SlotDuration) > maxSlotDurationMilliseconds {
+		return ByronConfig{}, fmt.Errorf(
+			"invalid slot duration: %d milliseconds overflows time.Duration",
+			genesis.BlockVersionData.SlotDuration,
+		)
+	}
 	// Validate security parameter K
 	if genesis.ProtocolConsts.K <= 0 {
 		return ByronConfig{}, fmt.Errorf("invalid security parameter K: %d (must be positive)", genesis.ProtocolConsts.K)
@@ -192,26 +199,6 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	keyHashBytes := make([][]byte, len(keyHashes))
 	for i, h := range keyHashes {
 		keyHashBytes[i] = h.Bytes()
-	}
-	genesisIssuerHashes := make(map[string]struct{}, len(genesis.HeavyDelegation))
-	for genesisHashHex := range genesis.HeavyDelegation {
-		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
-		if err != nil {
-			return ByronConfig{}, fmt.Errorf(
-				"decode genesis delegation key hash %q: %w",
-				genesisHashHex,
-				err,
-			)
-		}
-		if len(genesisHashBytes) != common.Blake2b224Size {
-			return ByronConfig{}, fmt.Errorf(
-				"invalid genesis delegation key hash length for %q: got %d, expected %d",
-				genesisHashHex,
-				len(genesisHashBytes),
-				common.Blake2b224Size,
-			)
-		}
-		genesisIssuerHashes[string(genesisHashBytes)] = struct{}{}
 	}
 	genesisDelegations := make(
 		map[common.Blake2b224]common.Blake2b224,
@@ -274,12 +261,6 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				"derive delegate verification key hash for genesis key %s: %w",
 				genesisHashHex,
 				err,
-			)
-		}
-		if _, ok := genesisIssuerHashes[string(delegateHash.Bytes())]; ok {
-			return ByronConfig{}, fmt.Errorf(
-				"delegate verification key hash %s is also a genesis heavy-certificate issuer",
-				delegateHash.String(),
 			)
 		}
 		if delegation.Omega < 0 {
