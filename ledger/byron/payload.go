@@ -121,18 +121,16 @@ func ParseDelegationCertificate(
 			"%w: delegation certificate epoch: %w", ErrInvalidPayload, err,
 		)
 	}
-	issuerVK, err := payloadBytes(
+	issuerVK, err := payloadVerificationKey(
 		"delegation certificate issuer verification key",
 		fields[delegationCertIssuerIndex],
-		VerificationKeySize,
 	)
 	if err != nil {
 		return nil, err
 	}
-	delegateVK, err := payloadBytes(
+	delegateVK, err := payloadVerificationKey(
 		"delegation certificate delegate verification key",
 		fields[delegationCertDelegateIndex],
-		VerificationKeySize,
 	)
 	if err != nil {
 		return nil, err
@@ -189,10 +187,9 @@ func ParseUpdateVote(raw cbor.RawMessage) (*UpdateVote, error) {
 	if err != nil {
 		return nil, err
 	}
-	voterVK, err := payloadBytes(
+	voterVK, err := payloadVerificationKey(
 		"update vote voter verification key",
 		fields[updateVoteVoterIndex],
-		VerificationKeySize,
 	)
 	if err != nil {
 		return nil, err
@@ -1006,6 +1003,9 @@ func validateUpdatePayloadStructure(
 	if _, err := cbor.Decode(raw, &parts); err != nil || len(parts) != updatePayloadElementCount {
 		return fmt.Errorf("%w: update payload must be a two-element array", ErrInvalidPayload)
 	}
+	if len(parts[updatePayloadVotesIndex]) == 0 || parts[updatePayloadVotesIndex][0] != 0x9f {
+		return fmt.Errorf("%w: update votes must use indefinite-list framing", ErrInvalidPayload)
+	}
 	proposals, err := payloadEntries("update payload proposals", parts[0], len(decodedProposals))
 	if err != nil {
 		return err
@@ -1035,6 +1035,22 @@ func validateUpdatePayloadStructure(
 	for index, rawVote := range votes {
 		if _, err := ParseUpdateVote(rawVote); err != nil {
 			return fmt.Errorf("update vote %d: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func validateDelegationPayloadWire(raw []byte) error {
+	if len(raw) == 0 || raw[0] != 0x9f {
+		return errors.New("Byron delegation certificates must use indefinite-list framing")
+	}
+	certificates, err := cborRawArrayEntries(raw, false)
+	if err != nil {
+		return fmt.Errorf("decode Byron delegation certificates: %w", err)
+	}
+	for i, rawCertificate := range certificates {
+		if _, err := ParseDelegationCertificate(rawCertificate); err != nil {
+			return fmt.Errorf("Byron delegation certificate %d: %w", i, err)
 		}
 	}
 	return nil
@@ -1289,4 +1305,15 @@ func payloadBytes(
 		)
 	}
 	return value, nil
+}
+
+func payloadVerificationKey(label string, raw cbor.RawMessage) ([]byte, error) {
+	value, err := requireCanonicalByronByteString(raw, label)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s: %w", ErrInvalidPayload, label, err)
+	}
+	if len(value) != VerificationKeySize {
+		return nil, fmt.Errorf("%w: %s is %d bytes, expected %d", ErrInvalidPayload, label, len(value), VerificationKeySize)
+	}
+	return append([]byte(nil), value...), nil
 }

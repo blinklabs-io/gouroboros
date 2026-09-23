@@ -224,8 +224,7 @@ func emptyMap() []byte {
 }
 
 // nonCanonicalEmptyMap encodes the same empty map with a 1-byte count
-// header. cardano-ledger-byron reads attributes with decodeMapLenCanonical
-// and rejects this.
+// header, which the reference accepts for proposal attributes.
 func nonCanonicalEmptyMap() []byte {
 	return []byte{0xb8, 0x00}
 }
@@ -303,11 +302,18 @@ func testMainBlock(
 			[]byte{byte(0x80 + len(entries))}, out...,
 		)
 	}
+	rawIndefiniteList := func(entries []cbor.RawMessage) []byte {
+		out := []byte{0x9f}
+		for _, entry := range entries {
+			out = append(out, entry...)
+		}
+		return append(out, 0xff)
+	}
 	body := rawArray(
-		[]byte{0x80},                             // empty tx payload
+		[]byte{0x9f, 0xff},                       // empty tx payload
 		mustEncode(t, []any{uint64(3), []any{}}), // certificates ssc payload
-		rawList(certificates),
-		rawArray(rawList(proposals), rawList(votes)),
+		rawIndefiniteList(certificates),
+		rawArray(rawList(proposals), rawIndefiniteList(votes)),
 	)
 	var decoded byron.ByronMainBlockBody
 	_, err := cbor.Decode(body, &decoded)
@@ -940,19 +946,19 @@ func TestByronMainBlockDecodeEnforcesUpdatePayloadStructure(t *testing.T) {
 		return rawArray(blockParts[0], bodyRaw, blockParts[2])
 	}
 	t.Run("one proposal accepted", func(t *testing.T) {
-		payload := rawArray(rawArray(proposal), rawArray())
+		payload := rawArray(rawArray(proposal), []byte{0x9f, 0xff})
 		var block byron.ByronMainBlock
 		_, err := cbor.Decode(blockWithPayload(payload), &block)
 		require.NoError(t, err)
 	})
 	t.Run("two proposals rejected", func(t *testing.T) {
-		payload := rawArray(rawArray(proposal, proposal), rawArray())
+		payload := rawArray(rawArray(proposal, proposal), []byte{0x9f, 0xff})
 		var block byron.ByronMainBlock
 		_, err := cbor.Decode(blockWithPayload(payload), &block)
 		require.ErrorIs(t, err, byron.ErrInvalidPayload)
 	})
 	t.Run("malformed vote rejected", func(t *testing.T) {
-		payload := rawArray(rawArray(), rawArray(mustEncode(t, uint64(0))))
+		payload := rawArray(rawArray(), []byte{0x9f, 0x00, 0xff})
 		var block byron.ByronMainBlock
 		_, err := cbor.Decode(blockWithPayload(payload), &block)
 		require.ErrorIs(t, err, byron.ErrInvalidPayload)
@@ -1307,16 +1313,19 @@ func TestValidatePayloadsReportsOffendingIndex(t *testing.T) {
 		issuerPrivate, delegateVK,
 	)
 
-	block := testMainBlock(
-		t,
-		testPayloadProtocolMagic,
-		[]cbor.RawMessage{good, rawArray(mustEncode(t, uint64(1)))},
-		nil,
-		nil,
+	bad := rawArray(mustEncode(t, uint64(1)))
+	certificates := append([]byte{0x9f}, good...)
+	certificates = append(certificates, bad...)
+	certificates = append(certificates, 0xff)
+	body := rawArray(
+		[]byte{0x9f, 0xff},
+		mustEncode(t, []any{uint64(3), []any{}}),
+		certificates,
+		rawArray(rawArray(), []byte{0x9f, 0xff}),
 	)
-	err := block.ValidateDelegationPayload()
-	require.ErrorIs(t, err, byron.ErrInvalidPayload)
-	require.ErrorContains(t, err, "delegation certificate 1")
+	var decoded byron.ByronMainBlockBody
+	_, err := cbor.Decode(body, &decoded)
+	require.ErrorContains(t, err, "Byron delegation certificate 1")
 }
 
 func TestValidatePayloadsWrongNetwork(t *testing.T) {
