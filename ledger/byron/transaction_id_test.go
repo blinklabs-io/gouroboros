@@ -23,6 +23,33 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
+func referenceBodyCBOR(t *testing.T, body *byron.ByronTransactionBody) []byte {
+	t.Helper()
+	inputs := make(cbor.IndefLengthList, len(body.TxInputs))
+	for i := range body.TxInputs {
+		inputs[i] = body.TxInputs[i]
+	}
+	outputs := make(cbor.IndefLengthList, len(body.TxOutputs))
+	for i := range body.TxOutputs {
+		outputs[i] = body.TxOutputs[i]
+	}
+	type referenceBody struct {
+		cbor.StructAsArray
+		Inputs     cbor.IndefLengthList
+		Outputs    cbor.IndefLengthList
+		Attributes cbor.RawMessage
+	}
+	encoded, err := cbor.Encode(&referenceBody{
+		Inputs:     inputs,
+		Outputs:    outputs,
+		Attributes: body.Attributes,
+	})
+	if err != nil {
+		t.Fatalf("encode reference body: %v", err)
+	}
+	return encoded
+}
+
 func TestByronTransactionBodyIdConcurrentFirstCall(t *testing.T) {
 	var body byron.ByronTransactionBody
 	body.TxInputs = make([]byron.ByronTransactionInput, 0)
@@ -67,10 +94,7 @@ func TestByronTransactionBodyIdSetCborInvalidatesOnlyCopy(t *testing.T) {
 			if got := body.Id(); got != wantOriginal {
 				t.Fatalf("original hash changed after copy invalidation: got %x, want %x", got, wantOriginal)
 			}
-			encoded, err := cbor.EncodeGeneric(&copyBody)
-			if err != nil {
-				t.Fatalf("encode copied body: %v", err)
-			}
+			encoded := referenceBodyCBOR(t, &copyBody)
 			if got, want := copyBody.Id(), common.Blake2b256Hash(encoded); got != want {
 				t.Fatalf("copy hash mismatch after invalidation: got %x, want %x", got, want)
 			}
@@ -90,10 +114,7 @@ func TestByronTransactionBodyIdentityUsesReferenceEncoding(t *testing.T) {
 		t.Fatalf("decode non-shortest body: %v", err)
 	}
 
-	wantReferenceEncoding, err := cbor.EncodeGeneric(&body)
-	if err != nil {
-		t.Fatalf("encode reference body: %v", err)
-	}
+	wantReferenceEncoding := referenceBodyCBOR(t, &body)
 	wantID := common.Blake2b256Hash(wantReferenceEncoding)
 	wantWireHash := common.Blake2b256Hash(wire)
 	if wantID == wantWireHash {

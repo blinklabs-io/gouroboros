@@ -15,6 +15,8 @@
 package byron_test
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"math"
 
@@ -148,6 +150,50 @@ func TestByronTransactionProducedInputIdentity(t *testing.T) {
 	}
 }
 
+func nonShortestOutputAmountBody(
+	t *testing.T,
+	body []byte,
+	amount uint64,
+) []byte {
+	t.Helper()
+	var bodyFields []cbor.RawMessage
+	_, err := cbor.Decode(body, &bodyFields)
+	require.NoError(t, err)
+	require.Len(t, bodyFields, 3)
+	var outputs []cbor.RawMessage
+	_, err = cbor.Decode(bodyFields[1], &outputs)
+	require.NoError(t, err)
+	require.NotEmpty(t, outputs)
+	var outputFields []cbor.RawMessage
+	_, err = cbor.Decode(outputs[0], &outputFields)
+	require.NoError(t, err)
+	require.Len(t, outputFields, 2)
+
+	encodedAmount := make([]byte, 9)
+	encodedAmount[0] = 0x1b
+	binary.BigEndian.PutUint64(encodedAmount[1:], amount)
+	encodedOutput := append([]byte{0x82}, outputFields[0]...)
+	encodedOutput = append(encodedOutput, encodedAmount...)
+	outputsWire := bodyFields[1]
+	firstOutput := bytes.Index(outputsWire, outputs[0])
+	require.NotEqual(t, -1, firstOutput)
+	updatedOutputs := make([]byte, 0, len(outputsWire)+len(encodedOutput))
+	updatedOutputs = append(updatedOutputs, outputsWire[:firstOutput]...)
+	updatedOutputs = append(updatedOutputs, encodedOutput...)
+	updatedOutputs = append(
+		updatedOutputs,
+		outputsWire[firstOutput+len(outputs[0]):]...,
+	)
+	encodedBody := []byte{0x83}
+	for i, part := range bodyFields {
+		if i == 1 {
+			part = updatedOutputs
+		}
+		encodedBody = append(encodedBody, part...)
+	}
+	return encodedBody
+}
+
 func TestByronTransactionProducedInputUsesReferenceId(t *testing.T) {
 	t.Parallel()
 
@@ -162,8 +208,12 @@ func TestByronTransactionProducedInputUsesReferenceId(t *testing.T) {
 	require.True(t, ok)
 	originalBody := byronTx.Body.Cbor()
 	require.NotEmpty(t, originalBody)
-	require.Equal(t, byte(0x83), originalBody[0])
-	nonShortestBody := append([]byte{0x98, 0x03}, originalBody[1:]...)
+	require.Equal(t, originalBody, referenceBodyCBOR(t, &byronTx.Body))
+	nonShortestBody := nonShortestOutputAmountBody(
+		t,
+		originalBody,
+		1,
+	)
 	var body byron.ByronTransactionBody
 	_, err = cbor.Decode(nonShortestBody, &body)
 	require.NoError(t, err)
@@ -174,6 +224,13 @@ func TestByronTransactionProducedInputUsesReferenceId(t *testing.T) {
 	referenceId := tx.Id()
 	wireId := tx.Body.WireHash()
 	require.NotEqual(t, referenceId, wireId)
+	canonicalWire := referenceBodyCBOR(t, &tx.Body)
+	var canonicalBody byron.ByronTransactionBody
+	_, err = cbor.Decode(canonicalWire, &canonicalBody)
+	require.NoError(t, err)
+	canonicalTx := byron.ByronTransaction{Body: canonicalBody}
+	require.Equal(t, referenceId, canonicalTx.Id())
+	require.Equal(t, referenceId, canonicalTx.Body.WireHash())
 	require.Equal(t, referenceId, produced[0].Id.Id())
 
 	sameBlockSpend := byron.ByronTransactionInput{

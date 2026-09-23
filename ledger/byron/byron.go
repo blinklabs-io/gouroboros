@@ -294,11 +294,33 @@ func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
 
 func (t *ByronTransactionBody) Id() common.Blake2b256 {
 	return t.hash.Get(func() common.Blake2b256 {
-		cborData, err := cbor.EncodeGeneric(t)
+		cborData, err := t.referenceCbor()
 		if err != nil {
 			panic("CBOR encoding that should never fail has failed: " + err.Error())
 		}
 		return common.Blake2b256Hash(cborData)
+	})
+}
+
+func (t *ByronTransactionBody) referenceCbor() ([]byte, error) {
+	inputs := make(cbor.IndefLengthList, len(t.TxInputs))
+	for i := range t.TxInputs {
+		inputs[i] = t.TxInputs[i]
+	}
+	outputs := make(cbor.IndefLengthList, len(t.TxOutputs))
+	for i := range t.TxOutputs {
+		outputs[i] = t.TxOutputs[i]
+	}
+	type referenceBody struct {
+		cbor.StructAsArray
+		Inputs     cbor.IndefLengthList
+		Outputs    cbor.IndefLengthList
+		Attributes cbor.RawMessage
+	}
+	return cbor.Encode(&referenceBody{
+		Inputs:     inputs,
+		Outputs:    outputs,
+		Attributes: t.Attributes,
 	})
 }
 
@@ -906,6 +928,30 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (i ByronTransactionInput) MarshalCBOR() ([]byte, error) {
+	type txInput struct {
+		cbor.StructAsArray
+		Id          common.Blake2b256
+		OutputIndex uint32
+	}
+	inner, err := cbor.Encode(&txInput{
+		Id:          i.TxId,
+		OutputIndex: i.OutputIndex,
+	})
+	if err != nil {
+		return nil, err
+	}
+	type taggedInput struct {
+		cbor.StructAsArray
+		Constructor uint
+		Input       cbor.Tag
+	}
+	return cbor.Encode(&taggedInput{
+		Constructor: 0,
+		Input:       cbor.Tag{Number: 24, Content: inner},
+	})
+}
+
 func (i ByronTransactionInput) Id() common.Blake2b256 {
 	return i.TxId
 }
@@ -977,6 +1023,22 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (o ByronTransactionOutput) MarshalCBOR() ([]byte, error) {
+	addressCbor, err := o.OutputAddress.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	type txOutput struct {
+		cbor.StructAsArray
+		Address cbor.RawMessage
+		Amount  uint64
+	}
+	return cbor.Encode(&txOutput{
+		Address: addressCbor,
+		Amount:  o.OutputAmount,
+	})
 }
 
 func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
