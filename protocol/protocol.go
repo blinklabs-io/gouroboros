@@ -184,9 +184,10 @@ type protocolStateTransition struct {
 }
 
 type outboundMessage struct {
-	message      Message
-	data         []byte
-	deliveryChan chan error
+	message       Message
+	data          []byte
+	deliveryChan  chan error
+	waitForAgency bool
 }
 
 // MessageHandlerFunc represents a function that handles an incoming message
@@ -469,6 +470,20 @@ func (p *Protocol) roleMayPipeline(state State) bool {
 
 func (p *Protocol) pipelinedMessageAllowed(state State, msg Message) bool {
 	return p.roleMayPipeline(state) && p.pipelinedMessageFits(state, msg)
+}
+
+func (p *Protocol) messageHasAgencyTransition(msg Message) bool {
+	for state, entry := range p.config.StateMap {
+		if !p.roleHasAgency(state) {
+			continue
+		}
+		for _, transition := range entry.Transitions {
+			if transition.MsgType == msg.Type() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // roleHasAgency reports whether this role holds ordinary send agency in the
@@ -772,6 +787,10 @@ func (p *Protocol) resolvePipelinedDequeue(
 		return outbound, haveAgency, nil
 	}
 	if !p.roleHasAgency(currentState) {
+		if p.messageHasAgencyTransition(outbound.message) {
+			outbound.waitForAgency = true
+			return outbound, haveAgency, nil
+		}
 		return nil, haveAgency, p.errPipelinedMessageNotAllowed(
 			currentState,
 			outbound.message,
@@ -896,6 +915,7 @@ func (p *Protocol) sendLoop() {
 	defer p.recoverLoop("send loop")
 
 	var queuedStateTransitions []Message
+	var pipelinedOutbound *outboundMessage
 waitSendReadyChan:
 	for {
 		// haveAgency records that we were woken because the state map granted
@@ -905,8 +925,17 @@ waitSendReadyChan:
 		// pipelinedOutbound holds a message dequeued through the pipelined
 		// send path. Its state transition, and those of any messages batched
 		// behind it, are deferred until agency returns.
-		var pipelinedOutbound *outboundMessage
-		if p.pipelinedSendAllowed() {
+		if pipelinedOutbound != nil && pipelinedOutbound.waitForAgency {
+			select {
+			case <-p.stopChan:
+				return
+			case <-p.recvDoneChan:
+				return
+			case <-p.sendReadyChan:
+				haveAgency = true
+				pipelinedOutbound.waitForAgency = false
+			}
+		} else if p.pipelinedSendAllowed() {
 			select {
 			case <-p.stopChan:
 				return
@@ -1010,9 +1039,20 @@ waitSendReadyChan:
 			msg := outbound.message
 			if queueTransition && !fromPipelinedDequeue {
 				currentState := p.getCurrentState()
-				if !p.pipelinedMessageAllowed(currentState, msg) {
-					p.SendError(p.errPipelinedMessageNotAllowed(currentState, msg))
-					return
+				if p.roleHasAgency(currentState) {
+					queueTransition = false
+				} else if !p.pipelinedMessageAllowed(currentState, msg) {
+					if !p.messageHasAgencyTransition(msg) {
+						p.SendError(p.errPipelinedMessageNotAllowed(currentState, msg))
+						return
+					}
+					// Keep the message for the next agency window. Earlier
+					// transitions in this batch may return agency before this
+					// message becomes legal (for example, Done after RequestNext).
+					tmpOutbound := outbound
+					tmpOutbound.waitForAgency = true
+					pipelinedOutbound = &tmpOutbound
+					break readSendQueueLoop
 				}
 			}
 			msgCount = msgCount + 1
