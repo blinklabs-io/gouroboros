@@ -43,7 +43,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleMetadata,
-		Validator: conway.UtxoValidateMetadata,
+		Validator: UtxoValidateMetadata,
 	},
 	{
 		Id:        common.UtxoValidationRuleProposalProcedures,
@@ -539,6 +539,16 @@ type dijkstraConwayFeatureTransaction struct {
 	common.Transaction
 	body      common.TransactionBody
 	witnesses common.TransactionWitnessSet
+	metadata  common.TransactionMetadatum
+	auxData   common.AuxiliaryData
+}
+
+func (t dijkstraConwayFeatureTransaction) Metadata() common.TransactionMetadatum {
+	return t.metadata
+}
+
+func (t dijkstraConwayFeatureTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (t dijkstraConwayFeatureTransaction) Inputs() []common.TransactionInput {
@@ -679,13 +689,37 @@ func dijkstraTransactionLevels(
 			Transaction: tx,
 			body:        &subTxs[idx].Body,
 			witnesses:   subTxs[idx].WitnessSet,
+			metadata:    subTxs[idx].TxMetadata,
+			auxData:     subTxs[idx].auxData,
 		})
 	}
 	return append(levels, dijkstraConwayFeatureTransaction{
 		Transaction: tx,
 		body:        &tx.Body,
 		witnesses:   tx.WitnessSet,
+		metadata:    tx.TxMetadata,
+		auxData:     tx.auxData,
 	})
+}
+
+// UtxoValidateMetadata validates the auxiliary data attached to each Dijkstra
+// transaction level against that level's body hash.
+func UtxoValidateMetadata(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateMetadata(tx, slot, ls, pp)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.UtxoValidateMetadata(level, slot, ls, pp); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UtxoValidateIsValidFlag accepts a phase-2-invalid Dijkstra transaction when
@@ -1839,6 +1873,8 @@ func validateDijkstraRequiredTopLevelGuards(
 		Transaction: tx,
 		body:        &tx.Body,
 		witnesses:   tx.WitnessSet,
+		metadata:    tx.TxMetadata,
+		auxData:     tx.auxData,
 	}
 	for _, guard := range nativeScriptGuardCredentials(topTx) {
 		topLevel[dijkstraCredentialKey{
