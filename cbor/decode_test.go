@@ -25,6 +25,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIsEmptyCollection(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    []byte
+		empty   bool
+		wantErr bool
+	}{
+		{name: "empty array", data: []byte{0x80}, empty: true},
+		{name: "non-empty array", data: []byte{0x81, 0x00}},
+		{name: "empty map", data: []byte{0xa0}, empty: true},
+		{name: "non-empty map", data: []byte{0xa1, 0x00, 0x00}},
+		{name: "empty indefinite array", data: []byte{0x9f, 0xff}, empty: true},
+		{name: "empty indefinite map", data: []byte{0xbf, 0xff}, empty: true},
+		{name: "empty tagged set", data: []byte{0xd9, 0x01, 0x02, 0x80}, empty: true},
+		{name: "non-empty tagged set", data: []byte{0xd9, 0x01, 0x02, 0x81, 0x00}},
+		{name: "scalar", data: []byte{0x00}, wantErr: true},
+		{name: "empty input", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := cbor.IsEmptyCollection(test.data)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.empty, got)
+		})
+	}
+}
+
 type decodeTestDefinition struct {
 	CborHex   string
 	Object    any

@@ -1082,6 +1082,14 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateMapFields(
+		cborData,
+		[]uint{0, 1, 2},
+		[]uint{4, 5, 13, 18, 20},
+		nil,
+	); err != nil {
+		return err
+	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
@@ -1143,7 +1151,7 @@ func (b DijkstraTransactionBody) MarshalCBOR() ([]byte, error) {
 	); err != nil {
 		return nil, err
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithRequiredFields(&b, []uint{0, 1, 2})
 }
 
 func validateDijkstraCertificateTypes(
@@ -1434,6 +1442,14 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateMapFields(
+		cborData,
+		[]uint{0, 1},
+		[]uint{4, 5, 18, 20},
+		nil,
+	); err != nil {
+		return err
+	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
@@ -1502,7 +1518,7 @@ func (b DijkstraSubTransactionBody) MarshalCBOR() ([]byte, error) {
 	); err != nil {
 		return nil, err
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithRequiredFields(&b, []uint{0, 1})
 }
 
 func (b *DijkstraSubTransactionBody) Inputs() []common.TransactionInput {
@@ -1684,10 +1700,20 @@ type DijkstraTransactionWitnessSet struct {
 	WsRedeemers        DijkstraRedeemers                     `cbor:"5,keyasint,omitempty,omitzero"`
 	WsPlutusV2Scripts  cbor.SetType[common.PlutusV2Script]   `cbor:"6,keyasint,omitempty,omitzero"`
 	WsPlutusV3Scripts  cbor.SetType[common.PlutusV3Script]   `cbor:"7,keyasint,omitempty,omitzero"`
-	WsPlutusV4Scripts  cbor.SetType[common.PlutusV4Script]   `cbor:"8,keyasint,omitempty,omitzero"`
+	// Deprecated: Plutus V4 scripts are not a Dijkstra witness-set field.
+	// Dijkstra requires them to come from reference scripts.
+	WsPlutusV4Scripts cbor.SetType[common.PlutusV4Script] `cbor:"-"`
 }
 
 func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	if err := common.ValidateMapFields(
+		cborData,
+		nil,
+		[]uint{0, 1, 2, 3, 4, 6, 7},
+		[]uint{8},
+	); err != nil {
+		return err
+	}
 	type tDijkstraTransactionWitnessSet DijkstraTransactionWitnessSet
 	var tmp tDijkstraTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {

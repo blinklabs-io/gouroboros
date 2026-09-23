@@ -69,7 +69,10 @@ func TestPoolCertificateOwnerSetIdentity(t *testing.T) {
 					// Key 3 is mandatory in the Shelley body and optional
 					// but harmless from Allegra on.
 					body, err := cbor.Encode(
-						map[uint]any{3: uint64(0), 4: certs},
+						map[uint]any{
+							0: []any{}, 1: []any{}, 2: uint64(0),
+							3: uint64(0), 4: certs,
+						},
 					)
 					require.NoError(t, err)
 					for era, newBody := range orderedSetCertificateTransactionBodyDecoders() {

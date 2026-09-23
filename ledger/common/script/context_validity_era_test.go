@@ -17,6 +17,7 @@ package script_test
 import (
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
@@ -28,6 +29,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func requirePostBabbageTransactionFields(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	var components []cbor.RawMessage
+	_, err := cbor.Decode(raw, &components)
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(components[0], &fields)
+	require.NoError(t, err)
+	for key, value := range map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)} {
+		if _, ok := fields[key]; ok {
+			continue
+		}
+		fields[key], err = cbor.Encode(value)
+		require.NoError(t, err)
+	}
+	components[0], err = cbor.Encode(fields)
+	require.NoError(t, err)
+	raw, err = cbor.Encode(components)
+	require.NoError(t, err)
+	return raw
+}
+
 // conwayTransaction re-decodes the shared validity fixture as a Conway
 // transaction. The fixture body only sets the validity interval keys, so the
 // same CBOR is valid in every post-Shelley era.
@@ -38,7 +61,9 @@ func conwayTransaction(
 	t.Helper()
 	base, err := fixture.AlonzoTransaction()
 	require.NoError(t, err)
-	tx, err := conway.NewConwayTransactionFromCbor(base.Cbor())
+	tx, err := conway.NewConwayTransactionFromCbor(
+		requirePostBabbageTransactionFields(t, base.Cbor()),
+	)
 	require.NoError(t, err)
 	return tx
 }
@@ -52,7 +77,9 @@ func dijkstraTransaction(
 	t.Helper()
 	base, err := fixture.AlonzoTransaction()
 	require.NoError(t, err)
-	tx, err := dijkstra.NewDijkstraTransactionFromCbor(base.Cbor())
+	tx, err := dijkstra.NewDijkstraTransactionFromCbor(
+		requirePostBabbageTransactionFields(t, base.Cbor()),
+	)
 	require.NoError(t, err)
 	return tx
 }

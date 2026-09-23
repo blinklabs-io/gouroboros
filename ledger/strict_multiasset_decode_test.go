@@ -173,7 +173,16 @@ func TestMintQuantityBoundsAcrossEras(t *testing.T) {
 	for _, decoder := range decoders {
 		for _, quantity := range quantities {
 			t.Run(decoder.name+"/"+quantity.name, func(t *testing.T) {
-				err := decoder.decode(encodeMintBody(t, quantity.quantity))
+				wire := encodeMintBody(t, quantity.quantity)
+				if decoder.name == "Conway" || decoder.name == "Dijkstra" ||
+					decoder.name == "Dijkstra subtransaction" {
+					wire = withRequiredEraBodyFields(
+						t,
+						wire,
+						decoder.name == "Dijkstra subtransaction",
+					)
+				}
+				err := decoder.decode(wire)
 				switch {
 				case quantity.wantErr:
 					assert.Error(t, err)

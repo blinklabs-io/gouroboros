@@ -82,8 +82,16 @@ func TestDijkstraTransactionBodiesUnmarshalCBORCertificateTypes(t *testing.T) {
 			for _, tc := range testCases {
 				t.Run(tc.name, func(t *testing.T) {
 					encoded, err := cbor.Encode(map[uint]any{
+						0: []any{}, 1: []any{},
 						4: []any{certificates[tc.certType]},
 					})
+					if decoder.name == "top level" {
+						var fields map[uint]any
+						_, err = cbor.Decode(encoded, &fields)
+						require.NoError(t, err)
+						fields[2] = uint64(0)
+						encoded, err = cbor.Encode(fields)
+					}
 					require.NoError(t, err)
 
 					certificates, err := decoder.decode(encoded)
@@ -106,6 +114,128 @@ func TestDijkstraTransactionBodiesUnmarshalCBORCertificateTypes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDijkstraTransactionBodiesRequireFieldsAndRejectEmptyCollections(t *testing.T) {
+	testCases := []struct {
+		name     string
+		required []uint
+		empty    []uint
+		decode   func([]byte) error
+	}{
+		{
+			name:     "top-level",
+			required: []uint{0, 1, 2},
+			empty:    []uint{4, 5, 13, 18, 20},
+			decode: func(encoded []byte) error {
+				return new(DijkstraTransactionBody).UnmarshalCBOR(encoded)
+			},
+		},
+		{
+			name:     "sub-transaction",
+			required: []uint{0, 1},
+			empty:    []uint{4, 5, 18, 20},
+			decode: func(encoded []byte) error {
+				return new(DijkstraSubTransactionBody).UnmarshalCBOR(encoded)
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			base := map[uint]any{0: []any{}, 1: []any{}}
+			if tc.name == "top-level" {
+				base[2] = uint64(0)
+			}
+			for _, key := range tc.required {
+				t.Run(fmt.Sprintf("missing_%d", key), func(t *testing.T) {
+					fields := make(map[uint]any, len(base))
+					for k, v := range base {
+						fields[k] = v
+					}
+					delete(fields, key)
+					encoded, err := cbor.Encode(fields)
+					require.NoError(t, err)
+					require.Error(t, tc.decode(encoded))
+				})
+			}
+			for _, key := range tc.empty {
+				t.Run(fmt.Sprintf("empty_%d", key), func(t *testing.T) {
+					fields := make(map[uint]any, len(base)+1)
+					for k, v := range base {
+						fields[k] = v
+					}
+					if key == 5 {
+						fields[key] = map[uint]any{}
+					} else {
+						fields[key] = []any{}
+					}
+					encoded, err := cbor.Encode(fields)
+					require.NoError(t, err)
+					require.Error(t, tc.decode(encoded))
+				})
+			}
+			for _, key := range []uint{13, 18} {
+				if tc.name != "top-level" && key == 13 {
+					continue
+				}
+				t.Run(fmt.Sprintf("tagged_empty_%d", key), func(t *testing.T) {
+					fields := make(map[uint]any, len(base)+1)
+					for k, v := range base {
+						fields[k] = v
+					}
+					fields[key] = cbor.Set([]any{})
+					encoded, err := cbor.Encode(fields)
+					require.NoError(t, err)
+					require.Error(t, tc.decode(encoded))
+				})
+			}
+			encoded, err := cbor.Encode(base)
+			require.NoError(t, err)
+			require.NoError(t, tc.decode(encoded), "present empty outputs are legal")
+		})
+	}
+}
+
+func TestDijkstraWitnessSetRejectsEmptyFieldsAndUnsupportedKey8(t *testing.T) {
+	for _, key := range []uint{0, 1, 2, 3, 4, 6, 7} {
+		for _, tagged := range []bool{false, true} {
+			value := any([]any{})
+			if tagged {
+				value = cbor.Set([]any{})
+			}
+			t.Run(fmt.Sprintf("empty_%d/tagged_%t", key, tagged), func(t *testing.T) {
+				encoded, err := cbor.Encode(map[uint]any{key: value})
+				require.NoError(t, err)
+				var witnesses DijkstraTransactionWitnessSet
+				require.Error(t, witnesses.UnmarshalCBOR(encoded))
+			})
+		}
+	}
+	for _, value := range []any{
+		[]any{}, []any{common.PlutusV4Script{0x41, 0x00}},
+		cbor.Set([]any{}), cbor.Set([]any{common.PlutusV4Script{0x41, 0x00}}),
+	} {
+		encoded, err := cbor.Encode(map[uint]any{8: value})
+		require.NoError(t, err)
+		var witnesses DijkstraTransactionWitnessSet
+		require.ErrorContains(t, witnesses.UnmarshalCBOR(encoded), "unsupported CBOR map field 8")
+	}
+	encoded, err := cbor.Encode(map[uint]any{5: map[uint]any{}})
+	require.NoError(t, err)
+	var witnesses DijkstraTransactionWitnessSet
+	require.ErrorContains(t, witnesses.UnmarshalCBOR(encoded), "must not be empty")
+	constructed := DijkstraTransactionWitnessSet{
+		WsPlutusV4Scripts: cbor.NewSetType(
+			[]common.PlutusV4Script{{0x41, 0x00}},
+			true,
+		),
+	}
+	encoded, err = cbor.Encode(constructed)
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	require.NotContains(t, fields, uint(8), "Dijkstra witness key 8 is unsupported")
 }
 
 func TestDijkstraTransactionBodiesRejectNegativeCurrentTreasuryValue(
@@ -789,6 +919,7 @@ func TestDijkstraRejectsDuplicateMultiAssetKeys(t *testing.T) {
 			[]byte{0xa1, 0x09},
 			testDuplicatePolicyMultiAssetCbor(0x44)...,
 		)
+		bodyCbor = withDijkstraRequiredFields(t, bodyCbor, false)
 		var body DijkstraTransactionBody
 		err := body.UnmarshalCBOR(bodyCbor)
 		require.ErrorContains(t, err, "duplicate map key")
@@ -798,6 +929,7 @@ func TestDijkstraRejectsDuplicateMultiAssetKeys(t *testing.T) {
 			[]byte{0xa1, 0x09},
 			testDuplicateAssetNameMultiAssetCbor(0x55)...,
 		)
+		bodyCbor = withDijkstraRequiredFields(t, bodyCbor, false)
 		var body DijkstraTransactionBody
 		err := body.UnmarshalCBOR(bodyCbor)
 		require.ErrorContains(t, err, "duplicate map key")
@@ -816,6 +948,7 @@ func TestDijkstraRejectsDuplicateMultiAssetKeys(t *testing.T) {
 			[]byte{0xa1, 0x09},
 			testDuplicatePolicyMultiAssetCbor(0x77)...,
 		)
+		bodyCbor = withDijkstraRequiredFields(t, bodyCbor, true)
 		var body DijkstraSubTransactionBody
 		err := body.UnmarshalCBOR(bodyCbor)
 		require.ErrorContains(t, err, "duplicate map key")
@@ -844,22 +977,21 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransaction(t *testing.T) {
 	// Craft a transaction body where field 23 (TxSubTransactions) is a tag-258 set
 	// containing two identical minimal sub-transactions.
 	// Minimal sub-transaction = [empty-body, empty-witness, null] = 83 a0 a0 f6.
-	dupCbor := []byte{
-		0xa1,             // map(1)
-		0x17,             // key: 23 (TxSubTransactions field)
-		0xd9, 0x01, 0x02, // tag(258) — CBOR set
-		0x82,                   // array(2)
-		0x83, 0xa0, 0xa0, 0xf6, // sub-tx: [empty-body, empty-witness, null]
-		0x83, 0xa0, 0xa0, 0xf6, // duplicate
-	}
+	subTx := []any{map[uint]any{0: []any{}, 1: []any{}}, map[uint]any{}, nil}
+	dupCbor, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
+		23: cbor.Set([]any{subTx, subTx}),
+	})
+	require.NoError(t, err)
 	var body DijkstraTransactionBody
-	err := body.UnmarshalCBOR(dupCbor)
+	err = body.UnmarshalCBOR(dupCbor)
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
 func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	input := testShelleyInput()
 	bodyCbor, err := cbor.Encode(map[uint]any{
+		1: []any{}, 2: uint64(0),
 		0: cbor.NewSetType(
 			[]shelley.ShelleyTransactionInput{input, input},
 			true,
@@ -883,6 +1015,7 @@ func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputSets(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			bodyCbor, err := cbor.Encode(map[uint]any{
+				0: []any{}, 1: []any{}, 2: uint64(0),
 				tt.field: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{input, input},
 					true,
@@ -909,12 +1042,14 @@ func TestDijkstraRejectsDuplicateUntaggedInputSets(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			bodyCbor, err := cbor.Encode(map[uint]any{
+				1: []any{}, 2: uint64(0),
 				tt.field: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{input, input},
 					false,
 				),
 			})
 			require.NoError(t, err)
+			bodyCbor = withDijkstraRequiredFields(t, bodyCbor, false)
 
 			var body DijkstraTransactionBody
 			require.ErrorContains(
@@ -936,11 +1071,13 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionInputs(
 				[]shelley.ShelleyTransactionInput{input, input},
 				true,
 			),
+			1: []any{},
 		},
 		map[uint]any{},
 		nil,
 	}
 	bodyCbor, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
 		23: cbor.NewSetType([]any{subTx}, true),
 	})
 	require.NoError(t, err)
@@ -963,6 +1100,7 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionReferenceInputs(
 		},
 	}
 	bodyCbor, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
 		23: cbor.NewSetType([]DijkstraSubTransaction{subTx}, true),
 	})
 	require.NoError(t, err)
@@ -994,9 +1132,18 @@ func TestDijkstraRejectsDuplicateProposalProcedures(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			bodyCbor, err := cbor.Encode(map[uint]any{
+				0: []any{}, 1: []any{}, 2: uint64(0),
 				tt.field: []DijkstraProposalProcedure{procedure, procedure},
 			})
 			require.NoError(t, err)
+			if tt.name == "subtransaction body" {
+				var fields map[uint]cbor.RawMessage
+				_, err = cbor.Decode(bodyCbor, &fields)
+				require.NoError(t, err)
+				delete(fields, 2)
+				bodyCbor, err = cbor.Encode(fields)
+				require.NoError(t, err)
+			}
 
 			if tt.name == "transaction body" {
 				var body DijkstraTransactionBody
@@ -1019,6 +1166,27 @@ func testShelleyInput() shelley.ShelleyTransactionInput {
 	}
 }
 
+func withDijkstraRequiredFields(t *testing.T, encoded []byte, subTransaction bool) []byte {
+	t.Helper()
+	var fields map[uint]cbor.RawMessage
+	_, err := cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	values := map[uint]any{0: []any{}, 1: []any{}}
+	if !subTransaction {
+		values[2] = uint64(0)
+	}
+	for key, value := range values {
+		if _, ok := fields[key]; ok {
+			continue
+		}
+		fields[key], err = cbor.Encode(value)
+		require.NoError(t, err)
+	}
+	encoded, err = cbor.Encode(fields)
+	require.NoError(t, err)
+	return encoded
+}
+
 func TestDijkstraTransactionBodyRejectsDuplicateCredentialGuards(t *testing.T) {
 	var hash common.Blake2b224
 	hash[0] = 1
@@ -1027,6 +1195,7 @@ func TestDijkstraTransactionBodyRejectsDuplicateCredentialGuards(t *testing.T) {
 		Credential: hash,
 	}
 	bodyCbor, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
 		14: cbor.NewSetType([]common.Credential{guard, guard}, true),
 	})
 	require.NoError(t, err)
@@ -1040,6 +1209,7 @@ func TestDijkstraTransactionBodyRejectsDuplicateKeyHashGuards(t *testing.T) {
 	var hash common.Blake2b224
 	hash[0] = 1
 	bodyCbor, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
 		14: cbor.NewSetType([]common.Blake2b224{hash, hash}, true),
 	})
 	require.NoError(t, err)

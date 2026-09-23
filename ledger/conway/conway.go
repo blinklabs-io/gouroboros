@@ -466,6 +466,9 @@ type ConwayTransactionWitnessSet struct {
 }
 
 func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	if err := common.ValidateMapFields(cborData, nil, []uint{0, 1, 2, 3, 4, 5, 6, 7}, nil); err != nil {
+		return err
+	}
 	type tConwayTransactionWitnessSet ConwayTransactionWitnessSet
 	var tmp tConwayTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -666,6 +669,14 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateMapFields(
+		cborData,
+		[]uint{0, 1, 2},
+		[]uint{4, 5, 9, 13, 14, 18, 20},
+		nil,
+	); err != nil {
+		return err
+	}
 	if tmp.TxCurrentTreasuryValue < 0 {
 		return errors.New("current treasury value must not be negative")
 	}
@@ -782,7 +793,7 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithRequiredFields(&b, []uint{0, 1, 2})
 }
 
 // checkMultiAssetEncoding rejects the multiasset wire forms cardano-ledger

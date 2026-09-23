@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"math/big"
 	"reflect"
 	"strings"
@@ -192,10 +193,10 @@ func TestConwayTransactionBodyUnmarshalCBORCertificateTypes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			encoded, err := cbor.Encode(map[uint]any{
+				0: []any{}, 1: []any{}, 2: uint64(0),
 				4: []any{tc.certificate},
 			})
 			require.NoError(t, err)
-
 			var body ConwayTransactionBody
 			err = body.UnmarshalCBOR(encoded)
 			if tc.wantErr {
@@ -217,16 +218,77 @@ func TestConwayTransactionBodyUnmarshalCBORCertificateTypes(t *testing.T) {
 	}
 }
 
+func TestConwayTransactionBodyRequiresFieldsAndRejectsEmptyCollections(t *testing.T) {
+	base := map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)}
+	for _, key := range []uint{0, 1, 2} {
+		t.Run(fmt.Sprintf("missing_%d", key), func(t *testing.T) {
+			fields := maps.Clone(base)
+			delete(fields, key)
+			encoded, err := cbor.Encode(fields)
+			require.NoError(t, err)
+			var body ConwayTransactionBody
+			require.Error(t, body.UnmarshalCBOR(encoded))
+		})
+	}
+	for _, key := range []uint{4, 5, 9, 13, 14, 18, 20} {
+		t.Run(fmt.Sprintf("empty_%d", key), func(t *testing.T) {
+			fields := maps.Clone(base)
+			if key == 9 || key == 5 {
+				fields[key] = map[uint]any{}
+			} else {
+				fields[key] = []any{}
+			}
+			encoded, err := cbor.Encode(fields)
+			require.NoError(t, err)
+			var body ConwayTransactionBody
+			require.Error(t, body.UnmarshalCBOR(encoded))
+		})
+	}
+	for _, key := range []uint{13, 14, 18} {
+		t.Run(fmt.Sprintf("tagged_empty_%d", key), func(t *testing.T) {
+			fields := maps.Clone(base)
+			fields[key] = cbor.Set([]any{})
+			encoded, err := cbor.Encode(fields)
+			require.NoError(t, err)
+			var body ConwayTransactionBody
+			require.Error(t, body.UnmarshalCBOR(encoded))
+		})
+	}
+	encoded, err := cbor.Encode(base)
+	require.NoError(t, err)
+	var body ConwayTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(encoded), "present empty outputs are legal")
+}
+
+func TestConwayWitnessSetRejectsPresentEmptyFields(t *testing.T) {
+	for _, key := range []uint{0, 1, 2, 3, 4, 5, 6, 7} {
+		for _, tagged := range []bool{false, true} {
+			name := "untagged"
+			var value any = []any{}
+			if tagged {
+				name = "tagged"
+				value = cbor.Set([]any{})
+			}
+			t.Run(fmt.Sprintf("field_%d/%s", key, name), func(t *testing.T) {
+				encoded, err := cbor.Encode(map[uint]any{key: value})
+				require.NoError(t, err)
+				var witnesses ConwayTransactionWitnessSet
+				require.Error(t, witnesses.UnmarshalCBOR(encoded))
+			})
+		}
+	}
+}
+
 func TestConwayTransactionBodyUnmarshalCBORCertificateTagRange(t *testing.T) {
 	certificates := conwayCertificateFixturesByType(t)
 	for certType := common.CertificateTypeStakeRegistration; certType <= common.CertificateTypeUpdateDrep; certType++ {
 		certType := certType
 		t.Run(fmt.Sprintf("type %d", certType), func(t *testing.T) {
 			encoded, err := cbor.Encode(map[uint]any{
+				0: []any{}, 1: []any{}, 2: uint64(0),
 				4: []any{certificates[certType]},
 			})
 			require.NoError(t, err)
-
 			var body ConwayTransactionBody
 			err = body.UnmarshalCBOR(encoded)
 			if certType == common.CertificateTypeGenesisKeyDelegation ||
@@ -420,6 +482,7 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 			[]shelley.ShelleyTransactionInput{input, input},
 			true,
 		),
+		1: []any{}, 2: uint64(0),
 	})
 	assert.NoError(t, err)
 
@@ -430,7 +493,7 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 
 func TestConwayTransactionRejectsNegativeCurrentTreasuryValue(t *testing.T) {
 	encoded, err := cbor.Encode([]any{
-		map[uint]any{21: int64(-1)},
+		map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0), 21: int64(-1)},
 		map[uint]any{},
 		false,
 		nil,
@@ -468,6 +531,7 @@ func TestConwayRejectsDuplicateUntaggedInputSets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bodyCbor, err := cbor.Encode(map[uint]any{
+				0: []any{}, 1: []any{}, 2: uint64(0),
 				tt.field: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{input, input},
 					false,
@@ -500,6 +564,7 @@ func TestConwayProposalProceduresSetSemantics(t *testing.T) {
 	for _, useTag := range []bool{false, true} {
 		t.Run(fmt.Sprintf("duplicate useTag=%t", useTag), func(t *testing.T) {
 			bodyCbor, err := cbor.Encode(map[uint]any{
+				0: []any{}, 1: []any{}, 2: uint64(0),
 				20: cbor.NewSetType(
 					[]ConwayProposalProcedure{procedure, procedure},
 					useTag,
@@ -519,6 +584,7 @@ func TestConwayProposalProceduresSetSemantics(t *testing.T) {
 	distinct := procedure
 	distinct.PPDeposit++
 	bodyCbor, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
 		20: []ConwayProposalProcedure{procedure, distinct},
 	})
 	require.NoError(t, err)
@@ -560,7 +626,7 @@ func TestConwayTransactionBodyRejectsDuplicateMultiAssetKeys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var body ConwayTransactionBody
-			err := body.UnmarshalCBOR(tt.body)
+			err := body.UnmarshalCBOR(withRequiredConwayBodyFields(t, tt.body))
 			assert.ErrorContains(t, err, "duplicate map key")
 		})
 	}
@@ -603,6 +669,7 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedSetFields(t *testing.T) {
 				tt.field: tt.value,
 			})
 			assert.NoError(t, err)
+			bodyCbor = withRequiredConwayBodyFields(t, bodyCbor)
 
 			var body ConwayTransactionBody
 			err = body.UnmarshalCBOR(bodyCbor)
@@ -733,6 +800,23 @@ func testConwayShelleyInput() shelley.ShelleyTransactionInput {
 		TxId:        txId,
 		OutputIndex: 0,
 	}
+}
+
+func withRequiredConwayBodyFields(t *testing.T, encoded []byte) []byte {
+	t.Helper()
+	var fields map[uint]cbor.RawMessage
+	_, err := cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	for key, value := range map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)} {
+		if _, ok := fields[key]; ok {
+			continue
+		}
+		fields[key], err = cbor.Encode(value)
+		require.NoError(t, err)
+	}
+	encoded, err = cbor.Encode(fields)
+	require.NoError(t, err)
+	return encoded
 }
 
 func testDuplicatePolicyMultiAssetCbor(policyByte byte) []byte {

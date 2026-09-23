@@ -36,14 +36,13 @@ type transactionBodyDecoder interface {
 
 func transactionBodyDecoders() map[string]func() transactionBodyDecoder {
 	return map[string]func() transactionBodyDecoder{
-		"shelley":      func() transactionBodyDecoder { return &shelley.ShelleyTransactionBody{} },
-		"allegra":      func() transactionBodyDecoder { return &allegra.AllegraTransactionBody{} },
-		"mary":         func() transactionBodyDecoder { return &mary.MaryTransactionBody{} },
-		"alonzo":       func() transactionBodyDecoder { return &alonzo.AlonzoTransactionBody{} },
-		"babbage":      func() transactionBodyDecoder { return &babbage.BabbageTransactionBody{} },
-		"conway":       func() transactionBodyDecoder { return &conway.ConwayTransactionBody{} },
-		"dijkstra":     func() transactionBodyDecoder { return &dijkstra.DijkstraTransactionBody{} },
-		"dijkstra_sub": func() transactionBodyDecoder { return &dijkstra.DijkstraSubTransactionBody{} },
+		"shelley":  func() transactionBodyDecoder { return &shelley.ShelleyTransactionBody{} },
+		"allegra":  func() transactionBodyDecoder { return &allegra.AllegraTransactionBody{} },
+		"mary":     func() transactionBodyDecoder { return &mary.MaryTransactionBody{} },
+		"alonzo":   func() transactionBodyDecoder { return &alonzo.AlonzoTransactionBody{} },
+		"babbage":  func() transactionBodyDecoder { return &babbage.BabbageTransactionBody{} },
+		"conway":   func() transactionBodyDecoder { return &conway.ConwayTransactionBody{} },
+		"dijkstra": func() transactionBodyDecoder { return &dijkstra.DijkstraTransactionBody{} },
 	}
 }
 
@@ -59,10 +58,26 @@ func preConwayTransactionBodyDecoders() map[string]func() transactionBodyDecoder
 
 func orderedSetCertificateTransactionBodyDecoders() map[string]func() transactionBodyDecoder {
 	return map[string]func() transactionBodyDecoder{
-		"conway":       func() transactionBodyDecoder { return &conway.ConwayTransactionBody{} },
-		"dijkstra":     func() transactionBodyDecoder { return &dijkstra.DijkstraTransactionBody{} },
-		"dijkstra_sub": func() transactionBodyDecoder { return &dijkstra.DijkstraSubTransactionBody{} },
+		"conway":   func() transactionBodyDecoder { return &conway.ConwayTransactionBody{} },
+		"dijkstra": func() transactionBodyDecoder { return &dijkstra.DijkstraTransactionBody{} },
 	}
+}
+
+func withConwayRequiredFields(t *testing.T, encoded []byte) []byte {
+	t.Helper()
+	var fields map[uint]cbor.RawMessage
+	_, err := cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	for key, value := range map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)} {
+		if _, ok := fields[key]; ok {
+			continue
+		}
+		fields[key], err = cbor.Encode(value)
+		require.NoError(t, err)
+	}
+	encoded, err = cbor.Encode(fields)
+	require.NoError(t, err)
+	return encoded
 }
 
 func testRewardAddress(t *testing.T) common.Address {
@@ -93,6 +108,7 @@ func TestTransactionBodiesRejectDuplicateLogicalWithdrawalKeys(t *testing.T) {
 	// Key 3 is mandatory in the Shelley body and optional but harmless from
 	// Allegra on, so one body shape decodes in every era under test.
 	duplicateBody, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
 		3: uint64(0),
 		5: duplicateWithdrawals,
 	})
@@ -100,6 +116,7 @@ func TestTransactionBodiesRejectDuplicateLogicalWithdrawalKeys(t *testing.T) {
 
 	validAddress := testRewardAddress(t)
 	validBody, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
 		3: uint64(0),
 		5: map[*common.Address]uint64{&validAddress: 1},
 	})
@@ -149,11 +166,13 @@ func TestTransactionBodyDuplicateCertificateSemanticsByEra(t *testing.T) {
 				)
 			}
 			duplicateBody, err := cbor.Encode(map[uint]any{
+				0: []any{}, 1: []any{}, 2: uint64(0),
 				3: uint64(0),
 				4: duplicateCertificates,
 			})
 			require.NoError(t, err)
 			validBody, err := cbor.Encode(map[uint]any{
+				0: []any{}, 1: []any{}, 2: uint64(0),
 				3: uint64(0),
 				4: validCertificates,
 			})
@@ -190,6 +209,7 @@ func TestTransactionBodiesRejectEquivalentCertificateEncodings(t *testing.T) {
 	nonShortestAmount := append([]byte(nil), canonical[:len(canonical)-1]...)
 	nonShortestAmount = append(nonShortestAmount, 0x18, 0x01)
 	body, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
 		3: uint64(0),
 		4: []any{
 			cbor.RawMessage(canonical),
@@ -242,6 +262,7 @@ func TestConwayTransactionDecoderRejectsDuplicateCollections(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			bodyCbor, err := cbor.Encode(test.body)
 			require.NoError(t, err)
+			bodyCbor = withConwayRequiredFields(t, bodyCbor)
 			txCbor, err := cbor.Encode([]any{
 				cbor.RawMessage(bodyCbor),
 				map[uint]any{},
@@ -255,6 +276,7 @@ func TestConwayTransactionDecoderRejectsDuplicateCollections(t *testing.T) {
 	}
 
 	validBody, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0),
 		4: []any{certificate},
 		5: map[*common.Address]uint64{&address1: 1},
 	})

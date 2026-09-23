@@ -18,6 +18,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
@@ -109,7 +110,12 @@ func TestCurrentTreasuryValueDecodedPresenceExactCBOR(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					body := bodyTest.newBody(0)
-					require.NoError(t, body.UnmarshalCBOR(test.cbor))
+					input := withRequiredEraBodyFields(
+						t,
+						test.cbor,
+						bodyTest.name == "Dijkstra sub-transaction",
+					)
+					require.NoError(t, body.UnmarshalCBOR(input))
 					require.Equal(
 						t,
 						test.wantTreasury != nil,
@@ -122,7 +128,7 @@ func TestCurrentTreasuryValueDecodedPresenceExactCBOR(t *testing.T) {
 
 					reencoded, err := body.MarshalCBOR()
 					require.NoError(t, err)
-					require.Equal(t, test.cbor, reencoded)
+					require.Equal(t, input, reencoded)
 				})
 			}
 		})
@@ -137,7 +143,14 @@ func TestCurrentTreasuryValueConstructedPresenceExactCBOR(t *testing.T) {
 			require.Nil(t, absent.CurrentTreasuryValue())
 			encoded, err := absent.MarshalCBOR()
 			require.NoError(t, err)
-			require.Equal(t, []byte{0xa1, 0x00, 0x80}, encoded)
+			var fields map[uint]cbor.RawMessage
+			_, err = cbor.Decode(encoded, &fields)
+			require.NoError(t, err)
+			require.Contains(t, fields, uint(0))
+			require.Contains(t, fields, uint(1))
+			if bodyTest.name != "Dijkstra sub-transaction" {
+				require.Contains(t, fields, uint(2))
+			}
 
 			explicitZero := bodyTest.newBody(0)
 			explicitZero.SetCurrentTreasuryValuePresence(true)
@@ -145,7 +158,14 @@ func TestCurrentTreasuryValueConstructedPresenceExactCBOR(t *testing.T) {
 			require.Equal(t, big.NewInt(0), explicitZero.CurrentTreasuryValue())
 			encoded, err = explicitZero.MarshalCBOR()
 			require.NoError(t, err)
-			require.Equal(t, []byte{0xa2, 0x00, 0x80, 0x15, 0x00}, encoded)
+			fields = nil
+			_, err = cbor.Decode(encoded, &fields)
+			require.NoError(t, err)
+			require.Contains(t, fields, uint(21))
+			var zeroValue uint64
+			_, err = cbor.Decode(fields[21], &zeroValue)
+			require.NoError(t, err)
+			require.Zero(t, zeroValue)
 
 			nonzero := bodyTest.newBody(42)
 			require.True(
@@ -156,11 +176,14 @@ func TestCurrentTreasuryValueConstructedPresenceExactCBOR(t *testing.T) {
 			require.Equal(t, big.NewInt(42), nonzero.CurrentTreasuryValue())
 			encoded, err = nonzero.MarshalCBOR()
 			require.NoError(t, err)
-			require.Equal(
-				t,
-				[]byte{0xa2, 0x00, 0x80, 0x15, 0x18, 0x2a},
-				encoded,
-			)
+			fields = nil
+			_, err = cbor.Decode(encoded, &fields)
+			require.NoError(t, err)
+			require.Contains(t, fields, uint(21))
+			var treasuryValue uint64
+			_, err = cbor.Decode(fields[21], &treasuryValue)
+			require.NoError(t, err)
+			require.Equal(t, uint64(42), treasuryValue)
 		})
 	}
 }

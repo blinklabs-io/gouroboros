@@ -796,6 +796,47 @@ func MapInfo(data []byte) (int, uint32, bool) {
 	}
 }
 
+// IsEmptyCollection reports whether data encodes an empty CBOR array or map.
+// Tag 258 set wrappers are unwrapped before checking; any other tag is an
+// error because it does not represent a collection shape this helper accepts.
+func IsEmptyCollection(data []byte) (bool, error) {
+	if len(data) == 0 {
+		return false, errors.New("empty CBOR input")
+	}
+	var tag RawTag
+	if _, err := Decode(data, &tag); err == nil {
+		if tag.Number != CborTagSet {
+			return false, fmt.Errorf("unexpected CBOR tag %d on collection", tag.Number)
+		}
+		data = []byte(tag.Content)
+		if len(data) == 0 {
+			return false, errors.New("empty CBOR set content")
+		}
+	}
+	switch data[0] & CborTypeMask {
+	case CborTypeArray:
+		count, headerSize, indefinite := ArrayInfo(data)
+		if count < 0 {
+			return false, errors.New("invalid CBOR array header")
+		}
+		if !indefinite {
+			return count == 0, nil
+		}
+		return len(data) == int(headerSize)+1 && data[headerSize] == 0xff, nil
+	case CborTypeMap:
+		count, headerSize, indefinite := MapInfo(data)
+		if count < 0 {
+			return false, errors.New("invalid CBOR map header")
+		}
+		if !indefinite {
+			return count == 0, nil
+		}
+		return len(data) == int(headerSize)+1 && data[headerSize] == 0xff, nil
+	default:
+		return false, errors.New("CBOR value is not an array or map")
+	}
+}
+
 // ArrayHeaderSize returns the CBOR header size in bytes for an array of given length.
 func ArrayHeaderSize(length int) uint32 {
 	if length < 24 {

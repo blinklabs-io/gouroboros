@@ -22,6 +22,7 @@ package common
 //   - rules.go: Validation rules that operate on Transaction
 
 import (
+	"fmt"
 	"iter"
 	"math/big"
 
@@ -260,6 +261,45 @@ type transactionBodyFieldPresence struct {
 	networkId                  bool
 }
 
+// ValidateMapFields checks required and non-empty collection fields in a
+// decoded ledger CBOR map. It is used where typed decoding would collapse an
+// absent field and an explicitly empty collection to the same Go value.
+func ValidateMapFields(
+	cborData []byte,
+	requiredFields []uint,
+	nonEmptyFields []uint,
+	unsupportedFields []uint,
+) error {
+	var fields map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	for _, field := range requiredFields {
+		if _, ok := fields[field]; !ok {
+			return fmt.Errorf("required CBOR map field %d is missing", field)
+		}
+	}
+	for _, field := range unsupportedFields {
+		if _, ok := fields[field]; ok {
+			return fmt.Errorf("unsupported CBOR map field %d", field)
+		}
+	}
+	for _, field := range nonEmptyFields {
+		data, ok := fields[field]
+		if !ok {
+			continue
+		}
+		empty, err := cbor.IsEmptyCollection(data)
+		if err != nil {
+			return fmt.Errorf("CBOR map field %d: %w", field, err)
+		}
+		if empty {
+			return fmt.Errorf("CBOR map field %d must not be empty", field)
+		}
+	}
+	return nil
+}
+
 func (b *TransactionBodyBase) SetCbor(cborData []byte) {
 	// Replacing CBOR invalidates the hash memo; callers must not mutate the
 	// body concurrently with Id or this setter.
@@ -441,6 +481,47 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		bodyFields[15] = encodedNetworkId
 	}
 	return cbor.Encode(bodyFields)
+}
+
+// EncodeTransactionBodyWithRequiredFields adds required sparse-map keys that
+// generic struct encoding omits when their values are zero-valued.
+func EncodeTransactionBodyWithRequiredFields(
+	body TransactionBody,
+	requiredFields []uint,
+) ([]byte, error) {
+	cborData, err := EncodeTransactionBodyWithValidityIntervalUpperBound(body)
+	if err != nil {
+		return nil, err
+	}
+	fields := make(map[uint]cbor.RawMessage)
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return nil, err
+	}
+	added := false
+	for _, field := range requiredFields {
+		if _, ok := fields[field]; ok {
+			continue
+		}
+		var value any
+		switch field {
+		case 0, 1:
+			value = []any{}
+		case 2:
+			value = uint64(0)
+		default:
+			return nil, fmt.Errorf("no zero value for required transaction-body field %d", field)
+		}
+		encoded, err := cbor.Encode(value)
+		if err != nil {
+			return nil, err
+		}
+		fields[field] = encoded
+		added = true
+	}
+	if !added {
+		return cborData, nil
+	}
+	return cbor.Encode(fields)
 }
 
 func (b *TransactionBodyBase) Id() Blake2b256 {

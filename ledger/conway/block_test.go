@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
@@ -86,6 +87,35 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 			t.Logf("Length mismatch: original length = %d, re-encoded length = %d", len(dataBytes), len(encoded))
 		}
 	}
+}
+
+func TestConwayBlockRejectsTransactionWithMissingRequiredBodyField(t *testing.T) {
+	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ConwayBlockHex))
+	require.NoError(t, err)
+	var components []cbor.RawMessage
+	_, err = cbor.Decode(blockCbor, &components)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(components), 5)
+	var bodies []cbor.RawMessage
+	_, err = cbor.Decode(components[1], &bodies)
+	require.NoError(t, err)
+	require.NotEmpty(t, bodies)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(bodies[0], &fields)
+	require.NoError(t, err)
+	require.Contains(t, fields, uint(0))
+	delete(fields, 0)
+	bodies[0], err = cbor.Encode(fields)
+	require.NoError(t, err)
+	components[1], err = cbor.Encode(bodies)
+	require.NoError(t, err)
+	malformedBlock, err := cbor.Encode(components)
+	require.NoError(t, err)
+	_, err = conway.NewConwayBlockFromCbor(
+		malformedBlock,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.ErrorContains(t, err, "required CBOR map field 0 is missing")
 }
 
 func TestConwayBlockUtxorpc(t *testing.T) {
