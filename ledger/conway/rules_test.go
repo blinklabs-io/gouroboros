@@ -1645,11 +1645,12 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	var testInputAmount uint64 = 555666777
 	var testFee uint64 = 123456
 	var testStakeDeposit uint64 = 2_000_000
-	var testDepositAmount uint64 = 1_500_000
+	var testDepositAmount = testStakeDeposit
 	testOutputExactAmount := testInputAmount - testFee
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
 	testTx := &conway.ConwayTransaction{
+		TxIsValid: true,
 		Body: conway.ConwayTransactionBody{
 			TxInputs: conway.NewConwayTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{
@@ -1676,6 +1677,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testLedgerState := certificateDepositLedgerState{
 		LedgerState: mockledger.NewLedgerStateBuilder().
 			WithUtxos(utxos).
+			WithStakeRegistrations([]common.StakeRegistrationCertificate{{
+				StakeCredential: common.Credential{},
+			}}).
 			Build(),
 		deposits: map[certificateDepositCredentialKey]uint64{
 			{
@@ -1683,6 +1687,19 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				hash:     common.Blake2b224{},
 			}: testStakeDeposit,
 		},
+	}
+	zeroRefundCredential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+	zeroRefundState := certificateDepositLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithUtxos(utxos).
+			WithStakeRegistrations([]common.StakeRegistrationCertificate{{
+				StakeCredential: zeroRefundCredential,
+			}}).
+			Build(),
+		deposits: map[certificateDepositCredentialKey]uint64{{
+			credType: zeroRefundCredential.CredType,
+			hash:     zeroRefundCredential.Credential,
+		}: 0},
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
@@ -1845,11 +1862,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			}
 		},
 	)
-	// CIP-0094 Registration certificate with invalid deposit (zero)
+	// CIP-0094 registration permits a zero deposit when the parameter is zero.
 	t.Run(
-		"registration certificate invalid deposit zero",
+		"registration certificate zero deposit",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			zeroDepositParams := *testProtocolParams
+			zeroDepositParams.KeyDeposit = 0
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeRegistration),
@@ -1863,23 +1882,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				testTx,
 				testSlot,
 				testLedgerState,
-				testProtocolParams,
+				&zeroDepositParams,
 			)
-			if err == nil {
-				t.Errorf(
-					"UtxoValidateValueNotConservedUtxo should fail with zero registration deposit",
-				)
-				return
-			}
-			testErrType := shelley.InvalidCertificateDepositError{}
-			assert.IsType(
-				t,
-				testErrType,
-				err,
-				"did not get expected error type: got %T, wanted %T",
-				err,
-				testErrType,
-			)
+			require.NoError(t, err)
 		},
 	)
 	// CIP-0094 Deregistration certificate with valid refund
@@ -1910,11 +1915,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			}
 		},
 	)
-	// CIP-0094 Deregistration certificate with invalid refund (zero)
+	// CIP-0094 deregistration permits a zero refund when the recorded deposit is zero.
 	t.Run(
-		"deregistration certificate invalid refund zero",
+		"deregistration certificate zero refund",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			zeroDepositParams := *testProtocolParams
+			zeroDepositParams.KeyDeposit = 0
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeDeregistration),
@@ -1927,24 +1934,10 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			err := conway.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
-				testLedgerState,
-				testProtocolParams,
+				zeroRefundState,
+				&zeroDepositParams,
 			)
-			if err == nil {
-				t.Errorf(
-					"UtxoValidateValueNotConservedUtxo should fail with zero deregistration refund",
-				)
-				return
-			}
-			testErrType := shelley.InvalidCertificateDepositError{}
-			assert.IsType(
-				t,
-				testErrType,
-				err,
-				"did not get expected error type: got %T, wanted %T",
-				err,
-				testErrType,
-			)
+			require.NoError(t, err)
 		},
 	)
 	// Minting

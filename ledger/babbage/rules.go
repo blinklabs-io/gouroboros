@@ -763,9 +763,17 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
 	for _, cert := range tx.Certificates() {
-		switch cert.(type) {
+		switch tmpCert := cert.(type) {
 		case *common.StakeDeregistrationCertificate:
-			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
+			deposit, err := common.StakeCredentialDepositOrDefault(
+				ls,
+				tmpCert.StakeCredential,
+				uint64(tmpPparams.KeyDeposit),
+			)
+			if err != nil {
+				return err
+			}
+			consumedValue.Add(consumedValue, new(big.Int).SetUint64(deposit))
 			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
 			// Pool deposits are refunded to the reward account at the end of the retiring epoch.
 		}
