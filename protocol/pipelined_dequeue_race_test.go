@@ -868,3 +868,123 @@ func TestResolvePipelinedDequeueDoesNotLeakTokenAcrossConcurrentRecvLoopTransiti
 			"window this test targets was never reached",
 	)
 }
+
+// TestResolvePipelinedDequeueUnsynchronizedTransitionNeverStrandsToken uses
+// the same Busy/Idle/Idle2 construction as the test above, but releases the
+// concurrent transition without waiting for its state to become visible, so
+// the whole of setState can land anywhere relative to the post-flush
+// decision. The busy-wait above cannot catch a two-step drain-then-read at
+// the call site: setState already holds currentStateMu across its state and
+// token writes, so by the time the new state is visible its token is too.
+// Letting the transition race freely covers both halves of the pairing --
+// setState's state-and-token critical section, and
+// observeStateAndDrainSendReady's drain-and-read -- independently: reverting
+// either one leaks a token on some iterations.
+func TestResolvePipelinedDequeueUnsynchronizedTransitionNeverStrandsToken(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const msgTypeRequest uint8 = 2
+	const msgTypeBatchDone uint8 = 3
+	const msgTypeNoBlocks uint8 = 5
+	busy := NewState(1, "Busy")
+	idle := NewState(2, "Idle")
+	idle2 := NewState(3, "Idle2")
+	stateMap := StateMap{
+		busy: StateMapEntry{
+			Agency:                AgencyServer,
+			AllowPipelinedSend:    true,
+			PipelinedMessageTypes: []uint8{msgTypeRequest},
+			Transitions: []StateTransition{
+				{MsgType: msgTypeBatchDone, NewState: idle},
+			},
+		},
+		idle: StateMapEntry{
+			Agency: AgencyClient,
+			Transitions: []StateTransition{
+				{MsgType: msgTypeNoBlocks, NewState: idle2},
+			},
+		},
+		idle2: StateMapEntry{
+			Agency: AgencyClient,
+			Transitions: []StateTransition{
+				{MsgType: msgTypeRequest, NewState: busy},
+			},
+		},
+	}
+
+	// A leak lands on a few percent of iterations with the call-site half
+	// reverted and well under one percent with the setState half reverted,
+	// so the count is sized for the rarer of the two.
+	const iterations = 4000
+	promotions := 0
+	for iter := range iterations {
+		p, errorChan := newStateLoopOnlyProtocol(t, stateMap, busy)
+		require.NoError(
+			t,
+			p.transitionState(&MessageBase{MessageType: msgTypeBatchDone}),
+			"iteration %d: entry transition Busy -> Idle",
+			iter,
+		)
+
+		var queuedStateTransitions []Message
+		concurrentDone := make(chan struct{})
+		// Vary how long the hook yields so the transition lands at
+		// different points around the post-flush drain and state read.
+		yields := iter % 4
+		p.resolvePipelinedDequeuePostFlushHook = func() {
+			go func() {
+				defer close(concurrentDone)
+				_ = p.transitionState(
+					&MessageBase{MessageType: msgTypeNoBlocks},
+				)
+			}()
+			for range yields {
+				runtime.Gosched()
+			}
+		}
+
+		outbound, haveAgency, err := p.resolvePipelinedDequeue(
+			&outboundMessage{
+				message: &MessageBase{MessageType: msgTypeRequest},
+			},
+			false,
+			&queuedStateTransitions,
+		)
+		p.resolvePipelinedDequeuePostFlushHook = nil
+		<-concurrentDone
+
+		if err == nil {
+			promotions++
+			require.True(t, haveAgency, "iteration %d", iter)
+			require.NotNil(t, outbound, "iteration %d", iter)
+			// Promotion is only reachable through Idle2, whose token setState
+			// wrote together with the state; it must have been consumed.
+			require.Equal(
+				t,
+				0,
+				len(p.sendReadyChan),
+				"iteration %d: promoted on Idle2 but left its sendReadyChan "+
+					"token stranded",
+				iter,
+			)
+		}
+		select {
+		case unexpected := <-errorChan:
+			t.Fatalf(
+				"iteration %d: unexpected protocol error: %v",
+				iter,
+				unexpected,
+			)
+		default:
+		}
+		p.Stop()
+	}
+	require.Greater(
+		t,
+		promotions,
+		0,
+		"no iteration observed the concurrent transition",
+	)
+}
