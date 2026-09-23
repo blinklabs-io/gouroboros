@@ -78,6 +78,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateBootstrapAllowedGovActions,
 	},
 	{
+		Id:        common.UtxoValidationRuleProposalReturnAddressShape,
+		Validator: common.UtxoValidateProposalReturnAddressShape,
+	},
+	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
 		Validator: UtxoValidateIsValidFlag,
 	},
@@ -297,6 +301,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateProposalReturnAccounts, UtxoValidateEmptyTreasuryWithdrawals,
 		UtxoValidateBootstrapAllowedGovActions,
 	),
+	common.AlwaysUtxoValidationRules(common.UtxoValidateProposalReturnAddressShape),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
 		UtxoValidateCollateralVKeyWitnesses, UtxoValidateRedeemerAndScriptWitnesses,
@@ -1622,6 +1627,20 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	// Redeemer/script relation applies only to Plutus scripts. Native scripts
 	// do NOT require redeemers.
 	wits := tx.Witnesses()
+	if conwayPp, ok := pp.(*ConwayProtocolParameters); ok &&
+		conwayPp.ProtocolVersion.Major >= common.ProtocolVersionConway &&
+		wits != nil {
+		if rawWitnesses, ok := wits.(interface{ Cbor() []byte }); ok &&
+			len(rawWitnesses.Cbor()) > 0 {
+			if err := cbor.ValidateMapFields(
+				rawWitnesses.Cbor(),
+				[]uint64{},
+				[]uint64{0, 1, 2, 3, 4, 5, 6, 7},
+			); err != nil {
+				return fmt.Errorf("invalid Conway witness set: %w", err)
+			}
+		}
+	}
 	redeemerCount := 0
 	if wits != nil {
 		if r := wits.Redeemers(); r != nil {
@@ -2187,6 +2206,60 @@ func UtxoValidateBadInputsUtxo(
 	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
 }
 
+// ValidateTreasuryDonationScriptCompatibility rejects donations at a
+// transaction level that uses PlutusV1 or PlutusV2 scripts.
+func ValidateTreasuryDonationScriptCompatibility(
+	tx common.Transaction,
+	ls common.LedgerState,
+) error {
+	donation := tx.Donation()
+	if donation == nil || donation.Sign() <= 0 {
+		return nil
+	}
+	witnesses := tx.Witnesses()
+	plutusVersion := ""
+	if witnesses != nil {
+		if len(witnesses.PlutusV1Scripts()) > 0 {
+			plutusVersion = "PlutusV1"
+		} else if len(witnesses.PlutusV2Scripts()) > 0 {
+			plutusVersion = "PlutusV2"
+		}
+	}
+	if plutusVersion == "" {
+		for _, refInput := range tx.ReferenceInputs() {
+			utxo, err := ls.UtxoById(refInput)
+			if err != nil {
+				return common.ReferenceInputResolutionError{
+					Input: refInput,
+					Err:   err,
+				}
+			}
+			if utxo.Output == nil {
+				continue
+			}
+			switch utxo.Output.ScriptRef().(type) {
+			case common.PlutusV1Script:
+				plutusVersion = "PlutusV1"
+			case common.PlutusV2Script:
+				plutusVersion = "PlutusV2"
+			}
+			if plutusVersion != "" {
+				break
+			}
+		}
+	}
+	if plutusVersion == "" {
+		return nil
+	}
+	var donationU uint64
+	if donation.IsUint64() {
+		donationU = donation.Uint64()
+	}
+	return TreasuryDonationWithPlutusV1V2Error{
+		Donation: donationU, PlutusVersion: plutusVersion,
+	}
+}
+
 func UtxoValidateValueNotConservedUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2349,59 +2422,12 @@ func UtxoValidateValueNotConservedUtxo(
 			new(big.Int).SetUint64(proposal.Deposit()),
 		)
 	}
-	// Add treasury donation - value leaving the transaction to go to the treasury
-	// Treasury donations are a Conway feature and cannot be used with PlutusV1/V2 scripts
+	// Add treasury donation - value leaving the transaction to go to the treasury.
 	donation := tx.Donation()
 	if donation != nil && donation.Sign() > 0 {
-		// Check if transaction uses PlutusV1 or PlutusV2 scripts in witnesses
-		witnesses := tx.Witnesses()
-		plutusVersion := ""
-		if witnesses != nil {
-			if len(witnesses.PlutusV1Scripts()) > 0 {
-				plutusVersion = "PlutusV1"
-			} else if len(witnesses.PlutusV2Scripts()) > 0 {
-				plutusVersion = "PlutusV2"
-			}
+		if err := ValidateTreasuryDonationScriptCompatibility(tx, ls); err != nil {
+			return err
 		}
-		// Also check reference scripts on reference inputs
-		if plutusVersion == "" {
-			for _, refInput := range tx.ReferenceInputs() {
-				utxo, err := ls.UtxoById(refInput)
-				if err != nil {
-					return common.ReferenceInputResolutionError{
-						Input: refInput,
-						Err:   err,
-					}
-				}
-				if utxo.Output == nil {
-					continue
-				}
-				script := utxo.Output.ScriptRef()
-				if script != nil {
-					switch script.(type) {
-					case common.PlutusV1Script:
-						plutusVersion = "PlutusV1"
-					case common.PlutusV2Script:
-						plutusVersion = "PlutusV2"
-					}
-					if plutusVersion != "" {
-						break
-					}
-				}
-			}
-		}
-		// Return explicit error if donation is used with PlutusV1/V2 scripts
-		if plutusVersion != "" {
-			var donationU uint64
-			if donation.IsUint64() {
-				donationU = donation.Uint64()
-			}
-			return TreasuryDonationWithPlutusV1V2Error{
-				Donation:      donationU,
-				PlutusVersion: plutusVersion,
-			}
-		}
-		// Only apply donation if not using PlutusV1/V2 scripts
 		producedValue.Add(producedValue, donation)
 	}
 	if consumedValue.Cmp(producedValue) != 0 {
