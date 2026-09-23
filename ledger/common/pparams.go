@@ -56,6 +56,75 @@ func ValidateCostModelLanguageIDs(models map[uint][]int64) error {
 	return nil
 }
 
+// ValidateNonNegativeBoundedRatCBOR verifies the raw tag-30 integer pair used
+// by reference NonNegativeInterval and UnitInterval values. It checks the
+// unreduced CBOR numerator and denominator before cbor.Rat normalizes them.
+func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
+	var tagged cbor.RawTag
+	if _, err := cbor.Decode(raw, &tagged); err != nil {
+		return err
+	}
+	if tagged.Number != cbor.CborTagRational {
+		return fmt.Errorf("expected CBOR rational tag, got %d", tagged.Number)
+	}
+	var components []cbor.RawMessage
+	if _, err := cbor.Decode(tagged.Content, &components); err != nil {
+		return err
+	}
+	if len(components) != 2 {
+		return fmt.Errorf("expected rational numerator and denominator")
+	}
+	numerator, err := rawCBORInteger(components[0])
+	if err != nil {
+		return fmt.Errorf("decode rational numerator: %w", err)
+	}
+	denominator, err := rawCBORInteger(components[1])
+	if err != nil {
+		return fmt.Errorf("decode rational denominator: %w", err)
+	}
+	if !numerator.IsUint64() {
+		return fmt.Errorf("rational numerator must be in Word64")
+	}
+	if !denominator.IsUint64() || denominator.Sign() == 0 {
+		return fmt.Errorf("rational denominator must be positive Word64")
+	}
+	return nil
+}
+
+// ValidateNonNegativeBoundedRatArrayCBOR validates every raw tag-30 rational
+// in a struct-as-array CBOR value.
+func ValidateNonNegativeBoundedRatArrayCBOR(raw []byte) error {
+	var values []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &values); err != nil {
+		return err
+	}
+	for index, value := range values {
+		if err := ValidateNonNegativeBoundedRatCBOR(value); err != nil {
+			return fmt.Errorf("rational at array index %d: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func rawCBORInteger(raw []byte) (*big.Int, error) {
+	var value any
+	if _, err := cbor.Decode(raw, &value); err != nil {
+		return nil, err
+	}
+	result := new(big.Int)
+	switch integer := value.(type) {
+	case int64:
+		result.SetInt64(integer)
+	case uint64:
+		result.SetUint64(integer)
+	case big.Int:
+		result.Set(&integer)
+	default:
+		return nil, fmt.Errorf("expected integer, got %T", value)
+	}
+	return result, nil
+}
+
 // PoolRuleProtocolParameters is the protocol-parameter view required by the
 // Shelley POOL rules. Every protocol parameter type in this repository from
 // Shelley onwards implements it, so it is an internal accessor rather than a

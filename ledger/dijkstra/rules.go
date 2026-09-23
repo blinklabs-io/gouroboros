@@ -460,7 +460,7 @@ func validateDijkstraProtocolParameterUpdate(
 	if ppu == nil || !ppu.hasUpdate() {
 		return conway.ProtocolParameterUpdateEmptyError{}
 	}
-	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
+	if err := validateDijkstraProtocolParameterUpdateDomains(ppu); err != nil {
 		return err
 	}
 	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
@@ -497,6 +497,53 @@ func validateDijkstraProtocolParameterUpdate(
 		ppu.CommitteeStakeCoverage,
 		ppu.QuorumStakeThreshold,
 	)
+}
+
+func validateDijkstraProtocolParameterUpdateDomains(
+	ppu *DijkstraProtocolParameterUpdate,
+) error {
+	if ppu == nil {
+		return errors.New("Dijkstra protocol parameter update cannot be nil")
+	}
+	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
+		return err
+	}
+	if err := conway.ValidateProtocolParameterUpdate(ppu.conwayUpdate()); err != nil {
+		return err
+	}
+	if ppu.RefScriptCostStride != nil && *ppu.RefScriptCostStride == 0 {
+		return fmt.Errorf("refScriptCostStride must be positive")
+	}
+	if rat := ppu.RefScriptCostMultiplier; rat != nil && !validPositiveDijkstraRat(rat) {
+		return fmt.Errorf("refScriptCostMultiplier must be a positive bounded ratio")
+	}
+	if rat := ppu.MaxPledgeLeverage; rat != nil && !validNonNegativeDijkstraRat(rat) {
+		return fmt.Errorf("maxPledgeLeverage must be a nonnegative bounded ratio")
+	}
+	if rat := ppu.MinPoolMargin; rat != nil && !validUnitDijkstraRat(rat) {
+		return fmt.Errorf("minPoolMargin must be a bounded unit interval")
+	}
+	if rat := ppu.LeiosQuorumStakeThreshold; rat != nil && !validUnitDijkstraRat(rat) {
+		return fmt.Errorf("leiosQuorumStakeThreshold must be a bounded unit interval")
+	}
+	if ppu.MaxEndorserBlockExUnits != nil &&
+		(ppu.MaxEndorserBlockExUnits.Memory < 0 || ppu.MaxEndorserBlockExUnits.Steps < 0) {
+		return fmt.Errorf("maxEndorserBlockExUnits must be nonnegative")
+	}
+	return nil
+}
+
+func validNonNegativeDijkstraRat(rat *cbor.Rat) bool {
+	return rat != nil && rat.Rat != nil && rat.Num().Sign() >= 0 &&
+		rat.Denom().Sign() > 0 && rat.Num().IsUint64() && rat.Denom().IsUint64()
+}
+
+func validPositiveDijkstraRat(rat *cbor.Rat) bool {
+	return validNonNegativeDijkstraRat(rat) && rat.Num().Sign() > 0
+}
+
+func validUnitDijkstraRat(rat *cbor.Rat) bool {
+	return validNonNegativeDijkstraRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
 }
 
 func UtxoValidateDisjointRefInputs(

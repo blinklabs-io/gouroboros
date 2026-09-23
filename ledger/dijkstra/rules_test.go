@@ -1234,6 +1234,23 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 		},
 	}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+
+	for _, update := range []DijkstraProtocolParameterUpdate{
+		{RefScriptCostMultiplier: &cbor.Rat{Rat: big.NewRat(0, 1)}},
+		{MinPoolMargin: &cbor.Rat{Rat: big.NewRat(2, 1)}},
+		{LeiosQuorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(-1, 1)}},
+		{MaxEndorserBlockExUnits: &common.ExUnits{Memory: -1}},
+		{A0: &cbor.Rat{Rat: big.NewRat(-1, 1)}},
+	} {
+		tx.Body.TxProposalProcedures[0].PPGovAction.Action =
+			&DijkstraParameterChangeGovAction{ParamUpdate: update}
+		require.Error(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+	}
+	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
+		&DijkstraParameterChangeGovAction{ParamUpdate: DijkstraProtocolParameterUpdate{
+			MaxPledgeLeverageSet: true,
+		}}
+	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 
 // TestBootstrapPhaseAllowsDijkstraParameterChangeFields covers the Dijkstra

@@ -1461,6 +1461,9 @@ func validateConwayProtocolParameterUpdate(
 	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
 		return invalidConwayParameterField("costModels", err.Error())
 	}
+	if err := validateConwayProtocolParameterIntegerWidths(ppu); err != nil {
+		return err
+	}
 	if ppu.A0 != nil && !validNonNegativeRat(ppu.A0) {
 		return invalidConwayParameterField("a0", "must be nonnegative")
 	}
@@ -1540,13 +1543,69 @@ func validateConwayProtocolParameterUpdate(
 	return nil
 }
 
+// ValidateProtocolParameterUpdate checks Conway protocol-parameter update
+// domains for both decoded and programmatically constructed updates.
+func ValidateProtocolParameterUpdate(
+	update *ConwayProtocolParameterUpdate,
+) error {
+	return validateConwayProtocolParameterUpdate(update)
+}
+
+func validateConwayProtocolParameterIntegerWidths(
+	ppu *ConwayProtocolParameterUpdate,
+) error {
+	word32Fields := []struct {
+		name  string
+		value *uint
+	}{
+		{"maxBlockBodySize", ppu.MaxBlockBodySize},
+		{"maxTxSize", ppu.MaxTxSize},
+		{"maxEpoch", ppu.MaxEpoch},
+		{"maxValueSize", ppu.MaxValueSize},
+	}
+	for _, field := range word32Fields {
+		if field.value != nil && uint64(*field.value) > math.MaxUint32 {
+			return invalidConwayParameterField(field.name, "must fit Word32")
+		}
+	}
+	word16Fields := []struct {
+		name  string
+		value *uint
+	}{
+		{"maxBlockHeaderSize", ppu.MaxBlockHeaderSize},
+		{"nOpt", ppu.NOpt},
+		{"collateralPercentage", ppu.CollateralPercentage},
+		{"maxCollateralInputs", ppu.MaxCollateralInputs},
+		{"minCommitteeSize", ppu.MinCommitteeSize},
+	}
+	for _, field := range word16Fields {
+		if field.value != nil && uint64(*field.value) > math.MaxUint16 {
+			return invalidConwayParameterField(field.name, "must fit Word16")
+		}
+	}
+	word32EpochFields := []struct {
+		name  string
+		value *uint64
+	}{
+		{"committeeTermLimit", ppu.CommitteeTermLimit},
+		{"govActionValidityPeriod", ppu.GovActionValidityPeriod},
+		{"dRepInactivityPeriod", ppu.DRepInactivityPeriod},
+	}
+	for _, field := range word32EpochFields {
+		if field.value != nil && *field.value > math.MaxUint32 {
+			return invalidConwayParameterField(field.name, "must fit Word32")
+		}
+	}
+	return nil
+}
+
 func invalidConwayParameterField(field, reason string) error {
 	return ConwayProtocolParameterUpdateError{FieldName: field, Reason: reason}
 }
 
 func validNonNegativeRat(rat *cbor.Rat) bool {
 	return rat != nil && rat.Rat != nil && rat.Denom().Sign() > 0 &&
-		rat.Num().Sign() >= 0
+		rat.Num().Sign() >= 0 && rat.Num().IsUint64() && rat.Denom().IsUint64()
 }
 
 func validUnitRat(rat *cbor.Rat) bool {

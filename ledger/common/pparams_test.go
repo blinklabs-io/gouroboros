@@ -64,6 +64,9 @@ func TestCostModelsToPlutusDataRejectsLanguageIDsOutsideWord8(t *testing.T) {
 	if err := ValidateCostModelLanguageIDs(map[uint][]int64{255: {1}}); err != nil {
 		t.Fatalf("unknown in-domain language ID rejected: %v", err)
 	}
+	if CostModelsToPlutusData(map[uint][]int64{255: {1}}) == nil {
+		t.Fatal("in-domain language ID produced nil ChangedParameters data")
+	}
 	if err := ValidateCostModelLanguageIDs(map[uint][]int64{256: {1}}); err == nil {
 		t.Fatal("out-of-domain language ID accepted")
 	}
