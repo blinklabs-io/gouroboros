@@ -391,8 +391,11 @@ func validateProposalMetadata(raw cbor.RawMessage) error {
 		}
 		var tag string
 		n, err := cbor.Decode(pair[0], &tag)
-		if err != nil || n != len(pair[0]) {
-			return fmt.Errorf("%w: decode update proposal system tag: %v", ErrInvalidPayload, err)
+		if err != nil {
+			return fmt.Errorf("%w: decode update proposal system tag: %w", ErrInvalidPayload, err)
+		}
+		if n != len(pair[0]) {
+			return fmt.Errorf("%w: update proposal system tag has trailing bytes", ErrInvalidPayload)
 		}
 		if index > 0 && tag <= previousTag {
 			return fmt.Errorf("%w: update proposal system tags are not strictly increasing", ErrInvalidPayload)
@@ -458,8 +461,11 @@ func validateInstallerHash(tag string, raw cbor.RawMessage) error {
 		}
 		var value []byte
 		n, err := cbor.Decode(fields[index], &value)
-		if err != nil || n != len(fields[index]) {
-			return fmt.Errorf("%w: decode %s field %d: %v", ErrInvalidPayload, label, index, err)
+		if err != nil {
+			return fmt.Errorf("%w: decode %s field %d: %w", ErrInvalidPayload, label, index, err)
+		}
+		if n != len(fields[index]) {
+			return fmt.Errorf("%w: %s field %d has trailing bytes", ErrInvalidPayload, label, index)
 		}
 	}
 	return nil
@@ -550,11 +556,12 @@ func cborMapRawEntries(raw []byte) ([][2]cbor.RawMessage, error) {
 	case 27:
 		headerLength += 8
 	}
-	if count > uint64((len(raw)-headerLength)/2) {
+	// The conversion is safe because len is nonnegative and bounded by MaxInt.
+	if count > uint64((len(raw)-headerLength)/2) { //nolint:gosec
 		return nil, errors.New("truncated map entries")
 	}
 	offset := headerLength
-	pairs := make([][2]cbor.RawMessage, 0, int(count))
+	pairs := make([][2]cbor.RawMessage, 0, (len(raw)-headerLength)/2)
 	for range count {
 		var pair [2]cbor.RawMessage
 		for index := range pair {
@@ -581,8 +588,11 @@ type ByronLovelacePortion uint64
 func (p *ByronLovelacePortion) UnmarshalCBOR(raw []byte) error {
 	var value uint64
 	n, err := cbor.Decode(raw, &value)
-	if err != nil || n != len(raw) {
-		return fmt.Errorf("%w: decode LovelacePortion: %v", ErrInvalidPayload, err)
+	if err != nil {
+		return fmt.Errorf("%w: decode LovelacePortion: %w", ErrInvalidPayload, err)
+	}
+	if n != len(raw) {
+		return fmt.Errorf("%w: LovelacePortion has trailing bytes", ErrInvalidPayload)
 	}
 	if value > maxByronLovelacePortion {
 		return fmt.Errorf("%w: lovelace portion exceeds maximum", ErrInvalidPayload)
@@ -644,8 +654,10 @@ func (p *ByronTxFeePolicy) UnmarshalCBOR(raw []byte) error {
 	}
 	decoded := ByronTxFeePolicy{Tag: tag, SummandNano: new(big.Int), MultiplierNano: new(big.Int)}
 	for index, target := range []*big.Int{decoded.SummandNano, decoded.MultiplierNano} {
-		if n, err := cbor.Decode(coefficients[index], target); err != nil || n != len(coefficients[index]) {
-			return fmt.Errorf("%w: decode TxSizeLinear coefficient %d: %v", ErrInvalidPayload, index, err)
+		if n, err := cbor.Decode(coefficients[index], target); err != nil {
+			return fmt.Errorf("%w: decode TxSizeLinear coefficient %d: %w", ErrInvalidPayload, index, err)
+		} else if n != len(coefficients[index]) {
+			return fmt.Errorf("%w: TxSizeLinear coefficient %d has trailing bytes", ErrInvalidPayload, index)
 		}
 	}
 	if decoded.SummandNano.Sign() < 0 || roundNanoToInteger(decoded.SummandNano).Cmp(big.NewInt(45_000_000_000_000_000)) > 0 {
@@ -657,8 +669,10 @@ func (p *ByronTxFeePolicy) UnmarshalCBOR(raw []byte) error {
 
 func validateLovelacePortion(raw cbor.RawMessage, label string) error {
 	var value uint64
-	if n, err := cbor.Decode(raw, &value); err != nil || n != len(raw) {
-		return fmt.Errorf("%w: %s is not a LovelacePortion: %v", ErrInvalidPayload, label, err)
+	if n, err := cbor.Decode(raw, &value); err != nil {
+		return fmt.Errorf("%w: %s is not a LovelacePortion: %w", ErrInvalidPayload, label, err)
+	} else if n != len(raw) {
+		return fmt.Errorf("%w: %s LovelacePortion has trailing bytes", ErrInvalidPayload, label)
 	}
 	if value > maxByronLovelacePortion {
 		return fmt.Errorf("%w: %s exceeds the LovelacePortion maximum", ErrInvalidPayload, label)
@@ -749,8 +763,10 @@ func validateTxFeePolicy(raw cbor.RawMessage) error {
 	}
 	var summandNano, multiplierNano big.Int
 	for index, target := range []*big.Int{&summandNano, &multiplierNano} {
-		if n, err := cbor.Decode(parts[index], target); err != nil || n != len(parts[index]) {
-			return fmt.Errorf("%w: TxSizeLinear coefficient %d is not Nano: %v", ErrInvalidPayload, index, err)
+		if n, err := cbor.Decode(parts[index], target); err != nil {
+			return fmt.Errorf("%w: TxSizeLinear coefficient %d is not Nano: %w", ErrInvalidPayload, index, err)
+		} else if n != len(parts[index]) {
+			return fmt.Errorf("%w: TxSizeLinear coefficient %d has trailing bytes", ErrInvalidPayload, index)
 		}
 	}
 	if summandNano.Sign() < 0 {
@@ -1111,10 +1127,11 @@ func cborRawArrayEntries(raw []byte, requireDefinite bool) ([]cbor.RawMessage, e
 		}
 		return entries, nil
 	}
-	if count > uint64(len(raw)-offset) {
+	// The conversion is safe because len is nonnegative and bounded by MaxInt.
+	if count > uint64(len(raw)-offset) { //nolint:gosec
 		return nil, errors.New("truncated array elements")
 	}
-	entries := make([]cbor.RawMessage, 0, int(count))
+	entries := make([]cbor.RawMessage, 0, len(raw)-offset)
 	for range count {
 		end, err := cborItemEnd(raw, offset)
 		if err != nil {
@@ -1161,7 +1178,7 @@ func cborItemEnd(raw []byte, offset int) (int, error) {
 	major := raw[offset] >> 5
 	argument := raw[offset] & 0x1f
 	_, headerLength, indefinite, err := cborCollectionHeader(raw[offset:], major)
-	if err != nil && !(major == 7 && argument >= 28) {
+	if err != nil && (major != 7 || argument < 28) {
 		return 0, err
 	}
 	if argument < 24 {
@@ -1202,14 +1219,16 @@ func cborItemEnd(raw []byte, offset int) (int, error) {
 			}
 			return itemOffset + 1, nil
 		}
-		if argumentValue > uint64(len(raw)-itemOffset) {
+		// The conversion is safe because len is nonnegative and bounded by MaxInt.
+		if argumentValue > uint64(len(raw)-itemOffset) { //nolint:gosec
 			return 0, errors.New("truncated CBOR string")
 		}
 		return itemOffset + int(argumentValue), nil
 	case 4, 5:
 		items := argumentValue
 		if major == 5 && !indefinite {
-			if items > uint64(len(raw)-itemOffset)/2 {
+			// The conversion is safe because len is nonnegative and bounded by MaxInt.
+			if items > uint64(len(raw)-itemOffset)/2 { //nolint:gosec
 				return 0, errors.New("truncated CBOR map")
 			}
 			items *= 2
