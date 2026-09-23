@@ -43,7 +43,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleMetadata,
-		Validator: conway.UtxoValidateMetadata,
+		Validator: UtxoValidateMetadata,
 	},
 	{
 		Id:        common.UtxoValidationRuleProposalProcedures,
@@ -277,6 +277,25 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Id:        common.UtxoValidationRulePoolCertificates,
 		Validator: conway.UtxoValidatePoolCertificates,
 	},
+}
+
+func UtxoValidateMetadata(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if err := shelley.UtxoValidateMetadata(tx, slot, ls, pp); err != nil {
+		return err
+	}
+	params, ok := pp.(*DijkstraProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	return common.ValidateAuxiliaryDataScriptsWellFormed(
+		tx,
+		params.ProtocolVersion.Major,
+	)
 }
 
 // UtxoValidationRuleDescriptors returns the authoritative ordered rule

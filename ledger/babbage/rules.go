@@ -1192,7 +1192,17 @@ func UtxoValidateMetadata(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return shelley.UtxoValidateMetadata(tx, slot, ls, pp)
+	if err := shelley.UtxoValidateMetadata(tx, slot, ls, pp); err != nil {
+		return err
+	}
+	params, ok := pp.(*BabbageProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	return common.ValidateAuxiliaryDataScriptsWellFormed(
+		tx,
+		params.ProtocolMajor,
+	)
 }
 
 func UtxoValidateDelegation(

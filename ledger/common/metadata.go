@@ -651,6 +651,92 @@ type AuxiliaryData interface {
 	Cbor() []byte
 }
 
+type AuxiliaryDataEra uint8
+
+const (
+	AuxiliaryDataEraShelley AuxiliaryDataEra = iota
+	AuxiliaryDataEraAllegra
+	AuxiliaryDataEraMary
+	AuxiliaryDataEraAlonzo
+	AuxiliaryDataEraBabbage
+	AuxiliaryDataEraConway
+	AuxiliaryDataEraDijkstra
+)
+
+// DecodeAuxiliaryDataForEra applies the consensus format and language bounds
+// for the era that owns the transaction or block metadata.
+func DecodeAuxiliaryDataForEra(
+	raw []byte,
+	era AuxiliaryDataEra,
+) (AuxiliaryData, error) {
+	if era > AuxiliaryDataEraDijkstra {
+		return nil, fmt.Errorf("unsupported auxiliary-data era %d", era)
+	}
+	if len(raw) == 0 {
+		return nil, errors.New("empty auxiliary data")
+	}
+	switch raw[0] & cborTypeMask {
+	case cborTypeMap:
+	case cborTypeArray:
+		if era < AuxiliaryDataEraAllegra {
+			return nil, errors.New("Allegra auxiliary-data array is not valid in this era")
+		}
+	case cborTypeTag:
+		if era < AuxiliaryDataEraAlonzo {
+			return nil, errors.New("tagged auxiliary data is not valid in this era")
+		}
+	default:
+		return nil, fmt.Errorf("unsupported auxiliary data type: 0x%x", raw[0]&cborTypeMask)
+	}
+	auxData, err := DecodeAuxiliaryData(raw)
+	if err != nil {
+		return nil, err
+	}
+	if era >= AuxiliaryDataEraAlonzo && raw[0]&cborTypeMask == cborTypeTag {
+		content, ok := decodeTag259Content(raw)
+		if !ok {
+			return nil, errors.New("invalid tagged auxiliary data")
+		}
+		var fields map[uint]cbor.RawMessage
+		if _, err := cbor.Decode(content, &fields); err != nil {
+			return nil, fmt.Errorf("decode tagged auxiliary-data fields: %w", err)
+		}
+		maxLanguage := uint(era-AuxiliaryDataEraAlonzo) + 1
+		for field := range fields {
+			if field > 5 {
+				return nil, fmt.Errorf("unknown auxiliary-data field %d", field)
+			}
+			if field >= 2 && field <= 5 && field-1 > maxLanguage {
+				return nil, fmt.Errorf(
+					"Plutus V%d auxiliary-data field is not valid in this era",
+					field-1,
+				)
+			}
+		}
+	}
+	return auxData, nil
+}
+
+// ValidateAuxiliaryDataForEra checks every transaction auxiliary-data item in
+// a decoded block metadata map using that block's era rules.
+func (s *TransactionMetadataSet) ValidateAuxiliaryDataForEra(
+	era AuxiliaryDataEra,
+) error {
+	if s == nil {
+		return nil
+	}
+	for index, raw := range s.data {
+		if len(raw) == 0 || (len(raw) == 1 &&
+			(raw[0] == 0xf4 || raw[0] == 0xf5 || raw[0] == 0xf6)) {
+			continue
+		}
+		if _, err := DecodeAuxiliaryDataForEra(raw, era); err != nil {
+			return fmt.Errorf("transaction %d auxiliary data: %w", index, err)
+		}
+	}
+	return nil
+}
+
 type ShelleyAuxiliaryData struct {
 	cbor.DecodeStoreCbor
 	metadata TransactionMetadatum
@@ -847,7 +933,6 @@ func (a *AlonzoAuxiliaryData) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(taggedContent, &auxMap); err != nil {
 		return fmt.Errorf("failed to decode auxiliary data map: %w", err)
 	}
-
 	// Key 0: metadata
 	if metadataRaw := auxMap[0]; len(metadataRaw) > 0 {
 		md, err := DecodeMetadatumRaw(metadataRaw)

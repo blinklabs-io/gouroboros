@@ -2271,21 +2271,17 @@ func decodeAuxiliaryDataInto(
 	if isCborNull(raw) {
 		return nil
 	}
-	aux, err := common.DecodeAuxiliaryData(raw)
-	if err == nil && aux != nil {
-		*auxData = aux
-		md, _ := aux.Metadata()
-		if md != nil {
-			*metadata = md
-		}
-		return nil
+	aux, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraDijkstra)
+	if err != nil {
+		return fmt.Errorf("decode Dijkstra auxiliary data: %w", err)
 	}
-	md, err := common.DecodeAuxiliaryDataToMetadata(raw)
-	if err == nil && md != nil {
-		*metadata = md
-		return nil
+	*auxData = aux
+	md, err := aux.Metadata()
+	if err != nil {
+		return fmt.Errorf("decode Dijkstra auxiliary metadata: %w", err)
 	}
-	return errors.New("decode Dijkstra auxiliary data")
+	*metadata = md
+	return nil
 }
 
 func isCborNull(raw cbor.RawMessage) bool {

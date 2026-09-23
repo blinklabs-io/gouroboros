@@ -233,7 +233,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 	},
 	"Dijkstra": {
 		common.UtxoValidateCurrentTreasuryValue,           // UtxoValidationRuleCurrentTreasuryValue
-		conway.UtxoValidateMetadata,                       // UtxoValidationRuleMetadata
+		dijkstra.UtxoValidateMetadata,                     // UtxoValidationRuleMetadata
 		dijkstra.UtxoValidateProposalProcedures,           // UtxoValidationRuleProposalProcedures
 		conway.UtxoValidateGovActionWellFormedness,        // UtxoValidationRuleGovActionWellFormedness
 		dijkstra.UtxoValidateHardForkCanFollow,            // UtxoValidationRuleHardForkCanFollow

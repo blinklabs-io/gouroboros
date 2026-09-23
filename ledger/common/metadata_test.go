@@ -139,6 +139,35 @@ func TestMetadataSetIgnoresUnknownAuxiliaryDataKeys(t *testing.T) {
 	assertMetadataEntry(t, md)
 }
 
+func TestDecodeAuxiliaryDataForEra(t *testing.T) {
+	arrayAux := []byte{0x82, 0xa0, 0x80}
+	taggedAux := []byte{0xd9, 0x01, 0x03, 0xa0}
+	tests := []struct {
+		name string
+		era  AuxiliaryDataEra
+		raw  []byte
+		ok   bool
+	}{
+		{"Shelley map", AuxiliaryDataEraShelley, []byte{0xa0}, true},
+		{"Shelley rejects array", AuxiliaryDataEraShelley, arrayAux, false},
+		{"Allegra accepts array", AuxiliaryDataEraAllegra, arrayAux, true},
+		{"Mary accepts array", AuxiliaryDataEraMary, arrayAux, true},
+		{"Mary rejects tag", AuxiliaryDataEraMary, taggedAux, false},
+		{"Alonzo accepts tag", AuxiliaryDataEraAlonzo, taggedAux, true},
+		{"Dijkstra accepts tag", AuxiliaryDataEraDijkstra, taggedAux, true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := DecodeAuxiliaryDataForEra(test.raw, test.era)
+			if test.ok {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
 func TestDecodeMetadatumRawRejectsNilGenericMapKey(t *testing.T) {
 	raw, err := hex.DecodeString("a28031f730")
 	if err != nil {
