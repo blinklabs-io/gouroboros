@@ -122,7 +122,7 @@ func TestDetermineTransactionTypeDijkstraOnlyFields(t *testing.T) {
 			1: []any{},
 			2: uint64(0),
 			25: map[cbor.ByteString]uint64{
-				cbor.NewByteString([]byte{0x01}): 100,
+				cbor.NewByteString(append([]byte{0xe0}, bytes.Repeat([]byte{0x01}, common.AddressHashSize)...)): 100,
 			},
 		},
 		map[uint]any{},

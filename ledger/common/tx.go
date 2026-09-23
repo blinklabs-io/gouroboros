@@ -22,6 +22,7 @@ package common
 //   - rules.go: Validation rules that operate on Transaction
 
 import (
+	"fmt"
 	"iter"
 	"math/big"
 
@@ -74,6 +75,18 @@ type TransactionBody interface {
 	Utxorpc() (*utxorpc.Tx, error)
 }
 
+// TransactionOutputsAndCollateralReturn returns the UTXO outputs that are
+// subject to all-output predicates in Babbage and later eras.
+func TransactionOutputsAndCollateralReturn(
+	tx Transaction,
+) []TransactionOutput {
+	outputs := tx.Outputs()
+	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+		outputs = append(append([]TransactionOutput(nil), outputs...), collateralReturn)
+	}
+	return outputs
+}
+
 // TransactionWithValidityIntervalUpperBound is implemented by transactions
 // and transaction bodies that can distinguish an absent upper validity bound
 // from an explicitly encoded bound of zero.
@@ -103,6 +116,25 @@ func TransactionValidityIntervalUpperBound(
 // from an explicitly encoded value of zero.
 type TransactionWithCurrentTreasuryValuePresence interface {
 	CurrentTreasuryValuePresent() bool
+}
+
+// TransactionWithTotalCollateralPresence exposes whether body key 17 was
+// present, including an explicitly encoded zero value.
+type TransactionWithTotalCollateralPresence interface {
+	TotalCollateralPresent() bool
+}
+
+// TransactionTotalCollateralPresent preserves decoded key-17 presence while
+// treating nonzero totals from legacy and programmatic implementations as
+// present.
+func TransactionTotalCollateralPresent(tx TransactionBody) bool {
+	if value := tx.TotalCollateral(); value == nil {
+		return false
+	} else if value.Sign() != 0 {
+		return true
+	}
+	withPresence, ok := tx.(TransactionWithTotalCollateralPresence)
+	return ok && withPresence.TotalCollateralPresent()
 }
 
 // TransactionCurrentTreasuryValuePresent reports whether a transaction body's
@@ -266,12 +298,14 @@ type TransactionBodyBase struct {
 	validityIntervalUpperBoundPresent bool
 	currentTreasuryValuePresent       bool
 	networkIdPresent                  bool
+	totalCollateralPresent            bool
 }
 
 type transactionBodyFieldPresence struct {
 	validityIntervalUpperBound bool
 	currentTreasuryValue       bool
 	networkId                  bool
+	totalCollateral            bool
 }
 
 func (b *TransactionBodyBase) SetCbor(cborData []byte) {
@@ -301,10 +335,12 @@ func decodeTransactionBodyFieldPresence(
 	_, upperBoundPresent := bodyFields[3]
 	_, currentTreasuryValuePresent := bodyFields[21]
 	_, networkIdPresent := bodyFields[15]
+	_, totalCollateralPresent := bodyFields[17]
 	return transactionBodyFieldPresence{
 		validityIntervalUpperBound: upperBoundPresent,
 		currentTreasuryValue:       currentTreasuryValuePresent,
 		networkId:                  networkIdPresent,
+		totalCollateral:            totalCollateralPresent,
 	}, nil
 }
 
@@ -353,6 +389,12 @@ func (b *TransactionBodyBase) NetworkIdPresent() bool {
 	return b.networkIdPresent
 }
 
+// TotalCollateralPresent reports whether transaction-body key 17 was
+// present. Era-specific decoders retain explicit zero values here.
+func (b *TransactionBodyBase) TotalCollateralPresent() bool {
+	return b.totalCollateralPresent
+}
+
 // DecodeValidityIntervalUpperBoundPresence records the presence of
 // transaction-body key 3 from decoded CBOR. It must be called by era-specific
 // body decoders after their typed decode succeeds.
@@ -373,9 +415,9 @@ func (b *TransactionBodyBase) DecodeValidityIntervalUpperBoundPresence(
 }
 
 // DecodeTransactionBodyFieldPresence records the presence of transaction-body
-// keys 3 and 21 after a typed decode. Nonzero typed values imply presence. If
-// either value is zero, the method performs one shared raw-map scan to retain
-// the distinction between an absent field and an explicitly encoded zero.
+// keys 3, 15, 17, and 21 after a typed decode. Nonzero typed values imply
+// presence for keys 3 and 21. The method scans the raw map to retain explicit
+// zero values for optional fields whose typed representation cannot.
 func (b *TransactionBodyBase) DecodeTransactionBodyFieldPresence(
 	cborData []byte,
 	upperBound uint64,
@@ -383,10 +425,6 @@ func (b *TransactionBodyBase) DecodeTransactionBodyFieldPresence(
 ) error {
 	b.validityIntervalUpperBoundPresent = upperBound != 0
 	b.currentTreasuryValuePresent = currentTreasuryValueNonzero
-	if b.validityIntervalUpperBoundPresent &&
-		b.currentTreasuryValuePresent {
-		return nil
-	}
 	presence, err := decodeTransactionBodyFieldPresence(cborData)
 	if err != nil {
 		return err
@@ -398,15 +436,16 @@ func (b *TransactionBodyBase) DecodeTransactionBodyFieldPresence(
 		b.currentTreasuryValuePresent = presence.currentTreasuryValue
 	}
 	b.networkIdPresent = presence.networkId
+	b.totalCollateralPresent = presence.totalCollateral
 	return nil
 }
 
 // EncodeTransactionBodyWithValidityIntervalUpperBound encodes a constructed
-// transaction body while retaining explicitly present zero values for the
-// validity upper bound and current treasury value. Non-zero and absent values
-// retain the normal generic transaction-body encoding.
+// transaction body while retaining explicitly present zero values. Required
+// fields are supplied by eras whose wire schema requires them.
 func EncodeTransactionBodyWithValidityIntervalUpperBound(
 	body TransactionBody,
+	requiredFields ...uint,
 ) ([]byte, error) {
 	cborData, err := cbor.EncodeGeneric(body)
 	if err != nil {
@@ -426,12 +465,33 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		value := networkIdValue.TransactionNetworkId()
 		preserveNetworkIdZero = value != nil && *value == 0
 	}
-	if !preserveUpperBoundZero && !preserveTreasuryZero && !preserveNetworkIdZero {
-		return cborData, nil
-	}
+	totalCollateral := body.TotalCollateral()
+	preserveTotalCollateralZero := TransactionTotalCollateralPresent(body) &&
+		totalCollateral != nil && totalCollateral.Sign() == 0
 	bodyFields := make(map[uint]cbor.RawMessage)
 	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
 		return nil, err
+	}
+	for _, key := range requiredFields {
+		if _, found := bodyFields[key]; found {
+			continue
+		}
+		var value any
+		switch key {
+		case 0:
+			value = cbor.NewSetType([]any{}, false)
+		case 1:
+			value = []any{}
+		case 2:
+			value = uint64(0)
+		default:
+			return nil, fmt.Errorf("unsupported required transaction body field %d", key)
+		}
+		encoded, err := cbor.Encode(value)
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[key] = encoded
 	}
 	if preserveUpperBoundZero {
 		encodedUpperBound, err := cbor.Encode(upperBound)
@@ -453,6 +513,13 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 			return nil, err
 		}
 		bodyFields[15] = encodedNetworkId
+	}
+	if preserveTotalCollateralZero {
+		encodedTotalCollateral, err := cbor.Encode(uint64(0))
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[17] = encodedTotalCollateral
 	}
 	return cbor.Encode(bodyFields)
 }

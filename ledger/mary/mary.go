@@ -69,6 +69,11 @@ func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	for _, witnessSet := range tmp.TransactionWitnessSets {
+		if err := common.ValidateNativeScriptConstructors(witnessSet.WsNativeScripts, 5); err != nil {
+			return err
+		}
+	}
 	*b = MaryBlock(tmp)
 	b.SetCbor(cborData)
 
@@ -385,6 +390,9 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Decode witness set
 	if _, err := cbor.Decode([]byte(txArray[1]), &t.WitnessSet); err != nil {
 		return fmt.Errorf("failed to decode transaction witness set: %w", err)
+	}
+	if err := common.ValidateNativeScriptConstructors(t.WitnessSet.WsNativeScripts, 5); err != nil {
+		return err
 	}
 
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil

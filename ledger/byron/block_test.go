@@ -92,12 +92,13 @@ func TestByronBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 }
 
 func TestByronEpochBoundaryBlockNullHeader(t *testing.T) {
-	// [null, [], []]: an EBB block whose header is CBOR null
-	dataBytes, err := hex.DecodeString("83f68080")
+	// [null, [_ ], [{}]]: an EBB block whose header is CBOR null, with a
+	// shape-valid body and extra body data so only the header is at fault
+	dataBytes, err := hex.DecodeString("83f69fff81a0")
 	require.NoError(t, err, "Failed to decode hex string into CBOR bytes: %v", err)
 	var block byron.ByronEpochBoundaryBlock
 	err = block.UnmarshalCBOR(dataBytes)
-	require.Error(t, err, "expected error decoding EBB block with null header, got none")
+	require.EqualError(t, err, "byron EBB block missing header")
 }
 
 func TestByronTransaction_Utxorpc(t *testing.T) {
