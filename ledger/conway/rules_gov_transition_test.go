@@ -1430,12 +1430,12 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 		)
 	})
 
-	t.Run("expired predecessor is rejected", func(t *testing.T) {
+	t.Run("ratify-expired predecessor remains valid until epoch removal", func(t *testing.T) {
 		tx := mkProposalsTx(t, mkHfAction(&expiredId, 10, 0))
-		err := conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp)
-		var ancErr conway.InvalidGovActionAncestorError
-		require.ErrorAs(t, err, &ancErr)
-		assert.Equal(t, expiredId, ancErr.ActionId)
+		require.NoError(
+			t,
+			conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp),
+		)
 	})
 
 	t.Run("predecessor in the same transaction", func(t *testing.T) {

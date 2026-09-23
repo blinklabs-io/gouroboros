@@ -1151,8 +1151,9 @@ func UtxoValidateHardForkCanFollow(
 // the proposalsAddAction call in conwayGovTransition,
 // eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs lines 550-556):
 // the proposal's predecessor must either equal the current root of that
-// purpose chain, including the case where both are absent, or be a proposal
-// of that purpose that is still pending.
+// purpose chain, including the case where both are absent, or be a live
+// proposal of that purpose. A RATIFY expiry classification remains live until
+// EPOCH applies it and removes the action from the proposal tree.
 //
 // The current root is only available when the ledger state implements the
 // optional common.GovPurposeRootsState capability. Without it this rule
@@ -1218,7 +1219,7 @@ func UtxoValidateProposalAncestry(
 					"earlier proposal of the same purpose in this transaction",
 			}
 		}
-		// Otherwise the predecessor must be a pending proposal of the same
+		// Otherwise the predecessor must be a live proposal of the same
 		// purpose recorded in the ledger state.
 		if ls == nil {
 			return InvalidGovActionAncestorError{
@@ -1246,20 +1247,10 @@ func UtxoValidateProposalAncestry(
 				Reason:   "referenced ancestor governance action has a mismatched purpose",
 			}
 		}
-		// An expired proposal is no longer in the purpose tree, so it cannot
-		// be a predecessor. ExpirySlot is optional in the LedgerState
-		// contract (see UtxoValidateVotingOnExpiredGovAction): a state
-		// provider that does not model expiry leaves it zero, which is
-		// treated as "expiry not modeled" rather than "expired at slot 0".
-		if ancestorState.ExpirySlot != 0 && slot > ancestorState.ExpirySlot {
-			return InvalidGovActionAncestorError{
-				ActionId: *ancestorId,
-				Reason: fmt.Sprintf(
-					"referenced ancestor governance action expired at slot %d",
-					ancestorState.ExpirySlot,
-				),
-			}
-		}
+		// Expiry classification does not remove an action from the live
+		// proposal tree. EPOCH applies that result later; until then, child
+		// proposals may still name this ancestor. Votes have a separate
+		// expiry check in UtxoValidateVotingOnExpiredGovAction.
 	}
 	return nil
 }
