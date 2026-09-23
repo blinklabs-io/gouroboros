@@ -1665,7 +1665,8 @@ func TestProtocolParameterUpdateFixedWidthIntegerDomains(t *testing.T) {
 		})
 	}
 	if strconv.IntSize == 64 {
-		tooLarge := uint(math.MaxUint32) + 1
+		tooLarge := uint(math.MaxUint32)
+		tooLarge++
 		conwayParams := conway.ConwayProtocolParameters{}
 		require.Error(t, conwayParams.ApplyUpdate(&conway.ConwayProtocolParameterUpdate{
 			MaxBlockBodySize: &tooLarge,
