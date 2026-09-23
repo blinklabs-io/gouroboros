@@ -1107,6 +1107,11 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 	}
+	if err := validateDijkstraSubTransactionBodyIDs(
+		tmp.TxSubTransactions,
+	); err != nil {
+		return err
+	}
 	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
 		return err
 	}
@@ -1139,6 +1144,20 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	b.SetCborReference(cborData)
+	return nil
+}
+
+func validateDijkstraSubTransactionBodyIDs(
+	subTransactions cbor.SetType[DijkstraSubTransaction],
+) error {
+	seen := make(map[common.Blake2b256]struct{})
+	for _, subTransaction := range subTransactions.Items() {
+		id := subTransaction.Body.Id()
+		if _, exists := seen[id]; exists {
+			return errors.New("duplicate Dijkstra sub-transaction body")
+		}
+		seen[id] = struct{}{}
+	}
 	return nil
 }
 

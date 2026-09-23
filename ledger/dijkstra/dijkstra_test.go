@@ -868,6 +868,138 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransaction(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
+func TestDijkstraSubTransactionsDeduplicateByBodyID(t *testing.T) {
+	bodyCBOR := func(donation uint64) cbor.RawMessage {
+		encoded, err := cbor.Encode(map[uint]any{
+			0:  []any{},
+			1:  []any{},
+			22: donation,
+		})
+		require.NoError(t, err)
+		return encoded
+	}
+	witnessCBOR := func(key byte) cbor.RawMessage {
+		witnesses := map[uint]any{}
+		if key != 0 {
+			witnesses[0] = cbor.NewSetType([]common.VkeyWitness{{
+				Vkey:      []byte{key},
+				Signature: []byte{key},
+			}}, true)
+		}
+		encoded, err := cbor.Encode(witnesses)
+		require.NoError(t, err)
+		return encoded
+	}
+	metadataCBOR := func(value uint64) cbor.RawMessage {
+		if value == 0 {
+			return cbor.RawMessage{0xf6}
+		}
+		encoded, err := cbor.Encode(map[uint]any{1: value})
+		require.NoError(t, err)
+		return encoded
+	}
+	subTransactionCBOR := func(
+		body, witnesses, metadata cbor.RawMessage,
+	) cbor.RawMessage {
+		encoded, err := cbor.Encode([]cbor.RawMessage{
+			body,
+			witnesses,
+			metadata,
+		})
+		require.NoError(t, err)
+		return encoded
+	}
+	transactionCBOR := func(
+		tagged bool,
+		subTransactions ...cbor.RawMessage,
+	) []byte {
+		encodedSet, err := cbor.Encode(subTransactions)
+		require.NoError(t, err)
+		if tagged {
+			encodedSet = append([]byte{0xd9, 0x01, 0x02}, encodedSet...)
+		}
+		encoded, err := cbor.Encode(map[uint]any{
+			0:  []any{},
+			1:  []any{},
+			2:  uint64(1),
+			23: cbor.RawMessage(encodedSet),
+		})
+		require.NoError(t, err)
+		return encoded
+	}
+
+	body := bodyCBOR(1)
+	witnessA, witnessB := witnessCBOR(1), witnessCBOR(2)
+	metadataA, metadataB := metadataCBOR(1), metadataCBOR(2)
+	testCases := []struct {
+		name      string
+		first     cbor.RawMessage
+		second    cbor.RawMessage
+		wantErr   bool
+		taggedSet bool
+	}{
+		{
+			name:    "different witnesses, untagged",
+			first:   subTransactionCBOR(body, witnessA, metadataCBOR(0)),
+			second:  subTransactionCBOR(body, witnessB, metadataCBOR(0)),
+			wantErr: true,
+		},
+		{
+			name:      "different auxiliary data, tagged",
+			first:     subTransactionCBOR(body, witnessCBOR(0), metadataA),
+			second:    subTransactionCBOR(body, witnessCBOR(0), metadataB),
+			wantErr:   true,
+			taggedSet: true,
+		},
+		{
+			name:    "different witnesses and auxiliary data",
+			first:   subTransactionCBOR(body, witnessA, metadataA),
+			second:  subTransactionCBOR(body, witnessB, metadataB),
+			wantErr: true,
+		},
+		{
+			name:   "distinct bodies preserve order",
+			first:  subTransactionCBOR(body, witnessA, metadataA),
+			second: subTransactionCBOR(bodyCBOR(2), witnessB, metadataB),
+		},
+	}
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			firstBody := DijkstraSubTransaction{}
+			_, err := cbor.Decode(test.first, &firstBody)
+			require.NoError(t, err)
+			secondBody := DijkstraSubTransaction{}
+			_, err = cbor.Decode(test.second, &secondBody)
+			require.NoError(t, err)
+			if test.wantErr {
+				require.Equal(t, firstBody.Body.Id(), secondBody.Body.Id())
+			} else {
+				require.NotEqual(t, firstBody.Body.Id(), secondBody.Body.Id())
+			}
+
+			var decoded DijkstraTransactionBody
+			err = decoded.UnmarshalCBOR(transactionCBOR(
+				test.taggedSet,
+				test.first,
+				test.second,
+			))
+			if test.wantErr {
+				require.ErrorContains(
+					t,
+					err,
+					"duplicate Dijkstra sub-transaction body",
+				)
+				return
+			}
+			require.NoError(t, err)
+			items := decoded.TxSubTransactions.Items()
+			require.Len(t, items, 2)
+			require.Equal(t, uint64(1), items[0].Body.TxDonation)
+			require.Equal(t, uint64(2), items[1].Body.TxDonation)
+		})
+	}
+}
+
 func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	input := testShelleyInput()
 	bodyCbor, err := cbor.Encode(map[uint]any{
