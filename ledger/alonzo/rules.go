@@ -58,6 +58,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateScriptDataHash,
 	},
 	{
+		Id:        common.UtxoValidationRuleSupplementalDatums,
+		Validator: UtxoValidateSupplementalDatums,
+	},
+	{
 		Id:        common.UtxoValidationRuleOutsideValidityInterval,
 		Validator: UtxoValidateOutsideValidityIntervalUtxo,
 	},
@@ -173,7 +177,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
 		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
 		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
-		UtxoValidateScriptDataHash, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateScriptDataHash, UtxoValidateSupplementalDatums,
+		UtxoValidateOutsideValidityIntervalUtxo,
 		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
 		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
 		UtxoValidateCollateralContainsNonAda, UtxoValidateNoCollateralInputs,
@@ -300,6 +305,20 @@ func UtxoValidatePlutusScripts(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateUnsupportedPlutusExecution(tx, "Alonzo")
+}
+
+// UtxoValidateSupplementalDatums enforces required and supplemental datum
+// rules for Alonzo transactions.
+func UtxoValidateSupplementalDatums(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if err := common.ValidateRequiredSpendingDatums(tx, ls); err != nil {
+		return err
+	}
+	return common.ValidateSupplementalDatums(tx, ls)
 }
 
 // UtxoValidateExtraneousRedeemers checks that all redeemers have valid

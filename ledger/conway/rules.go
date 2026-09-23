@@ -2934,78 +2934,10 @@ func UtxoValidateSupplementalDatums(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
+	if err := common.ValidateRequiredSpendingDatums(tx, ls); err != nil {
+		return err
 	}
-
-	// Get all datums from witness set
-	witnessDatums := witnesses.PlutusData()
-	if len(witnessDatums) == 0 {
-		return nil
-	}
-
-	// Collect all "justified" datum hashes - those referenced by UTxOs being spent
-	justifiedHashes := make(map[common.Blake2b256]bool)
-
-	// Check regular inputs
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue // UTxO not found - will fail BadInputsUtxo rule
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		// Only non-inline datums justify witness datums
-		if utxo.Output.Datum() == nil {
-			if datumHash := utxo.Output.DatumHash(); datumHash != nil {
-				justifiedHashes[*datumHash] = true
-			}
-		}
-	}
-
-	// Check transaction outputs - datum hashes in outputs also justify witness datums
-	for _, output := range tx.Outputs() {
-		if output.Datum() == nil {
-			if datumHash := output.DatumHash(); datumHash != nil {
-				justifiedHashes[*datumHash] = true
-			}
-		}
-	}
-
-	// Check reference inputs as well - datums referenced there are also justified
-	for _, input := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		if utxo.Output.Datum() == nil {
-			if datumHash := utxo.Output.DatumHash(); datumHash != nil {
-				justifiedHashes[*datumHash] = true
-			}
-		}
-	}
-
-	// Check for supplemental (unjustified) datums
-	var supplementalHashes []common.Blake2b256
-	for _, datum := range witnessDatums {
-		datumHash := datum.Hash()
-		if !justifiedHashes[datumHash] {
-			supplementalHashes = append(supplementalHashes, datumHash)
-		}
-	}
-
-	if len(supplementalHashes) > 0 {
-		return NotAllowedSupplementalDatumsError{
-			DatumHashes: supplementalHashes,
-		}
-	}
-
-	return nil
+	return common.ValidateSupplementalDatums(tx, ls)
 }
 
 // UtxoValidatePlutusScripts executes all Plutus scripts in the transaction

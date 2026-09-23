@@ -105,6 +105,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateRedeemerAndScriptWitnesses,  // UtxoValidationRuleRedeemerAndScriptWitnesses
 		alonzo.UtxoValidateCostModelsPresent,           // UtxoValidationRuleCostModelsPresent
 		alonzo.UtxoValidateScriptDataHash,              // UtxoValidationRuleScriptDataHash
+		alonzo.UtxoValidateSupplementalDatums,          // UtxoValidationRuleSupplementalDatums
 		alonzo.UtxoValidateOutsideValidityIntervalUtxo, // UtxoValidationRuleOutsideValidityInterval
 		alonzo.UtxoValidateInputSetEmptyUtxo,           // UtxoValidationRuleInputSetEmpty
 		alonzo.UtxoValidateNoDuplicateInputs,           // UtxoValidationRuleNoDuplicateInputs
@@ -140,6 +141,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateCostModelsPresent,           // UtxoValidationRuleCostModelsPresent
 		babbage.UtxoValidateScriptDataHash,              // UtxoValidationRuleScriptDataHash
 		babbage.UtxoValidateInlineDatumsWithPlutusV1,    // UtxoValidationRuleInlineDatumsWithPlutusV1
+		babbage.UtxoValidateSupplementalDatums,          // UtxoValidationRuleSupplementalDatums
 		babbage.UtxoValidateDisjointRefInputs,           // UtxoValidationRuleDisjointRefInputs
 		babbage.UtxoValidateOutsideValidityIntervalUtxo, // UtxoValidationRuleOutsideValidityInterval
 		babbage.UtxoValidateInputSetEmptyUtxo,           // UtxoValidationRuleInputSetEmpty

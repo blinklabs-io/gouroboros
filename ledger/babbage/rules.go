@@ -63,6 +63,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateInlineDatumsWithPlutusV1,
 	},
 	{
+		Id:        common.UtxoValidationRuleSupplementalDatums,
+		Validator: UtxoValidateSupplementalDatums,
+	},
+	{
 		Id:        common.UtxoValidationRuleDisjointRefInputs,
 		Validator: UtxoValidateDisjointRefInputs,
 	},
@@ -199,6 +203,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
 		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
 		UtxoValidateScriptDataHash, UtxoValidateInlineDatumsWithPlutusV1,
+		UtxoValidateSupplementalDatums,
 		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
 		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
 		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
@@ -260,6 +265,20 @@ func UtxoValidatePlutusScripts(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateUnsupportedPlutusExecution(tx, "Babbage")
+}
+
+// UtxoValidateSupplementalDatums enforces required and supplemental datum
+// rules for Babbage transactions.
+func UtxoValidateSupplementalDatums(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if err := common.ValidateRequiredSpendingDatums(tx, ls); err != nil {
+		return err
+	}
+	return common.ValidateSupplementalDatums(tx, ls)
 }
 
 // UtxoValidateExtraneousRedeemers checks that all redeemers have valid

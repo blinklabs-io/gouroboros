@@ -155,35 +155,13 @@ func (e ScriptContextConstructionError) Unwrap() error {
 	return e.Err
 }
 
-// MissingDatumForSpendingScriptError indicates that a spending script requires a datum but none was provided
-type MissingDatumForSpendingScriptError struct {
-	ScriptHash common.ScriptHash
-	Input      common.TransactionInput
-}
+// MissingDatumForSpendingScriptError retains the Conway package error name for
+// callers while sharing its definition across ledger eras.
+type MissingDatumForSpendingScriptError = common.MissingDatumForSpendingScriptError
 
-func (e MissingDatumForSpendingScriptError) Error() string {
-	return fmt.Sprintf(
-		"missing datum for spending script (hash=%x, input=%s)",
-		e.ScriptHash[:],
-		e.Input.String(),
-	)
-}
-
-// NotAllowedSupplementalDatumsError indicates that datums in the witness set are not required by any script input
-type NotAllowedSupplementalDatumsError struct {
-	DatumHashes []common.Blake2b256
-}
-
-func (e NotAllowedSupplementalDatumsError) Error() string {
-	hashes := make([]string, len(e.DatumHashes))
-	for i, h := range e.DatumHashes {
-		hashes[i] = hex.EncodeToString(h[:])
-	}
-	return "not allowed supplemental datums in witness set: " + strings.Join(
-		hashes,
-		", ",
-	)
-}
+// NotAllowedSupplementalDatumsError retains the Conway package error name for
+// callers while sharing its definition across ledger eras.
+type NotAllowedSupplementalDatumsError = common.NotAllowedSupplementalDatumsError
 
 // ExtraRedeemerError indicates a redeemer exists that doesn't match any valid script purpose
 // (e.g., redeemer index is out of bounds for the inputs/mints/etc.)

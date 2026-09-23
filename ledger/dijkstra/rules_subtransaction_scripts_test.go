@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
@@ -667,6 +668,55 @@ func TestVerifyTransactionChecksSubtransactionSupplementalDatums(t *testing.T) {
 		[]common.UtxoValidationRuleFunc{validator},
 	)
 	require.ErrorAs(t, err, &conway.NotAllowedSupplementalDatumsError{})
+}
+
+func TestSupplementalDatumsChecksEachSubtransactionLevel(t *testing.T) {
+	v1 := common.PlutusV1Script{0x31}
+	input := shelley.NewShelleyTransactionInput(
+		"0202020202020202020202020202020202020202020202020202020202020202",
+		0,
+	)
+	address, err := common.NewAddressFromParts(
+		common.AddressTypeScriptNone,
+		common.AddressNetworkTestnet,
+		v1.Hash().Bytes(),
+		nil,
+	)
+	require.NoError(t, err)
+	datum := common.Datum{Data: data.NewInteger(big.NewInt(1))}
+	datumHash := datum.Hash()
+	output := &alonzo.AlonzoTransactionOutput{
+		OutputAddress:   address,
+		OutputAmount:    mary.MaryTransactionOutputValue{Amount: 1_000_000},
+		OutputDatumHash: &datumHash,
+	}
+	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{{
+		Id: input, Output: output,
+	}}).Build()
+	subtransaction := DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{input}),
+		},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsPlutusV1Scripts: cbor.NewSetType([]common.PlutusV1Script{v1}, true),
+		},
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{subtransaction}, true),
+		},
+		TxIsValid: false,
+	}
+	var missing conway.MissingDatumForSpendingScriptError
+	require.ErrorAs(t, UtxoValidateSupplementalDatums(tx, 0, state, dijkstraGuardTestPParams()), &missing)
+
+	tx.WitnessSet.WsPlutusData = cbor.NewSetType([]common.Datum{datum}, true)
+	require.ErrorAs(t, UtxoValidateSupplementalDatums(tx, 0, state, dijkstraGuardTestPParams()), &missing)
+	tx.WitnessSet = DijkstraTransactionWitnessSet{}
+
+	subtransaction.WitnessSet.WsPlutusData = cbor.NewSetType([]common.Datum{datum}, true)
+	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{subtransaction}, true)
+	require.NoError(t, UtxoValidateSupplementalDatums(tx, 0, state, dijkstraGuardTestPParams()))
 }
 
 func TestVerifyTransactionChecksSubtransactionScriptIntegrity(t *testing.T) {

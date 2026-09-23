@@ -19,7 +19,37 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
+	"strings"
 )
+
+// MissingDatumForSpendingScriptError reports a Plutus V1/V2 spending input
+// whose datum hash has no matching witness datum.
+type MissingDatumForSpendingScriptError struct {
+	ScriptHash ScriptHash
+	Input      TransactionInput
+}
+
+func (e MissingDatumForSpendingScriptError) Error() string {
+	return fmt.Sprintf(
+		"missing datum for spending script (hash=%x, input=%s)",
+		e.ScriptHash[:],
+		e.Input.String(),
+	)
+}
+
+// NotAllowedSupplementalDatumsError reports witness datums that are not
+// justified by a Plutus spending input or a datum-hash output.
+type NotAllowedSupplementalDatumsError struct {
+	DatumHashes []Blake2b256
+}
+
+func (e NotAllowedSupplementalDatumsError) Error() string {
+	hashes := make([]string, len(e.DatumHashes))
+	for i, hash := range e.DatumHashes {
+		hashes[i] = fmt.Sprintf("%x", hash[:])
+	}
+	return "not allowed supplemental datums in witness set: " + strings.Join(hashes, ", ")
+}
 
 // WrongTransactionNetworkIdError reports a transaction-body network ID that
 // does not match the active ledger network.

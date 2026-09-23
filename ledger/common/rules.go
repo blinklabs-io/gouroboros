@@ -1194,6 +1194,132 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	return nil
 }
 
+// ValidateRequiredSpendingDatums checks datum-hash spending inputs locked by
+// Plutus V1 or V2 scripts. These datums are required by UTXOW regardless of
+// the transaction's phase-2 validity flag.
+func ValidateRequiredSpendingDatums(tx Transaction, ls LedgerState) error {
+	if ls == nil {
+		return nil
+	}
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		return err
+	}
+	witnessDatums := make(map[Blake2b256]struct{})
+	if witnesses := tx.Witnesses(); witnesses != nil {
+		for _, datum := range witnesses.PlutusData() {
+			witnessDatums[datum.Hash()] = struct{}{}
+		}
+	}
+	for _, input := range tx.Inputs() {
+		utxo, err := ResolveInputUtxo(ls, input)
+		if err != nil || utxo.Output == nil {
+			continue
+		}
+		address := utxo.Output.Address()
+		if address.Type()&AddressTypeScriptBit == 0 {
+			continue
+		}
+		scriptHash := ScriptHash(address.PaymentKeyHash())
+		plutusScript, found := requirements.available[scriptHash]
+		if !found {
+			continue
+		}
+		version, isPlutus := PlutusScriptVersion(plutusScript)
+		if !isPlutus || version > 1 {
+			continue
+		}
+		if utxo.Output.Datum() != nil {
+			continue
+		}
+		datumHash := utxo.Output.DatumHash()
+		if datumHash == nil {
+			return MissingDatumForSpendingScriptError{
+				ScriptHash: scriptHash,
+				Input:      input,
+			}
+		}
+		if _, found := witnessDatums[*datumHash]; !found {
+			return MissingDatumForSpendingScriptError{
+				ScriptHash: scriptHash,
+				Input:      input,
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateSupplementalDatums checks that witness datums are justified by a
+// Plutus spending input, datum-hash output, reference input, or collateral
+// return.
+func ValidateSupplementalDatums(tx Transaction, ls LedgerState) error {
+	witnesses := tx.Witnesses()
+	if witnesses == nil || len(witnesses.PlutusData()) == 0 {
+		return nil
+	}
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		return err
+	}
+	justified := make(map[Blake2b256]struct{})
+	addDatumHash := func(output TransactionOutput) {
+		if output == nil || output.Datum() != nil {
+			return
+		}
+		if hash := output.DatumHash(); hash != nil {
+			justified[*hash] = struct{}{}
+		}
+	}
+	for _, input := range tx.Inputs() {
+		if ls == nil {
+			break
+		}
+		utxo, err := ResolveInputUtxo(ls, input)
+		if err != nil || utxo.Output == nil {
+			continue
+		}
+		address := utxo.Output.Address()
+		if address.Type()&AddressTypeScriptBit == 0 {
+			continue
+		}
+		scriptHash := ScriptHash(address.PaymentKeyHash())
+		if plutusScript, found := requirements.available[scriptHash]; found {
+			if _, isPlutus := PlutusScriptVersion(plutusScript); isPlutus {
+				addDatumHash(utxo.Output)
+			}
+		}
+	}
+	for _, output := range tx.Outputs() {
+		addDatumHash(output)
+	}
+	for _, input := range tx.ReferenceInputs() {
+		if ls == nil {
+			break
+		}
+		utxo, err := ResolveInputUtxo(ls, input)
+		if err != nil || utxo.Output == nil {
+			continue
+		}
+		addDatumHash(utxo.Output)
+	}
+	addDatumHash(tx.CollateralReturn())
+
+	var supplemental []Blake2b256
+	for _, datum := range witnesses.PlutusData() {
+		hash := datum.Hash()
+		if _, found := justified[hash]; !found {
+			supplemental = append(supplemental, hash)
+		}
+	}
+	if len(supplemental) != 0 {
+		sort.Slice(supplemental, func(i, j int) bool {
+			return bytes.Compare(supplemental[i][:], supplemental[j][:]) < 0
+		})
+		return NotAllowedSupplementalDatumsError{DatumHashes: supplemental}
+	}
+	return nil
+}
+
 // ValidateExtraneousRedeemers checks that every redeemer in the
 // transaction's witness set has a tag/index that maps to a real script
 // purpose: a spending redeemer must index an existing input, a minting
