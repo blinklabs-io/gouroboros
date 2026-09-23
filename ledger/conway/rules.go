@@ -2243,20 +2243,21 @@ func conwayValueConservationDeposits(
 	setDRep := func(cred common.Credential, state *common.DRepRegistration) {
 		drepStates[certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}] = state
 	}
-	negativeAmount := func(cert common.Certificate, amount int64) error {
+	nonNegativeAmount := func(cert common.Certificate, amount int64) (uint64, error) {
 		if amount < 0 {
-			return shelley.InvalidCertificateDepositError{
+			return 0, shelley.InvalidCertificateDepositError{
 				CertificateType: common.CertificateType(cert.Type()),
 				Amount:          amount,
 			}
 		}
-		return nil
+		return uint64(amount), nil
 	}
 	checkDeposit := func(cert common.Certificate, amount int64, expected uint64) error {
-		if err := negativeAmount(cert, amount); err != nil {
+		got, err := nonNegativeAmount(cert, amount)
+		if err != nil {
 			return err
 		}
-		if uint64(amount) != expected {
+		if got != expected {
 			return CertificateDepositIncorrectError{
 				CertificateType: common.CertificateType(cert.Type()),
 				Supplied:        amount,
@@ -2282,7 +2283,8 @@ func conwayValueConservationDeposits(
 			state.deposit = 0
 			setStake(cert.StakeCredential, state)
 		case *common.DeregistrationCertificate:
-			if err := negativeAmount(cert, cert.Amount); err != nil {
+			amount, err := nonNegativeAmount(cert, cert.Amount)
+			if err != nil {
 				return nil, nil, err
 			}
 			state, err := getStake(cert.StakeCredential)
@@ -2294,7 +2296,7 @@ func conwayValueConservationDeposits(
 					Credential: cert.StakeCredential,
 				}
 			}
-			if uint64(cert.Amount) != state.deposit {
+			if amount != state.deposit {
 				return nil, nil, CertificateRefundIncorrectError{
 					CertificateType: common.CertificateType(cert.Type()),
 					Supplied:        cert.Amount,
@@ -2306,7 +2308,8 @@ func conwayValueConservationDeposits(
 			state.deposit = 0
 			setStake(cert.StakeCredential, state)
 		case *common.DeregistrationDrepCertificate:
-			if err := negativeAmount(cert, cert.Amount); err != nil {
+			amount, err := nonNegativeAmount(cert, cert.Amount)
+			if err != nil {
 				return nil, nil, err
 			}
 			state, err := getDRep(cert.DrepCredential)
@@ -2319,7 +2322,7 @@ func conwayValueConservationDeposits(
 			if state.Deposit == nil {
 				return nil, nil, DRepDepositStateInconsistentError{Credential: cert.DrepCredential}
 			}
-			if uint64(cert.Amount) != *state.Deposit {
+			if amount != *state.Deposit {
 				return nil, nil, CertificateRefundIncorrectError{
 					CertificateType: common.CertificateType(cert.Type()),
 					Supplied:        cert.Amount,
