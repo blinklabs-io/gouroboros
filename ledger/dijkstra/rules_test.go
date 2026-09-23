@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"runtime"
@@ -230,6 +231,107 @@ func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
 	require.ErrorAs(t, err, &invalidFlag)
 }
 
+func TestDijkstraValidationRulePhasesAreComplete(t *testing.T) {
+	phase2Valid := map[common.UtxoValidationRuleId]struct{}{
+		common.UtxoValidationRuleProposalProcedures:          {},
+		common.UtxoValidationRuleHardForkCanFollow:           {},
+		common.UtxoValidationRuleProposalAncestry:            {},
+		common.UtxoValidationRuleProposalDeposit:             {},
+		common.UtxoValidationRuleProposalNetworkIds:          {},
+		common.UtxoValidationRuleProposalReturnAccounts:      {},
+		common.UtxoValidationRuleEmptyTreasuryWithdrawals:    {},
+		common.UtxoValidationRuleBootstrapAllowedGovActions:  {},
+		common.UtxoValidationRuleBootstrapParameterGroups:    {},
+		common.UtxoValidationRuleBatchWithdrawals:            {},
+		common.UtxoValidationRuleAccountBalanceIntervals:     {},
+		common.UtxoValidationRuleDelegation:                  {},
+		common.UtxoValidationRuleWithdrawals:                 {},
+		common.UtxoValidationRuleCertificateDeposits:         {},
+		common.UtxoValidationRuleCommitteeCertificates:       {},
+		common.UtxoValidationRuleUnknownVoters:               {},
+		common.UtxoValidationRuleUnknownGovActionIds:         {},
+		common.UtxoValidationRuleVotingOnExpiredGovAction:    {},
+		common.UtxoValidationRuleBootstrapVotingRestrictions: {},
+		common.UtxoValidationRuleStakePoolVotingRestrictions: {},
+		common.UtxoValidationRuleCCVotingRestrictions:        {},
+		common.UtxoValidationRuleRefScriptSizePerTx:          {},
+		common.UtxoValidationRulePoolCertificates:            {},
+	}
+	descriptors := UtxoValidationRuleDescriptors()
+	require.Len(t, dijkstraUtxoValidationRulePhases, len(descriptors))
+	for _, descriptor := range descriptors {
+		phase, ok := dijkstraUtxoValidationRulePhases[descriptor.Id]
+		require.Truef(t, ok, "rule %q has no phase classification", descriptor.Id)
+		if _, expected := phase2Valid[descriptor.Id]; expected {
+			require.Equal(t, dijkstraUtxoValidationPhase2Valid, phase, descriptor.Id)
+		} else {
+			require.Equal(t, dijkstraUtxoValidationAlways, phase, descriptor.Id)
+		}
+	}
+}
+
+func TestDijkstraPhase2InvalidSkipsHardForkCanFollow(t *testing.T) {
+	action := &common.HardForkInitiationGovAction{}
+	action.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	action.ProtocolVersion.Minor = 2
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPGovAction: DijkstraGovAction{Action: action},
+			}},
+		},
+		TxIsValid: false,
+	}
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionDijkstra,
+			},
+		},
+	}
+	rule, _ := dijkstraValidationRule(t, "ledger/dijkstra.UtxoValidateHardForkCanFollow")
+	require.NoError(t, rule(tx, 0, nil, pp))
+	tx.TxIsValid = true
+	var canFollowErr conway.BadHardForkProtocolVersionError
+	require.ErrorAs(t, rule(tx, 0, nil, pp), &canFollowErr)
+	tx.TxIsValid = false
+	var invalidFlag common.InvalidIsValidFlagError
+	err := common.VerifyTransaction(tx, 0, nil, pp, UtxoValidationRules)
+	require.ErrorAs(t, err, &invalidFlag)
+	require.NotErrorAs(t, err, &canFollowErr)
+}
+
+func TestDijkstraHardForkProtocolVersionWireBounds(t *testing.T) {
+	newWireAction := func(major, minor uint) []byte {
+		action := &common.HardForkInitiationGovAction{}
+		action.Type = uint(common.GovActionTypeHardForkInitiation)
+		action.ProtocolVersion.Major = major
+		action.ProtocolVersion.Minor = minor
+		raw, err := cbor.Encode(action)
+		require.NoError(t, err)
+		return raw
+	}
+	t.Run("major above era decoder bound", func(t *testing.T) {
+		var decoded DijkstraGovAction
+		err := decoded.UnmarshalCBOR(newWireAction(common.ProtocolVersionDijkstra+2, 0))
+		require.ErrorContains(t, err, "exceeds Dijkstra decoder limit")
+	})
+	t.Run("minor above Word32", func(t *testing.T) {
+		if uint64(math.MaxUint) <= math.MaxUint32 {
+			t.Skip("platform uint cannot encode a value above Word32")
+		}
+		aboveWord32 := uint64(math.MaxUint32) + 1
+		var decoded DijkstraGovAction
+		err := decoded.UnmarshalCBOR(newWireAction(common.ProtocolVersionDijkstra, uint(aboveWord32)))
+		require.ErrorContains(t, err, "exceeds Word32")
+	})
+	t.Run("maximum valid version", func(t *testing.T) {
+		var decoded DijkstraGovAction
+		err := decoded.UnmarshalCBOR(newWireAction(common.ProtocolVersionDijkstra+1, uint(math.MaxUint32)))
+		require.NoError(t, err)
+	})
+}
+
 func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
 	guardrailsHash := common.Blake2b224Hash([]byte("constitution-guardrails"))
 	newTx := func(isValid bool, policyHash []byte) *DijkstraTransaction {
@@ -306,7 +408,7 @@ func TestDijkstraBootstrapVotingRestrictionsAreRegistered(t *testing.T) {
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPGovAction: DijkstraGovAction{Action: action},
 			}},
-		}}
+		}, TxIsValid: true}
 		encodedBody, err := cbor.Encode(&tx.Body)
 		require.NoError(t, err)
 		tx.Body.SetCborReference(encodedBody)
@@ -337,6 +439,9 @@ func TestDijkstraBootstrapVotingRestrictionsAreRegistered(t *testing.T) {
 	err := rule(newTx(&DijkstraParameterChangeGovAction{}), 0, nil, pp)
 	var bootstrapErr conway.BootstrapVotingRestrictionError
 	require.ErrorAs(t, err, &bootstrapErr)
+	invalidTx := newTx(&DijkstraParameterChangeGovAction{})
+	invalidTx.TxIsValid = false
+	require.NoError(t, rule(invalidTx, 0, nil, pp))
 	require.NoError(t, rule(newTx(&common.InfoGovAction{}), 0, nil, pp))
 }
 
@@ -378,7 +483,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 				PPDeposit:   1,
 				PPGovAction: DijkstraGovAction{Action: &common.InfoGovAction{}},
 			}},
-		}}
+		}, TxIsValid: true}
 		rule, _ := dijkstraValidationRule(
 			t,
 			"ledger/dijkstra.UtxoValidateProposalDeposit",
@@ -386,6 +491,8 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		err := rule(tx, 0, nil, pp)
 		var depositErr conway.ProposalDepositIncorrectError
 		require.ErrorAs(t, err, &depositErr)
+		tx.TxIsValid = false
+		require.NoError(t, rule(tx, 0, nil, pp))
 	})
 
 	t.Run("parameter-change ancestry", func(t *testing.T) {
@@ -398,7 +505,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 					},
 				},
 			}},
-		}}
+		}, TxIsValid: true}
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
@@ -407,6 +514,8 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		err := rule(tx, 0, ls, pp)
 		var ancestryErr conway.InvalidGovActionAncestorError
 		require.ErrorAs(t, err, &ancestryErr)
+		tx.TxIsValid = false
+		require.NoError(t, rule(tx, 0, ls, pp))
 	})
 
 	t.Run("stake-pool parameter-change vote", func(t *testing.T) {
@@ -421,7 +530,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 					},
 				},
 			}},
-		}}
+		}, TxIsValid: true}
 		encodedBody, err := cbor.Encode(&tx.Body)
 		require.NoError(t, err)
 		tx.Body.SetCborReference(encodedBody)
@@ -443,6 +552,8 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		err = rule(tx, 0, ls, pp)
 		var votingErr conway.StakePoolVotingRestrictionError
 		require.ErrorAs(t, err, &votingErr)
+		tx.TxIsValid = false
+		require.NoError(t, rule(tx, 0, ls, pp))
 	})
 
 	t.Run("stake-pool Dijkstra security parameter vote", func(t *testing.T) {
@@ -784,7 +895,7 @@ func TestUtxoValidateBatchWithdrawals(t *testing.T) {
 
 	tx, _, _ = newBatchTx(balance-topWithdrawal+1, false)
 	err = rule(tx, 0, ls, pp)
-	require.ErrorAs(t, err, &balanceErr)
+	require.NoError(t, err)
 }
 
 func mustAddressBytes(t *testing.T, address *common.Address) []byte {

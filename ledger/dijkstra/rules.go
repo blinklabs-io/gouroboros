@@ -295,12 +295,109 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 	)
 }
 
-// UtxoValidationRules is initialized from the authoritative descriptors. It
-// remains mutable for compatibility; mutations are not reflected by
-// UtxoValidationRuleDescriptors.
-var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
-	utxoValidationRuleDescriptors,
+type dijkstraUtxoValidationPhase uint8
+
+const (
+	dijkstraUtxoValidationAlways dijkstraUtxoValidationPhase = iota
+	dijkstraUtxoValidationPhase2Valid
 )
+
+// Rule phases follow the Dijkstra LEDGER / SUBLEDGER transitions. Keep this
+// classification explicit by rule ID so adding a descriptor without choosing
+// a phase fails initialization and the classification test.
+var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraUtxoValidationPhase{
+	common.UtxoValidationRuleCurrentTreasuryValue:         dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleMetadata:                     dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleProposalProcedures:           dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleGovActionWellFormedness:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleHardForkCanFollow:            dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalAncestry:             dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalDeposit:              dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalNetworkIds:           dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalReturnAccounts:       dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleEmptyTreasuryWithdrawals:     dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleBootstrapAllowedGovActions:   dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleBootstrapParameterGroups:     dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleIsValidFlag:                  dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleRequiredVKeyWitnesses:        dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleCollateralVKeyWitnesses:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleRedeemerAndScriptWitnesses:   dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleSignatures:                   dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleCostModelsPresent:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleScriptDataHash:               dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleInlineDatumsWithPlutusV1:     dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2: dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutsideValidityInterval:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleInputSetEmpty:                dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleNoDuplicateInputs:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleFeeTooSmall:                  dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleInsufficientCollateral:       dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleCollateralContainsNonAda:     dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleCollateralEqBalance:          dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleNoCollateralInputs:           dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleBadInputs:                    dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleScriptWitnesses:              dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleRequiredRedeemers:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleBatchWithdrawals:             dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleAccountBalanceIntervals:      dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleValueNotConserved:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutputTooSmall:               dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutputTooBig:                 dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutputBootAddrAttrsTooBig:    dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleWrongNetwork:                 dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleWrongNetworkWithdrawal:       dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleTransactionNetworkId:         dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleMaxTxSize:                    dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleExUnitsTooBig:                dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleTooManyCollateralInputs:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleSupplementalDatums:           dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleExtraneousRedeemers:          dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleMalformedReferenceScripts:    dijkstraUtxoValidationAlways,
+	common.UtxoValidationRulePlutusScripts:                dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleNativeScripts:                dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleDelegation:                   dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleWithdrawals:                  dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleCertificateDeposits:          dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleCommitteeCertificates:        dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleUnknownVoters:                dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleUnknownGovActionIds:          dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleVotingOnExpiredGovAction:     dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleBootstrapVotingRestrictions:  dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleStakePoolVotingRestrictions:  dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleCCVotingRestrictions:         dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleRefScriptSizePerTx:           dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRulePoolCertificates:             dijkstraUtxoValidationPhase2Valid,
+}
+
+func buildDijkstraUtxoValidationRules() []common.UtxoValidationRuleFunc {
+	if _, err := common.UtxoValidationRulesFromDescriptors(
+		utxoValidationRuleDescriptors,
+	); err != nil {
+		panic(err)
+	}
+	rules := make([]common.UtxoValidationRuleFunc, 0, len(utxoValidationRuleDescriptors))
+	for _, descriptor := range utxoValidationRuleDescriptors {
+		phase, ok := dijkstraUtxoValidationRulePhases[descriptor.Id]
+		if !ok {
+			panic(fmt.Sprintf("Dijkstra validation rule %q has no phase", descriptor.Id))
+		}
+		switch phase {
+		case dijkstraUtxoValidationAlways:
+			rules = append(rules, descriptor.Validator)
+		case dijkstraUtxoValidationPhase2Valid:
+			group := common.Phase2ValidUtxoValidationRules(descriptor.Validator)
+			rules = append(rules, common.ComposeUtxoValidationRules(group)[0])
+		default:
+			panic(fmt.Sprintf("Dijkstra validation rule %q has unknown phase %d", descriptor.Id, phase))
+		}
+	}
+	return rules
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors and
+// explicit phase classifications. It remains mutable for compatibility;
+// mutations are not reflected by UtxoValidationRuleDescriptors.
+var UtxoValidationRules = buildDijkstraUtxoValidationRules()
 
 func dijkstraPparams(
 	pp common.ProtocolParameters,
