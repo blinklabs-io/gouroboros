@@ -514,7 +514,7 @@ func (t *ByronTransaction) ValidateVKeyWitnesses(protocolMagic uint32) error {
 		}
 		wrapped, ok := witness[1].(cbor.WrappedCbor)
 		if !ok {
-			return fmt.Errorf("Byron vkey witness %d is missing tag 24 payload", i)
+			return fmt.Errorf("byron vkey witness %d is missing tag 24 payload", i)
 		}
 		var fields []any
 		payload := wrapped.Bytes()
