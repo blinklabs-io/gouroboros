@@ -1186,18 +1186,37 @@ func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 				"byron update proposal txFeePolicy has unexpected shape",
 			)
 		}
+		// The reference TxFeePolicy sum type has a single constructor,
+		// TxFeePolicyTxSizeLinear (0); there is no other variant to fall
+		// back to, so an unrecognized constructor is invalid regardless
+		// of whether the payload happens to have the right shape.
+		ctor, ok := asUint64(policy[0])
+		if !ok || ctor != 0 {
+			return fmt.Errorf(
+				"byron update proposal txFeePolicy has unsupported constructor %v, expected 0",
+				policy[0],
+			)
+		}
 		wrapped, ok := policy[1].(cbor.WrappedCbor)
 		if !ok {
 			return errors.New(
 				"byron update proposal txFeePolicy requires tag 24 for nested TxSizeLinear",
 			)
 		}
-		// TxSizeLinear is [summand, multiplier]
-		// (Cardano/Chain/Common/TxSizeLinear.hs). Require the tag 24
-		// payload to decode as exactly that shape and to be fully
-		// consumed, so trailing bytes hidden after a valid pair are
-		// rejected rather than silently ignored.
-		var sizeLinear []any
+		// TxSizeLinear is [summand, multiplier], both Nano values
+		// (Cardano/Chain/Common/TxSizeLinear.hs). Decoding into this typed
+		// shape -- rather than a generic []any -- requires the tag 24
+		// payload to be exactly two elements and each to be a CBOR
+		// integer, so neither a wrong element count nor a non-numeric
+		// field (a nested array, a string, ...) can pass. It also
+		// requires the payload to be fully consumed, so trailing bytes
+		// hidden after a valid pair are rejected rather than silently
+		// ignored.
+		var sizeLinear struct {
+			cbor.StructAsArray
+			Summand    *big.Int
+			Multiplier *big.Int
+		}
 		wrappedBytes := wrapped.Bytes()
 		consumed, err := cbor.Decode(wrappedBytes, &sizeLinear)
 		if err != nil {
@@ -1212,10 +1231,9 @@ func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 				len(wrappedBytes)-consumed,
 			)
 		}
-		if len(sizeLinear) != 2 {
-			return fmt.Errorf(
-				"byron update proposal txFeePolicy nested TxSizeLinear has %d values, expected 2",
-				len(sizeLinear),
+		if sizeLinear.Summand == nil || sizeLinear.Multiplier == nil {
+			return errors.New(
+				"byron update proposal txFeePolicy nested TxSizeLinear field is null",
 			)
 		}
 	}

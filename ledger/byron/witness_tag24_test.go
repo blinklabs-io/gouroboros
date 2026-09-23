@@ -279,4 +279,32 @@ func TestByronUpdateProposalTxFeePolicyRequiresTag24(t *testing.T) {
 		var mod byron.ByronUpdateProposalBlockVersionMod
 		require.Error(t, mod.UnmarshalCBOR(data))
 	})
+
+	t.Run("unknown policy constructor is rejected", func(t *testing.T) {
+		// The reference TxFeePolicy sum type has a single constructor
+		// (0); a two-element, correctly tag-24-wrapped payload under a
+		// different constructor number must still be rejected, not
+		// accepted because its shape happens to match.
+		inner, err := cbor.Encode([]any{uint64(100), uint64(200)})
+		require.NoError(t, err)
+		policy := []any{uint64(1), cbor.WrappedCbor(inner)}
+		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+		require.NoError(t, err)
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		require.Error(t, mod.UnmarshalCBOR(data))
+	})
+
+	t.Run("nested TxSizeLinear with non-numeric field is rejected", func(t *testing.T) {
+		// Both TxSizeLinear fields are Nano (numeric) values; a
+		// two-element payload where a field holds an arbitrary CBOR
+		// value (here, a nested array) must be rejected rather than
+		// accepted because the element count matches.
+		inner, err := cbor.Encode([]any{[]any{uint64(1), uint64(2)}, uint64(200)})
+		require.NoError(t, err)
+		policy := []any{uint64(0), cbor.WrappedCbor(inner)}
+		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+		require.NoError(t, err)
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		require.Error(t, mod.UnmarshalCBOR(data))
+	})
 }
