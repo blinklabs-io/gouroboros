@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"bytes"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -650,4 +651,41 @@ func TestDijkstraAddressV4BasePaymentCredentials(t *testing.T) {
 			requireDijkstraV4Bytes(t, stake.Fields[0], stakingHash)
 		})
 	}
+}
+
+func TestOutsideForecastChecksInvalidSubTransaction(t *testing.T) {
+	const upper uint64 = 84
+	state := mockledger.NewLedgerStateBuilder().WithSlotToTime(
+		func(slot uint64) (time.Time, error) {
+			if slot == upper {
+				return time.Time{}, errors.New("outside forecast")
+			}
+			return time.Time{}, nil
+		},
+	).Build()
+	key := common.RedeemerKey{Tag: common.RedeemerTagSpend}
+	subBody := DijkstraSubTransactionBody{}
+	subBody.SetValidityIntervalUpperBound(upper)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: subBody,
+				WitnessSet: DijkstraTransactionWitnessSet{
+					WsRedeemers: DijkstraRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{key: {}},
+					},
+				},
+			}}, false),
+		},
+		TxIsValid: false,
+	}
+	err := common.ValidateOutsideForecast(
+		tx,
+		1,
+		state,
+		common.OutsideForecastTypeDijkstra,
+	)
+	var outsideForecast *common.OutsideForecastError
+	require.ErrorAs(t, err, &outsideForecast)
+	require.Equal(t, upper, outsideForecast.Slot)
 }
