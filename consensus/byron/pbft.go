@@ -65,8 +65,8 @@ func ValidatePBFTHeader(
 		return PBFTIssuer{}, err
 	}
 	for genesisIssuer, activeDelegate := range config.GenesisDelegations {
-		if activeDelegate == issuer.DelegateKeyHash &&
-			genesisIssuer == issuer.GenesisKeyHash {
+		if activeDelegate == issuer.DelegateKeyHash {
+			issuer.GenesisKeyHash = genesisIssuer
 			return issuer, nil
 		}
 	}

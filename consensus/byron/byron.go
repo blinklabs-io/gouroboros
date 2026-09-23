@@ -221,8 +221,16 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 		ProtocolMagic: protocolMagic,
 	})
 	genesisIssuers := make(map[common.Blake2b224]struct{}, len(keyHashes))
+	heavyIssuers := make(map[common.Blake2b224]struct{}, len(genesis.HeavyDelegation))
 	for _, hash := range keyHashes {
 		genesisIssuers[hash] = struct{}{}
+	}
+	for genesisHashHex := range genesis.HeavyDelegation {
+		hashBytes, err := hex.DecodeString(genesisHashHex)
+		if err != nil || len(hashBytes) != common.Blake2b224Size {
+			continue
+		}
+		heavyIssuers[common.NewBlake2b224(hashBytes)] = struct{}{}
 	}
 	for genesisHashHex, delegation := range genesis.HeavyDelegation {
 		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
@@ -287,14 +295,14 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				err,
 			)
 		}
-		if _, isIssuer := genesisIssuers[delegateHash]; isIssuer {
+		if _, isIssuer := heavyIssuers[delegateHash]; isIssuer {
 			return ByronConfig{}, fmt.Errorf(
 				"invalid Byron genesis heavy-certificate graph: "+
 					"delegate %s is also an issuer",
 				delegateHash.String(),
 			)
 		}
-		if delegation.Omega < 0 {
+		if delegation.Omega < 0 || delegation.Omega > 1 {
 			return ByronConfig{}, fmt.Errorf(
 				"invalid delegation omega for genesis key %s: %d",
 				genesisHashHex,
@@ -336,6 +344,16 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 		genesisDelegations[genesisHash] = delegateHash
 		genesisDelegationEpochs[genesisHash] = uint64(delegation.Omega)
 	}
+	genesisView, err := NewPBFTDelegationState(ByronConfig{
+		SecurityParam:           uint64(genesis.ProtocolConsts.K),
+		GenesisKeyHashes:        keyHashBytes,
+		GenesisDelegations:      genesisDelegations,
+		GenesisDelegationEpochs: genesisDelegationEpochs,
+	})
+	if err != nil {
+		return ByronConfig{}, fmt.Errorf("build Byron genesis delegation view: %w", err)
+	}
+	genesisDelegations = genesisView.ActiveDelegations()
 
 	// Byron slots per epoch = 10 * K (security parameter)
 	// This is the standard Byron formula

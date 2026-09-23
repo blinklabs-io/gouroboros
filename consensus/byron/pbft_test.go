@@ -70,6 +70,19 @@ func TestValidatePBFTHeaderRealMainnet(t *testing.T) {
 	require.Equal(t, expectedIssuer, issuer)
 }
 
+func TestValidatePBFTHeaderResolvesIssuerFromActiveDelegate(t *testing.T) {
+	header, config, issuer := realPBFTHeaderFixture(t)
+	activeIssuer := common.Blake2b224Hash([]byte("mapped genesis issuer"))
+	config.GenesisDelegations = map[common.Blake2b224]common.Blake2b224{
+		activeIssuer: issuer.DelegateKeyHash,
+	}
+
+	validated, err := ValidatePBFTHeader(header, config)
+	require.NoError(t, err)
+	require.Equal(t, activeIssuer, validated.GenesisKeyHash)
+	require.Equal(t, issuer.DelegateKeyHash, validated.DelegateKeyHash)
+}
+
 func TestValidatePBFTHeaderCryptoUsesActiveDelegateWithoutRevalidatingCert(
 	t *testing.T,
 ) {
@@ -418,6 +431,39 @@ func TestNewByronConfigFromGenesisRejectsNonBootStakeholderIssuer(
 	)
 	_, err = NewByronConfigFromGenesis(&genesis)
 	require.ErrorContains(t, err, "not a boot stakeholder")
+}
+
+func TestNewByronConfigFromGenesisAllowsUncertifiedBootStakeholderDelegate(t *testing.T) {
+	genesis, err := ledgerbyron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
+	require.NoError(t, err)
+	for _, delegation := range genesis.HeavyDelegation {
+		delegateKey, err := base64.StdEncoding.DecodeString(delegation.DelegatePk)
+		require.NoError(t, err)
+		delegateHash, err := PBFTVerificationKeyHash(delegateKey)
+		require.NoError(t, err)
+		genesis.BootStakeholders[delegateHash.String()] = 1
+		break
+	}
+
+	_, err = NewByronConfigFromGenesis(&genesis)
+	require.NoError(t, err)
+}
+
+func TestNewByronConfigFromGenesisRejectsOmegaAboveOne(t *testing.T) {
+	genesis, err := ledgerbyron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
+	require.NoError(t, err)
+	for issuer, delegation := range genesis.HeavyDelegation {
+		delegation.Omega = 2
+		genesis.HeavyDelegation[issuer] = delegation
+		break
+	}
+
+	_, err = NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "invalid delegation omega")
 }
 
 func TestNewByronConfigFromGenesisRejectsIssuerAsDelegate(t *testing.T) {
