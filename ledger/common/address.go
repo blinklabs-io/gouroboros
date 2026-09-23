@@ -644,6 +644,20 @@ func CheckAddressFullyConsumed(a Address) error {
 	return nil
 }
 
+// CheckAccountAddress enforces the AccountAddress wire shape used by
+// governance proposal return accounts.
+func CheckAccountAddress(a Address) error {
+	if err := CheckAddressFullyConsumed(a); err != nil {
+		return err
+	}
+	switch a.Type() {
+	case AddressTypeNoneKey, AddressTypeNoneScript:
+		return nil
+	default:
+		return fmt.Errorf("invalid account address type %d", a.Type())
+	}
+}
+
 // CheckAddressPointerInRange rejects a pointer address whose slot, transaction
 // index or certificate index is wider than cardano-ledger's Ptr allows. From
 // decoder version 9 (Conway) fromCborBothAddr selects
