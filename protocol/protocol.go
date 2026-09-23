@@ -447,7 +447,11 @@ func (p *Protocol) observeStateAndDrainSendReady() State {
 // write queued messages while the peer holds agency. Only the role without
 // agency in the state pipelines; the role with agency uses the normal path.
 func (p *Protocol) pipelinedSendAllowed() bool {
-	entry, ok := p.config.StateMap[p.getCurrentState()]
+	return p.roleMayPipeline(p.getCurrentState())
+}
+
+func (p *Protocol) roleMayPipeline(state State) bool {
+	entry, ok := p.config.StateMap[state]
 	if !ok || !entry.AllowPipelinedSend {
 		return false
 	}
@@ -461,6 +465,10 @@ func (p *Protocol) pipelinedSendAllowed() bool {
 	default:
 		return false
 	}
+}
+
+func (p *Protocol) pipelinedMessageAllowed(state State, msg Message) bool {
+	return p.roleMayPipeline(state) && p.pipelinedMessageFits(state, msg)
 }
 
 // roleHasAgency reports whether this role holds ordinary send agency in the
@@ -980,6 +988,7 @@ waitSendReadyChan:
 		for {
 			// Get next message from send queue
 			var outbound outboundMessage
+			fromPipelinedDequeue := pipelinedOutbound != nil
 			if pipelinedOutbound != nil {
 				outbound = *pipelinedOutbound
 				pipelinedOutbound = nil
@@ -999,6 +1008,13 @@ waitSendReadyChan:
 				}
 			}
 			msg := outbound.message
+			if queueTransition && !fromPipelinedDequeue {
+				currentState := p.getCurrentState()
+				if !p.pipelinedMessageAllowed(currentState, msg) {
+					p.SendError(p.errPipelinedMessageNotAllowed(currentState, msg))
+					return
+				}
+			}
 			msgCount = msgCount + 1
 
 			data := outbound.data

@@ -222,6 +222,43 @@ func newPipelineRaceProtocol(
 	return p, errorChan
 }
 
+// TestSendLoopRejectsIneligibleMessagesBatchedBehindPipelinedMessages covers
+// gouroboros#2499. Every message appended while queueTransition is true must
+// independently satisfy the state's pipelining rules before any of the batch
+// is written to the wire.
+func TestSendLoopRejectsIneligibleMessagesBatchedBehindPipelinedMessages(
+	t *testing.T,
+) {
+	t.Parallel()
+	busy := NewState(1, "Busy")
+	idle := NewState(2, "Idle")
+	p, errorChan := newPipelineRaceProtocol(t, busy, idle)
+
+	dequeued := make(chan struct{})
+	proceed := make(chan struct{})
+	p.pipelinedDequeueHook = func() {
+		close(dequeued)
+		<-proceed
+	}
+	const msgTypeRequest uint8 = 2
+	const msgTypeBatchDone uint8 = 3
+	require.NoError(t, p.SendMessage(&MessageBase{MessageType: msgTypeRequest}))
+	select {
+	case <-dequeued:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sendLoop never reached the first pipelined dequeue")
+	}
+	require.NoError(t, p.SendMessage(&MessageBase{MessageType: msgTypeBatchDone}))
+	close(proceed)
+
+	select {
+	case err := <-errorChan:
+		require.ErrorContains(t, err, "message type 3 is not allowed while pipelined in state Busy")
+	case <-time.After(5 * time.Second):
+		t.Fatal("sendLoop transmitted a message that is not pipelined in Busy")
+	}
+}
+
 // TestSendLoopConsumesAgencyTokenOnRacedPromotion asserts that promoting a
 // racily-dequeued pipelined message consumes the sendReadyChan token that
 // stateLoop's setState put there when it transitioned into the state that
