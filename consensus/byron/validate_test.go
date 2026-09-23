@@ -66,10 +66,20 @@ func testByronHeaderCbor(t *testing.T) []byte {
 	header := &byron.ByronMainBlockHeader{
 		ProtocolMagic: testByronProtocolMagicMainnet,
 	}
-	header.ExtraData.ExtraProof = []byte{}
+	initializeByronTestHeader(header)
 	headerCbor, err := cbor.Encode(header)
 	require.NoError(t, err)
 	return headerCbor
+}
+
+func initializeByronTestHeader(header *byron.ByronMainBlockHeader) {
+	header.BodyProof = []any{
+		[]any{uint64(0), make([]byte, 32), make([]byte, 32)},
+		[]any{}, []any{}, []any{},
+	}
+	header.ConsensusData.PubKey = make([]byte, byron.VerificationKeySize)
+	header.ExtraData.Attributes = map[any]any{}
+	header.ExtraData.ExtraProof = []byte{}
 }
 
 func testByronProxyInput(
@@ -86,8 +96,7 @@ func testByronProxyInput(
 	header := &byron.ByronMainBlockHeader{
 		ProtocolMagic: testByronProtocolMagicMainnet,
 	}
-	header.ExtraData.Attributes = map[any]any{}
-	header.ExtraData.ExtraProof = []byte{}
+	initializeByronTestHeader(header)
 	header.ConsensusData.BlockSig = []any{
 		uint64(byronSigTypeHeavy),
 		[]any{
