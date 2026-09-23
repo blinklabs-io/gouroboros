@@ -466,12 +466,12 @@ type ConwayTransactionWitnessSet struct {
 }
 
 func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
-	if err := common.ValidateMapFields(cborData, nil, []uint{0, 1, 2, 3, 4, 5, 6, 7}, nil); err != nil {
-		return err
-	}
 	type tConwayTransactionWitnessSet ConwayTransactionWitnessSet
 	var tmp tConwayTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 5); err != nil {
 		return err
 	}
 	// Conway (protocol versions 9-11) tolerates duplicate members in the
@@ -678,6 +678,16 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	); err != nil {
 		return err
 	}
+	for idx := range tmp.TxOutputs {
+		if err := common.ValidateNativeScriptOutputConstructor(&tmp.TxOutputs[idx], 5); err != nil {
+			return fmt.Errorf("transaction output %d: %w", idx, err)
+		}
+	}
+	if tmp.TxCollateralReturn != nil {
+		if err := common.ValidateNativeScriptOutputConstructor(tmp.TxCollateralReturn, 5); err != nil {
+			return fmt.Errorf("collateral return: %w", err)
+		}
+	}
 	if tmp.TxCurrentTreasuryValue < 0 {
 		return errors.New("current treasury value must not be negative")
 	}
@@ -797,7 +807,12 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithRequiredFields(&b, []uint{0, 1, 2})
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+		2,
+	)
 }
 
 // checkMultiAssetEncoding rejects the multiasset wire forms cardano-ledger
@@ -1134,6 +1149,10 @@ func (t ConwayTransaction) CollateralReturn() common.TransactionOutput {
 
 func (t ConwayTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
+}
+
+func (t ConwayTransaction) TotalCollateralPresent() bool {
+	return t.Body.TotalCollateralPresent() || t.Body.TxTotalCollateral != 0
 }
 
 func (t ConwayTransaction) Certificates() []common.Certificate {

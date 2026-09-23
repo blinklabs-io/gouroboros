@@ -24,6 +24,7 @@ package conway_test
 import (
 	"bytes"
 	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -64,6 +65,120 @@ func mkProposalTx(
 		},
 	}
 	return tx
+}
+
+type epochTestLedgerState struct {
+	common.LedgerState
+	epoch uint64
+	err   error
+}
+
+func (s epochTestLedgerState) EpochForSlot(uint64) (uint64, error) {
+	return s.epoch, s.err
+}
+
+func TestUtxoValidateGovActionWellFormednessValidatesUpdateCommitteeValues(t *testing.T) {
+	credential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("committee-member")),
+	}
+	for _, test := range []struct {
+		name    string
+		action  *common.UpdateCommitteeGovAction
+		wantErr string
+	}{
+		{
+			name: "negative quorum",
+			action: &common.UpdateCommitteeGovAction{
+				Quorum: cbor.Rat{Rat: big.NewRat(-1, 2)},
+			},
+			wantErr: "outside [0,1]",
+		},
+		{
+			name: "duplicate removal",
+			action: &common.UpdateCommitteeGovAction{
+				Credentials: []common.Credential{credential, credential},
+				Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
+			},
+			wantErr: "duplicate removal credential",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tx := mkProposalTx(0, common.Address{}, test.action)
+			err := conway.UtxoValidateGovActionWellFormedness(
+				tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+				mkConwayPp(10, 0),
+			)
+			var malformed conway.MalformedGovActionError
+			require.ErrorAs(t, err, &malformed)
+			assert.Contains(t, malformed.Reason, test.wantErr)
+		})
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+	pp := mkConwayPp(10, 0)
+	for _, test := range []struct {
+		name   string
+		action *common.UpdateCommitteeGovAction
+	}{
+		{
+			name: "out-of-range quorum",
+			action: &common.UpdateCommitteeGovAction{
+				Quorum: cbor.Rat{Rat: big.NewRat(3, 2)},
+			},
+		},
+		{
+			name: "duplicate removals",
+			action: &common.UpdateCommitteeGovAction{
+				Credentials: []common.Credential{credential, credential},
+				Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
+			},
+		},
+	} {
+		t.Run("through validation pipeline: "+test.name, func(t *testing.T) {
+			tx := mkProposalTx(0, common.Address{}, test.action)
+			err := common.VerifyTransaction(
+				tx,
+				0,
+				state,
+				pp,
+				[]common.UtxoValidationRuleFunc{
+					conway.UtxoValidateGovActionWellFormedness,
+				},
+			)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestUtxoValidateProposalProceduresRejectsExpiredCommitteeAdditions(t *testing.T) {
+	credential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("committee-addition")),
+	}
+	buildTx := func(expiry uint64) *conway.ConwayTransaction {
+		return mkProposalTx(0, common.Address{}, &common.UpdateCommitteeGovAction{
+			CredEpochs: map[*common.Credential]uint64{&credential: expiry},
+		})
+	}
+	state := epochTestLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		epoch:       10,
+	}
+	require.NoError(t, conway.UtxoValidateProposalProcedures(
+		buildTx(11), 0, state, mkConwayPp(10, 0),
+	))
+	for _, expiry := range []uint64{10, 9} {
+		err := conway.UtxoValidateProposalProcedures(
+			buildTx(expiry), 0, state, mkConwayPp(10, 0),
+		)
+		var expired conway.CommitteeMemberAlreadyExpiredError
+		require.ErrorAs(t, err, &expired)
+	}
+	err := conway.UtxoValidateProposalProcedures(
+		buildTx(11), 0, mockledger.NewLedgerStateBuilder().Build(), mkConwayPp(10, 0),
+	)
+	var unavailable conway.CommitteeExpiryEpochUnavailableError
+	require.ErrorAs(t, err, &unavailable)
 }
 
 func TestUtxoValidateProposalDeposit(t *testing.T) {
@@ -1168,7 +1283,8 @@ func mkProposalsTx(
 		tx.Body.TxProposalProcedures = append(
 			tx.Body.TxProposalProcedures,
 			conway.ConwayProposalProcedure{
-				PPGovAction: conway.ConwayGovAction{Action: action},
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction:     conway.ConwayGovAction{Action: action},
 			},
 		)
 	}
@@ -1429,12 +1545,12 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 		)
 	})
 
-	t.Run("expired predecessor is rejected", func(t *testing.T) {
+	t.Run("ratify-expired predecessor remains valid until epoch removal", func(t *testing.T) {
 		tx := mkProposalsTx(t, mkHfAction(&expiredId, 10, 0))
-		err := conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp)
-		var ancErr conway.InvalidGovActionAncestorError
-		require.ErrorAs(t, err, &ancErr)
-		assert.Equal(t, expiredId, ancErr.ActionId)
+		require.NoError(
+			t,
+			conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp),
+		)
 	})
 
 	t.Run("predecessor in the same transaction", func(t *testing.T) {

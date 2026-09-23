@@ -426,6 +426,16 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	for idx := range tmp.TxOutputs {
+		if err := common.ValidateNativeScriptOutputConstructor(&tmp.TxOutputs[idx], 5); err != nil {
+			return fmt.Errorf("transaction output %d: %w", idx, err)
+		}
+	}
+	if tmp.TxCollateralReturn != nil {
+		if err := common.ValidateNativeScriptOutputConstructor(tmp.TxCollateralReturn, 5); err != nil {
+			return fmt.Errorf("collateral return: %w", err)
+		}
+	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
@@ -999,6 +1009,9 @@ func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts, 5); err != nil {
+		return err
+	}
 	*w = BabbageTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil
@@ -1235,6 +1248,10 @@ func (t BabbageTransaction) CollateralReturn() common.TransactionOutput {
 
 func (t BabbageTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
+}
+
+func (t BabbageTransaction) TotalCollateralPresent() bool {
+	return t.Body.TotalCollateralPresent() || t.Body.TxTotalCollateral != 0
 }
 
 func (t BabbageTransaction) Certificates() []common.Certificate {

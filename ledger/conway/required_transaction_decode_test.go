@@ -72,6 +72,12 @@ func TestConwayTransactionDecodeRejectsInvalidBodyAndWitnessFields(t *testing.T)
 			})
 			require.NoError(t, err)
 			_, err = NewConwayTransactionFromCbor(tx)
+			if test.name == "empty witness vkeys" {
+				// Conway UTXO rules, rather than transaction decoding, reject
+				// empty witness collections.
+				require.NoError(t, err)
+				return
+			}
 			require.ErrorContains(t, err, test.wantText)
 		})
 	}

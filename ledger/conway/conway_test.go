@@ -289,7 +289,7 @@ func TestConwayTransactionBodyRequiresPositiveTreasuryDonation(t *testing.T) {
 	}
 }
 
-func TestConwayWitnessSetRejectsPresentEmptyFields(t *testing.T) {
+func TestConwayWitnessSetDecodesPresentEmptyFields(t *testing.T) {
 	for _, key := range []uint{0, 1, 2, 3, 4, 5, 6, 7} {
 		for _, tagged := range []bool{false, true} {
 			name := "untagged"
@@ -302,7 +302,7 @@ func TestConwayWitnessSetRejectsPresentEmptyFields(t *testing.T) {
 				encoded, err := cbor.Encode(map[uint]any{key: value})
 				require.NoError(t, err)
 				var witnesses ConwayTransactionWitnessSet
-				require.Error(t, witnesses.UnmarshalCBOR(encoded))
+				require.NoError(t, witnesses.UnmarshalCBOR(encoded))
 			})
 		}
 	}
@@ -580,7 +580,7 @@ func TestConwayRejectsDuplicateUntaggedInputSets(t *testing.T) {
 
 func TestConwayProposalProceduresSetSemantics(t *testing.T) {
 	rewardAccount, err := common.NewAddress(
-		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
 	require.NoError(t, err)
 	action := common.InfoGovAction{Type: uint(common.GovActionTypeInfo)}
