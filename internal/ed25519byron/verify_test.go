@@ -55,9 +55,6 @@ func TestVerifyAcceptsSmallOrderAndNonCanonicalPoints(t *testing.T) {
 	if !ed25519byron.Verify(identity, []byte("legacy"), signature) {
 		t.Fatal("Byron verifier rejected the accepted small-order identity")
 	}
-	if !ed25519byron.Verify(identity, []byte("legacy"), signature) {
-		t.Fatal("Byron verifier rejected a small-order R point")
-	}
 
 	// y = p + 1 is a non-canonical encoding of the identity point. Byron's
 	// public-key decoder accepts it, but signature verification byte-compares

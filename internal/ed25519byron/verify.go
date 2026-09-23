@@ -40,6 +40,9 @@ func Verify(pubKey, msg, sig []byte) bool {
 	if err != nil {
 		return false
 	}
+	if !bytes.Equal(rPoint.Bytes(), sig[:32]) {
+		return false
+	}
 
 	wideS := make([]byte, 64)
 	copy(wideS, sig[32:])
