@@ -75,6 +75,9 @@ func byronArrayField(raw []byte, name string, index, expected int) ([]byte, erro
 			selected = raw[start:pos]
 		}
 	}
+	if selected == nil {
+		return nil, fmt.Errorf("%s field %d was not found", name, index)
+	}
 	if pos != len(raw) {
 		return nil, fmt.Errorf("%s has trailing CBOR data", name)
 	}

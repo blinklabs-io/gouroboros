@@ -82,12 +82,21 @@ func TestByronMainBlockRejectsMalformedUpdateVote(t *testing.T) {
 	var blockFields []cbor.RawMessage
 	_, err := cbor.Decode(mainnetByronBlock(t), &blockFields)
 	require.NoError(t, err)
+	if blockFields == nil {
+		t.Fatal("expected Byron block fields")
+	}
 	var bodyFields []cbor.RawMessage
 	_, err = cbor.Decode(blockFields[1], &bodyFields)
 	require.NoError(t, err)
+	if bodyFields == nil {
+		t.Fatal("expected Byron block body fields")
+	}
 	var updateFields []cbor.RawMessage
 	_, err = cbor.Decode(bodyFields[3], &updateFields)
 	require.NoError(t, err)
+	if updateFields == nil {
+		t.Fatal("expected Byron update fields")
+	}
 	updateFields[1] = cbor.RawMessage{0x9f, 0x00, 0xff}
 	bodyFields[3], err = cbor.Encode(updateFields)
 	require.NoError(t, err)
@@ -105,12 +114,21 @@ func TestByronMainBlockRejectsMalformedUpdateProposal(t *testing.T) {
 	var blockFields []cbor.RawMessage
 	_, err := cbor.Decode(mainnetByronBlock(t), &blockFields)
 	require.NoError(t, err)
+	if blockFields == nil {
+		t.Fatal("expected Byron block fields")
+	}
 	var bodyFields []cbor.RawMessage
 	_, err = cbor.Decode(blockFields[1], &bodyFields)
 	require.NoError(t, err)
+	if bodyFields == nil {
+		t.Fatal("expected Byron block body fields")
+	}
 	var updateFields []cbor.RawMessage
 	_, err = cbor.Decode(bodyFields[3], &updateFields)
 	require.NoError(t, err)
+	if updateFields == nil {
+		t.Fatal("expected Byron update fields")
+	}
 	updateFields[0] = cbor.RawMessage{0x81, 0x00}
 	bodyFields[3], err = cbor.Encode(updateFields)
 	require.NoError(t, err)
@@ -137,13 +155,22 @@ func TestByronMainBlockBodyRequiresIndefiniteLegacyPayloadLists(t *testing.T) {
 			var blockFields []cbor.RawMessage
 			_, err := cbor.Decode(mainnetByronBlock(t), &blockFields)
 			require.NoError(t, err)
+			if blockFields == nil {
+				t.Fatal("expected Byron block fields")
+			}
 			var bodyFields []cbor.RawMessage
 			_, err = cbor.Decode(blockFields[1], &bodyFields)
 			require.NoError(t, err)
+			if bodyFields == nil {
+				t.Fatal("expected Byron block body fields")
+			}
 			if tc.listIndex == 3 {
 				var updateFields []cbor.RawMessage
 				_, err = cbor.Decode(bodyFields[3], &updateFields)
 				require.NoError(t, err)
+				if updateFields == nil {
+					t.Fatal("expected Byron update fields")
+				}
 				updateFields[1] = cbor.RawMessage{0x80}
 				bodyFields[3], err = cbor.Encode(updateFields)
 				require.NoError(t, err)

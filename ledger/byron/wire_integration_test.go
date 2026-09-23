@@ -39,12 +39,21 @@ func TestByronSignedHeaderRejectsArrayEncodedVerificationKey(t *testing.T) {
 	var block []cbor.RawMessage
 	_, err = cbor.Decode(blockBytes, &block)
 	require.NoError(t, err)
+	if block == nil {
+		t.Fatal("expected Byron block fields")
+	}
 	var header []cbor.RawMessage
 	_, err = cbor.Decode(block[0], &header)
 	require.NoError(t, err)
+	if header == nil {
+		t.Fatal("expected Byron header fields")
+	}
 	var consensus []cbor.RawMessage
 	_, err = cbor.Decode(header[3], &consensus)
 	require.NoError(t, err)
+	if consensus == nil {
+		t.Fatal("expected Byron consensus fields")
+	}
 	var key []byte
 	_, err = cbor.Decode(consensus[1], &key)
 	require.NoError(t, err)
@@ -72,18 +81,33 @@ func TestByronSignedHeaderRejectsIndefiniteFixedRecords(t *testing.T) {
 	var block []cbor.RawMessage
 	_, err = cbor.Decode(blockBytes, &block)
 	require.NoError(t, err)
+	if block == nil {
+		t.Fatal("expected Byron block fields")
+	}
 	var header []cbor.RawMessage
 	_, err = cbor.Decode(block[0], &header)
 	require.NoError(t, err)
+	if header == nil {
+		t.Fatal("expected Byron header fields")
+	}
 	var consensus []cbor.RawMessage
 	_, err = cbor.Decode(header[3], &consensus)
 	require.NoError(t, err)
+	if consensus == nil {
+		t.Fatal("expected Byron consensus fields")
+	}
 	var difficulty []cbor.RawMessage
 	_, err = cbor.Decode(consensus[2], &difficulty)
 	require.NoError(t, err)
+	if difficulty == nil {
+		t.Fatal("expected chain difficulty fields")
+	}
 	var bodyProof []cbor.RawMessage
 	_, err = cbor.Decode(header[2], &bodyProof)
 	require.NoError(t, err)
+	if bodyProof == nil {
+		t.Fatal("expected Byron body proof fields")
+	}
 
 	tests := []struct {
 		name   string
@@ -142,18 +166,30 @@ func TestByronMainHeaderRejectsIndefiniteStrings(t *testing.T) {
 	var block []cbor.RawMessage
 	_, err = cbor.Decode(blockBytes, &block)
 	require.NoError(t, err)
+	if block == nil {
+		t.Fatal("expected Byron block fields")
+	}
 	var header []cbor.RawMessage
 	_, err = cbor.Decode(block[0], &header)
 	require.NoError(t, err)
+	if header == nil {
+		t.Fatal("expected Byron header fields")
+	}
 	var extraData []cbor.RawMessage
 	_, err = cbor.Decode(header[4], &extraData)
 	require.NoError(t, err)
+	if extraData == nil {
+		t.Fatal("expected Byron extra data fields")
+	}
 	var extraProof []byte
 	_, err = cbor.Decode(extraData[3], &extraProof)
 	require.NoError(t, err)
 	var softwareVersion []cbor.RawMessage
 	_, err = cbor.Decode(extraData[1], &softwareVersion)
 	require.NoError(t, err)
+	if softwareVersion == nil {
+		t.Fatal("expected Byron software version fields")
+	}
 	var appName string
 	_, err = cbor.Decode(softwareVersion[0], &appName)
 	require.NoError(t, err)
