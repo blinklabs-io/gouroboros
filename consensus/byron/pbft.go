@@ -95,7 +95,7 @@ func ValidatePBFTHeaderCrypto(
 		)
 	}
 
-	issuer, _, err := parsePBFTIssuerFromHeader(header)
+	issuer, err := parsePBFTIssuerFromHeader(header)
 	if err != nil {
 		return PBFTIssuer{}, err
 	}
@@ -192,7 +192,7 @@ func validatePBFTDelegateBlockSignature(
 		signed,
 		blockSignature,
 	) {
-		return errors.New("Byron PBFT delegate block signature verification failed")
+		return errors.New("byron PBFT delegate block signature verification failed")
 	}
 	return nil
 }
@@ -209,18 +209,18 @@ func validatePBFTDelegateBlockSignature(
 func PBFTIssuerFromHeader(
 	header *ledgerbyron.ByronMainBlockHeader,
 ) (PBFTIssuer, error) {
-	issuer, _, err := parsePBFTIssuerFromHeader(header)
+	issuer, err := parsePBFTIssuerFromHeader(header)
 	return issuer, err
 }
 
 func parsePBFTIssuerFromHeader(
 	header *ledgerbyron.ByronMainBlockHeader,
-) (PBFTIssuer, uint64, error) {
+) (PBFTIssuer, error) {
 	if header == nil {
-		return PBFTIssuer{}, 0, errors.New("nil byron PBFT header")
+		return PBFTIssuer{}, errors.New("nil byron PBFT header")
 	}
 	if len(header.ConsensusData.PubKey) != 64 {
-		return PBFTIssuer{}, 0, fmt.Errorf(
+		return PBFTIssuer{}, fmt.Errorf(
 			"invalid Byron PBFT genesis issuer key length: got %d, expected 64",
 			len(header.ConsensusData.PubKey),
 		)
@@ -229,20 +229,20 @@ func parsePBFTIssuerFromHeader(
 		header.ConsensusData.PubKey,
 	)
 	if err != nil {
-		return PBFTIssuer{}, 0, err
+		return PBFTIssuer{}, err
 	}
 	issuer := PBFTIssuer{
 		GenesisKeyHash: genesisKeyHash,
 	}
 	if len(header.ConsensusData.BlockSig) != 2 {
-		return PBFTIssuer{}, 0, fmt.Errorf(
+		return PBFTIssuer{}, fmt.Errorf(
 			"invalid Byron PBFT signature shape: got %d elements, expected 2",
 			len(header.ConsensusData.BlockSig),
 		)
 	}
 	signatureType, err := extractUint64(header.ConsensusData.BlockSig[0])
 	if err != nil {
-		return PBFTIssuer{}, 0, fmt.Errorf(
+		return PBFTIssuer{}, fmt.Errorf(
 			"decode Byron PBFT signature type: %w",
 			err,
 		)
@@ -251,7 +251,7 @@ func parsePBFTIssuerFromHeader(
 	case byronSigTypeHeavy:
 		inner, ok := header.ConsensusData.BlockSig[1].([]any)
 		if !ok || len(inner) != 2 {
-			return PBFTIssuer{}, 0, fmt.Errorf(
+			return PBFTIssuer{}, fmt.Errorf(
 				"invalid Byron PBFT proxy signature payload: got %T with %d elements",
 				header.ConsensusData.BlockSig[1],
 				len(inner),
@@ -259,22 +259,15 @@ func parsePBFTIssuerFromHeader(
 		}
 		certificate, ok := inner[0].([]any)
 		if !ok || len(certificate) != 4 {
-			return PBFTIssuer{}, 0, fmt.Errorf(
+			return PBFTIssuer{}, fmt.Errorf(
 				"invalid Byron PBFT proxy certificate: got %T with %d elements",
 				inner[0],
 				len(certificate),
 			)
 		}
-		activationEpoch, err := extractUint64(certificate[0])
-		if err != nil {
-			return PBFTIssuer{}, 0, fmt.Errorf(
-				"decode Byron PBFT delegation activation epoch: %w",
-				err,
-			)
-		}
 		delegateKey, ok := certificate[2].([]byte)
 		if !ok || len(delegateKey) != 64 {
-			return PBFTIssuer{}, 0, fmt.Errorf(
+			return PBFTIssuer{}, fmt.Errorf(
 				"invalid Byron PBFT delegate key: got %T with length %d",
 				certificate[2],
 				len(delegateKey),
@@ -285,40 +278,26 @@ func parsePBFTIssuerFromHeader(
 			certificateIssuerKey,
 			header.ConsensusData.PubKey,
 		) {
-			return PBFTIssuer{}, 0, errors.New(
+			return PBFTIssuer{}, errors.New(
 				"byron PBFT proxy certificate genesis issuer does not match header issuer",
 			)
 		}
 		issuer.DelegateKeyHash, err = PBFTVerificationKeyHash(delegateKey)
 		if err != nil {
-			return PBFTIssuer{}, 0, err
+			return PBFTIssuer{}, err
 		}
-		return issuer, activationEpoch, nil
+		return issuer, nil
 	case byronSigTypeSimple, byronSigTypeLight:
-		return PBFTIssuer{}, 0, fmt.Errorf(
+		return PBFTIssuer{}, fmt.Errorf(
 			"unsupported Byron PBFT signature type: %d; heavyweight delegation is required",
 			signatureType,
 		)
 	default:
-		return PBFTIssuer{}, 0, fmt.Errorf(
+		return PBFTIssuer{}, fmt.Errorf(
 			"unknown Byron PBFT signature type: %d",
 			signatureType,
 		)
 	}
-}
-
-func validatePBFTCertificateEpoch(
-	activationEpoch uint64,
-	headerEpoch uint64,
-) error {
-	if activationEpoch > headerEpoch {
-		return fmt.Errorf(
-			"byron PBFT delegation certificate is not active: activation epoch %d is after header epoch %d",
-			activationEpoch,
-			headerEpoch,
-		)
-	}
-	return nil
 }
 
 // PBFTVerificationKeyHash derives the Byron key identity used by genesis and

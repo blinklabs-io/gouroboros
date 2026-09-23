@@ -1108,49 +1108,6 @@ func genesisIssuerVerificationKey(input *ValidateHeaderInput) ([]byte, error) {
 	return input.GenesisIssuerKey, nil
 }
 
-// validateSlotLeader checks if the issuer is the correct slot leader for this slot.
-// Byron uses OBFT round-robin assignment: the expected leader for slot S with N delegates
-// is the delegate at index (S % N).
-//
-// This is stricter than validateGenesisDelegate which only checks membership.
-// Slot leader validation requires GenesisKeyHashes to be in the correct order.
-func (v *HeaderValidator) validateSlotLeader(
-	input *ValidateHeaderInput,
-) error {
-	// Missing trust roots cannot authorize any slot leader.
-	if len(v.config.GenesisKeyHashes) == 0 {
-		return ErrGenesisIssuerSetEmpty
-	}
-
-	// Get the expected slot leader
-	expectedIndex, expectedKeyHash := v.config.SlotLeader(input.Slot)
-	if expectedIndex < 0 {
-		return ErrGenesisIssuerSetEmpty
-	}
-
-	keyBytes, err := genesisIssuerVerificationKey(input)
-	if err != nil {
-		return err
-	}
-	actualKeyHash, err := PBFTVerificationKeyHash(keyBytes)
-	if err != nil {
-		return fmt.Errorf("hash Byron extended genesis issuer key: %w", err)
-	}
-
-	// Compare with expected slot leader
-	if !bytes.Equal(actualKeyHash.Bytes(), expectedKeyHash) {
-		return fmt.Errorf(
-			"wrong slot leader for slot %d: expected delegate %d (hash %x), got %s",
-			input.Slot,
-			expectedIndex,
-			expectedKeyHash,
-			actualKeyHash.String(),
-		)
-	}
-
-	return nil
-}
-
 // ValidateByronBlockHeader validates a Byron block header (main block or EBB).
 // Set isEBB to true for Epoch Boundary Blocks, false for main blocks.
 //

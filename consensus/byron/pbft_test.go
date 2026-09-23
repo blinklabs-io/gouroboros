@@ -211,46 +211,6 @@ func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {
 	}
 }
 
-func TestValidatePBFTCertificateEpoch(t *testing.T) {
-	tests := []struct {
-		name            string
-		activationEpoch uint64
-		headerEpoch     uint64
-		wantError       string
-	}{
-		{
-			name:            "activated in earlier epoch",
-			activationEpoch: 0,
-			headerEpoch:     10,
-		},
-		{
-			name:            "activated in header epoch",
-			activationEpoch: 10,
-			headerEpoch:     10,
-		},
-		{
-			name:            "activation is in future",
-			activationEpoch: 11,
-			headerEpoch:     10,
-			wantError:       "not active",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := validatePBFTCertificateEpoch(
-				test.activationEpoch,
-				test.headerEpoch,
-			)
-			if test.wantError == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.ErrorContains(t, err, test.wantError)
-		})
-	}
-}
-
 func TestPBFTStateTransitionVectors(t *testing.T) {
 	issuerA := common.Blake2b224Hash([]byte("issuer-a"))
 	issuerB := common.Blake2b224Hash([]byte("issuer-b"))
