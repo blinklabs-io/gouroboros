@@ -125,19 +125,19 @@ func TestTxInfoRejectsByronOutputsExceptAlonzoV1Filtering(t *testing.T) {
 		txType:      4,
 		outputs:     []common.TransactionOutput{byronOutput},
 	}
-	info, err := script.NewTxInfoV1FromTransaction(nil, tx, resolved, false)
+	info, err := script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, false)
 	require.NoError(t, err)
 	require.Empty(t, info.Inputs)
 	require.Empty(t, info.Outputs)
 
 	for _, eraType := range []int{5, 6} {
 		tx.txType = eraType
-		_, err = script.NewTxInfoV1FromTransaction(nil, tx, resolved, eraType >= 6)
-		require.ErrorContains(t, err, "Byron TxOut cannot be represented")
-		_, err = script.NewTxInfoV2FromTransaction(nil, tx, resolved, eraType >= 6)
-		require.ErrorContains(t, err, "Byron TxOut cannot be represented")
+		_, err = script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
+		_, err = script.NewTxInfoV2FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 	}
 	tx.txType = 6
-	_, err = script.NewTxInfoV3FromTransaction(nil, tx, resolved)
-	require.ErrorContains(t, err, "Byron TxOut cannot be represented")
+	_, err = script.NewTxInfoV3FromTransaction(validitySlotState{}, tx, resolved)
+	require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 }

@@ -79,8 +79,16 @@ func TestTreasuryWithdrawalPlutusDataUsesLedgerAddressOrder(t *testing.T) {
 	}
 	encoded := action.ToPlutusData().(*data.Constr).Fields[0].(*data.Map)
 	require.Len(t, encoded.Pairs, 2)
-	require.True(t, script.ToPlutusData().Equal(encoded.Pairs[0][0]))
-	require.True(t, key.ToPlutusData().Equal(encoded.Pairs[1][0]))
+	scriptData := script.ToPlutusData()
+	if scriptData == nil {
+		t.Fatal("expected script address Plutus data")
+	}
+	keyData := key.ToPlutusData()
+	if keyData == nil {
+		t.Fatal("expected key address Plutus data")
+	}
+	require.True(t, scriptData.Equal(encoded.Pairs[0][0]))
+	require.True(t, keyData.Equal(encoded.Pairs[1][0]))
 
 	other := &TreasuryWithdrawalGovAction{
 		Withdrawals: map[*Address]uint64{script: 1, key: 2},
