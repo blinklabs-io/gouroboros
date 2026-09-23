@@ -533,6 +533,7 @@ func validateDijkstraProtocolParameterUpdate(
 	)
 }
 
+// UtxoValidateDisjointRefInputs is a compatibility no-op for Dijkstra.
 func UtxoValidateDisjointRefInputs(
 	_ common.Transaction,
 	_ uint64,
