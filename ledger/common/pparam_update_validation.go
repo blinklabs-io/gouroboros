@@ -15,6 +15,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -205,15 +206,15 @@ func ValidateProtocolParameterUpdateDomains(
 
 func validateNonNegativeInterval(value *cbor.Rat, unit bool) error {
 	if value == nil || value.Rat == nil {
-		return fmt.Errorf("must be a rational value")
+		return errors.New("must be a rational value")
 	}
 	numerator := value.Num()
 	denominator := value.Denom()
 	if !numerator.IsUint64() || !denominator.IsUint64() {
-		return fmt.Errorf("numerator and denominator must fit in 64 bits")
+		return errors.New("numerator and denominator must fit in 64 bits")
 	}
 	if unit && numerator.Cmp(denominator) > 0 {
-		return fmt.Errorf("must be between zero and one inclusive")
+		return errors.New("must be between zero and one inclusive")
 	}
 	return nil
 }

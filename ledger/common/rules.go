@@ -23,6 +23,7 @@ package common
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/bits"
@@ -756,7 +757,7 @@ func ValidateClassicProtocolParameterUpdates(
 	forNextEpoch := slot >= slotOfNoReturn
 	if forNextEpoch {
 		if currentEpoch == ^uint64(0) {
-			return fmt.Errorf("current epoch overflows next-epoch calculation")
+			return errors.New("current epoch overflows next-epoch calculation")
 		}
 		expectedEpoch++
 	}
