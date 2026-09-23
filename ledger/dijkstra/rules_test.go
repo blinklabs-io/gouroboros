@@ -728,6 +728,52 @@ func TestDijkstraWrongNetworkWithdrawalPhase2Gate(t *testing.T) {
 	require.NoError(t, validate(tx))
 }
 
+func TestDijkstraDelegationInheritsDRepDeregistrationTombstone(t *testing.T) {
+	drep := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224Hash([]byte("dijkstra-drep-tombstone")),
+	}
+	drepDeposit := uint64(500_000_000)
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("dijkstra-drep-stake")),
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithDRepRegistrations([]common.DRepRegistration{{
+			Credential: drep,
+			Deposit:    &drepDeposit,
+		}}).
+		WithStakeCredentialRegistered(stake.Credential, true).
+		Build()
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxCertificates: []common.CertificateWrapper{
+				{Certificate: &common.DeregistrationDrepCertificate{
+					DrepCredential: drep,
+					Amount:         int64(drepDeposit),
+				}},
+				{Certificate: &common.VoteDelegationCertificate{
+					StakeCredential: stake,
+					Drep: common.Drep{
+						Type:       common.DrepTypeScriptHash,
+						Credential: drep.Credential.Bytes(),
+					},
+				}},
+			},
+		},
+		TxIsValid: true,
+	}
+	descriptor, _ := dijkstraValidationRuleDescriptor(
+		t,
+		common.UtxoValidationRuleDelegation,
+	)
+	require.ErrorAs(
+		t,
+		descriptor.Validator(tx, 0, state, &DijkstraProtocolParameters{}),
+		&conway.DelegateVoteToUnregisteredDRepError{},
+	)
+}
+
 func TestUtxoValidateBatchWithdrawals(t *testing.T) {
 	const balance = uint64(1_000_000)
 	const topWithdrawal = uint64(400_000)

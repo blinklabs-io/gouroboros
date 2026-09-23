@@ -213,6 +213,237 @@ func TestUtxoValidateUnknownVotersRejectsInTxDRepDeregistration(t *testing.T) {
 	require.ErrorAs(t, err, &unkErr)
 }
 
+func TestUtxoValidateDelegationPreservesDRepDeregistrationTombstone(
+	t *testing.T,
+) {
+	pp := govOverlayPparams()
+	pool := common.PoolKeyHash(common.Blake2b224Hash([]byte("drep-tombstone-pool")))
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("drep-tombstone-stake")),
+	}
+	assignments := []struct {
+		name  string
+		build func(common.Credential) common.Certificate
+	}{
+		{
+			name: "vote delegation",
+			build: func(drep common.Credential) common.Certificate {
+				return &common.VoteDelegationCertificate{
+					StakeCredential: stake,
+					Drep: common.Drep{
+						Type:       int(drep.CredType),
+						Credential: drep.Credential.Bytes(),
+					},
+				}
+			},
+		},
+		{
+			name: "stake plus vote delegation",
+			build: func(drep common.Credential) common.Certificate {
+				return &common.StakeVoteDelegationCertificate{
+					StakeCredential: stake,
+					PoolKeyHash:     pool,
+					Drep: common.Drep{
+						Type:       int(drep.CredType),
+						Credential: drep.Credential.Bytes(),
+					},
+				}
+			},
+		},
+		{
+			name: "vote registration plus assignment",
+			build: func(drep common.Credential) common.Certificate {
+				return &common.VoteRegistrationDelegationCertificate{
+					StakeCredential: stake,
+					Drep: common.Drep{
+						Type:       int(drep.CredType),
+						Credential: drep.Credential.Bytes(),
+					},
+					Amount: int64(pp.KeyDeposit),
+				}
+			},
+		},
+		{
+			name: "stake plus vote registration",
+			build: func(drep common.Credential) common.Certificate {
+				return &common.StakeVoteRegistrationDelegationCertificate{
+					StakeCredential: stake,
+					PoolKeyHash:     pool,
+					Drep: common.Drep{
+						Type:       int(drep.CredType),
+						Credential: drep.Credential.Bytes(),
+					},
+					Amount: int64(pp.KeyDeposit),
+				}
+			},
+		},
+	}
+	for _, credType := range []uint{
+		common.CredentialTypeAddrKeyHash,
+		common.CredentialTypeScriptHash,
+	} {
+		drep := common.Credential{
+			CredType:   credType,
+			Credential: common.Blake2b224Hash([]byte("drep-tombstone-target")),
+		}
+		drepDeposit := pp.DRepDeposit
+		for _, tc := range assignments {
+			t.Run(tc.name+"/credential-type-"+string(rune('0'+credType)), func(t *testing.T) {
+				stateBuilder := mockledger.NewLedgerStateBuilder().
+					WithDRepRegistrations([]common.DRepRegistration{{
+						Credential: drep,
+						Deposit:    &drepDeposit,
+					}}).
+					WithPools([]*common.PoolRegistrationCertificate{{Operator: pool}}).
+					Build()
+				initialState := stateBuilder
+				if tc.name == "vote delegation" ||
+					tc.name == "stake plus vote delegation" {
+					initialState = mockledger.NewLedgerStateBuilder().
+						WithDRepRegistrations([]common.DRepRegistration{{
+							Credential: drep,
+							Deposit:    &drepDeposit,
+						}}).
+						WithStakeCredentialRegistered(stake.Credential, true).
+						WithPools([]*common.PoolRegistrationCertificate{{Operator: pool}}).
+						Build()
+				}
+				tx := &conway.ConwayTransaction{
+					Body: conway.ConwayTransactionBody{
+						TxCertificates: []common.CertificateWrapper{
+							{Certificate: &common.DeregistrationDrepCertificate{
+								DrepCredential: drep,
+								Amount:         int64(drepDeposit),
+							}},
+							{Certificate: tc.build(drep)},
+						},
+					},
+					TxIsValid: true,
+				}
+				err := conway.UtxoValidateDelegation(
+					tx, 0, initialState, pp,
+				)
+				var target conway.DelegateVoteToUnregisteredDRepError
+				require.ErrorAs(t, err, &target)
+				require.Equal(t, drep, target.DRepCredential)
+			})
+		}
+	}
+
+	// The composed Conway path must report the same rejection before later
+	// certificate accounting can obscure the sequential DRep-state failure.
+	drep := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("drep-tombstone-full-path")),
+	}
+	drepDeposit := pp.DRepDeposit
+	state := mockledger.NewLedgerStateBuilder().
+		WithDRepRegistrations([]common.DRepRegistration{{
+			Credential: drep,
+			Deposit:    &drepDeposit,
+		}}).
+		WithStakeCredentialRegistered(stake.Credential, true).
+		Build()
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxCertificates: []common.CertificateWrapper{
+				{Certificate: &common.DeregistrationDrepCertificate{
+					DrepCredential: drep,
+					Amount:         int64(drepDeposit),
+				}},
+				{Certificate: &common.VoteDelegationCertificate{
+					StakeCredential: stake,
+					Drep: common.Drep{
+						Type:       common.DrepTypeAddrKeyHash,
+						Credential: drep.Credential.Bytes(),
+					},
+				}},
+			},
+		},
+		TxIsValid: true,
+	}
+	err := runGovOverlayPipeline(t, tx, state, pp)
+	var target conway.DelegateVoteToUnregisteredDRepError
+	require.ErrorAs(t, err, &target)
+}
+
+func TestUtxoValidateDelegationAllowsDRepRegistrationThenAssignment(
+	t *testing.T,
+) {
+	pp := govOverlayPparams()
+	pool := common.PoolKeyHash(common.Blake2b224Hash([]byte("drep-register-pool")))
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("drep-register-stake")),
+	}
+	drep := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224Hash([]byte("drep-register-target")),
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithPools([]*common.PoolRegistrationCertificate{{Operator: pool}}).
+		Build()
+	registrations := []common.Certificate{
+		&common.VoteDelegationCertificate{
+			StakeCredential: stake,
+			Drep: common.Drep{
+				Type:       common.DrepTypeScriptHash,
+				Credential: drep.Credential.Bytes(),
+			},
+		},
+		&common.StakeVoteDelegationCertificate{
+			StakeCredential: stake,
+			PoolKeyHash:     pool,
+			Drep: common.Drep{
+				Type:       common.DrepTypeScriptHash,
+				Credential: drep.Credential.Bytes(),
+			},
+		},
+		&common.VoteRegistrationDelegationCertificate{
+			StakeCredential: stake,
+			Drep: common.Drep{
+				Type:       common.DrepTypeScriptHash,
+				Credential: drep.Credential.Bytes(),
+			},
+			Amount: int64(pp.KeyDeposit),
+		},
+		&common.StakeVoteRegistrationDelegationCertificate{
+			StakeCredential: stake,
+			PoolKeyHash:     pool,
+			Drep: common.Drep{
+				Type:       common.DrepTypeScriptHash,
+				Credential: drep.Credential.Bytes(),
+			},
+			Amount: int64(pp.KeyDeposit),
+		},
+	}
+	for idx, assignment := range registrations {
+		t.Run(string(rune('a'+idx)), func(t *testing.T) {
+			initialState := state
+			if idx < 2 {
+				initialState = mockledger.NewLedgerStateBuilder().
+					WithStakeCredentialRegistered(stake.Credential, true).
+					WithPools([]*common.PoolRegistrationCertificate{{Operator: pool}}).
+					Build()
+			}
+			tx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxCertificates: []common.CertificateWrapper{
+						{Certificate: &common.RegistrationDrepCertificate{
+							DrepCredential: drep,
+							Amount:         int64(pp.DRepDeposit),
+						}},
+						{Certificate: assignment},
+					},
+				},
+				TxIsValid: true,
+			}
+			require.NoError(t, conway.UtxoValidateDelegation(tx, 0, initialState, pp))
+		})
+	}
+}
+
 func TestUtxoValidateUnknownVotersSeesInTxPoolRegistration(t *testing.T) {
 	t.Parallel()
 	pp := govOverlayPparams()
