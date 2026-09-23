@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -35,13 +36,21 @@ const byronAddressHash = "5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878
 // with the attribute map supplied as raw CBOR so an attribute key this
 // decoder does not interpret can be placed in it.
 func buildByronAddress(t *testing.T, attrCbor []byte) []byte {
+	return buildByronAddressWithType(t, attrCbor, []byte{0x00})
+}
+
+func buildByronAddressWithType(
+	t *testing.T,
+	attrCbor []byte,
+	addressType []byte,
+) []byte {
 	t.Helper()
 	root, err := hex.DecodeString(byronAddressHash)
 	if err != nil {
 		t.Fatalf("bad test hash: %v", err)
 	}
 	payload, err := cbor.Encode(
-		[]any{root, cbor.RawMessage(attrCbor), uint64(0)},
+		[]any{root, cbor.RawMessage(attrCbor), cbor.RawMessage(addressType)},
 	)
 	if err != nil {
 		t.Fatalf("encode payload: %v", err)
@@ -84,9 +93,9 @@ func TestByronAddressPreservesUnknownAttributes(t *testing.T) {
 		},
 		{
 			name:    "unknown key alongside a derivation path",
-			attrHex: "a2014a1c0102030405060708090342c0de",
+			attrHex: "a2014b4a1c0102030405060708090342c0de",
 			wantPayload: []byte{
-				0x1c, 0x01, 0x02, 0x03, 0x04,
+				0x4a, 0x1c, 0x01, 0x02, 0x03, 0x04,
 				0x05, 0x06, 0x07, 0x08, 0x09,
 			},
 			wantUnparsed: map[uint8][]byte{3: {0xc0, 0xde}},
@@ -249,11 +258,10 @@ func TestByronAddressAttributesEncodeAsValue(t *testing.T) {
 	}
 }
 
-func TestByronAddressPreservesNonCanonicalAttributeEncoding(t *testing.T) {
-	// The attribute map uses a non-canonical map-length encoding and an
-	// indefinite-length byte string. Both forms are accepted by the Byron
-	// decoder and are part of the bytes hashed into the address root.
-	attrCbor, err := hex.DecodeString("b802035f41c041deff014a1c010203040506070809")
+func TestByronAddressPreservesNonCanonicalMapLength(t *testing.T) {
+	// The attribute map decoder accepts non-shortest map lengths, while
+	// Byron-v1 byte strings inside the map must remain definite-length.
+	attrCbor, err := hex.DecodeString("b8020343c0deff014b4a1c010203040506070809")
 	if err != nil {
 		t.Fatalf("bad test attribute hex: %v", err)
 	}
@@ -268,6 +276,86 @@ func TestByronAddressPreservesNonCanonicalAttributeEncoding(t *testing.T) {
 	}
 	if !bytes.Equal(roundTrip, addrBytes) {
 		t.Fatalf("round trip: got %x, want %x", roundTrip, addrBytes)
+	}
+}
+
+func TestByronAddressTypeUsesCanonicalSupportedValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		wireType  []byte
+		wantError bool
+	}{
+		{name: "verification key", wireType: []byte{0x00}},
+		{name: "redeem", wireType: []byte{0x02}},
+		{name: "script", wireType: []byte{0x01}, wantError: true},
+		{name: "unknown", wireType: []byte{0x03}, wantError: true},
+		{name: "above Word8", wireType: []byte{0x19, 0x01, 0x00}, wantError: true},
+		{name: "non-canonical verification-key type", wireType: []byte{0x18, 0x00}, wantError: true},
+		{name: "non-canonical redeem type", wireType: []byte{0x18, 0x02}, wantError: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			addrBytes := buildByronAddressWithType(t, []byte{0xa0}, tc.wireType)
+			_, err := common.NewAddressFromBytes(addrBytes)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("expected invalid Byron address type")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("decode supported type: %v", err)
+			}
+		})
+	}
+}
+
+func TestByronTransactionOutputRejectsInvalidAddressType(t *testing.T) {
+	address := buildByronAddressWithType(t, []byte{0xa0}, []byte{0x01})
+	outputBytes, err := cbor.Encode([]any{
+		cbor.RawMessage(address), uint64(1_000_000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output byron.ByronTransactionOutput
+	if _, err := cbor.Decode(outputBytes, &output); err == nil {
+		t.Fatal("expected invalid Byron address type in transaction output")
+	}
+}
+
+func TestByronAddressKnownAttributesRequireCanonicalNestedValues(t *testing.T) {
+	tests := []struct {
+		name       string
+		attributes map[uint8][]byte
+		wantError  bool
+	}{
+		{name: "canonical derivation path", attributes: map[uint8][]byte{1: {0x41, 0x01}}},
+		{name: "canonical network magic", attributes: map[uint8][]byte{2: {0x18, 0x2a}}},
+		{name: "integer instead of nested byte string", attributes: map[uint8][]byte{1: {0x00}}, wantError: true},
+		{name: "trailing derivation path CBOR", attributes: map[uint8][]byte{1: {0x41, 0x01, 0x00}}, wantError: true},
+		{name: "non-canonical derivation path", attributes: map[uint8][]byte{1: {0x58, 0x01, 0x01}}, wantError: true},
+		{name: "non-canonical network magic", attributes: map[uint8][]byte{2: {0x18, 0x02}}, wantError: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(tc.attributes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			addrBytes := buildByronAddress(t, encoded)
+			var addr common.Address
+			_, err = cbor.Decode(addrBytes, &addr)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("expected invalid known attribute")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("decode address: %v", err)
+			}
+		})
 	}
 }
 
