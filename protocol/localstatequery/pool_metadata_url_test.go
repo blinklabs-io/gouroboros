@@ -266,7 +266,12 @@ func TestQueryPoolMetadataURLEncodingBound(t *testing.T) {
 		poolStateCBOR(t, "https://pool.example/"),
 	)
 	require.NoError(t, err)
-	params := *decoded.PState[testPoolOperator()]
+	params, ok := decoded.PState[testPoolOperator()]
+	require.True(t, ok)
+	require.NotNil(t, params)
+	if params == nil {
+		t.Fatal("expected pool state params")
+	}
 	params.PoolMetadata.Url = tooLong
 	_, err = cbor.Encode(params)
 	require.ErrorIs(t, err, lcommon.ErrPoolMetadataURLTooLong)
