@@ -204,7 +204,16 @@ type CommitteeCredentialState interface {
 // credentials from members that appear only in pending UpdateCommittee
 // proposals, and preserves the credential tags on both hot and cold keys.
 type CommitteeVotingState interface {
+	// CommitteeHotCredentialColdCredentials returns the cold credentials
+	// currently authorized by this hot credential in the validation snapshot.
+	// Credentials retain their key or script tag.
 	CommitteeHotCredentialColdCredentials(Credential) ([]Credential, error)
+	// CommitteeCredentialIsElected reports whether a cold credential appears
+	// in the enacted committee at this validation snapshot. It follows the
+	// ledger's elected-committee view: expired enacted members still count,
+	// members only in pending UpdateCommittee proposals do not, and a snapshot
+	// without an enacted committee has no elected members. Resigned members
+	// have no active hot authorization.
 	CommitteeCredentialIsElected(Credential) (bool, error)
 }
 
