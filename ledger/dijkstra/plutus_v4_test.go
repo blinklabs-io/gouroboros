@@ -326,6 +326,8 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervals(t *testing.T) {
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: hash2,
 	}
+	addr1 := dijkstraRewardAddressForCredential(t, cred1)
+	addr2 := dijkstraRewardAddressForCredential(t, cred2)
 	lower := uint64(10)
 	upper := uint64(20)
 	exact := uint64(30)
@@ -333,8 +335,8 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervals(t *testing.T) {
 		TxBalanceIntervals: DijkstraAccountBalanceIntervals{
 			// Inserted out of sorted order to confirm the output is sorted
 			// by credential rather than by map iteration order.
-			&cred2: {Exact: &exact},
-			&cred1: {LowerBound: &lower, UpperBound: &upper},
+			dijkstraIntervalKey(t, addr2): {Exact: &exact},
+			dijkstraIntervalKey(t, addr1): {LowerBound: &lower, UpperBound: &upper},
 		},
 	}
 	_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
@@ -352,7 +354,8 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervals(t *testing.T) {
 }
 
 func TestDijkstraBodyFieldsV4AccountBalanceIntervalBoundShapes(t *testing.T) {
-	guard := testGuardCredential()
+	guard := dijkstraRewardAddressForCredential(t, testGuardCredential())
+	guardKey := dijkstraIntervalKey(t, guard)
 	lower := uint64(7)
 	upper := uint64(9)
 	tests := []struct {
@@ -375,7 +378,7 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervalBoundShapes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			body := &DijkstraSubTransactionBody{
 				TxAccountBalanceIntervals: DijkstraAccountBalanceIntervals{
-					&guard: test.interval,
+					guardKey: test.interval,
 				},
 			}
 			_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
@@ -438,24 +441,33 @@ func TestDijkstraBodyFieldsV4RequiredTopLevelGuards(t *testing.T) {
 // already rejects them), but nothing stops a caller from building one of
 // these exported map types by hand.
 func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.T) {
-	guard := testGuardCredential()
-	unsupported := guard
+	guardCredential := testGuardCredential()
+	guard := dijkstraRewardAddressForCredential(t, guardCredential)
+	guardKey := dijkstraIntervalKey(t, guard)
+	unsupported := guardCredential
 	unsupported.CredType = 2
 	lower := uint64(1)
 
-	t.Run("balance intervals: unsupported credential type", func(t *testing.T) {
+	t.Run("balance intervals: non-reward address", func(t *testing.T) {
+		paymentAddress, err := common.NewAddressFromParts(
+			common.AddressTypeKeyKey,
+			common.AddressNetworkTestnet,
+			bytes.Repeat([]byte{0x44}, common.AddressHashSize),
+			bytes.Repeat([]byte{0x45}, common.AddressHashSize),
+		)
+		require.NoError(t, err)
 		body := &DijkstraTransactionBody{
 			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
-				&unsupported: {LowerBound: &lower},
+				dijkstraIntervalKey(t, &paymentAddress): {LowerBound: &lower},
 			},
 		}
-		_, _, _, _, err := dijkstraBodyFieldsV4(body)
-		require.ErrorContains(t, err, "unsupported credential type")
+		_, _, _, _, err = dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "reward account")
 	})
 
 	t.Run("balance intervals: nil interval", func(t *testing.T) {
 		body := &DijkstraTransactionBody{
-			TxBalanceIntervals: DijkstraAccountBalanceIntervals{&guard: nil},
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{guardKey: nil},
 		}
 		_, _, _, _, err := dijkstraBodyFieldsV4(body)
 		require.ErrorContains(t, err, "nil interval")
@@ -464,7 +476,7 @@ func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.
 	t.Run("balance intervals: all-nil bounds", func(t *testing.T) {
 		body := &DijkstraTransactionBody{
 			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
-				&guard: {},
+				guardKey: {},
 			},
 		}
 		_, _, _, _, err := dijkstraBodyFieldsV4(body)
@@ -484,7 +496,7 @@ func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.
 	t.Run("required top-level guards: datum missing Plutus data", func(t *testing.T) {
 		body := &DijkstraSubTransactionBody{
 			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
-				&guard: {},
+				&guardCredential: {},
 			},
 		}
 		_, _, _, _, err := dijkstraBodyFieldsV4(body)
@@ -513,7 +525,7 @@ func TestDijkstraTxInfoV4SubTxIndexIsAlwaysNothing(t *testing.T) {
 	}
 }
 
-func TestDijkstraPlutusV4GuardingTopTxInfoIsAlwaysNothing(t *testing.T) {
+func TestDijkstraPlutusV4GuardingUsesCurrentReferenceShape(t *testing.T) {
 	guard := common.Credential{
 		CredType: common.CredentialTypeScriptHash,
 	}
@@ -551,6 +563,8 @@ func TestDijkstraPlutusV4GuardingTopTxInfoIsAlwaysNothing(t *testing.T) {
 		TxDonation:               5,
 	}
 	subBody.SetValidityIntervalUpperBound(8)
+	subBody2 := subBody
+	subBody2.TxDonation = 6
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxValidityIntervalStart: 2,
@@ -560,7 +574,10 @@ func TestDijkstraPlutusV4GuardingTopTxInfoIsAlwaysNothing(t *testing.T) {
 			},
 			TxDonation: 7,
 			TxSubTransactions: cbor.NewSetType(
-				[]DijkstraSubTransaction{{Body: subBody}},
+				[]DijkstraSubTransaction{
+					{Body: subBody},
+					{Body: subBody2},
+				},
 				false,
 			),
 		},
@@ -569,7 +586,7 @@ func TestDijkstraPlutusV4GuardingTopTxInfoIsAlwaysNothing(t *testing.T) {
 	tx.Body.SetValidityIntervalUpperBound(10)
 	levels, _, err := dijkstraScriptLevels(tx, dijkstraV4TestLedgerState())
 	require.NoError(t, err)
-	require.Len(t, levels, 2)
+	require.Len(t, levels, 3)
 	purpose := script.ScriptPurposeGuarding{Guard: guard}
 	key := common.RedeemerKey{Tag: common.RedeemerTagGuarding, Index: 0}
 	redeemer := common.RedeemerValue{
@@ -590,17 +607,23 @@ func TestDijkstraPlutusV4GuardingTopTxInfoIsAlwaysNothing(t *testing.T) {
 	topScriptInfo := requireDijkstraV4Constr(t, topContext.Fields[2], 6, 2)
 	requireDijkstraV4Integer(t, topScriptInfo.Fields[0], 0)
 	requireDijkstraV4Constr(t, topScriptInfo.Fields[1], 1, 0)
+	topTxInfo := requireDijkstraV4Constr(t, topContext.Fields[0], 0, 19)
+	requireDijkstraV4Constr(t, topTxInfo.Fields[1], 1, 0)
 
-	subContextData, err := dijkstraPlutusV4Context(
-		levels[0],
-		purpose,
-		key,
-		redeemer,
-	)
-	require.NoError(t, err)
-	subContext := requireDijkstraV4Constr(t, subContextData, 0, 4)
-	subScriptInfo := requireDijkstraV4Constr(t, subContext.Fields[2], 6, 2)
-	requireDijkstraV4Constr(t, subScriptInfo.Fields[1], 1, 0)
+	for _, level := range levels[:2] {
+		subContextData, err := dijkstraPlutusV4Context(
+			level,
+			purpose,
+			key,
+			redeemer,
+		)
+		require.NoError(t, err)
+		subContext := requireDijkstraV4Constr(t, subContextData, 0, 4)
+		subTxInfo := requireDijkstraV4Constr(t, subContext.Fields[0], 0, 19)
+		requireDijkstraV4Constr(t, subTxInfo.Fields[1], 1, 0)
+		subScriptInfo := requireDijkstraV4Constr(t, subContext.Fields[2], 6, 2)
+		requireDijkstraV4Constr(t, subScriptInfo.Fields[1], 1, 0)
+	}
 }
 
 func TestDijkstraAddressV4BasePaymentCredentials(t *testing.T) {

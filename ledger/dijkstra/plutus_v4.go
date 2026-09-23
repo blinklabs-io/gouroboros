@@ -124,7 +124,7 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 	return data.NewConstr(
 		0,
 		data.NewByteString(level.tx.Id().Bytes()),
-		data.NewConstr(1),
+		dijkstraOptionalIndex(nil),
 		data.NewList(inputs...),
 		data.NewList(referenceInputs...),
 		data.NewList(outputs...),
@@ -195,6 +195,15 @@ func dijkstraPOSIXTimeRangeDataV4(
 	return data.NewConstr(0, optional(lower), optional(upper))
 }
 
+func dijkstraOptionalIndex(index *uint32) data.PlutusData {
+	if index == nil {
+		return data.NewConstr(1)
+	}
+	return data.NewConstr(
+		0,
+		data.NewInteger(new(big.Int).SetUint64(uint64(*index))),
+	)
+}
 func dijkstraInputsV4(
 	inputs []common.TransactionInput,
 	resolved []common.Utxo,
@@ -468,7 +477,7 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 	balanceIntervals = data.NewMap(nil)
 	guards = data.NewList()
 	requiredGuards = data.NewMap(nil)
-	var deposits map[cbor.ByteString]uint64
+	var deposits DijkstraDirectDeposits
 	var intervals DijkstraAccountBalanceIntervals
 	var guardSet *DijkstraGuards
 	var required DijkstraRequiredTopLevelGuards
@@ -515,9 +524,8 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 	return directDeposits, balanceIntervals, guards, requiredGuards, nil
 }
 
-// sortedDijkstraCredentials returns the keys of a credential-keyed map in
-// deterministic (CredType, then hash bytes) order, matching
-// dijkstraSortCredentialKeys, so Plutus V4 map encodings are reproducible.
+// sortedDijkstraCredentials orders guard credentials deterministically by
+// credential type and hash so Plutus V4 map encodings are reproducible.
 func sortedDijkstraCredentials[V any](
 	values map[*common.Credential]V,
 ) []*common.Credential {
@@ -537,19 +545,16 @@ func sortedDijkstraCredentials[V any](
 func dijkstraAccountBalanceIntervalsV4(
 	intervals DijkstraAccountBalanceIntervals,
 ) (data.PlutusData, error) {
-	rawIntervals := map[*common.Credential]*DijkstraAccountBalanceInterval(
-		intervals,
-	)
-	if err := validateDijkstraCredentialMapKeys(
-		rawIntervals,
+	if err := validateDijkstraAccountAddressMapKeys(
+		map[cbor.ByteString]*DijkstraAccountBalanceInterval(intervals),
 		"account balance intervals",
 	); err != nil {
 		return nil, err
 	}
-	credentials := sortedDijkstraCredentials(rawIntervals)
-	pairs := make([][2]data.PlutusData, 0, len(credentials))
-	for _, credential := range credentials {
-		interval := intervals[credential]
+	addresses := sortedDijkstraAccountAddresses(intervals)
+	pairs := make([][2]data.PlutusData, 0, len(addresses))
+	for _, addressBytes := range addresses {
+		interval := intervals[addressBytes]
 		if interval == nil {
 			return nil, errors.New(
 				"account balance intervals contains a nil interval",
@@ -558,12 +563,33 @@ func dijkstraAccountBalanceIntervalsV4(
 		if err := validateDijkstraAccountBalanceInterval(interval); err != nil {
 			return nil, err
 		}
+		address, err := dijkstraAddressFromKey(addressBytes)
+		if err != nil {
+			return nil, err
+		}
+		credential, err := address.RewardAccountCredential()
+		if err != nil {
+			return nil, err
+		}
 		pairs = append(pairs, [2]data.PlutusData{
 			credential.ToPlutusData(),
 			dijkstraAccountBalanceIntervalV4(interval),
 		})
 	}
 	return data.NewMap(pairs), nil
+}
+
+func sortedDijkstraAccountAddresses[V any](
+	values map[cbor.ByteString]V,
+) []cbor.ByteString {
+	addresses := make([]cbor.ByteString, 0, len(values))
+	for address := range values {
+		addresses = append(addresses, address)
+	}
+	slices.SortFunc(addresses, func(a, b cbor.ByteString) int {
+		return bytes.Compare(a.Bytes(), b.Bytes())
+	})
+	return addresses
 }
 
 func dijkstraAccountBalanceIntervalV4(
@@ -633,29 +659,28 @@ func dijkstraRequiredTopLevelGuardsV4(
 }
 
 func dijkstraDirectDepositsV4(
-	deposits map[cbor.ByteString]uint64,
+	deposits DijkstraDirectDeposits,
 ) (data.PlutusData, error) {
 	type entry struct {
-		account []byte
+		address *common.Address
 		amount  uint64
 	}
 	entries := make([]entry, 0, len(deposits))
-	for account, amount := range deposits {
-		entries = append(
-			entries,
-			entry{account: account.Bytes(), amount: amount},
-		)
+	for addressBytes, amount := range deposits {
+		address, err := dijkstraAddressFromKey(addressBytes)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry{address: address, amount: amount})
 	}
 	slices.SortFunc(entries, func(a, b entry) int {
-		return bytes.Compare(a.account, b.account)
+		aBytes, _ := a.address.Bytes()
+		bBytes, _ := b.address.Bytes()
+		return bytes.Compare(aBytes, bBytes)
 	})
 	pairs := make([][2]data.PlutusData, len(entries))
 	for idx, item := range entries {
-		address, err := common.NewAddressFromBytes(item.account)
-		if err != nil {
-			return nil, fmt.Errorf("decode direct-deposit account: %w", err)
-		}
-		credential, err := address.RewardAccountCredential()
+		credential, err := item.address.RewardAccountCredential()
 		if err != nil {
 			return nil, err
 		}

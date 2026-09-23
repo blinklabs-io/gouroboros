@@ -85,8 +85,11 @@ type UpdateVote struct {
 	// 0x590020... re-encodes to 0x5820..., and the voter signed the former.
 	ProposalId     []byte
 	ProposalIdCbor []byte
-	Decision       bool
-	Signature      []byte
+	// Decision is always true. The reference checks that the wire field is
+	// a CBOR Bool, discards its value, and verifies the signature as a
+	// positive vote, so a wire false still records a positive vote.
+	Decision  bool
+	Signature []byte
 }
 
 // ParseDelegationCertificate decodes and structurally validates one entry
@@ -163,14 +166,19 @@ func (c *DelegationCertificate) Verify(protocolMagic uint32) error {
 	)
 }
 
+const (
+	cborFalse byte = 0xf4
+	cborTrue  byte = 0xf5
+)
+
 // ParseUpdateVote decodes and structurally validates one entry of a Byron
 // main block's update-payload vote list, from that entry's original CBOR.
 //
-// The wire format is [voterVK, proposalId, decision, signature]. Byron only
-// ever recorded positive votes -- cardano-ledger-byron drops the decision
-// bit on decode and re-encodes a hardcoded True -- so a false decision is
-// something no real block carries, and is rejected here rather than
-// silently accepted as a vote whose signature covers the opposite value.
+// The wire format is [voterVK, proposalId, decision, signature]. As in
+// cardano-ledger-byron's DecCBOR (AVote ByteSpan), the decision must be a
+// CBOR Bool, but its value is discarded: Byron removed negative voting, and
+// Verify checks the signature against a hardcoded True whichever value the
+// wire carried.
 //
 // Like ParseDelegationCertificate this takes raw CBOR, because the vote's
 // signature covers the proposal id field's wire encoding -- see
@@ -195,18 +203,13 @@ func ParseUpdateVote(raw cbor.RawMessage) (*UpdateVote, error) {
 	if err != nil {
 		return nil, err
 	}
-	var decision bool
-	if _, err := cbor.Decode(
-		fields[updateVoteDecisionIndex], &decision,
-	); err != nil {
+	// cborg's decodeBool accepts exactly 0xf4 and 0xf5. Decoding into a Go
+	// bool is not equivalent: CBOR null and undefined decode into it without
+	// error.
+	if decision := fields[updateVoteDecisionIndex]; len(decision) != 1 ||
+		(decision[0] != cborFalse && decision[0] != cborTrue) {
 		return nil, fmt.Errorf(
-			"%w: update vote decision is not a boolean: %w",
-			ErrInvalidPayload, err,
-		)
-	}
-	if !decision {
-		return nil, fmt.Errorf(
-			"%w: update vote decision is false, which Byron never records",
+			"%w: update vote decision is not a CBOR boolean",
 			ErrInvalidPayload,
 		)
 	}
@@ -222,7 +225,7 @@ func ParseUpdateVote(raw cbor.RawMessage) (*UpdateVote, error) {
 		VoterVK:        voterVK,
 		ProposalId:     proposalId,
 		ProposalIdCbor: append([]byte(nil), proposalIdCbor...),
-		Decision:       decision,
+		Decision:       true,
 		Signature:      signature,
 	}, nil
 }
@@ -249,10 +252,7 @@ func (v *UpdateVote) Verify(protocolMagic uint32) error {
 			ErrInvalidPayload,
 		)
 	}
-	const (
-		cborArrayLen2 byte = 0x82
-		cborTrue      byte = 0xf5
-	)
+	const cborArrayLen2 byte = 0x82
 	inner := make([]byte, 0, 2+len(v.ProposalIdCbor))
 	inner = append(inner, cborArrayLen2)
 	inner = append(inner, v.ProposalIdCbor...)

@@ -341,6 +341,19 @@ func TestWaitForMessageDeliveryReportsShutdownWithoutResult(t *testing.T) {
 	)
 }
 
+func TestProtocolStopChanSignalsStopRequest(t *testing.T) {
+	p := New(ProtocolConfig{})
+	stop := p.StopChan()
+
+	p.Stop()
+
+	select {
+	case <-stop:
+	default:
+		t.Fatal("StopChan remained open after Stop")
+	}
+}
+
 func TestWaitForMessageDeliveryContextCancellation(t *testing.T) {
 	p := &Protocol{
 		stopChan:      make(chan struct{}),

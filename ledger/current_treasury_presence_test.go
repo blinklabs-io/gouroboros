@@ -109,7 +109,12 @@ func TestCurrentTreasuryValueDecodedPresenceExactCBOR(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					body := bodyTest.newBody(0)
-					require.NoError(t, body.UnmarshalCBOR(test.cbor))
+					wire := withRequiredTransactionBodyFields(
+						t,
+						test.cbor,
+						bodyTest.name == "Dijkstra sub-transaction",
+					)
+					require.NoError(t, body.UnmarshalCBOR(wire))
 					require.Equal(
 						t,
 						test.wantTreasury != nil,
@@ -122,7 +127,7 @@ func TestCurrentTreasuryValueDecodedPresenceExactCBOR(t *testing.T) {
 
 					reencoded, err := body.MarshalCBOR()
 					require.NoError(t, err)
-					require.Equal(t, test.cbor, reencoded)
+					require.Equal(t, wire, reencoded)
 				})
 			}
 		})
@@ -137,7 +142,10 @@ func TestCurrentTreasuryValueConstructedPresenceExactCBOR(t *testing.T) {
 			require.Nil(t, absent.CurrentTreasuryValue())
 			encoded, err := absent.MarshalCBOR()
 			require.NoError(t, err)
-			require.Equal(t, []byte{0xa1, 0x00, 0x80}, encoded)
+			require.Equal(t, withRequiredTransactionBodyFields(
+				t, []byte{0xa1, 0x00, 0x80},
+				bodyTest.name == "Dijkstra sub-transaction",
+			), encoded)
 
 			explicitZero := bodyTest.newBody(0)
 			explicitZero.SetCurrentTreasuryValuePresence(true)
@@ -145,7 +153,10 @@ func TestCurrentTreasuryValueConstructedPresenceExactCBOR(t *testing.T) {
 			require.Equal(t, big.NewInt(0), explicitZero.CurrentTreasuryValue())
 			encoded, err = explicitZero.MarshalCBOR()
 			require.NoError(t, err)
-			require.Equal(t, []byte{0xa2, 0x00, 0x80, 0x15, 0x00}, encoded)
+			require.Equal(t, withRequiredTransactionBodyFields(
+				t, []byte{0xa2, 0x00, 0x80, 0x15, 0x00},
+				bodyTest.name == "Dijkstra sub-transaction",
+			), encoded)
 
 			nonzero := bodyTest.newBody(42)
 			require.True(
@@ -158,7 +169,11 @@ func TestCurrentTreasuryValueConstructedPresenceExactCBOR(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(
 				t,
-				[]byte{0xa2, 0x00, 0x80, 0x15, 0x18, 0x2a},
+				withRequiredTransactionBodyFields(
+					t,
+					[]byte{0xa2, 0x00, 0x80, 0x15, 0x18, 0x2a},
+					bodyTest.name == "Dijkstra sub-transaction",
+				),
 				encoded,
 			)
 		})
