@@ -1362,8 +1362,8 @@ func ValidateExactExtraneousRedeemers(
 }
 
 // ValidateRequiredSpendingDatums checks datum-hash spending inputs locked by
-// Plutus V1 or V2 scripts. These datums are required by UTXOW regardless of
-// the transaction's phase-2 validity flag.
+// Plutus scripts. These datums are required by UTXOW regardless of the
+// transaction's phase-2 validity flag.
 func ValidateRequiredSpendingDatums(tx Transaction, ls LedgerState) error {
 	if ls == nil {
 		return nil
@@ -1393,7 +1393,7 @@ func ValidateRequiredSpendingDatums(tx Transaction, ls LedgerState) error {
 			continue
 		}
 		version, isPlutus := PlutusScriptVersion(plutusScript)
-		if !isPlutus || version > 1 {
+		if !isPlutus {
 			continue
 		}
 		if utxo.Output.Datum() != nil {
@@ -1401,6 +1401,9 @@ func ValidateRequiredSpendingDatums(tx Transaction, ls LedgerState) error {
 		}
 		datumHash := utxo.Output.DatumHash()
 		if datumHash == nil {
+			if version > 1 {
+				continue
+			}
 			return MissingDatumForSpendingScriptError{
 				ScriptHash: scriptHash,
 				Input:      input,

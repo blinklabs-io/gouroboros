@@ -184,8 +184,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
 		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
+		common.UtxoValidateCollateralKeyLocked,
 	),
-	common.Phase2ValidUtxoValidationRules(common.UtxoValidateCollateralKeyLocked),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
 		UtxoValidateScriptDataHash, UtxoValidateSupplementalDatums,

@@ -9,6 +9,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -44,10 +45,24 @@ func productionRuleByID(
 	id common.UtxoValidationRuleId,
 ) common.UtxoValidationRuleFunc {
 	t.Helper()
-	descriptors := babbage.UtxoValidationRuleDescriptors()
+	return ruleByID(
+		t,
+		babbage.UtxoValidationRuleDescriptors(),
+		babbage.UtxoValidationRules,
+		id,
+	)
+}
+
+func ruleByID(
+	t *testing.T,
+	descriptors []common.UtxoValidationRuleDescriptor,
+	rules []common.UtxoValidationRuleFunc,
+	id common.UtxoValidationRuleId,
+) common.UtxoValidationRuleFunc {
+	t.Helper()
 	for i, descriptor := range descriptors {
 		if descriptor.Id == id {
-			return babbage.UtxoValidationRules[i]
+			return rules[i]
 		}
 	}
 	t.Fatalf("%s is not registered in babbage.UtxoValidationRules", id)
@@ -174,6 +189,49 @@ func TestCollateralKeyLockedOnlyForPhase2(t *testing.T) {
 			)
 		}
 	})
+	t.Run("phase-2-invalid transaction still checks collateral key lock", func(t *testing.T) {
+		tx := collateralFixtureTx(true, 0)
+		tx.TxIsValid = false
+		if err := rule(tx, 0, ls, pp); err == nil {
+			t.Error("phase-2-invalid transactions consume collateral and must still reject script-locked collateral")
+		}
+	})
+
+	for _, era := range []struct {
+		name        string
+		descriptors func() []common.UtxoValidationRuleDescriptor
+		rules       []common.UtxoValidationRuleFunc
+	}{
+		{
+			name:        "Alonzo",
+			descriptors: alonzo.UtxoValidationRuleDescriptors,
+			rules:       alonzo.UtxoValidationRules,
+		},
+		{
+			name:        "Babbage",
+			descriptors: babbage.UtxoValidationRuleDescriptors,
+			rules:       babbage.UtxoValidationRules,
+		},
+		{
+			name:        "Conway",
+			descriptors: conway.UtxoValidationRuleDescriptors,
+			rules:       conway.UtxoValidationRules,
+		},
+	} {
+		t.Run(era.name+" phase-2-invalid", func(t *testing.T) {
+			rule := ruleByID(
+				t,
+				era.descriptors(),
+				era.rules,
+				common.UtxoValidationRuleCollateralKeyLocked,
+			)
+			tx := collateralFixtureTx(true, 0)
+			tx.TxIsValid = false
+			if err := rule(tx, 0, ls, &babbage.BabbageProtocolParameters{}); err == nil {
+				t.Error("phase-2-invalid transaction skipped collateral key-lock validation")
+			}
+		})
+	}
 }
 
 // TestCollateralEqBalanceOnlyForPhase2 covers the remaining member of the

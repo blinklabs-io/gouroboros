@@ -125,3 +125,24 @@ func TestSupplementalDatumsPreservesPlutusV3NoDatumRule(t *testing.T) {
 	state := datumWitnessLedgerState{utxos: map[string]common.Utxo{input.String(): utxo}}
 	require.NoError(t, UtxoValidateSupplementalDatums(tx, 0, state, nil))
 }
+
+func TestRequiredSpendingDatumsValidatesPlutusV3DatumHash(t *testing.T) {
+	v3 := common.PlutusV3Script{0x04}
+	input, utxo := datumSpendingFixture(t, v3, true)
+	tx := &ConwayTransaction{
+		TxIsValid: true,
+		Body: ConwayTransactionBody{
+			TxInputs: NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{input}),
+		},
+		WitnessSet: ConwayTransactionWitnessSet{
+			WsPlutusV3Scripts: cbor.NewSetType([]common.PlutusV3Script{v3}, true),
+		},
+	}
+	state := datumWitnessLedgerState{utxos: map[string]common.Utxo{input.String(): utxo}}
+	var missing common.MissingDatumForSpendingScriptError
+	require.ErrorAs(t, common.ValidateRequiredSpendingDatums(tx, state), &missing)
+
+	datum := common.Datum{Data: data.NewInteger(big.NewInt(1))}
+	tx.WitnessSet.WsPlutusData = cbor.NewSetType([]common.Datum{datum}, true)
+	require.NoError(t, common.ValidateRequiredSpendingDatums(tx, state))
+}
