@@ -67,6 +67,11 @@ func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	for _, witnessSet := range tmp.TransactionWitnessSets {
+		if err := common.ValidateNativeScriptConstructors(witnessSet.WsNativeScripts, 5); err != nil {
+			return err
+		}
+	}
 	*b = AllegraBlock(tmp)
 	b.SetCbor(cborData)
 
@@ -367,6 +372,9 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 	if _, err := cbor.Decode(txArray[1], &t.WitnessSet); err != nil {
 		return fmt.Errorf("failed to decode transaction witness set: %w", err)
+	}
+	if err := common.ValidateNativeScriptConstructors(t.WitnessSet.WsNativeScripts, 5); err != nil {
+		return err
 	}
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	// Store raw auxiliary data bytes (including any scripts)

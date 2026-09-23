@@ -951,7 +951,17 @@ func MinFeeTx(
 	if err != nil {
 		return 0, err
 	}
-	return minFee, nil
+	executionFee, err := common.CalculateExecutionUnitsFee(
+		tx,
+		tmpPparams.ExecutionCosts,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if minFee > math.MaxUint64-executionFee {
+		return 0, errors.New("minimum transaction fee overflow")
+	}
+	return minFee + executionFee, nil
 }
 
 // Alonzo prices a UTxO entry by an estimate of its in-memory size in 8-byte

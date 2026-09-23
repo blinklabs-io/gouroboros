@@ -29,7 +29,7 @@ func TestByronTransactionInputAcceptsListLengthEncodings(t *testing.T) {
 	hash := common.Blake2b256{1, 2, 3}
 	inner, err := cbor.Encode([]any{hash, uint32(7)})
 	require.NoError(t, err)
-	canonical, err := cbor.Encode([]any{0, inner})
+	canonical, err := cbor.Encode([]any{0, cbor.WrappedCbor(inner)})
 	require.NoError(t, err)
 	for _, encoding := range test.CanonicalAndNonShortestList(canonical) {
 		t.Run(encoding.Name, func(t *testing.T) {
@@ -39,4 +39,37 @@ func TestByronTransactionInputAcceptsListLengthEncodings(t *testing.T) {
 			assert.Equal(t, uint32(7), decoded.OutputIndex)
 		})
 	}
+}
+
+// TestByronTransactionInputRejectsUntaggedNestedCbor verifies that a
+// TxInUtxo whose nested [txId, index] pair is carried as a plain byte
+// string, rather than wrapped in semantic tag 24, is rejected. The reference
+// decoder (decodeKnownCborDataItem) requires the tag; gouroboros must not
+// accept the semantically-identical untagged encoding as an alternative.
+func TestByronTransactionInputRejectsUntaggedNestedCbor(t *testing.T) {
+	hash := common.Blake2b256{1, 2, 3}
+	inner, err := cbor.Encode([]any{hash, uint32(7)})
+	require.NoError(t, err)
+	untagged, err := cbor.Encode([]any{0, inner})
+	require.NoError(t, err)
+	var decoded byron.ByronTransactionInput
+	require.Error(t, decoded.UnmarshalCBOR(untagged))
+}
+
+// TestByronTransactionInputRejectsTrailingBytesInTag24Payload verifies that
+// extra bytes following the valid [txId, index] pair inside the tag 24
+// byte string are rejected rather than silently ignored: the reference
+// decoder (decodeKnownCborDataItem) requires the wrapped byte string to be
+// fully consumed by the nested decode.
+func TestByronTransactionInputRejectsTrailingBytesInTag24Payload(t *testing.T) {
+	hash := common.Blake2b256{1, 2, 3}
+	inner, err := cbor.Encode([]any{hash, uint32(7)})
+	require.NoError(t, err)
+	withTrailingGarbage := append(append([]byte{}, inner...), 0xFF, 0xFF)
+	outer, err := cbor.Encode(
+		[]any{0, cbor.WrappedCbor(withTrailingGarbage)},
+	)
+	require.NoError(t, err)
+	var decoded byron.ByronTransactionInput
+	require.Error(t, decoded.UnmarshalCBOR(outer))
 }

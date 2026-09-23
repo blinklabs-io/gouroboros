@@ -934,6 +934,52 @@ func TestDijkstraWrongNetworkWithdrawalPhase2Gate(t *testing.T) {
 	require.NoError(t, validate(tx))
 }
 
+func TestDijkstraDelegationInheritsDRepDeregistrationTombstone(t *testing.T) {
+	drep := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224Hash([]byte("dijkstra-drep-tombstone")),
+	}
+	drepDeposit := uint64(500_000_000)
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("dijkstra-drep-stake")),
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithDRepRegistrations([]common.DRepRegistration{{
+			Credential: drep,
+			Deposit:    &drepDeposit,
+		}}).
+		WithStakeCredentialRegistered(stake.Credential, true).
+		Build()
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxCertificates: []common.CertificateWrapper{
+				{Certificate: &common.DeregistrationDrepCertificate{
+					DrepCredential: drep,
+					Amount:         int64(drepDeposit),
+				}},
+				{Certificate: &common.VoteDelegationCertificate{
+					StakeCredential: stake,
+					Drep: common.Drep{
+						Type:       common.DrepTypeScriptHash,
+						Credential: drep.Credential.Bytes(),
+					},
+				}},
+			},
+		},
+		TxIsValid: true,
+	}
+	descriptor, _ := dijkstraValidationRuleDescriptor(
+		t,
+		common.UtxoValidationRuleDelegation,
+	)
+	require.ErrorAs(
+		t,
+		descriptor.Validator(tx, 0, state, &DijkstraProtocolParameters{}),
+		&conway.DelegateVoteToUnregisteredDRepError{},
+	)
+}
+
 func TestUtxoValidateBatchWithdrawals(t *testing.T) {
 	const balance = uint64(1_000_000)
 	const topWithdrawal = uint64(400_000)
@@ -1254,6 +1300,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tx := &DijkstraTransaction{
+				TxIsValid: true,
 				Body: DijkstraTransactionBody{
 					TxSubTransactions: cbor.NewSetType(
 						[]DijkstraSubTransaction{
@@ -1273,7 +1320,6 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 						false,
 					),
 				},
-				TxIsValid: true,
 			}
 
 			err := UtxoValidateCostModelsPresent(
@@ -1328,6 +1374,58 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 		},
 	}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+}
+
+func TestDijkstraGovernanceValidationChecksUpdateCommitteeValues(t *testing.T) {
+	credential := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224Hash([]byte("committee-removal")),
+	}
+	for _, test := range []struct {
+		name   string
+		action *common.UpdateCommitteeGovAction
+	}{
+		{
+			name: "out-of-range quorum",
+			action: &common.UpdateCommitteeGovAction{
+				Quorum: cbor.Rat{Rat: big.NewRat(3, 2)},
+			},
+		},
+		{
+			name: "duplicate removals",
+			action: &common.UpdateCommitteeGovAction{
+				Credentials: []common.Credential{credential, credential},
+				Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tx := &DijkstraTransaction{
+				TxIsValid: true,
+				Body: DijkstraTransactionBody{
+					TxProposalProcedures: []DijkstraProposalProcedure{{
+						PPGovAction: DijkstraGovAction{Action: test.action},
+					}},
+				},
+			}
+			var rule common.UtxoValidationRuleFunc
+			for _, descriptor := range UtxoValidationRuleDescriptors() {
+				if descriptor.Id == common.UtxoValidationRuleGovActionWellFormedness {
+					rule = descriptor.Validator
+					break
+				}
+			}
+			require.NotNil(t, rule)
+			err := common.VerifyTransaction(
+				tx,
+				0,
+				mockledger.NewLedgerStateBuilder().Build(),
+				&conway.ConwayProtocolParameters{},
+				[]common.UtxoValidationRuleFunc{rule},
+			)
+			require.ErrorAs(t, err, &conway.MalformedGovActionError{})
+		})
+	}
 }
 
 // TestBootstrapPhaseAllowsDijkstraParameterChangeFields covers the Dijkstra
@@ -2195,4 +2293,60 @@ func TestDijkstraMinCoinTxOutBoundary(t *testing.T) {
 		},
 	)
 	require.ErrorContains(t, err, "overflow")
+}
+
+func TestMinFeeIncludesDeclaredExecutionUnitsAcrossBatch(t *testing.T) {
+	prices := common.ExUnitPrice{
+		MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		StepPrice: &cbor.Rat{Rat: big.NewRat(1, 4)},
+	}
+	key := common.RedeemerKey{Tag: common.RedeemerTagSpend}
+	tx := &DijkstraTransaction{
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					key: {ExUnits: common.ExUnits{Memory: 2}},
+				},
+			},
+		},
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				WitnessSet: DijkstraTransactionWitnessSet{
+					WsRedeemers: DijkstraRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+							key: {ExUnits: common.ExUnits{Memory: 1}},
+						},
+					},
+				},
+			}}, false),
+		},
+		TxIsValid: true,
+	}
+	tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			MinFeeA:        2,
+			MinFeeB:        3,
+			ExecutionCosts: prices,
+		},
+	}
+	txSize, err := common.TxSizeForFee(tx)
+	require.NoError(t, err)
+	baseFee, err := common.CalculateMinFee(txSize, pp.MinFeeA, pp.MinFeeB)
+	require.NoError(t, err)
+	minFee, err := MinFeeTx(tx, pp)
+	require.NoError(t, err)
+	require.Equal(t, baseFee+2, minFee)
+
+	state := mockledger.NewLedgerStateBuilder().Build()
+	tx.Body.TxFee = baseFee
+	require.ErrorAs(t, UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp), &shelley.FeeTooSmallUtxoError{})
+	tx.Body.TxFee = minFee
+	require.NoError(t, UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp))
+
+	tx.WitnessSet = DijkstraTransactionWitnessSet{}
+	tx.Body.TxSubTransactions = cbor.SetType[DijkstraSubTransaction]{}
+	noRedeemerFee, err := MinFeeTx(tx, pp)
+	require.NoError(t, err)
+	require.Equal(t, baseFee, noRedeemerFee)
 }

@@ -547,6 +547,38 @@ func (e CommitteeTermTooLongError) Error() string {
 	)
 }
 
+// CommitteeExpiryEpochUnavailableError indicates current-epoch state could not
+// be resolved while validating proposed committee member expiries.
+type CommitteeExpiryEpochUnavailableError struct {
+	Err error
+}
+
+func (e CommitteeExpiryEpochUnavailableError) Error() string {
+	if e.Err != nil {
+		return "current epoch unavailable for committee expiry validation: " +
+			e.Err.Error()
+	}
+	return "current epoch unavailable for committee expiry validation"
+}
+
+func (e CommitteeExpiryEpochUnavailableError) Unwrap() error { return e.Err }
+
+// CommitteeMemberAlreadyExpiredError indicates an UpdateCommittee proposal
+// adds a member whose expiry is not later than the current epoch.
+type CommitteeMemberAlreadyExpiredError struct {
+	Credential   *common.Credential
+	ExpiryEpoch  uint64
+	CurrentEpoch uint64
+}
+
+func (e CommitteeMemberAlreadyExpiredError) Error() string {
+	return fmt.Sprintf(
+		"committee member expiry epoch %d is not later than current epoch %d",
+		e.ExpiryEpoch,
+		e.CurrentEpoch,
+	)
+}
+
 // DuplicateVrfKeyError indicates a pool registration attempted to use a VRF key
 // already registered by another pool. Introduced in Protocol Version 11.
 type DuplicateVrfKeyError struct {

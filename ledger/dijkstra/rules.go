@@ -2987,11 +2987,25 @@ func MinFeeTx(
 	if err != nil {
 		return 0, err
 	}
-	return common.CalculateMinFee(
+	minFee, err := common.CalculateMinFee(
 		txSize,
 		tmpPparams.MinFeeA,
 		tmpPparams.MinFeeB,
 	)
+	if err != nil {
+		return 0, err
+	}
+	executionFee, err := common.CalculateExecutionUnitsFee(
+		tx,
+		tmpPparams.ExecutionCosts,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if minFee > math.MaxUint64-executionFee {
+		return 0, errors.New("minimum transaction fee overflow")
+	}
+	return minFee + executionFee, nil
 }
 
 // MinFeeTxWithRefScriptSize adds the Dijkstra tiered reference-script fee to
@@ -3330,6 +3344,11 @@ func UtxoValidateInsufficientCollateral(
 			totalCollateral.Add(totalCollateral, amount)
 		}
 	}
+	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+		if amount := collateralReturn.Amount(); amount != nil {
+			totalCollateral.Sub(totalCollateral, amount)
+		}
+	}
 	fee := tx.Fee()
 	if fee == nil {
 		fee = new(big.Int)
@@ -3436,7 +3455,9 @@ func UtxoValidateOutputTooSmallUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	var badOutputs []common.TransactionOutput
-	for _, tmpOutput := range dijkstraBatchView(tx).Outputs() {
+	for _, tmpOutput := range common.TransactionOutputsAndCollateralReturn(
+		dijkstraBatchView(tx),
+	) {
 		minCoin, err := MinCoinTxOut(tmpOutput, pp)
 		if err != nil {
 			return err
@@ -3493,7 +3514,9 @@ func UtxoValidateOutputTooBigUtxo(
 		return err
 	}
 	var badOutputs []common.TransactionOutput
-	for _, txOutput := range dijkstraBatchView(tx).Outputs() {
+	for _, txOutput := range common.TransactionOutputsAndCollateralReturn(
+		dijkstraBatchView(tx),
+	) {
 		outputVal, err := outputValue(txOutput)
 		if err != nil {
 			return err

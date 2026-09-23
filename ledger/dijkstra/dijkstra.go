@@ -1104,6 +1104,16 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	for idx := range tmp.TxOutputs {
+		if err := common.ValidateNativeScriptOutputConstructor(&tmp.TxOutputs[idx], 6); err != nil {
+			return fmt.Errorf("transaction output %d: %w", idx, err)
+		}
+	}
+	if tmp.TxCollateralReturn != nil {
+		if err := common.ValidateNativeScriptOutputConstructor(tmp.TxCollateralReturn, 6); err != nil {
+			return fmt.Errorf("collateral return: %w", err)
+		}
+	}
 	var rawFields map[uint64]cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &rawFields); err != nil {
 		return err
@@ -1518,6 +1528,11 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	for idx := range tmp.TxOutputs {
+		if err := common.ValidateNativeScriptOutputConstructor(&tmp.TxOutputs[idx], 6); err != nil {
+			return fmt.Errorf("transaction output %d: %w", idx, err)
+		}
+	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
@@ -1816,6 +1831,9 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 6); err != nil {
+		return err
+	}
 	for _, witness := range tmp.BootstrapWitnesses.Items() {
 		if len(witness.ChainCode) != 32 {
 			return fmt.Errorf(
@@ -1973,6 +1991,10 @@ func (t DijkstraTransaction) CollateralReturn() common.TransactionOutput {
 
 func (t DijkstraTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
+}
+
+func (t DijkstraTransaction) TotalCollateralPresent() bool {
+	return t.Body.TotalCollateralPresent() || t.Body.TxTotalCollateral != 0
 }
 
 func (t DijkstraTransaction) Certificates() []common.Certificate {
