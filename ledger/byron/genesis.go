@@ -33,15 +33,16 @@ type ByronGenesisFtsSeed struct {
 	IsObject bool
 }
 type ByronGenesis struct {
-	AvvmDistr        map[string]string                      `json:"avvmDistr"`
-	BlockVersionData ByronGenesisBlockVersionData           `json:"blockVersionData"`
-	FtsSeed          ByronGenesisFtsSeed                    `json:"ftsSeed"`
-	ProtocolConsts   ByronGenesisProtocolConsts             `json:"protocolConsts"`
-	StartTime        int                                    `json:"startTime"`
-	BootStakeholders map[string]int                         `json:"bootStakeholders"`
-	HeavyDelegation  map[string]ByronGenesisHeavyDelegation `json:"heavyDelegation"`
-	NonAvvmBalances  map[string]string                      `json:"nonAvvmBalances"`
-	VssCerts         map[string]ByronGenesisVssCert         `json:"vssCerts"`
+	AvvmDistr            map[string]string                      `json:"avvmDistr"`
+	BlockVersionData     ByronGenesisBlockVersionData           `json:"blockVersionData"`
+	FtsSeed              ByronGenesisFtsSeed                    `json:"ftsSeed"`
+	ProtocolConsts       ByronGenesisProtocolConsts             `json:"protocolConsts"`
+	StartTime            int                                    `json:"startTime"`
+	BootStakeholders     map[string]int                         `json:"bootStakeholders"`
+	HeavyDelegation      map[string]ByronGenesisHeavyDelegation `json:"heavyDelegation"`
+	NonAvvmBalances      map[string]string                      `json:"nonAvvmBalances"`
+	VssCerts             map[string]ByronGenesisVssCert         `json:"vssCerts"`
+	RequiresNetworkMagic string                                 `json:"requiresNetworkMagic"`
 }
 
 type ByronGenesisBlockVersionData struct {
@@ -106,7 +107,24 @@ func (g *ByronGenesis) GenesisUtxos() ([]common.Utxo, error) {
 		avvmUtxos,
 		nonAvvmUtxos,
 	)
+	seen := make(map[genesisUtxoRef]struct{}, len(ret))
+	for _, utxo := range ret {
+		ref := genesisUtxoRef{id: utxo.Id.Id(), index: utxo.Id.Index()}
+		if _, exists := seen[ref]; exists {
+			return nil, fmt.Errorf(
+				"duplicate Byron genesis UTxO reference %s#%d",
+				ref.id,
+				ref.index,
+			)
+		}
+		seen[ref] = struct{}{}
+	}
 	return ret, nil
+}
+
+type genesisUtxoRef struct {
+	id    common.Blake2b256
+	index uint32
 }
 
 func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
@@ -117,11 +135,26 @@ func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
 		if err != nil {
 			return nil, err
 		}
-		tmpAddr, err := common.NewByronAddressRedeem(
-			pubkeyBytes,
-			// XXX: do we need to specify the network ID?
-			common.ByronAddressAttributes{},
-		)
+		attributes := common.ByronAddressAttributes{}
+		switch g.RequiresNetworkMagic {
+		case "", "RequiresNoMagic":
+		case "RequiresMagic":
+			if g.ProtocolConsts.ProtocolMagic < 0 ||
+				uint64(g.ProtocolConsts.ProtocolMagic) > uint64(^uint32(0)) {
+				return nil, fmt.Errorf(
+					"invalid Byron protocol magic %d",
+					g.ProtocolConsts.ProtocolMagic,
+				)
+			}
+			magic := uint32(g.ProtocolConsts.ProtocolMagic)
+			attributes.Network = &magic
+		default:
+			return nil, fmt.Errorf(
+				"invalid requiresNetworkMagic value %q",
+				g.RequiresNetworkMagic,
+			)
+		}
+		tmpAddr, err := common.NewByronAddressRedeem(pubkeyBytes, attributes)
 		if err != nil {
 			return nil, err
 		}

@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"reflect"
@@ -46,7 +47,7 @@ func makeConwayRewardAddress(
 ) common.Address {
 	t.Helper()
 	addrBytes := make([]byte, 0, 29)
-	addrBytes = append(addrBytes, 0xE1)
+	addrBytes = append(addrBytes, 0xE0)
 	addrBytes = append(addrBytes, keyHash.Bytes()...)
 	addr, err := common.NewAddressFromBytes(addrBytes)
 	require.NoError(t, err)
@@ -84,6 +85,16 @@ type committeeMembersErrorLedgerState struct {
 // state even when composed with a newer ouroboros-mock.
 type legacyOnlyLedgerState struct {
 	common.LedgerState
+}
+
+type epochLedgerState struct {
+	common.LedgerState
+	epoch uint64
+	err   error
+}
+
+func (s epochLedgerState) EpochForSlot(uint64) (uint64, error) {
+	return s.epoch, s.err
 }
 
 type committeeCredentialLedgerState struct {
@@ -3344,7 +3355,7 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 		assert.Contains(t, ccErr.Restriction, "UpdateCommittee")
 	})
 
-	t.Run("pre-PV11 allows CC to vote on NoConfidence", func(t *testing.T) {
+	t.Run("pre-PV11 rejects CC votes on NoConfidence", func(t *testing.T) {
 		voter := &common.Voter{
 			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
 			Hash: common.Blake2b224{0x50},
@@ -3359,7 +3370,9 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 			},
 		}
 		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, prePv11Params)
-		assert.NoError(t, err, "pre-PV11 should not enforce CC voting restrictions at ledger level")
+		var ccErr conway.CCVotingRestrictionError
+		require.ErrorAs(t, err, &ccErr)
+		assert.Contains(t, ccErr.Restriction, "NoConfidence")
 	})
 
 	t.Run("nil action ID returns error", func(t *testing.T) {
@@ -3621,6 +3634,58 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 			ls,
 			&conway.ConwayProtocolParameters{},
 		))
+	})
+
+	t.Run("certificate sequence uses transaction-local state", func(t *testing.T) {
+		secondHot := common.Credential{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: common.Blake2b224Hash([]byte("committee-hot-key-2")),
+		}
+		memberState := authoritativeLegacyCommitteeState(
+			mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+				[]common.CommitteeMember{{ColdKey: coldHash, ExpiryEpoch: 100}},
+			).Build(),
+		)
+		resign := &common.ResignCommitteeColdCertificate{
+			CertType:       uint(common.CertificateTypeResignCommitteeCold),
+			ColdCredential: coldCredential,
+		}
+		authorize := func(hot common.Credential) common.Certificate {
+			return &common.AuthCommitteeHotCertificate{
+				CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+				ColdCredential: coldCredential,
+				HotCredential:  hot,
+			}
+		}
+		validate := func(certs ...common.Certificate) error {
+			wrapped := make([]common.CertificateWrapper, len(certs))
+			for i, cert := range certs {
+				wrapped[i].Certificate = cert
+			}
+			tx := &conway.ConwayTransaction{TxIsValid: true}
+			tx.Body.TxCertificates = wrapped
+			return conway.UtxoValidateCommitteeCertificates(
+				tx, 0, memberState, &conway.ConwayProtocolParameters{},
+			)
+		}
+		t.Run("resign then authorize rejects", func(t *testing.T) {
+			var err error
+			err = validate(resign, authorize(hotCredential))
+			var resigned conway.ResignedCommitteeMemberHotKeyError
+			require.ErrorAs(t, err, &resigned)
+		})
+		t.Run("resign then resign rejects", func(t *testing.T) {
+			var err error
+			err = validate(resign, resign)
+			var resigned conway.ResignedCommitteeMemberHotKeyError
+			require.ErrorAs(t, err, &resigned)
+		})
+		t.Run("authorize then resign passes", func(t *testing.T) {
+			require.NoError(t, validate(authorize(hotCredential), resign))
+		})
+		t.Run("authorize then authorize passes", func(t *testing.T) {
+			require.NoError(t, validate(authorize(hotCredential), authorize(secondHot)))
+		})
 	})
 }
 
@@ -4808,7 +4873,8 @@ func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 			tx.Body.TxProposalProcedures = append(
 				tx.Body.TxProposalProcedures,
 				conway.ConwayProposalProcedure{
-					PPGovAction: conway.ConwayGovAction{Action: a},
+					PPRewardAccount: testAccountAddress(t),
+					PPGovAction:     conway.ConwayGovAction{Action: a},
 				},
 			)
 		}
@@ -5038,6 +5104,7 @@ func TestBootstrapPhaseAllowsAnyParameterChange(t *testing.T) {
 	tx := &conway.ConwayTransaction{}
 	tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
 		{
+			PPRewardAccount: testAccountAddress(t),
 			PPGovAction: conway.ConwayGovAction{
 				Action: &conway.ConwayParameterChangeGovAction{
 					ParamUpdate: conway.ConwayProtocolParameterUpdate{
@@ -5177,4 +5244,125 @@ func TestConwayMinCoinTxOutBoundary(t *testing.T) {
 		&conway.ConwayProtocolParameters{AdaPerUtxoByte: largest + 1},
 	)
 	require.ErrorContains(t, err, "overflow")
+}
+
+func TestConwayWitnessSetNonEmptyCollectionsFollowProtocolVersion(
+	t *testing.T,
+) {
+	for key := uint(0); key <= 7; key++ {
+		values := []any{[]any{}}
+		if key == 0 || key == 1 || key == 2 || key == 3 || key == 4 ||
+			key == 6 || key == 7 {
+			values = append(values, cbor.Set{})
+		}
+		if key == 5 {
+			values = append(values, map[uint]any{})
+		}
+		for _, value := range values {
+			wire, err := cbor.Encode(map[uint]any{key: value})
+			require.NoError(t, err)
+			var tx conway.ConwayTransaction
+			require.NoError(t, tx.WitnessSet.UnmarshalCBOR(wire))
+			for _, major := range []uint{9, 10, 11} {
+				t.Run(fmt.Sprintf("key%d/PV%d", key, major), func(t *testing.T) {
+					pp := &conway.ConwayProtocolParameters{
+						ProtocolVersion: common.ProtocolParametersProtocolVersion{
+							Major: major,
+						},
+					}
+					err := common.VerifyTransaction(
+						&tx,
+						0,
+						nil,
+						pp,
+						[]common.UtxoValidationRuleFunc{
+							conway.UtxoValidateRedeemerAndScriptWitnesses,
+						},
+					)
+					require.ErrorContains(
+						t,
+						err,
+						"invalid Conway witness set",
+					)
+				})
+			}
+		}
+	}
+
+	var pv8Tx conway.ConwayTransaction
+	require.NoError(t, pv8Tx.WitnessSet.UnmarshalCBOR([]byte{0xa1, 0x00, 0x80}))
+	pv8 := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 8},
+	}
+	require.NoError(t, common.VerifyTransaction(
+		&pv8Tx,
+		0,
+		nil,
+		pv8,
+		[]common.UtxoValidationRuleFunc{
+			conway.UtxoValidateRedeemerAndScriptWitnesses,
+		},
+	))
+
+	var absent conway.ConwayTransaction
+	require.NoError(t, absent.WitnessSet.UnmarshalCBOR([]byte{0xa0}))
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 9},
+	}
+	require.NoError(t, common.VerifyTransaction(
+		&absent,
+		0,
+		nil,
+		pp,
+		[]common.UtxoValidationRuleFunc{
+			conway.UtxoValidateRedeemerAndScriptWitnesses,
+		},
+	))
+}
+
+func TestConwayTransactionBodyRequiredAndGuardedFields(t *testing.T) {
+	requiredBody := map[uint]any{
+		0: cbor.NewSetType([]any{}, false),
+		1: []any{},
+		2: uint64(0),
+	}
+	for _, key := range []uint{0, 1, 2} {
+		t.Run(fmt.Sprintf("missing required key %d", key), func(t *testing.T) {
+			fields := maps.Clone(requiredBody)
+			delete(fields, key)
+			wire, err := cbor.Encode(fields)
+			require.NoError(t, err)
+			var body conway.ConwayTransactionBody
+			require.ErrorContains(
+				t,
+				body.UnmarshalCBOR(wire),
+				fmt.Sprintf("field %d is missing", key),
+			)
+		})
+	}
+
+	guardedEmptyValues := map[uint]any{
+		4:  []any{},
+		5:  map[uint]any{},
+		9:  map[uint]any{},
+		13: cbor.NewSetType([]any{}, false),
+		14: cbor.NewSetType([]any{}, false),
+		18: cbor.NewSetType([]any{}, false),
+		20: []any{},
+	}
+	for key, value := range guardedEmptyValues {
+		t.Run(fmt.Sprintf("empty optional key %d", key), func(t *testing.T) {
+			fields := maps.Clone(requiredBody)
+			fields[key] = value
+			wire, err := cbor.Encode(fields)
+			require.NoError(t, err)
+			var body conway.ConwayTransactionBody
+			require.Error(t, body.UnmarshalCBOR(wire))
+		})
+	}
+
+	wire, err := cbor.Encode(requiredBody)
+	require.NoError(t, err)
+	var body conway.ConwayTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(wire))
 }

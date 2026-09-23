@@ -23,4 +23,9 @@ jobs:
     if: github.event_name == 'push' && github.ref_type == 'tag'
     uses: blinklabs-io/actions/.github/workflows/reuseable-go-library-release.yml@main
     permissions:
+      attestations: write
       contents: write
+      id-token: write
+    with:
+      build-examples: true
+      submodules: true

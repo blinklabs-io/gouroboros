@@ -154,27 +154,22 @@ func TestDijkstraPerasCertificateRoundTrip(t *testing.T) {
 	assert.Nil(t, decodedNil.PerasCertificate)
 }
 
-// TestDijkstraDecodeRealMusashiBlock decodes a block captured live from the
+// TestDijkstraDecodeRealMusashiBlock rejects a block captured live from the
 // respun ouroboros-leios prototype-2026w27 "musashi" testnet (network magic
 // 164, fetched over node-to-node from leios-node.play.dev.cardano.org:3001 at
 // slot 566037 / block 28091). It exercises the full Dijkstra wire format
 // against real bytes: the two-element [header, block_body] envelope, the
-// four-field block_body, and the 12-field Leios-extended header body.
-//
-// NewDijkstraBlockFromCbor verifies the block body hash against the header
-// during parsing, so a successful decode proves the body-hash computation is
-// correct for a real block. Musashi carries no transaction or endorser-block
-// activity yet (txsProcessedNum stays 0 and no leios_certificate has appeared
-// on-chain), so this representative block has no transactions and null
-// certificate slots.
+// obsolete four-field body, and the 12-field Leios-extended header body. The
+// current consensus decoder rejects the pre-respin body while the historical
+// offset walker still handles it for archive and indexing callers.
 func TestDijkstraDecodeRealMusashiBlock(t *testing.T) {
 	hexData, err := os.ReadFile("testdata/musashi_dijkstra_block.hex")
 	require.NoError(t, err)
 	raw, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
 	require.NoError(t, err)
 
-	blk, err := NewDijkstraBlockFromCbor(raw)
-	require.NoError(t, err)
+	_, err = NewDijkstraBlockFromCbor(raw)
+	require.ErrorContains(t, err, "expected 3 components")
 
 	// Two-element [header, block_body] envelope with a four-field body.
 	var top []cbor.RawMessage
@@ -186,19 +181,19 @@ func TestDijkstraDecodeRealMusashiBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, body, 4)
 
-	// Header identity + Leios extension present (12-field header body).
-	assert.Equal(t, uint64(566037), blk.SlotNumber())
-	assert.Equal(t, uint64(28091), blk.BlockNumber())
-	_, present := blk.BlockHeader.LeiosCertified()
+	// The extended header remains independently decodable.
+	var header *DijkstraBlockHeader
+	_, err = cbor.Decode(top[0], &header)
+	require.NoError(t, err)
+	if header == nil {
+		t.Fatal("Dijkstra header decoded as nil")
+	}
+	assert.Equal(t, uint64(566037), header.SlotNumber())
+	assert.Equal(t, uint64(28091), header.BlockNumber())
+	_, present := header.LeiosCertified()
 	assert.True(t, present, "musashi headers carry the 12-field Leios extension")
 
-	// Representative of the current txless, endorser-block-less chain.
-	assert.Empty(t, blk.Transactions())
-	assert.Nil(t, blk.BlockBody.LeiosCertificate)
-	assert.Nil(t, blk.BlockBody.PerasCertificate)
-
-	// Re-encoding a decoded block reproduces the exact wire bytes.
-	remar, err := blk.MarshalCBOR()
+	offsets, err := common.ExtractTransactionOffsets(raw)
 	require.NoError(t, err)
-	assert.Equal(t, raw, remar)
+	assert.Empty(t, offsets.Transactions)
 }
