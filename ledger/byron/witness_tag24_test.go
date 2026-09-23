@@ -1,0 +1,181 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package byron_test
+
+import (
+	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func decodeSingleWitness(t *testing.T, data []byte) *byron.ByronTransactionWitnessSet {
+	t.Helper()
+	var v cbor.Value
+	require.NoError(t, v.UnmarshalCBOR(data))
+	return byron.NewByronTransactionWitnessSet([]cbor.Value{v})
+}
+
+func TestByronWitnessRequiresTag24(t *testing.T) {
+	pk := []byte{1, 2, 3, 4}
+	sig := []byte{5, 6, 7, 8}
+	chainCode := []byte{9, 10}
+	attrs := []byte{11, 12}
+
+	t.Run("vk witness with tag 24 decodes", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{pk, sig})
+		require.NoError(t, err)
+		outer, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
+		require.NoError(t, err)
+		ws := decodeSingleWitness(t, outer)
+		require.Len(t, ws.Vkey(), 1)
+		assert.Equal(t, pk, []byte(ws.Vkey()[0].Vkey))
+		assert.Equal(t, sig, []byte(ws.Vkey()[0].Signature))
+		assert.Empty(t, ws.Bootstrap())
+	})
+
+	t.Run("redeem witness with tag 24 decodes", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{pk, sig})
+		require.NoError(t, err)
+		outer, err := cbor.Encode([]any{uint64(2), cbor.WrappedCbor(inner)})
+		require.NoError(t, err)
+		ws := decodeSingleWitness(t, outer)
+		require.Len(t, ws.Vkey(), 1)
+		assert.Equal(t, pk, []byte(ws.Vkey()[0].Vkey))
+		assert.Equal(t, sig, []byte(ws.Vkey()[0].Signature))
+	})
+
+	t.Run("bootstrap witness with tag 24 decodes", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{pk, sig, chainCode, attrs})
+		require.NoError(t, err)
+		outer, err := cbor.Encode([]any{uint64(3), cbor.WrappedCbor(inner)})
+		require.NoError(t, err)
+		ws := decodeSingleWitness(t, outer)
+		require.Len(t, ws.Bootstrap(), 1)
+		bw := ws.Bootstrap()[0]
+		assert.Equal(t, pk, []byte(bw.PublicKey))
+		assert.Equal(t, sig, []byte(bw.Signature))
+		assert.Equal(t, chainCode, []byte(bw.ChainCode))
+		assert.Equal(t, attrs, []byte(bw.Attributes))
+		assert.Empty(t, ws.Vkey())
+	})
+
+	t.Run("untagged vk witness is rejected", func(t *testing.T) {
+		outer, err := cbor.Encode([]any{uint64(0), []any{pk, sig}})
+		require.NoError(t, err)
+		ws := decodeSingleWitness(t, outer)
+		assert.Empty(t, ws.Vkey())
+		assert.Empty(t, ws.Bootstrap())
+	})
+
+	t.Run("untagged bootstrap witness is rejected", func(t *testing.T) {
+		outer, err := cbor.Encode(
+			[]any{uint64(3), []any{pk, sig, chainCode, attrs}},
+		)
+		require.NoError(t, err)
+		ws := decodeSingleWitness(t, outer)
+		assert.Empty(t, ws.Vkey())
+		assert.Empty(t, ws.Bootstrap())
+	})
+
+	t.Run("wrong semantic tag is rejected", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{pk, sig})
+		require.NoError(t, err)
+		wrongTag := cbor.RawTag{Number: 25, Content: cbor.RawMessage(inner)}
+		wrapped, err := cbor.Encode(&wrongTag)
+		require.NoError(t, err)
+		outer, err := cbor.Encode(
+			[]any{uint64(0), cbor.RawMessage(wrapped)},
+		)
+		require.NoError(t, err)
+		ws := decodeSingleWitness(t, outer)
+		assert.Empty(t, ws.Vkey())
+		assert.Empty(t, ws.Bootstrap())
+	})
+
+	t.Run("trailing bytes after nested cbor are rejected", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{pk, sig})
+		require.NoError(t, err)
+		withTrailingGarbage := append(append([]byte{}, inner...), 0xFF, 0xFF)
+		outer, err := cbor.Encode(
+			[]any{uint64(0), cbor.WrappedCbor(withTrailingGarbage)},
+		)
+		require.NoError(t, err)
+		ws := decodeSingleWitness(t, outer)
+		assert.Empty(t, ws.Vkey())
+		assert.Empty(t, ws.Bootstrap())
+	})
+}
+
+func TestByronUpdateProposalTxFeePolicyRequiresTag24(t *testing.T) {
+	blockVersionModFields := func(txFeePolicy []any) []any {
+		return []any{
+			[]any{}, // scriptVersion
+			[]any{}, // slotDuration
+			[]any{}, // maxBlockSize
+			[]any{}, // maxHeaderSize
+			[]any{}, // maxTxSize
+			[]any{}, // maxProposalSize
+			[]any{}, // mpcThd
+			[]any{}, // heavyDelThd
+			[]any{}, // updateVoteThd
+			[]any{}, // updateProposalThd
+			[]any{}, // updateImplicit
+			[]any{}, // softForkRule
+			txFeePolicy,
+			[]any{}, // unlockStakeEpoch
+		}
+	}
+
+	t.Run("tag 24 wrapped policy decodes", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{uint64(100), uint64(200)})
+		require.NoError(t, err)
+		policy := []any{uint64(0), cbor.WrappedCbor(inner)}
+		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+		require.NoError(t, err)
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		require.NoError(t, mod.UnmarshalCBOR(data))
+	})
+
+	t.Run("untagged policy is rejected", func(t *testing.T) {
+		policy := []any{uint64(0), []any{uint64(100), uint64(200)}}
+		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+		require.NoError(t, err)
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		require.Error(t, mod.UnmarshalCBOR(data))
+	})
+
+	t.Run("absent policy decodes", func(t *testing.T) {
+		data, err := cbor.Encode(blockVersionModFields([]any{}))
+		require.NoError(t, err)
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		require.NoError(t, mod.UnmarshalCBOR(data))
+	})
+
+	t.Run("wrong semantic tag is rejected", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{uint64(100), uint64(200)})
+		require.NoError(t, err)
+		wrongTag := cbor.RawTag{Number: 25, Content: cbor.RawMessage(inner)}
+		wrapped, err := cbor.Encode(&wrongTag)
+		require.NoError(t, err)
+		policy := []any{uint64(0), cbor.RawMessage(wrapped)}
+		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+		require.NoError(t, err)
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		require.Error(t, mod.UnmarshalCBOR(data))
+	})
+}

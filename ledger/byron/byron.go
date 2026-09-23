@@ -688,27 +688,33 @@ func (ByronTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers
 	return nil
 }
 
+// decodeByronWitness decodes a single Byron TxInWitness value:
+// [ctor, #6.24(bytes .cbor payload)]. The reference decoder
+// (decodeKnownCborDataItem) requires the semantic tag 24 wrapper around the
+// nested payload; an untagged array carrying the same fields is not a valid
+// witness encoding and must be rejected rather than silently accepted.
 func decodeByronWitness(
 	v cbor.Value,
 ) (vkey *common.VkeyWitness, bootstrap *common.BootstrapWitness, ok bool) {
-	switch w := v.Value().(type) {
-	case cbor.ConstructorDecoder:
-		fields, err := w.ParsedFields()
-		if err != nil {
-			return nil, nil, false
-		}
-		return decodeByronWitnessFromConstructor(uint64(w.Tag()), fields)
-	case []any:
-		if len(w) == 0 {
-			return nil, nil, false
-		}
-		if ctor, ok2 := asUint64(w[0]); ok2 {
-			return decodeByronWitnessFromConstructor(ctor, w[1:])
-		}
-		return decodeByronWitnessFromFields(w)
-	default:
+	w, isArray := v.Value().([]any)
+	if !isArray || len(w) != 2 {
 		return nil, nil, false
 	}
+	ctor, ok2 := asUint64(w[0])
+	if !ok2 {
+		return nil, nil, false
+	}
+	wrapped, isWrapped := w[1].(cbor.WrappedCbor)
+	if !isWrapped {
+		return nil, nil, false
+	}
+	var fields []any
+	wrappedBytes := wrapped.Bytes()
+	consumed, err := cbor.Decode(wrappedBytes, &fields)
+	if err != nil || consumed != len(wrappedBytes) {
+		return nil, nil, false
+	}
+	return decodeByronWitnessFromConstructor(ctor, fields)
 }
 
 func decodeByronWitnessFromConstructor(
@@ -872,7 +878,7 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 		var tmpData struct {
 			cbor.StructAsArray
 			Id   int
-			Cbor []byte
+			Cbor cbor.WrappedCbor
 		}
 		if _, err := cbor.Decode(data, &tmpData); err != nil {
 			return err
@@ -880,8 +886,16 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 		// Decode inner data
 		type tByronTransactionInput ByronTransactionInput
 		var tmp tByronTransactionInput
-		if _, err := cbor.Decode(tmpData.Cbor, &tmp); err != nil {
+		innerBytes := tmpData.Cbor.Bytes()
+		consumed, err := cbor.Decode(innerBytes, &tmp)
+		if err != nil {
 			return err
+		}
+		if consumed != len(innerBytes) {
+			return fmt.Errorf(
+				"byron TxInUtxo tag 24 payload has %d trailing byte(s)",
+				len(innerBytes)-consumed,
+			)
 		}
 		*i = ByronTransactionInput(tmp)
 	default:
@@ -1168,6 +1182,24 @@ func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 					value.String(),
 				)
 			}
+		}
+	}
+	if len(tmp.TxFeePolicy) == 1 {
+		// TxFeePolicy is [ctor, #6.24(bytes .cbor TxSizeLinear)]
+		// (Cardano/Chain/Common/TxFeePolicy.hs); the reference decoder
+		// requires the tag 24 wrapper around the nested TxSizeLinear via
+		// decodeKnownCborDataItem, so an untagged nested array must be
+		// rejected here too.
+		policy, ok := tmp.TxFeePolicy[0].([]any)
+		if !ok || len(policy) != 2 {
+			return errors.New(
+				"byron update proposal txFeePolicy has unexpected shape",
+			)
+		}
+		if _, ok := policy[1].(cbor.WrappedCbor); !ok {
+			return errors.New(
+				"byron update proposal txFeePolicy requires tag 24 for nested TxSizeLinear",
+			)
 		}
 	}
 	*m = ByronUpdateProposalBlockVersionMod(tmp)
