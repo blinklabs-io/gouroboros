@@ -351,8 +351,21 @@ func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
 
 func (t *ByronTransactionBody) Id() common.Blake2b256 {
 	return t.hash.Get(func() common.Blake2b256 {
-		type canonicalBody ByronTransactionBody
-		encoded, err := cbor.Encode((*canonicalBody)(t))
+		inputs := make(cbor.IndefLengthList, len(t.TxInputs))
+		for i := range t.TxInputs {
+			inputs[i] = t.TxInputs[i]
+		}
+		outputs := make(cbor.IndefLengthList, len(t.TxOutputs))
+		for i := range t.TxOutputs {
+			outputs[i] = t.TxOutputs[i]
+		}
+		var attributes map[uint]cbor.RawMessage
+		if len(t.Attributes) == 0 {
+			attributes = make(map[uint]cbor.RawMessage)
+		} else if _, err := cbor.Decode(t.Attributes, &attributes); err != nil {
+			panic("decoding validated Byron transaction attributes has failed: " + err.Error())
+		}
+		encoded, err := cbor.Encode([]any{inputs, outputs, attributes})
 		if err != nil {
 			panic("CBOR encoding that should never fail has failed: " + err.Error())
 		}

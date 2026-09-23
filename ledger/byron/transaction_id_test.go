@@ -84,11 +84,12 @@ func TestByronTransactionIdsSeparateCanonicalAndWireHashes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode Byron address: %v", err)
 	}
-	// The output amount uses a valid non-shortest integer encoding.
-	wireBody := append([]byte{0x83, 0x80, 0x81, 0x82}, encodedAddress...)
-	wireBody = append(wireBody, 0x18, 0x01, 0xa0)
-	canonicalBody := append([]byte{0x83, 0x80, 0x81, 0x82}, encodedAddress...)
-	canonicalBody = append(canonicalBody, 0x01, 0xa0)
+	// Byron uses indefinite-length input and output lists. The output amount
+	// also uses a valid non-shortest integer encoding.
+	wireBody := append([]byte{0x83, 0x9f, 0xff, 0x9f, 0x82}, encodedAddress...)
+	wireBody = append(wireBody, 0x18, 0x01, 0xff, 0xa0)
+	canonicalBody := append([]byte{0x83, 0x9f, 0xff, 0x9f, 0x82}, encodedAddress...)
+	canonicalBody = append(canonicalBody, 0x01, 0xff, 0xa0)
 	var body byron.ByronTransactionBody
 	if err := body.UnmarshalCBOR(wireBody); err != nil {
 		t.Fatalf("decode Byron transaction body: %v", err)

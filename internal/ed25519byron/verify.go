@@ -17,6 +17,7 @@
 package ed25519byron
 
 import (
+	"bytes"
 	"crypto/sha512"
 
 	"filippo.io/edwards25519"
@@ -37,6 +38,9 @@ func Verify(pubKey, msg, sig []byte) bool {
 	}
 	rPoint, err := new(edwards25519.Point).SetBytes(sig[:32])
 	if err != nil {
+		return false
+	}
+	if !bytes.Equal(rPoint.Bytes(), sig[:32]) {
 		return false
 	}
 
