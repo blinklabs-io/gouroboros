@@ -46,6 +46,9 @@ func TestMerkleRootShape(t *testing.T) {
 	c := []byte("c")
 	d := []byte("d")
 	e := []byte("e")
+	f := []byte("f")
+	g := []byte("g")
+	h := []byte("h")
 
 	tests := []struct {
 		name  string
@@ -83,6 +86,30 @@ func TestMerkleRootShape(t *testing.T) {
 			want: branch(
 				branch(branch(leaf(a), leaf(b)), branch(leaf(c), leaf(d))),
 				leaf(e),
+			),
+		},
+		{
+			name:  "six items split at four",
+			items: [][]byte{a, b, c, d, e, f},
+			want: branch(
+				branch(branch(leaf(a), leaf(b)), branch(leaf(c), leaf(d))),
+				branch(leaf(e), leaf(f)),
+			),
+		},
+		{
+			name:  "seven items split at four, right subtree at two",
+			items: [][]byte{a, b, c, d, e, f, g},
+			want: branch(
+				branch(branch(leaf(a), leaf(b)), branch(leaf(c), leaf(d))),
+				branch(branch(leaf(e), leaf(f)), leaf(g)),
+			),
+		},
+		{
+			name:  "eight items form a balanced tree",
+			items: [][]byte{a, b, c, d, e, f, g, h},
+			want: branch(
+				branch(branch(leaf(a), leaf(b)), branch(leaf(c), leaf(d))),
+				branch(branch(leaf(e), leaf(f)), branch(leaf(g), leaf(h))),
 			),
 		},
 	}

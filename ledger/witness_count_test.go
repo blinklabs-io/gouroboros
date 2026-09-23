@@ -319,7 +319,9 @@ func blockCborWithTransactionCounts(
 
 	bodyItems := make([]cbor.RawMessage, bodyCount)
 	for i := range bodyItems {
-		bodyItems[i] = cbor.RawMessage{0xa0}
+		// {3: 0}: key 3 is mandatory in the Shelley body and optional but
+		// harmless from Allegra on, so one shape decodes in every era.
+		bodyItems[i] = cbor.RawMessage{0xa1, 0x03, 0x00}
 	}
 	witnessItems := make([]cbor.RawMessage, witnessCount)
 	for i := range witnessItems {

@@ -25,10 +25,12 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -1040,4 +1042,53 @@ func TestAlonzoUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
 	if _, err := params.Utxorpc(); err == nil {
 		t.Fatal("expected error for out-of-range A0 numerator, got nil")
 	}
+}
+
+// The Alonzo CDDL dropped protocol_param_update key 15 (minUTxOValue), and the
+// reference decoder routes an unrecognized key to Invalid rather than ignoring
+// it, so the whole update fails to decode.
+//
+// Reference: updateField in
+// eras/alonzo/impl/src/Cardano/Ledger/Alonzo/PParams.hs.
+func TestAlonzoProtocolParameterUpdateRejectsRemovedMinUtxoValue(t *testing.T) {
+	t.Parallel()
+	// {15: 1000000}
+	cborData, err := hex.DecodeString("a10f1a000f4240")
+	require.NoError(t, err)
+	var update alonzo.AlonzoProtocolParameterUpdate
+	err = update.UnmarshalCBOR(cborData)
+	require.ErrorContains(t, err, "minUTxOValue")
+}
+
+func TestAlonzoProtocolParameterUpdateAcceptsRetainedKeys(t *testing.T) {
+	t.Parallel()
+	// {16: 340000000, 17: 34482}
+	cborData, err := hex.DecodeString("a2101a1443fd00111986b2")
+	require.NoError(t, err)
+	var update alonzo.AlonzoProtocolParameterUpdate
+	require.NoError(t, update.UnmarshalCBOR(cborData))
+	require.NotNil(t, update.MinPoolCost)
+	require.Equal(t, uint64(340000000), *update.MinPoolCost)
+	require.NotNil(t, update.AdaPerUtxoByte)
+	require.Equal(t, uint64(34482), *update.AdaPerUtxoByte)
+}
+
+// Alonzo stores lovelacePerUTxOWord as-is; the conversion to a per-byte price
+// belongs at the Babbage era boundary.
+//
+// Reference: coinsPerUTxOWordToCoinsPerUTxOByte in
+// eras/babbage/impl/src/Cardano/Ledger/Babbage/PParams.hs.
+func TestAlonzoUpdateFromGenesisKeepsLovelacePerUtxoWord(t *testing.T) {
+	t.Parallel()
+	var params alonzo.AlonzoProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(&alonzo.AlonzoGenesis{
+		LovelacePerUtxoWord: 34482,
+	}))
+	require.Equal(t, uint64(34482), params.AdaPerUtxoByte)
+	require.Equal(
+		t,
+		uint64(4310),
+		babbage.UpgradePParams(params).AdaPerUtxoByte,
+		"Babbage divides the Alonzo per-word price by 8 at the boundary",
+	)
 }

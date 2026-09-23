@@ -189,7 +189,7 @@ func (b *DijkstraBlock) CalculatedBlockBodyHash() common.Blake2b256 {
 // ouroboros-leios prototype-2026w27 release (IntersectMBO/cardano-ledger #5872):
 //
 //	block_body = [..., leios_certificate : leios_certificate / nil, peras_certificate : peras_certificate / nil]
-//	leios_certificate = [ signers : bytes ; committee signer bitfield
+//	leios_certificate = [ signers : bytes .size (0 .. 8192) ; signer bitfield
 //	                    , aggregated_signature : leios_signature ]
 //	leios_signature = bytes .size 48
 //
@@ -220,6 +220,9 @@ func (c *DijkstraLeiosCertificate) UnmarshalCBOR(cborData []byte) error {
 			"decode Dijkstra Leios certificate signers: %w",
 			err,
 		)
+	}
+	if err := common.ValidateLeiosSignerBitfieldSize(signers); err != nil {
+		return err
 	}
 	var aggSig []byte
 	if _, err := cbor.Decode(items[1], &aggSig); err != nil {
@@ -343,6 +346,11 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 	perasCert, err := decodeDijkstraPerasCertificate(items[txField+2])
 	if err != nil {
 		return err
+	}
+	if leiosCert != nil && len(txs) > 0 {
+		return &LeiosCertifiedBlockTransactionsError{
+			TransactionCount: len(txs),
+		}
 	}
 	b.Transactions = txs
 	if !legacy {
@@ -625,10 +633,23 @@ func (o *DijkstraTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		); err != nil {
 			return err
 		}
+		// Dijkstra is past decoder version 9, where fromCborBothAddr replaces
+		// decodePtrLenient with decodePtr, so an out-of-range pointer is
+		// rejected rather than normalized.
+		if err := common.CheckAddressPointerInRange(
+			tmp.OutputAddress,
+		); err != nil {
+			return err
+		}
 		o.Output = &tmp
 	case cbor.CborTypeMap:
 		var tmp babbage.BabbageTransactionOutput
 		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		if err := common.CheckAddressPointerInRange(
+			tmp.OutputAddress,
+		); err != nil {
 			return err
 		}
 		o.Output = &tmp
@@ -638,7 +659,7 @@ func (o *DijkstraTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 			cborData[0],
 		)
 	}
-	if err := checkMultiAssetDuplicateKeys(o.Output.Assets()); err != nil {
+	if err := checkMultiAssetEncoding(o.Output.Assets()); err != nil {
 		return err
 	}
 	o.SetCborReference(cborData)
@@ -1088,14 +1109,14 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
 		return err
 	}
-	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
+	if err := checkMultiAssetEncoding(tmp.TxMint); err != nil {
 		return err
 	}
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}
 	if tmp.TxCollateralReturn != nil {
-		if err := checkMultiAssetDuplicateKeys(
+		if err := checkMultiAssetEncoding(
 			tmp.TxCollateralReturn.Assets(),
 		); err != nil {
 			return fmt.Errorf("collateral return: %w", err)
@@ -1144,13 +1165,23 @@ func validateDijkstraCertificateTypes(
 	return nil
 }
 
-func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
+// checkMultiAssetEncoding rejects the multiasset wire forms cardano-ledger
+// refuses from protocol version 12: a duplicate map key, a zero asset
+// quantity, a policy with an empty asset map, and — unlike Conway — an empty
+// outer map.
+func checkMultiAssetEncoding[T int64 | uint64 | *big.Int](
 	assets *common.MultiAsset[T],
 ) error {
 	if assets == nil {
 		return nil
 	}
-	return assets.CheckForDuplicateKeys()
+	if err := assets.CheckForDuplicateKeys(); err != nil {
+		return err
+	}
+	if err := assets.CheckForZeroAssets(); err != nil {
+		return err
+	}
+	return assets.CheckForEmptyMultiAsset()
 }
 
 func (b *DijkstraTransactionBody) Inputs() []common.TransactionInput {
@@ -1421,7 +1452,7 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
 		return err
 	}
-	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
+	if err := checkMultiAssetEncoding(tmp.TxMint); err != nil {
 		return err
 	}
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {

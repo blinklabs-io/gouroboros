@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"runtime"
@@ -23,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
@@ -1121,7 +1123,12 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 
-func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
+// TestBootstrapPhaseAllowsDijkstraParameterChangeFields covers the Dijkstra
+// side of the bootstrap rule set with a ParameterChange carrying a
+// Dijkstra-only parameter. Every bootstrap-phase rule must accept it: the
+// bootstrap gate restricts governance action types, never the parameters a
+// ParameterChange updates.
+func TestBootstrapPhaseAllowsDijkstraParameterChangeFields(t *testing.T) {
 	refScriptCostStride := uint32(25600)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
@@ -1145,24 +1152,29 @@ func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
 			},
 		},
 	}
-	err := UtxoValidateBootstrapParameterGroups(tx, 0, nil, pv9Params)
-	var bootstrapErr conway.BootstrapDisallowedParameterChangeError
-	require.ErrorAs(t, err, &bootstrapErr)
-	require.Equal(t, []string{"RefScriptCostStride"}, bootstrapErr.Fields)
 
-	pv10Params := &DijkstraProtocolParameters{
-		ConwayProtocolParameters: conway.ConwayProtocolParameters{
-			ProtocolVersion: common.ProtocolParametersProtocolVersion{
-				Major: common.ProtocolVersionPlomin,
-			},
-		},
+	var bootstrapRules int
+	for _, descriptor := range UtxoValidationRuleDescriptors() {
+		if !strings.HasPrefix(string(descriptor.Id), "bootstrap-") {
+			continue
+		}
+		bootstrapRules++
+		require.NoErrorf(
+			t,
+			descriptor.Validator(tx, 0, nil, pv9Params),
+			"rule %q rejected a bootstrap-phase ParameterChange",
+			descriptor.Id,
+		)
 	}
-	require.NoError(t, UtxoValidateBootstrapParameterGroups(
-		tx,
-		0,
-		nil,
-		pv10Params,
-	))
+	require.NotZero(t, bootstrapRules, "no bootstrap-phase rule descriptors")
+
+	// The loop matches descriptors by id prefix, so it would still pass if the
+	// surviving action-type gate stopped being registered. Naming the function
+	// keeps that symbol referenced from the test.
+	require.NoError(
+		t,
+		UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, pv9Params),
+	)
 }
 
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
@@ -1842,4 +1854,137 @@ func TestDijkstraRefScriptFeeUsesConwayDefaults(t *testing.T) {
 			require.Equal(t, uint64(56_320), minFee)
 		})
 	}
+}
+
+// See TestUtxoValidateInsufficientCollateralRoundsUp in ledger/alonzo:
+// Dijkstra inherits the Alonzo collateral balance rule unchanged.
+func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
+	t.Parallel()
+	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	testProtocolParams := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			CollateralPercentage: 150,
+		},
+	}
+	validate := func(t *testing.T, fee, collateral uint64) error {
+		t.Helper()
+		tx := &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxFee: fee,
+				TxCollateral: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(
+							testInputTxId,
+							0,
+						),
+					},
+					false,
+				),
+			},
+			WitnessSet: DijkstraTransactionWitnessSet{
+				WsRedeemers: DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{}: {},
+					},
+				},
+			},
+		}
+		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
+			[]common.Utxo{
+				{
+					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Output: shelley.ShelleyTransactionOutput{
+						OutputAmount: collateral,
+					},
+				},
+			},
+		).Build()
+		return UtxoValidateInsufficientCollateral(
+			tx,
+			0,
+			ls,
+			testProtocolParams,
+		)
+	}
+	t.Run("one lovelace short of the ceiling", func(t *testing.T) {
+		t.Parallel()
+		err := validate(t, 101, 151)
+		var collateralErr alonzo.InsufficientCollateralError
+		require.ErrorAs(t, err, &collateralErr)
+		require.Equal(t, uint64(152), collateralErr.Required)
+		require.Equal(t, uint64(151), collateralErr.Provided)
+	})
+	t.Run("exactly the ceiling", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, validate(t, 101, 152))
+	})
+	t.Run("exact multiple of 100 is not rounded up", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, validate(t, 100, 150))
+	})
+}
+
+// See TestBabbageMinCoinTxOutOverflow: Dijkstra carries the same uint64
+// multiply.
+func TestDijkstraMinCoinTxOutOverflow(t *testing.T) {
+	t.Parallel()
+	txOut := DijkstraTransactionOutput{}
+	_, err := MinCoinTxOut(
+		txOut,
+		&DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				AdaPerUtxoByte: math.MaxUint64,
+			},
+		},
+	)
+	require.ErrorContains(t, err, "overflow")
+
+	minCoin, err := MinCoinTxOut(
+		txOut,
+		&DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				AdaPerUtxoByte: 4310,
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.Positive(t, minCoin)
+}
+
+// The guard must sit exactly at the uint64 boundary: the largest product that
+// still fits is a valid requirement and has to be returned exactly, while the
+// next one up has to be rejected rather than wrapped to a small requirement.
+func TestDijkstraMinCoinTxOutBoundary(t *testing.T) {
+	t.Parallel()
+	txOut := DijkstraTransactionOutput{}
+	entrySize, err := MinCoinTxOut(
+		txOut,
+		&DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				AdaPerUtxoByte: 1,
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.Positive(t, entrySize)
+	largest := uint64(math.MaxUint64) / entrySize
+	minCoin, err := MinCoinTxOut(
+		txOut,
+		&DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				AdaPerUtxoByte: largest,
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, largest*entrySize, minCoin)
+	_, err = MinCoinTxOut(
+		txOut,
+		&DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				AdaPerUtxoByte: largest + 1,
+			},
+		},
+	)
+	require.ErrorContains(t, err, "overflow")
 }

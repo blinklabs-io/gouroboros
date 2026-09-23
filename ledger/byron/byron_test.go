@@ -26,10 +26,13 @@ import (
 
 // Unit test for ByronTransactionInput.Utxorpc()
 func TestByronTransactionInput_Utxorpc(t *testing.T) {
-	input := byron.NewByronTransactionInput(
+	input, err := byron.NewByronTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		1,
 	)
+	if err != nil {
+		t.Fatalf("Could not create transaction input: %v", err)
+	}
 
 	got, err := input.Utxorpc()
 	if err != nil {

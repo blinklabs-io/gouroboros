@@ -292,6 +292,13 @@ func (p *BabbageProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	}, nil
 }
 
+// UpgradePParams derives the Babbage protocol parameters from the preceding
+// Alonzo ones. Alonzo's key 17 is a price per 8-byte word, so it is divided by
+// 8 here to become Babbage's per-byte price rather than carried across
+// unchanged.
+//
+// Reference: coinsPerUTxOWordToCoinsPerUTxOByte in
+// eras/babbage/impl/src/Cardano/Ledger/Babbage/PParams.hs.
 func UpgradePParams(
 	prevPParams alonzo.AlonzoProtocolParameters,
 ) BabbageProtocolParameters {
@@ -311,7 +318,7 @@ func UpgradePParams(
 		ProtocolMajor:        prevPParams.ProtocolMajor,
 		ProtocolMinor:        prevPParams.ProtocolMinor,
 		MinPoolCost:          prevPParams.MinPoolCost,
-		AdaPerUtxoByte:       prevPParams.AdaPerUtxoByte,
+		AdaPerUtxoByte:       prevPParams.AdaPerUtxoByte / 8,
 		CostModels:           prevPParams.CostModels,
 		ExecutionCosts:       prevPParams.ExecutionCosts,
 		MaxTxExUnits:         prevPParams.MaxTxExUnits,

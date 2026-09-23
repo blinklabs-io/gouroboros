@@ -112,6 +112,29 @@ func TestNewClient(t *testing.T) {
 	assert.NotNil(t, client.config)
 }
 
+func TestVoteLoopStartupContainsCallbackPanic(t *testing.T) {
+	errorChan := make(chan error, 1)
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: testConnectionId(),
+		ErrorChan:    errorChan,
+	}, &Config{
+		VoteFunc: func(CallbackContext, Vote) error {
+			panic("injected vote callback panic")
+		},
+	})
+	client.startVoteLoop(1)
+	client.voteChan <- Vote{}
+
+	select {
+	case err := <-errorChan:
+		require.ErrorIs(t, err, protocol.ErrHandlerPanic)
+		require.ErrorContains(t, err, "vote loop")
+		require.ErrorContains(t, err, "injected vote callback panic")
+	case <-time.After(5 * time.Second):
+		t.Fatal("vote callback panic was not reported")
+	}
+}
+
 func TestNewClientNormalizesZeroValueConfig(t *testing.T) {
 	cfg := Config{}
 	client := NewClient(
@@ -141,6 +164,43 @@ func TestNewClientWithConfig(t *testing.T) {
 	assert.Equal(t, 10*time.Second, client.config.Timeout)
 	assert.Equal(t, uint64(25), client.config.RequestNextCount)
 	assert.Equal(t, 2, client.config.PipelineLimit)
+}
+
+func TestVoteCallbackPanicFailsProtocol(t *testing.T) {
+	errorChan := make(chan error, 1)
+	cfg := NewConfig(WithVoteFunc(func(CallbackContext, Vote) error {
+		panic("injected vote callback panic")
+	}))
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: testConnectionId(),
+		ErrorChan:    errorChan,
+	}, &cfg)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		client.Protocol.RunLoop("vote loop", func() {
+			client.voteLoop(1)
+		})
+	}()
+
+	select {
+	case client.voteChan <- testVote():
+	case <-time.After(time.Second):
+		t.Fatal("vote loop did not accept the test vote")
+	}
+	select {
+	case err := <-errorChan:
+		require.ErrorIs(t, err, protocol.ErrHandlerPanic)
+		require.ErrorContains(t, err, "vote loop")
+		require.ErrorContains(t, err, "injected vote callback panic")
+	case <-time.After(5 * time.Second):
+		t.Fatal("vote callback panic was not reported")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("vote loop did not stop after callback panic")
+	}
 }
 
 func TestClientMessageHandler(t *testing.T) {

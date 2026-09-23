@@ -78,10 +78,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateBootstrapAllowedGovActions,
 	},
 	{
-		Id:        common.UtxoValidationRuleBootstrapParameterGroups,
-		Validator: UtxoValidateBootstrapParameterGroups,
-	},
-	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
 		Validator: UtxoValidateIsValidFlag,
 	},
@@ -299,7 +295,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateHardForkCanFollow, UtxoValidateProposalAncestry,
 		UtxoValidateProposalDeposit, UtxoValidateProposalNetworkIds,
 		UtxoValidateProposalReturnAccounts, UtxoValidateEmptyTreasuryWithdrawals,
-		UtxoValidateBootstrapAllowedGovActions, UtxoValidateBootstrapParameterGroups,
+		UtxoValidateBootstrapAllowedGovActions,
 	),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
@@ -504,9 +500,11 @@ func UtxoValidateEmptyTreasuryWithdrawals(
 // restriction on which governance action types may be proposed.
 //
 // Pre-Plomin (PV9), only InfoAction, HardForkInitiation, and ParameterChange
-// are permitted (ParameterChange's restricted parameter groups are enforced
-// separately by UtxoValidateBootstrapParameterGroups). TreasuryWithdrawal,
-// NoConfidence, UpdateCommittee, and NewConstitution are rejected.
+// are permitted; TreasuryWithdrawal, NoConfidence, UpdateCommittee, and
+// NewConstitution are rejected. A permitted ParameterChange is unrestricted in
+// which parameters it updates, matching cardano-ledger's isBootstrapAction
+// (Cardano.Ledger.Conway.Rules.Gov), whose ParameterChange arm matches
+// unconditionally.
 //
 // At PV10 (Plomin) and later, all governance action types are allowed.
 func UtxoValidateBootstrapAllowedGovActions(
@@ -532,7 +530,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 		case *common.HardForkInitiationGovAction:
 			// allowed because it is the path out of bootstrap
 		case *ConwayParameterChangeGovAction:
-			// allowed shape; group restriction enforced separately
+			// allowed whatever parameters it updates
 		case *common.TreasuryWithdrawalGovAction:
 			return BootstrapDisallowedGovActionError{
 				ActionType: common.GovActionTypeTreasuryWithdrawal,
@@ -551,39 +549,6 @@ func UtxoValidateBootstrapAllowedGovActions(
 			}
 		default:
 			return fmt.Errorf("unknown governance action type %T", govAction)
-		}
-	}
-	return nil
-}
-
-// UtxoValidateBootstrapParameterGroups enforces the Conway bootstrap-phase
-// restriction that ParameterChange proposals may not touch fields restricted
-// during bootstrap. The Plomin hard fork (PV10) lifts this restriction.
-//
-// See UtxoValidateBootstrapAllowedGovActions for the action-type-level
-// restriction enforced first.
-func UtxoValidateBootstrapParameterGroups(
-	tx common.Transaction,
-	slot uint64,
-	ls common.LedgerState,
-	pp common.ProtocolParameters,
-) error {
-	if !isInConwayBootstrapPhase(pp) {
-		return nil
-	}
-	for _, proposal := range tx.ProposalProcedures() {
-		govAction := proposal.GovAction()
-		if isNilGovAction(govAction) {
-			continue
-		}
-		paramChange, ok := govAction.(*ConwayParameterChangeGovAction)
-		if !ok {
-			continue
-		}
-		if fields := paramChange.ParamUpdate.BootstrapRestrictedFields(); len(
-			fields,
-		) > 0 {
-			return BootstrapDisallowedParameterChangeError{Fields: fields}
 		}
 	}
 	return nil
@@ -1343,6 +1308,16 @@ func UtxoValidateProposalReturnAccounts(
 	if isInConwayBootstrapPhase(pp) {
 		return nil
 	}
+	proposals := tx.ProposalProcedures()
+	if len(proposals) == 0 {
+		return nil
+	}
+	// The reference (conwayGovTransition, processProposal) checks the
+	// return address and treasury withdrawal addresses against
+	// certStateAfterCERTS, not against pre-transaction ledger state: a
+	// stake account this same transaction registers via an earlier
+	// certificate is a valid return account (gouroboros#2386).
+	overlay := newConwayCertsOverlay(tx, ls)
 	isRegistered := func(addr common.Address) bool {
 		// The CDDL reward_account type only permits the two
 		// none-payment-credential address types (AddressTypeNoneKey /
@@ -1356,9 +1331,9 @@ func UtxoValidateProposalReturnAccounts(
 			return false
 		}
 		cred, ok := addr.StakeCredential()
-		return ok && ls.IsStakeCredentialRegistered(cred)
+		return ok && overlay.IsStakeCredentialRegistered(cred)
 	}
-	for _, proposal := range tx.ProposalProcedures() {
+	for _, proposal := range proposals {
 		returnAddr := proposal.RewardAccount()
 		if !isRegistered(returnAddr) {
 			return ProposalReturnAccountDoesNotExistError{Address: returnAddr}
@@ -2109,30 +2084,15 @@ func UtxoValidateInsufficientCollateral(
 			totalCollateral.Add(totalCollateral, amount)
 		}
 	}
-	// minCollateral = fee * collateralPercentage / 100
 	fee := tmpTx.Fee()
 	if fee == nil {
 		fee = new(big.Int)
 	}
-	minCollateral := new(
-		big.Int,
-	).Mul(fee, new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)))
-	minCollateral.Div(minCollateral, big.NewInt(100))
-	if totalCollateral.Cmp(minCollateral) >= 0 {
-		return nil
-	}
-	// Convert to uint64 for error struct (best effort)
-	var providedU, requiredU uint64
-	if totalCollateral.IsUint64() {
-		providedU = totalCollateral.Uint64()
-	}
-	if minCollateral.IsUint64() {
-		requiredU = minCollateral.Uint64()
-	}
-	return alonzo.InsufficientCollateralError{
-		Provided: providedU,
-		Required: requiredU,
-	}
+	return alonzo.ValidateInsufficientCollateral(
+		totalCollateral,
+		fee,
+		tmpPparams.CollateralPercentage,
+	)
 }
 
 func UtxoValidateCollateralContainsNonAda(
@@ -2943,8 +2903,16 @@ func MinCoinTxOut(
 	if err != nil {
 		return 0, err
 	}
-	minCoinTxOut := tmpPparams.AdaPerUtxoByte * (minUtxoOverheadBytes + uint64(len(txOutBytes)))
-	return minCoinTxOut, nil
+	// The reference computes this in unbounded Integer arithmetic, so a
+	// coinsPerUTxOByte large enough to overflow uint64 yields a requirement
+	// no output can meet. Wrapping would instead produce a small
+	// requirement and admit those outputs.
+	entrySize := minUtxoOverheadBytes + uint64(len(txOutBytes))
+	if tmpPparams.AdaPerUtxoByte != 0 &&
+		entrySize > math.MaxUint64/tmpPparams.AdaPerUtxoByte {
+		return 0, errors.New("minimum UTxO value overflow")
+	}
+	return tmpPparams.AdaPerUtxoByte * entrySize, nil
 }
 
 func UtxoValidateMetadata(
@@ -4272,7 +4240,15 @@ func UtxoValidateUnknownVoters(
 		return nil
 	}
 
-	var committeeState common.CommitteeCredentialState
+	// The reference (conwayGovTransition, internVoter) resolves every
+	// voter type against certStateAfterCERTS, not against pre-transaction
+	// ledger state: a DRep, pool, or committee hot key this same
+	// transaction registers or authorizes via an earlier certificate is a
+	// known voter (gouroboros#2386).
+	overlay := newConwayCertsOverlay(tx, ls)
+	committeeStateChecked := false
+	var committeeStateAvailable bool
+	var committeeStateErr error
 
 	for voter := range votes {
 		if voter == nil {
@@ -4288,7 +4264,7 @@ func UtxoValidateUnknownVoters(
 			if voter.Type == common.VoterTypeDRepScriptHash {
 				credentialType = common.CredentialTypeScriptHash
 			}
-			reg, err := ls.DRepRegistration(common.Credential{
+			reg, err := overlay.DRepRegistration(common.Credential{
 				CredType:   credentialType,
 				Credential: common.Blake2b224(voter.Hash),
 			})
@@ -4300,7 +4276,7 @@ func UtxoValidateUnknownVoters(
 			}
 
 		case common.VoterTypeStakingPoolKeyHash:
-			if !ls.IsPoolRegistered(common.PoolKeyHash(voter.Hash)) {
+			if !overlay.IsPoolRegistered(common.PoolKeyHash(voter.Hash)) {
 				return UnknownVoterError{Voter: *voter}
 			}
 
@@ -4321,21 +4297,17 @@ func UtxoValidateUnknownVoters(
 					Err:              err,
 				}
 			}
-			if committeeState == nil {
-				var ok bool
-				committeeState, ok = common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
-				if !ok {
-					return lookupError(CommitteeStateUnavailableError{})
-				}
-				available, err := committeeState.CommitteeStateAvailable()
-				if err != nil {
-					return lookupError(err)
-				}
-				if !available {
-					return lookupError(CommitteeStateUnavailableError{})
-				}
+			if !committeeStateChecked {
+				committeeStateChecked = true
+				committeeStateAvailable, committeeStateErr = overlay.CommitteeStateAvailable()
 			}
-			member, err := committeeState.CommitteeHotCredentialMember(
+			if committeeStateErr != nil {
+				return lookupError(committeeStateErr)
+			}
+			if !committeeStateAvailable {
+				return lookupError(CommitteeStateUnavailableError{})
+			}
+			member, err := overlay.CommitteeHotCredentialMember(
 				hotCredential,
 			)
 			if err != nil {

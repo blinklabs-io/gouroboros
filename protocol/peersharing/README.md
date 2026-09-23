@@ -55,6 +55,33 @@ none.
 The default is exposed as `peersharing.BusyTimeout`. The server's timeout can
 be overridden per connection via `peersharing.WithTimeout`.
 
+## Size limits
+
+| Limit | Value | Applies to |
+|-------|-------|------------|
+| `MaxPendingMessageBytes` | 5,760 | Pending message bytes in the Idle and Busy states |
+| `MaxSharedPeers` | 230 | Addresses the server will put in one `SharePeers` |
+
+`MaxPendingMessageBytes` is the reference implementation's figure, used there
+both as the mini-protocol ingress queue (`peerSharingProtocolLimits`) and as
+the per-state codec size limit (`byteLimitsPeerSharing`): four 1440-byte TCP
+segments, one initial congestion window, so a request and its reply complete
+within a single round trip. The protocol framework refuses a received message
+above it and fails the protocol.
+
+`MaxSharedPeers` follows from that. A `PeerAddress` encodes to at most 25
+bytes in its IPv6 form (6-element array header, peer type, four `uint32` words
+at 5 bytes each, 3-byte port) and 10 bytes in its IPv4 form. A `SharePeers`
+message adds a 2-byte frame and, above 23 entries, a 2-byte array header, so
+230 maximum-size addresses encode to 5,754 bytes and 231 to 5,779. Because
+`Amount` is a `uint8`, a peer may ask for 255, whose maximum-size reply would
+encode to 6,379 bytes and exceed the limit.
+
+The client additionally rejects a `SharePeers` carrying more addresses than it
+asked for with `ErrTooManyPeersShared`. The protocol permits a shorter reply;
+a longer one is a protocol violation, and the reference implementation raises
+`PeerSharingProtocolViolation` in the same case.
+
 ## Handshake negotiation
 
 PeerSharing is gated by the handshake's `PeerSharing` mode field. Each side
@@ -112,10 +139,11 @@ Protocol-level option helpers (in
 | `WithLocalDisabled(bool)` | Internal: set by the connection layer when the local node advertised NoPeerSharing. Exposed for tests. |
 | `WithRemoteDisabled(bool)` | Internal: set by the connection layer when the remote peer advertised NoPeerSharing. Exposed for tests. |
 
-`ShareRequestFunc` is responsible for any per-request budget enforcement.
-gouroboros does not cap the `Amount` value or the size of the returned slice
-beyond the protocol's own `uint8` limit on `Amount`; operators that want to
-publish fewer peers should clamp inside the callback.
+`ShareRequestFunc` selects which peers to publish. The server clamps whatever
+the callback returns to the smaller of the requested `Amount` and
+`MaxSharedPeers`, so a longer slice publishes only its leading entries;
+operators that want to publish fewer peers, or to choose which ones, should
+clamp inside the callback. See [Size limits](#size-limits).
 
 ## Usage
 
@@ -203,7 +231,7 @@ IPv6 shapes.
 ## Notes
 
 - Nodes typically share only peers they have successfully connected to.
-- Responses may contain fewer peers than requested.
+- Responses may contain fewer peers than requested, but never more.
 - The protocol complements DNS-based discovery; it is not a replacement.
 - Privacy: the `Private` mode (v11/v12 only) is treated as "active" by
   gouroboros. Selection-policy semantics for that mode are not enforced here;

@@ -182,7 +182,6 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateProposalReturnAccounts,       // UtxoValidationRuleProposalReturnAccounts
 		conway.UtxoValidateEmptyTreasuryWithdrawals,     // UtxoValidationRuleEmptyTreasuryWithdrawals
 		conway.UtxoValidateBootstrapAllowedGovActions,   // UtxoValidationRuleBootstrapAllowedGovActions
-		conway.UtxoValidateBootstrapParameterGroups,     // UtxoValidationRuleBootstrapParameterGroups
 		conway.UtxoValidateIsValidFlag,                  // UtxoValidationRuleIsValidFlag
 		conway.UtxoValidateRequiredVKeyWitnesses,        // UtxoValidationRuleRequiredVKeyWitnesses
 		conway.UtxoValidateCollateralVKeyWitnesses,      // UtxoValidationRuleCollateralVKeyWitnesses
@@ -244,7 +243,6 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateProposalReturnAccounts,         // UtxoValidationRuleProposalReturnAccounts
 		conway.UtxoValidateEmptyTreasuryWithdrawals,       // UtxoValidationRuleEmptyTreasuryWithdrawals
 		dijkstra.UtxoValidateBootstrapAllowedGovActions,   // UtxoValidationRuleBootstrapAllowedGovActions
-		dijkstra.UtxoValidateBootstrapParameterGroups,     // UtxoValidationRuleBootstrapParameterGroups
 		dijkstra.UtxoValidateIsValidFlag,                  // UtxoValidationRuleIsValidFlag
 		dijkstra.UtxoValidateRequiredVKeyWitnesses,        // UtxoValidationRuleRequiredVKeyWitnesses
 		conway.UtxoValidateCollateralVKeyWitnesses,        // UtxoValidationRuleCollateralVKeyWitnesses

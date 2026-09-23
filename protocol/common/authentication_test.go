@@ -881,3 +881,55 @@ func TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne(t *testing.T) {
 	// evolution).
 	assert.Error(t, auth.VerifyMessageWithSlot(msg, 0))
 }
+
+// TestOpCertCacheAdmitsOnlyAuthorizedPools pins the property the opcert
+// cache's memory bound rests on: verifyMessageInternal runs stake
+// authorization and both signature checks before verifyKESPeriodRotation
+// records anything. An entry therefore costs a sender a pool that holds
+// active stake plus possession of its cold and KES keys, which makes the key
+// space the stake distribution rather than anything a remote peer chooses.
+// Reordering the checks, or recording a sighting on a failed message, would
+// turn the map into peer-controlled state.
+func TestOpCertCacheAdmitsOnlyAuthorizedPools(t *testing.T) {
+	t.Parallel()
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+	})
+	require.NoError(t, err)
+
+	// A correctly signed message from a pool with no active stake.
+	unstaked := buildSignedTestMessage(t, 100, 100)
+	require.ErrorIs(
+		t,
+		auth.VerifyMessage(unstaked),
+		ErrPoolNotInStakeDistribution,
+	)
+	require.Empty(
+		t,
+		auth.kesOpCertCache,
+		"an unauthorized pool created an opcert cache entry",
+	)
+
+	// A staked pool whose operational certificate does not verify.
+	forged := buildSignedTestMessage(t, 100, 100)
+	forgedID, err := poolKeyHash(forged.ColdVerificationKey)
+	require.NoError(t, err)
+	stake.register(forgedID, 1000)
+	forged.OperationalCertificate.ColdSignature = make([]byte, 64)
+	require.Error(t, auth.VerifyMessage(forged))
+	require.Empty(
+		t,
+		auth.kesOpCertCache,
+		"a message that failed verification created an opcert cache entry",
+	)
+
+	// Only a fully authorized message records a sighting.
+	valid := buildSignedTestMessage(t, 100, 100)
+	validID, err := poolKeyHash(valid.ColdVerificationKey)
+	require.NoError(t, err)
+	stake.register(validID, 1000)
+	require.NoError(t, auth.VerifyMessage(valid))
+	require.Len(t, auth.kesOpCertCache, 1)
+	require.Contains(t, auth.kesOpCertCache, validID)
+}
