@@ -147,11 +147,11 @@ func TestByronWitnessRequiresTag24(t *testing.T) {
 	})
 }
 
-// encodeByronTransaction builds a minimal but structurally valid Byron
-// transaction with an empty body and the given raw witness list CBOR, for
-// exercising ByronTransaction.UnmarshalCBOR's decode-time witness
-// validation.
-func encodeByronTransaction(t *testing.T, twitCbor []byte) []byte {
+// encodeByronTransactionWithWitnesses builds a minimal but structurally
+// valid Byron transaction with an empty body and the given raw witness
+// list CBOR, for exercising ByronTransaction.UnmarshalCBOR's decode-time
+// witness validation.
+func encodeByronTransactionWithWitnesses(t *testing.T, twitCbor []byte) []byte {
 	t.Helper()
 	body, err := cbor.Encode([]any{[]any{}, []any{}, map[any]any{}})
 	require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
 		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
 		require.NoError(t, err)
 		var tx byron.ByronTransaction
-		require.NoError(t, tx.UnmarshalCBOR(encodeByronTransaction(t, twit)))
+		require.NoError(t, tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)))
 		require.Len(t, tx.Witnesses().Vkey(), 1)
 	})
 
@@ -184,7 +184,7 @@ func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
 		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
 		require.NoError(t, err)
 		var tx byron.ByronTransaction
-		require.Error(t, tx.UnmarshalCBOR(encodeByronTransaction(t, twit)))
+		require.Error(t, tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)))
 	})
 
 	t.Run("unknown witness constructor fails the whole transaction", func(t *testing.T) {
@@ -197,7 +197,7 @@ func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
 		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
 		require.NoError(t, err)
 		var tx byron.ByronTransaction
-		require.Error(t, tx.UnmarshalCBOR(encodeByronTransaction(t, twit)))
+		require.Error(t, tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)))
 	})
 }
 
