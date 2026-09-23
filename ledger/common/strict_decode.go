@@ -259,6 +259,9 @@ func (a *GovAnchor) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &decoded); err != nil {
 		return fmt.Errorf("decode governance anchor: %w", err)
 	}
+	if err := validateGovAnchorURL(decoded.Url); err != nil {
+		return err
+	}
 	a.Url = decoded.Url
 	copy(a.DataHash[:], decoded.DataHash[:])
 	return nil

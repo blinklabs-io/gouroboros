@@ -78,6 +78,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateBootstrapAllowedGovActions,
 	},
 	{
+		Id:        common.UtxoValidationRuleProposalReturnAddressShape,
+		Validator: common.UtxoValidateProposalReturnAddressShape,
+	},
+	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
 		Validator: UtxoValidateIsValidFlag,
 	},
@@ -297,6 +301,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateProposalReturnAccounts, UtxoValidateEmptyTreasuryWithdrawals,
 		UtxoValidateBootstrapAllowedGovActions,
 	),
+	common.AlwaysUtxoValidationRules(common.UtxoValidateProposalReturnAddressShape),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
 		UtxoValidateCollateralVKeyWitnesses, UtxoValidateRedeemerAndScriptWitnesses,
@@ -1146,8 +1151,9 @@ func UtxoValidateHardForkCanFollow(
 // the proposalsAddAction call in conwayGovTransition,
 // eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs lines 550-556):
 // the proposal's predecessor must either equal the current root of that
-// purpose chain, including the case where both are absent, or be a proposal
-// of that purpose that is still pending.
+// purpose chain, including the case where both are absent, or be a live
+// proposal of that purpose. A RATIFY expiry classification remains live until
+// EPOCH applies it and removes the action from the proposal tree.
 //
 // The current root is only available when the ledger state implements the
 // optional common.GovPurposeRootsState capability. Without it this rule
@@ -1213,7 +1219,7 @@ func UtxoValidateProposalAncestry(
 					"earlier proposal of the same purpose in this transaction",
 			}
 		}
-		// Otherwise the predecessor must be a pending proposal of the same
+		// Otherwise the predecessor must be a live proposal of the same
 		// purpose recorded in the ledger state.
 		if ls == nil {
 			return InvalidGovActionAncestorError{
@@ -1241,20 +1247,10 @@ func UtxoValidateProposalAncestry(
 				Reason:   "referenced ancestor governance action has a mismatched purpose",
 			}
 		}
-		// An expired proposal is no longer in the purpose tree, so it cannot
-		// be a predecessor. ExpirySlot is optional in the LedgerState
-		// contract (see UtxoValidateVotingOnExpiredGovAction): a state
-		// provider that does not model expiry leaves it zero, which is
-		// treated as "expiry not modeled" rather than "expired at slot 0".
-		if ancestorState.ExpirySlot != 0 && slot > ancestorState.ExpirySlot {
-			return InvalidGovActionAncestorError{
-				ActionId: *ancestorId,
-				Reason: fmt.Sprintf(
-					"referenced ancestor governance action expired at slot %d",
-					ancestorState.ExpirySlot,
-				),
-			}
-		}
+		// Expiry classification does not remove an action from the live
+		// proposal tree. EPOCH applies that result later; until then, child
+		// proposals may still name this ancestor. Votes have a separate
+		// expiry check in UtxoValidateVotingOnExpiredGovAction.
 	}
 	return nil
 }
@@ -1684,6 +1680,20 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	// Redeemer/script relation applies only to Plutus scripts. Native scripts
 	// do NOT require redeemers.
 	wits := tx.Witnesses()
+	if conwayPp, ok := pp.(*ConwayProtocolParameters); ok &&
+		conwayPp.ProtocolVersion.Major >= common.ProtocolVersionConway &&
+		wits != nil {
+		if rawWitnesses, ok := wits.(interface{ Cbor() []byte }); ok &&
+			len(rawWitnesses.Cbor()) > 0 {
+			if err := cbor.ValidateMapFields(
+				rawWitnesses.Cbor(),
+				[]uint64{},
+				[]uint64{0, 1, 2, 3, 4, 5, 6, 7},
+			); err != nil {
+				return fmt.Errorf("invalid Conway witness set: %w", err)
+			}
+		}
+	}
 	redeemerCount := 0
 	if wits != nil {
 		if r := wits.Redeemers(); r != nil {
@@ -2249,6 +2259,60 @@ func UtxoValidateBadInputsUtxo(
 	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
 }
 
+// ValidateTreasuryDonationScriptCompatibility rejects donations at a
+// transaction level that uses PlutusV1 or PlutusV2 scripts.
+func ValidateTreasuryDonationScriptCompatibility(
+	tx common.Transaction,
+	ls common.LedgerState,
+) error {
+	donation := tx.Donation()
+	if donation == nil || donation.Sign() <= 0 {
+		return nil
+	}
+	witnesses := tx.Witnesses()
+	plutusVersion := ""
+	if witnesses != nil {
+		if len(witnesses.PlutusV1Scripts()) > 0 {
+			plutusVersion = "PlutusV1"
+		} else if len(witnesses.PlutusV2Scripts()) > 0 {
+			plutusVersion = "PlutusV2"
+		}
+	}
+	if plutusVersion == "" {
+		for _, refInput := range tx.ReferenceInputs() {
+			utxo, err := ls.UtxoById(refInput)
+			if err != nil {
+				return common.ReferenceInputResolutionError{
+					Input: refInput,
+					Err:   err,
+				}
+			}
+			if utxo.Output == nil {
+				continue
+			}
+			switch utxo.Output.ScriptRef().(type) {
+			case common.PlutusV1Script:
+				plutusVersion = "PlutusV1"
+			case common.PlutusV2Script:
+				plutusVersion = "PlutusV2"
+			}
+			if plutusVersion != "" {
+				break
+			}
+		}
+	}
+	if plutusVersion == "" {
+		return nil
+	}
+	var donationU uint64
+	if donation.IsUint64() {
+		donationU = donation.Uint64()
+	}
+	return TreasuryDonationWithPlutusV1V2Error{
+		Donation: donationU, PlutusVersion: plutusVersion,
+	}
+}
+
 func UtxoValidateValueNotConservedUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2411,59 +2475,12 @@ func UtxoValidateValueNotConservedUtxo(
 			new(big.Int).SetUint64(proposal.Deposit()),
 		)
 	}
-	// Add treasury donation - value leaving the transaction to go to the treasury
-	// Treasury donations are a Conway feature and cannot be used with PlutusV1/V2 scripts
+	// Add treasury donation - value leaving the transaction to go to the treasury.
 	donation := tx.Donation()
 	if donation != nil && donation.Sign() > 0 {
-		// Check if transaction uses PlutusV1 or PlutusV2 scripts in witnesses
-		witnesses := tx.Witnesses()
-		plutusVersion := ""
-		if witnesses != nil {
-			if len(witnesses.PlutusV1Scripts()) > 0 {
-				plutusVersion = "PlutusV1"
-			} else if len(witnesses.PlutusV2Scripts()) > 0 {
-				plutusVersion = "PlutusV2"
-			}
+		if err := ValidateTreasuryDonationScriptCompatibility(tx, ls); err != nil {
+			return err
 		}
-		// Also check reference scripts on reference inputs
-		if plutusVersion == "" {
-			for _, refInput := range tx.ReferenceInputs() {
-				utxo, err := ls.UtxoById(refInput)
-				if err != nil {
-					return common.ReferenceInputResolutionError{
-						Input: refInput,
-						Err:   err,
-					}
-				}
-				if utxo.Output == nil {
-					continue
-				}
-				script := utxo.Output.ScriptRef()
-				if script != nil {
-					switch script.(type) {
-					case common.PlutusV1Script:
-						plutusVersion = "PlutusV1"
-					case common.PlutusV2Script:
-						plutusVersion = "PlutusV2"
-					}
-					if plutusVersion != "" {
-						break
-					}
-				}
-			}
-		}
-		// Return explicit error if donation is used with PlutusV1/V2 scripts
-		if plutusVersion != "" {
-			var donationU uint64
-			if donation.IsUint64() {
-				donationU = donation.Uint64()
-			}
-			return TreasuryDonationWithPlutusV1V2Error{
-				Donation:      donationU,
-				PlutusVersion: plutusVersion,
-			}
-		}
-		// Only apply donation if not using PlutusV1/V2 scripts
 		producedValue.Add(producedValue, donation)
 	}
 	if consumedValue.Cmp(producedValue) != 0 {
@@ -4013,6 +4030,14 @@ func UtxoValidateCertificateDeposits(
 				}
 			}
 			drepStates[stakeKey(c.DrepCredential)] = nil
+		case *common.UpdateDrepCertificate:
+			registration, err := loadDRep(c.DrepCredential)
+			if err != nil {
+				return err
+			}
+			if registration == nil {
+				return DRepNotRegisteredError{Credential: c.DrepCredential}
+			}
 		}
 	}
 	return nil

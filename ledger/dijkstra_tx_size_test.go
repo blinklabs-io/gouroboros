@@ -41,7 +41,8 @@ func oversizedDijkstraTxCbor(t *testing.T) []byte {
 		credential[0] = byte(i)
 		credential[1] = byte(i >> 8)
 		credential[2] = byte(i >> 16)
-		deposits[cbor.NewByteString(credential)] = uint64(i + 1)
+		address := append([]byte{0xe0}, credential...)
+		deposits[cbor.NewByteString(address)] = uint64(i + 1)
 	}
 	txCbor, err := cbor.Encode([]any{
 		map[uint]any{
