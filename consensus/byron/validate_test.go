@@ -153,13 +153,13 @@ func TestValidateSlotOrdering(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "slot equal (invalid for non-EBB)",
+			name: "slot equal for non-EBB",
 			input: &ValidateHeaderInput{
 				Slot:     100,
 				PrevSlot: 100,
 				IsEBB:    false,
 			},
-			expectError: true,
+			expectError: false,
 		},
 		{
 			name: "EBB can have equal slot",
@@ -1149,16 +1149,13 @@ func TestValidateProxySignaturePreservesNonShortestEpochRange(t *testing.T) {
 }
 
 func TestValidateGenesisDelegate(t *testing.T) {
-	// Generate test key
-	pubKey, _, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("ed25519.GenerateKey failed: %v", err)
-	}
-	keyHash := common.Blake2b224Hash(pubKey).Bytes()
+	pubKey, _ := deterministicPBFTVerificationKey(0x71)
+	keyHash, err := PBFTVerificationKeyHash(pubKey)
+	require.NoError(t, err)
 
 	// Config with known genesis key
 	config := testByronConfig()
-	config.GenesisKeyHashes = [][]byte{keyHash}
+	config.GenesisKeyHashes = [][]byte{keyHash.Bytes()}
 	validator := NewHeaderValidator(config)
 
 	tests := []struct {
@@ -1169,14 +1166,14 @@ func TestValidateGenesisDelegate(t *testing.T) {
 		{
 			name: "valid genesis delegate",
 			input: &ValidateHeaderInput{
-				IssuerPubKey: pubKey,
+				GenesisIssuerKey: pubKey,
 			},
 			expectError: false,
 		},
 		{
 			name: "unknown delegate",
 			input: &ValidateHeaderInput{
-				IssuerPubKey: make([]byte, ed25519.PublicKeySize),
+				GenesisIssuerKey: make([]byte, 64),
 			},
 			expectError: true,
 		},
@@ -1198,23 +1195,38 @@ func TestValidateGenesisDelegate(t *testing.T) {
 	configNoKeys := testByronConfig()
 	validatorNoKeys := NewHeaderValidator(configNoKeys)
 	input := &ValidateHeaderInput{
-		IssuerPubKey: make([]byte, ed25519.PublicKeySize),
+		GenesisIssuerKey: make([]byte, 64),
 	}
 	err = validatorNoKeys.validateGenesisDelegate(input)
 	require.ErrorContains(t, err, "genesis issuer set is empty")
 }
 
+func TestValidateGenesisDelegateRejectsMalformedExtendedKeys(t *testing.T) {
+	key, _ := deterministicPBFTVerificationKey(0x72)
+	hash, err := PBFTVerificationKeyHash(key)
+	require.NoError(t, err)
+	config := testByronConfig()
+	config.GenesisKeyHashes = [][]byte{hash.Bytes()}
+	validator := NewHeaderValidator(config)
+	for _, length := range []int{32, 63, 65} {
+		t.Run(fmt.Sprintf("length_%d", length), func(t *testing.T) {
+			err := validator.validateGenesisDelegate(&ValidateHeaderInput{
+				GenesisIssuerKey: make([]byte, length),
+			})
+			require.ErrorContains(t, err, "key length")
+		})
+	}
+}
+
 func TestValidateSlotLeader(t *testing.T) {
-	// Generate 3 test keys to simulate genesis delegates
-	keys := make([]ed25519.PublicKey, 3)
+	keys := make([][]byte, 3)
 	keyHashes := make([][]byte, 3)
 	for i := range 3 {
-		pubKey, _, err := ed25519.GenerateKey(nil)
-		if err != nil {
-			t.Fatalf("ed25519.GenerateKey failed: %v", err)
-		}
-		keys[i] = pubKey
-		keyHashes[i] = common.Blake2b224Hash(pubKey).Bytes()
+		verificationKey, _ := deterministicPBFTVerificationKey(byte(0x73 + i))
+		keyHash, err := PBFTVerificationKeyHash(verificationKey)
+		require.NoError(t, err)
+		keys[i] = verificationKey
+		keyHashes[i] = keyHash.Bytes()
 	}
 
 	// Config with 3 genesis delegates in order
@@ -1226,7 +1238,7 @@ func TestValidateSlotLeader(t *testing.T) {
 	tests := []struct {
 		name        string
 		slot        uint64
-		issuerKey   ed25519.PublicKey
+		issuerKey   []byte
 		expectError bool
 	}{
 		{
@@ -1288,8 +1300,8 @@ func TestValidateSlotLeader(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			input := &ValidateHeaderInput{
-				Slot:         tc.slot,
-				IssuerPubKey: tc.issuerKey,
+				Slot:             tc.slot,
+				GenesisIssuerKey: tc.issuerKey,
 			}
 			err := validator.validateSlotLeader(input)
 			if tc.expectError {
@@ -1304,8 +1316,8 @@ func TestValidateSlotLeader(t *testing.T) {
 	configNoKeys := testByronConfig()
 	validatorNoKeys := NewHeaderValidator(configNoKeys)
 	inputNoKeys := &ValidateHeaderInput{
-		Slot:         0,
-		IssuerPubKey: make([]byte, ed25519.PublicKeySize),
+		Slot:             0,
+		GenesisIssuerKey: make([]byte, 64),
 	}
 	err := validatorNoKeys.validateSlotLeader(inputNoKeys)
 	require.ErrorContains(t, err, "genesis issuer set is empty")
@@ -1327,6 +1339,58 @@ func TestValidateHeaderRejectsEmptyGenesisIssuerSet(t *testing.T) {
 		t,
 		errors.Join(result.Errors...),
 		"genesis issuer set is empty",
+	)
+}
+
+func TestValidateHeaderAcceptsSameSlotNonRoundRobinPBFTSigner(t *testing.T) {
+	header, config, issuer := realPBFTHeaderFixture(t)
+	dummy := common.Blake2b224Hash([]byte("other genesis issuer"))
+	if header.SlotNumber()%2 == 0 {
+		config.GenesisKeyHashes = [][]byte{
+			dummy.Bytes(),
+			issuer.GenesisKeyHash.Bytes(),
+		}
+	} else {
+		config.GenesisKeyHashes = [][]byte{
+			issuer.GenesisKeyHash.Bytes(),
+			dummy.Bytes(),
+		}
+	}
+	validator := NewHeaderValidator(config)
+	previousHash := header.PrevHash().Bytes()
+	state, err := NewPBFTState(nil, 10)
+	require.NoError(t, err)
+	input := &ValidateHeaderInput{
+		Slot:            header.SlotNumber(),
+		BlockNumber:     header.BlockNumber(),
+		PrevHash:        previousHash,
+		ProtocolMagic:   header.ProtocolMagic,
+		IssuerPubKey:    header.ConsensusData.PubKey[:32],
+		HeaderCbor:      header.Cbor(),
+		BlockSig:        header.ConsensusData.BlockSig,
+		PrevSlot:        header.SlotNumber(),
+		PrevBlockNumber: header.BlockNumber() - 1,
+		PrevHeaderHash:  previousHash,
+		PBFTState:       &state,
+	}
+	result := validator.ValidateHeader(input)
+	require.True(t, result.Valid, "%v", result.Errors)
+	require.NotNil(t, result.PBFTState)
+	require.Len(t, result.PBFTState.SignatureHistory(), 1)
+
+	issuerHistory := []common.Blake2b224{
+		issuer.GenesisKeyHash,
+		issuer.GenesisKeyHash,
+	}
+	fullState, err := NewPBFTState(issuerHistory, 10)
+	require.NoError(t, err)
+	input.PBFTState = &fullState
+	rejected := validator.ValidateHeader(input)
+	require.False(t, rejected.Valid)
+	require.ErrorContains(
+		t,
+		rejected.Errors[len(rejected.Errors)-1],
+		"signature threshold",
 	)
 }
 
@@ -1399,8 +1463,14 @@ func TestValidateHeaderFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ed25519.GenerateKey failed: %v", err)
 	}
+	extendedIssuerKey := append(
+		append([]byte(nil), pubKey...),
+		make([]byte, byron.VerificationKeySize-ed25519.PublicKeySize)...,
+	)
+	issuerHash, err := PBFTVerificationKeyHash(extendedIssuerKey)
+	require.NoError(t, err)
 	config.GenesisKeyHashes = [][]byte{
-		common.Blake2b224Hash(pubKey).Bytes(),
+		issuerHash.Bytes(),
 	}
 	validator := NewHeaderValidator(config)
 	// Enable fallback since we're using raw test data, not real CBOR headers
@@ -1411,17 +1481,18 @@ func TestValidateHeaderFull(t *testing.T) {
 
 	// Valid main block header
 	input := &ValidateHeaderInput{
-		Slot:            100,
-		BlockNumber:     50,
-		PrevHash:        prevHash,
-		ProtocolMagic:   testByronProtocolMagicMainnet,
-		IssuerPubKey:    pubKey,
-		BlockSignature:  signature,
-		HeaderCbor:      message,
-		PrevSlot:        50,
-		PrevBlockNumber: 49,
-		PrevHeaderHash:  prevHash,
-		IsEBB:           false,
+		Slot:             100,
+		BlockNumber:      50,
+		PrevHash:         prevHash,
+		ProtocolMagic:    testByronProtocolMagicMainnet,
+		IssuerPubKey:     pubKey,
+		GenesisIssuerKey: extendedIssuerKey,
+		BlockSignature:   signature,
+		HeaderCbor:       message,
+		PrevSlot:         50,
+		PrevBlockNumber:  49,
+		PrevHeaderHash:   prevHash,
+		IsEBB:            false,
 	}
 
 	result := validator.ValidateHeader(input)
@@ -2247,7 +2318,11 @@ const testByronGenesisJSON = `{
     },
     "startTime": 1506203091,
     "bootStakeholders": {
-        "af2800c124e599d6dec188a75f8bfde397ebb778163a18240371f2d1": 1
+        "af2800c124e599d6dec188a75f8bfde397ebb778163a18240371f2d1": 1,
+        "1deb82908402c7ee3efeb16f369d97fba316ee621d09b32b8969e54b": 1,
+        "65904a89e6d0e5f881513d1736945e051b76f095eca138ee869d543d": 1,
+        "5411c7bf87c252609831a337a713e4859668cba7bba70a9c3ef7c398": 1,
+        "00000000000000000000000000000000000000000000000000000000": 1
     },
     "heavyDelegation": {
         "1deb82908402c7ee3efeb16f369d97fba316ee621d09b32b8969e54b":{"cert":"c8b39f094dc00608acb2d20ff274cb3e0c022ccb0ce558ea7c1a2d3a32cd54b42cc30d32406bcfbb7f2f86d05d2032848be15b178e3ad776f8b1bc56a671400d","delegatePk":"6MA6A8Cy3b6kGVyvOfQeZp99JR7PIh+7LydcCl1+BdGQ3MJG9WyOM6wANwZuL2ZN2qmF6lKECCZDMI3eT1v+3w==","issuerPk":"UHMxYf2vtsjLb64OJb35VVEFs2eO+wjxd1uekN5PXHe8yM7/+NkBHLJ4so/dyG2bqwmWVtd6eFbHYZEIy/ZXUg==","omega":0},
@@ -2298,14 +2373,14 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 	}
 
 	// Verify number of genesis keys
-	if config.NumGenesisKeys != 4 {
-		t.Errorf("NumGenesisKeys: got %d, want 4", config.NumGenesisKeys)
+	if config.NumGenesisKeys != 5 {
+		t.Errorf("NumGenesisKeys: got %d, want 5", config.NumGenesisKeys)
 	}
 
 	// Verify key hashes are populated
-	if len(config.GenesisKeyHashes) != 4 {
+	if len(config.GenesisKeyHashes) != 5 {
 		t.Errorf(
-			"GenesisKeyHashes length: got %d, want 4",
+			"GenesisKeyHashes length: got %d, want 5",
 			len(config.GenesisKeyHashes),
 		)
 	}
@@ -2319,7 +2394,7 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 
 	// Verify slot leader calculation works
 	for slot := range uint64(6) {
-		expectedIndex := int(slot % 4)
+		expectedIndex := int(slot % 5)
 		index, keyHash := config.SlotLeader(slot)
 		if index != expectedIndex {
 			t.Errorf(

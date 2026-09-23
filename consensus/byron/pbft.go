@@ -16,9 +16,11 @@ package byron
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha3"
 	"errors"
 	"fmt"
+	"math/bits"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
@@ -61,22 +63,18 @@ func ValidatePBFTHeader(
 	if err != nil {
 		return PBFTIssuer{}, err
 	}
-	activeDelegate, ok := config.GenesisDelegations[issuer.GenesisKeyHash]
-	if !ok {
-		return PBFTIssuer{}, fmt.Errorf(
-			"byron PBFT genesis issuer %s has no active delegate",
-			issuer.GenesisKeyHash.String(),
-		)
+	for genesisIssuer, activeDelegate := range config.GenesisDelegations {
+		if activeDelegate == issuer.DelegateKeyHash &&
+			genesisIssuer == issuer.GenesisKeyHash {
+			return issuer, nil
+		}
 	}
-	if activeDelegate != issuer.DelegateKeyHash {
-		return PBFTIssuer{}, fmt.Errorf(
-			"byron PBFT active delegate mismatch for genesis issuer %s: got %s, expected %s",
-			issuer.GenesisKeyHash.String(),
-			issuer.DelegateKeyHash.String(),
-			activeDelegate.String(),
-		)
-	}
-	return issuer, nil
+	return PBFTIssuer{}, fmt.Errorf(
+		"byron PBFT active delegation does not authorize genesis issuer %s "+
+			"for delegate %s",
+		issuer.GenesisKeyHash.String(),
+		issuer.DelegateKeyHash.String(),
+	)
 }
 
 // ValidatePBFTHeaderCrypto validates the cryptographic and configured-genesis
@@ -97,14 +95,8 @@ func ValidatePBFTHeaderCrypto(
 		)
 	}
 
-	issuer, activationEpoch, err := parsePBFTIssuerFromHeader(header)
+	issuer, _, err := parsePBFTIssuerFromHeader(header)
 	if err != nil {
-		return PBFTIssuer{}, err
-	}
-	if err := validatePBFTCertificateEpoch(
-		activationEpoch,
-		header.ConsensusData.SlotId.Epoch,
-	); err != nil {
 		return PBFTIssuer{}, err
 	}
 	input := &ValidateHeaderInput{
@@ -126,7 +118,11 @@ func ValidatePBFTHeaderCrypto(
 			err,
 		)
 	}
-	if err := validator.validateBlockSignature(input); err != nil {
+	if err := validatePBFTDelegateBlockSignature(
+		validator,
+		input,
+		header,
+	); err != nil {
 		return PBFTIssuer{}, fmt.Errorf(
 			"validate Byron PBFT block signature: %w",
 			err,
@@ -139,6 +135,66 @@ func ValidatePBFTHeaderCrypto(
 		)
 	}
 	return issuer, nil
+}
+
+func validatePBFTDelegateBlockSignature(
+	validator *HeaderValidator,
+	input *ValidateHeaderInput,
+	header *ledgerbyron.ByronMainBlockHeader,
+) error {
+	if header == nil || len(header.ConsensusData.BlockSig) != 2 {
+		return errors.New("invalid Byron PBFT signature shape")
+	}
+	inner, ok := header.ConsensusData.BlockSig[1].([]any)
+	if !ok || len(inner) != 2 {
+		return errors.New("invalid Byron PBFT proxy signature payload")
+	}
+	certificate, ok := inner[0].([]any)
+	if !ok || len(certificate) != 4 {
+		return errors.New("invalid Byron PBFT proxy certificate")
+	}
+	issuerKey, ok := certificate[1].([]byte)
+	if !ok || len(issuerKey) != 64 {
+		return errors.New("invalid Byron PBFT issuer key")
+	}
+	delegateKey, ok := certificate[2].([]byte)
+	if !ok || len(delegateKey) != 64 {
+		return errors.New("invalid Byron PBFT delegate key")
+	}
+	certificateSignature, ok := certificate[3].([]byte)
+	if !ok || len(certificateSignature) != ed25519.SignatureSize {
+		return errors.New("invalid Byron PBFT delegation certificate signature")
+	}
+	blockSignature, ok := inner[1].([]byte)
+	if !ok || len(blockSignature) != ed25519.SignatureSize {
+		return errors.New("invalid Byron PBFT delegate block signature")
+	}
+	toSign, _, err := validator.buildToSignWithEpoch(input)
+	if err != nil {
+		return fmt.Errorf("build Byron PBFT ToSign data: %w", err)
+	}
+	protocolMagicCbor, err := cbor.Encode(validator.config.ProtocolMagic)
+	if err != nil {
+		return fmt.Errorf("encode Byron PBFT protocol magic: %w", err)
+	}
+	signed := make(
+		[]byte,
+		0,
+		2+len(issuerKey)+1+len(protocolMagicCbor)+len(toSign),
+	)
+	signed = append(signed, '0', '1')
+	signed = append(signed, issuerKey...)
+	signed = append(signed, byronSignTagMainBlockHeavy)
+	signed = append(signed, protocolMagicCbor...)
+	signed = append(signed, toSign...)
+	if !ed25519.Verify(
+		ed25519.PublicKey(delegateKey[:ed25519.PublicKeySize]),
+		signed,
+		blockSignature,
+	) {
+		return errors.New("Byron PBFT delegate block signature verification failed")
+	}
+	return nil
 }
 
 // PBFTIssuerFromHeader parses the PBFT identities carried by a Byron main
@@ -290,8 +346,10 @@ func PBFTVerificationKeyHash(
 // PBFTState contains the genesis issuers charged in the last k signed Byron
 // main-block headers. Values are immutable: every update returns a new state.
 type PBFTState struct {
-	signatureHistory []common.Blake2b224
-	securityParam    uint64
+	signatureHistory     []common.Blake2b224
+	securityParam        uint64
+	thresholdNumerator   uint64
+	thresholdDenominator uint64
 }
 
 // NewPBFTState constructs state from an already ordered oldest-to-newest
@@ -300,9 +358,52 @@ func NewPBFTState(
 	signatureHistory []common.Blake2b224,
 	securityParam uint64,
 ) (PBFTState, error) {
+	return NewPBFTStateWithThreshold(
+		signatureHistory,
+		securityParam,
+		DefaultPBFTSignatureThresholdNumerator,
+		DefaultPBFTSignatureThresholdDenominator,
+	)
+}
+
+// NewPBFTStateFromConfig constructs PBFT state using the configured threshold,
+// falling back to the Byron default when both threshold fields are zero.
+func NewPBFTStateFromConfig(
+	signatureHistory []common.Blake2b224,
+	config ByronConfig,
+) (PBFTState, error) {
+	numerator := config.PBFTSignatureThresholdNumerator
+	denominator := config.PBFTSignatureThresholdDenominator
+	if numerator == 0 && denominator == 0 {
+		numerator = DefaultPBFTSignatureThresholdNumerator
+		denominator = DefaultPBFTSignatureThresholdDenominator
+	}
+	return NewPBFTStateWithThreshold(
+		signatureHistory,
+		config.SecurityParam,
+		numerator,
+		denominator,
+	)
+}
+
+// NewPBFTStateWithThreshold constructs state with a configurable maximum
+// fraction of signatures charged to one genesis issuer in the last k blocks.
+func NewPBFTStateWithThreshold(
+	signatureHistory []common.Blake2b224,
+	securityParam uint64,
+	numerator uint64,
+	denominator uint64,
+) (PBFTState, error) {
 	if securityParam == 0 {
 		return PBFTState{}, errors.New(
 			"byron PBFT security parameter must be greater than zero",
+		)
+	}
+	if denominator == 0 {
+		return PBFTState{}, fmt.Errorf(
+			"invalid Byron PBFT signature threshold %d/%d",
+			numerator,
+			denominator,
 		)
 	}
 	if uint64(len(signatureHistory)) > securityParam {
@@ -317,7 +418,9 @@ func NewPBFTState(
 			[]common.Blake2b224(nil),
 			signatureHistory...,
 		),
-		securityParam: securityParam,
+		securityParam:        securityParam,
+		thresholdNumerator:   numerator,
+		thresholdDenominator: denominator,
 	}, nil
 }
 
@@ -357,8 +460,10 @@ func (s PBFTState) Observe(
 	}
 	history = append(history, issuer)
 	return PBFTState{
-		signatureHistory: history,
-		securityParam:    s.securityParam,
+		signatureHistory:     history,
+		securityParam:        s.securityParam,
+		thresholdNumerator:   s.thresholdNumerator,
+		thresholdDenominator: s.thresholdDenominator,
 	}, nil
 }
 
@@ -378,7 +483,11 @@ func (s PBFTState) Transition(
 			issuerCount++
 		}
 	}
-	maxSignatures := pbftMaxSignatures(s.securityParam)
+	maxSignatures := pbftMaxSignatures(
+		s.securityParam,
+		s.thresholdNumerator,
+		s.thresholdDenominator,
+	)
 	if issuerCount > maxSignatures {
 		return PBFTState{}, fmt.Errorf(
 			"byron PBFT signature threshold exceeded for genesis issuer %s: got %d signatures in the last %d, maximum is %d",
@@ -391,10 +500,15 @@ func (s PBFTState) Transition(
 	return next, nil
 }
 
-func pbftMaxSignatures(securityParam uint64) uint64 {
-	quotient := securityParam / DefaultPBFTSignatureThresholdDenominator
-	remainder := securityParam % DefaultPBFTSignatureThresholdDenominator
-	return quotient*DefaultPBFTSignatureThresholdNumerator +
-		(remainder*DefaultPBFTSignatureThresholdNumerator)/
-			DefaultPBFTSignatureThresholdDenominator
+func pbftMaxSignatures(
+	securityParam uint64,
+	numerator uint64,
+	denominator uint64,
+) uint64 {
+	hi, lo := bits.Mul64(securityParam, numerator)
+	if hi >= denominator {
+		return ^uint64(0)
+	}
+	result, _ := bits.Div64(hi, lo, denominator)
+	return result
 }

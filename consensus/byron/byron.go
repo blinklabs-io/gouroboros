@@ -49,7 +49,13 @@ type ByronConfig struct {
 	// delegation certificates. Callers that track later Byron delegation
 	// updates must replace entries with their active ledger view.
 	GenesisDelegations map[common.Blake2b224]common.Blake2b224
-	TxFeePolicy        ByronTxFeePolicy
+	// GenesisDelegationEpochs records each heavy certificate's original omega.
+	GenesisDelegationEpochs map[common.Blake2b224]uint64
+	// PBFTSignatureThreshold is an optional ratio; zero values use the Byron
+	// default of 22/100.
+	PBFTSignatureThresholdNumerator   uint64
+	PBFTSignatureThresholdDenominator uint64
+	TxFeePolicy                       ByronTxFeePolicy
 }
 
 // ByronTxFeePolicy contains the transaction fee policy parameters.
@@ -189,11 +195,22 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	}
 	genesisDelegations := make(
 		map[common.Blake2b224]common.Blake2b224,
+		len(keyHashes),
+	)
+	genesisDelegationEpochs := make(
+		map[common.Blake2b224]uint64,
 		len(genesis.HeavyDelegation),
 	)
+	for _, hash := range keyHashes {
+		genesisDelegations[hash] = hash
+	}
 	genesisValidator := NewHeaderValidator(ByronConfig{
 		ProtocolMagic: protocolMagic,
 	})
+	genesisIssuers := make(map[common.Blake2b224]struct{}, len(keyHashes))
+	for _, hash := range keyHashes {
+		genesisIssuers[hash] = struct{}{}
+	}
 	for genesisHashHex, delegation := range genesis.HeavyDelegation {
 		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
 		if err != nil {
@@ -209,6 +226,13 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				genesisHashHex,
 				len(genesisHashBytes),
 				common.Blake2b224Size,
+			)
+		}
+		genesisHash := common.NewBlake2b224(genesisHashBytes)
+		if _, allowed := genesisIssuers[genesisHash]; !allowed {
+			return ByronConfig{}, fmt.Errorf(
+				"genesis heavy delegation issuer %s is not a boot stakeholder",
+				genesisHash.String(),
 			)
 		}
 		issuerKey, err := base64.StdEncoding.DecodeString(delegation.IssuerPk)
@@ -289,8 +313,8 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				err,
 			)
 		}
-		genesisHash := common.NewBlake2b224(genesisHashBytes)
 		genesisDelegations[genesisHash] = delegateHash
+		genesisDelegationEpochs[genesisHash] = uint64(delegation.Omega)
 	}
 
 	// Byron slots per epoch = 10 * K (security parameter)
@@ -309,13 +333,14 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	}
 
 	return ByronConfig{
-		ProtocolMagic:      protocolMagic,
-		SlotsPerEpoch:      slotsPerEpoch,
-		SlotDuration:       slotDuration,
-		SecurityParam:      k,
-		NumGenesisKeys:     len(keyHashes),
-		GenesisKeyHashes:   keyHashBytes,
-		GenesisDelegations: genesisDelegations,
-		TxFeePolicy:        feePolicy,
+		ProtocolMagic:           protocolMagic,
+		SlotsPerEpoch:           slotsPerEpoch,
+		SlotDuration:            slotDuration,
+		SecurityParam:           k,
+		NumGenesisKeys:          len(keyHashes),
+		GenesisKeyHashes:        keyHashBytes,
+		GenesisDelegations:      genesisDelegations,
+		GenesisDelegationEpochs: genesisDelegationEpochs,
+		TxFeePolicy:             feePolicy,
 	}, nil
 }
