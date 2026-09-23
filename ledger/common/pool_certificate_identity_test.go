@@ -66,7 +66,11 @@ func TestPoolCertificateOwnerSetIdentity(t *testing.T) {
 					certs = cbor.Tag{Number: 258, Content: certs}
 				}
 				t.Run(encoding, func(t *testing.T) {
-					body, err := cbor.Encode(map[uint]any{4: certs})
+					// Key 3 is mandatory in the Shelley body and optional
+					// but harmless from Allegra on.
+					body, err := cbor.Encode(
+						map[uint]any{3: uint64(0), 4: certs},
+					)
 					require.NoError(t, err)
 					for era, newBody := range orderedSetCertificateTransactionBodyDecoders() {
 						t.Run(era, func(t *testing.T) {

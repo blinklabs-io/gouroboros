@@ -33,6 +33,7 @@ func TestE2EShelleyTransactionAuxiliaryData(t *testing.T) {
 	bodyMap[0] = []any{}   // inputs
 	bodyMap[1] = []any{}   // outputs
 	bodyMap[2] = uint64(0) // fee
+	bodyMap[3] = uint64(0) // ttl, mandatory in the Shelley body
 	bodyCbor, err := cbor.Encode(bodyMap)
 	if err != nil {
 		t.Fatalf("failed to encode body: %v", err)
