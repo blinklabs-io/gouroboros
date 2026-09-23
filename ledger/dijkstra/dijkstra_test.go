@@ -1984,3 +1984,14 @@ func TestDijkstraWitnessSetRejectsEmptyCollectionsAndUnsupportedField8(
 		"does not support field 8",
 	)
 }
+
+func TestDijkstraWitnessSetMarshalRejectsField8(t *testing.T) {
+	witnesses := DijkstraTransactionWitnessSet{
+		WsPlutusV4Scripts: cbor.NewSetType(
+			[]common.PlutusV4Script{{0x01}},
+			false,
+		),
+	}
+	_, err := cbor.Encode(witnesses)
+	require.ErrorContains(t, err, "does not support field 8")
+}
