@@ -667,7 +667,7 @@ func (t *ByronTransaction) ValidateByronVKeyWitnesses() error {
 		return nil
 	}
 	if !t.hasProtocolMagic {
-		return errors.New("Byron protocol magic is required to verify transaction witnesses")
+		return errors.New("byron protocol magic is required to verify transaction witnesses")
 	}
 	return t.ValidateVKeyWitnesses(t.protocolMagic)
 }
