@@ -15,6 +15,7 @@
 package cbor
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -58,7 +59,7 @@ func ValidateMapFields(
 
 func emptyCollection(data []byte) (empty, collection bool, err error) {
 	if len(data) == 0 {
-		return false, false, fmt.Errorf("empty CBOR value")
+		return false, false, errors.New("empty CBOR value")
 	}
 	major := data[0] >> 5
 	additional := data[0] & 31
@@ -74,10 +75,10 @@ func emptyCollection(data []byte) (empty, collection bool, err error) {
 		case 27:
 			headerSize += 8
 		case 31:
-			return false, false, fmt.Errorf("indefinite CBOR tag")
+			return false, false, errors.New("indefinite CBOR tag")
 		}
 		if len(data) <= headerSize {
-			return false, false, fmt.Errorf("truncated CBOR tag")
+			return false, false, errors.New("truncated CBOR tag")
 		}
 		return emptyCollection(data[headerSize:])
 	}
@@ -103,11 +104,11 @@ func emptyCollection(data []byte) (empty, collection bool, err error) {
 	case 27:
 		width = 8
 	default:
-		return false, false, fmt.Errorf("invalid CBOR collection length")
+		return false, false, errors.New("invalid CBOR collection length")
 	}
 	headerSize += width
 	if len(data) < headerSize {
-		return false, false, fmt.Errorf("truncated CBOR collection")
+		return false, false, errors.New("truncated CBOR collection")
 	}
 	for _, b := range data[1:headerSize] {
 		length = length<<8 | uint64(b)

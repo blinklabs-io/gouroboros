@@ -2271,33 +2271,6 @@ func newDijkstraTransactionFromCborComponents(
 	return &ret, nil
 }
 
-func decodeInvalidTransactions(raw cbor.RawMessage) ([]uint, error) {
-	if isCborNull(raw) {
-		return nil, nil
-	}
-	// invalid_transactions = nonempty_set<transaction_index>, which the CDDL
-	// allows as either a tag-258 set or a plain array; SetType accepts both.
-	var txIndices cbor.SetType[uint64]
-	if _, err := cbor.Decode(raw, &txIndices); err != nil {
-		return nil, fmt.Errorf("decode Dijkstra invalid transactions: %w", err)
-	}
-	if err := txIndices.CheckForDuplicatesAlways(); err != nil {
-		return nil, fmt.Errorf("decode Dijkstra invalid transactions: %w", err)
-	}
-	items := txIndices.Items()
-	ret := make([]uint, len(items))
-	for i, idx := range items {
-		if uint64(uint(idx)) != idx {
-			return nil, fmt.Errorf(
-				"decode Dijkstra invalid transactions: index %d overflows platform uint",
-				idx,
-			)
-		}
-		ret[i] = uint(idx)
-	}
-	return ret, nil
-}
-
 func decodeAuxiliaryDataInto(
 	raw cbor.RawMessage,
 	metadata *common.TransactionMetadatum,
