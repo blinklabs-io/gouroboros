@@ -1493,43 +1493,159 @@ func dijkstraCompareCredentials(a, b common.Credential) int {
 // per category and reported in cardano-ledger's order, missing accounts
 // before out-of-range balances, with credentials sorted so a level with more
 // than one failure produces the same error on every run.
-func dijkstraValidateAccountBalanceIntervals(
-	intervals DijkstraAccountBalanceIntervals,
-	ls common.LedgerState,
+type dijkstraAccountKey struct {
+	typeID uint
+	hash   common.CredentialHash
+}
+
+type dijkstraAccountBalance struct {
+	registered bool
+	balance    uint64
+}
+
+type dijkstraAccountStateOverlay struct {
+	ledgerState common.LedgerState
+	accounts    map[dijkstraAccountKey]dijkstraAccountBalance
+}
+
+func newDijkstraAccountStateOverlay(
+	ledgerState common.LedgerState,
+) *dijkstraAccountStateOverlay {
+	return &dijkstraAccountStateOverlay{
+		ledgerState: ledgerState,
+		accounts:    make(map[dijkstraAccountKey]dijkstraAccountBalance),
+	}
+}
+
+func dijkstraAccountKeyFor(credential common.Credential) dijkstraAccountKey {
+	return dijkstraAccountKey{
+		typeID: credential.CredType,
+		hash:   credential.Credential,
+	}
+}
+
+func (s *dijkstraAccountStateOverlay) account(
+	credential common.Credential,
+) (dijkstraAccountBalance, error) {
+	key := dijkstraAccountKeyFor(credential)
+	if account, ok := s.accounts[key]; ok {
+		return account, nil
+	}
+	if s.ledgerState == nil {
+		return dijkstraAccountBalance{}, errors.New(
+			"ledger state is required for Dijkstra account validation",
+		)
+	}
+	balance, err := s.ledgerState.RewardAccountBalance(credential)
+	if err != nil {
+		return dijkstraAccountBalance{}, err
+	}
+	account := dijkstraAccountBalance{}
+	if balance != nil {
+		account.registered = true
+		account.balance = *balance
+	}
+	s.accounts[key] = account
+	return account, nil
+}
+
+func (s *dijkstraAccountStateOverlay) set(
+	credential common.Credential,
+	account dijkstraAccountBalance,
+) {
+	s.accounts[dijkstraAccountKeyFor(credential)] = account
+}
+
+func dijkstraAccountCredential(
+	address *common.Address,
+) (common.Credential, error) {
+	if address == nil {
+		return common.Credential{}, errors.New("nil reward account address")
+	}
+	return address.RewardAccountCredential()
+}
+
+func validateDijkstraAccountAddressNetwork[V any](
+	addresses map[cbor.ByteString]V,
+	field string,
+	networkID uint,
 ) error {
-	var missing []common.Credential
-	var outside []AccountBalanceIntervalMismatch
-	for credential, interval := range intervals {
-		if credential == nil {
-			return errors.New(
-				"account balance intervals must not contain a nil credential",
-			)
-		}
-		if interval == nil {
-			return errors.New(
-				"account balance intervals must not contain a nil interval",
-			)
-		}
-		balance, err := ls.RewardAccountBalance(*credential)
+	if err := validateDijkstraAccountAddressMapKeys(addresses, field); err != nil {
+		return err
+	}
+	var wrongNetwork []string
+	for _, addressKey := range sortedDijkstraAccountAddresses(addresses) {
+		address, err := dijkstraAddressFromKey(addressKey)
 		if err != nil {
 			return err
 		}
-		if balance == nil {
-			missing = append(missing, *credential)
+		if address.NetworkId() != networkID {
+			wrongNetwork = append(wrongNetwork, address.String())
+		}
+	}
+	if len(wrongNetwork) > 0 {
+		return WrongNetworkAccountAddressesError{
+			Field:     field,
+			NetworkID: networkID,
+			Addresses: wrongNetwork,
+		}
+	}
+	return nil
+}
+
+func validateDijkstraAccountBalanceIntervals(
+	intervals DijkstraAccountBalanceIntervals,
+	state *dijkstraAccountStateOverlay,
+	networkID uint,
+	starting bool,
+) error {
+	if len(intervals) == 0 {
+		return nil
+	}
+	field := "account balance intervals"
+	if starting {
+		field = "starting account balance intervals"
+	}
+	if err := validateDijkstraAccountAddressNetwork(intervals, field, networkID); err != nil {
+		return err
+	}
+	var missing []common.Credential
+	var outside []AccountBalanceIntervalMismatch
+	for _, addressKey := range sortedDijkstraAccountAddresses(intervals) {
+		interval := intervals[addressKey]
+		if err := validateDijkstraAccountBalanceInterval(interval); err != nil {
+			return err
+		}
+		address, err := dijkstraAddressFromKey(addressKey)
+		if err != nil {
+			return err
+		}
+		credential, err := dijkstraAccountCredential(address)
+		if err != nil {
+			return err
+		}
+		account, err := state.account(credential)
+		if err != nil {
+			return err
+		}
+		if !account.registered {
+			missing = append(missing, credential)
 			continue
 		}
-		if dijkstraAccountBalanceIntervalContains(*balance, interval) {
-			continue
+		if !dijkstraAccountBalanceIntervalContains(account.balance, interval) {
+			outside = append(outside, AccountBalanceIntervalMismatch{
+				Credential: credential,
+				Balance:    account.balance,
+				Interval:   *interval,
+			})
 		}
-		outside = append(outside, AccountBalanceIntervalMismatch{
-			Credential: *credential,
-			Balance:    *balance,
-			Interval:   *interval,
-		})
 	}
 	if len(missing) > 0 {
 		slices.SortFunc(missing, dijkstraCompareCredentials)
-		return MissingAccountsInBalanceIntervalsError{Credentials: missing}
+		return MissingAccountsInBalanceIntervalsError{
+			Credentials: missing,
+			Starting:    starting,
+		}
 	}
 	if len(outside) > 0 {
 		slices.SortFunc(
@@ -1538,31 +1654,163 @@ func dijkstraValidateAccountBalanceIntervals(
 				return dijkstraCompareCredentials(a.Credential, b.Credential)
 			},
 		)
-		return BalancesOutsideAccountBalanceIntervalsError{Mismatches: outside}
+		return BalancesOutsideAccountBalanceIntervalsError{
+			Mismatches: outside,
+			Starting:   starting,
+		}
 	}
 	return nil
 }
 
-// UtxoValidateAccountBalanceIntervals checks a transaction level's
-// account_balance_intervals (body key 26) against current reward-account
-// balances: the account must be registered, and its balance must satisfy the
-// asserted interval.
-//
-// cardano-ledger runs validateAccountBalanceIntervals
-// (Cardano.Ledger.Dijkstra.Rules.Entities) once per transaction level, from
-// SUBENTITIES for each sub-transaction and from ENTITIES for the top level,
-// each against the account state threaded through the levels before it.
-// Dijkstra's LEDGER rule runs SUBLEDGERS before ENTITIES, so that order is
-// the sub-transactions in body order, then the top level.
-//
-// gouroboros evaluates UTxO rules against the pre-transaction account state
-// and threads no account state between levels. It therefore skips only the
-// credentials whose balances an earlier level changed.
-//
-// The reference's third check, WrongNetworkInAccountBalanceIntervals, has no
-// counterpart here. cardano-ledger keys this map by AccountAddress, which
-// carries a network id; on the wire the keys are bare credentials, which do
-// not. DijkstraAccountBalanceIntervals records the evidence for that shape.
+func dijkstraLevelDirectDeposits(
+	body common.TransactionBody,
+) DijkstraDirectDeposits {
+	switch body := body.(type) {
+	case *DijkstraSubTransactionBody:
+		return body.TxDirectDeposits
+	case *DijkstraTransactionBody:
+		return body.TxDirectDeposits
+	default:
+		return nil
+	}
+}
+
+func dijkstraApplyAccountWithdrawals(
+	body common.TransactionBody,
+	state *dijkstraAccountStateOverlay,
+) error {
+	withdrawals := body.Withdrawals()
+	for address, amount := range withdrawals {
+		if amount == nil {
+			continue
+		}
+		credential, err := dijkstraAccountCredential(address)
+		if err != nil {
+			return err
+		}
+		account, err := state.account(credential)
+		if err != nil {
+			return err
+		}
+		if !account.registered {
+			continue
+		}
+		if !amount.IsUint64() || amount.Uint64() > account.balance {
+			continue
+		}
+		account.balance -= amount.Uint64()
+		state.set(credential, account)
+	}
+	return nil
+}
+
+func dijkstraApplyAccountCertificates(
+	body common.TransactionBody,
+	state *dijkstraAccountStateOverlay,
+) {
+	for _, cert := range body.Certificates() {
+		var credential common.Credential
+		var registered bool
+		changes := false
+		switch cert := cert.(type) {
+		case *common.StakeRegistrationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.RegistrationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.StakeRegistrationDelegationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.VoteRegistrationDelegationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.StakeVoteRegistrationDelegationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.StakeDeregistrationCertificate:
+			credential, changes = cert.StakeCredential, true
+		case *common.DeregistrationCertificate:
+			credential, changes = cert.StakeCredential, true
+		}
+		if changes {
+			state.set(credential, dijkstraAccountBalance{registered: registered})
+		}
+	}
+}
+
+func dijkstraApplyDirectDeposits(
+	deposits DijkstraDirectDeposits,
+	state *dijkstraAccountStateOverlay,
+	networkID uint,
+) error {
+	if len(deposits) == 0 {
+		return nil
+	}
+	if err := validateDijkstraAccountAddressNetwork(
+		map[cbor.ByteString]uint64(deposits),
+		"direct deposits",
+		networkID,
+	); err != nil {
+		return err
+	}
+	var missing []common.Credential
+	credentials := make(map[cbor.ByteString]common.Credential, len(deposits))
+	for _, addressKey := range sortedDijkstraAccountAddresses(deposits) {
+		address, err := dijkstraAddressFromKey(addressKey)
+		if err != nil {
+			return err
+		}
+		credential, err := dijkstraAccountCredential(address)
+		if err != nil {
+			return err
+		}
+		credentials[addressKey] = credential
+		account, err := state.account(credential)
+		if err != nil {
+			return err
+		}
+		if !account.registered {
+			missing = append(missing, credential)
+		}
+	}
+	if len(missing) > 0 {
+		slices.SortFunc(missing, dijkstraCompareCredentials)
+		return DirectDepositAccountsMissingError{Credentials: missing}
+	}
+	for addressKey, amount := range deposits {
+		credential := credentials[addressKey]
+		account, err := state.account(credential)
+		if err != nil {
+			return err
+		}
+		if amount > ^uint64(0)-account.balance {
+			return errors.New("direct deposit overflows reward account balance")
+		}
+		account.balance += amount
+		state.set(credential, account)
+	}
+	return nil
+}
+
+func dijkstraApplyAccountLevel(
+	body common.TransactionBody,
+	state *dijkstraAccountStateOverlay,
+	networkID uint,
+) error {
+	deposits := dijkstraLevelDirectDeposits(body)
+	if err := validateDijkstraAccountAddressNetwork(
+		map[cbor.ByteString]uint64(deposits),
+		"direct deposits",
+		networkID,
+	); err != nil && len(deposits) > 0 {
+		return err
+	}
+	if err := dijkstraApplyAccountWithdrawals(body, state); err != nil {
+		return err
+	}
+	dijkstraApplyAccountCertificates(body, state)
+	return dijkstraApplyDirectDeposits(deposits, state, networkID)
+}
+
+// UtxoValidateAccountBalanceIntervals validates Dijkstra direct deposits,
+// ordinary account-balance intervals, and top-level starting intervals using
+// the account state threaded through subtransactions in ledger order.
 func UtxoValidateAccountBalanceIntervals(
 	tx common.Transaction,
 	slot uint64,
@@ -1573,98 +1821,71 @@ func UtxoValidateAccountBalanceIntervals(
 	if !ok {
 		return nil
 	}
-	type intervalLevel struct {
-		intervals DijkstraAccountBalanceIntervals
-		body      common.TransactionBody
+	networkID := uint(0)
+	if ls != nil {
+		networkID = ls.NetworkId()
 	}
+	state := newDijkstraAccountStateOverlay(ls)
 	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
-	levels := make([]intervalLevel, 0, len(subTxs)+1)
 	for idx := range subTxs {
 		body := &subTxs[idx].Body
-		levels = append(levels, intervalLevel{
-			intervals: body.TxAccountBalanceIntervals,
-			body:      body,
-		})
-	}
-	levels = append(levels, intervalLevel{
-		intervals: dijkstraTx.Body.TxBalanceIntervals,
-		body:      &dijkstraTx.Body,
-	})
-	type credentialID struct {
-		kind uint
-		hash common.CredentialHash
-	}
-	keyFor := func(credential common.Credential) credentialID {
-		return credentialID{kind: credential.CredType, hash: credential.Credential}
-	}
-	moved := make(map[credentialID]struct{})
-	for _, level := range levels {
-		checked := make(DijkstraAccountBalanceIntervals)
-		for credential, interval := range level.intervals {
-			if credential == nil {
-				continue
-			}
-			if _, changed := moved[keyFor(*credential)]; !changed {
-				checked[credential] = interval
+		if len(body.TxDirectDeposits) > 0 || len(body.TxAccountBalanceIntervals) > 0 {
+			if ls == nil {
+				return errors.New("ledger state is required for Dijkstra account validation")
 			}
 		}
-		if len(checked) > 0 {
-			if ls == nil {
-				return errors.New(
-					"ledger state is required for account balance interval validation",
-				)
-			}
-			if err := dijkstraValidateAccountBalanceIntervals(
-				checked,
-				ls,
+		if len(body.TxDirectDeposits) > 0 {
+			if err := validateDijkstraAccountAddressNetwork(
+				map[cbor.ByteString]uint64(body.TxDirectDeposits),
+				"direct deposits",
+				networkID,
 			); err != nil {
 				return err
 			}
 		}
-		for address := range level.body.Withdrawals() {
-			if credential, err := address.RewardAccountCredential(); err == nil {
-				moved[keyFor(credential)] = struct{}{}
-			}
+		if err := validateDijkstraAccountBalanceIntervals(
+			body.TxAccountBalanceIntervals,
+			state,
+			networkID,
+			false,
+		); err != nil {
+			return err
 		}
-		for _, cert := range level.body.Certificates() {
-			var credential *common.Credential
-			switch cert := cert.(type) {
-			case *common.StakeRegistrationCertificate:
-				credential = &cert.StakeCredential
-			case *common.StakeDeregistrationCertificate:
-				credential = &cert.StakeCredential
-			case *common.RegistrationCertificate:
-				credential = &cert.StakeCredential
-			case *common.DeregistrationCertificate:
-				credential = &cert.StakeCredential
-			case *common.StakeRegistrationDelegationCertificate:
-				credential = &cert.StakeCredential
-			case *common.VoteRegistrationDelegationCertificate:
-				credential = &cert.StakeCredential
-			case *common.StakeVoteRegistrationDelegationCertificate:
-				credential = &cert.StakeCredential
-			}
-			if credential != nil {
-				moved[keyFor(*credential)] = struct{}{}
-			}
-		}
-		var directDeposits map[cbor.ByteString]uint64
-		switch body := level.body.(type) {
-		case *DijkstraSubTransactionBody:
-			directDeposits = body.TxDirectDeposits
-		case *DijkstraTransactionBody:
-			directDeposits = body.TxDirectDeposits
-		}
-		for account := range directDeposits {
-			address, err := common.NewAddressFromBytes(account.Bytes())
-			if err == nil {
-				if credential, err := address.RewardAccountCredential(); err == nil {
-					moved[keyFor(credential)] = struct{}{}
-				}
-			}
+		if err := dijkstraApplyAccountLevel(body, state, networkID); err != nil {
+			return err
 		}
 	}
-	return nil
+	if ls == nil && (len(dijkstraTx.Body.TxDirectDeposits) > 0 ||
+		len(dijkstraTx.Body.TxBalanceIntervals) > 0 ||
+		len(dijkstraTx.Body.TxStartingBalanceIntervals) > 0) {
+		return errors.New("ledger state is required for Dijkstra account validation")
+	}
+	if len(dijkstraTx.Body.TxDirectDeposits) > 0 {
+		if err := validateDijkstraAccountAddressNetwork(
+			map[cbor.ByteString]uint64(dijkstraTx.Body.TxDirectDeposits),
+			"direct deposits",
+			networkID,
+		); err != nil {
+			return err
+		}
+	}
+	if err := validateDijkstraAccountBalanceIntervals(
+		dijkstraTx.Body.TxBalanceIntervals,
+		state,
+		networkID,
+		false,
+	); err != nil {
+		return err
+	}
+	if err := validateDijkstraAccountBalanceIntervals(
+		dijkstraTx.Body.TxStartingBalanceIntervals,
+		newDijkstraAccountStateOverlay(ls),
+		networkID,
+		true,
+	); err != nil {
+		return err
+	}
+	return dijkstraApplyAccountLevel(&dijkstraTx.Body, state, networkID)
 }
 
 func UtxoValidateCCVotingRestrictions(

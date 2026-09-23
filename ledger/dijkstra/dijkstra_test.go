@@ -338,7 +338,8 @@ func oversizedTxParts(entries int) []any {
 		credential[0] = byte(i)
 		credential[1] = byte(i >> 8)
 		credential[2] = byte(i >> 16)
-		deposits[cbor.NewByteString(credential)] = uint64(i + 1)
+		address := append([]byte{0xe0}, credential...)
+		deposits[cbor.NewByteString(address)] = uint64(i + 1)
 	}
 	body := minimalTxBody()
 	body[25] = deposits
@@ -1415,10 +1416,10 @@ func TestDijkstraTransactionBodyRequiredTopLevelGuards(t *testing.T) {
 // types directly and encodes it without ever decoding first.
 func TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps(t *testing.T) {
 	t.Run("transaction body: all-nil-bounds interval", func(t *testing.T) {
-		guard := testGuardCredential()
+		guard := dijkstraRewardAddressForCredential(t, testGuardCredential())
 		body := DijkstraTransactionBody{
 			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
-				&guard: {},
+				dijkstraIntervalKey(t, guard): {},
 			},
 		}
 		_, err := body.MarshalCBOR()
@@ -1426,10 +1427,10 @@ func TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps(t *testi
 	})
 
 	t.Run("sub-transaction body: nil interval", func(t *testing.T) {
-		guard := testGuardCredential()
+		guard := dijkstraRewardAddressForCredential(t, testGuardCredential())
 		body := DijkstraSubTransactionBody{
 			TxAccountBalanceIntervals: DijkstraAccountBalanceIntervals{
-				&guard: nil,
+				dijkstraIntervalKey(t, guard): nil,
 			},
 		}
 		_, err := body.MarshalCBOR()
@@ -1448,26 +1449,24 @@ func TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps(t *testi
 	})
 }
 
-func TestDijkstraTransactionBodyBalanceIntervalsRejectsDuplicateCredential(t *testing.T) {
+func TestDijkstraTransactionBodyBalanceIntervalsRequireRewardAccountKeys(t *testing.T) {
 	var hash common.Blake2b224
 	hash[0] = 1
-	cred1 := common.Credential{
+	cred := common.Credential{
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: hash,
 	}
-	cred2 := cred1
 	lower := uint64(5)
 	bodyCbor, err := cbor.Encode(map[uint]any{
 		26: map[*common.Credential]*DijkstraAccountBalanceInterval{
-			&cred1: {LowerBound: &lower},
-			&cred2: {LowerBound: &lower},
+			&cred: {LowerBound: &lower},
 		},
 	})
 	require.NoError(t, err)
 
 	var body DijkstraTransactionBody
 	err = body.UnmarshalCBOR(bodyCbor)
-	require.ErrorContains(t, err, "contains a duplicate credential")
+	require.ErrorContains(t, err, "cannot unmarshal array")
 }
 
 func TestDijkstraSubTransactionBodyAccountBalanceIntervalsRejectsNilInterval(
@@ -1479,14 +1478,50 @@ func TestDijkstraSubTransactionBodyAccountBalanceIntervalsRejectsNilInterval(
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: hash,
 	}
+	address := dijkstraRewardAddressForCredential(t, cred)
 	bodyCbor, err := cbor.Encode(map[uint]any{
-		26: map[*common.Credential]any{&cred: nil},
+		26: map[cbor.ByteString]any{dijkstraIntervalKey(t, address): nil},
 	})
 	require.NoError(t, err)
 
 	var body DijkstraSubTransactionBody
 	err = body.UnmarshalCBOR(bodyCbor)
 	require.ErrorContains(t, err, "must not contain a nil interval")
+}
+
+func TestDijkstraAccountStartingBalanceIntervalsWireField(t *testing.T) {
+	address := dijkstraRewardAddressForCredential(t, testGuardCredential())
+	interval := DijkstraAccountBalanceIntervals{
+		dijkstraIntervalKey(t, address): dijkstraIntervalExact(5),
+	}
+	body := DijkstraTransactionBody{TxStartingBalanceIntervals: interval}
+	encoded, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(encoded, &fields)
+	require.NoError(t, err)
+	require.Contains(t, fields, uint(27))
+
+	emptyDeposits, err := cbor.Encode(map[uint]any{
+		25: map[cbor.ByteString]uint64{},
+	})
+	require.NoError(t, err)
+	var decoded DijkstraTransactionBody
+	require.ErrorContains(t, decoded.UnmarshalCBOR(emptyDeposits), "must not be empty")
+
+	subWithStartingIntervals, err := cbor.Encode(map[uint]any{
+		0:  []any{},
+		1:  []any{},
+		2:  uint64(0),
+		27: map[cbor.ByteString]any{dijkstraIntervalKey(t, address): map[uint]uint{0: 5}},
+	})
+	require.NoError(t, err)
+	var subBody DijkstraSubTransactionBody
+	require.ErrorContains(
+		t,
+		subBody.UnmarshalCBOR(subWithStartingIntervals),
+		"unknown field",
+	)
 }
 
 func TestDijkstraSubTransactionBodyRequiredTopLevelGuardsRejectsEmptyMap(

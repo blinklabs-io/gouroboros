@@ -43,6 +43,7 @@ func TestDijkstraLeiosW30PoolKeyGoldenTransaction(t *testing.T) {
 	validHash := append([]byte{0x58, 0x20}, make([]byte, 32)...)
 	require.Equal(t, 4, bytes.Count(txCbor, placeholder))
 	txCbor = bytes.ReplaceAll(txCbor, placeholder, validHash)
+	txCbor = stripLegacyAccountBalanceIntervals(t, txCbor)
 
 	tx, err := NewDijkstraTransactionFromCbor(txCbor)
 	require.NoError(t, err)
@@ -70,4 +71,43 @@ func TestDijkstraLeiosW30PoolKeyGoldenTransaction(t *testing.T) {
 	encoded, err := cbor.Encode(tx)
 	require.NoError(t, err)
 	require.True(t, bytes.Equal(txCbor, encoded))
+}
+
+func stripLegacyAccountBalanceIntervals(t *testing.T, txCbor []byte) []byte {
+	t.Helper()
+	var txParts []cbor.RawMessage
+	_, err := cbor.Decode(txCbor, &txParts)
+	require.NoError(t, err)
+	require.Len(t, txParts, 3)
+	var bodyFields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(txParts[0], &bodyFields)
+	require.NoError(t, err)
+	delete(bodyFields, 26)
+	if subTxRaw, exists := bodyFields[23]; exists {
+		var subTxs cbor.SetType[cbor.RawMessage]
+		_, err = cbor.Decode(subTxRaw, &subTxs)
+		require.NoError(t, err)
+		items := subTxs.Items()
+		for index, item := range items {
+			var subParts []cbor.RawMessage
+			_, err := cbor.Decode(item, &subParts)
+			require.NoError(t, err)
+			require.Len(t, subParts, 3)
+			var subBody map[uint]cbor.RawMessage
+			_, err = cbor.Decode(subParts[0], &subBody)
+			require.NoError(t, err)
+			delete(subBody, 26)
+			subParts[0], err = cbor.Encode(subBody)
+			require.NoError(t, err)
+			items[index], err = cbor.Encode(subParts)
+			require.NoError(t, err)
+		}
+		bodyFields[23], err = cbor.Encode(cbor.NewSetType(items, true))
+		require.NoError(t, err)
+	}
+	txParts[0], err = cbor.Encode(bodyFields)
+	require.NoError(t, err)
+	encoded, err := cbor.Encode(txParts)
+	require.NoError(t, err)
+	return encoded
 }

@@ -64,6 +64,43 @@ func decodeCborArray(t *testing.T, data []byte) []cbor.RawMessage {
 	return items
 }
 
+func currentDijkstraFixtureTx(t *testing.T, parts []cbor.RawMessage) []cbor.RawMessage {
+	t.Helper()
+	require.Len(t, parts, 3)
+	var bodyFields map[uint]cbor.RawMessage
+	_, err := cbor.Decode(parts[0], &bodyFields)
+	require.NoError(t, err)
+	delete(bodyFields, 26)
+	subTxBytes, exists := bodyFields[23]
+	if !exists {
+		return parts
+	}
+	var subTxs cbor.SetType[cbor.RawMessage]
+	_, err = cbor.Decode(subTxBytes, &subTxs)
+	require.NoError(t, err)
+	updatedSubTxs := subTxs.Items()
+	for index, rawSubTx := range updatedSubTxs {
+		subTxParts := decodeCborArray(t, rawSubTx)
+		require.Len(t, subTxParts, 3)
+		var subBodyFields map[uint]cbor.RawMessage
+		_, err := cbor.Decode(subTxParts[0], &subBodyFields)
+		require.NoError(t, err)
+		// The source vector predates CIP-159's reward-account byte-string
+		// keys for account_balance_intervals. Remove the obsolete optional
+		// field from this test copy so transaction-offset coverage exercises
+		// the current valid body shape.
+		delete(subBodyFields, 26)
+		subTxParts[0] = encodeCbor(t, subBodyFields)
+		updatedSubTxs[index] = encodeCbor(t, subTxParts)
+	}
+	bodyFields[23] = encodeCbor(
+		t,
+		cbor.NewSetType(updatedSubTxs, true),
+	)
+	parts[0] = encodeCbor(t, bodyFields)
+	return parts
+}
+
 // dijkstraFixtureParts returns the header and the (nil) leios and peras
 // certificate fields of the in-tree Dijkstra block fixture, together with a
 // three-element transaction taken from the in-tree Dijkstra transaction
@@ -79,7 +116,10 @@ func dijkstraFixtureParts(
 	// [invalid_transactions, transactions, leios_certificate,
 	// peras_certificate].
 	require.Len(t, bodyParts, 4)
-	txParts := decodeCborArray(t, readHexFixture(t, dijkstraTxFixturePath))
+	txParts := currentDijkstraFixtureTx(
+		t,
+		decodeCborArray(t, readHexFixture(t, dijkstraTxFixturePath)),
+	)
 	require.Len(t, txParts, 3)
 	return blockParts[0], bodyParts[2], bodyParts[3], txParts
 }

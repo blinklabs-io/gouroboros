@@ -162,17 +162,53 @@ type AccountBalanceIntervalMismatch struct {
 	Interval   DijkstraAccountBalanceInterval
 }
 
+// WrongNetworkAccountAddressesError reports Dijkstra reward-account fields
+// whose account-address network differs from the ledger network.
+type WrongNetworkAccountAddressesError struct {
+	Field     string
+	NetworkID uint
+	Addresses []string
+}
+
+func (e WrongNetworkAccountAddressesError) Error() string {
+	return fmt.Sprintf(
+		"%s contain reward accounts for the wrong network (expected %d): %v",
+		e.Field,
+		e.NetworkID,
+		e.Addresses,
+	)
+}
+
+// DirectDepositAccountsMissingError reports direct deposits to reward
+// accounts that do not exist after the level's certificates have run.
+type DirectDepositAccountsMissingError struct {
+	Credentials []common.Credential
+}
+
+func (e DirectDepositAccountsMissingError) Error() string {
+	return fmt.Sprintf(
+		"direct deposits target unregistered accounts: %v",
+		e.Credentials,
+	)
+}
+
 // MissingAccountsInBalanceIntervalsError reports account_balance_intervals
 // (body key 26) entries whose reward account is not registered. It
 // corresponds to cardano-ledger's
 // MissingAccountsInAccountBalanceIntervals.
 type MissingAccountsInBalanceIntervalsError struct {
 	Credentials []common.Credential
+	Starting    bool
 }
 
 func (e MissingAccountsInBalanceIntervalsError) Error() string {
+	field := "account balance intervals"
+	if e.Starting {
+		field = "starting account balance intervals"
+	}
 	return fmt.Sprintf(
-		"account balance intervals reference unregistered accounts: %v",
+		"%s reference unregistered accounts: %v",
+		field,
 		e.Credentials,
 	)
 }
@@ -183,11 +219,17 @@ func (e MissingAccountsInBalanceIntervalsError) Error() string {
 // BalancesOutsideAccountBalanceIntervals.
 type BalancesOutsideAccountBalanceIntervalsError struct {
 	Mismatches []AccountBalanceIntervalMismatch
+	Starting   bool
 }
 
 func (e BalancesOutsideAccountBalanceIntervalsError) Error() string {
+	field := "account balance intervals"
+	if e.Starting {
+		field = "starting account balance intervals"
+	}
 	return fmt.Sprintf(
-		"account balances outside asserted intervals: %v",
+		"account balances outside %s: %v",
+		field,
 		e.Mismatches,
 	)
 }

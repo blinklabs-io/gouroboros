@@ -19,7 +19,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
@@ -52,12 +51,15 @@ func dijkstraDepositInput(amount uint64) (
 	}
 }
 
-func dijkstraDepositAccount(fill byte) cbor.ByteString {
+func dijkstraDepositAccount(t *testing.T, fill byte) *common.Address {
+	t.Helper()
 	// A reward address: header byte plus a 28-byte staking key hash.
 	raw := append(
 		[]byte{0xe0},
 		bytes.Repeat([]byte{fill}, common.AddressHashSize)...)
-	return cbor.NewByteString(raw)
+	address, err := common.NewAddressFromBytes(raw)
+	require.NoError(t, err)
+	return &address
 }
 
 // TestDijkstraDirectDepositsCountAsProducedValue pins that a direct deposit
@@ -77,8 +79,8 @@ func TestDijkstraDirectDepositsCountAsProducedValue(t *testing.T) {
 		[]shelley.ShelleyTransactionInput{input},
 		nil,
 	)
-	depositTx.Body.TxDirectDeposits = map[cbor.ByteString]uint64{
-		dijkstraDepositAccount(0x11): dijkstraDepositAmount,
+	depositTx.Body.TxDirectDeposits = DijkstraDirectDeposits{
+		dijkstraIntervalKey(t, dijkstraDepositAccount(t, 0x11)): dijkstraDepositAmount,
 	}
 	var depositErr shelley.ValueNotConservedUtxoError
 	require.ErrorAs(t, rule(depositTx, 0, ls, pp), &depositErr)
@@ -122,8 +124,8 @@ func TestDijkstraDirectDepositsConserveWhenFunded(t *testing.T) {
 		[]shelley.ShelleyTransactionInput{input},
 		nil,
 	)
-	tx.Body.TxDirectDeposits = map[cbor.ByteString]uint64{
-		dijkstraDepositAccount(0x11): dijkstraDepositAmount,
+	tx.Body.TxDirectDeposits = DijkstraDirectDeposits{
+		dijkstraIntervalKey(t, dijkstraDepositAccount(t, 0x11)): dijkstraDepositAmount,
 	}
 	require.NoError(t, rule(tx, 0, ls, pp))
 
@@ -131,8 +133,8 @@ func TestDijkstraDirectDepositsConserveWhenFunded(t *testing.T) {
 		[]shelley.ShelleyTransactionInput{input},
 		nil,
 	)
-	withDonation.Body.TxDirectDeposits = map[cbor.ByteString]uint64{
-		dijkstraDepositAccount(0x11): dijkstraDepositAmount - 1,
+	withDonation.Body.TxDirectDeposits = DijkstraDirectDeposits{
+		dijkstraIntervalKey(t, dijkstraDepositAccount(t, 0x11)): dijkstraDepositAmount - 1,
 	}
 	withDonation.Body.TxDonation = 1
 	require.NoError(t, rule(withDonation, 0, ls, pp))
@@ -150,8 +152,8 @@ func TestDijkstraDirectDepositsFoldAcrossTransactionLevels(t *testing.T) {
 	pp := &DijkstraProtocolParameters{}
 	rule := dijkstraRule(t, common.UtxoValidationRuleValueNotConserved)
 
-	deposits := map[cbor.ByteString]uint64{
-		dijkstraDepositAccount(0x11): dijkstraDepositAmount,
+	deposits := DijkstraDirectDeposits{
+		dijkstraIntervalKey(t, dijkstraDepositAccount(t, 0x11)): dijkstraDepositAmount,
 	}
 	topTx := dijkstraSubUtxoTopLevelTx(
 		[]shelley.ShelleyTransactionInput{input},

@@ -326,6 +326,8 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervals(t *testing.T) {
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: hash2,
 	}
+	addr1 := dijkstraRewardAddressForCredential(t, cred1)
+	addr2 := dijkstraRewardAddressForCredential(t, cred2)
 	lower := uint64(10)
 	upper := uint64(20)
 	exact := uint64(30)
@@ -333,8 +335,8 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervals(t *testing.T) {
 		TxBalanceIntervals: DijkstraAccountBalanceIntervals{
 			// Inserted out of sorted order to confirm the output is sorted
 			// by credential rather than by map iteration order.
-			&cred2: {Exact: &exact},
-			&cred1: {LowerBound: &lower, UpperBound: &upper},
+			dijkstraIntervalKey(t, addr2): {Exact: &exact},
+			dijkstraIntervalKey(t, addr1): {LowerBound: &lower, UpperBound: &upper},
 		},
 	}
 	_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
@@ -352,7 +354,8 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervals(t *testing.T) {
 }
 
 func TestDijkstraBodyFieldsV4AccountBalanceIntervalBoundShapes(t *testing.T) {
-	guard := testGuardCredential()
+	guard := dijkstraRewardAddressForCredential(t, testGuardCredential())
+	guardKey := dijkstraIntervalKey(t, guard)
 	lower := uint64(7)
 	upper := uint64(9)
 	tests := []struct {
@@ -375,7 +378,7 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervalBoundShapes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			body := &DijkstraSubTransactionBody{
 				TxAccountBalanceIntervals: DijkstraAccountBalanceIntervals{
-					&guard: test.interval,
+					guardKey: test.interval,
 				},
 			}
 			_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
@@ -438,24 +441,33 @@ func TestDijkstraBodyFieldsV4RequiredTopLevelGuards(t *testing.T) {
 // already rejects them), but nothing stops a caller from building one of
 // these exported map types by hand.
 func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.T) {
-	guard := testGuardCredential()
-	unsupported := guard
+	guardCredential := testGuardCredential()
+	guard := dijkstraRewardAddressForCredential(t, guardCredential)
+	guardKey := dijkstraIntervalKey(t, guard)
+	unsupported := guardCredential
 	unsupported.CredType = 2
 	lower := uint64(1)
 
-	t.Run("balance intervals: unsupported credential type", func(t *testing.T) {
+	t.Run("balance intervals: non-reward address", func(t *testing.T) {
+		paymentAddress, err := common.NewAddressFromParts(
+			common.AddressTypeKeyKey,
+			common.AddressNetworkTestnet,
+			bytes.Repeat([]byte{0x44}, common.AddressHashSize),
+			bytes.Repeat([]byte{0x45}, common.AddressHashSize),
+		)
+		require.NoError(t, err)
 		body := &DijkstraTransactionBody{
 			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
-				&unsupported: {LowerBound: &lower},
+				dijkstraIntervalKey(t, &paymentAddress): {LowerBound: &lower},
 			},
 		}
-		_, _, _, _, err := dijkstraBodyFieldsV4(body)
-		require.ErrorContains(t, err, "unsupported credential type")
+		_, _, _, _, err = dijkstraBodyFieldsV4(body)
+		require.ErrorContains(t, err, "reward account")
 	})
 
 	t.Run("balance intervals: nil interval", func(t *testing.T) {
 		body := &DijkstraTransactionBody{
-			TxBalanceIntervals: DijkstraAccountBalanceIntervals{&guard: nil},
+			TxBalanceIntervals: DijkstraAccountBalanceIntervals{guardKey: nil},
 		}
 		_, _, _, _, err := dijkstraBodyFieldsV4(body)
 		require.ErrorContains(t, err, "nil interval")
@@ -464,7 +476,7 @@ func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.
 	t.Run("balance intervals: all-nil bounds", func(t *testing.T) {
 		body := &DijkstraTransactionBody{
 			TxBalanceIntervals: DijkstraAccountBalanceIntervals{
-				&guard: {},
+				guardKey: {},
 			},
 		}
 		_, _, _, _, err := dijkstraBodyFieldsV4(body)
@@ -484,7 +496,7 @@ func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.
 	t.Run("required top-level guards: datum missing Plutus data", func(t *testing.T) {
 		body := &DijkstraSubTransactionBody{
 			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
-				&guard: {},
+				&guardCredential: {},
 			},
 		}
 		_, _, _, _, err := dijkstraBodyFieldsV4(body)
