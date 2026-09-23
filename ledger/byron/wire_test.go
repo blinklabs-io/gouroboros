@@ -136,12 +136,12 @@ func TestByronFixedRecordsRejectIndefiniteArrays(t *testing.T) {
 	require.Error(t, update.UnmarshalCBOR([]byte{0x9f, 0xff}))
 }
 
-func TestByronProtocolParameterUpdateRejectsIndefiniteStrings(t *testing.T) {
+func TestByronProtocolParameterUpdateRejectsChunkedNaturalBignums(t *testing.T) {
 	fields := make([]cbor.RawMessage, 14)
 	for index := range fields {
 		fields[index] = cbor.RawMessage{0x80}
 	}
-	fields[0] = cbor.RawMessage{0x7f, 0x61, 'a', 0xff}
+	fields[1] = cbor.RawMessage{0x81, 0xc2, 0x5f, 0x41, 0x01, 0xff}
 	var update ByronUpdateProposalBlockVersionMod
 	err := update.UnmarshalCBOR(encodeRawArray(t, fields...))
 	require.ErrorContains(t, err, "indefinite-length CBOR string")
