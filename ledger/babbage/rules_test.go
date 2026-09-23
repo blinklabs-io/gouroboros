@@ -2193,3 +2193,44 @@ func TestBabbageMinCoinTxOutBoundary(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "overflow")
 }
+
+func TestMinFeeIncludesDeclaredExecutionUnits(t *testing.T) {
+	prices := common.ExUnitPrice{
+		MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		StepPrice: &cbor.Rat{Rat: big.NewRat(1, 4)},
+	}
+	tx := &babbage.BabbageTransaction{
+		WitnessSet: babbage.BabbageTransactionWitnessSet{
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{{
+					Tag:     common.RedeemerTagSpend,
+					ExUnits: common.ExUnits{Memory: 3},
+				}},
+			},
+		},
+	}
+	tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
+	pp := &babbage.BabbageProtocolParameters{
+		MinFeeA:        2,
+		MinFeeB:        3,
+		ExecutionCosts: prices,
+	}
+	txSize, err := common.TxSizeForFee(tx)
+	require.NoError(t, err)
+	baseFee, err := common.CalculateMinFee(txSize, pp.MinFeeA, pp.MinFeeB)
+	require.NoError(t, err)
+	minFee, err := babbage.MinFeeTx(tx, pp)
+	require.NoError(t, err)
+	require.Equal(t, baseFee+2, minFee)
+
+	tx.Body.TxFee = baseFee
+	state := mockledger.NewLedgerStateBuilder().Build()
+	require.ErrorAs(t, babbage.UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp), &shelley.FeeTooSmallUtxoError{})
+	tx.Body.TxFee = minFee
+	require.NoError(t, babbage.UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp))
+
+	tx.WitnessSet = babbage.BabbageTransactionWitnessSet{}
+	noRedeemerFee, err := babbage.MinFeeTx(tx, pp)
+	require.NoError(t, err)
+	require.Equal(t, baseFee, noRedeemerFee)
+}

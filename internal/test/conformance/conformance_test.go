@@ -15,11 +15,81 @@
 package conformance
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/ouroboros-mock/conformance"
 )
+
+type epochAwareStateManager struct {
+	conformance.StateManager
+}
+
+func (m epochAwareStateManager) GetStateSnapshot() *conformance.StateSnapshot {
+	if provider, ok := m.StateManager.(conformance.StateSnapshotProvider); ok {
+		return provider.GetStateSnapshot()
+	}
+	return nil
+}
+
+func (m epochAwareStateManager) GetStateProvider() conformance.StateProvider {
+	return epochAwareStateProvider{
+		StateProvider: m.StateManager.GetStateProvider(),
+		stateManager:  m.StateManager,
+	}
+}
+
+type epochAwareStateProvider struct {
+	conformance.StateProvider
+	stateManager conformance.StateManager
+}
+
+func (s epochAwareStateProvider) EpochForSlot(uint64) (uint64, error) {
+	state := s.stateManager.GetGovernanceState()
+	if state == nil {
+		return 0, fmt.Errorf("conformance governance state is unavailable")
+	}
+	return state.CurrentEpoch, nil
+}
+
+func (s epochAwareStateProvider) CommitteeStateAvailable() (bool, error) {
+	state, ok := s.StateProvider.(common.CommitteeCredentialState)
+	if !ok {
+		return false, nil
+	}
+	return state.CommitteeStateAvailable()
+}
+
+func (s epochAwareStateProvider) CommitteeCredentialMember(
+	credential common.Credential,
+) (*common.CommitteeMember, error) {
+	state, ok := s.StateProvider.(common.CommitteeCredentialState)
+	if !ok {
+		return nil, nil
+	}
+	return state.CommitteeCredentialMember(credential)
+}
+
+func (s epochAwareStateProvider) CommitteeHotCredentialMember(
+	credential common.Credential,
+) (*common.CommitteeMember, error) {
+	state, ok := s.StateProvider.(common.CommitteeCredentialState)
+	if !ok {
+		return nil, nil
+	}
+	return state.CommitteeHotCredentialMember(credential)
+}
+
+func (s epochAwareStateProvider) DRepDelegation(
+	credential common.Credential,
+) (*common.Drep, error) {
+	state, ok := s.StateProvider.(common.DRepDelegationState)
+	if !ok {
+		return nil, nil
+	}
+	return state.DRepDelegation(credential)
+}
 
 // TestStateProviderExposesCommitteeCredentials pins the committee capability
 // the vector runs below depend on.
@@ -59,7 +129,7 @@ func TestRulesConformanceVectors(t *testing.T) {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
 	}
 
-	sm := conformance.NewMockStateManager()
+	sm := epochAwareStateManager{StateManager: conformance.NewMockStateManager()}
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        testing.Verbose(),
@@ -76,7 +146,7 @@ func TestRulesConformanceVectorsWithResults(t *testing.T) {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
 	}
 
-	sm := conformance.NewMockStateManager()
+	sm := epochAwareStateManager{StateManager: conformance.NewMockStateManager()}
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        false,

@@ -718,6 +718,63 @@ func TestCertificateDepositStateFoldProductionPath(t *testing.T) {
 	}
 }
 
+func TestDRepDeregistrationThenAssignmentRejectedByFullRules(t *testing.T) {
+	pp := certificateDepositPparams()
+	fixture := newCertificateDepositCredentialFixture(
+		t,
+		common.CredentialTypeAddrKeyHash,
+	)
+	credentialCbor := []any{
+		fixture.credential.CredType,
+		fixture.credential.Credential.Bytes(),
+	}
+	drepCbor := []any{
+		uint64(common.DrepTypeAddrKeyHash),
+		fixture.credential.Credential.Bytes(),
+	}
+	deregistrationCbor, err := cbor.Encode([]any{
+		uint64(common.CertificateTypeDeregistrationDrep),
+		credentialCbor,
+		int64(pp.DRepDeposit),
+	})
+	require.NoError(t, err)
+	assignmentCbor, err := cbor.Encode([]any{
+		uint64(common.CertificateTypeVoteDelegation),
+		credentialCbor,
+		drepCbor,
+	})
+	require.NoError(t, err)
+	tx := certificateDepositTransaction(
+		t,
+		fixture,
+		[][]byte{deregistrationCbor, assignmentCbor},
+		int64(pp.DRepDeposit),
+		0,
+	)
+	drepDeposit := pp.DRepDeposit
+	baseState := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{{
+			Id: shelley.NewShelleyTransactionInput(certificateDepositTxId, 0),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: certificateDepositInputAmount,
+			},
+		}}).
+		WithNetworkId(1).
+		WithStakeCredentialRegistered(fixture.credential.Credential, true).
+		WithDRepRegistrations([]common.DRepRegistration{{
+			Credential: fixture.credential,
+			Deposit:    &drepDeposit,
+		}}).
+		Build()
+	ls := certificateDepositLedgerState{
+		LedgerState: baseState,
+		deposits:    map[certificateDepositCredentialKey]uint64{},
+	}
+	err = runCertificateDepositProductionRules(t, tx, ls, pp)
+	var target conway.DelegateVoteToUnregisteredDRepError
+	require.ErrorAs(t, err, &target)
+}
+
 func TestDRepUpdateRequiresSequentialRegistration(t *testing.T) {
 	pp := certificateDepositPparams()
 	for _, credType := range []uint{
