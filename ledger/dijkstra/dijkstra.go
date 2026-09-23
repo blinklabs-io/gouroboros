@@ -1730,6 +1730,14 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	for _, witness := range tmp.BootstrapWitnesses.Items() {
+		if len(witness.ChainCode) != 32 {
+			return fmt.Errorf(
+				"Dijkstra bootstrap witness chain code must be 32 bytes, got %d",
+				len(witness.ChainCode),
+			)
+		}
+	}
 	// Reject duplicate members in every Dijkstra witness-set encoding, including
 	// untagged arrays.
 	type duplicateChecker interface {

@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -2318,5 +2319,72 @@ func TestDijkstraWitnessSetRejectsField8TaggedAndUntagged(t *testing.T) {
 			witnesses.UnmarshalCBOR(wire),
 			"does not support field 8",
 		)
+	}
+}
+
+func TestDijkstraBootstrapWitnessChainCodeHasProtocolWidth(t *testing.T) {
+	publicKey := bytes.Repeat([]byte{0x11}, ed25519.PublicKeySize)
+	signature := bytes.Repeat([]byte{0x22}, ed25519.SignatureSize)
+	for _, tagged := range []bool{false, true} {
+		for _, length := range []int{31, 32, 33} {
+			name := fmt.Sprintf("%d bytes/tagged=%t", length, tagged)
+			t.Run(name, func(t *testing.T) {
+				witness := []any{
+					publicKey,
+					signature,
+					bytes.Repeat([]byte{0x33}, length),
+					[]byte{},
+				}
+				witnesses := any([]any{witness})
+				if tagged {
+					witnesses = cbor.NewSetType([]any{witness}, true)
+				}
+				wire, err := cbor.Encode(map[uint]any{2: witnesses})
+				require.NoError(t, err)
+				var decoded DijkstraTransactionWitnessSet
+				err = decoded.UnmarshalCBOR(wire)
+				if length == 32 {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, "chain code must be 32 bytes")
+				}
+			})
+		}
+	}
+}
+
+func TestDijkstraTransactionRejectsUnusedBootstrapWitnessWithBadChainCode(
+	t *testing.T,
+) {
+	bodyWire, err := cbor.Encode(minimalTxBody())
+	require.NoError(t, err)
+	bodyHash := common.Blake2b256Hash(bodyWire)
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x44}, ed25519.SeedSize))
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+	signature := ed25519.Sign(privateKey, bodyHash[:])
+	for _, length := range []int{31, 32, 33} {
+		t.Run(fmt.Sprintf("chain-code-%d", length), func(t *testing.T) {
+			witnessWire, encodeErr := cbor.Encode(map[uint]any{
+				2: []any{[]any{
+					[]byte(publicKey),
+					signature,
+					bytes.Repeat([]byte{0x55}, length),
+					[]byte{},
+				}},
+			})
+			require.NoError(t, encodeErr)
+			txWire, encodeErr := cbor.Encode([]any{
+				cbor.RawMessage(bodyWire),
+				cbor.RawMessage(witnessWire),
+				nil,
+			})
+			require.NoError(t, encodeErr)
+			_, decodeErr := NewDijkstraTransactionFromCbor(txWire)
+			if length == 32 {
+				require.NoError(t, decodeErr)
+			} else {
+				require.ErrorContains(t, decodeErr, "chain code must be 32 bytes")
+			}
+		})
 	}
 }
