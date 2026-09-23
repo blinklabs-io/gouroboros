@@ -2015,8 +2015,9 @@ func NewByronEpochBoundaryBlockFromCbor(
 	if _, err := cbor.Decode(data, &byronEbbBlock); err != nil {
 		return nil, fmt.Errorf("decode Byron EBB block error: %w", err)
 	}
-	// Bind the body to the header. Without this the header, and so the
-	// block hash, can be genuine while the body has been substituted.
+	// Check the header's body-proof field is a well-formed byte string.
+	// This does not bind the body to the header -- the reference decoder
+	// does not either; see ValidateBodyProof's own doc comment.
 	if !cfg.SkipBodyHashValidation {
 		if err := byronEbbBlock.ValidateBodyProof(); err != nil {
 			return nil, err
