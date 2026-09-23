@@ -15,6 +15,7 @@
 package common
 
 import (
+	"fmt"
 	"log/slog"
 	"maps"
 	"math/big"
@@ -38,6 +39,21 @@ type ProtocolParametersProtocolVersion struct {
 
 type ProtocolParameters interface {
 	Utxorpc() (*cardano.PParams, error)
+}
+
+// ValidateCostModelLanguageIDs enforces the Word8 wire domain used by
+// cardano-ledger while retaining unknown language IDs for forward
+// compatibility.
+func ValidateCostModelLanguageIDs(models map[uint][]int64) error {
+	for languageID := range models {
+		if languageID > 255 {
+			return fmt.Errorf(
+				"cost-model language ID %d exceeds Word8 maximum 255",
+				languageID,
+			)
+		}
+	}
+	return nil
 }
 
 // PoolRuleProtocolParameters is the protocol-parameter view required by the
@@ -111,6 +127,9 @@ func ConvertToUtxorpcCardanoCostModels(
 
 // CostModelsToPlutusData converts ledger cost-model updates to a PlutusData map.
 func CostModelsToPlutusData(models map[uint][]int64) data.PlutusData {
+	if err := ValidateCostModelLanguageIDs(models); err != nil {
+		panic(err)
+	}
 	keys := slices.Collect(maps.Keys(models))
 	slices.Sort(keys)
 	pairs := make([][2]data.PlutusData, 0, len(keys))

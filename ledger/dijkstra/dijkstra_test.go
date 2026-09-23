@@ -1580,6 +1580,38 @@ func TestDijkstraProtocolParameterUpdateDecodesConwayAndDijkstraFields(
 	require.Equal(t, 0, pparams.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
 }
 
+func TestDijkstraProtocolParameterUpdateCostModelLanguageIDDomain(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		id      uint
+		wantErr bool
+	}{
+		{name: "unknown Word8 ID remains valid", id: 255},
+		{name: "out-of-domain ID rejected", id: 256, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(map[int]any{
+				18: map[uint][]int64{tc.id: {1}},
+			})
+			require.NoError(t, err)
+			var update DijkstraProtocolParameterUpdate
+			err = update.UnmarshalCBOR(encoded)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Contains(t, update.CostModels, tc.id)
+			}
+		})
+	}
+	var params DijkstraProtocolParameters
+	err := params.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+		CostModels: map[uint][]int64{256: {1}},
+	})
+	require.Error(t, err)
+	require.Empty(t, params.CostModels)
+}
+
 func TestDijkstraProtocolParameterUpdateDecodesLeiosFields(t *testing.T) {
 	quorum := cbor.Rat{Rat: big.NewRat(3, 4)}
 	exUnits := common.ExUnits{Memory: 123, Steps: 456}

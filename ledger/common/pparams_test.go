@@ -60,6 +60,21 @@ func TestConvertToUtxorpcCardanoCostModels_Mapping(t *testing.T) {
 	}
 }
 
+func TestCostModelsToPlutusDataRejectsLanguageIDsOutsideWord8(t *testing.T) {
+	if err := ValidateCostModelLanguageIDs(map[uint][]int64{255: {1}}); err != nil {
+		t.Fatalf("unknown in-domain language ID rejected: %v", err)
+	}
+	if err := ValidateCostModelLanguageIDs(map[uint][]int64{256: {1}}); err == nil {
+		t.Fatal("out-of-domain language ID accepted")
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("ChangedParameters conversion accepted out-of-domain language ID")
+		}
+	}()
+	_ = CostModelsToPlutusData(map[uint][]int64{256: {1}})
+}
+
 // TestConvertToUtxorpcCardanoCostModels_KeyZeroIsPlutusV1 is a focused
 // regression test for the specific bug found by the node-parity audit: cost
 // model key 0 (real-world PlutusV1) must not be silently dropped. Before the

@@ -395,6 +395,9 @@ func (p *DijkstraProtocolParameters) ApplyUpdate(
 	if paramUpdate == nil {
 		return nil
 	}
+	if err := common.ValidateCostModelLanguageIDs(paramUpdate.CostModels); err != nil {
+		return err
+	}
 	committeeStakeCoverage := p.CommitteeStakeCoverage
 	if paramUpdate.CommitteeStakeCoverage != nil {
 		committeeStakeCoverage = paramUpdate.CommitteeStakeCoverage
@@ -507,6 +510,9 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	type tDijkstraProtocolParameterUpdate DijkstraProtocolParameterUpdate
 	var tmp tDijkstraProtocolParameterUpdate
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := common.ValidateCostModelLanguageIDs(tmp.CostModels); err != nil {
 		return err
 	}
 	*u = DijkstraProtocolParameterUpdate(tmp)

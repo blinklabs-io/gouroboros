@@ -1458,6 +1458,9 @@ func validateConwayProtocolParameterUpdate(
 			Reason:    "cannot be nil",
 		}
 	}
+	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
+		return invalidConwayParameterField("costModels", err.Error())
+	}
 	if ppu.A0 != nil && !validNonNegativeRat(ppu.A0) {
 		return invalidConwayParameterField("a0", "must be nonnegative")
 	}

@@ -492,6 +492,38 @@ func TestConwayProtocolParameterUpdate_CostModelLengthForwardCompat(
 	assert.Equal(t, v3, decoded.CostModels[2])
 }
 
+func TestConwayProtocolParameterUpdateCostModelLanguageIDDomain(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		id      uint
+		wantErr bool
+	}{
+		{name: "unknown Word8 ID remains valid", id: 255},
+		{name: "out-of-domain ID rejected", id: 256, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(map[int]any{
+				18: map[uint][]int64{tc.id: {1}},
+			})
+			require.NoError(t, err)
+			var update conway.ConwayProtocolParameterUpdate
+			err = update.UnmarshalCBOR(encoded)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Contains(t, update.CostModels, tc.id)
+			}
+		})
+	}
+	var params conway.ConwayProtocolParameters
+	require.Panics(t, func() {
+		params.Update(&conway.ConwayProtocolParameterUpdate{
+			CostModels: map[uint][]int64{256: {1}},
+		})
+	})
+}
+
 // TestConwayProtocolParameters_UpdateAcceptsLongerCostModel asserts that
 // merging a ConwayProtocolParameterUpdate over existing protocol parameters
 // preserves the entire incoming cost-model slice, even when it is longer than

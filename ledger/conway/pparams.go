@@ -406,6 +406,9 @@ func drepVotingThresholdsUtxorpc(
 func (p *ConwayProtocolParameters) Update(
 	paramUpdate *ConwayProtocolParameterUpdate,
 ) {
+	if err := common.ValidateCostModelLanguageIDs(paramUpdate.CostModels); err != nil {
+		panic(err)
+	}
 	if paramUpdate.MinFeeA != nil {
 		p.MinFeeA = *paramUpdate.MinFeeA
 	}

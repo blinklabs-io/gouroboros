@@ -460,6 +460,9 @@ func validateDijkstraProtocolParameterUpdate(
 	if ppu == nil || !ppu.hasUpdate() {
 		return conway.ProtocolParameterUpdateEmptyError{}
 	}
+	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
+		return err
+	}
 	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
 		return conway.ProtocolParameterUpdateFieldZeroError{
 			FieldName: "maxBHSize",
