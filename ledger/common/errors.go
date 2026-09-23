@@ -15,6 +15,7 @@
 package common
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -46,7 +47,7 @@ type NotAllowedSupplementalDatumsError struct {
 func (e NotAllowedSupplementalDatumsError) Error() string {
 	hashes := make([]string, len(e.DatumHashes))
 	for i, hash := range e.DatumHashes {
-		hashes[i] = fmt.Sprintf("%x", hash[:])
+		hashes[i] = hex.EncodeToString(hash[:])
 	}
 	return "not allowed supplemental datums in witness set: " + strings.Join(hashes, ", ")
 }
