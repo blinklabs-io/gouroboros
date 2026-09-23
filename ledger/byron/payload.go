@@ -773,13 +773,13 @@ func validateTxFeePolicy(raw cbor.RawMessage) error {
 			return fmt.Errorf("%w: TxSizeLinear coefficient %d has trailing bytes", ErrInvalidPayload, index)
 		}
 	}
-	if summandNano.Sign() < 0 {
-		return fmt.Errorf("%w: TxSizeLinear summand is negative", ErrInvalidPayload)
-	}
 	// TxSizeLinear decodes its first Nano coefficient, rounds it to
 	// Lovelace, and then applies the ordinary Lovelace bound. Its multiplier
 	// is an unbounded rational coefficient and has no Lovelace range check.
 	rounded := roundNanoToInteger(&summandNano)
+	if rounded.Sign() < 0 {
+		return fmt.Errorf("%w: TxSizeLinear summand is negative after rounding", ErrInvalidPayload)
+	}
 	if rounded.Cmp(big.NewInt(45_000_000_000_000_000)) > 0 {
 		return fmt.Errorf("%w: TxSizeLinear summand exceeds maximum Lovelace", ErrInvalidPayload)
 	}

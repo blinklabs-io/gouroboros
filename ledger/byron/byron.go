@@ -1234,6 +1234,9 @@ type ByronUpdateProposalBlockVersionMod struct {
 func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 	cborData []byte,
 ) error {
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron protocol parameter update string framing: %w", err)
+	}
 	if err := requireByronArrayLength(cborData, "byron protocol parameter update", 14); err != nil {
 		return err
 	}

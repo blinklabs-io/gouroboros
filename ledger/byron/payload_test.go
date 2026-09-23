@@ -957,6 +957,22 @@ func TestUpdatePayloadStructure(t *testing.T) {
 		)
 		require.NoError(t, newBlock([]cbor.RawMessage{rawProposal}, nil).Body.ValidateUpdatePayloadStructure())
 	})
+	t.Run("negative Nano summand that rounds to zero is accepted", func(t *testing.T) {
+		for _, summand := range []int64{-1, -499_999_999, -500_000_000} {
+			linear := mustEncode(t, []*big.Int{big.NewInt(summand), big.NewInt(1)})
+			policy := rawArray(mustEncode(t, uint64(0)), append([]byte{0xd8, 0x18}, mustEncode(t, []byte(linear))...))
+			modFields := make([][]byte, 14)
+			for index := range modFields {
+				modFields[index] = mustEncode(t, []any{})
+			}
+			modFields[12] = rawArray(policy)
+			proposal := signedUpdateProposalWithMod(
+				t, testPayloadProtocolMagic, issuerVK, issuerPrivate,
+				rawArray(modFields...), emptyMap(), emptyMap(),
+			)
+			require.NoError(t, newBlock([]cbor.RawMessage{proposal}, nil).Body.ValidateUpdatePayloadStructure(), "summand %d", summand)
+		}
+	})
 }
 
 func TestByronMainBlockDecodeEnforcesUpdatePayloadStructure(t *testing.T) {
