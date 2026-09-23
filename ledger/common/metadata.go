@@ -701,6 +701,9 @@ func DecodeAuxiliaryDataForEra(
 		if _, err := cbor.Decode(content, &fields); err != nil {
 			return nil, fmt.Errorf("decode tagged auxiliary-data fields: %w", err)
 		}
+		// Dijkstra's Plutus V4 auxiliary-data allowance is intentional,
+		// even though the current public cardano-ledger reference still caps
+		// this era at V3.
 		maxLanguage := uint(era-AuxiliaryDataEraAlonzo) + 1
 		for field := range fields {
 			if field > 5 {
