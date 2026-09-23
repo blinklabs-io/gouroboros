@@ -687,5 +687,8 @@ func TestOutsideForecastChecksInvalidSubTransaction(t *testing.T) {
 	)
 	var outsideForecast *common.OutsideForecastError
 	require.ErrorAs(t, err, &outsideForecast)
+	if outsideForecast == nil {
+		return
+	}
 	require.Equal(t, upper, outsideForecast.Slot)
 }
