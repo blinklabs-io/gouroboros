@@ -461,7 +461,11 @@ func TestSendLoopDefersBatchedMessageBehindUnflushedBacklog(t *testing.T) {
 		deadline := time.Now().Add(2 * time.Second)
 		for p.getCurrentState() != idle {
 			if time.Now().After(deadline) {
-				t.Fatal("concurrent BatchDone transition never became visible")
+				// This hook runs on the sendLoop goroutine, where
+				// t.Fatal's runtime.Goexit would kill sendLoop instead of
+				// the test.
+				t.Error("concurrent BatchDone transition never became visible")
+				return
 			}
 			time.Sleep(time.Millisecond)
 		}
