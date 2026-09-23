@@ -39,6 +39,20 @@ func TestConwayTransactionDecodeRejectsInvalidBodyAndWitnessFields(t *testing.T)
 			wantText: "required CBOR map field 2 must not be null",
 		},
 		{
+			name: "undefined required outputs",
+			body: map[uint]any{
+				0: []any{}, 1: cbor.RawMessage{0xf7}, 2: uint64(0),
+			},
+			wantText: "required CBOR map field 1 must not be undefined",
+		},
+		{
+			name: "undefined required fee",
+			body: map[uint]any{
+				0: []any{}, 1: []any{}, 2: cbor.RawMessage{0xf7},
+			},
+			wantText: "required CBOR map field 2 must not be undefined",
+		},
+		{
 			name:     "empty certificates",
 			body:     map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0), 4: []any{}},
 			wantText: "must not be empty",

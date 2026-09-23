@@ -284,6 +284,12 @@ func ValidateMapFields(
 		if len(value) == 1 && value[0] == 0xf6 {
 			return fmt.Errorf("required CBOR map field %d must not be null", field)
 		}
+		if len(value) == 1 && value[0] == 0xf7 {
+			return fmt.Errorf(
+				"required CBOR map field %d must not be undefined",
+				field,
+			)
+		}
 	}
 	for _, field := range unsupportedFields {
 		if _, ok := fields[field]; ok {

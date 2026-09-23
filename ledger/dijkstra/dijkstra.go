@@ -2008,6 +2008,11 @@ func (t DijkstraTransaction) SubTransactionOutputs() []common.TransactionOutput 
 }
 
 func (t *DijkstraTransaction) MarshalCBOR() ([]byte, error) {
+	if len(t.WitnessSet.WsPlutusV4Scripts.Items()) > 0 {
+		return nil, errors.New(
+			"Dijkstra Plutus V4 scripts must be supplied by reference scripts",
+		)
+	}
 	if cborData := t.DecodeStoreCbor.Cbor(); cborData != nil {
 		return cborData, nil
 	}

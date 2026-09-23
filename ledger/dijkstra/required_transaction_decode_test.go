@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,6 +38,20 @@ func TestDijkstraTransactionDecodeRejectsInvalidBodyAndWitnessFields(t *testing.
 			name:     "null required fee",
 			body:     map[uint]any{0: []any{}, 1: []any{}, 2: nil},
 			wantText: "required CBOR map field 2 must not be null",
+		},
+		{
+			name: "undefined required outputs",
+			body: map[uint]any{
+				0: []any{}, 1: cbor.RawMessage{0xf7}, 2: uint64(0),
+			},
+			wantText: "required CBOR map field 1 must not be undefined",
+		},
+		{
+			name: "undefined required fee",
+			body: map[uint]any{
+				0: []any{}, 1: []any{}, 2: cbor.RawMessage{0xf7},
+			},
+			wantText: "required CBOR map field 2 must not be undefined",
 		},
 		{
 			name:     "empty certificates",
@@ -69,4 +84,21 @@ func TestDijkstraWitnessSetRejectsLegacyEmptyRedeemerList(t *testing.T) {
 
 	var witnesses DijkstraTransactionWitnessSet
 	require.Error(t, witnesses.UnmarshalCBOR(encoded))
+}
+
+func TestDijkstraTransactionMarshalRejectsPlutusV4Witnesses(t *testing.T) {
+	tx := &DijkstraTransaction{
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsPlutusV4Scripts: cbor.NewSetType(
+				[]common.PlutusV4Script{{0x01}},
+				true,
+			),
+		},
+	}
+	_, err := tx.MarshalCBOR()
+	require.ErrorContains(
+		t,
+		err,
+		"Dijkstra Plutus V4 scripts must be supplied by reference scripts",
+	)
 }
