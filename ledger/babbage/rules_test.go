@@ -2136,6 +2136,38 @@ func TestBabbageMinCoinTxOutOverflow(t *testing.T) {
 	require.Positive(t, minCoin)
 }
 
+func TestBabbageBodyDecodeRejectsDijkstraOnlyReferenceScript(t *testing.T) {
+	t.Parallel()
+	guard := common.NativeScriptRequireGuard{Type: 6}
+	guardCBOR, err := cbor.Encode(guard)
+	require.NoError(t, err)
+	var nativeScript common.NativeScript
+	_, err = cbor.Decode(guardCBOR, &nativeScript)
+	require.NoError(t, err)
+	address, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		make([]byte, common.Blake2b224Size),
+		nil,
+	)
+	require.NoError(t, err)
+	body := babbage.BabbageTransactionBody{
+		TxInputs: shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{}),
+		TxOutputs: []babbage.BabbageTransactionOutput{{
+			OutputAddress: address,
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   common.ScriptRefTypeNativeScript,
+				Script: nativeScript,
+			},
+		}},
+	}
+	encoded, err := cbor.Encode(body)
+	require.NoError(t, err)
+	var decoded babbage.BabbageTransactionBody
+	_, err = cbor.Decode(encoded, &decoded)
+	require.ErrorContains(t, err, "constructor 6")
+}
+
 // The guard must sit exactly at the uint64 boundary: the largest product that
 // still fits is a valid requirement and has to be returned exactly, while the
 // next one up has to be rejected rather than wrapped to a small requirement.

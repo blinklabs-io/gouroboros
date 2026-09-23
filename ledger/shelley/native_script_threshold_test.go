@@ -92,3 +92,54 @@ func TestShelleyTransactionAndBlockAcceptSignedNativeScriptNofK(
 		require.NoError(t, block.UnmarshalCBOR(blockCbor))
 	}
 }
+
+func TestShelleyTransactionAndBlockRejectPostShelleyConstructors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		script any
+	}{
+		{
+			name:   "invalid before at slot zero",
+			script: common.NativeScriptInvalidBefore{Type: 4, Slot: 0},
+		},
+		{
+			name:   "invalid hereafter matching ttl",
+			script: common.NativeScriptInvalidHereafter{Type: 5, Slot: 1000},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			scriptCbor, err := cbor.Encode(tc.script)
+			require.NoError(t, err)
+			var script common.NativeScript
+			require.NoError(t, script.UnmarshalCBOR(scriptCbor))
+			require.True(t, script.Evaluate(1000, 0, 500, nil))
+			allWithChild, err := cbor.Encode(common.NativeScriptAll{
+				Type:    1,
+				Scripts: []common.NativeScript{script},
+			})
+			require.NoError(t, err)
+
+			for _, rawScript := range [][]byte{scriptCbor, allWithChild} {
+				witnessSet := map[uint]any{1: []cbor.RawMessage{rawScript}}
+				transactionCbor, err := cbor.Encode([]any{
+					map[uint]any{3: uint64(500)}, witnessSet, nil,
+				})
+				require.NoError(t, err)
+				var transaction shelley.ShelleyTransaction
+				require.Error(t, transaction.UnmarshalCBOR(transactionCbor))
+
+				blockCbor, err := cbor.Encode([]any{
+					nil,
+					[]any{map[uint]any{3: uint64(500)}},
+					[]any{witnessSet},
+					map[uint]any{},
+				})
+				require.NoError(t, err)
+				var block shelley.ShelleyBlock
+				require.Error(t, block.UnmarshalCBOR(blockCbor))
+			}
+		})
+	}
+}
