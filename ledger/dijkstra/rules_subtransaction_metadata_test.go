@@ -74,6 +74,11 @@ func dijkstraRawMetadataTransaction(
 	return tx
 }
 
+func validateDijkstraMetadata(t *testing.T, tx *DijkstraTransaction) error {
+	t.Helper()
+	return dijkstraRule(t, common.UtxoValidationRuleMetadata)(tx, 0, nil, nil)
+}
+
 func TestDijkstraMetadataValidationUsesEachSubtransactionAuxiliaryData(
 	t *testing.T,
 ) {
@@ -90,7 +95,7 @@ func TestDijkstraMetadataValidationUsesEachSubtransactionAuxiliaryData(
 		[]map[uint]any{{7: firstChildHash}, {7: secondChildHash}},
 		[][]byte{firstChildAux, secondChildAux},
 	)
-	require.NoError(t, UtxoValidateMetadata(tx, 0, nil, nil))
+	require.NoError(t, validateDijkstraMetadata(t, tx))
 }
 
 func TestDijkstraMetadataValidationRejectsMalformedSubtransactionPairs(
@@ -129,7 +134,7 @@ func TestDijkstraMetadataValidationRejectsMalformedSubtransactionPairs(
 				[]map[uint]any{tt.body},
 				[][]byte{tt.auxiliary},
 			)
-			require.Error(t, UtxoValidateMetadata(tx, 0, nil, nil))
+			require.Error(t, validateDijkstraMetadata(t, tx))
 		})
 	}
 }
