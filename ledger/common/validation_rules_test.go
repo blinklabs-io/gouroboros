@@ -292,7 +292,6 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleScriptDataHash,
 				common.UtxoValidationRuleInlineDatumsWithPlutusV1,
 				common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2,
-				common.UtxoValidationRuleDisjointRefInputs,
 				common.UtxoValidationRuleOutsideValidityInterval,
 				common.UtxoValidationRuleInputSetEmpty,
 				common.UtxoValidationRuleNoDuplicateInputs,
