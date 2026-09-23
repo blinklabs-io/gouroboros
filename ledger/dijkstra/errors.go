@@ -154,6 +154,86 @@ func validateLeiosCommitteeStakeParameters(
 	return nil
 }
 
+// AccountBalanceIntervalMismatch is one account_balance_intervals entry whose
+// current reward-account balance falls outside the interval it asserts.
+type AccountBalanceIntervalMismatch struct {
+	Credential common.Credential
+	Balance    uint64
+	Interval   DijkstraAccountBalanceInterval
+}
+
+// WrongNetworkAccountAddressesError reports Dijkstra reward-account fields
+// whose account-address network differs from the ledger network.
+type WrongNetworkAccountAddressesError struct {
+	Field     string
+	NetworkID uint
+	Addresses []string
+}
+
+func (e WrongNetworkAccountAddressesError) Error() string {
+	return fmt.Sprintf(
+		"%s contain reward accounts for the wrong network (expected %d): %v",
+		e.Field,
+		e.NetworkID,
+		e.Addresses,
+	)
+}
+
+// DirectDepositAccountsMissingError reports direct deposits to reward
+// accounts that do not exist after the level's certificates have run.
+type DirectDepositAccountsMissingError struct {
+	Credentials []common.Credential
+}
+
+func (e DirectDepositAccountsMissingError) Error() string {
+	return fmt.Sprintf(
+		"direct deposits target unregistered accounts: %v",
+		e.Credentials,
+	)
+}
+
+// MissingAccountsInBalanceIntervalsError reports account_balance_intervals
+// (body key 26) entries whose reward account is not registered. It
+// corresponds to cardano-ledger's
+// MissingAccountsInAccountBalanceIntervals.
+type MissingAccountsInBalanceIntervalsError struct {
+	Credentials []common.Credential
+	Starting    bool
+}
+
+func (e MissingAccountsInBalanceIntervalsError) Error() string {
+	field := "account balance intervals"
+	if e.Starting {
+		field = "starting account balance intervals"
+	}
+	return fmt.Sprintf(
+		"%s reference unregistered accounts: %v",
+		field,
+		e.Credentials,
+	)
+}
+
+// BalancesOutsideAccountBalanceIntervalsError reports
+// account_balance_intervals entries whose reward-account balance falls
+// outside the asserted interval. It corresponds to cardano-ledger's
+// BalancesOutsideAccountBalanceIntervals.
+type BalancesOutsideAccountBalanceIntervalsError struct {
+	Mismatches []AccountBalanceIntervalMismatch
+	Starting   bool
+}
+
+func (e BalancesOutsideAccountBalanceIntervalsError) Error() string {
+	field := "account balance intervals"
+	if e.Starting {
+		field = "starting account balance intervals"
+	}
+	return fmt.Sprintf(
+		"account balances outside %s: %v",
+		field,
+		e.Mismatches,
+	)
+}
+
 // LeiosCertifiedBlockTransactionsError reports a block body that carries both
 // a Leios certificate and Dijkstra transactions. CIP-0164 admits one or the
 // other: "RB' contains either a certificate for the EB announced in RB, or a
