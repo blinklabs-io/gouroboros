@@ -718,9 +718,6 @@ func VerifyBlock(
 	// here: both need state VerifyBlock does not receive -- the pool's
 	// last-seen counter, and the Shelley genesis maxKESEvolutions.
 	//
-	// A header type ExtractOpCertFromHeader does not recognize is not a hole:
-	// ExtractKesFields below rejects exactly the same set of types outright,
-	// so no such header reaches the end of this function.
 	opCert, err := ExtractOpCertFromHeader(block.Header())
 	if err != nil {
 		return false, "", 0, 0, err

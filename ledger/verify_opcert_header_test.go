@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,7 +74,7 @@ func TestExtractOpCertFromHeaderRejectsUnsupportedAndNilHeaders(t *testing.T) {
 	_, err := ledger.ExtractOpCertFromHeader(unsupportedBlockHeader{})
 	require.Error(t, err)
 
-	var nilHeader *unsupportedBlockHeader
+	var nilHeader *shelley.ShelleyBlockHeader
 	_, err = ledger.ExtractOpCertFromHeader(nilHeader)
 	require.Error(t, err)
 }
