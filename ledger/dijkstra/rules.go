@@ -128,6 +128,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateOutsideValidityIntervalUtxo,
 	},
 	{
+		Id:        common.UtxoValidationRuleOutsideForecast,
+		Validator: UtxoValidateOutsideForecast,
+	},
+	{
 		Id:        common.UtxoValidationRuleInputSetEmpty,
 		Validator: UtxoValidateInputSetEmptyUtxo,
 	},
@@ -332,6 +336,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleInlineDatumsWithPlutusV1:     dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2: dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutsideValidityInterval:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutsideForecast:              dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleInputSetEmpty:                dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleNoDuplicateInputs:            dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleFeeTooSmall:                  dijkstraUtxoValidationAlways,
@@ -1664,6 +1669,34 @@ func UtxoValidateOutsideValidityIntervalUtxo(
 		if err := conway.UtxoValidateOutsideValidityIntervalUtxo(
 			level, slot, ls, pp,
 		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UtxoValidateOutsideForecast checks each Dijkstra child with its own upper
+// validity bound and redeemer set, then checks the enclosing transaction.
+func UtxoValidateOutsideForecast(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	validate := func(level common.Transaction) error {
+		err := common.UtxoValidateOutsideForecast(level, slot, ls, pp)
+		var outsideForecast *common.OutsideForecastError
+		if errors.As(err, &outsideForecast) {
+			outsideForecast.Type = 16
+		}
+		return err
+	}
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return validate(tx)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := validate(level); err != nil {
 			return err
 		}
 	}

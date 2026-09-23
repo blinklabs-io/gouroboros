@@ -44,6 +44,7 @@ const (
 	UtxoValidationRuleAccountBalanceIntervals      UtxoValidationRuleId = "account-balance-intervals"
 	UtxoValidationRuleCertificateDeposits          UtxoValidationRuleId = "certificate-deposits"
 	UtxoValidationRuleOutsideValidityInterval      UtxoValidationRuleId = "outside-validity-interval"
+	UtxoValidationRuleOutsideForecast              UtxoValidationRuleId = "outside-forecast"
 	UtxoValidationRuleOutputTooBig                 UtxoValidationRuleId = "output-too-big"
 	UtxoValidationRuleIsValidFlag                  UtxoValidationRuleId = "is-valid-flag"
 	UtxoValidationRuleCollateralVKeyWitnesses      UtxoValidationRuleId = "collateral-vkey-witnesses"

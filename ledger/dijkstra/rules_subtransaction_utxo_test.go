@@ -16,8 +16,10 @@ package dijkstra
 
 import (
 	"bytes"
+	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -147,6 +149,53 @@ func TestDijkstraValueConservationCoversSubTransactions(t *testing.T) {
 		t,
 		rule(dijkstraSubUtxoSubTx(inputs, conserving), 0, ls, pp),
 	)
+}
+
+func TestDijkstraOutsideForecastChecksChildForBothValidityOutcomes(
+	t *testing.T,
+) {
+	const upperBound = uint64(12_345)
+	for _, level := range []string{"child", "top-level"} {
+		for _, valid := range []bool{true, false} {
+			t.Run(level+"/"+map[bool]string{true: "valid", false: "invalid"}[valid], func(t *testing.T) {
+				calls := 0
+				ls := mockledger.NewLedgerStateBuilder().WithSlotToTime(
+					func(slot uint64) (time.Time, error) {
+						calls++
+						if slot == 0 {
+							return time.Unix(0, 0), nil
+						}
+						require.Equal(t, upperBound, slot)
+						return time.Time{}, errors.New("slot is outside forecast")
+					},
+				).Build()
+				redeemers := DijkstraRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {},
+				}}
+				var tx *DijkstraTransaction
+				if level == "child" {
+					tx = dijkstraSingleSubTx(DijkstraSubTransaction{
+						Body: DijkstraSubTransactionBody{Ttl: upperBound},
+						WitnessSet: DijkstraTransactionWitnessSet{
+							WsRedeemers: redeemers,
+						},
+					})
+				} else {
+					tx = &DijkstraTransaction{
+						Body:       DijkstraTransactionBody{Ttl: upperBound},
+						WitnessSet: DijkstraTransactionWitnessSet{WsRedeemers: redeemers},
+					}
+				}
+				tx.TxIsValid = valid
+				var outsideForecast *common.OutsideForecastError
+				err := UtxoValidateOutsideForecast(tx, 0, ls, nil)
+				require.ErrorAs(t, err, &outsideForecast)
+				require.Equal(t, uint32(upperBound), outsideForecast.Slot)
+				require.Equal(t, uint8(16), outsideForecast.Type)
+				require.Equal(t, 1, calls)
+			})
+		}
+	}
 }
 
 // TestDijkstraValueConservationSpansTransactionLevels covers a batch whose

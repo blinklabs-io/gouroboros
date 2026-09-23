@@ -62,6 +62,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateOutsideValidityIntervalUtxo,
 	},
 	{
+		Id:        common.UtxoValidationRuleOutsideForecast,
+		Validator: common.UtxoValidateOutsideForecast,
+	},
+	{
 		Id:        common.UtxoValidationRuleInputSetEmpty,
 		Validator: UtxoValidateInputSetEmptyUtxo,
 	},
@@ -174,6 +178,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
 		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
 		UtxoValidateScriptDataHash, UtxoValidateOutsideValidityIntervalUtxo,
+		common.UtxoValidateOutsideForecast,
 		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
 		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
 		UtxoValidateCollateralContainsNonAda, UtxoValidateNoCollateralInputs,

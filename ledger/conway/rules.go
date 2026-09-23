@@ -126,6 +126,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateOutsideValidityIntervalUtxo,
 	},
 	{
+		Id:        common.UtxoValidationRuleOutsideForecast,
+		Validator: UtxoValidateOutsideForecast,
+	},
+	{
 		Id:        common.UtxoValidationRuleInputSetEmpty,
 		Validator: UtxoValidateInputSetEmptyUtxo,
 	},
@@ -308,6 +312,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateSignatures, UtxoValidateCostModelsPresent, UtxoValidateScriptDataHash,
 		UtxoValidateInlineDatumsWithPlutusV1, UtxoValidateConwayFeaturesWithPlutusV1V2,
 		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateOutsideForecast,
 		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
 		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
 		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
@@ -2058,6 +2063,21 @@ func UtxoValidateOutsideValidityIntervalUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return allegra.UtxoValidateOutsideValidityIntervalUtxo(tx, slot, ls, pp)
+}
+
+// UtxoValidateOutsideForecast returns the Conway-specific UTXO failure tag.
+func UtxoValidateOutsideForecast(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	err := common.UtxoValidateOutsideForecast(tx, slot, ls, pp)
+	var outsideForecast *common.OutsideForecastError
+	if errors.As(err, &outsideForecast) {
+		outsideForecast.Type = 17
+	}
+	return err
 }
 
 func UtxoValidateInputSetEmptyUtxo(

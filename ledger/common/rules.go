@@ -101,6 +101,49 @@ func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
 	return nil
 }
 
+// UtxoValidateOutsideForecast requires a transaction's upper validity bound
+// to be convertible when the transaction has redeemers. SlotToTime is
+// supplied by the caller's validation state and carries its forecast
+// anchoring semantics.
+func UtxoValidateOutsideForecast(
+	tx Transaction,
+	_ uint64,
+	ledgerState LedgerState,
+	_ ProtocolParameters,
+) error {
+	if tx == nil || (reflect.ValueOf(tx).Kind() == reflect.Pointer &&
+		reflect.ValueOf(tx).IsNil()) {
+		return nil
+	}
+	upperBound, present := TransactionValidityIntervalUpperBound(tx)
+	if !present {
+		return nil
+	}
+	witnesses := tx.Witnesses()
+	if witnesses == nil {
+		return nil
+	}
+	redeemers := witnesses.Redeemers()
+	if redeemers == nil {
+		return nil
+	}
+	hasRedeemers := false
+	for range redeemers.Iter() {
+		hasRedeemers = true
+		break
+	}
+	if !hasRedeemers {
+		return nil
+	}
+	if ledgerState != nil && !(reflect.ValueOf(ledgerState).Kind() == reflect.Pointer &&
+		reflect.ValueOf(ledgerState).IsNil()) {
+		if _, err := ledgerState.SlotToTime(upperBound); err == nil {
+			return nil
+		}
+	}
+	return &OutsideForecastError{Type: 18, Slot: uint32(upperBound)}
+}
+
 func (s *cachedLedgerState) UtxoById(input TransactionInput) (Utxo, error) {
 	key := utxoCacheKey{id: input.Id(), index: input.Index()}
 	s.mu.Lock()

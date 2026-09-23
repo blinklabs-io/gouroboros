@@ -21,6 +21,7 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -42,6 +43,78 @@ func TestValidateRequiredVKeyWitnesses_Common(t *testing.T) {
 	tx := mockledger.NewTransactionBuilder()
 	if err := common.ValidateRequiredVKeyWitnesses(tx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUtxoValidateOutsideForecast(t *testing.T) {
+	const upperBound = uint64(12_345)
+	for _, tc := range []struct {
+		name         string
+		valid        bool
+		upperBound   bool
+		redeemers    bool
+		conversionOK bool
+		wantError    bool
+	}{
+		{name: "valid transaction conversion fails", valid: true, upperBound: true, redeemers: true, wantError: true},
+		{name: "invalid transaction conversion fails", valid: false, upperBound: true, redeemers: true, wantError: true},
+		{name: "conversion succeeds", valid: true, upperBound: true, redeemers: true, conversionOK: true},
+		{name: "no redeemers", valid: true, upperBound: true, conversionOK: false},
+		{name: "no upper bound", valid: true, redeemers: true, conversionOK: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			state := mockledger.NewLedgerStateBuilder().WithSlotToTime(
+				func(slot uint64) (time.Time, error) {
+					calls++
+					if slot == 0 {
+						return time.Unix(0, 0), nil
+					}
+					require.Equal(t, upperBound, slot)
+					if tc.conversionOK {
+						return time.Unix(int64(slot), 0), nil
+					}
+					return time.Time{}, errors.New("slot is outside forecast")
+				},
+			).Build()
+			builder := mockledger.NewTransactionBuilder()
+			builder.WithValid(tc.valid)
+			builder.WithInputs(shelley.NewShelleyTransactionInput(
+				"0000000000000000000000000000000000000000000000000000000000000001",
+				0,
+			))
+			output, err := mockledger.NewTransactionOutputBuilder().
+				WithAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd").
+				WithLovelace(2_000_000).
+				Build()
+			require.NoError(t, err)
+			builder.WithOutputs(output)
+			if tc.upperBound {
+				builder.WithTTL(upperBound)
+			}
+			if tc.redeemers {
+				redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {},
+				}}
+				builder.WithWitnesses(mockledger.NewMockTransactionWitnessSet().WithRedeemers(redeemers))
+			}
+			tx, err := builder.Build()
+			require.NoError(t, err)
+			err = common.UtxoValidateOutsideForecast(tx, 0, state, nil)
+			if tc.wantError {
+				var outsideForecast *common.OutsideForecastError
+				require.ErrorAs(t, err, &outsideForecast)
+				require.Equal(t, uint32(upperBound), outsideForecast.Slot)
+				require.Equal(t, uint8(18), outsideForecast.Type)
+			} else {
+				require.NoError(t, err)
+			}
+			if tc.upperBound && tc.redeemers {
+				require.Equal(t, 1, calls)
+			} else {
+				require.Zero(t, calls)
+			}
+		})
 	}
 }
 

@@ -106,6 +106,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateCostModelsPresent,           // UtxoValidationRuleCostModelsPresent
 		alonzo.UtxoValidateScriptDataHash,              // UtxoValidationRuleScriptDataHash
 		alonzo.UtxoValidateOutsideValidityIntervalUtxo, // UtxoValidationRuleOutsideValidityInterval
+		common.UtxoValidateOutsideForecast,             // UtxoValidationRuleOutsideForecast
 		alonzo.UtxoValidateInputSetEmptyUtxo,           // UtxoValidationRuleInputSetEmpty
 		alonzo.UtxoValidateNoDuplicateInputs,           // UtxoValidationRuleNoDuplicateInputs
 		alonzo.UtxoValidateFeeTooSmallUtxo,             // UtxoValidationRuleFeeTooSmall
@@ -142,6 +143,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateInlineDatumsWithPlutusV1,    // UtxoValidationRuleInlineDatumsWithPlutusV1
 		babbage.UtxoValidateDisjointRefInputs,           // UtxoValidationRuleDisjointRefInputs
 		babbage.UtxoValidateOutsideValidityIntervalUtxo, // UtxoValidationRuleOutsideValidityInterval
+		common.UtxoValidateOutsideForecast,              // UtxoValidationRuleOutsideForecast
 		babbage.UtxoValidateInputSetEmptyUtxo,           // UtxoValidationRuleInputSetEmpty
 		babbage.UtxoValidateNoDuplicateInputs,           // UtxoValidationRuleNoDuplicateInputs
 		babbage.UtxoValidateFeeTooSmallUtxo,             // UtxoValidationRuleFeeTooSmall
@@ -194,6 +196,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateConwayFeaturesWithPlutusV1V2, // UtxoValidationRuleConwayFeaturesWithPlutusV1V2
 		conway.UtxoValidateDisjointRefInputs,            // UtxoValidationRuleDisjointRefInputs
 		conway.UtxoValidateOutsideValidityIntervalUtxo,  // UtxoValidationRuleOutsideValidityInterval
+		conway.UtxoValidateOutsideForecast,              // UtxoValidationRuleOutsideForecast
 		conway.UtxoValidateInputSetEmptyUtxo,            // UtxoValidationRuleInputSetEmpty
 		conway.UtxoValidateNoDuplicateInputs,            // UtxoValidationRuleNoDuplicateInputs
 		conway.UtxoValidateFeeTooSmallUtxo,              // UtxoValidationRuleFeeTooSmall
@@ -255,6 +258,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateInlineDatumsWithPlutusV1,       // UtxoValidationRuleInlineDatumsWithPlutusV1
 		dijkstra.UtxoValidateConwayFeaturesWithPlutusV1V2, // UtxoValidationRuleConwayFeaturesWithPlutusV1V2
 		dijkstra.UtxoValidateOutsideValidityIntervalUtxo,  // UtxoValidationRuleOutsideValidityInterval
+		dijkstra.UtxoValidateOutsideForecast,              // UtxoValidationRuleOutsideForecast
 		dijkstra.UtxoValidateInputSetEmptyUtxo,            // UtxoValidationRuleInputSetEmpty
 		dijkstra.UtxoValidateNoDuplicateInputs,            // UtxoValidationRuleNoDuplicateInputs
 		dijkstra.UtxoValidateFeeTooSmallUtxo,              // UtxoValidationRuleFeeTooSmall

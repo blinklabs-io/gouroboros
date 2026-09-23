@@ -26,6 +26,7 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
@@ -52,6 +53,48 @@ func makeConwayRewardAddress(
 	addr, err := common.NewAddressFromBytes(addrBytes)
 	require.NoError(t, err)
 	return addr
+}
+
+func TestUtxoValidateOutsideForecastUsesConwayFailureTag(t *testing.T) {
+	const upperBound = uint64(12_345)
+	inputs := []common.TransactionInput{shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000001",
+		0,
+	)}
+	output, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd").
+		WithLovelace(2_000_000).
+		Build()
+	require.NoError(t, err)
+	redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+		{Tag: common.RedeemerTagSpend, Index: 0}: {},
+	}}
+	txBuilder := mockledger.NewTransactionBuilder()
+	txBuilder.WithInputs(inputs...)
+	txBuilder.WithOutputs(output)
+	txBuilder.WithTTL(upperBound)
+	txBuilder.WithWitnesses(
+		mockledger.NewMockTransactionWitnessSet().WithRedeemers(redeemers),
+	)
+	tx, err := txBuilder.Build()
+	require.NoError(t, err)
+	ls := mockledger.NewLedgerStateBuilder().WithSlotToTime(
+		func(slot uint64) (time.Time, error) {
+			if slot == 0 {
+				return time.Unix(0, 0), nil
+			}
+			require.Equal(t, upperBound, slot)
+			return time.Time{}, errors.New("slot is outside forecast")
+		},
+	).Build()
+	var outsideForecast *common.OutsideForecastError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateOutsideForecast(tx, 0, ls, nil),
+		&outsideForecast,
+	)
+	require.Equal(t, uint32(upperBound), outsideForecast.Slot)
+	require.Equal(t, uint8(17), outsideForecast.Type)
 }
 
 // makeConwayBaseAddress builds a mainnet base address (payment + staking key

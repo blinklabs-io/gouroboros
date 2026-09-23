@@ -23,6 +23,18 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
+// OutsideForecastError reports an upper validity bound that cannot be
+// converted by the ledger's validation SlotState.
+type OutsideForecastError struct {
+	cbor.StructAsArray
+	Type uint8
+	Slot uint32
+}
+
+func (e *OutsideForecastError) Error() string {
+	return fmt.Sprintf("OutsideForecast (Slot %d)", e.Slot)
+}
+
 // TxOut preserves an opaque transaction output embedded in a ledger failure.
 type TxOut struct {
 	cbor.Value
