@@ -24,11 +24,13 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	commontestdata "github.com/blinklabs-io/gouroboros/ledger/common/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
@@ -330,6 +332,38 @@ func TestDijkstraHardForkProtocolVersionWireBounds(t *testing.T) {
 		err := decoded.UnmarshalCBOR(newWireAction(common.ProtocolVersionDijkstra+1, uint(math.MaxUint32)))
 		require.NoError(t, err)
 	})
+}
+
+func TestDijkstraPhase2InvalidStillChecksCollateral(t *testing.T) {
+	input, utxo := dijkstraSubUtxoInput(0)
+	assets := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+			common.Blake2b224Hash([]byte("policy")): {
+				cbor.NewByteString([]byte("asset")): big.NewInt(1),
+			},
+		},
+	)
+	utxo.Output = babbage.BabbageTransactionOutput{
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: dijkstraSubUtxoInputAmount,
+			Assets: &assets,
+		},
+	}
+	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxCollateral: cbor.NewSetType([]shelley.ShelleyTransactionInput{input}, false),
+		},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{{}: {}},
+			},
+		},
+		TxIsValid: false,
+	}
+	rule, _ := dijkstraValidationRule(t, "ledger/dijkstra.UtxoValidateCollateralContainsNonAda")
+	var collateralErr alonzo.CollateralContainsNonAdaError
+	require.ErrorAs(t, rule(tx, 0, state, &DijkstraProtocolParameters{}), &collateralErr)
 }
 
 func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
