@@ -31,10 +31,10 @@ import (
 
 func requirePostBabbageTransactionFields(t *testing.T, raw []byte) []byte {
 	t.Helper()
-	var components []cbor.RawMessage
+	components := make([]cbor.RawMessage, 0)
 	_, err := cbor.Decode(raw, &components)
 	require.NoError(t, err)
-	var fields map[uint]cbor.RawMessage
+	fields := make(map[uint]cbor.RawMessage)
 	_, err = cbor.Decode(components[0], &fields)
 	require.NoError(t, err)
 	for key, value := range map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)} {

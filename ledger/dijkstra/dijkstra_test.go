@@ -232,7 +232,7 @@ func TestDijkstraWitnessSetRejectsEmptyFieldsAndUnsupportedKey8(t *testing.T) {
 	}
 	encoded, err = cbor.Encode(constructed)
 	require.NoError(t, err)
-	var fields map[uint]cbor.RawMessage
+	fields := make(map[uint]cbor.RawMessage)
 	_, err = cbor.Decode(encoded, &fields)
 	require.NoError(t, err)
 	require.NotContains(t, fields, uint(8), "Dijkstra witness key 8 is unsupported")

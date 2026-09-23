@@ -65,7 +65,7 @@ func orderedSetCertificateTransactionBodyDecoders() map[string]func() transactio
 
 func withConwayRequiredFields(t *testing.T, encoded []byte) []byte {
 	t.Helper()
-	var fields map[uint]cbor.RawMessage
+	fields := make(map[uint]cbor.RawMessage)
 	_, err := cbor.Decode(encoded, &fields)
 	require.NoError(t, err)
 	for key, value := range map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)} {

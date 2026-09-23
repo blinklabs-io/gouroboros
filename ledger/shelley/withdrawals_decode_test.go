@@ -48,7 +48,7 @@ func encodeWithdrawalBody(
 
 func withStrictEraWithdrawalBodyFields(t *testing.T, raw []byte, sub bool) []byte {
 	t.Helper()
-	var fields map[uint]cbor.RawMessage
+	fields := make(map[uint]cbor.RawMessage)
 	_, err := cbor.Decode(raw, &fields)
 	require.NoError(t, err)
 	values := map[uint]any{0: []any{}, 1: []any{}}
