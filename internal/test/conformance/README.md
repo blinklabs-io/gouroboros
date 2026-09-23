@@ -11,7 +11,7 @@ This package contains conformance tests for Gouroboros, validating our implement
 | KES Cryptography | 14 | input-output-hk/kes vectors |
 | Consensus | 22 | Real blocks + threshold calculation |
 | Byron Blocks | 6 | Real mainnet/testnet blocks |
-| GenTx Goldens | 7 | ouroboros-consensus CardanoNodeToNodeVersion2 goldens |
+| GenTx Goldens | 8 | ouroboros-consensus CardanoNodeToNodeVersion2 goldens |
 | **Total** | **421** | |
 
 All tests passing (100%).
