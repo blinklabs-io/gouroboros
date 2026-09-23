@@ -15,6 +15,7 @@
 package byron
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -184,12 +185,70 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 
 func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
 	var ret ByronGenesis
-	dec := json.NewDecoder(r)
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return ret, err
+	}
+	if err := rejectNonCanonicalJSONEscapes(data); err != nil {
+		return ret, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}
 	return ret, nil
+}
+
+// rejectNonCanonicalJSONEscapes rejects a Byron genesis document containing
+// a string escape outside the historical canonical-JSON grammar the Byron
+// reference parses genesis with. That grammar permits only the quote (\")
+// and backslash (\\) escapes inside a string; encoding/json additionally
+// accepts and normalizes \/, \n, \r, \t, \b, \f, and \uXXXX, which would
+// silently admit a genesis document the reference rejects before schema
+// decoding.
+//
+// This is a byte-level scan for escape sequences within JSON string
+// literals, not a full JSON parser: it tracks only whether the current byte
+// is inside a string (and, if so, inside an escape sequence), which is
+// enough to find every backslash a compliant JSON string can contain
+// without needing to otherwise validate the document's structure -- a
+// malformed document is left for the subsequent encoding/json decode to
+// reject with its own error. UTF-8 continuation bytes are always >= 0x80,
+// so a byte-level scan cannot misread a multi-byte character as a quote or
+// backslash.
+func rejectNonCanonicalJSONEscapes(data []byte) error {
+	const (
+		outsideString = iota
+		insideString
+		insideEscape
+	)
+	state := outsideString
+	for _, b := range data {
+		switch state {
+		case outsideString:
+			if b == '"' {
+				state = insideString
+			}
+		case insideString:
+			switch b {
+			case '\\':
+				state = insideEscape
+			case '"':
+				state = outsideString
+			}
+		case insideEscape:
+			if b != '"' && b != '\\' {
+				return fmt.Errorf(
+					"byron genesis contains disallowed JSON escape \\%c: "+
+						"the canonical-JSON grammar permits only \\\" and \\\\",
+					b,
+				)
+			}
+			state = insideString
+		}
+	}
+	return nil
 }
 
 func NewByronGenesisFromFile(path string) (ByronGenesis, error) {

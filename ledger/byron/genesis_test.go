@@ -437,6 +437,71 @@ func TestNewByronGenesisFromReader(t *testing.T) {
 	}
 }
 
+// TestNewByronGenesisFromReaderRejectsNonCanonicalEscapes covers the
+// historical canonical-JSON escape grammar the Byron reference parses
+// genesis with, which permits only \" and \\ inside a string. It checks
+// each disallowed escape (\uXXXX, \/, \n, \r, \t, \b, \f) is rejected, the
+// two allowed escapes still decode, and both a minimal document and the
+// full genesis fixture used elsewhere in this file are unaffected.
+func TestNewByronGenesisFromReaderRejectsNonCanonicalEscapes(t *testing.T) {
+	t.Run("ordinary protocolMagic succeeds", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(
+			strings.NewReader(`{"protocolConsts": {"protocolMagic": 42}}`),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("protocolM\\u0061gic is rejected", func(t *testing.T) {
+		// The Unicode escape in the key decodes to the ASCII letter 'a',
+		// so a standard JSON decoder maps this key onto the same field
+		// as a literal "protocolMagic" -- exactly why the canonical-JSON
+		// grammar must be enforced before schema decoding, not caught by
+		// it.
+		//
+		// Built with a double-quoted Go string literal (not a raw
+		// backtick string) so the doubled backslash below compiles down
+		// to the single literal backslash this test needs in front of
+		// the escape's hex digits.
+		doc := "{\"protocolConsts\": {\"protocolM\\u0061gic\": 42}}"
+		require.Contains(t, doc, "protocolM\\u0061gic")
+		_, err := byron.NewByronGenesisFromReader(strings.NewReader(doc))
+		require.Error(t, err)
+	})
+
+	t.Run("string value containing \\/ is rejected", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(
+			strings.NewReader(`{"ftsSeed": "abc\/def"}`),
+		)
+		require.Error(t, err)
+	})
+
+	// "\\u0041" is a double-quoted Go string literal so the doubled
+	// backslash compiles down to one literal backslash in front of
+	// u0041, matching the other entries' single-backslash-escape shape.
+	for _, escape := range []string{`\n`, `\r`, `\t`, `\b`, `\f`, "\\u0041"} {
+		t.Run("rejects "+escape, func(t *testing.T) {
+			_, err := byron.NewByronGenesisFromReader(
+				strings.NewReader(`{"ftsSeed": "abc` + escape + `def"}`),
+			)
+			require.Error(t, err)
+		})
+	}
+
+	t.Run("accepts escaped quote and backslash", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(
+			strings.NewReader(`{"ftsSeed": "abc\"\\def"}`),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("full genesis fixture still decodes", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(
+			strings.NewReader(byronGenesisConfig),
+		)
+		require.NoError(t, err)
+	})
+}
+
 func TestGenesis_FtsSeed_EmptyObject(t *testing.T) {
 	jsonData := `{
         "avvmDistr": { "addr1": "1000" },
