@@ -3455,9 +3455,10 @@ func UtxoValidateDelegation(
 			}
 			cred := common.Credential{CredType: credType}
 			copy(cred.Credential[:], drep.Credential)
-			// Check in-tx registrations first
-			if inTxDRepRegs[stakeKey(cred)] {
-				return true, nil
+			// An in-transaction tombstone must override a registration in
+			// the initial ledger state.
+			if registered, found := inTxDRepRegs[stakeKey(cred)]; found {
+				return registered, nil
 			}
 			// Check ledger state
 			reg, err := ls.DRepRegistration(cred)
@@ -3522,7 +3523,7 @@ func UtxoValidateDelegation(
 			// the retirement epoch, so later delegations remain valid.
 
 		case *common.DeregistrationDrepCertificate:
-			delete(inTxDRepRegs, stakeKey(c.DrepCredential))
+			inTxDRepRegs[stakeKey(c.DrepCredential)] = false
 
 		// Check delegations
 		case *common.StakeDelegationCertificate:
