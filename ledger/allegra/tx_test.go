@@ -102,6 +102,34 @@ func TestAllegraTransactionBody_MarshalCBOR_PreservesWireBytes(t *testing.T) {
 	)
 }
 
+func TestAllegraTransactionDecodeRejectsDijkstraNativeScript(t *testing.T) {
+	guard := common.NativeScriptRequireGuard{
+		Type: 6,
+		Credential: common.Credential{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: common.NewBlake2b224(make([]byte, 28)),
+		},
+	}
+	guardCBOR, err := cbor.Encode(guard)
+	require.NoError(t, err)
+	var nativeScript common.NativeScript
+	_, err = cbor.Decode(guardCBOR, &nativeScript)
+	require.NoError(t, err)
+
+	txCBOR, err := cbor.Encode([]any{
+		map[uint64]any{},
+		shelley.ShelleyTransactionWitnessSet{
+			WsNativeScripts: []common.NativeScript{nativeScript},
+		},
+		nil,
+	})
+	require.NoError(t, err)
+
+	var tx allegra.AllegraTransaction
+	_, err = cbor.Decode(txCBOR, &tx)
+	require.ErrorContains(t, err, "constructor 6")
+}
+
 // newIndefLengthWitnessSetFixture builds wire bytes for a
 // shelley.ShelleyTransactionWitnessSet (shared by Allegra and Mary)
 // whose sole VkeyWitnesses entry is encoded as an indefinite-length
