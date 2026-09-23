@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -1140,6 +1141,36 @@ func TestGovActionIdString(t *testing.T) {
 				assert.NotContains(t, result, "gov_action1")
 			},
 		)
+	}
+}
+
+func TestGovAnchorUnmarshalCBORURLLength(t *testing.T) {
+	dataHash := make([]byte, 32)
+	_, err := NewGovAnchor(strings.Repeat("x", 128), dataHash)
+	require.NoError(t, err)
+	_, err = NewGovAnchor(strings.Repeat("x", 129), dataHash)
+	require.ErrorContains(t, err, "URL exceeds 128 bytes")
+
+	for _, tc := range []struct {
+		length  int
+		wantErr bool
+	}{
+		{length: 128},
+		{length: 129, wantErr: true},
+	} {
+		t.Run(fmt.Sprintf("length_%d", tc.length), func(t *testing.T) {
+			encoded, err := cbor.Encode(GovAnchor{
+				Url: strings.Repeat("x", tc.length),
+			})
+			require.NoError(t, err)
+			var anchor GovAnchor
+			_, err = cbor.Decode(encoded, &anchor)
+			if tc.wantErr {
+				require.ErrorContains(t, err, "URL exceeds 128 bytes")
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 

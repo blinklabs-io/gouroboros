@@ -674,6 +674,7 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		[]uint{0, 1, 2},
 		[]uint{4, 5, 9, 13, 14, 18, 20},
 		nil,
+		22,
 	); err != nil {
 		return err
 	}

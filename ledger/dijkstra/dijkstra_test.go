@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -157,6 +158,19 @@ func TestDijkstraTransactionBodiesRequireFieldsAndRejectEmptyCollections(t *test
 					require.NoError(t, err)
 					require.Error(t, tc.decode(encoded))
 				})
+				if key == 0 {
+					continue // The input-set decoder already rejects null.
+				}
+				t.Run(fmt.Sprintf("null_%d", key), func(t *testing.T) {
+					fields := make(map[uint]any, len(base))
+					for k, v := range base {
+						fields[k] = v
+					}
+					fields[key] = nil
+					encoded, err := cbor.Encode(fields)
+					require.NoError(t, err)
+					require.ErrorContains(t, tc.decode(encoded), "must not be null")
+				})
 			}
 			for _, key := range tc.empty {
 				t.Run(fmt.Sprintf("empty_%d", key), func(t *testing.T) {
@@ -193,6 +207,47 @@ func TestDijkstraTransactionBodiesRequireFieldsAndRejectEmptyCollections(t *test
 			require.NoError(t, err)
 			require.NoError(t, tc.decode(encoded), "present empty outputs are legal")
 		})
+	}
+}
+
+func TestDijkstraTransactionBodiesRequirePositiveTreasuryDonation(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		fields map[uint]any
+		decode func([]byte) error
+	}{
+		{
+			name:   "top-level",
+			fields: map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)},
+			decode: func(encoded []byte) error {
+				return new(DijkstraTransactionBody).UnmarshalCBOR(encoded)
+			},
+		},
+		{
+			name:   "subtransaction",
+			fields: map[uint]any{0: []any{}, 1: []any{}},
+			decode: func(encoded []byte) error {
+				return new(DijkstraSubTransactionBody).UnmarshalCBOR(encoded)
+			},
+		},
+	} {
+		for _, donation := range []uint64{0, 1, math.MaxUint64} {
+			t.Run(fmt.Sprintf("%s/donation_%d", tc.name, donation), func(t *testing.T) {
+				fields := make(map[uint]any, len(tc.fields)+1)
+				for key, value := range tc.fields {
+					fields[key] = value
+				}
+				fields[22] = donation
+				encoded, err := cbor.Encode(fields)
+				require.NoError(t, err)
+				err = tc.decode(encoded)
+				if donation == 0 {
+					require.ErrorContains(t, err, "field 22 must be positive")
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
 	}
 }
 

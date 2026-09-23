@@ -490,6 +490,18 @@ type GovAnchor struct {
 	DataHash [32]byte
 }
 
+const maxGovAnchorURLLength = 128
+
+func validateGovAnchorURL(url string) error {
+	if len(url) > maxGovAnchorURLLength {
+		return fmt.Errorf(
+			"governance anchor URL exceeds %d bytes",
+			maxGovAnchorURLLength,
+		)
+	}
+	return nil
+}
+
 func (a *GovAnchor) UnmarshalJSON(data []byte) error {
 	tmpData := struct {
 		Url      string `json:"url"`
@@ -505,6 +517,9 @@ func (a *GovAnchor) UnmarshalJSON(data []byte) error {
 	if len(dataHash) != 32 {
 		return errors.New("invalid gov anchor data hash length")
 	}
+	if err := validateGovAnchorURL(tmpData.Url); err != nil {
+		return err
+	}
 	a.Url = tmpData.Url
 	a.DataHash = [32]byte(dataHash)
 	return nil
@@ -519,6 +534,9 @@ func (a *GovAnchor) ToPlutusData() data.PlutusData {
 
 // NewGovAnchor builds a GovAnchor from a URL and a 32-byte data hash.
 func NewGovAnchor(url string, dataHash []byte) (GovAnchor, error) {
+	if err := validateGovAnchorURL(url); err != nil {
+		return GovAnchor{}, err
+	}
 	if len(dataHash) != 32 {
 		return GovAnchor{}, fmt.Errorf(
 			"invalid gov anchor data hash length: expected 32 bytes, got %d",

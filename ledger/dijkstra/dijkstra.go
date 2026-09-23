@@ -1087,6 +1087,7 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		[]uint{0, 1, 2},
 		[]uint{4, 5, 13, 18, 20},
 		nil,
+		22,
 	); err != nil {
 		return err
 	}
@@ -1447,6 +1448,7 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		[]uint{0, 1},
 		[]uint{4, 5, 18, 20},
 		nil,
+		22,
 	); err != nil {
 		return err
 	}

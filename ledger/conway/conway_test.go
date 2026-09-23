@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"math"
 	"math/big"
 	"reflect"
 	"strings"
@@ -229,6 +230,17 @@ func TestConwayTransactionBodyRequiresFieldsAndRejectsEmptyCollections(t *testin
 			var body ConwayTransactionBody
 			require.Error(t, body.UnmarshalCBOR(encoded))
 		})
+		if key == 0 {
+			continue // Conway's input-set decoder already rejects null.
+		}
+		t.Run(fmt.Sprintf("null_%d", key), func(t *testing.T) {
+			fields := maps.Clone(base)
+			fields[key] = nil
+			encoded, err := cbor.Encode(fields)
+			require.NoError(t, err)
+			var body ConwayTransactionBody
+			require.ErrorContains(t, body.UnmarshalCBOR(encoded), "must not be null")
+		})
 	}
 	for _, key := range []uint{4, 5, 9, 13, 14, 18, 20} {
 		t.Run(fmt.Sprintf("empty_%d", key), func(t *testing.T) {
@@ -258,6 +270,23 @@ func TestConwayTransactionBodyRequiresFieldsAndRejectsEmptyCollections(t *testin
 	require.NoError(t, err)
 	var body ConwayTransactionBody
 	require.NoError(t, body.UnmarshalCBOR(encoded), "present empty outputs are legal")
+}
+
+func TestConwayTransactionBodyRequiresPositiveTreasuryDonation(t *testing.T) {
+	for _, donation := range []uint64{0, 1, math.MaxUint64} {
+		t.Run(fmt.Sprintf("donation_%d", donation), func(t *testing.T) {
+			fields := map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0), 22: donation}
+			encoded, err := cbor.Encode(fields)
+			require.NoError(t, err)
+			var body ConwayTransactionBody
+			err = body.UnmarshalCBOR(encoded)
+			if donation == 0 {
+				require.ErrorContains(t, err, "field 22 must be positive")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestConwayWitnessSetRejectsPresentEmptyFields(t *testing.T) {
