@@ -13,13 +13,19 @@ on:
 jobs:
   golangci-lint:
     uses: blinklabs-io/actions/.github/workflows/reuseable-golangci-lint.yml@main
+  go-test:
+    needs: [golangci-lint]
+    uses: blinklabs-io/actions/.github/workflows/reuseable-go-test.yml@main
+    with:
+      go-arches: '["amd64","386"]'
+      submodules: true
   nilaway:
     needs: [golangci-lint]
     uses: blinklabs-io/actions/.github/workflows/reuseable-nilaway.yml@main
     with:
       include-pkgs: github.com/blinklabs-io/gouroboros
   publish:
-    needs: [nilaway]
+    needs: [go-test, nilaway]
     if: github.event_name == 'push' && github.ref_type == 'tag'
     uses: blinklabs-io/actions/.github/workflows/reuseable-go-library-release.yml@main
     permissions:
