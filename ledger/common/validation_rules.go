@@ -71,7 +71,6 @@ const (
 	UtxoValidationRuleProposalReturnAccounts       UtxoValidationRuleId = "proposal-return-accounts"
 	UtxoValidationRuleEmptyTreasuryWithdrawals     UtxoValidationRuleId = "empty-treasury-withdrawals"
 	UtxoValidationRuleBootstrapAllowedGovActions   UtxoValidationRuleId = "bootstrap-allowed-governance-actions"
-	UtxoValidationRuleBootstrapParameterGroups     UtxoValidationRuleId = "bootstrap-parameter-groups"
 	UtxoValidationRuleConwayFeaturesWithPlutusV1V2 UtxoValidationRuleId = "conway-features-with-plutus-v1-v2"
 	UtxoValidationRuleTransactionNetworkId         UtxoValidationRuleId = "transaction-network-id"
 	UtxoValidationRuleSupplementalDatums           UtxoValidationRuleId = "supplemental-datums"

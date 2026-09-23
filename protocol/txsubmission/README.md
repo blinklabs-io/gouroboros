@@ -110,10 +110,18 @@ The TxSubmission protocol propagates transactions between nodes. It uses a pull-
 
 | Limit | Value | Description |
 |-------|-------|-------------|
-| Max Request Count | 65535 | Max transactions per request (uint16) |
-| Max Ack Count | 65535 | Max transaction acknowledgments (uint16) |
-| `DefaultRequestLimit` | 1000 | Exported guidance constant; not applied automatically |
+| `MaxUnackedTxIds` | 10 | Outstanding transaction IDs; bounds every request |
+| `MaxPendingMessageBytes` | 721424 | Pending message bytes in every state |
+| `MaxRequestCount` | 65535 | Range of the `MsgRequestTxIds` request field (uint16) |
+| `MaxAckCount` | 65535 | Range of the `MsgRequestTxIds` ack field (uint16) |
+| `DefaultRequestLimit` | 1000 | Exported guidance constant; exceeds `MaxUnackedTxIds`, so a request of this size is refused |
 | `DefaultAckLimit` | 1000 | Exported guidance constant; not applied automatically |
+
+A request for transaction IDs or bodies is refused with
+`ErrProtocolViolationRequestExceeded` when `unacknowledged - ack + req` exceeds
+`MaxUnackedTxIds`, matching `ProtocolErrorRequestedTooManyTxids` in the
+reference implementation. An acknowledgement larger than what is outstanding is
+refused the same way (`ProtocolErrorAckedTooManyTxids`).
 
 ## Request Parameters
 

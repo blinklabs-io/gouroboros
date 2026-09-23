@@ -39,7 +39,9 @@ func encodeWithdrawalBody(
 	withdrawals map[cbor.ByteString]uint64,
 ) []byte {
 	t.Helper()
-	ret, err := cbor.Encode(map[uint64]any{5: withdrawals})
+	// Key 3 (ttl) is mandatory in the Shelley body; this fixture is about
+	// key 5, so it carries the minimum that decodes.
+	ret, err := cbor.Encode(map[uint64]any{3: uint64(0), 5: withdrawals})
 	require.NoError(t, err)
 	return ret
 }

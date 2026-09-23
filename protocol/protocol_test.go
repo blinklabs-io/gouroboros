@@ -606,6 +606,13 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 	)
 
 	muxerRecvChan := make(chan *muxer.Segment, numSegments)
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() {
+		m.Stop()
+		_ = peerConn.Close()
+	})
+	m.RaiseReadBufferBudget(maxBufferSize)
 	// A byte-string header declaring a 100MB length -- comfortably more
 	// than this test's ~1MB flood could ever supply, but safely under
 	// math.MaxInt32 so it doesn't itself overflow int on a 32-bit build
@@ -630,6 +637,7 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 		config: ProtocolConfig{
 			Name:              "test",
 			ErrorChan:         errorChan,
+			Muxer:             m,
 			MaxReadBufferSize: maxBufferSize,
 		},
 		doneChan:      make(chan struct{}),
@@ -638,6 +646,7 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 		muxerDoneChan: make(chan bool),
 		muxerRecvChan: muxerRecvChan,
 	}
+	t.Cleanup(p.Stop)
 	go p.readLoop()
 
 	select {
@@ -667,4 +676,271 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 				"past MaxReadBufferSize without checking it",
 		)
 	}
+}
+
+// budgetTestProtocol is a Protocol wired to a real Muxer for its
+// connection-wide reassembly allowance, but fed from a pre-loaded receive
+// channel rather than through the muxer's own read loop. Pre-loading removes
+// the scheduling variable the same way TestReadLoopDrainRespectsMaxBufferSize
+// does: every segment is queued before readLoop starts, so the buffer growth
+// under test does not depend on which goroutine wins a quantum.
+type budgetTestProtocol struct {
+	proto     *Protocol
+	errorChan chan error
+}
+
+// incompleteMessageSegments returns segments totalling exactly size bytes
+// that begin a CBOR byte string declaring far more data than follows, so
+// cbor.Decode never completes the message and readLoop holds every byte.
+func incompleteMessageSegments(t *testing.T, size int) []*muxer.Segment {
+	t.Helper()
+	header := []byte{0x5A, 0x05, 0xF5, 0xE1, 0x00}
+	require.Greater(t, size, len(header))
+	segments := []*muxer.Segment{muxer.NewSegment(0, header, false)}
+	require.NotNil(t, segments[0])
+	filler := muxer.NewSegment(
+		0,
+		bytes.Repeat([]byte{0x00}, size-len(header)),
+		false,
+	)
+	require.NotNil(t, filler)
+	return append(segments, filler)
+}
+
+func newBudgetTestProtocol(
+	t *testing.T,
+	m *muxer.Muxer,
+	name string,
+	maxBufferSize int,
+	segments []*muxer.Segment,
+) *budgetTestProtocol {
+	t.Helper()
+	recvChan := make(chan *muxer.Segment, len(segments))
+	for _, segment := range segments {
+		recvChan <- segment
+	}
+	errorChan := make(chan error, 1)
+	return &budgetTestProtocol{
+		errorChan: errorChan,
+		proto: &Protocol{
+			config: ProtocolConfig{
+				Name:              name,
+				ErrorChan:         errorChan,
+				Muxer:             m,
+				MaxReadBufferSize: maxBufferSize,
+			},
+			doneChan:      make(chan struct{}),
+			stopChan:      make(chan struct{}),
+			sendDoneChan:  make(chan struct{}),
+			muxerDoneChan: make(chan bool),
+			muxerRecvChan: recvChan,
+		},
+	}
+}
+
+// TestReadLoopBoundsConnectionWideReadBuffers proves the read-buffer cap is
+// enforced across a connection and not only within one mini-protocol. The
+// per-protocol cap is applied per ProtocolConfig, so a node-to-node
+// connection running eight mini-protocols in both roles has sixteen
+// independent read loops, each free to hold the full cap, with nothing
+// accounting for the total.
+//
+// Both protocols reassemble a message of exactly the per-protocol cap, so
+// neither trips its own limit and together they demand twice the
+// connection's allowance. Which of the two is refused depends on how their
+// read loops interleave, and that does not matter: the property is that they
+// cannot both hold the allowance.
+func TestReadLoopBoundsConnectionWideReadBuffers(t *testing.T) {
+	t.Parallel()
+	const maxBufferSize = 4096
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() {
+		m.Stop()
+		_ = peerConn.Close()
+	})
+	// Two mini-protocols sharing one connection, each with the same
+	// per-protocol cap, as two registrations on a real connection would be.
+	m.RaiseReadBufferBudget(maxBufferSize)
+	m.RaiseReadBufferBudget(maxBufferSize)
+
+	// Watching both error channels from the one select below keeps the
+	// refusal and the test's own cleanup off the same select: SendError
+	// stops the protocol right after reporting, so a watcher goroutine
+	// selecting on the error and on stopChan can take the stop case and
+	// lose an error that has already been delivered.
+	errorChans := make([]chan error, 0, 2)
+	for _, name := range []string{"first", "second"} {
+		p := newBudgetTestProtocol(
+			t, m, name, maxBufferSize,
+			incompleteMessageSegments(t, maxBufferSize),
+		)
+		// These protocols hold a private muxerDoneChan, so m.Stop() cannot
+		// wake them: whichever read loop is not refused stays blocked on
+		// its receive channel until its own stopChan closes. Stop is
+		// once-guarded, so it is also safe for the protocol that already
+		// stopped itself by reporting the budget error.
+		t.Cleanup(p.proto.Stop)
+		errorChans = append(errorChans, p.errorChan)
+		go p.proto.readLoop()
+	}
+
+	select {
+	case err := <-errorChans[0]:
+		require.ErrorContains(
+			t,
+			err,
+			"connection read buffer budget exhausted",
+		)
+	case err := <-errorChans[1]:
+		require.ErrorContains(
+			t,
+			err,
+			"connection read buffer budget exhausted",
+		)
+	case <-time.After(5 * time.Second):
+		t.Fatal(
+			"two mini-protocols on one connection each reassembled a full" +
+				" per-protocol read buffer, so neither was refused and the" +
+				" connection held twice its allowance",
+		)
+	}
+	require.LessOrEqual(t, m.ReadBufferInUse(), maxBufferSize)
+}
+
+// TestReadLoopReturnsConnectionBudgetOnExit is the paired release case: a
+// mini-protocol that stops must hand its share back, or a connection that
+// restarts a protocol slowly starves itself.
+func TestReadLoopReturnsConnectionBudgetOnExit(t *testing.T) {
+	t.Parallel()
+	const maxBufferSize = 4096
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() {
+		m.Stop()
+		_ = peerConn.Close()
+	})
+	m.RaiseReadBufferBudget(maxBufferSize)
+
+	p := newBudgetTestProtocol(
+		t, m, "first", maxBufferSize,
+		incompleteMessageSegments(t, maxBufferSize),
+	)
+	done := make(chan struct{})
+	go func() {
+		p.proto.readLoop()
+		close(done)
+	}()
+	require.Eventually(
+		t,
+		func() bool { return m.ReadBufferInUse() == maxBufferSize },
+		5*time.Second,
+		time.Millisecond,
+		"the mini-protocol never took the connection allowance",
+	)
+	close(p.proto.stopChan)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("readLoop did not return after stopChan closed")
+	}
+	require.Zero(t, m.ReadBufferInUse())
+}
+
+// TestEnsureRegisteredRaisesConnectionBudget covers the wiring: a protocol's
+// own cap becomes the connection's allowance when it registers, so the
+// allowance is the largest registered cap rather than their sum.
+func TestEnsureRegisteredRaisesConnectionBudget(t *testing.T) {
+	t.Parallel()
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() {
+		m.Stop()
+		_ = peerConn.Close()
+	})
+	state := NewState(1, "Idle")
+	newProto := func(protocolId uint16, maxBufferSize int) *Protocol {
+		return New(ProtocolConfig{
+			Name:              "test",
+			ProtocolId:        protocolId,
+			Muxer:             m,
+			MaxReadBufferSize: maxBufferSize,
+			StateMap:          StateMap{state: {Agency: AgencyClient}},
+			InitialState:      state,
+		})
+	}
+	newProto(1, 4096).EnsureRegistered()
+	require.Equal(t, 4096, m.ReadBufferBudget())
+	newProto(2, 8192).EnsureRegistered()
+	require.Equal(t, 8192, m.ReadBufferBudget())
+	newProto(3, 1024).EnsureRegistered()
+	require.Equal(
+		t,
+		8192,
+		m.ReadBufferBudget(),
+		"a smaller per-protocol cap must not lower the connection allowance",
+	)
+}
+
+// TestReadLoopRejectsAnOversizedMessageOnTheProtocolCap covers the receive
+// path a protocol takes for a segment the muxer has not already queued
+// behind another, with a real Muxer attached as production wires one. The
+// connection allowance is the largest registered cap, so a mini-protocol
+// holding that cap reaches both bounds at the same byte count: reserving
+// before checking the cap reports connection contention for a message that
+// only ever exceeded this protocol's own limit, and no other mini-protocol
+// held anything.
+func TestReadLoopRejectsAnOversizedMessageOnTheProtocolCap(t *testing.T) {
+	t.Parallel()
+	const (
+		maxBufferSize = 4096
+		overBy        = 200
+	)
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() {
+		m.Stop()
+		_ = peerConn.Close()
+	})
+	m.RaiseReadBufferBudget(maxBufferSize)
+
+	segment := muxer.NewSegment(
+		0,
+		bytes.Repeat([]byte{0x00}, maxBufferSize+overBy),
+		false,
+	)
+	require.NotNil(t, segment)
+	p := newBudgetTestProtocol(
+		t, m, "first", maxBufferSize, []*muxer.Segment{segment},
+	)
+	t.Cleanup(p.proto.Stop)
+	go p.proto.readLoop()
+
+	select {
+	case err := <-p.errorChan:
+		require.ErrorContains(t, err, "read buffer exceeded maximum size")
+		require.NotContains(
+			t,
+			err.Error(),
+			"connection read buffer budget exhausted",
+			"a lone mini-protocol was refused for connection contention "+
+				"that cannot exist: the message exceeded its own "+
+				"per-protocol cap",
+		)
+		require.ErrorContains(
+			t,
+			err,
+			fmt.Sprintf("(%d bytes)", maxBufferSize+overBy),
+		)
+	case <-time.After(5 * time.Second):
+		t.Fatal(
+			"a message larger than the per-protocol read buffer cap was " +
+				"not rejected",
+		)
+	}
+	require.Zero(
+		t,
+		m.ReadBufferInUse(),
+		"the refused mini-protocol kept part of the connection allowance",
+	)
 }

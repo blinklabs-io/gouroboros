@@ -264,6 +264,12 @@ func (a *GovAnchor) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+// UnmarshalCBOR decodes `gov_action_id = [transaction_id : transaction_id,
+// gov_action_index : uint .size 2]`.
+//
+// The index is read as a uint64 so the `.size 2` bound can be reported as a
+// domain error rather than as a Go overflow, and so a value the field type
+// happens to hold -- GovActionIdx is a uint32 -- is still refused.
 func (id *GovActionId) UnmarshalCBOR(cborData []byte) error {
 	if id == nil {
 		return errors.New("nil GovActionId receiver")
@@ -271,12 +277,19 @@ func (id *GovActionId) UnmarshalCBOR(cborData []byte) error {
 	var decoded struct {
 		cbor.StructAsArray
 		TransactionId Blake2b256
-		GovActionIdx  uint32
+		GovActionIdx  uint64
 	}
 	if _, err := cbor.Decode(cborData, &decoded); err != nil {
 		return fmt.Errorf("decode governance action ID: %w", err)
 	}
+	if decoded.GovActionIdx > MaxGovActionIdx {
+		return fmt.Errorf(
+			"decode governance action ID: index %d exceeds the maximum of %d",
+			decoded.GovActionIdx,
+			MaxGovActionIdx,
+		)
+	}
 	copy(id.TransactionId[:], decoded.TransactionId[:])
-	id.GovActionIdx = decoded.GovActionIdx
+	id.GovActionIdx = uint32(decoded.GovActionIdx)
 	return nil
 }

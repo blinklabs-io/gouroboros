@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -530,6 +531,18 @@ func NewGovAnchor(url string, dataHash []byte) (GovAnchor, error) {
 	}, nil
 }
 
+// MaxGovActionIdx is the largest governance action index the wire format
+// admits. The Conway and Dijkstra CDDL both type the field as
+// `gov_action_index : uint .size 2`, and cardano-ledger holds it in
+// `newtype GovActionIx = GovActionIx Word16`, whose derived decoder fails
+// above this value.
+//
+// GovActionIdx stays a uint32 to match TransactionInput.Index(), which this
+// repository types the same way for the equally 2-byte `index : uint .size
+// 2`. The bound is therefore enforced at decode rather than by the field's
+// type.
+const MaxGovActionIdx = math.MaxUint16
+
 type GovActionId struct {
 	cbor.StructAsArray
 	TransactionId [32]byte
@@ -641,6 +654,13 @@ func NewGovActionId(txId []byte, idx uint32) (GovActionId, error) {
 		return GovActionId{}, fmt.Errorf(
 			"invalid gov action id transaction id length: expected 32 bytes, got %d",
 			len(txId),
+		)
+	}
+	if idx > MaxGovActionIdx {
+		return GovActionId{}, fmt.Errorf(
+			"invalid gov action index: %d exceeds the maximum of %d",
+			idx,
+			MaxGovActionIdx,
 		)
 	}
 	return GovActionId{

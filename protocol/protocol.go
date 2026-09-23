@@ -28,6 +28,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/internal/panics"
 	"github.com/blinklabs-io/gouroboros/muxer"
 )
 
@@ -47,6 +48,12 @@ const maxMessagesPerSegment = 20
 // bridge it controls) should override this via MaxReadBufferSize rather
 // than have a legitimate reply rejected as if it were the DoS this constant
 // guards against.
+//
+// This bound is per ProtocolConfig, so it bounds one mini-protocol in one
+// role. The connection-wide total is bounded separately by the muxer's
+// reassembly allowance (muxer.Muxer.RaiseReadBufferBudget), which every
+// protocol raises to its own cap as it registers; raising MaxReadBufferSize
+// therefore raises the connection allowance with it.
 const maxReadBufferSize = 16 * 1024 * 1024 // 16MB
 
 // DefaultRecvQueueSize is the default capacity for the recv queue channel
@@ -193,6 +200,10 @@ func (p *Protocol) EnsureRegistered() {
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
 		}
+		// Contribute this protocol's own read-buffer cap to the
+		// connection-wide reassembly allowance before any segment can
+		// arrive for it.
+		p.config.Muxer.RaiseReadBufferBudget(p.config.maxReadBufferSize())
 		p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(
 			p.config.ProtocolId,
 			muxerProtocolRole,
@@ -579,6 +590,52 @@ func (p *Protocol) SendError(err error) {
 	p.Stop()
 }
 
+// recoverLoop is the panic backstop for the goroutines this protocol runs. It
+// must be deferred directly so that recover sees the panic.
+//
+// Each of those goroutines is started by this package, so nothing above it on
+// the stack belongs to the consumer and an escaping panic takes the process
+// down -- every other connection with it -- over one peer's message. Reporting
+// the panic with SendError gives it the disposition a decode error or a
+// protocol violation already has: the consumer reads it from the protocol's
+// error channel on a best-effort basis and the connection is torn down. If the
+// channel is full, the panic is logged so its stack is not lost.
+//
+// Continuing is not on offer here. A panic can leave a half-applied state
+// transition, an un-decremented byte count or a partly consumed read buffer
+// behind it, and a mini-protocol that resumes from any of those has silently
+// desynchronised from its peer rather than failed. Failing the one connection
+// is the honest containment; the process surviving is the point.
+//
+// Panics raised by this library's own decoding and panics raised by a callback
+// the consumer registered are treated identically, because both run in this
+// goroutine and neither is distinguishable from here. The error carries the
+// panic value and the stack, which does name the responsible frame, so a
+// consumer's programming error stays diagnosable rather than being absorbed.
+func (p *Protocol) recoverLoop(where string) {
+	err := panics.New(ErrHandlerPanic, p.config.Name+": "+where, recover())
+	if err != nil {
+		// Report directly instead of using SendError: a protocol-owned
+		// shutdown watcher can execute a consumer callback after DoneChan is
+		// closed, and SendError deliberately ignores ordinary errors once
+		// shutdown has begun. A panic still needs to remain diagnosable.
+		select {
+		case p.config.ErrorChan <- err:
+		default:
+			p.Logger().Error("contained panic with a full error channel", "error", err)
+		}
+		p.Stop()
+	}
+}
+
+// RunLoop runs a mini-protocol-owned loop in the current goroutine with the
+// same panic containment as Protocol's common loops. Callers normally start it
+// with go and must supply a stable, diagnostic loop name.
+func (p *Protocol) RunLoop(where string, loop func()) {
+	defer p.recoverLoop(where)
+	loop()
+}
+
 func (p *Protocol) sendLoop() {
 	defer func() {
 		// Close muxer send channel
@@ -587,6 +644,10 @@ func (p *Protocol) sendLoop() {
 		close(p.muxerSendChan)
 		close(p.sendDoneChan)
 	}()
+	// Registered after the cleanup above so that it runs first and the
+	// cleanup still runs on the way out, leaving the muxer's accounting
+	// correct whether this loop ends normally or in a panic.
+	defer p.recoverLoop("send loop")
 
 	var queuedStateTransitions []Message
 waitSendReadyChan:
@@ -799,9 +860,82 @@ waitSendReadyChan:
 	}
 }
 
+// reserveReadBuffer aligns this protocol's share of the connection-wide
+// reassembly allowance with readBuffer's current length, reporting whether
+// the connection still had room. Shrinking always succeeds.
+func (p *Protocol) reserveReadBuffer(current int, reserved *int) bool {
+	if p.config.Muxer == nil {
+		*reserved = current
+		return true
+	}
+	switch {
+	case current > *reserved:
+		if !p.config.Muxer.ReserveReadBuffer(current - *reserved) {
+			return false
+		}
+	case current < *reserved:
+		p.config.Muxer.ReleaseReadBuffer(*reserved - current)
+	}
+	*reserved = current
+	return true
+}
+
+// errReadBufferBudget reports that other mini-protocols on this connection
+// already hold its reassembly allowance.
+func (p *Protocol) errReadBufferBudget(size int) error {
+	budget := 0
+	if p.config.Muxer != nil {
+		budget = p.config.Muxer.ReadBufferBudget()
+	}
+	return fmt.Errorf(
+		"%s: connection read buffer budget exhausted reassembling"+
+			" %d bytes (connection limit %d bytes)",
+		p.config.Name,
+		size,
+		budget,
+	)
+}
+
+// appendSegment bounds readBuffer before it grows. The per-protocol cap
+// decides "too big" and is therefore checked first: the connection-wide
+// allowance is the largest registered cap, so reserving first would report
+// contention against a message that simply exceeds this protocol's own
+// limit. Both checks precede bytes.Buffer.Write, which grows and copies,
+// so writing first would take the allocation the allowance exists to
+// refuse.
+func (p *Protocol) appendSegment(
+	readBuffer *bytes.Buffer,
+	payload []byte,
+	reserved *int,
+) error {
+	pendingLen := readBuffer.Len() + len(payload)
+	if pendingLen > p.config.maxReadBufferSize() {
+		return fmt.Errorf(
+			"%s: read buffer exceeded maximum size (%d bytes)",
+			p.config.Name,
+			pendingLen,
+		)
+	}
+	if !p.reserveReadBuffer(pendingLen, reserved) {
+		return p.errReadBufferBudget(pendingLen)
+	}
+	readBuffer.Write(payload)
+	return nil
+}
+
 func (p *Protocol) readLoop() {
+	defer p.recoverLoop("read loop")
 	leftoverData := false
 	readBuffer := bytes.NewBuffer(nil)
+	// Bytes this protocol holds against the connection-wide reassembly
+	// allowance. The per-protocol cap below bounds one mini-protocol; this
+	// is what keeps every mini-protocol on the connection bounded together.
+	reserved := 0
+	defer func() {
+		if p.config.Muxer != nil && reserved > 0 {
+			p.config.Muxer.ReleaseReadBuffer(reserved)
+		}
+	}()
 
 	for {
 		// Don't grab the next segment from the muxer if we still have data in the buffer
@@ -819,8 +953,12 @@ func (p *Protocol) readLoop() {
 				if !ok {
 					return
 				}
-				// Add segment payload to buffer
-				readBuffer.Write(segment.Payload)
+				if err := p.appendSegment(
+					readBuffer, segment.Payload, &reserved,
+				); err != nil {
+					p.SendError(err)
+					return
+				}
 			}
 			// Opportunistically drain any additional segments the muxer
 			// has already queued for us before spending a decode attempt.
@@ -852,17 +990,14 @@ func (p *Protocol) readLoop() {
 			// future work rather than shipped without full validation.
 			//
 			// This select must watch the same shutdown channels the outer
-			// one above does, and must bound readBuffer's growth itself
-			// (not just rely on the existing post-decode check below): a
-			// peer that keeps the channel non-empty by sending segments as
-			// fast as this loop drains them would otherwise let it spin
-			// unboundedly on both counts -- ignoring shutdown, and growing
-			// readBuffer past p.config.maxReadBufferSize() before ever
-			// returning control to check it (CWE-400, caught in review on
-			// blinklabs-io/gouroboros#2291). Breaking out once the bound is
-			// exceeded (rather than erroring here directly) lets the
-			// existing check just below do the actual rejection, so there
-			// is one place that decides "too big", not two.
+			// one above does, and must bound readBuffer itself: a peer that
+			// keeps the channel non-empty by sending segments as fast as this
+			// loop drains them would otherwise let it spin unboundedly on both
+			// counts -- ignoring shutdown, and growing readBuffer past
+			// p.config.maxReadBufferSize() before ever returning control to
+			// check it (CWE-400, caught in review on
+			// blinklabs-io/gouroboros#2291). appendSegment is that bound, and
+			// is the one place that decides "too big" for both receive paths.
 		drainQueued:
 			for {
 				select {
@@ -876,9 +1011,11 @@ func (p *Protocol) readLoop() {
 					if !ok {
 						return
 					}
-					readBuffer.Write(segment.Payload)
-					if readBuffer.Len() > p.config.maxReadBufferSize() {
-						break drainQueued
+					if err := p.appendSegment(
+						readBuffer, segment.Payload, &reserved,
+					); err != nil {
+						p.SendError(err)
+						return
 					}
 				default:
 					break drainQueued
@@ -911,16 +1048,6 @@ func (p *Protocol) readLoop() {
 			if errors.Is(err, io.ErrUnexpectedEOF) && readBuffer.Len() > 0 {
 				// This is probably a multi-part message, so we wait until we get more of the message
 				// before trying to process it
-				if readBuffer.Len() > p.config.maxReadBufferSize() {
-					p.SendError(
-						fmt.Errorf(
-							"%s: read buffer exceeded maximum size (%d bytes)",
-							p.config.Name,
-							readBuffer.Len(),
-						),
-					)
-					return
-				}
 				continue
 			}
 			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
@@ -1030,6 +1157,8 @@ func (p *Protocol) readLoop() {
 			// Empty out our buffer since we successfully processed the message
 			readBuffer.Reset()
 		}
+		// Hand the consumed bytes back to the connection-wide allowance.
+		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
 	}
 }
 
@@ -1037,6 +1166,7 @@ func (p *Protocol) recvLoop() {
 	defer func() {
 		close(p.recvDoneChan)
 	}()
+	defer p.recoverLoop("receive loop")
 
 	for {
 		// Wait until ready to receive based on state map
@@ -1085,6 +1215,7 @@ func (p *Protocol) recvLoop() {
 }
 
 func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
+	defer p.recoverLoop("state loop")
 	var transitionTimer *time.Timer
 	var initialStateSet bool
 

@@ -4927,107 +4927,6 @@ func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 
 }
 
-func TestUtxoValidateBootstrapParameterGroups(t *testing.T) {
-	mkPp := func(major uint) *conway.ConwayProtocolParameters {
-		return &conway.ConwayProtocolParameters{
-			ProtocolVersion: common.ProtocolParametersProtocolVersion{
-				Major: major,
-			},
-		}
-	}
-	dep := uint64(500_000_000)
-	fee := uint(44)
-
-	mkTxWithParamChange := func(
-		update conway.ConwayProtocolParameterUpdate,
-	) *conway.ConwayTransaction {
-		tx := &conway.ConwayTransaction{}
-		tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
-			{
-				PPGovAction: conway.ConwayGovAction{
-					Action: &conway.ConwayParameterChangeGovAction{
-						ParamUpdate: update,
-					},
-				},
-			},
-		}
-		return tx
-	}
-
-	t.Run("PV9 with non-restricted ParameterChange is allowed", func(t *testing.T) {
-		tx := mkTxWithParamChange(
-			conway.ConwayProtocolParameterUpdate{MinFeeA: &fee},
-		)
-		if err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9)); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("PV9 with restricted ParameterChange is rejected", func(t *testing.T) {
-		tx := mkTxWithParamChange(
-			conway.ConwayProtocolParameterUpdate{DRepDeposit: &dep},
-		)
-		err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9))
-		var bgErr conway.BootstrapDisallowedParameterChangeError
-		if !errors.As(err, &bgErr) {
-			t.Fatalf(
-				"got %T (%v), want BootstrapDisallowedParameterChangeError",
-				err,
-				err,
-			)
-		}
-		if !reflect.DeepEqual(bgErr.Fields, []string{"DRepDeposit"}) {
-			t.Fatalf("got fields %v, want [DRepDeposit]", bgErr.Fields)
-		}
-	})
-
-	t.Run("PV10 with restricted ParameterChange is allowed", func(t *testing.T) {
-		tx := mkTxWithParamChange(
-			conway.ConwayProtocolParameterUpdate{DRepDeposit: &dep},
-		)
-		if err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(10)); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("PV9 with MinFeeRefScriptCostPerByte ParameterChange is rejected", func(t *testing.T) {
-		rate := &cbor.Rat{Rat: big.NewRat(15, 1000)}
-		tx := mkTxWithParamChange(conway.ConwayProtocolParameterUpdate{MinFeeRefScriptCostPerByte: rate})
-		err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9))
-		var bgErr conway.BootstrapDisallowedParameterChangeError
-		if !errors.As(err, &bgErr) {
-			t.Fatalf("got %T (%v), want BootstrapDisallowedParameterChangeError", err, err)
-		}
-		if !reflect.DeepEqual(bgErr.Fields, []string{"MinFeeRefScriptCostPerByte"}) {
-			t.Fatalf("got fields %v, want [MinFeeRefScriptCostPerByte]", bgErr.Fields)
-		}
-	})
-
-	t.Run("PV9 with multi-field restricted ParameterChange surfaces all fields", func(t *testing.T) {
-		size := uint(7)
-		tx := mkTxWithParamChange(conway.ConwayProtocolParameterUpdate{
-			MinCommitteeSize: &size,
-			DRepDeposit:      &dep,
-		})
-		err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9))
-		var bgErr conway.BootstrapDisallowedParameterChangeError
-		if !errors.As(err, &bgErr) {
-			t.Fatalf("got %T (%v), want BootstrapDisallowedParameterChangeError", err, err)
-		}
-		want := []string{"MinCommitteeSize", "DRepDeposit"}
-		if !reflect.DeepEqual(bgErr.Fields, want) {
-			t.Fatalf("got fields %v, want %v", bgErr.Fields, want)
-		}
-	})
-
-	t.Run("PV9 with empty proposals is allowed", func(t *testing.T) {
-		tx := &conway.ConwayTransaction{}
-		if err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9)); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-}
-
 // Voter committee lookups report the same CommitteeMemberLookupError shape as
 // certificate lookups, so a caller gets the credential and its type rather than
 // a bare provider error.
@@ -5113,4 +5012,169 @@ func TestUtxoValidateUnknownVotersWrapsCommitteeLookupFailures(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestBootstrapPhaseAllowsAnyParameterChange pins the Conway bootstrap-phase
+// treatment of ParameterChange proposals to cardano-ledger's.
+//
+// checkBootstrapProposal (Cardano.Ledger.Conway.Rules.Gov) defers entirely to
+// isBootstrapAction, whose "ParameterChange {} -> True" arm matches
+// unconditionally: every ParameterChange is permitted during bootstrap
+// whatever parameters it updates. The only other proposal-time check applied
+// to one, actionWellFormed calling ppuWellFormed, references
+// hardforkConwayBootstrapPhase solely to *relax* a CoinsPerUTxOByte
+// constraint, and treats DRepDeposit only as a non-zero well-formedness check.
+// No parameter field is gated on protocol version.
+//
+// Preview tx 2841a581076167a0662f1b4f1a38bcc8eff386f9ce45c33ae33b1fe8289de210
+// (block height 2570678, epoch 718, absolute slot 62103362) updates
+// DRepDeposit while Preview reported protocol_major 9, and is on the canonical
+// chain, so a field-level restriction here stalls a replay at that slot.
+func TestBootstrapPhaseAllowsAnyParameterChange(t *testing.T) {
+	dep := uint64(500_000_000)
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 9},
+	}
+	tx := &conway.ConwayTransaction{}
+	tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
+		{
+			PPGovAction: conway.ConwayGovAction{
+				Action: &conway.ConwayParameterChangeGovAction{
+					ParamUpdate: conway.ConwayProtocolParameterUpdate{
+						DRepDeposit: &dep,
+					},
+				},
+			},
+		},
+	}
+
+	if err := conway.UtxoValidateBootstrapAllowedGovActions(
+		tx, 0, nil, pp,
+	); err != nil {
+		t.Fatalf(
+			"a ParameterChange proposal must be allowed during the bootstrap phase: %v",
+			err,
+		)
+	}
+
+	// The id is spelled literally rather than via its constant so this keeps
+	// compiling once the rule and its constant are gone.
+	for _, d := range conway.UtxoValidationRuleDescriptors() {
+		if string(d.Id) == "bootstrap-parameter-groups" {
+			t.Fatalf(
+				"rule %q imposes a field-level bootstrap restriction that cardano-ledger does not have, and rejects canonical transactions; it must not be registered",
+				d.Id,
+			)
+		}
+	}
+}
+
+// See TestUtxoValidateInsufficientCollateralRoundsUp in ledger/alonzo: Conway
+// inherits the Alonzo collateral balance rule unchanged.
+func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
+	t.Parallel()
+	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	testProtocolParams := &conway.ConwayProtocolParameters{
+		CollateralPercentage: 150,
+	}
+	validate := func(t *testing.T, fee, collateral uint64) error {
+		t.Helper()
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxFee: fee,
+				TxCollateral: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(
+							testInputTxId,
+							0,
+						),
+					},
+					false,
+				),
+			},
+			WitnessSet: conway.ConwayTransactionWitnessSet{
+				WsRedeemers: conway.ConwayRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{}: {},
+					},
+				},
+			},
+		}
+		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
+			[]common.Utxo{
+				{
+					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Output: shelley.ShelleyTransactionOutput{
+						OutputAmount: collateral,
+					},
+				},
+			},
+		).Build()
+		return conway.UtxoValidateInsufficientCollateral(
+			tx,
+			0,
+			ls,
+			testProtocolParams,
+		)
+	}
+	t.Run("one lovelace short of the ceiling", func(t *testing.T) {
+		t.Parallel()
+		err := validate(t, 101, 151)
+		var collateralErr alonzo.InsufficientCollateralError
+		require.ErrorAs(t, err, &collateralErr)
+		require.Equal(t, uint64(152), collateralErr.Required)
+		require.Equal(t, uint64(151), collateralErr.Provided)
+	})
+	t.Run("exactly the ceiling", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, validate(t, 101, 152))
+	})
+	t.Run("exact multiple of 100 is not rounded up", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, validate(t, 100, 150))
+	})
+}
+
+// See TestBabbageMinCoinTxOutOverflow: Conway carries the same uint64 multiply.
+func TestConwayMinCoinTxOutOverflow(t *testing.T) {
+	t.Parallel()
+	txOut := babbage.BabbageTransactionOutput{}
+	_, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: math.MaxUint64},
+	)
+	require.ErrorContains(t, err, "overflow")
+
+	minCoin, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: 4310},
+	)
+	require.NoError(t, err)
+	require.Positive(t, minCoin)
+}
+
+// The guard must sit exactly at the uint64 boundary: the largest product that
+// still fits is a valid requirement and has to be returned exactly, while the
+// next one up has to be rejected rather than wrapped to a small requirement.
+func TestConwayMinCoinTxOutBoundary(t *testing.T) {
+	t.Parallel()
+	txOut := babbage.BabbageTransactionOutput{}
+	entrySize, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: 1},
+	)
+	require.NoError(t, err)
+	require.Positive(t, entrySize)
+	largest := uint64(math.MaxUint64) / entrySize
+	minCoin, err := conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: largest},
+	)
+	require.NoError(t, err)
+	require.Equal(t, largest*entrySize, minCoin)
+	_, err = conway.MinCoinTxOut(
+		txOut,
+		&conway.ConwayProtocolParameters{AdaPerUtxoByte: largest + 1},
+	)
+	require.ErrorContains(t, err, "overflow")
 }
