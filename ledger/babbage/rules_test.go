@@ -2189,6 +2189,9 @@ func TestBabbageMinCoinTxOutUsesOriginalWireSize(t *testing.T) {
 	canonicalCBOR, err := cbor.Encode(&canonicalOutput)
 	require.NoError(t, err)
 	require.Greater(t, len(indefiniteMap), len(canonicalCBOR))
+	fallbackMinimum, err := babbage.MinCoinTxOut(&canonicalOutput, params)
+	require.NoError(t, err)
+	require.Equal(t, uint64(160+len(canonicalCBOR)), fallbackMinimum)
 	var decodedCanonical babbage.BabbageTransactionOutput
 	_, err = cbor.Decode(canonicalCBOR, &decodedCanonical)
 	require.NoError(t, err)
