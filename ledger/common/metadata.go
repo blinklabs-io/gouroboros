@@ -679,7 +679,7 @@ func DecodeAuxiliaryDataForEra(
 	case cborTypeMap:
 	case cborTypeArray:
 		if era < AuxiliaryDataEraAllegra {
-			return nil, errors.New("Allegra auxiliary-data array is not valid in this era")
+			return nil, errors.New("allegra auxiliary-data array is not valid in this era")
 		}
 	case cborTypeTag:
 		if era < AuxiliaryDataEraAlonzo {
@@ -708,7 +708,7 @@ func DecodeAuxiliaryDataForEra(
 			}
 			if field >= 2 && field <= 5 && field-1 > maxLanguage {
 				return nil, fmt.Errorf(
-					"Plutus V%d auxiliary-data field is not valid in this era",
+					"plutus V%d auxiliary-data field is not valid in this era",
 					field-1,
 				)
 			}
