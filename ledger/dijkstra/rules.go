@@ -124,10 +124,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateConwayFeaturesWithPlutusV1V2,
 	},
 	{
-		Id:        common.UtxoValidationRuleDisjointRefInputs,
-		Validator: UtxoValidateDisjointRefInputs,
-	},
-	{
 		Id:        common.UtxoValidationRuleOutsideValidityInterval,
 		Validator: conway.UtxoValidateOutsideValidityIntervalUtxo,
 	},
@@ -538,26 +534,13 @@ func validateDijkstraProtocolParameterUpdate(
 }
 
 func UtxoValidateDisjointRefInputs(
-	tx common.Transaction,
-	slot uint64,
-	ls common.LedgerState,
-	pp common.ProtocolParameters,
+	_ common.Transaction,
+	_ uint64,
+	_ common.LedgerState,
+	_ common.ProtocolParameters,
 ) error {
-	tmpPparams, err := conwayPparams(pp)
-	if err != nil {
-		return err
-	}
-	dijkstraTx, ok := tx.(*DijkstraTransaction)
-	if !ok {
-		return conway.UtxoValidateDisjointRefInputs(tx, slot, ls, tmpPparams)
-	}
-	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
-		if err := conway.UtxoValidateDisjointRefInputs(
-			level, slot, ls, tmpPparams,
-		); err != nil {
-			return err
-		}
-	}
+	// Dijkstra permits the same original UTxO to be a spend and reference
+	// input, so this Babbage predicate is not part of Dijkstra UTXO validation.
 	return nil
 }
 

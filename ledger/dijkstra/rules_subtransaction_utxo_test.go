@@ -234,12 +234,23 @@ func TestDijkstraDuplicateInputRulePrecedesValueConservation(t *testing.T) {
 	require.Greater(t, valueIndex, duplicateIndex)
 }
 
-func TestDijkstraDisjointRefInputsCoversSubTransactions(t *testing.T) {
+func TestDijkstraAllowsSpendReferenceInputOverlap(t *testing.T) {
 	input, utxo := dijkstraSubUtxoInput(0)
 	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).
 		Build()
 	pp := &DijkstraProtocolParameters{}
-	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+	topLevelTx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input}, true,
+			),
+		},
+		TxIsValid: true,
+	}
+	subTransactionTx := dijkstraSingleSubTx(DijkstraSubTransaction{
 		Body: DijkstraSubTransactionBody{
 			TxInputs: conway.NewConwayTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{input},
@@ -249,12 +260,11 @@ func TestDijkstraDisjointRefInputsCoversSubTransactions(t *testing.T) {
 			),
 		},
 	})
-	var overlap babbage.NonDisjointRefInputsError
-	require.ErrorAs(
-		t,
-		UtxoValidateDisjointRefInputs(tx, 0, ls, pp),
-		&overlap,
-	)
+	require.NoError(t, UtxoValidateDisjointRefInputs(topLevelTx, 0, ls, pp))
+	require.NoError(t, UtxoValidateDisjointRefInputs(subTransactionTx, 0, ls, pp))
+	for _, descriptor := range utxoValidationRuleDescriptors {
+		require.NotEqual(t, common.UtxoValidationRuleDisjointRefInputs, descriptor.Id)
+	}
 }
 
 func TestDijkstraBootstrapOutputAttributesCoverSubTransactions(t *testing.T) {
