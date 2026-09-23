@@ -28,9 +28,10 @@ import (
 
 type scriptContextTransaction struct {
 	common.Transaction
-	txType   int
-	outputs  []common.TransactionOutput
-	produced []common.Utxo
+	txType          int
+	outputs         []common.TransactionOutput
+	produced        []common.Utxo
+	referenceInputs []common.TransactionInput
 }
 
 func (t scriptContextTransaction) Type() int { return t.txType }
@@ -41,6 +42,13 @@ func (t scriptContextTransaction) Outputs() []common.TransactionOutput {
 
 func (t scriptContextTransaction) Produced() []common.Utxo {
 	return t.produced
+}
+
+func (t scriptContextTransaction) ReferenceInputs() []common.TransactionInput {
+	if t.referenceInputs != nil {
+		return t.referenceInputs
+	}
+	return t.Transaction.ReferenceInputs()
 }
 
 func TestTxInfoOutputsUseTransactionBodyOutputs(t *testing.T) {
@@ -104,6 +112,54 @@ func TestTxInfoOutputsUseTransactionBodyOutputs(t *testing.T) {
 	}
 }
 
+func TestTxInfoRejectsByronInputsExceptAlonzoV1Filtering(t *testing.T) {
+	byronAddress, err := common.NewByronAddressFromParts(
+		common.ByronAddressTypePubkey,
+		bytes.Repeat([]byte{0x42}, common.AddressHashSize),
+		common.ByronAddressAttributes{},
+	)
+	require.NoError(t, err)
+	byronOutput, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress(byronAddress.String()).WithLovelace(1).Build()
+	require.NoError(t, err)
+	byronInput := shelley.NewShelleyTransactionInput(
+		hex.EncodeToString(bytes.Repeat([]byte{0x43}, common.Blake2b256Size)), 0,
+	)
+	shelleyAddress, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		bytes.Repeat([]byte{0x31}, common.AddressHashSize),
+		nil,
+	)
+	require.NoError(t, err)
+	shelleyOutput, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress(shelleyAddress.String()).WithLovelace(1).Build()
+	require.NoError(t, err)
+	base := mockledger.NewTransactionBuilder()
+	base.WithInputs(byronInput)
+	resolved := []common.Utxo{{Id: byronInput, Output: byronOutput}}
+	tx := scriptContextTransaction{
+		Transaction: base,
+		txType:      4,
+		outputs:     []common.TransactionOutput{shelleyOutput},
+	}
+	info, err := script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, false)
+	require.NoError(t, err)
+	require.Empty(t, info.Inputs)
+	require.Len(t, info.Outputs, 1)
+
+	for _, eraType := range []int{5, 6} {
+		tx.txType = eraType
+		_, err = script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
+		_, err = script.NewTxInfoV2FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
+	}
+	tx.txType = 6
+	_, err = script.NewTxInfoV3FromTransaction(validitySlotState{}, tx, resolved)
+	require.ErrorContains(t, err, "cannot represent a Byron TxOut")
+}
+
 func TestTxInfoRejectsByronOutputsExceptAlonzoV1Filtering(t *testing.T) {
 	byronAddress, err := common.NewByronAddressFromParts(
 		common.ByronAddressTypePubkey,
@@ -114,12 +170,22 @@ func TestTxInfoRejectsByronOutputsExceptAlonzoV1Filtering(t *testing.T) {
 	byronOutput, err := mockledger.NewTransactionOutputBuilder().
 		WithAddress(byronAddress.String()).WithLovelace(1).Build()
 	require.NoError(t, err)
+	shelleyAddress, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		bytes.Repeat([]byte{0x31}, common.AddressHashSize),
+		nil,
+	)
+	require.NoError(t, err)
+	shelleyOutput, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress(shelleyAddress.String()).WithLovelace(1).Build()
+	require.NoError(t, err)
 	input := shelley.NewShelleyTransactionInput(
 		hex.EncodeToString(bytes.Repeat([]byte{0x43}, common.Blake2b256Size)), 0,
 	)
 	base := mockledger.NewTransactionBuilder()
 	base.WithInputs(input)
-	resolved := []common.Utxo{{Id: input, Output: byronOutput}}
+	resolved := []common.Utxo{{Id: input, Output: shelleyOutput}}
 	tx := scriptContextTransaction{
 		Transaction: base,
 		txType:      4,
@@ -127,13 +193,42 @@ func TestTxInfoRejectsByronOutputsExceptAlonzoV1Filtering(t *testing.T) {
 	}
 	info, err := script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, false)
 	require.NoError(t, err)
-	require.Empty(t, info.Inputs)
+	require.Len(t, info.Inputs, 1)
 	require.Empty(t, info.Outputs)
 
 	for _, eraType := range []int{5, 6} {
 		tx.txType = eraType
 		_, err = script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
 		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
+		_, err = script.NewTxInfoV2FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
+	}
+	tx.txType = 6
+	_, err = script.NewTxInfoV3FromTransaction(validitySlotState{}, tx, resolved)
+	require.ErrorContains(t, err, "cannot represent a Byron TxOut")
+}
+
+func TestTxInfoRejectsByronReferenceInputs(t *testing.T) {
+	byronAddress, err := common.NewByronAddressFromParts(
+		common.ByronAddressTypePubkey,
+		bytes.Repeat([]byte{0x42}, common.AddressHashSize),
+		common.ByronAddressAttributes{},
+	)
+	require.NoError(t, err)
+	byronOutput, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress(byronAddress.String()).WithLovelace(1).Build()
+	require.NoError(t, err)
+	reference := shelley.NewShelleyTransactionInput(
+		hex.EncodeToString(bytes.Repeat([]byte{0x44}, common.Blake2b256Size)), 0,
+	)
+	resolved := []common.Utxo{{Id: reference, Output: byronOutput}}
+	tx := scriptContextTransaction{
+		Transaction:     mockledger.NewTransactionBuilder(),
+		txType:          5,
+		referenceInputs: []common.TransactionInput{reference},
+	}
+	for _, eraType := range []int{5, 6} {
+		tx.txType = eraType
 		_, err = script.NewTxInfoV2FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
 		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 	}
