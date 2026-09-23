@@ -20,7 +20,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -2344,15 +2343,11 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 
 func parseSecurityParameterGenesis(t *testing.T, k int) byron.ByronGenesis {
 	t.Helper()
-	genesisJSON := fmt.Sprintf(
-		`{"protocolConsts":{"k":%d,"protocolMagic":%d}}`,
-		k,
-		testByronProtocolMagicMainnet,
-	)
 	genesis, err := byron.NewByronGenesisFromReader(
-		strings.NewReader(genesisJSON),
+		strings.NewReader(testByronGenesisJSON),
 	)
 	require.NoError(t, err)
+	genesis.ProtocolConsts.K = k
 	return genesis
 }
 
@@ -2360,6 +2355,13 @@ func TestNewByronConfigFromGenesisRejectsZeroSecurityParameter(t *testing.T) {
 	genesis := parseSecurityParameterGenesis(t, 0)
 	_, err := NewByronConfigFromGenesis(&genesis)
 	require.ErrorContains(t, err, "must be positive")
+}
+
+func TestNewByronConfigFromGenesisRejectsNegativeSlotDuration(t *testing.T) {
+	genesis := parseSecurityParameterGenesis(t, testByronSecurityParam)
+	genesis.BlockVersionData.SlotDuration = -1
+	_, err := NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "slot duration")
 }
 
 func TestNewByronConfigFromGenesisRejectsSecurityParameterOverflow(
