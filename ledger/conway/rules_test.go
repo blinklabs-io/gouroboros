@@ -86,6 +86,16 @@ type legacyOnlyLedgerState struct {
 	common.LedgerState
 }
 
+type epochLedgerState struct {
+	common.LedgerState
+	epoch uint64
+	err   error
+}
+
+func (s epochLedgerState) EpochForSlot(uint64) (uint64, error) {
+	return s.epoch, s.err
+}
+
 type committeeCredentialLedgerState struct {
 	common.LedgerState
 	available       bool
@@ -3344,7 +3354,7 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 		assert.Contains(t, ccErr.Restriction, "UpdateCommittee")
 	})
 
-	t.Run("pre-PV11 allows CC to vote on NoConfidence", func(t *testing.T) {
+	t.Run("pre-PV11 rejects CC votes on NoConfidence", func(t *testing.T) {
 		voter := &common.Voter{
 			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
 			Hash: common.Blake2b224{0x50},
@@ -3359,7 +3369,9 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 			},
 		}
 		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, prePv11Params)
-		assert.NoError(t, err, "pre-PV11 should not enforce CC voting restrictions at ledger level")
+		var ccErr conway.CCVotingRestrictionError
+		require.ErrorAs(t, err, &ccErr)
+		assert.Contains(t, ccErr.Restriction, "NoConfidence")
 	})
 
 	t.Run("nil action ID returns error", func(t *testing.T) {
@@ -3621,6 +3633,58 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 			ls,
 			&conway.ConwayProtocolParameters{},
 		))
+	})
+
+	t.Run("certificate sequence uses transaction-local state", func(t *testing.T) {
+		secondHot := common.Credential{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: common.Blake2b224Hash([]byte("committee-hot-key-2")),
+		}
+		memberState := authoritativeLegacyCommitteeState(
+			mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+				[]common.CommitteeMember{{ColdKey: coldHash, ExpiryEpoch: 100}},
+			).Build(),
+		)
+		resign := &common.ResignCommitteeColdCertificate{
+			CertType:       uint(common.CertificateTypeResignCommitteeCold),
+			ColdCredential: coldCredential,
+		}
+		authorize := func(hot common.Credential) common.Certificate {
+			return &common.AuthCommitteeHotCertificate{
+				CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+				ColdCredential: coldCredential,
+				HotCredential:  hot,
+			}
+		}
+		validate := func(certs ...common.Certificate) error {
+			wrapped := make([]common.CertificateWrapper, len(certs))
+			for i, cert := range certs {
+				wrapped[i].Certificate = cert
+			}
+			tx := &conway.ConwayTransaction{TxIsValid: true}
+			tx.Body.TxCertificates = wrapped
+			return conway.UtxoValidateCommitteeCertificates(
+				tx, 0, memberState, &conway.ConwayProtocolParameters{},
+			)
+		}
+		t.Run("resign then authorize rejects", func(t *testing.T) {
+			var err error
+			err = validate(resign, authorize(hotCredential))
+			var resigned conway.ResignedCommitteeMemberHotKeyError
+			require.ErrorAs(t, err, &resigned)
+		})
+		t.Run("resign then resign rejects", func(t *testing.T) {
+			var err error
+			err = validate(resign, resign)
+			var resigned conway.ResignedCommitteeMemberHotKeyError
+			require.ErrorAs(t, err, &resigned)
+		})
+		t.Run("authorize then resign passes", func(t *testing.T) {
+			require.NoError(t, validate(authorize(hotCredential), resign))
+		})
+		t.Run("authorize then authorize passes", func(t *testing.T) {
+			require.NoError(t, validate(authorize(hotCredential), authorize(secondHot)))
+		})
 	})
 }
 

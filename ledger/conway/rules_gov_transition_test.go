@@ -66,6 +66,49 @@ func mkProposalTx(
 	return tx
 }
 
+type epochTestLedgerState struct {
+	common.LedgerState
+	epoch uint64
+	err   error
+}
+
+func (s epochTestLedgerState) EpochForSlot(uint64) (uint64, error) {
+	return s.epoch, s.err
+}
+
+func TestUtxoValidateProposalProceduresRejectsExpiredCommitteeAdditions(
+	t *testing.T,
+) {
+	credential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("committee-addition")),
+	}
+	buildTx := func(expiry uint64) *conway.ConwayTransaction {
+		return mkProposalTx(0, common.Address{}, &common.UpdateCommitteeGovAction{
+			CredEpochs: map[*common.Credential]uint64{&credential: expiry},
+		})
+	}
+	state := epochTestLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		epoch:       10,
+	}
+	require.NoError(t, conway.UtxoValidateProposalProcedures(
+		buildTx(11), 0, state, mkConwayPp(10, 0),
+	))
+	for _, expiry := range []uint64{10, 9} {
+		err := conway.UtxoValidateProposalProcedures(
+			buildTx(expiry), 0, state, mkConwayPp(10, 0),
+		)
+		var expired conway.CommitteeMemberAlreadyExpiredError
+		require.ErrorAs(t, err, &expired)
+	}
+	err := conway.UtxoValidateProposalProcedures(
+		buildTx(11), 0, mockledger.NewLedgerStateBuilder().Build(), mkConwayPp(10, 0),
+	)
+	var unavailable conway.CommitteeExpiryEpochUnavailableError
+	require.ErrorAs(t, err, &unavailable)
+}
+
 func TestUtxoValidateProposalDeposit(t *testing.T) {
 	pp := mkConwayPp(common.ProtocolVersionConway, 500_000_000)
 	rewardAddr := makeConwayRewardAddress(

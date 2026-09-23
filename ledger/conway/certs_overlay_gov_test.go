@@ -288,6 +288,40 @@ func TestUtxoValidateUnknownVotersSeesInTxCommitteeHotAuthorization(
 	require.NoError(t, runGovOverlayPipeline(t, tx, ls, pp))
 }
 
+func TestUtxoValidateUnknownVotersRequiresElectedCommitteeAtPV11(t *testing.T) {
+	t.Parallel()
+	hotHash := common.Blake2b224{0x42}
+	coldHash := common.Blake2b224{0x43}
+	hotKey := hotHash
+	base := mockledger.NewLedgerStateBuilder().Build()
+	pendingState := committeeCredentialLedgerState{
+		LedgerState: base,
+		available:   true,
+		hotLookup: func(common.Credential) (*common.CommitteeMember, error) {
+			return &common.CommitteeMember{ColdKey: coldHash, HotKey: &hotKey}, nil
+		},
+	}
+	voter := common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		Hash: hotHash,
+	}
+	tx := mkVoteTx(voter, common.GovActionId{}, common.GovVoteYes)
+	pv11 := govOverlayPparams()
+	pv11.ProtocolVersion.Major = common.ProtocolVersionVanRossem
+	var unknown conway.UnknownVoterError
+	err := conway.UtxoValidateUnknownVoters(tx, 0, pendingState, pv11)
+	require.ErrorAs(t, err, &unknown)
+	require.NoError(
+		t,
+		conway.UtxoValidateUnknownVoters(tx, 0, pendingState, govOverlayPparams()),
+	)
+
+	electedState := mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+		[]common.CommitteeMember{{ColdKey: coldHash, HotKey: &hotKey}},
+	).Build()
+	require.NoError(t, conway.UtxoValidateUnknownVoters(tx, 0, electedState, pv11))
+}
+
 func TestUtxoValidateUnknownVotersRejectsResignedCommitteeOldHotKey(
 	t *testing.T,
 ) {
