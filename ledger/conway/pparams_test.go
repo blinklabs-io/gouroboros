@@ -16,6 +16,7 @@ package conway_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"math"
 	"math/big"
 	"math/bits"
@@ -522,6 +523,17 @@ func TestConwayProtocolParameterUpdateCostModelLanguageIDDomain(t *testing.T) {
 			CostModels: map[uint][]int64{256: {1}},
 		})
 	})
+}
+
+func TestConwayProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
+	for _, tag := range []int{0, 1, 5, 6, 14, 16, 17, 20, 21, 30, 31} {
+		t.Run(fmt.Sprintf("tag_%d", tag), func(t *testing.T) {
+			encoded, err := cbor.Encode(map[int]any{tag: nil})
+			require.NoError(t, err)
+			var update conway.ConwayProtocolParameterUpdate
+			require.Error(t, update.UnmarshalCBOR(encoded))
+		})
+	}
 }
 
 // TestConwayProtocolParameters_UpdateAcceptsLongerCostModel asserts that

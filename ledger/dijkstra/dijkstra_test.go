@@ -2136,10 +2136,13 @@ func TestDijkstraMaxPledgeLeverageNullUpdate(t *testing.T) {
 }
 
 func TestDijkstraProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
+	tags := []int{0, 1, 5, 6, 14, 16, 17, 20, 21, 30, 31}
 	for tag := 34; tag <= 48; tag++ {
-		if tag == 38 {
-			continue
+		if tag != 38 {
+			tags = append(tags, tag)
 		}
+	}
+	for _, tag := range tags {
 		t.Run(fmt.Sprintf("tag_%d", tag), func(t *testing.T) {
 			encoded, err := cbor.Encode(map[int]any{0: uint(1), tag: nil})
 			require.NoError(t, err)
