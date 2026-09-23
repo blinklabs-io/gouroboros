@@ -718,7 +718,12 @@ func (p *Protocol) errPipelinedMessageNotAllowed(
 // single concurrent transition that landed here -- flushQueuedStateTransitions
 // stopping partway through and returning the remainder is an expected
 // outcome, not a fatal error; only a shutdown signal from the flush is
-// fatal here.
+// fatal here. The flush's own transition into a peer-agency state releases
+// recvLoop, so the peer's reply to a just-flushed message can return this
+// role to agency before the decision below; when that happens and the
+// pass applied at least one entry, the flush is repeated rather than the
+// message rejected. A backlog that makes no progress in a state where this
+// role holds agency is a genuine ordering violation.
 //
 // A flushed transition applies through the same setState this function's
 // own entry token came from, so it can grant this role a fresh token of its
@@ -774,36 +779,52 @@ func (p *Protocol) resolvePipelinedDequeue(
 	case <-p.sendReadyChan:
 	}
 
-	remaining, flushErr := p.flushQueuedStateTransitions(
-		*queuedStateTransitions,
-	)
-	*queuedStateTransitions = remaining
-	if flushErr != nil && errors.Is(flushErr, ErrProtocolShuttingDown) {
-		return nil, haveAgency, flushErr
-	}
-
-	if p.resolvePipelinedDequeuePostFlushHook != nil {
-		p.resolvePipelinedDequeuePostFlushHook()
-	}
-	// Drain any post-flush token and read the resulting state as a single
-	// atomic step (see observeStateAndDrainSendReady above): a token here
-	// could come from this function's own flush, or from an entirely
-	// independent, concurrent stateLoop transition -- e.g. recvLoop handling
-	// a real peer reply -- and either way it must not be observable
-	// separately from the state it belongs to.
-	postFlushState := p.observeStateAndDrainSendReady()
-	if p.pipelinedMessageFits(postFlushState, outbound.message) {
-		return outbound, haveAgency, nil
-	}
-	if len(*queuedStateTransitions) == 0 && p.roleHasAgency(postFlushState) {
-		if _, err := p.nextState(postFlushState, outbound.message); err == nil {
-			return outbound, true, nil
+	// Each pass that ends with this role holding agency and a backlog still
+	// queued must have applied at least one entry, so the loop is bounded by
+	// the backlog length. Continuing is safe only because this role holds
+	// agency in the observed state: the peer cannot move it before the next
+	// pass's flush.
+	for {
+		before := len(*queuedStateTransitions)
+		remaining, flushErr := p.flushQueuedStateTransitions(
+			*queuedStateTransitions,
+		)
+		*queuedStateTransitions = remaining
+		if errors.Is(flushErr, ErrProtocolShuttingDown) {
+			return nil, haveAgency, flushErr
 		}
+		progressed := len(remaining) < before
+
+		if p.resolvePipelinedDequeuePostFlushHook != nil {
+			p.resolvePipelinedDequeuePostFlushHook()
+		}
+		// Drain any post-flush token and read the resulting state as a
+		// single atomic step (see observeStateAndDrainSendReady above): a
+		// token here could come from this function's own flush, or from an
+		// entirely independent, concurrent stateLoop transition -- e.g.
+		// recvLoop handling a real peer reply -- and either way it must not
+		// be observable separately from the state it belongs to.
+		postFlushState := p.observeStateAndDrainSendReady()
+		if p.pipelinedMessageFits(postFlushState, outbound.message) {
+			return outbound, haveAgency, nil
+		}
+		if p.roleHasAgency(postFlushState) {
+			if len(*queuedStateTransitions) == 0 {
+				if _, err := p.nextState(
+					postFlushState,
+					outbound.message,
+				); err == nil {
+					return outbound, true, nil
+				}
+			} else if progressed {
+				continue
+			}
+		}
+		return nil, haveAgency, p.errPipelinedMessageNotAllowed(
+			postFlushState,
+			outbound.message,
+		)
 	}
-	return nil, haveAgency, p.errPipelinedMessageNotAllowed(
-		postFlushState,
-		outbound.message,
-	)
 }
 
 func (p *Protocol) sendLoop() {

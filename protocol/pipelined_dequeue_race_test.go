@@ -988,3 +988,101 @@ func TestResolvePipelinedDequeueUnsynchronizedTransitionNeverStrandsToken(
 		"no iteration observed the concurrent transition",
 	)
 }
+
+// TestResolvePipelinedDequeueResumesFlushAfterPeerReplyToPartialFlush covers
+// a partial flush followed by the peer's reply to the message the flush just
+// applied. recvLoop only reads while the peer holds agency, so it is the
+// flush's own Req2 transition into Busy that releases the peer's NoBlocks
+// reply to Req2; the flush's Req3 transition then races that reply and can
+// fail in Busy, leaving Req3 queued. Once the reply returns the protocol to
+// Idle, Req3 is legal again: it must be flushed and the racing message sent
+// pipelined in the resulting Busy state, not rejected as a violation.
+func TestResolvePipelinedDequeueResumesFlushAfterPeerReplyToPartialFlush(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const msgTypeRequest uint8 = 2
+	const msgTypeBatchDone uint8 = 3
+	const msgTypeNoBlocks uint8 = 5
+	busy := NewState(1, "Busy")
+	idle := NewState(2, "Idle")
+	stateMap := StateMap{
+		busy: StateMapEntry{
+			Agency:                AgencyServer,
+			AllowPipelinedSend:    true,
+			PipelinedMessageTypes: []uint8{msgTypeRequest},
+			Transitions: []StateTransition{
+				{MsgType: msgTypeBatchDone, NewState: idle},
+				{MsgType: msgTypeNoBlocks, NewState: idle},
+			},
+		},
+		idle: StateMapEntry{
+			Agency: AgencyClient,
+			Transitions: []StateTransition{
+				{MsgType: msgTypeRequest, NewState: busy},
+			},
+		},
+	}
+	p, errorChan := newStateLoopOnlyProtocol(t, stateMap, busy)
+
+	queuedStateTransitions := []Message{
+		&MessageBase{MessageType: msgTypeRequest},
+		&MessageBase{MessageType: msgTypeRequest},
+	}
+	require.NoError(
+		t,
+		p.transitionState(&MessageBase{MessageType: msgTypeBatchDone}),
+	)
+
+	// The first flush pass applies Req2 (Idle -> Busy) and stops at Req3,
+	// which is not legal in Busy. The peer's reply to Req2 lands before the
+	// post-flush observation. Later passes see no further reply.
+	hookCalls := 0
+	p.resolvePipelinedDequeuePostFlushHook = func() {
+		hookCalls++
+		if hookCalls != 1 {
+			return
+		}
+		require.Len(t, queuedStateTransitions, 1)
+		require.Equal(t, busy, p.getCurrentState())
+		require.NoError(
+			t,
+			p.transitionState(&MessageBase{MessageType: msgTypeNoBlocks}),
+		)
+	}
+
+	outbound, haveAgency, err := p.resolvePipelinedDequeue(
+		&outboundMessage{
+			message: &MessageBase{MessageType: msgTypeRequest},
+		},
+		false,
+		&queuedStateTransitions,
+	)
+	require.NoError(
+		t,
+		err,
+		"Req3 became legal once the peer replied to Req2; the message must "+
+			"not be rejected",
+	)
+	require.NotNil(t, outbound)
+	require.False(
+		t,
+		haveAgency,
+		"after Req3 flushes to Busy the message fits the pipelined path",
+	)
+	require.Empty(t, queuedStateTransitions)
+	require.Equal(t, busy, p.getCurrentState())
+	require.Equal(
+		t,
+		0,
+		len(p.sendReadyChan),
+		"the token from the peer reply into Idle must not survive the call",
+	)
+
+	select {
+	case err := <-errorChan:
+		t.Fatalf("unexpected protocol error: %v", err)
+	default:
+	}
+}
