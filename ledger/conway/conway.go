@@ -1146,6 +1146,10 @@ func (t ConwayTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
+func (t ConwayTransaction) TotalCollateralPresent() bool {
+	return t.Body.TotalCollateralPresent() || t.Body.TxTotalCollateral != 0
+}
+
 func (t ConwayTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }

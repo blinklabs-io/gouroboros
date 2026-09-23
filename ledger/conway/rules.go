@@ -2127,6 +2127,11 @@ func UtxoValidateInsufficientCollateral(
 			totalCollateral.Add(totalCollateral, amount)
 		}
 	}
+	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+		if amount := collateralReturn.Amount(); amount != nil {
+			totalCollateral.Sub(totalCollateral, amount)
+		}
+	}
 	fee := tmpTx.Fee()
 	if fee == nil {
 		fee = new(big.Int)
@@ -2152,7 +2157,6 @@ func UtxoValidateCollateralContainsNonAda(
 	if tmpTx.WitnessSet.WsRedeemers.Len() == 0 {
 		return nil
 	}
-	badOutputs := []common.TransactionOutput{}
 	totalCollateral := new(big.Int)
 	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
@@ -2164,23 +2168,16 @@ func UtxoValidateCollateralContainsNonAda(
 		if amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
 		}
-		assets := utxo.Output.Assets()
-		totalAssets.Add(assets)
-		if assets == nil || len(assets.Policies()) == 0 {
-			continue
-		}
-		badOutputs = append(badOutputs, utxo.Output)
-	}
-	if len(badOutputs) == 0 {
-		return nil
+		totalAssets.Add(utxo.Output.Assets())
 	}
 	// Check if all collateral assets are accounted for in the collateral return
 	collReturn := tx.CollateralReturn()
+	var collReturnAssets *common.MultiAsset[common.MultiAssetTypeOutput]
 	if collReturn != nil {
-		collReturnAssets := collReturn.Assets()
-		if (&totalAssets).Compare(collReturnAssets) {
-			return nil
-		}
+		collReturnAssets = collReturn.Assets()
+	}
+	if (&totalAssets).Compare(collReturnAssets) {
+		return nil
 	}
 	var providedU uint64
 	if totalCollateral.IsUint64() {
@@ -2568,7 +2565,7 @@ func UtxoValidateOutputTooSmallUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	var badOutputs []common.TransactionOutput
-	for _, tmpOutput := range tx.Outputs() {
+	for _, tmpOutput := range common.TransactionOutputsAndCollateralReturn(tx) {
 		minCoin, err := MinCoinTxOut(tmpOutput, pp)
 		if err != nil {
 			return err
@@ -2601,7 +2598,7 @@ func UtxoValidateOutputTooBigUtxo(
 		return errors.New("pparams are not expected type")
 	}
 	badOutputs := []common.TransactionOutput{}
-	for _, txOutput := range tx.Outputs() {
+	for _, txOutput := range common.TransactionOutputsAndCollateralReturn(tx) {
 		tmpOutput, ok := txOutput.(*babbage.BabbageTransactionOutput)
 		if !ok {
 			return errors.New("transaction output is not expected type")
