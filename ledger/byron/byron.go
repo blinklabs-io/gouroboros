@@ -1273,6 +1273,9 @@ type ByronEpochBoundaryBlockHeader struct {
 		}
 	}
 	ExtraData any
+	// genesisTag records the deprecated 255 => "Genesis" extra header data
+	// attribute; see HasGenesisTag.
+	genesisTag bool
 }
 
 func (h *ByronEpochBoundaryBlockHeader) SetCbor(cborData []byte) {
@@ -1288,14 +1291,56 @@ func (h *ByronEpochBoundaryBlockHeader) SetCborReference(cborData []byte) {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {
+	// decCBORABoundaryHeader reads the header, BoundaryConsensusData and
+	// ChainDifficulty with enforceSize, which only accepts a definite-length
+	// list.
+	rawParts, err := decodeDefiniteCborList(cborData, 5, "byron EBB header")
+	if err != nil {
+		return err
+	}
+	consensusParts, err := decodeDefiniteCborList(
+		rawParts[3], 2, "byron EBB header consensus data",
+	)
+	if err != nil {
+		return err
+	}
+	if _, err := decodeDefiniteCborList(
+		consensusParts[1], 1, "byron EBB header chain difficulty",
+	); err != nil {
+		return err
+	}
+	// The reference reads ExtraData with
+	// dropBoundaryExtraHeaderDataRetainGenesisTag: enforceSize 1, then
+	// decCBORAttributes (Cardano/Chain/Block/Boundary.hs).
+	attrs, err := decodeByronExtraDataAttributes(
+		rawParts[4], "byron EBB extra header data", true,
+	)
+	if err != nil {
+		return err
+	}
 	type tByronEpochBoundaryBlockHeader ByronEpochBoundaryBlockHeader
 	var tmp tByronEpochBoundaryBlockHeader
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
 	*h = ByronEpochBoundaryBlockHeader(tmp)
+	for _, attr := range attrs {
+		if attr.key == byronGenesisTagKey &&
+			string(attr.value) == byronGenesisTagValue {
+			h.genesisTag = true
+		}
+	}
 	h.SetCbor(cborData)
 	return nil
+}
+
+// HasGenesisTag reports whether the header's extra data carries the
+// deprecated 255 => "Genesis" attribute. The reference interprets the
+// previous hash of an EBB as a genesis hash, not a header hash, when the
+// epoch is zero or this tag is present (decCBORABoundaryHeader in
+// Cardano/Chain/Block/Header.hs).
+func (h *ByronEpochBoundaryBlockHeader) HasGenesisTag() bool {
+	return h.genesisTag
 }
 
 func (h *ByronEpochBoundaryBlockHeader) Hash() common.Blake2b256 {
@@ -1503,13 +1548,17 @@ type ByronEpochBoundaryBlock struct {
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
-	var rawParts []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+	// decCBORABoundaryBlock opens with enforceSize 3.
+	rawParts, err := decodeDefiniteCborList(cborData, 3, "byron EBB")
+	if err != nil {
 		return err
 	}
-	if len(rawParts) <= 1 {
-		return fmt.Errorf(
-			"byron EBB has %d fields, need body at index 1", len(rawParts),
+	// dropBoundaryBody is dropList dropBytes, and dropList opens with
+	// decodeListLenIndef, so a definite-length body is rejected even when
+	// its entries are valid.
+	if _, _, indefinite := cbor.ArrayInfo(rawParts[1]); !indefinite {
+		return errors.New(
+			"byron EBB body must be an indefinite-length CBOR list",
 		)
 	}
 	var body []cbor.RawMessage
@@ -1523,24 +1572,171 @@ func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 	}
-	type tByronEpochBoundaryBlock ByronEpochBoundaryBlock
-	var tmp tByronEpochBoundaryBlock
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	// dropBoundaryExtraBodyData is enforceSize 1 >> dropAttributes.
+	extraAttrs, err := decodeByronExtraDataAttributes(
+		rawParts[2], "byron EBB extra body data", false,
+	)
+	if err != nil {
 		return err
 	}
-	if tmp.BlockHeader == nil {
+	var header *ByronEpochBoundaryBlockHeader
+	if _, err := cbor.Decode(rawParts[0], &header); err != nil {
+		return err
+	}
+	if header == nil {
 		return errors.New("byron EBB block missing header")
 	}
-	*b = ByronEpochBoundaryBlock(tmp)
+	var bodyEntries [][]byte
+	if _, err := cbor.Decode(rawParts[1], &bodyEntries); err != nil {
+		return fmt.Errorf("decode byron EBB body: %w", err)
+	}
+	// Extra is built from the validated attributes rather than decoded
+	// generically: dropMap accepts duplicate keys, which the shared decode
+	// mode's DupMapKeyEnforcedAPF would otherwise reject. The last duplicate
+	// wins, as the reference never reads the values.
+	extraMap := make(map[any]any, len(extraAttrs))
+	for _, attr := range extraAttrs {
+		extraMap[uint64(attr.key)] = attr.value
+	}
+	*b = ByronEpochBoundaryBlock{
+		BlockHeader: header,
+		Body:        bodyEntries,
+		Extra:       []any{extraMap},
+	}
 	b.SetCbor(cborData)
 	return nil
 }
 
+// requireCborByteString matches cborg's decodeBytes, which accepts only a
+// definite-length byte string: the indefinite-length header 0x5f is decoded
+// by the separate decodeBytesIndef and fails here.
 func requireCborByteString(raw cbor.RawMessage, field string) error {
-	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
-		return fmt.Errorf("%s must be a CBOR byte string", field)
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeByteString ||
+		raw[0] == cbor.CborTypeByteString|0x1f {
+		return fmt.Errorf(
+			"%s must be a definite-length CBOR byte string", field,
+		)
 	}
 	return nil
+}
+
+// decodeDefiniteCborList matches the reference's enforceSize: a
+// definite-length list of exactly n elements.
+func decodeDefiniteCborList(
+	raw []byte, n int, field string,
+) ([]cbor.RawMessage, error) {
+	if _, _, indefinite := cbor.ArrayInfo(raw); indefinite {
+		return nil, fmt.Errorf(
+			"%s must be a definite-length CBOR list", field,
+		)
+	}
+	var parts []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &parts); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", field, err)
+	}
+	if len(parts) != n {
+		return nil, fmt.Errorf(
+			"%s has %d fields, expected %d", field, len(parts), n,
+		)
+	}
+	return parts, nil
+}
+
+const (
+	byronGenesisTagKey   uint8 = 255
+	byronGenesisTagValue       = "Genesis"
+)
+
+type byronAttribute struct {
+	key   uint8
+	value []byte
+}
+
+// decodeByronExtraDataAttributes enforces the reference's [Attributes]
+// shape: a definite-length list of exactly one element, holding a
+// definite-length map from Word8 keys to byte strings. Unknown keys are
+// allowed.
+//
+// strictKeyOrder must be set where the reference decodes the map with
+// decCBORAttributes rather than dropping it with dropAttributes. The former
+// goes through the Byron-version Map decoder (decodeMapSkel), which rejects
+// any key not strictly greater than the one before it; dropMap checks
+// neither order nor duplicates.
+func decodeByronExtraDataAttributes(
+	raw cbor.RawMessage, field string, strictKeyOrder bool,
+) ([]byronAttribute, error) {
+	parts, err := decodeDefiniteCborList(raw, 1, field)
+	if err != nil {
+		return nil, err
+	}
+	field += " attributes"
+	decoder, err := cbor.NewStreamDecoder(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("decode %s: %w", field, err)
+	}
+	pairCount, _, _, err := decoder.DecodeMapHeader()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%s must be a definite-length CBOR map: %w", field, err,
+		)
+	}
+	attrs := make([]byronAttribute, 0, min(pairCount, len(parts[0])))
+	for idx := range pairCount {
+		keyOffset, keyLength, err := decoder.Skip()
+		if err != nil {
+			return nil, fmt.Errorf("decode %s key %d: %w", field, idx, err)
+		}
+		key, err := decodeCborWord8(
+			decoder.RawBytes(keyOffset, keyLength),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("%s key %d: %w", field, idx, err)
+		}
+		if strictKeyOrder && idx > 0 && key <= attrs[idx-1].key {
+			return nil, fmt.Errorf(
+				"%s key %d (%d) is not greater than the previous key",
+				field, idx, key,
+			)
+		}
+		valueOffset, valueLength, err := decoder.Skip()
+		if err != nil {
+			return nil, fmt.Errorf("decode %s value %d: %w", field, idx, err)
+		}
+		rawValue := cbor.RawMessage(
+			decoder.RawBytes(valueOffset, valueLength),
+		)
+		if err := requireCborByteString(
+			rawValue, fmt.Sprintf("%s value %d", field, idx),
+		); err != nil {
+			return nil, err
+		}
+		var value []byte
+		if _, err := cbor.Decode(rawValue, &value); err != nil {
+			return nil, fmt.Errorf("decode %s value %d: %w", field, idx, err)
+		}
+		attrs = append(attrs, byronAttribute{key: key, value: value})
+	}
+	if !decoder.EOF() {
+		return nil, fmt.Errorf("%s has trailing CBOR data", field)
+	}
+	return attrs, nil
+}
+
+// decodeCborWord8 matches cborg's decodeWord8: an unsigned integer of any
+// encoded width whose value fits in 8 bits. Checking the major type first
+// rules out negative integers and tagged bignums.
+func decodeCborWord8(raw cbor.RawMessage) (uint8, error) {
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != 0 {
+		return 0, errors.New("must be a CBOR unsigned integer")
+	}
+	var value uint64
+	if _, err := cbor.Decode(raw, &value); err != nil {
+		return 0, err
+	}
+	if value > math.MaxUint8 {
+		return 0, fmt.Errorf("value %d does not fit in a Word8", value)
+	}
+	return uint8(value), nil
 }
 
 // requireEmptyCborMap enforces the reference's dropEmptyAttributes check: the
