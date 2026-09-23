@@ -255,14 +255,13 @@ func NewTxInfoV1FromTransaction(
 		return TxInfoV1{}, err
 	}
 	tmpData := dataInfo(tx.Witnesses())
-	allowByronFiltering := tx.Type() == eraIdAlonzo
 	contextInputs, err := contextInputsForPlutus(
-		expandInputs(inputs, resolvedInputs), allowByronFiltering,
+		expandInputs(inputs, resolvedInputs), true,
 	)
 	if err != nil {
 		return TxInfoV1{}, err
 	}
-	contextOutputs, err := contextOutputsForPlutus(tx.Outputs(), allowByronFiltering)
+	contextOutputs, err := contextOutputsForPlutus(tx.Outputs(), true)
 	if err != nil {
 		return TxInfoV1{}, err
 	}
