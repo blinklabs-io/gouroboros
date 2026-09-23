@@ -276,6 +276,50 @@ func TestDijkstraRequiresGuardScriptsAndRedeemersPerLevel(t *testing.T) {
 
 func TestDijkstraRequiredTopLevelGuards(t *testing.T) {
 	required := testGuardCredential()
+	topLevel := DijkstraTransaction{Body: DijkstraTransactionBody{
+		TxRequiredTopLevelGuards: dijkstraRequiredGuards(required, nil),
+	}}
+	t.Run("top-level requirement missing", func(t *testing.T) {
+		err := UtxoValidateRedeemerAndScriptWitnesses(
+			&topLevel,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			dijkstraGuardTestPParams(),
+		)
+		var missing *MissingRequiredGuards
+		require.ErrorAs(t, err, &missing)
+		require.Equal(t, []common.Credential{required}, missing.Guards)
+	})
+	t.Run("top-level requirement present", func(t *testing.T) {
+		tx := topLevel
+		tx.Body.TxGuards = &DijkstraGuards{
+			Credentials: []common.Credential{required},
+		}
+		require.NoError(t, UtxoValidateRedeemerAndScriptWitnesses(
+			&tx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			dijkstraGuardTestPParams(),
+		))
+	})
+	t.Run("top-level key guard cannot have datum", func(t *testing.T) {
+		tx := topLevel
+		tx.Body.TxRequiredTopLevelGuards = dijkstraRequiredGuards(
+			required,
+			&common.Datum{Data: data.NewInteger(big.NewInt(1))},
+		)
+		tx.Body.TxGuards = &DijkstraGuards{
+			Credentials: []common.Credential{required},
+		}
+		var malformed *MalformedGuardDatums
+		require.ErrorAs(t, UtxoValidateRedeemerAndScriptWitnesses(
+			&tx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			dijkstraGuardTestPParams(),
+		), &malformed)
+		require.Equal(t, []common.Credential{required}, malformed.Guards)
+	})
 	sub := DijkstraSubTransaction{Body: DijkstraSubTransactionBody{
 		TxRequiredTopLevelGuards: dijkstraRequiredGuards(required, nil),
 	}}

@@ -863,6 +863,9 @@ func (w *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts, 5); err != nil {
+		return err
+	}
 	*w = AlonzoTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil

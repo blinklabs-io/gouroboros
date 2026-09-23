@@ -190,6 +190,7 @@ func TestPhase2InvalidSkipsGovernanceProposalRules(t *testing.T) {
 		return &conway.ConwayTransaction{
 			Body: conway.ConwayTransactionBody{
 				TxProposalProcedures: []conway.ConwayProposalProcedure{{
+					PPRewardAccount: testAccountAddress(t),
 					PPGovAction: conway.ConwayGovAction{
 						Action: &conway.ConwayParameterChangeGovAction{},
 					},
@@ -211,6 +212,27 @@ func TestPhase2InvalidSkipsGovernanceProposalRules(t *testing.T) {
 	}
 }
 
+func TestPhase2InvalidStillRejectsNonAccountProposalAddress(t *testing.T) {
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxProposalProcedures: []conway.ConwayProposalProcedure{{
+				PPGovAction: conway.ConwayGovAction{
+					Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+				},
+			}},
+		},
+		TxIsValid: false,
+	}
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&conway.ConwayProtocolParameters{},
+		conway.UtxoValidationRules,
+	)
+	require.ErrorContains(t, err, "invalid account address type")
+}
+
 // TestGovActionRepresentabilityIsNotPhase2Gated pins the split inside
 // UtxoValidateGovActionWellFormedness. Upstream rejects a proposal whose
 // policy hash is not a 28-byte ScriptHash at CBOR decode, before the LEDGER
@@ -228,7 +250,8 @@ func TestGovActionRepresentabilityIsNotPhase2Gated(t *testing.T) {
 		return &conway.ConwayTransaction{
 			Body: conway.ConwayTransactionBody{
 				TxProposalProcedures: []conway.ConwayProposalProcedure{{
-					PPGovAction: conway.ConwayGovAction{Action: action},
+					PPRewardAccount: testAccountAddress(t),
+					PPGovAction:     conway.ConwayGovAction{Action: action},
 				}},
 			},
 			TxIsValid: isValid,

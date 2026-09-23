@@ -74,7 +74,7 @@ func TestPoolCertificateOwnerSetIdentity(t *testing.T) {
 					require.NoError(t, err)
 					for era, newBody := range orderedSetCertificateTransactionBodyDecoders() {
 						t.Run(era, func(t *testing.T) {
-							err := newBody().UnmarshalCBOR(body)
+							err := newBody().UnmarshalCBOR(withRequiredBodyFields(t, body, era == "dijkstra_sub"))
 							if tc.duplicate {
 								var target common.DuplicateCertificateError
 								require.ErrorAs(
@@ -92,7 +92,9 @@ func TestPoolCertificateOwnerSetIdentity(t *testing.T) {
 						for era, newBody := range preConwayTransactionBodyDecoders() {
 							t.Run(
 								era,
-								func(t *testing.T) { require.NoError(t, newBody().UnmarshalCBOR(body)) },
+								func(t *testing.T) {
+									require.NoError(t, newBody().UnmarshalCBOR(withRequiredBodyFields(t, body, era == "dijkstra_sub")))
+								},
 							)
 						}
 					}

@@ -15,6 +15,7 @@
 package byron_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"reflect"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -360,6 +362,82 @@ func TestGenesisAvvmUtxos(t *testing.T) {
 			testAmount,
 		)
 	}
+}
+
+func TestGenesisAvvmUtxosRequireNetworkMagic(t *testing.T) {
+	pubkey := "URVk8FxX6Ik9z-Cub09oOxMkp6FwNq27kJUXbjJnfsQ="
+	pubkeyBytes, err := base64.URLEncoding.DecodeString(pubkey)
+	require.NoError(t, err)
+	magic := uint32(42)
+	address, err := common.NewByronAddressRedeem(
+		pubkeyBytes,
+		common.ByronAddressAttributes{Network: &magic},
+	)
+	require.NoError(t, err)
+	addressBytes, err := address.Bytes()
+	require.NoError(t, err)
+	genesis := byron.ByronGenesis{
+		AvvmDistr: map[string]string{pubkey: "1000000"},
+		ProtocolConsts: byron.ByronGenesisProtocolConsts{
+			ProtocolMagic: int(magic),
+		},
+		RequiresNetworkMagic: "RequiresMagic",
+	}
+	utxos, err := genesis.GenesisUtxos()
+	require.NoError(t, err)
+	require.Len(t, utxos, 1)
+	require.Equal(t, address.String(), utxos[0].Output.Address().String())
+	require.Equal(
+		t,
+		addressBytes,
+		mustAddressBytes(t, utxos[0].Output.Address()),
+	)
+}
+
+func TestGenesisUtxosRejectAvvmNonAvvmOverlap(t *testing.T) {
+	pubkey := "URVk8FxX6Ik9z-Cub09oOxMkp6FwNq27kJUXbjJnfsQ="
+	pubkeyBytes, err := base64.URLEncoding.DecodeString(pubkey)
+	require.NoError(t, err)
+	magic := uint32(42)
+	address, err := common.NewByronAddressRedeem(
+		pubkeyBytes,
+		common.ByronAddressAttributes{Network: &magic},
+	)
+	require.NoError(t, err)
+	for _, amounts := range [][2]string{{"1000000", "1000000"}, {"1000000", "2000000"}} {
+		genesis := byron.ByronGenesis{
+			AvvmDistr: map[string]string{pubkey: amounts[0]},
+			NonAvvmBalances: map[string]string{
+				address.String(): amounts[1],
+			},
+			ProtocolConsts: byron.ByronGenesisProtocolConsts{
+				ProtocolMagic: int(magic),
+			},
+			RequiresNetworkMagic: "RequiresMagic",
+		}
+		_, err := genesis.GenesisUtxos()
+		require.ErrorContains(t, err, "duplicate Byron genesis UTxO reference")
+	}
+	genesis := byron.ByronGenesis{
+		AvvmDistr: map[string]string{pubkey: "1000000"},
+		NonAvvmBalances: map[string]string{
+			"Ae2tdPwUPEZKQuZh2UndEoTKEakMYHGNjJVYmNZgJk2qqgHouxDsA5oT83n": "2000000",
+		},
+		ProtocolConsts: byron.ByronGenesisProtocolConsts{
+			ProtocolMagic: int(magic),
+		},
+		RequiresNetworkMagic: "RequiresMagic",
+	}
+	utxos, err := genesis.GenesisUtxos()
+	require.NoError(t, err)
+	require.Len(t, utxos, 2)
+}
+
+func mustAddressBytes(t *testing.T, addr common.Address) []byte {
+	t.Helper()
+	data, err := addr.Bytes()
+	require.NoError(t, err)
+	return data
 }
 
 func TestNewByronGenesisFromReader(t *testing.T) {

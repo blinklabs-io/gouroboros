@@ -832,37 +832,90 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 // ValidatePreAllegraNativeScripts rejects native-script forms that are not
 // valid before Allegra. Allegra and later eras use signed N-of-K thresholds.
 func ValidatePreAllegraNativeScripts(scripts []NativeScript) error {
+	return ValidateNativeScriptConstructors(scripts, 3)
+}
+
+// ValidateNativeScriptConstructors rejects constructors above the maximum
+// constructor supported by the decoding era, recursively through child
+// scripts.
+func ValidateNativeScriptConstructors(
+	scripts []NativeScript,
+	maxConstructor uint,
+) error {
 	for _, script := range scripts {
-		if err := validatePreAllegraNativeScript(script); err != nil {
+		if err := validateNativeScriptConstructor(script, maxConstructor); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validatePreAllegraNativeScript(script NativeScript) error {
+// ValidateNativeScriptOutputConstructor applies an era's native-script
+// constructor domain to a transaction output's reference script, if present.
+func ValidateNativeScriptOutputConstructor(
+	output TransactionOutput,
+	maxConstructor uint,
+) error {
+	if output == nil {
+		return nil
+	}
+	script := output.ScriptRef()
+	if script == nil {
+		return nil
+	}
+	native, ok := script.(NativeScript)
+	if !ok {
+		return nil
+	}
+	return ValidateNativeScriptConstructors([]NativeScript{native}, maxConstructor)
+}
+
+func validateNativeScriptConstructor(script NativeScript, maxConstructor uint) error {
+	item := script.Item()
+	if item == nil {
+		return errors.New("native script has no decoded item")
+	}
+	var constructor uint
+	switch item := item.(type) {
+	case *NativeScriptPubkey:
+		constructor = item.Type
+	case *NativeScriptAll:
+		constructor = item.Type
+	case *NativeScriptAny:
+		constructor = item.Type
+	case *NativeScriptNofK:
+		constructor = item.Type
+	case *NativeScriptInvalidBefore:
+		constructor = item.Type
+	case *NativeScriptInvalidHereafter:
+		constructor = item.Type
+	case *NativeScriptRequireGuard:
+		constructor = item.Type
+	default:
+		return fmt.Errorf("unsupported native script type %T", item)
+	}
+	if constructor > maxConstructor {
+		return fmt.Errorf(
+			"native script constructor %d is not supported in this era",
+			constructor,
+		)
+	}
 	switch item := script.Item().(type) {
 	case *NativeScriptNofK:
-		if item.N < 0 {
-			return fmt.Errorf(
-				"negative N-of-K threshold %d is invalid before Allegra",
-				item.N,
-			)
-		}
 		for _, child := range item.Scripts {
-			if err := validatePreAllegraNativeScript(child); err != nil {
+			if err := validateNativeScriptConstructor(child, maxConstructor); err != nil {
 				return err
 			}
 		}
 	case *NativeScriptAll:
 		for _, child := range item.Scripts {
-			if err := validatePreAllegraNativeScript(child); err != nil {
+			if err := validateNativeScriptConstructor(child, maxConstructor); err != nil {
 				return err
 			}
 		}
 	case *NativeScriptAny:
 		for _, child := range item.Scripts {
-			if err := validatePreAllegraNativeScript(child); err != nil {
+			if err := validateNativeScriptConstructor(child, maxConstructor); err != nil {
 				return err
 			}
 		}
