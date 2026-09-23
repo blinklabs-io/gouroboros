@@ -25,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/stretchr/testify/require"
 )
 
 func TestE2EShelleyTransactionAuxiliaryData(t *testing.T) {
@@ -279,6 +280,42 @@ func TestE2EAlonzoTransactionAuxiliaryData(t *testing.T) {
 	}
 
 	t.Logf("Successfully decoded Alonzo transaction with auxiliary data")
+}
+
+func TestAuxiliaryDataScriptsMustBeWellFormedEvenWhenUnneeded(t *testing.T) {
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		0: []any{},
+		1: []any{},
+		2: uint64(0),
+	})
+	require.NoError(t, err)
+	witnessCbor, err := cbor.Encode(map[uint]any{})
+	require.NoError(t, err)
+	validCbor, err := cbor.Encode(true)
+	require.NoError(t, err)
+	malformedScriptCbor, err := cbor.Encode([]common.PlutusV1Script{{0xff}})
+	require.NoError(t, err)
+	auxiliaryFieldsCbor, err := cbor.Encode(map[uint]cbor.RawMessage{
+		2: malformedScriptCbor,
+	})
+	require.NoError(t, err)
+	auxiliaryDataCbor, err := cbor.Encode(&cbor.RawTag{
+		Number:  cbor.CborTagMap,
+		Content: auxiliaryFieldsCbor,
+	})
+	require.NoError(t, err)
+	txCbor, err := cbor.Encode([]cbor.RawMessage{
+		bodyCbor, witnessCbor, validCbor, auxiliaryDataCbor,
+	})
+	require.NoError(t, err)
+	var tx alonzo.AlonzoTransaction
+	_, err = cbor.Decode(txCbor, &tx)
+	require.NoError(t, err)
+	require.ErrorContains(
+		t,
+		common.ValidateAuxiliaryDataScriptsWellFormed(&tx, 8),
+		"malformed auxiliary-data Plutus script",
+	)
 }
 
 func TestE2EBabbageTransactionAuxiliaryData(t *testing.T) {

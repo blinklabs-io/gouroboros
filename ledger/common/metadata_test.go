@@ -168,6 +168,43 @@ func TestDecodeAuxiliaryDataForEra(t *testing.T) {
 	}
 }
 
+func TestDecodeAuxiliaryDataForEraEnforcesPlutusLanguageBounds(t *testing.T) {
+	auxiliaryData := func(field uint) []byte {
+		scripts, err := cbor.Encode([][]byte{})
+		require.NoError(t, err)
+		fields, err := cbor.Encode(map[uint]cbor.RawMessage{field: scripts})
+		require.NoError(t, err)
+		tag := cbor.RawTag{Number: cbor.CborTagMap, Content: fields}
+		encoded, err := cbor.Encode(&tag)
+		require.NoError(t, err)
+		return encoded
+	}
+	tests := []struct {
+		name  string
+		era   AuxiliaryDataEra
+		field uint
+		valid bool
+	}{
+		{name: "Alonzo V1", era: AuxiliaryDataEraAlonzo, field: 2, valid: true},
+		{name: "Alonzo rejects V2", era: AuxiliaryDataEraAlonzo, field: 3},
+		{name: "Babbage V2", era: AuxiliaryDataEraBabbage, field: 3, valid: true},
+		{name: "Babbage rejects V3", era: AuxiliaryDataEraBabbage, field: 4},
+		{name: "Conway V3", era: AuxiliaryDataEraConway, field: 4, valid: true},
+		{name: "Conway rejects V4", era: AuxiliaryDataEraConway, field: 5},
+		{name: "Dijkstra V4", era: AuxiliaryDataEraDijkstra, field: 5, valid: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := DecodeAuxiliaryDataForEra(auxiliaryData(test.field), test.era)
+			if test.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "not valid in this era")
+			}
+		})
+	}
+}
+
 func TestDecodeMetadatumRawRejectsNilGenericMapKey(t *testing.T) {
 	raw, err := hex.DecodeString("a28031f730")
 	if err != nil {
