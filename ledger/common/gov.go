@@ -791,7 +791,8 @@ func (a *TreasuryWithdrawalGovAction) UnmarshalCBOR(cborData []byte) error {
 
 func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 	pairs := make([][2]data.PlutusData, 0, len(a.Withdrawals))
-	for addr, amount := range a.Withdrawals {
+	for _, addr := range SortRewardAccountAddresses(a.Withdrawals) {
+		amount := a.Withdrawals[addr]
 		pairs = append(pairs, [2]data.PlutusData{
 			addr.ToPlutusData(),
 			data.NewInteger(new(big.Int).SetUint64(amount)),

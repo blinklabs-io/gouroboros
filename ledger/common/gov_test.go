@@ -948,6 +948,48 @@ func TestTreasuryWithdrawalGovActionToPlutusData(t *testing.T) {
 	assert.Len(t, constr.Fields, 2)
 }
 
+func TestTreasuryWithdrawalGovActionToPlutusDataCanonicalizesAddressOrder(
+	t *testing.T,
+) {
+	newRewardAddress := func(addressType, network, hash byte) Address {
+		encoded := make([]byte, 1+AddressHashSize)
+		encoded[0] = addressType<<4 | network
+		for idx := 1; idx < len(encoded); idx++ {
+			encoded[idx] = hash
+		}
+		address, err := NewAddressFromBytes(encoded)
+		require.NoError(t, err)
+		return address
+	}
+	key := newRewardAddress(0xe, 0, 0x01)
+	script := newRewardAddress(0xf, 0, 0x02)
+	otherNetwork := newRewardAddress(0xf, 1, 0x00)
+	first := &TreasuryWithdrawalGovAction{
+		Withdrawals: map[*Address]uint64{&otherNetwork: 3, &key: 1, &script: 2},
+	}
+	second := &TreasuryWithdrawalGovAction{
+		Withdrawals: map[*Address]uint64{&script: 2, &otherNetwork: 3, &key: 1},
+	}
+	firstData := first.ToPlutusData()
+	secondData := second.ToPlutusData()
+	require.Equal(t, firstData, secondData)
+	firstCbor, err := data.Encode(firstData)
+	require.NoError(t, err)
+	secondCbor, err := data.Encode(secondData)
+	require.NoError(t, err)
+	require.Equal(t, firstCbor, secondCbor)
+	constr := firstData.(*data.Constr)
+	withdrawals := constr.Fields[0].(*data.Map)
+	want := []data.PlutusData{
+		script.ToPlutusData(),
+		key.ToPlutusData(),
+		otherNetwork.ToPlutusData(),
+	}
+	for idx, pair := range withdrawals.Pairs {
+		require.Equal(t, want[idx], pair[0])
+	}
+}
+
 func TestNoConfidenceGovActionToPlutusData(t *testing.T) {
 	action := &NoConfidenceGovAction{
 		ActionId: &GovActionId{},
