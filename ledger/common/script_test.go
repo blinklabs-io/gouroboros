@@ -165,6 +165,36 @@ func TestNativeScriptRequireGuardEvaluation(t *testing.T) {
 	}}))
 }
 
+func TestValidateNativeScriptConstructorsByEra(t *testing.T) {
+	t.Parallel()
+	invalidBeforeCBOR, err := cbor.Encode(common.NativeScriptInvalidBefore{Type: 4, Slot: 0})
+	require.NoError(t, err)
+	var invalidBefore common.NativeScript
+	_, err = cbor.Decode(invalidBeforeCBOR, &invalidBefore)
+	require.NoError(t, err)
+
+	guardCBOR, err := cbor.Encode(common.NativeScriptRequireGuard{Type: 6})
+	require.NoError(t, err)
+	var guard common.NativeScript
+	_, err = cbor.Decode(guardCBOR, &guard)
+	require.NoError(t, err)
+
+	require.Error(t, common.ValidateNativeScriptConstructors([]common.NativeScript{invalidBefore}, 3))
+	require.NoError(t, common.ValidateNativeScriptConstructors([]common.NativeScript{invalidBefore}, 5))
+	require.Error(t, common.ValidateNativeScriptConstructors([]common.NativeScript{guard}, 5))
+	require.NoError(t, common.ValidateNativeScriptConstructors([]common.NativeScript{guard}, 6))
+
+	nestedCBOR, err := cbor.Encode(common.NativeScriptAll{
+		Type:    1,
+		Scripts: []common.NativeScript{invalidBefore},
+	})
+	require.NoError(t, err)
+	var nested common.NativeScript
+	_, err = cbor.Decode(nestedCBOR, &nested)
+	require.NoError(t, err)
+	require.Error(t, common.ValidateNativeScriptConstructors([]common.NativeScript{nested}, 3))
+}
+
 func TestPlutusV3ScriptHash(t *testing.T) {
 	testScriptBytes, _ := hex.DecodeString(
 		"587f01010032323232323225333002323232323253330073370e900118041baa0011323232533300a3370e900018059baa00513232533300f301100214a22c6eb8c03c004c030dd50028b18069807001180600098049baa00116300a300b0023009001300900230070013004375400229309b2b2b9a5573aaae7955cfaba157441",
