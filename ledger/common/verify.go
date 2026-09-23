@@ -49,7 +49,7 @@ func ValidateVKeyWitnesses(tx Transaction) error {
 			var err error
 			if verifier, ok := tx.(ByronVKeyWitnessVerifier); ok {
 				if !verifier.VerifyByronVKeyWitness(vw.Vkey, vw.Signature, msg) {
-					err = errors.New("Byron signature verification failed")
+					err = errors.New("byron signature verification failed")
 				}
 			} else {
 				err = VerifyVKeySignature(vw.Vkey, vw.Signature, msg)
