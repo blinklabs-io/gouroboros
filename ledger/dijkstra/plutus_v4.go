@@ -204,6 +204,7 @@ func dijkstraOptionalIndex(index *uint32) data.PlutusData {
 		data.NewInteger(new(big.Int).SetUint64(uint64(*index))),
 	)
 }
+
 func dijkstraInputsV4(
 	inputs []common.TransactionInput,
 	resolved []common.Utxo,
