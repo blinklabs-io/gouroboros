@@ -2161,3 +2161,42 @@ func TestBabbageMinCoinTxOutBoundary(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "overflow")
 }
+
+func TestBabbageMinCoinTxOutUsesOriginalWireSize(t *testing.T) {
+	t.Parallel()
+	address, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		make([]byte, common.Blake2b224Size),
+		nil,
+	)
+	require.NoError(t, err)
+	canonicalOutput := babbage.BabbageTransactionOutput{OutputAddress: address}
+	addressCBOR, err := cbor.Encode(address)
+	require.NoError(t, err)
+	indefiniteMap := append([]byte{0xbf, 0x00}, addressCBOR...)
+	indefiniteMap = append(indefiniteMap, 0x01, 0x00, 0xff)
+	var decodedOutput babbage.BabbageTransactionOutput
+	_, err = cbor.Decode(indefiniteMap, &decodedOutput)
+	require.NoError(t, err)
+	require.Equal(t, indefiniteMap, decodedOutput.Cbor())
+
+	params := &babbage.BabbageProtocolParameters{AdaPerUtxoByte: 1}
+	minimum, err := babbage.MinCoinTxOut(&decodedOutput, params)
+	require.NoError(t, err)
+	require.Equal(t, uint64(160+len(indefiniteMap)), minimum)
+
+	canonicalCBOR, err := cbor.Encode(&canonicalOutput)
+	require.NoError(t, err)
+	require.Greater(t, len(indefiniteMap), len(canonicalCBOR))
+	var decodedCanonical babbage.BabbageTransactionOutput
+	_, err = cbor.Decode(canonicalCBOR, &decodedCanonical)
+	require.NoError(t, err)
+	canonicalMinimum, err := babbage.MinCoinTxOut(&decodedCanonical, params)
+	require.NoError(t, err)
+	require.Equal(t, uint64(160+len(canonicalCBOR)), canonicalMinimum)
+	reencodedCanonical, err := cbor.Encode(&decodedCanonical)
+	require.NoError(t, err)
+	require.Equal(t, canonicalCBOR, reencodedCanonical)
+	require.Equal(t, canonicalMinimum, uint64(160+len(reencodedCanonical)))
+}
