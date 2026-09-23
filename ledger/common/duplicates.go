@@ -336,3 +336,26 @@ func ValidateCertificateSet(certificates []CertificateWrapper) error {
 	}
 	return nil
 }
+
+// ValidatePoolRegistrationOwners rejects repeated owner hashes in pool
+// registrations decoded by Conway and later eras.
+func ValidatePoolRegistrationOwners(certificates []CertificateWrapper) error {
+	for index, certificate := range certificates {
+		pool, ok := certificate.Certificate.(*PoolRegistrationCertificate)
+		if !ok {
+			continue
+		}
+		seen := make(map[AddrKeyHash]struct{}, len(pool.PoolOwners))
+		for _, owner := range pool.PoolOwners {
+			if _, exists := seen[owner]; exists {
+				return fmt.Errorf(
+					"pool registration certificate %d contains duplicate owner %x",
+					index,
+					owner,
+				)
+			}
+			seen[owner] = struct{}{}
+		}
+	}
+	return nil
+}

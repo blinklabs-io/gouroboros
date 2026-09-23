@@ -690,6 +690,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
+	if err := common.ValidatePoolRegistrationOwners(tmp.TxCertificates); err != nil {
+		return err
+	}
 	// Reject duplicate members in every Conway set encoding, including
 	// untagged arrays.
 	type duplicateChecker interface {

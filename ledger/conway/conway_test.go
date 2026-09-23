@@ -707,6 +707,38 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedSetFields(t *testing.T) {
 	}
 }
 
+func TestConwayTransactionBodyRejectsDuplicatePoolOwners(t *testing.T) {
+	var owner common.AddrKeyHash
+	owner[0] = 1
+	certificate := &common.PoolRegistrationCertificate{
+		CertType: uint(common.CertificateTypePoolRegistration),
+		Margin:   cbor.Rat{Rat: big.NewRat(0, 1)},
+		PoolOwners: []common.AddrKeyHash{
+			owner,
+			owner,
+		},
+	}
+	require.NoError(t, certificate.SetRewardAccountCredential(
+		common.Credential{CredType: common.CredentialTypeAddrKeyHash},
+		common.AddressNetworkTestnet,
+	))
+	body := ConwayTransactionBody{
+		TxInputs:  NewConwayTransactionInputSet(nil),
+		TxOutputs: []babbage.BabbageTransactionOutput{},
+		TxFee:     0,
+		TxCertificates: []common.CertificateWrapper{{
+			Type:        uint(common.CertificateTypePoolRegistration),
+			Certificate: certificate,
+		}},
+	}
+	encoded, err := cbor.Encode(body)
+	require.NoError(t, err)
+
+	var decoded ConwayTransactionBody
+	err = decoded.UnmarshalCBOR(encoded)
+	assert.ErrorContains(t, err, "duplicate owner")
+}
+
 // Conway (protocol versions 9-11) tolerates duplicate vkey witnesses:
 // cardano-ledger decodes them via Set.fromList and only begins rejecting
 // duplicates at protocol version 12 (Dijkstra). Rejecting at decode in Conway

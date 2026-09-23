@@ -1100,6 +1100,9 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
+	if err := common.ValidatePoolRegistrationOwners(tmp.TxCertificates); err != nil {
+		return err
+	}
 	// Reject duplicate members in every Dijkstra set encoding, including
 	// untagged arrays.
 	type duplicateChecker interface {
@@ -1459,6 +1462,9 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidatePoolRegistrationOwners(tmp.TxCertificates); err != nil {
 		return err
 	}
 	if err := tmp.TxInputs.CheckForDuplicatesAlways(); err != nil {
