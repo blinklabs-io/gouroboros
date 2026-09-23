@@ -484,6 +484,12 @@ func (vp VotingProcedure) ToPlutusData() data.PlutusData {
 	return Vote(vp.Vote).ToPlutusData()
 }
 
+// ErrGovAnchorURLTooLong identifies a governance anchor URL that exceeds the
+// protocol's 128-byte bound.
+var ErrGovAnchorURLTooLong = errors.New(
+	"governance anchor URL exceeds the protocol length limit",
+)
+
 type GovAnchor struct {
 	cbor.StructAsArray
 	Url      string
@@ -510,6 +516,13 @@ func (a *GovAnchor) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (a GovAnchor) MarshalCBOR() ([]byte, error) {
+	if err := validateGovAnchorURL(a.Url); err != nil {
+		return nil, err
+	}
+	return cbor.Encode([]any{a.Url, a.DataHash[:]})
+}
+
 func (a *GovAnchor) ToPlutusData() data.PlutusData {
 	return data.NewConstr(0,
 		data.NewByteString([]byte(a.Url)),
@@ -519,6 +532,9 @@ func (a *GovAnchor) ToPlutusData() data.PlutusData {
 
 // NewGovAnchor builds a GovAnchor from a URL and a 32-byte data hash.
 func NewGovAnchor(url string, dataHash []byte) (GovAnchor, error) {
+	if err := validateGovAnchorURL(url); err != nil {
+		return GovAnchor{}, err
+	}
 	if len(dataHash) != 32 {
 		return GovAnchor{}, fmt.Errorf(
 			"invalid gov anchor data hash length: expected 32 bytes, got %d",
@@ -529,6 +545,18 @@ func NewGovAnchor(url string, dataHash []byte) (GovAnchor, error) {
 		Url:      url,
 		DataHash: [32]byte(dataHash),
 	}, nil
+}
+
+func validateGovAnchorURL(url string) error {
+	if len(url) <= urlMaxLength {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: maximum %d bytes, got %d",
+		ErrGovAnchorURLTooLong,
+		urlMaxLength,
+		len(url),
+	)
 }
 
 // MaxGovActionIdx is the largest governance action index the wire format

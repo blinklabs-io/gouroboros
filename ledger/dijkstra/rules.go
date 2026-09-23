@@ -15,11 +15,13 @@
 package dijkstra
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"iter"
 	"math"
 	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -82,6 +84,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateBootstrapAllowedGovActions,
 	},
 	{
+		Id:        common.UtxoValidationRuleProposalReturnAddressShape,
+		Validator: common.UtxoValidateProposalReturnAddressShape,
+	},
+	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
 		Validator: UtxoValidateIsValidFlag,
 	},
@@ -118,10 +124,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateConwayFeaturesWithPlutusV1V2,
 	},
 	{
-		Id:        common.UtxoValidationRuleDisjointRefInputs,
-		Validator: UtxoValidateDisjointRefInputs,
-	},
-	{
 		Id:        common.UtxoValidationRuleOutsideValidityInterval,
 		Validator: conway.UtxoValidateOutsideValidityIntervalUtxo,
 	},
@@ -131,7 +133,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleNoDuplicateInputs,
-		Validator: conway.UtxoValidateNoDuplicateInputs,
+		Validator: UtxoValidateNoDuplicateInputs,
 	},
 	{
 		Id:        common.UtxoValidationRuleFeeTooSmall,
@@ -150,12 +152,16 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: conway.UtxoValidateCollateralEqBalance,
 	},
 	{
+		Id:        common.UtxoValidationRulePtrPresentInCollateralReturn,
+		Validator: UtxoValidatePtrPresentInCollateralReturn,
+	},
+	{
 		Id:        common.UtxoValidationRuleNoCollateralInputs,
 		Validator: UtxoValidateNoCollateralInputs,
 	},
 	{
 		Id:        common.UtxoValidationRuleBadInputs,
-		Validator: conway.UtxoValidateBadInputsUtxo,
+		Validator: UtxoValidateBadInputsUtxo,
 	},
 	{
 		Id:        common.UtxoValidationRuleScriptWitnesses,
@@ -168,6 +174,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleBatchWithdrawals,
 		Validator: UtxoValidateBatchWithdrawals,
+	},
+	{
+		Id:        common.UtxoValidationRuleAccountBalanceIntervals,
+		Validator: UtxoValidateAccountBalanceIntervals,
 	},
 	{
 		Id:        common.UtxoValidationRuleValueNotConserved,
@@ -183,11 +193,11 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleOutputBootAddrAttrsTooBig,
-		Validator: conway.UtxoValidateOutputBootAddrAttrsTooBig,
+		Validator: UtxoValidateOutputBootAddrAttrsTooBig,
 	},
 	{
 		Id:        common.UtxoValidationRuleWrongNetwork,
-		Validator: conway.UtxoValidateWrongNetwork,
+		Validator: UtxoValidateWrongNetwork,
 	},
 	{
 		Id:        common.UtxoValidationRuleWrongNetworkWithdrawal,
@@ -289,12 +299,110 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 	)
 }
 
-// UtxoValidationRules is initialized from the authoritative descriptors. It
-// remains mutable for compatibility; mutations are not reflected by
-// UtxoValidationRuleDescriptors.
-var UtxoValidationRules = common.MustUtxoValidationRulesFromDescriptors(
-	utxoValidationRuleDescriptors,
+type dijkstraUtxoValidationPhase uint8
+
+const (
+	dijkstraUtxoValidationAlways dijkstraUtxoValidationPhase = iota
+	dijkstraUtxoValidationPhase2Valid
 )
+
+// Rule phases follow the Dijkstra LEDGER / SUBLEDGER transitions. Keep this
+// classification explicit by rule ID so adding a descriptor without choosing
+// a phase fails initialization and the classification test.
+var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraUtxoValidationPhase{
+	common.UtxoValidationRuleCurrentTreasuryValue:         dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleMetadata:                     dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleProposalProcedures:           dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleGovActionWellFormedness:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleHardForkCanFollow:            dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalAncestry:             dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalDeposit:              dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalNetworkIds:           dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalReturnAccounts:       dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleProposalReturnAddressShape:   dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleEmptyTreasuryWithdrawals:     dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleBootstrapAllowedGovActions:   dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleIsValidFlag:                  dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleRequiredVKeyWitnesses:        dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleCollateralVKeyWitnesses:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleRedeemerAndScriptWitnesses:   dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleSignatures:                   dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleCostModelsPresent:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleScriptDataHash:               dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleInlineDatumsWithPlutusV1:     dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2: dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutsideValidityInterval:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleInputSetEmpty:                dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleNoDuplicateInputs:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleFeeTooSmall:                  dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleInsufficientCollateral:       dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleCollateralContainsNonAda:     dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleCollateralEqBalance:          dijkstraUtxoValidationAlways,
+	common.UtxoValidationRulePtrPresentInCollateralReturn: dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleNoCollateralInputs:           dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleBadInputs:                    dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleScriptWitnesses:              dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleRequiredRedeemers:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleBatchWithdrawals:             dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleAccountBalanceIntervals:      dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleValueNotConserved:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutputTooSmall:               dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutputTooBig:                 dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutputBootAddrAttrsTooBig:    dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleWrongNetwork:                 dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleWrongNetworkWithdrawal:       dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleTransactionNetworkId:         dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleMaxTxSize:                    dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleExUnitsTooBig:                dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleTooManyCollateralInputs:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleSupplementalDatums:           dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleExtraneousRedeemers:          dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleMalformedReferenceScripts:    dijkstraUtxoValidationAlways,
+	common.UtxoValidationRulePlutusScripts:                dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleNativeScripts:                dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleDelegation:                   dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleWithdrawals:                  dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleCertificateDeposits:          dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleCommitteeCertificates:        dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleUnknownVoters:                dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleUnknownGovActionIds:          dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleVotingOnExpiredGovAction:     dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleBootstrapVotingRestrictions:  dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleStakePoolVotingRestrictions:  dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleCCVotingRestrictions:         dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleRefScriptSizePerTx:           dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRulePoolCertificates:             dijkstraUtxoValidationPhase2Valid,
+}
+
+func buildDijkstraUtxoValidationRules() []common.UtxoValidationRuleFunc {
+	if _, err := common.UtxoValidationRulesFromDescriptors(
+		utxoValidationRuleDescriptors,
+	); err != nil {
+		panic(err)
+	}
+	rules := make([]common.UtxoValidationRuleFunc, 0, len(utxoValidationRuleDescriptors))
+	for _, descriptor := range utxoValidationRuleDescriptors {
+		phase, ok := dijkstraUtxoValidationRulePhases[descriptor.Id]
+		if !ok {
+			panic(fmt.Sprintf("Dijkstra validation rule %q has no phase", descriptor.Id))
+		}
+		switch phase {
+		case dijkstraUtxoValidationAlways:
+			rules = append(rules, descriptor.Validator)
+		case dijkstraUtxoValidationPhase2Valid:
+			group := common.Phase2ValidUtxoValidationRules(descriptor.Validator)
+			rules = append(rules, common.ComposeUtxoValidationRules(group)[0])
+		default:
+			panic(fmt.Sprintf("Dijkstra validation rule %q has unknown phase %d", descriptor.Id, phase))
+		}
+	}
+	return rules
+}
+
+// UtxoValidationRules is initialized from the authoritative descriptors and
+// explicit phase classifications. It remains mutable for compatibility;
+// mutations are not reflected by UtxoValidationRuleDescriptors.
+var UtxoValidationRules = buildDijkstraUtxoValidationRules()
 
 func dijkstraPparams(
 	pp common.ProtocolParameters,
@@ -496,17 +604,16 @@ func validateDijkstraProtocolParameterUpdate(
 	)
 }
 
+// UtxoValidateDisjointRefInputs is a compatibility no-op for Dijkstra.
 func UtxoValidateDisjointRefInputs(
-	tx common.Transaction,
-	slot uint64,
-	ls common.LedgerState,
-	pp common.ProtocolParameters,
+	_ common.Transaction,
+	_ uint64,
+	_ common.LedgerState,
+	_ common.ProtocolParameters,
 ) error {
-	tmpPparams, err := conwayPparams(pp)
-	if err != nil {
-		return err
-	}
-	return conway.UtxoValidateDisjointRefInputs(tx, slot, ls, tmpPparams)
+	// Dijkstra permits the same original UTxO to be a spend and reference
+	// input, so this Babbage predicate is not part of Dijkstra UTXO validation.
+	return nil
 }
 
 // dijkstraConwayFeatureTransaction presents one sub-transaction's body and
@@ -950,6 +1057,185 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 	return nil
 }
 
+// dijkstraBatchTransaction presents a Dijkstra transaction's top-level body
+// and every sub-transaction body as a single transaction, so a rule that folds
+// inputs, outputs, certificates, withdrawals, mints, proposals or donations
+// covers the whole batch.
+//
+// Cardano's DIJKSTRA UTXO rule checks value conservation once over the batch,
+// against the UTxO set as it stood before any of the batch was applied, and
+// its SUBUTXO rule repeats the per-body input and output checks for each
+// sub-transaction. Fee is deliberately not overridden: the reference counts it
+// once from the top-level body, and a sub-transaction body has no fee field.
+//
+// Reference inputs are also not overridden. A sub-transaction may legitimately
+// reference the same UTxO as another level, so folding them would make the
+// duplicate-input rule reject a valid batch.
+type dijkstraBatchTransaction struct {
+	common.Transaction
+	bodies []common.TransactionBody
+}
+
+// dijkstraBatchView returns tx flattened across its transaction levels when it
+// is a Dijkstra transaction carrying sub-transactions, and tx itself
+// otherwise.
+func dijkstraBatchView(tx common.Transaction) common.Transaction {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return tx
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	if len(subTxs) == 0 {
+		return tx
+	}
+	bodies := make([]common.TransactionBody, 0, len(subTxs)+1)
+	bodies = append(bodies, &dijkstraTx.Body)
+	for idx := range subTxs {
+		bodies = append(bodies, &subTxs[idx].Body)
+	}
+	return dijkstraBatchTransaction{Transaction: dijkstraTx, bodies: bodies}
+}
+
+func (t dijkstraBatchTransaction) Inputs() []common.TransactionInput {
+	var ret []common.TransactionInput
+	for _, body := range t.bodies {
+		ret = append(ret, body.Inputs()...)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) Outputs() []common.TransactionOutput {
+	var ret []common.TransactionOutput
+	for _, body := range t.bodies {
+		ret = append(ret, body.Outputs()...)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) Certificates() []common.Certificate {
+	var ret []common.Certificate
+	for _, body := range t.bodies {
+		ret = append(ret, body.Certificates()...)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) Withdrawals() map[*common.Address]*big.Int {
+	ret := make(map[*common.Address]*big.Int)
+	for _, body := range t.bodies {
+		for address, amount := range body.Withdrawals() {
+			if amount == nil {
+				continue
+			}
+			if existing, ok := ret[address]; ok {
+				ret[address] = new(big.Int).Add(existing, amount)
+				continue
+			}
+			ret[address] = amount
+		}
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) ProposalProcedures() []common.ProposalProcedure {
+	var ret []common.ProposalProcedure
+	for _, body := range t.bodies {
+		ret = append(ret, body.ProposalProcedures()...)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) Donation() *big.Int {
+	var ret *big.Int
+	for _, body := range t.bodies {
+		donation := body.Donation()
+		if donation == nil {
+			continue
+		}
+		if ret == nil {
+			ret = new(big.Int)
+		}
+		ret.Add(ret, donation)
+	}
+	return ret
+}
+
+func (t dijkstraBatchTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	var ret *common.MultiAsset[common.MultiAssetTypeMint]
+	for _, body := range t.bodies {
+		mint := body.AssetMint()
+		if mint == nil {
+			continue
+		}
+		if ret == nil {
+			merged := common.NewMultiAsset[common.MultiAssetTypeMint](nil)
+			ret = &merged
+		}
+		ret.Add(mint)
+	}
+	return ret
+}
+
+// dijkstraDirectDepositsTotal sums the direct deposits (body key 25) of every
+// transaction level.
+func dijkstraDirectDepositsTotal(tx common.Transaction) *big.Int {
+	ret := new(big.Int)
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return ret
+	}
+	for _, amount := range dijkstraTx.Body.TxDirectDeposits {
+		ret.Add(ret, new(big.Int).SetUint64(amount))
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	for idx := range subTxs {
+		for _, amount := range subTxs[idx].Body.TxDirectDeposits {
+			ret.Add(ret, new(big.Int).SetUint64(amount))
+		}
+	}
+	return ret
+}
+
+// dijkstraProducedAdjustmentTransaction adds batch deposits and donations to
+// the produced side of value conservation.
+//
+// Cardano's localProducedValue (Cardano.Ledger.Dijkstra.UTxO) sums a body's
+// outputs, treasury donation, proposal deposits, burned multi-assets and
+// direct deposits; dijkstraProducedValue applies it to the top-level body and
+// to every sub-transaction body, then adds the fee once. Direct deposits are
+// an independent produced-side term, disjoint from the proposal deposits and
+// treasury donations dijkstraBatchTransaction already folds, so counting them
+// as well cannot double-count either. Donations are included here after their
+// Plutus compatibility check has run at each transaction level.
+//
+// conway.UtxoValidateValueNotConservedUtxo derives its produced coin total
+// from Outputs(), Fee(), certificate deposits, ProposalProcedures() and
+// Donation(), and has no direct deposit term. Both batch totals are therefore
+// carried on Fee(), the produced-side term with no other meaning inside that
+// rule. Donation() is suppressed because its Plutus gate was checked per level.
+type dijkstraProducedAdjustmentTransaction struct {
+	common.Transaction
+	directDeposits *big.Int
+	donations      *big.Int
+}
+
+func (t dijkstraProducedAdjustmentTransaction) Fee() *big.Int {
+	ret := new(big.Int).Set(t.directDeposits)
+	ret.Add(ret, t.donations)
+	if fee := t.Transaction.Fee(); fee != nil {
+		ret.Add(ret, fee)
+	}
+	return ret
+}
+
+func (t dijkstraProducedAdjustmentTransaction) Donation() *big.Int {
+	return nil
+}
+
+// UtxoValidateValueNotConservedUtxo balances consumed against produced value
+// across every transaction level. A sub-transaction's inputs, outputs,
+// withdrawals, certificates, mints, proposal deposits, treasury donation and
+// direct deposits all count towards the enclosing transaction's balance.
 func UtxoValidateValueNotConservedUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -960,7 +1246,99 @@ func UtxoValidateValueNotConservedUtxo(
 	if err != nil {
 		return err
 	}
-	return conway.UtxoValidateValueNotConservedUtxo(tx, slot, ls, tmpPparams)
+	view := dijkstraBatchView(tx)
+	directDeposits := dijkstraDirectDepositsTotal(tx)
+	donations := new(big.Int)
+	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
+		for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+			if err := conway.ValidateTreasuryDonationScriptCompatibility(
+				level, ls,
+			); err != nil {
+				return err
+			}
+			if donation := level.Donation(); donation != nil {
+				donations.Add(donations, donation)
+			}
+		}
+	}
+	if directDeposits.Sign() > 0 || donations.Sign() > 0 {
+		view = dijkstraProducedAdjustmentTransaction{
+			Transaction:    view,
+			directDeposits: directDeposits,
+			donations:      donations,
+		}
+	}
+	return conway.UtxoValidateValueNotConservedUtxo(
+		view,
+		slot,
+		ls,
+		tmpPparams,
+	)
+}
+
+// UtxoValidateBadInputsUtxo requires every transaction level's inputs to
+// resolve against the UTxO set.
+func UtxoValidateBadInputsUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateBadInputsUtxo(
+		dijkstraBatchView(tx),
+		slot,
+		ls,
+		pp,
+	)
+}
+
+// UtxoValidateNoDuplicateInputs rejects an input spent by more than one
+// transaction level, which would otherwise count towards consumed value once
+// per level.
+func UtxoValidateNoDuplicateInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateNoDuplicateInputs(
+		dijkstraBatchView(tx),
+		slot,
+		ls,
+		pp,
+	)
+}
+
+// UtxoValidateWrongNetwork checks every transaction level's output addresses
+// against the ledger network.
+func UtxoValidateWrongNetwork(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateWrongNetwork(
+		dijkstraBatchView(tx),
+		slot,
+		ls,
+		pp,
+	)
+}
+
+// UtxoValidateOutputBootAddrAttrsTooBig checks every transaction level's
+// bootstrap output addresses.
+func UtxoValidateOutputBootAddrAttrsTooBig(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateOutputBootAddrAttrsTooBig(
+		dijkstraBatchView(tx),
+		slot,
+		ls,
+		pp,
+	)
 }
 
 type batchWithdrawal struct {
@@ -1070,6 +1448,447 @@ func UtxoValidateBatchWithdrawals(
 		return nil
 	}
 	return WithdrawalsExceedAccountBalanceError{Withdrawals: mismatches}
+}
+
+// dijkstraAccountBalanceIntervalContains reports whether balance satisfies
+// interval. cardano-ledger's accountBalanceIntervalContains
+// (Cardano.Ledger.Dijkstra.Rules.Entities) reads the lower bound as inclusive
+// and the upper bound as exclusive. An interval with no bound at all is
+// unsatisfiable rather than vacuously true: the wire decoder rejects that
+// shape, and a directly constructed one asserts nothing.
+func dijkstraAccountBalanceIntervalContains(
+	balance uint64,
+	interval *DijkstraAccountBalanceInterval,
+) bool {
+	if interval == nil {
+		return false
+	}
+	if interval.Exact != nil {
+		return balance == *interval.Exact
+	}
+	if interval.LowerBound == nil && interval.UpperBound == nil {
+		return false
+	}
+	if interval.LowerBound != nil && balance < *interval.LowerBound {
+		return false
+	}
+	if interval.UpperBound != nil && balance >= *interval.UpperBound {
+		return false
+	}
+	return true
+}
+
+func dijkstraCompareCredentials(a, b common.Credential) int {
+	if a.CredType != b.CredType {
+		if a.CredType < b.CredType {
+			return -1
+		}
+		return 1
+	}
+	return bytes.Compare(a.Credential[:], b.Credential[:])
+}
+
+// dijkstraValidateAccountBalanceIntervals checks one transaction level's
+// intervals against the reward-account balances in ls. Failures are collected
+// per category and reported in cardano-ledger's order, missing accounts
+// before out-of-range balances, with credentials sorted so a level with more
+// than one failure produces the same error on every run.
+type dijkstraAccountKey struct {
+	typeID uint
+	hash   common.CredentialHash
+}
+
+type dijkstraAccountBalance struct {
+	registered bool
+	balance    uint64
+}
+
+type dijkstraAccountStateOverlay struct {
+	ledgerState common.LedgerState
+	accounts    map[dijkstraAccountKey]dijkstraAccountBalance
+}
+
+func newDijkstraAccountStateOverlay(
+	ledgerState common.LedgerState,
+) *dijkstraAccountStateOverlay {
+	return &dijkstraAccountStateOverlay{
+		ledgerState: ledgerState,
+		accounts:    make(map[dijkstraAccountKey]dijkstraAccountBalance),
+	}
+}
+
+func dijkstraAccountKeyFor(credential common.Credential) dijkstraAccountKey {
+	return dijkstraAccountKey{
+		typeID: credential.CredType,
+		hash:   credential.Credential,
+	}
+}
+
+func (s *dijkstraAccountStateOverlay) account(
+	credential common.Credential,
+) (dijkstraAccountBalance, error) {
+	key := dijkstraAccountKeyFor(credential)
+	if account, ok := s.accounts[key]; ok {
+		return account, nil
+	}
+	if s.ledgerState == nil {
+		return dijkstraAccountBalance{}, errors.New(
+			"ledger state is required for Dijkstra account validation",
+		)
+	}
+	balance, err := s.ledgerState.RewardAccountBalance(credential)
+	if err != nil {
+		return dijkstraAccountBalance{}, err
+	}
+	account := dijkstraAccountBalance{}
+	if balance != nil {
+		account.registered = true
+		account.balance = *balance
+	}
+	s.accounts[key] = account
+	return account, nil
+}
+
+func (s *dijkstraAccountStateOverlay) set(
+	credential common.Credential,
+	account dijkstraAccountBalance,
+) {
+	s.accounts[dijkstraAccountKeyFor(credential)] = account
+}
+
+func dijkstraAccountCredential(
+	address *common.Address,
+) (common.Credential, error) {
+	if address == nil {
+		return common.Credential{}, errors.New("nil reward account address")
+	}
+	return address.RewardAccountCredential()
+}
+
+func validateDijkstraAccountAddressNetwork[V any](
+	addresses map[cbor.ByteString]V,
+	field string,
+	networkID uint,
+) error {
+	if err := validateDijkstraAccountAddressMapKeys(addresses, field); err != nil {
+		return err
+	}
+	var wrongNetwork []string
+	for _, addressKey := range sortedDijkstraAccountAddresses(addresses) {
+		address, err := dijkstraAddressFromKey(addressKey)
+		if err != nil {
+			return err
+		}
+		if address.NetworkId() != networkID {
+			wrongNetwork = append(wrongNetwork, address.String())
+		}
+	}
+	if len(wrongNetwork) > 0 {
+		return WrongNetworkAccountAddressesError{
+			Field:     field,
+			NetworkID: networkID,
+			Addresses: wrongNetwork,
+		}
+	}
+	return nil
+}
+
+func validateDijkstraAccountBalanceIntervals(
+	intervals DijkstraAccountBalanceIntervals,
+	state *dijkstraAccountStateOverlay,
+	networkID uint,
+	starting bool,
+) error {
+	if len(intervals) == 0 {
+		return nil
+	}
+	field := "account balance intervals"
+	if starting {
+		field = "starting account balance intervals"
+	}
+	if err := validateDijkstraAccountAddressNetwork(intervals, field, networkID); err != nil {
+		return err
+	}
+	var missing []common.Credential
+	var outside []AccountBalanceIntervalMismatch
+	for _, addressKey := range sortedDijkstraAccountAddresses(intervals) {
+		interval := intervals[addressKey]
+		if interval == nil {
+			return errors.New("account balance intervals contains a nil interval")
+		}
+		if err := validateDijkstraAccountBalanceInterval(interval); err != nil {
+			return err
+		}
+		address, err := dijkstraAddressFromKey(addressKey)
+		if err != nil {
+			return err
+		}
+		credential, err := dijkstraAccountCredential(address)
+		if err != nil {
+			return err
+		}
+		account, err := state.account(credential)
+		if err != nil {
+			return err
+		}
+		if !account.registered {
+			missing = append(missing, credential)
+			continue
+		}
+		if !dijkstraAccountBalanceIntervalContains(account.balance, interval) {
+			outside = append(outside, AccountBalanceIntervalMismatch{
+				Credential: credential,
+				Balance:    account.balance,
+				Interval:   *interval,
+			})
+		}
+	}
+	if len(missing) > 0 {
+		slices.SortFunc(missing, dijkstraCompareCredentials)
+		return MissingAccountsInBalanceIntervalsError{
+			Credentials: missing,
+			Starting:    starting,
+		}
+	}
+	if len(outside) > 0 {
+		slices.SortFunc(
+			outside,
+			func(a, b AccountBalanceIntervalMismatch) int {
+				return dijkstraCompareCredentials(a.Credential, b.Credential)
+			},
+		)
+		return BalancesOutsideAccountBalanceIntervalsError{
+			Mismatches: outside,
+			Starting:   starting,
+		}
+	}
+	return nil
+}
+
+func dijkstraLevelDirectDeposits(
+	body common.TransactionBody,
+) DijkstraDirectDeposits {
+	switch body := body.(type) {
+	case *DijkstraSubTransactionBody:
+		return body.TxDirectDeposits
+	case *DijkstraTransactionBody:
+		return body.TxDirectDeposits
+	default:
+		return nil
+	}
+}
+
+func dijkstraApplyAccountWithdrawals(
+	body common.TransactionBody,
+	state *dijkstraAccountStateOverlay,
+) error {
+	withdrawals := body.Withdrawals()
+	for address, amount := range withdrawals {
+		if amount == nil {
+			continue
+		}
+		credential, err := dijkstraAccountCredential(address)
+		if err != nil {
+			return err
+		}
+		account, err := state.account(credential)
+		if err != nil {
+			return err
+		}
+		if !account.registered {
+			continue
+		}
+		if !amount.IsUint64() || amount.Uint64() > account.balance {
+			continue
+		}
+		account.balance -= amount.Uint64()
+		state.set(credential, account)
+	}
+	return nil
+}
+
+func dijkstraApplyAccountCertificates(
+	body common.TransactionBody,
+	state *dijkstraAccountStateOverlay,
+) {
+	for _, cert := range body.Certificates() {
+		var credential common.Credential
+		var registered bool
+		changes := false
+		switch cert := cert.(type) {
+		case *common.StakeRegistrationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.RegistrationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.StakeRegistrationDelegationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.VoteRegistrationDelegationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.StakeVoteRegistrationDelegationCertificate:
+			credential, registered, changes = cert.StakeCredential, true, true
+		case *common.StakeDeregistrationCertificate:
+			credential, changes = cert.StakeCredential, true
+		case *common.DeregistrationCertificate:
+			credential, changes = cert.StakeCredential, true
+		}
+		if changes {
+			state.set(credential, dijkstraAccountBalance{registered: registered})
+		}
+	}
+}
+
+func dijkstraApplyDirectDeposits(
+	deposits DijkstraDirectDeposits,
+	state *dijkstraAccountStateOverlay,
+	networkID uint,
+) error {
+	if len(deposits) == 0 {
+		return nil
+	}
+	if err := validateDijkstraAccountAddressNetwork(
+		map[cbor.ByteString]uint64(deposits),
+		"direct deposits",
+		networkID,
+	); err != nil {
+		return err
+	}
+	var missing []common.Credential
+	credentials := make(map[cbor.ByteString]common.Credential, len(deposits))
+	for _, addressKey := range sortedDijkstraAccountAddresses(deposits) {
+		address, err := dijkstraAddressFromKey(addressKey)
+		if err != nil {
+			return err
+		}
+		credential, err := dijkstraAccountCredential(address)
+		if err != nil {
+			return err
+		}
+		credentials[addressKey] = credential
+		account, err := state.account(credential)
+		if err != nil {
+			return err
+		}
+		if !account.registered {
+			missing = append(missing, credential)
+		}
+	}
+	if len(missing) > 0 {
+		slices.SortFunc(missing, dijkstraCompareCredentials)
+		return DirectDepositAccountsMissingError{Credentials: missing}
+	}
+	for addressKey, amount := range deposits {
+		credential := credentials[addressKey]
+		account, err := state.account(credential)
+		if err != nil {
+			return err
+		}
+		if amount > ^uint64(0)-account.balance {
+			return errors.New("direct deposit overflows reward account balance")
+		}
+		account.balance += amount
+		state.set(credential, account)
+	}
+	return nil
+}
+
+func dijkstraApplyAccountLevel(
+	body common.TransactionBody,
+	state *dijkstraAccountStateOverlay,
+	networkID uint,
+) error {
+	deposits := dijkstraLevelDirectDeposits(body)
+	if err := validateDijkstraAccountAddressNetwork(
+		map[cbor.ByteString]uint64(deposits),
+		"direct deposits",
+		networkID,
+	); err != nil && len(deposits) > 0 {
+		return err
+	}
+	if err := dijkstraApplyAccountWithdrawals(body, state); err != nil {
+		return err
+	}
+	dijkstraApplyAccountCertificates(body, state)
+	return dijkstraApplyDirectDeposits(deposits, state, networkID)
+}
+
+// UtxoValidateAccountBalanceIntervals validates Dijkstra direct deposits,
+// ordinary account-balance intervals, and top-level starting intervals using
+// the account state threaded through subtransactions in ledger order.
+func UtxoValidateAccountBalanceIntervals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return nil
+	}
+	networkID := uint(0)
+	if ls != nil {
+		networkID = ls.NetworkId()
+	}
+	state := newDijkstraAccountStateOverlay(ls)
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	for idx := range subTxs {
+		body := &subTxs[idx].Body
+		if len(body.TxDirectDeposits) > 0 || len(body.TxAccountBalanceIntervals) > 0 {
+			if ls == nil {
+				return errors.New("ledger state is required for Dijkstra account validation")
+			}
+		}
+		if len(body.TxDirectDeposits) > 0 {
+			if err := validateDijkstraAccountAddressNetwork(
+				map[cbor.ByteString]uint64(body.TxDirectDeposits),
+				"direct deposits",
+				networkID,
+			); err != nil {
+				return err
+			}
+		}
+		if err := validateDijkstraAccountBalanceIntervals(
+			body.TxAccountBalanceIntervals,
+			state,
+			networkID,
+			false,
+		); err != nil {
+			return err
+		}
+		if err := dijkstraApplyAccountLevel(body, state, networkID); err != nil {
+			return err
+		}
+	}
+	if ls == nil && (len(dijkstraTx.Body.TxDirectDeposits) > 0 ||
+		len(dijkstraTx.Body.TxBalanceIntervals) > 0 ||
+		len(dijkstraTx.Body.TxStartingBalanceIntervals) > 0) {
+		return errors.New("ledger state is required for Dijkstra account validation")
+	}
+	if len(dijkstraTx.Body.TxDirectDeposits) > 0 {
+		if err := validateDijkstraAccountAddressNetwork(
+			map[cbor.ByteString]uint64(dijkstraTx.Body.TxDirectDeposits),
+			"direct deposits",
+			networkID,
+		); err != nil {
+			return err
+		}
+	}
+	if err := validateDijkstraAccountBalanceIntervals(
+		dijkstraTx.Body.TxBalanceIntervals,
+		state,
+		networkID,
+		false,
+	); err != nil {
+		return err
+	}
+	if err := validateDijkstraAccountBalanceIntervals(
+		dijkstraTx.Body.TxStartingBalanceIntervals,
+		newDijkstraAccountStateOverlay(ls),
+		networkID,
+		true,
+	); err != nil {
+		return err
+	}
+	return dijkstraApplyAccountLevel(&dijkstraTx.Body, state, networkID)
 }
 
 func UtxoValidateCCVotingRestrictions(
@@ -1772,20 +2591,20 @@ func guardingRedeemer(
 	}
 }
 
-// dijkstraRequiredTopLevelGuards re-keys a sub-transaction's already-decoded
-// and validated DijkstraRequiredTopLevelGuards by dijkstraCredentialKey, the
-// comparable key the guard-validation rules below use for set membership.
+// dijkstraRequiredTopLevelGuards re-keys an already-decoded and validated
+// required-guards map by dijkstraCredentialKey, the comparable key the guard
+// validation rules below use for set membership.
 func dijkstraRequiredTopLevelGuards(
-	body *DijkstraSubTransactionBody,
+	guards DijkstraRequiredTopLevelGuards,
 ) map[dijkstraCredentialKey]*common.Datum {
-	if body == nil || len(body.TxRequiredTopLevelGuards) == 0 {
+	if len(guards) == 0 {
 		return nil
 	}
 	required := make(
 		map[dijkstraCredentialKey]*common.Datum,
-		len(body.TxRequiredTopLevelGuards),
+		len(guards),
 	)
-	for credential, datum := range body.TxRequiredTopLevelGuards {
+	for credential, datum := range guards {
 		required[dijkstraCredentialKey{
 			Type: credential.CredType,
 			Hash: credential.Credential,
@@ -1825,9 +2644,18 @@ func validateDijkstraRequiredTopLevelGuards(
 		}] = struct{}{}
 	}
 	missing := make(map[dijkstraCredentialKey]struct{})
+	for credential := range dijkstraRequiredTopLevelGuards(
+		tx.Body.TxRequiredTopLevelGuards,
+	) {
+		if _, ok := topLevel[credential]; !ok {
+			missing[credential] = struct{}{}
+		}
+	}
 	subTxs := tx.Body.TxSubTransactions.Items()
 	for idx := range subTxs {
-		required := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
+		required := dijkstraRequiredTopLevelGuards(
+			subTxs[idx].Body.TxRequiredTopLevelGuards,
+		)
 		for credential := range required {
 			if _, ok := topLevel[credential]; !ok {
 				missing[credential] = struct{}{}
@@ -1847,9 +2675,32 @@ func validateDijkstraGuardDatums(
 	available map[common.ScriptHash]common.Script,
 ) error {
 	malformed := make(map[dijkstraCredentialKey]struct{})
+	for credential, datum := range dijkstraRequiredTopLevelGuards(
+		tx.Body.TxRequiredTopLevelGuards,
+	) {
+		hasDatum := datum != nil
+		switch credential.Type {
+		case common.CredentialTypeAddrKeyHash:
+			if hasDatum {
+				malformed[credential] = struct{}{}
+			}
+		case common.CredentialTypeScriptHash:
+			candidate, ok := available[common.ScriptHash(credential.Hash)]
+			if !ok {
+				continue
+			}
+			_, plutus := common.PlutusScriptVersion(candidate)
+			if plutus == hasDatum {
+				continue
+			}
+			malformed[credential] = struct{}{}
+		}
+	}
 	subTxs := tx.Body.TxSubTransactions.Items()
 	for idx := range subTxs {
-		required := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
+		required := dijkstraRequiredTopLevelGuards(
+			subTxs[idx].Body.TxRequiredTopLevelGuards,
+		)
 		for credential, datum := range required {
 			hasDatum := datum != nil
 			switch credential.Type {
@@ -2473,6 +3324,34 @@ func UtxoValidateCollateralContainsNonAda(
 	return alonzo.CollateralContainsNonAdaError{Provided: providedU}
 }
 
+func UtxoValidatePtrPresentInCollateralReturn(
+	tx common.Transaction,
+	_ uint64,
+	_ common.LedgerState,
+	_ common.ProtocolParameters,
+) error {
+	if tx == nil {
+		return nil
+	}
+	output := tx.CollateralReturn()
+	if output == nil {
+		return nil
+	}
+	address := output.Address()
+	if address.Type() != common.AddressTypeKeyPointer &&
+		address.Type() != common.AddressTypeScriptPointer {
+		return nil
+	}
+	var txOut common.TxOut
+	if err := txOut.UnmarshalCBOR(output.Cbor()); err != nil {
+		return err
+	}
+	return &common.PtrPresentInCollateralReturn{
+		Type:   22,
+		Output: txOut,
+	}
+}
+
 func UtxoValidateNoCollateralInputs(
 	tx common.Transaction,
 	slot uint64,
@@ -2488,6 +3367,8 @@ func UtxoValidateNoCollateralInputs(
 	return alonzo.NoCollateralInputsError{}
 }
 
+// UtxoValidateOutputTooSmallUtxo applies the minimum-coin check to every
+// transaction level's outputs.
 func UtxoValidateOutputTooSmallUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2495,7 +3376,7 @@ func UtxoValidateOutputTooSmallUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	var badOutputs []common.TransactionOutput
-	for _, tmpOutput := range tx.Outputs() {
+	for _, tmpOutput := range dijkstraBatchView(tx).Outputs() {
 		minCoin, err := MinCoinTxOut(tmpOutput, pp)
 		if err != nil {
 			return err
@@ -2539,6 +3420,8 @@ func MinCoinTxOut(
 	return tmpPparams.AdaPerUtxoByte * entrySize, nil
 }
 
+// UtxoValidateOutputTooBigUtxo applies the maximum-value-size check to every
+// transaction level's outputs.
 func UtxoValidateOutputTooBigUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2550,7 +3433,7 @@ func UtxoValidateOutputTooBigUtxo(
 		return err
 	}
 	var badOutputs []common.TransactionOutput
-	for _, txOutput := range tx.Outputs() {
+	for _, txOutput := range dijkstraBatchView(tx).Outputs() {
 		outputVal, err := outputValue(txOutput)
 		if err != nil {
 			return err

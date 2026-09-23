@@ -93,23 +93,26 @@ func TestTransactionBodiesRejectDuplicateLogicalWithdrawalKeys(t *testing.T) {
 	// Key 3 is mandatory in the Shelley body and optional but harmless from
 	// Allegra on, so one body shape decodes in every era under test.
 	duplicateBody, err := cbor.Encode(map[uint]any{
-		3: uint64(0),
-		5: duplicateWithdrawals,
+		0: cbor.NewSetType([]any{}, false), 1: []any{}, 2: uint64(0),
+		3: uint64(0), 5: duplicateWithdrawals,
 	})
 	require.NoError(t, err)
 
 	validAddress := testRewardAddress(t)
 	validBody, err := cbor.Encode(map[uint]any{
-		3: uint64(0),
-		5: map[*common.Address]uint64{&validAddress: 1},
+		0: cbor.NewSetType([]any{}, false), 1: []any{}, 2: uint64(0),
+		3: uint64(0), 5: map[*common.Address]uint64{&validAddress: 1},
 	})
 	require.NoError(t, err)
 
 	for era, newBody := range transactionBodyDecoders() {
 		t.Run(era, func(t *testing.T) {
-			err := newBody().UnmarshalCBOR(duplicateBody)
+			sub := era == "dijkstra_sub"
+			body := withRequiredBodyFields(t, duplicateBody, sub)
+			valid := withRequiredBodyFields(t, validBody, sub)
+			err := newBody().UnmarshalCBOR(body)
 			require.ErrorContains(t, err, "duplicate withdrawal reward account")
-			require.NoError(t, newBody().UnmarshalCBOR(validBody))
+			require.NoError(t, newBody().UnmarshalCBOR(valid))
 		})
 	}
 }
@@ -149,13 +152,13 @@ func TestTransactionBodyDuplicateCertificateSemanticsByEra(t *testing.T) {
 				)
 			}
 			duplicateBody, err := cbor.Encode(map[uint]any{
-				3: uint64(0),
-				4: duplicateCertificates,
+				0: cbor.NewSetType([]any{}, false), 1: []any{}, 2: uint64(0),
+				3: uint64(0), 4: duplicateCertificates,
 			})
 			require.NoError(t, err)
 			validBody, err := cbor.Encode(map[uint]any{
-				3: uint64(0),
-				4: validCertificates,
+				0: cbor.NewSetType([]any{}, false), 1: []any{}, 2: uint64(0),
+				3: uint64(0), 4: validCertificates,
 			})
 			require.NoError(t, err)
 
@@ -164,19 +167,19 @@ func TestTransactionBodyDuplicateCertificateSemanticsByEra(t *testing.T) {
 					t.Run(era, func(t *testing.T) {
 						require.NoError(
 							t,
-							newBody().UnmarshalCBOR(duplicateBody),
+							newBody().UnmarshalCBOR(withRequiredBodyFields(t, duplicateBody, era == "dijkstra_sub")),
 						)
-						require.NoError(t, newBody().UnmarshalCBOR(validBody))
+						require.NoError(t, newBody().UnmarshalCBOR(withRequiredBodyFields(t, validBody, era == "dijkstra_sub")))
 					})
 				}
 			}
 
 			for era, newBody := range orderedSetCertificateTransactionBodyDecoders() {
 				t.Run(era, func(t *testing.T) {
-					err := newBody().UnmarshalCBOR(duplicateBody)
+					err := newBody().UnmarshalCBOR(withRequiredBodyFields(t, duplicateBody, era == "dijkstra_sub"))
 					var duplicateError common.DuplicateCertificateError
 					require.ErrorAs(t, err, &duplicateError)
-					require.NoError(t, newBody().UnmarshalCBOR(validBody))
+					require.NoError(t, newBody().UnmarshalCBOR(withRequiredBodyFields(t, validBody, era == "dijkstra_sub")))
 				})
 			}
 		})
@@ -229,11 +232,12 @@ func TestConwayTransactionDecoderRejectsDuplicateCollections(t *testing.T) {
 		},
 		{
 			name: "untagged certificates",
-			body: map[uint]any{4: []any{certificate, certificate}},
+			body: map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}, 2: uint64(0), 4: []any{certificate, certificate}},
 		},
 		{
 			name: "tagged certificates",
 			body: map[uint]any{
+				0: cbor.NewSetType([]any{}, false), 1: []any{}, 2: uint64(0),
 				4: cbor.Set([]any{certificate, certificate}),
 			},
 		},
@@ -255,6 +259,7 @@ func TestConwayTransactionDecoderRejectsDuplicateCollections(t *testing.T) {
 	}
 
 	validBody, err := cbor.Encode(map[uint]any{
+		0: cbor.NewSetType([]any{}, false), 1: []any{}, 2: uint64(0),
 		4: []any{certificate},
 		5: map[*common.Address]uint64{&address1: 1},
 	})
