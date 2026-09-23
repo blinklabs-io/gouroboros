@@ -297,6 +297,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleInsufficientCollateral,
 				common.UtxoValidationRuleCollateralContainsNonAda,
 				common.UtxoValidationRuleCollateralEqBalance,
+				common.UtxoValidationRulePtrPresentInCollateralReturn,
 				common.UtxoValidationRuleNoCollateralInputs,
 				common.UtxoValidationRuleBadInputs,
 				common.UtxoValidationRuleScriptWitnesses,

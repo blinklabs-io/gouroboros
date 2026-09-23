@@ -148,6 +148,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: conway.UtxoValidateCollateralEqBalance,
 	},
 	{
+		Id:        common.UtxoValidationRulePtrPresentInCollateralReturn,
+		Validator: UtxoValidatePtrPresentInCollateralReturn,
+	},
+	{
 		Id:        common.UtxoValidationRuleNoCollateralInputs,
 		Validator: UtxoValidateNoCollateralInputs,
 	},
@@ -329,6 +333,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleInsufficientCollateral:       dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleCollateralContainsNonAda:     dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleCollateralEqBalance:          dijkstraUtxoValidationAlways,
+	common.UtxoValidationRulePtrPresentInCollateralReturn: dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleNoCollateralInputs:           dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleBadInputs:                    dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleScriptWitnesses:              dijkstraUtxoValidationAlways,
@@ -3088,6 +3093,34 @@ func UtxoValidateCollateralContainsNonAda(
 		providedU = totalCollateral.Uint64()
 	}
 	return alonzo.CollateralContainsNonAdaError{Provided: providedU}
+}
+
+func UtxoValidatePtrPresentInCollateralReturn(
+	tx common.Transaction,
+	_ uint64,
+	_ common.LedgerState,
+	_ common.ProtocolParameters,
+) error {
+	if tx == nil {
+		return nil
+	}
+	output := tx.CollateralReturn()
+	if output == nil {
+		return nil
+	}
+	address := output.Address()
+	if address.Type() != common.AddressTypeKeyPointer &&
+		address.Type() != common.AddressTypeScriptPointer {
+		return nil
+	}
+	var txOut common.TxOut
+	if err := txOut.UnmarshalCBOR(output.Cbor()); err != nil {
+		return err
+	}
+	return &common.PtrPresentInCollateralReturn{
+		Type:   22,
+		Output: txOut,
+	}
 }
 
 func UtxoValidateNoCollateralInputs(

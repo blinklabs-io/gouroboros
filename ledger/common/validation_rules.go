@@ -59,6 +59,7 @@ const (
 	UtxoValidationRuleInlineDatumsWithPlutusV1     UtxoValidationRuleId = "inline-datums-with-plutus-v1"
 	UtxoValidationRuleDisjointRefInputs            UtxoValidationRuleId = "disjoint-reference-inputs"
 	UtxoValidationRuleCollateralEqBalance          UtxoValidationRuleId = "collateral-equals-balance"
+	UtxoValidationRulePtrPresentInCollateralReturn UtxoValidationRuleId = "pointer-in-collateral-return"
 	UtxoValidationRuleTooManyCollateralInputs      UtxoValidationRuleId = "too-many-collateral-inputs"
 	UtxoValidationRuleMalformedReferenceScripts    UtxoValidationRuleId = "malformed-reference-scripts"
 	UtxoValidationRuleCurrentTreasuryValue         UtxoValidationRuleId = "current-treasury-value"

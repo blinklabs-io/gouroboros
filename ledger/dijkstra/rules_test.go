@@ -365,6 +365,40 @@ func TestDijkstraPhase2InvalidStillChecksCollateral(t *testing.T) {
 	require.ErrorAs(t, rule(tx, 0, state, &DijkstraProtocolParameters{}), &collateralErr)
 }
 
+func TestUtxoValidatePtrPresentInCollateralReturn(t *testing.T) {
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidatePtrPresentInCollateralReturn",
+	)
+	for _, addressType := range []uint8{
+		common.AddressTypeKeyPointer,
+		common.AddressTypeScriptPointer,
+	} {
+		rawAddress := append([]byte{addressType << 4}, make([]byte, 28)...)
+		rawAddress = append(rawAddress, 0, 0, 0)
+		wire, err := cbor.Encode(map[uint]any{0: rawAddress, 1: 0})
+		require.NoError(t, err)
+		var output babbage.BabbageTransactionOutput
+		err = output.UnmarshalCBOR(wire)
+		require.NoError(t, err)
+		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+			TxCollateralReturn: &DijkstraTransactionOutput{
+				Output: output,
+			},
+		}}
+		var pointerErr *common.PtrPresentInCollateralReturn
+		require.ErrorAs(t, rule(tx, 0, nil, nil), &pointerErr)
+		require.EqualValues(t, 22, pointerErr.Type)
+	}
+
+	tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+		TxCollateralReturn: &DijkstraTransactionOutput{
+			Output: babbage.BabbageTransactionOutput{},
+		},
+	}}
+	require.NoError(t, rule(tx, 0, nil, nil))
+}
+
 func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
 	guardrailsHash := common.Blake2b224Hash([]byte("constitution-guardrails"))
 	newTx := func(isValid bool, policyHash []byte) *DijkstraTransaction {

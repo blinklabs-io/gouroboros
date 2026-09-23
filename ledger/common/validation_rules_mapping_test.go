@@ -259,6 +259,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateInsufficientCollateral,       // UtxoValidationRuleInsufficientCollateral
 		dijkstra.UtxoValidateCollateralContainsNonAda,     // UtxoValidationRuleCollateralContainsNonAda
 		conway.UtxoValidateCollateralEqBalance,            // UtxoValidationRuleCollateralEqBalance
+		dijkstra.UtxoValidatePtrPresentInCollateralReturn, // UtxoValidationRulePtrPresentInCollateralReturn
 		dijkstra.UtxoValidateNoCollateralInputs,           // UtxoValidationRuleNoCollateralInputs
 		dijkstra.UtxoValidateBadInputsUtxo,                // UtxoValidationRuleBadInputs
 		dijkstra.UtxoValidateScriptWitnesses,              // UtxoValidationRuleScriptWitnesses
