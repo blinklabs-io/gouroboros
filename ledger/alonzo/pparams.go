@@ -54,22 +54,24 @@ var plutusParamCounts = map[uint]int{
 // eras/alonzo/impl/src/Cardano/Ledger/Alonzo/PParams.hs.
 type AlonzoProtocolParameters struct {
 	cbor.StructAsArray
-	MinFeeA              uint
-	MinFeeB              uint
-	MaxBlockBodySize     uint
-	MaxTxSize            uint
-	MaxBlockHeaderSize   uint
-	KeyDeposit           uint
-	PoolDeposit          uint
-	MaxEpoch             uint
-	NOpt                 uint
-	A0                   *cbor.Rat
-	Rho                  *cbor.Rat
-	Tau                  *cbor.Rat
-	Decentralization     *cbor.Rat
-	ExtraEntropy         common.Nonce
-	ProtocolMajor        uint
-	ProtocolMinor        uint
+	MinFeeA            uint
+	MinFeeB            uint
+	MaxBlockBodySize   uint
+	MaxTxSize          uint
+	MaxBlockHeaderSize uint
+	KeyDeposit         uint
+	PoolDeposit        uint
+	MaxEpoch           uint
+	NOpt               uint
+	A0                 *cbor.Rat
+	Rho                *cbor.Rat
+	Tau                *cbor.Rat
+	Decentralization   *cbor.Rat
+	ExtraEntropy       common.Nonce
+	ProtocolMajor      uint
+	ProtocolMinor      uint
+	// MinUtxoValue is the genesis-only Shelley parameter retained for
+	// compatibility; Alonzo min-UTxO validation uses AdaPerUtxoByte instead.
 	MinUtxoValue         uint
 	MinPoolCost          uint64
 	AdaPerUtxoByte       uint64

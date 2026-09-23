@@ -1796,6 +1796,11 @@ func TestAlonzoMinCoinTxOut(t *testing.T) {
 			},
 		},
 	)
+	emptyPolicy := common.NewMultiAsset(
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+			policyOne: {},
+		},
+	)
 	testCases := []struct {
 		name      string
 		output    alonzo.AlonzoTransactionOutput
@@ -1806,6 +1811,17 @@ func TestAlonzoMinCoinTxOut(t *testing.T) {
 			name:      "ada only",
 			output:    alonzo.AlonzoTransactionOutput{},
 			entrySize: 29,
+		},
+		{
+			// The reference distinguishes an empty outer map (2 words) from
+			// a present policy map with no asset triples (6 words).
+			name: "empty policy map",
+			output: alonzo.AlonzoTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Assets: &emptyPolicy,
+				},
+			},
+			entrySize: 33,
 		},
 		{
 			// 27 + 2 + 10 = 39 words

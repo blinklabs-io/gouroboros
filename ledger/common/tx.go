@@ -143,6 +143,20 @@ type TransactionOutput interface {
 	String() string
 }
 
+// TransactionOutputCborSize returns the original serialized size when the
+// output was decoded from CBOR, falling back to encoding programmatically
+// constructed outputs.
+func TransactionOutputCborSize(txOut TransactionOutput) (uint64, error) {
+	if wireBytes := txOut.Cbor(); len(wireBytes) > 0 {
+		return uint64(len(wireBytes)), nil
+	}
+	encoded, err := cbor.Encode(txOut)
+	if err != nil {
+		return 0, err
+	}
+	return uint64(len(encoded)), nil
+}
+
 type TransactionWitnessSet interface {
 	Vkey() []VkeyWitness
 	NativeScripts() []NativeScript
