@@ -15,6 +15,7 @@
 package common
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -184,6 +185,20 @@ func TestNewUpdateCommitteeGovAction(t *testing.T) {
 		cbor.Rat{Rat: big.NewRat(2, 3)},
 	)
 	require.Error(t, err)
+	_, err = NewUpdateCommitteeGovAction(
+		nil,
+		creds,
+		credEpochs,
+		cbor.Rat{Rat: big.NewRat(3, 2)},
+	)
+	require.ErrorContains(t, err, "outside [0,1]")
+	_, err = NewUpdateCommitteeGovAction(
+		nil,
+		[]Credential{cred, cred},
+		credEpochs,
+		cbor.Rat{Rat: big.NewRat(1, 2)},
+	)
+	require.ErrorContains(t, err, "duplicate removal credential")
 }
 
 func TestUpdateCommitteeGovActionUnmarshalCBORRejectsNilCredEpochKey(t *testing.T) {
@@ -197,6 +212,69 @@ func TestUpdateCommitteeGovActionUnmarshalCBORRejectsNilCredEpochKey(t *testing.
 	var action UpdateCommitteeGovAction
 	_, err = cbor.Decode(encoded, &action)
 	require.Error(t, err)
+}
+
+func TestUpdateCommitteeGovActionValidateQuorumUnitInterval(t *testing.T) {
+	for _, quorum := range []*big.Rat{
+		big.NewRat(0, 1),
+		big.NewRat(1, 1),
+		big.NewRat(1, 2),
+	} {
+		action := UpdateCommitteeGovAction{Quorum: cbor.Rat{Rat: quorum}}
+		require.NoError(t, action.Validate())
+	}
+	for _, quorum := range []*big.Rat{
+		big.NewRat(-1, 2),
+		big.NewRat(3, 2),
+	} {
+		action := UpdateCommitteeGovAction{Quorum: cbor.Rat{Rat: quorum}}
+		require.Error(t, action.Validate())
+		encoded, err := cbor.Encode([]any{
+			uint(GovActionTypeUpdateCommittee), nil, []Credential{},
+			map[*Credential]uint64{}, cbor.Rat{Rat: quorum},
+		})
+		require.NoError(t, err)
+		var decoded UpdateCommitteeGovAction
+		_, err = cbor.Decode(encoded, &decoded)
+		require.Error(t, err)
+	}
+}
+
+func TestUpdateCommitteeGovActionRejectsDuplicateRemovalCredentials(
+	t *testing.T,
+) {
+	credential := Credential{
+		CredType:   CredentialTypeAddrKeyHash,
+		Credential: NewBlake2b224([]byte("duplicate-removal")),
+	}
+	distinctType := credential
+	distinctType.CredType = CredentialTypeScriptHash
+	for _, tagged := range []bool{false, true} {
+		t.Run(fmt.Sprintf("tagged=%t", tagged), func(t *testing.T) {
+			removals := cbor.NewSetType(
+				[]Credential{credential, credential}, tagged,
+			)
+			encoded, err := cbor.Encode([]any{
+				uint(GovActionTypeUpdateCommittee), nil, removals,
+				map[*Credential]uint64{},
+				cbor.Rat{Rat: big.NewRat(1, 2)},
+			})
+			require.NoError(t, err)
+			var decoded UpdateCommitteeGovAction
+			_, err = cbor.Decode(encoded, &decoded)
+			require.ErrorContains(t, err, "duplicate removal credential")
+		})
+	}
+	valid := UpdateCommitteeGovAction{
+		Credentials: []Credential{credential, distinctType},
+		Quorum:      cbor.Rat{Rat: big.NewRat(0, 1)},
+	}
+	require.NoError(t, valid.Validate())
+	duplicate := UpdateCommitteeGovAction{
+		Credentials: []Credential{credential, credential},
+		Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
+	}
+	require.ErrorContains(t, duplicate.Validate(), "duplicate removal credential")
 }
 
 func TestNewNewConstitutionGovAction(t *testing.T) {
