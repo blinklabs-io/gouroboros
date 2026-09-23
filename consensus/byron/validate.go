@@ -174,27 +174,19 @@ func (v *HeaderValidator) ValidateHeader(
 		result.Valid = false
 		result.Errors = append(result.Errors, err)
 	}
-	if result.Valid && !input.IsEBB && !input.EnvelopeOnly {
-		if err := v.validatePBFTActiveDelegate(input); err != nil {
+	var pbftIssuer common.Blake2b224
+	if result.Valid && !input.IsEBB && !input.EnvelopeOnly &&
+		len(input.BlockSig) > 0 {
+		var err error
+		pbftIssuer, err = v.validatePBFTActiveDelegate(input)
+		if err != nil {
 			result.Valid = false
 			result.Errors = append(result.Errors, err)
 		}
 	}
-	if result.Valid && input.PBFTState != nil {
-		delegate, err := pbftDelegateVerificationKey(input)
-		if err != nil {
-			result.Valid = false
-			result.Errors = append(result.Errors, err)
-		} else if delegate == nil {
-			result.Valid = false
-			result.Errors = append(result.Errors, errors.New("byron PBFT heavyweight delegation is required"))
-		} else if delegateHash, err := PBFTVerificationKeyHash(delegate); err != nil {
-			result.Valid = false
-			result.Errors = append(result.Errors, err)
-		} else if issuer, authorized := activeGenesisIssuerForDelegate(v.config.GenesisDelegations, delegateHash); !authorized {
-			result.Valid = false
-			result.Errors = append(result.Errors, errors.New("byron PBFT delegate is not active"))
-		} else if next, err := input.PBFTState.Transition(issuer); err != nil {
+	if result.Valid && input.PBFTState != nil &&
+		!input.IsEBB && !input.EnvelopeOnly && len(input.BlockSig) > 0 {
+		if next, err := input.PBFTState.Transition(pbftIssuer); err != nil {
 			result.Valid = false
 			result.Errors = append(result.Errors, err)
 		} else {
@@ -207,81 +199,48 @@ func (v *HeaderValidator) ValidateHeader(
 
 func (v *HeaderValidator) validatePBFTActiveDelegate(
 	input *ValidateHeaderInput,
-) error {
+) (common.Blake2b224, error) {
 	if len(input.BlockSig) < 2 {
-		return nil
+		return common.Blake2b224{}, errors.New("invalid Byron PBFT signature shape")
 	}
 	signatureType, err := extractUint64(input.BlockSig[0])
 	if err != nil {
-		return err
+		return common.Blake2b224{}, err
 	}
 	if signatureType != byronSigTypeHeavy {
-		return errors.New("byron PBFT heavyweight delegation is required")
+		return common.Blake2b224{}, fmt.Errorf(
+			"unsupported Byron PBFT signature type: %d; heavyweight delegation is required",
+			signatureType,
+		)
 	}
 	if len(v.config.GenesisDelegations) == 0 {
-		return errors.New("byron PBFT active delegation state is empty")
+		return common.Blake2b224{}, errors.New(
+			"byron PBFT active delegation state is empty",
+		)
 	}
 	inner, ok := input.BlockSig[1].([]any)
 	if !ok || len(inner) == 0 {
-		return errors.New("invalid Byron PBFT proxy signature payload")
+		return common.Blake2b224{}, errors.New(
+			"invalid Byron PBFT proxy signature payload",
+		)
 	}
 	certificate, ok := inner[0].([]any)
 	if !ok || len(certificate) < 3 {
-		return errors.New("invalid Byron PBFT proxy certificate")
+		return common.Blake2b224{}, errors.New(
+			"invalid Byron PBFT proxy certificate",
+		)
 	}
 	delegateKey, ok := certificate[2].([]byte)
 	if !ok || len(delegateKey) != 64 {
-		return errors.New("invalid Byron PBFT delegate key")
+		return common.Blake2b224{}, errors.New(
+			"invalid Byron PBFT delegate key",
+		)
 	}
 	delegateHash, err := PBFTVerificationKeyHash(delegateKey)
 	if err != nil {
-		return err
+		return common.Blake2b224{}, err
 	}
-	if _, authorized := activeGenesisIssuerForDelegate(v.config.GenesisDelegations, delegateHash); !authorized {
-		return fmt.Errorf(
-			"byron PBFT active delegation does not authorize delegate %s",
-			delegateHash.String(),
-		)
-	}
-	return nil
-}
-
-func activeGenesisIssuerForDelegate(
-	delegations map[common.Blake2b224]common.Blake2b224,
-	delegate common.Blake2b224,
-) (common.Blake2b224, bool) {
-	for issuer, activeDelegate := range delegations {
-		if activeDelegate == delegate {
-			return issuer, true
-		}
-	}
-	return common.Blake2b224{}, false
-}
-
-func pbftDelegateVerificationKey(input *ValidateHeaderInput) ([]byte, error) {
-	if input == nil || len(input.BlockSig) < 2 {
-		return nil, errors.New("invalid Byron PBFT signature shape")
-	}
-	signatureType, err := extractUint64(input.BlockSig[0])
-	if err != nil {
-		return nil, err
-	}
-	if signatureType != byronSigTypeHeavy {
-		return nil, nil
-	}
-	inner, ok := input.BlockSig[1].([]any)
-	if !ok || len(inner) == 0 {
-		return nil, errors.New("invalid Byron PBFT proxy signature payload")
-	}
-	certificate, ok := inner[0].([]any)
-	if !ok || len(certificate) < 3 {
-		return nil, errors.New("invalid Byron PBFT proxy certificate")
-	}
-	delegate, ok := certificate[2].([]byte)
-	if !ok || len(delegate) != 64 {
-		return nil, errors.New("invalid Byron PBFT delegate key")
-	}
-	return delegate, nil
+	return resolveActivePBFTIssuer(v.config.GenesisDelegations, delegateHash)
 }
 
 // validateSlotOrdering checks slot progression

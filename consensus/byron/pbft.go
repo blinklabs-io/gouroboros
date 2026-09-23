@@ -64,18 +64,43 @@ func ValidatePBFTHeader(
 	if err != nil {
 		return PBFTIssuer{}, err
 	}
-	for genesisIssuer, activeDelegate := range config.GenesisDelegations {
-		if activeDelegate == issuer.DelegateKeyHash {
-			issuer.GenesisKeyHash = genesisIssuer
-			return issuer, nil
-		}
-	}
-	return PBFTIssuer{}, fmt.Errorf(
-		"byron PBFT active delegation does not authorize genesis issuer %s "+
-			"for delegate %s",
-		issuer.GenesisKeyHash.String(),
-		issuer.DelegateKeyHash.String(),
+	activeIssuer, err := resolveActivePBFTIssuer(
+		config.GenesisDelegations,
+		issuer.DelegateKeyHash,
 	)
+	if err != nil {
+		return PBFTIssuer{}, err
+	}
+	issuer.GenesisKeyHash = activeIssuer
+	return issuer, nil
+}
+
+func resolveActivePBFTIssuer(
+	activeDelegations map[common.Blake2b224]common.Blake2b224,
+	delegate common.Blake2b224,
+) (common.Blake2b224, error) {
+	var activeIssuer common.Blake2b224
+	found := false
+	for issuer, activeDelegate := range activeDelegations {
+		if activeDelegate != delegate {
+			continue
+		}
+		if found && issuer != activeIssuer {
+			return common.Blake2b224{}, fmt.Errorf(
+				"byron PBFT active delegation maps delegate %s to multiple issuers",
+				delegate.String(),
+			)
+		}
+		activeIssuer = issuer
+		found = true
+	}
+	if !found {
+		return common.Blake2b224{}, fmt.Errorf(
+			"byron PBFT active delegation does not authorize delegate %s",
+			delegate.String(),
+		)
+	}
+	return activeIssuer, nil
 }
 
 // ValidatePBFTHeaderCrypto validates the cryptographic and configured-genesis

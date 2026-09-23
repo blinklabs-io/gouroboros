@@ -221,16 +221,31 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 		ProtocolMagic: protocolMagic,
 	})
 	genesisIssuers := make(map[common.Blake2b224]struct{}, len(keyHashes))
-	heavyIssuers := make(map[common.Blake2b224]struct{}, len(genesis.HeavyDelegation))
 	for _, hash := range keyHashes {
 		genesisIssuers[hash] = struct{}{}
 	}
+	heavyIssuers := make(
+		map[common.Blake2b224]struct{},
+		len(genesis.HeavyDelegation),
+	)
 	for genesisHashHex := range genesis.HeavyDelegation {
-		hashBytes, err := hex.DecodeString(genesisHashHex)
-		if err != nil || len(hashBytes) != common.Blake2b224Size {
-			continue
+		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"decode genesis delegation key hash %q: %w",
+				genesisHashHex,
+				err,
+			)
 		}
-		heavyIssuers[common.NewBlake2b224(hashBytes)] = struct{}{}
+		if len(genesisHashBytes) != common.Blake2b224Size {
+			return ByronConfig{}, fmt.Errorf(
+				"invalid genesis delegation key hash length for %q: got %d, expected %d",
+				genesisHashHex,
+				len(genesisHashBytes),
+				common.Blake2b224Size,
+			)
+		}
+		heavyIssuers[common.NewBlake2b224(genesisHashBytes)] = struct{}{}
 	}
 	for genesisHashHex, delegation := range genesis.HeavyDelegation {
 		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
@@ -304,7 +319,7 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 		}
 		if delegation.Omega < 0 || delegation.Omega > 1 {
 			return ByronConfig{}, fmt.Errorf(
-				"invalid delegation omega for genesis key %s: %d",
+				"invalid genesis delegation omega for key %s: %d (expected 0 or 1)",
 				genesisHashHex,
 				delegation.Omega,
 			)
@@ -344,22 +359,35 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 		genesisDelegations[genesisHash] = delegateHash
 		genesisDelegationEpochs[genesisHash] = uint64(delegation.Omega)
 	}
-	genesisView, err := NewPBFTDelegationState(ByronConfig{
-		SecurityParam:           uint64(genesis.ProtocolConsts.K),
-		GenesisKeyHashes:        keyHashBytes,
-		GenesisDelegations:      genesisDelegations,
-		GenesisDelegationEpochs: genesisDelegationEpochs,
-	})
-	if err != nil {
-		return ByronConfig{}, fmt.Errorf("build Byron genesis delegation view: %w", err)
-	}
-	genesisDelegations = genesisView.ActiveDelegations()
 
 	// Byron slots per epoch = 10 * K (security parameter)
 	// This is the standard Byron formula
 	// #nosec G115 -- K is validated to be non-negative above
 	k := uint64(genesis.ProtocolConsts.K)
 	slotsPerEpoch := 10 * k
+	initialDelegationState, err := NewPBFTDelegationState(ByronConfig{
+		ProtocolMagic:           protocolMagic,
+		SecurityParam:           k,
+		GenesisKeyHashes:        keyHashBytes,
+		GenesisDelegations:      genesisDelegations,
+		GenesisDelegationEpochs: genesisDelegationEpochs,
+	})
+	if err != nil {
+		return ByronConfig{}, fmt.Errorf(
+			"build Byron genesis delegation state: %w",
+			err,
+		)
+	}
+	activeGenesisDelegations := initialDelegationState.ActiveDelegations()
+	activeGenesisDelegationEpochs := make(
+		map[common.Blake2b224]uint64,
+		len(genesisDelegationEpochs),
+	)
+	for issuer, epoch := range genesisDelegationEpochs {
+		if activeGenesisDelegations[issuer] == genesisDelegations[issuer] {
+			activeGenesisDelegationEpochs[issuer] = epoch
+		}
+	}
 
 	// Slot duration is in milliseconds in the genesis file
 	slotDuration := time.Duration(genesis.BlockVersionData.SlotDuration) * time.Millisecond
@@ -377,8 +405,8 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 		SecurityParam:           k,
 		NumGenesisKeys:          len(keyHashes),
 		GenesisKeyHashes:        keyHashBytes,
-		GenesisDelegations:      genesisDelegations,
-		GenesisDelegationEpochs: genesisDelegationEpochs,
+		GenesisDelegations:      activeGenesisDelegations,
+		GenesisDelegationEpochs: activeGenesisDelegationEpochs,
 		TxFeePolicy:             feePolicy,
 	}, nil
 }
