@@ -173,6 +173,7 @@ var extraDataCases = []struct {
 	{"negative key", "81a12040", false},
 	{"text key", "81a1616140", false},
 	{"bytes key", "81a1410040", false},
+	{"bignum key", "81a1c2410540", false},
 	{"integer value", "81a10000", false},
 	{"text value", "81a1006161", false},
 	{"chunked bytes value", "81a1005f4100ff", false},
