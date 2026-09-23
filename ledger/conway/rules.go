@@ -957,6 +957,9 @@ func UtxoValidateGovActionWellFormedness(
 			if !tx.IsValid() {
 				continue
 			}
+			if err := a.Validate(); err != nil {
+				return MalformedGovActionError{Reason: err.Error()}
+			}
 			// common.Credential embeds cbor.DecodeStoreCbor (a slice field),
 			// making it non-comparable, so key the set on its logical
 			// (CredType, Credential hash) value instead.
