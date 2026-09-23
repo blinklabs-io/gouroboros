@@ -227,9 +227,7 @@ func TestStopUnblocksPipelineRequestBurstEnqueue(t *testing.T) {
 	releaseEnqueue()
 	select {
 	case err := <-stopDone:
-		if err != nil {
-			require.ErrorIs(t, err, context.DeadlineExceeded)
-		}
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(time.Second):
 		t.Fatal("Stop did not finish")
 	}
@@ -362,9 +360,7 @@ func TestStopCancelsAwaitReplyPipelineFence(t *testing.T) {
 	go func() { stopDone <- client.Stop() }()
 	select {
 	case err := <-stopDone:
-		if err != nil {
-			require.ErrorIs(t, err, context.DeadlineExceeded)
-		}
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(time.Second):
 		t.Fatal("Stop waited for the blocked AwaitReply pipeline fence")
 	}

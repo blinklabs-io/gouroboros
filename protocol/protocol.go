@@ -105,6 +105,18 @@ type Protocol struct {
 	// few adjacent statements wide and a real reproduction only lands it
 	// probabilistically. Production code never sets this.
 	resolvePipelinedDequeuePostFlushHook func()
+	// batchRecheckHook, when non-nil, is invoked by sendLoop's readSendQueueLoop
+	// immediately before it re-reads the current state to decide whether a
+	// message batched behind an earlier pipelined-dequeue message (one fetched
+	// directly from sendQueueChan rather than through resolvePipelinedDequeue)
+	// may have its transition applied immediately. It exists only to let a
+	// test deterministically land a concurrent stateLoop transition inside
+	// that window -- otherwise a genuine data race -- so the batch's own
+	// currentState read observes a state that legitimately grants this role
+	// agency while earlier messages in the same batch still have their
+	// transitions deferred in queuedStateTransitions. Production code never
+	// sets this.
+	batchRecheckHook func()
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -925,7 +937,19 @@ waitSendReadyChan:
 		// pipelinedOutbound holds a message dequeued through the pipelined
 		// send path. Its state transition, and those of any messages batched
 		// behind it, are deferred until agency returns.
-		if pipelinedOutbound != nil && pipelinedOutbound.waitForAgency {
+		//
+		// A held message stays held on pipelinedOutbound != nil alone, not on
+		// waitForAgency: once the select below consumes a sendReadyChan token
+		// for it, waitForAgency is cleared, but a non-empty
+		// queuedStateTransitions backlog below may still force this loop
+		// around again (the "Check for queued state transitions" continue)
+		// before the read-send-queue section ever reaches pipelinedOutbound
+		// to send it. Gating on waitForAgency alone would let that next
+		// iteration fall through to the pipelinedSendAllowed() branch instead,
+		// which reads sendQueueChan and would silently overwrite
+		// pipelinedOutbound with a newly dequeued message -- dropping the
+		// held one (blinklabs-io/gouroboros#2494).
+		if pipelinedOutbound != nil {
 			select {
 			case <-p.stopChan:
 				return
@@ -966,6 +990,18 @@ waitSendReadyChan:
 					}
 					p.SendError(err)
 					return
+				}
+				if pipelinedOutbound != nil && pipelinedOutbound.waitForAgency {
+					// resolvePipelinedDequeue decided this message must wait
+					// for real agency: it neither fits the pipelined path nor
+					// may be sent yet as an ordinary transition. Loop back to
+					// the top immediately rather than falling through into
+					// the read-send-queue section below, which treats any
+					// non-nil pipelinedOutbound as ready to write regardless
+					// of waitForAgency and would put it on the wire right now
+					// while the peer still holds agency
+					// (blinklabs-io/gouroboros#2494).
+					continue waitSendReadyChan
 				}
 			}
 		} else {
@@ -1038,8 +1074,25 @@ waitSendReadyChan:
 			}
 			msg := outbound.message
 			if queueTransition && !fromPipelinedDequeue {
+				if p.batchRecheckHook != nil {
+					p.batchRecheckHook()
+				}
 				currentState := p.getCurrentState()
-				if p.roleHasAgency(currentState) {
+				// Bypassing deferral here applies msg's transition
+				// immediately via transitionState below instead of queueing
+				// it. That is only safe when queuedStateTransitions is empty:
+				// an earlier message in this same batch may already be
+				// waiting there for its own deferred transition, and
+				// currentState can reflect a real, concurrent transition
+				// (e.g. a peer reply) that has nothing to do with that
+				// backlog. Applying msg's transition ahead of it would run
+				// transitions out of the order the messages were sent in and
+				// leave the backlog's own agency token undrained -- the same
+				// token/state pairing problem this whole fix exists to
+				// prevent (blinklabs-io/gouroboros#2494). When the backlog is
+				// non-empty this falls through to the ordinary
+				// pipelined-or-wait-for-agency handling below instead.
+				if len(queuedStateTransitions) == 0 && p.roleHasAgency(currentState) {
 					queueTransition = false
 				} else if !p.pipelinedMessageAllowed(currentState, msg) {
 					if !p.messageHasAgencyTransition(msg) {
