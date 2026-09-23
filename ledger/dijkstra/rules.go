@@ -1613,6 +1613,9 @@ func validateDijkstraAccountBalanceIntervals(
 	var outside []AccountBalanceIntervalMismatch
 	for _, addressKey := range sortedDijkstraAccountAddresses(intervals) {
 		interval := intervals[addressKey]
+		if interval == nil {
+			return errors.New("account balance intervals contains a nil interval")
+		}
 		if err := validateDijkstraAccountBalanceInterval(interval); err != nil {
 			return err
 		}
