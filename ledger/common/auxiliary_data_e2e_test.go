@@ -283,12 +283,11 @@ func TestE2EAlonzoTransactionAuxiliaryData(t *testing.T) {
 }
 
 func TestAuxiliaryDataScriptsMustBeWellFormedEvenWhenUnneeded(t *testing.T) {
-	bodyCbor, err := cbor.Encode(map[uint]any{
+	bodyMap := map[uint]any{
 		0: []any{},
 		1: []any{},
 		2: uint64(0),
-	})
-	require.NoError(t, err)
+	}
 	witnessCbor, err := cbor.Encode(map[uint]any{})
 	require.NoError(t, err)
 	validCbor, err := cbor.Encode(true)
@@ -304,6 +303,9 @@ func TestAuxiliaryDataScriptsMustBeWellFormedEvenWhenUnneeded(t *testing.T) {
 		Content: auxiliaryFieldsCbor,
 	})
 	require.NoError(t, err)
+	bodyMap[7] = common.Blake2b256Hash(auxiliaryDataCbor).Bytes()
+	bodyCbor, err := cbor.Encode(bodyMap)
+	require.NoError(t, err)
 	txCbor, err := cbor.Encode([]cbor.RawMessage{
 		bodyCbor, witnessCbor, validCbor, auxiliaryDataCbor,
 	})
@@ -311,11 +313,17 @@ func TestAuxiliaryDataScriptsMustBeWellFormedEvenWhenUnneeded(t *testing.T) {
 	var tx alonzo.AlonzoTransaction
 	_, err = cbor.Decode(txCbor, &tx)
 	require.NoError(t, err)
-	require.ErrorContains(
-		t,
-		common.ValidateAuxiliaryDataScriptsWellFormed(&tx, 8),
-		"malformed auxiliary-data Plutus script",
+	rules := common.ComposeUtxoValidationRules(
+		common.AlwaysUtxoValidationRules(alonzo.UtxoValidateMetadata),
 	)
+	err = common.VerifyTransaction(
+		&tx,
+		0,
+		nil,
+		&alonzo.AlonzoProtocolParameters{ProtocolMajor: 8},
+		rules,
+	)
+	require.ErrorContains(t, err, "malformed auxiliary-data Plutus script")
 }
 
 func TestE2EBabbageTransactionAuxiliaryData(t *testing.T) {
