@@ -1123,13 +1123,6 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return fmt.Errorf("collateral return: %w", err)
 		}
 	}
-	if err := cbor.ValidateMapFields(
-		cborData,
-		[]uint64{0, 1, 2},
-		[]uint64{4, 5, 9, 13, 18, 20, 23, 24},
-	); err != nil {
-		return fmt.Errorf("invalid Dijkstra transaction body: %w", err)
-	}
 	*b = DijkstraTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(
 		cborData,
