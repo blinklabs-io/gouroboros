@@ -224,7 +224,7 @@ func ExtractOpCertFromHeader(
 	header common.BlockHeader,
 ) (*OpCert, error) {
 	if header == nil ||
-		(reflect.ValueOf(header).Kind() == reflect.Ptr &&
+		(reflect.ValueOf(header).Kind() == reflect.Pointer &&
 			reflect.ValueOf(header).IsNil()) {
 		return nil, common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
