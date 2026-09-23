@@ -863,10 +863,8 @@ func roundNanoToInteger(value *big.Int) *big.Int {
 	quotient, remainder := new(big.Int), new(big.Int)
 	quotient.QuoRem(value, denominator, remainder)
 	twiceRemainder := new(big.Int).Lsh(remainder, 1)
+	twiceRemainder.Abs(twiceRemainder)
 	comparison := twiceRemainder.Cmp(denominator)
-	if comparison < 0 {
-		comparison = -comparison
-	}
 	if comparison > 0 || (comparison == 0 && quotient.Bit(0) == 1) {
 		if value.Sign() < 0 {
 			quotient.Sub(quotient, big.NewInt(1))

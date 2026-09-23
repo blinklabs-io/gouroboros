@@ -692,9 +692,13 @@ func TestNewBlockFromCbor_RejectsNullHeaders(t *testing.T) {
 		wantError string
 	}{
 		{
+			// The EBB body must be an indefinite-length list and the extra
+			// body data [attributes] (blinklabs-io/gouroboros#2347), so this
+			// fixture uses 0x9f, 0xff and 0x81, 0xa0 to stay shape-valid
+			// there and isolate the null-header check.
 			"byron ebb",
 			ledger.BlockTypeByronEbb,
-			[]byte{0x83, 0xf6, 0x80, 0x80},
+			[]byte{0x83, 0xf6, 0x9f, 0xff, 0x81, 0xa0},
 			"decode Byron EBB block error: byron EBB block missing header",
 		},
 		{

@@ -262,10 +262,10 @@ func TestByronEpochBoundaryBlockRejectsSubstitutedBody(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(block), 2)
 
-	// Replace the stakeholder list with an empty one.
-	emptyBody, err := cbor.Encode([]any{})
-	require.NoError(t, err)
-	block[1] = emptyBody
+	// Replace the stakeholder list with an empty one. The reference only
+	// accepts the indefinite-length form, so a definite empty list would be
+	// rejected at decode before the proof is checked.
+	block[1] = cbor.RawMessage{0x9f, 0xff}
 	tampered, err := cbor.Encode(block)
 	require.NoError(t, err)
 
