@@ -17,7 +17,12 @@ import (
 
 func TestExplicitZeroTotalCollateralIsValidated(t *testing.T) {
 	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
-	raw, err := cbor.Encode(map[uint]any{17: uint64(0)})
+	raw, err := cbor.Encode(map[uint]any{
+		0:  cbor.NewSetType([]any{}, false),
+		1:  []any{},
+		2:  uint64(0),
+		17: uint64(0),
+	})
 	require.NoError(t, err)
 	var body conway.ConwayTransactionBody
 	_, err = cbor.Decode(raw, &body)

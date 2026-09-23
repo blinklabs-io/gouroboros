@@ -451,6 +451,9 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		value := networkIdValue.TransactionNetworkId()
 		preserveNetworkIdZero = value != nil && *value == 0
 	}
+	totalCollateral := body.TotalCollateral()
+	preserveTotalCollateralZero := TransactionTotalCollateralPresent(body) &&
+		totalCollateral != nil && totalCollateral.Sign() == 0
 	bodyFields := make(map[uint]cbor.RawMessage)
 	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
 		return nil, err
@@ -496,6 +499,13 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 			return nil, err
 		}
 		bodyFields[15] = encodedNetworkId
+	}
+	if preserveTotalCollateralZero {
+		encodedTotalCollateral, err := cbor.Encode(uint64(0))
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[17] = encodedTotalCollateral
 	}
 	return cbor.Encode(bodyFields)
 }
