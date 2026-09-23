@@ -284,3 +284,15 @@ func TestByronMainBlockHeaderPreservesExtraProofOfArbitraryLength(t *testing.T) 
 		})
 	}
 }
+
+// TestByronMainBlockHeaderRejectsChunkedExtraProof pins that the extra data
+// proof must be a definite-length byte string: the reference reads it with
+// cborg's decodeBytes, which rejects the chunked 0x5f form.
+func TestByronMainBlockHeaderRejectsChunkedExtraProof(t *testing.T) {
+	mutated := mutateHeaderExtraData(
+		t, realByronBlockCbor(t), 3, []byte{0x5f, 0x41, 0x00, 0xff},
+	)
+	blockParts := byronBlockParts(t, mutated)
+	var header byron.ByronMainBlockHeader
+	require.Error(t, header.UnmarshalCBOR(blockParts[0]))
+}
