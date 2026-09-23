@@ -500,6 +500,59 @@ type ByronTransaction struct {
 	witnessSet *ByronTransactionWitnessSet
 }
 
+// ValidateVKeyWitnesses verifies Byron payment and redeem key witnesses using
+// the transaction ID and the network-specific signing domain.
+func (t *ByronTransaction) ValidateVKeyWitnesses(protocolMagic uint32) error {
+	for i := range t.Twit {
+		witness, ok := t.Twit[i].Value().([]any)
+		if !ok || len(witness) != 2 {
+			continue
+		}
+		constructor, ok := asUint64(witness[0])
+		if !ok || (constructor != 0 && constructor != 2) {
+			continue
+		}
+		wrapped, ok := witness[1].(cbor.WrappedCbor)
+		if !ok {
+			return fmt.Errorf("Byron vkey witness %d is missing tag 24 payload", i)
+		}
+		var fields []any
+		payload := wrapped.Bytes()
+		consumed, err := cbor.Decode(payload, &fields)
+		if err != nil || consumed != len(payload) || len(fields) != 2 {
+			return fmt.Errorf("decode Byron vkey witness %d", i)
+		}
+		publicKey, ok := asBytes(fields[0])
+		if !ok || len(publicKey) != VerificationKeySize {
+			return fmt.Errorf("invalid Byron extended verification key in witness %d", i)
+		}
+		signature, ok := asBytes(fields[1])
+		if !ok {
+			return fmt.Errorf("invalid Byron signature in witness %d", i)
+		}
+		tag := SignTagTx
+		if constructor == 2 {
+			tag = SignTagRedeemTx
+		}
+		magicCbor, err := cbor.Encode(protocolMagic)
+		if err != nil {
+			return fmt.Errorf("encode Byron protocol magic: %w", err)
+		}
+		txIDCbor, err := cbor.Encode(t.Body.Id().Bytes())
+		if err != nil {
+			return fmt.Errorf("encode Byron transaction ID: %w", err)
+		}
+		signed := make([]byte, 0, 1+len(magicCbor)+len(txIDCbor))
+		signed = append(signed, tag)
+		signed = append(signed, magicCbor...)
+		signed = append(signed, txIDCbor...)
+		if !ed25519byron.Verify(publicKey[:32], signed, signature) {
+			return fmt.Errorf("invalid Byron vkey witness %d signature", i)
+		}
+	}
+	return nil
+}
+
 func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
 	if err := validateByronDefiniteStrings(cborData); err != nil {
 		return fmt.Errorf("invalid Byron transaction string framing: %w", err)
