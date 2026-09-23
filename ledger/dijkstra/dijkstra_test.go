@@ -19,7 +19,9 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1962,6 +1964,370 @@ func TestDijkstraProtocolParameterUpdateDecodesConwayAndDijkstraFields(
 	require.Equal(t, uint32(2000), pparams.MaxRefScriptSizePerTx)
 	require.Equal(t, uint32(16), pparams.RefScriptCostStride)
 	require.Equal(t, 0, pparams.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
+}
+
+func TestDijkstraProtocolParameterUpdateCostModelLanguageIDDomain(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		id      uint
+		wantErr bool
+	}{
+		{name: "unknown Word8 ID remains valid", id: 255},
+		{name: "out-of-domain ID rejected", id: 256, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(map[int]any{
+				18: map[uint][]int64{tc.id: {1}},
+			})
+			require.NoError(t, err)
+			var update DijkstraProtocolParameterUpdate
+			err = update.UnmarshalCBOR(encoded)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Contains(t, update.CostModels, tc.id)
+			}
+		})
+	}
+	var params DijkstraProtocolParameters
+	err := params.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+		CostModels: map[uint][]int64{256: {1}},
+	})
+	require.Error(t, err)
+	require.Empty(t, params.CostModels)
+}
+
+func TestProtocolParameterUpdateFixedWidthIntegerDomains(t *testing.T) {
+	tests := []struct {
+		name string
+		tag  int
+		max  uint64
+	}{
+		{"maxBlockBodySize", 2, math.MaxUint32},
+		{"maxTxSize", 3, math.MaxUint32},
+		{"maxBlockHeaderSize", 4, math.MaxUint16},
+		{"maxEpoch", 7, math.MaxUint32},
+		{"nOpt", 8, math.MaxUint16},
+		{"maxValueSize", 22, math.MaxUint32},
+		{"collateralPercentage", 23, math.MaxUint16},
+		{"maxCollateralInputs", 24, math.MaxUint16},
+		{"minCommitteeSize", 27, math.MaxUint16},
+		{"committeeTermLimit", 28, math.MaxUint32},
+		{"govActionValidityPeriod", 29, math.MaxUint32},
+		{"dRepInactivityPeriod", 32, math.MaxUint32},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, tcValue := range []struct {
+				name    string
+				value   uint64
+				wantErr bool
+			}{
+				{name: "maximum", value: tc.max},
+				{name: "maximum plus one", value: tc.max + 1, wantErr: true},
+			} {
+				t.Run(tcValue.name, func(t *testing.T) {
+					encoded, err := cbor.Encode(map[int]any{tc.tag: tcValue.value})
+					require.NoError(t, err)
+					var conwayUpdate conway.ConwayProtocolParameterUpdate
+					err = conwayUpdate.UnmarshalCBOR(encoded)
+					if tcValue.wantErr {
+						require.Error(t, err)
+					} else {
+						require.NoError(t, err)
+					}
+					var dijkstraUpdate DijkstraProtocolParameterUpdate
+					err = dijkstraUpdate.UnmarshalCBOR(encoded)
+					if tcValue.wantErr {
+						require.Error(t, err)
+					} else {
+						require.NoError(t, err)
+					}
+				})
+			}
+		})
+	}
+	if strconv.IntSize == 64 {
+		tooLarge := uint(math.MaxUint32)
+		tooLarge++
+		conwayParams := conway.ConwayProtocolParameters{}
+		require.Error(t, conwayParams.ApplyUpdate(&conway.ConwayProtocolParameterUpdate{
+			MaxBlockBodySize: &tooLarge,
+		}))
+		dijkstraParams := DijkstraProtocolParameters{}
+		require.Error(t, dijkstraParams.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+			MaxBlockBodySize: &tooLarge,
+		}))
+		require.Zero(t, conwayParams.MaxBlockBodySize)
+		require.Zero(t, dijkstraParams.MaxBlockBodySize)
+	}
+}
+
+func TestDijkstraProtocolParameterUpdateDijkstraFieldWidths(t *testing.T) {
+	fields := []struct {
+		name string
+		tag  int
+		max  uint64
+	}{
+		{"maxRefScriptSizePerBlock", 34, math.MaxUint32},
+		{"maxRefScriptSizePerTx", 35, math.MaxUint32},
+		{"refScriptCostStride", 36, math.MaxUint32},
+		{"leiosAnnouncementPeriodLength", 40, math.MaxUint32},
+		{"leiosVotePeriodLength", 41, math.MaxUint32},
+		{"leiosDiffusionPeriodLength", 42, math.MaxUint32},
+		{"leiosCommitteeSize", 43, math.MaxUint16},
+		{"maxEndorserBlockReferencesSize", 45, math.MaxUint32},
+		{"maxEndorserBlockTxsSize", 46, math.MaxUint32},
+		{"maxRefScriptSizePerEndorserBlock", 48, math.MaxUint32},
+	}
+	for _, field := range fields {
+		t.Run(field.name, func(t *testing.T) {
+			for _, value := range []struct {
+				name string
+				v    uint64
+				bad  bool
+			}{
+				{name: "maximum", v: field.max},
+				{name: "maximum plus one", v: field.max + 1, bad: true},
+			} {
+				t.Run(value.name, func(t *testing.T) {
+					encoded, err := cbor.Encode(map[int]any{field.tag: value.v})
+					require.NoError(t, err)
+					var update DijkstraProtocolParameterUpdate
+					err = update.UnmarshalCBOR(encoded)
+					if value.bad {
+						require.Error(t, err)
+					} else {
+						require.NoError(t, err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestDijkstraMaxPledgeLeverageNullUpdate(t *testing.T) {
+	encoded, err := cbor.Encode(map[int]any{38: nil})
+	require.NoError(t, err)
+	var update DijkstraProtocolParameterUpdate
+	require.NoError(t, update.UnmarshalCBOR(encoded))
+	require.True(t, update.MaxPledgeLeverageSet)
+	require.Nil(t, update.MaxPledgeLeverage)
+	require.True(t, update.hasUpdate())
+	require.NoError(t, validateDijkstraProtocolParameterUpdate(&update))
+
+	update.SetCbor(nil)
+	roundTrip, err := update.MarshalCBOR()
+	require.NoError(t, err)
+	var decoded DijkstraProtocolParameterUpdate
+	require.NoError(t, decoded.UnmarshalCBOR(roundTrip))
+	require.True(t, decoded.MaxPledgeLeverageSet)
+	require.Nil(t, decoded.MaxPledgeLeverage)
+
+	params := DijkstraProtocolParameters{
+		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(3, 2)},
+	}
+	require.NoError(t, params.ApplyUpdate(&update))
+	require.Nil(t, params.MaxPledgeLeverage)
+
+	got := update.ToPlutusData()
+	want := data.NewMap([][2]data.PlutusData{{
+		data.NewInteger(big.NewInt(38)),
+		data.NewConstr(1),
+	}})
+	require.True(t, got.Equal(want))
+	action := DijkstraParameterChangeGovAction{
+		ParamUpdate: update,
+	}
+	wantAction := data.NewConstr(
+		0,
+		data.NewConstr(1),
+		want,
+		data.NewConstr(1),
+	)
+	require.True(t, action.ToPlutusData().Equal(wantAction))
+}
+
+func TestDijkstraProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
+	tags := []int{0, 1, 5, 6, 14, 16, 17, 18, 20, 21, 25, 26, 30, 31}
+	for tag := 34; tag <= 48; tag++ {
+		if tag != 38 {
+			tags = append(tags, tag)
+		}
+	}
+	for _, tag := range tags {
+		t.Run(fmt.Sprintf("tag_%d", tag), func(t *testing.T) {
+			encoded, err := cbor.Encode(map[int]any{0: uint(1), tag: nil})
+			require.NoError(t, err)
+			var update DijkstraProtocolParameterUpdate
+			require.Error(t, update.UnmarshalCBOR(encoded))
+		})
+	}
+}
+
+func TestDijkstraProtocolParameterUpdateDomains(t *testing.T) {
+	ratio := func(numerator, denominator int64) *cbor.Rat {
+		return &cbor.Rat{Rat: big.NewRat(numerator, denominator)}
+	}
+	tests := []struct {
+		name  string
+		field map[int]any
+		valid bool
+	}{
+		{name: "positive stride multiplier", field: map[int]any{37: ratio(1, 1)}, valid: true},
+		{name: "positive leverage update", field: map[int]any{38: ratio(0, 1)}, valid: true},
+		{name: "negative leverage update", field: map[int]any{38: ratio(-1, 1)}},
+		{name: "zero stride multiplier", field: map[int]any{37: ratio(0, 1)}},
+		{name: "negative stride multiplier", field: map[int]any{37: ratio(-1, 1)}},
+		{name: "min pool margin zero", field: map[int]any{39: ratio(0, 1)}, valid: true},
+		{name: "min pool margin one", field: map[int]any{39: ratio(1, 1)}, valid: true},
+		{name: "min pool margin below zero", field: map[int]any{39: ratio(-1, 1)}},
+		{name: "min pool margin above one", field: map[int]any{39: ratio(2, 1)}},
+		{name: "quorum threshold zero", field: map[int]any{44: ratio(0, 1)}, valid: true},
+		{name: "quorum threshold one", field: map[int]any{44: ratio(1, 1)}, valid: true},
+		{name: "quorum threshold below zero", field: map[int]any{44: ratio(-1, 1)}},
+		{name: "quorum threshold above one", field: map[int]any{44: ratio(2, 1)}},
+		{name: "negative endorser memory", field: map[int]any{47: []int64{-1, 0}}},
+		{name: "negative endorser steps", field: map[int]any{47: []int64{0, -1}}},
+		{name: "zero endorser ex-units", field: map[int]any{47: []int64{0, 0}}, valid: true},
+		{name: "maximum endorser ex-units", field: map[int]any{47: []int64{math.MaxInt64, math.MaxInt64}}, valid: true},
+		{name: "inherited negative a0", field: map[int]any{9: ratio(-1, 1)}},
+		{name: "inherited rho above unit interval", field: map[int]any{10: ratio(2, 1)}},
+		{name: "inherited tau below unit interval", field: map[int]any{11: ratio(-1, 1)}},
+		{name: "inherited negative execution memory price", field: map[int]any{19: []any{ratio(-1, 1), ratio(1, 1)}}},
+		{name: "inherited negative execution step price", field: map[int]any{19: []any{ratio(1, 1), ratio(-1, 1)}}},
+		{name: "inherited null execution price", field: map[int]any{0: uint(1), 19: []any{nil, ratio(1, 1)}}},
+		{name: "inherited negative tx ex-units", field: map[int]any{20: []int64{-1, 0}}},
+		{name: "inherited negative block ex-units", field: map[int]any{21: []int64{0, -1}}},
+		{name: "inherited pool threshold above unit interval", field: map[int]any{25: conway.PoolVotingThresholds{
+			MotionNoConfidence:    cbor.Rat{Rat: big.NewRat(1, 2)},
+			CommitteeNormal:       cbor.Rat{Rat: big.NewRat(1, 2)},
+			CommitteeNoConfidence: cbor.Rat{Rat: big.NewRat(1, 2)},
+			HardForkInitiation:    cbor.Rat{Rat: big.NewRat(1, 2)},
+			PpSecurityGroup:       cbor.Rat{Rat: big.NewRat(2, 1)},
+		}}},
+		{name: "inherited DRep threshold below unit interval", field: map[int]any{26: conway.DRepVotingThresholds{
+			MotionNoConfidence:    cbor.Rat{Rat: big.NewRat(1, 2)},
+			CommitteeNormal:       cbor.Rat{Rat: big.NewRat(1, 2)},
+			CommitteeNoConfidence: cbor.Rat{Rat: big.NewRat(1, 2)},
+			UpdateToConstitution:  cbor.Rat{Rat: big.NewRat(1, 2)},
+			HardForkInitiation:    cbor.Rat{Rat: big.NewRat(1, 2)},
+			PpNetworkGroup:        cbor.Rat{Rat: big.NewRat(1, 2)},
+			PpEconomicGroup:       cbor.Rat{Rat: big.NewRat(1, 2)},
+			PpTechnicalGroup:      cbor.Rat{Rat: big.NewRat(1, 2)},
+			PpGovGroup:            cbor.Rat{Rat: big.NewRat(1, 2)},
+			TreasuryWithdrawal:    cbor.Rat{Rat: big.NewRat(-1, 2)},
+		}}},
+		{name: "inherited negative ref-script fee", field: map[int]any{33: ratio(-1, 1)}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(tc.field)
+			require.NoError(t, err)
+			var update DijkstraProtocolParameterUpdate
+			err = update.UnmarshalCBOR(encoded)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestDijkstraProtocolParameterUpdateRejectsOutOfRangeRatios(t *testing.T) {
+	tooWide := new(big.Int).Lsh(big.NewInt(1), 64)
+	update := DijkstraProtocolParameterUpdate{
+		RefScriptCostMultiplier: &cbor.Rat{Rat: new(big.Rat).SetInt(tooWide)},
+	}
+	require.Error(t, validateDijkstraProtocolParameterUpdateDomains(&update))
+
+	max := new(big.Int).SetUint64(math.MaxUint64)
+	valid := DijkstraProtocolParameterUpdate{
+		RefScriptCostMultiplier: &cbor.Rat{Rat: new(big.Rat).SetFrac(max, big.NewInt(1))},
+	}
+	require.NoError(t, validateDijkstraProtocolParameterUpdateDomains(&valid))
+
+	invalidWireValues := map[string][]byte{
+		// Both raw components are 2^64, which cbor.Rat reduces to 1/1.
+		"oversized components that reduce into range": {
+			0xa1, 0x18, 0x27, 0xd8, 0x1e, 0x82,
+			0xc2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xc2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		},
+		"negative numerator and denominator that reduce into range": {
+			0xa1, 0x18, 0x27, 0xd8, 0x1e, 0x82, 0x20, 0x20,
+		},
+		"negative denominator": {
+			0xa1, 0x18, 0x27, 0xd8, 0x1e, 0x82, 0x01, 0x20,
+		},
+	}
+	for name, raw := range invalidWireValues {
+		t.Run(name, func(t *testing.T) {
+			var decoded DijkstraProtocolParameterUpdate
+			require.Error(t, decoded.UnmarshalCBOR(raw))
+		})
+	}
+	maxBoundedComponents := []byte{
+		0xa1, 0x18, 0x27, 0xd8, 0x1e, 0x82,
+		0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	}
+	var maxBounded DijkstraProtocolParameterUpdate
+	require.NoError(t, maxBounded.UnmarshalCBOR(maxBoundedComponents))
+}
+
+func TestDijkstraProtocolParameterUpdateNullEncodingChangedParameters(t *testing.T) {
+	var absent DijkstraProtocolParameterUpdate
+	absentWire, err := absent.MarshalCBOR()
+	require.NoError(t, err)
+	var absentRoundTrip DijkstraProtocolParameterUpdate
+	require.NoError(t, absentRoundTrip.UnmarshalCBOR(absentWire))
+	require.False(t, absentRoundTrip.MaxPledgeLeverageSet)
+	require.False(t, absentRoundTrip.hasUpdate())
+
+	update := DijkstraProtocolParameterUpdate{MaxPledgeLeverageSet: true}
+	encoded, err := update.MarshalCBOR()
+	require.NoError(t, err)
+	var decoded DijkstraProtocolParameterUpdate
+	require.NoError(t, decoded.UnmarshalCBOR(encoded))
+	require.True(t, decoded.MaxPledgeLeverageSet)
+	require.Nil(t, decoded.MaxPledgeLeverage)
+
+	got := update.ToPlutusData()
+	want := data.NewMap([][2]data.PlutusData{{
+		data.NewInteger(big.NewInt(38)),
+		data.NewConstr(1),
+	}})
+	require.True(t, got.Equal(want))
+
+	ratioUpdate := DijkstraProtocolParameterUpdate{
+		MaxPledgeLeverageSet: true,
+		MaxPledgeLeverage:    &cbor.Rat{Rat: big.NewRat(3, 2)},
+	}
+	got = ratioUpdate.ToPlutusData()
+	want = data.NewMap([][2]data.PlutusData{{
+		data.NewInteger(big.NewInt(38)),
+		data.NewConstr(0, data.NewList(
+			data.NewInteger(big.NewInt(3)),
+			data.NewInteger(big.NewInt(2)),
+		)),
+	}})
+	require.True(t, got.Equal(want))
+
+	mixedWire, err := cbor.Encode(map[int]any{0: uint(44), 38: nil})
+	require.NoError(t, err)
+	var mixed DijkstraProtocolParameterUpdate
+	require.NoError(t, mixed.UnmarshalCBOR(mixedWire))
+	require.True(t, mixed.MaxPledgeLeverageSet)
+	params := DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{MinFeeA: 1},
+		MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(3, 2)},
+	}
+	require.NoError(t, params.ApplyUpdate(&mixed))
+	require.Equal(t, uint(44), params.MinFeeA)
+	require.Nil(t, params.MaxPledgeLeverage)
 }
 
 func TestDijkstraProtocolParameterUpdateDecodesLeiosFields(t *testing.T) {

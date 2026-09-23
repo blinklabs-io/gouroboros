@@ -568,6 +568,9 @@ func validateDijkstraProtocolParameterUpdate(
 	if ppu == nil || !ppu.hasUpdate() {
 		return conway.ProtocolParameterUpdateEmptyError{}
 	}
+	if err := validateDijkstraProtocolParameterUpdateDomains(ppu); err != nil {
+		return err
+	}
 	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
 		return conway.ProtocolParameterUpdateFieldZeroError{
 			FieldName: "maxBHSize",
@@ -602,6 +605,53 @@ func validateDijkstraProtocolParameterUpdate(
 		ppu.CommitteeStakeCoverage,
 		ppu.QuorumStakeThreshold,
 	)
+}
+
+func validateDijkstraProtocolParameterUpdateDomains(
+	ppu *DijkstraProtocolParameterUpdate,
+) error {
+	if ppu == nil {
+		return errors.New("dijkstra protocol parameter update cannot be nil")
+	}
+	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
+		return err
+	}
+	if err := conway.ValidateProtocolParameterUpdate(ppu.conwayUpdate()); err != nil {
+		return err
+	}
+	if ppu.RefScriptCostStride != nil && *ppu.RefScriptCostStride == 0 {
+		return errors.New("refScriptCostStride must be positive")
+	}
+	if rat := ppu.RefScriptCostMultiplier; rat != nil && !validPositiveDijkstraRat(rat) {
+		return errors.New("refScriptCostMultiplier must be a positive bounded ratio")
+	}
+	if rat := ppu.MaxPledgeLeverage; rat != nil && !validNonNegativeDijkstraRat(rat) {
+		return errors.New("maxPledgeLeverage must be a nonnegative bounded ratio")
+	}
+	if rat := ppu.MinPoolMargin; rat != nil && !validUnitDijkstraRat(rat) {
+		return errors.New("minPoolMargin must be a bounded unit interval")
+	}
+	if rat := ppu.LeiosQuorumStakeThreshold; rat != nil && !validUnitDijkstraRat(rat) {
+		return errors.New("leiosQuorumStakeThreshold must be a bounded unit interval")
+	}
+	if ppu.MaxEndorserBlockExUnits != nil &&
+		(ppu.MaxEndorserBlockExUnits.Memory < 0 || ppu.MaxEndorserBlockExUnits.Steps < 0) {
+		return errors.New("maxEndorserBlockExUnits must be nonnegative")
+	}
+	return nil
+}
+
+func validNonNegativeDijkstraRat(rat *cbor.Rat) bool {
+	return rat != nil && rat.Rat != nil && rat.Num().Sign() >= 0 &&
+		rat.Denom().Sign() > 0 && rat.Num().IsUint64() && rat.Denom().IsUint64()
+}
+
+func validPositiveDijkstraRat(rat *cbor.Rat) bool {
+	return validNonNegativeDijkstraRat(rat) && rat.Num().Sign() > 0
+}
+
+func validUnitDijkstraRat(rat *cbor.Rat) bool {
+	return validNonNegativeDijkstraRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
 }
 
 // UtxoValidateDisjointRefInputs is a compatibility no-op for Dijkstra.

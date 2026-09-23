@@ -406,6 +406,31 @@ func drepVotingThresholdsUtxorpc(
 func (p *ConwayProtocolParameters) Update(
 	paramUpdate *ConwayProtocolParameterUpdate,
 ) {
+	if err := p.ApplyUpdate(paramUpdate); err != nil {
+		panic(err)
+	}
+}
+
+// ApplyUpdate validates and applies a Conway protocol-parameter update.
+func (p *ConwayProtocolParameters) ApplyUpdate(
+	paramUpdate *ConwayProtocolParameterUpdate,
+) error {
+	if paramUpdate == nil {
+		return nil
+	}
+	if err := validateConwayProtocolParameterUpdate(paramUpdate); err != nil {
+		return err
+	}
+	p.updateUnchecked(paramUpdate)
+	return nil
+}
+
+func (p *ConwayProtocolParameters) updateUnchecked(
+	paramUpdate *ConwayProtocolParameterUpdate,
+) {
+	if paramUpdate == nil {
+		return
+	}
 	if paramUpdate.MinFeeA != nil {
 		p.MinFeeA = *paramUpdate.MinFeeA
 	}
@@ -696,6 +721,26 @@ func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &fields); err != nil {
 		return err
 	}
+	for _, key := range []int{9, 10, 11, 33} {
+		if raw, ok := fields[key]; ok {
+			if err := common.ValidateNonNegativeBoundedRatCBOR(raw); err != nil {
+				return ConwayProtocolParameterUpdateError{
+					FieldName: fmt.Sprintf("protocol parameter tag %d", key),
+					Reason:    err.Error(),
+				}
+			}
+		}
+	}
+	for _, key := range []int{19, 25, 26} {
+		if raw, ok := fields[key]; ok {
+			if err := common.ValidateNonNegativeBoundedRatArrayCBOR(raw); err != nil {
+				return ConwayProtocolParameterUpdateError{
+					FieldName: fmt.Sprintf("protocol parameter tag %d", key),
+					Reason:    err.Error(),
+				}
+			}
+		}
+	}
 	type tConwayProtocolParameterUpdate ConwayProtocolParameterUpdate
 	var tmp tConwayProtocolParameterUpdate
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -717,15 +762,42 @@ func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 		key  int
 		name string
 	}{
+		{0, "minFeeA"},
+		{1, "minFeeB"},
+		{2, "maxBlockBodySize"},
+		{3, "maxTxSize"},
+		{4, "maxBlockHeaderSize"},
+		{5, "keyDeposit"},
+		{6, "poolDeposit"},
+		{7, "maxEpoch"},
+		{8, "nOpt"},
 		{9, "a0"},
 		{10, "rho"},
 		{11, "tau"},
+		{14, "protocolVersion"},
+		{16, "minPoolCost"},
+		{17, "adaPerUtxoByte"},
+		{18, "costModels"},
+		{20, "maxTxExUnits"},
+		{21, "maxBlockExUnits"},
+		{22, "maxValueSize"},
+		{23, "collateralPercentage"},
+		{24, "maxCollateralInputs"},
+		{25, "poolVotingThresholds"},
+		{26, "dRepVotingThresholds"},
+		{27, "minCommitteeSize"},
+		{28, "committeeTermLimit"},
+		{29, "govActionValidityPeriod"},
+		{30, "govActionDeposit"},
+		{31, "dRepDeposit"},
+		{32, "dRepInactivityPeriod"},
 		{33, "minFeeRefScriptCostPerByte"},
 	} {
-		if raw, ok := fields[field.key]; ok && len(raw) == 1 && raw[0] == 0xf6 {
+		if raw, ok := fields[field.key]; ok && len(raw) == 1 &&
+			(raw[0] == 0xf6 || raw[0] == 0xf7) {
 			return ConwayProtocolParameterUpdateError{
 				FieldName: field.name,
-				Reason:    "cannot be null",
+				Reason:    "cannot be null or undefined",
 			}
 		}
 	}

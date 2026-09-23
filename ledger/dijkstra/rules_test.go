@@ -541,12 +541,34 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 	maxRefScriptSizePerBlock := uint32(1)
 	maxRefScriptSizePerTx := uint32(2)
 	refScriptCostStride := uint32(3)
+	maxPledgeLeverage := &cbor.Rat{Rat: big.NewRat(1, 1)}
+	minPoolMargin := &cbor.Rat{Rat: big.NewRat(1, 10)}
+	leiosAnnouncementPeriodLength := uint32(4)
+	leiosVotePeriodLength := uint32(5)
+	leiosDiffusionPeriodLength := uint32(6)
+	leiosCommitteeSize := uint16(7)
+	leiosQuorumStakeThreshold := &cbor.Rat{Rat: big.NewRat(3, 4)}
+	maxEndorserBlockReferencesSize := uint32(8)
+	maxEndorserBlockTxsSize := uint32(9)
+	maxEndorserBlockExUnits := common.ExUnits{Memory: 10, Steps: 11}
+	maxRefScriptSizePerEndorserBlock := uint32(12)
 	action := DijkstraParameterChangeGovAction{
 		ParamUpdate: DijkstraProtocolParameterUpdate{
-			MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
-			MaxRefScriptSizePerTx:    &maxRefScriptSizePerTx,
-			RefScriptCostStride:      &refScriptCostStride,
-			RefScriptCostMultiplier:  new(cbor.Rat),
+			MaxRefScriptSizePerBlock:         &maxRefScriptSizePerBlock,
+			MaxRefScriptSizePerTx:            &maxRefScriptSizePerTx,
+			RefScriptCostStride:              &refScriptCostStride,
+			RefScriptCostMultiplier:          new(cbor.Rat),
+			MaxPledgeLeverage:                maxPledgeLeverage,
+			MinPoolMargin:                    minPoolMargin,
+			LeiosAnnouncementPeriodLength:    &leiosAnnouncementPeriodLength,
+			LeiosVotePeriodLength:            &leiosVotePeriodLength,
+			LeiosDiffusionPeriodLength:       &leiosDiffusionPeriodLength,
+			LeiosCommitteeSize:               &leiosCommitteeSize,
+			LeiosQuorumStakeThreshold:        leiosQuorumStakeThreshold,
+			MaxEndorserBlockReferencesSize:   &maxEndorserBlockReferencesSize,
+			MaxEndorserBlockTxsSize:          &maxEndorserBlockTxsSize,
+			MaxEndorserBlockExUnits:          &maxEndorserBlockExUnits,
+			MaxRefScriptSizePerEndorserBlock: &maxRefScriptSizePerEndorserBlock,
 		},
 	}
 	require.Equal(t, []string{
@@ -554,7 +576,98 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 		"MaxRefScriptSizePerTx",
 		"RefScriptCostStride",
 		"RefScriptCostMultiplier",
+		"LeiosAnnouncementPeriodLength",
+		"LeiosVotePeriodLength",
+		"LeiosDiffusionPeriodLength",
+		"LeiosCommitteeSize",
+		"LeiosQuorumStakeThreshold",
+		"MaxEndorserBlockReferencesSize",
+		"MaxEndorserBlockTxsSize",
+		"MaxEndorserBlockExUnits",
+		"MaxRefScriptSizePerEndorserBlock",
 	}, action.SecurityGroupFields())
+}
+
+func TestDijkstraParameterChangeSPOVotingRestrictions(t *testing.T) {
+	spo := common.Voter{
+		Type: common.VoterTypeStakingPoolKeyHash,
+		Hash: common.Blake2b224{0x01},
+	}
+	parameterChangeId := common.GovActionId{TransactionId: common.Blake2b256{0x02}}
+	maxPledgeLeverage := &cbor.Rat{Rat: big.NewRat(1, 1)}
+	minPoolMargin := &cbor.Rat{Rat: big.NewRat(1, 10)}
+	leiosPeriod := uint32(1000)
+
+	govActionKey := fmt.Sprintf(
+		"%x#%d",
+		parameterChangeId.TransactionId[:],
+		parameterChangeId.GovActionIdx,
+	)
+	govActions := map[string]*common.GovActionState{
+		govActionKey: {
+			ActionId:   parameterChangeId,
+			ActionType: common.GovActionTypeParameterChange,
+			Action: &DijkstraParameterChangeGovAction{
+				ParamUpdate: DijkstraProtocolParameterUpdate{
+					LeiosAnnouncementPeriodLength: &leiosPeriod,
+				},
+			},
+		},
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govActions).
+		Build()
+
+	validateVote := func(id common.GovActionId) error {
+		voter := spo
+		actionId := id
+		tx := &DijkstraTransaction{TxIsValid: true}
+		tx.Body.TxVotingProcedures = common.VotingProcedures{
+			&voter: {&actionId: common.VotingProcedure{Vote: common.GovVoteYes}},
+		}
+		return conway.UtxoValidateStakePoolVotingRestrictions(
+			tx, 0, state, &DijkstraProtocolParameters{},
+		)
+	}
+
+	// Leios parameter changes use the security-group path, while the two
+	// neighboring new parameters remain outside SPO voting authorization.
+	require.NoError(t, validateVote(parameterChangeId))
+
+	for name, update := range map[string]DijkstraProtocolParameterUpdate{
+		"max pledge leverage": {MaxPledgeLeverage: maxPledgeLeverage},
+		"minimum pool margin": {MinPoolMargin: minPoolMargin},
+	} {
+		t.Run(name, func(t *testing.T) {
+			id := common.GovActionId{TransactionId: common.Blake2b256{0x03}}
+			govActionKey := fmt.Sprintf(
+				"%x#%d",
+				id.TransactionId[:],
+				id.GovActionIdx,
+			)
+			govActions := map[string]*common.GovActionState{
+				govActionKey: {
+					ActionId:   id,
+					ActionType: common.GovActionTypeParameterChange,
+					Action:     &DijkstraParameterChangeGovAction{ParamUpdate: update},
+				},
+			}
+			state := mockledger.NewLedgerStateBuilder().
+				WithGovActions(govActions).
+				Build()
+			voter := spo
+			actionId := id
+			tx := &DijkstraTransaction{TxIsValid: true}
+			tx.Body.TxVotingProcedures = common.VotingProcedures{
+				&voter: {&actionId: common.VotingProcedure{Vote: common.GovVoteYes}},
+			}
+			err := conway.UtxoValidateStakePoolVotingRestrictions(
+				tx, 0, state, &DijkstraProtocolParameters{},
+			)
+			var restriction conway.StakePoolVotingRestrictionError
+			require.ErrorAs(t, err, &restriction)
+		})
+	}
 }
 
 func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
@@ -1373,6 +1486,23 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 			MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
 		},
 	}
+	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+
+	for _, update := range []DijkstraProtocolParameterUpdate{
+		{RefScriptCostMultiplier: &cbor.Rat{Rat: big.NewRat(0, 1)}},
+		{MinPoolMargin: &cbor.Rat{Rat: big.NewRat(2, 1)}},
+		{LeiosQuorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(-1, 1)}},
+		{MaxEndorserBlockExUnits: &common.ExUnits{Memory: -1}},
+		{A0: &cbor.Rat{Rat: big.NewRat(-1, 1)}},
+	} {
+		tx.Body.TxProposalProcedures[0].PPGovAction.Action =
+			&DijkstraParameterChangeGovAction{ParamUpdate: update}
+		require.Error(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+	}
+	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
+		&DijkstraParameterChangeGovAction{ParamUpdate: DijkstraProtocolParameterUpdate{
+			MaxPledgeLeverageSet: true,
+		}}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 }
 

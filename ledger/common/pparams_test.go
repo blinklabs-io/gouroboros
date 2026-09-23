@@ -18,8 +18,34 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
+
+func TestValidateNonNegativeBoundedRatArrayCBORRequiresArray(t *testing.T) {
+	for name, value := range map[string]any{
+		"null":    nil,
+		"integer": 1,
+		"map":     map[int]any{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := cbor.Encode(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateNonNegativeBoundedRatArrayCBOR(raw); err == nil {
+				t.Fatal("expected non-array CBOR value to be rejected")
+			}
+		})
+	}
+	raw, err := cbor.Encode([]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateNonNegativeBoundedRatArrayCBOR(raw); err != nil {
+		t.Fatalf("empty array: %v", err)
+	}
+}
 
 // TestConvertToUtxorpcCardanoCostModels_Mapping pins the real cardano-ledger
 // wire convention for the cost-models map: 0-indexed language keys
@@ -58,6 +84,24 @@ func TestConvertToUtxorpcCardanoCostModels_Mapping(t *testing.T) {
 		!reflect.DeepEqual(cm.PlutusV4.Values, []int64{70, 80}) {
 		t.Fatalf("PlutusV4 not mapped correctly: %+v", cm.PlutusV4)
 	}
+}
+
+func TestCostModelsToPlutusDataRejectsLanguageIDsOutsideWord8(t *testing.T) {
+	if err := ValidateCostModelLanguageIDs(map[uint][]int64{255: {1}}); err != nil {
+		t.Fatalf("unknown in-domain language ID rejected: %v", err)
+	}
+	if CostModelsToPlutusData(map[uint][]int64{255: {1}}) == nil {
+		t.Fatal("in-domain language ID produced nil ChangedParameters data")
+	}
+	if err := ValidateCostModelLanguageIDs(map[uint][]int64{256: {1}}); err == nil {
+		t.Fatal("out-of-domain language ID accepted")
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("ChangedParameters conversion accepted out-of-domain language ID")
+		}
+	}()
+	_ = CostModelsToPlutusData(map[uint][]int64{256: {1}})
 }
 
 // TestConvertToUtxorpcCardanoCostModels_KeyZeroIsPlutusV1 is a focused
