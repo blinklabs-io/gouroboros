@@ -1045,6 +1045,32 @@ type ByronUpdatePayload struct {
 	Votes     []any
 }
 
+func (p *ByronUpdatePayload) UnmarshalCBOR(raw []byte) error {
+	fields, err := cborRawArrayEntries(raw, true)
+	if err != nil || len(fields) != updatePayloadElementCount {
+		return fmt.Errorf("%w: update payload must be a two-element array", ErrInvalidPayload)
+	}
+	proposalEntries, err := cborRawArrayEntries(fields[0], false)
+	if err != nil {
+		return fmt.Errorf("%w: decode update proposals: %w", ErrInvalidPayload, err)
+	}
+	if len(proposalEntries) > 1 {
+		return fmt.Errorf("%w: update payload contains %d proposals, expected at most one", ErrInvalidPayload, len(proposalEntries))
+	}
+	var tmp ByronUpdatePayload
+	if _, err := cbor.Decode(fields[0], &tmp.Proposals); err != nil {
+		return fmt.Errorf("%w: decode update proposal: %w", ErrInvalidPayload, err)
+	}
+	if _, err := cbor.Decode(fields[1], &tmp.Votes); err != nil {
+		return fmt.Errorf("%w: decode update votes: %w", ErrInvalidPayload, err)
+	}
+	if err := validateUpdatePayloadStructure(raw, tmp.Proposals, tmp.Votes); err != nil {
+		return err
+	}
+	*p = tmp
+	return nil
+}
+
 type ByronUpdateProposal struct {
 	cbor.DecodeStoreCbor
 	cbor.StructAsArray
@@ -1086,13 +1112,13 @@ type ByronUpdateProposalBlockVersionMod struct {
 	MaxHeaderSize     []*big.Int
 	MaxTxSize         []*big.Int
 	MaxProposalSize   []*big.Int
-	MpcThd            []uint64
-	HeavyDelThd       []uint64
-	UpdateVoteThd     []uint64
-	UpdateProposalThd []uint64
+	MpcThd            []ByronLovelacePortion
+	HeavyDelThd       []ByronLovelacePortion
+	UpdateVoteThd     []ByronLovelacePortion
+	UpdateProposalThd []ByronLovelacePortion
 	UpdateImplicit    []uint64
-	SoftForkRule      []any
-	TxFeePolicy       []any
+	SoftForkRule      []ByronSoftForkRule
+	TxFeePolicy       []ByronTxFeePolicy
 	UnlockStakeEpoch  []uint64
 }
 
@@ -1407,6 +1433,9 @@ func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
 	// epoch boundary block's own check.
 	if tmp.BlockHeader == nil {
 		return errors.New("byron main block missing header")
+	}
+	if err := tmp.Body.ValidateUpdatePayloadStructure(); err != nil {
+		return fmt.Errorf("decode byron update payload: %w", err)
 	}
 	*b = ByronMainBlock(tmp)
 	b.SetCbor(cborData)
