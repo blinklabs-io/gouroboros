@@ -218,21 +218,81 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 
 func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
 	var ret ByronGenesis
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return ret, err
-	}
-	if err := validateGenesisRequiredFields(data); err != nil {
-		return ret, err
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
+	// Decode straight from r through a tee, rather than reading it to
+	// completion with io.ReadAll first: r may stay open past the genesis
+	// value (a long-lived connection, a multi-document stream), and the
+	// original behavior here -- like encoding/json's own Decode -- reads
+	// only the one JSON value, not until EOF. dec.InputOffset() after a
+	// successful Decode gives the exact end of that value, so the checks
+	// below run only over the bytes the value actually used, not any
+	// read-ahead the decoder buffered past it.
+	var raw bytes.Buffer
+	dec := json.NewDecoder(io.TeeReader(r, &raw))
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}
+	data := raw.Bytes()[:dec.InputOffset()]
+	if err := rejectNonCanonicalJSONEscapes(data); err != nil {
+		return ByronGenesis{}, err
+	}
+	if err := validateGenesisRequiredFields(data); err != nil {
+		return ByronGenesis{}, err
+	}
 	if err := validateGenesisParameterDomains(ret); err != nil {
-		return ret, err
+		return ByronGenesis{}, err
 	}
 	return ret, nil
+}
+
+// rejectNonCanonicalJSONEscapes rejects a Byron genesis document containing
+// a string escape outside the historical canonical-JSON grammar the Byron
+// reference parses genesis with. That grammar permits only the quote (\")
+// and backslash (\\) escapes inside a string; encoding/json additionally
+// accepts and normalizes \/, \n, \r, \t, \b, \f, and \uXXXX, which would
+// silently admit a genesis document the reference rejects before schema
+// decoding.
+//
+// This is a byte-level scan for escape sequences within JSON string
+// literals, not a full JSON parser: it tracks only whether the current byte
+// is inside a string (and, if so, inside an escape sequence), which is
+// enough to find every backslash a compliant JSON string can contain
+// without needing to otherwise validate the document's structure -- a
+// malformed document is left for the subsequent encoding/json decode to
+// reject with its own error. UTF-8 continuation bytes are always >= 0x80,
+// so a byte-level scan cannot misread a multi-byte character as a quote or
+// backslash.
+func rejectNonCanonicalJSONEscapes(data []byte) error {
+	const (
+		outsideString = iota
+		insideString
+		insideEscape
+	)
+	state := outsideString
+	for _, b := range data {
+		switch state {
+		case outsideString:
+			if b == '"' {
+				state = insideString
+			}
+		case insideString:
+			switch b {
+			case '\\':
+				state = insideEscape
+			case '"':
+				state = outsideString
+			}
+		case insideEscape:
+			if b != '"' && b != '\\' {
+				return fmt.Errorf(
+					"byron genesis contains disallowed JSON escape \\%c: "+
+						"the canonical-JSON grammar permits only \\\" and \\\\",
+					b,
+				)
+			}
+			state = insideString
+		}
+	}
+	return nil
 }
 
 func validateGenesisRequiredFields(data []byte) error {
