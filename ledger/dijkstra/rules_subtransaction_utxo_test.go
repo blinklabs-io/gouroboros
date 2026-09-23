@@ -365,6 +365,109 @@ func TestDijkstraBadInputsCoversSubTransactions(t *testing.T) {
 	require.Equal(t, topErr, subErr)
 }
 
+func TestDijkstraSubTransactionRunsItsOwnUtxoPredicates(t *testing.T) {
+	t.Run("empty input set", func(t *testing.T) {
+		tx := dijkstraSubUtxoSubTx(nil, nil)
+		rule := dijkstraRule(t, common.UtxoValidationRuleInputSetEmpty)
+		var inputSetEmptyErr shelley.InputSetEmptyUtxoError
+		require.ErrorAs(
+			t,
+			rule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+				&DijkstraProtocolParameters{}),
+			&inputSetEmptyErr,
+		)
+	})
+
+	t.Run("outside validity interval", func(t *testing.T) {
+		tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+			Body: DijkstraSubTransactionBody{Ttl: 10},
+		})
+		rule := dijkstraRule(
+			t,
+			common.UtxoValidationRuleOutsideValidityInterval,
+		)
+		require.Error(
+			t,
+			rule(tx, 11, mockledger.NewLedgerStateBuilder().Build(),
+				&DijkstraProtocolParameters{}),
+		)
+	})
+
+	t.Run("body network id", func(t *testing.T) {
+		wrongNetwork := uint8(common.AddressNetworkTestnet)
+		tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+			Body: DijkstraSubTransactionBody{TxNetworkId: &wrongNetwork},
+		})
+		ls := mockledger.NewLedgerStateBuilder().
+			WithNetworkId(common.AddressNetworkMainnet).
+			Build()
+		rule := dijkstraRule(
+			t,
+			common.UtxoValidationRuleTransactionNetworkId,
+		)
+		var networkErr conway.WrongTransactionNetworkIdError
+		require.ErrorAs(
+			t,
+			rule(tx, 0, ls, &DijkstraProtocolParameters{}),
+			&networkErr,
+		)
+	})
+}
+
+func TestDijkstraSubTransactionMetadataUsesChildAuxiliaryData(t *testing.T) {
+	auxCBOR := []byte{0xa1, 0x00, 0x01}
+	auxData, err := common.DecodeAuxiliaryData(auxCBOR)
+	require.NoError(t, err)
+	metadata, err := common.DecodeAuxiliaryDataToMetadata(auxCBOR)
+	require.NoError(t, err)
+	auxHash := common.Blake2b256Hash(auxCBOR)
+	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{TxAuxDataHash: &auxHash},
+	})
+	// The parent has matching auxiliary data. It must not satisfy the child's
+	// hash, because each SUBUTXOW validates its own third transaction component.
+	tx.TxMetadata = metadata
+	tx.auxData = auxData
+	rule := dijkstraRule(t, common.UtxoValidationRuleMetadata)
+	var missingMetadata common.MissingTransactionMetadataError
+	require.ErrorAs(
+		t,
+		rule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{}),
+		&missingMetadata,
+	)
+}
+
+func TestDijkstraChildProposalIsVisibleToTopLevelVote(t *testing.T) {
+	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction: DijkstraGovAction{
+					Action: &common.InfoGovAction{},
+				},
+			}},
+		},
+	})
+	subTransactions := tx.Body.TxSubTransactions.Items()
+	childActionID := common.GovActionId{
+		TransactionId: subTransactions[0].Body.Id(),
+	}
+	voter := common.Voter{
+		Type: common.VoterTypeStakingPoolKeyHash,
+		Hash: common.Blake2b224{0x01},
+	}
+	tx.Body.TxVotingProcedures = common.VotingProcedures{
+		&voter: {&childActionID: {Vote: common.GovVoteYes}},
+	}
+	rule := dijkstraRule(t, common.UtxoValidationRuleUnknownGovActionIds)
+	require.NoError(
+		t,
+		rule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{}),
+	)
+}
+
 // TestDijkstraOutputRulesCoverSubTransactions pins the minimum-coin,
 // maximum-value-size and network checks against a sub-transaction's outputs.
 func TestDijkstraOutputRulesCoverSubTransactions(t *testing.T) {

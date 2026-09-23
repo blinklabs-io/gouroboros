@@ -73,6 +73,13 @@ type cachedLedgerState struct {
 	lookups map[utxoCacheKey]cachedUtxoLookup
 }
 
+// LedgerStateUnwrapper exposes the provider beneath a validation-time
+// LedgerState adapter. Optional capabilities must be checked against the
+// provider because adapters may add only one narrow behavior.
+type LedgerStateUnwrapper interface {
+	UnwrapLedgerState() LedgerState
+}
+
 // UnwrapLedgerState returns the caller's ledger state when validation is
 // running with the transaction-scoped UTxO lookup cache. Rules that inspect
 // optional LedgerState capabilities must use this before type assertions; the
@@ -80,10 +87,18 @@ type cachedLedgerState struct {
 // against arbitrary provider types. A state this package did not wrap is
 // returned unchanged.
 func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
-	if cached, ok := ledgerState.(*cachedLedgerState); ok {
-		return cached.LedgerState
+	for ledgerState != nil {
+		if cached, ok := ledgerState.(*cachedLedgerState); ok {
+			ledgerState = cached.LedgerState
+			continue
+		}
+		unwrapper, ok := ledgerState.(LedgerStateUnwrapper)
+		if !ok {
+			return ledgerState
+		}
+		ledgerState = unwrapper.UnwrapLedgerState()
 	}
-	return ledgerState
+	return nil
 }
 
 func (s *cachedLedgerState) UtxoById(input TransactionInput) (Utxo, error) {

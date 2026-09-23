@@ -1654,6 +1654,10 @@ func (b *DijkstraSubTransactionBody) ValidityIntervalStart() uint64 {
 	return b.TxValidityIntervalStart
 }
 
+func (b *DijkstraSubTransactionBody) NetworkId() *uint8 {
+	return b.TxNetworkId
+}
+
 func (b *DijkstraSubTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return 0, nil
 }
