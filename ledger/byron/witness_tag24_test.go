@@ -15,6 +15,7 @@
 package byron_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -307,4 +308,105 @@ func TestByronUpdateProposalTxFeePolicyRequiresTag24(t *testing.T) {
 		var mod byron.ByronUpdateProposalBlockVersionMod
 		require.Error(t, mod.UnmarshalCBOR(data))
 	})
+}
+
+func TestByronUpdateProposalLovelacePortionBounds(t *testing.T) {
+	fields := func() []any {
+		return []any{
+			[]any{}, // scriptVersion
+			[]any{}, // slotDuration
+			[]any{}, // maxBlockSize
+			[]any{}, // maxHeaderSize
+			[]any{}, // maxTxSize
+			[]any{}, // maxProposalSize
+			[]any{}, // mpcThd
+			[]any{}, // heavyDelThd
+			[]any{}, // updateVoteThd
+			[]any{}, // updateProposalThd
+			[]any{}, // updateImplicit
+			[]any{}, // softForkRule
+			[]any{}, // txFeePolicy
+			[]any{}, // unlockStakeEpoch
+		}
+	}
+	thresholdFields := []struct {
+		name  string
+		index int
+	}{
+		{"mpcThd", 6},
+		{"heavyDelThd", 7},
+		{"updateVoteThd", 8},
+		{"updateProposalThd", 9},
+	}
+	for _, field := range thresholdFields {
+		t.Run(field.name, func(t *testing.T) {
+			for _, value := range []uint64{0, 1, byron.MaxLovelacePortion} {
+				t.Run(fmt.Sprintf("accepts_%d", value), func(t *testing.T) {
+					proposalFields := fields()
+					proposalFields[field.index] = []any{value}
+					data, err := cbor.Encode(proposalFields)
+					require.NoError(t, err)
+					var mod byron.ByronUpdateProposalBlockVersionMod
+					require.NoError(t, mod.UnmarshalCBOR(data))
+				})
+			}
+			proposalFields := fields()
+			proposalFields[field.index] = []any{byron.MaxLovelacePortion + 1}
+			data, err := cbor.Encode(proposalFields)
+			require.NoError(t, err)
+			var mod byron.ByronUpdateProposalBlockVersionMod
+			require.ErrorContains(t, mod.UnmarshalCBOR(data), "maximum LovelacePortion")
+		})
+	}
+
+	softforkFields := []struct {
+		name  string
+		index int
+	}{
+		{"initThd", 0},
+		{"minThd", 1},
+		{"thdDecrement", 2},
+	}
+	for _, field := range softforkFields {
+		t.Run("softForkRule/"+field.name, func(t *testing.T) {
+			portions := []uint64{1, 1, 1}
+			portions[field.index] = byron.MaxLovelacePortion
+			proposalFields := fields()
+			proposalFields[11] = []any{portions}
+			data, err := cbor.Encode(proposalFields)
+			require.NoError(t, err)
+			var mod byron.ByronUpdateProposalBlockVersionMod
+			require.NoError(t, mod.UnmarshalCBOR(data))
+
+			portions[field.index] = byron.MaxLovelacePortion + 1
+			proposalFields[11] = []any{portions}
+			data, err = cbor.Encode(proposalFields)
+			require.NoError(t, err)
+			require.ErrorContains(t, mod.UnmarshalCBOR(data), "maximum LovelacePortion")
+		})
+	}
+
+	t.Run(
+		"rejects an oversized value in a full update proposal",
+		func(t *testing.T) {
+			proposalFields := fields()
+			proposalFields[6] = []any{byron.MaxLovelacePortion + 1}
+			data, err := cbor.Encode([]any{
+				[]any{uint64(1), uint64(0), uint64(0)},
+				proposalFields,
+				[]any{"cardano-sl", uint64(1)},
+				[]byte{},
+				map[any]any{},
+				[]byte{},
+				[]byte{},
+			})
+			require.NoError(t, err)
+			var proposal byron.ByronUpdateProposal
+			require.ErrorContains(
+				t,
+				proposal.UnmarshalCBOR(data),
+				"maximum LovelacePortion",
+			)
+		},
+	)
 }

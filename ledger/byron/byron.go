@@ -1114,6 +1114,22 @@ type ByronUpdateProposalBlockVersionMod struct {
 	UnlockStakeEpoch  []uint64
 }
 
+// MaxLovelacePortion is the largest ratio accepted by Byron's reference
+// decoder.
+const MaxLovelacePortion uint64 = 1_000_000_000_000_000
+
+func validateLovelacePortion(field string, value uint64) error {
+	if value > MaxLovelacePortion {
+		return fmt.Errorf(
+			"byron update proposal %s exceeds maximum LovelacePortion %d: %d",
+			field,
+			MaxLovelacePortion,
+			value,
+		)
+	}
+	return nil
+}
+
 func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 	cborData []byte,
 ) error {
@@ -1171,6 +1187,56 @@ func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 					field.name,
 					value.String(),
 				)
+			}
+		}
+	}
+	for _, field := range []struct {
+		name   string
+		values []uint64
+	}{
+		{name: "mpcThd", values: tmp.MpcThd},
+		{name: "heavyDelThd", values: tmp.HeavyDelThd},
+		{name: "updateVoteThd", values: tmp.UpdateVoteThd},
+		{name: "updateProposalThd", values: tmp.UpdateProposalThd},
+	} {
+		for _, value := range field.values {
+			if err := validateLovelacePortion(field.name, value); err != nil {
+				return err
+			}
+		}
+	}
+	if len(tmp.SoftForkRule) == 1 {
+		var rawFields []cbor.RawMessage
+		if _, err := cbor.Decode(cborData, &rawFields); err != nil {
+			return err
+		}
+		if len(rawFields) < 12 {
+			return errors.New("byron update proposal softForkRule field is missing")
+		}
+		var optional []cbor.RawMessage
+		if _, err := cbor.Decode(rawFields[11], &optional); err != nil {
+			return fmt.Errorf("decode byron update proposal softForkRule: %w", err)
+		}
+		if len(optional) == 1 {
+			var portions []uint64
+			if _, err := cbor.Decode(optional[0], &portions); err != nil {
+				return fmt.Errorf(
+					"decode byron update proposal softForkRule portions: %w",
+					err,
+				)
+			}
+			if len(portions) != 3 {
+				return fmt.Errorf(
+					"byron update proposal softForkRule has %d portions, expected 3",
+					len(portions),
+				)
+			}
+			for i, value := range portions {
+				if err := validateLovelacePortion(
+					[]string{"initThd", "minThd", "thdDecrement"}[i], value,
+				); err != nil {
+					return err
+				}
 			}
 		}
 	}

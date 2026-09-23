@@ -263,22 +263,10 @@ func TestGenesisNonAvvmUtxos(t *testing.T) {
 	testAddr := "FHnt4NL7yPXvDWHa8bVs73UEUdJd64VxWXSFNqetECtYfTd9TtJguJ14Lu3feth"
 	testAmount := uint64(30_000_000_000_000_000)
 	expectedTxId := "4843cf2e582b2f9ce37600e5ab4cc678991f988f8780fed05407f9537f7712bd"
-	// Generate genesis config JSON
-	tmpGenesisData := map[string]any{
-		"nonAvvmBalances": map[string]string{
+	tmpGenesis := byron.ByronGenesis{
+		NonAvvmBalances: map[string]string{
 			testAddr: strconv.FormatUint(testAmount, 10),
 		},
-	}
-	tmpGenesisJson, err := json.Marshal(tmpGenesisData)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	// Parse genesis config JSON
-	tmpGenesis, err := byron.NewByronGenesisFromReader(
-		strings.NewReader(string(tmpGenesisJson)),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
 	}
 	tmpGenesisUtxos, err := tmpGenesis.GenesisUtxos()
 	if err != nil {
@@ -316,22 +304,10 @@ func TestGenesisAvvmUtxos(t *testing.T) {
 	testAmount := uint64(2463071701000000)
 	expectedTxId := "0ae3da29711600e94a33fb7441d2e76876a9a1e98b5ebdefbf2e3bc535617616"
 	expectedAddr := "Ae2tdPwUPEZKQuZh2UndEoTKEakMYHGNjJVYmNZgJk2qqgHouxDsA5oT83n"
-	// Generate genesis config JSON
-	tmpGenesisData := map[string]any{
-		"avvmDistr": map[string]string{
+	tmpGenesis := byron.ByronGenesis{
+		AvvmDistr: map[string]string{
 			testPubkey: strconv.FormatUint(testAmount, 10),
 		},
-	}
-	tmpGenesisJson, err := json.Marshal(tmpGenesisData)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	// Parse genesis config JSON
-	tmpGenesis, err := byron.NewByronGenesisFromReader(
-		strings.NewReader(string(tmpGenesisJson)),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
 	}
 	tmpGenesisUtxos, err := tmpGenesis.GenesisUtxos()
 	if err != nil {
@@ -470,8 +446,8 @@ func TestNewByronGenesisFromReader(t *testing.T) {
         "protocolConsts": {
             "k": 1,
             "protocolMagic": 42,
-            "vssMinTtl": 2,
-            "vssMaxTtl": 10
+            "vssMinTTL": 2,
+            "vssMaxTTL": 10
         },
         "startTime": 100000,
         "bootStakeholders": { "stakeholder1": 1 },
@@ -545,8 +521,8 @@ func TestGenesis_FtsSeed_EmptyObject(t *testing.T) {
         "protocolConsts": {
             "k": 1,
             "protocolMagic": 42,
-            "vssMinTtl": 2,
-            "vssMaxTtl": 10
+            "vssMinTTL": 2,
+            "vssMaxTTL": 10
         },
         "startTime": 100000,
         "bootStakeholders": { "stakeholder1": 1 },
@@ -627,7 +603,7 @@ func TestGenesisDelegateKeyHashes_Empty(t *testing.T) {
             "updateVoteThd": "16"
         },
         "ftsSeed": "seed",
-        "protocolConsts": {"k": 1, "protocolMagic": 42, "vssMinTtl": 2, "vssMaxTtl": 10},
+        "protocolConsts": {"k": 1, "protocolMagic": 42, "vssMinTTL": 2, "vssMaxTTL": 10},
         "startTime": 100000,
         "bootStakeholders": {},
         "heavyDelegation": {},

@@ -15,6 +15,7 @@
 package byron
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -76,8 +77,8 @@ type ByronGenesisBlockVersionDataTxFeePolicy struct {
 type ByronGenesisProtocolConsts struct {
 	K             int `json:"k"`
 	ProtocolMagic int `json:"protocolMagic"`
-	VssMinTTL     int `json:"vssMinTtl"`
-	VssMaxTTL     int `json:"vssMaxTtl"`
+	VssMinTTL     int `json:"vssMinTTL"`
+	VssMaxTTL     int `json:"vssMaxTTL"`
 }
 
 type ByronGenesisHeavyDelegation struct {
@@ -217,12 +218,174 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 
 func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
 	var ret ByronGenesis
-	dec := json.NewDecoder(r)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&ret); err != nil {
+	var raw bytes.Buffer
+	dec := json.NewDecoder(io.TeeReader(r, &raw))
+	var root map[string]json.RawMessage
+	if err := dec.Decode(&root); err != nil {
 		return ret, err
 	}
+	data := raw.Bytes()[:dec.InputOffset()]
+	if err := validateByronGenesisJSON(root); err != nil {
+		return ret, err
+	}
+	if err := json.Unmarshal(data, &ret); err != nil {
+		return ret, err
+	}
+	if err := ret.validateParameters(); err != nil {
+		return ByronGenesis{}, err
+	}
 	return ret, nil
+}
+
+func validateByronGenesisJSON(root map[string]json.RawMessage) error {
+	if err := requireJSONFieldsInObject(root, "Byron genesis", []string{
+		"avvmDistr", "blockVersionData", "protocolConsts", "startTime",
+		"bootStakeholders", "heavyDelegation", "nonAvvmBalances",
+	}); err != nil {
+		return err
+	}
+	if err := requireJSONFields(
+		root["blockVersionData"],
+		"blockVersionData",
+		[]string{
+			"heavyDelThd", "maxBlockSize", "maxHeaderSize", "maxProposalSize",
+			"maxTxSize", "mpcThd", "scriptVersion", "slotDuration",
+			"softforkRule", "txFeePolicy", "unlockStakeEpoch", "updateImplicit",
+			"updateProposalThd", "updateVoteThd",
+		},
+	); err != nil {
+		return err
+	}
+	var blockVersionData map[string]json.RawMessage
+	if err := json.Unmarshal(
+		root["blockVersionData"],
+		&blockVersionData,
+	); err != nil {
+		return err
+	}
+	if err := requireJSONFields(
+		blockVersionData["softforkRule"],
+		"blockVersionData.softforkRule",
+		[]string{"initThd", "minThd", "thdDecrement"},
+	); err != nil {
+		return err
+	}
+	if err := requireJSONFields(
+		blockVersionData["txFeePolicy"],
+		"blockVersionData.txFeePolicy",
+		[]string{"multiplier", "summand"},
+	); err != nil {
+		return err
+	}
+	if err := requireJSONFields(
+		root["protocolConsts"],
+		"protocolConsts",
+		[]string{"k", "protocolMagic", "vssMinTTL", "vssMaxTTL"},
+	); err != nil {
+		return err
+	}
+	if err := requireGenesisDelegationFields(root["heavyDelegation"]); err != nil {
+		return err
+	}
+	return nil
+}
+
+func requireJSONFields(raw json.RawMessage, path string, fields []string) error {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return fmt.Errorf("%s must be an object: %w", path, err)
+	}
+	if object == nil {
+		return fmt.Errorf("%s must be an object", path)
+	}
+	return requireJSONFieldsInObject(object, path, fields)
+}
+
+func requireJSONFieldsInObject(
+	object map[string]json.RawMessage,
+	path string,
+	fields []string,
+) error {
+	for _, field := range fields {
+		value, ok := object[field]
+		if !ok {
+			return fmt.Errorf("%s is missing required field %q", path, field)
+		}
+		if string(value) == "null" {
+			return fmt.Errorf("%s.%s must not be null", path, field)
+		}
+	}
+	return nil
+}
+
+func requireGenesisDelegationFields(raw json.RawMessage) error {
+	var delegations map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &delegations); err != nil {
+		return fmt.Errorf("heavyDelegation must be an object: %w", err)
+	}
+	if delegations == nil {
+		return errors.New("heavyDelegation must be an object")
+	}
+	for issuer, rawDelegation := range delegations {
+		if err := requireJSONFields(
+			rawDelegation,
+			"heavyDelegation["+issuer+"]",
+			[]string{"cert", "delegatePk", "issuerPk", "omega"},
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (g ByronGenesis) validateParameters() error {
+	portionFields := []struct {
+		name  string
+		value int64
+	}{
+		{"blockVersionData.heavyDelThd", g.BlockVersionData.HeavyDelThd},
+		{"blockVersionData.mpcThd", g.BlockVersionData.MpcThd},
+		{"blockVersionData.updateProposalThd", g.BlockVersionData.UpdateProposalThd},
+		{"blockVersionData.updateVoteThd", g.BlockVersionData.UpdateVoteThd},
+		{
+			"blockVersionData.softforkRule.initThd",
+			g.BlockVersionData.SoftforkRule.InitThd,
+		},
+		{
+			"blockVersionData.softforkRule.minThd",
+			g.BlockVersionData.SoftforkRule.MinThd,
+		},
+		{
+			"blockVersionData.softforkRule.thdDecrement",
+			g.BlockVersionData.SoftforkRule.ThdDecrement,
+		},
+	}
+	for _, field := range portionFields {
+		if field.value < 0 || uint64(field.value) > MaxLovelacePortion {
+			return fmt.Errorf(
+				"%s must be between 0 and %d",
+				field.name,
+				MaxLovelacePortion,
+			)
+		}
+	}
+	unsignedFields := []struct {
+		name  string
+		value int
+	}{
+		{"blockVersionData.slotDuration", g.BlockVersionData.SlotDuration},
+		{"blockVersionData.maxBlockSize", g.BlockVersionData.MaxBlockSize},
+		{"blockVersionData.maxHeaderSize", g.BlockVersionData.MaxHeaderSize},
+		{"blockVersionData.maxTxSize", g.BlockVersionData.MaxTxSize},
+		{"blockVersionData.maxProposalSize", g.BlockVersionData.MaxProposalSize},
+		{"blockVersionData.updateImplicit", g.BlockVersionData.UpdateImplicit},
+	}
+	for _, field := range unsignedFields {
+		if field.value < 0 {
+			return fmt.Errorf("%s must be non-negative", field.name)
+		}
+	}
+	return nil
 }
 
 func NewByronGenesisFromFile(path string) (ByronGenesis, error) {

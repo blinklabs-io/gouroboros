@@ -160,6 +160,12 @@ func (c *ByronConfig) SlotLeader(slot uint64) (int, []byte) {
 //   - Security parameter (K)
 //   - Genesis delegate key hashes (sorted for OBFT slot leader assignment)
 func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, error) {
+	if genesis.BlockVersionData.SlotDuration < 0 {
+		return ByronConfig{}, fmt.Errorf(
+			"invalid slot duration: %d (must be non-negative)",
+			genesis.BlockVersionData.SlotDuration,
+		)
+	}
 	// Validate security parameter K
 	if genesis.ProtocolConsts.K <= 0 {
 		return ByronConfig{}, fmt.Errorf("invalid security parameter K: %d (must be positive)", genesis.ProtocolConsts.K)
@@ -191,6 +197,54 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 		map[common.Blake2b224]common.Blake2b224,
 		len(genesis.HeavyDelegation),
 	)
+	genesisIssuers := make(
+		map[common.Blake2b224]struct{},
+		len(genesis.HeavyDelegation),
+	)
+	for genesisHashHex := range genesis.HeavyDelegation {
+		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"decode genesis delegation key hash %q: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		if len(genesisHashBytes) != common.Blake2b224Size {
+			return ByronConfig{}, fmt.Errorf(
+				"invalid genesis delegation key hash length for %q: got %d, expected %d",
+				genesisHashHex,
+				len(genesisHashBytes),
+				common.Blake2b224Size,
+			)
+		}
+		genesisIssuers[common.NewBlake2b224(genesisHashBytes)] = struct{}{}
+	}
+	for genesisHashHex, delegation := range genesis.HeavyDelegation {
+		delegateKey, err := base64.StdEncoding.DecodeString(delegation.DelegatePk)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"decode delegate verification key for genesis key %s: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		delegateHash, err := PBFTVerificationKeyHash(delegateKey)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"derive delegate verification key hash for genesis key %s: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		if _, isIssuer := genesisIssuers[delegateHash]; isIssuer {
+			return ByronConfig{}, fmt.Errorf(
+				"invalid Byron genesis heavy-certificate graph: "+
+					"delegate %s is also an issuer",
+				delegateHash.String(),
+			)
+		}
+	}
 	genesisValidator := NewHeaderValidator(ByronConfig{
 		ProtocolMagic: protocolMagic,
 	})
