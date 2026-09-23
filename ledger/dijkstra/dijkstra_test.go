@@ -902,7 +902,7 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 		}}, true),
 	}
 	body := map[uint]any{
-		0: cbor.NewSetType([]any{}, false),
+		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 		1: []any{},
 		3: uint64(10),
 	}
@@ -949,7 +949,7 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 					[]any{body, tc.witnesses, tc.auxiliaryB},
 				}
 				bodyValue := map[uint]any{
-					0:  cbor.NewSetType([]any{}, false),
+					0:  cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 					1:  []any{},
 					2:  uint64(0),
 					23: subTransactions,
@@ -986,13 +986,13 @@ func TestDijkstraTransactionBodyRejectsExplicitlyEmptySubTransactions(t *testing
 func TestDijkstraTransactionBodyAcceptsDistinctSubTransactionBodies(t *testing.T) {
 	subBody := func(ttl uint64) map[uint]any {
 		return map[uint]any{
-			0: cbor.NewSetType([]any{}, false),
+			0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 			1: []any{},
 			3: ttl,
 		}
 	}
 	bodyCbor, err := cbor.Encode(map[uint]any{
-		0: cbor.NewSetType([]any{}, false),
+		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 		1: []any{},
 		2: uint64(0),
 		23: []any{
