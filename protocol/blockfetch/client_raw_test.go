@@ -52,10 +52,23 @@ func musashiBlockFixture(t *testing.T) ([]byte, pcommon.Point) {
 	require.NoError(t, err)
 	raw, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
 	require.NoError(t, err)
-	// A consumer that knows the Dijkstra layout can decode these bytes; that
-	// is precisely what the raw callback exists to allow.
-	blk, err := dijkstra.NewDijkstraBlockFromCbor(raw)
+	// The captured block uses the pre-respin Dijkstra body. Current consensus
+	// decoding rejects it, but raw callbacks retain the header point so
+	// archive tooling can still inspect the original bytes.
+	var blockParts []cbor.RawMessage
+	_, err = cbor.Decode(raw, &blockParts)
 	require.NoError(t, err)
+	if len(blockParts) == 0 {
+		t.Fatal("captured block CBOR did not contain a header")
+	}
+	var header *dijkstra.DijkstraBlockHeader
+	_, err = cbor.Decode(blockParts[0], &header)
+	require.NoError(t, err)
+	if header == nil {
+		t.Fatal("Dijkstra header decoded as nil")
+	}
+	_, err = dijkstra.NewDijkstraBlockFromCbor(raw)
+	require.ErrorContains(t, err, "expected 3 components")
 	// Guard the premise of every test below: if the generic Conway decoder
 	// ever learns this layout, these tests stop exercising the gap they were
 	// written for and must be revisited rather than silently passing.
@@ -69,7 +82,7 @@ func musashiBlockFixture(t *testing.T) ([]byte, pcommon.Point) {
 		err,
 		"fixture decodes as Conway; it no longer covers the raw-callback gap",
 	)
-	return raw, pcommon.NewPoint(blk.SlotNumber(), blk.Hash().Bytes())
+	return raw, pcommon.NewPoint(header.SlotNumber(), header.Hash().Bytes())
 }
 
 // conwayTaggedWrappedBlock wraps raw block bytes the way a Musashi peer does:

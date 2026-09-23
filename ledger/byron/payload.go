@@ -18,6 +18,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"math/big"
 	"unicode"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -85,8 +86,11 @@ type UpdateVote struct {
 	// 0x590020... re-encodes to 0x5820..., and the voter signed the former.
 	ProposalId     []byte
 	ProposalIdCbor []byte
-	Decision       bool
-	Signature      []byte
+	// Decision is always true. The reference checks that the wire field is
+	// a CBOR Bool, discards its value, and verifies the signature as a
+	// positive vote, so a wire false still records a positive vote.
+	Decision  bool
+	Signature []byte
 }
 
 // ParseDelegationCertificate decodes and structurally validates one entry
@@ -117,18 +121,16 @@ func ParseDelegationCertificate(
 			"%w: delegation certificate epoch: %w", ErrInvalidPayload, err,
 		)
 	}
-	issuerVK, err := payloadBytes(
+	issuerVK, err := payloadVerificationKey(
 		"delegation certificate issuer verification key",
 		fields[delegationCertIssuerIndex],
-		VerificationKeySize,
 	)
 	if err != nil {
 		return nil, err
 	}
-	delegateVK, err := payloadBytes(
+	delegateVK, err := payloadVerificationKey(
 		"delegation certificate delegate verification key",
 		fields[delegationCertDelegateIndex],
-		VerificationKeySize,
 	)
 	if err != nil {
 		return nil, err
@@ -163,14 +165,19 @@ func (c *DelegationCertificate) Verify(protocolMagic uint32) error {
 	)
 }
 
+const (
+	cborFalse byte = 0xf4
+	cborTrue  byte = 0xf5
+)
+
 // ParseUpdateVote decodes and structurally validates one entry of a Byron
 // main block's update-payload vote list, from that entry's original CBOR.
 //
-// The wire format is [voterVK, proposalId, decision, signature]. Byron only
-// ever recorded positive votes -- cardano-ledger-byron drops the decision
-// bit on decode and re-encodes a hardcoded True -- so a false decision is
-// something no real block carries, and is rejected here rather than
-// silently accepted as a vote whose signature covers the opposite value.
+// The wire format is [voterVK, proposalId, decision, signature]. As in
+// cardano-ledger-byron's DecCBOR (AVote ByteSpan), the decision must be a
+// CBOR Bool, but its value is discarded: Byron removed negative voting, and
+// Verify checks the signature against a hardcoded True whichever value the
+// wire carried.
 //
 // Like ParseDelegationCertificate this takes raw CBOR, because the vote's
 // signature covers the proposal id field's wire encoding -- see
@@ -180,10 +187,9 @@ func ParseUpdateVote(raw cbor.RawMessage) (*UpdateVote, error) {
 	if err != nil {
 		return nil, err
 	}
-	voterVK, err := payloadBytes(
+	voterVK, err := payloadVerificationKey(
 		"update vote voter verification key",
 		fields[updateVoteVoterIndex],
-		VerificationKeySize,
 	)
 	if err != nil {
 		return nil, err
@@ -195,18 +201,13 @@ func ParseUpdateVote(raw cbor.RawMessage) (*UpdateVote, error) {
 	if err != nil {
 		return nil, err
 	}
-	var decision bool
-	if _, err := cbor.Decode(
-		fields[updateVoteDecisionIndex], &decision,
-	); err != nil {
+	// cborg's decodeBool accepts exactly 0xf4 and 0xf5. Decoding into a Go
+	// bool is not equivalent: CBOR null and undefined decode into it without
+	// error.
+	if decision := fields[updateVoteDecisionIndex]; len(decision) != 1 ||
+		(decision[0] != cborFalse && decision[0] != cborTrue) {
 		return nil, fmt.Errorf(
-			"%w: update vote decision is not a boolean: %w",
-			ErrInvalidPayload, err,
-		)
-	}
-	if !decision {
-		return nil, fmt.Errorf(
-			"%w: update vote decision is false, which Byron never records",
+			"%w: update vote decision is not a CBOR boolean",
 			ErrInvalidPayload,
 		)
 	}
@@ -222,7 +223,7 @@ func ParseUpdateVote(raw cbor.RawMessage) (*UpdateVote, error) {
 		VoterVK:        voterVK,
 		ProposalId:     proposalId,
 		ProposalIdCbor: append([]byte(nil), proposalIdCbor...),
-		Decision:       decision,
+		Decision:       true,
 		Signature:      signature,
 	}, nil
 }
@@ -249,10 +250,7 @@ func (v *UpdateVote) Verify(protocolMagic uint32) error {
 			ErrInvalidPayload,
 		)
 	}
-	const (
-		cborArrayLen2 byte = 0x82
-		cborTrue      byte = 0xf5
-	)
+	const cborArrayLen2 byte = 0x82
 	inner := make([]byte, 0, 2+len(v.ProposalIdCbor))
 	inner = append(inner, cborArrayLen2)
 	inner = append(inner, v.ProposalIdCbor...)
@@ -356,6 +354,9 @@ func (p *ByronUpdateProposal) Validate(protocolMagic uint32) error {
 	); err != nil {
 		return err
 	}
+	if err := validateProtocolParametersUpdate(fields[1]); err != nil {
+		return err
+	}
 	signed, err := signedBytes(
 		SignTagUSProposal, protocolMagic, signedBody(fields),
 	)
@@ -382,19 +383,31 @@ func (p *ByronUpdateProposal) Validate(protocolMagic uint32) error {
 //     -- InstallerHash's enforceSize "InstallerHash" 4, which drops
 //     elements 0, 2, and 3 and reads the hash out of element 1.
 func validateProposalMetadata(raw cbor.RawMessage) error {
-	var metadata map[string]cbor.RawMessage
-	if _, err := cbor.Decode(raw, &metadata); err != nil {
-		return fmt.Errorf(
-			"%w: update proposal metadata is not a map of system tags to "+
-				"installer hashes: %w",
-			ErrInvalidPayload, err,
-		)
+	pairs, err := cborMapRawEntries(raw)
+	if err != nil {
+		return fmt.Errorf("%w: update proposal metadata: %w", ErrInvalidPayload, err)
 	}
-	for tag, installerHash := range metadata {
+	previousTag := ""
+	for index, pair := range pairs {
+		if len(pair[0]) == 0 || pair[0][0]>>5 != 3 || pair[0][0]&0x1f == 31 {
+			return fmt.Errorf("%w: update proposal system tag is not definite text", ErrInvalidPayload)
+		}
+		var tag string
+		n, err := cbor.Decode(pair[0], &tag)
+		if err != nil {
+			return fmt.Errorf("%w: decode update proposal system tag: %w", ErrInvalidPayload, err)
+		}
+		if n != len(pair[0]) {
+			return fmt.Errorf("%w: update proposal system tag has trailing bytes", ErrInvalidPayload)
+		}
+		if index > 0 && tag <= previousTag {
+			return fmt.Errorf("%w: update proposal system tags are not strictly increasing", ErrInvalidPayload)
+		}
+		previousTag = tag
 		if err := validateSystemTag(tag); err != nil {
 			return err
 		}
-		if err := validateInstallerHash(tag, installerHash); err != nil {
+		if err := validateInstallerHash(tag, pair[1]); err != nil {
 			return err
 		}
 	}
@@ -442,7 +455,23 @@ func validateInstallerHash(tag string, raw cbor.RawMessage) error {
 	_, err = payloadBytes(
 		label, fields[installerHashHashIndex], common.Blake2b256Size,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, index := range []int{0, 2, 3} {
+		if len(fields[index]) == 0 || fields[index][0]>>5 != 2 || fields[index][0]&0x1f == 31 {
+			return fmt.Errorf("%w: %s field %d is not a definite byte string", ErrInvalidPayload, label, index)
+		}
+		var value []byte
+		n, err := cbor.Decode(fields[index], &value)
+		if err != nil {
+			return fmt.Errorf("%w: decode %s field %d: %w", ErrInvalidPayload, label, index, err)
+		}
+		if n != len(fields[index]) {
+			return fmt.Errorf("%w: %s field %d has trailing bytes", ErrInvalidPayload, label, index)
+		}
+	}
+	return nil
 }
 
 // validateProposalAttributes enforces that an update proposal's attributes
@@ -454,11 +483,8 @@ func validateInstallerHash(tag string, raw cbor.RawMessage) error {
 // map, because the field's key type is not fixed -- the reference drops it
 // without ever decoding the keys -- and a decode would have to guess one.
 //
-// The reference reads the length with decodeMapLenCanonical, so a
-// non-shortest length header is rejected too. That is safe to reproduce:
-// Byron's decoders are canonical throughout (enforceSize is
-// decodeListLenCanonical), so every attributes map a node ever accepted on
-// mainnet is canonically encoded.
+// The reference reads the length with decodeMapLen, accepting non-shortest
+// definite lengths while rejecting indefinite maps.
 func validateProposalAttributes(raw cbor.RawMessage) error {
 	length, err := cborMapLen(raw)
 	if err != nil {
@@ -475,9 +501,8 @@ func validateProposalAttributes(raw cbor.RawMessage) error {
 	return nil
 }
 
-// cborMapLen reads the entry count out of a definite-length CBOR map
-// header, requiring the shortest encoding of that count and rejecting
-// indefinite-length maps -- matching the reference's decodeMapLenCanonical.
+// cborMapLen reads the entry count out of a definite-length CBOR map header,
+// accepting non-shortest lengths and rejecting indefinite maps.
 func cborMapLen(raw []byte) (uint64, error) {
 	const (
 		majorTypeMap       = 5
@@ -514,31 +539,340 @@ func cborMapLen(raw []byte) (uint64, error) {
 	for _, b := range raw[1 : 1+width] {
 		length = length<<8 | uint64(b)
 	}
-	if shortestMapArgumentWidth(length) != width {
-		return 0, fmt.Errorf(
-			"map length %d is not encoded in its shortest form", length,
-		)
-	}
 	return length, nil
 }
 
-// shortestMapArgumentWidth returns how many argument bytes the canonical
-// encoding of a map length uses. Lengths up to 23 are carried in the
-// initial byte itself, so they use none -- which is what makes an empty
-// attributes map written as 0xb8 0x00 non-canonical.
-func shortestMapArgumentWidth(length uint64) int {
-	switch {
-	case length <= 23:
-		return 0
-	case length <= 0xff:
-		return 1
-	case length <= 0xffff:
-		return 2
-	case length <= 0xffffffff:
-		return 4
-	default:
-		return 8
+func cborMapRawEntries(raw []byte) ([][2]cbor.RawMessage, error) {
+	count, err := cborMapLen(raw)
+	if err != nil {
+		return nil, err
 	}
+	argument := raw[0] & 0x1f
+	headerLength := 1
+	switch argument {
+	case 24:
+		headerLength += 1
+	case 25:
+		headerLength += 2
+	case 26:
+		headerLength += 4
+	case 27:
+		headerLength += 8
+	}
+	// The conversion is safe because len is nonnegative and bounded by MaxInt.
+	if count > uint64((len(raw)-headerLength)/2) { //nolint:gosec
+		return nil, errors.New("truncated map entries")
+	}
+	offset := headerLength
+	pairs := make([][2]cbor.RawMessage, 0, (len(raw)-headerLength)/2)
+	for range count {
+		var pair [2]cbor.RawMessage
+		for index := range pair {
+			end, err := cborItemEnd(raw, offset)
+			if err != nil {
+				return nil, fmt.Errorf("decode map entry: %w", err)
+			}
+			pair[index] = append(cbor.RawMessage(nil), raw[offset:end]...)
+			offset = end
+		}
+		pairs = append(pairs, pair)
+	}
+	if offset != len(raw) {
+		return nil, errors.New("trailing bytes after map")
+	}
+	return pairs, nil
+}
+
+const maxByronLovelacePortion = uint64(1_000_000_000_000_000)
+
+// ByronLovelacePortion is the Byron protocol's bounded stake fraction.
+type ByronLovelacePortion uint64
+
+func (p *ByronLovelacePortion) UnmarshalCBOR(raw []byte) error {
+	var value uint64
+	n, err := cbor.Decode(raw, &value)
+	if err != nil {
+		return fmt.Errorf("%w: decode LovelacePortion: %w", ErrInvalidPayload, err)
+	}
+	if n != len(raw) {
+		return fmt.Errorf("%w: LovelacePortion has trailing bytes", ErrInvalidPayload)
+	}
+	if value > maxByronLovelacePortion {
+		return fmt.Errorf("%w: lovelace portion exceeds maximum", ErrInvalidPayload)
+	}
+	*p = ByronLovelacePortion(value)
+	return nil
+}
+
+// ByronSoftForkRule contains the three Byron stake portions used to adopt a
+// proposed block version.
+type ByronSoftForkRule struct {
+	InitThreshold      ByronLovelacePortion
+	MinThreshold       ByronLovelacePortion
+	ThresholdDecrement ByronLovelacePortion
+}
+
+func (r *ByronSoftForkRule) UnmarshalCBOR(raw []byte) error {
+	fields, err := cborRawArrayEntries(raw, true)
+	if err != nil || len(fields) != 3 {
+		return fmt.Errorf("%w: softfork rule must contain three portions", ErrInvalidPayload)
+	}
+	var decoded ByronSoftForkRule
+	for index, target := range []*ByronLovelacePortion{
+		&decoded.InitThreshold,
+		&decoded.MinThreshold,
+		&decoded.ThresholdDecrement,
+	} {
+		if _, err := cbor.Decode(fields[index], target); err != nil {
+			return err
+		}
+	}
+	*r = decoded
+	return nil
+}
+
+// ByronTxFeePolicy is the currently defined TxSizeLinear fee policy.
+type ByronTxFeePolicy struct {
+	Tag            uint8
+	SummandNano    *big.Int
+	MultiplierNano *big.Int
+}
+
+func (p *ByronTxFeePolicy) UnmarshalCBOR(raw []byte) error {
+	fields, err := cborRawArrayEntries(raw, true)
+	if err != nil || len(fields) != 2 {
+		return fmt.Errorf("%w: transaction fee policy must contain two fields", ErrInvalidPayload)
+	}
+	var tag uint8
+	if _, err := cbor.Decode(fields[0], &tag); err != nil || tag != 0 {
+		return fmt.Errorf("%w: transaction fee policy has an unsupported tag", ErrInvalidPayload)
+	}
+	encoded, err := decodeKnownCborBytes(fields[1])
+	if err != nil {
+		return fmt.Errorf("%w: transaction fee policy is not known-CBOR TxSizeLinear: %w", ErrInvalidPayload, err)
+	}
+	coefficients, err := cborRawArrayEntries(encoded, true)
+	if err != nil || len(coefficients) != 2 {
+		return fmt.Errorf("%w: TxSizeLinear must contain two coefficients", ErrInvalidPayload)
+	}
+	decoded := ByronTxFeePolicy{Tag: tag, SummandNano: new(big.Int), MultiplierNano: new(big.Int)}
+	for index, target := range []*big.Int{decoded.SummandNano, decoded.MultiplierNano} {
+		if n, err := cbor.Decode(coefficients[index], target); err != nil {
+			return fmt.Errorf("%w: decode TxSizeLinear coefficient %d: %w", ErrInvalidPayload, index, err)
+		} else if n != len(coefficients[index]) {
+			return fmt.Errorf("%w: TxSizeLinear coefficient %d has trailing bytes", ErrInvalidPayload, index)
+		}
+	}
+	roundedSummand := roundNanoToInteger(decoded.SummandNano)
+	if roundedSummand.Sign() < 0 || roundedSummand.Cmp(big.NewInt(45_000_000_000_000_000)) > 0 {
+		return fmt.Errorf("%w: TxSizeLinear summand is outside the Lovelace range", ErrInvalidPayload)
+	}
+	*p = decoded
+	return nil
+}
+
+func validateLovelacePortion(raw cbor.RawMessage, label string) error {
+	var value uint64
+	if n, err := cbor.Decode(raw, &value); err != nil {
+		return fmt.Errorf("%w: %s is not a LovelacePortion: %w", ErrInvalidPayload, label, err)
+	} else if n != len(raw) {
+		return fmt.Errorf("%w: %s LovelacePortion has trailing bytes", ErrInvalidPayload, label)
+	}
+	if value > maxByronLovelacePortion {
+		return fmt.Errorf("%w: %s exceeds the LovelacePortion maximum", ErrInvalidPayload, label)
+	}
+	return nil
+}
+
+func validateOptionalLovelacePortion(raw cbor.RawMessage, label string) error {
+	values, err := cborRawArrayEntries(raw, true)
+	if err != nil {
+		return fmt.Errorf("%w: %s is not an optional value list: %w", ErrInvalidPayload, label, err)
+	}
+	if len(values) > 1 {
+		return fmt.Errorf("%w: %s has %d values, expected at most one", ErrInvalidPayload, label, len(values))
+	}
+	if len(values) == 1 {
+		return validateLovelacePortion(values[0], label)
+	}
+	return nil
+}
+
+func validateProtocolParametersUpdate(raw cbor.RawMessage) error {
+	fields, err := payloadFields("Byron protocol-parameters update", raw, 14)
+	if err != nil {
+		return err
+	}
+	for index, name := range map[int]string{
+		6: "mpcThd", 7: "heavyDelThd", 8: "updateVoteThd", 9: "updateProposalThd",
+	} {
+		if err := validateOptionalLovelacePortion(fields[index], name); err != nil {
+			return err
+		}
+	}
+	softForkValues, err := cborRawArrayEntries(fields[11], true)
+	if err != nil {
+		return fmt.Errorf("%w: softForkRule is not an optional list: %w", ErrInvalidPayload, err)
+	}
+	if len(softForkValues) > 1 {
+		return fmt.Errorf("%w: softForkRule has multiple values", ErrInvalidPayload)
+	}
+	if len(softForkValues) == 1 {
+		parts, err := payloadFields("softForkRule", softForkValues[0], 3)
+		if err != nil {
+			return err
+		}
+		for _, label := range []string{"initThd", "minThd", "thdDecrement"} {
+			if err := validateLovelacePortion(parts[0], label); err != nil {
+				return err
+			}
+			parts = parts[1:]
+		}
+	}
+	return validateTxFeePolicy(fields[12])
+}
+
+func validateTxFeePolicy(raw cbor.RawMessage) error {
+	count, offset, err := cborArrayHeader(raw)
+	if err != nil {
+		return fmt.Errorf("%w: txFeePolicy is not an optional list: %w", ErrInvalidPayload, err)
+	}
+	if count > 1 {
+		return fmt.Errorf("%w: txFeePolicy has multiple values", ErrInvalidPayload)
+	}
+	if count == 0 {
+		if offset != len(raw) {
+			return fmt.Errorf("%w: trailing bytes after txFeePolicy", ErrInvalidPayload)
+		}
+		return nil
+	}
+	policyRaw := raw[offset:]
+	policyCount, policyOffset, err := cborArrayHeader(policyRaw)
+	if err != nil || policyCount != 2 {
+		return fmt.Errorf("%w: txFeePolicy must be a two-element array", ErrInvalidPayload)
+	}
+	var tag uint64
+	firstSize, err := cbor.Decode(policyRaw[policyOffset:], &tag)
+	if err != nil || tag != 0 {
+		return fmt.Errorf("%w: txFeePolicy has an unsupported tag", ErrInvalidPayload)
+	}
+	knownRaw := policyRaw[policyOffset+firstSize:]
+	encoded, err := decodeKnownCborBytes(knownRaw)
+	if err != nil {
+		return fmt.Errorf("%w: txFeePolicy is not a known-CBOR TxSizeLinear: %w", ErrInvalidPayload, err)
+	}
+	parts, err := payloadFields("TxSizeLinear", encoded, 2)
+	if err != nil {
+		return err
+	}
+	var summandNano, multiplierNano big.Int
+	for index, target := range []*big.Int{&summandNano, &multiplierNano} {
+		if n, err := cbor.Decode(parts[index], target); err != nil {
+			return fmt.Errorf("%w: TxSizeLinear coefficient %d is not Nano: %w", ErrInvalidPayload, index, err)
+		} else if n != len(parts[index]) {
+			return fmt.Errorf("%w: TxSizeLinear coefficient %d has trailing bytes", ErrInvalidPayload, index)
+		}
+	}
+	// TxSizeLinear decodes its first Nano coefficient, rounds it to
+	// Lovelace, and then applies the ordinary Lovelace bound. Its multiplier
+	// is an unbounded rational coefficient and has no Lovelace range check.
+	rounded := roundNanoToInteger(&summandNano)
+	if rounded.Sign() < 0 {
+		return fmt.Errorf("%w: TxSizeLinear summand is negative after rounding", ErrInvalidPayload)
+	}
+	if rounded.Cmp(big.NewInt(45_000_000_000_000_000)) > 0 {
+		return fmt.Errorf("%w: TxSizeLinear summand exceeds maximum Lovelace", ErrInvalidPayload)
+	}
+	return nil
+}
+
+func cborArrayHeader(raw []byte) (uint64, int, error) {
+	if len(raw) == 0 || raw[0]>>5 != 4 {
+		return 0, 0, errors.New("expected CBOR array")
+	}
+	argument := raw[0] & 0x1f
+	if argument < 24 {
+		return uint64(argument), 1, nil
+	}
+	width := 1 << (argument - 24)
+	if argument < 24 || argument > 27 || len(raw) < 1+width {
+		return 0, 0, errors.New("invalid or truncated CBOR array header")
+	}
+	var count uint64
+	for _, value := range raw[1 : 1+width] {
+		count = count<<8 | uint64(value)
+	}
+	return count, 1 + width, nil
+}
+
+func decodeKnownCborBytes(raw cbor.RawMessage) ([]byte, error) {
+	if len(raw) == 0 || raw[0]>>5 != 6 {
+		return nil, errors.New("expected semantic tag 24")
+	}
+	argument := raw[0] & 0x1f
+	headerLength := 1
+	var tag uint64
+	switch {
+	case argument < 24:
+		tag = uint64(argument)
+	case argument == 24:
+		if len(raw) < 2 {
+			return nil, errors.New("truncated tag header")
+		}
+		tag, headerLength = uint64(raw[1]), 2
+	case argument == 25:
+		if len(raw) < 3 {
+			return nil, errors.New("truncated tag header")
+		}
+		tag, headerLength = uint64(raw[1])<<8|uint64(raw[2]), 3
+	case argument == 26:
+		if len(raw) < 5 {
+			return nil, errors.New("truncated tag header")
+		}
+		for _, value := range raw[1:5] {
+			tag = tag<<8 | uint64(value)
+		}
+		headerLength = 5
+	case argument == 27:
+		if len(raw) < 9 {
+			return nil, errors.New("truncated tag header")
+		}
+		for _, value := range raw[1:9] {
+			tag = tag<<8 | uint64(value)
+		}
+		headerLength = 9
+	default:
+		return nil, errors.New("invalid tag header")
+	}
+	if tag != cbor.CborTagCbor {
+		return nil, fmt.Errorf("expected semantic tag 24, got %d", tag)
+	}
+	var encoded []byte
+	n, err := cbor.Decode(raw[headerLength:], &encoded)
+	if err != nil {
+		return nil, err
+	}
+	if n != len(raw)-headerLength {
+		return nil, errors.New("trailing bytes after known-CBOR byte string")
+	}
+	return encoded, nil
+}
+
+func roundNanoToInteger(value *big.Int) *big.Int {
+	denominator := big.NewInt(1_000_000_000)
+	quotient, remainder := new(big.Int), new(big.Int)
+	quotient.QuoRem(value, denominator, remainder)
+	twiceRemainder := new(big.Int).Lsh(remainder, 1)
+	twiceRemainder.Abs(twiceRemainder)
+	comparison := twiceRemainder.Cmp(denominator)
+	if comparison > 0 || (comparison == 0 && quotient.Bit(0) == 1) {
+		if value.Sign() < 0 {
+			quotient.Sub(quotient, big.NewInt(1))
+		} else {
+			quotient.Add(quotient, big.NewInt(1))
+		}
+	}
+	return quotient
 }
 
 // ValidateDelegationPayload structurally validates every heavyweight
@@ -563,6 +897,7 @@ func (b *ByronMainBlock) ValidateDelegationPayload() error {
 		"delegation payload",
 		b.Body.DlgPayloadCbor(),
 		len(b.Body.DlgPayload),
+		false,
 	)
 	if err != nil {
 		return err
@@ -649,7 +984,84 @@ func (b *ByronMainBlock) updateVotesCbor() ([]cbor.RawMessage, error) {
 		"update payload votes",
 		parts[updatePayloadVotesIndex],
 		voteCount,
+		false,
 	)
+}
+
+// ValidateUpdatePayloadStructure checks the Byron update payload's wire
+// structure before state processing. Signature and authorization checks stay
+// in ValidateUpdatePayload.
+func (b *ByronMainBlockBody) ValidateUpdatePayloadStructure() error {
+	if b == nil || len(b.updPayloadRaw) == 0 {
+		return fmt.Errorf("%w: update payload has no preserved CBOR", ErrInvalidPayload)
+	}
+	return validateUpdatePayloadStructure(
+		b.updPayloadRaw,
+		b.UpdPayload.Proposals,
+		b.UpdPayload.Votes,
+	)
+}
+
+func validateUpdatePayloadStructure(
+	raw []byte,
+	decodedProposals []ByronUpdateProposal,
+	decodedVotes []any,
+) error {
+	var parts []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &parts); err != nil || len(parts) != updatePayloadElementCount {
+		return fmt.Errorf("%w: update payload must be a two-element array", ErrInvalidPayload)
+	}
+	if len(parts[updatePayloadVotesIndex]) == 0 || parts[updatePayloadVotesIndex][0] != 0x9f {
+		return fmt.Errorf("%w: update votes must use indefinite-list framing", ErrInvalidPayload)
+	}
+	proposals, err := payloadEntries("update payload proposals", parts[0], len(decodedProposals), true)
+	if err != nil {
+		return err
+	}
+	if len(proposals) > 1 {
+		return fmt.Errorf("%w: update payload contains %d proposals, expected at most one", ErrInvalidPayload, len(proposals))
+	}
+	for index, proposal := range proposals {
+		fields, err := payloadFields("update proposal", proposal, updateProposalElementCount)
+		if err != nil {
+			return err
+		}
+		if err := validateProposalMetadata(fields[updateProposalMetadataIndex]); err != nil {
+			return fmt.Errorf("update proposal %d metadata: %w", index, err)
+		}
+		if err := validateProposalAttributes(fields[updateProposalAttributesIndex]); err != nil {
+			return fmt.Errorf("update proposal %d attributes: %w", index, err)
+		}
+		if err := validateProtocolParametersUpdate(fields[1]); err != nil {
+			return fmt.Errorf("update proposal %d parameters: %w", index, err)
+		}
+	}
+	votes, err := payloadEntries("update payload votes", parts[updatePayloadVotesIndex], len(decodedVotes), false)
+	if err != nil {
+		return err
+	}
+	for index, rawVote := range votes {
+		if _, err := ParseUpdateVote(rawVote); err != nil {
+			return fmt.Errorf("update vote %d: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func validateDelegationPayloadWire(raw []byte) error {
+	if len(raw) == 0 || raw[0] != 0x9f {
+		return errors.New("byron delegation certificates must use indefinite-list framing")
+	}
+	certificates, err := cborRawArrayEntries(raw, false)
+	if err != nil {
+		return fmt.Errorf("decode Byron delegation certificates: %w", err)
+	}
+	for i, rawCertificate := range certificates {
+		if _, err := ParseDelegationCertificate(rawCertificate); err != nil {
+			return fmt.Errorf("byron delegation certificate %d: %w", i, err)
+		}
+	}
+	return nil
 }
 
 // ValidatePayloads runs ValidateDelegationPayload and
@@ -669,6 +1081,7 @@ func payloadEntries(
 	label string,
 	raw []byte,
 	decodedCount int,
+	requireDefinite bool,
 ) ([]cbor.RawMessage, error) {
 	if len(raw) == 0 {
 		if decodedCount == 0 {
@@ -679,8 +1092,8 @@ func payloadEntries(
 			ErrInvalidPayload, label, decodedCount,
 		)
 	}
-	var entries []cbor.RawMessage
-	if _, err := cbor.Decode(raw, &entries); err != nil {
+	entries, err := cborRawArrayEntries(raw, requireDefinite)
+	if err != nil {
 		return nil, fmt.Errorf(
 			"%w: decode %s: %w", ErrInvalidPayload, label, err,
 		)
@@ -706,8 +1119,8 @@ func payloadFields(
 			"%w: %s has no preserved CBOR", ErrInvalidPayload, label,
 		)
 	}
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(raw, &fields); err != nil {
+	fields, err := cborRawArrayEntries(raw, true)
+	if err != nil {
 		return nil, fmt.Errorf(
 			"%w: %s is not a %d-element array: %w",
 			ErrInvalidPayload, label, count, err,
@@ -720,6 +1133,163 @@ func payloadFields(
 		)
 	}
 	return fields, nil
+}
+
+func cborRawArrayEntries(raw []byte, requireDefinite bool) ([]cbor.RawMessage, error) {
+	count, offset, indefinite, err := cborCollectionHeader(raw, 4)
+	if err != nil {
+		return nil, err
+	}
+	if indefinite && requireDefinite {
+		return nil, errors.New("indefinite array is not permitted")
+	}
+	if indefinite {
+		entries := make([]cbor.RawMessage, 0)
+		for offset < len(raw) && raw[offset] != 0xff {
+			end, err := cborItemEnd(raw, offset)
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, append(cbor.RawMessage(nil), raw[offset:end]...))
+			offset = end
+		}
+		if offset >= len(raw) || offset+1 != len(raw) {
+			return nil, errors.New("malformed indefinite array")
+		}
+		return entries, nil
+	}
+	// The conversion is safe because len is nonnegative and bounded by MaxInt.
+	if count > uint64(len(raw)-offset) { //nolint:gosec
+		return nil, errors.New("truncated array elements")
+	}
+	entries := make([]cbor.RawMessage, 0, len(raw)-offset)
+	for range count {
+		end, err := cborItemEnd(raw, offset)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, append(cbor.RawMessage(nil), raw[offset:end]...))
+		offset = end
+	}
+	if offset != len(raw) {
+		return nil, errors.New("trailing bytes after array")
+	}
+	return entries, nil
+}
+
+func cborCollectionHeader(raw []byte, expectedMajor byte) (uint64, int, bool, error) {
+	if len(raw) == 0 || raw[0]>>5 != expectedMajor {
+		return 0, 0, false, errors.New("unexpected CBOR collection type")
+	}
+	argument := raw[0] & 0x1f
+	if argument < 24 {
+		return uint64(argument), 1, false, nil
+	}
+	if argument == 31 {
+		return 0, 1, true, nil
+	}
+	if argument > 27 {
+		return 0, 0, false, errors.New("reserved CBOR collection argument")
+	}
+	width := 1 << (argument - 24)
+	if len(raw) < 1+width {
+		return 0, 0, false, errors.New("truncated CBOR collection header")
+	}
+	var count uint64
+	for _, value := range raw[1 : 1+width] {
+		count = count<<8 | uint64(value)
+	}
+	return count, 1 + width, false, nil
+}
+
+func cborItemEnd(raw []byte, offset int) (int, error) {
+	if offset >= len(raw) {
+		return 0, errors.New("truncated CBOR item")
+	}
+	major := raw[offset] >> 5
+	argument := raw[offset] & 0x1f
+	_, headerLength, indefinite, err := cborCollectionHeader(raw[offset:], major)
+	if err != nil && (major != 7 || argument < 28) {
+		return 0, err
+	}
+	if argument < 24 {
+		headerLength = 1
+	} else if argument <= 27 {
+		if headerLength == 0 {
+			return 0, errors.New("truncated CBOR item header")
+		}
+	} else if argument == 31 && (major == 2 || major == 3 || major == 4 || major == 5) {
+		indefinite = true
+		headerLength = 1
+	} else if major != 7 {
+		return 0, errors.New("invalid indefinite CBOR item")
+	}
+	itemOffset := offset + headerLength
+	argumentValue := uint64(0)
+	if argument < 24 {
+		argumentValue = uint64(argument)
+	} else if argument <= 27 {
+		for _, value := range raw[offset+1 : itemOffset] {
+			argumentValue = argumentValue<<8 | uint64(value)
+		}
+	}
+	switch major {
+	case 0, 1:
+		return itemOffset, nil
+	case 2, 3:
+		if indefinite {
+			for itemOffset < len(raw) && raw[itemOffset] != 0xff {
+				chunkEnd, err := cborItemEnd(raw, itemOffset)
+				if err != nil || raw[itemOffset]>>5 != major || raw[itemOffset]&0x1f == 31 {
+					return 0, errors.New("invalid indefinite string chunk")
+				}
+				itemOffset = chunkEnd
+			}
+			if itemOffset >= len(raw) {
+				return 0, errors.New("unterminated indefinite string")
+			}
+			return itemOffset + 1, nil
+		}
+		// The conversion is safe because len is nonnegative and bounded by MaxInt.
+		if argumentValue > uint64(len(raw)-itemOffset) { //nolint:gosec
+			return 0, errors.New("truncated CBOR string")
+		}
+		return itemOffset + int(argumentValue), nil
+	case 4, 5:
+		items := argumentValue
+		if major == 5 && !indefinite {
+			// The conversion is safe because len is nonnegative and bounded by MaxInt.
+			if items > uint64(len(raw)-itemOffset)/2 { //nolint:gosec
+				return 0, errors.New("truncated CBOR map")
+			}
+			items *= 2
+		}
+		for index := uint64(0); indefinite || index < items; index++ {
+			if indefinite && itemOffset < len(raw) && raw[itemOffset] == 0xff {
+				return itemOffset + 1, nil
+			}
+			if itemOffset >= len(raw) || index >= uint64(len(raw)) {
+				return 0, errors.New("truncated CBOR collection")
+			}
+			itemOffset, err = cborItemEnd(raw, itemOffset)
+			if err != nil {
+				return 0, err
+			}
+		}
+		return itemOffset, nil
+	case 6:
+		return cborItemEnd(raw, itemOffset)
+	case 7:
+		if argument <= 23 {
+			return itemOffset, nil
+		}
+		if argument >= 24 && argument <= 27 {
+			return itemOffset, nil
+		}
+		return 0, errors.New("unexpected CBOR break")
+	default:
+		return 0, errors.New("unknown CBOR item type")
+	}
 }
 
 // payloadBytes decodes one preserved payload field as a byte string of an
@@ -744,4 +1314,15 @@ func payloadBytes(
 		)
 	}
 	return value, nil
+}
+
+func payloadVerificationKey(label string, raw cbor.RawMessage) ([]byte, error) {
+	value, err := requireCanonicalByronByteString(raw, label)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s: %w", ErrInvalidPayload, label, err)
+	}
+	if len(value) != VerificationKeySize {
+		return nil, fmt.Errorf("%w: %s is %d bytes, expected %d", ErrInvalidPayload, label, len(value), VerificationKeySize)
+	}
+	return append([]byte(nil), value...), nil
 }

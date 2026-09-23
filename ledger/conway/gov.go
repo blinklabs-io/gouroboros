@@ -40,7 +40,7 @@ func (p *ConwayProposalProcedure) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	if err := common.CheckAddressFullyConsumed(tmp.PPRewardAccount); err != nil {
+	if err := common.CheckAccountAddress(tmp.PPRewardAccount); err != nil {
 		return err
 	}
 	*p = ConwayProposalProcedure(tmp)

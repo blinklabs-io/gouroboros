@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 
@@ -39,7 +40,7 @@ func (p *DijkstraProposalProcedure) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	if err := common.CheckAddressFullyConsumed(tmp.PPRewardAccount); err != nil {
+	if err := common.CheckAccountAddress(tmp.PPRewardAccount); err != nil {
 		return err
 	}
 	*p = DijkstraProposalProcedure(tmp)
@@ -118,6 +119,21 @@ func (g *DijkstraGovAction) UnmarshalCBOR(cborData []byte) error {
 	}
 	if _, err := cbor.Decode(cborData, tmpAction); err != nil {
 		return err
+	}
+	if action, ok := tmpAction.(*common.HardForkInitiationGovAction); ok {
+		if action.ProtocolVersion.Major > common.ProtocolVersionDijkstra+1 {
+			return fmt.Errorf(
+				"hard-fork protocol major version %d exceeds Dijkstra decoder limit %d",
+				action.ProtocolVersion.Major,
+				common.ProtocolVersionDijkstra+1,
+			)
+		}
+		if action.ProtocolVersion.Minor > math.MaxUint32 {
+			return fmt.Errorf(
+				"hard-fork protocol minor version %d exceeds Word32",
+				action.ProtocolVersion.Minor,
+			)
+		}
 	}
 	g.Type = uint(actionType) // #nosec G115
 	g.Action = tmpAction

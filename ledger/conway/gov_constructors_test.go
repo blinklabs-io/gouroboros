@@ -146,7 +146,7 @@ func TestNewConwayGovActionRejectsInvalid(t *testing.T) {
 	// NewConwayProposalProcedure propagates the error instead of producing a
 	// procedure that encodes a CBOR-null governance action.
 	addr, err := common.NewAddress(
-		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
 	require.NoError(t, err)
 	anchor, err := common.NewGovAnchor(
@@ -160,7 +160,7 @@ func TestNewConwayGovActionRejectsInvalid(t *testing.T) {
 
 func TestNewConwayProposalProcedure(t *testing.T) {
 	addr, err := common.NewAddress(
-		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
 	require.NoError(t, err)
 	anchor, err := common.NewGovAnchor(

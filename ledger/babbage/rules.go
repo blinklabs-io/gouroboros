@@ -556,6 +556,11 @@ func UtxoValidateInsufficientCollateral(
 			totalCollateral.Add(totalCollateral, amount)
 		}
 	}
+	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+		if amount := collateralReturn.Amount(); amount != nil {
+			totalCollateral.Sub(totalCollateral, amount)
+		}
+	}
 	fee := tmpTx.Fee()
 	if fee == nil {
 		fee = new(big.Int)
@@ -581,7 +586,6 @@ func UtxoValidateCollateralContainsNonAda(
 	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
-	badOutputs := []common.TransactionOutput{}
 	totalCollateral := new(big.Int)
 	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
@@ -593,22 +597,15 @@ func UtxoValidateCollateralContainsNonAda(
 			totalCollateral.Add(totalCollateral, amount)
 		}
 		totalAssets.Add(utxo.Output.Assets())
-		if utxo.Output.Assets() == nil ||
-			len(utxo.Output.Assets().Policies()) == 0 {
-			continue
-		}
-		badOutputs = append(badOutputs, utxo.Output)
-	}
-	if len(badOutputs) == 0 {
-		return nil
 	}
 	// Check if all collateral assets are accounted for in the collateral return
 	collReturn := tx.CollateralReturn()
+	var collReturnAssets *common.MultiAsset[common.MultiAssetTypeOutput]
 	if collReturn != nil {
-		collReturnAssets := collReturn.Assets()
-		if (&totalAssets).Compare(collReturnAssets) {
-			return nil
-		}
+		collReturnAssets = collReturn.Assets()
+	}
+	if (&totalAssets).Compare(collReturnAssets) {
+		return nil
 	}
 	var providedU uint64
 	if totalCollateral.IsUint64() {
@@ -639,7 +636,7 @@ func UtxoValidateCollateralEqBalance(
 		return nil
 	}
 	totalCollateral := tx.TotalCollateral()
-	if totalCollateral == nil || totalCollateral.Sign() == 0 {
+	if !common.TransactionTotalCollateralPresent(tx) {
 		return nil
 	}
 	// Collect collateral input amounts
@@ -652,12 +649,6 @@ func UtxoValidateCollateralEqBalance(
 		if amount := utxo.Output.Amount(); amount != nil {
 			collBalance.Add(collBalance, amount)
 		}
-	}
-
-	// Skip validation if no valid collateral UTxOs were found
-	// This avoids subtracting from zero and prevents uint underflow
-	if collBalance.Sign() == 0 {
-		return nil
 	}
 
 	// Subtract collateral return amount with underflow protection
@@ -924,7 +915,7 @@ func UtxoValidateOutputTooSmallUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	var badOutputs []common.TransactionOutput
-	for _, tmpOutput := range tx.Outputs() {
+	for _, tmpOutput := range common.TransactionOutputsAndCollateralReturn(tx) {
 		minCoin, err := MinCoinTxOut(tmpOutput, pp)
 		if err != nil {
 			return err
@@ -957,7 +948,7 @@ func UtxoValidateOutputTooBigUtxo(
 		return errors.New("pparams are not expected type")
 	}
 	badOutputs := []common.TransactionOutput{}
-	for _, txOutput := range tx.Outputs() {
+	for _, txOutput := range common.TransactionOutputsAndCollateralReturn(tx) {
 		tmpOutput, ok := txOutput.(*BabbageTransactionOutput)
 		if !ok {
 			return errors.New("transaction output is not expected type")
@@ -1160,7 +1151,17 @@ func MinFeeTx(
 	if err != nil {
 		return 0, err
 	}
-	return minFee, nil
+	executionFee, err := common.CalculateExecutionUnitsFee(
+		tx,
+		tmpPparams.ExecutionCosts,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if minFee > math.MaxUint64-executionFee {
+		return 0, errors.New("minimum transaction fee overflow")
+	}
+	return minFee + executionFee, nil
 }
 
 // MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters.

@@ -15,6 +15,7 @@
 package byron
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -33,15 +34,16 @@ type ByronGenesisFtsSeed struct {
 	IsObject bool
 }
 type ByronGenesis struct {
-	AvvmDistr        map[string]string                      `json:"avvmDistr"`
-	BlockVersionData ByronGenesisBlockVersionData           `json:"blockVersionData"`
-	FtsSeed          ByronGenesisFtsSeed                    `json:"ftsSeed"`
-	ProtocolConsts   ByronGenesisProtocolConsts             `json:"protocolConsts"`
-	StartTime        int                                    `json:"startTime"`
-	BootStakeholders map[string]int                         `json:"bootStakeholders"`
-	HeavyDelegation  map[string]ByronGenesisHeavyDelegation `json:"heavyDelegation"`
-	NonAvvmBalances  map[string]string                      `json:"nonAvvmBalances"`
-	VssCerts         map[string]ByronGenesisVssCert         `json:"vssCerts"`
+	AvvmDistr            map[string]string                      `json:"avvmDistr"`
+	BlockVersionData     ByronGenesisBlockVersionData           `json:"blockVersionData"`
+	FtsSeed              ByronGenesisFtsSeed                    `json:"ftsSeed"`
+	ProtocolConsts       ByronGenesisProtocolConsts             `json:"protocolConsts"`
+	StartTime            int                                    `json:"startTime"`
+	BootStakeholders     map[string]int                         `json:"bootStakeholders"`
+	HeavyDelegation      map[string]ByronGenesisHeavyDelegation `json:"heavyDelegation"`
+	NonAvvmBalances      map[string]string                      `json:"nonAvvmBalances"`
+	VssCerts             map[string]ByronGenesisVssCert         `json:"vssCerts"`
+	RequiresNetworkMagic string                                 `json:"requiresNetworkMagic"`
 }
 
 type ByronGenesisBlockVersionData struct {
@@ -106,7 +108,24 @@ func (g *ByronGenesis) GenesisUtxos() ([]common.Utxo, error) {
 		avvmUtxos,
 		nonAvvmUtxos,
 	)
+	seen := make(map[genesisUtxoRef]struct{}, len(ret))
+	for _, utxo := range ret {
+		ref := genesisUtxoRef{id: utxo.Id.Id(), index: utxo.Id.Index()}
+		if _, exists := seen[ref]; exists {
+			return nil, fmt.Errorf(
+				"duplicate Byron genesis UTxO reference %s#%d",
+				ref.id,
+				ref.index,
+			)
+		}
+		seen[ref] = struct{}{}
+	}
 	return ret, nil
+}
+
+type genesisUtxoRef struct {
+	id    common.Blake2b256
+	index uint32
 }
 
 func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
@@ -117,11 +136,26 @@ func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
 		if err != nil {
 			return nil, err
 		}
-		tmpAddr, err := common.NewByronAddressRedeem(
-			pubkeyBytes,
-			// XXX: do we need to specify the network ID?
-			common.ByronAddressAttributes{},
-		)
+		attributes := common.ByronAddressAttributes{}
+		switch g.RequiresNetworkMagic {
+		case "", "RequiresNoMagic":
+		case "RequiresMagic":
+			if g.ProtocolConsts.ProtocolMagic < 0 ||
+				uint64(g.ProtocolConsts.ProtocolMagic) > uint64(^uint32(0)) {
+				return nil, fmt.Errorf(
+					"invalid Byron protocol magic %d",
+					g.ProtocolConsts.ProtocolMagic,
+				)
+			}
+			magic := uint32(g.ProtocolConsts.ProtocolMagic)
+			attributes.Network = &magic
+		default:
+			return nil, fmt.Errorf(
+				"invalid requiresNetworkMagic value %q",
+				g.RequiresNetworkMagic,
+			)
+		}
+		tmpAddr, err := common.NewByronAddressRedeem(pubkeyBytes, attributes)
 		if err != nil {
 			return nil, err
 		}
@@ -184,12 +218,164 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 
 func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
 	var ret ByronGenesis
-	dec := json.NewDecoder(r)
-	dec.DisallowUnknownFields()
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return ret, err
+	}
+	if err := validateGenesisRequiredFields(data); err != nil {
+		return ret, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}
+	if err := validateGenesisParameterDomains(ret); err != nil {
+		return ret, err
+	}
 	return ret, nil
+}
+
+func validateGenesisRequiredFields(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if err := requireGenesisFields("", fields,
+		"avvmDistr",
+		"blockVersionData",
+		"protocolConsts",
+		"startTime",
+		"bootStakeholders",
+		"heavyDelegation",
+		"nonAvvmBalances",
+	); err != nil {
+		return err
+	}
+	var blockVersionData map[string]json.RawMessage
+	if err := json.Unmarshal(fields["blockVersionData"], &blockVersionData); err != nil {
+		return fmt.Errorf("blockVersionData: %w", err)
+	}
+	if err := requireGenesisFields("blockVersionData", blockVersionData,
+		"heavyDelThd",
+		"maxBlockSize",
+		"maxHeaderSize",
+		"maxProposalSize",
+		"maxTxSize",
+		"mpcThd",
+		"scriptVersion",
+		"slotDuration",
+		"softforkRule",
+		"txFeePolicy",
+		"unlockStakeEpoch",
+		"updateImplicit",
+		"updateProposalThd",
+		"updateVoteThd",
+	); err != nil {
+		return err
+	}
+	var softforkRule map[string]json.RawMessage
+	if err := json.Unmarshal(blockVersionData["softforkRule"], &softforkRule); err != nil {
+		return fmt.Errorf("blockVersionData.softforkRule: %w", err)
+	}
+	if err := requireGenesisFields("blockVersionData.softforkRule", softforkRule,
+		"initThd", "minThd", "thdDecrement",
+	); err != nil {
+		return err
+	}
+	var txFeePolicy map[string]json.RawMessage
+	if err := json.Unmarshal(blockVersionData["txFeePolicy"], &txFeePolicy); err != nil {
+		return fmt.Errorf("blockVersionData.txFeePolicy: %w", err)
+	}
+	if err := requireGenesisFields("blockVersionData.txFeePolicy", txFeePolicy,
+		"multiplier", "summand",
+	); err != nil {
+		return err
+	}
+	var protocolConsts map[string]json.RawMessage
+	if err := json.Unmarshal(fields["protocolConsts"], &protocolConsts); err != nil {
+		return fmt.Errorf("protocolConsts: %w", err)
+	}
+	return requireGenesisFields("protocolConsts", protocolConsts,
+		"k", "protocolMagic",
+	)
+}
+
+func requireGenesisFields(
+	object string,
+	fields map[string]json.RawMessage,
+	names ...string,
+) error {
+	for _, name := range names {
+		value, ok := fields[name]
+		field := name
+		if object != "" {
+			field = object + "." + name
+		}
+		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return fmt.Errorf("missing required Byron genesis field %s", field)
+		}
+	}
+	return nil
+}
+
+func validateGenesisParameterDomains(genesis ByronGenesis) error {
+	const maxLovelacePortion = int64(1_000_000_000_000_000)
+	const maxTxFeeSummand = int64(45_000_000_000_000_000)
+	thresholds := []struct {
+		name  string
+		value int64
+	}{
+		{"blockVersionData.heavyDelThd", genesis.BlockVersionData.HeavyDelThd},
+		{"blockVersionData.mpcThd", genesis.BlockVersionData.MpcThd},
+		{"blockVersionData.updateProposalThd", genesis.BlockVersionData.UpdateProposalThd},
+		{"blockVersionData.updateVoteThd", genesis.BlockVersionData.UpdateVoteThd},
+		{"blockVersionData.softforkRule.initThd", genesis.BlockVersionData.SoftforkRule.InitThd},
+		{"blockVersionData.softforkRule.minThd", genesis.BlockVersionData.SoftforkRule.MinThd},
+		{"blockVersionData.softforkRule.thdDecrement", genesis.BlockVersionData.SoftforkRule.ThdDecrement},
+	}
+	for _, threshold := range thresholds {
+		if threshold.value < 0 || threshold.value > maxLovelacePortion {
+			return fmt.Errorf(
+				"%s must be between 0 and %d, got %d",
+				threshold.name,
+				maxLovelacePortion,
+				threshold.value,
+			)
+		}
+	}
+	if scriptVersion := genesis.BlockVersionData.ScriptVersion; scriptVersion < 0 || scriptVersion > 1<<16-1 {
+		return fmt.Errorf(
+			"blockVersionData.scriptVersion must be between 0 and %d, got %d",
+			1<<16-1,
+			scriptVersion,
+		)
+	}
+	summand := genesis.BlockVersionData.TxFeePolicy.Summand
+	if summand < 0 || summand > maxTxFeeSummand {
+		return fmt.Errorf(
+			"blockVersionData.txFeePolicy.summand must be between 0 and %d, got %d",
+			maxTxFeeSummand,
+			summand,
+		)
+	}
+
+	unsigned := []struct {
+		name  string
+		value int
+	}{
+		{"blockVersionData.slotDuration", genesis.BlockVersionData.SlotDuration},
+		{"blockVersionData.maxBlockSize", genesis.BlockVersionData.MaxBlockSize},
+		{"blockVersionData.maxHeaderSize", genesis.BlockVersionData.MaxHeaderSize},
+		{"blockVersionData.maxTxSize", genesis.BlockVersionData.MaxTxSize},
+		{"blockVersionData.maxProposalSize", genesis.BlockVersionData.MaxProposalSize},
+		{"blockVersionData.updateImplicit", genesis.BlockVersionData.UpdateImplicit},
+	}
+	for _, parameter := range unsigned {
+		if parameter.value < 0 {
+			return fmt.Errorf("%s must be non-negative, got %d", parameter.name, parameter.value)
+		}
+	}
+	return nil
 }
 
 func NewByronGenesisFromFile(path string) (ByronGenesis, error) {
