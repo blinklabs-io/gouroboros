@@ -854,7 +854,104 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransaction(t *testing.T) {
 	}
 	var body DijkstraTransactionBody
 	err := body.UnmarshalCBOR(dupCbor)
-	require.ErrorContains(t, err, "duplicate member in set")
+	require.ErrorContains(t, err, "duplicate Dijkstra sub-transaction body")
+}
+
+func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
+	t *testing.T,
+) {
+	key := make([]byte, 32)
+	signature := make([]byte, 64)
+	witnessesA := map[uint]any{
+		0: cbor.NewSetType([]common.VkeyWitness{{
+			Vkey: key, Signature: signature,
+		}}, true),
+	}
+	witnessesB := map[uint]any{
+		0: cbor.NewSetType([]common.VkeyWitness{{
+			Vkey:      append([]byte(nil), key...),
+			Signature: bytes.Repeat([]byte{1}, 64),
+		}}, true),
+	}
+	body := map[uint]any{3: uint64(10)}
+	for _, tc := range []struct {
+		name       string
+		witnesses  map[uint]any
+		auxiliaryA any
+		auxiliaryB any
+	}{
+		{name: "witnesses differ", witnesses: witnessesB},
+		{
+			name:       "auxiliary data differs",
+			witnesses:  witnessesA,
+			auxiliaryB: map[uint]any{1: "metadata"},
+		},
+		{
+			name:       "witnesses and auxiliary data differ",
+			witnesses:  witnessesB,
+			auxiliaryB: map[uint]any{1: "metadata"},
+		},
+	} {
+		for _, tagged := range []bool{false, true} {
+			name := tc.name + "/untagged"
+			if tagged {
+				name = tc.name + "/tagged"
+			}
+			t.Run(name, func(t *testing.T) {
+				firstBytes, err := cbor.Encode(
+					[]any{body, witnessesA, tc.auxiliaryA},
+				)
+				require.NoError(t, err)
+				secondBytes, err := cbor.Encode(
+					[]any{body, tc.witnesses, tc.auxiliaryB},
+				)
+				require.NoError(t, err)
+				var first, second DijkstraSubTransaction
+				require.NoError(t, first.UnmarshalCBOR(firstBytes))
+				require.NoError(t, second.UnmarshalCBOR(secondBytes))
+				require.Equal(t, first.Body.Id(), second.Body.Id())
+				require.NotEqual(t, first.Cbor(), second.Cbor())
+
+				subTransactions := []any{
+					[]any{body, witnessesA, tc.auxiliaryA},
+					[]any{body, tc.witnesses, tc.auxiliaryB},
+				}
+				bodyValue := map[uint]any{23: subTransactions}
+				if tagged {
+					bodyValue[23] = cbor.NewSetType(subTransactions, true)
+				}
+				bodyCbor, err := cbor.Encode(bodyValue)
+				require.NoError(t, err)
+				var decoded DijkstraTransactionBody
+				require.ErrorContains(
+					t, decoded.UnmarshalCBOR(bodyCbor),
+					"duplicate Dijkstra sub-transaction body",
+				)
+			})
+		}
+	}
+}
+
+func TestDijkstraTransactionBodyRejectsExplicitlyEmptySubTransactions(t *testing.T) {
+	for _, value := range []any{[]any{}, cbor.NewSetType([]any{}, true)} {
+		bodyCbor, err := cbor.Encode(map[uint]any{23: value})
+		require.NoError(t, err)
+		var body DijkstraTransactionBody
+		require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "must not be empty")
+	}
+}
+
+func TestDijkstraTransactionBodyAcceptsDistinctSubTransactionBodies(t *testing.T) {
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		23: []any{
+			[]any{map[uint]any{3: uint64(10)}, map[uint]any{}, nil},
+			[]any{map[uint]any{3: uint64(11)}, map[uint]any{}, nil},
+		},
+	})
+	require.NoError(t, err)
+	var body DijkstraTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+	require.Len(t, body.TxSubTransactions.Items(), 2)
 }
 
 func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {

@@ -1082,6 +1082,24 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	var rawFields map[uint64]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &rawFields); err != nil {
+		return err
+	}
+	if _, ok := rawFields[23]; ok {
+		subTransactions := tmp.TxSubTransactions.Items()
+		if len(subTransactions) == 0 {
+			return errors.New("Dijkstra sub-transactions must not be empty")
+		}
+		seen := make(map[common.Blake2b256]struct{}, len(subTransactions))
+		for _, subTransaction := range subTransactions {
+			bodyID := subTransaction.Body.Id()
+			if _, ok := seen[bodyID]; ok {
+				return errors.New("duplicate Dijkstra sub-transaction body")
+			}
+			seen[bodyID] = struct{}{}
+		}
+	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
