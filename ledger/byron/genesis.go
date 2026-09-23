@@ -185,17 +185,22 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 
 func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
 	var ret ByronGenesis
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return ret, err
-	}
-	if err := rejectNonCanonicalJSONEscapes(data); err != nil {
-		return ret, err
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
+	// Decode straight from r through a tee, rather than reading it to
+	// completion with io.ReadAll first: r may stay open past the genesis
+	// value (a long-lived connection, a multi-document stream), and the
+	// original behavior here -- like encoding/json's own Decode -- reads
+	// only the one JSON value, not until EOF. dec.InputOffset() after a
+	// successful Decode gives the exact end of that value, so the escape
+	// check runs only over the bytes the value actually used, not any
+	// read-ahead the decoder buffered past it.
+	var raw bytes.Buffer
+	dec := json.NewDecoder(io.TeeReader(r, &raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
+	}
+	if err := rejectNonCanonicalJSONEscapes(raw.Bytes()[:dec.InputOffset()]); err != nil {
+		return ByronGenesis{}, err
 	}
 	return ret, nil
 }

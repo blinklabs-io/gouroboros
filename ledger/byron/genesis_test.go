@@ -15,16 +15,28 @@
 package byron_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// blockForever is an io.Reader whose Read never returns, simulating a
+// connection or stream that stays open indefinitely past the data a caller
+// cares about.
+type blockForever struct{}
+
+func (blockForever) Read([]byte) (int, error) {
+	select {}
+}
 
 const byronGenesisConfig = `
 {
@@ -499,6 +511,31 @@ func TestNewByronGenesisFromReaderRejectsNonCanonicalEscapes(t *testing.T) {
 			strings.NewReader(byronGenesisConfig),
 		)
 		require.NoError(t, err)
+	})
+
+	t.Run("does not block on a reader left open past the genesis value", func(t *testing.T) {
+		// NewByronGenesisFromReader decodes exactly one JSON value, the
+		// same as the encoding/json Decode it wraps, and must not read
+		// to EOF: a caller's reader (a long-lived connection, a
+		// multi-document stream) may never signal EOF at all.
+		genesisJSON := []byte(`{"protocolConsts": {"protocolMagic": 42}}`)
+		r := io.MultiReader(
+			bytes.NewReader(genesisJSON),
+			blockForever{},
+		)
+		done := make(chan error, 1)
+		go func() {
+			_, err := byron.NewByronGenesisFromReader(r)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal(
+				"NewByronGenesisFromReader blocked reading past the genesis value",
+			)
+		}
 	})
 }
 
