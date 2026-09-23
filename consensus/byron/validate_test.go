@@ -20,6 +20,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -1259,6 +1260,13 @@ func TestValidateHeaderAcceptsSameSlotNonRoundRobinPBFTSigner(t *testing.T) {
 			dummy.Bytes(),
 		}
 	}
+	resolvedIssuer := common.Blake2b224Hash([]byte("resolved active issuer"))
+	config.GenesisKeyHashes = append(
+		config.GenesisKeyHashes,
+		resolvedIssuer.Bytes(),
+	)
+	config.GenesisDelegations[issuer.GenesisKeyHash] = issuer.GenesisKeyHash
+	config.GenesisDelegations[resolvedIssuer] = issuer.DelegateKeyHash
 	validator := NewHeaderValidator(config)
 	previousHash := header.PrevHash().Bytes()
 	state, err := NewPBFTState(nil, 10)
@@ -1280,10 +1288,16 @@ func TestValidateHeaderAcceptsSameSlotNonRoundRobinPBFTSigner(t *testing.T) {
 	require.True(t, result.Valid, "%v", result.Errors)
 	require.NotNil(t, result.PBFTState)
 	require.Len(t, result.PBFTState.SignatureHistory(), 1)
+	require.Equal(
+		t,
+		resolvedIssuer,
+		result.PBFTState.SignatureHistory()[0],
+		"PBFT charges the issuer resolved from the active delegate",
+	)
 
 	issuerHistory := []common.Blake2b224{
-		issuer.GenesisKeyHash,
-		issuer.GenesisKeyHash,
+		resolvedIssuer,
+		resolvedIssuer,
 	}
 	fullState, err := NewPBFTState(issuerHistory, 10)
 	require.NoError(t, err)
@@ -1295,6 +1309,50 @@ func TestValidateHeaderAcceptsSameSlotNonRoundRobinPBFTSigner(t *testing.T) {
 		rejected.Errors[len(rejected.Errors)-1],
 		"signature threshold",
 	)
+}
+
+func TestValidateHeaderRejectsCorrectlySignedInactivePBFTDelegate(t *testing.T) {
+	header, config, issuer := realPBFTHeaderFixture(t)
+	inactiveDelegate, _ := deterministicPBFTVerificationKey(0xc3)
+	inactiveDelegateHash, err := PBFTVerificationKeyHash(inactiveDelegate)
+	require.NoError(t, err)
+	config.GenesisDelegations[issuer.GenesisKeyHash] = inactiveDelegateHash
+
+	previousHash := header.PrevHash().Bytes()
+	input := &ValidateHeaderInput{
+		Slot:            header.SlotNumber(),
+		BlockNumber:     header.BlockNumber(),
+		PrevHash:        previousHash,
+		ProtocolMagic:   header.ProtocolMagic,
+		IssuerPubKey:    header.ConsensusData.PubKey[:32],
+		HeaderCbor:      header.Cbor(),
+		BlockSig:        header.ConsensusData.BlockSig,
+		PrevSlot:        header.SlotNumber(),
+		PrevBlockNumber: header.BlockNumber() - 1,
+		PrevHeaderHash:  previousHash,
+	}
+	result := NewHeaderValidator(config).ValidateHeader(input)
+	require.False(t, result.Valid)
+	require.ErrorContains(
+		t,
+		errors.Join(result.Errors...),
+		"does not authorize delegate",
+	)
+}
+
+func TestValidatePBFTActiveDelegateRejectsNonHeavySignatureTypes(t *testing.T) {
+	_, config, _ := realPBFTHeaderFixture(t)
+	validator := NewHeaderValidator(config)
+	for _, signatureType := range []uint64{0, 1} {
+		t.Run(fmt.Sprintf("type_%d", signatureType), func(t *testing.T) {
+			_, err := validator.validatePBFTActiveDelegate(
+				&ValidateHeaderInput{
+					BlockSig: []any{signatureType, []any{}},
+				},
+			)
+			require.ErrorContains(t, err, "heavyweight delegation is required")
+		})
+	}
 }
 
 func TestSlotLeader(t *testing.T) {
@@ -1358,7 +1416,7 @@ func TestSlotLeader(t *testing.T) {
 	require.Nil(t, keyHash, "SlotLeader with no keys should return nil hash")
 }
 
-func TestValidateHeaderFull(t *testing.T) {
+func TestValidateHeaderEnvelopeOnly(t *testing.T) {
 	config := testByronConfig()
 
 	// Generate test key pair
@@ -1395,6 +1453,7 @@ func TestValidateHeaderFull(t *testing.T) {
 		PrevSlot:         50,
 		PrevBlockNumber:  49,
 		PrevHeaderHash:   prevHash,
+		EnvelopeOnly:     true,
 		IsEBB:            false,
 	}
 

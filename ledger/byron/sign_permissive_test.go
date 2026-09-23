@@ -103,7 +103,7 @@ func TestByronTransactionVKeyWitnessUsesLegacyVerifier(t *testing.T) {
 			Attributes: cbor.RawMessage{0xa0},
 		},
 	}
-	txHash := tx.Hash()
+	txHash := tx.WireId()
 	sig := ed25519.Sign(priv, txHash[:])
 	order, ok := new(big.Int).SetString(
 		"7237005577332262213973186563042994240857116359379907606001950938285454250989",

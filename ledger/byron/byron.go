@@ -351,8 +351,19 @@ func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
 
 func (t *ByronTransactionBody) Id() common.Blake2b256 {
 	return t.hash.Get(func() common.Blake2b256 {
-		return common.Blake2b256Hash(t.Cbor())
+		type canonicalBody ByronTransactionBody
+		encoded, err := cbor.Encode((*canonicalBody)(t))
+		if err != nil {
+			panic("CBOR encoding that should never fail has failed: " + err.Error())
+		}
+		return common.Blake2b256Hash(encoded)
 	})
+}
+
+// WireId hashes the original annotated transaction-body bytes used by Byron
+// witness signing and transaction Merkle proofs.
+func (t *ByronTransactionBody) WireId() common.Blake2b256 {
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t *ByronTransactionBody) Inputs() []common.TransactionInput {
@@ -566,6 +577,11 @@ func (ByronTransaction) Type() int {
 
 func (t *ByronTransaction) Hash() common.Blake2b256 {
 	return t.Id()
+}
+
+// WireId returns the hash of the original transaction-body bytes.
+func (t *ByronTransaction) WireId() common.Blake2b256 {
+	return t.Body.WireId()
 }
 
 // VerifyByronVKeyWitness applies the historical Byron signature rules to a

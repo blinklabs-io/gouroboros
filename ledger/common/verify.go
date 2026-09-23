@@ -42,7 +42,7 @@ func VerifyVKeySignature(pubKey, sig, msg []byte) error {
 // invalid signature encountered.
 func ValidateVKeyWitnesses(tx Transaction) error {
 	w := tx.Witnesses()
-	txHash := tx.Hash()
+	txHash := transactionWitnessHash(tx)
 	msg := txHash[:]
 	if w != nil {
 		for _, vw := range w.Vkey() {
@@ -65,6 +65,13 @@ func ValidateVKeyWitnesses(tx Transaction) error {
 		}
 	}
 	return nil
+}
+
+func transactionWitnessHash(tx Transaction) Blake2b256 {
+	if wireHashed, ok := tx.(interface{ WireId() Blake2b256 }); ok {
+		return wireHashed.WireId()
+	}
+	return tx.Hash()
 }
 
 // ByronVKeyWitnessVerifier marks transaction eras whose legacy vkey witnesses
@@ -212,7 +219,7 @@ func ValidateBootstrapWitnesses(tx Transaction) error {
 	if w == nil {
 		return nil
 	}
-	txHash := tx.Hash()
+	txHash := transactionWitnessHash(tx)
 	msg := txHash[:]
 	for _, bw := range w.Bootstrap() {
 		// Validate sizes first; reject malformed bootstrap witnesses rather
