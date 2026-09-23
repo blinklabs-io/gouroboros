@@ -524,17 +524,19 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	for _, key := range []int{37, 38, 39, 44} {
-		if raw, ok := fields[key]; ok &&
-			!(key == 38 && len(raw) == 1 && raw[0] == 0xf6) {
+		if raw, ok := fields[key]; ok {
+			if key == 38 && len(raw) == 1 && raw[0] == 0xf6 {
+				continue
+			}
 			if err := common.ValidateNonNegativeBoundedRatCBOR(raw); err != nil {
-				return fmt.Errorf("Dijkstra protocol parameter tag %d: %w", key, err)
+				return fmt.Errorf("dijkstra protocol parameter tag %d: %w", key, err)
 			}
 		}
 	}
 	for key, raw := range fields {
 		if key >= 34 && key <= 48 && key != 38 &&
 			(len(raw) == 1 && (raw[0] == 0xf6 || raw[0] == 0xf7)) {
-			return fmt.Errorf("Dijkstra protocol parameter tag %d cannot be null or undefined", key)
+			return fmt.Errorf("dijkstra protocol parameter tag %d cannot be null or undefined", key)
 		}
 	}
 	for key := range fields {

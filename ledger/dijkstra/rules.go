@@ -503,7 +503,7 @@ func validateDijkstraProtocolParameterUpdateDomains(
 	ppu *DijkstraProtocolParameterUpdate,
 ) error {
 	if ppu == nil {
-		return errors.New("Dijkstra protocol parameter update cannot be nil")
+		return errors.New("dijkstra protocol parameter update cannot be nil")
 	}
 	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
 		return err
@@ -512,23 +512,23 @@ func validateDijkstraProtocolParameterUpdateDomains(
 		return err
 	}
 	if ppu.RefScriptCostStride != nil && *ppu.RefScriptCostStride == 0 {
-		return fmt.Errorf("refScriptCostStride must be positive")
+		return errors.New("refScriptCostStride must be positive")
 	}
 	if rat := ppu.RefScriptCostMultiplier; rat != nil && !validPositiveDijkstraRat(rat) {
-		return fmt.Errorf("refScriptCostMultiplier must be a positive bounded ratio")
+		return errors.New("refScriptCostMultiplier must be a positive bounded ratio")
 	}
 	if rat := ppu.MaxPledgeLeverage; rat != nil && !validNonNegativeDijkstraRat(rat) {
-		return fmt.Errorf("maxPledgeLeverage must be a nonnegative bounded ratio")
+		return errors.New("maxPledgeLeverage must be a nonnegative bounded ratio")
 	}
 	if rat := ppu.MinPoolMargin; rat != nil && !validUnitDijkstraRat(rat) {
-		return fmt.Errorf("minPoolMargin must be a bounded unit interval")
+		return errors.New("minPoolMargin must be a bounded unit interval")
 	}
 	if rat := ppu.LeiosQuorumStakeThreshold; rat != nil && !validUnitDijkstraRat(rat) {
-		return fmt.Errorf("leiosQuorumStakeThreshold must be a bounded unit interval")
+		return errors.New("leiosQuorumStakeThreshold must be a bounded unit interval")
 	}
 	if ppu.MaxEndorserBlockExUnits != nil &&
 		(ppu.MaxEndorserBlockExUnits.Memory < 0 || ppu.MaxEndorserBlockExUnits.Steps < 0) {
-		return fmt.Errorf("maxEndorserBlockExUnits must be nonnegative")
+		return errors.New("maxEndorserBlockExUnits must be nonnegative")
 	}
 	return nil
 }

@@ -15,6 +15,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -72,7 +73,7 @@ func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
 		return err
 	}
 	if len(components) != 2 {
-		return fmt.Errorf("expected rational numerator and denominator")
+		return errors.New("expected rational numerator and denominator")
 	}
 	numerator, err := rawCBORInteger(components[0])
 	if err != nil {
@@ -83,10 +84,10 @@ func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
 		return fmt.Errorf("decode rational denominator: %w", err)
 	}
 	if !numerator.IsUint64() {
-		return fmt.Errorf("rational numerator must be in Word64")
+		return errors.New("rational numerator must be in Word64")
 	}
 	if !denominator.IsUint64() || denominator.Sign() == 0 {
-		return fmt.Errorf("rational denominator must be positive Word64")
+		return errors.New("rational denominator must be positive Word64")
 	}
 	return nil
 }
