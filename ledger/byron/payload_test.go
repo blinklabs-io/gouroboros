@@ -854,10 +854,11 @@ func TestUpdatePayloadStructure(t *testing.T) {
 	t.Run("malformed vote rejected", func(t *testing.T) {
 		var payload byron.ByronUpdatePayload
 		_, err := cbor.Decode(
-			rawArray(rawArray(), rawArray(mustEncode(t, uint64(0)))),
+			rawArray(rawArray(), []byte{0x9f, 0x00, 0xff}),
 			&payload,
 		)
 		require.ErrorIs(t, err, byron.ErrInvalidPayload)
+		require.ErrorContains(t, err, "update vote 0")
 	})
 	t.Run("false vote decision remains structurally valid", func(t *testing.T) {
 		voterVK, voterPrivate := testKeyPair(0x44)
@@ -895,6 +896,39 @@ func TestUpdatePayloadStructure(t *testing.T) {
 			)
 			var decoded byron.ByronUpdateProposal
 			_, err := cbor.Decode(rawProposal, &decoded)
+			require.ErrorIs(t, err, byron.ErrInvalidPayload)
+		})
+	}
+	for _, testCase := range []struct {
+		name  string
+		field int
+		value []byte
+	}{
+		{
+			name:  "indefinite threshold optional list rejected",
+			field: 6,
+			value: []byte{0x9f, 0x01, 0xff},
+		},
+		{
+			name:  "indefinite soft-fork optional list rejected",
+			field: 11,
+			value: []byte{0x9f, 0x83, 0x01, 0x01, 0x01, 0xff},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fields := make([][]byte, 14)
+			for index := range fields {
+				fields[index] = mustEncode(t, []any{})
+			}
+			fields[testCase.field] = testCase.value
+			rawProposal := signedUpdateProposalWithMod(
+				t, testPayloadProtocolMagic, issuerVK, issuerPrivate,
+				rawArray(fields...), emptyMap(), emptyMap(),
+			)
+			var decoded byron.ByronUpdateProposal
+			_, err := cbor.Decode(rawProposal, &decoded)
+			require.NoError(t, err)
+			err = decoded.Validate(testPayloadProtocolMagic)
 			require.ErrorIs(t, err, byron.ErrInvalidPayload)
 		})
 	}
@@ -957,12 +991,46 @@ func TestByronMainBlockDecodeEnforcesUpdatePayloadStructure(t *testing.T) {
 		_, err := cbor.Decode(blockWithPayload(payload), &block)
 		require.ErrorIs(t, err, byron.ErrInvalidPayload)
 	})
+	t.Run("indefinite proposal list rejected", func(t *testing.T) {
+		payload := rawArray(
+			append(append([]byte{0x9f}, proposal...), 0xff),
+			[]byte{0x9f, 0xff},
+		)
+		var block byron.ByronMainBlock
+		_, err := cbor.Decode(blockWithPayload(payload), &block)
+		require.ErrorIs(t, err, byron.ErrInvalidPayload)
+	})
 	t.Run("malformed vote rejected", func(t *testing.T) {
 		payload := rawArray(rawArray(), []byte{0x9f, 0x00, 0xff})
 		var block byron.ByronMainBlock
 		_, err := cbor.Decode(blockWithPayload(payload), &block)
 		require.ErrorIs(t, err, byron.ErrInvalidPayload)
 	})
+}
+
+func TestByronTxFeePolicyRoundsSummandBeforeLovelaceBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		summandNano int64
+		wantErr     bool
+	}{
+		{name: "negative nano rounds to zero", summandNano: -1},
+		{name: "negative half nano rounds to even zero", summandNano: -500_000_000},
+		{name: "negative beyond half rounds below zero", summandNano: -500_000_001, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			linear := mustEncode(t, []any{tc.summandNano, int64(0)})
+			knownCbor := append([]byte{0xd8, 0x18}, mustEncode(t, []byte(linear))...)
+			policy := rawArray(mustEncode(t, uint64(0)), knownCbor)
+			var decoded byron.ByronTxFeePolicy
+			_, err := cbor.Decode(policy, &decoded)
+			if tc.wantErr {
+				require.ErrorIs(t, err, byron.ErrInvalidPayload)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // TestUpdateProposalShapes covers the metadata and attributes fields, which

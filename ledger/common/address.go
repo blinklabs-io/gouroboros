@@ -338,6 +338,24 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 	a.networkId = header & AddressHeaderNetworkMask
 	// Byron Addresses
 	if a.addressType == AddressTypeByron {
+		payloadField, err := byronAddressArrayField(data, 0, 2)
+		if err != nil {
+			return err
+		}
+		if len(payloadField) == 0 || payloadField[0]&cbor.CborTypeMask != cbor.CborTypeTag {
+			return errors.New("invalid Byron address data: payload is not tag 24")
+		}
+		tagNumber, tagHeaderSize, err := addressCBORArgument(
+			payloadField,
+			payloadField[0]&0x1f,
+		)
+		if err != nil || tagNumber != 24 || tagHeaderSize >= len(payloadField) {
+			return errors.New("invalid Byron address data: payload is not tag 24")
+		}
+		byteString := payloadField[tagHeaderSize:]
+		if byteString[0]&cbor.CborTypeMask != cbor.CborTypeByteString || byteString[0]&0x1f == 31 {
+			return errors.New("invalid Byron address data: tag 24 content must be a definite byte string")
+		}
 		var rawAddr byronAddress
 		byronLen, err := cbor.Decode(data, &rawAddr)
 		if err != nil {
@@ -602,6 +620,9 @@ func validateByronAddressAttributeWire(raw []byte) error {
 	pos := int(headerSize)
 	for i := 0; i < length; i++ {
 		keyStart := pos
+		if keyStart >= len(raw) || raw[keyStart]&cbor.CborTypeMask != 0 {
+			return fmt.Errorf("byron address attribute key %d must be an unsigned integer", i)
+		}
 		var err error
 		pos, err = addressCBORItemEnd(raw, pos, 0)
 		if err != nil {
