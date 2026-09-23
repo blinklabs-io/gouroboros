@@ -937,6 +937,26 @@ func VerifyBlock(
 
 	// Verify transactions (can be skipped via config)
 	// Requires LedgerState and ProtocolParameters in config if enabled.
+	if block.Era() == byron.EraByron && !config.SkipTransactionValidation {
+		if mainBlock, ok := block.(*byron.ByronMainBlock); ok {
+			for idx := range mainBlock.Body.TxPayload {
+				if err := mainBlock.Body.TxPayload[idx].ValidateVKeyWitnesses(
+					mainBlock.BlockHeader.ProtocolMagic,
+				); err != nil {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeTransaction,
+						"Byron block transaction witness validation failed",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"transaction":  idx,
+						},
+						err,
+					)
+				}
+			}
+		}
+	}
 	if block.Era() != byron.EraByron && !config.SkipTransactionValidation {
 		var validationRules []common.UtxoValidationRuleFunc
 		switch block.Era().Id {

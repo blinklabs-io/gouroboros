@@ -351,8 +351,31 @@ func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
 
 func (t *ByronTransactionBody) Id() common.Blake2b256 {
 	return t.hash.Get(func() common.Blake2b256 {
-		type canonicalBody ByronTransactionBody
-		encoded, err := cbor.Encode((*canonicalBody)(t))
+		attributes := make(map[uint64][]byte)
+		if len(t.Attributes) > 0 {
+			if _, err := cbor.Decode(t.Attributes, &attributes); err != nil {
+				panic("CBOR attributes that should never fail to decode have failed: " + err.Error())
+			}
+		}
+		inputs := make(cbor.IndefLengthList, len(t.TxInputs))
+		for i := range t.TxInputs {
+			inputs[i] = t.TxInputs[i]
+		}
+		outputs := make(cbor.IndefLengthList, len(t.TxOutputs))
+		for i := range t.TxOutputs {
+			outputs[i] = t.TxOutputs[i]
+		}
+		type canonicalBody struct {
+			cbor.StructAsArray
+			Inputs     cbor.IndefLengthList
+			Outputs    cbor.IndefLengthList
+			Attributes map[uint64][]byte
+		}
+		encoded, err := cbor.Encode(&canonicalBody{
+			Inputs:     inputs,
+			Outputs:    outputs,
+			Attributes: attributes,
+		})
 		if err != nil {
 			panic("CBOR encoding that should never fail has failed: " + err.Error())
 		}
@@ -481,10 +504,12 @@ func (t *ByronTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Bl
 type ByronTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Body       ByronTransactionBody
-	Twit       []cbor.Value
-	twitCbor   []byte // Original CBOR of witnesses for merkle tree computation
-	witnessSet *ByronTransactionWitnessSet
+	Body             ByronTransactionBody
+	Twit             []cbor.Value
+	twitCbor         []byte // Original CBOR of witnesses for merkle tree computation
+	witnessSet       *ByronTransactionWitnessSet
+	protocolMagic    uint32
+	hasProtocolMagic bool
 }
 
 func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -584,15 +609,67 @@ func (t *ByronTransaction) WireId() common.Blake2b256 {
 	return t.Body.WireId()
 }
 
-// VerifyByronVKeyWitness applies the historical Byron signature rules to a
-// legacy transaction witness. Bootstrap witnesses remain on the strict
-// Cardano DSIGN path in ledger/common.
-func (t *ByronTransaction) VerifyByronVKeyWitness(
-	pubKey,
-	sig,
-	msg []byte,
-) bool {
-	return ed25519byron.Verify(pubKey, msg, sig)
+// ValidateVKeyWitnesses verifies transaction witnesses using Byron's
+// protocol-magic and constructor-specific signing domains.
+func (t *ByronTransaction) ValidateVKeyWitnesses(protocolMagic uint32) error {
+	for idx, witness := range t.Twit {
+		outer, ok := witness.Value().([]any)
+		if !ok || len(outer) != 2 {
+			return fmt.Errorf("invalid Byron transaction witness %d", idx)
+		}
+		constructor, ok := asUint64(outer[0])
+		if !ok || (constructor != 0 && constructor != 2) {
+			continue
+		}
+		wrapped, ok := outer[1].(cbor.WrappedCbor)
+		if !ok {
+			return fmt.Errorf("invalid Byron transaction witness %d payload", idx)
+		}
+		var fields []any
+		consumed, err := cbor.Decode(wrapped.Bytes(), &fields)
+		if err != nil || consumed != len(wrapped.Bytes()) || len(fields) != 2 {
+			return fmt.Errorf("invalid Byron transaction witness %d fields", idx)
+		}
+		publicKey, ok := asBytes(fields[0])
+		if !ok || len(publicKey) < ed25519.PublicKeySize {
+			return fmt.Errorf("invalid Byron transaction witness %d public key", idx)
+		}
+		signature, ok := asBytes(fields[1])
+		if !ok {
+			return fmt.Errorf("invalid Byron transaction witness %d signature", idx)
+		}
+		tag := byte(0x01)
+		if constructor == 2 {
+			tag = 0x02
+		}
+		magic, err := cbor.Encode(protocolMagic)
+		if err != nil {
+			return fmt.Errorf("encode Byron protocol magic: %w", err)
+		}
+		txId := t.Body.WireId()
+		txPayload, err := cbor.Encode(txId[:])
+		if err != nil {
+			return fmt.Errorf("encode Byron transaction signing payload: %w", err)
+		}
+		message := append([]byte{tag}, magic...)
+		message = append(message, txPayload...)
+		if !ed25519byron.Verify(
+			publicKey[:ed25519.PublicKeySize], message, signature,
+		) {
+			return fmt.Errorf("invalid Byron transaction witness %d signature", idx)
+		}
+	}
+	return nil
+}
+
+func (t *ByronTransaction) ValidateByronVKeyWitnesses() error {
+	if len(t.Witnesses().Vkey()) == 0 {
+		return nil
+	}
+	if !t.hasProtocolMagic {
+		return errors.New("Byron protocol magic is required to verify transaction witnesses")
+	}
+	return t.ValidateVKeyWitnesses(t.protocolMagic)
 }
 
 func (t *ByronTransaction) Id() common.Blake2b256 {
@@ -1650,6 +1727,10 @@ func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("decode byron update payload: %w", err)
 	}
 	*b = ByronMainBlock(tmp)
+	for idx := range b.Body.TxPayload {
+		b.Body.TxPayload[idx].protocolMagic = b.BlockHeader.ProtocolMagic
+		b.Body.TxPayload[idx].hasProtocolMagic = true
+	}
 	b.SetCbor(cborData)
 	return nil
 }

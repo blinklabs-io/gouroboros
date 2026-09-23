@@ -379,15 +379,6 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 		)
 	}
 	activeGenesisDelegations := initialDelegationState.ActiveDelegations()
-	activeGenesisDelegationEpochs := make(
-		map[common.Blake2b224]uint64,
-		len(genesisDelegationEpochs),
-	)
-	for issuer, epoch := range genesisDelegationEpochs {
-		if activeGenesisDelegations[issuer] == genesisDelegations[issuer] {
-			activeGenesisDelegationEpochs[issuer] = epoch
-		}
-	}
 
 	// Slot duration is in milliseconds in the genesis file
 	slotDuration := time.Duration(genesis.BlockVersionData.SlotDuration) * time.Millisecond
@@ -406,7 +397,7 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 		NumGenesisKeys:          len(keyHashes),
 		GenesisKeyHashes:        keyHashBytes,
 		GenesisDelegations:      activeGenesisDelegations,
-		GenesisDelegationEpochs: activeGenesisDelegationEpochs,
+		GenesisDelegationEpochs: genesisDelegationEpochs,
 		TxFeePolicy:             feePolicy,
 	}, nil
 }

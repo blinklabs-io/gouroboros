@@ -60,7 +60,8 @@ func TestVerifyAcceptsSmallOrderAndNonCanonicalPoints(t *testing.T) {
 	}
 
 	// y = p + 1 is a non-canonical encoding of the identity point. Byron's
-	// point decoder reduces field elements instead of requiring canonical bytes.
+	// public-key decoder accepts it, but signature verification byte-compares
+	// the packed equation result with the original R bytes.
 	identityNonCanonical := make([]byte, 32)
 	identityNonCanonical[0] = 0xee
 	for i := 1; i < 31; i++ {
@@ -68,8 +69,8 @@ func TestVerifyAcceptsSmallOrderAndNonCanonicalPoints(t *testing.T) {
 	}
 	identityNonCanonical[31] = 0x7f
 	copy(signature[:32], identityNonCanonical)
-	if !ed25519byron.Verify(identity, []byte("legacy"), signature) {
-		t.Fatal("Byron verifier rejected a non-canonical R point encoding")
+	if ed25519byron.Verify(identity, []byte("legacy"), signature) {
+		t.Fatal("Byron verifier accepted a non-canonical R point encoding")
 	}
 	copy(signature[:32], identity)
 	if !ed25519byron.Verify(identityNonCanonical, []byte("legacy"), signature) {

@@ -569,7 +569,7 @@ func TestNewByronConfigFromGenesisAllowsStakeholderWithoutCertificateAsDelegate(
 		&genesis,
 		[]testGenesisIssuer{issuer},
 		[][]byte{bootStakeholderWithoutCertificate.verificationKey},
-		[]int{0},
+		[]int{1},
 	)
 	delegateHash, err := PBFTVerificationKeyHash(
 		bootStakeholderWithoutCertificate.verificationKey,
@@ -585,6 +585,9 @@ func TestNewByronConfigFromGenesisAllowsStakeholderWithoutCertificateAsDelegate(
 	// the target boot stakeholder is already self-delegated.
 	require.Equal(t, issuerHash, config.GenesisDelegations[issuerHash])
 	require.NotEqual(t, issuerHash, delegateHash)
+	delegationEpoch, ok := config.GenesisDelegationEpochs[issuerHash]
+	require.True(t, ok)
+	require.Equal(t, uint64(1), delegationEpoch)
 }
 
 func TestNewByronConfigFromGenesisKeepsOnlyActivatedDuplicateDelegate(
