@@ -731,6 +731,17 @@ func decodeByronWitness(
 	return decodeByronWitnessFromConstructor(ctor, fields)
 }
 
+// decodeByronWitnessFromConstructor decodes a Byron TxInWitness payload for
+// a known constructor tag. The reference sum type
+// (Cardano.Chain.UTxO.TxWitness) has exactly two live constructors --
+// VKWitness (0) and RedeemWitness (2); ScriptWitness (1) is defined but its
+// decoder is never reachable on any real chain, and there is no constructor
+// 3. A four-field "bootstrap witness" shape belongs to the separate Shelley
+// BootstrapWitness encoding for spending legacy Byron UTxOs from a
+// Shelley-era transaction, not to Byron's own TxInWitness; it must not be
+// accepted here. Byron's own HD/bootstrap-style witnesses are ordinary
+// VKWitness (ctor 0) values with 64-byte extended key and signature fields,
+// already handled by the case below.
 func decodeByronWitnessFromConstructor(
 	ctor uint64,
 	fields []any,
@@ -746,23 +757,6 @@ func decodeByronWitnessFromConstructor(
 			return nil, nil, false
 		}
 		return &common.VkeyWitness{Vkey: pk, Signature: sig}, nil, true
-	case 3:
-		if len(fields) != 4 {
-			return nil, nil, false
-		}
-		pk, okPk := asBytes(fields[0])
-		sig, okSig := asBytes(fields[1])
-		chainCode, okCc := asBytes(fields[2])
-		attrs, okAttrs := asBytes(fields[3])
-		if !okPk || !okSig || !okCc || !okAttrs {
-			return nil, nil, false
-		}
-		return nil, &common.BootstrapWitness{
-			PublicKey:  pk,
-			Signature:  sig,
-			ChainCode:  chainCode,
-			Attributes: attrs,
-		}, true
 	default:
 		// The reference decoder's TxInWitness sum type has no catch-all
 		// case: an unrecognized constructor is invalid regardless of

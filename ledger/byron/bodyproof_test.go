@@ -78,6 +78,174 @@ func TestByronMainBlockBodyProofValidates(t *testing.T) {
 	require.NoError(t, block.ValidateBodyProof())
 }
 
+// encodeIndefiniteWitnessList mirrors bodyproof.go's private
+// encodeWitnessList: the witnesses_hash Byron carries in the header is
+// computed over an indefinite-length array assembled from each
+// transaction's preserved raw witness-list bytes, not a re-encoded
+// structure. Reproducing the same framing here lets this test recompute a
+// witnesses_hash that genuinely matches tampered bytes, rather than only
+// observing a mismatch.
+func encodeIndefiniteWitnessList(parts [][]byte) []byte {
+	const (
+		indefiniteArrayStart byte = 0x9f
+		indefiniteBreak      byte = 0xff
+	)
+	size := 2
+	for _, p := range parts {
+		size += len(p)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, indefiniteArrayStart)
+	for _, p := range parts {
+		out = append(out, p...)
+	}
+	return append(out, indefiniteBreak)
+}
+
+// TestByronMainBlockRejectsMalformedExtraWitnessDespiteMatchingProof is the
+// end-to-end scenario the wire-shape divergence in issue #4384 (dingo)
+// describes: a transaction carries one genuine, required witness plus a
+// malformed extra witness entry appended after it. The header's
+// witnesses_hash is recomputed here with the exact same algorithm the
+// library uses, so it matches the tampered bytes precisely -- an attacker
+// who controls both the body and the header could produce exactly this, and
+// the body proof alone is fully self-consistent. Decoding the block must
+// still reject it: the witness proof only proves inclusion of the raw bytes,
+// not that every witness they contain decodes as a valid TxInWitness.
+func TestByronMainBlockRejectsMalformedExtraWitnessDespiteMatchingProof(
+	t *testing.T,
+) {
+	original := mainnetByronBlock(t)
+
+	var block []cbor.RawMessage
+	_, err := cbor.Decode(original, &block)
+	require.NoError(t, err)
+	require.Len(t, block, 3, "byron main block is [header, body, extra]")
+
+	var header []cbor.RawMessage
+	_, err = cbor.Decode(block[0], &header)
+	require.NoError(t, err)
+	require.Len(t, header, 5, "byron main block header has 5 fields")
+
+	var bodyProof []cbor.RawMessage
+	_, err = cbor.Decode(header[2], &bodyProof)
+	require.NoError(t, err)
+	require.Len(t, bodyProof, 4,
+		"body proof is [tx_proof, ssc_proof, dlg_proof, upd_proof]")
+
+	var txProof []cbor.RawMessage
+	_, err = cbor.Decode(bodyProof[0], &txProof)
+	require.NoError(t, err)
+	require.Len(t, txProof, 3,
+		"tx proof is [tx_count, tx_merkle_root, witnesses_hash]")
+
+	var body []cbor.RawMessage
+	_, err = cbor.Decode(block[1], &body)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(body), 4)
+
+	var txPayload []cbor.RawMessage
+	_, err = cbor.Decode(body[0], &txPayload)
+	require.NoError(t, err)
+	require.Len(t, txPayload, 2, "fixture must carry two transactions")
+
+	var tx0 []cbor.RawMessage
+	_, err = cbor.Decode(txPayload[0], &tx0)
+	require.NoError(t, err)
+	require.Len(t, tx0, 2, "byron transaction is [body, witnesses]")
+
+	var tx1 []cbor.RawMessage
+	_, err = cbor.Decode(txPayload[1], &tx1)
+	require.NoError(t, err)
+	require.Len(t, tx1, 2)
+
+	originalTwit0 := []byte(tx0[1])
+	originalTwit1 := []byte(tx1[1])
+
+	var originalWitnesses0 []cbor.RawMessage
+	_, err = cbor.Decode(originalTwit0, &originalWitnesses0)
+	require.NoError(t, err)
+	require.NotEmpty(t, originalWitnesses0)
+
+	// Sanity check: reproducing the real algorithm over the untouched bytes
+	// must reproduce the real header's witnesses_hash exactly, so the
+	// tampered value computed the same way below is genuinely correct
+	// rather than coincidentally passing.
+	var originalHash []byte
+	_, err = cbor.Decode(txProof[2], &originalHash)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		originalHash,
+		func() []byte {
+			h := common.Blake2b256Hash(
+				encodeIndefiniteWitnessList([][]byte{originalTwit0, originalTwit1}),
+			)
+			return h[:]
+		}(),
+		"encodeIndefiniteWitnessList must reproduce the real witnesses_hash",
+	)
+
+	// A malformed extra witness: constructor 1 (ScriptWitness) is defined by
+	// the reference sum type but has no reachable decoder on any real
+	// chain, so it must be rejected exactly like any other unrecognized
+	// constructor.
+	innerFields, err := cbor.Encode(
+		[]any{[]byte{1, 2, 3, 4}, []byte{5, 6, 7, 8}},
+	)
+	require.NoError(t, err)
+	malformedWitness, err := cbor.Encode(
+		[]any{uint64(1), cbor.WrappedCbor(innerFields)},
+	)
+	require.NoError(t, err)
+
+	newWitnesses0 := append(
+		append([]cbor.RawMessage{}, originalWitnesses0...),
+		cbor.RawMessage(malformedWitness),
+	)
+	newTwit0, err := cbor.Encode(newWitnesses0)
+	require.NoError(t, err)
+
+	tx0[1] = cbor.RawMessage(newTwit0)
+	newTx0, err := cbor.Encode(tx0)
+	require.NoError(t, err)
+	txPayload[0] = cbor.RawMessage(newTx0)
+
+	newWitnessesHash := common.Blake2b256Hash(
+		encodeIndefiniteWitnessList([][]byte{newTwit0, originalTwit1}),
+	)
+	newHashCbor, err := cbor.Encode(newWitnessesHash[:])
+	require.NoError(t, err)
+	txProof[2] = cbor.RawMessage(newHashCbor)
+
+	newTxProof, err := cbor.Encode(txProof)
+	require.NoError(t, err)
+	bodyProof[0] = cbor.RawMessage(newTxProof)
+	newBodyProof, err := cbor.Encode(bodyProof)
+	require.NoError(t, err)
+	header[2] = cbor.RawMessage(newBodyProof)
+	newHeader, err := cbor.Encode(header)
+	require.NoError(t, err)
+	block[0] = cbor.RawMessage(newHeader)
+
+	newTxPayload, err := cbor.Encode(txPayload)
+	require.NoError(t, err)
+	body[0] = cbor.RawMessage(newTxPayload)
+	newBody, err := cbor.Encode(body)
+	require.NoError(t, err)
+	block[1] = cbor.RawMessage(newBody)
+
+	tampered, err := cbor.Encode(block)
+	require.NoError(t, err)
+	require.NotEqual(t, len(original), len(tampered))
+
+	_, err = byron.NewByronMainBlockFromCbor(tampered)
+	require.Error(t, err,
+		"a malformed extra witness must reject the block even though its "+
+			"witnesses_hash was recomputed to match exactly")
+	assert.ErrorContains(t, err, "TxInWitness")
+}
+
 // TestByronMainBlockRejectsSubstitutedBody is the regression for a hostile
 // archive returning the requested header with a different body. Decoding must
 // fail rather than hand back a block whose contents were never checked.
