@@ -94,7 +94,7 @@ func validateByronDefiniteStrings(raw []byte) error {
 
 func scanByronItem(raw []byte, pos, depth int) (int, error) {
 	if depth > cbor.MaxNestedLevels {
-		return 0, fmt.Errorf("Byron CBOR nesting exceeds %d", cbor.MaxNestedLevels)
+		return 0, fmt.Errorf("byron CBOR nesting exceeds %d", cbor.MaxNestedLevels)
 	}
 	if pos >= len(raw) {
 		return 0, errors.New("unexpected end of Byron CBOR")
@@ -156,18 +156,22 @@ func scanByronItem(raw []byte, pos, depth int) (int, error) {
 		if additional == 31 {
 			return 0, fmt.Errorf("indefinite-length CBOR string at byte %d", pos)
 		}
-		if arg > uint64(len(raw)-itemPos) {
+		// itemPos is within raw because the item header was parsed above;
+		// converting the remaining slice length to uint64 is safe.
+		if arg > uint64(len(raw)-itemPos) { //nolint:gosec
 			return 0, fmt.Errorf("truncated Byron CBOR string at byte %d", pos)
 		}
-		return itemPos + int(arg), nil
+		// arg is bounded by the remaining slice length, so it fits int.
+		return itemPos + int(arg), nil //nolint:gosec
 	case 4, 5:
 		indefinite := additional == 31
 		items := arg
 		if major == 5 && !indefinite {
-			if items > uint64((len(raw)-itemPos)/2) {
+			// len is bounded by MaxInt, so converting the remaining length is safe.
+			if items > uint64((len(raw)-itemPos)/2) { //nolint:gosec
 				return 0, fmt.Errorf("truncated Byron CBOR map at byte %d", pos)
 			}
-		} else if major == 4 && !indefinite && items > uint64(len(raw)-itemPos) {
+		} else if major == 4 && !indefinite && items > uint64(len(raw)-itemPos) { //nolint:gosec
 			return 0, fmt.Errorf("truncated Byron CBOR array at byte %d", pos)
 		}
 		for i := uint64(0); indefinite || i < items; i++ {
@@ -220,7 +224,7 @@ func validateTransactionAttributes(raw []byte) error {
 			return fmt.Errorf("attribute key %d must be a Word8", i)
 		}
 		if i > 0 && key <= previous {
-			return fmt.Errorf("attribute keys must be strictly increasing")
+			return errors.New("attribute keys must be strictly increasing")
 		}
 		previous = key
 		valueStart := pos
@@ -258,7 +262,8 @@ func requireByronTextString(raw []byte, name string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
-	if length > uint64(len(raw)-headerLen) || uint64(len(raw)-headerLen) != length {
+	// headerLen was bounds-checked by byronCBORArgument; len is MaxInt-bounded.
+	if length > uint64(len(raw)-headerLen) || uint64(len(raw)-headerLen) != length { //nolint:gosec
 		return fmt.Errorf("%s has truncated text or trailing CBOR data", name)
 	}
 	var value string
@@ -303,7 +308,8 @@ func decodeByronByteString(raw []byte, canonical bool) ([]byte, error) {
 	if canonical && !byronCBORArgumentIsShortest(additional, length) {
 		return nil, errors.New("non-shortest string length")
 	}
-	if length > uint64(len(raw)-headerLen) || uint64(len(raw)-headerLen) != length {
+	// headerLen was bounds-checked by byronCBORArgument; len is MaxInt-bounded.
+	if length > uint64(len(raw)-headerLen) || uint64(len(raw)-headerLen) != length { //nolint:gosec
 		return nil, errors.New("truncated string or trailing CBOR data")
 	}
 	return raw[headerLen:], nil

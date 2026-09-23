@@ -521,7 +521,7 @@ func byronAddressArrayField(raw []byte, index, expected int) ([]byte, error) {
 		}
 		if field == index {
 			if pos != len(raw) && field == length-1 {
-				return nil, errors.New("Byron address payload has trailing CBOR data")
+				return nil, errors.New("byron address payload has trailing CBOR data")
 			}
 			return raw[start:pos], nil
 		}
@@ -547,10 +547,13 @@ func addressCBORItemEnd(raw []byte, pos, depth int) (int, error) {
 	case 0, 1, 7:
 		return pos, nil
 	case 2, 3:
-		if arg > uint64(len(raw)-pos) {
+		// pos is inside raw, so the remaining length fits int and its
+		// conversion to uint64 cannot overflow.
+		if arg > uint64(len(raw)-pos) { //nolint:gosec
 			return 0, errors.New("truncated Byron address CBOR string")
 		}
-		return pos + int(arg), nil
+		// arg is bounded by the remaining slice length, so it fits int.
+		return pos + int(arg), nil //nolint:gosec
 	case 4, 5:
 		count := arg
 		if major == 5 {
@@ -594,7 +597,7 @@ func addressCBORArgument(raw []byte, additional byte) (uint64, int, error) {
 func validateByronAddressAttributeWire(raw []byte) error {
 	length, headerSize, indefinite := cbor.MapInfo(raw)
 	if indefinite || length < 0 {
-		return errors.New("Byron address attributes must be a definite map")
+		return errors.New("byron address attributes must be a definite map")
 	}
 	pos := int(headerSize)
 	for i := 0; i < length; i++ {
@@ -606,7 +609,7 @@ func validateByronAddressAttributeWire(raw []byte) error {
 		}
 		var key uint64
 		if consumed, err := cbor.Decode(raw[keyStart:pos], &key); err != nil || consumed != pos-keyStart || key > 0xff {
-			return fmt.Errorf("Byron address attribute key %d is not a Word8", i)
+			return fmt.Errorf("byron address attribute key %d is not a Word8", i)
 		}
 		valueStart := pos
 		pos, err = addressCBORItemEnd(raw, pos, 0)
@@ -615,11 +618,11 @@ func validateByronAddressAttributeWire(raw []byte) error {
 		}
 		valueRaw := raw[valueStart:pos]
 		if len(valueRaw) == 0 || valueRaw[0]&cbor.CborTypeMask != cbor.CborTypeByteString || valueRaw[0]&0x1f == 31 {
-			return fmt.Errorf("Byron address attribute %d must be a definite byte string", key)
+			return fmt.Errorf("byron address attribute %d must be a definite byte string", key)
 		}
 	}
 	if pos != len(raw) {
-		return errors.New("Byron address attributes have trailing CBOR data")
+		return errors.New("byron address attributes have trailing CBOR data")
 	}
 	return nil
 }

@@ -1042,7 +1042,7 @@ func validateUpdatePayloadStructure(
 
 func validateDelegationPayloadWire(raw []byte) error {
 	if len(raw) == 0 || raw[0] != 0x9f {
-		return errors.New("Byron delegation certificates must use indefinite-list framing")
+		return errors.New("byron delegation certificates must use indefinite-list framing")
 	}
 	certificates, err := cborRawArrayEntries(raw, false)
 	if err != nil {
@@ -1050,7 +1050,7 @@ func validateDelegationPayloadWire(raw []byte) error {
 	}
 	for i, rawCertificate := range certificates {
 		if _, err := ParseDelegationCertificate(rawCertificate); err != nil {
-			return fmt.Errorf("Byron delegation certificate %d: %w", i, err)
+			return fmt.Errorf("byron delegation certificate %d: %w", i, err)
 		}
 	}
 	return nil

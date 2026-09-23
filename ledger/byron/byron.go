@@ -1177,7 +1177,7 @@ func (p *ByronUpdateProposal) UnmarshalCBOR(cborData []byte) error {
 	}
 	signature, err := decodeByronByteString(signatureRaw, false)
 	if err != nil || len(signature) != ed25519.SignatureSize {
-		return errors.New("Byron update proposal signature must be a 64-byte string")
+		return errors.New("byron update proposal signature must be a 64-byte string")
 	}
 	type tByronUpdateProposal ByronUpdateProposal
 	var tmp tByronUpdateProposal
@@ -1308,7 +1308,7 @@ func (b *ByronMainBlockBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("byron main block body has %d fields, expected 4", len(rawParts))
 	}
 	if len(rawParts[0]) == 0 || rawParts[0][0] != 0x9f {
-		return errors.New("Byron transaction payload must use indefinite-list framing")
+		return errors.New("byron transaction payload must use indefinite-list framing")
 	}
 	if err := validateDelegationPayloadWire(rawParts[2]); err != nil {
 		return err
@@ -1318,7 +1318,7 @@ func (b *ByronMainBlockBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if len(updateParts) != updatePayloadElementCount || len(updateParts[updatePayloadVotesIndex]) == 0 || updateParts[updatePayloadVotesIndex][0] != 0x9f {
-		return errors.New("Byron update votes must use indefinite-list framing")
+		return errors.New("byron update votes must use indefinite-list framing")
 	}
 
 	// Then decode the full structure

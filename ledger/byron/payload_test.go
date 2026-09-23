@@ -1325,7 +1325,7 @@ func TestValidatePayloadsReportsOffendingIndex(t *testing.T) {
 	)
 	var decoded byron.ByronMainBlockBody
 	_, err := cbor.Decode(body, &decoded)
-	require.ErrorContains(t, err, "Byron delegation certificate 1")
+	require.ErrorContains(t, err, "byron delegation certificate 1")
 }
 
 func TestValidatePayloadsWrongNetwork(t *testing.T) {
