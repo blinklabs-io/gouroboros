@@ -15,6 +15,7 @@
 package byron
 
 import (
+	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -107,25 +108,67 @@ func (h *ByronMainBlockHeader) SetCborReference(cborData []byte) {
 }
 
 func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	var rawParts []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron main block header string framing: %w", err)
+	}
+	rawParts, err := byronArrayFields(cborData, "byron main block header")
+	if err != nil {
 		return err
 	}
-	if len(rawParts) <= 4 {
+	if len(rawParts) != 5 {
 		return fmt.Errorf(
-			"byron main block header has %d fields, need extra data at index 4",
+			"byron main block header has %d fields, expected 5",
 			len(rawParts),
 		)
 	}
-	var extraData []cbor.RawMessage
-	if _, err := cbor.Decode(rawParts[4], &extraData); err != nil {
+	extraData, err := byronArrayFields(rawParts[4], "byron main block extra data")
+	if err != nil {
 		return fmt.Errorf("decode byron main block extra data: %w", err)
 	}
-	if len(extraData) <= 3 {
+	if len(extraData) != 4 {
 		return fmt.Errorf(
-			"byron main block extra data has %d fields, need extra proof at index 3",
+			"byron main block extra data has %d fields, expected 4",
 			len(extraData),
 		)
+	}
+	consensusData, err := byronArrayFields(rawParts[3], "byron main block consensus data")
+	if err != nil {
+		return err
+	}
+	if len(consensusData) != 4 {
+		return fmt.Errorf("byron main block consensus data has %d fields, expected 4", len(consensusData))
+	}
+	bodyProof, err := byronArrayFields(rawParts[2], "byron main block body proof")
+	if err != nil {
+		return err
+	}
+	if len(bodyProof) != bodyProofLength {
+		return fmt.Errorf("byron main block body proof has %d fields, expected %d", len(bodyProof), bodyProofLength)
+	}
+	if err := requireByronArrayLength(bodyProof[bodyProofTxIndex], "byron transaction proof", txProofLength); err != nil {
+		return err
+	}
+	if err := requireByronArrayLength(consensusData[0], "byron slot identifier", 2); err != nil {
+		return err
+	}
+	if err := requireByronVerificationKey(consensusData[1], "Byron main header verification key"); err != nil {
+		return err
+	}
+	if err := requireByronArrayLength(consensusData[2], "byron chain difficulty", 1); err != nil {
+		return err
+	}
+	if err := requireByronArrayLength(extraData[0], "byron block version", 3); err != nil {
+		return err
+	}
+	softwareVersion, err := byronArrayFields(extraData[1], "byron software version")
+	if err != nil {
+		return err
+	}
+	if len(softwareVersion) != 2 {
+		return fmt.Errorf("byron software version has %d fields, expected 2", len(softwareVersion))
+	}
+	if err := requireByronTextString(softwareVersion[0], "Byron application name"); err != nil {
+		return err
 	}
 	// The reference's decCBORBlockVersions requires this field's map to be
 	// empty (Cardano.Chain.Common.Attributes.dropEmptyAttributes), even
@@ -138,7 +181,7 @@ func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	); err != nil {
 		return err
 	}
-	if err := requireCborByteString(
+	if err := requireByronByteString(
 		extraData[3], "byron main block extra data proof",
 	); err != nil {
 		return err
@@ -282,6 +325,19 @@ func (t *ByronTransactionBody) SetCborReference(cborData []byte) {
 }
 
 func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron transaction body string framing: %w", err)
+	}
+	if err := requireByronArrayLength(cborData, "byron transaction body", 3); err != nil {
+		return err
+	}
+	attributes, err := byronArrayField(cborData, "byron transaction body", 2, 3)
+	if err != nil {
+		return err
+	}
+	if err := validateTransactionAttributes(attributes); err != nil {
+		return fmt.Errorf("invalid Byron transaction attributes: %w", err)
+	}
 	type tByronTransaction ByronTransactionBody
 	var tmp tByronTransaction
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -420,14 +476,17 @@ type ByronTransaction struct {
 }
 
 func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
-	var txArray []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &txArray); err != nil {
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron transaction string framing: %w", err)
+	}
+	txArray, err := byronArrayFields(cborData, "byron transaction")
+	if err != nil {
 		return err
 	}
 
-	if len(txArray) < 2 {
+	if len(txArray) != 2 {
 		return fmt.Errorf(
-			"invalid byron transaction: expected at least 2 components, got %d",
+			"invalid byron transaction: expected 2 components, got %d",
 			len(txArray),
 		)
 	}
@@ -852,6 +911,12 @@ func NewByronTransactionInput(
 }
 
 func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
+	if err := validateByronDefiniteStrings(data); err != nil {
+		return err
+	}
+	if err := requireByronArrayLength(data, "byron transaction input", 2); err != nil {
+		return err
+	}
 	id, err := cbor.DecodeIdFromList(data)
 	if err != nil {
 		return err
@@ -865,6 +930,9 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 			Cbor cbor.WrappedCbor
 		}
 		if _, err := cbor.Decode(data, &tmpData); err != nil {
+			return err
+		}
+		if err := requireByronArrayLength(tmpData.Cbor, "byron transaction input reference", 2); err != nil {
 			return err
 		}
 		// Decode inner data
@@ -938,6 +1006,12 @@ type ByronTransactionOutput struct {
 }
 
 func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
+	if err := validateByronDefiniteStrings(data); err != nil {
+		return err
+	}
+	if err := requireByronArrayLength(data, "byron transaction output", 2); err != nil {
+		return err
+	}
 	// Save original CBOR
 	o.SetCbor(data)
 	var tmpData struct {
@@ -1057,6 +1131,32 @@ type ByronUpdatePayload struct {
 	Votes     []any
 }
 
+func (p *ByronUpdatePayload) UnmarshalCBOR(raw []byte) error {
+	fields, err := cborRawArrayEntries(raw, true)
+	if err != nil || len(fields) != updatePayloadElementCount {
+		return fmt.Errorf("%w: update payload must be a two-element array", ErrInvalidPayload)
+	}
+	proposalEntries, err := cborRawArrayEntries(fields[0], false)
+	if err != nil {
+		return fmt.Errorf("%w: decode update proposals: %w", ErrInvalidPayload, err)
+	}
+	if len(proposalEntries) > 1 {
+		return fmt.Errorf("%w: update payload contains %d proposals, expected at most one", ErrInvalidPayload, len(proposalEntries))
+	}
+	var tmp ByronUpdatePayload
+	if _, err := cbor.Decode(fields[0], &tmp.Proposals); err != nil {
+		return fmt.Errorf("%w: decode update proposal: %w", ErrInvalidPayload, err)
+	}
+	if _, err := cbor.Decode(fields[1], &tmp.Votes); err != nil {
+		return fmt.Errorf("%w: decode update votes: %w", ErrInvalidPayload, err)
+	}
+	if err := validateUpdatePayloadStructure(raw, tmp.Proposals, tmp.Votes); err != nil {
+		return err
+	}
+	*p = tmp
+	return nil
+}
+
 type ByronUpdateProposal struct {
 	cbor.DecodeStoreCbor
 	cbor.StructAsArray
@@ -1070,6 +1170,27 @@ type ByronUpdateProposal struct {
 }
 
 func (p *ByronUpdateProposal) UnmarshalCBOR(cborData []byte) error {
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron update proposal string framing: %w", err)
+	}
+	if err := requireByronArrayLength(cborData, "byron update proposal", updateProposalElementCount); err != nil {
+		return err
+	}
+	verificationKey, err := byronArrayField(cborData, "byron update proposal", 5, updateProposalElementCount)
+	if err != nil {
+		return err
+	}
+	if err := requireByronVerificationKey(verificationKey, "Byron update proposal verification key"); err != nil {
+		return err
+	}
+	signatureRaw, err := byronArrayField(cborData, "byron update proposal", 6, updateProposalElementCount)
+	if err != nil {
+		return err
+	}
+	signature, err := decodeByronByteString(signatureRaw, false)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return errors.New("byron update proposal signature must be a 64-byte string")
+	}
 	type tByronUpdateProposal ByronUpdateProposal
 	var tmp tByronUpdateProposal
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -1098,19 +1219,25 @@ type ByronUpdateProposalBlockVersionMod struct {
 	MaxHeaderSize     []*big.Int
 	MaxTxSize         []*big.Int
 	MaxProposalSize   []*big.Int
-	MpcThd            []uint64
-	HeavyDelThd       []uint64
-	UpdateVoteThd     []uint64
-	UpdateProposalThd []uint64
+	MpcThd            []ByronLovelacePortion
+	HeavyDelThd       []ByronLovelacePortion
+	UpdateVoteThd     []ByronLovelacePortion
+	UpdateProposalThd []ByronLovelacePortion
 	UpdateImplicit    []uint64
-	SoftForkRule      []any
-	TxFeePolicy       []any
+	SoftForkRule      []ByronSoftForkRule
+	TxFeePolicy       []ByronTxFeePolicy
 	UnlockStakeEpoch  []uint64
 }
 
 func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 	cborData []byte,
 ) error {
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron protocol parameter update string framing: %w", err)
+	}
+	if err := requireByronArrayLength(cborData, "byron protocol parameter update", 14); err != nil {
+		return err
+	}
 	type tByronUpdateProposalBlockVersionMod ByronUpdateProposalBlockVersionMod
 	var tmp tByronUpdateProposalBlockVersionMod
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -1168,69 +1295,6 @@ func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 			}
 		}
 	}
-	if len(tmp.TxFeePolicy) == 1 {
-		// TxFeePolicy is [ctor, #6.24(bytes .cbor TxSizeLinear)]
-		// (Cardano/Chain/Common/TxFeePolicy.hs); the reference decoder
-		// requires the tag 24 wrapper around the nested TxSizeLinear via
-		// decodeKnownCborDataItem, so an untagged nested array must be
-		// rejected here too.
-		policy, ok := tmp.TxFeePolicy[0].([]any)
-		if !ok || len(policy) != 2 {
-			return errors.New(
-				"byron update proposal txFeePolicy has unexpected shape",
-			)
-		}
-		// The reference TxFeePolicy sum type has a single constructor,
-		// TxFeePolicyTxSizeLinear (0); there is no other variant to fall
-		// back to, so an unrecognized constructor is invalid regardless
-		// of whether the payload happens to have the right shape.
-		ctor, ok := asUint64(policy[0])
-		if !ok || ctor != 0 {
-			return fmt.Errorf(
-				"byron update proposal txFeePolicy has unsupported constructor %v, expected 0",
-				policy[0],
-			)
-		}
-		wrapped, ok := policy[1].(cbor.WrappedCbor)
-		if !ok {
-			return errors.New(
-				"byron update proposal txFeePolicy requires tag 24 for nested TxSizeLinear",
-			)
-		}
-		// TxSizeLinear is [summand, multiplier], both Nano values
-		// (Cardano/Chain/Common/TxSizeLinear.hs). Decoding into this typed
-		// shape -- rather than a generic []any -- requires the tag 24
-		// payload to be exactly two elements and each to be a CBOR
-		// integer, so neither a wrong element count nor a non-numeric
-		// field (a nested array, a string, ...) can pass. It also
-		// requires the payload to be fully consumed, so trailing bytes
-		// hidden after a valid pair are rejected rather than silently
-		// ignored.
-		var sizeLinear struct {
-			cbor.StructAsArray
-			Summand    *big.Int
-			Multiplier *big.Int
-		}
-		wrappedBytes := wrapped.Bytes()
-		consumed, err := cbor.Decode(wrappedBytes, &sizeLinear)
-		if err != nil {
-			return fmt.Errorf(
-				"byron update proposal txFeePolicy nested TxSizeLinear: %w",
-				err,
-			)
-		}
-		if consumed != len(wrappedBytes) {
-			return fmt.Errorf(
-				"byron update proposal txFeePolicy nested TxSizeLinear has %d trailing byte(s)",
-				len(wrappedBytes)-consumed,
-			)
-		}
-		if sizeLinear.Summand == nil || sizeLinear.Multiplier == nil {
-			return errors.New(
-				"byron update proposal txFeePolicy nested TxSizeLinear field is null",
-			)
-		}
-	}
 	*m = ByronUpdateProposalBlockVersionMod(tmp)
 	return nil
 }
@@ -1247,14 +1311,29 @@ type ByronMainBlockBody struct {
 }
 
 func (b *ByronMainBlockBody) UnmarshalCBOR(cborData []byte) error {
-	// First, decode the body as raw messages to preserve original CBOR
-	var rawParts []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron main block body string framing: %w", err)
+	}
+	// Decode the fixed record as raw messages to preserve original CBOR.
+	rawParts, err := byronArrayFields(cborData, "byron main block body")
+	if err != nil {
 		return err
 	}
-	if len(rawParts) >= 4 {
-		b.dlgPayloadRaw = []byte(rawParts[2])
-		b.updPayloadRaw = []byte(rawParts[3])
+	if len(rawParts) != 4 {
+		return fmt.Errorf("byron main block body has %d fields, expected 4", len(rawParts))
+	}
+	if len(rawParts[0]) == 0 || rawParts[0][0] != 0x9f {
+		return errors.New("byron transaction payload must use indefinite-list framing")
+	}
+	if err := validateDelegationPayloadWire(rawParts[2]); err != nil {
+		return err
+	}
+	updateParts, err := byronArrayFields(rawParts[3], "byron update payload")
+	if err != nil {
+		return err
+	}
+	if len(updateParts) != updatePayloadElementCount || len(updateParts[updatePayloadVotesIndex]) == 0 || updateParts[updatePayloadVotesIndex][0] != 0x9f {
+		return errors.New("byron update votes must use indefinite-list framing")
 	}
 
 	// Then decode the full structure
@@ -1352,9 +1431,11 @@ func (h *ByronEpochBoundaryBlockHeader) SetCborReference(cborData []byte) {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	// decCBORABoundaryHeader reads the header, BoundaryConsensusData and
-	// ChainDifficulty with enforceSize, which only accepts a definite-length
-	// list.
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron epoch boundary header string framing: %w", err)
+	}
+	// decCBORABoundaryHeader uses enforceSize for the header, consensus data,
+	// and chain difficulty, so each must use definite-length array framing.
 	rawParts, err := decodeDefiniteCborList(cborData, 5, "byron EBB header")
 	if err != nil {
 		return err
@@ -1483,8 +1564,11 @@ type ByronMainBlock struct {
 }
 
 func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
-	var rawParts []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron main block string framing: %w", err)
+	}
+	rawParts, err := byronArrayFields(cborData, "byron main block")
+	if err != nil {
 		return err
 	}
 	if len(rawParts) != 3 {
@@ -1527,6 +1611,9 @@ func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
 	// epoch boundary block's own check.
 	if tmp.BlockHeader == nil {
 		return errors.New("byron main block missing header")
+	}
+	if err := tmp.Body.ValidateUpdatePayloadStructure(); err != nil {
+		return fmt.Errorf("decode byron update payload: %w", err)
 	}
 	*b = ByronMainBlock(tmp)
 	b.SetCbor(cborData)
@@ -1609,7 +1696,10 @@ type ByronEpochBoundaryBlock struct {
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
-	// decCBORABoundaryBlock opens with enforceSize 3.
+	if err := validateByronDefiniteStrings(cborData); err != nil {
+		return fmt.Errorf("invalid Byron epoch boundary block string framing: %w", err)
+	}
+	// decCBORABoundaryBlock requires a definite three-field outer array.
 	rawParts, err := decodeDefiniteCborList(cborData, 3, "byron EBB")
 	if err != nil {
 		return err

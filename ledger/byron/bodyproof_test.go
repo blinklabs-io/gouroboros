@@ -54,7 +54,7 @@ func withTxPayload(t *testing.T, blockCbor []byte, txPayload []any) []byte {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(body), 4)
 
-	newTxPayload, err := cbor.Encode(txPayload)
+	newTxPayload, err := cbor.Encode(cbor.IndefLengthList(txPayload))
 	require.NoError(t, err)
 	body[0] = newTxPayload
 
@@ -228,7 +228,11 @@ func TestByronMainBlockRejectsMalformedExtraWitnessDespiteMatchingProof(
 	require.NoError(t, err)
 	block[0] = cbor.RawMessage(newHeader)
 
-	newTxPayload, err := cbor.Encode(txPayload)
+	txPayloadAny := make([]any, len(txPayload))
+	for i := range txPayload {
+		txPayloadAny[i] = txPayload[i]
+	}
+	newTxPayload, err := cbor.Encode(cbor.IndefLengthList(txPayloadAny))
 	require.NoError(t, err)
 	body[0] = cbor.RawMessage(newTxPayload)
 	newBody, err := cbor.Encode(body)
@@ -244,6 +248,115 @@ func TestByronMainBlockRejectsMalformedExtraWitnessDespiteMatchingProof(
 		"a malformed extra witness must reject the block even though its "+
 			"witnesses_hash was recomputed to match exactly")
 	assert.ErrorContains(t, err, "TxInWitness")
+}
+
+func TestByronMainBlockRejectsMalformedUpdateVote(t *testing.T) {
+	var blockFields []cbor.RawMessage
+	_, err := cbor.Decode(mainnetByronBlock(t), &blockFields)
+	require.NoError(t, err)
+	if blockFields == nil {
+		t.Fatal("expected Byron block fields")
+	}
+	var bodyFields []cbor.RawMessage
+	_, err = cbor.Decode(blockFields[1], &bodyFields)
+	require.NoError(t, err)
+	if bodyFields == nil {
+		t.Fatal("expected Byron block body fields")
+	}
+	var updateFields []cbor.RawMessage
+	_, err = cbor.Decode(bodyFields[3], &updateFields)
+	require.NoError(t, err)
+	if updateFields == nil {
+		t.Fatal("expected Byron update fields")
+	}
+	updateFields[1] = cbor.RawMessage{0x9f, 0x00, 0xff}
+	bodyFields[3], err = cbor.Encode(updateFields)
+	require.NoError(t, err)
+	blockFields[1], err = cbor.Encode(bodyFields)
+	require.NoError(t, err)
+	mutatedBlock, err := cbor.Encode(blockFields)
+	require.NoError(t, err)
+
+	var decoded byron.ByronMainBlock
+	_, err = cbor.Decode(mutatedBlock, &decoded)
+	require.ErrorContains(t, err, "update vote 0")
+}
+
+func TestByronMainBlockRejectsMalformedUpdateProposal(t *testing.T) {
+	var blockFields []cbor.RawMessage
+	_, err := cbor.Decode(mainnetByronBlock(t), &blockFields)
+	require.NoError(t, err)
+	if blockFields == nil {
+		t.Fatal("expected Byron block fields")
+	}
+	var bodyFields []cbor.RawMessage
+	_, err = cbor.Decode(blockFields[1], &bodyFields)
+	require.NoError(t, err)
+	if bodyFields == nil {
+		t.Fatal("expected Byron block body fields")
+	}
+	var updateFields []cbor.RawMessage
+	_, err = cbor.Decode(bodyFields[3], &updateFields)
+	require.NoError(t, err)
+	if updateFields == nil {
+		t.Fatal("expected Byron update fields")
+	}
+	updateFields[0] = cbor.RawMessage{0x81, 0x00}
+	bodyFields[3], err = cbor.Encode(updateFields)
+	require.NoError(t, err)
+	blockFields[1], err = cbor.Encode(bodyFields)
+	require.NoError(t, err)
+	mutatedBlock, err := cbor.Encode(blockFields)
+	require.NoError(t, err)
+
+	var decoded byron.ByronMainBlock
+	_, err = cbor.Decode(mutatedBlock, &decoded)
+	require.Error(t, err)
+}
+
+func TestByronMainBlockBodyRequiresIndefiniteLegacyPayloadLists(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		listIndex int
+		want      string
+	}{
+		{name: "delegation certificates", listIndex: 2, want: "delegation certificates must use indefinite-list framing"},
+		{name: "update votes", listIndex: 3, want: "update votes must use indefinite-list framing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var blockFields []cbor.RawMessage
+			_, err := cbor.Decode(mainnetByronBlock(t), &blockFields)
+			require.NoError(t, err)
+			if blockFields == nil {
+				t.Fatal("expected Byron block fields")
+			}
+			var bodyFields []cbor.RawMessage
+			_, err = cbor.Decode(blockFields[1], &bodyFields)
+			require.NoError(t, err)
+			if bodyFields == nil {
+				t.Fatal("expected Byron block body fields")
+			}
+			if tc.listIndex == 3 {
+				var updateFields []cbor.RawMessage
+				_, err = cbor.Decode(bodyFields[3], &updateFields)
+				require.NoError(t, err)
+				if updateFields == nil {
+					t.Fatal("expected Byron update fields")
+				}
+				updateFields[1] = cbor.RawMessage{0x80}
+				bodyFields[3], err = cbor.Encode(updateFields)
+				require.NoError(t, err)
+			} else {
+				bodyFields[2] = cbor.RawMessage{0x80}
+			}
+			mutatedBody, err := cbor.Encode(bodyFields)
+			require.NoError(t, err)
+
+			var decoded byron.ByronMainBlockBody
+			_, err = cbor.Decode(mutatedBody, &decoded)
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
 }
 
 // TestByronMainBlockRejectsSubstitutedBody is the regression for a hostile
