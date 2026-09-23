@@ -1122,6 +1122,13 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return fmt.Errorf("collateral return: %w", err)
 		}
 	}
+	if err := cbor.ValidateMapFields(
+		cborData,
+		[]uint64{0, 1, 2},
+		[]uint64{4, 5, 9, 13, 18, 20, 23},
+	); err != nil {
+		return fmt.Errorf("invalid Dijkstra transaction body: %w", err)
+	}
 	*b = DijkstraTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(
 		cborData,
@@ -1143,7 +1150,12 @@ func (b DijkstraTransactionBody) MarshalCBOR() ([]byte, error) {
 	); err != nil {
 		return nil, err
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+		2,
+	)
 }
 
 func validateDijkstraCertificateTypes(
@@ -1458,6 +1470,13 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}
+	if err := cbor.ValidateMapFields(
+		cborData,
+		[]uint64{0, 1},
+		[]uint64{4, 5, 9, 18, 20},
+	); err != nil {
+		return fmt.Errorf("invalid Dijkstra subtransaction body: %w", err)
+	}
 	*b = DijkstraSubTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(
 		cborData,
@@ -1502,7 +1521,11 @@ func (b DijkstraSubTransactionBody) MarshalCBOR() ([]byte, error) {
 	); err != nil {
 		return nil, err
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+	)
 }
 
 func (b *DijkstraSubTransactionBody) Inputs() []common.TransactionInput {
@@ -1684,10 +1707,35 @@ type DijkstraTransactionWitnessSet struct {
 	WsRedeemers        DijkstraRedeemers                     `cbor:"5,keyasint,omitempty,omitzero"`
 	WsPlutusV2Scripts  cbor.SetType[common.PlutusV2Script]   `cbor:"6,keyasint,omitempty,omitzero"`
 	WsPlutusV3Scripts  cbor.SetType[common.PlutusV3Script]   `cbor:"7,keyasint,omitempty,omitzero"`
-	WsPlutusV4Scripts  cbor.SetType[common.PlutusV4Script]   `cbor:"8,keyasint,omitempty,omitzero"`
+	WsPlutusV4Scripts  cbor.SetType[common.PlutusV4Script]   `cbor:"-"`
+}
+
+func (w DijkstraTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
+	if raw := w.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	if len(w.WsPlutusV4Scripts.Items()) > 0 {
+		return nil, errors.New("dijkstra witness set does not support field 8")
+	}
+	type tDijkstraTransactionWitnessSet DijkstraTransactionWitnessSet
+	return cbor.Encode(tDijkstraTransactionWitnessSet(w))
 }
 
 func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	var fields map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	if _, hasPlutusV4Witness := fields[8]; hasPlutusV4Witness {
+		return errors.New("dijkstra witness set does not support field 8")
+	}
+	if err := cbor.ValidateMapFields(
+		cborData,
+		[]uint64{},
+		[]uint64{0, 1, 2, 3, 4, 5, 6, 7},
+	); err != nil {
+		return fmt.Errorf("invalid Dijkstra witness set: %w", err)
+	}
 	type tDijkstraTransactionWitnessSet DijkstraTransactionWitnessSet
 	var tmp tDijkstraTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {

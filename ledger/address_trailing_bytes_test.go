@@ -369,6 +369,9 @@ func TestProposalReturnAddressesRejectTrailingBytes(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bodyCbor := mustEncodeCbor(map[uint]any{
+				0:  cbor.NewSetType([]any{}, false),
+				1:  []any{},
+				2:  uint64(0),
 				20: []cbor.RawMessage{proposalProcedureCbor(trailerAddr)},
 			})
 			_, err := cbor.Decode(
@@ -385,6 +388,9 @@ func TestProposalReturnAddressesRejectTrailingBytes(t *testing.T) {
 			}
 
 			validBodyCbor := mustEncodeCbor(map[uint]any{
+				0:  cbor.NewSetType([]any{}, false),
+				1:  []any{},
+				2:  uint64(0),
 				20: []cbor.RawMessage{proposalProcedureCbor(validAddr)},
 			})
 			if _, err := cbor.Decode(

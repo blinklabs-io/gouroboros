@@ -5178,3 +5178,34 @@ func TestConwayMinCoinTxOutBoundary(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "overflow")
 }
+
+func TestConwayWitnessSetNonEmptyCollectionsFollowProtocolVersion(
+	t *testing.T,
+) {
+	var tx conway.ConwayTransaction
+	require.NoError(t, tx.WitnessSet.UnmarshalCBOR([]byte{0xa1, 0x00, 0x80}))
+
+	pv8 := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 8},
+	}
+	require.NoError(
+		t,
+		conway.UtxoValidateRedeemerAndScriptWitnesses(&tx, 0, nil, pv8),
+	)
+
+	pv9 := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 9},
+	}
+	require.ErrorContains(
+		t,
+		conway.UtxoValidateRedeemerAndScriptWitnesses(&tx, 0, nil, pv9),
+		"witness set",
+	)
+
+	var absent conway.ConwayTransaction
+	require.NoError(t, absent.WitnessSet.UnmarshalCBOR([]byte{0xa0}))
+	require.NoError(
+		t,
+		conway.UtxoValidateRedeemerAndScriptWitnesses(&absent, 0, nil, pv9),
+	)
+}

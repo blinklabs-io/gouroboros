@@ -17,6 +17,7 @@ package script_test
 import (
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
@@ -38,7 +39,8 @@ func conwayTransaction(
 	t.Helper()
 	base, err := fixture.AlonzoTransaction()
 	require.NoError(t, err)
-	tx, err := conway.NewConwayTransactionFromCbor(base.Cbor())
+	txCbor := withRequiredFields(t, base.Cbor())
+	tx, err := conway.NewConwayTransactionFromCbor(txCbor)
 	require.NoError(t, err)
 	return tx
 }
@@ -52,9 +54,38 @@ func dijkstraTransaction(
 	t.Helper()
 	base, err := fixture.AlonzoTransaction()
 	require.NoError(t, err)
-	tx, err := dijkstra.NewDijkstraTransactionFromCbor(base.Cbor())
+	txCbor := withRequiredFields(t, base.Cbor())
+	tx, err := dijkstra.NewDijkstraTransactionFromCbor(txCbor)
 	require.NoError(t, err)
 	return tx
+}
+
+func withRequiredFields(t *testing.T, transaction []byte) []byte {
+	t.Helper()
+	var components []cbor.RawMessage
+	_, err := cbor.Decode(transaction, &components)
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(components[0], &fields)
+	require.NoError(t, err)
+	for key, value := range map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}} {
+		if _, ok := fields[key]; ok {
+			continue
+		}
+		encoded, encodeErr := cbor.Encode(value)
+		require.NoError(t, encodeErr)
+		fields[key] = encoded
+	}
+	if _, ok := fields[2]; !ok {
+		encoded, encodeErr := cbor.Encode(uint64(0))
+		require.NoError(t, encodeErr)
+		fields[2] = encoded
+	}
+	components[0], err = cbor.Encode(fields)
+	require.NoError(t, err)
+	encoded, err := cbor.Encode(components)
+	require.NoError(t, err)
+	return encoded
 }
 
 // eraTxBuilder decodes a shared validity fixture as one era's transaction
