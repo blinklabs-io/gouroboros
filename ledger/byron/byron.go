@@ -294,8 +294,19 @@ func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
 
 func (t *ByronTransactionBody) Id() common.Blake2b256 {
 	return t.hash.Get(func() common.Blake2b256 {
-		return common.Blake2b256Hash(t.Cbor())
+		cborData, err := cbor.EncodeGeneric(t)
+		if err != nil {
+			panic("CBOR encoding that should never fail has failed: " + err.Error())
+		}
+		return common.Blake2b256Hash(cborData)
 	})
+}
+
+// WireHash returns the hash of the original transaction-body CBOR. Byron
+// proofs and witness signing use these annotated wire bytes; UTxO identity
+// uses Id instead.
+func (t *ByronTransactionBody) WireHash() common.Blake2b256 {
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t *ByronTransactionBody) Inputs() []common.TransactionInput {

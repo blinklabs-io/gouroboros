@@ -147,3 +147,39 @@ func TestByronTransactionProducedInputIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestByronTransactionProducedInputUsesReferenceId(t *testing.T) {
+	t.Parallel()
+
+	raw, err := hex.DecodeString(strings.TrimSpace(testdata.ByronBlockHex))
+	require.NoError(t, err)
+	block, err := byron.NewByronMainBlockFromCbor(raw)
+	require.NoError(t, err)
+	txs := block.Transactions()
+	require.NotEmpty(t, txs)
+
+	byronTx, ok := txs[0].(*byron.ByronTransaction)
+	require.True(t, ok)
+	originalBody := byronTx.Body.Cbor()
+	require.NotEmpty(t, originalBody)
+	require.Equal(t, byte(0x83), originalBody[0])
+	nonShortestBody := append([]byte{0x98, 0x03}, originalBody[1:]...)
+	var body byron.ByronTransactionBody
+	_, err = cbor.Decode(nonShortestBody, &body)
+	require.NoError(t, err)
+
+	tx := byron.ByronTransaction{Body: body}
+	produced := tx.Produced()
+	require.NotEmpty(t, produced)
+	referenceId := tx.Id()
+	wireId := tx.Body.WireHash()
+	require.NotEqual(t, referenceId, wireId)
+	require.Equal(t, referenceId, produced[0].Id.Id())
+
+	sameBlockSpend := byron.ByronTransactionInput{
+		TxId:        produced[0].Id.Id(),
+		OutputIndex: produced[0].Id.Index(),
+	}
+	require.Equal(t, referenceId, sameBlockSpend.Id())
+	require.NotEqual(t, wireId, sameBlockSpend.Id())
+}
