@@ -416,11 +416,15 @@ func TestNewByronGenesisFromReader(t *testing.T) {
 func genesisWithParameter(t *testing.T, path []string, value string) string {
 	t.Helper()
 	var document map[string]any
-	require.NoError(t, json.Unmarshal([]byte(byronGenesisConfig), &document))
+	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
+		t.Fatal(err)
+	}
 	current := document
 	for _, key := range path[:len(path)-1] {
 		next, ok := current[key].(map[string]any)
-		require.Truef(t, ok, "missing genesis object %q", key)
+		if !ok {
+			t.Fatalf("missing genesis object %q", key)
+		}
 		current = next
 	}
 	current[path[len(path)-1]] = value
@@ -432,11 +436,15 @@ func genesisWithParameter(t *testing.T, path []string, value string) string {
 func genesisWithoutField(t *testing.T, path []string) string {
 	t.Helper()
 	var document map[string]any
-	require.NoError(t, json.Unmarshal([]byte(byronGenesisConfig), &document))
+	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
+		t.Fatal(err)
+	}
 	current := document
 	for _, key := range path[:len(path)-1] {
 		next, ok := current[key].(map[string]any)
-		require.Truef(t, ok, "missing genesis object %q", key)
+		if !ok {
+			t.Fatalf("missing genesis object %q", key)
+		}
 		current = next
 	}
 	delete(current, path[len(path)-1])
@@ -489,10 +497,20 @@ func TestNewByronGenesisFromReaderRequiredFields(t *testing.T) {
 
 func TestNewByronGenesisFromReaderIgnoresUnknownFields(t *testing.T) {
 	var document map[string]any
-	require.NoError(t, json.Unmarshal([]byte(byronGenesisConfig), &document))
+	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
+		t.Fatal(err)
+	}
 	document["futureExtension"] = true
-	document["blockVersionData"].(map[string]any)["futureParameter"] = "ignored"
-	document["blockVersionData"].(map[string]any)["softforkRule"].(map[string]any)["futureRule"] = "ignored"
+	blockVersionData, ok := document["blockVersionData"].(map[string]any)
+	if !ok {
+		t.Fatal("missing blockVersionData object")
+	}
+	blockVersionData["futureParameter"] = "ignored"
+	softforkRule, ok := blockVersionData["softforkRule"].(map[string]any)
+	if !ok {
+		t.Fatal("missing softforkRule object")
+	}
+	softforkRule["futureRule"] = "ignored"
 	encoded, err := json.Marshal(document)
 	require.NoError(t, err)
 	_, err = byron.NewByronGenesisFromReader(strings.NewReader(string(encoded)))
