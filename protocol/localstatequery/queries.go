@@ -961,6 +961,51 @@ type StakePoolParamsResult struct {
 	}
 }
 
+// validateQueryPoolMetadataURL applies the shared pool metadata URL bound to a
+// URL decoded through one of the inline metadata structs in this package.
+// Those structs are unnamed, so they cannot carry a decoder and
+// common.PoolMetadata.UnmarshalCBOR never runs on a query result path.
+func validateQueryPoolMetadataURL(url string) error {
+	return lcommon.ValidatePoolMetadata(&lcommon.PoolMetadata{Url: url})
+}
+
+// UnmarshalCBOR decodes a stake pool parameters query result and bounds each
+// pool metadata URL. The map value is an unnamed struct type, so the bound
+// runs here rather than in a decoder of its own.
+func (r *StakePoolParamsResult) UnmarshalCBOR(data []byte) error {
+	if r == nil {
+		return errors.New("nil StakePoolParamsResult receiver")
+	}
+	type stakePoolParamsResult StakePoolParamsResult
+	var tmp stakePoolParamsResult
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	for poolId, params := range tmp.Results {
+		if params.PoolMetadata == nil {
+			continue
+		}
+		if err := validateQueryPoolMetadataURL(params.PoolMetadata.Url); err != nil {
+			delete(tmp.Results, poolId)
+		}
+	}
+	*r = StakePoolParamsResult(tmp)
+	return nil
+}
+
+func (r StakePoolParamsResult) MarshalCBOR() ([]byte, error) {
+	for poolId, params := range r.Results {
+		if params.PoolMetadata == nil {
+			continue
+		}
+		if err := validateQueryPoolMetadataURL(params.PoolMetadata.Url); err != nil {
+			return nil, fmt.Errorf("pool %s: %w", poolId, err)
+		}
+	}
+	type stakePoolParamsResult StakePoolParamsResult
+	return cbor.Encode(stakePoolParamsResult(r))
+}
+
 // RewardParams represents the global reward calculation parameters
 // for the current epoch.
 // CBOR: array(4) [nOpt, a0, rPot, totalStake]
@@ -1050,6 +1095,37 @@ type PoolStateParams struct {
 	}
 }
 
+// UnmarshalCBOR decodes pool registration parameters and bounds the pool
+// metadata URL. The inline metadata struct is unnamed, so the bound runs here
+// rather than in a decoder of its own.
+func (p *PoolStateParams) UnmarshalCBOR(data []byte) error {
+	if p == nil {
+		return errors.New("nil PoolStateParams receiver")
+	}
+	type poolStateParams PoolStateParams
+	var tmp poolStateParams
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	if tmp.PoolMetadata != nil {
+		if err := validateQueryPoolMetadataURL(tmp.PoolMetadata.Url); err != nil {
+			return err
+		}
+	}
+	*p = PoolStateParams(tmp)
+	return nil
+}
+
+func (p PoolStateParams) MarshalCBOR() ([]byte, error) {
+	if p.PoolMetadata != nil {
+		if err := validateQueryPoolMetadataURL(p.PoolMetadata.Url); err != nil {
+			return nil, err
+		}
+	}
+	type poolStateParams PoolStateParams
+	return cbor.Encode(poolStateParams(p))
+}
+
 // PoolStateResult represents the pool state result
 // The result is a 4-element array: [pstate, fstate, retiring, deposits]
 // where pstate maps pool IDs to their registration parameters
@@ -1060,6 +1136,60 @@ type PoolStateResult struct {
 	// Retiring contains pools scheduled to retire (epoch number)
 	Retiring map[ledger.Blake2b224]uint64
 	Deposits map[ledger.Blake2b224]uint64 // Pool deposits
+}
+
+func (r *PoolStateResult) UnmarshalCBOR(data []byte) error {
+	if r == nil {
+		return errors.New("nil PoolStateResult receiver")
+	}
+	type rawPoolStateParams PoolStateParams
+	var tmp struct {
+		cbor.StructAsArray
+		PState   map[ledger.Blake2b224]*rawPoolStateParams
+		FState   map[ledger.Blake2b224]*rawPoolStateParams
+		Retiring map[ledger.Blake2b224]uint64
+		Deposits map[ledger.Blake2b224]uint64
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	convert := func(
+		name string,
+		params map[ledger.Blake2b224]*rawPoolStateParams,
+	) (map[ledger.Blake2b224]*PoolStateParams, error) {
+		result := make(map[ledger.Blake2b224]*PoolStateParams, len(params))
+		for poolId, value := range params {
+			if value == nil {
+				result[poolId] = nil
+				continue
+			}
+			if value.PoolMetadata != nil {
+				if err := validateQueryPoolMetadataURL(
+					value.PoolMetadata.Url,
+				); err != nil {
+					return nil, fmt.Errorf(
+						"%s pool %x: %w", name, poolId[:], err,
+					)
+				}
+			}
+			converted := PoolStateParams(*value)
+			result[poolId] = &converted
+		}
+		return result, nil
+	}
+	pstate, err := convert("pstate", tmp.PState)
+	if err != nil {
+		return err
+	}
+	fstate, err := convert("fstate", tmp.FState)
+	if err != nil {
+		return err
+	}
+	*r = PoolStateResult{
+		PState: pstate, FState: fstate,
+		Retiring: tmp.Retiring, Deposits: tmp.Deposits,
+	}
+	return nil
 }
 
 // PoolStakeSnapshot represents the stake distribution for a pool

@@ -34,6 +34,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDijkstraWitnessDecodeAcceptsRequireGuard(t *testing.T) {
+	guard := common.NativeScriptRequireGuard{
+		Type: 6,
+		Credential: common.Credential{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: common.NewBlake2b224(make([]byte, common.Blake2b224Size)),
+		},
+	}
+	guardCBOR, err := cbor.Encode(guard)
+	require.NoError(t, err)
+	var script common.NativeScript
+	_, err = cbor.Decode(guardCBOR, &script)
+	require.NoError(t, err)
+	witnessCBOR, err := cbor.Encode(DijkstraTransactionWitnessSet{
+		WsNativeScripts: cbor.NewSetType([]common.NativeScript{script}, false),
+	})
+	require.NoError(t, err)
+	var witnessSet DijkstraTransactionWitnessSet
+	_, err = cbor.Decode(witnessCBOR, &witnessSet)
+	require.NoError(t, err)
+}
+
 func testPlutusInteger(v int64) data.PlutusData {
 	return data.NewInteger(big.NewInt(v))
 }

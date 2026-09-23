@@ -444,14 +444,47 @@ func UtxoValidateProposalProcedures(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	var currentEpoch uint64
+	epochKnown := false
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
 		if isNilGovAction(govAction) {
 			continue
 		}
 
-		// Check if this is a ParameterChangeGovAction
+		// Committee additions expire strictly after the current epoch. This
+		// lower bound is a transaction rule; the maximum term is ratification-only.
 		paramChangeAction, ok := govAction.(*ConwayParameterChangeGovAction)
+		if committeeUpdate, ok := govAction.(*common.UpdateCommitteeGovAction); ok &&
+			len(committeeUpdate.CredEpochs) > 0 {
+			if !epochKnown {
+				epochState, ok := common.UnwrapLedgerState(ls).(common.EpochState)
+				if !ok {
+					return CommitteeExpiryEpochUnavailableError{}
+				}
+				var err error
+				currentEpoch, err = epochState.EpochForSlot(slot)
+				if err != nil {
+					return CommitteeExpiryEpochUnavailableError{Err: err}
+				}
+				epochKnown = true
+			}
+			for credential, expiry := range committeeUpdate.CredEpochs {
+				if credential == nil {
+					return errors.New("update committee contains a nil credential")
+				}
+				if expiry <= currentEpoch {
+					return CommitteeMemberAlreadyExpiredError{
+						Credential:   credential,
+						ExpiryEpoch:  expiry,
+						CurrentEpoch: currentEpoch,
+					}
+				}
+			}
+		}
 		if !ok {
 			continue
 		}
@@ -3484,9 +3517,10 @@ func UtxoValidateDelegation(
 			}
 			cred := common.Credential{CredType: credType}
 			copy(cred.Credential[:], drep.Credential)
-			// Check in-tx registrations first
-			if inTxDRepRegs[stakeKey(cred)] {
-				return true, nil
+			// An in-transaction tombstone must override a registration in
+			// the initial ledger state.
+			if registered, found := inTxDRepRegs[stakeKey(cred)]; found {
+				return registered, nil
 			}
 			// Check ledger state
 			reg, err := ls.DRepRegistration(cred)
@@ -3551,7 +3585,7 @@ func UtxoValidateDelegation(
 			// the retirement epoch, so later delegations remain valid.
 
 		case *common.DeregistrationDrepCertificate:
-			delete(inTxDRepRegs, stakeKey(c.DrepCredential))
+			inTxDRepRegs[stakeKey(c.DrepCredential)] = false
 
 		// Check delegations
 		case *common.StakeDelegationCertificate:
@@ -4057,9 +4091,14 @@ func UtxoValidateCommitteeCertificates(
 	}
 	var committeeState common.CommitteeCredentialState
 	committeeStateLoaded := false
+	committeeMembers := make(map[credOverlayKey]*common.CommitteeMember)
 	committeeMember := func(
 		coldCredential common.Credential,
 	) (*common.CommitteeMember, error) {
+		key := credKey(coldCredential)
+		if member, ok := committeeMembers[key]; ok {
+			return member, nil
+		}
 		if !committeeStateLoaded {
 			var ok bool
 			committeeState, ok = common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
@@ -4095,6 +4134,10 @@ func UtxoValidateCommitteeCertificates(
 				Err:              err,
 			}
 		}
+		if member != nil {
+			copy := *member
+			committeeMembers[key] = &copy
+		}
 		return member, nil
 	}
 
@@ -4118,6 +4161,9 @@ func UtxoValidateCommitteeCertificates(
 					ColdCredential: c.ColdCredential,
 				}
 			}
+			updated := *member
+			updated.HotKey = &c.HotCredential.Credential
+			committeeMembers[credKey(c.ColdCredential)] = &updated
 
 		case *common.ResignCommitteeColdCertificate:
 			member, err := committeeMember(c.ColdCredential)
@@ -4131,6 +4177,16 @@ func UtxoValidateCommitteeCertificates(
 					Operation:      "resign",
 				}
 			}
+			if member.Resigned {
+				return ResignedCommitteeMemberHotKeyError{
+					ColdKey:        c.ColdCredential.Credential,
+					ColdCredential: c.ColdCredential,
+				}
+			}
+			updated := *member
+			updated.Resigned = true
+			updated.HotKey = nil
+			committeeMembers[credKey(c.ColdCredential)] = &updated
 		}
 	}
 	return nil
@@ -4403,6 +4459,26 @@ func UtxoValidateUnknownVoters(
 			if member == nil || member.Resigned {
 				return UnknownVoterError{Voter: *voter}
 			}
+			if params, ok := pp.(*ConwayProtocolParameters); ok &&
+				common.IsProtocolVersionAtLeast(
+					params.ProtocolVersion.Major, 0,
+					common.ProtocolVersionVanRossem,
+				) {
+				currentMembers, err := ls.CommitteeMembers()
+				if err != nil {
+					return lookupError(err)
+				}
+				seated := false
+				for _, current := range currentMembers {
+					if current.ColdKey == member.ColdKey {
+						seated = true
+						break
+					}
+				}
+				if !seated {
+					return UnknownVoterError{Voter: *voter}
+				}
+			}
 
 		default:
 			// Voter.Type is decoded from CBOR with no range check, so
@@ -4632,16 +4708,6 @@ func UtxoValidateCCVotingRestrictions(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	conwayPp, ok := pp.(*ConwayProtocolParameters)
-	if !ok {
-		return errors.New("pparams are not expected type")
-	}
-	if !common.IsProtocolVersionAtLeast(
-		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
-	) {
-		return nil // Pre-PV11: checked by mempool sanitizer only
-	}
-
 	votes := tx.VotingProcedures()
 	if len(votes) == 0 {
 		return nil
