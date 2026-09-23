@@ -44,18 +44,6 @@ func dijkstraPlutusV4Context(
 	if err != nil {
 		return nil, err
 	}
-	if guarding, ok := purpose.(script.ScriptPurposeGuarding); ok &&
-		level.subTxIndex == nil {
-		topTxInfo, err := dijkstraTopTxInfoV4(level, guarding.Guard)
-		if err != nil {
-			return nil, err
-		}
-		scriptInfo = data.NewConstr(
-			6,
-			data.NewInteger(new(big.Int).SetUint64(uint64(key.Index))),
-			data.NewConstr(0, topTxInfo),
-		)
-	}
 	_ = purposeData // The purpose is represented in txInfoRedeemers.
 	return data.NewConstr(
 		0,
@@ -136,7 +124,7 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 	return data.NewConstr(
 		0,
 		data.NewByteString(level.tx.Id().Bytes()),
-		dijkstraOptionalIndex(level.subTxIndex),
+		dijkstraOptionalIndex(nil),
 		data.NewList(inputs...),
 		data.NewList(referenceInputs...),
 		data.NewList(outputs...),
@@ -1173,6 +1161,7 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 		deposits = b.TxDirectDeposits
 		intervals = b.TxBalanceIntervals
 		guardSet = b.TxGuards
+		required = b.TxRequiredTopLevelGuards
 	case *DijkstraSubTransactionBody:
 		deposits = b.TxDirectDeposits
 		intervals = b.TxAccountBalanceIntervals

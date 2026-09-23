@@ -727,6 +727,13 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return fmt.Errorf("collateral return: %w", err)
 		}
 	}
+	if err := cbor.ValidateMapFields(
+		cborData,
+		[]uint64{0, 1, 2},
+		[]uint64{4, 5, 9, 13, 14, 18, 20},
+	); err != nil {
+		return fmt.Errorf("invalid Conway transaction body: %w", err)
+	}
 	*b = ConwayTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(
 		cborData,
@@ -782,7 +789,12 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+		2,
+	)
 }
 
 // checkMultiAssetEncoding rejects the multiasset wire forms cardano-ledger

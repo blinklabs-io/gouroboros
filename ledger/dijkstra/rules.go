@@ -2357,20 +2357,20 @@ func guardingRedeemer(
 	}
 }
 
-// dijkstraRequiredTopLevelGuards re-keys a sub-transaction's already-decoded
-// and validated DijkstraRequiredTopLevelGuards by dijkstraCredentialKey, the
-// comparable key the guard-validation rules below use for set membership.
+// dijkstraRequiredTopLevelGuards re-keys an already-decoded and validated
+// required-guards map by dijkstraCredentialKey, the comparable key the guard
+// validation rules below use for set membership.
 func dijkstraRequiredTopLevelGuards(
-	body *DijkstraSubTransactionBody,
+	guards DijkstraRequiredTopLevelGuards,
 ) map[dijkstraCredentialKey]*common.Datum {
-	if body == nil || len(body.TxRequiredTopLevelGuards) == 0 {
+	if len(guards) == 0 {
 		return nil
 	}
 	required := make(
 		map[dijkstraCredentialKey]*common.Datum,
-		len(body.TxRequiredTopLevelGuards),
+		len(guards),
 	)
-	for credential, datum := range body.TxRequiredTopLevelGuards {
+	for credential, datum := range guards {
 		required[dijkstraCredentialKey{
 			Type: credential.CredType,
 			Hash: credential.Credential,
@@ -2410,9 +2410,18 @@ func validateDijkstraRequiredTopLevelGuards(
 		}] = struct{}{}
 	}
 	missing := make(map[dijkstraCredentialKey]struct{})
+	for credential := range dijkstraRequiredTopLevelGuards(
+		tx.Body.TxRequiredTopLevelGuards,
+	) {
+		if _, ok := topLevel[credential]; !ok {
+			missing[credential] = struct{}{}
+		}
+	}
 	subTxs := tx.Body.TxSubTransactions.Items()
 	for idx := range subTxs {
-		required := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
+		required := dijkstraRequiredTopLevelGuards(
+			subTxs[idx].Body.TxRequiredTopLevelGuards,
+		)
 		for credential := range required {
 			if _, ok := topLevel[credential]; !ok {
 				missing[credential] = struct{}{}
@@ -2432,9 +2441,32 @@ func validateDijkstraGuardDatums(
 	available map[common.ScriptHash]common.Script,
 ) error {
 	malformed := make(map[dijkstraCredentialKey]struct{})
+	for credential, datum := range dijkstraRequiredTopLevelGuards(
+		tx.Body.TxRequiredTopLevelGuards,
+	) {
+		hasDatum := datum != nil
+		switch credential.Type {
+		case common.CredentialTypeAddrKeyHash:
+			if hasDatum {
+				malformed[credential] = struct{}{}
+			}
+		case common.CredentialTypeScriptHash:
+			candidate, ok := available[common.ScriptHash(credential.Hash)]
+			if !ok {
+				continue
+			}
+			_, plutus := common.PlutusScriptVersion(candidate)
+			if plutus == hasDatum {
+				continue
+			}
+			malformed[credential] = struct{}{}
+		}
+	}
 	subTxs := tx.Body.TxSubTransactions.Items()
 	for idx := range subTxs {
-		required := dijkstraRequiredTopLevelGuards(&subTxs[idx].Body)
+		required := dijkstraRequiredTopLevelGuards(
+			subTxs[idx].Body.TxRequiredTopLevelGuards,
+		)
 		for credential, datum := range required {
 			hasDatum := datum != nil
 			switch credential.Type {

@@ -1622,6 +1622,20 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	// Redeemer/script relation applies only to Plutus scripts. Native scripts
 	// do NOT require redeemers.
 	wits := tx.Witnesses()
+	if conwayPp, ok := pp.(*ConwayProtocolParameters); ok &&
+		conwayPp.ProtocolVersion.Major >= common.ProtocolVersionConway &&
+		wits != nil {
+		if rawWitnesses, ok := wits.(interface{ Cbor() []byte }); ok &&
+			len(rawWitnesses.Cbor()) > 0 {
+			if err := cbor.ValidateMapFields(
+				rawWitnesses.Cbor(),
+				[]uint64{},
+				[]uint64{0, 1, 2, 3, 4, 5, 6, 7},
+			); err != nil {
+				return fmt.Errorf("invalid Conway witness set: %w", err)
+			}
+		}
+	}
 	redeemerCount := 0
 	if wits != nil {
 		if r := wits.Redeemers(); r != nil {

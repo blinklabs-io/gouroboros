@@ -151,11 +151,14 @@ func TestExtractTransactionOffsetsDijkstraBlockShapes(t *testing.T) {
 				testCase.numTx,
 			)
 
-			// The era decoder accepts both shapes; the offset walker must
-			// agree with it on the transaction count.
-			var block dijkstra.DijkstraBlock
-			require.NoError(t, block.UnmarshalCBOR(blockCbor))
-			require.Len(t, block.Transactions(), testCase.numTx)
+			// Current consensus decoding accepts only the current body shape.
+			// The historical offset walker still understands the pre-respin
+			// layout for archive/indexing callers.
+			if !testCase.legacyBody {
+				var block dijkstra.DijkstraBlock
+				require.NoError(t, block.UnmarshalCBOR(blockCbor))
+				require.Len(t, block.Transactions(), testCase.numTx)
+			}
 
 			offsets, err := common.ExtractTransactionOffsets(blockCbor)
 			require.NoError(t, err)

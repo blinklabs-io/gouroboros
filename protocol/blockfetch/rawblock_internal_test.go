@@ -15,29 +15,12 @@
 package blockfetch
 
 import (
-	"encoding/hex"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
-	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/stretchr/testify/require"
 )
-
-func readMusashiBlock(t *testing.T) []byte {
-	t.Helper()
-	hexData, err := os.ReadFile(filepath.Join(
-		"..", "..", "ledger", "dijkstra", "testdata",
-		"musashi_dijkstra_block.hex",
-	))
-	require.NoError(t, err)
-	raw, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
-	require.NoError(t, err)
-	return raw
-}
 
 // TestRawBlockHeaderInfoMatchesTypedDecode is the agreement test between the
 // two correlation paths. For any block the typed decoder can handle, reading
@@ -45,10 +28,6 @@ func readMusashiBlock(t *testing.T) []byte {
 // decoded block reports, or the raw fallback would correlate ranges by a
 // different rule than the normal path.
 func TestRawBlockHeaderInfoMatchesTypedDecode(t *testing.T) {
-	musashi := readMusashiBlock(t)
-	musashiBlock, err := dijkstra.NewDijkstraBlockFromCbor(musashi)
-	require.NoError(t, err)
-
 	babbageBlock := ledger.BabbageBlock{
 		BlockHeader: &ledger.BabbageBlockHeader{},
 	}
@@ -77,9 +56,6 @@ func TestRawBlockHeaderInfoMatchesTypedDecode(t *testing.T) {
 		// The origin case: prev_hash encoded as CBOR null, which the typed
 		// header decoder turns into the zero hash.
 		{name: "babbage origin", raw: originCbor, block: &originBlock},
-		// Musashi exercises a 12-field Leios-extended header body, the shape
-		// that made the raw fallback necessary in the first place.
-		{name: "musashi dijkstra", raw: musashi, block: musashiBlock},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

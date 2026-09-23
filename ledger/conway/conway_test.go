@@ -191,9 +191,9 @@ func TestConwayTransactionBodyUnmarshalCBORCertificateTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			encoded, err := cbor.Encode(map[uint]any{
+			encoded, err := cbor.Encode(conwayRequiredBodyFields(map[uint]any{
 				4: []any{tc.certificate},
-			})
+			}))
 			require.NoError(t, err)
 
 			var body ConwayTransactionBody
@@ -222,9 +222,9 @@ func TestConwayTransactionBodyUnmarshalCBORCertificateTagRange(t *testing.T) {
 	for certType := common.CertificateTypeStakeRegistration; certType <= common.CertificateTypeUpdateDrep; certType++ {
 		certType := certType
 		t.Run(fmt.Sprintf("type %d", certType), func(t *testing.T) {
-			encoded, err := cbor.Encode(map[uint]any{
+			encoded, err := cbor.Encode(conwayRequiredBodyFields(map[uint]any{
 				4: []any{certificates[certType]},
-			})
+			}))
 			require.NoError(t, err)
 
 			var body ConwayTransactionBody
@@ -499,12 +499,12 @@ func TestConwayProposalProceduresSetSemantics(t *testing.T) {
 
 	for _, useTag := range []bool{false, true} {
 		t.Run(fmt.Sprintf("duplicate useTag=%t", useTag), func(t *testing.T) {
-			bodyCbor, err := cbor.Encode(map[uint]any{
+			bodyCbor, err := cbor.Encode(conwayRequiredBodyFields(map[uint]any{
 				20: cbor.NewSetType(
 					[]ConwayProposalProcedure{procedure, procedure},
 					useTag,
 				),
-			})
+			}))
 			require.NoError(t, err)
 
 			var body ConwayTransactionBody
@@ -518,13 +518,25 @@ func TestConwayProposalProceduresSetSemantics(t *testing.T) {
 
 	distinct := procedure
 	distinct.PPDeposit++
-	bodyCbor, err := cbor.Encode(map[uint]any{
+	bodyCbor, err := cbor.Encode(conwayRequiredBodyFields(map[uint]any{
 		20: []ConwayProposalProcedure{procedure, distinct},
-	})
+	}))
 	require.NoError(t, err)
 	var body ConwayTransactionBody
 	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
 	require.Len(t, body.TxProposalProcedures, 2)
+}
+
+func conwayRequiredBodyFields(fields map[uint]any) map[uint]any {
+	body := map[uint]any{
+		0: cbor.NewSetType([]any{}, false),
+		1: []any{},
+		2: uint64(0),
+	}
+	for key, value := range fields {
+		body[key] = value
+	}
+	return body
 }
 
 func TestConwayTransactionBodyRejectsDuplicateMultiAssetKeys(t *testing.T) {

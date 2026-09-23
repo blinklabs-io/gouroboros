@@ -281,38 +281,20 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &items); err != nil {
 		return err
 	}
-	if len(items) != 3 && len(items) != 4 {
+	if len(items) != 3 {
 		return fmt.Errorf(
 			"invalid Dijkstra block body: expected 3 components, got %d",
 			len(items),
 		)
 	}
-	legacy := len(items) == 4
-	txField := 0
-	var legacyInvalidTxs []uint
-	if legacy {
-		txField = 1
-		var err error
-		legacyInvalidTxs, err = decodeInvalidTransactions(items[0])
-		if err != nil {
-			return err
-		}
-	}
-	// items[0] (or items[1] for the pre-respin compatibility form):
-	// transactions [* block_transaction]
+	// items[0]: transactions [* block_transaction]
 	var rawTxs []cbor.RawMessage
-	if _, err := cbor.Decode(items[txField], &rawTxs); err != nil {
+	if _, err := cbor.Decode(items[0], &rawTxs); err != nil {
 		return fmt.Errorf("decode Dijkstra transactions: %w", err)
 	}
 	txs := make([]DijkstraTransaction, len(rawTxs))
 	for idx, rawTx := range rawTxs {
-		var tx *DijkstraTransaction
-		var err error
-		if legacy {
-			tx, err = newDijkstraTransactionFromCbor(rawTx, false)
-		} else {
-			tx, err = newDijkstraBlockTransactionFromCbor(rawTx)
-		}
+		tx, err := newDijkstraBlockTransactionFromCbor(rawTx)
 		if err != nil {
 			return fmt.Errorf("decode Dijkstra transaction %d: %w", idx, err)
 		}
@@ -321,29 +303,13 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		}
 		txs[idx] = *tx
 	}
-	if legacy {
-		invalid := make(map[uint]bool, len(legacyInvalidTxs))
-		for _, idx := range legacyInvalidTxs {
-			if idx >= uint(len(txs)) {
-				return fmt.Errorf(
-					"invalid transaction index %d outside transaction list length %d",
-					idx, len(txs),
-				)
-			}
-			invalid[idx] = true
-		}
-		for idx := range txs {
-			txs[idx].TxIsValid = !invalid[uint(idx)]
-		}
-		b.InvalidTransactions = append([]uint(nil), legacyInvalidTxs...)
-	}
-	// items[1] (or items[2] for the compatibility form): leios_certificate.
-	leiosCert, err := decodeDijkstraLeiosCertificate(items[txField+1])
+	// items[1]: leios_certificate.
+	leiosCert, err := decodeDijkstraLeiosCertificate(items[1])
 	if err != nil {
 		return err
 	}
-	// items[2] (or items[3] for the compatibility form): peras_certificate.
-	perasCert, err := decodeDijkstraPerasCertificate(items[txField+2])
+	// items[2]: peras_certificate.
+	perasCert, err := decodeDijkstraPerasCertificate(items[2])
 	if err != nil {
 		return err
 	}
@@ -353,9 +319,7 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	b.Transactions = txs
-	if !legacy {
-		b.InvalidTransactions = nil
-	}
+	b.InvalidTransactions = nil
 	b.LeiosCertificate = leiosCert
 	b.PerasCertificate = perasCert
 	b.SetCbor(cborData)
@@ -932,8 +896,8 @@ func validateDijkstraAccountBalanceIntervalsForEncoding(
 }
 
 // DijkstraRequiredTopLevelGuards is CIP-118's required_top_level_guards: a
-// non-empty credential-keyed map of optional Plutus datums that a
-// sub-transaction requires its enclosing transaction's guards to satisfy.
+// non-empty credential-keyed map of optional Plutus datums that transaction
+// bodies require the top-level guard set to satisfy.
 type DijkstraRequiredTopLevelGuards map[*common.Credential]*common.Datum
 
 // UnmarshalCBOR decodes each datum from raw CBOR rather than directly into
@@ -975,7 +939,7 @@ func (m *DijkstraRequiredTopLevelGuards) UnmarshalCBOR(cborData []byte) error {
 // validation for a directly constructed map instead happens at its two
 // consumers: dijkstraRequiredTopLevelGuardsV4, which turns it into
 // script-visible output, and validateDijkstraRequiredTopLevelGuardsForEncoding,
-// called from the containing sub-transaction body's MarshalCBOR before wire
+// called from each containing transaction body's MarshalCBOR before wire
 // encoding.
 func validateDijkstraRequiredTopLevelGuardsForEncoding(
 	required DijkstraRequiredTopLevelGuards,
@@ -1051,29 +1015,30 @@ func validateDijkstraCredentialMapKeys[V any](
 
 type DijkstraTransactionBody struct {
 	common.TransactionBodyBase
-	TxInputs                conway.ConwayTransactionInputSet              `cbor:"0,keyasint,omitempty"`
-	TxOutputs               []DijkstraTransactionOutput                   `cbor:"1,keyasint,omitempty"`
-	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
-	Ttl                     uint64                                        `cbor:"3,keyasint,omitempty"`
-	TxCertificates          []common.CertificateWrapper                   `cbor:"4,keyasint,omitempty"`
-	TxWithdrawals           map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
-	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
-	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
-	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
-	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
-	TxCollateral            cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"13,keyasint,omitempty,omitzero"`
-	TxGuards                *DijkstraGuards                               `cbor:"14,keyasint,omitempty"`
-	TxNetworkId             *uint8                                        `cbor:"15,keyasint,omitempty"`
-	TxCollateralReturn      *DijkstraTransactionOutput                    `cbor:"16,keyasint,omitempty"`
-	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
-	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
-	TxVotingProcedures      common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
-	TxProposalProcedures    []DijkstraProposalProcedure                   `cbor:"20,keyasint,omitempty"`
-	TxCurrentTreasuryValue  uint64                                        `cbor:"21,keyasint,omitempty"`
-	TxDonation              uint64                                        `cbor:"22,keyasint,omitempty"`
-	TxSubTransactions       cbor.SetType[DijkstraSubTransaction]          `cbor:"23,keyasint,omitempty,omitzero"`
-	TxDirectDeposits        map[cbor.ByteString]uint64                    `cbor:"25,keyasint,omitempty"`
-	TxBalanceIntervals      DijkstraAccountBalanceIntervals               `cbor:"26,keyasint,omitempty"`
+	TxInputs                 conway.ConwayTransactionInputSet              `cbor:"0,keyasint,omitempty"`
+	TxOutputs                []DijkstraTransactionOutput                   `cbor:"1,keyasint,omitempty"`
+	TxFee                    uint64                                        `cbor:"2,keyasint,omitempty"`
+	Ttl                      uint64                                        `cbor:"3,keyasint,omitempty"`
+	TxCertificates           []common.CertificateWrapper                   `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals            map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
+	TxAuxDataHash            *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
+	TxValidityIntervalStart  uint64                                        `cbor:"8,keyasint,omitempty"`
+	TxMint                   *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
+	TxScriptDataHash         *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
+	TxCollateral             cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"13,keyasint,omitempty,omitzero"`
+	TxGuards                 *DijkstraGuards                               `cbor:"14,keyasint,omitempty"`
+	TxNetworkId              *uint8                                        `cbor:"15,keyasint,omitempty"`
+	TxCollateralReturn       *DijkstraTransactionOutput                    `cbor:"16,keyasint,omitempty"`
+	TxTotalCollateral        uint64                                        `cbor:"17,keyasint,omitempty"`
+	TxReferenceInputs        cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
+	TxVotingProcedures       common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
+	TxProposalProcedures     []DijkstraProposalProcedure                   `cbor:"20,keyasint,omitempty"`
+	TxCurrentTreasuryValue   uint64                                        `cbor:"21,keyasint,omitempty"`
+	TxDonation               uint64                                        `cbor:"22,keyasint,omitempty"`
+	TxSubTransactions        cbor.SetType[DijkstraSubTransaction]          `cbor:"23,keyasint,omitempty,omitzero"`
+	TxRequiredTopLevelGuards DijkstraRequiredTopLevelGuards                `cbor:"24,keyasint,omitempty"`
+	TxDirectDeposits         map[cbor.ByteString]uint64                    `cbor:"25,keyasint,omitempty"`
+	TxBalanceIntervals       DijkstraAccountBalanceIntervals               `cbor:"26,keyasint,omitempty"`
 }
 
 func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -1106,6 +1071,11 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 	}
+	if err := validateDijkstraSubTransactionBodyIDs(
+		tmp.TxSubTransactions,
+	); err != nil {
+		return err
+	}
 	if err := checkDuplicateProposalProcedures(tmp.TxProposalProcedures); err != nil {
 		return err
 	}
@@ -1122,6 +1092,13 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return fmt.Errorf("collateral return: %w", err)
 		}
 	}
+	if err := cbor.ValidateMapFields(
+		cborData,
+		[]uint64{0, 1, 2},
+		[]uint64{4, 5, 9, 13, 18, 20, 23, 24},
+	); err != nil {
+		return fmt.Errorf("invalid Dijkstra transaction body: %w", err)
+	}
 	*b = DijkstraTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(
 		cborData,
@@ -1134,6 +1111,20 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func validateDijkstraSubTransactionBodyIDs(
+	subTransactions cbor.SetType[DijkstraSubTransaction],
+) error {
+	seen := make(map[common.Blake2b256]struct{})
+	for _, subTransaction := range subTransactions.Items() {
+		id := subTransaction.Body.Id()
+		if _, exists := seen[id]; exists {
+			return errors.New("duplicate Dijkstra sub-transaction body")
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
 func (b DijkstraTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
@@ -1143,7 +1134,17 @@ func (b DijkstraTransactionBody) MarshalCBOR() ([]byte, error) {
 	); err != nil {
 		return nil, err
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	if err := validateDijkstraRequiredTopLevelGuardsForEncoding(
+		b.TxRequiredTopLevelGuards,
+	); err != nil {
+		return nil, err
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+		2,
+	)
 }
 
 func validateDijkstraCertificateTypes(
@@ -1458,6 +1459,13 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}
+	if err := cbor.ValidateMapFields(
+		cborData,
+		[]uint64{0, 1},
+		[]uint64{4, 5, 9, 18, 20},
+	); err != nil {
+		return fmt.Errorf("invalid Dijkstra subtransaction body: %w", err)
+	}
 	*b = DijkstraSubTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(
 		cborData,
@@ -1502,7 +1510,11 @@ func (b DijkstraSubTransactionBody) MarshalCBOR() ([]byte, error) {
 	); err != nil {
 		return nil, err
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+	)
 }
 
 func (b *DijkstraSubTransactionBody) Inputs() []common.TransactionInput {
@@ -1684,10 +1696,35 @@ type DijkstraTransactionWitnessSet struct {
 	WsRedeemers        DijkstraRedeemers                     `cbor:"5,keyasint,omitempty,omitzero"`
 	WsPlutusV2Scripts  cbor.SetType[common.PlutusV2Script]   `cbor:"6,keyasint,omitempty,omitzero"`
 	WsPlutusV3Scripts  cbor.SetType[common.PlutusV3Script]   `cbor:"7,keyasint,omitempty,omitzero"`
-	WsPlutusV4Scripts  cbor.SetType[common.PlutusV4Script]   `cbor:"8,keyasint,omitempty,omitzero"`
+	WsPlutusV4Scripts  cbor.SetType[common.PlutusV4Script]   `cbor:"-"`
+}
+
+func (w DijkstraTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
+	if raw := w.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	if len(w.WsPlutusV4Scripts.Items()) > 0 {
+		return nil, errors.New("dijkstra witness set does not support field 8")
+	}
+	type tDijkstraTransactionWitnessSet DijkstraTransactionWitnessSet
+	return cbor.Encode(tDijkstraTransactionWitnessSet(w))
 }
 
 func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	var fields map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	if _, hasPlutusV4Witness := fields[8]; hasPlutusV4Witness {
+		return errors.New("dijkstra witness set does not support field 8")
+	}
+	if err := cbor.ValidateMapFields(
+		cborData,
+		[]uint64{},
+		[]uint64{0, 1, 2, 3, 4, 5, 6, 7},
+	); err != nil {
+		return fmt.Errorf("invalid Dijkstra witness set: %w", err)
+	}
 	type tDijkstraTransactionWitnessSet DijkstraTransactionWitnessSet
 	var tmp tDijkstraTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
