@@ -119,6 +119,86 @@ func TestByronWitnessRequiresTag24(t *testing.T) {
 		assert.Empty(t, ws.Vkey())
 		assert.Empty(t, ws.Bootstrap())
 	})
+
+	t.Run("unknown constructor is rejected regardless of field count", func(t *testing.T) {
+		// A 2-field payload happens to match the VKey shape, and a
+		// 4-field payload happens to match the bootstrap shape, but an
+		// unrecognized constructor number must still be rejected: the
+		// reference TxInWitness sum type has no catch-all case.
+		twoFields, err := cbor.Encode([]any{pk, sig})
+		require.NoError(t, err)
+		outerTwo, err := cbor.Encode(
+			[]any{uint64(99), cbor.WrappedCbor(twoFields)},
+		)
+		require.NoError(t, err)
+		ws := decodeSingleWitness(t, outerTwo)
+		assert.Empty(t, ws.Vkey())
+		assert.Empty(t, ws.Bootstrap())
+
+		fourFields, err := cbor.Encode([]any{pk, sig, chainCode, attrs})
+		require.NoError(t, err)
+		outerFour, err := cbor.Encode(
+			[]any{uint64(99), cbor.WrappedCbor(fourFields)},
+		)
+		require.NoError(t, err)
+		ws = decodeSingleWitness(t, outerFour)
+		assert.Empty(t, ws.Vkey())
+		assert.Empty(t, ws.Bootstrap())
+	})
+}
+
+// encodeByronTransaction builds a minimal but structurally valid Byron
+// transaction with an empty body and the given raw witness list CBOR, for
+// exercising ByronTransaction.UnmarshalCBOR's decode-time witness
+// validation.
+func encodeByronTransaction(t *testing.T, twitCbor []byte) []byte {
+	t.Helper()
+	body, err := cbor.Encode([]any{[]any{}, []any{}, map[any]any{}})
+	require.NoError(t, err)
+	tx, err := cbor.Encode(
+		[]any{cbor.RawMessage(body), cbor.RawMessage(twitCbor)},
+	)
+	require.NoError(t, err)
+	return tx
+}
+
+func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
+	pk := []byte{1, 2, 3, 4}
+	sig := []byte{5, 6, 7, 8}
+
+	t.Run("valid tag-24 witness decodes", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{pk, sig})
+		require.NoError(t, err)
+		witness, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
+		require.NoError(t, err)
+		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
+		require.NoError(t, err)
+		var tx byron.ByronTransaction
+		require.NoError(t, tx.UnmarshalCBOR(encodeByronTransaction(t, twit)))
+		require.Len(t, tx.Witnesses().Vkey(), 1)
+	})
+
+	t.Run("untagged witness fails the whole transaction", func(t *testing.T) {
+		witness, err := cbor.Encode([]any{uint64(0), []any{pk, sig}})
+		require.NoError(t, err)
+		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
+		require.NoError(t, err)
+		var tx byron.ByronTransaction
+		require.Error(t, tx.UnmarshalCBOR(encodeByronTransaction(t, twit)))
+	})
+
+	t.Run("unknown witness constructor fails the whole transaction", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{pk, sig})
+		require.NoError(t, err)
+		witness, err := cbor.Encode(
+			[]any{uint64(99), cbor.WrappedCbor(inner)},
+		)
+		require.NoError(t, err)
+		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
+		require.NoError(t, err)
+		var tx byron.ByronTransaction
+		require.Error(t, tx.UnmarshalCBOR(encodeByronTransaction(t, twit)))
+	})
 }
 
 func TestByronUpdateProposalTxFeePolicyRequiresTag24(t *testing.T) {
@@ -173,6 +253,27 @@ func TestByronUpdateProposalTxFeePolicyRequiresTag24(t *testing.T) {
 		wrapped, err := cbor.Encode(&wrongTag)
 		require.NoError(t, err)
 		policy := []any{uint64(0), cbor.RawMessage(wrapped)}
+		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+		require.NoError(t, err)
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		require.Error(t, mod.UnmarshalCBOR(data))
+	})
+
+	t.Run("trailing bytes after nested TxSizeLinear are rejected", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{uint64(100), uint64(200)})
+		require.NoError(t, err)
+		withTrailingGarbage := append(append([]byte{}, inner...), 0xFF, 0xFF)
+		policy := []any{uint64(0), cbor.WrappedCbor(withTrailingGarbage)}
+		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+		require.NoError(t, err)
+		var mod byron.ByronUpdateProposalBlockVersionMod
+		require.Error(t, mod.UnmarshalCBOR(data))
+	})
+
+	t.Run("nested TxSizeLinear with wrong element count is rejected", func(t *testing.T) {
+		inner, err := cbor.Encode([]any{uint64(100)})
+		require.NoError(t, err)
+		policy := []any{uint64(0), cbor.WrappedCbor(inner)}
 		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
 		require.NoError(t, err)
 		var mod byron.ByronUpdateProposalBlockVersionMod

@@ -444,6 +444,20 @@ func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
 			err,
 		)
 	}
+	// Every element of Twit must decode as a recognized TxInWitness
+	// variant. The reference decoder has no catch-all case, so a witness
+	// that decodeByronWitness cannot recognize (missing tag 24, wrong
+	// field count, unknown constructor, ...) must fail the whole
+	// transaction rather than being silently dropped from the exposed
+	// witness set.
+	for idx, witness := range t.Twit {
+		if _, _, ok := decodeByronWitness(witness); !ok {
+			return fmt.Errorf(
+				"failed to decode byron transaction witness %d: unrecognized TxInWitness encoding",
+				idx,
+			)
+		}
+	}
 	t.SetCbor(cborData)
 	return nil
 }
@@ -750,35 +764,11 @@ func decodeByronWitnessFromConstructor(
 			Attributes: attrs,
 		}, true
 	default:
-		return decodeByronWitnessFromFields(fields)
+		// The reference decoder's TxInWitness sum type has no catch-all
+		// case: an unrecognized constructor is invalid regardless of
+		// whether its field count happens to match a known variant.
+		return nil, nil, false
 	}
-}
-
-func decodeByronWitnessFromFields(
-	fields []any,
-) (vkey *common.VkeyWitness, bootstrap *common.BootstrapWitness, ok bool) {
-	if len(fields) == 2 {
-		pk, okPk := asBytes(fields[0])
-		sig, okSig := asBytes(fields[1])
-		if okPk && okSig {
-			return &common.VkeyWitness{Vkey: pk, Signature: sig}, nil, true
-		}
-	}
-	if len(fields) == 4 {
-		pk, okPk := asBytes(fields[0])
-		sig, okSig := asBytes(fields[1])
-		chainCode, okCc := asBytes(fields[2])
-		attrs, okAttrs := asBytes(fields[3])
-		if okPk && okSig && okCc && okAttrs {
-			return nil, &common.BootstrapWitness{
-				PublicKey:  pk,
-				Signature:  sig,
-				ChainCode:  chainCode,
-				Attributes: attrs,
-			}, true
-		}
-	}
-	return nil, nil, false
 }
 
 func asUint64(v any) (uint64, bool) {
@@ -1196,9 +1186,36 @@ func (m *ByronUpdateProposalBlockVersionMod) UnmarshalCBOR(
 				"byron update proposal txFeePolicy has unexpected shape",
 			)
 		}
-		if _, ok := policy[1].(cbor.WrappedCbor); !ok {
+		wrapped, ok := policy[1].(cbor.WrappedCbor)
+		if !ok {
 			return errors.New(
 				"byron update proposal txFeePolicy requires tag 24 for nested TxSizeLinear",
+			)
+		}
+		// TxSizeLinear is [summand, multiplier]
+		// (Cardano/Chain/Common/TxSizeLinear.hs). Require the tag 24
+		// payload to decode as exactly that shape and to be fully
+		// consumed, so trailing bytes hidden after a valid pair are
+		// rejected rather than silently ignored.
+		var sizeLinear []any
+		wrappedBytes := wrapped.Bytes()
+		consumed, err := cbor.Decode(wrappedBytes, &sizeLinear)
+		if err != nil {
+			return fmt.Errorf(
+				"byron update proposal txFeePolicy nested TxSizeLinear: %w",
+				err,
+			)
+		}
+		if consumed != len(wrappedBytes) {
+			return fmt.Errorf(
+				"byron update proposal txFeePolicy nested TxSizeLinear has %d trailing byte(s)",
+				len(wrappedBytes)-consumed,
+			)
+		}
+		if len(sizeLinear) != 2 {
+			return fmt.Errorf(
+				"byron update proposal txFeePolicy nested TxSizeLinear has %d values, expected 2",
+				len(sizeLinear),
 			)
 		}
 	}
