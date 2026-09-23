@@ -783,12 +783,6 @@ func ValidatePreAllegraNativeScripts(scripts []NativeScript) error {
 func validatePreAllegraNativeScript(script NativeScript) error {
 	switch item := script.Item().(type) {
 	case *NativeScriptNofK:
-		if item.N < 0 {
-			return fmt.Errorf(
-				"negative N-of-K threshold %d is invalid before Allegra",
-				item.N,
-			)
-		}
 		for _, child := range item.Scripts {
 			if err := validatePreAllegraNativeScript(child); err != nil {
 				return err

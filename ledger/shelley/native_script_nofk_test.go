@@ -40,12 +40,11 @@ func negativeNofKTransactionCbor(t *testing.T) []byte {
 	return data
 }
 
-func TestNegativeNofKThresholdIsRejectedBeforeAllegra(t *testing.T) {
+func TestNegativeNofKThresholdIsAcceptedInShelley(t *testing.T) {
 	data := negativeNofKTransactionCbor(t)
 
 	_, err := shelley.NewShelleyTransactionFromCbor(data)
-	require.Error(t, err)
-	require.ErrorContains(t, err, "invalid before Allegra")
+	require.NoError(t, err)
 }
 
 func TestNegativeNofKThresholdIsAcceptedFromAllegra(t *testing.T) {
