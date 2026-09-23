@@ -1089,7 +1089,7 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, ok := rawFields[23]; ok {
 		subTransactions := tmp.TxSubTransactions.Items()
 		if len(subTransactions) == 0 {
-			return errors.New("Dijkstra sub-transactions must not be empty")
+			return errors.New("dijkstra sub-transactions must not be empty")
 		}
 		seen := make(map[common.Blake2b256]struct{}, len(subTransactions))
 		for _, subTransaction := range subTransactions {
