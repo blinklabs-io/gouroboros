@@ -58,9 +58,15 @@ func musashiBlockFixture(t *testing.T) ([]byte, pcommon.Point) {
 	var blockParts []cbor.RawMessage
 	_, err = cbor.Decode(raw, &blockParts)
 	require.NoError(t, err)
+	if len(blockParts) == 0 {
+		t.Fatal("captured block CBOR did not contain a header")
+	}
 	var header *dijkstra.DijkstraBlockHeader
 	_, err = cbor.Decode(blockParts[0], &header)
 	require.NoError(t, err)
+	if header == nil {
+		t.Fatal("Dijkstra header decoded as nil")
+	}
 	_, err = dijkstra.NewDijkstraBlockFromCbor(raw)
 	require.ErrorContains(t, err, "expected 3 components")
 	// Guard the premise of every test below: if the generic Conway decoder

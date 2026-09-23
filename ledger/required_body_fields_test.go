@@ -31,6 +31,9 @@ func withRequiredTransactionBodyFields(
 	if err != nil {
 		t.Fatal(err)
 	}
+	if fields == nil {
+		t.Fatal("transaction body did not decode as a CBOR map")
+	}
 	defaults := map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}}
 	if !subtransaction {
 		defaults[2] = uint64(0)

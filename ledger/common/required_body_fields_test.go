@@ -26,6 +26,9 @@ func withRequiredBodyFields(t *testing.T, wire []byte, sub bool) []byte {
 	var fields map[uint]cbor.RawMessage
 	_, err := cbor.Decode(wire, &fields)
 	require.NoError(t, err)
+	if fields == nil {
+		t.Fatal("transaction body did not decode as a CBOR map")
+	}
 	defaults := map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}}
 	if sub {
 		delete(fields, 2)
@@ -37,7 +40,9 @@ func withRequiredBodyFields(t *testing.T, wire []byte, sub bool) []byte {
 			continue
 		}
 		encoded, encodeErr := cbor.Encode(value)
-		require.NoError(t, encodeErr)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
 		fields[key] = encoded
 	}
 	encoded, err := cbor.Encode(fields)

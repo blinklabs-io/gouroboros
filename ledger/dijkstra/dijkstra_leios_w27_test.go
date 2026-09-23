@@ -185,6 +185,9 @@ func TestDijkstraDecodeRealMusashiBlock(t *testing.T) {
 	var header *DijkstraBlockHeader
 	_, err = cbor.Decode(top[0], &header)
 	require.NoError(t, err)
+	if header == nil {
+		t.Fatal("Dijkstra header decoded as nil")
+	}
 	assert.Equal(t, uint64(566037), header.SlotNumber())
 	assert.Equal(t, uint64(28091), header.BlockNumber())
 	_, present := header.LeiosCertified()

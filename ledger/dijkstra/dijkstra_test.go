@@ -426,6 +426,9 @@ func TestDijkstraBlockBodyRejectsPreRespinLayoutWithMatchingHeaderHash(
 	var blockParts []cbor.RawMessage
 	_, err = cbor.Decode(blockCbor, &blockParts)
 	require.NoError(t, err)
+	if len(blockParts) == 0 {
+		t.Fatal("block CBOR did not contain a header")
+	}
 	var decodedHeader DijkstraBlockHeader
 	_, err = cbor.Decode(blockParts[0], &decodedHeader)
 	require.NoError(t, err)

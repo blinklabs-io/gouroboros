@@ -65,20 +65,30 @@ func withRequiredFields(t *testing.T, transaction []byte) []byte {
 	var components []cbor.RawMessage
 	_, err := cbor.Decode(transaction, &components)
 	require.NoError(t, err)
+	if len(components) == 0 {
+		t.Fatal("transaction CBOR did not contain a body")
+	}
 	var fields map[uint]cbor.RawMessage
 	_, err = cbor.Decode(components[0], &fields)
 	require.NoError(t, err)
+	if fields == nil {
+		t.Fatal("transaction body did not decode as a CBOR map")
+	}
 	for key, value := range map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}} {
 		if _, ok := fields[key]; ok {
 			continue
 		}
 		encoded, encodeErr := cbor.Encode(value)
-		require.NoError(t, encodeErr)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
 		fields[key] = encoded
 	}
 	if _, ok := fields[2]; !ok {
 		encoded, encodeErr := cbor.Encode(uint64(0))
-		require.NoError(t, encodeErr)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
 		fields[2] = encoded
 	}
 	components[0], err = cbor.Encode(fields)
