@@ -376,51 +376,63 @@ func TestDijkstraTransactionRejectsOversizedMalformedCbor(t *testing.T) {
 }
 
 func TestDijkstraBlockBodyRejectsWrongComponentCount(t *testing.T) {
-	// A Dijkstra block body must be a 3-element array.
-	bodyCbor, err := cbor.Encode([]any{
-		nil,
-		nil,
+	for _, arity := range []int{0, 1, 2, 4, 5} {
+		t.Run(fmt.Sprintf("arity_%d", arity), func(t *testing.T) {
+			parts := make([]any, arity)
+			bodyCbor, err := cbor.Encode(parts)
+			require.NoError(t, err)
+			var blockBody DijkstraBlockBody
+			require.ErrorContains(
+				t,
+				blockBody.UnmarshalCBOR(bodyCbor),
+				"expected 3 components",
+			)
+		})
+	}
+}
+
+func TestDijkstraBlockBodyRejectsPreRespinLayoutWithMatchingHeaderHash(
+	t *testing.T,
+) {
+	legacyBody, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{0}))
+	require.NoError(t, err)
+	legacyHash := common.Blake2b256Hash(legacyBody)
+	header := &DijkstraBlockHeader{
+		BabbageBlockHeader: babbage.BabbageBlockHeader{
+			Body: babbage.BabbageBlockHeaderBody{
+				BlockBodyHash: legacyHash,
+				VrfKey:        make([]byte, 32),
+				VrfResult: common.VrfResult{
+					Output: []byte{},
+					Proof:  make([]byte, 80),
+				},
+				OpCert: babbage.BabbageOpCert{
+					HotVkey:   make([]byte, 32),
+					Signature: make([]byte, 64),
+				},
+				ProtoVersion: babbage.BabbageProtoVersion{
+					Major: MinProtocolVersionDijkstra,
+				},
+			},
+			Signature: make([]byte, 448),
+		},
+	}
+	blockCbor, err := cbor.Encode([]any{
+		header,
+		cbor.RawMessage(legacyBody),
 	})
 	require.NoError(t, err)
 
-	var blockBody DijkstraBlockBody
-	err = blockBody.UnmarshalCBOR(bodyCbor)
+	var blockParts []cbor.RawMessage
+	_, err = cbor.Decode(blockCbor, &blockParts)
+	require.NoError(t, err)
+	var decodedHeader DijkstraBlockHeader
+	_, err = cbor.Decode(blockParts[0], &decodedHeader)
+	require.NoError(t, err)
+	require.Equal(t, legacyHash, decodedHeader.BlockBodyHash())
+
+	_, err = NewDijkstraBlockFromCbor(blockCbor)
 	require.ErrorContains(t, err, "expected 3 components")
-}
-
-func TestDijkstraBlockBodyAppliesInvalidTransactionIndices(t *testing.T) {
-	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{0}))
-	require.NoError(t, err)
-
-	var blockBody DijkstraBlockBody
-	require.NoError(t, blockBody.UnmarshalCBOR(bodyCbor))
-	require.Equal(t, []uint{0}, blockBody.InvalidTransactions)
-	require.Len(t, blockBody.Transactions, 1)
-	require.False(t, blockBody.Transactions[0].IsValid())
-}
-
-func TestDijkstraBlockBodyRejectsLegacyInvalidTransactionIndexOutOfRange(t *testing.T) {
-	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{1}))
-	require.NoError(t, err)
-
-	var blockBody DijkstraBlockBody
-	require.ErrorContains(
-		t,
-		blockBody.UnmarshalCBOR(bodyCbor),
-		"outside transaction list length",
-	)
-}
-
-func TestDijkstraBlockBodyRejectsDuplicateLegacyInvalidTransactionIndex(t *testing.T) {
-	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{0, 0}))
-	require.NoError(t, err)
-
-	var blockBody DijkstraBlockBody
-	require.ErrorContains(
-		t,
-		blockBody.UnmarshalCBOR(bodyCbor),
-		"duplicate",
-	)
 }
 
 func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
@@ -464,7 +476,7 @@ func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
 }
 
 func TestDijkstraBlockBodyEncodesCompatibilityInvalidTransactionIndices(t *testing.T) {
-	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts(nil))
+	bodyCbor, err := cbor.Encode(minimalBlockBodyParts(true))
 	require.NoError(t, err)
 
 	var blockBody DijkstraBlockBody

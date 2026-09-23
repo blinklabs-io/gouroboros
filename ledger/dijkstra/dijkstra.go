@@ -281,38 +281,20 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &items); err != nil {
 		return err
 	}
-	if len(items) != 3 && len(items) != 4 {
+	if len(items) != 3 {
 		return fmt.Errorf(
 			"invalid Dijkstra block body: expected 3 components, got %d",
 			len(items),
 		)
 	}
-	legacy := len(items) == 4
-	txField := 0
-	var legacyInvalidTxs []uint
-	if legacy {
-		txField = 1
-		var err error
-		legacyInvalidTxs, err = decodeInvalidTransactions(items[0])
-		if err != nil {
-			return err
-		}
-	}
-	// items[0] (or items[1] for the pre-respin compatibility form):
-	// transactions [* block_transaction]
+	// items[0]: transactions [* block_transaction]
 	var rawTxs []cbor.RawMessage
-	if _, err := cbor.Decode(items[txField], &rawTxs); err != nil {
+	if _, err := cbor.Decode(items[0], &rawTxs); err != nil {
 		return fmt.Errorf("decode Dijkstra transactions: %w", err)
 	}
 	txs := make([]DijkstraTransaction, len(rawTxs))
 	for idx, rawTx := range rawTxs {
-		var tx *DijkstraTransaction
-		var err error
-		if legacy {
-			tx, err = newDijkstraTransactionFromCbor(rawTx, false)
-		} else {
-			tx, err = newDijkstraBlockTransactionFromCbor(rawTx)
-		}
+		tx, err := newDijkstraBlockTransactionFromCbor(rawTx)
 		if err != nil {
 			return fmt.Errorf("decode Dijkstra transaction %d: %w", idx, err)
 		}
@@ -321,29 +303,13 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		}
 		txs[idx] = *tx
 	}
-	if legacy {
-		invalid := make(map[uint]bool, len(legacyInvalidTxs))
-		for _, idx := range legacyInvalidTxs {
-			if idx >= uint(len(txs)) {
-				return fmt.Errorf(
-					"invalid transaction index %d outside transaction list length %d",
-					idx, len(txs),
-				)
-			}
-			invalid[idx] = true
-		}
-		for idx := range txs {
-			txs[idx].TxIsValid = !invalid[uint(idx)]
-		}
-		b.InvalidTransactions = append([]uint(nil), legacyInvalidTxs...)
-	}
-	// items[1] (or items[2] for the compatibility form): leios_certificate.
-	leiosCert, err := decodeDijkstraLeiosCertificate(items[txField+1])
+	// items[1]: leios_certificate.
+	leiosCert, err := decodeDijkstraLeiosCertificate(items[1])
 	if err != nil {
 		return err
 	}
-	// items[2] (or items[3] for the compatibility form): peras_certificate.
-	perasCert, err := decodeDijkstraPerasCertificate(items[txField+2])
+	// items[2]: peras_certificate.
+	perasCert, err := decodeDijkstraPerasCertificate(items[2])
 	if err != nil {
 		return err
 	}
@@ -353,9 +319,7 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	b.Transactions = txs
-	if !legacy {
-		b.InvalidTransactions = nil
-	}
+	b.InvalidTransactions = nil
 	b.LeiosCertificate = leiosCert
 	b.PerasCertificate = perasCert
 	b.SetCbor(cborData)
