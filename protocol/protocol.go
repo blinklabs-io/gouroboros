@@ -312,6 +312,13 @@ func (p *Protocol) DoneChan() <-chan struct{} {
 	return p.doneChan
 }
 
+// StopChan returns the channel closed when shutdown is requested. Unlike
+// DoneChan, it can be observed by callbacks running on protocol loops, whose
+// completion is required before DoneChan closes.
+func (p *Protocol) StopChan() <-chan struct{} {
+	return p.stopChan
+}
+
 // IsDone returns true if the protocol has finished (done channel is closed or in AgencyNone state).
 // Use this to check if the protocol should avoid sending messages (e.g., Done message in Stop()).
 func (p *Protocol) IsDone() bool {
