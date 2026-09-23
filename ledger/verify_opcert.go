@@ -19,12 +19,14 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/blinklabs-io/gouroboros/internal/ed25519strict"
 	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
@@ -211,33 +213,50 @@ func ValidateOpCert(
 // Praos or TPraos block header. The Shelley-family headers (Shelley through
 // Alonzo) carry the certificate's fields flat on the header body; the
 // Babbage-family headers (Babbage, Conway, Dijkstra) nest them under an
-// OpCert field. Byron and unrecognized headers carry no operational
-// certificate at all, so ok is false and opCert is nil.
+// OpCert field. Byron carries no operational certificate and returns nil.
+// Nil or unsupported headers return an error.
 //
 // Dijkstra needs its own case even though DijkstraBlockHeader embeds
 // BabbageBlockHeader: it is a distinct concrete type, so a type switch on the
-// Babbage case does not match it and the certificate would be silently
-// skipped.
+// Babbage case does not match it and the unsupported-header error would be
+// returned.
 func ExtractOpCertFromHeader(
 	header common.BlockHeader,
-) (opCert *OpCert, ok bool) {
+) (*OpCert, error) {
+	if header == nil ||
+		(reflect.ValueOf(header).Kind() == reflect.Ptr &&
+			reflect.ValueOf(header).IsNil()) {
+		return nil, common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"cannot extract operational certificate from nil block header",
+			nil,
+			nil,
+		)
+	}
 	switch h := header.(type) {
 	case *shelley.ShelleyBlockHeader:
-		return shelleyHeaderOpCert(&h.Body), true
+		return shelleyHeaderOpCert(&h.Body), nil
 	case *allegra.AllegraBlockHeader:
-		return shelleyHeaderOpCert(&h.Body), true
+		return shelleyHeaderOpCert(&h.Body), nil
 	case *mary.MaryBlockHeader:
-		return shelleyHeaderOpCert(&h.Body), true
+		return shelleyHeaderOpCert(&h.Body), nil
 	case *alonzo.AlonzoBlockHeader:
-		return shelleyHeaderOpCert(&h.Body), true
+		return shelleyHeaderOpCert(&h.Body), nil
 	case *babbage.BabbageBlockHeader:
-		return babbageHeaderOpCert(h.Body.OpCert), true
+		return babbageHeaderOpCert(h.Body.OpCert), nil
 	case *conway.ConwayBlockHeader:
-		return babbageHeaderOpCert(h.Body.OpCert), true
+		return babbageHeaderOpCert(h.Body.OpCert), nil
 	case *dijkstra.DijkstraBlockHeader:
-		return babbageHeaderOpCert(h.Body.OpCert), true
+		return babbageHeaderOpCert(h.Body.OpCert), nil
+	case *byron.ByronMainBlockHeader, *byron.ByronEpochBoundaryBlockHeader:
+		return nil, nil
 	default:
-		return nil, false
+		return nil, common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"unsupported block type for operational certificate extraction",
+			map[string]any{"block_type": fmt.Sprintf("%T", header)},
+			nil,
+		)
 	}
 }
 
