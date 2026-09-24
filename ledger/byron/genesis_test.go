@@ -934,3 +934,21 @@ func TestGenesisDelegateKeyHashes_Empty(t *testing.T) {
 
 	assert.Nil(t, keyHashes, "Expected nil for empty heavyDelegation")
 }
+
+func TestGenesisDelegateKeyHashesUsesBootStakeholdersWithoutHeavyDelegation(
+	t *testing.T,
+) {
+	genesis := &byron.ByronGenesis{
+		BootStakeholders: map[string]int{
+			"00000000000000000000000000000000000000000000000000000001": 1,
+		},
+	}
+	keyHashes, err := genesis.GenesisDelegateKeyHashes()
+	require.NoError(t, err)
+	require.Len(t, keyHashes, 1)
+	require.Equal(
+		t,
+		"00000000000000000000000000000000000000000000000000000001",
+		keyHashes[0].String(),
+	)
+}

@@ -124,7 +124,7 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 	return data.NewConstr(
 		0,
 		data.NewByteString(level.tx.Id().Bytes()),
-		dijkstraOptionalIndex(nil),
+		dijkstraOptionalIndex(level.subTxIndex),
 		data.NewList(inputs...),
 		data.NewList(referenceInputs...),
 		data.NewList(outputs...),

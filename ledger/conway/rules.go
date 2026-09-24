@@ -94,6 +94,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateCollateralVKeyWitnesses,
 	},
 	{
+		Id:        common.UtxoValidationRuleCollateralKeyLocked,
+		Validator: common.UtxoValidateCollateralKeyLocked,
+	},
+	{
 		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
 		Validator: UtxoValidateRedeemerAndScriptWitnesses,
 	},
@@ -124,6 +128,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleOutsideValidityInterval,
 		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideForecast,
+		Validator: UtxoValidateOutsideForecast,
 	},
 	{
 		Id:        common.UtxoValidationRuleInputSetEmpty,
@@ -268,6 +276,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateCCVotingRestrictions,
 	},
 	{
+		Id:        common.UtxoValidationRuleUnelectedCommitteeVoters,
+		Validator: UtxoValidateUnelectedCommitteeVoters,
+	},
+	{
 		Id:        common.UtxoValidationRuleRefScriptSizePerTx,
 		Validator: UtxoValidateRefScriptSizePerTx,
 	},
@@ -304,10 +316,15 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.AlwaysUtxoValidationRules(common.UtxoValidateProposalReturnAddressShape),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
-		UtxoValidateCollateralVKeyWitnesses, UtxoValidateRedeemerAndScriptWitnesses,
+		UtxoValidateCollateralVKeyWitnesses,
+		common.UtxoValidateCollateralKeyLocked,
+	),
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateRedeemerAndScriptWitnesses,
 		UtxoValidateSignatures, UtxoValidateCostModelsPresent, UtxoValidateScriptDataHash,
 		UtxoValidateInlineDatumsWithPlutusV1, UtxoValidateConwayFeaturesWithPlutusV1V2,
 		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateOutsideForecast,
 		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
 		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
 		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
@@ -327,7 +344,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateCommitteeCertificates, UtxoValidateUnknownVoters,
 		UtxoValidateUnknownGovActionIds, UtxoValidateVotingOnExpiredGovAction,
 		UtxoValidateBootstrapVotingRestrictions, UtxoValidateStakePoolVotingRestrictions,
-		UtxoValidateCCVotingRestrictions, UtxoValidateRefScriptSizePerTx,
+		UtxoValidateCCVotingRestrictions, UtxoValidateUnelectedCommitteeVoters,
+		UtxoValidateRefScriptSizePerTx,
 		UtxoValidatePoolCertificates,
 	),
 )
@@ -1917,7 +1935,7 @@ func UtxoValidateExtraneousRedeemers(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if err := common.ValidateExtraneousRedeemers(tx); err != nil {
+	if err := common.ValidateExactExtraneousRedeemers(tx, ls); err != nil {
 		var extraErr common.ExtraneousRedeemerError
 		if errors.As(err, &extraErr) {
 			return ExtraRedeemerError{RedeemerKey: extraErr.RedeemerKey}
@@ -1938,63 +1956,9 @@ func UtxoValidateCostModelsPresent(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*ConwayTransaction)
-	if !ok {
-		return errors.New("transaction is not expected type")
-	}
-
-	required := map[uint]struct{}{}
-	wits := tmpTx.WitnessSet
-	if len(wits.WsPlutusV1Scripts.Items()) > 0 {
-		required[0] = struct{}{}
-	}
-	if len(wits.WsPlutusV2Scripts.Items()) > 0 {
-		required[1] = struct{}{}
-	}
-	if len(wits.WsPlutusV3Scripts.Items()) > 0 {
-		required[2] = struct{}{}
-	}
-	if len(common.PlutusV4ScriptsFromWitnessSet(wits)) > 0 {
-		required[3] = struct{}{}
-	}
-	// Also include reference scripts on reference inputs
-	for _, refInput := range tmpTx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		if version, ok := common.PlutusScriptVersion(script); ok {
-			required[version] = struct{}{}
-		}
-	}
-
-	// Per CIP-33, also include reference scripts on regular (spent) inputs
-	for _, input := range tmpTx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// Skip errors - BadInputsUtxo will catch this
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		if version, ok := common.PlutusScriptVersion(script); ok {
-			required[version] = struct{}{}
-		}
+	required, err := common.UsedPlutusVersions(tx, ls)
+	if err != nil {
+		return err
 	}
 
 	if len(required) == 0 {
@@ -2169,6 +2133,20 @@ func UtxoValidateOutsideValidityIntervalUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return allegra.UtxoValidateOutsideValidityIntervalUtxo(tx, slot, ls, pp)
+}
+
+func UtxoValidateOutsideForecast(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	_ common.ProtocolParameters,
+) error {
+	return common.ValidateOutsideForecast(
+		tx,
+		slot,
+		ls,
+		common.OutsideForecastTypeConway,
+	)
 }
 
 func UtxoValidateInputSetEmptyUtxo(
@@ -3060,7 +3038,7 @@ func MinCoinTxOut(
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}
-	txOutBytes, err := cbor.Encode(txOut)
+	txOutSize, err := common.TransactionOutputCborSize(txOut)
 	if err != nil {
 		return 0, err
 	}
@@ -3068,7 +3046,7 @@ func MinCoinTxOut(
 	// coinsPerUTxOByte large enough to overflow uint64 yields a requirement
 	// no output can meet. Wrapping would instead produce a small
 	// requirement and admit those outputs.
-	entrySize := minUtxoOverheadBytes + uint64(len(txOutBytes))
+	entrySize := minUtxoOverheadBytes + txOutSize
 	if tmpPparams.AdaPerUtxoByte != 0 &&
 		entrySize > math.MaxUint64/tmpPparams.AdaPerUtxoByte {
 		return 0, errors.New("minimum UTxO value overflow")
@@ -3095,78 +3073,10 @@ func UtxoValidateSupplementalDatums(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
+	if err := common.ValidateRequiredSpendingDatums(tx, ls); err != nil {
+		return err
 	}
-
-	// Get all datums from witness set
-	witnessDatums := witnesses.PlutusData()
-	if len(witnessDatums) == 0 {
-		return nil
-	}
-
-	// Collect all "justified" datum hashes - those referenced by UTxOs being spent
-	justifiedHashes := make(map[common.Blake2b256]bool)
-
-	// Check regular inputs
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue // UTxO not found - will fail BadInputsUtxo rule
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		// Only non-inline datums justify witness datums
-		if utxo.Output.Datum() == nil {
-			if datumHash := utxo.Output.DatumHash(); datumHash != nil {
-				justifiedHashes[*datumHash] = true
-			}
-		}
-	}
-
-	// Check transaction outputs - datum hashes in outputs also justify witness datums
-	for _, output := range tx.Outputs() {
-		if output.Datum() == nil {
-			if datumHash := output.DatumHash(); datumHash != nil {
-				justifiedHashes[*datumHash] = true
-			}
-		}
-	}
-
-	// Check reference inputs as well - datums referenced there are also justified
-	for _, input := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		if utxo.Output.Datum() == nil {
-			if datumHash := utxo.Output.DatumHash(); datumHash != nil {
-				justifiedHashes[*datumHash] = true
-			}
-		}
-	}
-
-	// Check for supplemental (unjustified) datums
-	var supplementalHashes []common.Blake2b256
-	for _, datum := range witnessDatums {
-		datumHash := datum.Hash()
-		if !justifiedHashes[datumHash] {
-			supplementalHashes = append(supplementalHashes, datumHash)
-		}
-	}
-
-	if len(supplementalHashes) > 0 {
-		return NotAllowedSupplementalDatumsError{
-			DatumHashes: supplementalHashes,
-		}
-	}
-
-	return nil
+	return common.ValidateSupplementalDatums(tx, ls)
 }
 
 // UtxoValidatePlutusScripts executes all Plutus scripts in the transaction
@@ -4184,8 +4094,10 @@ func UtxoValidateCommitteeCertificates(
 			}
 		}
 		if member != nil {
-			copy := *member
-			committeeMembers[key] = &copy
+			memberCopy := *member
+			committeeMembers[key] = &memberCopy
+		} else {
+			committeeMembers[key] = nil
 		}
 		return member, nil
 	}
@@ -4227,8 +4139,7 @@ func UtxoValidateCommitteeCertificates(
 				}
 			}
 			if member.Resigned {
-				return ResignedCommitteeMemberHotKeyError{
-					ColdKey:        c.ColdCredential.Credential,
+				return ResignedCommitteeMemberError{
 					ColdCredential: c.ColdCredential,
 				}
 			}
@@ -4746,7 +4657,8 @@ func UtxoValidateStakePoolVotingRestrictions(
 
 // UtxoValidateCCVotingRestrictions validates CC voting restrictions per cardano-ledger spec.
 // Constitutional Committee members cannot vote on NoConfidence or UpdateCommittee actions.
-// Enforced at ledger level for PV11+ (ProtocolVersionVanRossem).
+// These action restrictions apply at every Conway protocol version. PV11 adds
+// the separate UnelectedCommitteeVoters membership restriction.
 //
 // The action type is resolved from the transaction's own proposals when the
 // vote names an action that transaction proposes, so a same-transaction
@@ -4757,6 +4669,9 @@ func UtxoValidateCCVotingRestrictions(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if _, ok := pp.(*ConwayProtocolParameters); !ok {
+		return errors.New("pparams are not expected type")
+	}
 	votes := tx.VotingProcedures()
 	if len(votes) == 0 {
 		return nil
@@ -4804,6 +4719,129 @@ func UtxoValidateCCVotingRestrictions(
 		}
 	}
 
+	return nil
+}
+
+// UtxoValidateUnelectedCommitteeVoters enforces the PV11+ elected committee
+// membership restriction. Committee voter existence and action restrictions
+// are validated separately by UtxoValidateUnknownVoters and
+// UtxoValidateCCVotingRestrictions.
+func UtxoValidateUnelectedCommitteeVoters(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	conwayPp, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	if conwayPp.ProtocolVersion.Major < common.ProtocolVersionVanRossem {
+		return nil
+	}
+
+	votes := tx.VotingProcedures()
+	if len(votes) == 0 {
+		return nil
+	}
+
+	committeeState, ok := common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
+	if !ok {
+		return CommitteeStateUnavailableError{}
+	}
+	available, err := committeeState.CommitteeStateAvailable()
+	if err != nil {
+		return err
+	}
+	if !available {
+		return CommitteeStateUnavailableError{}
+	}
+	votingState, ok := common.UnwrapLedgerState(ls).(common.CommitteeVotingState)
+	if !ok {
+		return CommitteeStateUnavailableError{}
+	}
+
+	voters := make([]*common.Voter, 0, len(votes))
+	for voter := range votes {
+		if voter == nil || (voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
+			voter.Type != common.VoterTypeConstitutionalCommitteeHotScriptHash) {
+			continue
+		}
+		voters = append(voters, voter)
+	}
+	slices.SortFunc(voters, func(a, b *common.Voter) int {
+		if a.Type != b.Type {
+			return int(a.Type) - int(b.Type)
+		}
+		return bytes.Compare(a.Hash[:], b.Hash[:])
+	})
+
+	for _, voter := range voters {
+		hotType := uint(common.CredentialTypeAddrKeyHash)
+		if voter.Type == common.VoterTypeConstitutionalCommitteeHotScriptHash {
+			hotType = common.CredentialTypeScriptHash
+		}
+		hotCredential := common.Credential{
+			CredType:   hotType,
+			Credential: common.Blake2b224(voter.Hash),
+		}
+		lookupError := func(err error) error {
+			return CommitteeMemberLookupError{
+				Credential:       hotCredential.Credential,
+				MemberCredential: hotCredential,
+				Err:              err,
+			}
+		}
+		coldCredentials, err := votingState.CommitteeHotCredentialColdCredentials(
+			hotCredential,
+		)
+		if err != nil {
+			return lookupError(err)
+		}
+		credentialKey := func(credential common.Credential) string {
+			return fmt.Sprintf("%d:%x", credential.CredType, credential.Credential)
+		}
+		elected := make(map[string]struct{}, len(coldCredentials))
+		for _, coldCredential := range coldCredentials {
+			isElected, err := votingState.CommitteeCredentialIsElected(
+				coldCredential,
+			)
+			if err != nil {
+				return lookupError(err)
+			}
+			if isElected {
+				elected[credentialKey(coldCredential)] = struct{}{}
+			}
+		}
+		for _, cert := range tx.Certificates() {
+			switch c := cert.(type) {
+			case *common.AuthCommitteeHotCertificate:
+				if credentialKey(c.HotCredential) == credentialKey(hotCredential) {
+					isElected, err := votingState.CommitteeCredentialIsElected(
+						c.ColdCredential,
+					)
+					if err != nil {
+						return lookupError(err)
+					}
+					if isElected {
+						elected[credentialKey(c.ColdCredential)] = struct{}{}
+					} else {
+						delete(elected, credentialKey(c.ColdCredential))
+					}
+				} else {
+					delete(elected, credentialKey(c.ColdCredential))
+				}
+			case *common.ResignCommitteeColdCertificate:
+				delete(elected, credentialKey(c.ColdCredential))
+			}
+		}
+		if len(elected) == 0 {
+			return UnelectedCommitteeVoterError{Voter: *voter}
+		}
+	}
 	return nil
 }
 

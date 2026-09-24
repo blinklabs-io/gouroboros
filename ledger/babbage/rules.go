@@ -51,6 +51,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateCollateralVKeyWitnesses,
 	},
 	{
+		Id:        common.UtxoValidationRuleCollateralKeyLocked,
+		Validator: common.UtxoValidateCollateralKeyLocked,
+	},
+	{
 		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
 		Validator: UtxoValidateRedeemerAndScriptWitnesses,
 	},
@@ -67,12 +71,20 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateInlineDatumsWithPlutusV1,
 	},
 	{
+		Id:        common.UtxoValidationRuleSupplementalDatums,
+		Validator: UtxoValidateSupplementalDatums,
+	},
+	{
 		Id:        common.UtxoValidationRuleDisjointRefInputs,
 		Validator: UtxoValidateDisjointRefInputs,
 	},
 	{
 		Id:        common.UtxoValidationRuleOutsideValidityInterval,
 		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideForecast,
+		Validator: common.UtxoValidateOutsideForecast,
 	},
 	{
 		Id:        common.UtxoValidationRuleInputSetEmpty,
@@ -202,9 +214,14 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
 		UtxoValidateSignatures, UtxoValidateProtocolParameterUpdates,
 		UtxoValidateCollateralVKeyWitnesses,
+		common.UtxoValidateCollateralKeyLocked,
+	),
+	common.AlwaysUtxoValidationRules(
 		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
 		UtxoValidateScriptDataHash, UtxoValidateInlineDatumsWithPlutusV1,
+		UtxoValidateSupplementalDatums,
 		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		common.UtxoValidateOutsideForecast,
 		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
 		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
 		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
@@ -267,6 +284,20 @@ func UtxoValidatePlutusScripts(
 	return common.ValidateUnsupportedPlutusExecution(tx, "Babbage")
 }
 
+// UtxoValidateSupplementalDatums enforces required and supplemental datum
+// rules for Babbage transactions.
+func UtxoValidateSupplementalDatums(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if err := common.ValidateRequiredSpendingDatums(tx, ls); err != nil {
+		return err
+	}
+	return common.ValidateSupplementalDatums(tx, ls)
+}
+
 // UtxoValidateExtraneousRedeemers checks that all redeemers have valid
 // purposes: a spending redeemer's index must reference an existing input,
 // a minting redeemer an existing mint policy, a certifying redeemer an
@@ -279,7 +310,7 @@ func UtxoValidateExtraneousRedeemers(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return common.ValidateExtraneousRedeemers(tx)
+	return common.ValidateExactExtraneousRedeemers(tx, ls)
 }
 
 // UtxoValidateRequiredVKeyWitnesses ensures required signers are accompanied by vkey witnesses
@@ -332,65 +363,9 @@ func UtxoValidateCostModelsPresent(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*BabbageTransaction)
-	if !ok {
-		return errors.New("transaction is not expected type")
-	}
-
-	required := map[uint]struct{}{}
-	wits := tmpTx.WitnessSet
-	if len(wits.WsPlutusV1Scripts) > 0 {
-		required[0] = struct{}{}
-	}
-	if len(wits.WsPlutusV2Scripts) > 0 {
-		required[1] = struct{}{}
-	}
-	// Include reference scripts on reference inputs
-	// Note: Reference input errors must be caught here since there's no separate
-	// BadReferenceInputsUtxo rule, unlike regular inputs which are caught by BadInputsUtxo
-	for _, refInput := range tmpTx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			required[0] = struct{}{}
-		case common.PlutusV2Script:
-			required[1] = struct{}{}
-		}
-	}
-
-	// Per CIP-33, also include reference scripts on regular (spent) inputs
-	for _, input := range tmpTx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// Skip errors - BadInputsUtxo will catch this
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			required[0] = struct{}{}
-		case common.PlutusV2Script:
-			required[1] = struct{}{}
-		}
+	required, err := common.UsedPlutusVersions(tx, ls)
+	if err != nil {
+		return err
 	}
 
 	if len(required) == 0 {
@@ -1185,7 +1160,7 @@ func MinCoinTxOut(
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}
-	txOutBytes, err := cbor.Encode(txOut)
+	txOutSize, err := common.TransactionOutputCborSize(txOut)
 	if err != nil {
 		return 0, err
 	}
@@ -1193,7 +1168,7 @@ func MinCoinTxOut(
 	// coinsPerUTxOByte large enough to overflow uint64 yields a requirement
 	// no output can meet. Wrapping would instead produce a small
 	// requirement and admit those outputs.
-	entrySize := minUtxoOverheadBytes + uint64(len(txOutBytes))
+	entrySize := minUtxoOverheadBytes + txOutSize
 	if tmpPparams.AdaPerUtxoByte != 0 &&
 		entrySize > math.MaxUint64/tmpPparams.AdaPerUtxoByte {
 		return 0, errors.New("minimum UTxO value overflow")

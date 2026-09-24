@@ -15,6 +15,7 @@
 package leiosnotify
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -31,9 +32,23 @@ const (
 	MessageTypeBlockTxsOffer           = 3
 	MessageTypeVotesOffer              = 4
 	MessageTypeDone                    = 5
+	// MaxVotesOfferCount bounds vote work from one leios-notify message,
+	// independently of the transport frame limit.
+	MaxVotesOfferCount = 1000
+	// MaxVotesOfferBytes bounds CBOR parsing work for one offer before the
+	// decoder scans any individual vote value.
+	MaxVotesOfferBytes = 256 * 1024
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	if msgType == MessageTypeVotesOffer && len(data) > MaxVotesOfferBytes {
+		return nil, fmt.Errorf(
+			"%s: votes offer size %d exceeds maximum %d bytes",
+			ProtocolName,
+			len(data),
+			MaxVotesOfferBytes,
+		)
+	}
 	var ret protocol.Message
 	switch msgType {
 	case MessageTypeNotificationRequestNext:
@@ -51,7 +66,13 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	default:
 		return nil, fmt.Errorf("%s: unknown message type %d", ProtocolName, msgType)
 	}
-	if _, err := cbor.Decode(data, ret); err != nil {
+	var err error
+	if votesOffer, ok := ret.(*MsgVotesOffer); ok {
+		err = votesOffer.UnmarshalCBOR(data)
+	} else {
+		_, err = cbor.Decode(data, ret)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
 	// Store the raw message CBOR
@@ -179,39 +200,130 @@ func NewMsgVotesOfferPrototype(votes []PrototypeVote) *MsgVotesOffer {
 
 func (m *MsgVotesOffer) MarshalCBOR() ([]byte, error) {
 	if raw := m.Cbor(); len(raw) > 0 {
+		if len(raw) > MaxVotesOfferBytes {
+			return nil, fmt.Errorf(
+				"%s: votes offer size %d exceeds maximum %d bytes",
+				ProtocolName,
+				len(raw),
+				MaxVotesOfferBytes,
+			)
+		}
 		return raw, nil
 	}
 	if len(m.PrototypeVotes) > 0 {
-		return cbor.Encode([]any{m.MessageType, m.PrototypeVotes})
+		if len(m.PrototypeVotes) > MaxVotesOfferCount {
+			return nil, fmt.Errorf(
+				"%s: votes offer count %d exceeds maximum %d",
+				ProtocolName,
+				len(m.PrototypeVotes),
+				MaxVotesOfferCount,
+			)
+		}
+		return encodeVotesOffer(m.MessageType, m.PrototypeVotes)
 	}
 	if len(m.FullVotes) > 0 {
-		return cbor.Encode([]any{m.MessageType, m.FullVotes})
+		if len(m.FullVotes) > MaxVotesOfferCount {
+			return nil, fmt.Errorf(
+				"%s: votes offer count %d exceeds maximum %d",
+				ProtocolName,
+				len(m.FullVotes),
+				MaxVotesOfferCount,
+			)
+		}
+		return encodeVotesOffer(m.MessageType, m.FullVotes)
 	}
-	return cbor.Encode([]any{m.MessageType, m.Votes})
+	if len(m.Votes) > MaxVotesOfferCount {
+		return nil, fmt.Errorf(
+			"%s: votes offer count %d exceeds maximum %d",
+			ProtocolName,
+			len(m.Votes),
+			MaxVotesOfferCount,
+		)
+	}
+	return encodeVotesOffer(m.MessageType, m.Votes)
+}
+
+func encodeVotesOffer(messageType uint8, votes any) ([]byte, error) {
+	encoded, err := cbor.Encode([]any{messageType, votes})
+	if err != nil {
+		return nil, err
+	}
+	if len(encoded) > MaxVotesOfferBytes {
+		return nil, fmt.Errorf(
+			"%s: votes offer size %d exceeds maximum %d bytes",
+			ProtocolName,
+			len(encoded),
+			MaxVotesOfferBytes,
+		)
+	}
+	return encoded, nil
 }
 
 func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
-	// Decode the outer [msgType, [vote, ...]] envelope, capturing each vote
-	// as raw CBOR so we can branch on its element count without committing to
-	// a single per-vote shape.
-	var envelope struct {
-		cbor.StructAsArray
-		MessageType uint8
-		Votes       []cbor.RawMessage
-	}
-	if _, err := cbor.Decode(data, &envelope); err != nil {
-		return err
-	}
-	m.MessageType = envelope.MessageType
+	m.MessageType = 0
 	m.Votes = nil
 	m.FullVotes = nil
 	m.PrototypeVotes = nil
-	for idx, voteRaw := range envelope.Votes {
+	if len(data) > MaxVotesOfferBytes {
+		return fmt.Errorf(
+			"%s: votes offer size %d exceeds maximum %d bytes",
+			ProtocolName,
+			len(data),
+			MaxVotesOfferBytes,
+		)
+	}
+	dec, err := cbor.NewStreamDecoder(data)
+	if err != nil {
+		return err
+	}
+	envelopeCount, envelopeIndefinite, err := decodeArrayHeader(dec)
+	if err != nil {
+		return fmt.Errorf("%s: votes offer: decode envelope: %w", ProtocolName, err)
+	}
+	if !envelopeIndefinite && envelopeCount != 2 {
+		return fmt.Errorf(
+			"%s: votes offer: envelope has %d elements, expected 2",
+			ProtocolName,
+			envelopeCount,
+		)
+	}
+	if envelopeIndefinite && arrayEnded(dec) {
+		return fmt.Errorf("%s: votes offer: missing message type", ProtocolName)
+	}
+	if _, _, err := dec.Decode(&m.MessageType); err != nil {
+		return fmt.Errorf(
+			"%s: votes offer: decode message type: %w",
+			ProtocolName,
+			err,
+		)
+	}
+	if envelopeIndefinite && arrayEnded(dec) {
+		return fmt.Errorf("%s: votes offer: missing vote list", ProtocolName)
+	}
+	voteRaws, err := decodeArrayItems(dec, MaxVotesOfferCount)
+	if err != nil {
+		return fmt.Errorf("%s: votes offer: decode vote list: %w", ProtocolName, err)
+	}
+	if envelopeIndefinite {
+		if !arrayEnded(dec) {
+			return fmt.Errorf(
+				"%s: votes offer: envelope has extra elements",
+				ProtocolName,
+			)
+		}
+		if err := dec.Advance(1); err != nil {
+			return err
+		}
+	}
+	if !dec.EOF() {
+		return fmt.Errorf("%s: votes offer: trailing CBOR data", ProtocolName)
+	}
+	for idx, voteRaw := range voteRaws {
 		// Peek at the element count to distinguish a vote ID
 		// ([slot, voter_id]) from a full vote
 		// ([slot, eb_hash, voter_id, signature]).
-		var elems []cbor.RawMessage
-		if _, err := cbor.Decode(voteRaw, &elems); err != nil {
+		elems, err := decodeBoundedArray(voteRaw, 4)
+		if err != nil {
 			return fmt.Errorf(
 				"%s: votes offer: decode vote %d: %w",
 				ProtocolName,
@@ -294,6 +406,76 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 	}
 	m.SetCbor(data)
 	return nil
+}
+
+func decodeArrayHeader(dec *cbor.StreamDecoder) (int, bool, error) {
+	position := dec.Position()
+	if position >= len(dec.Data()) {
+		return 0, false, errors.New("unexpected end of CBOR data")
+	}
+	count, headerSize, indefinite := cbor.ArrayInfo(dec.Data()[position:])
+	if count < 0 {
+		return 0, false, errors.New("expected array")
+	}
+	if err := dec.Advance(int(headerSize)); err != nil {
+		return 0, false, err
+	}
+	return count, indefinite, nil
+}
+
+func arrayEnded(dec *cbor.StreamDecoder) bool {
+	position := dec.Position()
+	return position < len(dec.Data()) && dec.Data()[position] == 0xff
+}
+
+func decodeArrayItems(
+	dec *cbor.StreamDecoder,
+	maxCount int,
+) ([]cbor.RawMessage, error) {
+	count, indefinite, err := decodeArrayHeader(dec)
+	if err != nil {
+		return nil, err
+	}
+	if !indefinite && count > maxCount {
+		return nil, fmt.Errorf(
+			"array has %d elements, maximum is %d",
+			count,
+			maxCount,
+		)
+	}
+	items := make([]cbor.RawMessage, 0, min(count, maxCount))
+	for idx := 0; indefinite || idx < count; idx++ {
+		if indefinite && arrayEnded(dec) {
+			if err := dec.Advance(1); err != nil {
+				return nil, err
+			}
+			break
+		}
+		if idx >= maxCount {
+			return nil, fmt.Errorf("array exceeds maximum of %d elements", maxCount)
+		}
+		start, length, err := dec.Skip()
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, cbor.RawMessage(dec.RawBytes(start, length)))
+	}
+	return items, nil
+}
+
+func decodeBoundedArray(data []byte, maxCount int) ([]cbor.RawMessage, error) {
+	dec, err := cbor.NewStreamDecoder(data)
+	if err != nil {
+		return nil, err
+	}
+	items, err := decodeArrayItems(dec, maxCount)
+	if err != nil {
+		return nil, err
+	}
+	if !dec.EOF() {
+		return nil, errors.New("trailing CBOR data")
+	}
+	return items, nil
 }
 
 type MsgDone struct {

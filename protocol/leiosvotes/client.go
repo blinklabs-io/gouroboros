@@ -43,8 +43,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		voteChan: make(chan Vote),
 	}
 	c.callbackContext = CallbackContext{
-		Client:       c,
-		ConnectionId: protoOptions.ConnectionId,
+		Client:             c,
+		ConnectionId:       protoOptions.ConnectionId,
+		ConnectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[StateBusy]; ok {

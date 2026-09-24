@@ -42,11 +42,23 @@ func VerifyVKeySignature(pubKey, sig, msg []byte) error {
 // invalid signature encountered.
 func ValidateVKeyWitnesses(tx Transaction) error {
 	w := tx.Witnesses()
-	txHash := tx.Hash()
+	if verifier, ok := tx.(ByronVKeyWitnessVerifier); ok {
+		if err := verifier.ValidateByronVKeyWitnesses(); err != nil {
+			return NewValidationError(
+				ValidationErrorTypeTransaction,
+				"invalid Byron vkey witness",
+				map[string]any{"err": err.Error()},
+				err,
+			)
+		}
+		return nil
+	}
+	txHash := transactionWitnessHash(tx)
 	msg := txHash[:]
 	if w != nil {
 		for _, vw := range w.Vkey() {
-			if err := VerifyVKeySignature(vw.Vkey, vw.Signature, msg); err != nil {
+			err := VerifyVKeySignature(vw.Vkey, vw.Signature, msg)
+			if err != nil {
 				return NewValidationError(
 					ValidationErrorTypeTransaction,
 					"invalid vkey signature",
@@ -57,6 +69,19 @@ func ValidateVKeyWitnesses(tx Transaction) error {
 		}
 	}
 	return nil
+}
+
+func transactionWitnessHash(tx Transaction) Blake2b256 {
+	if wireHashed, ok := tx.(interface{ WireId() Blake2b256 }); ok {
+		return wireHashed.WireId()
+	}
+	return tx.Hash()
+}
+
+// ByronVKeyWitnessVerifier marks transactions whose vkey witness signatures
+// require Byron's protocol-magic and constructor-specific signing data.
+type ByronVKeyWitnessVerifier interface {
+	ValidateByronVKeyWitnesses() error
 }
 
 // computeByronAddressRoot computes the address root for a Byron address
@@ -197,7 +222,7 @@ func ValidateBootstrapWitnesses(tx Transaction) error {
 	if w == nil {
 		return nil
 	}
-	txHash := tx.Hash()
+	txHash := transactionWitnessHash(tx)
 	msg := txHash[:]
 	for _, bw := range w.Bootstrap() {
 		// Validate sizes first; reject malformed bootstrap witnesses rather

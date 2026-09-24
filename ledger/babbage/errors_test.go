@@ -119,29 +119,9 @@ func TestCostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	)
 	var tx common.Transaction = tmpTx
 
-	// First: missing cost models should return a MissingCostModelError
+	// A reachable but unused reference script does not require a cost model.
 	err := babbage.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
-	if err == nil {
-		t.Fatal("expected error due to missing cost model, got nil")
-	}
-	var mErr common.MissingCostModelError
-	if !errors.As(err, &mErr) {
-		t.Fatalf("expected MissingCostModelError, got %T", err)
-	}
-
-	// Now provide the cost model for PlutusV1 and expect success
-	if bp, ok := pp.(*babbage.BabbageProtocolParameters); ok {
-		if bp.CostModels == nil {
-			bp.CostModels = make(map[uint][]int64)
-		}
-		// populate a dummy non-empty cost model for Plutus V1 (version 0)
-		bp.CostModels[0] = []int64{1}
-	} else {
-		t.Fatalf("protocol parameters not BabbageProtocolParameters: %T", pp)
-	}
-
-	err = babbage.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
-		t.Fatalf("expected no error after providing cost model, got %v", err)
+		t.Fatalf("unused reference script should not require a cost model: %v", err)
 	}
 }

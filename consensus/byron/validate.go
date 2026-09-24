@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ed25519byron"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"golang.org/x/crypto/blake2b"
@@ -64,12 +65,15 @@ func NewHeaderValidator(config ByronConfig) *HeaderValidator {
 // ValidateHeaderInput contains data needed to validate a Byron header
 type ValidateHeaderInput struct {
 	// Header fields
-	Slot           uint64
-	BlockNumber    uint64
-	PrevHash       []byte
-	ProtocolMagic  uint32
-	IssuerPubKey   []byte
-	BlockSignature []byte
+	Slot          uint64
+	BlockNumber   uint64
+	PrevHash      []byte
+	ProtocolMagic uint32
+	IssuerPubKey  []byte
+	// GenesisIssuerKey is the 64-byte extended verification key used for
+	// issuer identity when it is not carried in the proxy certificate.
+	GenesisIssuerKey []byte
+	BlockSignature   []byte
 
 	// For signature verification
 	HeaderCbor []byte // The CBOR-encoded header body to verify signature against
@@ -82,6 +86,9 @@ type ValidateHeaderInput struct {
 	PrevSlot        uint64
 	PrevBlockNumber uint64
 	PrevHeaderHash  []byte
+	// PBFTState supplies the rolling issuer window for stateful Byron
+	// admission. The returned state is in ValidateResult.PBFTState.
+	PBFTState *PBFTState
 
 	// Block type
 	IsEBB bool // Epoch Boundary Block
@@ -93,20 +100,21 @@ type ValidateHeaderInput struct {
 
 // ValidateResult contains the result of header validation
 type ValidateResult struct {
-	Valid  bool
-	Errors []error
+	Valid     bool
+	Errors    []error
+	PBFTState *PBFTState
 }
 
-// ValidateHeader validates a Byron block header using OBFT rules
+// ValidateHeader validates a Byron block header using the Byron inbound
+// validation rules.
 //
 // Validation checks for main blocks:
-//  1. Slot strictly increases from previous block (or equal if prev was EBB)
+//  1. Slot does not decrease from the previous block
 //  2. Block number is previous + 1 (or equal if this is EBB)
 //  3. PrevHash matches hash of previous header
 //  4. Protocol magic matches expected
 //  5. Block signature is valid
 //  6. Issuer is a valid genesis delegate
-//  7. Issuer is the correct slot leader (OBFT round-robin: slot % numDelegates)
 //
 // For Epoch Boundary Blocks:
 //  1. Slot is at epoch boundary
@@ -166,14 +174,73 @@ func (v *HeaderValidator) ValidateHeader(
 		result.Valid = false
 		result.Errors = append(result.Errors, err)
 	}
-
-	// 7. Validate issuer is the correct slot leader (OBFT round-robin)
-	if err := v.validateSlotLeader(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
+	var pbftIssuer common.Blake2b224
+	if result.Valid && !input.IsEBB && !input.EnvelopeOnly &&
+		len(input.BlockSig) > 0 {
+		var err error
+		pbftIssuer, err = v.validatePBFTActiveDelegate(input)
+		if err != nil {
+			result.Valid = false
+			result.Errors = append(result.Errors, err)
+		}
+	}
+	if result.Valid && input.PBFTState != nil &&
+		!input.IsEBB && !input.EnvelopeOnly && len(input.BlockSig) > 0 {
+		if next, err := input.PBFTState.Transition(pbftIssuer); err != nil {
+			result.Valid = false
+			result.Errors = append(result.Errors, err)
+		} else {
+			result.PBFTState = &next
+		}
 	}
 
 	return result
+}
+
+func (v *HeaderValidator) validatePBFTActiveDelegate(
+	input *ValidateHeaderInput,
+) (common.Blake2b224, error) {
+	if len(input.BlockSig) < 2 {
+		return common.Blake2b224{}, errors.New("invalid Byron PBFT signature shape")
+	}
+	signatureType, err := extractUint64(input.BlockSig[0])
+	if err != nil {
+		return common.Blake2b224{}, err
+	}
+	if signatureType != byronSigTypeHeavy {
+		return common.Blake2b224{}, fmt.Errorf(
+			"unsupported Byron PBFT signature type: %d; heavyweight delegation is required",
+			signatureType,
+		)
+	}
+	if len(v.config.GenesisDelegations) == 0 {
+		return common.Blake2b224{}, errors.New(
+			"byron PBFT active delegation state is empty",
+		)
+	}
+	inner, ok := input.BlockSig[1].([]any)
+	if !ok || len(inner) == 0 {
+		return common.Blake2b224{}, errors.New(
+			"invalid Byron PBFT proxy signature payload",
+		)
+	}
+	certificate, ok := inner[0].([]any)
+	if !ok || len(certificate) < 3 {
+		return common.Blake2b224{}, errors.New(
+			"invalid Byron PBFT proxy certificate",
+		)
+	}
+	delegateKey, ok := certificate[2].([]byte)
+	if !ok || len(delegateKey) != 64 {
+		return common.Blake2b224{}, errors.New(
+			"invalid Byron PBFT delegate key",
+		)
+	}
+	delegateHash, err := PBFTVerificationKeyHash(delegateKey)
+	if err != nil {
+		return common.Blake2b224{}, err
+	}
+	return resolveActivePBFTIssuer(v.config.GenesisDelegations, delegateHash)
 }
 
 // validateSlotOrdering checks slot progression
@@ -198,10 +265,11 @@ func (v *HeaderValidator) validateSlotOrdering(
 			)
 		}
 	} else {
-		// Regular blocks must strictly increase
-		if input.Slot <= input.PrevSlot {
+		// PBFT main blocks may share a slot, but cannot move backwards.
+		if input.Slot < input.PrevSlot {
 			return fmt.Errorf(
-				"slot must be greater than previous slot: current=%d, previous=%d",
+				"slot must be greater than or equal to previous slot: "+
+					"current=%d, previous=%d",
 				input.Slot,
 				input.PrevSlot,
 			)
@@ -301,6 +369,12 @@ func (v *HeaderValidator) validateBlockSignature(
 func (v *HeaderValidator) validateSimpleSignature(
 	input *ValidateHeaderInput,
 ) error {
+	if len(input.GenesisIssuerKey) > 0 {
+		if len(input.GenesisIssuerKey) != 64 ||
+			!bytes.Equal(input.GenesisIssuerKey[:32], input.IssuerPubKey) {
+			return errors.New("simple-signature key does not match genesis issuer key")
+		}
+	}
 	if len(input.IssuerPubKey) != ed25519.PublicKeySize {
 		return fmt.Errorf(
 			"invalid issuer public key size: got %d, expected %d",
@@ -342,7 +416,7 @@ func (v *HeaderValidator) validateSimpleSignature(
 		// accepts proofs libsodium rejects, and Byron blocks are immutable history, so
 		// routing these through internal/ed25519strict would reject chain the node
 		// accepts. Do not "fix" these to match the non-Byron boundaries.
-		valid := ed25519.Verify(
+		valid := ed25519byron.Verify(
 			input.IssuerPubKey,
 			input.HeaderCbor,
 			input.BlockSignature,
@@ -369,7 +443,7 @@ func (v *HeaderValidator) validateSimpleSignature(
 	// ed25519-donna reference accepts small-order public and R points, and
 	// tightening immutable Byron history to the non-Byron criteria would break
 	// sync from genesis. Do not route this through internal/ed25519strict.
-	valid := ed25519.Verify(
+	valid := ed25519byron.Verify(
 		input.IssuerPubKey,
 		signed,
 		input.BlockSignature,
@@ -636,7 +710,7 @@ func (v *HeaderValidator) validateProxySignature(
 	// path. Its ed25519-donna reference accepts small-order public and R points,
 	// and tightening immutable Byron history to the non-Byron criteria would
 	// break sync from genesis. Do not route this through internal/ed25519strict.
-	valid := ed25519.Verify(delegatePubKey, signedBuf, blockSig)
+	valid := ed25519byron.Verify(delegatePubKey, signedBuf, blockSig)
 	if !valid {
 		return fmt.Errorf(
 			"block signature verification failed at slot %d, block %d (proxy signature, type %d)",
@@ -978,8 +1052,14 @@ func (v *HeaderValidator) validateGenesisDelegate(
 		return ErrGenesisIssuerSetEmpty
 	}
 
-	// Hash the issuer public key using the common Blake2b224Hash function
-	keyHash := common.Blake2b224Hash(input.IssuerPubKey)
+	keyBytes, err := genesisIssuerVerificationKey(input)
+	if err != nil {
+		return err
+	}
+	keyHash, err := PBFTVerificationKeyHash(keyBytes)
+	if err != nil {
+		return fmt.Errorf("hash Byron extended genesis issuer key: %w", err)
+	}
 
 	if !v.genesisKeyHashes[string(keyHash.Bytes())] {
 		return fmt.Errorf(
@@ -991,41 +1071,38 @@ func (v *HeaderValidator) validateGenesisDelegate(
 	return nil
 }
 
-// validateSlotLeader checks if the issuer is the correct slot leader for this slot.
-// Byron uses OBFT round-robin assignment: the expected leader for slot S with N delegates
-// is the delegate at index (S % N).
-//
-// This is stricter than validateGenesisDelegate which only checks membership.
-// Slot leader validation requires GenesisKeyHashes to be in the correct order.
-func (v *HeaderValidator) validateSlotLeader(
-	input *ValidateHeaderInput,
-) error {
-	// Missing trust roots cannot authorize any slot leader.
-	if len(v.config.GenesisKeyHashes) == 0 {
-		return ErrGenesisIssuerSetEmpty
+func genesisIssuerVerificationKey(input *ValidateHeaderInput) ([]byte, error) {
+	if input == nil {
+		return nil, errors.New("nil Byron header validation input")
 	}
-
-	// Get the expected slot leader
-	expectedIndex, expectedKeyHash := v.config.SlotLeader(input.Slot)
-	if expectedIndex < 0 {
-		return ErrGenesisIssuerSetEmpty
+	if len(input.BlockSig) >= 2 {
+		signatureType, err := extractUint64(input.BlockSig[0])
+		if err != nil {
+			return nil, fmt.Errorf("decode Byron signature type: %w", err)
+		}
+		if signatureType == byronSigTypeHeavy || signatureType == byronSigTypeLight {
+			inner, ok := input.BlockSig[1].([]any)
+			if !ok || len(inner) == 0 {
+				return nil, errors.New("invalid Byron proxy signature payload")
+			}
+			certificate, ok := inner[0].([]any)
+			if !ok || len(certificate) < 2 {
+				return nil, errors.New("invalid Byron proxy certificate")
+			}
+			issuerKey, ok := certificate[1].([]byte)
+			if !ok || len(issuerKey) != 64 {
+				return nil, errors.New("invalid Byron extended genesis issuer key")
+			}
+			return issuerKey, nil
+		}
 	}
-
-	// Hash the issuer public key
-	actualKeyHash := common.Blake2b224Hash(input.IssuerPubKey)
-
-	// Compare with expected slot leader
-	if !bytes.Equal(actualKeyHash.Bytes(), expectedKeyHash) {
-		return fmt.Errorf(
-			"wrong slot leader for slot %d: expected delegate %d (hash %x), got %s",
-			input.Slot,
-			expectedIndex,
-			expectedKeyHash,
-			actualKeyHash.String(),
+	if len(input.GenesisIssuerKey) != 64 {
+		return nil, fmt.Errorf(
+			"invalid Byron extended genesis issuer key length: got %d, expected 64",
+			len(input.GenesisIssuerKey),
 		)
 	}
-
-	return nil
+	return input.GenesisIssuerKey, nil
 }
 
 // ValidateByronBlockHeader validates a Byron block header (main block or EBB).

@@ -36,8 +36,9 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		protoOptions: protoOptions,
 	}
 	s.callbackContext = CallbackContext{
-		Server:       s,
-		ConnectionId: protoOptions.ConnectionId,
+		Server:             s,
+		ConnectionId:       protoOptions.ConnectionId,
+		ConnectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
 	s.initProtocol()
 	return s
