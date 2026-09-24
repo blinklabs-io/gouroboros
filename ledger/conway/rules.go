@@ -2579,12 +2579,11 @@ func UtxoValidateValueNotConservedUtxo(
 			}
 		}
 	}
-	for _, proposal := range tx.ProposalProcedures() {
-		deposit := uint64(tmpPparams.GovActionDeposit)
-		if !tx.IsValid() {
-			deposit = proposal.Deposit()
-		}
-		producedValue.Add(producedValue, new(big.Int).SetUint64(deposit))
+	for range tx.ProposalProcedures() {
+		producedValue.Add(
+			producedValue,
+			new(big.Int).SetUint64(uint64(tmpPparams.GovActionDeposit)),
+		)
 	}
 	// Add treasury donation - value leaving the transaction to go to the treasury.
 	donation := tx.Donation()

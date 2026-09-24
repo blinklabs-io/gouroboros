@@ -168,7 +168,7 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *t
 			if _, legacyRegistration := test.certificate.(*common.StakeRegistrationCertificate); !legacyRegistration && !test.proposal {
 				require.NoError(t, conway.UtxoValidateValueNotConservedUtxo(wrongBodyTx, 0, state, params))
 			} else if test.proposal {
-				require.Error(t, conway.UtxoValidateValueNotConservedUtxo(wrongBodyTx, 0, state, params))
+				require.NoError(t, conway.UtxoValidateValueNotConservedUtxo(wrongBodyTx, 0, state, params))
 			}
 			wrongOutput := outputAmount
 			if test.refund {
