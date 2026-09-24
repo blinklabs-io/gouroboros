@@ -365,76 +365,14 @@ func UtxoValidateDisjointRefInputs(
 	if !ok {
 		return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
 	}
-	// PV11+ skips this check for transactions with PlutusV1/V2 scripts
+	// PV11 removes the transaction-wide rule. The Plutus V3 context applies
+	// its own restriction only when a V3 script is actually executed.
 	if common.IsProtocolVersionAtLeast(
 		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
 	) {
-		usesV1V2, err := transactionUsesPlutusV1V2(tx, ls)
-		if err != nil {
-			return err
-		}
-		if usesV1V2 {
-			return nil
-		}
+		return nil
 	}
 	return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
-}
-
-// transactionUsesPlutusV1V2 checks if the transaction uses PlutusV1 or PlutusV2 scripts,
-// either in the witness set or as reference scripts.
-// Returns an error if a reference input cannot be resolved.
-func transactionUsesPlutusV1V2(
-	tx common.Transaction,
-	ls common.LedgerState,
-) (bool, error) {
-	ws := tx.Witnesses()
-	if ws != nil {
-		if len(ws.PlutusV1Scripts()) > 0 || len(ws.PlutusV2Scripts()) > 0 {
-			return true, nil
-		}
-	}
-	// Also check reference scripts on reference inputs
-	// For reference inputs, propagate resolution errors
-	for _, refInput := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return false, common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script:
-			return true, nil
-		}
-	}
-	// Check reference scripts on regular inputs
-	// For regular inputs, skip on errors (existing behavior)
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script:
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // UtxoValidateProposalProcedures validates governance proposal contents
@@ -2302,37 +2240,21 @@ func ValidateTreasuryDonationScriptCompatibility(
 	if donation == nil || donation.Sign() <= 0 {
 		return nil
 	}
-	witnesses := tx.Witnesses()
-	plutusVersion := ""
-	if witnesses != nil {
-		if len(witnesses.PlutusV1Scripts()) > 0 {
-			plutusVersion = "PlutusV1"
-		} else if len(witnesses.PlutusV2Scripts()) > 0 {
-			plutusVersion = "PlutusV2"
-		}
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil && !errors.Is(err, common.ErrInputResolution) {
+		return err
 	}
-	if plutusVersion == "" {
-		for _, refInput := range tx.ReferenceInputs() {
-			utxo, err := ls.UtxoById(refInput)
-			if err != nil {
-				return common.ReferenceInputResolutionError{
-					Input: refInput,
-					Err:   err,
-				}
-			}
-			if utxo.Output == nil {
-				continue
-			}
-			switch utxo.Output.ScriptRef().(type) {
-			case common.PlutusV1Script:
-				plutusVersion = "PlutusV1"
-			case common.PlutusV2Script:
-				plutusVersion = "PlutusV2"
-			}
-			if plutusVersion != "" {
-				break
-			}
-		}
+	plutusVersion := ""
+	if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV1Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV1"
+	} else if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV2Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV2"
 	}
 	if plutusVersion == "" {
 		return nil
@@ -3219,6 +3141,7 @@ func UtxoValidatePlutusScripts(
 			votes,
 			proposalProcedures,
 			witnessDatums,
+			conwayPparams.ProtocolVersion.Major,
 		)
 		if err != nil {
 			// Redeemer doesn't match any valid purpose (index out of bounds, etc.)
@@ -3254,6 +3177,10 @@ func UtxoValidatePlutusScripts(
 			if p.ScriptHash() == (common.ScriptHash{}) {
 				return ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
+		case script.ScriptPurposeVoting:
+			if !script.VoterUsesScriptCredential(p.Voter) {
+				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+			}
 		}
 
 		// Find the script for this purpose
@@ -3282,8 +3209,19 @@ func UtxoValidatePlutusScripts(
 		case common.PlutusV3Script:
 			// Build V3 TxInfo lazily
 			if !txInfoV3Built {
+				if err := script.ValidatePlutusV3ReferenceInputs(
+					tx,
+					conwayPparams.ProtocolVersion.Major,
+				); err != nil {
+					return ScriptContextConstructionError{Err: err}
+				}
 				var err error
-				txInfoV3, err = script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
+				txInfoV3, err = script.NewTxInfoV3FromTransaction(
+					ls,
+					tx,
+					resolvedInputs,
+					conwayPparams.ProtocolVersion.Major,
+				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}

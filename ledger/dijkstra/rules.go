@@ -2497,11 +2497,18 @@ func validateGuardingPlutusScripts(
 			continue
 		case common.PlutusV3Script:
 			if !txInfoV3Built {
+				if err := script.ValidatePlutusV3ReferenceInputs(
+					tx,
+					pp.ProtocolVersion.Major,
+				); err != nil {
+					return conway.ScriptContextConstructionError{Err: err}
+				}
 				var err error
 				txInfoV3, err = script.NewTxInfoV3FromTransaction(
 					ls,
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
+					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}

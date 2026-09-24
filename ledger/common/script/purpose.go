@@ -121,8 +121,9 @@ func (s ScriptPurposeRewarding) ToScriptInfo() ScriptInfo {
 }
 
 type ScriptPurposeCertifying struct {
-	Index       uint32
-	Certificate lcommon.Certificate
+	Index                uint32
+	Certificate          lcommon.Certificate
+	ProtocolVersionMajor uint
 }
 
 func (ScriptPurposeCertifying) isScriptPurpose() {}
@@ -171,7 +172,7 @@ func (s ScriptPurposeCertifying) ToPlutusData() data.PlutusData {
 	return data.NewConstr(
 		3,
 		data.NewInteger(new(big.Int).SetUint64(uint64(s.Index))),
-		certificateToPlutusData(s.Certificate),
+		certificateToPlutusData(s.Certificate, s.ProtocolVersionMajor),
 	)
 }
 
@@ -321,7 +322,12 @@ func scriptPurposeBuilder(
 	votes KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
 	proposalProcedures []lcommon.ProposalProcedure,
 	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
+	protocolVersionMajor ...uint,
 ) toScriptPurposeFunc {
+	major := uint(0)
+	if len(protocolVersionMajor) > 0 {
+		major = protocolVersionMajor[0]
+	}
 	return func(
 		redeemerKey lcommon.RedeemerKey,
 	) (ScriptPurpose, error) {
@@ -381,8 +387,9 @@ func scriptPurposeBuilder(
 				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeCertifying{
-				Index:       redeemerKey.Index,
-				Certificate: certificates[redeemerKey.Index],
+				Index:                redeemerKey.Index,
+				Certificate:          certificates[redeemerKey.Index],
+				ProtocolVersionMajor: major,
 			}, nil
 		case lcommon.RedeemerTagReward:
 			if uint64(redeemerKey.Index) >= uint64(len(withdrawals)) {
@@ -433,7 +440,12 @@ func BuildScriptPurpose(
 	votes lcommon.VotingProcedures,
 	proposalProcedures []lcommon.ProposalProcedure,
 	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
+	protocolVersionMajor ...uint,
 ) (ScriptPurpose, error) {
+	major := uint(0)
+	if len(protocolVersionMajor) > 0 {
+		major = protocolVersionMajor[0]
+	}
 	switch redeemerKey.Tag {
 	case lcommon.RedeemerTagSpend:
 		if uint64(redeemerKey.Index) >= uint64(len(inputs)) {
@@ -478,8 +490,9 @@ func BuildScriptPurpose(
 			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		return ScriptPurposeCertifying{
-			Index:       redeemerKey.Index,
-			Certificate: certificates[redeemerKey.Index],
+			Index:                redeemerKey.Index,
+			Certificate:          certificates[redeemerKey.Index],
+			ProtocolVersionMajor: major,
 		}, nil
 	case lcommon.RedeemerTagReward:
 		sortedAddrs := SortWithdrawalAddresses(withdrawals)

@@ -1184,6 +1184,39 @@ func TestUtxoValidateExtraneousRedeemersUnknownTag(t *testing.T) {
 	assert.IsType(t, conway.ExtraRedeemerError{}, err)
 }
 
+func TestUtxoValidatePlutusScriptsRejectsKeyVoterRedeemer(t *testing.T) {
+	voter := &common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224{1},
+	}
+	actionID := &common.GovActionId{
+		TransactionId: common.Blake2b256{2},
+	}
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxVotingProcedures: common.VotingProcedures{
+				voter: {actionID: {Vote: common.GovVoteYes}},
+			},
+		},
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagVoting, Index: 0}: {},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+	err := conway.UtxoValidatePlutusScripts(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&conway.ConwayProtocolParameters{},
+	)
+	var extraErr conway.ExtraRedeemerError
+	require.ErrorAs(t, err, &extraErr)
+}
+
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testSlot uint64 = 555666777
 	var testZeroSlot uint64 = 0
@@ -2905,12 +2938,11 @@ func TestUtxoValidateDisjointRefInputs(t *testing.T) {
 	)
 }
 
-func TestUtxoValidateDisjointRefInputs_ReferenceInputResolutionError(t *testing.T) {
-	// Test that reference input resolution errors are propagated when using PV11+
+func TestUtxoValidateDisjointRefInputs_PV11PlusSkipsGlobalCheck(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	refInputTxId := "a228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee33"
 
-	// PV11+ protocol params (triggers the transactionUsesPlutusV1V2 check)
+	// PV11+ applies the disjointness check only when a Plutus V3 script executes.
 	pv11Params := &conway.ConwayProtocolParameters{
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{
 			Major: 11,
@@ -2937,7 +2969,7 @@ func TestUtxoValidateDisjointRefInputs_ReferenceInputResolutionError(t *testing.
 		}).
 		Build()
 
-	t.Run("reference input resolution error is propagated", func(t *testing.T) {
+	t.Run("does not resolve reference inputs globally", func(t *testing.T) {
 		testTx := &conway.ConwayTransaction{
 			Body: conway.ConwayTransactionBody{
 				TxInputs: conway.NewConwayTransactionInputSet(
@@ -2959,14 +2991,11 @@ func TestUtxoValidateDisjointRefInputs_ReferenceInputResolutionError(t *testing.
 			testLedgerState,
 			pv11Params,
 		)
-		assert.Error(t, err)
-		var refErr common.ReferenceInputResolutionError
-		assert.True(t, errors.As(err, &refErr), "expected ReferenceInputResolutionError, got %T", err)
-		assert.ErrorIs(t, refErr.Err, refInputResolutionErr)
+		assert.NoError(t, err)
 	})
 
 	t.Run("pre-PV11 does not check reference inputs for PlutusV1V2", func(t *testing.T) {
-		// Pre-PV11 skips the transactionUsesPlutusV1V2 check entirely
+		// Before PV11 the Babbage global predicate still applies.
 		prePv11Params := &conway.ConwayProtocolParameters{
 			ProtocolVersion: common.ProtocolParametersProtocolVersion{
 				Major: 9,

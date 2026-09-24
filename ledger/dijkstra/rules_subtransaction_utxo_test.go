@@ -290,7 +290,7 @@ func TestDijkstraBootstrapOutputAttributesCoverSubTransactions(t *testing.T) {
 	)
 }
 
-func TestDijkstraDonationScriptCheckIsPerLevel(t *testing.T) {
+func TestDijkstraDonationScriptCheckUsesNeededScripts(t *testing.T) {
 	input, utxo := dijkstraSubUtxoInput(0)
 	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).
 		Build()
@@ -324,16 +324,9 @@ func TestDijkstraDonationScriptCheckIsPerLevel(t *testing.T) {
 		}
 	}
 
-	// The top-level witness does not make a sub-transaction donation invalid.
+	// An unused witness does not make a donation invalid, even at the same level.
 	require.NoError(t, rule(newTx(DijkstraTransactionWitnessSet{}), 0, ls, pp))
-
-	// The same-level PlutusV1 witness and donation are rejected.
-	var donationErr conway.TreasuryDonationWithPlutusV1V2Error
-	require.ErrorAs(
-		t,
-		rule(newTx(v1), 0, ls, pp),
-		&donationErr,
-	)
+	require.NoError(t, rule(newTx(v1), 0, ls, pp))
 }
 
 // TestDijkstraBadInputsCoversSubTransactions pins that an unresolvable input
