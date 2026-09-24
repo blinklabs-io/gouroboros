@@ -69,6 +69,11 @@ func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
+		common.AuxiliaryDataEraMary,
+	); err != nil {
+		return err
+	}
 	for _, witnessSet := range tmp.TransactionWitnessSets {
 		if err := common.ValidateNativeScriptConstructors(witnessSet.WsNativeScripts, 5); err != nil {
 			return err
@@ -168,7 +173,7 @@ func (b *MaryBlock) Transactions() []common.Transaction {
 		}
 		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
 			len(raw) > 0 {
-			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+			if aux, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraMary); err == nil &&
 				aux != nil {
 				tx.auxData = aux
 			}
@@ -403,31 +408,18 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
 		// 0xF6 is CBOR null
 
-		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
-		if err == nil && auxData != nil {
-			t.auxData = auxData
-			// Extract metadata for backward compatibility
-			metadata, _ := auxData.Metadata()
-			if metadata != nil {
-				t.TxMetadata = metadata
-			}
-		} else {
-			// Fallback to old method for backward compatibility
-			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if fallbackErr != nil || metadata == nil {
-				if fallbackErr == nil {
-					fallbackErr = errors.New("metadata fallback returned no metadata")
-				}
-				return fmt.Errorf(
-					"failed to decode auxiliary data: %w (metadata fallback: %w)",
-					err,
-					fallbackErr,
-				)
-			}
-			if metadata != nil {
-				t.TxMetadata = metadata
-			}
+		// Decode auxiliary data using the transaction era's consensus rules.
+		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraMary)
+		if err != nil {
+			return fmt.Errorf("failed to decode auxiliary data: %w", err)
+		}
+		t.auxData = auxData
+		metadata, err := auxData.Metadata()
+		if err != nil {
+			return fmt.Errorf("failed to decode auxiliary metadata: %w", err)
+		}
+		if metadata != nil {
+			t.TxMetadata = metadata
 		}
 	}
 

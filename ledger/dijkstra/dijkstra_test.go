@@ -454,7 +454,8 @@ func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
 	rawTx = append(rawTx, body...)
 	rawTx = append(rawTx, witnesses...)
 	rawTx = append(rawTx, auxiliary...)
-	rawTx = append(rawTx, 0xf5, 0xff)
+	rawTx = append(rawTx, 0xf5)
+	rawTx = append(rawTx, 0xff)
 	bodyCbor, err := cbor.Encode([]any{
 		[]cbor.RawMessage{rawTx},
 		nil,
@@ -904,7 +905,7 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 		}}, true),
 	}
 	body := map[uint]any{
-		0: cbor.NewSetType([]any{}, false),
+		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 		1: []any{},
 		3: uint64(10),
 	}
@@ -951,7 +952,7 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 					[]any{body, tc.witnesses, tc.auxiliaryB},
 				}
 				bodyValue := map[uint]any{
-					0:  cbor.NewSetType([]any{}, false),
+					0:  cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 					1:  []any{},
 					2:  uint64(0),
 					23: subTransactions,
@@ -986,13 +987,20 @@ func TestDijkstraTransactionBodyRejectsExplicitlyEmptySubTransactions(t *testing
 }
 
 func TestDijkstraTransactionBodyAcceptsDistinctSubTransactionBodies(t *testing.T) {
+	subBody := func(ttl uint64) map[uint]any {
+		return map[uint]any{
+			0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
+			1: []any{},
+			3: ttl,
+		}
+	}
 	bodyCbor, err := cbor.Encode(map[uint]any{
-		0: cbor.NewSetType([]any{}, false),
+		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 		1: []any{},
 		2: uint64(0),
 		23: []any{
-			[]any{map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}, 3: uint64(10)}, map[uint]any{}, nil},
-			[]any{map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}, 3: uint64(11)}, map[uint]any{}, nil},
+			[]any{subBody(10), map[uint]any{}, nil},
+			[]any{subBody(11), map[uint]any{}, nil},
 		},
 	})
 	require.NoError(t, err)

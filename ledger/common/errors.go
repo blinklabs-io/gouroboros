@@ -15,13 +15,56 @@
 package common
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
 	"reflect"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
+
+// OutsideForecastError reports a transaction whose validity upper bound
+// cannot be converted to time by the validation slot state.
+type OutsideForecastError struct {
+	cbor.StructAsArray
+	Type uint8
+	Slot uint64
+}
+
+func (e *OutsideForecastError) Error() string {
+	return fmt.Sprintf("OutsideForecast (Slot %d)", e.Slot)
+}
+
+// MissingDatumForSpendingScriptError reports a Plutus V1/V2 spending input
+// whose datum hash has no matching witness datum.
+type MissingDatumForSpendingScriptError struct {
+	ScriptHash ScriptHash
+	Input      TransactionInput
+}
+
+func (e MissingDatumForSpendingScriptError) Error() string {
+	return fmt.Sprintf(
+		"missing datum for spending script (hash=%x, input=%s)",
+		e.ScriptHash[:],
+		e.Input.String(),
+	)
+}
+
+// NotAllowedSupplementalDatumsError reports witness datums that are not
+// justified by a Plutus spending input or a datum-hash output.
+type NotAllowedSupplementalDatumsError struct {
+	DatumHashes []Blake2b256
+}
+
+func (e NotAllowedSupplementalDatumsError) Error() string {
+	hashes := make([]string, len(e.DatumHashes))
+	for i, hash := range e.DatumHashes {
+		hashes[i] = hex.EncodeToString(hash[:])
+	}
+	return "not allowed supplemental datums in witness set: " + strings.Join(hashes, ", ")
+}
 
 // TxOut preserves an opaque transaction output embedded in a ledger failure.
 type TxOut struct {

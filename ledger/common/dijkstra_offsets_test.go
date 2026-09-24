@@ -71,6 +71,12 @@ func currentDijkstraFixtureTx(t *testing.T, parts []cbor.RawMessage) []cbor.RawM
 	_, err := cbor.Decode(parts[0], &bodyFields)
 	require.NoError(t, err)
 	delete(bodyFields, 26)
+	// The upstream golden transaction includes a Plutus V4 auxiliary-data
+	// field, which Dijkstra rejects per cardano-ledger's Alonzo aux-data
+	// validation. Offsets only need a valid transaction envelope.
+	delete(bodyFields, 7)
+	parts[2] = encodeCbor(t, nil)
+	parts[0] = encodeCbor(t, bodyFields)
 	subTxBytes, exists := bodyFields[23]
 	if !exists {
 		return parts
@@ -90,6 +96,8 @@ func currentDijkstraFixtureTx(t *testing.T, parts []cbor.RawMessage) []cbor.RawM
 		// field from this test copy so transaction-offset coverage exercises
 		// the current valid body shape.
 		delete(subBodyFields, 26)
+		delete(subBodyFields, 7)
+		subTxParts[2] = encodeCbor(t, nil)
 		subTxParts[0] = encodeCbor(t, subBodyFields)
 		updatedSubTxs[index] = encodeCbor(t, subTxParts)
 	}
@@ -138,7 +146,7 @@ func buildDijkstraBlock(t *testing.T, legacyBody bool, numTx int) []byte {
 			txs = append(txs, encodeCbor(t, tx3))
 			continue
 		}
-		// block_transaction = [body, witness_set, auxiliary_data/nil, bool].
+		// block_transaction = [body, witness_set, auxiliary_data, is_valid].
 		// Alternate is_valid so both boolean encodings are exercised.
 		tx4 := make([]cbor.RawMessage, 0, 4)
 		tx4 = append(tx4, tx3...)
@@ -237,17 +245,21 @@ func TestExtractTransactionOffsetsDijkstraBlockShapes(t *testing.T) {
 					"transaction %d witness bytes",
 					i,
 				)
-				require.NotZero(t, loc.Metadata.Length)
-				assert.Equal(
-					t,
-					[]byte(txParts[2]),
-					blockCbor[loc.Metadata.Offset:loc.Metadata.Offset+loc.Metadata.Length],
-					"transaction %d auxiliary data bytes",
-					i,
-				)
+				if string(txParts[2]) != "\xf6" {
+					require.NotZero(t, loc.Metadata.Length)
+					assert.Equal(
+						t,
+						[]byte(txParts[2]),
+						blockCbor[loc.Metadata.Offset:loc.Metadata.Offset+loc.Metadata.Length],
+						"transaction %d auxiliary data bytes",
+						i,
+					)
+				} else {
+					assert.Zero(t, loc.Metadata.Length)
+				}
 				// The trailing is_valid flag is a bool, not a byte range: no
 				// recorded range may extend into it.
-				if !testCase.legacyBody {
+				if !testCase.legacyBody && string(txParts[2]) != "\xf6" {
 					isValidLen := uint32(len(txParts[3]))
 					txEnd := loc.Metadata.Offset + loc.Metadata.Length
 					assert.Equal(

@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -174,6 +175,101 @@ func runRule(
 	)
 }
 
+func runDatumRules(
+	tx common.Transaction,
+	utxos []common.Utxo,
+) error {
+	byId := make(map[string]common.Utxo, len(utxos))
+	for _, item := range utxos {
+		byId[item.Id.String()] = item
+	}
+	return UtxoValidateSupplementalDatums(
+		tx,
+		0,
+		utxoOnlyLedgerState{utxos: byId},
+		&BabbageProtocolParameters{},
+	)
+}
+
+func TestDatumWitnessRules(t *testing.T) {
+	v2 := common.PlutusV2Script{0x21, 0x22}
+	input := testInput(0x31, 0)
+	datum := common.Datum{Data: data.NewInteger(big.NewInt(42))}
+	datumHash := datum.Hash()
+	inputOutput := plainOutput(scriptAddr(t, v2))
+	inputOutput.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
+	stateUtxo := utxo(input, inputOutput)
+
+	t.Run("missing V2 datum is phase-1 for invalid transactions", func(t *testing.T) {
+		tx := &BabbageTransaction{
+			TxIsValid: false,
+			Body:      BabbageTransactionBody{TxInputs: inputSet(input)},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsPlutusV2Scripts: []common.PlutusV2Script{v2},
+			},
+		}
+		var missing common.MissingDatumForSpendingScriptError
+		require.ErrorAs(t, runDatumRules(tx, []common.Utxo{stateUtxo}), &missing)
+	})
+
+	t.Run("matching V2 datum is accepted", func(t *testing.T) {
+		tx := &BabbageTransaction{
+			TxIsValid: false,
+			Body:      BabbageTransactionBody{TxInputs: inputSet(input)},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsPlutusV2Scripts: []common.PlutusV2Script{v2},
+				WsPlutusData:      alonzo.PlutusDataList{Items: []common.Datum{datum}},
+			},
+		}
+		require.NoError(t, runDatumRules(tx, []common.Utxo{stateUtxo}))
+	})
+
+	t.Run("key input does not justify a supplemental datum", func(t *testing.T) {
+		keyInput := testInput(0x32, 0)
+		keyOutput := plainOutput(keyAddr(t))
+		keyOutput.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
+		tx := &BabbageTransaction{
+			Body: BabbageTransactionBody{TxInputs: inputSet(keyInput)},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsPlutusData: alonzo.PlutusDataList{Items: []common.Datum{datum}},
+			},
+		}
+		var supplemental common.NotAllowedSupplementalDatumsError
+		require.ErrorAs(t, runDatumRules(tx, []common.Utxo{utxo(keyInput, keyOutput)}), &supplemental)
+	})
+
+	t.Run("native script input does not justify a supplemental datum", func(t *testing.T) {
+		nativeBytes, err := cbor.Encode(common.NativeScriptAll{Type: 1})
+		require.NoError(t, err)
+		var native common.NativeScript
+		require.NoError(t, native.UnmarshalCBOR(nativeBytes))
+		nativeInput := testInput(0x33, 0)
+		nativeOutput := plainOutput(scriptAddr(t, native))
+		nativeOutput.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
+		tx := &BabbageTransaction{
+			Body: BabbageTransactionBody{TxInputs: inputSet(nativeInput)},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsNativeScripts: []common.NativeScript{native},
+				WsPlutusData:    alonzo.PlutusDataList{Items: []common.Datum{datum}},
+			},
+		}
+		var supplemental common.NotAllowedSupplementalDatumsError
+		require.ErrorAs(t, runDatumRules(tx, []common.Utxo{utxo(nativeInput, nativeOutput)}), &supplemental)
+	})
+
+	t.Run("collateral return justifies a supplemental datum", func(t *testing.T) {
+		collateralReturn := plainOutput(keyAddr(t))
+		collateralReturn.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
+		tx := &BabbageTransaction{
+			Body: BabbageTransactionBody{TxCollateralReturn: &collateralReturn},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsPlutusData: alonzo.PlutusDataList{Items: []common.Datum{datum}},
+			},
+		}
+		require.NoError(t, runDatumRules(tx, nil))
+	})
+}
+
 // A PlutusV1 script reachable through a spent UTxO's reference script, with no
 // purpose requiring it, must not invalidate the transaction. Rejecting here is
 // the false positive that halted a node's sync on a real Preview transaction.
@@ -233,13 +329,7 @@ func TestInlineDatumsPlutusV1_DatumOnProducedOutputRejected(t *testing.T) {
 	require.ErrorAs(t, err, &want)
 }
 
-// A reference script on a produced output must NOT disqualify a transaction that
-// needs a PlutusV1 script. Conway's transTxOutV1 checks only the inline datum;
-// unlike the Babbage-era transTxOutV1 it shadows, it carries no
-// ReferenceScriptsNotSupported branch
-// (eras/conway/impl/src/Cardano/Ledger/Conway/TxInfo.hs). No conformance vector
-// exercises this shape, so only this test holds the line.
-func TestInlineDatumsPlutusV1_ScriptRefOnProducedOutputAccepted(t *testing.T) {
+func TestInlineDatumsPlutusV1_BabbageScriptRefOnProducedOutputRejected(t *testing.T) {
 	v1 := common.PlutusV1Script([]byte{0x07, 0x08})
 	in := testInput(0x5, 0)
 
@@ -254,17 +344,14 @@ func TestInlineDatumsPlutusV1_ScriptRefOnProducedOutputAccepted(t *testing.T) {
 			WsPlutusV1Scripts: []common.PlutusV1Script{v1},
 		},
 	}
-	require.NoError(t, runRule(t, tx, []common.Utxo{
+	err := runRule(t, tx, []common.Utxo{
 		utxo(in, plainOutput(scriptAddr(t, v1))),
-	}), "a reference script on a produced output is not a V1 violation")
+	})
+	var want PlutusV1ReferenceScriptsNotSupportedError
+	require.ErrorAs(t, err, &want)
 }
 
-// The same asymmetry on the input side: a needed PlutusV1 script spending a
-// regular input that carries a reference script must be accepted. This is the
-// shape of the Conway conformance vector
-// "UTXOS/can use regular inputs for reference", which fails outright if the rule
-// rejects a reference script on a consumed input.
-func TestInlineDatumsPlutusV1_ScriptRefOnConsumedInputAccepted(t *testing.T) {
+func TestInlineDatumsPlutusV1_BabbageScriptRefOnConsumedInputRejected(t *testing.T) {
 	v1 := common.PlutusV1Script([]byte{0x11, 0x12})
 	spend := testInput(0xc, 0)
 	refCarrier := testInput(0xd, 0)
@@ -277,18 +364,15 @@ func TestInlineDatumsPlutusV1_ScriptRefOnConsumedInputAccepted(t *testing.T) {
 			WsPlutusV1Scripts: []common.PlutusV1Script{v1},
 		},
 	}
-	require.NoError(t, runRule(t, tx, []common.Utxo{
+	err := runRule(t, tx, []common.Utxo{
 		utxo(spend, plainOutput(scriptAddr(t, v1))),
 		utxo(refCarrier, scriptRefOutput(keyAddr(t), v1)),
-	}), "a reference script on a consumed input is not a V1 violation")
+	})
+	var want PlutusV1ReferenceScriptsNotSupportedError
+	require.ErrorAs(t, err, &want)
 }
 
-// An inline datum on a *reference* input is disqualifying, because Conway's V1
-// instance translates reference inputs through the same transTxOutV1 as
-// consumed inputs (under mapM_) and discards only the result, not the failure.
-// The pre-PR implementation missed this: it scanned reference inputs for V1
-// script refs and never for datums.
-func TestInlineDatumsPlutusV1_DatumOnReferenceInputRejected(t *testing.T) {
+func TestInlineDatumsPlutusV1_BabbageDatumOnReferenceInputRejected(t *testing.T) {
 	v1 := common.PlutusV1Script([]byte{0x13, 0x14})
 	spend := testInput(0xe, 0)
 	ref := testInput(0xf, 0)
@@ -309,7 +393,7 @@ func TestInlineDatumsPlutusV1_DatumOnReferenceInputRejected(t *testing.T) {
 		utxo(spend, plainOutput(scriptAddr(t, v1))),
 		utxo(ref, inlineDatumOutput(keyAddr(t))),
 	})
-	var want common.InlineDatumsNotSupportedError
+	var want PlutusV1ReferenceInputsNotSupportedError
 	require.ErrorAs(
 		t,
 		err,
@@ -325,10 +409,16 @@ func TestInlineDatumsPlutusV1_DatumOnReferenceInputRejected(t *testing.T) {
 func TestInlineDatumsPlutusV2_NeededSpendingScriptAccepted(t *testing.T) {
 	v2 := common.PlutusV2Script([]byte{0x15, 0x16})
 	in := testInput(0x10, 0)
+	ref := testInput(0x11, 0)
+	refScript := common.PlutusV1Script([]byte{0x17, 0x18})
 
 	tx := &BabbageTransaction{
 		Body: BabbageTransactionBody{
-			TxInputs:  inputSet(in),
+			TxInputs: inputSet(in, ref),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{testInput(0x12, 0)},
+				false,
+			),
 			TxOutputs: []BabbageTransactionOutput{inlineDatumOutput(keyAddr(t))},
 		},
 		WitnessSet: BabbageTransactionWitnessSet{
@@ -337,15 +427,12 @@ func TestInlineDatumsPlutusV2_NeededSpendingScriptAccepted(t *testing.T) {
 	}
 	require.NoError(t, runRule(t, tx, []common.Utxo{
 		utxo(in, inlineDatumOutput(scriptAddr(t, v2))),
-	}), "inline datums are supported for PlutusV2")
+		utxo(ref, scriptRefOutput(keyAddr(t), refScript)),
+		utxo(testInput(0x12, 0), plainOutput(keyAddr(t))),
+	}), "Babbage V1 restrictions must not affect PlutusV2")
 }
 
-// The mere presence of a reference input must NOT disqualify a transaction that
-// requires a PlutusV1 script. The Conway conformance vector
-// "UTXOS/can use reference scripts" (tx 3) expects exactly this to succeed, and
-// an earlier revision of this rule failed it by rejecting on reference-input
-// presence.
-func TestInlineDatumsPlutusV1_ReferenceInputPresentAccepted(t *testing.T) {
+func TestInlineDatumsPlutusV1_BabbageReferenceInputPresentRejected(t *testing.T) {
 	v1 := common.PlutusV1Script([]byte{0x09, 0x0a})
 	in := testInput(0x6, 0)
 	ref := testInput(0x7, 0)
@@ -362,10 +449,12 @@ func TestInlineDatumsPlutusV1_ReferenceInputPresentAccepted(t *testing.T) {
 			WsPlutusV1Scripts: []common.PlutusV1Script{v1},
 		},
 	}
-	require.NoError(t, runRule(t, tx, []common.Utxo{
+	err := runRule(t, tx, []common.Utxo{
 		utxo(in, plainOutput(scriptAddr(t, v1))),
 		utxo(ref, plainOutput(keyAddr(t))),
-	}), "expected accept with a reference input present")
+	})
+	var want PlutusV1ReferenceInputsNotSupportedError
+	require.ErrorAs(t, err, &want)
 }
 
 // A datum *hash* output is not an inline datum and must be accepted.
@@ -410,26 +499,19 @@ func TestInlineDatumsPlutusV1_NeededScriptFromReferenceScriptRejected(
 	ref := testInput(0xb, 0)
 
 	tx := &BabbageTransaction{
-		Body: BabbageTransactionBody{
-			TxInputs: inputSet(spend),
-			TxReferenceInputs: cbor.NewSetType(
-				[]shelley.ShelleyTransactionInput{ref},
-				false,
-			),
-		},
+		Body: BabbageTransactionBody{TxInputs: inputSet(spend, ref)},
 		// Deliberately no witness scripts: the only copy of the V1 script is
-		// the reference script on the reference input below.
+		// the reference script on the second consumed input below.
 	}
 	err := runRule(t, tx, []common.Utxo{
-		// Spending a UTxO locked by the V1 script, carrying an inline datum.
-		utxo(spend, inlineDatumOutput(scriptAddr(t, v1))),
+		utxo(spend, plainOutput(scriptAddr(t, v1))),
 		utxo(ref, scriptRefOutput(keyAddr(t), v1)),
 	})
-	var want common.InlineDatumsNotSupportedError
+	var want PlutusV1ReferenceScriptsNotSupportedError
 	require.ErrorAs(
 		t,
 		err,
 		&want,
-		"a needed PlutusV1 script supplied by a reference script must be detected",
+		"a needed PlutusV1 script must reject translated reference scripts",
 	)
 }

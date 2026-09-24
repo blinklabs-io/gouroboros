@@ -84,6 +84,18 @@ func (e NonDisjointRefInputsError) Error() string {
 	)
 }
 
+type PlutusV1ReferenceInputsNotSupportedError struct{}
+
+func (PlutusV1ReferenceInputsNotSupportedError) Error() string {
+	return "reference inputs are not supported with PlutusV1 scripts in Babbage"
+}
+
+type PlutusV1ReferenceScriptsNotSupportedError struct{}
+
+func (PlutusV1ReferenceScriptsNotSupportedError) Error() string {
+	return "reference scripts are not supported in PlutusV1 Babbage transaction context"
+}
+
 // Delegation errors (alias to shelley types)
 type (
 	DelegateToUnregisteredPoolError              = shelley.DelegateToUnregisteredPoolError
