@@ -66,7 +66,13 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	default:
 		return nil, fmt.Errorf("%s: unknown message type %d", ProtocolName, msgType)
 	}
-	if _, err := cbor.Decode(data, ret); err != nil {
+	var err error
+	if votesOffer, ok := ret.(*MsgVotesOffer); ok {
+		err = votesOffer.UnmarshalCBOR(data)
+	} else {
+		_, err = cbor.Decode(data, ret)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
 	// Store the raw message CBOR

@@ -247,6 +247,18 @@ func TestMsgVotesOfferRejectsOversizedMessageBeforeParsing(t *testing.T) {
 	assert.Nil(t, msg)
 }
 
+func TestNewMsgFromCborBoundsVotesOfferBeforeGenericValidation(t *testing.T) {
+	t.Parallel()
+
+	// The declared vote count exceeds the limit and the body is intentionally
+	// truncated. The votes-offer parser must reject from the array header before
+	// a generic well-formedness pass scans the body.
+	data := []byte{0x82, MessageTypeVotesOffer, 0x99, 0x03, 0xe9}
+	msg, err := NewMsgFromCbor(MessageTypeVotesOffer, data)
+	require.ErrorContains(t, err, "maximum")
+	assert.Nil(t, msg)
+}
+
 func TestMsgVotesOfferMarshalRejectsOversizedBatch(t *testing.T) {
 	t.Parallel()
 
