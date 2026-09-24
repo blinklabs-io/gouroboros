@@ -103,6 +103,8 @@ type committeeCredentialLedgerState struct {
 	availabilityErr error
 	coldLookup      func(common.Credential) (*common.CommitteeMember, error)
 	hotLookup       func(common.Credential) (*common.CommitteeMember, error)
+	hotColdLookup   func(common.Credential) ([]common.Credential, error)
+	electedLookup   func(common.Credential) (bool, error)
 }
 
 type erroringCommitteeCredentialLedgerState struct {
@@ -158,6 +160,24 @@ func (s committeeCredentialLedgerState) CommitteeHotCredentialMember(
 	return s.hotLookup(credential)
 }
 
+func (s committeeCredentialLedgerState) CommitteeHotCredentialColdCredentials(
+	credential common.Credential,
+) ([]common.Credential, error) {
+	if s.hotColdLookup == nil {
+		return nil, nil
+	}
+	return s.hotColdLookup(credential)
+}
+
+func (s committeeCredentialLedgerState) CommitteeCredentialIsElected(
+	credential common.Credential,
+) (bool, error) {
+	if s.electedLookup == nil {
+		return false, nil
+	}
+	return s.electedLookup(credential)
+}
+
 func authoritativeLegacyCommitteeState(
 	ls common.LedgerState,
 ) common.LedgerState {
@@ -198,12 +218,12 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 	stakeKeyHash := common.Blake2b224Hash([]byte("withdrawal-stake-key"))
 	rewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
 	tx := &conway.ConwayTransaction{
+		TxIsValid: true,
 		Body: conway.ConwayTransactionBody{
 			TxWithdrawals: map[*common.Address]uint64{
 				&rewardAddr: 1_000_000,
 			},
 		},
-		TxIsValid: true,
 	}
 	baseState := mockledger.NewLedgerStateBuilder().
 		WithRewardAccountBalance(stakeKeyHash, 1_000_000).
@@ -3375,6 +3395,45 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 		assert.Contains(t, ccErr.Restriction, "NoConfidence")
 	})
 
+	t.Run("pre-PV11 rejects CC vote on UpdateCommittee", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+			Hash: common.Blake2b224{0x51},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&updateCommitteeActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, prePv11Params)
+		var ccErr conway.CCVotingRestrictionError
+		require.ErrorAs(t, err, &ccErr)
+		assert.Contains(t, ccErr.Restriction, "UpdateCommittee")
+	})
+
+	t.Run("pre-PV11 permits CC vote on allowed action", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x52},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&infoActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		require.NoError(t, conway.UtxoValidateCCVotingRestrictions(
+			tx, testSlot, testLedgerState, prePv11Params,
+		))
+	})
+
 	t.Run("nil action ID returns error", func(t *testing.T) {
 		voter := &common.Voter{
 			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
@@ -3396,6 +3455,258 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 		assert.True(t, errors.As(err, &ccErr))
 		assert.Contains(t, ccErr.Restriction, "nil action ID")
 	})
+}
+
+func TestUtxoValidateUnelectedCommitteeVoters(t *testing.T) {
+	hotHash := common.Blake2b224{0x41}
+	cold := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x42},
+	}
+	hot := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hotHash,
+	}
+	voter := &common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		Hash: hotHash,
+	}
+	action := common.GovActionId{TransactionId: common.Blake2b256{0x43}}
+	tx := &conway.ConwayTransaction{
+		TxIsValid: true,
+		Body: conway.ConwayTransactionBody{
+			TxVotingProcedures: common.VotingProcedures{
+				voter: {&action: common.VotingProcedure{Vote: 1}},
+			},
+		},
+	}
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11},
+	}
+	state := committeeCredentialLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		available:   true,
+		hotColdLookup: func(credential common.Credential) ([]common.Credential, error) {
+			if credential.CredType != hot.CredType ||
+				credential.Credential != hot.Credential {
+				t.Fatalf("unexpected hot credential: %+v", credential)
+			}
+			return []common.Credential{cold}, nil
+		},
+		electedLookup: func(credential common.Credential) (bool, error) {
+			return credential.CredType == cold.CredType &&
+				credential.Credential == cold.Credential, nil
+		},
+	}
+
+	require.NoError(t, conway.UtxoValidateUnelectedCommitteeVoters(tx, 0, state, pp))
+
+	state.electedLookup = func(common.Credential) (bool, error) { return false, nil }
+	var unelected conway.UnelectedCommitteeVoterError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateUnelectedCommitteeVoters(tx, 0, state, pp),
+		&unelected,
+	)
+}
+
+func TestUtxoValidateUnelectedCommitteeVotersThroughRules(t *testing.T) {
+	coldHash := common.Blake2b224{0x52}
+	hotHash := common.Blake2b224{0x53}
+	newHotHash := common.Blake2b224{0x54}
+	cold := common.Credential{
+		CredType: common.CredentialTypeAddrKeyHash, Credential: coldHash,
+	}
+	hot := common.Credential{
+		CredType: common.CredentialTypeAddrKeyHash, Credential: hotHash,
+	}
+	hotScript := common.Credential{
+		CredType: common.CredentialTypeScriptHash, Credential: hotHash,
+	}
+	newHot := common.Credential{
+		CredType: common.CredentialTypeAddrKeyHash, Credential: newHotHash,
+	}
+	infoAction := common.GovActionId{TransactionId: common.Blake2b256{0x55}}
+	govActions := map[string]*common.GovActionState{
+		fmt.Sprintf("%x#%d", infoAction.TransactionId[:], infoAction.GovActionIdx): {
+			ActionId: infoAction, ActionType: common.GovActionTypeInfo,
+		},
+	}
+	newTransaction := func(voterType uint8, voterHash common.Blake2b224, certs ...common.Certificate) *conway.ConwayTransaction {
+		wrappers := make([]common.CertificateWrapper, len(certs))
+		for i, cert := range certs {
+			wrappers[i] = common.CertificateWrapper{Certificate: cert}
+		}
+		return &conway.ConwayTransaction{
+			TxIsValid: true,
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: wrappers,
+				TxVotingProcedures: common.VotingProcedures{
+					&common.Voter{Type: voterType, Hash: voterHash}: {
+						&infoAction: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+	}
+	authorize := func(hotCredential common.Credential) common.Certificate {
+		return &common.AuthCommitteeHotCertificate{
+			CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+			ColdCredential: cold,
+			HotCredential:  hotCredential,
+		}
+	}
+	resign := common.Certificate(&common.ResignCommitteeColdCertificate{
+		CertType:       uint(common.CertificateTypeResignCommitteeCold),
+		ColdCredential: cold,
+	})
+
+	tests := []struct {
+		name                   string
+		major                  uint
+		voterType              uint8
+		voterHash              common.Blake2b224
+		certs                  []common.Certificate
+		elected                bool
+		pending                bool
+		authorizedHot          common.Credential
+		noInitialAuthorization bool
+		invalid                bool
+		wantUnelected          bool
+	}{
+		{
+			name: "PV10 authorized unelected enacted member", major: 10,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash,
+		},
+		{
+			name: "PV11 authorized unelected enacted member", major: 11,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash, wantUnelected: true,
+		},
+		{
+			name: "PV11 pending member", major: 11,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash, pending: true, wantUnelected: true,
+		},
+		{
+			name: "PV11 enacted voter", major: 11,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash, elected: true,
+		},
+		{
+			name: "PV11 auth certificate elects cold", major: 11,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash, certs: []common.Certificate{authorize(hot)},
+			elected: true, noInitialAuthorization: true,
+		},
+		{
+			name: "PV11 hot reassigned in transaction", major: 11,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash, certs: []common.Certificate{authorize(newHot)},
+			elected: true, wantUnelected: true,
+		},
+		{
+			name: "PV11 cold resigned in transaction", major: 11,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash, certs: []common.Certificate{resign},
+			elected: true, wantUnelected: true,
+		},
+		{
+			name: "PV11 script hot voter", major: 11,
+			voterType: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+			voterHash: hotHash, elected: true, authorizedHot: hotScript,
+		},
+		{
+			name: "PV11 key voter is not script hot", major: 11,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash, elected: true, authorizedHot: hotScript,
+			wantUnelected: true,
+		},
+		{
+			name: "invalid transaction skips restriction", major: 11,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash, invalid: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tx := newTransaction(tt.voterType, tt.voterHash, tt.certs...)
+			tx.TxIsValid = !tt.invalid
+			authorizedHot := tt.authorizedHot
+			if authorizedHot.CredType == 0 &&
+				authorizedHot.Credential == (common.Blake2b224{}) &&
+				!tt.noInitialAuthorization {
+				authorizedHot = hot
+			}
+			member := &common.CommitteeMember{ColdKey: coldHash, HotKey: &hotHash, ExpiryEpoch: 100}
+			ledgerBuilder := mockledger.NewLedgerStateBuilder().WithGovActions(govActions)
+			if tt.pending {
+				ledgerBuilder.WithProposedCommitteeMembers(map[common.Blake2b224]uint64{
+					coldHash: 100,
+				})
+			} else {
+				ledgerBuilder.WithCommitteeMembers([]common.CommitteeMember{*member})
+			}
+			state := committeeCredentialLedgerState{
+				LedgerState: ledgerBuilder.Build(),
+				available:   true,
+				coldLookup: func(credential common.Credential) (*common.CommitteeMember, error) {
+					if credential.CredType == cold.CredType && credential.Credential == cold.Credential {
+						return member, nil
+					}
+					return nil, nil
+				},
+				hotLookup: func(credential common.Credential) (*common.CommitteeMember, error) {
+					if (credential.CredType == hot.CredType && credential.Credential == hot.Credential) ||
+						(credential.CredType == hotScript.CredType && credential.Credential == hotScript.Credential) ||
+						(credential.CredType == newHot.CredType && credential.Credential == newHot.Credential) {
+						return member, nil
+					}
+					return nil, nil
+				},
+				hotColdLookup: func(credential common.Credential) ([]common.Credential, error) {
+					if tt.noInitialAuthorization {
+						return nil, nil
+					}
+					if credential.CredType == authorizedHot.CredType &&
+						credential.Credential == authorizedHot.Credential {
+						return []common.Credential{cold}, nil
+					}
+					return nil, nil
+				},
+				electedLookup: func(credential common.Credential) (bool, error) {
+					return credential.CredType == cold.CredType &&
+						credential.Credential == cold.Credential && tt.elected, nil
+				},
+			}
+			params := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: tt.major},
+			}
+			var rule common.UtxoValidationRuleFunc
+			for _, descriptor := range conway.UtxoValidationRuleDescriptors() {
+				if descriptor.Id == common.UtxoValidationRuleUnelectedCommitteeVoters {
+					rule = descriptor.Validator
+					break
+				}
+			}
+			require.NotNil(t, rule)
+			var ruleGroup common.UtxoValidationRuleGroup
+			if tt.invalid {
+				ruleGroup = common.AlwaysUtxoValidationRules(rule)
+			} else {
+				ruleGroup = common.Phase2ValidUtxoValidationRules(rule)
+			}
+			rules := common.ComposeUtxoValidationRules(ruleGroup)
+			err := common.VerifyTransaction(tx, 0, state, params, rules)
+			if tt.wantUnelected {
+				var unelected conway.UnelectedCommitteeVoterError
+				require.ErrorAs(t, err, &unelected)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestUtxoValidateCommitteeCertificates(t *testing.T) {
@@ -3677,7 +3988,7 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 		t.Run("resign then resign rejects", func(t *testing.T) {
 			var err error
 			err = validate(resign, resign)
-			var resigned conway.ResignedCommitteeMemberHotKeyError
+			var resigned conway.ResignedCommitteeMemberError
 			require.ErrorAs(t, err, &resigned)
 		})
 		t.Run("authorize then resign passes", func(t *testing.T) {
@@ -3686,6 +3997,68 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 		t.Run("authorize then authorize passes", func(t *testing.T) {
 			require.NoError(t, validate(authorize(hotCredential), authorize(secondHot)))
 		})
+	})
+}
+
+func TestUtxoValidateCommitteeCertificatesUsesSequentialState(t *testing.T) {
+	coldHash := common.Blake2b224Hash([]byte("committee-sequential-cold"))
+	cold := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: coldHash,
+	}
+	hot := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("committee-sequential-hot")),
+	}
+	certificate := func(cert common.Certificate) common.CertificateWrapper {
+		return common.CertificateWrapper{Certificate: cert}
+	}
+	authorize := func() common.Certificate {
+		return &common.AuthCommitteeHotCertificate{
+			CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+			ColdCredential: cold,
+			HotCredential:  hot,
+		}
+	}
+	resign := func() common.Certificate {
+		return &common.ResignCommitteeColdCertificate{
+			CertType:       uint(common.CertificateTypeResignCommitteeCold),
+			ColdCredential: cold,
+		}
+	}
+	ledgerState := authoritativeLegacyCommitteeState(
+		mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+			[]common.CommitteeMember{{ColdKey: coldHash, ExpiryEpoch: 100}},
+		).Build(),
+	)
+	validate := func(certs ...common.Certificate) error {
+		tx := &conway.ConwayTransaction{
+			TxIsValid: true,
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: make([]common.CertificateWrapper, 0, len(certs)),
+			},
+		}
+		for _, cert := range certs {
+			tx.Body.TxCertificates = append(tx.Body.TxCertificates, certificate(cert))
+		}
+		return conway.UtxoValidateCommitteeCertificates(
+			tx, 0, ledgerState, &conway.ConwayProtocolParameters{},
+		)
+	}
+
+	t.Run("resign then authorize rejects", func(t *testing.T) {
+		var err conway.ResignedCommitteeMemberHotKeyError
+		require.ErrorAs(t, validate(resign(), authorize()), &err)
+	})
+	t.Run("resign then resign rejects", func(t *testing.T) {
+		var err conway.ResignedCommitteeMemberError
+		require.ErrorAs(t, validate(resign(), resign()), &err)
+	})
+	t.Run("authorize then resign remains valid", func(t *testing.T) {
+		require.NoError(t, validate(authorize(), resign()))
+	})
+	t.Run("authorize then authorize remains valid", func(t *testing.T) {
+		require.NoError(t, validate(authorize(), authorize()))
 	})
 }
 

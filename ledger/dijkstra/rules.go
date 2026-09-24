@@ -288,6 +288,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateCCVotingRestrictions,
 	},
 	{
+		Id:        common.UtxoValidationRuleUnelectedCommitteeVoters,
+		Validator: UtxoValidateUnelectedCommitteeVoters,
+	},
+	{
 		Id:        common.UtxoValidationRuleRefScriptSizePerTx,
 		Validator: UtxoValidateRefScriptSizePerTx,
 	},
@@ -380,6 +384,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleBootstrapVotingRestrictions:  dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleStakePoolVotingRestrictions:  dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleCCVotingRestrictions:         dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleUnelectedCommitteeVoters:     dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleRefScriptSizePerTx:           dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRulePoolCertificates:             dijkstraUtxoValidationPhase2Valid,
 }
@@ -2010,6 +2015,21 @@ func UtxoValidateCCVotingRestrictions(
 		return err
 	}
 	return conway.UtxoValidateCCVotingRestrictions(tx, slot, ls, tmpPparams)
+}
+
+func UtxoValidateUnelectedCommitteeVoters(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	return conway.UtxoValidateUnelectedCommitteeVoters(
+		tx, slot, ls, tmpPparams,
+	)
 }
 
 func UtxoValidatePlutusScripts(

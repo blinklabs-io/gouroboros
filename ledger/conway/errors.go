@@ -483,6 +483,19 @@ type ResignedCommitteeMemberHotKeyError struct {
 	ColdCredential common.Credential
 }
 
+// ResignedCommitteeMemberError indicates an operation on a committee member
+// that was already resigned earlier in the same transaction.
+type ResignedCommitteeMemberError struct {
+	ColdCredential common.Credential
+}
+
+func (e ResignedCommitteeMemberError) Error() string {
+	return fmt.Sprintf(
+		"committee member %x is already resigned",
+		e.ColdCredential.Credential,
+	)
+}
+
 func (e ResignedCommitteeMemberHotKeyError) Error() string {
 	return fmt.Sprintf(
 		"cannot authorize hot key for resigned CC member: %x",
@@ -602,6 +615,20 @@ type CCVotingRestrictionError struct {
 	VoterId     common.Blake2b224
 	ActionId    common.GovActionId
 	Restriction string
+}
+
+// UnelectedCommitteeVoterError indicates a PV11+ vote by a committee hot
+// credential that is not authorized by an elected committee member.
+type UnelectedCommitteeVoterError struct {
+	Voter common.Voter
+}
+
+func (e UnelectedCommitteeVoterError) Error() string {
+	return fmt.Sprintf(
+		"committee voter is not elected: type=%d hash=%x",
+		e.Voter.Type,
+		e.Voter.Hash[:8],
+	)
 }
 
 func (e CCVotingRestrictionError) Error() string {
