@@ -584,39 +584,10 @@ func EncodeTransactionBodyWithRequiredFields(
 	body TransactionBody,
 	requiredFields []uint,
 ) ([]byte, error) {
-	cborData, err := EncodeTransactionBodyWithValidityIntervalUpperBound(body)
-	if err != nil {
-		return nil, err
-	}
-	fields := make(map[uint]cbor.RawMessage)
-	if _, err := cbor.Decode(cborData, &fields); err != nil {
-		return nil, err
-	}
-	added := false
-	for _, field := range requiredFields {
-		if _, ok := fields[field]; ok {
-			continue
-		}
-		var value any
-		switch field {
-		case 0, 1:
-			value = []any{}
-		case 2:
-			value = uint64(0)
-		default:
-			return nil, fmt.Errorf("no zero value for required transaction-body field %d", field)
-		}
-		encoded, err := cbor.Encode(value)
-		if err != nil {
-			return nil, err
-		}
-		fields[field] = encoded
-		added = true
-	}
-	if !added {
-		return cborData, nil
-	}
-	return cbor.Encode(fields)
+	return EncodeTransactionBodyWithValidityIntervalUpperBound(
+		body,
+		requiredFields...,
+	)
 }
 
 func (b *TransactionBodyBase) Id() Blake2b256 {
