@@ -722,9 +722,6 @@ func DecodeAuxiliaryDataForEra(
 			return nil, fmt.Errorf("decode tagged auxiliary-data fields: %w", err)
 		}
 		maxLanguage := uint(era-AuxiliaryDataEraAlonzo) + 1
-		if maxLanguage > 3 {
-			maxLanguage = 3
-		}
 		for field := range fields {
 			if field > 5 {
 				return nil, fmt.Errorf("unknown auxiliary-data field %d", field)

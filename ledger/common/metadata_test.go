@@ -193,7 +193,7 @@ func TestDecodeAuxiliaryDataForEraEnforcesPlutusLanguageBounds(t *testing.T) {
 		{name: "Conway V3", era: AuxiliaryDataEraConway, field: 4, valid: true},
 		{name: "Conway rejects V4", era: AuxiliaryDataEraConway, field: 5},
 		{name: "Dijkstra V3", era: AuxiliaryDataEraDijkstra, field: 4, valid: true},
-		{name: "Dijkstra rejects V4", era: AuxiliaryDataEraDijkstra, field: 5},
+		{name: "Dijkstra V4", era: AuxiliaryDataEraDijkstra, field: 5, valid: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
