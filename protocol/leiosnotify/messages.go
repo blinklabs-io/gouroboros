@@ -41,6 +41,14 @@ const (
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	if msgType == MessageTypeVotesOffer && len(data) > MaxVotesOfferBytes {
+		return nil, fmt.Errorf(
+			"%s: votes offer size %d exceeds maximum %d bytes",
+			ProtocolName,
+			len(data),
+			MaxVotesOfferBytes,
+		)
+	}
 	var ret protocol.Message
 	switch msgType {
 	case MessageTypeNotificationRequestNext:

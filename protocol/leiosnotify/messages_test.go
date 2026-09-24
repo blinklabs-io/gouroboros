@@ -241,13 +241,10 @@ func TestMsgVotesOfferRejectsOversizedMessageBeforeParsing(t *testing.T) {
 	t.Parallel()
 
 	data := bytes.Repeat([]byte{0xff}, MaxVotesOfferBytes+1)
-	var msg MsgVotesOffer
-	err := msg.UnmarshalCBOR(data)
+	msg, err := NewMsgFromCbor(MessageTypeVotesOffer, data)
 	require.ErrorContains(t, err, "exceeds maximum")
 	require.ErrorContains(t, err, "bytes")
-	assert.Empty(t, msg.Votes)
-	assert.Empty(t, msg.FullVotes)
-	assert.Empty(t, msg.PrototypeVotes)
+	assert.Nil(t, msg)
 }
 
 func TestMsgVotesOfferMarshalRejectsOversizedBatch(t *testing.T) {
