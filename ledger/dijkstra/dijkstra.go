@@ -2065,7 +2065,11 @@ func (t DijkstraTransaction) IsValid() bool {
 
 func (t DijkstraTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
-		return t.Inputs()
+		var ret []common.TransactionInput
+		for _, subTx := range t.Body.TxSubTransactions.Items() {
+			ret = append(ret, subTx.Body.Inputs()...)
+		}
+		return append(ret, t.Inputs()...)
 	}
 	return t.Collateral()
 }
@@ -2074,6 +2078,17 @@ func (t DijkstraTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		outputs := t.Outputs()
 		ret := make([]common.Utxo, 0, len(outputs))
+		for _, subTx := range t.Body.TxSubTransactions.Items() {
+			for idx, output := range subTx.Body.Outputs() {
+				ret = append(ret, common.Utxo{
+					Id: shelley.NewShelleyTransactionInput(
+						subTx.Body.Id().String(),
+						idx,
+					),
+					Output: output,
+				})
+			}
+		}
 		for idx, output := range outputs {
 			ret = append(
 				ret,

@@ -152,6 +152,54 @@ func TestDijkstraValueConservationCoversSubTransactions(t *testing.T) {
 	)
 }
 
+func TestDijkstraConsumedAndProducedIncludeSubTransactions(t *testing.T) {
+	childInput, _ := dijkstraSubUtxoInput(1)
+	parentInput, _ := dijkstraSubUtxoInput(2)
+	childOutput := dijkstraSubUtxoOutput(t, 1_000_000)
+	parentOutput := dijkstraSubUtxoOutput(t, 2_000_000)
+	tx := dijkstraSubUtxoTopLevelTx(
+		[]shelley.ShelleyTransactionInput{parentInput},
+		[]DijkstraTransactionOutput{parentOutput},
+	)
+	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{{
+		Body: DijkstraSubTransactionBody{
+			TxInputs:  conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{childInput}),
+			TxOutputs: []DijkstraTransactionOutput{childOutput},
+		},
+	}}, true)
+
+	require.Equal(t, []common.TransactionInput{childInput, parentInput}, tx.Consumed())
+	produced := tx.Produced()
+	require.Len(t, produced, 2)
+	require.Equal(t, tx.Body.TxSubTransactions.Items()[0].Body.Id(), produced[0].Id.Id())
+	require.Equal(t, uint32(0), produced[0].Id.Index())
+	require.Equal(t, childOutput.Output, produced[0].Output)
+	require.Equal(t, tx.Hash(), produced[1].Id.Id())
+	require.Equal(t, uint32(0), produced[1].Id.Index())
+	require.Equal(t, parentOutput.Output, produced[1].Output)
+}
+
+func TestDijkstraInvalidConsumedAndProducedUseCollateralOnly(t *testing.T) {
+	collateral, _ := dijkstraSubUtxoInput(3)
+	childInput, _ := dijkstraSubUtxoInput(4)
+	collateralReturn := dijkstraSubUtxoOutput(t, 500_000)
+	tx := dijkstraSubUtxoTopLevelTx(
+		[]shelley.ShelleyTransactionInput{childInput},
+		[]DijkstraTransactionOutput{dijkstraSubUtxoOutput(t, 1_000_000)},
+	)
+	tx.TxIsValid = false
+	tx.Body.TxCollateral = cbor.NewSetType([]shelley.ShelleyTransactionInput{collateral}, true)
+	tx.Body.TxCollateralReturn = &collateralReturn
+	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{{
+		Body: DijkstraSubTransactionBody{TxInputs: conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{childInput})},
+	}}, true)
+
+	require.Equal(t, []common.TransactionInput{collateral}, tx.Consumed())
+	produced := tx.Produced()
+	require.Len(t, produced, 1)
+	require.Equal(t, collateralReturn.Output, produced[0].Output)
+}
+
 func TestDijkstraOutsideForecastChecksChildForBothValidityOutcomes(
 	t *testing.T,
 ) {
