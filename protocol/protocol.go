@@ -718,7 +718,8 @@ func (p *Protocol) SendError(err error) {
 }
 
 // flushQueuedStateTransitions applies each deferred pipelined-send state
-// transition in send order, stopping at the first error. The messages were
+// transition in send order, stopping at the first error, which names the
+// deferred message whose transition failed. The messages were
 // already written to the wire earlier (while the peer held agency), so their
 // transitions must be applied before any later message's own transition.
 func (p *Protocol) flushQueuedStateTransitions(
@@ -728,6 +729,12 @@ func (p *Protocol) flushQueuedStateTransitions(
 	applied := 0
 	for _, msg := range queuedStateTransitions {
 		if err = p.transitionState(msg); err != nil {
+			err = fmt.Errorf(
+				"%s: error applying deferred transition for message type %d: %w",
+				p.config.Name,
+				msg.Type(),
+				err,
+			)
 			break
 		}
 		applied++
@@ -787,7 +794,8 @@ func (p *Protocol) errPipelinedMessageNotAllowed(
 // role to agency before the decision below; when that happens and the
 // pass applied at least one entry, the flush is repeated rather than the
 // message rejected. A backlog that makes no progress in a state where this
-// role holds agency is a genuine ordering violation.
+// role holds agency is a genuine ordering violation, reported against the
+// deferred message whose transition failed.
 //
 // A flushed transition applies through the same setState this function's
 // own entry token came from, so it can grant this role a fresh token of its
@@ -897,6 +905,10 @@ func (p *Protocol) resolvePipelinedDequeue(
 			}
 		} else if progressed {
 			continue
+		} else {
+			// This role holds agency and the backlog head still cannot
+			// apply: the deferred message is the one out of order.
+			return nil, haveAgency, flushErr
 		}
 		return nil, haveAgency, p.errPipelinedMessageNotAllowed(
 			postFlushState,

@@ -1123,3 +1123,50 @@ func TestResolvePipelinedDequeueResumesFlushAfterPeerReplyToPartialFlush(
 	default:
 	}
 }
+
+// TestResolvePipelinedDequeueReportsFailingDeferredTransition asserts that
+// when the backlog cannot flush in a state where this role holds agency, the
+// error names the deferred message whose transition failed, not the message
+// that happened to be dequeued.
+func TestResolvePipelinedDequeueReportsFailingDeferredTransition(t *testing.T) {
+	t.Parallel()
+
+	const msgTypeRequest uint8 = 2
+	const msgTypeBatchDone uint8 = 3
+	const msgTypeOther uint8 = 4
+	busy := NewState(1, "Busy")
+	idle := NewState(2, "Idle")
+	stateMap := StateMap{
+		busy: StateMapEntry{
+			Agency:                AgencyServer,
+			AllowPipelinedSend:    true,
+			PipelinedMessageTypes: []uint8{msgTypeRequest},
+			Transitions: []StateTransition{
+				{MsgType: msgTypeBatchDone, NewState: idle},
+			},
+		},
+		idle: StateMapEntry{
+			Agency: AgencyClient,
+			Transitions: []StateTransition{
+				{MsgType: msgTypeOther, NewState: busy},
+			},
+		},
+	}
+	p, _ := newStateLoopOnlyProtocol(t, stateMap, busy)
+	queuedStateTransitions := []Message{
+		&MessageBase{MessageType: msgTypeRequest},
+	}
+	require.NoError(
+		t,
+		p.transitionState(&MessageBase{MessageType: msgTypeBatchDone}),
+	)
+
+	_, _, err := p.resolvePipelinedDequeue(
+		&outboundMessage{message: &MessageBase{MessageType: msgTypeOther}},
+		false,
+		&queuedStateTransitions,
+	)
+	require.ErrorContains(t, err, "deferred transition for message type 2")
+	require.ErrorContains(t, err, "not allowed in current protocol state Idle")
+	require.NotContains(t, err.Error(), "message type 4")
+}
