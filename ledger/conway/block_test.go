@@ -222,3 +222,29 @@ func BenchmarkConwayBlockSerialization(b *testing.B) {
 		_ = block.Cbor()
 	}
 }
+
+func TestConwayBlockAlignsOrderedInvalidTransactionIndexes(t *testing.T) {
+	tests := []struct {
+		name    string
+		indexes []uint
+		valid   []bool
+	}{
+		{name: "duplicate index", indexes: []uint{0, 0}, valid: []bool{false, false}},
+		{name: "descending indexes", indexes: []uint{1, 0}, valid: []bool{true, false}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			block := conway.ConwayBlock{
+				TransactionBodies:      make([]conway.ConwayTransactionBody, 2),
+				TransactionWitnessSets: make([]conway.ConwayTransactionWitnessSet, 2),
+				InvalidTransactions:    tt.indexes,
+			}
+			transactions := block.Transactions()
+			for i, transaction := range transactions {
+				if got := transaction.IsValid(); got != tt.valid[i] {
+					t.Errorf("transaction %d validity: got %v, want %v", i, got, tt.valid[i])
+				}
+			}
+		})
+	}
+}

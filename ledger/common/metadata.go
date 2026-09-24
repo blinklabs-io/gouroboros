@@ -634,6 +634,21 @@ func (s TransactionMetadataSet) GetRawMetadata(
 	return val, ok
 }
 
+// ValidateIndices rejects auxiliary-data entries that do not correspond to a
+// transaction in the block.
+func (s TransactionMetadataSet) ValidateIndices(transactionCount int) error {
+	for index := range s.data {
+		if index >= uint(transactionCount) {
+			return fmt.Errorf(
+				"auxiliary-data index %d outside transaction list length %d",
+				index,
+				transactionCount,
+			)
+		}
+	}
+	return nil
+}
+
 type AuxiliaryData interface {
 	// Metadata returns the transaction metadata, if present
 	Metadata() (TransactionMetadatum, error)
