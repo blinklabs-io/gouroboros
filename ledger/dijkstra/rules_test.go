@@ -36,6 +36,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDijkstraMetadataRuleAcceptsConwayTransactionsWithDijkstraParams(t *testing.T) {
+	tx := &conway.ConwayTransaction{}
+	pp := &DijkstraProtocolParameters{}
+
+	require.NoError(t, UtxoValidateMetadata(tx, 0, nil, pp))
+}
+
 func dijkstraValidationRuleName(rule common.UtxoValidationRuleFunc) string {
 	return runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).Name()
 }
