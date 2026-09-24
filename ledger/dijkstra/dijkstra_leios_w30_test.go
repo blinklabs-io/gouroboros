@@ -83,9 +83,6 @@ func stripLegacyAccountBalanceIntervals(t *testing.T, txCbor []byte) []byte {
 	_, err = cbor.Decode(txParts[0], &bodyFields)
 	require.NoError(t, err)
 	delete(bodyFields, 26)
-	delete(bodyFields, 7)
-	txParts[2], err = cbor.Encode(nil)
-	require.NoError(t, err)
 	if subTxRaw, exists := bodyFields[23]; exists {
 		var subTxs cbor.SetType[cbor.RawMessage]
 		_, err = cbor.Decode(subTxRaw, &subTxs)
@@ -100,9 +97,6 @@ func stripLegacyAccountBalanceIntervals(t *testing.T, txCbor []byte) []byte {
 			_, err = cbor.Decode(subParts[0], &subBody)
 			require.NoError(t, err)
 			delete(subBody, 26)
-			delete(subBody, 7)
-			subParts[2], err = cbor.Encode(nil)
-			require.NoError(t, err)
 			subParts[0], err = cbor.Encode(subBody)
 			require.NoError(t, err)
 			items[index], err = cbor.Encode(subParts)
