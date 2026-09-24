@@ -87,6 +87,36 @@ type Protocol struct {
 	pendingRecvSizes    []int // Track sizes of pending received messages for accurate decrement
 	currentStateMu      sync.RWMutex
 	currentState        State
+	// pipelinedDequeueHook, when non-nil, is invoked by sendLoop immediately
+	// after dequeuing a message through the pipelined-send path, before the
+	// state re-check that decides eligibility or promotion (see
+	// resolvePipelinedDequeue). It exists only to let a test deterministically
+	// land a concurrent stateLoop transition inside that window, which is
+	// otherwise a genuine data race and cannot be forced without it.
+	// Production code never sets this.
+	pipelinedDequeueHook func()
+	// resolvePipelinedDequeuePostFlushHook, when non-nil, is invoked by
+	// resolvePipelinedDequeue immediately before its post-flush drain of
+	// sendReadyChan and the state read that decides this call's outcome
+	// (see observeStateAndDrainSendReady). It exists only to let a test
+	// position a concurrent stateLoop transition -- one independent of this
+	// call's own flush, e.g. standing in for recvLoop handling a real peer
+	// reply -- as close as possible to that decision point; the window is a
+	// few adjacent statements wide and a real reproduction only lands it
+	// probabilistically. Production code never sets this.
+	resolvePipelinedDequeuePostFlushHook func()
+	// batchRecheckHook, when non-nil, is invoked by sendLoop's readSendQueueLoop
+	// immediately before it re-reads the current state to decide whether a
+	// message batched behind an earlier pipelined-dequeue message (one fetched
+	// directly from sendQueueChan rather than through resolvePipelinedDequeue)
+	// may have its transition applied immediately. It exists only to let a
+	// test deterministically land a concurrent stateLoop transition inside
+	// that window -- otherwise a genuine data race -- so the batch's own
+	// currentState read observes a state that legitimately grants this role
+	// agency while earlier messages in the same batch still have their
+	// transitions deferred in queuedStateTransitions. Production code never
+	// sets this.
+	batchRecheckHook func()
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -166,9 +196,10 @@ type protocolStateTransition struct {
 }
 
 type outboundMessage struct {
-	message      Message
-	data         []byte
-	deliveryChan chan error
+	message       Message
+	data          []byte
+	deliveryChan  chan error
+	waitForAgency bool
 }
 
 // MessageHandlerFunc represents a function that handles an incoming message
@@ -408,24 +439,120 @@ func (p *Protocol) getCurrentState() State {
 	return p.currentState
 }
 
+// observeStateAndDrainSendReady atomically drains any pending sendReadyChan
+// token and reads the current state as a single critical section under
+// currentStateMu -- the same lock stateLoop's setState now holds across its
+// own state write and token write (see stateLoop). That pairing is what
+// makes this call safe against a concurrent transition landing between a
+// drain and a state read taken as two separate steps: this call's critical
+// section can only run entirely before a given setState call or entirely
+// after it, never interleaved with it, so it either sees the old state with
+// nothing to drain, or the new state with that state's own token already in
+// the channel (if the new state's agency produces one at all) ready to be
+// drained here. Used by resolvePipelinedDequeue's post-flush decision,
+// where the prior two-step version could leak a token produced by a
+// concurrent recvLoop-driven transition -- not only this call's own flush
+// -- into a later, unrelated sendLoop iteration (blinklabs-io/gouroboros#2494).
+func (p *Protocol) observeStateAndDrainSendReady() State {
+	p.currentStateMu.Lock()
+	defer p.currentStateMu.Unlock()
+	select {
+	case <-p.sendReadyChan:
+	default:
+	}
+	return p.currentState
+}
+
 // pipelinedSendAllowed reports whether the current state permits our role to
 // write queued messages while the peer holds agency. Only the role without
 // agency in the state pipelines; the role with agency uses the normal path.
 func (p *Protocol) pipelinedSendAllowed() bool {
-	entry, ok := p.config.StateMap[p.getCurrentState()]
-	if !ok || !entry.AllowPipelinedSend {
-		return false
+	return p.roleMayPipeline(p.config.StateMap[p.getCurrentState()])
+}
+
+// agencyHolder identifies which side may send in a state.
+type agencyHolder int
+
+const (
+	agencyNeither agencyHolder = iota
+	agencyLocal
+	agencyPeer
+)
+
+// agencyHolderFor maps a state's agency onto this protocol's role. It is the
+// single source of that mapping for stateLoop's ready signals, the pipelining
+// check, and the agency checks in sendLoop, so they cannot disagree.
+func (p *Protocol) agencyHolderFor(entry StateMapEntry) agencyHolder {
+	var local ProtocolStateAgency
+	switch p.config.Role {
+	case ProtocolRoleClient:
+		local = AgencyClient
+	case ProtocolRoleServer:
+		local = AgencyServer
+	case ProtocolRoleNone:
+		return agencyNeither
+	default:
+		return agencyNeither
 	}
 	switch entry.Agency {
-	case AgencyClient:
-		return p.config.Role == ProtocolRoleServer
-	case AgencyServer:
-		return p.config.Role == ProtocolRoleClient
+	case AgencyClient, AgencyServer:
+		if entry.Agency == local {
+			return agencyLocal
+		}
+		return agencyPeer
 	case AgencyNone:
-		return false
+		return agencyNeither
 	default:
-		return false
+		return agencyNeither
 	}
+}
+
+// roleMayPipeline reports whether this role may write while the peer holds
+// agency in the state described by entry.
+func (p *Protocol) roleMayPipeline(entry StateMapEntry) bool {
+	return entry.AllowPipelinedSend && p.agencyHolderFor(entry) == agencyPeer
+}
+
+// roleHasAgency reports whether this role holds ordinary send agency in the
+// state described by entry.
+func (p *Protocol) roleHasAgency(entry StateMapEntry) bool {
+	return p.agencyHolderFor(entry) == agencyLocal
+}
+
+// messageHasAgencyTransition reports whether msg is legal as an ordinary send
+// from any state where this role holds agency. It is only reached when a
+// message cannot be sent immediately, never on the steady-state send path.
+func (p *Protocol) messageHasAgencyTransition(msg Message) bool {
+	for _, entry := range p.config.StateMap {
+		if !p.roleHasAgency(entry) {
+			continue
+		}
+		for _, transition := range entry.Transitions {
+			if transition.MsgType == msg.Type() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// takeAgencyToken reads the current state and, when this role holds agency
+// there, consumes the sendReadyChan token setState deposited for it, as one
+// critical section under currentStateMu. It is for a caller about to apply a
+// transition from that state without waiting on sendReadyChan.
+func (p *Protocol) takeAgencyToken() (State, StateMapEntry, bool) {
+	p.currentStateMu.Lock()
+	defer p.currentStateMu.Unlock()
+	state := p.currentState
+	entry := p.config.StateMap[state]
+	if !p.roleHasAgency(entry) {
+		return state, entry, false
+	}
+	select {
+	case <-p.sendReadyChan:
+	default:
+	}
+	return state, entry, true
 }
 
 // SendMessage appends a message to the send queue
@@ -597,6 +724,206 @@ func (p *Protocol) SendError(err error) {
 	p.Stop()
 }
 
+// flushQueuedStateTransitions applies each deferred pipelined-send state
+// transition in send order, stopping at the first error, which names the
+// deferred message whose transition failed. The messages were
+// already written to the wire earlier (while the peer held agency), so their
+// transitions must be applied before any later message's own transition.
+func (p *Protocol) flushQueuedStateTransitions(
+	queuedStateTransitions []Message,
+) ([]Message, error) {
+	var err error
+	applied := 0
+	for _, msg := range queuedStateTransitions {
+		if err = p.transitionState(msg); err != nil {
+			err = fmt.Errorf(
+				"%s: error applying deferred transition for message type %d: %w",
+				p.config.Name,
+				msg.Type(),
+				err,
+			)
+			break
+		}
+		applied++
+	}
+	return slices.Delete(queuedStateTransitions, 0, applied), err
+}
+
+// pipelinedMessageFits reports whether msg is still eligible for the
+// pipelined-send path in the state described by entry.
+func pipelinedMessageFits(entry StateMapEntry, msg Message) bool {
+	return slices.Contains(entry.PipelinedMessageTypes, msg.Type())
+}
+
+// errPipelinedMessageNotAllowed reports that msg fits neither the pipelined
+// path nor an ordinary transition in state.
+func (p *Protocol) errPipelinedMessageNotAllowed(
+	state State,
+	msg Message,
+) error {
+	return fmt.Errorf(
+		"%s: message type %d is not allowed while pipelined in state %s",
+		p.config.Name,
+		msg.Type(),
+		state,
+	)
+}
+
+// resolvePipelinedDequeue decides how to handle a message dequeued through
+// the pipelined-send path once its type is checked against the *current*
+// protocol state, which can legitimately have advanced since
+// pipelinedSendAllowed() was last checked at the top of the loop -- e.g. the
+// peer's own terminal event (a block-fetch BatchDone) moving
+// Busy/Streaming to Idle while a message pipelined earlier is still queued.
+//
+// If the message is still valid for the pipelined path in the current
+// state, it is returned unchanged for the pipelined send below. If this
+// role has no ordinary send agency in the current state either, the
+// message is a genuine caller ordering violation and is rejected.
+//
+// Otherwise a real stateLoop transition landed concurrently and granted
+// this role ordinary send agency: setState put a token on sendReadyChan for
+// it (see setState's AgencyClient/AgencyServer cases), and this dequeue --
+// having taken the pipelined path instead of waking via that channel -- has
+// not consumed it. The message is held here rather than promoted in place,
+// so its fate is decided against the state the protocol actually settles in
+// once any deferred work finishes, not the state this dequeue started in.
+//
+// Any transitions deferred by earlier pipelined sends are flushed as far as
+// the current real state allows before that decision is made. Each
+// deferred transition needs its own real round trip with the peer, so a
+// backlog more than one message deep can only be partly flushed by the
+// single concurrent transition that landed here -- flushQueuedStateTransitions
+// stopping partway through and returning the remainder is an expected
+// outcome, not a fatal error; only a shutdown signal from the flush is
+// fatal here. The flush's own transition into a peer-agency state releases
+// recvLoop, so the peer's reply to a just-flushed message can return this
+// role to agency before the decision below; when that happens and the
+// pass applied at least one entry, the flush is repeated rather than the
+// message rejected. A backlog that makes no progress in a state where this
+// role holds agency is a genuine ordering violation, reported against the
+// deferred message whose transition failed.
+//
+// A flushed transition applies through the same setState this function's
+// own entry token came from, so it can grant this role a fresh token of its
+// own for any state the flush passes through, not only the one it finally
+// settles in -- sendReadyChan holds at most one token regardless of how
+// many transitions produce one, so a drain after the flush clears whichever
+// is pending, if any. Left undrained, it would outlive this function and be
+// misread as a grant for an unrelated state once the loop runs again.
+//
+// That drain and the state read that follows it are taken together via
+// observeStateAndDrainSendReady, as a single critical section under
+// currentStateMu, rather than as two independent steps. A concurrent
+// transition is not only this function's own flush: recvLoop can process a
+// genuine, independent peer reply at any point while this function runs,
+// including in the gap between a drain and a state read taken separately.
+// Reading the two under the same lock setState uses for its own state-and-token
+// write means such a transition can never leave its token visible without
+// its state also being visible here, or the reverse -- this call's critical
+// section is entirely before that setState call or entirely after it, never
+// interleaved with it.
+//
+// The message is then re-checked against the state the flush actually
+// reached: pipelined again there, promoted to an ordinary transition there,
+// held for agency when the peer holds it there and the message is legal from
+// some state where this role holds agency (the same rule as before the
+// flush), or otherwise rejected, naming the settled state rather than the
+// stale one this dequeue started with. Promotion additionally requires the
+// backlog to be fully drained: sendLoop applies any remaining queued
+// transition before it ever sends a promoted message and loops without
+// sending it, so promoting here while a remainder is still queued would
+// silently drop the message.
+func (p *Protocol) resolvePipelinedDequeue(
+	outbound *outboundMessage,
+	haveAgency bool,
+	queuedStateTransitions *[]Message,
+) (*outboundMessage, bool, error) {
+	currentState := p.getCurrentState()
+	currentEntry := p.config.StateMap[currentState]
+	if pipelinedMessageFits(currentEntry, outbound.message) {
+		return outbound, haveAgency, nil
+	}
+	if !p.roleHasAgency(currentEntry) {
+		if p.messageHasAgencyTransition(outbound.message) {
+			outbound.waitForAgency = true
+			return outbound, haveAgency, nil
+		}
+		return nil, haveAgency, p.errPipelinedMessageNotAllowed(
+			currentState,
+			outbound.message,
+		)
+	}
+
+	// Drain the agency token the concurrent transition produced before
+	// doing anything else with this message.
+	select {
+	case <-p.stopChan:
+		return nil, haveAgency, ErrProtocolShuttingDown
+	case <-p.recvDoneChan:
+		return nil, haveAgency, ErrProtocolShuttingDown
+	case <-p.sendReadyChan:
+	}
+
+	// Each pass that ends with this role holding agency and a backlog still
+	// queued must have applied at least one entry, so the loop is bounded by
+	// the backlog length. Continuing is safe only because this role holds
+	// agency in the observed state: the peer cannot move it before the next
+	// pass's flush.
+	for {
+		before := len(*queuedStateTransitions)
+		remaining, flushErr := p.flushQueuedStateTransitions(
+			*queuedStateTransitions,
+		)
+		*queuedStateTransitions = remaining
+		if errors.Is(flushErr, ErrProtocolShuttingDown) {
+			return nil, haveAgency, flushErr
+		}
+		progressed := len(remaining) < before
+
+		if p.resolvePipelinedDequeuePostFlushHook != nil {
+			p.resolvePipelinedDequeuePostFlushHook()
+		}
+		// Drain any post-flush token and read the resulting state as a
+		// single atomic step (see observeStateAndDrainSendReady above): a
+		// token here could come from this function's own flush, or from an
+		// entirely independent, concurrent stateLoop transition -- e.g.
+		// recvLoop handling a real peer reply -- and either way it must not
+		// be observable separately from the state it belongs to.
+		postFlushState := p.observeStateAndDrainSendReady()
+		postFlushEntry := p.config.StateMap[postFlushState]
+		if pipelinedMessageFits(postFlushEntry, outbound.message) {
+			return outbound, haveAgency, nil
+		}
+		if !p.roleHasAgency(postFlushEntry) {
+			// Same outcome as the pre-flush check above: the flush can hand
+			// agency back to the peer, and a message legal once agency
+			// returns is held rather than rejected.
+			if p.messageHasAgencyTransition(outbound.message) {
+				outbound.waitForAgency = true
+				return outbound, haveAgency, nil
+			}
+		} else if len(*queuedStateTransitions) == 0 {
+			if _, err := p.nextState(
+				postFlushState,
+				outbound.message,
+			); err == nil {
+				return outbound, true, nil
+			}
+		} else if progressed {
+			continue
+		} else {
+			// This role holds agency and the backlog head still cannot
+			// apply: the deferred message is the one out of order.
+			return nil, haveAgency, flushErr
+		}
+		return nil, haveAgency, p.errPipelinedMessageNotAllowed(
+			postFlushState,
+			outbound.message,
+		)
+	}
+}
+
 // recoverLoop is the panic backstop for the goroutines this protocol runs. It
 // must be deferred directly so that recover sees the panic.
 //
@@ -657,6 +984,7 @@ func (p *Protocol) sendLoop() {
 	defer p.recoverLoop("send loop")
 
 	var queuedStateTransitions []Message
+	var pipelinedOutbound *outboundMessage
 waitSendReadyChan:
 	for {
 		// haveAgency records that we were woken because the state map granted
@@ -666,8 +994,29 @@ waitSendReadyChan:
 		// pipelinedOutbound holds a message dequeued through the pipelined
 		// send path. Its state transition, and those of any messages batched
 		// behind it, are deferred until agency returns.
-		var pipelinedOutbound *outboundMessage
-		if p.pipelinedSendAllowed() {
+		//
+		// A held message stays held on pipelinedOutbound != nil alone, not on
+		// waitForAgency: once the select below consumes a sendReadyChan token
+		// for it, waitForAgency is cleared, but a non-empty
+		// queuedStateTransitions backlog below may still force this loop
+		// around again (the "Check for queued state transitions" continue)
+		// before the read-send-queue section ever reaches pipelinedOutbound
+		// to send it. Gating on waitForAgency alone would let that next
+		// iteration fall through to the pipelinedSendAllowed() branch instead,
+		// which reads sendQueueChan and would silently overwrite
+		// pipelinedOutbound with a newly dequeued message -- dropping the
+		// held one (blinklabs-io/gouroboros#2494).
+		if pipelinedOutbound != nil {
+			select {
+			case <-p.stopChan:
+				return
+			case <-p.recvDoneChan:
+				return
+			case <-p.sendReadyChan:
+				haveAgency = true
+				pipelinedOutbound.waitForAgency = false
+			}
+		} else if p.pipelinedSendAllowed() {
 			select {
 			case <-p.stopChan:
 				return
@@ -683,19 +1032,34 @@ waitSendReadyChan:
 					return
 				}
 				tmpOutbound := outbound
-				if !slices.Contains(
-					p.config.StateMap[p.getCurrentState()].PipelinedMessageTypes,
-					outbound.message.Type(),
-				) {
-					p.SendError(fmt.Errorf(
-						"%s: message type %d is not allowed while pipelined in state %s",
-						p.config.Name,
-						outbound.message.Type(),
-						p.getCurrentState(),
-					))
+				if p.pipelinedDequeueHook != nil {
+					p.pipelinedDequeueHook()
+				}
+				var err error
+				pipelinedOutbound, haveAgency, err = p.resolvePipelinedDequeue(
+					&tmpOutbound,
+					haveAgency,
+					&queuedStateTransitions,
+				)
+				if err != nil {
+					if errors.Is(err, ErrProtocolShuttingDown) {
+						return
+					}
+					p.SendError(err)
 					return
 				}
-				pipelinedOutbound = &tmpOutbound
+				if pipelinedOutbound != nil && pipelinedOutbound.waitForAgency {
+					// resolvePipelinedDequeue decided this message must wait
+					// for real agency: it neither fits the pipelined path nor
+					// may be sent yet as an ordinary transition. Loop back to
+					// the top immediately rather than falling through into
+					// the read-send-queue section below, which treats any
+					// non-nil pipelinedOutbound as ready to write regardless
+					// of waitForAgency and would put it on the wire right now
+					// while the peer still holds agency
+					// (blinklabs-io/gouroboros#2494).
+					continue waitSendReadyChan
+				}
 			}
 		} else {
 			select {
@@ -746,6 +1110,7 @@ waitSendReadyChan:
 		for {
 			// Get next message from send queue
 			var outbound outboundMessage
+			fromPipelinedDequeue := pipelinedOutbound != nil
 			if pipelinedOutbound != nil {
 				outbound = *pipelinedOutbound
 				pipelinedOutbound = nil
@@ -765,6 +1130,56 @@ waitSendReadyChan:
 				}
 			}
 			msg := outbound.message
+			if queueTransition && !fromPipelinedDequeue {
+				if p.batchRecheckHook != nil {
+					p.batchRecheckHook()
+				}
+				// takeAgencyToken consumes the token setState deposited for
+				// currentState only when the backlog is empty and this role
+				// holds agency there, i.e. exactly when msg's transition is
+				// applied below without waiting on sendReadyChan. Left in
+				// the channel, that token would wake a later iteration in
+				// whatever state msg's transition leads to.
+				var currentState State
+				var currentEntry StateMapEntry
+				bypassDeferral := false
+				if len(queuedStateTransitions) == 0 {
+					currentState, currentEntry, bypassDeferral = p.takeAgencyToken()
+				} else {
+					currentState = p.getCurrentState()
+					currentEntry = p.config.StateMap[currentState]
+				}
+				// Bypassing deferral here applies msg's transition
+				// immediately via transitionState below instead of queueing
+				// it. That is only safe when queuedStateTransitions is empty:
+				// an earlier message in this same batch may already be
+				// waiting there for its own deferred transition, and
+				// currentState can reflect a real, concurrent transition
+				// (e.g. a peer reply) that has nothing to do with that
+				// backlog. Applying msg's transition ahead of it would run
+				// transitions out of the order the messages were sent in and
+				// leave the backlog's own agency token undrained -- the same
+				// token/state pairing problem this whole fix exists to
+				// prevent (blinklabs-io/gouroboros#2494). When the backlog is
+				// non-empty this falls through to the ordinary
+				// pipelined-or-wait-for-agency handling below instead.
+				if bypassDeferral {
+					queueTransition = false
+				} else if !p.roleMayPipeline(currentEntry) ||
+					!pipelinedMessageFits(currentEntry, msg) {
+					if !p.messageHasAgencyTransition(msg) {
+						p.SendError(p.errPipelinedMessageNotAllowed(currentState, msg))
+						return
+					}
+					// Keep the message for the next agency window. Earlier
+					// transitions in this batch may return agency before this
+					// message becomes legal (for example, Done after RequestNext).
+					tmpOutbound := outbound
+					tmpOutbound.waitForAgency = true
+					pipelinedOutbound = &tmpOutbound
+					break readSendQueueLoop
+				}
+			}
 			msgCount = msgCount + 1
 
 			data := outbound.data
@@ -1233,45 +1648,43 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		}
 		transitionTimer = nil
 
-		// Set the new state
+		// Set the new state and, in the same critical section, mark the
+		// protocol ready to send/receive based on the new state's role and
+		// agency. Folding the sendReadyChan/recvReadyChan signal into the
+		// same lock as the state write is what makes
+		// observeStateAndDrainSendReady's paired read-and-drain sound: any
+		// caller taking currentStateMu is now guaranteed to see this whole
+		// state transition -- state and its token together -- or none of
+		// it, never a state visible with its token still pending. Before
+		// this, the token write happened after Unlock with no
+		// synchronization of its own, so a concurrent reader could observe
+		// the new state via currentStateMu while the token that belongs to
+		// it had not yet been written, and a non-blocking drain taken just
+		// before that reader's state read would miss it entirely --
+		// stranding the token to be misread by a later, unrelated
+		// sendLoop iteration as agency for a different state (see
+		// resolvePipelinedDequeue and blinklabs-io/gouroboros#2494).
 		p.currentStateMu.Lock()
 		p.currentState = s
+		skipTimeout := false
+		switch p.agencyHolderFor(p.config.StateMap[s]) {
+		case agencyLocal:
+			select {
+			case p.sendReadyChan <- true:
+			default:
+			}
+		case agencyPeer:
+			select {
+			case p.recvReadyChan <- true:
+			default:
+			}
+		case agencyNeither:
+			skipTimeout = true
+		}
 		p.currentStateMu.Unlock()
 
-		// Mark protocol as ready to send/receive based on role and agency of the new state
-		switch p.config.StateMap[s].Agency {
-		case AgencyNone:
+		if skipTimeout {
 			return
-		case AgencyClient:
-			switch p.config.Role {
-			case ProtocolRoleNone:
-				return
-			case ProtocolRoleClient:
-				select {
-				case p.sendReadyChan <- true:
-				default:
-				}
-			case ProtocolRoleServer:
-				select {
-				case p.recvReadyChan <- true:
-				default:
-				}
-			}
-		case AgencyServer:
-			switch p.config.Role {
-			case ProtocolRoleNone:
-				return
-			case ProtocolRoleServer:
-				select {
-				case p.sendReadyChan <- true:
-				default:
-				}
-			case ProtocolRoleClient:
-				select {
-				case p.recvReadyChan <- true:
-				default:
-				}
-			}
 		}
 
 		// Don't activate timeouts on initial protocol state unless explicitly
