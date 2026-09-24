@@ -492,21 +492,17 @@ func (f ByronGenesisFtsSeed) MarshalJSON() ([]byte, error) {
 	return json.Marshal(f.Value)
 }
 
-// GenesisDelegateKeyHashes returns the Blake2b-224 hashes of the genesis delegate
-// keys, sorted for deterministic OBFT slot leader assignment.
-//
-// The key hashes are extracted directly from the HeavyDelegation map keys,
-// which are hex-encoded Blake2b-224 hashes (same format as BootStakeholders).
-// The ordering is by the hex-encoded key hash (lexicographic), which matches
-// how Byron determines the slot leader rotation order.
+// GenesisDelegateKeyHashes returns the sorted Blake2b-224 boot stakeholder
+// hashes. Heavy delegation certificates may change a stakeholder's active
+// signing key, but do not define the genesis issuer set.
 func (g *ByronGenesis) GenesisDelegateKeyHashes() ([]common.Blake2b224, error) {
-	if len(g.HeavyDelegation) == 0 {
+	if len(g.BootStakeholders) == 0 {
 		return nil, nil
 	}
 
-	// Collect the map keys (which are hex-encoded Blake2b224 hashes)
-	hexKeys := make([]string, 0, len(g.HeavyDelegation))
-	for keyHex := range g.HeavyDelegation {
+	// Sort the hex keys to make the issuer order deterministic.
+	hexKeys := make([]string, 0, len(g.BootStakeholders))
+	for keyHex := range g.BootStakeholders {
 		hexKeys = append(hexKeys, keyHex)
 	}
 
@@ -518,11 +514,20 @@ func (g *ByronGenesis) GenesisDelegateKeyHashes() ([]common.Blake2b224, error) {
 	for i, keyHex := range hexKeys {
 		keyBytes, err := hex.DecodeString(keyHex)
 		if err != nil {
-			return nil, fmt.Errorf("invalid hex key in HeavyDelegation: %s: %w", keyHex, err)
+			return nil, fmt.Errorf(
+				"invalid hex key in BootStakeholders: %s: %w",
+				keyHex,
+				err,
+			)
 		}
 		if len(keyBytes) != common.Blake2b224Size {
-			return nil, fmt.Errorf("invalid key hash length in HeavyDelegation: expected %d bytes, got %d for key %s",
-				common.Blake2b224Size, len(keyBytes), keyHex)
+			return nil, fmt.Errorf(
+				"invalid key hash length in BootStakeholders: expected %d bytes, "+
+					"got %d for key %s",
+				common.Blake2b224Size,
+				len(keyBytes),
+				keyHex,
+			)
 		}
 		result[i] = common.NewBlake2b224(keyBytes)
 	}

@@ -381,12 +381,6 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 	if paramUpdate.MaxRefScriptSizePerEndorserBlock != nil {
 		p.MaxRefScriptSizePerEndorserBlock = *paramUpdate.MaxRefScriptSizePerEndorserBlock
 	}
-	if paramUpdate.CommitteeStakeCoverage != nil {
-		p.CommitteeStakeCoverage = paramUpdate.CommitteeStakeCoverage
-	}
-	if paramUpdate.QuorumStakeThreshold != nil {
-		p.QuorumStakeThreshold = paramUpdate.QuorumStakeThreshold
-	}
 }
 
 func (p *DijkstraProtocolParameters) ApplyUpdate(
@@ -500,7 +494,8 @@ type DijkstraProtocolParameterUpdate struct {
 	MaxEndorserBlockTxsSize          *uint32                                   `cbor:"46,keyasint"`
 	MaxEndorserBlockExUnits          *common.ExUnits                           `cbor:"47,keyasint"`
 	MaxRefScriptSizePerEndorserBlock *uint32                                   `cbor:"48,keyasint"`
-	// These legacy stake parameters remain local-only prototype settings.
+	// These genesis-only settings are retained for source compatibility with
+	// local Leios prototype configuration. They are not ledger parameters.
 	CommitteeStakeCoverage *cbor.Rat `cbor:"-"`
 	QuorumStakeThreshold   *cbor.Rat `cbor:"-"`
 }
@@ -567,6 +562,9 @@ func (u DijkstraProtocolParameterUpdate) Cbor() []byte {
 }
 
 func (u DijkstraProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
+	if err := validateLeiosGenesisOnlyParameters(&u); err != nil {
+		return nil, err
+	}
 	if raw := u.Cbor(); len(raw) > 0 {
 		return raw, nil
 	}
@@ -710,6 +708,19 @@ func (u DijkstraProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
 		fields[48] = *u.MaxRefScriptSizePerEndorserBlock
 	}
 	return cbor.Encode(fields)
+}
+
+func validateLeiosGenesisOnlyParameters(
+	update *DijkstraProtocolParameterUpdate,
+) error {
+	if update != nil && (update.CommitteeStakeCoverage != nil ||
+		update.QuorumStakeThreshold != nil) {
+		return errors.New(
+			"leios committee stake coverage and legacy quorum stake threshold " +
+				"are genesis-only settings, not protocol parameter updates",
+		)
+	}
+	return nil
 }
 
 func (u *DijkstraProtocolParameterUpdate) hasUpdate() bool {

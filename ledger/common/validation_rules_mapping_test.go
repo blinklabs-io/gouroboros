@@ -237,6 +237,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateBootstrapVotingRestrictions,  // UtxoValidationRuleBootstrapVotingRestrictions
 		conway.UtxoValidateStakePoolVotingRestrictions,  // UtxoValidationRuleStakePoolVotingRestrictions
 		conway.UtxoValidateCCVotingRestrictions,         // UtxoValidationRuleCCVotingRestrictions
+		conway.UtxoValidateUnelectedCommitteeVoters,     // UtxoValidationRuleUnelectedCommitteeVoters
 		conway.UtxoValidateRefScriptSizePerTx,           // UtxoValidationRuleRefScriptSizePerTx
 		conway.UtxoValidatePoolCertificates,             // UtxoValidationRulePoolCertificates
 	},
@@ -303,6 +304,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateBootstrapVotingRestrictions,  // UtxoValidationRuleBootstrapVotingRestrictions
 		conway.UtxoValidateStakePoolVotingRestrictions,    // UtxoValidationRuleStakePoolVotingRestrictions
 		dijkstra.UtxoValidateCCVotingRestrictions,         // UtxoValidationRuleCCVotingRestrictions
+		dijkstra.UtxoValidateUnelectedCommitteeVoters,     // UtxoValidationRuleUnelectedCommitteeVoters
 		dijkstra.UtxoValidateRefScriptSizePerTx,           // UtxoValidationRuleRefScriptSizePerTx
 		conway.UtxoValidatePoolCertificates,               // UtxoValidationRulePoolCertificates
 	},

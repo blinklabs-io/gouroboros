@@ -1240,6 +1240,39 @@ type BlockTransactionOffsets struct {
 	InvalidTransactions []uint
 }
 
+// TransactionValidityFlags aligns the wire-order invalid transaction indexes
+// with transaction positions, matching cardano-ledger's alignedValidFlags.
+// Duplicate and descending indexes intentionally produce additional invalid
+// flags; callers truncate the result to the block's transaction count.
+func TransactionValidityFlags(
+	transactionCount int,
+	invalidIndexes []uint,
+) []bool {
+	flags := make([]bool, 0, transactionCount)
+	previous := -1
+	for _, rawIndex := range invalidIndexes {
+		// Compare before converting: on 32-bit systems, a wire uint larger
+		// than MaxInt would wrap negative and mark the wrong transactions.
+		index := transactionCount
+		if rawIndex < uint(transactionCount) {
+			index = int(rawIndex)
+		}
+		for index-previous-1 > 0 {
+			flags = append(flags, true)
+			previous++
+		}
+		flags = append(flags, false)
+		previous = index
+	}
+	for len(flags) < transactionCount {
+		flags = append(flags, true)
+	}
+	if len(flags) > transactionCount {
+		flags = flags[:transactionCount]
+	}
+	return flags
+}
+
 // decodeInvalidTransactionIndices decodes the optional invalid_transactions
 // field without requiring a full ledger-era block decode. Keeping this in the
 // offset pass lets callers avoid parsing the block a second time.
@@ -1708,6 +1741,9 @@ func extractDijkstraTransactionOffsets(
 		invalidTransactions, err = decodeInvalidTransactionIndices(invalidRaw)
 		if err != nil {
 			return nil, err
+		}
+		if err := cbor.CheckForDuplicateCBORMembers(invalidTransactions); err != nil {
+			return nil, fmt.Errorf("invalid legacy Dijkstra transaction set: %w", err)
 		}
 	}
 	txsOffset, txsRaw, err := bodyDecoder.DecodeRaw(new(cbor.RawMessage))

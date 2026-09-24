@@ -69,6 +69,11 @@ func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := tmp.TransactionMetadataSet.ValidateIndices(
+		len(tmp.TransactionBodies),
+	); err != nil {
+		return err
+	}
 	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
 		common.AuxiliaryDataEraMary,
 	); err != nil {

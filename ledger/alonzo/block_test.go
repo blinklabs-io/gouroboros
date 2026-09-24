@@ -92,6 +92,30 @@ func TestAlonzoBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	}
 }
 
+func TestAlonzoBlockAlignsOrderedInvalidTransactionIndexes(t *testing.T) {
+	tests := []struct {
+		name    string
+		indexes []uint
+		valid   []bool
+	}{
+		{name: "duplicate index", indexes: []uint{0, 0}, valid: []bool{false, false}},
+		{name: "descending indexes", indexes: []uint{1, 0}, valid: []bool{true, false}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			block := alonzo.AlonzoBlock{
+				TransactionBodies:      make([]alonzo.AlonzoTransactionBody, 2),
+				TransactionWitnessSets: make([]alonzo.AlonzoTransactionWitnessSet, 2),
+				InvalidTransactions:    tt.indexes,
+			}
+			transactions := block.Transactions()
+			for i, transaction := range transactions {
+				require.Equal(t, tt.valid[i], transaction.IsValid())
+			}
+		})
+	}
+}
+
 func TestAlonzoBlock_Utxorpc(t *testing.T) {
 	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.AlonzoBlockHex))
 	assert.NoError(t, err, "Failed to decode block hex")
