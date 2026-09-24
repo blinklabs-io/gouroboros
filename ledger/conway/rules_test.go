@@ -3580,9 +3580,9 @@ func TestUtxoValidateUnelectedCommitteeVotersThroughRules(t *testing.T) {
 			voterHash: hotHash,
 		},
 		{
-			name: "PV10 pending member", major: 10,
+			name: "PV11 authorized unelected enacted member", major: 11,
 			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
-			voterHash: hotHash, pending: true,
+			voterHash: hotHash, wantUnelected: true,
 		},
 		{
 			name: "PV11 pending member", major: 11,

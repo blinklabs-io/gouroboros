@@ -204,19 +204,21 @@ type CommitteeCredentialState interface {
 // credentials from members that appear only in pending UpdateCommittee
 // proposals, and preserves the credential tags on both hot and cold keys.
 type CommitteeVotingState interface {
-	// CommitteeHotCredentialColdCredentials returns the cold credentials
-	// authorized by this exact key or script hot credential in the validation
-	// snapshot. It does not filter by whether the cold credential appears in
-	// the enacted committee or by its expiry; callers combine this mapping with
-	// CommitteeCredentialIsElected to apply the reference elected-committee
-	// view. Pending committee proposals do not make a credential elected.
+	// CommitteeHotCredentialColdCredentials returns only cold credentials
+	// currently authorized by this exact tagged key or script hot credential
+	// in the validation snapshot. Implementations must preserve the credential
+	// tag; the same hash under a key and script credential is a different hot
+	// credential. This lookup does not filter cold credentials by enacted
+	// membership or expiry. Callers combine it with CommitteeCredentialIsElected
+	// to apply the reference view. Pending committee proposals do not make a
+	// credential elected.
 	CommitteeHotCredentialColdCredentials(Credential) ([]Credential, error)
-	// CommitteeCredentialIsElected reports whether a cold credential appears
-	// in the enacted committee at this validation snapshot. It follows the
-	// ledger's elected-committee view: expired enacted members still count,
-	// members only in pending UpdateCommittee proposals do not, and a snapshot
-	// without an enacted committee has no elected members. Resigned members
-	// have no active hot authorization.
+	// CommitteeCredentialIsElected reports whether this cold credential is a
+	// member of the enacted committee at the validation snapshot. Expired
+	// enacted members still count; members present only in pending
+	// UpdateCommittee proposals do not. A snapshot without an enacted committee
+	// has no elected members. Resigned members have no active hot authorization
+	// and therefore must not be returned by CommitteeHotCredentialColdCredentials.
 	CommitteeCredentialIsElected(Credential) (bool, error)
 }
 
