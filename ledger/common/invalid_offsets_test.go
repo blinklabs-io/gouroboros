@@ -39,7 +39,7 @@ func TestExtractTransactionOffsetsReturnsInvalidTransactions(t *testing.T) {
 	require.Equal(t, []uint{1}, offsets.InvalidTransactions)
 }
 
-func TestExtractTransactionOffsetsRejectsDuplicateInvalidTransactions(t *testing.T) {
+func TestExtractTransactionOffsetsPreservesDuplicateInvalidTransactions(t *testing.T) {
 	block := []any{
 		[]any{}, // header
 		[]any{map[uint64]any{}, map[uint64]any{}},
@@ -51,6 +51,6 @@ func TestExtractTransactionOffsetsRejectsDuplicateInvalidTransactions(t *testing
 	require.NoError(t, err)
 
 	offsets, err := common.ExtractTransactionOffsets(blockCbor)
-	require.ErrorContains(t, err, "duplicate member in set")
-	require.Nil(t, offsets)
+	require.NoError(t, err)
+	require.Equal(t, []uint{1, 1}, offsets.InvalidTransactions)
 }

@@ -1236,9 +1236,6 @@ func decodeInvalidTransactionIndices(raw cbor.RawMessage) ([]uint, error) {
 	if _, err := cbor.Decode([]byte(raw), &indices); err != nil {
 		return nil, fmt.Errorf("decode invalid transaction indices: %w", err)
 	}
-	if err := cbor.CheckForDuplicateCBORMembers(indices); err != nil {
-		return nil, fmt.Errorf("validate invalid transaction indices: %w", err)
-	}
 	if len(indices) == 0 {
 		return nil, nil
 	}
@@ -1699,6 +1696,9 @@ func extractDijkstraTransactionOffsets(
 		invalidTransactions, err = decodeInvalidTransactionIndices(invalidRaw)
 		if err != nil {
 			return nil, err
+		}
+		if err := cbor.CheckForDuplicateCBORMembers(invalidTransactions); err != nil {
+			return nil, fmt.Errorf("invalid legacy Dijkstra transaction set: %w", err)
 		}
 	}
 	txsOffset, txsRaw, err := bodyDecoder.DecodeRaw(new(cbor.RawMessage))
