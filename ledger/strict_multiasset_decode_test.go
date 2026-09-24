@@ -42,11 +42,17 @@ func encodeMultiAsset(
 	}
 }
 
-func encodeMintBody(t *testing.T, quantity *big.Int) []byte {
+func encodeMintBody(t *testing.T, quantity *big.Int, subtransaction bool) []byte {
 	t.Helper()
-	wire, err := cbor.Encode(map[uint64]any{
+	fields := map[uint64]any{
+		0: cbor.NewSetType([]any{}, false),
+		1: []any{},
 		9: encodeMultiAsset(t, quantity),
-	})
+	}
+	if !subtransaction {
+		fields[2] = uint64(0)
+	}
+	wire, err := cbor.Encode(fields)
 	require.NoError(t, err)
 	return wire
 }
@@ -173,7 +179,9 @@ func TestMintQuantityBoundsAcrossEras(t *testing.T) {
 	for _, decoder := range decoders {
 		for _, quantity := range quantities {
 			t.Run(decoder.name+"/"+quantity.name, func(t *testing.T) {
-				err := decoder.decode(encodeMintBody(t, quantity.quantity))
+				err := decoder.decode(encodeMintBody(
+					t, quantity.quantity, decoder.name == "Dijkstra subtransaction",
+				))
 				switch {
 				case quantity.wantErr:
 					assert.Error(t, err)

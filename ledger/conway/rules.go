@@ -78,6 +78,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateBootstrapAllowedGovActions,
 	},
 	{
+		Id:        common.UtxoValidationRuleProposalReturnAddressShape,
+		Validator: common.UtxoValidateProposalReturnAddressShape,
+	},
+	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
 		Validator: UtxoValidateIsValidFlag,
 	},
@@ -297,6 +301,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateProposalReturnAccounts, UtxoValidateEmptyTreasuryWithdrawals,
 		UtxoValidateBootstrapAllowedGovActions,
 	),
+	common.AlwaysUtxoValidationRules(common.UtxoValidateProposalReturnAddressShape),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
 		UtxoValidateCollateralVKeyWitnesses, UtxoValidateRedeemerAndScriptWitnesses,
@@ -439,14 +444,47 @@ func UtxoValidateProposalProcedures(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	var currentEpoch uint64
+	epochKnown := false
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
 		if isNilGovAction(govAction) {
 			continue
 		}
 
-		// Check if this is a ParameterChangeGovAction
+		// Committee additions expire strictly after the current epoch. This
+		// lower bound is a transaction rule; the maximum term is ratification-only.
 		paramChangeAction, ok := govAction.(*ConwayParameterChangeGovAction)
+		if committeeUpdate, ok := govAction.(*common.UpdateCommitteeGovAction); ok &&
+			len(committeeUpdate.CredEpochs) > 0 {
+			if !epochKnown {
+				epochState, ok := common.UnwrapLedgerState(ls).(common.EpochState)
+				if !ok {
+					return CommitteeExpiryEpochUnavailableError{}
+				}
+				var err error
+				currentEpoch, err = epochState.EpochForSlot(slot)
+				if err != nil {
+					return CommitteeExpiryEpochUnavailableError{Err: err}
+				}
+				epochKnown = true
+			}
+			for credential, expiry := range committeeUpdate.CredEpochs {
+				if credential == nil {
+					return errors.New("update committee contains a nil credential")
+				}
+				if expiry <= currentEpoch {
+					return CommitteeMemberAlreadyExpiredError{
+						Credential:   credential,
+						ExpiryEpoch:  expiry,
+						CurrentEpoch: currentEpoch,
+					}
+				}
+			}
+		}
 		if !ok {
 			continue
 		}
@@ -922,6 +960,9 @@ func UtxoValidateGovActionWellFormedness(
 			if !tx.IsValid() {
 				continue
 			}
+			if err := a.Validate(); err != nil {
+				return MalformedGovActionError{Reason: err.Error()}
+			}
 			// common.Credential embeds cbor.DecodeStoreCbor (a slice field),
 			// making it non-comparable, so key the set on its logical
 			// (CredType, Credential hash) value instead.
@@ -1149,8 +1190,9 @@ func UtxoValidateHardForkCanFollow(
 // the proposalsAddAction call in conwayGovTransition,
 // eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs lines 550-556):
 // the proposal's predecessor must either equal the current root of that
-// purpose chain, including the case where both are absent, or be a proposal
-// of that purpose that is still pending.
+// purpose chain, including the case where both are absent, or be a live
+// proposal of that purpose. A RATIFY expiry classification remains live until
+// EPOCH applies it and removes the action from the proposal tree.
 //
 // The current root is only available when the ledger state implements the
 // optional common.GovPurposeRootsState capability. Without it this rule
@@ -1216,7 +1258,7 @@ func UtxoValidateProposalAncestry(
 					"earlier proposal of the same purpose in this transaction",
 			}
 		}
-		// Otherwise the predecessor must be a pending proposal of the same
+		// Otherwise the predecessor must be a live proposal of the same
 		// purpose recorded in the ledger state.
 		if ls == nil {
 			return InvalidGovActionAncestorError{
@@ -1244,20 +1286,10 @@ func UtxoValidateProposalAncestry(
 				Reason:   "referenced ancestor governance action has a mismatched purpose",
 			}
 		}
-		// An expired proposal is no longer in the purpose tree, so it cannot
-		// be a predecessor. ExpirySlot is optional in the LedgerState
-		// contract (see UtxoValidateVotingOnExpiredGovAction): a state
-		// provider that does not model expiry leaves it zero, which is
-		// treated as "expiry not modeled" rather than "expired at slot 0".
-		if ancestorState.ExpirySlot != 0 && slot > ancestorState.ExpirySlot {
-			return InvalidGovActionAncestorError{
-				ActionId: *ancestorId,
-				Reason: fmt.Sprintf(
-					"referenced ancestor governance action expired at slot %d",
-					ancestorState.ExpirySlot,
-				),
-			}
-		}
+		// Expiry classification does not remove an action from the live
+		// proposal tree. EPOCH applies that result later; until then, child
+		// proposals may still name this ancestor. Votes have a separate
+		// expiry check in UtxoValidateVotingOnExpiredGovAction.
 	}
 	return nil
 }
@@ -1505,6 +1537,12 @@ func validateConwayProtocolParameterUpdate(
 			Reason:    "cannot be nil",
 		}
 	}
+	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
+		return invalidConwayParameterField("costModels", err.Error())
+	}
+	if err := validateConwayProtocolParameterIntegerWidths(ppu); err != nil {
+		return err
+	}
 	if ppu.A0 != nil && !validNonNegativeRat(ppu.A0) {
 		return invalidConwayParameterField("a0", "must be nonnegative")
 	}
@@ -1584,13 +1622,69 @@ func validateConwayProtocolParameterUpdate(
 	return nil
 }
 
+// ValidateProtocolParameterUpdate checks Conway protocol-parameter update
+// domains for both decoded and programmatically constructed updates.
+func ValidateProtocolParameterUpdate(
+	update *ConwayProtocolParameterUpdate,
+) error {
+	return validateConwayProtocolParameterUpdate(update)
+}
+
+func validateConwayProtocolParameterIntegerWidths(
+	ppu *ConwayProtocolParameterUpdate,
+) error {
+	word32Fields := []struct {
+		name  string
+		value *uint
+	}{
+		{"maxBlockBodySize", ppu.MaxBlockBodySize},
+		{"maxTxSize", ppu.MaxTxSize},
+		{"maxEpoch", ppu.MaxEpoch},
+		{"maxValueSize", ppu.MaxValueSize},
+	}
+	for _, field := range word32Fields {
+		if field.value != nil && uint64(*field.value) > math.MaxUint32 {
+			return invalidConwayParameterField(field.name, "must fit Word32")
+		}
+	}
+	word16Fields := []struct {
+		name  string
+		value *uint
+	}{
+		{"maxBlockHeaderSize", ppu.MaxBlockHeaderSize},
+		{"nOpt", ppu.NOpt},
+		{"collateralPercentage", ppu.CollateralPercentage},
+		{"maxCollateralInputs", ppu.MaxCollateralInputs},
+		{"minCommitteeSize", ppu.MinCommitteeSize},
+	}
+	for _, field := range word16Fields {
+		if field.value != nil && uint64(*field.value) > math.MaxUint16 {
+			return invalidConwayParameterField(field.name, "must fit Word16")
+		}
+	}
+	word32EpochFields := []struct {
+		name  string
+		value *uint64
+	}{
+		{"committeeTermLimit", ppu.CommitteeTermLimit},
+		{"govActionValidityPeriod", ppu.GovActionValidityPeriod},
+		{"dRepInactivityPeriod", ppu.DRepInactivityPeriod},
+	}
+	for _, field := range word32EpochFields {
+		if field.value != nil && *field.value > math.MaxUint32 {
+			return invalidConwayParameterField(field.name, "must fit Word32")
+		}
+	}
+	return nil
+}
+
 func invalidConwayParameterField(field, reason string) error {
 	return ConwayProtocolParameterUpdateError{FieldName: field, Reason: reason}
 }
 
 func validNonNegativeRat(rat *cbor.Rat) bool {
 	return rat != nil && rat.Rat != nil && rat.Denom().Sign() > 0 &&
-		rat.Num().Sign() >= 0
+		rat.Num().Sign() >= 0 && rat.Num().IsUint64() && rat.Denom().IsUint64()
 }
 
 func validUnitRat(rat *cbor.Rat) bool {
@@ -1669,6 +1763,20 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	// Redeemer/script relation applies only to Plutus scripts. Native scripts
 	// do NOT require redeemers.
 	wits := tx.Witnesses()
+	if conwayPp, ok := pp.(*ConwayProtocolParameters); ok &&
+		conwayPp.ProtocolVersion.Major >= common.ProtocolVersionConway &&
+		wits != nil {
+		if rawWitnesses, ok := wits.(interface{ Cbor() []byte }); ok &&
+			len(rawWitnesses.Cbor()) > 0 {
+			if err := cbor.ValidateMapFields(
+				rawWitnesses.Cbor(),
+				[]uint64{},
+				[]uint64{0, 1, 2, 3, 4, 5, 6, 7},
+			); err != nil {
+				return fmt.Errorf("invalid Conway witness set: %w", err)
+			}
+		}
+	}
 	redeemerCount := 0
 	if wits != nil {
 		if r := wits.Redeemers(); r != nil {
@@ -2131,6 +2239,11 @@ func UtxoValidateInsufficientCollateral(
 			totalCollateral.Add(totalCollateral, amount)
 		}
 	}
+	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
+		if amount := collateralReturn.Amount(); amount != nil {
+			totalCollateral.Sub(totalCollateral, amount)
+		}
+	}
 	fee := tmpTx.Fee()
 	if fee == nil {
 		fee = new(big.Int)
@@ -2156,7 +2269,6 @@ func UtxoValidateCollateralContainsNonAda(
 	if tmpTx.WitnessSet.WsRedeemers.Len() == 0 {
 		return nil
 	}
-	badOutputs := []common.TransactionOutput{}
 	totalCollateral := new(big.Int)
 	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
@@ -2168,23 +2280,16 @@ func UtxoValidateCollateralContainsNonAda(
 		if amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
 		}
-		assets := utxo.Output.Assets()
-		totalAssets.Add(assets)
-		if assets == nil || len(assets.Policies()) == 0 {
-			continue
-		}
-		badOutputs = append(badOutputs, utxo.Output)
-	}
-	if len(badOutputs) == 0 {
-		return nil
+		totalAssets.Add(utxo.Output.Assets())
 	}
 	// Check if all collateral assets are accounted for in the collateral return
 	collReturn := tx.CollateralReturn()
+	var collReturnAssets *common.MultiAsset[common.MultiAssetTypeOutput]
 	if collReturn != nil {
-		collReturnAssets := collReturn.Assets()
-		if (&totalAssets).Compare(collReturnAssets) {
-			return nil
-		}
+		collReturnAssets = collReturn.Assets()
+	}
+	if (&totalAssets).Compare(collReturnAssets) {
+		return nil
 	}
 	var providedU uint64
 	if totalCollateral.IsUint64() {
@@ -2232,6 +2337,60 @@ func UtxoValidateBadInputsUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
+}
+
+// ValidateTreasuryDonationScriptCompatibility rejects donations at a
+// transaction level that uses PlutusV1 or PlutusV2 scripts.
+func ValidateTreasuryDonationScriptCompatibility(
+	tx common.Transaction,
+	ls common.LedgerState,
+) error {
+	donation := tx.Donation()
+	if donation == nil || donation.Sign() <= 0 {
+		return nil
+	}
+	witnesses := tx.Witnesses()
+	plutusVersion := ""
+	if witnesses != nil {
+		if len(witnesses.PlutusV1Scripts()) > 0 {
+			plutusVersion = "PlutusV1"
+		} else if len(witnesses.PlutusV2Scripts()) > 0 {
+			plutusVersion = "PlutusV2"
+		}
+	}
+	if plutusVersion == "" {
+		for _, refInput := range tx.ReferenceInputs() {
+			utxo, err := ls.UtxoById(refInput)
+			if err != nil {
+				return common.ReferenceInputResolutionError{
+					Input: refInput,
+					Err:   err,
+				}
+			}
+			if utxo.Output == nil {
+				continue
+			}
+			switch utxo.Output.ScriptRef().(type) {
+			case common.PlutusV1Script:
+				plutusVersion = "PlutusV1"
+			case common.PlutusV2Script:
+				plutusVersion = "PlutusV2"
+			}
+			if plutusVersion != "" {
+				break
+			}
+		}
+	}
+	if plutusVersion == "" {
+		return nil
+	}
+	var donationU uint64
+	if donation.IsUint64() {
+		donationU = donation.Uint64()
+	}
+	return TreasuryDonationWithPlutusV1V2Error{
+		Donation: donationU, PlutusVersion: plutusVersion,
+	}
 }
 
 func UtxoValidateValueNotConservedUtxo(
@@ -2396,59 +2555,12 @@ func UtxoValidateValueNotConservedUtxo(
 			new(big.Int).SetUint64(proposal.Deposit()),
 		)
 	}
-	// Add treasury donation - value leaving the transaction to go to the treasury
-	// Treasury donations are a Conway feature and cannot be used with PlutusV1/V2 scripts
+	// Add treasury donation - value leaving the transaction to go to the treasury.
 	donation := tx.Donation()
 	if donation != nil && donation.Sign() > 0 {
-		// Check if transaction uses PlutusV1 or PlutusV2 scripts in witnesses
-		witnesses := tx.Witnesses()
-		plutusVersion := ""
-		if witnesses != nil {
-			if len(witnesses.PlutusV1Scripts()) > 0 {
-				plutusVersion = "PlutusV1"
-			} else if len(witnesses.PlutusV2Scripts()) > 0 {
-				plutusVersion = "PlutusV2"
-			}
+		if err := ValidateTreasuryDonationScriptCompatibility(tx, ls); err != nil {
+			return err
 		}
-		// Also check reference scripts on reference inputs
-		if plutusVersion == "" {
-			for _, refInput := range tx.ReferenceInputs() {
-				utxo, err := ls.UtxoById(refInput)
-				if err != nil {
-					return common.ReferenceInputResolutionError{
-						Input: refInput,
-						Err:   err,
-					}
-				}
-				if utxo.Output == nil {
-					continue
-				}
-				script := utxo.Output.ScriptRef()
-				if script != nil {
-					switch script.(type) {
-					case common.PlutusV1Script:
-						plutusVersion = "PlutusV1"
-					case common.PlutusV2Script:
-						plutusVersion = "PlutusV2"
-					}
-					if plutusVersion != "" {
-						break
-					}
-				}
-			}
-		}
-		// Return explicit error if donation is used with PlutusV1/V2 scripts
-		if plutusVersion != "" {
-			var donationU uint64
-			if donation.IsUint64() {
-				donationU = donation.Uint64()
-			}
-			return TreasuryDonationWithPlutusV1V2Error{
-				Donation:      donationU,
-				PlutusVersion: plutusVersion,
-			}
-		}
-		// Only apply donation if not using PlutusV1/V2 scripts
 		producedValue.Add(producedValue, donation)
 	}
 	if consumedValue.Cmp(producedValue) != 0 {
@@ -2565,7 +2677,7 @@ func UtxoValidateOutputTooSmallUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	var badOutputs []common.TransactionOutput
-	for _, tmpOutput := range tx.Outputs() {
+	for _, tmpOutput := range common.TransactionOutputsAndCollateralReturn(tx) {
 		minCoin, err := MinCoinTxOut(tmpOutput, pp)
 		if err != nil {
 			return err
@@ -2598,7 +2710,7 @@ func UtxoValidateOutputTooBigUtxo(
 		return errors.New("pparams are not expected type")
 	}
 	badOutputs := []common.TransactionOutput{}
-	for _, txOutput := range tx.Outputs() {
+	for _, txOutput := range common.TransactionOutputsAndCollateralReturn(tx) {
 		tmpOutput, ok := txOutput.(*babbage.BabbageTransactionOutput)
 		if !ok {
 			return errors.New("transaction output is not expected type")
@@ -3452,9 +3564,10 @@ func UtxoValidateDelegation(
 			}
 			cred := common.Credential{CredType: credType}
 			copy(cred.Credential[:], drep.Credential)
-			// Check in-tx registrations first
-			if inTxDRepRegs[stakeKey(cred)] {
-				return true, nil
+			// An in-transaction tombstone must override a registration in
+			// the initial ledger state.
+			if registered, found := inTxDRepRegs[stakeKey(cred)]; found {
+				return registered, nil
 			}
 			// Check ledger state
 			reg, err := ls.DRepRegistration(cred)
@@ -3519,7 +3632,7 @@ func UtxoValidateDelegation(
 			// the retirement epoch, so later delegations remain valid.
 
 		case *common.DeregistrationDrepCertificate:
-			delete(inTxDRepRegs, stakeKey(c.DrepCredential))
+			inTxDRepRegs[stakeKey(c.DrepCredential)] = false
 
 		// Check delegations
 		case *common.StakeDelegationCertificate:
@@ -3998,6 +4111,14 @@ func UtxoValidateCertificateDeposits(
 				}
 			}
 			drepStates[stakeKey(c.DrepCredential)] = nil
+		case *common.UpdateDrepCertificate:
+			registration, err := loadDRep(c.DrepCredential)
+			if err != nil {
+				return err
+			}
+			if registration == nil {
+				return DRepNotRegisteredError{Credential: c.DrepCredential}
+			}
 		}
 	}
 	return nil
@@ -4017,9 +4138,14 @@ func UtxoValidateCommitteeCertificates(
 	}
 	var committeeState common.CommitteeCredentialState
 	committeeStateLoaded := false
+	committeeMembers := make(map[credOverlayKey]*common.CommitteeMember)
 	committeeMember := func(
 		coldCredential common.Credential,
 	) (*common.CommitteeMember, error) {
+		key := credKey(coldCredential)
+		if member, ok := committeeMembers[key]; ok {
+			return member, nil
+		}
 		if !committeeStateLoaded {
 			var ok bool
 			committeeState, ok = common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
@@ -4055,6 +4181,10 @@ func UtxoValidateCommitteeCertificates(
 				Err:              err,
 			}
 		}
+		if member != nil {
+			copy := *member
+			committeeMembers[key] = &copy
+		}
 		return member, nil
 	}
 
@@ -4078,6 +4208,9 @@ func UtxoValidateCommitteeCertificates(
 					ColdCredential: c.ColdCredential,
 				}
 			}
+			updated := *member
+			updated.HotKey = &c.HotCredential.Credential
+			committeeMembers[credKey(c.ColdCredential)] = &updated
 
 		case *common.ResignCommitteeColdCertificate:
 			member, err := committeeMember(c.ColdCredential)
@@ -4091,6 +4224,16 @@ func UtxoValidateCommitteeCertificates(
 					Operation:      "resign",
 				}
 			}
+			if member.Resigned {
+				return ResignedCommitteeMemberHotKeyError{
+					ColdKey:        c.ColdCredential.Credential,
+					ColdCredential: c.ColdCredential,
+				}
+			}
+			updated := *member
+			updated.Resigned = true
+			updated.HotKey = nil
+			committeeMembers[credKey(c.ColdCredential)] = &updated
 		}
 	}
 	return nil
@@ -4363,6 +4506,26 @@ func UtxoValidateUnknownVoters(
 			if member == nil || member.Resigned {
 				return UnknownVoterError{Voter: *voter}
 			}
+			if params, ok := pp.(*ConwayProtocolParameters); ok &&
+				common.IsProtocolVersionAtLeast(
+					params.ProtocolVersion.Major, 0,
+					common.ProtocolVersionVanRossem,
+				) {
+				currentMembers, err := ls.CommitteeMembers()
+				if err != nil {
+					return lookupError(err)
+				}
+				seated := false
+				for _, current := range currentMembers {
+					if current.ColdKey == member.ColdKey {
+						seated = true
+						break
+					}
+				}
+				if !seated {
+					return UnknownVoterError{Voter: *voter}
+				}
+			}
 
 		default:
 			// Voter.Type is decoded from CBOR with no range check, so
@@ -4592,16 +4755,6 @@ func UtxoValidateCCVotingRestrictions(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	conwayPp, ok := pp.(*ConwayProtocolParameters)
-	if !ok {
-		return errors.New("pparams are not expected type")
-	}
-	if !common.IsProtocolVersionAtLeast(
-		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
-	) {
-		return nil // Pre-PV11: checked by mempool sanitizer only
-	}
-
 	votes := tx.VotingProcedures()
 	if len(votes) == 0 {
 		return nil

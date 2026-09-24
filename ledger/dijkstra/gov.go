@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 
@@ -39,7 +40,7 @@ func (p *DijkstraProposalProcedure) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	if err := common.CheckAddressFullyConsumed(tmp.PPRewardAccount); err != nil {
+	if err := common.CheckAccountAddress(tmp.PPRewardAccount); err != nil {
 		return err
 	}
 	*p = DijkstraProposalProcedure(tmp)
@@ -119,6 +120,21 @@ func (g *DijkstraGovAction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, tmpAction); err != nil {
 		return err
 	}
+	if action, ok := tmpAction.(*common.HardForkInitiationGovAction); ok {
+		if action.ProtocolVersion.Major > common.ProtocolVersionDijkstra+1 {
+			return fmt.Errorf(
+				"hard-fork protocol major version %d exceeds Dijkstra decoder limit %d",
+				action.ProtocolVersion.Major,
+				common.ProtocolVersionDijkstra+1,
+			)
+		}
+		if action.ProtocolVersion.Minor > math.MaxUint32 {
+			return fmt.Errorf(
+				"hard-fork protocol minor version %d exceeds Word32",
+				action.ProtocolVersion.Minor,
+			)
+		}
+	}
 	g.Type = uint(actionType) // #nosec G115
 	g.Action = tmpAction
 	return nil
@@ -191,6 +207,33 @@ func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
 	}
 	if a.ParamUpdate.RefScriptCostMultiplier != nil {
 		fields = append(fields, "RefScriptCostMultiplier")
+	}
+	if a.ParamUpdate.LeiosAnnouncementPeriodLength != nil {
+		fields = append(fields, "LeiosAnnouncementPeriodLength")
+	}
+	if a.ParamUpdate.LeiosVotePeriodLength != nil {
+		fields = append(fields, "LeiosVotePeriodLength")
+	}
+	if a.ParamUpdate.LeiosDiffusionPeriodLength != nil {
+		fields = append(fields, "LeiosDiffusionPeriodLength")
+	}
+	if a.ParamUpdate.LeiosCommitteeSize != nil {
+		fields = append(fields, "LeiosCommitteeSize")
+	}
+	if a.ParamUpdate.LeiosQuorumStakeThreshold != nil {
+		fields = append(fields, "LeiosQuorumStakeThreshold")
+	}
+	if a.ParamUpdate.MaxEndorserBlockReferencesSize != nil {
+		fields = append(fields, "MaxEndorserBlockReferencesSize")
+	}
+	if a.ParamUpdate.MaxEndorserBlockTxsSize != nil {
+		fields = append(fields, "MaxEndorserBlockTxsSize")
+	}
+	if a.ParamUpdate.MaxEndorserBlockExUnits != nil {
+		fields = append(fields, "MaxEndorserBlockExUnits")
+	}
+	if a.ParamUpdate.MaxRefScriptSizePerEndorserBlock != nil {
+		fields = append(fields, "MaxRefScriptSizePerEndorserBlock")
 	}
 	return fields
 }

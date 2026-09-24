@@ -38,9 +38,11 @@ func TestUtxoValidateRequiredRedeemersRegistered(t *testing.T) {
 		t,
 		"ledger/conway.UtxoValidateRequiredRedeemers",
 	)
+	// Dijkstra registers its own BadInputs rule, which extends Conway's to
+	// every transaction level's inputs; the ordering requirement is the same.
 	_, badInputsIdx := dijkstraValidationRule(
 		t,
-		"ledger/conway.UtxoValidateBadInputsUtxo",
+		"ledger/dijkstra.UtxoValidateBadInputsUtxo",
 	)
 	// Dijkstra registers its own ScriptWitnesses rule, which extends Conway's
 	// to sub-transaction witness sets; the ordering requirement is the same.

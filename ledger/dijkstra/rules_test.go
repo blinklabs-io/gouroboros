@@ -30,6 +30,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	commontestdata "github.com/blinklabs-io/gouroboros/ledger/common/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
@@ -232,12 +233,201 @@ func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
 	require.ErrorAs(t, err, &invalidFlag)
 }
 
+func TestDijkstraValidationRulePhasesAreComplete(t *testing.T) {
+	phase2Valid := map[common.UtxoValidationRuleId]struct{}{
+		common.UtxoValidationRuleProposalProcedures:          {},
+		common.UtxoValidationRuleHardForkCanFollow:           {},
+		common.UtxoValidationRuleProposalAncestry:            {},
+		common.UtxoValidationRuleProposalDeposit:             {},
+		common.UtxoValidationRuleProposalNetworkIds:          {},
+		common.UtxoValidationRuleProposalReturnAccounts:      {},
+		common.UtxoValidationRuleEmptyTreasuryWithdrawals:    {},
+		common.UtxoValidationRuleBootstrapAllowedGovActions:  {},
+		common.UtxoValidationRuleBatchWithdrawals:            {},
+		common.UtxoValidationRuleAccountBalanceIntervals:     {},
+		common.UtxoValidationRuleDelegation:                  {},
+		common.UtxoValidationRuleWithdrawals:                 {},
+		common.UtxoValidationRuleCertificateDeposits:         {},
+		common.UtxoValidationRuleCommitteeCertificates:       {},
+		common.UtxoValidationRuleUnknownVoters:               {},
+		common.UtxoValidationRuleUnknownGovActionIds:         {},
+		common.UtxoValidationRuleVotingOnExpiredGovAction:    {},
+		common.UtxoValidationRuleBootstrapVotingRestrictions: {},
+		common.UtxoValidationRuleStakePoolVotingRestrictions: {},
+		common.UtxoValidationRuleCCVotingRestrictions:        {},
+		common.UtxoValidationRuleRefScriptSizePerTx:          {},
+		common.UtxoValidationRulePoolCertificates:            {},
+	}
+	descriptors := UtxoValidationRuleDescriptors()
+	require.Len(t, dijkstraUtxoValidationRulePhases, len(descriptors))
+	for _, descriptor := range descriptors {
+		phase, ok := dijkstraUtxoValidationRulePhases[descriptor.Id]
+		require.Truef(t, ok, "rule %q has no phase classification", descriptor.Id)
+		if _, expected := phase2Valid[descriptor.Id]; expected {
+			require.Equal(t, dijkstraUtxoValidationPhase2Valid, phase, descriptor.Id)
+		} else {
+			require.Equal(t, dijkstraUtxoValidationAlways, phase, descriptor.Id)
+		}
+	}
+}
+
+func TestDijkstraPhase2InvalidSkipsHardForkCanFollow(t *testing.T) {
+	action := &common.HardForkInitiationGovAction{}
+	action.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	action.ProtocolVersion.Minor = 2
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction:     DijkstraGovAction{Action: action},
+			}},
+		},
+		TxIsValid: false,
+	}
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionDijkstra,
+			},
+		},
+	}
+	rule, _ := dijkstraValidationRule(t, "ledger/dijkstra.UtxoValidateHardForkCanFollow")
+	require.NoError(t, rule(tx, 0, nil, pp))
+	tx.TxIsValid = true
+	var canFollowErr conway.BadHardForkProtocolVersionError
+	require.ErrorAs(t, rule(tx, 0, nil, pp), &canFollowErr)
+	tx.TxIsValid = false
+	var invalidFlag common.InvalidIsValidFlagError
+	err := common.VerifyTransaction(tx, 0, nil, pp, UtxoValidationRules)
+	require.ErrorAs(t, err, &invalidFlag)
+	require.NotErrorAs(t, err, &canFollowErr)
+}
+
+func TestDijkstraHardForkProtocolVersionWireBounds(t *testing.T) {
+	newWireAction := func(major, minor uint) []byte {
+		action := &common.HardForkInitiationGovAction{}
+		action.Type = uint(common.GovActionTypeHardForkInitiation)
+		action.ProtocolVersion.Major = major
+		action.ProtocolVersion.Minor = minor
+		raw, err := cbor.Encode(action)
+		require.NoError(t, err)
+		return raw
+	}
+	t.Run("major above era decoder bound", func(t *testing.T) {
+		var decoded DijkstraGovAction
+		err := decoded.UnmarshalCBOR(newWireAction(common.ProtocolVersionDijkstra+2, 0))
+		require.ErrorContains(t, err, "exceeds Dijkstra decoder limit")
+	})
+	t.Run("minor above Word32", func(t *testing.T) {
+		if uint64(math.MaxUint) <= math.MaxUint32 {
+			t.Skip("platform uint cannot encode a value above Word32")
+		}
+		aboveWord32 := uint64(math.MaxUint32) + 1
+		var decoded DijkstraGovAction
+		err := decoded.UnmarshalCBOR(newWireAction(common.ProtocolVersionDijkstra, uint(aboveWord32)))
+		require.ErrorContains(t, err, "exceeds Word32")
+	})
+	t.Run("maximum valid version", func(t *testing.T) {
+		var decoded DijkstraGovAction
+		err := decoded.UnmarshalCBOR(newWireAction(common.ProtocolVersionDijkstra+1, uint(math.MaxUint32)))
+		require.NoError(t, err)
+	})
+}
+
+func TestDijkstraPhase2InvalidStillChecksCollateral(t *testing.T) {
+	input, utxo := dijkstraSubUtxoInput(0)
+	assets := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+			common.Blake2b224Hash([]byte("policy")): {
+				cbor.NewByteString([]byte("asset")): big.NewInt(1),
+			},
+		},
+	)
+	utxo.Output = babbage.BabbageTransactionOutput{
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: dijkstraSubUtxoInputAmount,
+			Assets: &assets,
+		},
+	}
+	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxCollateral: cbor.NewSetType([]shelley.ShelleyTransactionInput{input}, false),
+		},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{{}: {}},
+			},
+		},
+		TxIsValid: false,
+	}
+	rule, _ := dijkstraValidationRule(t, "ledger/dijkstra.UtxoValidateCollateralContainsNonAda")
+	var collateralErr alonzo.CollateralContainsNonAdaError
+	require.ErrorAs(t, rule(tx, 0, state, &DijkstraProtocolParameters{}), &collateralErr)
+}
+
+func TestDijkstraPhase2InvalidChecksProposalReturnAddressShape(t *testing.T) {
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/common.UtxoValidateProposalReturnAddressShape",
+	)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPGovAction: DijkstraGovAction{
+					Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+				},
+			}},
+		},
+		TxIsValid: false,
+	}
+	require.ErrorContains(t, rule(tx, 0, nil, nil), "invalid account address type")
+}
+
+func TestUtxoValidatePtrPresentInCollateralReturn(t *testing.T) {
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidatePtrPresentInCollateralReturn",
+	)
+	for _, addressType := range []uint8{
+		common.AddressTypeKeyPointer,
+		common.AddressTypeScriptPointer,
+	} {
+		rawAddress := append([]byte{addressType << 4}, make([]byte, 28)...)
+		rawAddress = append(rawAddress, 0, 0, 0)
+		wire, err := cbor.Encode(map[uint]any{0: rawAddress, 1: 0})
+		require.NoError(t, err)
+		var output babbage.BabbageTransactionOutput
+		err = output.UnmarshalCBOR(wire)
+		require.NoError(t, err)
+		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+			TxCollateralReturn: &DijkstraTransactionOutput{
+				Output: output,
+			},
+		}}
+		err = rule(tx, 0, nil, nil)
+		pointerErr, ok := err.(*common.PtrPresentInCollateralReturn)
+		if !ok || pointerErr == nil {
+			t.Fatalf("expected *PtrPresentInCollateralReturn, got %T", err)
+		}
+		require.EqualValues(t, 22, pointerErr.Type)
+	}
+
+	tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+		TxCollateralReturn: &DijkstraTransactionOutput{
+			Output: babbage.BabbageTransactionOutput{},
+		},
+	}}
+	require.NoError(t, rule(tx, 0, nil, nil))
+}
+
 func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
 	guardrailsHash := common.Blake2b224Hash([]byte("constitution-guardrails"))
 	newTx := func(isValid bool, policyHash []byte) *DijkstraTransaction {
 		return &DijkstraTransaction{
 			Body: DijkstraTransactionBody{
 				TxProposalProcedures: []DijkstraProposalProcedure{{
+					PPRewardAccount: testAccountAddress(t),
 					PPGovAction: DijkstraGovAction{
 						Action: &DijkstraParameterChangeGovAction{
 							PolicyHash: policyHash,
@@ -285,7 +475,8 @@ func TestDijkstraGovernanceValidationRejectsTypedNilParameterChange(
 	var action *DijkstraParameterChangeGovAction
 	tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 		TxProposalProcedures: []DijkstraProposalProcedure{{
-			PPGovAction: DijkstraGovAction{Action: action},
+			PPRewardAccount: testAccountAddress(t),
+			PPGovAction:     DijkstraGovAction{Action: action},
 		}},
 	}}
 	var err error
@@ -306,9 +497,10 @@ func TestDijkstraBootstrapVotingRestrictionsAreRegistered(t *testing.T) {
 	newTx := func(action common.GovAction) *DijkstraTransaction {
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
-				PPGovAction: DijkstraGovAction{Action: action},
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction:     DijkstraGovAction{Action: action},
 			}},
-		}}
+		}, TxIsValid: true}
 		encodedBody, err := cbor.Encode(&tx.Body)
 		require.NoError(t, err)
 		tx.Body.SetCborReference(encodedBody)
@@ -339,6 +531,9 @@ func TestDijkstraBootstrapVotingRestrictionsAreRegistered(t *testing.T) {
 	err := rule(newTx(&DijkstraParameterChangeGovAction{}), 0, nil, pp)
 	var bootstrapErr conway.BootstrapVotingRestrictionError
 	require.ErrorAs(t, err, &bootstrapErr)
+	invalidTx := newTx(&DijkstraParameterChangeGovAction{})
+	invalidTx.TxIsValid = false
+	require.NoError(t, rule(invalidTx, 0, nil, pp))
 	require.NoError(t, rule(newTx(&common.InfoGovAction{}), 0, nil, pp))
 }
 
@@ -346,12 +541,34 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 	maxRefScriptSizePerBlock := uint32(1)
 	maxRefScriptSizePerTx := uint32(2)
 	refScriptCostStride := uint32(3)
+	maxPledgeLeverage := &cbor.Rat{Rat: big.NewRat(1, 1)}
+	minPoolMargin := &cbor.Rat{Rat: big.NewRat(1, 10)}
+	leiosAnnouncementPeriodLength := uint32(4)
+	leiosVotePeriodLength := uint32(5)
+	leiosDiffusionPeriodLength := uint32(6)
+	leiosCommitteeSize := uint16(7)
+	leiosQuorumStakeThreshold := &cbor.Rat{Rat: big.NewRat(3, 4)}
+	maxEndorserBlockReferencesSize := uint32(8)
+	maxEndorserBlockTxsSize := uint32(9)
+	maxEndorserBlockExUnits := common.ExUnits{Memory: 10, Steps: 11}
+	maxRefScriptSizePerEndorserBlock := uint32(12)
 	action := DijkstraParameterChangeGovAction{
 		ParamUpdate: DijkstraProtocolParameterUpdate{
-			MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
-			MaxRefScriptSizePerTx:    &maxRefScriptSizePerTx,
-			RefScriptCostStride:      &refScriptCostStride,
-			RefScriptCostMultiplier:  new(cbor.Rat),
+			MaxRefScriptSizePerBlock:         &maxRefScriptSizePerBlock,
+			MaxRefScriptSizePerTx:            &maxRefScriptSizePerTx,
+			RefScriptCostStride:              &refScriptCostStride,
+			RefScriptCostMultiplier:          new(cbor.Rat),
+			MaxPledgeLeverage:                maxPledgeLeverage,
+			MinPoolMargin:                    minPoolMargin,
+			LeiosAnnouncementPeriodLength:    &leiosAnnouncementPeriodLength,
+			LeiosVotePeriodLength:            &leiosVotePeriodLength,
+			LeiosDiffusionPeriodLength:       &leiosDiffusionPeriodLength,
+			LeiosCommitteeSize:               &leiosCommitteeSize,
+			LeiosQuorumStakeThreshold:        leiosQuorumStakeThreshold,
+			MaxEndorserBlockReferencesSize:   &maxEndorserBlockReferencesSize,
+			MaxEndorserBlockTxsSize:          &maxEndorserBlockTxsSize,
+			MaxEndorserBlockExUnits:          &maxEndorserBlockExUnits,
+			MaxRefScriptSizePerEndorserBlock: &maxRefScriptSizePerEndorserBlock,
 		},
 	}
 	require.Equal(t, []string{
@@ -359,7 +576,98 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 		"MaxRefScriptSizePerTx",
 		"RefScriptCostStride",
 		"RefScriptCostMultiplier",
+		"LeiosAnnouncementPeriodLength",
+		"LeiosVotePeriodLength",
+		"LeiosDiffusionPeriodLength",
+		"LeiosCommitteeSize",
+		"LeiosQuorumStakeThreshold",
+		"MaxEndorserBlockReferencesSize",
+		"MaxEndorserBlockTxsSize",
+		"MaxEndorserBlockExUnits",
+		"MaxRefScriptSizePerEndorserBlock",
 	}, action.SecurityGroupFields())
+}
+
+func TestDijkstraParameterChangeSPOVotingRestrictions(t *testing.T) {
+	spo := common.Voter{
+		Type: common.VoterTypeStakingPoolKeyHash,
+		Hash: common.Blake2b224{0x01},
+	}
+	parameterChangeId := common.GovActionId{TransactionId: common.Blake2b256{0x02}}
+	maxPledgeLeverage := &cbor.Rat{Rat: big.NewRat(1, 1)}
+	minPoolMargin := &cbor.Rat{Rat: big.NewRat(1, 10)}
+	leiosPeriod := uint32(1000)
+
+	govActionKey := fmt.Sprintf(
+		"%x#%d",
+		parameterChangeId.TransactionId[:],
+		parameterChangeId.GovActionIdx,
+	)
+	govActions := map[string]*common.GovActionState{
+		govActionKey: {
+			ActionId:   parameterChangeId,
+			ActionType: common.GovActionTypeParameterChange,
+			Action: &DijkstraParameterChangeGovAction{
+				ParamUpdate: DijkstraProtocolParameterUpdate{
+					LeiosAnnouncementPeriodLength: &leiosPeriod,
+				},
+			},
+		},
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govActions).
+		Build()
+
+	validateVote := func(id common.GovActionId) error {
+		voter := spo
+		actionId := id
+		tx := &DijkstraTransaction{TxIsValid: true}
+		tx.Body.TxVotingProcedures = common.VotingProcedures{
+			&voter: {&actionId: common.VotingProcedure{Vote: common.GovVoteYes}},
+		}
+		return conway.UtxoValidateStakePoolVotingRestrictions(
+			tx, 0, state, &DijkstraProtocolParameters{},
+		)
+	}
+
+	// Leios parameter changes use the security-group path, while the two
+	// neighboring new parameters remain outside SPO voting authorization.
+	require.NoError(t, validateVote(parameterChangeId))
+
+	for name, update := range map[string]DijkstraProtocolParameterUpdate{
+		"max pledge leverage": {MaxPledgeLeverage: maxPledgeLeverage},
+		"minimum pool margin": {MinPoolMargin: minPoolMargin},
+	} {
+		t.Run(name, func(t *testing.T) {
+			id := common.GovActionId{TransactionId: common.Blake2b256{0x03}}
+			govActionKey := fmt.Sprintf(
+				"%x#%d",
+				id.TransactionId[:],
+				id.GovActionIdx,
+			)
+			govActions := map[string]*common.GovActionState{
+				govActionKey: {
+					ActionId:   id,
+					ActionType: common.GovActionTypeParameterChange,
+					Action:     &DijkstraParameterChangeGovAction{ParamUpdate: update},
+				},
+			}
+			state := mockledger.NewLedgerStateBuilder().
+				WithGovActions(govActions).
+				Build()
+			voter := spo
+			actionId := id
+			tx := &DijkstraTransaction{TxIsValid: true}
+			tx.Body.TxVotingProcedures = common.VotingProcedures{
+				&voter: {&actionId: common.VotingProcedure{Vote: common.GovVoteYes}},
+			}
+			err := conway.UtxoValidateStakePoolVotingRestrictions(
+				tx, 0, state, &DijkstraProtocolParameters{},
+			)
+			var restriction conway.StakePoolVotingRestrictionError
+			require.ErrorAs(t, err, &restriction)
+		})
+	}
 }
 
 func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
@@ -377,10 +685,11 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 	t.Run("proposal deposit", func(t *testing.T) {
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
-				PPDeposit:   1,
-				PPGovAction: DijkstraGovAction{Action: &common.InfoGovAction{}},
+				PPDeposit:       1,
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction:     DijkstraGovAction{Action: &common.InfoGovAction{}},
 			}},
-		}}
+		}, TxIsValid: true}
 		rule, _ := dijkstraValidationRule(
 			t,
 			"ledger/dijkstra.UtxoValidateProposalDeposit",
@@ -388,19 +697,22 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		err := rule(tx, 0, nil, pp)
 		var depositErr conway.ProposalDepositIncorrectError
 		require.ErrorAs(t, err, &depositErr)
+		tx.TxIsValid = false
+		require.NoError(t, rule(tx, 0, nil, pp))
 	})
 
 	t.Run("parameter-change ancestry", func(t *testing.T) {
 		missing := common.GovActionId{TransactionId: common.Blake2b256{0x01}}
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
 						ActionId: &missing,
 					},
 				},
 			}},
-		}}
+		}, TxIsValid: true}
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
@@ -409,12 +721,15 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		err := rule(tx, 0, ls, pp)
 		var ancestryErr conway.InvalidGovActionAncestorError
 		require.ErrorAs(t, err, &ancestryErr)
+		tx.TxIsValid = false
+		require.NoError(t, rule(tx, 0, ls, pp))
 	})
 
 	t.Run("stake-pool parameter-change vote", func(t *testing.T) {
 		keyDeposit := uint(2_000_000)
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
 						ParamUpdate: DijkstraProtocolParameterUpdate{
@@ -423,7 +738,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 					},
 				},
 			}},
-		}}
+		}, TxIsValid: true}
 		encodedBody, err := cbor.Encode(&tx.Body)
 		require.NoError(t, err)
 		tx.Body.SetCborReference(encodedBody)
@@ -445,12 +760,15 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		err = rule(tx, 0, ls, pp)
 		var votingErr conway.StakePoolVotingRestrictionError
 		require.ErrorAs(t, err, &votingErr)
+		tx.TxIsValid = false
+		require.NoError(t, rule(tx, 0, ls, pp))
 	})
 
 	t.Run("stake-pool Dijkstra security parameter vote", func(t *testing.T) {
 		maxRefScriptSizePerTx := uint32(200_000)
 		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
 				PPGovAction: DijkstraGovAction{
 					Action: &DijkstraParameterChangeGovAction{
 						ParamUpdate: DijkstraProtocolParameterUpdate{
@@ -485,6 +803,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 func TestUtxoValidateBootstrapAllowedGovActionsRejectsUnknown(t *testing.T) {
 	tx := &DijkstraTransaction{}
 	tx.Body.TxProposalProcedures = []DijkstraProposalProcedure{{
+		PPRewardAccount: testAccountAddress(t),
 		PPGovAction: DijkstraGovAction{
 			Action: commontestdata.UnsupportedGovAction{},
 		},
@@ -728,6 +1047,52 @@ func TestDijkstraWrongNetworkWithdrawalPhase2Gate(t *testing.T) {
 	require.NoError(t, validate(tx))
 }
 
+func TestDijkstraDelegationInheritsDRepDeregistrationTombstone(t *testing.T) {
+	drep := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224Hash([]byte("dijkstra-drep-tombstone")),
+	}
+	drepDeposit := uint64(500_000_000)
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("dijkstra-drep-stake")),
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithDRepRegistrations([]common.DRepRegistration{{
+			Credential: drep,
+			Deposit:    &drepDeposit,
+		}}).
+		WithStakeCredentialRegistered(stake.Credential, true).
+		Build()
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxCertificates: []common.CertificateWrapper{
+				{Certificate: &common.DeregistrationDrepCertificate{
+					DrepCredential: drep,
+					Amount:         int64(drepDeposit),
+				}},
+				{Certificate: &common.VoteDelegationCertificate{
+					StakeCredential: stake,
+					Drep: common.Drep{
+						Type:       common.DrepTypeScriptHash,
+						Credential: drep.Credential.Bytes(),
+					},
+				}},
+			},
+		},
+		TxIsValid: true,
+	}
+	descriptor, _ := dijkstraValidationRuleDescriptor(
+		t,
+		common.UtxoValidationRuleDelegation,
+	)
+	require.ErrorAs(
+		t,
+		descriptor.Validator(tx, 0, state, &DijkstraProtocolParameters{}),
+		&conway.DelegateVoteToUnregisteredDRepError{},
+	)
+}
+
 func TestUtxoValidateBatchWithdrawals(t *testing.T) {
 	const balance = uint64(1_000_000)
 	const topWithdrawal = uint64(400_000)
@@ -786,7 +1151,7 @@ func TestUtxoValidateBatchWithdrawals(t *testing.T) {
 
 	tx, _, _ = newBatchTx(balance-topWithdrawal+1, false)
 	err = rule(tx, 0, ls, pp)
-	require.ErrorAs(t, err, &balanceErr)
+	require.NoError(t, err)
 }
 
 func mustAddressBytes(t *testing.T, address *common.Address) []byte {
@@ -1048,6 +1413,7 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tx := &DijkstraTransaction{
+				TxIsValid: true,
 				Body: DijkstraTransactionBody{
 					TxSubTransactions: cbor.NewSetType(
 						[]DijkstraSubTransaction{
@@ -1067,7 +1433,6 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 						false,
 					),
 				},
-				TxIsValid: true,
 			}
 
 			err := UtxoValidateCostModelsPresent(
@@ -1102,6 +1467,7 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 		Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{
 				{
+					PPRewardAccount: testAccountAddress(t),
 					PPGovAction: DijkstraGovAction{
 						Action: &DijkstraParameterChangeGovAction{
 							ParamUpdate: DijkstraProtocolParameterUpdate{},
@@ -1121,6 +1487,75 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 		},
 	}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+
+	for _, update := range []DijkstraProtocolParameterUpdate{
+		{RefScriptCostMultiplier: &cbor.Rat{Rat: big.NewRat(0, 1)}},
+		{MinPoolMargin: &cbor.Rat{Rat: big.NewRat(2, 1)}},
+		{LeiosQuorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(-1, 1)}},
+		{MaxEndorserBlockExUnits: &common.ExUnits{Memory: -1}},
+		{A0: &cbor.Rat{Rat: big.NewRat(-1, 1)}},
+	} {
+		tx.Body.TxProposalProcedures[0].PPGovAction.Action =
+			&DijkstraParameterChangeGovAction{ParamUpdate: update}
+		require.Error(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+	}
+	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
+		&DijkstraParameterChangeGovAction{ParamUpdate: DijkstraProtocolParameterUpdate{
+			MaxPledgeLeverageSet: true,
+		}}
+	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+}
+
+func TestDijkstraGovernanceValidationChecksUpdateCommitteeValues(t *testing.T) {
+	credential := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224Hash([]byte("committee-removal")),
+	}
+	for _, test := range []struct {
+		name   string
+		action *common.UpdateCommitteeGovAction
+	}{
+		{
+			name: "out-of-range quorum",
+			action: &common.UpdateCommitteeGovAction{
+				Quorum: cbor.Rat{Rat: big.NewRat(3, 2)},
+			},
+		},
+		{
+			name: "duplicate removals",
+			action: &common.UpdateCommitteeGovAction{
+				Credentials: []common.Credential{credential, credential},
+				Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tx := &DijkstraTransaction{
+				TxIsValid: true,
+				Body: DijkstraTransactionBody{
+					TxProposalProcedures: []DijkstraProposalProcedure{{
+						PPGovAction: DijkstraGovAction{Action: test.action},
+					}},
+				},
+			}
+			var rule common.UtxoValidationRuleFunc
+			for _, descriptor := range UtxoValidationRuleDescriptors() {
+				if descriptor.Id == common.UtxoValidationRuleGovActionWellFormedness {
+					rule = descriptor.Validator
+					break
+				}
+			}
+			require.NotNil(t, rule)
+			err := common.VerifyTransaction(
+				tx,
+				0,
+				mockledger.NewLedgerStateBuilder().Build(),
+				&conway.ConwayProtocolParameters{},
+				[]common.UtxoValidationRuleFunc{rule},
+			)
+			require.ErrorAs(t, err, &conway.MalformedGovActionError{})
+		})
+	}
 }
 
 func TestDijkstraProposalRejectsVersionedZeroParameters(t *testing.T) {
@@ -1193,6 +1628,7 @@ func TestBootstrapPhaseAllowsDijkstraParameterChangeFields(t *testing.T) {
 		Body: DijkstraTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{
 				{
+					PPRewardAccount: testAccountAddress(t),
 					PPGovAction: DijkstraGovAction{
 						Action: &DijkstraParameterChangeGovAction{
 							ParamUpdate: DijkstraProtocolParameterUpdate{
@@ -2046,4 +2482,60 @@ func TestDijkstraMinCoinTxOutBoundary(t *testing.T) {
 		},
 	)
 	require.ErrorContains(t, err, "overflow")
+}
+
+func TestMinFeeIncludesDeclaredExecutionUnitsAcrossBatch(t *testing.T) {
+	prices := common.ExUnitPrice{
+		MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
+		StepPrice: &cbor.Rat{Rat: big.NewRat(1, 4)},
+	}
+	key := common.RedeemerKey{Tag: common.RedeemerTagSpend}
+	tx := &DijkstraTransaction{
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					key: {ExUnits: common.ExUnits{Memory: 2}},
+				},
+			},
+		},
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				WitnessSet: DijkstraTransactionWitnessSet{
+					WsRedeemers: DijkstraRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+							key: {ExUnits: common.ExUnits{Memory: 1}},
+						},
+					},
+				},
+			}}, false),
+		},
+		TxIsValid: true,
+	}
+	tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			MinFeeA:        2,
+			MinFeeB:        3,
+			ExecutionCosts: prices,
+		},
+	}
+	txSize, err := common.TxSizeForFee(tx)
+	require.NoError(t, err)
+	baseFee, err := common.CalculateMinFee(txSize, pp.MinFeeA, pp.MinFeeB)
+	require.NoError(t, err)
+	minFee, err := MinFeeTx(tx, pp)
+	require.NoError(t, err)
+	require.Equal(t, baseFee+2, minFee)
+
+	state := mockledger.NewLedgerStateBuilder().Build()
+	tx.Body.TxFee = baseFee
+	require.ErrorAs(t, UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp), &shelley.FeeTooSmallUtxoError{})
+	tx.Body.TxFee = minFee
+	require.NoError(t, UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp))
+
+	tx.WitnessSet = DijkstraTransactionWitnessSet{}
+	tx.Body.TxSubTransactions = cbor.SetType[DijkstraSubTransaction]{}
+	noRedeemerFee, err := MinFeeTx(tx, pp)
+	require.NoError(t, err)
+	require.Equal(t, baseFee, noRedeemerFee)
 }

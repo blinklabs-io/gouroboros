@@ -15,16 +15,31 @@
 package byron_test
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// blockForever is an io.Reader whose Read never returns, simulating a
+// connection or stream that stays open indefinitely past the data a caller
+// cares about.
+type blockForever struct{}
+
+func (blockForever) Read([]byte) (int, error) {
+	select {}
+}
 
 const byronGenesisConfig = `
 {
@@ -261,22 +276,10 @@ func TestGenesisNonAvvmUtxos(t *testing.T) {
 	testAddr := "FHnt4NL7yPXvDWHa8bVs73UEUdJd64VxWXSFNqetECtYfTd9TtJguJ14Lu3feth"
 	testAmount := uint64(30_000_000_000_000_000)
 	expectedTxId := "4843cf2e582b2f9ce37600e5ab4cc678991f988f8780fed05407f9537f7712bd"
-	// Generate genesis config JSON
-	tmpGenesisData := map[string]any{
-		"nonAvvmBalances": map[string]string{
+	tmpGenesis := byron.ByronGenesis{
+		NonAvvmBalances: map[string]string{
 			testAddr: strconv.FormatUint(testAmount, 10),
 		},
-	}
-	tmpGenesisJson, err := json.Marshal(tmpGenesisData)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	// Parse genesis config JSON
-	tmpGenesis, err := byron.NewByronGenesisFromReader(
-		strings.NewReader(string(tmpGenesisJson)),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
 	}
 	tmpGenesisUtxos, err := tmpGenesis.GenesisUtxos()
 	if err != nil {
@@ -314,22 +317,10 @@ func TestGenesisAvvmUtxos(t *testing.T) {
 	testAmount := uint64(2463071701000000)
 	expectedTxId := "0ae3da29711600e94a33fb7441d2e76876a9a1e98b5ebdefbf2e3bc535617616"
 	expectedAddr := "Ae2tdPwUPEZKQuZh2UndEoTKEakMYHGNjJVYmNZgJk2qqgHouxDsA5oT83n"
-	// Generate genesis config JSON
-	tmpGenesisData := map[string]any{
-		"avvmDistr": map[string]string{
+	tmpGenesis := byron.ByronGenesis{
+		AvvmDistr: map[string]string{
 			testPubkey: strconv.FormatUint(testAmount, 10),
 		},
-	}
-	tmpGenesisJson, err := json.Marshal(tmpGenesisData)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	// Parse genesis config JSON
-	tmpGenesis, err := byron.NewByronGenesisFromReader(
-		strings.NewReader(string(tmpGenesisJson)),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
 	}
 	tmpGenesisUtxos, err := tmpGenesis.GenesisUtxos()
 	if err != nil {
@@ -360,6 +351,82 @@ func TestGenesisAvvmUtxos(t *testing.T) {
 			testAmount,
 		)
 	}
+}
+
+func TestGenesisAvvmUtxosRequireNetworkMagic(t *testing.T) {
+	pubkey := "URVk8FxX6Ik9z-Cub09oOxMkp6FwNq27kJUXbjJnfsQ="
+	pubkeyBytes, err := base64.URLEncoding.DecodeString(pubkey)
+	require.NoError(t, err)
+	magic := uint32(42)
+	address, err := common.NewByronAddressRedeem(
+		pubkeyBytes,
+		common.ByronAddressAttributes{Network: &magic},
+	)
+	require.NoError(t, err)
+	addressBytes, err := address.Bytes()
+	require.NoError(t, err)
+	genesis := byron.ByronGenesis{
+		AvvmDistr: map[string]string{pubkey: "1000000"},
+		ProtocolConsts: byron.ByronGenesisProtocolConsts{
+			ProtocolMagic: int(magic),
+		},
+		RequiresNetworkMagic: "RequiresMagic",
+	}
+	utxos, err := genesis.GenesisUtxos()
+	require.NoError(t, err)
+	require.Len(t, utxos, 1)
+	require.Equal(t, address.String(), utxos[0].Output.Address().String())
+	require.Equal(
+		t,
+		addressBytes,
+		mustAddressBytes(t, utxos[0].Output.Address()),
+	)
+}
+
+func TestGenesisUtxosRejectAvvmNonAvvmOverlap(t *testing.T) {
+	pubkey := "URVk8FxX6Ik9z-Cub09oOxMkp6FwNq27kJUXbjJnfsQ="
+	pubkeyBytes, err := base64.URLEncoding.DecodeString(pubkey)
+	require.NoError(t, err)
+	magic := uint32(42)
+	address, err := common.NewByronAddressRedeem(
+		pubkeyBytes,
+		common.ByronAddressAttributes{Network: &magic},
+	)
+	require.NoError(t, err)
+	for _, amounts := range [][2]string{{"1000000", "1000000"}, {"1000000", "2000000"}} {
+		genesis := byron.ByronGenesis{
+			AvvmDistr: map[string]string{pubkey: amounts[0]},
+			NonAvvmBalances: map[string]string{
+				address.String(): amounts[1],
+			},
+			ProtocolConsts: byron.ByronGenesisProtocolConsts{
+				ProtocolMagic: int(magic),
+			},
+			RequiresNetworkMagic: "RequiresMagic",
+		}
+		_, err := genesis.GenesisUtxos()
+		require.ErrorContains(t, err, "duplicate Byron genesis UTxO reference")
+	}
+	genesis := byron.ByronGenesis{
+		AvvmDistr: map[string]string{pubkey: "1000000"},
+		NonAvvmBalances: map[string]string{
+			"Ae2tdPwUPEZKQuZh2UndEoTKEakMYHGNjJVYmNZgJk2qqgHouxDsA5oT83n": "2000000",
+		},
+		ProtocolConsts: byron.ByronGenesisProtocolConsts{
+			ProtocolMagic: int(magic),
+		},
+		RequiresNetworkMagic: "RequiresMagic",
+	}
+	utxos, err := genesis.GenesisUtxos()
+	require.NoError(t, err)
+	require.Len(t, utxos, 2)
+}
+
+func mustAddressBytes(t *testing.T, addr common.Address) []byte {
+	t.Helper()
+	data, err := addr.Bytes()
+	require.NoError(t, err)
+	return data
 }
 
 func TestNewByronGenesisFromReader(t *testing.T) {
@@ -434,6 +501,309 @@ func TestNewByronGenesisFromReader(t *testing.T) {
 			result,
 			expected,
 		)
+	}
+}
+
+// TestNewByronGenesisFromReaderRejectsNonCanonicalEscapes covers the
+// historical canonical-JSON escape grammar the Byron reference parses
+// genesis with, which permits only \" and \\ inside a string. It checks
+// each disallowed escape (\uXXXX, \/, \n, \r, \t, \b, \f) is rejected, the
+// two allowed escapes still decode, and both an ordinary value and the
+// full genesis fixture used elsewhere in this file are unaffected.
+func TestNewByronGenesisFromReaderRejectsNonCanonicalEscapes(t *testing.T) {
+	t.Run("ordinary protocolMagic succeeds", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+			genesisWithParameter(t, []string{"protocolConsts", "protocolMagic"}, 42),
+		))
+		require.NoError(t, err)
+	})
+
+	t.Run("protocolM\\u0061gic is rejected", func(t *testing.T) {
+		// The Unicode escape in the key decodes to the ASCII letter 'a',
+		// so a standard JSON decoder maps this key onto the same field
+		// as a literal "protocolMagic" -- exactly why the canonical-JSON
+		// grammar must be enforced before schema decoding, not caught by
+		// it.
+		//
+		// Built with a double-quoted Go string literal (not a raw
+		// backtick string) so the doubled backslash below compiles down
+		// to the single literal backslash this test needs in front of
+		// the escape's hex digits.
+		doc := "{\"protocolConsts\": {\"protocolM\\u0061gic\": 42}}"
+		require.Contains(t, doc, "protocolM\\u0061gic")
+		_, err := byron.NewByronGenesisFromReader(strings.NewReader(doc))
+		require.Error(t, err)
+	})
+
+	t.Run("string value containing \\/ is rejected", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(
+			strings.NewReader(`{"ftsSeed": "abc\/def"}`),
+		)
+		require.Error(t, err)
+	})
+
+	// "\\u0041" is a double-quoted Go string literal so the doubled
+	// backslash compiles down to one literal backslash in front of
+	// u0041, matching the other entries' single-backslash-escape shape.
+	for _, escape := range []string{`\n`, `\r`, `\t`, `\b`, `\f`, "\\u0041"} {
+		t.Run("rejects "+escape, func(t *testing.T) {
+			_, err := byron.NewByronGenesisFromReader(
+				strings.NewReader(`{"ftsSeed": "abc` + escape + `def"}`),
+			)
+			require.Error(t, err)
+		})
+	}
+
+	t.Run("accepts escaped quote and backslash", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+			genesisWithParameter(t, []string{"ftsSeed"}, "abc\"\\def"),
+		))
+		require.NoError(t, err)
+	})
+
+	t.Run("full genesis fixture still decodes", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(
+			strings.NewReader(byronGenesisConfig),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("does not block on a reader left open past the genesis value", func(t *testing.T) {
+		// NewByronGenesisFromReader decodes exactly one JSON value, the
+		// same as the encoding/json Decode it wraps, and must not read
+		// to EOF: a caller's reader (a long-lived connection, a
+		// multi-document stream) may never signal EOF at all.
+		genesisJSON := []byte(byronGenesisConfig)
+		r := io.MultiReader(
+			bytes.NewReader(genesisJSON),
+			blockForever{},
+		)
+		done := make(chan error, 1)
+		go func() {
+			_, err := byron.NewByronGenesisFromReader(r)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal(
+				"NewByronGenesisFromReader blocked reading past the genesis value",
+			)
+		}
+	})
+}
+
+func genesisWithParameter(t *testing.T, path []string, value any) string {
+	t.Helper()
+	var document map[string]any
+	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document == nil {
+		t.Fatal("decoded genesis document is nil")
+	}
+	current := document
+	for _, key := range path[:len(path)-1] {
+		next, ok := current[key].(map[string]any)
+		if !ok || next == nil {
+			t.Fatalf("missing genesis object %q", key)
+		}
+		current = next
+	}
+	current[path[len(path)-1]] = value
+	encoded, err := json.Marshal(document)
+	require.NoError(t, err)
+	return string(encoded)
+}
+
+func genesisWithoutField(t *testing.T, path []string) string {
+	t.Helper()
+	var document map[string]any
+	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
+		t.Fatal(err)
+	}
+	current := document
+	for _, key := range path[:len(path)-1] {
+		next, ok := current[key].(map[string]any)
+		if !ok {
+			t.Fatalf("missing genesis object %q", key)
+		}
+		current = next
+	}
+	delete(current, path[len(path)-1])
+	encoded, err := json.Marshal(document)
+	require.NoError(t, err)
+	return string(encoded)
+}
+
+func TestNewByronGenesisFromReaderRequiredFields(t *testing.T) {
+	fields := [][]string{
+		{"avvmDistr"},
+		{"blockVersionData"},
+		{"protocolConsts"},
+		{"startTime"},
+		{"bootStakeholders"},
+		{"heavyDelegation"},
+		{"nonAvvmBalances"},
+		{"blockVersionData", "heavyDelThd"},
+		{"blockVersionData", "maxBlockSize"},
+		{"blockVersionData", "maxHeaderSize"},
+		{"blockVersionData", "maxProposalSize"},
+		{"blockVersionData", "maxTxSize"},
+		{"blockVersionData", "mpcThd"},
+		{"blockVersionData", "scriptVersion"},
+		{"blockVersionData", "slotDuration"},
+		{"blockVersionData", "softforkRule"},
+		{"blockVersionData", "txFeePolicy"},
+		{"blockVersionData", "unlockStakeEpoch"},
+		{"blockVersionData", "updateImplicit"},
+		{"blockVersionData", "updateProposalThd"},
+		{"blockVersionData", "updateVoteThd"},
+		{"blockVersionData", "softforkRule", "initThd"},
+		{"blockVersionData", "softforkRule", "minThd"},
+		{"blockVersionData", "softforkRule", "thdDecrement"},
+		{"blockVersionData", "txFeePolicy", "multiplier"},
+		{"blockVersionData", "txFeePolicy", "summand"},
+		{"protocolConsts", "k"},
+		{"protocolConsts", "protocolMagic"},
+	}
+	for _, path := range fields {
+		name := strings.Join(path, ".")
+		t.Run(name, func(t *testing.T) {
+			_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+				genesisWithoutField(t, path),
+			))
+			require.ErrorContains(t, err, name)
+		})
+	}
+}
+
+func TestNewByronGenesisFromReaderIgnoresUnknownFields(t *testing.T) {
+	var document map[string]any
+	if err := json.Unmarshal([]byte(byronGenesisConfig), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document == nil {
+		t.Fatal("decoded genesis document is nil")
+	}
+	document["futureExtension"] = true
+	blockVersionData, ok := document["blockVersionData"].(map[string]any)
+	if !ok || blockVersionData == nil {
+		t.Fatal("missing blockVersionData object")
+	}
+	blockVersionData["futureParameter"] = "ignored"
+	softforkRule, ok := blockVersionData["softforkRule"].(map[string]any)
+	if !ok || softforkRule == nil {
+		t.Fatal("missing softforkRule object")
+	}
+	softforkRule["futureRule"] = "ignored"
+	encoded, err := json.Marshal(document)
+	require.NoError(t, err)
+	_, err = byron.NewByronGenesisFromReader(strings.NewReader(string(encoded)))
+	require.NoError(t, err)
+}
+
+func TestNewByronGenesisFromReaderLovelacePortionBounds(t *testing.T) {
+	parameters := [][]string{
+		{"blockVersionData", "mpcThd"},
+		{"blockVersionData", "heavyDelThd"},
+		{"blockVersionData", "updateVoteThd"},
+		{"blockVersionData", "updateProposalThd"},
+		{"blockVersionData", "softforkRule", "initThd"},
+		{"blockVersionData", "softforkRule", "minThd"},
+		{"blockVersionData", "softforkRule", "thdDecrement"},
+	}
+	for _, path := range parameters {
+		name := strings.Join(path, ".")
+		t.Run(name, func(t *testing.T) {
+			for _, value := range []string{"0", "1", "1000000000000000"} {
+				_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+					genesisWithParameter(t, path, value),
+				))
+				require.NoErrorf(t, err, "%s = %s", name, value)
+			}
+			for _, value := range []string{"-1", "1000000000000001"} {
+				_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+					genesisWithParameter(t, path, value),
+				))
+				require.ErrorContains(t, err, name)
+			}
+		})
+	}
+}
+
+func TestNewByronGenesisFromReaderRejectsNegativeUnsignedProtocolParameters(
+	t *testing.T,
+) {
+	parameters := [][]string{
+		{"blockVersionData", "slotDuration"},
+		{"blockVersionData", "maxBlockSize"},
+		{"blockVersionData", "maxHeaderSize"},
+		{"blockVersionData", "maxTxSize"},
+		{"blockVersionData", "maxProposalSize"},
+		{"blockVersionData", "updateImplicit"},
+		{"blockVersionData", "txFeePolicy", "summand"},
+	}
+	for _, path := range parameters {
+		name := strings.Join(path, ".")
+		t.Run(name, func(t *testing.T) {
+			_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+				genesisWithParameter(t, path, "-1"),
+			))
+			require.ErrorContains(t, err, name)
+
+			_, err = byron.NewByronGenesisFromReader(strings.NewReader(
+				genesisWithParameter(t, path, "0"),
+			))
+			require.NoErrorf(t, err, "%s = 0", name)
+		})
+	}
+}
+
+func TestNewByronGenesisFromReaderScriptVersionRange(t *testing.T) {
+	path := []string{"blockVersionData", "scriptVersion"}
+	for _, tc := range []struct {
+		value   int
+		wantErr bool
+	}{
+		{value: -1, wantErr: true},
+		{value: 0},
+		{value: 65535},
+		{value: 65536, wantErr: true},
+	} {
+		t.Run(fmt.Sprint(tc.value), func(t *testing.T) {
+			_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+				genesisWithParameter(t, path, tc.value),
+			))
+			if tc.wantErr {
+				require.ErrorContains(t, err, "blockVersionData.scriptVersion")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestNewByronGenesisFromReaderTxFeeSummandUpperBound(t *testing.T) {
+	path := []string{"blockVersionData", "txFeePolicy", "summand"}
+	for _, tc := range []struct {
+		value   string
+		wantErr bool
+	}{
+		{value: "45000000000000000"},
+		{value: "45000000000000001", wantErr: true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+				genesisWithParameter(t, path, tc.value),
+			))
+			if tc.wantErr {
+				require.ErrorContains(t, err, "blockVersionData.txFeePolicy.summand")
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 

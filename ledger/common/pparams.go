@@ -15,6 +15,8 @@
 package common
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"math/big"
@@ -52,6 +54,93 @@ type ProtocolParametersProtocolVersionProvider interface {
 
 type ProtocolParameters interface {
 	Utxorpc() (*cardano.PParams, error)
+}
+
+// ValidateCostModelLanguageIDs enforces the Word8 wire domain used by
+// cardano-ledger while retaining unknown language IDs for forward
+// compatibility.
+func ValidateCostModelLanguageIDs(models map[uint][]int64) error {
+	for languageID := range models {
+		if languageID > 255 {
+			return fmt.Errorf(
+				"cost-model language ID %d exceeds Word8 maximum 255",
+				languageID,
+			)
+		}
+	}
+	return nil
+}
+
+// ValidateNonNegativeBoundedRatCBOR verifies the raw tag-30 integer pair used
+// by reference NonNegativeInterval and UnitInterval values. It checks the
+// unreduced CBOR numerator and denominator before cbor.Rat normalizes them.
+func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
+	var tagged cbor.RawTag
+	if _, err := cbor.Decode(raw, &tagged); err != nil {
+		return err
+	}
+	if tagged.Number != cbor.CborTagRational {
+		return fmt.Errorf("expected CBOR rational tag, got %d", tagged.Number)
+	}
+	var components []cbor.RawMessage
+	if _, err := cbor.Decode(tagged.Content, &components); err != nil {
+		return err
+	}
+	if len(components) != 2 {
+		return errors.New("expected rational numerator and denominator")
+	}
+	numerator, err := rawCBORInteger(components[0])
+	if err != nil {
+		return fmt.Errorf("decode rational numerator: %w", err)
+	}
+	denominator, err := rawCBORInteger(components[1])
+	if err != nil {
+		return fmt.Errorf("decode rational denominator: %w", err)
+	}
+	if !numerator.IsUint64() {
+		return errors.New("rational numerator must be in Word64")
+	}
+	if !denominator.IsUint64() || denominator.Sign() == 0 {
+		return errors.New("rational denominator must be positive Word64")
+	}
+	return nil
+}
+
+// ValidateNonNegativeBoundedRatArrayCBOR validates every raw tag-30 rational
+// in a struct-as-array CBOR value.
+func ValidateNonNegativeBoundedRatArrayCBOR(raw []byte) error {
+	if len(raw) == 0 || raw[0]>>5 != 4 {
+		return errors.New("expected CBOR array")
+	}
+	var values []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &values); err != nil {
+		return err
+	}
+	for index, value := range values {
+		if err := ValidateNonNegativeBoundedRatCBOR(value); err != nil {
+			return fmt.Errorf("rational at array index %d: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func rawCBORInteger(raw []byte) (*big.Int, error) {
+	var value any
+	if _, err := cbor.Decode(raw, &value); err != nil {
+		return nil, err
+	}
+	result := new(big.Int)
+	switch integer := value.(type) {
+	case int64:
+		result.SetInt64(integer)
+	case uint64:
+		result.SetUint64(integer)
+	case big.Int:
+		result.Set(&integer)
+	default:
+		return nil, fmt.Errorf("expected integer, got %T", value)
+	}
+	return result, nil
 }
 
 // PoolRuleProtocolParameters is the protocol-parameter view required by the
@@ -125,6 +214,9 @@ func ConvertToUtxorpcCardanoCostModels(
 
 // CostModelsToPlutusData converts ledger cost-model updates to a PlutusData map.
 func CostModelsToPlutusData(models map[uint][]int64) data.PlutusData {
+	if err := ValidateCostModelLanguageIDs(models); err != nil {
+		panic(err)
+	}
 	keys := slices.Collect(maps.Keys(models))
 	slices.Sort(keys)
 	pairs := make([][2]data.PlutusData, 0, len(keys))
