@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"bytes"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -504,6 +505,32 @@ func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.
 	})
 }
 
+func TestDijkstraTxInfoV4IncludesSubTxIndex(t *testing.T) {
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{{}, {}},
+				true,
+			),
+		},
+		TxIsValid: true,
+	}
+	levels, _, err := dijkstraScriptLevels(tx, dijkstraV4TestLedgerState())
+	require.NoError(t, err)
+	require.Len(t, levels, 3)
+	for index, level := range levels {
+		infoData, err := dijkstraTxInfoV4(level)
+		require.NoError(t, err)
+		info := requireDijkstraV4Constr(t, infoData, 0, 19)
+		if index == len(levels)-1 {
+			requireDijkstraV4Constr(t, info.Fields[1], 1, 0)
+			continue
+		}
+		indexData := requireDijkstraV4Constr(t, info.Fields[1], 0, 1)
+		requireDijkstraV4Integer(t, indexData.Fields[0], int64(index))
+	}
+}
+
 func TestDijkstraPlutusV4GuardingUsesCurrentReferenceShape(t *testing.T) {
 	guard := common.Credential{
 		CredType: common.CredentialTypeScriptHash,
@@ -573,7 +600,7 @@ func TestDijkstraPlutusV4GuardingUsesCurrentReferenceShape(t *testing.T) {
 	}
 
 	topContextData, err := dijkstraPlutusV4Context(
-		levels[1],
+		levels[len(levels)-1],
 		purpose,
 		key,
 		redeemer,
@@ -589,7 +616,7 @@ func TestDijkstraPlutusV4GuardingUsesCurrentReferenceShape(t *testing.T) {
 	topTxInfo := requireDijkstraV4Constr(t, topContext.Fields[0], 0, 19)
 	requireDijkstraV4Constr(t, topTxInfo.Fields[1], 1, 0)
 
-	for _, level := range levels[:2] {
+	for index, level := range levels[:2] {
 		subContextData, err := dijkstraPlutusV4Context(
 			level,
 			purpose,
@@ -599,7 +626,8 @@ func TestDijkstraPlutusV4GuardingUsesCurrentReferenceShape(t *testing.T) {
 		require.NoError(t, err)
 		subContext := requireDijkstraV4Constr(t, subContextData, 0, 4)
 		subTxInfo := requireDijkstraV4Constr(t, subContext.Fields[0], 0, 19)
-		requireDijkstraV4Constr(t, subTxInfo.Fields[1], 1, 0)
+		subTxIndex := requireDijkstraV4Constr(t, subTxInfo.Fields[1], 0, 1)
+		requireDijkstraV4Integer(t, subTxIndex.Fields[0], int64(index))
 		subScriptInfo := requireDijkstraV4Constr(t, subContext.Fields[2], 6, 2)
 		requireDijkstraV4Constr(t, subScriptInfo.Fields[1], 1, 0)
 	}
@@ -661,4 +689,44 @@ func TestDijkstraAddressV4BasePaymentCredentials(t *testing.T) {
 			requireDijkstraV4Bytes(t, stake.Fields[0], stakingHash)
 		})
 	}
+}
+
+func TestOutsideForecastChecksInvalidSubTransaction(t *testing.T) {
+	const upper uint64 = 84
+	state := mockledger.NewLedgerStateBuilder().WithSlotToTime(
+		func(slot uint64) (time.Time, error) {
+			if slot == upper {
+				return time.Time{}, errors.New("outside forecast")
+			}
+			return time.Time{}, nil
+		},
+	).Build()
+	key := common.RedeemerKey{Tag: common.RedeemerTagSpend}
+	subBody := DijkstraSubTransactionBody{}
+	subBody.SetValidityIntervalUpperBound(upper)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: subBody,
+				WitnessSet: DijkstraTransactionWitnessSet{
+					WsRedeemers: DijkstraRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{key: {}},
+					},
+				},
+			}}, false),
+		},
+		TxIsValid: false,
+	}
+	err := common.ValidateOutsideForecast(
+		tx,
+		1,
+		state,
+		common.OutsideForecastTypeDijkstra,
+	)
+	var outsideForecast *common.OutsideForecastError
+	require.ErrorAs(t, err, &outsideForecast)
+	if outsideForecast == nil {
+		return
+	}
+	require.Equal(t, upper, outsideForecast.Slot)
 }

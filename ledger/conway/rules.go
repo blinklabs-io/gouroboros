@@ -94,6 +94,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateCollateralVKeyWitnesses,
 	},
 	{
+		Id:        common.UtxoValidationRuleCollateralKeyLocked,
+		Validator: common.UtxoValidateCollateralKeyLocked,
+	},
+	{
 		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
 		Validator: UtxoValidateRedeemerAndScriptWitnesses,
 	},
@@ -124,6 +128,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleOutsideValidityInterval,
 		Validator: UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideForecast,
+		Validator: UtxoValidateOutsideForecast,
 	},
 	{
 		Id:        common.UtxoValidationRuleInputSetEmpty,
@@ -304,10 +312,15 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.AlwaysUtxoValidationRules(common.UtxoValidateProposalReturnAddressShape),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
-		UtxoValidateCollateralVKeyWitnesses, UtxoValidateRedeemerAndScriptWitnesses,
+		UtxoValidateCollateralVKeyWitnesses,
+		common.UtxoValidateCollateralKeyLocked,
+	),
+	common.AlwaysUtxoValidationRules(
+		UtxoValidateRedeemerAndScriptWitnesses,
 		UtxoValidateSignatures, UtxoValidateCostModelsPresent, UtxoValidateScriptDataHash,
 		UtxoValidateInlineDatumsWithPlutusV1, UtxoValidateConwayFeaturesWithPlutusV1V2,
 		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateOutsideForecast,
 		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
 		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
 		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
@@ -1868,7 +1881,7 @@ func UtxoValidateExtraneousRedeemers(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if err := common.ValidateExtraneousRedeemers(tx); err != nil {
+	if err := common.ValidateExactExtraneousRedeemers(tx, ls); err != nil {
 		var extraErr common.ExtraneousRedeemerError
 		if errors.As(err, &extraErr) {
 			return ExtraRedeemerError{RedeemerKey: extraErr.RedeemerKey}
@@ -1889,63 +1902,9 @@ func UtxoValidateCostModelsPresent(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*ConwayTransaction)
-	if !ok {
-		return errors.New("transaction is not expected type")
-	}
-
-	required := map[uint]struct{}{}
-	wits := tmpTx.WitnessSet
-	if len(wits.WsPlutusV1Scripts.Items()) > 0 {
-		required[0] = struct{}{}
-	}
-	if len(wits.WsPlutusV2Scripts.Items()) > 0 {
-		required[1] = struct{}{}
-	}
-	if len(wits.WsPlutusV3Scripts.Items()) > 0 {
-		required[2] = struct{}{}
-	}
-	if len(common.PlutusV4ScriptsFromWitnessSet(wits)) > 0 {
-		required[3] = struct{}{}
-	}
-	// Also include reference scripts on reference inputs
-	for _, refInput := range tmpTx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		if version, ok := common.PlutusScriptVersion(script); ok {
-			required[version] = struct{}{}
-		}
-	}
-
-	// Per CIP-33, also include reference scripts on regular (spent) inputs
-	for _, input := range tmpTx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// Skip errors - BadInputsUtxo will catch this
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		if version, ok := common.PlutusScriptVersion(script); ok {
-			required[version] = struct{}{}
-		}
+	required, err := common.UsedPlutusVersions(tx, ls)
+	if err != nil {
+		return err
 	}
 
 	if len(required) == 0 {
@@ -2120,6 +2079,20 @@ func UtxoValidateOutsideValidityIntervalUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return allegra.UtxoValidateOutsideValidityIntervalUtxo(tx, slot, ls, pp)
+}
+
+func UtxoValidateOutsideForecast(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	_ common.ProtocolParameters,
+) error {
+	return common.ValidateOutsideForecast(
+		tx,
+		slot,
+		ls,
+		common.OutsideForecastTypeConway,
+	)
 }
 
 func UtxoValidateInputSetEmptyUtxo(
@@ -3046,78 +3019,10 @@ func UtxoValidateSupplementalDatums(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return nil
+	if err := common.ValidateRequiredSpendingDatums(tx, ls); err != nil {
+		return err
 	}
-
-	// Get all datums from witness set
-	witnessDatums := witnesses.PlutusData()
-	if len(witnessDatums) == 0 {
-		return nil
-	}
-
-	// Collect all "justified" datum hashes - those referenced by UTxOs being spent
-	justifiedHashes := make(map[common.Blake2b256]bool)
-
-	// Check regular inputs
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue // UTxO not found - will fail BadInputsUtxo rule
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		// Only non-inline datums justify witness datums
-		if utxo.Output.Datum() == nil {
-			if datumHash := utxo.Output.DatumHash(); datumHash != nil {
-				justifiedHashes[*datumHash] = true
-			}
-		}
-	}
-
-	// Check transaction outputs - datum hashes in outputs also justify witness datums
-	for _, output := range tx.Outputs() {
-		if output.Datum() == nil {
-			if datumHash := output.DatumHash(); datumHash != nil {
-				justifiedHashes[*datumHash] = true
-			}
-		}
-	}
-
-	// Check reference inputs as well - datums referenced there are also justified
-	for _, input := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		if utxo.Output.Datum() == nil {
-			if datumHash := utxo.Output.DatumHash(); datumHash != nil {
-				justifiedHashes[*datumHash] = true
-			}
-		}
-	}
-
-	// Check for supplemental (unjustified) datums
-	var supplementalHashes []common.Blake2b256
-	for _, datum := range witnessDatums {
-		datumHash := datum.Hash()
-		if !justifiedHashes[datumHash] {
-			supplementalHashes = append(supplementalHashes, datumHash)
-		}
-	}
-
-	if len(supplementalHashes) > 0 {
-		return NotAllowedSupplementalDatumsError{
-			DatumHashes: supplementalHashes,
-		}
-	}
-
-	return nil
+	return common.ValidateSupplementalDatums(tx, ls)
 }
 
 // UtxoValidatePlutusScripts executes all Plutus scripts in the transaction

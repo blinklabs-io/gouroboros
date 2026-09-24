@@ -1008,6 +1008,25 @@ type ExUnits struct {
 	Steps  int64 `json:"steps"`
 }
 
+// UnmarshalCBOR enforces the unsigned wire domain of execution units while
+// retaining signed fields for overflow-checked accumulation.
+func (e *ExUnits) UnmarshalCBOR(cborData []byte) error {
+	var encoded struct {
+		cbor.StructAsArray
+		Memory uint64
+		Steps  uint64
+	}
+	if _, err := cbor.Decode(cborData, &encoded); err != nil {
+		return err
+	}
+	if encoded.Memory > math.MaxInt64 || encoded.Steps > math.MaxInt64 {
+		return errors.New("execution units exceed int64 range")
+	}
+	e.Memory = int64(encoded.Memory)
+	e.Steps = int64(encoded.Steps)
+	return nil
+}
+
 // GenesisRat is a convenience type for cbor.Rat
 type GenesisRat = cbor.Rat
 
