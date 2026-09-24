@@ -32,6 +32,9 @@ const (
 	RedeemerTagVoting    RedeemerTag = 4
 	RedeemerTagProposing RedeemerTag = 5
 	RedeemerTagGuarding  RedeemerTag = 6
+	// RedeemerTagObserve is CIP-0112's name for the purpose Dijkstra calls
+	// Guarding. They share one on-wire tag.
+	RedeemerTagObserve RedeemerTag = RedeemerTagGuarding
 )
 
 var redeemerTagNames = map[RedeemerTag]string{
@@ -52,6 +55,7 @@ var redeemerTagValues = map[string]RedeemerTag{
 	"voting":    RedeemerTagVoting,
 	"proposing": RedeemerTagProposing,
 	"guarding":  RedeemerTagGuarding,
+	"observe":   RedeemerTagObserve,
 }
 
 func (t RedeemerTag) MarshalJSON() ([]byte, error) {
@@ -72,6 +76,28 @@ func (t *RedeemerTag) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown redeemer tag name: %q", name)
 	}
 	*t = val
+	return nil
+}
+
+// ValidateRedeemerTagLimit rejects redeemer purposes that an era does not
+// define. Later eras may extend the maximum tag without changing earlier
+// era decoders.
+func ValidateRedeemerTagLimit(
+	redeemers TransactionWitnessRedeemers,
+	maxTag RedeemerTag,
+) error {
+	if redeemers == nil {
+		return nil
+	}
+	for key := range redeemers.Iter() {
+		if key.Tag > maxTag {
+			return fmt.Errorf(
+				"unsupported redeemer tag %d (maximum %d)",
+				key.Tag,
+				maxTag,
+			)
+		}
+	}
 	return nil
 }
 

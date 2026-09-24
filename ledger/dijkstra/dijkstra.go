@@ -1842,6 +1842,12 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 6); err != nil {
 		return err
 	}
+	if err := common.ValidateRedeemerTagLimit(
+		tmp.WsRedeemers,
+		common.RedeemerTagObserve,
+	); err != nil {
+		return fmt.Errorf("invalid Dijkstra redeemers: %w", err)
+	}
 	for _, witness := range tmp.BootstrapWitnesses.Items() {
 		if len(witness.ChainCode) != 32 {
 			return fmt.Errorf(
