@@ -64,6 +64,9 @@ The LeiosNotify protocol provides notifications about new Leios blocks, transact
 
 `VotesOffer` advertises available votes by `(SlotNo, VoterId)`, where
 `VoterId` is the voter's index in the epoch's stake-based committee.
+Each offer is limited to `MaxVotesOfferCount` (1,000) entries. The decoder
+checks the array header before materializing vote entries and applies the same
+limit to indefinite-length arrays.
 
 ## Timeouts
 

@@ -220,6 +220,76 @@ func TestMsgVotesOfferEmpty(t *testing.T) {
 	assert.Equal(t, 0, len(decodedMsg.Votes))
 }
 
+func TestMsgVotesOfferRejectsOversizedBatchBeforeVoteDecode(t *testing.T) {
+	t.Parallel()
+
+	vote := cbor.RawMessage{0x82, 0x01, 0x02}
+	votes := make([]cbor.RawMessage, MaxVotesOfferCount+1)
+	for idx := range votes {
+		votes[idx] = vote
+	}
+	data, err := cbor.Encode([]any{uint8(MessageTypeVotesOffer), votes})
+	require.NoError(t, err)
+
+	var msg MsgVotesOffer
+	err = msg.UnmarshalCBOR(data)
+	require.ErrorContains(t, err, "maximum")
+	assert.Empty(t, msg.Votes)
+}
+
+func TestMsgVotesOfferMarshalRejectsOversizedBatch(t *testing.T) {
+	t.Parallel()
+
+	votes := make([]MsgVotesOfferVote, MaxVotesOfferCount+1)
+	_, err := NewMsgVotesOffer(votes).MarshalCBOR()
+	require.ErrorContains(t, err, "maximum")
+}
+
+func TestMsgVotesOfferRejectsOversizedIndefiniteBatch(t *testing.T) {
+	t.Parallel()
+
+	var data bytes.Buffer
+	data.Write([]byte{0x9f, 0x04, 0x9f})
+	for range MaxVotesOfferCount + 1 {
+		data.Write([]byte{0x82, 0x01, 0x02})
+	}
+	data.Write([]byte{0xff, 0xff})
+
+	var msg MsgVotesOffer
+	err := msg.UnmarshalCBOR(data.Bytes())
+	require.ErrorContains(t, err, "maximum")
+	assert.Empty(t, msg.Votes)
+}
+
+func TestMsgVotesOfferRejectsOversizedVoteShape(t *testing.T) {
+	t.Parallel()
+
+	vote, err := cbor.Encode([]any{
+		uint64(1), uint64(2), uint64(3), uint64(4), uint64(5),
+	})
+	require.NoError(t, err)
+	data, err := cbor.Encode([]any{
+		uint8(MessageTypeVotesOffer),
+		[]cbor.RawMessage{cbor.RawMessage(vote)},
+	})
+	require.NoError(t, err)
+
+	var msg MsgVotesOffer
+	require.Error(t, msg.UnmarshalCBOR(data))
+}
+
+func TestMsgVotesOfferAcceptsIndefiniteArrays(t *testing.T) {
+	t.Parallel()
+
+	// [4, [[1, 2]]] with indefinite outer and vote arrays.
+	data := []byte{0x9f, 0x04, 0x9f, 0x82, 0x01, 0x02, 0xff, 0xff}
+	var msg MsgVotesOffer
+	require.NoError(t, msg.UnmarshalCBOR(data))
+	require.Len(t, msg.Votes, 1)
+	assert.Equal(t, uint64(1), msg.Votes[0].SlotNo)
+	assert.Equal(t, uint64(2), msg.Votes[0].VoterId)
+}
+
 func TestMsgBlockAnnouncementEmpty(t *testing.T) {
 	// Create a message with empty block header
 	msg := NewMsgBlockAnnouncement(cbor.RawMessage{})
