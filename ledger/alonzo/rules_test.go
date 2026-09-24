@@ -548,6 +548,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
 	testTx := &alonzo.AlonzoTransaction{
+		TxIsValid: true,
 		Body: alonzo.AlonzoTransactionBody{
 			TxOutputs: []alonzo.AlonzoTransactionOutput{
 				// Empty placeholder output

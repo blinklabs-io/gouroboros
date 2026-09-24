@@ -781,6 +781,11 @@ func UtxoValidateValueNotConservedUtxo(
 			if registered {
 				consumedValue.Add(consumedValue, new(big.Int).SetUint64(stakeDeposits[key]))
 				stakeRegistered[key] = false
+			} else if !tx.IsValid() {
+				consumedValue.Add(
+					consumedValue,
+					new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)),
+				)
 			}
 		case *common.StakeRegistrationCertificate:
 			key := keyForCredential(tmpCert.StakeCredential)

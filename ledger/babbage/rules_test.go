@@ -573,6 +573,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
 	testTx := &babbage.BabbageTransaction{
+		TxIsValid: true,
 		Body: babbage.BabbageTransactionBody{
 			TxOutputs: []babbage.BabbageTransactionOutput{
 				// Empty placeholder output
