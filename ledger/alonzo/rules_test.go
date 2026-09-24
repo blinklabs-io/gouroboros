@@ -628,13 +628,11 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		"stake deregistration",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			credential := common.Credential{}
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
-				{
-					Type: uint(common.CertificateTypeStakeDeregistration),
-					Certificate: &common.StakeDeregistrationCertificate{
-						StakeCredential: common.Credential{},
-					},
-				},
+				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
+				{Type: uint(common.CertificateTypeStakeRegistration), Certificate: &common.StakeRegistrationCertificate{StakeCredential: credential}},
+				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
 			}
 			err := alonzo.UtxoValidateValueNotConservedUtxo(
 				testTx,
