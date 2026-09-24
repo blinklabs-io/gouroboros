@@ -38,3 +38,19 @@ func TestExtractTransactionOffsetsReturnsInvalidTransactions(t *testing.T) {
 	require.Len(t, offsets.Transactions, 2)
 	require.Equal(t, []uint{1}, offsets.InvalidTransactions)
 }
+
+func TestExtractTransactionOffsetsRejectsDuplicateInvalidTransactions(t *testing.T) {
+	block := []any{
+		[]any{}, // header
+		[]any{map[uint64]any{}, map[uint64]any{}},
+		[]any{map[uint64]any{}, map[uint64]any{}},
+		map[uint64]any{},
+		cbor.NewSetType([]uint{1, 1}, false),
+	}
+	blockCbor, err := cbor.Encode(block)
+	require.NoError(t, err)
+
+	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	require.ErrorContains(t, err, "duplicate member in set")
+	require.Nil(t, offsets)
+}

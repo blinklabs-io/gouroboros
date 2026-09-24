@@ -1236,6 +1236,9 @@ func decodeInvalidTransactionIndices(raw cbor.RawMessage) ([]uint, error) {
 	if _, err := cbor.Decode([]byte(raw), &indices); err != nil {
 		return nil, fmt.Errorf("decode invalid transaction indices: %w", err)
 	}
+	if err := cbor.CheckForDuplicateCBORMembers(indices); err != nil {
+		return nil, fmt.Errorf("validate invalid transaction indices: %w", err)
+	}
 	if len(indices) == 0 {
 		return nil, nil
 	}
