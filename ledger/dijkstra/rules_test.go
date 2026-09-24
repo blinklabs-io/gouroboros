@@ -157,19 +157,19 @@ func TestDijkstraWellFormednessPrecedesPlutusExecution(t *testing.T) {
 func TestDijkstraGovernanceValidationRules(t *testing.T) {
 	expected := []string{
 		"ledger/dijkstra.UtxoValidateProposalProcedures",
-		"ledger/conway.UtxoValidateGovActionWellFormedness",
+		"ledger/dijkstra.UtxoValidateGovActionWellFormedness",
 		"ledger/dijkstra.UtxoValidateHardForkCanFollow",
-		"ledger/conway.UtxoValidateProposalAncestry",
+		"ledger/dijkstra.UtxoValidateProposalAncestry",
 		"ledger/dijkstra.UtxoValidateProposalDeposit",
-		"ledger/conway.UtxoValidateProposalNetworkIds",
-		"ledger/conway.UtxoValidateProposalReturnAccounts",
-		"ledger/conway.UtxoValidateEmptyTreasuryWithdrawals",
-		"ledger/conway.UtxoValidateCommitteeCertificates",
-		"ledger/conway.UtxoValidateUnknownVoters",
-		"ledger/conway.UtxoValidateUnknownGovActionIds",
-		"ledger/conway.UtxoValidateVotingOnExpiredGovAction",
+		"ledger/dijkstra.UtxoValidateProposalNetworkIds",
+		"ledger/dijkstra.UtxoValidateProposalReturnAccounts",
+		"ledger/dijkstra.UtxoValidateEmptyTreasuryWithdrawals",
+		"ledger/dijkstra.UtxoValidateCommitteeCertificates",
+		"ledger/dijkstra.UtxoValidateUnknownVoters",
+		"ledger/dijkstra.UtxoValidateUnknownGovActionIds",
+		"ledger/dijkstra.UtxoValidateVotingOnExpiredGovAction",
 		"ledger/dijkstra.UtxoValidateBootstrapVotingRestrictions",
-		"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
+		"ledger/dijkstra.UtxoValidateStakePoolVotingRestrictions",
 		"ledger/dijkstra.UtxoValidateCCVotingRestrictions",
 	}
 
@@ -205,7 +205,7 @@ func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
 
 	rule, _ := dijkstraValidationRule(
 		t,
-		"ledger/conway.UtxoValidateDelegation",
+		"ledger/dijkstra.UtxoValidateDelegation",
 	)
 	validTx := &DijkstraTransaction{
 		Body:      DijkstraTransactionBody{TxCertificates: certificates},
@@ -369,7 +369,7 @@ func TestDijkstraPhase2InvalidStillChecksCollateral(t *testing.T) {
 func TestDijkstraPhase2InvalidChecksProposalReturnAddressShape(t *testing.T) {
 	rule, _ := dijkstraValidationRule(
 		t,
-		"ledger/common.UtxoValidateProposalReturnAddressShape",
+		"ledger/dijkstra.UtxoValidateProposalReturnAddressShape",
 	)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
@@ -445,7 +445,7 @@ func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
 		Build()
 	rule, _ := dijkstraValidationRule(
 		t,
-		"ledger/conway.UtxoValidateGovActionWellFormedness",
+		"ledger/dijkstra.UtxoValidateGovActionWellFormedness",
 	)
 
 	validate := func(tx common.Transaction) error {
@@ -603,7 +603,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
-			"ledger/conway.UtxoValidateProposalAncestry",
+			"ledger/dijkstra.UtxoValidateProposalAncestry",
 		)
 		err := rule(tx, 0, ls, pp)
 		var ancestryErr conway.InvalidGovActionAncestorError
@@ -642,7 +642,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
-			"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
+			"ledger/dijkstra.UtxoValidateStakePoolVotingRestrictions",
 		)
 		err = rule(tx, 0, ls, pp)
 		var votingErr conway.StakePoolVotingRestrictionError
@@ -681,7 +681,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
-			"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
+			"ledger/dijkstra.UtxoValidateStakePoolVotingRestrictions",
 		)
 		require.NoError(t, rule(tx, 0, ls, pp))
 	})
@@ -1039,6 +1039,44 @@ func TestUtxoValidateBatchWithdrawals(t *testing.T) {
 	tx, _, _ = newBatchTx(balance-topWithdrawal+1, false)
 	err = rule(tx, 0, ls, pp)
 	require.NoError(t, err)
+}
+
+func TestDijkstraLegacyTopLevelWithdrawalUsesPostSubTransactionBalance(
+	t *testing.T,
+) {
+	const startingBalance = uint64(100)
+	const subWithdrawal = uint64(40)
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	script := common.PlutusV1Script{0x41, 0x00}
+	tx, credential := testDijkstraWithdrawalTx(t, 60, script)
+	var address *common.Address
+	for candidate := range tx.Body.TxWithdrawals {
+		address = candidate
+	}
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]DijkstraSubTransaction{{
+			Body: DijkstraSubTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					address: subWithdrawal,
+				},
+			},
+		}},
+		false,
+	)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithRewardAccountCredentialBalance(credential, startingBalance).
+		Build()
+
+	require.NoError(t, UtxoValidateWithdrawals(tx, 0, ls, pp))
+
+	tx.Body.TxWithdrawals[address] = 59
+	var amountErr shelley.IncorrectWithdrawalAmountError
+	require.ErrorAs(
+		t,
+		UtxoValidateWithdrawals(tx, 0, ls, pp),
+		&amountErr,
+	)
 }
 
 func mustAddressBytes(t *testing.T, address *common.Address) []byte {

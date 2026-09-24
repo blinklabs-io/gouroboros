@@ -1654,6 +1654,10 @@ func (b *DijkstraSubTransactionBody) ValidityIntervalStart() uint64 {
 	return b.TxValidityIntervalStart
 }
 
+func (b *DijkstraSubTransactionBody) NetworkId() *uint8 {
+	return b.TxNetworkId
+}
+
 func (b *DijkstraSubTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return 0, nil
 }
@@ -1837,6 +1841,12 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	}
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 6); err != nil {
 		return err
+	}
+	if err := common.ValidateRedeemerTagLimit(
+		tmp.WsRedeemers,
+		common.RedeemerTagObserve,
+	); err != nil {
+		return fmt.Errorf("invalid Dijkstra redeemers: %w", err)
 	}
 	for _, witness := range tmp.BootstrapWitnesses.Items() {
 		if len(witness.ChainCode) != 32 {

@@ -117,6 +117,46 @@ func TestDijkstraTransactionBodiesUnmarshalCBORCertificateTypes(t *testing.T) {
 	}
 }
 
+func TestDijkstraObserveRedeemerRoundTrip(t *testing.T) {
+	redeemerMap := map[common.RedeemerKey]any{
+		{Tag: common.RedeemerTagObserve, Index: 2}: []any{uint64(0), []uint64{0, 0}},
+	}
+	encoded, err := cbor.Encode(redeemerMap)
+	require.NoError(t, err)
+
+	var decoded DijkstraRedeemers
+	err = decoded.UnmarshalCBOR(encoded)
+	require.NoError(t, err)
+	require.Contains(t, decoded.Redeemers, common.RedeemerKey{
+		Tag:   common.RedeemerTagGuarding,
+		Index: 2,
+	})
+	roundTrip, err := decoded.MarshalCBOR()
+	require.NoError(t, err)
+	require.Equal(t, encoded, roundTrip)
+
+	witnessSetCBOR, err := cbor.Encode(map[uint]cbor.RawMessage{
+		5: cbor.RawMessage(encoded),
+	})
+	require.NoError(t, err)
+	var witnessSet DijkstraTransactionWitnessSet
+	err = witnessSet.UnmarshalCBOR(witnessSetCBOR)
+	require.NoError(t, err)
+	require.Contains(t, witnessSet.WsRedeemers.Redeemers, common.RedeemerKey{
+		Tag:   common.RedeemerTagObserve,
+		Index: 2,
+	})
+
+	unsupported, err := cbor.Encode(map[uint]any{
+		5: map[common.RedeemerKey]any{
+			{Tag: common.RedeemerTag(7)}: []any{uint64(0), []uint64{0, 0}},
+		},
+	})
+	require.NoError(t, err)
+	err = witnessSet.UnmarshalCBOR(unsupported)
+	require.ErrorContains(t, err, "unsupported redeemer tag 7")
+}
+
 func TestDijkstraTransactionBodiesRequireFieldsAndRejectEmptyCollections(t *testing.T) {
 	testCases := []struct {
 		name     string

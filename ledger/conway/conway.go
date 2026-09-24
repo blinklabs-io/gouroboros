@@ -474,6 +474,12 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 5); err != nil {
 		return err
 	}
+	if err := common.ValidateRedeemerTagLimit(
+		tmp.WsRedeemers,
+		common.RedeemerTagProposing,
+	); err != nil {
+		return fmt.Errorf("invalid Conway redeemers: %w", err)
+	}
 	// Conway (protocol versions 9-11) tolerates duplicate members in the
 	// witness-set sets that cardano-ledger decodes via Set/Map.fromList: vkey
 	// witnesses, bootstrap witnesses, native scripts, and plutus data all

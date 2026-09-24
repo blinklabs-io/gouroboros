@@ -20,6 +20,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
@@ -293,6 +294,58 @@ func TestDijkstraAccountBalanceIntervalsThreadDirectDepositAndStartingState(t *t
 	var finalErr BalancesOutsideAccountBalanceIntervalsError
 	require.ErrorAs(t, rule(tx, 0, ls, pp), &finalErr)
 	require.False(t, finalErr.Starting)
+}
+
+func TestDijkstraLegacyChildWithdrawalUsesCurrentBalanceWithoutExactDrain(
+	t *testing.T,
+) {
+	const (
+		startingBalance       = uint64(100)
+		firstChildWithdrawal  = uint64(25)
+		secondChildWithdrawal = uint64(15)
+		topWithdrawal         = uint64(60)
+	)
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	script := common.PlutusV1Script{0x41, 0x00}
+	tx, credential := testDijkstraWithdrawalTx(t, topWithdrawal, script)
+	var address *common.Address
+	for candidate := range tx.Body.TxWithdrawals {
+		address = candidate
+	}
+	childWitnesses := tx.WitnessSet
+	tx.WitnessSet = DijkstraTransactionWitnessSet{}
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]DijkstraSubTransaction{
+			{
+				Body: DijkstraSubTransactionBody{
+					TxWithdrawals: map[*common.Address]uint64{
+						address: firstChildWithdrawal,
+					},
+				},
+				WitnessSet: childWitnesses,
+			},
+			{Body: DijkstraSubTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					address: secondChildWithdrawal,
+				},
+			}},
+		},
+		false,
+	)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithRewardAccountCredentialBalance(credential, startingBalance).
+		Build()
+
+	require.NoError(t, UtxoValidateWithdrawals(tx, 0, ls, pp))
+
+	tx.Body.TxWithdrawals[address] = topWithdrawal - 1
+	var amountErr shelley.IncorrectWithdrawalAmountError
+	require.ErrorAs(
+		t,
+		UtxoValidateWithdrawals(tx, 0, ls, pp),
+		&amountErr,
+	)
 }
 
 func TestDijkstraDirectDepositsRequireCurrentNetworkAndRegisteredAccount(t *testing.T) {
