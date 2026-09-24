@@ -716,7 +716,7 @@ func validateLeiosGenesisOnlyParameters(
 	if update != nil && (update.CommitteeStakeCoverage != nil ||
 		update.QuorumStakeThreshold != nil) {
 		return errors.New(
-			"Leios committee stake coverage and legacy quorum stake threshold " +
+			"leios committee stake coverage and legacy quorum stake threshold " +
 				"are genesis-only settings, not protocol parameter updates",
 		)
 	}
