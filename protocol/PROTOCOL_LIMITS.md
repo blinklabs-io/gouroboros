@@ -216,8 +216,9 @@ context, not by a protocol state timeout. Leios Notify and Leios Fetch have no
 queue or pending-message byte limits. Leios Notify allows up to 100 pipelined
 requests and defaults to 10. Leios Votes allows up to 100 pipelined requests,
 defaults to 1, and limits one request to 1,000 votes (the default is also
-1,000). Leios Notify limits each VotesOffer to 1,000 entries before decoding
-the vote list. Invalid configured values are rejected by their constructors.
+1,000). Leios Notify limits each VotesOffer to 1,000 entries and 256 KiB
+before parsing the vote list. Invalid configured values are rejected by their
+constructors.
 
 ## Enforcement scope
 

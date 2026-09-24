@@ -35,6 +35,9 @@ const (
 	// MaxVotesOfferCount bounds vote work from one leios-notify message,
 	// independently of the transport frame limit.
 	MaxVotesOfferCount = 1000
+	// MaxVotesOfferBytes bounds CBOR parsing work for one offer before the
+	// decoder scans any individual vote value.
+	MaxVotesOfferBytes = 256 * 1024
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
@@ -183,6 +186,14 @@ func NewMsgVotesOfferPrototype(votes []PrototypeVote) *MsgVotesOffer {
 
 func (m *MsgVotesOffer) MarshalCBOR() ([]byte, error) {
 	if raw := m.Cbor(); len(raw) > 0 {
+		if len(raw) > MaxVotesOfferBytes {
+			return nil, fmt.Errorf(
+				"%s: votes offer size %d exceeds maximum %d bytes",
+				ProtocolName,
+				len(raw),
+				MaxVotesOfferBytes,
+			)
+		}
 		return raw, nil
 	}
 	if len(m.PrototypeVotes) > 0 {
@@ -194,7 +205,7 @@ func (m *MsgVotesOffer) MarshalCBOR() ([]byte, error) {
 				MaxVotesOfferCount,
 			)
 		}
-		return cbor.Encode([]any{m.MessageType, m.PrototypeVotes})
+		return encodeVotesOffer(m.MessageType, m.PrototypeVotes)
 	}
 	if len(m.FullVotes) > 0 {
 		if len(m.FullVotes) > MaxVotesOfferCount {
@@ -205,7 +216,7 @@ func (m *MsgVotesOffer) MarshalCBOR() ([]byte, error) {
 				MaxVotesOfferCount,
 			)
 		}
-		return cbor.Encode([]any{m.MessageType, m.FullVotes})
+		return encodeVotesOffer(m.MessageType, m.FullVotes)
 	}
 	if len(m.Votes) > MaxVotesOfferCount {
 		return nil, fmt.Errorf(
@@ -215,7 +226,23 @@ func (m *MsgVotesOffer) MarshalCBOR() ([]byte, error) {
 			MaxVotesOfferCount,
 		)
 	}
-	return cbor.Encode([]any{m.MessageType, m.Votes})
+	return encodeVotesOffer(m.MessageType, m.Votes)
+}
+
+func encodeVotesOffer(messageType uint8, votes any) ([]byte, error) {
+	encoded, err := cbor.Encode([]any{messageType, votes})
+	if err != nil {
+		return nil, err
+	}
+	if len(encoded) > MaxVotesOfferBytes {
+		return nil, fmt.Errorf(
+			"%s: votes offer size %d exceeds maximum %d bytes",
+			ProtocolName,
+			len(encoded),
+			MaxVotesOfferBytes,
+		)
+	}
+	return encoded, nil
 }
 
 func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
@@ -223,6 +250,14 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 	m.Votes = nil
 	m.FullVotes = nil
 	m.PrototypeVotes = nil
+	if len(data) > MaxVotesOfferBytes {
+		return fmt.Errorf(
+			"%s: votes offer size %d exceeds maximum %d bytes",
+			ProtocolName,
+			len(data),
+			MaxVotesOfferBytes,
+		)
+	}
 	dec, err := cbor.NewStreamDecoder(data)
 	if err != nil {
 		return err

@@ -237,12 +237,35 @@ func TestMsgVotesOfferRejectsOversizedBatchBeforeVoteDecode(t *testing.T) {
 	assert.Empty(t, msg.Votes)
 }
 
+func TestMsgVotesOfferRejectsOversizedMessageBeforeParsing(t *testing.T) {
+	t.Parallel()
+
+	data := bytes.Repeat([]byte{0xff}, MaxVotesOfferBytes+1)
+	var msg MsgVotesOffer
+	err := msg.UnmarshalCBOR(data)
+	require.ErrorContains(t, err, "exceeds maximum")
+	require.ErrorContains(t, err, "bytes")
+	assert.Empty(t, msg.Votes)
+	assert.Empty(t, msg.FullVotes)
+	assert.Empty(t, msg.PrototypeVotes)
+}
+
 func TestMsgVotesOfferMarshalRejectsOversizedBatch(t *testing.T) {
 	t.Parallel()
 
 	votes := make([]MsgVotesOfferVote, MaxVotesOfferCount+1)
 	_, err := NewMsgVotesOffer(votes).MarshalCBOR()
 	require.ErrorContains(t, err, "maximum")
+}
+
+func TestMsgVotesOfferMarshalRejectsOversizedMessage(t *testing.T) {
+	t.Parallel()
+
+	msg := NewMsgVotesOfferFull([]lcommon.LeiosVote{{
+		VoteSignature: make([]byte, MaxVotesOfferBytes),
+	}})
+	_, err := msg.MarshalCBOR()
+	require.ErrorContains(t, err, "exceeds maximum")
 }
 
 func TestMsgVotesOfferRejectsOversizedIndefiniteBatch(t *testing.T) {
