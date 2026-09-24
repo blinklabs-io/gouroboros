@@ -639,3 +639,77 @@ func TestSendLoopConsumesTokenWhenBatchedMessageBypassesDeferral(t *testing.T) {
 	default:
 	}
 }
+
+// TestSendLoopHoldsRacedDequeueWhenFlushReturnsToPeerAgency covers the
+// post-flush decision in resolvePipelinedDequeue. Req is pipelined in Busy
+// with its transition deferred. Done is dequeued through the pipelined path,
+// and a concurrent BatchDone moves the state to Idle before the re-check, so
+// the backlog flushes (Idle -> Busy) and the decision is taken in Busy. Done
+// fits neither path there but is legal from Idle, so it must be held exactly
+// as it would be without the race, not rejected.
+func TestSendLoopHoldsRacedDequeueWhenFlushReturnsToPeerAgency(t *testing.T) {
+	t.Parallel()
+
+	const msgTypeRequest uint8 = 2
+	const msgTypeBatchDone uint8 = 3
+	const msgTypeDone uint8 = 4
+	p, errorChan, wireChan, busy, _, done := newHeldMessageProtocol(t)
+
+	require.NoError(t, p.SendMessage(&MessageBase{MessageType: msgTypeRequest}))
+	select {
+	case <-wireChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Req was never written to the wire")
+	}
+
+	hookErr := make(chan error, 1)
+	p.pipelinedDequeueHook = func() {
+		hookErr <- p.transitionState(&MessageBase{MessageType: msgTypeBatchDone})
+	}
+	doneResult := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		doneResult <- p.SendMessageContextAndWait(
+			ctx,
+			&MessageBase{MessageType: msgTypeDone},
+		)
+	}()
+	select {
+	case err := <-hookErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("sendLoop never dequeued Done through the pipelined path")
+	}
+
+	select {
+	case err := <-errorChan:
+		t.Fatalf("raced Done was rejected instead of held: %v", err)
+	case err := <-doneResult:
+		t.Fatalf("Done returned (err=%v) before agency returned", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	require.Equal(t, busy, p.getCurrentState())
+
+	require.NoError(
+		t,
+		p.transitionState(&MessageBase{MessageType: msgTypeBatchDone}),
+	)
+	select {
+	case err := <-doneResult:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("held Done was never delivered")
+	}
+	require.Eventually(
+		t,
+		func() bool { return p.getCurrentState() == done },
+		time.Second,
+		time.Millisecond,
+	)
+	select {
+	case err := <-errorChan:
+		t.Fatalf("unexpected protocol error: %v", err)
+	default:
+	}
+}

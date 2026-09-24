@@ -811,7 +811,9 @@ func (p *Protocol) errPipelinedMessageNotAllowed(
 //
 // The message is then re-checked against the state the flush actually
 // reached: pipelined again there, promoted to an ordinary transition there,
-// or -- if neither -- rejected, naming the settled state rather than the
+// held for agency when the peer holds it there and the message is legal from
+// some state where this role holds agency (the same rule as before the
+// flush), or otherwise rejected, naming the settled state rather than the
 // stale one this dequeue started with. Promotion additionally requires the
 // backlog to be fully drained: sendLoop applies any remaining queued
 // transition before it ever sends a promoted message and loops without
@@ -878,17 +880,23 @@ func (p *Protocol) resolvePipelinedDequeue(
 		if pipelinedMessageFits(postFlushEntry, outbound.message) {
 			return outbound, haveAgency, nil
 		}
-		if p.roleHasAgency(postFlushEntry) {
-			if len(*queuedStateTransitions) == 0 {
-				if _, err := p.nextState(
-					postFlushState,
-					outbound.message,
-				); err == nil {
-					return outbound, true, nil
-				}
-			} else if progressed {
-				continue
+		if !p.roleHasAgency(postFlushEntry) {
+			// Same outcome as the pre-flush check above: the flush can hand
+			// agency back to the peer, and a message legal once agency
+			// returns is held rather than rejected.
+			if p.messageHasAgencyTransition(outbound.message) {
+				outbound.waitForAgency = true
+				return outbound, haveAgency, nil
 			}
+		} else if len(*queuedStateTransitions) == 0 {
+			if _, err := p.nextState(
+				postFlushState,
+				outbound.message,
+			); err == nil {
+				return outbound, true, nil
+			}
+		} else if progressed {
+			continue
 		}
 		return nil, haveAgency, p.errPipelinedMessageNotAllowed(
 			postFlushState,
