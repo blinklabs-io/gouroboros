@@ -166,7 +166,7 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *t
 				}
 			}
 			if _, legacyRegistration := test.certificate.(*common.StakeRegistrationCertificate); !legacyRegistration && !test.proposal {
-				require.Error(t, conway.UtxoValidateValueNotConservedUtxo(wrongBodyTx, 0, state, params))
+				require.NoError(t, conway.UtxoValidateValueNotConservedUtxo(wrongBodyTx, 0, state, params))
 			} else if test.proposal {
 				require.Error(t, conway.UtxoValidateValueNotConservedUtxo(wrongBodyTx, 0, state, params))
 			}
@@ -179,6 +179,30 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *t
 			require.Error(t, conway.UtxoValidateValueNotConservedUtxo(makeTx(wrongOutput), 0, state, params))
 		})
 	}
+}
+
+func TestInvalidExplicitRegistrationStillUsesProtocolDepositForValueConservation(t *testing.T) {
+	const (
+		inputAmount = uint64(100_000_000)
+		keyDeposit  = uint64(2_000_000)
+	)
+	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+	credential.Credential[0] = 0x42
+	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{{
+		Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: inputAmount},
+	}}).Build()
+	tx := &conway.ConwayTransaction{
+		TxIsValid: false,
+		Body: conway.ConwayTransactionBody{
+			TxInputs:       conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{input}),
+			TxOutputs:      []babbage.BabbageTransactionOutput{{OutputAmount: mary.MaryTransactionOutputValue{Amount: inputAmount - 1}}},
+			TxCertificates: []common.CertificateWrapper{{Type: uint(common.CertificateTypeRegistration), Certificate: &common.RegistrationCertificate{StakeCredential: credential, Amount: 1}}},
+		},
+	}
+	err := conway.UtxoValidateValueNotConservedUtxo(tx, 0, state, &conway.ConwayProtocolParameters{KeyDeposit: uint(keyDeposit)})
+	var target shelley.ValueNotConservedUtxoError
+	require.ErrorAs(t, err, &target)
 }
 
 func TestValueConservationAllowsZeroDRepDeposits(t *testing.T) {

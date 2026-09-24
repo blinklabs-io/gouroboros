@@ -635,7 +635,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"stake deregistration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount + testStakeDeposit
+			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeStakeDeregistration),

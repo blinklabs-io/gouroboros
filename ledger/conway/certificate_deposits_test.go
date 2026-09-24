@@ -488,7 +488,8 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					buildState(true, 0, uint64(pp.KeyDeposit)),
 					pp,
 				)
-				require.Error(t, err)
+				var target conway.CertificateRefundIncorrectError
+				require.ErrorAs(t, err, &target)
 			})
 			t.Run("legacy recorded refund", func(t *testing.T) {
 				tx := buildLegacyDeregistration(uint64(pp.KeyDeposit))
@@ -631,7 +632,8 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 				require.NoError(t, err)
 				continue
 			}
-			require.Error(t, err)
+			var target conway.CertificateRefundIncorrectError
+			require.ErrorAs(t, err, &target)
 		}
 		certificateCbor, err := cbor.Encode([]any{
 			uint64(17),

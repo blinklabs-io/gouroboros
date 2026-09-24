@@ -653,18 +653,35 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 	}
 	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
+	keyForCredential := func(cred common.Credential) string {
+		return string(append([]byte{byte(cred.CredType)}, cred.Credential[:]...))
+	}
+	stakeRegistered := make(map[string]bool)
+	stakeDeposits := make(map[string]uint64)
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.StakeDeregistrationCertificate:
-			deposit, err := common.StakeCredentialDepositOrDefault(
-				ls,
-				tmpCert.StakeCredential,
-				uint64(tmpPparams.KeyDeposit),
-			)
-			if err != nil {
-				return err
+			cred := tmpCert.StakeCredential
+			key := keyForCredential(cred)
+			registered, ok := stakeRegistered[key]
+			if !ok {
+				registered = ls.IsStakeCredentialRegistered(cred)
+				if registered {
+					deposit, err := common.StakeCredentialDepositOrDefault(ls, cred, uint64(tmpPparams.KeyDeposit))
+					if err != nil {
+						return err
+					}
+					stakeDeposits[key] = deposit
+				}
 			}
-			consumedValue.Add(consumedValue, new(big.Int).SetUint64(deposit))
+			if registered {
+				consumedValue.Add(consumedValue, new(big.Int).SetUint64(stakeDeposits[key]))
+				stakeRegistered[key] = false
+			}
+		case *common.StakeRegistrationCertificate:
+			key := keyForCredential(tmpCert.StakeCredential)
+			stakeRegistered[key] = true
+			stakeDeposits[key] = uint64(tmpPparams.KeyDeposit)
 			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
 			// Pool deposits are refunded to the reward account at the end of the retiring epoch.
 		}
