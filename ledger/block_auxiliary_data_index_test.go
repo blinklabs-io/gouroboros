@@ -40,6 +40,10 @@ func blockWithAuxiliaryDataIndex(
 	var parts []cbor.RawMessage
 	_, err := cbor.Decode(blockData, &parts)
 	require.NoError(t, err)
+	if len(parts) < 4 {
+		t.Fatalf("block has %d components, want at least 4", len(parts))
+		return nil, 0
+	}
 	var bodies []cbor.RawMessage
 	_, err = cbor.Decode(parts[1], &bodies)
 	require.NoError(t, err)
