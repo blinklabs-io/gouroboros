@@ -28,7 +28,7 @@ import (
 type OutsideForecastError struct {
 	cbor.StructAsArray
 	Type uint8
-	Slot uint32
+	Slot uint64
 }
 
 func (e *OutsideForecastError) Error() string {

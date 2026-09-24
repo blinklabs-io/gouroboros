@@ -47,7 +47,7 @@ func TestValidateRequiredVKeyWitnesses_Common(t *testing.T) {
 }
 
 func TestUtxoValidateOutsideForecast(t *testing.T) {
-	const upperBound = uint64(12_345)
+	const upperBound = uint64(1<<32) + 12_345
 	for _, tc := range []struct {
 		name         string
 		valid        bool
@@ -104,7 +104,7 @@ func TestUtxoValidateOutsideForecast(t *testing.T) {
 			if tc.wantError {
 				var outsideForecast *common.OutsideForecastError
 				require.ErrorAs(t, err, &outsideForecast)
-				require.Equal(t, uint32(upperBound), outsideForecast.Slot)
+				require.Equal(t, upperBound, outsideForecast.Slot)
 				require.Equal(t, uint8(18), outsideForecast.Type)
 			} else {
 				require.NoError(t, err)

@@ -135,13 +135,13 @@ func UtxoValidateOutsideForecast(
 	if !hasRedeemers {
 		return nil
 	}
-	if ledgerState != nil && !(reflect.ValueOf(ledgerState).Kind() == reflect.Pointer &&
-		reflect.ValueOf(ledgerState).IsNil()) {
+	if ledgerState != nil && (reflect.ValueOf(ledgerState).Kind() != reflect.Pointer ||
+		!reflect.ValueOf(ledgerState).IsNil()) {
 		if _, err := ledgerState.SlotToTime(upperBound); err == nil {
 			return nil
 		}
 	}
-	return &OutsideForecastError{Type: 18, Slot: uint32(upperBound)}
+	return &OutsideForecastError{Type: 18, Slot: upperBound}
 }
 
 func (s *cachedLedgerState) UtxoById(input TransactionInput) (Utxo, error) {
