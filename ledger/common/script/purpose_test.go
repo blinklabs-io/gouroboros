@@ -37,6 +37,7 @@ func TestBuildScriptPurposeGuardingRedeemerDoesNotPanic(t *testing.T) {
 			nil,
 			nil,
 			nil,
+			common.ProtocolVersionDijkstra,
 		)
 	})
 	require.Nil(t, purpose)
@@ -67,6 +68,7 @@ func TestBuildScriptPurposeSpendingNilOutputDoesNotPanic(t *testing.T) {
 			nil,
 			nil,
 			nil,
+			common.ProtocolVersionDijkstra,
 		)
 	})
 	require.Nil(t, purpose)

@@ -200,6 +200,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 						info, err := script.NewTxInfoV1FromTransaction(
 							s, tx, u,
 							script.StrictValidityUpperBoundForTransaction(tx),
+							lcommon.ProtocolVersionDijkstra,
 						)
 						if err != nil {
 							return nil, err
@@ -217,6 +218,7 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 						info, err := script.NewTxInfoV2FromTransaction(
 							s, tx, u,
 							script.StrictValidityUpperBoundForTransaction(tx),
+							lcommon.ProtocolVersionDijkstra,
 						)
 						if err != nil {
 							return nil, err
@@ -231,7 +233,9 @@ func TestValidityRangeUpperBoundByEra(t *testing.T) {
 						tx lcommon.Transaction,
 						u []lcommon.Utxo,
 					) (data.PlutusData, error) {
-						info, err := script.NewTxInfoV3FromTransaction(s, tx, u)
+						info, err := script.NewTxInfoV3FromTransaction(
+							s, tx, u, lcommon.ProtocolVersionDijkstra,
+						)
 						if err != nil {
 							return nil, err
 						}

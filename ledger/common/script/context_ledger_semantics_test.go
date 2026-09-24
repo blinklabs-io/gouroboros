@@ -77,21 +77,27 @@ func TestTxInfoOutputsUseTransactionBodyOutputs(t *testing.T) {
 			{
 				name: "Plutus V1", typeID: 5,
 				build: func(tx common.Transaction) ([]common.TransactionOutput, error) {
-					info, err := script.NewTxInfoV1FromTransaction(nil, tx, nil, false)
+					info, err := script.NewTxInfoV1FromTransaction(
+						nil, tx, nil, false, common.ProtocolVersionDijkstra,
+					)
 					return info.Outputs, err
 				},
 			},
 			{
 				name: "Plutus V2", typeID: 5,
 				build: func(tx common.Transaction) ([]common.TransactionOutput, error) {
-					info, err := script.NewTxInfoV2FromTransaction(nil, tx, nil, false)
+					info, err := script.NewTxInfoV2FromTransaction(
+						nil, tx, nil, false, common.ProtocolVersionDijkstra,
+					)
 					return info.Outputs, err
 				},
 			},
 			{
 				name: "Plutus V3", typeID: 6,
 				build: func(tx common.Transaction) ([]common.TransactionOutput, error) {
-					info, err := script.NewTxInfoV3FromTransaction(nil, tx, nil)
+					info, err := script.NewTxInfoV3FromTransaction(
+						nil, tx, nil, common.ProtocolVersionDijkstra,
+					)
 					return info.Outputs, err
 				},
 			},
@@ -143,21 +149,31 @@ func TestTxInfoV1FiltersByronInputsAcrossEras(t *testing.T) {
 		txType:      4,
 		outputs:     []common.TransactionOutput{shelleyOutput},
 	}
-	info, err := script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, false)
+	info, err := script.NewTxInfoV1FromTransaction(
+		validitySlotState{}, tx, resolved, false, common.ProtocolVersionDijkstra,
+	)
 	require.NoError(t, err)
 	require.Empty(t, info.Inputs)
 	require.Len(t, info.Outputs, 1)
 
 	for _, eraType := range []int{5, 6, 7} {
 		tx.txType = eraType
-		info, err = script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		info, err = script.NewTxInfoV1FromTransaction(
+			validitySlotState{}, tx, resolved, eraType >= 6,
+			common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 		require.Empty(t, info.Inputs)
-		_, err = script.NewTxInfoV2FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		_, err = script.NewTxInfoV2FromTransaction(
+			validitySlotState{}, tx, resolved, eraType >= 6,
+			common.ProtocolVersionDijkstra,
+		)
 		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 	}
 	tx.txType = 6
-	_, err = script.NewTxInfoV3FromTransaction(validitySlotState{}, tx, resolved)
+	_, err = script.NewTxInfoV3FromTransaction(
+		validitySlotState{}, tx, resolved, common.ProtocolVersionDijkstra,
+	)
 	require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 }
 
@@ -192,21 +208,31 @@ func TestTxInfoV1FiltersByronOutputsAcrossEras(t *testing.T) {
 		txType:      4,
 		outputs:     []common.TransactionOutput{byronOutput},
 	}
-	info, err := script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, false)
+	info, err := script.NewTxInfoV1FromTransaction(
+		validitySlotState{}, tx, resolved, false, common.ProtocolVersionDijkstra,
+	)
 	require.NoError(t, err)
 	require.Len(t, info.Inputs, 1)
 	require.Empty(t, info.Outputs)
 
 	for _, eraType := range []int{5, 6, 7} {
 		tx.txType = eraType
-		info, err = script.NewTxInfoV1FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		info, err = script.NewTxInfoV1FromTransaction(
+			validitySlotState{}, tx, resolved, eraType >= 6,
+			common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 		require.Empty(t, info.Outputs)
-		_, err = script.NewTxInfoV2FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		_, err = script.NewTxInfoV2FromTransaction(
+			validitySlotState{}, tx, resolved, eraType >= 6,
+			common.ProtocolVersionDijkstra,
+		)
 		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 	}
 	tx.txType = 6
-	_, err = script.NewTxInfoV3FromTransaction(validitySlotState{}, tx, resolved)
+	_, err = script.NewTxInfoV3FromTransaction(
+		validitySlotState{}, tx, resolved, common.ProtocolVersionDijkstra,
+	)
 	require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 }
 
@@ -231,10 +257,15 @@ func TestTxInfoRejectsByronReferenceInputs(t *testing.T) {
 	}
 	for _, eraType := range []int{5, 6} {
 		tx.txType = eraType
-		_, err = script.NewTxInfoV2FromTransaction(validitySlotState{}, tx, resolved, eraType >= 6)
+		_, err = script.NewTxInfoV2FromTransaction(
+			validitySlotState{}, tx, resolved, eraType >= 6,
+			common.ProtocolVersionDijkstra,
+		)
 		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 	}
 	tx.txType = 6
-	_, err = script.NewTxInfoV3FromTransaction(validitySlotState{}, tx, resolved)
+	_, err = script.NewTxInfoV3FromTransaction(
+		validitySlotState{}, tx, resolved, common.ProtocolVersionDijkstra,
+	)
 	require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 }

@@ -65,6 +65,7 @@ func TestBuildScriptPurposeRejectsWireIndexAboveMaxInt32(t *testing.T) {
 					common.VotingProcedures{},
 					nil,
 					map[common.Blake2b256]*common.Datum{},
+					common.ProtocolVersionDijkstra,
 				)
 			})
 			require.Nil(t, purpose)

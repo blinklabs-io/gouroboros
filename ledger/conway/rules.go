@@ -371,8 +371,8 @@ func isInConwayBootstrapPhase(pp common.ProtocolParameters) bool {
 }
 
 // UtxoValidateDisjointRefInputs ensures reference inputs don't overlap with regular inputs.
-// For PV11+, this check is skipped when PlutusV1/V2 scripts are present, as the
-// NonDisjointRefInputs restriction is reverted for backwards compatibility.
+// At PV11 and later, the transaction-wide restriction is removed. The Plutus
+// V3 context applies its own restriction when a V3 script executes.
 func UtxoValidateDisjointRefInputs(
 	tx common.Transaction,
 	slot uint64,
@@ -3182,6 +3182,7 @@ func UtxoValidatePlutusScripts(
 				txInfoV2, err = script.NewTxInfoV2FromTransaction(
 					ls, tx, resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
@@ -3217,6 +3218,7 @@ func UtxoValidatePlutusScripts(
 				txInfoV1, err = script.NewTxInfoV1FromTransaction(
 					ls, tx, resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}

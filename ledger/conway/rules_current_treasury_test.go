@@ -564,7 +564,12 @@ func TestConwayCurrentTreasuryValuePresentZeroPlutusContexts(
 	}
 	state := mockledger.NewLedgerStateBuilder().Build()
 	t.Run("PlutusV3 preserves Some zero", func(t *testing.T) {
-		txInfo, err := script.NewTxInfoV3FromTransaction(state, tx, nil)
+		txInfo, err := script.NewTxInfoV3FromTransaction(
+			state,
+			tx,
+			nil,
+			common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 		require.Equal(t, big.NewInt(0), txInfo.CurrentTreasuryAmount.Value)
 	})

@@ -322,12 +322,8 @@ func scriptPurposeBuilder(
 	votes KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
 	proposalProcedures []lcommon.ProposalProcedure,
 	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
-	protocolVersionMajor ...uint,
+	protocolVersionMajor uint,
 ) toScriptPurposeFunc {
-	major := uint(0)
-	if len(protocolVersionMajor) > 0 {
-		major = protocolVersionMajor[0]
-	}
 	return func(
 		redeemerKey lcommon.RedeemerKey,
 	) (ScriptPurpose, error) {
@@ -389,7 +385,7 @@ func scriptPurposeBuilder(
 			return ScriptPurposeCertifying{
 				Index:                redeemerKey.Index,
 				Certificate:          certificates[redeemerKey.Index],
-				ProtocolVersionMajor: major,
+				ProtocolVersionMajor: protocolVersionMajor,
 			}, nil
 		case lcommon.RedeemerTagReward:
 			if uint64(redeemerKey.Index) >= uint64(len(withdrawals)) {
@@ -440,12 +436,8 @@ func BuildScriptPurpose(
 	votes lcommon.VotingProcedures,
 	proposalProcedures []lcommon.ProposalProcedure,
 	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
-	protocolVersionMajor ...uint,
+	protocolVersionMajor uint,
 ) (ScriptPurpose, error) {
-	major := uint(0)
-	if len(protocolVersionMajor) > 0 {
-		major = protocolVersionMajor[0]
-	}
 	switch redeemerKey.Tag {
 	case lcommon.RedeemerTagSpend:
 		if uint64(redeemerKey.Index) >= uint64(len(inputs)) {
@@ -492,7 +484,7 @@ func BuildScriptPurpose(
 		return ScriptPurposeCertifying{
 			Index:                redeemerKey.Index,
 			Certificate:          certificates[redeemerKey.Index],
-			ProtocolVersionMajor: major,
+			ProtocolVersionMajor: protocolVersionMajor,
 		}, nil
 	case lcommon.RedeemerTagReward:
 		sortedAddrs := SortWithdrawalAddresses(withdrawals)

@@ -225,6 +225,7 @@ func NewTxInfoV1FromTransaction(
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
 	strictValidityUpperBound bool,
+	protocolVersionMajor uint,
 ) (TxInfoV1, error) {
 	validityRange, err := validityRangeInfo(slotState, tx, strictValidityUpperBound)
 	if err != nil {
@@ -249,6 +250,7 @@ func NewTxInfoV1FromTransaction(
 			nil,
 			nil,
 			witnessDatums,
+			protocolVersionMajor,
 		),
 	)
 	if err != nil {
@@ -360,6 +362,7 @@ func NewTxInfoV2FromTransaction(
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
 	strictValidityUpperBound bool,
+	protocolVersionMajor uint,
 ) (TxInfoV2, error) {
 	validityRange, err := validityRangeInfo(slotState, tx, strictValidityUpperBound)
 	if err != nil {
@@ -384,6 +387,7 @@ func NewTxInfoV2FromTransaction(
 			nil, // votes
 			nil, // proposalProcedures
 			witnessDatums,
+			protocolVersionMajor,
 		),
 	)
 	if err != nil {
@@ -471,12 +475,9 @@ func NewTxInfoV3FromTransaction(
 	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
-	protocolVersionMajor ...uint,
+	protocolVersionMajor uint,
 ) (TxInfoV3, error) {
-	major := lcommon.ProtocolVersionDijkstra
-	if len(protocolVersionMajor) > 0 {
-		major = protocolVersionMajor[0]
-	}
+	major := protocolVersionMajor
 	// Plutus V3 only exists in the Conway era and later, where cardano-ledger
 	// always uses an EXCLUSIVE (strict) validity-interval upper bound.
 	validityRange, err := validityRangeInfo(slotState, tx, true)
@@ -1058,23 +1059,19 @@ func votingInfo(
 
 func certificatesToPlutusData(
 	certificates []lcommon.Certificate,
-	protocolVersionMajor ...uint,
+	protocolVersionMajor uint,
 ) data.PlutusData {
 	tmpCerts := make([]data.PlutusData, len(certificates))
 	for idx, cert := range certificates {
-		tmpCerts[idx] = certificateToPlutusData(cert, protocolVersionMajor...)
+		tmpCerts[idx] = certificateToPlutusData(cert, protocolVersionMajor)
 	}
 	return data.NewList(tmpCerts...)
 }
 
 func certificateToPlutusData(
 	certificate lcommon.Certificate,
-	protocolVersionMajor ...uint,
+	protocolVersionMajor uint,
 ) data.PlutusData {
-	major := uint(0)
-	if len(protocolVersionMajor) > 0 {
-		major = protocolVersionMajor[0]
-	}
 	switch c := certificate.(type) {
 	case *lcommon.StakeRegistrationCertificate:
 		return data.NewConstr(
@@ -1084,7 +1081,7 @@ func certificateToPlutusData(
 		)
 	case *lcommon.RegistrationCertificate:
 		deposit := Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData()
-		if major == lcommon.ProtocolVersionConway {
+		if protocolVersionMajor == lcommon.ProtocolVersionConway {
 			deposit = Option[*big.Int]{}.ToPlutusData()
 		}
 		return data.NewConstr(
@@ -1100,7 +1097,7 @@ func certificateToPlutusData(
 		)
 	case *lcommon.DeregistrationCertificate:
 		refund := Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData()
-		if major == lcommon.ProtocolVersionConway {
+		if protocolVersionMajor == lcommon.ProtocolVersionConway {
 			refund = Option[*big.Int]{}.ToPlutusData()
 		}
 		return data.NewConstr(

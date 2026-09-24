@@ -895,12 +895,6 @@ func UtxoValidateMetadata(
 		); err != nil {
 			return err
 		}
-		if err := common.ValidateAuxiliaryDataScriptsWellFormed(
-			level,
-			params.ProtocolVersion.Major,
-		); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -2637,6 +2631,7 @@ func validateGuardingPlutusScripts(
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
@@ -2671,6 +2666,7 @@ func validateGuardingPlutusScripts(
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
