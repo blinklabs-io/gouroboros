@@ -446,11 +446,31 @@ func sumBlockExUnits(txs []common.Transaction) (common.ExUnits, error) {
 	return common.ExUnits{Memory: totalMemory, Steps: totalSteps}, nil
 }
 
+func verifyNonceVrf(
+	result common.VrfResult,
+	vrfKey []byte,
+	slot int64,
+	eta0 []byte,
+) error {
+	message, err := vrf.MkSeedTPraos(slot, eta0, vrf.SeedEta())
+	if err != nil {
+		return fmt.Errorf("construct nonce VRF input: %w", err)
+	}
+	valid, err := vrf.Verify(vrfKey, result.Proof, result.Output, message)
+	if err != nil {
+		return fmt.Errorf("verify nonce VRF proof: %w", err)
+	}
+	if !valid {
+		return errors.New("nonce VRF output mismatch")
+	}
+	return nil
+}
+
 // VerifyBlock performs block-local structural, cryptographic, and ledger
 // validation. It checks data available from the block and supplied verification
-// config, including body hash, VRF proof bytes, the operational certificate's
-// cold-key signature, KES signature, transactions, and optional stake pool
-// registration.
+// config, including body hash, leader and nonce VRF proofs, the operational
+// certificate's cold-key signature, KES signature, transactions, and optional
+// stake pool registration.
 //
 // VerifyBlock is not full chain-context consensus validation. It does not
 // receive the previous header, active stake distribution, active slot
@@ -490,22 +510,27 @@ func VerifyBlock(
 	var vrfValid bool
 	var kesValid bool
 	var vrfResult common.VrfResult
+	var nonceVrfResult common.VrfResult
 	var vrfKey []byte
 	var isTPraos bool
 	switch h := block.Header().(type) {
 	case *shelley.ShelleyBlockHeader:
+		nonceVrfResult = h.Body.NonceVrf
 		vrfResult = h.Body.LeaderVrf
 		vrfKey = h.Body.VrfKey
 		isTPraos = true
 	case *allegra.AllegraBlockHeader:
+		nonceVrfResult = h.Body.NonceVrf
 		vrfResult = h.Body.LeaderVrf
 		vrfKey = h.Body.VrfKey
 		isTPraos = true
 	case *mary.MaryBlockHeader:
+		nonceVrfResult = h.Body.NonceVrf
 		vrfResult = h.Body.LeaderVrf
 		vrfKey = h.Body.VrfKey
 		isTPraos = true
 	case *alonzo.AlonzoBlockHeader:
+		nonceVrfResult = h.Body.NonceVrf
 		vrfResult = h.Body.LeaderVrf
 		vrfKey = h.Body.VrfKey
 		isTPraos = true
@@ -553,7 +578,7 @@ func VerifyBlock(
 	//
 	// For verifying the LeaderVrf (bheaderL), use seedL = mkNonceFromNumber(1).
 	// For verifying the NonceVrf (bheaderEta), use seedEta = mkNonceFromNumber(0).
-	// We verify the LeaderVrf here (the one that proves leader election).
+	// Verify the LeaderVrf here and the NonceVrf below.
 	//
 	// Ref: Cardano.Protocol.TPraos.Rules.Overlay.vrfChecks (TPraos)
 	// Ref: Ouroboros.Consensus.Protocol.Praos.VRF.mkInputVRF (CPraos)
@@ -623,6 +648,27 @@ func VerifyBlock(
 			nil,
 		)
 	}
+	if isTPraos {
+		if err := verifyNonceVrf(
+			nonceVrfResult,
+			vrfKey,
+			int64(slot),
+			eta0,
+		); err != nil {
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeVRF,
+				"nonce VRF verification failed",
+				map[string]any{
+					"slot":             slot,
+					"block_number":     blockNo,
+					"era":              era,
+					"nonce_vrf_len":    len(nonceVrfResult.Proof),
+					"nonce_output_len": len(nonceVrfResult.Output),
+				},
+				err,
+			)
+		}
+	}
 
 	vrfHex = hex.EncodeToString(vrfResult.Output)
 
@@ -672,10 +718,11 @@ func VerifyBlock(
 	// here: both need state VerifyBlock does not receive -- the pool's
 	// last-seen counter, and the Shelley genesis maxKESEvolutions.
 	//
-	// A header type ExtractOpCertFromHeader does not recognize is not a hole:
-	// ExtractKesFields below rejects exactly the same set of types outright,
-	// so no such header reaches the end of this function.
-	if opCert, ok := ExtractOpCertFromHeader(block.Header()); ok {
+	opCert, err := ExtractOpCertFromHeader(block.Header())
+	if err != nil {
+		return false, "", 0, 0, err
+	}
+	if opCert != nil {
 		issuerVkey, _, err := extractHeaderFields(block.Header())
 		if err != nil {
 			return false, "", 0, 0, err
@@ -937,6 +984,26 @@ func VerifyBlock(
 
 	// Verify transactions (can be skipped via config)
 	// Requires LedgerState and ProtocolParameters in config if enabled.
+	if block.Era() == byron.EraByron && !config.SkipTransactionValidation {
+		if mainBlock, ok := block.(*byron.ByronMainBlock); ok {
+			for idx := range mainBlock.Body.TxPayload {
+				if err := mainBlock.Body.TxPayload[idx].ValidateVKeyWitnesses(
+					mainBlock.BlockHeader.ProtocolMagic,
+				); err != nil {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeTransaction,
+						"Byron block transaction witness validation failed",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"transaction":  idx,
+						},
+						err,
+					)
+				}
+			}
+		}
+	}
 	if block.Era() != byron.EraByron && !config.SkipTransactionValidation {
 		var validationRules []common.UtxoValidationRuleFunc
 		switch block.Era().Id {
@@ -988,7 +1055,6 @@ func VerifyBlock(
 			}
 		}
 	}
-
 	var refScriptSizeErr error
 	if block.Era() != byron.EraByron &&
 		!config.SkipBlockLimitsValidation && len(block.Transactions()) > 0 {

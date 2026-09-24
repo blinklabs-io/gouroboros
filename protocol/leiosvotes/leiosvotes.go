@@ -127,8 +127,11 @@ type Config struct {
 
 type CallbackContext struct {
 	ConnectionId connection.ConnectionId
-	Client       *Client
-	Server       *Server
+	// ConnectionDoneChan is closed when the owning connection begins shutdown.
+	// It is nil when the protocol has no owning connection.
+	ConnectionDoneChan <-chan any
+	Client             *Client
+	Server             *Server
 }
 
 type (

@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -172,6 +173,101 @@ func runRule(
 		utxoOnlyLedgerState{utxos: byId},
 		&BabbageProtocolParameters{},
 	)
+}
+
+func runDatumRules(
+	tx common.Transaction,
+	utxos []common.Utxo,
+) error {
+	byId := make(map[string]common.Utxo, len(utxos))
+	for _, item := range utxos {
+		byId[item.Id.String()] = item
+	}
+	return UtxoValidateSupplementalDatums(
+		tx,
+		0,
+		utxoOnlyLedgerState{utxos: byId},
+		&BabbageProtocolParameters{},
+	)
+}
+
+func TestDatumWitnessRules(t *testing.T) {
+	v2 := common.PlutusV2Script{0x21, 0x22}
+	input := testInput(0x31, 0)
+	datum := common.Datum{Data: data.NewInteger(big.NewInt(42))}
+	datumHash := datum.Hash()
+	inputOutput := plainOutput(scriptAddr(t, v2))
+	inputOutput.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
+	stateUtxo := utxo(input, inputOutput)
+
+	t.Run("missing V2 datum is phase-1 for invalid transactions", func(t *testing.T) {
+		tx := &BabbageTransaction{
+			TxIsValid: false,
+			Body:      BabbageTransactionBody{TxInputs: inputSet(input)},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsPlutusV2Scripts: []common.PlutusV2Script{v2},
+			},
+		}
+		var missing common.MissingDatumForSpendingScriptError
+		require.ErrorAs(t, runDatumRules(tx, []common.Utxo{stateUtxo}), &missing)
+	})
+
+	t.Run("matching V2 datum is accepted", func(t *testing.T) {
+		tx := &BabbageTransaction{
+			TxIsValid: false,
+			Body:      BabbageTransactionBody{TxInputs: inputSet(input)},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsPlutusV2Scripts: []common.PlutusV2Script{v2},
+				WsPlutusData:      alonzo.PlutusDataList{Items: []common.Datum{datum}},
+			},
+		}
+		require.NoError(t, runDatumRules(tx, []common.Utxo{stateUtxo}))
+	})
+
+	t.Run("key input does not justify a supplemental datum", func(t *testing.T) {
+		keyInput := testInput(0x32, 0)
+		keyOutput := plainOutput(keyAddr(t))
+		keyOutput.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
+		tx := &BabbageTransaction{
+			Body: BabbageTransactionBody{TxInputs: inputSet(keyInput)},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsPlutusData: alonzo.PlutusDataList{Items: []common.Datum{datum}},
+			},
+		}
+		var supplemental common.NotAllowedSupplementalDatumsError
+		require.ErrorAs(t, runDatumRules(tx, []common.Utxo{utxo(keyInput, keyOutput)}), &supplemental)
+	})
+
+	t.Run("native script input does not justify a supplemental datum", func(t *testing.T) {
+		nativeBytes, err := cbor.Encode(common.NativeScriptAll{Type: 1})
+		require.NoError(t, err)
+		var native common.NativeScript
+		require.NoError(t, native.UnmarshalCBOR(nativeBytes))
+		nativeInput := testInput(0x33, 0)
+		nativeOutput := plainOutput(scriptAddr(t, native))
+		nativeOutput.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
+		tx := &BabbageTransaction{
+			Body: BabbageTransactionBody{TxInputs: inputSet(nativeInput)},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsNativeScripts: []common.NativeScript{native},
+				WsPlutusData:    alonzo.PlutusDataList{Items: []common.Datum{datum}},
+			},
+		}
+		var supplemental common.NotAllowedSupplementalDatumsError
+		require.ErrorAs(t, runDatumRules(tx, []common.Utxo{utxo(nativeInput, nativeOutput)}), &supplemental)
+	})
+
+	t.Run("collateral return justifies a supplemental datum", func(t *testing.T) {
+		collateralReturn := plainOutput(keyAddr(t))
+		collateralReturn.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
+		tx := &BabbageTransaction{
+			Body: BabbageTransactionBody{TxCollateralReturn: &collateralReturn},
+			WitnessSet: BabbageTransactionWitnessSet{
+				WsPlutusData: alonzo.PlutusDataList{Items: []common.Datum{datum}},
+			},
+		}
+		require.NoError(t, runDatumRules(tx, nil))
+	})
 }
 
 // A PlutusV1 script reachable through a spent UTxO's reference script, with no

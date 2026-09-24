@@ -15,19 +15,31 @@
 package byron_test
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// blockForever is an io.Reader whose Read never returns, simulating a
+// connection or stream that stays open indefinitely past the data a caller
+// cares about.
+type blockForever struct{}
+
+func (blockForever) Read([]byte) (int, error) {
+	select {}
+}
 
 const byronGenesisConfig = `
 {
@@ -492,6 +504,96 @@ func TestNewByronGenesisFromReader(t *testing.T) {
 	}
 }
 
+// TestNewByronGenesisFromReaderRejectsNonCanonicalEscapes covers the
+// historical canonical-JSON escape grammar the Byron reference parses
+// genesis with, which permits only \" and \\ inside a string. It checks
+// each disallowed escape (\uXXXX, \/, \n, \r, \t, \b, \f) is rejected, the
+// two allowed escapes still decode, and both an ordinary value and the
+// full genesis fixture used elsewhere in this file are unaffected.
+func TestNewByronGenesisFromReaderRejectsNonCanonicalEscapes(t *testing.T) {
+	t.Run("ordinary protocolMagic succeeds", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+			genesisWithParameter(t, []string{"protocolConsts", "protocolMagic"}, 42),
+		))
+		require.NoError(t, err)
+	})
+
+	t.Run("protocolM\\u0061gic is rejected", func(t *testing.T) {
+		// The Unicode escape in the key decodes to the ASCII letter 'a',
+		// so a standard JSON decoder maps this key onto the same field
+		// as a literal "protocolMagic" -- exactly why the canonical-JSON
+		// grammar must be enforced before schema decoding, not caught by
+		// it.
+		//
+		// Built with a double-quoted Go string literal (not a raw
+		// backtick string) so the doubled backslash below compiles down
+		// to the single literal backslash this test needs in front of
+		// the escape's hex digits.
+		doc := "{\"protocolConsts\": {\"protocolM\\u0061gic\": 42}}"
+		require.Contains(t, doc, "protocolM\\u0061gic")
+		_, err := byron.NewByronGenesisFromReader(strings.NewReader(doc))
+		require.Error(t, err)
+	})
+
+	t.Run("string value containing \\/ is rejected", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(
+			strings.NewReader(`{"ftsSeed": "abc\/def"}`),
+		)
+		require.Error(t, err)
+	})
+
+	// "\\u0041" is a double-quoted Go string literal so the doubled
+	// backslash compiles down to one literal backslash in front of
+	// u0041, matching the other entries' single-backslash-escape shape.
+	for _, escape := range []string{`\n`, `\r`, `\t`, `\b`, `\f`, "\\u0041"} {
+		t.Run("rejects "+escape, func(t *testing.T) {
+			_, err := byron.NewByronGenesisFromReader(
+				strings.NewReader(`{"ftsSeed": "abc` + escape + `def"}`),
+			)
+			require.Error(t, err)
+		})
+	}
+
+	t.Run("accepts escaped quote and backslash", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(strings.NewReader(
+			genesisWithParameter(t, []string{"ftsSeed"}, "abc\"\\def"),
+		))
+		require.NoError(t, err)
+	})
+
+	t.Run("full genesis fixture still decodes", func(t *testing.T) {
+		_, err := byron.NewByronGenesisFromReader(
+			strings.NewReader(byronGenesisConfig),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("does not block on a reader left open past the genesis value", func(t *testing.T) {
+		// NewByronGenesisFromReader decodes exactly one JSON value, the
+		// same as the encoding/json Decode it wraps, and must not read
+		// to EOF: a caller's reader (a long-lived connection, a
+		// multi-document stream) may never signal EOF at all.
+		genesisJSON := []byte(byronGenesisConfig)
+		r := io.MultiReader(
+			bytes.NewReader(genesisJSON),
+			blockForever{},
+		)
+		done := make(chan error, 1)
+		go func() {
+			_, err := byron.NewByronGenesisFromReader(r)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal(
+				"NewByronGenesisFromReader blocked reading past the genesis value",
+			)
+		}
+	})
+}
+
 func genesisWithParameter(t *testing.T, path []string, value any) string {
 	t.Helper()
 	var document map[string]any
@@ -831,4 +933,22 @@ func TestGenesisDelegateKeyHashes_Empty(t *testing.T) {
 	require.NoError(t, err, "GenesisDelegateKeyHashes failed")
 
 	assert.Nil(t, keyHashes, "Expected nil for empty heavyDelegation")
+}
+
+func TestGenesisDelegateKeyHashesUsesBootStakeholdersWithoutHeavyDelegation(
+	t *testing.T,
+) {
+	genesis := &byron.ByronGenesis{
+		BootStakeholders: map[string]int{
+			"00000000000000000000000000000000000000000000000000000001": 1,
+		},
+	}
+	keyHashes, err := genesis.GenesisDelegateKeyHashes()
+	require.NoError(t, err)
+	require.Len(t, keyHashes, 1)
+	require.Equal(
+		t,
+		"00000000000000000000000000000000000000000000000000000001",
+		keyHashes[0].String(),
+	)
 }

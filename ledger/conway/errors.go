@@ -155,35 +155,13 @@ func (e ScriptContextConstructionError) Unwrap() error {
 	return e.Err
 }
 
-// MissingDatumForSpendingScriptError indicates that a spending script requires a datum but none was provided
-type MissingDatumForSpendingScriptError struct {
-	ScriptHash common.ScriptHash
-	Input      common.TransactionInput
-}
+// MissingDatumForSpendingScriptError retains the Conway package error name for
+// callers while sharing its definition across ledger eras.
+type MissingDatumForSpendingScriptError = common.MissingDatumForSpendingScriptError
 
-func (e MissingDatumForSpendingScriptError) Error() string {
-	return fmt.Sprintf(
-		"missing datum for spending script (hash=%x, input=%s)",
-		e.ScriptHash[:],
-		e.Input.String(),
-	)
-}
-
-// NotAllowedSupplementalDatumsError indicates that datums in the witness set are not required by any script input
-type NotAllowedSupplementalDatumsError struct {
-	DatumHashes []common.Blake2b256
-}
-
-func (e NotAllowedSupplementalDatumsError) Error() string {
-	hashes := make([]string, len(e.DatumHashes))
-	for i, h := range e.DatumHashes {
-		hashes[i] = hex.EncodeToString(h[:])
-	}
-	return "not allowed supplemental datums in witness set: " + strings.Join(
-		hashes,
-		", ",
-	)
-}
+// NotAllowedSupplementalDatumsError retains the Conway package error name for
+// callers while sharing its definition across ledger eras.
+type NotAllowedSupplementalDatumsError = common.NotAllowedSupplementalDatumsError
 
 // ExtraRedeemerError indicates a redeemer exists that doesn't match any valid script purpose
 // (e.g., redeemer index is out of bounds for the inputs/mints/etc.)
@@ -505,6 +483,19 @@ type ResignedCommitteeMemberHotKeyError struct {
 	ColdCredential common.Credential
 }
 
+// ResignedCommitteeMemberError indicates an operation on a committee member
+// that was already resigned earlier in the same transaction.
+type ResignedCommitteeMemberError struct {
+	ColdCredential common.Credential
+}
+
+func (e ResignedCommitteeMemberError) Error() string {
+	return fmt.Sprintf(
+		"committee member %x is already resigned",
+		e.ColdCredential.Credential,
+	)
+}
+
 func (e ResignedCommitteeMemberHotKeyError) Error() string {
 	return fmt.Sprintf(
 		"cannot authorize hot key for resigned CC member: %x",
@@ -624,6 +615,20 @@ type CCVotingRestrictionError struct {
 	VoterId     common.Blake2b224
 	ActionId    common.GovActionId
 	Restriction string
+}
+
+// UnelectedCommitteeVoterError indicates a PV11+ vote by a committee hot
+// credential that is not authorized by an elected committee member.
+type UnelectedCommitteeVoterError struct {
+	Voter common.Voter
+}
+
+func (e UnelectedCommitteeVoterError) Error() string {
+	return fmt.Sprintf(
+		"committee voter is not elected: type=%d hash=%x",
+		e.Voter.Type,
+		e.Voter.Hash[:8],
+	)
 }
 
 func (e CCVotingRestrictionError) Error() string {

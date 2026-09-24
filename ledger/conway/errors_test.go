@@ -145,29 +145,10 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	)
 	var tx common.Transaction = tmpTx
 
-	// First: missing cost models should return a MissingCostModelError
+	// A reachable but unused reference script does not require a cost model.
 	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
-	if err == nil {
-		t.Fatal("expected error due to missing cost model, got nil")
-	}
-	var mErr common.MissingCostModelError
-	if !errors.As(err, &mErr) {
-		t.Fatalf("expected MissingCostModelError, got %T", err)
-	}
-
-	// Now provide a dummy cost model for PlutusV2 (version 1)
-	if cp, ok := pp.(*conway.ConwayProtocolParameters); ok {
-		if cp.CostModels == nil {
-			cp.CostModels = make(map[uint][]int64)
-		}
-		cp.CostModels[1] = []int64{1}
-	} else {
-		t.Fatalf("protocol parameters not ConwayProtocolParameters: %T", pp)
-	}
-
-	err = conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
-		t.Fatalf("expected no error after providing cost model, got %v", err)
+		t.Fatalf("unused reference script should not require a cost model: %v", err)
 	}
 }
 
@@ -206,26 +187,8 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV1(
 	var tx common.Transaction = tmpTx
 
 	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
-	if err == nil {
-		t.Fatal("expected error due to missing cost model, got nil")
-	}
-	var mErr common.MissingCostModelError
-	if !errors.As(err, &mErr) {
-		t.Fatalf("expected MissingCostModelError, got %T", err)
-	}
-
-	if cp, ok := pp.(*conway.ConwayProtocolParameters); ok {
-		if cp.CostModels == nil {
-			cp.CostModels = make(map[uint][]int64)
-		}
-		cp.CostModels[0] = []int64{1}
-	} else {
-		t.Fatalf("protocol parameters not ConwayProtocolParameters: %T", pp)
-	}
-
-	err = conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
-		t.Fatalf("expected no error after providing cost model, got %v", err)
+		t.Fatalf("unused reference script should not require a cost model: %v", err)
 	}
 }
 
@@ -264,26 +227,8 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 	var tx common.Transaction = tmpTx
 
 	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
-	if err == nil {
-		t.Fatal("expected error due to missing cost model, got nil")
-	}
-	var mErr common.MissingCostModelError
-	if !errors.As(err, &mErr) {
-		t.Fatalf("expected MissingCostModelError, got %T", err)
-	}
-
-	if cp, ok := pp.(*conway.ConwayProtocolParameters); ok {
-		if cp.CostModels == nil {
-			cp.CostModels = make(map[uint][]int64)
-		}
-		cp.CostModels[2] = []int64{1}
-	} else {
-		t.Fatalf("protocol parameters not ConwayProtocolParameters: %T", pp)
-	}
-
-	err = conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
-		t.Fatalf("expected no error after providing cost model, got %v", err)
+		t.Fatalf("unused reference script should not require a cost model: %v", err)
 	}
 }
 

@@ -45,7 +45,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleMetadata,
-		Validator: conway.UtxoValidateMetadata,
+		Validator: UtxoValidateMetadata,
 	},
 	{
 		Id:        common.UtxoValidationRuleProposalProcedures,
@@ -100,6 +100,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: conway.UtxoValidateCollateralVKeyWitnesses,
 	},
 	{
+		Id:        common.UtxoValidationRuleCollateralKeyLocked,
+		Validator: common.UtxoValidateCollateralKeyLocked,
+	},
+	{
 		Id:        common.UtxoValidationRuleRedeemerAndScriptWitnesses,
 		Validator: UtxoValidateRedeemerAndScriptWitnesses,
 	},
@@ -126,6 +130,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleOutsideValidityInterval,
 		Validator: conway.UtxoValidateOutsideValidityIntervalUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleOutsideForecast,
+		Validator: UtxoValidateOutsideForecast,
 	},
 	{
 		Id:        common.UtxoValidationRuleInputSetEmpty,
@@ -280,6 +288,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateCCVotingRestrictions,
 	},
 	{
+		Id:        common.UtxoValidationRuleUnelectedCommitteeVoters,
+		Validator: UtxoValidateUnelectedCommitteeVoters,
+	},
+	{
 		Id:        common.UtxoValidationRuleRefScriptSizePerTx,
 		Validator: UtxoValidateRefScriptSizePerTx,
 	},
@@ -325,6 +337,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleIsValidFlag:                  dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleRequiredVKeyWitnesses:        dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleCollateralVKeyWitnesses:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleCollateralKeyLocked:          dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleRedeemerAndScriptWitnesses:   dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleSignatures:                   dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleCostModelsPresent:            dijkstraUtxoValidationAlways,
@@ -332,6 +345,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleInlineDatumsWithPlutusV1:     dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2: dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutsideValidityInterval:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleOutsideForecast:              dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleInputSetEmpty:                dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleNoDuplicateInputs:            dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleFeeTooSmall:                  dijkstraUtxoValidationAlways,
@@ -370,6 +384,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleBootstrapVotingRestrictions:  dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleStakePoolVotingRestrictions:  dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleCCVotingRestrictions:         dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleUnelectedCommitteeVoters:     dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleRefScriptSizePerTx:           dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRulePoolCertificates:             dijkstraUtxoValidationPhase2Valid,
 }
@@ -568,6 +583,9 @@ func validateDijkstraProtocolParameterUpdate(
 	if ppu == nil || !ppu.hasUpdate() {
 		return conway.ProtocolParameterUpdateEmptyError{}
 	}
+	if err := validateDijkstraProtocolParameterUpdateDomains(ppu); err != nil {
+		return err
+	}
 	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
 		return conway.ProtocolParameterUpdateFieldZeroError{
 			FieldName: "maxBHSize",
@@ -598,10 +616,57 @@ func validateDijkstraProtocolParameterUpdate(
 			Value:     uint(*ppu.RefScriptCostStride),
 		}
 	}
-	return validateLeiosCommitteeStakeParameters(
-		ppu.CommitteeStakeCoverage,
-		ppu.QuorumStakeThreshold,
-	)
+	return nil
+}
+
+func validateDijkstraProtocolParameterUpdateDomains(
+	ppu *DijkstraProtocolParameterUpdate,
+) error {
+	if ppu == nil {
+		return errors.New("dijkstra protocol parameter update cannot be nil")
+	}
+	if err := validateLeiosGenesisOnlyParameters(ppu); err != nil {
+		return err
+	}
+	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
+		return err
+	}
+	if err := conway.ValidateProtocolParameterUpdate(ppu.conwayUpdate()); err != nil {
+		return err
+	}
+	if ppu.RefScriptCostStride != nil && *ppu.RefScriptCostStride == 0 {
+		return errors.New("refScriptCostStride must be positive")
+	}
+	if rat := ppu.RefScriptCostMultiplier; rat != nil && !validPositiveDijkstraRat(rat) {
+		return errors.New("refScriptCostMultiplier must be a positive bounded ratio")
+	}
+	if rat := ppu.MaxPledgeLeverage; rat != nil && !validNonNegativeDijkstraRat(rat) {
+		return errors.New("maxPledgeLeverage must be a nonnegative bounded ratio")
+	}
+	if rat := ppu.MinPoolMargin; rat != nil && !validUnitDijkstraRat(rat) {
+		return errors.New("minPoolMargin must be a bounded unit interval")
+	}
+	if rat := ppu.LeiosQuorumStakeThreshold; rat != nil && !validUnitDijkstraRat(rat) {
+		return errors.New("leiosQuorumStakeThreshold must be a bounded unit interval")
+	}
+	if ppu.MaxEndorserBlockExUnits != nil &&
+		(ppu.MaxEndorserBlockExUnits.Memory < 0 || ppu.MaxEndorserBlockExUnits.Steps < 0) {
+		return errors.New("maxEndorserBlockExUnits must be nonnegative")
+	}
+	return nil
+}
+
+func validNonNegativeDijkstraRat(rat *cbor.Rat) bool {
+	return rat != nil && rat.Rat != nil && rat.Num().Sign() >= 0 &&
+		rat.Denom().Sign() > 0 && rat.Num().IsUint64() && rat.Denom().IsUint64()
+}
+
+func validPositiveDijkstraRat(rat *cbor.Rat) bool {
+	return validNonNegativeDijkstraRat(rat) && rat.Num().Sign() > 0
+}
+
+func validUnitDijkstraRat(rat *cbor.Rat) bool {
+	return validNonNegativeDijkstraRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
 }
 
 // UtxoValidateDisjointRefInputs is a compatibility no-op for Dijkstra.
@@ -616,6 +681,20 @@ func UtxoValidateDisjointRefInputs(
 	return nil
 }
 
+func UtxoValidateOutsideForecast(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	_ common.ProtocolParameters,
+) error {
+	return common.ValidateOutsideForecast(
+		tx,
+		slot,
+		ls,
+		common.OutsideForecastTypeDijkstra,
+	)
+}
+
 // dijkstraConwayFeatureTransaction presents one sub-transaction's body and
 // witnesses while retaining the enclosing transaction's unrelated methods.
 // Script purposes remain scoped to this body; callers can aggregate script
@@ -624,6 +703,16 @@ type dijkstraConwayFeatureTransaction struct {
 	common.Transaction
 	body      common.TransactionBody
 	witnesses common.TransactionWitnessSet
+	metadata  common.TransactionMetadatum
+	auxData   common.AuxiliaryData
+}
+
+func (t dijkstraConwayFeatureTransaction) Metadata() common.TransactionMetadatum {
+	return t.metadata
+}
+
+func (t dijkstraConwayFeatureTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (t dijkstraConwayFeatureTransaction) Inputs() []common.TransactionInput {
@@ -764,13 +853,37 @@ func dijkstraTransactionLevels(
 			Transaction: tx,
 			body:        &subTxs[idx].Body,
 			witnesses:   subTxs[idx].WitnessSet,
+			metadata:    subTxs[idx].TxMetadata,
+			auxData:     subTxs[idx].auxData,
 		})
 	}
 	return append(levels, dijkstraConwayFeatureTransaction{
 		Transaction: tx,
 		body:        &tx.Body,
 		witnesses:   tx.WitnessSet,
+		metadata:    tx.TxMetadata,
+		auxData:     tx.auxData,
 	})
+}
+
+// UtxoValidateMetadata validates the auxiliary data attached to each Dijkstra
+// transaction level against that level's body hash.
+func UtxoValidateMetadata(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateMetadata(tx, slot, ls, pp)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.UtxoValidateMetadata(level, slot, ls, pp); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UtxoValidateIsValidFlag accepts a phase-2-invalid Dijkstra transaction when
@@ -1904,6 +2017,21 @@ func UtxoValidateCCVotingRestrictions(
 	return conway.UtxoValidateCCVotingRestrictions(tx, slot, ls, tmpPparams)
 }
 
+func UtxoValidateUnelectedCommitteeVoters(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	return conway.UtxoValidateUnelectedCommitteeVoters(
+		tx, slot, ls, tmpPparams,
+	)
+}
+
 func UtxoValidatePlutusScripts(
 	tx common.Transaction,
 	slot uint64,
@@ -2636,6 +2764,8 @@ func validateDijkstraRequiredTopLevelGuards(
 		Transaction: tx,
 		body:        &tx.Body,
 		witnesses:   tx.WitnessSet,
+		metadata:    tx.TxMetadata,
+		auxData:     tx.auxData,
 	}
 	for _, guard := range nativeScriptGuardCredentials(topTx) {
 		topLevel[dijkstraCredentialKey{
@@ -3425,7 +3555,7 @@ func MinCoinTxOut(
 	if err != nil {
 		return 0, err
 	}
-	txOutBytes, err := cbor.Encode(txOut)
+	txOutSize, err := common.TransactionOutputCborSize(txOut)
 	if err != nil {
 		return 0, err
 	}
@@ -3433,7 +3563,7 @@ func MinCoinTxOut(
 	// coinsPerUTxOByte large enough to overflow uint64 yields a requirement
 	// no output can meet. Wrapping would instead produce a small
 	// requirement and admit those outputs.
-	entrySize := minUtxoOverheadBytes + uint64(len(txOutBytes))
+	entrySize := minUtxoOverheadBytes + txOutSize
 	if tmpPparams.AdaPerUtxoByte != 0 &&
 		entrySize > math.MaxUint64/tmpPparams.AdaPerUtxoByte {
 		return 0, errors.New("minimum UTxO value overflow")
@@ -3655,7 +3785,7 @@ func UtxoValidateExtraneousRedeemers(
 	}
 	for _, level := range levels {
 		if err := validateDijkstraExtraneousRedeemers(
-			level.tx,
+			level,
 			available,
 		); err != nil {
 			return err
@@ -3665,9 +3795,10 @@ func UtxoValidateExtraneousRedeemers(
 }
 
 func validateDijkstraExtraneousRedeemers(
-	tx common.Transaction,
+	level dijkstraScriptLevel,
 	available map[common.ScriptHash]common.Script,
 ) error {
+	tx := level.tx
 	wits := tx.Witnesses()
 	if wits == nil {
 		return nil
@@ -3677,39 +3808,13 @@ func validateDijkstraExtraneousRedeemers(
 		return nil
 	}
 
-	// Collection lengths are kept at wire width so that a redeemer index near
-	// the top of its uint32 range is compared, not narrowed to a platform int.
-	inputCount := uint64(len(tx.Inputs()))
-	certCount := uint64(len(tx.Certificates()))
-	withdrawalCount := uint64(len(tx.Withdrawals()))
-	proposalCount := uint64(len(tx.ProposalProcedures()))
-
-	mintPolicyCount := uint64(0)
-	if mint := tx.AssetMint(); mint != nil {
-		mintPolicyCount = uint64(len(mint.Policies()))
-	}
-
-	voterCount := uint64(0)
-	if votingProcs := tx.VotingProcedures(); votingProcs != nil {
-		voterCount = uint64(len(votingProcs))
+	needed := make(map[common.RedeemerKey]struct{})
+	for _, required := range dijkstraRequiredPlutusPurposes(level, available) {
+		needed[required.key] = struct{}{}
 	}
 
 	for redeemerKey := range redeemers.Iter() {
-		var maxIndex uint64
-		switch redeemerKey.Tag {
-		case common.RedeemerTagSpend:
-			maxIndex = inputCount
-		case common.RedeemerTagMint:
-			maxIndex = mintPolicyCount
-		case common.RedeemerTagCert:
-			maxIndex = certCount
-		case common.RedeemerTagReward:
-			maxIndex = withdrawalCount
-		case common.RedeemerTagVoting:
-			maxIndex = voterCount
-		case common.RedeemerTagProposing:
-			maxIndex = proposalCount
-		case common.RedeemerTagGuarding:
+		if redeemerKey.Tag == common.RedeemerTagGuarding {
 			needsPlutus := dijkstraGuardNeedsPlutusRedeemer(
 				tx,
 				available,
@@ -3719,11 +3824,8 @@ func validateDijkstraExtraneousRedeemers(
 				continue
 			}
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
-		default:
-			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
-
-		if uint64(redeemerKey.Index) >= maxIndex {
+		if _, ok := needed[redeemerKey]; !ok {
 			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 	}

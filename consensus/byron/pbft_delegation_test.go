@@ -174,7 +174,14 @@ func TestNewPBFTDelegationStateUsesFinalGenesisView(t *testing.T) {
 	for range 100 {
 		state, err := NewPBFTDelegationState(config)
 		require.NoError(t, err)
-		require.Equal(t, config.GenesisDelegations, state.ActiveDelegations())
+		active := state.ActiveDelegations()
+		require.Equal(
+			t,
+			issuerA,
+			active[issuerA],
+			"issuer A conflicts with issuer B's initial self-delegation",
+		)
+		require.Equal(t, delegate, active[issuerB])
 	}
 }
 
@@ -189,7 +196,7 @@ func TestNewPBFTDelegationStateRejectsFinalDelegateCollision(t *testing.T) {
 	delegate, err := PBFTVerificationKeyHash(delegateKey)
 	require.NoError(t, err)
 
-	_, err = NewPBFTDelegationState(ByronConfig{
+	state, err := NewPBFTDelegationState(ByronConfig{
 		ProtocolMagic:    42,
 		SecurityParam:    10,
 		GenesisKeyHashes: [][]byte{issuerA.Bytes(), issuerB.Bytes()},
@@ -198,7 +205,52 @@ func TestNewPBFTDelegationStateRejectsFinalDelegateCollision(t *testing.T) {
 			issuerB: delegate,
 		},
 	})
-	require.ErrorContains(t, err, "is active for both")
+	require.NoError(t, err)
+	require.Equal(t, delegate, state.ActiveDelegations()[issuerA])
+	require.Equal(t, issuerB, state.ActiveDelegations()[issuerB])
+}
+
+func TestPBFTDelegationStatePreservesGenesisCertificateEpoch(t *testing.T) {
+	const protocolMagic = uint32(42)
+	issuerKey, issuerPrivateKey := deterministicPBFTVerificationKey(0x37)
+	genesisDelegateKey, _ := deterministicPBFTVerificationKey(0x38)
+	delegateKey, _ := deterministicPBFTVerificationKey(0x39)
+	issuerHash, err := PBFTVerificationKeyHash(issuerKey)
+	require.NoError(t, err)
+	genesisDelegateHash, err := PBFTVerificationKeyHash(genesisDelegateKey)
+	require.NoError(t, err)
+	state, err := NewPBFTDelegationState(ByronConfig{
+		ProtocolMagic:    protocolMagic,
+		SecurityParam:    10,
+		GenesisKeyHashes: [][]byte{issuerHash.Bytes()},
+		GenesisDelegations: map[common.Blake2b224]common.Blake2b224{
+			issuerHash: genesisDelegateHash,
+		},
+		GenesisDelegationEpochs: map[common.Blake2b224]uint64{issuerHash: 1},
+	})
+	require.NoError(t, err)
+	require.Contains(t, state.keyEpochDelegations, pbftDelegationKeyEpoch{
+		epoch: 1, delegator: issuerHash,
+	})
+
+	epochZeroCertificate := signedPBFTDelegationCertificate(
+		t, protocolMagic, 0, issuerKey, issuerPrivateKey, delegateKey,
+	)
+	state, err = state.ApplyPayloadCbor(
+		0,
+		1,
+		[]cbor.RawMessage{epochZeroCertificate},
+	)
+	require.NoError(
+		t,
+		err,
+		"an epoch-zero update remains valid after genesis omega 1",
+	)
+	epochOneCertificate := signedPBFTDelegationCertificate(
+		t, protocolMagic, 1, issuerKey, issuerPrivateKey, delegateKey,
+	)
+	_, err = state.ApplyPayloadCbor(1, 2, []cbor.RawMessage{epochOneCertificate})
+	require.ErrorContains(t, err, "already delegated for epoch 1")
 }
 
 func TestPBFTDelegationStateRejectsInvalidPayloadAtomically(t *testing.T) {

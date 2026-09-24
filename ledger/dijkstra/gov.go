@@ -208,5 +208,32 @@ func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
 	if a.ParamUpdate.RefScriptCostMultiplier != nil {
 		fields = append(fields, "RefScriptCostMultiplier")
 	}
+	if a.ParamUpdate.LeiosAnnouncementPeriodLength != nil {
+		fields = append(fields, "LeiosAnnouncementPeriodLength")
+	}
+	if a.ParamUpdate.LeiosVotePeriodLength != nil {
+		fields = append(fields, "LeiosVotePeriodLength")
+	}
+	if a.ParamUpdate.LeiosDiffusionPeriodLength != nil {
+		fields = append(fields, "LeiosDiffusionPeriodLength")
+	}
+	if a.ParamUpdate.LeiosCommitteeSize != nil {
+		fields = append(fields, "LeiosCommitteeSize")
+	}
+	if a.ParamUpdate.LeiosQuorumStakeThreshold != nil {
+		fields = append(fields, "LeiosQuorumStakeThreshold")
+	}
+	if a.ParamUpdate.MaxEndorserBlockReferencesSize != nil {
+		fields = append(fields, "MaxEndorserBlockReferencesSize")
+	}
+	if a.ParamUpdate.MaxEndorserBlockTxsSize != nil {
+		fields = append(fields, "MaxEndorserBlockTxsSize")
+	}
+	if a.ParamUpdate.MaxEndorserBlockExUnits != nil {
+		fields = append(fields, "MaxEndorserBlockExUnits")
+	}
+	if a.ParamUpdate.MaxRefScriptSizePerEndorserBlock != nil {
+		fields = append(fields, "MaxRefScriptSizePerEndorserBlock")
+	}
 	return fields
 }

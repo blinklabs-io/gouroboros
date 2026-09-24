@@ -218,21 +218,81 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 
 func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
 	var ret ByronGenesis
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return ret, err
-	}
-	if err := validateGenesisRequiredFields(data); err != nil {
-		return ret, err
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
+	// Decode straight from r through a tee, rather than reading it to
+	// completion with io.ReadAll first: r may stay open past the genesis
+	// value (a long-lived connection, a multi-document stream), and the
+	// original behavior here -- like encoding/json's own Decode -- reads
+	// only the one JSON value, not until EOF. dec.InputOffset() after a
+	// successful Decode gives the exact end of that value, so the checks
+	// below run only over the bytes the value actually used, not any
+	// read-ahead the decoder buffered past it.
+	var raw bytes.Buffer
+	dec := json.NewDecoder(io.TeeReader(r, &raw))
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}
+	data := raw.Bytes()[:dec.InputOffset()]
+	if err := rejectNonCanonicalJSONEscapes(data); err != nil {
+		return ByronGenesis{}, err
+	}
+	if err := validateGenesisRequiredFields(data); err != nil {
+		return ByronGenesis{}, err
+	}
 	if err := validateGenesisParameterDomains(ret); err != nil {
-		return ret, err
+		return ByronGenesis{}, err
 	}
 	return ret, nil
+}
+
+// rejectNonCanonicalJSONEscapes rejects a Byron genesis document containing
+// a string escape outside the historical canonical-JSON grammar the Byron
+// reference parses genesis with. That grammar permits only the quote (\")
+// and backslash (\\) escapes inside a string; encoding/json additionally
+// accepts and normalizes \/, \n, \r, \t, \b, \f, and \uXXXX, which would
+// silently admit a genesis document the reference rejects before schema
+// decoding.
+//
+// This is a byte-level scan for escape sequences within JSON string
+// literals, not a full JSON parser: it tracks only whether the current byte
+// is inside a string (and, if so, inside an escape sequence), which is
+// enough to find every backslash a compliant JSON string can contain
+// without needing to otherwise validate the document's structure -- a
+// malformed document is left for the subsequent encoding/json decode to
+// reject with its own error. UTF-8 continuation bytes are always >= 0x80,
+// so a byte-level scan cannot misread a multi-byte character as a quote or
+// backslash.
+func rejectNonCanonicalJSONEscapes(data []byte) error {
+	const (
+		outsideString = iota
+		insideString
+		insideEscape
+	)
+	state := outsideString
+	for _, b := range data {
+		switch state {
+		case outsideString:
+			if b == '"' {
+				state = insideString
+			}
+		case insideString:
+			switch b {
+			case '\\':
+				state = insideEscape
+			case '"':
+				state = outsideString
+			}
+		case insideEscape:
+			if b != '"' && b != '\\' {
+				return fmt.Errorf(
+					"byron genesis contains disallowed JSON escape \\%c: "+
+						"the canonical-JSON grammar permits only \\\" and \\\\",
+					b,
+				)
+			}
+			state = insideString
+		}
+	}
+	return nil
 }
 
 func validateGenesisRequiredFields(data []byte) error {
@@ -432,21 +492,17 @@ func (f ByronGenesisFtsSeed) MarshalJSON() ([]byte, error) {
 	return json.Marshal(f.Value)
 }
 
-// GenesisDelegateKeyHashes returns the Blake2b-224 hashes of the genesis delegate
-// keys, sorted for deterministic OBFT slot leader assignment.
-//
-// The key hashes are extracted directly from the HeavyDelegation map keys,
-// which are hex-encoded Blake2b-224 hashes (same format as BootStakeholders).
-// The ordering is by the hex-encoded key hash (lexicographic), which matches
-// how Byron determines the slot leader rotation order.
+// GenesisDelegateKeyHashes returns the sorted Blake2b-224 boot stakeholder
+// hashes. Heavy delegation certificates may change a stakeholder's active
+// signing key, but do not define the genesis issuer set.
 func (g *ByronGenesis) GenesisDelegateKeyHashes() ([]common.Blake2b224, error) {
-	if len(g.HeavyDelegation) == 0 {
+	if len(g.BootStakeholders) == 0 {
 		return nil, nil
 	}
 
-	// Collect the map keys (which are hex-encoded Blake2b224 hashes)
-	hexKeys := make([]string, 0, len(g.HeavyDelegation))
-	for keyHex := range g.HeavyDelegation {
+	// Sort the hex keys to make the issuer order deterministic.
+	hexKeys := make([]string, 0, len(g.BootStakeholders))
+	for keyHex := range g.BootStakeholders {
 		hexKeys = append(hexKeys, keyHex)
 	}
 
@@ -458,11 +514,20 @@ func (g *ByronGenesis) GenesisDelegateKeyHashes() ([]common.Blake2b224, error) {
 	for i, keyHex := range hexKeys {
 		keyBytes, err := hex.DecodeString(keyHex)
 		if err != nil {
-			return nil, fmt.Errorf("invalid hex key in HeavyDelegation: %s: %w", keyHex, err)
+			return nil, fmt.Errorf(
+				"invalid hex key in BootStakeholders: %s: %w",
+				keyHex,
+				err,
+			)
 		}
 		if len(keyBytes) != common.Blake2b224Size {
-			return nil, fmt.Errorf("invalid key hash length in HeavyDelegation: expected %d bytes, got %d for key %s",
-				common.Blake2b224Size, len(keyBytes), keyHex)
+			return nil, fmt.Errorf(
+				"invalid key hash length in BootStakeholders: expected %d bytes, "+
+					"got %d for key %s",
+				common.Blake2b224Size,
+				len(keyBytes),
+				keyHex,
+			)
 		}
 		result[i] = common.NewBlake2b224(keyBytes)
 	}

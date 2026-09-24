@@ -167,10 +167,6 @@ func TestByronGoldenEbbDroppedFields(t *testing.T) {
 	require.Equal(t, uint(byron.BlockTypeByronEbb), blockType)
 	require.NotNil(t, mustDecodeByronBlock(t, blockType, blockCbor))
 
-	// The body proof binds the body bytes to the header, so a mutated body
-	// needs that check skipped to reach the field decode under test.
-	skipBodyHash := common.VerifyConfig{SkipBodyHashValidation: true}
-
 	t.Run("body entries of any length", func(t *testing.T) {
 		mutated := setNested(
 			t, blockCbor, []int{1},
@@ -178,7 +174,7 @@ func TestByronGoldenEbbDroppedFields(t *testing.T) {
 				make([]byte, common.Blake2b256Size),
 			}),
 		)
-		decoded, err := ledger.NewBlockFromCbor(blockType, mutated, skipBodyHash)
+		decoded, err := ledger.NewBlockFromCbor(blockType, mutated)
 		require.NoError(t, err)
 		ebb, ok := decoded.(*byron.ByronEpochBoundaryBlock)
 		require.True(t, ok)
@@ -191,7 +187,7 @@ func TestByronGoldenEbbDroppedFields(t *testing.T) {
 			t, blockCbor, []int{1},
 			mustEncodeCbor(t, cbor.IndefLengthList{[]uint64{1, 2}}),
 		)
-		_, err := ledger.NewBlockFromCbor(blockType, mutated, skipBodyHash)
+		_, err := ledger.NewBlockFromCbor(blockType, mutated)
 		require.Error(t, err)
 	})
 

@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ed25519byron"
 )
 
 // Byron sign tags, from cardano-crypto's Cardano.Crypto.Signing.Tag. Every
@@ -102,7 +103,7 @@ func verifyEd25519(verificationKey, signed, sig []byte) bool {
 	// accepts proofs libsodium rejects, and Byron blocks are immutable history, so
 	// routing these through internal/ed25519strict would reject chain the node
 	// accepts. Do not "fix" these to match the non-Byron boundaries.
-	return ed25519.Verify(verificationKey[:32], signed, sig)
+	return ed25519byron.Verify(verificationKey[:32], signed, sig)
 }
 
 // EncodeDelegationEpoch returns the CBOR encoding of a delegation
