@@ -4636,6 +4636,21 @@ func TestUtxoValidateDelegationReleasesSupersededVrfKeys(t *testing.T) {
 		))
 	})
 
+	t.Run("one transaction keeps active and pending keys after A to B", func(t *testing.T) {
+		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
+		for _, key := range []common.Blake2b256{keyA, keyB} {
+			err := validate(
+				state,
+				registration(poolP, keyB),
+				registration(poolQ, key),
+			)
+			var duplicate conway.DuplicateVrfKeyError
+			require.ErrorAs(t, err, &duplicate)
+			require.Equal(t, key, duplicate.VrfKeyHash)
+			require.Equal(t, poolP, duplicate.ExistingPoolId)
+		}
+	})
+
 	t.Run("one transaction keeps the active and latest pending keys", func(t *testing.T) {
 		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
 		for _, key := range []common.Blake2b256{keyA, keyC} {
