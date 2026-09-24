@@ -54,3 +54,26 @@ func TestDijkstraCurrentLedgerAccountBalanceIntervalsGolden(t *testing.T) {
 	require.Equal(t, expected, tx.Body.TxBalanceIntervals)
 	require.Nil(t, tx.Body.TxStartingBalanceIntervals)
 }
+
+func TestDijkstraAccountBalanceIntervalsRejectNonRewardAccounts(t *testing.T) {
+	fixture, err := os.ReadFile(
+		"testdata/cardano_ledger_dijkstra_current_tx.hex",
+	)
+	require.NoError(t, err)
+	encoded := strings.Join(strings.Fields(string(fixture)), "")
+	for _, rewardAccount := range []string{
+		"581de101a1d395abb1baa33c53d26889d484437301cbba548c0fa0d28b4bd7",
+		"581de1415082a4d7a407bb3837bca2179336d8f9fa51fc4eecba911ead8407",
+	} {
+		require.Contains(t, encoded, rewardAccount)
+		encoded = strings.ReplaceAll(encoded, rewardAccount, "581d61"+rewardAccount[6:])
+	}
+	txCbor, err := hex.DecodeString(encoded)
+	require.NoError(t, err)
+	_, err = NewDijkstraTransactionFromCbor(txCbor)
+	require.ErrorContains(
+		t,
+		err,
+		"account balance intervals contains an invalid reward account",
+	)
+}
