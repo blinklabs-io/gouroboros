@@ -19,6 +19,7 @@ import (
 	"crypto/sha3"
 	"errors"
 	"fmt"
+	"math/bits"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
@@ -292,6 +293,38 @@ func PBFTVerificationKeyHash(
 type PBFTState struct {
 	signatureHistory []common.Blake2b224
 	securityParam    uint64
+	threshold        PBFTSignatureThreshold
+}
+
+// PBFTSignatureThreshold is an exact non-negative fraction. The zero value
+// selects the Cardano reference default of 22/100.
+type PBFTSignatureThreshold struct {
+	numerator   uint64
+	denominator uint64
+}
+
+// NewPBFTSignatureThreshold constructs an exact fraction for the PBFT
+// signature limit.
+func NewPBFTSignatureThreshold(
+	numerator, denominator uint64,
+) (PBFTSignatureThreshold, error) {
+	if denominator == 0 {
+		return PBFTSignatureThreshold{}, errors.New(
+			"byron PBFT signature threshold denominator must be greater than zero",
+		)
+	}
+	return PBFTSignatureThreshold{
+		numerator:   numerator,
+		denominator: denominator,
+	}, nil
+}
+
+// DefaultPBFTSignatureThreshold returns the reference default of 0.22.
+func DefaultPBFTSignatureThreshold() PBFTSignatureThreshold {
+	return PBFTSignatureThreshold{
+		numerator:   DefaultPBFTSignatureThresholdNumerator,
+		denominator: DefaultPBFTSignatureThresholdDenominator,
+	}
 }
 
 // NewPBFTState constructs state from an already ordered oldest-to-newest
@@ -300,10 +333,28 @@ func NewPBFTState(
 	signatureHistory []common.Blake2b224,
 	securityParam uint64,
 ) (PBFTState, error) {
+	return NewPBFTStateWithThreshold(
+		signatureHistory,
+		securityParam,
+		DefaultPBFTSignatureThreshold(),
+	)
+}
+
+// NewPBFTStateWithThreshold constructs state using the configured issuer
+// signature threshold. Thresholds greater than one are accepted, matching
+// cardano-node's PBftSignatureThreshold semantics.
+func NewPBFTStateWithThreshold(
+	signatureHistory []common.Blake2b224,
+	securityParam uint64,
+	threshold PBFTSignatureThreshold,
+) (PBFTState, error) {
 	if securityParam == 0 {
 		return PBFTState{}, errors.New(
 			"byron PBFT security parameter must be greater than zero",
 		)
+	}
+	if threshold.denominator == 0 {
+		threshold = DefaultPBFTSignatureThreshold()
 	}
 	if uint64(len(signatureHistory)) > securityParam {
 		return PBFTState{}, fmt.Errorf(
@@ -318,6 +369,7 @@ func NewPBFTState(
 			signatureHistory...,
 		),
 		securityParam: securityParam,
+		threshold:     threshold,
 	}, nil
 }
 
@@ -359,6 +411,7 @@ func (s PBFTState) Observe(
 	return PBFTState{
 		signatureHistory: history,
 		securityParam:    s.securityParam,
+		threshold:        s.threshold,
 	}, nil
 }
 
@@ -378,7 +431,7 @@ func (s PBFTState) Transition(
 			issuerCount++
 		}
 	}
-	maxSignatures := pbftMaxSignatures(s.securityParam)
+	maxSignatures := pbftMaxSignatures(s.securityParam, s.threshold)
 	if issuerCount > maxSignatures {
 		return PBFTState{}, fmt.Errorf(
 			"byron PBFT signature threshold exceeded for genesis issuer %s: got %d signatures in the last %d, maximum is %d",
@@ -391,10 +444,17 @@ func (s PBFTState) Transition(
 	return next, nil
 }
 
-func pbftMaxSignatures(securityParam uint64) uint64 {
-	quotient := securityParam / DefaultPBFTSignatureThresholdDenominator
-	remainder := securityParam % DefaultPBFTSignatureThresholdDenominator
-	return quotient*DefaultPBFTSignatureThresholdNumerator +
-		(remainder*DefaultPBFTSignatureThresholdNumerator)/
-			DefaultPBFTSignatureThresholdDenominator
+func pbftMaxSignatures(
+	securityParam uint64,
+	threshold PBFTSignatureThreshold,
+) uint64 {
+	if threshold.denominator == 0 {
+		threshold = DefaultPBFTSignatureThreshold()
+	}
+	hi, lo := bits.Mul64(securityParam, threshold.numerator)
+	if hi >= threshold.denominator {
+		return ^uint64(0)
+	}
+	quotient, _ := bits.Div64(hi, lo, threshold.denominator)
+	return quotient
 }

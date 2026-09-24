@@ -37,12 +37,16 @@ import (
 // ByronConfig contains Byron-specific consensus configuration.
 // Parameters should be loaded from Byron genesis configuration.
 type ByronConfig struct {
-	ProtocolMagic    uint32
-	SlotsPerEpoch    uint64
-	SlotDuration     time.Duration
-	SecurityParam    uint64
-	NumGenesisKeys   int
-	GenesisKeyHashes [][]byte // Hashes of genesis delegate keys
+	ProtocolMagic uint32
+	SlotsPerEpoch uint64
+	SlotDuration  time.Duration
+	SecurityParam uint64
+	// PBFTSignatureThreshold is the configured fraction of the last K
+	// issuers that one genesis issuer may sign. A zero value is treated as
+	// the reference default by NewPBFTStateWithThreshold.
+	PBFTSignatureThreshold PBFTSignatureThreshold
+	NumGenesisKeys         int
+	GenesisKeyHashes       [][]byte // Hashes of genesis delegate keys
 	// GenesisDelegations maps each genesis verification-key hash to the
 	// verification-key hash of its currently active block-signing delegate.
 	// NewByronConfigFromGenesis initializes this from the genesis heavy
@@ -322,13 +326,14 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	}
 
 	return ByronConfig{
-		ProtocolMagic:      protocolMagic,
-		SlotsPerEpoch:      slotsPerEpoch,
-		SlotDuration:       slotDuration,
-		SecurityParam:      k,
-		NumGenesisKeys:     len(keyHashes),
-		GenesisKeyHashes:   keyHashBytes,
-		GenesisDelegations: genesisDelegations,
-		TxFeePolicy:        feePolicy,
+		ProtocolMagic:          protocolMagic,
+		SlotsPerEpoch:          slotsPerEpoch,
+		SlotDuration:           slotDuration,
+		SecurityParam:          k,
+		PBFTSignatureThreshold: DefaultPBFTSignatureThreshold(),
+		NumGenesisKeys:         len(keyHashes),
+		GenesisKeyHashes:       keyHashBytes,
+		GenesisDelegations:     genesisDelegations,
+		TxFeePolicy:            feePolicy,
 	}, nil
 }

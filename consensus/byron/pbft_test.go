@@ -297,9 +297,66 @@ func TestPBFTMaxSignatures(t *testing.T) {
 		require.Equal(
 			t,
 			test.want,
-			pbftMaxSignatures(test.securityParam),
+			pbftMaxSignatures(
+				test.securityParam,
+				DefaultPBFTSignatureThreshold(),
+			),
 		)
 	}
+}
+
+func TestPBFTSignatureThresholdOverrides(t *testing.T) {
+	tests := []struct {
+		name        string
+		numerator   uint64
+		denominator uint64
+		want        uint64
+	}{
+		{name: "0.10", numerator: 1, denominator: 10, want: 1},
+		{name: "0.22", numerator: 22, denominator: 100, want: 2},
+		{name: "0.50", numerator: 1, denominator: 2, want: 5},
+		{name: "above one", numerator: 11, denominator: 10, want: 11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			threshold, err := NewPBFTSignatureThreshold(
+				test.numerator,
+				test.denominator,
+			)
+			require.NoError(t, err)
+			require.Equal(t, test.want, pbftMaxSignatures(10, threshold))
+
+			issuer := common.Blake2b224Hash([]byte("issuer"))
+			state, err := NewPBFTStateWithThreshold(nil, 10, threshold)
+			require.NoError(t, err)
+			for range min(test.want, uint64(10)) {
+				state, err = state.Transition(issuer)
+				require.NoError(t, err)
+			}
+			if test.want < 10 {
+				_, err = state.Transition(issuer)
+				require.ErrorContains(t, err, "signature threshold")
+			} else {
+				_, err = state.Transition(issuer)
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestPBFTMaxSignaturesSaturatesOnOverflow(t *testing.T) {
+	threshold, err := NewPBFTSignatureThreshold(2, 1)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		^uint64(0),
+		pbftMaxSignatures(^uint64(0), threshold),
+	)
+}
+
+func TestNewPBFTSignatureThresholdRejectsZeroDenominator(t *testing.T) {
+	_, err := NewPBFTSignatureThreshold(1, 0)
+	require.ErrorContains(t, err, "denominator")
 }
 
 func TestNewByronConfigFromGenesisBuildsPBFTDelegationView(t *testing.T) {
@@ -310,6 +367,11 @@ func TestNewByronConfigFromGenesisBuildsPBFTDelegationView(t *testing.T) {
 	config, err := NewByronConfigFromGenesis(&genesis)
 	require.NoError(t, err)
 	require.Len(t, config.GenesisDelegations, len(genesis.HeavyDelegation))
+	require.Equal(
+		t,
+		DefaultPBFTSignatureThreshold(),
+		config.PBFTSignatureThreshold,
+	)
 
 	for genesisHashHex, delegation := range genesis.HeavyDelegation {
 		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
