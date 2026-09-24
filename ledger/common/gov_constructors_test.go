@@ -215,6 +215,22 @@ func TestUpdateCommitteeGovActionUnmarshalCBORRejectsNilCredEpochKey(t *testing.
 }
 
 func TestUpdateCommitteeGovActionValidateQuorumUnitInterval(t *testing.T) {
+	t.Run("missing quorum", func(t *testing.T) {
+		action := UpdateCommitteeGovAction{}
+		require.ErrorContains(t, action.Validate(), "quorum is required")
+
+		encoded, err := cbor.Encode([]any{
+			uint(GovActionTypeUpdateCommittee),
+			nil,
+			[]Credential{},
+			map[*Credential]uint64{},
+		})
+		require.NoError(t, err)
+		var decoded UpdateCommitteeGovAction
+		_, err = cbor.Decode(encoded, &decoded)
+		require.Error(t, err)
+	})
+
 	for _, quorum := range []*big.Rat{
 		big.NewRat(0, 1),
 		big.NewRat(1, 1),

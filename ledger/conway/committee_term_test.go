@@ -16,8 +16,10 @@ package conway_test
 
 import (
 	"math"
+	"math/big"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +33,7 @@ func committeeTermAction(
 ) *common.UpdateCommitteeGovAction {
 	return &common.UpdateCommitteeGovAction{
 		CredEpochs: map[*common.Credential]uint64{credential: expiry},
+		Quorum:     cbor.Rat{Rat: big.NewRat(1, 2)},
 	}
 }
 
@@ -183,6 +186,7 @@ func TestValidateCommitteeTermWithoutTermLimit(t *testing.T) {
 		t.Parallel()
 		action := &common.UpdateCommitteeGovAction{
 			Credentials: []common.Credential{credential},
+			Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
 		}
 		require.NoError(
 			t,
@@ -214,6 +218,7 @@ func TestValidateCommitteeTermReportsDeterministically(t *testing.T) {
 			&credA: 500,
 			&credB: 600,
 		},
+		Quorum: cbor.Rat{Rat: big.NewRat(1, 2)},
 	}
 	pp := &conway.ConwayProtocolParameters{CommitteeTermLimit: 10}
 

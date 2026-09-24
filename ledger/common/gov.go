@@ -964,8 +964,11 @@ func (a *UpdateCommitteeGovAction) Validate() error {
 		}
 		seen[key] = struct{}{}
 	}
-	if quorum := a.Quorum.ToBigRat(); quorum != nil &&
-		(quorum.Sign() < 0 || quorum.Cmp(big.NewRat(1, 1)) > 0) {
+	quorum := a.Quorum.ToBigRat()
+	if quorum == nil {
+		return errors.New("update committee quorum is required")
+	}
+	if quorum.Sign() < 0 || quorum.Cmp(big.NewRat(1, 1)) > 0 {
 		return fmt.Errorf("update committee quorum %s is outside [0,1]", quorum)
 	}
 	return nil

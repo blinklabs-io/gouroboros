@@ -88,6 +88,11 @@ func TestUtxoValidateGovActionWellFormednessValidatesUpdateCommitteeValues(t *te
 		wantErr string
 	}{
 		{
+			name:    "missing quorum",
+			action:  &common.UpdateCommitteeGovAction{},
+			wantErr: "quorum is required",
+		},
+		{
 			name: "negative quorum",
 			action: &common.UpdateCommitteeGovAction{
 				Quorum: cbor.Rat{Rat: big.NewRat(-1, 2)},
@@ -158,6 +163,7 @@ func TestUtxoValidateProposalProceduresRejectsExpiredCommitteeAdditions(t *testi
 	buildTx := func(expiry uint64) *conway.ConwayTransaction {
 		return mkProposalTx(0, common.Address{}, &common.UpdateCommitteeGovAction{
 			CredEpochs: map[*common.Credential]uint64{&credential: expiry},
+			Quorum:     cbor.Rat{Rat: big.NewRat(1, 2)},
 		})
 	}
 	state := epochTestLedgerState{
@@ -386,6 +392,7 @@ func TestUtxoValidateGovActionWellFormedness(t *testing.T) {
 			CredEpochs: map[*common.Credential]uint64{
 				&cred: 500,
 			},
+			Quorum: cbor.Rat{Rat: big.NewRat(1, 2)},
 		}
 		tx := mkProposalTx(0, common.Address{}, action)
 		err := conway.UtxoValidateGovActionWellFormedness(tx, 0, nil, pp)
@@ -408,6 +415,7 @@ func TestUtxoValidateGovActionWellFormedness(t *testing.T) {
 			CredEpochs: map[*common.Credential]uint64{
 				&addCred: 500,
 			},
+			Quorum: cbor.Rat{Rat: big.NewRat(1, 2)},
 		}
 		tx := mkProposalTx(0, common.Address{}, action)
 		err := conway.UtxoValidateGovActionWellFormedness(tx, 0, nil, pp)
@@ -460,6 +468,7 @@ func TestUtxoValidateGovActionWellFormedness(t *testing.T) {
 					&credA: 500,
 					&credB: 600,
 				},
+				Quorum: cbor.Rat{Rat: big.NewRat(1, 2)},
 			}
 			tx := mkProposalTx(0, common.Address{}, action)
 			var wantCreds []common.Credential
