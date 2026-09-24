@@ -2236,6 +2236,76 @@ func TestBabbageMinCoinTxOutUsesOriginalWireSize(t *testing.T) {
 	require.Equal(t, canonicalMinimum, uint64(160+len(reencodedCanonical)))
 }
 
+func TestUtxoValidateOutputTooSmallUsesDecodedWireOutput(t *testing.T) {
+	address, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		make([]byte, common.Blake2b224Size),
+		nil,
+	)
+	require.NoError(t, err)
+	addressCBOR, err := cbor.Encode(address)
+	require.NoError(t, err)
+	indefiniteOutput := append([]byte{0xbf, 0x00}, addressCBOR...)
+	indefiniteOutput = append(indefiniteOutput, 0x01, 0x18, 0xc4, 0xff)
+	canonicalOutput, err := cbor.Encode(babbage.BabbageTransactionOutput{
+		OutputAddress: address,
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 196,
+		},
+	})
+	require.NoError(t, err)
+	encodeTx := func(output, collateralReturn []byte) []byte {
+		bodyFields := map[uint]any{
+			1: []cbor.RawMessage{cbor.RawMessage(output)},
+		}
+		if collateralReturn != nil {
+			bodyFields[16] = cbor.RawMessage(collateralReturn)
+		}
+		body, err := cbor.Encode(bodyFields)
+		require.NoError(t, err)
+		tx, err := cbor.Encode([]any{
+			cbor.RawMessage(body),
+			map[uint]any{},
+			true,
+			cbor.RawMessage{0xf6},
+		})
+		require.NoError(t, err)
+		return tx
+	}
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+	params := &babbage.BabbageProtocolParameters{AdaPerUtxoByte: 1}
+
+	t.Run("original indefinite output is below minimum", func(t *testing.T) {
+		tx, err := babbage.NewBabbageTransactionFromCbor(
+			encodeTx(indefiniteOutput, nil),
+		)
+		require.NoError(t, err)
+		err = babbage.UtxoValidateOutputTooSmallUtxo(tx, 0, ledgerState, params)
+		require.IsType(t, shelley.OutputTooSmallUtxoError{}, err)
+	})
+	t.Run("canonical output at the same amount passes", func(t *testing.T) {
+		tx, err := babbage.NewBabbageTransactionFromCbor(
+			encodeTx(canonicalOutput, nil),
+		)
+		require.NoError(t, err)
+		require.NoError(t, babbage.UtxoValidateOutputTooSmallUtxo(
+			tx, 0, ledgerState, params,
+		))
+	})
+	t.Run("collateral return preserves original wire size", func(t *testing.T) {
+		tx, err := babbage.NewBabbageTransactionFromCbor(
+			encodeTx(canonicalOutput, indefiniteOutput),
+		)
+		require.NoError(t, err)
+		require.IsType(t, shelley.OutputTooSmallUtxoError{},
+			babbage.UtxoValidateOutputTooSmallUtxo(
+				tx, 0, ledgerState, params,
+			),
+		)
+	})
+}
+
 func TestMinFeeIncludesDeclaredExecutionUnits(t *testing.T) {
 	prices := common.ExUnitPrice{
 		MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
