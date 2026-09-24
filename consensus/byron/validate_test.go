@@ -514,6 +514,33 @@ func TestValidateSimpleSignatureRequiresMainBlockDomain(t *testing.T) {
 	assert.Error(t, validator.validateSimpleSignature(input))
 }
 
+func TestValidateSimpleSignatureRequiresGenesisIssuerKeyMatch(t *testing.T) {
+	genesisPubKey, _, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	issuerPubKey, issuerPrivateKey, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	genesisIssuerKey := append(
+		append([]byte(nil), genesisPubKey...),
+		make([]byte, byron.VerificationKeySize-ed25519.PublicKeySize)...,
+	)
+	validator := NewHeaderValidator(testByronConfig())
+	validator.AllowSignatureFallback = true
+	toSign := []byte("fallback header")
+	domainSeparated, err := validator.domainSeparateMainBlock(toSign)
+	require.NoError(t, err)
+	input := &ValidateHeaderInput{
+		IssuerPubKey:     issuerPubKey,
+		GenesisIssuerKey: genesisIssuerKey,
+		BlockSignature:   ed25519.Sign(issuerPrivateKey, domainSeparated),
+		HeaderCbor:       toSign,
+	}
+	require.ErrorContains(
+		t,
+		validator.validateBlockSignature(input),
+		"simple-signature key does not match genesis issuer key",
+	)
+}
+
 // TestValidateSimpleSignatureStaysPermissive pins the primary,
 // domain-separated Byron signature path. Byron's ed25519-donna reference
 // accepts the identity public key and R point; changing this call to strict
