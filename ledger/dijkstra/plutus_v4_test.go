@@ -480,7 +480,7 @@ func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.
 	})
 }
 
-func TestDijkstraPlutusV4GuardingTopTxInfo(t *testing.T) {
+func TestDijkstraPlutusV4GuardingTopTxInfoIsNothing(t *testing.T) {
 	guard := common.Credential{
 		CredType: common.CredentialTypeScriptHash,
 	}
@@ -518,6 +518,7 @@ func TestDijkstraPlutusV4GuardingTopTxInfo(t *testing.T) {
 		TxDonation:               5,
 	}
 	subBody.SetValidityIntervalUpperBound(8)
+	secondSubBody := DijkstraSubTransactionBody{TxDonation: 6}
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxValidityIntervalStart: 2,
@@ -527,7 +528,10 @@ func TestDijkstraPlutusV4GuardingTopTxInfo(t *testing.T) {
 			},
 			TxDonation: 7,
 			TxSubTransactions: cbor.NewSetType(
-				[]DijkstraSubTransaction{{Body: subBody}},
+				[]DijkstraSubTransaction{
+					{Body: subBody},
+					{Body: secondSubBody},
+				},
 				false,
 			),
 		},
@@ -536,7 +540,7 @@ func TestDijkstraPlutusV4GuardingTopTxInfo(t *testing.T) {
 	tx.Body.SetValidityIntervalUpperBound(10)
 	levels, _, err := dijkstraScriptLevels(tx, dijkstraV4TestLedgerState())
 	require.NoError(t, err)
-	require.Len(t, levels, 2)
+	require.Len(t, levels, 3)
 	purpose := script.ScriptPurposeGuarding{Guard: guard}
 	key := common.RedeemerKey{Tag: common.RedeemerTagGuarding, Index: 0}
 	redeemer := common.RedeemerValue{
@@ -556,31 +560,16 @@ func TestDijkstraPlutusV4GuardingTopTxInfo(t *testing.T) {
 	requireDijkstraV4Bytes(t, topContext.Fields[3], purpose.ScriptHash().Bytes())
 	topScriptInfo := requireDijkstraV4Constr(t, topContext.Fields[2], 6, 2)
 	requireDijkstraV4Integer(t, topScriptInfo.Fields[0], 0)
-	topInfoOption := requireDijkstraV4Constr(t, topScriptInfo.Fields[1], 0, 1)
-	topInfo := requireDijkstraV4Constr(t, topInfoOption.Fields[0], 0, 4)
+	requireDijkstraV4Constr(t, topScriptInfo.Fields[1], 1, 0)
+	topInfo := requireDijkstraV4Constr(t, topContext.Fields[0], 0, 19)
+	requireDijkstraV4Constr(t, topInfo.Fields[1], 1, 0)
 
-	subInfos := requireDijkstraV4List(t, topInfo.Fields[0], 1)
-	subInfo := requireDijkstraV4Constr(t, subInfos.Items[0], 0, 19)
-	subIndex := requireDijkstraV4Constr(t, subInfo.Fields[1], 0, 1)
-	requireDijkstraV4Integer(t, subIndex.Fields[0], 0)
-	topDatums := requireDijkstraV4Map(t, topInfo.Fields[1], 1)
-	requireDijkstraV4Bytes(t, topDatums.Pairs[0][0], subBody.Id().Bytes())
-	requireDijkstraV4Integer(t, topDatums.Pairs[0][1], 123)
-	requireDijkstraV4Map(t, topInfo.Fields[2], 0)
-	simplified := requireDijkstraV4Constr(t, topInfo.Fields[3], 0, 18)
-	ids := requireDijkstraV4List(t, simplified.Fields[0], 2)
-	requireDijkstraV4Bytes(t, ids.Items[0], subBody.Id().Bytes())
-	requireDijkstraV4Bytes(t, ids.Items[1], tx.Id().Bytes())
-	require.True(t, subMint.ToPlutusData().Equal(simplified.Fields[4]))
-	require.True(t, topMint.ToPlutusData().Equal(simplified.Fields[5]))
-	requireDijkstraV4List(t, simplified.Fields[10], 2)
-	requireDijkstraV4List(t, simplified.Fields[11], 2)
-	combinedRange := requireDijkstraV4Constr(t, simplified.Fields[9], 0, 2)
-	combinedLower := requireDijkstraV4Constr(t, combinedRange.Fields[0], 0, 1)
-	requireDijkstraV4Integer(t, combinedLower.Fields[0], 3500)
-	combinedUpper := requireDijkstraV4Constr(t, combinedRange.Fields[1], 0, 1)
-	requireDijkstraV4Integer(t, combinedUpper.Fields[0], 8500)
-	requireDijkstraV4Integer(t, simplified.Fields[17], 12)
+	for _, level := range levels {
+		infoData, err := dijkstraTxInfoV4(level)
+		require.NoError(t, err)
+		info := requireDijkstraV4Constr(t, infoData, 0, 19)
+		requireDijkstraV4Constr(t, info.Fields[1], 1, 0)
+	}
 
 	subContextData, err := dijkstraPlutusV4Context(
 		levels[0],

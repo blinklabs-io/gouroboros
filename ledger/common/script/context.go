@@ -26,9 +26,28 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 )
 
-// eraIdConway is the first era with strict validity upper bounds. Keep this
-// numeric boundary here to avoid importing era packages into common/script.
-const eraIdConway = 6
+// Transaction types are the corresponding era IDs. Keep these boundaries here
+// to avoid importing era packages into common/script.
+const (
+	eraIdAlonzo  = 4
+	eraIdBabbage = 5
+	eraIdConway  = 6
+)
+
+// ByronTxOutInContextError reports a Byron output that the active Plutus
+// context format cannot represent.
+type ByronTxOutInContextError struct {
+	Location string
+	Index    int
+}
+
+func (e ByronTxOutInContextError) Error() string {
+	return fmt.Sprintf(
+		"ByronTxOutInContext: Byron output in %s at index %d",
+		e.Location,
+		e.Index,
+	)
+}
 
 type ScriptContext interface {
 	isScriptContext()
@@ -232,6 +251,20 @@ func NewTxInfoV1FromTransaction(
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
 	}
 	inputs := SortInputs(tx.Inputs())
+	resolvedTxInputs := expandInputs(inputs, resolvedInputs)
+	resolvedTxInputs, err = scriptContextInputs(
+		tx,
+		1,
+		"input",
+		resolvedTxInputs,
+	)
+	if err != nil {
+		return TxInfoV1{}, err
+	}
+	outputs, err := scriptContextOutputs(tx, 1)
+	if err != nil {
+		return TxInfoV1{}, err
+	}
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	certs := tx.Certificates()
@@ -253,8 +286,8 @@ func NewTxInfoV1FromTransaction(
 	}
 	tmpData := dataInfo(tx.Witnesses())
 	ret := TxInfoV1{
-		Inputs:       expandInputs(inputs, resolvedInputs),
-		Outputs:      collapseOutputs(tx.Produced()),
+		Inputs:       resolvedTxInputs,
+		Outputs:      outputs,
 		Fee:          tx.Fee(),
 		Mint:         *assetMint,
 		ValidRange:   validityRange,
@@ -357,6 +390,28 @@ func NewTxInfoV2FromTransaction(
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
 	}
 	inputs := SortInputs(tx.Inputs())
+	resolvedTxInputs, err := scriptContextInputs(
+		tx,
+		2,
+		"input",
+		expandInputs(inputs, resolvedInputs),
+	)
+	if err != nil {
+		return TxInfoV2{}, err
+	}
+	referenceInputs, err := scriptContextInputs(
+		tx,
+		2,
+		"reference input",
+		expandInputs(SortInputs(tx.ReferenceInputs()), resolvedInputs),
+	)
+	if err != nil {
+		return TxInfoV2{}, err
+	}
+	outputs, err := scriptContextOutputs(tx, 2)
+	if err != nil {
+		return TxInfoV2{}, err
+	}
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	certs := tx.Certificates()
@@ -378,21 +433,18 @@ func NewTxInfoV2FromTransaction(
 	}
 	tmpData := dataInfo(tx.Witnesses())
 	ret := TxInfoV2{
-		Inputs: expandInputs(inputs, resolvedInputs),
-		ReferenceInputs: expandInputs(
-			SortInputs(tx.ReferenceInputs()),
-			resolvedInputs,
-		),
-		Outputs:      collapseOutputs(tx.Produced()),
-		Fee:          tx.Fee(),
-		Mint:         *assetMint,
-		ValidRange:   validityRange,
-		Certificates: certs,
-		Withdrawals:  withdrawals,
-		Signatories:  signatoriesInfo(tx.RequiredSigners()),
-		Redeemers:    redeemers,
-		Data:         tmpData,
-		Id:           tx.Id(),
+		Inputs:          resolvedTxInputs,
+		ReferenceInputs: referenceInputs,
+		Outputs:         outputs,
+		Fee:             tx.Fee(),
+		Mint:            *assetMint,
+		ValidRange:      validityRange,
+		Certificates:    certs,
+		Withdrawals:     withdrawals,
+		Signatories:     signatoriesInfo(tx.RequiredSigners()),
+		Redeemers:       redeemers,
+		Data:            tmpData,
+		Id:              tx.Id(),
 	}
 	return ret, nil
 }
@@ -456,6 +508,28 @@ func NewTxInfoV3FromTransaction(
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
 	}
 	inputs := SortInputs(tx.Inputs())
+	resolvedTxInputs, err := scriptContextInputs(
+		tx,
+		3,
+		"input",
+		expandInputs(inputs, resolvedInputs),
+	)
+	if err != nil {
+		return TxInfoV3{}, err
+	}
+	referenceInputs, err := scriptContextInputs(
+		tx,
+		3,
+		"reference input",
+		expandInputs(SortInputs(tx.ReferenceInputs()), resolvedInputs),
+	)
+	if err != nil {
+		return TxInfoV3{}, err
+	}
+	outputs, err := scriptContextOutputs(tx, 3)
+	if err != nil {
+		return TxInfoV3{}, err
+	}
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	votes := votingInfo(tx.VotingProcedures())
 	proposalProcedures := tx.ProposalProcedures()
@@ -478,12 +552,9 @@ func NewTxInfoV3FromTransaction(
 	}
 	tmpData := dataInfo(tx.Witnesses())
 	ret := TxInfoV3{
-		Inputs: expandInputs(inputs, resolvedInputs),
-		ReferenceInputs: expandInputs(
-			SortInputs(tx.ReferenceInputs()),
-			resolvedInputs,
-		),
-		Outputs:            collapseOutputs(tx.Produced()),
+		Inputs:             resolvedTxInputs,
+		ReferenceInputs:    referenceInputs,
+		Outputs:            outputs,
 		Fee:                tx.Fee(),
 		Mint:               *assetMint,
 		ValidRange:         validityRange,
@@ -648,12 +719,69 @@ func expandInputs(
 	return ret
 }
 
-func collapseOutputs(outputs []lcommon.Utxo) []lcommon.TransactionOutput {
-	ret := make([]lcommon.TransactionOutput, len(outputs))
-	for i, item := range outputs {
-		ret[i] = item.Output
+func scriptContextOutputs(
+	tx lcommon.Transaction,
+	version uint8,
+) ([]lcommon.TransactionOutput, error) {
+	outputs := tx.Outputs()
+	if tx.Type() >= eraIdBabbage {
+		for idx, output := range outputs {
+			if isByronOutput(output) {
+				return nil, ByronTxOutInContextError{
+					Location: "output",
+					Index:    idx,
+				}
+			}
+		}
+		return outputs, nil
 	}
-	return ret
+	if tx.Type() == eraIdAlonzo && version == 1 {
+		filtered := make([]lcommon.TransactionOutput, 0, len(outputs))
+		for _, output := range outputs {
+			if !isByronOutput(output) {
+				filtered = append(filtered, output)
+			}
+		}
+		return filtered, nil
+	}
+	return outputs, nil
+}
+
+func scriptContextInputs(
+	tx lcommon.Transaction,
+	version uint8,
+	location string,
+	inputs []ResolvedInput,
+) ([]ResolvedInput, error) {
+	if tx.Type() >= eraIdBabbage {
+		for idx, input := range inputs {
+			if input.Output != nil && isByronOutput(input.Output) {
+				return nil, ByronTxOutInContextError{
+					Location: location,
+					Index:    idx,
+				}
+			}
+		}
+		return inputs, nil
+	}
+	if tx.Type() == eraIdAlonzo && version == 1 {
+		filtered := make([]ResolvedInput, 0, len(inputs))
+		for _, input := range inputs {
+			if input.Output == nil || !isByronOutput(input.Output) {
+				filtered = append(filtered, input)
+			}
+		}
+		return filtered, nil
+	}
+	return inputs, nil
+}
+
+func isByronOutput(output lcommon.TransactionOutput) bool {
+	if output == nil {
+		return false
+	}
+	address := output.Address()
+	return address.ToPlutusData() == nil
 }
 
 func sortedRedeemerKeys(

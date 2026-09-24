@@ -577,12 +577,10 @@ func SortWithdrawalAddresses(
 		if c := cmp.Compare(a.NetworkId(), b.NetworkId()); c != 0 {
 			return c
 		}
-		if c := cmp.Compare(aCred.CredType, bCred.CredType); c != 0 {
-			// Credential's numeric order is key before script, while
-			// cardano-ledger's Ord instance places ScriptHashObj first.
-			return -c
+		if c := lcommon.CompareCredentials(aCred, bCred); c != 0 {
+			return c
 		}
-		return bytes.Compare(aCred.Credential[:], bCred.Credential[:])
+		return 0
 	})
 	return sorted
 }

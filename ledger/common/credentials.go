@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -39,6 +40,24 @@ type Credential struct {
 	cbor.DecodeStoreCbor
 	CredType   uint
 	Credential CredentialHash
+}
+
+// CompareCredentials orders credentials as cardano-ledger's Ord instance:
+// script credentials precede key credentials, then hashes sort lexicographically.
+func CompareCredentials(a, b Credential) int {
+	if a.CredType != b.CredType {
+		if a.CredType == CredentialTypeScriptHash {
+			return -1
+		}
+		if b.CredType == CredentialTypeScriptHash {
+			return 1
+		}
+		if a.CredType < b.CredType {
+			return -1
+		}
+		return 1
+	}
+	return bytes.Compare(a.Credential[:], b.Credential[:])
 }
 
 func (c *Credential) UnmarshalCBOR(cborData []byte) error {

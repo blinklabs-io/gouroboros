@@ -15,12 +15,15 @@
 package common
 
 import (
+	"cmp"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -789,7 +792,13 @@ func (a *TreasuryWithdrawalGovAction) UnmarshalCBOR(cborData []byte) error {
 
 func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 	pairs := make([][2]data.PlutusData, 0, len(a.Withdrawals))
-	for addr, amount := range a.Withdrawals {
+	addresses := make([]*Address, 0, len(a.Withdrawals))
+	for addr := range a.Withdrawals {
+		addresses = append(addresses, addr)
+	}
+	slices.SortFunc(addresses, compareRewardAccountAddresses)
+	for _, addr := range addresses {
+		amount := a.Withdrawals[addr]
 		pairs = append(pairs, [2]data.PlutusData{
 			addr.ToPlutusData(),
 			data.NewInteger(new(big.Int).SetUint64(amount)),
@@ -806,6 +815,27 @@ func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 		data.NewMap(pairs),
 		policyHash,
 	)
+}
+
+func compareRewardAccountAddresses(a, b *Address) int {
+	if a == nil {
+		if b == nil {
+			return 0
+		}
+		return -1
+	}
+	if b == nil {
+		return 1
+	}
+	if c := cmp.Compare(a.NetworkId(), b.NetworkId()); c != 0 {
+		return c
+	}
+	aCred, aErr := a.RewardAccountCredential()
+	bCred, bErr := b.RewardAccountCredential()
+	if aErr != nil || bErr != nil {
+		return strings.Compare(a.String(), b.String())
+	}
+	return CompareCredentials(aCred, bCred)
 }
 
 func (a TreasuryWithdrawalGovAction) isGovAction() {}
@@ -913,13 +943,32 @@ func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 	if a.ActionId != nil {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
 	}
-	removedItems := make([]data.PlutusData, 0, len(a.Credentials))
-	for _, cred := range a.Credentials {
+	credentials := append([]Credential(nil), a.Credentials...)
+	slices.SortFunc(credentials, CompareCredentials)
+	removedItems := make([]data.PlutusData, 0, len(credentials))
+	for _, cred := range credentials {
 		removedItems = append(removedItems, cred.ToPlutusData())
 	}
 
-	addedPairs := make([][2]data.PlutusData, 0, len(a.CredEpochs))
-	for cred, epoch := range a.CredEpochs {
+	addedCredentials := make([]*Credential, 0, len(a.CredEpochs))
+	for cred := range a.CredEpochs {
+		addedCredentials = append(addedCredentials, cred)
+	}
+	slices.SortFunc(addedCredentials, func(a, b *Credential) int {
+		if a == nil {
+			if b == nil {
+				return 0
+			}
+			return -1
+		}
+		if b == nil {
+			return 1
+		}
+		return CompareCredentials(*a, *b)
+	})
+	addedPairs := make([][2]data.PlutusData, 0, len(addedCredentials))
+	for _, cred := range addedCredentials {
+		epoch := a.CredEpochs[cred]
 		addedPairs = append(addedPairs, [2]data.PlutusData{
 			cred.ToPlutusData(),
 			data.NewInteger(new(big.Int).SetUint64(epoch)),
