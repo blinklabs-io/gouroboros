@@ -460,6 +460,38 @@ type dijkstraGovernanceStateView struct {
 	stakeCredentials  map[dijkstraAccountKey]bool
 	drepCredentials   map[dijkstraAccountKey]bool
 	poolRegistrations map[common.PoolKeyHash]struct{}
+	committeeHot      map[common.Blake2b224]*common.CommitteeMember
+	committeeCold     map[dijkstraAccountKey]*common.CommitteeMember
+	committeeColdHot  map[dijkstraAccountKey]*common.Blake2b224
+}
+
+type dijkstraCommitteeCredentialView struct {
+	common.LedgerState
+	state *dijkstraGovernanceStateView
+}
+
+func (s dijkstraCommitteeCredentialView) CommitteeStateAvailable() (bool, error) {
+	return s.state.CommitteeStateAvailable()
+}
+
+func (s dijkstraCommitteeCredentialView) CommitteeCredentialMember(
+	credential common.Credential,
+) (*common.CommitteeMember, error) {
+	return s.state.CommitteeCredentialMember(credential)
+}
+
+func (s dijkstraCommitteeCredentialView) CommitteeHotCredentialMember(
+	credential common.Credential,
+) (*common.CommitteeMember, error) {
+	return s.state.CommitteeHotCredentialMember(credential)
+}
+
+func dijkstraCommitteeCredentialState(ls common.LedgerState) common.LedgerState {
+	state, ok := ls.(*dijkstraGovernanceStateView)
+	if !ok {
+		return ls
+	}
+	return dijkstraCommitteeCredentialView{LedgerState: ls, state: state}
 }
 
 func (s *dijkstraGovernanceStateView) UnwrapLedgerState() common.LedgerState {
@@ -521,6 +553,113 @@ func (s *dijkstraGovernanceStateView) IsPoolRegistered(
 	return s.LedgerState != nil && s.LedgerState.IsPoolRegistered(pool)
 }
 
+func (s *dijkstraGovernanceStateView) committeeCredentialState() (
+	common.CommitteeCredentialState,
+	bool,
+) {
+	state, ok := common.UnwrapLedgerState(s.LedgerState).(common.CommitteeCredentialState)
+	return state, ok
+}
+
+func (s *dijkstraGovernanceStateView) CommitteeStateAvailable() (bool, error) {
+	state, ok := s.committeeCredentialState()
+	if !ok {
+		return false, nil
+	}
+	return state.CommitteeStateAvailable()
+}
+
+func (s *dijkstraGovernanceStateView) CommitteeCredentialMember(
+	cold common.Credential,
+) (*common.CommitteeMember, error) {
+	if member, tracked := s.committeeCold[dijkstraAccountKeyFor(cold)]; tracked {
+		return member, nil
+	}
+	state, ok := s.committeeCredentialState()
+	if !ok {
+		return nil, nil
+	}
+	return state.CommitteeCredentialMember(cold)
+}
+
+func (s *dijkstraGovernanceStateView) CommitteeHotCredentialMember(
+	hot common.Credential,
+) (*common.CommitteeMember, error) {
+	if member, tracked := s.committeeHot[hot.Credential]; tracked {
+		return member, nil
+	}
+	state, ok := s.committeeCredentialState()
+	if !ok {
+		return nil, nil
+	}
+	return state.CommitteeHotCredentialMember(hot)
+}
+
+func (s *dijkstraGovernanceStateView) currentCommitteeHotForCold(
+	cold common.Credential,
+) (*common.Blake2b224, bool) {
+	coldKey := dijkstraAccountKeyFor(cold)
+	if hot, tracked := s.committeeColdHot[coldKey]; tracked {
+		return hot, true
+	}
+	member, err := s.CommitteeCredentialMember(cold)
+	if err != nil || member == nil {
+		return nil, false
+	}
+	return member.HotKey, true
+}
+
+func (s *dijkstraGovernanceStateView) applyCommitteeCertificates(
+	certificates []common.Certificate,
+) {
+	for _, certificate := range certificates {
+		switch cert := certificate.(type) {
+		case *common.AuthCommitteeHotCertificate:
+			s.authorizeCommitteeHot(cert.ColdCredential, cert.HotCredential)
+		case *common.ResignCommitteeColdCertificate:
+			s.resignCommitteeCold(cert.ColdCredential)
+		}
+	}
+}
+
+func (s *dijkstraGovernanceStateView) authorizeCommitteeHot(
+	cold, hot common.Credential,
+) {
+	coldKey := dijkstraAccountKeyFor(cold)
+	if previous, ok := s.currentCommitteeHotForCold(cold); ok && previous != nil &&
+		*previous != hot.Credential {
+		s.committeeHot[*previous] = nil
+	}
+	member, err := s.CommitteeCredentialMember(cold)
+	if err != nil || member == nil {
+		return
+	}
+	updated := *member
+	updated.HotKey = &hot.Credential
+	updated.Resigned = false
+	s.committeeCold[coldKey] = &updated
+	newHot := hot.Credential
+	s.committeeHot[hot.Credential] = &updated
+	s.committeeColdHot[coldKey] = &newHot
+}
+
+func (s *dijkstraGovernanceStateView) resignCommitteeCold(
+	cold common.Credential,
+) {
+	coldKey := dijkstraAccountKeyFor(cold)
+	if previous, ok := s.currentCommitteeHotForCold(cold); ok && previous != nil {
+		s.committeeHot[*previous] = nil
+	}
+	member, err := s.CommitteeCredentialMember(cold)
+	if err == nil && member != nil {
+		updated := *member
+		updated.HotKey = nil
+		updated.Resigned = true
+		s.committeeCold[coldKey] = &updated
+	}
+	s.committeeColdHot[coldKey] = nil
+}
+
 func dijkstraGovActionType(action common.GovAction) (common.GovActionType, bool) {
 	switch action.(type) {
 	case common.ParameterChangeGovAction:
@@ -557,6 +696,9 @@ func validateDijkstraGovernanceLevels(
 		stakeCredentials:  make(map[dijkstraAccountKey]bool),
 		drepCredentials:   make(map[dijkstraAccountKey]bool),
 		poolRegistrations: make(map[common.PoolKeyHash]struct{}),
+		committeeHot:      make(map[common.Blake2b224]*common.CommitteeMember),
+		committeeCold:     make(map[dijkstraAccountKey]*common.CommitteeMember),
+		committeeColdHot:  make(map[dijkstraAccountKey]*common.Blake2b224),
 	}
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
 		if err := validate(level, state); err != nil {
@@ -605,6 +747,7 @@ func validateDijkstraGovernanceLevels(
 				state.poolRegistrations[cert.Operator] = struct{}{}
 			}
 		}
+		state.applyCommitteeCertificates(level.Certificates())
 	}
 	return nil
 }
@@ -719,9 +862,16 @@ func UtxoValidateUnknownVoters(
 	tx common.Transaction, slot uint64, ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return validateDijkstraConwayGovernanceLevels(
-		tx, slot, ls, pp, conway.UtxoValidateUnknownVoters,
-	)
+	return validateDijkstraConwayGovernanceLevels(tx, slot, ls, pp, func(
+		level common.Transaction,
+		levelSlot uint64,
+		state common.LedgerState,
+		params common.ProtocolParameters,
+	) error {
+		return conway.UtxoValidateUnknownVoters(
+			level, levelSlot, dijkstraCommitteeCredentialState(state), params,
+		)
+	})
 }
 
 func UtxoValidateUnknownGovActionIds(
@@ -773,9 +923,16 @@ func UtxoValidateCommitteeCertificates(
 	tx common.Transaction, slot uint64, ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return validateDijkstraConwayGovernanceLevels(
-		tx, slot, ls, pp, conway.UtxoValidateCommitteeCertificates,
-	)
+	return validateDijkstraConwayGovernanceLevels(tx, slot, ls, pp, func(
+		level common.Transaction,
+		levelSlot uint64,
+		state common.LedgerState,
+		params common.ProtocolParameters,
+	) error {
+		return conway.UtxoValidateCommitteeCertificates(
+			level, levelSlot, dijkstraCommitteeCredentialState(state), params,
+		)
+	})
 }
 
 func UtxoValidatePoolCertificates(
@@ -812,18 +969,34 @@ func UtxoValidateProposalProcedures(
 		level common.Transaction,
 		state common.LedgerState,
 	) error {
+		validateCommitteeExpiry := false
 		for _, proposal := range level.ProposalProcedures() {
-			paramChangeAction, ok := proposal.GovAction().(*DijkstraParameterChangeGovAction)
-			if !ok || paramChangeAction == nil {
-				continue
-			}
-			if err := validateDijkstraProtocolParameterUpdate(
-				&paramChangeAction.ParamUpdate,
-			); err != nil {
-				return err
+			switch action := proposal.GovAction().(type) {
+			case *DijkstraParameterChangeGovAction:
+				if action != nil {
+					if err := validateDijkstraProtocolParameterUpdate(
+						&action.ParamUpdate,
+					); err != nil {
+						return err
+					}
+				}
+			case *common.UpdateCommitteeGovAction:
+				validateCommitteeExpiry = true
 			}
 		}
-		return nil
+		if !validateCommitteeExpiry {
+			return nil
+		}
+		params, err := conwayPparams(pp)
+		if err != nil {
+			return err
+		}
+		return conway.UtxoValidateProposalProcedures(
+			level,
+			slot,
+			state,
+			params,
+		)
 	})
 }
 

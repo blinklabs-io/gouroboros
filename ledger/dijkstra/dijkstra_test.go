@@ -357,6 +357,43 @@ func TestDijkstraTransactionBodiesRejectNegativeCurrentTreasuryValue(
 	})
 }
 
+func TestDijkstraTransactionBodiesRejectDuplicatePoolOwners(t *testing.T) {
+	var owner common.AddrKeyHash
+	owner[0] = 1
+	certificate := &common.PoolRegistrationCertificate{
+		CertType:   uint(common.CertificateTypePoolRegistration),
+		Margin:     cbor.Rat{Rat: big.NewRat(0, 1)},
+		PoolOwners: []common.AddrKeyHash{owner, owner},
+	}
+	require.NoError(t, certificate.SetRewardAccountCredential(
+		common.Credential{CredType: common.CredentialTypeAddrKeyHash},
+		common.AddressNetworkTestnet,
+	))
+	certificates := []common.CertificateWrapper{{
+		Type:        uint(common.CertificateTypePoolRegistration),
+		Certificate: certificate,
+	}}
+	topLevel, err := cbor.Encode(DijkstraTransactionBody{
+		TxCertificates: certificates,
+	})
+	require.NoError(t, err)
+	subTransaction, err := cbor.Encode(DijkstraSubTransactionBody{
+		TxCertificates: certificates,
+	})
+	require.NoError(t, err)
+
+	t.Run("top-level", func(t *testing.T) {
+		var decoded DijkstraTransactionBody
+		err := decoded.UnmarshalCBOR(topLevel)
+		require.ErrorContains(t, err, "duplicate owner")
+	})
+	t.Run("subtransaction", func(t *testing.T) {
+		var decoded DijkstraSubTransactionBody
+		err := decoded.UnmarshalCBOR(subTransaction)
+		require.ErrorContains(t, err, "duplicate owner")
+	})
+}
+
 func certificateFixturesByType(t *testing.T) map[common.CertificateType]any {
 	t.Helper()
 	credential := common.Credential{
