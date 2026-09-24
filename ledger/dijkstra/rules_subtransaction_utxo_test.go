@@ -626,6 +626,32 @@ func TestDijkstraSubTransactionMetadataRequiresChildHash(t *testing.T) {
 	)
 }
 
+func TestDijkstraSubTransactionMetadataRejectsInvalidChildMetadata(t *testing.T) {
+	// Label 0 maps to a 65-byte text value, beyond the Cardano metadata limit.
+	auxCBOR := append([]byte{0xa1, 0x00, 0x78, 0x41}, bytes.Repeat([]byte{'x'}, 65)...)
+	auxData, err := common.DecodeAuxiliaryData(auxCBOR)
+	require.NoError(t, err)
+	metadata, err := common.DecodeAuxiliaryDataToMetadata(auxCBOR)
+	require.NoError(t, err)
+	auxHash := common.Blake2b256Hash(auxCBOR)
+	child := DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{TxAuxDataHash: &auxHash},
+	}
+	child.TxMetadata = metadata
+	child.auxData = auxData
+	tx := dijkstraSingleSubTx(child)
+	wire, err := tx.MarshalCBOR()
+	require.NoError(t, err)
+	decoded, err := NewDijkstraTransactionFromCbor(wire)
+	require.NoError(t, err)
+
+	err = dijkstraRule(t, common.UtxoValidationRuleMetadata)(
+		decoded, 0, mockledger.NewLedgerStateBuilder().Build(),
+		&DijkstraProtocolParameters{},
+	)
+	require.ErrorContains(t, err, "metadata text exceeds 64 byte limit")
+}
+
 func TestDijkstraChildProposalIsVisibleToTopLevelVote(t *testing.T) {
 	child := DijkstraSubTransaction{
 		Body: DijkstraSubTransactionBody{
