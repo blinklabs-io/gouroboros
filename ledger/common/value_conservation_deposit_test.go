@@ -98,10 +98,11 @@ func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(t *testing.T)
 	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
 	credential.Credential[0] = 0x42
 	output, err := mockledger.NewTransactionOutputBuilder().
-		WithLovelace(inputAmount).Build()
+		WithLovelace(inputAmount + 2_000_000).Build()
 	require.NoError(t, err)
 	tx, err := mockledger.NewTransactionBuilder().
 		WithCertificates(
+			&common.StakeDeregistrationCertificate{StakeCredential: credential},
 			&common.StakeRegistrationCertificate{StakeCredential: credential},
 			&common.StakeDeregistrationCertificate{StakeCredential: credential},
 		).
@@ -116,21 +117,41 @@ func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(t *testing.T)
 				OutputAmount: inputAmount,
 			},
 		}}).
+		WithStakeRegistrations([]common.StakeRegistrationCertificate{{
+			StakeCredential: credential,
+		}}).
+		WithStakeCredentialDeposits(map[mockledger.RewardAccountKey]uint64{
+			mockledger.NewRewardAccountKey(credential): 2_000_000,
+		}).
 		Build()
 	validators := []struct {
 		name string
 		call func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error
 		pp   common.ProtocolParameters
 	}{
-		{"Shelley", shelley.UtxoValidateValueNotConservedUtxo, &shelley.ShelleyProtocolParameters{KeyDeposit: 2_000_000}},
-		{"Allegra", allegra.UtxoValidateValueNotConservedUtxo, &allegra.AllegraProtocolParameters{KeyDeposit: 2_000_000}},
-		{"Mary", mary.UtxoValidateValueNotConservedUtxo, &mary.MaryProtocolParameters{KeyDeposit: 2_000_000}},
-		{"Alonzo", alonzo.UtxoValidateValueNotConservedUtxo, &alonzo.AlonzoProtocolParameters{KeyDeposit: 2_000_000}},
-		{"Babbage", babbage.UtxoValidateValueNotConservedUtxo, &babbage.BabbageProtocolParameters{KeyDeposit: 2_000_000}},
+		{"Shelley", shelley.UtxoValidateValueNotConservedUtxo, &shelley.ShelleyProtocolParameters{KeyDeposit: 3_000_000}},
+		{"Allegra", allegra.UtxoValidateValueNotConservedUtxo, &allegra.AllegraProtocolParameters{KeyDeposit: 3_000_000}},
+		{"Mary", mary.UtxoValidateValueNotConservedUtxo, &mary.MaryProtocolParameters{KeyDeposit: 3_000_000}},
+		{"Alonzo", alonzo.UtxoValidateValueNotConservedUtxo, &alonzo.AlonzoProtocolParameters{KeyDeposit: 3_000_000}},
+		{"Babbage", babbage.UtxoValidateValueNotConservedUtxo, &babbage.BabbageProtocolParameters{KeyDeposit: 3_000_000}},
 	}
 	for _, validator := range validators {
 		t.Run(validator.name, func(t *testing.T) {
 			require.NoError(t, validator.call(tx, 0, state, validator.pp))
+			wrongOutput, err := mockledger.NewTransactionOutputBuilder().
+				WithLovelace(inputAmount + 1_000_000).Build()
+			require.NoError(t, err)
+			wrongTx, err := mockledger.NewTransactionBuilder().
+				WithCertificates(
+					&common.StakeDeregistrationCertificate{StakeCredential: credential},
+					&common.StakeRegistrationCertificate{StakeCredential: credential},
+					&common.StakeDeregistrationCertificate{StakeCredential: credential},
+				).
+				WithInputs(input).
+				WithOutputs(wrongOutput).
+				Build()
+			require.NoError(t, err)
+			require.Error(t, validator.call(wrongTx, 0, state, validator.pp))
 		})
 	}
 }

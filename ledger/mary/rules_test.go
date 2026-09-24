@@ -589,10 +589,20 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 					},
 				},
 			}
+			stakeCredential := common.Credential{}
+			deregLedgerState := mockledger.NewLedgerStateBuilder().
+				WithUtxos(utxos).
+				WithStakeRegistrations([]common.StakeRegistrationCertificate{{
+					StakeCredential: stakeCredential,
+				}}).
+				WithStakeCredentialDeposits(map[mockledger.RewardAccountKey]uint64{
+					mockledger.NewRewardAccountKey(stakeCredential): testStakeDeposit,
+				}).
+				Build()
 			err := mary.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
-				testLedgerState,
+				deregLedgerState,
 				testProtocolParams,
 			)
 			if err != nil {
