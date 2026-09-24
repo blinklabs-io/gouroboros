@@ -460,33 +460,64 @@ func (p *Protocol) observeStateAndDrainSendReady() State {
 // write queued messages while the peer holds agency. Only the role without
 // agency in the state pipelines; the role with agency uses the normal path.
 func (p *Protocol) pipelinedSendAllowed() bool {
-	return p.roleMayPipeline(p.getCurrentState())
+	return p.roleMayPipeline(p.config.StateMap[p.getCurrentState()])
 }
 
-func (p *Protocol) roleMayPipeline(state State) bool {
-	entry, ok := p.config.StateMap[state]
-	if !ok || !entry.AllowPipelinedSend {
-		return false
+// agencyHolder identifies which side may send in a state.
+type agencyHolder int
+
+const (
+	agencyNeither agencyHolder = iota
+	agencyLocal
+	agencyPeer
+)
+
+// agencyHolderFor maps a state's agency onto this protocol's role. It is the
+// single source of that mapping for stateLoop's ready signals, the pipelining
+// check, and the agency checks in sendLoop, so they cannot disagree.
+func (p *Protocol) agencyHolderFor(entry StateMapEntry) agencyHolder {
+	var local ProtocolStateAgency
+	switch p.config.Role {
+	case ProtocolRoleClient:
+		local = AgencyClient
+	case ProtocolRoleServer:
+		local = AgencyServer
+	case ProtocolRoleNone:
+		return agencyNeither
+	default:
+		return agencyNeither
 	}
 	switch entry.Agency {
-	case AgencyClient:
-		return p.config.Role == ProtocolRoleServer
-	case AgencyServer:
-		return p.config.Role == ProtocolRoleClient
+	case AgencyClient, AgencyServer:
+		if entry.Agency == local {
+			return agencyLocal
+		}
+		return agencyPeer
 	case AgencyNone:
-		return false
+		return agencyNeither
 	default:
-		return false
+		return agencyNeither
 	}
 }
 
-func (p *Protocol) pipelinedMessageAllowed(state State, msg Message) bool {
-	return p.roleMayPipeline(state) && p.pipelinedMessageFits(state, msg)
+// roleMayPipeline reports whether this role may write while the peer holds
+// agency in the state described by entry.
+func (p *Protocol) roleMayPipeline(entry StateMapEntry) bool {
+	return entry.AllowPipelinedSend && p.agencyHolderFor(entry) == agencyPeer
 }
 
+// roleHasAgency reports whether this role holds ordinary send agency in the
+// state described by entry.
+func (p *Protocol) roleHasAgency(entry StateMapEntry) bool {
+	return p.agencyHolderFor(entry) == agencyLocal
+}
+
+// messageHasAgencyTransition reports whether msg is legal as an ordinary send
+// from any state where this role holds agency. It is only reached when a
+// message cannot be sent immediately, never on the steady-state send path.
 func (p *Protocol) messageHasAgencyTransition(msg Message) bool {
-	for state, entry := range p.config.StateMap {
-		if !p.roleHasAgency(state) {
+	for _, entry := range p.config.StateMap {
+		if !p.roleHasAgency(entry) {
 			continue
 		}
 		for _, transition := range entry.Transitions {
@@ -496,27 +527,6 @@ func (p *Protocol) messageHasAgencyTransition(msg Message) bool {
 		}
 	}
 	return false
-}
-
-// roleHasAgency reports whether this role holds ordinary send agency in the
-// given state -- the mirror image of pipelinedSendAllowed's role check,
-// which instead asks whether this role is the one *without* agency (and
-// therefore the one that pipelines) in the current state.
-func (p *Protocol) roleHasAgency(state State) bool {
-	entry, ok := p.config.StateMap[state]
-	if !ok {
-		return false
-	}
-	switch entry.Agency {
-	case AgencyClient:
-		return p.config.Role == ProtocolRoleClient
-	case AgencyServer:
-		return p.config.Role == ProtocolRoleServer
-	case AgencyNone:
-		return false
-	default:
-		return false
-	}
 }
 
 // SendMessage appends a message to the send queue
@@ -695,22 +705,21 @@ func (p *Protocol) SendError(err error) {
 func (p *Protocol) flushQueuedStateTransitions(
 	queuedStateTransitions []Message,
 ) ([]Message, error) {
-	for len(queuedStateTransitions) > 0 {
-		if err := p.transitionState(queuedStateTransitions[0]); err != nil {
-			return queuedStateTransitions, err
+	var err error
+	applied := 0
+	for _, msg := range queuedStateTransitions {
+		if err = p.transitionState(msg); err != nil {
+			break
 		}
-		queuedStateTransitions = slices.Delete(queuedStateTransitions, 0, 1)
+		applied++
 	}
-	return queuedStateTransitions, nil
+	return slices.Delete(queuedStateTransitions, 0, applied), err
 }
 
 // pipelinedMessageFits reports whether msg is still eligible for the
-// pipelined-send path in the given state.
-func (p *Protocol) pipelinedMessageFits(state State, msg Message) bool {
-	return slices.Contains(
-		p.config.StateMap[state].PipelinedMessageTypes,
-		msg.Type(),
-	)
+// pipelined-send path in the state described by entry.
+func pipelinedMessageFits(entry StateMapEntry, msg Message) bool {
+	return slices.Contains(entry.PipelinedMessageTypes, msg.Type())
 }
 
 // errPipelinedMessageNotAllowed reports that msg fits neither the pipelined
@@ -795,10 +804,11 @@ func (p *Protocol) resolvePipelinedDequeue(
 	queuedStateTransitions *[]Message,
 ) (*outboundMessage, bool, error) {
 	currentState := p.getCurrentState()
-	if p.pipelinedMessageFits(currentState, outbound.message) {
+	currentEntry := p.config.StateMap[currentState]
+	if pipelinedMessageFits(currentEntry, outbound.message) {
 		return outbound, haveAgency, nil
 	}
-	if !p.roleHasAgency(currentState) {
+	if !p.roleHasAgency(currentEntry) {
 		if p.messageHasAgencyTransition(outbound.message) {
 			outbound.waitForAgency = true
 			return outbound, haveAgency, nil
@@ -845,10 +855,11 @@ func (p *Protocol) resolvePipelinedDequeue(
 		// recvLoop handling a real peer reply -- and either way it must not
 		// be observable separately from the state it belongs to.
 		postFlushState := p.observeStateAndDrainSendReady()
-		if p.pipelinedMessageFits(postFlushState, outbound.message) {
+		postFlushEntry := p.config.StateMap[postFlushState]
+		if pipelinedMessageFits(postFlushEntry, outbound.message) {
 			return outbound, haveAgency, nil
 		}
-		if p.roleHasAgency(postFlushState) {
+		if p.roleHasAgency(postFlushEntry) {
 			if len(*queuedStateTransitions) == 0 {
 				if _, err := p.nextState(
 					postFlushState,
@@ -1078,6 +1089,7 @@ waitSendReadyChan:
 					p.batchRecheckHook()
 				}
 				currentState := p.getCurrentState()
+				currentEntry := p.config.StateMap[currentState]
 				// Bypassing deferral here applies msg's transition
 				// immediately via transitionState below instead of queueing
 				// it. That is only safe when queuedStateTransitions is empty:
@@ -1092,9 +1104,10 @@ waitSendReadyChan:
 				// prevent (blinklabs-io/gouroboros#2494). When the backlog is
 				// non-empty this falls through to the ordinary
 				// pipelined-or-wait-for-agency handling below instead.
-				if len(queuedStateTransitions) == 0 && p.roleHasAgency(currentState) {
+				if len(queuedStateTransitions) == 0 && p.roleHasAgency(currentEntry) {
 					queueTransition = false
-				} else if !p.pipelinedMessageAllowed(currentState, msg) {
+				} else if !p.roleMayPipeline(currentEntry) ||
+					!pipelinedMessageFits(currentEntry, msg) {
 					if !p.messageHasAgencyTransition(msg) {
 						p.SendError(p.errPipelinedMessageNotAllowed(currentState, msg))
 						return
@@ -1594,41 +1607,20 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		// resolvePipelinedDequeue and blinklabs-io/gouroboros#2494).
 		p.currentStateMu.Lock()
 		p.currentState = s
-		agency := p.config.StateMap[s].Agency
-		skipTimeout := agency == AgencyNone
-		switch agency {
-		case AgencyNone:
-			// skipTimeout already covers this case; nothing to signal.
-		case AgencyClient:
-			switch p.config.Role {
-			case ProtocolRoleNone:
-				skipTimeout = true
-			case ProtocolRoleClient:
-				select {
-				case p.sendReadyChan <- true:
-				default:
-				}
-			case ProtocolRoleServer:
-				select {
-				case p.recvReadyChan <- true:
-				default:
-				}
+		skipTimeout := false
+		switch p.agencyHolderFor(p.config.StateMap[s]) {
+		case agencyLocal:
+			select {
+			case p.sendReadyChan <- true:
+			default:
 			}
-		case AgencyServer:
-			switch p.config.Role {
-			case ProtocolRoleNone:
-				skipTimeout = true
-			case ProtocolRoleServer:
-				select {
-				case p.sendReadyChan <- true:
-				default:
-				}
-			case ProtocolRoleClient:
-				select {
-				case p.recvReadyChan <- true:
-				default:
-				}
+		case agencyPeer:
+			select {
+			case p.recvReadyChan <- true:
+			default:
 			}
+		case agencyNeither:
+			skipTimeout = true
 		}
 		p.currentStateMu.Unlock()
 
