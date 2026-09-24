@@ -5619,51 +5619,48 @@ func TestConwayMinCoinTxOutBoundary(t *testing.T) {
 	require.ErrorContains(t, err, "overflow")
 }
 
-func TestConwayWitnessSetNonEmptyCollectionsFollowProtocolVersion(
+func TestConwayEmptyWitnessCollectionsFailTransactionDecode(
 	t *testing.T,
 ) {
+	bodyWire, err := cbor.Encode(map[uint]any{
+		0: []any{},
+		1: []any{},
+		2: uint64(0),
+	})
+	require.NoError(t, err)
 	for key := uint(0); key <= 7; key++ {
-		values := []any{[]any{}}
+		values := [][]byte{{0x80}}
 		if key == 0 || key == 1 || key == 2 || key == 3 || key == 4 ||
 			key == 6 || key == 7 {
-			values = append(values, cbor.Set{})
+			values = append(values, []byte{0xd9, 0x01, 0x02, 0x80})
 		}
 		if key == 5 {
-			values = append(values, map[uint]any{})
+			values = append(values, []byte{0xa0})
 		}
 		for _, value := range values {
-			wire, err := cbor.Encode(map[uint]any{key: value})
-			require.NoError(t, err)
-			var tx conway.ConwayTransaction
-			require.NoError(t, tx.WitnessSet.UnmarshalCBOR(wire))
-			for _, major := range []uint{9, 10, 11} {
-				t.Run(fmt.Sprintf("key%d/PV%d", key, major), func(t *testing.T) {
-					pp := &conway.ConwayProtocolParameters{
-						ProtocolVersion: common.ProtocolParametersProtocolVersion{
-							Major: major,
-						},
-					}
-					err := common.VerifyTransaction(
-						&tx,
-						0,
-						nil,
-						pp,
-						[]common.UtxoValidationRuleFunc{
-							conway.UtxoValidateRedeemerAndScriptWitnesses,
-						},
-					)
-					require.ErrorContains(
-						t,
-						err,
-						"invalid Conway witness set",
-					)
-				})
-			}
+			witnessWire, encodeErr := cbor.Encode(map[uint]cbor.RawMessage{
+				key: value,
+			})
+			require.NoError(t, encodeErr)
+			txWire, encodeErr := cbor.Encode([]cbor.RawMessage{
+				bodyWire,
+				witnessWire,
+				{0xf5},
+				{0xf6},
+			})
+			require.NoError(t, encodeErr)
+			_, err := conway.NewConwayTransactionFromCbor(txWire)
+			require.ErrorContains(
+				t,
+				err,
+				"failed to decode transaction witness set",
+				"empty field %d with value %x", key, value,
+			)
 		}
 	}
 
 	var pv8Tx conway.ConwayTransaction
-	require.NoError(t, pv8Tx.WitnessSet.UnmarshalCBOR([]byte{0xa1, 0x00, 0x80}))
+	pv8Tx.WitnessSet.SetCbor([]byte{0xa1, 0x00, 0x80})
 	pv8 := &conway.ConwayProtocolParameters{
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 8},
 	}
