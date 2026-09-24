@@ -3577,7 +3577,7 @@ func TestUtxoValidateUnelectedCommitteeVotersThroughRules(t *testing.T) {
 		{
 			name: "PV10 authorized unelected voter", major: 10,
 			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
-			voterHash: hotHash,
+			voterHash: hotHash, pending: true,
 		},
 		{
 			name: "PV11 pending member", major: 11,
@@ -3686,9 +3686,13 @@ func TestUtxoValidateUnelectedCommitteeVotersThroughRules(t *testing.T) {
 				}
 			}
 			require.NotNil(t, rule)
-			rules := common.ComposeUtxoValidationRules(
-				common.Phase2ValidUtxoValidationRules(rule),
-			)
+			var ruleGroup common.UtxoValidationRuleGroup
+			if tt.invalid {
+				ruleGroup = common.AlwaysUtxoValidationRules(rule)
+			} else {
+				ruleGroup = common.Phase2ValidUtxoValidationRules(rule)
+			}
+			rules := common.ComposeUtxoValidationRules(ruleGroup)
 			err := common.VerifyTransaction(tx, 0, state, params, rules)
 			if tt.wantUnelected {
 				var unelected conway.UnelectedCommitteeVoterError
