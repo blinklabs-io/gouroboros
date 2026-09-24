@@ -616,10 +616,7 @@ func validateDijkstraProtocolParameterUpdate(
 			Value:     uint(*ppu.RefScriptCostStride),
 		}
 	}
-	return validateLeiosCommitteeStakeParameters(
-		ppu.CommitteeStakeCoverage,
-		ppu.QuorumStakeThreshold,
-	)
+	return nil
 }
 
 func validateDijkstraProtocolParameterUpdateDomains(
@@ -627,6 +624,9 @@ func validateDijkstraProtocolParameterUpdateDomains(
 ) error {
 	if ppu == nil {
 		return errors.New("dijkstra protocol parameter update cannot be nil")
+	}
+	if err := validateLeiosGenesisOnlyParameters(ppu); err != nil {
+		return err
 	}
 	if err := common.ValidateCostModelLanguageIDs(ppu.CostModels); err != nil {
 		return err
