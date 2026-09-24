@@ -550,6 +550,38 @@ func TestDijkstraChildProposalIsVisibleToTopLevelVote(t *testing.T) {
 	)
 }
 
+func TestDijkstraChildProposalIsVisibleToLaterChildVote(t *testing.T) {
+	children := []DijkstraSubTransaction{
+		{Body: DijkstraSubTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction: DijkstraGovAction{
+					Action: &common.InfoGovAction{},
+				},
+			}},
+		}},
+		{Body: DijkstraSubTransactionBody{}},
+	}
+	actionID := common.GovActionId{
+		TransactionId: children[0].Body.Id(),
+	}
+	voter := common.Voter{
+		Type: common.VoterTypeStakingPoolKeyHash,
+		Hash: common.Blake2b224{0x02},
+	}
+	children[1].Body.TxVotingProcedures = common.VotingProcedures{
+		&voter: {&actionID: {Vote: common.GovVoteYes}},
+	}
+	tx := dijkstraSingleSubTx(children[0])
+	tx.Body.TxSubTransactions = cbor.NewSetType(children, true)
+	rule := dijkstraRule(t, common.UtxoValidationRuleUnknownGovActionIds)
+	require.NoError(
+		t,
+		rule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{}),
+	)
+}
+
 // TestDijkstraOutputRulesCoverSubTransactions pins the minimum-coin,
 // maximum-value-size and network checks against a sub-transaction's outputs.
 func TestDijkstraOutputRulesCoverSubTransactions(t *testing.T) {
