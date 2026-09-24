@@ -205,8 +205,11 @@ type CommitteeCredentialState interface {
 // proposals, and preserves the credential tags on both hot and cold keys.
 type CommitteeVotingState interface {
 	// CommitteeHotCredentialColdCredentials returns the cold credentials
-	// currently authorized by this hot credential in the validation snapshot.
-	// Credentials retain their key or script tag.
+	// authorized by this exact key or script hot credential in the validation
+	// snapshot. It does not filter by whether the cold credential appears in
+	// the enacted committee or by its expiry; callers combine this mapping with
+	// CommitteeCredentialIsElected to apply the reference elected-committee
+	// view. Pending committee proposals do not make a credential elected.
 	CommitteeHotCredentialColdCredentials(Credential) ([]Credential, error)
 	// CommitteeCredentialIsElected reports whether a cold credential appears
 	// in the enacted committee at this validation snapshot. It follows the
