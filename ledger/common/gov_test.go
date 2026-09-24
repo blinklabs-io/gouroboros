@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -25,6 +26,79 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGovernancePlutusDataUsesLedgerCredentialOrder(t *testing.T) {
+	var scriptHash, keyHash CredentialHash
+	copy(scriptHash[:], bytes.Repeat([]byte{0x11}, len(scriptHash)))
+	copy(keyHash[:], bytes.Repeat([]byte{0x22}, len(keyHash)))
+	scriptCredential := Credential{CredType: CredentialTypeScriptHash, Credential: scriptHash}
+	keyCredential := Credential{CredType: CredentialTypeAddrKeyHash, Credential: keyHash}
+	removed := []Credential{keyCredential, scriptCredential}
+	added := map[*Credential]uint64{
+		&keyCredential:    20,
+		&scriptCredential: 10,
+	}
+	action := &UpdateCommitteeGovAction{Credentials: removed, CredEpochs: added}
+	encodedAction := action.ToPlutusData().(*data.Constr)
+	removedData := encodedAction.Fields[1].(*data.List)
+	require.True(t, scriptCredential.ToPlutusData().Equal(removedData.Items[0]))
+	require.True(t, keyCredential.ToPlutusData().Equal(removedData.Items[1]))
+	addedData := encodedAction.Fields[2].(*data.Map)
+	require.Equal(t, 2, len(addedData.Pairs))
+	require.True(t, scriptCredential.ToPlutusData().Equal(addedData.Pairs[0][0]))
+	require.True(t, keyCredential.ToPlutusData().Equal(addedData.Pairs[1][0]))
+
+	other := &UpdateCommitteeGovAction{
+		Credentials: []Credential{scriptCredential, keyCredential},
+		CredEpochs: map[*Credential]uint64{
+			&scriptCredential: 10,
+			&keyCredential:    20,
+		},
+	}
+	firstEncoding, err := data.Encode(action.ToPlutusData())
+	require.NoError(t, err)
+	secondEncoding, err := data.Encode(other.ToPlutusData())
+	require.NoError(t, err)
+	require.Equal(t, firstEncoding, secondEncoding)
+}
+
+func TestTreasuryWithdrawalPlutusDataUsesLedgerAddressOrder(t *testing.T) {
+	hash := bytes.Repeat([]byte{0x33}, AddressHashSize)
+	scriptAddress, err := NewAddressFromParts(
+		AddressTypeNoneScript, AddressNetworkTestnet, nil, hash,
+	)
+	require.NoError(t, err)
+	keyAddress, err := NewAddressFromParts(
+		AddressTypeNoneKey, AddressNetworkTestnet, nil, hash,
+	)
+	require.NoError(t, err)
+	key := &keyAddress
+	script := &scriptAddress
+	action := &TreasuryWithdrawalGovAction{
+		Withdrawals: map[*Address]uint64{key: 2, script: 1},
+	}
+	encoded := action.ToPlutusData().(*data.Constr).Fields[0].(*data.Map)
+	require.Len(t, encoded.Pairs, 2)
+	scriptData := script.ToPlutusData()
+	if scriptData == nil {
+		t.Fatal("expected script address Plutus data")
+	}
+	keyData := key.ToPlutusData()
+	if keyData == nil {
+		t.Fatal("expected key address Plutus data")
+	}
+	require.True(t, scriptData.Equal(encoded.Pairs[0][0]))
+	require.True(t, keyData.Equal(encoded.Pairs[1][0]))
+
+	other := &TreasuryWithdrawalGovAction{
+		Withdrawals: map[*Address]uint64{script: 1, key: 2},
+	}
+	firstEncoding, err := data.Encode(action.ToPlutusData())
+	require.NoError(t, err)
+	secondEncoding, err := data.Encode(other.ToPlutusData())
+	require.NoError(t, err)
+	require.Equal(t, firstEncoding, secondEncoding)
+}
 
 func TestVoterUnmarshalCBORValidTypes(t *testing.T) {
 	for voterType := uint8(0); voterType <= VoterTypeStakingPoolKeyHash; voterType++ {
