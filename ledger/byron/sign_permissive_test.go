@@ -163,7 +163,8 @@ func TestByronTransactionVKeyWitnessUsesLegacyVerifier(t *testing.T) {
 	scalar := littleEndianInt(sig[32:])
 	scalar.Add(scalar, order)
 	copy(sig[32:], intLittleEndian(scalar, 32))
-	inner, err := cbor.Encode([]any{pub, sig})
+	extendedKey := append(append([]byte(nil), pub...), make([]byte, 32)...)
+	inner, err := cbor.Encode([]any{extendedKey, sig})
 	if err != nil {
 		t.Fatal(err)
 	}

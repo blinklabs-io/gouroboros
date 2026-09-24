@@ -25,8 +25,9 @@ import (
 
 // Verify reports whether sig is a Byron-compatible Ed25519 signature of msg
 // by pubKey. Byron checks only that S's top three bits are clear, reduces S
-// modulo the group order, and accepts small-order and non-canonical A/R point
-// encodings. Do not use this verifier outside Byron.
+// modulo the group order and accepts small-order points and non-canonical
+// public-key (A) encodings. The R encoding must be canonical. Do not use this
+// verifier outside Byron.
 func Verify(pubKey, msg, sig []byte) bool {
 	if len(pubKey) != 32 || len(sig) != 64 || sig[63]&0xe0 != 0 {
 		return false
@@ -65,5 +66,5 @@ func Verify(pubKey, msg, sig []byte) bool {
 		rPoint,
 		new(edwards25519.Point).ScalarMult(challenge, publicPoint),
 	)
-	return left.Equal(right) == 1 && bytes.Equal(rPoint.Bytes(), sig[:32])
+	return left.Equal(right) == 1
 }

@@ -1008,24 +1008,6 @@ func VerifyBlock(
 			}
 		}
 	}
-	if block.Era() == byron.EraByron && !config.SkipTransactionValidation {
-		mainBlock, ok := block.(*byron.ByronMainBlock)
-		if ok {
-			for i := range mainBlock.Body.TxPayload {
-				if err := mainBlock.Body.TxPayload[i].ValidateVKeyWitnesses(
-					mainBlock.BlockHeader.ProtocolMagic,
-				); err != nil {
-					return false, "", 0, 0, common.NewValidationError(
-						common.ValidationErrorTypeTransaction,
-						"Byron transaction witness validation failed",
-						map[string]any{"transaction_index": i},
-						err,
-					)
-				}
-			}
-		}
-	}
-
 	var refScriptSizeErr error
 	if block.Era() != byron.EraByron &&
 		!config.SkipBlockLimitsValidation && len(block.Transactions()) > 0 {

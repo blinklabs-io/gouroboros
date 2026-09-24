@@ -369,6 +369,12 @@ func (v *HeaderValidator) validateBlockSignature(
 func (v *HeaderValidator) validateSimpleSignature(
 	input *ValidateHeaderInput,
 ) error {
+	if len(input.GenesisIssuerKey) > 0 {
+		if len(input.GenesisIssuerKey) != 64 ||
+			!bytes.Equal(input.GenesisIssuerKey[:32], input.IssuerPubKey) {
+			return errors.New("simple-signature key does not match genesis issuer key")
+		}
+	}
 	if len(input.IssuerPubKey) != ed25519.PublicKeySize {
 		return fmt.Errorf(
 			"invalid issuer public key size: got %d, expected %d",

@@ -631,7 +631,11 @@ func (t *ByronTransaction) ValidateVKeyWitnesses(protocolMagic uint32) error {
 			return fmt.Errorf("invalid Byron transaction witness %d fields", idx)
 		}
 		publicKey, ok := asBytes(fields[0])
-		if !ok || len(publicKey) < ed25519.PublicKeySize {
+		expectedKeySize := ed25519.PublicKeySize
+		if constructor == 0 {
+			expectedKeySize = VerificationKeySize
+		}
+		if !ok || len(publicKey) != expectedKeySize {
 			return fmt.Errorf("invalid Byron transaction witness %d public key", idx)
 		}
 		signature, ok := asBytes(fields[1])
@@ -906,7 +910,11 @@ func decodeByronWitnessFromConstructor(
 		}
 		pk, okPk := asBytes(fields[0])
 		sig, okSig := asBytes(fields[1])
-		if !okPk || !okSig {
+		expectedKeySize := ed25519.PublicKeySize
+		if ctor == 0 {
+			expectedKeySize = VerificationKeySize
+		}
+		if !okPk || len(pk) != expectedKeySize || !okSig {
 			return nil, nil, false
 		}
 		return &common.VkeyWitness{Vkey: pk, Signature: sig}, nil, true

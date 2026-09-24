@@ -551,6 +551,22 @@ func TestValidateSimpleSignatureRejectsGarbage(t *testing.T) {
 	)
 }
 
+func TestValidateSimpleSignatureBindsGenesisIssuerKey(t *testing.T) {
+	publicKey, signature := testByronIdentityPair()
+	input := &ValidateHeaderInput{
+		IssuerPubKey:     publicKey,
+		GenesisIssuerKey: append(append([]byte(nil), make([]byte, 32)...), make([]byte, 32)...),
+		BlockSignature:   signature,
+		HeaderCbor:       testByronHeaderCbor(t),
+	}
+	validator := NewHeaderValidator(testByronConfig())
+	require.ErrorContains(
+		t,
+		validator.validateSimpleSignature(input),
+		"does not match genesis issuer key",
+	)
+}
+
 // TestValidateProxySignatureStaysPermissive pins the delegate block-signature
 // half of Byron proxy signatures. Byron's ed25519-donna reference accepts the
 // identity public key and R point; changing this call to strict verification

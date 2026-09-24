@@ -33,7 +33,7 @@ func decodeSingleWitness(t *testing.T, data []byte) *byron.ByronTransactionWitne
 }
 
 func TestByronWitnessRequiresTag24(t *testing.T) {
-	pk := []byte{1, 2, 3, 4}
+	pk := make([]byte, byron.VerificationKeySize)
 	sig := []byte{5, 6, 7, 8}
 	chainCode := []byte{9, 10}
 	attrs := []byte{11, 12}
@@ -51,13 +51,14 @@ func TestByronWitnessRequiresTag24(t *testing.T) {
 	})
 
 	t.Run("redeem witness with tag 24 decodes", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{pk, sig})
+		redeemKey := make([]byte, ed25519.PublicKeySize)
+		inner, err := cbor.Encode([]any{redeemKey, sig})
 		require.NoError(t, err)
 		outer, err := cbor.Encode([]any{uint64(2), cbor.WrappedCbor(inner)})
 		require.NoError(t, err)
 		ws := decodeSingleWitness(t, outer)
 		require.Len(t, ws.Vkey(), 1)
-		assert.Equal(t, pk, []byte(ws.Vkey()[0].Vkey))
+		assert.Equal(t, redeemKey, []byte(ws.Vkey()[0].Vkey))
 		assert.Equal(t, sig, []byte(ws.Vkey()[0].Signature))
 	})
 
@@ -169,7 +170,7 @@ func encodeByronTransactionWithWitnesses(t *testing.T, twitCbor []byte) []byte {
 }
 
 func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
-	pk := []byte{1, 2, 3, 4}
+	pk := make([]byte, byron.VerificationKeySize)
 	sig := []byte{5, 6, 7, 8}
 
 	t.Run("valid tag-24 witness decodes", func(t *testing.T) {
@@ -220,7 +221,10 @@ func TestByronTransactionValidatesDomainSeparatedVKeyWitnesses(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 			require.NoError(t, err)
-			extendedKey := append(append([]byte(nil), publicKey...), make([]byte, 32)...)
+			verificationKey := append(append([]byte(nil), publicKey...), make([]byte, 32)...)
+			if test.constructor == 2 {
+				verificationKey = publicKey
+			}
 			body, err := cbor.Encode([]any{
 				cbor.IndefLengthList{},
 				cbor.IndefLengthList{},
@@ -237,7 +241,7 @@ func TestByronTransactionValidatesDomainSeparatedVKeyWitnesses(t *testing.T) {
 			signed := append([]byte{test.tag}, magicCbor...)
 			signed = append(signed, idCbor...)
 			signature := ed25519.Sign(privateKey, signed)
-			payload, err := cbor.Encode([]any{extendedKey, signature})
+			payload, err := cbor.Encode([]any{verificationKey, signature})
 			require.NoError(t, err)
 			witness, err := cbor.Encode([]any{
 				test.constructor,
