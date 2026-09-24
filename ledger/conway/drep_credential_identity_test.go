@@ -7,8 +7,10 @@ package conway_test
 import (
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
@@ -142,6 +144,46 @@ func TestUnregisteredDRepDelegationDuringBootstrap(t *testing.T) {
 			}, target.DRepCredential)
 		})
 	}
+}
+
+func TestUnregisteredDRepDelegationBootstrapFullValidation(t *testing.T) {
+	fixture := newCertificateDepositCredentialFixture(
+		t,
+		common.CredentialTypeAddrKeyHash,
+	)
+	pool := common.PoolKeyHash(common.Blake2b224Hash([]byte("bootstrap-pool")))
+	certificate, err := cbor.Encode([]any{
+		uint64(common.CertificateTypeVoteDelegation),
+		[]any{fixture.credential.CredType, fixture.credential.Credential.Bytes()},
+		[]any{
+			uint64(common.DrepTypeAddrKeyHash),
+			common.Blake2b224{0x74}.Bytes(),
+		},
+	})
+	require.NoError(t, err)
+	tx := certificateDepositTransaction(t, fixture, [][]byte{certificate}, 0, 0)
+	state := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{{
+			Id: shelley.NewShelleyTransactionInput(certificateDepositTxId, 0),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: certificateDepositInputAmount,
+			},
+		}}).
+		WithNetworkId(1).
+		WithPoolRegistrations([]common.PoolRegistrationCertificate{{Operator: pool}}).
+		WithStakeCredentialRegistered(fixture.credential.Credential, true).
+		Build()
+	params := certificateDepositPparams()
+	params.ProtocolVersion.Major = common.ProtocolVersionConway
+	require.NoError(t, runCertificateDepositProductionRules(t, tx, state, params))
+
+	params.ProtocolVersion.Major = common.ProtocolVersionPlomin
+	var target conway.DelegateVoteToUnregisteredDRepError
+	require.ErrorAs(
+		t,
+		runCertificateDepositProductionRules(t, tx, state, params),
+		&target,
+	)
 }
 
 func TestCertificateDepositsDistinguishesDRepCredentialType(t *testing.T) {
