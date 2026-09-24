@@ -520,6 +520,56 @@ func TestDijkstraSubTransactionMetadataUsesChildAuxiliaryData(t *testing.T) {
 	)
 }
 
+func TestDijkstraSubTransactionMetadataChecksChildHashAndData(t *testing.T) {
+	childAuxCBOR := []byte{0xa1, 0x00, 0x01}
+	parentAuxCBOR := []byte{0xa1, 0x00, 0x02}
+	childAux, err := common.DecodeAuxiliaryData(childAuxCBOR)
+	require.NoError(t, err)
+	childMetadata, err := common.DecodeAuxiliaryDataToMetadata(childAuxCBOR)
+	require.NoError(t, err)
+	parentAux, err := common.DecodeAuxiliaryData(parentAuxCBOR)
+	require.NoError(t, err)
+	parentMetadata, err := common.DecodeAuxiliaryDataToMetadata(parentAuxCBOR)
+	require.NoError(t, err)
+	childHash := common.Blake2b256Hash(childAuxCBOR)
+	parentHash := common.Blake2b256Hash(parentAuxCBOR)
+
+	child := DijkstraSubTransaction{Body: DijkstraSubTransactionBody{
+		TxAuxDataHash: &childHash,
+	}}
+	child.TxMetadata = childMetadata
+	child.auxData = childAux
+	tx := dijkstraSingleSubTx(child)
+	tx.Body.TxAuxDataHash = &parentHash
+	tx.TxMetadata = parentMetadata
+	tx.auxData = parentAux
+	rule := dijkstraRule(t, common.UtxoValidationRuleMetadata)
+	wire, err := tx.MarshalCBOR()
+	require.NoError(t, err)
+	decoded, err := NewDijkstraTransactionFromCbor(wire)
+	require.NoError(t, err)
+	require.NoError(
+		t,
+		rule(decoded, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{}),
+	)
+
+	wrongHash := common.Blake2b256{0xff}
+	mismatchedChild := DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{TxAuxDataHash: &wrongHash},
+	}
+	mismatchedChild.TxMetadata = childMetadata
+	mismatchedChild.auxData = childAux
+	mismatchedTx := dijkstraSingleSubTx(mismatchedChild)
+	var mismatch common.ConflictingMetadataHashError
+	require.ErrorAs(
+		t,
+		rule(mismatchedTx, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{}),
+		&mismatch,
+	)
+}
+
 func TestDijkstraChildProposalIsVisibleToTopLevelVote(t *testing.T) {
 	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
 		Body: DijkstraSubTransactionBody{
