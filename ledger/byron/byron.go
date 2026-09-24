@@ -914,7 +914,8 @@ func decodeByronWitnessFromConstructor(
 		if ctor == 0 {
 			expectedKeySize = VerificationKeySize
 		}
-		if !okPk || len(pk) != expectedKeySize || !okSig {
+		if !okPk || len(pk) != expectedKeySize ||
+			!okSig || len(sig) != ed25519.SignatureSize {
 			return nil, nil, false
 		}
 		return &common.VkeyWitness{Vkey: pk, Signature: sig}, nil, true
