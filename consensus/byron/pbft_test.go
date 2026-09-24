@@ -15,15 +15,84 @@
 package byron
 
 import (
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
+
+type testGenesisIssuer struct {
+	verificationKey []byte
+	privateKey      ed25519.PrivateKey
+}
+
+func testGenesisIssuerFor(t *testing.T, seed byte) testGenesisIssuer {
+	t.Helper()
+	verificationKey, privateKey := deterministicPBFTVerificationKey(seed)
+	return testGenesisIssuer{
+		verificationKey: verificationKey,
+		privateKey:      privateKey,
+	}
+}
+
+func setSignedGenesisDelegations(
+	t *testing.T,
+	genesis *ledgerbyron.ByronGenesis,
+	issuers []testGenesisIssuer,
+	delegates [][]byte,
+	omegas []int,
+) {
+	t.Helper()
+	require.Len(t, issuers, len(delegates))
+	require.Len(t, issuers, len(omegas))
+	genesis.BootStakeholders = make(map[string]int, len(issuers))
+	genesis.HeavyDelegation = make(
+		map[string]ledgerbyron.ByronGenesisHeavyDelegation,
+		len(issuers),
+	)
+	for i, issuer := range issuers {
+		issuerHash, err := PBFTVerificationKeyHash(issuer.verificationKey)
+		require.NoError(t, err)
+		issuerHashHex := hex.EncodeToString(issuerHash.Bytes())
+		genesis.BootStakeholders[issuerHashHex] = 0
+
+		delegateKey := delegates[i]
+		delegateKeyBase64 := base64.StdEncoding.EncodeToString(delegateKey)
+		issuerKeyBase64 := base64.StdEncoding.EncodeToString(
+			issuer.verificationKey,
+		)
+		epoch := uint64(omegas[i])
+		epochCbor, err := cbor.Encode(epoch)
+		require.NoError(t, err)
+		certPayload := append([]byte{'0', '0'}, delegateKey...)
+		certPayload = append(certPayload, epochCbor...)
+		certPayloadCbor, err := cbor.Encode(certPayload)
+		require.NoError(t, err)
+		protocolMagicCbor, err := cbor.Encode(
+			uint32(genesis.ProtocolConsts.ProtocolMagic),
+		)
+		require.NoError(t, err)
+		signed := append(
+			[]byte{ledgerbyron.SignTagCertificate},
+			protocolMagicCbor...,
+		)
+		signed = append(signed, certPayloadCbor...)
+		genesis.HeavyDelegation[issuerHashHex] =
+			ledgerbyron.ByronGenesisHeavyDelegation{
+				Cert:       hex.EncodeToString(ed25519.Sign(issuer.privateKey, signed)),
+				DelegatePk: delegateKeyBase64,
+				IssuerPk:   issuerKeyBase64,
+				Omega:      omegas[i],
+			}
+	}
+}
 
 func realPBFTHeaderFixture(
 	t *testing.T,
@@ -68,6 +137,52 @@ func TestValidatePBFTHeaderRealMainnet(t *testing.T) {
 	issuer, err := ValidatePBFTHeader(header, config)
 	require.NoError(t, err)
 	require.Equal(t, expectedIssuer, issuer)
+}
+
+func TestValidatePBFTHeaderChargesIssuerResolvedByDelegate(t *testing.T) {
+	header, config, certificateIssuer := realPBFTHeaderFixture(t)
+	resolvedIssuerKey, _ := deterministicPBFTVerificationKey(0x74)
+	resolvedIssuer, err := PBFTVerificationKeyHash(resolvedIssuerKey)
+	require.NoError(t, err)
+	config.GenesisKeyHashes = append(
+		config.GenesisKeyHashes,
+		resolvedIssuer.Bytes(),
+	)
+	config.GenesisDelegations[certificateIssuer.GenesisKeyHash] =
+		certificateIssuer.GenesisKeyHash
+	config.GenesisDelegations[resolvedIssuer] = certificateIssuer.DelegateKeyHash
+
+	issuer, err := ValidatePBFTHeader(header, config)
+	require.NoError(t, err)
+	require.Equal(t, resolvedIssuer, issuer.GenesisKeyHash)
+	require.Equal(t, certificateIssuer.DelegateKeyHash, issuer.DelegateKeyHash)
+}
+
+func TestValidatePBFTHeaderCryptoUsesActiveDelegateWithoutRevalidatingCert(
+	t *testing.T,
+) {
+	header, config, issuer := realPBFTHeaderFixture(t)
+	inner := header.ConsensusData.BlockSig[1].([]any)
+	certificate := inner[0].([]any)
+	certificate[0] = header.ConsensusData.SlotId.Epoch + 100
+	certificateSignature := certificate[3].([]byte)
+	certificateSignature[0] ^= 0xff
+
+	_, err := ValidatePBFTHeaderCrypto(header, config)
+	require.NoError(t, err)
+
+	_, err = ValidatePBFTHeader(header, config)
+	require.NoError(t, err)
+	wrongActiveDelegate := config
+	wrongDelegations := make(
+		map[common.Blake2b224]common.Blake2b224,
+	)
+	wrongDelegations[issuer.GenesisKeyHash] = common.Blake2b224Hash(
+		[]byte("wrong delegate"),
+	)
+	wrongActiveDelegate.GenesisDelegations = wrongDelegations
+	_, err = ValidatePBFTHeader(header, wrongActiveDelegate)
+	require.ErrorContains(t, err, "active delegation does not authorize")
 }
 
 func TestPBFTIssuerFromHeaderRealMainnet(t *testing.T) {
@@ -163,7 +278,7 @@ func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {
 					[]byte("different delegate"),
 				)
 			},
-			wantError: "active delegate",
+			wantError: "active delegation",
 		},
 		{
 			name: "unsupported lightweight delegation",
@@ -172,17 +287,6 @@ func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {
 			},
 			wantError: "unsupported Byron PBFT signature type",
 		},
-		{
-			name: "delegation certificate activates after header epoch",
-			mutate: func(t *testing.T, header *ledgerbyron.ByronMainBlockHeader, _ *ByronConfig) {
-				inner, ok := header.ConsensusData.BlockSig[1].([]any)
-				require.True(t, ok)
-				certificate, ok := inner[0].([]any)
-				require.True(t, ok)
-				certificate[0] = header.ConsensusData.SlotId.Epoch + 1
-			},
-			wantError: "not active",
-		},
 	}
 
 	for _, test := range tests {
@@ -190,46 +294,6 @@ func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {
 			header, config, _ := realPBFTHeaderFixture(t)
 			test.mutate(t, header, &config)
 			_, err := ValidatePBFTHeader(header, config)
-			require.ErrorContains(t, err, test.wantError)
-		})
-	}
-}
-
-func TestValidatePBFTCertificateEpoch(t *testing.T) {
-	tests := []struct {
-		name            string
-		activationEpoch uint64
-		headerEpoch     uint64
-		wantError       string
-	}{
-		{
-			name:            "activated in earlier epoch",
-			activationEpoch: 0,
-			headerEpoch:     10,
-		},
-		{
-			name:            "activated in header epoch",
-			activationEpoch: 10,
-			headerEpoch:     10,
-		},
-		{
-			name:            "activation is in future",
-			activationEpoch: 11,
-			headerEpoch:     10,
-			wantError:       "not active",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := validatePBFTCertificateEpoch(
-				test.activationEpoch,
-				test.headerEpoch,
-			)
-			if test.wantError == "" {
-				require.NoError(t, err)
-				return
-			}
 			require.ErrorContains(t, err, test.wantError)
 		})
 	}
@@ -297,9 +361,62 @@ func TestPBFTMaxSignatures(t *testing.T) {
 		require.Equal(
 			t,
 			test.want,
-			pbftMaxSignatures(test.securityParam),
+			pbftMaxSignatures(
+				test.securityParam,
+				DefaultPBFTSignatureThresholdNumerator,
+				DefaultPBFTSignatureThresholdDenominator,
+			),
 		)
 	}
+}
+
+func TestPBFTMaxSignaturesUsesConfiguredThresholdRatios(t *testing.T) {
+	tests := []struct {
+		name        string
+		numerator   uint64
+		denominator uint64
+		want        uint64
+	}{
+		{name: "0.10", numerator: 1, denominator: 10, want: 1},
+		{name: "0.22", numerator: 22, denominator: 100, want: 2},
+		{name: "0.50", numerator: 1, denominator: 2, want: 5},
+		{name: "1.1", numerator: 11, denominator: 10, want: 11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(
+				t,
+				test.want,
+				pbftMaxSignatures(10, test.numerator, test.denominator),
+			)
+		})
+	}
+}
+
+func TestPBFTStateUsesConfiguredSignatureThreshold(t *testing.T) {
+	issuer := common.Blake2b224Hash([]byte("issuer"))
+	config := ByronConfig{
+		SecurityParam:                     10,
+		PBFTSignatureThresholdNumerator:   1,
+		PBFTSignatureThresholdDenominator: 2,
+	}
+	state, err := NewPBFTStateFromConfig(nil, config)
+	require.NoError(t, err)
+	state, err = state.Transition(issuer)
+	require.NoError(t, err)
+	state, err = state.Transition(issuer)
+	require.NoError(t, err)
+	state, err = state.Transition(issuer)
+	require.NoError(t, err)
+	state, err = state.Transition(issuer)
+	require.NoError(t, err)
+	state, err = state.Transition(issuer)
+	require.NoError(t, err)
+	_, err = state.Transition(issuer)
+	require.ErrorContains(t, err, "signature threshold")
+
+	_, err = NewPBFTStateWithThreshold(nil, 10, 1, 0)
+	require.ErrorContains(t, err, "signature threshold")
 }
 
 func TestNewByronConfigFromGenesisBuildsPBFTDelegationView(t *testing.T) {
@@ -309,7 +426,8 @@ func TestNewByronConfigFromGenesisBuildsPBFTDelegationView(t *testing.T) {
 	require.NoError(t, err)
 	config, err := NewByronConfigFromGenesis(&genesis)
 	require.NoError(t, err)
-	require.Len(t, config.GenesisDelegations, len(genesis.HeavyDelegation))
+	require.Len(t, config.GenesisKeyHashes, len(genesis.BootStakeholders))
+	require.Len(t, config.GenesisDelegations, len(genesis.BootStakeholders))
 
 	for genesisHashHex, delegation := range genesis.HeavyDelegation {
 		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
@@ -321,8 +439,19 @@ func TestNewByronConfigFromGenesisBuildsPBFTDelegationView(t *testing.T) {
 		require.NoError(t, err)
 		delegateHash, err := PBFTVerificationKeyHash(delegateKey)
 		require.NoError(t, err)
-		require.Equal(t, delegateHash, config.GenesisDelegations[genesisHash])
+		if _, isIssuer := config.GenesisDelegations[genesisHash]; isIssuer {
+			require.Equal(t, delegateHash, config.GenesisDelegations[genesisHash])
+		}
 	}
+	state, err := NewPBFTDelegationState(config)
+	require.NoError(t, err)
+	require.Len(t, state.ActiveDelegations(), len(genesis.BootStakeholders))
+	unassignedBootStakeholder := common.Blake2b224{}
+	require.Equal(
+		t,
+		state.ActiveDelegations()[unassignedBootStakeholder],
+		unassignedBootStakeholder,
+	)
 }
 
 func TestGenesisDerivedConfigValidatesRealPBFTHeader(t *testing.T) {
@@ -362,4 +491,172 @@ func TestNewByronConfigFromGenesisRejectsInvalidDelegationCertificate(t *testing
 
 	_, err = NewByronConfigFromGenesis(&genesis)
 	require.ErrorContains(t, err, "validate delegation certificate")
+}
+
+func TestNewByronConfigFromGenesisRejectsNonBootStakeholderIssuer(
+	t *testing.T,
+) {
+	genesis, err := ledgerbyron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
+	require.NoError(t, err)
+	delete(
+		genesis.BootStakeholders,
+		"1deb82908402c7ee3efeb16f369d97fba316ee621d09b32b8969e54b",
+	)
+	_, err = NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "not a boot stakeholder")
+}
+
+func TestNewByronConfigFromGenesisRejectsIssuerAsDelegate(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string]ledgerbyron.ByronGenesisHeavyDelegation)
+	}{
+		{
+			name: "self reference",
+			mutate: func(
+				delegations map[string]ledgerbyron.ByronGenesisHeavyDelegation,
+			) {
+				for issuer, delegation := range delegations {
+					delegation.DelegatePk = delegation.IssuerPk
+					delegations[issuer] = delegation
+					return
+				}
+			},
+		},
+		{
+			name: "transitive chain",
+			mutate: func(
+				delegations map[string]ledgerbyron.ByronGenesisHeavyDelegation,
+			) {
+				issuers := make([]string, 0, len(delegations))
+				for issuer := range delegations {
+					issuers = append(issuers, issuer)
+				}
+				require.GreaterOrEqual(t, len(issuers), 2)
+				first := delegations[issuers[0]]
+				second := delegations[issuers[1]]
+				first.DelegatePk = second.IssuerPk
+				delegations[issuers[0]] = first
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			genesis, err := ledgerbyron.NewByronGenesisFromReader(
+				strings.NewReader(testByronGenesisJSON),
+			)
+			require.NoError(t, err)
+			test.mutate(genesis.HeavyDelegation)
+			_, err = NewByronConfigFromGenesis(&genesis)
+			require.ErrorContains(t, err, "heavy-certificate graph")
+		})
+	}
+}
+
+func TestNewByronConfigFromGenesisAllowsStakeholderWithoutCertificateAsDelegate(
+	t *testing.T,
+) {
+	genesis, err := ledgerbyron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
+	require.NoError(t, err)
+	issuer := testGenesisIssuerFor(t, 0x45)
+	bootStakeholderWithoutCertificate := testGenesisIssuerFor(t, 0x56)
+	setSignedGenesisDelegations(
+		t,
+		&genesis,
+		[]testGenesisIssuer{issuer},
+		[][]byte{bootStakeholderWithoutCertificate.verificationKey},
+		[]int{1},
+	)
+	delegateHash, err := PBFTVerificationKeyHash(
+		bootStakeholderWithoutCertificate.verificationKey,
+	)
+	require.NoError(t, err)
+	genesis.BootStakeholders[hex.EncodeToString(delegateHash.Bytes())] = 0
+
+	config, err := NewByronConfigFromGenesis(&genesis)
+	require.NoError(t, err)
+	issuerHash, err := PBFTVerificationKeyHash(issuer.verificationKey)
+	require.NoError(t, err)
+	// The issuer certificate is valid. Initial activation is discarded because
+	// the target boot stakeholder is already self-delegated.
+	require.Equal(t, issuerHash, config.GenesisDelegations[issuerHash])
+	require.NotEqual(t, issuerHash, delegateHash)
+	delegationEpoch, ok := config.GenesisDelegationEpochs[issuerHash]
+	require.True(t, ok)
+	require.Equal(t, uint64(1), delegationEpoch)
+}
+
+func TestNewByronConfigFromGenesisKeepsOnlyActivatedDuplicateDelegate(
+	t *testing.T,
+) {
+	genesis, err := ledgerbyron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
+	require.NoError(t, err)
+	firstIssuer := testGenesisIssuerFor(t, 0x67)
+	secondIssuer := testGenesisIssuerFor(t, 0x78)
+	sharedDelegate, _ := deterministicPBFTVerificationKey(0x89)
+	setSignedGenesisDelegations(
+		t,
+		&genesis,
+		[]testGenesisIssuer{firstIssuer, secondIssuer},
+		[][]byte{sharedDelegate, sharedDelegate},
+		[]int{0, 0},
+	)
+
+	config, err := NewByronConfigFromGenesis(&genesis)
+	require.NoError(t, err)
+	state, err := NewPBFTDelegationState(config)
+	require.NoError(t, err)
+	require.Equal(t, state.ActiveDelegations(), config.GenesisDelegations)
+	sharedDelegateHash, err := PBFTVerificationKeyHash(sharedDelegate)
+	require.NoError(t, err)
+	activeCount := 0
+	for _, delegate := range config.GenesisDelegations {
+		if delegate == sharedDelegateHash {
+			activeCount++
+		}
+	}
+	require.Equal(t, 1, activeCount)
+}
+
+func TestNewByronConfigFromGenesisBoundsInitialDelegationOmega(t *testing.T) {
+	for _, omega := range []int{0, 1} {
+		t.Run(fmt.Sprintf("omega_%d", omega), func(t *testing.T) {
+			genesis, err := ledgerbyron.NewByronGenesisFromReader(
+				strings.NewReader(testByronGenesisJSON),
+			)
+			require.NoError(t, err)
+			issuer := testGenesisIssuerFor(t, byte(0x90+omega))
+			delegate, _ := deterministicPBFTVerificationKey(byte(0xa0 + omega))
+			setSignedGenesisDelegations(
+				t,
+				&genesis,
+				[]testGenesisIssuer{issuer},
+				[][]byte{delegate},
+				[]int{omega},
+			)
+			_, err = NewByronConfigFromGenesis(&genesis)
+			require.NoError(t, err)
+		})
+	}
+	genesis, err := ledgerbyron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
+	require.NoError(t, err)
+	issuer := testGenesisIssuerFor(t, 0xb1)
+	delegate, _ := deterministicPBFTVerificationKey(0xb2)
+	setSignedGenesisDelegations(
+		t,
+		&genesis,
+		[]testGenesisIssuer{issuer},
+		[][]byte{delegate},
+		[]int{2},
+	)
+	_, err = NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "expected 0 or 1")
 }
