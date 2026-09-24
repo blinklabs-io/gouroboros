@@ -45,24 +45,23 @@ func TestNativeScriptPubkeyRejectsWrongLengthKeyHash(t *testing.T) {
 	witness := nearMissKeyHash()
 	keyHashes := map[common.Blake2b224]bool{witness: true}
 	testCases := []struct {
-		name string
-		hash []byte
-		want bool
+		name    string
+		hash    []byte
+		wantErr bool
 	}{
 		{
 			name: "exact length satisfied by the witness",
 			hash: slices.Clone(witness[:]),
-			want: true,
 		},
 		{
-			name: "short hash must not zero-pad into the witness",
-			hash: slices.Clone(witness[:common.Blake2b224Size-1]),
-			want: false,
+			name:    "short hash must not zero-pad into the witness",
+			hash:    slices.Clone(witness[:common.Blake2b224Size-1]),
+			wantErr: true,
 		},
 		{
-			name: "long hash must not truncate into the witness",
-			hash: slices.Concat(witness[:], []byte{0xFF}),
-			want: false,
+			name:    "long hash must not truncate into the witness",
+			hash:    slices.Concat(witness[:], []byte{0xFF}),
+			wantErr: true,
 		},
 	}
 	for _, testCase := range testCases {
@@ -73,16 +72,64 @@ func TestNativeScriptPubkeyRejectsWrongLengthKeyHash(t *testing.T) {
 			)
 			require.NoError(t, err)
 			var script common.NativeScript
-			require.NoError(t, script.UnmarshalCBOR(scriptCbor))
+			err = script.UnmarshalCBOR(scriptCbor)
+			if testCase.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
 			require.Equal(
 				t,
-				testCase.want,
+				true,
 				script.Evaluate(0, 0, math.MaxUint64, keyHashes),
 				"native script pubkey hash of %d bytes",
 				len(testCase.hash),
 			)
 		})
 	}
+}
+
+func TestNativeScriptPubkeyRejectsWrongLengthKeyHashInNestedScripts(t *testing.T) {
+	t.Parallel()
+	shortHash := make([]byte, common.Blake2b224Size-1)
+	invalidLeaf := []any{uint(0), shortHash}
+	testCases := []struct {
+		name   string
+		script any
+	}{
+		{name: "all", script: []any{uint(1), []any{invalidLeaf}}},
+		{name: "any", script: []any{uint(2), []any{invalidLeaf}}},
+		{name: "n of k", script: []any{uint(3), int64(1), []any{invalidLeaf}}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			data, err := cbor.Encode(testCase.script)
+			require.NoError(t, err)
+			var script common.NativeScript
+			err = script.UnmarshalCBOR(data)
+			require.ErrorContains(t, err, "invalid native script key hash")
+		})
+	}
+}
+
+func TestScriptRefRejectsWrongLengthNativeScriptKeyHash(t *testing.T) {
+	t.Parallel()
+	leaf, err := cbor.Encode([]any{
+		uint(0),
+		make([]byte, common.Blake2b224Size+1),
+	})
+	require.NoError(t, err)
+	refPayload, err := cbor.Encode([]any{
+		uint(common.ScriptRefTypeNativeScript),
+		cbor.RawMessage(leaf),
+	})
+	require.NoError(t, err)
+	ref, err := cbor.Encode(cbor.Tag{Number: 24, Content: refPayload})
+	require.NoError(t, err)
+	var scriptRef common.ScriptRef
+	_, err = cbor.Decode(ref, &scriptRef)
+	require.ErrorContains(t, err, "invalid native script key hash")
 }
 
 func TestMultiAssetUnmarshalJSONRejectsWrongLengthPolicyId(t *testing.T) {

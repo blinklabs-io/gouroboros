@@ -738,7 +738,8 @@ func (n *NativeScript) Item() any {
 }
 
 func (n *NativeScript) UnmarshalCBOR(data []byte) error {
-	n.SetCbor(data)
+	n.item = nil
+	n.SetCbor(nil)
 	id, err := cbor.DecodeIdFromList(data)
 	if err != nil {
 		return err
@@ -765,6 +766,15 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, tmpData); err != nil {
 		return err
 	}
+	if pubkey, ok := tmpData.(*NativeScriptPubkey); ok &&
+		len(pubkey.Hash) != Blake2b224Size {
+		return fmt.Errorf(
+			"invalid native script key hash: expected %d bytes, got %d",
+			Blake2b224Size,
+			len(pubkey.Hash),
+		)
+	}
+	n.SetCbor(data)
 	n.item = tmpData
 	return nil
 }
