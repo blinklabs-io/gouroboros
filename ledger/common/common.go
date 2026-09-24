@@ -1206,9 +1206,11 @@ func TransactionValidityFlags(
 	flags := make([]bool, 0, transactionCount)
 	previous := -1
 	for _, rawIndex := range invalidIndexes {
-		index := int(rawIndex)
-		if index > transactionCount {
-			index = transactionCount
+		// Compare before converting: on 32-bit systems, a wire uint larger
+		// than MaxInt would wrap negative and mark the wrong transactions.
+		index := transactionCount
+		if rawIndex < uint(transactionCount) {
+			index = int(rawIndex)
 		}
 		for index-previous-1 > 0 {
 			flags = append(flags, true)
