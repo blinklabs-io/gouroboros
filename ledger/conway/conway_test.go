@@ -289,7 +289,7 @@ func TestConwayTransactionBodyRequiresPositiveTreasuryDonation(t *testing.T) {
 	}
 }
 
-func TestConwayWitnessSetDecodesPresentEmptyFields(t *testing.T) {
+func TestConwayWitnessSetRejectsPresentEmptyFields(t *testing.T) {
 	for _, key := range []uint{0, 1, 2, 3, 4, 5, 6, 7} {
 		for _, tagged := range []bool{false, true} {
 			name := "untagged"
@@ -302,7 +302,7 @@ func TestConwayWitnessSetDecodesPresentEmptyFields(t *testing.T) {
 				encoded, err := cbor.Encode(map[uint]any{key: value})
 				require.NoError(t, err)
 				var witnesses ConwayTransactionWitnessSet
-				require.NoError(t, witnesses.UnmarshalCBOR(encoded))
+				require.Error(t, witnesses.UnmarshalCBOR(encoded))
 			})
 		}
 	}
@@ -799,6 +799,47 @@ func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestConwayWitnessSetRejectsEveryPresentEmptyField(t *testing.T) {
+	// The empty witness map remains valid, including one encoded from a
+	// programmatically constructed zero-value witness set.
+	var absent ConwayTransactionWitnessSet
+	require.NoError(t, absent.UnmarshalCBOR([]byte{0xa0}))
+	zeroValueCBOR, err := cbor.Encode(ConwayTransactionWitnessSet{})
+	require.NoError(t, err)
+	require.NoError(t, absent.UnmarshalCBOR(zeroValueCBOR))
+
+	for key := uint(0); key <= 7; key++ {
+		values := [][]byte{
+			{0x80},                   // untagged empty array
+			{0xd9, 0x01, 0x02, 0x80}, // tagged empty set
+		}
+		if key == 5 {
+			values = append(values, []byte{0xa0}) // empty redeemer map
+		}
+		for _, value := range values {
+			wire, encodeErr := cbor.Encode(map[uint]cbor.RawMessage{
+				key: value,
+			})
+			require.NoError(t, encodeErr)
+			var witnesses ConwayTransactionWitnessSet
+			require.ErrorContains(
+				t,
+				witnesses.UnmarshalCBOR(wire),
+				"must not be empty",
+				"empty field %d with value %x", key, value,
+			)
+		}
+	}
+
+	// An explicitly present, non-empty datum set remains valid.
+	valid, err := cbor.Encode(map[uint]cbor.RawMessage{
+		4: {0x81, 0x01},
+	})
+	require.NoError(t, err)
+	var witnesses ConwayTransactionWitnessSet
+	require.NoError(t, witnesses.UnmarshalCBOR(valid))
 }
 
 // Plutus script sets reject duplicates from protocol version 9 (cardano-ledger

@@ -102,9 +102,11 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateRequiredVKeyWitnesses,       // UtxoValidationRuleRequiredVKeyWitnesses
 		alonzo.UtxoValidateSignatures,                  // UtxoValidationRuleSignatures
 		alonzo.UtxoValidateCollateralVKeyWitnesses,     // UtxoValidationRuleCollateralVKeyWitnesses
+		common.UtxoValidateCollateralKeyLocked,         // UtxoValidationRuleCollateralKeyLocked
 		alonzo.UtxoValidateRedeemerAndScriptWitnesses,  // UtxoValidationRuleRedeemerAndScriptWitnesses
 		alonzo.UtxoValidateCostModelsPresent,           // UtxoValidationRuleCostModelsPresent
 		alonzo.UtxoValidateScriptDataHash,              // UtxoValidationRuleScriptDataHash
+		alonzo.UtxoValidateSupplementalDatums,          // UtxoValidationRuleSupplementalDatums
 		alonzo.UtxoValidateOutsideValidityIntervalUtxo, // UtxoValidationRuleOutsideValidityInterval
 		common.UtxoValidateOutsideForecast,             // UtxoValidationRuleOutsideForecast
 		alonzo.UtxoValidateInputSetEmptyUtxo,           // UtxoValidationRuleInputSetEmpty
@@ -137,10 +139,12 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateRequiredVKeyWitnesses,       // UtxoValidationRuleRequiredVKeyWitnesses
 		babbage.UtxoValidateSignatures,                  // UtxoValidationRuleSignatures
 		babbage.UtxoValidateCollateralVKeyWitnesses,     // UtxoValidationRuleCollateralVKeyWitnesses
+		common.UtxoValidateCollateralKeyLocked,          // UtxoValidationRuleCollateralKeyLocked
 		babbage.UtxoValidateRedeemerAndScriptWitnesses,  // UtxoValidationRuleRedeemerAndScriptWitnesses
 		babbage.UtxoValidateCostModelsPresent,           // UtxoValidationRuleCostModelsPresent
 		babbage.UtxoValidateScriptDataHash,              // UtxoValidationRuleScriptDataHash
 		babbage.UtxoValidateInlineDatumsWithPlutusV1,    // UtxoValidationRuleInlineDatumsWithPlutusV1
+		babbage.UtxoValidateSupplementalDatums,          // UtxoValidationRuleSupplementalDatums
 		babbage.UtxoValidateDisjointRefInputs,           // UtxoValidationRuleDisjointRefInputs
 		babbage.UtxoValidateOutsideValidityIntervalUtxo, // UtxoValidationRuleOutsideValidityInterval
 		common.UtxoValidateOutsideForecast,              // UtxoValidationRuleOutsideForecast
@@ -188,6 +192,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateIsValidFlag,                  // UtxoValidationRuleIsValidFlag
 		conway.UtxoValidateRequiredVKeyWitnesses,        // UtxoValidationRuleRequiredVKeyWitnesses
 		conway.UtxoValidateCollateralVKeyWitnesses,      // UtxoValidationRuleCollateralVKeyWitnesses
+		common.UtxoValidateCollateralKeyLocked,          // UtxoValidationRuleCollateralKeyLocked
 		conway.UtxoValidateRedeemerAndScriptWitnesses,   // UtxoValidationRuleRedeemerAndScriptWitnesses
 		conway.UtxoValidateSignatures,                   // UtxoValidationRuleSignatures
 		conway.UtxoValidateCostModelsPresent,            // UtxoValidationRuleCostModelsPresent
@@ -232,6 +237,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidateBootstrapVotingRestrictions,  // UtxoValidationRuleBootstrapVotingRestrictions
 		conway.UtxoValidateStakePoolVotingRestrictions,  // UtxoValidationRuleStakePoolVotingRestrictions
 		conway.UtxoValidateCCVotingRestrictions,         // UtxoValidationRuleCCVotingRestrictions
+		conway.UtxoValidateUnelectedCommitteeVoters,     // UtxoValidationRuleUnelectedCommitteeVoters
 		conway.UtxoValidateRefScriptSizePerTx,           // UtxoValidationRuleRefScriptSizePerTx
 		conway.UtxoValidatePoolCertificates,             // UtxoValidationRulePoolCertificates
 	},
@@ -251,6 +257,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateIsValidFlag,                  // UtxoValidationRuleIsValidFlag
 		dijkstra.UtxoValidateRequiredVKeyWitnesses,        // UtxoValidationRuleRequiredVKeyWitnesses
 		conway.UtxoValidateCollateralVKeyWitnesses,        // UtxoValidationRuleCollateralVKeyWitnesses
+		common.UtxoValidateCollateralKeyLocked,            // UtxoValidationRuleCollateralKeyLocked
 		dijkstra.UtxoValidateRedeemerAndScriptWitnesses,   // UtxoValidationRuleRedeemerAndScriptWitnesses
 		dijkstra.UtxoValidateSignatures,                   // UtxoValidationRuleSignatures
 		dijkstra.UtxoValidateCostModelsPresent,            // UtxoValidationRuleCostModelsPresent
@@ -297,6 +304,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateBootstrapVotingRestrictions,  // UtxoValidationRuleBootstrapVotingRestrictions
 		dijkstra.UtxoValidateStakePoolVotingRestrictions,  // UtxoValidationRuleStakePoolVotingRestrictions
 		dijkstra.UtxoValidateCCVotingRestrictions,         // UtxoValidationRuleCCVotingRestrictions
+		dijkstra.UtxoValidateUnelectedCommitteeVoters,     // UtxoValidationRuleUnelectedCommitteeVoters
 		dijkstra.UtxoValidateRefScriptSizePerTx,           // UtxoValidationRuleRefScriptSizePerTx
 		dijkstra.UtxoValidatePoolCertificates,             // UtxoValidationRulePoolCertificates
 	},

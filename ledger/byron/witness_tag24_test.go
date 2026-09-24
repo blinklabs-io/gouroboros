@@ -15,6 +15,8 @@
 package byron_test
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -31,8 +33,8 @@ func decodeSingleWitness(t *testing.T, data []byte) *byron.ByronTransactionWitne
 }
 
 func TestByronWitnessRequiresTag24(t *testing.T) {
-	pk := []byte{1, 2, 3, 4}
-	sig := []byte{5, 6, 7, 8}
+	pk := make([]byte, byron.VerificationKeySize)
+	sig := make([]byte, ed25519.SignatureSize)
 	chainCode := []byte{9, 10}
 	attrs := []byte{11, 12}
 
@@ -49,13 +51,14 @@ func TestByronWitnessRequiresTag24(t *testing.T) {
 	})
 
 	t.Run("redeem witness with tag 24 decodes", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{pk, sig})
+		redeemKey := make([]byte, ed25519.PublicKeySize)
+		inner, err := cbor.Encode([]any{redeemKey, sig})
 		require.NoError(t, err)
 		outer, err := cbor.Encode([]any{uint64(2), cbor.WrappedCbor(inner)})
 		require.NoError(t, err)
 		ws := decodeSingleWitness(t, outer)
 		require.Len(t, ws.Vkey(), 1)
-		assert.Equal(t, pk, []byte(ws.Vkey()[0].Vkey))
+		assert.Equal(t, redeemKey, []byte(ws.Vkey()[0].Vkey))
 		assert.Equal(t, sig, []byte(ws.Vkey()[0].Signature))
 	})
 
@@ -153,7 +156,11 @@ func TestByronWitnessRequiresTag24(t *testing.T) {
 // witness validation.
 func encodeByronTransactionWithWitnesses(t *testing.T, twitCbor []byte) []byte {
 	t.Helper()
-	body, err := cbor.Encode([]any{[]any{}, []any{}, map[any]any{}})
+	body, err := cbor.Encode([]any{
+		cbor.IndefLengthList{},
+		cbor.IndefLengthList{},
+		map[any]any{},
+	})
 	require.NoError(t, err)
 	tx, err := cbor.Encode(
 		[]any{cbor.RawMessage(body), cbor.RawMessage(twitCbor)},
@@ -163,23 +170,48 @@ func encodeByronTransactionWithWitnesses(t *testing.T, twitCbor []byte) []byte {
 }
 
 func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
-	pk := []byte{1, 2, 3, 4}
-	sig := []byte{5, 6, 7, 8}
-
-	t.Run("valid tag-24 witness decodes", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{pk, sig})
-		require.NoError(t, err)
-		witness, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
-		require.NoError(t, err)
-		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
-		require.NoError(t, err)
-		var tx byron.ByronTransaction
-		require.NoError(t, tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)))
-		require.Len(t, tx.Witnesses().Vkey(), 1)
-	})
+	validVKey := make([]byte, byron.VerificationKeySize)
+	validRedeemKey := make([]byte, ed25519.PublicKeySize)
+	validSignature := make([]byte, ed25519.SignatureSize)
+	tests := []struct {
+		name        string
+		constructor uint64
+		publicKey   []byte
+		signature   []byte
+		wantError   bool
+	}{
+		{"valid verification key witness", 0, validVKey, validSignature, false},
+		{"valid redeem key witness", 2, validRedeemKey, validSignature, false},
+		{"short verification key", 0, validRedeemKey, validSignature, true},
+		{"short verification key signature", 0, validVKey, []byte{5, 6, 7, 8}, true},
+		{"oversized redeem key", 2, validVKey, validSignature, true},
+		{"short redeem key signature", 2, validRedeemKey, []byte{5, 6, 7, 8}, true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inner, err := cbor.Encode([]any{test.publicKey, test.signature})
+			require.NoError(t, err)
+			witness, err := cbor.Encode(
+				[]any{test.constructor, cbor.WrappedCbor(inner)},
+			)
+			require.NoError(t, err)
+			twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
+			require.NoError(t, err)
+			var tx byron.ByronTransaction
+			err = tx.UnmarshalCBOR(
+				encodeByronTransactionWithWitnesses(t, twit),
+			)
+			if test.wantError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, tx.Witnesses().Vkey(), 1)
+		})
+	}
 
 	t.Run("untagged witness fails the whole transaction", func(t *testing.T) {
-		witness, err := cbor.Encode([]any{uint64(0), []any{pk, sig}})
+		witness, err := cbor.Encode([]any{uint64(0), []any{validVKey, validSignature}})
 		require.NoError(t, err)
 		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
 		require.NoError(t, err)
@@ -188,7 +220,7 @@ func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
 	})
 
 	t.Run("unknown witness constructor fails the whole transaction", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{pk, sig})
+		inner, err := cbor.Encode([]any{validVKey, validSignature})
 		require.NoError(t, err)
 		witness, err := cbor.Encode(
 			[]any{uint64(99), cbor.WrappedCbor(inner)},
@@ -199,6 +231,56 @@ func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
 		var tx byron.ByronTransaction
 		require.Error(t, tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)))
 	})
+}
+
+func TestByronTransactionValidatesDomainSeparatedVKeyWitnesses(t *testing.T) {
+	const protocolMagic = uint32(764824073)
+	for _, test := range []struct {
+		name        string
+		constructor uint64
+		tag         byte
+	}{
+		{name: "payment", constructor: 0, tag: byron.SignTagTx},
+		{name: "redeem", constructor: 2, tag: byron.SignTagRedeemTx},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, err)
+			verificationKey := append(append([]byte(nil), publicKey...), make([]byte, 32)...)
+			if test.constructor == 2 {
+				verificationKey = publicKey
+			}
+			body, err := cbor.Encode([]any{
+				cbor.IndefLengthList{},
+				cbor.IndefLengthList{},
+				map[any]any{},
+			})
+			require.NoError(t, err)
+			var decodedBody byron.ByronTransactionBody
+			require.NoError(t, decodedBody.UnmarshalCBOR(body))
+			magicCbor, err := cbor.Encode(protocolMagic)
+			require.NoError(t, err)
+			wireId := decodedBody.WireId()
+			idCbor, err := cbor.Encode(wireId[:])
+			require.NoError(t, err)
+			signed := append([]byte{test.tag}, magicCbor...)
+			signed = append(signed, idCbor...)
+			signature := ed25519.Sign(privateKey, signed)
+			payload, err := cbor.Encode([]any{verificationKey, signature})
+			require.NoError(t, err)
+			witness, err := cbor.Encode([]any{
+				test.constructor,
+				cbor.WrappedCbor(payload),
+			})
+			require.NoError(t, err)
+			witnesses, err := cbor.Encode([]cbor.RawMessage{witness})
+			require.NoError(t, err)
+			var tx byron.ByronTransaction
+			require.NoError(t, tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, witnesses)))
+			require.NoError(t, tx.ValidateVKeyWitnesses(protocolMagic))
+			require.Error(t, tx.ValidateVKeyWitnesses(protocolMagic+1))
+		})
+	}
 }
 
 func TestByronUpdateProposalTxFeePolicyRequiresTag24(t *testing.T) {

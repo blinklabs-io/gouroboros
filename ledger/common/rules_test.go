@@ -118,6 +118,65 @@ func TestUtxoValidateOutsideForecast(t *testing.T) {
 	}
 }
 
+func TestValidateOutsideForecast(t *testing.T) {
+	const upper uint64 = 42
+	slotErr := errors.New("outside forecast")
+	state := mockledger.NewLedgerStateBuilder().WithSlotToTime(
+		func(slot uint64) (time.Time, error) {
+			if slot == upper {
+				return time.Time{}, slotErr
+			}
+			return time.Time{}, nil
+		},
+	).Build()
+	newTx := func(isValid bool, withUpper, withRedeemer bool) *alonzo.AlonzoTransaction {
+		body := alonzo.AlonzoTransactionBody{}
+		if withUpper {
+			body.SetValidityIntervalUpperBound(upper)
+		} else {
+			body.ClearValidityIntervalUpperBound()
+		}
+		witnesses := alonzo.AlonzoTransactionWitnessSet{}
+		if withRedeemer {
+			witnesses.WsRedeemers = alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{{Tag: common.RedeemerTagSpend}},
+			}
+		}
+		return &alonzo.AlonzoTransaction{Body: body, WitnessSet: witnesses, TxIsValid: isValid}
+	}
+
+	for _, isValid := range []bool{true, false} {
+		t.Run(map[bool]string{true: "valid", false: "invalid"}[isValid], func(t *testing.T) {
+			err := common.ValidateOutsideForecast(newTx(isValid, true, true), 1, state,
+				common.OutsideForecastTypeAlonzoBabbage)
+			var outsideForecast *common.OutsideForecastError
+			require.ErrorAs(t, err, &outsideForecast)
+			require.Equal(t, upper, outsideForecast.Slot)
+		})
+	}
+	for _, tc := range []struct {
+		name            string
+		upper, redeemer bool
+	}{
+		{name: "no upper bound", redeemer: true},
+		{name: "no redeemer", upper: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, common.ValidateOutsideForecast(
+				newTx(true, tc.upper, tc.redeemer), 1, state,
+				common.OutsideForecastTypeAlonzoBabbage,
+			))
+		})
+	}
+	successState := mockledger.NewLedgerStateBuilder().WithSlotToTime(
+		func(uint64) (time.Time, error) { return time.Time{}, nil },
+	).Build()
+	require.NoError(t, common.ValidateOutsideForecast(
+		newTx(false, true, true), 1, successState,
+		common.OutsideForecastTypeAlonzoBabbage,
+	))
+}
+
 func TestValidateRequiredVKeyWitnessesCertificateAndVoter(t *testing.T) {
 	cred := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
 	cred.Credential[0] = 0x42

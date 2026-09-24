@@ -62,7 +62,7 @@ func TestByronTransactionAttributesRequireReferenceMapShape(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, attributes, []byte(decoded.Attributes))
 			require.True(t, bytes.Equal(body, decoded.Cbor()))
-			require.Equal(t, common.Blake2b256Hash(body), decoded.Id())
+			require.Equal(t, common.Blake2b256Hash(body), decoded.WireId())
 		})
 	}
 }

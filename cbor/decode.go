@@ -803,38 +803,48 @@ func IsEmptyCollection(data []byte) (bool, error) {
 	if len(data) == 0 {
 		return false, errors.New("empty CBOR input")
 	}
-	var tag RawTag
-	if _, err := Decode(data, &tag); err == nil {
-		if tag.Number != CborTagSet {
-			return false, fmt.Errorf("unexpected CBOR tag %d on collection", tag.Number)
+	if data[0]&CborTypeMask == CborTypeTag {
+		additional := data[0] & 31
+		tag, headerSize := uint64(additional), 1
+		var width int
+		switch additional {
+		case 24:
+			width = 1
+		case 25:
+			width = 2
+		case 26:
+			width = 4
+		case 27:
+			width = 8
+		case 31:
+			return false, errors.New("indefinite CBOR tag")
 		}
-		data = []byte(tag.Content)
-		if len(data) == 0 {
+		if width > 0 {
+			headerSize += width
+			if len(data) < headerSize {
+				return false, errors.New("truncated CBOR tag")
+			}
+			tag = 0
+			for _, b := range data[1:headerSize] {
+				tag = tag<<8 | uint64(b)
+			}
+		}
+		if tag != CborTagSet {
+			return false, fmt.Errorf("unexpected CBOR tag %d on collection", tag)
+		}
+		if len(data) <= headerSize {
 			return false, errors.New("empty CBOR set content")
 		}
+		data = data[headerSize:]
 	}
-	switch data[0] & CborTypeMask {
-	case CborTypeArray:
-		count, headerSize, indefinite := ArrayInfo(data)
-		if count < 0 {
-			return false, errors.New("invalid CBOR array header")
-		}
-		if !indefinite {
-			return count == 0, nil
-		}
-		return len(data) == int(headerSize)+1 && data[headerSize] == 0xff, nil
-	case CborTypeMap:
-		count, headerSize, indefinite := MapInfo(data)
-		if count < 0 {
-			return false, errors.New("invalid CBOR map header")
-		}
-		if !indefinite {
-			return count == 0, nil
-		}
-		return len(data) == int(headerSize)+1 && data[headerSize] == 0xff, nil
-	default:
+	empty, collection, err := emptyCollection(data)
+	if err != nil {
+		return false, err
+	}
+	if !collection {
 		return false, errors.New("CBOR value is not an array or map")
 	}
+	return empty, nil
 }
 
 // ArrayHeaderSize returns the CBOR header size in bytes for an array of given length.

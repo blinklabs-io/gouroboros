@@ -18,6 +18,9 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
@@ -142,4 +145,52 @@ func TestValidateEBBBodyHashMalformedProof(t *testing.T) {
 		validationErr.Type,
 	)
 	require.Contains(t, validationErr.Message, "malformed EBB body proof")
+}
+
+// testnetByronEbb returns the CBOR of the same bundled testnet Byron epoch
+// boundary block ledger/byron's own body-proof tests use.
+func testnetByronEbb(t *testing.T) []byte {
+	t.Helper()
+	ebbPath := filepath.Join(
+		"..", "..", "protocol", "chainsync", "testdata",
+		"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
+	)
+	hexData, err := os.ReadFile(ebbPath)
+	require.NoError(t, err)
+	raw, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
+	require.NoError(t, err)
+	return raw
+}
+
+// TestValidateEBBBodyHashRealTestnetBlock pins that ValidateEBBBodyHash --
+// the function consensus code paths actually call, not
+// ledger/byron.ValidateBodyProof directly -- accepts a real testnet EBB.
+func TestValidateEBBBodyHashRealTestnetBlock(t *testing.T) {
+	block, err := byron.NewByronEpochBoundaryBlockFromCbor(testnetByronEbb(t))
+	require.NoError(t, err)
+	require.NoError(t, ValidateEBBBodyHash(block))
+}
+
+// TestValidateEBBBodyHashAcceptsShortProof is the consensus-level
+// reference-parity regression for #2341: a body-proof shorter than the
+// usual 32-byte hash must be accepted through ValidateEBBBodyHash.
+func TestValidateEBBBodyHashAcceptsShortProof(t *testing.T) {
+	block := &byron.ByronEpochBoundaryBlock{
+		BlockHeader: &byron.ByronEpochBoundaryBlockHeader{
+			BodyProof: bytes.Repeat([]byte{0xAB}, 31),
+		},
+	}
+	require.NoError(t, ValidateEBBBodyHash(block))
+}
+
+// TestValidateEBBBodyHashAcceptsWrongValueProof is the consensus-level
+// reference-parity regression for #2341: a 32-byte proof that does not
+// match the body must still be accepted through ValidateEBBBodyHash.
+func TestValidateEBBBodyHashAcceptsWrongValueProof(t *testing.T) {
+	block := &byron.ByronEpochBoundaryBlock{
+		BlockHeader: &byron.ByronEpochBoundaryBlockHeader{
+			BodyProof: bytes.Repeat([]byte{0xFF}, 32),
+		},
+	}
+	require.NoError(t, ValidateEBBBodyHash(block))
 }

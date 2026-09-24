@@ -103,6 +103,11 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 	} else {
 		b.InvalidTransactions = result
 	}
+	if err := tmp.TransactionMetadataSet.ValidateIndices(
+		len(tmp.TransactionBodies),
+	); err != nil {
+		return err
+	}
 
 	// Assign the other fields
 	b.BlockHeader = tmp.BlockHeader
@@ -198,10 +203,10 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
 		return []common.Transaction{}
 	}
-	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
-	for _, invalidTxIdx := range b.InvalidTransactions {
-		invalidTxMap[invalidTxIdx] = true
-	}
+	validFlags := common.TransactionValidityFlags(
+		len(b.TransactionBodies),
+		b.InvalidTransactions,
+	)
 
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
@@ -209,7 +214,7 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 		tx := &BabbageTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
-			TxIsValid:  !invalidTxMap[uint(idx)],
+			TxIsValid:  validFlags[idx],
 		}
 		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {

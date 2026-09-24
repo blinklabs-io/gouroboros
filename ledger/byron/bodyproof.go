@@ -286,30 +286,32 @@ func encodeWitnessList(witnesses [][]byte) []byte {
 	return append(encoded, indefiniteBreak)
 }
 
-// ValidateBodyProof checks an epoch boundary block against the hash carried in
-// its header. EBBs have no transactions, so the whole body is covered by a
-// single hash.
+// ValidateBodyProof checks an epoch boundary block's header body-proof field
+// for wire well-formedness only.
+//
+// Unlike a main block's [tx_proof, ssc_proof, dlg_proof, upd_proof], an EBB's
+// body proof has no protocol meaning: the Byron reference decoder decodes it
+// as a plain byte string and never interprets or compares it against the
+// block body (Cardano/Chain/Block/Header.hs's decCBORABoundaryHeader, under
+// the comment "-- BoundaryBodyProof", followed by a bare dropBytes), and it
+// imposes no length restriction on it beyond "byte string" -- see
+// https://github.com/blinklabs-io/gouroboros/issues/2341. A 31-byte proof,
+// and an arbitrary incorrect 32-byte value, are both valid to the reference
+// and must decode here too.
 func (b *ByronEpochBoundaryBlock) ValidateBodyProof() error {
-	// Read the header hash through the checked accessor so a body proof
-	// that is not a hash at all is reported as malformed, rather than
-	// reaching checkHash's comparison and being reported as a mismatch
-	// against a value the header never carried.
-	expected, err := b.BlockBodyHashChecked()
-	if err != nil {
-		return err
-	}
-	bodyCbor := b.BodyCbor()
-	if len(bodyCbor) == 0 {
+	if b == nil || b.BlockHeader == nil {
 		return fmt.Errorf(
-			"%w: epoch boundary block has no preserved body CBOR",
-			ErrBodyProofMismatch,
+			"%w: block or block header is nil", ErrMalformedBodyProof,
 		)
 	}
-	return checkHash(
-		"body hash",
-		expected[:],
-		common.Blake2b256Hash(bodyCbor),
-	)
+	if _, ok := b.BlockHeader.BodyProof.([]byte); !ok {
+		return fmt.Errorf(
+			"%w: epoch boundary block header body proof is %T, "+
+				"expected a byte string",
+			ErrMalformedBodyProof, b.BlockHeader.BodyProof,
+		)
+	}
+	return nil
 }
 
 // checkPayloadHash compares a proof entry against the hash of the payload's

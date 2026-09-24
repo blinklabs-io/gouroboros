@@ -1762,14 +1762,7 @@ func (e *WrongNetworkInTxBody) Error() string {
 	)
 }
 
-type OutsideForecast struct {
-	UtxoFailureErrorBase
-	Slot uint32
-}
-
-func (e *OutsideForecast) Error() string {
-	return fmt.Sprintf("OutsideForecast (Slot %d)", e.Slot)
-}
+type OutsideForecast = common.OutsideForecastError
 
 type TooManyCollateralInputs struct {
 	UtxoFailureErrorBase

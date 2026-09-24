@@ -18,9 +18,31 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExUnitsDecodeRejectsNegativeValues(t *testing.T) {
+	t.Parallel()
+	for _, value := range [][2]int64{{-1, 0}, {0, -1}} {
+		encoded, err := cbor.Encode(value)
+		require.NoError(t, err)
+		var decoded ExUnits
+		_, err = cbor.Decode(encoded, &decoded)
+		require.Error(t, err)
+	}
+}
+
+func TestExUnitsDecodePreservesZero(t *testing.T) {
+	t.Parallel()
+	encoded, err := cbor.Encode([2]uint64{0, 0})
+	require.NoError(t, err)
+	var decoded ExUnits
+	_, err = cbor.Decode(encoded, &decoded)
+	require.NoError(t, err)
+	require.Equal(t, ExUnits{}, decoded)
+}
 
 func TestRedeemerTagMarshalJSON(t *testing.T) {
 	tests := []struct {

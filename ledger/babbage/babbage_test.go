@@ -280,6 +280,30 @@ func TestBabbageBlockTransactions(t *testing.T) {
 	})
 }
 
+func TestBabbageBlockAlignsOrderedInvalidTransactionIndexes(t *testing.T) {
+	tests := []struct {
+		name    string
+		indexes []uint
+		valid   []bool
+	}{
+		{name: "duplicate index", indexes: []uint{0, 0}, valid: []bool{false, false}},
+		{name: "descending indexes", indexes: []uint{1, 0}, valid: []bool{true, false}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			block := BabbageBlock{
+				TransactionBodies:      make([]BabbageTransactionBody, 2),
+				TransactionWitnessSets: make([]BabbageTransactionWitnessSet, 2),
+				InvalidTransactions:    tt.indexes,
+			}
+			transactions := block.Transactions()
+			for i, transaction := range transactions {
+				assert.Equal(t, tt.valid[i], transaction.IsValid())
+			}
+		})
+	}
+}
+
 func TestBabbageBlock_Utxorpc(t *testing.T) {
 	// Define a full Babbage block for testing
 	blockData := []byte{

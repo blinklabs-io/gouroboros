@@ -23,6 +23,7 @@ import (
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ed25519byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
@@ -350,8 +351,42 @@ func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
 
 func (t *ByronTransactionBody) Id() common.Blake2b256 {
 	return t.hash.Get(func() common.Blake2b256 {
-		return common.Blake2b256Hash(t.Cbor())
+		attributes := make(map[uint64][]byte)
+		if len(t.Attributes) > 0 {
+			if _, err := cbor.Decode(t.Attributes, &attributes); err != nil {
+				panic("CBOR attributes that should never fail to decode have failed: " + err.Error())
+			}
+		}
+		inputs := make(cbor.IndefLengthList, len(t.TxInputs))
+		for i := range t.TxInputs {
+			inputs[i] = t.TxInputs[i]
+		}
+		outputs := make(cbor.IndefLengthList, len(t.TxOutputs))
+		for i := range t.TxOutputs {
+			outputs[i] = t.TxOutputs[i]
+		}
+		type canonicalBody struct {
+			cbor.StructAsArray
+			Inputs     cbor.IndefLengthList
+			Outputs    cbor.IndefLengthList
+			Attributes map[uint64][]byte
+		}
+		encoded, err := cbor.Encode(&canonicalBody{
+			Inputs:     inputs,
+			Outputs:    outputs,
+			Attributes: attributes,
+		})
+		if err != nil {
+			panic("CBOR encoding that should never fail has failed: " + err.Error())
+		}
+		return common.Blake2b256Hash(encoded)
 	})
+}
+
+// WireId hashes the original annotated transaction-body bytes used by Byron
+// witness signing and transaction Merkle proofs.
+func (t *ByronTransactionBody) WireId() common.Blake2b256 {
+	return common.Blake2b256Hash(t.Cbor())
 }
 
 func (t *ByronTransactionBody) Inputs() []common.TransactionInput {
@@ -469,10 +504,12 @@ func (t *ByronTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Bl
 type ByronTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Body       ByronTransactionBody
-	Twit       []cbor.Value
-	twitCbor   []byte // Original CBOR of witnesses for merkle tree computation
-	witnessSet *ByronTransactionWitnessSet
+	Body             ByronTransactionBody
+	Twit             []cbor.Value
+	twitCbor         []byte // Original CBOR of witnesses for merkle tree computation
+	witnessSet       *ByronTransactionWitnessSet
+	protocolMagic    uint32
+	hasProtocolMagic bool
 }
 
 func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -565,6 +602,78 @@ func (ByronTransaction) Type() int {
 
 func (t *ByronTransaction) Hash() common.Blake2b256 {
 	return t.Id()
+}
+
+// WireId returns the hash of the original transaction-body bytes.
+func (t *ByronTransaction) WireId() common.Blake2b256 {
+	return t.Body.WireId()
+}
+
+// ValidateVKeyWitnesses verifies transaction witnesses using Byron's
+// protocol-magic and constructor-specific signing domains.
+func (t *ByronTransaction) ValidateVKeyWitnesses(protocolMagic uint32) error {
+	for idx, witness := range t.Twit {
+		outer, ok := witness.Value().([]any)
+		if !ok || len(outer) != 2 {
+			return fmt.Errorf("invalid Byron transaction witness %d", idx)
+		}
+		constructor, ok := asUint64(outer[0])
+		if !ok || (constructor != 0 && constructor != 2) {
+			continue
+		}
+		wrapped, ok := outer[1].(cbor.WrappedCbor)
+		if !ok {
+			return fmt.Errorf("invalid Byron transaction witness %d payload", idx)
+		}
+		var fields []any
+		consumed, err := cbor.Decode(wrapped.Bytes(), &fields)
+		if err != nil || consumed != len(wrapped.Bytes()) || len(fields) != 2 {
+			return fmt.Errorf("invalid Byron transaction witness %d fields", idx)
+		}
+		publicKey, ok := asBytes(fields[0])
+		expectedKeySize := ed25519.PublicKeySize
+		if constructor == 0 {
+			expectedKeySize = VerificationKeySize
+		}
+		if !ok || len(publicKey) != expectedKeySize {
+			return fmt.Errorf("invalid Byron transaction witness %d public key", idx)
+		}
+		signature, ok := asBytes(fields[1])
+		if !ok {
+			return fmt.Errorf("invalid Byron transaction witness %d signature", idx)
+		}
+		tag := byte(0x01)
+		if constructor == 2 {
+			tag = 0x02
+		}
+		magic, err := cbor.Encode(protocolMagic)
+		if err != nil {
+			return fmt.Errorf("encode Byron protocol magic: %w", err)
+		}
+		txId := t.Body.WireId()
+		txPayload, err := cbor.Encode(txId[:])
+		if err != nil {
+			return fmt.Errorf("encode Byron transaction signing payload: %w", err)
+		}
+		message := append([]byte{tag}, magic...)
+		message = append(message, txPayload...)
+		if !ed25519byron.Verify(
+			publicKey[:ed25519.PublicKeySize], message, signature,
+		) {
+			return fmt.Errorf("invalid Byron transaction witness %d signature", idx)
+		}
+	}
+	return nil
+}
+
+func (t *ByronTransaction) ValidateByronVKeyWitnesses() error {
+	if len(t.Witnesses().Vkey()) == 0 {
+		return nil
+	}
+	if !t.hasProtocolMagic {
+		return errors.New("byron protocol magic is required to verify transaction witnesses")
+	}
+	return t.ValidateVKeyWitnesses(t.protocolMagic)
 }
 
 func (t *ByronTransaction) Id() common.Blake2b256 {
@@ -801,7 +910,12 @@ func decodeByronWitnessFromConstructor(
 		}
 		pk, okPk := asBytes(fields[0])
 		sig, okSig := asBytes(fields[1])
-		if !okPk || !okSig {
+		expectedKeySize := ed25519.PublicKeySize
+		if ctor == 0 {
+			expectedKeySize = VerificationKeySize
+		}
+		if !okPk || len(pk) != expectedKeySize ||
+			!okSig || len(sig) != ed25519.SignatureSize {
 			return nil, nil, false
 		}
 		return &common.VkeyWitness{Vkey: pk, Signature: sig}, nil, true
@@ -1622,6 +1736,10 @@ func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("decode byron update payload: %w", err)
 	}
 	*b = ByronMainBlock(tmp)
+	for idx := range b.Body.TxPayload {
+		b.Body.TxPayload[idx].protocolMagic = b.BlockHeader.ProtocolMagic
+		b.Body.TxPayload[idx].hasProtocolMagic = true
+	}
 	b.SetCbor(cborData)
 	return nil
 }
@@ -2015,8 +2133,9 @@ func NewByronEpochBoundaryBlockFromCbor(
 	if _, err := cbor.Decode(data, &byronEbbBlock); err != nil {
 		return nil, fmt.Errorf("decode Byron EBB block error: %w", err)
 	}
-	// Bind the body to the header. Without this the header, and so the
-	// block hash, can be genuine while the body has been substituted.
+	// Check the header's body-proof field is a well-formed byte string.
+	// This does not bind the body to the header -- the reference decoder
+	// does not either; see ValidateBodyProof's own doc comment.
 	if !cfg.SkipBodyHashValidation {
 		if err := byronEbbBlock.ValidateBodyProof(); err != nil {
 			return nil, err

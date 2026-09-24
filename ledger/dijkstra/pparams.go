@@ -348,7 +348,7 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 	if paramUpdate.RefScriptCostMultiplier != nil {
 		p.RefScriptCostMultiplier = paramUpdate.RefScriptCostMultiplier
 	}
-	if paramUpdate.MaxPledgeLeverage != nil {
+	if paramUpdate.MaxPledgeLeverageSet || paramUpdate.MaxPledgeLeverage != nil {
 		p.MaxPledgeLeverage = paramUpdate.MaxPledgeLeverage
 	}
 	if paramUpdate.MinPoolMargin != nil {
@@ -381,12 +381,6 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 	if paramUpdate.MaxRefScriptSizePerEndorserBlock != nil {
 		p.MaxRefScriptSizePerEndorserBlock = *paramUpdate.MaxRefScriptSizePerEndorserBlock
 	}
-	if paramUpdate.CommitteeStakeCoverage != nil {
-		p.CommitteeStakeCoverage = paramUpdate.CommitteeStakeCoverage
-	}
-	if paramUpdate.QuorumStakeThreshold != nil {
-		p.QuorumStakeThreshold = paramUpdate.QuorumStakeThreshold
-	}
 }
 
 func (p *DijkstraProtocolParameters) ApplyUpdate(
@@ -394,6 +388,9 @@ func (p *DijkstraProtocolParameters) ApplyUpdate(
 ) error {
 	if paramUpdate == nil {
 		return nil
+	}
+	if err := validateDijkstraProtocolParameterUpdateDomains(paramUpdate); err != nil {
+		return err
 	}
 	committeeStakeCoverage := p.CommitteeStakeCoverage
 	if paramUpdate.CommitteeStakeCoverage != nil {
@@ -486,6 +483,7 @@ type DijkstraProtocolParameterUpdate struct {
 	RefScriptCostStride              *uint32                                   `cbor:"36,keyasint"`
 	RefScriptCostMultiplier          *cbor.Rat                                 `cbor:"37,keyasint"`
 	MaxPledgeLeverage                *cbor.Rat                                 `cbor:"38,keyasint"`
+	MaxPledgeLeverageSet             bool                                      `cbor:"-"`
 	MinPoolMargin                    *cbor.Rat                                 `cbor:"39,keyasint"`
 	LeiosAnnouncementPeriodLength    *uint32                                   `cbor:"40,keyasint"`
 	LeiosVotePeriodLength            *uint32                                   `cbor:"41,keyasint"`
@@ -496,7 +494,8 @@ type DijkstraProtocolParameterUpdate struct {
 	MaxEndorserBlockTxsSize          *uint32                                   `cbor:"46,keyasint"`
 	MaxEndorserBlockExUnits          *common.ExUnits                           `cbor:"47,keyasint"`
 	MaxRefScriptSizePerEndorserBlock *uint32                                   `cbor:"48,keyasint"`
-	// These legacy stake parameters remain local-only prototype settings.
+	// These genesis-only settings are retained for source compatibility with
+	// local Leios prototype configuration. They are not ledger parameters.
 	CommitteeStakeCoverage *cbor.Rat `cbor:"-"`
 	QuorumStakeThreshold   *cbor.Rat `cbor:"-"`
 }
@@ -509,6 +508,50 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	var fields map[int]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	if raw, ok := fields[38]; ok {
+		tmp.MaxPledgeLeverageSet = true
+		if len(raw) == 1 && raw[0] == 0xf7 {
+			return errors.New("maxPledgeLeverage cannot be undefined")
+		}
+	}
+	for _, key := range []int{37, 38, 39, 44} {
+		if raw, ok := fields[key]; ok {
+			if key == 38 && len(raw) == 1 && raw[0] == 0xf6 {
+				continue
+			}
+			if err := common.ValidateNonNegativeBoundedRatCBOR(raw); err != nil {
+				return fmt.Errorf("dijkstra protocol parameter tag %d: %w", key, err)
+			}
+		}
+	}
+	for key, raw := range fields {
+		if key >= 34 && key <= 48 && key != 38 &&
+			(len(raw) == 1 && (raw[0] == 0xf6 || raw[0] == 0xf7)) {
+			return fmt.Errorf("dijkstra protocol parameter tag %d cannot be null or undefined", key)
+		}
+	}
+	for key := range fields {
+		if key > 33 {
+			delete(fields, key)
+		}
+	}
+	inheritedCbor, err := cbor.Encode(fields)
+	if err != nil {
+		return err
+	}
+	var inherited conway.ConwayProtocolParameterUpdate
+	if err := inherited.UnmarshalCBOR(inheritedCbor); err != nil {
+		return err
+	}
+	if err := validateDijkstraProtocolParameterUpdateDomains(
+		(*DijkstraProtocolParameterUpdate)(&tmp),
+	); err != nil {
+		return err
+	}
 	*u = DijkstraProtocolParameterUpdate(tmp)
 	u.SetCbor(cborData)
 	return nil
@@ -519,6 +562,9 @@ func (u DijkstraProtocolParameterUpdate) Cbor() []byte {
 }
 
 func (u DijkstraProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
+	if err := validateLeiosGenesisOnlyParameters(&u); err != nil {
+		return nil, err
+	}
 	if raw := u.Cbor(); len(raw) > 0 {
 		return raw, nil
 	}
@@ -628,7 +674,7 @@ func (u DijkstraProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
 	if u.RefScriptCostMultiplier != nil {
 		fields[37] = u.RefScriptCostMultiplier
 	}
-	if u.MaxPledgeLeverage != nil {
+	if u.MaxPledgeLeverageSet || u.MaxPledgeLeverage != nil {
 		fields[38] = u.MaxPledgeLeverage
 	}
 	if u.MinPoolMargin != nil {
@@ -662,6 +708,19 @@ func (u DijkstraProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
 		fields[48] = *u.MaxRefScriptSizePerEndorserBlock
 	}
 	return cbor.Encode(fields)
+}
+
+func validateLeiosGenesisOnlyParameters(
+	update *DijkstraProtocolParameterUpdate,
+) error {
+	if update != nil && (update.CommitteeStakeCoverage != nil ||
+		update.QuorumStakeThreshold != nil) {
+		return errors.New(
+			"leios committee stake coverage and legacy quorum stake threshold " +
+				"are genesis-only settings, not protocol parameter updates",
+		)
+	}
+	return nil
 }
 
 func (u *DijkstraProtocolParameterUpdate) hasUpdate() bool {
@@ -700,6 +759,7 @@ func (u *DijkstraProtocolParameterUpdate) hasUpdate() bool {
 		u.MaxRefScriptSizePerTx != nil ||
 		u.RefScriptCostStride != nil ||
 		u.RefScriptCostMultiplier != nil ||
+		u.MaxPledgeLeverageSet ||
 		u.MaxPledgeLeverage != nil ||
 		u.MinPoolMargin != nil ||
 		u.LeiosAnnouncementPeriodLength != nil ||
@@ -912,8 +972,15 @@ func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 	if u.RefScriptCostMultiplier != nil {
 		pushRat(37, u.RefScriptCostMultiplier)
 	}
-	if u.MaxPledgeLeverage != nil {
-		pushRat(38, u.MaxPledgeLeverage)
+	if u.MaxPledgeLeverageSet || u.MaxPledgeLeverage != nil {
+		if u.MaxPledgeLeverage == nil {
+			push(38, data.NewConstr(1))
+		} else {
+			push(38, data.NewConstr(0, data.NewList(
+				data.NewInteger(u.MaxPledgeLeverage.Num()),
+				data.NewInteger(u.MaxPledgeLeverage.Denom()),
+			)))
+		}
 	}
 	if u.MinPoolMargin != nil {
 		pushRat(39, u.MinPoolMargin)

@@ -342,7 +342,21 @@ func ValidateCertificateSet(certificates []CertificateWrapper) error {
 func ValidatePoolRegistrationOwners(certificates []CertificateWrapper) error {
 	for index, certificate := range certificates {
 		pool, ok := certificate.Certificate.(*PoolRegistrationCertificate)
-		if !ok {
+		if !ok || len(pool.PoolOwners) < 2 {
+			continue
+		}
+		if len(pool.PoolOwners) <= 8 {
+			for i, owner := range pool.PoolOwners {
+				for _, earlier := range pool.PoolOwners[:i] {
+					if owner == earlier {
+						return fmt.Errorf(
+							"pool registration certificate %d contains duplicate owner %x",
+							index,
+							owner,
+						)
+					}
+				}
+			}
 			continue
 		}
 		seen := make(map[AddrKeyHash]struct{}, len(pool.PoolOwners))
