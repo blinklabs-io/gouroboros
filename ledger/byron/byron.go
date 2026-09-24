@@ -51,11 +51,11 @@ var (
 	// ErrByronSlotNumberOverflow indicates that the absolute slot cannot fit in
 	// a uint64.
 	ErrByronSlotNumberOverflow = errors.New(
-		"Byron absolute slot overflows uint64",
+		"byron absolute slot overflows uint64",
 	)
 	// ErrByronSlotsPerEpochZero indicates invalid epoch-length configuration.
 	ErrByronSlotsPerEpochZero = errors.New(
-		"Byron slots per epoch must be nonzero",
+		"byron slots per epoch must be nonzero",
 	)
 )
 
