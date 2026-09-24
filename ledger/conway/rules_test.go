@@ -3575,7 +3575,12 @@ func TestUtxoValidateUnelectedCommitteeVotersThroughRules(t *testing.T) {
 		wantUnelected          bool
 	}{
 		{
-			name: "PV10 authorized unelected voter", major: 10,
+			name: "PV10 authorized unelected enacted member", major: 10,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			voterHash: hotHash,
+		},
+		{
+			name: "PV10 pending member", major: 10,
 			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
 			voterHash: hotHash, pending: true,
 		},
