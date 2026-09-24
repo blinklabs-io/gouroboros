@@ -743,10 +743,15 @@ func ValidateAuxiliaryDataScriptsWellFormed(
 	if err != nil {
 		return fmt.Errorf("decode auxiliary-data native scripts: %w", err)
 	}
-	if tx.Type() <= 1 {
-		if err := ValidatePreAllegraNativeScripts(nativeScripts); err != nil {
-			return fmt.Errorf("invalid auxiliary-data native script: %w", err)
-		}
+	maxNativeScriptConstructor := uint(5)
+	if tx.Type() >= 7 { // Dijkstra transaction type.
+		maxNativeScriptConstructor = 6
+	}
+	if err := ValidateNativeScriptConstructors(
+		nativeScripts,
+		maxNativeScriptConstructor,
+	); err != nil {
+		return fmt.Errorf("invalid auxiliary-data native script: %w", err)
 	}
 	plutusScripts := make([]Script, 0)
 	v1, err := auxiliaryData.PlutusV1Scripts()

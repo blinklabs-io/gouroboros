@@ -326,6 +326,85 @@ func TestAuxiliaryDataScriptsMustBeWellFormedEvenWhenUnneeded(t *testing.T) {
 	require.ErrorContains(t, err, "malformed auxiliary-data Plutus script")
 }
 
+func TestAuxiliaryDataNativeScriptsRespectEraConstructors(t *testing.T) {
+	nativeScript, err := cbor.Encode([]any{
+		uint64(6),
+		common.Credential{CredType: common.CredentialTypeScriptHash},
+	})
+	require.NoError(t, err)
+	nativeScripts, err := cbor.Encode([]cbor.RawMessage{nativeScript})
+	require.NoError(t, err)
+	auxiliaryFields, err := cbor.Encode(map[uint]cbor.RawMessage{1: nativeScripts})
+	require.NoError(t, err)
+	auxiliaryData, err := cbor.Encode(&cbor.RawTag{
+		Number:  cbor.CborTagMap,
+		Content: auxiliaryFields,
+	})
+	require.NoError(t, err)
+	witnesses, err := cbor.Encode(map[uint]any{})
+	require.NoError(t, err)
+	body, err := cbor.Encode(map[uint]any{
+		0: []any{},
+		1: []any{},
+		2: uint64(0),
+		7: common.Blake2b256Hash(auxiliaryData).Bytes(),
+	})
+	require.NoError(t, err)
+	txCbor, err := cbor.Encode([]cbor.RawMessage{
+		body,
+		witnesses,
+		{0xf5},
+		auxiliaryData,
+	})
+	require.NoError(t, err)
+	var tx alonzo.AlonzoTransaction
+	_, err = cbor.Decode(txCbor, &tx)
+	require.NoError(t, err)
+	rules := common.ComposeUtxoValidationRules(
+		common.AlwaysUtxoValidationRules(alonzo.UtxoValidateMetadata),
+	)
+	err = common.VerifyTransaction(
+		&tx,
+		0,
+		nil,
+		&alonzo.AlonzoProtocolParameters{ProtocolMajor: 8},
+		rules,
+	)
+	require.ErrorContains(t, err, "invalid auxiliary-data native script")
+	require.ErrorContains(t, err, "constructor 6 is not supported")
+}
+
+func TestTransactionRejectsMalformedAuxiliaryScriptsWithMetadata(t *testing.T) {
+	auxiliaryFields, err := cbor.Encode(map[uint]any{
+		0: map[uint]string{674: "metadata"},
+		1: []any{[]any{uint64(99)}},
+	})
+	require.NoError(t, err)
+	auxiliaryData, err := cbor.Encode(&cbor.RawTag{
+		Number:  cbor.CborTagMap,
+		Content: auxiliaryFields,
+	})
+	require.NoError(t, err)
+	body, err := cbor.Encode(map[uint]any{
+		0: []any{},
+		1: []any{},
+		2: uint64(0),
+		7: common.Blake2b256Hash(auxiliaryData).Bytes(),
+	})
+	require.NoError(t, err)
+	witnesses, err := cbor.Encode(map[uint]any{})
+	require.NoError(t, err)
+	txCbor, err := cbor.Encode([]cbor.RawMessage{
+		body,
+		witnesses,
+		{0xf5},
+		auxiliaryData,
+	})
+	require.NoError(t, err)
+	_, err = alonzo.NewAlonzoTransactionFromCbor(txCbor)
+	require.ErrorContains(t, err, "failed to decode auxiliary data")
+}
+
 func TestE2EBabbageTransactionAuxiliaryData(t *testing.T) {
 	// Minimal body
 	bodyMap := make(map[uint]any)
