@@ -1545,12 +1545,47 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 		)
 	})
 
-	t.Run("ratify-expired predecessor remains valid until epoch removal", func(t *testing.T) {
+	t.Run("expired predecessor stays valid until epoch removal", func(t *testing.T) {
+		// Final RATIFY has expired the action, but the live proposal tree
+		// still contains it until the later EPOCH transition.
 		tx := mkProposalsTx(t, mkHfAction(&expiredId, 10, 0))
 		require.NoError(
 			t,
 			conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp),
 		)
+
+		voter := common.Voter{
+			Type: common.VoterTypeDRepKeyHash,
+			Hash: common.Blake2b224{0x24},
+		}
+		vote := mkVoteTx(voter, expiredId, common.GovVoteYes)
+		var expiredErr conway.VotingOnExpiredGovActionError
+		require.ErrorAs(
+			t,
+			conway.UtxoValidateVotingOnExpiredGovAction(vote, 50, base, pp),
+			&expiredErr,
+		)
+	})
+
+	t.Run("removed predecessor is no longer a live ancestor", func(t *testing.T) {
+		// After EPOCH removes the expired action, only the current root remains.
+		afterEpoch := mockledger.NewLedgerStateBuilder().
+			WithGovActions(map[string]*common.GovActionState{
+				govActionKey(rootId): {
+					ActionId:   rootId,
+					ActionType: common.GovActionTypeHardForkInitiation,
+				},
+			}).
+			Build()
+		afterEpochRoots := rootedLedgerState{
+			LedgerState: afterEpoch,
+			roots:       &common.GovPurposeRoots{HardFork: &rootId},
+		}
+		tx := mkProposalsTx(t, mkHfAction(&expiredId, 10, 0))
+		err := conway.UtxoValidateProposalAncestry(tx, 150, afterEpochRoots, pp)
+		var ancErr conway.InvalidGovActionAncestorError
+		require.ErrorAs(t, err, &ancErr)
+		require.Equal(t, expiredId, ancErr.ActionId)
 	})
 
 	t.Run("predecessor in the same transaction", func(t *testing.T) {
