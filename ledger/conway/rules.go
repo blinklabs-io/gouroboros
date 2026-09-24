@@ -1639,13 +1639,15 @@ func validateConwayProtocolParameterIntegerWidths(
 	}{
 		{"maxBlockBodySize", ppu.MaxBlockBodySize},
 		{"maxTxSize", ppu.MaxTxSize},
-		{"maxEpoch", ppu.MaxEpoch},
 		{"maxValueSize", ppu.MaxValueSize},
 	}
 	for _, field := range word32Fields {
 		if field.value != nil && uint64(*field.value) > math.MaxUint32 {
 			return invalidConwayParameterField(field.name, "must fit Word32")
 		}
+	}
+	if ppu.MaxEpoch != nil && *ppu.MaxEpoch > math.MaxUint32 {
+		return invalidConwayParameterField("maxEpoch", "must fit Word32")
 	}
 	word16Fields := []struct {
 		name  string
