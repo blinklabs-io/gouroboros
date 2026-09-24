@@ -49,7 +49,7 @@ func TestConwayParameterUpdateVersionedNonzeroFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pp := &ConwayProtocolParameters{ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: tt.major}}
-			tx := &ConwayTransaction{Body: ConwayTransactionBody{
+			tx := &ConwayTransaction{TxIsValid: true, Body: ConwayTransactionBody{
 				TxProposalProcedures: []ConwayProposalProcedure{{
 					PPGovAction: ConwayGovAction{Action: &ConwayParameterChangeGovAction{ParamUpdate: tt.update}},
 				}},

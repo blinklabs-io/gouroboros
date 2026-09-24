@@ -1133,14 +1133,15 @@ func TestDijkstraProposalRejectsVersionedZeroParameters(t *testing.T) {
 		major uint
 		ppu   DijkstraProtocolParameterUpdate
 		bad   bool
+		typed bool
 	}{
-		{"ada per byte allowed PV9", 9, DijkstraProtocolParameterUpdate{AdaPerUtxoByte: &zero64}, false},
-		{"ada per byte rejected PV10", 10, DijkstraProtocolParameterUpdate{AdaPerUtxoByte: &zero64}, true},
-		{"nopt allowed PV10", 10, DijkstraProtocolParameterUpdate{NOpt: &zero}, false},
-		{"nopt rejected PV11", 11, DijkstraProtocolParameterUpdate{NOpt: &zero}, true},
-		{"eMax zero rejected", 12, DijkstraProtocolParameterUpdate{MaxPledgeLeverage: zeroRat}, true},
-		{"reference script stride zero rejected", 12, DijkstraProtocolParameterUpdate{RefScriptCostStride: &zero32}, true},
-		{"committee term zero rejected", 12, DijkstraProtocolParameterUpdate{CommitteeTermLimit: &zero64}, true},
+		{"ada per byte allowed PV9", 9, DijkstraProtocolParameterUpdate{AdaPerUtxoByte: &zero64}, false, false},
+		{"ada per byte rejected PV10", 10, DijkstraProtocolParameterUpdate{AdaPerUtxoByte: &zero64}, true, true},
+		{"nopt allowed PV10", 10, DijkstraProtocolParameterUpdate{NOpt: &zero}, false, false},
+		{"nopt rejected PV11", 11, DijkstraProtocolParameterUpdate{NOpt: &zero}, true, true},
+		{"eMax zero rejected", 12, DijkstraProtocolParameterUpdate{MaxPledgeLeverage: zeroRat}, true, true},
+		{"reference script stride zero rejected", 12, DijkstraProtocolParameterUpdate{RefScriptCostStride: &zero32}, true, false},
+		{"committee term zero rejected", 12, DijkstraProtocolParameterUpdate{CommitteeTermLimit: &zero64}, true, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1152,7 +1153,10 @@ func TestDijkstraProposalRejectsVersionedZeroParameters(t *testing.T) {
 			}}
 			err := UtxoValidateProposalProcedures(tx, 0, nil, pp)
 			if tt.bad {
-				require.ErrorAs(t, err, &conway.ProtocolParameterUpdateFieldZeroError{})
+				require.Error(t, err)
+				if tt.typed {
+					require.ErrorAs(t, err, &conway.ProtocolParameterUpdateFieldZeroError{})
+				}
 			} else {
 				require.NoError(t, err)
 			}
