@@ -135,7 +135,7 @@ func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(t *testing.T)
 	}
 }
 
-func TestPhase2InvalidUnregisteredStakeDeregistrationRefundsKeyDeposit(t *testing.T) {
+func TestPhase2InvalidUnregisteredStakeDeregistrationDoesNotRefundKeyDeposit(t *testing.T) {
 	const (
 		inputAmount = uint64(100_000_000)
 		keyDeposit  = uint(2_000_000)
@@ -169,21 +169,26 @@ func TestPhase2InvalidUnregisteredStakeDeregistrationRefundsKeyDeposit(t *testin
 		},
 	} {
 		t.Run(validator.name, func(t *testing.T) {
-			output, err := mockledger.NewTransactionOutputBuilder().
-				WithLovelace(inputAmount + uint64(keyDeposit)).Build()
-			require.NoError(t, err)
-			tx, err := mockledger.NewTransactionBuilder().
-				WithCertificates(&common.StakeDeregistrationCertificate{
-					StakeCredential: credential,
-				}).
-				WithInputs(input).
-				WithOutputs(output).
-				WithValid(false).
-				Build()
-			require.NoError(t, err)
+			buildTx := func(outputAmount uint64) common.Transaction {
+				output, err := mockledger.NewTransactionOutputBuilder().
+					WithLovelace(outputAmount).Build()
+				require.NoError(t, err)
+				tx, err := mockledger.NewTransactionBuilder().
+					WithCertificates(&common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					}).
+					WithInputs(input).
+					WithOutputs(output).
+					WithValid(false).
+					Build()
+				require.NoError(t, err)
+				return tx
+			}
+			tx := buildTx(inputAmount)
 			require.False(t, tx.IsValid())
 			require.Len(t, tx.Certificates(), 1)
 			require.NoError(t, validator.call(tx, 0, state, validator.pp))
+			require.Error(t, validator.call(buildTx(inputAmount+uint64(keyDeposit)), 0, state, validator.pp))
 		})
 	}
 }
