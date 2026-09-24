@@ -89,6 +89,52 @@ func TestLegacyStakeRefundUsesRecordedDepositAcrossEras(t *testing.T) {
 	}
 }
 
+func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(t *testing.T) {
+	const inputAmount = uint64(100_000_000)
+	input := shelley.NewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
+	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+	credential.Credential[0] = 0x42
+	output, err := mockledger.NewTransactionOutputBuilder().
+		WithLovelace(inputAmount).Build()
+	require.NoError(t, err)
+	tx, err := mockledger.NewTransactionBuilder().
+		WithCertificates(
+			&common.StakeRegistrationCertificate{StakeCredential: credential},
+			&common.StakeDeregistrationCertificate{StakeCredential: credential},
+		).
+		WithInputs(input).
+		WithOutputs(output).
+		Build()
+	require.NoError(t, err)
+	state := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{{
+			Id: input,
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: inputAmount,
+			},
+		}}).
+		Build()
+	validators := []struct {
+		name string
+		call func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error
+		pp   common.ProtocolParameters
+	}{
+		{"Shelley", shelley.UtxoValidateValueNotConservedUtxo, &shelley.ShelleyProtocolParameters{KeyDeposit: 2_000_000}},
+		{"Allegra", allegra.UtxoValidateValueNotConservedUtxo, &allegra.AllegraProtocolParameters{KeyDeposit: 2_000_000}},
+		{"Mary", mary.UtxoValidateValueNotConservedUtxo, &mary.MaryProtocolParameters{KeyDeposit: 2_000_000}},
+		{"Alonzo", alonzo.UtxoValidateValueNotConservedUtxo, &alonzo.AlonzoProtocolParameters{KeyDeposit: 2_000_000}},
+		{"Babbage", babbage.UtxoValidateValueNotConservedUtxo, &babbage.BabbageProtocolParameters{KeyDeposit: 2_000_000}},
+	}
+	for _, validator := range validators {
+		t.Run(validator.name, func(t *testing.T) {
+			require.NoError(t, validator.call(tx, 0, state, validator.pp))
+		})
+	}
+}
+
 func TestPhase2InvalidUnregisteredStakeDeregistrationRefundsKeyDeposit(t *testing.T) {
 	const (
 		inputAmount = uint64(100_000_000)
