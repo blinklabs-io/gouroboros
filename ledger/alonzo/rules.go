@@ -653,11 +653,15 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 	}
 	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
-	keyForCredential := func(cred common.Credential) string {
-		return string(append([]byte{byte(cred.CredType)}, cred.Credential[:]...))
+	type stakeCredentialKey struct {
+		credType uint
+		hash     string
 	}
-	stakeRegistered := make(map[string]bool)
-	stakeDeposits := make(map[string]uint64)
+	keyForCredential := func(cred common.Credential) stakeCredentialKey {
+		return stakeCredentialKey{credType: cred.CredType, hash: string(cred.Credential[:])}
+	}
+	stakeRegistered := make(map[stakeCredentialKey]bool)
+	stakeDeposits := make(map[stakeCredentialKey]uint64)
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.StakeDeregistrationCertificate:
