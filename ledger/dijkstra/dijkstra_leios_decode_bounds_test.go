@@ -96,7 +96,7 @@ func TestDijkstraBlockBodyRejectsCertifiedBodyWithTransactions(t *testing.T) {
 	require.Equal(t, 1, target.TransactionCount)
 }
 
-// The pre-respin four-element body is rejected before Leios semantics.
+// Legacy body validity encoding is decoded before Leios semantics.
 func TestDijkstraLegacyBlockBodyRejectsCertifiedBodyWithTransactions(
 	t *testing.T,
 ) {
@@ -110,7 +110,9 @@ func TestDijkstraLegacyBlockBodyRejectsCertifiedBodyWithTransactions(
 
 	var decoded DijkstraBlockBody
 	err = decoded.UnmarshalCBOR(legacyCbor)
-	require.ErrorContains(t, err, "expected 3 components")
+	var target *LeiosCertifiedBlockTransactionsError
+	require.ErrorAs(t, err, &target)
+	require.Equal(t, 1, target.TransactionCount)
 }
 
 // An empty transaction list alongside a certificate is the legal certified

@@ -52,9 +52,10 @@ func musashiBlockFixture(t *testing.T) ([]byte, pcommon.Point) {
 	require.NoError(t, err)
 	raw, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
 	require.NoError(t, err)
-	// The captured block uses the pre-respin Dijkstra body. Current consensus
-	// decoding rejects it, but raw callbacks retain the header point so
-	// archive tooling can still inspect the original bytes.
+	// The captured block uses the pre-respin Dijkstra body, which the typed
+	// Dijkstra decoder accepts for deployed-chain compatibility. Conway-tagged
+	// BlockFetch still needs the raw callback because the generic Conway decoder
+	// cannot represent the two-component Dijkstra envelope.
 	var blockParts []cbor.RawMessage
 	_, err = cbor.Decode(raw, &blockParts)
 	require.NoError(t, err)
@@ -67,8 +68,9 @@ func musashiBlockFixture(t *testing.T) ([]byte, pcommon.Point) {
 	if header == nil {
 		t.Fatal("Dijkstra header decoded as nil")
 	}
-	_, err = dijkstra.NewDijkstraBlockFromCbor(raw)
-	require.ErrorContains(t, err, "expected 3 components")
+	dijkstraBlock, err := dijkstra.NewDijkstraBlockFromCbor(raw)
+	require.NoError(t, err)
+	require.Equal(t, header.SlotNumber(), dijkstraBlock.SlotNumber())
 	// Guard the premise of every test below: if the generic Conway decoder
 	// ever learns this layout, these tests stop exercising the gap they were
 	// written for and must be revisited rather than silently passing.

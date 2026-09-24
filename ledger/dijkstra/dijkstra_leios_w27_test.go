@@ -154,22 +154,21 @@ func TestDijkstraPerasCertificateRoundTrip(t *testing.T) {
 	assert.Nil(t, decodedNil.PerasCertificate)
 }
 
-// TestDijkstraDecodeRealMusashiBlock rejects a block captured live from the
+// TestDijkstraDecodeRealMusashiBlock decodes a block captured live from the
 // respun ouroboros-leios prototype-2026w27 "musashi" testnet (network magic
 // 164, fetched over node-to-node from leios-node.play.dev.cardano.org:3001 at
 // slot 566037 / block 28091). It exercises the full Dijkstra wire format
 // against real bytes: the two-element [header, block_body] envelope, the
-// obsolete four-field body, and the 12-field Leios-extended header body. The
-// current consensus decoder rejects the pre-respin body while the historical
-// offset walker still handles it for archive and indexing callers.
+// four-field compatibility body, and the 12-field Leios-extended header body.
 func TestDijkstraDecodeRealMusashiBlock(t *testing.T) {
 	hexData, err := os.ReadFile("testdata/musashi_dijkstra_block.hex")
 	require.NoError(t, err)
 	raw, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
 	require.NoError(t, err)
 
-	_, err = NewDijkstraBlockFromCbor(raw)
-	require.ErrorContains(t, err, "expected 3 components")
+	block, err := NewDijkstraBlockFromCbor(raw)
+	require.NoError(t, err)
+	require.Equal(t, uint64(566037), block.SlotNumber())
 
 	// Two-element [header, block_body] envelope with a four-field body.
 	var top []cbor.RawMessage

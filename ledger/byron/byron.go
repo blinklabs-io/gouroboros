@@ -1137,6 +1137,18 @@ type ByronUpdatePayload struct {
 	Votes     []any
 }
 
+func (p ByronUpdatePayload) MarshalCBOR() ([]byte, error) {
+	proposals := make([]any, len(p.Proposals))
+	for i := range p.Proposals {
+		proposals[i] = &p.Proposals[i]
+	}
+	votes := make(cbor.IndefLengthList, len(p.Votes))
+	for i := range p.Votes {
+		votes[i] = p.Votes[i]
+	}
+	return cbor.Encode([]any{proposals, votes})
+}
+
 func (p *ByronUpdatePayload) UnmarshalCBOR(raw []byte) error {
 	fields, err := cborRawArrayEntries(raw, true)
 	if err != nil || len(fields) != updatePayloadElementCount {
@@ -1380,7 +1392,7 @@ func (b *ByronMainBlockBody) MarshalCBOR() ([]byte, error) {
 		cbor.DecodeStoreCbor
 		TxPayload  cbor.IndefLengthList
 		SscPayload cbor.Value
-		DlgPayload []any
+		DlgPayload cbor.IndefLengthList
 		UpdPayload ByronUpdatePayload
 	}
 	var txPayload cbor.IndefLengthList
@@ -1390,10 +1402,14 @@ func (b *ByronMainBlockBody) MarshalCBOR() ([]byte, error) {
 			txPayload[i] = &b.TxPayload[i]
 		}
 	}
+	dlgPayload := make(cbor.IndefLengthList, len(b.DlgPayload))
+	for i := range b.DlgPayload {
+		dlgPayload[i] = b.DlgPayload[i]
+	}
 	temp := tmpBody{
 		TxPayload:  txPayload,
 		SscPayload: b.SscPayload,
-		DlgPayload: b.DlgPayload,
+		DlgPayload: dlgPayload,
 		UpdPayload: b.UpdPayload,
 	}
 	return cbor.Encode(&temp)
@@ -1699,6 +1715,21 @@ type ByronEpochBoundaryBlock struct {
 	// (Cardano/Chain/Block/Boundary.hs:73-74).
 	Body  [][]byte
 	Extra []any
+}
+
+func (b *ByronEpochBoundaryBlock) MarshalCBOR() ([]byte, error) {
+	if data := b.Cbor(); data != nil {
+		return data, nil
+	}
+	body := make(cbor.IndefLengthList, len(b.Body))
+	for i := range b.Body {
+		body[i] = b.Body[i]
+	}
+	extra := b.Extra
+	if extra == nil {
+		extra = []any{map[uint8][]byte{}}
+	}
+	return cbor.Encode([]any{b.BlockHeader, body, extra})
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {

@@ -1170,6 +1170,10 @@ type TransactionLocation struct {
 	// Index matches the output index within the transaction
 	Outputs []ByteRange
 
+	// SubTransactions contains body, witness, metadata, and output locations
+	// for Dijkstra sub-transactions, in ledger application order.
+	SubTransactions []TransactionLocation
+
 	// Witness set component offsets (Alonzo+ era)
 	// These map content hashes to their locations within the block
 
@@ -1839,9 +1843,125 @@ func extractDijkstraTransactionOffsets(
 			witnessStart,
 			&result.Transactions[i],
 		)
+		extractDijkstraSubTransactionOffsets(
+			bodyBytes,
+			bodyStart,
+			&result.Transactions[i],
+		)
 	}
 
 	return result, nil
+}
+
+// extractDijkstraSubTransactionOffsets records the locations of the nested
+// body, witness set, auxiliary data, and outputs for each Dijkstra
+// sub-transaction. The set may be encoded with CBOR tag 258; offsets always
+// refer to the original block bytes.
+func extractDijkstraSubTransactionOffsets(
+	bodyData []byte,
+	bodyOffset uint32,
+	loc *TransactionLocation,
+) {
+	count, headerSize, indefinite := cborMapInfo(bodyData)
+	if count < 0 && !indefinite {
+		return
+	}
+	bodyDecoder, err := cbor.NewStreamDecoder(bodyData[headerSize:])
+	if err != nil {
+		return
+	}
+	for i := 0; indefinite || i < count; i++ {
+		if indefinite {
+			pos := int(headerSize) + bodyDecoder.Position()
+			if pos >= len(bodyData) || bodyData[pos] == 0xff {
+				return
+			}
+		}
+		var key uint64
+		if _, _, err := bodyDecoder.Decode(&key); err != nil {
+			return
+		}
+		if key != 23 {
+			if _, _, err := bodyDecoder.Skip(); err != nil {
+				return
+			}
+			continue
+		}
+		valueOffset, rawSet, err := bodyDecoder.DecodeRaw(new(cbor.RawMessage))
+		if err != nil {
+			return
+		}
+		setOffset := bodyOffset + uint32(int(headerSize)+valueOffset) // #nosec G115
+		var rawTag cbor.RawTag
+		if _, err := cbor.Decode(rawSet, &rawTag); err == nil {
+			if rawTag.Number != cbor.CborTagSet {
+				return
+			}
+			tagHeaderLength := len(rawSet) - len(rawTag.Content)
+			rawSet = rawTag.Content
+			if tagHeaderLength < 0 {
+				return
+			}
+			setOffset += uint32(tagHeaderLength) // #nosec G115
+		}
+		setCount, setHeaderSize, setIndefinite := cborArrayInfo(rawSet)
+		if setCount < 0 && !setIndefinite {
+			return
+		}
+		var rawSubTxs []cbor.RawMessage
+		if _, err := cbor.Decode(rawSet, &rawSubTxs); err != nil {
+			return
+		}
+		if !setIndefinite && setCount != len(rawSubTxs) {
+			return
+		}
+		setDecoder, err := cbor.NewStreamDecoder(rawSet[setHeaderSize:])
+		if err != nil {
+			return
+		}
+		loc.SubTransactions = make([]TransactionLocation, len(rawSubTxs))
+		for subIdx := range rawSubTxs {
+			subOffset, rawSubTx, err := setDecoder.DecodeRaw(new(cbor.RawMessage))
+			if err != nil {
+				return
+			}
+			subPos := setOffset + uint32(int(setHeaderSize)+subOffset) // #nosec G115
+			var components []cbor.RawMessage
+			if _, err := cbor.Decode(rawSubTx, &components); err != nil || len(components) != 3 {
+				return
+			}
+			subCount, subHeaderSize, subIndefinite := cborArrayInfo(rawSubTx)
+			if subCount < 0 && !subIndefinite {
+				return
+			}
+			subDecoder, err := cbor.NewStreamDecoder(rawSubTx[subHeaderSize:])
+			if err != nil {
+				return
+			}
+			bodyRel, subBody, err := subDecoder.DecodeRaw(new(cbor.RawMessage))
+			if err != nil {
+				return
+			}
+			witnessRel, subWitness, err := subDecoder.DecodeRaw(new(cbor.RawMessage))
+			if err != nil {
+				return
+			}
+			auxRel, subAux, err := subDecoder.DecodeRaw(new(cbor.RawMessage))
+			if err != nil {
+				return
+			}
+			subLoc := &loc.SubTransactions[subIdx]
+			subBodyOffset := subPos + uint32(int(subHeaderSize)+bodyRel)                                                        // #nosec G115
+			subLoc.Body = ByteRange{Offset: subBodyOffset, Length: uint32(len(subBody))}                                        // #nosec G115
+			subLoc.Witness = ByteRange{Offset: subPos + uint32(int(subHeaderSize)+witnessRel), Length: uint32(len(subWitness))} // #nosec G115
+			if len(subAux) != 1 || subAux[0] != 0xf6 {
+				subLoc.Metadata = ByteRange{Offset: subPos + uint32(int(subHeaderSize)+auxRel), Length: uint32(len(subAux))} // #nosec G115
+			}
+			extractOutputOffsets(subBody, subBodyOffset, subLoc)
+			extractWitnessComponentOffsets(subWitness, subLoc.Witness.Offset, subLoc)
+		}
+		return
+	}
 }
 
 // ExtractTransactionOffsets extracts byte offsets for all transactions in a block.

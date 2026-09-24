@@ -234,17 +234,17 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 	},
 	"Dijkstra": {
 		common.UtxoValidateCurrentTreasuryValue,           // UtxoValidationRuleCurrentTreasuryValue
-		conway.UtxoValidateMetadata,                       // UtxoValidationRuleMetadata
+		dijkstra.UtxoValidateMetadata,                     // UtxoValidationRuleMetadata
 		dijkstra.UtxoValidateProposalProcedures,           // UtxoValidationRuleProposalProcedures
-		conway.UtxoValidateGovActionWellFormedness,        // UtxoValidationRuleGovActionWellFormedness
+		dijkstra.UtxoValidateGovActionWellFormedness,      // UtxoValidationRuleGovActionWellFormedness
 		dijkstra.UtxoValidateHardForkCanFollow,            // UtxoValidationRuleHardForkCanFollow
-		conway.UtxoValidateProposalAncestry,               // UtxoValidationRuleProposalAncestry
+		dijkstra.UtxoValidateProposalAncestry,             // UtxoValidationRuleProposalAncestry
 		dijkstra.UtxoValidateProposalDeposit,              // UtxoValidationRuleProposalDeposit
-		conway.UtxoValidateProposalNetworkIds,             // UtxoValidationRuleProposalNetworkIds
-		conway.UtxoValidateProposalReturnAccounts,         // UtxoValidationRuleProposalReturnAccounts
-		conway.UtxoValidateEmptyTreasuryWithdrawals,       // UtxoValidationRuleEmptyTreasuryWithdrawals
+		dijkstra.UtxoValidateProposalNetworkIds,           // UtxoValidationRuleProposalNetworkIds
+		dijkstra.UtxoValidateProposalReturnAccounts,       // UtxoValidationRuleProposalReturnAccounts
+		dijkstra.UtxoValidateEmptyTreasuryWithdrawals,     // UtxoValidationRuleEmptyTreasuryWithdrawals
 		dijkstra.UtxoValidateBootstrapAllowedGovActions,   // UtxoValidationRuleBootstrapAllowedGovActions
-		common.UtxoValidateProposalReturnAddressShape,     // UtxoValidationRuleProposalReturnAddressShape
+		dijkstra.UtxoValidateProposalReturnAddressShape,   // UtxoValidationRuleProposalReturnAddressShape
 		dijkstra.UtxoValidateIsValidFlag,                  // UtxoValidationRuleIsValidFlag
 		dijkstra.UtxoValidateRequiredVKeyWitnesses,        // UtxoValidationRuleRequiredVKeyWitnesses
 		conway.UtxoValidateCollateralVKeyWitnesses,        // UtxoValidationRuleCollateralVKeyWitnesses
@@ -254,8 +254,8 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateScriptDataHash,               // UtxoValidationRuleScriptDataHash
 		conway.UtxoValidateInlineDatumsWithPlutusV1,       // UtxoValidationRuleInlineDatumsWithPlutusV1
 		dijkstra.UtxoValidateConwayFeaturesWithPlutusV1V2, // UtxoValidationRuleConwayFeaturesWithPlutusV1V2
-		conway.UtxoValidateOutsideValidityIntervalUtxo,    // UtxoValidationRuleOutsideValidityInterval
-		conway.UtxoValidateInputSetEmptyUtxo,              // UtxoValidationRuleInputSetEmpty
+		dijkstra.UtxoValidateOutsideValidityIntervalUtxo,  // UtxoValidationRuleOutsideValidityInterval
+		dijkstra.UtxoValidateInputSetEmptyUtxo,            // UtxoValidationRuleInputSetEmpty
 		dijkstra.UtxoValidateNoDuplicateInputs,            // UtxoValidationRuleNoDuplicateInputs
 		dijkstra.UtxoValidateFeeTooSmallUtxo,              // UtxoValidationRuleFeeTooSmall
 		dijkstra.UtxoValidateInsufficientCollateral,       // UtxoValidationRuleInsufficientCollateral
@@ -283,18 +283,18 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateMalformedReferenceScripts,    // UtxoValidationRuleMalformedReferenceScripts
 		dijkstra.UtxoValidatePlutusScripts,                // UtxoValidationRulePlutusScripts
 		dijkstra.UtxoValidateNativeScripts,                // UtxoValidationRuleNativeScripts
-		conway.UtxoValidateDelegation,                     // UtxoValidationRuleDelegation
-		conway.UtxoValidateWithdrawals,                    // UtxoValidationRuleWithdrawals
-		conway.UtxoValidateCertificateDeposits,            // UtxoValidationRuleCertificateDeposits
-		conway.UtxoValidateCommitteeCertificates,          // UtxoValidationRuleCommitteeCertificates
-		conway.UtxoValidateUnknownVoters,                  // UtxoValidationRuleUnknownVoters
-		conway.UtxoValidateUnknownGovActionIds,            // UtxoValidationRuleUnknownGovActionIds
-		conway.UtxoValidateVotingOnExpiredGovAction,       // UtxoValidationRuleVotingOnExpiredGovAction
+		dijkstra.UtxoValidateDelegation,                   // UtxoValidationRuleDelegation
+		dijkstra.UtxoValidateWithdrawals,                  // UtxoValidationRuleWithdrawals
+		dijkstra.UtxoValidateCertificateDeposits,          // UtxoValidationRuleCertificateDeposits
+		dijkstra.UtxoValidateCommitteeCertificates,        // UtxoValidationRuleCommitteeCertificates
+		dijkstra.UtxoValidateUnknownVoters,                // UtxoValidationRuleUnknownVoters
+		dijkstra.UtxoValidateUnknownGovActionIds,          // UtxoValidationRuleUnknownGovActionIds
+		dijkstra.UtxoValidateVotingOnExpiredGovAction,     // UtxoValidationRuleVotingOnExpiredGovAction
 		dijkstra.UtxoValidateBootstrapVotingRestrictions,  // UtxoValidationRuleBootstrapVotingRestrictions
-		conway.UtxoValidateStakePoolVotingRestrictions,    // UtxoValidationRuleStakePoolVotingRestrictions
+		dijkstra.UtxoValidateStakePoolVotingRestrictions,  // UtxoValidationRuleStakePoolVotingRestrictions
 		dijkstra.UtxoValidateCCVotingRestrictions,         // UtxoValidationRuleCCVotingRestrictions
 		dijkstra.UtxoValidateRefScriptSizePerTx,           // UtxoValidationRuleRefScriptSizePerTx
-		conway.UtxoValidatePoolCertificates,               // UtxoValidationRulePoolCertificates
+		dijkstra.UtxoValidatePoolCertificates,             // UtxoValidationRulePoolCertificates
 	},
 }
 

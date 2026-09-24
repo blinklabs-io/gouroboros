@@ -157,19 +157,19 @@ func TestDijkstraWellFormednessPrecedesPlutusExecution(t *testing.T) {
 func TestDijkstraGovernanceValidationRules(t *testing.T) {
 	expected := []string{
 		"ledger/dijkstra.UtxoValidateProposalProcedures",
-		"ledger/conway.UtxoValidateGovActionWellFormedness",
+		"ledger/dijkstra.UtxoValidateGovActionWellFormedness",
 		"ledger/dijkstra.UtxoValidateHardForkCanFollow",
-		"ledger/conway.UtxoValidateProposalAncestry",
+		"ledger/dijkstra.UtxoValidateProposalAncestry",
 		"ledger/dijkstra.UtxoValidateProposalDeposit",
-		"ledger/conway.UtxoValidateProposalNetworkIds",
-		"ledger/conway.UtxoValidateProposalReturnAccounts",
-		"ledger/conway.UtxoValidateEmptyTreasuryWithdrawals",
-		"ledger/conway.UtxoValidateCommitteeCertificates",
-		"ledger/conway.UtxoValidateUnknownVoters",
-		"ledger/conway.UtxoValidateUnknownGovActionIds",
-		"ledger/conway.UtxoValidateVotingOnExpiredGovAction",
+		"ledger/dijkstra.UtxoValidateProposalNetworkIds",
+		"ledger/dijkstra.UtxoValidateProposalReturnAccounts",
+		"ledger/dijkstra.UtxoValidateEmptyTreasuryWithdrawals",
+		"ledger/dijkstra.UtxoValidateCommitteeCertificates",
+		"ledger/dijkstra.UtxoValidateUnknownVoters",
+		"ledger/dijkstra.UtxoValidateUnknownGovActionIds",
+		"ledger/dijkstra.UtxoValidateVotingOnExpiredGovAction",
 		"ledger/dijkstra.UtxoValidateBootstrapVotingRestrictions",
-		"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
+		"ledger/dijkstra.UtxoValidateStakePoolVotingRestrictions",
 		"ledger/dijkstra.UtxoValidateCCVotingRestrictions",
 	}
 
@@ -185,6 +185,227 @@ func TestDijkstraGovernanceValidationRules(t *testing.T) {
 		)
 		previous = idx
 	}
+}
+
+func TestDijkstraGovernanceThreadsChildProposalIds(t *testing.T) {
+	childBody := DijkstraSubTransactionBody{
+		TxProposalProcedures: []DijkstraProposalProcedure{{
+			PPGovAction: DijkstraGovAction{
+				Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+			},
+		}},
+	}
+	childBodyCbor, err := cbor.Encode(&childBody)
+	require.NoError(t, err)
+	childBody.SetCborReference(childBodyCbor)
+	childActionId := common.GovActionId{TransactionId: childBody.Id()}
+	voter := common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224{0x31},
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: childBody,
+			}}, false),
+			TxVotingProcedures: common.VotingProcedures{
+				&voter: {&childActionId: {Vote: common.GovVoteYes}},
+			},
+		},
+		TxIsValid: true,
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+	require.NoError(t, UtxoValidateUnknownGovActionIds(tx, 0, state, nil))
+
+	wrongActionId := common.GovActionId{TransactionId: tx.Body.Id()}
+	tx.Body.TxVotingProcedures = common.VotingProcedures{
+		&voter: {&wrongActionId: {Vote: common.GovVoteYes}},
+	}
+	var unknownErr conway.UnknownGovActionIdError
+	require.ErrorAs(t, UtxoValidateUnknownGovActionIds(tx, 0, state, nil), &unknownErr)
+}
+
+func TestDijkstraGovernanceValidatesChildOnlyProposalAndVote(t *testing.T) {
+	t.Run("malformed proposal", func(t *testing.T) {
+		childBody := DijkstraSubTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPGovAction: DijkstraGovAction{
+					Action: &DijkstraParameterChangeGovAction{},
+				},
+			}},
+		}
+		tx := &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+					Body: childBody,
+				}}, false),
+			},
+			TxIsValid: true,
+		}
+		var target conway.ProtocolParameterUpdateEmptyError
+		require.ErrorAs(t, UtxoValidateProposalProcedures(tx, 0, nil, nil), &target)
+	})
+
+	t.Run("unknown action vote", func(t *testing.T) {
+		voter := common.Voter{
+			Type: common.VoterTypeDRepKeyHash,
+			Hash: common.Blake2b224{0x33},
+		}
+		missingActionId := common.GovActionId{
+			TransactionId: common.Blake2b256{0x34},
+		}
+		childBody := DijkstraSubTransactionBody{
+			TxVotingProcedures: common.VotingProcedures{
+				&voter: {&missingActionId: {Vote: common.GovVoteYes}},
+			},
+		}
+		tx := &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+					Body: childBody,
+				}}, false),
+			},
+			TxIsValid: true,
+		}
+		var target conway.UnknownGovActionIdError
+		require.ErrorAs(
+			t,
+			UtxoValidateUnknownGovActionIds(tx, 0, mockledger.NewLedgerStateBuilder().Build(), nil),
+			&target,
+		)
+	})
+}
+
+func TestDijkstraGovernanceChildCanVoteOnOwnProposal(t *testing.T) {
+	childBody := DijkstraSubTransactionBody{
+		TxProposalProcedures: []DijkstraProposalProcedure{{
+			PPGovAction: DijkstraGovAction{
+				Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+			},
+		}},
+	}
+	childBodyCbor, err := cbor.Encode(&childBody)
+	require.NoError(t, err)
+	childBody.SetCborReference(childBodyCbor)
+	childActionId := common.GovActionId{TransactionId: childBody.Id()}
+	voter := common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224{0x35},
+	}
+	childBody.TxVotingProcedures = common.VotingProcedures{
+		&voter: {&childActionId: {Vote: common.GovVoteYes}},
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: childBody,
+			}}, false),
+		},
+		TxIsValid: true,
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+	require.NoError(t, UtxoValidateUnknownGovActionIds(tx, 0, state, nil))
+}
+
+func TestDijkstraProposalAncestryThreadsPriorChildProposal(t *testing.T) {
+	firstAction := &DijkstraParameterChangeGovAction{}
+	firstBody := DijkstraSubTransactionBody{
+		TxProposalProcedures: []DijkstraProposalProcedure{{
+			PPGovAction: DijkstraGovAction{Action: firstAction},
+		}},
+	}
+	firstBodyCbor, err := cbor.Encode(&firstBody)
+	require.NoError(t, err)
+	firstBody.SetCborReference(firstBodyCbor)
+	firstActionId := common.GovActionId{TransactionId: firstBody.Id()}
+	secondBody := DijkstraSubTransactionBody{
+		TxProposalProcedures: []DijkstraProposalProcedure{{
+			PPGovAction: DijkstraGovAction{Action: &DijkstraParameterChangeGovAction{
+				ActionId: &firstActionId,
+			}},
+		}},
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{
+				{Body: firstBody},
+				{Body: secondBody},
+			}, false),
+		},
+		TxIsValid: true,
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+	require.NoError(t, UtxoValidateProposalAncestry(tx, 0, state, nil))
+}
+
+func TestDijkstraGovernanceThreadsPriorChildCertificates(t *testing.T) {
+	drepCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x32},
+	}
+	childBody := DijkstraSubTransactionBody{
+		TxCertificates: []common.CertificateWrapper{{
+			Type: uint(common.CertificateTypeRegistrationDrep),
+			Certificate: &common.RegistrationDrepCertificate{
+				CertType:       uint(common.CertificateTypeRegistrationDrep),
+				DrepCredential: drepCredential,
+				Amount:         500,
+			},
+		}},
+	}
+	voter := common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: drepCredential.Credential,
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: childBody,
+			}}, false),
+			TxVotingProcedures: common.VotingProcedures{&voter: {}},
+		},
+		TxIsValid: true,
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+	require.NoError(t, UtxoValidateUnknownVoters(tx, 0, state, nil))
+}
+
+func TestDijkstraBadInputsResolvesEarlierChildOutput(t *testing.T) {
+	initialInput := shelley.NewShelleyTransactionInput(strings.Repeat("43", 32), 0)
+	output, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress(testAccountAddress(t).String()).
+		WithLovelace(2_000_000).
+		Build()
+	require.NoError(t, err)
+	firstBody := DijkstraSubTransactionBody{
+		TxInputs: conway.NewConwayTransactionInputSet(
+			[]shelley.ShelleyTransactionInput{initialInput},
+		),
+		TxOutputs: []DijkstraTransactionOutput{{Output: output}},
+	}
+	firstBodyCbor, err := cbor.Encode(&firstBody)
+	require.NoError(t, err)
+	firstBody.SetCborReference(firstBodyCbor)
+	secondInput := shelley.NewShelleyTransactionInput(firstBody.Id().String(), 0)
+	secondBody := DijkstraSubTransactionBody{
+		TxInputs: conway.NewConwayTransactionInputSet(
+			[]shelley.ShelleyTransactionInput{secondInput},
+		),
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{
+				{Body: firstBody},
+				{Body: secondBody},
+			}, false),
+		},
+		TxIsValid: true,
+	}
+	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{{
+		Id:     initialInput,
+		Output: output,
+	}}).Build()
+	require.NoError(t, UtxoValidateBadInputsUtxo(tx, 0, state, nil))
 }
 
 func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
@@ -205,7 +426,7 @@ func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
 
 	rule, _ := dijkstraValidationRule(
 		t,
-		"ledger/conway.UtxoValidateDelegation",
+		"ledger/dijkstra.UtxoValidateDelegation",
 	)
 	validTx := &DijkstraTransaction{
 		Body:      DijkstraTransactionBody{TxCertificates: certificates},
@@ -369,7 +590,7 @@ func TestDijkstraPhase2InvalidStillChecksCollateral(t *testing.T) {
 func TestDijkstraPhase2InvalidChecksProposalReturnAddressShape(t *testing.T) {
 	rule, _ := dijkstraValidationRule(
 		t,
-		"ledger/common.UtxoValidateProposalReturnAddressShape",
+		"ledger/dijkstra.UtxoValidateProposalReturnAddressShape",
 	)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
@@ -445,7 +666,7 @@ func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
 		Build()
 	rule, _ := dijkstraValidationRule(
 		t,
-		"ledger/conway.UtxoValidateGovActionWellFormedness",
+		"ledger/dijkstra.UtxoValidateGovActionWellFormedness",
 	)
 
 	validate := func(tx common.Transaction) error {
@@ -716,7 +937,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
-			"ledger/conway.UtxoValidateProposalAncestry",
+			"ledger/dijkstra.UtxoValidateProposalAncestry",
 		)
 		err := rule(tx, 0, ls, pp)
 		var ancestryErr conway.InvalidGovActionAncestorError
@@ -755,7 +976,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
-			"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
+			"ledger/dijkstra.UtxoValidateStakePoolVotingRestrictions",
 		)
 		err = rule(tx, 0, ls, pp)
 		var votingErr conway.StakePoolVotingRestrictionError
@@ -794,7 +1015,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
-			"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
+			"ledger/dijkstra.UtxoValidateStakePoolVotingRestrictions",
 		)
 		require.NoError(t, rule(tx, 0, ls, pp))
 	})
@@ -915,6 +1136,15 @@ func TestUtxoValidateWithdrawalsDijkstraAmountModes(t *testing.T) {
 	const balance = uint64(1_000_000)
 	pp := &DijkstraProtocolParameters{}
 	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	validateBatchWithdrawals := func(
+		tx *DijkstraTransaction,
+		ls common.LedgerState,
+	) error {
+		if err := UtxoValidateBatchWithdrawals(tx, 0, ls, pp); err != nil {
+			return err
+		}
+		return UtxoValidateAccountBalanceIntervals(tx, 0, ls, pp)
+	}
 
 	for _, tc := range []struct {
 		name                 string
@@ -993,7 +1223,7 @@ func TestUtxoValidateWithdrawalsDijkstraAmountModes(t *testing.T) {
 				WithRewardAccountCredentialBalance(credential, balance).
 				Build()
 
-			err := conway.UtxoValidateWithdrawals(tx, 0, ls, pp)
+			err := validateBatchWithdrawals(tx, ls)
 			if tc.partialAllowed {
 				require.NoError(t, err)
 			} else {
@@ -1004,19 +1234,185 @@ func TestUtxoValidateWithdrawalsDijkstraAmountModes(t *testing.T) {
 			for rewardAddr := range tx.Body.TxWithdrawals {
 				tx.Body.TxWithdrawals[rewardAddr] = balance + 1
 			}
-			var target shelley.IncorrectWithdrawalAmountError
-			require.ErrorAs(
-				t,
-				conway.UtxoValidateWithdrawals(tx, 0, ls, pp),
-				&target,
-			)
+			err = validateBatchWithdrawals(tx, ls)
+			if tc.partialAllowed {
+				var target WithdrawalsExceedAccountBalanceError
+				require.ErrorAs(t, err, &target)
+			} else {
+				var target shelley.IncorrectWithdrawalAmountError
+				require.ErrorAs(t, err, &target)
+			}
 
 			for rewardAddr := range tx.Body.TxWithdrawals {
 				tx.Body.TxWithdrawals[rewardAddr] = balance
 			}
-			require.NoError(t, conway.UtxoValidateWithdrawals(tx, 0, ls, pp))
+			require.NoError(t, validateBatchWithdrawals(tx, ls))
 		})
 	}
+}
+
+func TestUtxoValidateWithdrawalsUsesEvolvingSubTransactionBalance(t *testing.T) {
+	const balance = uint64(100)
+	tx, credential := testDijkstraWithdrawalTx(
+		t,
+		60,
+		common.PlutusV1Script{0x41, 0x00},
+	)
+	var rewardAddress *common.Address
+	for address := range tx.Body.TxWithdrawals {
+		rewardAddress = address
+	}
+	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{{
+		Body: DijkstraSubTransactionBody{
+			TxWithdrawals: map[*common.Address]uint64{
+				rewardAddress: 40,
+			},
+		},
+	}}, false)
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	ls := mockledger.NewLedgerStateBuilder().
+		WithRewardAccountCredentialBalance(credential, balance).
+		Build()
+
+	require.NoError(t, UtxoValidateBatchWithdrawals(tx, 0, ls, pp))
+	require.NoError(t, UtxoValidateAccountBalanceIntervals(tx, 0, ls, pp))
+
+	tx.Body.TxWithdrawals[rewardAddress] = 59
+	var amountErr shelley.IncorrectWithdrawalAmountError
+	// The top-level exact-drain mismatch is checked against the account overlay
+	// after the child withdrawal has been applied.
+	require.ErrorAs(t, UtxoValidateAccountBalanceIntervals(tx, 0, ls, pp), &amountErr)
+	require.Equal(t, uint64(60), amountErr.Balance)
+}
+
+func TestUtxoValidateLegacyTopLevelWithdrawalSeesChildRegistrationAndDeposit(t *testing.T) {
+	tx, credential := testDijkstraWithdrawalTx(
+		t,
+		100,
+		common.PlutusV1Script{0x41, 0x00},
+	)
+	var rewardAddress *common.Address
+	for address := range tx.Body.TxWithdrawals {
+		rewardAddress = address
+	}
+	depositKey := cbor.NewByteString(mustAddressBytes(t, rewardAddress))
+	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{
+		{Body: DijkstraSubTransactionBody{
+			TxCertificates: []common.CertificateWrapper{{
+				Type: uint(common.CertificateTypeStakeRegistration),
+				Certificate: &common.StakeRegistrationCertificate{
+					CertType:        uint(common.CertificateTypeStakeRegistration),
+					StakeCredential: credential,
+				},
+			}},
+		}},
+		{Body: DijkstraSubTransactionBody{
+			TxDirectDeposits: DijkstraDirectDeposits{depositKey: 100},
+		}},
+	}, false)
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	ls := mockledger.NewLedgerStateBuilder().Build()
+
+	require.NoError(t, UtxoValidateBatchWithdrawals(tx, 0, ls, pp))
+	require.NoError(t, UtxoValidateAccountBalanceIntervals(tx, 0, ls, pp))
+}
+
+func TestUtxoValidateTransactionNetworkIdChecksSubTransactions(t *testing.T) {
+	networkID := uint8(1)
+	tx := DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{TxNetworkId: &networkID},
+			}}, false),
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	var networkErr conway.WrongTransactionNetworkIdError
+	require.ErrorAs(
+		t,
+		UtxoValidateTransactionNetworkId(&tx, 0, ls, &DijkstraProtocolParameters{}),
+		&networkErr,
+	)
+}
+
+func TestUtxoValidateBadInputsChecksSubTransactionInputs(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(strings.Repeat("33", 32), 4)
+	tx := DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{input},
+					),
+				},
+			}}, false),
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	var badInputs shelley.BadInputsUtxoError
+	require.ErrorAs(
+		t,
+		UtxoValidateBadInputsUtxo(&tx, 0, ls, &DijkstraProtocolParameters{}),
+		&badInputs,
+	)
+	require.Equal(t, input.String(), badInputs.Inputs[0].String())
+}
+
+func TestUtxoValidateBadInputsChecksSubTransactionReferenceInputs(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(strings.Repeat("33", 32), 4)
+	tx := DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{
+					TxReferenceInputs: cbor.NewSetType(
+						[]shelley.ShelleyTransactionInput{input}, false,
+					),
+				},
+			}}, false),
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	var referenceErr common.ReferenceInputResolutionError
+	require.ErrorAs(
+		t,
+		UtxoValidateBadInputsUtxo(&tx, 0, ls, &DijkstraProtocolParameters{}),
+		&referenceErr,
+	)
+	require.Equal(t, input.String(), referenceErr.Input.String())
+}
+
+func TestUtxoValidateBadInputsTracksSubTransactionConsumption(t *testing.T) {
+	input, utxo := dijkstraDepositInput(1)
+	tx := DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{
+				{Body: DijkstraSubTransactionBody{
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{input},
+					),
+				}},
+				{Body: DijkstraSubTransactionBody{
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{input},
+					),
+				}},
+			}, false),
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	var badInputs shelley.BadInputsUtxoError
+	require.ErrorAs(
+		t,
+		UtxoValidateBadInputsUtxo(&tx, 0, ls, &DijkstraProtocolParameters{}),
+		&badInputs,
+	)
+	require.Equal(t, input.String(), badInputs.Inputs[0].String())
 }
 
 func TestDijkstraWrongNetworkWithdrawalPhase2Gate(t *testing.T) {
@@ -1090,6 +1486,99 @@ func TestDijkstraDelegationInheritsDRepDeregistrationTombstone(t *testing.T) {
 		t,
 		descriptor.Validator(tx, 0, state, &DijkstraProtocolParameters{}),
 		&conway.DelegateVoteToUnregisteredDRepError{},
+	)
+}
+
+func TestDijkstraDelegationThreadsChildCertificates(t *testing.T) {
+	drep := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: common.Blake2b224Hash([]byte("dijkstra-child-drep-tombstone")),
+	}
+	drepDeposit := uint64(500_000_000)
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("dijkstra-child-drep-stake")),
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithDRepRegistrations([]common.DRepRegistration{{
+			Credential: drep,
+			Deposit:    &drepDeposit,
+		}}).
+		WithStakeCredentialRegistered(stake.Credential, true).
+		Build()
+	firstBody := DijkstraSubTransactionBody{
+		TxCertificates: []common.CertificateWrapper{{
+			Certificate: &common.DeregistrationDrepCertificate{
+				DrepCredential: drep,
+				Amount:         int64(drepDeposit),
+			},
+		}},
+	}
+	secondBody := DijkstraSubTransactionBody{
+		TxCertificates: []common.CertificateWrapper{{
+			Certificate: &common.VoteDelegationCertificate{
+				StakeCredential: stake,
+				Drep: common.Drep{
+					Type:       common.DrepTypeScriptHash,
+					Credential: drep.Credential.Bytes(),
+				},
+			},
+		}},
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{
+				{Body: firstBody},
+				{Body: secondBody},
+			}, false),
+		},
+		TxIsValid: true,
+	}
+	var target conway.DelegateVoteToUnregisteredDRepError
+	require.ErrorAs(
+		t,
+		UtxoValidateDelegation(tx, 0, state, &DijkstraProtocolParameters{}),
+		&target,
+	)
+}
+
+func TestDijkstraCertificateDepositsCoversSubTransactions(t *testing.T) {
+	drep := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x36},
+	}
+	childBody := DijkstraSubTransactionBody{
+		TxCertificates: []common.CertificateWrapper{{
+			Certificate: &common.RegistrationDrepCertificate{
+				CertType:       uint(common.CertificateTypeRegistrationDrep),
+				DrepCredential: drep,
+				Amount:         99,
+			},
+		}},
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: childBody,
+			}}, false),
+		},
+		TxIsValid: true,
+	}
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			DRepDeposit: 100,
+		},
+	}
+	var target conway.CertificateDepositIncorrectError
+	require.ErrorAs(
+		t,
+		UtxoValidateCertificateDeposits(
+			tx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			pp,
+		),
+		&target,
 	)
 }
 

@@ -281,20 +281,64 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &items); err != nil {
 		return err
 	}
-	if len(items) != 3 {
+	if len(items) != 3 && len(items) != 4 {
 		return fmt.Errorf(
-			"invalid Dijkstra block body: expected 3 components, got %d",
+			"invalid Dijkstra block body: expected 3 or 4 components, got %d",
 			len(items),
 		)
 	}
-	// items[0]: transactions [* block_transaction]
+	legacyValidity := len(items) == 4
+	txOffset := 0
+	var invalidTransactions []uint
+	if legacyValidity {
+		// Earlier Dijkstra testnet blocks stored invalid transaction indices
+		// separately and omitted the per-transaction validity field. Preserve
+		// support for those already-produced blocks while the current CDDL uses
+		// an inline validity flag.
+		txOffset = 1
+		if !isCborNull(items[0]) {
+			var invalidSet cbor.SetType[uint]
+			if _, err := cbor.Decode(items[0], &invalidSet); err != nil {
+				return fmt.Errorf("decode legacy invalid transaction set: %w", err)
+			}
+			if err := invalidSet.CheckForDuplicatesAlways(); err != nil {
+				return fmt.Errorf("invalid legacy transaction set: %w", err)
+			}
+			invalidTransactions = invalidSet.Items()
+		}
+	}
+	// items[txOffset]: transactions [* block_transaction]
 	var rawTxs []cbor.RawMessage
-	if _, err := cbor.Decode(items[0], &rawTxs); err != nil {
+	if _, err := cbor.Decode(items[txOffset], &rawTxs); err != nil {
 		return fmt.Errorf("decode Dijkstra transactions: %w", err)
 	}
 	txs := make([]DijkstraTransaction, len(rawTxs))
+	invalidIndexes := make(map[uint]struct{}, len(invalidTransactions))
+	for _, idx := range invalidTransactions {
+		if idx >= uint(len(rawTxs)) {
+			return fmt.Errorf("legacy invalid transaction index %d exceeds transaction count %d", idx, len(rawTxs))
+		}
+		invalidIndexes[idx] = struct{}{}
+	}
 	for idx, rawTx := range rawTxs {
-		tx, err := newDijkstraBlockTransactionFromCbor(rawTx)
+		var tx *DijkstraTransaction
+		var err error
+		if legacyValidity {
+			var legacyParts []cbor.RawMessage
+			if _, err := cbor.Decode(rawTx, &legacyParts); err != nil {
+				return fmt.Errorf("decode legacy Dijkstra transaction %d: %w", idx, err)
+			}
+			if len(legacyParts) != 3 {
+				return fmt.Errorf("legacy Dijkstra transaction %d has %d components, expected 3", idx, len(legacyParts))
+			}
+			tx, err = newDijkstraTransactionFromCbor(rawTx, true)
+			if err == nil {
+				_, isInvalid := invalidIndexes[uint(idx)]
+				tx.TxIsValid = !isInvalid
+			}
+		} else {
+			tx, err = newDijkstraBlockTransactionFromCbor(rawTx)
+		}
 		if err != nil {
 			return fmt.Errorf("decode Dijkstra transaction %d: %w", idx, err)
 		}
@@ -303,13 +347,14 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		}
 		txs[idx] = *tx
 	}
-	// items[1]: leios_certificate.
-	leiosCert, err := decodeDijkstraLeiosCertificate(items[1])
+	// Current bodies store [transactions, leios_certificate, peras_certificate];
+	// the legacy form prefixes invalid_transactions.
+	leiosCert, err := decodeDijkstraLeiosCertificate(items[txOffset+1])
 	if err != nil {
 		return err
 	}
 	// items[2]: peras_certificate.
-	perasCert, err := decodeDijkstraPerasCertificate(items[2])
+	perasCert, err := decodeDijkstraPerasCertificate(items[txOffset+2])
 	if err != nil {
 		return err
 	}
@@ -319,7 +364,7 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	b.Transactions = txs
-	b.InvalidTransactions = nil
+	b.InvalidTransactions = invalidTransactions
 	b.LeiosCertificate = leiosCert
 	b.PerasCertificate = perasCert
 	b.SetCbor(cborData)
@@ -1650,6 +1695,10 @@ func (b *DijkstraSubTransactionBody) ValidityIntervalStart() uint64 {
 	return b.TxValidityIntervalStart
 }
 
+func (b *DijkstraSubTransactionBody) NetworkId() *uint8 {
+	return b.TxNetworkId
+}
+
 func (b *DijkstraSubTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return 0, nil
 }
@@ -2051,7 +2100,15 @@ func (t DijkstraTransaction) IsValid() bool {
 
 func (t DijkstraTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
-		return t.Inputs()
+		ret := make(
+			[]common.TransactionInput,
+			0,
+			len(t.Inputs()),
+		)
+		for _, body := range t.SubTransactionBodies() {
+			ret = append(ret, body.Inputs()...)
+		}
+		return append(ret, t.Inputs()...)
 	}
 	return t.Collateral()
 }
@@ -2059,7 +2116,19 @@ func (t DijkstraTransaction) Consumed() []common.TransactionInput {
 func (t DijkstraTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		outputs := t.Outputs()
+		subTxs := t.Body.TxSubTransactions.Items()
 		ret := make([]common.Utxo, 0, len(outputs))
+		for _, subTx := range subTxs {
+			for idx, output := range subTx.Body.Outputs() {
+				ret = append(ret, common.Utxo{
+					Id: shelley.NewShelleyTransactionInput(
+						subTx.Body.Id().String(),
+						idx,
+					),
+					Output: output,
+				})
+			}
+		}
 		for idx, output := range outputs {
 			ret = append(
 				ret,

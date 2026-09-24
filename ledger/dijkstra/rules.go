@@ -45,7 +45,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleMetadata,
-		Validator: conway.UtxoValidateMetadata,
+		Validator: UtxoValidateMetadata,
 	},
 	{
 		Id:        common.UtxoValidationRuleProposalProcedures,
@@ -53,7 +53,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleGovActionWellFormedness,
-		Validator: conway.UtxoValidateGovActionWellFormedness,
+		Validator: UtxoValidateGovActionWellFormedness,
 	},
 	{
 		Id:        common.UtxoValidationRuleHardForkCanFollow,
@@ -61,7 +61,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleProposalAncestry,
-		Validator: conway.UtxoValidateProposalAncestry,
+		Validator: UtxoValidateProposalAncestry,
 	},
 	{
 		Id:        common.UtxoValidationRuleProposalDeposit,
@@ -69,15 +69,15 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleProposalNetworkIds,
-		Validator: conway.UtxoValidateProposalNetworkIds,
+		Validator: UtxoValidateProposalNetworkIds,
 	},
 	{
 		Id:        common.UtxoValidationRuleProposalReturnAccounts,
-		Validator: conway.UtxoValidateProposalReturnAccounts,
+		Validator: UtxoValidateProposalReturnAccounts,
 	},
 	{
 		Id:        common.UtxoValidationRuleEmptyTreasuryWithdrawals,
-		Validator: conway.UtxoValidateEmptyTreasuryWithdrawals,
+		Validator: UtxoValidateEmptyTreasuryWithdrawals,
 	},
 	{
 		Id:        common.UtxoValidationRuleBootstrapAllowedGovActions,
@@ -85,7 +85,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleProposalReturnAddressShape,
-		Validator: common.UtxoValidateProposalReturnAddressShape,
+		Validator: UtxoValidateProposalReturnAddressShape,
 	},
 	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
@@ -125,11 +125,11 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleOutsideValidityInterval,
-		Validator: conway.UtxoValidateOutsideValidityIntervalUtxo,
+		Validator: UtxoValidateOutsideValidityIntervalUtxo,
 	},
 	{
 		Id:        common.UtxoValidationRuleInputSetEmpty,
-		Validator: conway.UtxoValidateInputSetEmptyUtxo,
+		Validator: UtxoValidateInputSetEmptyUtxo,
 	},
 	{
 		Id:        common.UtxoValidationRuleNoDuplicateInputs,
@@ -241,31 +241,31 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleDelegation,
-		Validator: conway.UtxoValidateDelegation,
+		Validator: UtxoValidateDelegation,
 	},
 	{
 		Id:        common.UtxoValidationRuleWithdrawals,
-		Validator: conway.UtxoValidateWithdrawals,
+		Validator: UtxoValidateWithdrawals,
 	},
 	{
 		Id:        common.UtxoValidationRuleCertificateDeposits,
-		Validator: conway.UtxoValidateCertificateDeposits,
+		Validator: UtxoValidateCertificateDeposits,
 	},
 	{
 		Id:        common.UtxoValidationRuleCommitteeCertificates,
-		Validator: conway.UtxoValidateCommitteeCertificates,
+		Validator: UtxoValidateCommitteeCertificates,
 	},
 	{
 		Id:        common.UtxoValidationRuleUnknownVoters,
-		Validator: conway.UtxoValidateUnknownVoters,
+		Validator: UtxoValidateUnknownVoters,
 	},
 	{
 		Id:        common.UtxoValidationRuleUnknownGovActionIds,
-		Validator: conway.UtxoValidateUnknownGovActionIds,
+		Validator: UtxoValidateUnknownGovActionIds,
 	},
 	{
 		Id:        common.UtxoValidationRuleVotingOnExpiredGovAction,
-		Validator: conway.UtxoValidateVotingOnExpiredGovAction,
+		Validator: UtxoValidateVotingOnExpiredGovAction,
 	},
 	{
 		Id:        common.UtxoValidationRuleBootstrapVotingRestrictions,
@@ -273,7 +273,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleStakePoolVotingRestrictions,
-		Validator: conway.UtxoValidateStakePoolVotingRestrictions,
+		Validator: UtxoValidateStakePoolVotingRestrictions,
 	},
 	{
 		Id:        common.UtxoValidationRuleCCVotingRestrictions,
@@ -285,7 +285,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRulePoolCertificates,
-		Validator: conway.UtxoValidatePoolCertificates,
+		Validator: UtxoValidatePoolCertificates,
 	},
 }
 
@@ -455,22 +455,274 @@ func UtxoValidateProposalProcedures(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	for _, proposal := range tx.ProposalProcedures() {
-		govAction := proposal.GovAction()
-		if isNilGovAction(govAction) {
-			continue
+	return dijkstraValidateGovernanceLevels(tx, slot, ls, pp, func(
+		level common.Transaction,
+		_ uint64,
+		_ common.LedgerState,
+		_ common.ProtocolParameters,
+	) error {
+		for _, proposal := range level.ProposalProcedures() {
+			govAction := proposal.GovAction()
+			if isNilGovAction(govAction) {
+				continue
+			}
+			paramChangeAction, ok := govAction.(*DijkstraParameterChangeGovAction)
+			if !ok {
+				continue
+			}
+			if err := validateDijkstraProtocolParameterUpdate(
+				&paramChangeAction.ParamUpdate,
+			); err != nil {
+				return err
+			}
 		}
-		paramChangeAction, ok := govAction.(*DijkstraParameterChangeGovAction)
-		if !ok {
-			continue
+		return nil
+	})
+}
+
+type dijkstraGovLevelTransaction struct {
+	common.Transaction
+	certificates []common.Certificate
+}
+
+func (t dijkstraGovLevelTransaction) Certificates() []common.Certificate {
+	return t.certificates
+}
+
+type dijkstraGovLedgerState struct {
+	common.LedgerState
+	proposals map[common.GovActionId]*common.GovActionState
+}
+
+func (s *dijkstraGovLedgerState) GovActionExists(
+	id common.GovActionId,
+) bool {
+	if _, ok := s.proposals[id]; ok {
+		return true
+	}
+	if s.LedgerState == nil {
+		return false
+	}
+	return s.LedgerState.GovActionExists(id)
+}
+
+func (s *dijkstraGovLedgerState) GovActionById(
+	id common.GovActionId,
+) (*common.GovActionState, error) {
+	if proposal, ok := s.proposals[id]; ok {
+		return proposal, nil
+	}
+	if s.LedgerState == nil {
+		return nil, nil
+	}
+	return s.LedgerState.GovActionById(id)
+}
+
+func (s *dijkstraGovLedgerState) GovPurposeRoots() (
+	*common.GovPurposeRoots,
+	error,
+) {
+	if roots, ok := common.UnwrapLedgerState(s.LedgerState).(common.GovPurposeRootsState); ok {
+		return roots.GovPurposeRoots()
+	}
+	return nil, nil
+}
+
+// dijkstraValidateGovernanceLevels runs a governance predicate in ledger
+// order. Each later level sees proposals and certificate effects from earlier
+// levels, while the current level retains its own body hash for proposal IDs.
+func dijkstraValidateGovernanceLevels(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+	validate func(
+		common.Transaction,
+		uint64,
+		common.LedgerState,
+		common.ProtocolParameters,
+	) error,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return validate(tx, slot, ls, pp)
+	}
+	govState := &dijkstraGovLedgerState{
+		LedgerState: ls,
+		proposals:   make(map[common.GovActionId]*common.GovActionState),
+	}
+	var state common.LedgerState = govState
+	var certificates []common.Certificate
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		certificates = append(certificates, level.Certificates()...)
+		levelTx := dijkstraGovLevelTransaction{
+			Transaction:  level,
+			certificates: slices.Clone(certificates),
 		}
-		if err := validateDijkstraProtocolParameterUpdate(
-			&paramChangeAction.ParamUpdate,
-		); err != nil {
+		if err := validate(levelTx, slot, state, pp); err != nil {
 			return err
+		}
+		if !dijkstraTx.IsValid() {
+			continue
+		}
+		for idx, proposal := range level.ProposalProcedures() {
+			if idx < 0 || int64(idx) > int64(math.MaxUint32) {
+				break
+			}
+			action := proposal.GovAction()
+			if isNilGovAction(action) {
+				continue
+			}
+			actionType, ok := dijkstraGovActionType(action)
+			if !ok {
+				continue
+			}
+			id := common.GovActionId{
+				TransactionId: level.Hash(),
+				GovActionIdx:  uint32(idx), // #nosec G115 -- bounded above
+			}
+			govState.proposals[id] = &common.GovActionState{
+				ActionId:   id,
+				ActionType: actionType,
+				ExpirySlot: math.MaxUint64,
+				Action:     action,
+			}
 		}
 	}
 	return nil
+}
+
+func dijkstraGovActionType(
+	action common.GovAction,
+) (common.GovActionType, bool) {
+	switch action.(type) {
+	case common.ParameterChangeGovAction, *DijkstraParameterChangeGovAction:
+		return common.GovActionTypeParameterChange, true
+	case *common.HardForkInitiationGovAction:
+		return common.GovActionTypeHardForkInitiation, true
+	case *common.TreasuryWithdrawalGovAction:
+		return common.GovActionTypeTreasuryWithdrawal, true
+	case *common.NoConfidenceGovAction:
+		return common.GovActionTypeNoConfidence, true
+	case *common.UpdateCommitteeGovAction:
+		return common.GovActionTypeUpdateCommittee, true
+	case *common.NewConstitutionGovAction:
+		return common.GovActionTypeNewConstitution, true
+	case *common.InfoGovAction:
+		return common.GovActionTypeInfo, true
+	default:
+		return 0, false
+	}
+}
+
+func UtxoValidateGovActionWellFormedness(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, conway.UtxoValidateGovActionWellFormedness,
+	)
+}
+
+func UtxoValidateProposalAncestry(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, conway.UtxoValidateProposalAncestry,
+	)
+}
+
+func UtxoValidateProposalNetworkIds(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, conway.UtxoValidateProposalNetworkIds,
+	)
+}
+
+func UtxoValidateProposalReturnAccounts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, conway.UtxoValidateProposalReturnAccounts,
+	)
+}
+
+func UtxoValidateProposalReturnAddressShape(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, common.UtxoValidateProposalReturnAddressShape,
+	)
+}
+
+func UtxoValidateEmptyTreasuryWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, conway.UtxoValidateEmptyTreasuryWithdrawals,
+	)
+}
+
+func UtxoValidateUnknownVoters(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, conway.UtxoValidateUnknownVoters,
+	)
+}
+
+func UtxoValidateUnknownGovActionIds(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, conway.UtxoValidateUnknownGovActionIds,
+	)
+}
+
+func UtxoValidateVotingOnExpiredGovAction(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, conway.UtxoValidateVotingOnExpiredGovAction,
+	)
+}
+
+func UtxoValidateStakePoolVotingRestrictions(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return dijkstraValidateGovernanceLevels(
+		tx, slot, ls, pp, conway.UtxoValidateStakePoolVotingRestrictions,
+	)
 }
 
 func UtxoValidateHardForkCanFollow(
@@ -483,7 +735,14 @@ func UtxoValidateHardForkCanFollow(
 	if err != nil {
 		return err
 	}
-	return conway.UtxoValidateHardForkCanFollow(tx, slot, ls, tmpPparams)
+	return dijkstraValidateGovernanceLevels(tx, slot, ls, pp, func(
+		level common.Transaction,
+		slot uint64,
+		state common.LedgerState,
+		_ common.ProtocolParameters,
+	) error {
+		return conway.UtxoValidateHardForkCanFollow(level, slot, state, tmpPparams)
+	})
 }
 
 func UtxoValidateProposalDeposit(
@@ -496,7 +755,14 @@ func UtxoValidateProposalDeposit(
 	if err != nil {
 		return err
 	}
-	return conway.UtxoValidateProposalDeposit(tx, slot, ls, tmpPparams)
+	return dijkstraValidateGovernanceLevels(tx, slot, ls, pp, func(
+		level common.Transaction,
+		slot uint64,
+		state common.LedgerState,
+		_ common.ProtocolParameters,
+	) error {
+		return conway.UtxoValidateProposalDeposit(level, slot, state, tmpPparams)
+	})
 }
 
 func UtxoValidateBootstrapVotingRestrictions(
@@ -509,12 +775,16 @@ func UtxoValidateBootstrapVotingRestrictions(
 	if err != nil {
 		return err
 	}
-	return conway.UtxoValidateBootstrapVotingRestrictions(
-		tx,
-		slot,
-		ls,
-		tmpPparams,
-	)
+	return dijkstraValidateGovernanceLevels(tx, slot, ls, pp, func(
+		level common.Transaction,
+		slot uint64,
+		state common.LedgerState,
+		_ common.ProtocolParameters,
+	) error {
+		return conway.UtxoValidateBootstrapVotingRestrictions(
+			level, slot, state, tmpPparams,
+		)
+	})
 }
 
 func UtxoValidateBootstrapAllowedGovActions(
@@ -530,36 +800,43 @@ func UtxoValidateBootstrapAllowedGovActions(
 	if !inBootstrap {
 		return nil
 	}
-	for _, proposal := range tx.ProposalProcedures() {
-		govAction := proposal.GovAction()
-		if isNilGovAction(govAction) {
-			continue
+	return dijkstraValidateGovernanceLevels(tx, slot, ls, pp, func(
+		level common.Transaction,
+		_ uint64,
+		_ common.LedgerState,
+		_ common.ProtocolParameters,
+	) error {
+		for _, proposal := range level.ProposalProcedures() {
+			govAction := proposal.GovAction()
+			if isNilGovAction(govAction) {
+				continue
+			}
+			switch govAction.(type) {
+			case *common.InfoGovAction:
+			case *common.HardForkInitiationGovAction:
+			case *DijkstraParameterChangeGovAction:
+			case *common.TreasuryWithdrawalGovAction:
+				return conway.BootstrapDisallowedGovActionError{
+					ActionType: common.GovActionTypeTreasuryWithdrawal,
+				}
+			case *common.NoConfidenceGovAction:
+				return conway.BootstrapDisallowedGovActionError{
+					ActionType: common.GovActionTypeNoConfidence,
+				}
+			case *common.UpdateCommitteeGovAction:
+				return conway.BootstrapDisallowedGovActionError{
+					ActionType: common.GovActionTypeUpdateCommittee,
+				}
+			case *common.NewConstitutionGovAction:
+				return conway.BootstrapDisallowedGovActionError{
+					ActionType: common.GovActionTypeNewConstitution,
+				}
+			default:
+				return fmt.Errorf("unknown governance action type %T", govAction)
+			}
 		}
-		switch govAction.(type) {
-		case *common.InfoGovAction:
-		case *common.HardForkInitiationGovAction:
-		case *DijkstraParameterChangeGovAction:
-		case *common.TreasuryWithdrawalGovAction:
-			return conway.BootstrapDisallowedGovActionError{
-				ActionType: common.GovActionTypeTreasuryWithdrawal,
-			}
-		case *common.NoConfidenceGovAction:
-			return conway.BootstrapDisallowedGovActionError{
-				ActionType: common.GovActionTypeNoConfidence,
-			}
-		case *common.UpdateCommitteeGovAction:
-			return conway.BootstrapDisallowedGovActionError{
-				ActionType: common.GovActionTypeUpdateCommittee,
-			}
-		case *common.NewConstitutionGovAction:
-			return conway.BootstrapDisallowedGovActionError{
-				ActionType: common.GovActionTypeNewConstitution,
-			}
-		default:
-			return fmt.Errorf("unknown governance action type %T", govAction)
-		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func validateDijkstraProtocolParameterUpdate(
@@ -674,6 +951,8 @@ type dijkstraConwayFeatureTransaction struct {
 	common.Transaction
 	body      common.TransactionBody
 	witnesses common.TransactionWitnessSet
+	metadata  common.TransactionMetadatum
+	auxData   common.AuxiliaryData
 }
 
 func (t dijkstraConwayFeatureTransaction) Inputs() []common.TransactionInput {
@@ -726,6 +1005,14 @@ func (t dijkstraConwayFeatureTransaction) TotalCollateral() *big.Int {
 
 func (t dijkstraConwayFeatureTransaction) Witnesses() common.TransactionWitnessSet {
 	return t.witnesses
+}
+
+func (t dijkstraConwayFeatureTransaction) Metadata() common.TransactionMetadatum {
+	return t.metadata
+}
+
+func (t dijkstraConwayFeatureTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (t dijkstraConwayFeatureTransaction) AuxDataHash() *common.Blake2b256 {
@@ -814,12 +1101,16 @@ func dijkstraTransactionLevels(
 			Transaction: tx,
 			body:        &subTxs[idx].Body,
 			witnesses:   subTxs[idx].WitnessSet,
+			metadata:    subTxs[idx].TxMetadata,
+			auxData:     subTxs[idx].auxData,
 		})
 	}
 	return append(levels, dijkstraConwayFeatureTransaction{
 		Transaction: tx,
 		body:        &tx.Body,
 		witnesses:   tx.WitnessSet,
+		metadata:    tx.Metadata(),
+		auxData:     tx.AuxiliaryData(),
 	})
 }
 
@@ -1139,10 +1430,10 @@ func dijkstraBatchView(tx common.Transaction) common.Transaction {
 		return tx
 	}
 	bodies := make([]common.TransactionBody, 0, len(subTxs)+1)
-	bodies = append(bodies, &dijkstraTx.Body)
 	for idx := range subTxs {
 		bodies = append(bodies, &subTxs[idx].Body)
 	}
+	bodies = append(bodies, &dijkstraTx.Body)
 	return dijkstraBatchTransaction{Transaction: dijkstraTx, bodies: bodies}
 }
 
@@ -1326,6 +1617,104 @@ func UtxoValidateValueNotConservedUtxo(
 	)
 }
 
+func UtxoValidateMetadata(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateMetadata(tx, slot, ls, pp)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.UtxoValidateMetadata(level, slot, ls, pp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func UtxoValidateDelegation(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateDelegation(dijkstraBatchView(tx), slot, ls, pp)
+}
+
+func UtxoValidateCertificateDeposits(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateCertificateDeposits(
+		dijkstraBatchView(tx), slot, ls, pp,
+	)
+}
+
+func UtxoValidateCommitteeCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidateCommitteeCertificates(
+		dijkstraBatchView(tx), slot, ls, pp,
+	)
+}
+
+func UtxoValidatePoolCertificates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return conway.UtxoValidatePoolCertificates(
+		dijkstraBatchView(tx), slot, ls, pp,
+	)
+}
+
+func UtxoValidateOutsideValidityIntervalUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateOutsideValidityIntervalUtxo(tx, slot, ls, pp)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.UtxoValidateOutsideValidityIntervalUtxo(
+			level, slot, ls, pp,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func UtxoValidateInputSetEmptyUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.UtxoValidateInputSetEmptyUtxo(level, slot, ls, pp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UtxoValidateBadInputsUtxo requires every transaction level's inputs to
 // resolve against the UTxO set.
 func UtxoValidateBadInputsUtxo(
@@ -1334,12 +1723,49 @@ func UtxoValidateBadInputsUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return conway.UtxoValidateBadInputsUtxo(
-		dijkstraBatchView(tx),
-		slot,
-		ls,
-		pp,
-	)
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
+	}
+	if ls == nil {
+		return errors.New("ledger state is required for Dijkstra input validation")
+	}
+	spent := make(map[string]struct{})
+	localOutputs := make(map[string]common.Utxo)
+	for _, body := range dijkstraTransactionLevels(dijkstraTx) {
+		for _, input := range body.ReferenceInputs() {
+			if _, err := ls.UtxoById(input); err != nil {
+				return common.ReferenceInputResolutionError{Input: input, Err: err}
+			}
+		}
+		var badInputs []common.TransactionInput
+		for _, input := range body.Inputs() {
+			key := input.String()
+			if _, available := localOutputs[key]; available {
+				continue
+			}
+			if _, err := ls.UtxoById(input); err != nil {
+				badInputs = append(badInputs, input)
+			}
+		}
+		if len(badInputs) > 0 {
+			return shelley.BadInputsUtxoError{Inputs: badInputs}
+		}
+		for _, input := range body.Inputs() {
+			key := input.String()
+			if _, alreadySpent := spent[key]; alreadySpent {
+				return shelley.BadInputsUtxoError{
+					Inputs: []common.TransactionInput{input},
+				}
+			}
+			spent[key] = struct{}{}
+			delete(localOutputs, key)
+		}
+		for _, output := range body.Produced() {
+			localOutputs[output.Id.String()] = output
+		}
+	}
+	return nil
 }
 
 // UtxoValidateNoDuplicateInputs rejects an input spent by more than one
@@ -1398,10 +1824,9 @@ type batchWithdrawal struct {
 	amount     *big.Int
 }
 
-// UtxoValidateBatchWithdrawals rejects a Dijkstra transaction when the total
-// withdrawal for an account across the entire batch exceeds its original
-// reward-account balance. This is unconditional: phase-2-invalid transactions
-// still undergo this UTXOW check.
+// UtxoValidateBatchWithdrawals checks withdrawal totals against the original
+// reward-account state. In legacy mode it checks only subtransaction totals;
+// the top-level exact-drain check runs after child state has been applied.
 func UtxoValidateBatchWithdrawals(
 	tx common.Transaction,
 	slot uint64,
@@ -1412,16 +1837,24 @@ func UtxoValidateBatchWithdrawals(
 	if !ok {
 		return nil
 	}
-
+	if !tx.IsValid() {
+		return nil
+	}
+	legacyWithdrawal, err := dijkstraNeedsLegacyWithdrawal(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
 	bodies := make(
 		[]common.TransactionBody,
 		0,
 		1+len(dijkstraTx.Body.TxSubTransactions.Items()),
 	)
-	bodies = append(bodies, &dijkstraTx.Body)
 	bodies = append(
 		bodies,
 		common.SubTransactionBodiesFromTransaction(dijkstraTx)...)
+	if !legacyWithdrawal {
+		bodies = append(bodies, &dijkstraTx.Body)
+	}
 
 	withdrawals := make(map[string]batchWithdrawal)
 	for _, body := range bodies {
@@ -1474,9 +1907,7 @@ func UtxoValidateBatchWithdrawals(
 			return err
 		}
 		if balance == nil {
-			return shelley.WithdrawalFromUnregisteredRewardAccountError{
-				RewardAddress: withdrawal.address,
-			}
+			continue
 		}
 		expected := *balance
 		expectedAmount := new(big.Int).SetUint64(expected)
@@ -1597,6 +2028,74 @@ func (s *dijkstraAccountStateOverlay) account(
 	}
 	s.accounts[key] = account
 	return account, nil
+}
+
+func dijkstraNeedsLegacyWithdrawal(
+	tx *DijkstraTransaction,
+	ls common.LedgerState,
+) (bool, error) {
+	levels, _, err := dijkstraScriptLevels(tx, ls)
+	if err != nil {
+		return false, err
+	}
+	for _, level := range levels {
+		if level.view.NeedsAny(func(script common.Script) bool {
+			version, ok := common.PlutusScriptVersion(script)
+			return ok && version <= 2
+		}) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func dijkstraValidateWithdrawalLevel(
+	level common.Transaction,
+	state *dijkstraAccountStateOverlay,
+	requireExact bool,
+) error {
+	withdrawals := level.Withdrawals()
+	if len(withdrawals) == 0 {
+		return nil
+	}
+	if err := common.ValidateWithdrawalAddresses(withdrawals); err != nil {
+		return err
+	}
+	for address, amount := range withdrawals {
+		credential, err := address.RewardAccountCredential()
+		if err != nil {
+			return err
+		}
+		account, err := state.account(credential)
+		if err != nil {
+			return err
+		}
+		if !account.registered {
+			return shelley.WithdrawalFromUnregisteredRewardAccountError{
+				RewardAddress: *address,
+			}
+		}
+		amountValid := amount != nil && amount.IsUint64()
+		if amountValid {
+			if requireExact {
+				amountValid = amount.Uint64() == account.balance
+			} else {
+				amountValid = amount.Uint64() <= account.balance
+			}
+		}
+		if !amountValid {
+			var provided *big.Int
+			if amount != nil {
+				provided = new(big.Int).Set(amount)
+			}
+			return shelley.IncorrectWithdrawalAmountError{
+				RewardAddress: *address,
+				Provided:      provided,
+				Balance:       account.balance,
+			}
+		}
+	}
+	return nil
 }
 
 func (s *dijkstraAccountStateOverlay) set(
@@ -1861,6 +2360,22 @@ func dijkstraApplyAccountLevel(
 	return dijkstraApplyDirectDeposits(deposits, state, networkID)
 }
 
+func UtxoValidateWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	if _, ok := tx.(*DijkstraTransaction); !ok {
+		return conway.UtxoValidateWithdrawals(tx, slot, ls, pp)
+	}
+	// Dijkstra withdrawals are checked with the shared account overlay in
+	// UtxoValidateAccountBalanceIntervals, alongside interval and direct-deposit
+	// transitions. Keeping a second top-level-only check here would compare
+	// withdrawals against the batch-start state again.
+	return nil
+}
+
 // UtxoValidateAccountBalanceIntervals validates Dijkstra direct deposits,
 // ordinary account-balance intervals, and top-level starting intervals using
 // the account state threaded through subtransactions in ledger order.
@@ -1874,14 +2389,22 @@ func UtxoValidateAccountBalanceIntervals(
 	if !ok {
 		return nil
 	}
+	if !tx.IsValid() {
+		return nil
+	}
 	networkID := uint(0)
 	if ls != nil {
 		networkID = ls.NetworkId()
 	}
+	legacyWithdrawal, err := dijkstraNeedsLegacyWithdrawal(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
 	state := newDijkstraAccountStateOverlay(ls)
 	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
 	for idx := range subTxs {
-		body := &subTxs[idx].Body
+		subTx := &subTxs[idx]
+		body := &subTx.Body
 		if len(body.TxDirectDeposits) > 0 || len(body.TxAccountBalanceIntervals) > 0 {
 			if ls == nil {
 				return errors.New("ledger state is required for Dijkstra account validation")
@@ -1902,6 +2425,16 @@ func UtxoValidateAccountBalanceIntervals(
 			networkID,
 			false,
 		); err != nil {
+			return err
+		}
+		level := dijkstraConwayFeatureTransaction{
+			Transaction: dijkstraTx,
+			body:        body,
+			witnesses:   subTx.WitnessSet,
+			metadata:    subTx.TxMetadata,
+			auxData:     subTx.auxData,
+		}
+		if err := dijkstraValidateWithdrawalLevel(level, state, false); err != nil {
 			return err
 		}
 		if err := dijkstraApplyAccountLevel(body, state, networkID); err != nil {
@@ -1938,6 +2471,19 @@ func UtxoValidateAccountBalanceIntervals(
 	); err != nil {
 		return err
 	}
+	if err := dijkstraValidateWithdrawalLevel(
+		dijkstraConwayFeatureTransaction{
+			Transaction: dijkstraTx,
+			body:        &dijkstraTx.Body,
+			witnesses:   dijkstraTx.WitnessSet,
+			metadata:    dijkstraTx.Metadata(),
+			auxData:     dijkstraTx.AuxiliaryData(),
+		},
+		state,
+		legacyWithdrawal,
+	); err != nil {
+		return err
+	}
 	return dijkstraApplyAccountLevel(&dijkstraTx.Body, state, networkID)
 }
 
@@ -1951,7 +2497,16 @@ func UtxoValidateCCVotingRestrictions(
 	if err != nil {
 		return err
 	}
-	return conway.UtxoValidateCCVotingRestrictions(tx, slot, ls, tmpPparams)
+	return dijkstraValidateGovernanceLevels(tx, slot, ls, pp, func(
+		level common.Transaction,
+		slot uint64,
+		state common.LedgerState,
+		_ common.ProtocolParameters,
+	) error {
+		return conway.UtxoValidateCCVotingRestrictions(
+			level, slot, state, tmpPparams,
+		)
+	})
 }
 
 func UtxoValidatePlutusScripts(
@@ -3555,18 +4110,21 @@ func UtxoValidateTransactionNetworkId(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
-	txNetworkId := dijkstraTx.NetworkId()
-	if txNetworkId == nil {
-		return nil
-	}
 	if ls == nil {
 		return nil
 	}
 	ledgerNetworkId := ls.NetworkId()
-	if uint(*txNetworkId) != ledgerNetworkId {
-		return conway.WrongTransactionNetworkIdError{
-			TxNetworkId:     *txNetworkId,
-			LedgerNetworkId: ledgerNetworkId,
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		networkID, ok := level.body.(interface{ NetworkId() *uint8 })
+		if !ok || networkID.NetworkId() == nil {
+			continue
+		}
+		txNetworkId := networkID.NetworkId()
+		if uint(*txNetworkId) != ledgerNetworkId {
+			return conway.WrongTransactionNetworkIdError{
+				TxNetworkId:     *txNetworkId,
+				LedgerNetworkId: ledgerNetworkId,
+			}
 		}
 	}
 	return nil

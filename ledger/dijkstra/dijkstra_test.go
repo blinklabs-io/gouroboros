@@ -38,6 +38,139 @@ func testPlutusInteger(v int64) data.PlutusData {
 	return data.NewInteger(big.NewInt(v))
 }
 
+func TestDijkstraTransactionConsumedAndProducedIncludeSubTransactions(t *testing.T) {
+	childInput := shelley.NewShelleyTransactionInput(strings.Repeat("11", 32), 2)
+	parentInput := shelley.NewShelleyTransactionInput(strings.Repeat("22", 32), 3)
+	tx := DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{parentInput},
+			),
+			TxOutputs: []DijkstraTransactionOutput{{
+				Output: &shelley.ShelleyTransactionOutput{},
+			}},
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{childInput},
+					),
+					TxOutputs: []DijkstraTransactionOutput{{
+						Output: &shelley.ShelleyTransactionOutput{},
+					}},
+				},
+			}}, true),
+		},
+	}
+
+	consumed := tx.Consumed()
+	require.Len(t, consumed, 2)
+	require.Equal(t, childInput.String(), consumed[0].String())
+	require.Equal(t, parentInput.String(), consumed[1].String())
+
+	produced := tx.Produced()
+	require.Len(t, produced, 2)
+	require.Equal(t, tx.Body.TxSubTransactions.Items()[0].Body.Id().String()+"#0", produced[0].Id.String())
+	require.Equal(t, tx.Hash().String()+"#0", produced[1].Id.String())
+}
+
+func TestDijkstraInvalidTransactionDoesNotConsumeSubTransactionInputs(t *testing.T) {
+	childInput := shelley.NewShelleyTransactionInput(strings.Repeat("11", 32), 2)
+	collateral := shelley.NewShelleyTransactionInput(strings.Repeat("22", 32), 3)
+	tx := DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxCollateral: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{collateral}, true,
+			),
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{childInput},
+					),
+				},
+			}}, true),
+		},
+	}
+
+	consumed := tx.Consumed()
+	require.Len(t, consumed, 1)
+	require.Equal(t, collateral.String(), consumed[0].String())
+	require.Empty(t, tx.Produced())
+}
+
+func TestDijkstraSubTransactionInputSetCannotBeEmpty(t *testing.T) {
+	parentInput := shelley.NewShelleyTransactionInput(strings.Repeat("22", 32), 3)
+	tx := DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{parentInput},
+			),
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{}}, true),
+		},
+	}
+	err := UtxoValidateInputSetEmptyUtxo(&tx, 0, nil, nil)
+	require.ErrorAs(t, err, new(shelley.InputSetEmptyUtxoError))
+}
+
+func TestDijkstraSubTransactionValidityIntervalIsChecked(t *testing.T) {
+	parentInput := shelley.NewShelleyTransactionInput(strings.Repeat("22", 32), 3)
+	tx := DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{parentInput},
+			),
+			Ttl: 100,
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{Ttl: 5},
+			}}, true),
+		},
+	}
+	err := UtxoValidateOutsideValidityIntervalUtxo(&tx, 10, nil, nil)
+	require.Error(t, err)
+}
+
+func TestDijkstraSubTransactionMetadataUsesItsOwnAuxiliaryData(t *testing.T) {
+	parentAuxBytes, err := cbor.Encode(map[uint]any{1: "parent"})
+	require.NoError(t, err)
+	var parentAux common.ShelleyAuxiliaryData
+	require.NoError(t, parentAux.UnmarshalCBOR(parentAuxBytes))
+
+	childHash := common.Blake2b256{}
+	tx := DijkstraTransaction{
+		TxIsValid: true,
+		auxData:   &parentAux,
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{TxAuxDataHash: &childHash},
+			}}, true),
+		},
+	}
+	err = UtxoValidateMetadata(&tx, 0, nil, nil)
+	require.ErrorAs(t, err, new(common.MissingTransactionMetadataError))
+}
+
+func TestDijkstraSubTransactionAuxiliaryDataRequiresItsOwnHash(t *testing.T) {
+	childAuxBytes, err := cbor.Encode(map[uint]any{1: "child"})
+	require.NoError(t, err)
+	var childAux common.ShelleyAuxiliaryData
+	require.NoError(t, childAux.UnmarshalCBOR(childAuxBytes))
+	childMetadata, err := childAux.Metadata()
+	require.NoError(t, err)
+	tx := DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				TxMetadata: childMetadata,
+				auxData:    &childAux,
+			}}, true),
+		},
+	}
+	err = UtxoValidateMetadata(&tx, 0, nil, nil)
+	require.ErrorAs(t, err, new(common.MissingTransactionAuxiliaryDataHashError))
+}
+
 func TestDijkstraTransactionBodiesUnmarshalCBORCertificateTypes(t *testing.T) {
 	decoders := []struct {
 		name   string
@@ -380,7 +513,7 @@ func TestDijkstraTransactionRejectsOversizedMalformedCbor(t *testing.T) {
 }
 
 func TestDijkstraBlockBodyRejectsWrongComponentCount(t *testing.T) {
-	for _, arity := range []int{0, 1, 2, 4, 5} {
+	for _, arity := range []int{0, 1, 2, 5} {
 		t.Run(fmt.Sprintf("arity_%d", arity), func(t *testing.T) {
 			parts := make([]any, arity)
 			bodyCbor, err := cbor.Encode(parts)
@@ -389,13 +522,13 @@ func TestDijkstraBlockBodyRejectsWrongComponentCount(t *testing.T) {
 			require.ErrorContains(
 				t,
 				blockBody.UnmarshalCBOR(bodyCbor),
-				"expected 3 components",
+				"expected 3 or 4 components",
 			)
 		})
 	}
 }
 
-func TestDijkstraBlockBodyRejectsPreRespinLayoutWithMatchingHeaderHash(
+func TestDijkstraBlockBodyDecodesPreRespinLayoutWithMatchingHeaderHash(
 	t *testing.T,
 ) {
 	legacyBody, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{0}))
@@ -438,8 +571,40 @@ func TestDijkstraBlockBodyRejectsPreRespinLayoutWithMatchingHeaderHash(
 	require.NoError(t, err)
 	require.Equal(t, legacyHash, decodedHeader.BlockBodyHash())
 
-	_, err = NewDijkstraBlockFromCbor(blockCbor)
-	require.ErrorContains(t, err, "expected 3 components")
+	block, err := NewDijkstraBlockFromCbor(blockCbor)
+	require.NoError(t, err)
+	require.Len(t, block.BlockBody.Transactions, 1)
+	require.False(t, block.BlockBody.Transactions[0].IsValid())
+	require.Equal(t, []uint{0}, block.BlockBody.InvalidTransactions)
+}
+
+func TestDijkstraLegacyBlockBodyRejectsMixedValidityRepresentations(
+	t *testing.T,
+) {
+	t.Run("inline flag", func(t *testing.T) {
+		legacyTx := append(minimalTxParts(), false)
+		bodyCbor, err := cbor.Encode([]any{
+			[]uint64{}, []any{legacyTx}, nil, nil,
+		})
+		require.NoError(t, err)
+		var body DijkstraBlockBody
+		require.ErrorContains(
+			t,
+			body.UnmarshalCBOR(bodyCbor),
+			"legacy Dijkstra transaction 0 has 4 components",
+		)
+	})
+
+	t.Run("out of range invalid index", func(t *testing.T) {
+		bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{1}))
+		require.NoError(t, err)
+		var body DijkstraBlockBody
+		require.ErrorContains(
+			t,
+			body.UnmarshalCBOR(bodyCbor),
+			"legacy invalid transaction index 1 exceeds transaction count 1",
+		)
+	})
 }
 
 func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {

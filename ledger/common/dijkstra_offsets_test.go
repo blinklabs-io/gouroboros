@@ -263,6 +263,40 @@ func TestExtractTransactionOffsetsDijkstraBlockShapes(t *testing.T) {
 	}
 }
 
+func TestExtractTransactionOffsetsDijkstraSubTransactionOutputs(t *testing.T) {
+	t.Parallel()
+	header, leios, peras, _ := dijkstraFixtureParts(t)
+	output := encodeCbor(t, map[uint]any{0: uint64(1)})
+	subBody := encodeCbor(t, map[uint]any{
+		0:  []any{},
+		1:  []cbor.RawMessage{output},
+		23: cbor.NewSetType([]cbor.RawMessage{}, true),
+	})
+	subTx := encodeCbor(t, []cbor.RawMessage{subBody, encodeCbor(t, map[uint]any{}), encodeCbor(t, nil)})
+	txBody := encodeCbor(t, map[uint]any{
+		0:  []any{},
+		1:  []any{},
+		23: cbor.NewSetType([]cbor.RawMessage{subTx}, true),
+	})
+	tx := encodeCbor(t, []cbor.RawMessage{txBody, encodeCbor(t, map[uint]any{}), encodeCbor(t, nil)})
+	blockBody := encodeCbor(t, []cbor.RawMessage{
+		encodeCbor(t, []cbor.RawMessage{tx}),
+		leios,
+		peras,
+	})
+	block := []byte(encodeCbor(t, []cbor.RawMessage{header, blockBody}))
+
+	offsets, err := common.ExtractTransactionOffsets(block)
+	require.NoError(t, err)
+	require.Len(t, offsets.Transactions, 1)
+	require.Len(t, offsets.Transactions[0].SubTransactions, 1)
+	subLoc := offsets.Transactions[0].SubTransactions[0]
+	require.Len(t, subLoc.Outputs, 1)
+	outLoc := subLoc.Outputs[0]
+	assert.Equal(t, []byte(output), block[outLoc.Offset:outLoc.Offset+outLoc.Length])
+	assert.Equal(t, []byte(subBody), block[subLoc.Body.Offset:subLoc.Body.Offset+subLoc.Body.Length])
+}
+
 func TestExtractTransactionOffsetsDijkstraReturnsInvalidTransactions(t *testing.T) {
 	header, leios, peras, tx3 := dijkstraFixtureParts(t)
 	txs := []cbor.RawMessage{
