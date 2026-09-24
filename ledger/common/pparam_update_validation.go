@@ -93,7 +93,7 @@ func ValidateProtocolParameterUpdateDomains(
 		{2, math.MaxUint32},  // max block body size
 		{3, math.MaxUint32},  // max transaction size
 		{4, math.MaxUint16},  // max block header size
-		{7, math.MaxUint64},  // maximum epoch
+		{7, math.MaxUint32},  // maximum epoch
 		{8, math.MaxUint16},  // desired number of pools
 		{22, math.MaxUint32}, // max value size
 		{23, math.MaxUint16}, // collateral percentage

@@ -325,8 +325,8 @@ func TestClassicCostModelUpdateProtocolVersionBoundary(t *testing.T) {
 	}
 }
 
-func TestClassicMaxEpochPreservesWord64AcrossEras(t *testing.T) {
-	raw, err := cbor.Encode(map[uint]any{7: uint64(math.MaxUint64)})
+func TestClassicMaxEpochPreservesWord32AcrossEras(t *testing.T) {
+	raw, err := cbor.Encode(map[uint]any{7: uint64(math.MaxUint32)})
 	require.NoError(t, err)
 	for _, era := range []struct {
 		name  string
@@ -340,7 +340,7 @@ func TestClassicMaxEpochPreservesWord64AcrossEras(t *testing.T) {
 				if update.MaxEpoch == nil {
 					return 0, err
 				}
-				return *update.MaxEpoch, err
+				return uint64(*update.MaxEpoch), err
 			},
 		},
 		{
@@ -351,7 +351,7 @@ func TestClassicMaxEpochPreservesWord64AcrossEras(t *testing.T) {
 				if update.MaxEpoch == nil {
 					return 0, err
 				}
-				return *update.MaxEpoch, err
+				return uint64(*update.MaxEpoch), err
 			},
 		},
 		{
@@ -362,7 +362,7 @@ func TestClassicMaxEpochPreservesWord64AcrossEras(t *testing.T) {
 				if update.MaxEpoch == nil {
 					return 0, err
 				}
-				return *update.MaxEpoch, err
+				return uint64(*update.MaxEpoch), err
 			},
 		},
 		{
@@ -373,7 +373,7 @@ func TestClassicMaxEpochPreservesWord64AcrossEras(t *testing.T) {
 				if update.MaxEpoch == nil {
 					return 0, err
 				}
-				return *update.MaxEpoch, err
+				return uint64(*update.MaxEpoch), err
 			},
 		},
 		{
@@ -384,14 +384,14 @@ func TestClassicMaxEpochPreservesWord64AcrossEras(t *testing.T) {
 				if update.MaxEpoch == nil {
 					return 0, err
 				}
-				return *update.MaxEpoch, err
+				return uint64(*update.MaxEpoch), err
 			},
 		},
 	} {
 		t.Run(era.name, func(t *testing.T) {
 			got, err := era.check(raw)
 			require.NoError(t, err)
-			require.Equal(t, uint64(math.MaxUint64), got)
+			require.Equal(t, uint64(math.MaxUint32), got)
 		})
 	}
 }

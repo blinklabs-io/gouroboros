@@ -698,7 +698,7 @@ type ShelleyGenesisProtocolParams struct {
 	MaxBlockHeaderSize uint               `json:"maxBlockHeaderSize"`
 	KeyDeposit         uint               `json:"keyDeposit"`
 	PoolDeposit        uint               `json:"poolDeposit"`
-	MaxEpoch           uint64             `json:"eMax"`
+	MaxEpoch           uint               `json:"eMax"`
 	NOpt               uint               `json:"nOpt"`
 	A0                 *common.GenesisRat `json:"a0"`
 	Rho                *common.GenesisRat `json:"rho"`

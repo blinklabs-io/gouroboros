@@ -375,6 +375,12 @@ type LedgerState interface {
 }
 ```
 
+Adapters that validate Shelley-family protocol parameter updates must also
+implement `common.ClassicProtocolParameterUpdateWindowState`. This capability
+provides the current epoch and the slot at which update proposals switch to
+the following epoch; transactions containing updates are rejected when the
+adapter does not provide it.
+
 **Transaction** (`ledger/common/tx.go`):
 ```go
 type Transaction interface {
