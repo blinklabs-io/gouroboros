@@ -874,6 +874,53 @@ func TestNonPipelinedShutdownCallsBatchDone(t *testing.T) {
 	}
 }
 
+func TestConcurrentRequestResolutionCallsRangeDoneOnce(t *testing.T) {
+	callbackErr := errors.New("range completion callback failed")
+	callbacks := make(chan struct{}, 2)
+	c := newQueueTestClient(&Config{
+		RequestPipelining: true,
+		RangeDoneFunc: func(CallbackContext, error) error {
+			callbacks <- struct{}{}
+			return callbackErr
+		},
+	})
+	req := c.appendTestRequest(1)
+	start := make(chan struct{})
+	resolved := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			resolved <- c.resolve(req, protocol.ErrProtocolShuttingDown)
+		}()
+	}
+	close(start)
+	for range 2 {
+		<-resolved
+	}
+
+	select {
+	case <-callbacks:
+	case <-time.After(time.Second):
+		t.Fatal("request resolution did not call RangeDoneFunc")
+	}
+	select {
+	case <-callbacks:
+		t.Fatal("concurrent request resolution called RangeDoneFunc twice")
+	default:
+	}
+	select {
+	case err := <-req.doneChan:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	default:
+		t.Fatal("request resolution did not notify the caller")
+	}
+	select {
+	case err := <-req.doneChan:
+		t.Fatalf("request resolution notified the caller twice: %v", err)
+	default:
+	}
+}
+
 func TestNonPipelinedNoBlocksDoesNotCallBatchDone(t *testing.T) {
 	completions := make(chan uint64, 1)
 	c := newQueueTestClient(&Config{

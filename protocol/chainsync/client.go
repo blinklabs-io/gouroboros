@@ -50,6 +50,8 @@ type Client struct {
 	lifecycleState           clientLifecycleState
 	startingDone             chan struct{}
 	stoppingDone             chan struct{}
+	activeOperations         int
+	operationsDrained        chan struct{}
 	protocolStarted          bool
 	readyForNextBlockChan    chan bool
 	syncLoopWaitGroup        sync.WaitGroup
@@ -61,7 +63,9 @@ type Client struct {
 	// production behavior.
 	testStopInitiated               func()
 	testStopWaitingForComplete      func()
+	testStopBusyLockTimeout         time.Duration
 	testStartBeforeProtocolStart    func()
+	testIntersectRequestSent        func()
 	testInitialRequestBeforeEnqueue func()
 	testInitialRequestAfterEnqueue  func()
 	testSyncLoopBeforeBusyLock      func()
@@ -205,6 +209,35 @@ func (c *Client) ProtocolInstance() *protocol.Protocol {
 	c.protocolMu.RLock()
 	defer c.protocolMu.RUnlock()
 	return c.Protocol
+}
+
+func (c *Client) beginOperation() (
+	*protocol.Protocol,
+	chan bool,
+	<-chan struct{},
+	func(),
+	error,
+) {
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+	if c.lifecycleState != clientStateRunning ||
+		c.readyForNextBlockChan == nil {
+		return nil, nil, nil, nil, protocol.ErrProtocolShuttingDown
+	}
+	proto := c.ProtocolInstance()
+	c.activeOperations++
+	return proto, c.readyForNextBlockChan, proto.DoneChan(), c.endOperation, nil
+}
+
+func (c *Client) endOperation() {
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+	c.activeOperations--
+	if c.lifecycleState == clientStateStopping &&
+		c.activeOperations == 0 && c.operationsDrained != nil {
+		close(c.operationsDrained)
+		c.operationsDrained = nil
+	}
 }
 
 func (c *Client) Start() {
@@ -351,13 +384,19 @@ func (c *Client) Stop() error {
 		c.awaitReplyCancel()
 		stoppingDone := make(chan struct{})
 		c.stoppingDone = stoppingDone
+		operationsDrained := make(chan struct{})
+		c.operationsDrained = operationsDrained
+		if c.activeOperations == 0 {
+			close(operationsDrained)
+			c.operationsDrained = nil
+		}
 		proto := c.ProtocolInstance()
 		if c.testStopInitiated != nil {
 			c.testStopInitiated()
 		}
 		c.lifecycleMutex.Unlock()
 
-		return c.stopRunning(proto, stoppingDone)
+		return c.stopRunning(proto, stoppingDone, operationsDrained)
 	default:
 		c.lifecycleState = clientStateStopped
 		c.lifecycleMutex.Unlock()
@@ -368,8 +407,12 @@ func (c *Client) Stop() error {
 func (c *Client) stopRunning(
 	proto *protocol.Protocol,
 	stoppingDone chan struct{},
+	operationsDrained <-chan struct{},
 ) error {
-	const busyLockTimeout = 5 * time.Second
+	busyLockTimeout := 5 * time.Second
+	if c.testStopBusyLockTimeout > 0 {
+		busyLockTimeout = c.testStopBusyLockTimeout
+	}
 	deadline := time.Now().Add(busyLockTimeout)
 	busyLocked := false
 	for {
@@ -422,6 +465,7 @@ func (c *Client) stopRunning(
 	proto.Stop()
 	<-doneChan
 	c.syncLoopWaitGroup.Wait()
+	<-operationsDrained
 
 	c.lifecycleMutex.Lock()
 	c.lifecycleState = clientStateStopped
@@ -435,7 +479,12 @@ func (c *Client) stopRunning(
 
 // GetCurrentTip returns the current chain tip
 func (c *Client) GetCurrentTip() (*Tip, error) {
-	c.Protocol.Logger().
+	proto, _, doneChan, endOperation, err := c.beginOperation()
+	if err != nil {
+		return nil, err
+	}
+	defer endOperation()
+	proto.Logger().
 		Debug("calling GetCurrentTip()",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -445,27 +494,40 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 	done := atomic.Bool{}
 	requestResultChan := make(chan Tip, 1)
 	requestErrorChan := make(chan error, 1)
+	requestWorkerDone := make(chan struct{})
 
 	go func() {
+		defer close(requestWorkerDone)
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
 
-		if done.Load() {
+		c.lifecycleMutex.Lock()
+		stillRunning := c.lifecycleState == clientStateRunning
+		c.lifecycleMutex.Unlock()
+		if done.Load() || !stillRunning {
+			select {
+			case requestErrorChan <- protocol.ErrProtocolShuttingDown:
+			default:
+			}
 			return
 		}
 
 		currentTipChan, cancelCurrentTip := c.wantCurrentTip()
 		msg := NewMsgFindIntersect([]pcommon.Point{})
-		if err := c.SendMessage(msg); err != nil {
+		if err := proto.SendMessage(msg); err != nil {
 			cancelCurrentTip()
 			requestErrorChan <- err
 			return
 		}
 		select {
-		case <-c.DoneChan():
+		case <-doneChan:
 		case tip := <-currentTipChan:
 			requestResultChan <- tip
 		}
+	}()
+	defer func() {
+		done.Store(true)
+		<-requestWorkerDone
 	}()
 
 	waitingResultChan := make(chan Tip, 1)
@@ -473,14 +535,14 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 
 	for {
 		select {
-		case <-c.DoneChan():
+		case <-doneChan:
 			done.Store(true)
 			return nil, protocol.ErrProtocolShuttingDown
 		case waitingForCurrentTipChan <- waitingResultChan:
 			// The request is being handled by another request, wait for the result.
 			waitingForCurrentTipChan = nil
 		case tip := <-waitingResultChan:
-			c.Protocol.Logger().
+			proto.Logger().
 				Debug(
 					fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
 					"component", "network",
@@ -492,7 +554,7 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			done.Store(true)
 			return &tip, nil
 		case tip := <-requestResultChan:
-			c.Protocol.Logger().
+			proto.Logger().
 				Debug(
 					fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
 					"component", "network",
@@ -516,7 +578,16 @@ func (c *Client) GetAvailableBlockRange(
 	intersectPoints []pcommon.Point,
 ) (pcommon.Point, pcommon.Point, error) {
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	proto, readyForNextBlockChan, doneChan, endOperation, err :=
+		c.beginOperation()
+	if err != nil {
+		c.busyMutex.Unlock()
+		return pcommon.Point{}, pcommon.Point{}, err
+	}
+	defer func() {
+		c.busyMutex.Unlock()
+		endOperation()
+	}()
 
 	// Use origin if no intersect points were specified
 	if len(intersectPoints) == 0 {
@@ -526,7 +597,7 @@ func (c *Client) GetAvailableBlockRange(
 	// Debug logging
 	switch len(intersectPoints) {
 	case 1:
-		c.Protocol.Logger().
+		proto.Logger().
 			Debug(
 				fmt.Sprintf(
 					"calling GetAvailableBlockRange(intersectPoints: []{Slot: %d, Hash: %x})",
@@ -539,7 +610,7 @@ func (c *Client) GetAvailableBlockRange(
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 	case 2:
-		c.Protocol.Logger().
+		proto.Logger().
 			Debug(
 				fmt.Sprintf(
 					"calling GetAvailableBlockRange(intersectPoints: []{Slot: %d, Hash: %x},{Slot: %d, Hash: %x})",
@@ -554,7 +625,7 @@ func (c *Client) GetAvailableBlockRange(
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 	default:
-		c.Protocol.Logger().
+		proto.Logger().
 			Debug(
 				fmt.Sprintf(
 					"calling GetAvailableBlockRange(intersectPoints: %+v)",
@@ -593,12 +664,12 @@ func (c *Client) GetAvailableBlockRange(
 	}()
 
 	msgRequestNext := NewMsgRequestNext()
-	if err := c.SendMessage(msgRequestNext); err != nil {
+	if err := proto.SendMessage(msgRequestNext); err != nil {
 		return start, end, err
 	}
 	for {
 		select {
-		case <-c.DoneChan():
+		case <-doneChan:
 			return start, end, protocol.ErrProtocolShuttingDown
 		case tip := <-currentTipChan:
 			currentTipChan = nil
@@ -612,10 +683,16 @@ func (c *Client) GetAvailableBlockRange(
 				)
 			}
 			start = firstBlock.point
-		case <-c.readyForNextBlockChan:
+		case ready, ok := <-readyForNextBlockChan:
+			if !ok {
+				return start, end, protocol.ErrProtocolShuttingDown
+			}
+			if !ready {
+				return start, end, ErrStopSyncProcess
+			}
 			// Request the next block
 			msg := NewMsgRequestNext()
-			if err := c.SendMessage(msg); err != nil {
+			if err := proto.SendMessage(msg); err != nil {
 				return start, end, err
 			}
 		}
@@ -634,7 +711,15 @@ func (c *Client) GetAvailableBlockRange(
 // via the RollForward callback function specified in the protocol config
 func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	proto, _, doneChan, endOperation, err := c.beginOperation()
+	if err != nil {
+		c.busyMutex.Unlock()
+		return err
+	}
+	defer func() {
+		c.busyMutex.Unlock()
+		endOperation()
+	}()
 
 	// Use origin if no intersect points were specified
 	if len(intersectPoints) == 0 {
@@ -644,7 +729,7 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 	// Debug logging
 	switch len(intersectPoints) {
 	case 1:
-		c.Protocol.Logger().
+		proto.Logger().
 			Debug(
 				fmt.Sprintf(
 					"calling Sync(intersectPoints: []{Slot: %d, Hash: %x})",
@@ -657,7 +742,7 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 	case 2:
-		c.Protocol.Logger().
+		proto.Logger().
 			Debug(
 				fmt.Sprintf(
 					"calling Sync(intersectPoints: []{Slot: %d, Hash: %x},{Slot: %d, Hash: %x})",
@@ -672,7 +757,7 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 	default:
-		c.Protocol.Logger().
+		proto.Logger().
 			Debug(
 				fmt.Sprintf(
 					"calling Sync(intersectPoints: %+v)",
@@ -687,12 +772,12 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 
 	intersectResultChan, cancel := c.wantIntersectFound()
 	msgFindIntersect := NewMsgFindIntersect(intersectPoints)
-	if err := c.SendMessage(msgFindIntersect); err != nil {
+	if err := proto.SendMessage(msgFindIntersect); err != nil {
 		cancel()
 		return err
 	}
 	select {
-	case <-c.DoneChan():
+	case <-doneChan:
 		return protocol.ErrProtocolShuttingDown
 	case result := <-intersectResultChan:
 		if result.error != nil {
@@ -894,6 +979,9 @@ func (c *Client) requestFindIntersect(
 	if err := c.SendMessage(msg); err != nil {
 		cancel()
 		return clientPointResult{error: err}
+	}
+	if c.testIntersectRequestSent != nil {
+		c.testIntersectRequestSent()
 	}
 
 	select {
