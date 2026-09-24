@@ -296,15 +296,30 @@ func TestDijkstraDonationScriptCheckUsesNeededScripts(t *testing.T) {
 		Build()
 	pp := &DijkstraProtocolParameters{}
 	rule := dijkstraRule(t, common.UtxoValidationRuleValueNotConserved)
+	v1Script := common.PlutusV1Script{0x41, 0}
 	v1 := DijkstraTransactionWitnessSet{
 		WsPlutusV1Scripts: cbor.NewSetType(
-			[]common.PlutusV1Script{{0x41, 0}}, false,
+			[]common.PlutusV1Script{v1Script}, false,
 		),
 	}
 
 	newTx := func(
 		subWitnesses DijkstraTransactionWitnessSet,
+		neededMint bool,
 	) *DijkstraTransaction {
+		subBody := DijkstraSubTransactionBody{
+			TxDonation: dijkstraSubUtxoInputAmount,
+		}
+		if neededMint {
+			mint := common.NewMultiAsset[common.MultiAssetTypeMint](
+				map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
+					v1Script.Hash(): {
+						cbor.NewByteString([]byte("asset")): big.NewInt(1),
+					},
+				},
+			)
+			subBody.TxMint = &mint
+		}
 		return &DijkstraTransaction{
 			Body: DijkstraTransactionBody{
 				TxInputs: conway.NewConwayTransactionInputSet(
@@ -312,9 +327,7 @@ func TestDijkstraDonationScriptCheckUsesNeededScripts(t *testing.T) {
 				),
 				TxSubTransactions: cbor.NewSetType(
 					[]DijkstraSubTransaction{{
-						Body: DijkstraSubTransactionBody{
-							TxDonation: dijkstraSubUtxoInputAmount,
-						},
+						Body:       subBody,
 						WitnessSet: subWitnesses,
 					}}, true,
 				),
@@ -325,8 +338,16 @@ func TestDijkstraDonationScriptCheckUsesNeededScripts(t *testing.T) {
 	}
 
 	// An unused witness does not make a donation invalid, even at the same level.
-	require.NoError(t, rule(newTx(DijkstraTransactionWitnessSet{}), 0, ls, pp))
-	require.NoError(t, rule(newTx(v1), 0, ls, pp))
+	require.NoError(t, rule(newTx(DijkstraTransactionWitnessSet{}, false), 0, ls, pp))
+	require.NoError(t, rule(newTx(v1, false), 0, ls, pp))
+
+	// A V1 witness required by a minting purpose at that level still rejects it.
+	var donationErr conway.TreasuryDonationWithPlutusV1V2Error
+	require.ErrorAs(
+		t,
+		rule(newTx(v1, true), 0, ls, pp),
+		&donationErr,
+	)
 }
 
 // TestDijkstraBadInputsCoversSubTransactions pins that an unresolvable input

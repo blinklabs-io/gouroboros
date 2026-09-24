@@ -532,7 +532,7 @@ func ValidatePlutusV3ReferenceInputs(
 		key := transactionInputKey{txID: input.Id(), index: input.Index()}
 		if _, exists := inputs[key]; exists {
 			return fmt.Errorf(
-				"Plutus V3 reference input %s is also a regular input",
+				"plutus V3 reference input %s is also a regular input",
 				input.String(),
 			)
 		}
@@ -1014,7 +1014,7 @@ func certificateToPlutusData(
 			data.NewConstr(1),
 		)
 	case *lcommon.RegistrationCertificate:
-		var deposit data.PlutusData = Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData()
+		deposit := Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData()
 		if major == lcommon.ProtocolVersionConway {
 			deposit = Option[*big.Int]{}.ToPlutusData()
 		}
@@ -1030,7 +1030,7 @@ func certificateToPlutusData(
 			data.NewConstr(1),
 		)
 	case *lcommon.DeregistrationCertificate:
-		var refund data.PlutusData = Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData()
+		refund := Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData()
 		if major == lcommon.ProtocolVersionConway {
 			refund = Option[*big.Int]{}.ToPlutusData()
 		}

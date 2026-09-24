@@ -3470,6 +3470,26 @@ func UtxoValidateDelegation(
 			return false, InvalidDRepTypeError{DrepType: drep.Type}
 		}
 	}
+	validateDRepTarget := func(drep common.Drep) error {
+		if isInConwayBootstrapPhase(pp) {
+			return nil
+		}
+		registered, err := isDRepRegistered(drep)
+		if err != nil {
+			return err
+		}
+		if registered {
+			return nil
+		}
+		credType, err := drepTypeToCredType(drep.Type)
+		if err != nil {
+			return err
+		}
+		return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
+			CredType:   credType,
+			Credential: common.NewBlake2b224(drep.Credential),
+		}}
+	}
 
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
@@ -3541,20 +3561,8 @@ func UtxoValidateDelegation(
 			if !isStakeRegistered(c.StakeCredential) {
 				return DelegateUnregisteredStakeCredentialError{Credential: c.StakeCredential}
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 
 		case *common.StakeVoteDelegationCertificate:
@@ -3566,20 +3574,8 @@ func UtxoValidateDelegation(
 			if !isStakeRegistered(c.StakeCredential) {
 				return DelegateUnregisteredStakeCredentialError{Credential: c.StakeCredential}
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 
 		case *common.StakeRegistrationDelegationCertificate:
@@ -3595,20 +3591,8 @@ func UtxoValidateDelegation(
 			if err := registerStakeCredential(c.StakeCredential); err != nil {
 				return err
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 
 		case *common.StakeVoteRegistrationDelegationCertificate:
@@ -3619,20 +3603,8 @@ func UtxoValidateDelegation(
 			if !isPoolRegistered(c.PoolKeyHash) {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 		}
 	}

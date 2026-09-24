@@ -65,6 +65,85 @@ func TestVoteDelegationDistinguishesDRepCredentialType(t *testing.T) {
 	require.Equal(t, drepIdentityCredential(common.CredentialTypeAddrKeyHash), target.DRepCredential)
 }
 
+func TestUnregisteredDRepDelegationDuringBootstrap(t *testing.T) {
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x72},
+	}
+	pool := common.PoolKeyHash(common.Blake2b224{0x73})
+	registrationStake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x75},
+	}
+	unregistered := common.Drep{
+		Type:       common.DrepTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x74}.Bytes(),
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithStakeCredentialRegistered(stake.Credential, true).
+		WithPools([]*common.PoolRegistrationCertificate{{Operator: pool}}).
+		Build()
+	certificates := []struct {
+		name string
+		cert common.Certificate
+	}{
+		{
+			name: "vote delegation",
+			cert: &common.VoteDelegationCertificate{
+				StakeCredential: stake,
+				Drep:            unregistered,
+			},
+		},
+		{
+			name: "stake and vote delegation",
+			cert: &common.StakeVoteDelegationCertificate{
+				StakeCredential: stake,
+				PoolKeyHash:     pool,
+				Drep:            unregistered,
+			},
+		},
+		{
+			name: "vote registration delegation",
+			cert: &common.VoteRegistrationDelegationCertificate{
+				StakeCredential: registrationStake,
+				Drep:            unregistered,
+			},
+		},
+		{
+			name: "stake and vote registration delegation",
+			cert: &common.StakeVoteRegistrationDelegationCertificate{
+				StakeCredential: registrationStake,
+				PoolKeyHash:     pool,
+				Drep:            unregistered,
+			},
+		},
+	}
+	for _, tc := range certificates {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxCertificates: []common.CertificateWrapper{{Certificate: tc.cert}},
+				},
+				TxIsValid: true,
+			}
+			pv9 := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 9},
+			}
+			require.NoError(t, conway.UtxoValidateDelegation(tx, 0, state, pv9))
+
+			pv10 := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 10},
+			}
+			var target conway.DelegateVoteToUnregisteredDRepError
+			require.ErrorAs(t, conway.UtxoValidateDelegation(tx, 0, state, pv10), &target)
+			require.Equal(t, common.Credential{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: common.NewBlake2b224(unregistered.Credential),
+			}, target.DRepCredential)
+		})
+	}
+}
+
 func TestCertificateDepositsDistinguishesDRepCredentialType(t *testing.T) {
 	deposit := uint64(500_000_000)
 	ls := scriptOnlyDRepState(&deposit)

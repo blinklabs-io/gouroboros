@@ -3029,6 +3029,33 @@ func TestUtxoValidateDisjointRefInputs_PV11PlusSkipsGlobalCheck(t *testing.T) {
 	})
 }
 
+func TestUtxoValidateDisjointRefInputs_PV11AllowsOverlapWithoutPlutus(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input},
+				false,
+			),
+		},
+	}
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11},
+	}
+	require.NoError(t, conway.UtxoValidateDisjointRefInputs(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		pp,
+	))
+}
+
 func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testInputAmount uint64 = 20_000_000
