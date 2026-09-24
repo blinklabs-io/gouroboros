@@ -949,10 +949,11 @@ func UtxoValidateDisjointRefInputs(
 // availability across transaction levels separately.
 type dijkstraConwayFeatureTransaction struct {
 	common.Transaction
-	body      common.TransactionBody
-	witnesses common.TransactionWitnessSet
-	metadata  common.TransactionMetadatum
-	auxData   common.AuxiliaryData
+	body                  common.TransactionBody
+	witnesses             common.TransactionWitnessSet
+	metadata              common.TransactionMetadatum
+	auxData               common.AuxiliaryData
+	withdrawalExactAmount *bool
 }
 
 func (t dijkstraConwayFeatureTransaction) Metadata() common.TransactionMetadatum {
@@ -1057,6 +1058,17 @@ func (t dijkstraConwayFeatureTransaction) AssetMint() *common.MultiAsset[common.
 
 func (t dijkstraConwayFeatureTransaction) Donation() *big.Int {
 	return t.body.Donation()
+}
+
+// WithdrawalRequiresExactAmount exposes Dijkstra's batch-level legacy mode.
+func (t dijkstraConwayFeatureTransaction) WithdrawalRequiresExactAmount() (
+	bool,
+	bool,
+) {
+	if t.withdrawalExactAmount == nil {
+		return false, false
+	}
+	return *t.withdrawalExactAmount, true
 }
 
 func (t dijkstraConwayFeatureTransaction) Consumed() []common.TransactionInput {
@@ -4007,13 +4019,30 @@ func UtxoValidateWithdrawals(
 	if !tx.IsValid() {
 		return nil
 	}
+	levels := dijkstraTransactionLevels(dijkstraTx)
+	hasWithdrawals := false
+	for _, level := range levels {
+		if len(level.Withdrawals()) > 0 {
+			hasWithdrawals = true
+			break
+		}
+	}
+	if !hasWithdrawals {
+		return nil
+	}
+	legacyWithdrawalMode, err := dijkstraLegacyWithdrawalMode(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
 	state := newDijkstraAccountStateOverlay(ls)
 	networkID := uint(0)
 	if ls != nil {
 		networkID = ls.NetworkId()
 	}
-	levels := dijkstraTransactionLevels(dijkstraTx)
-	for _, level := range levels {
+	for idx := range levels {
+		requireExactAmount := legacyWithdrawalMode && idx == len(levels)-1
+		levels[idx].withdrawalExactAmount = &requireExactAmount
+		level := levels[idx]
 		if len(level.Withdrawals()) > 0 && ls == nil {
 			return errors.New("ledger state is required for Dijkstra withdrawals")
 		}
@@ -4030,6 +4059,25 @@ func UtxoValidateWithdrawals(
 		}
 	}
 	return nil
+}
+
+func dijkstraLegacyWithdrawalMode(
+	tx *DijkstraTransaction,
+	ls common.LedgerState,
+) (bool, error) {
+	levels, _, err := dijkstraWitnessRuleLevels(tx, ls)
+	if err != nil {
+		return false, err
+	}
+	for _, level := range levels {
+		if level.view.NeedsAny(func(candidate common.Script) bool {
+			version, ok := common.PlutusScriptVersion(candidate)
+			return ok && version <= 2
+		}) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func UtxoValidateMaxTxSizeUtxo(

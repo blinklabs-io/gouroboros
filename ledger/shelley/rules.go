@@ -822,19 +822,31 @@ func UtxoValidateWithdrawals(
 	}
 
 	requireExactAmount := true
-	if versionedPparams, ok := pp.(interface {
-		ProtocolMajorVersion() uint
+	useWithdrawalExactMode := false
+	if modeProvider, ok := tx.(interface {
+		WithdrawalRequiresExactAmount() (bool, bool)
 	}); ok {
-		if versionedPparams.ProtocolMajorVersion() >=
-			common.ProtocolVersionDijkstra {
-			view, err := script.NewTxScriptView(tx, ls)
-			if err != nil {
-				return err
+		exact, configured := modeProvider.WithdrawalRequiresExactAmount()
+		if configured {
+			requireExactAmount = exact
+			useWithdrawalExactMode = true
+		}
+	}
+	if !useWithdrawalExactMode {
+		if versionedPparams, ok := pp.(interface {
+			ProtocolMajorVersion() uint
+		}); ok {
+			if versionedPparams.ProtocolMajorVersion() >=
+				common.ProtocolVersionDijkstra {
+				view, err := script.NewTxScriptView(tx, ls)
+				if err != nil {
+					return err
+				}
+				requireExactAmount = view.NeedsAny(func(s common.Script) bool {
+					version, ok := common.PlutusScriptVersion(s)
+					return ok && version <= 2
+				})
 			}
-			requireExactAmount = view.NeedsAny(func(s common.Script) bool {
-				version, ok := common.PlutusScriptVersion(s)
-				return ok && version <= 2
-			})
 		}
 	}
 
