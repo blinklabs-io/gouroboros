@@ -17,6 +17,7 @@ package dijkstra
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -503,26 +504,31 @@ func TestDijkstraSubTransactionMetadataUsesChildAuxiliaryData(t *testing.T) {
 	metadata, err := common.DecodeAuxiliaryDataToMetadata(auxCBOR)
 	require.NoError(t, err)
 	auxHash := common.Blake2b256Hash(auxCBOR)
-	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
-		Body: DijkstraSubTransactionBody{TxAuxDataHash: &auxHash},
-	})
-	// The parent has matching auxiliary data. It must not satisfy the child's
-	// hash, because each SUBUTXOW validates its own third transaction component.
-	tx.TxMetadata = metadata
-	tx.auxData = auxData
-	tx.Body.TxAuxDataHash = &auxHash
-	wire, err := tx.MarshalCBOR()
-	require.NoError(t, err)
-	decoded, err := NewDijkstraTransactionFromCbor(wire)
-	require.NoError(t, err)
 	rule := dijkstraRule(t, common.UtxoValidationRuleMetadata)
-	var missingMetadata common.MissingTransactionMetadataError
-	require.ErrorAs(
-		t,
-		rule(decoded, 0, mockledger.NewLedgerStateBuilder().Build(),
-			&DijkstraProtocolParameters{}),
-		&missingMetadata,
-	)
+	for _, valid := range []bool{true, false} {
+		t.Run(fmt.Sprintf("is_valid=%t", valid), func(t *testing.T) {
+			tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+				Body: DijkstraSubTransactionBody{TxAuxDataHash: &auxHash},
+			})
+			// The parent has matching auxiliary data. It must not satisfy the
+			// child's hash, because SUBUTXOW validates its own aux-data bytes.
+			tx.TxMetadata = metadata
+			tx.auxData = auxData
+			tx.Body.TxAuxDataHash = &auxHash
+			tx.TxIsValid = valid
+			wire, err := tx.MarshalCBOR()
+			require.NoError(t, err)
+			decoded, err := NewDijkstraTransactionFromCbor(wire)
+			require.NoError(t, err)
+			var missingMetadata common.MissingTransactionMetadataError
+			require.ErrorAs(
+				t,
+				rule(decoded, 0, mockledger.NewLedgerStateBuilder().Build(),
+					&DijkstraProtocolParameters{}),
+				&missingMetadata,
+			)
+		})
+	}
 }
 
 func TestDijkstraSubTransactionMetadataChecksChildHashAndData(t *testing.T) {
@@ -537,6 +543,14 @@ func TestDijkstraSubTransactionMetadataChecksChildHashAndData(t *testing.T) {
 	parentMetadata, err := common.DecodeAuxiliaryDataToMetadata(parentAuxCBOR)
 	require.NoError(t, err)
 	childHash := common.Blake2b256Hash(childAuxCBOR)
+	secondChildAuxCBOR := []byte{0xa1, 0x00, 0x03}
+	secondChildAux, err := common.DecodeAuxiliaryData(secondChildAuxCBOR)
+	require.NoError(t, err)
+	secondChildMetadata, err := common.DecodeAuxiliaryDataToMetadata(
+		secondChildAuxCBOR,
+	)
+	require.NoError(t, err)
+	secondChildHash := common.Blake2b256Hash(secondChildAuxCBOR)
 	parentHash := common.Blake2b256Hash(parentAuxCBOR)
 
 	child := DijkstraSubTransaction{Body: DijkstraSubTransactionBody{
@@ -545,6 +559,15 @@ func TestDijkstraSubTransactionMetadataChecksChildHashAndData(t *testing.T) {
 	child.TxMetadata = childMetadata
 	child.auxData = childAux
 	tx := dijkstraSingleSubTx(child)
+	secondChild := DijkstraSubTransaction{Body: DijkstraSubTransactionBody{
+		TxAuxDataHash: &secondChildHash,
+	}}
+	secondChild.TxMetadata = secondChildMetadata
+	secondChild.auxData = secondChildAux
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]DijkstraSubTransaction{child, secondChild},
+		true,
+	)
 	tx.Body.TxAuxDataHash = &parentHash
 	tx.TxMetadata = parentMetadata
 	tx.auxData = parentAux
@@ -604,7 +627,7 @@ func TestDijkstraSubTransactionMetadataRequiresChildHash(t *testing.T) {
 }
 
 func TestDijkstraChildProposalIsVisibleToTopLevelVote(t *testing.T) {
-	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+	child := DijkstraSubTransaction{
 		Body: DijkstraSubTransactionBody{
 			TxProposalProcedures: []DijkstraProposalProcedure{{
 				PPRewardAccount: testAccountAddress(t),
@@ -613,10 +636,13 @@ func TestDijkstraChildProposalIsVisibleToTopLevelVote(t *testing.T) {
 				},
 			}},
 		},
-	})
-	subTransactions := tx.Body.TxSubTransactions.Items()
+	}
+	childBodyCBOR, err := cbor.Encode(&child.Body)
+	require.NoError(t, err)
+	child.Body.SetCborReference(childBodyCBOR)
+	tx := dijkstraSingleSubTx(child)
 	childActionID := common.GovActionId{
-		TransactionId: subTransactions[0].Body.Id(),
+		TransactionId: child.Body.Id(),
 	}
 	voter := common.Voter{
 		Type: common.VoterTypeStakingPoolKeyHash,
@@ -645,6 +671,9 @@ func TestDijkstraChildProposalIsVisibleToLaterChildVote(t *testing.T) {
 		}},
 		{Body: DijkstraSubTransactionBody{}},
 	}
+	firstBodyCBOR, err := cbor.Encode(&children[0].Body)
+	require.NoError(t, err)
+	children[0].Body.SetCborReference(firstBodyCBOR)
 	actionID := common.GovActionId{
 		TransactionId: children[0].Body.Id(),
 	}
@@ -655,9 +684,53 @@ func TestDijkstraChildProposalIsVisibleToLaterChildVote(t *testing.T) {
 	children[1].Body.TxVotingProcedures = common.VotingProcedures{
 		&voter: {&actionID: {Vote: common.GovVoteYes}},
 	}
+	secondBodyCBOR, err := cbor.Encode(&children[1].Body)
+	require.NoError(t, err)
+	children[1].Body.SetCborReference(secondBodyCBOR)
+	require.NotEqual(t, children[0].Body.Id(), children[1].Body.Id())
 	tx := dijkstraSingleSubTx(children[0])
 	tx.Body.TxSubTransactions = cbor.NewSetType(children, true)
 	rule := dijkstraRule(t, common.UtxoValidationRuleUnknownGovActionIds)
+	require.NoError(
+		t,
+		rule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{}),
+	)
+}
+
+func TestDijkstraChildProposalAncestryUsesEarlierChildState(t *testing.T) {
+	children := []DijkstraSubTransaction{
+		{Body: DijkstraSubTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction: DijkstraGovAction{
+					Action: &DijkstraParameterChangeGovAction{},
+				},
+			}},
+		}},
+		{Body: DijkstraSubTransactionBody{}},
+	}
+	firstBodyCBOR, err := cbor.Encode(&children[0].Body)
+	require.NoError(t, err)
+	children[0].Body.SetCborReference(firstBodyCBOR)
+	earlierActionID := common.GovActionId{
+		TransactionId: children[0].Body.Id(),
+	}
+	children[1].Body.TxProposalProcedures = []DijkstraProposalProcedure{{
+		PPRewardAccount: testAccountAddress(t),
+		PPGovAction: DijkstraGovAction{
+			Action: &DijkstraParameterChangeGovAction{
+				ActionId: &earlierActionID,
+			},
+		},
+	}}
+	secondBodyCBOR, err := cbor.Encode(&children[1].Body)
+	require.NoError(t, err)
+	children[1].Body.SetCborReference(secondBodyCBOR)
+	require.NotEqual(t, children[0].Body.Id(), children[1].Body.Id())
+	tx := dijkstraSingleSubTx(children[0])
+	tx.Body.TxSubTransactions = cbor.NewSetType(children, true)
+	rule := dijkstraRule(t, common.UtxoValidationRuleProposalAncestry)
 	require.NoError(
 		t,
 		rule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
@@ -707,6 +780,78 @@ func TestDijkstraChildDRepRegistrationIsVisibleToLaterChildVote(t *testing.T) {
 		}).Build()
 	rule := dijkstraRule(t, common.UtxoValidationRuleUnknownVoters)
 	require.NoError(t, rule(tx, 0, state, &DijkstraProtocolParameters{}))
+}
+
+func TestDijkstraChildGovernanceRulesRespectBatchValidity(t *testing.T) {
+	proposal := DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPDeposit:       1,
+				PPRewardAccount: testAccountAddress(t),
+				PPGovAction: DijkstraGovAction{
+					Action: &common.InfoGovAction{},
+				},
+			}},
+		},
+	}
+	proposalTx := dijkstraSingleSubTx(proposal)
+	proposalRule, _ := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateProposalDeposit",
+	)
+	var depositErr conway.ProposalDepositIncorrectError
+	require.ErrorAs(
+		t,
+		proposalRule(proposalTx, 0, nil, &DijkstraProtocolParameters{}),
+		&depositErr,
+	)
+	proposalTx.TxIsValid = false
+	require.NoError(
+		t,
+		proposalRule(proposalTx, 0, nil, &DijkstraProtocolParameters{}),
+	)
+
+	unknownVoter := DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{
+			TxVotingProcedures: common.VotingProcedures{
+				&common.Voter{
+					Type: common.VoterTypeDRepKeyHash,
+					Hash: common.Blake2b224{0x51},
+				}: {
+					&common.GovActionId{
+						TransactionId: common.Blake2b256{0x52},
+					}: {Vote: common.GovVoteYes},
+				},
+			},
+		},
+	}
+	validVoteTx := dijkstraSingleSubTx(unknownVoter)
+	var unknownErr conway.UnknownVoterError
+	require.ErrorAs(
+		t,
+		dijkstraRule(t, common.UtxoValidationRuleUnknownVoters)(
+			validVoteTx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{},
+		),
+		&unknownErr,
+	)
+	invalidVoteTx := dijkstraSingleSubTx(unknownVoter)
+	invalidVoteTx.TxIsValid = false
+	unknownVoterRule, _ := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateUnknownVoters",
+	)
+	require.NoError(
+		t,
+		unknownVoterRule(
+			invalidVoteTx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{},
+		),
+	)
 }
 
 // TestDijkstraOutputRulesCoverSubTransactions pins the minimum-coin,
