@@ -578,8 +578,7 @@ func (c *Client) GetAvailableBlockRange(
 	intersectPoints []pcommon.Point,
 ) (pcommon.Point, pcommon.Point, error) {
 	c.busyMutex.Lock()
-	proto, readyForNextBlockChan, doneChan, endOperation, err :=
-		c.beginOperation()
+	proto, readyForNextBlockChan, doneChan, endOperation, err := c.beginOperation()
 	if err != nil {
 		c.busyMutex.Unlock()
 		return pcommon.Point{}, pcommon.Point{}, err
