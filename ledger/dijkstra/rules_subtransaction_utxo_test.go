@@ -413,6 +413,38 @@ func TestDijkstraBadInputsCoversSubTransactions(t *testing.T) {
 		&subErr,
 	)
 	require.Equal(t, topErr, subErr)
+
+	for _, level := range []string{"top-level", "child"} {
+		t.Run(level+" reference input", func(t *testing.T) {
+			body := DijkstraSubTransactionBody{
+				TxReferenceInputs: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{missing}, true,
+				),
+			}
+			tx := &DijkstraTransaction{TxIsValid: true}
+			if level == "child" {
+				tx = dijkstraSingleSubTx(DijkstraSubTransaction{Body: body})
+			} else {
+				tx.Body.TxReferenceInputs = body.TxReferenceInputs
+			}
+			var referenceErr common.ReferenceInputResolutionError
+			require.ErrorAs(t, rule(tx, 0, ls, pp), &referenceErr)
+			require.Equal(t, missing.String(), referenceErr.Input.String())
+
+			validBody := DijkstraSubTransactionBody{
+				TxReferenceInputs: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input}, true,
+				),
+			}
+			validTx := &DijkstraTransaction{TxIsValid: true}
+			if level == "child" {
+				validTx = dijkstraSingleSubTx(DijkstraSubTransaction{Body: validBody})
+			} else {
+				validTx.Body.TxReferenceInputs = validBody.TxReferenceInputs
+			}
+			require.NoError(t, rule(validTx, 0, ls, pp))
+		})
+	}
 }
 
 func TestDijkstraSubTransactionRunsItsOwnUtxoPredicates(t *testing.T) {

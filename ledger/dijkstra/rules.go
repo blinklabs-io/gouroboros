@@ -1637,12 +1637,37 @@ func UtxoValidateBadInputsUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return conway.UtxoValidateBadInputsUtxo(
-		dijkstraBatchView(tx),
-		slot,
-		ls,
-		pp,
-	)
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.UtxoValidateBadInputsUtxo(level, slot, ls, pp); err != nil {
+			return err
+		}
+		for _, refInput := range level.ReferenceInputs() {
+			if ls == nil {
+				return common.ReferenceInputResolutionError{
+					Input: refInput,
+					Err:   errors.New("ledger state is required to resolve reference input"),
+				}
+			}
+			utxo, err := ls.UtxoById(refInput)
+			if err != nil {
+				return common.ReferenceInputResolutionError{
+					Input: refInput,
+					Err:   err,
+				}
+			}
+			if utxo.Output == nil {
+				return common.ReferenceInputResolutionError{
+					Input: refInput,
+					Err:   errors.New("resolved UTxO has nil output"),
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // UtxoValidateMetadata validates the auxiliary data attached to every
