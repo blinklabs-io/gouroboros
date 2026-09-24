@@ -1379,7 +1379,7 @@ func UtxoValidateProposalReturnAccounts(
 // validateProtocolParameterUpdate validates that a PPU is well-formed
 func validateProtocolParameterUpdate(
 	ppu *ConwayProtocolParameterUpdate,
-	pp common.ProtocolParameters,
+	protocolParameters ...common.ProtocolParameters,
 ) error {
 	if err := validateConwayProtocolParameterUpdate(ppu); err != nil {
 		return err
@@ -1448,6 +1448,10 @@ func validateProtocolParameterUpdate(
 		}
 	}
 	var major uint
+	var pp common.ProtocolParameters
+	if len(protocolParameters) > 0 {
+		pp = protocolParameters[0]
+	}
 	if pp != nil {
 		versionedPparams, ok := pp.(interface{ ProtocolMajorVersion() uint })
 		if !ok {

@@ -457,7 +457,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 
 func validateDijkstraProtocolParameterUpdate(
 	ppu *DijkstraProtocolParameterUpdate,
-	pp common.ProtocolParameters,
+	protocolParameters ...common.ProtocolParameters,
 ) error {
 	if ppu == nil || !ppu.hasUpdate() {
 		return conway.ProtocolParameterUpdateEmptyError{}
@@ -505,6 +505,10 @@ func validateDijkstraProtocolParameterUpdate(
 		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "drepDeposit"}
 	}
 	var major uint
+	var pp common.ProtocolParameters
+	if len(protocolParameters) > 0 {
+		pp = protocolParameters[0]
+	}
 	if pp != nil {
 		params, err := conwayPparams(pp)
 		if err != nil {
