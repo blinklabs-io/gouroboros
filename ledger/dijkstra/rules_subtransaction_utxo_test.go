@@ -510,11 +510,16 @@ func TestDijkstraSubTransactionMetadataUsesChildAuxiliaryData(t *testing.T) {
 	// hash, because each SUBUTXOW validates its own third transaction component.
 	tx.TxMetadata = metadata
 	tx.auxData = auxData
+	tx.Body.TxAuxDataHash = &auxHash
+	wire, err := tx.MarshalCBOR()
+	require.NoError(t, err)
+	decoded, err := NewDijkstraTransactionFromCbor(wire)
+	require.NoError(t, err)
 	rule := dijkstraRule(t, common.UtxoValidationRuleMetadata)
 	var missingMetadata common.MissingTransactionMetadataError
 	require.ErrorAs(
 		t,
-		rule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+		rule(decoded, 0, mockledger.NewLedgerStateBuilder().Build(),
 			&DijkstraProtocolParameters{}),
 		&missingMetadata,
 	)
@@ -562,11 +567,39 @@ func TestDijkstraSubTransactionMetadataChecksChildHashAndData(t *testing.T) {
 	mismatchedChild.auxData = childAux
 	mismatchedTx := dijkstraSingleSubTx(mismatchedChild)
 	var mismatch common.ConflictingMetadataHashError
+	mismatchWire, err := mismatchedTx.MarshalCBOR()
+	require.NoError(t, err)
+	mismatchedDecoded, err := NewDijkstraTransactionFromCbor(mismatchWire)
+	require.NoError(t, err)
 	require.ErrorAs(
 		t,
-		rule(mismatchedTx, 0, mockledger.NewLedgerStateBuilder().Build(),
+		rule(mismatchedDecoded, 0, mockledger.NewLedgerStateBuilder().Build(),
 			&DijkstraProtocolParameters{}),
 		&mismatch,
+	)
+}
+
+func TestDijkstraSubTransactionMetadataRequiresChildHash(t *testing.T) {
+	auxCBOR := []byte{0xa1, 0x00, 0x01}
+	auxData, err := common.DecodeAuxiliaryData(auxCBOR)
+	require.NoError(t, err)
+	metadata, err := common.DecodeAuxiliaryDataToMetadata(auxCBOR)
+	require.NoError(t, err)
+	child := DijkstraSubTransaction{}
+	child.TxMetadata = metadata
+	child.auxData = auxData
+	tx := dijkstraSingleSubTx(child)
+	wire, err := tx.MarshalCBOR()
+	require.NoError(t, err)
+	decoded, err := NewDijkstraTransactionFromCbor(wire)
+	require.NoError(t, err)
+	rule := dijkstraRule(t, common.UtxoValidationRuleMetadata)
+	var missingHash common.MissingTransactionAuxiliaryDataHashError
+	require.ErrorAs(
+		t,
+		rule(decoded, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{}),
+		&missingHash,
 	)
 }
 
