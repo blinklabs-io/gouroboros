@@ -19,10 +19,12 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/require"
@@ -95,6 +97,161 @@ func TestE2EShelleyTransactionAuxiliaryData(t *testing.T) {
 	}
 
 	t.Logf("Successfully decoded Shelley transaction with auxiliary data")
+}
+
+func TestTransactionAuxiliaryDataUsesEraSpecificCBOR(t *testing.T) {
+	metadata, err := cbor.Encode(map[uint]string{674: "era"})
+	require.NoError(t, err)
+	emptyScripts, err := cbor.Encode([]cbor.RawMessage{})
+	require.NoError(t, err)
+	arrayAux, err := cbor.Encode([]cbor.RawMessage{metadata, emptyScripts})
+	require.NoError(t, err)
+	taggedAux := func(field uint) []byte {
+		fields := map[uint]cbor.RawMessage{0: metadata}
+		if field != 0 {
+			fields[field] = emptyScripts
+		}
+		content, encodeErr := cbor.Encode(fields)
+		require.NoError(t, encodeErr)
+		raw, encodeErr := cbor.Encode(&cbor.RawTag{
+			Number:  cbor.CborTagMap,
+			Content: content,
+		})
+		require.NoError(t, encodeErr)
+		return raw
+	}
+	unknownFieldContent, err := cbor.Encode(map[uint]cbor.RawMessage{
+		0:  metadata,
+		99: {0x41, 0x01},
+	})
+	require.NoError(t, err)
+	unknownFieldAux, err := cbor.Encode(&cbor.RawTag{
+		Number:  cbor.CborTagMap,
+		Content: unknownFieldContent,
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		aux        []byte
+		hasIsValid bool
+		decode     func([]byte) error
+	}{
+		{
+			name: "Shelley rejects Allegra array",
+			aux:  arrayAux,
+			decode: func(raw []byte) error {
+				_, err := shelley.NewShelleyTransactionFromCbor(raw)
+				return err
+			},
+		},
+		{
+			name: "Shelley rejects tagged map",
+			aux:  taggedAux(0),
+			decode: func(raw []byte) error {
+				_, err := shelley.NewShelleyTransactionFromCbor(raw)
+				return err
+			},
+		},
+		{
+			name: "Allegra rejects tagged map",
+			aux:  taggedAux(0),
+			decode: func(raw []byte) error {
+				_, err := allegra.NewAllegraTransactionFromCbor(raw)
+				return err
+			},
+		},
+		{
+			name: "Mary rejects tagged map",
+			aux:  taggedAux(0),
+			decode: func(raw []byte) error {
+				_, err := mary.NewMaryTransactionFromCbor(raw)
+				return err
+			},
+		},
+		{
+			name:       "Alonzo rejects V2 auxiliary scripts",
+			aux:        taggedAux(3),
+			hasIsValid: true,
+			decode: func(raw []byte) error {
+				_, err := alonzo.NewAlonzoTransactionFromCbor(raw)
+				return err
+			},
+		},
+		{
+			name:       "Babbage rejects V3 auxiliary scripts",
+			aux:        taggedAux(4),
+			hasIsValid: true,
+			decode: func(raw []byte) error {
+				_, err := babbage.NewBabbageTransactionFromCbor(raw)
+				return err
+			},
+		},
+		{
+			name:       "Conway rejects V4 auxiliary scripts",
+			aux:        taggedAux(5),
+			hasIsValid: true,
+			decode: func(raw []byte) error {
+				_, err := conway.NewConwayTransactionFromCbor(raw)
+				return err
+			},
+		},
+		{
+			name:       "Alonzo rejects unknown tagged field",
+			aux:        unknownFieldAux,
+			hasIsValid: true,
+			decode: func(raw []byte) error {
+				_, err := alonzo.NewAlonzoTransactionFromCbor(raw)
+				return err
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := cbor.Encode(map[uint]any{
+				0: []any{},
+				1: []any{},
+				2: uint64(0),
+				3: uint64(0),
+				7: common.Blake2b256Hash(tc.aux).Bytes(),
+			})
+			require.NoError(t, err)
+			witnesses, err := cbor.Encode(map[uint]any{})
+			require.NoError(t, err)
+			components := []cbor.RawMessage{body, witnesses}
+			if tc.hasIsValid {
+				components = append(components, cbor.RawMessage{0xf5})
+			}
+			components = append(components, tc.aux)
+			tx, err := cbor.Encode(components)
+			require.NoError(t, err)
+			require.Error(t, tc.decode(tx))
+		})
+	}
+}
+
+func TestDijkstraTransactionAcceptsV4AuxiliaryScripts(t *testing.T) {
+	scripts, err := cbor.Encode([]cbor.RawMessage{})
+	require.NoError(t, err)
+	fields, err := cbor.Encode(map[uint]cbor.RawMessage{5: scripts})
+	require.NoError(t, err)
+	aux, err := cbor.Encode(&cbor.RawTag{
+		Number:  cbor.CborTagMap,
+		Content: fields,
+	})
+	require.NoError(t, err)
+	body, err := cbor.Encode(map[uint]any{
+		0: []any{},
+		1: []any{},
+		2: uint64(0),
+	})
+	require.NoError(t, err)
+	witnesses, err := cbor.Encode(map[uint]any{})
+	require.NoError(t, err)
+	tx, err := cbor.Encode([]cbor.RawMessage{body, witnesses, aux})
+	require.NoError(t, err)
+	_, err = dijkstra.NewDijkstraTransactionFromCbor(tx)
+	require.NoError(t, err)
 }
 
 func TestE2EMaryTransactionAuxiliaryData(t *testing.T) {
