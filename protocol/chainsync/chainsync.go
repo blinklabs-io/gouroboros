@@ -116,6 +116,8 @@ var StateMapNtN = protocol.StateMap{
 		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Timeout:                 CanAwaitTimeout,
 		Transitions:             canAwaitTransitions,
+		AllowPipelinedSend:      true,
+		PipelinedMessageTypes:   []uint8{MessageTypeRequestNext},
 	},
 	stateIntersect: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
@@ -143,8 +145,10 @@ var StateMapNtC = protocol.StateMap{
 		Transitions: idleTransitions,
 	},
 	stateCanAwait: protocol.StateMapEntry{
-		Agency:      protocol.AgencyServer,
-		Transitions: canAwaitTransitions,
+		Agency:                protocol.AgencyServer,
+		Transitions:           canAwaitTransitions,
+		AllowPipelinedSend:    true,
+		PipelinedMessageTypes: []uint8{MessageTypeRequestNext},
 	},
 	stateIntersect: protocol.StateMapEntry{
 		Agency:      protocol.AgencyServer,

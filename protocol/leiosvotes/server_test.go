@@ -158,6 +158,76 @@ func TestNewServer(t *testing.T) {
 	assert.NotNil(t, server.config)
 }
 
+func TestNewServerPropagatesConnectionDoneChan(t *testing.T) {
+	done := make(chan any)
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId:       testConnectionId(),
+		ConnectionDoneChan: done,
+	}, nil)
+	close(done)
+	select {
+	case <-server.callbackContext.ConnectionDoneChan:
+	default:
+		t.Fatal("connection lifecycle channel did not close")
+	}
+}
+
+func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(connA)
+	defer m.Stop()
+
+	connectionDone := make(chan any)
+	callbackEntered := make(chan struct{})
+	callbackReturned := make(chan struct{})
+	cfg := NewConfig(WithRequestNextFunc(
+		func(ctx CallbackContext, _ uint64) ([]Vote, error) {
+			close(callbackEntered)
+			<-ctx.ConnectionDoneChan
+			close(callbackReturned)
+			return nil, errors.New("test: connection shutdown")
+		},
+	))
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId:       testConnectionId(),
+		ConnectionDoneChan: connectionDone,
+		Muxer:              m,
+	}, &cfg)
+	server.Start()
+	defer server.ProtocolInstance().Stop()
+	defer func() {
+		select {
+		case <-connectionDone:
+		default:
+			close(connectionDone)
+		}
+	}()
+	m.Start()
+
+	requestData, err := cbor.Encode(NewMsgVotesRequestNext(1))
+	require.NoError(t, err)
+	require.NoError(t, connB.SetWriteDeadline(time.Now().Add(time.Second)))
+	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, requestData, false))
+	select {
+	case <-callbackEntered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for LeiosVotes request callback")
+	}
+	close(connectionDone)
+	select {
+	case <-callbackReturned:
+	case <-time.After(time.Second):
+		t.Fatal("request callback did not observe connection shutdown")
+	}
+	select {
+	case <-server.DoneChan():
+	case <-time.After(time.Second):
+		t.Fatal("protocol did not stop after request callback returned")
+	}
+}
+
 func TestHandleRequestNextCallbackIsCalled(t *testing.T) {
 	called := false
 	cfg := NewConfig(

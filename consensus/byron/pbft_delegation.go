@@ -104,33 +104,32 @@ func NewPBFTDelegationState(
 		state.activeDelegations[hash] = hash
 		state.delegationSlots[hash] = 0
 	}
-	for delegator, delegate := range config.GenesisDelegations {
+	for delegator := range config.GenesisDelegations {
 		if _, ok := state.allowedDelegators[delegator]; !ok {
 			return PBFTDelegationState{}, fmt.Errorf(
 				"byron PBFT genesis delegation has unknown delegator %s",
 				delegator.String(),
 			)
 		}
-		state.activeDelegations[delegator] = delegate
-		state.keyEpochDelegations[pbftDelegationKeyEpoch{
-			epoch:     0,
-			delegator: delegator,
-		}] = struct{}{}
 	}
-	activeDelegators := make(
-		map[common.Blake2b224]common.Blake2b224,
-		len(state.activeDelegations),
-	)
-	for delegator, delegate := range state.activeDelegations {
-		if otherDelegator, exists := activeDelegators[delegate]; exists {
-			return PBFTDelegationState{}, fmt.Errorf(
-				"byron PBFT genesis delegate %s is active for both %s and %s",
-				delegate.String(),
-				otherDelegator.String(),
-				delegator.String(),
-			)
+	for _, hashBytes := range config.GenesisKeyHashes {
+		delegator := common.NewBlake2b224(hashBytes)
+		delegate, exists := config.GenesisDelegations[delegator]
+		if !exists {
+			continue
 		}
-		activeDelegators[delegate] = delegator
+		omega, hasOmega := config.GenesisDelegationEpochs[delegator]
+		if delegate != delegator || hasOmega {
+			state.keyEpochDelegations[pbftDelegationKeyEpoch{
+				epoch:     omega,
+				delegator: delegator,
+			}] = struct{}{}
+		}
+		state.activate(pbftScheduledDelegation{
+			activationSlot: 0,
+			delegator:      delegator,
+			delegate:       delegate,
+		})
 	}
 	return state, nil
 }

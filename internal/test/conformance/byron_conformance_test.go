@@ -773,11 +773,32 @@ func TestByronFullHeaderValidation(t *testing.T) {
 
 	// Configure the fixture issuer as the test's trust root so the full header
 	// path exercises issuer authorization rather than disabling it.
+	proxySignature, ok := header.ConsensusData.BlockSig[1].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, proxySignature)
+	certificate, ok := proxySignature[0].([]any)
+	require.True(t, ok)
+	require.GreaterOrEqual(t, len(certificate), 2)
+	issuerVerificationKey, ok := certificate[1].([]byte)
+	require.True(t, ok)
+	issuerHash, err := byronConsensus.PBFTVerificationKeyHash(
+		issuerVerificationKey,
+	)
+	require.NoError(t, err, "Failed to hash issuer verification key")
+	delegateVerificationKey, ok := certificate[2].([]byte)
+	require.True(t, ok)
+	delegateHash, err := byronConsensus.PBFTVerificationKeyHash(
+		delegateVerificationKey,
+	)
+	require.NoError(t, err, "Failed to hash delegate verification key")
 	config := byronConsensus.ByronConfig{
 		ProtocolMagic:    header.ProtocolMagic,
 		SlotsPerEpoch:    byron.ByronSlotsPerEpoch,
 		NumGenesisKeys:   1,
-		GenesisKeyHashes: [][]byte{common.Blake2b224Hash(pubKey).Bytes()},
+		GenesisKeyHashes: [][]byte{issuerHash.Bytes()},
+		GenesisDelegations: map[common.Blake2b224]common.Blake2b224{
+			issuerHash: delegateHash,
+		},
 	}
 
 	validator := byronConsensus.NewHeaderValidator(config)

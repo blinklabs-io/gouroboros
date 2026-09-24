@@ -729,12 +729,18 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 func TestUtxoValidateValueNotConservedChecksZeroPolicyMint(t *testing.T) {
 	mint := common.NewMultiAsset[common.MultiAssetTypeMint](
 		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
-			{}: {cbor.NewByteString([]byte("token")): big.NewInt(1)},
+			{}: {
+				cbor.NewByteString([]byte("token")): big.NewInt(1),
+				cbor.NewByteString(nil):             big.NewInt(1),
+			},
 		},
 	)
 	outputAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](
 		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
-			{}: {cbor.NewByteString([]byte("token")): big.NewInt(1)},
+			{}: {
+				cbor.NewByteString([]byte("token")): big.NewInt(1),
+				cbor.NewByteString(nil):             big.NewInt(1),
+			},
 		},
 	)
 	validTx := &mary.MaryTransaction{

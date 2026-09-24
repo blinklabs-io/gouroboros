@@ -33,6 +33,87 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
+const (
+	OutsideForecastTypeAlonzoBabbage uint8 = 18
+	OutsideForecastTypeConway        uint8 = 17
+	OutsideForecastTypeDijkstra      uint8 = 16
+)
+
+// ValidateOutsideForecast checks the top-level transaction and, when present,
+// each Dijkstra sub-transaction against the validation SlotState's forecast.
+func ValidateOutsideForecast(
+	tx Transaction,
+	_ uint64,
+	ls LedgerState,
+	failureType uint8,
+) error {
+	if tx == nil || ls == nil {
+		return nil
+	}
+	if err := validateOutsideForecastLevel(tx, tx.Witnesses(), ls, failureType); err != nil {
+		return err
+	}
+	bodies := SubTransactionBodiesFromTransaction(tx)
+	witnessSets := SubTransactionWitnessSetsFromTransaction(tx)
+	for i, body := range bodies {
+		if i >= len(witnessSets) {
+			return fmt.Errorf("sub-transaction %d has no witness set", i)
+		}
+		if err := validateOutsideForecastLevel(
+			body,
+			witnessSets[i],
+			ls,
+			failureType,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UtxoValidateCollateralKeyLocked applies the phase-2-gated collateral
+// key-lock predicate.
+func UtxoValidateCollateralKeyLocked(
+	tx Transaction,
+	_ uint64,
+	ls LedgerState,
+	_ ProtocolParameters,
+) error {
+	return ValidateCollateralKeyLocked(tx, ls)
+}
+
+// UtxoValidateOutsideForecast applies the Alonzo/Babbage OutsideForecast
+// predicate to redeemer-bearing transaction levels.
+func UtxoValidateOutsideForecast(
+	tx Transaction,
+	slot uint64,
+	ls LedgerState,
+	_ ProtocolParameters,
+) error {
+	return ValidateOutsideForecast(
+		tx,
+		slot,
+		ls,
+		OutsideForecastTypeAlonzoBabbage,
+	)
+}
+
+func validateOutsideForecastLevel(
+	body TransactionBody,
+	witnesses TransactionWitnessSet,
+	ls LedgerState,
+	failureType uint8,
+) error {
+	upperBound, present := TransactionValidityIntervalUpperBound(body)
+	if !present || !witnessSetHasRedeemers(witnesses) {
+		return nil
+	}
+	if _, err := ls.SlotToTime(upperBound); err != nil {
+		return &OutsideForecastError{Type: failureType, Slot: upperBound}
+	}
+	return nil
+}
+
 // UtxoValidationRuleFunc represents a function that validates a transaction
 // against a specific UTXO validation rule. Rules invoked by VerifyTransaction
 // receive a transaction-scoped cached ledger state; use UnwrapLedgerState
@@ -923,10 +1004,11 @@ func collectTransactionScriptRequirements(
 			}
 			resolvedInputs[input.String()] = utxo
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
-				if _, err := addAvailableScript(
+				_, err := addAvailableScript(
 					ret.available,
 					utxo.Output.ScriptRef(),
-				); err != nil {
+				)
+				if err != nil {
 					return ret, err
 				}
 			}
@@ -937,10 +1019,11 @@ func collectTransactionScriptRequirements(
 				return ret, ReferenceInputResolutionError{Input: input, Err: err}
 			}
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
-				if _, err := addAvailableScript(
+				_, err := addAvailableScript(
 					ret.available,
 					utxo.Output.ScriptRef(),
-				); err != nil {
+				)
+				if err != nil {
 					return ret, err
 				}
 			}
@@ -1209,6 +1292,191 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		if _, isNative := available.(NativeScript); isNative && hasRedeemer {
 			return ExtraneousRedeemerError{RedeemerKey: purpose.redeemer}
 		}
+	}
+	return nil
+}
+
+// UsedPlutusVersions returns the languages of Plutus scripts needed by a
+// transaction's script purposes. Unused witness and reference scripts do not
+// require cost models.
+func UsedPlutusVersions(
+	tx Transaction,
+	ls LedgerState,
+) (map[uint]struct{}, error) {
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		return nil, err
+	}
+	used := make(map[uint]struct{})
+	for _, purpose := range requirements.purposes {
+		if script, ok := requirements.available[purpose.hash]; ok {
+			if version, isPlutus := PlutusScriptVersion(script); isPlutus {
+				used[version] = struct{}{}
+			}
+		}
+	}
+	return used, nil
+}
+
+// ValidateExactExtraneousRedeemers rejects every supplied redeemer that does
+// not point to a needed Plutus script purpose. Missing redeemers are reported
+// by ValidateScriptWitnesses earlier in UTXOW rule order.
+func ValidateExactExtraneousRedeemers(
+	tx Transaction,
+	ls LedgerState,
+) error {
+	witnesses := tx.Witnesses()
+	if witnesses == nil || witnesses.Redeemers() == nil {
+		return nil
+	}
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		// Other UTXOW rules own malformed withdrawals and unresolved regular
+		// inputs. Preserve the bounds-only result when this helper cannot
+		// derive purposes because of such an earlier error.
+		return ValidateExtraneousRedeemers(tx)
+	}
+	needed := make(map[RedeemerKey]struct{}, len(requirements.purposes))
+	for _, purpose := range requirements.purposes {
+		if script, ok := requirements.available[purpose.hash]; ok {
+			if _, isPlutus := PlutusScriptVersion(script); isPlutus {
+				needed[purpose.redeemer] = struct{}{}
+			}
+		}
+	}
+	for provided := range witnesses.Redeemers().Iter() {
+		if _, ok := needed[provided]; !ok {
+			return ExtraneousRedeemerError{RedeemerKey: provided}
+		}
+	}
+	return nil
+}
+
+// ValidateRequiredSpendingDatums checks datum-hash spending inputs locked by
+// Plutus scripts. These datums are required by UTXOW regardless of the
+// transaction's phase-2 validity flag.
+func ValidateRequiredSpendingDatums(tx Transaction, ls LedgerState) error {
+	if ls == nil {
+		return nil
+	}
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		return err
+	}
+	witnessDatums := make(map[Blake2b256]struct{})
+	if witnesses := tx.Witnesses(); witnesses != nil {
+		for _, datum := range witnesses.PlutusData() {
+			witnessDatums[datum.Hash()] = struct{}{}
+		}
+	}
+	for _, input := range tx.Inputs() {
+		utxo, err := ResolveInputUtxo(ls, input)
+		if err != nil || utxo.Output == nil {
+			continue
+		}
+		address := utxo.Output.Address()
+		if address.Type()&AddressTypeScriptBit == 0 {
+			continue
+		}
+		scriptHash := ScriptHash(address.PaymentKeyHash())
+		plutusScript, found := requirements.available[scriptHash]
+		if !found {
+			continue
+		}
+		version, isPlutus := PlutusScriptVersion(plutusScript)
+		if !isPlutus {
+			continue
+		}
+		if utxo.Output.Datum() != nil {
+			continue
+		}
+		datumHash := utxo.Output.DatumHash()
+		if datumHash == nil {
+			if version > 1 {
+				continue
+			}
+			return MissingDatumForSpendingScriptError{
+				ScriptHash: scriptHash,
+				Input:      input,
+			}
+		}
+		if _, found := witnessDatums[*datumHash]; !found {
+			return MissingDatumForSpendingScriptError{
+				ScriptHash: scriptHash,
+				Input:      input,
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateSupplementalDatums checks that witness datums are justified by a
+// Plutus spending input, datum-hash output, reference input, or collateral
+// return.
+func ValidateSupplementalDatums(tx Transaction, ls LedgerState) error {
+	witnesses := tx.Witnesses()
+	if witnesses == nil || len(witnesses.PlutusData()) == 0 {
+		return nil
+	}
+	requirements, err := collectTransactionScriptRequirements(tx, ls)
+	if err != nil {
+		return err
+	}
+	justified := make(map[Blake2b256]struct{})
+	addDatumHash := func(output TransactionOutput) {
+		if output == nil || output.Datum() != nil {
+			return
+		}
+		if hash := output.DatumHash(); hash != nil {
+			justified[*hash] = struct{}{}
+		}
+	}
+	for _, input := range tx.Inputs() {
+		if ls == nil {
+			break
+		}
+		utxo, err := ResolveInputUtxo(ls, input)
+		if err != nil || utxo.Output == nil {
+			continue
+		}
+		address := utxo.Output.Address()
+		if address.Type()&AddressTypeScriptBit == 0 {
+			continue
+		}
+		scriptHash := ScriptHash(address.PaymentKeyHash())
+		if plutusScript, found := requirements.available[scriptHash]; found {
+			if _, isPlutus := PlutusScriptVersion(plutusScript); isPlutus {
+				addDatumHash(utxo.Output)
+			}
+		}
+	}
+	for _, output := range tx.Outputs() {
+		addDatumHash(output)
+	}
+	for _, input := range tx.ReferenceInputs() {
+		if ls == nil {
+			break
+		}
+		utxo, err := ResolveInputUtxo(ls, input)
+		if err != nil || utxo.Output == nil {
+			continue
+		}
+		addDatumHash(utxo.Output)
+	}
+	addDatumHash(tx.CollateralReturn())
+
+	var supplemental []Blake2b256
+	for _, datum := range witnesses.PlutusData() {
+		hash := datum.Hash()
+		if _, found := justified[hash]; !found {
+			supplemental = append(supplemental, hash)
+		}
+	}
+	if len(supplemental) != 0 {
+		sort.Slice(supplemental, func(i, j int) bool {
+			return bytes.Compare(supplemental[i][:], supplemental[j][:]) < 0
+		})
+		return NotAllowedSupplementalDatumsError{DatumHashes: supplemental}
 	}
 	return nil
 }

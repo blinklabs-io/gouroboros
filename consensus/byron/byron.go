@@ -37,23 +37,25 @@ import (
 // ByronConfig contains Byron-specific consensus configuration.
 // Parameters should be loaded from Byron genesis configuration.
 type ByronConfig struct {
-	ProtocolMagic uint32
-	SlotsPerEpoch uint64
-	SlotDuration  time.Duration
-	SecurityParam uint64
-	// PBFTSignatureThreshold is the configured fraction of the last K
-	// issuers that one genesis issuer may sign. A zero value is treated as
-	// the reference default by NewPBFTStateWithThreshold.
-	PBFTSignatureThreshold PBFTSignatureThreshold
-	NumGenesisKeys         int
-	GenesisKeyHashes       [][]byte // Hashes of genesis delegate keys
+	ProtocolMagic    uint32
+	SlotsPerEpoch    uint64
+	SlotDuration     time.Duration
+	SecurityParam    uint64
+	NumGenesisKeys   int
+	GenesisKeyHashes [][]byte // Hashes of genesis delegate keys
 	// GenesisDelegations maps each genesis verification-key hash to the
 	// verification-key hash of its currently active block-signing delegate.
 	// NewByronConfigFromGenesis initializes this from the genesis heavy
 	// delegation certificates. Callers that track later Byron delegation
 	// updates must replace entries with their active ledger view.
 	GenesisDelegations map[common.Blake2b224]common.Blake2b224
-	TxFeePolicy        ByronTxFeePolicy
+	// GenesisDelegationEpochs records each heavy certificate's original omega.
+	GenesisDelegationEpochs map[common.Blake2b224]uint64
+	// PBFTSignatureThreshold is an optional ratio; zero values use the Byron
+	// default of 22/100.
+	PBFTSignatureThresholdNumerator   uint64
+	PBFTSignatureThresholdDenominator uint64
+	TxFeePolicy                       ByronTxFeePolicy
 }
 
 // ByronTxFeePolicy contains the transaction fee policy parameters.
@@ -206,11 +208,45 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	}
 	genesisDelegations := make(
 		map[common.Blake2b224]common.Blake2b224,
+		len(keyHashes),
+	)
+	genesisDelegationEpochs := make(
+		map[common.Blake2b224]uint64,
 		len(genesis.HeavyDelegation),
 	)
+	for _, hash := range keyHashes {
+		genesisDelegations[hash] = hash
+	}
 	genesisValidator := NewHeaderValidator(ByronConfig{
 		ProtocolMagic: protocolMagic,
 	})
+	genesisIssuers := make(map[common.Blake2b224]struct{}, len(keyHashes))
+	for _, hash := range keyHashes {
+		genesisIssuers[hash] = struct{}{}
+	}
+	heavyIssuers := make(
+		map[common.Blake2b224]struct{},
+		len(genesis.HeavyDelegation),
+	)
+	for genesisHashHex := range genesis.HeavyDelegation {
+		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"decode genesis delegation key hash %q: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		if len(genesisHashBytes) != common.Blake2b224Size {
+			return ByronConfig{}, fmt.Errorf(
+				"invalid genesis delegation key hash length for %q: got %d, expected %d",
+				genesisHashHex,
+				len(genesisHashBytes),
+				common.Blake2b224Size,
+			)
+		}
+		heavyIssuers[common.NewBlake2b224(genesisHashBytes)] = struct{}{}
+	}
 	for genesisHashHex, delegation := range genesis.HeavyDelegation {
 		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
 		if err != nil {
@@ -226,6 +262,13 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				genesisHashHex,
 				len(genesisHashBytes),
 				common.Blake2b224Size,
+			)
+		}
+		genesisHash := common.NewBlake2b224(genesisHashBytes)
+		if _, allowed := genesisIssuers[genesisHash]; !allowed {
+			return ByronConfig{}, fmt.Errorf(
+				"genesis heavy delegation issuer %s is not a boot stakeholder",
+				genesisHash.String(),
 			)
 		}
 		issuerKey, err := base64.StdEncoding.DecodeString(delegation.IssuerPk)
@@ -267,9 +310,16 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				err,
 			)
 		}
-		if delegation.Omega < 0 {
+		if _, isIssuer := heavyIssuers[delegateHash]; isIssuer {
 			return ByronConfig{}, fmt.Errorf(
-				"invalid delegation omega for genesis key %s: %d",
+				"invalid Byron genesis heavy-certificate graph: "+
+					"delegate %s is also an issuer",
+				delegateHash.String(),
+			)
+		}
+		if delegation.Omega < 0 || delegation.Omega > 1 {
+			return ByronConfig{}, fmt.Errorf(
+				"invalid genesis delegation omega for key %s: %d (expected 0 or 1)",
 				genesisHashHex,
 				delegation.Omega,
 			)
@@ -306,8 +356,8 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				err,
 			)
 		}
-		genesisHash := common.NewBlake2b224(genesisHashBytes)
 		genesisDelegations[genesisHash] = delegateHash
+		genesisDelegationEpochs[genesisHash] = uint64(delegation.Omega)
 	}
 
 	// Byron slots per epoch = 10 * K (security parameter)
@@ -315,6 +365,20 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	// #nosec G115 -- K is validated to be non-negative above
 	k := uint64(genesis.ProtocolConsts.K)
 	slotsPerEpoch := 10 * k
+	initialDelegationState, err := NewPBFTDelegationState(ByronConfig{
+		ProtocolMagic:           protocolMagic,
+		SecurityParam:           k,
+		GenesisKeyHashes:        keyHashBytes,
+		GenesisDelegations:      genesisDelegations,
+		GenesisDelegationEpochs: genesisDelegationEpochs,
+	})
+	if err != nil {
+		return ByronConfig{}, fmt.Errorf(
+			"build Byron genesis delegation state: %w",
+			err,
+		)
+	}
+	activeGenesisDelegations := initialDelegationState.ActiveDelegations()
 
 	// Slot duration is in milliseconds in the genesis file
 	slotDuration := time.Duration(genesis.BlockVersionData.SlotDuration) * time.Millisecond
@@ -326,14 +390,14 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	}
 
 	return ByronConfig{
-		ProtocolMagic:          protocolMagic,
-		SlotsPerEpoch:          slotsPerEpoch,
-		SlotDuration:           slotDuration,
-		SecurityParam:          k,
-		PBFTSignatureThreshold: DefaultPBFTSignatureThreshold(),
-		NumGenesisKeys:         len(keyHashes),
-		GenesisKeyHashes:       keyHashBytes,
-		GenesisDelegations:     genesisDelegations,
-		TxFeePolicy:            feePolicy,
+		ProtocolMagic:           protocolMagic,
+		SlotsPerEpoch:           slotsPerEpoch,
+		SlotDuration:            slotDuration,
+		SecurityParam:           k,
+		NumGenesisKeys:          len(keyHashes),
+		GenesisKeyHashes:        keyHashBytes,
+		GenesisDelegations:      activeGenesisDelegations,
+		GenesisDelegationEpochs: genesisDelegationEpochs,
+		TxFeePolicy:             feePolicy,
 	}, nil
 }

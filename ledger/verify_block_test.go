@@ -1075,50 +1075,27 @@ func TestSumBlockExUnits(t *testing.T) {
 	)
 
 	t.Run("negative decoded memory is rejected", func(t *testing.T) {
-		// ExUnits{Memory, Steps int64} has no custom UnmarshalCBOR, so a
-		// malformed redeemer whose serialized ExUnits array contains a CBOR
-		// negative integer (major type 1) decodes into a negative int64
-		// without any decode-time rejection. Confirm the decoded value is
-		// actually negative before relying on it, then confirm
-		// sumBlockExUnits rejects it rather than silently including it (and
-		// thereby reducing) the block-wide total.
 		var exUnits common.ExUnits
 		// CBOR: [-1, 5] -> array(2) [negint(1) => -1, uint(5)]
 		_, err := cbor.Decode([]byte{0x82, 0x20, 0x05}, &exUnits)
-		require.NoError(t, err)
-		require.Equal(
-			t,
-			common.ExUnits{Memory: -1, Steps: 5},
-			exUnits,
-		)
-
-		txs := []common.Transaction{newTxWithRedeemer(
-			exUnits.Memory,
-			exUnits.Steps,
-		)}
-		total, err := sumBlockExUnits(txs)
-		assert.Error(t, err)
-		assert.Equal(t, common.ExUnits{}, total)
+		require.Error(t, err)
 	})
 
 	t.Run("negative decoded steps is rejected", func(t *testing.T) {
 		var exUnits common.ExUnits
 		// CBOR: [5, -1] -> array(2) [uint(5), negint(1) => -1]
 		_, err := cbor.Decode([]byte{0x82, 0x05, 0x20}, &exUnits)
-		require.NoError(t, err)
-		require.Equal(
-			t,
-			common.ExUnits{Memory: 5, Steps: -1},
-			exUnits,
-		)
+		require.Error(t, err)
+	})
 
-		txs := []common.Transaction{newTxWithRedeemer(
-			exUnits.Memory,
-			exUnits.Steps,
-		)}
-		total, err := sumBlockExUnits(txs)
-		assert.Error(t, err)
-		assert.Equal(t, common.ExUnits{}, total)
+	t.Run("negative programmatic budgets remain rejected", func(t *testing.T) {
+		for _, units := range [][2]int64{{-1, 5}, {5, -1}} {
+			total, err := sumBlockExUnits([]common.Transaction{
+				newTxWithRedeemer(units[0], units[1]),
+			})
+			require.Error(t, err)
+			require.Equal(t, common.ExUnits{}, total)
+		}
 	})
 }
 

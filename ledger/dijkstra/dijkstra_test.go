@@ -904,7 +904,7 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 		}}, true),
 	}
 	body := map[uint]any{
-		0: cbor.NewSetType([]any{}, false),
+		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 		1: []any{},
 		3: uint64(10),
 	}
@@ -951,7 +951,7 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 					[]any{body, tc.witnesses, tc.auxiliaryB},
 				}
 				bodyValue := map[uint]any{
-					0:  cbor.NewSetType([]any{}, false),
+					0:  cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 					1:  []any{},
 					2:  uint64(0),
 					23: subTransactions,
@@ -986,13 +986,20 @@ func TestDijkstraTransactionBodyRejectsExplicitlyEmptySubTransactions(t *testing
 }
 
 func TestDijkstraTransactionBodyAcceptsDistinctSubTransactionBodies(t *testing.T) {
+	subBody := func(ttl uint64) map[uint]any {
+		return map[uint]any{
+			0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
+			1: []any{},
+			3: ttl,
+		}
+	}
 	bodyCbor, err := cbor.Encode(map[uint]any{
-		0: cbor.NewSetType([]any{}, false),
+		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
 		1: []any{},
 		2: uint64(0),
 		23: []any{
-			[]any{map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}, 3: uint64(10)}, map[uint]any{}, nil},
-			[]any{map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}, 3: uint64(11)}, map[uint]any{}, nil},
+			[]any{subBody(10), map[uint]any{}, nil},
+			[]any{subBody(11), map[uint]any{}, nil},
 		},
 	})
 	require.NoError(t, err)
@@ -2400,19 +2407,34 @@ func TestDijkstraProtocolParameterUpdateEncodesLeiosFields(t *testing.T) {
 	}
 }
 
-func TestDijkstraProtocolParameterUpdateLeiosStakeFieldsExcludedFromCbor(
+func TestDijkstraProtocolParameterUpdateRejectsGenesisOnlyLeiosFields(
 	t *testing.T,
 ) {
-	updateCbor, err := cbor.Encode(DijkstraProtocolParameterUpdate{
-		CommitteeStakeCoverage: &cbor.Rat{Rat: big.NewRat(99, 100)},
-		QuorumStakeThreshold:   &cbor.Rat{Rat: big.NewRat(3, 4)},
-	})
-	require.NoError(t, err)
-
-	var decoded map[uint]cbor.RawMessage
-	_, err = cbor.Decode(updateCbor, &decoded)
-	require.NoError(t, err)
-	require.Empty(t, decoded)
+	tests := []struct {
+		name   string
+		update DijkstraProtocolParameterUpdate
+	}{
+		{
+			name: "committee stake coverage",
+			update: DijkstraProtocolParameterUpdate{
+				CommitteeStakeCoverage: &cbor.Rat{Rat: big.NewRat(99, 100)},
+			},
+		},
+		{
+			name: "legacy quorum stake threshold",
+			update: DijkstraProtocolParameterUpdate{
+				QuorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(3, 4)},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := cbor.Encode(tt.update)
+			require.ErrorContains(t, err, "genesis-only settings")
+			err = validateDijkstraProtocolParameterUpdate(&tt.update)
+			require.ErrorContains(t, err, "genesis-only settings")
+		})
+	}
 }
 
 func TestDijkstraGenesisDecodesCurrentDevnetExample(t *testing.T) {
@@ -2560,32 +2582,7 @@ func TestDijkstraLeiosStakeParametersValidateSingleField(t *testing.T) {
 	}
 }
 
-func TestDijkstraProtocolParametersApplyUpdateLeiosStakeInvariant(
-	t *testing.T,
-) {
-	pparams := DijkstraProtocolParameters{
-		CommitteeStakeCoverage: &cbor.Rat{Rat: big.NewRat(99, 100)},
-		QuorumStakeThreshold:   &cbor.Rat{Rat: big.NewRat(3, 4)},
-	}
-	validQuorum := &cbor.Rat{Rat: big.NewRat(4, 5)}
-	require.NoError(t, pparams.ApplyUpdate(&DijkstraProtocolParameterUpdate{
-		QuorumStakeThreshold: validQuorum,
-	}))
-	require.Equal(t, 0, pparams.QuorumStakeThreshold.Cmp(big.NewRat(4, 5)))
-
-	invalidCoverage := &cbor.Rat{Rat: big.NewRat(4, 5)}
-	err := pparams.ApplyUpdate(&DijkstraProtocolParameterUpdate{
-		CommitteeStakeCoverage: invalidCoverage,
-	})
-	require.ErrorAs(t, err, &LeiosCommitteeStakeParametersError{})
-	require.Equal(
-		t,
-		0,
-		pparams.CommitteeStakeCoverage.Cmp(big.NewRat(99, 100)),
-	)
-}
-
-func TestDijkstraProtocolParametersUpdatePreservesLeiosStakeInvariant(
+func TestDijkstraGenesisOnlyLeiosParametersRejectProtocolUpdates(
 	t *testing.T,
 ) {
 	pparams := DijkstraProtocolParameters{
@@ -2593,12 +2590,30 @@ func TestDijkstraProtocolParametersUpdatePreservesLeiosStakeInvariant(
 		CommitteeStakeCoverage:   &cbor.Rat{Rat: big.NewRat(99, 100)},
 		QuorumStakeThreshold:     &cbor.Rat{Rat: big.NewRat(3, 4)},
 	}
-	validQuorum := &cbor.Rat{Rat: big.NewRat(4, 5)}
-	pparams.Update(&DijkstraProtocolParameterUpdate{
-		QuorumStakeThreshold: validQuorum,
-	})
-	require.Equal(t, 0, pparams.QuorumStakeThreshold.Cmp(big.NewRat(4, 5)))
+	maxRefScriptSizePerBlock := uint32(2000)
+	update := &DijkstraProtocolParameterUpdate{
+		MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
+		CommitteeStakeCoverage:   &cbor.Rat{Rat: big.NewRat(4, 5)},
+	}
+	err := pparams.ApplyUpdate(update)
+	require.ErrorContains(t, err, "genesis-only settings")
+	require.Equal(t, uint32(1000), pparams.MaxRefScriptSizePerBlock)
+	require.Equal(
+		t,
+		0,
+		pparams.CommitteeStakeCoverage.Cmp(big.NewRat(99, 100)),
+	)
+	require.Equal(t, 0, pparams.QuorumStakeThreshold.Cmp(big.NewRat(3, 4)))
+}
 
+func TestDijkstraProtocolParametersUpdateDoesNotPartiallyApplyGenesisFields(
+	t *testing.T,
+) {
+	pparams := DijkstraProtocolParameters{
+		MaxRefScriptSizePerBlock: 1000,
+		CommitteeStakeCoverage:   &cbor.Rat{Rat: big.NewRat(99, 100)},
+		QuorumStakeThreshold:     &cbor.Rat{Rat: big.NewRat(3, 4)},
+	}
 	invalidCoverage := &cbor.Rat{Rat: big.NewRat(4, 5)}
 	maxRefScriptSizePerBlock := uint32(2000)
 	pparams.Update(&DijkstraProtocolParameterUpdate{
@@ -2611,7 +2626,7 @@ func TestDijkstraProtocolParametersUpdatePreservesLeiosStakeInvariant(
 		0,
 		pparams.CommitteeStakeCoverage.Cmp(big.NewRat(99, 100)),
 	)
-	require.Equal(t, 0, pparams.QuorumStakeThreshold.Cmp(big.NewRat(4, 5)))
+	require.Equal(t, 0, pparams.QuorumStakeThreshold.Cmp(big.NewRat(3, 4)))
 }
 
 func TestDijkstraProtocolParameterUpdateToPlutusDataCostModels(t *testing.T) {

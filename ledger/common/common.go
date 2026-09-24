@@ -430,6 +430,32 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 	m.emptyMultiAsset = emptyMultiAsset
 	m.data = pruneZeroAssets(decoded)
 	m.duplicateMapKeys = duplicateMapKeys
+	if err := validateMultiAssetCompactRepresentationSize(m.data); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateMultiAssetCompactRepresentationSize[T int64 | uint64 | *big.Int](
+	assets map[Blake2b224]map[cbor.ByteString]T,
+) error {
+	const (
+		compactOffsetLimit = uint64(65535)
+		policyCompactSize  = uint64(28)
+		assetCompactSize   = uint64(44)
+	)
+	policyCount := uint64(len(assets))
+	if policyCount > compactOffsetLimit/policyCompactSize {
+		return errors.New("multiasset is too big to compact")
+	}
+	compactSize := policyCount * policyCompactSize
+	for _, policyAssets := range assets {
+		assetCount := uint64(len(policyAssets))
+		if assetCount > (compactOffsetLimit-compactSize)/assetCompactSize {
+			return errors.New("multiasset is too big to compact")
+		}
+		compactSize += assetCount * assetCompactSize
+	}
 	return nil
 }
 
@@ -982,6 +1008,25 @@ type ExUnits struct {
 	Steps  int64 `json:"steps"`
 }
 
+// UnmarshalCBOR enforces the unsigned wire domain of execution units while
+// retaining signed fields for overflow-checked accumulation.
+func (e *ExUnits) UnmarshalCBOR(cborData []byte) error {
+	var encoded struct {
+		cbor.StructAsArray
+		Memory uint64
+		Steps  uint64
+	}
+	if _, err := cbor.Decode(cborData, &encoded); err != nil {
+		return err
+	}
+	if encoded.Memory > math.MaxInt64 || encoded.Steps > math.MaxInt64 {
+		return errors.New("execution units exceed int64 range")
+	}
+	e.Memory = int64(encoded.Memory)
+	e.Steps = int64(encoded.Steps)
+	return nil
+}
+
 // GenesisRat is a convenience type for cbor.Rat
 type GenesisRat = cbor.Rat
 
@@ -1193,6 +1238,39 @@ type BlockTransactionOffsets struct {
 	// block's invalid_transactions field. It is nil for block formats without
 	// that field or when the field is empty.
 	InvalidTransactions []uint
+}
+
+// TransactionValidityFlags aligns the wire-order invalid transaction indexes
+// with transaction positions, matching cardano-ledger's alignedValidFlags.
+// Duplicate and descending indexes intentionally produce additional invalid
+// flags; callers truncate the result to the block's transaction count.
+func TransactionValidityFlags(
+	transactionCount int,
+	invalidIndexes []uint,
+) []bool {
+	flags := make([]bool, 0, transactionCount)
+	previous := -1
+	for _, rawIndex := range invalidIndexes {
+		// Compare before converting: on 32-bit systems, a wire uint larger
+		// than MaxInt would wrap negative and mark the wrong transactions.
+		index := transactionCount
+		if rawIndex < uint(transactionCount) {
+			index = int(rawIndex)
+		}
+		for index-previous-1 > 0 {
+			flags = append(flags, true)
+			previous++
+		}
+		flags = append(flags, false)
+		previous = index
+	}
+	for len(flags) < transactionCount {
+		flags = append(flags, true)
+	}
+	if len(flags) > transactionCount {
+		flags = flags[:transactionCount]
+	}
+	return flags
 }
 
 // decodeInvalidTransactionIndices decodes the optional invalid_transactions
@@ -1663,6 +1741,9 @@ func extractDijkstraTransactionOffsets(
 		invalidTransactions, err = decodeInvalidTransactionIndices(invalidRaw)
 		if err != nil {
 			return nil, err
+		}
+		if err := cbor.CheckForDuplicateCBORMembers(invalidTransactions); err != nil {
+			return nil, fmt.Errorf("invalid legacy Dijkstra transaction set: %w", err)
 		}
 	}
 	txsOffset, txsRaw, err := bodyDecoder.DecodeRaw(new(cbor.RawMessage))
