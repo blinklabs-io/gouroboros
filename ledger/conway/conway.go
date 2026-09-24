@@ -466,6 +466,13 @@ type ConwayTransactionWitnessSet struct {
 }
 
 func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	if err := cbor.ValidateMapFields(
+		cborData,
+		[]uint64{},
+		[]uint64{0, 1, 2, 3, 4, 5, 6, 7},
+	); err != nil {
+		return fmt.Errorf("invalid Conway witness set: %w", err)
+	}
 	type tConwayTransactionWitnessSet ConwayTransactionWitnessSet
 	var tmp tConwayTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
