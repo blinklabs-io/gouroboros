@@ -939,7 +939,10 @@ func (v *HeaderValidator) buildToSignWithEpoch(
 	}
 	prevHash := headerElems[1]
 	bodyProof := headerElems[2]
-	extraHeader := headerElems[4]
+	extraHeader, err := canonicalByronExtraHeader(headerElems[4])
+	if err != nil {
+		return nil, 0, fmt.Errorf("decode extra header data: %w", err)
+	}
 
 	// consensusData: [epochAndSlot, pubKey, difficulty, blockSig]
 	var consensusElems []cbor.RawMessage
@@ -981,6 +984,51 @@ func (v *HeaderValidator) buildToSignWithEpoch(
 	toSignBytes = append(toSignBytes, extraHeader...)
 
 	return toSignBytes, slotId.Epoch, nil
+}
+
+// canonicalByronExtraHeader reproduces encCBORBlockVersions. The reference
+// decoder retains the protocol and software versions, but drops the
+// attributes map and extra-data proof before encoding them for ToSign.
+func canonicalByronExtraHeader(raw cbor.RawMessage) ([]byte, error) {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &fields); err != nil {
+		return nil, err
+	}
+	if len(fields) != 4 {
+		return nil, fmt.Errorf("extra header data is not a 4-element array, got %d elements", len(fields))
+	}
+	var protocolVersion byron.ByronBlockVersion
+	if _, err := cbor.Decode(fields[0], &protocolVersion); err != nil {
+		return nil, fmt.Errorf("decode protocol version: %w", err)
+	}
+	var softwareVersion byron.ByronSoftwareVersion
+	if _, err := cbor.Decode(fields[1], &softwareVersion); err != nil {
+		return nil, fmt.Errorf("decode software version: %w", err)
+	}
+	var attributes map[uint8][]byte
+	if _, err := cbor.Decode(fields[2], &attributes); err != nil {
+		return nil, fmt.Errorf("decode attributes: %w", err)
+	}
+	if len(attributes) != 0 {
+		return nil, fmt.Errorf("attributes map is not empty: %d entries", len(attributes))
+	}
+	if _, err := cbor.Decode(fields[3], new([]byte)); err != nil {
+		return nil, fmt.Errorf("decode extra-data proof: %w", err)
+	}
+
+	canonical := struct {
+		cbor.StructAsArray
+		ProtocolVersion byron.ByronBlockVersion
+		SoftwareVersion byron.ByronSoftwareVersion
+		Attributes      map[any]any
+		ExtraProof      []byte
+	}{
+		ProtocolVersion: protocolVersion,
+		SoftwareVersion: softwareVersion,
+		Attributes:      map[any]any{},
+		ExtraProof:      common.Blake2b256Hash([]byte{0x81, 0xa0}).Bytes(),
+	}
+	return cbor.Encode(canonical)
 }
 
 // extractUint64 extracts a uint64 from various numeric types
