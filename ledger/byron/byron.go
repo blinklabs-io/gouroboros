@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"math/bits"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -45,6 +46,39 @@ const (
 	MainnetProtocolMagic = 764824073
 	TestnetProtocolMagic = 1097911063
 )
+
+var (
+	// ErrByronSlotNumberOverflow indicates that the absolute slot cannot fit in
+	// a uint64.
+	ErrByronSlotNumberOverflow = errors.New(
+		"Byron absolute slot overflows uint64",
+	)
+	// ErrByronSlotsPerEpochZero indicates invalid epoch-length configuration.
+	ErrByronSlotsPerEpochZero = errors.New(
+		"Byron slots per epoch must be nonzero",
+	)
+)
+
+// SlotNumberFromEpochAndSlot converts Byron's raw epoch and within-epoch slot
+// counts using the epoch length configured for the network.
+func SlotNumberFromEpochAndSlot(
+	epoch uint64,
+	slot uint64,
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	if slotsPerEpoch == 0 {
+		return 0, ErrByronSlotsPerEpochZero
+	}
+	hi, lo := bits.Mul64(epoch, slotsPerEpoch)
+	if hi != 0 {
+		return 0, ErrByronSlotNumberOverflow
+	}
+	result, carry := bits.Add64(lo, slot, 0)
+	if carry != 0 {
+		return 0, ErrByronSlotNumberOverflow
+	}
+	return result, nil
+}
 
 var EraByron = common.Era{
 	Id:   EraIdByron,
@@ -215,9 +249,23 @@ func (h *ByronMainBlockHeader) BlockNumber() uint64 {
 	return h.ConsensusData.Difficulty.Value
 }
 
+// SlotNumber returns the mainnet absolute slot for legacy callers. Use
+// SlotNumberWithEpochLength when interpreting a network-configured header.
 func (h *ByronMainBlockHeader) SlotNumber() uint64 {
 	return (h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) +
 		h.ConsensusData.SlotId.Slot
+}
+
+// SlotNumberWithEpochLength converts the preserved epoch and slot counts to
+// an absolute slot using the network's configured epoch length.
+func (h *ByronMainBlockHeader) SlotNumberWithEpochLength(
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	return SlotNumberFromEpochAndSlot(
+		h.ConsensusData.SlotId.Epoch,
+		h.ConsensusData.SlotId.Slot,
+		slotsPerEpoch,
+	)
 }
 
 func (h *ByronMainBlockHeader) IssuerVkey() common.IssuerVkey {
@@ -1510,8 +1558,18 @@ func (h *ByronEpochBoundaryBlockHeader) BlockNumber() uint64 {
 	return h.ConsensusData.Difficulty.Value
 }
 
+// SlotNumber returns the mainnet absolute slot for legacy callers. Use
+// SlotNumberWithEpochLength when interpreting a network-configured header.
 func (h *ByronEpochBoundaryBlockHeader) SlotNumber() uint64 {
 	return h.ConsensusData.Epoch * ByronSlotsPerEpoch
+}
+
+// SlotNumberWithEpochLength converts the preserved epoch count to an absolute
+// slot using the network's configured epoch length.
+func (h *ByronEpochBoundaryBlockHeader) SlotNumberWithEpochLength(
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	return SlotNumberFromEpochAndSlot(h.ConsensusData.Epoch, 0, slotsPerEpoch)
 }
 
 func (h *ByronEpochBoundaryBlockHeader) IssuerVkey() common.IssuerVkey {
@@ -1648,6 +1706,14 @@ func (b *ByronMainBlock) BlockNumber() uint64 {
 
 func (b *ByronMainBlock) SlotNumber() uint64 {
 	return b.BlockHeader.SlotNumber()
+}
+
+// SlotNumberWithEpochLength converts the block's slot with a configured epoch
+// length and reports overflow instead of wrapping.
+func (b *ByronMainBlock) SlotNumberWithEpochLength(
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	return b.BlockHeader.SlotNumberWithEpochLength(slotsPerEpoch)
 }
 
 func (b *ByronMainBlock) IssuerVkey() common.IssuerVkey {
@@ -1960,6 +2026,14 @@ func (b *ByronEpochBoundaryBlock) BlockNumber() uint64 {
 
 func (b *ByronEpochBoundaryBlock) SlotNumber() uint64 {
 	return b.BlockHeader.SlotNumber()
+}
+
+// SlotNumberWithEpochLength converts the block's slot with a configured epoch
+// length and reports overflow instead of wrapping.
+func (b *ByronEpochBoundaryBlock) SlotNumberWithEpochLength(
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	return b.BlockHeader.SlotNumberWithEpochLength(slotsPerEpoch)
 }
 
 func (b *ByronEpochBoundaryBlock) IssuerVkey() common.IssuerVkey {

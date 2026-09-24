@@ -1056,9 +1056,13 @@ func ValidateByronBlockHeader(
 	isEBB bool,
 ) error {
 	validator := NewHeaderValidator(config)
+	slot, err := slotNumberWithEpochLength(header, config.SlotsPerEpoch)
+	if err != nil {
+		return fmt.Errorf("convert Byron header slot: %w", err)
+	}
 
 	input := &ValidateHeaderInput{
-		Slot:          header.SlotNumber(),
+		Slot:          slot,
 		BlockNumber:   header.BlockNumber(),
 		PrevHash:      header.PrevHash().Bytes(),
 		ProtocolMagic: config.ProtocolMagic, // Note: uses config, not header (see doc above)
@@ -1070,7 +1074,14 @@ func ValidateByronBlockHeader(
 	// For genesis or first-block scenarios, callers pass nil to skip
 	// slot/number/hash comparisons and let validatePrevHash handle it.
 	if prevHeader != nil {
-		input.PrevSlot = prevHeader.SlotNumber()
+		prevSlot, err := slotNumberWithEpochLength(
+			prevHeader,
+			config.SlotsPerEpoch,
+		)
+		if err != nil {
+			return fmt.Errorf("convert previous Byron header slot: %w", err)
+		}
+		input.PrevSlot = prevSlot
 		input.PrevBlockNumber = prevHeader.BlockNumber()
 		input.PrevHeaderHash = prevHeader.Hash().Bytes()
 	}
@@ -1080,6 +1091,18 @@ func ValidateByronBlockHeader(
 		return result.Errors[0]
 	}
 	return nil
+}
+
+func slotNumberWithEpochLength(
+	header interface{ SlotNumber() uint64 },
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	if converter, ok := header.(interface {
+		SlotNumberWithEpochLength(uint64) (uint64, error)
+	}); ok {
+		return converter.SlotNumberWithEpochLength(slotsPerEpoch)
+	}
+	return header.SlotNumber(), nil
 }
 
 // ValidateByronMainBlockHeader validates a ByronMainBlockHeader.

@@ -119,6 +119,38 @@ func testByronProxyInput(
 	}
 }
 
+func TestValidateByronMainBlockHeaderUsesConfiguredEpochLength(t *testing.T) {
+	prevHeader := &byron.ByronMainBlockHeader{}
+	prevHeader.ProtocolMagic = 7
+	prevHeader.ConsensusData.SlotId.Slot = 1000
+	prevHeader.ConsensusData.Difficulty.Value = 1
+
+	header := &byron.ByronMainBlockHeader{}
+	header.ProtocolMagic = 7
+	header.ConsensusData.SlotId.Epoch = 1
+	header.ConsensusData.Difficulty.Value = 2
+	header.PrevBlock = prevHeader.Hash()
+
+	err := ValidateByronMainBlockHeader(
+		header,
+		prevHeader,
+		ByronConfig{ProtocolMagic: 7, SlotsPerEpoch: 600},
+	)
+	require.ErrorContains(t, err, "slot must be greater than previous slot")
+}
+
+func TestValidateByronMainBlockHeaderRejectsSlotOverflow(t *testing.T) {
+	header := &byron.ByronMainBlockHeader{}
+	header.ConsensusData.SlotId.Epoch = math.MaxUint64
+
+	err := ValidateByronMainBlockHeader(
+		header,
+		nil,
+		ByronConfig{SlotsPerEpoch: 2},
+	)
+	require.ErrorIs(t, err, byron.ErrByronSlotNumberOverflow)
+}
+
 func TestNewHeaderValidator(t *testing.T) {
 	config := testByronConfig()
 	validator := NewHeaderValidator(config)
