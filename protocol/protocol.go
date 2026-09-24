@@ -529,6 +529,25 @@ func (p *Protocol) messageHasAgencyTransition(msg Message) bool {
 	return false
 }
 
+// takeAgencyToken reads the current state and, when this role holds agency
+// there, consumes the sendReadyChan token setState deposited for it, as one
+// critical section under currentStateMu. It is for a caller about to apply a
+// transition from that state without waiting on sendReadyChan.
+func (p *Protocol) takeAgencyToken() (State, StateMapEntry, bool) {
+	p.currentStateMu.Lock()
+	defer p.currentStateMu.Unlock()
+	state := p.currentState
+	entry := p.config.StateMap[state]
+	if !p.roleHasAgency(entry) {
+		return state, entry, false
+	}
+	select {
+	case <-p.sendReadyChan:
+	default:
+	}
+	return state, entry, true
+}
+
 // SendMessage appends a message to the send queue
 func (p *Protocol) SendMessage(msg Message) error {
 	return p.enqueueMessage(context.Background(), msg, nil)
@@ -1088,8 +1107,21 @@ waitSendReadyChan:
 				if p.batchRecheckHook != nil {
 					p.batchRecheckHook()
 				}
-				currentState := p.getCurrentState()
-				currentEntry := p.config.StateMap[currentState]
+				// takeAgencyToken consumes the token setState deposited for
+				// currentState only when the backlog is empty and this role
+				// holds agency there, i.e. exactly when msg's transition is
+				// applied below without waiting on sendReadyChan. Left in
+				// the channel, that token would wake a later iteration in
+				// whatever state msg's transition leads to.
+				var currentState State
+				var currentEntry StateMapEntry
+				bypassDeferral := false
+				if len(queuedStateTransitions) == 0 {
+					currentState, currentEntry, bypassDeferral = p.takeAgencyToken()
+				} else {
+					currentState = p.getCurrentState()
+					currentEntry = p.config.StateMap[currentState]
+				}
 				// Bypassing deferral here applies msg's transition
 				// immediately via transitionState below instead of queueing
 				// it. That is only safe when queuedStateTransitions is empty:
@@ -1104,7 +1136,7 @@ waitSendReadyChan:
 				// prevent (blinklabs-io/gouroboros#2494). When the backlog is
 				// non-empty this falls through to the ordinary
 				// pipelined-or-wait-for-agency handling below instead.
-				if len(queuedStateTransitions) == 0 && p.roleHasAgency(currentEntry) {
+				if bypassDeferral {
 					queueTransition = false
 				} else if !p.roleMayPipeline(currentEntry) ||
 					!pipelinedMessageFits(currentEntry, msg) {

@@ -510,3 +510,132 @@ func TestSendLoopDefersBatchedMessageBehindUnflushedBacklog(t *testing.T) {
 	}
 	require.False(t, p.IsStopping())
 }
+
+// TestSendLoopConsumesTokenWhenBatchedMessageBypassesDeferral batches two
+// messages sent with ordinary agency, where the first lands in a state that
+// also grants this role agency (Release: Acquired -> Idle) and the second is
+// applied straight from there (Acquire: Idle -> Acquiring). The Idle token
+// setState deposits must be consumed with the second transition; left in
+// sendReadyChan it wakes sendLoop in Acquiring, where the peer holds agency,
+// and the next message is sent and rejected there.
+func TestSendLoopConsumesTokenWhenBatchedMessageBypassesDeferral(t *testing.T) {
+	t.Parallel()
+
+	const msgTypeRelease uint8 = 2
+	const msgTypeAcquire uint8 = 3
+	const msgTypeAcquired uint8 = 4
+	acquired := NewState(1, "Acquired")
+	idle := NewState(2, "Idle")
+	acquiring := NewState(3, "Acquiring")
+	stateMap := StateMap{
+		acquired: StateMapEntry{
+			Agency: AgencyClient,
+			Transitions: []StateTransition{
+				{MsgType: msgTypeRelease, NewState: idle},
+			},
+		},
+		idle: StateMapEntry{
+			Agency: AgencyClient,
+			Transitions: []StateTransition{
+				{MsgType: msgTypeAcquire, NewState: acquiring},
+			},
+		},
+		acquiring: StateMapEntry{
+			Agency: AgencyServer,
+			Transitions: []StateTransition{
+				{MsgType: msgTypeAcquired, NewState: acquired},
+			},
+		},
+	}
+
+	localConn, peerConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = localConn.Close()
+		_ = peerConn.Close()
+	})
+	m := muxer.New(localConn)
+	m.Start()
+	t.Cleanup(m.Stop)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := peerConn.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	errorChan := make(chan error, 1)
+	p := New(ProtocolConfig{
+		Name:         "test-batch-bypass-token",
+		ErrorChan:    errorChan,
+		Muxer:        m,
+		Role:         ProtocolRoleClient,
+		StateMap:     stateMap,
+		InitialState: acquiring,
+	})
+	p.Start()
+	t.Cleanup(p.Stop)
+
+	sendAndWait := func(msgType uint8) chan error {
+		result := make(chan error, 1)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			result <- p.SendMessageContextAndWait(
+				ctx,
+				&MessageBase{MessageType: msgType},
+			)
+		}()
+		return result
+	}
+
+	// Queue both before agency arrives so they share one batch. The delivery
+	// channel on Acquire ends that batch after it.
+	require.NoError(t, p.SendMessage(&MessageBase{MessageType: msgTypeRelease}))
+	acquireResult := sendAndWait(msgTypeAcquire)
+	require.Eventually(
+		t,
+		func() bool { return len(p.sendQueueChan) == 2 },
+		time.Second,
+		time.Millisecond,
+	)
+	require.NoError(
+		t,
+		p.transitionState(&MessageBase{MessageType: msgTypeAcquired}),
+	)
+	select {
+	case err := <-acquireResult:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("batched Release/Acquire were never delivered")
+	}
+	require.Equal(t, acquiring, p.getCurrentState())
+
+	// Release is only legal from Acquired, so it must wait for the peer.
+	releaseResult := sendAndWait(msgTypeRelease)
+	select {
+	case err := <-errorChan:
+		t.Fatalf("Release was sent while the peer held agency: %v", err)
+	case err := <-releaseResult:
+		t.Fatalf("Release returned (err=%v) before agency returned", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	require.NoError(
+		t,
+		p.transitionState(&MessageBase{MessageType: msgTypeAcquired}),
+	)
+	select {
+	case err := <-releaseResult:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Release was never delivered after agency returned")
+	}
+	require.Equal(t, idle, p.getCurrentState())
+	select {
+	case err := <-errorChan:
+		t.Fatalf("unexpected protocol error: %v", err)
+	default:
+	}
+}
