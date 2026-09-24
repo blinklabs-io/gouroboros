@@ -259,9 +259,14 @@ func TestExtractTransactionOffsetsDijkstraBlockShapes(t *testing.T) {
 				}
 				// The trailing is_valid flag is a bool, not a byte range: no
 				// recorded range may extend into it.
-				if !testCase.legacyBody && string(txParts[2]) != "\xf6" {
+				if !testCase.legacyBody {
 					isValidLen := uint32(len(txParts[3]))
-					txEnd := loc.Metadata.Offset + loc.Metadata.Length
+					txEnd := loc.Witness.Offset + loc.Witness.Length
+					if string(txParts[2]) == "\xf6" {
+						txEnd++
+					} else {
+						txEnd = loc.Metadata.Offset + loc.Metadata.Length
+					}
 					assert.Equal(
 						t,
 						[]byte(txParts[3]),

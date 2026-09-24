@@ -871,7 +871,11 @@ func UtxoValidateMetadata(
 ) error {
 	dijkstraTx, ok := tx.(*DijkstraTransaction)
 	if !ok {
-		return conway.UtxoValidateMetadata(tx, slot, ls, pp)
+		conwayPp, err := conwayPparams(pp)
+		if err != nil {
+			return err
+		}
+		return conway.UtxoValidateMetadata(tx, slot, ls, conwayPp)
 	}
 	params, err := dijkstraPparams(pp)
 	if err != nil {

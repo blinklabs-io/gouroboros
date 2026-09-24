@@ -154,6 +154,7 @@ func TestDecodeAuxiliaryDataForEra(t *testing.T) {
 		{"Mary accepts array", AuxiliaryDataEraMary, arrayAux, true},
 		{"Mary rejects tag", AuxiliaryDataEraMary, taggedAux, false},
 		{"Alonzo accepts tag", AuxiliaryDataEraAlonzo, taggedAux, true},
+		{"Alonzo accepts non-minimal tag", AuxiliaryDataEraAlonzo, []byte{0xda, 0, 0, 1, 3, 0xa0}, true},
 		{"Dijkstra accepts tag", AuxiliaryDataEraDijkstra, taggedAux, true},
 	}
 	for _, test := range tests {

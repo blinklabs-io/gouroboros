@@ -695,7 +695,12 @@ func DecodeAuxiliaryDataForEra(
 	if era >= AuxiliaryDataEraAlonzo && raw[0]&cborTypeMask == cborTypeTag {
 		content, ok := decodeTag259Content(raw)
 		if !ok {
-			return nil, errors.New("invalid tagged auxiliary data")
+			var tmpTag cbor.RawTag
+			if _, err := cbor.Decode(raw, &tmpTag); err != nil ||
+				tmpTag.Number != cbor.CborTagMap {
+				return nil, errors.New("invalid tagged auxiliary data")
+			}
+			content = tmpTag.Content
 		}
 		var fields map[uint]cbor.RawMessage
 		if _, err := cbor.Decode(content, &fields); err != nil {
