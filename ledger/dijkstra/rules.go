@@ -358,6 +358,7 @@ func UtxoValidateProposalProcedures(
 		}
 		if err := validateDijkstraProtocolParameterUpdate(
 			&paramChangeAction.ParamUpdate,
+			pp,
 		); err != nil {
 			return err
 		}
@@ -456,6 +457,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 
 func validateDijkstraProtocolParameterUpdate(
 	ppu *DijkstraProtocolParameterUpdate,
+	pp common.ProtocolParameters,
 ) error {
 	if ppu == nil || !ppu.hasUpdate() {
 		return conway.ProtocolParameterUpdateEmptyError{}
@@ -484,11 +486,46 @@ func validateDijkstraProtocolParameterUpdate(
 			Value:     *ppu.MaxBlockBodySize,
 		}
 	}
+	if ppu.CollateralPercentage != nil && *ppu.CollateralPercentage == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "collateralPercentage"}
+	}
+	if ppu.CommitteeTermLimit != nil && *ppu.CommitteeTermLimit == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "committeeMaxTermLength"}
+	}
+	if ppu.GovActionValidityPeriod != nil && *ppu.GovActionValidityPeriod == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "govActionLifetime"}
+	}
+	if ppu.PoolDeposit != nil && *ppu.PoolDeposit == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "poolDeposit"}
+	}
+	if ppu.GovActionDeposit != nil && *ppu.GovActionDeposit == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "govActionDeposit"}
+	}
+	if ppu.DRepDeposit != nil && *ppu.DRepDeposit == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "drepDeposit"}
+	}
+	var major uint
+	if pp != nil {
+		params, err := conwayPparams(pp)
+		if err != nil {
+			return err
+		}
+		major = params.ProtocolVersion.Major
+	}
+	if ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0 && major >= common.ProtocolVersionPlomin {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "coinsPerUTxOByte"}
+	}
+	if ppu.NOpt != nil && *ppu.NOpt == 0 && major >= common.ProtocolVersionVanRossem {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "nOptimalPoolCount"}
+	}
 	if ppu.RefScriptCostStride != nil && *ppu.RefScriptCostStride == 0 {
 		return conway.ProtocolParameterUpdateFieldZeroError{
 			FieldName: "refScriptCostStride",
 			Value:     uint(*ppu.RefScriptCostStride),
 		}
+	}
+	if ppu.MaxPledgeLeverage != nil && ppu.MaxPledgeLeverage.Rat != nil && ppu.MaxPledgeLeverage.Sign() == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "eMax"}
 	}
 	return validateLeiosCommitteeStakeParameters(
 		ppu.CommitteeStakeCoverage,

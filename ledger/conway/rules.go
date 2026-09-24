@@ -452,7 +452,10 @@ func UtxoValidateProposalProcedures(
 		}
 
 		// Validate the protocol parameter update
-		if err := validateProtocolParameterUpdate(&paramChangeAction.ParamUpdate); err != nil {
+		if err := validateProtocolParameterUpdate(
+			&paramChangeAction.ParamUpdate,
+			pp,
+		); err != nil {
 			return err
 		}
 	}
@@ -1374,7 +1377,10 @@ func UtxoValidateProposalReturnAccounts(
 }
 
 // validateProtocolParameterUpdate validates that a PPU is well-formed
-func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
+func validateProtocolParameterUpdate(
+	ppu *ConwayProtocolParameterUpdate,
+	pp common.ProtocolParameters,
+) error {
 	if err := validateConwayProtocolParameterUpdate(ppu); err != nil {
 		return err
 	}
@@ -1440,6 +1446,38 @@ func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
 			FieldName: "maxBlockBodySize",
 			Value:     *ppu.MaxBlockBodySize,
 		}
+	}
+	var major uint
+	if pp != nil {
+		versionedPparams, ok := pp.(interface{ ProtocolMajorVersion() uint })
+		if !ok {
+			return errors.New("protocol parameters do not expose a major version")
+		}
+		major = versionedPparams.ProtocolMajorVersion()
+	}
+	if ppu.CollateralPercentage != nil && *ppu.CollateralPercentage == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "collateralPercentage"}
+	}
+	if ppu.CommitteeTermLimit != nil && *ppu.CommitteeTermLimit == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "committeeMaxTermLength"}
+	}
+	if ppu.GovActionValidityPeriod != nil && *ppu.GovActionValidityPeriod == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "govActionLifetime"}
+	}
+	if ppu.PoolDeposit != nil && *ppu.PoolDeposit == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "poolDeposit"}
+	}
+	if ppu.GovActionDeposit != nil && *ppu.GovActionDeposit == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "govActionDeposit"}
+	}
+	if ppu.DRepDeposit != nil && *ppu.DRepDeposit == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "drepDeposit"}
+	}
+	if ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0 && major >= common.ProtocolVersionPlomin {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "coinsPerUTxOByte"}
+	}
+	if ppu.NOpt != nil && *ppu.NOpt == 0 && major >= common.ProtocolVersionVanRossem {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "nOptimalPoolCount"}
 	}
 
 	return nil

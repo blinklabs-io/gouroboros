@@ -27,7 +27,41 @@ func TestValidateConwayProtocolParameterUpdateOptionalFields(t *testing.T) {
 	fee := uint(1)
 	update := ConwayProtocolParameterUpdate{MinFeeA: &fee}
 
-	require.NoError(t, validateProtocolParameterUpdate(&update))
+	require.NoError(t, validateProtocolParameterUpdate(&update, &ConwayProtocolParameters{ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: common.ProtocolVersionConway}}))
+}
+
+func TestConwayParameterUpdateVersionedNonzeroFields(t *testing.T) {
+	zero := uint(0)
+	zero64 := uint64(0)
+	tests := []struct {
+		name    string
+		major   uint
+		update  ConwayProtocolParameterUpdate
+		wantErr bool
+	}{
+		{"ada per byte allowed at PV9", 9, ConwayProtocolParameterUpdate{AdaPerUtxoByte: &zero64}, false},
+		{"ada per byte rejected at PV10", 10, ConwayProtocolParameterUpdate{AdaPerUtxoByte: &zero64}, true},
+		{"nopt allowed at PV10", 10, ConwayProtocolParameterUpdate{NOpt: &zero}, false},
+		{"nopt rejected at PV11", 11, ConwayProtocolParameterUpdate{NOpt: &zero}, true},
+		{"pool deposit always rejected", 9, ConwayProtocolParameterUpdate{PoolDeposit: &zero}, true},
+		{"committee term always rejected", 10, ConwayProtocolParameterUpdate{CommitteeTermLimit: &zero64}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pp := &ConwayProtocolParameters{ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: tt.major}}
+			tx := &ConwayTransaction{Body: ConwayTransactionBody{
+				TxProposalProcedures: []ConwayProposalProcedure{{
+					PPGovAction: ConwayGovAction{Action: &ConwayParameterChangeGovAction{ParamUpdate: tt.update}},
+				}},
+			}}
+			err := UtxoValidateProposalProcedures(tx, 0, nil, pp)
+			if tt.wantErr {
+				require.ErrorAs(t, err, &ProtocolParameterUpdateFieldZeroError{})
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestValidateConwayProtocolParameterUpdateRejectsInvalidDomains(
@@ -69,7 +103,7 @@ func TestValidateConwayProtocolParameterUpdateRejectsInvalidDomains(
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var updateErr ConwayProtocolParameterUpdateError
-			err := validateProtocolParameterUpdate(&test.update)
+			err := validateProtocolParameterUpdate(&test.update, &ConwayProtocolParameters{ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: common.ProtocolVersionConway}})
 			require.ErrorAs(t, err, &updateErr)
 		})
 	}
@@ -131,7 +165,7 @@ func TestConwayProtocolParameterUpdateAcceptsDomainBoundaries(t *testing.T) {
 	var decoded ConwayProtocolParameterUpdate
 	_, err = cbor.Decode(data, &decoded)
 	require.NoError(t, err)
-	require.NoError(t, validateProtocolParameterUpdate(&decoded))
+	require.NoError(t, validateProtocolParameterUpdate(&decoded, &ConwayProtocolParameters{ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: common.ProtocolVersionConway}}))
 }
 
 func TestConwayTransactionBodyDecodeRejectsRemovedUpdateField(t *testing.T) {
