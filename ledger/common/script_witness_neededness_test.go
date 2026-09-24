@@ -103,6 +103,8 @@ func TestScriptWitnessRulesUseNeededPurposes(t *testing.T) {
 		WithWitnesses(mockledger.NewMockTransactionWitnessSet().
 			WithPlutusV1Scripts(plutus).
 			WithRedeemers(conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{needed: {}}}))
-	var scriptErr common.ExtraneousScriptWitnessesError
-	require.ErrorAs(t, common.ValidateScriptWitnesses(tx, ledgerState), &scriptErr)
+	// The same script may be explicitly witnessed for the spending purpose and
+	// also appear on an unrelated reference input. Neededness is determined by
+	// purposes, not by duplicate script availability.
+	require.NoError(t, common.ValidateScriptWitnesses(tx, ledgerState))
 }

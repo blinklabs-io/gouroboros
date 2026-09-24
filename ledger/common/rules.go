@@ -829,7 +829,6 @@ type transactionScriptRequirements struct {
 	required    map[ScriptHash]struct{}
 	purposes    []scriptRequirement
 	explicit    map[ScriptHash]Script
-	referenced  map[ScriptHash]struct{}
 	available   map[ScriptHash]Script
 	nativeOrder []ScriptHash
 }
@@ -934,10 +933,9 @@ func collectTransactionScriptRequirements(
 	ls LedgerState,
 ) (transactionScriptRequirements, error) {
 	ret := transactionScriptRequirements{
-		required:   make(map[ScriptHash]struct{}),
-		explicit:   make(map[ScriptHash]Script),
-		referenced: make(map[ScriptHash]struct{}),
-		available:  make(map[ScriptHash]Script),
+		required:  make(map[ScriptHash]struct{}),
+		explicit:  make(map[ScriptHash]Script),
+		available: make(map[ScriptHash]Script),
 	}
 	addRequirement := func(hash ScriptHash, tag RedeemerTag, index int) {
 		ret.required[hash] = struct{}{}
@@ -1006,14 +1004,13 @@ func collectTransactionScriptRequirements(
 			}
 			resolvedInputs[input.String()] = utxo
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
-				hash, err := addAvailableScript(
+				_, err := addAvailableScript(
 					ret.available,
 					utxo.Output.ScriptRef(),
 				)
 				if err != nil {
 					return ret, err
 				}
-				ret.referenced[hash] = struct{}{}
 			}
 		}
 		for _, input := range tx.ReferenceInputs() {
@@ -1022,14 +1019,13 @@ func collectTransactionScriptRequirements(
 				return ret, ReferenceInputResolutionError{Input: input, Err: err}
 			}
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
-				hash, err := addAvailableScript(
+				_, err := addAvailableScript(
 					ret.available,
 					utxo.Output.ScriptRef(),
 				)
 				if err != nil {
 					return ret, err
 				}
-				ret.referenced[hash] = struct{}{}
 			}
 		}
 	}
@@ -1257,11 +1253,6 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	for required := range requirements.required {
 		if _, ok := requirements.available[required]; !ok {
 			return MissingScriptWitnessesError{ScriptHash: required}
-		}
-	}
-	for provided := range requirements.explicit {
-		if _, isReferenced := requirements.referenced[provided]; isReferenced {
-			return ExtraneousScriptWitnessesError{ScriptHash: provided}
 		}
 	}
 	for provided := range requirements.explicit {
