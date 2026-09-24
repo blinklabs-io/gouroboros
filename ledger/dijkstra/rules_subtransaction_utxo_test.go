@@ -190,7 +190,8 @@ func TestDijkstraOutsideForecastChecksChildForBothValidityOutcomes(
 				var outsideForecast *common.OutsideForecastError
 				err := UtxoValidateOutsideForecast(tx, 0, ls, nil)
 				require.ErrorAs(t, err, &outsideForecast)
-				require.Equal(t, uint32(upperBound), outsideForecast.Slot)
+				require.NotNil(t, outsideForecast)
+				require.Equal(t, upperBound, outsideForecast.Slot)
 				require.Equal(t, uint8(16), outsideForecast.Type)
 				require.Equal(t, 1, calls)
 			})

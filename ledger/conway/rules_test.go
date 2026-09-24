@@ -93,7 +93,8 @@ func TestUtxoValidateOutsideForecastUsesConwayFailureTag(t *testing.T) {
 		conway.UtxoValidateOutsideForecast(tx, 0, ls, nil),
 		&outsideForecast,
 	)
-	require.Equal(t, uint32(upperBound), outsideForecast.Slot)
+	require.NotNil(t, outsideForecast)
+	require.Equal(t, upperBound, outsideForecast.Slot)
 	require.Equal(t, uint8(17), outsideForecast.Type)
 }
 
