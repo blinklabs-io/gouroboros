@@ -128,6 +128,141 @@ func TestConcurrentStopReleasesBusyMutexDuringActiveSync(t *testing.T) {
 	}
 }
 
+func TestStopWaitsForActiveOperationBeforeRestart(t *testing.T) {
+	client, cleanup := newStartedTestClient(t, nil)
+	defer cleanup()
+
+	oldProto, ready, done, endOperation, err := client.beginOperation()
+	require.NoError(t, err)
+	var endOnce sync.Once
+	finishOperation := func() { endOnce.Do(endOperation) }
+	defer finishOperation()
+	ready <- true
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- client.Stop() }()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not shut down the active protocol")
+	}
+	select {
+	case err := <-stopDone:
+		t.Fatalf("Stop returned before the active operation ended: %v", err)
+	default:
+	}
+	value, ok := <-ready
+	require.True(t, ok)
+	require.True(t, value, "pending readiness signal was lost during shutdown")
+	_, ok = <-ready
+	require.False(t, ok, "Stop did not close the range readiness channel")
+
+	startDone := make(chan struct{})
+	go func() {
+		client.Start()
+		close(startDone)
+	}()
+	select {
+	case <-startDone:
+		t.Fatal("Start replaced protocol state before the active operation ended")
+	default:
+	}
+
+	finishOperation()
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not finish after the active operation ended")
+	}
+	select {
+	case <-startDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not proceed after Stop joined the active operation")
+	}
+	require.NotSame(t, oldProto, client.ProtocolInstance())
+}
+
+func TestStopJoinsGetAvailableBlockRange(t *testing.T) {
+	client, cleanup := newStartedTestClient(t, nil)
+	defer cleanup()
+	client.testStopBusyLockTimeout = 10 * time.Millisecond
+	requestSent := make(chan struct{})
+	client.testIntersectRequestSent = func() { close(requestSent) }
+	rangeDone := make(chan error, 1)
+	go func() {
+		_, _, err := client.GetAvailableBlockRange(nil)
+		rangeDone <- err
+	}()
+	select {
+	case <-requestSent:
+	case <-time.After(time.Second):
+		t.Fatal("range query did not send its intersection request")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- client.Stop() }()
+	select {
+	case err := <-rangeDone:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not unblock the in-flight range query")
+	}
+	select {
+	case <-stopDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not finish after the range query returned")
+	}
+}
+
+func TestStopJoinsGetCurrentTipWorkerWaitingForBusyLock(t *testing.T) {
+	client, cleanup := newStartedTestClient(t, nil)
+	defer cleanup()
+	client.testStopBusyLockTimeout = 10 * time.Millisecond
+	stopInitiated := make(chan struct{})
+	client.testStopInitiated = func() { close(stopInitiated) }
+	client.busyMutex.Lock()
+	busyLocked := true
+	defer func() {
+		if busyLocked {
+			client.busyMutex.Unlock()
+		}
+	}()
+	tipDone := make(chan error, 1)
+	go func() {
+		_, err := client.GetCurrentTip()
+		tipDone <- err
+	}()
+	require.Eventually(t, func() bool {
+		client.lifecycleMutex.Lock()
+		defer client.lifecycleMutex.Unlock()
+		return client.activeOperations == 1
+	}, time.Second, time.Millisecond)
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- client.Stop() }()
+	select {
+	case <-stopInitiated:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not begin while GetCurrentTip was waiting")
+	}
+	client.busyMutex.Unlock()
+	busyLocked = false
+	select {
+	case err := <-tipDone:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(2 * time.Second):
+		t.Fatal("GetCurrentTip worker did not exit during shutdown")
+	}
+	select {
+	case <-stopDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not join the GetCurrentTip worker")
+	}
+}
+
 func TestStopUnblocksInitialRequestEnqueue(t *testing.T) {
 	client, cleanup := newStartedTestClient(t, nil)
 	defer cleanup()

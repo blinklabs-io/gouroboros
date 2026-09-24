@@ -3557,7 +3557,7 @@ func MinCoinTxOut(
 	if err != nil {
 		return 0, err
 	}
-	txOutBytes, err := cbor.Encode(txOut)
+	txOutSize, err := common.TransactionOutputCborSize(txOut)
 	if err != nil {
 		return 0, err
 	}
@@ -3565,7 +3565,7 @@ func MinCoinTxOut(
 	// coinsPerUTxOByte large enough to overflow uint64 yields a requirement
 	// no output can meet. Wrapping would instead produce a small
 	// requirement and admit those outputs.
-	entrySize := minUtxoOverheadBytes + uint64(len(txOutBytes))
+	entrySize := minUtxoOverheadBytes + txOutSize
 	if tmpPparams.AdaPerUtxoByte != 0 &&
 		entrySize > math.MaxUint64/tmpPparams.AdaPerUtxoByte {
 		return 0, errors.New("minimum UTxO value overflow")

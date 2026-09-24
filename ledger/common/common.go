@@ -430,6 +430,32 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 	m.emptyMultiAsset = emptyMultiAsset
 	m.data = pruneZeroAssets(decoded)
 	m.duplicateMapKeys = duplicateMapKeys
+	if err := validateMultiAssetCompactRepresentationSize(m.data); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateMultiAssetCompactRepresentationSize[T int64 | uint64 | *big.Int](
+	assets map[Blake2b224]map[cbor.ByteString]T,
+) error {
+	const (
+		compactOffsetLimit = uint64(65535)
+		policyCompactSize  = uint64(28)
+		assetCompactSize   = uint64(44)
+	)
+	policyCount := uint64(len(assets))
+	if policyCount > compactOffsetLimit/policyCompactSize {
+		return errors.New("multiasset is too big to compact")
+	}
+	compactSize := policyCount * policyCompactSize
+	for _, policyAssets := range assets {
+		assetCount := uint64(len(policyAssets))
+		if assetCount > (compactOffsetLimit-compactSize)/assetCompactSize {
+			return errors.New("multiasset is too big to compact")
+		}
+		compactSize += assetCount * assetCompactSize
+	}
 	return nil
 }
 

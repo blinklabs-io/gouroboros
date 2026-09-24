@@ -1017,7 +1017,7 @@ func alonzoValueSize(
 			assetNames[string(name)] = struct{}{}
 		}
 	}
-	if numAssets == 0 {
+	if numAssets == 0 && len(assets.Policies()) == 0 {
 		return alonzoAdaOnlyValueSize
 	}
 	nameBytes := 0

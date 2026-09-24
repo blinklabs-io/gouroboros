@@ -112,6 +112,20 @@ func TestNewClient(t *testing.T) {
 	assert.NotNil(t, client.config)
 }
 
+func TestNewClientPropagatesConnectionDoneChan(t *testing.T) {
+	done := make(chan any)
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId:       testConnectionId(),
+		ConnectionDoneChan: done,
+	}, nil)
+	close(done)
+	select {
+	case <-client.callbackContext.ConnectionDoneChan:
+	default:
+		t.Fatal("connection lifecycle channel did not close")
+	}
+}
+
 func TestVoteLoopStartupContainsCallbackPanic(t *testing.T) {
 	errorChan := make(chan error, 1)
 	client := NewClient(protocol.ProtocolOptions{
