@@ -527,21 +527,21 @@ func NewTxInfoV3FromTransaction(
 		return TxInfoV3{}, err
 	}
 	ret := TxInfoV3{
-		Inputs:                contextInputs,
-		ReferenceInputs:       contextReferenceInputs,
-		Outputs:               contextOutputs,
-		Fee:                   tx.Fee(),
-		Mint:                  *assetMint,
-		ValidRange:            validityRange,
-		Certificates:          tx.Certificates(),
-		Withdrawals:           withdrawals,
-		Signatories:           signatoriesInfo(tx.RequiredSigners()),
-		Redeemers:             redeemers,
-		Data:                  tmpData,
-		Id:                    tx.Id(),
-		Votes:                 votes,
-		ProposalProcedures:    proposalProcedures,
-		ProtocolVersionMajor:  major,
+		Inputs:               contextInputs,
+		ReferenceInputs:      contextReferenceInputs,
+		Outputs:              contextOutputs,
+		Fee:                  tx.Fee(),
+		Mint:                 *assetMint,
+		ValidRange:           validityRange,
+		Certificates:         tx.Certificates(),
+		Withdrawals:          withdrawals,
+		Signatories:          signatoriesInfo(tx.RequiredSigners()),
+		Redeemers:            redeemers,
+		Data:                 tmpData,
+		Id:                   tx.Id(),
+		Votes:                votes,
+		ProposalProcedures:   proposalProcedures,
+		ProtocolVersionMajor: major,
 	}
 	if lcommon.TransactionCurrentTreasuryValuePresent(tx) {
 		amt := tx.CurrentTreasuryValue()
