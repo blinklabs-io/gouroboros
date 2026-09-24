@@ -582,6 +582,50 @@ func TestDijkstraChildProposalIsVisibleToLaterChildVote(t *testing.T) {
 	)
 }
 
+func TestDijkstraChildDRepRegistrationIsVisibleToLaterChildVote(t *testing.T) {
+	drepCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x31},
+	}
+	actionID := common.GovActionId{TransactionId: common.Blake2b256{0x41}}
+	children := []DijkstraSubTransaction{
+		{Body: DijkstraSubTransactionBody{
+			TxCertificates: []common.CertificateWrapper{{
+				Type: uint(common.CertificateTypeRegistrationDrep),
+				Certificate: &common.RegistrationDrepCertificate{
+					CertType:       uint(common.CertificateTypeRegistrationDrep),
+					DrepCredential: drepCredential,
+					Amount:         1,
+				},
+			}},
+		}},
+		{Body: DijkstraSubTransactionBody{
+			TxVotingProcedures: common.VotingProcedures{
+				&common.Voter{
+					Type: common.VoterTypeDRepKeyHash,
+					Hash: drepCredential.Credential,
+				}: {&actionID: {Vote: common.GovVoteYes}},
+			},
+		}},
+	}
+	tx := dijkstraSingleSubTx(children[0])
+	tx.Body.TxSubTransactions = cbor.NewSetType(children, true)
+	state := mockledger.NewLedgerStateBuilder().
+		WithGovActionById(func(
+			id common.GovActionId,
+		) (*common.GovActionState, error) {
+			if id == actionID {
+				return &common.GovActionState{
+					ActionId:   actionID,
+					ActionType: common.GovActionTypeInfo,
+				}, nil
+			}
+			return nil, nil
+		}).Build()
+	rule := dijkstraRule(t, common.UtxoValidationRuleUnknownVoters)
+	require.NoError(t, rule(tx, 0, state, &DijkstraProtocolParameters{}))
+}
+
 // TestDijkstraOutputRulesCoverSubTransactions pins the minimum-coin,
 // maximum-value-size and network checks against a sub-transaction's outputs.
 func TestDijkstraOutputRulesCoverSubTransactions(t *testing.T) {
