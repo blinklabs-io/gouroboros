@@ -365,9 +365,6 @@ func UtxoValidateValueNotConservedUtxo(
 	if mint := tx.AssetMint(); mint != nil {
 		for _, policy := range mint.Policies() {
 			for _, assetName := range mint.Assets(policy) {
-				if policy == (common.Blake2b224{}) && len(assetName) == 0 {
-					continue
-				}
 				amount := mint.Asset(policy, assetName)
 				if amount == nil {
 					continue
