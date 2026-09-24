@@ -64,6 +64,24 @@ func TestConwayParameterUpdateVersionedNonzeroFields(t *testing.T) {
 	}
 }
 
+func TestConwayParameterUpdateRejectsVersionedZeroWithoutParameters(t *testing.T) {
+	zero := uint(0)
+	zero64 := uint64(0)
+	tests := []struct {
+		name   string
+		update ConwayProtocolParameterUpdate
+	}{
+		{"ada per byte", ConwayProtocolParameterUpdate{AdaPerUtxoByte: &zero64}},
+		{"nopt", ConwayProtocolParameterUpdate{NOpt: &zero}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateProtocolParameterUpdate(&tt.update)
+			require.ErrorContains(t, err, "protocol parameters are required")
+		})
+	}
+}
+
 func TestValidateConwayProtocolParameterUpdateRejectsInvalidDomains(
 	t *testing.T,
 ) {

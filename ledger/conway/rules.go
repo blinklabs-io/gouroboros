@@ -1452,6 +1452,11 @@ func validateProtocolParameterUpdate(
 	if len(protocolParameters) > 0 {
 		pp = protocolParameters[0]
 	}
+	if pp == nil &&
+		((ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0) ||
+			(ppu.NOpt != nil && *ppu.NOpt == 0)) {
+		return errors.New("protocol parameters are required for version-gated validation")
+	}
 	if pp != nil {
 		versionedPparams, ok := pp.(interface{ ProtocolMajorVersion() uint })
 		if !ok {

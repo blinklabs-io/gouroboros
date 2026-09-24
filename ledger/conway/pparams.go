@@ -37,7 +37,7 @@ type ConwayProtocolParameters struct {
 	MaxBlockHeaderSize         uint
 	KeyDeposit                 uint
 	PoolDeposit                uint
-	MaxEpoch                   uint
+	MaxEpoch                   uint64
 	NOpt                       uint
 	A0                         *cbor.Rat
 	Rho                        *cbor.Rat
@@ -614,7 +614,7 @@ type ConwayProtocolParameterUpdate struct {
 	MaxBlockHeaderSize         *uint                                     `cbor:"4,keyasint,omitempty"`
 	KeyDeposit                 *uint                                     `cbor:"5,keyasint,omitempty"`
 	PoolDeposit                *uint                                     `cbor:"6,keyasint,omitempty"`
-	MaxEpoch                   *uint                                     `cbor:"7,keyasint,omitempty"`
+	MaxEpoch                   *uint64                                   `cbor:"7,keyasint,omitempty"`
 	NOpt                       *uint                                     `cbor:"8,keyasint,omitempty"`
 	A0                         *cbor.Rat                                 `cbor:"9,keyasint,omitempty"`
 	Rho                        *cbor.Rat                                 `cbor:"10,keyasint,omitempty"`

@@ -1782,11 +1782,25 @@ type genesisDelegationLedgerState struct {
 	quorum    uint
 }
 
-func (s genesisDelegationLedgerState) GenesisDelegateKeyHashes() (
+func (s genesisDelegationLedgerState) GenesisDelegateKeyHashes(
+	uint64,
+) (
 	[]common.Blake2b224,
 	error,
 ) {
 	return s.delegates, nil
+}
+
+func (s genesisDelegationLedgerState) GenesisDelegateForGenesisKey(
+	genesisKey common.Blake2b224,
+	_ uint64,
+) (common.Blake2b224, bool, error) {
+	for _, delegate := range s.delegates {
+		if delegate == genesisKey {
+			return delegate, true, nil
+		}
+	}
+	return common.Blake2b224{}, false, nil
 }
 
 func (s genesisDelegationLedgerState) GenesisUpdateQuorum() (uint, error) {
@@ -1844,6 +1858,7 @@ func TestValidateMIRGenesisQuorum(t *testing.T) {
 		tx := mockledger.NewTransactionBuilder()
 		require.NoError(t, common.ValidateMIRGenesisQuorum(
 			tx,
+			0,
 			mockledger.NewLedgerStateBuilder().Build(),
 		))
 	})
@@ -1851,19 +1866,21 @@ func TestValidateMIRGenesisQuorum(t *testing.T) {
 	t.Run("ledger state without the capability fails closed", func(t *testing.T) {
 		err := common.ValidateMIRGenesisQuorum(
 			mirTransaction(delegateA, delegateB),
+			0,
 			mockledger.NewLedgerStateBuilder().Build(),
 		)
 		require.ErrorAs(t, err, &common.GenesisDelegationStateUnavailableError{})
 	})
 
 	t.Run("nil ledger state fails closed", func(t *testing.T) {
-		err := common.ValidateMIRGenesisQuorum(mirTransaction(), nil)
+		err := common.ValidateMIRGenesisQuorum(mirTransaction(), 0, nil)
 		require.ErrorAs(t, err, &common.GenesisDelegationStateUnavailableError{})
 	})
 
 	t.Run("no genesis delegate witnesses is rejected", func(t *testing.T) {
 		err := common.ValidateMIRGenesisQuorum(
 			mirTransaction(),
+			0,
 			mirGenesisQuorumState(2, delegateA, delegateB, delegateC),
 		)
 		var quorumErr common.MIRInsufficientGenesisSigsError
@@ -1875,6 +1892,7 @@ func TestValidateMIRGenesisQuorum(t *testing.T) {
 	t.Run("insufficient delegate witnesses is rejected", func(t *testing.T) {
 		err := common.ValidateMIRGenesisQuorum(
 			mirTransaction(delegateA),
+			0,
 			mirGenesisQuorumState(2, delegateA, delegateB, delegateC),
 		)
 		var quorumErr common.MIRInsufficientGenesisSigsError
@@ -1885,6 +1903,7 @@ func TestValidateMIRGenesisQuorum(t *testing.T) {
 	t.Run("quorum of current delegates is accepted", func(t *testing.T) {
 		require.NoError(t, common.ValidateMIRGenesisQuorum(
 			mirTransaction(delegateA, delegateB),
+			0,
 			mirGenesisQuorumState(2, delegateA, delegateB, delegateC),
 		))
 	})
@@ -1894,6 +1913,7 @@ func TestValidateMIRGenesisQuorum(t *testing.T) {
 		// retired delegate and a bystander cannot make up the quorum.
 		err := common.ValidateMIRGenesisQuorum(
 			mirTransaction(delegateA, retired, unrelated),
+			0,
 			mirGenesisQuorumState(2, delegateA, delegateB, delegateC),
 		)
 		var quorumErr common.MIRInsufficientGenesisSigsError
@@ -1904,6 +1924,7 @@ func TestValidateMIRGenesisQuorum(t *testing.T) {
 	t.Run("a repeated delegate counts once", func(t *testing.T) {
 		err := common.ValidateMIRGenesisQuorum(
 			mirTransaction(delegateA, delegateA),
+			0,
 			mirGenesisQuorumState(2, delegateA, delegateB),
 		)
 		var quorumErr common.MIRInsufficientGenesisSigsError

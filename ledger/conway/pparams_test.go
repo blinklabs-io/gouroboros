@@ -1664,7 +1664,7 @@ func TestConwayProtocolParameterUpdate_SecurityGroupFields(t *testing.T) {
 		u := &conway.ConwayProtocolParameterUpdate{
 			KeyDeposit:  &val,
 			PoolDeposit: &val,
-			MaxEpoch:    &val,
+			MaxEpoch:    &val64,
 			NOpt:        &val,
 			A0:          rat,
 			Rho:         rat,

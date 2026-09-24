@@ -522,7 +522,7 @@ func UtxoValidateMIRGenesisQuorum(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return common.ValidateMIRGenesisQuorum(tx, ls)
+	return common.ValidateMIRGenesisQuorum(tx, slot, ls)
 }
 
 // UtxoValidateProtocolParameterUpdates validates classic PPUP authorization,

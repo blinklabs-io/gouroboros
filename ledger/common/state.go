@@ -238,9 +238,16 @@ type DRepDelegationState interface {
 // from a quorum of the currently delegated genesis keys. Ledger states used to
 // validate those eras must implement this interface.
 type GenesisDelegationState interface {
-	// GenesisDelegateKeyHashes returns the key hash of every currently
-	// delegated genesis key.
-	GenesisDelegateKeyHashes() ([]Blake2b224, error)
+	// GenesisDelegateKeyHashes returns the currently delegated signing-key
+	// hashes at slot.
+	GenesisDelegateKeyHashes(slot uint64) ([]Blake2b224, error)
+	// GenesisDelegateForGenesisKey returns the currently delegated signing key
+	// for a genesis key at slot, or false if the key is not in the delegation
+	// map.
+	GenesisDelegateForGenesisKey(
+		genesisKeyHash Blake2b224,
+		slot uint64,
+	) (Blake2b224, bool, error)
 	// GenesisUpdateQuorum returns the number of distinct genesis delegate
 	// signatures required to authorize an MIR certificate.
 	GenesisUpdateQuorum() (uint, error)

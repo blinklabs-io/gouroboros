@@ -1164,6 +1164,24 @@ func TestDijkstraProposalRejectsVersionedZeroParameters(t *testing.T) {
 	}
 }
 
+func TestDijkstraProposalRejectsVersionedZeroWithoutParameters(t *testing.T) {
+	zero := uint(0)
+	zero64 := uint64(0)
+	tests := []struct {
+		name string
+		ppu  DijkstraProtocolParameterUpdate
+	}{
+		{"ada per byte", DijkstraProtocolParameterUpdate{AdaPerUtxoByte: &zero64}},
+		{"nopt", DijkstraProtocolParameterUpdate{NOpt: &zero}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateDijkstraProtocolParameterUpdate(&tt.ppu)
+			require.ErrorContains(t, err, "protocol parameters are required")
+		})
+	}
+}
+
 // TestBootstrapPhaseAllowsDijkstraParameterChangeFields covers the Dijkstra
 // side of the bootstrap rule set with a ParameterChange carrying a
 // Dijkstra-only parameter. Every bootstrap-phase rule must accept it: the

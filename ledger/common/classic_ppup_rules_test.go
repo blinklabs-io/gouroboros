@@ -18,8 +18,10 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"math"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -42,8 +44,11 @@ func TestClassicPPUPThroughVerifyTransaction(t *testing.T) {
 	delegate := common.Blake2b224Hash(publicKey)
 	state := classicPPUPTestState{
 		delegates: []common.Blake2b224{delegate},
-		epoch:     7,
-		cutoff:    40,
+		genesisKeys: map[common.Blake2b224]common.Blake2b224{
+			delegate: delegate,
+		},
+		epoch:  7,
+		cutoff: 40,
 	}
 	makeTransaction := func(epoch uint64, proposer common.Blake2b224, includeWitness bool) *shelley.ShelleyTransaction {
 		update := shelley.ShelleyProtocolParameterUpdate{}
@@ -104,13 +109,24 @@ func (w classicPPUPTestWitnessSet) Vkey() []common.VkeyWitness { return w.vkeys 
 
 type classicPPUPTestState struct {
 	common.LedgerState
-	delegates []common.Blake2b224
-	epoch     uint64
-	cutoff    uint64
+	delegates   []common.Blake2b224
+	genesisKeys map[common.Blake2b224]common.Blake2b224
+	epoch       uint64
+	cutoff      uint64
 }
 
-func (s classicPPUPTestState) GenesisDelegateKeyHashes() ([]common.Blake2b224, error) {
+func (s classicPPUPTestState) GenesisDelegateKeyHashes(
+	uint64,
+) ([]common.Blake2b224, error) {
 	return s.delegates, nil
+}
+
+func (s classicPPUPTestState) GenesisDelegateForGenesisKey(
+	genesisKey common.Blake2b224,
+	_ uint64,
+) (common.Blake2b224, bool, error) {
+	delegate, ok := s.genesisKeys[genesisKey]
+	return delegate, ok, nil
 }
 
 func (classicPPUPTestState) GenesisUpdateQuorum() (uint, error) { return 1, nil }
@@ -138,7 +154,15 @@ func classicPPUPValidator(
 func TestClassicProtocolParameterUpdateRuleRegistrationAndEpochs(t *testing.T) {
 	vkey := bytes.Repeat([]byte{7}, 32)
 	delegate := common.Blake2b224Hash(vkey)
-	state := classicPPUPTestState{delegates: []common.Blake2b224{delegate}, epoch: 10, cutoff: 50}
+	genesisKey := common.Blake2b224Hash(bytes.Repeat([]byte{6}, 32))
+	state := classicPPUPTestState{
+		delegates: []common.Blake2b224{delegate},
+		genesisKeys: map[common.Blake2b224]common.Blake2b224{
+			genesisKey: delegate,
+		},
+		epoch:  10,
+		cutoff: 50,
+	}
 	witness := classicPPUPTestWitnessSet{vkeys: []common.VkeyWitness{{Vkey: vkey}}}
 	update := common.ProtocolParameterUpdate(shelley.ShelleyProtocolParameterUpdate{})
 	newTx := func(epoch uint64, key common.Blake2b224, withWitness bool) classicPPUPTestTransaction {
@@ -164,7 +188,7 @@ func TestClassicProtocolParameterUpdateRuleRegistrationAndEpochs(t *testing.T) {
 	for _, era := range allEraDescriptors {
 		t.Run(era.name, func(t *testing.T) {
 			validate := classicPPUPValidator(t, era.descriptors())
-			require.NoError(t, validate(newTx(10, delegate, true), 49, state, &shelley.ShelleyProtocolParameters{}))
+			require.NoError(t, validate(newTx(10, genesisKey, true), 49, state, &shelley.ShelleyProtocolParameters{}))
 		})
 	}
 	validate := classicPPUPValidator(t, shelley.UtxoValidationRuleDescriptors())
@@ -176,29 +200,38 @@ func TestClassicProtocolParameterUpdateRuleRegistrationAndEpochs(t *testing.T) {
 	})
 	t.Run("missing proposing delegate witness", func(t *testing.T) {
 		var updateErr common.ProtocolParameterUpdateWitnessError
-		require.ErrorAs(t, validate(newTx(10, delegate, false), 49, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
-		require.Equal(t, delegate, updateErr.Delegate)
+		require.ErrorAs(t, validate(newTx(10, genesisKey, false), 49, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
+		require.Equal(t, genesisKey, updateErr.Delegate)
+	})
+	t.Run("proposal requires the active delegate witness", func(t *testing.T) {
+		wrongWitness := classicPPUPTestWitnessSet{vkeys: []common.VkeyWitness{{
+			Vkey: bytes.Repeat([]byte{8}, 32),
+		}}}
+		tx := newTx(10, genesisKey, true)
+		tx.Witness = wrongWitness
+		var updateErr common.ProtocolParameterUpdateWitnessError
+		require.ErrorAs(t, validate(tx, 49, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
 	})
 	t.Run("wrong current epoch", func(t *testing.T) {
 		var updateErr common.ProtocolParameterUpdateEpochError
-		require.ErrorAs(t, validate(newTx(11, delegate, true), 49, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
+		require.ErrorAs(t, validate(newTx(11, genesisKey, true), 49, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
 		require.Equal(t, uint64(10), updateErr.Expected)
 		require.False(t, updateErr.ForNextEpoch)
 	})
 	t.Run("wrong epoch after no-return slot", func(t *testing.T) {
 		var updateErr common.ProtocolParameterUpdateEpochError
-		require.ErrorAs(t, validate(newTx(10, delegate, true), 50, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
+		require.ErrorAs(t, validate(newTx(10, genesisKey, true), 50, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
 		require.Equal(t, uint64(11), updateErr.Expected)
 		require.True(t, updateErr.ForNextEpoch)
 	})
 	t.Run("next epoch after no-return slot", func(t *testing.T) {
-		require.NoError(t, validate(newTx(11, delegate, true), 50, state, &shelley.ShelleyProtocolParameters{}))
+		require.NoError(t, validate(newTx(11, genesisKey, true), 50, state, &shelley.ShelleyProtocolParameters{}))
 	})
 	t.Run("reject invalid protocol version jump", func(t *testing.T) {
 		proposed := common.ProtocolParametersProtocolVersion{Major: 12}
 		versionUpdate := shelley.ShelleyProtocolParameterUpdate{ProtocolVersion: &proposed}
-		tx := newTx(10, delegate, true)
-		tx.Updates[delegate] = versionUpdate
+		tx := newTx(10, genesisKey, true)
+		tx.Updates[genesisKey] = versionUpdate
 		params := &shelley.ShelleyProtocolParameters{ProtocolMajor: 10, ProtocolMinor: 0}
 		var updateErr common.ProtocolParameterUpdateVersionError
 		require.ErrorAs(t, validate(tx, 49, state, params), &updateErr)
@@ -206,8 +239,8 @@ func TestClassicProtocolParameterUpdateRuleRegistrationAndEpochs(t *testing.T) {
 	t.Run("accept next major protocol version", func(t *testing.T) {
 		proposed := common.ProtocolParametersProtocolVersion{Major: 11}
 		versionUpdate := shelley.ShelleyProtocolParameterUpdate{ProtocolVersion: &proposed}
-		tx := newTx(10, delegate, true)
-		tx.Updates[delegate] = versionUpdate
+		tx := newTx(10, genesisKey, true)
+		tx.Updates[genesisKey] = versionUpdate
 		params := &shelley.ShelleyProtocolParameters{ProtocolMajor: 10, ProtocolMinor: 0}
 		require.NoError(t, validate(tx, 49, state, params))
 	})
@@ -218,8 +251,11 @@ func TestClassicCostModelUpdateProtocolVersionBoundary(t *testing.T) {
 	delegate := common.Blake2b224Hash(vkey)
 	state := classicPPUPTestState{
 		delegates: []common.Blake2b224{delegate},
-		epoch:     3,
-		cutoff:    100,
+		genesisKeys: map[common.Blake2b224]common.Blake2b224{
+			delegate: delegate,
+		},
+		epoch:  3,
+		cutoff: 100,
 	}
 	witness := classicPPUPTestWitnessSet{vkeys: []common.VkeyWitness{{Vkey: vkey}}}
 	for _, era := range []struct {
@@ -285,6 +321,77 @@ func TestClassicCostModelUpdateProtocolVersionBoundary(t *testing.T) {
 				require.ErrorAs(t, validateModels(models, 8), &modelErr)
 			}
 			require.NoError(t, validateModels(map[uint][]int64{99: nil}, 9))
+		})
+	}
+}
+
+func TestClassicMaxEpochPreservesWord64AcrossEras(t *testing.T) {
+	raw, err := cbor.Encode(map[uint]any{7: uint64(math.MaxUint64)})
+	require.NoError(t, err)
+	for _, era := range []struct {
+		name  string
+		check func([]byte) (uint64, error)
+	}{
+		{
+			name: "Shelley",
+			check: func(data []byte) (uint64, error) {
+				var update shelley.ShelleyProtocolParameterUpdate
+				_, err := cbor.Decode(data, &update)
+				if update.MaxEpoch == nil {
+					return 0, err
+				}
+				return *update.MaxEpoch, err
+			},
+		},
+		{
+			name: "Allegra",
+			check: func(data []byte) (uint64, error) {
+				var update allegra.AllegraProtocolParameterUpdate
+				_, err := cbor.Decode(data, &update)
+				if update.MaxEpoch == nil {
+					return 0, err
+				}
+				return *update.MaxEpoch, err
+			},
+		},
+		{
+			name: "Mary",
+			check: func(data []byte) (uint64, error) {
+				var update mary.MaryProtocolParameterUpdate
+				_, err := cbor.Decode(data, &update)
+				if update.MaxEpoch == nil {
+					return 0, err
+				}
+				return *update.MaxEpoch, err
+			},
+		},
+		{
+			name: "Alonzo",
+			check: func(data []byte) (uint64, error) {
+				var update alonzo.AlonzoProtocolParameterUpdate
+				_, err := cbor.Decode(data, &update)
+				if update.MaxEpoch == nil {
+					return 0, err
+				}
+				return *update.MaxEpoch, err
+			},
+		},
+		{
+			name: "Babbage",
+			check: func(data []byte) (uint64, error) {
+				var update babbage.BabbageProtocolParameterUpdate
+				_, err := cbor.Decode(data, &update)
+				if update.MaxEpoch == nil {
+					return 0, err
+				}
+				return *update.MaxEpoch, err
+			},
+		},
+	} {
+		t.Run(era.name, func(t *testing.T) {
+			got, err := era.check(raw)
+			require.NoError(t, err)
+			require.Equal(t, uint64(math.MaxUint64), got)
 		})
 	}
 }

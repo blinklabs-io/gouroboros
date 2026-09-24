@@ -66,7 +66,7 @@ type dijkstraProtocolParametersCbor struct {
 	MaxBlockHeaderSize               uint
 	KeyDeposit                       uint
 	PoolDeposit                      uint
-	MaxEpoch                         uint
+	MaxEpoch                         uint64
 	NOpt                             uint
 	A0                               *cbor.Rat
 	Rho                              *cbor.Rat
@@ -116,7 +116,7 @@ type dijkstraProtocolParametersCborLegacy struct {
 	MaxBlockHeaderSize         uint
 	KeyDeposit                 uint
 	PoolDeposit                uint
-	MaxEpoch                   uint
+	MaxEpoch                   uint64
 	NOpt                       uint
 	A0                         *cbor.Rat
 	Rho                        *cbor.Rat
@@ -457,7 +457,7 @@ type DijkstraProtocolParameterUpdate struct {
 	MaxBlockHeaderSize               *uint                                     `cbor:"4,keyasint"`
 	KeyDeposit                       *uint                                     `cbor:"5,keyasint"`
 	PoolDeposit                      *uint                                     `cbor:"6,keyasint"`
-	MaxEpoch                         *uint                                     `cbor:"7,keyasint"`
+	MaxEpoch                         *uint64                                   `cbor:"7,keyasint"`
 	NOpt                             *uint                                     `cbor:"8,keyasint"`
 	A0                               *cbor.Rat                                 `cbor:"9,keyasint"`
 	Rho                              *cbor.Rat                                 `cbor:"10,keyasint"`

@@ -68,6 +68,7 @@ func TestClassicProtocolParameterUpdateDomains(t *testing.T) {
 		{name: "Word32 body size width", field: 2, value: uint64(math.MaxUint32) + 1, wantError: true},
 		{name: "Word32 transaction size width", field: 3, value: uint64(math.MaxUint32) + 1, wantError: true},
 		{name: "Word16 header size width", field: 4, value: uint64(math.MaxUint16) + 1, wantError: true},
+		{name: "MaxEpoch must be unsigned", field: 7, value: int64(-1), wantError: true},
 		{name: "Word16 desired pool count width", field: 8, value: uint64(math.MaxUint16) + 1, wantError: true},
 		{name: "negative A0", field: 9, value: negative, wantError: true},
 		{name: "unit interval upper bound", field: 10, value: unitOutside, wantError: true},

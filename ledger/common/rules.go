@@ -658,7 +658,7 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 // fields, so Shelley through Babbage require signatures from a quorum of the
 // currently delegated genesis keys. A ledger state that cannot answer the
 // query fails closed rather than admitting an unauthorized certificate.
-func ValidateMIRGenesisQuorum(tx Transaction, ls LedgerState) error {
+func ValidateMIRGenesisQuorum(tx Transaction, slot uint64, ls LedgerState) error {
 	hasMIR := false
 	for _, cert := range tx.Certificates() {
 		if _, ok := cert.(*MoveInstantaneousRewardsCertificate); ok {
@@ -673,7 +673,7 @@ func ValidateMIRGenesisQuorum(tx Transaction, ls LedgerState) error {
 	if !ok {
 		return GenesisDelegationStateUnavailableError{}
 	}
-	delegates, err := genesisState.GenesisDelegateKeyHashes()
+	delegates, err := genesisState.GenesisDelegateKeyHashes(slot)
 	if err != nil {
 		return err
 	}
@@ -725,18 +725,19 @@ func ValidateClassicProtocolParameterUpdates(
 	if !ok {
 		return ClassicProtocolParameterUpdateWindowStateUnavailableError{}
 	}
-	delegates, err := genesisState.GenesisDelegateKeyHashes()
-	if err != nil {
-		return err
-	}
-	delegateSet := make(map[Blake2b224]struct{}, len(delegates))
-	for _, delegate := range delegates {
-		delegateSet[delegate] = struct{}{}
-	}
-	for delegate := range updates {
-		if _, ok := delegateSet[delegate]; !ok {
-			return ProtocolParameterUpdateDelegateError{Delegate: delegate}
+	delegateSet := make(map[Blake2b224]Blake2b224, len(updates))
+	for genesisKey := range updates {
+		delegateKey, ok, err := genesisState.GenesisDelegateForGenesisKey(
+			genesisKey,
+			slot,
+		)
+		if err != nil {
+			return err
 		}
+		if !ok {
+			return ProtocolParameterUpdateDelegateError{Delegate: genesisKey}
+		}
+		delegateSet[genesisKey] = delegateKey
 	}
 	signedDelegates := make(map[Blake2b224]struct{})
 	if w := tx.Witnesses(); w != nil {
@@ -744,9 +745,10 @@ func ValidateClassicProtocolParameterUpdates(
 			signedDelegates[Blake2b224Hash(witness.Vkey)] = struct{}{}
 		}
 	}
-	for delegate := range updates {
-		if _, ok := signedDelegates[delegate]; !ok {
-			return ProtocolParameterUpdateWitnessError{Delegate: delegate}
+	for genesisKey := range updates {
+		delegateKey := delegateSet[genesisKey]
+		if _, ok := signedDelegates[delegateKey]; !ok {
+			return ProtocolParameterUpdateWitnessError{Delegate: genesisKey}
 		}
 	}
 	currentEpoch, slotOfNoReturn, err := windowState.ProtocolParameterUpdateWindow(slot)
