@@ -289,6 +289,18 @@ func TestDijkstraWitnessSetRejectsEmptyFieldsAndUnsupportedKey8(t *testing.T) {
 	require.ErrorContains(t, err, "does not support field 8")
 }
 
+func TestDijkstraTransactionRejectsCachedUnsupportedPlutusV4Witnesses(t *testing.T) {
+	tx := DijkstraTransaction{}
+	tx.SetCbor([]byte{0x80})
+	tx.WitnessSet.WsPlutusV4Scripts = cbor.NewSetType(
+		[]common.PlutusV4Script{{0x41, 0x00}},
+		true,
+	)
+
+	_, err := tx.MarshalCBOR()
+	require.ErrorContains(t, err, "must be supplied by reference scripts")
+}
+
 func TestDijkstraTransactionBodiesRejectNegativeCurrentTreasuryValue(
 	t *testing.T,
 ) {
