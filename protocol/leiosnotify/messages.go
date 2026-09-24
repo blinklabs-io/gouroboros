@@ -15,6 +15,7 @@
 package leiosnotify
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -361,11 +362,11 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 func decodeArrayHeader(dec *cbor.StreamDecoder) (int, bool, error) {
 	position := dec.Position()
 	if position >= len(dec.Data()) {
-		return 0, false, fmt.Errorf("unexpected end of CBOR data")
+		return 0, false, errors.New("unexpected end of CBOR data")
 	}
 	count, headerSize, indefinite := cbor.ArrayInfo(dec.Data()[position:])
 	if count < 0 {
-		return 0, false, fmt.Errorf("expected array")
+		return 0, false, errors.New("expected array")
 	}
 	if err := dec.Advance(int(headerSize)); err != nil {
 		return 0, false, err
@@ -423,7 +424,7 @@ func decodeBoundedArray(data []byte, maxCount int) ([]cbor.RawMessage, error) {
 		return nil, err
 	}
 	if !dec.EOF() {
-		return nil, fmt.Errorf("trailing CBOR data")
+		return nil, errors.New("trailing CBOR data")
 	}
 	return items, nil
 }
