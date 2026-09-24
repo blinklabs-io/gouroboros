@@ -4595,6 +4595,89 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 	})
 }
 
+func TestUtxoValidateDelegationReleasesSupersededVrfKeys(t *testing.T) {
+	poolP := common.PoolKeyHash{0x01}
+	poolQ := common.PoolKeyHash{0x02}
+	keyA := common.Blake2b256{0x0a}
+	keyB := common.Blake2b256{0x0b}
+	keyC := common.Blake2b256{0x0c}
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11},
+	}
+	ledgerState := func(owners map[common.Blake2b256]common.PoolKeyHash) common.LedgerState {
+		return mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(key common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				owner, ok := owners[key]
+				return ok, owner, nil
+			}).Build()
+	}
+	registration := func(pool common.PoolKeyHash, key common.Blake2b256) common.Certificate {
+		return &common.PoolRegistrationCertificate{Operator: pool, VrfKeyHash: key}
+	}
+	validate := func(state common.LedgerState, certs ...common.Certificate) error {
+		wrappers := make([]common.CertificateWrapper, len(certs))
+		for idx, cert := range certs {
+			wrappers[idx] = common.CertificateWrapper{Certificate: cert}
+		}
+		tx := &conway.ConwayTransaction{
+			Body:      conway.ConwayTransactionBody{TxCertificates: wrappers},
+			TxIsValid: true,
+		}
+		return conway.UtxoValidateDelegation(tx, 0, state, pp)
+	}
+
+	t.Run("one transaction releases the superseded pending key", func(t *testing.T) {
+		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
+		require.NoError(t, validate(
+			state,
+			registration(poolP, keyB),
+			registration(poolP, keyC),
+			registration(poolQ, keyB),
+		))
+	})
+
+	t.Run("one transaction keeps the active and latest pending keys", func(t *testing.T) {
+		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
+		for _, key := range []common.Blake2b256{keyA, keyC} {
+			err := validate(
+				state,
+				registration(poolP, keyB),
+				registration(poolP, keyC),
+				registration(poolQ, key),
+			)
+			var duplicate conway.DuplicateVrfKeyError
+			require.ErrorAs(t, err, &duplicate)
+			require.Equal(t, key, duplicate.VrfKeyHash)
+			require.Equal(t, poolP, duplicate.ExistingPoolId)
+		}
+	})
+
+	t.Run("separate transactions retain active and latest keys", func(t *testing.T) {
+		stateBefore := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
+		require.NoError(t, validate(stateBefore, registration(poolP, keyB)))
+		stateAfterAB := ledgerState(map[common.Blake2b256]common.PoolKeyHash{
+			keyA: poolP,
+			keyB: poolP,
+		})
+		require.NoError(t, validate(stateAfterAB, registration(poolP, keyC)))
+		stateAfterABC := ledgerState(map[common.Blake2b256]common.PoolKeyHash{
+			keyA: poolP,
+			keyC: poolP,
+		})
+		require.NoError(t, validate(stateAfterABC, registration(poolQ, keyB)))
+		for _, key := range []common.Blake2b256{keyA, keyC} {
+			var duplicate conway.DuplicateVrfKeyError
+			require.ErrorAs(
+				t,
+				validate(stateAfterABC, registration(poolQ, key)),
+				&duplicate,
+			)
+			require.Equal(t, key, duplicate.VrfKeyHash)
+			require.Equal(t, poolP, duplicate.ExistingPoolId)
+		}
+	})
+}
+
 func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 	const unknownDrepType = 42
 
