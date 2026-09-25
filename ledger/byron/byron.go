@@ -81,6 +81,31 @@ func SlotNumberFromEpochAndSlot(
 	return result, nil
 }
 
+// SlotNumberFromHeader converts a Byron-capable block header using the
+// configured epoch length. A zero epoch length selects the legacy mainnet
+// length; headers without the conversion capability are accepted only for
+// that legacy length.
+func SlotNumberFromHeader(
+	header interface{ SlotNumber() uint64 },
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	if slotsPerEpoch == 0 {
+		slotsPerEpoch = ByronSlotsPerEpoch
+	}
+	if converter, ok := header.(interface {
+		SlotNumberWithEpochLength(uint64) (uint64, error)
+	}); ok {
+		return converter.SlotNumberWithEpochLength(slotsPerEpoch)
+	}
+	if slotsPerEpoch != ByronSlotsPerEpoch {
+		return 0, fmt.Errorf(
+			"header does not support configured Byron epoch length %d",
+			slotsPerEpoch,
+		)
+	}
+	return header.SlotNumber(), nil
+}
+
 var EraByron = common.Era{
 	Id:   EraIdByron,
 	Name: EraNameByron,

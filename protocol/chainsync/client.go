@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -1128,8 +1129,16 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
+			slot, err := chainSyncSlotNumber(
+				blockHeader,
+				c.config.ByronSlotsPerEpoch,
+			)
+			if err != nil {
+				firstBlockChan <- clientPointResult{error: err}
+				return err
+			}
 			point := pcommon.NewPoint(
-				blockHeader.SlotNumber(),
+				slot,
 				blockHeader.Hash().Bytes(),
 			)
 			firstBlockChan <- clientPointResult{tip: msg.Tip, point: point}
@@ -1216,7 +1225,15 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			point := pcommon.NewPoint(block.SlotNumber(), block.Hash().Bytes())
+			slot, err := chainSyncSlotNumber(
+				block,
+				c.config.ByronSlotsPerEpoch,
+			)
+			if err != nil {
+				firstBlockChan <- clientPointResult{error: err}
+				return err
+			}
+			point := pcommon.NewPoint(slot, block.Hash().Bytes())
 			firstBlockChan <- clientPointResult{tip: msg.Tip, point: point}
 			return nil
 		}
@@ -1399,4 +1416,14 @@ func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) {
 		ch <- clientPointResult{tip: msgIntersectNotFound.Tip, error: ErrIntersectNotFound}
 	default:
 	}
+}
+
+func chainSyncSlotNumber(
+	header lcommon.BlockHeader,
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	if header.Era().Id != ledgerbyron.EraIdByron {
+		return header.SlotNumber(), nil
+	}
+	return ledgerbyron.SlotNumberFromHeader(header, slotsPerEpoch)
 }

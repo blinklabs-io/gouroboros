@@ -22,6 +22,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type legacySlotNumberHeader uint64
+
+func (h legacySlotNumberHeader) SlotNumber() uint64 { return uint64(h) }
+
 func TestSlotNumberFromEpochAndSlot(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -93,6 +97,15 @@ func TestSlotNumberFromEpochAndSlot(t *testing.T) {
 			require.Equal(t, test.want, got)
 		})
 	}
+}
+
+func TestSlotNumberFromHeaderRejectsUnsupportedEpochLength(t *testing.T) {
+	got, err := byron.SlotNumberFromHeader(legacySlotNumberHeader(7), 0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), got)
+
+	_, err = byron.SlotNumberFromHeader(legacySlotNumberHeader(7), 600)
+	require.ErrorContains(t, err, "does not support configured Byron epoch length")
 }
 
 func TestByronHeaderSlotNumberWithEpochLengthPreservesRawCounts(t *testing.T) {

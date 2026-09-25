@@ -187,6 +187,9 @@ type Config struct {
 	PipelineLimit       int
 	RecvQueueSize       int
 	SkipBlockValidation bool // Skip block validation during parsing
+	// ByronSlotsPerEpoch sets the non-mainnet Byron epoch length used when
+	// converting Byron headers to ChainSync points. Zero uses the legacy value.
+	ByronSlotsPerEpoch uint64
 
 	// Pipeline enables the block processing pipeline.
 	// The pipeline should be configured with desired buffer sizes when created.

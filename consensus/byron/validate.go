@@ -1231,21 +1231,7 @@ func slotNumberWithEpochLength(
 	header interface{ SlotNumber() uint64 },
 	slotsPerEpoch uint64,
 ) (uint64, error) {
-	if slotsPerEpoch == 0 {
-		slotsPerEpoch = byron.ByronSlotsPerEpoch
-	}
-	if converter, ok := header.(interface {
-		SlotNumberWithEpochLength(uint64) (uint64, error)
-	}); ok {
-		return converter.SlotNumberWithEpochLength(slotsPerEpoch)
-	}
-	if slotsPerEpoch != byron.ByronSlotsPerEpoch {
-		return 0, fmt.Errorf(
-			"header does not support configured Byron epoch length %d",
-			slotsPerEpoch,
-		)
-	}
-	return header.SlotNumber(), nil
+	return byron.SlotNumberFromHeader(header, slotsPerEpoch)
 }
 
 // ValidateByronMainBlockHeader validates a ByronMainBlockHeader.
