@@ -1443,12 +1443,12 @@ func validateProtocolParameterUpdate(
 	if pp == nil &&
 		((ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0) ||
 			(ppu.NOpt != nil && *ppu.NOpt == 0)) {
-		return errors.New("protocol parameters are required for version-gated validation")
+		return common.ProtocolParameterUpdateProtocolVersionUnavailableError{}
 	}
 	if pp != nil {
 		versionedPparams, ok := pp.(interface{ ProtocolMajorVersion() uint })
 		if !ok {
-			return errors.New("protocol parameters do not expose a major version")
+			return common.ProtocolParameterUpdateProtocolVersionUnavailableError{}
 		}
 		major = versionedPparams.ProtocolMajorVersion()
 	}
@@ -1595,15 +1595,13 @@ func validateConwayProtocolParameterIntegerWidths(
 	}{
 		{"maxBlockBodySize", ppu.MaxBlockBodySize},
 		{"maxTxSize", ppu.MaxTxSize},
+		{"maxEpoch", ppu.MaxEpoch},
 		{"maxValueSize", ppu.MaxValueSize},
 	}
 	for _, field := range word32Fields {
 		if field.value != nil && uint64(*field.value) > math.MaxUint32 {
 			return invalidConwayParameterField(field.name, "must fit Word32")
 		}
-	}
-	if ppu.MaxEpoch != nil && *ppu.MaxEpoch > math.MaxUint32 {
-		return invalidConwayParameterField("maxEpoch", "must fit Word32")
 	}
 	word16Fields := []struct {
 		name  string

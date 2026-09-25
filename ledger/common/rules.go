@@ -939,6 +939,10 @@ func ValidateClassicProtocolParameterUpdates(
 		if !ok {
 			continue
 		}
+		if costModels, ok := update.(ProtocolParameterUpdateCostModelProvider); ok &&
+			len(costModels.ProtocolParameterUpdateCostModels()) == 0 {
+			continue
+		}
 		if !hasCurrentVersion {
 			return ProtocolParameterUpdateProtocolVersionUnavailableError{}
 		}

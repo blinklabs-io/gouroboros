@@ -304,6 +304,10 @@ type AlonzoProtocolParameterUpdate struct {
 
 func (AlonzoProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
+func (u AlonzoProtocolParameterUpdate) ProtocolParameterUpdateCostModels() map[uint][]int64 {
+	return u.CostModels
+}
+
 func (u AlonzoProtocolParameterUpdate) ProtocolParameterVersionUpdate() *common.ProtocolParametersProtocolVersion {
 	return u.ProtocolVersion
 }

@@ -986,6 +986,7 @@ func UtxoValidateProposalProcedures(
 				if action != nil {
 					if err := validateDijkstraProtocolParameterUpdate(
 						&action.ParamUpdate,
+						pp,
 					); err != nil {
 						return err
 					}
@@ -1132,7 +1133,7 @@ func validateDijkstraProtocolParameterUpdate(
 	if pp == nil &&
 		((ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0) ||
 			(ppu.NOpt != nil && *ppu.NOpt == 0)) {
-		return errors.New("protocol parameters are required for version-gated validation")
+		return common.ProtocolParameterUpdateProtocolVersionUnavailableError{}
 	}
 	if pp != nil {
 		params, err := conwayPparams(pp)

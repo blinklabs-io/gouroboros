@@ -111,3 +111,17 @@ func TestClassicProtocolParameterUpdateDomains(t *testing.T) {
 		}
 	}
 }
+
+func TestAlonzoDecentralizationUpdateRemainsValidated(t *testing.T) {
+	encoded, err := cbor.Encode(map[uint64]any{
+		12: &cbor.Rat{Rat: big.NewRat(5, 4)},
+	})
+	require.NoError(t, err)
+	require.Error(
+		t,
+		common.ValidateProtocolParameterUpdateDomains(
+			encoded,
+			common.ProtocolParameterUpdateEraAlonzo,
+		),
+	)
+}

@@ -177,6 +177,10 @@ type BabbageProtocolParameterUpdate struct {
 
 func (BabbageProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
+func (u BabbageProtocolParameterUpdate) ProtocolParameterUpdateCostModels() map[uint][]int64 {
+	return u.CostModels
+}
+
 func (u BabbageProtocolParameterUpdate) ProtocolParameterVersionUpdate() *common.ProtocolParametersProtocolVersion {
 	return u.ProtocolVersion
 }

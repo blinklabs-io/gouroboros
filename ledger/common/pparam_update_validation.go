@@ -23,7 +23,14 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
+// ProtocolParameterUpdateEra identifies the classic era whose update fields
+// are being validated.
 type ProtocolParameterUpdateEra uint8
+
+// ErrProtocolParameterUpdateNil indicates that a nil update was provided.
+var ErrProtocolParameterUpdateNil = errors.New(
+	"protocol parameter update cannot be nil",
+)
 
 const (
 	ProtocolParameterUpdateEraShelley ProtocolParameterUpdateEra = iota
@@ -74,10 +81,54 @@ type ProtocolParameterUpdateDomainError struct {
 	Reason string
 }
 
+var protocolParameterUpdateWidths = [...]struct {
+	key     uint64
+	maximum uint64
+}{
+	{2, math.MaxUint32},
+	{3, math.MaxUint32},
+	{4, math.MaxUint16},
+	{7, math.MaxUint32},
+	{8, math.MaxUint16},
+	{22, math.MaxUint32},
+	{23, math.MaxUint16},
+	{24, math.MaxUint16},
+}
+
+var protocolParameterUpdateIntervals = [...]struct {
+	key  uint64
+	unit bool
+}{
+	{9, false},
+	{10, true},
+	{11, true},
+	{12, true},
+}
+
+var protocolParameterUpdateFieldNames = map[uint64]string{
+	2:  "max block body size",
+	3:  "max transaction size",
+	4:  "max block header size",
+	8:  "nOpt",
+	9:  "a0",
+	10: "rho",
+	11: "tau",
+	12: "decentralization",
+	14: "protocol version",
+	19: "execution prices",
+	20: "max transaction execution units",
+	21: "max block execution units",
+	22: "max value size",
+	23: "collateral percentage",
+	24: "max collateral inputs",
+}
+
 func (e ProtocolParameterUpdateDomainError) Error() string {
 	return fmt.Sprintf("protocol parameter update %s: %s", e.Field, e.Reason)
 }
 
+// ValidateProtocolParameterUpdateDomains checks encoded classic parameter
+// updates against the field domains and integer widths defined by each era.
 func ValidateProtocolParameterUpdateDomains(
 	data []byte,
 	era ProtocolParameterUpdateEra,
@@ -86,20 +137,7 @@ func ValidateProtocolParameterUpdateDomains(
 	if _, err := cbor.Decode(data, &fields); err != nil {
 		return err
 	}
-	widths := []struct {
-		key     uint64
-		maximum uint64
-	}{
-		{2, math.MaxUint32},  // max block body size
-		{3, math.MaxUint32},  // max transaction size
-		{4, math.MaxUint16},  // max block header size
-		{7, math.MaxUint32},  // maximum epoch
-		{8, math.MaxUint16},  // desired number of pools
-		{22, math.MaxUint32}, // max value size
-		{23, math.MaxUint16}, // collateral percentage
-		{24, math.MaxUint16}, // max collateral inputs
-	}
-	for _, width := range widths {
+	for _, width := range protocolParameterUpdateWidths {
 		key, maximum := width.key, width.maximum
 		raw, ok := fields[key]
 		if !ok {
@@ -123,17 +161,9 @@ func ValidateProtocolParameterUpdateDomains(
 			}
 		}
 	}
-	for _, interval := range []struct {
-		key  uint64
-		unit bool
-	}{
-		{9, false}, // a0: NonNegativeInterval
-		{10, true}, // rho: UnitInterval
-		{11, true}, // tau: UnitInterval
-		{12, true}, // decentralization: UnitInterval (through Mary)
-	} {
+	for _, interval := range protocolParameterUpdateIntervals {
 		key, unitInterval := interval.key, interval.unit
-		if key == 12 && era >= ProtocolParameterUpdateEraAlonzo {
+		if key == 12 && era > ProtocolParameterUpdateEraAlonzo {
 			continue
 		}
 		raw, ok := fields[key]
@@ -221,23 +251,7 @@ func validateNonNegativeInterval(value *cbor.Rat, unit bool) error {
 }
 
 func protocolParameterUpdateFieldName(key uint64) string {
-	if name, ok := map[uint64]string{
-		2:  "max block body size",
-		3:  "max transaction size",
-		4:  "max block header size",
-		8:  "nOpt",
-		9:  "a0",
-		10: "rho",
-		11: "tau",
-		12: "decentralization",
-		14: "protocol version",
-		19: "execution prices",
-		20: "max transaction execution units",
-		21: "max block execution units",
-		22: "max value size",
-		23: "collateral percentage",
-		24: "max collateral inputs",
-	}[key]; ok {
+	if name, ok := protocolParameterUpdateFieldNames[key]; ok {
 		return name
 	}
 	return fmt.Sprintf("field %d", key)

@@ -1659,7 +1659,11 @@ func TestDijkstraProposalRejectsVersionedZeroWithoutParameters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateDijkstraProtocolParameterUpdate(&tt.ppu)
-			require.ErrorContains(t, err, "protocol parameters are required")
+			require.ErrorAs(
+				t,
+				err,
+				&common.ProtocolParameterUpdateProtocolVersionUnavailableError{},
+			)
 		})
 	}
 }

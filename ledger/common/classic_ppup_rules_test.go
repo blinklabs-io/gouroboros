@@ -305,7 +305,7 @@ func TestClassicCostModelUpdateProtocolVersionBoundary(t *testing.T) {
 	} {
 		t.Run(era.name, func(t *testing.T) {
 			validate := classicPPUPValidator(t, era.descriptors())
-			validateModels := func(models map[uint][]int64, version uint) error {
+			validateModels := func(models map[uint][]int64, params common.ProtocolParameters) error {
 				tx := classicPPUPTestTransaction{
 					Epoch: 3,
 					Updates: map[common.Blake2b224]common.ProtocolParameterUpdate{
@@ -313,14 +313,15 @@ func TestClassicCostModelUpdateProtocolVersionBoundary(t *testing.T) {
 					},
 					Witness: witness,
 				}
-				return validate(tx, 10, state, era.params(version))
+				return validate(tx, 10, state, params)
 			}
-			require.NoError(t, validateModels(era.valid, 8))
+			require.NoError(t, validateModels(era.valid, era.params(8)))
 			for _, models := range era.invalid {
 				var modelErr common.ProtocolParameterUpdateCostModelError
-				require.ErrorAs(t, validateModels(models, 8), &modelErr)
+				require.ErrorAs(t, validateModels(models, era.params(8)), &modelErr)
 			}
-			require.NoError(t, validateModels(map[uint][]int64{99: nil}, 9))
+			require.NoError(t, validateModels(map[uint][]int64{99: nil}, era.params(9)))
+			require.NoError(t, validateModels(nil, nil))
 		})
 	}
 }

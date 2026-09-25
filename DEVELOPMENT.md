@@ -381,6 +381,15 @@ provides the current epoch and the slot at which update proposals switch to
 the following epoch; transactions containing updates are rejected when the
 adapter does not provide it.
 
+Adapters that run classic Shelley-family validation also implement
+`common.GenesisDelegationState`, which supplies the currently delegated
+genesis signing keys, resolves a genesis key to its active delegate at a slot,
+and reports the MIR update quorum. The interface now takes a slot for both
+delegation queries, so adapters must account for delegation changes over
+time. PPUP validation needs both this capability and
+`common.ClassicProtocolParameterUpdateWindowState`; MIR validation needs only
+`GenesisDelegationState`.
+
 **Transaction** (`ledger/common/tx.go`):
 ```go
 type Transaction interface {

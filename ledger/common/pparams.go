@@ -38,6 +38,12 @@ type ProtocolParameterUpdateVersionValidator interface {
 	ValidateProtocolParameterUpdateVersion(ProtocolParametersProtocolVersion) error
 }
 
+// ProtocolParameterUpdateCostModelProvider reports cost models requiring
+// protocol-version-dependent validation.
+type ProtocolParameterUpdateCostModelProvider interface {
+	ProtocolParameterUpdateCostModels() map[uint][]int64
+}
+
 type ProtocolParameterVersionUpdateProvider interface {
 	ProtocolParameterVersionUpdate() *ProtocolParametersProtocolVersion
 }
