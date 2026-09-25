@@ -27,9 +27,7 @@ import (
 
 const maxLedgerFuzzInputSize = 1 << 20
 
-const fuzzEta0Hex = "0000000000000000000000000000000000000000000000000000000000000000"
-
-func exerciseFuzzBlock(block Block) {
+func exerciseFuzzBlock(block Block, eta0Hex string, slotsPerKesPeriod uint64) {
 	header := block.Header()
 	if header == nil {
 		return
@@ -50,7 +48,8 @@ func exerciseFuzzBlock(block Block) {
 	// Run the block-local production checks without needing chain state. The
 	// transaction and stake-pool checks are covered by the transaction fuzz
 	// target and deterministic verification tests.
-	_, _, _, _, _ = VerifyBlock(block, fuzzEta0Hex, 1, common.VerifyConfig{
+	_, _, _, _, _ = VerifyBlock(block, eta0Hex, slotsPerKesPeriod, common.VerifyConfig{
+		SkipBodyHashValidation:    true,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,
 		SkipBlockLimitsValidation: true,
@@ -102,63 +101,23 @@ const (
 )
 
 func FuzzNewBlockFromCbor(f *testing.F) {
-	// Seed with real blocks from each era
-	testBlocks := []struct {
-		blockType uint
-		hexData   string
-	}{
-		{
-			BlockTypeByronMain,
-			"83851a2d964a09582025df38df102b89ec25a432a2972993d2fa8cc1f597a73e6260b2f07e79501eb084830258200f284bc22f5b96228ee0687b7bb87c56132f77df4235c78a1595729ccfce2001582019fb988d02ec920a6de5ac71c5d5e75f8b73d7ed8e8abea7773e28859983206e82035820d36a2619a672494604e11bb447cbcf5231e9f2ba25c2169177edc941bd50ad6c5820afc0da64183bf2664f3d4eec7238d524ba607faeeab24fc100eb861dba69971b58204e66280cd94d591072349bec0a3090a53aa945562efb6d08d56e53654b0e4098848218cf0758401bc97a2fe02c297880ce8ecfd997fe4c1ec09ee10feeee9f6867",
-		},
-		{
-			BlockTypeShelley,
-			"84828f1a004d4a6f1a00f6892c5820bc4766a289bb5d8ec86647a0aeed5dc3521f43db7a72abef3eed1debbfa9412f5820ddba672a2abc65da47537df8f190ba376512bc0283e731e3934b52f1a0abc1a558206abad5392188997c5e14b9f6e581129ec141cec17d1d2f0cfc1e9192d464716e825840df9856406b92387c9b138ef24a58d8c48a37bf5be8721eaec4702ca98df48edd2678f0a8c722982d354582b5da65d849f72077c880778982f71de60536c3ed4a5850edc5d9f0ea6965edf729548ff7cba2cea82425ceb4e42d1074a726cc9812eb5fcabb4aefa7f049bcc5209edbbe18763a080eb1a0bdfd8fb933a1763813dd3314c2",
-		},
-		{
-			BlockTypeAllegra,
-			"84828f1a005280141a015fff9d58206c75ffd5efb79a234d49e9e279be21f7f9b73a5b9db6cd5271f5db00bb8cc1085820e35049a00c155dc46c09d1c2838cda7b8b2bc68f5134fd4be528fc388363d43658200ca8bfb99d223616e305f5839cff11a9c6dc637d2d9a3cda6531be1a842259a7825840bf1d6983a8e3fd881f8ae17fa168957e9fdc1d0d26acc13b2afdf3ff4f212f16f4be0bbf3a6ab4c1ffaff62e8ff4ac76ae3cccb845a73b4460617aa9bc4e4c555850aae23d05e6e52e9241ce52db8f1274a4cbbff19f1d9f854cc072701bb8c640f6fa25ef8132e2e721380051a7ee0cdb91fe9b9cbd30f28f278964462150c328984a",
-		},
-		{
-			BlockTypeMary,
-			"84828f1a005f27931a0261147e582084d910a9b03102f4d5d1cfa175595e0671fa16f9018ff1679750efc3d056e9595820f62edd10f9c922efcc58d7a7e939fc0493c006fff17d1d5789d314d7a43530725820ac6051aab9b68f68871774b599e697a400a98336a23075db99262f1d5e28d17a825840381bc4e03e170f96f0a0d5ff40a5c4544fed7f44d5da0970e5efe7ac6686e74faf7c655349ceab6b2306d5af201d7943e7dd026ca8e8c4d32bd7953566d29f8f585069cf8f936bb4eb58d67a70e9bdfd45cf8f9d85e0dc836347046217a43ea6c79ee10856ad39163490e30033ed57c847024365c85713319c7d1d18e21234d62716",
-		},
-		{
-			BlockTypeAlonzo,
-			"85828f1a0076e44f1a044f775f5820f289b983294053fa79e182cc464608c8b0839501aa7f60ead08992446b74ff5a582054a08fb24331f75a0ef1ed4918bdea3f6cc7a943f620f2dfd6fddde7a7b3386e58206d1b4ca9f3e109ac01bba976867c85e50e521df6e44610a7ef63167184adf43b82584041623ec7ed8f02d3fc41494333a1a2e2d920d4ab1052cb43fec4da1c2b0feb95e3eaa96f114ffeb5e0b0ed45dadf5000db0f8b6c56e006a6d9f672f5612ab5345850d0a37a9510d9aaaa2d98dafac2baf544f4d7dfef4982167c7375c9a0279e740a2536f9296d69b848e60578950b52d4062f14c5b79367c4add4cb8ff40d285d01bf",
-		},
-		{
-			BlockTypeBabbage,
-			"85828a1a0079c8a71a048acbb8582062304d8672d2f7cede894d32f48e8ae06b589d58bccdbec5a042e97f89e1e8905820c28264eedc90b7bc299b6c8ff675e583327f7ad5e00bcb95c525c093e68436ad58209a117213fbb51458275c9d9316780057ca9f8ea4004452a26c55201d94ce213782584083bbe54c131e0154efc7861611d29331d56ce588cab57c76507cc5e5aeba4241583161a2ec4fd5c99b9316e01941dee01cf0bbcf5bf018fdfc1433dcbdc734aa585085fbb0c776a83c54e840c42942beddeb22674c193dd942c50ad1ea64acf5480096a68085722273413d98ceff0e1b5bba13db0a34227042e8b5bac6a4903931df25",
-		},
-		{
-			BlockTypeConway,
-			"85828a1a00b82b211a0986e4475820ff51732269af51a2efaa2a7ad4a2ff5647af5629013a446511249e837be617a05820dbdce19c856881a7179d61666204368a13e282b0f473b6dee7a79c44e47a11c65820113752032b1036bd7ab48b47302a723bf7238bbc08e798f56d1bb9a205679929825840b7e53621a22d79026e0c21f4569019713997d7f3fcaaafdea9099949ca9ada905102e166a79ae5c1b5b5e25807c08131b4b88f241a2953e7379a09f1d1e7c7205850d6bf53d7374e4e8af248156c381102be6d928af050d914f27dd47fa3333b055cc500abed018ddd680836f1cbac8b4ea2690ce2ec8d597e096a210a9335a97e3c1b",
-		},
+	blockType, data, eta0Hex, slotsPerKesPeriod, err := verifiedBlockFuzzSeed()
+	if err != nil {
+		f.Fatalf("failed to prepare complete block fuzz seed: %v", err)
 	}
+	f.Add(blockType, data, eta0Hex, slotsPerKesPeriod)
 
-	for _, tb := range testBlocks {
-		data, err := hex.DecodeString(tb.hexData)
-		if err != nil {
-			// Skip invalid seed data instead of failing
-			continue
-		}
-		f.Add(tb.blockType, data)
-	}
-
-	f.Fuzz(func(t *testing.T, blockType uint, data []byte) {
-		if len(data) > maxLedgerFuzzInputSize {
+	f.Fuzz(func(t *testing.T, blockType uint, data []byte, eta0Hex string, slotsPerKesPeriod uint64) {
+		if len(data) > maxLedgerFuzzInputSize || len(eta0Hex) != 64 || slotsPerKesPeriod == 0 {
 			return
 		}
-		// Only test valid block types to avoid noise from invalid types
 		validTypes := []uint{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
-		isValid := slices.Contains(validTypes, blockType)
-		if !isValid {
+		if !slices.Contains(validTypes, blockType) {
 			return
 		}
 		block, err := NewBlockFromCbor(blockType, data)
 		if err == nil {
-			exerciseFuzzBlock(block)
+			exerciseFuzzBlock(block, eta0Hex, slotsPerKesPeriod)
 		}
 	})
 }
