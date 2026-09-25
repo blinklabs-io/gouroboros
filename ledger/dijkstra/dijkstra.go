@@ -256,7 +256,7 @@ func (c DijkstraLeiosCertificate) MarshalCBOR() ([]byte, error) {
 // maximum signer-bitfield size and signature width.
 func (c *DijkstraLeiosCertificate) Validate(committeeSize uint64) error {
 	if c == nil {
-		return errors.New("Dijkstra Leios certificate is nil")
+		return errors.New("dijkstra Leios certificate is nil")
 	}
 	if err := common.ValidateLeiosSignature(
 		"DijkstraLeiosCertificate: AggregatedSignature",

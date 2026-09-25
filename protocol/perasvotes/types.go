@@ -31,7 +31,7 @@ type VRFCert struct {
 func (c VRFCert) MarshalCBOR() ([]byte, error) {
 	if len(c.Proof) != 80 {
 		return nil, fmt.Errorf(
-			"Peras VRF proof must be 80 bytes, got %d",
+			"peras VRF proof must be 80 bytes, got %d",
 			len(c.Proof),
 		)
 	}
@@ -45,7 +45,7 @@ func (c *VRFCert) UnmarshalCBOR(cborData []byte) error {
 	}
 	if len(fields) != 2 {
 		return fmt.Errorf(
-			"Peras VRF certificate must have 2 fields, got %d",
+			"peras VRF certificate must have 2 fields, got %d",
 			len(fields),
 		)
 	}
@@ -57,7 +57,7 @@ func (c *VRFCert) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("decode Peras VRF proof: %w", err)
 	}
 	if len(tmp.Proof) != 80 {
-		return fmt.Errorf("Peras VRF proof must be 80 bytes, got %d", len(tmp.Proof))
+		return fmt.Errorf("peras VRF proof must be 80 bytes, got %d", len(tmp.Proof))
 	}
 	*c = tmp
 	return nil
@@ -107,7 +107,7 @@ func (v *Vote) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("decode Peras vote: %w", err)
 	}
 	if len(fields) != 8 {
-		return fmt.Errorf("Peras vote must have 8 fields, got %d", len(fields))
+		return fmt.Errorf("peras vote must have 8 fields, got %d", len(fields))
 	}
 	var tmp Vote
 	decode := func(index int, target any, field string) error {
@@ -156,7 +156,7 @@ func (v Vote) Validate() error {
 	} {
 		if field.got != field.want {
 			return fmt.Errorf(
-				"Peras vote %s must be %d bytes, got %d",
+				"peras vote %s must be %d bytes, got %d",
 				field.name,
 				field.want,
 				field.got,
@@ -165,7 +165,7 @@ func (v Vote) Validate() error {
 	}
 	if len(v.VotingProof.Proof) != 80 {
 		return fmt.Errorf(
-			"Peras vote VRF proof must be 80 bytes, got %d",
+			"peras vote VRF proof must be 80 bytes, got %d",
 			len(v.VotingProof.Proof),
 		)
 	}
@@ -186,7 +186,7 @@ type VoteCert cbor.RawMessage
 
 func (c VoteCert) MarshalCBOR() ([]byte, error) {
 	if len(c) == 0 {
-		return nil, errors.New("Peras vote certificate has no encoded value")
+		return nil, errors.New("peras vote certificate has no encoded value")
 	}
 	var raw cbor.RawMessage
 	if _, err := cbor.Decode(c, &raw); err != nil {
@@ -197,7 +197,7 @@ func (c VoteCert) MarshalCBOR() ([]byte, error) {
 
 func (c *VoteCert) UnmarshalCBOR(cborData []byte) error {
 	if len(cborData) == 0 {
-		return errors.New("Peras vote certificate has no encoded value")
+		return errors.New("peras vote certificate has no encoded value")
 	}
 	var raw cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &raw); err != nil {
