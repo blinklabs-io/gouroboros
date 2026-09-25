@@ -4155,6 +4155,65 @@ func TestUtxoValidateCommitteeCertificatesUsesSequentialState(t *testing.T) {
 	})
 }
 
+// TestUtxoValidateCommitteeCertificatesRejectsAlreadyResignedMember covers
+// dingo#4377's "previously resigned" cases: a member already marked resigned
+// in ledger state (not resigned mid-transaction, as
+// TestUtxoValidateCommitteeCertificatesUsesSequentialState covers) must
+// reject both a resignation and a hot-key authorization on the very first
+// certificate.
+func TestUtxoValidateCommitteeCertificatesRejectsAlreadyResignedMember(
+	t *testing.T,
+) {
+	coldHash := common.Blake2b224Hash([]byte("committee-already-resigned-cold"))
+	cold := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: coldHash,
+	}
+	hot := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("committee-already-resigned-hot")),
+	}
+	ledgerState := authoritativeLegacyCommitteeState(
+		mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+			[]common.CommitteeMember{
+				{ColdKey: coldHash, ExpiryEpoch: 100, Resigned: true},
+			},
+		).Build(),
+	)
+	newTx := func(cert common.Certificate) *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			TxIsValid: true,
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: cert},
+				},
+			},
+		}
+	}
+
+	t.Run("previously resigned then resign", func(t *testing.T) {
+		tx := newTx(&common.ResignCommitteeColdCertificate{
+			CertType:       uint(common.CertificateTypeResignCommitteeCold),
+			ColdCredential: cold,
+		})
+		var err conway.ResignedCommitteeMemberError
+		require.ErrorAs(t, conway.UtxoValidateCommitteeCertificates(
+			tx, 0, ledgerState, &conway.ConwayProtocolParameters{},
+		), &err)
+	})
+	t.Run("previously resigned then authorize hot", func(t *testing.T) {
+		tx := newTx(&common.AuthCommitteeHotCertificate{
+			CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+			ColdCredential: cold,
+			HotCredential:  hot,
+		})
+		var err conway.ResignedCommitteeMemberHotKeyError
+		require.ErrorAs(t, conway.UtxoValidateCommitteeCertificates(
+			tx, 0, ledgerState, &conway.ConwayProtocolParameters{},
+		), &err)
+	})
+}
+
 func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 	t *testing.T,
 ) {
