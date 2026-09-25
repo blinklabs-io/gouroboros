@@ -666,9 +666,8 @@ func TestValidateProxySignatureRejectsGarbage(t *testing.T) {
 }
 
 func TestValidateSimpleSignatureCanonicalizesDroppedExtraHeaderFields(t *testing.T) {
-	// The reference decoder drops the attributes map and arbitrary
-	// extra-data proof, then encodes their canonical constants for ToSign.
-	// This header uses a non-empty attributes map and an incorrect proof value.
+	// The reference decoder requires empty attributes and an arbitrary
+	// extra-data proof, then encodes their canonical values for ToSign.
 	proofHash, err := hex.DecodeString(
 		"4ba92aa320c60acc9ad7b9a64f2eda55c4d2ec28e604faf186708b4f0c4e8edf",
 	)
@@ -679,7 +678,7 @@ func TestValidateSimpleSignatureCanonicalizesDroppedExtraHeaderFields(t *testing
 	headerCbor = append(headerCbor, 0xf6) // body proof
 	headerCbor = append(headerCbor, 0x84, 0x82, 0x07, 0x0b, 0xf6, 0x81, 0x13, 0xf6)
 	headerCbor = append(headerCbor, 0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00)
-	headerCbor = append(headerCbor, 0xa1, 0x01, 0x41, 0x01) // dropped attributes
+	headerCbor = append(headerCbor, 0xa0) // empty attributes
 	headerCbor = append(headerCbor, 0x58, 0x20)
 	headerCbor = append(headerCbor, make([]byte, common.Blake2b256Size)...)
 
@@ -707,6 +706,27 @@ func TestValidateSimpleSignatureCanonicalizesDroppedExtraHeaderFields(t *testing
 	require.NoError(t, validator.validateBlockSignature(input))
 }
 
+func TestCanonicalByronExtraHeaderRejectsInvalidAttributes(t *testing.T) {
+	tests := []struct {
+		name       string
+		attributes []byte
+	}{
+		{name: "non-empty map", attributes: []byte{0xa1, 0x01, 0x41, 0x01}},
+		{name: "array", attributes: []byte{0x80}},
+		{name: "null", attributes: []byte{0xf6}},
+		{name: "undefined", attributes: []byte{0xf7}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			extraHeader := []byte{0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00}
+			extraHeader = append(extraHeader, tc.attributes...)
+			extraHeader = append(extraHeader, 0x40)
+			_, err := canonicalByronExtraHeader(extraHeader)
+			require.Error(t, err)
+		})
+	}
+}
+
 // TestValidateSimpleSignaturePreservesNonShortestToSignEncodings is the
 // blinklabs-io/gouroboros#2349 regression: buildToSign preserves the raw
 // bytes of the previous hash, body proof, epoch/slot, and difficulty. The
@@ -723,9 +743,9 @@ func TestValidateSimpleSignaturePreservesNonShortestToSignEncodings(t *testing.T
 	pubKeyRaw := []byte{0xf6}                                      // null
 	blockSigRaw := []byte{0xf6}                                    // null
 	extraHeaderRaw := append(
-		[]byte{0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00, 0xf6, 0x58, 0x20},
+		[]byte{0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00, 0xa0, 0x58, 0x20},
 		make([]byte, 32)...,
-	) // [[0,0,0], ["",0], null, bstr(32 zero bytes)]
+	) // [[0,0,0], ["",0], empty map, bstr(32 zero bytes)]
 
 	buildHeader := func(epochAndSlotRaw, difficultyRaw []byte) []byte {
 		consensusData := []byte{0x84}
@@ -1010,6 +1030,7 @@ func proxySignatureInput(
 		ProtocolMagic: config.ProtocolMagic,
 		BodyProof:     []any{},
 	}
+	header.ExtraData.Attributes = map[any]any{}
 	header.ExtraData.ExtraProof = []byte{}
 	header.ConsensusData.SlotId.Epoch = headerEpoch
 	header.ConsensusData.PubKey = issuerVK

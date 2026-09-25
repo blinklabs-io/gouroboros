@@ -1005,7 +1005,17 @@ func canonicalByronExtraHeader(raw cbor.RawMessage) ([]byte, error) {
 	if _, err := cbor.Decode(fields[1], &softwareVersion); err != nil {
 		return nil, fmt.Errorf("decode software version: %w", err)
 	}
-	// The reference decoder drops fields[2] without interpreting its value.
+	// The reference decoder requires fields[2] to be an empty attributes map.
+	if len(fields[2]) == 0 || fields[2][0]&cbor.CborTypeMask != cbor.CborTypeMap {
+		return nil, errors.New("extra header attributes must be a CBOR map")
+	}
+	var attributes map[any]any
+	if _, err := cbor.Decode(fields[2], &attributes); err != nil {
+		return nil, fmt.Errorf("decode extra header attributes: %w", err)
+	}
+	if len(attributes) != 0 {
+		return nil, fmt.Errorf("extra header attributes must be empty, got %d entries", len(attributes))
+	}
 	if _, err := cbor.Decode(fields[3], new([]byte)); err != nil {
 		return nil, fmt.Errorf("decode extra-data proof: %w", err)
 	}
