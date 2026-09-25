@@ -75,6 +75,11 @@ func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
 	); err != nil {
 		return err
 	}
+	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
+		common.AuxiliaryDataEraShelley,
+	); err != nil {
+		return err
+	}
 	for _, witnessSet := range tmp.TransactionWitnessSets {
 		if err := common.ValidatePreAllegraNativeScripts(
 			witnessSet.WsNativeScripts,
@@ -180,7 +185,10 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
 			len(raw) > 0 {
 			// Decode auxiliary data from raw CBOR and set auxData for hashing
-			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+			if aux, err := common.DecodeAuxiliaryDataForEra(
+				raw,
+				common.AuxiliaryDataEraShelley,
+			); err == nil &&
 				aux != nil {
 				tx.auxData = aux
 			}
@@ -822,30 +830,17 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
-		if err == nil && auxData != nil {
+		auxData, err := common.DecodeAuxiliaryDataForEra(
+			metadataRaw,
+			common.AuxiliaryDataEraShelley,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to decode auxiliary data: %w", err)
+		}
+		if auxData != nil {
 			t.auxData = auxData
-			// Extract metadata for backward compatibility
 			metadata, _ := auxData.Metadata()
-			if metadata != nil {
-				t.TxMetadata = metadata
-			}
-		} else {
-			// Fallback to old method for backward compatibility
-			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if fallbackErr != nil || metadata == nil {
-				if fallbackErr == nil {
-					fallbackErr = errors.New("metadata fallback returned no metadata")
-				}
-				return fmt.Errorf(
-					"failed to decode auxiliary data: %w (metadata fallback: %w)",
-					err,
-					fallbackErr,
-				)
-			}
-			if metadata != nil {
-				t.TxMetadata = metadata
-			}
+			t.TxMetadata = metadata
 		}
 	}
 

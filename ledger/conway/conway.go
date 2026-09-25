@@ -113,6 +113,11 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 	); err != nil {
 		return err
 	}
+	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
+		common.AuxiliaryDataEraConway,
+	); err != nil {
+		return err
+	}
 
 	// Assign the other fields
 	b.BlockHeader = tmp.BlockHeader
@@ -244,7 +249,10 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 		}
 		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
 			len(raw) > 0 {
-			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+			if aux, err := common.DecodeAuxiliaryDataForEra(
+				raw,
+				common.AuxiliaryDataEraConway,
+			); err == nil &&
 				aux != nil {
 				tx.auxData = aux
 			}
@@ -1055,30 +1063,17 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
-		if err == nil && auxData != nil {
+		auxData, err := common.DecodeAuxiliaryDataForEra(
+			metadataRaw,
+			common.AuxiliaryDataEraConway,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to decode auxiliary data: %w", err)
+		}
+		if auxData != nil {
 			t.auxData = auxData
-			// Extract metadata for backward compatibility
 			metadata, _ := auxData.Metadata()
-			if metadata != nil {
-				t.TxMetadata = metadata
-			}
-		} else {
-			// Fallback to old method for backward compatibility
-			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if fallbackErr != nil || metadata == nil {
-				if fallbackErr == nil {
-					fallbackErr = errors.New("metadata fallback returned no metadata")
-				}
-				return fmt.Errorf(
-					"failed to decode auxiliary data: %w (metadata fallback: %w)",
-					err,
-					fallbackErr,
-				)
-			}
-			if metadata != nil {
-				t.TxMetadata = metadata
-			}
+			t.TxMetadata = metadata
 		}
 	}
 

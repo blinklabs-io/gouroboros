@@ -107,7 +107,7 @@ func TestCIP25_NFTMetadataDecode(t *testing.T) {
 	}
 }
 
-func TestMetadataSetIgnoresUnknownAuxiliaryDataKeys(t *testing.T) {
+func TestMetadataSetPreservesButEraDecoderRejectsUnknownAuxiliaryDataKeys(t *testing.T) {
 	// {6: #6.259({0: {1: "ok"}, 6: [1]})}
 	// Key 6 inside the auxiliary-data map is a VanRossem-era extension.
 	const metadataSetHex = "a106d90103a200a101626f6b068101"
@@ -130,13 +130,8 @@ func TestMetadataSetIgnoresUnknownAuxiliaryDataKeys(t *testing.T) {
 	require.NotNil(t, rawMd)
 	assert.Equal(t, auxiliaryDataHex, hex.EncodeToString(rawMd))
 
-	aux, err := DecodeAuxiliaryData(rawMd)
-	require.NoError(t, err)
-	assert.Equal(t, auxiliaryDataHex, hex.EncodeToString(aux.Cbor()))
-	md, err = aux.Metadata()
-	require.NoError(t, err)
-	require.NotNil(t, md)
-	assertMetadataEntry(t, md)
+	_, err = DecodeAuxiliaryDataForEra(rawMd, AuxiliaryDataEraDijkstra)
+	require.ErrorContains(t, err, "unknown auxiliary-data field 6")
 }
 
 func TestDecodeMetadatumRawRejectsNilGenericMapKey(t *testing.T) {
@@ -249,19 +244,14 @@ func TestOuterAuxiliaryDataLabelMapRejectsDuplicateKeys(t *testing.T) {
 
 	t.Run("AlonzoAuxiliaryData", func(t *testing.T) {
 		t.Parallel()
-		// #6.259({0: 0, 0: 0}) - duplicate outer key 0 in the tagged aux map,
+		// #6.259({0: {}, 0: {}}) - duplicate outer key 0 in the tagged aux map,
 		// bypassing the decodeAuxiliaryMetadataOnly fast path (2 entries).
-		raw, err := hex.DecodeString("d90103a200000000")
+		raw, err := hex.DecodeString("d90103a200a000a000")
 		require.NoError(t, err)
 		var aux AlonzoAuxiliaryData
 		err = aux.UnmarshalCBOR(raw)
 		require.Error(t, err)
-		require.True(
-			t,
-			cbor.IsDuplicateMapKeyError(err),
-			"expected a duplicate map key error, got %v",
-			err,
-		)
+		require.ErrorContains(t, err, "duplicate auxiliary-data field 0")
 	})
 }
 

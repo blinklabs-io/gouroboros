@@ -201,9 +201,9 @@ func TestE2EAlonzoTransactionAuxiliaryData(t *testing.T) {
 		t.Fatalf("failed to encode is_valid: %v", err)
 	}
 
-	// Alonzo auxiliary data: #6.259({0: metadata, 1: native, 2: plutusV1, 3: plutusV2})
-	metadataMap := make(map[string]string)
-	metadataMap["contract"] = "dex"
+	// Alonzo auxiliary data: #6.259({0: metadata, 1: native, 2: plutusV1})
+	metadataMap := make(map[uint]string)
+	metadataMap[1] = "dex"
 	metadataCbor, err := cbor.Encode(metadataMap)
 	if err != nil {
 		t.Fatalf("failed to encode metadata: %v", err)
@@ -219,16 +219,10 @@ func TestE2EAlonzoTransactionAuxiliaryData(t *testing.T) {
 		t.Fatalf("failed to encode plutus v1 scripts: %v", err)
 	}
 
-	emptyPlutusV2, err := cbor.Encode([]common.PlutusV2Script{})
-	if err != nil {
-		t.Fatalf("failed to encode plutus v2 scripts: %v", err)
-	}
-
 	auxMap := make(map[uint]cbor.RawMessage)
 	auxMap[0] = metadataCbor
 	auxMap[1] = emptyNative
 	auxMap[2] = emptyPlutusV1
-	auxMap[3] = emptyPlutusV2
 
 	mapCbor, err := cbor.Encode(&auxMap)
 	if err != nil {
@@ -282,11 +276,6 @@ func TestE2EAlonzoTransactionAuxiliaryData(t *testing.T) {
 	plutusV1Scripts, _ := alonzoAux.PlutusV1Scripts()
 	if plutusV1Scripts == nil {
 		t.Fatal("expected plutus v1 scripts, got nil")
-	}
-
-	plutusV2Scripts, _ := alonzoAux.PlutusV2Scripts()
-	if plutusV2Scripts == nil {
-		t.Fatal("expected plutus v2 scripts, got nil")
 	}
 
 	t.Logf("Successfully decoded Alonzo transaction with auxiliary data")
