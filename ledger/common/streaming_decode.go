@@ -301,7 +301,7 @@ func (d *StreamingBlockDecoder) extractOutputOffsets(
 			// #nosec G115 -- Cardano tx body offsets are well under 4GiB
 			outputsArrayOffset := bodyOffset + uint32(headerSize) + uint32(valueStart)
 			_, outputsArrayHeader, _ := cborArrayInfo(
-				bodyData[headerSize+uint32(valueStart):],
+				bodyData[int(headerSize)+valueStart:],
 			)
 			if outputsArrayHeader == 0 {
 				return
