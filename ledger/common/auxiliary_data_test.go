@@ -353,25 +353,16 @@ func TestInvalidAuxiliaryData(t *testing.T) {
 	}
 }
 
-// Test auxiliary data with null metadata
-func TestAuxiliaryDataNullMetadata(t *testing.T) {
-	// Shelley-MA format with null metadata: [null, []]
+// Test auxiliary data rejects null metadata.
+func TestAuxiliaryDataRejectsNullMetadata(t *testing.T) {
+	// Shelley-MA metadata is a map: [null, []] is malformed.
 	cborHex := "82f680"
 	cborData, err := hex.DecodeString(cborHex)
 	if err != nil {
 		t.Fatalf("failed to decode hex: %v", err)
 	}
 
-	auxData, err := common.DecodeAuxiliaryData(cborData)
-	if err != nil {
-		t.Fatalf("failed to decode auxiliary data: %v", err)
-	}
-
-	metadata, err := auxData.Metadata()
-	if err != nil {
-		t.Fatalf("failed to get metadata: %v", err)
-	}
-	if metadata != nil {
-		t.Fatalf("expected nil metadata, got %v", metadata)
+	if _, err = common.DecodeAuxiliaryData(cborData); err == nil {
+		t.Fatal("expected null Shelley-MA metadata to be rejected")
 	}
 }

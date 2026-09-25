@@ -1206,9 +1206,8 @@ func DecodeAuxiliaryDataForEra(
 				len(components),
 			)
 		}
-		if len(components[0]) == 0 ||
-			(components[0][0] != 0xf6 && components[0][0]&cborTypeMask != cborTypeMap) {
-			return nil, errors.New("Shelley-MA metadata must be null or a map")
+		if len(components[0]) == 0 || components[0][0]&cborTypeMask != cborTypeMap {
+			return nil, errors.New("Shelley-MA metadata must be a CBOR map")
 		}
 		if err := validateCBORArray(components[1], "Shelley-MA native scripts"); err != nil {
 			return nil, err

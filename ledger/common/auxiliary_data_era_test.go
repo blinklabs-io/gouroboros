@@ -54,7 +54,7 @@ func TestDecodeAuxiliaryDataForEraFormatMatrix(t *testing.T) {
 
 	formats := map[string][]byte{
 		"metadata map":     {0xa0},
-		"Allegra array":    {0x82, 0xf6, 0x80},
+		"Allegra array":    {0x82, 0xa0, 0x80},
 		"tagged auxiliary": {0xd9, 0x01, 0x03, 0xa0},
 	}
 	for _, era := range []struct {
@@ -86,6 +86,15 @@ func TestDecodeAuxiliaryDataForEraFormatMatrix(t *testing.T) {
 	}
 }
 
+func TestDecodeAuxiliaryDataForEraRejectsNullAllegraMetadata(t *testing.T) {
+	t.Parallel()
+
+	// AllegraTxAuxData decodes its first list element as a metadata map.
+	raw := []byte{0x82, 0xf6, 0x80}
+	_, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraMary)
+	require.ErrorContains(t, err, "metadata must be a CBOR map")
+}
+
 func TestAuxiliaryNativeScriptConstructorsRespectEra(t *testing.T) {
 	t.Parallel()
 
@@ -97,7 +106,7 @@ func TestAuxiliaryNativeScriptConstructorsRespectEra(t *testing.T) {
 	})
 	scriptList := mustEncodeCBOR(t, []cbor.RawMessage{nativeScript})
 	array := mustEncodeCBOR(t, []cbor.RawMessage{
-		{0xf6},
+		{0xa0},
 		scriptList,
 	})
 	_, err := common.DecodeAuxiliaryDataForEra(array, common.AuxiliaryDataEraMary)
