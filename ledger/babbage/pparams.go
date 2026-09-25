@@ -201,7 +201,7 @@ func (u BabbageProtocolParameterUpdate) ValidateProtocolParameterUpdateVersion(
 }
 
 func (u *BabbageProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
-	if err := common.ValidateProtocolParameterUpdateDomains(
+	if _, err := common.ValidateProtocolParameterUpdateDomains(
 		cborData,
 		common.ProtocolParameterUpdateEraBabbage,
 	); err != nil {

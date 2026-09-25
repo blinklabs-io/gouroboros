@@ -1407,7 +1407,25 @@ func validateProtocolParameterUpdate(
 		return ProtocolParameterUpdateEmptyError{}
 	}
 
-	// Validate individual fields that cannot be zero
+	return ValidateProtocolParameterUpdateNonZeroFields(
+		ppu,
+		protocolParameters...,
+	)
+}
+
+// ValidateProtocolParameterUpdateNonZeroFields applies shared Conway and
+// Dijkstra zero-value and protocol-version checks to Conway-era fields.
+func ValidateProtocolParameterUpdateNonZeroFields(
+	ppu *ConwayProtocolParameterUpdate,
+	protocolParameters ...common.ProtocolParameters,
+) error {
+	if ppu == nil {
+		return ConwayProtocolParameterUpdateError{
+			FieldName: "update",
+			Reason:    "cannot be nil",
+		}
+	}
+	// Validate individual fields that cannot be zero.
 	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
 		return ProtocolParameterUpdateFieldZeroError{
 			FieldName: "maxBHSize",
@@ -1639,12 +1657,11 @@ func invalidConwayParameterField(field, reason string) error {
 }
 
 func validNonNegativeRat(rat *cbor.Rat) bool {
-	return rat != nil && rat.Rat != nil && rat.Denom().Sign() > 0 &&
-		rat.Num().Sign() >= 0 && rat.Num().IsUint64() && rat.Denom().IsUint64()
+	return common.ValidateNonNegativeInterval(rat, false) == nil
 }
 
 func validUnitRat(rat *cbor.Rat) bool {
-	return validNonNegativeRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
+	return common.ValidateNonNegativeInterval(rat, true) == nil
 }
 
 func validateConwayExUnits(units *common.ExUnits, field string) error {

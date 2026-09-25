@@ -27,15 +27,14 @@ import (
 // are being validated.
 type ProtocolParameterUpdateEra uint8
 
-// ErrProtocolParameterUpdateNil indicates that a nil update was provided.
-var ErrProtocolParameterUpdateNil = errors.New(
-	"protocol parameter update cannot be nil",
-)
-
 const (
+	// ProtocolParameterUpdateEraShelley identifies the Shelley update schema.
 	ProtocolParameterUpdateEraShelley ProtocolParameterUpdateEra = iota
+	// ProtocolParameterUpdateEraMary identifies the Mary update schema.
 	ProtocolParameterUpdateEraMary
+	// ProtocolParameterUpdateEraAlonzo identifies the Alonzo update schema.
 	ProtocolParameterUpdateEraAlonzo
+	// ProtocolParameterUpdateEraBabbage identifies the Babbage update schema.
 	ProtocolParameterUpdateEraBabbage
 )
 
@@ -128,14 +127,15 @@ func (e ProtocolParameterUpdateDomainError) Error() string {
 }
 
 // ValidateProtocolParameterUpdateDomains checks encoded classic parameter
-// updates against the field domains and integer widths defined by each era.
+// updates against each era's domains and widths, then returns decoded fields
+// for callers that need to inspect them.
 func ValidateProtocolParameterUpdateDomains(
 	data []byte,
 	era ProtocolParameterUpdateEra,
-) error {
+) (map[uint64]cbor.RawMessage, error) {
 	var fields map[uint64]cbor.RawMessage
 	if _, err := cbor.Decode(data, &fields); err != nil {
-		return err
+		return nil, err
 	}
 	for _, width := range protocolParameterUpdateWidths {
 		key, maximum := width.key, width.maximum
@@ -145,13 +145,13 @@ func ValidateProtocolParameterUpdateDomains(
 		}
 		var value uint64
 		if _, err := cbor.Decode(raw, &value); err != nil {
-			return ProtocolParameterUpdateDomainError{
+			return nil, ProtocolParameterUpdateDomainError{
 				Field:  protocolParameterUpdateFieldName(key),
 				Reason: "must be an unsigned integer",
 			}
 		}
 		if value > maximum {
-			return ProtocolParameterUpdateDomainError{
+			return nil, ProtocolParameterUpdateDomainError{
 				Field: protocolParameterUpdateFieldName(key),
 				Reason: fmt.Sprintf(
 					"value %d exceeds maximum %d",
@@ -172,13 +172,13 @@ func ValidateProtocolParameterUpdateDomains(
 		}
 		var value cbor.Rat
 		if _, err := cbor.Decode(raw, &value); err != nil || value.Rat == nil {
-			return ProtocolParameterUpdateDomainError{
+			return nil, ProtocolParameterUpdateDomainError{
 				Field:  protocolParameterUpdateFieldName(key),
 				Reason: "must be a bounded rational",
 			}
 		}
-		if err := validateNonNegativeInterval(&value, unitInterval); err != nil {
-			return ProtocolParameterUpdateDomainError{
+		if err := ValidateNonNegativeInterval(&value, unitInterval); err != nil {
+			return nil, ProtocolParameterUpdateDomainError{
 				Field:  protocolParameterUpdateFieldName(key),
 				Reason: err.Error(),
 			}
@@ -187,13 +187,13 @@ func ValidateProtocolParameterUpdateDomains(
 	if raw, ok := fields[14]; ok {
 		var version ProtocolParametersProtocolVersion
 		if _, err := cbor.Decode(raw, &version); err != nil {
-			return ProtocolParameterUpdateDomainError{
+			return nil, ProtocolParameterUpdateDomainError{
 				Field:  "protocol version",
 				Reason: "must contain unsigned 16-bit major and minor values",
 			}
 		}
 		if version.Major > math.MaxUint16 || version.Minor > math.MaxUint16 {
-			return ProtocolParameterUpdateDomainError{
+			return nil, ProtocolParameterUpdateDomainError{
 				Field:  "protocol version",
 				Reason: "major and minor values must fit in 16 bits",
 			}
@@ -203,15 +203,14 @@ func ValidateProtocolParameterUpdateDomains(
 		if raw, ok := fields[19]; ok {
 			var prices ExUnitPrice
 			if _, err := cbor.Decode(raw, &prices); err != nil {
-				return ProtocolParameterUpdateDomainError{
+				return nil, ProtocolParameterUpdateDomainError{
 					Field:  "execution prices",
 					Reason: "must contain bounded non-negative memory and step prices",
 				}
 			}
 			for _, price := range []*cbor.Rat{prices.MemPrice, prices.StepPrice} {
-				if price == nil || price.Rat == nil ||
-					validateNonNegativeInterval(price, false) != nil {
-					return ProtocolParameterUpdateDomainError{
+				if ValidateNonNegativeInterval(price, false) != nil {
+					return nil, ProtocolParameterUpdateDomainError{
 						Field:  "execution prices",
 						Reason: "memory and step prices must be bounded non-negative rationals",
 					}
@@ -225,17 +224,20 @@ func ValidateProtocolParameterUpdateDomains(
 			}
 			var units ExUnits
 			if _, err := cbor.Decode(raw, &units); err != nil || units.Memory < 0 || units.Steps < 0 {
-				return ProtocolParameterUpdateDomainError{
+				return nil, ProtocolParameterUpdateDomainError{
 					Field:  protocolParameterUpdateFieldName(key),
 					Reason: "memory and steps must be non-negative",
 				}
 			}
 		}
 	}
-	return nil
+	return fields, nil
 }
 
-func validateNonNegativeInterval(value *cbor.Rat, unit bool) error {
+// ValidateNonNegativeInterval checks that a CBOR rational is non-negative,
+// fits in unsigned 64-bit numerator and denominator values, and optionally
+// does not exceed one.
+func ValidateNonNegativeInterval(value *cbor.Rat, unit bool) error {
 	if value == nil || value.Rat == nil {
 		return errors.New("must be a rational value")
 	}

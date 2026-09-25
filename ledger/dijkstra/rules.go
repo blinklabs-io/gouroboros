@@ -1083,70 +1083,11 @@ func validateDijkstraProtocolParameterUpdate(
 	if err := validateDijkstraProtocolParameterUpdateDomains(ppu); err != nil {
 		return err
 	}
-	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{
-			FieldName: "maxBHSize",
-			Value:     *ppu.MaxBlockHeaderSize,
-		}
-	}
-	if ppu.MaxTxSize != nil && *ppu.MaxTxSize == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{
-			FieldName: "maxTxSize",
-			Value:     *ppu.MaxTxSize,
-		}
-	}
-	if ppu.MaxValueSize != nil && *ppu.MaxValueSize == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{
-			FieldName: "maxValSize",
-			Value:     *ppu.MaxValueSize,
-		}
-	}
-	if ppu.MaxBlockBodySize != nil && *ppu.MaxBlockBodySize == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{
-			FieldName: "maxBlockBodySize",
-			Value:     *ppu.MaxBlockBodySize,
-		}
-	}
-	if ppu.CollateralPercentage != nil && *ppu.CollateralPercentage == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "collateralPercentage"}
-	}
-	if ppu.CommitteeTermLimit != nil && *ppu.CommitteeTermLimit == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "committeeMaxTermLength"}
-	}
-	if ppu.GovActionValidityPeriod != nil && *ppu.GovActionValidityPeriod == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "govActionLifetime"}
-	}
-	if ppu.PoolDeposit != nil && *ppu.PoolDeposit == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "poolDeposit"}
-	}
-	if ppu.GovActionDeposit != nil && *ppu.GovActionDeposit == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "govActionDeposit"}
-	}
-	if ppu.DRepDeposit != nil && *ppu.DRepDeposit == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "drepDeposit"}
-	}
-	var major uint
-	var pp common.ProtocolParameters
-	if len(protocolParameters) > 0 {
-		pp = protocolParameters[0]
-	}
-	if pp == nil &&
-		((ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0) ||
-			(ppu.NOpt != nil && *ppu.NOpt == 0)) {
-		return common.ProtocolParameterUpdateProtocolVersionUnavailableError{}
-	}
-	if pp != nil {
-		params, err := conwayPparams(pp)
-		if err != nil {
-			return err
-		}
-		major = params.ProtocolVersion.Major
-	}
-	if ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0 && major >= common.ProtocolVersionPlomin {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "coinsPerUTxOByte"}
-	}
-	if ppu.NOpt != nil && *ppu.NOpt == 0 && major >= common.ProtocolVersionVanRossem {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "nOptimalPoolCount"}
+	if err := conway.ValidateProtocolParameterUpdateNonZeroFields(
+		ppu.conwayUpdate(),
+		protocolParameters...,
+	); err != nil {
+		return err
 	}
 	if ppu.RefScriptCostStride != nil && *ppu.RefScriptCostStride == 0 {
 		return conway.ProtocolParameterUpdateFieldZeroError{
@@ -1201,8 +1142,7 @@ func validateDijkstraProtocolParameterUpdateDomains(
 }
 
 func validNonNegativeDijkstraRat(rat *cbor.Rat) bool {
-	return rat != nil && rat.Rat != nil && rat.Num().Sign() >= 0 &&
-		rat.Denom().Sign() > 0 && rat.Num().IsUint64() && rat.Denom().IsUint64()
+	return common.ValidateNonNegativeInterval(rat, false) == nil
 }
 
 func validPositiveDijkstraRat(rat *cbor.Rat) bool {
@@ -1210,7 +1150,7 @@ func validPositiveDijkstraRat(rat *cbor.Rat) bool {
 }
 
 func validUnitDijkstraRat(rat *cbor.Rat) bool {
-	return validNonNegativeDijkstraRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
+	return common.ValidateNonNegativeInterval(rat, true) == nil
 }
 
 // UtxoValidateDisjointRefInputs is a compatibility no-op for Dijkstra.

@@ -117,11 +117,9 @@ func TestAlonzoDecentralizationUpdateRemainsValidated(t *testing.T) {
 		12: &cbor.Rat{Rat: big.NewRat(5, 4)},
 	})
 	require.NoError(t, err)
-	require.Error(
-		t,
-		common.ValidateProtocolParameterUpdateDomains(
-			encoded,
-			common.ProtocolParameterUpdateEraAlonzo,
-		),
+	_, err = common.ValidateProtocolParameterUpdateDomains(
+		encoded,
+		common.ProtocolParameterUpdateEraAlonzo,
 	)
+	require.Error(t, err)
 }

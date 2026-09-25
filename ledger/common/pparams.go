@@ -44,16 +44,22 @@ type ProtocolParameterUpdateCostModelProvider interface {
 	ProtocolParameterUpdateCostModels() map[uint][]int64
 }
 
+// ProtocolParameterVersionUpdateProvider exposes a proposed protocol version
+// from a protocol parameter update.
 type ProtocolParameterVersionUpdateProvider interface {
 	ProtocolParameterVersionUpdate() *ProtocolParametersProtocolVersion
 }
 
+// ProtocolParametersProtocolVersion stores the major and minor protocol
+// version used when validating version-dependent updates.
 type ProtocolParametersProtocolVersion struct {
 	cbor.StructAsArray
 	Major uint
 	Minor uint
 }
 
+// ProtocolParametersProtocolVersionProvider exposes the active protocol
+// version from protocol parameters.
 type ProtocolParametersProtocolVersionProvider interface {
 	ProtocolParametersProtocolVersion() ProtocolParametersProtocolVersion
 }

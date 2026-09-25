@@ -333,14 +333,11 @@ func (u AlonzoProtocolParameterUpdate) ValidateProtocolParameterUpdateVersion(
 const removedMinUtxoValueKey = 15
 
 func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
-	if err := common.ValidateProtocolParameterUpdateDomains(
+	rawKeys, err := common.ValidateProtocolParameterUpdateDomains(
 		cborData,
 		common.ProtocolParameterUpdateEraAlonzo,
-	); err != nil {
-		return err
-	}
-	var rawKeys map[uint64]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &rawKeys); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 	if _, ok := rawKeys[removedMinUtxoValueKey]; ok {

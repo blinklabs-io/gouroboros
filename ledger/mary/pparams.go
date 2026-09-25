@@ -154,7 +154,7 @@ func (u MaryProtocolParameterUpdate) ProtocolParameterVersionUpdate() *common.Pr
 }
 
 func (u *MaryProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
-	if err := common.ValidateProtocolParameterUpdateDomains(
+	if _, err := common.ValidateProtocolParameterUpdateDomains(
 		cborData,
 		common.ProtocolParameterUpdateEraMary,
 	); err != nil {

@@ -184,7 +184,7 @@ func (u ShelleyProtocolParameterUpdate) ProtocolParameterVersionUpdate() *common
 }
 
 func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
-	if err := common.ValidateProtocolParameterUpdateDomains(
+	if _, err := common.ValidateProtocolParameterUpdateDomains(
 		cborData,
 		common.ProtocolParameterUpdateEraShelley,
 	); err != nil {

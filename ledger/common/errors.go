@@ -527,12 +527,16 @@ func (ClassicProtocolParameterUpdateWindowStateUnavailableError) Error() string 
 	return "classic protocol parameter update window state unavailable"
 }
 
+// ProtocolParameterUpdateProtocolVersionUnavailableError indicates that
+// version-dependent update validation lacks the current protocol version.
 type ProtocolParameterUpdateProtocolVersionUnavailableError struct{}
 
 func (ProtocolParameterUpdateProtocolVersionUnavailableError) Error() string {
 	return "protocol parameter update protocol version unavailable"
 }
 
+// ProtocolParameterUpdateCostModelError identifies an invalid cost model in a
+// classic protocol parameter update.
 type ProtocolParameterUpdateCostModelError struct {
 	Language uint
 	Expected int
@@ -540,6 +544,8 @@ type ProtocolParameterUpdateCostModelError struct {
 	Unknown  bool
 }
 
+// ProtocolParameterUpdateVersionError indicates that a proposed protocol
+// version cannot follow the current version.
 type ProtocolParameterUpdateVersionError struct {
 	CurrentMajor  uint
 	CurrentMinor  uint
@@ -569,6 +575,8 @@ func (e ProtocolParameterUpdateCostModelError) Error() string {
 	)
 }
 
+// ProtocolParameterUpdateDelegateError indicates that an update key is not a
+// currently delegated genesis key.
 type ProtocolParameterUpdateDelegateError struct {
 	Delegate Blake2b224
 }
@@ -577,6 +585,8 @@ func (e ProtocolParameterUpdateDelegateError) Error() string {
 	return fmt.Sprintf("protocol parameter update key %s is not a current genesis delegate", e.Delegate)
 }
 
+// ProtocolParameterUpdateWitnessError indicates that an update lacks a
+// witness from its currently delegated genesis key.
 type ProtocolParameterUpdateWitnessError struct {
 	Delegate Blake2b224
 }
@@ -585,6 +595,8 @@ func (e ProtocolParameterUpdateWitnessError) Error() string {
 	return fmt.Sprintf("protocol parameter update is missing witness for genesis delegate %s", e.Delegate)
 }
 
+// ProtocolParameterUpdateEpochError identifies an update targeting the wrong
+// current or next epoch.
 type ProtocolParameterUpdateEpochError struct {
 	Current      uint64
 	Expected     uint64
