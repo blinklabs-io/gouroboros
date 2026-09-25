@@ -454,7 +454,8 @@ func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
 	rawTx = append(rawTx, body...)
 	rawTx = append(rawTx, witnesses...)
 	rawTx = append(rawTx, auxiliary...)
-	rawTx = append(rawTx, 0xf5, 0xff)
+	rawTx = append(rawTx, 0xf5)
+	rawTx = append(rawTx, 0xff)
 	bodyCbor, err := cbor.Encode([]any{
 		[]cbor.RawMessage{rawTx},
 		nil,

@@ -59,6 +59,7 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		level.slotState,
 		transactionWithoutGuardingRedeemers{Transaction: level.tx},
 		level.resolved,
+		common.ProtocolVersionDijkstra,
 	)
 	if err != nil {
 		return nil, err
@@ -395,6 +396,7 @@ func dijkstraPurposeForKey(
 		level.tx.VotingProcedures(),
 		level.tx.ProposalProcedures(),
 		witnessDatums,
+		common.ProtocolVersionDijkstra,
 	)
 }
 

@@ -195,7 +195,7 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	// Built with the repo's own builder + the two-segment mainnet SlotState.
 	resolvedInputs := resolvedInputsForTx(&tx)
 	txInfoV3, err := script.NewTxInfoV3FromTransaction(
-		mainnetSlotState{}, &tx, resolvedInputs,
+		mainnetSlotState{}, &tx, resolvedInputs, lcommon.ProtocolVersionConway,
 	)
 	if err != nil {
 		t.Fatalf("build TxInfoV3: %v", err)

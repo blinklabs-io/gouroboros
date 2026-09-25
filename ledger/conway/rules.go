@@ -371,8 +371,8 @@ func isInConwayBootstrapPhase(pp common.ProtocolParameters) bool {
 }
 
 // UtxoValidateDisjointRefInputs ensures reference inputs don't overlap with regular inputs.
-// For PV11+, this check is skipped when PlutusV1/V2 scripts are present, as the
-// NonDisjointRefInputs restriction is reverted for backwards compatibility.
+// At PV11 and later, the transaction-wide restriction is removed. The Plutus
+// V3 context applies its own restriction when a V3 script executes.
 func UtxoValidateDisjointRefInputs(
 	tx common.Transaction,
 	slot uint64,
@@ -383,76 +383,14 @@ func UtxoValidateDisjointRefInputs(
 	if !ok {
 		return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
 	}
-	// PV11+ skips this check for transactions with PlutusV1/V2 scripts
+	// PV11 removes the transaction-wide rule. The Plutus V3 context applies
+	// its own restriction only when a V3 script is actually executed.
 	if common.IsProtocolVersionAtLeast(
 		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
 	) {
-		usesV1V2, err := transactionUsesPlutusV1V2(tx, ls)
-		if err != nil {
-			return err
-		}
-		if usesV1V2 {
-			return nil
-		}
+		return nil
 	}
 	return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
-}
-
-// transactionUsesPlutusV1V2 checks if the transaction uses PlutusV1 or PlutusV2 scripts,
-// either in the witness set or as reference scripts.
-// Returns an error if a reference input cannot be resolved.
-func transactionUsesPlutusV1V2(
-	tx common.Transaction,
-	ls common.LedgerState,
-) (bool, error) {
-	ws := tx.Witnesses()
-	if ws != nil {
-		if len(ws.PlutusV1Scripts()) > 0 || len(ws.PlutusV2Scripts()) > 0 {
-			return true, nil
-		}
-	}
-	// Also check reference scripts on reference inputs
-	// For reference inputs, propagate resolution errors
-	for _, refInput := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return false, common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script:
-			return true, nil
-		}
-	}
-	// Check reference scripts on regular inputs
-	// For regular inputs, skip on errors (existing behavior)
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script:
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // UtxoValidateProposalProcedures validates governance proposal contents
@@ -2280,37 +2218,21 @@ func ValidateTreasuryDonationScriptCompatibility(
 	if donation == nil || donation.Sign() <= 0 {
 		return nil
 	}
-	witnesses := tx.Witnesses()
-	plutusVersion := ""
-	if witnesses != nil {
-		if len(witnesses.PlutusV1Scripts()) > 0 {
-			plutusVersion = "PlutusV1"
-		} else if len(witnesses.PlutusV2Scripts()) > 0 {
-			plutusVersion = "PlutusV2"
-		}
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil && !errors.Is(err, common.ErrInputResolution) {
+		return err
 	}
-	if plutusVersion == "" {
-		for _, refInput := range tx.ReferenceInputs() {
-			utxo, err := ls.UtxoById(refInput)
-			if err != nil {
-				return common.ReferenceInputResolutionError{
-					Input: refInput,
-					Err:   err,
-				}
-			}
-			if utxo.Output == nil {
-				continue
-			}
-			switch utxo.Output.ScriptRef().(type) {
-			case common.PlutusV1Script:
-				plutusVersion = "PlutusV1"
-			case common.PlutusV2Script:
-				plutusVersion = "PlutusV2"
-			}
-			if plutusVersion != "" {
-				break
-			}
-		}
+	plutusVersion := ""
+	if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV1Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV1"
+	} else if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV2Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV2"
 	}
 	if plutusVersion == "" {
 		return nil
@@ -3011,7 +2933,17 @@ func UtxoValidateMetadata(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return shelley.UtxoValidateMetadata(tx, slot, ls, pp)
+	if err := shelley.UtxoValidateMetadata(tx, slot, ls, pp); err != nil {
+		return err
+	}
+	params, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	return common.ValidateAuxiliaryDataScriptsWellFormed(
+		tx,
+		params.ProtocolVersion.Major,
+	)
 }
 
 // UtxoValidateSupplementalDatums checks that all datums in the witness set are
@@ -3129,6 +3061,7 @@ func UtxoValidatePlutusScripts(
 			votes,
 			proposalProcedures,
 			witnessDatums,
+			conwayPparams.ProtocolVersion.Major,
 		)
 		if err != nil {
 			// Redeemer doesn't match any valid purpose (index out of bounds, etc.)
@@ -3164,6 +3097,10 @@ func UtxoValidatePlutusScripts(
 			if p.ScriptHash() == (common.ScriptHash{}) {
 				return ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
+		case script.ScriptPurposeVoting:
+			if !script.VoterUsesScriptCredential(p.Voter) {
+				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+			}
 		}
 
 		// Find the script for this purpose
@@ -3192,8 +3129,19 @@ func UtxoValidatePlutusScripts(
 		case common.PlutusV3Script:
 			// Build V3 TxInfo lazily
 			if !txInfoV3Built {
+				if err := script.ValidatePlutusV3ReferenceInputs(
+					tx,
+					conwayPparams.ProtocolVersion.Major,
+				); err != nil {
+					return ScriptContextConstructionError{Err: err}
+				}
 				var err error
-				txInfoV3, err = script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
+				txInfoV3, err = script.NewTxInfoV3FromTransaction(
+					ls,
+					tx,
+					resolvedInputs,
+					conwayPparams.ProtocolVersion.Major,
+				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
@@ -3234,6 +3182,7 @@ func UtxoValidatePlutusScripts(
 				txInfoV2, err = script.NewTxInfoV2FromTransaction(
 					ls, tx, resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
@@ -3269,6 +3218,7 @@ func UtxoValidatePlutusScripts(
 				txInfoV1, err = script.NewTxInfoV1FromTransaction(
 					ls, tx, resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
@@ -3360,6 +3310,7 @@ func UtxoValidateDelegation(
 	inTxDRepRegs := make(map[stakeCredentialKey]bool)
 	// Track VRF keys seen in this transaction (for PV11+ duplicate detection)
 	inTxVrfKeys := make(map[common.Blake2b256]common.PoolKeyHash)
+	inTxPoolVrfKeys := make(map[common.PoolKeyHash]common.Blake2b256)
 
 	// Helper to check if stake credential is registered (in state or in-tx)
 	isStakeRegistered := func(cred common.Credential) bool {
@@ -3442,6 +3393,26 @@ func UtxoValidateDelegation(
 			return false, InvalidDRepTypeError{DrepType: drep.Type}
 		}
 	}
+	validateDRepTarget := func(drep common.Drep) error {
+		if isInConwayBootstrapPhase(pp) {
+			return nil
+		}
+		registered, err := isDRepRegistered(drep)
+		if err != nil {
+			return err
+		}
+		if registered {
+			return nil
+		}
+		credType, err := drepTypeToCredType(drep.Type)
+		if err != nil {
+			return err
+		}
+		return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
+			CredType:   credType,
+			Credential: common.NewBlake2b224(drep.Credential),
+		}}
+	}
 
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
@@ -3461,6 +3432,12 @@ func UtxoValidateDelegation(
 			// PV11+: Validate VRF key uniqueness for pool registrations
 			conwayPp, ok := pp.(*ConwayProtocolParameters)
 			if ok && common.IsProtocolVersionAtLeast(conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem) {
+				if previousKey, exists := inTxPoolVrfKeys[c.Operator]; exists &&
+					previousKey != c.VrfKeyHash {
+					if inTxVrfKeys[previousKey] == c.Operator {
+						delete(inTxVrfKeys, previousKey)
+					}
+				}
 				// Check for in-tx VRF key duplicates first
 				if existingPoolId, exists := inTxVrfKeys[c.VrfKeyHash]; exists {
 					// Allow same pool to re-register with same VRF key
@@ -3478,6 +3455,7 @@ func UtxoValidateDelegation(
 				}
 				// Track this VRF key for subsequent pool registrations in this tx
 				inTxVrfKeys[c.VrfKeyHash] = c.Operator
+				inTxPoolVrfKeys[c.Operator] = c.VrfKeyHash
 			}
 
 		case *common.RegistrationDrepCertificate:
@@ -3513,20 +3491,8 @@ func UtxoValidateDelegation(
 			if !isStakeRegistered(c.StakeCredential) {
 				return DelegateUnregisteredStakeCredentialError{Credential: c.StakeCredential}
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 
 		case *common.StakeVoteDelegationCertificate:
@@ -3538,20 +3504,8 @@ func UtxoValidateDelegation(
 			if !isStakeRegistered(c.StakeCredential) {
 				return DelegateUnregisteredStakeCredentialError{Credential: c.StakeCredential}
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 
 		case *common.StakeRegistrationDelegationCertificate:
@@ -3567,20 +3521,8 @@ func UtxoValidateDelegation(
 			if err := registerStakeCredential(c.StakeCredential); err != nil {
 				return err
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 
 		case *common.StakeVoteRegistrationDelegationCertificate:
@@ -3591,20 +3533,8 @@ func UtxoValidateDelegation(
 			if !isPoolRegistered(c.PoolKeyHash) {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 		}
 	}

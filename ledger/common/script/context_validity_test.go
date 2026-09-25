@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
@@ -127,6 +128,7 @@ func TestValidityRangeMatchesCardanoLedger(t *testing.T) {
 					tx,
 					nil,
 					false, // Alonzo era: pre-Conway, closed upper-only bound
+					common.ProtocolVersionAlonzo,
 				)
 				require.NoError(t, err)
 				requireValidityRange(
@@ -147,6 +149,7 @@ func TestValidityRangeMatchesCardanoLedger(t *testing.T) {
 					tx,
 					nil,
 					false, // Babbage era: pre-Conway, closed upper-only bound
+					common.ProtocolVersionBabbage,
 				)
 				require.NoError(t, err)
 				requireValidityRange(

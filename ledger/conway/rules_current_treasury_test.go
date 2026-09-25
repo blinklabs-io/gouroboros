@@ -514,6 +514,46 @@ func TestConwayFeaturesWithPlutusV1V2ReferenceScripts(t *testing.T) {
 	}
 }
 
+func TestConwayPlutusV1KeepsReferenceInputsAndScripts(t *testing.T) {
+	v1 := common.PlutusV1Script{0x31, 0x32}
+	refInput := shelley.NewShelleyTransactionInput(
+		"1111111111111111111111111111111111111111111111111111111111111111",
+		0,
+	)
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxMint: conwayTreasuryMint(v1),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{refInput},
+				true,
+			),
+			TxOutputs: []babbage.BabbageTransactionOutput{{
+				TxOutScriptRef: &common.ScriptRef{
+					Type:   common.ScriptRefTypePlutusV1,
+					Script: v1,
+				},
+			}},
+		},
+		WitnessSet: conwayTreasuryWitnessSet(t, v1),
+		TxIsValid:  true,
+	}
+	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{{
+		Id: refInput,
+		Output: babbage.BabbageTransactionOutput{
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   common.ScriptRefTypePlutusV1,
+				Script: v1,
+			},
+		},
+	}}).Build()
+	require.NoError(t, conway.UtxoValidateInlineDatumsWithPlutusV1(
+		tx,
+		0,
+		state,
+		&conway.ConwayProtocolParameters{},
+	))
+}
+
 func TestConwayCurrentTreasuryValuePresentZeroPlutusContexts(
 	t *testing.T,
 ) {
@@ -524,7 +564,12 @@ func TestConwayCurrentTreasuryValuePresentZeroPlutusContexts(
 	}
 	state := mockledger.NewLedgerStateBuilder().Build()
 	t.Run("PlutusV3 preserves Some zero", func(t *testing.T) {
-		txInfo, err := script.NewTxInfoV3FromTransaction(state, tx, nil)
+		txInfo, err := script.NewTxInfoV3FromTransaction(
+			state,
+			tx,
+			nil,
+			common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 		require.Equal(t, big.NewInt(0), txInfo.CurrentTreasuryAmount.Value)
 	})
