@@ -15,7 +15,11 @@
 package blockfetch_test
 
 import (
+	"encoding/hex"
 	"fmt"
+	"math"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +27,8 @@ import (
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -46,6 +52,16 @@ func runTest(
 	t *testing.T,
 	conversation []ouroboros_mock.ConversationEntry,
 	innerFunc testInnerFunc,
+	options ...ouroboros.ConnectionOptionFunc,
+) {
+	runTestWithExpectedProtocolError(t, conversation, innerFunc, nil, options...)
+}
+
+func runTestWithExpectedProtocolError(
+	t *testing.T,
+	conversation []ouroboros_mock.ConversationEntry,
+	innerFunc testInnerFunc,
+	expectedErr error,
 	options ...ouroboros.ConnectionOptionFunc,
 ) {
 	defer goleak.VerifyNone(t)
@@ -101,10 +117,18 @@ func runTest(
 			t.Error("did not shutdown within timeout")
 		}
 		connErrsMu.Lock()
+		expectedErrSeen := false
 		for _, err := range connErrs {
+			if expectedErr != nil && strings.Contains(err.Error(), expectedErr.Error()) {
+				expectedErrSeen = true
+				continue
+			}
 			t.Error(err)
 		}
 		connErrsMu.Unlock()
+		if expectedErr != nil && !expectedErrSeen {
+			t.Errorf("expected connection error wrapping %v", expectedErr)
+		}
 		select {
 		case <-mockDone:
 		case <-time.After(10 * time.Second):
@@ -115,6 +139,9 @@ func runTest(
 			case err, ok := <-asyncErrChan:
 				if !ok {
 					return
+				}
+				if expectedErr != nil && strings.Contains(err.Error(), expectedErr.Error()) {
+					continue
 				}
 				t.Error(err)
 			default:
@@ -127,7 +154,7 @@ func runTest(
 	// Wait for mock connection shutdown
 	select {
 	case err, ok := <-asyncErrChan:
-		if ok {
+		if ok && (expectedErr == nil || !strings.Contains(err.Error(), expectedErr.Error())) {
 			t.Fatal(err.Error())
 		}
 	case <-time.After(2 * time.Second):
@@ -208,6 +235,112 @@ func TestGetBlock(t *testing.T) {
 			blockfetch.Config{SkipBlockValidation: true},
 		),
 	)
+}
+
+func TestGetBlockByronConfiguredEpochLength(t *testing.T) {
+	blockCbor, block := byronBlockWithSlotID(t, 2, 17)
+	const configuredSlotsPerEpoch = 600
+	wantSlot := block.BlockHeader.ConsensusData.SlotId.Epoch*configuredSlotsPerEpoch +
+		block.BlockHeader.ConsensusData.SlotId.Slot
+	require.NotEqual(t, block.BlockHeader.SlotNumber(), wantSlot)
+
+	wrappedBlockCbor, err := cbor.Encode(blockfetch.WrappedBlock{
+		Type:     ledger.BlockTypeByronMain,
+		RawBlock: cbor.RawMessage(blockCbor),
+	})
+	require.NoError(t, err)
+	conversation := append(
+		conversationHandshakeRequestRange,
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: blockfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				blockfetch.NewMsgStartBatch(),
+				blockfetch.NewMsgBlock(wrappedBlockCbor),
+				blockfetch.NewMsgBatchDone(),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			got, err := oConn.BlockFetch().Client.GetBlock(
+				pcommon.NewPoint(wantSlot, block.Hash().Bytes()),
+			)
+			require.NoError(t, err)
+			require.Equal(t, block.Hash(), got.Hash())
+		},
+		ouroboros.WithBlockFetchConfig(blockfetch.Config{
+			SkipBlockValidation: true,
+			ByronSlotsPerEpoch:  configuredSlotsPerEpoch,
+		}),
+	)
+}
+
+func TestGetBlockByronConfiguredEpochLengthOverflow(t *testing.T) {
+	blockCbor, _ := byronBlockWithSlotID(t, math.MaxUint64, 1)
+	wrappedBlockCbor, err := cbor.Encode(blockfetch.WrappedBlock{
+		Type:     ledger.BlockTypeByronMain,
+		RawBlock: cbor.RawMessage(blockCbor),
+	})
+	require.NoError(t, err)
+	conversation := append(
+		conversationHandshakeRequestRange,
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: blockfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				blockfetch.NewMsgStartBatch(),
+				blockfetch.NewMsgBlock(wrappedBlockCbor),
+				blockfetch.NewMsgBatchDone(),
+			},
+		},
+	)
+	runTestWithExpectedProtocolError(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			_, err := oConn.BlockFetch().Client.GetBlock(
+				pcommon.NewPoint(1, testPointHash(0xab)),
+			)
+			require.ErrorIs(t, err, byron.ErrByronSlotNumberOverflow)
+		},
+		byron.ErrByronSlotNumberOverflow,
+		ouroboros.WithBlockFetchConfig(blockfetch.Config{
+			SkipBlockValidation: true,
+			ByronSlotsPerEpoch:  600,
+		}),
+	)
+}
+
+func byronBlockWithSlotID(t *testing.T, epoch, slot uint64) ([]byte, *byron.ByronMainBlock) {
+	t.Helper()
+	fixtureHex, err := os.ReadFile("../chainsync/testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex")
+	require.NoError(t, err)
+	blockCbor, err := hex.DecodeString(strings.TrimSpace(string(fixtureHex)))
+	require.NoError(t, err)
+	block, err := ledger.NewBlockFromCbor(
+		ledger.BlockTypeByronMain,
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+	byronBlock, ok := block.(*byron.ByronMainBlock)
+	require.True(t, ok)
+	byronBlock.BlockHeader.ConsensusData.SlotId.Epoch = epoch
+	byronBlock.BlockHeader.ConsensusData.SlotId.Slot = slot
+	byronBlock.BlockHeader.SetCbor(nil)
+	byronBlock.SetCbor(nil)
+	blockCbor, err = cbor.Encode(byronBlock)
+	require.NoError(t, err)
+	decoded, err := ledger.NewBlockFromCbor(
+		ledger.BlockTypeByronMain,
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+	return blockCbor, decoded.(*byron.ByronMainBlock)
 }
 
 func TestGetBlockNoBlocks(t *testing.T) {
