@@ -119,7 +119,32 @@ func validateDijkstraBlockCertificates(
 	protocolParameters common.ProtocolParameters,
 ) error {
 	dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock)
-	if !ok || dijkstraBlock.BlockBody.LeiosCertificate == nil {
+	if !ok {
+		return nil
+	}
+	var certified, hasLeiosHeaderExtension bool
+	if dijkstraBlock.BlockHeader != nil {
+		certified, hasLeiosHeaderExtension = dijkstraBlock.BlockHeader.LeiosCertified()
+		if len(dijkstraBlock.BlockHeader.LeiosHeaderExtension) > 0 &&
+			!hasLeiosHeaderExtension {
+			return common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"invalid Dijkstra Leios certified flag in block header",
+				nil,
+				nil,
+			)
+		}
+	}
+	hasCertificate := dijkstraBlock.BlockBody.LeiosCertificate != nil
+	if hasLeiosHeaderExtension && certified != hasCertificate {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"Dijkstra Leios certified flag does not match block-body certificate presence",
+			map[string]any{"certified": certified, "has_certificate": hasCertificate},
+			nil,
+		)
+	}
+	if !hasCertificate {
 		return nil
 	}
 	pparams, ok := protocolParameters.(*dijkstra.DijkstraProtocolParameters)
@@ -132,6 +157,14 @@ func validateDijkstraBlockCertificates(
 				"has_protocol_parameters": protocolParameters != nil,
 				"block_era":               dijkstra.EraNameDijkstra,
 			},
+			nil,
+		)
+	}
+	if pparams.LeiosCommitteeSize == 0 {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"Dijkstra Leios certificate validation requires a non-zero committee size",
+			map[string]any{"committee_size": pparams.LeiosCommitteeSize},
 			nil,
 		)
 	}

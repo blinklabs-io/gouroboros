@@ -17,6 +17,7 @@ package ledger
 import (
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,9 @@ func TestValidateDijkstraBlockCertificates(t *testing.T) {
 		AggregatedSignature: make([]byte, common.LeiosBlsSignatureSize),
 	}
 	block := &dijkstra.DijkstraBlock{
+		BlockHeader: &dijkstra.DijkstraBlockHeader{
+			LeiosHeaderExtension: []cbor.RawMessage{{0xf5}},
+		},
 		BlockBody: dijkstra.DijkstraBlockBody{LeiosCertificate: validCert},
 	}
 	params := &dijkstra.DijkstraProtocolParameters{LeiosCommitteeSize: 9}
@@ -65,5 +69,45 @@ func TestValidateDijkstraBlockCertificates(t *testing.T) {
 			&dijkstra.DijkstraBlock{},
 			nil,
 		))
+	})
+	t.Run("zero committee size", func(t *testing.T) {
+		zeroCommittee := &dijkstra.DijkstraProtocolParameters{}
+		err := validateDijkstraBlockCertificates(block, zeroCommittee)
+		require.Error(t, err)
+		var validationErr *common.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		require.Equal(t, common.ValidationErrorTypeConfiguration, validationErr.Type)
+	})
+	t.Run("certified header without certificate", func(t *testing.T) {
+		missing := &dijkstra.DijkstraBlock{
+			BlockHeader: block.BlockHeader,
+		}
+		err := validateDijkstraBlockCertificates(missing, params)
+		require.Error(t, err)
+		var validationErr *common.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		require.Equal(t, common.ValidationErrorTypeProtocol, validationErr.Type)
+	})
+	t.Run("uncertified header with certificate", func(t *testing.T) {
+		uncertified := *block
+		uncertified.BlockHeader = &dijkstra.DijkstraBlockHeader{
+			LeiosHeaderExtension: []cbor.RawMessage{{0xf4}},
+		}
+		err := validateDijkstraBlockCertificates(&uncertified, params)
+		require.Error(t, err)
+		var validationErr *common.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		require.Equal(t, common.ValidationErrorTypeProtocol, validationErr.Type)
+	})
+	t.Run("malformed certified flag", func(t *testing.T) {
+		malformed := *block
+		malformed.BlockHeader = &dijkstra.DijkstraBlockHeader{
+			LeiosHeaderExtension: []cbor.RawMessage{{0x01}},
+		}
+		err := validateDijkstraBlockCertificates(&malformed, params)
+		require.Error(t, err)
+		var validationErr *common.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		require.Equal(t, common.ValidationErrorTypeProtocol, validationErr.Type)
 	})
 }

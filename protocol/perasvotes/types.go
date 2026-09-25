@@ -189,8 +189,12 @@ func (c VoteCert) MarshalCBOR() ([]byte, error) {
 		return nil, errors.New("peras vote certificate has no encoded value")
 	}
 	var raw cbor.RawMessage
-	if _, err := cbor.Decode(c, &raw); err != nil {
+	n, err := cbor.Decode(c, &raw)
+	if err != nil {
 		return nil, fmt.Errorf("invalid encoded Peras vote certificate: %w", err)
+	}
+	if n != len(c) {
+		return nil, fmt.Errorf("peras vote certificate has %d trailing bytes", len(c)-n)
 	}
 	return []byte(c), nil
 }
@@ -200,8 +204,12 @@ func (c *VoteCert) UnmarshalCBOR(cborData []byte) error {
 		return errors.New("peras vote certificate has no encoded value")
 	}
 	var raw cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &raw); err != nil {
+	n, err := cbor.Decode(cborData, &raw)
+	if err != nil {
 		return fmt.Errorf("decode Peras vote certificate: %w", err)
+	}
+	if n != len(cborData) {
+		return fmt.Errorf("peras vote certificate has %d trailing bytes", len(cborData)-n)
 	}
 	*c = VoteCert(raw)
 	return nil

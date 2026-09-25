@@ -91,6 +91,18 @@ func TestDijkstraTransactionBodiesRejectExplicitlyEmptyFields(t *testing.T) {
 		{"top subtransactions", 23, []any{}, func(b []byte) error {
 			return new(DijkstraTransactionBody).UnmarshalCBOR(b)
 		}},
+		{"top reference scripts", 24, map[uint]any{}, func(b []byte) error {
+			return new(DijkstraTransactionBody).UnmarshalCBOR(b)
+		}},
+		{"top proposal procedures", 25, map[uint]any{}, func(b []byte) error {
+			return new(DijkstraTransactionBody).UnmarshalCBOR(b)
+		}},
+		{"top voting procedures", 26, map[uint]any{}, func(b []byte) error {
+			return new(DijkstraTransactionBody).UnmarshalCBOR(b)
+		}},
+		{"top treasury withdrawals", 27, map[uint]any{}, func(b []byte) error {
+			return new(DijkstraTransactionBody).UnmarshalCBOR(b)
+		}},
 		{"sub certificates", 4, []any{}, func(b []byte) error {
 			return new(DijkstraSubTransactionBody).UnmarshalCBOR(b)
 		}},
@@ -104,6 +116,12 @@ func TestDijkstraTransactionBodiesRejectExplicitlyEmptyFields(t *testing.T) {
 			return new(DijkstraSubTransactionBody).UnmarshalCBOR(b)
 		}},
 		{"sub proposals", 20, []any{}, func(b []byte) error {
+			return new(DijkstraSubTransactionBody).UnmarshalCBOR(b)
+		}},
+		{"sub voting procedures", 25, map[uint]any{}, func(b []byte) error {
+			return new(DijkstraSubTransactionBody).UnmarshalCBOR(b)
+		}},
+		{"sub treasury withdrawals", 26, map[uint]any{}, func(b []byte) error {
 			return new(DijkstraSubTransactionBody).UnmarshalCBOR(b)
 		}},
 	} {
