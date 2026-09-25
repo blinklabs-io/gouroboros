@@ -23,6 +23,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -109,6 +110,45 @@ type ledgerFuzzSeed struct {
 	slotsPerKesPeriod uint64
 }
 
+func validateFuzzSeedVrfProofs(blockType uint, headerCbor []byte) error {
+	if blockType == BlockTypeByronEbb || blockType == BlockTypeByronMain {
+		return nil
+	}
+	var headerParts []cbor.RawMessage
+	if _, err := cbor.Decode(headerCbor, &headerParts); err != nil {
+		return err
+	}
+	if len(headerParts) != 2 {
+		return fmt.Errorf("expected 2 header components, got %d", len(headerParts))
+	}
+	var body []cbor.RawMessage
+	if _, err := cbor.Decode(headerParts[0], &body); err != nil {
+		return err
+	}
+	vrfResultIndices := []int{5}
+	if blockType <= BlockTypeAlonzo {
+		vrfResultIndices = append(vrfResultIndices, 6)
+	}
+	for _, index := range vrfResultIndices {
+		if index >= len(body) {
+			return fmt.Errorf("header has no VRF result at field %d", index)
+		}
+		var result common.VrfResult
+		if _, err := cbor.Decode(body[index], &result); err != nil {
+			return fmt.Errorf("decode VRF result at header field %d: %w", index, err)
+		}
+		if len(result.Output) != 64 || len(result.Proof) != 80 {
+			return fmt.Errorf(
+				"VRF result at header field %d has output/proof lengths %d/%d, want 64/80",
+				index,
+				len(result.Output),
+				len(result.Proof),
+			)
+		}
+	}
+	return nil
+}
+
 var mockEraFuzzSeedHex = []struct {
 	blockType  uint
 	blockCbor  string
@@ -144,6 +184,9 @@ func ledgerFuzzSeeds() ([]ledgerFuzzSeed, error) {
 		}
 		if _, err := NewBlockHeaderFromCbor(seed.blockType, headerCbor); err != nil {
 			return nil, fmt.Errorf("decode header fuzz seed for type %d: %w", seed.blockType, err)
+		}
+		if err := validateFuzzSeedVrfProofs(seed.blockType, headerCbor); err != nil {
+			return nil, fmt.Errorf("validate block fuzz seed for type %d: %w", seed.blockType, err)
 		}
 		seeds = append(seeds, ledgerFuzzSeed{
 			blockType: seed.blockType, blockCbor: blockCbor,
