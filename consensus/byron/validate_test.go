@@ -666,9 +666,9 @@ func TestValidateProxySignatureRejectsGarbage(t *testing.T) {
 }
 
 func TestValidateSimpleSignatureCanonicalizesDroppedExtraHeaderFields(t *testing.T) {
-	// The reference decoder drops the empty attributes map and arbitrary
+	// The reference decoder drops the attributes map and arbitrary
 	// extra-data proof, then encodes their canonical constants for ToSign.
-	// This header uses a non-shortest empty map and an incorrect proof value.
+	// This header uses a non-empty attributes map and an incorrect proof value.
 	proofHash, err := hex.DecodeString(
 		"4ba92aa320c60acc9ad7b9a64f2eda55c4d2ec28e604faf186708b4f0c4e8edf",
 	)
@@ -679,7 +679,7 @@ func TestValidateSimpleSignatureCanonicalizesDroppedExtraHeaderFields(t *testing
 	headerCbor = append(headerCbor, 0xf6) // body proof
 	headerCbor = append(headerCbor, 0x84, 0x82, 0x07, 0x0b, 0xf6, 0x81, 0x13, 0xf6)
 	headerCbor = append(headerCbor, 0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00)
-	headerCbor = append(headerCbor, 0xb8, 0x00) // non-shortest encoding of an empty map
+	headerCbor = append(headerCbor, 0xa1, 0x01, 0x41, 0x01) // dropped attributes
 	headerCbor = append(headerCbor, 0x58, 0x20)
 	headerCbor = append(headerCbor, make([]byte, common.Blake2b256Size)...)
 
