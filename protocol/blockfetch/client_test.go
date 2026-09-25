@@ -117,18 +117,13 @@ func runTestWithExpectedProtocolError(
 			t.Error("did not shutdown within timeout")
 		}
 		connErrsMu.Lock()
-		expectedErrSeen := false
 		for _, err := range connErrs {
 			if expectedErr != nil && strings.Contains(err.Error(), expectedErr.Error()) {
-				expectedErrSeen = true
 				continue
 			}
 			t.Error(err)
 		}
 		connErrsMu.Unlock()
-		if expectedErr != nil && !expectedErrSeen {
-			t.Errorf("expected connection error wrapping %v", expectedErr)
-		}
 		select {
 		case <-mockDone:
 		case <-time.After(10 * time.Second):

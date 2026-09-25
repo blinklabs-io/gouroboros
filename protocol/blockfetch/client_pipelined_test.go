@@ -433,7 +433,7 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, deliveredBlock{requestId: id1, slot: 100}, h.nextBlock(t))
-	first := h.nextDone(t)
+	first := waitForDone(t, h, id1)
 	require.Equal(t, id1, first.requestId)
 	require.NoError(t, first.err)
 
