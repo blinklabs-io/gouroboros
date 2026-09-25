@@ -76,7 +76,12 @@ func dijkstraRawMetadataTransaction(
 
 func validateDijkstraMetadata(t *testing.T, tx *DijkstraTransaction) error {
 	t.Helper()
-	return dijkstraRule(t, common.UtxoValidationRuleMetadata)(tx, 0, nil, nil)
+	return dijkstraRule(t, common.UtxoValidationRuleMetadata)(
+		tx,
+		0,
+		nil,
+		dijkstraGuardTestPParams(),
+	)
 }
 
 func TestDijkstraMetadataValidationUsesEachSubtransactionAuxiliaryData(

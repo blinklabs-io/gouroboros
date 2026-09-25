@@ -84,6 +84,7 @@ func TestTxInfoRedeemerDataNormalized(t *testing.T) {
 		normalizeSlotState,
 		spendTx,
 		resolvedInputs,
+		lcommon.ProtocolVersionDijkstra,
 	)
 	if err != nil {
 		t.Fatalf("build TxInfoV3: %v", err)
@@ -112,6 +113,7 @@ func TestTxInfoDataNormalized(t *testing.T) {
 		normalizeSlotState,
 		spendTx,
 		resolvedInputs,
+		lcommon.ProtocolVersionDijkstra,
 	)
 	if err != nil {
 		t.Fatalf("build TxInfoV3: %v", err)
@@ -141,6 +143,7 @@ func TestScriptPurposeSpendingDatumNormalized(t *testing.T) {
 		normalizeSlotState,
 		spendTx,
 		resolvedInputs,
+		lcommon.ProtocolVersionDijkstra,
 	)
 	if err != nil {
 		t.Fatalf("build TxInfoV3: %v", err)
@@ -207,6 +210,7 @@ func TestTxInfoV2InputDatumNormalized(t *testing.T) {
 		spendTx,
 		resolvedInputs,
 		false,
+		lcommon.ProtocolVersionConway,
 	)
 	if err != nil {
 		t.Fatalf("build TxInfoV2: %v", err)

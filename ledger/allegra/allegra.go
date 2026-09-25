@@ -175,10 +175,7 @@ func (b *AllegraBlock) Transactions() []common.Transaction {
 		}
 		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
 			len(raw) > 0 {
-			if aux, err := common.DecodeAuxiliaryDataForEra(
-				raw,
-				common.AuxiliaryDataEraAllegra,
-			); err == nil &&
+			if aux, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraAllegra); err == nil &&
 				aux != nil {
 				tx.auxData = aux
 			}
@@ -397,17 +394,17 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
 		// 0xF6 is CBOR null
 
-		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryDataForEra(
-			metadataRaw,
-			common.AuxiliaryDataEraAllegra,
-		)
+		// Decode auxiliary data using the transaction era's consensus rules.
+		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraAllegra)
 		if err != nil {
 			return fmt.Errorf("failed to decode auxiliary data: %w", err)
 		}
-		if auxData != nil {
-			t.auxData = auxData
-			metadata, _ := auxData.Metadata()
+		t.auxData = auxData
+		metadata, err := auxData.Metadata()
+		if err != nil {
+			return fmt.Errorf("failed to decode auxiliary metadata: %w", err)
+		}
+		if metadata != nil {
 			t.TxMetadata = metadata
 		}
 	}

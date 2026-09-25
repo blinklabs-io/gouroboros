@@ -81,6 +81,11 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
+		common.AuxiliaryDataEraBabbage,
+	); err != nil {
+		return err
+	}
 
 	// Convert the wire indices to the platform type without discarding values.
 	result := make([]uint, 0, len(tmp.InvalidTransactions))
@@ -105,11 +110,6 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 	}
 	if err := tmp.TransactionMetadataSet.ValidateIndices(
 		len(tmp.TransactionBodies),
-	); err != nil {
-		return err
-	}
-	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
-		common.AuxiliaryDataEraBabbage,
 	); err != nil {
 		return err
 	}
@@ -227,10 +227,7 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 		}
 		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
 			len(raw) > 0 {
-			if aux, err := common.DecodeAuxiliaryDataForEra(
-				raw,
-				common.AuxiliaryDataEraBabbage,
-			); err == nil &&
+			if aux, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraBabbage); err == nil &&
 				aux != nil {
 				tx.auxData = aux
 			}
@@ -1159,17 +1156,17 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
 		// 0xF6 is CBOR null
 
-		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryDataForEra(
-			metadataRaw,
-			common.AuxiliaryDataEraBabbage,
-		)
+		// Decode auxiliary data using the transaction era's consensus rules.
+		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraBabbage)
 		if err != nil {
 			return fmt.Errorf("failed to decode auxiliary data: %w", err)
 		}
-		if auxData != nil {
-			t.auxData = auxData
-			metadata, _ := auxData.Metadata()
+		t.auxData = auxData
+		metadata, err := auxData.Metadata()
+		if err != nil {
+			return fmt.Errorf("failed to decode auxiliary metadata: %w", err)
+		}
+		if metadata != nil {
 			t.TxMetadata = metadata
 		}
 	}

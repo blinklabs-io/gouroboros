@@ -11,6 +11,32 @@ import (
 
 var allegraBlockHex = "a219ef64a301582095b1d64fbf76f17b1920a34d14fbca1f5ab499ea59eac37a8117d5e6b2e09605025820f3157c8eda34976620ad12e0979b2d3135a784c5d6a185878987143053c17d1c035839012c152eaa9e68dd7123a3054190dc987a24e50f1ab389c44a0c7a4089beb4d4d62d8f0dce5d745df4a670998aa20f54703b2bdc7a00b7d3d219ef65a1015840897063bdeab54d2e0586529909f20b42447bfaccdfb9988d2558896baf82a37f43c2fa4ae4240f5761e3dccf9523d7305d728f21dee4491e02373de6b14f7e07"
 
+func TestBlockMetadataSetRejectsUnknownTaggedAuxiliaryField(t *testing.T) {
+	metadata, err := cbor.Encode(map[uint]string{674: "metadata"})
+	require.NoError(t, err)
+	fields, err := cbor.Encode(map[uint]cbor.RawMessage{
+		0:  metadata,
+		99: {0x41, 0x01},
+	})
+	require.NoError(t, err)
+	auxiliaryData, err := cbor.Encode(&cbor.RawTag{
+		Number:  cbor.CborTagMap,
+		Content: fields,
+	})
+	require.NoError(t, err)
+	blockMetadata, err := cbor.Encode(map[uint]cbor.RawMessage{0: auxiliaryData})
+	require.NoError(t, err)
+
+	var set TransactionMetadataSet
+	_, err = cbor.Decode(blockMetadata, &set)
+	require.NoError(t, err)
+	require.ErrorContains(
+		t,
+		set.ValidateAuxiliaryDataForEra(AuxiliaryDataEraAlonzo),
+		"unknown auxiliary-data field 99",
+	)
+}
+
 func Test_Metadata_RoundTrip_AllegraSample(t *testing.T) {
 
 	raw, err := hex.DecodeString(allegraBlockHex)
@@ -132,6 +158,74 @@ func TestMetadataSetPreservesButEraDecoderRejectsUnknownAuxiliaryDataKeys(t *tes
 
 	_, err = DecodeAuxiliaryDataForEra(rawMd, AuxiliaryDataEraDijkstra)
 	require.ErrorContains(t, err, "unknown auxiliary-data field 6")
+}
+
+func TestDecodeAuxiliaryDataForEra(t *testing.T) {
+	arrayAux := []byte{0x82, 0xa0, 0x80}
+	taggedAux := []byte{0xd9, 0x01, 0x03, 0xa0}
+	tests := []struct {
+		name string
+		era  AuxiliaryDataEra
+		raw  []byte
+		ok   bool
+	}{
+		{"Shelley map", AuxiliaryDataEraShelley, []byte{0xa0}, true},
+		{"Shelley rejects array", AuxiliaryDataEraShelley, arrayAux, false},
+		{"Allegra accepts array", AuxiliaryDataEraAllegra, arrayAux, true},
+		{"Mary accepts array", AuxiliaryDataEraMary, arrayAux, true},
+		{"Mary rejects tag", AuxiliaryDataEraMary, taggedAux, false},
+		{"Alonzo accepts tag", AuxiliaryDataEraAlonzo, taggedAux, true},
+		{"Alonzo accepts non-minimal tag", AuxiliaryDataEraAlonzo, []byte{0xda, 0, 0, 1, 3, 0xa0}, true},
+		{"Dijkstra accepts tag", AuxiliaryDataEraDijkstra, taggedAux, true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := DecodeAuxiliaryDataForEra(test.raw, test.era)
+			if test.ok {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestDecodeAuxiliaryDataForEraEnforcesPlutusLanguageBounds(t *testing.T) {
+	auxiliaryData := func(field uint) []byte {
+		scripts, err := cbor.Encode([][]byte{})
+		require.NoError(t, err)
+		fields, err := cbor.Encode(map[uint]cbor.RawMessage{field: scripts})
+		require.NoError(t, err)
+		tag := cbor.RawTag{Number: cbor.CborTagMap, Content: fields}
+		encoded, err := cbor.Encode(&tag)
+		require.NoError(t, err)
+		return encoded
+	}
+	tests := []struct {
+		name  string
+		era   AuxiliaryDataEra
+		field uint
+		valid bool
+	}{
+		{name: "Alonzo V1", era: AuxiliaryDataEraAlonzo, field: 2, valid: true},
+		{name: "Alonzo rejects V2", era: AuxiliaryDataEraAlonzo, field: 3},
+		{name: "Babbage V2", era: AuxiliaryDataEraBabbage, field: 3, valid: true},
+		{name: "Babbage rejects V3", era: AuxiliaryDataEraBabbage, field: 4},
+		{name: "Conway V3", era: AuxiliaryDataEraConway, field: 4, valid: true},
+		{name: "Conway rejects V4", era: AuxiliaryDataEraConway, field: 5},
+		{name: "Dijkstra V3", era: AuxiliaryDataEraDijkstra, field: 4, valid: true},
+		{name: "Dijkstra V4", era: AuxiliaryDataEraDijkstra, field: 5, valid: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := DecodeAuxiliaryDataForEra(auxiliaryData(test.field), test.era)
+			if test.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "not valid in this era")
+			}
+		})
+	}
 }
 
 func TestDecodeMetadatumRawRejectsNilGenericMapKey(t *testing.T) {

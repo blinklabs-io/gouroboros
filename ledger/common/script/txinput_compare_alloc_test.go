@@ -96,14 +96,14 @@ func TestNewTxInfoV2InputResolutionAllocationBound(t *testing.T) {
 	// Sanity check: every input actually resolves, so the allocation count
 	// below reflects a full, successful scan rather than an early bail-out.
 	txInfo, err := script.NewTxInfoV2FromTransaction(
-		mockSlotState{}, builtTx, resolved, false,
+		mockSlotState{}, builtTx, resolved, false, lcommon.ProtocolVersionDijkstra,
 	)
 	require.NoError(t, err)
 	require.Len(t, txInfo.Inputs, txInputCompareAllocFixtureSize)
 
 	allocs := testing.AllocsPerRun(20, func() {
 		_, err := script.NewTxInfoV2FromTransaction(
-			mockSlotState{}, builtTx, resolved, false,
+			mockSlotState{}, builtTx, resolved, false, lcommon.ProtocolVersionDijkstra,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -153,14 +153,14 @@ func TestNewTxInfoV2SpendRedeemerAllocationBound(t *testing.T) {
 	require.NoError(t, err)
 
 	txInfo, err := script.NewTxInfoV2FromTransaction(
-		mockSlotState{}, builtTx, resolved, false,
+		mockSlotState{}, builtTx, resolved, false, lcommon.ProtocolVersionDijkstra,
 	)
 	require.NoError(t, err)
 	require.Len(t, txInfo.Redeemers, 1)
 
 	allocs := testing.AllocsPerRun(20, func() {
 		_, err := script.NewTxInfoV2FromTransaction(
-			mockSlotState{}, builtTx, resolved, false,
+			mockSlotState{}, builtTx, resolved, false, lcommon.ProtocolVersionDijkstra,
 		)
 		if err != nil {
 			t.Fatal(err)

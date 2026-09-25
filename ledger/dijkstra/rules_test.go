@@ -36,6 +36,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDijkstraMetadataRuleAcceptsConwayTransactionsWithDijkstraParams(t *testing.T) {
+	tx := &conway.ConwayTransaction{}
+	pp := &DijkstraProtocolParameters{}
+
+	require.NoError(t, UtxoValidateMetadata(tx, 0, nil, pp))
+}
+
 func dijkstraValidationRuleName(rule common.UtxoValidationRuleFunc) string {
 	return runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).Name()
 }
@@ -1805,27 +1812,45 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	ls := mockledger.NewLedgerStateBuilder().Build()
 
 	t.Run("unwrapped fails closed", func(t *testing.T) {
-		_, err := script.NewTxInfoV1FromTransaction(ls, tx, nil, true)
+		_, err := script.NewTxInfoV1FromTransaction(
+			ls, tx, nil, true, common.ProtocolVersionDijkstra,
+		)
 		var unmatchedErr script.UnmatchedRedeemerError
 		require.ErrorAs(t, err, &unmatchedErr)
 
-		_, err = script.NewTxInfoV2FromTransaction(ls, tx, nil, true)
+		_, err = script.NewTxInfoV2FromTransaction(
+			ls, tx, nil, true, common.ProtocolVersionDijkstra,
+		)
 		require.ErrorAs(t, err, &unmatchedErr)
 
-		_, err = script.NewTxInfoV3FromTransaction(ls, tx, nil)
+		_, err = script.NewTxInfoV3FromTransaction(
+			ls,
+			tx,
+			nil,
+			common.ProtocolVersionDijkstra,
+		)
 		require.ErrorAs(t, err, &unmatchedErr)
 	})
 
 	t.Run("wrapped succeeds", func(t *testing.T) {
 		wrapped := transactionWithoutGuardingRedeemers{Transaction: tx}
 
-		_, err := script.NewTxInfoV1FromTransaction(ls, wrapped, nil, true)
+		_, err := script.NewTxInfoV1FromTransaction(
+			ls, wrapped, nil, true, common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 
-		_, err = script.NewTxInfoV2FromTransaction(ls, wrapped, nil, true)
+		_, err = script.NewTxInfoV2FromTransaction(
+			ls, wrapped, nil, true, common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 
-		_, err = script.NewTxInfoV3FromTransaction(ls, wrapped, nil)
+		_, err = script.NewTxInfoV3FromTransaction(
+			ls,
+			wrapped,
+			nil,
+			common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 	})
 }

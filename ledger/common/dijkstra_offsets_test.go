@@ -71,6 +71,7 @@ func currentDijkstraFixtureTx(t *testing.T, parts []cbor.RawMessage) []cbor.RawM
 	_, err := cbor.Decode(parts[0], &bodyFields)
 	require.NoError(t, err)
 	delete(bodyFields, 26)
+	parts[0] = encodeCbor(t, bodyFields)
 	subTxBytes, exists := bodyFields[23]
 	if !exists {
 		return parts
@@ -138,7 +139,7 @@ func buildDijkstraBlock(t *testing.T, legacyBody bool, numTx int) []byte {
 			txs = append(txs, encodeCbor(t, tx3))
 			continue
 		}
-		// block_transaction = [body, witness_set, auxiliary_data/nil, bool].
+		// block_transaction = [body, witness_set, auxiliary_data, is_valid].
 		// Alternate is_valid so both boolean encodings are exercised.
 		tx4 := make([]cbor.RawMessage, 0, 4)
 		tx4 = append(tx4, tx3...)

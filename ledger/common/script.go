@@ -789,6 +789,71 @@ func ValidatePlutusScriptsWellFormed(
 	return referenceErr
 }
 
+// ValidateAuxiliaryDataScriptsWellFormed checks every script stored in
+// auxiliary data, including scripts that are not needed or executed.
+func ValidateAuxiliaryDataScriptsWellFormed(
+	tx Transaction,
+	protocolMajor uint,
+) error {
+	if tx == nil {
+		return errors.New("transaction is required")
+	}
+	auxiliaryData := tx.AuxiliaryData()
+	if auxiliaryData == nil {
+		return nil
+	}
+	nativeScripts, err := auxiliaryData.NativeScripts()
+	if err != nil {
+		return fmt.Errorf("decode auxiliary-data native scripts: %w", err)
+	}
+	maxNativeScriptConstructor := uint(5)
+	if tx.Type() >= 7 { // Dijkstra transaction type.
+		maxNativeScriptConstructor = 6
+	}
+	if err := ValidateNativeScriptConstructors(
+		nativeScripts,
+		maxNativeScriptConstructor,
+	); err != nil {
+		return fmt.Errorf("invalid auxiliary-data native script: %w", err)
+	}
+	plutusScripts := make([]Script, 0)
+	v1, err := auxiliaryData.PlutusV1Scripts()
+	if err != nil {
+		return fmt.Errorf("decode auxiliary-data Plutus V1 scripts: %w", err)
+	}
+	for _, script := range v1 {
+		plutusScripts = append(plutusScripts, script)
+	}
+	v2, err := auxiliaryData.PlutusV2Scripts()
+	if err != nil {
+		return fmt.Errorf("decode auxiliary-data Plutus V2 scripts: %w", err)
+	}
+	for _, script := range v2 {
+		plutusScripts = append(plutusScripts, script)
+	}
+	v3, err := auxiliaryData.PlutusV3Scripts()
+	if err != nil {
+		return fmt.Errorf("decode auxiliary-data Plutus V3 scripts: %w", err)
+	}
+	for _, script := range v3 {
+		plutusScripts = append(plutusScripts, script)
+	}
+	v4, err := auxiliaryData.PlutusV4Scripts()
+	if err != nil {
+		return fmt.Errorf("decode auxiliary-data Plutus V4 scripts: %w", err)
+	}
+	for _, script := range v4 {
+		plutusScripts = append(plutusScripts, script)
+	}
+	for _, script := range plutusScripts {
+		hash, err := validatePlutusScriptWellFormed(script, protocolMajor)
+		if err != nil {
+			return fmt.Errorf("malformed auxiliary-data Plutus script %x: %w", hash, err)
+		}
+	}
+	return nil
+}
+
 type NativeScript struct {
 	cbor.DecodeStoreCbor
 	item any

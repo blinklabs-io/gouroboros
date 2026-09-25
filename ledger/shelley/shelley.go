@@ -185,10 +185,7 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
 			len(raw) > 0 {
 			// Decode auxiliary data from raw CBOR and set auxData for hashing
-			if aux, err := common.DecodeAuxiliaryDataForEra(
-				raw,
-				common.AuxiliaryDataEraShelley,
-			); err == nil &&
+			if aux, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraShelley); err == nil &&
 				aux != nil {
 				tx.auxData = aux
 			}
@@ -829,17 +826,17 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
 		// 0xF6 is CBOR null
 
-		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryDataForEra(
-			metadataRaw,
-			common.AuxiliaryDataEraShelley,
-		)
+		// Decode auxiliary data using the transaction era's consensus rules.
+		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraShelley)
 		if err != nil {
 			return fmt.Errorf("failed to decode auxiliary data: %w", err)
 		}
-		if auxData != nil {
-			t.auxData = auxData
-			metadata, _ := auxData.Metadata()
+		t.auxData = auxData
+		metadata, err := auxData.Metadata()
+		if err != nil {
+			return fmt.Errorf("failed to decode auxiliary metadata: %w", err)
+		}
+		if metadata != nil {
 			t.TxMetadata = metadata
 		}
 	}

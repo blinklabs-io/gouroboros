@@ -876,10 +876,23 @@ func UtxoValidateMetadata(
 ) error {
 	dijkstraTx, ok := tx.(*DijkstraTransaction)
 	if !ok {
-		return conway.UtxoValidateMetadata(tx, slot, ls, pp)
+		conwayPp, err := conwayPparams(pp)
+		if err != nil {
+			return err
+		}
+		return conway.UtxoValidateMetadata(tx, slot, ls, conwayPp)
+	}
+	params, err := dijkstraPparams(pp)
+	if err != nil {
+		return err
 	}
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
-		if err := conway.UtxoValidateMetadata(level, slot, ls, pp); err != nil {
+		if err := conway.UtxoValidateMetadata(
+			level,
+			slot,
+			ls,
+			&params.ConwayProtocolParameters,
+		); err != nil {
 			return err
 		}
 	}
@@ -2575,11 +2588,18 @@ func validateGuardingPlutusScripts(
 			continue
 		case common.PlutusV3Script:
 			if !txInfoV3Built {
+				if err := script.ValidatePlutusV3ReferenceInputs(
+					tx,
+					pp.ProtocolVersion.Major,
+				); err != nil {
+					return conway.ScriptContextConstructionError{Err: err}
+				}
 				var err error
 				txInfoV3, err = script.NewTxInfoV3FromTransaction(
 					ls,
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
+					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
@@ -2611,6 +2631,7 @@ func validateGuardingPlutusScripts(
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
@@ -2645,6 +2666,7 @@ func validateGuardingPlutusScripts(
 					transactionWithoutGuardingRedeemers{Transaction: tx},
 					resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}

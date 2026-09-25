@@ -1071,15 +1071,12 @@ func UtxoValidateMetadata(
 	if err := shelley.UtxoValidateMetadata(tx, slot, ls, pp); err != nil {
 		return err
 	}
-	if tx.AuxiliaryData() == nil {
-		return nil
-	}
 	params, ok := pp.(*AlonzoProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	return common.ValidateAuxiliaryDataPlutusScriptsWellFormed(
-		tx.AuxiliaryData(),
+	return common.ValidateAuxiliaryDataScriptsWellFormed(
+		tx,
 		params.ProtocolMajor,
 	)
 }

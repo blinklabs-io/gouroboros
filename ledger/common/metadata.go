@@ -144,26 +144,6 @@ func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 	return md, nil
 }
 
-func decodeTransactionMetadataRaw(b []byte) (TransactionMetadatum, error) {
-	md, err := DecodeMetadatumRaw(b)
-	if err != nil {
-		return nil, err
-	}
-	metadata, ok := md.(MetaMap)
-	if !ok {
-		return nil, errors.New("transaction metadata must be a map")
-	}
-	for _, pair := range metadata.Pairs {
-		label, ok := pair.Key.(MetaInt)
-		if !ok || label.Value == nil || !label.Value.IsUint64() {
-			return nil, errors.New(
-				"transaction metadata labels must be unsigned 64-bit integers",
-			)
-		}
-	}
-	return metadata, nil
-}
-
 // cborItemHead reads the initial byte of a CBOR item at offset along with its
 // argument. It returns the major type, the argument value, the offset of the
 // first byte after the head, and whether the item uses the indefinite-length
@@ -409,97 +389,107 @@ func decodeAuxiliaryMetadataOnly(content []byte) ([]byte, bool) {
 }
 
 func decodeCBORItemEnd(b []byte, offset int) (int, bool) {
-	return decodeCBORItemEndDepth(b, offset, 0)
-}
-
-func decodeCBORItemEndDepth(b []byte, offset, depth int) (int, bool) {
-	if offset < 0 || offset >= len(b) {
+	if offset >= len(b) {
 		return offset, false
 	}
-	if depth > cbor.MaxNestedLevels {
-		return offset, false
-	}
-	initialOffset := offset
+	majorType := b[offset] & cborTypeMask
 	additional := b[offset] & cborAdditionalMask
-	majorType, arg, offset, indefinite, err := cborItemHead(b, offset)
-	if err != nil {
-		return offset, false
-	}
+	offset++
 	switch majorType {
 	case cborTypeUnsigned, cborTypeNegative:
-		return offset, !indefinite
-	case cborTypeByteString, cborTypeTextString:
-		if !indefinite {
-			remaining := len(b) - offset
-			// #nosec G115 -- remaining is non-negative and fits in uint64.
-			if arg > uint64(remaining) {
-				return offset, false
-			}
-			// #nosec G115 -- arg is bounded by remaining, which fits in int.
-			return offset + int(arg), true
-		}
-		for offset < len(b) && b[offset] != cborBreak {
-			chunkType, chunkLength, next, chunkIndefinite, err := cborItemHead(b, offset)
-			if err != nil || chunkType != majorType || chunkIndefinite {
-				return offset, false
-			}
-			remaining := len(b) - next
-			// #nosec G115 -- remaining is non-negative and fits in uint64.
-			if chunkLength > uint64(remaining) {
-				return offset, false
-			}
-			// #nosec G115 -- chunkLength is bounded by remaining, which fits in int.
-			offset = next + int(chunkLength)
-		}
-		if offset >= len(b) {
+		switch {
+		case additional <= 23:
+			return offset, true
+		case additional == 24:
+			return offset + 1, offset < len(b)
+		case additional == 25:
+			return offset + 2, offset+1 < len(b)
+		case additional == 26:
+			return offset + 4, offset+3 < len(b)
+		case additional == 27:
+			return offset + 8, offset+7 < len(b)
+		default:
 			return offset, false
 		}
-		return offset + 1, true
+	case cborTypeByteString, cborTypeTextString:
+		length, nextOffset, ok := decodeCBORDefiniteLength(b, offset-1, majorType)
+		if !ok || nextOffset+length > len(b) {
+			return offset, false
+		}
+		return nextOffset + length, true
 	case cborTypeArray:
-		for items := uint64(0); indefinite || items < arg; items++ {
-			if offset >= len(b) {
-				return offset, false
-			}
-			if indefinite && b[offset] == cborBreak {
-				return offset + 1, true
-			}
+		count, nextOffset, ok := decodeCBORDefiniteLength(b, offset-1, cborTypeArray)
+		if !ok {
+			return offset, false
+		}
+		cur := nextOffset
+		for range count {
 			var ok bool
-			offset, ok = decodeCBORItemEndDepth(b, offset, depth+1)
+			cur, ok = decodeCBORItemEnd(b, cur)
 			if !ok {
 				return offset, false
 			}
 		}
-		return offset, true
+		return cur, true
 	case cborTypeMap:
-		for pairs := uint64(0); indefinite || pairs < arg; pairs++ {
+		count, nextOffset, ok := decodeCBORDefiniteLength(b, offset-1, cborTypeMap)
+		if !ok {
+			return offset, false
+		}
+		cur := nextOffset
+		for range count {
+			var ok bool
+			cur, ok = decodeCBORItemEnd(b, cur)
+			if !ok {
+				return offset, false
+			}
+			cur, ok = decodeCBORItemEnd(b, cur)
+			if !ok {
+				return offset, false
+			}
+		}
+		return cur, true
+	case cborTypeTag:
+		switch {
+		case additional <= 23:
+		case additional == 24:
 			if offset >= len(b) {
 				return offset, false
 			}
-			if indefinite && b[offset] == cborBreak {
-				return offset + 1, true
+			offset++
+		case additional == 25:
+			if offset+1 >= len(b) {
+				return offset, false
 			}
-			for range 2 {
-				var ok bool
-				offset, ok = decodeCBORItemEndDepth(b, offset, depth+1)
-				if !ok {
-					return offset, false
-				}
+			offset += 2
+		case additional == 26:
+			if offset+3 >= len(b) {
+				return offset, false
 			}
-		}
-		return offset, true
-	case cborTypeTag:
-		if indefinite {
-			return initialOffset, false
-		}
-		return decodeCBORItemEndDepth(b, offset, depth+1)
-	case cborTypeFloatSim:
-		switch {
-		case additional <= 23:
-			return offset, true
-		case additional >= 24 && additional <= 27:
-			return offset, true
+			offset += 4
+		case additional == 27:
+			if offset+7 >= len(b) {
+				return offset, false
+			}
+			offset += 8
 		default:
-			return initialOffset, false
+			return offset, false
+		}
+		return decodeCBORItemEnd(b, offset)
+	case cborTypeFloatSim:
+		switch additional {
+		case 20, 21, 22, 23:
+			return offset, true
+		case 24:
+			return offset + 1, offset < len(b)
+		case 25:
+			return offset + 2, offset+1 < len(b)
+		case 26:
+			return offset + 4, offset+3 < len(b)
+		case 27:
+			return offset + 8, offset+7 < len(b)
+		default:
+			return offset, false
 		}
 	default:
 		return offset, false
@@ -542,7 +532,7 @@ func DecodeAuxiliaryDataToMetadata(raw []byte) (TransactionMetadatum, error) {
 	switch typeByte {
 	case cborTypeMap:
 		// Direct metadata
-		return decodeTransactionMetadataRaw(raw)
+		return DecodeMetadatumRaw(raw)
 	case cborTypeArray:
 		// auxiliary_data_array = [transaction_metadata, auxiliary_scripts]
 		var arr []cbor.RawMessage
@@ -557,7 +547,7 @@ func DecodeAuxiliaryDataToMetadata(raw []byte) (TransactionMetadatum, error) {
 			// CBOR null means no metadata
 			return nil, nil
 		}
-		return decodeTransactionMetadataRaw(arr[0])
+		return DecodeMetadatumRaw(arr[0])
 	case cborTypeTag:
 		// auxiliary_data_map = #6.259({ ? 0 : metadata, ... })
 		taggedContent, ok := decodeTag259Content(raw)
@@ -576,14 +566,14 @@ func DecodeAuxiliaryDataToMetadata(raw []byte) (TransactionMetadatum, error) {
 			taggedContent = tmpTag.Content
 		}
 		if metadataRaw, ok := decodeAuxiliaryMetadataOnly(taggedContent); ok {
-			return decodeTransactionMetadataRaw(metadataRaw)
+			return DecodeMetadatumRaw(metadataRaw)
 		}
 		var auxMap map[uint]cbor.RawMessage
 		if _, err := cbor.Decode(taggedContent, &auxMap); err != nil {
 			return nil, err
 		}
 		if metadataRaw := auxMap[0]; len(metadataRaw) > 0 {
-			return decodeTransactionMetadataRaw(metadataRaw)
+			return DecodeMetadatumRaw(metadataRaw)
 		}
 		// If no metadata, return nil
 		return nil, nil
@@ -676,12 +666,10 @@ type AuxiliaryData interface {
 	Cbor() []byte
 }
 
-// AuxiliaryDataEra identifies the ledger era whose auxiliary-data domain is
-// enforced while decoding.
 type AuxiliaryDataEra uint8
 
 const (
-	AuxiliaryDataEraShelley AuxiliaryDataEra = iota + 1
+	AuxiliaryDataEraShelley AuxiliaryDataEra = iota
 	AuxiliaryDataEraAllegra
 	AuxiliaryDataEraMary
 	AuxiliaryDataEraAlonzo
@@ -690,58 +678,83 @@ const (
 	AuxiliaryDataEraDijkstra
 )
 
-type auxiliaryDataEraRules struct {
-	allowArray                 bool
-	allowTaggedMap             bool
-	maxNativeScriptConstructor uint
-	maxPlutusVersion           uint
+// DecodeAuxiliaryDataForEra applies the consensus format and language bounds
+// for the era that owns the transaction or block metadata.
+func DecodeAuxiliaryDataForEra(
+	raw []byte,
+	era AuxiliaryDataEra,
+) (AuxiliaryData, error) {
+	if era > AuxiliaryDataEraDijkstra {
+		return nil, fmt.Errorf("unsupported auxiliary-data era %d", era)
+	}
+	if len(raw) == 0 {
+		return nil, errors.New("empty auxiliary data")
+	}
+	switch raw[0] & cborTypeMask {
+	case cborTypeMap:
+	case cborTypeArray:
+		if era < AuxiliaryDataEraAllegra {
+			return nil, errors.New("allegra auxiliary-data array is not valid in this era")
+		}
+	case cborTypeTag:
+		if era < AuxiliaryDataEraAlonzo {
+			return nil, errors.New("tagged auxiliary data is not valid in this era")
+		}
+	default:
+		return nil, fmt.Errorf("unsupported auxiliary data type: 0x%x", raw[0]&cborTypeMask)
+	}
+	auxData, err := DecodeAuxiliaryData(raw)
+	if err != nil {
+		return nil, err
+	}
+	if era >= AuxiliaryDataEraAlonzo && raw[0]&cborTypeMask == cborTypeTag {
+		content, ok := decodeTag259Content(raw)
+		if !ok {
+			var tmpTag cbor.RawTag
+			if _, err := cbor.Decode(raw, &tmpTag); err != nil ||
+				tmpTag.Number != cbor.CborTagMap {
+				return nil, errors.New("invalid tagged auxiliary data")
+			}
+			content = tmpTag.Content
+		}
+		var fields map[uint]cbor.RawMessage
+		if _, err := cbor.Decode(content, &fields); err != nil {
+			return nil, fmt.Errorf("decode tagged auxiliary-data fields: %w", err)
+		}
+		maxLanguage := uint(era-AuxiliaryDataEraAlonzo) + 1
+		for field := range fields {
+			if field > 5 {
+				return nil, fmt.Errorf("unknown auxiliary-data field %d", field)
+			}
+			if field >= 2 && field <= 5 && field-1 > maxLanguage {
+				return nil, fmt.Errorf(
+					"plutus V%d auxiliary-data field is not valid in this era",
+					field-1,
+				)
+			}
+		}
+	}
+	return auxData, nil
 }
 
-func auxiliaryDataRulesForEra(
+// ValidateAuxiliaryDataForEra checks every transaction auxiliary-data item in
+// a decoded block metadata map using that block's era rules.
+func (s *TransactionMetadataSet) ValidateAuxiliaryDataForEra(
 	era AuxiliaryDataEra,
-) (auxiliaryDataEraRules, error) {
-	switch era {
-	case AuxiliaryDataEraShelley:
-		return auxiliaryDataEraRules{}, nil
-	case AuxiliaryDataEraAllegra, AuxiliaryDataEraMary:
-		return auxiliaryDataEraRules{
-			allowArray:                 true,
-			maxNativeScriptConstructor: 5,
-		}, nil
-	case AuxiliaryDataEraAlonzo:
-		return auxiliaryDataEraRules{
-			allowArray:                 true,
-			allowTaggedMap:             true,
-			maxNativeScriptConstructor: 5,
-			maxPlutusVersion:           1,
-		}, nil
-	case AuxiliaryDataEraBabbage:
-		return auxiliaryDataEraRules{
-			allowArray:                 true,
-			allowTaggedMap:             true,
-			maxNativeScriptConstructor: 5,
-			maxPlutusVersion:           2,
-		}, nil
-	case AuxiliaryDataEraConway:
-		return auxiliaryDataEraRules{
-			allowArray:                 true,
-			allowTaggedMap:             true,
-			maxNativeScriptConstructor: 5,
-			maxPlutusVersion:           3,
-		}, nil
-	case AuxiliaryDataEraDijkstra:
-		return auxiliaryDataEraRules{
-			allowArray:                 true,
-			allowTaggedMap:             true,
-			maxNativeScriptConstructor: 6,
-			maxPlutusVersion:           4,
-		}, nil
-	default:
-		return auxiliaryDataEraRules{}, fmt.Errorf(
-			"unsupported auxiliary-data era %d",
-			era,
-		)
+) error {
+	if s == nil {
+		return nil
 	}
+	for index, raw := range s.data {
+		if len(raw) == 0 || (len(raw) == 1 &&
+			(raw[0] == 0xf4 || raw[0] == 0xf5 || raw[0] == 0xf6)) {
+			continue
+		}
+		if _, err := DecodeAuxiliaryDataForEra(raw, era); err != nil {
+			return fmt.Errorf("transaction %d auxiliary data: %w", index, err)
+		}
+	}
+	return nil
 }
 
 type ShelleyAuxiliaryData struct {
@@ -785,7 +798,7 @@ func (s *ShelleyAuxiliaryData) UnmarshalCBOR(data []byte) error {
 		dataToUse = data[3:]
 	}
 
-	md, err := decodeTransactionMetadataRaw(dataToUse)
+	md, err := DecodeMetadatumRaw(dataToUse)
 	if err != nil {
 		return fmt.Errorf("failed to decode Shelley auxiliary data: %w", err)
 	}
@@ -849,15 +862,14 @@ func (s *ShelleyMaAuxiliaryData) UnmarshalCBOR(data []byte) error {
 		)
 	}
 
-	// The first element is a transaction metadata map.
-	if len(arr[0]) == 0 || arr[0][0]&cborTypeMask != cborTypeMap {
-		return errors.New("Shelley-MA metadata must be a CBOR map")
+	// First element is metadata (may be null)
+	if len(arr[0]) > 0 && arr[0][0] != 0xF6 { // 0xF6 is CBOR null
+		md, err := DecodeMetadatumRaw(arr[0])
+		if err != nil {
+			return fmt.Errorf("failed to decode metadata: %w", err)
+		}
+		s.metadata = md
 	}
-	md, err := decodeTransactionMetadataRaw(arr[0])
-	if err != nil {
-		return fmt.Errorf("failed to decode metadata: %w", err)
-	}
-	s.metadata = md
 
 	// Second element is array of native scripts
 	if _, err := cbor.Decode(arr[1], &s.nativeScripts); err != nil {
@@ -872,17 +884,6 @@ func (s ShelleyMaAuxiliaryData) MarshalCBOR() ([]byte, error) {
 		return raw, nil
 	}
 	return cbor.Encode([]any{s.metadata, s.nativeScripts})
-}
-
-func validateCBORArray(data []byte, field string) error {
-	if len(data) == 0 || data[0]&cborTypeMask != cborTypeArray {
-		return fmt.Errorf("%s must be a CBOR array", field)
-	}
-	end, ok := decodeCBORItemEnd(data, 0)
-	if !ok || end != len(data) {
-		return fmt.Errorf("%s has invalid or trailing CBOR data", field)
-	}
-	return nil
 }
 
 type AlonzoAuxiliaryData struct {
@@ -920,17 +921,6 @@ func (a *AlonzoAuxiliaryData) PlutusV4Scripts() ([]PlutusV4Script, error) {
 }
 
 func (a *AlonzoAuxiliaryData) UnmarshalCBOR(data []byte) error {
-	return a.unmarshalCBOR(data, auxiliaryDataEraRules{
-		maxNativeScriptConstructor: 6,
-		maxPlutusVersion:           4,
-	})
-}
-
-func (a *AlonzoAuxiliaryData) unmarshalCBOR(
-	data []byte,
-	rules auxiliaryDataEraRules,
-) error {
-	*a = AlonzoAuxiliaryData{}
 	a.SetCbor(data)
 
 	taggedContent, ok := decodeTag259Content(data)
@@ -938,12 +928,8 @@ func (a *AlonzoAuxiliaryData) unmarshalCBOR(
 		// Decode CBOR tag 259 via the generic path for malformed or
 		// non-standard encodings.
 		var tmpTag cbor.RawTag
-		bytesRead, err := cbor.Decode(data, &tmpTag)
-		if err != nil {
+		if _, err := cbor.Decode(data, &tmpTag); err != nil {
 			return fmt.Errorf("failed to decode Alonzo auxiliary data tag: %w", err)
-		}
-		if bytesRead != len(data) {
-			return errors.New("extraneous data after Alonzo auxiliary data tag")
 		}
 		if tmpTag.Number != cbor.CborTagMap {
 			return fmt.Errorf(
@@ -954,141 +940,64 @@ func (a *AlonzoAuxiliaryData) unmarshalCBOR(
 		}
 		taggedContent = tmpTag.Content
 	}
-	return a.decodeTaggedAuxiliaryDataMap(taggedContent, rules)
-}
-
-func (a *AlonzoAuxiliaryData) decodeTaggedAuxiliaryDataMap(
-	content []byte,
-	rules auxiliaryDataEraRules,
-) error {
-	major, pairCount, offset, indefinite, err := cborItemHead(content, 0)
-	if err != nil {
-		return fmt.Errorf("decode auxiliary data map: %w", err)
-	}
-	if major != cborTypeMap {
-		return errors.New("tagged auxiliary data must contain a map")
-	}
-	seen := make(map[uint64]struct{})
-	for pairs := uint64(0); indefinite || pairs < pairCount; pairs++ {
-		if offset >= len(content) {
-			return io.ErrUnexpectedEOF
-		}
-		if indefinite && content[offset] == cborBreak {
-			offset++
-			break
-		}
-		var key uint64
-		keyBytes, err := cbor.Decode(content[offset:], &key)
+	if metadataRaw, ok := decodeAuxiliaryMetadataOnly(taggedContent); ok {
+		md, err := DecodeMetadatumRaw(metadataRaw)
 		if err != nil {
-			return fmt.Errorf("decode auxiliary-data field key: %w", err)
+			return fmt.Errorf("failed to decode metadata: %w", err)
 		}
-		if keyBytes == 0 {
-			return errors.New("empty auxiliary-data field key")
+		a.metadata = md
+		return nil
+	}
+
+	var auxMap map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(taggedContent, &auxMap); err != nil {
+		return fmt.Errorf("failed to decode auxiliary data map: %w", err)
+	}
+	// Key 0: metadata
+	if metadataRaw := auxMap[0]; len(metadataRaw) > 0 {
+		md, err := DecodeMetadatumRaw(metadataRaw)
+		if err != nil {
+			return fmt.Errorf("failed to decode metadata: %w", err)
 		}
-		offset += keyBytes
-		if _, exists := seen[key]; exists {
-			return fmt.Errorf("duplicate auxiliary-data field %d", key)
-		}
-		seen[key] = struct{}{}
-		if key > 5 {
-			return fmt.Errorf("unknown auxiliary-data field %d", key)
-		}
-		valueEnd, ok := decodeCBORItemEnd(content, offset)
-		if !ok || valueEnd <= offset {
-			return fmt.Errorf("decode auxiliary-data field %d: %w", key, io.ErrUnexpectedEOF)
-		}
-		value := cbor.RawMessage(content[offset:valueEnd])
-		offset = valueEnd
-		if err := a.decodeTaggedAuxiliaryDataField(key, value, rules); err != nil {
-			return err
+		a.metadata = md
+	}
+
+	// Key 1: native scripts
+	if nativeScriptsRaw := auxMap[1]; len(nativeScriptsRaw) > 0 {
+		if _, err := cbor.Decode(nativeScriptsRaw, &a.nativeScripts); err != nil {
+			return fmt.Errorf("failed to decode native scripts: %w", err)
 		}
 	}
-	if offset != len(content) {
-		return fmt.Errorf(
-			"extraneous data after auxiliary-data map: %d byte(s)",
-			len(content)-offset,
-		)
+
+	// Key 2: Plutus V1 scripts
+	if plutusV1Raw := auxMap[2]; len(plutusV1Raw) > 0 {
+		if _, err := cbor.Decode(plutusV1Raw, &a.plutusV1Scripts); err != nil {
+			return fmt.Errorf("failed to decode Plutus V1 scripts: %w", err)
+		}
 	}
+
+	// Key 3: Plutus V2 scripts
+	if plutusV2Raw := auxMap[3]; len(plutusV2Raw) > 0 {
+		if _, err := cbor.Decode(plutusV2Raw, &a.plutusV2Scripts); err != nil {
+			return fmt.Errorf("failed to decode Plutus V2 scripts: %w", err)
+		}
+	}
+
+	// Key 4: Plutus V3 scripts
+	if plutusV3Raw := auxMap[4]; len(plutusV3Raw) > 0 {
+		if _, err := cbor.Decode(plutusV3Raw, &a.plutusV3Scripts); err != nil {
+			return fmt.Errorf("failed to decode Plutus V3 scripts: %w", err)
+		}
+	}
+
+	// Key 5: Plutus V4 scripts
+	if plutusV4Raw := auxMap[5]; len(plutusV4Raw) > 0 {
+		if _, err := cbor.Decode(plutusV4Raw, &a.plutusV4Scripts); err != nil {
+			return fmt.Errorf("failed to decode Plutus V4 scripts: %w", err)
+		}
+	}
+
 	return nil
-}
-
-func (a *AlonzoAuxiliaryData) decodeTaggedAuxiliaryDataField(
-	key uint64,
-	value cbor.RawMessage,
-	rules auxiliaryDataEraRules,
-) error {
-	if key > 5 {
-		return fmt.Errorf("unknown auxiliary-data field %d", key)
-	}
-	var err error
-	switch key {
-	case 0:
-		a.metadata, err = decodeTransactionMetadataRaw(value)
-		if err != nil {
-			return fmt.Errorf("decode auxiliary-data metadata: %w", err)
-		}
-	case 1:
-		if err := validateCBORArray(value, "auxiliary-data native scripts"); err != nil {
-			return err
-		}
-		if _, err = cbor.Decode(value, &a.nativeScripts); err != nil {
-			return fmt.Errorf("decode auxiliary-data native scripts: %w", err)
-		}
-		if err = ValidateNativeScriptConstructors(
-			a.nativeScripts,
-			rules.maxNativeScriptConstructor,
-		); err != nil {
-			return fmt.Errorf("validate auxiliary-data native scripts: %w", err)
-		}
-	case 2, 3, 4, 5:
-		if err := validateCBORArray(value, "auxiliary-data Plutus scripts"); err != nil {
-			return err
-		}
-		version := key - 1
-		if version > uint64(rules.maxPlutusVersion) {
-			return fmt.Errorf(
-				"auxiliary scripts for Plutus V%d are not supported in this era",
-				version,
-			)
-		}
-		switch key {
-		case 2:
-			var typed []PlutusV1Script
-			if _, err = cbor.Decode(value, &typed); err == nil {
-				a.plutusV1Scripts = typed
-			}
-		case 3:
-			var typed []PlutusV2Script
-			if _, err = cbor.Decode(value, &typed); err == nil {
-				a.plutusV2Scripts = typed
-			}
-		case 4:
-			var typed []PlutusV3Script
-			if _, err = cbor.Decode(value, &typed); err == nil {
-				a.plutusV3Scripts = typed
-			}
-		case 5:
-			var typed []PlutusV4Script
-			if _, err = cbor.Decode(value, &typed); err == nil {
-				a.plutusV4Scripts = typed
-			}
-		}
-		if err != nil {
-			return fmt.Errorf("decode auxiliary-data Plutus V%d scripts: %w", version, err)
-		}
-	}
-	return nil
-}
-
-func plutusScripts[T interface {
-	~[]byte
-	Script
-}](scripts []T) []Script {
-	ret := make([]Script, 0, len(scripts))
-	for _, script := range scripts {
-		ret = append(ret, Script(script))
-	}
-	return ret
 }
 
 func (a AlonzoAuxiliaryData) MarshalCBOR() ([]byte, error) {
@@ -1154,34 +1063,15 @@ func (a AlonzoAuxiliaryData) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(&tmpTag)
 }
 
-// DecodeAuxiliaryData decodes auxiliary data using the newest supported era's
-// domain. Consensus callers should use DecodeAuxiliaryDataForEra.
 func DecodeAuxiliaryData(raw []byte) (AuxiliaryData, error) {
-	return DecodeAuxiliaryDataForEra(raw, AuxiliaryDataEraDijkstra)
-}
-
-// DecodeAuxiliaryDataForEra decodes auxiliary data and enforces the formats,
-// script languages, and native-script constructors allowed in the given era.
-func DecodeAuxiliaryDataForEra(
-	raw []byte,
-	era AuxiliaryDataEra,
-) (AuxiliaryData, error) {
 	if len(raw) == 0 {
 		return nil, errors.New("empty auxiliary data")
-	}
-	rules, err := auxiliaryDataRulesForEra(era)
-	if err != nil {
-		return nil, err
 	}
 
 	typeByte := raw[0] & cborTypeMask
 	switch typeByte {
 	case cborTypeMap:
-		// Direct metadata remains valid in every era.
-		end, ok := decodeCBORItemEnd(raw, 0)
-		if !ok || end != len(raw) {
-			return nil, errors.New("invalid or trailing CBOR in auxiliary-data metadata map")
-		}
+		// Shelley format: direct metadata
 		auxData := &ShelleyAuxiliaryData{}
 		if _, err := cbor.Decode(raw, auxData); err != nil {
 			return nil, err
@@ -1189,50 +1079,17 @@ func DecodeAuxiliaryDataForEra(
 		return auxData, nil
 
 	case cborTypeArray:
-		if !rules.allowArray {
-			return nil, errors.New(
-				"Shelley-MA auxiliary-data arrays are not supported in this era",
-			)
-		}
-		if err := validateCBORArray(raw, "Shelley-MA auxiliary data"); err != nil {
-			return nil, err
-		}
-		var components []cbor.RawMessage
-		if _, err := cbor.Decode(raw, &components); err != nil {
-			return nil, err
-		}
-		if len(components) != 2 {
-			return nil, fmt.Errorf(
-				"Shelley-MA auxiliary data must have 2 elements, got %d",
-				len(components),
-			)
-		}
-		if len(components[0]) == 0 || components[0][0]&cborTypeMask != cborTypeMap {
-			return nil, errors.New("Shelley-MA metadata must be a CBOR map")
-		}
-		if err := validateCBORArray(components[1], "Shelley-MA native scripts"); err != nil {
-			return nil, err
-		}
+		// Shelley-MA format: [metadata, native_scripts]
 		auxData := &ShelleyMaAuxiliaryData{}
 		if _, err := cbor.Decode(raw, auxData); err != nil {
 			return nil, err
 		}
-		if err := ValidateNativeScriptConstructors(
-			auxData.nativeScripts,
-			rules.maxNativeScriptConstructor,
-		); err != nil {
-			return nil, fmt.Errorf("validate auxiliary-data native scripts: %w", err)
-		}
 		return auxData, nil
 
 	case cborTypeTag:
-		if !rules.allowTaggedMap {
-			return nil, errors.New(
-				"tagged auxiliary-data maps are not supported in this era",
-			)
-		}
+		// Alonzo+ format: #6.259({...})
 		auxData := &AlonzoAuxiliaryData{}
-		if err := auxData.unmarshalCBOR(raw, rules); err != nil {
+		if _, err := cbor.Decode(raw, auxData); err != nil {
 			return nil, err
 		}
 		return auxData, nil
@@ -1243,17 +1100,4 @@ func DecodeAuxiliaryDataForEra(
 			typeByte,
 		)
 	}
-}
-
-// ValidateAuxiliaryDataForEra validates every raw auxiliary-data entry in a
-// block's metadata map using the block's era rules.
-func (s TransactionMetadataSet) ValidateAuxiliaryDataForEra(
-	era AuxiliaryDataEra,
-) error {
-	for index, raw := range s.data {
-		if _, err := DecodeAuxiliaryDataForEra(raw, era); err != nil {
-			return fmt.Errorf("invalid auxiliary data at index %d: %w", index, err)
-		}
-	}
-	return nil
 }

@@ -38,6 +38,7 @@ func TestScriptPurposeBuilderRejectsWireIndexAboveMaxInt32(t *testing.T) {
 		nil,
 		nil,
 		map[lcommon.Blake2b256]*lcommon.Datum{},
+		lcommon.ProtocolVersionDijkstra,
 	)
 	for _, testDef := range []struct {
 		name string

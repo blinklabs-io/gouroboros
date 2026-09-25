@@ -71,7 +71,7 @@ func TestTxInfoWithdrawalOrderFollowsCredentialOrder(t *testing.T) {
 
 	t.Run("Plutus V1", func(t *testing.T) {
 		txInfo, err := script.NewTxInfoV1FromTransaction(
-			mockSlotState{}, tx, nil, false,
+			mockSlotState{}, tx, nil, false, common.ProtocolVersionDijkstra,
 		)
 		require.NoError(t, err)
 		require.Len(t, txInfo.Withdrawals, 2)
@@ -80,14 +80,14 @@ func TestTxInfoWithdrawalOrderFollowsCredentialOrder(t *testing.T) {
 	})
 	t.Run("Plutus V2", func(t *testing.T) {
 		txInfo, err := script.NewTxInfoV2FromTransaction(
-			mockSlotState{}, tx, nil, false,
+			mockSlotState{}, tx, nil, false, common.ProtocolVersionDijkstra,
 		)
 		require.NoError(t, err)
 		assertOrder(t, txInfo.Withdrawals)
 	})
 	t.Run("Plutus V3", func(t *testing.T) {
 		txInfo, err := script.NewTxInfoV3FromTransaction(
-			mockSlotState{}, tx, nil,
+			mockSlotState{}, tx, nil, common.ProtocolVersionDijkstra,
 		)
 		require.NoError(t, err)
 		assertOrder(t, txInfo.Withdrawals)
@@ -147,6 +147,7 @@ func buildTxInfoV1(
 		tx,
 		resolvedInputs,
 		false, // Alonzo era: pre-Conway, closed upper-only validity bound
+		common.ProtocolVersionAlonzo,
 	)
 	if err != nil {
 		return nil, err
@@ -207,6 +208,7 @@ func buildTxInfoV2(
 		tx,
 		resolvedInputs,
 		false, // Babbage era: pre-Conway, closed upper-only validity bound
+		common.ProtocolVersionBabbage,
 	)
 	if err != nil {
 		return nil, err
@@ -266,6 +268,7 @@ func buildTxInfoV3(
 		slotState,
 		tx,
 		resolvedInputs,
+		common.ProtocolVersionDijkstra,
 	)
 	if err != nil {
 		return nil, err
@@ -371,6 +374,7 @@ func TestTxInfoV3LegacyCurrentTreasuryPresence(t *testing.T) {
 				mockledger.NewLedgerStateBuilder().Build(),
 				tx,
 				nil,
+				common.ProtocolVersionDijkstra,
 			)
 			require.NoError(t, err)
 			if test.want == nil {
@@ -797,6 +801,7 @@ func TestNewTxInfoFromTransactionUnmatchedRedeemer(t *testing.T) {
 			newTx(),
 			nil,
 			true, // Conway tx (error path; flag does not affect the assertion)
+			common.ProtocolVersionConway,
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -809,6 +814,7 @@ func TestNewTxInfoFromTransactionUnmatchedRedeemer(t *testing.T) {
 			newTx(),
 			nil,
 			true, // Conway tx (error path; flag does not affect the assertion)
+			common.ProtocolVersionConway,
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -820,6 +826,7 @@ func TestNewTxInfoFromTransactionUnmatchedRedeemer(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			common.ProtocolVersionDijkstra,
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -849,6 +856,7 @@ func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
 			newTx(),
 			nil,
 			true, // Conway tx (error path; flag does not affect the assertion)
+			common.ProtocolVersionConway,
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -861,6 +869,7 @@ func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
 			newTx(),
 			nil,
 			true, // Conway tx (error path; flag does not affect the assertion)
+			common.ProtocolVersionConway,
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -872,6 +881,7 @@ func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
 			preprodSlotState,
 			newTx(),
 			nil,
+			common.ProtocolVersionDijkstra,
 		)
 		require.Error(t, err)
 		var unmatchedErr script.UnmatchedRedeemerError
@@ -923,6 +933,7 @@ func TestTxInfoV3AlonzoResolvedInputDatumHash(t *testing.T) {
 		preprodSlotState,
 		tx,
 		resolvedInputs,
+		common.ProtocolVersionDijkstra,
 	)
 	require.NoError(t, err)
 	require.Len(t, txInfo.Inputs, 1)
