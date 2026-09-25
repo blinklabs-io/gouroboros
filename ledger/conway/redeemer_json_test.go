@@ -125,6 +125,19 @@ func TestConwayRedeemersUnmarshalJSONDuplicateKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "duplicate redeemer key")
 }
 
+func TestConwayWitnessSetRejectsObserveRedeemer(t *testing.T) {
+	encoded, err := cbor.Encode(map[uint]any{
+		5: map[common.RedeemerKey]any{
+			{Tag: common.RedeemerTagObserve}: []any{uint64(0), []uint64{0, 0}},
+		},
+	})
+	require.NoError(t, err)
+
+	var witnessSet ConwayTransactionWitnessSet
+	err = witnessSet.UnmarshalCBOR(encoded)
+	require.ErrorContains(t, err, "unsupported redeemer tag 6")
+}
+
 func TestConwayRedeemersLegacyMarshalJSON(t *testing.T) {
 	redeemers := ConwayRedeemers{
 		legacy: true,

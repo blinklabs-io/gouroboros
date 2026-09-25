@@ -573,6 +573,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
 	testTx := &babbage.BabbageTransaction{
+		TxIsValid: true,
 		Body: babbage.BabbageTransactionBody{
 			TxOutputs: []babbage.BabbageTransactionOutput{
 				// Empty placeholder output
@@ -652,14 +653,12 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"stake deregistration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testStakeDeposit
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			credential := common.Credential{}
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
-				{
-					Type: uint(common.CertificateTypeStakeDeregistration),
-					Certificate: &common.StakeDeregistrationCertificate{
-						StakeCredential: common.Credential{},
-					},
-				},
+				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
+				{Type: uint(common.CertificateTypeStakeRegistration), Certificate: &common.StakeRegistrationCertificate{StakeCredential: credential}},
+				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
 			}
 			err := babbage.UtxoValidateValueNotConservedUtxo(
 				testTx,

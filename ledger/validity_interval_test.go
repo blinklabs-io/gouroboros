@@ -131,16 +131,16 @@ func TestValidityIntervalUpperBoundDecodedPresence(t *testing.T) {
 	for _, test := range validityUpperBoundTestCases() {
 		t.Run(test.name, func(t *testing.T) {
 			body := test.newBody()
-			wire := []byte{0xa1, 0x03, 0x00}
+			intervalCbor := []byte{0xa1, 0x03, 0x00}
 			if test.name == "Conway" || test.name == "Dijkstra" ||
 				test.name == "Dijkstra sub-transaction" {
-				wire = withRequiredTransactionBodyFields(
+				intervalCbor = withRequiredEraBodyFields(
 					t,
-					wire,
+					intervalCbor,
 					test.name == "Dijkstra sub-transaction",
 				)
 			}
-			require.NoError(t, body.UnmarshalCBOR(wire))
+			require.NoError(t, body.UnmarshalCBOR(intervalCbor))
 			requireValidityUpperBound(t, body, 0, true)
 			if test.newTx != nil {
 				requireValidityUpperBound(t, test.newTx(body), 0, true)
@@ -152,16 +152,16 @@ func TestValidityIntervalUpperBoundDecodedPresence(t *testing.T) {
 			requireValidityUpperBound(t, body, 0, true)
 
 			// Reusing a receiver must not retain presence from the prior body.
-			wireEmpty := []byte{0xa0}
+			absentCbor := []byte{0xa0}
 			if test.name == "Conway" || test.name == "Dijkstra" ||
 				test.name == "Dijkstra sub-transaction" {
-				wireEmpty = withRequiredTransactionBodyFields(
+				absentCbor = withRequiredEraBodyFields(
 					t,
-					wireEmpty,
+					absentCbor,
 					test.name == "Dijkstra sub-transaction",
 				)
 			}
-			require.NoError(t, body.UnmarshalCBOR(wireEmpty))
+			require.NoError(t, body.UnmarshalCBOR(absentCbor))
 			requireValidityUpperBound(t, body, 0, false)
 		})
 	}

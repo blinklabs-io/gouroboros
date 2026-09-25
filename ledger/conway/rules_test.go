@@ -26,6 +26,7 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
@@ -52,6 +53,49 @@ func makeConwayRewardAddress(
 	addr, err := common.NewAddressFromBytes(addrBytes)
 	require.NoError(t, err)
 	return addr
+}
+
+func TestUtxoValidateOutsideForecastUsesConwayFailureTag(t *testing.T) {
+	const upperBound = uint64(12_345)
+	inputs := []common.TransactionInput{shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000001",
+		0,
+	)}
+	output, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd").
+		WithLovelace(2_000_000).
+		Build()
+	require.NoError(t, err)
+	redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+		{Tag: common.RedeemerTagSpend, Index: 0}: {},
+	}}
+	txBuilder := mockledger.NewTransactionBuilder()
+	txBuilder.WithInputs(inputs...)
+	txBuilder.WithOutputs(output)
+	txBuilder.WithTTL(upperBound)
+	txBuilder.WithWitnesses(
+		mockledger.NewMockTransactionWitnessSet().WithRedeemers(redeemers),
+	)
+	tx, err := txBuilder.Build()
+	require.NoError(t, err)
+	ls := mockledger.NewLedgerStateBuilder().WithSlotToTime(
+		func(slot uint64) (time.Time, error) {
+			if slot == 0 {
+				return time.Unix(0, 0), nil
+			}
+			require.Equal(t, upperBound, slot)
+			return time.Time{}, errors.New("slot is outside forecast")
+		},
+	).Build()
+	var outsideForecast *common.OutsideForecastError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateOutsideForecast(tx, 0, ls, nil),
+		&outsideForecast,
+	)
+	require.NotNil(t, outsideForecast)
+	require.Equal(t, upperBound, outsideForecast.Slot)
+	require.Equal(t, uint8(17), outsideForecast.Type)
 }
 
 // makeConwayBaseAddress builds a mainnet base address (payment + staking key
@@ -1204,6 +1248,39 @@ func TestUtxoValidateExtraneousRedeemersUnknownTag(t *testing.T) {
 	assert.IsType(t, conway.ExtraRedeemerError{}, err)
 }
 
+func TestUtxoValidatePlutusScriptsRejectsKeyVoterRedeemer(t *testing.T) {
+	voter := &common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224{1},
+	}
+	actionID := &common.GovActionId{
+		TransactionId: common.Blake2b256{2},
+	}
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxVotingProcedures: common.VotingProcedures{
+				voter: {actionID: {Vote: common.GovVoteYes}},
+			},
+		},
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagVoting, Index: 0}: {},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+	err := conway.UtxoValidatePlutusScripts(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&conway.ConwayProtocolParameters{},
+	)
+	var extraErr conway.ExtraRedeemerError
+	require.ErrorAs(t, err, &extraErr)
+}
+
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testSlot uint64 = 555666777
 	var testZeroSlot uint64 = 0
@@ -1676,11 +1753,12 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	var testInputAmount uint64 = 555666777
 	var testFee uint64 = 123456
 	var testStakeDeposit uint64 = 2_000_000
-	var testDepositAmount uint64 = 1_500_000
+	var testDepositAmount = testStakeDeposit
 	testOutputExactAmount := testInputAmount - testFee
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
 	testTx := &conway.ConwayTransaction{
+		TxIsValid: true,
 		Body: conway.ConwayTransactionBody{
 			TxInputs: conway.NewConwayTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{
@@ -1707,6 +1785,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testLedgerState := certificateDepositLedgerState{
 		LedgerState: mockledger.NewLedgerStateBuilder().
 			WithUtxos(utxos).
+			WithStakeRegistrations([]common.StakeRegistrationCertificate{{
+				StakeCredential: common.Credential{},
+			}}).
 			Build(),
 		deposits: map[certificateDepositCredentialKey]uint64{
 			{
@@ -1714,6 +1795,19 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				hash:     common.Blake2b224{},
 			}: testStakeDeposit,
 		},
+	}
+	zeroRefundCredential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+	zeroRefundState := certificateDepositLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithUtxos(utxos).
+			WithStakeRegistrations([]common.StakeRegistrationCertificate{{
+				StakeCredential: zeroRefundCredential,
+			}}).
+			Build(),
+		deposits: map[certificateDepositCredentialKey]uint64{{
+			credType: zeroRefundCredential.CredType,
+			hash:     zeroRefundCredential.Credential,
+		}: 0},
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
@@ -1876,11 +1970,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			}
 		},
 	)
-	// CIP-0094 Registration certificate with invalid deposit (zero)
+	// CIP-0094 registration permits a zero deposit when the parameter is zero.
 	t.Run(
-		"registration certificate invalid deposit zero",
+		"registration certificate zero deposit",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			zeroDepositParams := *testProtocolParams
+			zeroDepositParams.KeyDeposit = 0
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeRegistration),
@@ -1894,23 +1990,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				testTx,
 				testSlot,
 				testLedgerState,
-				testProtocolParams,
+				&zeroDepositParams,
 			)
-			if err == nil {
-				t.Errorf(
-					"UtxoValidateValueNotConservedUtxo should fail with zero registration deposit",
-				)
-				return
-			}
-			testErrType := shelley.InvalidCertificateDepositError{}
-			assert.IsType(
-				t,
-				testErrType,
-				err,
-				"did not get expected error type: got %T, wanted %T",
-				err,
-				testErrType,
-			)
+			require.NoError(t, err)
 		},
 	)
 	// CIP-0094 Deregistration certificate with valid refund
@@ -1941,11 +2023,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			}
 		},
 	)
-	// CIP-0094 Deregistration certificate with invalid refund (zero)
+	// CIP-0094 deregistration permits a zero refund when the recorded deposit is zero.
 	t.Run(
-		"deregistration certificate invalid refund zero",
+		"deregistration certificate zero refund",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			zeroDepositParams := *testProtocolParams
+			zeroDepositParams.KeyDeposit = 0
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeDeregistration),
@@ -1958,24 +2042,10 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			err := conway.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
-				testLedgerState,
-				testProtocolParams,
+				zeroRefundState,
+				&zeroDepositParams,
 			)
-			if err == nil {
-				t.Errorf(
-					"UtxoValidateValueNotConservedUtxo should fail with zero deregistration refund",
-				)
-				return
-			}
-			testErrType := shelley.InvalidCertificateDepositError{}
-			assert.IsType(
-				t,
-				testErrType,
-				err,
-				"did not get expected error type: got %T, wanted %T",
-				err,
-				testErrType,
-			)
+			require.NoError(t, err)
 		},
 	)
 	// Minting
@@ -2925,12 +2995,11 @@ func TestUtxoValidateDisjointRefInputs(t *testing.T) {
 	)
 }
 
-func TestUtxoValidateDisjointRefInputs_ReferenceInputResolutionError(t *testing.T) {
-	// Test that reference input resolution errors are propagated when using PV11+
+func TestUtxoValidateDisjointRefInputs_PV11PlusSkipsGlobalCheck(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	refInputTxId := "a228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee33"
 
-	// PV11+ protocol params (triggers the transactionUsesPlutusV1V2 check)
+	// PV11+ applies the disjointness check only when a Plutus V3 script executes.
 	pv11Params := &conway.ConwayProtocolParameters{
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{
 			Major: 11,
@@ -2957,7 +3026,7 @@ func TestUtxoValidateDisjointRefInputs_ReferenceInputResolutionError(t *testing.
 		}).
 		Build()
 
-	t.Run("reference input resolution error is propagated", func(t *testing.T) {
+	t.Run("does not resolve reference inputs globally", func(t *testing.T) {
 		testTx := &conway.ConwayTransaction{
 			Body: conway.ConwayTransactionBody{
 				TxInputs: conway.NewConwayTransactionInputSet(
@@ -2979,14 +3048,11 @@ func TestUtxoValidateDisjointRefInputs_ReferenceInputResolutionError(t *testing.
 			testLedgerState,
 			pv11Params,
 		)
-		assert.Error(t, err)
-		var refErr common.ReferenceInputResolutionError
-		assert.True(t, errors.As(err, &refErr), "expected ReferenceInputResolutionError, got %T", err)
-		assert.ErrorIs(t, refErr.Err, refInputResolutionErr)
+		assert.NoError(t, err)
 	})
 
 	t.Run("pre-PV11 does not check reference inputs for PlutusV1V2", func(t *testing.T) {
-		// Pre-PV11 skips the transactionUsesPlutusV1V2 check entirely
+		// Before PV11 the Babbage global predicate still applies.
 		prePv11Params := &conway.ConwayProtocolParameters{
 			ProtocolVersion: common.ProtocolParametersProtocolVersion{
 				Major: 9,
@@ -3018,6 +3084,33 @@ func TestUtxoValidateDisjointRefInputs_ReferenceInputResolutionError(t *testing.
 		// (it delegates directly to babbage.UtxoValidateDisjointRefInputs)
 		assert.NoError(t, err)
 	})
+}
+
+func TestUtxoValidateDisjointRefInputs_PV11AllowsOverlapWithoutPlutus(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input},
+				false,
+			),
+		},
+	}
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11},
+	}
+	require.NoError(t, conway.UtxoValidateDisjointRefInputs(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		pp,
+	))
 }
 
 func TestUtxoValidateCollateralEqBalance(t *testing.T) {
@@ -4909,6 +5002,104 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 		// PV10 doesn't enforce VRF key uniqueness
 		err := conway.UtxoValidateDelegation(tx, 0, ls, pv10Params)
 		assert.NoError(t, err)
+	})
+}
+
+func TestUtxoValidateDelegationReleasesSupersededVrfKeys(t *testing.T) {
+	poolP := common.PoolKeyHash{0x01}
+	poolQ := common.PoolKeyHash{0x02}
+	keyA := common.Blake2b256{0x0a}
+	keyB := common.Blake2b256{0x0b}
+	keyC := common.Blake2b256{0x0c}
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11},
+	}
+	ledgerState := func(owners map[common.Blake2b256]common.PoolKeyHash) common.LedgerState {
+		return mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(key common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				owner, ok := owners[key]
+				return ok, owner, nil
+			}).Build()
+	}
+	registration := func(pool common.PoolKeyHash, key common.Blake2b256) common.Certificate {
+		return &common.PoolRegistrationCertificate{Operator: pool, VrfKeyHash: key}
+	}
+	validate := func(state common.LedgerState, certs ...common.Certificate) error {
+		wrappers := make([]common.CertificateWrapper, len(certs))
+		for idx, cert := range certs {
+			wrappers[idx] = common.CertificateWrapper{Certificate: cert}
+		}
+		tx := &conway.ConwayTransaction{
+			Body:      conway.ConwayTransactionBody{TxCertificates: wrappers},
+			TxIsValid: true,
+		}
+		return conway.UtxoValidateDelegation(tx, 0, state, pp)
+	}
+
+	t.Run("one transaction releases the superseded pending key", func(t *testing.T) {
+		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
+		require.NoError(t, validate(
+			state,
+			registration(poolP, keyB),
+			registration(poolP, keyC),
+			registration(poolQ, keyB),
+		))
+	})
+
+	t.Run("one transaction keeps active and pending keys after A to B", func(t *testing.T) {
+		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
+		for _, key := range []common.Blake2b256{keyA, keyB} {
+			err := validate(
+				state,
+				registration(poolP, keyB),
+				registration(poolQ, key),
+			)
+			var duplicate conway.DuplicateVrfKeyError
+			require.ErrorAs(t, err, &duplicate)
+			require.Equal(t, key, duplicate.VrfKeyHash)
+			require.Equal(t, poolP, duplicate.ExistingPoolId)
+		}
+	})
+
+	t.Run("one transaction keeps the active and latest pending keys", func(t *testing.T) {
+		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
+		for _, key := range []common.Blake2b256{keyA, keyC} {
+			err := validate(
+				state,
+				registration(poolP, keyB),
+				registration(poolP, keyC),
+				registration(poolQ, key),
+			)
+			var duplicate conway.DuplicateVrfKeyError
+			require.ErrorAs(t, err, &duplicate)
+			require.Equal(t, key, duplicate.VrfKeyHash)
+			require.Equal(t, poolP, duplicate.ExistingPoolId)
+		}
+	})
+
+	t.Run("separate transactions retain active and latest keys", func(t *testing.T) {
+		stateBefore := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
+		require.NoError(t, validate(stateBefore, registration(poolP, keyB)))
+		stateAfterAB := ledgerState(map[common.Blake2b256]common.PoolKeyHash{
+			keyA: poolP,
+			keyB: poolP,
+		})
+		require.NoError(t, validate(stateAfterAB, registration(poolP, keyC)))
+		stateAfterABC := ledgerState(map[common.Blake2b256]common.PoolKeyHash{
+			keyA: poolP,
+			keyC: poolP,
+		})
+		require.NoError(t, validate(stateAfterABC, registration(poolQ, keyB)))
+		for _, key := range []common.Blake2b256{keyA, keyC} {
+			var duplicate conway.DuplicateVrfKeyError
+			require.ErrorAs(
+				t,
+				validate(stateAfterABC, registration(poolQ, key)),
+				&duplicate,
+			)
+			require.Equal(t, key, duplicate.VrfKeyHash)
+			require.Equal(t, poolP, duplicate.ExistingPoolId)
+		}
 	})
 }
 

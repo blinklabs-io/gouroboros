@@ -76,6 +76,7 @@ func TestRedeemerTagUnmarshalJSON(t *testing.T) {
 		{`"voting"`, RedeemerTagVoting},
 		{`"proposing"`, RedeemerTagProposing},
 		{`"guarding"`, RedeemerTagGuarding},
+		{`"observe"`, RedeemerTagObserve},
 	}
 	for _, tc := range tests {
 		var tag RedeemerTag

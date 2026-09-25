@@ -115,6 +115,7 @@ func TestReproPreviewV3ScriptFailure(t *testing.T) {
 		slotState,
 		failingTx,
 		resolvedInputs,
+		lcommon.ProtocolVersionDijkstra,
 	)
 	require.NoError(t, err, "build TxInfoV3")
 

@@ -489,12 +489,7 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					pp,
 				)
 				var target conway.CertificateRefundIncorrectError
-				require.True(
-					t,
-					errors.As(err, &target),
-					"unexpected error: %v",
-					err,
-				)
+				require.ErrorAs(t, err, &target)
 			})
 			t.Run("legacy recorded refund", func(t *testing.T) {
 				tx := buildLegacyDeregistration(uint64(pp.KeyDeposit))
@@ -538,7 +533,7 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 				)
 			})
 			t.Run("unregistered", func(t *testing.T) {
-				tx := buildDeregistration(int64(pp.KeyDeposit), 0)
+				tx := buildDeregistration(0, 0)
 				err := runCertificateDepositProductionRules(
 					t,
 					tx,
@@ -638,12 +633,7 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 				continue
 			}
 			var target conway.CertificateRefundIncorrectError
-			require.True(
-				t,
-				errors.As(err, &target),
-				"unexpected error: %v",
-				err,
-			)
+			require.ErrorAs(t, err, &target)
 		}
 		certificateCbor, err := cbor.Encode([]any{
 			uint64(17),
@@ -655,7 +645,7 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 			t,
 			fixture,
 			[][]byte{certificateCbor},
-			int64(pp.DRepDeposit),
+			0,
 			0,
 		)
 		ls := certificateDepositLedgerState{

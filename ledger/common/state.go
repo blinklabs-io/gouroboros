@@ -48,6 +48,27 @@ type StakeCredentialDepositState interface {
 	StakeCredentialDeposit(Credential) (*uint64, error)
 }
 
+// StakeCredentialDepositOrDefault returns the recorded deposit when the
+// ledger state can report it, and fallback otherwise.
+func StakeCredentialDepositOrDefault(
+	ls LedgerState,
+	cred Credential,
+	fallback uint64,
+) (uint64, error) {
+	depositState, ok := UnwrapLedgerState(ls).(StakeCredentialDepositState)
+	if !ok {
+		return fallback, nil
+	}
+	deposit, err := depositState.StakeCredentialDeposit(cred)
+	if err != nil {
+		return 0, err
+	}
+	if deposit == nil {
+		return fallback, nil
+	}
+	return *deposit, nil
+}
+
 // EpochState is the optional ledger-state capability that maps a slot to the
 // epoch containing it. The Shelley POOL rule's retirement bound
 // (StakePoolRetirementWrongEpochPOOL) is expressed relative to the current
@@ -160,6 +181,32 @@ type LedgerState interface {
 // TipState defines the interface for querying the current tip
 type TipState interface {
 	Tip() (pcommon.Tip, error)
+}
+
+// DijkstraLeiosCertificateContext is the ledger state needed to verify a
+// Dijkstra block's Leios certificate. Committee seats are ordered by their
+// signer-bitfield index. A nil key represents a keyless seat.
+type DijkstraLeiosCertificateContext struct {
+	AnnouncingBlockHash Blake2b256
+	TotalActiveStake    uint64
+	Committee           []DijkstraLeiosCommitteeMember
+}
+
+// DijkstraLeiosCommitteeMember is one ordered Leios committee seat.
+type DijkstraLeiosCommitteeMember struct {
+	Stake uint64
+	Key   *LeiosKey
+}
+
+// DijkstraLeiosCertificateState is an optional capability required when a
+// Dijkstra block carries a Leios certificate. Implementations resolve the
+// announcing ranking block, epoch stake snapshot, and ordered committee for
+// the supplied header. Returned keys must be from the snapshot's registered
+// pool parameters; verification checks each key's proof of possession.
+type DijkstraLeiosCertificateState interface {
+	DijkstraLeiosCertificateContext(
+		header BlockHeader,
+	) (DijkstraLeiosCertificateContext, error)
 }
 
 // SlotState defines the interface for querying slots

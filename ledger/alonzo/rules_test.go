@@ -548,6 +548,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
 	testTx := &alonzo.AlonzoTransaction{
+		TxIsValid: true,
 		Body: alonzo.AlonzoTransactionBody{
 			TxOutputs: []alonzo.AlonzoTransactionOutput{
 				// Empty placeholder output
@@ -627,14 +628,12 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"stake deregistration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testStakeDeposit
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			credential := common.Credential{}
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
-				{
-					Type: uint(common.CertificateTypeStakeDeregistration),
-					Certificate: &common.StakeDeregistrationCertificate{
-						StakeCredential: common.Credential{},
-					},
-				},
+				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
+				{Type: uint(common.CertificateTypeStakeRegistration), Certificate: &common.StakeRegistrationCertificate{StakeCredential: credential}},
+				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
 			}
 			err := alonzo.UtxoValidateValueNotConservedUtxo(
 				testTx,

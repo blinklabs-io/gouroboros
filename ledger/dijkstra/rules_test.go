@@ -36,6 +36,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDijkstraMetadataRuleAcceptsConwayTransactionsWithDijkstraParams(t *testing.T) {
+	tx := &conway.ConwayTransaction{}
+	pp := &DijkstraProtocolParameters{}
+
+	require.NoError(t, UtxoValidateMetadata(tx, 0, nil, pp))
+}
+
 func dijkstraValidationRuleName(rule common.UtxoValidationRuleFunc) string {
 	return runtime.FuncForPC(reflect.ValueOf(rule).Pointer()).Name()
 }
@@ -157,19 +164,19 @@ func TestDijkstraWellFormednessPrecedesPlutusExecution(t *testing.T) {
 func TestDijkstraGovernanceValidationRules(t *testing.T) {
 	expected := []string{
 		"ledger/dijkstra.UtxoValidateProposalProcedures",
-		"ledger/conway.UtxoValidateGovActionWellFormedness",
+		"ledger/dijkstra.UtxoValidateGovActionWellFormedness",
 		"ledger/dijkstra.UtxoValidateHardForkCanFollow",
-		"ledger/conway.UtxoValidateProposalAncestry",
+		"ledger/dijkstra.UtxoValidateProposalAncestry",
 		"ledger/dijkstra.UtxoValidateProposalDeposit",
-		"ledger/conway.UtxoValidateProposalNetworkIds",
-		"ledger/conway.UtxoValidateProposalReturnAccounts",
-		"ledger/conway.UtxoValidateEmptyTreasuryWithdrawals",
-		"ledger/conway.UtxoValidateCommitteeCertificates",
-		"ledger/conway.UtxoValidateUnknownVoters",
-		"ledger/conway.UtxoValidateUnknownGovActionIds",
-		"ledger/conway.UtxoValidateVotingOnExpiredGovAction",
+		"ledger/dijkstra.UtxoValidateProposalNetworkIds",
+		"ledger/dijkstra.UtxoValidateProposalReturnAccounts",
+		"ledger/dijkstra.UtxoValidateEmptyTreasuryWithdrawals",
+		"ledger/dijkstra.UtxoValidateCommitteeCertificates",
+		"ledger/dijkstra.UtxoValidateUnknownVoters",
+		"ledger/dijkstra.UtxoValidateUnknownGovActionIds",
+		"ledger/dijkstra.UtxoValidateVotingOnExpiredGovAction",
 		"ledger/dijkstra.UtxoValidateBootstrapVotingRestrictions",
-		"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
+		"ledger/dijkstra.UtxoValidateStakePoolVotingRestrictions",
 		"ledger/dijkstra.UtxoValidateCCVotingRestrictions",
 		"ledger/dijkstra.UtxoValidateUnelectedCommitteeVoters",
 	}
@@ -206,7 +213,7 @@ func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
 
 	rule, _ := dijkstraValidationRule(
 		t,
-		"ledger/conway.UtxoValidateDelegation",
+		"ledger/dijkstra.UtxoValidateDelegation",
 	)
 	validTx := &DijkstraTransaction{
 		Body:      DijkstraTransactionBody{TxCertificates: certificates},
@@ -371,7 +378,7 @@ func TestDijkstraPhase2InvalidStillChecksCollateral(t *testing.T) {
 func TestDijkstraPhase2InvalidChecksProposalReturnAddressShape(t *testing.T) {
 	rule, _ := dijkstraValidationRule(
 		t,
-		"ledger/common.UtxoValidateProposalReturnAddressShape",
+		"ledger/dijkstra.UtxoValidateProposalReturnAddressShape",
 	)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
@@ -447,7 +454,7 @@ func TestDijkstraGovernanceValidationEnforcesGuardrails(t *testing.T) {
 		Build()
 	rule, _ := dijkstraValidationRule(
 		t,
-		"ledger/conway.UtxoValidateGovActionWellFormedness",
+		"ledger/dijkstra.UtxoValidateGovActionWellFormedness",
 	)
 
 	validate := func(tx common.Transaction) error {
@@ -718,7 +725,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
-			"ledger/conway.UtxoValidateProposalAncestry",
+			"ledger/dijkstra.UtxoValidateProposalAncestry",
 		)
 		err := rule(tx, 0, ls, pp)
 		var ancestryErr conway.InvalidGovActionAncestorError
@@ -757,7 +764,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
-			"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
+			"ledger/dijkstra.UtxoValidateStakePoolVotingRestrictions",
 		)
 		err = rule(tx, 0, ls, pp)
 		var votingErr conway.StakePoolVotingRestrictionError
@@ -796,7 +803,7 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 		ls := mockledger.NewLedgerStateBuilder().Build()
 		rule, _ := dijkstraValidationRule(
 			t,
-			"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
+			"ledger/dijkstra.UtxoValidateStakePoolVotingRestrictions",
 		)
 		require.NoError(t, rule(tx, 0, ls, pp))
 	})
@@ -1154,6 +1161,44 @@ func TestUtxoValidateBatchWithdrawals(t *testing.T) {
 	tx, _, _ = newBatchTx(balance-topWithdrawal+1, false)
 	err = rule(tx, 0, ls, pp)
 	require.NoError(t, err)
+}
+
+func TestDijkstraLegacyTopLevelWithdrawalUsesPostSubTransactionBalance(
+	t *testing.T,
+) {
+	const startingBalance = uint64(100)
+	const subWithdrawal = uint64(40)
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	script := common.PlutusV1Script{0x41, 0x00}
+	tx, credential := testDijkstraWithdrawalTx(t, 60, script)
+	var address *common.Address
+	for candidate := range tx.Body.TxWithdrawals {
+		address = candidate
+	}
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]DijkstraSubTransaction{{
+			Body: DijkstraSubTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					address: subWithdrawal,
+				},
+			},
+		}},
+		false,
+	)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithRewardAccountCredentialBalance(credential, startingBalance).
+		Build()
+
+	require.NoError(t, UtxoValidateWithdrawals(tx, 0, ls, pp))
+
+	tx.Body.TxWithdrawals[address] = 59
+	var amountErr shelley.IncorrectWithdrawalAmountError
+	require.ErrorAs(
+		t,
+		UtxoValidateWithdrawals(tx, 0, ls, pp),
+		&amountErr,
+	)
 }
 
 func mustAddressBytes(t *testing.T, address *common.Address) []byte {
@@ -1864,27 +1909,45 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	ls := mockledger.NewLedgerStateBuilder().Build()
 
 	t.Run("unwrapped fails closed", func(t *testing.T) {
-		_, err := script.NewTxInfoV1FromTransaction(ls, tx, nil, true)
+		_, err := script.NewTxInfoV1FromTransaction(
+			ls, tx, nil, true, common.ProtocolVersionDijkstra,
+		)
 		var unmatchedErr script.UnmatchedRedeemerError
 		require.ErrorAs(t, err, &unmatchedErr)
 
-		_, err = script.NewTxInfoV2FromTransaction(ls, tx, nil, true)
+		_, err = script.NewTxInfoV2FromTransaction(
+			ls, tx, nil, true, common.ProtocolVersionDijkstra,
+		)
 		require.ErrorAs(t, err, &unmatchedErr)
 
-		_, err = script.NewTxInfoV3FromTransaction(ls, tx, nil)
+		_, err = script.NewTxInfoV3FromTransaction(
+			ls,
+			tx,
+			nil,
+			common.ProtocolVersionDijkstra,
+		)
 		require.ErrorAs(t, err, &unmatchedErr)
 	})
 
 	t.Run("wrapped succeeds", func(t *testing.T) {
 		wrapped := transactionWithoutGuardingRedeemers{Transaction: tx}
 
-		_, err := script.NewTxInfoV1FromTransaction(ls, wrapped, nil, true)
+		_, err := script.NewTxInfoV1FromTransaction(
+			ls, wrapped, nil, true, common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 
-		_, err = script.NewTxInfoV2FromTransaction(ls, wrapped, nil, true)
+		_, err = script.NewTxInfoV2FromTransaction(
+			ls, wrapped, nil, true, common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 
-		_, err = script.NewTxInfoV3FromTransaction(ls, wrapped, nil)
+		_, err = script.NewTxInfoV3FromTransaction(
+			ls,
+			wrapped,
+			nil,
+			common.ProtocolVersionDijkstra,
+		)
 		require.NoError(t, err)
 	})
 }

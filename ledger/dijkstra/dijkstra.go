@@ -251,6 +251,22 @@ func (c DijkstraLeiosCertificate) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode([]any{c.Signers, c.AggregatedSignature})
 }
 
+// Validate checks the certificate fields whose constraints depend on the
+// configured Leios committee size. CBOR decoding separately enforces the
+// maximum signer-bitfield size and signature width.
+func (c *DijkstraLeiosCertificate) Validate(committeeSize uint64) error {
+	if c == nil {
+		return errors.New("dijkstra Leios certificate is nil")
+	}
+	if err := common.ValidateLeiosSignature(
+		"DijkstraLeiosCertificate: AggregatedSignature",
+		c.AggregatedSignature,
+	); err != nil {
+		return err
+	}
+	return common.ValidateLeiosSignerBitfield(c.Signers, committeeSize)
+}
+
 // DijkstraBlockBody is the Dijkstra block body. Per the pinned
 // cardano-ledger Dijkstra CDDL it is a 3-element array:
 //
@@ -1141,6 +1157,9 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
+	if err := common.ValidatePoolRegistrationOwners(tmp.TxCertificates); err != nil {
+		return err
+	}
 	// Reject duplicate members in every Dijkstra set encoding, including
 	// untagged arrays.
 	type duplicateChecker interface {
@@ -1177,12 +1196,14 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return fmt.Errorf("collateral return: %w", err)
 		}
 	}
-	if err := cbor.ValidateMapFields(
+	if err := common.ValidateMapFields(
 		cborData,
-		[]uint64{0, 1, 2},
-		[]uint64{4, 5, 9, 13, 18, 20, 23, 24, 25, 26, 27},
+		[]uint{0, 1, 2},
+		[]uint{4, 5, 9, 13, 18, 20, 23, 24, 25, 26, 27},
+		nil,
+		22,
 	); err != nil {
-		return fmt.Errorf("invalid Dijkstra transaction body: %w", err)
+		return err
 	}
 	*b = DijkstraTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(
@@ -1542,6 +1563,9 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
 		return err
 	}
+	if err := common.ValidatePoolRegistrationOwners(tmp.TxCertificates); err != nil {
+		return err
+	}
 	if err := tmp.TxInputs.CheckForDuplicatesAlways(); err != nil {
 		return err
 	}
@@ -1557,12 +1581,14 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}
-	if err := cbor.ValidateMapFields(
+	if err := common.ValidateMapFields(
 		cborData,
-		[]uint64{0, 1},
-		[]uint64{4, 5, 9, 18, 20, 25, 26},
+		[]uint{0, 1},
+		[]uint{4, 5, 9, 18, 20, 25, 26},
+		nil,
+		22,
 	); err != nil {
-		return fmt.Errorf("invalid Dijkstra subtransaction body: %w", err)
+		return err
 	}
 	*b = DijkstraSubTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(
@@ -1648,6 +1674,10 @@ func (b *DijkstraSubTransactionBody) ClearValidityIntervalUpperBound() {
 
 func (b *DijkstraSubTransactionBody) ValidityIntervalStart() uint64 {
 	return b.TxValidityIntervalStart
+}
+
+func (b *DijkstraSubTransactionBody) NetworkId() *uint8 {
+	return b.TxNetworkId
 }
 
 func (b *DijkstraSubTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
@@ -1801,11 +1831,11 @@ type DijkstraTransactionWitnessSet struct {
 }
 
 func (w DijkstraTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
-	if raw := w.Cbor(); len(raw) > 0 {
-		return raw, nil
-	}
 	if len(w.WsPlutusV4Scripts.Items()) > 0 {
 		return nil, errors.New("dijkstra witness set does not support field 8")
+	}
+	if raw := w.Cbor(); len(raw) > 0 {
+		return raw, nil
 	}
 	type tDijkstraTransactionWitnessSet DijkstraTransactionWitnessSet
 	return cbor.Encode(tDijkstraTransactionWitnessSet(w))
@@ -1833,6 +1863,12 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	}
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 6); err != nil {
 		return err
+	}
+	if err := common.ValidateRedeemerTagLimit(
+		tmp.WsRedeemers,
+		common.RedeemerTagObserve,
+	); err != nil {
+		return fmt.Errorf("invalid Dijkstra redeemers: %w", err)
 	}
 	for _, witness := range tmp.BootstrapWitnesses.Items() {
 		if len(witness.ChainCode) != 32 {
@@ -2051,7 +2087,11 @@ func (t DijkstraTransaction) IsValid() bool {
 
 func (t DijkstraTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
-		return t.Inputs()
+		var ret []common.TransactionInput
+		for _, subTx := range t.Body.TxSubTransactions.Items() {
+			ret = append(ret, subTx.Body.Inputs()...)
+		}
+		return append(ret, t.Inputs()...)
 	}
 	return t.Collateral()
 }
@@ -2060,6 +2100,17 @@ func (t DijkstraTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		outputs := t.Outputs()
 		ret := make([]common.Utxo, 0, len(outputs))
+		for _, subTx := range t.Body.TxSubTransactions.Items() {
+			for idx, output := range subTx.Body.Outputs() {
+				ret = append(ret, common.Utxo{
+					Id: shelley.NewShelleyTransactionInput(
+						subTx.Body.Id().String(),
+						idx,
+					),
+					Output: output,
+				})
+			}
+		}
 		for idx, output := range outputs {
 			ret = append(
 				ret,
@@ -2127,6 +2178,9 @@ func (t DijkstraTransaction) SubTransactionOutputs() []common.TransactionOutput 
 }
 
 func (t *DijkstraTransaction) MarshalCBOR() ([]byte, error) {
+	if len(t.WitnessSet.WsPlutusV4Scripts.Items()) > 0 {
+		return nil, errors.New("dijkstra Plutus V4 scripts must be supplied by reference scripts")
+	}
 	if cborData := t.DecodeStoreCbor.Cbor(); cborData != nil {
 		return cborData, nil
 	}
@@ -2397,21 +2451,17 @@ func decodeAuxiliaryDataInto(
 	if isCborNull(raw) {
 		return nil
 	}
-	aux, err := common.DecodeAuxiliaryData(raw)
-	if err == nil && aux != nil {
-		*auxData = aux
-		md, _ := aux.Metadata()
-		if md != nil {
-			*metadata = md
-		}
-		return nil
+	aux, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraDijkstra)
+	if err != nil {
+		return fmt.Errorf("decode Dijkstra auxiliary data: %w", err)
 	}
-	md, err := common.DecodeAuxiliaryDataToMetadata(raw)
-	if err == nil && md != nil {
-		*metadata = md
-		return nil
+	*auxData = aux
+	md, err := aux.Metadata()
+	if err != nil {
+		return fmt.Errorf("decode Dijkstra auxiliary metadata: %w", err)
 	}
-	return errors.New("decode Dijkstra auxiliary data")
+	*metadata = md
+	return nil
 }
 
 func isCborNull(raw cbor.RawMessage) bool {

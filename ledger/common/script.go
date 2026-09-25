@@ -640,6 +640,62 @@ func plutusWitnessScripts(witnesses TransactionWitnessSet) []Script {
 	return ret
 }
 
+// ValidateAuxiliaryDataPlutusScriptsWellFormed validates every Plutus script
+// carried in transaction auxiliary data using the active protocol version.
+// These scripts are checked even when they are not needed or executed.
+func ValidateAuxiliaryDataPlutusScriptsWellFormed(
+	auxiliaryData AuxiliaryData,
+	protocolMajor uint,
+) error {
+	if auxiliaryData == nil {
+		return nil
+	}
+	v1, err := auxiliaryData.PlutusV1Scripts()
+	if err != nil {
+		return fmt.Errorf("read auxiliary-data Plutus V1 scripts: %w", err)
+	}
+	if err := validateAuxiliaryPlutusScripts(plutusScripts(v1), 1, protocolMajor); err != nil {
+		return err
+	}
+	v2, err := auxiliaryData.PlutusV2Scripts()
+	if err != nil {
+		return fmt.Errorf("read auxiliary-data Plutus V2 scripts: %w", err)
+	}
+	if err := validateAuxiliaryPlutusScripts(plutusScripts(v2), 2, protocolMajor); err != nil {
+		return err
+	}
+	v3, err := auxiliaryData.PlutusV3Scripts()
+	if err != nil {
+		return fmt.Errorf("read auxiliary-data Plutus V3 scripts: %w", err)
+	}
+	if err := validateAuxiliaryPlutusScripts(plutusScripts(v3), 3, protocolMajor); err != nil {
+		return err
+	}
+	v4, err := auxiliaryData.PlutusV4Scripts()
+	if err != nil {
+		return fmt.Errorf("read auxiliary-data Plutus V4 scripts: %w", err)
+	}
+	return validateAuxiliaryPlutusScripts(plutusScripts(v4), 4, protocolMajor)
+}
+
+func validateAuxiliaryPlutusScripts(
+	scripts []Script,
+	version, protocolMajor uint,
+) error {
+	for _, script := range scripts {
+		scriptHash, err := validatePlutusScriptWellFormed(script, protocolMajor)
+		if err != nil {
+			return fmt.Errorf(
+				"malformed auxiliary-data Plutus V%d script %s: %w",
+				version,
+				scriptHash,
+				err,
+			)
+		}
+	}
+	return nil
+}
+
 // ValidatePlutusScriptsWellFormed contextually validates every Plutus witness
 // and newly produced reference script before phase-2 execution. Validation is
 // independent of the transaction's IsValid flag.
@@ -717,6 +773,13 @@ func ValidatePlutusScriptsWellFormed(
 			ScriptHashes: malformedReferences,
 		}
 	}
+	auxiliaryDataErr := ValidateAuxiliaryDataPlutusScriptsWellFormed(
+		tx.AuxiliaryData(),
+		protocolMajor,
+	)
+	if auxiliaryDataErr != nil {
+		return errors.Join(witnessErr, referenceErr, auxiliaryDataErr)
+	}
 	if witnessErr != nil && referenceErr != nil {
 		return errors.Join(witnessErr, referenceErr)
 	}
@@ -724,6 +787,36 @@ func ValidatePlutusScriptsWellFormed(
 		return witnessErr
 	}
 	return referenceErr
+}
+
+// ValidateAuxiliaryDataScriptsWellFormed checks every script stored in
+// auxiliary data, including scripts that are not needed or executed.
+func ValidateAuxiliaryDataScriptsWellFormed(
+	tx Transaction,
+	protocolMajor uint,
+) error {
+	if tx == nil {
+		return errors.New("transaction is required")
+	}
+	auxiliaryData := tx.AuxiliaryData()
+	if auxiliaryData == nil {
+		return nil
+	}
+	nativeScripts, err := auxiliaryData.NativeScripts()
+	if err != nil {
+		return fmt.Errorf("decode auxiliary-data native scripts: %w", err)
+	}
+	maxNativeScriptConstructor := uint(5)
+	if tx.Type() >= 7 { // Dijkstra transaction type.
+		maxNativeScriptConstructor = 6
+	}
+	if err := ValidateNativeScriptConstructors(
+		nativeScripts,
+		maxNativeScriptConstructor,
+	); err != nil {
+		return fmt.Errorf("invalid auxiliary-data native script: %w", err)
+	}
+	return ValidateAuxiliaryDataPlutusScriptsWellFormed(auxiliaryData, protocolMajor)
 }
 
 type NativeScript struct {
@@ -947,6 +1040,24 @@ type NativeScriptPubkey struct {
 	cbor.StructAsArray
 	Type uint
 	Hash []byte
+}
+
+// UnmarshalCBOR requires the signature hash to match its ledger-defined width.
+func (s *NativeScriptPubkey) UnmarshalCBOR(data []byte) error {
+	type nativeScriptPubkeyAlias NativeScriptPubkey
+	var decoded nativeScriptPubkeyAlias
+	if _, err := cbor.Decode(data, &decoded); err != nil {
+		return err
+	}
+	if len(decoded.Hash) != Blake2b224Size {
+		return fmt.Errorf(
+			"invalid native script key hash: expected %d bytes, got %d",
+			Blake2b224Size,
+			len(decoded.Hash),
+		)
+	}
+	*s = NativeScriptPubkey(decoded)
+	return nil
 }
 
 type NativeScriptAll struct {

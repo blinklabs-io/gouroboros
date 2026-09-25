@@ -50,7 +50,9 @@ func normalizeFixture(t *testing.T) (lcommon.Transaction, []lcommon.Utxo) {
 	if err != nil {
 		t.Fatalf("decode parent transaction hex: %v", err)
 	}
-	parentTx, err := conway.NewConwayTransactionFromCbor(parentBytes)
+	parentTx, err := conway.NewConwayTransactionFromCbor(
+		requirePostBabbageTransactionFields(t, parentBytes),
+	)
 	if err != nil {
 		t.Fatalf("parse parent transaction: %v", err)
 	}
@@ -58,7 +60,9 @@ func normalizeFixture(t *testing.T) (lcommon.Transaction, []lcommon.Utxo) {
 	if err != nil {
 		t.Fatalf("decode spending transaction hex: %v", err)
 	}
-	spendTx, err := conway.NewConwayTransactionFromCbor(spendBytes)
+	spendTx, err := conway.NewConwayTransactionFromCbor(
+		requirePostBabbageTransactionFields(t, spendBytes),
+	)
 	if err != nil {
 		t.Fatalf("parse spending transaction: %v", err)
 	}
@@ -84,6 +88,7 @@ func TestTxInfoRedeemerDataNormalized(t *testing.T) {
 		normalizeSlotState,
 		spendTx,
 		resolvedInputs,
+		lcommon.ProtocolVersionDijkstra,
 	)
 	if err != nil {
 		t.Fatalf("build TxInfoV3: %v", err)
@@ -112,6 +117,7 @@ func TestTxInfoDataNormalized(t *testing.T) {
 		normalizeSlotState,
 		spendTx,
 		resolvedInputs,
+		lcommon.ProtocolVersionDijkstra,
 	)
 	if err != nil {
 		t.Fatalf("build TxInfoV3: %v", err)
@@ -141,6 +147,7 @@ func TestScriptPurposeSpendingDatumNormalized(t *testing.T) {
 		normalizeSlotState,
 		spendTx,
 		resolvedInputs,
+		lcommon.ProtocolVersionDijkstra,
 	)
 	if err != nil {
 		t.Fatalf("build TxInfoV3: %v", err)
@@ -182,7 +189,9 @@ func TestTxInfoV2InputDatumNormalized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode parent transaction hex: %v", err)
 	}
-	parentTx, err := conway.NewConwayTransactionFromCbor(parentBytes)
+	parentTx, err := conway.NewConwayTransactionFromCbor(
+		requirePostBabbageTransactionFields(t, parentBytes),
+	)
 	if err != nil {
 		t.Fatalf("parse parent transaction: %v", err)
 	}
@@ -190,7 +199,9 @@ func TestTxInfoV2InputDatumNormalized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode spending transaction hex: %v", err)
 	}
-	spendTx, err := conway.NewConwayTransactionFromCbor(spendBytes)
+	spendTx, err := conway.NewConwayTransactionFromCbor(
+		requirePostBabbageTransactionFields(t, spendBytes),
+	)
 	if err != nil {
 		t.Fatalf("parse spending transaction: %v", err)
 	}
@@ -207,6 +218,7 @@ func TestTxInfoV2InputDatumNormalized(t *testing.T) {
 		spendTx,
 		resolvedInputs,
 		false,
+		lcommon.ProtocolVersionConway,
 	)
 	if err != nil {
 		t.Fatalf("build TxInfoV2: %v", err)

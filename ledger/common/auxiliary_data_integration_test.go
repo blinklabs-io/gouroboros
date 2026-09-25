@@ -157,9 +157,9 @@ func TestRealMaryTransactionWithMetadataAndScripts(t *testing.T) {
 // Test with Alonzo transaction containing metadata and all script types
 func TestRealAlonzoTransactionWithAllScriptTypes(t *testing.T) {
 	// Metadata
-	metadataMap := make(map[string]any)
-	metadataMap["contract"] = "swap"
-	metadataMap["version"] = 1
+	metadataMap := make(map[uint]any)
+	metadataMap[1] = "swap"
+	metadataMap[2] = 1
 	metadataCbor, err := cbor.Encode(metadataMap)
 	if err != nil {
 		t.Fatalf("failed to encode metadata: %v", err)
@@ -276,8 +276,8 @@ func TestRealAlonzoTransactionWithAllScriptTypes(t *testing.T) {
 // Test with Conway transaction containing Plutus V3 scripts
 func TestRealConwayTransactionWithPlutusV3(t *testing.T) {
 	// Metadata
-	metadataMap := make(map[string]string)
-	metadataMap["era"] = "Conway"
+	metadataMap := make(map[uint]string)
+	metadataMap[1] = "Conway"
 	metadataCbor, err := cbor.Encode(metadataMap)
 	if err != nil {
 		t.Fatalf("failed to encode metadata: %v", err)
@@ -345,9 +345,9 @@ func TestComplexMetadataStructure(t *testing.T) {
 	innerMap["name"] = "Test NFT"
 	innerMap["image"] = "ipfs://test123"
 
-	outerMap := make(map[string]any)
-	outerMap["721"] = innerMap
-	outerMap["version"] = "1.0"
+	outerMap := make(map[uint]any)
+	outerMap[721] = innerMap
+	outerMap[1] = "1.0"
 
 	metadataCbor, err := cbor.Encode(outerMap)
 	if err != nil {
@@ -383,8 +383,8 @@ func TestComplexMetadataStructure(t *testing.T) {
 // Benchmark auxiliary data decoding
 func BenchmarkDecodeAuxiliaryData(b *testing.B) {
 	// Create Alonzo auxiliary data
-	metadataMap := make(map[string]string)
-	metadataMap["test"] = "benchmark"
+	metadataMap := make(map[uint]string)
+	metadataMap[1] = "benchmark"
 	metadataCbor, _ := cbor.Encode(metadataMap)
 
 	auxMap := make(map[uint]cbor.RawMessage)

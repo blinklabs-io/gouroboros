@@ -71,6 +71,7 @@ func TestTxInfoSignatoriesDeduplicated(t *testing.T) {
 					tx,
 					nil,
 					false,
+					lcommon.ProtocolVersionAlonzo,
 				)
 				if err != nil {
 					return nil, err
@@ -90,6 +91,7 @@ func TestTxInfoSignatoriesDeduplicated(t *testing.T) {
 					tx,
 					nil,
 					false,
+					lcommon.ProtocolVersionBabbage,
 				)
 				if err != nil {
 					return nil, err

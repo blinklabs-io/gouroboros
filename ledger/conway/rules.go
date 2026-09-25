@@ -371,8 +371,8 @@ func isInConwayBootstrapPhase(pp common.ProtocolParameters) bool {
 }
 
 // UtxoValidateDisjointRefInputs ensures reference inputs don't overlap with regular inputs.
-// For PV11+, this check is skipped when PlutusV1/V2 scripts are present, as the
-// NonDisjointRefInputs restriction is reverted for backwards compatibility.
+// At PV11 and later, the transaction-wide restriction is removed. The Plutus
+// V3 context applies its own restriction when a V3 script executes.
 func UtxoValidateDisjointRefInputs(
 	tx common.Transaction,
 	slot uint64,
@@ -383,76 +383,14 @@ func UtxoValidateDisjointRefInputs(
 	if !ok {
 		return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
 	}
-	// PV11+ skips this check for transactions with PlutusV1/V2 scripts
+	// PV11 removes the transaction-wide rule. The Plutus V3 context applies
+	// its own restriction only when a V3 script is actually executed.
 	if common.IsProtocolVersionAtLeast(
 		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
 	) {
-		usesV1V2, err := transactionUsesPlutusV1V2(tx, ls)
-		if err != nil {
-			return err
-		}
-		if usesV1V2 {
-			return nil
-		}
+		return nil
 	}
 	return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
-}
-
-// transactionUsesPlutusV1V2 checks if the transaction uses PlutusV1 or PlutusV2 scripts,
-// either in the witness set or as reference scripts.
-// Returns an error if a reference input cannot be resolved.
-func transactionUsesPlutusV1V2(
-	tx common.Transaction,
-	ls common.LedgerState,
-) (bool, error) {
-	ws := tx.Witnesses()
-	if ws != nil {
-		if len(ws.PlutusV1Scripts()) > 0 || len(ws.PlutusV2Scripts()) > 0 {
-			return true, nil
-		}
-	}
-	// Also check reference scripts on reference inputs
-	// For reference inputs, propagate resolution errors
-	for _, refInput := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return false, common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script:
-			return true, nil
-		}
-	}
-	// Check reference scripts on regular inputs
-	// For regular inputs, skip on errors (existing behavior)
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script:
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // UtxoValidateProposalProcedures validates governance proposal contents
@@ -2319,6 +2257,225 @@ func UtxoValidateBadInputsUtxo(
 	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
 }
 
+type valueConservationStakeState struct {
+	registered bool
+	deposit    uint64
+}
+
+func conwayValueConservationDeposits(
+	tx common.Transaction,
+	ls common.LedgerState,
+	pp *ConwayProtocolParameters,
+) (*big.Int, *big.Int, error) {
+	refunds := new(big.Int)
+	deposits := new(big.Int)
+	keyDeposit := uint64(pp.KeyDeposit)
+	drepDeposit := pp.DRepDeposit
+	stakeStates := make(map[certificateStakeCredentialKey]valueConservationStakeState)
+	drepStates := make(map[certificateStakeCredentialKey]*common.DRepRegistration)
+	getStake := func(cred common.Credential) (valueConservationStakeState, error) {
+		key := certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}
+		if state, ok := stakeStates[key]; ok {
+			return state, nil
+		}
+		state := valueConservationStakeState{
+			registered: ls.IsStakeCredentialRegistered(cred),
+			deposit:    keyDeposit,
+		}
+		if state.registered {
+			deposit, err := common.StakeCredentialDepositOrDefault(ls, cred, keyDeposit)
+			if err != nil {
+				return state, err
+			}
+			state.deposit = deposit
+		}
+		stakeStates[key] = state
+		return state, nil
+	}
+	setStake := func(cred common.Credential, state valueConservationStakeState) {
+		stakeStates[certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}] = state
+	}
+	getDRep := func(cred common.Credential) (*common.DRepRegistration, error) {
+		key := certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}
+		if state, ok := drepStates[key]; ok {
+			return state, nil
+		}
+		state, err := ls.DRepRegistration(cred)
+		if err != nil {
+			return nil, err
+		}
+		if state != nil && state.Deposit == nil {
+			return nil, DRepDepositStateInconsistentError{Credential: cred}
+		}
+		drepStates[key] = state
+		return state, nil
+	}
+	setDRep := func(cred common.Credential, state *common.DRepRegistration) {
+		drepStates[certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}] = state
+	}
+	nonNegativeAmount := func(cert common.Certificate, amount int64) (uint64, error) {
+		if amount < 0 {
+			return 0, shelley.InvalidCertificateDepositError{
+				CertificateType: common.CertificateType(cert.Type()),
+				Amount:          amount,
+			}
+		}
+		return uint64(amount), nil
+	}
+	checkDeposit := func(cert common.Certificate, amount int64, expected uint64) error {
+		got, err := nonNegativeAmount(cert, amount)
+		if err != nil {
+			return err
+		}
+		if got != expected {
+			return CertificateDepositIncorrectError{
+				CertificateType: common.CertificateType(cert.Type()),
+				Supplied:        amount,
+				Expected:        expected,
+			}
+		}
+		return nil
+	}
+	for _, wrapped := range tx.Certificates() {
+		switch cert := wrapped.(type) {
+		case *common.StakeDeregistrationCertificate:
+			state, err := getStake(cert.StakeCredential)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !state.registered && tx.IsValid() {
+				return nil, nil, StakeCredentialNotRegisteredError{
+					Credential: cert.StakeCredential,
+				}
+			}
+			if !state.registered {
+				continue
+			}
+			refunds.Add(refunds, new(big.Int).SetUint64(state.deposit))
+			state.registered = false
+			state.deposit = 0
+			setStake(cert.StakeCredential, state)
+		case *common.DeregistrationCertificate:
+			var amount uint64
+			if tx.IsValid() {
+				parsedAmount, parseErr := nonNegativeAmount(cert, cert.Amount)
+				if parseErr != nil {
+					return nil, nil, parseErr
+				}
+				amount = parsedAmount
+			}
+			state, err := getStake(cert.StakeCredential)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !state.registered && tx.IsValid() {
+				return nil, nil, StakeCredentialNotRegisteredError{
+					Credential: cert.StakeCredential,
+				}
+			}
+			if !state.registered {
+				continue
+			}
+			if amount != state.deposit && tx.IsValid() {
+				return nil, nil, CertificateRefundIncorrectError{
+					CertificateType: common.CertificateType(cert.Type()),
+					Supplied:        cert.Amount,
+					Expected:        state.deposit,
+				}
+			}
+			refunds.Add(refunds, new(big.Int).SetUint64(state.deposit))
+			state.registered = false
+			state.deposit = 0
+			setStake(cert.StakeCredential, state)
+		case *common.DeregistrationDrepCertificate:
+			var amount uint64
+			if tx.IsValid() {
+				parsedAmount, parseErr := nonNegativeAmount(cert, cert.Amount)
+				if parseErr != nil {
+					return nil, nil, parseErr
+				}
+				amount = parsedAmount
+			}
+			state, err := getDRep(cert.DrepCredential)
+			if err != nil {
+				return nil, nil, err
+			}
+			if state == nil {
+				if !tx.IsValid() {
+					continue
+				}
+				return nil, nil, DRepNotRegisteredError{Credential: cert.DrepCredential}
+			}
+			if state.Deposit == nil {
+				return nil, nil, DRepDepositStateInconsistentError{Credential: cert.DrepCredential}
+			}
+			if amount != *state.Deposit && tx.IsValid() {
+				return nil, nil, CertificateRefundIncorrectError{
+					CertificateType: common.CertificateType(cert.Type()),
+					Supplied:        cert.Amount,
+					Expected:        *state.Deposit,
+				}
+			}
+			refunds.Add(refunds, new(big.Int).SetUint64(*state.Deposit))
+			setDRep(cert.DrepCredential, nil)
+		case *common.StakeRegistrationCertificate:
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		case *common.RegistrationCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, keyDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		case *common.RegistrationDrepCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, drepDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposit := drepDeposit
+			deposits.Add(deposits, new(big.Int).SetUint64(deposit))
+			registeredDeposit := deposit
+			setDRep(cert.DrepCredential, &common.DRepRegistration{Credential: cert.DrepCredential, Deposit: &registeredDeposit})
+		case *common.StakeRegistrationDelegationCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, keyDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		case *common.StakeVoteRegistrationDelegationCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, keyDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		case *common.VoteRegistrationDelegationCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, keyDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		}
+	}
+	for _, proposal := range tx.ProposalProcedures() {
+		if tx.IsValid() && proposal.Deposit() != uint64(pp.GovActionDeposit) {
+			return nil, nil, ProposalDepositIncorrectError{
+				Supplied: proposal.Deposit(),
+				Expected: uint64(pp.GovActionDeposit),
+			}
+		}
+	}
+	return refunds, deposits, nil
+}
+
 // ValidateTreasuryDonationScriptCompatibility rejects donations at a
 // transaction level that uses PlutusV1 or PlutusV2 scripts.
 func ValidateTreasuryDonationScriptCompatibility(
@@ -2329,37 +2486,21 @@ func ValidateTreasuryDonationScriptCompatibility(
 	if donation == nil || donation.Sign() <= 0 {
 		return nil
 	}
-	witnesses := tx.Witnesses()
-	plutusVersion := ""
-	if witnesses != nil {
-		if len(witnesses.PlutusV1Scripts()) > 0 {
-			plutusVersion = "PlutusV1"
-		} else if len(witnesses.PlutusV2Scripts()) > 0 {
-			plutusVersion = "PlutusV2"
-		}
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil && !errors.Is(err, common.ErrInputResolution) {
+		return err
 	}
-	if plutusVersion == "" {
-		for _, refInput := range tx.ReferenceInputs() {
-			utxo, err := ls.UtxoById(refInput)
-			if err != nil {
-				return common.ReferenceInputResolutionError{
-					Input: refInput,
-					Err:   err,
-				}
-			}
-			if utxo.Output == nil {
-				continue
-			}
-			switch utxo.Output.ScriptRef().(type) {
-			case common.PlutusV1Script:
-				plutusVersion = "PlutusV1"
-			case common.PlutusV2Script:
-				plutusVersion = "PlutusV2"
-			}
-			if plutusVersion != "" {
-				break
-			}
-		}
+	plutusVersion := ""
+	if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV1Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV1"
+	} else if view.NeedsAny(func(candidate common.Script) bool {
+		_, ok := candidate.(common.PlutusV2Script)
+		return ok
+	}) {
+		plutusVersion = "PlutusV2"
 	}
 	if plutusVersion == "" {
 		return nil
@@ -2401,53 +2542,16 @@ func UtxoValidateValueNotConservedUtxo(
 			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
 		}
 	}
-	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
-	for _, cert := range tx.Certificates() {
-		switch tmpCert := cert.(type) {
-		case *common.DeregistrationCertificate:
-			// CIP-0094 deregistration uses Amount field for refund (symmetric with registration deposit)
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			consumedValue.Add(consumedValue, big.NewInt(tmpCert.Amount))
-		case *common.DeregistrationDrepCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			consumedValue.Add(consumedValue, big.NewInt(tmpCert.Amount))
-		case *common.StakeDeregistrationCertificate:
-			// A legacy deregistration refunds the deposit recorded when the
-			// credential registered, which may predate a KeyDeposit change.
-			//
-			// The current parameter remains the fallback for a state that
-			// cannot report the recorded deposit. Failing closed here instead
-			// rejects six Amaru conformance vectors, because value
-			// conservation runs for every legacy deregistration while
-			// UtxoValidateCertificateDeposits only needs the capability once a
-			// credential resolves as registered.
-			refund := new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit))
-			if depositState, ok := common.UnwrapLedgerState(ls).(common.StakeCredentialDepositState); ok {
-				deposit, err := depositState.StakeCredentialDeposit(
-					tmpCert.StakeCredential,
-				)
-				if err != nil {
-					return err
-				}
-				if deposit != nil {
-					refund = new(big.Int).SetUint64(*deposit)
-				}
-			}
-			consumedValue.Add(consumedValue, refund)
-			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
-			// Pool deposits are refunded at epoch boundary after the retirement epoch has passed.
-		}
+	certificateRefunds, certificateDeposits, err := conwayValueConservationDeposits(
+		tx,
+		ls,
+		tmpPparams,
+	)
+	if err != nil {
+		return err
 	}
+	consumedValue.Add(consumedValue, certificateRefunds)
+	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
 	// Add minted/burned ADA
 	if tx.AssetMint() != nil {
 		mintedAda := tx.AssetMint().Asset(common.Blake2b224{}, []byte{})
@@ -2466,6 +2570,7 @@ func UtxoValidateValueNotConservedUtxo(
 	if fee := tx.Fee(); fee != nil {
 		producedValue.Add(producedValue, fee)
 	}
+	producedValue.Add(producedValue, certificateDeposits)
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
@@ -2483,56 +2588,12 @@ func UtxoValidateValueNotConservedUtxo(
 			if depositDue {
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
-		case *common.RegistrationCertificate:
-			// CIP-0094 registration uses Amount field for deposit
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
-		case *common.RegistrationDrepCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
-		case *common.StakeRegistrationCertificate:
-			// Traditional stake registration uses protocol KeyDeposit parameter
-			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
-		case *common.StakeRegistrationDelegationCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
-		case *common.StakeVoteRegistrationDelegationCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
-		case *common.VoteRegistrationDelegationCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
 		}
 	}
-	for _, proposal := range tx.ProposalProcedures() {
+	for range tx.ProposalProcedures() {
 		producedValue.Add(
 			producedValue,
-			new(big.Int).SetUint64(proposal.Deposit()),
+			new(big.Int).SetUint64(uint64(tmpPparams.GovActionDeposit)),
 		)
 	}
 	// Add treasury donation - value leaving the transaction to go to the treasury.
@@ -3060,7 +3121,17 @@ func UtxoValidateMetadata(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return shelley.UtxoValidateMetadata(tx, slot, ls, pp)
+	if err := shelley.UtxoValidateMetadata(tx, slot, ls, pp); err != nil {
+		return err
+	}
+	params, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	return common.ValidateAuxiliaryDataScriptsWellFormed(
+		tx,
+		params.ProtocolVersion.Major,
+	)
 }
 
 // UtxoValidateSupplementalDatums checks that all datums in the witness set are
@@ -3178,6 +3249,7 @@ func UtxoValidatePlutusScripts(
 			votes,
 			proposalProcedures,
 			witnessDatums,
+			conwayPparams.ProtocolVersion.Major,
 		)
 		if err != nil {
 			// Redeemer doesn't match any valid purpose (index out of bounds, etc.)
@@ -3213,6 +3285,10 @@ func UtxoValidatePlutusScripts(
 			if p.ScriptHash() == (common.ScriptHash{}) {
 				return ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
+		case script.ScriptPurposeVoting:
+			if !script.VoterUsesScriptCredential(p.Voter) {
+				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+			}
 		}
 
 		// Find the script for this purpose
@@ -3241,8 +3317,19 @@ func UtxoValidatePlutusScripts(
 		case common.PlutusV3Script:
 			// Build V3 TxInfo lazily
 			if !txInfoV3Built {
+				if err := script.ValidatePlutusV3ReferenceInputs(
+					tx,
+					conwayPparams.ProtocolVersion.Major,
+				); err != nil {
+					return ScriptContextConstructionError{Err: err}
+				}
 				var err error
-				txInfoV3, err = script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
+				txInfoV3, err = script.NewTxInfoV3FromTransaction(
+					ls,
+					tx,
+					resolvedInputs,
+					conwayPparams.ProtocolVersion.Major,
+				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
@@ -3283,6 +3370,7 @@ func UtxoValidatePlutusScripts(
 				txInfoV2, err = script.NewTxInfoV2FromTransaction(
 					ls, tx, resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
@@ -3318,6 +3406,7 @@ func UtxoValidatePlutusScripts(
 				txInfoV1, err = script.NewTxInfoV1FromTransaction(
 					ls, tx, resolvedInputs,
 					script.StrictValidityUpperBoundForTransaction(tx),
+					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
@@ -3409,6 +3498,7 @@ func UtxoValidateDelegation(
 	inTxDRepRegs := make(map[stakeCredentialKey]bool)
 	// Track VRF keys seen in this transaction (for PV11+ duplicate detection)
 	inTxVrfKeys := make(map[common.Blake2b256]common.PoolKeyHash)
+	inTxPoolVrfKeys := make(map[common.PoolKeyHash]common.Blake2b256)
 
 	// Helper to check if stake credential is registered (in state or in-tx)
 	isStakeRegistered := func(cred common.Credential) bool {
@@ -3491,6 +3581,26 @@ func UtxoValidateDelegation(
 			return false, InvalidDRepTypeError{DrepType: drep.Type}
 		}
 	}
+	validateDRepTarget := func(drep common.Drep) error {
+		if isInConwayBootstrapPhase(pp) {
+			return nil
+		}
+		registered, err := isDRepRegistered(drep)
+		if err != nil {
+			return err
+		}
+		if registered {
+			return nil
+		}
+		credType, err := drepTypeToCredType(drep.Type)
+		if err != nil {
+			return err
+		}
+		return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
+			CredType:   credType,
+			Credential: common.NewBlake2b224(drep.Credential),
+		}}
+	}
 
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
@@ -3510,6 +3620,12 @@ func UtxoValidateDelegation(
 			// PV11+: Validate VRF key uniqueness for pool registrations
 			conwayPp, ok := pp.(*ConwayProtocolParameters)
 			if ok && common.IsProtocolVersionAtLeast(conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem) {
+				if previousKey, exists := inTxPoolVrfKeys[c.Operator]; exists &&
+					previousKey != c.VrfKeyHash {
+					if inTxVrfKeys[previousKey] == c.Operator {
+						delete(inTxVrfKeys, previousKey)
+					}
+				}
 				// Check for in-tx VRF key duplicates first
 				if existingPoolId, exists := inTxVrfKeys[c.VrfKeyHash]; exists {
 					// Allow same pool to re-register with same VRF key
@@ -3527,6 +3643,7 @@ func UtxoValidateDelegation(
 				}
 				// Track this VRF key for subsequent pool registrations in this tx
 				inTxVrfKeys[c.VrfKeyHash] = c.Operator
+				inTxPoolVrfKeys[c.Operator] = c.VrfKeyHash
 			}
 
 		case *common.RegistrationDrepCertificate:
@@ -3562,20 +3679,8 @@ func UtxoValidateDelegation(
 			if !isStakeRegistered(c.StakeCredential) {
 				return DelegateUnregisteredStakeCredentialError{Credential: c.StakeCredential}
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 
 		case *common.StakeVoteDelegationCertificate:
@@ -3587,20 +3692,8 @@ func UtxoValidateDelegation(
 			if !isStakeRegistered(c.StakeCredential) {
 				return DelegateUnregisteredStakeCredentialError{Credential: c.StakeCredential}
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 
 		case *common.StakeRegistrationDelegationCertificate:
@@ -3616,20 +3709,8 @@ func UtxoValidateDelegation(
 			if err := registerStakeCredential(c.StakeCredential); err != nil {
 				return err
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 
 		case *common.StakeVoteRegistrationDelegationCertificate:
@@ -3640,20 +3721,8 @@ func UtxoValidateDelegation(
 			if !isPoolRegistered(c.PoolKeyHash) {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
-			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			drepRegistered, err := isDRepRegistered(c.Drep)
-			if err != nil {
+			if err := validateDRepTarget(c.Drep); err != nil {
 				return err
-			}
-			if !drepRegistered {
-				credType, err := drepTypeToCredType(c.Drep.Type)
-				if err != nil {
-					return err
-				}
-				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   credType,
-					Credential: common.NewBlake2b224(c.Drep.Credential),
-				}}
 			}
 		}
 	}

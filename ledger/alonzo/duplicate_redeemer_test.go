@@ -18,8 +18,10 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/require"
 )
 
 func decodeRedeemers(t *testing.T, raw string) alonzo.AlonzoRedeemers {
@@ -101,4 +103,22 @@ func TestAlonzoRedeemersDuplicateKeyPreservesDistinctKeys(t *testing.T) {
 			t.Errorf("Iter[%d] = %#v, want %#v", i, got[i], want[i])
 		}
 	}
+}
+
+func TestAlonzoWitnessSetRejectsObserveRedeemer(t *testing.T) {
+	redeemers, err := cbor.Encode([]any{
+		[]any{
+			uint64(common.RedeemerTagObserve), uint64(0), uint64(0),
+			[]uint64{0, 0},
+		},
+	})
+	require.NoError(t, err)
+	witnessSet, err := cbor.Encode(map[uint]any{
+		5: cbor.RawMessage(redeemers),
+	})
+	require.NoError(t, err)
+
+	var decoded alonzo.AlonzoTransactionWitnessSet
+	err = decoded.UnmarshalCBOR(witnessSet)
+	require.ErrorContains(t, err, "unsupported redeemer tag 6")
 }

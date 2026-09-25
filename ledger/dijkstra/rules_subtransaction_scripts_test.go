@@ -233,6 +233,7 @@ func TestVerifyTransactionRequiresReferencePlutusV4GuardRedeemer(t *testing.T) {
 					witnesses.WsRedeemers = DijkstraRedeemers{
 						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 							redeemerKey: {
+								Data: common.Datum{Data: data.NewInteger(big.NewInt(1))},
 								ExUnits: common.ExUnits{
 									Steps:  10_000_000,
 									Memory: 10_000_000,
@@ -267,6 +268,12 @@ func TestVerifyTransactionRequiresReferencePlutusV4GuardRedeemer(t *testing.T) {
 					tx.WitnessSet = witnesses
 				}
 
+				if withRedeemer && !subtransaction {
+					encoded, err := tx.MarshalCBOR()
+					require.NoError(t, err)
+					tx, err = NewDijkstraTransactionFromCbor(encoded)
+					require.NoError(t, err)
+				}
 				err := common.VerifyTransaction(
 					tx,
 					0,

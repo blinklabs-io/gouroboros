@@ -83,6 +83,11 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
+		common.AuxiliaryDataEraConway,
+	); err != nil {
+		return err
+	}
 
 	// Convert the wire indices to the platform type without discarding values.
 	result := make([]uint, 0, len(tmp.InvalidTransactions))
@@ -244,7 +249,7 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 		}
 		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
 			len(raw) > 0 {
-			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+			if aux, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraConway); err == nil &&
 				aux != nil {
 				tx.auxData = aux
 			}
@@ -486,6 +491,12 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 5); err != nil {
 		return err
 	}
+	if err := common.ValidateRedeemerTagLimit(
+		tmp.WsRedeemers,
+		common.RedeemerTagProposing,
+	); err != nil {
+		return fmt.Errorf("invalid Conway redeemers: %w", err)
+	}
 	// Conway (protocol versions 9-11) tolerates duplicate members in the
 	// witness-set sets that cardano-ledger decodes via Set/Map.fromList: vkey
 	// witnesses, bootstrap witnesses, native scripts, and plutus data all
@@ -681,6 +692,15 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateMapFields(
+		cborData,
+		[]uint{0, 1, 2},
+		[]uint{4, 5, 9, 13, 14, 18, 20},
+		nil,
+		22,
+	); err != nil {
+		return err
+	}
 	for idx := range tmp.TxOutputs {
 		if err := common.ValidateNativeScriptOutputConstructor(&tmp.TxOutputs[idx], 5); err != nil {
 			return fmt.Errorf("transaction output %d: %w", idx, err)
@@ -701,6 +721,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidatePoolRegistrationOwners(tmp.TxCertificates); err != nil {
 		return err
 	}
 	// Reject duplicate members in every Conway set encoding, including
@@ -751,13 +774,6 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		); err != nil {
 			return fmt.Errorf("collateral return: %w", err)
 		}
-	}
-	if err := cbor.ValidateMapFields(
-		cborData,
-		[]uint64{0, 1, 2},
-		[]uint64{4, 5, 9, 13, 14, 18, 20},
-	); err != nil {
-		return fmt.Errorf("invalid Conway transaction body: %w", err)
 	}
 	*b = ConwayTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(
@@ -1054,31 +1070,18 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
 		// 0xF6 is CBOR null
 
-		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
-		if err == nil && auxData != nil {
-			t.auxData = auxData
-			// Extract metadata for backward compatibility
-			metadata, _ := auxData.Metadata()
-			if metadata != nil {
-				t.TxMetadata = metadata
-			}
-		} else {
-			// Fallback to old method for backward compatibility
-			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if fallbackErr != nil || metadata == nil {
-				if fallbackErr == nil {
-					fallbackErr = errors.New("metadata fallback returned no metadata")
-				}
-				return fmt.Errorf(
-					"failed to decode auxiliary data: %w (metadata fallback: %w)",
-					err,
-					fallbackErr,
-				)
-			}
-			if metadata != nil {
-				t.TxMetadata = metadata
-			}
+		// Decode auxiliary data using the transaction era's consensus rules.
+		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraConway)
+		if err != nil {
+			return fmt.Errorf("failed to decode auxiliary data: %w", err)
+		}
+		t.auxData = auxData
+		metadata, err := auxData.Metadata()
+		if err != nil {
+			return fmt.Errorf("failed to decode auxiliary metadata: %w", err)
+		}
+		if metadata != nil {
+			t.TxMetadata = metadata
 		}
 	}
 

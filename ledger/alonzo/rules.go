@@ -691,12 +691,45 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 	}
 	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
-	for _, cert := range tx.Certificates() {
-		switch cert.(type) {
-		case *common.StakeDeregistrationCertificate:
-			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
-			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
-			// Pool deposits are refunded to the reward account at the end of the retiring epoch.
+	stakeCertificateEffectsValid := tx.IsValid() ||
+		!common.TransactionRunsPhase2Scripts(tx)
+	type stakeCredentialKey struct {
+		credType uint
+		hash     string
+	}
+	keyForCredential := func(cred common.Credential) stakeCredentialKey {
+		return stakeCredentialKey{credType: cred.CredType, hash: string(cred.Credential[:])}
+	}
+	stakeRegistered := make(map[stakeCredentialKey]bool)
+	stakeDeposits := make(map[stakeCredentialKey]uint64)
+	if stakeCertificateEffectsValid {
+		for _, cert := range tx.Certificates() {
+			switch tmpCert := cert.(type) {
+			case *common.StakeDeregistrationCertificate:
+				cred := tmpCert.StakeCredential
+				key := keyForCredential(cred)
+				registered, ok := stakeRegistered[key]
+				if !ok {
+					registered = ls.IsStakeCredentialRegistered(cred)
+					if registered {
+						deposit, err := common.StakeCredentialDepositOrDefault(ls, cred, uint64(tmpPparams.KeyDeposit))
+						if err != nil {
+							return err
+						}
+						stakeDeposits[key] = deposit
+					}
+				}
+				if registered {
+					consumedValue.Add(consumedValue, new(big.Int).SetUint64(stakeDeposits[key]))
+					stakeRegistered[key] = false
+				}
+			case *common.StakeRegistrationCertificate:
+				key := keyForCredential(tmpCert.StakeCredential)
+				stakeRegistered[key] = true
+				stakeDeposits[key] = uint64(tmpPparams.KeyDeposit)
+				// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
+				// Pool deposits are refunded to the reward account at the end of the retiring epoch.
+			}
 		}
 	}
 	// Calculate produced value
@@ -728,7 +761,9 @@ func UtxoValidateValueNotConservedUtxo(
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
-			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
+			if stakeCertificateEffectsValid {
+				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
+			}
 		}
 	}
 	if consumedValue.Cmp(producedValue) != 0 {
@@ -1082,7 +1117,17 @@ func UtxoValidateMetadata(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return shelley.UtxoValidateMetadata(tx, slot, ls, pp)
+	if err := shelley.UtxoValidateMetadata(tx, slot, ls, pp); err != nil {
+		return err
+	}
+	params, ok := pp.(*AlonzoProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	return common.ValidateAuxiliaryDataScriptsWellFormed(
+		tx,
+		params.ProtocolMajor,
+	)
 }
 
 func UtxoValidateDelegation(
