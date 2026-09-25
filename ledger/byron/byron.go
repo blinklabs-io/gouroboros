@@ -1700,31 +1700,25 @@ func (h *ByronEpochBoundaryBlockHeader) Era() common.Era {
 	return EraByron
 }
 
-// BlockBodyHashChecked returns the EBB header's body hash, or an error
-// wrapping ErrMalformedBodyProof when the body proof is not a 32-byte hash.
-// See ByronMainBlockHeader.BlockBodyHashChecked for why this exists
-// alongside BlockBodyHash.
+// BlockBodyHashChecked returns the zero hash for an EBB because its body
+// proof is an opaque byte string that the reference decoder discards. A
+// non-byte-string proof is malformed. The EBB body proof must not bind the
+// block body to the header; see #2341.
 func (h *ByronEpochBoundaryBlockHeader) BlockBodyHashChecked() (
 	common.Blake2b256,
 	error,
 ) {
-	// BodyProof is the hash of the block body, encoded as bytes in CBOR
-	if bodyProofBytes, ok := h.BodyProof.([]byte); ok &&
-		len(bodyProofBytes) == common.Blake2b256Size {
-		var hash common.Blake2b256
-		copy(hash[:], bodyProofBytes)
-		return hash, nil
+	if _, ok := h.BodyProof.([]byte); ok {
+		return common.Blake2b256{}, nil
 	}
 	return common.Blake2b256{}, fmt.Errorf(
-		"%w: epoch boundary block header body proof is %T, expected a "+
-			"%d-byte hash",
-		ErrMalformedBodyProof, h.BodyProof, common.Blake2b256Size,
+		"%w: epoch boundary block header body proof is %T, expected a byte string",
+		ErrMalformedBodyProof, h.BodyProof,
 	)
 }
 
-// BlockBodyHash satisfies common.BlockHeader. See
-// ByronMainBlockHeader.BlockBodyHash for why a malformed proof yields a
-// zero hash here rather than an error.
+// BlockBodyHash satisfies common.BlockHeader. EBB body proofs have no hash
+// semantics, so this returns zero for every well-formed proof.
 func (h *ByronEpochBoundaryBlockHeader) BlockBodyHash() common.Blake2b256 {
 	hash, err := h.BlockBodyHashChecked()
 	if err != nil {
