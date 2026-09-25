@@ -430,17 +430,25 @@ func decodeCBORItemEndDepth(b []byte, offset, depth int) (int, bool) {
 		return offset, !indefinite
 	case cborTypeByteString, cborTypeTextString:
 		if !indefinite {
-			if arg > uint64(len(b)-offset) {
+			remaining := len(b) - offset
+			// #nosec G115 -- remaining is non-negative and fits in uint64.
+			if arg > uint64(remaining) {
 				return offset, false
 			}
+			// #nosec G115 -- arg is bounded by remaining, which fits in int.
 			return offset + int(arg), true
 		}
 		for offset < len(b) && b[offset] != cborBreak {
 			chunkType, chunkLength, next, chunkIndefinite, err := cborItemHead(b, offset)
-			if err != nil || chunkType != majorType || chunkIndefinite ||
-				chunkLength > uint64(len(b)-next) {
+			if err != nil || chunkType != majorType || chunkIndefinite {
 				return offset, false
 			}
+			remaining := len(b) - next
+			// #nosec G115 -- remaining is non-negative and fits in uint64.
+			if chunkLength > uint64(remaining) {
+				return offset, false
+			}
+			// #nosec G115 -- chunkLength is bounded by remaining, which fits in int.
 			offset = next + int(chunkLength)
 		}
 		if offset >= len(b) {
@@ -1038,7 +1046,7 @@ func (a *AlonzoAuxiliaryData) decodeTaggedAuxiliaryDataField(
 		version := key - 1
 		if version > uint64(rules.maxPlutusVersion) {
 			return fmt.Errorf(
-				"Plutus V%d auxiliary scripts are not supported in this era",
+				"auxiliary scripts for Plutus V%d are not supported in this era",
 				version,
 			)
 		}
@@ -1220,7 +1228,7 @@ func DecodeAuxiliaryDataForEra(
 	case cborTypeTag:
 		if !rules.allowTaggedMap {
 			return nil, errors.New(
-				"Alonzo auxiliary-data maps are not supported in this era",
+				"tagged auxiliary-data maps are not supported in this era",
 			)
 		}
 		auxData := &AlonzoAuxiliaryData{}

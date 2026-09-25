@@ -372,7 +372,7 @@ func TestEraDecodersRejectMalformedAuxiliaryData(t *testing.T) {
 			blockHex:   testdata.AlonzoBlockHex,
 			eraFormat:  encodeTaggedAuxiliaryData(t, map[uint]any{3: []any{}}),
 			fourFields: true,
-			wantError:  "Plutus V2 auxiliary scripts are not supported",
+			wantError:  "auxiliary scripts for Plutus V2 are not supported",
 			blockDecode: func(raw []byte) error {
 				_, err := alonzo.NewAlonzoBlockFromCbor(raw)
 				return err
@@ -387,7 +387,7 @@ func TestEraDecodersRejectMalformedAuxiliaryData(t *testing.T) {
 			blockHex:   testdata.BabbageBlockHex,
 			eraFormat:  encodeTaggedAuxiliaryData(t, map[uint]any{4: []any{}}),
 			fourFields: true,
-			wantError:  "Plutus V3 auxiliary scripts are not supported",
+			wantError:  "auxiliary scripts for Plutus V3 are not supported",
 			blockDecode: func(raw []byte) error {
 				_, err := babbage.NewBabbageBlockFromCbor(raw)
 				return err
@@ -402,7 +402,7 @@ func TestEraDecodersRejectMalformedAuxiliaryData(t *testing.T) {
 			blockHex:   testdata.ConwayBlockHex,
 			eraFormat:  encodeTaggedAuxiliaryData(t, map[uint]any{5: []any{}}),
 			fourFields: true,
-			wantError:  "Plutus V4 auxiliary scripts are not supported",
+			wantError:  "auxiliary scripts for Plutus V4 are not supported",
 			blockDecode: func(raw []byte) error {
 				_, err := conway.NewConwayBlockFromCbor(raw)
 				return err
