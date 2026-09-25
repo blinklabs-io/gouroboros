@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -44,6 +45,9 @@ type ValidateStageConfig struct {
 	Eta0Provider Eta0Provider
 	// SlotsPerKesPeriod is the number of slots per KES period.
 	SlotsPerKesPeriod uint64
+	// ByronSlotsPerEpoch overrides the legacy Byron epoch length when
+	// validating slots on a non-mainnet network. Zero keeps legacy behavior.
+	ByronSlotsPerEpoch uint64
 	// VerifyConfig contains verification options.
 	VerifyConfig common.VerifyConfig
 }
@@ -92,6 +96,19 @@ func (s *ValidateStage) Process(ctx context.Context, item *BlockItem) error {
 
 	block := item.Block()
 	slot := block.SlotNumber()
+	if block.Era().Id == ledgerbyron.EraIdByron {
+		var err error
+		slot, err = ledgerbyron.SlotNumberFromHeader(
+			block,
+			s.config.ByronSlotsPerEpoch,
+		)
+		if err != nil {
+			duration := time.Since(start)
+			convertErr := fmt.Errorf("convert Byron block slot: %w", err)
+			item.SetValidation(false, "", convertErr, duration)
+			return convertErr
+		}
+	}
 
 	// Get the epoch nonce from the provider
 	if s.config.Eta0Provider == nil {

@@ -61,6 +61,82 @@ func TestStreamingBlockDecoder(t *testing.T) {
 	})
 }
 
+func TestStreamingBlockDecoderUsesEncodedArrayHeaders(t *testing.T) {
+	outputs := cbor.IndefLengthList{}
+	for outputIndex := range 24 {
+		outputs = append(outputs, []any{
+			[]byte{byte(outputIndex + 1)},
+			uint64(outputIndex),
+		})
+	}
+
+	txBodies := cbor.IndefLengthList{}
+	witnesses := cbor.IndefLengthList{}
+	for txIndex := range 24 {
+		txBodies = append(txBodies, map[uint64]any{
+			1: outputs,
+			2: uint64(txIndex),
+		})
+		witnesses = append(witnesses, map[uint64]any{})
+	}
+	blockData, err := cbor.Encode(cbor.IndefLengthList{
+		[]any{},
+		txBodies,
+		witnesses,
+		map[uint64]any{},
+		[]uint{},
+	})
+	require.NoError(t, err)
+
+	decoder, err := common.NewStreamingBlockDecoder(blockData)
+	require.NoError(t, err)
+	offsets, err := decoder.DecodeWithOffsets()
+	require.NoError(t, err)
+	require.Len(t, offsets.Transactions, len(txBodies))
+
+	blockParts := make([]cbor.RawMessage, 0)
+	_, err = cbor.Decode(blockData, &blockParts)
+	require.NoError(t, err)
+	expectedBodies := make([]cbor.RawMessage, 0)
+	_, err = cbor.Decode(blockParts[1], &expectedBodies)
+	require.NoError(t, err)
+	expectedWitnesses := make([]cbor.RawMessage, 0)
+	_, err = cbor.Decode(blockParts[2], &expectedWitnesses)
+	require.NoError(t, err)
+
+	for _, txIndex := range []int{0, len(txBodies) - 1} {
+		body, err := common.ExtractTransactionBodyCbor(
+			blockData,
+			offsets,
+			txIndex,
+		)
+		require.NoError(t, err)
+		require.Equal(t, []byte(expectedBodies[txIndex]), body)
+
+		witness, err := common.ExtractWitnessCbor(blockData, offsets, txIndex)
+		require.NoError(t, err)
+		require.Equal(t, []byte(expectedWitnesses[txIndex]), witness)
+
+		bodyFields := make(map[uint64]cbor.RawMessage)
+		_, err = cbor.Decode(expectedBodies[txIndex], &bodyFields)
+		require.NoError(t, err)
+		expectedOutputs := make([]cbor.RawMessage, 0)
+		_, err = cbor.Decode(bodyFields[1], &expectedOutputs)
+		require.NoError(t, err)
+
+		for _, outputIndex := range []int{0, len(expectedOutputs) - 1} {
+			output, err := common.ExtractOutputCbor(
+				blockData,
+				offsets,
+				txIndex,
+				outputIndex,
+			)
+			require.NoError(t, err)
+			require.Equal(t, []byte(expectedOutputs[outputIndex]), output)
+		}
+	}
+}
+
 func TestExtractOutputCbor(t *testing.T) {
 	t.Run("valid extraction", func(t *testing.T) {
 		// Create mock block data and offsets

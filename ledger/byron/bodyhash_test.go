@@ -135,14 +135,19 @@ func TestMainBlockBodyHashCheckedMalformed(t *testing.T) {
 	}
 }
 
-func TestEBBBodyHashCheckedValid(t *testing.T) {
-	bodyHash := bytes.Repeat([]byte{0x7e}, common.Blake2b256Size)
-	header := &byron.ByronEpochBoundaryBlockHeader{BodyProof: bodyHash}
+func TestEBBBodyHashCheckedTreatsProofAsOpaque(t *testing.T) {
+	for _, proof := range [][]byte{
+		bytes.Repeat([]byte{0x7e}, 31),
+		bytes.Repeat([]byte{0x7e}, common.Blake2b256Size),
+		bytes.Repeat([]byte{0x7e}, common.Blake2b256Size+1),
+	} {
+		header := &byron.ByronEpochBoundaryBlockHeader{BodyProof: proof}
 
-	hash, err := header.BlockBodyHashChecked()
-	require.NoError(t, err)
-	require.Equal(t, bodyHash, hash.Bytes())
-	require.Equal(t, hash, header.BlockBodyHash())
+		hash, err := header.BlockBodyHashChecked()
+		require.NoError(t, err)
+		require.Equal(t, common.Blake2b256{}, hash)
+		require.Equal(t, common.Blake2b256{}, header.BlockBodyHash())
+	}
 }
 
 func TestEBBBodyHashCheckedMalformed(t *testing.T) {
@@ -152,10 +157,6 @@ func TestEBBBodyHashCheckedMalformed(t *testing.T) {
 	}{
 		{name: "nil proof", bodyProof: nil},
 		{name: "proof is an array", bodyProof: []any{uint64(0)}},
-		{
-			name:      "proof truncated",
-			bodyProof: bytes.Repeat([]byte{0x01}, 31),
-		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {

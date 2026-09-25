@@ -133,9 +133,21 @@ func (c *ByronConfig) SlotToEpoch(slot uint64) uint64 {
 	return slot / c.SlotsPerEpoch
 }
 
-// EpochFirstSlot returns the first slot of an epoch.
+// EpochFirstSlot returns the first slot of an epoch, or zero if the configured
+// epoch length is zero or the result overflows. Use EpochFirstSlotChecked to
+// distinguish those errors from epoch zero.
 func (c *ByronConfig) EpochFirstSlot(epoch uint64) uint64 {
-	return epoch * c.SlotsPerEpoch
+	slot, err := c.EpochFirstSlotChecked(epoch)
+	if err != nil {
+		return 0
+	}
+	return slot
+}
+
+// EpochFirstSlotChecked returns the first absolute slot of an epoch, or an
+// error when the configured epoch length is zero or the result overflows.
+func (c *ByronConfig) EpochFirstSlotChecked(epoch uint64) (uint64, error) {
+	return ledgerbyron.SlotNumberFromEpochAndSlot(epoch, 0, c.SlotsPerEpoch)
 }
 
 // IsEpochBoundarySlot returns true if the slot is at an epoch boundary.

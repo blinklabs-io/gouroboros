@@ -939,7 +939,10 @@ func (v *HeaderValidator) buildToSignWithEpoch(
 	}
 	prevHash := headerElems[1]
 	bodyProof := headerElems[2]
-	extraHeader := headerElems[4]
+	extraHeader, err := canonicalByronExtraHeader(headerElems[4])
+	if err != nil {
+		return nil, 0, fmt.Errorf("decode extra header data: %w", err)
+	}
 
 	// consensusData: [epochAndSlot, pubKey, difficulty, blockSig]
 	var consensusElems []cbor.RawMessage
@@ -981,6 +984,60 @@ func (v *HeaderValidator) buildToSignWithEpoch(
 	toSignBytes = append(toSignBytes, extraHeader...)
 
 	return toSignBytes, slotId.Epoch, nil
+}
+
+// canonicalByronExtraHeader reproduces encCBORBlockVersions. The reference
+// decoder retains the protocol and software versions, but drops the
+// attributes map and extra-data proof before encoding them for ToSign.
+func canonicalByronExtraHeader(raw cbor.RawMessage) ([]byte, error) {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &fields); err != nil {
+		return nil, err
+	}
+	if len(fields) != 4 {
+		return nil, fmt.Errorf("extra header data is not a 4-element array, got %d elements", len(fields))
+	}
+	var protocolVersion byron.ByronBlockVersion
+	if _, err := cbor.Decode(fields[0], &protocolVersion); err != nil {
+		return nil, fmt.Errorf("decode protocol version: %w", err)
+	}
+	var softwareVersion byron.ByronSoftwareVersion
+	if _, err := cbor.Decode(fields[1], &softwareVersion); err != nil {
+		return nil, fmt.Errorf("decode software version: %w", err)
+	}
+	// The reference decoder requires fields[2] to be an empty attributes map.
+	if len(fields[2]) == 0 || fields[2][0]&cbor.CborTypeMask != cbor.CborTypeMap {
+		return nil, errors.New("extra header attributes must be a CBOR map")
+	}
+	if fields[2][0] == 0xbf {
+		return nil, errors.New("extra header attributes must use a definite-length map")
+	}
+	var attributes map[any]any
+	if _, err := cbor.Decode(fields[2], &attributes); err != nil {
+		return nil, fmt.Errorf("decode extra header attributes: %w", err)
+	}
+	if len(attributes) != 0 {
+		return nil, fmt.Errorf("extra header attributes must be empty, got %d entries", len(attributes))
+	}
+	if _, err := cbor.Decode(fields[3], new([]byte)); err != nil {
+		return nil, fmt.Errorf("decode extra-data proof: %w", err)
+	}
+
+	canonical := make(
+		[]byte,
+		0,
+		1+len(fields[0])+len(fields[1])+1+2+common.Blake2b256Size,
+	)
+	canonical = append(canonical, 0x84)
+	canonical = append(canonical, fields[0]...)
+	canonical = append(canonical, fields[1]...)
+	canonical = append(canonical, 0xa0)
+	canonical = append(canonical, 0x58, 0x20)
+	canonical = append(
+		canonical,
+		common.Blake2b256Hash([]byte{0x81, 0xa0}).Bytes()...,
+	)
+	return canonical, nil
 }
 
 // extractUint64 extracts a uint64 from various numeric types
@@ -1133,9 +1190,13 @@ func ValidateByronBlockHeader(
 	isEBB bool,
 ) error {
 	validator := NewHeaderValidator(config)
+	slot, err := slotNumberWithEpochLength(header, config.SlotsPerEpoch)
+	if err != nil {
+		return fmt.Errorf("convert Byron header slot: %w", err)
+	}
 
 	input := &ValidateHeaderInput{
-		Slot:          header.SlotNumber(),
+		Slot:          slot,
 		BlockNumber:   header.BlockNumber(),
 		PrevHash:      header.PrevHash().Bytes(),
 		ProtocolMagic: config.ProtocolMagic, // Note: uses config, not header (see doc above)
@@ -1147,7 +1208,14 @@ func ValidateByronBlockHeader(
 	// For genesis or first-block scenarios, callers pass nil to skip
 	// slot/number/hash comparisons and let validatePrevHash handle it.
 	if prevHeader != nil {
-		input.PrevSlot = prevHeader.SlotNumber()
+		prevSlot, err := slotNumberWithEpochLength(
+			prevHeader,
+			config.SlotsPerEpoch,
+		)
+		if err != nil {
+			return fmt.Errorf("convert previous Byron header slot: %w", err)
+		}
+		input.PrevSlot = prevSlot
 		input.PrevBlockNumber = prevHeader.BlockNumber()
 		input.PrevHeaderHash = prevHeader.Hash().Bytes()
 	}
@@ -1157,6 +1225,13 @@ func ValidateByronBlockHeader(
 		return result.Errors[0]
 	}
 	return nil
+}
+
+func slotNumberWithEpochLength(
+	header interface{ SlotNumber() uint64 },
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	return byron.SlotNumberFromHeader(header, slotsPerEpoch)
 }
 
 // ValidateByronMainBlockHeader validates a ByronMainBlockHeader.

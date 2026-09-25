@@ -120,6 +120,60 @@ func testByronProxyInput(
 	}
 }
 
+func TestValidateByronMainBlockHeaderUsesConfiguredEpochLength(t *testing.T) {
+	prevHeader := &byron.ByronMainBlockHeader{}
+	prevHeader.ProtocolMagic = 7
+	prevHeader.ConsensusData.SlotId.Slot = 1000
+	prevHeader.ConsensusData.Difficulty.Value = 1
+
+	header := &byron.ByronMainBlockHeader{}
+	header.ProtocolMagic = 7
+	header.ConsensusData.SlotId.Epoch = 1
+	header.ConsensusData.Difficulty.Value = 2
+	header.PrevBlock = prevHeader.Hash()
+
+	err := ValidateByronMainBlockHeader(
+		header,
+		prevHeader,
+		ByronConfig{ProtocolMagic: 7, SlotsPerEpoch: 600},
+	)
+	require.ErrorContains(
+		t,
+		err,
+		"slot must be greater than or equal to previous slot",
+	)
+}
+
+func TestValidateByronMainBlockHeaderRejectsSlotOverflow(t *testing.T) {
+	header := &byron.ByronMainBlockHeader{}
+	header.ConsensusData.SlotId.Epoch = math.MaxUint64
+
+	err := ValidateByronMainBlockHeader(
+		header,
+		nil,
+		ByronConfig{SlotsPerEpoch: 2},
+	)
+	require.ErrorIs(t, err, byron.ErrByronSlotNumberOverflow)
+}
+
+func TestSlotNumberWithEpochLengthDefaultsLegacyLength(t *testing.T) {
+	header := &byron.ByronMainBlockHeader{}
+	header.ConsensusData.SlotId.Epoch = 1
+	header.ConsensusData.SlotId.Slot = 7
+
+	got, err := slotNumberWithEpochLength(header, 0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(byron.ByronSlotsPerEpoch+7), got)
+}
+
+func TestEpochFirstSlotChecked(t *testing.T) {
+	config := ByronConfig{SlotsPerEpoch: 2}
+	_, err := config.EpochFirstSlotChecked(math.MaxUint64)
+	require.ErrorIs(t, err, byron.ErrByronSlotNumberOverflow)
+	_, err = (&ByronConfig{}).EpochFirstSlotChecked(1)
+	require.ErrorIs(t, err, byron.ErrByronSlotsPerEpochZero)
+}
+
 func TestNewHeaderValidator(t *testing.T) {
 	config := testByronConfig()
 	validator := NewHeaderValidator(config)
@@ -493,7 +547,7 @@ func TestValidateSimpleSignatureRequiresMainBlockDomain(t *testing.T) {
 	header.ConsensusData.PubKey = []byte{}
 	header.ConsensusData.Difficulty.Value = 3
 	header.ConsensusData.BlockSig = []any{}
-	header.ExtraData.Attributes = []byte{}
+	header.ExtraData.Attributes = map[any]any{}
 	header.ExtraData.ExtraProof = make([]byte, common.Blake2b256Size)
 	headerCbor, err := cbor.Encode(header)
 	require.NoError(t, err)
@@ -629,44 +683,39 @@ func TestValidateProxySignatureRejectsGarbage(t *testing.T) {
 	require.ErrorContains(t, err, "block signature verification failed")
 }
 
-func TestValidateSimpleSignatureReferenceVector(t *testing.T) {
-	// This static type-0 vector follows cardano-sl's Signing/Tag.hs and
-	// Signing/Safe.hs reference layout:
-	// SignMainBlock (0x07) || CBOR(protocol magic) || CBOR(MainToSign).
-	// The fixed buffer, public key, and signature prevent the test from signing
-	// bytes assembled by the implementation under test.
-	headerCbor, err := hex.DecodeString(
-		"8500582000000000000000000000000000000000000000000000000000000000" +
-			"00000000f68482070bf68113f68483000000826000f658200000000000000000" +
-			"000000000000000000000000000000000000000000000000",
+func TestValidateSimpleSignatureCanonicalizesDroppedExtraHeaderFields(t *testing.T) {
+	// The reference decoder requires empty attributes and an arbitrary
+	// extra-data proof, then encodes their canonical values for ToSign.
+	proofHash, err := hex.DecodeString(
+		"4ba92aa320c60acc9ad7b9a64f2eda55c4d2ec28e604faf186708b4f0c4e8edf",
 	)
 	require.NoError(t, err)
-	signedBuffer, err := hex.DecodeString(
-		"071a2d964a098558200000000000000000000000000000000000000000000000" +
-			"000000000000000000f682070b81138483000000826000f65820000000000000" +
-			"0000000000000000000000000000000000000000000000000000",
-	)
-	require.NoError(t, err)
-	pubKey, err := hex.DecodeString(
-		"03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
-	)
-	require.NoError(t, err)
-	signature, err := hex.DecodeString(
-		"905092bd0d1aeceaa69a7bd402545bda19db9cd16a5a6a55a5c0ccc766043d74" +
-			"ee7a6879a6a1df801c85e5691d28a2b61bfc0fbbfeb814e94c1d5e40b5120707",
-	)
-	require.NoError(t, err)
+	prevHash := append([]byte{0x58, 0x20}, make([]byte, common.Blake2b256Size)...)
+	headerCbor := []byte{0x85, 0x1a, 0x2d, 0x96, 0x4a, 0x09}
+	headerCbor = append(headerCbor, prevHash...)
+	headerCbor = append(headerCbor, 0xf6) // body proof
+	headerCbor = append(headerCbor, 0x84, 0x82, 0x07, 0x0b, 0xf6, 0x81, 0x13, 0xf6)
+	headerCbor = append(headerCbor, 0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00)
+	headerCbor = append(headerCbor, 0xa0) // empty attributes
+	headerCbor = append(headerCbor, 0x58, 0x20)
+	headerCbor = append(headerCbor, make([]byte, common.Blake2b256Size)...)
+
+	canonicalExtraHeader := []byte{0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00, 0xa0, 0x58, 0x20}
+	canonicalExtraHeader = append(canonicalExtraHeader, proofHash...)
+	toSign := []byte{0x85, 0x58, 0x20}
+	toSign = append(toSign, make([]byte, common.Blake2b256Size)...)
+	toSign = append(toSign, 0xf6, 0x82, 0x07, 0x0b, 0x81, 0x13)
+	toSign = append(toSign, canonicalExtraHeader...)
 
 	validator := NewHeaderValidator(testByronConfig())
-	toSign, err := validator.buildToSign(
-		&ValidateHeaderInput{HeaderCbor: headerCbor},
-	)
+	got, err := validator.buildToSign(&ValidateHeaderInput{HeaderCbor: headerCbor})
 	require.NoError(t, err)
+	require.Equal(t, toSign, got)
 	domain, err := validator.domainSeparateMainBlock(toSign)
 	require.NoError(t, err)
-	require.Equal(t, signedBuffer, domain)
-	require.True(t, ed25519.Verify(pubKey, signedBuffer, signature))
-
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x43}, ed25519.SeedSize))
+	pubKey := privateKey.Public().(ed25519.PublicKey)
+	signature := ed25519.Sign(privateKey, domain)
 	input := &ValidateHeaderInput{
 		IssuerPubKey: pubKey,
 		HeaderCbor:   headerCbor,
@@ -675,13 +724,51 @@ func TestValidateSimpleSignatureReferenceVector(t *testing.T) {
 	require.NoError(t, validator.validateBlockSignature(input))
 }
 
+func TestCanonicalByronExtraHeaderRejectsInvalidAttributes(t *testing.T) {
+	tests := []struct {
+		name       string
+		attributes []byte
+	}{
+		{name: "non-empty map", attributes: []byte{0xa1, 0x01, 0x41, 0x01}},
+		{name: "indefinite-length map", attributes: []byte{0xbf, 0xff}},
+		{name: "array", attributes: []byte{0x80}},
+		{name: "null", attributes: []byte{0xf6}},
+		{name: "undefined", attributes: []byte{0xf7}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			extraHeader := []byte{0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00}
+			extraHeader = append(extraHeader, tc.attributes...)
+			extraHeader = append(extraHeader, 0x40)
+			_, err := canonicalByronExtraHeader(extraHeader)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCanonicalByronExtraHeaderPreservesVersionEncodings(t *testing.T) {
+	protocolVersion := []byte{0x83, 0x18, 0x00, 0x00, 0x00}
+	softwareVersion := []byte{0x82, 0x78, 0x00, 0x18, 0x00}
+	raw := []byte{0x84}
+	raw = append(raw, protocolVersion...)
+	raw = append(raw, softwareVersion...)
+	raw = append(raw, 0xa0, 0x40)
+
+	got, err := canonicalByronExtraHeader(raw)
+	require.NoError(t, err)
+	want := []byte{0x84}
+	want = append(want, protocolVersion...)
+	want = append(want, softwareVersion...)
+	want = append(want, 0xa0, 0x58, 0x20)
+	want = append(want, common.Blake2b256Hash([]byte{0x81, 0xa0}).Bytes()...)
+	require.Equal(t, want, got)
+}
+
 // TestValidateSimpleSignaturePreservesNonShortestToSignEncodings is the
-// blinklabs-io/gouroboros#2349 regression: buildToSign must reproduce each
-// ToSign component's own wire bytes -- previous hash, body proof,
-// epoch/slot, difficulty, and extra header data -- rather than decode them
-// into Go values and re-encode. CBOR admits non-shortest integer encodings
-// and this decoder accepts them, so an issuer who signed a non-canonical
-// difficulty or epoch/slot encoding must still verify.
+// blinklabs-io/gouroboros#2349 regression: buildToSign preserves the raw
+// bytes of the previous hash, body proof, epoch/slot, and difficulty. The
+// reference decodes and re-encodes block-version data, canonicalizing its
+// dropped attributes and extra-data proof fields.
 //
 // Every header piece below is a raw byte literal, built and reused by both
 // buildHeader (what the "node" receives) and expectedToSign (what the
@@ -693,9 +780,9 @@ func TestValidateSimpleSignaturePreservesNonShortestToSignEncodings(t *testing.T
 	pubKeyRaw := []byte{0xf6}                                      // null
 	blockSigRaw := []byte{0xf6}                                    // null
 	extraHeaderRaw := append(
-		[]byte{0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00, 0xf6, 0x58, 0x20},
+		[]byte{0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00, 0xa0, 0x58, 0x20},
 		make([]byte, 32)...,
-	) // [[0,0,0], ["",0], null, bstr(32 zero bytes)]
+	) // [[0,0,0], ["",0], empty map, bstr(32 zero bytes)]
 
 	buildHeader := func(epochAndSlotRaw, difficultyRaw []byte) []byte {
 		consensusData := []byte{0x84}
@@ -718,7 +805,10 @@ func TestValidateSimpleSignaturePreservesNonShortestToSignEncodings(t *testing.T
 		toSign = append(toSign, bodyProofRaw...)
 		toSign = append(toSign, epochAndSlotRaw...)
 		toSign = append(toSign, difficultyRaw...)
-		toSign = append(toSign, extraHeaderRaw...)
+		toSign = append(toSign, []byte{
+			0x84, 0x83, 0x00, 0x00, 0x00, 0x82, 0x60, 0x00, 0xa0, 0x58, 0x20,
+		}...)
+		toSign = append(toSign, common.Blake2b256Hash([]byte{0x81, 0xa0}).Bytes()...)
 		return toSign
 	}
 
@@ -977,6 +1067,7 @@ func proxySignatureInput(
 		ProtocolMagic: config.ProtocolMagic,
 		BodyProof:     []any{},
 	}
+	header.ExtraData.Attributes = map[any]any{}
 	header.ExtraData.ExtraProof = []byte{}
 	header.ConsensusData.SlotId.Epoch = headerEpoch
 	header.ConsensusData.PubKey = issuerVK

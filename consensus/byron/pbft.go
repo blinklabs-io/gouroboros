@@ -125,8 +125,15 @@ func ValidatePBFTHeaderCrypto(
 	if err != nil {
 		return PBFTIssuer{}, err
 	}
+	slot, err := ledgerbyron.SlotNumberFromHeader(
+		header,
+		config.SlotsPerEpoch,
+	)
+	if err != nil {
+		return PBFTIssuer{}, fmt.Errorf("convert Byron PBFT header slot: %w", err)
+	}
 	input := &ValidateHeaderInput{
-		Slot:           header.SlotNumber(),
+		Slot:           slot,
 		BlockNumber:    header.BlockNumber(),
 		PrevHash:       header.PrevHash().Bytes(),
 		ProtocolMagic:  header.ProtocolMagic,
