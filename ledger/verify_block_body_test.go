@@ -55,6 +55,14 @@ func TestCalculateBlockBodyHashCanonicalCollectionLengths(t *testing.T) {
 	}
 }
 
+func TestEncodeCborTxSeqEncodesEmptySequencesAsArrays(t *testing.T) {
+	for _, txSeq := range [][]uint{nil, {}} {
+		encoded, err := ledger.EncodeCborTxSeq(txSeq)
+		require.NoError(t, err)
+		require.Equal(t, []byte{0x80}, encoded)
+	}
+}
+
 // hex.DecodeString returns the bytes it decoded before the offending
 // character alongside its error, so discarding that error verifies a
 // truncation of the caller's input. "80" is a complete CBOR empty array, so

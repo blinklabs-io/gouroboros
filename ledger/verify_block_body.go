@@ -108,6 +108,9 @@ func VerifyBlockBody(
 }
 
 func encodeCborSequence[T any](data []T) ([]byte, error) {
+	if len(data) == 0 {
+		data = make([]T, 0)
+	}
 	if len(data) <= MAX_LIST_LENGTH_CBOR {
 		return cbor.Encode(data)
 	}

@@ -1009,6 +1009,9 @@ func canonicalByronExtraHeader(raw cbor.RawMessage) ([]byte, error) {
 	if len(fields[2]) == 0 || fields[2][0]&cbor.CborTypeMask != cbor.CborTypeMap {
 		return nil, errors.New("extra header attributes must be a CBOR map")
 	}
+	if fields[2][0] == 0xbf {
+		return nil, errors.New("extra header attributes must use a definite-length map")
+	}
 	var attributes map[any]any
 	if _, err := cbor.Decode(fields[2], &attributes); err != nil {
 		return nil, fmt.Errorf("decode extra header attributes: %w", err)

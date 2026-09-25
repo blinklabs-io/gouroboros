@@ -712,6 +712,7 @@ func TestCanonicalByronExtraHeaderRejectsInvalidAttributes(t *testing.T) {
 		attributes []byte
 	}{
 		{name: "non-empty map", attributes: []byte{0xa1, 0x01, 0x41, 0x01}},
+		{name: "indefinite-length map", attributes: []byte{0xbf, 0xff}},
 		{name: "array", attributes: []byte{0x80}},
 		{name: "null", attributes: []byte{0xf6}},
 		{name: "undefined", attributes: []byte{0xf7}},
