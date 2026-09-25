@@ -29,6 +29,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func requirePostBabbageTransactionFields(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	components := make([]cbor.RawMessage, 0)
+	_, err := cbor.Decode(raw, &components)
+	require.NoError(t, err)
+	fields := make(map[uint]cbor.RawMessage)
+	_, err = cbor.Decode(components[0], &fields)
+	require.NoError(t, err)
+	for key, value := range map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)} {
+		if _, ok := fields[key]; ok {
+			continue
+		}
+		fields[key], err = cbor.Encode(value)
+		require.NoError(t, err)
+	}
+	components[0], err = cbor.Encode(fields)
+	require.NoError(t, err)
+	raw, err = cbor.Encode(components)
+	require.NoError(t, err)
+	return raw
+}
+
 // conwayTransaction re-decodes the shared validity fixture as a Conway
 // transaction. The fixture body only sets the validity interval keys, so the
 // same CBOR is valid in every post-Shelley era.
@@ -39,8 +61,9 @@ func conwayTransaction(
 	t.Helper()
 	base, err := fixture.AlonzoTransaction()
 	require.NoError(t, err)
-	txCbor := withRequiredFields(t, base.Cbor())
-	tx, err := conway.NewConwayTransactionFromCbor(txCbor)
+	tx, err := conway.NewConwayTransactionFromCbor(
+		requirePostBabbageTransactionFields(t, base.Cbor()),
+	)
 	require.NoError(t, err)
 	return tx
 }
@@ -54,48 +77,11 @@ func dijkstraTransaction(
 	t.Helper()
 	base, err := fixture.AlonzoTransaction()
 	require.NoError(t, err)
-	txCbor := withRequiredFields(t, base.Cbor())
-	tx, err := dijkstra.NewDijkstraTransactionFromCbor(txCbor)
+	tx, err := dijkstra.NewDijkstraTransactionFromCbor(
+		requirePostBabbageTransactionFields(t, base.Cbor()),
+	)
 	require.NoError(t, err)
 	return tx
-}
-
-func withRequiredFields(t *testing.T, transaction []byte) []byte {
-	t.Helper()
-	var components []cbor.RawMessage
-	_, err := cbor.Decode(transaction, &components)
-	require.NoError(t, err)
-	if len(components) == 0 {
-		t.Fatal("transaction CBOR did not contain a body")
-	}
-	var fields map[uint]cbor.RawMessage
-	_, err = cbor.Decode(components[0], &fields)
-	require.NoError(t, err)
-	if fields == nil {
-		t.Fatal("transaction body did not decode as a CBOR map")
-	}
-	for key, value := range map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}} {
-		if _, ok := fields[key]; ok {
-			continue
-		}
-		encoded, encodeErr := cbor.Encode(value)
-		if encodeErr != nil {
-			t.Fatal(encodeErr)
-		}
-		fields[key] = encoded
-	}
-	if _, ok := fields[2]; !ok {
-		encoded, encodeErr := cbor.Encode(uint64(0))
-		if encodeErr != nil {
-			t.Fatal(encodeErr)
-		}
-		fields[2] = encoded
-	}
-	components[0], err = cbor.Encode(fields)
-	require.NoError(t, err)
-	encoded, err := cbor.Encode(components)
-	require.NoError(t, err)
-	return encoded
 }
 
 // eraTxBuilder decodes a shared validity fixture as one era's transaction

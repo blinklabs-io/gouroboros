@@ -491,6 +491,12 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 5); err != nil {
 		return err
 	}
+	if err := common.ValidateRedeemerTagLimit(
+		tmp.WsRedeemers,
+		common.RedeemerTagProposing,
+	); err != nil {
+		return fmt.Errorf("invalid Conway redeemers: %w", err)
+	}
 	// Conway (protocol versions 9-11) tolerates duplicate members in the
 	// witness-set sets that cardano-ledger decodes via Set/Map.fromList: vkey
 	// witnesses, bootstrap witnesses, native scripts, and plutus data all
@@ -686,6 +692,15 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidateMapFields(
+		cborData,
+		[]uint{0, 1, 2},
+		[]uint{4, 5, 9, 13, 14, 18, 20},
+		nil,
+		22,
+	); err != nil {
+		return err
+	}
 	for idx := range tmp.TxOutputs {
 		if err := common.ValidateNativeScriptOutputConstructor(&tmp.TxOutputs[idx], 5); err != nil {
 			return fmt.Errorf("transaction output %d: %w", idx, err)
@@ -706,6 +721,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if err := common.ValidateCertificateSet(tmp.TxCertificates); err != nil {
+		return err
+	}
+	if err := common.ValidatePoolRegistrationOwners(tmp.TxCertificates); err != nil {
 		return err
 	}
 	// Reject duplicate members in every Conway set encoding, including
@@ -756,13 +774,6 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		); err != nil {
 			return fmt.Errorf("collateral return: %w", err)
 		}
-	}
-	if err := cbor.ValidateMapFields(
-		cborData,
-		[]uint64{0, 1, 2},
-		[]uint64{4, 5, 9, 13, 14, 18, 20},
-	); err != nil {
-		return fmt.Errorf("invalid Conway transaction body: %w", err)
 	}
 	*b = ConwayTransactionBody(tmp)
 	if err := b.DecodeTransactionBodyFieldPresence(

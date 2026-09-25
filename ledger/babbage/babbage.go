@@ -1022,6 +1022,12 @@ func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts, 5); err != nil {
 		return err
 	}
+	if err := common.ValidateRedeemerTagLimit(
+		tmp.WsRedeemers,
+		common.RedeemerTagReward,
+	); err != nil {
+		return fmt.Errorf("invalid Babbage redeemers: %w", err)
+	}
 	*w = BabbageTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil

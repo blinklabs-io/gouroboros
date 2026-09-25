@@ -82,7 +82,9 @@ func TestDijkstraCurrentTreasuryValuePresence(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, value)
 
-	subBodyCbor, err := cbor.Encode(map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}, 21: uint64(0)})
+	subBodyCbor, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 21: uint64(0),
+	})
 	require.NoError(t, err)
 	var subBody DijkstraSubTransactionBody
 	require.NoError(t, subBody.UnmarshalCBOR(subBodyCbor))
@@ -218,7 +220,7 @@ func decodeDijkstraTreasurySubTransaction(
 	treasuryValue *uint64,
 ) DijkstraSubTransaction {
 	t.Helper()
-	bodyFields := map[uint]any{0: cbor.NewSetType([]any{}, false), 1: []any{}}
+	bodyFields := map[uint]any{0: []any{}, 1: []any{}}
 	if treasuryValue != nil {
 		bodyFields[21] = *treasuryValue
 	}

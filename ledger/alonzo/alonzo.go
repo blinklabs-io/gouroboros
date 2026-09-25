@@ -871,6 +871,12 @@ func (w *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts, 5); err != nil {
 		return err
 	}
+	if err := common.ValidateRedeemerTagLimit(
+		tmp.WsRedeemers,
+		common.RedeemerTagReward,
+	); err != nil {
+		return fmt.Errorf("invalid Alonzo redeemers: %w", err)
+	}
 	*w = AlonzoTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil

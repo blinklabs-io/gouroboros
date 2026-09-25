@@ -146,9 +146,7 @@ func TestConwayTransactionBodyDecodeRejectsRemovedUpdateField(t *testing.T) {
 
 func TestConwayTransactionBodyDecodeAcceptsIndefiniteMap(t *testing.T) {
 	raw, err := cbor.Encode(cbor.IndefLengthMap{
-		uint(0): cbor.NewSetType([]any{}, false),
-		uint(1): []any{},
-		uint(2): uint64(0),
+		uint(0): []any{}, uint(1): []any{}, uint(2): uint64(0),
 	})
 	require.NoError(t, err)
 

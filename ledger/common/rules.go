@@ -82,22 +82,6 @@ func UtxoValidateCollateralKeyLocked(
 	return ValidateCollateralKeyLocked(tx, ls)
 }
 
-// UtxoValidateOutsideForecast applies the Alonzo/Babbage OutsideForecast
-// predicate to redeemer-bearing transaction levels.
-func UtxoValidateOutsideForecast(
-	tx Transaction,
-	slot uint64,
-	ls LedgerState,
-	_ ProtocolParameters,
-) error {
-	return ValidateOutsideForecast(
-		tx,
-		slot,
-		ls,
-		OutsideForecastTypeAlonzoBabbage,
-	)
-}
-
 func validateOutsideForecastLevel(
 	body TransactionBody,
 	witnesses TransactionWitnessSet,
@@ -154,6 +138,13 @@ type cachedLedgerState struct {
 	lookups map[utxoCacheKey]cachedUtxoLookup
 }
 
+// LedgerStateUnwrapper exposes the provider beneath a validation-time
+// LedgerState adapter. Optional capabilities must be checked against the
+// provider because adapters may add only one narrow behavior.
+type LedgerStateUnwrapper interface {
+	UnwrapLedgerState() LedgerState
+}
+
 // UnwrapLedgerState returns the caller's ledger state when validation is
 // running with the transaction-scoped UTxO lookup cache. Rules that inspect
 // optional LedgerState capabilities must use this before type assertions; the
@@ -161,10 +152,61 @@ type cachedLedgerState struct {
 // against arbitrary provider types. A state this package did not wrap is
 // returned unchanged.
 func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
-	if cached, ok := ledgerState.(*cachedLedgerState); ok {
-		return cached.LedgerState
+	for ledgerState != nil {
+		if cached, ok := ledgerState.(*cachedLedgerState); ok {
+			ledgerState = cached.LedgerState
+			continue
+		}
+		unwrapper, ok := ledgerState.(LedgerStateUnwrapper)
+		if !ok {
+			return ledgerState
+		}
+		ledgerState = unwrapper.UnwrapLedgerState()
 	}
-	return ledgerState
+	return nil
+}
+
+// UtxoValidateOutsideForecast requires a transaction's upper validity bound
+// to be convertible when the transaction has redeemers. SlotToTime is
+// supplied by the caller's validation state and carries its forecast
+// anchoring semantics.
+func UtxoValidateOutsideForecast(
+	tx Transaction,
+	_ uint64,
+	ledgerState LedgerState,
+	_ ProtocolParameters,
+) error {
+	if tx == nil || (reflect.ValueOf(tx).Kind() == reflect.Pointer &&
+		reflect.ValueOf(tx).IsNil()) {
+		return nil
+	}
+	upperBound, present := TransactionValidityIntervalUpperBound(tx)
+	if !present {
+		return nil
+	}
+	witnesses := tx.Witnesses()
+	if witnesses == nil {
+		return nil
+	}
+	redeemers := witnesses.Redeemers()
+	if redeemers == nil {
+		return nil
+	}
+	hasRedeemers := false
+	for range redeemers.Iter() {
+		hasRedeemers = true
+		break
+	}
+	if !hasRedeemers {
+		return nil
+	}
+	if ledgerState != nil && (reflect.ValueOf(ledgerState).Kind() != reflect.Pointer ||
+		!reflect.ValueOf(ledgerState).IsNil()) {
+		if _, err := ledgerState.SlotToTime(upperBound); err == nil {
+			return nil
+		}
+	}
+	return &OutsideForecastError{Type: 18, Slot: upperBound}
 }
 
 func (s *cachedLedgerState) UtxoById(input TransactionInput) (Utxo, error) {

@@ -316,20 +316,21 @@ func blockCborWithTransactionCounts(
 	bodyCount int,
 	witnessCount int,
 	minRawLength int,
-	conwayBody bool,
+	strictBody bool,
 ) []byte {
 	t.Helper()
 
 	bodyItems := make([]cbor.RawMessage, bodyCount)
 	for i := range bodyItems {
-		var err error
-		// Key 3 is mandatory in the Shelley body and optional from Allegra on.
-		if conwayBody {
-			bodyItems[i], err = cbor.Encode(map[uint]any{
-				0: cbor.NewSetType([]any{}, false), 1: []any{}, 2: uint64(0),
+		if strictBody {
+			encoded, err := cbor.Encode(map[uint]any{
+				0: []any{}, 1: []any{}, 2: uint64(0),
 			})
 			require.NoError(t, err)
+			bodyItems[i] = cbor.RawMessage(encoded)
 		} else {
+			// {3: 0}: key 3 is mandatory in the Shelley body and optional but
+			// harmless from Allegra on, so one shape decodes in those eras.
 			bodyItems[i] = cbor.RawMessage{0xa1, 0x03, 0x00}
 		}
 	}

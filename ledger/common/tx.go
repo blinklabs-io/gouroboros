@@ -308,6 +308,74 @@ type transactionBodyFieldPresence struct {
 	totalCollateral            bool
 }
 
+// ValidateMapFields checks required, non-empty collection, and positive
+// integer fields in a decoded ledger CBOR map. It is used where typed decoding
+// would collapse an absent field and an explicitly empty collection to the
+// same Go value.
+func ValidateMapFields(
+	cborData []byte,
+	requiredFields []uint,
+	nonEmptyFields []uint,
+	unsupportedFields []uint,
+	positiveFields ...uint,
+) error {
+	var fields map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	for _, field := range requiredFields {
+		value, ok := fields[field]
+		if !ok {
+			return fmt.Errorf("required CBOR map field %d is missing", field)
+		}
+		if len(value) == 1 && value[0] == 0xf6 {
+			return fmt.Errorf("required CBOR map field %d must not be null", field)
+		}
+		if len(value) == 1 && value[0] == 0xf7 {
+			return fmt.Errorf(
+				"required CBOR map field %d must not be undefined",
+				field,
+			)
+		}
+	}
+	for _, field := range unsupportedFields {
+		if _, ok := fields[field]; ok {
+			return fmt.Errorf("unsupported CBOR map field %d", field)
+		}
+	}
+	for _, field := range nonEmptyFields {
+		data, ok := fields[field]
+		if !ok {
+			continue
+		}
+		empty, err := cbor.IsEmptyCollection(data)
+		if err != nil {
+			return fmt.Errorf("CBOR map field %d: %w", field, err)
+		}
+		if empty {
+			return fmt.Errorf("CBOR map field %d must not be empty", field)
+		}
+	}
+	for _, field := range positiveFields {
+		encoded, ok := fields[field]
+		if !ok {
+			continue
+		}
+		var value uint64
+		if _, err := cbor.Decode(encoded, &value); err != nil {
+			return fmt.Errorf(
+				"CBOR map field %d must be a positive integer: %w",
+				field,
+				err,
+			)
+		}
+		if value == 0 {
+			return fmt.Errorf("CBOR map field %d must be positive", field)
+		}
+	}
+	return nil
+}
+
 func (b *TransactionBodyBase) SetCbor(cborData []byte) {
 	// Replacing CBOR invalidates the hash memo; callers must not mutate the
 	// body concurrently with Id or this setter.
@@ -522,6 +590,18 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		bodyFields[17] = encodedTotalCollateral
 	}
 	return cbor.Encode(bodyFields)
+}
+
+// EncodeTransactionBodyWithRequiredFields adds required sparse-map keys that
+// generic struct encoding omits when their values are zero-valued.
+func EncodeTransactionBodyWithRequiredFields(
+	body TransactionBody,
+	requiredFields []uint,
+) ([]byte, error) {
+	return EncodeTransactionBodyWithValidityIntervalUpperBound(
+		body,
+		requiredFields...,
+	)
 }
 
 func (b *TransactionBodyBase) Id() Blake2b256 {

@@ -46,6 +46,27 @@ func encodeWithdrawalBody(
 	return ret
 }
 
+func withStrictEraWithdrawalBodyFields(t *testing.T, raw []byte, sub bool) []byte {
+	t.Helper()
+	fields := make(map[uint]cbor.RawMessage)
+	_, err := cbor.Decode(raw, &fields)
+	require.NoError(t, err)
+	values := map[uint]any{0: []any{}, 1: []any{}}
+	if !sub {
+		values[2] = uint64(0)
+	}
+	for key, value := range values {
+		if _, ok := fields[key]; ok {
+			continue
+		}
+		fields[key], err = cbor.Encode(value)
+		require.NoError(t, err)
+	}
+	raw, err = cbor.Encode(fields)
+	require.NoError(t, err)
+	return raw
+}
+
 func TestShelleyTransactionBodyWithdrawalAddressForms(t *testing.T) {
 	credential := bytes.Repeat([]byte{0x42}, common.AddressHashSize)
 	keyAddr := rewardAccountBytes(0xe1, credential)
@@ -164,7 +185,16 @@ func TestShelleyFamilyBodiesRejectNonRewardWithdrawals(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := cbor.Decode(bodyCbor, test.dest())
+			input := bodyCbor
+			if test.name == "Conway" || test.name == "Dijkstra" ||
+				test.name == "Dijkstra subtransaction" {
+				input = withStrictEraWithdrawalBodyFields(
+					t,
+					input,
+					test.name == "Dijkstra subtransaction",
+				)
+			}
+			_, err := cbor.Decode(input, test.dest())
 			require.ErrorContains(t, err, "not a reward account")
 		})
 	}

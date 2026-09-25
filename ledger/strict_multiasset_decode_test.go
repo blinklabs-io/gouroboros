@@ -42,17 +42,11 @@ func encodeMultiAsset(
 	}
 }
 
-func encodeMintBody(t *testing.T, quantity *big.Int, subtransaction bool) []byte {
+func encodeMintBody(t *testing.T, quantity *big.Int) []byte {
 	t.Helper()
-	fields := map[uint64]any{
-		0: cbor.NewSetType([]any{}, false),
-		1: []any{},
+	wire, err := cbor.Encode(map[uint64]any{
 		9: encodeMultiAsset(t, quantity),
-	}
-	if !subtransaction {
-		fields[2] = uint64(0)
-	}
-	wire, err := cbor.Encode(fields)
+	})
 	require.NoError(t, err)
 	return wire
 }
@@ -179,9 +173,16 @@ func TestMintQuantityBoundsAcrossEras(t *testing.T) {
 	for _, decoder := range decoders {
 		for _, quantity := range quantities {
 			t.Run(decoder.name+"/"+quantity.name, func(t *testing.T) {
-				err := decoder.decode(encodeMintBody(
-					t, quantity.quantity, decoder.name == "Dijkstra subtransaction",
-				))
+				wire := encodeMintBody(t, quantity.quantity)
+				if decoder.name == "Conway" || decoder.name == "Dijkstra" ||
+					decoder.name == "Dijkstra subtransaction" {
+					wire = withRequiredEraBodyFields(
+						t,
+						wire,
+						decoder.name == "Dijkstra subtransaction",
+					)
+				}
+				err := decoder.decode(wire)
 				switch {
 				case quantity.wantErr:
 					assert.Error(t, err)
