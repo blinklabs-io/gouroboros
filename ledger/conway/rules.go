@@ -2208,6 +2208,225 @@ func UtxoValidateBadInputsUtxo(
 	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
 }
 
+type valueConservationStakeState struct {
+	registered bool
+	deposit    uint64
+}
+
+func conwayValueConservationDeposits(
+	tx common.Transaction,
+	ls common.LedgerState,
+	pp *ConwayProtocolParameters,
+) (*big.Int, *big.Int, error) {
+	refunds := new(big.Int)
+	deposits := new(big.Int)
+	keyDeposit := uint64(pp.KeyDeposit)
+	drepDeposit := pp.DRepDeposit
+	stakeStates := make(map[certificateStakeCredentialKey]valueConservationStakeState)
+	drepStates := make(map[certificateStakeCredentialKey]*common.DRepRegistration)
+	getStake := func(cred common.Credential) (valueConservationStakeState, error) {
+		key := certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}
+		if state, ok := stakeStates[key]; ok {
+			return state, nil
+		}
+		state := valueConservationStakeState{
+			registered: ls.IsStakeCredentialRegistered(cred),
+			deposit:    keyDeposit,
+		}
+		if state.registered {
+			deposit, err := common.StakeCredentialDepositOrDefault(ls, cred, keyDeposit)
+			if err != nil {
+				return state, err
+			}
+			state.deposit = deposit
+		}
+		stakeStates[key] = state
+		return state, nil
+	}
+	setStake := func(cred common.Credential, state valueConservationStakeState) {
+		stakeStates[certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}] = state
+	}
+	getDRep := func(cred common.Credential) (*common.DRepRegistration, error) {
+		key := certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}
+		if state, ok := drepStates[key]; ok {
+			return state, nil
+		}
+		state, err := ls.DRepRegistration(cred)
+		if err != nil {
+			return nil, err
+		}
+		if state != nil && state.Deposit == nil {
+			return nil, DRepDepositStateInconsistentError{Credential: cred}
+		}
+		drepStates[key] = state
+		return state, nil
+	}
+	setDRep := func(cred common.Credential, state *common.DRepRegistration) {
+		drepStates[certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}] = state
+	}
+	nonNegativeAmount := func(cert common.Certificate, amount int64) (uint64, error) {
+		if amount < 0 {
+			return 0, shelley.InvalidCertificateDepositError{
+				CertificateType: common.CertificateType(cert.Type()),
+				Amount:          amount,
+			}
+		}
+		return uint64(amount), nil
+	}
+	checkDeposit := func(cert common.Certificate, amount int64, expected uint64) error {
+		got, err := nonNegativeAmount(cert, amount)
+		if err != nil {
+			return err
+		}
+		if got != expected {
+			return CertificateDepositIncorrectError{
+				CertificateType: common.CertificateType(cert.Type()),
+				Supplied:        amount,
+				Expected:        expected,
+			}
+		}
+		return nil
+	}
+	for _, wrapped := range tx.Certificates() {
+		switch cert := wrapped.(type) {
+		case *common.StakeDeregistrationCertificate:
+			state, err := getStake(cert.StakeCredential)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !state.registered && tx.IsValid() {
+				return nil, nil, StakeCredentialNotRegisteredError{
+					Credential: cert.StakeCredential,
+				}
+			}
+			if !state.registered {
+				continue
+			}
+			refunds.Add(refunds, new(big.Int).SetUint64(state.deposit))
+			state.registered = false
+			state.deposit = 0
+			setStake(cert.StakeCredential, state)
+		case *common.DeregistrationCertificate:
+			var amount uint64
+			if tx.IsValid() {
+				parsedAmount, parseErr := nonNegativeAmount(cert, cert.Amount)
+				if parseErr != nil {
+					return nil, nil, parseErr
+				}
+				amount = parsedAmount
+			}
+			state, err := getStake(cert.StakeCredential)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !state.registered && tx.IsValid() {
+				return nil, nil, StakeCredentialNotRegisteredError{
+					Credential: cert.StakeCredential,
+				}
+			}
+			if !state.registered {
+				continue
+			}
+			if amount != state.deposit && tx.IsValid() {
+				return nil, nil, CertificateRefundIncorrectError{
+					CertificateType: common.CertificateType(cert.Type()),
+					Supplied:        cert.Amount,
+					Expected:        state.deposit,
+				}
+			}
+			refunds.Add(refunds, new(big.Int).SetUint64(state.deposit))
+			state.registered = false
+			state.deposit = 0
+			setStake(cert.StakeCredential, state)
+		case *common.DeregistrationDrepCertificate:
+			var amount uint64
+			if tx.IsValid() {
+				parsedAmount, parseErr := nonNegativeAmount(cert, cert.Amount)
+				if parseErr != nil {
+					return nil, nil, parseErr
+				}
+				amount = parsedAmount
+			}
+			state, err := getDRep(cert.DrepCredential)
+			if err != nil {
+				return nil, nil, err
+			}
+			if state == nil {
+				if !tx.IsValid() {
+					continue
+				}
+				return nil, nil, DRepNotRegisteredError{Credential: cert.DrepCredential}
+			}
+			if state.Deposit == nil {
+				return nil, nil, DRepDepositStateInconsistentError{Credential: cert.DrepCredential}
+			}
+			if amount != *state.Deposit && tx.IsValid() {
+				return nil, nil, CertificateRefundIncorrectError{
+					CertificateType: common.CertificateType(cert.Type()),
+					Supplied:        cert.Amount,
+					Expected:        *state.Deposit,
+				}
+			}
+			refunds.Add(refunds, new(big.Int).SetUint64(*state.Deposit))
+			setDRep(cert.DrepCredential, nil)
+		case *common.StakeRegistrationCertificate:
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		case *common.RegistrationCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, keyDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		case *common.RegistrationDrepCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, drepDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposit := drepDeposit
+			deposits.Add(deposits, new(big.Int).SetUint64(deposit))
+			registeredDeposit := deposit
+			setDRep(cert.DrepCredential, &common.DRepRegistration{Credential: cert.DrepCredential, Deposit: &registeredDeposit})
+		case *common.StakeRegistrationDelegationCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, keyDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		case *common.StakeVoteRegistrationDelegationCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, keyDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		case *common.VoteRegistrationDelegationCertificate:
+			if tx.IsValid() {
+				if err := checkDeposit(cert, cert.Amount, keyDeposit); err != nil {
+					return nil, nil, err
+				}
+			}
+			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
+			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
+		}
+	}
+	for _, proposal := range tx.ProposalProcedures() {
+		if tx.IsValid() && proposal.Deposit() != uint64(pp.GovActionDeposit) {
+			return nil, nil, ProposalDepositIncorrectError{
+				Supplied: proposal.Deposit(),
+				Expected: uint64(pp.GovActionDeposit),
+			}
+		}
+	}
+	return refunds, deposits, nil
+}
+
 // ValidateTreasuryDonationScriptCompatibility rejects donations at a
 // transaction level that uses PlutusV1 or PlutusV2 scripts.
 func ValidateTreasuryDonationScriptCompatibility(
@@ -2274,53 +2493,16 @@ func UtxoValidateValueNotConservedUtxo(
 			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
 		}
 	}
-	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
-	for _, cert := range tx.Certificates() {
-		switch tmpCert := cert.(type) {
-		case *common.DeregistrationCertificate:
-			// CIP-0094 deregistration uses Amount field for refund (symmetric with registration deposit)
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			consumedValue.Add(consumedValue, big.NewInt(tmpCert.Amount))
-		case *common.DeregistrationDrepCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			consumedValue.Add(consumedValue, big.NewInt(tmpCert.Amount))
-		case *common.StakeDeregistrationCertificate:
-			// A legacy deregistration refunds the deposit recorded when the
-			// credential registered, which may predate a KeyDeposit change.
-			//
-			// The current parameter remains the fallback for a state that
-			// cannot report the recorded deposit. Failing closed here instead
-			// rejects six Amaru conformance vectors, because value
-			// conservation runs for every legacy deregistration while
-			// UtxoValidateCertificateDeposits only needs the capability once a
-			// credential resolves as registered.
-			refund := new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit))
-			if depositState, ok := common.UnwrapLedgerState(ls).(common.StakeCredentialDepositState); ok {
-				deposit, err := depositState.StakeCredentialDeposit(
-					tmpCert.StakeCredential,
-				)
-				if err != nil {
-					return err
-				}
-				if deposit != nil {
-					refund = new(big.Int).SetUint64(*deposit)
-				}
-			}
-			consumedValue.Add(consumedValue, refund)
-			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
-			// Pool deposits are refunded at epoch boundary after the retirement epoch has passed.
-		}
+	certificateRefunds, certificateDeposits, err := conwayValueConservationDeposits(
+		tx,
+		ls,
+		tmpPparams,
+	)
+	if err != nil {
+		return err
 	}
+	consumedValue.Add(consumedValue, certificateRefunds)
+	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
 	// Add minted/burned ADA
 	if tx.AssetMint() != nil {
 		mintedAda := tx.AssetMint().Asset(common.Blake2b224{}, []byte{})
@@ -2339,6 +2521,7 @@ func UtxoValidateValueNotConservedUtxo(
 	if fee := tx.Fee(); fee != nil {
 		producedValue.Add(producedValue, fee)
 	}
+	producedValue.Add(producedValue, certificateDeposits)
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
@@ -2356,56 +2539,12 @@ func UtxoValidateValueNotConservedUtxo(
 			if depositDue {
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
-		case *common.RegistrationCertificate:
-			// CIP-0094 registration uses Amount field for deposit
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
-		case *common.RegistrationDrepCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
-		case *common.StakeRegistrationCertificate:
-			// Traditional stake registration uses protocol KeyDeposit parameter
-			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
-		case *common.StakeRegistrationDelegationCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
-		case *common.StakeVoteRegistrationDelegationCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
-		case *common.VoteRegistrationDelegationCertificate:
-			if tmpCert.Amount <= 0 {
-				return shelley.InvalidCertificateDepositError{
-					CertificateType: common.CertificateType(tmpCert.CertType),
-					Amount:          tmpCert.Amount,
-				}
-			}
-			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
 		}
 	}
-	for _, proposal := range tx.ProposalProcedures() {
+	for range tx.ProposalProcedures() {
 		producedValue.Add(
 			producedValue,
-			new(big.Int).SetUint64(proposal.Deposit()),
+			new(big.Int).SetUint64(uint64(tmpPparams.GovActionDeposit)),
 		)
 	}
 	// Add treasury donation - value leaving the transaction to go to the treasury.

@@ -48,6 +48,27 @@ type StakeCredentialDepositState interface {
 	StakeCredentialDeposit(Credential) (*uint64, error)
 }
 
+// StakeCredentialDepositOrDefault returns the recorded deposit when the
+// ledger state can report it, and fallback otherwise.
+func StakeCredentialDepositOrDefault(
+	ls LedgerState,
+	cred Credential,
+	fallback uint64,
+) (uint64, error) {
+	depositState, ok := UnwrapLedgerState(ls).(StakeCredentialDepositState)
+	if !ok {
+		return fallback, nil
+	}
+	deposit, err := depositState.StakeCredentialDeposit(cred)
+	if err != nil {
+		return 0, err
+	}
+	if deposit == nil {
+		return fallback, nil
+	}
+	return *deposit, nil
+}
+
 // EpochState is the optional ledger-state capability that maps a slot to the
 // epoch containing it. The Shelley POOL rule's retirement bound
 // (StakePoolRetirementWrongEpochPOOL) is expressed relative to the current
