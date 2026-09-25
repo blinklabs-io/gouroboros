@@ -114,6 +114,42 @@ func validateDijkstraBlockBodyHash(
 	return nil
 }
 
+func validateDijkstraBlockCertificates(
+	block Block,
+	protocolParameters common.ProtocolParameters,
+) error {
+	dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock)
+	if !ok || dijkstraBlock.BlockBody.LeiosCertificate == nil {
+		return nil
+	}
+	pparams, ok := protocolParameters.(*dijkstra.DijkstraProtocolParameters)
+	if !ok {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"Dijkstra Leios certificate validation requires "+
+				"Dijkstra protocol parameters",
+			map[string]any{
+				"has_protocol_parameters": protocolParameters != nil,
+				"block_era":               dijkstra.EraNameDijkstra,
+			},
+			nil,
+		)
+	}
+	if err := dijkstraBlock.BlockBody.LeiosCertificate.Validate(
+		uint64(pparams.LeiosCommitteeSize),
+	); err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"invalid Dijkstra Leios certificate",
+			map[string]any{
+				"committee_size": pparams.LeiosCommitteeSize,
+			},
+			err,
+		)
+	}
+	return nil
+}
+
 func eraOrder(era common.Era) (int, bool) {
 	switch era {
 	case byron.EraByron:
@@ -832,6 +868,12 @@ func VerifyBlock(
 				)
 			}
 		}
+	}
+	if err := validateDijkstraBlockCertificates(
+		block,
+		config.ProtocolParameters,
+	); err != nil {
+		return false, "", 0, 0, err
 	}
 
 	// Verify block-wide execution-unit budget (BBODY: sum of every
