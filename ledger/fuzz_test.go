@@ -21,7 +21,75 @@ import (
 	"encoding/hex"
 	"slices"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
+
+const maxLedgerFuzzInputSize = 1 << 20
+
+const fuzzEta0Hex = "0000000000000000000000000000000000000000000000000000000000000000"
+
+func exerciseFuzzBlock(block Block) {
+	header := block.Header()
+	if header == nil {
+		return
+	}
+	_ = block.Type()
+	_ = block.Cbor()
+	_ = block.Transactions()
+	_ = header.Hash()
+	_ = header.PrevHash()
+	_ = header.BlockNumber()
+	_ = header.SlotNumber()
+	_ = header.IssuerVkey()
+	_ = header.BlockBodySize()
+	_ = header.Era()
+	_ = header.Cbor()
+	_ = header.BlockBodyHash()
+
+	// Run the block-local production checks without needing chain state. The
+	// transaction and stake-pool checks are covered by the transaction fuzz
+	// target and deterministic verification tests.
+	_, _, _, _, _ = VerifyBlock(block, fuzzEta0Hex, 1, common.VerifyConfig{
+		SkipTransactionValidation: true,
+		SkipStakePoolValidation:   true,
+		SkipBlockLimitsValidation: true,
+	})
+}
+
+func exerciseFuzzTransaction(tx Transaction) {
+	_ = tx.Type()
+	_ = tx.Cbor()
+	_ = tx.Hash()
+	_ = tx.LeiosHash()
+	_ = tx.Metadata()
+	_ = tx.AuxiliaryData()
+	_ = tx.IsValid()
+	_ = tx.Consumed()
+	_ = tx.Produced()
+	_ = tx.Witnesses()
+	_ = tx.Fee()
+	_ = tx.Id()
+	_ = tx.Inputs()
+	_ = tx.Outputs()
+	_ = tx.TTL()
+	_ = tx.ValidityIntervalStart()
+	_, _ = common.TransactionValidityIntervalUpperBound(tx)
+	_ = tx.ReferenceInputs()
+	_ = tx.Collateral()
+	_ = tx.CollateralReturn()
+	_ = tx.TotalCollateral()
+	_ = tx.Certificates()
+	_ = tx.Withdrawals()
+	_ = tx.AuxDataHash()
+	_ = tx.RequiredSigners()
+	_ = tx.AssetMint()
+	_ = tx.ScriptDataHash()
+	_ = tx.VotingProcedures()
+	_ = tx.ProposalProcedures()
+	_ = tx.CurrentTreasuryValue()
+	_ = tx.Donation()
+}
 
 const (
 	byronTxCborHex   = "82838080a080"
@@ -79,14 +147,19 @@ func FuzzNewBlockFromCbor(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, blockType uint, data []byte) {
+		if len(data) > maxLedgerFuzzInputSize {
+			return
+		}
 		// Only test valid block types to avoid noise from invalid types
 		validTypes := []uint{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 		isValid := slices.Contains(validTypes, blockType)
 		if !isValid {
 			return
 		}
-		_, _ = NewBlockFromCbor(blockType, data)
-		// Should not panic - that's the test
+		block, err := NewBlockFromCbor(blockType, data)
+		if err == nil {
+			exerciseFuzzBlock(block)
+		}
 	})
 }
 
@@ -136,14 +209,27 @@ func FuzzNewBlockHeaderFromCbor(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, blockType uint, data []byte) {
+		if len(data) > maxLedgerFuzzInputSize {
+			return
+		}
 		// Only test valid block types to avoid noise from invalid types
 		validTypes := []uint{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 		isValid := slices.Contains(validTypes, blockType)
 		if !isValid {
 			return
 		}
-		_, _ = NewBlockHeaderFromCbor(blockType, data)
-		// Should not panic - that's the test
+		header, err := NewBlockHeaderFromCbor(blockType, data)
+		if err == nil {
+			_ = header.Hash()
+			_ = header.PrevHash()
+			_ = header.BlockNumber()
+			_ = header.SlotNumber()
+			_ = header.IssuerVkey()
+			_ = header.BlockBodySize()
+			_ = header.Era()
+			_ = header.Cbor()
+			_ = header.BlockBodyHash()
+		}
 	})
 }
 
@@ -172,13 +258,18 @@ func FuzzNewTransactionFromCbor(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, txType uint, data []byte) {
+		if len(data) > maxLedgerFuzzInputSize {
+			return
+		}
 		// Only test valid tx types to avoid noise from invalid types
 		validTypes := []uint{0, 1, 2, 3, 4, 5, 6, 7}
 		isValid := slices.Contains(validTypes, txType)
 		if !isValid {
 			return
 		}
-		_, _ = NewTransactionFromCbor(txType, data)
-		// Should not panic - that's the test
+		tx, err := NewTransactionFromCbor(txType, data)
+		if err == nil {
+			exerciseFuzzTransaction(tx)
+		}
 	})
 }
