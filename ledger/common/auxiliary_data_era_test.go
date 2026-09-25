@@ -484,12 +484,15 @@ func dijkstraBlockAndTransactionWithAuxiliaryData(
 	var conwayComponents []cbor.RawMessage
 	_, err = cbor.Decode(conwayBlock, &conwayComponents)
 	require.NoError(t, err)
+	require.NotEmpty(t, conwayComponents)
 	var headerComponents []cbor.RawMessage
 	_, err = cbor.Decode(conwayComponents[0], &headerComponents)
 	require.NoError(t, err)
+	require.NotEmpty(t, headerComponents)
 	var headerBody []cbor.RawMessage
 	_, err = cbor.Decode(headerComponents[0], &headerBody)
 	require.NoError(t, err)
+	require.NotEmpty(t, headerBody)
 	blockBodyHash, err := cbor.Encode(common.Blake2b256Hash(blockBody).Bytes())
 	require.NoError(t, err)
 	headerBody[7] = blockBodyHash
@@ -634,6 +637,7 @@ func blockAndTransactionWithAuxiliaryData(
 	var bodyFields map[uint]cbor.RawMessage
 	_, err = cbor.Decode(bodies[0], &bodyFields)
 	require.NoError(t, err)
+	require.NotNil(t, bodyFields)
 	hashRaw, err := cbor.Encode(common.Blake2b256Hash(auxiliaryData).Bytes())
 	require.NoError(t, err)
 	bodyFields[7] = hashRaw
@@ -651,6 +655,7 @@ func blockAndTransactionWithAuxiliaryData(
 	var headerBody []cbor.RawMessage
 	_, err = cbor.Decode(headerComponents[0], &headerBody)
 	require.NoError(t, err)
+	require.NotEmpty(t, headerBody)
 	bodyHashIndex := 8
 	if len(headerBody) == 10 {
 		bodyHashIndex = 7
