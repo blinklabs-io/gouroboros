@@ -222,7 +222,7 @@ func TestDecodeAuxiliaryDataForEraEnforcesPlutusLanguageBounds(t *testing.T) {
 			if test.valid {
 				require.NoError(t, err)
 			} else {
-				require.ErrorContains(t, err, "not valid in this era")
+				require.ErrorContains(t, err, "not supported in this era")
 			}
 		})
 	}

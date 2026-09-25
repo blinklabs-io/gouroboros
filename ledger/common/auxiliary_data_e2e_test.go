@@ -480,10 +480,10 @@ func TestAuxiliaryDataScriptsMustBeWellFormedEvenWhenUnneeded(t *testing.T) {
 		&alonzo.AlonzoProtocolParameters{ProtocolMajor: 8},
 		rules,
 	)
-	require.ErrorContains(t, err, "malformed auxiliary-data Plutus script")
+	require.ErrorContains(t, err, "malformed auxiliary-data Plutus V1 script")
 }
 
-func TestAuxiliaryDataNativeScriptsRespectEraConstructors(t *testing.T) {
+func TestAuxiliaryDataRejectsNativeScriptConstructorsOutsideEra(t *testing.T) {
 	nativeScript, err := cbor.Encode([]any{
 		uint64(6),
 		common.Credential{CredType: common.CredentialTypeScriptHash},
@@ -516,19 +516,7 @@ func TestAuxiliaryDataNativeScriptsRespectEraConstructors(t *testing.T) {
 	require.NoError(t, err)
 	var tx alonzo.AlonzoTransaction
 	_, err = cbor.Decode(txCbor, &tx)
-	require.NoError(t, err)
-	rules := common.ComposeUtxoValidationRules(
-		common.AlwaysUtxoValidationRules(alonzo.UtxoValidateMetadata),
-	)
-	err = common.VerifyTransaction(
-		&tx,
-		0,
-		nil,
-		&alonzo.AlonzoProtocolParameters{ProtocolMajor: 8},
-		rules,
-	)
-	require.ErrorContains(t, err, "invalid auxiliary-data native script")
-	require.ErrorContains(t, err, "constructor 6 is not supported")
+	require.ErrorContains(t, err, "native script constructor 6 is not supported")
 }
 
 func TestTransactionRejectsMalformedAuxiliaryScriptsWithMetadata(t *testing.T) {
