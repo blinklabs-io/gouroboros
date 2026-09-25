@@ -1023,7 +1023,12 @@ func canonicalByronExtraHeader(raw cbor.RawMessage) ([]byte, error) {
 		return nil, fmt.Errorf("decode extra-data proof: %w", err)
 	}
 
-	canonical := []byte{0x84}
+	canonical := make(
+		[]byte,
+		0,
+		1+len(fields[0])+len(fields[1])+1+2+common.Blake2b256Size,
+	)
+	canonical = append(canonical, 0x84)
 	canonical = append(canonical, fields[0]...)
 	canonical = append(canonical, fields[1]...)
 	canonical = append(canonical, 0xa0)
