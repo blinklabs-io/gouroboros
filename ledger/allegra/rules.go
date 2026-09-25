@@ -32,6 +32,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateSignatures,
 	},
 	{
+		Id:        common.UtxoValidationRuleProtocolParameterUpdates,
+		Validator: UtxoValidateProtocolParameterUpdates,
+	},
+	{
 		Id:        common.UtxoValidationRuleOutsideValidityInterval,
 		Validator: UtxoValidateOutsideValidityIntervalUtxo,
 	},
@@ -121,6 +125,15 @@ func UtxoValidateRequiredVKeyWitnesses(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateRequiredVKeyWitnesses(tx, slot, ls, pp)
+}
+
+func UtxoValidateProtocolParameterUpdates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateProtocolParameterUpdates(tx, slot, ls, pp)
 }
 
 // UtxoValidateOutsideValidityIntervalUtxo ensures that the current tip slot is

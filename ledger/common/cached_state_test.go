@@ -63,11 +63,20 @@ func (allCapabilityState) DRepDelegation(
 	return nil, nil
 }
 
-func (allCapabilityState) GenesisDelegateKeyHashes() (
+func (allCapabilityState) GenesisDelegateKeyHashes(
+	uint64,
+) (
 	[]common.Blake2b224,
 	error,
 ) {
 	return nil, nil
+}
+
+func (allCapabilityState) GenesisDelegateForGenesisKey(
+	common.Blake2b224,
+	uint64,
+) (common.Blake2b224, bool, error) {
+	return common.Blake2b224{}, false, nil
 }
 
 func (allCapabilityState) GenesisUpdateQuorum() (uint, error) { return 0, nil }

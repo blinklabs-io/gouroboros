@@ -36,6 +36,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		shelley.UtxoValidateMetadata,                  // UtxoValidationRuleMetadata
 		shelley.UtxoValidateRequiredVKeyWitnesses,     // UtxoValidationRuleRequiredVKeyWitnesses
 		shelley.UtxoValidateSignatures,                // UtxoValidationRuleSignatures
+		shelley.UtxoValidateProtocolParameterUpdates,  // UtxoValidationRuleProtocolParameterUpdates
 		shelley.UtxoValidateTimeToLive,                // UtxoValidationRuleTimeToLive
 		shelley.UtxoValidateInputSetEmptyUtxo,         // UtxoValidationRuleInputSetEmpty
 		shelley.UtxoValidateNoDuplicateInputs,         // UtxoValidationRuleNoDuplicateInputs
@@ -57,6 +58,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		allegra.UtxoValidateMetadata,                    // UtxoValidationRuleMetadata
 		allegra.UtxoValidateRequiredVKeyWitnesses,       // UtxoValidationRuleRequiredVKeyWitnesses
 		allegra.UtxoValidateSignatures,                  // UtxoValidationRuleSignatures
+		allegra.UtxoValidateProtocolParameterUpdates,    // UtxoValidationRuleProtocolParameterUpdates
 		allegra.UtxoValidateOutsideValidityIntervalUtxo, // UtxoValidationRuleOutsideValidityInterval
 		allegra.UtxoValidateInputSetEmptyUtxo,           // UtxoValidationRuleInputSetEmpty
 		allegra.UtxoValidateNoDuplicateInputs,           // UtxoValidationRuleNoDuplicateInputs
@@ -78,6 +80,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		mary.UtxoValidateMetadata,                    // UtxoValidationRuleMetadata
 		mary.UtxoValidateRequiredVKeyWitnesses,       // UtxoValidationRuleRequiredVKeyWitnesses
 		mary.UtxoValidateSignatures,                  // UtxoValidationRuleSignatures
+		mary.UtxoValidateProtocolParameterUpdates,    // UtxoValidationRuleProtocolParameterUpdates
 		mary.UtxoValidateOutsideValidityIntervalUtxo, // UtxoValidationRuleOutsideValidityInterval
 		mary.UtxoValidateInputSetEmptyUtxo,           // UtxoValidationRuleInputSetEmpty
 		mary.UtxoValidateNoDuplicateInputs,           // UtxoValidationRuleNoDuplicateInputs
@@ -101,6 +104,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateIsValidFlag,                 // UtxoValidationRuleIsValidFlag
 		alonzo.UtxoValidateRequiredVKeyWitnesses,       // UtxoValidationRuleRequiredVKeyWitnesses
 		alonzo.UtxoValidateSignatures,                  // UtxoValidationRuleSignatures
+		alonzo.UtxoValidateProtocolParameterUpdates,    // UtxoValidationRuleProtocolParameterUpdates
 		alonzo.UtxoValidateCollateralVKeyWitnesses,     // UtxoValidationRuleCollateralVKeyWitnesses
 		common.UtxoValidateCollateralKeyLocked,         // UtxoValidationRuleCollateralKeyLocked
 		alonzo.UtxoValidateRedeemerAndScriptWitnesses,  // UtxoValidationRuleRedeemerAndScriptWitnesses
@@ -138,6 +142,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateIsValidFlag,                 // UtxoValidationRuleIsValidFlag
 		babbage.UtxoValidateRequiredVKeyWitnesses,       // UtxoValidationRuleRequiredVKeyWitnesses
 		babbage.UtxoValidateSignatures,                  // UtxoValidationRuleSignatures
+		babbage.UtxoValidateProtocolParameterUpdates,    // UtxoValidationRuleProtocolParameterUpdates
 		babbage.UtxoValidateCollateralVKeyWitnesses,     // UtxoValidationRuleCollateralVKeyWitnesses
 		common.UtxoValidateCollateralKeyLocked,          // UtxoValidationRuleCollateralKeyLocked
 		babbage.UtxoValidateRedeemerAndScriptWitnesses,  // UtxoValidationRuleRedeemerAndScriptWitnesses

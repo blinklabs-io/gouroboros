@@ -32,10 +32,36 @@ type ProtocolParameterUpdate interface {
 	Cbor() []byte
 }
 
+// ProtocolParameterUpdateVersionValidator validates fields whose reference
+// domain depends on the active protocol version.
+type ProtocolParameterUpdateVersionValidator interface {
+	ValidateProtocolParameterUpdateVersion(ProtocolParametersProtocolVersion) error
+}
+
+// ProtocolParameterUpdateCostModelProvider reports cost models requiring
+// protocol-version-dependent validation.
+type ProtocolParameterUpdateCostModelProvider interface {
+	ProtocolParameterUpdateCostModels() map[uint][]int64
+}
+
+// ProtocolParameterVersionUpdateProvider exposes a proposed protocol version
+// from a protocol parameter update.
+type ProtocolParameterVersionUpdateProvider interface {
+	ProtocolParameterVersionUpdate() *ProtocolParametersProtocolVersion
+}
+
+// ProtocolParametersProtocolVersion stores the major and minor protocol
+// version used when validating version-dependent updates.
 type ProtocolParametersProtocolVersion struct {
 	cbor.StructAsArray
 	Major uint
 	Minor uint
+}
+
+// ProtocolParametersProtocolVersionProvider exposes the active protocol
+// version from protocol parameters.
+type ProtocolParametersProtocolVersionProvider interface {
+	ProtocolParametersProtocolVersion() ProtocolParametersProtocolVersion
 }
 
 type ProtocolParameters interface {

@@ -91,6 +91,13 @@ type EpochState interface {
 	EpochForSlot(slot uint64) (uint64, error)
 }
 
+// ClassicProtocolParameterUpdateWindowState supplies the Shelley-family PPUP
+// voting boundary for a slot. SlotOfNoReturn is the first slot at which
+// proposals target the following epoch rather than the current one.
+type ClassicProtocolParameterUpdateWindowState interface {
+	ProtocolParameterUpdateWindow(slot uint64) (currentEpoch, slotOfNoReturn uint64, err error)
+}
+
 // PoolState defines the interface for querying the current pool state
 type PoolState interface {
 	// PoolCurrentState returns the latest active registration certificate for the given pool key hash.
@@ -301,9 +308,16 @@ type DRepDelegationState interface {
 // from a quorum of the currently delegated genesis keys. Ledger states used to
 // validate those eras must implement this interface.
 type GenesisDelegationState interface {
-	// GenesisDelegateKeyHashes returns the key hash of every currently
-	// delegated genesis key.
-	GenesisDelegateKeyHashes() ([]Blake2b224, error)
+	// GenesisDelegateKeyHashes returns the currently delegated signing-key
+	// hashes at slot.
+	GenesisDelegateKeyHashes(slot uint64) ([]Blake2b224, error)
+	// GenesisDelegateForGenesisKey returns the currently delegated signing key
+	// for a genesis key at slot, or false if the key is not in the delegation
+	// map.
+	GenesisDelegateForGenesisKey(
+		genesisKeyHash Blake2b224,
+		slot uint64,
+	) (Blake2b224, bool, error)
 	// GenesisUpdateQuorum returns the number of distinct genesis delegate
 	// signatures required to authorize an MIR certificate.
 	GenesisUpdateQuorum() (uint, error)

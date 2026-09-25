@@ -986,6 +986,7 @@ func UtxoValidateProposalProcedures(
 				if action != nil {
 					if err := validateDijkstraProtocolParameterUpdate(
 						&action.ParamUpdate,
+						pp,
 					); err != nil {
 						return err
 					}
@@ -1074,6 +1075,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 
 func validateDijkstraProtocolParameterUpdate(
 	ppu *DijkstraProtocolParameterUpdate,
+	protocolParameters ...common.ProtocolParameters,
 ) error {
 	if ppu == nil || !ppu.hasUpdate() {
 		return conway.ProtocolParameterUpdateEmptyError{}
@@ -1081,29 +1083,11 @@ func validateDijkstraProtocolParameterUpdate(
 	if err := validateDijkstraProtocolParameterUpdateDomains(ppu); err != nil {
 		return err
 	}
-	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{
-			FieldName: "maxBHSize",
-			Value:     *ppu.MaxBlockHeaderSize,
-		}
-	}
-	if ppu.MaxTxSize != nil && *ppu.MaxTxSize == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{
-			FieldName: "maxTxSize",
-			Value:     *ppu.MaxTxSize,
-		}
-	}
-	if ppu.MaxValueSize != nil && *ppu.MaxValueSize == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{
-			FieldName: "maxValSize",
-			Value:     *ppu.MaxValueSize,
-		}
-	}
-	if ppu.MaxBlockBodySize != nil && *ppu.MaxBlockBodySize == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{
-			FieldName: "maxBlockBodySize",
-			Value:     *ppu.MaxBlockBodySize,
-		}
+	if err := conway.ValidateProtocolParameterUpdateNonZeroFields(
+		ppu.conwayUpdate(),
+		protocolParameters...,
+	); err != nil {
+		return err
 	}
 	if ppu.RefScriptCostStride != nil && *ppu.RefScriptCostStride == 0 {
 		return conway.ProtocolParameterUpdateFieldZeroError{
@@ -1111,7 +1095,13 @@ func validateDijkstraProtocolParameterUpdate(
 			Value:     uint(*ppu.RefScriptCostStride),
 		}
 	}
-	return nil
+	if ppu.MaxPledgeLeverage != nil && ppu.MaxPledgeLeverage.Rat != nil && ppu.MaxPledgeLeverage.Sign() == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "eMax"}
+	}
+	return validateLeiosCommitteeStakeParameters(
+		ppu.CommitteeStakeCoverage,
+		ppu.QuorumStakeThreshold,
+	)
 }
 
 func validateDijkstraProtocolParameterUpdateDomains(
@@ -1152,8 +1142,7 @@ func validateDijkstraProtocolParameterUpdateDomains(
 }
 
 func validNonNegativeDijkstraRat(rat *cbor.Rat) bool {
-	return rat != nil && rat.Rat != nil && rat.Num().Sign() >= 0 &&
-		rat.Denom().Sign() > 0 && rat.Num().IsUint64() && rat.Denom().IsUint64()
+	return common.ValidateNonNegativeInterval(rat, false) == nil
 }
 
 func validPositiveDijkstraRat(rat *cbor.Rat) bool {
@@ -1161,7 +1150,7 @@ func validPositiveDijkstraRat(rat *cbor.Rat) bool {
 }
 
 func validUnitDijkstraRat(rat *cbor.Rat) bool {
-	return validNonNegativeDijkstraRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
+	return common.ValidateNonNegativeInterval(rat, true) == nil
 }
 
 // UtxoValidateDisjointRefInputs is a compatibility no-op for Dijkstra.

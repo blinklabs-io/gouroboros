@@ -25,6 +25,7 @@ const (
 	UtxoValidationRuleMetadata                     UtxoValidationRuleId = "metadata"
 	UtxoValidationRuleRequiredVKeyWitnesses        UtxoValidationRuleId = "required-vkey-witnesses"
 	UtxoValidationRuleSignatures                   UtxoValidationRuleId = "signatures"
+	UtxoValidationRuleProtocolParameterUpdates     UtxoValidationRuleId = "protocol-parameter-updates"
 	UtxoValidationRuleTimeToLive                   UtxoValidationRuleId = "time-to-live"
 	UtxoValidationRuleInputSetEmpty                UtxoValidationRuleId = "input-set-empty"
 	UtxoValidationRuleNoDuplicateInputs            UtxoValidationRuleId = "no-duplicate-inputs"

@@ -177,7 +177,36 @@ type BabbageProtocolParameterUpdate struct {
 
 func (BabbageProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
+func (u BabbageProtocolParameterUpdate) ProtocolParameterUpdateCostModels() map[uint][]int64 {
+	return u.CostModels
+}
+
+func (u BabbageProtocolParameterUpdate) ProtocolParameterVersionUpdate() *common.ProtocolParametersProtocolVersion {
+	return u.ProtocolVersion
+}
+
+func (u BabbageProtocolParameterUpdate) ValidateProtocolParameterUpdateVersion(
+	currentVersion common.ProtocolParametersProtocolVersion,
+) error {
+	v1Count, _ := alonzo.PlutusCostModelParameterCount(alonzo.PlutusV1Key)
+	v2Count, _ := alonzo.PlutusCostModelParameterCount(alonzo.PlutusV2Key)
+	return common.ValidateClassicCostModelUpdate(
+		u.CostModels,
+		currentVersion.Major,
+		map[uint]int{
+			alonzo.PlutusV1Key: v1Count,
+			alonzo.PlutusV2Key: v2Count,
+		},
+	)
+}
+
 func (u *BabbageProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
+	if _, err := common.ValidateProtocolParameterUpdateDomains(
+		cborData,
+		common.ProtocolParameterUpdateEraBabbage,
+	); err != nil {
+		return err
+	}
 	type tBabbageProtocolParameterUpdate BabbageProtocolParameterUpdate
 	var tmp tBabbageProtocolParameterUpdate
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -333,6 +362,10 @@ func UpgradePParams(
 // ProtocolMajorVersion returns the active major protocol version.
 func (p *BabbageProtocolParameters) ProtocolMajorVersion() uint {
 	return p.ProtocolMajor
+}
+
+func (p *BabbageProtocolParameters) ProtocolParametersProtocolVersion() common.ProtocolParametersProtocolVersion {
+	return common.ProtocolParametersProtocolVersion{Major: p.ProtocolMajor, Minor: p.ProtocolMinor}
 }
 
 // MinPoolCostValue returns the minPoolCost protocol parameter.

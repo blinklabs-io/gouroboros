@@ -179,7 +179,17 @@ type ShelleyProtocolParameterUpdate struct {
 
 func (ShelleyProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
+func (u ShelleyProtocolParameterUpdate) ProtocolParameterVersionUpdate() *common.ProtocolParametersProtocolVersion {
+	return u.ProtocolVersion
+}
+
 func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
+	if _, err := common.ValidateProtocolParameterUpdateDomains(
+		cborData,
+		common.ProtocolParameterUpdateEraShelley,
+	); err != nil {
+		return err
+	}
 	type tShelleyProtocolParameterUpdate ShelleyProtocolParameterUpdate
 	var tmp tShelleyProtocolParameterUpdate
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -263,6 +273,10 @@ func UpgradePParams(prevPParams any) ShelleyProtocolParameters {
 // ProtocolMajorVersion returns the active major protocol version.
 func (p *ShelleyProtocolParameters) ProtocolMajorVersion() uint {
 	return p.ProtocolMajor
+}
+
+func (p *ShelleyProtocolParameters) ProtocolParametersProtocolVersion() common.ProtocolParametersProtocolVersion {
+	return common.ProtocolParametersProtocolVersion{Major: p.ProtocolMajor, Minor: p.ProtocolMinor}
 }
 
 // MinPoolCostValue returns the minPoolCost protocol parameter.

@@ -157,6 +157,7 @@ func TestOptionalCapabilityAssertionsUnwrapCachedState(t *testing.T) {
 	for _, expected := range []string{
 		"EpochState",
 		"GenesisDelegationState",
+		"ClassicProtocolParameterUpdateWindowState",
 		"GovPurposeRootsState",
 		"StakeCredentialDepositState",
 	} {

@@ -523,7 +523,10 @@ func TestRegressionCBOR(t *testing.T) {
 		"Mary":    1230, // Baseline: 1116
 		"Alonzo":  1500, // Baseline: 1362
 		"Babbage": 6260, // Baseline: 5688
-		"Conway":  2920, // Baseline: 2652
+		// Bumped from 2920 on 2026-09-25: the current main-branch
+		// certificate-deposit accounting path measures 2932 allocations on
+		// the 386 race job, so retain the test's 10% headroom at 2970.
+		"Conway": 2970, // Baseline: 2700
 	}
 
 	for _, block := range blocks {

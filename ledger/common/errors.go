@@ -519,6 +519,99 @@ func (GenesisDelegationStateUnavailableError) Error() string {
 	return "ledger state does not provide genesis delegation state"
 }
 
+// ClassicProtocolParameterUpdateWindowStateUnavailableError indicates that a
+// ledger state cannot provide the PPUP epoch boundary needed for validation.
+type ClassicProtocolParameterUpdateWindowStateUnavailableError struct{}
+
+func (ClassicProtocolParameterUpdateWindowStateUnavailableError) Error() string {
+	return "classic protocol parameter update window state unavailable"
+}
+
+// ProtocolParameterUpdateProtocolVersionUnavailableError indicates that
+// version-dependent update validation lacks the current protocol version.
+type ProtocolParameterUpdateProtocolVersionUnavailableError struct{}
+
+func (ProtocolParameterUpdateProtocolVersionUnavailableError) Error() string {
+	return "protocol parameter update protocol version unavailable"
+}
+
+// ProtocolParameterUpdateCostModelError identifies an invalid cost model in a
+// classic protocol parameter update.
+type ProtocolParameterUpdateCostModelError struct {
+	Language uint
+	Expected int
+	Actual   int
+	Unknown  bool
+}
+
+// ProtocolParameterUpdateVersionError indicates that a proposed protocol
+// version cannot follow the current version.
+type ProtocolParameterUpdateVersionError struct {
+	CurrentMajor  uint
+	CurrentMinor  uint
+	ProposedMajor uint
+	ProposedMinor uint
+}
+
+func (e ProtocolParameterUpdateVersionError) Error() string {
+	return fmt.Sprintf(
+		"protocol parameter update version %d.%d cannot follow current version %d.%d",
+		e.ProposedMajor,
+		e.ProposedMinor,
+		e.CurrentMajor,
+		e.CurrentMinor,
+	)
+}
+
+func (e ProtocolParameterUpdateCostModelError) Error() string {
+	if e.Unknown {
+		return fmt.Sprintf("protocol parameter update contains unknown cost model language %d", e.Language)
+	}
+	return fmt.Sprintf(
+		"protocol parameter update cost model language %d has %d parameters, expected %d",
+		e.Language,
+		e.Actual,
+		e.Expected,
+	)
+}
+
+// ProtocolParameterUpdateDelegateError indicates that an update key is not a
+// currently delegated genesis key.
+type ProtocolParameterUpdateDelegateError struct {
+	Delegate Blake2b224
+}
+
+func (e ProtocolParameterUpdateDelegateError) Error() string {
+	return fmt.Sprintf("protocol parameter update key %s is not a current genesis delegate", e.Delegate)
+}
+
+// ProtocolParameterUpdateWitnessError indicates that an update lacks a
+// witness from its currently delegated genesis key.
+type ProtocolParameterUpdateWitnessError struct {
+	Delegate Blake2b224
+}
+
+func (e ProtocolParameterUpdateWitnessError) Error() string {
+	return fmt.Sprintf("protocol parameter update is missing witness for genesis delegate %s", e.Delegate)
+}
+
+// ProtocolParameterUpdateEpochError identifies an update targeting the wrong
+// current or next epoch.
+type ProtocolParameterUpdateEpochError struct {
+	Current      uint64
+	Expected     uint64
+	Proposed     uint64
+	ForNextEpoch bool
+}
+
+func (e ProtocolParameterUpdateEpochError) Error() string {
+	period := "current"
+	if e.ForNextEpoch {
+		period = "next"
+	}
+	return fmt.Sprintf("protocol parameter update targets epoch %d, expected %s epoch %d (current epoch %d)", e.Proposed, period, e.Expected, e.Current)
+}
+
 // MIRInsufficientGenesisSigsError indicates that a move instantaneous rewards
 // certificate was not authorized by a quorum of the currently delegated
 // genesis keys.

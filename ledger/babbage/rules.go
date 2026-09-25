@@ -43,6 +43,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateSignatures,
 	},
 	{
+		Id:        common.UtxoValidationRuleProtocolParameterUpdates,
+		Validator: UtxoValidateProtocolParameterUpdates,
+	},
+	{
 		Id:        common.UtxoValidationRuleCollateralVKeyWitnesses,
 		Validator: UtxoValidateCollateralVKeyWitnesses,
 	},
@@ -208,7 +212,8 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
-		UtxoValidateSignatures, UtxoValidateCollateralVKeyWitnesses,
+		UtxoValidateSignatures, UtxoValidateProtocolParameterUpdates,
+		UtxoValidateCollateralVKeyWitnesses,
 		common.UtxoValidateCollateralKeyLocked,
 	),
 	common.AlwaysUtxoValidationRules(
@@ -316,6 +321,15 @@ func UtxoValidateRequiredVKeyWitnesses(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateRequiredVKeyWitnesses(tx)
+}
+
+func UtxoValidateProtocolParameterUpdates(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateProtocolParameterUpdates(tx, slot, ls, pp)
 }
 
 // UtxoValidateCollateralVKeyWitnesses ensures collateral inputs are backed by vkey witnesses

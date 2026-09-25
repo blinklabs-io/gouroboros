@@ -1605,6 +1605,69 @@ func TestDijkstraGovernanceValidationChecksUpdateCommitteeValues(t *testing.T) {
 	}
 }
 
+func TestDijkstraProposalRejectsVersionedZeroParameters(t *testing.T) {
+	zero := uint(0)
+	zero64 := uint64(0)
+	zero32 := uint32(0)
+	zeroRat := &cbor.Rat{Rat: new(big.Rat)}
+	tests := []struct {
+		name  string
+		major uint
+		ppu   DijkstraProtocolParameterUpdate
+		bad   bool
+		typed bool
+	}{
+		{"ada per byte allowed PV9", 9, DijkstraProtocolParameterUpdate{AdaPerUtxoByte: &zero64}, false, false},
+		{"ada per byte rejected PV10", 10, DijkstraProtocolParameterUpdate{AdaPerUtxoByte: &zero64}, true, true},
+		{"nopt allowed PV10", 10, DijkstraProtocolParameterUpdate{NOpt: &zero}, false, false},
+		{"nopt rejected PV11", 11, DijkstraProtocolParameterUpdate{NOpt: &zero}, true, true},
+		{"eMax zero rejected", 12, DijkstraProtocolParameterUpdate{MaxPledgeLeverage: zeroRat}, true, true},
+		{"reference script stride zero rejected", 12, DijkstraProtocolParameterUpdate{RefScriptCostStride: &zero32}, true, false},
+		{"committee term zero rejected", 12, DijkstraProtocolParameterUpdate{CommitteeTermLimit: &zero64}, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tx := &DijkstraTransaction{Body: DijkstraTransactionBody{TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPGovAction: DijkstraGovAction{Action: &DijkstraParameterChangeGovAction{ParamUpdate: tt.ppu}},
+			}}}}
+			pp := &DijkstraProtocolParameters{ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: tt.major},
+			}}
+			err := UtxoValidateProposalProcedures(tx, 0, nil, pp)
+			if tt.bad {
+				require.Error(t, err)
+				if tt.typed {
+					require.ErrorAs(t, err, &conway.ProtocolParameterUpdateFieldZeroError{})
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDijkstraProposalRejectsVersionedZeroWithoutParameters(t *testing.T) {
+	zero := uint(0)
+	zero64 := uint64(0)
+	tests := []struct {
+		name string
+		ppu  DijkstraProtocolParameterUpdate
+	}{
+		{"ada per byte", DijkstraProtocolParameterUpdate{AdaPerUtxoByte: &zero64}},
+		{"nopt", DijkstraProtocolParameterUpdate{NOpt: &zero}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateDijkstraProtocolParameterUpdate(&tt.ppu)
+			require.ErrorAs(
+				t,
+				err,
+				&common.ProtocolParameterUpdateProtocolVersionUnavailableError{},
+			)
+		})
+	}
+}
+
 // TestBootstrapPhaseAllowsDijkstraParameterChangeFields covers the Dijkstra
 // side of the bootstrap rule set with a ParameterChange carrying a
 // Dijkstra-only parameter. Every bootstrap-phase rule must accept it: the

@@ -23,6 +23,7 @@ package common
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/bits"
@@ -799,7 +800,7 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 // fields, so Shelley through Babbage require signatures from a quorum of the
 // currently delegated genesis keys. A ledger state that cannot answer the
 // query fails closed rather than admitting an unauthorized certificate.
-func ValidateMIRGenesisQuorum(tx Transaction, ls LedgerState) error {
+func ValidateMIRGenesisQuorum(tx Transaction, slot uint64, ls LedgerState) error {
 	hasMIR := false
 	for _, cert := range tx.Certificates() {
 		if _, ok := cert.(*MoveInstantaneousRewardsCertificate); ok {
@@ -814,7 +815,7 @@ func ValidateMIRGenesisQuorum(tx Transaction, ls LedgerState) error {
 	if !ok {
 		return GenesisDelegationStateUnavailableError{}
 	}
-	delegates, err := genesisState.GenesisDelegateKeyHashes()
+	delegates, err := genesisState.GenesisDelegateKeyHashes(slot)
 	if err != nil {
 		return err
 	}
@@ -844,6 +845,123 @@ func ValidateMIRGenesisQuorum(tx Transaction, ls LedgerState) error {
 		}
 	}
 	return nil
+}
+
+// ValidateClassicProtocolParameterUpdates enforces Shelley-family PPUP
+// authorization, voting-window, and protocol-version-dependent update rules.
+func ValidateClassicProtocolParameterUpdates(
+	tx Transaction,
+	slot uint64,
+	ls LedgerState,
+	pp ProtocolParameters,
+) error {
+	targetEpoch, updates := tx.ProtocolParameterUpdates()
+	if len(updates) == 0 {
+		return nil
+	}
+	genesisState, ok := UnwrapLedgerState(ls).(GenesisDelegationState)
+	if !ok {
+		return GenesisDelegationStateUnavailableError{}
+	}
+	windowState, ok := UnwrapLedgerState(ls).(ClassicProtocolParameterUpdateWindowState)
+	if !ok {
+		return ClassicProtocolParameterUpdateWindowStateUnavailableError{}
+	}
+	delegateSet := make(map[Blake2b224]Blake2b224, len(updates))
+	for genesisKey := range updates {
+		delegateKey, ok, err := genesisState.GenesisDelegateForGenesisKey(
+			genesisKey,
+			slot,
+		)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ProtocolParameterUpdateDelegateError{Delegate: genesisKey}
+		}
+		delegateSet[genesisKey] = delegateKey
+	}
+	signedDelegates := make(map[Blake2b224]struct{})
+	if w := tx.Witnesses(); w != nil {
+		for _, witness := range w.Vkey() {
+			signedDelegates[Blake2b224Hash(witness.Vkey)] = struct{}{}
+		}
+	}
+	for genesisKey := range updates {
+		delegateKey := delegateSet[genesisKey]
+		if _, ok := signedDelegates[delegateKey]; !ok {
+			return ProtocolParameterUpdateWitnessError{Delegate: genesisKey}
+		}
+	}
+	currentEpoch, slotOfNoReturn, err := windowState.ProtocolParameterUpdateWindow(slot)
+	if err != nil {
+		return err
+	}
+	expectedEpoch := currentEpoch
+	forNextEpoch := slot >= slotOfNoReturn
+	if forNextEpoch {
+		if currentEpoch == ^uint64(0) {
+			return errors.New("current epoch overflows next-epoch calculation")
+		}
+		expectedEpoch++
+	}
+	if targetEpoch != expectedEpoch {
+		return ProtocolParameterUpdateEpochError{
+			Current:      currentEpoch,
+			Expected:     expectedEpoch,
+			Proposed:     targetEpoch,
+			ForNextEpoch: forNextEpoch,
+		}
+	}
+	currentVersion, hasCurrentVersion := ProtocolParametersProtocolVersion{}, false
+	if provider, ok := pp.(ProtocolParametersProtocolVersionProvider); ok {
+		currentVersion = provider.ProtocolParametersProtocolVersion()
+		hasCurrentVersion = true
+	}
+	for _, update := range updates {
+		if versionUpdate, ok := update.(ProtocolParameterVersionUpdateProvider); ok {
+			proposed := versionUpdate.ProtocolParameterVersionUpdate()
+			if proposed != nil {
+				if !hasCurrentVersion {
+					return ProtocolParameterUpdateProtocolVersionUnavailableError{}
+				}
+				if !protocolVersionCanFollow(currentVersion, *proposed) {
+					return ProtocolParameterUpdateVersionError{
+						CurrentMajor:  currentVersion.Major,
+						CurrentMinor:  currentVersion.Minor,
+						ProposedMajor: proposed.Major,
+						ProposedMinor: proposed.Minor,
+					}
+				}
+			}
+		}
+		versioned, ok := update.(ProtocolParameterUpdateVersionValidator)
+		if !ok {
+			continue
+		}
+		if costModels, ok := update.(ProtocolParameterUpdateCostModelProvider); ok &&
+			len(costModels.ProtocolParameterUpdateCostModels()) == 0 {
+			continue
+		}
+		if !hasCurrentVersion {
+			return ProtocolParameterUpdateProtocolVersionUnavailableError{}
+		}
+		if err := versioned.ValidateProtocolParameterUpdateVersion(currentVersion); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func protocolVersionCanFollow(
+	current ProtocolParametersProtocolVersion,
+	proposed ProtocolParametersProtocolVersion,
+) bool {
+	majorIncrement := current.Major < ^uint(0) &&
+		proposed.Major == current.Major+1 && proposed.Minor == 0
+	minorIncrement := proposed.Major == current.Major &&
+		current.Minor < ^uint(0) && proposed.Minor == current.Minor+1
+	return majorIncrement || minorIncrement
 }
 
 // ValidateUnsupportedPlutusExecution fails closed when a transaction requires

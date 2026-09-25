@@ -41,6 +41,13 @@ var plutusParamCounts = map[uint]int{
 	PlutusV3Key: 187,
 }
 
+// PlutusCostModelParameterCount returns the reference parameter count for a
+// known Plutus language.
+func PlutusCostModelParameterCount(language uint) (int, bool) {
+	count, ok := plutusParamCounts[language]
+	return count, ok
+}
+
 // AlonzoProtocolParameters holds the Alonzo-era protocol parameters.
 //
 // AdaPerUtxoByte carries key 17, which in Alonzo is coinsPerUTxOWord: a price
@@ -297,6 +304,24 @@ type AlonzoProtocolParameterUpdate struct {
 
 func (AlonzoProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
+func (u AlonzoProtocolParameterUpdate) ProtocolParameterUpdateCostModels() map[uint][]int64 {
+	return u.CostModels
+}
+
+func (u AlonzoProtocolParameterUpdate) ProtocolParameterVersionUpdate() *common.ProtocolParametersProtocolVersion {
+	return u.ProtocolVersion
+}
+
+func (u AlonzoProtocolParameterUpdate) ValidateProtocolParameterUpdateVersion(
+	currentVersion common.ProtocolParametersProtocolVersion,
+) error {
+	return common.ValidateClassicCostModelUpdate(
+		u.CostModels,
+		currentVersion.Major,
+		map[uint]int{PlutusV1Key: plutusParamCounts[PlutusV1Key]},
+	)
+}
+
 // removedMinUtxoValueKey is protocol_param_update key 15 (minUTxOValue). The
 // Alonzo CDDL dropped it and the reference decoder routes any key it does not
 // recognize to Invalid, failing the decode rather than ignoring the entry, so
@@ -308,8 +333,11 @@ func (AlonzoProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 const removedMinUtxoValueKey = 15
 
 func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
-	var rawKeys map[uint64]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &rawKeys); err != nil {
+	rawKeys, err := common.ValidateProtocolParameterUpdateDomains(
+		cborData,
+		common.ProtocolParameterUpdateEraAlonzo,
+	)
+	if err != nil {
 		return err
 	}
 	if _, ok := rawKeys[removedMinUtxoValueKey]; ok {
@@ -461,6 +489,10 @@ func UpgradePParams(
 // ProtocolMajorVersion returns the active major protocol version.
 func (p *AlonzoProtocolParameters) ProtocolMajorVersion() uint {
 	return p.ProtocolMajor
+}
+
+func (p *AlonzoProtocolParameters) ProtocolParametersProtocolVersion() common.ProtocolParametersProtocolVersion {
+	return common.ProtocolParametersProtocolVersion{Major: p.ProtocolMajor, Minor: p.ProtocolMinor}
 }
 
 // MinPoolCostValue returns the minPoolCost protocol parameter.

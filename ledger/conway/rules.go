@@ -446,7 +446,10 @@ func UtxoValidateProposalProcedures(
 		}
 
 		// Validate the protocol parameter update
-		if err := validateProtocolParameterUpdate(&paramChangeAction.ParamUpdate); err != nil {
+		if err := validateProtocolParameterUpdate(
+			&paramChangeAction.ParamUpdate,
+			pp,
+		); err != nil {
 			return err
 		}
 	}
@@ -1362,7 +1365,10 @@ func UtxoValidateProposalReturnAccounts(
 }
 
 // validateProtocolParameterUpdate validates that a PPU is well-formed
-func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
+func validateProtocolParameterUpdate(
+	ppu *ConwayProtocolParameterUpdate,
+	protocolParameters ...common.ProtocolParameters,
+) error {
 	if err := validateConwayProtocolParameterUpdate(ppu); err != nil {
 		return err
 	}
@@ -1401,7 +1407,25 @@ func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
 		return ProtocolParameterUpdateEmptyError{}
 	}
 
-	// Validate individual fields that cannot be zero
+	return ValidateProtocolParameterUpdateNonZeroFields(
+		ppu,
+		protocolParameters...,
+	)
+}
+
+// ValidateProtocolParameterUpdateNonZeroFields applies shared Conway and
+// Dijkstra zero-value and protocol-version checks to Conway-era fields.
+func ValidateProtocolParameterUpdateNonZeroFields(
+	ppu *ConwayProtocolParameterUpdate,
+	protocolParameters ...common.ProtocolParameters,
+) error {
+	if ppu == nil {
+		return ConwayProtocolParameterUpdateError{
+			FieldName: "update",
+			Reason:    "cannot be nil",
+		}
+	}
+	// Validate individual fields that cannot be zero.
 	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
 		return ProtocolParameterUpdateFieldZeroError{
 			FieldName: "maxBHSize",
@@ -1428,6 +1452,47 @@ func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
 			FieldName: "maxBlockBodySize",
 			Value:     *ppu.MaxBlockBodySize,
 		}
+	}
+	var major uint
+	var pp common.ProtocolParameters
+	if len(protocolParameters) > 0 {
+		pp = protocolParameters[0]
+	}
+	if pp == nil &&
+		((ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0) ||
+			(ppu.NOpt != nil && *ppu.NOpt == 0)) {
+		return common.ProtocolParameterUpdateProtocolVersionUnavailableError{}
+	}
+	if pp != nil {
+		versionedPparams, ok := pp.(interface{ ProtocolMajorVersion() uint })
+		if !ok {
+			return common.ProtocolParameterUpdateProtocolVersionUnavailableError{}
+		}
+		major = versionedPparams.ProtocolMajorVersion()
+	}
+	if ppu.CollateralPercentage != nil && *ppu.CollateralPercentage == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "collateralPercentage"}
+	}
+	if ppu.CommitteeTermLimit != nil && *ppu.CommitteeTermLimit == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "committeeMaxTermLength"}
+	}
+	if ppu.GovActionValidityPeriod != nil && *ppu.GovActionValidityPeriod == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "govActionLifetime"}
+	}
+	if ppu.PoolDeposit != nil && *ppu.PoolDeposit == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "poolDeposit"}
+	}
+	if ppu.GovActionDeposit != nil && *ppu.GovActionDeposit == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "govActionDeposit"}
+	}
+	if ppu.DRepDeposit != nil && *ppu.DRepDeposit == 0 {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "drepDeposit"}
+	}
+	if ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0 && major >= common.ProtocolVersionPlomin {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "coinsPerUTxOByte"}
+	}
+	if ppu.NOpt != nil && *ppu.NOpt == 0 && major >= common.ProtocolVersionVanRossem {
+		return ProtocolParameterUpdateFieldZeroError{FieldName: "nOptimalPoolCount"}
 	}
 
 	return nil
@@ -1592,12 +1657,11 @@ func invalidConwayParameterField(field, reason string) error {
 }
 
 func validNonNegativeRat(rat *cbor.Rat) bool {
-	return rat != nil && rat.Rat != nil && rat.Denom().Sign() > 0 &&
-		rat.Num().Sign() >= 0 && rat.Num().IsUint64() && rat.Denom().IsUint64()
+	return common.ValidateNonNegativeInterval(rat, false) == nil
 }
 
 func validUnitRat(rat *cbor.Rat) bool {
-	return validNonNegativeRat(rat) && rat.Num().Cmp(rat.Denom()) <= 0
+	return common.ValidateNonNegativeInterval(rat, true) == nil
 }
 
 func validateConwayExUnits(units *common.ExUnits, field string) error {
