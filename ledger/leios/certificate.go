@@ -35,11 +35,11 @@ var (
 	ErrInvalidProof = errors.New("invalid Leios proof of possession")
 	// ErrKeylessSigner reports a certificate selecting a seat without a key.
 	ErrKeylessSigner = errors.New(
-		"Leios certificate selects a keyless seat",
+		"leios certificate selects a keyless seat",
 	)
 	// ErrInsufficientQuorum reports signer stake below the configured threshold.
 	ErrInsufficientQuorum = errors.New(
-		"Leios certificate does not meet stake quorum",
+		"leios certificate does not meet stake quorum",
 	)
 	// ErrInvalidSignature reports a bad certificate aggregate signature.
 	ErrInvalidSignature = errors.New("invalid Leios aggregate signature")
@@ -86,7 +86,7 @@ func VerifyDijkstraCertificate(
 		signers,
 		uint64(committeeSize),
 	); err != nil {
-		return fmt.Errorf("%w: %v", ErrMalformedCommittee, err)
+		return fmt.Errorf("%w: %w", ErrMalformedCommittee, err)
 	}
 
 	var aggregatePublicKey bls12381.G2Affine
@@ -111,7 +111,7 @@ func VerifyDijkstraCertificate(
 		pub, err := decodePublicKey(seat.Key.PublicKey)
 		if err != nil {
 			return fmt.Errorf(
-				"%w: seat %d public key: %v",
+				"%w: seat %d public key: %w",
 				ErrMalformedCommittee,
 				i,
 				err,
@@ -123,7 +123,7 @@ func VerifyDijkstraCertificate(
 			seat.Key.PossessionProof,
 			leiosProofDST,
 		); err != nil {
-			return fmt.Errorf("%w: seat %d: %v", ErrInvalidProof, i, err)
+			return fmt.Errorf("%w: seat %d: %w", ErrInvalidProof, i, err)
 		}
 		if signerStake > context.TotalActiveStake-seat.Stake {
 			return fmt.Errorf(
@@ -174,7 +174,7 @@ func VerifyDijkstraCertificate(
 		signature,
 		leiosSignatureDST,
 	); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidSignature, err)
+		return fmt.Errorf("%w: %w", ErrInvalidSignature, err)
 	}
 	return nil
 }
