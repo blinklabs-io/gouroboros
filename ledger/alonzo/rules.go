@@ -334,7 +334,7 @@ func UtxoValidateIsValidFlag(
 	pp common.ProtocolParameters,
 ) error {
 	// If IsValid is true, no check needed
-	if tx.IsValid() {
+	if tx.IsValid() || !common.TransactionRunsPhase2Scripts(tx) {
 		return nil
 	}
 
@@ -662,7 +662,7 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	stakeRegistered := make(map[stakeCredentialKey]bool)
 	stakeDeposits := make(map[stakeCredentialKey]uint64)
-	if tx.IsValid() {
+	if tx.IsValid() || !common.TransactionRunsPhase2Scripts(tx) {
 		for _, cert := range tx.Certificates() {
 			switch tmpCert := cert.(type) {
 			case *common.StakeDeregistrationCertificate:
