@@ -93,6 +93,10 @@ func TestDecodeAuxiliaryDataForEraRejectsNullAllegraMetadata(t *testing.T) {
 	raw := []byte{0x82, 0xf6, 0x80}
 	_, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraMary)
 	require.ErrorContains(t, err, "metadata must be a CBOR map")
+
+	var auxiliaryData common.ShelleyMaAuxiliaryData
+	err = auxiliaryData.UnmarshalCBOR(raw)
+	require.ErrorContains(t, err, "metadata must be a CBOR map")
 }
 
 func TestAuxiliaryNativeScriptConstructorsRespectEra(t *testing.T) {

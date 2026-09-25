@@ -849,14 +849,15 @@ func (s *ShelleyMaAuxiliaryData) UnmarshalCBOR(data []byte) error {
 		)
 	}
 
-	// First element is metadata (may be null)
-	if len(arr[0]) > 0 && arr[0][0] != 0xF6 { // 0xF6 is CBOR null
-		md, err := decodeTransactionMetadataRaw(arr[0])
-		if err != nil {
-			return fmt.Errorf("failed to decode metadata: %w", err)
-		}
-		s.metadata = md
+	// The first element is a transaction metadata map.
+	if len(arr[0]) == 0 || arr[0][0]&cborTypeMask != cborTypeMap {
+		return errors.New("Shelley-MA metadata must be a CBOR map")
 	}
+	md, err := decodeTransactionMetadataRaw(arr[0])
+	if err != nil {
+		return fmt.Errorf("failed to decode metadata: %w", err)
+	}
+	s.metadata = md
 
 	// Second element is array of native scripts
 	if _, err := cbor.Decode(arr[1], &s.nativeScripts); err != nil {
