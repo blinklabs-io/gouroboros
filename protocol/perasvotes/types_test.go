@@ -93,7 +93,7 @@ func TestVoteCertRejectsTrailingCBOR(t *testing.T) {
 	t.Parallel()
 
 	encoded := []byte{0x01, 0x02}
-	var got VoteCert
+	got := new(VoteCert)
 	err := got.UnmarshalCBOR(encoded)
 	require.ErrorContains(t, err, "trailing bytes")
 	_, err = VoteCert(encoded).MarshalCBOR()
