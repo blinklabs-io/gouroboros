@@ -653,6 +653,8 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 	}
 	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
+	stakeCertificateEffectsValid := tx.IsValid() ||
+		!common.TransactionRunsPhase2Scripts(tx)
 	type stakeCredentialKey struct {
 		credType uint
 		hash     string
@@ -662,7 +664,7 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	stakeRegistered := make(map[stakeCredentialKey]bool)
 	stakeDeposits := make(map[stakeCredentialKey]uint64)
-	if tx.IsValid() || !common.TransactionRunsPhase2Scripts(tx) {
+	if stakeCertificateEffectsValid {
 		for _, cert := range tx.Certificates() {
 			switch tmpCert := cert.(type) {
 			case *common.StakeDeregistrationCertificate:
@@ -703,25 +705,25 @@ func UtxoValidateValueNotConservedUtxo(
 	if fee := tx.Fee(); fee != nil {
 		producedValue.Add(producedValue, fee)
 	}
-	if tx.IsValid() {
-		for _, cert := range tx.Certificates() {
-			switch tmpCert := cert.(type) {
-			case *common.PoolRegistrationCertificate:
-				operator := common.Blake2b224(tmpCert.Operator)
-				if _, seen := seenPoolRegistrations[operator]; seen {
-					continue
-				}
-				seenPoolRegistrations[operator] = struct{}{}
-				depositDue, err := common.PoolRegistrationDepositDue(
-					ls, slot, operator,
-				)
-				if err != nil {
-					return err
-				}
-				if depositDue {
-					producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
-				}
-			case *common.StakeRegistrationCertificate:
+	for _, cert := range tx.Certificates() {
+		switch tmpCert := cert.(type) {
+		case *common.PoolRegistrationCertificate:
+			operator := common.Blake2b224(tmpCert.Operator)
+			if _, seen := seenPoolRegistrations[operator]; seen {
+				continue
+			}
+			seenPoolRegistrations[operator] = struct{}{}
+			depositDue, err := common.PoolRegistrationDepositDue(
+				ls, slot, operator,
+			)
+			if err != nil {
+				return err
+			}
+			if depositDue {
+				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
+			}
+		case *common.StakeRegistrationCertificate:
+			if stakeCertificateEffectsValid {
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 			}
 		}
