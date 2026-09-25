@@ -949,6 +949,24 @@ type NativeScriptPubkey struct {
 	Hash []byte
 }
 
+// UnmarshalCBOR requires the signature hash to match its ledger-defined width.
+func (s *NativeScriptPubkey) UnmarshalCBOR(data []byte) error {
+	type nativeScriptPubkeyAlias NativeScriptPubkey
+	var decoded nativeScriptPubkeyAlias
+	if _, err := cbor.Decode(data, &decoded); err != nil {
+		return err
+	}
+	if len(decoded.Hash) != Blake2b224Size {
+		return fmt.Errorf(
+			"invalid native script key hash: expected %d bytes, got %d",
+			Blake2b224Size,
+			len(decoded.Hash),
+		)
+	}
+	*s = NativeScriptPubkey(decoded)
+	return nil
+}
+
 type NativeScriptAll struct {
 	cbor.StructAsArray
 	Type    uint

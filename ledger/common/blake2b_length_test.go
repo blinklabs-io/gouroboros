@@ -45,24 +45,25 @@ func TestNativeScriptPubkeyRejectsWrongLengthKeyHash(t *testing.T) {
 	witness := nearMissKeyHash()
 	keyHashes := map[common.Blake2b224]bool{witness: true}
 	testCases := []struct {
-		name string
-		hash []byte
-		want bool
+		name           string
+		hash           []byte
+		wantEvaluation bool
+		wantDecodeErr  bool
 	}{
 		{
-			name: "exact length satisfied by the witness",
-			hash: slices.Clone(witness[:]),
-			want: true,
+			name:           "exact length satisfied by the witness",
+			hash:           slices.Clone(witness[:]),
+			wantEvaluation: true,
 		},
 		{
-			name: "short hash must not zero-pad into the witness",
-			hash: slices.Clone(witness[:common.Blake2b224Size-1]),
-			want: false,
+			name:          "short hash must not zero-pad into the witness",
+			hash:          slices.Clone(witness[:common.Blake2b224Size-1]),
+			wantDecodeErr: true,
 		},
 		{
-			name: "long hash must not truncate into the witness",
-			hash: slices.Concat(witness[:], []byte{0xFF}),
-			want: false,
+			name:          "long hash must not truncate into the witness",
+			hash:          slices.Concat(witness[:], []byte{0xFF}),
+			wantDecodeErr: true,
 		},
 	}
 	for _, testCase := range testCases {
@@ -73,13 +74,83 @@ func TestNativeScriptPubkeyRejectsWrongLengthKeyHash(t *testing.T) {
 			)
 			require.NoError(t, err)
 			var script common.NativeScript
-			require.NoError(t, script.UnmarshalCBOR(scriptCbor))
+			err = script.UnmarshalCBOR(scriptCbor)
+			if testCase.wantDecodeErr {
+				require.ErrorContains(t, err, "invalid native script key hash")
+				return
+			}
+			require.NoError(t, err)
 			require.Equal(
 				t,
-				testCase.want,
+				testCase.wantEvaluation,
 				script.Evaluate(0, 0, math.MaxUint64, keyHashes),
 				"native script pubkey hash of %d bytes",
 				len(testCase.hash),
+			)
+		})
+	}
+}
+
+func TestNativeScriptPubkeyDecodeRejectsWrongLengthRecursively(t *testing.T) {
+	t.Parallel()
+	shortHash := make([]byte, common.Blake2b224Size-1)
+	longHash := make([]byte, common.Blake2b224Size+1)
+	constructors := []struct {
+		name string
+		wrap func(any) any
+	}{
+		{name: "all", wrap: func(child any) any { return []any{uint(1), []any{child}} }},
+		{name: "any", wrap: func(child any) any { return []any{uint(2), []any{child}} }},
+		{name: "n-of-k", wrap: func(child any) any { return []any{uint(3), int64(1), []any{child}} }},
+	}
+	for _, constructor := range constructors {
+		t.Run(constructor.name, func(t *testing.T) {
+			t.Parallel()
+			for _, hash := range [][]byte{shortHash, longHash} {
+				malformed := []any{uint(0), hash}
+				encoded, err := cbor.Encode(constructor.wrap(malformed))
+				require.NoError(t, err)
+				var script common.NativeScript
+				require.ErrorContains(
+					t,
+					script.UnmarshalCBOR(encoded),
+					"invalid native script key hash",
+				)
+			}
+		})
+	}
+}
+
+func TestScriptRefDecodeRejectsWrongLengthNativeScriptKeyHash(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		hash []byte
+	}{
+		{name: "short", hash: make([]byte, common.Blake2b224Size-1)},
+		{name: "long", hash: make([]byte, common.Blake2b224Size+1)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			nativeScript, err := cbor.Encode([]any{uint(0), test.hash})
+			require.NoError(t, err)
+			innerScript, err := cbor.Encode([]any{
+				uint(common.ScriptRefTypeNativeScript),
+				cbor.RawMessage(nativeScript),
+			})
+			require.NoError(t, err)
+			referenceScript, err := cbor.Encode(cbor.Tag{
+				Number:  24,
+				Content: innerScript,
+			})
+			require.NoError(t, err)
+			var scriptRef common.ScriptRef
+			_, err = cbor.Decode(referenceScript, &scriptRef)
+			require.ErrorContains(
+				t,
+				err,
+				"invalid native script key hash",
 			)
 		})
 	}
