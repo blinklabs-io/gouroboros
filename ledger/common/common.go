@@ -1333,7 +1333,10 @@ func extractByronTransactionOffsets(
 	cborData []byte,
 	blockArray []cbor.RawMessage,
 ) (*BlockTransactionOffsets, error) {
-	arrayHeaderSize := cborArrayHeaderSize(len(blockArray))
+	_, arrayHeaderSize, _ := cborArrayInfo(cborData)
+	if arrayHeaderSize == 0 {
+		return nil, errors.New("invalid Byron block array header")
+	}
 
 	// blockArray[0] = header, blockArray[1] = body, blockArray[2] = extra
 	headerOffset := arrayHeaderSize
@@ -1363,15 +1366,20 @@ func extractByronTransactionOffsets(
 
 	// Calculate the absolute offset of the tx_payload array within the block.
 	// body starts at bodyOffset, body is an array: [tx_payload, ssc, dlg, upd]
-	bodyArrayHeader := cborArrayHeaderSize(len(bodyParts))
+	_, bodyArrayHeader, _ := cborArrayInfo([]byte(blockArray[1]))
+	if bodyArrayHeader == 0 {
+		return nil, errors.New("invalid Byron block body array header")
+	}
 	txPayloadOffset := bodyOffset + bodyArrayHeader // tx_payload is bodyParts[0]
 
 	// The tx_payload itself is an array of transaction pairs
-	txPayloadArrayHeader := cborArrayHeaderSize(len(txPayload))
-	// Check for indefinite-length array
 	txPayloadAbsStart := int(txPayloadOffset)
-	if txPayloadAbsStart < len(cborData) && cborData[txPayloadAbsStart] == 0x9f {
-		txPayloadArrayHeader = 1
+	if txPayloadAbsStart >= len(cborData) {
+		return nil, errors.New("invalid Byron transaction payload offset")
+	}
+	_, txPayloadArrayHeader, _ := cborArrayInfo(cborData[txPayloadAbsStart:])
+	if txPayloadArrayHeader == 0 {
+		return nil, errors.New("invalid Byron transaction payload array header")
 	}
 
 	result := &BlockTransactionOffsets{
@@ -1395,11 +1403,13 @@ func extractByronTransactionOffsets(
 		}
 
 		// Each pair is a 2-element CBOR array: [tx_body, tx_witnesses]
-		pairArrayHeader := cborArrayHeaderSize(len(txPair))
-		// Check for indefinite-length pair array
 		pairAbsStart := int(pairPos)
-		if pairAbsStart < len(cborData) && cborData[pairAbsStart] == 0x9f {
-			pairArrayHeader = 1
+		if pairAbsStart >= len(cborData) {
+			return nil, errors.New("invalid Byron transaction pair offset")
+		}
+		_, pairArrayHeader, _ := cborArrayInfo(cborData[pairAbsStart:])
+		if pairArrayHeader == 0 {
+			return nil, errors.New("invalid Byron transaction pair array header")
 		}
 
 		bodyStart := pairPos + pairArrayHeader
@@ -1458,19 +1468,21 @@ func extractByronOutputOffsets(
 
 	// Calculate offset to the outputs array within the block.
 	// Skip: body array header + inputs element
-	bodyArrayHeader := cborArrayHeaderSize(len(bodyParts))
-	// Check for indefinite-length body array
-	if len(bodyData) > 0 && bodyData[0] == 0x9f {
-		bodyArrayHeader = 1
+	_, bodyArrayHeader, _ := cborArrayInfo(bodyData)
+	if bodyArrayHeader == 0 {
+		return
 	}
 	inputsLen := uint32(len(bodyParts[0])) // #nosec G115
 	outputsAbsOffset := bodyOffset + uint32(bodyArrayHeader) + inputsLen
 
 	// Determine outputs array header size
-	outputsArrayHeader := uint32(cborArrayHeaderSize(len(outputsRaw)))
 	outputsArrayStart := int(outputsAbsOffset - bodyOffset)
-	if outputsArrayStart >= 0 && outputsArrayStart < len(bodyData) && bodyData[outputsArrayStart] == 0x9f {
-		outputsArrayHeader = 1 // indefinite-length
+	if outputsArrayStart < 0 || outputsArrayStart >= len(bodyData) {
+		return
+	}
+	_, outputsArrayHeader, _ := cborArrayInfo(bodyData[outputsArrayStart:])
+	if outputsArrayHeader == 0 {
+		return
 	}
 
 	outputPos := outputsAbsOffset + outputsArrayHeader
@@ -2041,12 +2053,12 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 	}
 
 	// Calculate body offsets within the tx bodies array.
-	// Check for indefinite-length array (0x9f) which uses 1-byte header.
-	var bodiesArrayHeader uint32
-	if int(txBodiesOffset) < len(cborData) && cborData[txBodiesOffset] == 0x9f {
-		bodiesArrayHeader = 1
-	} else {
-		bodiesArrayHeader = cborArrayHeaderSize(len(txBodiesRaw))
+	if int(txBodiesOffset) >= len(cborData) {
+		return nil, errors.New("invalid transaction bodies offset")
+	}
+	_, bodiesArrayHeader, _ := cborArrayInfo(cborData[txBodiesOffset:])
+	if bodiesArrayHeader == 0 {
+		return nil, errors.New("invalid transaction bodies array header")
 	}
 	bodyPos := txBodiesOffset + bodiesArrayHeader
 	for i, rawBody := range txBodiesRaw {
@@ -2063,12 +2075,12 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 	}
 
 	// Calculate witness offsets within the witnesses array.
-	// Check for indefinite-length array (0x9f) which uses 1-byte header.
-	var witnessArrayHeader uint32
-	if int(witnessesOffset) < len(cborData) && cborData[witnessesOffset] == 0x9f {
-		witnessArrayHeader = 1
-	} else {
-		witnessArrayHeader = cborArrayHeaderSize(len(witnessesRaw))
+	if int(witnessesOffset) >= len(cborData) {
+		return nil, errors.New("invalid witness sets offset")
+	}
+	_, witnessArrayHeader, _ := cborArrayInfo(cborData[witnessesOffset:])
+	if witnessArrayHeader == 0 {
+		return nil, errors.New("invalid witness sets array header")
 	}
 	witnessPos := witnessesOffset + witnessArrayHeader
 	for i, rawWitness := range witnessesRaw {
@@ -2172,15 +2184,13 @@ func extractOutputOffsets(
 			// #nosec G115 -- valueStart is position within a Cardano tx body, well under 4GiB
 			outputsArrayOffset := bodyOffset + headerSize + uint32(valueStart)
 
-			// Determine actual array header size from the data.
-			// For indefinite-length arrays (0x9f), header is 1 byte.
-			// For definite-length arrays, use cborArrayHeaderSize.
 			arrayStartIdx := int(headerSize) + valueStart
-			var outputsArrayHeader uint32
-			if arrayStartIdx < len(bodyData) && bodyData[arrayStartIdx] == 0x9f {
-				outputsArrayHeader = 1 // indefinite-length array
-			} else {
-				outputsArrayHeader = uint32(cborArrayHeaderSize(len(outputsRaw)))
+			if arrayStartIdx < 0 || arrayStartIdx >= len(bodyData) {
+				return
+			}
+			_, outputsArrayHeader, _ := cborArrayInfo(bodyData[arrayStartIdx:])
+			if outputsArrayHeader == 0 {
+				return
 			}
 
 			// Track position within outputs array
