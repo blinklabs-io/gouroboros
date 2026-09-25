@@ -25,7 +25,7 @@ import (
 // Test Shelley auxiliary data (just metadata)
 func TestShelleyAuxiliaryData(t *testing.T) {
 	// CBOR map with metadata: {0: "test"}
-	cborHex := "a100647465737421"
+	cborHex := "a1006474657374"
 	cborData, err := hex.DecodeString(cborHex)
 	if err != nil {
 		t.Fatalf("failed to decode hex: %v", err)
@@ -72,8 +72,8 @@ func TestShelleyAuxiliaryData(t *testing.T) {
 // Test Shelley-MA auxiliary data (metadata + native scripts)
 func TestShelleyMaAuxiliaryData(t *testing.T) {
 	// CBOR array: [metadata, [native_script]]
-	// Simplified: [{"test": 42}, []]
-	cborHex := "82a164746573741828f680"
+	// Simplified: [{0: 42}, []]
+	cborHex := "82a100182a80"
 	cborData, err := hex.DecodeString(cborHex)
 	if err != nil {
 		t.Fatalf("failed to decode hex: %v", err)
@@ -112,7 +112,7 @@ func TestShelleyMaAuxiliaryData(t *testing.T) {
 func TestAlonzoAuxiliaryData(t *testing.T) {
 	// CBOR tag 259 with map: #6.259({0: metadata})
 	// Simplified: #6.259({0: {"key": "value"}})
-	cborHex := "d90103a100a1636b6579656576616c7565"
+	cborHex := "d90103a100a1016576616c7565"
 	cborData, err := hex.DecodeString(cborHex)
 	if err != nil {
 		t.Fatalf("failed to decode hex: %v", err)
@@ -142,8 +142,8 @@ func TestAlonzoAuxiliaryData(t *testing.T) {
 // Test Alonzo auxiliary data with multiple script types
 func TestAlonzoAuxiliaryDataWithScripts(t *testing.T) {
 	// Encode metadata
-	metadataMap := make(map[string]string)
-	metadataMap["test"] = "value"
+	metadataMap := make(map[uint]string)
+	metadataMap[1] = "value"
 	metadataCbor, err := cbor.Encode(metadataMap)
 	if err != nil {
 		t.Fatalf("failed to encode metadata: %v", err)
@@ -230,8 +230,8 @@ func TestAlonzoAuxiliaryDataWithScripts(t *testing.T) {
 // Test encoding and decoding roundtrip for Shelley
 func TestShelleyAuxiliaryDataRoundtrip(t *testing.T) {
 	// Create metadata
-	metadataMap := make(map[string]string)
-	metadataMap["key"] = "value"
+	metadataMap := make(map[uint]string)
+	metadataMap[1] = "value"
 	metadataCbor, err := cbor.Encode(metadataMap)
 	if err != nil {
 		t.Fatalf("failed to encode metadata: %v", err)
@@ -265,8 +265,8 @@ func TestShelleyAuxiliaryDataRoundtrip(t *testing.T) {
 // Test encoding and decoding roundtrip for Alonzo
 func TestAlonzoAuxiliaryDataRoundtrip(t *testing.T) {
 	// Create auxiliary data with metadata
-	metadataMap := make(map[string]string)
-	metadataMap["test"] = "roundtrip"
+	metadataMap := make(map[uint]string)
+	metadataMap[1] = "roundtrip"
 	metadataCbor, err := cbor.Encode(metadataMap)
 	if err != nil {
 		t.Fatalf("failed to encode metadata: %v", err)
@@ -353,25 +353,16 @@ func TestInvalidAuxiliaryData(t *testing.T) {
 	}
 }
 
-// Test auxiliary data with null metadata
-func TestAuxiliaryDataNullMetadata(t *testing.T) {
-	// Shelley-MA format with null metadata: [null, []]
+// Test auxiliary data rejects null metadata.
+func TestAuxiliaryDataRejectsNullMetadata(t *testing.T) {
+	// Shelley-MA metadata is a map: [null, []] is malformed.
 	cborHex := "82f680"
 	cborData, err := hex.DecodeString(cborHex)
 	if err != nil {
 		t.Fatalf("failed to decode hex: %v", err)
 	}
 
-	auxData, err := common.DecodeAuxiliaryData(cborData)
-	if err != nil {
-		t.Fatalf("failed to decode auxiliary data: %v", err)
-	}
-
-	metadata, err := auxData.Metadata()
-	if err != nil {
-		t.Fatalf("failed to get metadata: %v", err)
-	}
-	if metadata != nil {
-		t.Fatalf("expected nil metadata, got %v", metadata)
+	if _, err = common.DecodeAuxiliaryData(cborData); err == nil {
+		t.Fatal("expected null Shelley-MA metadata to be rejected")
 	}
 }

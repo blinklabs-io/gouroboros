@@ -780,9 +780,12 @@ func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(
 			},
 		},
 		{
-			name:   "native scripts",
-			field:  0x01,
-			member: []byte{0x82, 0x00, 0x41, 0x01}, // pubkey script
+			name:  "native scripts",
+			field: 0x01,
+			member: append(
+				[]byte{0x82, 0x00, 0x58, common.Blake2b224Size},
+				make([]byte, common.Blake2b224Size)...,
+			), // pubkey script
 		},
 		{
 			name:   "plutus data",
