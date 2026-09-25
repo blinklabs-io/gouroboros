@@ -236,7 +236,7 @@ func UtxoValidateIsValidFlag(
 	pp common.ProtocolParameters,
 ) error {
 	// If IsValid is true, no check needed
-	if tx.IsValid() || !common.TransactionRunsPhase2Scripts(tx) {
+	if tx.IsValid() {
 		return nil
 	}
 
