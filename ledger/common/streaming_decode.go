@@ -87,12 +87,10 @@ func NewStreamingBlockDecoder(data []byte) (*StreamingBlockDecoder, error) {
 func (d *StreamingBlockDecoder) DecodeWithOffsets() (*BlockTransactionOffsets, error) {
 	// Decode block as array of RawMessage to get component boundaries
 	var blockArray []cbor.RawMessage
-	blockStart, blockLen, err := d.stream.Decode(&blockArray)
+	blockStart, _, err := d.stream.Decode(&blockArray)
 	if err != nil {
 		return nil, fmt.Errorf("decode block array: %w", err)
 	}
-	_ = blockLen // Used for validation if needed
-
 	if len(blockArray) < 3 {
 		// Byron EBB or other minimal block format
 		// Return empty slice instead of nil to prevent nil pointer dereference
@@ -112,7 +110,11 @@ func (d *StreamingBlockDecoder) DecodeWithOffsets() (*BlockTransactionOffsets, e
 	}
 
 	// Shelley+ block layout: [header, tx_bodies[], witnesses[], metadata_map, invalid_txs[]]
-	arrayHeaderSize := cborArrayHeaderSize(len(blockArray))
+	// Decoding arrays loses whether the wire header was definite or indefinite.
+	_, arrayHeaderSize, _ := cborArrayInfo(d.data[blockStart:])
+	if arrayHeaderSize == 0 {
+		return nil, errors.New("invalid block array header")
+	}
 
 	// Track positions as we walk through the block
 	// #nosec G115 -- Cardano block components are well under 4GiB
@@ -144,11 +146,19 @@ func (d *StreamingBlockDecoder) DecodeWithOffsets() (*BlockTransactionOffsets, e
 	if _, err := cbor.Decode([]byte(blockArray[1]), &txBodiesRaw); err != nil {
 		return nil, fmt.Errorf("decode transaction bodies: %w", err)
 	}
+	_, bodiesArrayHeader, _ := cborArrayInfo(blockArray[1])
+	if bodiesArrayHeader == 0 {
+		return nil, errors.New("invalid transaction bodies array header")
+	}
 
 	// Parse witness sets
 	var witnessesRaw []cbor.RawMessage
 	if _, err := cbor.Decode([]byte(blockArray[2]), &witnessesRaw); err != nil {
 		return nil, fmt.Errorf("decode witness sets: %w", err)
+	}
+	_, witnessArrayHeader, _ := cborArrayInfo(blockArray[2])
+	if witnessArrayHeader == 0 {
+		return nil, errors.New("invalid witness sets array header")
 	}
 
 	// Validate that transaction bodies and witness sets have matching lengths
@@ -177,7 +187,6 @@ func (d *StreamingBlockDecoder) DecodeWithOffsets() (*BlockTransactionOffsets, e
 	d.offsets.Transactions = make([]TransactionLocation, len(txBodiesRaw))
 
 	// Calculate individual transaction body offsets
-	bodiesArrayHeader := uint32(cborArrayHeaderSize(len(txBodiesRaw)))
 	bodyPos := txBodiesOffset + bodiesArrayHeader
 
 	for i, rawBody := range txBodiesRaw {
@@ -195,7 +204,6 @@ func (d *StreamingBlockDecoder) DecodeWithOffsets() (*BlockTransactionOffsets, e
 	}
 
 	// Calculate individual witness set offsets
-	witnessArrayHeader := uint32(cborArrayHeaderSize(len(witnessesRaw)))
 	witnessPos := witnessesOffset + witnessArrayHeader
 
 	for i, rawWitness := range witnessesRaw {
@@ -292,7 +300,12 @@ func (d *StreamingBlockDecoder) extractOutputOffsets(
 			// Calculate the absolute offset of the outputs array
 			// #nosec G115 -- Cardano tx body offsets are well under 4GiB
 			outputsArrayOffset := bodyOffset + uint32(headerSize) + uint32(valueStart)
-			outputsArrayHeader := uint32(cborArrayHeaderSize(len(outputsRaw)))
+			_, outputsArrayHeader, _ := cborArrayInfo(
+				bodyData[headerSize+uint32(valueStart):],
+			)
+			if outputsArrayHeader == 0 {
+				return
+			}
 
 			// Track position within outputs array
 			outputPos := outputsArrayOffset + outputsArrayHeader
