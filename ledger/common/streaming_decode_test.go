@@ -94,13 +94,13 @@ func TestStreamingBlockDecoderUsesEncodedArrayHeaders(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, offsets.Transactions, len(txBodies))
 
-	var blockParts []cbor.RawMessage
+	blockParts := make([]cbor.RawMessage, 0)
 	_, err = cbor.Decode(blockData, &blockParts)
 	require.NoError(t, err)
-	var expectedBodies []cbor.RawMessage
+	expectedBodies := make([]cbor.RawMessage, 0)
 	_, err = cbor.Decode(blockParts[1], &expectedBodies)
 	require.NoError(t, err)
-	var expectedWitnesses []cbor.RawMessage
+	expectedWitnesses := make([]cbor.RawMessage, 0)
 	_, err = cbor.Decode(blockParts[2], &expectedWitnesses)
 	require.NoError(t, err)
 
@@ -117,10 +117,10 @@ func TestStreamingBlockDecoderUsesEncodedArrayHeaders(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []byte(expectedWitnesses[txIndex]), witness)
 
-		var bodyFields map[uint64]cbor.RawMessage
+		bodyFields := make(map[uint64]cbor.RawMessage)
 		_, err = cbor.Decode(expectedBodies[txIndex], &bodyFields)
 		require.NoError(t, err)
-		var expectedOutputs []cbor.RawMessage
+		expectedOutputs := make([]cbor.RawMessage, 0)
 		_, err = cbor.Decode(bodyFields[1], &expectedOutputs)
 		require.NoError(t, err)
 
