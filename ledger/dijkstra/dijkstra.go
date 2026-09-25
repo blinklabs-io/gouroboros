@@ -251,6 +251,22 @@ func (c DijkstraLeiosCertificate) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode([]any{c.Signers, c.AggregatedSignature})
 }
 
+// Validate checks the certificate fields whose constraints depend on the
+// configured Leios committee size. CBOR decoding separately enforces the
+// maximum signer-bitfield size and signature width.
+func (c *DijkstraLeiosCertificate) Validate(committeeSize uint64) error {
+	if c == nil {
+		return errors.New("dijkstra Leios certificate is nil")
+	}
+	if err := common.ValidateLeiosSignature(
+		"DijkstraLeiosCertificate: AggregatedSignature",
+		c.AggregatedSignature,
+	); err != nil {
+		return err
+	}
+	return common.ValidateLeiosSignerBitfield(c.Signers, committeeSize)
+}
+
 // DijkstraBlockBody is the Dijkstra block body. Per the pinned
 // cardano-ledger Dijkstra CDDL it is a 3-element array:
 //

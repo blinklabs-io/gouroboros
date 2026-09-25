@@ -155,6 +155,32 @@ type TipState interface {
 	Tip() (pcommon.Tip, error)
 }
 
+// DijkstraLeiosCertificateContext is the ledger state needed to verify a
+// Dijkstra block's Leios certificate. Committee seats are ordered by their
+// signer-bitfield index. A nil key represents a keyless seat.
+type DijkstraLeiosCertificateContext struct {
+	AnnouncingBlockHash Blake2b256
+	TotalActiveStake    uint64
+	Committee           []DijkstraLeiosCommitteeMember
+}
+
+// DijkstraLeiosCommitteeMember is one ordered Leios committee seat.
+type DijkstraLeiosCommitteeMember struct {
+	Stake uint64
+	Key   *LeiosKey
+}
+
+// DijkstraLeiosCertificateState is an optional capability required when a
+// Dijkstra block carries a Leios certificate. Implementations resolve the
+// announcing ranking block, epoch stake snapshot, and ordered committee for
+// the supplied header. Returned keys must be from the snapshot's registered
+// pool parameters; verification checks each key's proof of possession.
+type DijkstraLeiosCertificateState interface {
+	DijkstraLeiosCertificateContext(
+		header BlockHeader,
+	) (DijkstraLeiosCertificateContext, error)
+}
+
 // SlotState defines the interface for querying slots
 type SlotState interface {
 	SlotToTime(uint64) (time.Time, error)

@@ -17,11 +17,8 @@
 //
 // CIP-0140: https://cips.cardano.org/cip/CIP-0140
 //
-// This package intentionally contains no protocol state machine, message
-// types, or codec: implementing the client/server handlers and wire format
-// is tracked separately. Its sole purpose is to hold the reserved
-// node-to-node mini-protocol number so that no other mini-protocol in this
-// module is later assigned the same number.
+// The vote record types track the draft CBOR shape. The mini-protocol state
+// machine and message flow are not implemented.
 package perasvotes
 
 const (

@@ -919,6 +919,20 @@ func TestDijkstraLeiosCertificateRejectsEmptyPlaceholder(t *testing.T) {
 	require.Len(t, cert.AggregatedSignature, common.LeiosBlsSignatureSize)
 }
 
+func TestDijkstraLeiosCertificateValidatesCommitteeBitfield(t *testing.T) {
+	t.Parallel()
+
+	cert := DijkstraLeiosCertificate{
+		Signers:             []byte{0x80, 0x80},
+		AggregatedSignature: make([]byte, common.LeiosBlsSignatureSize),
+	}
+	require.NoError(t, cert.Validate(9))
+	require.ErrorContains(t, cert.Validate(8), "must be 1 bytes for committee size 8")
+
+	cert.Signers[1] = 0x01
+	require.ErrorContains(t, cert.Validate(9), "non-zero unused bits")
+}
+
 func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 	blockBody := DijkstraBlockBody{
 		Transactions:        []DijkstraTransaction{},

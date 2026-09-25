@@ -33,6 +33,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	"github.com/blinklabs-io/gouroboros/ledger/leios"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/gouroboros/vrf"
@@ -109,6 +110,117 @@ func validateDijkstraBlockBodyHash(
 				"actual_hash":   actualBodyHash.String(),
 			},
 			nil,
+		)
+	}
+	return nil
+}
+
+func validateDijkstraBlockCertificates(
+	block Block,
+	protocolParameters common.ProtocolParameters,
+	ledgerState common.LedgerState,
+) error {
+	dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock)
+	if !ok {
+		return nil
+	}
+	var certified, hasLeiosHeaderExtension bool
+	if dijkstraBlock.BlockHeader != nil {
+		certified, hasLeiosHeaderExtension = dijkstraBlock.BlockHeader.LeiosCertified()
+		if len(dijkstraBlock.BlockHeader.LeiosHeaderExtension) > 0 &&
+			!hasLeiosHeaderExtension {
+			return common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"invalid Dijkstra Leios certified flag in block header",
+				nil,
+				nil,
+			)
+		}
+	}
+	hasCertificate := dijkstraBlock.BlockBody.LeiosCertificate != nil
+	if hasLeiosHeaderExtension && certified != hasCertificate {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"Dijkstra Leios certified flag does not match block-body certificate presence",
+			map[string]any{"certified": certified, "has_certificate": hasCertificate},
+			nil,
+		)
+	}
+	if !hasCertificate {
+		return nil
+	}
+	pparams, ok := protocolParameters.(*dijkstra.DijkstraProtocolParameters)
+	if !ok {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"Dijkstra Leios certificate validation requires "+
+				"Dijkstra protocol parameters",
+			map[string]any{
+				"has_protocol_parameters": protocolParameters != nil,
+				"block_era":               dijkstra.EraNameDijkstra,
+			},
+			nil,
+		)
+	}
+	if pparams.LeiosCommitteeSize == 0 {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"Dijkstra Leios certificate validation requires a non-zero committee size",
+			map[string]any{"committee_size": pparams.LeiosCommitteeSize},
+			nil,
+		)
+	}
+	if pparams.LeiosQuorumStakeThreshold == nil ||
+		pparams.LeiosQuorumStakeThreshold.Rat == nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"Dijkstra Leios certificate validation requires a quorum threshold",
+			nil,
+			nil,
+		)
+	}
+	if err := dijkstraBlock.BlockBody.LeiosCertificate.Validate(
+		uint64(pparams.LeiosCommitteeSize),
+	); err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"invalid Dijkstra Leios certificate",
+			map[string]any{
+				"committee_size": pparams.LeiosCommitteeSize,
+			},
+			err,
+		)
+	}
+	state, ok := common.UnwrapLedgerState(ledgerState).(common.DijkstraLeiosCertificateState)
+	if !ok {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"Dijkstra Leios certificate validation requires committee state",
+			map[string]any{"has_ledger_state": ledgerState != nil},
+			nil,
+		)
+	}
+	context, err := state.DijkstraLeiosCertificateContext(dijkstraBlock.Header())
+	if err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"failed to resolve Dijkstra Leios certificate state",
+			nil,
+			err,
+		)
+	}
+	if err := leios.VerifyDijkstraCertificate(
+		dijkstraBlock.BlockBody.LeiosCertificate.Signers,
+		dijkstraBlock.BlockBody.LeiosCertificate.AggregatedSignature,
+		pparams.LeiosCommitteeSize,
+		pparams.LeiosQuorumStakeThreshold.Rat,
+		context,
+	); err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"invalid Dijkstra Leios certificate",
+			map[string]any{"committee_size": pparams.LeiosCommitteeSize},
+			err,
 		)
 	}
 	return nil
@@ -832,6 +944,13 @@ func VerifyBlock(
 				)
 			}
 		}
+	}
+	if err := validateDijkstraBlockCertificates(
+		block,
+		config.ProtocolParameters,
+		config.LedgerState,
+	); err != nil {
+		return false, "", 0, 0, err
 	}
 
 	// Verify block-wide execution-unit budget (BBODY: sum of every
