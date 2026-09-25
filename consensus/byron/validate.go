@@ -1023,19 +1023,16 @@ func canonicalByronExtraHeader(raw cbor.RawMessage) ([]byte, error) {
 		return nil, fmt.Errorf("decode extra-data proof: %w", err)
 	}
 
-	canonical := struct {
-		cbor.StructAsArray
-		ProtocolVersion byron.ByronBlockVersion
-		SoftwareVersion byron.ByronSoftwareVersion
-		Attributes      map[any]any
-		ExtraProof      []byte
-	}{
-		ProtocolVersion: protocolVersion,
-		SoftwareVersion: softwareVersion,
-		Attributes:      map[any]any{},
-		ExtraProof:      common.Blake2b256Hash([]byte{0x81, 0xa0}).Bytes(),
-	}
-	return cbor.Encode(canonical)
+	canonical := []byte{0x84}
+	canonical = append(canonical, fields[0]...)
+	canonical = append(canonical, fields[1]...)
+	canonical = append(canonical, 0xa0)
+	canonical = append(canonical, 0x58, 0x20)
+	canonical = append(
+		canonical,
+		common.Blake2b256Hash([]byte{0x81, 0xa0}).Bytes()...,
+	)
+	return canonical, nil
 }
 
 // extractUint64 extracts a uint64 from various numeric types
@@ -1229,10 +1226,19 @@ func slotNumberWithEpochLength(
 	header interface{ SlotNumber() uint64 },
 	slotsPerEpoch uint64,
 ) (uint64, error) {
+	if slotsPerEpoch == 0 {
+		slotsPerEpoch = byron.ByronSlotsPerEpoch
+	}
 	if converter, ok := header.(interface {
 		SlotNumberWithEpochLength(uint64) (uint64, error)
 	}); ok {
 		return converter.SlotNumberWithEpochLength(slotsPerEpoch)
+	}
+	if slotsPerEpoch != byron.ByronSlotsPerEpoch {
+		return 0, fmt.Errorf(
+			"header does not support configured Byron epoch length %d",
+			slotsPerEpoch,
+		)
 	}
 	return header.SlotNumber(), nil
 }

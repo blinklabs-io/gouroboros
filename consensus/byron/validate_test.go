@@ -156,6 +156,24 @@ func TestValidateByronMainBlockHeaderRejectsSlotOverflow(t *testing.T) {
 	require.ErrorIs(t, err, byron.ErrByronSlotNumberOverflow)
 }
 
+func TestSlotNumberWithEpochLengthDefaultsLegacyLength(t *testing.T) {
+	header := &byron.ByronMainBlockHeader{}
+	header.ConsensusData.SlotId.Epoch = 1
+	header.ConsensusData.SlotId.Slot = 7
+
+	got, err := slotNumberWithEpochLength(header, 0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(byron.ByronSlotsPerEpoch+7), got)
+}
+
+func TestEpochFirstSlotChecked(t *testing.T) {
+	config := ByronConfig{SlotsPerEpoch: 2}
+	_, err := config.EpochFirstSlotChecked(math.MaxUint64)
+	require.ErrorIs(t, err, byron.ErrByronSlotNumberOverflow)
+	_, err = (&ByronConfig{}).EpochFirstSlotChecked(1)
+	require.ErrorIs(t, err, byron.ErrByronSlotsPerEpochZero)
+}
+
 func TestNewHeaderValidator(t *testing.T) {
 	config := testByronConfig()
 	validator := NewHeaderValidator(config)
@@ -726,6 +744,24 @@ func TestCanonicalByronExtraHeaderRejectsInvalidAttributes(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestCanonicalByronExtraHeaderPreservesVersionEncodings(t *testing.T) {
+	protocolVersion := []byte{0x83, 0x18, 0x00, 0x00, 0x00}
+	softwareVersion := []byte{0x82, 0x78, 0x00, 0x18, 0x00}
+	raw := []byte{0x84}
+	raw = append(raw, protocolVersion...)
+	raw = append(raw, softwareVersion...)
+	raw = append(raw, 0xa0, 0x40)
+
+	got, err := canonicalByronExtraHeader(raw)
+	require.NoError(t, err)
+	want := []byte{0x84}
+	want = append(want, protocolVersion...)
+	want = append(want, softwareVersion...)
+	want = append(want, 0xa0, 0x58, 0x20)
+	want = append(want, common.Blake2b256Hash([]byte{0x81, 0xa0}).Bytes()...)
+	require.Equal(t, want, got)
 }
 
 // TestValidateSimpleSignaturePreservesNonShortestToSignEncodings is the
