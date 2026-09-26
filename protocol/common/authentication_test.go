@@ -58,6 +58,7 @@ func TestMessageAuthenticatorCreation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, auth)
+	assert.Equal(t, DefaultMaxKESEvolutions, auth.maxKESEvolutions)
 }
 
 // TestMessageAuthenticatorRequiresStakeAuthority tests that construction
@@ -855,6 +856,30 @@ func TestVerifyKESSignature_OverflowGuard(t *testing.T) {
 
 	err = auth.verifyKESSignature(msg, nil)
 	assert.ErrorIs(t, err, ErrKESPeriodOverflow)
+}
+
+func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
+	const maxKESEvolutions = uint64(3)
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority:   newStubStakeAuthority(),
+		MaxKESEvolutions: maxKESEvolutions,
+	})
+	require.NoError(t, err)
+
+	lastValid := buildSignedTestMessage(t, 100, 102)
+	assert.NoError(t, auth.verifyKESSignature(lastValid, nil))
+
+	firstInvalid := buildSignedTestMessage(t, 100, 103)
+	err = auth.verifyKESSignature(firstInvalid, nil)
+	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
+
+	// A supplied slot determines the evolution used for signature verification
+	// and must obey the same certificate window even if the payload claims an
+	// earlier, otherwise valid KES period.
+	validClaim := buildSignedTestMessage(t, 100, 101)
+	tooLateSlot := uint64(103) * 129600
+	err = auth.verifyKESSignature(validClaim, &tooLateSlot)
+	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
 }
 
 // TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne proves an

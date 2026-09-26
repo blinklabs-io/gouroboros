@@ -706,15 +706,10 @@ func TestValidateVRFKeyRegistration(t *testing.T) {
 		t.Error("expected error for mismatched VRF key hash")
 	}
 
-	// Test with no registered hash (should skip validation)
+	// A full header validation must not skip pool registration.
 	input.RegisteredVrfKeyHash = nil
 	err = validator.validateVRFKeyRegistration(input)
-	if err != nil {
-		t.Errorf(
-			"expected nil error when RegisteredVrfKeyHash is empty, got: %v",
-			err,
-		)
-	}
+	require.ErrorContains(t, err, "registered VRF key hash is required")
 
 	// Test with wrong VRF key size
 	input.VrfKey = []byte("short")
@@ -1013,6 +1008,7 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 		EpochNonce:           epochNonce,
 		PoolStake:            poolStake,
 		TotalStake:           totalStake,
+		RegisteredVrfKeyHash: common.Blake2b256Hash(vrfSigner.PublicKey()).Bytes(),
 	}
 
 	result := validator.ValidateHeader(input)
@@ -1024,6 +1020,30 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 	)
 	require.Empty(t, result.Errors)
 	require.Equal(t, vrfOutput, result.VrfOutput)
+
+	missingRegistration := *input
+	missingRegistration.RegisteredVrfKeyHash = nil
+	missingResult := validator.ValidateHeader(&missingRegistration)
+	require.False(t, missingResult.Valid)
+	require.NotEmpty(t, missingResult.Errors)
+	require.ErrorContains(
+		t,
+		missingResult.Errors[len(missingResult.Errors)-1],
+		"registered VRF key hash is required",
+	)
+
+	wrongRegistration := *input
+	wrongHash := append([]byte(nil), input.RegisteredVrfKeyHash...)
+	wrongHash[0] ^= 0xff
+	wrongRegistration.RegisteredVrfKeyHash = wrongHash
+	wrongResult := validator.ValidateHeader(&wrongRegistration)
+	require.False(t, wrongResult.Valid)
+	require.NotEmpty(t, wrongResult.Errors)
+	require.ErrorContains(
+		t,
+		wrongResult.Errors[len(wrongResult.Errors)-1],
+		"does not match registered key hash",
+	)
 
 	// Invalid: the identical header data fails VRF verification when
 	// validated under CPraos mode, because CPraos and TPraos use different

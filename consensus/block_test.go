@@ -933,6 +933,7 @@ func TestBuildHeaderTPraosRoundTripsWithHeaderValidator(t *testing.T) {
 		EpochNonce:           epochNonce,
 		PoolStake:            poolStake,
 		TotalStake:           totalStake,
+		RegisteredVrfKeyHash: common.Blake2b256Hash(header.Body.VrfKey).Bytes(),
 	}
 
 	result := validator.ValidateHeader(input)
