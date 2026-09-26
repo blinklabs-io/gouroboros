@@ -157,6 +157,32 @@ func TestReadLoopAllowsMessageForOutstandingPipelinedRequest(t *testing.T) {
 	}
 }
 
+func TestReadLoopAppliesIdleSizeLimitWithOutstandingPipelinedRequest(
+	t *testing.T,
+) {
+	var decodeCalls int
+	state := NewState(1, "Idle")
+	_, errors := newReadLoopTestProtocol(
+		t,
+		state,
+		AgencyClient,
+		2,
+		1,
+		[]byte{0x82, 0x01, 0x58, 0x64},
+		func(messageType uint, _ []byte) (Message, error) {
+			decodeCalls++
+			return &MessageBase{MessageType: uint8(messageType)}, nil
+		},
+	)
+	select {
+	case err := <-errors:
+		require.ErrorContains(t, err, "oversized message")
+	case <-time.After(time.Second):
+		t.Fatal("readLoop did not reject the oversized pipelined message")
+	}
+	require.Zero(t, decodeCalls)
+}
+
 func newReadLoopTestProtocol(
 	t *testing.T,
 	state State,
