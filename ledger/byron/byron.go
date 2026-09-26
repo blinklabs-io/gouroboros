@@ -1530,12 +1530,26 @@ func (b *ByronMainBlockBody) UnmarshalCBOR(cborData []byte) error {
 	}
 
 	// Then decode the full structure
-	type tByronMainBlockBody ByronMainBlockBody
-	var tmp tByronMainBlockBody
+	var tmp struct {
+		cbor.StructAsArray
+		TxPayload  []ByronTransaction
+		SscPayload cbor.RawMessage
+		DlgPayload []any
+		UpdPayload ByronUpdatePayload
+	}
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*b = ByronMainBlockBody(tmp)
+	var sscPayload cbor.Value
+	if _, err := cbor.DecodeLenient(tmp.SscPayload, &sscPayload); err != nil {
+		return fmt.Errorf("decode Byron SSC payload: %w", err)
+	}
+	*b = ByronMainBlockBody{
+		TxPayload:  tmp.TxPayload,
+		SscPayload: sscPayload,
+		DlgPayload: tmp.DlgPayload,
+		UpdPayload: tmp.UpdPayload,
+	}
 	// Restore the raw CBOR fields that were lost in the copy
 	if len(rawParts) >= 4 {
 		b.dlgPayloadRaw = []byte(rawParts[2])

@@ -57,6 +57,9 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if decMode == nil {
+		return errors.New("CBOR decoder mode not initialized")
+	}
 	_, err = v.unmarshalCBOR(
 		data,
 		true,
