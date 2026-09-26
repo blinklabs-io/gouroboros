@@ -501,12 +501,20 @@ func (c *Client) acquireSlotWithRangeLimits(
 	maxReplies int,
 	maxBytes int,
 ) (chan protocol.Message, error) {
-	w, err := slot.acquireWithRangeLimits(
-		ctx,
-		c.DoneChan(),
-		maxReplies,
-		maxBytes,
+	var (
+		w   chan protocol.Message
+		err error
 	)
+	if maxReplies == 0 && maxBytes == 0 {
+		w, err = slot.acquire(ctx, c.DoneChan())
+	} else {
+		w, err = slot.acquireWithRangeLimits(
+			ctx,
+			c.DoneChan(),
+			maxReplies,
+			maxBytes,
+		)
+	}
 	if err == nil {
 		return w, nil
 	}
