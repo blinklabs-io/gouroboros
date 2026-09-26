@@ -1397,6 +1397,7 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 	var eta0Calls atomic.Uint64
 	var submitLocks atomic.Uint64
 	fourthSubmitAtGate := make(chan struct{})
+	retrySubmitAtGate := make(chan struct{})
 	p := NewBlockPipeline(
 		WithDecodeWorkers(3),
 		WithValidateWorkers(3),
@@ -1418,8 +1419,11 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 		}),
 	)
 	p.testSubmitLocked = func() {
-		if submitLocks.Add(1) == 4 {
+		switch submitLocks.Add(1) {
+		case 4:
 			close(fourthSubmitAtGate)
+		case 5:
+			close(retrySubmitAtGate)
 		}
 	}
 	require.NoError(t, p.Start(context.Background()))
@@ -1448,8 +1452,17 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 		return p.applyStage.PendingCount() == 2
 	}, time.Second, time.Millisecond, "apply pending buffer did not reach its limit")
 
+	fourthCtx, cancelFourth := context.WithCancel(context.Background())
+	defer cancelFourth()
 	fourthSubmitDone := make(chan error, 1)
-	go func() { fourthSubmitDone <- submit() }()
+	go func() {
+		fourthSubmitDone <- p.Submit(
+			fourthCtx,
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			createTestTip(1000, 500),
+		)
+	}()
 	select {
 	case <-fourthSubmitAtGate:
 	case <-time.After(time.Second):
@@ -1461,13 +1474,34 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 		t.Fatalf("submission passed the pending limit before sequence completion: %v", err)
 	default:
 	}
+	cancelFourth()
+	select {
+	case err := <-fourthSubmitDone:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("capacity-blocked submission did not honor caller cancellation")
+	}
+	assert.Equal(t, uint64(3), p.sequenceCounter.Load())
+
+	retrySubmitDone := make(chan error, 1)
+	go func() { retrySubmitDone <- submit() }()
+	select {
+	case <-retrySubmitAtGate:
+	case <-time.After(time.Second):
+		t.Fatal("retry submission did not reach the admission boundary")
+	}
+	select {
+	case err := <-retrySubmitDone:
+		t.Fatalf("retry passed the pending limit before the gap completed: %v", err)
+	default:
+	}
 
 	release()
 	select {
-	case err := <-fourthSubmitDone:
+	case err := <-retrySubmitDone:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("submission did not resume after the pending blocks applied")
+		t.Fatal("retry did not resume after the pending blocks applied")
 	}
 	drainCtx, cancelDrain := context.WithTimeout(context.Background(), time.Second)
 	defer cancelDrain()
