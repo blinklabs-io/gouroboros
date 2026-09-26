@@ -241,6 +241,12 @@ func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
 	if err != nil {
 		return err
 	}
+	if err := validateDijkstraRewardParameterDomains(
+		tmp.MaxPledgeLeverage,
+		tmp.MinPoolMargin,
+	); err != nil {
+		return err
+	}
 	p.ConwayProtocolParameters = conway.ConwayProtocolParameters{
 		MinFeeA:                    tmp.MinFeeA,
 		MinFeeB:                    tmp.MinFeeB,

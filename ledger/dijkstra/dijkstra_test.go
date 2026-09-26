@@ -2104,6 +2104,53 @@ func TestDijkstraProtocolParametersRejectsUnsupportedArrayLength(t *testing.T) {
 	require.Error(t, decoded.UnmarshalCBOR(data))
 }
 
+func TestDijkstraProtocolParametersUnmarshalRejectsZeroRewardLeverage(t *testing.T) {
+	rat := func(num, denom int64) *cbor.Rat {
+		return &cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
+	ratValue := func(num, denom int64) cbor.Rat {
+		return cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
+	encoded, err := cbor.Encode(DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			A0:  rat(1, 2),
+			Rho: rat(3, 1000),
+			Tau: rat(1, 5),
+			PoolVotingThresholds: conway.PoolVotingThresholds{
+				MotionNoConfidence:    ratValue(1, 2),
+				CommitteeNormal:       ratValue(1, 2),
+				CommitteeNoConfidence: ratValue(1, 2),
+				HardForkInitiation:    ratValue(1, 2),
+				PpSecurityGroup:       ratValue(1, 2),
+			},
+			DRepVotingThresholds: conway.DRepVotingThresholds{
+				MotionNoConfidence:    ratValue(1, 2),
+				CommitteeNormal:       ratValue(1, 2),
+				CommitteeNoConfidence: ratValue(1, 2),
+				UpdateToConstitution:  ratValue(1, 2),
+				HardForkInitiation:    ratValue(1, 2),
+				PpNetworkGroup:        ratValue(1, 2),
+				PpEconomicGroup:       ratValue(1, 2),
+				PpTechnicalGroup:      ratValue(1, 2),
+				PpGovGroup:            ratValue(1, 2),
+				TreasuryWithdrawal:    ratValue(1, 2),
+			},
+		},
+		MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(0, 1)},
+		MaxRefScriptSizePerBlock: 123,
+	})
+	require.NoError(t, err)
+
+	decoded := DijkstraProtocolParameters{
+		MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(3, 1)},
+		MaxRefScriptSizePerBlock: 77,
+	}
+	err = decoded.UnmarshalCBOR(encoded)
+	require.Error(t, err)
+	require.Equal(t, big.NewRat(3, 1), decoded.MaxPledgeLeverage.Rat)
+	require.Equal(t, uint32(77), decoded.MaxRefScriptSizePerBlock)
+}
+
 func TestDijkstraProtocolParametersRejectsOversizedArrayHeader(t *testing.T) {
 	// The arity guard must reject an array whose declared length cannot be
 	// represented before attempting to decode all of its elements.

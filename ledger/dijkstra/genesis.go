@@ -16,7 +16,6 @@ package dijkstra
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"math/big"
 	"os"
@@ -76,14 +75,12 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	committeeStakeCoverage := genesisRatToRat(genesis.CommitteeStakeCoverage)
 	quorumStakeThreshold := genesisRatToRat(genesis.QuorumStakeThreshold)
 	maxPledgeLeverage := genesisRatToRat(genesis.MaxPledgeLeverage)
-	if maxPledgeLeverage != nil &&
-		(!validMaxPledgeLeverageDijkstraRat(maxPledgeLeverage) ||
-			maxPledgeLeverage.Sign() == 0) {
-		return errors.New("maxPledgeLeverage must be in [1, 10000]")
-	}
 	minPoolMargin := genesisRatToRat(genesis.MinPoolMargin)
-	if minPoolMargin != nil && !validUnitDijkstraRat(minPoolMargin) {
-		return errors.New("minPoolMargin must be a bounded unit interval")
+	if err := validateDijkstraRewardParameterDomains(
+		maxPledgeLeverage,
+		minPoolMargin,
+	); err != nil {
+		return err
 	}
 	if err := validateLeiosCommitteeStakeParameters(
 		committeeStakeCoverage,
