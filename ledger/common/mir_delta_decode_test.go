@@ -180,6 +180,17 @@ func TestMirOppositePotDecode(t *testing.T) {
 		assert.Equal(t, uint(1), cert.Reward.Source)
 		assert.Equal(t, uint64(1000), cert.Reward.OtherPot)
 		assert.Empty(t, cert.Reward.Rewards)
+
+		converted, err := cert.Utxorpc()
+		require.NoError(t, err)
+		require.NotNil(t, converted.GetMirCert())
+		assert.Equal(
+			t,
+			utxorpc.MirSource_MIR_SOURCE_TREASURY,
+			converted.GetMirCert().GetFrom(),
+		)
+		assert.Equal(t, uint64(1000), converted.GetMirCert().GetOtherPot())
+		assert.Empty(t, converted.GetMirCert().GetTo())
 	})
 
 	t.Run("reserves", func(t *testing.T) {
@@ -190,6 +201,17 @@ func TestMirOppositePotDecode(t *testing.T) {
 		assert.Equal(t, uint(0), cert.Reward.Source)
 		assert.Equal(t, uint64(1000), cert.Reward.OtherPot)
 		assert.Empty(t, cert.Reward.Rewards)
+
+		converted, err := cert.Utxorpc()
+		require.NoError(t, err)
+		require.NotNil(t, converted.GetMirCert())
+		assert.Equal(
+			t,
+			utxorpc.MirSource_MIR_SOURCE_RESERVES,
+			converted.GetMirCert().GetFrom(),
+		)
+		assert.Equal(t, uint64(1000), converted.GetMirCert().GetOtherPot())
+		assert.Empty(t, converted.GetMirCert().GetTo())
 	})
 
 	t.Run("negative amount is rejected", func(t *testing.T) {
@@ -198,6 +220,19 @@ func TestMirOppositePotDecode(t *testing.T) {
 		var cert common.MoveInstantaneousRewardsCertificate
 		require.Error(t, cert.UnmarshalCBOR(wire))
 	})
+}
+
+func TestMirRewardsUtxorpcUsesReservesSource(t *testing.T) {
+	var cert common.MoveInstantaneousRewardsCertificate
+	require.NoError(t, cert.UnmarshalCBOR(mirCertWire(t, "184d")))
+
+	converted, err := cert.Utxorpc()
+	require.NoError(t, err)
+	mirCert := converted.GetMirCert()
+	require.NotNil(t, mirCert)
+	assert.Equal(t, utxorpc.MirSource_MIR_SOURCE_RESERVES, mirCert.GetFrom())
+	require.Len(t, mirCert.GetTo(), 1)
+	assert.Equal(t, uint64(0), mirCert.GetOtherPot())
 }
 
 // TestMirRewardDeltaUtxorpcKeepsTheSign covers values the MIR UTxORPC

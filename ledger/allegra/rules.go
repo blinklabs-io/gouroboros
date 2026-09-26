@@ -92,6 +92,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateDelegation,
 	},
 	{
+		Id:        common.UtxoValidationRuleMIRGenesisQuorum,
+		Validator: UtxoValidateMIRGenesisQuorum,
+	},
+	{
 		Id:        common.UtxoValidationRuleWithdrawals,
 		Validator: UtxoValidateWithdrawals,
 	},
