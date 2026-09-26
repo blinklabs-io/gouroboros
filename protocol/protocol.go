@@ -1344,6 +1344,7 @@ func (p *Protocol) pendingPipelinedRequestCount() int {
 
 func (p *Protocol) peerHasAgencyOrPipelinedRequest(
 	state State,
+	messageType uint,
 	pendingPipelinedRequests int,
 ) bool {
 	entry, ok := p.config.StateMap[state]
@@ -1354,7 +1355,15 @@ func (p *Protocol) peerHasAgencyOrPipelinedRequest(
 	case agencyPeer:
 		return true
 	case agencyLocal:
-		return pendingPipelinedRequests > 0
+		if pendingPipelinedRequests > 0 {
+			return true
+		}
+		for _, pipelinedMessageType := range entry.PipelinedMessageTypes {
+			if uint(pipelinedMessageType) == messageType {
+				return true
+			}
+		}
+		return false
 	case agencyNeither:
 		return false
 	default:
@@ -1404,7 +1413,6 @@ func (p *Protocol) readLoop() {
 	peerAgencyChecked := false
 	var messageState State
 	messageStateSet := false
-	messageHasAgency := false
 	pendingPipelinedRequests := 0
 	// Bytes this protocol holds against the connection-wide reassembly
 	// allowance. The per-protocol cap below bounds one mini-protocol; this
@@ -1504,16 +1512,17 @@ func (p *Protocol) readLoop() {
 				pendingPipelinedRequests = p.pendingPipelinedRequestCount()
 				messageState = p.getCurrentState()
 				messageStateSet = true
-				messageHasAgency = p.peerHasAgencyOrPipelinedRequest(
-					messageState,
-					pendingPipelinedRequests,
-				)
 			}
 			if scanResult.hasMessageType && !peerAgencyChecked {
-				if !messageHasAgency {
+				if !p.peerHasAgencyOrPipelinedRequest(
+					messageState,
+					scanResult.messageType,
+					pendingPipelinedRequests,
+				) {
 					p.SendError(fmt.Errorf(
-						"%s: received message type %d without peer agency or an "+
-							"outstanding pipelined request in state %s",
+						"%s: received message type %d without peer agency, an "+
+							"allowed pipelined message, or an outstanding pipelined request "+
+							"in state %s",
 						p.config.Name,
 						scanResult.messageType,
 						messageState,
@@ -1638,7 +1647,6 @@ func (p *Protocol) readLoop() {
 		scanner = messageScanner{}
 		peerAgencyChecked = false
 		messageStateSet = false
-		messageHasAgency = false
 		// Hand the consumed bytes back to the connection-wide allowance.
 		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
 	}

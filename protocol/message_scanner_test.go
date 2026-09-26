@@ -157,6 +157,54 @@ func TestReadLoopAllowsMessageForOutstandingPipelinedRequest(t *testing.T) {
 	}
 }
 
+func TestReadLoopUsesDeclaredPipelinedMessageTypes(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		message    byte
+		wantAccept bool
+	}{
+		{name: "declared message", message: 2, wantAccept: true},
+		{name: "undeclared message", message: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state := NewState(1, "Busy")
+			var decodeCalls int
+			p, errors := newReadLoopTestProtocol(
+				t,
+				state,
+				AgencyClient,
+				10,
+				0,
+				[]byte{0x81, test.message},
+				func(messageType uint, _ []byte) (Message, error) {
+					decodeCalls++
+					return &MessageBase{MessageType: uint8(messageType)}, nil
+				},
+				2,
+			)
+			if test.wantAccept {
+				select {
+				case msg := <-p.recvQueueChan:
+					require.Equal(t, test.message, msg.Type())
+					require.Equal(t, 1, decodeCalls)
+				case err := <-errors:
+					t.Fatalf("readLoop rejected a declared pipelined message: %v", err)
+				case <-time.After(time.Second):
+					t.Fatal("readLoop did not enqueue the declared pipelined message")
+				}
+				return
+			}
+			select {
+			case err := <-errors:
+				require.ErrorContains(t, err, "without peer agency")
+			case <-time.After(time.Second):
+				t.Fatal("readLoop accepted an undeclared pipelined message")
+			}
+			require.Zero(t, decodeCalls)
+		})
+	}
+}
+
 func TestReadLoopAppliesIdleSizeLimitWithOutstandingPipelinedRequest(
 	t *testing.T,
 ) {
@@ -191,6 +239,7 @@ func newReadLoopTestProtocol(
 	pendingPipelinedRequests int,
 	message []byte,
 	decode MessageFromCborFunc,
+	pipelinedMessageTypes ...uint8,
 ) (*Protocol, chan error) {
 	t.Helper()
 	errorChan := make(chan error, 1)
@@ -207,6 +256,7 @@ func newReadLoopTestProtocol(
 			StateMap: StateMap{state: {
 				Agency:                  agency,
 				PendingMessageByteLimit: messageLimit,
+				PipelinedMessageTypes:   pipelinedMessageTypes,
 			}},
 			InitialState:      state,
 			MaxReadBufferSize: 1 << 20,
