@@ -341,9 +341,55 @@ func TestServerRequestTxsOverUnackedWindowIsRefused(t *testing.T) {
 // would. The client is the side that holds a mempool and answers
 // MsgRequestTxIds, so this is the path an untrusted peer's request reaches.
 type rawRequestingPeer struct {
-	client    *Client
-	conn      net.Conn
-	errorChan chan error
+	client       *Client
+	conn         net.Conn
+	errorChan    chan error
+	outboundRead *outboundByteCounter
+}
+
+type outboundByteCounter struct {
+	count  atomic.Int64
+	wakeup chan struct{}
+}
+
+func (c *outboundByteCounter) Write(data []byte) (int, error) {
+	c.count.Add(int64(len(data)))
+	select {
+	case c.wakeup <- struct{}{}:
+	default:
+	}
+	return len(data), nil
+}
+
+func (p *rawRequestingPeer) waitForOutboundBytes(t *testing.T, total int64) {
+	t.Helper()
+	deadline := time.NewTimer(pendingBytesWindow)
+	defer deadline.Stop()
+	for p.outboundRead.count.Load() < total {
+		select {
+		case <-p.outboundRead.wakeup:
+		case <-deadline.C:
+			t.Fatalf(
+				"peer read %d outbound bytes, want %d",
+				p.outboundRead.count.Load(),
+				total,
+			)
+		}
+	}
+}
+
+func (p *rawRequestingPeer) waitForOutboundMessage(
+	t *testing.T,
+	start int64,
+	msg protocol.Message,
+) {
+	t.Helper()
+	data, err := cbor.Encode(msg)
+	require.NoError(t, err)
+	p.waitForOutboundBytes(
+		t,
+		start+int64(binary.Size(muxer.SegmentHeader{})+len(data)),
+	)
 }
 
 func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
@@ -352,8 +398,9 @@ func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 	m := muxer.New(localConn)
 	m.Start()
 	peerDone := make(chan struct{})
+	outboundRead := &outboundByteCounter{wakeup: make(chan struct{}, 1)}
 	go func() {
-		_, _ = io.Copy(io.Discard, peerConn)
+		_, _ = io.Copy(outboundRead, peerConn)
 		close(peerDone)
 	}()
 	errorChan := make(chan error, 10)
@@ -370,6 +417,12 @@ func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 	// Init leaves the Init state for Idle, which is where a peer's
 	// MsgRequestTxIds is accepted.
 	c.Init()
+	p := &rawRequestingPeer{
+		client:       c,
+		conn:         peerConn,
+		errorChan:    errorChan,
+		outboundRead: outboundRead,
+	}
 	t.Cleanup(func() {
 		proto := c.ProtocolInstance()
 		proto.Stop()
@@ -386,7 +439,13 @@ func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 			t.Error("peer drain did not stop")
 		}
 	})
-	return &rawRequestingPeer{client: c, conn: peerConn, errorChan: errorChan}
+	initData, err := cbor.Encode(NewMsgInit())
+	require.NoError(t, err)
+	p.waitForOutboundBytes(
+		t,
+		int64(binary.Size(muxer.SegmentHeader{})+len(initData)),
+	)
+	return p
 }
 
 func (p *rawRequestingPeer) send(t *testing.T, msg protocol.Message) {
@@ -502,6 +561,7 @@ func TestRequestTxIdsWindowClosesAsIdsGoUnacknowledged(t *testing.T) {
 			return windowTxIdAndSizes(int(req)), nil
 		},
 	})
+	outboundStart := p.outboundRead.count.Load()
 	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
@@ -509,6 +569,11 @@ func TestRequestTxIdsWindowClosesAsIdsGoUnacknowledged(t *testing.T) {
 	case <-time.After(pendingBytesWindow):
 		t.Fatal("the first full-window request never reached the callback")
 	}
+	p.waitForOutboundMessage(
+		t,
+		outboundStart,
+		NewMsgReplyTxIds(windowTxIdAndSizes(MaxUnackedTxIds)),
+	)
 	// Messages are handled in order on one receive loop, so the reply above
 	// is already accounted for by the time this request is handled.
 	p.send(t, NewMsgRequestTxIds(false, 0, 1))
@@ -547,6 +612,7 @@ func TestRequestTxIdsWindowReopensOnAcknowledgement(t *testing.T) {
 			return windowTxIdAndSizes(int(req)), nil
 		},
 	})
+	outboundStart := p.outboundRead.count.Load()
 	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
@@ -554,6 +620,11 @@ func TestRequestTxIdsWindowReopensOnAcknowledgement(t *testing.T) {
 	case <-time.After(pendingBytesWindow):
 		t.Fatal("the first full-window request never reached the callback")
 	}
+	p.waitForOutboundMessage(
+		t,
+		outboundStart,
+		NewMsgReplyTxIds(windowTxIdAndSizes(MaxUnackedTxIds)),
+	)
 	p.send(t, NewMsgRequestTxIds(false, MaxUnackedTxIds, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
