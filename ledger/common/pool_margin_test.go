@@ -668,6 +668,7 @@ func TestDistributePoolRewardsConservesInvalidMargins(t *testing.T) {
 					owner:     true,
 					delegator: true,
 				}},
+				RewardParameters{},
 			)
 			distributed := rewards.OperatorRewards
 			for _, reward := range rewards.DelegatorRewards {
@@ -689,6 +690,7 @@ func TestDistributePoolRewardsConservesMaximumPot(t *testing.T) {
 			PoolOwners: []AddrKeyHash{owner},
 		},
 		RewardSnapshot{StakeRegistrations: map[AddrKeyHash]bool{owner: true}},
+		RewardParameters{},
 	)
 	assert.Equal(t, ^uint64(0), rewards.OperatorRewards)
 	assert.Empty(t, rewards.DelegatorRewards)

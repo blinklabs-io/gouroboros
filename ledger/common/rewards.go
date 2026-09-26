@@ -44,6 +44,14 @@ type RewardParameters struct {
 	// Protocol version for reward calculation rules
 	ProtocolVersion ProtocolParametersProtocolVersion
 
+	// MaxPledgeLeverage is the Dijkstra CIP-50 pledge-to-stake cap in [1,
+	// 10000]. It is inactive before Dijkstra and when unset.
+	MaxPledgeLeverage *big.Rat
+
+	// MinPoolMargin is the Dijkstra CIP-23 minimum pool margin in [0, 1]. It is
+	// inactive before Dijkstra and when unset or zero.
+	MinPoolMargin *big.Rat
+
 	// Minimum pool cost
 	MinPoolCost uint64
 
@@ -266,6 +274,55 @@ func sortedPoolIDs[V any](pools map[PoolKeyHash]V) []PoolKeyHash {
 	return poolIDs
 }
 
+func pledgeLeverageActive(params RewardParameters) bool {
+	return params.ProtocolVersion.Major >= ProtocolVersionDijkstra &&
+		params.MaxPledgeLeverage != nil
+}
+
+func validateDijkstraRewardParameters(params RewardParameters) error {
+	if params.ProtocolVersion.Major < ProtocolVersionDijkstra {
+		return nil
+	}
+	if leverage := params.MaxPledgeLeverage; leverage != nil {
+		if leverage.Cmp(big.NewRat(1, 1)) < 0 ||
+			leverage.Cmp(big.NewRat(10_000, 1)) > 0 {
+			return fmt.Errorf(
+				"max pledge leverage %s is outside [1, 10000]",
+				leverage.RatString(),
+			)
+		}
+	}
+	if minMargin := params.MinPoolMargin; minMargin != nil {
+		if minMargin.Sign() < 0 || minMargin.Cmp(big.NewRat(1, 1)) > 0 {
+			return fmt.Errorf(
+				"minimum pool margin %s is outside [0, 1]",
+				minMargin.RatString(),
+			)
+		}
+	}
+	return nil
+}
+
+func effectivePoolMargin(margin GenesisRat, params RewardParameters) *big.Rat {
+	result := marginRat(margin)
+	if params.ProtocolVersion.Major < ProtocolVersionDijkstraMinPoolMargin ||
+		params.MinPoolMargin == nil ||
+		params.MinPoolMargin.Sign() == 0 {
+		return result
+	}
+	if result.Cmp(params.MinPoolMargin) < 0 {
+		return new(big.Rat).Set(params.MinPoolMargin)
+	}
+	return result
+}
+
+func minimumRewardRatio(a, b *big.Rat) *big.Rat {
+	if a.Cmp(b) <= 0 {
+		return new(big.Rat).Set(a)
+	}
+	return new(big.Rat).Set(b)
+}
+
 // calculatePoolPerformance calculates the apparent performance of a pool
 // Following Amaru's approach: performance = (pool_blocks / total_blocks) * (total_stake / pool_stake)
 // params is unused as performance calculation only requires block production data from snapshot
@@ -315,6 +372,9 @@ func CalculateRewards(
 	snapshot RewardSnapshot,
 	params RewardParameters,
 ) (*RewardCalculationResult, error) {
+	if err := validateDijkstraRewardParameters(params); err != nil {
+		return nil, err
+	}
 	if snapshot.TotalActiveStake == 0 || pots.Rewards == 0 {
 		return &RewardCalculationResult{
 			TotalRewards: 0,
@@ -332,6 +392,7 @@ func CalculateRewards(
 	// Calculate rewards for each pool
 	poolShares := make(map[PoolKeyHash]*big.Rat)
 	totalShare := new(big.Rat)
+	leverageEligiblePools := make([]PoolKeyHash, 0, len(snapshot.PoolStake))
 
 	// First pass: calculate raw shares for all pools
 	for _, poolID := range sortedPoolIDs(snapshot.PoolStake) {
@@ -363,6 +424,10 @@ func CalculateRewards(
 		)
 		poolShares[poolID] = share
 		totalShare.Add(totalShare, share)
+		if pledgeLeverageActive(params) && poolStake > 0 &&
+			poolParams.Pledge > 0 {
+			leverageEligiblePools = append(leverageEligiblePools, poolID)
+		}
 	}
 
 	// Guard against malformed snapshot with no valid pools
@@ -372,9 +437,21 @@ func CalculateRewards(
 
 	// Guard against zero total share (all pools have zero share)
 	if totalShare.Sign() == 0 {
-		// Assign equal shares to all pools to avoid division by zero
-		equalShare := big.NewRat(1, int64(len(poolShares)))
+		if pledgeLeverageActive(params) && len(leverageEligiblePools) == 0 {
+			result.TotalRewards = 0
+			return result, nil
+		}
+		// Assign equal shares to avoid division by zero. With pledge leverage
+		// active, only pools with positive pledged stake remain eligible.
+		poolIDs := sortedPoolIDs(poolShares)
+		if pledgeLeverageActive(params) {
+			poolIDs = leverageEligiblePools
+		}
+		equalShare := big.NewRat(1, int64(len(poolIDs)))
 		for poolID := range poolShares {
+			poolShares[poolID] = new(big.Rat)
+		}
+		for _, poolID := range poolIDs {
 			poolShares[poolID] = new(big.Rat).Set(equalShare)
 		}
 		totalShare = big.NewRat(1, 1)
@@ -406,6 +483,7 @@ func CalculateRewards(
 			delegatorStake,
 			poolParams,
 			snapshot,
+			params,
 		)
 
 		result.PoolRewards[poolID] = *poolRewards
@@ -493,6 +571,20 @@ func calculatePoolShare(
 		new(big.Int).SetUint64(poolStake),
 		new(big.Int).SetUint64(snapshot.TotalActiveStake),
 	)
+	if pledgeLeverageActive(params) {
+		pledgeRatio := new(big.Rat).SetFrac(
+			new(big.Int).SetUint64(poolParams.Pledge),
+			new(big.Int).SetUint64(snapshot.TotalActiveStake),
+		)
+		leverageCap := new(big.Rat).Mul(
+			pledgeRatio,
+			params.MaxPledgeLeverage,
+		)
+		stakeRatio = minimumRewardRatio(
+			minimumRewardRatio(stakeRatio, poolSaturationThreshold()),
+			leverageCap,
+		)
+	}
 
 	// Calculate saturation (capped at 1)
 	one := big.NewRat(1, 1)
@@ -533,9 +625,10 @@ func distributePoolRewards(
 	delegatorStake map[AddrKeyHash]uint64,
 	poolParams *PoolRegistrationCertificate,
 	snapshot RewardSnapshot,
+	params RewardParameters,
 ) *PoolRewards {
 	poolCost := poolParams.Cost
-	margin := marginRat(poolParams.Margin)
+	margin := effectivePoolMargin(poolParams.Margin, params)
 
 	// Calculate total pool stake (delegators + owners)
 	totalPoolStake := uint64(0)

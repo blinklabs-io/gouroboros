@@ -1534,9 +1534,22 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 		},
 	}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+	for _, leverage := range []*big.Rat{
+		big.NewRat(1, 1),
+		big.NewRat(10_000, 1),
+	} {
+		update := DijkstraProtocolParameterUpdate{
+			MaxPledgeLeverage: &cbor.Rat{Rat: leverage},
+		}
+		tx.Body.TxProposalProcedures[0].PPGovAction.Action =
+			&DijkstraParameterChangeGovAction{ParamUpdate: update}
+		require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+	}
 
 	for _, update := range []DijkstraProtocolParameterUpdate{
 		{RefScriptCostMultiplier: &cbor.Rat{Rat: big.NewRat(0, 1)}},
+		{MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(1, 2)}},
+		{MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(10_001, 1)}},
 		{MinPoolMargin: &cbor.Rat{Rat: big.NewRat(2, 1)}},
 		{LeiosQuorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(-1, 1)}},
 		{MaxEndorserBlockExUnits: &common.ExUnits{Memory: -1}},
@@ -1547,10 +1560,23 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 		require.Error(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
 	}
 	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
-		&DijkstraParameterChangeGovAction{ParamUpdate: DijkstraProtocolParameterUpdate{
-			MaxPledgeLeverageSet: true,
-		}}
+		&DijkstraParameterChangeGovAction{
+			ParamUpdate: DijkstraProtocolParameterUpdate{
+				MaxPledgeLeverageSet: true,
+			},
+		}
 	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
+		&DijkstraParameterChangeGovAction{
+			ParamUpdate: DijkstraProtocolParameterUpdate{
+				MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(0, 1)},
+			},
+		}
+	require.ErrorAs(
+		t,
+		UtxoValidateProposalProcedures(tx, 0, nil, nil),
+		&conway.ProtocolParameterUpdateFieldZeroError{},
+	)
 }
 
 func TestDijkstraGovernanceValidationChecksUpdateCommitteeValues(t *testing.T) {

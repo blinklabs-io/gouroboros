@@ -52,6 +52,7 @@ func TestDistributePoolRewardsExactDelegatorShare(t *testing.T) {
 			first:  true,
 			second: true,
 		}},
+		RewardParameters{},
 	)
 
 	assert.Equal(t, firstStake, rewards.DelegatorRewards[first])
@@ -85,6 +86,7 @@ func TestDistributePoolRewardsExactLargeDenominator(t *testing.T) {
 			first:  true,
 			second: true,
 		}},
+		RewardParameters{},
 	)
 
 	assert.Equal(t, 2*firstStake, rewards.DelegatorRewards[first])

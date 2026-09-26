@@ -74,6 +74,14 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	}
 	committeeStakeCoverage := genesisRatToRat(genesis.CommitteeStakeCoverage)
 	quorumStakeThreshold := genesisRatToRat(genesis.QuorumStakeThreshold)
+	maxPledgeLeverage := genesisRatToRat(genesis.MaxPledgeLeverage)
+	minPoolMargin := genesisRatToRat(genesis.MinPoolMargin)
+	if err := validateDijkstraRewardParameterDomains(
+		maxPledgeLeverage,
+		minPoolMargin,
+	); err != nil {
+		return err
+	}
 	if err := validateLeiosCommitteeStakeParameters(
 		committeeStakeCoverage,
 		quorumStakeThreshold,
@@ -95,8 +103,8 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.MaxRefScriptSizePerTx = genesis.MaxRefScriptSizePerTx
 	p.RefScriptCostStride = genesis.RefScriptCostStride
 	p.RefScriptCostMultiplier = genesisRatToRat(genesis.RefScriptCostMultiplier)
-	p.MaxPledgeLeverage = genesisRatToRat(genesis.MaxPledgeLeverage)
-	p.MinPoolMargin = genesisRatToRat(genesis.MinPoolMargin)
+	p.MaxPledgeLeverage = maxPledgeLeverage
+	p.MinPoolMargin = minPoolMargin
 	p.LeiosAnnouncementPeriodLength = genesis.LeiosAnnouncementPeriodLength
 	p.LeiosVotePeriodLength = genesis.LeiosVotePeriodLength
 	p.LeiosDiffusionPeriodLength = genesis.LeiosDiffusionPeriodLength
