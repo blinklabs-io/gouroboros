@@ -350,22 +350,28 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 
 			processed, err := r.process(ctx, item)
 			if err != nil {
-				select {
-				case r.errors <- err:
-				case <-ctx.Done():
-					return
-				}
-				if errors.Is(err, ErrStagePanic) ||
-					errors.Is(err, ErrPendingLimitExceeded) {
+				fatal := errors.Is(err, ErrStagePanic) ||
+					errors.Is(err, ErrPendingLimitExceeded)
+				if fatal {
+					if r.fatalFunc != nil {
+						r.fatalFunc()
+					}
+					select {
+					case r.errors <- err:
+					default:
+					}
 					// ProcessWithStatus owns ordering state. A panic can occur after
 					// it advanced nextSequence or removed pending items, so treating
 					// the input as an ordered singleton could move a Fence across an
 					// unresolved gap. A pending-limit error means admission bypassed
 					// Submit's capacity guard, and the rejected sequence was not retained.
-					// Stop this runner and cancel its owning pipeline.
-					if r.fatalFunc != nil {
-						r.fatalFunc()
-					}
+					// Fatal cancellation precedes best-effort error delivery so a full
+					// error channel cannot prevent shutdown.
+					return
+				}
+				select {
+				case r.errors <- err:
+				case <-ctx.Done():
 					return
 				}
 				continue

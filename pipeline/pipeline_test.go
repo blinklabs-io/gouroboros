@@ -38,6 +38,16 @@ func getValidBlockCbor(t *testing.T) []byte {
 	return testdata.MustDecodeHex(testdata.ConwayBlockHex)
 }
 
+func TestWithMaxPendingBlocksAllowsZeroToDisableLimit(t *testing.T) {
+	config := DefaultPipelineConfig()
+	WithMaxPendingBlocks(0)(&config)
+	assert.Zero(t, config.MaxPendingBlocks)
+
+	config = DefaultPipelineConfig()
+	WithMaxPendingBlocks(-1)(&config)
+	assert.Equal(t, DefaultMaxPendingBlocks, config.MaxPendingBlocks)
+}
+
 // getInvalidBlockCbor returns invalid CBOR bytes that will fail to decode.
 func getInvalidBlockCbor() []byte {
 	// Invalid CBOR - incomplete array structure

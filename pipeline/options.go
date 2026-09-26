@@ -127,10 +127,11 @@ func WithPrefetchBufferSize(size int) PipelineOption {
 
 // WithMaxPendingBlocks sets the limit for out-of-order blocks in the apply stage.
 // Submit applies backpressure before assigning a sequence when accepting another
-// block could exceed this limit. Default is 2160 (Cardano security parameter).
+// block could exceed this limit. Passing zero disables the limit. The default
+// is 2160 (Cardano security parameter).
 func WithMaxPendingBlocks(n int) PipelineOption {
 	return func(c *PipelineConfig) {
-		if n > 0 {
+		if n >= 0 {
 			c.MaxPendingBlocks = n
 		}
 	}
