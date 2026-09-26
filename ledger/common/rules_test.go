@@ -1865,43 +1865,72 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 	})
 }
 
-// UtxoValidateMIRGenesisQuorum is exported API that no era registers yet. It
-// fails closed for a ledger state that does not implement
-// common.GenesisDelegationState, so registering it before consumers implement
-// that capability would stop a syncing node on the first MIR certificate in
-// Shelley-through-Babbage history, and mainnet history contains them. This
-// pins the deferral until blinklabs-io/dingo#3748 lands; the rule-list entries
-// and this test are meant to change together.
-func TestMIRGenesisQuorumIsNotYetRegistered(t *testing.T) {
+func TestMIRGenesisQuorumRegisteredAcrossEras(t *testing.T) {
 	eras := []struct {
-		name  string
-		rules []common.UtxoValidationRuleFunc
-		rule  common.UtxoValidationRuleFunc
+		name        string
+		descriptors []common.UtxoValidationRuleDescriptor
+		rules       []common.UtxoValidationRuleFunc
 	}{
-		{"shelley", shelley.UtxoValidationRules, shelley.UtxoValidateMIRGenesisQuorum},
-		{"allegra", allegra.UtxoValidationRules, allegra.UtxoValidateMIRGenesisQuorum},
-		{"mary", mary.UtxoValidationRules, mary.UtxoValidateMIRGenesisQuorum},
-		{"alonzo", alonzo.UtxoValidationRules, alonzo.UtxoValidateMIRGenesisQuorum},
-		{"babbage", babbage.UtxoValidationRules, babbage.UtxoValidateMIRGenesisQuorum},
+		{
+			"shelley",
+			shelley.UtxoValidationRuleDescriptors(),
+			shelley.UtxoValidationRules,
+		},
+		{
+			"allegra",
+			allegra.UtxoValidationRuleDescriptors(),
+			allegra.UtxoValidationRules,
+		},
+		{
+			"mary",
+			mary.UtxoValidationRuleDescriptors(),
+			mary.UtxoValidationRules,
+		},
+		{
+			"alonzo",
+			alonzo.UtxoValidationRuleDescriptors(),
+			alonzo.UtxoValidationRules,
+		},
+		{
+			"babbage",
+			babbage.UtxoValidationRuleDescriptors(),
+			babbage.UtxoValidationRules,
+		},
 	}
+	delegateA := []byte("genesis-delegate-a")
+	delegateB := []byte("genesis-delegate-b")
 	for _, era := range eras {
 		t.Run(era.name, func(t *testing.T) {
-			for _, registered := range era.rules {
-				got := reflect.ValueOf(registered).Pointer()
-				// Compare against every era's entry point, not just this
-				// era's, because the pre-Conway wrappers all delegate to the
-				// Shelley rule and any of them would wire it in.
-				for _, other := range eras {
-					require.NotEqual(
-						t,
-						reflect.ValueOf(other.rule).Pointer(),
-						got,
-						"%s UtxoValidateMIRGenesisQuorum is registered in %s",
-						other.name,
-						era.name,
-					)
+			ruleIndex := -1
+			for index, descriptor := range era.descriptors {
+				if descriptor.Id == common.UtxoValidationRuleMIRGenesisQuorum {
+					ruleIndex = index
+					break
 				}
 			}
+			require.NotEqual(
+				t,
+				-1,
+				ruleIndex,
+				"%s MIR quorum rule is registered",
+				era.name,
+			)
+			require.Len(t, era.rules, len(era.descriptors))
+			registered := era.rules[ruleIndex]
+
+			state := mirGenesisQuorumState(2, delegateA, delegateB)
+			err := registered(mirTransaction(delegateA), 0, state, nil)
+			var quorumErr common.MIRInsufficientGenesisSigsError
+			require.ErrorAs(t, err, &quorumErr)
+			require.Equal(t, uint(1), quorumErr.Provided)
+			require.Equal(t, uint(2), quorumErr.Required)
+
+			require.NoError(t, registered(
+				mirTransaction(delegateA, delegateB),
+				0,
+				state,
+				nil,
+			))
 		})
 	}
 }

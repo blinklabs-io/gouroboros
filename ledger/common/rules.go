@@ -527,9 +527,8 @@ func (e MalformedAuthorizationError) Error() string {
 //   - 5: the genesis root key authorizes delegation; the new delegate and VRF
 //     key are targets, not authors.
 //   - 6: MIR has no field-level author; Shelley's accessor returns Nothing for
-//     it. Its stateful genesis-delegate quorum is implemented by
-//     ValidateMIRGenesisQuorum, which is not yet registered in any era rule
-//     list; Conway expunges MIR.
+//     it. Its stateful genesis-delegate quorum is enforced by
+//     ValidateMIRGenesisQuorum; Conway expunges MIR.
 //
 // This switch deliberately names all 19 certificate forms so typed nils and a
 // future unhandled implementation cannot silently bypass authorization.

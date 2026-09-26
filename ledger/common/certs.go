@@ -1720,6 +1720,18 @@ const (
 	MirSourceTreasury    MirSource = 2
 )
 
+func mirSourceToUtxorpc(source uint) (utxorpc.MirSource, error) {
+	switch source {
+	case 0:
+		return utxorpc.MirSource_MIR_SOURCE_RESERVES, nil
+	case 1:
+		return utxorpc.MirSource_MIR_SOURCE_TREASURY, nil
+	default:
+		return utxorpc.MirSource_MIR_SOURCE_UNSPECIFIED,
+			fmt.Errorf("invalid MIR source pot: %d", source)
+	}
+}
+
 // MoveInstantaneousRewardsCertificateReward is the MIR target: either a map
 // of stake credentials to signed reward deltas, or a coin transferred to the
 // opposite accounting pot.
@@ -1811,6 +1823,10 @@ func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(
 }
 
 func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	from, err := mirSourceToUtxorpc(c.Reward.Source)
+	if err != nil {
+		return nil, err
+	}
 	tmpMirTargets := []*utxorpc.MirTarget{}
 	for stakeCred, deltaCoin := range c.Reward.Rewards {
 		// MIR delta_coin is unbounded on the Cardano wire, but
@@ -1837,9 +1853,7 @@ func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, e
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_MirCert{
 			MirCert: &utxorpc.MirCert{
-				// potential integer overflow
-				// #nosec G115
-				From:     utxorpc.MirSource(c.Reward.Source),
+				From:     from,
 				To:       tmpMirTargets,
 				OtherPot: c.Reward.OtherPot,
 			},
