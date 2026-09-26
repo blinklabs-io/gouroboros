@@ -276,6 +276,40 @@ type CommitteeVotingState interface {
 	CommitteeCredentialIsElected(Credential) (bool, error)
 }
 
+// CommitteeHotCredentialMembers is an optional capability that resolves
+// every committee authorization -- seated or not, elected or not -- for an
+// exact hot credential. Reference: cardano-ledger-core's
+// authorizedHotCommitteeCredentials folds every csCommitteeCreds entry into
+// a Set of hot credentials, because (per that function's own doc comment)
+// "there is no unique mapping from Hot to Cold credential"; GOVCERT's
+// per-cold-credential certificate handlers do not prevent two cold
+// credentials from authorizing the same hot credential at once. A
+// known-voter check must therefore accept a hot credential whenever *any*
+// entry currently authorizes it, which the single-valued
+// CommitteeHotCredentialMember cannot express once more than one cold
+// credential shares a hot credential: it returns one witness, and callers
+// have no way to ask for another when that witness turns out unusable.
+//
+// The hot credential is matched with its key/script tag intact.
+// Implementations must omit a resigned cold credential's entry, and must
+// not otherwise filter by seated, elected, or expiry status -- an
+// authorized-but-unseated cold credential (for example, one named only in a
+// pending UpdateCommittee proposal) is still a known voter at every
+// protocol version; CommitteeVotingState applies the elected-only view
+// separately, from protocol version 11.
+//
+// This capability is optional and additive. It is separate from
+// CommitteeVotingState so that adopting the protocol-version-11 elected-voter
+// capability does not by itself change which committee votes the known-voter
+// rule accepts at earlier protocol versions. A provider that implements
+// only CommitteeCredentialState continues to resolve a shared hot credential
+// to one witness, which the known-voter rule cannot replace when this
+// transaction's own certificates moved that witness away from the hot
+// credential.
+type CommitteeHotCredentialMembers interface {
+	CommitteeHotCredentialMembers(Credential) ([]*CommitteeMember, error)
+}
+
 // DRepRegistration is the ledger state held for a registered DRep.
 type DRepRegistration struct {
 	// Credential identifies the DRep by its full credential, credential

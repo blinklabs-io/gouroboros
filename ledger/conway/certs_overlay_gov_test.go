@@ -553,6 +553,93 @@ func TestUtxoValidateUnknownVotersRequiresElectedCommitteeAtPV11(t *testing.T) {
 	require.NoError(t, conway.UtxoValidateUnknownVoters(tx, 0, electedState, pv11))
 }
 
+// TestUtxoValidateUnknownVotersAcceptsSharedHotKeyWithOneSeatedColdAtPV11
+// covers a hot credential shared by an unseated cold credential (named only
+// in a pending UpdateCommittee proposal) and a seated one. Gov.hs's
+// authorizedElectedHotCommitteeCredentials intersects csCommitteeCreds with
+// the enacted committee and collects the hot credentials of what remains, so
+// the hot credential is elected when any cold credential authorizing it is
+// seated, whichever authorization a provider lists first.
+func TestUtxoValidateUnknownVotersAcceptsSharedHotKeyWithOneSeatedColdAtPV11(
+	t *testing.T,
+) {
+	t.Parallel()
+	hotHash := common.Blake2b224Hash([]byte("pv11-shared-hot-key"))
+	unseated := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("pv11-shared-hot-unseated")),
+	}
+	seated := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("pv11-shared-hot-seated")),
+	}
+	voter := common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		Hash: hotHash,
+	}
+	tx := mkVoteTx(voter, common.GovActionId{}, common.GovVoteYes)
+	pv11 := govOverlayPparams()
+	pv11.ProtocolVersion.Major = common.ProtocolVersionVanRossem
+	stateWithCommittee := func(
+		committee []common.CommitteeMember,
+	) hotMembersCommitteeCredentialLedgerState {
+		return hotMembersCommitteeCredentialLedgerState{
+			committeeCredentialLedgerState: committeeCredentialLedgerState{
+				LedgerState: mockledger.NewLedgerStateBuilder().
+					WithCommitteeMembers(committee).
+					Build(),
+				available: true,
+				hotMembersLookup: func(
+					common.Credential,
+				) ([]*common.CommitteeMember, error) {
+					return []*common.CommitteeMember{
+						{ColdKey: unseated.Credential, HotKey: &hotHash},
+						{ColdKey: seated.Credential, HotKey: &hotHash},
+					}, nil
+				},
+				hotColdLookup: func(
+					common.Credential,
+				) ([]common.Credential, error) {
+					return []common.Credential{unseated, seated}, nil
+				},
+				electedLookup: func(cold common.Credential) (bool, error) {
+					for _, member := range committee {
+						if cold.CredType == common.CredentialTypeAddrKeyHash &&
+							member.ColdKey == cold.Credential {
+							return true, nil
+						}
+					}
+					return false, nil
+				},
+			},
+		}
+	}
+
+	ls := stateWithCommittee([]common.CommitteeMember{
+		{ColdKey: seated.Credential, HotKey: &hotHash, ExpiryEpoch: 500},
+	})
+	require.NoError(t, conway.UtxoValidateUnknownVoters(tx, 0, ls, pv11))
+	require.NoError(
+		t,
+		conway.UtxoValidateUnelectedCommitteeVoters(tx, 0, ls, pv11),
+	)
+
+	// Neither authorization is seated: both rules reject.
+	ls = stateWithCommittee(nil)
+	var unknown conway.UnknownVoterError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateUnknownVoters(tx, 0, ls, pv11),
+		&unknown,
+	)
+	var unelected conway.UnelectedCommitteeVoterError
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateUnelectedCommitteeVoters(tx, 0, ls, pv11),
+		&unelected,
+	)
+}
+
 func TestUtxoValidateUnknownVotersRejectsResignedCommitteeOldHotKey(
 	t *testing.T,
 ) {
@@ -708,6 +795,401 @@ func TestUtxoValidateProposalReturnAccountsRejectsInTxStakeDeregistration(
 
 	// The rejected validation call must not have mutated base ledger state.
 	require.True(t, ls.IsStakeCredentialRegistered(credential))
+}
+
+// TestUtxoValidateUnknownVotersAcceptsSharedHotKeyAfterOtherColdResigns
+// covers gouroboros' certs_overlay: GovCert.hs's csCommitteeCreds is a Map
+// keyed by cold credential, so two cold credentials may authorize the same
+// hot credential simultaneously, and Gov.hs treats that hot credential as a
+// known voter whenever *any* entry still authorizes it. Resigning one of
+// the two cold credentials must not take voting rights away from the other.
+func TestUtxoValidateUnknownVotersAcceptsSharedHotKeyAfterOtherColdResigns(
+	t *testing.T,
+) {
+	t.Parallel()
+	pp := govOverlayPparams()
+	actionId := common.GovActionId{TransactionId: common.Blake2b256{0xA7}}
+	coldA := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("shared-hot-cold-a")),
+	}
+	coldB := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("shared-hot-cold-b")),
+	}
+	hotHash := common.Blake2b224Hash([]byte("shared-hot-key"))
+	// The reference has no unique mapping from hot to cold credential
+	// (authorizedHotCommitteeCredentials in cardano-ledger-core's
+	// CertState.hs folds every csCommitteeCreds entry into a Set), so a
+	// hot-credential reverse lookup is free to name either sharing cold
+	// credential. Pin it to coldB (the untouched one) with an explicit
+	// callback instead of relying on WithCommitteeMembers' slice order,
+	// which would make the outcome depend on which credential the mock
+	// iterates to first rather than on the overlay's own logic.
+	ls := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govOverlayGovAction(actionId)).
+		WithCommitteeMembers([]common.CommitteeMember{
+			{ColdKey: coldA.Credential, HotKey: &hotHash, ExpiryEpoch: 500},
+			{ColdKey: coldB.Credential, HotKey: &hotHash, ExpiryEpoch: 500},
+		}).
+		WithCommitteeHotCredentialMember(
+			func(hot common.Credential) (*common.CommitteeMember, error) {
+				if hot.CredType != common.CredentialTypeAddrKeyHash ||
+					hot.Credential != hotHash {
+					return nil, nil
+				}
+				return &common.CommitteeMember{
+					ColdKey:     coldB.Credential,
+					HotKey:      &hotHash,
+					ExpiryEpoch: 500,
+				}, nil
+			},
+		).
+		Build()
+	certs := []common.CertificateWrapper{
+		mkCertWrapper(
+			uint(common.CertificateTypeResignCommitteeCold),
+			&common.ResignCommitteeColdCertificate{
+				CertType:       uint(common.CertificateTypeResignCommitteeCold),
+				ColdCredential: coldA,
+			},
+		),
+	}
+	tx := mkCertsAndVoteTx(
+		certs,
+		common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: hotHash,
+		},
+		actionId,
+	)
+
+	// Reference accepts: cold B's csCommitteeCreds entry still authorizes
+	// hotHash after cold A's own entry is removed.
+	require.NoError(t, runGovOverlayPipeline(t, tx, ls, pp))
+}
+
+// TestUtxoValidateUnknownVotersAcceptsSharedHotKeyWhenWitnessNamesResignedCold
+// closes the gap the previous test leaves for a singular-only provider:
+// here ls implements common.CommitteeHotCredentialMembers (the plural
+// capability) and its answer set contains *only* the resigned cold
+// credential's stale entry alongside the still-authorizing one -- modeling
+// a provider whose reverse index, if it were still singular, would name
+// exactly the wrong (resigned) witness. The overlay must not simply trust
+// or reject the first entry; it must filter every returned entry by
+// whether this transaction touched it, keeping cold B.
+func TestUtxoValidateUnknownVotersAcceptsSharedHotKeyWhenWitnessNamesResignedCold(
+	t *testing.T,
+) {
+	t.Parallel()
+	pp := govOverlayPparams()
+	actionId := common.GovActionId{TransactionId: common.Blake2b256{0xAA}}
+	coldA := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("plural-shared-hot-cold-a")),
+	}
+	coldB := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("plural-shared-hot-cold-b")),
+	}
+	hotHash := common.Blake2b224Hash([]byte("plural-shared-hot-key"))
+	base := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govOverlayGovAction(actionId)).
+		Build()
+	ls := hotMembersCommitteeCredentialLedgerState{
+		committeeCredentialLedgerState: committeeCredentialLedgerState{
+			LedgerState: base,
+			available:   true,
+			coldLookup: func(
+				credential common.Credential,
+			) (*common.CommitteeMember, error) {
+				switch credential.Credential {
+				case coldA.Credential:
+					return &common.CommitteeMember{
+						ColdKey: coldA.Credential, HotKey: &hotHash,
+						ExpiryEpoch: 500,
+					}, nil
+				case coldB.Credential:
+					return &common.CommitteeMember{
+						ColdKey: coldB.Credential, HotKey: &hotHash,
+						ExpiryEpoch: 500,
+					}, nil
+				default:
+					return nil, nil
+				}
+			},
+			// hotLookup models a singular-only provider's reverse index by
+			// deliberately naming the credential this transaction resigns
+			// -- the exact case a fix that trusted a single witness
+			// wholesale could not recover from.
+			hotLookup: func(
+				credential common.Credential,
+			) (*common.CommitteeMember, error) {
+				if credential.CredType != common.CredentialTypeAddrKeyHash ||
+					credential.Credential != hotHash {
+					return nil, nil
+				}
+				return &common.CommitteeMember{
+					ColdKey: coldA.Credential, HotKey: &hotHash,
+					ExpiryEpoch: 500,
+				}, nil
+			},
+			hotMembersLookup: func(
+				credential common.Credential,
+			) ([]*common.CommitteeMember, error) {
+				if credential.CredType != common.CredentialTypeAddrKeyHash ||
+					credential.Credential != hotHash {
+					return nil, nil
+				}
+				return []*common.CommitteeMember{
+					{
+						ColdKey: coldA.Credential, HotKey: &hotHash,
+						ExpiryEpoch: 500,
+					},
+					{
+						ColdKey: coldB.Credential, HotKey: &hotHash,
+						ExpiryEpoch: 500,
+					},
+				}, nil
+			},
+		},
+	}
+	certs := []common.CertificateWrapper{
+		mkCertWrapper(
+			uint(common.CertificateTypeResignCommitteeCold),
+			&common.ResignCommitteeColdCertificate{
+				CertType:       uint(common.CertificateTypeResignCommitteeCold),
+				ColdCredential: coldA,
+			},
+		),
+	}
+	tx := mkCertsAndVoteTx(
+		certs,
+		common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: hotHash,
+		},
+		actionId,
+	)
+
+	// Reference accepts: cold B's entry still authorizes hotHash. Proves
+	// the overlay consults CommitteeHotCredentialMembers rather than the
+	// singular CommitteeHotCredentialMember, whose hotLookup above would
+	// name only the resigned credential.
+	require.NoError(t, runGovOverlayPipeline(t, tx, ls, pp))
+}
+
+// TestUtxoValidateUnknownVotersAcceptsSharedHotKeyAfterOtherColdReauthorizes
+// covers the same csCommitteeCreds sharing, through
+// ConwayAuthCommitteeHotKey instead of ConwayResignCommitteeColdKey: cold A
+// re-authorizes to a different hot credential, and cold B's independent
+// authorization of the original hot credential must survive.
+func TestUtxoValidateUnknownVotersAcceptsSharedHotKeyAfterOtherColdReauthorizes(
+	t *testing.T,
+) {
+	t.Parallel()
+	pp := govOverlayPparams()
+	actionId := common.GovActionId{TransactionId: common.Blake2b256{0xA8}}
+	coldA := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("shared-hot-reauth-cold-a")),
+	}
+	coldB := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("shared-hot-reauth-cold-b")),
+	}
+	hotHash := common.Blake2b224Hash([]byte("shared-hot-reauth-key"))
+	newHot := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("shared-hot-reauth-new-key")),
+	}
+	// See the resignation test above: pin the reverse lookup to the
+	// untouched cold credential explicitly, since the reference does not
+	// define which cold credential a shared hot key resolves to.
+	ls := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govOverlayGovAction(actionId)).
+		WithCommitteeMembers([]common.CommitteeMember{
+			{ColdKey: coldA.Credential, HotKey: &hotHash, ExpiryEpoch: 500},
+			{ColdKey: coldB.Credential, HotKey: &hotHash, ExpiryEpoch: 500},
+		}).
+		WithCommitteeHotCredentialMember(
+			func(hot common.Credential) (*common.CommitteeMember, error) {
+				if hot.CredType != common.CredentialTypeAddrKeyHash ||
+					hot.Credential != hotHash {
+					return nil, nil
+				}
+				return &common.CommitteeMember{
+					ColdKey:     coldB.Credential,
+					HotKey:      &hotHash,
+					ExpiryEpoch: 500,
+				}, nil
+			},
+		).
+		Build()
+	certs := []common.CertificateWrapper{
+		mkCertWrapper(
+			uint(common.CertificateTypeAuthCommitteeHot),
+			&common.AuthCommitteeHotCertificate{
+				CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+				ColdCredential: coldA,
+				HotCredential:  newHot,
+			},
+		),
+	}
+	tx := mkCertsAndVoteTx(
+		certs,
+		common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: hotHash,
+		},
+		actionId,
+	)
+
+	// Reference accepts: cold A moving to newHot does not touch cold B's
+	// entry, which still authorizes hotHash.
+	require.NoError(t, runGovOverlayPipeline(t, tx, ls, pp))
+}
+
+// TestUtxoValidateUnknownVotersRejectsSharedHotKeyWhenBothColdKeysMoveAway
+// guards the other direction: once every cold credential that authorized a
+// hot key has moved away from it within the same transaction, that hot key
+// must become unknown, not silently stay valid through a stale ls answer.
+func TestUtxoValidateUnknownVotersRejectsSharedHotKeyWhenBothColdKeysMoveAway(
+	t *testing.T,
+) {
+	t.Parallel()
+	pp := govOverlayPparams()
+	actionId := common.GovActionId{TransactionId: common.Blake2b256{0xA9}}
+	coldA := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("shared-hot-both-cold-a")),
+	}
+	coldB := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("shared-hot-both-cold-b")),
+	}
+	hotHash := common.Blake2b224Hash([]byte("shared-hot-both-key"))
+	ls := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govOverlayGovAction(actionId)).
+		WithCommitteeMembers([]common.CommitteeMember{
+			{ColdKey: coldA.Credential, HotKey: &hotHash, ExpiryEpoch: 500},
+			{ColdKey: coldB.Credential, HotKey: &hotHash, ExpiryEpoch: 500},
+		}).
+		Build()
+	certs := []common.CertificateWrapper{
+		mkCertWrapper(
+			uint(common.CertificateTypeResignCommitteeCold),
+			&common.ResignCommitteeColdCertificate{
+				CertType:       uint(common.CertificateTypeResignCommitteeCold),
+				ColdCredential: coldA,
+			},
+		),
+		mkCertWrapper(
+			uint(common.CertificateTypeResignCommitteeCold),
+			&common.ResignCommitteeColdCertificate{
+				CertType:       uint(common.CertificateTypeResignCommitteeCold),
+				ColdCredential: coldB,
+			},
+		),
+	}
+	tx := mkCertsAndVoteTx(
+		certs,
+		common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: hotHash,
+		},
+		actionId,
+	)
+
+	err := runGovOverlayPipeline(t, tx, ls, pp)
+	var unkErr conway.UnknownVoterError
+	require.ErrorAs(t, err, &unkErr)
+}
+
+// TestUtxoValidateUnknownVotersMatchesInTxCommitteeHotCredentialType pins
+// the hot credential's key/script tag through the overlay. csCommitteeCreds
+// records the full Credential HotCommitteeRole a certificate authorizes, and
+// Gov.hs resolves a CommitteeVoter by membership of that typed credential in
+// authorizedHotCommitteeCredentials, so authorizing a script-hash hot
+// credential does not make a key-hash voter with the same 28 bytes known.
+// The hot credential in an AuthCommitteeHotCertificate carries no witness, so
+// any cold credential holder can name either type.
+func TestUtxoValidateUnknownVotersMatchesInTxCommitteeHotCredentialType(
+	t *testing.T,
+) {
+	t.Parallel()
+	hotHash := common.Blake2b224Hash([]byte("typed-hot-key"))
+	scriptHot := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: hotHash,
+	}
+	testCases := []struct {
+		name string
+		// priorHot is the key-hash hot credential cold authorized before
+		// the transaction, if any.
+		priorHot  *common.Blake2b224
+		voterType uint8
+		known     bool
+	}{
+		{
+			name:      "script authorization, script voter",
+			voterType: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+			known:     true,
+		},
+		{
+			name:      "script authorization, key voter",
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		},
+		{
+			name:      "key authorization replaced by script, key voter",
+			priorHot:  &hotHash,
+			voterType: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		},
+	}
+	cold := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("typed-hot-cold")),
+	}
+	certs := []common.CertificateWrapper{
+		mkCertWrapper(
+			uint(common.CertificateTypeAuthCommitteeHot),
+			&common.AuthCommitteeHotCertificate{
+				CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+				ColdCredential: cold,
+				HotCredential:  scriptHot,
+			},
+		),
+	}
+	for idx, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pp := govOverlayPparams()
+			actionId := common.GovActionId{
+				TransactionId: common.Blake2b256{0xAB, byte(idx)},
+			}
+			ls := mockledger.NewLedgerStateBuilder().
+				WithGovActions(govOverlayGovAction(actionId)).
+				WithCommitteeMembers([]common.CommitteeMember{{
+					ColdKey:     cold.Credential,
+					HotKey:      tc.priorHot,
+					ExpiryEpoch: 500,
+				}}).
+				Build()
+			tx := mkCertsAndVoteTx(
+				certs,
+				common.Voter{Type: tc.voterType, Hash: hotHash},
+				actionId,
+			)
+
+			err := runGovOverlayPipeline(t, tx, ls, pp)
+			if tc.known {
+				require.NoError(t, err)
+				return
+			}
+			var unkErr conway.UnknownVoterError
+			require.ErrorAs(t, err, &unkErr)
+		})
+	}
 }
 
 // TestUtxoValidateUnknownVotersUnaffectedWithoutCerts pins the existing,
