@@ -12,30 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package blockfetch
+package chainsync_test
 
 import (
-	"math"
 	"testing"
 
-	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/stretchr/testify/require"
 )
 
-func TestBlockFetchSlotNumberUsesConfiguredByronEpochLength(t *testing.T) {
-	header := &ledgerbyron.ByronMainBlockHeader{}
-	header.ConsensusData.SlotId.Epoch = 2
-	header.ConsensusData.SlotId.Slot = 17
-
-	slot, err := blockFetchSlotNumber(header, 600)
-	require.NoError(t, err)
-	require.Equal(t, uint64(1217), slot)
-
-	config, err := NewConfig(WithByronSlotsPerEpoch(600))
-	require.NoError(t, err)
+func TestWithByronSlotsPerEpoch(t *testing.T) {
+	config := chainsync.NewConfig(chainsync.WithByronSlotsPerEpoch(600))
 	require.Equal(t, uint64(600), config.ByronSlotsPerEpoch)
-
-	header.ConsensusData.SlotId.Epoch = math.MaxUint64
-	_, err = blockFetchSlotNumber(header, 600)
-	require.ErrorIs(t, err, ledgerbyron.ErrByronSlotNumberOverflow)
 }

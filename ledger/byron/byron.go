@@ -106,6 +106,18 @@ func SlotNumberFromHeader(
 	return header.SlotNumber(), nil
 }
 
+// SlotNumberFromBlockHeader converts Byron headers with the configured epoch
+// length and returns the native slot for headers from other eras.
+func SlotNumberFromBlockHeader(
+	header common.BlockHeader,
+	slotsPerEpoch uint64,
+) (uint64, error) {
+	if header.Era().Id != EraIdByron {
+		return header.SlotNumber(), nil
+	}
+	return SlotNumberFromHeader(header, slotsPerEpoch)
+}
+
 var EraByron = common.Era{
 	Id:   EraIdByron,
 	Name: EraNameByron,

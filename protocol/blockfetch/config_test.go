@@ -21,6 +21,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWithByronSlotsPerEpoch(t *testing.T) {
+	config, err := blockfetch.NewConfig(blockfetch.WithByronSlotsPerEpoch(600))
+	require.NoError(t, err)
+	require.Equal(t, uint64(600), config.ByronSlotsPerEpoch)
+}
+
 func TestNewConfigReturnsErrorForNegativeRecvQueueSize(t *testing.T) {
 	_, err := blockfetch.NewConfig(blockfetch.WithRecvQueueSize(-1))
 	require.Error(t, err, "NewConfig should return an error for negative RecvQueueSize")

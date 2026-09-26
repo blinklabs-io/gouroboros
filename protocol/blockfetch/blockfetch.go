@@ -127,8 +127,8 @@ type Config struct {
 	// DefaultMaxInFlightBytes.
 	MaxInFlightBytes uint64
 	// ByronSlotsPerEpoch selects the Byron epoch length used when correlating
-	// fetched blocks with protocol points. Use the same value as ChainSync.
-	// Zero uses the legacy value.
+	// fetched blocks with protocol points. Connections apply a non-zero value
+	// to both BlockFetch and ChainSync. Zero uses the legacy value.
 	ByronSlotsPerEpoch uint64
 }
 

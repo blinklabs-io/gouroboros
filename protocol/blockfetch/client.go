@@ -1192,7 +1192,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	var blockPoint pcommon.Point
 	var prevHash []byte
 	if block != nil {
-		slot, err := blockFetchSlotNumber(
+		slot, err := ledgerbyron.SlotNumberFromBlockHeader(
 			block.Header(),
 			c.config.ByronSlotsPerEpoch,
 		)
@@ -1288,16 +1288,6 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	default:
 	}
 	return nil
-}
-
-func blockFetchSlotNumber(
-	header lcommon.BlockHeader,
-	slotsPerEpoch uint64,
-) (uint64, error) {
-	if header.Era().Id != ledgerbyron.EraIdByron {
-		return header.SlotNumber(), nil
-	}
-	return ledgerbyron.SlotNumberFromHeader(header, slotsPerEpoch)
 }
 
 func pointInRange(block, start, end pcommon.Point) bool {
