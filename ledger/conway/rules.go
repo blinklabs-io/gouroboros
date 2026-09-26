@@ -4494,13 +4494,25 @@ func UtxoValidateUnknownVoters(
 			if !committeeStateAvailable {
 				return lookupError(CommitteeStateUnavailableError{})
 			}
-			member, err := overlay.CommitteeHotCredentialMember(
+			// A hot credential may be authorized by more than one cold
+			// credential at once (cardano-ledger-core's
+			// authorizedHotCommitteeCredentials: "there is no unique
+			// mapping from Hot to Cold credential"), so hot is a known,
+			// seated voter whenever *any* candidate qualifies, not merely
+			// whichever single witness an older provider happens to name.
+			members, err := overlay.CommitteeHotCredentialMembers(
 				hotCredential,
 			)
 			if err != nil {
 				return lookupError(err)
 			}
-			if member == nil || member.Resigned {
+			candidates := make([]*common.CommitteeMember, 0, len(members))
+			for _, member := range members {
+				if member != nil && !member.Resigned {
+					candidates = append(candidates, member)
+				}
+			}
+			if len(candidates) == 0 {
 				return UnknownVoterError{Voter: *voter}
 			}
 			if params, ok := pp.(*ConwayProtocolParameters); ok &&
@@ -4512,9 +4524,21 @@ func UtxoValidateUnknownVoters(
 				if err != nil {
 					return lookupError(err)
 				}
-				seated := false
+				// CommitteeMembers carries bare cold hashes, so this can
+				// only over-match a key/script twin named in the enacted
+				// committee; UtxoValidateUnelectedCommitteeVoters applies
+				// the typed elected-committee check on the same protocol
+				// versions.
+				seatedColdKeys := make(
+					map[common.Blake2b224]struct{},
+					len(currentMembers),
+				)
 				for _, current := range currentMembers {
-					if current.ColdKey == member.ColdKey {
+					seatedColdKeys[current.ColdKey] = struct{}{}
+				}
+				seated := false
+				for _, candidate := range candidates {
+					if _, ok := seatedColdKeys[candidate.ColdKey]; ok {
 						seated = true
 						break
 					}

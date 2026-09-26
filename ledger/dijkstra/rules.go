@@ -470,9 +470,18 @@ type dijkstraGovernanceStateView struct {
 	stakeCredentials  map[dijkstraAccountKey]bool
 	drepCredentials   map[dijkstraAccountKey]bool
 	poolRegistrations map[common.PoolKeyHash]struct{}
-	committeeHot      map[common.Blake2b224]*common.CommitteeMember
 	committeeCold     map[dijkstraAccountKey]*common.CommitteeMember
-	committeeColdHot  map[dijkstraAccountKey]*common.Blake2b224
+	// committeeColdHot tracks, for a cold credential an earlier level's
+	// certificates touched, the typed hot credential currently authorized
+	// for it (nil if resigned). CommitteeHotCredentialMembers derives its
+	// answer from this map and committeeCold on every call rather than from
+	// a separate hot-keyed cache, because a hot credential may be shared by
+	// more than one cold credential: GOVCERT's csCommitteeCreds is keyed by
+	// cold credential, and a hot credential is a known voter whenever *any*
+	// entry currently authorizes it. See conway/certs_overlay.go's
+	// committeeColdHot field, which this mirrors, including why the hot
+	// credential keeps its key/script tag.
+	committeeColdHot map[dijkstraAccountKey]*dijkstraAccountKey
 }
 
 type dijkstraCommitteeCredentialView struct {
@@ -494,6 +503,12 @@ func (s dijkstraCommitteeCredentialView) CommitteeHotCredentialMember(
 	credential common.Credential,
 ) (*common.CommitteeMember, error) {
 	return s.state.CommitteeHotCredentialMember(credential)
+}
+
+func (s dijkstraCommitteeCredentialView) CommitteeHotCredentialMembers(
+	credential common.Credential,
+) ([]*common.CommitteeMember, error) {
+	return s.state.CommitteeHotCredentialMembers(credential)
 }
 
 func dijkstraCommitteeCredentialState(ls common.LedgerState) common.LedgerState {
@@ -592,31 +607,99 @@ func (s *dijkstraGovernanceStateView) CommitteeCredentialMember(
 	return state.CommitteeCredentialMember(cold)
 }
 
-func (s *dijkstraGovernanceStateView) CommitteeHotCredentialMember(
+// committeeHotCredentialMembersState resolves ls's optional
+// CommitteeHotCredentialMembers capability; see
+// conway/certs_overlay.go's identical helper and the committeeColdHot
+// field comment.
+func (s *dijkstraGovernanceStateView) committeeHotCredentialMembersState() (
+	common.CommitteeHotCredentialMembers,
+	bool,
+) {
+	state, ok := common.UnwrapLedgerState(
+		s.LedgerState,
+	).(common.CommitteeHotCredentialMembers)
+	return state, ok
+}
+
+// CommitteeHotCredentialMembers resolves every cold credential currently
+// authorizing hot after earlier levels' certificates: every touched cold
+// credential in committeeColdHot that currently maps to hot, plus whatever
+// ls itself reports for any cold credential those levels did not touch. See
+// conway/certs_overlay.go's identical method and the committeeColdHot
+// field comment for why a plural lookup is needed.
+func (s *dijkstraGovernanceStateView) CommitteeHotCredentialMembers(
 	hot common.Credential,
-) (*common.CommitteeMember, error) {
-	if member, tracked := s.committeeHot[hot.Credential]; tracked {
-		return member, nil
+) ([]*common.CommitteeMember, error) {
+	var members []*common.CommitteeMember
+	hotKey := dijkstraAccountKeyFor(hot)
+	for coldKey, curHot := range s.committeeColdHot {
+		if curHot == nil || *curHot != hotKey {
+			continue
+		}
+		if member, tracked := s.committeeCold[coldKey]; tracked &&
+			member != nil {
+			members = append(members, member)
+		}
+	}
+	if plural, ok := s.committeeHotCredentialMembersState(); ok {
+		lsMembers, err := plural.CommitteeHotCredentialMembers(hot)
+		if err != nil {
+			return nil, err
+		}
+		for _, member := range lsMembers {
+			if member == nil || s.coldCredentialTouched(member.ColdKey) {
+				continue
+			}
+			members = append(members, member)
+		}
+		return members, nil
 	}
 	state, ok := s.committeeCredentialState()
 	if !ok {
-		return nil, nil
+		return members, nil
 	}
-	return state.CommitteeHotCredentialMember(hot)
+	member, err := state.CommitteeHotCredentialMember(hot)
+	if err != nil {
+		return nil, err
+	}
+	// ls resolved hot against a cold credential from before earlier
+	// levels' certificates ran. If those levels touched that cold
+	// credential, the loop above already returned its current answer, or
+	// found none because it moved away from hot -- either way ls's answer
+	// is stale here and must not be returned.
+	if member != nil && !s.coldCredentialTouched(member.ColdKey) {
+		members = append(members, member)
+	}
+	return members, nil
 }
 
-func (s *dijkstraGovernanceStateView) currentCommitteeHotForCold(
-	cold common.Credential,
-) (*common.Blake2b224, bool) {
-	coldKey := dijkstraAccountKeyFor(cold)
-	if hot, tracked := s.committeeColdHot[coldKey]; tracked {
-		return hot, true
+// CommitteeHotCredentialMember resolves one hot committee credential
+// witness after earlier levels' certificates. Prefer
+// CommitteeHotCredentialMembers when a hot credential shared by more than
+// one cold credential must be resolved correctly.
+func (s *dijkstraGovernanceStateView) CommitteeHotCredentialMember(
+	hot common.Credential,
+) (*common.CommitteeMember, error) {
+	members, err := s.CommitteeHotCredentialMembers(hot)
+	if err != nil || len(members) == 0 {
+		return nil, err
 	}
-	member, err := s.CommitteeCredentialMember(cold)
-	if err != nil || member == nil {
-		return nil, false
+	return members[0], nil
+}
+
+// coldCredentialTouched reports whether an earlier level's certificates
+// recorded any state for a cold credential with this bare hash. See
+// conway/certs_overlay.go's identical helper for why matching on the hash
+// alone cannot conflate two cold credentials.
+func (s *dijkstraGovernanceStateView) coldCredentialTouched(
+	coldHash common.Blake2b224,
+) bool {
+	for coldKey := range s.committeeColdHot {
+		if coldKey.hash == coldHash {
+			return true
+		}
 	}
-	return member.HotKey, true
+	return false
 }
 
 func (s *dijkstraGovernanceStateView) applyCommitteeCertificates(
@@ -632,14 +715,15 @@ func (s *dijkstraGovernanceStateView) applyCommitteeCertificates(
 	}
 }
 
+// authorizeCommitteeHot applies an AuthCommitteeHotCertificate: cold now
+// authorizes hot, superseding whichever hot credential cold authorized
+// before. A different cold credential that separately authorizes the
+// superseded hot credential is unaffected; see the committeeColdHot field
+// comment.
 func (s *dijkstraGovernanceStateView) authorizeCommitteeHot(
 	cold, hot common.Credential,
 ) {
 	coldKey := dijkstraAccountKeyFor(cold)
-	if previous, ok := s.currentCommitteeHotForCold(cold); ok && previous != nil &&
-		*previous != hot.Credential {
-		s.committeeHot[*previous] = nil
-	}
 	member, err := s.CommitteeCredentialMember(cold)
 	if err != nil || member == nil {
 		return
@@ -648,18 +732,18 @@ func (s *dijkstraGovernanceStateView) authorizeCommitteeHot(
 	updated.HotKey = &hot.Credential
 	updated.Resigned = false
 	s.committeeCold[coldKey] = &updated
-	newHot := hot.Credential
-	s.committeeHot[hot.Credential] = &updated
+	newHot := dijkstraAccountKeyFor(hot)
 	s.committeeColdHot[coldKey] = &newHot
 }
 
+// resignCommitteeCold applies a ResignCommitteeColdCertificate: cold no
+// longer authorizes any hot credential. A different cold credential that
+// separately authorizes the same hot credential is unaffected; see the
+// committeeColdHot field comment.
 func (s *dijkstraGovernanceStateView) resignCommitteeCold(
 	cold common.Credential,
 ) {
 	coldKey := dijkstraAccountKeyFor(cold)
-	if previous, ok := s.currentCommitteeHotForCold(cold); ok && previous != nil {
-		s.committeeHot[*previous] = nil
-	}
 	member, err := s.CommitteeCredentialMember(cold)
 	if err == nil && member != nil {
 		updated := *member
@@ -706,9 +790,8 @@ func validateDijkstraGovernanceLevels(
 		stakeCredentials:  make(map[dijkstraAccountKey]bool),
 		drepCredentials:   make(map[dijkstraAccountKey]bool),
 		poolRegistrations: make(map[common.PoolKeyHash]struct{}),
-		committeeHot:      make(map[common.Blake2b224]*common.CommitteeMember),
 		committeeCold:     make(map[dijkstraAccountKey]*common.CommitteeMember),
-		committeeColdHot:  make(map[dijkstraAccountKey]*common.Blake2b224),
+		committeeColdHot:  make(map[dijkstraAccountKey]*dijkstraAccountKey),
 	}
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
 		if err := validate(level, state); err != nil {
