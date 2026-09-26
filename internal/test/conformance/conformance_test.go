@@ -16,6 +16,8 @@ package conformance
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -113,34 +115,9 @@ func TestStateProviderExposesCommitteeCredentials(t *testing.T) {
 	}
 }
 
-// TestRulesConformanceVectors runs the Amaru ledger rules conformance test vectors
-// using the shared harness from ouroboros-mock/conformance.
-//
-// The test vectors exercise Conway era ledger rules including:
-// - UTxO validation (inputs, outputs, fees, collateral)
-// - Certificate processing (stake, pool, DRep, committee)
-// - Governance (proposals, voting, enactment)
-// - Script execution (native scripts, Plutus V1/V2/V3)
-//
-// Test vectors are embedded in the ouroboros-mock module and extracted at test time.
+// TestRulesConformanceVectors runs the pinned Cardano Blueprint ledger corpus
+// through gouroboros' production validation rules and reports coverage.
 func TestRulesConformanceVectors(t *testing.T) {
-	testdataRoot, err := conformance.ExtractEmbeddedTestdata(t.TempDir())
-	if err != nil {
-		t.Fatalf("failed to extract embedded testdata: %v", err)
-	}
-
-	sm := epochAwareStateManager{StateManager: conformance.NewMockStateManager()}
-	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
-		TestdataRoot: testdataRoot,
-		Debug:        testing.Verbose(),
-	})
-
-	harness.RunAllVectors(t)
-}
-
-// TestRulesConformanceVectorsWithResults runs the conformance tests and reports
-// detailed statistics. This is useful for tracking implementation progress.
-func TestRulesConformanceVectorsWithResults(t *testing.T) {
 	testdataRoot, err := conformance.ExtractEmbeddedTestdata(t.TempDir())
 	if err != nil {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
@@ -151,38 +128,158 @@ func TestRulesConformanceVectorsWithResults(t *testing.T) {
 		TestdataRoot: testdataRoot,
 		Debug:        false,
 	})
-
 	results, err := harness.RunAllVectorsWithResults()
 	if err != nil {
 		t.Fatalf("failed to run vectors: %v", err)
 	}
-
-	var successes, failures int
+	var (
+		failures                         int
+		ledgerVectors                    int
+		ledgerPassed, ledgerFailed       int
+		syntheticPassed, syntheticFailed int
+	)
+	coverage := conformance.SummarizeCoverage(results)
+	for key := range coverage {
+		if key.Era == "unknown" || key.RuleFamily == "unknown" {
+			t.Errorf(
+				"unclassified conformance coverage: era=%s family=%s",
+				key.Era,
+				key.RuleFamily,
+			)
+		}
+	}
+	expected := make(map[conformance.CoverageKey]map[string]int)
 	for _, result := range results {
-		if result.Success {
-			successes++
-		} else {
+		if !result.Success {
 			failures++
 		}
+		key := coverageKeyForResult(result)
+		if _, ok := coverage[key]; !ok {
+			t.Errorf(
+				"coverage summary missing vector key: era=%s family=%s path=%s",
+				key.Era,
+				key.RuleFamily,
+				result.Path,
+			)
+			continue
+		}
+		switch {
+		case key.Era == "synthetic" && result.Success:
+			syntheticPassed++
+		case key.Era == "synthetic":
+			syntheticFailed++
+		case result.Success:
+			ledgerPassed++
+		default:
+			ledgerFailed++
+		}
+		if key.Era != "synthetic" {
+			ledgerVectors++
+		}
+		vector, err := conformance.DecodeTestVector(result.Path)
+		if err != nil {
+			t.Errorf("decode vector %s for coverage report: %v", result.Path, err)
+			continue
+		}
+		for _, event := range vector.Events {
+			if event.Type != conformance.EventTypeTransaction {
+				continue
+			}
+			outcome := "accepted"
+			if !event.Success {
+				outcome = "rejected"
+			}
+			if expected[key] == nil {
+				expected[key] = make(map[string]int)
+			}
+			expected[key][outcome]++
+		}
+	}
+	if ledgerVectors < 2574 {
+		t.Fatalf(
+			"pinned Blueprint corpus unexpectedly shrank: got %d ledger vectors, want at least 2574",
+			ledgerVectors,
+		)
 	}
 
-	t.Logf("Conformance Test Results:")
-	t.Logf("  Total vectors: %d", len(results))
-	t.Logf("  Passed: %d", successes)
-	t.Logf("  Failed: %d", failures)
-	t.Logf("  Pass rate: %.1f%%", float64(successes)/float64(len(results))*100)
+	t.Logf("Cardano Blueprint ledger conformance results:")
+	t.Logf("  corpus vectors: %d", ledgerVectors)
+	t.Logf("  ledger vectors: passed=%d failed=%d", ledgerPassed, ledgerFailed)
+	t.Logf(
+		"  synthetic rollback vectors: passed=%d failed=%d",
+		syntheticPassed,
+		syntheticFailed,
+	)
+	t.Logf("  coverage by era, rule family, and expected transaction result:")
+	for _, key := range conformance.SortedCoverageKeys(coverage) {
+		counts := coverage[key]
+		t.Logf(
+			"  era=%s family=%s vectors=%d passed=%d failed=%d accepted_tx=%d rejected_tx=%d",
+			key.Era,
+			key.RuleFamily,
+			counts.Total,
+			counts.Passed,
+			counts.Failed,
+			expected[key]["accepted"],
+			expected[key]["rejected"],
+		)
+	}
 
-	if failures > 0 && testing.Verbose() {
-		t.Log("First failures:")
-		failCount := 0
+	if failures != 0 {
 		for _, result := range results {
-			if !result.Success && failCount < 5 {
-				t.Logf("  %s: %v", result.Title, result.Error)
-				failCount++
+			if !result.Success {
+				t.Errorf("vector %s failed at event %d: %v", result.Title, result.FailedEvent, result.Error)
 			}
 		}
-		if failures > 5 {
-			t.Logf("  ... and %d more failures", failures-5)
+		t.Fatalf(
+			"%d of %d ledger and synthetic conformance vectors failed",
+			failures,
+			len(results),
+		)
+	}
+}
+
+func coverageKeyForResult(result conformance.VectorResult) conformance.CoverageKey {
+	corpusPath := filepath.ToSlash(result.Path)
+	if result.Title != "" {
+		corpusPath += " " + result.Title
+	}
+	if strings.Contains(corpusPath, "/synthetic/") {
+		return conformance.CoverageKey{Era: "synthetic", RuleFamily: "rollback"}
+	}
+	const unknown = "unknown"
+	era := unknown
+	for _, candidate := range []string{
+		"Allegra",
+		"Alonzo",
+		"Babbage",
+		"Conway",
+		"Mary",
+		"Shelley",
+	} {
+		if strings.Contains(corpusPath, candidate+"ImpSpec") {
+			era = candidate
+			break
 		}
 	}
+	for _, family := range []string{
+		"GOVCERT",
+		"RATIFY",
+		"ENACT",
+		"DELEG",
+		"CERTS",
+		"EPOCH",
+		"UTXOS",
+		"UTXOW",
+		"UTXO",
+		"LEDGER",
+	} {
+		if strings.Contains(corpusPath, "."+family+".") {
+			return conformance.CoverageKey{Era: era, RuleFamily: family}
+		}
+	}
+	if strings.Contains(corpusPath, ".GOV.") {
+		return conformance.CoverageKey{Era: era, RuleFamily: "GOV"}
+	}
+	return conformance.CoverageKey{Era: era, RuleFamily: unknown}
 }

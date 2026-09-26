@@ -209,8 +209,8 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Byron consensus (OBFT header validation)
 - [X] Testing
   - [X] Test framework for mocking Ouroboros conversations
-  - [X] Conformance tests (3400+ passing)
-    - [X] Ledger rules (315 tests via Amaru vectors)
+  - [X] Conformance suites (see `internal/test/conformance/README.md`; suites have separate scopes)
+    - [X] Ledger rules (pinned Cardano Blueprint corpus; coverage reported by era and rule family)
     - [X] VRF cryptography (29 vectors + 15 unit tests)
     - [X] KES cryptography (14 tests via input-output-hk/kes vectors)
     - [X] Consensus (222 tests for leader election, threshold, selection)

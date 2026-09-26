@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/require"
 )
 
@@ -125,4 +126,24 @@ func TestByronHeaderSlotNumberWithEpochLengthPreservesRawCounts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(1200), ebbSlot)
 	require.Equal(t, uint64(2), ebb.ConsensusData.Epoch)
+}
+
+func TestSlotNumberFromBlockHeaderUsesConfiguredEpochLength(t *testing.T) {
+	header := &byron.ByronMainBlockHeader{}
+	header.ConsensusData.SlotId.Epoch = 2
+	header.ConsensusData.SlotId.Slot = 17
+
+	slot, err := byron.SlotNumberFromBlockHeader(header, 600)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1217), slot)
+}
+
+func TestSlotNumberFromBlockHeaderPreservesOtherEraSlot(t *testing.T) {
+	header := &shelley.ShelleyBlockHeader{
+		Body: shelley.ShelleyBlockHeaderBody{Slot: 17},
+	}
+
+	slot, err := byron.SlotNumberFromBlockHeader(header, 600)
+	require.NoError(t, err)
+	require.Equal(t, uint64(17), slot)
 }

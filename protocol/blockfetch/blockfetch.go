@@ -126,6 +126,10 @@ type Config struct {
 	// a pipelining client keeps outstanding. Zero means
 	// DefaultMaxInFlightBytes.
 	MaxInFlightBytes uint64
+	// ByronSlotsPerEpoch selects the Byron epoch length used when correlating
+	// fetched blocks with protocol points. Connections apply a non-zero value
+	// to both BlockFetch and ChainSync. Zero uses the legacy value.
+	ByronSlotsPerEpoch uint64
 }
 
 // MaxRecvQueueSize is the maximum allowed receive queue size (messages).
@@ -298,6 +302,14 @@ func WithRequestPipelining(enabled bool) BlockFetchOptionFunc {
 func WithMaxInFlightBytes(maxBytes uint64) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.MaxInFlightBytes = maxBytes
+	}
+}
+
+// WithByronSlotsPerEpoch sets the Byron epoch length used for block points.
+// Zero selects the legacy mainnet value.
+func WithByronSlotsPerEpoch(slotsPerEpoch uint64) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.ByronSlotsPerEpoch = slotsPerEpoch
 	}
 }
 

@@ -498,7 +498,7 @@ for result := range pipeline.Results() { ... }
 
 ```
 internal/test/
-|- conformance/         # Amaru test vectors (314 rules)
+|- conformance/         # Pinned Cardano Blueprint ledger vectors and focused protocol suites
 |- cardano-blueprint/   # Cardano specification reference
 
 ledger/**/*_test.go     # Unit tests

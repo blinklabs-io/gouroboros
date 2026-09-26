@@ -26,6 +26,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -1191,8 +1192,15 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	var blockPoint pcommon.Point
 	var prevHash []byte
 	if block != nil {
+		slot, err := ledgerbyron.SlotNumberFromBlockHeader(
+			block.Header(),
+			c.config.ByronSlotsPerEpoch,
+		)
+		if err != nil {
+			return c.failRequest(req, fmt.Errorf("convert block slot: %w", err))
+		}
 		blockPoint = pcommon.NewPoint(
-			block.SlotNumber(),
+			slot,
 			block.Hash().Bytes(),
 		)
 		blockPrevHash := block.PrevHash()
