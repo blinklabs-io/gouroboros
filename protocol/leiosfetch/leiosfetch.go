@@ -25,6 +25,13 @@ import (
 const (
 	ProtocolName        = "leios-fetch"
 	ProtocolId   uint16 = 19
+
+	// DefaultMaxBlockRangeResponses bounds the number of messages retained for
+	// one BlockRangeRequest, including its terminal response.
+	DefaultMaxBlockRangeResponses = 1_000
+	// DefaultMaxBlockRangeResponseBytes bounds the total encoded size retained
+	// for one BlockRangeRequest.
+	DefaultMaxBlockRangeResponseBytes = 64 * 1024 * 1024
 )
 
 var (
@@ -113,11 +120,13 @@ type LeiosFetch struct {
 }
 
 type Config struct {
-	BlockRequestFunc      BlockRequestFunc
-	BlockTxsRequestFunc   BlockTxsRequestFunc
-	VotesRequestFunc      VotesRequestFunc
-	BlockRangeRequestFunc BlockRangeRequestFunc
-	Timeout               time.Duration
+	BlockRequestFunc           BlockRequestFunc
+	BlockTxsRequestFunc        BlockTxsRequestFunc
+	VotesRequestFunc           VotesRequestFunc
+	BlockRangeRequestFunc      BlockRangeRequestFunc
+	MaxBlockRangeResponses     int
+	MaxBlockRangeResponseBytes int
+	Timeout                    time.Duration
 }
 
 // Callback context
@@ -151,7 +160,9 @@ type LeiosFetchOptionFunc func(*Config)
 
 func NewConfig(options ...LeiosFetchOptionFunc) Config {
 	c := Config{
-		Timeout: 5 * time.Second,
+		MaxBlockRangeResponses:     DefaultMaxBlockRangeResponses,
+		MaxBlockRangeResponseBytes: DefaultMaxBlockRangeResponseBytes,
+		Timeout:                    5 * time.Second,
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -200,5 +211,21 @@ func WithBlockRangeRequestFunc(
 func WithTimeout(timeout time.Duration) LeiosFetchOptionFunc {
 	return func(c *Config) {
 		c.Timeout = timeout
+	}
+}
+
+// WithMaxBlockRangeResponses sets the maximum number of responses retained
+// for one BlockRangeRequest. Non-positive values use the default.
+func WithMaxBlockRangeResponses(maxResponses int) LeiosFetchOptionFunc {
+	return func(c *Config) {
+		c.MaxBlockRangeResponses = maxResponses
+	}
+}
+
+// WithMaxBlockRangeResponseBytes sets the maximum encoded response bytes
+// retained for one BlockRangeRequest. Non-positive values use the default.
+func WithMaxBlockRangeResponseBytes(maxBytes int) LeiosFetchOptionFunc {
+	return func(c *Config) {
+		c.MaxBlockRangeResponseBytes = maxBytes
 	}
 }

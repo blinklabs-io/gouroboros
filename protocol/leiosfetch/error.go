@@ -42,3 +42,9 @@ var ErrBlockTxsNotFound = errors.New(
 var ErrRequestSlotAbandoned = errors.New(
 	"leios-fetch request slot awaiting abandoned response",
 )
+
+// ErrBlockRangeResponseLimitExceeded signals that a BlockRangeRequest reply
+// stream exceeded the configured message-count or encoded-byte limit.
+var ErrBlockRangeResponseLimitExceeded = errors.New(
+	"leios-fetch block range response limit exceeded",
+)

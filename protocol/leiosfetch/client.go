@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -31,6 +32,8 @@ type Client struct {
 	callbackContext CallbackContext
 	onceStart       sync.Once
 	onceStop        sync.Once
+	maxRangeReplies int
+	maxRangeBytes   int
 	// Block and BlockTxs share one slot because both requests use the same
 	// connection-wide agency and have no request identifier.
 	blockRequestSlot requestSlot
@@ -56,6 +59,10 @@ type requestSlot struct {
 	delivery        *requestDelivery
 	busy            bool
 	abandoned       bool
+	maxReplies      int
+	maxBytes        int
+	rangeReplies    int
+	rangeBytes      int
 	drainedCh       chan struct{}
 	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
 }
@@ -149,6 +156,15 @@ func (s *requestSlot) acquire(
 	ctx context.Context,
 	done <-chan struct{},
 ) (chan protocol.Message, error) {
+	return s.acquireWithRangeLimits(ctx, done, 0, 0)
+}
+
+func (s *requestSlot) acquireWithRangeLimits(
+	ctx context.Context,
+	done <-chan struct{},
+	maxReplies int,
+	maxBytes int,
+) (chan protocol.Message, error) {
 	s.mu.Lock()
 	for s.busy {
 		if s.abandoned {
@@ -199,9 +215,67 @@ func (s *requestSlot) acquire(
 	s.delivery = newRequestDelivery(w)
 	s.busy = true
 	s.abandoned = false
+	s.maxReplies = maxReplies
+	s.maxBytes = maxBytes
+	s.rangeReplies = 0
+	s.rangeBytes = 0
 	s.drainedCh = make(chan struct{})
 	s.mu.Unlock()
 	return w, nil
+}
+
+func (s *requestSlot) deliverRange(
+	msg protocol.Message,
+	terminal bool,
+) (bool, error) {
+	messageBytes := len(msg.Cbor())
+	if messageBytes == 0 {
+		encoded, err := cbor.Encode(msg)
+		if err != nil {
+			return false, fmt.Errorf("encode block range response: %w", err)
+		}
+		messageBytes = len(encoded)
+	}
+
+	s.mu.Lock()
+	if s.busy {
+		if s.maxReplies > 0 && s.rangeReplies >= s.maxReplies {
+			s.mu.Unlock()
+			return false, fmt.Errorf(
+				"%w: received more than %d messages",
+				ErrBlockRangeResponseLimitExceeded,
+				s.maxReplies,
+			)
+		}
+		nextReplies := s.rangeReplies + 1
+		if s.maxBytes > 0 && messageBytes > s.maxBytes-s.rangeBytes {
+			s.mu.Unlock()
+			return false, fmt.Errorf(
+				"%w: response bytes exceed %d",
+				ErrBlockRangeResponseLimitExceeded,
+				s.maxBytes,
+			)
+		}
+		s.rangeReplies = nextReplies
+		s.rangeBytes += messageBytes
+	}
+	w := s.waiter
+	d := s.delivery
+	if w == nil && d == nil && terminal && s.abandoned {
+		s.freeLocked()
+		s.mu.Unlock()
+		return true, nil
+	}
+	if terminal && w != nil {
+		s.waiter = nil
+		s.delivery = nil
+		s.freeLocked()
+	}
+	s.mu.Unlock()
+	if w == nil || d == nil {
+		return false, nil
+	}
+	return d.enqueue(msg, terminal), nil
 }
 
 // abandon clears the live waiter so that a late response is dropped by deliver
@@ -297,8 +371,18 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		tmpCfg := NewConfig()
 		cfg = &tmpCfg
 	}
+	maxRangeReplies := cfg.MaxBlockRangeResponses
+	if maxRangeReplies <= 0 {
+		maxRangeReplies = DefaultMaxBlockRangeResponses
+	}
+	maxRangeBytes := cfg.MaxBlockRangeResponseBytes
+	if maxRangeBytes <= 0 {
+		maxRangeBytes = DefaultMaxBlockRangeResponseBytes
+	}
 	c := &Client{
-		config: cfg,
+		config:          cfg,
+		maxRangeReplies: maxRangeReplies,
+		maxRangeBytes:   maxRangeBytes,
 		// Each request uses a delivery queue so streaming range responses do
 		// not block the protocol receive loop or get dropped.
 	}
@@ -326,6 +410,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	if entry, ok := stateMap[StateBlockRange]; ok {
 		entry.Timeout = c.config.Timeout
+		entry.PendingMessageByteLimit = maxRangeBytes
 		stateMap[StateBlockRange] = entry
 	}
 	// Configure underlying Protocol
@@ -394,7 +479,34 @@ func (c *Client) acquireSlot(
 	slot *requestSlot,
 	state protocol.State,
 ) (chan protocol.Message, error) {
-	w, err := slot.acquire(ctx, c.DoneChan())
+	return c.acquireSlotWithRangeLimits(ctx, slot, state, 0, 0)
+}
+
+func (c *Client) acquireBlockRangeSlot(
+	ctx context.Context,
+) (chan protocol.Message, error) {
+	return c.acquireSlotWithRangeLimits(
+		ctx,
+		&c.blockRequestSlot,
+		StateBlockRange,
+		c.maxRangeReplies,
+		c.maxRangeBytes,
+	)
+}
+
+func (c *Client) acquireSlotWithRangeLimits(
+	ctx context.Context,
+	slot *requestSlot,
+	state protocol.State,
+	maxReplies int,
+	maxBytes int,
+) (chan protocol.Message, error) {
+	w, err := slot.acquireWithRangeLimits(
+		ctx,
+		c.DoneChan(),
+		maxReplies,
+		maxBytes,
+	)
 	if err == nil {
 		return w, nil
 	}
@@ -530,7 +642,7 @@ func (c *Client) BlockRangeRequest(
 	start pcommon.Point,
 	end pcommon.Point,
 ) ([]protocol.Message, error) {
-	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlockRange)
+	w, err := c.acquireBlockRangeSlot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -575,9 +687,9 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	case MessageTypeVotes:
 		c.handleVotes(msg)
 	case MessageTypeNextBlockAndTxsInRange:
-		c.handleNextBlockAndTxsInRange(msg)
+		err = c.handleNextBlockAndTxsInRange(msg)
 	case MessageTypeLastBlockAndTxsInRange:
-		c.handleLastBlockAndTxsInRange(msg)
+		err = c.handleLastBlockAndTxsInRange(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -625,14 +737,24 @@ func (c *Client) handleVotes(msg protocol.Message) {
 	}
 }
 
-func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg, false) {
+func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) error {
+	delivered, err := c.blockRequestSlot.deliverRange(msg, false)
+	if err != nil {
+		return err
+	}
+	if !delivered {
 		c.logDroppedResponse(msg)
 	}
+	return nil
 }
 
-func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg, true) {
+func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) error {
+	delivered, err := c.blockRequestSlot.deliverRange(msg, true)
+	if err != nil {
+		return err
+	}
+	if !delivered {
 		c.logDroppedResponse(msg)
 	}
+	return nil
 }

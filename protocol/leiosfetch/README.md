@@ -136,7 +136,13 @@ validated `common.LeiosVote` values.
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Default Timeout | 5 seconds | General request timeout |
+| Default Timeout | 5 seconds | Votes and BlockRange state timeout |
+
+`BlockRangeRequest` retains at most 1,000 response messages and 64 MiB of
+encoded response data per request by default. The terminal response counts
+toward both limits. Configure them with `WithMaxBlockRangeResponses` and
+`WithMaxBlockRangeResponseBytes`. Exceeding either limit fails the request and
+the connection; split large ranges into smaller requests.
 
 ## Configuration Options
 
@@ -147,6 +153,8 @@ leiosfetch.NewConfig(
     leiosfetch.WithVotesRequestFunc(votesRequestCallback),
     leiosfetch.WithBlockRangeRequestFunc(blockRangeRequestCallback),
     leiosfetch.WithTimeout(5 * time.Second),
+    leiosfetch.WithMaxBlockRangeResponses(1000),
+    leiosfetch.WithMaxBlockRangeResponseBytes(64 * 1024 * 1024),
 )
 ```
 

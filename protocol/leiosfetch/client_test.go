@@ -59,6 +59,68 @@ func TestNewClientWithConfig(t *testing.T) {
 
 	require.NotNil(t, client)
 	assert.Equal(t, 10*time.Second, client.config.Timeout)
+	assert.Equal(t, DefaultMaxBlockRangeResponses, client.maxRangeReplies)
+	assert.Equal(
+		t,
+		DefaultMaxBlockRangeResponseBytes,
+		client.maxRangeBytes,
+	)
+}
+
+func TestRequestSlotRangeResponseLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		maxReplies int
+		maxBytes   int
+		messages   [][]byte
+	}{
+		{
+			name:       "response count",
+			maxReplies: 1,
+			maxBytes:   10,
+			messages:   [][]byte{{0x01}, {0x02}},
+		},
+		{
+			name:       "response bytes",
+			maxReplies: 10,
+			maxBytes:   3,
+			messages:   [][]byte{{0x01, 0x02}, {0x03, 0x04}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			slot := &requestSlot{}
+			w, err := slot.acquireWithRangeLimits(
+				context.Background(),
+				make(chan struct{}),
+				tc.maxReplies,
+				tc.maxBytes,
+			)
+			require.NoError(t, err)
+			defer slot.release(w)
+
+			for i, raw := range tc.messages {
+				msg := NewMsgNextBlockAndTxsInRange(nil, nil)
+				msg.SetCbor(raw)
+				accepted, err := slot.deliverRange(msg, false)
+				if i < len(tc.messages)-1 {
+					require.NoError(t, err)
+					require.True(t, accepted)
+					select {
+					case <-w:
+					case <-time.After(time.Second):
+						t.Fatal("range reply was not delivered")
+					}
+					continue
+				}
+				require.False(t, accepted)
+				require.ErrorIs(
+					t,
+					err,
+					ErrBlockRangeResponseLimitExceeded,
+				)
+			}
+		})
+	}
 }
 
 func TestClientMessageHandler(t *testing.T) {
@@ -373,6 +435,12 @@ func TestConfig(t *testing.T) {
 	// Test default config
 	cfg := NewConfig()
 	assert.Equal(t, 5*time.Second, cfg.Timeout)
+	assert.Equal(t, DefaultMaxBlockRangeResponses, cfg.MaxBlockRangeResponses)
+	assert.Equal(
+		t,
+		DefaultMaxBlockRangeResponseBytes,
+		cfg.MaxBlockRangeResponseBytes,
+	)
 	assert.Nil(t, cfg.BlockRequestFunc)
 	assert.Nil(t, cfg.BlockTxsRequestFunc)
 	assert.Nil(t, cfg.VotesRequestFunc)
@@ -386,6 +454,8 @@ func TestConfig(t *testing.T) {
 
 	cfg = NewConfig(
 		WithTimeout(30*time.Second),
+		WithMaxBlockRangeResponses(12),
+		WithMaxBlockRangeResponseBytes(4096),
 		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
 			blockRequestCalled = true
 			return nil, nil
@@ -405,6 +475,8 @@ func TestConfig(t *testing.T) {
 	)
 
 	assert.Equal(t, 30*time.Second, cfg.Timeout)
+	assert.Equal(t, 12, cfg.MaxBlockRangeResponses)
+	assert.Equal(t, 4096, cfg.MaxBlockRangeResponseBytes)
 	assert.NotNil(t, cfg.BlockRequestFunc)
 	assert.NotNil(t, cfg.BlockTxsRequestFunc)
 	assert.NotNil(t, cfg.VotesRequestFunc)
