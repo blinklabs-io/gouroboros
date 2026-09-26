@@ -37,15 +37,7 @@ func exerciseFuzzBlock(block Block, eta0Hex string, slotsPerKesPeriod uint64) {
 	_ = block.Type()
 	_ = block.Cbor()
 	_ = block.Transactions()
-	_ = header.Hash()
-	_ = header.PrevHash()
-	_ = header.BlockNumber()
-	_ = header.SlotNumber()
-	_ = header.IssuerVkey()
-	_ = header.BlockBodySize()
-	_ = header.Era()
-	_ = header.Cbor()
-	_ = header.BlockBodyHash()
+	exerciseFuzzHeader(header)
 
 	// Run the block-local production checks without needing chain state. The
 	// transaction and stake-pool checks are covered by the transaction fuzz
@@ -56,6 +48,21 @@ func exerciseFuzzBlock(block Block, eta0Hex string, slotsPerKesPeriod uint64) {
 		SkipStakePoolValidation:   true,
 		SkipBlockLimitsValidation: true,
 	})
+}
+
+func exerciseFuzzHeader(header common.BlockHeader) {
+	if header == nil {
+		return
+	}
+	_ = header.Hash()
+	_ = header.PrevHash()
+	_ = header.BlockNumber()
+	_ = header.SlotNumber()
+	_ = header.IssuerVkey()
+	_ = header.BlockBodySize()
+	_ = header.Era()
+	_ = header.Cbor()
+	_ = header.BlockBodyHash()
 }
 
 func exerciseFuzzTransaction(tx Transaction) {
@@ -258,15 +265,7 @@ func FuzzNewBlockHeaderFromCbor(f *testing.F) {
 		}
 		header, err := NewBlockHeaderFromCbor(blockType, data)
 		if err == nil {
-			_ = header.Hash()
-			_ = header.PrevHash()
-			_ = header.BlockNumber()
-			_ = header.SlotNumber()
-			_ = header.IssuerVkey()
-			_ = header.BlockBodySize()
-			_ = header.Era()
-			_ = header.Cbor()
-			_ = header.BlockBodyHash()
+			exerciseFuzzHeader(header)
 		}
 	})
 }

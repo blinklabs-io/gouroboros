@@ -357,7 +357,17 @@ var verifyBlockBodyTestCases = []struct {
 }
 
 func verifiedBlockFuzzSeed() (uint, []byte, string, uint64, error) {
-	fixture := verifyBlockBodyTestCases[2].blockHexCbor
+	var fixture BlockHexCbor
+	for _, testCase := range verifyBlockBodyTestCases {
+		if testCase.name ==
+			"TestVerifyBlockBody success, Babbage protocol major 8" {
+			fixture = testCase.blockHexCbor
+			break
+		}
+	}
+	if fixture.HeaderCbor == "" || fixture.BlockBodyCbor == "" {
+		return 0, nil, "", 0, fmt.Errorf("Babbage fuzz fixture not found")
+	}
 	headerBytes, err := hex.DecodeString(fixture.HeaderCbor)
 	if err != nil {
 		return 0, nil, "", 0, err
@@ -377,37 +387,75 @@ func verifiedBlockFuzzSeed() (uint, []byte, string, uint64, error) {
 	if err != nil {
 		return 0, nil, "", 0, err
 	}
-	var txs []any
-	if _, err := cbor.Decode(bodyBytes, &txs); err != nil {
+	var txs []cbor.RawMessage
+	consumed, err := cbor.Decode(bodyBytes, &txs)
+	if err != nil {
 		return 0, nil, "", 0, err
+	}
+	if consumed != len(bodyBytes) {
+		return 0, nil, "", 0, fmt.Errorf(
+			"Babbage fuzz fixture has trailing CBOR: consumed %d of %d bytes",
+			consumed,
+			len(bodyBytes),
+		)
 	}
 	bodies := make([]babbage.BabbageTransactionBody, len(txs))
 	witnesses := make([]babbage.BabbageTransactionWitnessSet, len(txs))
 	metadata := make(map[uint]cbor.RawMessage)
 	for i, tx := range txs {
-		txArray, ok := tx.([]any)
-		if !ok || len(txArray) < 2 {
-			return 0, nil, "", 0, fmt.Errorf("invalid Babbage transaction %d in fuzz seed", i)
+		var txArray []cbor.RawMessage
+		if _, err := cbor.Decode(tx, &txArray); err != nil {
+			return 0, nil, "", 0, fmt.Errorf(
+				"decode Babbage transaction %d: %w",
+				i,
+				err,
+			)
+		}
+		if len(txArray) != 3 {
+			return 0, nil, "", 0, fmt.Errorf(
+				"invalid Babbage transaction %d in fuzz seed: got %d components, want 3",
+				i,
+				len(txArray),
+			)
 		}
 		bodyCbor, err := decodeFuzzSeedCbor(txArray[0])
 		if err != nil {
-			return 0, nil, "", 0, fmt.Errorf("decode Babbage transaction body %d: %w", i, err)
+			return 0, nil, "", 0, fmt.Errorf(
+				"decode Babbage transaction body %d: %w",
+				i,
+				err,
+			)
 		}
 		if _, err := cbor.Decode(bodyCbor, &bodies[i]); err != nil {
 			return 0, nil, "", 0, err
 		}
 		witnessCbor, err := decodeFuzzSeedCbor(txArray[1])
 		if err != nil {
-			return 0, nil, "", 0, fmt.Errorf("decode Babbage transaction witnesses %d: %w", i, err)
+			return 0, nil, "", 0, fmt.Errorf(
+				"decode Babbage transaction witnesses %d: %w",
+				i,
+				err,
+			)
 		}
 		if _, err := cbor.Decode(witnessCbor, &witnesses[i]); err != nil {
 			return 0, nil, "", 0, err
 		}
-		if len(txArray) > 2 {
-			if lazy, ok := txArray[2].(*cbor.LazyValue); ok && lazy != nil {
-				metadata[uint(i)] = lazy.Cbor()
-			}
+		metadataCbor, err := decodeFuzzSeedCbor(txArray[2])
+		if err != nil {
+			return 0, nil, "", 0, fmt.Errorf(
+				"decode Babbage metadata %d: %w",
+				i,
+				err,
+			)
 		}
+		if len(metadataCbor) > 0 && metadataCbor[0] != 0xf6 {
+			metadata[uint(i)] = metadataCbor
+		}
+	}
+	if len(metadata) == 0 {
+		return 0, nil, "", 0, fmt.Errorf(
+			"Babbage fuzz fixture contains no auxiliary data",
+		)
 	}
 	metadataCbor, err := cbor.Encode(metadata)
 	if err != nil {
@@ -449,12 +497,16 @@ func verifiedBlockFuzzSeed() (uint, []byte, string, uint64, error) {
 	return blockType, blockCbor, fixture.Eta0, uint64(fixture.Spk), nil
 }
 
-func decodeFuzzSeedCbor(value any) ([]byte, error) {
-	switch v := value.(type) {
+func decodeFuzzSeedCbor(raw cbor.RawMessage) ([]byte, error) {
+	var value any
+	if _, err := cbor.Decode(raw, &value); err != nil {
+		return nil, err
+	}
+	switch decoded := value.(type) {
 	case []byte:
-		return v, nil
+		return decoded, nil
 	case string:
-		return hex.DecodeString(v)
+		return hex.DecodeString(decoded)
 	default:
 		return nil, fmt.Errorf("unexpected CBOR value type %T", value)
 	}

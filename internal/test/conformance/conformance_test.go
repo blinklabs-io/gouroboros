@@ -16,6 +16,8 @@ package conformance
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -151,42 +153,46 @@ func TestRulesConformanceVectors(t *testing.T) {
 		if !result.Success {
 			failures++
 		}
-		if coverageForResult := conformance.SummarizeCoverage(
-			[]conformance.VectorResult{result},
-		); len(coverageForResult) > 0 {
-			for key := range coverageForResult {
-				switch {
-				case key.Era == "synthetic" && result.Success:
-					syntheticPassed++
-				case key.Era == "synthetic":
-					syntheticFailed++
-				case result.Success:
-					ledgerPassed++
-				default:
-					ledgerFailed++
-				}
-				if key.Era != "synthetic" {
-					ledgerVectors++
-				}
-				vector, err := conformance.DecodeTestVector(result.Path)
-				if err != nil {
-					t.Errorf("decode vector %s for coverage report: %v", result.Path, err)
-					continue
-				}
-				for _, event := range vector.Events {
-					if event.Type != conformance.EventTypeTransaction {
-						continue
-					}
-					outcome := "accepted"
-					if !event.Success {
-						outcome = "rejected"
-					}
-					if expected[key] == nil {
-						expected[key] = make(map[string]int)
-					}
-					expected[key][outcome]++
-				}
+		key := coverageKeyForResult(result)
+		if _, ok := coverage[key]; !ok {
+			t.Errorf(
+				"coverage summary missing vector key: era=%s family=%s path=%s",
+				key.Era,
+				key.RuleFamily,
+				result.Path,
+			)
+			continue
+		}
+		switch {
+		case key.Era == "synthetic" && result.Success:
+			syntheticPassed++
+		case key.Era == "synthetic":
+			syntheticFailed++
+		case result.Success:
+			ledgerPassed++
+		default:
+			ledgerFailed++
+		}
+		if key.Era != "synthetic" {
+			ledgerVectors++
+		}
+		vector, err := conformance.DecodeTestVector(result.Path)
+		if err != nil {
+			t.Errorf("decode vector %s for coverage report: %v", result.Path, err)
+			continue
+		}
+		for _, event := range vector.Events {
+			if event.Type != conformance.EventTypeTransaction {
+				continue
 			}
+			outcome := "accepted"
+			if !event.Success {
+				outcome = "rejected"
+			}
+			if expected[key] == nil {
+				expected[key] = make(map[string]int)
+			}
+			expected[key][outcome]++
 		}
 	}
 	if ledgerVectors < 2574 {
@@ -231,4 +237,49 @@ func TestRulesConformanceVectors(t *testing.T) {
 			len(results),
 		)
 	}
+}
+
+func coverageKeyForResult(result conformance.VectorResult) conformance.CoverageKey {
+	corpusPath := filepath.ToSlash(result.Path)
+	if result.Title != "" {
+		corpusPath += " " + result.Title
+	}
+	if strings.Contains(corpusPath, "/synthetic/") {
+		return conformance.CoverageKey{Era: "synthetic", RuleFamily: "rollback"}
+	}
+	const unknown = "unknown"
+	era := unknown
+	for _, candidate := range []string{
+		"Allegra",
+		"Alonzo",
+		"Babbage",
+		"Conway",
+		"Mary",
+		"Shelley",
+	} {
+		if strings.Contains(corpusPath, candidate+"ImpSpec") {
+			era = candidate
+			break
+		}
+	}
+	for _, family := range []string{
+		"GOVCERT",
+		"RATIFY",
+		"ENACT",
+		"DELEG",
+		"CERTS",
+		"EPOCH",
+		"UTXOS",
+		"UTXOW",
+		"UTXO",
+		"LEDGER",
+	} {
+		if strings.Contains(corpusPath, "."+family+".") {
+			return conformance.CoverageKey{Era: era, RuleFamily: family}
+		}
+	}
+	if strings.Contains(corpusPath, ".GOV.") {
+		return conformance.CoverageKey{Era: era, RuleFamily: "GOV"}
+	}
+	return conformance.CoverageKey{Era: era, RuleFamily: unknown}
 }

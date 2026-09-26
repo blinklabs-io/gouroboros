@@ -523,7 +523,7 @@ transaction body's own CBOR. The era identifier is the ledger transaction type.
 
 | Test | Purpose |
 |------|---------|
-| `TestConsensusGenTxFixtures` | Decodes each era's GenTx golden, checks the transaction type, that the transaction CBOR is preserved and re-encodes unchanged, and that the transaction id matches the paired GenTxId golden |
+| `TestConsensusGenTxFixtures` | Decodes each era's GenTx golden, checks the transaction type, preserves and re-encodes its CBOR, compares paired transaction-id goldens where available, and checks the Byron transaction hash against an independent known-answer vector |
 
 ---
 

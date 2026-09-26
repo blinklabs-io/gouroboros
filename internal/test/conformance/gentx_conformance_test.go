@@ -16,6 +16,7 @@ package conformance
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -70,12 +71,20 @@ func TestConsensusGenTxFixtures(t *testing.T) {
 	}
 
 	for _, testCase := range []struct {
-		era        string
-		eraID      uint
-		txArrayLen int
-		pairedID   bool
+		era                   string
+		eraID                 uint
+		txArrayLen            int
+		pairedID              bool
+		expectedTransactionID string
+		expectedFixtureID     string
 	}{
-		{era: "byron", eraID: ledger.TxTypeByron, txArrayLen: 2},
+		{
+			era:                   "byron",
+			eraID:                 ledger.TxTypeByron,
+			txArrayLen:            2,
+			expectedTransactionID: "b2d85afe1fcf06dae966187c7312b1734d6fd6d2f110bd321301151b05cd4a97",
+			expectedFixtureID:     "4ba839c420b3d2bd439530f891cae9a5d4c4d812044630dac72e8e0962feeecc",
+		},
 		{
 			era:        "shelley",
 			eraID:      ledger.TxTypeShelley,
@@ -259,30 +268,38 @@ func TestConsensusGenTxFixtures(t *testing.T) {
 				return
 			}
 
-			// Byron ID equals input, not body hash.
-			byronTx, ok := tx.(*ledgerbyron.ByronTransaction)
+			// The upstream Byron GenTxId fixture is not paired with this GenTx.
+			_, ok = tx.(*ledgerbyron.ByronTransaction)
 			if !ok {
 				t.Fatalf(
 					"unexpected Byron transaction type %T",
 					tx,
 				)
 			}
-			if bytes.Equal(tx.Hash().Bytes(), txID) {
-				t.Fatal(
-					"Byron GenTx and GenTxId fixtures " +
-						"now pair; " +
-						"enable hash check",
+			expectedHash, err := hex.DecodeString(
+				testCase.expectedTransactionID,
+			)
+			if err != nil {
+				t.Fatalf("invalid Byron transaction hash vector: %v", err)
+			}
+			if !bytes.Equal(tx.Hash().Bytes(), expectedHash) {
+				t.Fatalf(
+					"Byron transaction hash mismatch: got %x want %x",
+					tx.Hash().Bytes(),
+					expectedHash,
 				)
 			}
-			if len(byronTx.Body.TxInputs) != 1 ||
-				!bytes.Equal(
-					byronTx.Body.TxInputs[0].Id().Bytes(),
-					txID,
-				) {
+			expectedFixtureID, err := hex.DecodeString(
+				testCase.expectedFixtureID,
+			)
+			if err != nil {
+				t.Fatalf("invalid Byron fixture id vector: %v", err)
+			}
+			if !bytes.Equal(txID, expectedFixtureID) {
 				t.Fatalf(
-					"Byron GenTxId fixture does not match "+
-						"input: %x",
+					"Byron GenTxId fixture mismatch: got %x want %x",
 					txID,
+					expectedFixtureID,
 				)
 			}
 		})
