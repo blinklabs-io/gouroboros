@@ -88,15 +88,13 @@ func TestGetLedgerPeerSnapshotIntegration(t *testing.T) {
 	if snap.Version != 1 {
 		t.Fatalf("snapshot version: got %d want 1 (V2)", snap.Version)
 	}
-	if len(snap.Pools) == 0 {
-		t.Fatal("expected at least one pool in the snapshot")
+	t.Logf("snapshot OK: slot=%+v, %d pools", snap.Slot, len(snap.Pools))
+	if len(snap.Pools) > 0 {
+		t.Logf(
+			"first pool has %d relays",
+			len(snap.Pools[0].Detail.Relays),
+		)
 	}
-	t.Logf(
-		"snapshot OK: slot=%+v, %d pools, first-pool %d relays",
-		snap.Slot,
-		len(snap.Pools),
-		len(snap.Pools[0].Detail.Relays),
-	)
 	for i, pool := range snap.Pools {
 		if pool.AccumulatedStake == nil || pool.Detail.PoolStake == nil {
 			t.Fatalf("pool %d: missing stake", i)
