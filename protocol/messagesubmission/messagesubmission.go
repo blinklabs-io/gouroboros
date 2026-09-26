@@ -41,6 +41,10 @@ const (
 	DoneTimeout                  = 10 * time.Second  // Timeout for Done state cleanup
 )
 
+// DefaultMaxUnacknowledgedMessageIDs bounds the number of message IDs that may
+// be outstanding for a peer when no explicit limit is configured.
+const DefaultMaxUnacknowledgedMessageIDs = 100
+
 // State machine states for Message Submission protocol
 const (
 	stateInitId               = 1
@@ -264,9 +268,10 @@ type Config struct {
 	DoneTimeout                  time.Duration
 
 	// Shared configuration
-	MaxQueueSize  int
-	Authenticator *pcommon.MessageAuthenticator
-	TTLValidator  *pcommon.TTLValidator
+	MaxQueueSize                int
+	MaxUnacknowledgedMessageIDs int
+	Authenticator               *pcommon.MessageAuthenticator
+	TTLValidator                *pcommon.TTLValidator
 	// LegacyV1MessageEncoding preserves the pre-CIP-0137-v4 V1 message
 	// wire shape for peers that still expect messageId inside messagePayload.
 	// The default false value uses the current CIP-0137 message shape.
@@ -309,6 +314,7 @@ type MessageSubmissionOptionFunc func(*Config)
 func NewConfig(options ...MessageSubmissionOptionFunc) Config {
 	c := Config{
 		MaxQueueSize:                 100,
+		MaxUnacknowledgedMessageIDs:  DefaultMaxUnacknowledgedMessageIDs,
 		InitTimeout:                  InitTimeout,
 		IdleTimeout:                  IdleTimeout,
 		MessageIdsBlockingTimeout:    MessageIdsBlockingTimeout,
@@ -373,6 +379,13 @@ func WithReplyMessagesFunc(
 func WithMaxQueueSize(maxQueueSize int) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.MaxQueueSize = maxQueueSize
+	}
+}
+
+// WithMaxUnacknowledgedMessageIDs sets the maximum IDs outstanding with a peer.
+func WithMaxUnacknowledgedMessageIDs(max int) MessageSubmissionOptionFunc {
+	return func(c *Config) {
+		c.MaxUnacknowledgedMessageIDs = max
 	}
 }
 
