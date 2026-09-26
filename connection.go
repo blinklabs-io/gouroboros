@@ -138,6 +138,9 @@ func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 	for _, option := range options {
 		option(c)
 	}
+	if err := c.synchronizeByronSlotsPerEpoch(); err != nil {
+		return nil, err
+	}
 	if c.errorChan == nil {
 		c.errorChan = make(chan error, 10)
 		c.ownsErrorChan = true
@@ -148,6 +151,45 @@ func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 		}
 	}
 	return c, nil
+}
+
+func (c *Connection) synchronizeByronSlotsPerEpoch() error {
+	var blockFetchSlots, chainSyncSlots uint64
+	if c.blockFetchConfig != nil {
+		blockFetchSlots = c.blockFetchConfig.ByronSlotsPerEpoch
+	}
+	if c.chainSyncConfig != nil {
+		chainSyncSlots = c.chainSyncConfig.ByronSlotsPerEpoch
+	}
+	if blockFetchSlots != 0 && chainSyncSlots != 0 &&
+		blockFetchSlots != chainSyncSlots {
+		return fmt.Errorf(
+			"conflicting Byron slots per epoch: BlockFetch=%d ChainSync=%d",
+			blockFetchSlots,
+			chainSyncSlots,
+		)
+	}
+	slotsPerEpoch := blockFetchSlots
+	if slotsPerEpoch == 0 {
+		slotsPerEpoch = chainSyncSlots
+	}
+	if slotsPerEpoch == 0 {
+		return nil
+	}
+	if c.blockFetchConfig == nil {
+		config, err := blockfetch.NewConfig()
+		if err != nil {
+			return fmt.Errorf("create BlockFetch config: %w", err)
+		}
+		c.blockFetchConfig = &config
+	}
+	if c.chainSyncConfig == nil {
+		config := chainsync.NewConfig()
+		c.chainSyncConfig = &config
+	}
+	c.blockFetchConfig.ByronSlotsPerEpoch = slotsPerEpoch
+	c.chainSyncConfig.ByronSlotsPerEpoch = slotsPerEpoch
+	return nil
 }
 
 // New is an alias to NewConnection for backward compatibility

@@ -1129,7 +1129,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			slot, err := chainSyncSlotNumber(
+			slot, err := ledgerbyron.SlotNumberFromBlockHeader(
 				blockHeader,
 				c.config.ByronSlotsPerEpoch,
 			)
@@ -1225,7 +1225,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			slot, err := chainSyncSlotNumber(
+			slot, err := ledgerbyron.SlotNumberFromBlockHeader(
 				block,
 				c.config.ByronSlotsPerEpoch,
 			)
@@ -1416,14 +1416,4 @@ func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) {
 		ch <- clientPointResult{tip: msgIntersectNotFound.Tip, error: ErrIntersectNotFound}
 	default:
 	}
-}
-
-func chainSyncSlotNumber(
-	header lcommon.BlockHeader,
-	slotsPerEpoch uint64,
-) (uint64, error) {
-	if header.Era().Id != ledgerbyron.EraIdByron {
-		return header.SlotNumber(), nil
-	}
-	return ledgerbyron.SlotNumberFromHeader(header, slotsPerEpoch)
 }

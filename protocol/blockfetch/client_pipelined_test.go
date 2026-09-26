@@ -439,7 +439,8 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 
 	// The second request must be resolved with a failure, never with the
 	// excess BatchDone that belonged to the retired request.
-	second := waitForDone(t, h, id2)
+	second := waitForDone(t, h)
+	require.Equal(t, id2, second.requestId)
 	require.Error(t, second.err)
 	// No block was ever delivered for the second request
 	select {
@@ -449,24 +450,22 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 	}
 }
 
-// waitForDone waits for the completion of a specific request, tolerating a
-// connection error arriving first since a protocol violation reports on both
-// paths.
-func waitForDone(
-	t *testing.T,
-	h *pipelineHarness,
-	requestId uint64,
-) rangeResult {
+// waitForDone tolerates a connection error arriving before the range callback
+// because a protocol violation is reported on both paths.
+func waitForDone(t *testing.T, h *pipelineHarness) rangeResult {
 	t.Helper()
 	deadline := time.After(testTimeout)
+	connErrs := h.connErrs
 	for {
 		select {
 		case res := <-h.done:
-			if res.requestId == requestId {
-				return res
+			return res
+		case _, ok := <-connErrs:
+			if !ok {
+				connErrs = nil
 			}
 		case <-deadline:
-			t.Fatalf("timed out waiting for request %d to resolve", requestId)
+			t.Fatal("timed out waiting for a range request to resolve")
 		}
 	}
 }

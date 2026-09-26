@@ -188,7 +188,8 @@ type Config struct {
 	RecvQueueSize       int
 	SkipBlockValidation bool // Skip block validation during parsing
 	// ByronSlotsPerEpoch sets the non-mainnet Byron epoch length used when
-	// converting Byron headers to ChainSync points. Zero uses the legacy value.
+	// converting Byron headers to ChainSync points. Connections apply a non-zero
+	// value to both ChainSync and BlockFetch. Zero uses the legacy value.
 	ByronSlotsPerEpoch uint64
 
 	// Pipeline enables the block processing pipeline.
@@ -410,6 +411,14 @@ func WithIdleTimeout(timeout time.Duration) ChainSyncOptionFunc {
 func WithBlockTimeout(timeout time.Duration) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.BlockTimeout = timeout
+	}
+}
+
+// WithByronSlotsPerEpoch sets the Byron epoch length used for ChainSync points.
+// Zero selects the legacy mainnet value.
+func WithByronSlotsPerEpoch(slotsPerEpoch uint64) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.ByronSlotsPerEpoch = slotsPerEpoch
 	}
 }
 

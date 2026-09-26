@@ -1,20 +1,21 @@
 # Conformance Tests
 
-This package contains conformance tests for Gouroboros, validating our implementations against official Cardano test vectors and real blockchain data.
+This package contains separate ledger, cryptography, consensus, and Byron
+conformance suites. Their corpora test different properties; a passing suite
+does not establish complete Cardano or Ouroboros conformance.
 
 ## Test Status Summary
 
-| Category | Tests | Source |
-|----------|-------|--------|
-| Ledger Rules (Conway) | 315 | Amaru test vectors |
-| VRF Cryptography | 58 | cardano-crypto-praos vectors |
-| KES Cryptography | 14 | input-output-hk/kes vectors |
-| Consensus | 22 | Real blocks + threshold calculation |
-| Byron Blocks | 6 | Real mainnet/testnet blocks |
-| GenTx Goldens | 7 | ouroboros-consensus CardanoNodeToNodeVersion2 goldens |
-| **Total** | **421** | |
+| Category | Current scope | Source |
+|----------|---------------|--------|
+| Ledger rules | 2,574 Blueprint vectors; current outcomes are printed by era, rule family, and expected transaction result | Cardano Blueprint archive embedded by `ouroboros-mock` v0.20.2 |
+| VRF and KES | Separate cryptographic vectors | `cardano-crypto-praos` and `input-output-hk/kes` |
+| Consensus and Byron blocks | Focused real-block and consensus cases | Sources are documented in the individual test files |
+| GenTx | Typed upstream transaction and ID fixtures | `ouroboros-consensus` goldens through `ouroboros-mock/fixtures` |
 
-All tests passing (100%).
+These counts and suites are not combined into an overall pass rate. Read the
+ledger report emitted by `TestRulesConformanceVectors` for the current pinned
+corpus results.
 
 ---
 
@@ -24,25 +25,64 @@ All tests passing (100%).
 
 **Source**: `github.com/blinklabs-io/ouroboros-mock/conformance/testdata`
 
-The test vectors are sourced from [Amaru](https://github.com/pragma-org/amaru) and are maintained in the
-ouroboros-mock repository's conformance package.
+The pinned module embeds the Cardano Blueprint ledger archive. Its source
+revision is `0f0c17e1ca24b062c868d216ae50708fc19c83ab`; the archive SHA-256 is
+`574ff7a17857dfc1f0cf477f7eb9eba1c2a0f901453396a779de4b2392ef6863`. The
+module's `conformance/CORPUS.md` records its provenance, refresh procedure,
+and file counts. A clean consumer checkout obtains the same corpus from the Go
+module archive; it does not need the Blueprint submodule.
 
-The testdata directory contains:
-- 315 test vector files (CBOR binary) in `eras/conway/impl/dump/Conway/`
-- Protocol parameter files in `pparams-by-hash/`
+The current pin has 2,574 ledger vector files and 78 protocol-parameter files.
+The test also reports one synthetic rollback vector separately from the
+ledger corpus.
+
+The current coverage matrix is the set of categories present in that archive.
+An absent era or rule family is a coverage gap; the table does not imply that
+unlisted rules are implemented.
+
+| Era | Rule family | Vectors |
+|-----|-------------|--------:|
+| Allegra | UTXOW | 1 |
+| Alonzo | UTXO / UTXOS / UTXOW | 19 / 96 / 219 |
+| Babbage | UTXOW | 12 |
+| Conway | CERTS / DELEG / ENACT / EPOCH / GOV / GOVCERT / RATIFY / UTXO / UTXOS | 13 / 95 / 309 / 122 / 475 / 42 / 881 / 9 / 261 |
+| Mary | UTXO | 3 |
+| Shelley | EPOCH / LEDGER / UTXO / UTXOW | 1 / 2 / 2 / 12 |
+
+This corpus contains no Byron or Dijkstra ledger-rule vectors. Byron block
+decoding and consensus tests, VRF/KES cryptography, and synthetic rollback
+tests are separate suites. The ledger corpus is not a protocol-wire or
+fork-choice conformance suite. It does not claim coverage for rule families
+missing from the matrix. The expected results are those in the pinned Cardano
+Blueprint archive; no separate differential run against an executable
+`cardano-ledger` build is currently part of this package.
+
+### Corpus migration check
+
+The last run against the old Conway corpus used gouroboros `88145ad` and
+`ouroboros-mock` v0.17.0: 315/315 vectors passed. The current run uses
+gouroboros `c4ab1a3` and `ouroboros-mock` v0.20.2: 2,574/2,574 ledger vectors
+and one synthetic rollback vector passed. Normalizing path separators in the
+vector titles yields 314 shared titles, all passing in both corpora; one old
+title was renamed/split in the Blueprint corpus, which adds 20 new titles.
+Blueprint emits multiple files for some titles, so title counts are not
+one-to-one vector counts. The archives are different corpora, and these totals
+must not be interpreted as a one-for-one semantic comparison.
 
 ### Reading a conformance count
 
-A pass count is a statement about one corpus, not about the ledger rules in
-general. The corpus is embedded in the `ouroboros-mock` version pinned in
-`go.mod`, so the count only compares across branches that pin the same version.
-The 315 above is the corpus embedded in `ouroboros-mock` v0.19.0.
+A result count describes the pinned corpus and backend, not the ledger rules
+in general. Results from different `ouroboros-mock` versions can use different
+corpora and are not directly comparable by total count. The current
+integration checks the full pinned Blueprint corpus and reports results by
+era, rule family, and accepted or rejected transaction events.
 
-Two consequences follow. A count taken against a different `ouroboros-mock`
-(a local `replace`, an unreleased revision, or a refreshed upstream corpus) is
-not comparable with a count taken against the pinned one, and must name the
-revision it used. And raising the pin changes the denominator, so a pin bump
-and a rule change do not belong in the same commit.
+This corpus has no Dijkstra ledger vectors and does not cover all rules in
+eras that do appear. It is a ledger-rule suite; Byron consensus, network
+protocol wire compatibility, and synthetic rollback are reported in their
+own suites. No aggregate green result from this package establishes complete
+Cardano conformance. A future corpus pin change must update the provenance,
+counts, and expected coverage together.
 
 ### Running Tests
 
@@ -483,7 +523,7 @@ transaction body's own CBOR. The era identifier is the ledger transaction type.
 
 | Test | Purpose |
 |------|---------|
-| `TestConsensusGenTxFixtures` | Decodes each era's GenTx golden, checks the transaction type, that the transaction CBOR is preserved and re-encodes unchanged, and that the transaction id matches the paired GenTxId golden |
+| `TestConsensusGenTxFixtures` | Decodes each era's GenTx golden, checks the transaction type, preserves and re-encodes its CBOR, compares paired transaction-id goldens where available, and checks the Byron transaction hash against an independent known-answer vector |
 
 ---
 
