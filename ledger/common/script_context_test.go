@@ -73,6 +73,13 @@ func testPlutusData() data.PlutusData {
 	return &data.Constr{Tag: big.NewInt(0)}
 }
 
+func plutusDefaultTestBudget() common.ExUnits {
+	return common.ExUnits{
+		Memory: cek.DefaultExBudget.Mem,
+		Steps:  cek.DefaultExBudget.Cpu,
+	}
+}
+
 func TestPlutusEvaluateContextValidation(t *testing.T) {
 	t.Run("Plutus V1 builtin protocol boundary", func(t *testing.T) {
 		script := common.PlutusV1Script(encodePlutusContextTestScript(
@@ -97,7 +104,7 @@ func TestPlutusEvaluateContextValidation(t *testing.T) {
 			testPlutusData(),
 			testPlutusData(),
 			testPlutusData(),
-			common.ExUnits{},
+			plutusDefaultTestBudget(),
 			cek.NewDefaultEvalContext(
 				lang.LanguageVersionV1,
 				cek.ProtoVersion{Major: 11},
@@ -133,7 +140,7 @@ func TestPlutusEvaluateContextValidation(t *testing.T) {
 			testPlutusData(),
 			testPlutusData(),
 			testPlutusData(),
-			common.ExUnits{},
+			plutusDefaultTestBudget(),
 			cek.NewDefaultEvalContext(
 				lang.LanguageVersionV2,
 				cek.ProtoVersion{Major: 11},
@@ -172,7 +179,7 @@ func TestPlutusEvaluateContextValidation(t *testing.T) {
 		)
 		_, err = validScript.Evaluate(
 			testPlutusData(),
-			common.ExUnits{},
+			plutusDefaultTestBudget(),
 			evalContext,
 		)
 		require.NoError(t, err)
@@ -212,7 +219,7 @@ func TestPlutusEvaluateContextValidation(t *testing.T) {
 		)
 		_, err = validScript.Evaluate(
 			testPlutusData(),
-			common.ExUnits{},
+			plutusDefaultTestBudget(),
 			evalContext,
 		)
 		require.NoError(t, err)
@@ -250,6 +257,101 @@ func TestPlutusEvaluateContextValidation(t *testing.T) {
 		)
 		require.ErrorContains(t, err, "evaluation context is required")
 	})
+}
+
+func TestPlutusEvaluateUsesDeclaredBudget(t *testing.T) {
+	defaultBudget := plutusDefaultTestBudget()
+	datum := testPlutusData()
+	context := testPlutusData()
+	tests := []struct {
+		name     string
+		evaluate func(*testing.T, common.ExUnits) (common.ExUnits, error)
+	}{
+		{
+			name: "PlutusV1",
+			evaluate: func(t *testing.T, budget common.ExUnits) (common.ExUnits, error) {
+				script := common.PlutusV1Script(encodePlutusContextTestScript(
+					t, lang.LanguageVersionV1, 3, nil,
+				))
+				return script.Evaluate(
+					datum,
+					datum,
+					context,
+					budget,
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV1,
+						cek.ProtoVersion{Major: 11},
+					),
+				)
+			},
+		},
+		{
+			name: "PlutusV2",
+			evaluate: func(t *testing.T, budget common.ExUnits) (common.ExUnits, error) {
+				script := common.PlutusV2Script(encodePlutusContextTestScript(
+					t, lang.LanguageVersionV2, 3, nil,
+				))
+				return script.Evaluate(
+					datum,
+					datum,
+					context,
+					budget,
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV2,
+						cek.ProtoVersion{Major: 11},
+					),
+				)
+			},
+		},
+		{
+			name: "PlutusV3",
+			evaluate: func(t *testing.T, budget common.ExUnits) (common.ExUnits, error) {
+				script := common.PlutusV3Script(encodePlutusContextTestScript(
+					t, lang.LanguageVersion{1, 1, 0}, 1, nil,
+				))
+				return script.Evaluate(
+					context,
+					budget,
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV3,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name: "PlutusV4",
+			evaluate: func(t *testing.T, budget common.ExUnits) (common.ExUnits, error) {
+				script := common.PlutusV4Script(encodePlutusContextTestScript(
+					t, lang.LanguageVersion{1, 1, 0}, 1, nil,
+				))
+				return script.Evaluate(
+					context,
+					budget,
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV4,
+						cek.ProtoVersion{Major: 12},
+					),
+				)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.evaluate(t, common.ExUnits{})
+			require.Error(
+				t,
+				err,
+				"zero declared units must not expand to a default budget",
+			)
+
+			used, err := tc.evaluate(t, defaultBudget)
+			require.NoError(t, err)
+			require.Positive(t, used.Memory)
+			require.Positive(t, used.Steps)
+		})
+	}
 }
 
 func plutusContextTestOutput(t *testing.T) common.TransactionOutput {

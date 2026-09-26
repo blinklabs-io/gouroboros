@@ -210,7 +210,10 @@ func TestConwayPhase2SeesCertificateAmountByProtocolVersion(t *testing.T) {
 			require.NoError(t, err)
 			_, err = encodeCertificatesAssertScript(t, tc.wantData).Evaluate(
 				data.NewConstr(0, info.ToPlutusData(), data.NewConstr(0), data.NewConstr(0)),
-				common.ExUnits{},
+				common.ExUnits{
+					Memory: cek.DefaultExBudget.Mem,
+					Steps:  cek.DefaultExBudget.Cpu,
+				},
 				evalContext,
 			)
 			require.NoError(t, err)
