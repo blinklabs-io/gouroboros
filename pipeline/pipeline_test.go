@@ -1386,6 +1386,136 @@ func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
 	}
 }
 
+func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
+	const eta0 = "4ef95a10f639d0cf16bb963c3a580d4bf2a95b6ae7848702665884843e3c661d"
+	validationStarted := make(chan struct{})
+	releaseValidation := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseValidation) })
+	}
+	var eta0Calls atomic.Uint64
+	var submitLocks atomic.Uint64
+	fourthSubmitAtGate := make(chan struct{})
+	retrySubmitAtGate := make(chan struct{})
+	p := NewBlockPipeline(
+		WithDecodeWorkers(3),
+		WithValidateWorkers(3),
+		WithPrefetchBufferSize(4),
+		WithMaxPendingBlocks(2),
+		WithSkipBodyHashValidation(true),
+		WithEta0Provider(func(uint64) (string, error) {
+			if eta0Calls.Add(1) == 1 {
+				close(validationStarted)
+				<-releaseValidation
+			}
+			return eta0, nil
+		}),
+		WithSlotsPerKesPeriod(129600),
+		WithVerifyConfig(common.VerifyConfig{
+			SkipBodyHashValidation:    true,
+			SkipTransactionValidation: true,
+			SkipStakePoolValidation:   true,
+		}),
+	)
+	p.testSubmitLocked = func() {
+		switch submitLocks.Add(1) {
+		case 4:
+			close(fourthSubmitAtGate)
+		case 5:
+			close(retrySubmitAtGate)
+		}
+	}
+	require.NoError(t, p.Start(context.Background()))
+	defer func() {
+		release()
+		require.NoError(t, p.Stop())
+	}()
+	rawCbor := getValidBlockCbor(t)
+	submit := func() error {
+		return p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			createTestTip(1000, 500),
+		)
+	}
+	require.NoError(t, submit())
+	select {
+	case <-validationStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first block did not stall in validation")
+	}
+	require.NoError(t, submit())
+	require.NoError(t, submit())
+	require.Eventually(t, func() bool {
+		return p.applyStage.PendingCount() == 2
+	}, time.Second, time.Millisecond, "apply pending buffer did not reach its limit")
+
+	fourthCtx, cancelFourth := context.WithCancel(context.Background())
+	defer cancelFourth()
+	fourthSubmitDone := make(chan error, 1)
+	go func() {
+		fourthSubmitDone <- p.Submit(
+			fourthCtx,
+			uint(ledger.BlockTypeConway),
+			rawCbor,
+			createTestTip(1000, 500),
+		)
+	}()
+	select {
+	case <-fourthSubmitAtGate:
+	case <-time.After(time.Second):
+		t.Fatal("fourth submission did not reach the admission boundary")
+	}
+	assert.Equal(t, uint64(3), p.sequenceCounter.Load())
+	select {
+	case err := <-fourthSubmitDone:
+		t.Fatalf("submission passed the pending limit before sequence completion: %v", err)
+	default:
+	}
+	cancelFourth()
+	select {
+	case err := <-fourthSubmitDone:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("capacity-blocked submission did not honor caller cancellation")
+	}
+	assert.Equal(t, uint64(3), p.sequenceCounter.Load())
+
+	retrySubmitDone := make(chan error, 1)
+	go func() { retrySubmitDone <- submit() }()
+	select {
+	case <-retrySubmitAtGate:
+	case <-time.After(time.Second):
+		t.Fatal("retry submission did not reach the admission boundary")
+	}
+	select {
+	case err := <-retrySubmitDone:
+		t.Fatalf("retry passed the pending limit before the gap completed: %v", err)
+	default:
+	}
+
+	release()
+	select {
+	case err := <-retrySubmitDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("retry did not resume after the pending blocks applied")
+	}
+	drainCtx, cancelDrain := context.WithTimeout(context.Background(), time.Second)
+	defer cancelDrain()
+	require.NoError(t, p.WaitForDrain(drainCtx))
+	for expected := range uint64(4) {
+		select {
+		case item := <-p.Results():
+			assert.Equal(t, expected, item.SequenceNumber())
+		case <-time.After(time.Second):
+			t.Fatalf("pipeline did not return processed block %d", expected)
+		}
+	}
+}
+
 func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
 	t.Run("not started", func(t *testing.T) {
 		p := NewBlockPipeline()
@@ -1742,6 +1872,42 @@ func TestApplyStage_PendingCount(t *testing.T) {
 
 	// All should be applied now
 	assert.Equal(t, 0, applyStage.PendingCount())
+}
+
+func TestApplyStageRejectsPendingItemWithoutRetainingIt(t *testing.T) {
+	var appliedSequences []uint64
+	stage := NewApplyStage(func(item *BlockItem) error {
+		appliedSequences = append(appliedSequences, item.SequenceNumber())
+		return nil
+	}, 1)
+	ctx := context.Background()
+	newItem := func(sequence uint64) *BlockItem {
+		return NewBlockItem(0, nil, pcommon.Tip{}, sequence)
+	}
+
+	processed, err := stage.ProcessWithStatus(ctx, newItem(1))
+	require.NoError(t, err)
+	assert.Empty(t, processed)
+	assert.Equal(t, 1, stage.PendingCount())
+
+	rejected := newItem(2)
+	processed, err = stage.ProcessWithStatus(ctx, rejected)
+	require.ErrorIs(t, err, ErrPendingLimitExceeded)
+	assert.Empty(t, processed)
+	assert.Equal(t, 1, stage.PendingCount(), "rejected item must not remain buffered")
+
+	processed, err = stage.ProcessWithStatus(ctx, newItem(0))
+	require.NoError(t, err)
+	require.Len(t, processed, 2)
+	assert.Equal(t, uint64(0), processed[0].SequenceNumber())
+	assert.Equal(t, uint64(1), processed[1].SequenceNumber())
+
+	processed, err = stage.ProcessWithStatus(ctx, rejected)
+	require.NoError(t, err)
+	require.Len(t, processed, 1)
+	assert.Same(t, rejected, processed[0])
+	assert.Zero(t, stage.PendingCount())
+	assert.Equal(t, []uint64{0, 1, 2}, appliedSequences)
 }
 
 func TestApplyStage_PendingCountIncludesInFlightApply(t *testing.T) {
