@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"strings"
@@ -1091,4 +1092,166 @@ func TestAlonzoUpdateFromGenesisKeepsLovelacePerUtxoWord(t *testing.T) {
 		babbage.UpgradePParams(params).AdaPerUtxoByte,
 		"Babbage divides the Alonzo per-word price by 8 at the boundary",
 	)
+}
+
+func TestAlonzoUtxorpc_FullWidthRationalBounds(t *testing.T) {
+	rat := func(numerator, denominator *big.Int) *cbor.Rat {
+		return &cbor.Rat{Rat: new(big.Rat).SetFrac(
+			new(big.Int).Set(numerator),
+			new(big.Int).Set(denominator),
+		)}
+	}
+	fields := []struct {
+		name string
+		set  func(*alonzo.AlonzoProtocolParameters, *cbor.Rat)
+		get  func(*utxorpc.PParams) *utxorpc.RationalNumber
+	}{
+		{
+			name: "A0",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.A0 = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.PoolInfluence
+			},
+		},
+		{
+			name: "Rho",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.Rho = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.MonetaryExpansion
+			},
+		},
+		{
+			name: "Tau",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.Tau = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.TreasuryExpansion
+			},
+		},
+		{
+			name: "memory price",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.ExecutionCosts.MemPrice = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.Prices.Memory
+			},
+		},
+		{
+			name: "step price",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.ExecutionCosts.StepPrice = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.Prices.Steps
+			},
+		},
+	}
+	boundaryCases := []struct {
+		name        string
+		rational    *cbor.Rat
+		numerator   int32
+		denominator uint32
+	}{
+		{
+			name:        "minimum numerator",
+			rational:    rat(big.NewInt(math.MinInt32), big.NewInt(1)),
+			numerator:   math.MinInt32,
+			denominator: 1,
+		},
+		{
+			name:        "maximum numerator",
+			rational:    rat(big.NewInt(math.MaxInt32), big.NewInt(1)),
+			numerator:   math.MaxInt32,
+			denominator: 1,
+		},
+		{
+			name: "maximum denominator",
+			rational: rat(
+				big.NewInt(1),
+				new(big.Int).SetUint64(math.MaxUint32),
+			),
+			numerator:   1,
+			denominator: math.MaxUint32,
+		},
+	}
+	for _, field := range fields {
+		field := field
+		t.Run(field.name+" boundaries", func(t *testing.T) {
+			for _, boundary := range boundaryCases {
+				boundary := boundary
+				t.Run(boundary.name, func(t *testing.T) {
+					params := newBaseProtocolParams()
+					field.set(&params, boundary.rational)
+					result, err := params.Utxorpc()
+					require.NoError(t, err)
+					got := field.get(result)
+					require.NotNil(t, got)
+					require.Equal(t, boundary.numerator, got.Numerator)
+					require.Equal(t, boundary.denominator, got.Denominator)
+				})
+			}
+		})
+	}
+
+	tooLargeDenominator := new(big.Int).Lsh(big.NewInt(1), 64)
+	tooLargeDenominator.Add(tooLargeDenominator, big.NewInt(1))
+	tooLargeNumerator := new(big.Int).Set(tooLargeDenominator)
+	negativeTooLargeNumerator := new(big.Int).Neg(
+		new(big.Int).Set(tooLargeNumerator),
+	)
+	invalidCases := []struct {
+		name     string
+		rational *cbor.Rat
+	}{
+		{
+			name: "below int32 minimum",
+			rational: rat(
+				big.NewInt(int64(math.MinInt32)-1),
+				big.NewInt(1),
+			),
+		},
+		{
+			name: "above int32 maximum",
+			rational: rat(
+				big.NewInt(int64(math.MaxInt32)+1),
+				big.NewInt(1),
+			),
+		},
+		{
+			name:     "negative 2^64 plus one numerator",
+			rational: rat(negativeTooLargeNumerator, big.NewInt(1)),
+		},
+		{
+			name:     "2^63 numerator",
+			rational: rat(new(big.Int).Lsh(big.NewInt(1), 63), big.NewInt(1)),
+		},
+		{
+			name:     "2^64 numerator",
+			rational: rat(new(big.Int).Lsh(big.NewInt(1), 64), big.NewInt(1)),
+		},
+		{
+			name:     "2^64 plus one denominator",
+			rational: rat(big.NewInt(1), tooLargeDenominator),
+		},
+	}
+	for _, field := range fields {
+		field := field
+		t.Run(field.name+" out of range", func(t *testing.T) {
+			for _, invalid := range invalidCases {
+				invalid := invalid
+				t.Run(invalid.name, func(t *testing.T) {
+					params := newBaseProtocolParams()
+					field.set(&params, invalid.rational)
+					_, err := params.Utxorpc()
+					require.Error(t, err)
+				})
+			}
+		})
+	}
 }
