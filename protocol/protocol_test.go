@@ -703,11 +703,11 @@ type budgetTestProtocol struct {
 }
 
 // incompleteMessageSegments returns segments totalling exactly size bytes
-// that begin a CBOR byte string declaring far more data than follows, so
-// cbor.Decode never completes the message and readLoop holds every byte.
+// that begin a protocol message whose byte-string payload declares far more
+// data than follows, so readLoop holds every byte while reassembling it.
 func incompleteMessageSegments(t *testing.T, size int) []*muxer.Segment {
 	t.Helper()
-	header := []byte{0x5A, 0x05, 0xF5, 0xE1, 0x00}
+	header := []byte{0x82, 0x01, 0x5A, 0x05, 0xF5, 0xE1, 0x00}
 	require.Greater(t, size, len(header))
 	segments := []*muxer.Segment{muxer.NewSegment(0, header, false)}
 	require.NotNil(t, segments[0])
@@ -728,6 +728,7 @@ func newBudgetTestProtocol(
 	segments []*muxer.Segment,
 ) *budgetTestProtocol {
 	t.Helper()
+	state := NewState(1, "Reading")
 	recvChan := make(chan *muxer.Segment, len(segments))
 	for _, segment := range segments {
 		recvChan <- segment
@@ -740,6 +741,9 @@ func newBudgetTestProtocol(
 				Name:              name,
 				ErrorChan:         errorChan,
 				Muxer:             m,
+				Role:              ProtocolRoleClient,
+				StateMap:          StateMap{state: {Agency: AgencyServer}},
+				InitialState:      state,
 				MaxReadBufferSize: maxBufferSize,
 			},
 			doneChan:      make(chan struct{}),
@@ -747,6 +751,7 @@ func newBudgetTestProtocol(
 			sendDoneChan:  make(chan struct{}),
 			muxerDoneChan: make(chan bool),
 			muxerRecvChan: recvChan,
+			currentState:  state,
 		},
 	}
 }

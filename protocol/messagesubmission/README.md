@@ -118,6 +118,7 @@ messagesubmission.NewConfig(
     messagesubmission.WithReplyMessageIdsFunc(replyIdsCallback),
     messagesubmission.WithReplyMessagesFunc(replyMsgsCallback),
     messagesubmission.WithMaxQueueSize(100),
+    messagesubmission.WithMaxUnacknowledgedMessageIDs(100),
     messagesubmission.WithInitTimeout(30 * time.Second),
     messagesubmission.WithIdleTimeout(300 * time.Second),
     messagesubmission.WithMessageIdsBlockingTimeout(30 * time.Second),
@@ -126,6 +127,9 @@ messagesubmission.NewConfig(
     messagesubmission.WithTTLValidator(ttlValidator),
 )
 ```
+
+`MaxUnacknowledgedMessageIDs` defaults to 100. The client rejects a request
+that would make the IDs awaiting acknowledgement exceed this limit.
 
 ## Usage Example
 

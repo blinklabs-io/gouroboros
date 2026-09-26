@@ -61,32 +61,33 @@ const DefaultRecvQueueSize = 55
 
 // Protocol implements the base functionality of an Ouroboros mini-protocol
 type Protocol struct {
-	config              ProtocolConfig
-	doneChan            chan struct{}
-	stopChan            chan struct{}
-	muxerSendChan       chan *muxer.Segment
-	muxerRecvChan       chan *muxer.Segment
-	muxerDoneChan       chan bool
-	sendQueueChan       chan outboundMessage
-	recvDoneChan        chan struct{}
-	recvQueueChan       chan Message
-	recvReadyChan       chan bool
-	sendDoneChan        chan struct{}
-	sendReadyChan       chan bool
-	stateTransitionChan chan<- protocolStateTransition
-	onceRegister        sync.Once
-	onceStart           sync.Once
-	onceStop            sync.Once
-	doneOnce            sync.Once
-	lifecycleMu         sync.Mutex
-	started             bool
-	stopped             bool
-	pendingBytesMu      sync.Mutex
-	pendingSendBytes    int
-	pendingRecvBytes    int
-	pendingRecvSizes    []int // Track sizes of pending received messages for accurate decrement
-	currentStateMu      sync.RWMutex
-	currentState        State
+	config                   ProtocolConfig
+	doneChan                 chan struct{}
+	stopChan                 chan struct{}
+	muxerSendChan            chan *muxer.Segment
+	muxerRecvChan            chan *muxer.Segment
+	muxerDoneChan            chan bool
+	sendQueueChan            chan outboundMessage
+	recvDoneChan             chan struct{}
+	recvQueueChan            chan Message
+	recvReadyChan            chan bool
+	sendDoneChan             chan struct{}
+	sendReadyChan            chan bool
+	stateTransitionChan      chan<- protocolStateTransition
+	onceRegister             sync.Once
+	onceStart                sync.Once
+	onceStop                 sync.Once
+	doneOnce                 sync.Once
+	lifecycleMu              sync.Mutex
+	started                  bool
+	stopped                  bool
+	pendingBytesMu           sync.Mutex
+	pendingSendBytes         int
+	pendingRecvBytes         int
+	pendingRecvSizes         []int // Sizes of pending received messages.
+	pendingPipelinedRequests int
+	currentStateMu           sync.RWMutex
+	currentState             State
 	// pipelinedDequeueHook, when non-nil, is invoked by sendLoop immediately
 	// after dequeuing a message through the pipelined-send path, before the
 	// state re-check that decides eligibility or promotion (see
@@ -744,6 +745,7 @@ func (p *Protocol) flushQueuedStateTransitions(
 			)
 			break
 		}
+		p.removePendingPipelinedRequest()
 		applied++
 	}
 	return slices.Delete(queuedStateTransitions, 0, applied), err
@@ -1092,6 +1094,7 @@ waitSendReadyChan:
 				)
 				return
 			}
+			p.removePendingPipelinedRequest()
 			queuedStateTransitions = slices.Delete(queuedStateTransitions, 0, 1)
 			// Don't read more messages from the send queue until all state transitions from
 			// previously sent pipelined messages have been completed
@@ -1199,6 +1202,7 @@ waitSendReadyChan:
 
 			if queueTransition {
 				queuedStateTransitions = append(queuedStateTransitions, msg)
+				p.addPendingPipelinedRequest()
 			} else {
 				if err := p.transitionState(msg); err != nil {
 					if errors.Is(err, ErrProtocolShuttingDown) {
@@ -1318,6 +1322,53 @@ func (p *Protocol) errReadBufferBudget(size int) error {
 	)
 }
 
+func (p *Protocol) addPendingPipelinedRequest() {
+	p.pendingBytesMu.Lock()
+	p.pendingPipelinedRequests++
+	p.pendingBytesMu.Unlock()
+}
+
+func (p *Protocol) removePendingPipelinedRequest() {
+	p.pendingBytesMu.Lock()
+	if p.pendingPipelinedRequests > 0 {
+		p.pendingPipelinedRequests--
+	}
+	p.pendingBytesMu.Unlock()
+}
+
+func (p *Protocol) pendingPipelinedRequestCount() int {
+	p.pendingBytesMu.Lock()
+	defer p.pendingBytesMu.Unlock()
+	return p.pendingPipelinedRequests
+}
+
+func (p *Protocol) peerHasAgencyOrPipelinedRequest(
+	state State,
+	pendingPipelinedRequests int,
+) bool {
+	entry, ok := p.config.StateMap[state]
+	if !ok {
+		return false
+	}
+	switch p.agencyHolderFor(entry) {
+	case agencyPeer:
+		return true
+	case agencyLocal:
+		return pendingPipelinedRequests > 0
+	case agencyNeither:
+		return false
+	default:
+		return false
+	}
+}
+
+func (p *Protocol) pendingMessageByteLimit(state State) int {
+	if entry, ok := p.config.StateMap[state]; ok {
+		return entry.PendingMessageByteLimit
+	}
+	return 0
+}
+
 // appendSegment bounds readBuffer before it grows. The per-protocol cap
 // decides "too big" and is therefore checked first: the connection-wide
 // allowance is the largest registered cap, so reserving first would report
@@ -1349,6 +1400,12 @@ func (p *Protocol) readLoop() {
 	defer p.recoverLoop("read loop")
 	leftoverData := false
 	readBuffer := bytes.NewBuffer(nil)
+	scanner := messageScanner{}
+	peerAgencyChecked := false
+	var messageState State
+	messageStateSet := false
+	messageHasAgency := false
+	pendingPipelinedRequests := 0
 	// Bytes this protocol holds against the connection-wide reassembly
 	// allowance. The per-protocol cap below bounds one mini-protocol; this
 	// is what keeps every mini-protocol on the connection bounded together.
@@ -1382,44 +1439,9 @@ func (p *Protocol) readLoop() {
 					return
 				}
 			}
-			// Opportunistically drain any additional segments the muxer
-			// has already queued for us before spending a decode attempt.
-			// cbor.Decode has no way to resume a prior partial parse -- on
-			// an incomplete buffer it walks from byte 0 through every
-			// already-buffered element before rediscovering
-			// io.ErrUnexpectedEOF, so a message spanning many segments
-			// pays that full-buffer cost again on every single one.
-			// Batching whatever the muxer has already queued into one
-			// attempt reduces how many times that happens for a message
-			// arriving as a fast back-to-back segment burst -- confirmed
-			// live against a real ~3.17M-entry LocalStateQuery
-			// GetUTxOWhole reply, which pegged the receiving process at
-			// 100% CPU for 25+ minutes and never finished
-			// (blinklabs-io/dingo#1900) -- without changing behavior for
-			// the common case (nothing to drain when a message completes
-			// in its first segment or two).
-			//
-			// A further, size-growth-gated skip (only re-attempt once the
-			// buffer has grown substantially since the last attempt) was
-			// tried here and reverted: it broke
-			// TestUnpipelinedIdleLimitRejectsMainnetSizedBlock by skipping
-			// forever once a message's growth stopped satisfying the gate
-			// with no further segments ever arriving to satisfy it (the
-			// message was already fully buffered and complete, but never
-			// got decoded). A correct version of that optimization needs a
-			// bounded fallback -- e.g. a short timeout alongside the drain
-			// select -- rather than an unconditional size gate; left as
-			// future work rather than shipped without full validation.
-			//
-			// This select must watch the same shutdown channels the outer
-			// one above does, and must bound readBuffer itself: a peer that
-			// keeps the channel non-empty by sending segments as fast as this
-			// loop drains them would otherwise let it spin unboundedly on both
-			// counts -- ignoring shutdown, and growing readBuffer past
-			// p.config.maxReadBufferSize() before ever returning control to
-			// check it (CWE-400, caught in review on
-			// blinklabs-io/gouroboros#2291). appendSegment is that bound, and
-			// is the one place that decides "too big" for both receive paths.
+			// Batch segments already queued by the muxer before scanning.
+			// appendSegment bounds the buffer on both receive paths and keeps
+			// shutdown responsive while draining.
 		drainQueued:
 			for {
 				select {
@@ -1461,22 +1483,69 @@ func (p *Protocol) readLoop() {
 			}
 			return
 		}
-		// Decode message into generic list until we can determine what type of message it is.
-		// This also lets us determine how many bytes the message is. We use RawMessage here to
-		// avoid parsing things that we may not be able to parse
-		tmpMsg := []cbor.RawMessage{}
-		numBytesRead, err := cbor.Decode(readBuffer.Bytes(), &tmpMsg)
-		if err != nil {
-			if errors.Is(err, io.ErrUnexpectedEOF) && readBuffer.Len() > 0 {
-				// This is probably a multi-part message, so we wait until we get more of the message
-				// before trying to process it
+		var scanResult messageScanResult
+		incomplete := false
+		for {
+			var err error
+			state := p.getCurrentState()
+			if messageStateSet {
+				state = messageState
+			}
+			limit := p.pendingMessageByteLimit(state)
+			scanResult, err = scanner.scan(readBuffer.Bytes(), limit)
+			if err != nil {
+				p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
+				return
+			}
+			if scanResult.started && !messageStateSet {
+				// Writers apply a deferred state transition before decrementing
+				// this count. Snapshot it first to avoid pairing stale state with
+				// the post-transition count.
+				pendingPipelinedRequests = p.pendingPipelinedRequestCount()
+				messageState = p.getCurrentState()
+				messageStateSet = true
+				messageHasAgency = p.peerHasAgencyOrPipelinedRequest(
+					messageState,
+					pendingPipelinedRequests,
+				)
+			}
+			if scanResult.hasMessageType && !peerAgencyChecked {
+				if !messageHasAgency {
+					p.SendError(fmt.Errorf(
+						"%s: received message type %d without peer agency or an "+
+							"outstanding pipelined request in state %s",
+						p.config.Name,
+						scanResult.messageType,
+						messageState,
+					))
+					return
+				}
+				peerAgencyChecked = true
 				continue
 			}
-			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
-			return
+			if scanResult.oversized {
+				size := scanResult.messageLength
+				if size <= limit {
+					size = limit + 1
+				}
+				p.SendError(fmt.Errorf(
+					"%s: received oversized message (at least %d bytes) "+
+						"exceeding limit (%d bytes)",
+					p.config.Name,
+					size,
+					limit,
+				))
+				return
+			}
+			if !scanResult.complete {
+				incomplete = true
+			}
+			break
 		}
-		// Check for zero bytes read or empty message array after decoding
-		if numBytesRead == 0 || len(tmpMsg) == 0 {
+		if incomplete {
+			continue
+		}
+		if scanResult.messageLength == 0 || !scanResult.hasMessageType {
 			// This can happen when the remote host closes the connection unexpectedly
 			// and we receive a segment that decodes to an empty array.
 			// Don't report an error if we're in the Done state (AgencyNone) or initial state,
@@ -1491,53 +1560,38 @@ func (p *Protocol) readLoop() {
 			}
 			return
 		}
-		// Decode first list item to determine message type
-		var msgType uint
-		if _, err := cbor.Decode(tmpMsg[0], &msgType); err != nil {
-			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
+		msgData := readBuffer.Bytes()[:scanResult.messageLength]
+		msgLen := len(msgData)
+		limit := p.pendingMessageByteLimit(messageState)
+		if limit > 0 && msgLen > limit {
+			p.SendError(fmt.Errorf(
+				"%s: received oversized message (%d bytes) exceeding limit (%d bytes)",
+				p.config.Name,
+				msgLen,
+				limit,
+			))
 			return
 		}
-		// Create Message object from CBOR
-		msgData := readBuffer.Bytes()[:numBytesRead]
-		msg, err := p.config.MessageFromCborFunc(msgType, msgData)
+		msg, err := p.config.MessageFromCborFunc(
+			scanResult.messageType,
+			msgData,
+		)
 		if err != nil {
 			p.SendError(err)
 			return
 		}
 		if msg == nil {
-			p.SendError(
-				fmt.Errorf(
-					"%s: received unknown message type: %#v",
-					p.config.Name,
-					tmpMsg,
-				),
-			)
+			p.SendError(fmt.Errorf(
+				"%s: received unknown message type: %d",
+				p.config.Name,
+				scanResult.messageType,
+			))
 			return
 		}
-		// Calculate message size
-		msgLen := len(msgData)
 		// Wait for pending recv bytes to drop below limit before accepting.
 		// This applies TCP backpressure to the remote peer instead of
 		// disconnecting with a protocol violation during rapid catch-up sync.
-		currentState := p.getCurrentState()
-		limit := 0
-		if entry, ok := p.config.StateMap[currentState]; ok {
-			limit = entry.PendingMessageByteLimit
-		}
 		if limit > 0 {
-			// Fail fast if a single message exceeds the limit to prevent
-			// a livelock where the backpressure loop can never make progress.
-			if msgLen > limit {
-				p.SendError(
-					fmt.Errorf(
-						"%s: received oversized message (%d bytes) exceeding limit (%d bytes)",
-						p.config.Name,
-						msgLen,
-						limit,
-					),
-				)
-				return
-			}
 			for {
 				p.pendingBytesMu.Lock()
 				if p.pendingRecvBytes+msgLen <= limit {
@@ -1570,15 +1624,21 @@ func (p *Protocol) readLoop() {
 		case <-p.muxerDoneChan:
 			return
 		}
-		if numBytesRead < readBuffer.Len() {
+		if scanResult.messageLength < readBuffer.Len() {
 			// There is another message in the same muxer segment, so we reset the buffer with just
 			// the remaining data
-			readBuffer = bytes.NewBuffer(readBuffer.Bytes()[numBytesRead:])
+			readBuffer = bytes.NewBuffer(
+				readBuffer.Bytes()[scanResult.messageLength:],
+			)
 			leftoverData = true
 		} else {
 			// Empty out our buffer since we successfully processed the message
 			readBuffer.Reset()
 		}
+		scanner = messageScanner{}
+		peerAgencyChecked = false
+		messageStateSet = false
+		messageHasAgency = false
 		// Hand the consumed bytes back to the connection-wide allowance.
 		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
 	}
