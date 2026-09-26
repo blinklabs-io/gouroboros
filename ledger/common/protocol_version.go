@@ -26,6 +26,8 @@ const (
 	ProtocolVersionPlomin    uint = 10 // PV10 intra-era hard fork; enabled full governance (incl. treasury withdrawals)
 	ProtocolVersionVanRossem uint = 11 // PV11 intra-era hard fork
 	ProtocolVersionDijkstra  uint = 12 // PV12 Dijkstra hard fork
+	// PV13 activates Dijkstra's phased-in minimum pool margin rule.
+	ProtocolVersionDijkstraMinPoolMargin uint = 13
 )
 
 // IsProtocolVersionAtLeast checks if the given protocol version (major.minor)

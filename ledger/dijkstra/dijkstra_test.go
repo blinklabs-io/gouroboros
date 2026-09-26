@@ -2104,6 +2104,53 @@ func TestDijkstraProtocolParametersRejectsUnsupportedArrayLength(t *testing.T) {
 	require.Error(t, decoded.UnmarshalCBOR(data))
 }
 
+func TestDijkstraProtocolParametersUnmarshalRejectsZeroRewardLeverage(t *testing.T) {
+	rat := func(num, denom int64) *cbor.Rat {
+		return &cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
+	ratValue := func(num, denom int64) cbor.Rat {
+		return cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
+	encoded, err := cbor.Encode(DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			A0:  rat(1, 2),
+			Rho: rat(3, 1000),
+			Tau: rat(1, 5),
+			PoolVotingThresholds: conway.PoolVotingThresholds{
+				MotionNoConfidence:    ratValue(1, 2),
+				CommitteeNormal:       ratValue(1, 2),
+				CommitteeNoConfidence: ratValue(1, 2),
+				HardForkInitiation:    ratValue(1, 2),
+				PpSecurityGroup:       ratValue(1, 2),
+			},
+			DRepVotingThresholds: conway.DRepVotingThresholds{
+				MotionNoConfidence:    ratValue(1, 2),
+				CommitteeNormal:       ratValue(1, 2),
+				CommitteeNoConfidence: ratValue(1, 2),
+				UpdateToConstitution:  ratValue(1, 2),
+				HardForkInitiation:    ratValue(1, 2),
+				PpNetworkGroup:        ratValue(1, 2),
+				PpEconomicGroup:       ratValue(1, 2),
+				PpTechnicalGroup:      ratValue(1, 2),
+				PpGovGroup:            ratValue(1, 2),
+				TreasuryWithdrawal:    ratValue(1, 2),
+			},
+		},
+		MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(0, 1)},
+		MaxRefScriptSizePerBlock: 123,
+	})
+	require.NoError(t, err)
+
+	decoded := DijkstraProtocolParameters{
+		MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(3, 1)},
+		MaxRefScriptSizePerBlock: 77,
+	}
+	err = decoded.UnmarshalCBOR(encoded)
+	require.Error(t, err)
+	require.Equal(t, big.NewRat(3, 1), decoded.MaxPledgeLeverage.Rat)
+	require.Equal(t, uint32(77), decoded.MaxRefScriptSizePerBlock)
+}
+
 func TestDijkstraProtocolParametersRejectsOversizedArrayHeader(t *testing.T) {
 	// The arity guard must reject an array whose declared length cannot be
 	// represented before attempting to decode all of its elements.
@@ -2336,6 +2383,17 @@ func TestDijkstraMaxPledgeLeverageNullUpdate(t *testing.T) {
 		data.NewConstr(1),
 	)
 	require.True(t, action.ToPlutusData().Equal(wantAction))
+}
+
+func TestDijkstraApplyUpdateRejectsZeroMaxPledgeLeverage(t *testing.T) {
+	params := DijkstraProtocolParameters{
+		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(3, 1)},
+	}
+	err := params.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(0, 1)},
+	})
+	require.ErrorAs(t, err, &conway.ProtocolParameterUpdateFieldZeroError{})
+	require.Equal(t, big.NewRat(3, 1), params.MaxPledgeLeverage.Rat)
 }
 
 func TestDijkstraProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
@@ -2716,6 +2774,49 @@ func TestDijkstraGenesisRejectsInvalidLeiosStakeParameters(t *testing.T) {
 	var pparams DijkstraProtocolParameters
 	err = pparams.UpdateFromGenesis(&genesis)
 	require.ErrorAs(t, err, &LeiosCommitteeStakeParametersError{})
+}
+
+func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		genesis string
+		wantErr bool
+	}{
+		{
+			name:    "valid reward parameters",
+			genesis: `{"maxPledgeLeverage": 3.5, "minPoolMargin": 0.1}`,
+		},
+		{
+			name:    "zero max pledge leverage",
+			genesis: `{"maxPledgeLeverage": 0, "maxRefScriptSizePerBlock": 123}`,
+			wantErr: true,
+		},
+		{
+			name:    "min pool margin above one",
+			genesis: `{"minPoolMargin": 1.1, "maxRefScriptSizePerBlock": 123}`,
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(test.genesis))
+			require.NoError(t, err)
+
+			params := DijkstraProtocolParameters{
+				MaxRefScriptSizePerBlock: 77,
+				MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(3, 1)},
+			}
+			err = params.UpdateFromGenesis(&genesis)
+			if test.wantErr {
+				require.Error(t, err)
+				require.Equal(t, uint32(77), params.MaxRefScriptSizePerBlock)
+				require.Equal(t, big.NewRat(3, 1), params.MaxPledgeLeverage.Rat)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, big.NewRat(7, 2), params.MaxPledgeLeverage.Rat)
+			require.Equal(t, big.NewRat(1, 10), params.MinPoolMargin.Rat)
+		})
+	}
 }
 
 func TestDijkstraLeiosStakeParametersValidateSingleField(t *testing.T) {
