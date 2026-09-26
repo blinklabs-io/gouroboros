@@ -36,46 +36,75 @@ func ptrUint16(v uint16) *uint16 { return &v }
 func ptrIP(ip net.IP) *net.IP    { return &ip }
 func ptrStr(s string) *string    { return &s }
 
-// TestShelleyGetLedgerPeerSnapshotQueryEncode verifies that the inner
-// leaf query encodes as [34, peerKind] per the v15+ wire format documented
-// in ouroboros-consensus.
+// TestShelleyGetLedgerPeerSnapshotQueryEncode verifies the NtC v19/v20
+// reference request encoding [34].
 func TestShelleyGetLedgerPeerSnapshotQueryEncode(t *testing.T) {
 	q := ShelleyGetLedgerPeerSnapshotQuery{
 		Type:     QueryTypeShelleyGetLedgerPeerSnapshot,
-		PeerKind: LedgerPeerKindAll,
+		PeerKind: LedgerPeerKindBig,
 	}
 	data, err := cbor.Encode(q)
 	if err != nil {
 		t.Fatalf("encode: %s", err)
 	}
-	// list-2 + uint8(34) + 0  =>  82 18 22 00
-	want := "82182200"
+	// list-1 + uint8(34) => 81 18 22
+	want := "811822"
 	got := hex.EncodeToString(data)
 	if got != want {
 		t.Fatalf("encoded query mismatch:\n  got:  %s\n  want: %s", got, want)
+	}
+	var decoded ShelleyGetLedgerPeerSnapshotQuery
+	if _, err := cbor.Decode(data, &decoded); err != nil {
+		t.Fatalf("decode reference request: %s", err)
+	}
+	if decoded.Type != QueryTypeShelleyGetLedgerPeerSnapshot ||
+		decoded.PeerKind != LedgerPeerKindBig {
+		t.Fatalf("decoded request: %#v", decoded)
 	}
 }
 
 // TestShelleyGetLedgerPeerSnapshotQueryBuildShelleyQuery verifies that
 // wrapping the leaf through buildShelleyQuery produces the full
-// BlockQuery → ShelleyQuery → era → [34, peerKind] envelope expected on
+// BlockQuery → ShelleyQuery → era → [34] envelope expected on
 // the wire.
 func TestShelleyGetLedgerPeerSnapshotQueryBuildShelleyQuery(t *testing.T) {
 	const era = 6 // Conway
 	q := buildShelleyQuery(
 		era,
 		QueryTypeShelleyGetLedgerPeerSnapshot,
-		int(LedgerPeerKindAll),
 	)
 	data, err := cbor.Encode(q)
 	if err != nil {
 		t.Fatalf("encode: %s", err)
 	}
-	// [0, [0, [6, [34, 0]]]]  =>  82 00 82 00 82 06 82 18 22 00
-	want := "82008200820682182200"
+	// [0, [0, [6, [34]]]] => 82 00 82 00 82 06 81 18 22
+	want := "820082008206811822"
 	got := hex.EncodeToString(data)
 	if got != want {
 		t.Fatalf("built query mismatch:\n  got:  %s\n  want: %s", got, want)
+	}
+}
+
+func TestShelleyGetLedgerPeerSnapshotQueryRejectsPeerKindExtension(t *testing.T) {
+	// The peer-kind byte belongs to node-to-client v23+, unsupported here.
+	wire, err := hex.DecodeString("82182201")
+	if err != nil {
+		t.Fatalf("hex: %s", err)
+	}
+	var query ShelleyGetLedgerPeerSnapshotQuery
+	if _, err := cbor.Decode(wire, &query); err == nil {
+		t.Fatal("expected v23 peer-kind query shape to be rejected")
+	}
+
+	query = ShelleyGetLedgerPeerSnapshotQuery{
+		Type:     QueryTypeShelleyGetLedgerPeerSnapshot,
+		PeerKind: LedgerPeerKindAll,
+	}
+	if _, err := cbor.Encode(query); !errors.Is(
+		err,
+		ErrLedgerPeerKindUnsupportedVersion,
+	) {
+		t.Fatalf("expected unsupported peer-kind error, got %v", err)
 	}
 }
 
@@ -245,17 +274,17 @@ func TestRelayAccessPointRoundTrip(t *testing.T) {
 	})
 }
 
-// TestLedgerPeerSnapshotGolden decodes a hand-rolled wire-format snapshot
-// (the canonical Haskell LedgerPeerSnapshotV1 layout) and verifies that
+// TestLedgerPeerSnapshotGolden decodes the reference-format
+// LedgerPeerSnapshotV2 wire layout and verifies that
 // every typed field is preserved.
 func TestLedgerPeerSnapshotGolden(t *testing.T) {
-	// Canonical encoding of a LedgerPeerSnapshotV1 with:
+	// Reference encoding of LedgerPeerSnapshotV2 with:
 	//   slot = At 12345
 	//   one pool: accStake=1/10, poolStake=1/10,
 	//             one IPv4 relay 192.0.2.1:3001
 	//
 	// Layout:
-	//   82 00                       version=0 (V1)
+	//   82 01                       version=1 (V2)
 	//   82                          inner [slot, pools]
 	//     82 01 19 3039             slot = At 12345
 	//     81                        pools = list-1
@@ -268,7 +297,7 @@ func TestLedgerPeerSnapshotGolden(t *testing.T) {
 	//               1a c0 00 02 01    uint32 192.0.2.1
 	//               19 0b b9          uint16 3001
 	wire, err := hex.DecodeString(
-		"82008282011930398182d81e82010a82d81e82010a8183001ac0000201190bb9",
+		"82018282011930398182d81e82010a82d81e82010a8183001ac0000201190bb9",
 	)
 	if err != nil {
 		t.Fatalf("hex: %s", err)
@@ -277,8 +306,15 @@ func TestLedgerPeerSnapshotGolden(t *testing.T) {
 	if _, err := cbor.Decode(wire, &snap); err != nil {
 		t.Fatalf("decode: %s", err)
 	}
-	if snap.Version != 0 {
-		t.Fatalf("version: got %d want 0", snap.Version)
+	encoded, err := cbor.Encode(snap)
+	if err != nil {
+		t.Fatalf("encode: %s", err)
+	}
+	if hex.EncodeToString(encoded) != hex.EncodeToString(wire) {
+		t.Fatalf("reference-vector re-encode mismatch: %x", encoded)
+	}
+	if snap.Version != 1 {
+		t.Fatalf("version: got %d want 1", snap.Version)
 	}
 	if !snap.Slot.HasSlot {
 		t.Fatal("expected HasSlot=true")
@@ -318,20 +354,38 @@ func TestLedgerPeerSnapshotGolden(t *testing.T) {
 	}
 }
 
-// TestLedgerPeerSnapshotRejectsUnknownVersion ensures a forward-incompatible
-// snapshot version is reported as a decode error rather than silently
-// dropping fields.
+// TestLedgerPeerSnapshotRejectsUnknownVersion reports unsupported result
+// layouts before trying to decode their version-specific fields.
 func TestLedgerPeerSnapshotRejectsUnknownVersion(t *testing.T) {
-	// [1, [[0], []]]  -- version 1 (unknown), origin, no pools
-	//   82 01            outer list-2, version=1
-	//     82 81 00 80    inner [WithOriginSlot Origin, empty pools]
-	wire, err := hex.DecodeString("820182810080")
+	// [2, []] is an unsupported later result version with a different layout.
+	wire, err := hex.DecodeString("820280")
 	if err != nil {
 		t.Fatalf("hex: %s", err)
 	}
 	var snap LedgerPeerSnapshotResult
-	if _, err := cbor.Decode(wire, &snap); err == nil {
-		t.Fatal("expected decode error for unknown version, got nil")
+	if _, err := cbor.Decode(wire, &snap); !errors.Is(
+		err,
+		ErrLedgerPeerSnapshotUnsupportedWireVersion,
+	) {
+		t.Fatalf("expected unsupported wire-version error, got %v", err)
+	}
+	encoded, err := cbor.Encode(LedgerPeerSnapshotResult{})
+	if err != nil {
+		t.Fatalf("marshal zero-value result: %s", err)
+	}
+	var zeroValueResult LedgerPeerSnapshotResult
+	if _, err := cbor.Decode(encoded, &zeroValueResult); err != nil {
+		t.Fatalf("decode zero-value result: %s", err)
+	}
+	if zeroValueResult.Version != 1 {
+		t.Fatalf("zero-value result wire version: got %d want %d",
+			zeroValueResult.Version, 1)
+	}
+	if _, err := cbor.Encode(LedgerPeerSnapshotResult{Version: 2}); !errors.Is(
+		err,
+		ErrLedgerPeerSnapshotUnsupportedWireVersion,
+	) {
+		t.Fatalf("expected unsupported wire-version marshal error, got %v", err)
 	}
 }
 
@@ -377,7 +431,7 @@ func TestGetLedgerPeerSnapshotVersionGate(t *testing.T) {
 				)
 			}
 			if !tc.enabled {
-				_, err := c.GetLedgerPeerSnapshot(LedgerPeerKindAll)
+				_, err := c.GetLedgerPeerSnapshot(LedgerPeerKindBig)
 				if !errors.Is(
 					err,
 					ErrLedgerPeerSnapshotUnsupportedVersion,
@@ -420,7 +474,7 @@ func TestServerGetLedgerPeerSnapshotVersionGate(t *testing.T) {
 			Era: 6,
 			Query: &ShelleyGetLedgerPeerSnapshotQuery{
 				Type:     QueryTypeShelleyGetLedgerPeerSnapshot,
-				PeerKind: LedgerPeerKindAll,
+				PeerKind: LedgerPeerKindBig,
 			},
 		},
 	})
@@ -498,6 +552,14 @@ func TestGetLedgerPeerSnapshotRejectsInvalidPeerKind(t *testing.T) {
 			"got version error, expected invalid-peerKind error: %v",
 			err,
 		)
+	}
+}
+
+func TestGetLedgerPeerSnapshotRejectsUnsupportedPeerKind(t *testing.T) {
+	c := newClientWithVersion(19 + protocol.ProtocolVersionNtCOffset)
+	_, err := c.GetLedgerPeerSnapshot(LedgerPeerKindAll)
+	if !errors.Is(err, ErrLedgerPeerKindUnsupportedVersion) {
+		t.Fatalf("expected unsupported peer-kind error, got %v", err)
 	}
 }
 
@@ -583,7 +645,7 @@ func TestServerRejectsLedgerPeerSnapshotPreV19(t *testing.T) {
 				Era: 6,
 				Query: &ShelleyGetLedgerPeerSnapshotQuery{
 					Type:     QueryTypeShelleyGetLedgerPeerSnapshot,
-					PeerKind: LedgerPeerKindAll,
+					PeerKind: LedgerPeerKindBig,
 				},
 			},
 		},
@@ -636,7 +698,7 @@ func TestServerLedgerPeerSnapshotVersionGate(t *testing.T) {
 func TestLedgerPeerSnapshotRoundTrip(t *testing.T) {
 	ipv4 := net.IPv4(192, 0, 2, 1).To4()
 	original := LedgerPeerSnapshotResult{
-		Version: 0,
+		Version: 1,
 		Slot:    WithOriginSlot{HasSlot: true, Slot: 99},
 		Pools: []PoolLedgerPeers{
 			{
