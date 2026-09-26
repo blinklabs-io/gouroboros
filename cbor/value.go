@@ -461,7 +461,7 @@ func appendMapKeyDigest(digest hash.Hash, key any) {
 		if key.Rat == nil {
 			_, _ = digest.Write([]byte{'r', 0})
 		} else {
-			writeBytes('r', []byte(key.Rat.RatString()))
+			writeBytes('r', []byte(key.RatString()))
 		}
 	default:
 		writeBytes('?', []byte(fmt.Sprintf("%T:%#v", key, key)))
