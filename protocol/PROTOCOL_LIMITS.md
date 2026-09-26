@@ -204,21 +204,38 @@ carrying more addresses than it requested.
 
 ## Leios mini-protocols
 
-| Protocol | State | Default timeout |
-| --- | --- | ---: |
-| Leios Fetch client | Votes, BlockRange | 5 seconds |
-| Leios Notify client | Busy | 60 seconds |
-| Leios Votes client | Busy | 60 seconds |
-| Leios Votes server with a configured request callback | Busy | 60 seconds |
+| Protocol | State | Default timeout | Pending bytes |
+| --- | --- | ---: | ---: |
+| Leios Fetch client | Votes | 5 seconds | none |
+| Leios Fetch client | BlockRange | 5 seconds | 64 MiB |
+| Leios Notify client | Busy | 60 seconds | none |
+| Leios Votes client | Busy | 60 seconds | none |
+| Leios Votes server with a configured request callback | Busy | 60 seconds | none |
 
 Leios Fetch `Block` and `BlockTxs` requests are bounded by the caller's
-context, not by a protocol state timeout. Leios Notify and Leios Fetch have no
-queue or pending-message byte limits. Leios Notify allows up to 100 pipelined
-requests and defaults to 10. Leios Votes allows up to 100 pipelined requests,
-defaults to 1, and limits one request to 1,000 votes (the default is also
-1,000). Leios Notify limits each VotesOffer to 1,000 entries and 256 KiB
-before parsing the vote list. Invalid configured values are rejected by their
-constructors.
+context, not by a protocol state timeout. Leios Notify has no pending-message
+byte limit. Leios Fetch `BlockRangeRequest` retains at most 1,000 response
+messages and 64 MiB of encoded response data per request by default; both
+limits can be configured. The byte limit also bounds pending range messages in
+the protocol receive queue. Exceeding either retained-response limit is a
+protocol error and closes the connection. Leios Notify allows up to 100
+pipelined requests and defaults to 10. Leios Votes allows up to 100 pipelined
+requests, defaults to 1, and limits one request to 1,000 votes (the default is
+also 1,000). Leios Notify limits each VotesOffer to 1,000 entries and 256 KiB
+before parsing the vote list. Nonpositive Leios Fetch range limits select the
+defaults; other invalid configured values are rejected by their constructors.
+
+## Peras Vote Diffusion
+
+| State | Timeout | Pending bytes |
+| --- | ---: | ---: |
+| Init, Idle, ObjectIDsBlocking | none | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsNonBlocking, Objects | 5 seconds by default | `maxObjectsUnacknowledged × 1,100 + 256` |
+| Done | none | none |
+
+The outstanding object window defaults to 50 and can be configured up to
+1,000. The timeout is configurable and bounds non-blocking ID and object
+requests; blocking ID requests wait for an available vote.
 
 ## Enforcement scope
 

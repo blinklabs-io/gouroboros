@@ -17,19 +17,17 @@ package leiosfetch
 import "errors"
 
 // ErrBlockNotFound signals that a requested endorser block is not available.
-// A BlockRequestFunc callback returns it (directly or wrapped) to make the
-// server respond with MsgNoBlock instead of tearing down the connection; the
-// client's BlockRequest returns it to the caller when the server sends
-// MsgNoBlock. Callers can test for it with errors.Is.
+// A BlockRequestFunc callback may return it directly or wrapped. LeiosFetch
+// defines no not-found response, so the server propagates this error and ends
+// the connection. Callers can test for it with errors.Is.
 var ErrBlockNotFound = errors.New(
 	"endorser block not available",
 )
 
 // ErrBlockTxsNotFound signals that the requested endorser block transactions
-// are not available. A BlockTxsRequestFunc callback returns it (directly or
-// wrapped) to make the server respond with MsgNoBlockTxs instead of tearing
-// down the connection; the client's BlockTxsRequest returns it to the caller
-// when the server sends MsgNoBlockTxs. Callers can test for it with errors.Is.
+// are not available. A BlockTxsRequestFunc callback may return it directly or
+// wrapped. LeiosFetch defines no not-found response, so the server propagates
+// this error and ends the connection. Callers can test for it with errors.Is.
 var ErrBlockTxsNotFound = errors.New(
 	"endorser block transactions not available",
 )
@@ -43,4 +41,10 @@ var ErrBlockTxsNotFound = errors.New(
 // Callers should fail over to another connection.
 var ErrRequestSlotAbandoned = errors.New(
 	"leios-fetch request slot awaiting abandoned response",
+)
+
+// ErrBlockRangeResponseLimitExceeded signals that a BlockRangeRequest reply
+// stream exceeded the configured message-count or encoded-byte limit.
+var ErrBlockRangeResponseLimitExceeded = errors.New(
+	"leios-fetch block range response limit exceeded",
 )

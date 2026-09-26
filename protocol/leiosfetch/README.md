@@ -20,14 +20,14 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
          │  Idle  │                  │ Block │
          └────┬───┘                  └───┬───┘
               │                          │
-              │ BlockTxsRequest          │ Block / NoBlock
+              │ BlockTxsRequest          │ Block
               │                          │
               ▼                          ▼
          ┌──────────┐               ┌──────┐
          │ BlockTxs │               │ Idle │
          └────┬─────┘               └──────┘
               │
-              │ BlockTxs / NoBlockTxs
+              │ BlockTxs
               ▼
          ┌──────┐
          │ Idle │
@@ -84,15 +84,16 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
 | `VotesRequest` | 4 | Client → Server | Request votes |
 | `Votes` | 5 | Server → Client | Votes response |
 | `BlockRangeRequest` | 6 | Client → Server | Request range of blocks |
-| `LastBlockAndTxsInRange` | 7 | Server → Client | Last block in range |
-| `NextBlockAndTxsInRange` | 8 | Server → Client | Next block in range |
+| `NextBlockAndTxsInRange` | 7 | Server → Client | Next block in range |
+| `LastBlockAndTxsInRange` | 8 | Server → Client | Last block in range |
 | `Done` | 9 | Client → Server | Terminate protocol |
-| `NoBlock` | 10 | Server → Client | Requested block not available |
-| `NoBlockTxs` | 11 | Server → Client | Requested block transactions not available |
 
-> **Note:** Type IDs `10` and `11` are placeholders pending confirmation against
-> the Leios protocol spec (CIP-0164 or equivalent), consistent with the other
-> IDs in this experimental protocol.
+Message IDs match the [`leios-prototype` CDDL at revision
+8b946c4](https://github.com/cardano-scaling/cardano-blueprint/blob/8b946c431e3209b2aa70bf5362f64f42e56fb849/src/network/node-to-node/leios-fetch/messages.cddl):
+it defines tags 0–9, with 7 for the next block in a range and 8 for the last.
+The prototype marks range messages 6–8 as not yet implemented and describes
+its CDDL tags as provisional. It defines no not-found messages at IDs 10 or 11.
+CIP-0164 says a server should disconnect when requested data is unavailable.
 
 ## State Transitions
 
@@ -109,13 +110,11 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
 | Message | New State |
 |---------|-----------|
 | `Block` | Idle |
-| `NoBlock` | Idle |
 
 ### From BlockTxs (Server Agency)
 | Message | New State |
 |---------|-----------|
 | `BlockTxs` | Idle |
-| `NoBlockTxs` | Idle |
 
 ### From Votes (Server Agency)
 | Message | New State |
@@ -137,7 +136,13 @@ validated `common.LeiosVote` values.
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Default Timeout | 5 seconds | General request timeout |
+| Default Timeout | 5 seconds | Votes and BlockRange state timeout |
+
+`BlockRangeRequest` retains at most 1,000 response messages and 64 MiB of
+encoded response data per request by default. The terminal response counts
+toward both limits. Configure them with `WithMaxBlockRangeResponses` and
+`WithMaxBlockRangeResponseBytes`. Exceeding either limit fails the request and
+the connection; split large ranges into smaller requests.
 
 ## Configuration Options
 
@@ -148,6 +153,8 @@ leiosfetch.NewConfig(
     leiosfetch.WithVotesRequestFunc(votesRequestCallback),
     leiosfetch.WithBlockRangeRequestFunc(blockRangeRequestCallback),
     leiosfetch.WithTimeout(5 * time.Second),
+    leiosfetch.WithMaxBlockRangeResponses(1000),
+    leiosfetch.WithMaxBlockRangeResponseBytes(64 * 1024 * 1024),
 )
 ```
 
@@ -170,21 +177,15 @@ for _, block := range blocks {
 }
 ```
 
-## Not-found responses
+## Unavailable requested data
 
-A server that cannot serve a requested endorser block (for example, an
-already-synced relay whose in-memory cache has expired) responds with `NoBlock`
-or `NoBlockTxs` instead of returning an error. This lets the server decline
-gracefully rather than triggering a protocol violation that tears down the
-whole node-to-node connection.
+A server that cannot serve a requested block or its transactions returns a
+protocol error and ends the connection. LeiosFetch defines no not-found reply.
 
 - A `BlockRequestFunc` / `BlockTxsRequestFunc` callback signals not-found by
   returning `ErrBlockNotFound` / `ErrBlockTxsNotFound` (directly or wrapped
-  with `fmt.Errorf("...: %w", ...)`). Any other error is still treated as a
-  protocol violation.
-- The client's `BlockRequest` / `BlockTxsRequest` returns the matching sentinel
-  error to the caller, who can distinguish "not available" from a real protocol
-  error with `errors.Is`.
+  with `fmt.Errorf("...: %w", ...)`). The server propagates the error as a
+  protocol error.
 
 ## Optional server responders
 
@@ -195,10 +196,8 @@ for agency that only the missing response returns, so the requester can neither
 issue another Leios fetch request nor detect the condition.
 
 - An unconfigured `VotesRequestFunc` returns `Votes` with an empty CBOR array.
-- An unconfigured `BlockRequestFunc` returns `NoBlock`, and an unconfigured
-  `BlockTxsRequestFunc` returns `NoBlockTxs`. Both wire IDs are still
-  placeholders, but the configured not-available path already emits them, so
-  declining here adds no wire risk that the normal path does not already take.
+- An unconfigured `BlockRequestFunc` or `BlockTxsRequestFunc` returns a
+  protocol error; there is no valid absence message to send.
 - An unconfigured `BlockRangeRequestFunc` returns a protocol error, because
   `LastBlockAndTxsInRange` carries a mandatory block and there is no absence
   reply to send. A connection-level error is diagnosable and lets the

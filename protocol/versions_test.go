@@ -170,3 +170,32 @@ func TestNtCVersion21Supported(t *testing.T) {
 		got.EnableLocalTxMonitorProtocol,
 	)
 }
+
+func TestNtNVersion16NegotiatesPerasSupport(t *testing.T) {
+	const version uint16 = 16
+	require.Contains(t, GetProtocolVersionsNtN(), version)
+	versionInfo := GetProtocolVersion(version)
+	require.NotNil(t, versionInfo.NewVersionDataFromCborFunc)
+	previous := GetProtocolVersion(version - 1)
+	assert.Equal(t, previous.EnableDijkstraEra, versionInfo.EnableDijkstraEra)
+	assert.Equal(t, previous.EnableFullDuplex, versionInfo.EnableFullDuplex)
+	assert.Equal(
+		t,
+		previous.EnablePeerSharingProtocol,
+		versionInfo.EnablePeerSharingProtocol,
+	)
+
+	versionMap := GetProtocolVersionMapWithPerasSupport(
+		ProtocolModeNodeToNode, 42, DiffusionModeInitiatorOnly, false, false, true,
+	)
+	versionData, ok := versionMap[version].(VersionDataNtN16andUp)
+	require.True(t, ok)
+	assert.True(t, versionData.PerasSupported())
+
+	versionMap = GetProtocolVersionMap(
+		ProtocolModeNodeToNode, 42, DiffusionModeInitiatorOnly, false, false,
+	)
+	versionData, ok = versionMap[version].(VersionDataNtN16andUp)
+	require.True(t, ok)
+	assert.False(t, versionData.PerasSupported())
+}

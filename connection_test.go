@@ -17,6 +17,7 @@ package ouroboros_test
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -35,6 +36,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
+	"github.com/blinklabs-io/gouroboros/protocol/perasvotes"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"github.com/stretchr/testify/assert"
@@ -146,6 +148,7 @@ func TestConnectionOptions(t *testing.T) {
 		{"WithLeiosFetchConfig", ouroboros.WithLeiosFetchConfig(leiosfetch.Config{})},
 		{"WithLeiosNotifyConfig", ouroboros.WithLeiosNotifyConfig(leiosnotify.Config{})},
 		{"WithLeiosVotesConfig", ouroboros.WithLeiosVotesConfig(leiosvotes.Config{})},
+		{"WithPerasVotesConfig", ouroboros.WithPerasVotesConfig(perasvotes.Config{})},
 	}
 
 	for _, tc := range testCases {
@@ -153,6 +156,90 @@ func TestConnectionOptions(t *testing.T) {
 			conn, err := ouroboros.New(tc.option)
 			require.NoError(t, err)
 			require.NotNil(t, conn)
+		})
+	}
+}
+
+func TestPerasVotesHandshakeNegotiation(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	for _, test := range []struct {
+		name        string
+		clientOn    bool
+		serverOn    bool
+		wantEnabled bool
+	}{
+		{
+			name: "both peers opt in", clientOn: true, serverOn: true,
+			wantEnabled: true,
+		},
+		{name: "client only", clientOn: true},
+		{name: "server only", serverOn: true},
+		{name: "neither"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clientPipe, serverPipe := net.Pipe()
+			t.Cleanup(func() {
+				_ = clientPipe.Close()
+				_ = serverPipe.Close()
+			})
+			type result struct {
+				conn *ouroboros.Connection
+				err  error
+			}
+			results := make(chan result, 2)
+			clientOptions := []ouroboros.ConnectionOptionFunc{
+				ouroboros.WithConnection(clientPipe), ouroboros.WithNodeToNode(true),
+				ouroboros.WithNetworkMagic(42), ouroboros.WithDelayProtocolStart(true),
+			}
+			serverOptions := []ouroboros.ConnectionOptionFunc{
+				ouroboros.WithConnection(serverPipe), ouroboros.WithServer(true),
+				ouroboros.WithNodeToNode(true), ouroboros.WithNetworkMagic(42),
+				ouroboros.WithDelayProtocolStart(true),
+			}
+			if test.clientOn {
+				clientOptions = append(
+					clientOptions,
+					ouroboros.WithPerasVotesConfig(perasvotes.Config{}),
+				)
+			}
+			if test.serverOn {
+				serverOptions = append(
+					serverOptions,
+					ouroboros.WithPerasVotesConfig(perasvotes.Config{}),
+				)
+			}
+			go func() {
+				conn, err := ouroboros.NewConnection(clientOptions...)
+				results <- result{conn: conn, err: err}
+			}()
+			go func() {
+				conn, err := ouroboros.NewConnection(serverOptions...)
+				results <- result{conn: conn, err: err}
+			}()
+			connections := make([]*ouroboros.Connection, 0, 2)
+			for range 2 {
+				select {
+				case got := <-results:
+					require.NoError(t, got.err)
+					connections = append(connections, got.conn)
+				case <-time.After(5 * time.Second):
+					t.Fatal("node-to-node handshake did not finish")
+				}
+			}
+			t.Cleanup(func() {
+				for _, conn := range connections {
+					_ = conn.Close()
+				}
+			})
+			for _, conn := range connections {
+				version, _ := conn.ProtocolVersion()
+				require.Equal(t, uint16(16), version)
+				if test.wantEnabled {
+					require.NotNil(t, conn.PerasVotes())
+				} else {
+					require.Nil(t, conn.PerasVotes())
+				}
+			}
 		})
 	}
 }

@@ -178,3 +178,42 @@ func (v VersionDataNtN13andUp) PeerSharing() bool {
 func (v VersionDataNtN13andUp) Query() bool {
 	return v.VersionDataNtN11to12.Query()
 }
+
+// VersionDataNtN16andUp adds the Peras capability flag introduced by
+// node-to-node version 16.
+type VersionDataNtN16andUp struct {
+	cbor.StructAsArray
+	CborNetworkMagic                       uint32
+	CborInitiatorAndResponderDiffusionMode bool
+	CborPeerSharing                        uint
+	CborQuery                              bool
+	CborPerasSupport                       bool
+}
+
+// NewVersionDataNtN16andUpFromCbor decodes node-to-node version 16 data.
+func NewVersionDataNtN16andUpFromCbor(cborData []byte) (VersionData, error) {
+	var v VersionDataNtN16andUp
+	_, err := cbor.Decode(cborData, &v)
+	return v, err
+}
+
+func (v VersionDataNtN16andUp) NetworkMagic() uint32 {
+	return v.CborNetworkMagic
+}
+
+func (v VersionDataNtN16andUp) DiffusionMode() bool {
+	return v.CborInitiatorAndResponderDiffusionMode
+}
+
+func (v VersionDataNtN16andUp) PeerSharing() bool {
+	return v.CborPeerSharing >= PeerSharingModePeerSharingPublic
+}
+
+func (v VersionDataNtN16andUp) Query() bool {
+	return v.CborQuery
+}
+
+// PerasSupported reports whether the remote node opted into Peras protocols.
+func (v VersionDataNtN16andUp) PerasSupported() bool {
+	return v.CborPerasSupport
+}
