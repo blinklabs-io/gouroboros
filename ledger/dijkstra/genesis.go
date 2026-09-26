@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"os"
@@ -74,6 +75,16 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	}
 	committeeStakeCoverage := genesisRatToRat(genesis.CommitteeStakeCoverage)
 	quorumStakeThreshold := genesisRatToRat(genesis.QuorumStakeThreshold)
+	maxPledgeLeverage := genesisRatToRat(genesis.MaxPledgeLeverage)
+	if maxPledgeLeverage != nil &&
+		(!validMaxPledgeLeverageDijkstraRat(maxPledgeLeverage) ||
+			maxPledgeLeverage.Sign() == 0) {
+		return errors.New("maxPledgeLeverage must be in [1, 10000]")
+	}
+	minPoolMargin := genesisRatToRat(genesis.MinPoolMargin)
+	if minPoolMargin != nil && !validUnitDijkstraRat(minPoolMargin) {
+		return errors.New("minPoolMargin must be a bounded unit interval")
+	}
 	if err := validateLeiosCommitteeStakeParameters(
 		committeeStakeCoverage,
 		quorumStakeThreshold,
@@ -95,8 +106,8 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.MaxRefScriptSizePerTx = genesis.MaxRefScriptSizePerTx
 	p.RefScriptCostStride = genesis.RefScriptCostStride
 	p.RefScriptCostMultiplier = genesisRatToRat(genesis.RefScriptCostMultiplier)
-	p.MaxPledgeLeverage = genesisRatToRat(genesis.MaxPledgeLeverage)
-	p.MinPoolMargin = genesisRatToRat(genesis.MinPoolMargin)
+	p.MaxPledgeLeverage = maxPledgeLeverage
+	p.MinPoolMargin = minPoolMargin
 	p.LeiosAnnouncementPeriodLength = genesis.LeiosAnnouncementPeriodLength
 	p.LeiosVotePeriodLength = genesis.LeiosVotePeriodLength
 	p.LeiosDiffusionPeriodLength = genesis.LeiosDiffusionPeriodLength

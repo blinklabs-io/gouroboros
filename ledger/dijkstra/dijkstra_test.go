@@ -2338,6 +2338,17 @@ func TestDijkstraMaxPledgeLeverageNullUpdate(t *testing.T) {
 	require.True(t, action.ToPlutusData().Equal(wantAction))
 }
 
+func TestDijkstraApplyUpdateRejectsZeroMaxPledgeLeverage(t *testing.T) {
+	params := DijkstraProtocolParameters{
+		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(3, 1)},
+	}
+	err := params.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(0, 1)},
+	})
+	require.ErrorAs(t, err, &conway.ProtocolParameterUpdateFieldZeroError{})
+	require.Equal(t, big.NewRat(3, 1), params.MaxPledgeLeverage.Rat)
+}
+
 func TestDijkstraProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
 	tags := []int{0, 1, 5, 6, 14, 16, 17, 18, 20, 21, 25, 26, 30, 31}
 	for tag := 34; tag <= 48; tag++ {
@@ -2716,6 +2727,49 @@ func TestDijkstraGenesisRejectsInvalidLeiosStakeParameters(t *testing.T) {
 	var pparams DijkstraProtocolParameters
 	err = pparams.UpdateFromGenesis(&genesis)
 	require.ErrorAs(t, err, &LeiosCommitteeStakeParametersError{})
+}
+
+func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		genesis string
+		wantErr bool
+	}{
+		{
+			name:    "valid reward parameters",
+			genesis: `{"maxPledgeLeverage": 3.5, "minPoolMargin": 0.1}`,
+		},
+		{
+			name:    "zero max pledge leverage",
+			genesis: `{"maxPledgeLeverage": 0, "maxRefScriptSizePerBlock": 123}`,
+			wantErr: true,
+		},
+		{
+			name:    "min pool margin above one",
+			genesis: `{"minPoolMargin": 1.1, "maxRefScriptSizePerBlock": 123}`,
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(test.genesis))
+			require.NoError(t, err)
+
+			params := DijkstraProtocolParameters{
+				MaxRefScriptSizePerBlock: 77,
+				MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(3, 1)},
+			}
+			err = params.UpdateFromGenesis(&genesis)
+			if test.wantErr {
+				require.Error(t, err)
+				require.Equal(t, uint32(77), params.MaxRefScriptSizePerBlock)
+				require.Equal(t, big.NewRat(3, 1), params.MaxPledgeLeverage.Rat)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, big.NewRat(7, 2), params.MaxPledgeLeverage.Rat)
+			require.Equal(t, big.NewRat(1, 10), params.MinPoolMargin.Rat)
+		})
+	}
 }
 
 func TestDijkstraLeiosStakeParametersValidateSingleField(t *testing.T) {

@@ -1095,7 +1095,8 @@ func validateDijkstraProtocolParameterUpdate(
 			Value:     uint(*ppu.RefScriptCostStride),
 		}
 	}
-	if ppu.MaxPledgeLeverage != nil && ppu.MaxPledgeLeverage.Rat != nil && ppu.MaxPledgeLeverage.Sign() == 0 {
+	if ppu.MaxPledgeLeverage != nil && ppu.MaxPledgeLeverage.Rat != nil &&
+		ppu.MaxPledgeLeverage.Sign() == 0 {
 		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "eMax"}
 	}
 	return validateLeiosCommitteeStakeParameters(
