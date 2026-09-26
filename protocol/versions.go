@@ -310,6 +310,20 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableFullDuplex:           true,
 		EnablePeerSharingProtocol:  true,
 	},
+	// Adds the Peras support flag to node-to-node version data.
+	16: {
+		NewVersionDataFromCborFunc: NewVersionDataNtN16andUpFromCbor,
+		EnableShelleyEra:           true,
+		EnableKeepAliveProtocol:    true,
+		EnableAllegraEra:           true,
+		EnableMaryEra:              true,
+		EnableAlonzoEra:            true,
+		EnableBabbageEra:           true,
+		EnableConwayEra:            true,
+		EnableDijkstraEra:          true,
+		EnableFullDuplex:           true,
+		EnablePeerSharingProtocol:  true,
+	},
 }
 
 // GetProtocolVersionMap returns a data structure suitable for use with the protocol handshake
@@ -319,6 +333,26 @@ func GetProtocolVersionMap(
 	diffusionMode bool,
 	peerSharing bool,
 	queryMode bool,
+) ProtocolVersionMap {
+	return GetProtocolVersionMapWithPerasSupport(
+		protocolMode,
+		networkMagic,
+		diffusionMode,
+		peerSharing,
+		queryMode,
+		false,
+	)
+}
+
+// GetProtocolVersionMapWithPerasSupport returns the handshake version map and
+// opts into the Peras flag introduced by node-to-node protocol version 16.
+func GetProtocolVersionMapWithPerasSupport(
+	protocolMode ProtocolMode,
+	networkMagic uint32,
+	diffusionMode bool,
+	peerSharing bool,
+	queryMode bool,
+	perasSupport bool,
 ) ProtocolVersionMap {
 	ret := ProtocolVersionMap{}
 	for version := range protocolVersions {
@@ -335,7 +369,19 @@ func GetProtocolVersionMap(
 			}
 		} else {
 			if version < ProtocolVersionNtCOffset {
-				if version >= 13 {
+				if version >= 16 {
+					var tmpPeerSharing uint = PeerSharingModeNoPeerSharing
+					if peerSharing {
+						tmpPeerSharing = PeerSharingModePeerSharingPublic
+					}
+					ret[version] = VersionDataNtN16andUp{
+						CborNetworkMagic:                       networkMagic,
+						CborInitiatorAndResponderDiffusionMode: diffusionMode,
+						CborPeerSharing:                        tmpPeerSharing,
+						CborQuery:                              queryMode,
+						CborPerasSupport:                       perasSupport,
+					}
+				} else if version >= 13 {
 					var tmpPeerSharing uint = PeerSharingModeNoPeerSharing
 					if peerSharing {
 						tmpPeerSharing = PeerSharingModePeerSharingPublic
@@ -494,7 +540,8 @@ func GetProtocolVersionsNtN() []uint16 {
 // GetProtocolVersion returns the protocol version config for the specified protocol version.
 // It searches Cardano NtN/NtC plus DMQ N2C/N2N maps. The key spaces are
 // disjoint for supported Cardano versions: DMQ N2C uses the 0x1000 offset,
-// DMQ N2N uses 1/2, Cardano NtC uses 0x8000, and supported Cardano NtN uses 7-15.
+// DMQ N2N uses 1/2, Cardano NtC uses 0x8000, and supported Cardano NtN uses
+// 7-16.
 func GetProtocolVersion(version uint16) ProtocolVersion {
 	if v, ok := protocolVersions[version]; ok {
 		return v

@@ -25,12 +25,7 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-// NOTE: these are dummy message IDs and will probably need to be changed
-//
-// NOTE: MessageTypeNoBlock and MessageTypeNoBlockTxs (10 and 11) are
-// placeholder IDs. They must be confirmed against the Leios protocol spec
-// (CIP-0164 or equivalent) before they can be relied on for wire interop with
-// the IOG prototype relay.
+// Message IDs follow the leios-prototype CDDL in Cardano Blueprint.
 const (
 	MessageTypeBlockRequest           = 0
 	MessageTypeBlock                  = 1
@@ -39,11 +34,9 @@ const (
 	MessageTypeVotesRequest           = 4
 	MessageTypeVotes                  = 5
 	MessageTypeBlockRangeRequest      = 6
-	MessageTypeLastBlockAndTxsInRange = 7
-	MessageTypeNextBlockAndTxsInRange = 8
+	MessageTypeNextBlockAndTxsInRange = 7
+	MessageTypeLastBlockAndTxsInRange = 8
 	MessageTypeDone                   = 9
-	MessageTypeNoBlock                = 10
-	MessageTypeNoBlockTxs             = 11
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
@@ -69,10 +62,6 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgNextBlockAndTxsInRange{}
 	case MessageTypeDone:
 		ret = &MsgDone{}
-	case MessageTypeNoBlock:
-		ret = &MsgNoBlock{}
-	case MessageTypeNoBlockTxs:
-		ret = &MsgNoBlockTxs{}
 	default:
 		return nil, fmt.Errorf(
 			"%s: unknown message type: %d",
@@ -82,6 +71,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	}
+	if uint(ret.Type()) != msgType {
+		return nil, fmt.Errorf(
+			"%s: message type mismatch: parser received %d, payload contains %d",
+			ProtocolName,
+			msgType,
+			ret.Type(),
+		)
 	}
 	if ret != nil {
 		// Store the raw message CBOR
@@ -422,38 +419,6 @@ func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeDone,
-		},
-	}
-	return m
-}
-
-// MsgNoBlock is the server's response to a BlockRequest for an endorser block
-// that is not available. It lets the server decline gracefully instead of
-// returning an error that would tear down the connection.
-type MsgNoBlock struct {
-	protocol.MessageBase
-}
-
-func NewMsgNoBlock() *MsgNoBlock {
-	m := &MsgNoBlock{
-		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeNoBlock,
-		},
-	}
-	return m
-}
-
-// MsgNoBlockTxs is the server's response to a BlockTxsRequest whose endorser
-// block transactions are not available. It lets the server decline gracefully
-// instead of returning an error that would tear down the connection.
-type MsgNoBlockTxs struct {
-	protocol.MessageBase
-}
-
-func NewMsgNoBlockTxs() *MsgNoBlockTxs {
-	m := &MsgNoBlockTxs{
-		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeNoBlockTxs,
 		},
 	}
 	return m

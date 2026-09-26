@@ -24,7 +24,7 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-// NOTE: these are dummy message IDs and will probably need to be changed
+// Message IDs follow the leios-prototype CDDL in Cardano Blueprint.
 const (
 	MessageTypeNotificationRequestNext = 0
 	MessageTypeBlockAnnouncement       = 1
@@ -74,6 +74,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	}
+	if uint(ret.Type()) != msgType {
+		return nil, fmt.Errorf(
+			"%s: message type mismatch: parser received %d, payload contains %d",
+			ProtocolName,
+			msgType,
+			ret.Type(),
+		)
 	}
 	// Store the raw message CBOR
 	ret.SetCbor(data)

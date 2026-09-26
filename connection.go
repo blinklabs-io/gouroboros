@@ -48,6 +48,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
+	"github.com/blinklabs-io/gouroboros/protocol/perasvotes"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
 )
 
@@ -102,6 +103,8 @@ type Connection struct {
 	leiosNotifyConfig       *leiosnotify.Config
 	leiosVotes              *leiosvotes.LeiosVotes
 	leiosVotesConfig        *leiosvotes.Config
+	perasVotes              *perasvotes.PerasVotes
+	perasVotesConfig        *perasvotes.Config
 	localStateQuery         *localstatequery.LocalStateQuery
 	localStateQueryConfig   *localstatequery.Config
 	localTxMonitor          *localtxmonitor.LocalTxMonitor
@@ -258,6 +261,11 @@ func (c *Connection) LeiosNotify() *leiosnotify.LeiosNotify {
 // LeiosVotes returns the leios-votes protocol handler
 func (c *Connection) LeiosVotes() *leiosvotes.LeiosVotes {
 	return c.leiosVotes
+}
+
+// PerasVotes returns the Peras vote-diffusion protocol handler, when enabled.
+func (c *Connection) PerasVotes() *perasvotes.PerasVotes {
+	return c.perasVotes
 }
 
 // LocalStateQuery returns the local-state-query protocol handler
@@ -448,6 +456,14 @@ func (c *Connection) allProtocolsIdle() bool {
 			protocols = append(protocols, c.leiosVotes.Server.ProtocolInstance())
 		}
 	}
+	if c.perasVotes != nil {
+		if c.perasVotes.Client != nil {
+			protocols = append(protocols, c.perasVotes.Client.Protocol)
+		}
+		if c.perasVotes.Server != nil {
+			protocols = append(protocols, c.perasVotes.Server.Protocol)
+		}
+	}
 	if c.localMessageSubmission != nil {
 		if c.localMessageSubmission.Client != nil {
 			protocols = append(protocols, c.localMessageSubmission.Client.Protocol)
@@ -570,12 +586,13 @@ func (c *Connection) setupConnection() error {
 			c.queryMode,
 		)
 	} else {
-		protoVersions = protocol.GetProtocolVersionMap(
+		protoVersions = protocol.GetProtocolVersionMapWithPerasSupport(
 			protoOptions.Mode,
 			c.networkMagic,
 			handshakeDiffusionMode,
 			c.peerSharingEnabled,
 			c.queryMode,
+			c.perasVotesConfig != nil,
 		)
 	}
 	// Perform handshake
@@ -680,6 +697,13 @@ func (c *Connection) setupConnection() error {
 		c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
 		c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
 		c.leiosVotes = leiosvotes.New(protoOptions, c.leiosVotesConfig)
+		if c.perasVotesConfig != nil {
+			if versionData, ok := c.handshakeVersionData.(interface {
+				PerasSupported() bool
+			}); ok && versionData.PerasSupported() {
+				c.perasVotes = perasvotes.New(protoOptions, c.perasVotesConfig)
+			}
+		}
 		c.protocolsReady = true
 		c.protocolMu.Unlock()
 		// Register server protocols early to avoid race conditions where messages arrive
@@ -696,6 +720,9 @@ func (c *Connection) setupConnection() error {
 			c.leiosNotify.Server.EnsureRegistered()
 			c.leiosFetch.Server.EnsureRegistered()
 			c.leiosVotes.Server.EnsureRegistered()
+			if c.perasVotes != nil {
+				c.perasVotes.Server.EnsureRegistered()
+			}
 		}
 		// Start protocols
 		if !c.delayProtocolStart {
@@ -712,6 +739,9 @@ func (c *Connection) setupConnection() error {
 				c.leiosNotify.Client.Start()
 				c.leiosFetch.Client.Start()
 				c.leiosVotes.Client.Start()
+				if c.perasVotes != nil {
+					c.perasVotes.Client.Start()
+				}
 			}
 			if (c.fullDuplex && handshakeFullDuplex) || c.server {
 				c.blockFetch.Server.Start()
@@ -726,6 +756,9 @@ func (c *Connection) setupConnection() error {
 				c.leiosNotify.Server.Start()
 				c.leiosFetch.Server.Start()
 				c.leiosVotes.Server.Start()
+				if c.perasVotes != nil {
+					c.perasVotes.Server.Start()
+				}
 			}
 		}
 	} else if c.useDMQProtocol {
