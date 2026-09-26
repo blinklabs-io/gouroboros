@@ -64,15 +64,23 @@ func (s *messageScanner) scan(
 	if s.complete {
 		return s.result(maxBytes), nil
 	}
+	if s.offset > len(data) {
+		return s.result(maxBytes), errors.New(
+			"CBOR input shrank during incremental scan",
+		)
+	}
 	for {
 		if s.exceedsLimit(maxBytes) {
 			return s.result(maxBytes), nil
 		}
 		if s.pendingBytes > 0 {
+			// #nosec G115 -- offset is within the slice, so this is non-negative.
 			available := uint64(len(data) - s.offset)
 			consumed := min(available, s.pendingBytes)
+			// #nosec G115 -- consumed is bounded by the slice length.
 			s.offset += int(consumed)
 			s.pendingBytes -= consumed
+			// #nosec G115 -- consumed is bounded by the slice length.
 			s.processedBytes += int(consumed)
 			if s.pendingBytes > 0 {
 				return s.result(maxBytes), nil
@@ -285,6 +293,7 @@ func (s *messageScanner) exceedsLimit(maxBytes int) bool {
 	if s.offset > maxBytes {
 		return true
 	}
+	// #nosec G115 -- the remaining size is non-negative and bounded by maxBytes.
 	return s.pendingBytes > uint64(maxBytes-s.offset)
 }
 

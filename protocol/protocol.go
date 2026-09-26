@@ -1348,6 +1348,8 @@ func (p *Protocol) peerHasAgencyOrPipelinedRequest(state State) bool {
 		p.pendingBytesMu.Lock()
 		defer p.pendingBytesMu.Unlock()
 		return p.pendingPipelinedRequests > 0
+	case agencyNeither:
+		return false
 	default:
 		return false
 	}
