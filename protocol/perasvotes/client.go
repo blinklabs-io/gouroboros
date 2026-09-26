@@ -108,7 +108,7 @@ func (c *Client) RequestObjectIDs(
 	ackCount, requestCount uint16,
 ) ([]VoteID, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return nil, errors.New("context must not be nil")
 	}
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
@@ -151,7 +151,7 @@ func (c *Client) RequestObjects(
 	ids []VoteID,
 ) ([]VoteObject, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return nil, errors.New("context must not be nil")
 	}
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
@@ -163,7 +163,7 @@ func (c *Client) requestObjects(
 	ids []VoteID,
 ) ([]VoteObject, error) {
 	if len(ids) == 0 {
-		return nil, errors.New("Peras object request must contain at least one ID")
+		return nil, errors.New("peras object request must contain at least one ID")
 	}
 	if err := c.SendMessageContext(ctx, NewMsgRequestObjects(ids)); err != nil {
 		return nil, err
@@ -186,10 +186,10 @@ func (c *Client) requestObjects(
 // longer safe to acknowledge.
 func (c *Client) Sync(ctx context.Context) error {
 	if c.config.VoteFunc == nil {
-		return errors.New("Peras VoteFunc must be configured for Sync")
+		return errors.New("peras vote function must be configured for sync")
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("context must not be nil")
 	}
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
@@ -222,6 +222,7 @@ func (c *Client) Sync(ctx context.Context) error {
 				return fmt.Errorf("process Peras vote %v: %w", id, err)
 			}
 		}
+		// #nosec G115 -- the state machine caps IDs at MaxObjectsUnacknowledged.
 		ackCount = uint16(len(ids))
 	}
 }
@@ -229,7 +230,7 @@ func (c *Client) Sync(ctx context.Context) error {
 // Done sends the graceful termination message.
 func (c *Client) Done(ctx context.Context) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("context must not be nil")
 	}
 	c.opMu.Lock()
 	defer c.opMu.Unlock()

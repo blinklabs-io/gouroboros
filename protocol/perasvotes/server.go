@@ -73,7 +73,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 	if s.config.ObjectIDsFunc == nil {
-		return errors.New("Peras ObjectIDsFunc must be configured on the server")
+		return errors.New("peras object IDs function must be configured on the server")
 	}
 	ids, err := s.config.ObjectIDsFunc(
 		s.callbackContext,
@@ -83,9 +83,9 @@ func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 	if err != nil {
 		return err
 	}
-	if uint32(len(ids)) > uint32(msg.RequestCount) {
+	if len(ids) > int(msg.RequestCount) {
 		return fmt.Errorf(
-			"Peras ObjectIDsFunc returned %d IDs for a request of %d",
+			"peras object IDs function returned %d IDs for a request of %d",
 			len(ids),
 			msg.RequestCount,
 		)
@@ -100,15 +100,15 @@ func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 
 func (s *Server) handleRequestObjects(msg *MsgRequestObjects) error {
 	if s.config.ObjectsFunc == nil {
-		return errors.New("Peras ObjectsFunc must be configured on the server")
+		return errors.New("peras objects function must be configured on the server")
 	}
 	objects, err := s.config.ObjectsFunc(s.callbackContext, msg.ObjectIDs)
 	if err != nil {
 		return err
 	}
-	if uint32(len(objects)) > uint32(len(msg.ObjectIDs)) {
+	if len(objects) > len(msg.ObjectIDs) {
 		return fmt.Errorf(
-			"Peras ObjectsFunc returned %d objects for a request of %d",
+			"peras objects function returned %d objects for a request of %d",
 			len(objects),
 			len(msg.ObjectIDs),
 		)
@@ -124,10 +124,10 @@ func (s *Server) handleRequestObjects(msg *MsgRequestObjects) error {
 			return err
 		}
 		if _, ok := requested[id]; !ok {
-			return fmt.Errorf("Peras ObjectsFunc returned unrequested vote %v", id)
+			return fmt.Errorf("peras objects function returned unrequested vote %v", id)
 		}
 		if _, ok := seen[id]; ok {
-			return fmt.Errorf("Peras ObjectsFunc returned duplicate vote %v", id)
+			return fmt.Errorf("peras objects function returned duplicate vote %v", id)
 		}
 		seen[id] = struct{}{}
 	}

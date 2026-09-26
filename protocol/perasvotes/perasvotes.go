@@ -142,8 +142,7 @@ func matchObjectIDsRequest(ctx any, msg protocol.Message, blocking bool) bool {
 	}
 	remaining := len(stateCtx.outstanding) - int(req.AckCount)
 	if blocking != (remaining == 0) ||
-		uint32(remaining)+uint32(req.RequestCount) >
-			uint32(stateCtx.maxObjectsUnacknowledged) {
+		remaining+int(req.RequestCount) > int(stateCtx.maxObjectsUnacknowledged) {
 		return false
 	}
 	for _, id := range stateCtx.outstanding[:req.AckCount] {
@@ -166,10 +165,10 @@ func matchReplyObjectIDs(ctx any, msg protocol.Message) bool {
 	}
 	reply, ok := msg.(*MsgReplyObjectIDs)
 	if !ok || !stateCtx.objectIDsRequestPending ||
-		uint32(len(reply.ObjectIDs)) > uint32(stateCtx.requestCount) ||
+		len(reply.ObjectIDs) > int(stateCtx.requestCount) ||
 		(stateCtx.requestBlocking && len(reply.ObjectIDs) == 0) ||
-		uint32(len(stateCtx.outstanding))+uint32(len(reply.ObjectIDs)) >
-			uint32(stateCtx.maxObjectsUnacknowledged) {
+		len(reply.ObjectIDs) >
+			int(stateCtx.maxObjectsUnacknowledged)-len(stateCtx.outstanding) {
 		return false
 	}
 	seen := make(map[VoteID]struct{},
@@ -224,7 +223,7 @@ func matchReplyObjects(ctx any, msg protocol.Message) bool {
 	}
 	reply, ok := msg.(*MsgReplyObjects)
 	if !ok || len(stateCtx.requestObjects) == 0 ||
-		uint32(len(reply.Objects)) > uint32(len(stateCtx.requestObjects)) {
+		len(reply.Objects) > len(stateCtx.requestObjects) {
 		return false
 	}
 	requested := make(map[VoteID]struct{}, len(stateCtx.requestObjects))
