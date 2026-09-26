@@ -269,6 +269,14 @@ manual testing is required.
 make test
 ```
 
+### Running cardano-node integration tests
+
+The opt-in integration suite connects to a real node, reads its chain tip,
+decodes a block, and exercises ChainSync restart behavior. It requires a
+running node with a nonempty chain and access to its Node-to-Client socket.
+See [the integration test guide](internal/test/cardano-node-integration/README.md)
+for setup and run instructions.
+
 ### Running the linter
 
 gOuroboros uses [golangci-lint](https://golangci-lint.run/) for code quality checks. Install it following the
