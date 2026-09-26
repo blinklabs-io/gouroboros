@@ -1125,8 +1125,9 @@ func validateDijkstraProtocolParameterUpdateDomains(
 	if rat := ppu.RefScriptCostMultiplier; rat != nil && !validPositiveDijkstraRat(rat) {
 		return errors.New("refScriptCostMultiplier must be a positive bounded ratio")
 	}
-	if rat := ppu.MaxPledgeLeverage; rat != nil && !validNonNegativeDijkstraRat(rat) {
-		return errors.New("maxPledgeLeverage must be a nonnegative bounded ratio")
+	if rat := ppu.MaxPledgeLeverage; rat != nil &&
+		!validMaxPledgeLeverageDijkstraRat(rat) {
+		return errors.New("maxPledgeLeverage must be in [1, 10000]")
 	}
 	if rat := ppu.MinPoolMargin; rat != nil && !validUnitDijkstraRat(rat) {
 		return errors.New("minPoolMargin must be a bounded unit interval")
@@ -1147,6 +1148,17 @@ func validNonNegativeDijkstraRat(rat *cbor.Rat) bool {
 
 func validPositiveDijkstraRat(rat *cbor.Rat) bool {
 	return validNonNegativeDijkstraRat(rat) && rat.Num().Sign() > 0
+}
+
+func validMaxPledgeLeverageDijkstraRat(rat *cbor.Rat) bool {
+	if !validNonNegativeDijkstraRat(rat) {
+		return false
+	}
+	if rat.Sign() == 0 {
+		return true
+	}
+	return rat.Cmp(big.NewRat(1, 1)) >= 0 &&
+		rat.Cmp(big.NewRat(10_000, 1)) <= 0
 }
 
 func validUnitDijkstraRat(rat *cbor.Rat) bool {

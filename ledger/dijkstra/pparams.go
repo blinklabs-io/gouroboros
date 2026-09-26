@@ -47,6 +47,30 @@ type DijkstraProtocolParameters struct {
 	QuorumStakeThreshold             *cbor.Rat
 }
 
+// RewardParams returns the Dijkstra protocol parameters consumed by the
+// common pool reward calculator. Rational values are copied so a reward
+// calculation cannot mutate the protocol parameter set through a shared
+// big.Rat pointer.
+func (p *DijkstraProtocolParameters) RewardParams() common.RewardParameters {
+	if p == nil {
+		return common.RewardParameters{}
+	}
+	return common.RewardParameters{
+		ProtocolVersion:   p.ProtocolVersion,
+		MinPoolCost:       p.MinPoolCost,
+		PoolInfluence:     copyRewardRat(p.A0),
+		MaxPledgeLeverage: copyRewardRat(p.MaxPledgeLeverage),
+		MinPoolMargin:     copyRewardRat(p.MinPoolMargin),
+	}
+}
+
+func copyRewardRat(value *cbor.Rat) *big.Rat {
+	if value == nil || value.Rat == nil {
+		return nil
+	}
+	return new(big.Rat).Set(value.Rat)
+}
+
 var _ common.CommitteeMaxTermLengthProvider = (*DijkstraProtocolParameters)(nil)
 
 // CommitteeMaxTermLength returns the configured committee term limit.
