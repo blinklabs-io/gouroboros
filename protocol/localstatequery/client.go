@@ -1634,15 +1634,13 @@ func (c *Client) GetRatifyState() (*RatifyStateResult, error) {
 
 // GetLedgerPeerSnapshot returns the ledger peer snapshot used by
 // node-to-node peer discovery (introduced at node-to-client protocol version
-// 19 / cardano-node 10.7). The PeerKind argument selects which set of pools
-// the snapshot covers: LedgerPeerKindAll (SingAllLedgerPeers) is what
-// cardano-node uses for its general ledger-peer feed; LedgerPeerKindBig
-// (SingBigLedgerPeers) restricts the response to the high-stake "big" pools
-// used by Genesis diffusion.
+// 19 / cardano-node 10.7). The supported versions expose only
+// LedgerPeerKindBig, the high-stake pools used by Genesis diffusion.
+// LedgerPeerKindAll requires node-to-client version 23 or later.
 //
 // The returned LedgerPeerSnapshotResult preserves the snapshot slot (or
 // origin), each pool's accumulated and own stake, and the typed list of
-// relay endpoints (IPv4, IPv6, A-record domain, SRV domain).
+// IPv4, IPv6, and A-record relay endpoints.
 //
 // Returns ErrLedgerPeerSnapshotUnsupportedVersion if the negotiated
 // node-to-client protocol version does not advertise the query.
@@ -1666,6 +1664,9 @@ func (c *Client) GetLedgerPeerSnapshot(
 	if !c.enableGetLedgerPeerSnapshot {
 		return nil, ErrLedgerPeerSnapshotUnsupportedVersion
 	}
+	if peerKind != LedgerPeerKindBig {
+		return nil, ErrLedgerPeerKindUnsupportedVersion
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1673,7 +1674,6 @@ func (c *Client) GetLedgerPeerSnapshot(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyGetLedgerPeerSnapshot,
-		int(peerKind),
 	)
 	var result LedgerPeerSnapshotResult
 	if err := c.runQuery(query, &result); err != nil {

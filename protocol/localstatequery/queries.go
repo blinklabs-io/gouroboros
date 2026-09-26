@@ -77,8 +77,8 @@ const (
 	QueryTypeShelleyGetProposals           = 31
 	QueryTypeShelleyGetRatifyState         = 32
 
-	// GetLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node 10.7+).
-	// The v15+ wire layout includes a peer-kind byte: [34, peerKindTag].
+	// GetBigLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node 10.7+).
+	// The supported v19/v20 request is the one-element list [34].
 	QueryTypeShelleyGetLedgerPeerSnapshot = 34
 
 	// GetPoolDistr2 (Shelley sub-query 36) replaces GetPoolDistr from NtC v21.
@@ -87,10 +87,9 @@ const (
 )
 
 // LedgerPeerKind selects which ledger peers the snapshot covers.
-// This corresponds to the Haskell SingLedgerPeersKind GADT in
-// ouroboros-network: SingAllLedgerPeers selects the full set of pools used
-// for general peer discovery, while SingBigLedgerPeers selects only big
-// (i.e. high-stake) pools used by the diffusion layer for Genesis.
+// LedgerPeerKindAll requires node-to-client v23; supported v19/v20 expose only
+// LedgerPeerKindBig, the high-stake pools used by the diffusion layer for
+// Genesis.
 type LedgerPeerKind int
 
 const (
@@ -1304,16 +1303,46 @@ type ShelleyGetRatifyStateQuery struct {
 	simpleQueryBase
 }
 
-// ShelleyGetLedgerPeerSnapshotQuery is the request payload for
-// QueryTypeShelleyGetLedgerPeerSnapshot. The PeerKind field selects the
-// ledger-peer set: LedgerPeerKindAll (default; SingAllLedgerPeers) or
-// LedgerPeerKindBig (SingBigLedgerPeers). The PeerKind byte is the v15+
-// extension; older encodings used a one-element list (no PeerKind) but the
-// query was only exposed at NtC v19+, so the byte is always present.
+// ShelleyGetLedgerPeerSnapshotQuery represents the supported NtC v19/v20
+// GetBigLedgerPeerSnapshot request. Those versions encode only [34]; the
+// peer-kind argument was added for later node-to-client versions.
 type ShelleyGetLedgerPeerSnapshotQuery struct {
 	cbor.StructAsArray
 	Type     int
 	PeerKind LedgerPeerKind
+}
+
+func (q *ShelleyGetLedgerPeerSnapshotQuery) UnmarshalCBOR(data []byte) error {
+	listLen, err := cbor.ListLength(data)
+	if err != nil {
+		return err
+	}
+	if listLen != 1 {
+		return fmt.Errorf(
+			"GetBigLedgerPeerSnapshot: expected one-element query, got %d",
+			listLen,
+		)
+	}
+	var tmp simpleQueryBase
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	if tmp.Type != QueryTypeShelleyGetLedgerPeerSnapshot {
+		return fmt.Errorf("unexpected GetBigLedgerPeerSnapshot query type: %d", tmp.Type)
+	}
+	q.Type = tmp.Type
+	q.PeerKind = LedgerPeerKindBig
+	return nil
+}
+
+func (q ShelleyGetLedgerPeerSnapshotQuery) MarshalCBOR() ([]byte, error) {
+	if q.Type != QueryTypeShelleyGetLedgerPeerSnapshot {
+		return nil, fmt.Errorf("unexpected GetBigLedgerPeerSnapshot query type: %d", q.Type)
+	}
+	if q.PeerKind != LedgerPeerKindBig {
+		return nil, ErrLedgerPeerKindUnsupportedVersion
+	}
+	return cbor.Encode([]int{q.Type})
 }
 
 // Conway governance result types

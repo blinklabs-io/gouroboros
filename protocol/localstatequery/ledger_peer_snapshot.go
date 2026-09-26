@@ -23,6 +23,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
+const ledgerPeerSnapshotWireVersion = 1
+
 // WithOriginSlot is the CBOR encoding of Haskell's WithOrigin SlotNo:
 //
 //	Origin    -> [0]
@@ -325,7 +327,7 @@ func decodeIPv6(data []byte) (net.IP, error) {
 // PoolStake is this pool's own stake fraction. Relays is the non-empty
 // list of ledger-advertised relay endpoints.
 //
-// Note: LedgerPeerSnapshot v1 does not carry a pool identity (PoolKeyHash);
+// Note: LedgerPeerSnapshotV2 does not carry a pool identity (PoolKeyHash);
 // it is a stake-and-relays summary only.
 type PoolLedgerPeers struct {
 	cbor.StructAsArray
@@ -344,14 +346,15 @@ type PoolLedgerPeersDetail struct {
 // LedgerPeerSnapshotResult is the typed result of a GetLedgerPeerSnapshot
 // query.
 //
-// The wire layout is a versioned tagged 2-element array:
+// The supported node-to-client v19/v20 wire layout is:
 //
-//	[version, [WithOriginSlot, [PoolLedgerPeers ...]]]
+//	[1, [WithOriginSlot, [PoolLedgerPeers ...]]]
 //
-// Version 0 corresponds to LedgerPeerSnapshotV1 in ouroboros-network.
-// Unknown versions return a decode error so callers do not silently lose
-// fields that a newer node may have added.
+// Wire version 1 is LedgerPeerSnapshotV2 in ouroboros-network. Other snapshot
+// versions use different inner layouts and are rejected before decoding them.
 type LedgerPeerSnapshotResult struct {
+	// Version is 1 when decoded. Zero is accepted as an unset value when
+	// constructing a result; MarshalCBOR always emits the supported version 1.
 	Version uint64
 	Slot    WithOriginSlot
 	Pools   []PoolLedgerPeers
@@ -361,28 +364,40 @@ func (l *LedgerPeerSnapshotResult) UnmarshalCBOR(data []byte) error {
 	var outer struct {
 		cbor.StructAsArray
 		Version uint64
-		Inner   struct {
-			cbor.StructAsArray
-			Slot  WithOriginSlot
-			Pools []PoolLedgerPeers
-		}
+		Inner   cbor.RawMessage
 	}
 	if _, err := cbor.Decode(data, &outer); err != nil {
 		return err
 	}
-	if outer.Version != 0 {
-		return fmt.Errorf(
-			"unsupported LedgerPeerSnapshot version: %d (expected 0/V1)",
+	if outer.Version != ledgerPeerSnapshotWireVersion {
+		return fmt.Errorf("%w: %d (expected %d/V2)",
+			ErrLedgerPeerSnapshotUnsupportedWireVersion,
 			outer.Version,
+			ledgerPeerSnapshotWireVersion,
 		)
 	}
+	var inner struct {
+		cbor.StructAsArray
+		Slot  WithOriginSlot
+		Pools []PoolLedgerPeers
+	}
+	if _, err := cbor.Decode(outer.Inner, &inner); err != nil {
+		return err
+	}
 	l.Version = outer.Version
-	l.Slot = outer.Inner.Slot
-	l.Pools = outer.Inner.Pools
+	l.Slot = inner.Slot
+	l.Pools = inner.Pools
 	return nil
 }
 
 func (l LedgerPeerSnapshotResult) MarshalCBOR() ([]byte, error) {
+	if l.Version != 0 && l.Version != ledgerPeerSnapshotWireVersion {
+		return nil, fmt.Errorf("%w: %d (expected %d/V2)",
+			ErrLedgerPeerSnapshotUnsupportedWireVersion,
+			l.Version,
+			ledgerPeerSnapshotWireVersion,
+		)
+	}
 	return cbor.Encode(struct {
 		cbor.StructAsArray
 		Version uint64
@@ -392,7 +407,7 @@ func (l LedgerPeerSnapshotResult) MarshalCBOR() ([]byte, error) {
 			Pools []PoolLedgerPeers
 		}
 	}{
-		Version: l.Version,
+		Version: ledgerPeerSnapshotWireVersion,
 		Inner: struct {
 			cbor.StructAsArray
 			Slot  WithOriginSlot
