@@ -21,7 +21,7 @@ This directory contains implementations of the Ouroboros mini-protocols used for
 | [LeiosNotify](leiosnotify/) | 18 | NtN | Leios notifications |
 | [LeiosFetch](leiosfetch/) | 19 | NtN | Leios data retrieval |
 | [LeiosVotes](leiosvotes/) | 20 | NtN | Leios vote diffusion |
-| [PerasVotes](perasvotes/) | 17 | NtN | Peras vote diffusion ([CIP-0140](https://cips.cardano.org/cip/CIP-0140), number reserved, not yet implemented) |
+| [PerasVotes](perasvotes/) | 17 | NtN | Peras vote diffusion using ObjectDiffusion ([CIP-0140](https://cips.cardano.org/cip/CIP-0140)) |
 
 **Mode Key:**
 - **NtN**: Node-to-Node (between full nodes)
@@ -104,8 +104,18 @@ Init → Idle → (request/reply cycle)
 - **LeiosFetch**: Block and transaction retrieval
 - **LeiosVotes**: Vote diffusion
 
-### Peras (Reserved)
-- **PerasVotes**: Mini-protocol number reserved for [CIP-0140](https://cips.cardano.org/cip/CIP-0140) vote diffusion; number 17 matches the reference implementation (`perasVoteDiffusionMiniProtocolNum` in [IntersectMBO/ouroboros-network](https://github.com/IntersectMBO/ouroboros-network)) for the design proposed by the [Tweag cardano-peras](https://github.com/tweag/cardano-peras) prototype. State machine and wire format are not yet implemented (tracked separately).
+### Peras
+- **PerasVotes**: Protocol 17 implements the reference ObjectDiffusion state
+  machine from [ouroboros-network's ObjectDiffusion CDDL](https://github.com/IntersectMBO/ouroboros-network/blob/a3d8017e798b225055aaf9118ad062fe58bc650f/cardano-diffusion/protocols/cddl/specs/object-diffusion.cddl)
+  and [codec](https://github.com/IntersectMBO/ouroboros-network/blob/a3d8017e798b225055aaf9118ad062fe58bc650f/ouroboros-network/protocols/lib/Ouroboros/Network/Protocol/ObjectDiffusion/Codec.hs).
+  Vote IDs use `[round, seat index]`, and opaque vote objects use the
+  five-field Peras V1 tuple, matching the consensus
+  [vote ID](https://github.com/IntersectMBO/ouroboros-consensus/blob/7d630e8e54e7df7f694185f231be4b5c83b84388/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/Peras/Types.hs)
+  and [vote encoding](https://github.com/IntersectMBO/ouroboros-consensus/blob/7d630e8e54e7df7f694185f231be4b5c83b84388/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/Peras/Vote/V1.hs).
+  `WithPerasVotesConfig` advertises the Peras flag in node-to-node version 16,
+  and protocol 17 starts only when the remote peer advertises the same
+  capability. The existing `Vote` helper preserves CIP-0140 revision
+  `eb6796a`'s separate eight-field draft record.
 
 ## Usage
 

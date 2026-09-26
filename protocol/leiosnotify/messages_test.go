@@ -38,14 +38,14 @@ func getTestDefinitions() []testDefinition {
 		{
 			Name:        "MsgNotificationRequestNext",
 			Message:     NewMsgNotificationRequestNext(),
-			MessageType: MessageTypeNotificationRequestNext,
+			MessageType: 0,
 		},
 		{
 			Name: "MsgBlockAnnouncement",
 			Message: NewMsgBlockAnnouncement(
 				cbor.RawMessage([]byte{0x82, 0x01, 0x02}),
 			),
-			MessageType: MessageTypeBlockAnnouncement,
+			MessageType: 1,
 		},
 		{
 			Name: "MsgBlockOffer",
@@ -56,7 +56,7 @@ func getTestDefinitions() []testDefinition {
 				),
 				12345,
 			),
-			MessageType: MessageTypeBlockOffer,
+			MessageType: 2,
 		},
 		{
 			Name: "MsgBlockTxsOffer",
@@ -66,7 +66,7 @@ func getTestDefinitions() []testDefinition {
 					testPointHash(0x09),
 				),
 			),
-			MessageType: MessageTypeBlockTxsOffer,
+			MessageType: 3,
 		},
 		{
 			Name: "MsgVotesOffer",
@@ -76,14 +76,45 @@ func getTestDefinitions() []testDefinition {
 					{SlotNo: 200, VoterId: 2},
 				},
 			),
-			MessageType: MessageTypeVotesOffer,
+			MessageType: 4,
 		},
 		{
 			Name:        "MsgDone",
 			Message:     NewMsgDone(),
-			MessageType: MessageTypeDone,
+			MessageType: 5,
 		},
 	}
+}
+
+func TestMessageTagFixtures(t *testing.T) {
+	for _, test := range getTestDefinitions() {
+		t.Run(test.Name, func(t *testing.T) {
+			require.Equal(t, uint8(test.MessageType), test.Message.Type())
+			encoded, err := cbor.Encode(test.Message)
+			require.NoError(t, err)
+			var fields []cbor.RawMessage
+			_, err = cbor.Decode(encoded, &fields)
+			require.NoError(t, err)
+			require.NotEmpty(t, fields)
+			var got uint
+			_, err = cbor.Decode(fields[0], &got)
+			require.NoError(t, err)
+			require.Equal(t, test.MessageType, got)
+		})
+	}
+}
+
+func TestUnknownMessageIDsRejected(t *testing.T) {
+	for _, id := range []uint{6, 10, 11} {
+		_, err := NewMsgFromCbor(id, []byte{0x81, byte(id)})
+		require.Error(t, err)
+	}
+}
+
+func TestMessageTypeMustMatchPayload(t *testing.T) {
+	_, err := NewMsgFromCbor(MessageTypeDone, []byte{0x81, MessageTypeBlockOffer})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "message type mismatch")
 }
 
 func TestCborRoundTrip(t *testing.T) {

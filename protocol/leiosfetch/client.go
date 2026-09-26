@@ -418,10 +418,10 @@ func (c *Client) acquireSlot(
 // context error is returned. This failure is local to this request: it does
 // NOT emit a protocol error and does NOT tear down the shared multiplexed
 // connection. A response that arrives after the context is done is dropped by
-// the receive path (see handleBlock/handleNoBlock), and a subsequent request
-// waits for that late response to drain so it can never be mis-delivered. If
-// the late response never arrives, that subsequent request fails the
-// connection rather than reusing the slot (see acquireSlot).
+// the receive path, and a subsequent request waits for that late response to
+// drain so it can never be mis-delivered. If the late response never arrives,
+// that subsequent request fails the connection rather than reusing the slot
+// (see acquireSlot).
 func (c *Client) BlockRequest(
 	ctx context.Context,
 	point pcommon.Point,
@@ -437,10 +437,6 @@ func (c *Client) BlockRequest(
 	}
 	select {
 	case resp := <-w:
-		// The server reported the endorser block as not available
-		if _, ok := resp.(*MsgNoBlock); ok {
-			return nil, ErrBlockNotFound
-		}
 		return resp, nil
 	case <-ctx.Done():
 		c.blockRequestSlot.abandon(w)
@@ -472,10 +468,6 @@ func (c *Client) BlockTxsRequest(
 	}
 	select {
 	case resp := <-w:
-		// The server reported the endorser block transactions as not available
-		if _, ok := resp.(*MsgNoBlockTxs); ok {
-			return nil, ErrBlockTxsNotFound
-		}
 		return resp, nil
 	case <-ctx.Done():
 		c.blockRequestSlot.abandon(w)
@@ -578,12 +570,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	switch msg.Type() {
 	case MessageTypeBlock:
 		c.handleBlock(msg)
-	case MessageTypeNoBlock:
-		c.handleNoBlock(msg)
 	case MessageTypeBlockTxs:
 		c.handleBlockTxs(msg)
-	case MessageTypeNoBlockTxs:
-		c.handleNoBlockTxs(msg)
 	case MessageTypeVotes:
 		c.handleVotes(msg)
 	case MessageTypeNextBlockAndTxsInRange:
@@ -622,33 +610,7 @@ func (c *Client) handleBlock(msg protocol.Message) {
 	}
 }
 
-func (c *Client) handleNoBlock(msg protocol.Message) {
-	c.Protocol.Logger().
-		Debug("endorser block not available",
-			"component", "network",
-			"protocol", ProtocolName,
-			"role", "client",
-			"connection_id", c.callbackContext.ConnectionId.String(),
-		)
-	if !c.blockRequestSlot.deliver(msg, true) {
-		c.logDroppedResponse(msg)
-	}
-}
-
 func (c *Client) handleBlockTxs(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg, true) {
-		c.logDroppedResponse(msg)
-	}
-}
-
-func (c *Client) handleNoBlockTxs(msg protocol.Message) {
-	c.Protocol.Logger().
-		Debug("endorser block transactions not available",
-			"component", "network",
-			"protocol", ProtocolName,
-			"role", "client",
-			"connection_id", c.callbackContext.ConnectionId.String(),
-		)
 	if !c.blockRequestSlot.deliver(msg, true) {
 		c.logDroppedResponse(msg)
 	}

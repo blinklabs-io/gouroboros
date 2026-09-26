@@ -50,14 +50,14 @@ func getTestDefinitions() []testDefinition {
 					testPointHash(0x01),
 				),
 			),
-			MessageType: MessageTypeBlockRequest,
+			MessageType: 0,
 		},
 		{
 			Name: "MsgBlock",
 			Message: NewMsgBlock(
 				cbor.RawMessage([]byte{0x82, 0x01, 0x02}),
 			),
-			MessageType: MessageTypeBlock,
+			MessageType: 1,
 		},
 		{
 			Name: "MsgBlockTxsRequest",
@@ -71,7 +71,7 @@ func getTestDefinitions() []testDefinition {
 					64: 0x00ff000000000000,
 				},
 			),
-			MessageType: MessageTypeBlockTxsRequest,
+			MessageType: 2,
 		},
 		{
 			Name: "MsgBlockTxs",
@@ -81,7 +81,7 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x03, 0x04},
 				},
 			),
-			MessageType: MessageTypeBlockTxs,
+			MessageType: 3,
 		},
 		{
 			Name: "MsgVotesRequest",
@@ -91,7 +91,7 @@ func getTestDefinitions() []testDefinition {
 					{SlotNo: 200, VoterId: 2},
 				},
 			),
-			MessageType: MessageTypeVotesRequest,
+			MessageType: 4,
 		},
 		{
 			Name: "MsgVotes",
@@ -101,7 +101,7 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x07, 0x08},
 				},
 			),
-			MessageType: MessageTypeVotes,
+			MessageType: 5,
 		},
 		{
 			Name: "MsgBlockRangeRequest",
@@ -115,7 +115,7 @@ func getTestDefinitions() []testDefinition {
 					testPointHash(0x09),
 				),
 			),
-			MessageType: MessageTypeBlockRangeRequest,
+			MessageType: 6,
 		},
 		{
 			Name: "MsgNextBlockAndTxsInRange",
@@ -125,7 +125,7 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x03, 0x04},
 				},
 			),
-			MessageType: MessageTypeNextBlockAndTxsInRange,
+			MessageType: 7,
 		},
 		{
 			Name: "MsgLastBlockAndTxsInRange",
@@ -136,23 +136,38 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x0d, 0x0e},
 				},
 			),
-			MessageType: MessageTypeLastBlockAndTxsInRange,
+			MessageType: 8,
 		},
 		{
 			Name:        "MsgDone",
 			Message:     NewMsgDone(),
-			MessageType: MessageTypeDone,
+			MessageType: 9,
 		},
-		{
-			Name:        "MsgNoBlock",
-			Message:     NewMsgNoBlock(),
-			MessageType: MessageTypeNoBlock,
-		},
-		{
-			Name:        "MsgNoBlockTxs",
-			Message:     NewMsgNoBlockTxs(),
-			MessageType: MessageTypeNoBlockTxs,
-		},
+	}
+}
+
+func TestMessageTagFixtures(t *testing.T) {
+	for _, test := range getTestDefinitions() {
+		t.Run(test.Name, func(t *testing.T) {
+			require.Equal(t, uint8(test.MessageType), test.Message.Type())
+			encoded, err := cbor.Encode(test.Message)
+			require.NoError(t, err)
+			var fields []cbor.RawMessage
+			_, err = cbor.Decode(encoded, &fields)
+			require.NoError(t, err)
+			require.NotEmpty(t, fields)
+			var got uint
+			_, err = cbor.Decode(fields[0], &got)
+			require.NoError(t, err)
+			require.Equal(t, test.MessageType, got)
+		})
+	}
+}
+
+func TestUnknownLeiosFetchMessageIDsRejected(t *testing.T) {
+	for _, id := range []uint{10, 11} {
+		_, err := NewMsgFromCbor(id, []byte{0x81, byte(id)})
+		require.Error(t, err)
 	}
 }
 
@@ -405,36 +420,6 @@ func TestMsgDone(t *testing.T) {
 	assert.Equal(t, uint8(MessageTypeDone), msg.Type())
 }
 
-func TestMsgNoBlock(t *testing.T) {
-	msg := NewMsgNoBlock()
-
-	assert.Equal(t, uint8(MessageTypeNoBlock), msg.Type())
-
-	encoded, err := cbor.Encode(msg)
-	require.NoError(t, err)
-
-	decoded, err := NewMsgFromCbor(MessageTypeNoBlock, encoded)
-	require.NoError(t, err)
-	decodedMsg, ok := decoded.(*MsgNoBlock)
-	require.True(t, ok, "expected *MsgNoBlock")
-	assert.Equal(t, uint8(MessageTypeNoBlock), decodedMsg.MessageType)
-}
-
-func TestMsgNoBlockTxs(t *testing.T) {
-	msg := NewMsgNoBlockTxs()
-
-	assert.Equal(t, uint8(MessageTypeNoBlockTxs), msg.Type())
-
-	encoded, err := cbor.Encode(msg)
-	require.NoError(t, err)
-
-	decoded, err := NewMsgFromCbor(MessageTypeNoBlockTxs, encoded)
-	require.NoError(t, err)
-	decodedMsg, ok := decoded.(*MsgNoBlockTxs)
-	require.True(t, ok, "expected *MsgNoBlockTxs")
-	assert.Equal(t, uint8(MessageTypeNoBlockTxs), decodedMsg.MessageType)
-}
-
 func TestNewMsgFromCborUnknownType(t *testing.T) {
 	data := []byte{0x80} // empty array
 	msg, err := NewMsgFromCbor(999, data)
@@ -442,6 +427,12 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 	assert.Nil(t, msg)
 	assert.Contains(t, err.Error(), ProtocolName)
 	assert.Contains(t, err.Error(), "999")
+}
+
+func TestNewMsgFromCborRejectsMismatchedType(t *testing.T) {
+	_, err := NewMsgFromCbor(MessageTypeDone, []byte{0x81, MessageTypeVotes})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "message type mismatch")
 }
 
 func TestMsgBlockTxsRequestEmptyBitmaps(t *testing.T) {

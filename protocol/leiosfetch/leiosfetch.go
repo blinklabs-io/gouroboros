@@ -69,10 +69,6 @@ var StateMap = protocol.StateMap{
 				MsgType:  MessageTypeBlock,
 				NewState: StateIdle,
 			},
-			{
-				MsgType:  MessageTypeNoBlock,
-				NewState: StateIdle,
-			},
 		},
 	},
 	StateBlockTxs: protocol.StateMapEntry{
@@ -80,10 +76,6 @@ var StateMap = protocol.StateMap{
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlockTxs,
-				NewState: StateIdle,
-			},
-			{
-				MsgType:  MessageTypeNoBlockTxs,
 				NewState: StateIdle,
 			},
 		},
@@ -137,11 +129,9 @@ type CallbackContext struct {
 
 // Callback function types
 //
-// BlockRequestFunc and BlockTxsRequestFunc may return ErrBlockNotFound /
-// ErrBlockTxsNotFound (directly or wrapped) to signal that the requested data
-// is not available. The server then responds with MsgNoBlock / MsgNoBlockTxs
-// rather than propagating the error and tearing down the connection. Any other
-// error is treated as a protocol violation.
+// Errors from BlockRequestFunc and BlockTxsRequestFunc are propagated as
+// protocol errors. LeiosFetch defines no not-found response, so returning
+// ErrBlockNotFound or ErrBlockTxsNotFound ends the connection.
 type (
 	BlockRequestFunc      func(CallbackContext, pcommon.Point) (protocol.Message, error)
 	BlockTxsRequestFunc   func(CallbackContext, pcommon.Point, map[uint16]uint64) (protocol.Message, error)

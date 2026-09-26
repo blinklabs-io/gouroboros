@@ -46,6 +46,10 @@ The LeiosNotify protocol provides notifications about new Leios blocks, transact
 | `VotesOffer` | 4 | Server → Client | Offer votes for download |
 | `Done` | 5 | Client → Server | Terminate protocol |
 
+These tags match the [`leios-prototype` CDDL at revision
+8b946c4](https://github.com/cardano-scaling/cardano-blueprint/blob/8b946c431e3209b2aa70bf5362f64f42e56fb849/src/network/node-to-node/leios-notify/messages.cddl).
+That prototype describes its CDDL tags as provisional.
+
 ## State Transitions
 
 ### From Idle (Client Agency)

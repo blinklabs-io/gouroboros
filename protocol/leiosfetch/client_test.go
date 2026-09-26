@@ -82,18 +82,8 @@ func TestClientMessageHandler(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "NoBlock message",
-			msg:         NewMsgNoBlock(),
-			expectError: false,
-		},
-		{
 			name:        "BlockTxs message",
 			msg:         NewMsgBlockTxs(nil),
-			expectError: false,
-		},
-		{
-			name:        "NoBlockTxs message",
-			msg:         NewMsgNoBlockTxs(),
 			expectError: false,
 		},
 		{
@@ -122,7 +112,7 @@ func TestClientMessageHandler(t *testing.T) {
 			// the request under test.
 			var deliverCh chan protocol.Message
 			switch tc.msg.Type() {
-			case MessageTypeBlock, MessageTypeNoBlock, MessageTypeBlockTxs, MessageTypeNoBlockTxs,
+			case MessageTypeBlock, MessageTypeBlockTxs,
 				MessageTypeVotes, MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
 				w, err := client.blockRequestSlot.acquire(
 					context.Background(), client.DoneChan(),
@@ -356,25 +346,23 @@ func TestStateTransitions(t *testing.T) {
 		assert.Equal(t, expected, trans.NewState)
 	}
 
-	// Test transitions from Block state: both Block and NoBlock return to Idle
+	// Test the Block response transition.
 	blockEntry := StateMap[StateBlock]
-	require.Len(t, blockEntry.Transitions, 2)
+	require.Len(t, blockEntry.Transitions, 1)
 	blockTransitions := map[uint8]protocol.State{}
 	for _, trans := range blockEntry.Transitions {
 		blockTransitions[trans.MsgType] = trans.NewState
 	}
 	assert.Equal(t, StateIdle, blockTransitions[MessageTypeBlock])
-	assert.Equal(t, StateIdle, blockTransitions[MessageTypeNoBlock])
 
-	// Test transitions from BlockTxs state: both BlockTxs and NoBlockTxs return to Idle
+	// Test the BlockTxs response transition.
 	blockTxsEntry := StateMap[StateBlockTxs]
-	require.Len(t, blockTxsEntry.Transitions, 2)
+	require.Len(t, blockTxsEntry.Transitions, 1)
 	blockTxsTransitions := map[uint8]protocol.State{}
 	for _, trans := range blockTxsEntry.Transitions {
 		blockTxsTransitions[trans.MsgType] = trans.NewState
 	}
 	assert.Equal(t, StateIdle, blockTxsTransitions[MessageTypeBlockTxs])
-	assert.Equal(t, StateIdle, blockTxsTransitions[MessageTypeNoBlockTxs])
 
 	// Test transitions from BlockRange state
 	blockRangeEntry := StateMap[StateBlockRange]

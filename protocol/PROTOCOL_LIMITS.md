@@ -220,6 +220,18 @@ defaults to 1, and limits one request to 1,000 votes (the default is also
 before parsing the vote list. Invalid configured values are rejected by their
 constructors.
 
+## Peras Vote Diffusion
+
+| State | Timeout | Pending bytes |
+| --- | ---: | ---: |
+| Init, Idle, ObjectIDsBlocking | none | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsNonBlocking, Objects | 5 seconds by default | `maxObjectsUnacknowledged × 1,100 + 256` |
+| Done | none | none |
+
+The outstanding object window defaults to 50 and can be configured up to
+1,000. The timeout is configurable and bounds non-blocking ID and object
+requests; blocking ID requests wait for an available vote.
+
 ## Enforcement scope
 
 State-map timeouts and pending-message limits are enforced by the protocol

@@ -103,16 +103,10 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRequestFunc == nil {
-		// NOTE: this MUST answer, not return nil. Returning nil left the
-		// protocol in StateBlock holding server agency forever, which wedges
-		// the requester's client permanently: its send loop waits for agency
-		// that only this response can return, so it can never issue another
-		// leios-fetch request on the connection (dingo issue #3623). The
-		// MessageTypeNoBlock wire ID is a placeholder, but a configured
-		// callback that reports ErrBlockNotFound already emits it below, so
-		// declining here adds no wire risk that the normal path does not
-		// already take.
-		return s.SendMessage(NewMsgNoBlock())
+		return errors.New(
+			"received leios-fetch BlockRequest message " +
+				"but no callback function is defined",
+		)
 	}
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
@@ -120,8 +114,6 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 		msgBlockRequest.Point,
 	)
 	if err != nil {
-		// A not-found signal is answered with MsgNoBlock rather than being
-		// propagated as a protocol violation that tears down the connection.
 		if errors.Is(err, ErrBlockNotFound) {
 			s.Protocol.Logger().
 				Debug("endorser block not available",
@@ -135,7 +127,6 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 						msgBlockRequest.Point.Hash,
 					),
 				)
-			return s.SendMessage(NewMsgNoBlock())
 		}
 		return err
 	}
@@ -159,12 +150,10 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockTxsRequestFunc == nil {
-		// NOTE: as with handleBlockRequest, this MUST answer. Retaining
-		// server agency in StateBlockTxs permanently desynchronises the
-		// requester's leios-fetch client (dingo issue #3623), and the
-		// configured not-available path below already puts this wire ID on
-		// the wire.
-		return s.SendMessage(NewMsgNoBlockTxs())
+		return errors.New(
+			"received leios-fetch BlockTxsRequest message " +
+				"but no callback function is defined",
+		)
 	}
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
@@ -173,8 +162,6 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 		msgBlockTxsRequest.Bitmaps,
 	)
 	if err != nil {
-		// A not-found signal is answered with MsgNoBlockTxs rather than being
-		// propagated as a protocol violation that tears down the connection.
 		if errors.Is(err, ErrBlockTxsNotFound) {
 			s.Protocol.Logger().
 				Debug("endorser block transactions not available",
@@ -188,7 +175,6 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 						msgBlockTxsRequest.Point.Hash,
 					),
 				)
-			return s.SendMessage(NewMsgNoBlockTxs())
 		}
 		return err
 	}
