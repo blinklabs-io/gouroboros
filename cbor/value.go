@@ -15,16 +15,24 @@
 package cbor
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
+	"math"
 	"math/big"
 	"reflect"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+
+	_cbor "github.com/fxamacker/cbor/v2"
 )
 
 // Helpful wrapper for parsing arbitrary CBOR data which may contain types that
@@ -45,7 +53,17 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 	if len(data) == 0 {
 		return errors.New("empty CBOR data")
 	}
-	_, err := v.unmarshalCBOR(data, true, 0)
+	decMode, err := getDecMode()
+	if err != nil {
+		return err
+	}
+	_, err = v.unmarshalCBOR(
+		data,
+		true,
+		0,
+		rejectDuplicateMapKeys,
+		decMode,
+	)
 	return err
 }
 
@@ -53,6 +71,8 @@ func (v *Value) unmarshalCBOR(
 	data []byte,
 	retainCbor bool,
 	depth int,
+	duplicateKeyPolicy duplicateMapKeyPolicy,
+	decMode _cbor.DecMode,
 ) (int, error) {
 	if len(data) == 0 {
 		return 0, io.ErrUnexpectedEOF
@@ -72,12 +92,17 @@ func (v *Value) unmarshalCBOR(
 	cborType := data[0] & CborTypeMask
 	switch cborType {
 	case CborTypeMap:
-		return v.processMap(data, depth)
+		return v.processMap(data, depth, duplicateKeyPolicy, decMode)
 	case CborTypeArray:
-		return v.processArray(data, depth)
+		return v.processArray(data, depth, duplicateKeyPolicy, decMode)
 	case CborTypeTextString:
 		var tmpValue string
-		decodedLength, err := Decode(data, &tmpValue)
+		decodedLength, err := decodeWithMode(
+			data,
+			&tmpValue,
+			decMode,
+			duplicateKeyPolicy,
+		)
 		if err != nil {
 			return 0, err
 		}
@@ -86,7 +111,12 @@ func (v *Value) unmarshalCBOR(
 	case CborTypeByteString:
 		// Use our custom type which stores the bytestring in a way that allows it to be used as a map key
 		var tmpValue ByteString
-		decodedLength, err := Decode(data, &tmpValue)
+		decodedLength, err := decodeWithMode(
+			data,
+			&tmpValue,
+			decMode,
+			duplicateKeyPolicy,
+		)
 		if err != nil {
 			return 0, err
 		}
@@ -95,21 +125,36 @@ func (v *Value) unmarshalCBOR(
 	case CborTypeTag:
 		// Parse as a raw tag to get number and nested CBOR data
 		tmpTag := RawTag{}
-		decodedLength, err := Decode(data, &tmpTag)
+		decodedLength, err := decodeWithMode(
+			data,
+			&tmpTag,
+			decMode,
+			duplicateKeyPolicy,
+		)
 		if err != nil {
 			return 0, err
 		}
 		if IsAlternativeTag(tmpTag.Number) {
 			// Constructors/alternatives
 			var tmpConstr ConstructorDecoder
-			if _, err := Decode(data, &tmpConstr); err != nil {
+			if _, err := decodeWithMode(
+				data,
+				&tmpConstr,
+				decMode,
+				duplicateKeyPolicy,
+			); err != nil {
 				return 0, err
 			}
 			v.value = tmpConstr
 		} else {
 			// Fall back to standard CBOR tag parsing for our supported types
 			var tmpTagDecode any
-			if _, err := Decode(data, &tmpTagDecode); err != nil {
+			if _, err := decodeWithMode(
+				data,
+				&tmpTagDecode,
+				decMode,
+				duplicateKeyPolicy,
+			); err != nil {
 				return 0, err
 			}
 			v.value = tmpTagDecode
@@ -117,7 +162,12 @@ func (v *Value) unmarshalCBOR(
 		return decodedLength, nil
 	default:
 		var tmpValue any
-		decodedLength, err := Decode(data, &tmpValue)
+		decodedLength, err := decodeWithMode(
+			data,
+			&tmpValue,
+			decMode,
+			duplicateKeyPolicy,
+		)
 		if err != nil {
 			return 0, err
 		}
@@ -155,7 +205,12 @@ func (v Value) MarshalJSON() ([]byte, error) {
 	return []byte(tmpJson), nil
 }
 
-func (v *Value) processMap(data []byte, depth int) (decodedLength int, err error) {
+func (v *Value) processMap(
+	data []byte,
+	depth int,
+	duplicateKeyPolicy duplicateMapKeyPolicy,
+	decMode _cbor.DecMode,
+) (decodedLength int, err error) {
 	// There are certain types that cannot be used as map keys in Go but are valid in CBOR. Trying to
 	// parse CBOR containing a map with keys of one of those types will cause a panic. We setup this
 	// deferred function to recover from a possible panic and return an error
@@ -175,6 +230,7 @@ func (v *Value) processMap(data []byte, depth int) (decodedLength int, err error
 		return 0, errors.New("invalid CBOR map header")
 	}
 	newValue := map[any]any{}
+	seenKeys := make(map[string]any)
 	position := int(headerLength)
 	for itemIndex := 0; indefinite || itemIndex < itemCount; itemIndex++ {
 		if position >= len(data) {
@@ -187,37 +243,68 @@ func (v *Value) processMap(data []byte, depth int) (decodedLength int, err error
 		}
 
 		var key Value
-		keyLength, keyErr := key.unmarshalCBOR(data[position:], false, depth+1)
+		keyLength, keyErr := key.unmarshalCBOR(
+			data[position:],
+			false,
+			depth+1,
+			duplicateKeyPolicy,
+			decMode,
+		)
 		if keyErr != nil {
 			return 0, keyErr
 		}
 		position += keyLength
+		keyValue := key.Value()
+		keyComparable := isReflexiveMapKey(keyValue)
+		keyIdentity := mapKeyIdentity(keyValue)
+		storageKey, duplicate := seenKeys[keyIdentity]
+		if duplicate && duplicateKeyPolicy == rejectDuplicateMapKeys {
+			return 0, &_cbor.DupMapKeyError{
+				Key:   keyValue,
+				Index: itemIndex,
+			}
+		}
 		if position >= len(data) {
 			return 0, io.ErrUnexpectedEOF
 		}
 
 		var value Value
-		valueLength, valueErr := value.unmarshalCBOR(data[position:], false, depth+1)
+		valueLength, valueErr := value.unmarshalCBOR(
+			data[position:],
+			false,
+			depth+1,
+			duplicateKeyPolicy,
+			decMode,
+		)
 		if valueErr != nil {
 			return 0, valueErr
 		}
 		position += valueLength
 
-		// CBOR null/undefined map keys decode to a nil *Value, which is
-		// represented as a nil map key
-		var keyValue any
-		keyValue = key.Value()
-		// Use a pointer for unhashable key types
-		if keyValue != nil && !reflect.TypeOf(keyValue).Comparable() {
-			keyValue = &keyValue
+		if duplicate {
+			newValue[storageKey] = value.Value()
+			continue
 		}
-		newValue[keyValue] = value.Value()
+
+		newStorageKey := keyValue
+		if !keyComparable {
+			// Use a pointer for unhashable keys and values, such as NaN, that do
+			// not compare equal to themselves.
+			newStorageKey = &keyValue
+		}
+		seenKeys[keyIdentity] = newStorageKey
+		newValue[newStorageKey] = value.Value()
 	}
 	v.value = newValue
 	return position, nil
 }
 
-func (v *Value) processArray(data []byte, depth int) (int, error) {
+func (v *Value) processArray(
+	data []byte,
+	depth int,
+	duplicateKeyPolicy duplicateMapKeyPolicy,
+	decMode _cbor.DecMode,
+) (int, error) {
 	itemCount, headerLength, indefinite := ArrayInfo(data)
 	if itemCount < 0 {
 		return 0, errors.New("invalid CBOR array header")
@@ -235,7 +322,13 @@ func (v *Value) processArray(data []byte, depth int) (int, error) {
 		}
 
 		var value Value
-		valueLength, err := value.unmarshalCBOR(data[position:], false, depth+1)
+		valueLength, err := value.unmarshalCBOR(
+			data[position:],
+			false,
+			depth+1,
+			duplicateKeyPolicy,
+			decMode,
+		)
 		if err != nil {
 			return 0, err
 		}
@@ -244,6 +337,135 @@ func (v *Value) processArray(data []byte, depth int) (int, error) {
 	}
 	v.value = newValue
 	return position, nil
+}
+
+func isReflexiveMapKey(key any) bool {
+	if key == nil {
+		return true
+	}
+	return reflect.ValueOf(key).Comparable() && key == key
+}
+
+func mapKeyIdentity(key any) string {
+	digest := mapKeyDigest(key)
+	return string(digest[:])
+}
+
+func mapKeyDigest(key any) [sha256.Size]byte {
+	digest := sha256.New()
+	appendMapKeyDigest(digest, key)
+	var ret [sha256.Size]byte
+	copy(ret[:], digest.Sum(nil))
+	return ret
+}
+
+func appendMapKeyDigest(digest hash.Hash, key any) {
+	writeBytes := func(marker byte, value []byte) {
+		_, _ = digest.Write([]byte{marker})
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
+		_, _ = digest.Write(length[:])
+		_, _ = digest.Write(value)
+	}
+	writeUint := func(marker byte, value uint64) {
+		_, _ = digest.Write([]byte{marker})
+		var encoded [8]byte
+		binary.BigEndian.PutUint64(encoded[:], value)
+		_, _ = digest.Write(encoded[:])
+	}
+	writeSequence := func(marker byte, values []any) {
+		writeUint(marker, uint64(len(values)))
+		for _, value := range values {
+			childDigest := mapKeyDigest(value)
+			_, _ = digest.Write(childDigest[:])
+		}
+	}
+	writeMap := func(marker byte, values map[any]any) {
+		entries := make([][sha256.Size * 2]byte, 0, len(values))
+		for key, value := range values {
+			keyDigest := mapKeyDigest(key)
+			valueDigest := mapKeyDigest(value)
+			var entry [sha256.Size * 2]byte
+			copy(entry[:sha256.Size], keyDigest[:])
+			copy(entry[sha256.Size:], valueDigest[:])
+			entries = append(entries, entry)
+		}
+		sort.Slice(entries, func(i, j int) bool {
+			return bytes.Compare(entries[i][:], entries[j][:]) < 0
+		})
+		writeUint(marker, uint64(len(entries)))
+		for _, entry := range entries {
+			_, _ = digest.Write(entry[:])
+		}
+	}
+
+	switch key := key.(type) {
+	case nil:
+		_, _ = digest.Write([]byte{'n'})
+	case bool:
+		if key {
+			_, _ = digest.Write([]byte{'b', 1})
+		} else {
+			_, _ = digest.Write([]byte{'b', 0})
+		}
+	case uint64:
+		writeBytes('i', []byte(strconv.FormatUint(key, 10)))
+	case int64:
+		writeBytes('i', []byte(strconv.FormatInt(key, 10)))
+	case float64:
+		bits := math.Float64bits(key)
+		if key == 0 {
+			bits = 0
+		}
+		writeUint('f', bits)
+	case string:
+		writeBytes('s', []byte(key))
+	case ByteString:
+		writeBytes('x', key.Bytes())
+	case []byte:
+		writeBytes('x', key)
+	case WrappedCbor:
+		writeBytes('w', key)
+	case big.Int:
+		writeBytes('i', []byte(key.String()))
+	case *big.Int:
+		if key == nil {
+			_, _ = digest.Write([]byte{'G', 0})
+		} else {
+			writeBytes('i', []byte(key.String()))
+		}
+	case []any:
+		writeSequence('a', key)
+	case Set:
+		writeSequence('e', []any(key))
+	case map[any]any:
+		writeMap('m', key)
+	case Map:
+		writeMap('M', map[any]any(key))
+	case *any:
+		if key == nil {
+			_, _ = digest.Write([]byte{'p', 0})
+		} else {
+			appendMapKeyDigest(digest, *key)
+		}
+	case ConstructorDecoder:
+		writeUint('c', uint64(key.Tag()))
+		writeBytes('C', key.Fields())
+	case _cbor.Tag:
+		writeUint('g', key.Number)
+		appendMapKeyDigest(digest, key.Content)
+	case RawTag:
+		writeUint('t', key.Number)
+		writeBytes('T', key.Content)
+	case Rat:
+		if key.Rat == nil {
+			_, _ = digest.Write([]byte{'r', 0})
+		} else {
+			writeBytes('r', []byte(key.Rat.RatString()))
+		}
+	default:
+		writeBytes('?', []byte(fmt.Sprintf("%T:%#v", key, key)))
+	}
 }
 
 func isUnhashableMapKeyPanic(r any) bool {

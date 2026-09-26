@@ -624,7 +624,7 @@ func (o *DijkstraTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		o.Output = &tmp
 	case cbor.CborTypeMap:
 		var tmp babbage.BabbageTransactionOutput
-		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 			return err
 		}
 		if err := common.CheckAddressPointerInRange(
@@ -1117,7 +1117,7 @@ type DijkstraTransactionBody struct {
 func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tDijkstraTransactionBody DijkstraTransactionBody
 	var tmp tDijkstraTransactionBody
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
 	for idx := range tmp.TxOutputs {
@@ -1546,7 +1546,7 @@ type DijkstraSubTransactionBody struct {
 func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tDijkstraSubTransactionBody DijkstraSubTransactionBody
 	var tmp tDijkstraSubTransactionBody
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
 	for idx := range tmp.TxOutputs {
