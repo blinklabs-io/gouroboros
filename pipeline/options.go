@@ -34,8 +34,10 @@ type PipelineConfig struct {
 	// PrefetchBufferSize is the buffer size for inter-stage channels.
 	PrefetchBufferSize int
 	// MaxPendingBlocks limits out-of-order blocks buffered in the apply stage.
-	// This prevents unbounded memory growth when blocks arrive out of order.
-	// Default is 2160 (Cardano security parameter k).
+	// Submit applies backpressure before assigning a sequence when accepting
+	// another block could exceed this limit. One additional sequence may be in
+	// flight to occupy the missing earliest position. Default is 2160 (Cardano
+	// security parameter k); zero disables the limit.
 	MaxPendingBlocks int
 	// Eta0Provider dynamically provides the epoch nonce for each block's slot.
 	// This is required for VRF validation since the epoch nonce changes every epoch.
@@ -124,7 +126,8 @@ func WithPrefetchBufferSize(size int) PipelineOption {
 }
 
 // WithMaxPendingBlocks sets the limit for out-of-order blocks in the apply stage.
-// This prevents unbounded memory growth. Default is 2160 (Cardano security parameter).
+// Submit applies backpressure before assigning a sequence when accepting another
+// block could exceed this limit. Default is 2160 (Cardano security parameter).
 func WithMaxPendingBlocks(n int) PipelineOption {
 	return func(c *PipelineConfig) {
 		if n > 0 {

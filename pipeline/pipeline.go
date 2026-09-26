@@ -155,6 +155,36 @@ func (p *BlockPipeline) unlockSubmit() {
 	p.submitGate <- struct{}{}
 }
 
+// waitForPendingCapacity applies backpressure before Submit assigns a sequence.
+// One additional accepted sequence is allowed beyond the pending limit so the
+// missing earliest sequence can be in flight while MaxPendingBlocks later
+// sequences wait in ApplyStage.
+func (p *BlockPipeline) waitForPendingCapacity(ctx context.Context) error {
+	if p.config.MaxPendingBlocks <= 0 {
+		return nil
+	}
+	maxPending := uint64(p.config.MaxPendingBlocks)
+	for {
+		p.completionMu.Lock()
+		submitted := p.sequenceCounter.Load()
+		completed := p.completedSequence.Load()
+		if submitted <= completed || submitted-completed <= maxPending {
+			p.completionMu.Unlock()
+			return nil
+		}
+		completionChan := p.completionChan
+		p.completionMu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-p.ctx.Done():
+			return ErrPipelineStopped
+		case <-completionChan:
+		}
+	}
+}
+
 // Start starts the pipeline processing.
 func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.mu.Lock()
@@ -283,6 +313,15 @@ func (p *BlockPipeline) Submit(
 	defer p.unlockSubmit()
 	if p.testSubmitLocked != nil {
 		p.testSubmitLocked()
+	}
+	if err := p.waitForPendingCapacity(ctx); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p.ctx.Err() != nil || p.stopping.Load() || p.stopped.Load() {
+		return ErrPipelineStopped
 	}
 
 	// Commit a sequence number only after its item was successfully enqueued.
