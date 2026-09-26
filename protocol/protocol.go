@@ -1639,7 +1639,6 @@ func (p *Protocol) readLoop() {
 		peerAgencyChecked = false
 		messageStateSet = false
 		messageHasAgency = false
-		pendingPipelinedRequests = 0
 		// Hand the consumed bytes back to the connection-wide allowance.
 		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
 	}
