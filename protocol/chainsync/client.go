@@ -1324,7 +1324,11 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 						"component", "network",
 						"protocol", ProtocolName,
 					)
-				// Continue with rollback even if drain fails
+				return fmt.Errorf(
+					"%s: failed to drain pipeline before rollback: %w",
+					ProtocolName,
+					err,
+				)
 			}
 		case <-c.DoneChan():
 			// Protocol is shutting down, skip waiting for drain
@@ -1333,6 +1337,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 					"component", "network",
 					"protocol", ProtocolName,
 				)
+			return protocol.ErrProtocolShuttingDown
 		}
 	}
 

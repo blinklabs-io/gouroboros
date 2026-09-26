@@ -284,3 +284,96 @@ func TestAwaitReplyWaitsForPipelineFence(t *testing.T) {
 		t.Fatal("AwaitReply callback did not run after the pipeline fence")
 	}
 }
+
+func newBlockedApplyPipeline(t *testing.T) *pipeline.BlockPipeline {
+	t.Helper()
+	applyStarted := make(chan struct{})
+	releaseApply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseApply) })
+	}
+	p := pipeline.NewBlockPipeline(
+		pipeline.WithDecodeWorkers(1),
+		pipeline.WithValidateWorkers(0),
+		pipeline.WithSkipBodyHashValidation(true),
+		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error {
+			close(applyStarted)
+			<-releaseApply
+			return nil
+		}),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	t.Cleanup(func() {
+		release()
+		if err := p.Stop(); err != nil {
+			t.Errorf("stop pipeline: %v", err)
+		}
+	})
+	require.NoError(
+		t,
+		p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			testdata.MustDecodeHex(testdata.ConwayBlockHex),
+			Tip{},
+		),
+	)
+	select {
+	case <-applyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline apply did not start")
+	}
+	return p
+}
+
+func TestRollBackwardReturnsDrainErrorWithoutCallback(t *testing.T) {
+	p := newBlockedApplyPipeline(t)
+	callbackCalled := false
+	client := NewClient(
+		protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+		&Config{
+			Pipeline:             p,
+			PipelineDrainTimeout: 25 * time.Millisecond,
+			RollBackwardFunc: func(CallbackContext, pcommon.Point, Tip) error {
+				callbackCalled = true
+				return nil
+			},
+		},
+	)
+
+	err := client.handleRollBackward(NewMsgRollBackward(pcommon.Point{}, Tip{}))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.False(t, callbackCalled)
+}
+
+func TestRollBackwardShutdownSkipsCallback(t *testing.T) {
+	p := newBlockedApplyPipeline(t)
+	callbackCalled := false
+	client := NewClient(
+		protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+		&Config{
+			Pipeline:             p,
+			PipelineDrainTimeout: time.Second,
+			RollBackwardFunc: func(CallbackContext, pcommon.Point, Tip) error {
+				callbackCalled = true
+				return nil
+			},
+		},
+	)
+	rollbackDone := make(chan error, 1)
+	go func() {
+		rollbackDone <- client.handleRollBackward(
+			NewMsgRollBackward(pcommon.Point{}, Tip{}),
+		)
+	}()
+	client.Protocol.Stop()
+
+	select {
+	case err := <-rollbackDone:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		t.Fatal("roll-back handler did not stop with the protocol")
+	}
+	require.False(t, callbackCalled)
+}
