@@ -79,14 +79,14 @@ func TestGetLedgerPeerSnapshotIntegration(t *testing.T) {
 	}()
 
 	snap, err := oConn.LocalStateQuery().Client.GetLedgerPeerSnapshot(
-		localstatequery.LedgerPeerKindAll,
+		localstatequery.LedgerPeerKindBig,
 	)
 	if err != nil {
 		t.Fatalf("GetLedgerPeerSnapshot: %s", err)
 	}
 
-	if snap.Version != 0 {
-		t.Fatalf("snapshot version: got %d want 0 (V1)", snap.Version)
+	if snap.Version != 1 {
+		t.Fatalf("snapshot version: got %d want 1 (V2)", snap.Version)
 	}
 	if len(snap.Pools) == 0 {
 		t.Fatal("expected at least one pool in the snapshot")

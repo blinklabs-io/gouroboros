@@ -30,3 +30,15 @@ var ErrAcquireFailurePointNotOnChain = errors.New(
 var ErrLedgerPeerSnapshotUnsupportedVersion = errors.New(
 	"GetLedgerPeerSnapshot requires node-to-client protocol version 19 or later",
 )
+
+// ErrLedgerPeerSnapshotUnsupportedWireVersion indicates a snapshot CBOR
+// version whose result layout is not supported by this implementation.
+var ErrLedgerPeerSnapshotUnsupportedWireVersion = errors.New(
+	"unsupported LedgerPeerSnapshot wire version",
+)
+
+// ErrLedgerPeerKindUnsupportedVersion indicates a ledger-peer kind that was
+// added after the latest node-to-client version supported by this package.
+var ErrLedgerPeerKindUnsupportedVersion = errors.New(
+	"LedgerPeerKindAll requires node-to-client protocol version 23 or later",
+)
