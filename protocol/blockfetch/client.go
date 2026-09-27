@@ -177,7 +177,31 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) initProtocol() {
 	c.protoStarted = false
+	stateMap := c.protocolStateMap()
+	// Configure underlying Protocol
+	protoConfig := protocol.ProtocolConfig{
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
+		Muxer:               c.protoOptions.Muxer,
+		Logger:              c.protoOptions.Logger,
+		ErrorChan:           c.protoOptions.ErrorChan,
+		Mode:                c.protoOptions.Mode,
+		Role:                protocol.ProtocolRoleClient,
+		MessageHandlerFunc:  c.messageHandler,
+		MessageFromCborFunc: NewMsgFromCbor,
+		StateMap:            stateMap,
+		InitialState:        StateIdle,
+	}
+	if c.config != nil {
+		protoConfig.RecvQueueSize = c.config.RecvQueueSize
+	}
+	p := protocol.New(protoConfig)
+	c.protocolMu.Lock()
+	c.Protocol = p
+	c.protocolMu.Unlock()
+}
 
+func (c *Client) protocolStateMap() protocol.StateMap {
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[StateBusy]; ok {
@@ -202,27 +226,7 @@ func (c *Client) initProtocol() {
 			stateMap[StateIdle] = entry
 		}
 	}
-	// Configure underlying Protocol
-	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolId,
-		Muxer:               c.protoOptions.Muxer,
-		Logger:              c.protoOptions.Logger,
-		ErrorChan:           c.protoOptions.ErrorChan,
-		Mode:                c.protoOptions.Mode,
-		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
-		InitialState:        StateIdle,
-	}
-	if c.config != nil {
-		protoConfig.RecvQueueSize = c.config.RecvQueueSize
-	}
-	p := protocol.New(protoConfig)
-	c.protocolMu.Lock()
-	c.Protocol = p
-	c.protocolMu.Unlock()
+	return stateMap
 }
 
 func (c *Client) ProtocolInstance() *protocol.Protocol {

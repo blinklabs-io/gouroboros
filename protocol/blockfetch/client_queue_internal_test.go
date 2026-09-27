@@ -1097,6 +1097,33 @@ func bigBlockMsg(t *testing.T) protocol.Message {
 	return msg
 }
 
+func TestRequestPipeliningRaisesIdleMessageLimit(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		requestPipelining bool
+		wantLimit         int
+	}{
+		{
+			name:      "without pipelining",
+			wantLimit: IdleMaxPendingMessageBytes,
+		},
+		{
+			name:              "with pipelining",
+			requestPipelining: true,
+			wantLimit:         PipelinedIdleMaxPendingMessageBytes,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &Client{config: &Config{
+				RequestPipelining: test.requestPipelining,
+			}}
+			entry, ok := client.protocolStateMap()[StateIdle]
+			require.True(t, ok)
+			require.Equal(t, test.wantLimit, entry.PendingMessageByteLimit)
+		})
+	}
+}
+
 // TestPipeliningDoesNotGrantPeerAgencyWithoutOutstandingRequest ensures that
 // enabling request pipelining does not let the peer send after a completed
 // request when no pipelined request remains outstanding.
