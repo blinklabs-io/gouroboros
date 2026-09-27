@@ -74,9 +74,10 @@ type StateMapEntry struct {
 	// keep the remote peer busy across response boundaries. Leaving this
 	// false preserves the strict "send only while holding agency" behavior.
 	AllowPipelinedSend bool
-	// PipelinedMessageTypes limits which messages may use the pipelined send
-	// path while this state is active. An empty list preserves the default of
-	// allowing no pipelined messages.
+	// PipelinedMessageTypes limits which messages may use the pipelined path
+	// while this state is active. Receivers also accept these messages from the
+	// peer when the local role holds agency, since they may be peer-pipelined.
+	// An empty list allows no pipelined messages.
 	PipelinedMessageTypes []uint8
 }
 
