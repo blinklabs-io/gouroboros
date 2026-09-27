@@ -1,6 +1,10 @@
-# Gouroboros Agent Guide
+# gOuroboros Agent Guide
 
 Go library for Cardano: ledger validation across all eras (Byron→Dijkstra), Ouroboros network protocols, CBOR. Primary agent reference; Claude-specific layer in `CLAUDE.md`.
+
+Use `gOuroboros` exactly in prose and headings; do not abbreviate or
+truncate the name. Use lowercase `gouroboros` only where required by
+repository, module, import, or URL identifiers.
 
 ## Commands
 
