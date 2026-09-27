@@ -689,7 +689,7 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	}
 	type tConwayTransactionBody ConwayTransactionBody
 	var tmp tConwayTransactionBody
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
 	if err := common.ValidateMapFields(

@@ -387,7 +387,7 @@ type ShelleyTransactionBody struct {
 func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tShelleyTransactionBody ShelleyTransactionBody
 	var tmp tShelleyTransactionBody
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {

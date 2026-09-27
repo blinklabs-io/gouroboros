@@ -320,7 +320,7 @@ func ValidateMapFields(
 	positiveFields ...uint,
 ) error {
 	var fields map[uint]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &fields); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &fields); err != nil {
 		return err
 	}
 	for _, field := range requiredFields {
@@ -397,7 +397,7 @@ func decodeTransactionBodyFieldPresence(
 	cborData []byte,
 ) (transactionBodyFieldPresence, error) {
 	var bodyFields map[uint]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &bodyFields); err != nil {
 		return transactionBodyFieldPresence{}, err
 	}
 	_, upperBoundPresent := bodyFields[3]
@@ -537,7 +537,7 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 	preserveTotalCollateralZero := TransactionTotalCollateralPresent(body) &&
 		totalCollateral != nil && totalCollateral.Sign() == 0
 	bodyFields := make(map[uint]cbor.RawMessage)
-	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &bodyFields); err != nil {
 		return nil, err
 	}
 	for _, key := range requiredFields {

@@ -248,7 +248,7 @@ type MaryTransactionBody struct {
 func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tMaryTransactionBody MaryTransactionBody
 	var tmp tMaryTransactionBody
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {

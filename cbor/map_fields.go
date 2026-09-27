@@ -27,7 +27,7 @@ func ValidateMapFields(
 	nonEmptyKeys []uint64,
 ) error {
 	var fields map[uint64]RawMessage
-	if _, err := Decode(data, &fields); err != nil {
+	if _, err := DecodeLedgerMap(data, &fields); err != nil {
 		return fmt.Errorf("decode CBOR integer-keyed map: %w", err)
 	}
 	for _, key := range requiredKeys {

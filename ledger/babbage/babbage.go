@@ -433,7 +433,7 @@ type BabbageTransactionBody struct {
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tBabbageTransactionBody BabbageTransactionBody
 	var tmp tBabbageTransactionBody
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
 	for idx := range tmp.TxOutputs {
@@ -744,7 +744,7 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	if len(cborData) > 0 && (cborData[0]&0xe0) == 0xa0 {
 		type tBabbageTransactionOutput BabbageTransactionOutput
 		var tmp tBabbageTransactionOutput
-		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 			return err
 		}
 		*o = BabbageTransactionOutput(tmp)
