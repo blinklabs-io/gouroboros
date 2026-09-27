@@ -195,7 +195,7 @@ func validateAndOrderTxBodies(
 				err,
 			)
 		}
-		if tx.Type() < 0 || uint16(tx.Type()) != body.EraId {
+		if tx.Type() != int(body.EraId) {
 			return nil, invalidTxSubmissionMessage(
 				"transaction decoder returned era %d for era %d body",
 				tx.Type(),
