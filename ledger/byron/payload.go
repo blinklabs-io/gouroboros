@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math/big"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -469,8 +470,16 @@ func proposalMetadataTags(raw cbor.RawMessage) ([]string, error) {
 	return tags, nil
 }
 
-// validateSystemTag reproduces cardano-ledger-byron's checkSystemTag.
+// validateSystemTag reproduces cardano-ledger-byron's checkSystemTag,
+// including its order: the length bound, in characters, before the ASCII
+// check.
 func validateSystemTag(tag string) error {
+	if length := utf8.RuneCountInString(tag); length > systemTagMaxLength {
+		return fmt.Errorf(
+			"%w: update proposal system tag %q is %d characters, at most %d allowed",
+			ErrInvalidPayload, tag, length, systemTagMaxLength,
+		)
+	}
 	for i := range len(tag) {
 		if tag[i] > unicode.MaxASCII {
 			return fmt.Errorf(
@@ -478,14 +487,6 @@ func validateSystemTag(tag string) error {
 				ErrInvalidPayload, tag,
 			)
 		}
-	}
-	// Every byte is ASCII by this point, so byte length is character
-	// length, which is what checkSystemTag bounds.
-	if len(tag) > systemTagMaxLength {
-		return fmt.Errorf(
-			"%w: update proposal system tag %q is %d characters, at most %d allowed",
-			ErrInvalidPayload, tag, len(tag), systemTagMaxLength,
-		)
 	}
 	return nil
 }

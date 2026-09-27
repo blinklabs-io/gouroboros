@@ -1282,6 +1282,42 @@ func TestValidateSystemTags(t *testing.T) {
 	}
 }
 
+// TestValidateSystemTagsCheckOrder checks that ValidateSystemTags reports
+// the rule checkSystemTag reports: it bounds the length in characters
+// before checking for ASCII.
+func TestValidateSystemTagsCheckOrder(t *testing.T) {
+	issuerVK, issuerPrivate := testKeyPair(0x66)
+	testCases := []struct {
+		name    string
+		tag     string
+		wantErr string
+	}{
+		{
+			name:    "over-length tag with a non-ascii character",
+			tag:     "0123456789\u00fe",
+			wantErr: "is 11 characters",
+		},
+		{
+			// 6 characters in 12 bytes: within the limit, so not ASCII is
+			// the only violation.
+			name:    "non-ascii tag within the limit in characters",
+			tag:     strings.Repeat("\u00fe", 6),
+			wantErr: "is not ASCII",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			proposal := decodeProposal(t, signedUpdateProposal(
+				t, testPayloadProtocolMagic, issuerVK, issuerPrivate,
+				installerMetadata(t, testCase.tag), emptyMap(),
+			))
+			err := proposal.ValidateSystemTags()
+			require.ErrorIs(t, err, byron.ErrInvalidPayload)
+			require.ErrorContains(t, err, testCase.wantErr)
+		})
+	}
+}
+
 // TestUpdatePayloadStructureDoesNotCheckSystemTagContent checks that
 // decoding a main block, which runs validateUpdatePayloadStructure without
 // ledger state, does not apply checkSystemTag either.
