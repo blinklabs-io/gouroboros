@@ -182,6 +182,10 @@ const (
 	// against this window, so a request a peer could not satisfy within
 	// MaxPendingMessageBytes is refused rather than attempted.
 	MaxUnackedTxIds = 10
+	// MaxDecodedTxBytes bounds the total serialized transaction bytes passed
+	// to the ledger decoder for one reply. It is separate from the retained
+	// message-byte limit, which includes CBOR framing and protects ingress.
+	MaxDecodedTxBytes = MaxUnackedTxIds * MaxTxSizeBytes
 	// MaxPendingMessageBytes bounds pending message bytes in every
 	// TxSubmission state: a full unacknowledged window of maximum-size
 	// transactions plus the tx-id reply that announced them, with the

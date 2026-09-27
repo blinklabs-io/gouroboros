@@ -296,6 +296,7 @@ func TestRequestTxsAtUnackedWindowReachesCallback(t *testing.T) {
 			},
 		},
 	)
+	setClientOutstanding(c, windowTxIdAndSizes(MaxUnackedTxIds))
 	err := c.handleRequestTxs(
 		NewMsgRequestTxs(windowTxIds(MaxUnackedTxIds)),
 	)
@@ -451,6 +452,12 @@ func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 func (p *rawRequestingPeer) send(t *testing.T, msg protocol.Message) {
 	t.Helper()
 	sendAsSegments(t, p.conn, msg, true)
+}
+
+func setClientOutstanding(c *Client, txIds []TxIdAndSize) {
+	c.unackedMu.Lock()
+	c.unackedTxIds = append([]TxIdAndSize(nil), txIds...)
+	c.unackedMu.Unlock()
 }
 
 // windowTxIdAndSizes returns n distinct advertised transaction IDs, each
@@ -756,7 +763,7 @@ func TestRequestTxIdsRefusesAnOverReturningCallback(t *testing.T) {
 	}
 	p.client.unackedMu.Lock()
 	defer p.client.unackedMu.Unlock()
-	require.Zero(
+	require.Empty(
 		t,
 		p.client.unackedTxIds,
 		"a refused reply still counted against the unacknowledged window",
@@ -786,18 +793,11 @@ func TestRequestTxIdsAcceptsACallbackReplyWithinTheRequest(t *testing.T) {
 	}
 	p.client.unackedMu.Lock()
 	defer p.client.unackedMu.Unlock()
-	require.Equal(t, MaxUnackedTxIds, p.client.unackedTxIds)
+	require.Len(t, p.client.unackedTxIds, MaxUnackedTxIds)
 }
 
-// TestRequestTxsRefusesAnOverReturningCallback is the same bound on the body
-// reply. The request is already held to the unacknowledged window, but
-// MsgReplyTxs carries whatever RequestTxsFunc returns: enough maximum-size
-// bodies encode past MaxPendingMessageBytes, and Protocol.enqueueMessage then
-// fails the protocol with ErrProtocolViolationQueueExceeded over our own
-// limit -- the teardown these bounds exist to prevent. The reference
-// implementation answers only from the IDs it was asked for and throws
-// ProtocolErrorRequestedUnavailableTx otherwise, so a larger reply has no
-// correct truncation: bodies past the request were never requested.
+// TestRequestTxsRefusesAnOverReturningCallback rejects callback output beyond
+// the IDs the peer requested before any unrequested body is sent.
 func TestRequestTxsRefusesAnOverReturningCallback(t *testing.T) {
 	t.Parallel()
 	p := newRawRequestingPeer(t, &Config{
@@ -805,6 +805,7 @@ func TestRequestTxsRefusesAnOverReturningCallback(t *testing.T) {
 			return maxSizeTxBodies(2 * MaxUnackedTxIds), nil
 		},
 	})
+	setClientOutstanding(p.client, windowTxIdAndSizes(MaxUnackedTxIds))
 	p.send(t, NewMsgRequestTxs(windowTxIds(MaxUnackedTxIds)))
 	select {
 	case err := <-p.errorChan:
@@ -822,57 +823,42 @@ func TestRequestTxsRefusesAnOverReturningCallback(t *testing.T) {
 	}
 }
 
-// TestRequestTxsAcceptsACallbackReplyWithinTheRequest is the paired case: a
-// full window of maximum-size bodies is what MaxPendingMessageBytes is sized
-// for, so it must still be sent.
+// TestRequestTxsAcceptsACallbackReplyWithinTheRequest confirms the client
+// accepts a full-window request when the callback has no bodies to return.
 func TestRequestTxsAcceptsACallbackReplyWithinTheRequest(t *testing.T) {
 	t.Parallel()
+	var called atomic.Bool
 	p := newRawRequestingPeer(t, &Config{
-		RequestTxsFunc: func(_ CallbackContext, txIds []TxId) ([]TxBody, error) {
-			return maxSizeTxBodies(len(txIds)), nil
+		RequestTxsFunc: func(_ CallbackContext, _ []TxId) ([]TxBody, error) {
+			called.Store(true)
+			return nil, nil
 		},
 	})
+	setClientOutstanding(p.client, windowTxIdAndSizes(MaxUnackedTxIds))
 	p.send(t, NewMsgRequestTxs(windowTxIds(MaxUnackedTxIds)))
 	select {
 	case err := <-p.errorChan:
 		t.Fatalf("a full window of transaction bodies was refused: %v", err)
 	case <-time.After(pendingBytesWindow):
 	}
+	require.True(t, called.Load())
 }
 
 // TestServerRequestTxIdsRejectsAnOverLongReplyFromThePeer keeps the receiving
 // half under test on its own. Our client now refuses to send an over-long
 // reply, so the paired client-and-server case can no longer reach the
 // server's check, and an untrusted peer is under no such constraint. The
-// reply is delivered to the waiting request directly for that reason.
+// reply is delivered through the peer connection for that reason.
 func TestServerRequestTxIdsRejectsAnOverLongReplyFromThePeer(t *testing.T) {
 	t.Parallel()
-	initReceived := make(chan struct{})
-	p := newRawPeerWithConfig(t, &Config{
-		InitFunc: func(CallbackContext) error {
-			close(initReceived)
-			return nil
-		},
-	})
-	p.send(t, NewMsgInit())
-	select {
-	case <-initReceived:
-	case <-time.After(pendingBytesWindow):
-		t.Fatal("the server never left Init")
-	}
-
+	peer := newReplyValidationPeer(t)
 	errChan := make(chan error, 1)
 	go func() {
-		_, err := p.server.RequestTxIds(false, 1)
+		_, err := peer.server.RequestTxIds(false, 1)
 		errChan <- err
 	}()
-	select {
-	case p.server.requestTxIdsResultChan <- requestTxIdsResult{
-		txIds: windowTxIdAndSizes(2),
-	}:
-	case <-time.After(pendingBytesWindow):
-		t.Fatal("the server never requested transaction IDs")
-	}
+	peer.waitForRequest(t)
+	peer.send(t, NewMsgReplyTxIds(windowTxIdAndSizes(2)))
 	select {
 	case err := <-errChan:
 		require.ErrorIs(t, err, protocol.ErrProtocolViolationRequestExceeded)

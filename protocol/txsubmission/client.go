@@ -44,10 +44,10 @@ type Client struct {
 	initSent        bool // tracks whether Init message has been sent
 	protoStarted    bool // tracks whether Protocol.Start() was called
 	unackedMu       sync.Mutex
-	// unackedTxIds counts the transaction IDs sent in MsgReplyTxIds that the
-	// peer has not yet acknowledged. It is the window handleRequestTxIds
-	// bounds the peer's next request against.
-	unackedTxIds int
+	// unackedTxIds are the transaction IDs sent in MsgReplyTxIds that the
+	// peer has not yet acknowledged. The protocol's count-only Ack removes a
+	// prefix of this list; RequestTxs must name IDs from the remaining list.
+	unackedTxIds []TxIdAndSize
 }
 
 // NewClient returns a new TxSubmission client object
@@ -97,7 +97,7 @@ func (c *Client) initProtocol() {
 	// A new protocol instance starts a new tx-submission session, so nothing
 	// sent by the previous one is still outstanding.
 	c.unackedMu.Lock()
-	c.unackedTxIds = 0
+	c.unackedTxIds = nil
 	c.unackedMu.Unlock()
 }
 
@@ -315,24 +315,24 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	// would fail the protocol, dropping the connection over a request we
 	// should have refused.
 	c.unackedMu.Lock()
-	unacked := c.unackedTxIds
+	unacked := append([]TxIdAndSize(nil), c.unackedTxIds...)
 	c.unackedMu.Unlock()
 	ack := int(msgRequestTxIds.Ack)
 	req := int(msgRequestTxIds.Req)
-	if ack > unacked {
+	if ack > len(unacked) {
 		c.Protocol.Logger().
 			Error("TxSubmission ack count exceeded",
 				"ack", ack,
-				"unacknowledged", unacked,
+				"unacknowledged", len(unacked),
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
-	if unacked-ack+req > MaxUnackedTxIds {
+	if len(unacked)-ack+req > MaxUnackedTxIds {
 		c.Protocol.Logger().
 			Error("TxSubmission request count exceeded",
 				"req", req,
 				"ack", ack,
-				"unacknowledged", unacked,
+				"unacknowledged", len(unacked),
 				"limit", MaxUnackedTxIds,
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
@@ -368,6 +368,17 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
+	txIds = append([]TxIdAndSize(nil), txIds...)
+	nextUnacked, err := reconcileTxIds(
+		unacked,
+		ack,
+		req,
+		msgRequestTxIds.Blocking,
+		txIds,
+	)
+	if err != nil {
+		return err
+	}
 	resp := NewMsgReplyTxIds(txIds)
 	if err := c.SendMessage(resp); err != nil {
 		return err
@@ -377,7 +388,7 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	// refuses the peer's next request; a peer sees the same overrun in
 	// Server.RequestTxIds.
 	c.unackedMu.Lock()
-	c.unackedTxIds = unacked - ack + len(txIds)
+	c.unackedTxIds = nextUnacked
 	c.unackedMu.Unlock()
 	return nil
 }
@@ -409,8 +420,22 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
+	requestedTxIds := append([]TxId(nil), msgRequestTxs.TxIds...)
+	c.unackedMu.Lock()
+	unacked := append([]TxIdAndSize(nil), c.unackedTxIds...)
+	c.unackedMu.Unlock()
+	if err := requestedTxIdsAreOutstanding(unacked, requestedTxIds); err != nil {
+		return err
+	}
+	advertisedSizes := make(map[TxId]uint32, len(requestedTxIds))
+	for _, txIdAndSize := range unacked {
+		advertisedSizes[txIdAndSize.TxId] = txIdAndSize.Size
+	}
 	// Call the user callback function
-	txs, err := c.config.RequestTxsFunc(c.callbackContext, msgRequestTxs.TxIds)
+	txs, err := c.config.RequestTxsFunc(
+		c.callbackContext,
+		append([]TxId(nil), requestedTxIds...),
+	)
 	if err != nil {
 		return err
 	}
@@ -422,7 +447,15 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
-	resp := NewMsgReplyTxs(txs)
+	orderedTxs, err := validateAndOrderTxBodies(
+		requestedTxIds,
+		txs,
+		advertisedSizes,
+	)
+	if err != nil {
+		return err
+	}
+	resp := NewMsgReplyTxs(orderedTxs)
 	if err := c.SendMessage(resp); err != nil {
 		return err
 	}
