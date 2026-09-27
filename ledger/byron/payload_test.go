@@ -1082,6 +1082,19 @@ func TestUpdateProposalShapes(t *testing.T) {
 			attributes: emptyMap(),
 		},
 		{
+			// checkSystemTag applies only to software updates, which
+			// Validate cannot identify; ValidateSystemTags rejects these
+			// two tags, see TestValidateSystemTags.
+			name:       "system tag over the length limit",
+			metadata:   installerMetadata(t, "01234567890"),
+			attributes: emptyMap(),
+		},
+		{
+			name:       "non-ascii system tag",
+			metadata:   installerMetadata(t, "linu\u00fe"),
+			attributes: emptyMap(),
+		},
+		{
 			// These fields are dropped after decoding as byte strings, and
 			// have no additional length or content constraint.
 			name: "installer hash with arbitrary dropped byte fields",
@@ -1136,16 +1149,6 @@ func TestUpdateProposalShapes(t *testing.T) {
 			name:       "non-empty attributes",
 			metadata:   emptyMap(),
 			attributes: installerMetadata(t, "linux"),
-		},
-		{
-			name:       "system tag over the length limit",
-			metadata:   installerMetadata(t, "01234567890"),
-			attributes: emptyMap(),
-		},
-		{
-			name:       "non-ascii system tag",
-			metadata:   installerMetadata(t, "linu\u00fe"),
-			attributes: emptyMap(),
 		},
 		{
 			name:       "system tags out of order",
@@ -1222,6 +1225,113 @@ func TestUpdateProposalShapes(t *testing.T) {
 		))
 		require.NoError(t, proposal.Validate(testPayloadProtocolMagic))
 	})
+}
+
+// TestValidateSystemTags checks that Validate accepts every system tag,
+// because the reference applies checkSystemTag only to software updates,
+// and that ValidateSystemTags applies checkSystemTag's bounds.
+func TestValidateSystemTags(t *testing.T) {
+	issuerVK, issuerPrivate := testKeyPair(0x66)
+
+	testCases := []struct {
+		name         string
+		metadata     []byte
+		tagsAreValid bool
+	}{
+		{
+			name:         "no metadata",
+			metadata:     emptyMap(),
+			tagsAreValid: true,
+		},
+		{
+			name:         "tag within the length limit",
+			metadata:     installerMetadata(t, "linux"),
+			tagsAreValid: true,
+		},
+		{
+			name:         "tag at the length limit",
+			metadata:     installerMetadata(t, "0123456789"),
+			tagsAreValid: true,
+		},
+		{
+			name:         "tag over the length limit",
+			metadata:     installerMetadata(t, "01234567890"),
+			tagsAreValid: false,
+		},
+		{
+			name:         "non-ascii tag",
+			metadata:     installerMetadata(t, "linu\u00fe"),
+			tagsAreValid: false,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			proposal := decodeProposal(t, signedUpdateProposal(
+				t, testPayloadProtocolMagic, issuerVK, issuerPrivate,
+				testCase.metadata, emptyMap(),
+			))
+			require.NoError(t, proposal.Validate(testPayloadProtocolMagic))
+
+			err := proposal.ValidateSystemTags()
+			if testCase.tagsAreValid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, byron.ErrInvalidPayload)
+			}
+		})
+	}
+}
+
+// TestValidateSystemTagsCheckOrder checks that ValidateSystemTags reports
+// the rule checkSystemTag reports: it bounds the length in characters
+// before checking for ASCII.
+func TestValidateSystemTagsCheckOrder(t *testing.T) {
+	issuerVK, issuerPrivate := testKeyPair(0x66)
+	testCases := []struct {
+		name    string
+		tag     string
+		wantErr string
+	}{
+		{
+			name:    "over-length tag with a non-ascii character",
+			tag:     "0123456789\u00fe",
+			wantErr: "is 11 characters",
+		},
+		{
+			// 6 characters in 12 bytes: within the limit, so not ASCII is
+			// the only violation.
+			name:    "non-ascii tag within the limit in characters",
+			tag:     strings.Repeat("\u00fe", 6),
+			wantErr: "is not ASCII",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			proposal := decodeProposal(t, signedUpdateProposal(
+				t, testPayloadProtocolMagic, issuerVK, issuerPrivate,
+				installerMetadata(t, testCase.tag), emptyMap(),
+			))
+			err := proposal.ValidateSystemTags()
+			require.ErrorIs(t, err, byron.ErrInvalidPayload)
+			require.ErrorContains(t, err, testCase.wantErr)
+		})
+	}
+}
+
+// TestUpdatePayloadStructureDoesNotCheckSystemTagContent checks that
+// decoding a main block, which runs validateUpdatePayloadStructure without
+// ledger state, does not apply checkSystemTag either.
+func TestUpdatePayloadStructureDoesNotCheckSystemTagContent(t *testing.T) {
+	issuerVK, issuerPrivate := testKeyPair(0x66)
+	proposal := signedUpdateProposal(
+		t, testPayloadProtocolMagic, issuerVK, issuerPrivate,
+		installerMetadata(t, "01234567890"), emptyMap(),
+	)
+	// testMainBlock requires the decode to succeed.
+	block := testMainBlock(
+		t, testPayloadProtocolMagic, nil, []cbor.RawMessage{proposal}, nil,
+	)
+	require.NoError(t, block.Body.ValidateUpdatePayloadStructure())
 }
 
 func TestUpdateProposalMalformed(t *testing.T) {

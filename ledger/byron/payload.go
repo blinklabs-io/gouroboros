@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math/big"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -319,11 +320,22 @@ func signedBody(fields []cbor.RawMessage) []byte {
 // proposal: the signature covers whatever the issuer put in the metadata
 // and attributes fields, so a correctly signed proposal can still carry
 // values the reference decoder rejects outright -- a bare integer in place
-// of the metadata map, say. validateProposalMetadata and
+// of the metadata map, say. validateProposalMetadataShape and
 // validateProposalAttributes reproduce what
 // cardano-ledger-byron's ProposalBody decoder enforces for those two
 // fields, so this cannot accept a proposal cardano-ledger would refuse to
 // decode.
+//
+// Validate does not apply the metadata system tags' length and ASCII rule
+// (SystemTag's checkSystemTag) to any proposal. The reference applies it
+// only from Cardano.Chain.Update.Validation.Registration's
+// registerSoftwareUpdate, which registerProposalComponents calls only when
+// the proposal's software version differs from the version adopted for its
+// application, or its application has none adopted. That depends on ledger
+// state, so it cannot be decided here, and applying the rule here would
+// reject protocol-only proposals the reference accepts. A caller that
+// tracks adopted application versions must call ValidateSystemTags for
+// every proposal that registers a software update.
 func (p *ByronUpdateProposal) Validate(protocolMagic uint32) error {
 	if p == nil {
 		return fmt.Errorf("%w: update proposal is nil", ErrInvalidPayload)
@@ -344,7 +356,7 @@ func (p *ByronUpdateProposal) Validate(protocolMagic uint32) error {
 	if err != nil {
 		return err
 	}
-	if err := validateProposalMetadata(
+	if err := validateProposalMetadataShape(
 		fields[updateProposalMetadataIndex],
 	); err != nil {
 		return err
@@ -371,51 +383,103 @@ func (p *ByronUpdateProposal) Validate(protocolMagic uint32) error {
 	return nil
 }
 
-// validateProposalMetadata enforces the shape of an update proposal's
-// metadata field, which cardano-ledger-byron types as
-// Map SystemTag InstallerHash (Cardano.Chain.Update.Proposal's ProposalBody,
-// via Cardano.Chain.Update.SystemTag and .InstallerHash):
+// ValidateSystemTags applies cardano-ledger-byron's checkSystemTag
+// (Cardano.Chain.Update.SystemTag) to each of the proposal's metadata
+// system tags: at most 10 characters, then ASCII only.
 //
-//   - the field is a CBOR map;
-//   - each key is a text string of at most systemTagMaxLength characters,
-//     all ASCII -- SystemTag's checkSystemTag;
-//   - each value is a four-element array whose element 1 is a 32-byte hash
-//     -- InstallerHash's enforceSize "InstallerHash" 4, which drops
-//     elements 0, 2, and 3 and reads the hash out of element 1.
-func validateProposalMetadata(raw cbor.RawMessage) error {
-	pairs, err := cborMapRawEntries(raw)
-	if err != nil {
-		return fmt.Errorf("%w: update proposal metadata: %w", ErrInvalidPayload, err)
+// The reference applies the rule only to a proposal that registers a
+// software update, which Validate cannot determine; see Validate. Call
+// this, in addition to Validate, when the proposal's software version
+// differs from the version adopted for its application or its application
+// has none adopted, and not otherwise. registerSoftwareUpdate applies it
+// before its duplicate and version checks. A metadata field whose shape
+// Validate rejects is rejected here too.
+func (p *ByronUpdateProposal) ValidateSystemTags() error {
+	if p == nil {
+		return fmt.Errorf("%w: update proposal is nil", ErrInvalidPayload)
 	}
-	previousTag := ""
-	for index, pair := range pairs {
-		if len(pair[0]) == 0 || pair[0][0]>>5 != 3 || pair[0][0]&0x1f == 31 {
-			return fmt.Errorf("%w: update proposal system tag is not definite text", ErrInvalidPayload)
-		}
-		var tag string
-		n, err := cbor.Decode(pair[0], &tag)
-		if err != nil {
-			return fmt.Errorf("%w: decode update proposal system tag: %w", ErrInvalidPayload, err)
-		}
-		if n != len(pair[0]) {
-			return fmt.Errorf("%w: update proposal system tag has trailing bytes", ErrInvalidPayload)
-		}
-		if index > 0 && tag <= previousTag {
-			return fmt.Errorf("%w: update proposal system tags are not strictly increasing", ErrInvalidPayload)
-		}
-		previousTag = tag
+	fields, err := p.proposalFields()
+	if err != nil {
+		return err
+	}
+	tags, err := proposalMetadataTags(fields[updateProposalMetadataIndex])
+	if err != nil {
+		return err
+	}
+	for _, tag := range tags {
 		if err := validateSystemTag(tag); err != nil {
-			return err
-		}
-		if err := validateInstallerHash(tag, pair[1]); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// validateSystemTag reproduces cardano-ledger-byron's checkSystemTag.
+// validateProposalMetadataShape enforces the shape of an update proposal's
+// metadata field, which cardano-ledger-byron types as
+// Map SystemTag InstallerHash (Cardano.Chain.Update.Proposal's ProposalBody,
+// via Cardano.Chain.Update.SystemTag and .InstallerHash):
+//
+//   - the field is a CBOR map, keys in strictly increasing order;
+//   - each key is a definite-length text string -- SystemTag's DecCBOR;
+//   - each value is a four-element array whose element 1 is a 32-byte hash
+//     -- InstallerHash's enforceSize "InstallerHash" 4, which drops
+//     elements 0, 2, and 3 and reads the hash out of element 1.
+//
+// These are decode-level requirements the reference enforces
+// unconditionally through the Map's canonical-order decoder and
+// InstallerHash's DecCBOR, so -- unlike the system tags' length and ASCII
+// rule, see ValidateSystemTags -- they apply to every proposal regardless
+// of whether it registers a software update.
+func validateProposalMetadataShape(raw cbor.RawMessage) error {
+	_, err := proposalMetadataTags(raw)
+	return err
+}
+
+// proposalMetadataTags validates an update proposal metadata field's shape
+// (see validateProposalMetadataShape) and returns its system tags in wire
+// order. It does not check each tag's length or ASCII rule; see
+// ValidateSystemTags.
+func proposalMetadataTags(raw cbor.RawMessage) ([]string, error) {
+	pairs, err := cborMapRawEntries(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: update proposal metadata: %w", ErrInvalidPayload, err)
+	}
+	tags := make([]string, 0, len(pairs))
+	previousTag := ""
+	for index, pair := range pairs {
+		if len(pair[0]) == 0 || pair[0][0]>>5 != 3 || pair[0][0]&0x1f == 31 {
+			return nil, fmt.Errorf("%w: update proposal system tag is not definite text", ErrInvalidPayload)
+		}
+		var tag string
+		n, err := cbor.Decode(pair[0], &tag)
+		if err != nil {
+			return nil, fmt.Errorf("%w: decode update proposal system tag: %w", ErrInvalidPayload, err)
+		}
+		if n != len(pair[0]) {
+			return nil, fmt.Errorf("%w: update proposal system tag has trailing bytes", ErrInvalidPayload)
+		}
+		if index > 0 && tag <= previousTag {
+			return nil, fmt.Errorf("%w: update proposal system tags are not strictly increasing", ErrInvalidPayload)
+		}
+		previousTag = tag
+		if err := validateInstallerHash(tag, pair[1]); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+	return tags, nil
+}
+
+// validateSystemTag reproduces cardano-ledger-byron's checkSystemTag,
+// including its order: the length bound, in characters, before the ASCII
+// check.
 func validateSystemTag(tag string) error {
+	if length := utf8.RuneCountInString(tag); length > systemTagMaxLength {
+		return fmt.Errorf(
+			"%w: update proposal system tag %q is %d characters, at most %d allowed",
+			ErrInvalidPayload, tag, length, systemTagMaxLength,
+		)
+	}
 	for i := range len(tag) {
 		if tag[i] > unicode.MaxASCII {
 			return fmt.Errorf(
@@ -423,14 +487,6 @@ func validateSystemTag(tag string) error {
 				ErrInvalidPayload, tag,
 			)
 		}
-	}
-	// Every byte is ASCII by this point, so byte length is character
-	// length, which is what checkSystemTag bounds.
-	if len(tag) > systemTagMaxLength {
-		return fmt.Errorf(
-			"%w: update proposal system tag %q is %d characters, at most %d allowed",
-			ErrInvalidPayload, tag, len(tag), systemTagMaxLength,
-		)
 	}
 	return nil
 }
@@ -923,6 +979,10 @@ func (b *ByronMainBlock) ValidateDelegationPayload() error {
 // Like ValidateDelegationPayload, the votes are read out of the payload's
 // preserved CBOR: a vote's signature covers its proposal id field's wire
 // encoding. Proposals carry their own preserved CBOR already.
+//
+// Like ByronUpdateProposal.Validate, this does not apply the system tag
+// rule that the reference applies only to software updates; see
+// ByronUpdateProposal.ValidateSystemTags.
 func (b *ByronMainBlock) ValidateUpdatePayload() error {
 	if b == nil || b.BlockHeader == nil {
 		return fmt.Errorf(
@@ -990,7 +1050,8 @@ func (b *ByronMainBlock) updateVotesCbor() ([]cbor.RawMessage, error) {
 
 // ValidateUpdatePayloadStructure checks the Byron update payload's wire
 // structure before state processing. Signature and authorization checks stay
-// in ValidateUpdatePayload.
+// in ValidateUpdatePayload, and the system tag rule gated on a software
+// update in ByronUpdateProposal.ValidateSystemTags.
 func (b *ByronMainBlockBody) ValidateUpdatePayloadStructure() error {
 	if b == nil || len(b.updPayloadRaw) == 0 {
 		return fmt.Errorf("%w: update payload has no preserved CBOR", ErrInvalidPayload)
@@ -1026,7 +1087,7 @@ func validateUpdatePayloadStructure(
 		if err != nil {
 			return err
 		}
-		if err := validateProposalMetadata(fields[updateProposalMetadataIndex]); err != nil {
+		if err := validateProposalMetadataShape(fields[updateProposalMetadataIndex]); err != nil {
 			return fmt.Errorf("update proposal %d metadata: %w", index, err)
 		}
 		if err := validateProposalAttributes(fields[updateProposalAttributesIndex]); err != nil {
