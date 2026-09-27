@@ -627,7 +627,16 @@ func (s TransactionMetadataSet) MarshalCBOR() ([]byte, error) {
 	if len(s.Cbor()) > 0 {
 		return s.Cbor(), nil
 	}
-	return cbor.Encode(s.data)
+	// auxiliary_data_set/transaction_metadata_set is a required, non-nullable
+	// map in every era's block CDDL ({* transaction_index => auxiliary_data},
+	// no "/ nil" alternative). A zero-value TransactionMetadataSet has a nil
+	// data map, and encoding a nil Go map produces CBOR null rather than an
+	// empty map, so substitute a non-nil empty map to encode "{}" instead.
+	data := s.data
+	if data == nil {
+		data = map[uint]cbor.RawMessage{}
+	}
+	return cbor.Encode(data)
 }
 
 func (s TransactionMetadataSet) GetMetadata(
