@@ -424,7 +424,7 @@ func (b *ShelleyTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return cbor.EncodeGeneric(b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(b, 0, 1, 2)
 }
 
 func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
