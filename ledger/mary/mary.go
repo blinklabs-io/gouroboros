@@ -269,7 +269,7 @@ func (b MaryTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b, 0, 1, 2)
 }
 
 func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
