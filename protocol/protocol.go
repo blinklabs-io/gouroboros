@@ -1379,6 +1379,11 @@ func (p *Protocol) pendingMessageByteLimit(state State) int {
 	return 0
 }
 
+func (p *Protocol) stateHasNoAgency(state State) bool {
+	entry, ok := p.config.StateMap[state]
+	return ok && entry.Agency == AgencyNone
+}
+
 // appendSegment bounds readBuffer before it grows. The per-protocol cap
 // decides "too big" and is therefore checked first: the connection-wide
 // allowance is the largest registered cap, so reserving first would report
@@ -1424,6 +1429,19 @@ func (p *Protocol) readLoop() {
 			p.config.Muxer.ReleaseReadBuffer(reserved)
 		}
 	}()
+	consumeMessage := func(messageLength int) {
+		if messageLength < readBuffer.Len() {
+			readBuffer = bytes.NewBuffer(readBuffer.Bytes()[messageLength:])
+			leftoverData = true
+		} else {
+			readBuffer.Reset()
+		}
+		scanner = messageScanner{}
+		peerAgencyChecked = false
+		messageStateSet = false
+		pendingPipelinedRequests = 0
+		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
+	}
 
 	for {
 		// Don't grab the next segment from the muxer if we still have data in the buffer
@@ -1494,6 +1512,7 @@ func (p *Protocol) readLoop() {
 		}
 		var scanResult messageScanResult
 		incomplete := false
+		terminalMessage := false
 		for {
 			var err error
 			state := p.getCurrentState()
@@ -1514,12 +1533,13 @@ func (p *Protocol) readLoop() {
 				messageState = p.getCurrentState()
 				messageStateSet = true
 			}
+			terminalMessage = p.stateHasNoAgency(messageState)
 			if scanResult.hasMessageType && !peerAgencyChecked {
 				if !p.peerHasAgencyOrPipelinedRequest(
 					messageState,
 					scanResult.messageType,
 					pendingPipelinedRequests,
-				) {
+				) && !terminalMessage {
 					p.SendError(fmt.Errorf(
 						"%s: received message type %d without peer agency, an "+
 							"allowed pipelined message, or an outstanding pipelined request "+
@@ -1582,6 +1602,11 @@ func (p *Protocol) readLoop() {
 			))
 			return
 		}
+		if terminalMessage {
+			// Drain trailing messages after termination without dispatching them.
+			consumeMessage(scanResult.messageLength)
+			continue
+		}
 		msg, err := p.config.MessageFromCborFunc(
 			scanResult.messageType,
 			msgData,
@@ -1634,22 +1659,7 @@ func (p *Protocol) readLoop() {
 		case <-p.muxerDoneChan:
 			return
 		}
-		if scanResult.messageLength < readBuffer.Len() {
-			// There is another message in the same muxer segment, so we reset the buffer with just
-			// the remaining data
-			readBuffer = bytes.NewBuffer(
-				readBuffer.Bytes()[scanResult.messageLength:],
-			)
-			leftoverData = true
-		} else {
-			// Empty out our buffer since we successfully processed the message
-			readBuffer.Reset()
-		}
-		scanner = messageScanner{}
-		peerAgencyChecked = false
-		messageStateSet = false
-		// Hand the consumed bytes back to the connection-wide allowance.
-		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
+		consumeMessage(scanResult.messageLength)
 	}
 }
 
