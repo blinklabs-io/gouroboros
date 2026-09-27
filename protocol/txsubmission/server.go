@@ -26,17 +26,19 @@ import (
 // Server implements the TxSubmission server
 type Server struct {
 	*protocol.Protocol
-	protocolMu      sync.RWMutex
-	config          *Config
-	callbackContext CallbackContext
-	protoOptions    protocol.ProtocolOptions
-	ackCount        int
-	// unackedCount counts the transaction IDs received from the peer that we
-	// have not yet acknowledged. It is the window RequestTxIds bounds its own
-	// request against.
-	unackedCount           int
+	protocolMu             sync.RWMutex
+	config                 *Config
+	callbackContext        CallbackContext
+	protoOptions           protocol.ProtocolOptions
+	requestMu              sync.Mutex
+	stateMu                sync.Mutex
+	stopping               bool
+	ackCount               int
+	outstandingTxIds       []TxIdAndSize
+	pendingTxIds           *pendingTxIdsRequest
+	pendingTxs             *pendingTxsRequest
 	requestTxIdsResultChan chan requestTxIdsResult
-	requestTxsResultChan   chan []TxBody
+	requestTxsResultChan   chan requestTxsResult
 }
 
 type requestTxIdsResult struct {
@@ -44,14 +46,28 @@ type requestTxIdsResult struct {
 	err   error
 }
 
+type requestTxsResult struct {
+	txs []TxBody
+	err error
+}
+
+type pendingTxIdsRequest struct {
+	blocking  bool
+	requested int
+	ack       int
+}
+
+type pendingTxsRequest struct {
+	requested       []TxId
+	advertisedSizes map[TxId]uint32
+}
+
 // NewServer returns a new TxSubmission server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
 		// Save this for re-use later
-		protoOptions:           protoOptions,
-		requestTxIdsResultChan: make(chan requestTxIdsResult),
-		requestTxsResultChan:   make(chan []TxBody),
+		protoOptions: protoOptions,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -79,9 +95,18 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
+	s.stateMu.Lock()
 	s.Protocol = p
+	s.callbackContext.DoneChan = p.DoneChan()
+	s.requestTxIdsResultChan = make(chan requestTxIdsResult, 1)
+	s.requestTxsResultChan = make(chan requestTxsResult, 1)
+	s.ackCount = 0
+	s.outstandingTxIds = nil
+	s.pendingTxIds = nil
+	s.pendingTxs = nil
+	s.stopping = false
+	s.stateMu.Unlock()
 	s.protocolMu.Unlock()
-	s.callbackContext.DoneChan = s.DoneChan()
 }
 
 func (s *Server) ProtocolInstance() *protocol.Protocol {
@@ -99,16 +124,6 @@ func (s *Server) Start() {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	p.Start()
-	// Start goroutine to cleanup resources on protocol shutdown
-	doneChan := p.DoneChan()
-	go func() {
-		// We create our own vars for these channels since they get replaced on restart
-		requestTxIdsResultChan := s.requestTxIdsResultChan
-		requestTxsResultChan := s.requestTxsResultChan
-		<-doneChan
-		close(requestTxIdsResultChan)
-		close(requestTxsResultChan)
-	}()
 }
 
 // RequestTxIds requests the next set of TX identifiers from the remote node's mempool
@@ -116,19 +131,25 @@ func (s *Server) RequestTxIds(
 	blocking bool,
 	reqCount int,
 ) ([]TxIdAndSize, error) {
-	p := s.ProtocolInstance()
+	s.requestMu.Lock()
+	defer s.requestMu.Unlock()
+	s.protocolMu.RLock()
+	s.stateMu.Lock()
+	p := s.Protocol
 	p.Logger().
 		Debug(
 			fmt.Sprintf("calling RequestTxIds(blocking: %+v, reqCount: %d)", blocking, reqCount),
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
-			"connection_id", s.callbackContext.ConnectionId.String(),
+			"connection_id", s.protoOptions.ConnectionId.String(),
 		)
 	// Validate request counts
 	if reqCount < 0 {
 		p.Logger().
 			Error("TxSubmission request count must be non-negative", "requested", reqCount)
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
 	// Keep the wire-range check ahead of the window check below: it bounds
@@ -137,16 +158,39 @@ func (s *Server) RequestTxIds(
 	if reqCount > MaxRequestCount {
 		p.Logger().
 			Error("TxSubmission request count exceeded", "requested", reqCount, "limit", MaxRequestCount)
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
-	if s.ackCount < 0 {
+	if s.stopping {
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
+		return nil, protocol.ErrProtocolShuttingDown
+	}
+	if s.pendingTxIds != nil || s.pendingTxs != nil {
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
+		return nil, invalidTxSubmissionMessage("a request is already pending")
+	}
+	ackCount := s.ackCount
+	unackedCount := len(s.outstandingTxIds)
+	if ackCount < 0 {
 		p.Logger().
-			Error("TxSubmission ack count must be non-negative", "ack_count", s.ackCount)
+			Error("TxSubmission ack count must be non-negative", "ack_count", ackCount)
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
-	if s.ackCount > MaxAckCount {
+	if ackCount > MaxAckCount {
 		p.Logger().
-			Error("TxSubmission ack count exceeded", "ack_count", s.ackCount, "limit", MaxAckCount)
+			Error("TxSubmission ack count exceeded", "ack_count", ackCount, "limit", MaxAckCount)
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
+		return nil, protocol.ErrProtocolViolationRequestExceeded
+	}
+	if ackCount > unackedCount {
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
 	// A request must also leave the peer inside the outstanding window, or a
@@ -156,61 +200,74 @@ func (s *Server) RequestTxIds(
 	// (Ouroboros.Network.TxSubmission.Outbound). Our own client applies the
 	// same condition, and MaxPendingMessageBytes is derived from that window,
 	// so a reply to a larger request could not fit it.
-	if s.unackedCount-s.ackCount+reqCount > MaxUnackedTxIds {
+	if unackedCount-ackCount+reqCount > MaxUnackedTxIds {
 		p.Logger().
 			Error("TxSubmission request count exceeded",
 				"requested", reqCount,
-				"ack", s.ackCount,
-				"unacknowledged", s.unackedCount,
+				"ack", ackCount,
+				"unacknowledged", unackedCount,
 				"limit", MaxUnackedTxIds,
 			)
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
+	pending := &pendingTxIdsRequest{
+		blocking:  blocking,
+		requested: reqCount,
+		ack:       ackCount,
+	}
+	s.pendingTxIds = pending
+	resultChan := s.requestTxIdsResultChan
+	s.stateMu.Unlock()
+	s.protocolMu.RUnlock()
 
 	// Safe conversions after validation
 	//nolint:gosec // Already validated above to be non-negative and within uint16 range
-	ack := uint16(s.ackCount)
+	ack := uint16(ackCount)
 	//nolint:gosec // Already validated above to be non-negative and within uint16 range
 	req := uint16(reqCount)
 	msg := NewMsgRequestTxIds(blocking, ack, req)
 	if err := p.SendMessage(msg); err != nil {
+		s.stateMu.Lock()
+		if s.pendingTxIds == pending {
+			s.pendingTxIds = nil
+		}
+		s.stateMu.Unlock()
 		return nil, err
 	}
 	// Wait for result
 	select {
-	case result, ok := <-s.requestTxIdsResultChan:
-		if !ok {
-			return nil, protocol.ErrProtocolShuttingDown
-		}
+	case result := <-resultChan:
 		if result.err != nil {
 			return nil, result.err
 		}
-		if len(result.txIds) > reqCount {
-			p.Logger().Error(
-				"TxSubmission reply count exceeded request",
-				"returned", len(result.txIds),
-				"requested", reqCount,
-			)
-			return nil, protocol.ErrProtocolViolationRequestExceeded
-		}
-		// Update the outstanding window and the ack for the next call. The
-		// request just sent acknowledged ack of the IDs we were holding, and
-		// the reply adds its own.
-		s.unackedCount = s.unackedCount - int(ack) + len(result.txIds)
-		s.ackCount = len(result.txIds)
 		return result.txIds, nil
 	case <-p.DoneChan():
+		s.stateMu.Lock()
+		if s.pendingTxIds == pending {
+			s.pendingTxIds = nil
+			s.stopping = true
+		}
+		s.stateMu.Unlock()
+		select {
+		case result := <-resultChan:
+			if result.err != nil {
+				return nil, result.err
+			}
+			return result.txIds, nil
+		default:
+		}
 		return nil, protocol.ErrProtocolShuttingDown
 	}
 }
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
 func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
-	p := s.ProtocolInstance()
-	// Requesting more than the unacknowledged window asks the peer for a
-	// reply larger than MaxPendingMessageBytes, which is derived from that
-	// window, so the peer is entitled to refuse it.
+	s.requestMu.Lock()
+	defer s.requestMu.Unlock()
 	if len(txIds) > MaxUnackedTxIds {
+		p := s.ProtocolInstance()
 		p.Logger().
 			Error("TxSubmission tx request count exceeded",
 				"requested", len(txIds),
@@ -218,6 +275,35 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 			)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
+	txIds = append([]TxId(nil), txIds...)
+	s.protocolMu.RLock()
+	s.stateMu.Lock()
+	p := s.Protocol
+	if s.stopping {
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
+		return nil, protocol.ErrProtocolShuttingDown
+	}
+	if s.pendingTxIds != nil || s.pendingTxs != nil {
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
+		return nil, invalidTxSubmissionMessage("a request is already pending")
+	}
+	if err := requestedTxIdsAreOutstanding(s.outstandingTxIds, txIds); err != nil {
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
+		return nil, err
+	}
+	advertisedSizes := make(map[TxId]uint32, len(s.outstandingTxIds))
+	for _, txIdAndSize := range s.outstandingTxIds {
+		advertisedSizes[txIdAndSize.TxId] = txIdAndSize.Size
+	}
+	pending := &pendingTxsRequest{
+		requested:       append([]TxId(nil), txIds...),
+		advertisedSizes: advertisedSizes,
+	}
+	s.pendingTxs = pending
+	resultChan := s.requestTxsResultChan
 	// Pre-allocate slice to avoid repeated allocations
 	txString := make([]string, 0, len(txIds))
 	for _, t := range txIds {
@@ -230,18 +316,39 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
-			"connection_id", s.callbackContext.ConnectionId.String(),
+			"connection_id", s.protoOptions.ConnectionId.String(),
 		)
 	msg := NewMsgRequestTxs(txIds)
+	s.stateMu.Unlock()
+	s.protocolMu.RUnlock()
 	if err := p.SendMessage(msg); err != nil {
+		s.stateMu.Lock()
+		if s.pendingTxs == pending {
+			s.pendingTxs = nil
+		}
+		s.stateMu.Unlock()
 		return nil, err
 	}
 	// Wait for result
 	select {
 	case <-p.DoneChan():
+		s.stateMu.Lock()
+		if s.pendingTxs == pending {
+			s.pendingTxs = nil
+			s.stopping = true
+		}
+		s.stateMu.Unlock()
+		select {
+		case result := <-resultChan:
+			if result.err != nil {
+				return nil, result.err
+			}
+			return result.txs, nil
+		default:
+		}
 		return nil, protocol.ErrProtocolShuttingDown
-	case txs := <-s.requestTxsResultChan:
-		return txs, nil
+	case result := <-resultChan:
+		return result.txs, result.err
 	}
 }
 
@@ -249,9 +356,9 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeReplyTxIds:
-		s.handleReplyTxIds(msg)
+		err = s.handleReplyTxIds(msg)
 	case MessageTypeReplyTxs:
-		s.handleReplyTxs(msg)
+		err = s.handleReplyTxs(msg)
 	case MessageTypeDone:
 		err = s.handleDone()
 	case MessageTypeInit:
@@ -266,70 +373,135 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (s *Server) handleReplyTxIds(msg protocol.Message) {
+func (s *Server) handleReplyTxIds(msg protocol.Message) error {
 	p := s.ProtocolInstance()
 	p.Logger().
 		Debug("reply tx ids",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
-			"connection_id", s.callbackContext.ConnectionId.String(),
+			"connection_id", s.protoOptions.ConnectionId.String(),
 		)
 	msgReplyTxIds := msg.(*MsgReplyTxIds)
-	s.requestTxIdsResultChan <- requestTxIdsResult{
-		txIds: msgReplyTxIds.TxIds,
+	s.stateMu.Lock()
+	pending := s.pendingTxIds
+	outstanding := append([]TxIdAndSize(nil), s.outstandingTxIds...)
+	resultChan := s.requestTxIdsResultChan
+	s.stateMu.Unlock()
+	if pending == nil {
+		return invalidTxSubmissionMessage("received ReplyTxIds without a pending request")
 	}
+	nextOutstanding, err := reconcileTxIds(
+		outstanding,
+		pending.ack,
+		pending.requested,
+		pending.blocking,
+		msgReplyTxIds.TxIds,
+	)
+	s.stateMu.Lock()
+	if s.pendingTxIds != pending {
+		s.stateMu.Unlock()
+		return protocol.ErrProtocolShuttingDown
+	}
+	s.pendingTxIds = nil
+	if err == nil {
+		s.outstandingTxIds = nextOutstanding
+		s.ackCount = len(msgReplyTxIds.TxIds)
+	}
+	s.stateMu.Unlock()
+	result := requestTxIdsResult{err: err}
+	if err == nil {
+		result.txIds = msgReplyTxIds.TxIds
+	}
+	resultChan <- result
+	return err
 }
 
-func (s *Server) handleReplyTxs(msg protocol.Message) {
+func (s *Server) handleReplyTxs(msg protocol.Message) error {
 	p := s.ProtocolInstance()
 	p.Logger().
 		Debug("reply txs",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
-			"connection_id", s.callbackContext.ConnectionId.String(),
+			"connection_id", s.protoOptions.ConnectionId.String(),
 		)
 	msgReplyTxs := msg.(*MsgReplyTxs)
-	s.requestTxsResultChan <- msgReplyTxs.Txs
+	s.stateMu.Lock()
+	pending := s.pendingTxs
+	resultChan := s.requestTxsResultChan
+	s.stateMu.Unlock()
+	if pending == nil {
+		return invalidTxSubmissionMessage("received ReplyTxs without a pending request")
+	}
+	orderedTxs, err := validateAndOrderTxBodies(
+		pending.requested,
+		msgReplyTxs.Txs,
+		pending.advertisedSizes,
+	)
+	s.stateMu.Lock()
+	if s.pendingTxs != pending {
+		s.stateMu.Unlock()
+		return protocol.ErrProtocolShuttingDown
+	}
+	s.pendingTxs = nil
+	s.stateMu.Unlock()
+	result := requestTxsResult{err: err}
+	if err == nil {
+		result.txs = orderedTxs
+	}
+	resultChan <- result
+	return err
 }
 
 func (s *Server) handleDone() error {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	s.stateMu.Lock()
+	pending := s.pendingTxIds
+	if pending == nil || !pending.blocking {
+		s.stateMu.Unlock()
+		return invalidTxSubmissionMessage("received Done without a blocking TxIds request")
+	}
+	s.stopping = true
+	s.pendingTxIds = nil
+	callbackContext := s.callbackContext
+	resultChan := s.requestTxIdsResultChan
+	s.stateMu.Unlock()
+	p.Logger().
 		Debug("done",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
-			"connection_id", s.callbackContext.ConnectionId.String(),
+			"connection_id", callbackContext.ConnectionId.String(),
 		)
 	// Signal the RequestTxIds function to stop waiting
-	s.requestTxIdsResultChan <- requestTxIdsResult{
+	resultChan <- requestTxIdsResult{
 		err: ErrStopServerProcess,
 	}
 	// Call the user callback function
 	if s.config != nil && s.config.DoneFunc != nil {
-		if err := s.config.DoneFunc(s.callbackContext); err != nil {
+		if err := s.config.DoneFunc(callbackContext); err != nil {
 			return err
 		}
 	}
 	// Restart protocol
-	s.Stop()
+	p.Stop()
 	s.initProtocol()
-	s.requestTxIdsResultChan = make(chan requestTxIdsResult)
-	s.requestTxsResultChan = make(chan []TxBody)
-	s.ackCount = 0
-	s.unackedCount = 0
 	s.Start()
 	return nil
 }
 
 func (s *Server) handleInit() error {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	s.stateMu.Lock()
+	callbackContext := s.callbackContext
+	s.stateMu.Unlock()
+	p.Logger().
 		Debug("init",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
-			"connection_id", s.callbackContext.ConnectionId.String(),
+			"connection_id", callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.InitFunc == nil {
 		return errors.New(
@@ -337,5 +509,5 @@ func (s *Server) handleInit() error {
 		)
 	}
 	// Call the user callback function
-	return s.config.InitFunc(s.callbackContext)
+	return s.config.InitFunc(callbackContext)
 }

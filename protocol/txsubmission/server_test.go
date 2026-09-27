@@ -99,13 +99,17 @@ func TestRequestTxIdsOverReturningCallbackNeverReachesThePeer(t *testing.T) {
 	result, err := server.RequestTxIds(false, 1)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
+	server.stateMu.Lock()
 	require.Equal(t, 1, server.ackCount)
+	server.stateMu.Unlock()
 	require.Equal(t, uint16(0), <-acknowledged)
 
 	result, err = server.RequestTxIds(false, 1)
 	require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
 	require.Nil(t, result)
+	server.stateMu.Lock()
 	require.Equal(t, 1, server.ackCount)
+	server.stateMu.Unlock()
 	require.Equal(t, uint16(1), <-acknowledged)
 	select {
 	case err := <-clientErrors:
@@ -177,7 +181,7 @@ func TestRequestTxIdsAcceptsReplyWithinRequest(t *testing.T) {
 	require.Empty(t, result)
 }
 
-func TestReplyHandlersSynchronizeProtocolAccessDuringRestart(t *testing.T) {
+func TestProtocolAccessSynchronizesDuringRestart(t *testing.T) {
 	const iterations = 10_000
 
 	server := NewServer(protocol.ProtocolOptions{
@@ -186,15 +190,10 @@ func TestReplyHandlersSynchronizeProtocolAccessDuringRestart(t *testing.T) {
 			RemoteAddr: &net.UnixAddr{Name: "remote", Net: "unix"},
 		},
 	}, nil)
-	server.requestTxIdsResultChan = make(
-		chan requestTxIdsResult,
-		iterations,
-	)
-	server.requestTxsResultChan = make(chan []TxBody, iterations)
-
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(3)
+	var sawNilProtocol bool
+	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
@@ -207,20 +206,13 @@ func TestReplyHandlersSynchronizeProtocolAccessDuringRestart(t *testing.T) {
 		defer wg.Done()
 		<-start
 		for range iterations {
-			server.handleReplyTxIds(NewMsgReplyTxIds(nil))
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		<-start
-		for range iterations {
-			server.handleReplyTxs(NewMsgReplyTxs(nil))
+			if server.ProtocolInstance() == nil {
+				sawNilProtocol = true
+			}
 		}
 	}()
 
 	close(start)
 	wg.Wait()
-
-	require.Len(t, server.requestTxIdsResultChan, iterations)
-	require.Len(t, server.requestTxsResultChan, iterations)
+	require.False(t, sawNilProtocol)
 }
