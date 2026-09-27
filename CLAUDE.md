@@ -1,6 +1,10 @@
-# Gouroboros — Claude Code Guide
+# gOuroboros — Claude Code Guide
 
 Companion to `AGENTS.md`; read that first. This file: Claude-specific facts and workflow rules.
+
+Use `gOuroboros` exactly in prose and headings; do not abbreviate or
+truncate the name. Use lowercase `gouroboros` only where required by
+repository, module, import, or URL identifiers.
 
 ## Conformance snapshot (2026-08-12)
 

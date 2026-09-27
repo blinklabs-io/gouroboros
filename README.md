@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./.github/assets/gOuroboros-logo-with-text-horizontal.png" alt="gOurobros Logo" width="640">
+  <img src="./.github/assets/gOuroboros-logo-with-text-horizontal.png" alt="gOuroboros logo" width="640">
   <br>
   <img alt="GitHub" src="https://img.shields.io/github/license/blinklabs-io/gouroboros">
   <a href="https://pkg.go.dev/github.com/blinklabs-io/gouroboros"><img src="https://pkg.go.dev/badge/github.com/blinklabs-io/gouroboros.svg" alt="Go Reference"></a>
