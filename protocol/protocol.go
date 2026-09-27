@@ -70,7 +70,7 @@ type Protocol struct {
 	sendQueueChan            chan outboundMessage
 	recvDoneChan             chan struct{}
 	recvQueueChan            chan Message
-	recvReadyChan            chan bool
+	recvStateChangedChan     chan struct{}
 	sendDoneChan             chan struct{}
 	sendReadyChan            chan bool
 	stateTransitionChan      chan<- protocolStateTransition
@@ -192,8 +192,9 @@ type ProtocolOptions struct {
 }
 
 type protocolStateTransition struct {
-	msg       Message
-	errorChan chan<- error
+	msg                        Message
+	errorChan                  chan<- error
+	acceptPipelinedPeerMessage bool
 }
 
 type outboundMessage struct {
@@ -264,7 +265,7 @@ func (p *Protocol) Start() {
 		// Create channels
 		p.sendQueueChan = make(chan outboundMessage, 80)
 		p.recvQueueChan = make(chan Message, p.config.RecvQueueSize)
-		p.recvReadyChan = make(chan bool, 1)
+		p.recvStateChangedChan = make(chan struct{}, 1)
 		p.sendReadyChan = make(chan bool, 1)
 
 		stateTransitionChan := make(chan protocolStateTransition)
@@ -1659,18 +1660,6 @@ func (p *Protocol) recvLoop() {
 	defer p.recoverLoop("receive loop")
 
 	for {
-		// Wait until ready to receive based on state map
-		select {
-		case <-p.stopChan:
-			return
-		case <-p.sendDoneChan:
-			// Break out of receive loop if we're shutting down
-			return
-		case <-p.muxerDoneChan:
-			return
-		case <-p.recvReadyChan:
-		}
-		// Read next message from queue
 		select {
 		case <-p.stopChan:
 			return
@@ -1680,6 +1669,21 @@ func (p *Protocol) recvLoop() {
 		case <-p.muxerDoneChan:
 			return
 		case msg := <-p.recvQueueChan:
+			// A reply admitted for an outstanding pipelined request still
+			// needs ordinary peer agency before it can advance the state
+			// machine. A state-declared peer-pipelined message is the exception:
+			// it may be handled while this role holds agency.
+			for !p.canHandlePeerMessage(msg) {
+				select {
+				case <-p.stopChan:
+					return
+				case <-p.sendDoneChan:
+					return
+				case <-p.muxerDoneChan:
+					return
+				case <-p.recvStateChangedChan:
+				}
+			}
 			// Handle message
 			if err := p.handleMessage(msg); err != nil {
 				if errors.Is(err, ErrProtocolShuttingDown) {
@@ -1716,22 +1720,9 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		}
 		transitionTimer = nil
 
-		// Set the new state and, in the same critical section, mark the
-		// protocol ready to send/receive based on the new state's role and
-		// agency. Folding the sendReadyChan/recvReadyChan signal into the
-		// same lock as the state write is what makes
-		// observeStateAndDrainSendReady's paired read-and-drain sound: any
-		// caller taking currentStateMu is now guaranteed to see this whole
-		// state transition -- state and its token together -- or none of
-		// it, never a state visible with its token still pending. Before
-		// this, the token write happened after Unlock with no
-		// synchronization of its own, so a concurrent reader could observe
-		// the new state via currentStateMu while the token that belongs to
-		// it had not yet been written, and a non-blocking drain taken just
-		// before that reader's state read would miss it entirely --
-		// stranding the token to be misread by a later, unrelated
-		// sendLoop iteration as agency for a different state (see
-		// resolvePipelinedDequeue and blinklabs-io/gouroboros#2494).
+		// Publish the state and send readiness atomically for sendLoop. The
+		// receive loop treats its state-change signal only as a wakeup and
+		// rechecks the current state before handling each queued message.
 		p.currentStateMu.Lock()
 		p.currentState = s
 		skipTimeout := false
@@ -1742,14 +1733,14 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			default:
 			}
 		case agencyPeer:
-			select {
-			case p.recvReadyChan <- true:
-			default:
-			}
 		case agencyNeither:
 			skipTimeout = true
 		}
 		p.currentStateMu.Unlock()
+		select {
+		case p.recvStateChangedChan <- struct{}{}:
+		default:
+		}
 
 		if skipTimeout {
 			return
@@ -1791,7 +1782,15 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			}
 			return
 		case t := <-ch:
-			nextState, err := p.nextState(p.getCurrentState(), t.msg)
+			currentState := p.getCurrentState()
+			if t.acceptPipelinedPeerMessage && p.peerMayPipelineMessage(
+				currentState,
+				t.msg,
+			) {
+				t.errorChan <- nil
+				continue
+			}
+			nextState, err := p.nextState(currentState, t.msg)
 			if err != nil {
 				t.errorChan <- fmt.Errorf(
 					"%s: error handling protocol state transition: %w",
@@ -1849,14 +1848,39 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 	)
 }
 
+func (p *Protocol) peerMayPipelineMessage(state State, msg Message) bool {
+	entry, ok := p.config.StateMap[state]
+	return ok &&
+		p.agencyHolderFor(entry) == agencyLocal &&
+		slices.Contains(entry.PipelinedMessageTypes, msg.Type())
+}
+
+func (p *Protocol) canHandlePeerMessage(msg Message) bool {
+	state := p.getCurrentState()
+	entry, ok := p.config.StateMap[state]
+	return ok && (p.agencyHolderFor(entry) == agencyPeer ||
+		p.peerMayPipelineMessage(state, msg))
+}
+
 func (p *Protocol) transitionState(msg Message) error {
+	return p.requestStateTransition(msg, false)
+}
+
+func (p *Protocol) requestStateTransition(
+	msg Message,
+	acceptPipelinedPeerMessage bool,
+) error {
 	errorChan := make(chan error, 1)
 	select {
 	case <-p.stopChan:
 		return ErrProtocolShuttingDown
 	case <-p.doneChan:
 		return ErrProtocolShuttingDown
-	case p.stateTransitionChan <- protocolStateTransition{msg, errorChan}:
+	case p.stateTransitionChan <- protocolStateTransition{
+		msg:                        msg,
+		errorChan:                  errorChan,
+		acceptPipelinedPeerMessage: acceptPipelinedPeerMessage,
+	}:
 	}
 
 	select {
@@ -1870,7 +1894,7 @@ func (p *Protocol) transitionState(msg Message) error {
 }
 
 func (p *Protocol) handleMessage(msg Message) error {
-	if err := p.transitionState(msg); err != nil {
+	if err := p.requestStateTransition(msg, true); err != nil {
 		return fmt.Errorf("%s: error handling message: %w", p.config.Name, err)
 	}
 
