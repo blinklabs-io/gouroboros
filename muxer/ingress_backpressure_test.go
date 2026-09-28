@@ -394,3 +394,42 @@ func TestIngressBackpressureStopWhileWaiting(t *testing.T) {
 		}
 	}
 }
+
+// TestIngressBackpressureAdmitsSegmentLargerThanLimit checks that under
+// backpressure a segment larger than the whole ingress limit is admitted
+// once the queue is empty. Waiting for room that can never exist would stop
+// the read loop, and every protocol on the connection, for good.
+func TestIngressBackpressureAdmitsSegmentLargerThanLimit(t *testing.T) {
+	t.Parallel()
+
+	conn := newMockConn()
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 5))
+	require.True(t, m.SetIngressBackpressure(
+		0x01, muxer.ProtocolRoleResponder, true,
+	))
+	m.Start()
+
+	const segments = 3
+	var buf bytes.Buffer
+	for range segments {
+		seg := muxer.NewSegment(0x01, []byte("0123456789"), false)
+		require.NotNil(t, seg)
+		buf.Write(createSegmentData(seg))
+	}
+	conn.WriteToReadBuf(buf.Bytes())
+
+	for i := range segments {
+		select {
+		case seg := <-recvChan:
+			require.Equal(t, []byte("0123456789"), seg.Payload)
+		case err := <-m.ErrorChan():
+			t.Fatalf("muxer failed before segment %d: %v", i, err)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("segment %d larger than the limit was never admitted", i)
+		}
+	}
+}
