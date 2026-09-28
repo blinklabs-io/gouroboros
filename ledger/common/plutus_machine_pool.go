@@ -68,10 +68,10 @@ var evalContextCache sync.Map // evalContextKey -> *cek.EvalContext
 // Reusing the pointer is what lets the machine pool below (see
 // checkoutMachine) recognize repeat evaluations of the same tuple and check
 // out a pooled *cek.Machine instead of constructing and discarding one per
-// redeemer (gouroboros#2554). A caller that instead builds a fresh
-// *cek.EvalContext per call -- via cek.NewEvalContext directly, or by passing
-// nil -- gets no pooling benefit, which is the pre-existing behavior, not a
-// regression.
+// redeemer (gouroboros#2554). Machines are pooled only for EvalContexts
+// returned here. A caller that instead builds its own *cek.EvalContext -- via
+// cek.NewEvalContext directly, or by passing nil -- gets a fresh Machine per
+// evaluation and leaves nothing retained, which is the pre-existing behavior.
 func PooledEvalContext(
 	version lang.LanguageVersion,
 	protoMajor uint,
@@ -93,8 +93,10 @@ func PooledEvalContext(
 	if err != nil {
 		return nil, err
 	}
-	actual, _ := evalContextCache.LoadOrStore(key, built)
-	return actual.(*cek.EvalContext), nil
+	actualIface, _ := evalContextCache.LoadOrStore(key, built)
+	actual := actualIface.(*cek.EvalContext)
+	registerMachinePool(version, actual)
+	return actual, nil
 }
 
 // machineCheckoutKey pairs the language version passed to cek.NewMachine with
@@ -125,17 +127,16 @@ type machinePoolEntry struct {
 	constructed atomic.Int64
 }
 
-// machinePools maps a machineCheckoutKey to its machinePoolEntry. Keying by
-// the *cek.EvalContext pointer identity (see evalContextKey and
-// PooledEvalContext) rather than by evalContextKey directly means a caller
-// that does not route through PooledEvalContext simply gets no reuse: each
-// checkout misses, builds a fresh Machine, and is never checked back in to a
-// spot another checkout will find.
+// machinePools maps a machineCheckoutKey to its machinePoolEntry. Entries are
+// created only by registerMachinePool, for EvalContexts held in
+// evalContextCache, so the map is bounded by that cache. Creating an entry on
+// checkout instead would pin every caller-built *cek.EvalContext forever.
 var machinePools sync.Map // machineCheckoutKey -> *machinePoolEntry
 
 // checkoutMachine returns a *cek.Machine[syn.DeBruijn] built for (version,
 // evalContext), reusing a previously released one when the pool for that key
-// has one available. The caller owns the returned Machine exclusively until
+// has one available, or a fresh unpooled one when evalContext was not issued
+// by PooledEvalContext. The caller owns the returned Machine exclusively until
 // it calls releaseMachine; sync.Pool.Get never hands out the same instance to
 // two concurrent callers, so two evaluations sharing the tuple never observe
 // each other's in-progress Run.
@@ -143,33 +144,83 @@ func checkoutMachine(
 	version lang.LanguageVersion,
 	evalContext *cek.EvalContext,
 ) *cek.Machine[syn.DeBruijn] {
-	key := machineCheckoutKey{version: version, evalContext: evalContext}
-	newEntry := &machinePoolEntry{}
-	newEntry.pool = &sync.Pool{
-		New: func() any {
-			newEntry.constructed.Add(1)
-			return cek.NewMachine[syn.DeBruijn](version, 200, evalContext)
-		},
+	entry := loadMachinePool(version, evalContext)
+	if entry == nil {
+		return cek.NewMachine[syn.DeBruijn](version, 200, evalContext)
 	}
-	entryIface, _ := machinePools.LoadOrStore(key, newEntry)
-	entry, _ := entryIface.(*machinePoolEntry)
 	machine, _ := entry.pool.Get().(*cek.Machine[syn.DeBruijn])
 	return machine
 }
 
-// releaseMachine returns a checked-out Machine to its pool. Only call it
-// after the Machine's Run has fully returned: Run's per-call state (ExBudget,
-// Logs, arena reuse via lazyPrepareValueArenas/lazyPrepareEnvArena) assumes
-// exclusive ownership for the duration of one Run, and handing the same
-// Machine to a second checkout before the first Run returns would let two
-// evaluations mutate it concurrently.
+// checkoutMachineWithBudget checks out a Machine as checkoutMachine does and
+// sets its ExBudget to budget, ready for one Run.
+//
+// A Machine that has already run treats an ExBudget equal to its previous
+// Run's remaining budget as unchanged and restores the previous Run's starting
+// budget instead (plutigo cek.Machine.runContext). A pooled Machine is
+// released holding exactly that remaining budget, so when the next redeemer
+// declares the same value it would run against the previous redeemer's
+// budget. Such a Machine is replaced with a fresh one, which has never run and
+// so always honours the budget it is given.
+func checkoutMachineWithBudget(
+	version lang.LanguageVersion,
+	evalContext *cek.EvalContext,
+	budget cek.ExBudget,
+) *cek.Machine[syn.DeBruijn] {
+	machine := checkoutMachine(version, evalContext)
+	if machine.ExBudget == budget {
+		machine = cek.NewMachine[syn.DeBruijn](version, 200, evalContext)
+		if entry := loadMachinePool(version, evalContext); entry != nil {
+			entry.constructed.Add(1)
+		}
+	}
+	machine.ExBudget = budget
+	return machine
+}
+
+func registerMachinePool(
+	version lang.LanguageVersion,
+	evalContext *cek.EvalContext,
+) {
+	key := machineCheckoutKey{version: version, evalContext: evalContext}
+	if _, ok := machinePools.Load(key); ok {
+		return
+	}
+	entry := &machinePoolEntry{}
+	entry.pool = &sync.Pool{
+		New: func() any {
+			entry.constructed.Add(1)
+			return cek.NewMachine[syn.DeBruijn](version, 200, evalContext)
+		},
+	}
+	machinePools.LoadOrStore(key, entry)
+}
+
+func loadMachinePool(
+	version lang.LanguageVersion,
+	evalContext *cek.EvalContext,
+) *machinePoolEntry {
+	key := machineCheckoutKey{version: version, evalContext: evalContext}
+	if entryIface, ok := machinePools.Load(key); ok {
+		entry, _ := entryIface.(*machinePoolEntry)
+		return entry
+	}
+	return nil
+}
+
+// releaseMachine returns a checked-out Machine to its pool, or drops it when
+// evalContext has no pool. Only call it after the Machine's Run has fully
+// returned: Run's per-call state (ExBudget, Logs, arena reuse via
+// lazyPrepareValueArenas/lazyPrepareEnvArena) assumes exclusive ownership for
+// the duration of one Run, and handing the same Machine to a second checkout
+// before the first Run returns would let two evaluations mutate it
+// concurrently.
 func releaseMachine(
 	version lang.LanguageVersion,
 	evalContext *cek.EvalContext,
 	machine *cek.Machine[syn.DeBruijn],
 ) {
-	key := machineCheckoutKey{version: version, evalContext: evalContext}
-	if entryIface, ok := machinePools.Load(key); ok {
-		entryIface.(*machinePoolEntry).pool.Put(machine)
+	if entry := loadMachinePool(version, evalContext); entry != nil {
+		entry.pool.Put(machine)
 	}
 }

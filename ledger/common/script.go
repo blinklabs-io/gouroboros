@@ -274,9 +274,12 @@ func (s PlutusV1Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := checkoutMachine(cek.LanguageVersionV1, evalContext)
+	machine := checkoutMachineWithBudget(
+		cek.LanguageVersionV1,
+		evalContext,
+		machineBudget,
+	)
 	defer releaseMachine(cek.LanguageVersionV1, evalContext, machine)
-	machine.ExBudget = machineBudget
 	_, runErr := machine.Run(wrappedProgram)
 	// Always calculate consumed budget, even on error
 	consumedBudget := machineBudget.Sub(&machine.ExBudget)
@@ -363,9 +366,12 @@ func (s PlutusV2Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := checkoutMachine(cek.LanguageVersionV2, evalContext)
+	machine := checkoutMachineWithBudget(
+		cek.LanguageVersionV2,
+		evalContext,
+		machineBudget,
+	)
 	defer releaseMachine(cek.LanguageVersionV2, evalContext, machine)
-	machine.ExBudget = machineBudget
 	_, runErr := machine.Run(wrappedProgram)
 	// Always calculate consumed budget, even on error
 	consumedBudget := machineBudget.Sub(&machine.ExBudget)
@@ -430,9 +436,12 @@ func (s PlutusV3Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := checkoutMachine(cek.LanguageVersionV3, evalContext)
+	machine := checkoutMachineWithBudget(
+		cek.LanguageVersionV3,
+		evalContext,
+		machineBudget,
+	)
 	defer releaseMachine(cek.LanguageVersionV3, evalContext, machine)
-	machine.ExBudget = machineBudget
 	_, runErr := machine.Run(wrappedProgram)
 	// Always calculate consumed budget, even on error
 	consumedBudget := machineBudget.Sub(&machine.ExBudget)
@@ -493,9 +502,12 @@ func (s PlutusV4Script) Evaluate(
 		Function: program.Term,
 		Argument: contextTerm,
 	}
-	machine := checkoutMachine(cek.LanguageVersionV4, evalContext)
+	machine := checkoutMachineWithBudget(
+		cek.LanguageVersionV4,
+		evalContext,
+		machineBudget,
+	)
 	defer releaseMachine(cek.LanguageVersionV4, evalContext, machine)
-	machine.ExBudget = machineBudget
 	_, runErr := machine.Run(wrappedProgram)
 	consumedBudget := machineBudget.Sub(&machine.ExBudget)
 	usedExUnits.Memory = consumedBudget.Mem

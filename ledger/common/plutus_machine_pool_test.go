@@ -66,6 +66,27 @@ func buildMachinePoolTestV3Script(t *testing.T) PlutusV3Script {
 	return PlutusV3Script(wrapper)
 }
 
+// pooledTestEvalContext returns a PooledEvalContext for PlutusV3 with
+// non-zero costs. Each test passes its own protoMajor so parallel tests never
+// share a cached EvalContext or its machine pool.
+func pooledTestEvalContext(t *testing.T, protoMajor uint) *cek.EvalContext {
+	t.Helper()
+	params := make(
+		[]int64,
+		len(lang.GetParamNamesForVersion(lang.LanguageVersionV3)),
+	)
+	for i := range params {
+		params[i] = int64(i + 1)
+	}
+	evalContext, err := PooledEvalContext(
+		lang.LanguageVersionV3,
+		protoMajor,
+		params,
+	)
+	require.NoError(t, err)
+	return evalContext
+}
+
 func machinePoolTestBudget() ExUnits {
 	return ExUnits{
 		Memory: cek.DefaultExBudget.Mem,
@@ -144,24 +165,15 @@ func TestPooledEvalContextReusesPointerForSameTuple(t *testing.T) {
 func TestMachinePoolReusesCheckedInMachine(t *testing.T) {
 	t.Parallel()
 
-	params := make(
-		[]int64,
-		len(lang.GetParamNamesForVersion(lang.LanguageVersionV3)),
-	)
-	evalContextA, err := cek.NewEvalContext(
-		lang.LanguageVersionV3,
-		cek.ProtoVersion{Major: 10},
-		params,
-	)
-	require.NoError(t, err)
-	evalContextB, err := cek.NewEvalContext(
-		lang.LanguageVersionV3,
-		cek.ProtoVersion{Major: 10},
-		params,
-	)
-	require.NoError(t, err)
+	evalContextA := pooledTestEvalContext(t, 900002)
+	evalContextB := pooledTestEvalContext(t, 900003)
 	require.NotSame(t, evalContextA, evalContextB,
-		"test fixture bug: two independent NewEvalContext calls must not alias")
+		"test fixture bug: two distinct tuples must not alias")
+
+	// The pooled EvalContexts outlive one test run (-count > 1), so the
+	// construction counters are compared as deltas.
+	beforeA := machineConstructionCount(lang.LanguageVersionV3, evalContextA)
+	beforeB := machineConstructionCount(lang.LanguageVersionV3, evalContextB)
 
 	// Distinct tuples must never share a pooled Machine.
 	mA := checkoutMachine(lang.LanguageVersionV3, evalContextA)
@@ -170,15 +182,19 @@ func TestMachinePoolReusesCheckedInMachine(t *testing.T) {
 		"two distinct EvalContext tuples must never share a pooled Machine")
 	releaseMachine(lang.LanguageVersionV3, evalContextA, mA)
 	releaseMachine(lang.LanguageVersionV3, evalContextB, mB)
-	require.Equal(
+	require.LessOrEqual(
 		t,
+		machineConstructionCount(lang.LanguageVersionV3, evalContextA)-beforeA,
 		int64(1),
-		machineConstructionCount(lang.LanguageVersionV3, evalContextA),
 	)
-	require.Equal(
+	require.LessOrEqual(
 		t,
+		machineConstructionCount(lang.LanguageVersionV3, evalContextB)-beforeB,
 		int64(1),
-		machineConstructionCount(lang.LanguageVersionV3, evalContextB),
+	)
+	beforeLoop := machineConstructionCount(
+		lang.LanguageVersionV3,
+		evalContextA,
 	)
 
 	// Repeated checkout/release against one tuple (evalContextA, which
@@ -192,7 +208,7 @@ func TestMachinePoolReusesCheckedInMachine(t *testing.T) {
 	constructed := machineConstructionCount(
 		lang.LanguageVersionV3,
 		evalContextA,
-	)
+	) - beforeLoop
 	require.Less(t, constructed, int64(iterations),
 		"repeated checkouts against one tuple must reuse the released Machine"+
 			" most of the time, not construct fresh cek.NewMachine on every checkout")
@@ -209,15 +225,7 @@ func TestMachinePoolConcurrentEvaluationIsRaceFree(t *testing.T) {
 	t.Parallel()
 
 	script := buildMachinePoolTestV3Script(t)
-	evalContext, err := cek.NewEvalContext(
-		lang.LanguageVersionV3,
-		cek.ProtoVersion{Major: 10},
-		make(
-			[]int64,
-			len(lang.GetParamNamesForVersion(lang.LanguageVersionV3)),
-		),
-	)
-	require.NoError(t, err)
+	evalContext := pooledTestEvalContext(t, 900004)
 
 	wantUnits, err := script.Evaluate(
 		machinePoolTestScriptContext(),
@@ -278,15 +286,7 @@ func TestMachinePoolReducesAllocationsVsUnpooled(t *testing.T) {
 	script := buildMachinePoolTestV3Script(t)
 	innerScript, err := decodePlutusScript([]byte(script), true)
 	require.NoError(t, err)
-	evalContext, err := cek.NewEvalContext(
-		lang.LanguageVersionV3,
-		cek.ProtoVersion{Major: 10},
-		make(
-			[]int64,
-			len(lang.GetParamNamesForVersion(lang.LanguageVersionV3)),
-		),
-	)
-	require.NoError(t, err)
+	evalContext := pooledTestEvalContext(t, 900005)
 	program, err := decodePlutusProgram(
 		innerScript,
 		lang.LanguageVersionV3,
@@ -348,15 +348,7 @@ func TestMachinePoolReducesAllocationsVsUnpooled(t *testing.T) {
 func TestMachinePoolChecksOutFreshMachineWhenPoolEmpty(t *testing.T) {
 	t.Parallel()
 
-	evalContext, err := cek.NewEvalContext(
-		lang.LanguageVersionV3,
-		cek.ProtoVersion{Major: 10},
-		make(
-			[]int64,
-			len(lang.GetParamNamesForVersion(lang.LanguageVersionV3)),
-		),
-	)
-	require.NoError(t, err)
+	evalContext := pooledTestEvalContext(t, 900006)
 
 	m1 := checkoutMachine(lang.LanguageVersionV3, evalContext)
 	m2 := checkoutMachine(lang.LanguageVersionV3, evalContext)
@@ -368,4 +360,75 @@ func TestMachinePoolChecksOutFreshMachineWhenPoolEmpty(t *testing.T) {
 	)
 	releaseMachine(lang.LanguageVersionV3, evalContext, m1)
 	releaseMachine(lang.LanguageVersionV3, evalContext, m2)
+}
+
+// TestMachinePoolEnforcesBudgetEqualToPreviousRemaining pins a reuse hazard in
+// plutigo's Run: on a Machine that has already run, an ExBudget equal to the
+// previous Run's remaining budget is read as "unchanged" and replaced with the
+// previous Run's starting budget. A pooled Machine must therefore never run a
+// redeemer whose declared budget equals the remaining budget the Machine was
+// released with, or that redeemer executes against another redeemer's budget.
+func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
+	t.Parallel()
+
+	script := buildMachinePoolTestV3Script(t)
+	evalContext := pooledTestEvalContext(t, 900007)
+	used, err := script.Evaluate(
+		machinePoolTestScriptContext(),
+		machinePoolTestBudget(),
+		evalContext,
+	)
+	require.NoError(t, err)
+	require.Positive(t, used.Memory)
+	require.Positive(t, used.Steps)
+
+	// first leaves exactly short remaining; short cannot cover the script.
+	first := ExUnits{Memory: 2*used.Memory - 1, Steps: 2*used.Steps - 1}
+	short := ExUnits{Memory: used.Memory - 1, Steps: used.Steps - 1}
+	for i := range 50 {
+		_, err := script.Evaluate(
+			machinePoolTestScriptContext(),
+			first,
+			evalContext,
+		)
+		require.NoError(t, err, "iteration %d", i)
+		_, err = script.Evaluate(
+			machinePoolTestScriptContext(),
+			short,
+			evalContext,
+		)
+		require.Error(t, err,
+			"iteration %d: budget %+v below the script's cost %+v must fail",
+			i, short, used)
+	}
+}
+
+// TestMachinePoolRetainsNothingForUnpooledEvalContext pins the bound on the
+// process-wide machine pools: an Evaluate caller that builds its own
+// *cek.EvalContext per call, rather than obtaining it from PooledEvalContext,
+// must not leave a pool entry behind for each one. Such entries are never
+// evicted and pin the EvalContext, so they would grow with every redeemer a
+// long-running node validates.
+func TestMachinePoolRetainsNothingForUnpooledEvalContext(t *testing.T) {
+	t.Parallel()
+
+	script := buildMachinePoolTestV3Script(t)
+	for i := range 20 {
+		evalContext := cek.NewDefaultEvalContext(
+			lang.LanguageVersionV3,
+			cek.ProtoVersion{Major: 10},
+		)
+		_, err := script.Evaluate(
+			machinePoolTestScriptContext(),
+			machinePoolTestBudget(),
+			evalContext,
+		)
+		require.NoError(t, err)
+		_, retained := machinePools.Load(machineCheckoutKey{
+			version:     lang.LanguageVersionV3,
+			evalContext: evalContext,
+		})
+		require.False(t, retained,
+			"iteration %d: an unpooled EvalContext must not be retained", i)
+	}
 }
