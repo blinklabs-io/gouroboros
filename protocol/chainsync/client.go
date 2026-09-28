@@ -1297,7 +1297,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 	// before calling the rollback callback. This prevents blocks from being
 	// applied after the ledger state has been rolled back.
 	if c.config.Pipeline != nil {
-		// Use a timeout context but also check for protocol shutdown via DoneChan
+		// Use a timeout context but also check for a protocol shutdown request.
 		drainTimeout := c.config.PipelineDrainTimeout
 		if drainTimeout == 0 {
 			drainTimeout = DefaultPipelineDrainTimeout
@@ -1324,15 +1324,20 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 						"component", "network",
 						"protocol", ProtocolName,
 					)
-				// Continue with rollback even if drain fails
+				return fmt.Errorf(
+					"%s: failed to drain pipeline before rollback: %w",
+					ProtocolName,
+					err,
+				)
 			}
-		case <-c.DoneChan():
+		case <-c.StopChan():
 			// Protocol is shutting down, skip waiting for drain
 			c.Protocol.Logger().
 				Debug("skipping pipeline drain due to shutdown",
 					"component", "network",
 					"protocol", ProtocolName,
 				)
+			return protocol.ErrProtocolShuttingDown
 		}
 	}
 
