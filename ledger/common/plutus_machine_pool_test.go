@@ -17,8 +17,11 @@ package common
 import (
 	"fmt"
 	"math/big"
+	"runtime"
 	"sync"
 	"testing"
+	"time"
+	"weak"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/cek"
@@ -35,11 +38,23 @@ func machineConstructionCount(
 	version lang.LanguageVersion,
 	evalContext *cek.EvalContext,
 ) int64 {
-	key := machineCheckoutKey{version: version, evalContext: evalContext}
+	key := machineCheckoutKey{
+		version:     version,
+		evalContext: weak.Make(evalContext),
+	}
 	if entryIface, ok := machinePools.Load(key); ok {
 		return entryIface.(*machinePoolEntry).constructed.Load()
 	}
 	return 0
+}
+
+// checkoutMachine is checkoutMachineReused without the reuse flag.
+func checkoutMachine(
+	version lang.LanguageVersion,
+	evalContext *cek.EvalContext,
+) *cek.Machine[syn.DeBruijn] {
+	machine, _ := checkoutMachineReused(version, evalContext)
+	return machine
 }
 
 // buildMachinePoolTestV3Script builds a minimal PlutusV3 script -- a single
@@ -47,7 +62,7 @@ func machineConstructionCount(
 // succeeds. It exists so the machine-pool tests below can drive real
 // PlutusV3Script.Evaluate calls without depending on the encode helpers
 // defined in the external common_test package.
-func buildMachinePoolTestV3Script(t *testing.T) PlutusV3Script {
+func buildMachinePoolTestV3Script(t testing.TB) PlutusV3Script {
 	t.Helper()
 	term := &syn.Lambda[syn.DeBruijn]{
 		Body: &syn.Constant{Con: &syn.Unit{}},
@@ -403,32 +418,108 @@ func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
 	}
 }
 
-// TestMachinePoolRetainsNothingForUnpooledEvalContext pins the bound on the
-// process-wide machine pools: an Evaluate caller that builds its own
-// *cek.EvalContext per call, rather than obtaining it from PooledEvalContext,
-// must not leave a pool entry behind for each one. Such entries are never
-// evicted and pin the EvalContext, so they would grow with every redeemer a
-// long-running node validates.
-func TestMachinePoolRetainsNothingForUnpooledEvalContext(t *testing.T) {
+// callerBuiltTestEvalContext builds a PlutusV3 *cek.EvalContext directly with
+// cek.NewEvalContext, the way a caller outside this package does, rather than
+// through PooledEvalContext.
+func callerBuiltTestEvalContext(t *testing.T) *cek.EvalContext {
+	t.Helper()
+	params := make(
+		[]int64,
+		len(lang.GetParamNamesForVersion(lang.LanguageVersionV3)),
+	)
+	for i := range params {
+		params[i] = int64(i + 1)
+	}
+	evalContext, err := cek.NewEvalContext(
+		lang.LanguageVersionV3,
+		cek.ProtoVersion{Major: 10},
+		params,
+	)
+	require.NoError(t, err)
+	return evalContext
+}
+
+// TestMachinePoolReusesMachineForCallerBuiltEvalContext pins that Machine
+// reuse depends only on the caller passing the same *cek.EvalContext again,
+// not on where it came from: a caller that builds and caches its own
+// EvalContext must get pooled Machines from Evaluate. The bound is loose for
+// the reason given on TestMachinePoolReusesCheckedInMachine.
+func TestMachinePoolReusesMachineForCallerBuiltEvalContext(t *testing.T) {
 	t.Parallel()
 
 	script := buildMachinePoolTestV3Script(t)
-	for i := range 20 {
-		evalContext := cek.NewDefaultEvalContext(
-			lang.LanguageVersionV3,
-			cek.ProtoVersion{Major: 10},
-		)
+	evalContext := callerBuiltTestEvalContext(t)
+	const iterations = 200
+	for i := range iterations {
 		_, err := script.Evaluate(
 			machinePoolTestScriptContext(),
 			machinePoolTestBudget(),
 			evalContext,
 		)
-		require.NoError(t, err)
-		_, retained := machinePools.Load(machineCheckoutKey{
-			version:     lang.LanguageVersionV3,
-			evalContext: evalContext,
-		})
-		require.False(t, retained,
-			"iteration %d: an unpooled EvalContext must not be retained", i)
+		require.NoError(t, err, "iteration %d", i)
 	}
+	constructed := machineConstructionCount(
+		lang.LanguageVersionV3,
+		evalContext,
+	)
+	require.Positive(t, constructed,
+		"a caller-built EvalContext must be pooled")
+	require.Less(t, constructed, int64(iterations),
+		"repeated Evaluate calls with one caller-built EvalContext must"+
+			" reuse Machines rather than construct one per call")
+}
+
+// TestMachinePoolReleasesEntriesForCollectedEvalContexts pins the retention
+// bound for a caller that builds a fresh *cek.EvalContext per evaluation: each
+// evaluation stays correct, and every pool entry it creates is removed once
+// its EvalContext is garbage collected, so entries do not accumulate over a
+// long-running node's lifetime.
+func TestMachinePoolReleasesEntriesForCollectedEvalContexts(t *testing.T) {
+	t.Parallel()
+
+	script := buildMachinePoolTestV3Script(t)
+	want, err := script.Evaluate(
+		machinePoolTestScriptContext(),
+		machinePoolTestBudget(),
+		callerBuiltTestEvalContext(t),
+	)
+	require.NoError(t, err)
+
+	const contexts = 200
+	keys := make([]machineCheckoutKey, 0, contexts)
+	for i := range contexts {
+		evalContext := callerBuiltTestEvalContext(t)
+		got, err := script.Evaluate(
+			machinePoolTestScriptContext(),
+			machinePoolTestBudget(),
+			evalContext,
+		)
+		require.NoError(t, err, "iteration %d", i)
+		require.Equal(t, want, got, "iteration %d", i)
+		key := machineCheckoutKey{
+			version:     lang.LanguageVersionV3,
+			evalContext: weak.Make(evalContext),
+		}
+		_, ok := machinePools.Load(key)
+		require.True(t, ok,
+			"iteration %d: a live EvalContext must have a pool entry", i)
+		keys = append(keys, key)
+	}
+
+	retained := func() int {
+		n := 0
+		for _, key := range keys {
+			if _, ok := machinePools.Load(key); ok {
+				n++
+			}
+		}
+		return n
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for retained() > 0 && time.Now().Before(deadline) {
+		runtime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.Zero(t, retained(),
+		"pool entries for collected EvalContexts must be removed")
 }
