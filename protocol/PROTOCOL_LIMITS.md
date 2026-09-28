@@ -32,6 +32,53 @@ reassembly on the connection with room to spare. A caller that needs more
 headroom raises `MaxReadBufferSize` on the protocol that needs it, which
 raises the connection allowance with it.
 
+## Muxer ingress limits
+
+The muxer reads every mini-protocol on a connection through one read loop,
+so it never waits for a protocol's consumer. Each protocol role has its own
+ingress queue between the socket and the protocol, and its own limit on the
+segment payload held there. Ingress past the limit stops the connection with
+`muxer.ErrIngressOverflow` rather than pausing the read loop, which would
+stall every other protocol on the connection, keep-alive included. The one
+exception is a protocol role with backpressure enabled
+(`Muxer.SetIngressBackpressure`): its ingress past the limit pauses the read
+loop until the protocol has made room. Only the Block Fetch client enables
+it, and only while an unestimated request is outstanding.
+
+A protocol's limit is its `ProtocolConfig.IngressLimit` when set. Otherwise
+it is derived from its state map: the largest `PendingMessageByteLimit` of
+any state (for the node-to-node protocols, the reference implementation's
+per-protocol ingress queue limit), or the protocol's effective
+`MaxReadBufferSize` when no state declares one, and never less than one batch
+of ten maximum-size segments (655,350 bytes). The floor exists because the
+queue sits in front of the protocol's own reassembly and pending-message
+buffers, so it briefly holds segments a protocol that is keeping up has not
+taken yet.
+
+| Protocol role | Limit |
+| --- | ---: |
+| Block Fetch client | 23,068,694, raised while requests are outstanding |
+| Block Fetch server | 2,500,000 |
+| Tx Submission | 721,424 |
+| Chain Sync (node-to-node), Peer Sharing | 655,350 |
+| Keep Alive, Handshake, local protocols | effective `MaxReadBufferSize` (16 MB) |
+
+The worst-case memory a connection can queue is the sum of the limits of its
+registered protocol roles; a queue only fills while its protocol is not
+taking segments.
+
+Block Fetch is the only node-to-node protocol whose peer sends an amount
+chosen by the local side. Its client limit is the reference
+`blockFetchProtocolLimits` value, and the client raises it to cover every
+outstanding request with a size estimate, plus one maximum-size message for
+batch framing, from before the request is sent until it is resolved. See
+Block Fetch below for how a request is sized.
+
+The muxer reports each queue's depth on every enqueue and dequeue, how long
+each delivery waited for its protocol to take it, and how long the read loop
+paused under backpressure, through the optional `muxer.Metrics` hooks set
+with `Muxer.SetMetrics`.
+
 ## Muxer socket deadlines
 
 The muxer sets a 120-second write deadline immediately before each segment
@@ -90,12 +137,29 @@ arrive during the Idle transition.
 | Setting | Maximum | Default |
 | --- | ---: | ---: |
 | Receive queue size | 512 messages | 384 |
-| Expected bytes per unestimated range request | — | 90,112 (88 KiB) |
 | Total expected in-flight request bytes | — | 9,011,200 (100 × 88 KiB) |
 
 `WithRecvQueueSize` rejects values outside the receive-queue range. The
 in-flight byte bound applies to client request pipelining and blocks the
 request caller when the bound is full; it does not terminate the connection.
+
+A range request with `RangeRequest.ExpectedBytes` set counts toward the
+client's ingress limit with the estimate plus 10%, and against the in-flight
+bound with the estimate; the estimate should cover the whole serialized
+blocks, headers included. A range larger than the in-flight bound is sent
+once no other request is outstanding.
+
+A request without an estimate (every `GetBlock` and `GetBlockRange`
+request, and `RequestRange` with no estimate) has no bound that is both
+safe and never refuses an honest peer, because a range's reply is bounded
+per block, not per range. It counts as 88 KiB against the in-flight bound
+and adds nothing to the ingress limit, and while it is outstanding the
+client enables backpressure: past the limit, the muxer stops reading the
+connection until the block consumer makes room. Memory stays within the
+limit and the peer is slowed rather than dropped, but the pause holds up
+every protocol on the connection, so a consumer slower than the keep-alive
+timeout can still lose the connection. A peer that sends more than was
+asked for is refused once the client's range checks reach the excess.
 
 ## Transaction Submission
 
