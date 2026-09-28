@@ -130,6 +130,10 @@ var StateMapNtN = protocol.StateMap{
 		PendingMessageByteLimit: MaxPendingMessageBytes,
 		TimeoutFunc:             MustReplyTimeoutFunc,
 		Transitions:             mustReplyTransitions,
+		// A client pipelines RequestNext against its own view of CanAwait,
+		// which lags the server's: the server may already have sent
+		// AwaitReply when the request arrives.
+		PipelinedMessageTypes: []uint8{MessageTypeRequestNext},
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyNone,
@@ -155,8 +159,9 @@ var StateMapNtC = protocol.StateMap{
 		Transitions: intersectTransitions,
 	},
 	stateMustReply: protocol.StateMapEntry{
-		Agency:      protocol.AgencyServer,
-		Transitions: mustReplyTransitions,
+		Agency:                protocol.AgencyServer,
+		Transitions:           mustReplyTransitions,
+		PipelinedMessageTypes: []uint8{MessageTypeRequestNext},
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
@@ -251,7 +256,12 @@ type (
 
 type (
 	FindIntersectFunc func(CallbackContext, []pcommon.Point) (pcommon.Point, Tip, error)
-	RequestNextFunc   func(CallbackContext) error
+	// RequestNextFunc answers one MsgRequestNext on the server. It may send
+	// its reply (RollForward, RollBackward, or AwaitReply followed by either)
+	// before returning or after, from another goroutine. A pipelined
+	// RequestNext is not passed to RequestNextFunc until the server has
+	// answered the previous one and returned to Idle.
+	RequestNextFunc func(CallbackContext) error
 )
 
 // New returns a new ChainSync object
