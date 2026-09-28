@@ -527,8 +527,8 @@ func dijkstraBodyFieldsV4(body common.TransactionBody) (
 	return directDeposits, balanceIntervals, guards, requiredGuards, nil
 }
 
-// sortedDijkstraCredentials orders guard credentials deterministically by
-// credential type and hash so Plutus V4 map encodings are reproducible.
+// sortedDijkstraCredentials follows the reference Credential order: script
+// credentials precede key credentials, with hashes ordered bytewise.
 func sortedDijkstraCredentials[V any](
 	values map[*common.Credential]V,
 ) []*common.Credential {
@@ -538,7 +538,10 @@ func sortedDijkstraCredentials[V any](
 	}
 	slices.SortFunc(credentials, func(a, b *common.Credential) int {
 		if a.CredType != b.CredType {
-			return int(a.CredType) - int(b.CredType)
+			if a.CredType == common.CredentialTypeScriptHash {
+				return -1
+			}
+			return 1
 		}
 		return bytes.Compare(a.Credential.Bytes(), b.Credential.Bytes())
 	})

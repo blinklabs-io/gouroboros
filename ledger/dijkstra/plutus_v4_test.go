@@ -25,7 +25,11 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/blinklabs-io/plutigo/builtin"
+	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/blinklabs-io/plutigo/lang"
+	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/stretchr/testify/require"
 )
 
@@ -112,6 +116,219 @@ func dijkstraV4TestLevel(
 	require.NoError(t, err)
 	require.Len(t, levels, 1)
 	return levels[0]
+}
+
+func dijkstraRequiredGuardsOrderScript(
+	t *testing.T,
+	scriptCredential common.Credential,
+	keyCredential common.Credential,
+) common.PlutusV4Script {
+	t.Helper()
+	// unMapData exposes the ordered pairs that AssocMap.toList observes.
+	applyBuiltin := func(
+		fn builtin.DefaultFunction,
+		args ...syn.Term[syn.DeBruijn],
+	) syn.Term[syn.DeBruijn] {
+		var term syn.Term[syn.DeBruijn] = &syn.Builtin{DefaultFunction: fn}
+		forces := 0
+		switch fn {
+		case builtin.SndPair, builtin.FstPair:
+			forces = 2
+		case builtin.HeadList, builtin.TailList, builtin.IfThenElse:
+			forces = 1
+		}
+		for range forces {
+			term = &syn.Force[syn.DeBruijn]{Term: term}
+		}
+		for _, arg := range args {
+			term = &syn.Apply[syn.DeBruijn]{Function: term, Argument: arg}
+		}
+		return term
+	}
+	context := syn.Term[syn.DeBruijn](
+		&syn.Var[syn.DeBruijn]{Name: 1},
+	)
+	contextFields := applyBuiltin(
+		builtin.SndPair,
+		applyBuiltin(builtin.UnConstrData, context),
+	)
+	txInfo := applyBuiltin(builtin.HeadList, contextFields)
+	txInfoFields := applyBuiltin(
+		builtin.SndPair,
+		applyBuiltin(builtin.UnConstrData, txInfo),
+	)
+	requiredGuards := txInfoFields
+	for range 12 {
+		requiredGuards = applyBuiltin(builtin.TailList, requiredGuards)
+	}
+	requiredGuards = applyBuiltin(builtin.HeadList, requiredGuards)
+	entries := applyBuiltin(builtin.UnMapData, requiredGuards)
+	firstEntry := applyBuiltin(builtin.HeadList, entries)
+	secondEntry := applyBuiltin(
+		builtin.HeadList,
+		applyBuiltin(builtin.TailList, entries),
+	)
+	firstKey := applyBuiltin(builtin.FstPair, firstEntry)
+	secondKey := applyBuiltin(builtin.FstPair, secondEntry)
+	firstMatches := applyBuiltin(
+		builtin.EqualsData,
+		firstKey,
+		&syn.Constant{Con: &syn.Data{Inner: scriptCredential.ToPlutusData()}},
+	)
+	secondMatches := applyBuiltin(
+		builtin.EqualsData,
+		secondKey,
+		&syn.Constant{Con: &syn.Data{Inner: keyCredential.ToPlutusData()}},
+	)
+	unit := &syn.Constant{Con: &syn.Unit{}}
+	failure := &syn.Error{}
+	secondCheck := applyBuiltin(
+		builtin.IfThenElse,
+		secondMatches,
+		&syn.Delay[syn.DeBruijn]{Term: unit},
+		&syn.Delay[syn.DeBruijn]{Term: failure},
+	)
+	term := applyBuiltin(
+		builtin.IfThenElse,
+		firstMatches,
+		&syn.Delay[syn.DeBruijn]{Term: secondCheck},
+		&syn.Delay[syn.DeBruijn]{Term: failure},
+	)
+	term = &syn.Force[syn.DeBruijn]{Term: term}
+	flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
+		Version: lang.LanguageVersion{1, 1, 0},
+		Term:    &syn.Lambda[syn.DeBruijn]{Body: term},
+	})
+	require.NoError(t, err)
+	wrapper, err := cbor.Encode(flat)
+	require.NoError(t, err)
+	return common.PlutusV4Script(wrapper)
+}
+
+func TestDijkstraRequiredTopLevelGuardsV4CredentialOrder(t *testing.T) {
+	credential := func(credentialType uint, hashByte byte) common.Credential {
+		var hash common.CredentialHash
+		copy(hash[:], bytes.Repeat([]byte{hashByte}, len(hash)))
+		return common.Credential{CredType: credentialType, Credential: hash}
+	}
+	keyLow := credential(common.CredentialTypeAddrKeyHash, 0x41)
+	scriptLow := credential(common.CredentialTypeScriptHash, 0x41)
+	keyHigh := credential(common.CredentialTypeAddrKeyHash, 0x42)
+	scriptHigh := credential(common.CredentialTypeScriptHash, 0x42)
+	required := DijkstraRequiredTopLevelGuards{
+		&keyHigh:    nil,
+		&scriptHigh: {Data: data.NewInteger(big.NewInt(8))},
+		&keyLow:     nil,
+		&scriptLow:  {Data: data.NewInteger(big.NewInt(7))},
+	}
+	want := []common.Credential{scriptLow, scriptHigh, keyLow, keyHigh}
+	for _, test := range []struct {
+		name string
+		body common.TransactionBody
+	}{
+		{
+			name: "top-level transaction body",
+			body: &DijkstraTransactionBody{
+				TxRequiredTopLevelGuards: required,
+			},
+		},
+		{
+			name: "subtransaction body",
+			body: &DijkstraSubTransactionBody{
+				TxRequiredTopLevelGuards: required,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, _, requiredGuards, err := dijkstraBodyFieldsV4(test.body)
+			require.NoError(t, err)
+			dataMap := requireDijkstraV4Map(t, requiredGuards, len(want))
+			for idx := range want {
+				require.True(t, dataMap.Pairs[idx][0].Equal(
+					want[idx].ToPlutusData(),
+				), "credential at index %d", idx)
+			}
+		})
+	}
+}
+
+func TestDijkstraRequiredTopLevelGuardsV4AssocMapToList(t *testing.T) {
+	var hash common.CredentialHash
+	copy(hash[:], bytes.Repeat([]byte{0x42}, len(hash)))
+	keyCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hash,
+	}
+	scriptCredential := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: hash,
+	}
+	required := DijkstraRequiredTopLevelGuards{
+		&keyCredential:    nil,
+		&scriptCredential: {Data: data.NewInteger(big.NewInt(7))},
+	}
+	observer := dijkstraRequiredGuardsOrderScript(
+		t,
+		scriptCredential,
+		keyCredential,
+	)
+	evalContext, err := cek.NewEvalContext(
+		lang.LanguageVersionV4,
+		cek.ProtoVersion{Major: MinProtocolVersionDijkstra},
+		dijkstraGuardTestPParams().CostModels[3],
+	)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name           string
+		tx             *DijkstraTransaction
+		subtransaction bool
+	}{
+		{
+			name: "top-level body",
+			tx: &DijkstraTransaction{Body: DijkstraTransactionBody{
+				TxRequiredTopLevelGuards: required,
+			}},
+		},
+		{
+			name:           "subtransaction body",
+			subtransaction: true,
+			tx: &DijkstraTransaction{Body: DijkstraTransactionBody{
+				TxSubTransactions: cbor.NewSetType(
+					[]DijkstraSubTransaction{{Body: DijkstraSubTransactionBody{
+						TxRequiredTopLevelGuards: required,
+					}}},
+					false,
+				),
+			}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			levels, _, err := dijkstraScriptLevels(
+				test.tx,
+				dijkstraV4TestLedgerState(),
+			)
+			require.NoError(t, err)
+			level := levels[len(levels)-1]
+			if test.subtransaction {
+				level = levels[0]
+			}
+			context, err := dijkstraPlutusV4Context(
+				level,
+				script.ScriptPurposeGuarding{Guard: scriptCredential},
+				common.RedeemerKey{Tag: common.RedeemerTagGuarding},
+				common.RedeemerValue{Data: common.Datum{
+					Data: data.NewInteger(big.NewInt(9)),
+				}},
+			)
+			require.NoError(t, err)
+			_, err = observer.Evaluate(
+				context,
+				common.ExUnits{Memory: 10_000_000, Steps: 10_000_000},
+				evalContext,
+			)
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestDijkstraWithdrawalsV4FollowCredentialOrder(t *testing.T) {
