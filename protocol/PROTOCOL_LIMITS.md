@@ -159,7 +159,9 @@ connection until the block consumer makes room. Memory stays within the
 limit and the peer is slowed rather than dropped, but the pause holds up
 every protocol on the connection, so a consumer slower than the keep-alive
 timeout can still lose the connection. A peer that sends more than was
-asked for is refused once the client's range checks reach the excess.
+asked for is refused once the client's range checks reach the excess,
+or with `muxer.ErrIngressOverflow` if the muxer still holds excess when that
+request fails and its backpressure ends.
 
 ## Transaction Submission
 

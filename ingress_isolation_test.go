@@ -687,7 +687,9 @@ func TestUnestimatedRangeAppliesBackpressure(t *testing.T) {
 // range until the consumer reaches it, so the muxer must hold no more than
 // blockfetch.IngressLimit for it and hold the peer back rather than buffer
 // the rest. Once the consumer is released the client's range checks reach
-// the first block past the range, and the connection fails.
+// the first block past the range, and the connection fails. Failing the
+// request also ends its backpressure, so a read loop still holding excess
+// can report the ingress overflow first; either error drops the peer.
 func TestUnestimatedRangeFloodIsBoundedThenRefused(t *testing.T) {
 	t.Parallel()
 	chain := ingressTestChain(t, ingressBackpressureTestBlocks)
@@ -709,7 +711,9 @@ func TestUnestimatedRangeFloodIsBoundedThenRefused(t *testing.T) {
 	client.release()
 	select {
 	case err := <-client.errs:
-		require.ErrorContains(t, err, "outside requested range")
+		if !errors.Is(err, muxer.ErrIngressOverflow) {
+			require.ErrorContains(t, err, "outside requested range")
+		}
 	case <-time.After(ingressTestTimeout):
 		t.Fatal("the block past the requested range was not refused")
 	}
