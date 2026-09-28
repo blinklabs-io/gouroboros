@@ -1,0 +1,175 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package common
+
+import (
+	"encoding/binary"
+	"sync"
+	"sync/atomic"
+
+	"github.com/blinklabs-io/plutigo/cek"
+	"github.com/blinklabs-io/plutigo/lang"
+	"github.com/blinklabs-io/plutigo/syn"
+)
+
+// evalContextKey identifies the (language version, protocol major version,
+// cost model parameter list) tuple a *cek.EvalContext -- and therefore any
+// *cek.Machine built from it -- is derived from. ProtoVersion.Minor is
+// excluded: cek.GetSemantics (and every other reachable use of ProtoVersion)
+// switches only on Major, per the reuse guarantee documented on
+// cek.EvalContext.
+type evalContextKey struct {
+	version    lang.LanguageVersion
+	protoMajor uint
+	costModels string
+}
+
+// encodeCostModelParams turns a cost model parameter list into a comparable
+// map-key string. The exact parameter values must distinguish an
+// otherwise-identical (version, protoMajor) tuple across a governance-driven
+// cost model update, so the full list is encoded rather than hashed or
+// summarized.
+func encodeCostModelParams(params []int64) string {
+	buf := make([]byte, len(params)*8)
+	for i, p := range params {
+		// Bit-pattern reinterpretation for a map key, not an arithmetic
+		// conversion: every int64 value, negative or not, must round-trip
+		// through its 8 bytes unchanged so distinct parameter lists never
+		// collide.
+		binary.LittleEndian.PutUint64(buf[i*8:], uint64(p)) //nolint:gosec
+	}
+	return string(buf)
+}
+
+// evalContextCache holds one *cek.EvalContext per evalContextKey, process-wide
+// and never evicted: the number of distinct (version, protoMajor,
+// cost-model-list) tuples live on a running chain is small and each entry is
+// small, the same tradeoff already made for the package's cached CBOR
+// EncMode/DecMode.
+var evalContextCache sync.Map // evalContextKey -> *cek.EvalContext
+
+// PooledEvalContext returns a *cek.EvalContext for the given (language
+// version, protocol major version, cost model parameter list) tuple,
+// building and caching one on first use so every caller sharing the tuple
+// receives the identical *cek.EvalContext pointer.
+//
+// Reusing the pointer is what lets the machine pool below (see
+// checkoutMachine) recognize repeat evaluations of the same tuple and check
+// out a pooled *cek.Machine instead of constructing and discarding one per
+// redeemer (gouroboros#2554). A caller that instead builds a fresh
+// *cek.EvalContext per call -- via cek.NewEvalContext directly, or by passing
+// nil -- gets no pooling benefit, which is the pre-existing behavior, not a
+// regression.
+func PooledEvalContext(
+	version lang.LanguageVersion,
+	protoMajor uint,
+	costModelParams []int64,
+) (*cek.EvalContext, error) {
+	key := evalContextKey{
+		version:    version,
+		protoMajor: protoMajor,
+		costModels: encodeCostModelParams(costModelParams),
+	}
+	if cached, ok := evalContextCache.Load(key); ok {
+		return cached.(*cek.EvalContext), nil
+	}
+	built, err := cek.NewEvalContext(
+		version,
+		cek.ProtoVersion{Major: protoMajor},
+		costModelParams,
+	)
+	if err != nil {
+		return nil, err
+	}
+	actual, _ := evalContextCache.LoadOrStore(key, built)
+	return actual.(*cek.EvalContext), nil
+}
+
+// machineCheckoutKey pairs the language version passed to cek.NewMachine with
+// the *cek.EvalContext pointer used to build it. A Machine's builtins,
+// per-step costs, and available-builtin table (cek.NewMachine) are derived
+// only from that (version, evalContext) pair, so two checkouts sharing both
+// are interchangeable. Keying on the pair rather than the evalContext pointer
+// alone means an inconsistent caller -- reusing one *cek.EvalContext across
+// two different language versions, which nothing in this package does but
+// nothing prevents either -- still gets a correct Machine for each, rather
+// than silently reusing whichever was pooled first.
+type machineCheckoutKey struct {
+	version     lang.LanguageVersion
+	evalContext *cek.EvalContext
+}
+
+// machinePoolEntry is the sync.Pool of *cek.Machine[syn.DeBruijn] instances
+// built for one machineCheckoutKey, plus a count of how many times its New
+// has actually run. The count exists so a test (or an operator) can observe
+// how effective reuse is being for a tuple without relying on Machine pointer
+// identity, which sync.Pool does not guarantee to preserve: Put is allowed to
+// drop an item instead of retaining it (the runtime does exactly this, at
+// random, whenever the race detector is enabled -- see runtime/race branches
+// in sync.Pool's Put/Get -- specifically to stop callers from assuming
+// otherwise), and a GC cycle can clear the pool entirely at any time.
+type machinePoolEntry struct {
+	pool        *sync.Pool
+	constructed atomic.Int64
+}
+
+// machinePools maps a machineCheckoutKey to its machinePoolEntry. Keying by
+// the *cek.EvalContext pointer identity (see evalContextKey and
+// PooledEvalContext) rather than by evalContextKey directly means a caller
+// that does not route through PooledEvalContext simply gets no reuse: each
+// checkout misses, builds a fresh Machine, and is never checked back in to a
+// spot another checkout will find.
+var machinePools sync.Map // machineCheckoutKey -> *machinePoolEntry
+
+// checkoutMachine returns a *cek.Machine[syn.DeBruijn] built for (version,
+// evalContext), reusing a previously released one when the pool for that key
+// has one available. The caller owns the returned Machine exclusively until
+// it calls releaseMachine; sync.Pool.Get never hands out the same instance to
+// two concurrent callers, so two evaluations sharing the tuple never observe
+// each other's in-progress Run.
+func checkoutMachine(
+	version lang.LanguageVersion,
+	evalContext *cek.EvalContext,
+) *cek.Machine[syn.DeBruijn] {
+	key := machineCheckoutKey{version: version, evalContext: evalContext}
+	newEntry := &machinePoolEntry{}
+	newEntry.pool = &sync.Pool{
+		New: func() any {
+			newEntry.constructed.Add(1)
+			return cek.NewMachine[syn.DeBruijn](version, 200, evalContext)
+		},
+	}
+	entryIface, _ := machinePools.LoadOrStore(key, newEntry)
+	entry, _ := entryIface.(*machinePoolEntry)
+	machine, _ := entry.pool.Get().(*cek.Machine[syn.DeBruijn])
+	return machine
+}
+
+// releaseMachine returns a checked-out Machine to its pool. Only call it
+// after the Machine's Run has fully returned: Run's per-call state (ExBudget,
+// Logs, arena reuse via lazyPrepareValueArenas/lazyPrepareEnvArena) assumes
+// exclusive ownership for the duration of one Run, and handing the same
+// Machine to a second checkout before the first Run returns would let two
+// evaluations mutate it concurrently.
+func releaseMachine(
+	version lang.LanguageVersion,
+	evalContext *cek.EvalContext,
+	machine *cek.Machine[syn.DeBruijn],
+) {
+	key := machineCheckoutKey{version: version, evalContext: evalContext}
+	if entryIface, ok := machinePools.Load(key); ok {
+		entryIface.(*machinePoolEntry).pool.Put(machine)
+	}
+}

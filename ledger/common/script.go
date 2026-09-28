@@ -274,11 +274,8 @@ func (s PlutusV1Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := cek.NewMachine[syn.DeBruijn](
-		cek.LanguageVersionV1,
-		200,
-		evalContext,
-	)
+	machine := checkoutMachine(cek.LanguageVersionV1, evalContext)
+	defer releaseMachine(cek.LanguageVersionV1, evalContext, machine)
 	machine.ExBudget = machineBudget
 	_, runErr := machine.Run(wrappedProgram)
 	// Always calculate consumed budget, even on error
@@ -366,11 +363,8 @@ func (s PlutusV2Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := cek.NewMachine[syn.DeBruijn](
-		cek.LanguageVersionV2,
-		200,
-		evalContext,
-	)
+	machine := checkoutMachine(cek.LanguageVersionV2, evalContext)
+	defer releaseMachine(cek.LanguageVersionV2, evalContext, machine)
 	machine.ExBudget = machineBudget
 	_, runErr := machine.Run(wrappedProgram)
 	// Always calculate consumed budget, even on error
@@ -436,11 +430,8 @@ func (s PlutusV3Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := cek.NewMachine[syn.DeBruijn](
-		cek.LanguageVersionV3,
-		200,
-		evalContext,
-	)
+	machine := checkoutMachine(cek.LanguageVersionV3, evalContext)
+	defer releaseMachine(cek.LanguageVersionV3, evalContext, machine)
 	machine.ExBudget = machineBudget
 	_, runErr := machine.Run(wrappedProgram)
 	// Always calculate consumed budget, even on error
@@ -502,11 +493,8 @@ func (s PlutusV4Script) Evaluate(
 		Function: program.Term,
 		Argument: contextTerm,
 	}
-	machine := cek.NewMachine[syn.DeBruijn](
-		cek.LanguageVersionV4,
-		200,
-		evalContext,
-	)
+	machine := checkoutMachine(cek.LanguageVersionV4, evalContext)
+	defer releaseMachine(cek.LanguageVersionV4, evalContext, machine)
 	machine.ExBudget = machineBudget
 	_, runErr := machine.Run(wrappedProgram)
 	consumedBudget := machineBudget.Sub(&machine.ExBudget)

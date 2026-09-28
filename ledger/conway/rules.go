@@ -30,7 +30,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 )
@@ -3359,12 +3358,9 @@ func UtxoValidatePlutusScripts(
 			}
 			ctx := script.NewScriptContextV3(txInfoV3, redeemer, purpose)
 			ctxData := ctx.ToPlutusData()
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV3,
-				cek.ProtoVersion{
-					Major: conwayPparams.ProtocolVersion.Major,
-					Minor: conwayPparams.ProtocolVersion.Minor,
-				},
+				conwayPparams.ProtocolVersion.Major,
 				conwayPparams.CostModels[2],
 			)
 			if err != nil {
@@ -3395,12 +3391,9 @@ func UtxoValidatePlutusScripts(
 			// Build V1V2 context
 			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
 			ctxData := ctx.ToPlutusData()
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV2,
-				cek.ProtoVersion{
-					Major: conwayPparams.ProtocolVersion.Major,
-					Minor: conwayPparams.ProtocolVersion.Minor,
-				},
+				conwayPparams.ProtocolVersion.Major,
 				conwayPparams.CostModels[1],
 			)
 			if err != nil {
@@ -3431,12 +3424,9 @@ func UtxoValidatePlutusScripts(
 			// Build V1V2 context
 			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
 			ctxData := ctx.ToPlutusData()
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV1,
-				cek.ProtoVersion{
-					Major: conwayPparams.ProtocolVersion.Major,
-					Minor: conwayPparams.ProtocolVersion.Minor,
-				},
+				conwayPparams.ProtocolVersion.Major,
 				conwayPparams.CostModels[0],
 			)
 			if err != nil {
