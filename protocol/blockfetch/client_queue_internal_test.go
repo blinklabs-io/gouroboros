@@ -48,9 +48,17 @@ func TestPointInRange(t *testing.T) {
 		{name: "after", point: pcommon.NewPoint(201, []byte("after"))},
 		{name: "start", point: start, want: true},
 		{name: "end", point: end, want: true},
+		// Slot bounds only: a same-slot block with another hash (Byron EBB
+		// and first main block) is accepted here and vetted by recordBlock.
 		{
-			name:  "same slot wrong hash",
+			name:  "same slot as start, other hash",
 			point: pcommon.NewPoint(100, []byte("other")),
+			want:  true,
+		},
+		{
+			name:  "same slot as end, other hash",
+			point: pcommon.NewPoint(200, []byte("other")),
+			want:  true,
 		},
 	}
 	for _, test := range tests {
