@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -646,8 +647,10 @@ func (c *Client) GetAvailableBlockRange(
 	start := result.point
 	end := result.tip.Point
 
-	// If we're already at the chain tip, return an empty range
-	if start.Slot >= end.Slot {
+	// We're at the chain tip only when the intersect is the tip block itself.
+	// Comparing slots alone would miss a tip that shares the intersect's slot
+	// (e.g. a Byron EBB and the first block of its epoch).
+	if start.Slot == end.Slot && bytes.Equal(start.Hash, end.Hash) {
 		return pcommon.Point{}, pcommon.Point{}, nil
 	}
 
@@ -700,8 +703,10 @@ func (c *Client) GetAvailableBlockRange(
 			break
 		}
 	}
-	// If we're already at the chain tip, return an empty range
-	if start.Slot >= end.Slot {
+	// start is now the first block after the intersect, so start == end is a
+	// valid one-block range. Only a start beyond the tip means nothing is
+	// available.
+	if start.Slot > end.Slot {
 		return pcommon.Point{}, pcommon.Point{}, nil
 	}
 	return start, end, nil
