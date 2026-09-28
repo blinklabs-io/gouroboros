@@ -647,10 +647,12 @@ func (c *Client) GetAvailableBlockRange(
 	start := result.point
 	end := result.tip.Point
 
-	// We're at the chain tip only when the intersect is the tip block itself.
-	// Comparing slots alone would miss a tip that shares the intersect's slot
-	// (e.g. a Byron EBB and the first block of its epoch).
-	if start.Slot == end.Slot && bytes.Equal(start.Hash, end.Hash) {
+	// Nothing follows the intersect when it is the tip block itself, or when
+	// the peer reports a tip behind it; RequestNext would then wait for a
+	// block that may never come. Equal slots alone do not mean the tip: a
+	// Byron EBB shares its slot with the first block of its epoch.
+	if start.Slot > end.Slot ||
+		(start.Slot == end.Slot && bytes.Equal(start.Hash, end.Hash)) {
 		return pcommon.Point{}, pcommon.Point{}, nil
 	}
 

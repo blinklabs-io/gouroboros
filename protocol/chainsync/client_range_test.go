@@ -17,6 +17,7 @@ package chainsync_test
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -137,8 +138,22 @@ func TestGetAvailableBlockRangeTipSharesIntersectSlot(t *testing.T) {
 // Not t.Parallel: runTest uses goleak.VerifyNone, which is process-wide.
 func TestGetAvailableBlockRangeIntersectIsTip(t *testing.T) {
 	intersect := pcommon.NewPoint(20001, testPointHash(0x12))
-	tip := chainsync.Tip{BlockNumber: 12001, Point: intersect}
-	// No RequestNext entry: the client must not send one when already at tip
+	testRangeEmptyWithoutRequestNext(
+		t,
+		intersect,
+		chainsync.Tip{BlockNumber: 12001, Point: intersect},
+	)
+}
+
+// testRangeEmptyWithoutRequestNext drives GetAvailableBlockRange where the
+// client must return an empty range straight after FindIntersect.
+func testRangeEmptyWithoutRequestNext(
+	t *testing.T,
+	intersect pcommon.Point,
+	tip chainsync.Tip,
+) {
+	t.Helper()
+	// No RequestNext entry: the client must not send one
 	conversation := append(
 		conversationHandshakeFindIntersect,
 		ouroboros_mock.ConversationEntryOutput{
@@ -153,23 +168,59 @@ func TestGetAvailableBlockRangeIntersectIsTip(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange(
-				[]pcommon.Point{intersect},
-			)
-			if err != nil {
-				t.Fatalf("received unexpected error: %s", err)
+			type rangeResult struct {
+				start, end pcommon.Point
+				err        error
 			}
-			if start.Slot != 0 || end.Slot != 0 ||
-				len(start.Hash) != 0 || len(end.Hash) != 0 {
+			resultChan := make(chan rangeResult, 1)
+			go func() {
+				start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange(
+					[]pcommon.Point{intersect},
+				)
+				resultChan <- rangeResult{start, end, err}
+			}()
+			var res rangeResult
+			select {
+			case res = <-resultChan:
+			case <-time.After(2 * time.Second):
+				// A RequestNext the peer never answers blocks forever
+				t.Fatalf("GetAvailableBlockRange did not return an empty range")
+			}
+			if res.err != nil {
+				t.Fatalf("received unexpected error: %s", res.err)
+			}
+			if res.start.Slot != 0 || res.end.Slot != 0 ||
+				len(res.start.Hash) != 0 || len(res.end.Hash) != 0 {
 				t.Fatalf(
 					"expected empty range\n  got start: %#v\n  got end:   %#v",
-					start,
-					end,
+					res.start,
+					res.end,
 				)
 			}
 		},
 		ouroboros.WithChainSyncConfig(
 			chainsync.Config{SkipBlockValidation: true},
 		),
+	)
+}
+
+// Not t.Parallel: runTest uses goleak.VerifyNone, which is process-wide.
+func TestGetAvailableBlockRangeEmptyChain(t *testing.T) {
+	testRangeEmptyWithoutRequestNext(
+		t,
+		pcommon.NewPointOrigin(),
+		chainsync.Tip{Point: pcommon.NewPointOrigin()},
+	)
+}
+
+// Not t.Parallel: runTest uses goleak.VerifyNone, which is process-wide.
+func TestGetAvailableBlockRangeIntersectPastTip(t *testing.T) {
+	testRangeEmptyWithoutRequestNext(
+		t,
+		pcommon.NewPoint(20002, testPointHash(0x12)),
+		chainsync.Tip{
+			BlockNumber: 12000,
+			Point:       pcommon.NewPoint(20001, testPointHash(0x34)),
+		},
 	)
 }
