@@ -188,6 +188,7 @@ func dijkstraRequiredGuardsOrderScript(
 		&syn.Delay[syn.DeBruijn]{Term: unit},
 		&syn.Delay[syn.DeBruijn]{Term: failure},
 	)
+	secondCheck = &syn.Force[syn.DeBruijn]{Term: secondCheck}
 	term := applyBuiltin(
 		builtin.IfThenElse,
 		firstMatches,
