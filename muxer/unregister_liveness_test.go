@@ -43,6 +43,11 @@ func writeUnregisterTestSegment(conn net.Conn, segment *Segment) error {
 	return nil
 }
 
+// TestUnregisterProtocolWakesBlockedDelivery covers a receiver whose
+// consumer never drains. Writes over the synchronous net.Pipe must keep
+// returning however far ingress runs past the receive channel's capacity,
+// the excess must be held in the receiver's own queue, and unregistering
+// must not deadlock behind the stuck consumer.
 func TestUnregisterProtocolWakesBlockedDelivery(t *testing.T) {
 	const protocolId = 10
 
@@ -58,9 +63,28 @@ func TestUnregisterProtocolWakesBlockedDelivery(t *testing.T) {
 
 	segment := NewSegment(protocolId, []byte{0x81, 0x02}, false)
 	require.NotNil(t, segment)
-	for range cap(recvChan) {
-		require.NoError(t, writeUnregisterTestSegment(remoteConn, segment))
+
+	// Never drain recvChan. Write well past its capacity: if the read loop
+	// still blocked delivering to a full channel, one of these writes over
+	// the unbuffered net.Pipe would hang forever waiting for a read that
+	// never comes.
+	const totalSegments = 25
+	require.Greater(t, totalSegments, cap(recvChan))
+	written := make(chan struct{})
+	go func() {
+		defer close(written)
+		for range totalSegments {
+			if err := writeUnregisterTestSegment(remoteConn, segment); err != nil {
+				return
+			}
+		}
+	}()
+	select {
+	case <-written:
+	case <-time.After(2 * time.Second):
+		t.Fatal("read loop blocked delivering to a full protocol channel")
 	}
+
 	require.Eventually(t, func() bool {
 		return len(recvChan) == cap(recvChan)
 	}, time.Second, time.Millisecond)
@@ -70,13 +94,12 @@ func TestUnregisterProtocolWakesBlockedDelivery(t *testing.T) {
 	m.protocolReceiversMutex.Unlock()
 	require.NotNil(t, receiver)
 
-	require.NoError(t, writeUnregisterTestSegment(remoteConn, segment))
+	// The segments beyond the channel's capacity are held in the
+	// protocol's own ingress queue, not blocking anything shared.
 	require.Eventually(t, func() bool {
-		if receiver.mu.TryLock() {
-			receiver.mu.Unlock()
-			return false
-		}
-		return true
+		receiver.mu.Lock()
+		defer receiver.mu.Unlock()
+		return receiver.pendingBytes > 0
 	}, time.Second, time.Millisecond)
 
 	unregistered := make(chan struct{})
