@@ -136,6 +136,8 @@ type fakeMetrics struct {
 	depths   []int
 	maxDepth int
 	blocked  []time.Duration
+	// backpressure records IngressBackpressure waits.
+	backpressure []time.Duration
 }
 
 func (f *fakeMetrics) IngressQueueDepth(_ uint16, _ muxer.ProtocolRole, n int) {
@@ -153,6 +155,22 @@ func (f *fakeMetrics) IngressDeliveryBlocked(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.blocked = append(f.blocked, d)
+}
+
+func (f *fakeMetrics) IngressBackpressure(
+	_ uint16,
+	_ muxer.ProtocolRole,
+	d time.Duration,
+) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.backpressure = append(f.backpressure, d)
+}
+
+func (f *fakeMetrics) backpressureWaits() []time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]time.Duration(nil), f.backpressure...)
 }
 
 func (f *fakeMetrics) snapshot() (
@@ -233,4 +251,146 @@ func TestMuxerReportsIngressMetrics(t *testing.T) {
 		heldFor/2,
 		"delivery wait on the held consumer: %v", blocked,
 	)
+}
+
+// backpressureTestLimit is the ingress limit the backpressure tests set:
+// ten of their 10-byte segments.
+const backpressureTestLimit = 100
+
+// startBackpressureFlood registers a protocol with backpressure enabled and
+// a small ingress limit, and a second protocol, then writes more segments
+// for the first than its receive channel and queue can hold, followed by
+// one segment for the second. Nothing drains the first protocol, so the
+// read loop ends up waiting for room.
+func startBackpressureFlood(t *testing.T) (
+	*muxer.Muxer,
+	*fakeMetrics,
+	chan *muxer.Segment,
+	chan *muxer.Segment,
+) {
+	t.Helper()
+	conn := newMockConn()
+	m := muxer.New(conn)
+	t.Cleanup(m.Stop)
+	metrics := &fakeMetrics{}
+	m.SetMetrics(metrics)
+	_, slowRecv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+	_, fastRecv, _ := m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
+	require.True(t, m.SetIngressLimit(
+		0x01, muxer.ProtocolRoleResponder, backpressureTestLimit,
+	))
+	require.False(t, m.IngressBackpressure(0x01, muxer.ProtocolRoleResponder))
+	require.True(t, m.SetIngressBackpressure(
+		0x01, muxer.ProtocolRoleResponder, true,
+	))
+	require.True(t, m.IngressBackpressure(0x01, muxer.ProtocolRoleResponder))
+	require.False(t, m.SetIngressBackpressure(
+		0x03, muxer.ProtocolRoleResponder, true,
+	))
+	m.Start()
+	var buf bytes.Buffer
+	for range backpressureTestSegments {
+		seg := muxer.NewSegment(0x01, []byte("0123456789"), false)
+		require.NotNil(t, seg)
+		buf.Write(createSegmentData(seg))
+	}
+	fastSeg := muxer.NewSegment(0x02, []byte("fast"), false)
+	require.NotNil(t, fastSeg)
+	buf.Write(createSegmentData(fastSeg))
+	conn.WriteToReadBuf(buf.Bytes())
+	// The queue is full once it holds the limit: ten segments in the
+	// receive channel and one in delivery are not counted against it.
+	require.Eventually(t, func() bool {
+		_, maxDepth, _ := metrics.snapshot()
+		return maxDepth == backpressureTestLimit
+	}, 2*time.Second, time.Millisecond, "queue did not fill to its limit")
+	return m, metrics, slowRecv, fastRecv
+}
+
+// backpressureTestSegments is more 10-byte segments than the receive
+// channel, the segment in delivery, and the queue can hold together.
+const backpressureTestSegments = 40
+
+// TestIngressBackpressureHoldsReadLoopWithinLimit checks that a protocol
+// with backpressure enabled is held at its ingress limit instead of failing
+// the muxer, that the read loop stops for every protocol while it is held,
+// and that everything is delivered in order once the protocol drains.
+func TestIngressBackpressureHoldsReadLoopWithinLimit(t *testing.T) {
+	t.Parallel()
+	m, metrics, slowRecv, fastRecv := startBackpressureFlood(t)
+
+	// Waiting for something not to happen: the read loop is held, so
+	// neither an overflow nor the other protocol's segment may arrive.
+	select {
+	case err := <-m.ErrorChan():
+		t.Fatalf("backpressure failed the muxer: %v", err)
+	case <-fastRecv:
+		t.Fatal("read loop kept reading past a protocol held by backpressure")
+	case <-time.After(100 * time.Millisecond):
+	}
+	_, maxDepth, _ := metrics.snapshot()
+	require.Equal(t, backpressureTestLimit, maxDepth)
+
+	for i := range backpressureTestSegments {
+		select {
+		case seg := <-slowRecv:
+			require.Equal(t, []byte("0123456789"), seg.Payload)
+		case err := <-m.ErrorChan():
+			t.Fatalf("muxer failed while draining segment %d: %v", i, err)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("segment %d was not delivered", i)
+		}
+	}
+	select {
+	case seg := <-fastRecv:
+		require.Equal(t, []byte("fast"), seg.Payload)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the other protocol's segment was not read after the drain")
+	}
+	_, maxDepth, _ = metrics.snapshot()
+	require.Equal(t, backpressureTestLimit, maxDepth)
+	require.NotEmpty(
+		t,
+		metrics.backpressureWaits(),
+		"the read loop's wait was not reported",
+	)
+}
+
+// TestIngressBackpressureDisabledWhileWaiting checks that turning
+// backpressure off while the read loop waits for room refuses the segment it
+// holds as an ingress overflow.
+func TestIngressBackpressureDisabledWhileWaiting(t *testing.T) {
+	t.Parallel()
+	m, _, _, _ := startBackpressureFlood(t)
+	require.True(t, m.SetIngressBackpressure(
+		0x01, muxer.ProtocolRoleResponder, false,
+	))
+	select {
+	case err := <-m.ErrorChan():
+		require.ErrorIs(t, err, muxer.ErrIngressOverflow)
+	case <-time.After(2 * time.Second):
+		t.Fatal("disabling backpressure did not refuse the held segment")
+	}
+}
+
+// TestIngressBackpressureStopWhileWaiting checks that Stop ends a read loop
+// waiting for room. Nothing drains the held protocol, since a drain would
+// make room and let the read loop see Stop on its next pass; the error
+// channel closes only once every muxer goroutine, the read loop included,
+// has exited.
+func TestIngressBackpressureStopWhileWaiting(t *testing.T) {
+	t.Parallel()
+	m, _, _, _ := startBackpressureFlood(t)
+	m.Stop()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-m.ErrorChan():
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("read loop waiting under backpressure did not stop")
+		}
+	}
 }
