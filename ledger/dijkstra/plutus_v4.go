@@ -55,6 +55,8 @@ func dijkstraPlutusV4Context(
 }
 
 func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
+	// IntersectMBO/cardano-ledger sets txInfoSubTxIx to Nothing for every
+	// level in TxInfo.hs at 7d76ec20dea1302bb1d76f7e22a72e25f70657c6.
 	base, err := script.NewTxInfoV3FromTransaction(
 		level.slotState,
 		transactionWithoutGuardingRedeemers{Transaction: level.tx},
@@ -125,7 +127,7 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 	return data.NewConstr(
 		0,
 		data.NewByteString(level.tx.Id().Bytes()),
-		dijkstraOptionalIndex(level.subTxIndex),
+		dijkstraOptionalIndex(nil),
 		data.NewList(inputs...),
 		data.NewList(referenceInputs...),
 		data.NewList(outputs...),
