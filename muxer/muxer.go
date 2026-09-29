@@ -62,6 +62,33 @@ const defaultSegmentReadTimeout = 120 * time.Second
 // connections are not killed by one absolute connection deadline.
 const segmentWriteTimeout = 2 * time.Minute
 
+// DefaultIngressLimit is the ingress limit a receiver gets when it is
+// registered with RegisterProtocol and no limit is set for it with
+// SetIngressLimit. It is not a specification value: it matches the default
+// size of the largest message a mini-protocol will reassemble, so a receiver
+// registered directly on the muxer is bounded somewhere. The protocol
+// package sets each mini-protocol's own limit as it registers.
+const DefaultIngressLimit = 16 * 1024 * 1024 // 16MB
+
+// ErrIngressOverflow is reported when the segment payload queued for one
+// protocol role, received and not yet delivered to that protocol, would
+// exceed its ingress limit. The muxer stops with this error rather than
+// waiting, because its read loop is shared by every protocol on the
+// connection, unless backpressure is enabled for that protocol role (see
+// SetIngressBackpressure).
+var ErrIngressOverflow = errors.New(
+	"muxer: protocol ingress exceeded its ingress limit",
+)
+
+// errSegmentChannelClosed marks ingress arriving for a receiver that has
+// already been unregistered; the muxer read loop drops it silently rather
+// than treating it as a protocol violation.
+var errSegmentChannelClosed = errors.New("segment channel closed")
+
+// errMuxerStopping marks ingress abandoned because the muxer is stopping
+// while the read loop waited for room under backpressure.
+var errMuxerStopping = errors.New("muxer stopping")
+
 // DiffusionMode is an enum for the valid muxer diffusion modes
 type DiffusionMode int
 
@@ -117,6 +144,151 @@ type Muxer struct {
 	readBufferBudget int
 	// readBufferUsed is the portion of readBufferBudget currently reserved.
 	readBufferUsed int
+	metrics        atomic.Pointer[Metrics]
+	// registerHook, when non-nil, runs in RegisterProtocol between its
+	// first shutdown check and the insertion of the new receiver. It exists
+	// only so a test can run a complete Stop inside that window, which is
+	// otherwise a few statements wide. Production code never sets it.
+	registerHook func()
+}
+
+// Metrics is an optional set of callbacks for observing per-protocol
+// ingress, for a consumer to wire to a metrics library of its own choosing.
+// The muxer's read loop never waits on a protocol's consumer, so these
+// report where waiting happens instead: in each protocol role's own ingress
+// queue and delivery.
+type Metrics interface {
+	// IngressQueueDepth reports the segment payload bytes received for a
+	// protocol role and not yet delivered to its receive channel. It is
+	// called with the new depth after every enqueue and every dequeue,
+	// while that queue's lock is held, so the values arrive in order; an
+	// implementation must return promptly and must not call back into the
+	// muxer. A depth that stays near the protocol's IngressLimit means its
+	// consumer is not keeping up.
+	IngressQueueDepth(protocolId uint16, protocolRole ProtocolRole, bytes int)
+	// IngressDeliveryBlocked reports how long delivery of one segment to a
+	// protocol role waited for that protocol to make room in its receive
+	// channel. It is called only for deliveries that had to wait. This is
+	// the time a slow consumer holds up its own protocol, and only that
+	// protocol.
+	IngressDeliveryBlocked(
+		protocolId uint16,
+		protocolRole ProtocolRole,
+		d time.Duration,
+	)
+	// IngressBackpressure reports how long the read loop stopped reading
+	// the connection because a protocol role with backpressure enabled
+	// (see Muxer.SetIngressBackpressure) had reached its ingress limit. It
+	// is called only for reads that had to wait. Unlike
+	// IngressDeliveryBlocked, this wait holds up every protocol on the
+	// connection, keep-alive included.
+	IngressBackpressure(
+		protocolId uint16,
+		protocolRole ProtocolRole,
+		d time.Duration,
+	)
+}
+
+// SetMetrics registers optional hooks for observing muxer ingress. It may be
+// called at any time, and applies to every event after it returns. A nil
+// value removes the hooks.
+func (m *Muxer) SetMetrics(metrics Metrics) {
+	if metrics == nil {
+		m.metrics.Store(nil)
+		return
+	}
+	m.metrics.Store(&metrics)
+}
+
+func (m *Muxer) getMetrics() Metrics {
+	p := m.metrics.Load()
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+// SetIngressLimit sets the most segment payload, in bytes, the muxer will
+// hold for a registered protocol role between reading it from the
+// connection and delivering it to the protocol. Ingress past the limit stops
+// the muxer with ErrIngressOverflow. It applies from the next segment
+// received, and may be changed at any time; a mini-protocol that solicits a
+// variable amount of data raises it before soliciting and lowers it once the
+// data has been consumed. A limit of zero or less restores
+// DefaultIngressLimit. It reports false when the protocol role is not
+// registered.
+func (m *Muxer) SetIngressLimit(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+	limit int,
+) bool {
+	m.protocolReceiversMutex.Lock()
+	defer m.protocolReceiversMutex.Unlock()
+	recvChan, ok := m.protocolReceivers[protocolId][protocolRole]
+	if !ok {
+		return false
+	}
+	if limit <= 0 {
+		limit = DefaultIngressLimit
+	}
+	recvChan.setLimit(limit)
+	return true
+}
+
+// SetIngressBackpressure sets what happens to ingress for a registered
+// protocol role past its ingress limit. Disabled, the default, it stops the
+// muxer with ErrIngressOverflow. Enabled, the read loop stops reading the
+// connection until the protocol has taken enough queued ingress for the next
+// segment to fit, so the queue stays within the limit and the peer is slowed
+// rather than dropped. The read loop serves every protocol on the
+// connection, so while it waits no protocol receives anything; enable it
+// only while a protocol has solicited more than it can bound. It reports
+// false when the protocol role is not registered.
+func (m *Muxer) SetIngressBackpressure(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+	enabled bool,
+) bool {
+	m.protocolReceiversMutex.Lock()
+	defer m.protocolReceiversMutex.Unlock()
+	recvChan, ok := m.protocolReceivers[protocolId][protocolRole]
+	if !ok {
+		return false
+	}
+	recvChan.setBackpressure(enabled)
+	return true
+}
+
+// IngressBackpressure reports whether backpressure is enabled for a
+// registered protocol role. It reports false when the role is not
+// registered.
+func (m *Muxer) IngressBackpressure(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+) bool {
+	m.protocolReceiversMutex.Lock()
+	defer m.protocolReceiversMutex.Unlock()
+	recvChan, ok := m.protocolReceivers[protocolId][protocolRole]
+	if !ok {
+		return false
+	}
+	recvChan.mu.Lock()
+	defer recvChan.mu.Unlock()
+	return recvChan.backpressure
+}
+
+// IngressLimit returns the ingress limit of a registered protocol role, or
+// zero when it is not registered.
+func (m *Muxer) IngressLimit(protocolId uint16, protocolRole ProtocolRole) int {
+	m.protocolReceiversMutex.Lock()
+	defer m.protocolReceiversMutex.Unlock()
+	recvChan, ok := m.protocolReceivers[protocolId][protocolRole]
+	if !ok {
+		return 0
+	}
+	recvChan.mu.Lock()
+	defer recvChan.mu.Unlock()
+	return recvChan.limit
 }
 
 // RaiseReadBufferBudget raises this connection's message reassembly
@@ -190,11 +362,203 @@ func (m *Muxer) ReadBufferInUse() int {
 	return m.readBufferUsed
 }
 
+// segmentChannel holds one protocol role's inbound segments. The muxer read
+// loop, shared by every protocol on the connection, appends to queue without
+// waiting unless backpressure is enabled; forward drains queue into ch, and
+// is the only goroutine that waits on the protocol's consumer.
 type segmentChannel struct {
-	mu       sync.Mutex
-	ch       chan *Segment
-	done     chan struct{}
-	onceStop sync.Once
+	protocolId   uint16
+	protocolRole ProtocolRole
+	metrics      func() Metrics
+	// muxerDone is the muxer's doneChan, which a read loop waiting under
+	// backpressure also watches.
+	muxerDone <-chan bool
+	// mu guards every field below it except the channels, which are
+	// written only at construction and in stop.
+	mu           sync.Mutex
+	limit        int
+	backpressure bool
+	// room, when non-nil, is closed and cleared whenever a waiting enqueue
+	// might now succeed: a dequeue, or a change of limit or backpressure.
+	room          chan struct{}
+	cond          *sync.Cond
+	queue         []*Segment
+	pendingBytes  int
+	closed        bool
+	ch            chan *Segment
+	done          chan struct{}
+	forwarderDone chan struct{}
+	onceStop      sync.Once
+}
+
+func newSegmentChannel(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+	metrics func() Metrics,
+	muxerDone <-chan bool,
+) *segmentChannel {
+	sc := &segmentChannel{
+		protocolId:    protocolId,
+		protocolRole:  protocolRole,
+		metrics:       metrics,
+		muxerDone:     muxerDone,
+		limit:         DefaultIngressLimit,
+		ch:            make(chan *Segment, 10),
+		done:          make(chan struct{}),
+		forwarderDone: make(chan struct{}),
+	}
+	sc.cond = sync.NewCond(&sc.mu)
+	return sc
+}
+
+func (sc *segmentChannel) setLimit(limit int) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.limit = limit
+	sc.wakeEnqueueLocked()
+}
+
+func (sc *segmentChannel) setBackpressure(enabled bool) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.backpressure = enabled
+	sc.wakeEnqueueLocked()
+}
+
+// wakeEnqueueLocked wakes an enqueue waiting for room. The caller must hold
+// mu.
+func (sc *segmentChannel) wakeEnqueueLocked() {
+	if sc.room != nil {
+		close(sc.room)
+		sc.room = nil
+	}
+}
+
+// reportDepthLocked reports the queue depth. The caller must hold mu, which
+// is what keeps the reports from the read loop and from forward in order.
+func (sc *segmentChannel) reportDepthLocked() {
+	if metrics := sc.metrics(); metrics != nil {
+		metrics.IngressQueueDepth(
+			sc.protocolId,
+			sc.protocolRole,
+			sc.pendingBytes,
+		)
+	}
+}
+
+// enqueue appends msg to the queue. Payload past the ingress limit is
+// refused with ErrIngressOverflow: the caller is the read loop every
+// protocol on the connection depends on, so it does not wait for this
+// protocol's consumer to make room. The exception is a protocol role with
+// backpressure enabled, for which enqueue waits for room instead, holding up
+// the whole read loop, until the segment fits, backpressure is disabled, or
+// the receiver or muxer stops.
+func (sc *segmentChannel) enqueue(msg *Segment) error {
+	var waitStart time.Time
+	defer func() {
+		if waitStart.IsZero() {
+			return
+		}
+		if metrics := sc.metrics(); metrics != nil {
+			metrics.IngressBackpressure(
+				sc.protocolId,
+				sc.protocolRole,
+				time.Since(waitStart),
+			)
+		}
+	}()
+	for {
+		sc.mu.Lock()
+		if sc.closed {
+			sc.mu.Unlock()
+			return errSegmentChannelClosed
+		}
+		newPending := sc.pendingBytes + len(msg.Payload)
+		// Under backpressure an empty queue always admits, so a limit set
+		// below one segment cannot wedge the read loop.
+		if newPending <= sc.limit ||
+			(sc.backpressure && len(sc.queue) == 0) {
+			sc.queue = append(sc.queue, msg)
+			sc.pendingBytes = newPending
+			sc.reportDepthLocked()
+			sc.cond.Broadcast()
+			sc.mu.Unlock()
+			return nil
+		}
+		if !sc.backpressure {
+			limit := sc.limit
+			sc.mu.Unlock()
+			return fmt.Errorf(
+				"%w: %d bytes queued exceeds %d byte limit",
+				ErrIngressOverflow,
+				newPending,
+				limit,
+			)
+		}
+		if sc.room == nil {
+			sc.room = make(chan struct{})
+		}
+		room := sc.room
+		sc.mu.Unlock()
+		if waitStart.IsZero() {
+			waitStart = time.Now()
+		}
+		select {
+		case <-room:
+		case <-sc.done:
+			return errSegmentChannelClosed
+		case <-sc.muxerDone:
+			return errMuxerStopping
+		}
+	}
+}
+
+// forward drains queue into ch, waiting on the protocol's consumer when ch
+// is full.
+func (sc *segmentChannel) forward() {
+	defer close(sc.forwarderDone)
+	for {
+		sc.mu.Lock()
+		for len(sc.queue) == 0 && !sc.closed {
+			sc.cond.Wait()
+		}
+		if len(sc.queue) == 0 {
+			sc.mu.Unlock()
+			return
+		}
+		seg := sc.queue[0]
+		sc.pendingBytes -= len(seg.Payload)
+		sc.queue = sc.queue[1:]
+		if len(sc.queue) == 0 {
+			// Release the backing array, which still references every
+			// segment delivered since it was allocated.
+			sc.queue = nil
+		}
+		sc.reportDepthLocked()
+		sc.wakeEnqueueLocked()
+		sc.mu.Unlock()
+
+		select {
+		case sc.ch <- seg:
+			continue
+		case <-sc.done:
+			return
+		default:
+		}
+		waitStart := time.Now()
+		select {
+		case sc.ch <- seg:
+		case <-sc.done:
+			return
+		}
+		if metrics := sc.metrics(); metrics != nil {
+			metrics.IngressDeliveryBlocked(
+				sc.protocolId,
+				sc.protocolRole,
+				time.Since(waitStart),
+			)
+		}
+	}
 }
 
 type segmentSender struct {
@@ -226,13 +590,19 @@ func (s *segmentSender) stop() {
 }
 
 func (s *segmentChannel) stop() {
-	// Wake a delivery that is waiting for channel capacity before taking the
-	// mutex needed to close the receiver. Otherwise unregistration can wait
-	// forever behind that delivery while the protocol waits for
-	// unregistration to finish.
+	// Wake forward() out of both a blocked send on ch and a Wait() for more
+	// queue, then let it exit before closing ch - it is the only other
+	// goroutine that touches ch, and closing from under a pending send
+	// would panic. Unlock before waiting: forward() takes mu itself to
+	// observe closed.
 	s.onceStop.Do(func() {
 		close(s.done)
 	})
+	s.mu.Lock()
+	s.closed = true
+	s.cond.Broadcast()
+	s.mu.Unlock()
+	<-s.forwarderDone
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ch != nil {
@@ -373,16 +743,35 @@ func (m *Muxer) RegisterProtocol(
 		return nil, nil, nil
 	default:
 	}
+	if m.registerHook != nil {
+		m.registerHook()
+	}
 	// Generate channels
 	senderChan := make(chan *Segment, 10)
-	receiver := make(chan *Segment, 10)
-	receiverChan := &segmentChannel{
-		ch:   receiver,
-		done: make(chan struct{}),
-	}
+	receiverChan := newSegmentChannel(
+		protocolId,
+		protocolRole,
+		m.getMetrics,
+		m.doneChan,
+	)
+	receiver := receiverChan.ch
 	sender := &segmentSender{ch: senderChan, done: make(chan struct{})}
+	m.waitGroup.Go(receiverChan.forward)
 	// Record channels in protocol sender/receiver maps
 	m.protocolReceiversMutex.Lock()
+	// Shutdown is checked again under the lock readLoop's exit sweep takes.
+	// doneChan is always closed before that sweep runs, so a receiver
+	// inserted after this check is one the sweep will stop, and a receiver
+	// that would miss the sweep is never inserted. Checking only above
+	// leaves a window where the receiver's forward goroutine is never
+	// stopped and the muxer never finishes shutting down.
+	select {
+	case <-m.doneChan:
+		m.protocolReceiversMutex.Unlock()
+		receiverChan.stop()
+		return nil, nil, nil
+	default:
+	}
 	if _, ok := m.protocolSenders[protocolId]; !ok {
 		m.protocolSenders[protocolId] = make(map[ProtocolRole]*segmentSender)
 	}
@@ -648,21 +1037,25 @@ func (m *Muxer) readLoop() {
 			return
 		}
 
-		recvChan.mu.Lock()
-		if recvChan.ch == nil {
-			recvChan.mu.Unlock()
-			continue
-		}
-
-		select {
-		case <-m.doneChan:
-			recvChan.mu.Unlock()
+		// Every protocol on the connection is read through this loop, so it
+		// must not wait for one protocol's consumer: enqueue does not block,
+		// and ingress past the protocol's limit ends the connection, unless
+		// that protocol has enabled backpressure.
+		if err := recvChan.enqueue(msg); err != nil {
+			if errors.Is(err, errSegmentChannelClosed) {
+				continue
+			}
+			if errors.Is(err, errMuxerStopping) {
+				return
+			}
+			m.sendError(
+				fmt.Errorf(
+					"protocol %d: %w",
+					msg.GetProtocolId(),
+					err,
+				),
+			)
 			return
-		case <-recvChan.done:
-			recvChan.mu.Unlock()
-			continue
-		case recvChan.ch <- msg:
-			recvChan.mu.Unlock()
 		}
 	}
 }

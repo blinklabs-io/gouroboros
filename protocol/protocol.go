@@ -35,6 +35,20 @@ import (
 // This is completely arbitrary, but the line had to be drawn somewhere
 const maxMessagesPerSegment = 20
 
+// maxSegmentsPerBatch bounds how many queued segments readLoop takes before
+// scanning: the capacity of the muxer's per-protocol receive channel.
+const maxSegmentsPerBatch = 10
+
+// minIngressLimit is the smallest ingress limit derived for a protocol: one
+// batch of maximum-size segments. The muxer's ingress queue sits in front of
+// this package's own reassembly and pending-message buffers, which apply the
+// per-state limits themselves, so the queue briefly holds segments a
+// protocol that is keeping up has not taken yet. Deriving a limit below this
+// would make that scheduling delay alone fail a healthy peer, and would
+// refuse a single segment before readLoop could report the oversized
+// message it carries.
+const minIngressLimit = maxSegmentsPerBatch * muxer.SegmentMaxPayloadLength
+
 // maxReadBufferSize is the default upper bound on the read buffer in
 // readLoop, used whenever a ProtocolConfig doesn't override it via
 // MaxReadBufferSize. This prevents a malicious peer from sending incomplete
@@ -61,20 +75,27 @@ const DefaultRecvQueueSize = 55
 
 // Protocol implements the base functionality of an Ouroboros mini-protocol
 type Protocol struct {
-	config                   ProtocolConfig
-	doneChan                 chan struct{}
-	stopChan                 chan struct{}
-	muxerSendChan            chan *muxer.Segment
-	muxerRecvChan            chan *muxer.Segment
-	muxerDoneChan            chan bool
-	sendQueueChan            chan outboundMessage
-	recvDoneChan             chan struct{}
-	recvQueueChan            chan Message
-	recvStateChangedChan     chan struct{}
-	sendDoneChan             chan struct{}
-	sendReadyChan            chan bool
-	stateTransitionChan      chan<- protocolStateTransition
-	onceRegister             sync.Once
+	config               ProtocolConfig
+	doneChan             chan struct{}
+	stopChan             chan struct{}
+	muxerSendChan        chan *muxer.Segment
+	muxerRecvChan        chan *muxer.Segment
+	muxerDoneChan        chan bool
+	sendQueueChan        chan outboundMessage
+	recvDoneChan         chan struct{}
+	recvQueueChan        chan Message
+	recvStateChangedChan chan struct{}
+	sendDoneChan         chan struct{}
+	sendReadyChan        chan bool
+	stateTransitionChan  chan<- protocolStateTransition
+	onceRegister         sync.Once
+	// registered, muxerRole, ingressAllowance and ingressBackpressure are
+	// guarded by ingressMu. See SetIngressAllowance.
+	ingressMu                sync.Mutex
+	registered               bool
+	muxerRole                muxer.ProtocolRole
+	ingressAllowance         int
+	ingressBackpressure      bool
 	onceStart                sync.Once
 	onceStop                 sync.Once
 	doneOnce                 sync.Once
@@ -146,6 +167,31 @@ type ProtocolConfig struct {
 	// timeout, where 0 means "wait forever"), since a literal zero-byte
 	// buffer could never hold even the smallest message.
 	MaxReadBufferSize int
+	// IngressLimit overrides the most segment payload, in bytes, the muxer
+	// holds for this protocol between reading it from the connection and
+	// this protocol taking it. Zero derives it from StateMap: the largest
+	// PendingMessageByteLimit of any state, which for the node-to-node
+	// protocols is the reference implementation's per-protocol ingress
+	// queue limit, or MaxReadBufferSize's effective value when no state
+	// declares one, and never less than one batch of maximum-size segments
+	// (minIngressLimit). See Protocol.SetIngressAllowance for a protocol that
+	// solicits more than that.
+	IngressLimit int
+}
+
+// ingressLimit returns the effective base ingress limit for this config.
+func (c ProtocolConfig) ingressLimit() int {
+	if c.IngressLimit > 0 {
+		return c.IngressLimit
+	}
+	limit := 0
+	for _, entry := range c.StateMap {
+		limit = max(limit, entry.PendingMessageByteLimit)
+	}
+	if limit == 0 {
+		limit = c.maxReadBufferSize()
+	}
+	return max(limit, minIngressLimit)
 }
 
 // maxReadBufferSize returns the effective read-buffer cap for this config:
@@ -192,9 +238,8 @@ type ProtocolOptions struct {
 }
 
 type protocolStateTransition struct {
-	msg                        Message
-	errorChan                  chan<- error
-	acceptPipelinedPeerMessage bool
+	msg       Message
+	errorChan chan<- error
 }
 
 type outboundMessage struct {
@@ -241,7 +286,64 @@ func (p *Protocol) EnsureRegistered() {
 			p.config.ProtocolId,
 			muxerProtocolRole,
 		)
+		if p.muxerRecvChan == nil {
+			return
+		}
+		p.ingressMu.Lock()
+		defer p.ingressMu.Unlock()
+		p.registered = true
+		p.muxerRole = muxerProtocolRole
+		p.applyIngressLimitLocked()
 	})
+}
+
+// SetIngressAllowance tells the muxer how many bytes of peer data this
+// protocol has solicited and not yet consumed. The protocol's ingress limit
+// becomes the larger of that and its base limit (ProtocolConfig.IngressLimit
+// or the value derived from its state map), so a protocol that asks its
+// peer for more than the base limit, such as a block-fetch client
+// requesting a large range, can hold the reply while its consumer catches
+// up instead of failing the connection with an ingress overflow. Raise it
+// before soliciting the data and lower it once the data has been consumed.
+// It may be called before the protocol is registered.
+func (p *Protocol) SetIngressAllowance(bytes int) {
+	p.ingressMu.Lock()
+	defer p.ingressMu.Unlock()
+	p.ingressAllowance = bytes
+	p.applyIngressLimitLocked()
+}
+
+// SetIngressBackpressure sets whether ingress for this protocol past its
+// ingress limit pauses the muxer's read loop instead of failing the
+// connection; see muxer.Muxer.SetIngressBackpressure. Pausing the read loop
+// stops every protocol on the connection, keep-alive included, so a protocol
+// enables it only while it has solicited data it cannot bound, and disables
+// it once that data has been consumed. It may be called before the protocol
+// is registered.
+func (p *Protocol) SetIngressBackpressure(enabled bool) {
+	p.ingressMu.Lock()
+	defer p.ingressMu.Unlock()
+	p.ingressBackpressure = enabled
+	p.applyIngressLimitLocked()
+}
+
+// applyIngressLimitLocked pushes the effective ingress limit and
+// backpressure setting to the muxer. The caller must hold ingressMu, which
+// orders concurrent updates.
+func (p *Protocol) applyIngressLimitLocked() {
+	if !p.registered || p.config.Muxer == nil {
+		return
+	}
+	p.config.Muxer.SetIngressLimit(
+		p.config.ProtocolId,
+		p.muxerRole,
+		max(p.config.ingressLimit(), p.ingressAllowance),
+	)
+	p.config.Muxer.SetIngressBackpressure(
+		p.config.ProtocolId,
+		p.muxerRole,
+		p.ingressBackpressure,
+	)
 }
 
 // Start initializes the mini-protocol
@@ -1466,11 +1568,14 @@ func (p *Protocol) readLoop() {
 					return
 				}
 			}
-			// Batch segments already queued by the muxer before scanning.
-			// appendSegment bounds the buffer on both receive paths and keeps
-			// shutdown responsive while draining.
+			// Batch segments already queued by the muxer before scanning,
+			// at most maxSegmentsPerBatch of them. The muxer refills
+			// muxerRecvChan from its own ingress queue as fast as this loop
+			// drains it, so draining until the channel is empty can pull a
+			// whole backlog of complete messages into readBuffer at once and
+			// exceed the cap that bounds a single message.
 		drainQueued:
-			for {
+			for range maxSegmentsPerBatch {
 				select {
 				case <-p.stopChan:
 					return
@@ -1679,11 +1784,13 @@ func (p *Protocol) recvLoop() {
 		case <-p.muxerDoneChan:
 			return
 		case msg := <-p.recvQueueChan:
-			// A reply admitted for an outstanding pipelined request still
-			// needs ordinary peer agency before it can advance the state
-			// machine. A state-declared peer-pipelined message is the exception:
-			// it may be handled while this role holds agency.
-			for !p.canHandlePeerMessage(msg) {
+			// A message admitted while this role holds agency, whether a
+			// reply to an outstanding pipelined request or a peer-pipelined
+			// request, is handled only once the peer holds agency again. Its
+			// transition is not valid before then, and handling a pipelined
+			// request early would run its callback while the previous request
+			// is still unanswered.
+			for !p.peerHasAgency() {
 				select {
 				case <-p.stopChan:
 					return
@@ -1792,15 +1899,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			}
 			return
 		case t := <-ch:
-			currentState := p.getCurrentState()
-			if t.acceptPipelinedPeerMessage && p.peerMayPipelineMessage(
-				currentState,
-				t.msg,
-			) {
-				t.errorChan <- nil
-				continue
-			}
-			nextState, err := p.nextState(currentState, t.msg)
+			nextState, err := p.nextState(p.getCurrentState(), t.msg)
 			if err != nil {
 				t.errorChan <- fmt.Errorf(
 					"%s: error handling protocol state transition: %w",
@@ -1858,28 +1957,12 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 	)
 }
 
-func (p *Protocol) peerMayPipelineMessage(state State, msg Message) bool {
-	entry, ok := p.config.StateMap[state]
-	return ok &&
-		p.agencyHolderFor(entry) == agencyLocal &&
-		slices.Contains(entry.PipelinedMessageTypes, msg.Type())
-}
-
-func (p *Protocol) canHandlePeerMessage(msg Message) bool {
-	state := p.getCurrentState()
-	entry, ok := p.config.StateMap[state]
-	return ok && (p.agencyHolderFor(entry) == agencyPeer ||
-		p.peerMayPipelineMessage(state, msg))
+func (p *Protocol) peerHasAgency() bool {
+	entry, ok := p.config.StateMap[p.getCurrentState()]
+	return ok && p.agencyHolderFor(entry) == agencyPeer
 }
 
 func (p *Protocol) transitionState(msg Message) error {
-	return p.requestStateTransition(msg, false)
-}
-
-func (p *Protocol) requestStateTransition(
-	msg Message,
-	acceptPipelinedPeerMessage bool,
-) error {
 	errorChan := make(chan error, 1)
 	select {
 	case <-p.stopChan:
@@ -1887,9 +1970,8 @@ func (p *Protocol) requestStateTransition(
 	case <-p.doneChan:
 		return ErrProtocolShuttingDown
 	case p.stateTransitionChan <- protocolStateTransition{
-		msg:                        msg,
-		errorChan:                  errorChan,
-		acceptPipelinedPeerMessage: acceptPipelinedPeerMessage,
+		msg:       msg,
+		errorChan: errorChan,
 	}:
 	}
 
@@ -1904,7 +1986,7 @@ func (p *Protocol) requestStateTransition(
 }
 
 func (p *Protocol) handleMessage(msg Message) error {
-	if err := p.requestStateTransition(msg, true); err != nil {
+	if err := p.transitionState(msg); err != nil {
 		return fmt.Errorf("%s: error handling message: %w", p.config.Name, err)
 	}
 
