@@ -1294,22 +1294,17 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	return nil
 }
 
+// pointInRange reports whether a block's slot lies within the requested slot
+// bounds. It deliberately ignores hashes: Byron places an epoch boundary block
+// and the first main block of the epoch in the same slot, so a block sharing an
+// endpoint's slot need not be that endpoint. Identity of the endpoints and the
+// blocks between them is established by recordBlock.
 func pointInRange(block, start, end pcommon.Point) bool {
-	if start.Hash != nil {
-		if block.Slot < start.Slot {
-			return false
-		}
-		if block.Slot == start.Slot && !bytes.Equal(block.Hash, start.Hash) {
-			return false
-		}
+	if start.Hash != nil && block.Slot < start.Slot {
+		return false
 	}
-	if end.Hash != nil {
-		if block.Slot > end.Slot {
-			return false
-		}
-		if block.Slot == end.Slot && !bytes.Equal(block.Hash, end.Hash) {
-			return false
-		}
+	if end.Hash != nil && block.Slot > end.Slot {
+		return false
 	}
 	return true
 }
@@ -1331,6 +1326,15 @@ func (req *rangeRequest) recordBlock(
 	if !pointInRange(blockPoint, req.start, req.end) {
 		return fmt.Errorf(
 			"%s: received block outside requested range: slot=%d hash=%x",
+			ProtocolName,
+			blockPoint.Slot,
+			blockPoint.Hash,
+		)
+	}
+	if req.hasLastPoint && req.end.Hash != nil &&
+		pointsEqual(req.lastPoint, req.end) {
+		return fmt.Errorf(
+			"%s: received block beyond requested range end: slot=%d hash=%x",
 			ProtocolName,
 			blockPoint.Slot,
 			blockPoint.Hash,
