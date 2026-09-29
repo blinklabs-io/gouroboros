@@ -1178,10 +1178,6 @@ func validateDijkstraProtocolParameterUpdate(
 			Value:     uint(*ppu.RefScriptCostStride),
 		}
 	}
-	if ppu.MaxPledgeLeverage != nil && ppu.MaxPledgeLeverage.Rat != nil &&
-		ppu.MaxPledgeLeverage.Sign() == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "eMax"}
-	}
 	return validateLeiosCommitteeStakeParameters(
 		ppu.CommitteeStakeCoverage,
 		ppu.QuorumStakeThreshold,
@@ -1209,9 +1205,8 @@ func validateDijkstraProtocolParameterUpdateDomains(
 	if rat := ppu.RefScriptCostMultiplier; rat != nil && !validPositiveDijkstraRat(rat) {
 		return errors.New("refScriptCostMultiplier must be a positive bounded ratio")
 	}
-	if rat := ppu.MaxPledgeLeverage; rat != nil &&
-		!validMaxPledgeLeverageDijkstraRat(rat) {
-		return errors.New("maxPledgeLeverage must be in [1, 10000]")
+	if rat := ppu.MaxPledgeLeverage; rat != nil && !validNonNegativeDijkstraRat(rat) {
+		return errors.New("maxPledgeLeverage must be a non-negative bounded ratio")
 	}
 	if rat := ppu.MinPoolMargin; rat != nil && !validUnitDijkstraRat(rat) {
 		return errors.New("minPoolMargin must be a bounded unit interval")
@@ -1238,27 +1233,13 @@ func validateDijkstraRewardParameterDomains(
 	maxPledgeLeverage *cbor.Rat,
 	minPoolMargin *cbor.Rat,
 ) error {
-	if maxPledgeLeverage != nil &&
-		(!validMaxPledgeLeverageDijkstraRat(maxPledgeLeverage) ||
-			maxPledgeLeverage.Sign() == 0) {
-		return errors.New("maxPledgeLeverage must be in [1, 10000]")
+	if maxPledgeLeverage != nil && !validNonNegativeDijkstraRat(maxPledgeLeverage) {
+		return errors.New("maxPledgeLeverage must be a non-negative bounded ratio")
 	}
 	if minPoolMargin != nil && !validUnitDijkstraRat(minPoolMargin) {
 		return errors.New("minPoolMargin must be a bounded unit interval")
 	}
 	return nil
-}
-
-func validMaxPledgeLeverageDijkstraRat(rat *cbor.Rat) bool {
-	if !validNonNegativeDijkstraRat(rat) {
-		return false
-	}
-	if rat.Sign() == 0 {
-		// Governance validation reports zero with a typed eMax error.
-		return true
-	}
-	return rat.Cmp(big.NewRat(1, 1)) >= 0 &&
-		rat.Cmp(big.NewRat(10_000, 1)) <= 0
 }
 
 func validUnitDijkstraRat(rat *cbor.Rat) bool {

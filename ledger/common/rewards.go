@@ -44,8 +44,11 @@ type RewardParameters struct {
 	// Protocol version for reward calculation rules
 	ProtocolVersion ProtocolParametersProtocolVersion
 
-	// MaxPledgeLeverage is the Dijkstra CIP-50 pledge-to-stake cap in [1,
-	// 10000]. It is inactive before Dijkstra and when unset.
+	// MaxPledgeLeverage is the Dijkstra CIP-50 pledge-to-stake cap. The
+	// protocol parameter is any non-negative rational, but CalculateRewards
+	// only supports [1, 10000]: below 1 cardano-ledger's maxPool' can go
+	// negative, which this calculator does not model. It is inactive before
+	// Dijkstra and when unset.
 	MaxPledgeLeverage *big.Rat
 
 	// MinPoolMargin is the Dijkstra CIP-23 minimum pool margin in [0, 1]. It is

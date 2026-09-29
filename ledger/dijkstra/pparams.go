@@ -419,11 +419,6 @@ func (p *DijkstraProtocolParameters) ApplyUpdate(
 	if paramUpdate == nil {
 		return nil
 	}
-	if paramUpdate.MaxPledgeLeverage != nil &&
-		paramUpdate.MaxPledgeLeverage.Rat != nil &&
-		paramUpdate.MaxPledgeLeverage.Sign() == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "eMax"}
-	}
 	if err := validateDijkstraProtocolParameterUpdateDomains(paramUpdate); err != nil {
 		return err
 	}
