@@ -15,6 +15,7 @@
 package common
 
 import (
+	"container/list"
 	"encoding/binary"
 	"runtime"
 	"sync"
@@ -55,24 +56,83 @@ func encodeCostModelParams(params []int64) string {
 	return string(buf)
 }
 
-// evalContextCache holds one *cek.EvalContext per evalContextKey, process-wide
-// and never evicted: the number of distinct (version, protoMajor,
-// cost-model-list) tuples live on a running chain is small and each entry is
-// small, the same tradeoff already made for the package's cached CBOR
-// EncMode/DecMode.
-var evalContextCache sync.Map // evalContextKey -> *cek.EvalContext
+// evalContextCacheLimit bounds evalContextCache. A running chain has at most
+// one live cost model list per Plutus language version, plus the previous
+// list around a governance update, so this leaves room for every tuple in
+// use across a protocol version change while capping what a sequence of cost
+// model updates can retain over a node's lifetime.
+const evalContextCacheLimit = 16
+
+// evalContextCacheEntry is one evalContextCache slot, linked into the cache's
+// recency list.
+type evalContextCacheEntry struct {
+	key         evalContextKey
+	evalContext *cek.EvalContext
+}
+
+// evalContextCache holds at most evalContextCacheLimit *cek.EvalContext
+// values, evicting the least recently used. Eviction only drops the cache's
+// reference: a caller still holding an evicted EvalContext keeps using it, and
+// its machine pool entry is removed once that caller releases it (see
+// machinePools).
+var evalContextCache = struct {
+	sync.Mutex
+	entries map[evalContextKey]*list.Element // value: *evalContextCacheEntry
+	recency list.List                        // front: most recently used
+}{
+	entries: make(map[evalContextKey]*list.Element),
+}
+
+func loadEvalContext(key evalContextKey) (*cek.EvalContext, bool) {
+	evalContextCache.Lock()
+	defer evalContextCache.Unlock()
+	elem, ok := evalContextCache.entries[key]
+	if !ok {
+		return nil, false
+	}
+	evalContextCache.recency.MoveToFront(elem)
+	return elem.Value.(*evalContextCacheEntry).evalContext, true
+}
+
+// loadOrStoreEvalContext stores built under key unless a concurrent caller
+// stored one first, and returns whichever is cached, so every caller that
+// raced on the same miss receives the same pointer.
+func loadOrStoreEvalContext(
+	key evalContextKey,
+	built *cek.EvalContext,
+) *cek.EvalContext {
+	evalContextCache.Lock()
+	defer evalContextCache.Unlock()
+	if elem, ok := evalContextCache.entries[key]; ok {
+		evalContextCache.recency.MoveToFront(elem)
+		return elem.Value.(*evalContextCacheEntry).evalContext
+	}
+	evalContextCache.entries[key] = evalContextCache.recency.PushFront(
+		&evalContextCacheEntry{key: key, evalContext: built},
+	)
+	for evalContextCache.recency.Len() > evalContextCacheLimit {
+		oldest := evalContextCache.recency.Back()
+		evalContextCache.recency.Remove(oldest)
+		delete(
+			evalContextCache.entries,
+			oldest.Value.(*evalContextCacheEntry).key,
+		)
+	}
+	return built
+}
 
 // PooledEvalContext returns a *cek.EvalContext for the given (language
 // version, protocol major version, cost model parameter list) tuple,
 // building and caching one on first use so every caller sharing the tuple
-// receives the identical *cek.EvalContext pointer.
+// receives the identical *cek.EvalContext pointer while it stays cached.
 //
-// The cache is process-wide and never evicted. It exists so that callers
-// evaluating many redeemers, such as the Conway and Dijkstra ledger rules,
-// share one EvalContext instead of building one per redeemer. Evaluate reuses
-// cek.Machine instances for any *cek.EvalContext passed to it repeatedly, so a
-// caller that caches its own EvalContexts gets the same Machine reuse without
-// using this function.
+// The cache is process-wide and holds a bounded number of tuples, evicting the
+// least recently used; a caller may keep using a returned EvalContext after it
+// is evicted. The cache exists so that callers evaluating many redeemers, such
+// as the Conway and Dijkstra ledger rules, share one EvalContext instead of
+// building one per redeemer. Evaluate reuses cek.Machine instances for any
+// *cek.EvalContext passed to it repeatedly, so a caller that caches its own
+// EvalContexts gets the same Machine reuse without using this function.
 func PooledEvalContext(
 	version lang.LanguageVersion,
 	protoMajor uint,
@@ -83,8 +143,8 @@ func PooledEvalContext(
 		protoMajor: protoMajor,
 		costModels: encodeCostModelParams(costModelParams),
 	}
-	if cached, ok := evalContextCache.Load(key); ok {
-		return cached.(*cek.EvalContext), nil
+	if cached, ok := loadEvalContext(key); ok {
+		return cached, nil
 	}
 	built, err := cek.NewEvalContext(
 		version,
@@ -94,8 +154,7 @@ func PooledEvalContext(
 	if err != nil {
 		return nil, err
 	}
-	actual, _ := evalContextCache.LoadOrStore(key, built)
-	return actual.(*cek.EvalContext), nil
+	return loadOrStoreEvalContext(key, built), nil
 }
 
 // machineCheckoutKey pairs the language version passed to cek.NewMachine with

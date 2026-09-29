@@ -523,3 +523,58 @@ func TestMachinePoolReleasesEntriesForCollectedEvalContexts(t *testing.T) {
 	require.Zero(t, retained(),
 		"pool entries for collected EvalContexts must be removed")
 }
+
+// TestPooledEvalContextCacheIsBounded pins the retention bound on
+// PooledEvalContext: a sequence of distinct cost model lists, the shape
+// repeated governance updates take, evicts the least recently used tuple
+// instead of retaining every list for the process lifetime, and an evicted
+// EvalContext still held by a caller keeps evaluating correctly.
+//
+// It is not parallel: parallel tests in this package rely on their own cached
+// tuples staying resident, and this test deliberately overflows the cache.
+func TestPooledEvalContextCacheIsBounded(t *testing.T) {
+	params := make(
+		[]int64,
+		len(lang.GetParamNamesForVersion(lang.LanguageVersionV3)),
+	)
+	for i := range params {
+		params[i] = int64(i + 1)
+	}
+	const baseMajor = 910000
+	pooled := func(protoMajor uint) *cek.EvalContext {
+		evalContext, err := PooledEvalContext(
+			lang.LanguageVersionV3,
+			protoMajor,
+			params,
+		)
+		require.NoError(t, err)
+		return evalContext
+	}
+
+	evicted := pooled(baseMajor)
+	hot := pooled(baseMajor + 1)
+	for i := range uint(evalContextCacheLimit) {
+		pooled(baseMajor + 2 + i)
+		require.Same(t, hot, pooled(baseMajor+1),
+			"a recently used tuple must stay cached")
+	}
+
+	require.NotSame(t, evicted, pooled(baseMajor),
+		"the least recently used tuple must be evicted once the cache is full")
+
+	script := buildMachinePoolTestV3Script(t)
+	want, err := script.Evaluate(
+		machinePoolTestScriptContext(),
+		machinePoolTestBudget(),
+		pooled(baseMajor),
+	)
+	require.NoError(t, err)
+	got, err := script.Evaluate(
+		machinePoolTestScriptContext(),
+		machinePoolTestBudget(),
+		evicted,
+	)
+	require.NoError(t, err)
+	require.Equal(t, want, got,
+		"an evicted EvalContext held by a caller must still evaluate")
+}
