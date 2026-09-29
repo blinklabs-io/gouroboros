@@ -76,8 +76,10 @@ type StateMapEntry struct {
 	AllowPipelinedSend bool
 	// PipelinedMessageTypes limits which messages may use the pipelined path
 	// while this state is active. Receivers also accept these messages from the
-	// peer when the local role holds agency, since they may be peer-pipelined.
-	// An empty list allows no pipelined messages.
+	// peer when the local role holds agency, since they may be peer-pipelined,
+	// and hold them until the peer holds agency again. A receiving state must
+	// list a type whenever a peer may pipeline it against its own, lagging,
+	// view of the state machine. An empty list allows no pipelined messages.
 	PipelinedMessageTypes []uint8
 }
 

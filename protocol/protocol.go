@@ -192,9 +192,8 @@ type ProtocolOptions struct {
 }
 
 type protocolStateTransition struct {
-	msg                        Message
-	errorChan                  chan<- error
-	acceptPipelinedPeerMessage bool
+	msg       Message
+	errorChan chan<- error
 }
 
 type outboundMessage struct {
@@ -1679,11 +1678,13 @@ func (p *Protocol) recvLoop() {
 		case <-p.muxerDoneChan:
 			return
 		case msg := <-p.recvQueueChan:
-			// A reply admitted for an outstanding pipelined request still
-			// needs ordinary peer agency before it can advance the state
-			// machine. A state-declared peer-pipelined message is the exception:
-			// it may be handled while this role holds agency.
-			for !p.canHandlePeerMessage(msg) {
+			// A message admitted while this role holds agency, whether a
+			// reply to an outstanding pipelined request or a peer-pipelined
+			// request, is handled only once the peer holds agency again. Its
+			// transition is not valid before then, and handling a pipelined
+			// request early would run its callback while the previous request
+			// is still unanswered.
+			for !p.peerHasAgency() {
 				select {
 				case <-p.stopChan:
 					return
@@ -1792,15 +1793,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			}
 			return
 		case t := <-ch:
-			currentState := p.getCurrentState()
-			if t.acceptPipelinedPeerMessage && p.peerMayPipelineMessage(
-				currentState,
-				t.msg,
-			) {
-				t.errorChan <- nil
-				continue
-			}
-			nextState, err := p.nextState(currentState, t.msg)
+			nextState, err := p.nextState(p.getCurrentState(), t.msg)
 			if err != nil {
 				t.errorChan <- fmt.Errorf(
 					"%s: error handling protocol state transition: %w",
@@ -1858,28 +1851,12 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 	)
 }
 
-func (p *Protocol) peerMayPipelineMessage(state State, msg Message) bool {
-	entry, ok := p.config.StateMap[state]
-	return ok &&
-		p.agencyHolderFor(entry) == agencyLocal &&
-		slices.Contains(entry.PipelinedMessageTypes, msg.Type())
-}
-
-func (p *Protocol) canHandlePeerMessage(msg Message) bool {
-	state := p.getCurrentState()
-	entry, ok := p.config.StateMap[state]
-	return ok && (p.agencyHolderFor(entry) == agencyPeer ||
-		p.peerMayPipelineMessage(state, msg))
+func (p *Protocol) peerHasAgency() bool {
+	entry, ok := p.config.StateMap[p.getCurrentState()]
+	return ok && p.agencyHolderFor(entry) == agencyPeer
 }
 
 func (p *Protocol) transitionState(msg Message) error {
-	return p.requestStateTransition(msg, false)
-}
-
-func (p *Protocol) requestStateTransition(
-	msg Message,
-	acceptPipelinedPeerMessage bool,
-) error {
 	errorChan := make(chan error, 1)
 	select {
 	case <-p.stopChan:
@@ -1887,9 +1864,8 @@ func (p *Protocol) requestStateTransition(
 	case <-p.doneChan:
 		return ErrProtocolShuttingDown
 	case p.stateTransitionChan <- protocolStateTransition{
-		msg:                        msg,
-		errorChan:                  errorChan,
-		acceptPipelinedPeerMessage: acceptPipelinedPeerMessage,
+		msg:       msg,
+		errorChan: errorChan,
 	}:
 	}
 
@@ -1904,7 +1880,7 @@ func (p *Protocol) requestStateTransition(
 }
 
 func (p *Protocol) handleMessage(msg Message) error {
-	if err := p.requestStateTransition(msg, true); err != nil {
+	if err := p.transitionState(msg); err != nil {
 		return fmt.Errorf("%s: error handling message: %w", p.config.Name, err)
 	}
 
