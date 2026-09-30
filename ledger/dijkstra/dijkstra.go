@@ -599,6 +599,13 @@ func (h *DijkstraBlockHeader) MarshalCBOR() ([]byte, error) {
 	if _, err := cbor.Decode(top[0], &bodyElems); err != nil {
 		return nil, err
 	}
+	if len(bodyElems) != babbageHeaderBodyFieldCount {
+		return nil, fmt.Errorf(
+			"unexpected Babbage block header body: expected %d fields, got %d",
+			babbageHeaderBodyFieldCount,
+			len(bodyElems),
+		)
+	}
 	ext := h.LeiosHeaderExtension
 	if len(ext) == 0 {
 		ext = []cbor.RawMessage{{0xf4}, {0xf6}}

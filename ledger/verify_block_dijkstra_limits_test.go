@@ -133,6 +133,7 @@ func signedDijkstraLimitsHeader(t *testing.T) *dijkstra.DijkstraBlockHeader {
 	var top []cbor.RawMessage
 	_, err = cbor.Decode(unsigned, &top)
 	require.NoError(t, err)
+	require.Len(t, top, 2)
 	kesSig, err := kes.Sign(kesSk, 0, top[0])
 	require.NoError(t, err)
 	header.Signature = kesSig

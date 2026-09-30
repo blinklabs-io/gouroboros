@@ -826,6 +826,7 @@ func TestDijkstraBlockHeaderDecodesLeiosExtension(t *testing.T) {
 	var fullTop []cbor.RawMessage
 	_, err = cbor.Decode(full, &fullTop)
 	require.NoError(t, err)
+	require.Len(t, fullTop, 2)
 	var fullBody []cbor.RawMessage
 	_, err = cbor.Decode(fullTop[0], &fullBody)
 	require.NoError(t, err)
@@ -858,6 +859,7 @@ func TestDijkstraBlockHeaderDecodesLeiosExtension(t *testing.T) {
 	var top []cbor.RawMessage
 	_, err = cbor.Decode(raw, &top)
 	require.NoError(t, err)
+	require.Len(t, top, 2)
 	require.Equal(t, []byte(top[0]), header.Body.Cbor())
 
 	// Round-trips byte-for-byte so the header hash matches the wire bytes.
