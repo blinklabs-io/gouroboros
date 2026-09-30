@@ -31,7 +31,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 )
@@ -2915,12 +2914,9 @@ func validateDijkstraPlutusV4Scripts(
 	if redeemers == nil {
 		return nil
 	}
-	evalContext, err := cek.NewEvalContext(
+	evalContext, err := common.PooledEvalContext(
 		lang.LanguageVersionV4,
-		cek.ProtoVersion{
-			Major: pp.ProtocolVersion.Major,
-			Minor: pp.ProtocolVersion.Minor,
-		},
+		pp.ProtocolVersion.Major,
 		pp.CostModels[3],
 	)
 	if err != nil {
@@ -3268,12 +3264,9 @@ func validateGuardingPlutusScripts(
 				guardingRedeemer(redeemerKey, redeemerValue),
 				purpose,
 			)
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV3,
-				cek.ProtoVersion{
-					Major: pp.ProtocolVersion.Major,
-					Minor: pp.ProtocolVersion.Minor,
-				},
+				pp.ProtocolVersion.Major,
 				pp.CostModels[2],
 			)
 			if err != nil {
@@ -3296,12 +3289,9 @@ func validateGuardingPlutusScripts(
 				txInfoV2Built = true
 			}
 			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV2,
-				cek.ProtoVersion{
-					Major: pp.ProtocolVersion.Major,
-					Minor: pp.ProtocolVersion.Minor,
-				},
+				pp.ProtocolVersion.Major,
 				pp.CostModels[1],
 			)
 			if err != nil {
@@ -3331,12 +3321,9 @@ func validateGuardingPlutusScripts(
 				txInfoV1Built = true
 			}
 			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV1,
-				cek.ProtoVersion{
-					Major: pp.ProtocolVersion.Major,
-					Minor: pp.ProtocolVersion.Minor,
-				},
+				pp.ProtocolVersion.Major,
 				pp.CostModels[0],
 			)
 			if err != nil {
