@@ -31,11 +31,9 @@ import (
 	"go.uber.org/goleak"
 )
 
-// testTimeout bounds every channel wait in this file. It is reached only when
-// a test is already failing, so it is generous enough for a heavily loaded
-// host running sibling parallel packages. Nothing here uses time.Sleep for
-// synchronization.
-const testTimeout = 30 * time.Second
+// testTimeout bounds every channel wait in this file. Nothing here uses
+// time.Sleep for synchronization.
+const testTimeout = 5 * time.Second
 
 type deliveredBlock struct {
 	requestId uint64
@@ -424,7 +422,9 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, deliveredBlock{requestId: id1, slot: 100}, h.nextBlock(t))
-	first := h.nextDone(t)
+	// The excess BatchDone surfaces a connection error right after this done
+	// is written, so both channels can be ready; tolerate the error.
+	first := waitForDone(t, h)
 	require.Equal(t, id1, first.requestId)
 	require.NoError(t, first.err)
 
