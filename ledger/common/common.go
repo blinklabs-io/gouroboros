@@ -1239,8 +1239,12 @@ type BlockTransactionOffsets struct {
 	Transactions []TransactionLocation
 
 	// InvalidTransactions contains the transaction indexes listed in the
-	// block's invalid_transactions field. It is nil for block formats without
-	// that field or when the field is empty.
+	// block's invalid_transactions field, in wire order. A current Dijkstra
+	// block has no such field; each block transaction carries a trailing
+	// is_valid flag instead, and this holds the ascending indexes of the
+	// transactions whose flag is false. Either way,
+	// TransactionValidityFlags yields the per-transaction validity. It is nil
+	// when no transaction is invalid.
 	InvalidTransactions []uint
 }
 
@@ -1667,9 +1671,9 @@ func isDijkstraCompatibleHeader(data []byte) bool {
 //     peras_certificate/nil], each transaction
 //     [transaction_body, transaction_witness_set, auxiliary_data/nil].
 //
-// The trailing is_valid flag of a block transaction is a bool rather than a
-// byte range, so it needs no entry in TransactionLocation and is simply not
-// walked.
+// The trailing is_valid flag of a current-shape block transaction is a bool
+// rather than a byte range, so it needs no entry in TransactionLocation; a
+// false flag is reported through InvalidTransactions instead.
 func extractDijkstraTransactionOffsets(
 	cborData []byte,
 	blockArray []cbor.RawMessage,
@@ -1886,6 +1890,27 @@ func extractDijkstraTransactionOffsets(
 				i,
 				err,
 			)
+		}
+		// Only the current body shape defines block_transaction's trailing
+		// is_valid; the legacy body carries invalid_transactions instead.
+		if !legacyBody && len(txParts) == dijkstraBlockTxComponents {
+			var isValid bool
+			if _, err := cbor.Decode(
+				txParts[dijkstraBlockTxComponents-1],
+				&isValid,
+			); err != nil {
+				return nil, fmt.Errorf(
+					"failed to decode Dijkstra transaction %d is_valid: %w",
+					i,
+					err,
+				)
+			}
+			if !isValid {
+				result.InvalidTransactions = append(
+					result.InvalidTransactions,
+					uint(i), // #nosec G115 -- i is a non-negative slice index
+				)
+			}
 		}
 
 		bodyStart := txPos + txHeaderSize + uint32(
