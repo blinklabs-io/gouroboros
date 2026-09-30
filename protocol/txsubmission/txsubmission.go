@@ -187,11 +187,13 @@ const (
 	// to the ledger decoder for one reply. It is separate from the retained
 	// message-byte limit, which includes CBOR framing and protects ingress.
 	MaxDecodedTxBytes = MaxUnackedTxIds * MaxTxSizeBytes
-	// MaxPendingMessageBytes is the retained-byte budget of one reply: a
-	// full unacknowledged window of maximum-size transactions plus the tx-id
-	// reply that announced them, with the reference implementation's 10%
-	// safety margin. It bounds what a reply may retain, not what a state
-	// accepts on the wire; see LargeMaxPendingMessageBytes.
+	// MaxPendingMessageBytes is a full unacknowledged window of maximum-size
+	// transactions plus the tx-id reply that announced them, with the
+	// reference implementation's 10% safety margin. It is the protocol's mux
+	// ingress limit, matching maximumIngressQueue in the reference
+	// txSubmissionProtocolLimits, and the retained-byte budget of one reply.
+	// It is separate from the per-state message limits below, as the
+	// reference's ingress queue is separate from its codec byte limits.
 	MaxPendingMessageBytes = MaxUnackedTxIds *
 		(TxIdReplyEntryBytes + MaxTxSizeBytes) * 11 / 10
 	// SmallMaxPendingMessageBytes is the pending-message limit of the Init,
@@ -201,8 +203,7 @@ const (
 	SmallMaxPendingMessageBytes = 65535
 	// LargeMaxPendingMessageBytes is the pending-message limit of the
 	// TxIdsBlocking, TxIdsNonblocking and Txs states, which carry replies.
-	// It matches largeByteLimit in the same reference table and is the
-	// protocol's mux ingress limit.
+	// It matches largeByteLimit in the same reference table.
 	LargeMaxPendingMessageBytes = 2500000
 )
 

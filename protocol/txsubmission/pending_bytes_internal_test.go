@@ -223,7 +223,9 @@ func TestInitStateAdmitsMessageAtSmallLimit(t *testing.T) {
 }
 
 // TestTxIdsStateRejectsMessageOverLargeLimit proves the TxIds states take the
-// large limit as their ceiling.
+// large limit as their ceiling. The protocol's ingress limit is the smaller
+// MaxPendingMessageBytes, so ingress backpressure is enabled to reach the
+// per-state check instead of an ingress overflow.
 func TestTxIdsStateRejectsMessageOverLargeLimit(t *testing.T) {
 	t.Parallel()
 	p := newRawPeerWithConfig(
@@ -231,12 +233,14 @@ func TestTxIdsStateRejectsMessageOverLargeLimit(t *testing.T) {
 		&Config{InitFunc: func(CallbackContext) error { return nil }},
 	)
 	requestTxIdsIntoBlocking(t, p)
+	p.server.SetIngressBackpressure(true)
 	p.send(t, replyTxsOfSize(t, LargeMaxPendingMessageBytes+1))
 	requireOversizedRejection(t, p.errorChan, LargeMaxPendingMessageBytes)
 }
 
 // TestTxIdsStateAdmitsMessageAtLargeLimit is the paired boundary case; a
-// limit tied to the unacknowledged window would refuse it.
+// state limit tied to the unacknowledged window would refuse it. Ingress
+// backpressure is enabled for the same reason as in the rejection case.
 func TestTxIdsStateAdmitsMessageAtLargeLimit(t *testing.T) {
 	t.Parallel()
 	p := newRawPeerWithConfig(
@@ -244,6 +248,7 @@ func TestTxIdsStateAdmitsMessageAtLargeLimit(t *testing.T) {
 		&Config{InitFunc: func(CallbackContext) error { return nil }},
 	)
 	requestTxIdsIntoBlocking(t, p)
+	p.server.SetIngressBackpressure(true)
 	p.send(t, replyTxsOfSize(t, LargeMaxPendingMessageBytes))
 	requireNoOversizedRejection(t, p.errorChan)
 }
@@ -524,8 +529,8 @@ func windowTxIdAndSizes(n int) []TxIdAndSize {
 // the uint16 request field to make the client build a reply larger than its
 // own outbound queue limit. MsgRequestTxIds carries a 65,535 request count,
 // and a MsgReplyTxIds answering it encodes to roughly 2.6 MB against a
-// MaxPendingMessageBytes of 721,424: Protocol.enqueueMessage then returns
-// ErrProtocolViolationQueueExceeded and calls SendError, tearing the
+// LargeMaxPendingMessageBytes of 2,500,000: Protocol.enqueueMessage then
+// returns ErrProtocolViolationQueueExceeded and calls SendError, tearing the
 // connection down over our own limit. The request is refused on the peer's
 // terms instead, before the callback assembles anything.
 func TestRequestTxIdsOverWindowIsRefusedBeforeTheReply(t *testing.T) {
