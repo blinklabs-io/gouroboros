@@ -108,3 +108,27 @@ func TestDijkstraBlockHeaderRequiresExactlyTwelveBodyFields(t *testing.T) {
 		})
 	}
 }
+
+func TestDijkstraBlockHeaderMarshalRejectsMalformedLeiosExtension(t *testing.T) {
+	t.Parallel()
+	invalid := map[string][]cbor.RawMessage{
+		"one field":           {{0xf5}},
+		"three fields":        {{0xf5}, {0xf6}, {0xf6}},
+		"certified not bool":  {{0x01}, {0xf6}},
+		"announcement uint":   {{0xf5}, {0x07}},
+		"announcement 1 elem": {{0xf5}, {0x81, 0xf6}},
+	}
+	for name, ext := range invalid {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var src DijkstraBlockHeader
+			_, err := cbor.Decode(dijkstraHeaderWithBodyFields(t, true, nil), &src)
+			require.NoError(t, err)
+			h := DijkstraBlockHeader{BabbageBlockHeader: src.BabbageBlockHeader}
+			h.SetCbor(nil)
+			h.LeiosHeaderExtension = ext
+			_, err = h.MarshalCBOR()
+			require.Error(t, err)
+		})
+	}
+}

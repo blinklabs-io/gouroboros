@@ -524,6 +524,12 @@ func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
 // validateLeiosHeaderExtension checks leios_certified is a CBOR bool and
 // leios_announcement is null or [hash32, uint .size 4].
 func validateLeiosHeaderExtension(ext []cbor.RawMessage) error {
+	if len(ext) != 2 {
+		return fmt.Errorf(
+			"invalid Dijkstra Leios header extension: expected 2 fields, got %d",
+			len(ext),
+		)
+	}
 	// Decoding null into a bool yields false without error, so check the
 	// simple-value byte directly.
 	if len(ext[0]) != 1 || (ext[0][0] != 0xf4 && ext[0][0] != 0xf5) {
@@ -596,6 +602,9 @@ func (h *DijkstraBlockHeader) MarshalCBOR() ([]byte, error) {
 	ext := h.LeiosHeaderExtension
 	if len(ext) == 0 {
 		ext = []cbor.RawMessage{{0xf4}, {0xf6}}
+	} else if err := validateLeiosHeaderExtension(ext); err != nil {
+		// Never encode a header that UnmarshalCBOR would reject.
+		return nil, err
 	}
 	bodyElems = append(bodyElems[:babbageHeaderBodyFieldCount:babbageHeaderBodyFieldCount], ext...)
 	return cbor.Encode([]any{bodyElems, top[1]})
