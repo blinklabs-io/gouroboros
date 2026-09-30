@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ledgertest"
 	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -513,6 +514,7 @@ func dijkstraBlockAndTransactionWithAuxiliaryData(
 	require.NoError(t, err)
 	conwayComponents[0], err = cbor.Encode(headerComponents)
 	require.NoError(t, err)
+	conwayComponents[0] = ledgertest.MustWidenToDijkstraHeader(t, conwayComponents[0])
 	block, err := cbor.Encode([]cbor.RawMessage{conwayComponents[0], blockBody})
 	require.NoError(t, err)
 	return tx, block

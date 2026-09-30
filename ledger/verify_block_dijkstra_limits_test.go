@@ -15,15 +15,20 @@
 package ledger_test
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"encoding/hex"
 	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	"github.com/blinklabs-io/gouroboros/vrf"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
@@ -63,20 +68,88 @@ func dijkstraBlockLimitExUnitsTx(
 	}
 }
 
+// signedDijkstraLimitsHeader builds a 12-field Dijkstra header whose VRF proof,
+// operational certificate and KES signature are valid for
+// blockLimitsTestEta0Hex. The Conway fixture's own signatures cannot be reused:
+// the current header body has two more fields, so its KES signature no longer
+// covers the body. Only the slot and block number are taken from the fixture.
+func signedDijkstraLimitsHeader(t *testing.T) *dijkstra.DijkstraBlockHeader {
+	t.Helper()
+	fixtureCbor, err := hex.DecodeString(blockLimitsTestHeaderHex)
+	require.NoError(t, err)
+	fixture, err := ledger.NewBlockHeaderFromCbor(
+		ledger.BlockTypeConway,
+		fixtureCbor,
+	)
+	require.NoError(t, err)
+	slot := fixture.SlotNumber()
+
+	coldPub, coldPriv, err := ed25519.GenerateKey(bytes.NewReader(
+		bytes.Repeat([]byte{0x11}, 64),
+	))
+	require.NoError(t, err)
+	kesSk, kesVkey, err := kes.KeyGen(6, bytes.Repeat([]byte{0x22}, 32))
+	require.NoError(t, err)
+	vrfVkey, vrfSk, err := vrf.KeyGen(bytes.Repeat([]byte{0x33}, 32))
+	require.NoError(t, err)
+	eta0, err := hex.DecodeString(blockLimitsTestEta0Hex)
+	require.NoError(t, err)
+	vrfMsg, err := vrf.MkInputVrf(int64(slot), eta0) // #nosec G115
+	require.NoError(t, err)
+	vrfProof, vrfOutput, err := vrf.Prove(vrfSk, vrfMsg)
+	require.NoError(t, err)
+
+	kesPeriod := slot / blockLimitsTestSlotsPerKesPeriod
+	opCertSig := ed25519.Sign(
+		coldPriv,
+		common.OpCertSignableBytes(kesVkey, 0, kesPeriod),
+	)
+	header := &dijkstra.DijkstraBlockHeader{
+		BabbageBlockHeader: babbage.BabbageBlockHeader{
+			Body: babbage.BabbageBlockHeaderBody{
+				BlockNumber: fixture.BlockNumber(),
+				Slot:        slot,
+				IssuerVkey:  common.IssuerVkey(coldPub),
+				VrfKey:      vrfVkey,
+				VrfResult: common.VrfResult{
+					Output: vrfOutput,
+					Proof:  vrfProof,
+				},
+				OpCert: babbage.BabbageOpCert{
+					HotVkey:        kesVkey,
+					SequenceNumber: 0,
+					KesPeriod:      kesPeriod,
+					Signature:      opCertSig,
+				},
+				ProtoVersion: babbage.BabbageProtoVersion{
+					Major: dijkstra.MinProtocolVersionDijkstra,
+				},
+			},
+			Signature: make([]byte, kes.CardanoKesSignatureSize),
+		},
+	}
+	unsigned, err := header.MarshalCBOR()
+	require.NoError(t, err)
+	var top []cbor.RawMessage
+	_, err = cbor.Decode(unsigned, &top)
+	require.NoError(t, err)
+	kesSig, err := kes.Sign(kesSk, 0, top[0])
+	require.NoError(t, err)
+	header.Signature = kesSig
+	signed, err := header.MarshalCBOR()
+	require.NoError(t, err)
+	decoded := &dijkstra.DijkstraBlockHeader{}
+	_, err = cbor.Decode(signed, decoded)
+	require.NoError(t, err)
+	return decoded
+}
+
 func buildDijkstraLimitsTestBlock(
 	t *testing.T,
 	txs []dijkstra.DijkstraTransaction,
 ) ledger.Block {
 	t.Helper()
-	headerCborBytes, err := hex.DecodeString(blockLimitsTestHeaderHex)
-	require.NoError(t, err)
-	header, err := ledger.NewBlockHeaderFromCbor(
-		ledger.BlockTypeDijkstra,
-		headerCborBytes,
-	)
-	require.NoError(t, err)
-	dijkstraHeader, ok := header.(*dijkstra.DijkstraBlockHeader)
-	require.True(t, ok)
+	dijkstraHeader := signedDijkstraLimitsHeader(t)
 
 	crafted := &dijkstra.DijkstraBlock{
 		BlockHeader: dijkstraHeader,
