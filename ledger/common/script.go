@@ -274,15 +274,12 @@ func (s PlutusV1Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := checkoutMachineWithBudget(
+	consumedBudget, runErr := runPooledMachine(
 		cek.LanguageVersionV1,
 		evalContext,
 		machineBudget,
+		wrappedProgram,
 	)
-	defer releaseMachine(cek.LanguageVersionV1, evalContext, machine)
-	_, runErr := machine.Run(wrappedProgram)
-	// Always calculate consumed budget, even on error
-	consumedBudget := machineBudget.Sub(&machine.ExBudget)
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
 	if runErr != nil {
@@ -366,15 +363,12 @@ func (s PlutusV2Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := checkoutMachineWithBudget(
+	consumedBudget, runErr := runPooledMachine(
 		cek.LanguageVersionV2,
 		evalContext,
 		machineBudget,
+		wrappedProgram,
 	)
-	defer releaseMachine(cek.LanguageVersionV2, evalContext, machine)
-	_, runErr := machine.Run(wrappedProgram)
-	// Always calculate consumed budget, even on error
-	consumedBudget := machineBudget.Sub(&machine.ExBudget)
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
 	if runErr != nil {
@@ -436,15 +430,12 @@ func (s PlutusV3Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := checkoutMachineWithBudget(
+	consumedBudget, runErr := runPooledMachine(
 		cek.LanguageVersionV3,
 		evalContext,
 		machineBudget,
+		wrappedProgram,
 	)
-	defer releaseMachine(cek.LanguageVersionV3, evalContext, machine)
-	_, runErr := machine.Run(wrappedProgram)
-	// Always calculate consumed budget, even on error
-	consumedBudget := machineBudget.Sub(&machine.ExBudget)
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
 	if runErr != nil {
@@ -502,14 +493,12 @@ func (s PlutusV4Script) Evaluate(
 		Function: program.Term,
 		Argument: contextTerm,
 	}
-	machine := checkoutMachineWithBudget(
+	consumedBudget, runErr := runPooledMachine(
 		cek.LanguageVersionV4,
 		evalContext,
 		machineBudget,
+		wrappedProgram,
 	)
-	defer releaseMachine(cek.LanguageVersionV4, evalContext, machine)
-	_, runErr := machine.Run(wrappedProgram)
-	consumedBudget := machineBudget.Sub(&machine.ExBudget)
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
 	if runErr != nil {

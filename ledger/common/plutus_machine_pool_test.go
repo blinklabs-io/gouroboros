@@ -578,3 +578,38 @@ func TestPooledEvalContextCacheIsBounded(t *testing.T) {
 	require.Equal(t, want, got,
 		"an evicted EvalContext held by a caller must still evaluate")
 }
+
+// unknownTerm satisfies syn.Term through its embedded Term but is a type
+// plutigo's evaluator does not recognise, so Run panics on it.
+type unknownTerm struct {
+	syn.Term[syn.DeBruijn]
+}
+
+// TestRunPooledMachineDropsMachineWhenRunPanics pins that a Machine whose Run
+// panics is never returned to its pool, so a caller that recovers the panic
+// cannot hand an interrupted Machine to the next evaluation.
+func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
+	t.Parallel()
+
+	evalContext := callerBuiltTestEvalContext(t)
+	budget := cek.ExBudget{
+		Mem: cek.DefaultExBudget.Mem,
+		Cpu: cek.DefaultExBudget.Cpu,
+	}
+	require.Panics(t, func() {
+		_, _ = runPooledMachine(
+			lang.LanguageVersionV3,
+			evalContext,
+			budget,
+			unknownTerm{Term: &syn.Error{}},
+		)
+	})
+
+	machine, reused := checkoutMachineReused(
+		lang.LanguageVersionV3,
+		evalContext,
+	)
+	require.False(t, reused,
+		"a Machine whose Run panicked must not be returned to its pool")
+	releaseMachine(lang.LanguageVersionV3, evalContext, machine)
+}

@@ -280,3 +280,25 @@ func releaseMachine(
 	}
 	machinePoolFor(version, evalContext).pool.Put(machine)
 }
+
+// runPooledMachine runs program on a Machine checked out for (version,
+// evalContext) with the given budget and returns the budget consumed, which
+// is computed even when Run fails.
+//
+// The Machine is released only after Run has returned and its ExBudget has
+// been read, never from a defer: a Run that panics leaves the Machine out of
+// its pool rather than handing a Machine interrupted mid-evaluation to the
+// next caller, and releasing before the ExBudget read would let a concurrent
+// checkout overwrite it.
+func runPooledMachine(
+	version lang.LanguageVersion,
+	evalContext *cek.EvalContext,
+	budget cek.ExBudget,
+	program syn.Term[syn.DeBruijn],
+) (cek.ExBudget, error) {
+	machine := checkoutMachineWithBudget(version, evalContext, budget)
+	_, runErr := machine.Run(program)
+	consumed := budget.Sub(&machine.ExBudget)
+	releaseMachine(version, evalContext, machine)
+	return consumed, runErr
+}
