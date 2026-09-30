@@ -2104,49 +2104,64 @@ func TestDijkstraProtocolParametersRejectsUnsupportedArrayLength(t *testing.T) {
 	require.Error(t, decoded.UnmarshalCBOR(data))
 }
 
-func TestDijkstraProtocolParametersUnmarshalRejectsZeroRewardLeverage(t *testing.T) {
+// Stored parameters carry any non-negative maxPledgeLeverage, including zero
+// and values outside the pre-Dijkstra operator range.
+func TestDijkstraProtocolParametersUnmarshalRewardLeverageDomain(t *testing.T) {
 	rat := func(num, denom int64) *cbor.Rat {
 		return &cbor.Rat{Rat: big.NewRat(num, denom)}
 	}
 	ratValue := func(num, denom int64) cbor.Rat {
 		return cbor.Rat{Rat: big.NewRat(num, denom)}
 	}
-	encoded, err := cbor.Encode(DijkstraProtocolParameters{
-		ConwayProtocolParameters: conway.ConwayProtocolParameters{
-			A0:  rat(1, 2),
-			Rho: rat(3, 1000),
-			Tau: rat(1, 5),
-			PoolVotingThresholds: conway.PoolVotingThresholds{
-				MotionNoConfidence:    ratValue(1, 2),
-				CommitteeNormal:       ratValue(1, 2),
-				CommitteeNoConfidence: ratValue(1, 2),
-				HardForkInitiation:    ratValue(1, 2),
-				PpSecurityGroup:       ratValue(1, 2),
+	encode := func(leverage *big.Rat) []byte {
+		encoded, err := cbor.Encode(DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				A0:  rat(1, 2),
+				Rho: rat(3, 1000),
+				Tau: rat(1, 5),
+				PoolVotingThresholds: conway.PoolVotingThresholds{
+					MotionNoConfidence:    ratValue(1, 2),
+					CommitteeNormal:       ratValue(1, 2),
+					CommitteeNoConfidence: ratValue(1, 2),
+					HardForkInitiation:    ratValue(1, 2),
+					PpSecurityGroup:       ratValue(1, 2),
+				},
+				DRepVotingThresholds: conway.DRepVotingThresholds{
+					MotionNoConfidence:    ratValue(1, 2),
+					CommitteeNormal:       ratValue(1, 2),
+					CommitteeNoConfidence: ratValue(1, 2),
+					UpdateToConstitution:  ratValue(1, 2),
+					HardForkInitiation:    ratValue(1, 2),
+					PpNetworkGroup:        ratValue(1, 2),
+					PpEconomicGroup:       ratValue(1, 2),
+					PpTechnicalGroup:      ratValue(1, 2),
+					PpGovGroup:            ratValue(1, 2),
+					TreasuryWithdrawal:    ratValue(1, 2),
+				},
 			},
-			DRepVotingThresholds: conway.DRepVotingThresholds{
-				MotionNoConfidence:    ratValue(1, 2),
-				CommitteeNormal:       ratValue(1, 2),
-				CommitteeNoConfidence: ratValue(1, 2),
-				UpdateToConstitution:  ratValue(1, 2),
-				HardForkInitiation:    ratValue(1, 2),
-				PpNetworkGroup:        ratValue(1, 2),
-				PpEconomicGroup:       ratValue(1, 2),
-				PpTechnicalGroup:      ratValue(1, 2),
-				PpGovGroup:            ratValue(1, 2),
-				TreasuryWithdrawal:    ratValue(1, 2),
-			},
-		},
-		MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(0, 1)},
-		MaxRefScriptSizePerBlock: 123,
-	})
-	require.NoError(t, err)
+			MaxPledgeLeverage:        &cbor.Rat{Rat: leverage},
+			MaxRefScriptSizePerBlock: 123,
+		})
+		require.NoError(t, err)
+		return encoded
+	}
+
+	for _, leverage := range []*big.Rat{
+		big.NewRat(0, 1),
+		big.NewRat(1, 2),
+		big.NewRat(10_001, 1),
+	} {
+		var decoded DijkstraProtocolParameters
+		require.NoError(t, decoded.UnmarshalCBOR(encode(leverage)))
+		require.Equal(t, leverage, decoded.MaxPledgeLeverage.Rat)
+		require.Equal(t, uint32(123), decoded.MaxRefScriptSizePerBlock)
+	}
 
 	decoded := DijkstraProtocolParameters{
 		MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(3, 1)},
 		MaxRefScriptSizePerBlock: 77,
 	}
-	err = decoded.UnmarshalCBOR(encoded)
-	require.Error(t, err)
+	require.Error(t, decoded.UnmarshalCBOR(encode(big.NewRat(-1, 1))))
 	require.Equal(t, big.NewRat(3, 1), decoded.MaxPledgeLeverage.Rat)
 	require.Equal(t, uint32(77), decoded.MaxRefScriptSizePerBlock)
 }
@@ -2385,14 +2400,28 @@ func TestDijkstraMaxPledgeLeverageNullUpdate(t *testing.T) {
 	require.True(t, action.ToPlutusData().Equal(wantAction))
 }
 
-func TestDijkstraApplyUpdateRejectsZeroMaxPledgeLeverage(t *testing.T) {
+// cardano-ledger types maxPledgeLeverage as a NonNegativeInterval and its
+// ppuWellFormed has no zero check for it.
+func TestDijkstraApplyUpdateAcceptsNonNegativeMaxPledgeLeverage(t *testing.T) {
+	for _, leverage := range []*big.Rat{
+		big.NewRat(0, 1),
+		big.NewRat(1, 2),
+		big.NewRat(10_001, 1),
+	} {
+		params := DijkstraProtocolParameters{
+			MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(3, 1)},
+		}
+		require.NoError(t, params.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+			MaxPledgeLeverage: &cbor.Rat{Rat: leverage},
+		}))
+		require.Equal(t, leverage, params.MaxPledgeLeverage.Rat)
+	}
 	params := DijkstraProtocolParameters{
 		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(3, 1)},
 	}
-	err := params.ApplyUpdate(&DijkstraProtocolParameterUpdate{
-		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(0, 1)},
-	})
-	require.ErrorAs(t, err, &conway.ProtocolParameterUpdateFieldZeroError{})
+	require.Error(t, params.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(-1, 1)},
+	}))
 	require.Equal(t, big.NewRat(3, 1), params.MaxPledgeLeverage.Rat)
 }
 
@@ -2778,17 +2807,29 @@ func TestDijkstraGenesisRejectsInvalidLeiosStakeParameters(t *testing.T) {
 
 func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		genesis string
-		wantErr bool
+		name         string
+		genesis      string
+		wantLeverage *big.Rat
+		wantErr      bool
 	}{
 		{
-			name:    "valid reward parameters",
-			genesis: `{"maxPledgeLeverage": 3.5, "minPoolMargin": 0.1}`,
+			name:         "valid reward parameters",
+			genesis:      `{"maxPledgeLeverage": 3.5, "minPoolMargin": 0.1}`,
+			wantLeverage: big.NewRat(7, 2),
 		},
 		{
-			name:    "zero max pledge leverage",
-			genesis: `{"maxPledgeLeverage": 0, "maxRefScriptSizePerBlock": 123}`,
+			name:         "zero max pledge leverage",
+			genesis:      `{"maxPledgeLeverage": 0, "minPoolMargin": 0.1}`,
+			wantLeverage: big.NewRat(0, 1),
+		},
+		{
+			name:         "fractional max pledge leverage",
+			genesis:      `{"maxPledgeLeverage": 0.25, "minPoolMargin": 0.1}`,
+			wantLeverage: big.NewRat(1, 4),
+		},
+		{
+			name:    "negative max pledge leverage",
+			genesis: `{"maxPledgeLeverage": -1, "maxRefScriptSizePerBlock": 123}`,
 			wantErr: true,
 		},
 		{
@@ -2813,7 +2854,7 @@ func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, big.NewRat(7, 2), params.MaxPledgeLeverage.Rat)
+			require.Equal(t, test.wantLeverage, params.MaxPledgeLeverage.Rat)
 			require.Equal(t, big.NewRat(1, 10), params.MinPoolMargin.Rat)
 		})
 	}
