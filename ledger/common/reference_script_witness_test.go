@@ -43,6 +43,7 @@ func TestReferenceSuppliedScriptWitnessIsExtraneous(t *testing.T) {
 	)
 	nativeScript := testPubkeyNativeScript(t, vkey)
 	plutusScript := common.PlutusV2Script([]byte{0x41, 0x01})
+	unrelatedScript := common.PlutusV2Script([]byte{0x41, 0x02})
 	spendRedeemer := conway.ConwayRedeemers{
 		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 			{Tag: common.RedeemerTagSpend, Index: 0}: {},
@@ -82,14 +83,17 @@ func TestReferenceSuppliedScriptWitnessIsExtraneous(t *testing.T) {
 	}
 	sources := []string{"reference input", "spent input"}
 	modes := []struct {
-		name     string
-		ref      bool
-		explicit bool
-		wantErr  bool
+		name      string
+		ref       bool
+		unrelated bool
+		explicit  bool
+		wantErr   bool
 	}{
 		{name: "reference and witness", ref: true, explicit: true, wantErr: true},
 		{name: "reference only", ref: true},
 		{name: "witness only", explicit: true},
+		// A reference script for a different hash leaves the witness needed.
+		{name: "unrelated reference and witness", ref: true, unrelated: true, explicit: true},
 	}
 	eras := []struct {
 		name  string
@@ -118,6 +122,12 @@ func TestReferenceSuppliedScriptWitnessIsExtraneous(t *testing.T) {
 							ref := &common.ScriptRef{
 								Type:   s.refType,
 								Script: s.script,
+							}
+							if mode.unrelated {
+								ref = &common.ScriptRef{
+									Type:   common.ScriptRefTypePlutusV2,
+									Script: unrelatedScript,
+								}
 							}
 							if source == "spent input" {
 								withRef = &babbage.BabbageTransactionOutput{
