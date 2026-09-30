@@ -1834,6 +1834,17 @@ func extractDijkstraTransactionOffsets(
 				"failed to decode Dijkstra transaction %d: %w", i, err,
 			)
 		}
+		// A current-shape block_transaction must carry its is_valid flag;
+		// reading a three-element one as valid would hide an invalid
+		// transaction. The legacy body keeps both historical arities.
+		if !legacyBody && len(txParts) != dijkstraBlockTxComponents {
+			return nil, fmt.Errorf(
+				"dijkstra transaction %d has %d elements, expected %d",
+				i,
+				len(txParts),
+				dijkstraBlockTxComponents,
+			)
+		}
 		if len(txParts) != dijkstraTxComponents &&
 			len(txParts) != dijkstraBlockTxComponents {
 			return nil, fmt.Errorf(

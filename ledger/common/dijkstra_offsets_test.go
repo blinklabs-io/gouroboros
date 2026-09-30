@@ -534,3 +534,29 @@ func TestExtractTransactionOffsetsDijkstraRejectsNonBoolIsValid(t *testing.T) {
 	require.ErrorContains(t, err, "transaction 0 is_valid")
 	require.Nil(t, offsets)
 }
+
+// TestExtractTransactionOffsetsDijkstraRejectsBlockTransactionWithoutIsValid
+// checks that a current-shape block transaction missing its trailing is_valid
+// field is refused, as the era decoder refuses it, rather than read as valid.
+func TestExtractTransactionOffsetsDijkstraRejectsBlockTransactionWithoutIsValid(
+	t *testing.T,
+) {
+	header, leios, peras, tx3 := dijkstraFixtureParts(t)
+	blockBody := encodeCbor(t, []cbor.RawMessage{
+		encodeCbor(t, []cbor.RawMessage{encodeCbor(t, tx3)}),
+		leios,
+		peras,
+	})
+	blockCbor := []byte(encodeCbor(t, []cbor.RawMessage{header, blockBody}))
+
+	var block dijkstra.DijkstraBlock
+	require.Error(t, block.UnmarshalCBOR(blockCbor))
+
+	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	require.ErrorContains(
+		t,
+		err,
+		"dijkstra transaction 0 has 3 elements, expected 4",
+	)
+	require.Nil(t, offsets)
+}
