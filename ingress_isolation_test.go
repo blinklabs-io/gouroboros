@@ -442,7 +442,7 @@ func TestNodeToNodeIngressLimits(t *testing.T) {
 		},
 		{
 			"tx-submission client", client.conn, txsubmission.ProtocolId,
-			muxer.ProtocolRoleInitiator, txsubmission.MaxPendingMessageBytes,
+			muxer.ProtocolRoleInitiator, txsubmission.LargeMaxPendingMessageBytes,
 		},
 		// keep-alive declares no per-state limit, so it gets the largest
 		// message it would reassemble.
