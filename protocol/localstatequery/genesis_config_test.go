@@ -64,8 +64,19 @@ func genesisProtocolParamsLegacy() []any {
 
 // genesisProtocolParamsCurrent is the same parameters in the layout a node
 // negotiating protocol version 21 or higher sends: one field shorter, with the
-// protocol version nested.
+// protocol version nested and each rational under CBOR tag 30.
 func genesisProtocolParamsCurrent() []any {
+	current := genesisProtocolParamsCurrentUntagged()
+	for i := 9; i <= 12; i++ {
+		current[i] = cbor.Tag{Number: cbor.CborTagRational, Content: current[i]}
+	}
+	return current
+}
+
+// genesisProtocolParamsCurrentUntagged is the current layout with bare
+// rational pairs, as gouroboros itself used to send it. Decoding still
+// accepts it.
+func genesisProtocolParamsCurrentUntagged() []any {
 	legacy := genesisProtocolParamsLegacy()
 	current := make([]any, 0, len(legacy)-1)
 	current = append(current, legacy[:14]...)
@@ -282,5 +293,100 @@ func TestGenesisConfigProtocolParamsEncodeCurrentByDefault(t *testing.T) {
 	}
 	if listLen != 17 {
 		t.Errorf("expected the 17-field current layout, got %d fields", listLen)
+	}
+}
+
+// The reference codec writes each rational protocol parameter under CBOR tag
+// 30 and rejects a bare [numerator, denominator] pair ("Expected tag"). The
+// expected bytes below are the tagged form of the pairs a prototype node
+// sends for A0, Rho, Tau and the decentralization parameter.
+func TestGenesisConfigProtocolParamsEncodeRationalsWithTag(t *testing.T) {
+	encoded, err := cbor.Encode(
+		localstatequery.GenesisConfigResultProtocolParameters{
+			A0:                    []int{3, 10},
+			Rho:                   []int{3, 1000},
+			Tau:                   []int{1, 5},
+			DecentralizationParam: []int{1, 1},
+		},
+	)
+	if err != nil {
+		t.Fatalf("encoding protocol parameters: %v", err)
+	}
+	for name, want := range map[string][]byte{
+		"a0":  {0xd8, 0x1e, 0x82, 0x03, 0x0a},
+		"rho": {0xd8, 0x1e, 0x82, 0x03, 0x19, 0x03, 0xe8},
+		"tau": {0xd8, 0x1e, 0x82, 0x01, 0x05},
+		"d":   {0xd8, 0x1e, 0x82, 0x01, 0x01},
+	} {
+		if !bytes.Contains(encoded, want) {
+			t.Errorf("%s: tagged pair %x missing from %x", name, want, encoded)
+		}
+	}
+	if bytes.Contains(encoded, []byte{0x82, 0x03, 0x0a, 0x82}) {
+		t.Errorf("an untagged pair is still present in %x", encoded)
+	}
+}
+
+func TestGenesisConfigProtocolParamsDecodeTaggedRationals(t *testing.T) {
+	want := localstatequery.GenesisConfigResultProtocolParameters{
+		A0:                    []int{3, 10},
+		Rho:                   []int{3, 1000},
+		Tau:                   []int{1, 5},
+		DecentralizationParam: []int{1, 1},
+		ProtocolVersionMajor:  10,
+		ProtocolVersionMinor:  3,
+	}
+	encoded, err := cbor.Encode(want)
+	if err != nil {
+		t.Fatalf("encoding protocol parameters: %v", err)
+	}
+	var got localstatequery.GenesisConfigResultProtocolParameters
+	if _, err := cbor.Decode(encoded, &got); err != nil {
+		t.Fatalf("decoding tagged protocol parameters: %v", err)
+	}
+	for name, pair := range map[string][2][]int{
+		"a0":  {got.A0, want.A0},
+		"rho": {got.Rho, want.Rho},
+		"tau": {got.Tau, want.Tau},
+		"d":   {got.DecentralizationParam, want.DecentralizationParam},
+	} {
+		if len(pair[0]) != 2 || pair[0][0] != pair[1][0] ||
+			pair[0][1] != pair[1][1] {
+			t.Errorf("%s: got %v, want %v", name, pair[0], pair[1])
+		}
+	}
+}
+
+// The legacy layout is left as it was: it is only ever decoded from nodes
+// that negotiated version 20 or lower.
+func TestGenesisConfigLegacyProtocolParamsStayUntagged(t *testing.T) {
+	var legacy localstatequery.GenesisConfigResultProtocolParameters
+	legacyBytes, err := cbor.Encode(genesisProtocolParamsLegacy())
+	if err != nil {
+		t.Fatalf("encoding legacy fixture: %v", err)
+	}
+	if _, err := cbor.Decode(legacyBytes, &legacy); err != nil {
+		t.Fatalf("decoding legacy fixture: %v", err)
+	}
+	reencoded, err := cbor.Encode(legacy)
+	if err != nil {
+		t.Fatalf("re-encoding legacy parameters: %v", err)
+	}
+	if bytes.Contains(reencoded, []byte{0xd8, 0x1e}) {
+		t.Errorf("legacy layout gained a rational tag: %x", reencoded)
+	}
+}
+
+func TestGenesisConfigProtocolParamsDecodeUntaggedCurrentLayout(t *testing.T) {
+	encoded, err := cbor.Encode(genesisProtocolParamsCurrentUntagged())
+	if err != nil {
+		t.Fatalf("encoding untagged fixture: %v", err)
+	}
+	var got localstatequery.GenesisConfigResultProtocolParameters
+	if _, err := cbor.Decode(encoded, &got); err != nil {
+		t.Fatalf("decoding untagged current layout: %v", err)
+	}
+	if len(got.A0) != 2 || got.A0[0] != 3 || got.A0[1] != 10 {
+		t.Errorf("a0: got %v, want [3 10]", got.A0)
 	}
 }

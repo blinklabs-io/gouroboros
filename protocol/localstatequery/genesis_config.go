@@ -199,6 +199,31 @@ type genesisProtocolVersion struct {
 	Minor int
 }
 
+// genesisRational is a [numerator, denominator] pair. The reference codec
+// writes it under CBOR tag 30 and rejects an untagged pair, so the current
+// layout encodes the tag; decoding accepts both forms.
+type genesisRational []int
+
+func (r genesisRational) MarshalCBOR() ([]byte, error) {
+	pair, err := cbor.Encode([]int(r))
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte{0xd8, cbor.CborTagRational}, pair...), nil
+}
+
+func (r *genesisRational) UnmarshalCBOR(data []byte) error {
+	if len(data) >= 2 && data[0] == 0xd8 && data[1] == cbor.CborTagRational {
+		data = data[2:]
+	}
+	var pair []int
+	if _, err := cbor.Decode(data, &pair); err != nil {
+		return err
+	}
+	*r = pair
+	return nil
+}
+
 // genesisPParamsCurrent is the layout sent from node-to-client protocol version
 // 21 onwards.
 type genesisPParamsCurrent struct {
@@ -212,10 +237,10 @@ type genesisPParamsCurrent struct {
 	PoolDeposit           int
 	EMax                  int
 	NOpt                  int
-	A0                    []int
-	Rho                   []int
-	Tau                   []int
-	DecentralizationParam []int
+	A0                    genesisRational
+	Rho                   genesisRational
+	Tau                   genesisRational
+	DecentralizationParam genesisRational
 	ExtraEntropy          any
 	ProtocolVersion       genesisProtocolVersion
 	MinUTxOValue          int
