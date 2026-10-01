@@ -1951,3 +1951,45 @@ func TestConwayUtxorpc_FullWidthRationalBounds(t *testing.T) {
 		})
 	}
 }
+
+func testCostModels() map[uint][]int64 {
+	return map[uint][]int64{0: {1, 2}, 1: {3, 4}, 2: {5, 6}, 3: {7, 8}}
+}
+
+// TestUpgradePParams_CostModelsIsolated checks that the Babbage to Conway upgrade
+// deep-copies CostModels for every model key. Mutating the source or the upgraded
+// parameters, by element or by replacing the slice, must not affect the other.
+func TestUpgradePParams_CostModelsIsolated(t *testing.T) {
+	for key := range testCostModels() {
+		t.Run("mutate source", func(t *testing.T) {
+			prev := babbage.BabbageProtocolParameters{CostModels: testCostModels()}
+			up := conway.UpgradePParams(prev)
+			prev.CostModels[key][0] = -1
+			prev.CostModels[key] = []int64{-1}
+			assert.Equal(t, testCostModels(), up.CostModels)
+		})
+		t.Run("mutate upgraded", func(t *testing.T) {
+			prev := babbage.BabbageProtocolParameters{CostModels: testCostModels()}
+			up := conway.UpgradePParams(prev)
+			up.CostModels[key][0] = -1
+			up.CostModels[key] = []int64{-1}
+			assert.Equal(t, testCostModels(), prev.CostModels)
+		})
+	}
+	t.Run("nil stays nil", func(t *testing.T) {
+		up := conway.UpgradePParams(babbage.BabbageProtocolParameters{})
+		assert.Nil(t, up.CostModels)
+	})
+}
+
+// TestConwayUpdate_CostModelsNotAliased checks that Update copies the update's
+// cost-model slices, so mutating either side afterwards does not change the other.
+func TestConwayUpdate_CostModelsNotAliased(t *testing.T) {
+	upd := &conway.ConwayProtocolParameterUpdate{CostModels: testCostModels()}
+	base := &conway.ConwayProtocolParameters{}
+	base.Update(upd)
+	upd.CostModels[0][0] = -1
+	assert.Equal(t, testCostModels(), base.CostModels)
+	base.CostModels[1][0] = -1
+	assert.Equal(t, []int64{3, 4}, upd.CostModels[1])
+}

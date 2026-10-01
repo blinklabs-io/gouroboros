@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
@@ -854,4 +855,47 @@ func TestBabbageUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
 	if _, err := params.Utxorpc(); err == nil {
 		t.Fatal("expected error for out-of-range A0 numerator, got nil")
 	}
+}
+
+func testCostModels() map[uint][]int64 {
+	return map[uint][]int64{0: {1, 2}, 1: {3, 4}, 2: {5, 6}, 3: {7, 8}}
+}
+
+// TestUpgradePParams_CostModelsIsolated checks that the Alonzo to Babbage upgrade
+// deep-copies CostModels for every model key. Mutating the source or the upgraded
+// parameters, by element or by replacing the slice, must not affect the other.
+func TestUpgradePParams_CostModelsIsolated(t *testing.T) {
+	for key := range testCostModels() {
+		t.Run("mutate source", func(t *testing.T) {
+			prev := alonzo.AlonzoProtocolParameters{CostModels: testCostModels()}
+			up := babbage.UpgradePParams(prev)
+			prev.CostModels[key][0] = -1
+			prev.CostModels[key] = []int64{-1}
+			assert.Equal(t, testCostModels(), up.CostModels)
+		})
+		t.Run("mutate upgraded", func(t *testing.T) {
+			prev := alonzo.AlonzoProtocolParameters{CostModels: testCostModels()}
+			up := babbage.UpgradePParams(prev)
+			up.CostModels[key][0] = -1
+			up.CostModels[key] = []int64{-1}
+			assert.Equal(t, testCostModels(), prev.CostModels)
+		})
+	}
+	t.Run("nil stays nil", func(t *testing.T) {
+		up := babbage.UpgradePParams(alonzo.AlonzoProtocolParameters{})
+		assert.Nil(t, up.CostModels)
+	})
+}
+
+// TestBabbageUpdate_CostModelsNotAliased checks that Update copies the update's
+// cost-model slices, so mutating either side afterwards does not change the other.
+func TestBabbageUpdate_CostModelsNotAliased(t *testing.T) {
+	upd := &babbage.BabbageProtocolParameterUpdate{CostModels: testCostModels()}
+	base := &babbage.BabbageProtocolParameters{}
+	base.Update(upd)
+	upd.CostModels[0][0] = -1
+	assert.Equal(t, testCostModels(), base.CostModels)
+	base.CostModels[1][0] = -1
+	assert.Equal(t, testCostModels()[1], []int64{3, 4})
+	assert.NotEqual(t, upd.CostModels[1][0], base.CostModels[1][0])
 }

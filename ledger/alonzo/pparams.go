@@ -176,7 +176,7 @@ func (p *AlonzoProtocolParameters) Update(
 		if p.CostModels == nil {
 			p.CostModels = make(map[uint][]int64)
 		}
-		maps.Copy(p.CostModels, paramUpdate.CostModels)
+		maps.Copy(p.CostModels, common.CloneCostModels(paramUpdate.CostModels))
 	}
 	if paramUpdate.ExecutionCosts != nil {
 		p.ExecutionCosts = *paramUpdate.ExecutionCosts
