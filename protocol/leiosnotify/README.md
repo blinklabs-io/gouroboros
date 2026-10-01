@@ -72,6 +72,19 @@ Each offer is limited to `MaxVotesOfferCount` (1,000) entries and
 `MaxVotesOfferBytes` (256 KiB). The byte limit is checked before CBOR parsing;
 the decoder then checks the array header before scanning vote values and
 applies the count limit to definite- and indefinite-length arrays.
+`BlockAnnouncement` is limited to `MaxBlockAnnouncementBytes` (one muxer
+segment), checked before CBOR parsing.
+
+## Byte budget
+
+`Config.MaxPendingBytes` bounds the encoded bytes of received messages held
+between the connection and their handler. Every state uses it as its
+pending-message byte limit, and the receive queue holds
+`MaxPendingBytes / MaxBlockAnnouncementBytes` messages. While the budget is
+held the client stops reading, so a slow `NotificationFunc` slows the peer.
+Zero sizes it to hold `PipelineLimit` block announcements, and never less
+than `MaxVotesOfferBytes`. An explicit value must hold at least
+`PipelineLimit` announcements and one maximum-size `VotesOffer`.
 
 ## Timeouts
 
