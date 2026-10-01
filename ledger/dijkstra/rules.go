@@ -2719,36 +2719,11 @@ func UtxoValidatePlutusScripts(
 	if err != nil {
 		return err
 	}
-	for _, level := range levels {
-		if level.subTxIndex == nil {
-			continue
-		}
-		for _, candidate := range level.view.Needed {
-			version, ok := common.PlutusScriptVersion(candidate)
-			if ok && version < 3 {
-				return UnsupportedScriptInSubtransactionError{
-					Version:             version,
-					SubtransactionIndex: *level.subTxIndex,
-					TransactionId:       level.tx.Id(),
-				}
-			}
-		}
-	}
-	for _, level := range levels {
-		for _, required := range dijkstraRequiredScriptPurposes(level) {
-			hash := required.purpose.ScriptHash()
-			if _, ok := available[hash]; !ok {
-				return common.MissingScriptWitnessesError{ScriptHash: hash}
-			}
-		}
-	}
-	for _, level := range levels {
-		if err := validateDijkstraPlutusRedeemers(
-			level,
-			available,
-		); err != nil {
-			return err
-		}
+	if err := validateDijkstraPlutusScriptLevels(
+		levels,
+		available,
+	); err != nil {
+		return err
 	}
 	if !tx.IsValid() {
 		return nil
@@ -2790,6 +2765,48 @@ func UtxoValidatePlutusScripts(
 			tmpPparams,
 			available,
 			v4Keys,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateDijkstraPlutusScriptLevels applies the structural script checks
+// that precede script execution: no Plutus V1-V3 script in a
+// sub-transaction, a script for every required purpose, and a redeemer for
+// exactly the purposes a Plutus script serves.
+func validateDijkstraPlutusScriptLevels(
+	levels []dijkstraScriptLevel,
+	available map[common.ScriptHash]common.Script,
+) error {
+	for _, level := range levels {
+		if level.subTxIndex == nil {
+			continue
+		}
+		for _, candidate := range level.view.Needed {
+			version, ok := common.PlutusScriptVersion(candidate)
+			if ok && version < 3 {
+				return UnsupportedScriptInSubtransactionError{
+					Version:             version,
+					SubtransactionIndex: *level.subTxIndex,
+					TransactionId:       level.tx.Id(),
+				}
+			}
+		}
+	}
+	for _, level := range levels {
+		for _, required := range dijkstraRequiredScriptPurposes(level) {
+			hash := required.purpose.ScriptHash()
+			if _, ok := available[hash]; !ok {
+				return common.MissingScriptWitnessesError{ScriptHash: hash}
+			}
+		}
+	}
+	for _, level := range levels {
+		if err := validateDijkstraPlutusRedeemers(
+			level,
+			available,
 		); err != nil {
 			return err
 		}
