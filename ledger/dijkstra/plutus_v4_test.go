@@ -124,6 +124,19 @@ func dijkstraRequiredGuardsOrderScript(
 	keyCredential common.Credential,
 ) common.PlutusV4Script {
 	t.Helper()
+	return dijkstraTxInfoMapOrderScript(t, 12, scriptCredential, keyCredential)
+}
+
+// dijkstraTxInfoMapOrderScript builds a script that fails unless the TxInfo
+// field at fieldIndex is a map whose first two keys are first and second.
+func dijkstraTxInfoMapOrderScript(
+	t *testing.T,
+	fieldIndex int,
+	first common.Credential,
+	second common.Credential,
+) common.PlutusV4Script {
+	t.Helper()
+	scriptCredential, keyCredential := first, second
 	// unMapData exposes the ordered pairs that AssocMap.toList observes.
 	applyBuiltin := func(
 		fn builtin.DefaultFunction,
@@ -158,7 +171,7 @@ func dijkstraRequiredGuardsOrderScript(
 		applyBuiltin(builtin.UnConstrData, txInfo),
 	)
 	requiredGuards := txInfoFields
-	for range 12 {
+	for range fieldIndex {
 		requiredGuards = applyBuiltin(builtin.TailList, requiredGuards)
 	}
 	requiredGuards = applyBuiltin(builtin.HeadList, requiredGuards)

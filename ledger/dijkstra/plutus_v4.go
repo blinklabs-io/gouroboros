@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"math/big"
@@ -587,6 +588,10 @@ func dijkstraAccountBalanceIntervalsV4(
 	return data.NewMap(pairs), nil
 }
 
+// sortedDijkstraAccountAddresses orders reward-account keys by the reference
+// AccountAddress order: network, then script credentials before key
+// credentials, then hash bytes. The encoded header byte cannot be compared
+// directly because it carries the credential type above the network.
 func sortedDijkstraAccountAddresses[V any](
 	values map[cbor.ByteString]V,
 ) []cbor.ByteString {
@@ -595,9 +600,30 @@ func sortedDijkstraAccountAddresses[V any](
 		addresses = append(addresses, address)
 	}
 	slices.SortFunc(addresses, func(a, b cbor.ByteString) int {
-		return bytes.Compare(a.Bytes(), b.Bytes())
+		return compareDijkstraAccountAddresses(a.Bytes(), b.Bytes())
 	})
 	return addresses
+}
+
+func compareDijkstraAccountAddresses(a, b []byte) int {
+	if len(a) == 0 || len(b) == 0 {
+		return bytes.Compare(a, b)
+	}
+	const (
+		networkMask = 0x0f
+		scriptBit   = 0x10
+	)
+	if c := cmp.Compare(a[0]&networkMask, b[0]&networkMask); c != 0 {
+		return c
+	}
+	aScript, bScript := a[0]&scriptBit != 0, b[0]&scriptBit != 0
+	if aScript != bScript {
+		if aScript {
+			return -1
+		}
+		return 1
+	}
+	return bytes.Compare(a[1:], b[1:])
 }
 
 func dijkstraAccountBalanceIntervalV4(
@@ -669,32 +695,20 @@ func dijkstraRequiredTopLevelGuardsV4(
 func dijkstraDirectDepositsV4(
 	deposits DijkstraDirectDeposits,
 ) (data.PlutusData, error) {
-	type entry struct {
-		address *common.Address
-		amount  uint64
-	}
-	entries := make([]entry, 0, len(deposits))
-	for addressBytes, amount := range deposits {
+	addresses := sortedDijkstraAccountAddresses(deposits)
+	pairs := make([][2]data.PlutusData, len(addresses))
+	for idx, addressBytes := range addresses {
 		address, err := dijkstraAddressFromKey(addressBytes)
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, entry{address: address, amount: amount})
-	}
-	slices.SortFunc(entries, func(a, b entry) int {
-		aBytes, _ := a.address.Bytes()
-		bBytes, _ := b.address.Bytes()
-		return bytes.Compare(aBytes, bBytes)
-	})
-	pairs := make([][2]data.PlutusData, len(entries))
-	for idx, item := range entries {
-		credential, err := item.address.RewardAccountCredential()
+		credential, err := address.RewardAccountCredential()
 		if err != nil {
 			return nil, err
 		}
 		pairs[idx] = [2]data.PlutusData{
 			credential.ToPlutusData(),
-			data.NewInteger(new(big.Int).SetUint64(item.amount)),
+			data.NewInteger(new(big.Int).SetUint64(deposits[addressBytes])),
 		}
 	}
 	return data.NewMap(pairs), nil
