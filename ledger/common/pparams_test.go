@@ -163,7 +163,9 @@ func TestCloneCostModels(t *testing.T) {
 			src[k][0] = -1
 		}
 		src[9] = []int64{9}
-		for k, want := range map[uint][]int64{0: {1, 2}, 1: {3, 4}, 2: {5, 6}, 3: {7, 8}} {
+		for k, want := range map[uint][]int64{
+			0: {1, 2}, 1: {3, 4}, 2: {5, 6}, 3: {7, 8},
+		} {
 			assert.Equal(t, want, got[k], "model %d", k)
 		}
 		assert.NotContains(t, got, uint(9))

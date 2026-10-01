@@ -1257,7 +1257,8 @@ func TestAlonzoUtxorpc_FullWidthRationalBounds(t *testing.T) {
 }
 
 // TestAlonzoUpdate_CostModelsNotAliased checks that Update copies the update's
-// cost-model slices, so mutating either side afterwards does not change the other.
+// cost-model slices, so mutating either side afterwards does not change the
+// other.
 func TestAlonzoUpdate_CostModelsNotAliased(t *testing.T) {
 	src0 := []int64{1, 2}
 	src1 := []int64{3, 4}
