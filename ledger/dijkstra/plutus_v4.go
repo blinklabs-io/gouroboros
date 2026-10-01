@@ -36,7 +36,7 @@ func dijkstraPlutusV4Context(
 	key common.RedeemerKey,
 	value common.RedeemerValue,
 ) (data.PlutusData, error) {
-	txInfo, err := dijkstraTxInfoV4(level)
+	txInfo, err := level.cachedTxInfoV4()
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +52,27 @@ func dijkstraPlutusV4Context(
 		scriptInfo,
 		data.NewByteString(purpose.ScriptHash().Bytes()),
 	), nil
+}
+
+type dijkstraTxInfoV4Cache struct {
+	built  bool
+	txInfo data.PlutusData
+	err    error
+}
+
+// cachedTxInfoV4 converts the level's V4 TxInfo on first use and returns the
+// same value for every later redeemer, so the result must be treated as
+// read-only. A level built without a cache converts on every call.
+func (level dijkstraScriptLevel) cachedTxInfoV4() (data.PlutusData, error) {
+	cache := level.txInfoV4
+	if cache == nil {
+		return dijkstraTxInfoV4(level)
+	}
+	if !cache.built {
+		cache.txInfo, cache.err = dijkstraTxInfoV4(level)
+		cache.built = true
+	}
+	return cache.txInfo, cache.err
 }
 
 func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {

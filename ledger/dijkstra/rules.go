@@ -1551,6 +1551,9 @@ type dijkstraScriptLevel struct {
 	view       script.TxScriptView
 	slotState  common.SlotState
 	subTxIndex *uint32
+	// txInfoV4 holds the level's V4 TxInfo conversion, which is the same for
+	// every redeemer of the level. It is shared by copies of the level.
+	txInfoV4 *dijkstraTxInfoV4Cache
 }
 
 func dijkstraScriptLevels(
@@ -1587,6 +1590,7 @@ func dijkstraScriptLevels(
 			tx:        txLevel,
 			resolved:  resolved,
 			slotState: ls,
+			txInfoV4:  &dijkstraTxInfoV4Cache{},
 			view: script.TxScriptView{
 				ResolvedInputs:          inputs,
 				ResolvedReferenceInputs: refInputs,
@@ -1657,6 +1661,7 @@ func dijkstraWitnessRuleLevels(
 				ResolvedReferenceInputs: refInputs,
 			},
 			slotState: ls,
+			txInfoV4:  &dijkstraTxInfoV4Cache{},
 		}
 		if levelIndex < len(txLevels)-1 {
 			idx := uint32(levelIndex) // #nosec G115 -- bounded by tx size
