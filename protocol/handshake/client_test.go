@@ -888,62 +888,60 @@ func TestClientNtNRefuseVersionMismatchSingleVersion(t *testing.T) {
 	}
 }
 
-func TestClientQueryReply(t *testing.T) {
+func queryReplyConversation() []ouroboros_mock.ConversationEntry {
+	return []ouroboros_mock.ConversationEntry{
+		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: handshake.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				handshake.NewMsgQueryReply(
+					protocol.GetProtocolVersionMap(
+						protocol.ProtocolModeNodeToClient,
+						ouroboros_mock.MockNetworkMagic,
+						protocol.DiffusionModeInitiatorOnly,
+						false,
+						false,
+					),
+				),
+			},
+		},
+	}
+}
+
+func TestClientRejectsUnsolicitedQueryReply(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
-		[]ouroboros_mock.ConversationEntry{
-			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-			ouroboros_mock.ConversationEntryOutput{
-				ProtocolId: handshake.ProtocolId,
-				IsResponse: true,
-				Messages: []protocol.Message{
-					handshake.NewMsgQueryReply(
-						protocol.GetProtocolVersionMap(
-							protocol.ProtocolModeNodeToClient,
-							ouroboros_mock.MockNetworkMagic,
-							protocol.DiffusionModeInitiatorOnly,
-							false,
-							false,
-						),
-					),
-				},
-			},
-		},
+		queryReplyConversation(),
 	)
 	oConn, err := ouroboros.New(
 		ouroboros.WithConnection(mockConn),
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 	)
-	if err != nil {
-		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
-	}
-	// Async error handler
-	go func() {
-		err, ok := <-oConn.ErrorChan()
-		if !ok {
-			return
-		}
-		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
-		panic(fmt.Sprintf("unexpected Ouroboros connection error: %s", err))
-	}()
-	if err := oConn.Close(); err != nil {
-		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
-	}
-	// Verify that the query reply was processed by checking the protocol version
+	require.Error(t, err)
+	require.Nil(t, oConn)
+	_ = mockConn.Close()
+}
+
+func TestClientAcceptsRequestedQueryReply(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		queryReplyConversation(),
+	)
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithQueryMode(true),
+	)
+	require.NoError(t, err)
 	protoVersion, protoVersionData := oConn.ProtocolVersion()
-	if protoVersion != 0 {
-		t.Fatalf(
-			"expected protocol version 0 for query reply, got %d",
-			protoVersion,
-		)
-	}
-	if protoVersionData != nil {
-		t.Fatalf(
-			"expected nil protocol version data for query reply, got %v",
-			protoVersionData,
-		)
-	}
+	require.Zero(t, protoVersion)
+	require.Nil(t, protoVersionData)
+	require.NotEmpty(t, oConn.QueryReplyVersionMap())
+	require.Nil(t, oConn.ChainSync())
+	require.NoError(t, oConn.Close())
 	select {
 	case <-oConn.ErrorChan():
 	case <-time.After(10 * time.Second):
