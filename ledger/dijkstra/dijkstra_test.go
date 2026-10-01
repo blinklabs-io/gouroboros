@@ -3022,3 +3022,46 @@ func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(
 		*decodedAction.ParamUpdate.MaxRefScriptSizePerBlock,
 	)
 }
+
+// TestDijkstraUpdateFromGenesis_PlutusV4CostModelNotAliased checks that
+// UpdateFromGenesis copies the genesis PlutusV4 cost model, so mutating either
+// side afterwards does not change the other.
+func TestDijkstraUpdateFromGenesis_PlutusV4CostModelNotAliased(t *testing.T) {
+	v4 := []int64{1, 2, 3}
+	genesis := &DijkstraGenesis{PlutusV4CostModel: v4}
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(genesis))
+
+	live, ok := params.CostModels[3]
+	if !ok {
+		t.Fatal("expected PlutusV4 cost model after UpdateFromGenesis")
+	}
+	live[0] = -1
+	require.Equal(t, int64(1), v4[0])
+
+	v4[1] = -1
+	require.Equal(t, int64(2), live[1])
+}
+
+// TestDijkstraUpdate_CostModelsNotAliased checks that Update copies the
+// update's cost-model slices through the Conway update it delegates to, so
+// mutating either side afterwards does not change the other.
+func TestDijkstraUpdate_CostModelsNotAliased(t *testing.T) {
+	src0 := []int64{1, 2}
+	src1 := []int64{3, 4}
+	update := &DijkstraProtocolParameterUpdate{
+		CostModels: map[uint][]int64{0: src0, 1: src1},
+	}
+	var params DijkstraProtocolParameters
+	params.Update(update)
+
+	live, ok := params.CostModels[1]
+	if !ok {
+		t.Fatal("expected cost model 1 after Update")
+	}
+	live[0] = -1
+	require.Equal(t, []int64{3, 4}, src1)
+
+	src0[0] = -1
+	require.Equal(t, []int64{1, 2}, params.CostModels[0])
+}
