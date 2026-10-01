@@ -52,7 +52,7 @@ const (
 )
 
 func sizeOf[T any]() int64 {
-	return int64(reflect.TypeFor[T]().Size())
+	return int64(reflect.TypeFor[T]().Size()) //nolint:gosec // struct sizes are small
 }
 
 // chunked returns the bytes reserved for n values of elemSize when allocated
