@@ -155,19 +155,22 @@ func TestSlowConsumerBoundsRetainedNotificationBytes(t *testing.T) {
 		_ = peerConn.Close()
 	})
 	var notified atomic.Int32
+	blocked := make(chan struct{})
 	cfg := NewConfig(
 		WithNotificationFunc(func(CallbackContext, protocol.Message) error {
 			// Return from the first so the client requests more, then block.
-			if notified.Add(1) > 1 {
+			if notified.Add(1) == 2 {
+				close(blocked)
 				<-release
 			}
 			return nil
 		}),
 	)
+	clientErrors := make(chan error, 10)
 	client := NewClient(
 		protocol.ProtocolOptions{
 			Muxer:     m,
-			ErrorChan: make(chan error, 10),
+			ErrorChan: clientErrors,
 			Mode:      protocol.ProtocolModeNodeToNode,
 		},
 		&cfg,
@@ -205,24 +208,41 @@ func TestSlowConsumerBoundsRetainedNotificationBytes(t *testing.T) {
 		max(cfg.pendingBytes(), readBatchBytes),
 	)
 
-	require.NoError(t, client.Sync())
-	// Answer three requests: the first notification returns, the second
-	// blocks NotificationFunc, and the third blocks the receive loop on the
-	// notification loop, so every later message waits in the client.
-	for range 4 {
+	bound := cfg.pendingBytes() + ingressLimit +
+		segmentsOutsideLimits*wire.Len()
+	awaitRequest := func() {
+		t.Helper()
 		select {
 		case <-requests:
+		case err := <-clientErrors:
+			t.Fatalf("client error: %s", err)
 		case <-time.After(2 * time.Second):
 			t.Fatal("client did not request a notification")
 		}
-		if len(requests) == 0 && notified.Load() >= 2 {
-			break
-		}
-		require.NoError(t, writeAnnouncement())
 	}
 
+	require.NoError(t, client.Sync())
+	// The first notification returns and the second blocks NotificationFunc.
+	// The third then blocks the receive loop handing it to the notification
+	// loop, after its transition back to Idle sends the fourth request, so
+	// the client stays in Busy and every later message waits in it.
+	for i := range 3 {
+		awaitRequest()
+		require.NoError(t, writeAnnouncement())
+		if i == 1 {
+			select {
+			case <-blocked:
+			case <-time.After(2 * time.Second):
+				t.Fatal(
+					"NotificationFunc did not receive the second notification",
+				)
+			}
+		}
+	}
+	awaitRequest()
+
 	written := 0
-	for written < 64*1024*1024 {
+	for written <= bound {
 		err := writeAnnouncement()
 		if errors.Is(err, os.ErrDeadlineExceeded) ||
 			errors.Is(err, io.ErrClosedPipe) {
@@ -231,9 +251,12 @@ func TestSlowConsumerBoundsRetainedNotificationBytes(t *testing.T) {
 		require.NoError(t, err)
 		written += wire.Len()
 	}
-	require.LessOrEqual(
-		t,
-		written,
-		cfg.pendingBytes()+ingressLimit+segmentsOutsideLimits*wire.Len(),
-	)
+	// Whatever stopped the reads, it must not be the client rejecting a
+	// message: that tears the protocol down and the muxer drops the rest.
+	select {
+	case err := <-clientErrors:
+		require.NotContains(t, err.Error(), "without peer agency")
+	default:
+	}
+	require.LessOrEqual(t, written, bound)
 }
