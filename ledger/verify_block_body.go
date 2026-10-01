@@ -51,10 +51,20 @@ const (
 // the per-transaction CBOR headers.
 const MaxVerifyBlockBodyBytes = 4 * 2_097_154
 
+// MaxVerifyBlockBodyTxs bounds the transaction entries VerifyBlockBody
+// accepts, in definite- and indefinite-length bodies alike. The smallest
+// transaction body, one input with no outputs and a zero fee, is 43 bytes, so
+// a 2,097,154-byte block cannot hold more.
+const MaxVerifyBlockBodyTxs = 2_097_154 / 43
+
 // minBlockBodyTxBytes is the smallest encoding of one transaction entry, an
 // array header and three empty text strings. It bounds how many entries a
 // definite-length body of a given size can hold.
 const minBlockBodyTxBytes = 4
+
+// blockBodyTxFields is the number of fields in a transaction entry: body,
+// witness set and auxiliary data.
+const blockBodyTxFields = 3
 
 // VerifyBlockBody verifies that the block body hash matches the expected hash.
 // The invalidTxIndices parameter contains indices of transactions that failed
@@ -136,6 +146,13 @@ func decodeBlockBodyTxs(data []byte) ([][]string, error) {
 		return nil, errors.New("block body is not a CBOR array")
 	}
 	body := data[headerSize:]
+	if count > MaxVerifyBlockBodyTxs {
+		return nil, fmt.Errorf(
+			"block body declares %d transactions, maximum %d",
+			count,
+			MaxVerifyBlockBodyTxs,
+		)
+	}
 	if !indefinite && count > len(body)/minBlockBodyTxBytes {
 		return nil, fmt.Errorf(
 			"block body declares %d transactions in %d bytes",
@@ -159,14 +176,25 @@ func decodeBlockBodyTxs(data []byte) ([][]string, error) {
 			if body[pos] == 0xff {
 				break
 			}
+			if index >= MaxVerifyBlockBodyTxs {
+				return nil, fmt.Errorf(
+					"block body exceeds maximum %d transactions",
+					MaxVerifyBlockBodyTxs,
+				)
+			}
 		}
-		start, length, err := dec.Skip()
-		if err != nil {
-			return nil, fmt.Errorf("tx index %d: %w", index, err)
+		entry := body[dec.Position():]
+		entryCount, entryHeaderSize, entryIndefinite := cbor.ArrayInfo(entry)
+		if entryIndefinite {
+			entryCount, err = countIndefiniteItems(
+				entry[entryHeaderSize:],
+				blockBodyTxFields+1,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("tx index %d: %w", index, err)
+			}
 		}
-		entry := body[start : start+length]
-		entryCount, _, entryIndefinite := cbor.ArrayInfo(entry)
-		if entryCount != 3 && !entryIndefinite {
+		if entryCount != blockBodyTxFields {
 			return nil, fmt.Errorf(
 				"tx index %d: expected 3 fields, got %d",
 				index,
@@ -174,19 +202,36 @@ func decodeBlockBodyTxs(data []byte) ([][]string, error) {
 			)
 		}
 		var tx []string
-		if _, err := cbor.Decode(entry, &tx); err != nil {
+		if _, _, err := dec.Decode(&tx); err != nil {
 			return nil, fmt.Errorf("tx index %d: %w", index, err)
-		}
-		if len(tx) != 3 {
-			return nil, fmt.Errorf(
-				"tx index %d: expected 3 fields, got %d",
-				index,
-				len(tx),
-			)
 		}
 		txs = append(txs, tx)
 	}
 	return txs, nil
+}
+
+// countIndefiniteItems counts the items of an indefinite-length array whose
+// header has already been consumed, stopping once limit items are seen.
+func countIndefiniteItems(data []byte, limit int) (int, error) {
+	dec, err := cbor.NewStreamDecoder(data)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for count < limit {
+		pos := dec.Position()
+		if pos >= len(data) {
+			return 0, errors.New("indefinite-length array is not terminated")
+		}
+		if data[pos] == 0xff {
+			break
+		}
+		if _, _, err := dec.Skip(); err != nil {
+			return 0, err
+		}
+		count++
+	}
+	return count, nil
 }
 
 func encodeCborSequence[T any](data []T) ([]byte, error) {

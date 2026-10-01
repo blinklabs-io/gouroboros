@@ -57,9 +57,9 @@ func blockBodyHex(count int, entry []byte) string {
 
 // Each entry is a well-formed one-byte empty array, so the body decodes as
 // CBOR while declaring four times more transactions than a body of its size
-// can hold.
+// can hold, though fewer than MaxVerifyBlockBodyTxs.
 func TestVerifyBlockBodyRejectsExcessiveTransactionCount(t *testing.T) {
-	const count = 1 << 20
+	const count = 40000
 	data := blockBodyHex(count, []byte{0x80})
 	var err error
 	allocated := allocatedBytes(func() {
@@ -78,7 +78,7 @@ func TestVerifyBlockBodyRejectsExcessiveTransactionCount(t *testing.T) {
 func TestVerifyBlockBodyRejectsMalformedTransactionBeforeReserving(
 	t *testing.T,
 ) {
-	const count = 1 << 18
+	const count = 40000
 	data := blockBodyHex(count, []byte{0x84, 0x60, 0x60, 0x60, 0x60})
 	var err error
 	allocated := allocatedBytes(func() {
@@ -90,6 +90,56 @@ func TestVerifyBlockBodyRejectsMalformedTransactionBeforeReserving(
 	})
 	require.Less(t, allocated, uint64(len(data)))
 	require.ErrorContains(t, err, "expected 3 fields")
+}
+
+// Minimal entries keep the declared count within what the body's bytes can
+// hold, so only the transaction ceiling rejects it. A definite-length body is
+// rejected from its header.
+func TestVerifyBlockBodyRejectsDeclaredTransactionsOverCeiling(
+	t *testing.T,
+) {
+	data := blockBodyHex(
+		ledger.MaxVerifyBlockBodyTxs+1,
+		[]byte{0x83, 0x60, 0x60, 0x60},
+	)
+	var err error
+	allocated := allocatedBytes(func() {
+		_, err = ledger.VerifyBlockBody(
+			data,
+			ledger.BLOCK_BODY_HASH_ZERO_TX_HEX,
+			nil,
+		)
+	})
+	require.Less(t, allocated, uint64(len(data)))
+	require.ErrorContains(t, err, "maximum")
+}
+
+// An indefinite-length body declares no count, so its entries are decoded up
+// to the ceiling, the same work as a valid body of that many transactions.
+func TestVerifyBlockBodyRejectsIndefiniteTransactionsOverCeiling(
+	t *testing.T,
+) {
+	data := "9f" + strings.Repeat(
+		"83606060",
+		ledger.MaxVerifyBlockBodyTxs+1,
+	) + "ff"
+	_, err := ledger.VerifyBlockBody(
+		data,
+		ledger.BLOCK_BODY_HASH_ZERO_TX_HEX,
+		nil,
+	)
+	require.ErrorContains(t, err, "maximum")
+}
+
+// An indefinite-length entry has its items counted before it is decoded.
+func TestVerifyBlockBodyRejectsIndefiniteEntryWithExtraFields(t *testing.T) {
+	entry := "9f" + strings.Repeat("60", 4) + "ff"
+	_, err := ledger.VerifyBlockBody(
+		"81"+entry,
+		ledger.BLOCK_BODY_HASH_ZERO_TX_HEX,
+		nil,
+	)
+	require.ErrorContains(t, err, "expected 3 fields, got 4")
 }
 
 func TestCalculateBlockBodyHashRejectsMalformedTransactionBeforeReserving(
@@ -136,9 +186,10 @@ func verifyBlockBodyOf(t *testing.T, data string, txs [][]string) {
 // the hex of one CBOR byte string, fills MaxVerifyBlockBodyBytes after the
 // CBOR headers around it.
 func TestVerifyBlockBodyAcceptsBodyAtSizeLimit(t *testing.T) {
-	// Outer and entry array headers, the body field's 5-byte text header,
-	// and two empty fields.
-	const overhead = 1 + 1 + 5 + 1 + 1
+	// A two-byte outer array header (so the total can be even), the entry
+	// array header, the body field's 5-byte text header, and two empty
+	// fields.
+	const overhead = 2 + 1 + 5 + 1 + 1
 	// The byte string's own header is 5 bytes, encoded as 10 hex digits.
 	payloadLen := (ledger.MaxVerifyBlockBodyBytes-overhead)/2 - 5
 	field := make([]byte, 5, 5+payloadLen)
@@ -148,15 +199,14 @@ func TestVerifyBlockBodyAcceptsBodyAtSizeLimit(t *testing.T) {
 	field = append(field, make([]byte, payloadLen)...)
 	bodyHex := hex.EncodeToString(field)
 	var body bytes.Buffer
-	body.Write([]byte{0x81, 0x83, 0x7a})
+	body.Write([]byte{0x98, 0x01, 0x83, 0x7a})
 	lengthBytes := make([]byte, 4)
 	// #nosec G115 -- bounded by MaxVerifyBlockBodyBytes.
 	binary.BigEndian.PutUint32(lengthBytes, uint32(len(bodyHex)))
 	body.Write(lengthBytes)
 	body.WriteString(bodyHex)
 	body.Write([]byte{0x60, 0x60})
-	require.LessOrEqual(t, body.Len(), ledger.MaxVerifyBlockBodyBytes)
-	require.Greater(t, body.Len(), ledger.MaxVerifyBlockBodyBytes-2)
+	require.Equal(t, ledger.MaxVerifyBlockBodyBytes, body.Len())
 	verifyBlockBodyOf(
 		t,
 		hex.EncodeToString(body.Bytes()),
@@ -164,9 +214,10 @@ func TestVerifyBlockBodyAcceptsBodyAtSizeLimit(t *testing.T) {
 	)
 }
 
-// Minimal entries fill a definite-length body exactly to the count limit.
+// Minimal entries fill a definite-length body exactly to both count limits:
+// the bytes it carries and MaxVerifyBlockBodyTxs.
 func TestVerifyBlockBodyAcceptsTransactionCountAtLimit(t *testing.T) {
-	const count = 1024
+	const count = ledger.MaxVerifyBlockBodyTxs
 	txs := make([][]string, count)
 	for i := range txs {
 		txs[i] = []string{"", "", ""}
