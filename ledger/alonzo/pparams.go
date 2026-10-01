@@ -20,6 +20,7 @@ import (
 	"maps"
 	"math"
 	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -247,7 +248,7 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 					len(model),
 				)
 			}
-			p.CostModels[key] = model
+			p.CostModels[key] = slices.Clone(model)
 		}
 	}
 	return nil

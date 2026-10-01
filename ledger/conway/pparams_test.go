@@ -2011,3 +2011,23 @@ func TestConwayUpdate_CostModelsNotAliased(t *testing.T) {
 	live[0] = -1
 	assert.Equal(t, []int64{3, 4}, src1)
 }
+
+// TestConwayUpdateFromGenesis_PlutusV3CostModelNotAliased checks that
+// UpdateFromGenesis copies the genesis PlutusV3 cost model, so mutating either
+// side afterwards does not change the other.
+func TestConwayUpdateFromGenesis_PlutusV3CostModelNotAliased(t *testing.T) {
+	v3 := []int64{1, 2, 3}
+	genesis := &conway.ConwayGenesis{PlutusV3CostModel: v3}
+	p := &conway.ConwayProtocolParameters{}
+	require.NoError(t, p.UpdateFromGenesis(genesis))
+
+	live, ok := p.CostModels[2]
+	if !ok {
+		t.Fatal("expected PlutusV3 cost model after UpdateFromGenesis")
+	}
+	live[0] = -1
+	assert.Equal(t, int64(1), v3[0])
+
+	v3[1] = -1
+	assert.Equal(t, int64(2), live[1])
+}

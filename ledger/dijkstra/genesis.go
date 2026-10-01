@@ -19,6 +19,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -97,7 +98,7 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 		if p.CostModels == nil {
 			p.CostModels = make(map[uint][]int64)
 		}
-		p.CostModels[3] = genesis.PlutusV4CostModel
+		p.CostModels[3] = slices.Clone(genesis.PlutusV4CostModel)
 	}
 	p.MaxRefScriptSizePerBlock = genesis.MaxRefScriptSizePerBlock
 	p.MaxRefScriptSizePerTx = genesis.MaxRefScriptSizePerTx
