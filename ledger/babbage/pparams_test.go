@@ -890,12 +890,21 @@ func TestUpgradePParams_CostModelsIsolated(t *testing.T) {
 // TestBabbageUpdate_CostModelsNotAliased checks that Update copies the update's
 // cost-model slices, so mutating either side afterwards does not change the other.
 func TestBabbageUpdate_CostModelsNotAliased(t *testing.T) {
-	upd := &babbage.BabbageProtocolParameterUpdate{CostModels: testCostModels()}
+	src0 := []int64{1, 2}
+	src1 := []int64{3, 4}
+	upd := &babbage.BabbageProtocolParameterUpdate{
+		CostModels: map[uint][]int64{0: src0, 1: src1},
+	}
 	base := &babbage.BabbageProtocolParameters{}
 	base.Update(upd)
-	upd.CostModels[0][0] = -1
-	assert.Equal(t, testCostModels(), base.CostModels)
-	base.CostModels[1][0] = -1
-	assert.Equal(t, testCostModels()[1], []int64{3, 4})
-	assert.NotEqual(t, upd.CostModels[1][0], base.CostModels[1][0])
+
+	src0[0] = -1
+	assert.Equal(t, map[uint][]int64{0: {1, 2}, 1: {3, 4}}, base.CostModels)
+
+	live, ok := base.CostModels[1]
+	if !ok {
+		t.Fatal("expected cost model 1 after Update")
+	}
+	live[0] = -1
+	assert.Equal(t, []int64{3, 4}, src1)
 }

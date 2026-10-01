@@ -1259,14 +1259,21 @@ func TestAlonzoUtxorpc_FullWidthRationalBounds(t *testing.T) {
 // TestAlonzoUpdate_CostModelsNotAliased checks that Update copies the update's
 // cost-model slices, so mutating either side afterwards does not change the other.
 func TestAlonzoUpdate_CostModelsNotAliased(t *testing.T) {
-	want := map[uint][]int64{0: {1, 2}, 1: {3, 4}}
+	src0 := []int64{1, 2}
+	src1 := []int64{3, 4}
 	upd := &alonzo.AlonzoProtocolParameterUpdate{
-		CostModels: map[uint][]int64{0: {1, 2}, 1: {3, 4}},
+		CostModels: map[uint][]int64{0: src0, 1: src1},
 	}
 	base := &alonzo.AlonzoProtocolParameters{}
 	base.Update(upd)
-	upd.CostModels[0][0] = -1
-	assert.Equal(t, want, base.CostModels)
-	base.CostModels[1][0] = -1
-	assert.Equal(t, []int64{3, 4}, upd.CostModels[1])
+
+	src0[0] = -1
+	assert.Equal(t, map[uint][]int64{0: {1, 2}, 1: {3, 4}}, base.CostModels)
+
+	live, ok := base.CostModels[1]
+	if !ok {
+		t.Fatal("expected cost model 1 after Update")
+	}
+	live[0] = -1
+	assert.Equal(t, []int64{3, 4}, src1)
 }
