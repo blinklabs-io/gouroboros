@@ -77,11 +77,21 @@ segment), checked before CBOR parsing.
 
 ## Byte budget
 
-`Config.MaxPendingBytes` bounds the encoded bytes of received messages held
-between the connection and their handler. Every state uses it as its
-pending-message byte limit, and the receive queue holds
-`MaxPendingBytes / MaxBlockAnnouncementBytes` messages. While the budget is
-held the client stops reading, so a slow `NotificationFunc` slows the peer.
+`Config.MaxPendingBytes` bounds the encoded bytes of received messages
+queued for their handler, and is the largest message accepted. Every state
+uses it as its pending-message byte limit, and the receive queue holds
+`MaxPendingBytes / MaxBlockAnnouncementBytes` messages.
+
+It is not the whole amount a client holds. While the budget is held the
+protocol takes no more from the muxer, but the muxer keeps reading into its
+ingress queue for the protocol, which is limited to `MaxPendingBytes` or ten
+maximum-size segments, whichever is larger. Ingress past that fails the
+connection with `muxer.ErrIngressOverflow`. Whole segments are also held
+outside both limits: the muxer's delivery channel and forwarder, the read
+loop's batch, the segment that overflowed, and the notification inside
+`NotificationFunc`, 24 in all. At the default budget of 655,350 bytes and
+maximum-size segments that bound is 2,883,732 bytes.
+
 Zero sizes it to the larger of `PipelineLimit * MaxBlockAnnouncementBytes`
 and `MaxVotesOfferBytes`. An explicit value must be at least each of those
 two values; they are checked separately, not summed.

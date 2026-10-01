@@ -87,11 +87,16 @@ type LeiosNotify struct {
 type Config struct {
 	NotificationFunc NotificationFunc
 	PipelineLimit    int
-	// MaxPendingBytes bounds the encoded bytes of received messages held
-	// between the connection and their handler. Reads stop while it is
-	// reached, so a slow NotificationFunc slows the peer. It also sets the
-	// largest message accepted and the receive queue length. Zero sizes it
-	// to hold PipelineLimit block announcements.
+	// MaxPendingBytes bounds the encoded bytes of received messages queued
+	// for their handler, and is the largest message accepted. While it is
+	// held the protocol takes no more from the muxer, whose ingress queue
+	// for this protocol is limited to the same value, or ten maximum-size
+	// segments if that is larger. Ingress past that fails the connection.
+	// The client therefore holds at most about twice MaxPendingBytes, plus
+	// 24 whole segments in delivery, in the read loop and in
+	// NotificationFunc (see README.md). It also sets the receive queue
+	// length. Zero sizes it to hold PipelineLimit
+	// block announcements.
 	MaxPendingBytes  int
 	ResponseSentFunc ResponseSentFunc
 	RequestNextFunc  RequestNextFunc
