@@ -3207,8 +3207,12 @@ func validateGuardingPlutusScripts(
 	}
 
 	var txInfoV1 script.TxInfoV1
+	// Cached so each redeemer reuses one PlutusData conversion of the TxInfo.
+	var txInfoV1Cached *script.CachedTxInfo
 	var txInfoV2 script.TxInfoV2
+	var txInfoV2Cached *script.CachedTxInfo
 	var txInfoV3 script.TxInfoV3
+	var txInfoV3Cached *script.CachedTxInfo
 	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
 
 	for redeemerKey, redeemerValue := range wits.Redeemers().Iter() {
@@ -3258,9 +3262,10 @@ func validateGuardingPlutusScripts(
 					return conway.ScriptContextConstructionError{Err: err}
 				}
 				txInfoV3Built = true
+				txInfoV3Cached = script.NewCachedTxInfo(txInfoV3)
 			}
 			ctx := script.NewScriptContextV3(
-				txInfoV3,
+				txInfoV3Cached,
 				guardingRedeemer(redeemerKey, redeemerValue),
 				purpose,
 			)
@@ -3287,8 +3292,9 @@ func validateGuardingPlutusScripts(
 					return conway.ScriptContextConstructionError{Err: err}
 				}
 				txInfoV2Built = true
+				txInfoV2Cached = script.NewCachedTxInfo(txInfoV2)
 			}
-			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
+			ctx := script.NewScriptContextV1V2(txInfoV2Cached, purpose)
 			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV2,
 				pp.ProtocolVersion.Major,
@@ -3319,8 +3325,9 @@ func validateGuardingPlutusScripts(
 					return conway.ScriptContextConstructionError{Err: err}
 				}
 				txInfoV1Built = true
+				txInfoV1Cached = script.NewCachedTxInfo(txInfoV1)
 			}
-			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
+			ctx := script.NewScriptContextV1V2(txInfoV1Cached, purpose)
 			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV1,
 				pp.ProtocolVersion.Major,
