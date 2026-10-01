@@ -92,11 +92,10 @@ type Config struct {
 	// held the protocol takes no more from the muxer, whose ingress queue
 	// for this protocol is limited to the same value, or ten maximum-size
 	// segments if that is larger. Ingress past that fails the connection.
-	// The client therefore holds at most about twice MaxPendingBytes, plus
-	// 24 whole segments in delivery, in the read loop and in
+	// The client therefore holds at most MaxPendingBytes plus that ingress
+	// limit, plus 24 whole segments in delivery, in the read loop and in
 	// NotificationFunc (see README.md). It also sets the receive queue
-	// length. Zero sizes it to hold PipelineLimit
-	// block announcements.
+	// length. Zero sizes it to hold PipelineLimit block announcements.
 	MaxPendingBytes  int
 	ResponseSentFunc ResponseSentFunc
 	RequestNextFunc  RequestNextFunc
