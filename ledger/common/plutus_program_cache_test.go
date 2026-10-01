@@ -17,11 +17,13 @@ package common
 import (
 	"errors"
 	"math/big"
+	"runtime"
 	"sync"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/cek"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/stretchr/testify/require"
@@ -141,9 +143,23 @@ func TestDecodePlutusProgramCachedFailureIsKeyedByProtocolMajor(t *testing.T) {
 func TestProgramCacheEvictsByBytes(t *testing.T) {
 	t.Parallel()
 
-	entrySize := programCacheEntryOverhead +
-		int64(100)*programArenaBytesPerScriptByte
-	cache := newProgramCache(2 * entrySize)
+	evalContext := programCacheTestEvalContext(t, lang.LanguageVersionV3, 10)
+	scripts := make([][]byte, 3)
+	for i := range scripts {
+		wrapped := programCacheTestScript(
+			t, lang.LanguageVersion{1, 0, 0}, int64(920000+i),
+		)
+		inner, err := decodePlutusScript(wrapped, true)
+		require.NoError(t, err)
+		scripts[i] = inner
+	}
+	probe, err := decodePlutusProgramUncached(
+		scripts[0], lang.LanguageVersionV3, evalContext,
+	)
+	require.NoError(t, err)
+	entrySize := programEntrySize(probe)
+
+	cache := newProgramCache(2*entrySize + entrySize/2)
 	decodes := 0
 	decode := func(script []byte) *syn.Program[syn.DeBruijn] {
 		program, err := cache.decode(
@@ -152,16 +168,13 @@ func TestProgramCacheEvictsByBytes(t *testing.T) {
 			10,
 			func() (*syn.Program[syn.DeBruijn], error) {
 				decodes++
-				return &syn.Program[syn.DeBruijn]{}, nil
+				return decodePlutusProgramUncached(
+					script, lang.LanguageVersionV3, evalContext,
+				)
 			},
 		)
 		require.NoError(t, err)
 		return program
-	}
-	scripts := make([][]byte, 3)
-	for i := range scripts {
-		scripts[i] = make([]byte, 100)
-		scripts[i][0] = byte(i + 1)
 	}
 
 	first := decode(scripts[0])
@@ -175,22 +188,203 @@ func TestProgramCacheEvictsByBytes(t *testing.T) {
 	require.Equal(t, 3, decodes)
 	decode(scripts[1])
 	require.Equal(t, 4, decodes, "least recently used entry was evicted")
+}
 
-	oversized := newProgramCache(entrySize - 1)
+// TestProgramCacheOversizedEntryKeepsExistingEntries proves an entry larger
+// than the whole budget is refused outright rather than admitted and then
+// flushing every smaller entry while it evicts itself.
+func TestProgramCacheOversizedEntryKeepsExistingEntries(t *testing.T) {
+	t.Parallel()
+
+	cache := newProgramCache(3 * programEstimateFloor)
+	small := &syn.Program[syn.DeBruijn]{}
+	smallDecodes := 0
+	decodeSmall := func() (*syn.Program[syn.DeBruijn], error) {
+		smallDecodes++
+		return small, nil
+	}
+	_, err := cache.decode([]byte{1}, lang.LanguageVersionV3, 10, decodeSmall)
+	require.NoError(t, err)
+
+	hugeTerm := make([]syn.Term[syn.DeBruijn], 0, 4096)
+	for range 4096 {
+		hugeTerm = append(hugeTerm, &syn.Error{})
+	}
+	huge := &syn.Program[syn.DeBruijn]{
+		Term: &syn.Constr[syn.DeBruijn]{Fields: hugeTerm},
+	}
+	require.Greater(t, programEntrySize(huge), cache.maxBytes)
 	for range 2 {
-		_, err := oversized.decode(
-			scripts[0],
-			lang.LanguageVersionV3,
-			10,
-			func() (*syn.Program[syn.DeBruijn], error) {
-				decodes++
-				return &syn.Program[syn.DeBruijn]{}, nil
-			},
+		got, err := cache.decode(
+			[]byte{2}, lang.LanguageVersionV3, 10,
+			func() (*syn.Program[syn.DeBruijn], error) { return huge, nil },
 		)
 		require.NoError(t, err)
+		require.Same(t, huge, got)
 	}
-	require.Equal(t, 6, decodes, "an entry larger than the budget is not kept")
-	require.Zero(t, oversized.bytes)
+	require.Len(t, cache.entries, 1, "oversized entry must not be admitted")
+
+	_, err = cache.decode([]byte{1}, lang.LanguageVersionV3, 10, decodeSmall)
+	require.NoError(t, err)
+	require.Equal(t, 1, smallDecodes, "existing entry must survive")
+}
+
+// TestProgramCacheCachesDecodeFailures proves a failed decode is decoded once
+// and its error replayed.
+func TestProgramCacheCachesDecodeFailures(t *testing.T) {
+	t.Parallel()
+
+	cache := newProgramCache(programCacheMaxBytes)
+	decodes := 0
+	boom := errors.New("decode failed")
+	for range 3 {
+		program, err := cache.decode(
+			[]byte{9}, lang.LanguageVersionV3, 10,
+			func() (*syn.Program[syn.DeBruijn], error) {
+				decodes++
+				return nil, boom
+			},
+		)
+		require.Nil(t, program)
+		require.ErrorIs(t, err, boom)
+	}
+	require.Equal(t, 1, decodes)
+}
+
+func programCacheCon(c syn.IConstant) syn.Term[syn.DeBruijn] {
+	return &syn.Constant{Con: c}
+}
+
+// programCacheRetentionShapes returns programs chosen to stress the size
+// estimate: every term kind in a few bytes, deep application chains, and
+// constants whose retained memory is large relative to their flat encoding.
+func programCacheRetentionShapes() map[string]syn.Term[syn.DeBruijn] {
+	const n = 20000
+	var ints, units, bools, empties, lists, pairs []syn.IConstant
+	var dataItems []data.PlutusData
+	for i := range n {
+		ints = append(ints, &syn.Integer{Inner: big.NewInt(int64(i % 60))})
+		units = append(units, &syn.Unit{})
+		bools = append(bools, &syn.Bool{Inner: true})
+		empties = append(empties, &syn.ByteString{Inner: []byte{}})
+		lists = append(lists, &syn.ProtoList{LTyp: &syn.TUnit{}})
+		pairs = append(pairs, &syn.ProtoPair{
+			FstType: &syn.TUnit{},
+			SndType: &syn.TUnit{},
+			First:   &syn.Unit{},
+			Second:  &syn.Unit{},
+		})
+		dataItems = append(dataItems, data.NewInteger(big.NewInt(int64(i%20))))
+	}
+	allKinds := func() syn.Term[syn.DeBruijn] {
+		var term syn.Term[syn.DeBruijn] = &syn.Error{}
+		term = &syn.Case[syn.DeBruijn]{
+			Constr: &syn.Constr[syn.DeBruijn]{
+				Fields: []syn.Term[syn.DeBruijn]{term},
+			},
+			Branches: []syn.Term[syn.DeBruijn]{&syn.Builtin{}},
+		}
+		term = &syn.Force[syn.DeBruijn]{
+			Term: &syn.Delay[syn.DeBruijn]{Term: term},
+		}
+		term = &syn.Apply[syn.DeBruijn]{
+			Function: &syn.Lambda[syn.DeBruijn]{
+				Body: &syn.Var[syn.DeBruijn]{Name: 1},
+			},
+			Argument: term,
+		}
+		return &syn.Lambda[syn.DeBruijn]{
+			Body: &syn.Apply[syn.DeBruijn]{
+				Function: term,
+				Argument: programCacheCon(
+					&syn.Integer{Inner: big.NewInt(1)},
+				),
+			},
+		}
+	}
+	applyChain := func() syn.Term[syn.DeBruijn] {
+		term := programCacheCon(&syn.Integer{Inner: big.NewInt(1)})
+		for range 5000 {
+			term = &syn.Apply[syn.DeBruijn]{
+				Function: &syn.Lambda[syn.DeBruijn]{
+					Body: &syn.Var[syn.DeBruijn]{Name: 1},
+				},
+				Argument: term,
+			}
+		}
+		return &syn.Lambda[syn.DeBruijn]{Body: term}
+	}
+	return map[string]syn.Term[syn.DeBruijn]{
+		"all node kinds": allKinds(),
+		"apply chain":    applyChain(),
+		"integer list": programCacheCon(
+			&syn.ProtoList{LTyp: &syn.TInteger{}, List: ints}),
+		"unit list": programCacheCon(
+			&syn.ProtoList{LTyp: &syn.TUnit{}, List: units}),
+		"bool list": programCacheCon(
+			&syn.ProtoList{LTyp: &syn.TBool{}, List: bools}),
+		"empty bytestring list": programCacheCon(
+			&syn.ProtoList{LTyp: &syn.TByteString{}, List: empties}),
+		"nested empty lists": programCacheCon(
+			&syn.ProtoList{
+				LTyp: &syn.TList{Typ: &syn.TUnit{}}, List: lists,
+			}),
+		"unit pair list": programCacheCon(
+			&syn.ProtoList{
+				LTyp: &syn.TPair{
+					First: &syn.TUnit{}, Second: &syn.TUnit{},
+				},
+				List: pairs,
+			}),
+		"data list": programCacheCon(
+			&syn.Data{Inner: data.NewList(dataItems...)}),
+	}
+}
+
+// TestProgramCacheChargeCoversRetainedHeap decodes copies of programs whose
+// retained memory is far from proportional to script length and requires the
+// charge each would receive to be at least the heap it keeps alive.
+func TestProgramCacheChargeCoversRetainedHeap(t *testing.T) {
+	// Not t.Parallel: runtime.MemStats.HeapAlloc is process-wide, so
+	// concurrent tests would pollute the measured delta.
+	evalContext := programCacheTestEvalContext(t, lang.LanguageVersionV3, 10)
+	const copies = 20
+	for name, term := range programCacheRetentionShapes() {
+		t.Run(name, func(t *testing.T) {
+			flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
+				Version: lang.LanguageVersion{1, 1, 0},
+				Term:    term,
+			})
+			require.NoError(t, err)
+			wrapped, err := cbor.Encode(flat)
+			require.NoError(t, err)
+			inner, err := decodePlutusScript(wrapped, true)
+			require.NoError(t, err)
+
+			keep := make([]*syn.Program[syn.DeBruijn], 0, copies)
+			runtime.GC()
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			for range copies {
+				program, err := decodePlutusProgramUncached(
+					inner, lang.LanguageVersionV3, evalContext,
+				)
+				require.NoError(t, err)
+				keep = append(keep, program)
+			}
+			runtime.GC()
+			runtime.GC()
+			runtime.ReadMemStats(&after)
+			retained := (int64(after.HeapAlloc) - int64(before.HeapAlloc)) /
+				copies
+			charge := programEntrySize(keep[0])
+			runtime.KeepAlive(keep)
+			require.GreaterOrEqual(t, charge, retained,
+				"charged %d bytes for a %d byte script that keeps %d bytes",
+				charge, len(inner), retained)
+		})
+	}
 }
 
 // TestEvaluateReusingCachedProgramIsUnchanged evaluates one script many times
