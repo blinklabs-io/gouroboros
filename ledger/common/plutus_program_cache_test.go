@@ -314,9 +314,29 @@ func programCacheRetentionShapes() map[string]syn.Term[syn.DeBruijn] {
 		}
 		return &syn.Lambda[syn.DeBruijn]{Body: term}
 	}
+	// A constant's type is decoded into heap nodes that the decoded value
+	// keeps alive, so a deeply nested type costs memory without any value.
+	deepListType := func() syn.Typ {
+		var typ syn.Typ = &syn.TUnit{}
+		for range 12000 {
+			typ = &syn.TList{Typ: typ}
+		}
+		return typ
+	}
+	deepPairType := func() syn.Typ {
+		var typ syn.Typ = &syn.TUnit{}
+		for range 6000 {
+			typ = &syn.TPair{First: typ, Second: &syn.TUnit{}}
+		}
+		return typ
+	}
 	return map[string]syn.Term[syn.DeBruijn]{
 		"all node kinds": allKinds(),
-		"apply chain":    applyChain(),
+		"deep list type": programCacheCon(
+			&syn.ProtoList{LTyp: deepListType()}),
+		"deep pair type": programCacheCon(
+			&syn.ProtoList{LTyp: deepPairType()}),
+		"apply chain": applyChain(),
 		"integer list": programCacheCon(
 			&syn.ProtoList{LTyp: &syn.TInteger{}, List: ints}),
 		"unit list": programCacheCon(

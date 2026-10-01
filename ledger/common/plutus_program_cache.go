@@ -80,6 +80,7 @@ type programSizer struct {
 	dInts, dBytes, dLists, dMaps, dConstrs int
 	dValues                                int
 	dSlots                                 int
+	typs                                   int
 	unknownBytes                           int64
 }
 
@@ -133,9 +134,41 @@ func (s *programSizer) walkTerms(root syn.Term[syn.DeBruijn]) {
 			s.builtins++
 		case *syn.Constant:
 			s.constants++
+			s.walkConstantType(t.Con)
 			s.walkConstants(t.Con)
 		default:
 			s.unknownBytes += programNodeSlack * 16
+		}
+	}
+}
+
+// walkConstantType counts the type nodes a constant term keeps alive. The
+// decoder builds each constant term's type on the heap and nested values
+// share subtrees of it, so only the top-level value's types are walked.
+func (s *programSizer) walkConstantType(con syn.IConstant) {
+	var stack []syn.Typ
+	switch c := con.(type) {
+	case *syn.ProtoList:
+		stack = append(stack, c.LTyp)
+	case *syn.ProtoArray:
+		stack = append(stack, c.ATyp)
+	case *syn.ProtoPair:
+		stack = append(stack, c.FstType, c.SndType)
+	}
+	for len(stack) > 0 {
+		typ := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if typ == nil {
+			continue
+		}
+		s.typs++
+		switch t := typ.(type) {
+		case *syn.TList:
+			stack = append(stack, t.Typ)
+		case *syn.TArray:
+			stack = append(stack, t.Typ)
+		case *syn.TPair:
+			stack = append(stack, t.First, t.Second)
 		}
 	}
 }
@@ -259,6 +292,8 @@ func (s *programSizer) bytes() int64 {
 	total += chunked(s.dConstrs, programDataChunkSlots, sizeOf[data.Constr]())
 	total += chunked(s.dValues, programDataChunkSlots, sizeOf[data.Value]())
 	total += chunked(s.dSlots, programTermChunkSlots, 2*programSlotBytes)
+	// Type nodes are individual heap allocations, the largest a TPair.
+	total += int64(s.typs) * (sizeOf[syn.TPair]() + programSlotBytes)
 
 	nodes := s.vars + s.delays + s.forces + s.lambdas + s.applies +
 		s.constrs + s.cases + s.constants + s.protoLists + s.protoArrays +
