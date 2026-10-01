@@ -82,9 +82,9 @@ between the connection and their handler. Every state uses it as its
 pending-message byte limit, and the receive queue holds
 `MaxPendingBytes / MaxBlockAnnouncementBytes` messages. While the budget is
 held the client stops reading, so a slow `NotificationFunc` slows the peer.
-Zero sizes it to hold `PipelineLimit` block announcements, and never less
-than `MaxVotesOfferBytes`. An explicit value must hold at least
-`PipelineLimit` announcements and one maximum-size `VotesOffer`.
+Zero sizes it to the larger of `PipelineLimit * MaxBlockAnnouncementBytes`
+and `MaxVotesOfferBytes`. An explicit value must be at least each of those
+two values; they are checked separately, not summed.
 
 ## Timeouts
 

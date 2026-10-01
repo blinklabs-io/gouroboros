@@ -110,6 +110,13 @@ func blockAnnouncementBytes(t *testing.T, size int) []byte {
 // from the muxer before scanning it.
 const readBatchBytes = 10 * muxer.SegmentMaxPayloadLength
 
+// segmentsOutsideLimits counts the whole segments the client can hold beyond
+// its byte budget and the muxer's ingress queue: the muxer's delivery channel
+// (10) and the segment its forwarder holds, the read loop's batch (the
+// segment it waited for and the 10 it drains), the segment that overflowed
+// the ingress queue, and the notification inside NotificationFunc.
+const segmentsOutsideLimits = 10 + 1 + 1 + 10 + 1 + 1
+
 // countRequests reads the client's segments and reports each
 // NotificationRequestNext it carries.
 func countRequests(conn net.Conn, requests chan<- struct{}) {
@@ -224,12 +231,9 @@ func TestSlowConsumerBoundsRetainedNotificationBytes(t *testing.T) {
 		require.NoError(t, err)
 		written += wire.Len()
 	}
-	// Beyond the decoded budget the client holds at most the muxer's
-	// ingress queue, one batch of segments taken by the read loop, and the
-	// notification inside NotificationFunc.
 	require.LessOrEqual(
 		t,
 		written,
-		cfg.pendingBytes()+ingressLimit+readBatchBytes+2*wire.Len(),
+		cfg.pendingBytes()+ingressLimit+segmentsOutsideLimits*wire.Len(),
 	)
 }
