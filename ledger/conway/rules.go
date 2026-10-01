@@ -3180,15 +3180,28 @@ func UtxoValidatePlutusScripts(
 	if !tx.IsValid() {
 		return nil
 	}
+	_, err := EvaluatePlutusScripts(tx, ls, conwayPparams, nil)
+	return err
+}
 
-	// Check if there are any redeemers
+// EvaluatePlutusScripts runs the Plutus script of each redeemer of tx and
+// returns the execution units each one consumed. A nil budget limits each
+// script to its redeemer's declared units; otherwise every script runs
+// against budget. The IsValid flag is not consulted.
+func EvaluatePlutusScripts(
+	tx common.Transaction,
+	ls common.LedgerState,
+	conwayPparams *ConwayProtocolParameters,
+	budget *common.ExUnits,
+) (map[common.RedeemerKey]common.ExUnits, error) {
+	used := make(map[common.RedeemerKey]common.ExUnits)
 	witnesses := tx.Witnesses()
 	if witnesses == nil {
-		return nil
+		return used, nil
 	}
 	redeemers := witnesses.Redeemers()
 	if redeemers == nil {
-		return nil
+		return used, nil
 	}
 
 	// Count redeemers to see if we have any scripts to execute
@@ -3197,13 +3210,13 @@ func UtxoValidatePlutusScripts(
 		redeemerCount++
 	}
 	if redeemerCount == 0 {
-		return nil
+		return used, nil
 	}
 
 	// Resolve all inputs (regular + reference) for building script context
 	inputsResolved, refInputsResolved, err := script.ResolveTxInputs(tx, ls)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resolvedInputs := script.ConcatResolvedInputs(
 		inputsResolved,
@@ -3267,7 +3280,7 @@ func UtxoValidatePlutusScripts(
 		)
 		if err != nil {
 			// Redeemer doesn't match any valid purpose (index out of bounds, etc.)
-			return ExtraRedeemerError{RedeemerKey: redeemerKey}
+			return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 
 		// Check if the purpose actually requires a script
@@ -3279,29 +3292,29 @@ func UtxoValidatePlutusScripts(
 				addr := p.Input.Output.Address()
 				if (addr.Type() & common.AddressTypeScriptBit) == 0 {
 					// Input is at a key address, not a script address
-					return ExtraRedeemerError{RedeemerKey: redeemerKey}
+					return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 				}
 			}
 		case script.ScriptPurposeCertifying:
 			// For certifying purposes, check if the certificate has a script credential
 			// ScriptHash() returns empty hash for key credentials
 			if p.ScriptHash() == (common.ScriptHash{}) {
-				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
 		case script.ScriptPurposeRewarding:
 			// For rewarding purposes, check if the credential is a script
 			if p.StakeCredential.CredType != common.CredentialTypeScriptHash {
-				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
 		case script.ScriptPurposeProposing:
 			// For proposing purposes, check if the proposal has a policy script
 			// If not (empty ScriptHash), this redeemer is "extra"
 			if p.ScriptHash() == (common.ScriptHash{}) {
-				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
 		case script.ScriptPurposeVoting:
 			if !script.VoterUsesScriptCredential(p.Voter) {
-				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
 		}
 
@@ -3323,11 +3336,17 @@ func UtxoValidatePlutusScripts(
 			spendInput = spendPurpose.Input.Id
 		}
 
+		units := redeemerValue.ExUnits
+		if budget != nil {
+			units = *budget
+		}
+
 		// Execute based on script version
 		var execErr error
+		var usedUnits common.ExUnits
 		switch s := plutusScript.(type) {
 		case common.PlutusV4Script:
-			return common.PlutusScriptValidationUnsupportedError{Era: EraNameConway}
+			return nil, common.PlutusScriptValidationUnsupportedError{Era: EraNameConway}
 		case common.PlutusV3Script:
 			// Build V3 TxInfo lazily
 			if !txInfoV3Built {
@@ -3335,7 +3354,7 @@ func UtxoValidatePlutusScripts(
 					tx,
 					conwayPparams.ProtocolVersion.Major,
 				); err != nil {
-					return ScriptContextConstructionError{Err: err}
+					return nil, ScriptContextConstructionError{Err: err}
 				}
 				var err error
 				txInfoV3, err = script.NewTxInfoV3FromTransaction(
@@ -3345,7 +3364,7 @@ func UtxoValidatePlutusScripts(
 					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return ScriptContextConstructionError{Err: err}
+					return nil, ScriptContextConstructionError{Err: err}
 				}
 				txInfoV3Built = true
 			}
@@ -3364,13 +3383,13 @@ func UtxoValidatePlutusScripts(
 				conwayPparams.CostModels[2],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits, evalContext)
+			usedUnits, execErr = s.Evaluate(ctxData, units, evalContext)
 		case common.PlutusV2Script:
 			// V2 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return MissingDatumForSpendingScriptError{
+				return nil, MissingDatumForSpendingScriptError{
 					ScriptHash: scriptHash,
 					Input:      spendInput,
 				}
@@ -3384,7 +3403,7 @@ func UtxoValidatePlutusScripts(
 					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return ScriptContextConstructionError{Err: err}
+					return nil, ScriptContextConstructionError{Err: err}
 				}
 				txInfoV2Built = true
 			}
@@ -3397,13 +3416,13 @@ func UtxoValidatePlutusScripts(
 				conwayPparams.CostModels[1],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, redeemerValue.ExUnits, evalContext)
+			usedUnits, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, units, evalContext)
 		case common.PlutusV1Script:
 			// V1 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return MissingDatumForSpendingScriptError{
+				return nil, MissingDatumForSpendingScriptError{
 					ScriptHash: scriptHash,
 					Input:      spendInput,
 				}
@@ -3417,7 +3436,7 @@ func UtxoValidatePlutusScripts(
 					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return ScriptContextConstructionError{Err: err}
+					return nil, ScriptContextConstructionError{Err: err}
 				}
 				txInfoV1Built = true
 			}
@@ -3430,24 +3449,25 @@ func UtxoValidatePlutusScripts(
 				conwayPparams.CostModels[0],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, redeemerValue.ExUnits, evalContext)
+			usedUnits, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, units, evalContext)
 		default:
 			continue
 		}
 
 		if execErr != nil {
-			return PlutusScriptFailedError{
+			return nil, PlutusScriptFailedError{
 				ScriptHash: scriptHash,
 				Tag:        redeemerKey.Tag,
 				Index:      redeemerKey.Index,
 				Err:        execErr,
 			}
 		}
+		used[redeemerKey] = usedUnits
 	}
 
-	return nil
+	return used, nil
 }
 
 // UtxoValidateNativeScripts evaluates the native scripts this transaction has
