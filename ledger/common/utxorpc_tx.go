@@ -170,18 +170,17 @@ func nativeScriptToUtxorpc(item any) (*utxorpc.NativeScript, error) {
 			ScriptAny: &utxorpc.NativeScriptList{Items: items},
 		}
 	case *NativeScriptNofK:
-		// The wire type is int64 and a threshold of zero or less is always
-		// satisfied; the UTxO-RPC field is unsigned, so clamp at zero.
-		if s.N > math.MaxUint32 {
-			return nil, fmt.Errorf("native script threshold %d too large", s.N)
-		}
+		// The wire type is int64 and the UTxO-RPC field is uint32. A threshold
+		// of zero or less is always met and one above uint32 never is, as no
+		// transaction can carry that many scripts, so clamping to the field's
+		// range preserves the script's meaning.
 		items, err := nativeScriptsToUtxorpc(s.Scripts)
 		if err != nil {
 			return nil, err
 		}
 		ret.NativeScript = &utxorpc.NativeScript_ScriptNOfK{
 			ScriptNOfK: &utxorpc.ScriptNOfK{
-				K:       uint32(max(s.N, 0)), // #nosec G115 -- bounded above
+				K:       uint32(min(max(s.N, 0), math.MaxUint32)), // #nosec G115 -- clamped
 				Scripts: items,
 			},
 		}
@@ -370,11 +369,11 @@ func auxDataToUtxorpc(
 func metadatumToUtxorpc(m TransactionMetadatum) (*utxorpc.Metadatum, error) {
 	switch v := m.(type) {
 	case MetaInt:
-		if v.Value == nil || !v.Value.IsInt64() {
-			return nil, errors.New("metadatum integer does not fit in int64")
+		if v.Value == nil {
+			return nil, errors.New("metadatum integer is unset")
 		}
 		return &utxorpc.Metadatum{
-			Metadatum: &utxorpc.Metadatum_Int{Int: v.Value.Int64()},
+			Metadatum: &utxorpc.Metadatum_Int{Int: metadatumInt64(v.Value)},
 		}, nil
 	case MetaBytes:
 		return &utxorpc.Metadatum{
@@ -423,6 +422,19 @@ func metadatumToUtxorpc(m TransactionMetadatum) (*utxorpc.Metadatum, error) {
 	return nil, fmt.Errorf("unsupported metadatum %T", m)
 }
 
+// metadatumInt64 carries a metadatum integer in the int64 UTxO-RPC field.
+// The wire range is -2^64..2^64-1, so a value outside int64 keeps its low 64
+// bits in two's complement, as the pallas UTxO-RPC mapper does: a uint64
+// value is recovered by reading the field as uint64. Failing instead would
+// make a valid transaction, and the block holding it, unconvertible.
+func metadatumInt64(v *big.Int) int64 {
+	if v.IsInt64() {
+		return v.Int64()
+	}
+	low := new(big.Int).And(v, new(big.Int).SetUint64(math.MaxUint64))
+	return int64(low.Uint64()) // #nosec G115 -- two's complement by design
+}
+
 func redeemerPurposeToUtxorpc(tag RedeemerTag) utxorpc.RedeemerPurpose {
 	switch tag {
 	case RedeemerTagSpend:
@@ -445,8 +457,8 @@ func redeemerPurposeToUtxorpc(tag RedeemerTag) utxorpc.RedeemerPurpose {
 
 // attachRedeemers sets each redeemer on the input, mint policy, withdrawal or
 // certificate it applies to. A redeemer index addresses the lexicographically
-// sorted inputs, the sorted mint policies and the sorted reward accounts, and
-// the certificates in listed order.
+// sorted inputs, the sorted mint policies, the withdrawals in the order
+// withdrawalsToUtxorpc emits, and the certificates in listed order.
 func attachRedeemers(tx Transaction, ret *utxorpc.Tx) error {
 	witnesses := tx.Witnesses()
 	if witnesses == nil || witnesses.Redeemers() == nil {
@@ -512,20 +524,19 @@ func attachRedeemers(tx Transaction, ret *utxorpc.Tx) error {
 func withdrawalsToUtxorpc(
 	withdrawals map[*Address]*big.Int,
 ) ([]*utxorpc.Withdrawal, error) {
+	// Reward redeemer indexes address this order, which is cardano-ledger's
+	// and puts script credentials before key credentials, unlike the bytes.
 	ret := make([]*utxorpc.Withdrawal, 0, len(withdrawals))
-	for addr, amount := range withdrawals {
+	for _, addr := range SortRewardAccountAddresses(withdrawals) {
 		account, err := addr.Bytes()
 		if err != nil {
 			return nil, fmt.Errorf("withdrawal reward account: %w", err)
 		}
 		ret = append(ret, &utxorpc.Withdrawal{
 			RewardAccount: account,
-			Coin:          BigIntToUtxorpcBigInt(amount),
+			Coin:          BigIntToUtxorpcBigInt(withdrawals[addr]),
 		})
 	}
-	slices.SortFunc(ret, func(a, b *utxorpc.Withdrawal) int {
-		return bytes.Compare(a.GetRewardAccount(), b.GetRewardAccount())
-	})
 	return ret, nil
 }
 
@@ -622,9 +633,12 @@ func govActionIdToUtxorpc(id *GovActionId) *utxorpc.GovernanceActionId {
 	}
 }
 
-// govActionToUtxorpc converts a governance action. A parameter change carries
-// its parent action and policy hash but not the parameter update itself, which
-// has no era-independent conversion.
+// parameterChangeUtxorpc is implemented by the era parameter change actions,
+// whose parameter update types live outside this package.
+type parameterChangeUtxorpc interface {
+	ProtocolParamUpdateUtxorpc() (*utxorpc.PParams, error)
+}
+
 func govActionToUtxorpc(action GovAction) (*utxorpc.GovernanceAction, error) {
 	ret := &utxorpc.GovernanceAction{}
 	switch a := action.(type) {
@@ -634,6 +648,13 @@ func govActionToUtxorpc(action GovAction) (*utxorpc.GovernanceAction, error) {
 		}
 		if p, ok := action.(GovActionWithPolicy); ok {
 			change.PolicyHash = p.GetPolicyHash()
+		}
+		if p, ok := action.(parameterChangeUtxorpc); ok {
+			update, err := p.ProtocolParamUpdateUtxorpc()
+			if err != nil {
+				return nil, fmt.Errorf("parameter change update: %w", err)
+			}
+			change.ProtocolParamUpdate = update
 		}
 		ret.GovernanceAction = &utxorpc.GovernanceAction_ParameterChangeAction{
 			ParameterChangeAction: change,
@@ -650,19 +671,16 @@ func govActionToUtxorpc(action GovAction) (*utxorpc.GovernanceAction, error) {
 		}
 	case *TreasuryWithdrawalGovAction:
 		withdrawals := make([]*utxorpc.WithdrawalAmount, 0, len(a.Withdrawals))
-		for addr, amount := range a.Withdrawals {
+		for _, addr := range SortRewardAccountAddresses(a.Withdrawals) {
 			account, err := addr.Bytes()
 			if err != nil {
 				return nil, fmt.Errorf("treasury withdrawal account: %w", err)
 			}
 			withdrawals = append(withdrawals, &utxorpc.WithdrawalAmount{
 				RewardAccount: account,
-				Coin:          ToUtxorpcBigInt(amount),
+				Coin:          ToUtxorpcBigInt(a.Withdrawals[addr]),
 			})
 		}
-		slices.SortFunc(withdrawals, func(x, y *utxorpc.WithdrawalAmount) int {
-			return bytes.Compare(x.GetRewardAccount(), y.GetRewardAccount())
-		})
 		ret.GovernanceAction = &utxorpc.GovernanceAction_TreasuryWithdrawalsAction{
 			TreasuryWithdrawalsAction: &utxorpc.TreasuryWithdrawalsAction{
 				Withdrawals: withdrawals,
@@ -727,14 +745,13 @@ func updateCommitteeToUtxorpc(
 		if err != nil {
 			return nil, err
 		}
-		if epoch > math.MaxUint32 {
-			return nil, fmt.Errorf("committee expiry epoch %d too large", epoch)
-		}
+		// The wire epoch is uint64 and the field uint32. An expiry past
+		// uint32 is never reached, so saturating keeps its meaning.
 		ret.NewCommitteeCredentials = append(
 			ret.NewCommitteeCredentials,
 			&utxorpc.NewCommitteeCredentials{
 				CommitteeColdCredential: cred,
-				ExpiresEpoch:            uint32(epoch), // #nosec G115
+				ExpiresEpoch:            uint32(min(epoch, math.MaxUint32)), // #nosec G115 -- clamped
 			},
 		)
 	}
@@ -757,11 +774,13 @@ func updateCommitteeToUtxorpc(
 	return ret, nil
 }
 
+// credentialBytes gives a sort key in cardano-ledger's credential order,
+// script hash before key hash.
 func credentialBytes(c *utxorpc.StakeCredential) []byte {
-	if c.GetAddrKeyHash() != nil {
-		return append([]byte{0}, c.GetAddrKeyHash()...)
+	if c.GetScriptHash() != nil {
+		return append([]byte{0}, c.GetScriptHash()...)
 	}
-	return append([]byte{1}, c.GetScriptHash()...)
+	return append([]byte{1}, c.GetAddrKeyHash()...)
 }
 
 // ToUtxorpcRationalNumber converts a rational to the int32/uint32 pair

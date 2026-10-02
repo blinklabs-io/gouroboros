@@ -111,10 +111,6 @@ func TestMetadatumToUtxorpc(t *testing.T) {
 	require.Equal(t, int64(-7), items[0].GetInt())
 	require.Equal(t, []byte{9}, items[1].GetBytes())
 
-	_, err = metadatumToUtxorpc(
-		MetaInt{Value: new(big.Int).Lsh(big.NewInt(1), 63)},
-	)
-	require.ErrorContains(t, err, "does not fit in int64")
 }
 
 func TestGovActionToUtxorpc(t *testing.T) {

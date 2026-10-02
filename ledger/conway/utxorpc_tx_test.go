@@ -247,3 +247,135 @@ func TestConwayTransactionUtxorpcOmitsAbsentFields(t *testing.T) {
 	require.Empty(t, got.Mint)
 	require.Empty(t, got.Proposals)
 }
+
+// Reward redeemer indexes address withdrawals in cardano-ledger's
+// reward-account order, which puts script credentials before key
+// credentials; certificate redeemer indexes address the listed order.
+func TestConwayTransactionUtxorpcAttachesRewardAndCertRedeemers(t *testing.T) {
+	t.Parallel()
+	enterprise := append([]byte{0x61}, filled(28, 0x0a)...)
+	keyAccount := append([]byte{0xe1}, filled(28, 0x01)...)
+	scriptAccount := append([]byte{0xf1}, filled(28, 0x02)...)
+	raw := mustEncode(t, []any{
+		map[uint]any{
+			0: []any{[]any{filled(32, 0x01), uint64(0)}},
+			1: []any{[]any{enterprise, uint64(2_000_000)}},
+			2: uint64(170_000),
+			4: []any{
+				[]any{uint64(0), []any{uint64(0), filled(28, 0x03)}},
+				[]any{uint64(0), []any{uint64(1), filled(28, 0x04)}},
+			},
+			5: map[cbor.ByteString]uint64{
+				cbor.NewByteString(keyAccount):    1,
+				cbor.NewByteString(scriptAccount): 2,
+			},
+		},
+		map[uint]any{
+			// reward 0 (10, 1/1), cert 1 (11, 2/2)
+			5: cbor.RawMessage{
+				0xa2,
+				0x82, 0x03, 0x00, 0x82, 0x0a, 0x82, 0x01, 0x01,
+				0x82, 0x02, 0x01, 0x82, 0x0b, 0x82, 0x02, 0x02,
+			},
+		},
+		true,
+		nil,
+	})
+	tx, err := conway.NewConwayTransactionFromCbor(raw)
+	require.NoError(t, err)
+	got, err := tx.Utxorpc()
+	require.NoError(t, err)
+
+	require.Len(t, got.Withdrawals, 2)
+	require.Equal(t, scriptAccount, got.Withdrawals[0].RewardAccount)
+	require.Equal(t, keyAccount, got.Withdrawals[1].RewardAccount)
+	reward := got.Withdrawals[0].Redeemer
+	require.NotNil(t, reward)
+	require.Equal(t, utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_REWARD, reward.Purpose)
+	require.Equal(t, int64(10), reward.Payload.GetBigInt().GetInt())
+	require.Nil(t, got.Withdrawals[1].Redeemer)
+
+	require.Len(t, got.Certificates, 2)
+	require.Nil(t, got.Certificates[0].Redeemer)
+	cert := got.Certificates[1].Redeemer
+	require.NotNil(t, cert)
+	require.Equal(t, utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_CERT, cert.Purpose)
+	require.Equal(t, int64(11), cert.Payload.GetBigInt().GetInt())
+	require.Equal(t, uint64(2), cert.ExUnits.Steps)
+}
+
+// A parameter change proposal carries the proposed update.
+func TestConwayTransactionUtxorpcParameterChangeUpdate(t *testing.T) {
+	t.Parallel()
+	enterprise := append([]byte{0x61}, filled(28, 0x0a)...)
+	rewardAccount := append([]byte{0xe1}, filled(28, 0x01)...)
+	raw := mustEncode(t, []any{
+		map[uint]any{
+			0: []any{[]any{filled(32, 0x01), uint64(0)}},
+			1: []any{[]any{enterprise, uint64(2_000_000)}},
+			2: uint64(170_000),
+			20: []any{
+				[]any{
+					uint64(100),
+					rewardAccount,
+					[]any{
+						uint64(0),
+						nil,
+						map[uint]any{
+							0:  uint64(44),
+							3:  uint64(16384),
+							10: cbor.RawTag{Number: 30, Content: mustEncode(t, []uint64{3, 1000})},
+							20: []uint64{7, 8},
+						},
+						filled(28, 0x05),
+					},
+					[]any{"https://example.com", filled(32, 0x04)},
+				},
+			},
+		},
+		map[uint]any{},
+		true,
+		nil,
+	})
+	tx, err := conway.NewConwayTransactionFromCbor(raw)
+	require.NoError(t, err)
+	got, err := tx.Utxorpc()
+	require.NoError(t, err)
+	require.Len(t, got.Proposals, 1)
+	change := got.Proposals[0].GovAction.GetParameterChangeAction()
+	require.NotNil(t, change)
+	require.Equal(t, filled(28, 0x05), change.PolicyHash)
+	update := change.ProtocolParamUpdate
+	require.NotNil(t, update)
+	require.Equal(t, int64(44), update.MinFeeCoefficient.GetInt())
+	require.Equal(t, uint64(16384), update.MaxTxSize)
+	require.Equal(t, int32(3), update.MonetaryExpansion.Numerator)
+	require.Equal(t, uint32(1000), update.MonetaryExpansion.Denominator)
+	require.Equal(t, uint64(7), update.MaxExecutionUnitsPerTransaction.Memory)
+	require.Nil(t, update.MinFeeConstant)
+	require.Nil(t, update.PoolInfluence)
+	require.Nil(t, update.Prices)
+}
+
+// Metadata integers outside int64 are valid on the wire and must not fail the
+// transaction conversion.
+func TestConwayTransactionUtxorpcWideMetadataInteger(t *testing.T) {
+	t.Parallel()
+	enterprise := append([]byte{0x61}, filled(28, 0x0a)...)
+	raw := mustEncode(t, []any{
+		map[uint]any{
+			0: []any{[]any{filled(32, 0x01), uint64(0)}},
+			1: []any{[]any{enterprise, uint64(2_000_000)}},
+			2: uint64(170_000),
+		},
+		map[uint]any{},
+		true,
+		map[uint]any{1: uint64(1<<64 - 1)},
+	})
+	tx, err := conway.NewConwayTransactionFromCbor(raw)
+	require.NoError(t, err)
+	got, err := tx.Utxorpc()
+	require.NoError(t, err)
+	require.Len(t, got.Auxiliary.Metadata, 1)
+	require.Equal(t, int64(-1), got.Auxiliary.Metadata[0].Value.GetInt())
+}
