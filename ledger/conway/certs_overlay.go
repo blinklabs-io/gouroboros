@@ -204,15 +204,14 @@ func (o *conwayCertsOverlay) IsPoolRegistered(pool common.PoolKeyHash) bool {
 }
 
 // committeeCredentialState resolves ls's optional CommitteeCredentialState
-// capability. Rules invoked through VerifyTransaction receive a
-// transaction-scoped caching wrapper around the caller's ledger state
-// (common.UnwrapLedgerState), so the type assertion must unwrap first or it
-// will never see the capability even when the wrapped state implements it.
+// capability through the adapters VerifyTransaction and VerifyBlock wrap
+// around the caller's ledger state, with the block's earlier committee
+// certificates applied (common.CommitteeCredentialStateFor).
 func (o *conwayCertsOverlay) committeeCredentialState() (
 	common.CommitteeCredentialState,
 	bool,
 ) {
-	cs, ok := common.UnwrapLedgerState(o.ls).(common.CommitteeCredentialState)
+	cs, ok := common.CommitteeCredentialStateFor(o.ls)
 	return cs, ok
 }
 
@@ -235,7 +234,7 @@ func (o *conwayCertsOverlay) committeeHotCredentialMembersState() (
 	common.CommitteeHotCredentialMembers,
 	bool,
 ) {
-	cs, ok := common.UnwrapLedgerState(o.ls).(common.CommitteeHotCredentialMembers)
+	cs, ok := common.CommitteeHotCredentialMembersFor(o.ls)
 	return cs, ok
 }
 

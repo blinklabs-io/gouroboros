@@ -447,6 +447,17 @@ stake distribution, active slot coefficient, max KES evolutions, or operational
 certificate sequence state. Production chain validation must combine these
 checks with chain-context consensus validation before accepting a block.
 
+`VerifyBlock()` takes the ledger state before the block and validates each
+transaction against it plus the effects of the transactions before it in the
+block, through `common.BlockLedgerState`: spent and created outputs (only
+collateral and collateral return for a phase-2-invalid transaction),
+withdrawals, stake, pool, DRep and committee certificates, vote delegations
+(cleared when their DRep deregisters), and governance proposals. It never
+writes to the caller's state. Rules read the optional capabilities a
+transaction can change (stake deposits, DRep delegations, committee
+credentials) through `common.StakeCredentialDepositStateFor` and its siblings
+rather than `common.UnwrapLedgerState`, which would skip the block's effects.
+
 Binding the body to the header happens at decode, inside `NewBlockFromCbor`,
 not in `VerifyBlock()`. Every era does this by default and skips it only when
 the caller passes `common.VerifyConfig{SkipBodyHashValidation: true}`. Without

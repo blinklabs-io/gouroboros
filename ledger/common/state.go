@@ -55,7 +55,7 @@ func StakeCredentialDepositOrDefault(
 	cred Credential,
 	fallback uint64,
 ) (uint64, error) {
-	depositState, ok := UnwrapLedgerState(ls).(StakeCredentialDepositState)
+	depositState, ok := StakeCredentialDepositStateFor(ls)
 	if !ok {
 		return fallback, nil
 	}

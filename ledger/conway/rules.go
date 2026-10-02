@@ -3776,7 +3776,7 @@ func UtxoValidateWithdrawals(
 		}
 		if delegationState == nil {
 			var ok bool
-			delegationState, ok = common.UnwrapLedgerState(ls).(common.DRepDelegationState)
+			delegationState, ok = common.DRepDelegationStateFor(ls)
 			if !ok {
 				return DRepDelegationStateUnavailableError{}
 			}
@@ -3852,7 +3852,7 @@ func UtxoValidateCertificateDeposits(
 			registered: ls.IsStakeCredentialRegistered(cred),
 		}
 		if state.registered {
-			depositState, ok := common.UnwrapLedgerState(ls).(common.StakeCredentialDepositState)
+			depositState, ok := common.StakeCredentialDepositStateFor(ls)
 			if !ok {
 				return state, CertificateDepositStateUnavailableError{}
 			}
@@ -4134,7 +4134,7 @@ func UtxoValidateCommitteeCertificates(
 		}
 		if !committeeStateLoaded {
 			var ok bool
-			committeeState, ok = common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
+			committeeState, ok = common.CommitteeCredentialStateFor(ls)
 			if !ok {
 				return nil, CommitteeMemberLookupError{
 					Credential:       coldCredential.Credential,
@@ -4846,7 +4846,7 @@ func UtxoValidateUnelectedCommitteeVoters(
 		return nil
 	}
 
-	committeeState, ok := common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
+	committeeState, ok := common.CommitteeCredentialStateFor(ls)
 	if !ok {
 		return CommitteeStateUnavailableError{}
 	}
@@ -4857,7 +4857,7 @@ func UtxoValidateUnelectedCommitteeVoters(
 	if !available {
 		return CommitteeStateUnavailableError{}
 	}
-	votingState, ok := common.UnwrapLedgerState(ls).(common.CommitteeVotingState)
+	votingState, ok := common.CommitteeVotingStateFor(ls)
 	if !ok {
 		return CommitteeStateUnavailableError{}
 	}

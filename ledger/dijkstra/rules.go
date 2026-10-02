@@ -581,7 +581,7 @@ func (s *dijkstraGovernanceStateView) committeeCredentialState() (
 	common.CommitteeCredentialState,
 	bool,
 ) {
-	state, ok := common.UnwrapLedgerState(s.LedgerState).(common.CommitteeCredentialState)
+	state, ok := common.CommitteeCredentialStateFor(s.LedgerState)
 	return state, ok
 }
 
@@ -614,9 +614,7 @@ func (s *dijkstraGovernanceStateView) committeeHotCredentialMembersState() (
 	common.CommitteeHotCredentialMembers,
 	bool,
 ) {
-	state, ok := common.UnwrapLedgerState(
-		s.LedgerState,
-	).(common.CommitteeHotCredentialMembers)
+	state, ok := common.CommitteeHotCredentialMembersFor(s.LedgerState)
 	return state, ok
 }
 

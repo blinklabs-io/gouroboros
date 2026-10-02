@@ -202,6 +202,10 @@ Error files: `ledger/{shelley,allegra,alonzo,babbage,conway,common}/errors.go`.
 1. Reference inputs: resolved but never consumed from UTxO set.
 2. Collateral: only consumed when `IsValid=false`.
 3. Datum lookup: check witness set, inline datums, AND reference inputs.
+4. In a rule, read `StakeCredentialDepositState`, `DRepDelegationState` and
+   the committee capabilities through `common.*StateFor(ls)`, not
+   `common.UnwrapLedgerState(ls).(...)`: only the helpers see earlier
+   transactions in the block (`common.BlockLedgerState`).
 4. Cost models: required per Plutus version used.
 5. Era delegation is not universal — read the function body. Conway `UtxoValidateWithdrawals` has a custom impl.
 6. Hash from preserved CBOR bytes, not re-encoded data.
