@@ -16,6 +16,7 @@ package common
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
@@ -476,7 +477,7 @@ func attachRedeemers(tx Transaction, ret *utxorpc.Tx) error {
 		); c != 0 {
 			return c
 		}
-		return int(inputs[a].Index()) - int(inputs[b].Index())
+		return cmp.Compare(inputs[a].Index(), inputs[b].Index())
 	})
 	for key, value := range witnesses.Redeemers().Iter() {
 		payload, err := plutusDataToUtxorpc(value.Data.Data)
@@ -496,22 +497,25 @@ func attachRedeemers(tx Transaction, ret *utxorpc.Tx) error {
 			},
 			OriginalCbor: value.Data.Cbor(),
 		}
-		idx := int(key.Index)
+		// Compared as uint64: int(key.Index) is negative on 32-bit builds
+		// for indexes above the int32 range.
+		idx := uint64(key.Index)
+		inRange := func(n int) bool { return idx < uint64(n) } // #nosec G115 -- n is a length
 		switch key.Tag {
 		case RedeemerTagSpend:
-			if idx < len(sortedInputs) {
+			if inRange(len(sortedInputs)) {
 				ret.Inputs[sortedInputs[idx]].Redeemer = redeemer
 			}
 		case RedeemerTagMint:
-			if idx < len(ret.GetMint()) {
+			if inRange(len(ret.GetMint())) {
 				ret.Mint[idx].Redeemer = redeemer
 			}
 		case RedeemerTagReward:
-			if idx < len(ret.GetWithdrawals()) {
+			if inRange(len(ret.GetWithdrawals())) {
 				ret.Withdrawals[idx].Redeemer = redeemer
 			}
 		case RedeemerTagCert:
-			if idx < len(ret.GetCertificates()) {
+			if inRange(len(ret.GetCertificates())) {
 				ret.Certificates[idx].Redeemer = redeemer
 			}
 		case RedeemerTagVoting, RedeemerTagProposing, RedeemerTagGuarding:

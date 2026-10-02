@@ -379,3 +379,32 @@ func TestConwayTransactionUtxorpcWideMetadataInteger(t *testing.T) {
 	require.Len(t, got.Auxiliary.Metadata, 1)
 	require.Equal(t, int64(-1), got.Auxiliary.Metadata[0].Value.GetInt())
 }
+
+// A redeemer index past every item attaches to nothing, including indexes
+// above the int32 range on 32-bit builds.
+func TestConwayTransactionUtxorpcIgnoresOutOfRangeRedeemer(t *testing.T) {
+	t.Parallel()
+	enterprise := append([]byte{0x61}, filled(28, 0x0a)...)
+	raw := mustEncode(t, []any{
+		map[uint]any{
+			0: []any{[]any{filled(32, 0x01), uint64(0)}},
+			1: []any{[]any{enterprise, uint64(2_000_000)}},
+			2: uint64(170_000),
+		},
+		map[uint]any{
+			// spend 0xffffffff (1, 1/1)
+			5: cbor.RawMessage{
+				0xa1,
+				0x82, 0x00, 0x1a, 0xff, 0xff, 0xff, 0xff,
+				0x82, 0x01, 0x82, 0x01, 0x01,
+			},
+		},
+		true,
+		nil,
+	})
+	tx, err := conway.NewConwayTransactionFromCbor(raw)
+	require.NoError(t, err)
+	got, err := tx.Utxorpc()
+	require.NoError(t, err)
+	require.Nil(t, got.Inputs[0].Redeemer)
+}
