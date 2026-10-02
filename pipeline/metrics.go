@@ -15,6 +15,7 @@
 package pipeline
 
 import (
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,7 +32,10 @@ type stageTimer struct {
 func (t *stageTimer) record(d time.Duration) {
 	ns := max(int64(d), 0)
 	t.count.Add(1)
-	t.totalNs.Add(ns)
+	// Saturate instead of wrapping so Total and Mean can never go negative.
+	if t.totalNs.Add(ns) < 0 {
+		t.totalNs.Store(math.MaxInt64)
+	}
 	for {
 		current := t.maxNs.Load()
 		if ns <= current || t.maxNs.CompareAndSwap(current, ns) {
@@ -41,9 +45,15 @@ func (t *stageTimer) record(d time.Duration) {
 }
 
 func (t *stageTimer) snapshot() StageTimings {
+	// A concurrent record can wrap totalNs before it stores the saturated
+	// value, so clamp what is read as well.
+	total := t.totalNs.Load()
+	if total < 0 {
+		total = math.MaxInt64
+	}
 	return StageTimings{
 		Count: t.count.Load(),
-		Total: time.Duration(t.totalNs.Load()),
+		Total: time.Duration(total),
 		Max:   time.Duration(t.maxNs.Load()),
 	}
 }
@@ -171,7 +181,10 @@ func (m *PipelineMetrics) Stats() PipelineStats {
 	}
 }
 
-// Reset resets all metrics.
+// Reset resets all metrics. It is not synchronized with concurrent Record*
+// calls, which is also true of the counters: an item recorded while Reset runs
+// can land on either side of it. Call it while the pipeline is idle if exact
+// totals matter.
 func (m *PipelineMetrics) Reset() {
 	m.blocksSubmitted.Store(0)
 	m.blocksDecoded.Store(0)

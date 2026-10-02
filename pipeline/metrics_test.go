@@ -17,6 +17,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -131,6 +132,23 @@ func TestPipelineMetricsStageTimingsClampNegativeDurations(t *testing.T) {
 	assert.Zero(t, got.Max)
 }
 
+// TestPipelineMetricsStageTimingsSaturate checks that a total that would
+// overflow int64 saturates instead of wrapping negative, so Total and Mean stay
+// non-negative.
+func TestPipelineMetricsStageTimingsSaturate(t *testing.T) {
+	m := NewPipelineMetrics(0)
+	huge := time.Duration(math.MaxInt64)
+	m.RecordDecode(huge, nil)
+	m.RecordDecode(huge, nil)
+	m.RecordDecode(huge, nil)
+
+	got := m.Stats().DecodeTimings
+	assert.Equal(t, uint64(3), got.Count)
+	assert.Equal(t, huge, got.Total)
+	assert.Equal(t, huge, got.Max)
+	assert.Positive(t, got.Mean())
+}
+
 // TestStageTimingsMeanWithoutSamples checks that Mean does not divide by zero
 // before anything has been recorded.
 func TestStageTimingsMeanWithoutSamples(t *testing.T) {
@@ -221,8 +239,9 @@ func TestPipelineMetricsStageTimingsConcurrent(t *testing.T) {
 
 // runPipeline submits count copies of rawCbor to a started pipeline, waits for
 // every item to come out of Results, stops the pipeline and returns its final
-// stats. Any stage error leaves the item in Results, so the loop does not hang
-// on a failing stage.
+// stats. Workers send a stage error to Errors before forwarding the item, so
+// Errors is drained throughout; otherwise a failing stage could block a worker
+// once the error buffer fills and the item would never reach Results.
 func runPipeline(
 	t *testing.T,
 	blockType uint,
@@ -235,6 +254,12 @@ func runPipeline(
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
+
+	var drained sync.WaitGroup
+	drained.Go(func() {
+		for range p.Errors() {
+		}
+	})
 
 	for i := range count {
 		tip := createTestTip(uint64(1000+i), uint64(i))
@@ -251,6 +276,7 @@ func runPipeline(
 		}
 	}
 	require.NoError(t, p.Stop())
+	drained.Wait()
 	return p.Stats()
 }
 
@@ -362,6 +388,25 @@ func TestBlockPipelineStageTimingsExcludeDecodeFailures(t *testing.T) {
 	require.Equal(t, uint64(numBlocks), stats.DecodeErrors)
 	assert.Equal(t, StageTimings{}, stats.DecodeTimings)
 	assert.Zero(t, stats.ApplyTimings.Count)
+}
+
+// TestBlockPipelineRunHelperDrainsErrors submits more failing items than the
+// pipeline's error buffer holds. Without a reader on Errors the workers block
+// on the error send and the items never reach Results.
+func TestBlockPipelineRunHelperDrainsErrors(t *testing.T) {
+	const numBlocks = 2500
+	stats := runPipeline(
+		t,
+		uint(ledger.BlockTypeConway),
+		[]byte{0xff, 0x00, 0x01},
+		numBlocks,
+		WithDecodeWorkers(2),
+		WithValidateWorkers(0),
+		WithSkipBodyHashValidation(true),
+		WithApplyFunc(func(*BlockItem) error { return nil }),
+	)
+
+	assert.Equal(t, uint64(numBlocks), stats.DecodeErrors)
 }
 
 // TestBlockPipelineStageTimingsExcludeApplyFailures makes the apply function
