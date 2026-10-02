@@ -616,11 +616,42 @@ func verifyNonceVrf(
 	return nil
 }
 
+// verifyBlockTransactions validates txs in order, each against ls plus the
+// effects of the transactions before it, and returns the index of the first
+// transaction that fails.
+func verifyBlockTransactions(
+	txs []common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+	rules []common.UtxoValidationRuleFunc,
+) (int, error) {
+	blockState := common.NewBlockLedgerState(ls)
+	for idx, tx := range txs {
+		err := common.VerifyTransaction(tx, slot, blockState, pp, rules)
+		if err != nil {
+			return idx, err
+		}
+		if err := blockState.ApplyTransaction(tx, pp); err != nil {
+			return idx, fmt.Errorf("apply transaction: %w", err)
+		}
+	}
+	return 0, nil
+}
+
 // VerifyBlock performs block-local structural, cryptographic, and ledger
 // validation. It checks data available from the block and supplied verification
 // config, including body hash, leader and nonce VRF proofs, the operational
 // certificate's cold-key signature, KES signature, transactions, and optional
 // stake pool registration.
+//
+// Transaction validation requires config.LedgerState to be the ledger state
+// before this block: the state after the previous block, with no transaction
+// of this block applied. VerifyBlock validates each transaction against that
+// state plus the effects of the block's earlier transactions (see
+// common.BlockLedgerState); a phase-2-invalid transaction contributes only
+// its collateral. It never writes to config.LedgerState, so the caller
+// applies the block itself once it is accepted.
 //
 // VerifyBlock is not full chain-context consensus validation. It does not
 // receive the previous header, active stake distribution, active slot
@@ -1197,19 +1228,24 @@ func VerifyBlock(
 				nil,
 			)
 		}
-		for _, tx := range block.Transactions() {
-			if err := common.VerifyTransaction(tx, slot, config.LedgerState, config.ProtocolParameters, validationRules); err != nil {
-				return false, "", 0, 0, common.NewValidationError(
-					common.ValidationErrorTypeTransaction,
-					"block transaction validation failed",
-					map[string]any{
-						"block_slot":   slot,
-						"block_number": blockNo,
-						"era":          era,
-					},
-					err,
-				)
-			}
+		if idx, err := verifyBlockTransactions(
+			block.Transactions(),
+			slot,
+			config.LedgerState,
+			config.ProtocolParameters,
+			validationRules,
+		); err != nil {
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeTransaction,
+				"block transaction validation failed",
+				map[string]any{
+					"block_slot":   slot,
+					"block_number": blockNo,
+					"era":          era,
+					"transaction":  idx,
+				},
+				err,
+			)
 		}
 	}
 	var refScriptSizeErr error

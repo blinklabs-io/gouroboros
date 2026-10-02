@@ -2096,6 +2096,63 @@ func (t DijkstraTransaction) Consumed() []common.TransactionInput {
 	return t.Collateral()
 }
 
+// LedgerEffectLevels returns each sub-transaction body and then the
+// top-level body, the order the ledger applies their withdrawals,
+// certificates, direct deposits and proposals in, for
+// common.BlockLedgerState.
+func (t DijkstraTransaction) LedgerEffectLevels() (
+	[]common.LedgerEffectLevel,
+	error,
+) {
+	subTxs := t.Body.TxSubTransactions.Items()
+	levels := make([]common.LedgerEffectLevel, 0, len(subTxs)+1)
+	for idx := range subTxs {
+		body := &subTxs[idx].Body
+		deposits, err := dijkstraLedgerDirectDeposits(body.TxDirectDeposits)
+		if err != nil {
+			return nil, err
+		}
+		levels = append(levels, common.LedgerEffectLevel{
+			Id:             body.Id(),
+			Body:           body,
+			DirectDeposits: deposits,
+		})
+	}
+	deposits, err := dijkstraLedgerDirectDeposits(t.Body.TxDirectDeposits)
+	if err != nil {
+		return nil, err
+	}
+	return append(levels, common.LedgerEffectLevel{
+		Id:             t.Hash(),
+		Body:           &t.Body,
+		DirectDeposits: deposits,
+	}), nil
+}
+
+func dijkstraLedgerDirectDeposits(
+	deposits DijkstraDirectDeposits,
+) ([]common.DirectDeposit, error) {
+	if len(deposits) == 0 {
+		return nil, nil
+	}
+	ret := make([]common.DirectDeposit, 0, len(deposits))
+	for _, key := range sortedDijkstraAccountAddresses(deposits) {
+		address, err := dijkstraAddressFromKey(key)
+		if err != nil {
+			return nil, err
+		}
+		credential, err := address.RewardAccountCredential()
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, common.DirectDeposit{
+			Credential: credential,
+			Amount:     deposits[key],
+		})
+	}
+	return ret, nil
+}
+
 func (t DijkstraTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		outputs := t.Outputs()

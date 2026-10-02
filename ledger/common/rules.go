@@ -102,7 +102,9 @@ func validateOutsideForecastLevel(
 // UtxoValidationRuleFunc represents a function that validates a transaction
 // against a specific UTXO validation rule. Rules invoked by VerifyTransaction
 // receive a transaction-scoped cached ledger state; use UnwrapLedgerState
-// before asserting optional ledger-state capabilities.
+// before asserting optional ledger-state capabilities, or the *For helpers
+// (StakeCredentialDepositStateFor and the rest) for a capability an earlier
+// transaction in the block can change.
 type UtxoValidationRuleFunc func(
 	tx Transaction,
 	slot uint64,

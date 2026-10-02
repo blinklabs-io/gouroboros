@@ -202,18 +202,22 @@ Error files: `ledger/{shelley,allegra,alonzo,babbage,conway,common}/errors.go`.
 1. Reference inputs: resolved but never consumed from UTxO set.
 2. Collateral: only consumed when `IsValid=false`.
 3. Datum lookup: check witness set, inline datums, AND reference inputs.
-4. Cost models: required per Plutus version used.
-5. Era delegation is not universal — read the function body. Conway `UtxoValidateWithdrawals` has a custom impl.
-6. Hash from preserved CBOR bytes, not re-encoded data.
-7. `DecodeStoreCbor` requires a custom `UnmarshalCBOR` calling `SetCbor()`.
-8. Withdrawal amount validation requires the exact reward balance before
+4. In a rule, read `StakeCredentialDepositState`, `DRepDelegationState` and
+   the committee capabilities through `common.*StateFor(ls)`, not
+   `common.UnwrapLedgerState(ls).(...)`: only the helpers see earlier
+   transactions in the block (`common.BlockLedgerState`).
+5. Cost models: required per Plutus version used.
+6. Era delegation is not universal — read the function body. Conway `UtxoValidateWithdrawals` has a custom impl.
+7. Hash from preserved CBOR bytes, not re-encoded data.
+8. `DecodeStoreCbor` requires a custom `UnmarshalCBOR` calling `SetCbor()`.
+9. Withdrawal amount validation requires the exact reward balance before
    Dijkstra, while Dijkstra permits qualifying partial withdrawals. At
    PV10/PV11, the DRep gate applies only to key-hash reward credentials;
    script-hash reward credentials still undergo registration and amount
    validation. The DRep gate is amount-independent, so a zero withdrawal from
    a registered zero-balance key-hash account still requires delegation.
-9. Read code before claiming "just delegates" or "missing check". `NOTE:` comments mark deliberate decisions.
-10. Mutating a decoded `DecodeStoreCbor`-embedding struct and re-marshaling does not pick up the change — `MarshalCBOR()` returns the stored bytes as-is. Call `SetCbor(nil)` first.
+10. Read code before claiming "just delegates" or "missing check". `NOTE:` comments mark deliberate decisions.
+11. Mutating a decoded `DecodeStoreCbor`-embedding struct and re-marshaling does not pick up the change — `MarshalCBOR()` returns the stored bytes as-is. Call `SetCbor(nil)` first.
 
 ## Comments
 
