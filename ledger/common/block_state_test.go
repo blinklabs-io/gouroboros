@@ -96,6 +96,7 @@ func TestBlockLedgerStateAppliesStakeRegistration(t *testing.T) {
 	require.True(t, state.IsRewardAccountRegistered(registered))
 	balance, err := state.RewardAccountBalance(registered)
 	require.NoError(t, err)
+	require.NotNil(t, balance)
 	require.Equal(t, uint64(0), *balance)
 	require.False(t, state.IsStakeCredentialRegistered(deregistered))
 	balance, err = state.RewardAccountBalance(deregistered)
@@ -106,6 +107,7 @@ func TestBlockLedgerStateAppliesStakeRegistration(t *testing.T) {
 	require.True(t, ok)
 	deposit, err := deposits.StakeCredentialDeposit(registered)
 	require.NoError(t, err)
+	require.NotNil(t, deposit)
 	require.Equal(t, uint64(3_000_000), *deposit)
 	deposit, err = deposits.StakeCredentialDeposit(deregistered)
 	require.NoError(t, err)
@@ -132,6 +134,7 @@ func TestBlockLedgerStateRecordsKeyDepositForLegacyRegistration(
 	require.True(t, ok)
 	deposit, err := deposits.StakeCredentialDeposit(cred)
 	require.NoError(t, err)
+	require.NotNil(t, deposit)
 	require.Equal(t, uint64(2_000_000), *deposit)
 }
 
@@ -155,6 +158,7 @@ func TestBlockLedgerStateAppliesPoolCertificates(t *testing.T) {
 	reg, retirement, err := state.PoolCurrentState(pool)
 	require.NoError(t, err)
 	require.Same(t, registration, reg)
+	require.NotNil(t, retirement)
 	require.Equal(t, uint64(9), *retirement)
 	inUse, owner, err := state.IsVrfKeyInUse(vrf)
 	require.NoError(t, err)
@@ -193,6 +197,7 @@ func TestBlockLedgerStateAppliesDRepCertificates(t *testing.T) {
 	reg, err := state.DRepRegistration(drep)
 	require.NoError(t, err)
 	require.NotNil(t, reg)
+	require.NotNil(t, reg.Deposit)
 	require.Equal(t, uint64(500_000_000), *reg.Deposit)
 	require.Equal(t, anchor, reg.Anchor)
 	regs, err := state.DRepRegistrations()
@@ -237,8 +242,15 @@ func TestBlockLedgerStateClearsDelegationsMadeBeforeDRepDeregistration(
 	require.NoError(t, err)
 	require.Nil(t, got)
 
+	// Re-registering the DRep does not restore the cleared delegation.
 	applyBlockTestTxs(t, state, blockTestTx(t, 0xa2, true).WithCertificates(
 		&common.RegistrationDrepCertificate{DrepCredential: drepCred},
+	))
+	got, err = delegations.DRepDelegation(stake)
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	applyBlockTestTxs(t, state, blockTestTx(t, 0xa3, true).WithCertificates(
 		&common.VoteDelegationCertificate{
 			StakeCredential: stake,
 			Drep:            drep,
@@ -285,6 +297,8 @@ func TestBlockLedgerStateAppliesCommitteeCertificates(t *testing.T) {
 	))
 	got, err := committee.CommitteeHotCredentialMember(newHot)
 	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.NotNil(t, got.HotKey)
 	require.Equal(t, newHot.Credential, *got.HotKey)
 	got, err = committee.CommitteeHotCredentialMember(oldHot)
 	require.NoError(t, err)
@@ -295,6 +309,7 @@ func TestBlockLedgerStateAppliesCommitteeCertificates(t *testing.T) {
 	))
 	got, err = committee.CommitteeCredentialMember(cold)
 	require.NoError(t, err)
+	require.NotNil(t, got)
 	require.True(t, got.Resigned)
 	require.Nil(t, got.HotKey)
 	got, err = committee.CommitteeHotCredentialMember(newHot)
@@ -318,6 +333,7 @@ func TestBlockLedgerStateRecordsProposals(t *testing.T) {
 	require.True(t, state.GovActionExists(id))
 	action, err := state.GovActionById(id)
 	require.NoError(t, err)
+	require.NotNil(t, action)
 	require.Equal(t, common.GovActionTypeInfo, action.ActionType)
 }
 

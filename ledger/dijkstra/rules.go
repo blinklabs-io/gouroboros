@@ -582,7 +582,10 @@ func (s *dijkstraGovernanceStateView) committeeCredentialState() (
 	bool,
 ) {
 	state, ok := common.CommitteeCredentialStateFor(s.LedgerState)
-	return state, ok
+	if !ok {
+		return nil, false
+	}
+	return state, true
 }
 
 func (s *dijkstraGovernanceStateView) CommitteeStateAvailable() (bool, error) {
@@ -615,7 +618,10 @@ func (s *dijkstraGovernanceStateView) committeeHotCredentialMembersState() (
 	bool,
 ) {
 	state, ok := common.CommitteeHotCredentialMembersFor(s.LedgerState)
-	return state, ok
+	if !ok {
+		return nil, false
+	}
+	return state, true
 }
 
 // CommitteeHotCredentialMembers resolves every cold credential currently

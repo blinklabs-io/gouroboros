@@ -95,8 +95,9 @@ type blockPool struct {
 }
 
 // blockDRep is a DRep's registration as earlier transactions left it.
-// registration is nil once deregistered; deregSeq records when, so that
-// delegations made before then are cleared.
+// registration is nil once deregistered. deregSeq records the latest
+// deregistration and survives a re-registration, because the delegations it
+// cleared stay cleared.
 type blockDRep struct {
 	registration *DRepRegistration
 	deregSeq     uint64
@@ -145,16 +146,27 @@ func (b *BlockLedgerState) ApplyTransaction(
 	if !tx.IsValid() {
 		return nil
 	}
-	// Withdrawals drain accounts before certificates run, matching the
-	// Conway LEDGER rule; earlier eras allow no certificate that a same-
-	// transaction withdrawal could observe.
-	for addr := range tx.Withdrawals() {
+	// Withdrawals apply before certificates run, matching the Conway LEDGER
+	// rule; earlier eras allow no certificate that a same-transaction
+	// withdrawal could observe.
+	for addr, amount := range tx.Withdrawals() {
 		cred, err := addr.RewardAccountCredential()
 		if err != nil {
 			continue
 		}
+		balance, err := b.RewardAccountBalance(cred)
+		if err != nil {
+			return err
+		}
+		// A withdrawal need not drain the account from Dijkstra on, so the
+		// remainder stays available to later transactions.
+		remaining := uint64(0)
+		if balance != nil && amount != nil && amount.IsUint64() &&
+			amount.Uint64() <= *balance {
+			remaining = *balance - amount.Uint64()
+		}
 		account := b.account(cred)
-		account.balance = 0
+		account.balance = remaining
 		account.balanceKnown = true
 	}
 	for _, cert := range tx.Certificates() {
@@ -222,6 +234,19 @@ func (b *BlockLedgerState) delegateVote(cred Credential, drep Drep) {
 	account.drepSeq = b.seq
 }
 
+// drep returns the block's record for cred, creating one with no
+// deregistration. A DRep the block has not touched reports the wrapped
+// state's registration, so callers only reach this when setting one.
+func (b *BlockLedgerState) drep(cred Credential) *blockDRep {
+	key := blockCredKey(cred)
+	if drep, ok := b.dreps[key]; ok {
+		return drep
+	}
+	drep := &blockDRep{}
+	b.dreps[key] = drep
+	return drep
+}
+
 func (b *BlockLedgerState) applyCertificate(
 	cert Certificate,
 	pp ProtocolParameters,
@@ -266,12 +291,10 @@ func (b *BlockLedgerState) applyCertificate(
 		}
 	case *RegistrationDrepCertificate:
 		deposit := blockAmount(c.Amount)
-		b.dreps[blockCredKey(c.DrepCredential)] = &blockDRep{
-			registration: &DRepRegistration{
-				Credential: c.DrepCredential,
-				Anchor:     c.Anchor,
-				Deposit:    &deposit,
-			},
+		b.drep(c.DrepCredential).registration = &DRepRegistration{
+			Credential: c.DrepCredential,
+			Anchor:     c.Anchor,
+			Deposit:    &deposit,
 		}
 	case *UpdateDrepCertificate:
 		reg, err := b.DRepRegistration(c.DrepCredential)
@@ -283,15 +306,13 @@ func (b *BlockLedgerState) applyCertificate(
 		}
 		updated := *reg
 		updated.Anchor = c.Anchor
-		b.dreps[blockCredKey(c.DrepCredential)] = &blockDRep{
-			registration: &updated,
-		}
+		b.drep(c.DrepCredential).registration = &updated
 	case *DeregistrationDrepCertificate:
 		// The reference GOVCERT rule clears every delegation to a DRep
 		// when it deregisters; see DRepDelegation.
-		b.dreps[blockCredKey(c.DrepCredential)] = &blockDRep{
-			deregSeq: b.seq,
-		}
+		drep := b.drep(c.DrepCredential)
+		drep.registration = nil
+		drep.deregSeq = b.seq
 	case *AuthCommitteeHotCertificate:
 		hot := blockCredKey(c.HotCredential)
 		b.committeeColdHot[blockCredKey(c.ColdCredential)] = &hot
@@ -409,7 +430,7 @@ func (b *BlockLedgerState) RewardAccountBalance(
 		return b.base.RewardAccountBalance(cred)
 	}
 	if !account.registeredKnown {
-		// A withdrawal drained an account registered in the wrapped state.
+		// A withdrawal reduced an account registered in the wrapped state.
 		base, err := b.base.RewardAccountBalance(cred)
 		if err != nil || base == nil {
 			return base, err
@@ -723,8 +744,7 @@ func (s blockDRepDelegations) DRepDelegation(cred Credential) (*Drep, error) {
 		credType: uint(drep.Type), // #nosec G115 -- checked above
 		hash:     Blake2b224(drep.Credential),
 	}
-	if state, ok := s.block.dreps[key]; ok &&
-		state.registration == nil && state.deregSeq > madeAt {
+	if state, ok := s.block.dreps[key]; ok && state.deregSeq > madeAt {
 		return nil, nil
 	}
 	return drep, nil

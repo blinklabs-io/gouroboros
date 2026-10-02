@@ -212,7 +212,10 @@ func (o *conwayCertsOverlay) committeeCredentialState() (
 	bool,
 ) {
 	cs, ok := common.CommitteeCredentialStateFor(o.ls)
-	return cs, ok
+	if !ok {
+		return nil, false
+	}
+	return cs, true
 }
 
 // CommitteeStateAvailable reports whether committee state is available,
@@ -235,7 +238,10 @@ func (o *conwayCertsOverlay) committeeHotCredentialMembersState() (
 	bool,
 ) {
 	cs, ok := common.CommitteeHotCredentialMembersFor(o.ls)
-	return cs, ok
+	if !ok {
+		return nil, false
+	}
+	return cs, true
 }
 
 // CommitteeHotCredentialMembers resolves every cold credential currently

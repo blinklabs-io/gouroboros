@@ -332,3 +332,72 @@ func TestVerifyBlockTransactionsAppliesEarlierCertificatesAndWithdrawals(
 		})
 	}
 }
+
+// From Dijkstra a withdrawal may take part of the balance; the rest stays
+// available to a later transaction in the block.
+func TestVerifyBlockTransactionsKeepsBalanceAfterPartialWithdrawal(
+	t *testing.T,
+) {
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224(bytes.Repeat([]byte{0x11}, 28)),
+	}
+	rewardAddr, err := common.NewAddressFromParts(
+		common.AddressTypeNoneKey,
+		common.AddressNetworkTestnet,
+		nil,
+		stake.Credential.Bytes(),
+	)
+	require.NoError(t, err)
+	withdraw := func(id byte, amount uint64) common.Transaction {
+		tx := sequentialTestTx(
+			t,
+			id,
+			sequentialTestInput(t, id, 0),
+		).(*mockledger.MockTransaction)
+		return tx.WithWithdrawals(
+			map[*common.Address]uint64{&rewardAddr: amount},
+		)
+	}
+	pp := &conway.ConwayProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	// The Dijkstra amount rule resolves inputs to look for Plutus V1/V2
+	// scripts.
+	output, err := mockledger.NewSimpleTransactionOutput(
+		sequentialTestAddress,
+		5_000_000,
+	)
+	require.NoError(t, err)
+	var utxos []common.Utxo
+	for _, id := range []byte{0xd1, 0xd2} {
+		utxos = append(utxos, common.Utxo{
+			Id:     sequentialTestInput(t, id, 0),
+			Output: output,
+		})
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		WithRewardAccountCredentialBalance(stake, 1_000).
+		Build()
+	rules := []common.UtxoValidationRuleFunc{conway.UtxoValidateWithdrawals}
+
+	_, err = verifyBlockTransactions(
+		[]common.Transaction{withdraw(0xd1, 400), withdraw(0xd2, 600)},
+		0,
+		ls,
+		pp,
+		rules,
+	)
+	require.NoError(t, err)
+
+	idx, err := verifyBlockTransactions(
+		[]common.Transaction{withdraw(0xd1, 400), withdraw(0xd2, 601)},
+		0,
+		ls,
+		pp,
+		rules,
+	)
+	var amountErr shelley.IncorrectWithdrawalAmountError
+	require.ErrorAs(t, err, &amountErr)
+	require.Equal(t, 1, idx)
+}
