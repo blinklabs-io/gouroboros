@@ -34,9 +34,10 @@ var ErrUtxoSpentInBlock = errors.New(
 // folds them. It never writes to the wrapped state.
 //
 // ApplyTransaction folds one transaction's effects in: a phase-2-valid
-// transaction consumes its inputs, adds its outputs, applies its withdrawals
-// and certificates, and records its governance proposals; a phase-2-invalid
-// one consumes its collateral and adds its collateral return only.
+// transaction consumes its inputs, adds its outputs, applies its withdrawals,
+// certificates and direct deposits, and records its governance proposals,
+// level by level for a LeveledTransaction; a phase-2-invalid one consumes its
+// collateral and adds its collateral return only.
 //
 // Effects that do not take hold within a block are not modelled: genesis key
 // delegations wait for the stability window, pool re-registration parameters
@@ -58,6 +59,7 @@ type BlockLedgerState struct {
 	accounts         map[credOverlayKey]*blockAccount
 	pools            map[PoolKeyHash]*blockPool
 	vrfKeys          map[Blake2b256]PoolKeyHash
+	vrfReleased      map[Blake2b256]struct{}
 	dreps            map[credOverlayKey]*blockDRep
 	committeeColdHot map[credOverlayKey]*credOverlayKey
 	proposals        map[GovActionId]GovActionState
@@ -89,9 +91,16 @@ type blockAccount struct {
 	drepSeq         uint64
 }
 
+// blockPool is a pool as earlier transactions in the block left it,
+// mirroring the POOL rule's psStakePools, psFutureStakePoolParams and
+// psRetiring. A re-registration only sets future, so registration stays the
+// pool's current one until the epoch boundary.
 type blockPool struct {
-	registration    *PoolRegistrationCertificate
-	retirementEpoch *uint64
+	registration      *PoolRegistrationCertificate
+	registrationKnown bool
+	future            *PoolRegistrationCertificate
+	retirementEpoch   *uint64
+	retirementKnown   bool
 }
 
 // blockDRep is a DRep's registration as earlier transactions left it.
@@ -105,6 +114,29 @@ type blockDRep struct {
 
 var _ LedgerState = (*BlockLedgerState)(nil)
 
+// LedgerEffectLevel is one stage of a transaction's account and governance
+// effects. Id names the level's governance actions.
+type LedgerEffectLevel struct {
+	Id             Blake2b256
+	Body           TransactionBody
+	DirectDeposits []DirectDeposit
+}
+
+// DirectDeposit credits Amount to the reward account of Credential.
+type DirectDeposit struct {
+	Credential Credential
+	Amount     uint64
+}
+
+// LeveledTransaction is implemented by a transaction whose effects apply in
+// stages, in the order LedgerEffectLevels returns them: a Dijkstra
+// transaction applies each sub-transaction before its own body. A
+// transaction that does not implement it applies its body as one level with
+// no direct deposits.
+type LeveledTransaction interface {
+	LedgerEffectLevels() ([]LedgerEffectLevel, error)
+}
+
 // NewBlockLedgerState returns a view of base with no transactions applied.
 func NewBlockLedgerState(base LedgerState) *BlockLedgerState {
 	return &BlockLedgerState{
@@ -114,6 +146,7 @@ func NewBlockLedgerState(base LedgerState) *BlockLedgerState {
 		accounts:         make(map[credOverlayKey]*blockAccount),
 		pools:            make(map[PoolKeyHash]*blockPool),
 		vrfKeys:          make(map[Blake2b256]PoolKeyHash),
+		vrfReleased:      make(map[Blake2b256]struct{}),
 		dreps:            make(map[credOverlayKey]*blockDRep),
 		committeeColdHot: make(map[credOverlayKey]*credOverlayKey),
 		proposals:        make(map[GovActionId]GovActionState),
@@ -146,10 +179,30 @@ func (b *BlockLedgerState) ApplyTransaction(
 	if !tx.IsValid() {
 		return nil
 	}
-	// Withdrawals apply before certificates run, matching the Conway LEDGER
-	// rule; earlier eras allow no certificate that a same-transaction
-	// withdrawal could observe.
-	for addr, amount := range tx.Withdrawals() {
+	levels := []LedgerEffectLevel{{Id: tx.Hash(), Body: tx}}
+	if leveled, ok := tx.(LeveledTransaction); ok {
+		var err error
+		levels, err = leveled.LedgerEffectLevels()
+		if err != nil {
+			return err
+		}
+	}
+	for _, level := range levels {
+		if err := b.applyLevel(level, pp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// applyLevel applies one level's withdrawals, certificates and direct
+// deposits in that order, matching the Conway LEDGER rule and Dijkstra's
+// per-level account fold, then records its proposals.
+func (b *BlockLedgerState) applyLevel(
+	level LedgerEffectLevel,
+	pp ProtocolParameters,
+) error {
+	for addr, amount := range level.Body.Withdrawals() {
 		cred, err := addr.RewardAccountCredential()
 		if err != nil {
 			continue
@@ -169,12 +222,24 @@ func (b *BlockLedgerState) ApplyTransaction(
 		account.balance = remaining
 		account.balanceKnown = true
 	}
-	for _, cert := range tx.Certificates() {
+	for _, cert := range level.Body.Certificates() {
 		if err := b.applyCertificate(cert, pp); err != nil {
 			return err
 		}
 	}
-	for idx, proposal := range tx.ProposalProcedures() {
+	for _, deposit := range level.DirectDeposits {
+		balance, err := b.RewardAccountBalance(deposit.Credential)
+		if err != nil {
+			return err
+		}
+		if balance == nil {
+			continue
+		}
+		account := b.account(deposit.Credential)
+		account.balance = *balance + deposit.Amount
+		account.balanceKnown = true
+	}
+	for idx, proposal := range level.Body.ProposalProcedures() {
 		if idx > int(MaxGovActionIdx) {
 			break
 		}
@@ -184,7 +249,7 @@ func (b *BlockLedgerState) ApplyTransaction(
 			continue
 		}
 		id := GovActionId{
-			TransactionId: tx.Hash(),
+			TransactionId: level.Id,
 			GovActionIdx:  uint32(idx), // #nosec G115 -- bounded above
 		}
 		b.proposals[id] = GovActionState{
@@ -278,17 +343,14 @@ func (b *BlockLedgerState) applyCertificate(
 	case *StakeVoteDelegationCertificate:
 		b.delegateVote(c.StakeCredential, c.Drep)
 	case *PoolRegistrationCertificate:
-		b.applyPoolRegistration(c)
-	case *PoolRetirementCertificate:
-		reg, _, err := b.PoolCurrentState(c.PoolKeyHash)
-		if err != nil {
+		if err := b.applyPoolRegistration(c); err != nil {
 			return err
 		}
+	case *PoolRetirementCertificate:
 		epoch := c.Epoch
-		b.pools[c.PoolKeyHash] = &blockPool{
-			registration:    reg,
-			retirementEpoch: &epoch,
-		}
+		pool := b.pool(c.PoolKeyHash)
+		pool.retirementEpoch = &epoch
+		pool.retirementKnown = true
 	case *RegistrationDrepCertificate:
 		deposit := blockAmount(c.Amount)
 		b.drep(c.DrepCredential).registration = &DRepRegistration{
@@ -322,14 +384,46 @@ func (b *BlockLedgerState) applyCertificate(
 	return nil
 }
 
-// applyPoolRegistration records a registration. A re-registration replaces
-// the reported registration and cancels a pending retirement at once, as the
-// POOL rule does, though its parameters only take effect at the next epoch.
+func (b *BlockLedgerState) pool(operator PoolKeyHash) *blockPool {
+	if pool, ok := b.pools[operator]; ok {
+		return pool
+	}
+	pool := &blockPool{}
+	b.pools[operator] = pool
+	return pool
+}
+
+// applyPoolRegistration applies the POOL rule's RegPool branch. A new pool
+// becomes current at once. A re-registration only records future parameters
+// and cancels a pending retirement, and on the VRF key set it replaces the
+// key of an earlier re-registration in the block, as the reference does from
+// protocol version 11. A future key recorded before the block is not
+// visible here, so it stays claimed in the wrapped state.
 func (b *BlockLedgerState) applyPoolRegistration(
 	cert *PoolRegistrationCertificate,
-) {
-	b.pools[cert.Operator] = &blockPool{registration: cert}
+) error {
+	current, _, err := b.PoolCurrentState(cert.Operator)
+	if err != nil {
+		return err
+	}
+	pool := b.pool(cert.Operator)
+	if current == nil {
+		pool.registration = cert
+		pool.registrationKnown = true
+		pool.retirementEpoch = nil
+		pool.retirementKnown = true
+	} else {
+		if pool.future != nil && pool.future.VrfKeyHash != cert.VrfKeyHash {
+			delete(b.vrfKeys, pool.future.VrfKeyHash)
+			b.vrfReleased[pool.future.VrfKeyHash] = struct{}{}
+		}
+		pool.future = cert
+		pool.retirementEpoch = nil
+		pool.retirementKnown = true
+	}
 	b.vrfKeys[cert.VrfKeyHash] = cert.Operator
+	delete(b.vrfReleased, cert.VrfKeyHash)
+	return nil
 }
 
 func blockAmount(amount int64) uint64 {
@@ -440,34 +534,54 @@ func (b *BlockLedgerState) RewardAccountBalance(
 	return &balance, nil
 }
 
-// PoolCurrentState reports a registration or retirement an earlier
-// transaction made, and otherwise defers to the wrapped state.
+// PoolCurrentState reports the pool's current registration, which a
+// re-registration in the block does not replace, and its pending retirement
+// after earlier transactions.
 func (b *BlockLedgerState) PoolCurrentState(
 	pool PoolKeyHash,
 ) (*PoolRegistrationCertificate, *uint64, error) {
-	if state, ok := b.pools[pool]; ok {
-		return state.registration, state.retirementEpoch, nil
+	state, ok := b.pools[pool]
+	if !ok {
+		return b.base.PoolCurrentState(pool)
 	}
-	return b.base.PoolCurrentState(pool)
+	reg, retirement := state.registration, state.retirementEpoch
+	if !state.registrationKnown || !state.retirementKnown {
+		baseReg, baseRetirement, err := b.base.PoolCurrentState(pool)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !state.registrationKnown {
+			reg = baseReg
+		}
+		if !state.retirementKnown {
+			retirement = baseRetirement
+		}
+	}
+	return reg, retirement, nil
 }
 
 // IsPoolRegistered reports a pool an earlier transaction registered as
 // registered. Retirement takes effect at an epoch boundary, so it does not
 // unregister a pool within the block.
 func (b *BlockLedgerState) IsPoolRegistered(pool PoolKeyHash) bool {
-	if state, ok := b.pools[pool]; ok && state.registration != nil {
+	if state, ok := b.pools[pool]; ok && state.registrationKnown &&
+		state.registration != nil {
 		return true
 	}
 	return b.base.IsPoolRegistered(pool)
 }
 
 // IsVrfKeyInUse reports a VRF key an earlier transaction's pool registration
-// claimed, and otherwise defers to the wrapped state.
+// claimed, or a key a later re-registration released, and otherwise defers
+// to the wrapped state.
 func (b *BlockLedgerState) IsVrfKeyInUse(
 	vrfKeyHash Blake2b256,
 ) (bool, PoolKeyHash, error) {
 	if pool, ok := b.vrfKeys[vrfKeyHash]; ok {
 		return true, pool, nil
+	}
+	if _, ok := b.vrfReleased[vrfKeyHash]; ok {
+		return false, PoolKeyHash{}, nil
 	}
 	return b.base.IsVrfKeyInUse(vrfKeyHash)
 }

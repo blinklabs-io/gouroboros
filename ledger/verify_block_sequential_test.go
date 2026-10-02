@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -400,4 +401,180 @@ func TestVerifyBlockTransactionsKeepsBalanceAfterPartialWithdrawal(
 	var amountErr shelley.IncorrectWithdrawalAmountError
 	require.ErrorAs(t, err, &amountErr)
 	require.Equal(t, 1, idx)
+}
+
+// A re-registration only records future parameters, so the pool keeps its
+// current VRF key for the POOL rule's PV11 uniqueness check, and a later
+// re-registration releases the key the earlier one claimed.
+func TestVerifyBlockTransactionsKeepsCurrentPoolOnReregistration(
+	t *testing.T,
+) {
+	pool := common.PoolKeyHash(bytes.Repeat([]byte{0x31}, 28))
+	other := common.PoolKeyHash(bytes.Repeat([]byte{0x32}, 28))
+	vrf := func(b byte) common.VrfKeyHash {
+		return common.VrfKeyHash(bytes.Repeat([]byte{b}, 32))
+	}
+	register := func(id byte, operator common.PoolKeyHash, key byte) common.Transaction {
+		tx := sequentialTestTx(
+			t,
+			id,
+			sequentialTestInput(t, id, 0),
+		).(*mockledger.MockTransaction)
+		return tx.WithCertificates(&common.PoolRegistrationCertificate{
+			Operator:   operator,
+			VrfKeyHash: vrf(key),
+		})
+	}
+	current := &common.PoolRegistrationCertificate{
+		Operator:   pool,
+		VrfKeyHash: vrf(0x41),
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithPoolCurrentState(func(
+			operator common.PoolKeyHash,
+		) (*common.PoolRegistrationCertificate, *uint64, error) {
+			if operator == pool {
+				return current, nil, nil
+			}
+			return nil, nil, nil
+		}).
+		WithVrfKeyInUseFunc(func(
+			key common.Blake2b256,
+		) (bool, common.PoolKeyHash, error) {
+			if key == vrf(0x41) {
+				return true, pool, nil
+			}
+			return false, common.PoolKeyHash{}, nil
+		}).
+		Build()
+	pp := &conway.ConwayProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionVanRossem
+	rules := []common.UtxoValidationRuleFunc{
+		shelley.UtxoValidatePoolCertificates,
+	}
+
+	for _, test := range []struct {
+		name    string
+		txs     []common.Transaction
+		wantErr bool
+	}{
+		{
+			name: "re-registration can return to the current VRF key",
+			txs: []common.Transaction{
+				register(0xe1, pool, 0x42),
+				register(0xe2, pool, 0x41),
+			},
+		},
+		{
+			name: "a later re-registration releases the earlier key",
+			txs: []common.Transaction{
+				register(0xe1, pool, 0x42),
+				register(0xe2, pool, 0x43),
+				register(0xe3, other, 0x42),
+			},
+		},
+		{
+			name: "a re-registration's key is claimed",
+			txs: []common.Transaction{
+				register(0xe1, pool, 0x42),
+				register(0xe2, other, 0x42),
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			idx, err := verifyBlockTransactions(test.txs, 0, ls, pp, rules)
+			if !test.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			var vrfErr shelley.VrfKeyHashAlreadyRegisteredError
+			require.ErrorAs(t, err, &vrfErr)
+			require.Equal(t, 1, idx)
+		})
+	}
+}
+
+// A Dijkstra transaction's sub-transactions and direct deposits change
+// reward balances that later transactions in the block read.
+func TestVerifyBlockTransactionsAppliesDijkstraLevels(t *testing.T) {
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224(bytes.Repeat([]byte{0x11}, 28)),
+	}
+	rewardAddr, err := common.NewAddressFromParts(
+		common.AddressTypeNoneKey,
+		common.AddressNetworkTestnet,
+		nil,
+		stake.Credential.Bytes(),
+	)
+	require.NoError(t, err)
+	rewardAddrBytes, err := rewardAddr.Bytes()
+	require.NoError(t, err)
+	withdraw := func(id byte, amount uint64) common.Transaction {
+		tx := sequentialTestTx(
+			t,
+			id,
+			sequentialTestInput(t, id, 0),
+		).(*mockledger.MockTransaction)
+		return tx.WithWithdrawals(
+			map[*common.Address]uint64{&rewardAddr: amount},
+		)
+	}
+	output, err := mockledger.NewSimpleTransactionOutput(
+		sequentialTestAddress,
+		5_000_000,
+	)
+	require.NoError(t, err)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{{
+			Id:     sequentialTestInput(t, 0xf2, 0),
+			Output: output,
+		}}).
+		WithRewardAccountCredentialBalance(stake, 1_000).
+		Build()
+	pp := &conway.ConwayProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	rules := []common.UtxoValidationRuleFunc{conway.UtxoValidateWithdrawals}
+
+	subTxWithdrawal := &dijkstra.DijkstraTransaction{TxIsValid: true}
+	subTxWithdrawal.Body.TxSubTransactions = cbor.NewSetType(
+		[]dijkstra.DijkstraSubTransaction{{
+			Body: dijkstra.DijkstraSubTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{&rewardAddr: 1_000},
+			},
+		}},
+		true,
+	)
+	directDeposit := &dijkstra.DijkstraTransaction{TxIsValid: true}
+	directDeposit.Body.TxDirectDeposits = dijkstra.DijkstraDirectDeposits{
+		cbor.NewByteString(rewardAddrBytes): 500,
+	}
+
+	for _, test := range []struct {
+		name    string
+		txs     []common.Transaction
+		wantErr bool
+	}{
+		{
+			name:    "sub-transaction withdrawal drains the account",
+			txs:     []common.Transaction{subTxWithdrawal, withdraw(0xf2, 1_000)},
+			wantErr: true,
+		},
+		{
+			name: "direct deposit adds to the balance",
+			txs:  []common.Transaction{directDeposit, withdraw(0xf2, 1_500)},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			idx, err := verifyBlockTransactions(test.txs, 0, ls, pp, rules)
+			if !test.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			var amountErr shelley.IncorrectWithdrawalAmountError
+			require.ErrorAs(t, err, &amountErr)
+			require.Equal(t, 1, idx)
+		})
+	}
 }

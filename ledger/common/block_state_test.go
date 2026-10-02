@@ -18,8 +18,10 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
@@ -366,4 +368,45 @@ func TestBlockLedgerStateHelpersReportAbsentCapabilities(t *testing.T) {
 	require.False(t, ok)
 	_, ok = common.CommitteeVotingStateFor(state)
 	require.False(t, ok)
+}
+
+// A Dijkstra sub-transaction's certificates and proposals apply like the
+// top-level body's, its proposals named by the sub-transaction body.
+func TestBlockLedgerStateAppliesDijkstraSubTransactions(t *testing.T) {
+	cred := blockTestCredential(0x01)
+	state := common.NewBlockLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	tx := &dijkstra.DijkstraTransaction{TxIsValid: true}
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]dijkstra.DijkstraSubTransaction{{
+			Body: dijkstra.DijkstraSubTransactionBody{
+				TxCertificates: []common.CertificateWrapper{{
+					Type: uint(common.CertificateTypeRegistration),
+					Certificate: &common.RegistrationCertificate{
+						StakeCredential: cred,
+						Amount:          2_000_000,
+					},
+				}},
+				TxProposalProcedures: []dijkstra.DijkstraProposalProcedure{{
+					PPGovAction: dijkstra.DijkstraGovAction{
+						Action: &common.InfoGovAction{},
+					},
+				}},
+			},
+		}},
+		true,
+	)
+	// Give each body distinct stored bytes so their IDs differ.
+	tx.Body.TxSubTransactions.Items()[0].Body.SetCbor([]byte{0x01})
+	tx.Body.SetCbor([]byte{0x02})
+	applyBlockTestTxs(t, state, tx)
+	require.True(t, state.IsStakeCredentialRegistered(cred))
+	subTxId := tx.Body.TxSubTransactions.Items()[0].Body.Id()
+	require.True(t, state.GovActionExists(
+		common.GovActionId{TransactionId: subTxId},
+	))
+	require.False(t, state.GovActionExists(
+		common.GovActionId{TransactionId: tx.Hash()},
+	))
 }

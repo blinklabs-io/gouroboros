@@ -451,8 +451,11 @@ checks with chain-context consensus validation before accepting a block.
 transaction against it plus the effects of the transactions before it in the
 block, through `common.BlockLedgerState`: spent and created outputs (only
 collateral and collateral return for a phase-2-invalid transaction),
-withdrawals, stake, pool, DRep and committee certificates, vote delegations
-(cleared when their DRep deregisters), and governance proposals. It never
+withdrawals, direct deposits, stake, pool, DRep and committee certificates,
+vote delegations (cleared when their DRep deregisters), and governance
+proposals, applied for each Dijkstra sub-transaction before the top-level
+body. A pool re-registration records future parameters and leaves the
+current registration in place, as the POOL rule does. It never
 writes to the caller's state. Rules read the optional capabilities a
 transaction can change (stake deposits, DRep delegations, committee
 credentials) through `common.StakeCredentialDepositStateFor` and its siblings
