@@ -420,11 +420,18 @@ func TestMuxerSendReceive(t *testing.T) {
 		t.Fatal("failed to create test segment")
 	}
 
+	deliveryChan := make(chan error, 1)
+	segment.SetDeliveryChan(deliveryChan)
+
 	// Send the segment
 	sendChan <- segment
 
-	// Give some time for processing
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case err := <-deliveryChan:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for segment delivery")
+	}
 
 	// Check that data was written to the connection (thread-safe)
 	written := conn.ReadWritten()
@@ -836,9 +843,6 @@ func TestConcurrentAccess(t *testing.T) {
 	// Start the muxer
 	m.Start()
 
-	// Let the muxer start
-	time.Sleep(10 * time.Millisecond)
-
 	var wg sync.WaitGroup
 
 	// Start multiple goroutines sending messages
@@ -872,19 +876,20 @@ func TestConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	// Let goroutines run for a bit
-	time.Sleep(50 * time.Millisecond)
+	// Wait until some data has been written (basic concurrency test)
+	require.Eventually(
+		t,
+		func() bool { return conn.WrittenLen() > 0 },
+		5*time.Second,
+		time.Millisecond,
+		"expected some data to be written during concurrent access",
+	)
 
 	// Stop the muxer
 	m.Stop()
 
 	// Wait for all goroutines to finish
 	wg.Wait()
-
-	// Check that some data was written (basic concurrency test)
-	if conn.WrittenLen() == 0 {
-		t.Error("expected some data to be written during concurrent access")
-	}
 }
 
 // Helper functions
@@ -987,17 +992,11 @@ func TestUnregisterProtocolBehavior(t *testing.T) {
 	// Start the muxer
 	m.Start()
 
-	// Give time to start
-	time.Sleep(10 * time.Millisecond)
-
 	// Unregister the protocol - this should close the receive channel
 	m.UnregisterProtocol(0x01, muxer.ProtocolRoleInitiator)
 
 	// Stop the muxer
 	m.Stop()
-
-	// Give time for cleanup
-	time.Sleep(10 * time.Millisecond)
 }
 
 // TestMuxerSendAfterStop tests sending after muxer is stopped
