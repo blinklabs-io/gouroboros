@@ -230,8 +230,10 @@ This is not an exhaustive list of existing and planned features, but it covers t
 
 ## Examples
 
-The `examples/` directory contains self-contained example programs demonstrating how to use the library.
-Each example has its own Go module with a local `replace` back to this checkout:
+The `examples/` directory contains example programs demonstrating how to use
+the library. They share the root Go module, so dependency updates apply to the
+library and every example together. Root test and lint commands include the
+examples:
 
 | Example | Protocol | Description |
 |---------|----------|-------------|
