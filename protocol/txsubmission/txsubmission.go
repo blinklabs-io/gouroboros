@@ -41,7 +41,7 @@ var (
 var StateMap = protocol.StateMap{
 	stateInit: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		PendingMessageByteLimit: SmallMaxPendingMessageBytes,
 		Timeout:                 InitTimeout, // Timeout for client to send init message
 		Transitions: []protocol.StateTransition{
 			{
@@ -52,7 +52,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateIdle: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		PendingMessageByteLimit: SmallMaxPendingMessageBytes,
 		Timeout:                 IdleTimeout, // Timeout for server to send tx request when idle
 		Transitions: []protocol.StateTransition{
 			{
@@ -81,7 +81,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateTxIdsBlocking: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		PendingMessageByteLimit: LargeMaxPendingMessageBytes,
 		Timeout:                 TxIdsBlockingTimeout, // No timeout per spec: client blocks until tx available
 		Transitions: []protocol.StateTransition{
 			{
@@ -96,7 +96,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateTxIdsNonblocking: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		PendingMessageByteLimit: LargeMaxPendingMessageBytes,
 		Timeout:                 TxIdsNonblockingTimeout, // Timeout for client to reply with tx IDs (non-blocking)
 		Transitions: []protocol.StateTransition{
 			{
@@ -107,7 +107,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateTxs: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		PendingMessageByteLimit: LargeMaxPendingMessageBytes,
 		Timeout:                 TxsTimeout, // Timeout for client to reply with full transactions
 		Transitions: []protocol.StateTransition{
 			{
@@ -118,7 +118,7 @@ var StateMap = protocol.StateMap{
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyNone,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		PendingMessageByteLimit: SmallMaxPendingMessageBytes,
 	},
 }
 
@@ -154,8 +154,9 @@ const (
 	DefaultAckLimit = 1000
 )
 
-// Pending-message byte limits. Protocol.readLoop rejects an oversized single
-// message and applies inbound backpressure only while a state's
+// Pending-message byte limits, set per state as the reference implementation
+// does. Protocol.readLoop rejects an oversized single message and applies
+// inbound backpressure only while a state's
 // PendingMessageByteLimit is nonzero, and Protocol.SendMessage checks the
 // outbound queue against it on the same condition. TxSubmission is
 // node-to-node, so a zero limit leaves an untrusted peer unbounded on both
@@ -186,14 +187,24 @@ const (
 	// to the ledger decoder for one reply. It is separate from the retained
 	// message-byte limit, which includes CBOR framing and protects ingress.
 	MaxDecodedTxBytes = MaxUnackedTxIds * MaxTxSizeBytes
-	// MaxPendingMessageBytes bounds pending message bytes in every
-	// TxSubmission state: a full unacknowledged window of maximum-size
+	// MaxPendingMessageBytes is a full unacknowledged window of maximum-size
 	// transactions plus the tx-id reply that announced them, with the
-	// reference implementation's 10% safety margin. This is the value
-	// cardano-node enforces as its own tx-submission mux ingress limit, so a
-	// conforming peer never exceeds it.
+	// reference implementation's 10% safety margin. It is the protocol's mux
+	// ingress limit, matching maximumIngressQueue in the reference
+	// txSubmissionProtocolLimits, and the retained-byte budget of one reply.
+	// It is separate from the per-state message limits below, as the
+	// reference's ingress queue is separate from its codec byte limits.
 	MaxPendingMessageBytes = MaxUnackedTxIds *
 		(TxIdReplyEntryBytes + MaxTxSizeBytes) * 11 / 10
+	// SmallMaxPendingMessageBytes is the pending-message limit of the Init,
+	// Idle and Done states, whose messages are a few bytes. It matches
+	// smallByteLimit in byteLimitsTxSubmission2 (ouroboros-network,
+	// Ouroboros.Network.Protocol.TxSubmission2.Codec).
+	SmallMaxPendingMessageBytes = 65535
+	// LargeMaxPendingMessageBytes is the pending-message limit of the
+	// TxIdsBlocking, TxIdsNonblocking and Txs states, which carry replies.
+	// It matches largeByteLimit in the same reference table.
+	LargeMaxPendingMessageBytes = 2500000
 )
 
 // Protocol state timeout constants per Ouroboros Network Specification (Table 3.11).

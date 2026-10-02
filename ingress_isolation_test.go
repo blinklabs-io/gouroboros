@@ -444,6 +444,12 @@ func TestNodeToNodeIngressLimits(t *testing.T) {
 			"tx-submission client", client.conn, txsubmission.ProtocolId,
 			muxer.ProtocolRoleInitiator, txsubmission.MaxPendingMessageBytes,
 		},
+		// The per-state message limits reach LargeMaxPendingMessageBytes,
+		// but the reference ingress queue is the unacknowledged window.
+		{
+			"tx-submission server", peer.conn, txsubmission.ProtocolId,
+			muxer.ProtocolRoleResponder, txsubmission.MaxPendingMessageBytes,
+		},
 		// keep-alive declares no per-state limit, so it gets the largest
 		// message it would reassemble.
 		{
