@@ -3222,8 +3222,12 @@ func UtxoValidatePlutusScripts(
 
 	// Build TxInfo lazily based on script version
 	var txInfoV1 script.TxInfoV1
+	// Cached so each redeemer reuses one PlutusData conversion of the TxInfo.
+	var txInfoV1Cached *script.CachedTxInfo
 	var txInfoV2 script.TxInfoV2
+	var txInfoV2Cached *script.CachedTxInfo
 	var txInfoV3 script.TxInfoV3
+	var txInfoV3Cached *script.CachedTxInfo
 	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
 
 	// Collect all available scripts (witness scripts + reference scripts)
@@ -3348,6 +3352,7 @@ func UtxoValidatePlutusScripts(
 					return ScriptContextConstructionError{Err: err}
 				}
 				txInfoV3Built = true
+				txInfoV3Cached = script.NewCachedTxInfo(txInfoV3)
 			}
 			// Build V3 context
 			redeemer := script.Redeemer{
@@ -3356,7 +3361,7 @@ func UtxoValidatePlutusScripts(
 				Data:    data.Normalize(redeemerValue.Data.Data),
 				ExUnits: redeemerValue.ExUnits,
 			}
-			ctx := script.NewScriptContextV3(txInfoV3, redeemer, purpose)
+			ctx := script.NewScriptContextV3(txInfoV3Cached, redeemer, purpose)
 			ctxData := ctx.ToPlutusData()
 			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV3,
@@ -3387,9 +3392,10 @@ func UtxoValidatePlutusScripts(
 					return ScriptContextConstructionError{Err: err}
 				}
 				txInfoV2Built = true
+				txInfoV2Cached = script.NewCachedTxInfo(txInfoV2)
 			}
 			// Build V1V2 context
-			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
+			ctx := script.NewScriptContextV1V2(txInfoV2Cached, purpose)
 			ctxData := ctx.ToPlutusData()
 			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV2,
@@ -3420,9 +3426,10 @@ func UtxoValidatePlutusScripts(
 					return ScriptContextConstructionError{Err: err}
 				}
 				txInfoV1Built = true
+				txInfoV1Cached = script.NewCachedTxInfo(txInfoV1)
 			}
 			// Build V1V2 context
-			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
+			ctx := script.NewScriptContextV1V2(txInfoV1Cached, purpose)
 			ctxData := ctx.ToPlutusData()
 			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV1,
