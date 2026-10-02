@@ -987,10 +987,13 @@ type scriptRequirement struct {
 }
 
 type transactionScriptRequirements struct {
-	required    map[ScriptHash]struct{}
-	purposes    []scriptRequirement
-	explicit    map[ScriptHash]Script
-	available   map[ScriptHash]Script
+	required  map[ScriptHash]struct{}
+	purposes  []scriptRequirement
+	explicit  map[ScriptHash]Script
+	available map[ScriptHash]Script
+	// reference holds the hashes of scripts supplied by a reference script on
+	// a spent or reference input.
+	reference   map[ScriptHash]struct{}
 	nativeOrder []ScriptHash
 }
 
@@ -1097,6 +1100,7 @@ func collectTransactionScriptRequirements(
 		required:  make(map[ScriptHash]struct{}),
 		explicit:  make(map[ScriptHash]Script),
 		available: make(map[ScriptHash]Script),
+		reference: make(map[ScriptHash]struct{}),
 	}
 	addRequirement := func(hash ScriptHash, tag RedeemerTag, index int) {
 		ret.required[hash] = struct{}{}
@@ -1165,13 +1169,14 @@ func collectTransactionScriptRequirements(
 			}
 			resolvedInputs[input.String()] = utxo
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
-				_, err := addAvailableScript(
+				hash, err := addAvailableScript(
 					ret.available,
 					utxo.Output.ScriptRef(),
 				)
 				if err != nil {
 					return ret, err
 				}
+				ret.reference[hash] = struct{}{}
 			}
 		}
 		for _, input := range tx.ReferenceInputs() {
@@ -1180,13 +1185,14 @@ func collectTransactionScriptRequirements(
 				return ret, ReferenceInputResolutionError{Input: input, Err: err}
 			}
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
-				_, err := addAvailableScript(
+				hash, err := addAvailableScript(
 					ret.available,
 					utxo.Output.ScriptRef(),
 				)
 				if err != nil {
 					return ret, err
 				}
+				ret.reference[hash] = struct{}{}
 			}
 		}
 	}
@@ -1417,8 +1423,13 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 	for provided := range requirements.explicit {
-		if _, ok := requirements.required[provided]; !ok {
-			// A witness-set script with no script purpose is extraneous. See
+		_, needed := requirements.required[provided]
+		_, byReference := requirements.reference[provided]
+		if !needed || byReference {
+			// A witness-set script with no script purpose is extraneous, as
+			// is one a reference script already supplies: the reference
+			// removes those from the needed set before comparing (extra =
+			// sReceived minus (sNeeded minus sRefs)). See
 			// validateMissingScripts in
 			// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Utxow.hs and
 			// babbageMissingScripts in
