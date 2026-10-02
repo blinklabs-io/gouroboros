@@ -286,15 +286,7 @@ func ratToUtxorpcRationalNumber(r cbor.Rat) (*utxorpc.RationalNumber, error) {
 	if r.Rat == nil {
 		return nil, nil
 	}
-	if ratOutOfRange(r.Rat) {
-		return nil, errors.New("invalid rational number values")
-	}
-	return &utxorpc.RationalNumber{
-		// #nosec G115
-		Numerator: int32(r.Num().Int64()),
-		// #nosec G115
-		Denominator: uint32(r.Denom().Int64()),
-	}, nil
+	return common.ToUtxorpcRationalNumber(r.Rat)
 }
 
 // ratPtrToUtxorpcRationalNumber is the nil-safe pointer variant of

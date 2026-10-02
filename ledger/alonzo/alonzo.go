@@ -1196,7 +1196,7 @@ func (t *AlonzoTransaction) Cbor() []byte {
 }
 
 func (t *AlonzoTransaction) Utxorpc() (*utxorpc.Tx, error) {
-	tx, err := t.Body.Utxorpc()
+	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Alonzo transaction: %w", err)
 	}
