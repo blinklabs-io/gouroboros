@@ -15,6 +15,7 @@
 package babbage
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -33,6 +34,74 @@ func TestDatumOptionAcceptsListLengthEncodings(t *testing.T) {
 			require.NoError(t, decoded.UnmarshalCBOR(encoding.Data))
 			require.NotNil(t, decoded.hash)
 			require.Equal(t, hash, *decoded.hash)
+		})
+	}
+}
+
+func TestDatumOptionRoundTripPreservesBytes(t *testing.T) {
+	t.Parallel()
+	hash := common.Blake2b256{1, 2, 3}
+	hashCbor, err := cbor.Encode([]any{DatumOptionTypeHash, hash})
+	require.NoError(t, err)
+	inlineCbor := func(datumHex string) []byte {
+		inner, err := hex.DecodeString(datumHex)
+		require.NoError(t, err)
+		ret, err := cbor.Encode(
+			[]any{DatumOptionTypeData, cbor.Tag{Number: 24, Content: inner}},
+		)
+		require.NoError(t, err)
+		return ret
+	}
+	tests := []struct {
+		name     string
+		input    []byte
+		wantHash bool
+	}{
+		{"hash", hashCbor, true},
+		// 121([42]) with the indefinite-length field list Plutus emits
+		{"inline", inlineCbor("d8799f182aff"), false},
+		// 121([42]) with 42 in a non-shortest uint16 head, which re-encoding
+		// the decoded Plutus data would not reproduce
+		{"inline non-shortest datum", inlineCbor("d8798119002a"), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var decoded BabbageTransactionOutputDatumOption
+			require.NoError(t, decoded.UnmarshalCBOR(tc.input))
+			require.Equal(t, tc.wantHash, decoded.hash != nil)
+			require.Equal(t, !tc.wantHash, decoded.data != nil)
+			out, err := decoded.MarshalCBOR()
+			require.NoError(t, err)
+			require.Equal(t, tc.input, out)
+		})
+	}
+}
+
+func TestDatumOptionVariantAccessors(t *testing.T) {
+	t.Parallel()
+	hash := common.Blake2b256{1, 2, 3}
+	tests := []struct {
+		name       string
+		option     *BabbageTransactionOutputDatumOption
+		wantHash   bool
+		wantInline bool
+	}{
+		{"hash", &BabbageTransactionOutputDatumOption{hash: &hash}, true, false},
+		{
+			"inline",
+			&BabbageTransactionOutputDatumOption{data: &common.Datum{}},
+			false,
+			true,
+		},
+		{"empty", &BabbageTransactionOutputDatumOption{}, false, false},
+		{"nil", nil, false, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.wantHash, tc.option.IsDatumHash())
+			require.Equal(t, tc.wantInline, tc.option.IsInlineDatum())
 		})
 	}
 }
