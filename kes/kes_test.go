@@ -497,9 +497,17 @@ func TestNewSumKesFromBytesDepthBounds(t *testing.T) {
 	for _, depth := range wrapDepths {
 		t.Run(fmt.Sprintf("wrap_%d", depth), func(t *testing.T) {
 			t.Parallel()
-			for _, size := range []int{64, 128, 192} {
-				_, err := NewSumKesFromBytes(depth, make([]byte, size))
-				require.Error(t, err, "depth %d size %d accepted", depth, size)
+			for _, size := range []int{0, 64, 128, 192} {
+				require.NotPanics(t, func() {
+					_, err := NewSumKesFromBytes(depth, make([]byte, size))
+					require.Error(
+						t,
+						err,
+						"depth %d size %d accepted",
+						depth,
+						size,
+					)
+				})
 			}
 		})
 	}
@@ -531,7 +539,12 @@ func TestNewSumKesFromBytesDepthBounds(t *testing.T) {
 func TestKeyGenRejectsDepthAboveMax(t *testing.T) {
 	t.Parallel()
 	seed := make([]byte, SeedSize)
-	for _, depth := range []uint64{MaxDepth + 1, 1 << 60, math.MaxUint64} {
+	for _, depth := range []uint64{
+		MaxKeyGenDepth + 1,
+		MaxDepth + 1,
+		1 << 60,
+		math.MaxUint64,
+	} {
 		require.NotPanics(t, func() {
 			_, _, err := KeyGen(depth, seed)
 			require.Error(t, err, "depth %d accepted", depth)

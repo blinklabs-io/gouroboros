@@ -35,6 +35,9 @@ func writeLimitsSegments(t *testing.T, conn net.Conn, payload []byte) {
 	for len(payload) > 0 {
 		n := min(len(payload), segmentMax)
 		segment := muxer.NewSegment(ProtocolId, payload[:n], false)
+		if segment == nil {
+			t.Fatal("failed to construct muxer segment")
+		}
 		buf := &bytes.Buffer{}
 		require.NoError(
 			t,

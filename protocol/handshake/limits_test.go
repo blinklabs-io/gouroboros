@@ -17,6 +17,7 @@ package handshake
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
 	"net"
 	"strconv"
 	"testing"
@@ -29,15 +30,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const limitsTestVersion uint16 = 13
+
+func limitsTestVersionData() protocol.VersionDataNtN13andUp {
+	return protocol.VersionDataNtN13andUp{
+		VersionDataNtN11to12: protocol.VersionDataNtN11to12{
+			CborNetworkMagic: 42,
+		},
+	}
+}
+
 // proposeWithVersions encodes a ProposeVersions message carrying count
-// version entries with empty version data. Version numbers are distinct, so
-// the map decodes to count entries.
+// version entries, including one supported version. Version numbers are
+// distinct, so the map decodes to count entries.
 func proposeWithVersions(t *testing.T, count int) []byte {
 	t.Helper()
 	versions := make(map[uint16]cbor.RawMessage, count)
 	for i := range count {
 		versions[uint16(i)] = cbor.RawMessage{0x80} // #nosec G115
 	}
+	versionData, err := cbor.Encode(limitsTestVersionData())
+	require.NoError(t, err)
+	versions[limitsTestVersion] = versionData
 	data, err := cbor.Encode(&MsgProposeVersions{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeProposeVersions,
@@ -48,14 +62,19 @@ func proposeWithVersions(t *testing.T, count int) []byte {
 	return data
 }
 
-func newLimitsServer(t *testing.T) (net.Conn, chan error) {
+func newLimitsServer(t *testing.T) (net.Conn, chan error, chan struct{}) {
 	t.Helper()
 	connA, connB := net.Pipe()
 	m := muxer.New(connA)
 	errs := make(chan error, 1)
+	finished := make(chan struct{}, 1)
 	cfg := NewConfig(
+		WithProtocolVersionMap(protocol.ProtocolVersionMap{
+			limitsTestVersion: limitsTestVersionData(),
+		}),
 		WithFinishedFunc(
 			func(CallbackContext, uint16, protocol.VersionData) error {
+				finished <- struct{}{}
 				return nil
 			},
 		),
@@ -80,12 +99,15 @@ func newLimitsServer(t *testing.T) (net.Conn, chan error) {
 		_ = connA.Close()
 		_ = connB.Close()
 	})
-	return connB, errs
+	return connB, errs, finished
 }
 
 func writeSegment(t *testing.T, conn net.Conn, payload []byte) {
 	t.Helper()
 	segment := muxer.NewSegment(ProtocolId, payload, false)
+	if segment == nil {
+		t.Fatal("failed to construct muxer segment")
+	}
 	buf := &bytes.Buffer{}
 	require.NoError(
 		t,
@@ -97,13 +119,23 @@ func writeSegment(t *testing.T, conn net.Conn, payload []byte) {
 	require.NoError(t, err)
 }
 
+func readSegment(t *testing.T, conn net.Conn) {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	var header muxer.SegmentHeader
+	require.NoError(t, binary.Read(conn, binary.BigEndian, &header))
+	payload := make([]byte, int(header.PayloadLength))
+	_, err := io.ReadFull(conn, payload)
+	require.NoError(t, err)
+}
+
 // TestServerRefusesOversizedPropose proves a ProposeVersions message larger
 // than MaxPendingMessageBytes is refused before it is decoded: a peer that has
 // not yet completed the handshake cannot make the server buffer and decode a
 // message the size of the read-buffer cap.
 func TestServerRefusesOversizedPropose(t *testing.T) {
 	t.Parallel()
-	conn, errs := newLimitsServer(t)
+	conn, errs, _ := newLimitsServer(t)
 
 	data := proposeWithVersions(t, 4000)
 	require.Greater(t, len(data), MaxPendingMessageBytes)
@@ -124,16 +156,17 @@ func TestServerRefusesOversizedPropose(t *testing.T) {
 // the same message shape within MaxPendingMessageBytes reaches the handler.
 func TestServerAcceptsProposeWithinLimit(t *testing.T) {
 	t.Parallel()
-	conn, errs := newLimitsServer(t)
+	conn, _, finished := newLimitsServer(t)
 
 	data := proposeWithVersions(t, 1000)
 	require.LessOrEqual(t, len(data), MaxPendingMessageBytes)
 	writeSegment(t, conn, data)
+	readSegment(t, conn)
 
 	select {
-	case err := <-errs:
-		require.NotContains(t, err.Error(), "oversized")
+	case <-finished:
 	case <-time.After(500 * time.Millisecond):
+		t.Fatal("in-limit ProposeVersions did not reach FinishedFunc")
 	}
 }
 
