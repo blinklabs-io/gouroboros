@@ -43,20 +43,26 @@ func TestDatumOptionRoundTripPreservesBytes(t *testing.T) {
 	hash := common.Blake2b256{1, 2, 3}
 	hashCbor, err := cbor.Encode([]any{DatumOptionTypeHash, hash})
 	require.NoError(t, err)
-	// Inline datum: [1, #6.24(bytes .cbor 121([42]))]
-	inner, err := hex.DecodeString("d8799f182aff")
-	require.NoError(t, err)
-	inlineCbor, err := cbor.Encode(
-		[]any{DatumOptionTypeData, cbor.Tag{Number: 24, Content: inner}},
-	)
-	require.NoError(t, err)
+	inlineCbor := func(datumHex string) []byte {
+		inner, err := hex.DecodeString(datumHex)
+		require.NoError(t, err)
+		ret, err := cbor.Encode(
+			[]any{DatumOptionTypeData, cbor.Tag{Number: 24, Content: inner}},
+		)
+		require.NoError(t, err)
+		return ret
+	}
 	tests := []struct {
 		name     string
 		input    []byte
 		wantHash bool
 	}{
 		{"hash", hashCbor, true},
-		{"inline", inlineCbor, false},
+		// 121([42]) with the indefinite-length field list Plutus emits
+		{"inline", inlineCbor("d8799f182aff"), false},
+		// 121([42]) with 42 in a non-shortest uint16 head, which re-encoding
+		// the decoded Plutus data would not reproduce
+		{"inline non-shortest datum", inlineCbor("d8798119002a"), false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

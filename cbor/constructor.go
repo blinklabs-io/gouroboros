@@ -88,7 +88,7 @@ func (ce ConstructorEncoder) MarshalCBOR() ([]byte, error) {
 // [1, #6.24(data)], and must keep decoding with DecodeIdFromList.
 //
 // Embed ConstructorDecoder in a type that decodes a Plutus Data constructor
-// and call Tag and Fields to decode the fields into typed values:
+// and call Tag and DecodeFields to decode the fields into typed values:
 //
 //	type MyConstr struct {
 //	    cbor.ConstructorDecoder
