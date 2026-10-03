@@ -130,10 +130,20 @@ type TxSubmission struct {
 
 // Config is used to configure the TxSubmission protocol instance
 type Config struct {
+	// RequestTxIdsFunc supplies the client's next transaction IDs.
 	RequestTxIdsFunc RequestTxIdsFunc
-	RequestTxsFunc   RequestTxsFunc
-	InitFunc         InitFunc
-	DoneFunc         DoneFunc
+	// RequestTxsFunc supplies the client's transaction bodies.
+	RequestTxsFunc RequestTxsFunc
+	// Deprecated: use OnInit for notifications.
+	InitFunc InitFunc
+	// Deprecated: use OnDone for notifications.
+	DoneFunc DoneFunc
+	// OnInit is an optional notification called on the server when the
+	// client sends Init.
+	OnInit func(connection.ConnectionId)
+	// OnDone is an optional notification called on the server when the
+	// client ends the session with Done.
+	OnDone func(connection.ConnectionId)
 }
 
 // Wire ranges of the MsgRequestTxIds count fields. They are the ranges of the
@@ -228,8 +238,14 @@ type CallbackContext struct {
 type (
 	RequestTxIdsFunc func(CallbackContext, bool, uint16, uint16) ([]TxIdAndSize, error)
 	RequestTxsFunc   func(CallbackContext, []TxId) ([]TxBody, error)
-	InitFunc         func(CallbackContext) error
-	DoneFunc         func(CallbackContext) error
+	// InitFunc is the legacy Init callback.
+	//
+	// Deprecated: use OnInit.
+	InitFunc func(CallbackContext) error
+	// DoneFunc is the legacy Done callback.
+	//
+	// Deprecated: use OnDone.
+	DoneFunc func(CallbackContext) error
 )
 
 // New returns a new TxSubmission object
@@ -271,6 +287,8 @@ func WithRequestTxsFunc(requestTxsFunc RequestTxsFunc) TxSubmissionOptionFunc {
 }
 
 // WithInitFunc specifies the Init callback function
+//
+// Deprecated: use WithOnInit.
 func WithInitFunc(initFunc InitFunc) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.InitFunc = initFunc
@@ -278,8 +296,26 @@ func WithInitFunc(initFunc InitFunc) TxSubmissionOptionFunc {
 }
 
 // WithDoneFunc specifies the Done callback function
+//
+// Deprecated: use WithOnDone.
 func WithDoneFunc(doneFunc DoneFunc) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.DoneFunc = doneFunc
+	}
+}
+
+// WithOnInit sets an optional notification called on the server when the
+// client sends Init.
+func WithOnInit(callback func(connection.ConnectionId)) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.OnInit = callback
+	}
+}
+
+// WithOnDone sets an optional notification called on the server when the
+// client ends the session with Done.
+func WithOnDone(callback func(connection.ConnectionId)) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.OnDone = callback
 	}
 }
