@@ -54,8 +54,8 @@ const (
 	CardanoKesSecretKeySize = 608
 
 	// MaxDepth is the largest KES tree depth accepted when decoding a
-	// signature. Verify computes 2^depth periods in a uint64, so deeper
-	// trees cannot be represented.
+	// signature or generating a key. Verify and Sign compute 2^depth periods
+	// in a uint64, so deeper trees cannot be represented.
 	MaxDepth = 63
 
 	// SeedSize is the size of a KES seed

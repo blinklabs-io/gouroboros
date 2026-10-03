@@ -527,3 +527,14 @@ func TestNewSumKesFromBytesDepthBounds(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestKeyGenRejectsDepthAboveMax(t *testing.T) {
+	t.Parallel()
+	seed := make([]byte, SeedSize)
+	for _, depth := range []uint64{MaxDepth + 1, 1 << 60, math.MaxUint64} {
+		require.NotPanics(t, func() {
+			_, _, err := KeyGen(depth, seed)
+			require.Error(t, err, "depth %d accepted", depth)
+		})
+	}
+}
