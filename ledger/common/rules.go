@@ -139,6 +139,9 @@ type cachedLedgerState struct {
 	LedgerState
 	mu      sync.Mutex
 	lookups map[utxoCacheKey]cachedUtxoLookup
+	// signatures is the caller's pre-verified witness signature result, read
+	// by UtxoValidateSignatures. It is nil for plain VerifyTransaction calls.
+	signatures *PreverifiedSignatures
 }
 
 // LedgerStateUnwrapper exposes the provider beneath a validation-time
@@ -355,12 +358,37 @@ func VerifyTransaction(
 	protocolParams ProtocolParameters,
 	validationRules []UtxoValidationRuleFunc,
 ) error {
+	return VerifyTransactionWithSignatures(
+		tx,
+		slot,
+		ledgerState,
+		protocolParams,
+		validationRules,
+		nil,
+	)
+}
+
+// VerifyTransactionWithSignatures behaves like VerifyTransaction but lets
+// UtxoValidateSignatures reuse a PreverifySignatures result for tx instead of
+// verifying the vkey and bootstrap signatures again. Witness presence and
+// every other rule still run against ledgerState. A nil result, a result for a
+// different transaction, or a nil ledgerState leaves signatures to be verified
+// inline.
+func VerifyTransactionWithSignatures(
+	tx Transaction,
+	slot uint64,
+	ledgerState LedgerState,
+	protocolParams ProtocolParameters,
+	validationRules []UtxoValidationRuleFunc,
+	signatures *PreverifiedSignatures,
+) error {
 	if ledgerState != nil &&
 		(reflect.ValueOf(ledgerState).Kind() != reflect.Pointer ||
 			!reflect.ValueOf(ledgerState).IsNil()) {
 		ledgerState = &cachedLedgerState{
 			LedgerState: ledgerState,
 			lookups:     make(map[utxoCacheKey]cachedUtxoLookup),
+			signatures:  signatures,
 		}
 	}
 	for i, rule := range validationRules {

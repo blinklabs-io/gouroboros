@@ -259,8 +259,35 @@ func ValidateBootstrapWitnesses(tx Transaction) error {
 	return nil
 }
 
+// PreverifiedSignatures is the outcome of verifying one transaction's vkey and
+// bootstrap witness signatures ahead of validation. It is bound to the
+// transaction it was computed from by the signed hash: validation ignores a
+// result produced for another transaction and verifies inline instead.
+type PreverifiedSignatures struct {
+	witnessHash Blake2b256
+	err         error
+}
+
+// PreverifySignatures verifies the vkey and bootstrap witness signatures of tx
+// without consulting ledger state, in the order UtxoValidateSignatures checks
+// them. It is safe to call concurrently for different transactions. Pass the
+// result to VerifyTransactionWithSignatures for the same transaction value;
+// the recorded failure, if any, is returned from validation unchanged.
+func PreverifySignatures(tx Transaction) *PreverifiedSignatures {
+	err := ValidateVKeyWitnesses(tx)
+	if err == nil {
+		err = ValidateBootstrapWitnesses(tx)
+	}
+	return &PreverifiedSignatures{
+		witnessHash: transactionWitnessHash(tx),
+		err:         err,
+	}
+}
+
 // UtxoValidateSignatures verifies vkey and bootstrap signatures present in the transaction.
 // Parameters slot and pp are unused but included for interface compatibility with UtxoValidationRuleFunc.
+// When ls carries a PreverifiedSignatures result for tx (see
+// VerifyTransactionWithSignatures), the signature checks are not repeated.
 // Note: ValidateVKeyWitnesses must be called before ValidateInputVKeyWitnesses since the latter
 // only checks witness presence (not cryptographic validity) and relies on the former for validation.
 func UtxoValidateSignatures(
@@ -269,11 +296,19 @@ func UtxoValidateSignatures(
 	ls LedgerState,
 	pp ProtocolParameters,
 ) error {
-	if err := ValidateVKeyWitnesses(tx); err != nil {
-		return err
-	}
-	if err := ValidateBootstrapWitnesses(tx); err != nil {
-		return err
+	if cached, ok := ls.(*cachedLedgerState); ok &&
+		cached.signatures != nil &&
+		cached.signatures.witnessHash == transactionWitnessHash(tx) {
+		if cached.signatures.err != nil {
+			return cached.signatures.err
+		}
+	} else {
+		if err := ValidateVKeyWitnesses(tx); err != nil {
+			return err
+		}
+		if err := ValidateBootstrapWitnesses(tx); err != nil {
+			return err
+		}
 	}
 	if err := ValidateInputVKeyWitnesses(tx, ls); err != nil {
 		return err
