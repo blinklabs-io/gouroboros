@@ -165,7 +165,8 @@ func TestMIRRewardEncodingPreservesReferenceWire(t *testing.T) {
 			var wrapper common.CertificateWrapper
 			_, err = cbor.Decode(outerExpected, &wrapper)
 			require.NoError(t, err)
-			decodedCert, ok := wrapper.Certificate.(*common.MoveInstantaneousRewardsCertificate)
+			decodedValue := wrapper.Certificate
+			decodedCert, ok := decodedValue.(*common.MoveInstantaneousRewardsCertificate)
 			require.True(t, ok)
 			require.Equal(t, uint(6), wrapper.Type)
 			require.Equal(t, uint(6), decodedCert.Type())
@@ -255,7 +256,13 @@ func TestMIRRewardDecodeReplacesTarget(t *testing.T) {
 		coin                uint64
 	}{
 		{"coin to map", "8201184d", "8200a0", true, 0},
-		{"map to coin", "8200a18200581c" + strings.Repeat("ab", 28) + "184d", "820100", false, 0},
+		{
+			"map to coin",
+			"8200a18200581c" + strings.Repeat("ab", 28) + "184d",
+			"820100",
+			false,
+			0,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var reward common.MoveInstantaneousRewardsCertificateReward
@@ -303,8 +310,24 @@ func TestMIRCertificateEncodingServesShelleyTransaction(t *testing.T) {
 		reward common.MoveInstantaneousRewardsCertificateReward
 		wire   string
 	}{
-		{"coin", common.MoveInstantaneousRewardsCertificateReward{Source: 1, OtherPot: 77}, "82068201184d"},
-		{"rewards", common.MoveInstantaneousRewardsCertificateReward{Source: 0, Rewards: map[*common.Credential]*big.Int{credential: big.NewInt(77)}}, "82068200a18200581c" + strings.Repeat("ab", 28) + "184d"},
+		{
+			"coin",
+			common.MoveInstantaneousRewardsCertificateReward{
+				Source:   1,
+				OtherPot: 77,
+			},
+			"82068201184d",
+		},
+		{
+			"rewards",
+			common.MoveInstantaneousRewardsCertificateReward{
+				Source: 0,
+				Rewards: map[*common.Credential]*big.Int{
+					credential: big.NewInt(77),
+				},
+			},
+			"82068200a18200581c" + strings.Repeat("ab", 28) + "184d",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cert := &common.MoveInstantaneousRewardsCertificate{
@@ -336,7 +359,8 @@ func TestMIRCertificateEncodingServesShelleyTransaction(t *testing.T) {
 			decoded, err := shelley.NewShelleyTransactionFromCbor(encoded)
 			require.NoError(t, err)
 			require.Len(t, decoded.Certificates(), 1)
-			decodedCert, ok := decoded.Certificates()[0].(*common.MoveInstantaneousRewardsCertificate)
+			decodedValue := decoded.Certificates()[0]
+			decodedCert, ok := decodedValue.(*common.MoveInstantaneousRewardsCertificate)
 			require.True(t, ok)
 			require.Equal(t, test.reward.Source, decodedCert.Reward.Source)
 			require.Equal(t, test.reward.OtherPot, decodedCert.Reward.OtherPot)
