@@ -311,4 +311,5 @@ by the owning protocol implementation. This document intentionally does not
 claim limits for protocols or states whose current map contains no such entry.
 
 The repository's `build-examples` workflow runs `make build` on pull requests;
-that target builds every module under `examples/` against the public API.
+that target builds every program under `examples/` against the public API
+using the root module's dependencies.
