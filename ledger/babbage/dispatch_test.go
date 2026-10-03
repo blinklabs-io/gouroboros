@@ -15,6 +15,7 @@
 package babbage
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -33,6 +34,40 @@ func TestDatumOptionAcceptsListLengthEncodings(t *testing.T) {
 			require.NoError(t, decoded.UnmarshalCBOR(encoding.Data))
 			require.NotNil(t, decoded.hash)
 			require.Equal(t, hash, *decoded.hash)
+		})
+	}
+}
+
+func TestDatumOptionRoundTripPreservesBytes(t *testing.T) {
+	t.Parallel()
+	hash := common.Blake2b256{1, 2, 3}
+	hashCbor, err := cbor.Encode([]any{DatumOptionTypeHash, hash})
+	require.NoError(t, err)
+	// Inline datum: [1, #6.24(bytes .cbor 121([42]))]
+	inner, err := hex.DecodeString("d8799f182aff")
+	require.NoError(t, err)
+	inlineCbor, err := cbor.Encode(
+		[]any{DatumOptionTypeData, cbor.Tag{Number: 24, Content: inner}},
+	)
+	require.NoError(t, err)
+	tests := []struct {
+		name     string
+		input    []byte
+		wantHash bool
+	}{
+		{"hash", hashCbor, true},
+		{"inline", inlineCbor, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var decoded BabbageTransactionOutputDatumOption
+			require.NoError(t, decoded.UnmarshalCBOR(tc.input))
+			require.Equal(t, tc.wantHash, decoded.hash != nil)
+			require.Equal(t, !tc.wantHash, decoded.data != nil)
+			out, err := decoded.MarshalCBOR()
+			require.NoError(t, err)
+			require.Equal(t, tc.input, out)
 		})
 	}
 }
