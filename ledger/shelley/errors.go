@@ -249,6 +249,67 @@ func (e MIRNegativesNotCurrentlyAllowedError) Error() string {
 	)
 }
 
+// MIRTransferNotCurrentlyAllowedError indicates a move instantaneous rewards
+// certificate that transfers funds to the opposite accounting pot at a
+// protocol version before the Alonzo hard fork.
+//
+// Reference: MIRTransferNotCurrentlyAllowed in delegTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type MIRTransferNotCurrentlyAllowedError struct {
+	Source uint
+	Amount uint64
+}
+
+func (e MIRTransferNotCurrentlyAllowedError) Error() string {
+	return fmt.Sprintf(
+		"pot-to-pot instantaneous rewards transfer not allowed at this protocol version: source pot %d amount %d",
+		e.Source,
+		e.Amount,
+	)
+}
+
+// MIRProducesNegativeUpdateError indicates a move instantaneous rewards
+// certificate whose delta, added to the rewards already pending for the
+// credential in the same pot this epoch, would be negative.
+//
+// Reference: MIRProducesNegativeUpdate in delegTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type MIRProducesNegativeUpdateError struct {
+	Credential common.Credential
+	Source     uint
+	Pending    *big.Int
+}
+
+func (e MIRProducesNegativeUpdateError) Error() string {
+	pending := "nil"
+	if e.Pending != nil {
+		pending = e.Pending.String()
+	}
+	return fmt.Sprintf(
+		"instantaneous rewards update would be negative: source pot %d credential %x pending %s",
+		e.Source,
+		e.Credential.Credential[:],
+		pending,
+	)
+}
+
+// PendingInstantaneousRewardsUnavailableError indicates a move instantaneous
+// rewards delta that MIRProducesNegativeUpdate can only decide from the
+// pending rewards, when the ledger state does not implement
+// common.PendingInstantaneousRewardsState.
+type PendingInstantaneousRewardsUnavailableError struct {
+	Credential common.Credential
+	Source     uint
+}
+
+func (e PendingInstantaneousRewardsUnavailableError) Error() string {
+	return fmt.Sprintf(
+		"pending instantaneous rewards unavailable: source pot %d credential %x",
+		e.Source,
+		e.Credential.Credential[:],
+	)
+}
+
 // WithdrawalFromUnregisteredRewardAccountError indicates withdrawal from an unregistered reward account
 type WithdrawalFromUnregisteredRewardAccountError struct {
 	RewardAddress common.Address

@@ -63,6 +63,14 @@ type BlockLedgerState struct {
 	dreps            map[credOverlayKey]*blockDRep
 	committeeColdHot map[credOverlayKey]*credOverlayKey
 	proposals        map[GovActionId]GovActionState
+	mirPending       map[mirPendingKey]*big.Int
+}
+
+// mirPendingKey identifies a credential's pending instantaneous rewards in
+// one pot.
+type mirPendingKey struct {
+	source uint
+	cred   credOverlayKey
 }
 
 // credOverlayKey identifies a credential by type and hash, so a key-hash and a
@@ -150,6 +158,7 @@ func NewBlockLedgerState(base LedgerState) *BlockLedgerState {
 		dreps:            make(map[credOverlayKey]*blockDRep),
 		committeeColdHot: make(map[credOverlayKey]*credOverlayKey),
 		proposals:        make(map[GovActionId]GovActionState),
+		mirPending:       make(map[mirPendingKey]*big.Int),
 	}
 }
 
@@ -345,6 +354,18 @@ func (b *BlockLedgerState) applyCertificate(
 	case *PoolRegistrationCertificate:
 		if err := b.applyPoolRegistration(c); err != nil {
 			return err
+		}
+	case *MoveInstantaneousRewardsCertificate:
+		for cred, delta := range c.Reward.Rewards {
+			if cred == nil || delta == nil {
+				continue
+			}
+			key := mirPendingKey{source: c.Reward.Source, cred: blockCredKey(*cred)}
+			total := new(big.Int).Set(delta)
+			if prior, ok := b.mirPending[key]; ok {
+				total.Add(total, prior)
+			}
+			b.mirPending[key] = total
 		}
 	case *PoolRetirementCertificate:
 		epoch := c.Epoch
@@ -777,6 +798,38 @@ func findBlockLedgerState(ls LedgerState) *BlockLedgerState {
 		}
 	}
 	return nil
+}
+
+// PendingInstantaneousRewardsFor returns the instantaneous rewards pending for
+// cred in the pot named by source: those the wrapped state reports through
+// PendingInstantaneousRewardsState plus those earlier transactions in the
+// block added. The boolean is false when the wrapped state does not implement
+// the capability, in which case the total holds only the block's deltas.
+func PendingInstantaneousRewardsFor(
+	ls LedgerState,
+	source uint,
+	cred Credential,
+) (*big.Int, bool, error) {
+	total := new(big.Int)
+	base, known := UnwrapLedgerState(ls).(PendingInstantaneousRewardsState)
+	if known {
+		pending, err := base.PendingInstantaneousRewards(source, cred)
+		if err != nil {
+			return nil, false, err
+		}
+		if pending != nil {
+			total.Set(pending)
+		}
+	}
+	if b := findBlockLedgerState(ls); b != nil {
+		if delta, ok := b.mirPending[mirPendingKey{
+			source: source,
+			cred:   blockCredKey(cred),
+		}]; ok {
+			total.Add(total, delta)
+		}
+	}
+	return total, known, nil
 }
 
 // StakeCredentialDepositStateFor returns ls's StakeCredentialDepositState
