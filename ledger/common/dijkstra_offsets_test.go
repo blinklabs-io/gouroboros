@@ -468,3 +468,95 @@ func TestExtractTransactionOffsetsTwoElementNonDijkstra(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractTransactionOffsetsDijkstraBlockTransactionValidity checks that a
+// current-CDDL Dijkstra block, which has no invalid_transactions list, reports
+// each block_transaction's trailing is_valid=false through
+// InvalidTransactions, and that the result agrees with the era decoder.
+func TestExtractTransactionOffsetsDijkstraBlockTransactionValidity(
+	t *testing.T,
+) {
+	testCases := []struct {
+		name        string
+		numTx       int
+		wantInvalid []uint
+	}{
+		// buildDijkstraBlock marks odd-indexed transactions is_valid=false.
+		{name: "valid transaction only", numTx: 1, wantInvalid: nil},
+		{name: "mixed validity", numTx: 4, wantInvalid: []uint{1, 3}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			blockCbor := buildDijkstraBlock(t, false, testCase.numTx)
+
+			var block dijkstra.DijkstraBlock
+			require.NoError(t, block.UnmarshalCBOR(blockCbor))
+			decodedValidity := make([]bool, 0, testCase.numTx)
+			for _, tx := range block.Transactions() {
+				decodedValidity = append(decodedValidity, tx.IsValid())
+			}
+
+			offsets, err := common.ExtractTransactionOffsets(blockCbor)
+			require.NoError(t, err)
+			require.Len(t, offsets.Transactions, testCase.numTx)
+			assert.Equal(t, testCase.wantInvalid, offsets.InvalidTransactions)
+			assert.Equal(
+				t,
+				decodedValidity,
+				common.TransactionValidityFlags(
+					len(offsets.Transactions),
+					offsets.InvalidTransactions,
+				),
+			)
+		})
+	}
+}
+
+// TestExtractTransactionOffsetsDijkstraRejectsNonBoolIsValid checks that a
+// block_transaction whose trailing is_valid field is not a CBOR bool is
+// refused, as the era decoder refuses it, rather than read as valid.
+func TestExtractTransactionOffsetsDijkstraRejectsNonBoolIsValid(t *testing.T) {
+	header, leios, peras, tx3 := dijkstraFixtureParts(t)
+	tx4 := make([]cbor.RawMessage, 0, 4)
+	tx4 = append(tx4, tx3...)
+	tx4 = append(tx4, encodeCbor(t, 0))
+	blockBody := encodeCbor(t, []cbor.RawMessage{
+		encodeCbor(t, []cbor.RawMessage{encodeCbor(t, tx4)}),
+		leios,
+		peras,
+	})
+	blockCbor := []byte(encodeCbor(t, []cbor.RawMessage{header, blockBody}))
+
+	var block dijkstra.DijkstraBlock
+	require.Error(t, block.UnmarshalCBOR(blockCbor))
+
+	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	require.ErrorContains(t, err, "transaction 0 is_valid")
+	require.Nil(t, offsets)
+}
+
+// TestExtractTransactionOffsetsDijkstraRejectsBlockTransactionWithoutIsValid
+// checks that a current-shape block transaction missing its trailing is_valid
+// field is refused, as the era decoder refuses it, rather than read as valid.
+func TestExtractTransactionOffsetsDijkstraRejectsBlockTransactionWithoutIsValid(
+	t *testing.T,
+) {
+	header, leios, peras, tx3 := dijkstraFixtureParts(t)
+	blockBody := encodeCbor(t, []cbor.RawMessage{
+		encodeCbor(t, []cbor.RawMessage{encodeCbor(t, tx3)}),
+		leios,
+		peras,
+	})
+	blockCbor := []byte(encodeCbor(t, []cbor.RawMessage{header, blockBody}))
+
+	var block dijkstra.DijkstraBlock
+	require.Error(t, block.UnmarshalCBOR(blockCbor))
+
+	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	require.ErrorContains(
+		t,
+		err,
+		"dijkstra transaction 0 has 3 elements, expected 4",
+	)
+	require.Nil(t, offsets)
+}
