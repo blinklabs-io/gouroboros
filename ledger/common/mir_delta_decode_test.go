@@ -300,15 +300,22 @@ func TestMirRewardDeltaUtxorpcKeepsTheSign(t *testing.T) {
 	}
 }
 
-func TestMirRewardDeltaUtxorpcRejectsNegativeOverflow(t *testing.T) {
-	// CBOR tag 3 encodes -1-n. With n=2^63, this is math.MinInt64-1:
-	// valid delta_coin on the wire, but outside the supported MIR projection.
+func TestMirRewardDeltaUtxorpcEncodesNegativeOverflow(t *testing.T) {
+	// CBOR tag 3 encodes -1-n. With n=2^63, this is math.MinInt64-1, which is
+	// outside int64 and is carried as the tag-3 magnitude.
 	var cert common.MoveInstantaneousRewardsCertificate
 	require.NoError(
 		t,
 		cert.UnmarshalCBOR(mirCertWire(t, "c3488000000000000000")),
 	)
 
-	_, err := cert.Utxorpc()
-	require.ErrorContains(t, err, "MIR reward delta does not fit in int64")
+	converted, err := cert.Utxorpc()
+	require.NoError(t, err)
+	delta := converted.GetMirCert().GetTo()[0].GetDeltaCoin()
+	assert.Equal(
+		t,
+		new(big.Int).Lsh(big.NewInt(1), 63).Bytes(),
+		delta.GetBigNInt(),
+	)
+	assert.Nil(t, delta.GetBigUInt())
 }

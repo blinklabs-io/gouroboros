@@ -287,15 +287,7 @@ func ratToUtxorpcRationalNumber(r cbor.Rat) (*utxorpc.RationalNumber, error) {
 	if r.Rat == nil {
 		return nil, nil
 	}
-	if ratOutOfRange(r.Rat) {
-		return nil, errors.New("invalid rational number values")
-	}
-	return &utxorpc.RationalNumber{
-		// #nosec G115
-		Numerator: int32(r.Num().Int64()),
-		// #nosec G115
-		Denominator: uint32(r.Denom().Int64()),
-	}, nil
+	return common.ToUtxorpcRationalNumber(r.Rat)
 }
 
 // ratPtrToUtxorpcRationalNumber is the nil-safe pointer variant of
@@ -664,6 +656,122 @@ type ConwayProtocolParameterUpdate struct {
 	DRepDeposit                *uint64                                   `cbor:"31,keyasint,omitempty"`
 	DRepInactivityPeriod       *uint64                                   `cbor:"32,keyasint,omitempty"`
 	MinFeeRefScriptCostPerByte *cbor.Rat                                 `cbor:"33,keyasint,omitempty"`
+}
+
+// Utxorpc converts the parameters this update sets. A parameter the update
+// leaves unchanged is left unset in the result.
+func (u *ConwayProtocolParameterUpdate) Utxorpc() (*utxorpc.PParams, error) {
+	ret := &utxorpc.PParams{}
+	var err error
+	bigUint := func(v *uint) *utxorpc.BigInt {
+		if v == nil {
+			return nil
+		}
+		return common.ToUtxorpcBigInt(uint64(*v))
+	}
+	bigUint64 := func(v *uint64) *utxorpc.BigInt {
+		if v == nil {
+			return nil
+		}
+		return common.ToUtxorpcBigInt(*v)
+	}
+	scalar := func(v *uint) uint64 {
+		if v == nil {
+			return 0
+		}
+		return uint64(*v)
+	}
+	exUnits := func(v *common.ExUnits) (*utxorpc.ExUnits, error) {
+		if v == nil {
+			return nil, nil
+		}
+		if v.Memory < 0 || v.Steps < 0 {
+			return nil, errors.New("invalid execution unit values")
+		}
+		return &utxorpc.ExUnits{
+			Memory: uint64(v.Memory),
+			Steps:  uint64(v.Steps),
+		}, nil
+	}
+	ret.MinFeeCoefficient = bigUint(u.MinFeeA)
+	ret.MinFeeConstant = bigUint(u.MinFeeB)
+	ret.MaxBlockBodySize = scalar(u.MaxBlockBodySize)
+	ret.MaxTxSize = scalar(u.MaxTxSize)
+	ret.MaxBlockHeaderSize = scalar(u.MaxBlockHeaderSize)
+	ret.StakeKeyDeposit = bigUint(u.KeyDeposit)
+	ret.PoolDeposit = bigUint(u.PoolDeposit)
+	ret.PoolRetirementEpochBound = scalar(u.MaxEpoch)
+	ret.DesiredNumberOfPools = scalar(u.NOpt)
+	if ret.PoolInfluence, err = ratPtrToUtxorpcRationalNumber(u.A0); err != nil {
+		return nil, fmt.Errorf("invalid A0: %w", err)
+	}
+	if ret.MonetaryExpansion, err = ratPtrToUtxorpcRationalNumber(u.Rho); err != nil {
+		return nil, fmt.Errorf("invalid Rho: %w", err)
+	}
+	if ret.TreasuryExpansion, err = ratPtrToUtxorpcRationalNumber(u.Tau); err != nil {
+		return nil, fmt.Errorf("invalid Tau: %w", err)
+	}
+	if u.ProtocolVersion != nil {
+		ret.ProtocolVersion = &utxorpc.ProtocolVersion{
+			Major: uint32(u.ProtocolVersion.Major), // #nosec G115
+			Minor: uint32(u.ProtocolVersion.Minor), // #nosec G115
+		}
+	}
+	ret.MinPoolCost = bigUint64(u.MinPoolCost)
+	ret.CoinsPerUtxoByte = bigUint64(u.AdaPerUtxoByte)
+	if u.CostModels != nil {
+		ret.CostModels = common.ConvertToUtxorpcCardanoCostModels(u.CostModels)
+	}
+	if u.ExecutionCosts != nil {
+		memory, err := ratPtrToUtxorpcRationalNumber(u.ExecutionCosts.MemPrice)
+		if err != nil {
+			return nil, fmt.Errorf("invalid memory price: %w", err)
+		}
+		steps, err := ratPtrToUtxorpcRationalNumber(u.ExecutionCosts.StepPrice)
+		if err != nil {
+			return nil, fmt.Errorf("invalid step price: %w", err)
+		}
+		ret.Prices = &utxorpc.ExPrices{Memory: memory, Steps: steps}
+	}
+	if ret.MaxExecutionUnitsPerTransaction, err = exUnits(u.MaxTxExUnits); err != nil {
+		return nil, err
+	}
+	if ret.MaxExecutionUnitsPerBlock, err = exUnits(u.MaxBlockExUnits); err != nil {
+		return nil, err
+	}
+	ret.MaxValueSize = scalar(u.MaxValueSize)
+	ret.CollateralPercentage = scalar(u.CollateralPercentage)
+	ret.MaxCollateralInputs = scalar(u.MaxCollateralInputs)
+	if u.PoolVotingThresholds != nil {
+		if ret.PoolVotingThresholds, err = poolVotingThresholdsUtxorpc(*u.PoolVotingThresholds); err != nil {
+			return nil, fmt.Errorf("invalid pool voting thresholds: %w", err)
+		}
+	}
+	if u.DRepVotingThresholds != nil {
+		if ret.DrepVotingThresholds, err = drepVotingThresholdsUtxorpc(*u.DRepVotingThresholds); err != nil {
+			return nil, fmt.Errorf("invalid drep voting thresholds: %w", err)
+		}
+	}
+	if u.MinCommitteeSize != nil {
+		// The wire value is unbounded and the field uint32; no committee can
+		// reach a minimum past uint32, so saturating keeps its meaning.
+		ret.MinCommitteeSize = uint32(min(uint64(*u.MinCommitteeSize), math.MaxUint32)) // #nosec G115 -- clamped
+	}
+	if u.CommitteeTermLimit != nil {
+		ret.CommitteeTermLimit = *u.CommitteeTermLimit
+	}
+	if u.GovActionValidityPeriod != nil {
+		ret.GovernanceActionValidityPeriod = *u.GovActionValidityPeriod
+	}
+	ret.GovernanceActionDeposit = bigUint64(u.GovActionDeposit)
+	ret.DrepDeposit = bigUint64(u.DRepDeposit)
+	if u.DRepInactivityPeriod != nil {
+		ret.DrepInactivityPeriod = *u.DRepInactivityPeriod
+	}
+	if ret.MinFeeScriptRefCostPerByte, err = ratPtrToUtxorpcRationalNumber(u.MinFeeRefScriptCostPerByte); err != nil {
+		return nil, fmt.Errorf("invalid MinFeeRefScriptCostPerByte: %w", err)
+	}
+	return ret, nil
 }
 
 // SecurityGroupFields returns the names of the parameter fields that this
