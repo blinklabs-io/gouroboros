@@ -1591,3 +1591,78 @@ func TestGetDRepStakeDistr(t *testing.T) {
 		},
 	)
 }
+
+// TestDebugEpochState drives the client against the single-element result
+// array the era codec wraps around the ledger's EpochState.
+func TestDebugEpochState(t *testing.T) {
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(
+					test.DecodeHexString(
+						"81" + "84" + "820a14" + "828080" + "84a0a0a000" + "82a000",
+					),
+				),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			result, err := oConn.LocalStateQuery().Client.DebugEpochState()
+			require.NoError(t, err, "DebugEpochState against a mocked node")
+			require.Equal(
+				t,
+				localstatequery.AccountState{Treasury: 10, Reserves: 20},
+				result.AccountState,
+			)
+		},
+	)
+}
+
+// TestDebugNewEpochState drives the client against the single-element result
+// array the era codec wraps around the ledger's NewEpochState.
+func TestDebugNewEpochState(t *testing.T) {
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(
+					test.DecodeHexString(
+						"81" + "87" + "05" + "a0" + "a0" +
+							"84820a14828080" + "84a0a0a000" + "82a000" +
+							"80" + "82a000" + "f6",
+					),
+				),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			result, err := oConn.LocalStateQuery().Client.DebugNewEpochState()
+			require.NoError(t, err, "DebugNewEpochState against a mocked node")
+			require.Equal(t, uint64(5), result.Epoch)
+			require.Equal(
+				t,
+				int64(20),
+				result.EpochState.AccountState.Reserves,
+			)
+		},
+	)
+}

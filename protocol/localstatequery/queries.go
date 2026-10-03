@@ -789,9 +789,6 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpData)
 }
 
-// TODO (#863)
-type DebugEpochStateResult any
-
 // FilteredDelegationsAndRewardAccountsResult is the result of the
 // GetFilteredDelegationsAndRewardAccounts query.
 // CBOR: array(1)[array(2)[delegation, rewards]]
@@ -837,10 +834,8 @@ func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(data []byte) 
 // GenesisConfigResult and GenesisConfigResultProtocolParameters are defined in
 // genesis_config.go, which carries the two wire layouts.
 
-// TODO (#864)
-type DebugNewEpochStateResult any
-
-// DebugChainDepStateResult (#865) is defined in chain_dep_state.go.
+// DebugEpochStateResult and DebugNewEpochStateResult are defined in
+// epoch_state.go, and DebugChainDepStateResult in chain_dep_state.go.
 
 // RewardProvenanceResult is the result of the GetRewardProvenance query.
 // CBOR: array(1)[array(16)[epochLength, poolMints, maxLovelaceSupply,
