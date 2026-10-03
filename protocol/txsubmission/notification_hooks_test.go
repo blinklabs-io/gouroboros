@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -151,5 +152,31 @@ func TestOnDoneNotifiesServerWithConnectionId(t *testing.T) {
 		require.Equal(t, connId, id)
 	case <-time.After(5 * time.Second):
 		t.Fatal("OnDone was not called")
+	}
+}
+
+func TestLegacyInitFuncErrorFailsProtocolAfterOnInit(t *testing.T) {
+	t.Parallel()
+	initErr := errors.New("init refused")
+	notified := make(chan struct{}, 1)
+	client, _, _, serverErrors := newHookPair(
+		t,
+		&Config{},
+		&Config{
+			InitFunc: func(CallbackContext) error { return initErr },
+			OnInit:   func(connection.ConnectionId) { notified <- struct{}{} },
+		},
+	)
+	client.Init()
+	select {
+	case <-notified:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnInit was not called")
+	}
+	select {
+	case err := <-serverErrors:
+		require.ErrorIs(t, err, initErr)
+	case <-time.After(5 * time.Second):
+		t.Fatal("InitFunc error did not fail the protocol")
 	}
 }
