@@ -892,12 +892,15 @@ func validateMirCertificates(
 					return PendingInstantaneousRewardsUnavailableError{
 						Credential: tmpCred,
 						Source:     reward.Source,
+						Delta:      new(big.Int).Set(delta),
 					}
 				}
 				return MIRProducesNegativeUpdateError{
-					Credential: tmpCred,
-					Source:     reward.Source,
-					Pending:    total.amount,
+					Credential:   tmpCred,
+					Source:       reward.Source,
+					Pending:      new(big.Int).Set(total.amount),
+					Delta:        new(big.Int).Set(delta),
+					PendingAfter: next,
 				}
 			}
 			pending[key] = pendingTotal{amount: next, known: total.known}

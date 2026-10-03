@@ -192,6 +192,11 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 		require.ErrorAs(t, err, &target)
 		assert.Equal(t, uint(0), target.Source)
 		assert.Zero(t, big.NewInt(5).Cmp(target.Pending))
+		require.NotNil(t, target.Delta)
+		require.NotNil(t, target.PendingAfter)
+		assert.Equal(t, "-6", target.Delta.String())
+		assert.Equal(t, "-1", target.PendingAfter.String())
+		assert.Contains(t, target.Error(), "delta -6 pending after -1")
 	})
 
 	t.Run("delta equal to the pending rewards is accepted", func(t *testing.T) {
@@ -210,6 +215,9 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 			&unavailable,
 		)
 		assert.Equal(t, uint(0), unavailable.Source)
+		require.NotNil(t, unavailable.Delta)
+		assert.Equal(t, "-1", unavailable.Delta.String())
+		assert.Contains(t, unavailable.Error(), "delta -1")
 		require.NoError(t, validate(
 			mockledger.NewLedgerStateBuilder().Build(),
 			reserves(4),
