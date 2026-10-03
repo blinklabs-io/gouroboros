@@ -53,6 +53,11 @@ const (
 	// Layout: 32 (Ed25519 seed) + 6 * (32 seed + 32 left_pk + 32 right_pk) = 608
 	CardanoKesSecretKeySize = 608
 
+	// MaxDepth is the largest KES tree depth accepted when decoding a
+	// signature or generating a key. Verify and Sign compute 2^depth periods
+	// in a uint64, so deeper trees cannot be represented.
+	MaxDepth = 63
+
 	// SeedSize is the size of a KES seed
 	SeedSize = 32
 )
@@ -73,21 +78,23 @@ func NewSumKesFromBytes(depth uint64, fromByte []byte) (SumXKesSig, error) {
 	if depth == 0 {
 		return SumXKesSig{}, errors.New("depth must be at least 1")
 	}
-	kesSize := SigmaSize + depth*(PublicKeySize*2)
-	if kesSize > math.MaxInt {
+	if depth > MaxDepth {
 		return SumXKesSig{}, fmt.Errorf(
-			"kes size too large for depth %d",
+			"depth %d exceeds maximum %d",
 			depth,
+			MaxDepth,
 		)
 	}
-	if len(fromByte) != int(kesSize) {
+	// depth <= MaxDepth, so the size arithmetic cannot overflow
+	kesSize := SignatureSize(depth)
+	if len(fromByte) != kesSize {
 		return SumXKesSig{}, fmt.Errorf(
 			"expected %d bytes, got %d",
 			kesSize,
 			len(fromByte),
 		)
 	}
-	nextKesSize := SigmaSize + (depth-1)*(PublicKeySize*2)
+	nextKesSize := SignatureSize(depth - 1)
 	var sigma any
 	if depth == 1 {
 		sigma = Sum0KesSigFromBytes(fromByte)
