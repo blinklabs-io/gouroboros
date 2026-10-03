@@ -77,3 +77,31 @@ func TestDatumOptionRoundTripPreservesBytes(t *testing.T) {
 		})
 	}
 }
+
+func TestDatumOptionVariantAccessors(t *testing.T) {
+	t.Parallel()
+	hash := common.Blake2b256{1, 2, 3}
+	tests := []struct {
+		name       string
+		option     *BabbageTransactionOutputDatumOption
+		wantHash   bool
+		wantInline bool
+	}{
+		{"hash", &BabbageTransactionOutputDatumOption{hash: &hash}, true, false},
+		{
+			"inline",
+			&BabbageTransactionOutputDatumOption{data: &common.Datum{}},
+			false,
+			true,
+		},
+		{"empty", &BabbageTransactionOutputDatumOption{}, false, false},
+		{"nil", nil, false, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.wantHash, tc.option.IsDatumHash())
+			require.Equal(t, tc.wantInline, tc.option.IsInlineDatum())
+		})
+	}
+}
