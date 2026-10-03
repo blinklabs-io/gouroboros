@@ -261,8 +261,11 @@ func ValidateBootstrapWitnesses(tx Transaction) error {
 
 // PreverifiedSignatures is the outcome of verifying one transaction's vkey and
 // bootstrap witness signatures ahead of validation. It is bound to the
-// transaction it was computed from by the signed hash: validation ignores a
-// result produced for another transaction and verifies inline instead.
+// transaction it was computed from by the signed body hash: validation ignores
+// a result produced for a different body and verifies inline instead. The hash
+// does not cover the witness set, so a result vouches for any transaction with
+// the same body; hand it over with the transaction value it was computed from,
+// never by looking it up by transaction ID.
 type PreverifiedSignatures struct {
 	witnessHash Blake2b256
 	err         error

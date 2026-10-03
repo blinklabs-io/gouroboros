@@ -372,8 +372,8 @@ func VerifyTransaction(
 // UtxoValidateSignatures reuse a PreverifySignatures result for tx instead of
 // verifying the vkey and bootstrap signatures again. Witness presence and
 // every other rule still run against ledgerState. A nil result, a result for a
-// different transaction, or a nil ledgerState leaves signatures to be verified
-// inline.
+// different transaction body, or a nil ledgerState leaves signatures to be
+// verified inline.
 func VerifyTransactionWithSignatures(
 	tx Transaction,
 	slot uint64,
