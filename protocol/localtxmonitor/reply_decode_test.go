@@ -61,6 +61,7 @@ func TestReplyNextTxArrayAndBytesForms(t *testing.T) {
 	for _, wire := range [][]byte{
 		{0x81, 6},
 		{0x9f, 6, 0xff},
+		{0xd8, 100, 0x81, 6},
 		{0x82, 6, 0x82, 0, 0xd8, 24, 0x40},
 		{0x9f, 6, 0x9f, 0x18, 6, 0xd8, 24, 0x5f,
 			0x42, 1, 2, 0x41, 3, 0xff, 0xff, 0xff},
@@ -78,5 +79,37 @@ func TestReplyNextTxArrayAndBytesForms(t *testing.T) {
 	} {
 		_, err := NewMsgFromCbor(MessageTypeReplyNextTx, wire)
 		require.Error(t, err, "%x", wire)
+	}
+}
+
+func TestReplyNextTxPreflightMatchesTypedDecoder(t *testing.T) {
+	testCases := map[string][]byte{
+		"canonical": {
+			0x82, 6, 0x82, 0, 0xd8, 24, 0x40,
+		},
+		"tagged outer message": {
+			0xd8, 100, 0x82, 6, 0x82, 0, 0xd8, 24, 0x40,
+		},
+		"non-shortest headers": {
+			0x98, 2, 0x18, 6, 0x98, 2, 0x18, 0, 0xd9, 0, 24, 0x58, 0,
+		},
+		"chunked bytes": {
+			0x82, 6, 0x82, 0, 0xd8, 24, 0x5f, 0x41, 1, 0x41, 2, 0xff,
+		},
+		"tagged message type": {
+			0x82, 0xd8, 100, 6, 0x82, 0, 0xd8, 24, 0x40,
+		},
+		"tagged wrapper": {
+			0x82, 6, 0xd8, 100, 0x82, 0, 0xd8, 24, 0x40,
+		},
+	}
+	for name, wire := range testCases {
+		t.Run(name, func(t *testing.T) {
+			preflightErr := validateReplyNextTx(wire)
+			var decoded MsgReplyNextTx
+			decodeErr := decodeReplyNextTx(wire, &decoded)
+			require.Equal(t, decodeErr == nil, preflightErr == nil,
+				"preflight=%v decoder=%v", preflightErr, decodeErr)
+		})
 	}
 }

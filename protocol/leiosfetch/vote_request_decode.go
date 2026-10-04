@@ -77,56 +77,69 @@ func (c *voteRequestCursor) end(indefinite bool) error {
 	return nil
 }
 
-func (c *voteRequestCursor) unsigned() error {
-	start := c.pos
-	depth := 0
-	for c.pos < len(c.data) && c.data[c.pos]&0xe0 == 0xc0 {
+func (c *voteRequestCursor) skipTags() error {
+	for depth := 0; c.pos < len(c.data) && c.data[c.pos]&0xe0 == 0xc0; depth++ {
 		if depth >= cbor.MaxNestedLevels {
-			return errors.New("vote request scalar nesting limit")
+			return errors.New("vote request tag nesting limit")
 		}
 		if _, _, err := c.header(0xc0); err != nil {
-			return err
-		}
-		depth++
-	}
-	if c.pos >= len(c.data) {
-		return errors.New("truncated vote request scalar")
-	}
-	switch c.data[c.pos] & 0xe0 {
-	case 0:
-		if _, _, err := c.header(0); err != nil {
-			return err
-		}
-	case 0x40:
-		// Positive bignum tags can still encode a uint64, including leading zeros.
-		length, _, err := c.header(0x40)
-		if err != nil {
-			return err
-		}
-		// #nosec G115 -- pos is within data, so the remainder is non-negative.
-		if length > uint64(len(c.data)-c.pos) {
-			return errors.New("truncated vote request bignum")
-		}
-		// #nosec G115 -- length is bounded by the remaining slice length.
-		c.pos += int(length)
-	default:
-		if c.data[c.pos] != 0xf6 && c.data[c.pos] != 0xf7 {
-			return errors.New("vote ID field is not unsigned")
-		}
-		c.pos++
-	}
-	if depth != 0 || c.data[start] == 0xf6 || c.data[start] == 0xf7 ||
-		c.data[start]&0xe0 != 0 {
-		var value uint64
-		if _, err := cbor.Decode(c.data[start:c.pos], &value); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+func (c *voteRequestCursor) unsigned() (uint64, error) {
+	start := c.pos
+	if err := c.skipTags(); err != nil {
+		return 0, err
+	}
+	tagged := c.pos != start
+	if c.pos >= len(c.data) {
+		return 0, errors.New("truncated vote request scalar")
+	}
+	var value uint64
+	switch c.data[c.pos] & 0xe0 {
+	case 0:
+		var err error
+		value, _, err = c.header(0)
+		if err != nil {
+			return 0, err
+		}
+	case 0x40:
+		// Positive bignum tags can still encode a uint64, including leading zeros.
+		length, _, err := c.header(0x40)
+		if err != nil {
+			return 0, err
+		}
+		// #nosec G115 -- pos is within data, so the remainder is non-negative.
+		if length > uint64(len(c.data)-c.pos) {
+			return 0, errors.New("truncated vote request bignum")
+		}
+		// #nosec G115 -- length is bounded by the remaining slice length.
+		c.pos += int(length)
+	default:
+		return 0, errors.New("vote request field is not unsigned")
+	}
+	if tagged || c.data[start]&0xe0 != 0 {
+		return decodeTaggedUnsigned(c.data[start:c.pos])
+	}
+	return value, nil
+}
+
+func decodeTaggedUnsigned(data []byte) (uint64, error) {
+	var value uint64
+	if _, err := cbor.Decode(data, &value); err != nil {
+		return 0, err
+	}
+	return value, nil
+}
+
 func validateVoteRequest(data []byte) error {
 	c := voteRequestCursor{data: data}
+	if err := c.skipTags(); err != nil {
+		return err
+	}
 	count, indefinite, err := c.header(0x80)
 	if err != nil {
 		return err
@@ -134,7 +147,14 @@ func validateVoteRequest(data []byte) error {
 	if !indefinite && count != 2 {
 		return errors.New("vote request must have two fields")
 	}
-	if err := c.unsigned(); err != nil {
+	messageType, err := c.unsigned()
+	if err != nil {
+		return err
+	}
+	if messageType != MessageTypeVotesRequest {
+		return errors.New("vote request message type must be 4")
+	}
+	if err := c.skipTags(); err != nil {
 		return err
 	}
 	// A nil VoteIds slice is encoded as null by NewMsgVotesRequest.
@@ -162,6 +182,9 @@ func validateVoteRequest(data []byte) error {
 			c.pos++
 			break
 		}
+		if err := c.skipTags(); err != nil {
+			return fmt.Errorf("vote ID %d: %w", idx, err)
+		}
 		fields, itemIndefinite, err := c.header(0x80)
 		if err != nil {
 			return fmt.Errorf("vote ID %d: %w", idx, err)
@@ -170,7 +193,7 @@ func validateVoteRequest(data []byte) error {
 			return errors.New("vote ID must have two fields")
 		}
 		for range 2 {
-			if err := c.unsigned(); err != nil {
+			if _, err := c.unsigned(); err != nil {
 				return fmt.Errorf("vote ID %d: %w", idx, err)
 			}
 		}

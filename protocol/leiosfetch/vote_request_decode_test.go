@@ -84,6 +84,44 @@ func TestVotesRequestRejectsLateInvalidIDBeforeAllocation(t *testing.T) {
 	require.LessOrEqual(t, allocated, uint64(64<<10))
 }
 
+func TestVotesRequestRejectsWrongMessageTypeBeforeAllocation(t *testing.T) {
+	wire := append([]byte{0x82, 5, 0x9a, 0, 2, 0, 1},
+		bytes.Repeat([]byte{0x82, 0, 0}, 131073)...)
+	var raw cbor.RawMessage
+	_, err := cbor.Decode(wire, &raw)
+	require.NoError(t, err)
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	msg, err := NewMsgFromCbor(MessageTypeVotesRequest, wire)
+	runtime.ReadMemStats(&after)
+	require.Error(t, err)
+	require.Nil(t, msg)
+	allocated := after.TotalAlloc - before.TotalAlloc
+	t.Logf("wire=%d allocated=%d", len(wire), allocated)
+	require.LessOrEqual(t, allocated, uint64(64<<10))
+	require.ErrorContains(t, err, "vote request message type must be 4")
+}
+
+func TestVotesRequestRejectsNullIDBeforeAllocation(t *testing.T) {
+	wire := append([]byte{0x82, 4, 0x9a, 0, 2, 0, 1},
+		bytes.Repeat([]byte{0x82, 0xf6, 0xf7}, 131073)...)
+	var raw cbor.RawMessage
+	_, err := cbor.Decode(wire, &raw)
+	require.NoError(t, err)
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	msg, err := NewMsgFromCbor(MessageTypeVotesRequest, wire)
+	runtime.ReadMemStats(&after)
+	allocated := after.TotalAlloc - before.TotalAlloc
+	t.Logf("wire=%d allocated=%d", len(wire), allocated)
+	require.LessOrEqual(t, allocated, uint64(64<<10))
+	require.Error(t, err)
+	require.Nil(t, msg)
+	require.ErrorContains(t, err, "vote request field is not unsigned")
+}
+
 func TestVotesRequestPreservesTypedScalarAndArrayForms(t *testing.T) {
 	for _, wire := range [][]byte{
 		{0x82, 4, 0xf6},
@@ -104,5 +142,20 @@ func TestVotesRequestPreservesTypedScalarAndArrayForms(t *testing.T) {
 	} {
 		_, err := NewMsgFromCbor(MessageTypeVotesRequest, wire)
 		require.Error(t, err, "%x", wire)
+	}
+}
+
+func TestVotesRequestPreservesTaggedArrays(t *testing.T) {
+	testCases := map[string][]byte{
+		"outer message": {0xd8, 100, 0x82, 4, 0x80},
+		"vote ID list":  {0x82, 4, 0xd8, 100, 0x80},
+		"vote ID":       {0x82, 4, 0x81, 0xd8, 100, 0x82, 1, 2},
+	}
+	for name, wire := range testCases {
+		t.Run(name, func(t *testing.T) {
+			msg, err := NewMsgFromCbor(MessageTypeVotesRequest, wire)
+			require.NoError(t, err)
+			require.Equal(t, wire, msg.Cbor())
+		})
 	}
 }

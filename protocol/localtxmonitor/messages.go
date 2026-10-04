@@ -179,6 +179,10 @@ func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
 	if err := validateReplyNextTx(data); err != nil {
 		return err
 	}
+	return decodeReplyNextTx(data, m)
+}
+
+func decodeReplyNextTx(data []byte, m *MsgReplyNextTx) error {
 	var tmp []any
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err

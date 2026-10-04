@@ -14,7 +14,11 @@
 
 package localtxmonitor
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+)
 
 type replyCursor struct {
 	data []byte
@@ -54,6 +58,18 @@ func (c *replyCursor) end(indefinite bool) error {
 			return errors.New("transaction reply array has extra fields")
 		}
 		c.pos++
+	}
+	return nil
+}
+
+func (c *replyCursor) skipTags() error {
+	for depth := 0; c.pos < len(c.data) && c.data[c.pos]&0xe0 == 0xc0; depth++ {
+		if depth >= cbor.MaxNestedLevels {
+			return errors.New("transaction reply tag nesting limit")
+		}
+		if _, _, err := c.header(0xc0); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -98,6 +114,9 @@ func (c *replyCursor) bytes() error {
 
 func validateReplyNextTx(data []byte) error {
 	c := replyCursor{data: data}
+	if err := c.skipTags(); err != nil {
+		return err
+	}
 	count, indefinite, err := c.header(0x80)
 	if err != nil {
 		return err
