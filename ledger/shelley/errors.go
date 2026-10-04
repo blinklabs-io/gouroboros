@@ -249,6 +249,88 @@ func (e MIRNegativesNotCurrentlyAllowedError) Error() string {
 	)
 }
 
+// MIRTransferNotCurrentlyAllowedError indicates a move instantaneous rewards
+// certificate that transfers funds to the opposite accounting pot at a
+// protocol version before the Alonzo hard fork.
+//
+// Reference: MIRTransferNotCurrentlyAllowed in delegTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type MIRTransferNotCurrentlyAllowedError struct {
+	Source uint
+	Amount uint64
+}
+
+func (e MIRTransferNotCurrentlyAllowedError) Error() string {
+	return fmt.Sprintf(
+		"pot-to-pot instantaneous rewards transfer not allowed at this protocol version: source pot %d amount %d",
+		e.Source,
+		e.Amount,
+	)
+}
+
+// MIRProducesNegativeUpdateError indicates a move instantaneous rewards
+// certificate whose delta, added to the rewards already pending for the
+// credential in the same pot this epoch, would be negative. Pending is the
+// amount before the certificate, Delta is the certificate's amount, and
+// PendingAfter is their sum.
+//
+// Reference: MIRProducesNegativeUpdate in delegTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type MIRProducesNegativeUpdateError struct {
+	Credential   common.Credential
+	Source       uint
+	Pending      *big.Int
+	Delta        *big.Int
+	PendingAfter *big.Int
+}
+
+func (e MIRProducesNegativeUpdateError) Error() string {
+	pending := "nil"
+	if e.Pending != nil {
+		pending = e.Pending.String()
+	}
+	delta := "nil"
+	if e.Delta != nil {
+		delta = e.Delta.String()
+	}
+	pendingAfter := "nil"
+	if e.PendingAfter != nil {
+		pendingAfter = e.PendingAfter.String()
+	}
+	return fmt.Sprintf(
+		"instantaneous rewards update would be negative: source pot %d credential %x pending %s delta %s pending after %s",
+		e.Source,
+		e.Credential.Credential[:],
+		pending,
+		delta,
+		pendingAfter,
+	)
+}
+
+// PendingInstantaneousRewardsUnavailableError indicates a move instantaneous
+// rewards delta that MIRProducesNegativeUpdate can only decide from the
+// pending rewards, when the ledger state does not implement
+// common.PendingInstantaneousRewardsState. Delta is the amount that could not
+// be checked.
+type PendingInstantaneousRewardsUnavailableError struct {
+	Credential common.Credential
+	Source     uint
+	Delta      *big.Int
+}
+
+func (e PendingInstantaneousRewardsUnavailableError) Error() string {
+	delta := "nil"
+	if e.Delta != nil {
+		delta = e.Delta.String()
+	}
+	return fmt.Sprintf(
+		"pending instantaneous rewards unavailable: source pot %d credential %x delta %s",
+		e.Source,
+		e.Credential.Credential[:],
+		delta,
+	)
+}
+
 // WithdrawalFromUnregisteredRewardAccountError indicates withdrawal from an unregistered reward account
 type WithdrawalFromUnregisteredRewardAccountError struct {
 	RewardAddress common.Address

@@ -21,6 +21,7 @@ package common
 //   - ledger/{era}/rules.go: Era-specific validation using these interfaces
 
 import (
+	"math/big"
 	"time"
 
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -355,6 +356,18 @@ type GenesisDelegationState interface {
 	// GenesisUpdateQuorum returns the number of distinct genesis delegate
 	// signatures required to authorize an MIR certificate.
 	GenesisUpdateQuorum() (uint, error)
+}
+
+// PendingInstantaneousRewardsState is the optional ledger-state capability that
+// reports the instantaneous rewards accumulated by move instantaneous rewards
+// certificates earlier in the current epoch. The DELEG rule bounds a new
+// certificate by them (MIRProducesNegativeUpdate). Without it, a negative
+// delta the block's own earlier certificates do not cover is rejected as
+// undecidable.
+type PendingInstantaneousRewardsState interface {
+	// PendingInstantaneousRewards returns the delta pending for cred in the
+	// pot named by source (0 reserves, 1 treasury), or nil when none is.
+	PendingInstantaneousRewards(source uint, cred Credential) (*big.Int, error)
 }
 
 type PoolDelegation struct {
