@@ -1070,8 +1070,7 @@ func (p *Protocol) recoverLoop(where string) {
 		select {
 		case p.config.ErrorChan <- err:
 		default:
-			p.Logger().
-				Error("contained panic with a full error channel", "error", err)
+			p.Logger().Error("contained panic with a full error channel", "error", err)
 		}
 		p.Stop()
 	}
@@ -1652,9 +1651,7 @@ func (p *Protocol) readLoop() {
 			limit := p.pendingMessageByteLimit(state)
 			scanResult, err = scanner.scan(readBuffer.Bytes(), limit)
 			if err != nil {
-				p.SendError(
-					fmt.Errorf("%s: decode error: %w", p.config.Name, err),
-				)
+				p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
 				return
 			}
 			if scanResult.started && !messageStateSet {

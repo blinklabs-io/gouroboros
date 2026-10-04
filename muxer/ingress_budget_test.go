@@ -311,13 +311,24 @@ func TestIngressBudgetExtensionIsReplacedAndCleared(t *testing.T) {
 	m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
 	m.SetIngressBudget(100)
 
-	require.True(t, m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, 40))
-	require.True(t, m.SetIngressBudgetExtension(0x02, muxer.ProtocolRoleResponder, 7))
+	extend := func(protocolId uint16, extra int) {
+		t.Helper()
+		require.True(
+			t,
+			m.SetIngressBudgetExtension(
+				protocolId,
+				muxer.ProtocolRoleResponder,
+				extra,
+			),
+		)
+	}
+	extend(0x01, 40)
+	extend(0x02, 7)
 	require.Equal(t, 147, m.IngressBudget())
-	require.True(t, m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, 10))
+	extend(0x01, 10)
 	require.Equal(t, 117, m.IngressBudget())
-	require.True(t, m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, 0))
+	extend(0x01, 0)
 	require.Equal(t, 107, m.IngressBudget())
-	require.True(t, m.SetIngressBudgetExtension(0x02, muxer.ProtocolRoleResponder, math.MaxInt))
+	extend(0x02, math.MaxInt)
 	require.Greater(t, m.IngressBudget(), 107)
 }
