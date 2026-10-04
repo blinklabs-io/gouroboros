@@ -114,7 +114,7 @@ const (
 type Muxer struct {
 	errorChan              chan error
 	conn                   net.Conn
-	sendMutex              sync.Mutex
+	egress                 egress
 	startChan              chan bool
 	doneChan               chan bool
 	waitGroup              sync.WaitGroup
@@ -858,8 +858,9 @@ func (m *Muxer) UnregisterProtocol(
 	}
 }
 
-// Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than
-// one protocol from sending at once
+// Send takes a populated Segment and writes it to the connection. Only one segment is written at a time:
+// waiting Praos segments go before Leios ones, and the freshest Leios segment goes first. A Leios segment
+// older than leiosMaxAge is not written and fails with ErrEgressStale.
 func (m *Muxer) Send(msg *Segment) error {
 	// Immediately return if we're already shutting down
 	select {
@@ -867,11 +868,26 @@ func (m *Muxer) Send(msg *Segment) error {
 		return errors.New("shutting down")
 	default:
 	}
-	// We use a mutex to make sure only one protocol can send at a time
-	m.sendMutex.Lock()
-	defer m.sendMutex.Unlock()
+	// Only one protocol can write at a time; egress picks whose turn is next.
+	waitStart := time.Now()
+	blocked, err := m.egress.acquire(msg, m.doneChan)
+	em, _ := m.getMetrics().(EgressMetrics)
+	if err != nil {
+		if em != nil && errors.Is(err, ErrEgressStale) {
+			em.EgressStaleDropped(msg.GetProtocolId())
+		}
+		return err
+	}
+	defer m.egress.release()
+	if blocked && em != nil {
+		em.EgressWait(
+			msg.GetProtocolId(),
+			EgressClassOf(msg.GetProtocolId()),
+			time.Since(waitStart),
+		)
+	}
 	buf := &bytes.Buffer{}
-	err := binary.Write(buf, binary.BigEndian, msg.SegmentHeader)
+	err = binary.Write(buf, binary.BigEndian, msg.SegmentHeader)
 	if err != nil {
 		return err
 	}

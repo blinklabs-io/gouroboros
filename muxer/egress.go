@@ -1,0 +1,196 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package muxer
+
+import (
+	"errors"
+	"sync"
+	"time"
+)
+
+// EgressClass is the outbound traffic class of a mini-protocol.
+type EgressClass int
+
+const (
+	// EgressClassPraos covers every mini-protocol other than the Leios
+	// ones: ChainSync, BlockFetch, keep-alive and the rest.
+	EgressClassPraos EgressClass = iota
+	// EgressClassLeios covers the Leios mini-protocols (notify, fetch and
+	// votes), whose bulk traffic must not delay Praos.
+	EgressClassLeios
+)
+
+// The Leios mini-protocol numbers. They are repeated here because the
+// protocol packages import this one; a test keeps them equal to the
+// protocol packages' own constants.
+const (
+	protocolIdLeiosNotify uint16 = 18
+	protocolIdLeiosFetch  uint16 = 19
+	protocolIdLeiosVotes  uint16 = 20
+)
+
+// EgressClassOf returns the outbound traffic class of a mini-protocol.
+func EgressClassOf(protocolId uint16) EgressClass {
+	switch protocolId {
+	case protocolIdLeiosNotify, protocolIdLeiosFetch, protocolIdLeiosVotes:
+		return EgressClassLeios
+	default:
+		return EgressClassPraos
+	}
+}
+
+const (
+	// leiosMaxAge is how long after it was created a Leios segment may still
+	// be written. An older one is catch-up data the peer no longer wants.
+	leiosMaxAge = 10 * time.Second
+	// praosBurst is how many Praos segments may be written in a row while a
+	// Leios segment waits, after which one Leios segment goes next. It bounds
+	// how long Leios can be starved; Praos waits at most one segment write.
+	praosBurst = 8
+)
+
+// ErrEgressStale is returned by Send for a Leios segment that was created
+// more than leiosMaxAge before it could be written. The segment is not
+// written. Segments carry no message boundary, so the sending protocol
+// cannot be resumed after one is dropped, and the muxer stops as it does for
+// any failed send.
+var ErrEgressStale = errors.New("muxer: stale Leios segment dropped")
+
+// EgressMetrics is an optional extension of Metrics. A Metrics value
+// implementing it is also told about outbound scheduling.
+type EgressMetrics interface {
+	// EgressWait reports how long a segment waited for its turn to write
+	// to the connection. It is called only for segments that had to wait.
+	EgressWait(protocolId uint16, class EgressClass, d time.Duration)
+	// EgressStaleDropped reports a Leios segment dropped unsent as stale.
+	EgressStaleDropped(protocolId uint16)
+}
+
+// egress serializes writes to the connection. Its holder is the one
+// goroutine writing; waiting segments are granted the turn Praos first, and
+// among Leios segments the most recently created first. After praosBurst
+// Praos grants in a row a waiting Leios segment goes next.
+type egress struct {
+	mu       sync.Mutex
+	busy     bool
+	praos    []*egressWaiter
+	leios    []*egressWaiter
+	praosRun int
+}
+
+type egressWaiter struct {
+	segment *Segment
+	// granted is closed when the waiter holds the turn, or err is set.
+	granted chan struct{}
+	err     error
+}
+
+func isStale(s *Segment) bool {
+	return EgressClassOf(s.GetProtocolId()) == EgressClassLeios &&
+		!s.created.IsZero() &&
+		time.Since(s.created) > leiosMaxAge
+}
+
+// acquire waits for the segment's turn to write, reporting whether it had to
+// wait. A nil error means the caller must call release when done.
+func (e *egress) acquire(s *Segment, done <-chan bool) (bool, error) {
+	if isStale(s) {
+		return false, ErrEgressStale
+	}
+	w := &egressWaiter{segment: s, granted: make(chan struct{})}
+	e.mu.Lock()
+	if !e.busy {
+		e.busy = true
+		e.mu.Unlock()
+		return false, nil
+	}
+	if EgressClassOf(s.GetProtocolId()) == EgressClassLeios {
+		e.leios = append(e.leios, w)
+	} else {
+		e.praos = append(e.praos, w)
+	}
+	e.mu.Unlock()
+	select {
+	case <-w.granted:
+		return true, w.err
+	case <-done:
+	}
+	e.mu.Lock()
+	queued := e.remove(w)
+	e.mu.Unlock()
+	if !queued {
+		// The turn was decided as the muxer stopped; hand on a granted one.
+		<-w.granted
+		if w.err == nil {
+			e.release()
+		}
+	}
+	return true, errors.New("shutting down")
+}
+
+// remove takes w out of its queue, reporting whether it was still there. The
+// caller must hold mu.
+func (e *egress) remove(w *egressWaiter) bool {
+	for _, q := range []*[]*egressWaiter{&e.praos, &e.leios} {
+		for i, c := range *q {
+			if c == w {
+				*q = append((*q)[:i], (*q)[i+1:]...)
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// release hands the turn to the next waiter, or frees it.
+func (e *egress) release() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for len(e.leios) > 0 || len(e.praos) > 0 {
+		var w *egressWaiter
+		if len(e.leios) > 0 &&
+			(len(e.praos) == 0 || e.praosRun >= praosBurst) {
+			w = e.popFreshestLeios()
+			e.praosRun = 0
+			if isStale(w.segment) {
+				w.err = ErrEgressStale
+				close(w.granted)
+				continue
+			}
+		} else {
+			w = e.praos[0]
+			e.praos = e.praos[1:]
+			if len(e.leios) > 0 {
+				e.praosRun++
+			}
+		}
+		close(w.granted)
+		return
+	}
+	e.busy = false
+	e.praosRun = 0
+}
+
+func (e *egress) popFreshestLeios() *egressWaiter {
+	best := 0
+	for i, w := range e.leios {
+		if w.segment.created.After(e.leios[best].segment.created) {
+			best = i
+		}
+	}
+	w := e.leios[best]
+	e.leios = append(e.leios[:best], e.leios[best+1:]...)
+	return w
+}
