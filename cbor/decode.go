@@ -613,17 +613,49 @@ func (d *StreamDecoder) DecodeMapHeader() (int, int, int, error) {
 
 // DecodeDiagnostic decodes the next CBOR item into a DiagnosticNode tree
 // without advancing past it as a black box. Offsets in the returned tree are
-// absolute within the underlying data buffer.
+// absolute within the underlying data buffer. The first diagnostic decode on a
+// stream establishes one cumulative default construction budget shared by all
+// subsequent diagnostic decodes.
 func (d *StreamDecoder) DecodeDiagnostic() (*DiagnosticNode, error) {
+	return d.DecodeDiagnosticWithLimits(DiagnosticParseLimits{})
+}
+
+// DecodeDiagnosticWithLimits decodes the next CBOR item with explicit
+// construction budgets. The first diagnostic decode on a stream establishes
+// one cumulative budget shared by all subsequent diagnostic decodes; limits
+// passed after that first decode do not replace it.
+func (d *StreamDecoder) DecodeDiagnosticWithLimits(
+	limits DiagnosticParseLimits,
+) (*DiagnosticNode, error) {
 	if d.EOF() {
 		return nil, errors.New("unexpected end of CBOR data")
+	}
+	if err := d.startDiagnostic(limits); err != nil {
+		return nil, err
 	}
 	return parseDiagnosticNode(d, 0)
 }
 
 // DecodeAllDiagnostic decodes all remaining CBOR items into DiagnosticNode
-// trees, stopping at end-of-data or the first decode error encountered.
+// trees with the default cumulative construction budget, stopping at
+// end-of-data or the first decode error encountered.
 func (d *StreamDecoder) DecodeAllDiagnostic() ([]*DiagnosticNode, error) {
+	return d.DecodeAllDiagnosticWithLimits(DiagnosticParseLimits{})
+}
+
+// DecodeAllDiagnosticWithLimits decodes all remaining CBOR items with one
+// cumulative construction budget, stopping at end-of-data or the first decode
+// error encountered. If an earlier diagnostic decode established the stream's
+// budget, limits does not replace it.
+func (d *StreamDecoder) DecodeAllDiagnosticWithLimits(
+	limits DiagnosticParseLimits,
+) ([]*DiagnosticNode, error) {
+	if d.EOF() {
+		return nil, nil
+	}
+	if err := d.startDiagnostic(limits); err != nil {
+		return nil, err
+	}
 	var nodes []*DiagnosticNode
 	for !d.EOF() {
 		node, err := parseDiagnosticNode(d, 0)

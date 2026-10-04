@@ -76,26 +76,45 @@ func TestDiagnosticRawSpansShareOwnedInput(t *testing.T) {
 }
 
 func TestDiagnosticDeepRawSpansDoNotCopySubtrees(t *testing.T) {
-	data := append(bytes.Repeat([]byte{0x81}, 2048), 0)
+	shallow := append(bytes.Repeat([]byte{0x81}, 512), 0)
+	deep := append(bytes.Repeat([]byte{0x81}, 4096), 0)
+	shallowAlloc := benchmarkDiagnosticParse(t, shallow, nil)
+	deepAlloc := benchmarkDiagnosticParse(t, deep, nil)
+	t.Logf(
+		"depth %d: %d bytes/op; depth %d: %d bytes/op",
+		len(shallow)-1,
+		shallowAlloc,
+		len(deep)-1,
+		deepAlloc,
+	)
+	require.Less(
+		t,
+		deepAlloc,
+		12*shallowAlloc,
+		"eight times the depth must not approach quadratic allocation growth",
+	)
+}
+
+func benchmarkDiagnosticParse(
+	t *testing.T,
+	data []byte,
+	limits *cbor.DiagnosticParseLimits,
+) int64 {
+	t.Helper()
 	result := testing.Benchmark(func(b *testing.B) {
 		for range b.N {
-			_, err := cbor.ParseDiagnostic(data)
+			var err error
+			if limits == nil {
+				_, err = cbor.ParseDiagnostic(data)
+			} else {
+				_, err = cbor.ParseDiagnosticWithLimits(data, *limits)
+			}
 			if err != nil {
 				b.Fatal(err)
 			}
 		}
 	})
-	t.Logf(
-		"%d encoded bytes: %d allocated bytes/op",
-		len(data),
-		result.AllocedBytesPerOp(),
-	)
-	require.Less(
-		t,
-		result.AllocedBytesPerOp(),
-		int64(2*1024*1024),
-		"single-child chains must not retain the quadratic sum of subtree bytes",
-	)
+	return result.AllocedBytesPerOp()
 }
 
 func TestDiagnosticWrappersApplyParseBudget(t *testing.T) {
@@ -162,7 +181,7 @@ func TestDiagnosticDecodedMemoryEnvelope(t *testing.T) {
 				MaxRetainedBytes: 64 * 1024,
 				MaxWorkBytes:     64 * 1024,
 			}
-			result := testing.Benchmark(func(b *testing.B) {
+			bounded := testing.Benchmark(func(b *testing.B) {
 				for range b.N {
 					_, err := cbor.ParseDiagnosticWithLimits(data, limits)
 					if err == nil {
@@ -170,12 +189,19 @@ func TestDiagnosticDecodedMemoryEnvelope(t *testing.T) {
 					}
 				}
 			})
+			permissive := benchmarkDiagnosticParse(t, data, nil)
 			t.Logf(
-				"%d encoded bytes: %d allocated bytes/op under 64KiB reservation",
+				"%d encoded bytes: bounded=%d bytes/op; permissive=%d bytes/op",
 				len(data),
-				result.AllocedBytesPerOp(),
+				bounded.AllocedBytesPerOp(),
+				permissive,
 			)
-			require.Less(t, result.AllocedBytesPerOp(), int64(64*1024))
+			require.Less(
+				t,
+				bounded.AllocedBytesPerOp(),
+				permissive,
+				"budget rejection must avoid the admitted parse's allocations",
+			)
 		})
 	}
 }

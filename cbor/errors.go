@@ -104,7 +104,9 @@ func (e *DecodeError) Unwrap() error {
 
 // WithDiagnostic returns a multi-line error message with diagnostic context.
 // If data is non-nil and the error has no Diagnostic node attached, the data
-// is parsed to produce one. opts is forwarded to FormatDiagnosticPretty.
+// is parsed to produce one. ParseLimits bounds that construction; a parse
+// failure, including budget exhaustion, omits the diagnostic section. The
+// remaining options are forwarded to FormatDiagnosticPretty.
 func (e *DecodeError) WithDiagnostic(
 	data []byte,
 	opts DiagnosticOptions,
@@ -142,7 +144,10 @@ func (e *DecodeError) WithDiagnostic(
 	}
 	diag := e.Diagnostic
 	if diag == nil && len(data) > 0 {
-		if parsed, perr := ParseDiagnosticWithLimits(data, opts.ParseLimits); perr == nil {
+		if parsed, perr := ParseDiagnosticWithLimits(
+			data,
+			opts.ParseLimits,
+		); perr == nil {
 			diag = parsed
 		}
 	}
