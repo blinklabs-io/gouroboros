@@ -65,6 +65,14 @@ type StateMapEntry struct {
 	Timeout                 time.Duration        // Fixed timeout for this state (0 = no timeout)
 	TimeoutFunc             func() time.Duration // Dynamic timeout; if set, overrides Timeout
 	PendingMessageByteLimit int                  // Maximum pending message bytes allowed in this state (0 = no limit)
+	// PendingReceiveByteBudget bounds the total size of received messages
+	// that are queued and not yet handled while this state is active (0 =
+	// use PendingMessageByteLimit). Unlike PendingMessageByteLimit it never
+	// rejects a message for its size: a message that does not fit waits for
+	// the queue to drain, and one larger than the whole budget is admitted
+	// once nothing else is pending, so it applies backpressure to the peer
+	// without changing which messages the protocol accepts.
+	PendingReceiveByteBudget int
 	// AllowPipelinedSend permits the role that does NOT hold agency in this
 	// state to write queued messages to the wire while the state is active.
 	// The state transition for such a message is deferred until agency

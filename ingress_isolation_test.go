@@ -413,6 +413,57 @@ func TestSlowBlockConsumerDoesNotStarveKeepAlive(t *testing.T) {
 	}
 }
 
+// TestEstimatedRangeAboveConnectionBudgetSurvivesSlowConsumer requests an
+// estimated range larger than the connection's default ingress budget while
+// the block consumer is held. The allowance block-fetch raises for the range
+// extends the budget, so every byte of an honest reply is still read and the
+// connection survives.
+func TestEstimatedRangeAboveConnectionBudgetSurvivesSlowConsumer(
+	t *testing.T,
+) {
+	t.Parallel()
+	chain := ingressTestChain(
+		t,
+		muxer.DefaultIngressBudget/ingressTestBlockPadding+12,
+	)
+	total := ingressTestChainBytes(chain)
+	require.Greater(t, total, uint64(muxer.DefaultIngressBudget))
+	client, peer := connectIngressTestPair(
+		t,
+		chain,
+		blockfetch.WithRequestPipelining(true),
+	)
+	_, err := client.conn.BlockFetch().Client.RequestRange(
+		context.Background(),
+		blockfetch.RangeRequest{
+			Start:         chain[0].point,
+			End:           chain[len(chain)-1].point,
+			ExpectedBytes: total,
+		},
+	)
+	require.NoError(t, err)
+	client.waitFor(t, peer, client.firstBlock, "the first block")
+	client.waitFor(
+		t,
+		peer,
+		peer.served,
+		"the peer to finish serving the range with the consumer held",
+	)
+	client.waitFor(t, peer, client.pongs, "a keep-alive response")
+	client.release()
+	for range chain {
+		client.waitFor(t, peer, client.blocks, "block delivery")
+	}
+	select {
+	case err := <-client.rangeDone:
+		require.NoError(t, err)
+	case err := <-client.errs:
+		t.Fatalf("client connection failed before the range completed: %v", err)
+	case <-time.After(ingressTestTimeout):
+		t.Fatal("range did not complete after the consumer was released")
+	}
+}
+
 // TestNodeToNodeIngressLimits checks that each mini-protocol registers with
 // its own ingress limit rather than one muxer-wide default.
 func TestNodeToNodeIngressLimits(t *testing.T) {
