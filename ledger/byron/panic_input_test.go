@@ -99,17 +99,8 @@ func TestNewByronTransactionInputRejectsBadArguments(t *testing.T) {
 		{name: "long hash", hash: strings.Repeat("ab", 33), idx: 0},
 		{name: "empty hash", hash: "", idx: 0},
 		{name: "negative index", hash: validHash, idx: -1},
-	}
-	// math.MaxUint32+1 is not representable as an int where int is 32 bits,
-	// so the case is built at run time and omitted on those GOARCHs, where
-	// the bound it probes cannot be reached.
-	if math.MaxInt > math.MaxUint32 {
-		aboveUint32 := int64(math.MaxUint32) + 1
-		cases = append(cases, inputCase{
-			name: "index above uint32",
-			hash: validHash,
-			idx:  int(aboveUint32),
-		})
+		// The reference's TxIn index is a Word16.
+		{name: "index above Word16", hash: validHash, idx: math.MaxUint16 + 1},
 	}
 	for _, test := range cases {
 		require.NotPanics(t, func() {
@@ -122,6 +113,10 @@ func TestNewByronTransactionInputRejectsBadArguments(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint32(3), input.OutputIndex)
 	require.Equal(t, validHash, input.Id().String())
+
+	input, err = byron.NewByronTransactionInput(validHash, math.MaxUint16)
+	require.NoError(t, err)
+	require.Equal(t, uint32(math.MaxUint16), input.OutputIndex)
 }
 
 // Produced builds its inputs from the already-typed transaction hash rather

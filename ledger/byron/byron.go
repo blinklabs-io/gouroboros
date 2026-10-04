@@ -1085,7 +1085,8 @@ type ByronTransactionInput struct {
 }
 
 // NewByronTransactionInput builds a transaction input from a hex-encoded
-// 32-byte transaction hash and an output index.
+// 32-byte transaction hash and an output index. The index is a Word16 on the
+// Byron wire (Cardano.Chain.UTxO.TxIn), so it must be in 0-65535.
 //
 // It returns an error rather than panicking, so a caller passing a value it
 // did not produce itself -- a hash off the wire, out of an API request, or
@@ -1108,12 +1109,9 @@ func NewByronTransactionInput(
 			len(tmpHash), common.Blake2b256Size,
 		)
 	}
-	// Compare the upper bound via int64 so this builds on 32-bit GOARCHs, where
-	// int is 32-bit and the untyped math.MaxUint32 constant would overflow the
-	// int comparison type. On 32-bit a positive int can never exceed MaxUint32.
-	if idx < 0 || int64(idx) > math.MaxUint32 {
+	if idx < 0 || idx > math.MaxUint16 {
 		return ByronTransactionInput{}, fmt.Errorf(
-			"output index %d out of range", idx,
+			"output index %d out of range 0-%d", idx, math.MaxUint16,
 		)
 	}
 	return ByronTransactionInput{
@@ -1159,6 +1157,12 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 			return fmt.Errorf(
 				"byron TxInUtxo tag 24 payload has %d trailing byte(s)",
 				len(innerBytes)-consumed,
+			)
+		}
+		if tmp.OutputIndex > math.MaxUint16 {
+			return fmt.Errorf(
+				"byron transaction input output index %d out of range 0-%d",
+				tmp.OutputIndex, math.MaxUint16,
 			)
 		}
 		*i = ByronTransactionInput(tmp)
