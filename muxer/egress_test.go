@@ -138,33 +138,6 @@ func TestEgressLeiosIsNotStarved(t *testing.T) {
 	requireGranted(t, leios)
 }
 
-func TestEgressDropsStaleLeios(t *testing.T) {
-	t.Parallel()
-	var e egress
-
-	// Stale on arrival, even with the connection idle.
-	_, err := e.acquire(newTestSegment(testLeiosId, 2*leiosMaxAge), nil)
-	require.ErrorIs(t, err, ErrEgressStale)
-	require.Zero(t, e.waiting())
-
-	// Stale by the time its turn comes: it must not take the turn from the
-	// waiter behind it.
-	_, err = e.acquire(newTestSegment(testPraosId, 0), nil)
-	require.NoError(t, err)
-	seg := newTestSegment(testLeiosId, 0)
-	staleWaiter := queueWaiter(t, &e, seg)
-	fresh := queueWaiter(t, &e, newTestSegment(testLeiosId, 0))
-	seg.created = time.Now().Add(-2 * leiosMaxAge)
-	e.release()
-	// The fresh segment is chosen first; release again to reach the stale.
-	requireGranted(t, fresh)
-	e.release()
-	require.ErrorIs(t, <-staleWaiter, ErrEgressStale)
-	// The turn was not handed to the dropped segment.
-	_, err = e.acquire(newTestSegment(testPraosId, 0), make(chan bool))
-	require.NoError(t, err)
-}
-
 func TestEgressStopReleasesWaiter(t *testing.T) {
 	t.Parallel()
 	var e egress
@@ -244,20 +217,13 @@ func newTestMuxer(t *testing.T, conn net.Conn) *Muxer {
 
 type egressRecorder struct {
 	Metrics
-	mu     sync.Mutex
-	waits  map[EgressClass]int
-	stales int
+	mu    sync.Mutex
+	waits map[EgressClass]int
 }
 
 func (r *egressRecorder) EgressWait(_ uint16, c EgressClass, _ time.Duration) {
 	r.mu.Lock()
 	r.waits[c]++
-	r.mu.Unlock()
-}
-
-func (r *egressRecorder) EgressStaleDropped(uint16) {
-	r.mu.Lock()
-	r.stales++
 	r.mu.Unlock()
 }
 
@@ -319,19 +285,42 @@ func TestMuxerPraosLatencyBoundedUnderLeiosSaturation(t *testing.T) {
 	require.Positive(t, rec.waits[EgressClassPraos])
 }
 
-func TestMuxerReportsStaleLeiosDrop(t *testing.T) {
+// A Leios segment that waited a long time behind a slow write is still
+// written, and the muxer, with the Praos traffic on it, keeps running.
+func TestMuxerLeiosSegmentDelayedBySlowWriteIsSent(t *testing.T) {
 	t.Parallel()
-	// The token lets a wrongly written segment finish instead of blocking.
-	conn := newGateConn(1)
-	conn.tokens <- struct{}{}
+	conn := newGateConn(2)
 	m := newTestMuxer(t, conn)
-	rec := &egressRecorder{waits: map[EgressClass]int{}}
-	m.SetMetrics(rec)
+	praosSend, _, _ := m.RegisterProtocol(testPraosId, ProtocolRoleInitiator)
+	leiosSend, _, _ := m.RegisterProtocol(testLeiosId, ProtocolRoleInitiator)
 
-	err := m.Send(newTestSegment(testLeiosId, 2*leiosMaxAge))
-	require.ErrorIs(t, err, ErrEgressStale)
-	require.Empty(t, conn.order())
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	require.Equal(t, 1, rec.stales)
+	// The Praos write blocks on the connection until a token is given.
+	praosSend <- NewSegment(testPraosId, []byte{1}, false)
+	require.Eventually(t, func() bool {
+		m.egress.mu.Lock()
+		defer m.egress.mu.Unlock()
+		return m.egress.busy
+	}, 5*time.Second, time.Millisecond)
+	// The Leios segment queues behind it and was created long ago.
+	leiosSend <- newTestSegment(testLeiosId, time.Hour)
+	stopped := func() bool {
+		select {
+		case <-m.doneChan:
+			return true
+		default:
+			return false
+		}
+	}
+	require.Eventually(t, func() bool {
+		return m.egress.waiting() == 1 || stopped()
+	}, 5*time.Second, time.Millisecond)
+	require.False(t, stopped(), "muxer stopped while Leios segment waited")
+
+	conn.tokens <- struct{}{}
+	conn.tokens <- struct{}{}
+	require.Eventually(t, func() bool {
+		return len(conn.order()) == 2 || stopped()
+	}, 5*time.Second, time.Millisecond)
+	require.False(t, stopped(), "muxer stopped; written=%v", conn.order())
+	require.Equal(t, []uint16{testPraosId, testLeiosId}, conn.order())
 }

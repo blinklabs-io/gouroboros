@@ -52,21 +52,11 @@ func EgressClassOf(protocolId uint16) EgressClass {
 }
 
 const (
-	// leiosMaxAge is how long after it was created a Leios segment may still
-	// be written. An older one is catch-up data the peer no longer wants.
-	leiosMaxAge = 10 * time.Second
 	// praosBurst is how many Praos segments may be written in a row while a
 	// Leios segment waits, after which one Leios segment goes next. It bounds
 	// how long Leios can be starved; Praos waits at most one segment write.
 	praosBurst = 8
 )
-
-// ErrEgressStale is returned by Send for a Leios segment that was created
-// more than leiosMaxAge before it could be written. The segment is not
-// written. Segments carry no message boundary, so the sending protocol
-// cannot be resumed after one is dropped, and the muxer stops as it does for
-// any failed send.
-var ErrEgressStale = errors.New("muxer: stale Leios segment dropped")
 
 // EgressMetrics is an optional extension of Metrics. A Metrics value
 // implementing it is also told about outbound scheduling.
@@ -74,8 +64,6 @@ type EgressMetrics interface {
 	// EgressWait reports how long a segment waited for its turn to write
 	// to the connection. It is called only for segments that had to wait.
 	EgressWait(protocolId uint16, class EgressClass, d time.Duration)
-	// EgressStaleDropped reports a Leios segment dropped unsent as stale.
-	EgressStaleDropped(protocolId uint16)
 }
 
 // egress serializes writes to the connection. Its holder is the one
@@ -92,23 +80,13 @@ type egress struct {
 
 type egressWaiter struct {
 	segment *Segment
-	// granted is closed when the waiter holds the turn, or err is set.
+	// granted is closed when the waiter holds the turn.
 	granted chan struct{}
-	err     error
-}
-
-func isStale(s *Segment) bool {
-	return EgressClassOf(s.GetProtocolId()) == EgressClassLeios &&
-		!s.created.IsZero() &&
-		time.Since(s.created) > leiosMaxAge
 }
 
 // acquire waits for the segment's turn to write, reporting whether it had to
 // wait. A nil error means the caller must call release when done.
 func (e *egress) acquire(s *Segment, done <-chan bool) (bool, error) {
-	if isStale(s) {
-		return false, ErrEgressStale
-	}
 	w := &egressWaiter{segment: s, granted: make(chan struct{})}
 	e.mu.Lock()
 	if !e.busy {
@@ -124,7 +102,7 @@ func (e *egress) acquire(s *Segment, done <-chan bool) (bool, error) {
 	e.mu.Unlock()
 	select {
 	case <-w.granted:
-		return true, w.err
+		return true, nil
 	case <-done:
 	}
 	e.mu.Lock()
@@ -133,9 +111,7 @@ func (e *egress) acquire(s *Segment, done <-chan bool) (bool, error) {
 	if !queued {
 		// The turn was decided as the muxer stopped; hand on a granted one.
 		<-w.granted
-		if w.err == nil {
-			e.release()
-		}
+		e.release()
 	}
 	return true, errors.New("shutting down")
 }
@@ -158,29 +134,24 @@ func (e *egress) remove(w *egressWaiter) bool {
 func (e *egress) release() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for len(e.leios) > 0 || len(e.praos) > 0 {
-		var w *egressWaiter
-		if len(e.leios) > 0 &&
-			(len(e.praos) == 0 || e.praosRun >= praosBurst) {
-			w = e.popFreshestLeios()
-			e.praosRun = 0
-			if isStale(w.segment) {
-				w.err = ErrEgressStale
-				close(w.granted)
-				continue
-			}
-		} else {
-			w = e.praos[0]
-			e.praos = e.praos[1:]
-			if len(e.leios) > 0 {
-				e.praosRun++
-			}
-		}
-		close(w.granted)
+	if len(e.leios) == 0 && len(e.praos) == 0 {
+		e.busy = false
+		e.praosRun = 0
 		return
 	}
-	e.busy = false
-	e.praosRun = 0
+	var w *egressWaiter
+	if len(e.leios) > 0 &&
+		(len(e.praos) == 0 || e.praosRun >= praosBurst) {
+		w = e.popFreshestLeios()
+		e.praosRun = 0
+	} else {
+		w = e.praos[0]
+		e.praos = e.praos[1:]
+		if len(e.leios) > 0 {
+			e.praosRun++
+		}
+	}
+	close(w.granted)
 }
 
 func (e *egress) popFreshestLeios() *egressWaiter {

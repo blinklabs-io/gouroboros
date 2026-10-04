@@ -859,8 +859,9 @@ func (m *Muxer) UnregisterProtocol(
 }
 
 // Send takes a populated Segment and writes it to the connection. Only one segment is written at a time:
-// waiting Praos segments go before Leios ones, and the freshest Leios segment goes first. A Leios segment
-// older than leiosMaxAge is not written and fails with ErrEgressStale.
+// waiting Praos segments go before Leios ones, and the most recently created Leios segment goes first.
+// Leios segments are never dropped for waiting: segments carry no message boundary, so a dropped one
+// would desynchronize the peer's stream.
 func (m *Muxer) Send(msg *Segment) error {
 	// Immediately return if we're already shutting down
 	select {
@@ -873,9 +874,6 @@ func (m *Muxer) Send(msg *Segment) error {
 	blocked, err := m.egress.acquire(msg, m.doneChan)
 	em, _ := m.getMetrics().(EgressMetrics)
 	if err != nil {
-		if em != nil && errors.Is(err, ErrEgressStale) {
-			em.EgressStaleDropped(msg.GetProtocolId())
-		}
 		return err
 	}
 	defer m.egress.release()
