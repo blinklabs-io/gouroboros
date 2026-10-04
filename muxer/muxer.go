@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -435,29 +436,39 @@ type ingressAccount struct {
 	budget int
 	room   chan struct{}
 	// extended is the sum of the budget extensions of every protocol role.
-	extended int
+	extended big.Int
+	limit    int
 	used     int
 }
 
 // limitLocked returns the budget with every extension added, saturating
-// rather than overflowing for a protocol that has asked for an unbounded
-// amount. The caller must hold mu.
+// rather than overflowing. The caller must hold mu.
 func (a *ingressAccount) limitLocked() int {
-	if a.extended > math.MaxInt-a.budget {
-		return math.MaxInt
+	return a.limit
+}
+
+func (a *ingressAccount) updateLimitLocked() {
+	maxExtension := big.NewInt(int64(math.MaxInt - a.budget))
+	if a.extended.Cmp(maxExtension) > 0 {
+		a.limit = math.MaxInt
+	} else {
+		a.limit = a.budget + int(a.extended.Int64())
 	}
-	return a.budget + a.extended
 }
 
 func (a *ingressAccount) extend(delta int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.extended = max(a.extended+delta, 0)
+	a.extended.Add(&a.extended, big.NewInt(int64(delta)))
+	if a.extended.Sign() < 0 {
+		a.extended.SetInt64(0)
+	}
+	a.updateLimitLocked()
 	a.wakeLocked()
 }
 
-// A protocol ID has two roles, so at most 2^17 roles can contribute.
-const maxBudgetExtension = math.MaxInt / (1 << 17)
+// maxBudgetExtension is the most one protocol role extends the budget by.
+const maxBudgetExtension = math.MaxInt / 64
 
 func (a *ingressAccount) wakeLocked() {
 	if a.room != nil {
@@ -467,7 +478,10 @@ func (a *ingressAccount) wakeLocked() {
 }
 
 func newIngressAccount() *ingressAccount {
-	return &ingressAccount{budget: DefaultIngressBudget}
+	return &ingressAccount{
+		budget: DefaultIngressBudget,
+		limit:  DefaultIngressBudget,
+	}
 }
 
 func (a *ingressAccount) setBudget(budget int) {
@@ -477,6 +491,7 @@ func (a *ingressAccount) setBudget(budget int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.budget = budget
+	a.updateLimitLocked()
 	a.wakeLocked()
 }
 

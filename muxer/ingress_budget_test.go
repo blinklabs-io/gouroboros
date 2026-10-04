@@ -394,12 +394,14 @@ func TestIngressBudgetExtensionsCannotOverflowAcrossRoles(t *testing.T) {
 	m := muxer.New(newMockConn())
 	defer m.Stop()
 	m.SetIngressBudget(100)
-	previous := m.IngressBudget()
 	for id := uint16(1); id <= 65; id++ {
 		m.RegisterProtocol(id, muxer.ProtocolRoleResponder)
 		require.True(t, m.SetIngressBudgetExtension(id, muxer.ProtocolRoleResponder, math.MaxInt))
-		current := m.IngressBudget()
-		require.Greater(t, current, previous)
-		previous = current
 	}
+	require.Equal(t, math.MaxInt, m.IngressBudget())
+	for _, id := range []uint16{1, 2} {
+		require.True(t, m.SetIngressBudgetExtension(id, muxer.ProtocolRoleResponder, 0))
+	}
+	require.Less(t, m.IngressBudget(), math.MaxInt)
+	require.Greater(t, m.IngressBudget(), 100)
 }
