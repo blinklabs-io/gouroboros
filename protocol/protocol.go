@@ -1579,6 +1579,28 @@ func (p *Protocol) readLoop() {
 		pendingPipelinedRequests = 0
 		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
 	}
+	waitForPendingBudget := func(budget, msgLen int, account bool) bool {
+		for {
+			p.pendingBytesMu.Lock()
+			if p.pendingRecvBytes+msgLen <= budget ||
+				p.pendingRecvBytes == 0 {
+				if account {
+					p.pendingRecvBytes += msgLen
+					p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
+				}
+				p.pendingBytesMu.Unlock()
+				return true
+			}
+			p.pendingBytesMu.Unlock()
+			select {
+			case <-p.stopChan:
+				return false
+			case <-p.muxerDoneChan:
+				return false
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}
 
 	for {
 		// Don't grab the next segment from the muxer if we still have data in the buffer
@@ -1747,30 +1769,12 @@ func (p *Protocol) readLoop() {
 			consumeMessage(scanResult.messageLength)
 			continue
 		}
-		// Wait for pending recv bytes to drop below limit before decoding.
-		// This applies TCP backpressure to the remote peer instead of
-		// disconnecting with a protocol violation during rapid catch-up sync.
-		// A message larger than the whole budget is admitted once nothing
-		// else is pending: the budget bounds what is queued, and the
-		// message size limit above is what bounds a single message.
-		if budget := p.pendingReceiveBudget(messageState); budget > 0 {
-			for {
-				p.pendingBytesMu.Lock()
-				if p.pendingRecvBytes+msgLen <= budget ||
-					p.pendingRecvBytes == 0 {
-					p.pendingBytesMu.Unlock()
-					break
-				}
-				p.pendingBytesMu.Unlock()
-				// Wait briefly for recvLoop to drain pending bytes
-				select {
-				case <-p.stopChan:
-					return
-				case <-p.muxerDoneChan:
-					return
-				case <-time.After(time.Millisecond):
-				}
-			}
+		// Explicit receive budgets can wait for slow consumers. Wait before
+		// decoding so the decoded message is not retained outside the budget.
+		explicitBudget := p.config.StateMap[messageState].PendingReceiveByteBudget
+		if explicitBudget > 0 &&
+			!waitForPendingBudget(explicitBudget, msgLen, false) {
+			return
 		}
 		msg, err := p.config.MessageFromCborFunc(
 			scanResult.messageType,
@@ -1788,10 +1792,27 @@ func (p *Protocol) readLoop() {
 			))
 			return
 		}
-		p.pendingBytesMu.Lock()
-		p.pendingRecvBytes += msgLen
-		p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
-		p.pendingBytesMu.Unlock()
+		if explicitBudget == 0 {
+			// Keep message-size-limit accounting after decoding, preserving
+			// the ordering of protocols without an explicit receive budget.
+			if budget := p.pendingReceiveBudget(messageState); budget > 0 {
+				if !waitForPendingBudget(budget, msgLen, true) {
+					return
+				}
+			} else {
+				p.pendingBytesMu.Lock()
+				p.pendingRecvBytes += msgLen
+				p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
+				p.pendingBytesMu.Unlock()
+			}
+		} else {
+			// Only recvLoop can reduce pending bytes between the wait and
+			// this accounting, so the admitted message still fits.
+			p.pendingBytesMu.Lock()
+			p.pendingRecvBytes += msgLen
+			p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
+			p.pendingBytesMu.Unlock()
+		}
 		// Add message to receive queue (blocking with shutdown checks)
 		select {
 		case p.recvQueueChan <- msg:
