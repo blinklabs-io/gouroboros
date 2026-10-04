@@ -16,6 +16,7 @@ package muxer_test
 
 import (
 	"bytes"
+	"math"
 	"testing"
 	"time"
 
@@ -255,4 +256,68 @@ func TestIngressBudgetBackpressureAdmitsWhenOwnQueueEmpty(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("backpressured role with an empty queue was not admitted")
 	}
+}
+
+// TestIngressBudgetExtensionAdmitsSolicitedIngress checks a protocol role
+// that extends the budget may queue past the base budget, up to the extended
+// total and no further, and that unregistering it ends the extension.
+func TestIngressBudgetExtensionAdmitsSolicitedIngress(t *testing.T) {
+	t.Parallel()
+
+	conn := newMockConn()
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
+	m.SetIngressBudget(200)
+	require.True(
+		t,
+		m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, 300),
+	)
+	require.False(
+		t,
+		m.SetIngressBudgetExtension(0x09, muxer.ProtocolRoleResponder, 300),
+	)
+	require.Equal(t, 500, m.IngressBudget())
+	m.Start()
+
+	stallProtocol(t, conn, m, recv, 0x01, 0)
+	// Exactly the extended budget is admitted.
+	queueBytes(t, conn, m, 0x01, 50, 500)
+	requireNoMuxerError(t, m)
+
+	conn.WriteToReadBuf(ingressSegments(t, 0x01, 1))
+	select {
+	case err := <-m.ErrorChan():
+		require.ErrorIs(t, err, muxer.ErrIngressOverflow)
+		require.ErrorContains(t, err, "connection budget")
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected a connection ingress budget overflow, got none")
+	}
+
+	m.UnregisterProtocol(0x01, muxer.ProtocolRoleResponder)
+	require.Equal(t, 200, m.IngressBudget())
+}
+
+// TestIngressBudgetExtensionIsReplacedAndCleared checks each call replaces
+// the role's extension and that zero clears it.
+func TestIngressBudgetExtensionIsReplacedAndCleared(t *testing.T) {
+	t.Parallel()
+
+	m := muxer.New(newMockConn())
+	defer m.Stop()
+	m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+	m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
+	m.SetIngressBudget(100)
+
+	require.True(t, m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, 40))
+	require.True(t, m.SetIngressBudgetExtension(0x02, muxer.ProtocolRoleResponder, 7))
+	require.Equal(t, 147, m.IngressBudget())
+	require.True(t, m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, 10))
+	require.Equal(t, 117, m.IngressBudget())
+	require.True(t, m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, 0))
+	require.Equal(t, 107, m.IngressBudget())
+	require.True(t, m.SetIngressBudgetExtension(0x02, muxer.ProtocolRoleResponder, math.MaxInt))
+	require.Greater(t, m.IngressBudget(), 107)
 }

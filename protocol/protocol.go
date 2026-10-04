@@ -334,10 +334,19 @@ func (p *Protocol) applyIngressLimitLocked() {
 	if !p.registered || p.config.Muxer == nil {
 		return
 	}
+	base := p.config.ingressLimit()
 	p.config.Muxer.SetIngressLimit(
 		p.config.ProtocolId,
 		p.muxerRole,
-		max(p.config.ingressLimit(), p.ingressAllowance),
+		max(base, p.ingressAllowance),
+	)
+	// What the protocol has solicited above its ordinary limit is data it
+	// has agreed to hold, so it extends the connection's ingress budget
+	// rather than competing with other protocols for it.
+	p.config.Muxer.SetIngressBudgetExtension(
+		p.config.ProtocolId,
+		p.muxerRole,
+		max(p.ingressAllowance-base, 0),
 	)
 	p.config.Muxer.SetIngressBackpressure(
 		p.config.ProtocolId,

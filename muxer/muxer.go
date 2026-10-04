@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -74,21 +75,22 @@ const DefaultIngressLimit = 16 * 1024 * 1024 // 16MB
 // with: the most segment payload, summed over every protocol role, that may
 // be received and not yet delivered to its protocol. The Ouroboros Network
 // Specification does not mandate an aggregate figure, so this is an
-// implementation bound. It is well above what a healthy node-to-node
-// connection queues, where the largest per-role limit is a block-fetch
-// client's, and it is what stops many individually bounded queues from
-// adding up to an unbounded total.
+// implementation bound. It stops many individually bounded queues from
+// adding up to an unbounded total. A protocol that solicits more than its
+// ordinary limit extends the budget by the excess for as long as it has
+// asked for it (see SetIngressBudgetExtension), so the budget never refuses
+// a reply the protocol has said it will accept.
 const DefaultIngressBudget = 64 * 1024 * 1024 // 64MB
 
 // ErrIngressOverflow is reported when the segment payload queued for one
 // protocol role, received and not yet delivered to that protocol, would
 // exceed its ingress limit, or when the payload queued across every protocol
-// role would exceed the connection's ingress budget. The muxer stops with this error rather than
-// waiting, because its read loop is shared by every protocol on the
-// connection, unless backpressure is enabled for that protocol role (see
-// SetIngressBackpressure).
+// role would exceed the connection's ingress budget. The muxer stops with
+// this error rather than waiting, because its read loop is shared by every
+// protocol on the connection, unless backpressure is enabled for that
+// protocol role (see SetIngressBackpressure).
 var ErrIngressOverflow = errors.New(
-	"muxer: protocol ingress exceeded its ingress limit",
+	"muxer: protocol ingress exceeded an ingress limit",
 )
 
 // errSegmentChannelClosed marks ingress arriving for a receiver that has
@@ -235,7 +237,8 @@ func (m *Muxer) SetIngressBudget(budget int) {
 	m.ingress.setBudget(budget)
 }
 
-// IngressBudget returns the connection-wide ingress budget in bytes.
+// IngressBudget returns the connection-wide ingress budget in bytes: the
+// budget set with SetIngressBudget plus every protocol role's extension.
 func (m *Muxer) IngressBudget() int {
 	return m.ingress.getBudget()
 }
@@ -244,6 +247,30 @@ func (m *Muxer) IngressBudget() int {
 // protocol role on the connection.
 func (m *Muxer) IngressInUse() int {
 	return m.ingress.inUse()
+}
+
+// SetIngressBudgetExtension raises the connection's ingress budget by extra
+// bytes for as long as it is set, on behalf of a registered protocol role
+// whose ingress limit is that much above its ordinary limit. A protocol that
+// solicits a large amount of data raises its limit with SetIngressLimit and
+// extends the budget by the same excess, so the budget bounds ordinary
+// ingress without refusing data the protocol asked for. The extension is
+// replaced by each call, a value of zero or less clears it, and it ends when
+// the role is unregistered. It reports false when the protocol role is not
+// registered.
+func (m *Muxer) SetIngressBudgetExtension(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+	extra int,
+) bool {
+	m.protocolReceiversMutex.Lock()
+	defer m.protocolReceiversMutex.Unlock()
+	recvChan, ok := m.protocolReceivers[protocolId][protocolRole]
+	if !ok {
+		return false
+	}
+	recvChan.setBudgetExtension(extra)
+	return true
 }
 
 // SetIngressLimit sets the most segment payload, in bytes, the muxer will
@@ -406,8 +433,29 @@ func (m *Muxer) ReadBufferInUse() int {
 type ingressAccount struct {
 	mu     sync.Mutex
 	budget int
-	used   int
+	// extended is the sum of the budget extensions of every protocol role.
+	extended int
+	used     int
 }
+
+// limitLocked returns the budget with every extension added, saturating
+// rather than overflowing for a protocol that has asked for an unbounded
+// amount. The caller must hold mu.
+func (a *ingressAccount) limitLocked() int {
+	if a.extended > math.MaxInt-a.budget {
+		return math.MaxInt
+	}
+	return a.budget + a.extended
+}
+
+func (a *ingressAccount) extend(delta int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.extended = max(a.extended+delta, 0)
+}
+
+// maxBudgetExtension is the most one protocol role extends the budget by.
+const maxBudgetExtension = math.MaxInt / 64
 
 func newIngressAccount() *ingressAccount {
 	return &ingressAccount{budget: DefaultIngressBudget}
@@ -425,7 +473,7 @@ func (a *ingressAccount) setBudget(budget int) {
 func (a *ingressAccount) getBudget() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.budget
+	return a.limitLocked()
 }
 
 func (a *ingressAccount) inUse() int {
@@ -440,7 +488,7 @@ func (a *ingressAccount) inUse() int {
 func (a *ingressAccount) reserve(n int, force bool) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !force && a.used+n > a.budget {
+	if !force && n > a.limitLocked()-a.used {
 		return false
 	}
 	a.used += n
@@ -468,8 +516,10 @@ type segmentChannel struct {
 	account *ingressAccount
 	// mu guards every field below it except the channels, which are
 	// written only at construction and in stop.
-	mu           sync.Mutex
-	limit        int
+	mu    sync.Mutex
+	limit int
+	// extension is this role's share of the connection budget's extension.
+	extension    int
 	backpressure bool
 	// room, when non-nil, is closed and cleared whenever a waiting enqueue
 	// might now succeed: a dequeue, or a change of limit or backpressure.
@@ -513,6 +563,19 @@ func (sc *segmentChannel) setLimit(limit int) {
 	sc.wakeEnqueueLocked()
 }
 
+func (sc *segmentChannel) setBudgetExtension(extra int) {
+	// Clamped so the sum over every role cannot overflow an int.
+	extra = min(max(extra, 0), maxBudgetExtension)
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	if extra == sc.extension {
+		return
+	}
+	sc.account.extend(extra - sc.extension)
+	sc.extension = extra
+	sc.wakeEnqueueLocked()
+}
+
 func (sc *segmentChannel) setBackpressure(enabled bool) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
@@ -542,12 +605,12 @@ func (sc *segmentChannel) reportDepthLocked() {
 }
 
 // enqueue appends msg to the queue. Payload past the ingress limit, or past
-// the connection's ingress budget, is refused with ErrIngressOverflow: the caller is the read loop every
-// protocol on the connection depends on, so it does not wait for this
-// protocol's consumer to make room. The exception is a protocol role with
-// backpressure enabled, for which enqueue waits for room instead, holding up
-// the whole read loop, until the segment fits, backpressure is disabled, or
-// the receiver or muxer stops.
+// the connection's ingress budget, is refused with ErrIngressOverflow: the
+// caller is the read loop every protocol on the connection depends on, so it
+// does not wait for this protocol's consumer to make room. The exception is a
+// protocol role with backpressure enabled, for which enqueue waits for room
+// instead, holding up the whole read loop, until the segment fits,
+// backpressure is disabled, or the receiver or muxer stops.
 func (sc *segmentChannel) enqueue(msg *Segment) error {
 	var waitStart time.Time
 	defer func() {
@@ -721,6 +784,8 @@ func (s *segmentChannel) stop() {
 	// connection budget is returned here.
 	s.account.release(s.pendingBytes)
 	s.pendingBytes = 0
+	s.account.extend(-s.extension)
+	s.extension = 0
 	s.queue = nil
 	if s.ch != nil {
 		close(s.ch)
@@ -1096,8 +1161,7 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from initiator when we're not configured as a responder
-		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator &&
-			!msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator && !msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from initiator when not configured as a responder",
@@ -1106,8 +1170,7 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from responder when we're not configured as an initiator
-		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeResponder &&
-			msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeResponder && msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from responder when not configured as an initiator",
