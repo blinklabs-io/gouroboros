@@ -339,10 +339,11 @@ func DecodeGeneric(cborData []byte, dest any) error {
 // StreamDecoder provides sequential CBOR decoding with position tracking.
 // It wraps the underlying decoder to track byte offsets of each decoded item.
 type StreamDecoder struct {
-	dec      *_cbor.Decoder
-	decMode  _cbor.DecMode // cached decode mode for reuse in Advance()
-	data     []byte
-	consumed int // bytes consumed by Advance() calls
+	dec        *_cbor.Decoder
+	decMode    _cbor.DecMode // cached decode mode for reuse in Advance()
+	data       []byte
+	consumed   int // bytes consumed by Advance() calls
+	diagnostic *diagnosticBudget
 }
 
 // NewStreamDecoder creates a decoder for sequential CBOR item extraction with position tracking.

@@ -87,6 +87,19 @@ func (v *Value) unmarshalCBOR(
 		)
 	}
 	if retainCbor {
+		// The custom walker must inherit the caller's limits before allocating.
+		// Decode consumes one item, so bytes after that item remain allowed.
+		if err := decMode.Wellformed(data); err != nil {
+			var extra *_cbor.ExtraneousDataError
+			if !errors.As(err, &extra) {
+				return 0, err
+			}
+			dec := decMode.NewDecoder(bytes.NewReader(data))
+			if err := dec.Skip(); err != nil {
+				return 0, err
+			}
+			data = data[:dec.NumBytesRead()]
+		}
 		// Save the original CBOR
 		v.cborData = string(data)
 	} else {

@@ -188,8 +188,14 @@ func decodeLeiosTransactionReferences(
 			err,
 		)
 	}
-	refs := make([]LeiosTransactionReference, 0, count)
-	seen := make(map[Blake2b256]struct{}, count)
+	// A hash32 needs a two-byte header plus its payload, and size needs
+	// at least one byte. A claimed count cannot allocate absent entries.
+	const minimumReferenceBytes = Blake2b256Size + 3
+	if count > (len(raw)-dec.Position())/minimumReferenceBytes {
+		return nil, errors.New("leios reference count exceeds encoded entries")
+	}
+	refs := make([]LeiosTransactionReference, 0)
+	seen := make(map[Blake2b256]struct{})
 	for idx := range count {
 		var hashBytes cbor.ByteString
 		if _, _, err := dec.Decode(&hashBytes); err != nil {

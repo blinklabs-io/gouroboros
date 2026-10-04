@@ -322,6 +322,60 @@ framework. Message-specific limits and configuration validation are enforced
 by the owning protocol implementation. This document intentionally does not
 claim limits for protocols or states whose current map contains no such entry.
 
+## CBOR allocation budgets
+
+Encoded-message admission and decoded allocation use different bounds. The
+protocol framework's effective read-buffer allowance is 16 MiB by default and
+can be raised by the caller. State-map limits listed above apply before message
+decoding. A response containing an entire ledger-state map uses the normal
+mode's 10,000,000-element collection allowance. The strict mode's 131,072-element
+allowance applies when a caller explicitly chooses it. Both modes enforce their
+own nesting and collection limits on custom `Value` destinations before tree
+construction. Prefix decoding retains only the consumed item's bytes and leaves
+subsequent items available to the caller.
+
+| Message family | Encoded allowance | Decoded allocation contract |
+| --- | --- | --- |
+| Handshake proposal/acceptance | 5,760 bytes | Version maps pass the selected CBOR mode's pre-allocation validation. |
+| Keep Alive | 65,535 bytes | Cookies and message discriminants have fixed scalar shapes. |
+| Local State Query query/result | Effective read-buffer allowance | Query input sets have their own 10,000-item request bound. Result maps retain the normal decoder's larger allowance, including whole-UTxO queries. Raw result storage grows with the actual encoded payload. |
+| Local Tx Monitor next-transaction reply | Effective read-buffer allowance | Transaction bytes and the optional reply envelope are validated before typed decoding. |
+| Local Tx Submission submit/rejection | Effective read-buffer allowance | Transaction bytes and raw rejection data are retained from validated input. |
+| Leios Fetch block, transaction and vote replies | Effective read-buffer allowance per message; range retention defaults to 64 MiB and 1,000 messages | Raw-item collections validate encoded items before allocation. Range retention is enforced by the client separately. |
+| Leios Notify vote offers | 256 KiB and 1,000 votes | Definite counts and indefinite entries are checked before the vote list is allocated. Other notifications use the configured pending-byte allowance. |
+| Leios Votes vote reply | Effective read-buffer allowance | Typed fields use the normal CBOR mode; request counts are independently limited to 1,000. |
+| Peras vote IDs/objects | `maxObjectsUnacknowledged × 1,100 + 256` bytes | Lists are checked against the supported outstanding-window maximum. Fixed vote envelopes are checked before opaque bytes are retained. |
+| Leios endorser-block references | At least 35 encoded bytes per valid reference | A hash32 uses a two-byte header and 32 payload bytes; size uses at least one byte. Counts exceeding available encoded entries are rejected before allocation. Collections grow as entries validate. |
+
+Typed CBOR decoders validate definite and indefinite collection claims before
+materializing them. Seven-byte truncated local-query, local-transaction, Leios
+and Peras reply vectors exercise this admission separately from healthy large
+responses. A whole-UTxO response with 131,073 valid outputs occupies about
+9 MiB and remains accepted. Collection policies retain historical duplicate-map
+behavior and optional set tags in their owning ledger eras.
+
+Diagnostic tree construction has a separate inspection budget. Its default
+retained-byte and work allowances are 128 MiB, eight times `Diagnose`'s 16 MiB
+input allowance. This accommodates owned input, growing decoder scratch and
+copied string payloads. Node admission reserves eight node-sized storage units
+plus 512 bytes of scalar-decoder scratch. Node and cumulative collection-item
+defaults are derived from that reservation. Array entries, map pairs and
+indefinite-string chunks share one collection counter. Input visits, node
+visits and payload-copy work share one work counter. Tag-24 block wrappers and
+their embedded trees spend the same operation budget.
+
+`DiagnosticOptions.ParseLimits` and `ParseDiagnosticWithLimits` configure these
+inspection budgets. Zero fields choose the documented defaults; negative fields
+are rejected. `MaxDepth`, `MaxArrayItems` and `MaxByteLength` control rendering.
+Every raw span is a capacity-bounded, read-only view into one owned input buffer;
+copy it before modification. String values and indefinite-string concatenation
+are charged separately before copying.
+
+The shared block corpus spans Byron through Conway. Its largest diagnostic
+case has 17,943 encoded bytes, 1,543 nodes and depth 18. Construction budgets
+cover the corpus and bound hostile scalar arrays, maps, nested tags and string
+chunks without imposing inspection budgets on ledger validation.
+
 The repository's `build-examples` workflow runs `make build` on pull requests;
 that target builds every program under `examples/` against the public API
 using the root module's dependencies.
