@@ -15,6 +15,7 @@
 package byron_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -72,4 +73,42 @@ func TestByronTransactionInputRejectsTrailingBytesInTag24Payload(t *testing.T) {
 	require.NoError(t, err)
 	var decoded byron.ByronTransactionInput
 	require.Error(t, decoded.UnmarshalCBOR(outer))
+}
+
+// The reference decodes a TxIn index as a Word16, so 65535 is the largest
+// index a Byron input can carry and anything above it fails at decode time.
+func TestByronTransactionInputRejectsIndexAboveWord16(t *testing.T) {
+	t.Parallel()
+	hash := common.Blake2b256{1, 2, 3}
+	decode := func(idx uint64) error {
+		inner, err := cbor.Encode([]any{hash, idx})
+		require.NoError(t, err)
+		outer, err := cbor.Encode([]any{0, cbor.WrappedCbor(inner)})
+		require.NoError(t, err)
+		var decoded byron.ByronTransactionInput
+		if err := decoded.UnmarshalCBOR(outer); err != nil {
+			return err
+		}
+		assert.Equal(t, uint32(idx), decoded.OutputIndex)
+		return nil
+	}
+	require.NoError(t, decode(0))
+	require.NoError(t, decode(math.MaxUint16))
+	for _, idx := range []uint64{
+		math.MaxUint16 + 1,
+		math.MaxUint32,
+	} {
+		require.ErrorContains(t, decode(idx), "output index")
+	}
+
+	// A transaction carrying such an input must not decode either.
+	body, err := cbor.Encode([]any{
+		[]any{[]any{0, cbor.WrappedCbor(mustEncode(t, []any{hash, uint64(math.MaxUint16 + 1)}))}},
+		[]any{},
+		map[any]any{},
+	})
+	require.NoError(t, err)
+	var decodedBody byron.ByronTransactionBody
+	_, err = cbor.Decode(body, &decodedBody)
+	require.ErrorContains(t, err, "output index")
 }

@@ -12,13 +12,5 @@ updates:
   - package-ecosystem: "gomod"
     directories:
       - "/"
-      - "/examples/block-fetch"
-      - "/examples/chain-sync"
-      - "/examples/chain-tip"
-      - "/examples/peer-sharing"
-      - "/examples/ping"
-      - "/examples/state-query"
-      - "/examples/tx-monitor"
-      - "/examples/tx-submission"
     schedule:
       interval: "weekly"

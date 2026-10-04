@@ -18,6 +18,7 @@ package pipeline
 
 import (
 	"context"
+	"math"
 	"time"
 
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -75,6 +76,32 @@ type Pipeline interface {
 	Stats() PipelineStats
 }
 
+// StageTimings summarizes how long a pipeline stage took to process the items
+// it completed successfully. Failed items are excluded because their recorded
+// duration covers only part of the work.
+//
+// The three fields are read from independent atomic counters, so a snapshot
+// taken while items are being recorded can pair a Count with a Total from a
+// slightly later item. The skew is bounded by the items in flight and does not
+// accumulate.
+type StageTimings struct {
+	// Count is the number of successful items recorded.
+	Count uint64
+	// Total is the sum of the recorded durations.
+	Total time.Duration
+	// Max is the longest recorded duration.
+	Max time.Duration
+}
+
+// Mean returns the average recorded duration, or zero when nothing has been
+// recorded.
+func (t StageTimings) Mean() time.Duration {
+	if t.Count == 0 || t.Count > math.MaxInt64 {
+		return 0
+	}
+	return t.Total / time.Duration(t.Count)
+}
+
 // PipelineStats contains statistics about pipeline performance.
 type PipelineStats struct {
 	// BlocksSubmitted is the total number of blocks submitted to the pipeline.
@@ -91,6 +118,13 @@ type PipelineStats struct {
 	ValidationErrors uint64
 	// ApplyErrors is the total number of apply errors.
 	ApplyErrors uint64
+
+	// DecodeTimings summarizes the durations of successful decodes.
+	DecodeTimings StageTimings
+	// ValidateTimings summarizes the durations of successful validations.
+	ValidateTimings StageTimings
+	// ApplyTimings summarizes the durations of successful applies.
+	ApplyTimings StageTimings
 
 	// CurrentQueueDepth is the current number of blocks in the pipeline.
 	CurrentQueueDepth int

@@ -180,18 +180,7 @@ func (h *pipelineHarness) nextBlock(t *testing.T) deliveredBlock {
 
 func (h *pipelineHarness) nextDone(t *testing.T) rangeResult {
 	t.Helper()
-	select {
-	case res := <-h.done:
-		return res
-	case err := <-h.connErrs:
-		t.Fatalf(
-			"unexpected connection error while awaiting range done: %s",
-			err,
-		)
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for a range request to complete")
-	}
-	return rangeResult{}
+	return awaitRangeDone(t, h, false)
 }
 
 // TestRequestRangePipelinedOutstandingRequests covers request accounting with
@@ -433,6 +422,8 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, deliveredBlock{requestId: id1, slot: 100}, waitForBlock(t, h))
+	// The excess BatchDone surfaces a connection error right after this done
+	// is written, so both channels can be ready; tolerate the error.
 	first := waitForDone(t, h)
 	require.Equal(t, id1, first.requestId)
 	require.NoError(t, first.err)
@@ -474,15 +465,33 @@ func waitForBlock(t *testing.T, h *pipelineHarness) deliveredBlock {
 // because a protocol violation is reported on both paths.
 func waitForDone(t *testing.T, h *pipelineHarness) rangeResult {
 	t.Helper()
+	return awaitRangeDone(t, h, true)
+}
+
+// awaitRangeDone is the single wait for a range request to resolve. When
+// tolerateConnErr is false, a connection error is fatal.
+func awaitRangeDone(
+	t *testing.T,
+	h *pipelineHarness,
+	tolerateConnErr bool,
+) rangeResult {
+	t.Helper()
 	deadline := time.After(testTimeout)
 	connErrs := h.connErrs
 	for {
 		select {
 		case res := <-h.done:
 			return res
-		case _, ok := <-connErrs:
+		case err, ok := <-connErrs:
 			if !ok {
 				connErrs = nil
+				continue
+			}
+			if !tolerateConnErr {
+				t.Fatalf(
+					"unexpected connection error while awaiting range done: %s",
+					err,
+				)
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for a range request to resolve")

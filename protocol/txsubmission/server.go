@@ -92,6 +92,7 @@ func (s *Server) initProtocol() {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        stateInit,
+		IngressLimit:        MaxPendingMessageBytes,
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()

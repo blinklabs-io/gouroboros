@@ -35,6 +35,11 @@ const (
 	ConfirmTimeout = 10 * time.Second // N2N: timeout for server to accept or refuse versions
 )
 
+// MaxPendingMessageBytes is the largest handshake message accepted in either
+// active state, matching the reference implementation's
+// byteLimitsHandshake (4 x 1440 bytes, one TCP initial congestion window).
+const MaxPendingMessageBytes = 5760
+
 var (
 	statePropose = protocol.NewState(1, "Propose")
 	stateConfirm = protocol.NewState(2, "Confirm")
@@ -68,14 +73,16 @@ var proposeTransitions = []protocol.StateTransition{
 // StateMapNtN is the N2N handshake state machine with timeouts per spec Table 3.4.
 var StateMapNtN = protocol.StateMap{
 	statePropose: protocol.StateMapEntry{
-		Agency:      protocol.AgencyClient,
-		Timeout:     ProposeTimeout,
-		Transitions: proposeTransitions,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 ProposeTimeout,
+		Transitions:             proposeTransitions,
 	},
 	stateConfirm: protocol.StateMapEntry{
-		Agency:      protocol.AgencyServer,
-		Timeout:     ConfirmTimeout,
-		Transitions: confirmTransitions,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 ConfirmTimeout,
+		Transitions:             confirmTransitions,
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
@@ -85,12 +92,14 @@ var StateMapNtN = protocol.StateMap{
 // StateMapNtC is the N2C handshake state machine with no timeouts per spec Table 3.5.
 var StateMapNtC = protocol.StateMap{
 	statePropose: protocol.StateMapEntry{
-		Agency:      protocol.AgencyClient,
-		Transitions: proposeTransitions,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Transitions:             proposeTransitions,
 	},
 	stateConfirm: protocol.StateMapEntry{
-		Agency:      protocol.AgencyServer,
-		Transitions: confirmTransitions,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Transitions:             confirmTransitions,
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,

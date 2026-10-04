@@ -61,7 +61,9 @@ taken yet.
 | Block Fetch server | 2,500,000 |
 | Tx Submission | 721,424 |
 | Chain Sync (node-to-node), Peer Sharing | 655,350 |
-| Keep Alive, Handshake, local protocols | effective `MaxReadBufferSize` (16 MB) |
+| Keep Alive | 655,350 (floor; state limit 65,535) |
+| Handshake | 655,350 (floor; state limit 5,760) |
+| Local protocols | effective `MaxReadBufferSize` (16 MB) |
 
 The muxer also bounds the segment payload queued across every protocol role
 on the connection (`Muxer.SetIngressBudget`, default
@@ -240,6 +242,12 @@ refused.
 
 ## Handshake
 
+Both state maps bound the pending message bytes of the Propose and Confirm
+states at 5,760 bytes (`handshake.MaxPendingMessageBytes`), the reference
+implementation's `byteLimitsHandshake` (4 x 1440). A larger message is refused
+before it is decoded, so a peer that has not completed the handshake cannot
+make the node buffer and decode a message up to the read-buffer cap.
+
 For N2N, `Propose` and `Confirm` each have a 10-second timeout. The framework
 does not arm the initial state's timer by default; the N2N handshake server
 opts into its configured `Propose` timeout. N2C has no state timeouts and does
@@ -248,6 +256,10 @@ timeout. Client and server instances copy the N2N map and can override the
 applicable timeout with `WithTimeout`; the N2C map remains timeout-free.
 
 ## Keep Alive
+
+Both active states bound pending message bytes at 65,535
+(`keepalive.MaxPendingMessageBytes`), the reference implementation's
+`byteLimitsKeepAlive`.
 
 | State | Timeout |
 | --- | ---: |
@@ -338,4 +350,5 @@ by the owning protocol implementation. This document intentionally does not
 claim limits for protocols or states whose current map contains no such entry.
 
 The repository's `build-examples` workflow runs `make build` on pull requests;
-that target builds every module under `examples/` against the public API.
+that target builds every program under `examples/` against the public API
+using the root module's dependencies.

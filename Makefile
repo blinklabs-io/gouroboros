@@ -16,10 +16,6 @@ NILAWAY_FLAGS ?= -include-pkgs=github.com/blinklabs-io/gouroboros
 mod-tidy:
 	# Needed to fetch new dependencies and add them to go.mod
 	go mod tidy
-	@set -e; for example in $(EXAMPLES); do \
-		echo "tidy examples/$$example"; \
-		go -C $(EXAMPLE_DIR)/$$example mod tidy; \
-	done
 
 build: $(EXAMPLES)
 
@@ -35,25 +31,12 @@ golines:
 
 test: mod-tidy
 	go test -v -race ./...
-	@set -e; for example in $(EXAMPLES); do \
-		echo "test examples/$$example"; \
-		go -C $(EXAMPLE_DIR)/$$example test -v -race ./...; \
-	done
 
 lint:
 	golangci-lint run ./...
-	@set -e; for example in $(EXAMPLES); do \
-		echo "lint examples/$$example"; \
-		cd $(EXAMPLE_DIR)/$$example && golangci-lint run ./...; \
-	done
 
 nilaway: mod-tidy ## Run nilaway nil safety analysis
 	go run go.uber.org/nilaway/cmd/nilaway@latest $(NILAWAY_FLAGS) ./...
 
-# Build example binaries
-# Depends on source and module files to determine when rebuild is needed
-.SECONDEXPANSION:
-$(EXAMPLES): $(GO_FILES) $(GO_MOD_FILES) \
-	$$(EXAMPLE_DIR)/$$@/go.mod \
-	$$(EXAMPLE_DIR)/$$@/go.sum
+$(EXAMPLES): $(GO_FILES) $(GO_MOD_FILES)
 	go -C $(EXAMPLE_DIR)/$(@) build -o $(ROOT_DIR)/$(@) .

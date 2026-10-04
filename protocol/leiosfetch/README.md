@@ -88,11 +88,19 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
 | `LastBlockAndTxsInRange` | 8 | Server → Client | Last block in range |
 | `Done` | 9 | Client → Server | Terminate protocol |
 
-Message IDs match the [`leios-prototype` CDDL at revision
-8b946c4](https://github.com/cardano-scaling/cardano-blueprint/blob/8b946c431e3209b2aa70bf5362f64f42e56fb849/src/network/node-to-node/leios-fetch/messages.cddl):
-it defines tags 0–9, with 7 for the next block in a range and 8 for the last.
-The prototype marks range messages 6–8 as not yet implemented and describes
-its CDDL tags as provisional. It defines no not-found messages at IDs 10 or 11.
+Message IDs follow the [`leios-prototype` CDDL at revision
+8b946c4](https://github.com/cardano-scaling/cardano-blueprint/blob/8b946c431e3209b2aa70bf5362f64f42e56fb849/src/network/node-to-node/leios-fetch/messages.cddl)
+only in part:
+
+- Defined: tags 0–3 and 9.
+- Commented out as "not implemented yet in leios-prototype": tags 6
+  (`BlockRangeRequest`), 7 (`NextBlockAndTxsInRange`) and 8
+  (`LastBlockAndTxsInRange`).
+- Not in that CDDL: tags 4 and 5 (`VotesRequest`, `Votes`), and any
+  not-found message at IDs 10 or 11. CIP-0164 describes vote requests as a
+  separate `MsgLeiosVotesRequestNext` / `MsgLeiosVote` exchange, so tags 4–5
+  here have no upstream source at this revision.
+
 CIP-0164 says a server should disconnect when requested data is unavailable.
 
 ## State Transitions

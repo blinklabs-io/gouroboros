@@ -643,6 +643,16 @@ func (c *Connection) setupConnection() error {
 		handshake.WithProtocolVersionMap(protoVersions),
 		handshake.WithFinishedFunc(
 			func(ctx handshake.CallbackContext, version uint16, versionData protocol.VersionData) error {
+				// Only a query reply finishes without a negotiated version,
+				// and mini-protocols are not started in query mode.
+				knownVersion := protocol.GetProtocolVersion(version).
+					NewVersionDataFromCborFunc != nil
+				if !c.queryMode && (!knownVersion || versionData == nil) {
+					return fmt.Errorf(
+						"handshake finished without an accepted version: %d",
+						version,
+					)
+				}
 				c.handshakeVersion = version
 				c.handshakeVersionData = versionData
 				if c.useNodeToNodeProto && versionData != nil {

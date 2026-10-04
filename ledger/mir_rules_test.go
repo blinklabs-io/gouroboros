@@ -93,15 +93,19 @@ func TestUtxoValidateDelegationMirNegativeDelta(t *testing.T) {
 		assert.Zero(t, big.NewInt(-1).Cmp(target.Delta))
 	})
 
-	t.Run("negative delta is accepted from Alonzo", func(t *testing.T) {
-		require.NoError(t, shelley.UtxoValidateDelegation(
+	t.Run("negative delta is not an embargo from Alonzo", func(t *testing.T) {
+		// The sign is no longer rejected on its own; the delta is bounded
+		// by the pending rewards (TestUtxoValidateDelegationMirProducesNegativeUpdate).
+		err := shelley.UtxoValidateDelegation(
 			poolCertTx(mirCert(0, map[*common.Credential]*big.Int{
 				credential: big.NewInt(-1),
 			})),
 			0,
 			ls,
 			alonzoPparams(0),
-		))
+		)
+		var embargo shelley.MIRNegativesNotCurrentlyAllowedError
+		require.NotErrorAs(t, err, &embargo)
 	})
 
 	t.Run("non-negative deltas are accepted before Alonzo", func(t *testing.T) {
@@ -116,17 +120,139 @@ func TestUtxoValidateDelegationMirNegativeDelta(t *testing.T) {
 		))
 	})
 
-	t.Run("pot-to-pot transfer is untouched before Alonzo", func(t *testing.T) {
-		// The opposite-pot amount is coin, which is uint, so this branch
-		// carries no sign for the predicate to reject. Whether the
-		// transfer itself is embargoed before Alonzo
-		// (MIRTransferNotCurrentlyAllowed) is a separate predicate that
-		// this rule does not implement.
-		require.NoError(t, shelley.UtxoValidateDelegation(
-			poolCertTx(mirOppositePotCert(0, 1_000_000)),
+	t.Run("pot-to-pot transfer is rejected before Alonzo", func(t *testing.T) {
+		err := shelley.UtxoValidateDelegation(
+			poolCertTx(mirOppositePotCert(1, 1_000_000)),
 			0,
 			ls,
 			maryPparams(0),
+		)
+		var target shelley.MIRTransferNotCurrentlyAllowedError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, uint(1), target.Source)
+		assert.Equal(t, uint64(1_000_000), target.Amount)
+	})
+
+	t.Run("pot-to-pot transfer is accepted from Alonzo", func(t *testing.T) {
+		require.NoError(t, shelley.UtxoValidateDelegation(
+			poolCertTx(mirOppositePotCert(1, 1_000_000)),
+			0,
+			ls,
+			alonzoPparams(0),
 		))
+	})
+}
+
+// pendingRewardsState is a ledger state that reports fixed pending
+// instantaneous rewards, keyed by source pot and credential.
+type pendingRewardsState struct {
+	common.LedgerState
+	pending map[[2]uint]*big.Int
+}
+
+func (s pendingRewardsState) PendingInstantaneousRewards(
+	source uint,
+	cred common.Credential,
+) (*big.Int, error) {
+	return s.pending[[2]uint{source, uint(cred.Credential[0])}], nil
+}
+
+// TestUtxoValidateDelegationMirProducesNegativeUpdate covers
+// MIRProducesNegativeUpdate: from Alonzo a negative delta is legal, but the
+// credential's pending rewards in that pot, including those of earlier
+// certificates in the transaction and block, must stay non-negative.
+func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
+	t.Parallel()
+
+	credential := mirStakeCredential(0xab)
+	reserves := func(delta int64) common.Certificate {
+		return mirCert(0, map[*common.Credential]*big.Int{
+			credential: big.NewInt(delta),
+		})
+	}
+	withPending := pendingRewardsState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		pending:     map[[2]uint]*big.Int{{0, 0xab}: big.NewInt(5)},
+	}
+	noPending := pendingRewardsState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+	}
+	validate := func(
+		ls common.LedgerState,
+		certs ...common.Certificate,
+	) error {
+		return shelley.UtxoValidateDelegation(
+			poolCertTx(certs...), 0, ls, alonzoPparams(0),
+		)
+	}
+	var target shelley.MIRProducesNegativeUpdateError
+
+	t.Run("delta below the pending rewards is rejected", func(t *testing.T) {
+		err := validate(withPending, reserves(-6))
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, uint(0), target.Source)
+		assert.Zero(t, big.NewInt(5).Cmp(target.Pending))
+		require.NotNil(t, target.Delta)
+		require.NotNil(t, target.PendingAfter)
+		assert.Equal(t, "-6", target.Delta.String())
+		assert.Equal(t, "-1", target.PendingAfter.String())
+		assert.Contains(t, target.Error(), "delta -6 pending after -1")
+	})
+
+	t.Run("delta equal to the pending rewards is accepted", func(t *testing.T) {
+		require.NoError(t, validate(withPending, reserves(-5)))
+	})
+
+	t.Run("negative delta with no pending rewards is rejected", func(t *testing.T) {
+		require.ErrorAs(t, validate(noPending, reserves(-1)), &target)
+	})
+
+	t.Run("negative delta without pending rewards state is unavailable", func(t *testing.T) {
+		var unavailable shelley.PendingInstantaneousRewardsUnavailableError
+		require.ErrorAs(
+			t,
+			validate(mockledger.NewLedgerStateBuilder().Build(), reserves(-1)),
+			&unavailable,
+		)
+		assert.Equal(t, uint(0), unavailable.Source)
+		require.NotNil(t, unavailable.Delta)
+		assert.Equal(t, "-1", unavailable.Delta.String())
+		assert.Contains(t, unavailable.Error(), "delta -1")
+		require.NoError(t, validate(
+			mockledger.NewLedgerStateBuilder().Build(),
+			reserves(4),
+			reserves(-4),
+		))
+	})
+
+	t.Run("pending rewards in the other pot do not count", func(t *testing.T) {
+		treasury := mirCert(1, map[*common.Credential]*big.Int{
+			credential: big.NewInt(-1),
+		})
+		require.ErrorAs(t, validate(withPending, treasury), &target)
+	})
+
+	t.Run("earlier certificates in the transaction accumulate", func(t *testing.T) {
+		require.NoError(t, validate(withPending, reserves(-3), reserves(-2)))
+		require.ErrorAs(
+			t,
+			validate(withPending, reserves(-3), reserves(-3)),
+			&target,
+		)
+		require.NoError(t, validate(
+			mockledger.NewLedgerStateBuilder().Build(),
+			reserves(4),
+			reserves(-4),
+		))
+	})
+
+	t.Run("earlier transactions in the block accumulate", func(t *testing.T) {
+		block := common.NewBlockLedgerState(noPending)
+		require.NoError(
+			t,
+			block.ApplyTransaction(poolCertTx(reserves(5)), alonzoPparams(0)),
+		)
+		require.NoError(t, validate(block, reserves(-5)))
+		require.ErrorAs(t, validate(block, reserves(-6)), &target)
 	})
 }

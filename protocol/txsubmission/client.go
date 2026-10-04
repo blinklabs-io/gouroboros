@@ -85,6 +85,7 @@ func (c *Client) initProtocol() {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        stateInit,
+		IngressLimit:        MaxPendingMessageBytes,
 	}
 	p := protocol.New(protoConfig)
 	c.protocolMu.Lock()
@@ -310,10 +311,10 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	// ProtocolErrorAckedTooManyTxids when the peer acknowledges more IDs than
 	// it was sent, and ProtocolErrorRequestedTooManyTxids when
 	// unackedNo - ackNo + reqNo exceeds maxUnacked. MaxPendingMessageBytes is
-	// derived from that same window, so a larger request cannot be answered:
-	// the reply would exceed our own outbound queue limit and SendMessage
-	// would fail the protocol, dropping the connection over a request we
-	// should have refused.
+	// derived from that same window, and a request far outside it can ask for
+	// a reply larger than our own outbound queue limit, so SendMessage would
+	// fail the protocol, dropping the connection over a request we should
+	// have refused.
 	c.unackedMu.Lock()
 	unacked := append([]TxIdAndSize(nil), c.unackedTxIds...)
 	c.unackedMu.Unlock()
@@ -408,10 +409,9 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 	}
 	msgRequestTxs := msg.(*MsgRequestTxs)
 	// A peer may only request transactions it has left unacknowledged, so a
-	// larger request cannot be satisfied: the reply is bounded by
+	// larger request cannot be satisfied: the receiver bounds the reply by
 	// MaxPendingMessageBytes, which is derived from the same window. Refuse
-	// it here rather than let the callback materialize every body first and
-	// have SendMessage reject the result as a violation of our own.
+	// it here rather than let the callback materialize every body first.
 	if len(msgRequestTxs.TxIds) > MaxUnackedTxIds {
 		c.Protocol.Logger().
 			Error("TxSubmission tx request count exceeded",

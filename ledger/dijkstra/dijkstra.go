@@ -447,35 +447,30 @@ func decodeDijkstraPerasCertificate(
 // protocol_version).
 const babbageHeaderBodyFieldCount = 10
 
+// dijkstraHeaderBodyFieldCount is the exact number of fields in a current
+// Dijkstra block header body: the ten Babbage fields followed by
+// leios_certified and leios_announcement.
+const dijkstraHeaderBodyFieldCount = babbageHeaderBodyFieldCount + 2
+
+// maxLeiosAnnouncedEbSize is the largest announced_eb_size (uint .size 4).
+const maxLeiosAnnouncedEbSize = 1<<32 - 1
+
 type DijkstraBlockHeader struct {
 	babbage.BabbageBlockHeader
-	// LeiosHeaderExtension holds the Dijkstra/Leios block-header fields that
-	// follow Babbage's protocol_version field. As of the ouroboros-leios
-	// prototype-2026w27 release (IntersectMBO/cardano-ledger #5889) these are
-	// two fields: leios_certified (bool) and leios_announcement
-	// ([announced_eb : hash32, announced_eb_size : uint .size 4] / nil). Earlier
-	// Dijkstra blocks carry the plain 10-field Babbage header body, for which
-	// this is nil. The elements are retained verbatim so the header round-trips
-	// and hashes identically to the bytes received on the wire; use
-	// LeiosCertified and LeiosAnnouncement for typed access.
+	// LeiosHeaderExtension holds the two Dijkstra/Leios block-header fields
+	// that follow Babbage's protocol_version field: leios_certified (bool) and
+	// leios_announcement ([announced_eb : hash32, announced_eb_size : uint
+	// .size 4] / nil). Both are validated at decode time. The elements are
+	// retained verbatim so the header round-trips and hashes identically to the
+	// bytes received on the wire; use LeiosCertified and LeiosAnnouncement for
+	// typed access. Headers built in-process may leave it nil.
 	LeiosHeaderExtension []cbor.RawMessage
 }
 
+// UnmarshalCBOR decodes a Dijkstra block header. The header body must have
+// exactly 12 fields; 10-field Babbage-shaped bodies, 11-field bodies and
+// bodies with trailing extensions are rejected.
 func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	// Fast path: legacy Dijkstra headers are byte-for-byte Babbage headers
-	// with a 10-field body.
-	var tmp babbage.BabbageBlockHeader
-	if _, err := cbor.Decode(cborData, &tmp); err == nil {
-		h.BabbageBlockHeader = tmp
-		h.LeiosHeaderExtension = nil
-		h.SetCbor(cborData)
-		return nil
-	}
-	// Leios-extended header: the header body array carries extra trailing
-	// fields after protocol_version. Decode the leading Babbage fields and
-	// retain the remainder verbatim. The full original header CBOR is stored
-	// for hashing, so the trailing fields never need typed interpretation to
-	// follow the chain.
 	var top []cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &top); err != nil {
 		return err
@@ -490,12 +485,17 @@ func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(top[0], &bodyElems); err != nil {
 		return err
 	}
-	if len(bodyElems) < babbageHeaderBodyFieldCount {
+	if len(bodyElems) != dijkstraHeaderBodyFieldCount {
 		return fmt.Errorf(
-			"unexpected Dijkstra block header body: expected at least %d fields, got %d",
-			babbageHeaderBodyFieldCount,
+			"unexpected Dijkstra block header body: expected exactly %d fields, got %d",
+			dijkstraHeaderBodyFieldCount,
 			len(bodyElems),
 		)
+	}
+	if err := validateLeiosHeaderExtension(
+		bodyElems[babbageHeaderBodyFieldCount:],
+	); err != nil {
+		return err
 	}
 	babbageBodyCbor, err := cbor.Encode(bodyElems[:babbageHeaderBodyFieldCount])
 	if err != nil {
@@ -505,12 +505,10 @@ func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(babbageBodyCbor, &body); err != nil {
 		return err
 	}
-	// The leading-10-field re-encoding above is only used to populate the
-	// typed Babbage fields. The body's stored CBOR must remain the ORIGINAL
-	// body bytes (the full Leios-extended array), because KES signature
-	// verification is computed over the original header-body encoding -- see
-	// ledger.extractOriginalBodyCbor. Using the re-encoded 10-field bytes here
-	// makes KES verification fail on Leios-extended headers near the tip.
+	// The leading-10-field re-encoding above only populates the typed Babbage
+	// fields. The body's stored CBOR must remain the ORIGINAL body bytes,
+	// because KES signature verification is computed over the original
+	// header-body encoding -- see ledger.extractOriginalBodyCbor.
 	body.SetCbor([]byte(top[0]))
 	var signature []byte
 	if _, err := cbor.Decode(top[1], &signature); err != nil {
@@ -523,6 +521,57 @@ func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+// validateLeiosHeaderExtension checks leios_certified is a CBOR bool and
+// leios_announcement is null or [hash32, uint .size 4].
+func validateLeiosHeaderExtension(ext []cbor.RawMessage) error {
+	if len(ext) != 2 {
+		return fmt.Errorf(
+			"invalid Dijkstra Leios header extension: expected 2 fields, got %d",
+			len(ext),
+		)
+	}
+	// Decoding null into a bool yields false without error, so check the
+	// simple-value byte directly.
+	if len(ext[0]) != 1 || (ext[0][0] != 0xf4 && ext[0][0] != 0xf5) {
+		return errors.New("invalid Dijkstra leios_certified header field: not a CBOR bool")
+	}
+	if isCborNull(ext[1]) {
+		return nil
+	}
+	var pair []cbor.RawMessage
+	if _, err := cbor.Decode(ext[1], &pair); err != nil {
+		return fmt.Errorf("invalid Dijkstra leios_announcement header field: %w", err)
+	}
+	if len(pair) != 2 {
+		return fmt.Errorf(
+			"invalid Dijkstra leios_announcement header field: expected 2 elements, got %d",
+			len(pair),
+		)
+	}
+	var hashBytes []byte
+	if _, err := cbor.Decode(pair[0], &hashBytes); err != nil {
+		return fmt.Errorf("invalid Dijkstra announced_eb header field: %w", err)
+	}
+	if len(hashBytes) != common.Blake2b256Size {
+		return fmt.Errorf(
+			"invalid Dijkstra announced_eb header field: expected %d bytes, got %d",
+			common.Blake2b256Size,
+			len(hashBytes),
+		)
+	}
+	var size uint64
+	if _, err := cbor.Decode(pair[1], &size); err != nil {
+		return fmt.Errorf("invalid Dijkstra announced_eb_size header field: %w", err)
+	}
+	if size > maxLeiosAnnouncedEbSize {
+		return fmt.Errorf(
+			"invalid Dijkstra announced_eb_size header field: %d exceeds uint32",
+			size,
+		)
+	}
+	return nil
+}
+
 func (h *DijkstraBlockHeader) MarshalCBOR() ([]byte, error) {
 	// Decoded headers retain their original wire bytes (including any Leios
 	// extension), which must be reproduced verbatim so the header hash is
@@ -530,9 +579,42 @@ func (h *DijkstraBlockHeader) MarshalCBOR() ([]byte, error) {
 	if cborData := h.Cbor(); cborData != nil {
 		return cborData, nil
 	}
-	// Headers constructed in-process (no stored CBOR) have no Leios extension
-	// to preserve; fall back to the Babbage encoding.
-	return cbor.Encode(&h.BabbageBlockHeader)
+	// Headers constructed in-process encode the current 12-field body, with
+	// leios_certified=false and a null announcement unless the extension is set.
+	babbageCbor, err := cbor.Encode(&h.BabbageBlockHeader)
+	if err != nil {
+		return nil, err
+	}
+	var top []cbor.RawMessage
+	if _, err := cbor.Decode(babbageCbor, &top); err != nil {
+		return nil, err
+	}
+	if len(top) != 2 {
+		return nil, fmt.Errorf(
+			"unexpected Babbage block header: expected 2 elements, got %d",
+			len(top),
+		)
+	}
+	var bodyElems []cbor.RawMessage
+	if _, err := cbor.Decode(top[0], &bodyElems); err != nil {
+		return nil, err
+	}
+	if len(bodyElems) != babbageHeaderBodyFieldCount {
+		return nil, fmt.Errorf(
+			"unexpected Babbage block header body: expected %d fields, got %d",
+			babbageHeaderBodyFieldCount,
+			len(bodyElems),
+		)
+	}
+	ext := h.LeiosHeaderExtension
+	if len(ext) == 0 {
+		ext = []cbor.RawMessage{{0xf4}, {0xf6}}
+	} else if err := validateLeiosHeaderExtension(ext); err != nil {
+		// Never encode a header that UnmarshalCBOR would reject.
+		return nil, err
+	}
+	bodyElems = append(bodyElems[:babbageHeaderBodyFieldCount:babbageHeaderBodyFieldCount], ext...)
+	return cbor.Encode([]any{bodyElems, top[1]})
 }
 
 func (h *DijkstraBlockHeader) Era() common.Era {
@@ -2094,6 +2176,63 @@ func (t DijkstraTransaction) Consumed() []common.TransactionInput {
 		return append(ret, t.Inputs()...)
 	}
 	return t.Collateral()
+}
+
+// LedgerEffectLevels returns each sub-transaction body and then the
+// top-level body, the order the ledger applies their withdrawals,
+// certificates, direct deposits and proposals in, for
+// common.BlockLedgerState.
+func (t DijkstraTransaction) LedgerEffectLevels() (
+	[]common.LedgerEffectLevel,
+	error,
+) {
+	subTxs := t.Body.TxSubTransactions.Items()
+	levels := make([]common.LedgerEffectLevel, 0, len(subTxs)+1)
+	for idx := range subTxs {
+		body := &subTxs[idx].Body
+		deposits, err := dijkstraLedgerDirectDeposits(body.TxDirectDeposits)
+		if err != nil {
+			return nil, err
+		}
+		levels = append(levels, common.LedgerEffectLevel{
+			Id:             body.Id(),
+			Body:           body,
+			DirectDeposits: deposits,
+		})
+	}
+	deposits, err := dijkstraLedgerDirectDeposits(t.Body.TxDirectDeposits)
+	if err != nil {
+		return nil, err
+	}
+	return append(levels, common.LedgerEffectLevel{
+		Id:             t.Hash(),
+		Body:           &t.Body,
+		DirectDeposits: deposits,
+	}), nil
+}
+
+func dijkstraLedgerDirectDeposits(
+	deposits DijkstraDirectDeposits,
+) ([]common.DirectDeposit, error) {
+	if len(deposits) == 0 {
+		return nil, nil
+	}
+	ret := make([]common.DirectDeposit, 0, len(deposits))
+	for _, key := range sortedDijkstraAccountAddresses(deposits) {
+		address, err := dijkstraAddressFromKey(key)
+		if err != nil {
+			return nil, err
+		}
+		credential, err := address.RewardAccountCredential()
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, common.DirectDeposit{
+			Credential: credential,
+			Amount:     deposits[key],
+		})
+	}
+	return ret, nil
 }
 
 func (t DijkstraTransaction) Produced() []common.Utxo {

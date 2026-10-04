@@ -33,9 +33,13 @@ var (
 	StateDone = protocol.NewState(3, "Done")
 )
 
+// StateMap is the LeiosNotify state machine. Every state carries
+// DefaultMaxPendingBytes as its pending-message byte limit; a client or
+// server sizes its own copy from Config.MaxPendingBytes.
 var StateMap = protocol.StateMap{
 	StateIdle: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: DefaultMaxPendingBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeNotificationRequestNext,
@@ -48,7 +52,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateBusy: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: DefaultMaxPendingBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlockAnnouncement,
@@ -69,7 +74,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateDone: protocol.StateMapEntry{
-		Agency: protocol.AgencyNone,
+		Agency:                  protocol.AgencyNone,
+		PendingMessageByteLimit: DefaultMaxPendingBytes,
 	},
 }
 
@@ -81,6 +87,16 @@ type LeiosNotify struct {
 type Config struct {
 	NotificationFunc NotificationFunc
 	PipelineLimit    int
+	// MaxPendingBytes bounds the encoded bytes of received messages queued
+	// for their handler, and is the largest message accepted. While it is
+	// held the protocol takes no more from the muxer, whose ingress queue
+	// for this protocol is limited to the same value, or ten maximum-size
+	// segments if that is larger. Ingress past that fails the connection.
+	// The client therefore holds at most MaxPendingBytes plus that ingress
+	// limit, plus 24 whole segments in delivery, in the read loop and in
+	// NotificationFunc (see README.md). It also sets the receive queue
+	// length. Zero sizes it to hold PipelineLimit block announcements.
+	MaxPendingBytes  int
 	ResponseSentFunc ResponseSentFunc
 	RequestNextFunc  RequestNextFunc
 	Timeout          time.Duration
@@ -89,7 +105,40 @@ type Config struct {
 const (
 	MaxPipelineLimit     = 100 // Max pipelined requests
 	DefaultPipelineLimit = 10  // Default pipeline limit
+	// DefaultMaxPendingBytes is the MaxPendingBytes derived for
+	// DefaultPipelineLimit.
+	DefaultMaxPendingBytes = DefaultPipelineLimit * MaxBlockAnnouncementBytes
 )
+
+// pendingBytes returns the aggregate byte budget for received messages: the
+// configured MaxPendingBytes, or enough for PipelineLimit block
+// announcements and never less than the largest notification.
+func (c *Config) pendingBytes() int {
+	if c.MaxPendingBytes > 0 {
+		return c.MaxPendingBytes
+	}
+	return max(
+		max(c.PipelineLimit, 1)*MaxBlockAnnouncementBytes,
+		MaxVotesOfferBytes,
+	)
+}
+
+// protocolConfig applies the byte budget to a copy of StateMap and sizes the
+// receive queue from it, so the pipeline, the queue and the retained bytes
+// share one bound.
+func (c *Config) protocolConfig(
+	protoConfig protocol.ProtocolConfig,
+) protocol.ProtocolConfig {
+	budget := c.pendingBytes()
+	stateMap := StateMap.Copy()
+	for state, entry := range stateMap {
+		entry.PendingMessageByteLimit = budget
+		stateMap[state] = entry
+	}
+	protoConfig.StateMap = stateMap
+	protoConfig.RecvQueueSize = max(budget/MaxBlockAnnouncementBytes, 1)
+	return protoConfig
+}
 
 // Callback context
 type CallbackContext struct {
@@ -151,6 +200,30 @@ func (c *Config) validate() error {
 			MaxPipelineLimit,
 		)
 	}
+	if c.MaxPendingBytes < 0 {
+		return fmt.Errorf(
+			"MaxPendingBytes %d must be non-negative",
+			c.MaxPendingBytes,
+		)
+	}
+	if c.MaxPendingBytes > 0 {
+		if c.MaxPendingBytes < MaxVotesOfferBytes {
+			return fmt.Errorf(
+				"MaxPendingBytes %d is below the largest notification (%d bytes)",
+				c.MaxPendingBytes,
+				MaxVotesOfferBytes,
+			)
+		}
+		need := c.PipelineLimit * MaxBlockAnnouncementBytes
+		if c.MaxPendingBytes < need {
+			return fmt.Errorf(
+				"MaxPendingBytes %d cannot hold %d block announcements (%d bytes)",
+				c.MaxPendingBytes,
+				c.PipelineLimit,
+				need,
+			)
+		}
+	}
 	return nil
 }
 
@@ -184,6 +257,14 @@ func WithPipelineLimit(limit int) LeiosNotifyOptionFunc {
 			)
 		}
 		c.PipelineLimit = limit
+	}
+}
+
+// WithMaxPendingBytes sets the aggregate byte budget for received messages.
+// See Config.MaxPendingBytes.
+func WithMaxPendingBytes(maxPendingBytes int) LeiosNotifyOptionFunc {
+	return func(c *Config) {
+		c.MaxPendingBytes = maxPendingBytes
 	}
 }
 
