@@ -41,8 +41,11 @@ type DebugEpochStateResult struct {
 //	[epoch, blocksMadePrev, blocksMadeCur, epochState, rewardUpdate,
 //	 poolDistr, stashedAVVMAddresses]
 //
-// The reward update (a pulsing reward computation in flight) and the stashed
-// AVVM addresses are era-dependent and are kept as the node's exact CBOR.
+// The reward update (a pulsing reward computation in flight), the pool
+// distribution and the stashed AVVM addresses are era-dependent and are kept
+// as the node's exact CBOR. The pool distribution is a bare map of pool to
+// individual stake in older ledgers and gains the total active stake in newer
+// ones, and the individual stake entry also changes width.
 type DebugNewEpochStateResult struct {
 	cbor.StructAsArray
 	Epoch uint64
@@ -52,6 +55,6 @@ type DebugNewEpochStateResult struct {
 	BlocksMadeCur        map[ledger.Blake2b224]uint64
 	EpochState           DebugEpochStateResult
 	RewardUpdate         cbor.RawMessage
-	PoolDistr            PoolDistr2Result
+	PoolDistr            cbor.RawMessage
 	StashedAVVMAddresses cbor.RawMessage
 }

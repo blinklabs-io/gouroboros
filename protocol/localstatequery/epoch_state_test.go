@@ -65,8 +65,7 @@ const newEpochStateHex = "87" +
 	"a1581c" + poolIdHighHex + "03" +
 	epochStateHex +
 	"80" + // StrictMaybe PulsingRewUpdate, SNothing
-	"82a1581c" + poolIdLowHex + "83d81e820102" + "0b" + "5820" + vrfHashHex +
-	"0a" + // PoolDistr [individual, total active stake]
+	"a1581c" + poolIdLowHex + "82d81e820102" + "5820" + vrfHashHex + // PoolDistr
 	"f6" // stashed AVVM addresses
 
 func TestDebugNewEpochStateResultDecodes(t *testing.T) {
@@ -82,9 +81,10 @@ func TestDebugNewEpochStateResultDecodes(t *testing.T) {
 	require.Equal(t, AccountState{Treasury: 10, Reserves: 20}, result.EpochState.AccountState)
 	require.Equal(t, mustDecodeHex(t, nonMyopicHex), []byte(result.EpochState.NonMyopic))
 	require.Equal(t, mustDecodeHex(t, "80"), []byte(result.RewardUpdate))
-	require.Equal(t, uint64(10), result.PoolDistr.TotalActiveStake)
-	entry, ok := result.PoolDistr.Pools[ledger.PoolId(low)]
-	require.True(t, ok)
-	require.Equal(t, uint64(11), entry.TotalPoolStake)
+	require.Equal(
+		t,
+		mustDecodeHex(t, "a1581c"+poolIdLowHex+"82d81e820102"+"5820"+vrfHashHex),
+		[]byte(result.PoolDistr),
+	)
 	require.Equal(t, mustDecodeHex(t, "f6"), []byte(result.StashedAVVMAddresses))
 }

@@ -1645,7 +1645,7 @@ func TestDebugNewEpochState(t *testing.T) {
 					test.DecodeHexString(
 						"81" + "87" + "05" + "a0" + "a0" +
 							"84820a14828080" + "84a0a0a000" + "82a000" +
-							"80" + "82a000" + "f6",
+							"80" + "a0" + "f6",
 					),
 				),
 			},
