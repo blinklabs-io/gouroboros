@@ -6008,3 +6008,13 @@ func TestConwayTransactionBodyRequiredAndGuardedFields(t *testing.T) {
 	var body conway.ConwayTransactionBody
 	require.NoError(t, body.UnmarshalCBOR(wire))
 }
+
+func TestEvaluatePlutusScriptsRejectsNilTransaction(t *testing.T) {
+	_, err := conway.EvaluatePlutusScripts(
+		nil,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&conway.ConwayProtocolParameters{},
+		nil,
+	)
+	require.Error(t, err)
+}

@@ -65,9 +65,28 @@ taken yet.
 | Handshake | 655,350 (floor; state limit 5,760) |
 | Local protocols | effective `MaxReadBufferSize` (16 MB) |
 
-The worst-case memory a connection can queue is the sum of the limits of its
-registered protocol roles; a queue only fills while its protocol is not
-taking segments.
+The muxer also bounds the segment payload queued across every protocol role
+on the connection (`Muxer.SetIngressBudget`, default
+`muxer.DefaultIngressBudget`, 64 MB). The specification mandates no aggregate
+figure, so this is an implementation bound: it keeps many individually bounded
+queues from adding up to an unbounded total. A protocol that solicits more than
+its ordinary limit, as a block-fetch client does for a large range, extends the
+budget by the excess while it has asked for it
+(`Muxer.SetIngressBudgetExtension`, set from `Protocol.SetIngressAllowance`),
+so the budget never refuses a reply the protocol has said it will accept; the
+budget in force is the base plus every role's extension (`Muxer.IngressBudget`).
+Ingress that would take the connection past it stops the connection with
+`muxer.ErrIngressOverflow`, except for a protocol role with backpressure
+enabled, which pauses the read loop instead and is always admitted when its own
+queue is empty, so segments held by other roles cannot wedge it. That
+admission can exceed the budget by one segment (65,535 bytes) per
+backpressured role. Queued bytes are returned to the budget when the muxer
+moves a segment to the protocol's delivery channel and when its receiver is
+unregistered. The queue memory of a connection is therefore bounded by the
+base budget, plus the extensions, plus
+that overshoot. The budget counts only the muxer's ingress queues: each
+protocol's delivery channel (ten segments), the segment its delivery goroutine
+holds, and its reassembly buffers are outside it.
 
 Block Fetch is the only node-to-node protocol whose peer sends an amount
 chosen by the local side. Its client limit is the reference
@@ -106,7 +125,15 @@ The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
 | MustReply | random in `[135, 269)` seconds | 462,000 |
 | Done | none | 462,000 |
 
-The N2C map has no state timeouts or pending-message byte limits. `MustReply`
+The N2C map has no state timeouts or pending-message byte limits, so no
+message is refused for its size. Every N2C state does carry a pending receive
+budget, `chainsync.PendingReceiveBytesNtC` (8 MiB, an implementation bound; the
+reference node-to-client policy has none): the read loop holds back a message
+that would take the received-but-unhandled bytes past it until the consumer has
+drained enough, which applies backpressure to the peer rather than failing the
+connection. A message larger than the whole budget is admitted once nothing
+else is pending. `PendingReceiveByteBudget` in a state map entry sets this
+per state. `MustReply`
 uses a fresh random timeout for each state entry; `MustReplyTimeout` is the
 fixed maximum retained for compatibility and configuration defaults.
 

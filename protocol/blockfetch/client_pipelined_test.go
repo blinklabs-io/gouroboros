@@ -421,7 +421,7 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, deliveredBlock{requestId: id1, slot: 100}, h.nextBlock(t))
+	require.Equal(t, deliveredBlock{requestId: id1, slot: 100}, waitForBlock(t, h))
 	// The excess BatchDone surfaces a connection error right after this done
 	// is written, so both channels can be ready; tolerate the error.
 	first := waitForDone(t, h)
@@ -438,6 +438,26 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 	case blk := <-h.blocks:
 		t.Fatalf("unexpected block delivered: %+v", blk)
 	default:
+	}
+}
+
+// waitForBlock tolerates the expected protocol error racing with delivery of
+// a block from the completed first request.
+func waitForBlock(t *testing.T, h *pipelineHarness) deliveredBlock {
+	t.Helper()
+	deadline := time.After(testTimeout)
+	connErrs := h.connErrs
+	for {
+		select {
+		case blk := <-h.blocks:
+			return blk
+		case _, ok := <-connErrs:
+			if !ok {
+				connErrs = nil
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for a block from the first request")
+		}
 	}
 }
 

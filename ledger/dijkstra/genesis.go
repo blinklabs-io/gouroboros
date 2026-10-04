@@ -115,13 +115,15 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.MaxEndorserBlockTxsSize = genesis.MaxEndorserBlockTxsSize
 	p.MaxEndorserBlockExUnits = genesis.MaxEndorserBlockExUnits
 	p.MaxRefScriptSizePerEndorserBlock = genesis.MaxRefScriptSizePerEndorserBlock
-	applyConwayRefScriptFeeDefaults(p)
+	ApplyConwayRefScriptFeeDefaults(p)
 	p.CommitteeStakeCoverage = committeeStakeCoverage
 	p.QuorumStakeThreshold = quorumStakeThreshold
 	return nil
 }
 
-func applyConwayRefScriptFeeDefaults(p *DijkstraProtocolParameters) {
+// ApplyConwayRefScriptFeeDefaults sets an unset reference-script cost stride
+// or multiplier to the fixed Conway value.
+func ApplyConwayRefScriptFeeDefaults(p *DijkstraProtocolParameters) {
 	if p.RefScriptCostStride == 0 {
 		p.RefScriptCostStride = uint32(conway.RefScriptCostStride)
 	}

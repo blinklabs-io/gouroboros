@@ -203,6 +203,15 @@ func (c ProtocolConfig) maxReadBufferSize() int {
 	return maxReadBufferSize
 }
 
+func (c ProtocolConfig) hasPendingReceiveBudget() bool {
+	for _, entry := range c.StateMap {
+		if entry.PendingReceiveByteBudget > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ProtocolMode is an enum of the protocol modes
 type ProtocolMode uint
 
@@ -319,7 +328,9 @@ func (p *Protocol) SetIngressAllowance(bytes int) {
 // stops every protocol on the connection, keep-alive included, so a protocol
 // enables it only while it has solicited data it cannot bound, and disables
 // it once that data has been consumed. It may be called before the protocol
-// is registered.
+// is registered. A state map with an explicit pending receive budget keeps
+// ingress backpressure enabled so the muxer cannot overflow while readLoop
+// waits for that budget.
 func (p *Protocol) SetIngressBackpressure(enabled bool) {
 	p.ingressMu.Lock()
 	defer p.ingressMu.Unlock()
@@ -334,15 +345,24 @@ func (p *Protocol) applyIngressLimitLocked() {
 	if !p.registered || p.config.Muxer == nil {
 		return
 	}
+	base := p.config.ingressLimit()
 	p.config.Muxer.SetIngressLimit(
 		p.config.ProtocolId,
 		p.muxerRole,
-		max(p.config.ingressLimit(), p.ingressAllowance),
+		max(base, p.ingressAllowance),
+	)
+	// What the protocol has solicited above its ordinary limit is data it
+	// has agreed to hold, so it extends the connection's ingress budget
+	// rather than competing with other protocols for it.
+	p.config.Muxer.SetIngressBudgetExtension(
+		p.config.ProtocolId,
+		p.muxerRole,
+		max(p.ingressAllowance-base, 0),
 	)
 	p.config.Muxer.SetIngressBackpressure(
 		p.config.ProtocolId,
 		p.muxerRole,
-		p.ingressBackpressure,
+		p.ingressBackpressure || p.config.hasPendingReceiveBudget(),
 	)
 }
 
@@ -1481,6 +1501,21 @@ func (p *Protocol) pendingMessageByteLimit(state State) int {
 	return 0
 }
 
+// pendingReceiveBudget returns the most received-but-unhandled message bytes
+// the read loop admits while state is active: the state's
+// PendingReceiveByteBudget, or its PendingMessageByteLimit when it declares
+// no budget. Zero means unbounded.
+func (p *Protocol) pendingReceiveBudget(state State) int {
+	entry, ok := p.config.StateMap[state]
+	if !ok {
+		return 0
+	}
+	if entry.PendingReceiveByteBudget > 0 {
+		return entry.PendingReceiveByteBudget
+	}
+	return entry.PendingMessageByteLimit
+}
+
 func (p *Protocol) stateHasNoAgency(state State) bool {
 	entry, ok := p.config.StateMap[state]
 	return ok && entry.Agency == AgencyNone
@@ -1543,6 +1578,28 @@ func (p *Protocol) readLoop() {
 		messageStateSet = false
 		pendingPipelinedRequests = 0
 		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
+	}
+	waitForPendingBudget := func(budget, msgLen int, account bool) bool {
+		for {
+			p.pendingBytesMu.Lock()
+			if p.pendingRecvBytes+msgLen <= budget ||
+				p.pendingRecvBytes == 0 {
+				if account {
+					p.pendingRecvBytes += msgLen
+					p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
+				}
+				p.pendingBytesMu.Unlock()
+				return true
+			}
+			p.pendingBytesMu.Unlock()
+			select {
+			case <-p.stopChan:
+				return false
+			case <-p.muxerDoneChan:
+				return false
+			case <-time.After(time.Millisecond):
+			}
+		}
 	}
 
 	for {
@@ -1712,6 +1769,13 @@ func (p *Protocol) readLoop() {
 			consumeMessage(scanResult.messageLength)
 			continue
 		}
+		// Explicit receive budgets can wait for slow consumers. Wait before
+		// decoding so the decoded message is not retained outside the budget.
+		explicitBudget := p.config.StateMap[messageState].PendingReceiveByteBudget
+		if explicitBudget > 0 &&
+			!waitForPendingBudget(explicitBudget, msgLen, false) {
+			return
+		}
 		msg, err := p.config.MessageFromCborFunc(
 			scanResult.messageType,
 			msgData,
@@ -1728,29 +1792,22 @@ func (p *Protocol) readLoop() {
 			))
 			return
 		}
-		// Wait for pending recv bytes to drop below limit before accepting.
-		// This applies TCP backpressure to the remote peer instead of
-		// disconnecting with a protocol violation during rapid catch-up sync.
-		if limit > 0 {
-			for {
+		if explicitBudget == 0 {
+			// Keep message-size-limit accounting after decoding, preserving
+			// the ordering of protocols without an explicit receive budget.
+			if budget := p.pendingReceiveBudget(messageState); budget > 0 {
+				if !waitForPendingBudget(budget, msgLen, true) {
+					return
+				}
+			} else {
 				p.pendingBytesMu.Lock()
-				if p.pendingRecvBytes+msgLen <= limit {
-					p.pendingRecvBytes += msgLen
-					p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
-					p.pendingBytesMu.Unlock()
-					break
-				}
+				p.pendingRecvBytes += msgLen
+				p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
 				p.pendingBytesMu.Unlock()
-				// Wait briefly for recvLoop to drain pending bytes
-				select {
-				case <-p.stopChan:
-					return
-				case <-p.muxerDoneChan:
-					return
-				case <-time.After(time.Millisecond):
-				}
 			}
 		} else {
+			// Only recvLoop can reduce pending bytes between the wait and
+			// this accounting, so the admitted message still fits.
 			p.pendingBytesMu.Lock()
 			p.pendingRecvBytes += msgLen
 			p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
