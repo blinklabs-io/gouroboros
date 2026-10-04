@@ -258,6 +258,61 @@ func TestIngressBudgetBackpressureAdmitsWhenOwnQueueEmpty(t *testing.T) {
 	}
 }
 
+// A release by another role must wake a read loop waiting on the shared
+// budget even when the waiting role's own queue has not changed.
+func TestIngressBudgetBackpressureWakesOnOtherRoleRelease(t *testing.T) {
+	t.Parallel()
+
+	conn := newMockConn()
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	_, holder, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+	_, waiting, _ := m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
+	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
+	require.True(t, m.SetIngressLimit(0x02, muxer.ProtocolRoleResponder, 1000))
+	require.True(t, m.SetIngressBackpressure(0x02, muxer.ProtocolRoleResponder, true))
+	m.SetIngressBudget(120)
+	m.Start()
+
+	stallProtocol(t, conn, m, waiting, 0x02, 0)
+	stallProtocol(t, conn, m, holder, 0x01, 0)
+	queueBytes(t, conn, m, 0x01, 12, 120)
+	queueBytes(t, conn, m, 0x02, 1, 130)
+	conn.WriteToReadBuf(ingressSegments(t, 0x02, 1))
+	require.Eventually(t, func() bool {
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+		return conn.readBuf.Len() == 0
+	}, 5*time.Second, time.Millisecond)
+	require.Never(t, func() bool {
+		return m.IngressInUse() != 130
+	}, 100*time.Millisecond, time.Millisecond)
+
+	// The second waiting-role segment cannot fit until holder drains.
+	for range 2 {
+		select {
+		case <-holder:
+		case err := <-m.ErrorChan():
+			t.Fatalf("muxer failed while waiting: %v", err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("holder did not drain")
+		}
+	}
+	require.Eventually(t, func() bool {
+		return m.IngressInUse() == 120
+	}, 5*time.Second, time.Millisecond)
+	for range segmentCapacity + 3 {
+		select {
+		case <-waiting:
+		case err := <-m.ErrorChan():
+			t.Fatalf("muxer failed after budget release: %v", err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("other role's release did not wake ingress")
+		}
+	}
+}
+
 // TestIngressBudgetExtensionAdmitsSolicitedIngress checks a protocol role
 // that extends the budget may queue past the base budget, up to the extended
 // total and no further, and that unregistering it ends the extension.
@@ -331,4 +386,20 @@ func TestIngressBudgetExtensionIsReplacedAndCleared(t *testing.T) {
 	require.Equal(t, 107, m.IngressBudget())
 	extend(0x02, math.MaxInt)
 	require.Greater(t, m.IngressBudget(), 107)
+}
+
+func TestIngressBudgetExtensionsCannotOverflowAcrossRoles(t *testing.T) {
+	t.Parallel()
+
+	m := muxer.New(newMockConn())
+	defer m.Stop()
+	m.SetIngressBudget(100)
+	previous := m.IngressBudget()
+	for id := uint16(1); id <= 65; id++ {
+		m.RegisterProtocol(id, muxer.ProtocolRoleResponder)
+		require.True(t, m.SetIngressBudgetExtension(id, muxer.ProtocolRoleResponder, math.MaxInt))
+		current := m.IngressBudget()
+		require.Greater(t, current, previous)
+		previous = current
+	}
 }

@@ -78,9 +78,10 @@ Ingress that would take the connection past it stops the connection with
 enabled, which pauses the read loop instead and is always admitted when its own
 queue is empty, so segments held by other roles cannot wedge it. That
 admission can exceed the budget by one segment (65,535 bytes) per
-backpressured role. Queued bytes are returned to the budget as the protocol
-takes them and when its receiver is unregistered. The queue memory of a
-connection is therefore bounded by the base budget, plus the extensions, plus
+backpressured role. Queued bytes are returned to the budget when the muxer
+moves a segment to the protocol's delivery channel and when its receiver is
+unregistered. The queue memory of a connection is therefore bounded by the
+base budget, plus the extensions, plus
 that overshoot. The budget counts only the muxer's ingress queues: each
 protocol's delivery channel (ten segments), the segment its delivery goroutine
 holds, and its reassembly buffers are outside it.

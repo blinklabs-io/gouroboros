@@ -203,6 +203,15 @@ func (c ProtocolConfig) maxReadBufferSize() int {
 	return maxReadBufferSize
 }
 
+func (c ProtocolConfig) hasPendingReceiveBudget() bool {
+	for _, entry := range c.StateMap {
+		if entry.PendingReceiveByteBudget > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ProtocolMode is an enum of the protocol modes
 type ProtocolMode uint
 
@@ -319,7 +328,9 @@ func (p *Protocol) SetIngressAllowance(bytes int) {
 // stops every protocol on the connection, keep-alive included, so a protocol
 // enables it only while it has solicited data it cannot bound, and disables
 // it once that data has been consumed. It may be called before the protocol
-// is registered.
+// is registered. A state map with an explicit pending receive budget keeps
+// ingress backpressure enabled so the muxer cannot overflow while readLoop
+// waits for that budget.
 func (p *Protocol) SetIngressBackpressure(enabled bool) {
 	p.ingressMu.Lock()
 	defer p.ingressMu.Unlock()
@@ -351,7 +362,7 @@ func (p *Protocol) applyIngressLimitLocked() {
 	p.config.Muxer.SetIngressBackpressure(
 		p.config.ProtocolId,
 		p.muxerRole,
-		p.ingressBackpressure,
+		p.ingressBackpressure || p.config.hasPendingReceiveBudget(),
 	)
 }
 
@@ -1736,6 +1747,31 @@ func (p *Protocol) readLoop() {
 			consumeMessage(scanResult.messageLength)
 			continue
 		}
+		// Wait for pending recv bytes to drop below limit before decoding.
+		// This applies TCP backpressure to the remote peer instead of
+		// disconnecting with a protocol violation during rapid catch-up sync.
+		// A message larger than the whole budget is admitted once nothing
+		// else is pending: the budget bounds what is queued, and the
+		// message size limit above is what bounds a single message.
+		if budget := p.pendingReceiveBudget(messageState); budget > 0 {
+			for {
+				p.pendingBytesMu.Lock()
+				if p.pendingRecvBytes+msgLen <= budget ||
+					p.pendingRecvBytes == 0 {
+					p.pendingBytesMu.Unlock()
+					break
+				}
+				p.pendingBytesMu.Unlock()
+				// Wait briefly for recvLoop to drain pending bytes
+				select {
+				case <-p.stopChan:
+					return
+				case <-p.muxerDoneChan:
+					return
+				case <-time.After(time.Millisecond):
+				}
+			}
+		}
 		msg, err := p.config.MessageFromCborFunc(
 			scanResult.messageType,
 			msgData,
@@ -1752,38 +1788,10 @@ func (p *Protocol) readLoop() {
 			))
 			return
 		}
-		// Wait for pending recv bytes to drop below limit before accepting.
-		// This applies TCP backpressure to the remote peer instead of
-		// disconnecting with a protocol violation during rapid catch-up sync.
-		// A message larger than the whole budget is admitted once nothing
-		// else is pending: the budget bounds what is queued, and the
-		// message size limit above is what bounds a single message.
-		if budget := p.pendingReceiveBudget(messageState); budget > 0 {
-			for {
-				p.pendingBytesMu.Lock()
-				if p.pendingRecvBytes+msgLen <= budget ||
-					p.pendingRecvBytes == 0 {
-					p.pendingRecvBytes += msgLen
-					p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
-					p.pendingBytesMu.Unlock()
-					break
-				}
-				p.pendingBytesMu.Unlock()
-				// Wait briefly for recvLoop to drain pending bytes
-				select {
-				case <-p.stopChan:
-					return
-				case <-p.muxerDoneChan:
-					return
-				case <-time.After(time.Millisecond):
-				}
-			}
-		} else {
-			p.pendingBytesMu.Lock()
-			p.pendingRecvBytes += msgLen
-			p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
-			p.pendingBytesMu.Unlock()
-		}
+		p.pendingBytesMu.Lock()
+		p.pendingRecvBytes += msgLen
+		p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
+		p.pendingBytesMu.Unlock()
 		// Add message to receive queue (blocking with shutdown checks)
 		select {
 		case p.recvQueueChan <- msg:

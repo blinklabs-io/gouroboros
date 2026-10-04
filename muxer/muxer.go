@@ -433,6 +433,7 @@ func (m *Muxer) ReadBufferInUse() int {
 type ingressAccount struct {
 	mu     sync.Mutex
 	budget int
+	room   chan struct{}
 	// extended is the sum of the budget extensions of every protocol role.
 	extended int
 	used     int
@@ -452,10 +453,18 @@ func (a *ingressAccount) extend(delta int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.extended = max(a.extended+delta, 0)
+	a.wakeLocked()
 }
 
-// maxBudgetExtension is the most one protocol role extends the budget by.
-const maxBudgetExtension = math.MaxInt / 64
+// A protocol ID has two roles, so at most 2^17 roles can contribute.
+const maxBudgetExtension = math.MaxInt / (1 << 17)
+
+func (a *ingressAccount) wakeLocked() {
+	if a.room != nil {
+		close(a.room)
+		a.room = nil
+	}
+}
 
 func newIngressAccount() *ingressAccount {
 	return &ingressAccount{budget: DefaultIngressBudget}
@@ -468,6 +477,7 @@ func (a *ingressAccount) setBudget(budget int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.budget = budget
+	a.wakeLocked()
 }
 
 func (a *ingressAccount) getBudget() int {
@@ -485,20 +495,24 @@ func (a *ingressAccount) inUse() int {
 // reserve claims n bytes of the budget. It reports false, claiming nothing,
 // when they do not fit and force is false. force claims them regardless, for
 // a caller that must make progress.
-func (a *ingressAccount) reserve(n int, force bool) bool {
+func (a *ingressAccount) reserve(n int, force bool) (bool, <-chan struct{}) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if !force && n > a.limitLocked()-a.used {
-		return false
+		if a.room == nil {
+			a.room = make(chan struct{})
+		}
+		return false, a.room
 	}
 	a.used += n
-	return true
+	return true, nil
 }
 
 func (a *ingressAccount) release(n int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.used = max(a.used-n, 0)
+	a.wakeLocked()
 }
 
 // segmentChannel holds one protocol role's inbound segments. The muxer read
@@ -636,18 +650,23 @@ func (sc *segmentChannel) enqueue(msg *Segment) error {
 		// below one segment cannot wedge the read loop, and neither can a
 		// connection budget held entirely by other protocols: no dequeue of
 		// this queue would ever make room for it.
-		if (newPending <= sc.limit ||
-			(sc.backpressure && len(sc.queue) == 0)) &&
-			sc.account.reserve(
+		fitsQueue := newPending <= sc.limit ||
+			(sc.backpressure && len(sc.queue) == 0)
+		var accountRoom <-chan struct{}
+		if fitsQueue {
+			reserved, wait := sc.account.reserve(
 				len(msg.Payload),
 				sc.backpressure && len(sc.queue) == 0,
-			) {
-			sc.queue = append(sc.queue, msg)
-			sc.pendingBytes = newPending
-			sc.reportDepthLocked()
-			sc.cond.Broadcast()
-			sc.mu.Unlock()
-			return nil
+			)
+			accountRoom = wait
+			if reserved {
+				sc.queue = append(sc.queue, msg)
+				sc.pendingBytes = newPending
+				sc.reportDepthLocked()
+				sc.cond.Broadcast()
+				sc.mu.Unlock()
+				return nil
+			}
 		}
 		if !sc.backpressure {
 			limit := sc.limit
@@ -679,6 +698,7 @@ func (sc *segmentChannel) enqueue(msg *Segment) error {
 		}
 		select {
 		case <-room:
+		case <-accountRoom:
 		case <-sc.done:
 			return errSegmentChannelClosed
 		case <-sc.muxerDone:

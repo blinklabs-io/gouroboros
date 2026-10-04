@@ -53,6 +53,7 @@ func TestNtCStateMapBoundsPendingReceiveBytes(t *testing.T) {
 func TestNtNStateMapKeepsMessageLimitWithoutReceiveBudget(t *testing.T) {
 	t.Parallel()
 
+	require.NotEmpty(t, chainsync.StateMapNtN)
 	for state, entry := range chainsync.StateMapNtN {
 		require.Equalf(
 			t,

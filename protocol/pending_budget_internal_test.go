@@ -127,6 +127,7 @@ func TestPendingReceiveByteBudgetBoundsQueuedMessages(t *testing.T) {
 	t.Parallel()
 
 	bp := newBudgetProtocol(t, StateMapEntry{PendingReceiveByteBudget: 100})
+	require.True(t, bp.m.IngressBackpressure(1, muxer.ProtocolRoleResponder))
 	const size = 40
 	for range 3 {
 		bp.sendMessage(t, size)
