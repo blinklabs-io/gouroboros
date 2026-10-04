@@ -31,6 +31,10 @@ const (
 	DefaultKeepAlivePeriod = 60
 	// DefaultKeepAliveTimeout is the default timeout for keep-alive responses, in seconds.
 	DefaultKeepAliveTimeout = 10
+	// MaxPendingMessageBytes is the largest message accepted in either active
+	// state, matching the reference implementation's byteLimitsKeepAlive
+	// (smallByteLimit).
+	MaxPendingMessageBytes = 0xffff
 )
 
 // Protocol state timeout constants per Ouroboros Network Specification (Table 3.13).
@@ -53,8 +57,9 @@ var (
 // StateMap defines the valid state transitions for the keep-alive protocol.
 var StateMap = protocol.StateMap{
 	StateClient: protocol.StateMapEntry{
-		Agency:  protocol.AgencyClient,
-		Timeout: ClientTimeout, // Timeout for server waiting for client keep-alive ping
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 ClientTimeout, // Timeout for server waiting for client keep-alive ping
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeKeepAlive,
@@ -67,8 +72,9 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateServer: protocol.StateMapEntry{
-		Agency:  protocol.AgencyServer,
-		Timeout: ServerTimeout, // Timeout for client waiting for server keep-alive pong
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 ServerTimeout, // Timeout for client waiting for server keep-alive pong
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeKeepAliveResponse,

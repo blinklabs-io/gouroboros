@@ -450,11 +450,11 @@ func TestNodeToNodeIngressLimits(t *testing.T) {
 			"tx-submission server", peer.conn, txsubmission.ProtocolId,
 			muxer.ProtocolRoleResponder, txsubmission.MaxPendingMessageBytes,
 		},
-		// keep-alive declares no per-state limit, so it gets the largest
-		// message it would reassemble.
+		// keep-alive's 65,535-byte state limit is also below one batch of
+		// maximum-size segments.
 		{
 			"keep-alive client", client.conn, keepalive.ProtocolId,
-			muxer.ProtocolRoleInitiator, 16 * 1024 * 1024,
+			muxer.ProtocolRoleInitiator, 10 * muxer.SegmentMaxPayloadLength,
 		},
 	} {
 		require.Equal(
