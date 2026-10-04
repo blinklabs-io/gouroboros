@@ -16,6 +16,7 @@ package cbor_test
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -387,4 +388,30 @@ func TestConstructorDecoderInvalidTag(t *testing.T) {
 	_, err = cbor.Decode(encoded, &cd)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported constructor tag")
+}
+
+func TestConstructorDecoderMarshalJSONValue(t *testing.T) {
+	var value cbor.Value
+	_, err := cbor.Decode([]byte{0xd8, 0x79, 0x82, 0x01, 0x02}, &value)
+	require.NoError(t, err)
+
+	constructor, ok := value.Value().(cbor.ConstructorDecoder)
+	require.True(t, ok, "expected decoded constructor, got %T", value.Value())
+
+	const expected = `{"constructor":0,"fields":[{"int":1},{"int":2}]}`
+	for _, tc := range []struct {
+		name  string
+		value any
+	}{
+		{name: "value", value: constructor},
+		{name: "pointer", value: &constructor},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := json.Marshal(tc.value)
+			require.NoError(t, err)
+			if got := string(encoded); got != expected {
+				t.Fatalf("JSON = %s; want %s", got, expected)
+			}
+		})
+	}
 }
