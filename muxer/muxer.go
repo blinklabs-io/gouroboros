@@ -70,9 +70,20 @@ const segmentWriteTimeout = 2 * time.Minute
 // package sets each mini-protocol's own limit as it registers.
 const DefaultIngressLimit = 16 * 1024 * 1024 // 16MB
 
+// DefaultIngressBudget is the connection-wide ingress budget a muxer starts
+// with: the most segment payload, summed over every protocol role, that may
+// be received and not yet delivered to its protocol. The Ouroboros Network
+// Specification does not mandate an aggregate figure, so this is an
+// implementation bound. It is well above what a healthy node-to-node
+// connection queues, where the largest per-role limit is a block-fetch
+// client's, and it is what stops many individually bounded queues from
+// adding up to an unbounded total.
+const DefaultIngressBudget = 64 * 1024 * 1024 // 64MB
+
 // ErrIngressOverflow is reported when the segment payload queued for one
 // protocol role, received and not yet delivered to that protocol, would
-// exceed its ingress limit. The muxer stops with this error rather than
+// exceed its ingress limit, or when the payload queued across every protocol
+// role would exceed the connection's ingress budget. The muxer stops with this error rather than
 // waiting, because its read loop is shared by every protocol on the
 // connection, unless backpressure is enabled for that protocol role (see
 // SetIngressBackpressure).
@@ -144,7 +155,10 @@ type Muxer struct {
 	readBufferBudget int
 	// readBufferUsed is the portion of readBufferBudget currently reserved.
 	readBufferUsed int
-	metrics        atomic.Pointer[Metrics]
+	// ingress accounts the segment payload queued across every protocol
+	// role on this connection against the connection's ingress budget.
+	ingress *ingressAccount
+	metrics atomic.Pointer[Metrics]
 	// registerHook, when non-nil, runs in RegisterProtocol between its
 	// first shutdown check and the insertion of the new receiver. It exists
 	// only so a test can run a complete Stop inside that window, which is
@@ -206,6 +220,30 @@ func (m *Muxer) getMetrics() Metrics {
 		return nil
 	}
 	return *p
+}
+
+// SetIngressBudget sets the most segment payload, in bytes, the muxer will
+// hold across every protocol role on the connection between reading it from
+// the connection and delivering it to the protocols. It bounds the sum of the
+// per-role ingress queues, which each have their own limit under
+// SetIngressLimit. Ingress past the budget stops the muxer with
+// ErrIngressOverflow, except for a protocol role with backpressure enabled
+// (see SetIngressBackpressure), which pauses the read loop instead. A budget
+// of zero or less restores DefaultIngressBudget. It applies from the next
+// segment received.
+func (m *Muxer) SetIngressBudget(budget int) {
+	m.ingress.setBudget(budget)
+}
+
+// IngressBudget returns the connection-wide ingress budget in bytes.
+func (m *Muxer) IngressBudget() int {
+	return m.ingress.getBudget()
+}
+
+// IngressInUse returns the segment payload currently queued across every
+// protocol role on the connection.
+func (m *Muxer) IngressInUse() int {
+	return m.ingress.inUse()
 }
 
 // SetIngressLimit sets the most segment payload, in bytes, the muxer will
@@ -362,6 +400,59 @@ func (m *Muxer) ReadBufferInUse() int {
 	return m.readBufferUsed
 }
 
+// ingressAccount tracks the segment payload queued across every protocol
+// role of one connection. It never calls back into a segmentChannel, so a
+// channel may use it while holding its own lock.
+type ingressAccount struct {
+	mu     sync.Mutex
+	budget int
+	used   int
+}
+
+func newIngressAccount() *ingressAccount {
+	return &ingressAccount{budget: DefaultIngressBudget}
+}
+
+func (a *ingressAccount) setBudget(budget int) {
+	if budget <= 0 {
+		budget = DefaultIngressBudget
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.budget = budget
+}
+
+func (a *ingressAccount) getBudget() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.budget
+}
+
+func (a *ingressAccount) inUse() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.used
+}
+
+// reserve claims n bytes of the budget. It reports false, claiming nothing,
+// when they do not fit and force is false. force claims them regardless, for
+// a caller that must make progress.
+func (a *ingressAccount) reserve(n int, force bool) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !force && a.used+n > a.budget {
+		return false
+	}
+	a.used += n
+	return true
+}
+
+func (a *ingressAccount) release(n int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.used = max(a.used-n, 0)
+}
+
 // segmentChannel holds one protocol role's inbound segments. The muxer read
 // loop, shared by every protocol on the connection, appends to queue without
 // waiting unless backpressure is enabled; forward drains queue into ch, and
@@ -373,6 +464,8 @@ type segmentChannel struct {
 	// muxerDone is the muxer's doneChan, which a read loop waiting under
 	// backpressure also watches.
 	muxerDone <-chan bool
+	// account is the connection-wide ingress budget this queue draws on.
+	account *ingressAccount
 	// mu guards every field below it except the channels, which are
 	// written only at construction and in stop.
 	mu           sync.Mutex
@@ -396,12 +489,14 @@ func newSegmentChannel(
 	protocolRole ProtocolRole,
 	metrics func() Metrics,
 	muxerDone <-chan bool,
+	account *ingressAccount,
 ) *segmentChannel {
 	sc := &segmentChannel{
 		protocolId:    protocolId,
 		protocolRole:  protocolRole,
 		metrics:       metrics,
 		muxerDone:     muxerDone,
+		account:       account,
 		limit:         DefaultIngressLimit,
 		ch:            make(chan *Segment, 10),
 		done:          make(chan struct{}),
@@ -446,8 +541,8 @@ func (sc *segmentChannel) reportDepthLocked() {
 	}
 }
 
-// enqueue appends msg to the queue. Payload past the ingress limit is
-// refused with ErrIngressOverflow: the caller is the read loop every
+// enqueue appends msg to the queue. Payload past the ingress limit, or past
+// the connection's ingress budget, is refused with ErrIngressOverflow: the caller is the read loop every
 // protocol on the connection depends on, so it does not wait for this
 // protocol's consumer to make room. The exception is a protocol role with
 // backpressure enabled, for which enqueue waits for room instead, holding up
@@ -475,9 +570,15 @@ func (sc *segmentChannel) enqueue(msg *Segment) error {
 		}
 		newPending := sc.pendingBytes + len(msg.Payload)
 		// Under backpressure an empty queue always admits, so a limit set
-		// below one segment cannot wedge the read loop.
-		if newPending <= sc.limit ||
-			(sc.backpressure && len(sc.queue) == 0) {
+		// below one segment cannot wedge the read loop, and neither can a
+		// connection budget held entirely by other protocols: no dequeue of
+		// this queue would ever make room for it.
+		if (newPending <= sc.limit ||
+			(sc.backpressure && len(sc.queue) == 0)) &&
+			sc.account.reserve(
+				len(msg.Payload),
+				sc.backpressure && len(sc.queue) == 0,
+			) {
 			sc.queue = append(sc.queue, msg)
 			sc.pendingBytes = newPending
 			sc.reportDepthLocked()
@@ -488,11 +589,21 @@ func (sc *segmentChannel) enqueue(msg *Segment) error {
 		if !sc.backpressure {
 			limit := sc.limit
 			sc.mu.Unlock()
+			if newPending > limit {
+				return fmt.Errorf(
+					"%w: %d bytes queued exceeds %d byte limit",
+					ErrIngressOverflow,
+					newPending,
+					limit,
+				)
+			}
 			return fmt.Errorf(
-				"%w: %d bytes queued exceeds %d byte limit",
+				"%w: connection holds %d bytes across all protocols, "+
+					"%d more exceeds the %d byte connection budget",
 				ErrIngressOverflow,
-				newPending,
-				limit,
+				sc.account.inUse(),
+				len(msg.Payload),
+				sc.account.getBudget(),
 			)
 		}
 		if sc.room == nil {
@@ -528,6 +639,7 @@ func (sc *segmentChannel) forward() {
 		}
 		seg := sc.queue[0]
 		sc.pendingBytes -= len(seg.Payload)
+		sc.account.release(len(seg.Payload))
 		sc.queue = sc.queue[1:]
 		if len(sc.queue) == 0 {
 			// Release the backing array, which still references every
@@ -605,6 +717,11 @@ func (s *segmentChannel) stop() {
 	<-s.forwarderDone
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Segments still queued are never delivered, so their share of the
+	// connection budget is returned here.
+	s.account.release(s.pendingBytes)
+	s.pendingBytes = 0
+	s.queue = nil
 	if s.ch != nil {
 		close(s.ch)
 		s.ch = nil
@@ -654,6 +771,7 @@ func NewWithSegmentReadTimeout(
 		protocolReceivers:  make(map[uint16]map[ProtocolRole]*segmentChannel),
 		protocolTombstones: make(map[uint16]map[ProtocolRole]struct{}),
 		segmentReadTimeout: segmentReadTimeout,
+		ingress:            newIngressAccount(),
 	}
 	// Start read goroutine
 	m.waitGroup.Add(1)
@@ -753,6 +871,7 @@ func (m *Muxer) RegisterProtocol(
 		protocolRole,
 		m.getMetrics,
 		m.doneChan,
+		m.ingress,
 	)
 	receiver := receiverChan.ch
 	sender := &segmentSender{ch: senderChan, done: make(chan struct{})}
@@ -977,7 +1096,8 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from initiator when we're not configured as a responder
-		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator && !msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator &&
+			!msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from initiator when not configured as a responder",
@@ -986,7 +1106,8 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from responder when we're not configured as an initiator
-		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeResponder && msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeResponder &&
+			msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from responder when not configured as an initiator",

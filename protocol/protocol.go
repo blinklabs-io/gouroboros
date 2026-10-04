@@ -1061,7 +1061,8 @@ func (p *Protocol) recoverLoop(where string) {
 		select {
 		case p.config.ErrorChan <- err:
 		default:
-			p.Logger().Error("contained panic with a full error channel", "error", err)
+			p.Logger().
+				Error("contained panic with a full error channel", "error", err)
 		}
 		p.Stop()
 	}
@@ -1481,6 +1482,21 @@ func (p *Protocol) pendingMessageByteLimit(state State) int {
 	return 0
 }
 
+// pendingReceiveBudget returns the most received-but-unhandled message bytes
+// the read loop admits while state is active: the state's
+// PendingReceiveByteBudget, or its PendingMessageByteLimit when it declares
+// no budget. Zero means unbounded.
+func (p *Protocol) pendingReceiveBudget(state State) int {
+	entry, ok := p.config.StateMap[state]
+	if !ok {
+		return 0
+	}
+	if entry.PendingReceiveByteBudget > 0 {
+		return entry.PendingReceiveByteBudget
+	}
+	return entry.PendingMessageByteLimit
+}
+
 func (p *Protocol) stateHasNoAgency(state State) bool {
 	entry, ok := p.config.StateMap[state]
 	return ok && entry.Agency == AgencyNone
@@ -1627,7 +1643,9 @@ func (p *Protocol) readLoop() {
 			limit := p.pendingMessageByteLimit(state)
 			scanResult, err = scanner.scan(readBuffer.Bytes(), limit)
 			if err != nil {
-				p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
+				p.SendError(
+					fmt.Errorf("%s: decode error: %w", p.config.Name, err),
+				)
 				return
 			}
 			if scanResult.started && !messageStateSet {
@@ -1731,10 +1749,14 @@ func (p *Protocol) readLoop() {
 		// Wait for pending recv bytes to drop below limit before accepting.
 		// This applies TCP backpressure to the remote peer instead of
 		// disconnecting with a protocol violation during rapid catch-up sync.
-		if limit > 0 {
+		// A message larger than the whole budget is admitted once nothing
+		// else is pending: the budget bounds what is queued, and the
+		// message size limit above is what bounds a single message.
+		if budget := p.pendingReceiveBudget(messageState); budget > 0 {
 			for {
 				p.pendingBytesMu.Lock()
-				if p.pendingRecvBytes+msgLen <= limit {
+				if p.pendingRecvBytes+msgLen <= budget ||
+					p.pendingRecvBytes == 0 {
 					p.pendingRecvBytes += msgLen
 					p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
 					p.pendingBytesMu.Unlock()

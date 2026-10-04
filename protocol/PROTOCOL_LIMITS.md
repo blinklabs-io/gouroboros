@@ -63,9 +63,19 @@ taken yet.
 | Chain Sync (node-to-node), Peer Sharing | 655,350 |
 | Keep Alive, Handshake, local protocols | effective `MaxReadBufferSize` (16 MB) |
 
-The worst-case memory a connection can queue is the sum of the limits of its
-registered protocol roles; a queue only fills while its protocol is not
-taking segments.
+The muxer also bounds the segment payload queued across every protocol role
+on the connection (`Muxer.SetIngressBudget`, default
+`muxer.DefaultIngressBudget`, 64 MB). The specification mandates no aggregate
+figure, so this is an implementation bound: it keeps many individually bounded
+queues from adding up to an unbounded total, and a healthy connection stays far
+under it. Ingress that would take the connection past it stops the connection
+with `muxer.ErrIngressOverflow`, except for a protocol role with backpressure
+enabled, which pauses the read loop instead and is always admitted when its own
+queue is empty, so segments held by other roles cannot wedge it. Queued bytes
+are returned to the budget as the protocol takes them and when its receiver is
+unregistered. The worst-case memory a connection can queue is therefore the
+lesser of that budget and the sum of the limits of its registered protocol
+roles.
 
 Block Fetch is the only node-to-node protocol whose peer sends an amount
 chosen by the local side. Its client limit is the reference
@@ -104,7 +114,15 @@ The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
 | MustReply | random in `[135, 269)` seconds | 462,000 |
 | Done | none | 462,000 |
 
-The N2C map has no state timeouts or pending-message byte limits. `MustReply`
+The N2C map has no state timeouts or pending-message byte limits, so no
+message is refused for its size. Every N2C state does carry a pending receive
+budget, `chainsync.PendingReceiveBytesNtC` (8 MiB, an implementation bound; the
+reference node-to-client policy has none): the read loop holds back a message
+that would take the received-but-unhandled bytes past it until the consumer has
+drained enough, which applies backpressure to the peer rather than failing the
+connection. A message larger than the whole budget is admitted once nothing
+else is pending. `PendingReceiveByteBudget` in a state map entry sets this
+per state. `MustReply`
 uses a fresh random timeout for each state entry; `MustReplyTimeout` is the
 fixed maximum retained for compatibility and configuration defaults.
 
