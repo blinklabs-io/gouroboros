@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"testing"
@@ -2646,6 +2647,61 @@ func TestByronTxFeePolicy_CalculateMinFee(t *testing.T) {
 					tc.expectedFee,
 				)
 			}
+		})
+	}
+}
+
+func TestByronTxFeePolicy_CalculateMinFeeOverflow(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy ByronTxFeePolicy
+		size   uint64
+	}{
+		{
+			name: "summand addition exceeds int64",
+			policy: ByronTxFeePolicy{
+				Summand:    math.MaxInt64,
+				Multiplier: math.MaxInt64,
+			},
+			size: 1,
+		},
+		{
+			name: "product exceeds int64 but fee fits uint64",
+			policy: ByronTxFeePolicy{
+				Multiplier: math.MaxInt64,
+			},
+			size: 2,
+		},
+		{
+			name: "fee exceeds uint64",
+			policy: ByronTxFeePolicy{
+				Multiplier: math.MaxInt64,
+			},
+			size: ^uint64(0),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			numerator := new(big.Int).SetInt64(tc.policy.Summand)
+			product := new(big.Int).Mul(
+				new(big.Int).SetInt64(tc.policy.Multiplier),
+				new(big.Int).SetUint64(tc.size),
+			)
+			numerator.Add(numerator, product)
+
+			divisor := big.NewInt(ByronFeeDivisor)
+			want, remainder := new(big.Int), new(big.Int)
+			want.QuoRem(numerator, divisor, remainder)
+			if remainder.Sign() != 0 {
+				want.Add(want, big.NewInt(1))
+			}
+			maxUint64 := new(big.Int).SetUint64(^uint64(0))
+			if want.Cmp(maxUint64) > 0 {
+				want.Set(maxUint64)
+			}
+
+			require.Equal(t, want.Uint64(), tc.policy.CalculateMinFee(tc.size))
 		})
 	}
 }
