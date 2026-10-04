@@ -1742,14 +1742,77 @@ func mirSourceToUtxorpc(source uint) (utxorpc.MirSource, error) {
 // (libs/cardano-ledger-core/src/Cardano/Ledger/Coin.hs). A negative delta is a
 // decoding matter only; whether it is permitted is decided by the DELEG rule.
 type MoveInstantaneousRewardsCertificateReward struct {
+	// Source is the wire pot: 0 for reserves, 1 for treasury.
 	Source   uint
 	Rewards  map[*Credential]*big.Int
 	OtherPot uint64
 }
 
+// MarshalCBOR encodes the MIR source pot and its reward-map or coin target.
+// A non-nil Rewards map selects the reward target, including an empty map.
+func (r MoveInstantaneousRewardsCertificateReward) MarshalCBOR() ([]byte, error) {
+	if r.Source > 1 {
+		return nil, fmt.Errorf("invalid MIR source pot: %d", r.Source)
+	}
+	if r.Rewards == nil {
+		return cbor.Encode([]any{r.Source, r.OtherPot})
+	}
+	if r.OtherPot != 0 {
+		return nil, errors.New(
+			"instantaneous rewards cannot contain both reward and opposite-pot targets",
+		)
+	}
+	if err := validateCredentialMapKeys(r.Rewards, "instantaneous rewards"); err != nil {
+		return nil, err
+	}
+	for credential, delta := range r.Rewards {
+		if credential.CredType > CredentialTypeScriptHash {
+			return nil, fmt.Errorf(
+				"invalid credential type: %d",
+				credential.CredType,
+			)
+		}
+		if delta == nil {
+			return nil, errors.New("instantaneous rewards delta cannot be nil")
+		}
+	}
+	return cbor.Encode([]any{r.Source, r.Rewards})
+}
+
 func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 	data []byte,
 ) error {
+	var fields []cbor.RawMessage
+	if len(data) == 0 || data[0]>>5 != 4 {
+		return errors.New(
+			"instantaneous rewards must be a two-element CBOR array",
+		)
+	}
+	if _, err := cbor.Decode(data, &fields); err != nil {
+		return err
+	}
+	if len(fields) != 2 {
+		return errors.New(
+			"instantaneous rewards must be a two-element CBOR array",
+		)
+	}
+	// Go unsigned integers also accept null and tagged bignums during decode;
+	// the source and opposite-pot coin require unsigned CBOR integer tokens.
+	if len(fields[0]) == 0 || fields[0][0]>>5 != 0 {
+		return errors.New(
+			"instantaneous rewards source must be an unsigned CBOR integer",
+		)
+	}
+	if len(fields[1]) == 1 && (fields[1][0] == 0xf6 || fields[1][0] == 0xf7) {
+		return errors.New(
+			"instantaneous rewards target is CBOR null or undefined",
+		)
+	}
+	if len(fields[1]) == 0 || (fields[1][0]>>5 != 0 && fields[1][0]>>5 != 5) {
+		return errors.New(
+			"instantaneous rewards target must be a CBOR map or unsigned integer",
+		)
+	}
 	// Try to parse as map. The reference dispatches on the CBOR major type
 	// of the second element and reads Map (Credential Staking) DeltaCoin
 	// with no sign or range constraint
@@ -1781,8 +1844,13 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 		); err != nil {
 			return err
 		}
-		r.Rewards = tmpMapData.Rewards
-		r.Source = tmpMapData.Source
+		if tmpMapData.Source > 1 {
+			return fmt.Errorf("invalid MIR source pot: %d", tmpMapData.Source)
+		}
+		*r = MoveInstantaneousRewardsCertificateReward{
+			Source:  tmpMapData.Source,
+			Rewards: tmpMapData.Rewards,
+		}
 		return nil
 	}
 	// Try to parse as coin. The opposite-pot amount is coin, which the CDDL
@@ -1793,8 +1861,13 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 		Coin   uint64
 	}{}
 	if _, err := cbor.Decode(data, &tmpCoinData); err == nil {
-		r.OtherPot = tmpCoinData.Coin
-		r.Source = tmpCoinData.Source
+		if tmpCoinData.Source > 1 {
+			return fmt.Errorf("invalid MIR source pot: %d", tmpCoinData.Source)
+		}
+		*r = MoveInstantaneousRewardsCertificateReward{
+			Source:   tmpCoinData.Source,
+			OtherPot: tmpCoinData.Coin,
+		}
 		return nil
 	}
 	return errors.New("failed to decode as known types")
