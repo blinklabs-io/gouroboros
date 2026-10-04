@@ -3194,6 +3194,9 @@ func EvaluatePlutusScripts(
 	conwayPparams *ConwayProtocolParameters,
 	budget *common.ExUnits,
 ) (map[common.RedeemerKey]common.ExUnits, error) {
+	if tx == nil {
+		return nil, errors.New("nil transaction")
+	}
 	used := make(map[common.RedeemerKey]common.ExUnits)
 	witnesses := tx.Witnesses()
 	if witnesses == nil {
