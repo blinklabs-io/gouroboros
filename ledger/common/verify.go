@@ -16,7 +16,9 @@ package common
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/sha3"
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -261,14 +263,42 @@ func ValidateBootstrapWitnesses(tx Transaction) error {
 
 // PreverifiedSignatures is the outcome of verifying one transaction's vkey and
 // bootstrap witness signatures ahead of validation. It is bound to the
-// transaction it was computed from by the signed body hash: validation ignores
-// a result produced for a different body and verifies inline instead. The hash
-// does not cover the witness set, so a result vouches for any transaction with
-// the same body; hand it over with the transaction value it was computed from,
-// never by looking it up by transaction ID.
+// transaction body and its signature witnesses. Validation verifies inline if
+// either changes after preverification.
 type PreverifiedSignatures struct {
-	witnessHash Blake2b256
-	err         error
+	binding [32]byte
+	err     error
+}
+
+func signatureBinding(tx Transaction) [32]byte {
+	h := sha256.New()
+	bodyHash := transactionWitnessHash(tx)
+	h.Write(bodyHash[:])
+	var length [8]byte
+	writeBytes := func(data []byte) {
+		binary.LittleEndian.PutUint64(length[:], uint64(len(data)))
+		h.Write(length[:])
+		h.Write(data)
+	}
+	if witnesses := tx.Witnesses(); witnesses != nil {
+		vkeys := witnesses.Vkey()
+		binary.LittleEndian.PutUint64(length[:], uint64(len(vkeys)))
+		h.Write(length[:])
+		for _, witness := range vkeys {
+			writeBytes(witness.Vkey)
+			writeBytes(witness.Signature)
+		}
+		bootstraps := witnesses.Bootstrap()
+		binary.LittleEndian.PutUint64(length[:], uint64(len(bootstraps)))
+		h.Write(length[:])
+		for _, witness := range bootstraps {
+			writeBytes(witness.PublicKey)
+			writeBytes(witness.Signature)
+		}
+	}
+	var binding [32]byte
+	copy(binding[:], h.Sum(nil))
+	return binding
 }
 
 // PreverifySignatures verifies the vkey and bootstrap witness signatures of tx
@@ -282,15 +312,17 @@ func PreverifySignatures(tx Transaction) *PreverifiedSignatures {
 		err = ValidateBootstrapWitnesses(tx)
 	}
 	return &PreverifiedSignatures{
-		witnessHash: transactionWitnessHash(tx),
-		err:         err,
+		binding: signatureBinding(tx),
+		err:     err,
 	}
 }
 
 // UtxoValidateSignatures verifies vkey and bootstrap signatures present in the transaction.
 // Parameters slot and pp are unused but included for interface compatibility with UtxoValidationRuleFunc.
-// When ls carries a PreverifiedSignatures result for tx (see
+// When ls carries a matching PreverifiedSignatures result for tx (see
 // VerifyTransactionWithSignatures), the signature checks are not repeated.
+// Byron witnesses are always verified inline because their signing context
+// is not represented by the common witness interface.
 // Note: ValidateVKeyWitnesses must be called before ValidateInputVKeyWitnesses since the latter
 // only checks witness presence (not cryptographic validity) and relies on the former for validation.
 func UtxoValidateSignatures(
@@ -299,9 +331,11 @@ func UtxoValidateSignatures(
 	ls LedgerState,
 	pp ProtocolParameters,
 ) error {
+	_, byron := tx.(ByronVKeyWitnessVerifier)
 	if cached, ok := ls.(*cachedLedgerState); ok &&
+		!byron &&
 		cached.signatures != nil &&
-		cached.signatures.witnessHash == transactionWitnessHash(tx) {
+		cached.signatures.binding == signatureBinding(tx) {
 		if cached.signatures.err != nil {
 			return cached.signatures.err
 		}

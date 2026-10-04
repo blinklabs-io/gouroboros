@@ -109,9 +109,8 @@ var preverifiedCases = []struct {
 	{"bootstrap_phase2_invalid", bootstrapWitness, false},
 }
 
-// A preverified success must not be recomputed: corrupting the signature
-// after PreverifySignatures is only visible to a validation that repeats it.
-func TestPreverifiedSignaturesAreNotReverified(t *testing.T) {
+// Changing a signature after preverification must force inline verification.
+func TestPreverifiedSignaturesRejectChangedWitnesses(t *testing.T) {
 	t.Parallel()
 	for _, tc := range preverifiedCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -120,7 +119,7 @@ func TestPreverifiedSignaturesAreNotReverified(t *testing.T) {
 			signatures := common.PreverifySignatures(tx)
 			corruptSignature(tx, tc.kind)
 
-			require.NoError(t, verifySignatureRule(tx, signatures))
+			require.Error(t, verifySignatureRule(tx, signatures))
 			require.Error(
 				t,
 				verifySignatureRule(tx, nil),
@@ -130,10 +129,8 @@ func TestPreverifiedSignaturesAreNotReverified(t *testing.T) {
 	}
 }
 
-// A preverified failure must surface exactly as the inline check reports it.
-// Repairing the signature after PreverifySignatures shows that the recorded
-// failure, not a fresh verification, is what validation returns.
-func TestPreverifiedSignatureFailureMatchesInline(t *testing.T) {
+// Repairing a signature invalidates the cached failure as well.
+func TestPreverifiedSignatureFailureIgnoredAfterRepair(t *testing.T) {
 	t.Parallel()
 	for _, tc := range preverifiedCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -145,14 +142,7 @@ func TestPreverifiedSignatureFailureMatchesInline(t *testing.T) {
 
 			signatures := common.PreverifySignatures(tx)
 			corruptSignature(tx, tc.kind) // restore the valid signature
-			preverifiedErr := verifySignatureRule(tx, signatures)
-
-			require.Error(t, preverifiedErr)
-			require.Equal(t, inlineErr.Error(), preverifiedErr.Error())
-			var inlineVE, preverifiedVE *common.ValidationError
-			require.ErrorAs(t, inlineErr, &inlineVE)
-			require.ErrorAs(t, preverifiedErr, &preverifiedVE)
-			require.Equal(t, inlineVE.Type, preverifiedVE.Type)
+			require.NoError(t, verifySignatureRule(tx, signatures))
 		})
 	}
 }
