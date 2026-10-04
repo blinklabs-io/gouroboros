@@ -38,10 +38,8 @@ func (e *egress) waiting() int {
 	return len(e.praos) + len(e.leios)
 }
 
-func newTestSegment(protocolId uint16, age time.Duration) *Segment {
-	s := NewSegment(protocolId, []byte{1}, false)
-	s.created = time.Now().Add(-age)
-	return s
+func newTestSegment(protocolId uint16) *Segment {
+	return NewSegment(protocolId, []byte{1}, false)
 }
 
 // queueWaiter starts an acquire for s and returns a channel reporting its
@@ -91,10 +89,10 @@ func requireNotGranted(t *testing.T, res <-chan error) {
 func TestEgressPraosGoesBeforeLeios(t *testing.T) {
 	t.Parallel()
 	var e egress
-	_, err := e.acquire(newTestSegment(testPraosId, 0), nil)
+	_, err := e.acquire(newTestSegment(testPraosId), nil)
 	require.NoError(t, err)
-	leios := queueWaiter(t, &e, newTestSegment(testLeiosId, 0))
-	praos := queueWaiter(t, &e, newTestSegment(testPraosId, 0))
+	leios := queueWaiter(t, &e, newTestSegment(testLeiosId))
+	praos := queueWaiter(t, &e, newTestSegment(testPraosId))
 
 	e.release()
 	requireGranted(t, praos)
@@ -103,50 +101,60 @@ func TestEgressPraosGoesBeforeLeios(t *testing.T) {
 	requireGranted(t, leios)
 }
 
-func TestEgressFreshestLeiosGoesFirst(t *testing.T) {
-	t.Parallel()
-	var e egress
-	_, err := e.acquire(newTestSegment(testPraosId, 0), nil)
-	require.NoError(t, err)
-	old := queueWaiter(t, &e, newTestSegment(testLeiosId, 5*time.Second))
-	fresh := queueWaiter(t, &e, newTestSegment(testLeiosId, time.Second))
-
-	e.release()
-	requireGranted(t, fresh)
-	requireNotGranted(t, old)
-	e.release()
-	requireGranted(t, old)
-}
-
 func TestEgressLeiosIsNotStarved(t *testing.T) {
 	t.Parallel()
 	var e egress
-	_, err := e.acquire(newTestSegment(testPraosId, 0), nil)
+	_, err := e.acquire(newTestSegment(testPraosId), nil)
 	require.NoError(t, err)
-	leios := queueWaiter(t, &e, newTestSegment(testLeiosId, 0))
+	leios := queueWaiter(t, &e, newTestSegment(testLeiosId))
 
 	// Praos always has another waiter; Leios must still get a turn within
 	// praosBurst Praos turns.
 	for range praosBurst {
-		praos := queueWaiter(t, &e, newTestSegment(testPraosId, 0))
+		praos := queueWaiter(t, &e, newTestSegment(testPraosId))
 		e.release()
 		requireGranted(t, praos)
 		requireNotGranted(t, leios)
 	}
-	queueWaiter(t, &e, newTestSegment(testPraosId, 0))
+	queueWaiter(t, &e, newTestSegment(testPraosId))
 	e.release()
 	requireGranted(t, leios)
+}
+
+// Each protocol queues its next segment as soon as the previous one is
+// written. A waiting Leios segment must not be passed over indefinitely by
+// other Leios protocols that keep queueing newer segments.
+func TestEgressLeiosSenderIsNotStarvedByOtherLeios(t *testing.T) {
+	t.Parallel()
+	var e egress
+	_, err := e.acquire(newTestSegment(protocolIdLeiosVotes), nil)
+	require.NoError(t, err)
+	votes := queueWaiter(t, &e, newTestSegment(protocolIdLeiosVotes))
+	queueWaiter(t, &e, newTestSegment(protocolIdLeiosNotify))
+	queueWaiter(t, &e, newTestSegment(protocolIdLeiosFetch))
+	for _, id := range []uint16{protocolIdLeiosNotify, protocolIdLeiosFetch} {
+		e.release()
+		queueWaiter(t, &e, newTestSegment(id))
+		select {
+		case err := <-votes:
+			require.NoError(t, err)
+			return
+		default:
+		}
+	}
+	e.release()
+	requireGranted(t, votes)
 }
 
 func TestEgressStopReleasesWaiter(t *testing.T) {
 	t.Parallel()
 	var e egress
-	_, err := e.acquire(newTestSegment(testPraosId, 0), nil)
+	_, err := e.acquire(newTestSegment(testPraosId), nil)
 	require.NoError(t, err)
 	done := make(chan bool)
 	res := make(chan error, 1)
 	go func() {
-		_, err := e.acquire(newTestSegment(testPraosId, 0), done)
+		_, err := e.acquire(newTestSegment(testPraosId), done)
 		res <- err
 	}()
 	require.Eventually(t, func() bool { return e.waiting() == 1 },
@@ -285,8 +293,7 @@ func TestMuxerPraosLatencyBoundedUnderLeiosSaturation(t *testing.T) {
 	require.Positive(t, rec.waits[EgressClassPraos])
 }
 
-// A Leios segment that waited a long time behind a slow write is still
-// written, and the muxer, with the Praos traffic on it, keeps running.
+// A Leios segment that waited behind a slow write is still written, and the muxer, with the Praos traffic on it, keeps running.
 func TestMuxerLeiosSegmentDelayedBySlowWriteIsSent(t *testing.T) {
 	t.Parallel()
 	conn := newGateConn(2)
@@ -301,8 +308,8 @@ func TestMuxerLeiosSegmentDelayedBySlowWriteIsSent(t *testing.T) {
 		defer m.egress.mu.Unlock()
 		return m.egress.busy
 	}, 5*time.Second, time.Millisecond)
-	// The Leios segment queues behind it and was created long ago.
-	leiosSend <- newTestSegment(testLeiosId, time.Hour)
+	// The Leios segment queues behind it.
+	leiosSend <- newTestSegment(testLeiosId)
 	stopped := func() bool {
 		select {
 		case <-m.doneChan:

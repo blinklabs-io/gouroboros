@@ -41,7 +41,6 @@ type SegmentHeader struct {
 type Segment struct {
 	SegmentHeader
 	Payload      []byte
-	created      time.Time
 	deliveryChan chan<- error
 }
 
@@ -83,7 +82,6 @@ func NewSegment(protocolId uint16, payload []byte, isResponse bool) *Segment {
 	segment := &Segment{
 		SegmentHeader: header,
 		Payload:       payload,
-		created:       time.Now(),
 	}
 	return segment
 }

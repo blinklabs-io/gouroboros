@@ -54,7 +54,8 @@ func EgressClassOf(protocolId uint16) EgressClass {
 const (
 	// praosBurst is how many Praos segments may be written in a row while a
 	// Leios segment waits, after which one Leios segment goes next. It bounds
-	// how long Leios can be starved; Praos waits at most one segment write.
+	// how long Leios can be starved, at the cost of a waiting Praos segment
+	// sometimes also waiting for one Leios write.
 	praosBurst = 8
 )
 
@@ -67,27 +68,22 @@ type EgressMetrics interface {
 }
 
 // egress serializes writes to the connection. Its holder is the one
-// goroutine writing; waiting segments are granted the turn Praos first, and
-// among Leios segments the most recently created first. After praosBurst
-// Praos grants in a row a waiting Leios segment goes next.
+// goroutine writing; waiting segments are granted the turn Praos first, each
+// class in arrival order. After praosBurst Praos grants in a row a waiting
+// Leios segment goes next.
 type egress struct {
-	mu       sync.Mutex
-	busy     bool
-	praos    []*egressWaiter
-	leios    []*egressWaiter
+	mu   sync.Mutex
+	busy bool
+	// Each waiter is a channel that is closed when it is granted the turn.
+	praos    []chan struct{}
+	leios    []chan struct{}
 	praosRun int
-}
-
-type egressWaiter struct {
-	segment *Segment
-	// granted is closed when the waiter holds the turn.
-	granted chan struct{}
 }
 
 // acquire waits for the segment's turn to write, reporting whether it had to
 // wait. A nil error means the caller must call release when done.
 func (e *egress) acquire(s *Segment, done <-chan bool) (bool, error) {
-	w := &egressWaiter{segment: s, granted: make(chan struct{})}
+	granted := make(chan struct{})
 	e.mu.Lock()
 	if !e.busy {
 		e.busy = true
@@ -95,22 +91,22 @@ func (e *egress) acquire(s *Segment, done <-chan bool) (bool, error) {
 		return false, nil
 	}
 	if EgressClassOf(s.GetProtocolId()) == EgressClassLeios {
-		e.leios = append(e.leios, w)
+		e.leios = append(e.leios, granted)
 	} else {
-		e.praos = append(e.praos, w)
+		e.praos = append(e.praos, granted)
 	}
 	e.mu.Unlock()
 	select {
-	case <-w.granted:
+	case <-granted:
 		return true, nil
 	case <-done:
 	}
 	e.mu.Lock()
-	queued := e.remove(w)
+	queued := e.remove(granted)
 	e.mu.Unlock()
 	if !queued {
 		// The turn was decided as the muxer stopped; hand on a granted one.
-		<-w.granted
+		<-granted
 		e.release()
 	}
 	return true, errors.New("shutting down")
@@ -118,8 +114,8 @@ func (e *egress) acquire(s *Segment, done <-chan bool) (bool, error) {
 
 // remove takes w out of its queue, reporting whether it was still there. The
 // caller must hold mu.
-func (e *egress) remove(w *egressWaiter) bool {
-	for _, q := range []*[]*egressWaiter{&e.praos, &e.leios} {
+func (e *egress) remove(w chan struct{}) bool {
+	for _, q := range []*[]chan struct{}{&e.praos, &e.leios} {
 		for i, c := range *q {
 			if c == w {
 				*q = append((*q)[:i], (*q)[i+1:]...)
@@ -139,10 +135,11 @@ func (e *egress) release() {
 		e.praosRun = 0
 		return
 	}
-	var w *egressWaiter
+	var w chan struct{}
 	if len(e.leios) > 0 &&
 		(len(e.praos) == 0 || e.praosRun >= praosBurst) {
-		w = e.popFreshestLeios()
+		w = e.leios[0]
+		e.leios = e.leios[1:]
 		e.praosRun = 0
 	} else {
 		w = e.praos[0]
@@ -151,17 +148,5 @@ func (e *egress) release() {
 			e.praosRun++
 		}
 	}
-	close(w.granted)
-}
-
-func (e *egress) popFreshestLeios() *egressWaiter {
-	best := 0
-	for i, w := range e.leios {
-		if w.segment.created.After(e.leios[best].segment.created) {
-			best = i
-		}
-	}
-	w := e.leios[best]
-	e.leios = append(e.leios[:best], e.leios[best+1:]...)
-	return w
+	close(w)
 }

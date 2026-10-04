@@ -859,9 +859,9 @@ func (m *Muxer) UnregisterProtocol(
 }
 
 // Send takes a populated Segment and writes it to the connection. Only one segment is written at a time:
-// waiting Praos segments go before Leios ones, and the most recently created Leios segment goes first.
-// Leios segments are never dropped for waiting: segments carry no message boundary, so a dropped one
-// would desynchronize the peer's stream.
+// waiting Praos segments go before Leios ones, each class in arrival order, and a waiting Leios segment
+// goes next after a bounded run of Praos segments. Leios segments are never dropped for waiting: segments
+// carry no message boundary, so a dropped one would desynchronize the peer's stream.
 func (m *Muxer) Send(msg *Segment) error {
 	// Immediately return if we're already shutting down
 	select {
