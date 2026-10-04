@@ -136,10 +136,15 @@ The `RequestTxIds` message includes:
 txsubmission.NewConfig(
     txsubmission.WithRequestTxIdsFunc(requestTxIdsCallback),
     txsubmission.WithRequestTxsFunc(requestTxsCallback),
-    txsubmission.WithInitFunc(initCallback),
-    txsubmission.WithDoneFunc(doneCallback),
+    txsubmission.WithOnInit(onInit), // optional, server side
+    txsubmission.WithOnDone(onDone), // optional, server side
 )
 ```
+
+`OnInit` and `OnDone` receive the connection ID when the client sends `Init`
+or `Done`. A server accepts `Init` without either of them. `WithInitFunc` and
+`WithDoneFunc` are deprecated; they still run after the matching notification,
+and an error they return still fails the protocol.
 
 ## Usage Example
 
