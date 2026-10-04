@@ -88,6 +88,12 @@ func (e *egress) acquire(s *Segment, done <-chan bool) (bool, error) {
 	if !e.busy {
 		e.busy = true
 		e.mu.Unlock()
+		select {
+		case <-done:
+			e.release()
+			return false, errors.New("shutting down")
+		default:
+		}
 		return false, nil
 	}
 	if EgressClassOf(s.GetProtocolId()) == EgressClassLeios {
@@ -98,6 +104,12 @@ func (e *egress) acquire(s *Segment, done <-chan bool) (bool, error) {
 	e.mu.Unlock()
 	select {
 	case <-granted:
+		select {
+		case <-done:
+			e.release()
+			return true, errors.New("shutting down")
+		default:
+		}
 		return true, nil
 	case <-done:
 	}

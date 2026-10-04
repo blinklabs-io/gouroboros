@@ -876,14 +876,17 @@ func (m *Muxer) Send(msg *Segment) error {
 	if err != nil {
 		return err
 	}
-	defer m.egress.release()
-	if blocked && em != nil {
-		em.EgressWait(
-			msg.GetProtocolId(),
-			EgressClassOf(msg.GetProtocolId()),
-			time.Since(waitStart),
-		)
-	}
+	waitDuration := time.Since(waitStart)
+	defer func() {
+		m.egress.release()
+		if blocked && em != nil {
+			em.EgressWait(
+				msg.GetProtocolId(),
+				EgressClassOf(msg.GetProtocolId()),
+				waitDuration,
+			)
+		}
+	}()
 	buf := &bytes.Buffer{}
 	err = binary.Write(buf, binary.BigEndian, msg.SegmentHeader)
 	if err != nil {

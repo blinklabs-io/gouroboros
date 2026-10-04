@@ -39,7 +39,13 @@ func (e *egress) waiting() int {
 }
 
 func newTestSegment(protocolId uint16) *Segment {
-	return NewSegment(protocolId, []byte{1}, false)
+	return &Segment{
+		SegmentHeader: SegmentHeader{
+			ProtocolId:    protocolId,
+			PayloadLength: 1,
+		},
+		Payload: []byte{1},
+	}
 }
 
 // queueWaiter starts an acquire for s and returns a channel reporting its
@@ -164,6 +170,16 @@ func TestEgressStopReleasesWaiter(t *testing.T) {
 	require.Zero(t, e.waiting())
 }
 
+func TestEgressDoesNotAcquireAfterStop(t *testing.T) {
+	t.Parallel()
+	var e egress
+	done := make(chan bool)
+	close(done)
+	_, err := e.acquire(newTestSegment(testPraosId), done)
+	require.Error(t, err)
+	require.False(t, e.busy)
+}
+
 // gateConn lets a test pace the connection: each Write waits for a token and
 // is then recorded by protocol ID.
 type gateConn struct {
@@ -227,6 +243,59 @@ type egressRecorder struct {
 	Metrics
 	mu    sync.Mutex
 	waits map[EgressClass]int
+}
+
+type reentrantEgressMetrics struct {
+	Metrics
+	m    *Muxer
+	done chan error
+}
+
+func (r *reentrantEgressMetrics) EgressWait(
+	_ uint16,
+	_ EgressClass,
+	_ time.Duration,
+) {
+	r.done <- r.m.Send(newTestSegment(testPraosId))
+}
+
+func TestEgressMetricsCanSend(t *testing.T) {
+	t.Parallel()
+	conn := newGateConn(3)
+	m := newTestMuxer(t, conn)
+	callback := &reentrantEgressMetrics{
+		m:    m,
+		done: make(chan error, 1),
+	}
+	m.SetMetrics(callback)
+	first := make(chan error, 1)
+	second := make(chan error, 1)
+	go func() { first <- m.Send(newTestSegment(testPraosId)) }()
+	require.Eventually(t, func() bool {
+		m.egress.mu.Lock()
+		defer m.egress.mu.Unlock()
+		return m.egress.busy
+	}, 5*time.Second, time.Millisecond)
+	go func() { second <- m.Send(newTestSegment(testPraosId)) }()
+	require.Eventually(t, func() bool {
+		return m.egress.waiting() == 1
+	}, 5*time.Second, time.Millisecond)
+	for range 3 {
+		conn.tokens <- struct{}{}
+	}
+	require.NoError(t, <-first)
+	select {
+	case err := <-second:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("metrics callback blocked a second send")
+	}
+	select {
+	case err := <-callback.done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("metrics callback could not send")
+	}
 }
 
 func (r *egressRecorder) EgressWait(_ uint16, c EgressClass, _ time.Duration) {
@@ -293,7 +362,8 @@ func TestMuxerPraosLatencyBoundedUnderLeiosSaturation(t *testing.T) {
 	require.Positive(t, rec.waits[EgressClassPraos])
 }
 
-// A Leios segment that waited behind a slow write is still written, and the muxer, with the Praos traffic on it, keeps running.
+// A Leios segment delayed by a slow write is still sent, and the muxer keeps
+// running with Praos traffic.
 func TestMuxerLeiosSegmentDelayedBySlowWriteIsSent(t *testing.T) {
 	t.Parallel()
 	conn := newGateConn(2)
