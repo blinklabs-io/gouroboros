@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	filippo.io/edwards25519 v1.2.0
-	github.com/blinklabs-io/ouroboros-mock v0.20.3
+	github.com/blinklabs-io/ouroboros-mock v0.20.4
 	github.com/blinklabs-io/plutigo v0.7.2
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/consensys/gnark-crypto v0.21.0
