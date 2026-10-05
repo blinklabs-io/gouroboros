@@ -20,11 +20,12 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-// NOTE: these are dummy message IDs and will probably need to be changed
+// Message IDs follow the leios-prototype CDDL in Cardano Blueprint.
 const (
 	MessageTypeNotificationRequestNext = 0
 	MessageTypeBlockAnnouncement       = 1
@@ -38,6 +39,10 @@ const (
 	// MaxVotesOfferBytes bounds CBOR parsing work for one offer before the
 	// decoder scans any individual vote value.
 	MaxVotesOfferBytes = 256 * 1024
+	// MaxBlockAnnouncementBytes bounds one encoded block announcement before
+	// it is decoded. It is one muxer segment, far above any ranking-block
+	// header the ledger accepts (mainnet maxBlockHeaderSize is 1,100 bytes).
+	MaxBlockAnnouncementBytes = muxer.SegmentMaxPayloadLength
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
@@ -47,6 +52,15 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			ProtocolName,
 			len(data),
 			MaxVotesOfferBytes,
+		)
+	}
+	if msgType == MessageTypeBlockAnnouncement &&
+		len(data) > MaxBlockAnnouncementBytes {
+		return nil, fmt.Errorf(
+			"%s: block announcement size %d exceeds maximum %d bytes",
+			ProtocolName,
+			len(data),
+			MaxBlockAnnouncementBytes,
 		)
 	}
 	var ret protocol.Message
@@ -74,6 +88,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	}
+	if uint(ret.Type()) != msgType {
+		return nil, fmt.Errorf(
+			"%s: message type mismatch: parser received %d, payload contains %d",
+			ProtocolName,
+			msgType,
+			ret.Type(),
+		)
 	}
 	// Store the raw message CBOR
 	ret.SetCbor(data)

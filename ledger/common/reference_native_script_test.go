@@ -499,3 +499,57 @@ func TestUnresolvableInputsAreRejectedBeforeNativeScripts(t *testing.T) {
 		})
 	}
 }
+
+// A witness-set native script that no purpose of the transaction requires is
+// not evaluated: the witness rule reports it as extraneous, and the
+// evaluation rule must not turn the same script into a script failure.
+func TestUnneededWitnessNativeScriptIsNotEvaluated(t *testing.T) {
+	t.Parallel()
+	unneeded := testPubkeyNativeScript(t, bytes.Repeat([]byte{0x66}, 32))
+	spentInput := shelley.NewShelleyTransactionInput(
+		"7777777777777777777777777777777777777777777777777777777777777777",
+		0,
+	)
+	keyAddr := testKeyPaymentAddress(t, bytes.Repeat([]byte{0x67}, 32))
+
+	eras := []struct {
+		name  string
+		rules []common.UtxoValidationRuleFunc
+	}{
+		{name: "Babbage", rules: babbage.UtxoValidationRules},
+		{name: "Conway", rules: conway.UtxoValidationRules},
+		{name: "Dijkstra", rules: dijkstra.UtxoValidationRules},
+	}
+	for _, era := range eras {
+		t.Run(era.name, func(t *testing.T) {
+			t.Parallel()
+			tx := mockledger.NewTransactionBuilder().WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().
+					WithNativeScripts(unneeded),
+			)
+			tx.WithInputs(spentInput)
+			ls := testLedgerState(map[string]common.TransactionOutput{
+				spentInput.String(): testOutput(keyAddr, nil),
+			})
+
+			nativeRule := selectRules(t, era.rules, ".UtxoValidateNativeScripts")
+			require.NoError(
+				t,
+				common.VerifyTransaction(tx, 0, ls, nil, nativeRule),
+			)
+
+			witnessRule := selectRules(
+				t,
+				era.rules,
+				".UtxoValidateScriptWitnesses",
+			)
+			var extraneous common.ExtraneousScriptWitnessesError
+			require.ErrorAs(
+				t,
+				common.VerifyTransaction(tx, 0, ls, nil, witnessRule),
+				&extraneous,
+			)
+			require.Equal(t, unneeded.Hash(), extraneous.ScriptHash)
+		})
+	}
+}

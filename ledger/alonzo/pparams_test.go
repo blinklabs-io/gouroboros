@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"strings"
@@ -1091,4 +1092,214 @@ func TestAlonzoUpdateFromGenesisKeepsLovelacePerUtxoWord(t *testing.T) {
 		babbage.UpgradePParams(params).AdaPerUtxoByte,
 		"Babbage divides the Alonzo per-word price by 8 at the boundary",
 	)
+}
+
+func TestAlonzoUtxorpc_FullWidthRationalBounds(t *testing.T) {
+	rat := func(numerator, denominator *big.Int) *cbor.Rat {
+		return &cbor.Rat{Rat: new(big.Rat).SetFrac(
+			new(big.Int).Set(numerator),
+			new(big.Int).Set(denominator),
+		)}
+	}
+	fields := []struct {
+		name string
+		set  func(*alonzo.AlonzoProtocolParameters, *cbor.Rat)
+		get  func(*utxorpc.PParams) *utxorpc.RationalNumber
+	}{
+		{
+			name: "A0",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.A0 = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.PoolInfluence
+			},
+		},
+		{
+			name: "Rho",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.Rho = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.MonetaryExpansion
+			},
+		},
+		{
+			name: "Tau",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.Tau = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.TreasuryExpansion
+			},
+		},
+		{
+			name: "memory price",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.ExecutionCosts.MemPrice = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.Prices.Memory
+			},
+		},
+		{
+			name: "step price",
+			set: func(p *alonzo.AlonzoProtocolParameters, r *cbor.Rat) {
+				p.ExecutionCosts.StepPrice = r
+			},
+			get: func(p *utxorpc.PParams) *utxorpc.RationalNumber {
+				return p.Prices.Steps
+			},
+		},
+	}
+	boundaryCases := []struct {
+		name        string
+		rational    *cbor.Rat
+		numerator   int32
+		denominator uint32
+	}{
+		{
+			name:        "minimum numerator",
+			rational:    rat(big.NewInt(math.MinInt32), big.NewInt(1)),
+			numerator:   math.MinInt32,
+			denominator: 1,
+		},
+		{
+			name:        "maximum numerator",
+			rational:    rat(big.NewInt(math.MaxInt32), big.NewInt(1)),
+			numerator:   math.MaxInt32,
+			denominator: 1,
+		},
+		{
+			name: "maximum denominator",
+			rational: rat(
+				big.NewInt(1),
+				new(big.Int).SetUint64(math.MaxUint32),
+			),
+			numerator:   1,
+			denominator: math.MaxUint32,
+		},
+	}
+	for _, field := range fields {
+		field := field
+		t.Run(field.name+" boundaries", func(t *testing.T) {
+			for _, boundary := range boundaryCases {
+				boundary := boundary
+				t.Run(boundary.name, func(t *testing.T) {
+					params := newBaseProtocolParams()
+					field.set(&params, boundary.rational)
+					result, err := params.Utxorpc()
+					require.NoError(t, err)
+					got := field.get(result)
+					require.NotNil(t, got)
+					require.Equal(t, boundary.numerator, got.Numerator)
+					require.Equal(t, boundary.denominator, got.Denominator)
+				})
+			}
+		})
+	}
+
+	tooLargeDenominator := new(big.Int).Lsh(big.NewInt(1), 64)
+	tooLargeDenominator.Add(tooLargeDenominator, big.NewInt(1))
+	tooLargeNumerator := new(big.Int).Set(tooLargeDenominator)
+	negativeTooLargeNumerator := new(big.Int).Neg(
+		new(big.Int).Set(tooLargeNumerator),
+	)
+	invalidCases := []struct {
+		name     string
+		rational *cbor.Rat
+	}{
+		{
+			name: "below int32 minimum",
+			rational: rat(
+				big.NewInt(int64(math.MinInt32)-1),
+				big.NewInt(1),
+			),
+		},
+		{
+			name: "above int32 maximum",
+			rational: rat(
+				big.NewInt(int64(math.MaxInt32)+1),
+				big.NewInt(1),
+			),
+		},
+		{
+			name:     "negative 2^64 plus one numerator",
+			rational: rat(negativeTooLargeNumerator, big.NewInt(1)),
+		},
+		{
+			name:     "2^63 numerator",
+			rational: rat(new(big.Int).Lsh(big.NewInt(1), 63), big.NewInt(1)),
+		},
+		{
+			name:     "2^64 numerator",
+			rational: rat(new(big.Int).Lsh(big.NewInt(1), 64), big.NewInt(1)),
+		},
+		{
+			name:     "2^64 plus one denominator",
+			rational: rat(big.NewInt(1), tooLargeDenominator),
+		},
+	}
+	for _, field := range fields {
+		field := field
+		t.Run(field.name+" out of range", func(t *testing.T) {
+			for _, invalid := range invalidCases {
+				invalid := invalid
+				t.Run(invalid.name, func(t *testing.T) {
+					params := newBaseProtocolParams()
+					field.set(&params, invalid.rational)
+					_, err := params.Utxorpc()
+					require.Error(t, err)
+				})
+			}
+		})
+	}
+}
+
+// TestAlonzoUpdate_CostModelsNotAliased checks that Update copies the update's
+// cost-model slices, so mutating either side afterwards does not change the
+// other.
+func TestAlonzoUpdate_CostModelsNotAliased(t *testing.T) {
+	src0 := []int64{1, 2}
+	src1 := []int64{3, 4}
+	upd := &alonzo.AlonzoProtocolParameterUpdate{
+		CostModels: map[uint][]int64{0: src0, 1: src1},
+	}
+	base := &alonzo.AlonzoProtocolParameters{}
+	base.Update(upd)
+
+	src0[0] = -1
+	assert.Equal(t, map[uint][]int64{0: {1, 2}, 1: {3, 4}}, base.CostModels)
+
+	live, ok := base.CostModels[1]
+	if !ok {
+		t.Fatal("expected cost model 1 after Update")
+	}
+	live[0] = -1
+	assert.Equal(t, []int64{3, 4}, src1)
+}
+
+// TestAlonzoUpdateFromGenesis_CostModelsNotAliased checks that
+// UpdateFromGenesis copies the genesis cost-model slices, so mutating either
+// side afterwards does not change the other.
+func TestAlonzoUpdateFromGenesis_CostModelsNotAliased(t *testing.T) {
+	v1 := make([]int64, 166)
+	for i := range v1 {
+		v1[i] = int64(i + 1)
+	}
+	genesis := &alonzo.AlonzoGenesis{
+		CostModels: map[string][]int64{"PlutusV1": v1},
+	}
+	var params alonzo.AlonzoProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(genesis))
+
+	live, ok := params.CostModels[alonzo.PlutusV1Key]
+	if !ok {
+		t.Fatal("expected PlutusV1 cost model after UpdateFromGenesis")
+	}
+	live[0] = -1
+	assert.Equal(t, int64(1), v1[0])
+
+	v1[1] = -1
+	assert.Equal(t, int64(2), live[1])
 }

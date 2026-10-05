@@ -270,6 +270,41 @@ func TestApplyStageRunnerContainsStagePanic(t *testing.T) {
 	}
 }
 
+func TestApplyStageRunnerCancelsBeforeReportingFatalError(t *testing.T) {
+	input := make(chan *BlockItem, 2)
+	output := make(chan *BlockItem, 1)
+	errorChan := make(chan error, 1)
+	blockedError := errors.New("error channel is full")
+	errorChan <- blockedError
+	fatalChan := make(chan struct{})
+	runner := NewApplyStageRunner(
+		NewApplyStage(nil, 1), input, output, errorChan, 0,
+	)
+	runner.setFatalFunc(func() { close(fatalChan) })
+	ctx, cancel := context.WithCancel(context.Background())
+	runner.Start(ctx)
+	t.Cleanup(func() {
+		cancel()
+		runner.Stop()
+	})
+
+	input <- newPanicTestItem(1)
+	input <- newPanicTestItem(2)
+	select {
+	case <-fatalChan:
+	case <-time.After(time.Second):
+		t.Fatal("a full error channel prevented fatal pipeline cancellation")
+	}
+
+	runner.Stop()
+	require.Same(t, blockedError, <-errorChan)
+	select {
+	case err := <-errorChan:
+		require.ErrorIs(t, err, ErrPendingLimitExceeded)
+	default:
+	}
+}
+
 func TestApplyStageRunnerContainsProcessedCallbackPanic(t *testing.T) {
 	input := make(chan *BlockItem, 1)
 	output := make(chan *BlockItem, 1)

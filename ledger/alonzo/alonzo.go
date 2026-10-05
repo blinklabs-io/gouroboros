@@ -320,7 +320,7 @@ type AlonzoTransactionBody struct {
 func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tAlonzoTransactionBody AlonzoTransactionBody
 	var tmp tAlonzoTransactionBody
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
@@ -348,7 +348,7 @@ func (b AlonzoTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b, 0, 1, 2)
 }
 
 func coalesceUntaggedTransactionInputs(

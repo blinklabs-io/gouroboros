@@ -51,6 +51,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		shelley.UtxoValidateOutputBootAddrAttrsTooBig, // UtxoValidationRuleOutputBootAddrAttrsTooBig
 		shelley.UtxoValidateMaxTxSizeUtxo,             // UtxoValidationRuleMaxTxSize
 		shelley.UtxoValidateDelegation,                // UtxoValidationRuleDelegation
+		shelley.UtxoValidateMIRGenesisQuorum,          // UtxoValidationRuleMIRGenesisQuorum
 		shelley.UtxoValidateWithdrawals,               // UtxoValidationRuleWithdrawals
 		shelley.UtxoValidatePoolCertificates,          // UtxoValidationRulePoolCertificates
 	},
@@ -73,6 +74,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		allegra.UtxoValidateMaxTxSizeUtxo,               // UtxoValidationRuleMaxTxSize
 		allegra.UtxoValidateNativeScripts,               // UtxoValidationRuleNativeScripts
 		allegra.UtxoValidateDelegation,                  // UtxoValidationRuleDelegation
+		allegra.UtxoValidateMIRGenesisQuorum,            // UtxoValidationRuleMIRGenesisQuorum
 		allegra.UtxoValidateWithdrawals,                 // UtxoValidationRuleWithdrawals
 		allegra.UtxoValidatePoolCertificates,            // UtxoValidationRulePoolCertificates
 	},
@@ -96,6 +98,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		mary.UtxoValidateMaxTxSizeUtxo,               // UtxoValidationRuleMaxTxSize
 		mary.UtxoValidateNativeScripts,               // UtxoValidationRuleNativeScripts
 		mary.UtxoValidateDelegation,                  // UtxoValidationRuleDelegation
+		mary.UtxoValidateMIRGenesisQuorum,            // UtxoValidationRuleMIRGenesisQuorum
 		mary.UtxoValidateWithdrawals,                 // UtxoValidationRuleWithdrawals
 		mary.UtxoValidatePoolCertificates,            // UtxoValidationRulePoolCertificates
 	},
@@ -134,6 +137,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateExtraneousRedeemers,         // UtxoValidationRuleExtraneousRedeemers
 		alonzo.UtxoValidatePlutusScripts,               // UtxoValidationRulePlutusScripts
 		alonzo.UtxoValidateDelegation,                  // UtxoValidationRuleDelegation
+		alonzo.UtxoValidateMIRGenesisQuorum,            // UtxoValidationRuleMIRGenesisQuorum
 		alonzo.UtxoValidateWithdrawals,                 // UtxoValidationRuleWithdrawals
 		alonzo.UtxoValidatePoolCertificates,            // UtxoValidationRulePoolCertificates
 	},
@@ -178,6 +182,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateMalformedReferenceScripts,   // UtxoValidationRuleMalformedReferenceScripts
 		babbage.UtxoValidatePlutusScripts,               // UtxoValidationRulePlutusScripts
 		babbage.UtxoValidateDelegation,                  // UtxoValidationRuleDelegation
+		babbage.UtxoValidateMIRGenesisQuorum,            // UtxoValidationRuleMIRGenesisQuorum
 		babbage.UtxoValidateWithdrawals,                 // UtxoValidationRuleWithdrawals
 		babbage.UtxoValidatePoolCertificates,            // UtxoValidationRulePoolCertificates
 	},

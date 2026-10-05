@@ -4,12 +4,13 @@ go 1.26.5
 
 require (
 	filippo.io/edwards25519 v1.2.0
-	github.com/blinklabs-io/ouroboros-mock v0.20.2
-	github.com/blinklabs-io/plutigo v0.7.1
+	github.com/blinklabs-io/ouroboros-mock v0.20.4
+	github.com/blinklabs-io/plutigo v0.8.0
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/consensys/gnark-crypto v0.21.0
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/jinzhu/copier v0.4.0
+	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.12.1
 	github.com/utxorpc/go-codegen v0.19.2
 	go.uber.org/goleak v1.3.0

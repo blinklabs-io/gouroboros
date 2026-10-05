@@ -65,6 +65,14 @@ type StateMapEntry struct {
 	Timeout                 time.Duration        // Fixed timeout for this state (0 = no timeout)
 	TimeoutFunc             func() time.Duration // Dynamic timeout; if set, overrides Timeout
 	PendingMessageByteLimit int                  // Maximum pending message bytes allowed in this state (0 = no limit)
+	// PendingReceiveByteBudget bounds the total size of received messages
+	// that are queued and not yet handled while this state is active (0 =
+	// use PendingMessageByteLimit). Unlike PendingMessageByteLimit it never
+	// rejects a message for its size: a message that does not fit waits for
+	// the queue to drain, and one larger than the whole budget is admitted
+	// once nothing else is pending, so it applies backpressure to the peer
+	// without changing which messages the protocol accepts.
+	PendingReceiveByteBudget int
 	// AllowPipelinedSend permits the role that does NOT hold agency in this
 	// state to write queued messages to the wire while the state is active.
 	// The state transition for such a message is deferred until agency
@@ -74,9 +82,12 @@ type StateMapEntry struct {
 	// keep the remote peer busy across response boundaries. Leaving this
 	// false preserves the strict "send only while holding agency" behavior.
 	AllowPipelinedSend bool
-	// PipelinedMessageTypes limits which messages may use the pipelined send
-	// path while this state is active. An empty list preserves the default of
-	// allowing no pipelined messages.
+	// PipelinedMessageTypes limits which messages may use the pipelined path
+	// while this state is active. Receivers also accept these messages from the
+	// peer when the local role holds agency, since they may be peer-pipelined,
+	// and hold them until the peer holds agency again. A receiving state must
+	// list a type whenever a peer may pipeline it against its own, lagging,
+	// view of the state machine. An empty list allows no pipelined messages.
 	PipelinedMessageTypes []uint8
 }
 

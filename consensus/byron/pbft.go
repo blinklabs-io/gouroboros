@@ -30,7 +30,7 @@ import (
 
 const (
 	// DefaultPBFTSignatureThresholdNumerator and
-	// DefaultPBFTSignatureThresholdDenominator encode the pinned Byron PBFT
+	// DefaultPBFTSignatureThresholdDenominator encode Byron's default PBFT
 	// issuer threshold, 0.22, without floating-point rounding.
 	DefaultPBFTSignatureThresholdNumerator   uint64 = 22
 	DefaultPBFTSignatureThresholdDenominator uint64 = 100
@@ -479,9 +479,9 @@ func (s PBFTState) Observe(
 	}, nil
 }
 
-// Transition applies the pinned Byron SIGCNT rule: append the genesis issuer,
-// retain only the last k issuers, then reject when that issuer appears more
-// than floor(0.22*k) times in the resulting window.
+// Transition applies the Byron SIGCNT rule using this state's configured
+// threshold: append the issuer, retain the last k issuers, then reject when
+// that issuer appears more than floor(threshold*k) times in the window.
 func (s PBFTState) Transition(
 	issuer common.Blake2b224,
 ) (PBFTState, error) {

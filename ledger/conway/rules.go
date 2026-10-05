@@ -30,7 +30,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 )
@@ -3181,15 +3180,31 @@ func UtxoValidatePlutusScripts(
 	if !tx.IsValid() {
 		return nil
 	}
+	_, err := EvaluatePlutusScripts(tx, ls, conwayPparams, nil)
+	return err
+}
 
-	// Check if there are any redeemers
+// EvaluatePlutusScripts runs the Plutus script of each redeemer of tx and
+// returns the execution units each one consumed. A nil budget limits each
+// script to its redeemer's declared units; otherwise every script runs
+// against budget. The IsValid flag is not consulted.
+func EvaluatePlutusScripts(
+	tx common.Transaction,
+	ls common.LedgerState,
+	conwayPparams *ConwayProtocolParameters,
+	budget *common.ExUnits,
+) (map[common.RedeemerKey]common.ExUnits, error) {
+	if tx == nil {
+		return nil, errors.New("nil transaction")
+	}
+	used := make(map[common.RedeemerKey]common.ExUnits)
 	witnesses := tx.Witnesses()
 	if witnesses == nil {
-		return nil
+		return used, nil
 	}
 	redeemers := witnesses.Redeemers()
 	if redeemers == nil {
-		return nil
+		return used, nil
 	}
 
 	// Count redeemers to see if we have any scripts to execute
@@ -3198,13 +3213,13 @@ func UtxoValidatePlutusScripts(
 		redeemerCount++
 	}
 	if redeemerCount == 0 {
-		return nil
+		return used, nil
 	}
 
 	// Resolve all inputs (regular + reference) for building script context
 	inputsResolved, refInputsResolved, err := script.ResolveTxInputs(tx, ls)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resolvedInputs := script.ConcatResolvedInputs(
 		inputsResolved,
@@ -3223,8 +3238,12 @@ func UtxoValidatePlutusScripts(
 
 	// Build TxInfo lazily based on script version
 	var txInfoV1 script.TxInfoV1
+	// Cached so each redeemer reuses one PlutusData conversion of the TxInfo.
+	var txInfoV1Cached *script.CachedTxInfo
 	var txInfoV2 script.TxInfoV2
+	var txInfoV2Cached *script.CachedTxInfo
 	var txInfoV3 script.TxInfoV3
+	var txInfoV3Cached *script.CachedTxInfo
 	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
 
 	// Collect all available scripts (witness scripts + reference scripts)
@@ -3268,7 +3287,7 @@ func UtxoValidatePlutusScripts(
 		)
 		if err != nil {
 			// Redeemer doesn't match any valid purpose (index out of bounds, etc.)
-			return ExtraRedeemerError{RedeemerKey: redeemerKey}
+			return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 
 		// Check if the purpose actually requires a script
@@ -3280,29 +3299,29 @@ func UtxoValidatePlutusScripts(
 				addr := p.Input.Output.Address()
 				if (addr.Type() & common.AddressTypeScriptBit) == 0 {
 					// Input is at a key address, not a script address
-					return ExtraRedeemerError{RedeemerKey: redeemerKey}
+					return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 				}
 			}
 		case script.ScriptPurposeCertifying:
 			// For certifying purposes, check if the certificate has a script credential
 			// ScriptHash() returns empty hash for key credentials
 			if p.ScriptHash() == (common.ScriptHash{}) {
-				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
 		case script.ScriptPurposeRewarding:
 			// For rewarding purposes, check if the credential is a script
 			if p.StakeCredential.CredType != common.CredentialTypeScriptHash {
-				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
 		case script.ScriptPurposeProposing:
 			// For proposing purposes, check if the proposal has a policy script
 			// If not (empty ScriptHash), this redeemer is "extra"
 			if p.ScriptHash() == (common.ScriptHash{}) {
-				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
 		case script.ScriptPurposeVoting:
 			if !script.VoterUsesScriptCredential(p.Voter) {
-				return ExtraRedeemerError{RedeemerKey: redeemerKey}
+				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
 		}
 
@@ -3324,11 +3343,17 @@ func UtxoValidatePlutusScripts(
 			spendInput = spendPurpose.Input.Id
 		}
 
+		units := redeemerValue.ExUnits
+		if budget != nil {
+			units = *budget
+		}
+
 		// Execute based on script version
 		var execErr error
+		var usedUnits common.ExUnits
 		switch s := plutusScript.(type) {
 		case common.PlutusV4Script:
-			return common.PlutusScriptValidationUnsupportedError{Era: EraNameConway}
+			return nil, common.PlutusScriptValidationUnsupportedError{Era: EraNameConway}
 		case common.PlutusV3Script:
 			// Build V3 TxInfo lazily
 			if !txInfoV3Built {
@@ -3336,7 +3361,7 @@ func UtxoValidatePlutusScripts(
 					tx,
 					conwayPparams.ProtocolVersion.Major,
 				); err != nil {
-					return ScriptContextConstructionError{Err: err}
+					return nil, ScriptContextConstructionError{Err: err}
 				}
 				var err error
 				txInfoV3, err = script.NewTxInfoV3FromTransaction(
@@ -3346,9 +3371,10 @@ func UtxoValidatePlutusScripts(
 					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return ScriptContextConstructionError{Err: err}
+					return nil, ScriptContextConstructionError{Err: err}
 				}
 				txInfoV3Built = true
+				txInfoV3Cached = script.NewCachedTxInfo(txInfoV3)
 			}
 			// Build V3 context
 			redeemer := script.Redeemer{
@@ -3357,24 +3383,21 @@ func UtxoValidatePlutusScripts(
 				Data:    data.Normalize(redeemerValue.Data.Data),
 				ExUnits: redeemerValue.ExUnits,
 			}
-			ctx := script.NewScriptContextV3(txInfoV3, redeemer, purpose)
+			ctx := script.NewScriptContextV3(txInfoV3Cached, redeemer, purpose)
 			ctxData := ctx.ToPlutusData()
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV3,
-				cek.ProtoVersion{
-					Major: conwayPparams.ProtocolVersion.Major,
-					Minor: conwayPparams.ProtocolVersion.Minor,
-				},
+				conwayPparams.ProtocolVersion.Major,
 				conwayPparams.CostModels[2],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits, evalContext)
+			usedUnits, execErr = s.Evaluate(ctxData, units, evalContext)
 		case common.PlutusV2Script:
 			// V2 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return MissingDatumForSpendingScriptError{
+				return nil, MissingDatumForSpendingScriptError{
 					ScriptHash: scriptHash,
 					Input:      spendInput,
 				}
@@ -3388,29 +3411,27 @@ func UtxoValidatePlutusScripts(
 					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return ScriptContextConstructionError{Err: err}
+					return nil, ScriptContextConstructionError{Err: err}
 				}
 				txInfoV2Built = true
+				txInfoV2Cached = script.NewCachedTxInfo(txInfoV2)
 			}
 			// Build V1V2 context
-			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
+			ctx := script.NewScriptContextV1V2(txInfoV2Cached, purpose)
 			ctxData := ctx.ToPlutusData()
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV2,
-				cek.ProtoVersion{
-					Major: conwayPparams.ProtocolVersion.Major,
-					Minor: conwayPparams.ProtocolVersion.Minor,
-				},
+				conwayPparams.ProtocolVersion.Major,
 				conwayPparams.CostModels[1],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, redeemerValue.ExUnits, evalContext)
+			usedUnits, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, units, evalContext)
 		case common.PlutusV1Script:
 			// V1 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return MissingDatumForSpendingScriptError{
+				return nil, MissingDatumForSpendingScriptError{
 					ScriptHash: scriptHash,
 					Input:      spendInput,
 				}
@@ -3424,40 +3445,39 @@ func UtxoValidatePlutusScripts(
 					conwayPparams.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return ScriptContextConstructionError{Err: err}
+					return nil, ScriptContextConstructionError{Err: err}
 				}
 				txInfoV1Built = true
+				txInfoV1Cached = script.NewCachedTxInfo(txInfoV1)
 			}
 			// Build V1V2 context
-			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
+			ctx := script.NewScriptContextV1V2(txInfoV1Cached, purpose)
 			ctxData := ctx.ToPlutusData()
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV1,
-				cek.ProtoVersion{
-					Major: conwayPparams.ProtocolVersion.Major,
-					Minor: conwayPparams.ProtocolVersion.Minor,
-				},
+				conwayPparams.ProtocolVersion.Major,
 				conwayPparams.CostModels[0],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, redeemerValue.ExUnits, evalContext)
+			usedUnits, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, units, evalContext)
 		default:
 			continue
 		}
 
 		if execErr != nil {
-			return PlutusScriptFailedError{
+			return nil, PlutusScriptFailedError{
 				ScriptHash: scriptHash,
 				Tag:        redeemerKey.Tag,
 				Index:      redeemerKey.Index,
 				Err:        execErr,
 			}
 		}
+		used[redeemerKey] = usedUnits
 	}
 
-	return nil
+	return used, nil
 }
 
 // UtxoValidateNativeScripts evaluates the native scripts this transaction has
@@ -3786,7 +3806,7 @@ func UtxoValidateWithdrawals(
 		}
 		if delegationState == nil {
 			var ok bool
-			delegationState, ok = common.UnwrapLedgerState(ls).(common.DRepDelegationState)
+			delegationState, ok = common.DRepDelegationStateFor(ls)
 			if !ok {
 				return DRepDelegationStateUnavailableError{}
 			}
@@ -3862,7 +3882,7 @@ func UtxoValidateCertificateDeposits(
 			registered: ls.IsStakeCredentialRegistered(cred),
 		}
 		if state.registered {
-			depositState, ok := common.UnwrapLedgerState(ls).(common.StakeCredentialDepositState)
+			depositState, ok := common.StakeCredentialDepositStateFor(ls)
 			if !ok {
 				return state, CertificateDepositStateUnavailableError{}
 			}
@@ -4144,7 +4164,7 @@ func UtxoValidateCommitteeCertificates(
 		}
 		if !committeeStateLoaded {
 			var ok bool
-			committeeState, ok = common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
+			committeeState, ok = common.CommitteeCredentialStateFor(ls)
 			if !ok {
 				return nil, CommitteeMemberLookupError{
 					Credential:       coldCredential.Credential,
@@ -4494,13 +4514,25 @@ func UtxoValidateUnknownVoters(
 			if !committeeStateAvailable {
 				return lookupError(CommitteeStateUnavailableError{})
 			}
-			member, err := overlay.CommitteeHotCredentialMember(
+			// A hot credential may be authorized by more than one cold
+			// credential at once (cardano-ledger-core's
+			// authorizedHotCommitteeCredentials: "there is no unique
+			// mapping from Hot to Cold credential"), so hot is a known,
+			// seated voter whenever *any* candidate qualifies, not merely
+			// whichever single witness an older provider happens to name.
+			members, err := overlay.CommitteeHotCredentialMembers(
 				hotCredential,
 			)
 			if err != nil {
 				return lookupError(err)
 			}
-			if member == nil || member.Resigned {
+			candidates := make([]*common.CommitteeMember, 0, len(members))
+			for _, member := range members {
+				if member != nil && !member.Resigned {
+					candidates = append(candidates, member)
+				}
+			}
+			if len(candidates) == 0 {
 				return UnknownVoterError{Voter: *voter}
 			}
 			if params, ok := pp.(*ConwayProtocolParameters); ok &&
@@ -4512,9 +4544,21 @@ func UtxoValidateUnknownVoters(
 				if err != nil {
 					return lookupError(err)
 				}
-				seated := false
+				// CommitteeMembers carries bare cold hashes, so this can
+				// only over-match a key/script twin named in the enacted
+				// committee; UtxoValidateUnelectedCommitteeVoters applies
+				// the typed elected-committee check on the same protocol
+				// versions.
+				seatedColdKeys := make(
+					map[common.Blake2b224]struct{},
+					len(currentMembers),
+				)
 				for _, current := range currentMembers {
-					if current.ColdKey == member.ColdKey {
+					seatedColdKeys[current.ColdKey] = struct{}{}
+				}
+				seated := false
+				for _, candidate := range candidates {
+					if _, ok := seatedColdKeys[candidate.ColdKey]; ok {
 						seated = true
 						break
 					}
@@ -4832,7 +4876,7 @@ func UtxoValidateUnelectedCommitteeVoters(
 		return nil
 	}
 
-	committeeState, ok := common.UnwrapLedgerState(ls).(common.CommitteeCredentialState)
+	committeeState, ok := common.CommitteeCredentialStateFor(ls)
 	if !ok {
 		return CommitteeStateUnavailableError{}
 	}
@@ -4843,7 +4887,7 @@ func UtxoValidateUnelectedCommitteeVoters(
 	if !available {
 		return CommitteeStateUnavailableError{}
 	}
-	votingState, ok := common.UnwrapLedgerState(ls).(common.CommitteeVotingState)
+	votingState, ok := common.CommitteeVotingStateFor(ls)
 	if !ok {
 		return CommitteeStateUnavailableError{}
 	}

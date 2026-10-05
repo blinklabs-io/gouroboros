@@ -40,6 +40,13 @@ var (
 	cachedLenientDecModeOnce sync.Once
 )
 
+type duplicateMapKeyPolicy uint8
+
+const (
+	rejectDuplicateMapKeys duplicateMapKeyPolicy = iota
+	keepLastDuplicateMapKey
+)
+
 // MaxNestedLevels is the deepest nesting the CBOR decoder accepts. It is
 // large enough for a maximum-sized Cardano transaction and its enclosing
 // structure, while bounding recursion in both the CBOR library and custom
@@ -81,16 +88,51 @@ func getDecMode() (_cbor.DecMode, error) {
 }
 
 func Decode(dataBytes []byte, dest any) (int, error) {
-	data := bytes.NewReader(dataBytes)
-	decMode, err := getDecMode()
+	return decode(dataBytes, dest, getDecMode, rejectDuplicateMapKeys)
+}
+
+// DecodeLedgerMap decodes a ledger map with duplicate keys rejected. Unknown
+// fields are rejected by a typed destination's decoder or by caller validation
+// when decoding raw fields. Call it at custom UnmarshalCBOR boundaries because
+// those methods do not inherit the mode selected by their caller.
+func DecodeLedgerMap(dataBytes []byte, dest any) (int, error) {
+	return decode(dataBytes, dest, getDecMode, rejectDuplicateMapKeys)
+}
+
+func decode(
+	dataBytes []byte,
+	dest any,
+	getMode func() (_cbor.DecMode, error),
+	duplicateKeyPolicy duplicateMapKeyPolicy,
+) (int, error) {
+	decMode, err := getMode()
 	if err != nil {
 		return 0, err
 	}
 	if decMode == nil {
 		return 0, errors.New("CBOR decoder mode not initialized")
 	}
+	return decodeWithMode(dataBytes, dest, decMode, duplicateKeyPolicy)
+}
+
+func decodeWithMode(
+	dataBytes []byte,
+	dest any,
+	decMode _cbor.DecMode,
+	duplicateKeyPolicy duplicateMapKeyPolicy,
+) (int, error) {
+	if value, ok := dest.(*Value); ok {
+		return value.unmarshalCBOR(
+			dataBytes,
+			true,
+			0,
+			duplicateKeyPolicy,
+			decMode,
+		)
+	}
+	data := bytes.NewReader(dataBytes)
 	dec := decMode.NewDecoder(data)
-	err = dec.Decode(dest)
+	err := dec.Decode(dest)
 	return dec.NumBytesRead(), err
 }
 
@@ -124,17 +166,7 @@ func getStrictDecMode() (_cbor.DecMode, error) {
 // network messages. It limits map pairs and array elements to 131072 each,
 // preventing OOM attacks from crafted payloads.
 func DecodeStrict(dataBytes []byte, dest any) (int, error) {
-	data := bytes.NewReader(dataBytes)
-	decMode, err := getStrictDecMode()
-	if err != nil {
-		return 0, err
-	}
-	if decMode == nil {
-		return 0, errors.New("CBOR strict decoder mode not initialized")
-	}
-	dec := decMode.NewDecoder(data)
-	err = dec.Decode(dest)
-	return dec.NumBytesRead(), err
+	return decode(dataBytes, dest, getStrictDecMode, rejectDuplicateMapKeys)
 }
 
 // getLenientDecMode returns a cached DecMode that mirrors getDecMode() but keeps
@@ -163,29 +195,16 @@ func getLenientDecMode() (_cbor.DecMode, error) {
 	return cachedLenientDecMode, cachedLenientDecModeErr
 }
 
-// DecodeLenient decodes CBOR data without rejecting duplicate map keys. How a
-// duplicate key is resolved is destination-type dependent, because it is
-// delegated to the underlying CBOR library's DupMapKeyQuiet mode, which "uses
-// faster of keep first or keep last depending on Go data type": decoding into a
-// Go map (MultiAsset's only current use) resolves last-wins, matching pre-Conway
-// (protocol version < 9) cardano-ledger Map.fromList semantics; decoding into a
-// Go struct may instead keep the first value written for a repeated field.
-// Callers that require last-wins semantics MUST therefore decode into a map, not
-// a struct. It is intended only for structures where Cardano consensus
-// historically permitted duplicate keys (e.g. pre-Conway MultiAsset value/mint
-// maps). Use Decode (strict, rejects duplicates) everywhere else.
+// DecodeLenient decodes CBOR data without rejecting duplicate map keys. Typed
+// destinations follow fxamacker's DupMapKeyQuiet behavior. A direct Value
+// destination resolves duplicates deterministically with last-wins semantics,
+// including composite keys. Custom UnmarshalCBOR implementations decode
+// independently and must select their own duplicate-key policy. DecodeLenient
+// is intended only for structures where Cardano consensus historically
+// permitted duplicate keys (e.g. pre-Conway MultiAsset value/mint maps). Use
+// Decode (strict, rejects duplicates) everywhere else.
 func DecodeLenient(dataBytes []byte, dest any) (int, error) {
-	data := bytes.NewReader(dataBytes)
-	decMode, err := getLenientDecMode()
-	if err != nil {
-		return 0, err
-	}
-	if decMode == nil {
-		return 0, errors.New("CBOR lenient decoder mode not initialized")
-	}
-	dec := decMode.NewDecoder(data)
-	err = dec.Decode(dest)
-	return dec.NumBytesRead(), err
+	return decode(dataBytes, dest, getLenientDecMode, keepLastDuplicateMapKey)
 }
 
 // Extract the first item from a CBOR list. This will return the first item from the
@@ -320,10 +339,11 @@ func DecodeGeneric(cborData []byte, dest any) error {
 // StreamDecoder provides sequential CBOR decoding with position tracking.
 // It wraps the underlying decoder to track byte offsets of each decoded item.
 type StreamDecoder struct {
-	dec      *_cbor.Decoder
-	decMode  _cbor.DecMode // cached decode mode for reuse in Advance()
-	data     []byte
-	consumed int // bytes consumed by Advance() calls
+	dec        *_cbor.Decoder
+	decMode    _cbor.DecMode // cached decode mode for reuse in Advance()
+	data       []byte
+	consumed   int // bytes consumed by Advance() calls
+	diagnostic *diagnosticBudget
 }
 
 // NewStreamDecoder creates a decoder for sequential CBOR item extraction with position tracking.
@@ -593,17 +613,49 @@ func (d *StreamDecoder) DecodeMapHeader() (int, int, int, error) {
 
 // DecodeDiagnostic decodes the next CBOR item into a DiagnosticNode tree
 // without advancing past it as a black box. Offsets in the returned tree are
-// absolute within the underlying data buffer.
+// absolute within the underlying data buffer. The first diagnostic decode on a
+// stream establishes one cumulative default construction budget shared by all
+// subsequent diagnostic decodes.
 func (d *StreamDecoder) DecodeDiagnostic() (*DiagnosticNode, error) {
+	return d.DecodeDiagnosticWithLimits(DiagnosticParseLimits{})
+}
+
+// DecodeDiagnosticWithLimits decodes the next CBOR item with explicit
+// construction budgets. The first diagnostic decode on a stream establishes
+// one cumulative budget shared by all subsequent diagnostic decodes; limits
+// passed after that first decode do not replace it.
+func (d *StreamDecoder) DecodeDiagnosticWithLimits(
+	limits DiagnosticParseLimits,
+) (*DiagnosticNode, error) {
 	if d.EOF() {
 		return nil, errors.New("unexpected end of CBOR data")
+	}
+	if err := d.startDiagnostic(limits); err != nil {
+		return nil, err
 	}
 	return parseDiagnosticNode(d, 0)
 }
 
 // DecodeAllDiagnostic decodes all remaining CBOR items into DiagnosticNode
-// trees, stopping at end-of-data or the first decode error encountered.
+// trees with the default cumulative construction budget, stopping at
+// end-of-data or the first decode error encountered.
 func (d *StreamDecoder) DecodeAllDiagnostic() ([]*DiagnosticNode, error) {
+	return d.DecodeAllDiagnosticWithLimits(DiagnosticParseLimits{})
+}
+
+// DecodeAllDiagnosticWithLimits decodes all remaining CBOR items with one
+// cumulative construction budget, stopping at end-of-data or the first decode
+// error encountered. If an earlier diagnostic decode established the stream's
+// budget, limits does not replace it.
+func (d *StreamDecoder) DecodeAllDiagnosticWithLimits(
+	limits DiagnosticParseLimits,
+) ([]*DiagnosticNode, error) {
+	if d.EOF() {
+		return nil, nil
+	}
+	if err := d.startDiagnostic(limits); err != nil {
+		return nil, err
+	}
 	var nodes []*DiagnosticNode
 	for !d.EOF() {
 		node, err := parseDiagnosticNode(d, 0)

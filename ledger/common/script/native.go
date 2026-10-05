@@ -85,21 +85,21 @@ func NewTxScriptViewSkippingUnresolved(
 }
 
 // NativeScriptsToEvaluate returns the native scripts a phase-1 rule must run
-// for this transaction: every native script in the witness set, plus every
-// native script some script purpose requires that only a reference script
-// supplies -- on a reference input or on the spent input itself, both
-// permitted by CIP-33.
+// for this transaction: every needed native script in the witness set, plus
+// every needed native script that only a reference script supplies -- on a
+// reference input or on the spent input itself, both permitted by CIP-33.
 //
-// A reference script no purpose requires is deliberately excluded. Spending a
-// UTxO that happens to carry an unrelated reference script must not drag that
-// script into validation; cardano-ledger evaluates the needed subset of the
-// scripts the transaction provides
+// A script no purpose requires is deliberately excluded, whether it sits in
+// the witness set or on a reference input. Spending a UTxO that happens to
+// carry an unrelated reference script must not drag that script into
+// validation, and an unneeded witness script is reported as extraneous by the
+// witness rule rather than as a script failure. cardano-ledger evaluates the
+// needed subset of the scripts the transaction provides
 // (Cardano.Ledger.Babbage.Rules.Utxow, validateFailedBabbageScripts).
 //
 // Witness scripts keep their witness-set order and reference-only scripts
 // follow sorted by hash, so a transaction with more than one failing script
-// reports the same hash on every run. An era before Babbage has no reference
-// scripts and can pass the zero view, which yields the witness scripts alone.
+// reports the same hash on every run.
 func NativeScriptsToEvaluate(
 	tx lcommon.Transaction,
 	view TxScriptView,
@@ -115,6 +115,9 @@ func NativeScriptsToEvaluate(
 	out := make([]lcommon.NativeScript, 0, len(witnessScripts))
 	for _, nativeScript := range witnessScripts {
 		hash := nativeScript.Hash()
+		if _, ok := view.Needed[hash]; !ok {
+			continue
+		}
 		if _, ok := seen[hash]; ok {
 			continue
 		}

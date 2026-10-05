@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/stretchr/testify/assert"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -140,4 +141,37 @@ func TestConvertToUtxorpcCardanoCostModels_Empty(t *testing.T) {
 	if _, ok := any(cm).(*cardano.CostModels); !ok {
 		t.Fatalf("expected *cardano.CostModels, got %T", cm)
 	}
+}
+
+// TestCloneCostModels checks that CloneCostModels deep-copies the map and every
+// value slice, so changing the source afterwards cannot change the clone.
+// Nil stays nil and empty maps and slices stay non-nil.
+func TestCloneCostModels(t *testing.T) {
+	t.Run("nil stays nil", func(t *testing.T) {
+		assert.Nil(t, CloneCostModels(nil))
+	})
+	t.Run("empty stays non-nil", func(t *testing.T) {
+		got := CloneCostModels(map[uint][]int64{})
+		assert.NotNil(t, got)
+		assert.Empty(t, got)
+	})
+	t.Run("copy is independent of source", func(t *testing.T) {
+		src := map[uint][]int64{0: {1, 2}, 1: {3, 4}, 2: {5, 6}, 3: {7, 8}}
+		got := CloneCostModels(src)
+		assert.Equal(t, src, got)
+		for k := range src {
+			src[k][0] = -1
+		}
+		src[9] = []int64{9}
+		for k, want := range map[uint][]int64{
+			0: {1, 2}, 1: {3, 4}, 2: {5, 6}, 3: {7, 8},
+		} {
+			assert.Equal(t, want, got[k], "model %d", k)
+		}
+		assert.NotContains(t, got, uint(9))
+	})
+	t.Run("empty slice stays non-nil", func(t *testing.T) {
+		got := CloneCostModels(map[uint][]int64{0: {}})
+		assert.NotNil(t, got[0])
+	})
 }

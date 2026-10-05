@@ -46,13 +46,21 @@ import (
 const (
 	HeaderBodyLengthShelleyLike = 15
 	HeaderBodyLengthBabbageLike = 10
-	ProtoMajorShelley           = 2
-	ProtoMajorAllegra           = 3
-	ProtoMajorMary              = 4
-	ProtoMajorAlonzo            = 5
-	ProtoMajorBabbage           = 7
-	ProtoMajorConway            = 9
-	ProtoMajorDijkstra          = 12
+	// HeaderBodyLengthDijkstraLeiosLike is the Dijkstra/Leios-extended header
+	// body: Babbage's 10 fields plus block_body_contains_leios_cert and
+	// eb_announcement (cardano-ledger eras/dijkstra/impl/cddl/data/
+	// dijkstra.cddl header_body; see ledger/dijkstra.DijkstraBlockHeader).
+	// No other era has this shape. Offset 9 is header_version_info, whose
+	// first element is the issuer's highest supported major protocol version
+	// in the position and wire format of protocol_version.
+	HeaderBodyLengthDijkstraLeiosLike = 12
+	ProtoMajorShelley                 = 2
+	ProtoMajorAllegra                 = 3
+	ProtoMajorMary                    = 4
+	ProtoMajorAlonzo                  = 5
+	ProtoMajorBabbage                 = 7
+	ProtoMajorConway                  = 9
+	ProtoMajorDijkstra                = 12
 )
 
 // inProtocolRange reports whether a header's protocol major falls within an
@@ -304,18 +312,9 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 		}
 	case HeaderBodyLengthBabbageLike:
 		// Babbage era
-		if len(body) <= 9 {
-			return 0, errors.New(
-				"header body too short for proto version field",
-			)
-		}
-		protoVersion, ok := body[9].([]any)
-		if !ok || len(protoVersion) < 1 {
-			return 0, errors.New("invalid proto version")
-		}
-		protoMajor, ok := protoVersion[0].(uint64)
-		if !ok {
-			return 0, errors.New("invalid proto major")
+		protoMajor, err := praosHeaderProtoMajor(body)
+		if err != nil {
+			return 0, err
 		}
 		switch {
 		case inProtocolRange(
@@ -354,9 +353,48 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 				protoMajor,
 			)
 		}
+	case HeaderBodyLengthDijkstraLeiosLike:
+		// Only Dijkstra has this shape, so the shape decides the era. The
+		// major is the issuer's highest supported version, not the era's:
+		// Dijkstra's BBODY rule requires it to be at least the ledger's
+		// current major, with no ceiling beyond its uint .size 4 encoding.
+		// A producer ready for the next hard fork announces a major above
+		// Dijkstra's range, and a pre-Dijkstra major is no valid block.
+		protoMajor, err := praosHeaderProtoMajor(body)
+		if err != nil {
+			return 0, err
+		}
+		if !inProtocolRange(
+			protoMajor,
+			dijkstra.MinProtocolVersionDijkstra,
+			math.MaxUint32,
+		) {
+			return 0, fmt.Errorf(
+				"unknown proto major %d for 12-field header",
+				protoMajor,
+			)
+		}
+		return BlockTypeDijkstra, nil
 	default:
 		return 0, fmt.Errorf("unknown header body length %d", lenBody)
 	}
+}
+
+// praosHeaderProtoMajor reads the major version at offset 9 of a Praos header
+// body: protocol_version through Conway, header_version_info in Dijkstra.
+func praosHeaderProtoMajor(body []any) (uint64, error) {
+	if len(body) <= 9 {
+		return 0, errors.New("header body too short for proto version field")
+	}
+	protoVersion, ok := body[9].([]any)
+	if !ok || len(protoVersion) < 1 {
+		return 0, errors.New("invalid proto version")
+	}
+	protoMajor, ok := protoVersion[0].(uint64)
+	if !ok {
+		return 0, errors.New("invalid proto major")
+	}
+	return protoMajor, nil
 }
 
 // extractOriginalBodyCbor returns the original CBOR bytes for the block
@@ -578,11 +616,42 @@ func verifyNonceVrf(
 	return nil
 }
 
+// verifyBlockTransactions validates txs in order, each against ls plus the
+// effects of the transactions before it, and returns the index of the first
+// transaction that fails.
+func verifyBlockTransactions(
+	txs []common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+	rules []common.UtxoValidationRuleFunc,
+) (int, error) {
+	blockState := common.NewBlockLedgerState(ls)
+	for idx, tx := range txs {
+		err := common.VerifyTransaction(tx, slot, blockState, pp, rules)
+		if err != nil {
+			return idx, err
+		}
+		if err := blockState.ApplyTransaction(tx, pp); err != nil {
+			return idx, fmt.Errorf("apply transaction: %w", err)
+		}
+	}
+	return 0, nil
+}
+
 // VerifyBlock performs block-local structural, cryptographic, and ledger
 // validation. It checks data available from the block and supplied verification
 // config, including body hash, leader and nonce VRF proofs, the operational
 // certificate's cold-key signature, KES signature, transactions, and optional
 // stake pool registration.
+//
+// Transaction validation requires config.LedgerState to be the ledger state
+// before this block: the state after the previous block, with no transaction
+// of this block applied. VerifyBlock validates each transaction against that
+// state plus the effects of the block's earlier transactions (see
+// common.BlockLedgerState); a phase-2-invalid transaction contributes only
+// its collateral. It never writes to config.LedgerState, so the caller
+// applies the block itself once it is accepted.
 //
 // VerifyBlock is not full chain-context consensus validation. It does not
 // receive the previous header, active stake distribution, active slot
@@ -1159,19 +1228,24 @@ func VerifyBlock(
 				nil,
 			)
 		}
-		for _, tx := range block.Transactions() {
-			if err := common.VerifyTransaction(tx, slot, config.LedgerState, config.ProtocolParameters, validationRules); err != nil {
-				return false, "", 0, 0, common.NewValidationError(
-					common.ValidationErrorTypeTransaction,
-					"block transaction validation failed",
-					map[string]any{
-						"block_slot":   slot,
-						"block_number": blockNo,
-						"era":          era,
-					},
-					err,
-				)
-			}
+		if idx, err := verifyBlockTransactions(
+			block.Transactions(),
+			slot,
+			config.LedgerState,
+			config.ProtocolParameters,
+			validationRules,
+		); err != nil {
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeTransaction,
+				"block transaction validation failed",
+				map[string]any{
+					"block_slot":   slot,
+					"block_number": blockNo,
+					"era":          era,
+					"transaction":  idx,
+				},
+				err,
+			)
 		}
 	}
 	var refScriptSizeErr error

@@ -433,7 +433,7 @@ type BabbageTransactionBody struct {
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tBabbageTransactionBody BabbageTransactionBody
 	var tmp tBabbageTransactionBody
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
 	for idx := range tmp.TxOutputs {
@@ -477,7 +477,7 @@ func (b BabbageTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b, 0, 1, 2)
 }
 
 func coalesceUntaggedTransactionInputs(
@@ -715,6 +715,18 @@ func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
 	return nil
 }
 
+// IsDatumHash reports whether the datum option is the datum hash variant,
+// [0, hash]. It returns false for a nil receiver.
+func (d *BabbageTransactionOutputDatumOption) IsDatumHash() bool {
+	return d != nil && d.hash != nil
+}
+
+// IsInlineDatum reports whether the datum option is the inline datum variant,
+// [1, #6.24(data)]. It returns false for a nil receiver.
+func (d *BabbageTransactionOutputDatumOption) IsInlineDatum() bool {
+	return d != nil && d.data != nil
+}
+
 func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
 	var tmpObj []any
 	if d.hash != nil {
@@ -744,7 +756,7 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	if len(cborData) > 0 && (cborData[0]&0xe0) == 0xa0 {
 		type tBabbageTransactionOutput BabbageTransactionOutput
 		var tmp tBabbageTransactionOutput
-		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 			return err
 		}
 		*o = BabbageTransactionOutput(tmp)

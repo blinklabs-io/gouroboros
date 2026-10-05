@@ -75,154 +75,85 @@ func writeLeiosFetchTestSegment(
 	require.NoError(t, err)
 }
 
-// TestUnconfiguredBlockResponderAnswersAbsence proves that an unconfigured
-// BlockRequestFunc / BlockTxsRequestFunc answers with the absence message
-// instead of retaining server agency. Retaining agency wedges the requester's
-// leios-fetch client permanently (dingo issue #3623): its send loop waits for
-// agency that only the missing response returns, so it can never issue another
-// request on that connection and cannot detect the condition.
-//
-// sendNotFoundTest performs the exchange twice and then probes an unrelated
-// mini-protocol, so this also proves the protocol returns to Idle and the
-// shared bearer stays usable.
-func TestUnconfiguredBlockResponderAnswersAbsence(t *testing.T) {
+func assertUnconfiguredRequestFailsConnection(
+	t *testing.T,
+	request protocol.Message,
+	want string,
+) {
+	t.Helper()
+	connId := testLeiosFetchConnectionId()
+	connA, connB := net.Pipe()
+	m := muxer.New(connA)
+	protocolErrors := make(chan error, 1)
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connId,
+			ErrorChan:    protocolErrors,
+			Muxer:        m,
+		},
+		nil,
+	)
+	server.Start()
+	m.Start()
+	t.Cleanup(func() {
+		server.Protocol.Stop()
+		m.Stop()
+		_ = connA.Close()
+		_ = connB.Close()
+	})
+
+	requestData, err := cbor.Encode(request)
+	require.NoError(t, err)
+	writeLeiosFetchTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, requestData, false),
+	)
+	select {
+	case err := <-protocolErrors:
+		require.ErrorContains(t, err, want)
+	case <-time.After(2 * time.Second):
+		t.Fatalf("unconfigured %s did not fail the connection", want)
+	}
+}
+
+func TestUnconfiguredDataRespondersFailConnection(t *testing.T) {
 	tests := []struct {
-		name            string
-		request         protocol.Message
-		expectedType    uint
-		expectedPayload []byte
+		name    string
+		request protocol.Message
+		want    string
 	}{
 		{
-			name: "block",
-			request: NewMsgBlockRequest(
-				pcommon.NewPoint(12345, testPointHash(0x01)),
-			),
-			expectedType:    uint(MessageTypeNoBlock),
-			expectedPayload: []byte{0x81, MessageTypeNoBlock},
+			"block",
+			NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01))),
+			"BlockRequest",
 		},
 		{
-			name: "block transactions",
-			request: NewMsgBlockTxsRequest(
+			"block transactions",
+			NewMsgBlockTxsRequest(
 				pcommon.NewPoint(12345, testPointHash(0x01)),
 				nil,
 			),
-			expectedType:    uint(MessageTypeNoBlockTxs),
-			expectedPayload: []byte{0x81, MessageTypeNoBlockTxs},
+			"BlockTxsRequest",
+		},
+		{
+			"block range",
+			NewMsgBlockRangeRequest(
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+				pcommon.NewPoint(23456, testPointHash(0x03)),
+			),
+			"BlockRangeRequest",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			msgType, payload := sendNotFoundTest(t, NewConfig(), test.request)
-			require.Equal(t, test.expectedType, msgType)
-			require.Equal(t, test.expectedPayload, payload)
+			assertUnconfiguredRequestFailsConnection(t, test.request, test.want)
 		})
 	}
 }
 
-// TestUnconfiguredBlockResponderAnswersAbsenceNilConfig covers the same
-// contract for a server constructed with no Config at all, which is what any
-// gouroboros consumer that does not pass WithLeiosFetchConfig gets: the
-// leios-fetch server is registered and started unconditionally for every
-// node-to-node connection, so an unconfigured peer must still answer.
-func TestUnconfiguredBlockResponderAnswersAbsenceNilConfig(t *testing.T) {
-	connId := testLeiosFetchConnectionId()
-	connA, connB := net.Pipe()
-	m := muxer.New(connA)
-	protocolErrors := make(chan error, 1)
-	server := NewServer(
-		protocol.ProtocolOptions{
-			ConnectionId: connId,
-			ErrorChan:    protocolErrors,
-			Muxer:        m,
-		},
-		nil,
-	)
-	server.Start()
-	m.Start()
-	t.Cleanup(func() {
-		server.Protocol.Stop()
-		m.Stop()
-		_ = connA.Close()
-		_ = connB.Close()
-	})
-
-	requestData, err := cbor.Encode(
-		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, testPointHash(0x01)), nil),
-	)
-	require.NoError(t, err)
-	writeLeiosFetchTestSegment(
-		t,
-		connB,
-		muxer.NewSegment(ProtocolId, requestData, false),
-	)
-	require.NoError(t, connB.SetReadDeadline(time.Now().Add(2*time.Second)))
-	segment, err := readLeiosFetchTestSegment(t, connB)
-	require.NoError(t, err)
-	require.True(t, segment.IsResponse())
-	require.Equal(t, uint16(ProtocolId), segment.GetProtocolId())
-	require.Equal(t, []byte{0x81, MessageTypeNoBlockTxs}, segment.Payload)
-	select {
-	case err := <-protocolErrors:
-		require.NoError(t, err)
-	default:
-	}
-}
-
-// TestUnconfiguredBlockRangeResponderFailsConnection proves that an
-// unconfigured BlockRangeRequestFunc reports a protocol error rather than
-// leaving the request pending forever. There is no absence reply for a range
-// request, so failing the connection is the only outcome that lets the
-// requester recover; a silent hang leaves its leios-fetch client wedged with
-// no way to detect it.
-func TestUnconfiguredBlockRangeResponderFailsConnection(t *testing.T) {
-	connId := testLeiosFetchConnectionId()
-	connA, connB := net.Pipe()
-	m := muxer.New(connA)
-	protocolErrors := make(chan error, 1)
-	server := NewServer(
-		protocol.ProtocolOptions{
-			ConnectionId: connId,
-			ErrorChan:    protocolErrors,
-			Muxer:        m,
-		},
-		nil,
-	)
-	server.Start()
-	m.Start()
-	t.Cleanup(func() {
-		server.Protocol.Stop()
-		m.Stop()
-		_ = connA.Close()
-		_ = connB.Close()
-	})
-
-	requestData, err := cbor.Encode(
-		NewMsgBlockRangeRequest(
-			pcommon.NewPoint(12345, testPointHash(0x01)),
-			pcommon.NewPoint(23456, testPointHash(0x03)),
-		),
-	)
-	require.NoError(t, err)
-	writeLeiosFetchTestSegment(
-		t,
-		connB,
-		muxer.NewSegment(ProtocolId, requestData, false),
-	)
-	select {
-	case err := <-protocolErrors:
-		require.ErrorContains(t, err, "BlockRangeRequest")
-	case <-time.After(2 * time.Second):
-		t.Fatal(
-			"unconfigured BlockRangeRequest left the request pending instead of failing the connection",
-		)
-	}
-}
-
-// sendNotFoundTest drives a real server over a muxer, sends the given request
-// twice, and returns the message type of the server's response segments. The
-// second exchange proves that the fallback returns the protocol to Idle and
-// leaves the bearer usable.
-func sendNotFoundTest(
+// sendRepeatedRequestTest sends the request twice and returns the last reply.
+func sendRepeatedRequestTest(
 	t *testing.T,
 	cfg Config,
 	request protocol.Message,
@@ -364,23 +295,13 @@ func TestHandleBlockRequest_CallbackIsCalled(t *testing.T) {
 	assert.True(t, called, "expected BlockRequestFunc to be called")
 }
 
-func TestHandleBlockRequest_NilCallback(t *testing.T) {
-	msgType, payload := sendNotFoundTest(
-		t,
-		NewConfig(),
-		NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01))),
-	)
-	require.Equal(t, uint(MessageTypeNoBlock), msgType)
-	require.Equal(t, []byte{0x81, MessageTypeNoBlock}, payload)
-}
-
 func TestHandleBlockRequest_CallbackError(t *testing.T) {
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 	}
 
-	expectedError := errors.New("block not found")
+	expectedError := fmt.Errorf("cache lookup: %w", ErrBlockNotFound)
 	cfg := NewConfig(
 		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
 			return nil, expectedError
@@ -398,6 +319,7 @@ func TestHandleBlockRequest_CallbackError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Equal(t, expectedError, err)
+	assert.ErrorIs(t, err, ErrBlockNotFound)
 }
 
 func TestHandleBlockRequest_NilResponse(t *testing.T) {
@@ -423,52 +345,6 @@ func TestHandleBlockRequest_NilResponse(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "callback returned nil")
-}
-
-func TestHandleBlockRequestNotFoundSendsMsgNoBlock(t *testing.T) {
-	cfg := NewConfig(
-		WithBlockRequestFunc(func(CallbackContext, pcommon.Point) (protocol.Message, error) {
-			return nil, ErrBlockNotFound
-		}),
-	)
-	msgType, _ := sendNotFoundTest(
-		t,
-		cfg,
-		NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01))),
-	)
-	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
-}
-
-func TestHandleBlockRequestWrappedNotFoundSendsMsgNoBlock(t *testing.T) {
-	cfg := NewConfig(
-		WithBlockRequestFunc(func(_ CallbackContext, point pcommon.Point) (protocol.Message, error) {
-			return nil, fmt.Errorf(
-				"cache miss for %d: %w",
-				point.Slot,
-				ErrBlockNotFound,
-			)
-		}),
-	)
-	msgType, _ := sendNotFoundTest(
-		t,
-		cfg,
-		NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01))),
-	)
-	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
-}
-
-func TestHandleBlockTxsRequestNotFoundSendsMsgNoBlockTxs(t *testing.T) {
-	cfg := NewConfig(
-		WithBlockTxsRequestFunc(func(CallbackContext, pcommon.Point, map[uint16]uint64) (protocol.Message, error) {
-			return nil, ErrBlockTxsNotFound
-		}),
-	)
-	msgType, _ := sendNotFoundTest(
-		t,
-		cfg,
-		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, testPointHash(0x01)), nil),
-	)
-	require.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
 }
 
 func TestHandleBlockRequest_NonNotFoundErrorPropagates(t *testing.T) {
@@ -536,16 +412,6 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 	assert.True(t, called, "expected BlockTxsRequestFunc to be called")
 }
 
-func TestHandleBlockTxsRequest_NilCallback(t *testing.T) {
-	msgType, payload := sendNotFoundTest(
-		t,
-		NewConfig(),
-		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, testPointHash(0x01)), nil),
-	)
-	require.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
-	require.Equal(t, []byte{0x81, MessageTypeNoBlockTxs}, payload)
-}
-
 func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
@@ -582,7 +448,11 @@ func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
 
 func TestHandleVotesRequest_NilCallback(t *testing.T) {
 	cfg := NewConfig()
-	msgType, responsePayload := sendNotFoundTest(t, cfg, NewMsgVotesRequest(nil))
+	msgType, responsePayload := sendRepeatedRequestTest(
+		t,
+		cfg,
+		NewMsgVotesRequest(nil),
+	)
 	require.Equal(t, uint(MessageTypeVotes), msgType)
 	require.Equal(t, []byte{0x82, MessageTypeVotes, 0x80}, responsePayload)
 }

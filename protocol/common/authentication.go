@@ -34,6 +34,9 @@ import (
 // pool's cold verification key.
 const PoolKeyHashSize = 28
 
+// DefaultMaxKESEvolutions is the Cardano mainnet maxKESEvolutions genesis value.
+const DefaultMaxKESEvolutions uint64 = 62
+
 // PoolKeyHash identifies a Cardano stake pool: Blake2b-224 of its cold
 // verification key. This is a true alias for [PoolKeyHashSize]byte (not a
 // defined type), so it accepts ledger/common.PoolKeyHash values (and any
@@ -113,6 +116,8 @@ type MessageAuthenticator struct {
 
 	// Slots per KES period used for KES verification. Default is Cardano standard.
 	slotsPerKesPeriod uint64
+	// Maximum evolution distance allowed from an operational certificate.
+	maxKESEvolutions uint64
 }
 
 // MessageAuthenticatorConfig configures a MessageAuthenticator.
@@ -124,6 +129,9 @@ type MessageAuthenticatorConfig struct {
 	// SlotsPerKESPeriod is the Shelley genesis slotsPerKESPeriod parameter.
 	// Defaults to 129600 (Cardano mainnet) when zero.
 	SlotsPerKESPeriod uint64
+	// MaxKESEvolutions is the Shelley genesis maxKESEvolutions parameter.
+	// Defaults to 62 (Cardano mainnet) when zero.
+	MaxKESEvolutions uint64
 	// Logger, when nil, defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -148,11 +156,16 @@ func NewMessageAuthenticator(
 		// Default Cardano slots per KES period (standard mainnet value)
 		slotsPerKesPeriod = 129600
 	}
+	maxKESEvolutions := cfg.MaxKESEvolutions
+	if maxKESEvolutions == 0 {
+		maxKESEvolutions = DefaultMaxKESEvolutions
+	}
 	return &MessageAuthenticator{
 		logger:            logger,
 		stakeAuthority:    cfg.StakeAuthority,
 		kesOpCertCache:    make(map[PoolKeyHash]uint64),
 		slotsPerKesPeriod: slotsPerKesPeriod,
+		maxKESEvolutions:  maxKESEvolutions,
 	}, nil
 }
 
@@ -168,6 +181,7 @@ func NewNoOpAuthenticator(logger *slog.Logger) *MessageAuthenticator {
 		logger:            logger,
 		kesOpCertCache:    make(map[PoolKeyHash]uint64),
 		slotsPerKesPeriod: 129600,
+		maxKESEvolutions:  DefaultMaxKESEvolutions,
 		disableValidation: true,
 	}
 }
@@ -375,6 +389,13 @@ func (m *MessageAuthenticator) verifyKESSignature(
 			certPeriod,
 		)
 	}
+	if slot == nil && m.slotsPerKesPeriod != 0 &&
+		msgPeriod > math.MaxUint64/m.slotsPerKesPeriod {
+		return ErrKESPeriodOverflow
+	}
+	if err := m.checkKESWindow(msgPeriod, certPeriod); err != nil {
+		return err
+	}
 
 	// Absent an explicit slot, fall back to the slot implied by the
 	// message's own claimed signing period. msgPeriod is attacker-controlled
@@ -385,11 +406,11 @@ func (m *MessageAuthenticator) verifyKESSignature(
 	if slot != nil {
 		computedSlot = *slot
 	} else {
-		if m.slotsPerKesPeriod != 0 &&
-			msgPeriod > math.MaxUint64/m.slotsPerKesPeriod {
-			return ErrKESPeriodOverflow
-		}
 		computedSlot = msgPeriod * m.slotsPerKesPeriod
+	}
+	currentKesPeriod := computedSlot / m.slotsPerKesPeriod
+	if err := m.checkKESWindow(currentKesPeriod, certPeriod); err != nil {
+		return err
 	}
 
 	m.logger.Debug(
@@ -417,6 +438,22 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		"KES signature verified",
 		"payload_size", len(wrappedCbor),
 	)
+	return nil
+}
+
+func (m *MessageAuthenticator) checkKESWindow(
+	period uint64,
+	certPeriod uint64,
+) error {
+	if period >= certPeriod &&
+		period-certPeriod >= m.maxKESEvolutions {
+		return fmt.Errorf(
+			"KES period %d exceeds the maximum %d evolutions from certificate period %d",
+			period,
+			m.maxKESEvolutions,
+			certPeriod,
+		)
+	}
 	return nil
 }
 

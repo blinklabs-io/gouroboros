@@ -187,6 +187,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateDelegation,
 	},
 	{
+		Id:        common.UtxoValidationRuleMIRGenesisQuorum,
+		Validator: UtxoValidateMIRGenesisQuorum,
+	},
+	{
 		Id:        common.UtxoValidationRuleWithdrawals,
 		Validator: UtxoValidateWithdrawals,
 	},
@@ -237,7 +241,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidatePlutusScripts,
 	),
 	common.Phase2ValidUtxoValidationRules(
-		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidatePoolCertificates,
+		UtxoValidateDelegation, UtxoValidateMIRGenesisQuorum,
+		UtxoValidateWithdrawals, UtxoValidatePoolCertificates,
 	),
 )
 

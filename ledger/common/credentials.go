@@ -45,6 +45,13 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 	if len(cborData) == 1 && (cborData[0] == 0xf6 || cborData[0] == 0xf7) {
 		return errors.New("credential cannot be CBOR null or undefined")
 	}
+	count, headerSize, indefinite := cbor.ArrayInfo(cborData)
+	if count < 0 || (!indefinite && count != 2) {
+		return errors.New("credential must be a two-element CBOR array")
+	}
+	if int(headerSize) >= len(cborData) || cborData[headerSize]>>5 != 0 {
+		return errors.New("credential type must be an unsigned CBOR integer")
+	}
 	type tCredential Credential
 	var tmp tCredential
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {

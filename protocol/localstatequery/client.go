@@ -583,6 +583,8 @@ func (c *Client) GetUTxOWhole() (*UTxOsResult, error) {
 	return &result, nil
 }
 
+// DebugEpochState returns the ledger's EpochState for the acquired point
+// (Shelley sub-query 8). See [DebugEpochStateResult] for which parts are typed.
 func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling DebugEpochState()",
@@ -601,11 +603,7 @@ func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 		currentEra,
 		QueryTypeShelleyDebugEpochState,
 	)
-	var result DebugEpochStateResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return runWrappedQuery[DebugEpochStateResult](c, query, "epoch state")
 }
 
 func (c *Client) GetFilteredDelegationsAndRewardAccounts(
@@ -700,6 +698,9 @@ func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 	return &result[0], nil
 }
 
+// DebugNewEpochState returns the ledger's NewEpochState for the acquired point
+// (Shelley sub-query 12). See [DebugNewEpochStateResult] for which parts are
+// typed.
 func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling DebugNewEpochState()",
@@ -718,11 +719,7 @@ func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 		currentEra,
 		QueryTypeShelleyDebugNewEpochState,
 	)
-	var result DebugNewEpochStateResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return runWrappedQuery[DebugNewEpochStateResult](c, query, "new epoch state")
 }
 
 // DebugChainDepState returns the consensus chain-dependent state for the
@@ -760,18 +757,23 @@ func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 		currentEra,
 		QueryTypeShelleyDebugChainDepState,
 	)
-	// The node answers a QueryIfCurrent query with a one-element array wrapping
-	// the result, as it does for every other Shelley query here. Decoding
-	// straight into DebugChainDepStateResult skips that layer and hands its
-	// UnmarshalCBOR the outer array, which it reports as "cannot unmarshal
-	// array into Go value of type struct { Version uint64; Inner RawMessage }"
-	// — the encodeVersion envelope it expects one level down.
-	result := []DebugChainDepStateResult{}
+	return runWrappedQuery[DebugChainDepStateResult](c, query, "chain dep state")
+}
+
+// runWrappedQuery runs a query whose result the node sends inside the
+// one-element array every QueryIfCurrent answer carries, and returns the
+// element.
+//
+// Decoding the reply straight into T skips that layer and hands T's decoder the
+// outer array, which fails with an error about the shape T expects one level
+// down.
+func runWrappedQuery[T any](c *Client, query any, name string) (*T, error) {
+	result := []T{}
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
 	if len(result) == 0 {
-		return nil, errors.New("empty result from chain dep state query")
+		return nil, fmt.Errorf("empty result from %s query", name)
 	}
 	return &result[0], nil
 }
@@ -1634,15 +1636,13 @@ func (c *Client) GetRatifyState() (*RatifyStateResult, error) {
 
 // GetLedgerPeerSnapshot returns the ledger peer snapshot used by
 // node-to-node peer discovery (introduced at node-to-client protocol version
-// 19 / cardano-node 10.7). The PeerKind argument selects which set of pools
-// the snapshot covers: LedgerPeerKindAll (SingAllLedgerPeers) is what
-// cardano-node uses for its general ledger-peer feed; LedgerPeerKindBig
-// (SingBigLedgerPeers) restricts the response to the high-stake "big" pools
-// used by Genesis diffusion.
+// 19 / cardano-node 10.7). The supported versions expose only
+// LedgerPeerKindBig, the high-stake pools used by Genesis diffusion.
+// LedgerPeerKindAll requires node-to-client version 23 or later.
 //
 // The returned LedgerPeerSnapshotResult preserves the snapshot slot (or
 // origin), each pool's accumulated and own stake, and the typed list of
-// relay endpoints (IPv4, IPv6, A-record domain, SRV domain).
+// IPv4, IPv6, and A-record relay endpoints.
 //
 // Returns ErrLedgerPeerSnapshotUnsupportedVersion if the negotiated
 // node-to-client protocol version does not advertise the query.
@@ -1666,6 +1666,9 @@ func (c *Client) GetLedgerPeerSnapshot(
 	if !c.enableGetLedgerPeerSnapshot {
 		return nil, ErrLedgerPeerSnapshotUnsupportedVersion
 	}
+	if peerKind != LedgerPeerKindBig {
+		return nil, ErrLedgerPeerKindUnsupportedVersion
+	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1673,7 +1676,6 @@ func (c *Client) GetLedgerPeerSnapshot(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyGetLedgerPeerSnapshot,
-		int(peerKind),
 	)
 	var result LedgerPeerSnapshotResult
 	if err := c.runQuery(query, &result); err != nil {

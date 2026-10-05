@@ -48,14 +48,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		ConnectionId:       protoOptions.ConnectionId,
 		ConnectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
-	// Update state map with timeout
-	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[StateBusy]; ok {
-		entry.Timeout = c.config.Timeout
-		stateMap[StateBusy] = entry
-	}
-	// Configure underlying Protocol
-	protoConfig := protocol.ProtocolConfig{
+	protoConfig := c.config.protocolConfig(protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
@@ -65,8 +58,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
 		InitialState:        StateIdle,
+	})
+	if entry, ok := protoConfig.StateMap[StateBusy]; ok {
+		entry.Timeout = c.config.Timeout
+		protoConfig.StateMap[StateBusy] = entry
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c

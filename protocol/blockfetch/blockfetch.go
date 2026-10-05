@@ -126,6 +126,10 @@ type Config struct {
 	// a pipelining client keeps outstanding. Zero means
 	// DefaultMaxInFlightBytes.
 	MaxInFlightBytes uint64
+	// ByronSlotsPerEpoch selects the Byron epoch length used when correlating
+	// fetched blocks with protocol points. Connections apply a non-zero value
+	// to both BlockFetch and ChainSync. Zero uses the legacy value.
+	ByronSlotsPerEpoch uint64
 }
 
 // MaxRecvQueueSize is the maximum allowed receive queue size (messages).
@@ -158,11 +162,10 @@ const PipelinedIdleMaxPendingMessageBytes = StreamingMaxPendingMessageBytes
 // creating a race between muxerRecvLoop limit checks and state transitions.
 const BusyMaxPendingMessageBytes = StreamingMaxPendingMessageBytes
 
-// DefaultRequestExpectedBytes is the size assumed for a range request whose
-// caller did not estimate one. It is one maximum-size mainnet block body
-// (maxBlockBodySize = 88 KiB), which makes DefaultMaxInFlightBytes degrade to
-// cardano-node's blockFetchPipeliningMax of 100 outstanding requests for
-// callers that cannot estimate.
+// DefaultRequestExpectedBytes is one maximum-size mainnet block body
+// (maxBlockBodySize = 88 KiB), the unit DefaultMaxInFlightBytes is sized in.
+// A range request without an estimate is not assumed to be this size; see
+// RangeRequest.ExpectedBytes.
 const DefaultRequestExpectedBytes uint64 = 88 * 1024
 
 // DefaultMaxInFlightBytes is the default bound on the total expected size of
@@ -170,6 +173,19 @@ const DefaultRequestExpectedBytes uint64 = 88 * 1024
 // cardano-node sizes for block-fetch in blockFetchProtocolLimits:
 // blockFetchPipeliningMax (100) times the maximum block body size (88 KiB).
 const DefaultMaxInFlightBytes uint64 = 100 * DefaultRequestExpectedBytes
+
+// IngressLimit is the base limit on block-fetch payload, in bytes, the muxer
+// holds for a client between reading it from the connection and the protocol
+// taking it: the reference implementation's blockFetchProtocolLimits, the
+// larger of ten 2,097,154-byte blocks and 100 blocks of 90,112 bytes, plus its
+// 10% safety margin. A client raises its limit above this while its
+// estimated outstanding requests may draw more (see Client.RequestRange),
+// so a well-behaved peer never reaches it, and a peer sending more than was
+// asked for fails the connection instead of being buffered without bound.
+// While an unestimated request is outstanding, ingress past the limit
+// instead pauses the connection's reads until the client catches up (see
+// RangeRequest.ExpectedBytes).
+const IngressLimit = 10 * 2_097_154 * 11 / 10
 
 // BusyTimeout is the timeout for the server to start a batch or respond no blocks.
 const BusyTimeout = 60 * time.Second
@@ -298,6 +314,14 @@ func WithRequestPipelining(enabled bool) BlockFetchOptionFunc {
 func WithMaxInFlightBytes(maxBytes uint64) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.MaxInFlightBytes = maxBytes
+	}
+}
+
+// WithByronSlotsPerEpoch sets the Byron epoch length used for block points.
+// Zero selects the legacy mainnet value.
+func WithByronSlotsPerEpoch(slotsPerEpoch uint64) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.ByronSlotsPerEpoch = slotsPerEpoch
 	}
 }
 

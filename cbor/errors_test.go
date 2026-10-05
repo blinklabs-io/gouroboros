@@ -138,3 +138,15 @@ func TestDecodeErrorWithDiagnosticHandlesUnparseableData(t *testing.T) {
 	out := e.WithDiagnostic([]byte{0xff, 0xff}, cbor.DiagnosticOptions{})
 	assert.Contains(t, out, "cbor: x at offset 0")
 }
+
+func TestDecodeErrorWithDiagnosticHonorsParseLimits(t *testing.T) {
+	e := &cbor.DecodeError{Message: "x", Offset: 0}
+	out := e.WithDiagnostic(
+		[]byte{0x82, 0x01, 0x02},
+		cbor.DiagnosticOptions{
+			ParseLimits: cbor.DiagnosticParseLimits{MaxNodes: 1},
+		},
+	)
+	assert.Contains(t, out, "cbor: x at offset 0")
+	assert.NotContains(t, out, "Diagnostic:")
+}

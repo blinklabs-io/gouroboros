@@ -809,19 +809,32 @@ func TestDijkstraBlockMarshalUsesTwoItemEnvelope(t *testing.T) {
 }
 
 // leiosExtendedHeaderHex is a real Dijkstra block header captured from the
-// Leios prototype testnet (network magic 164) at slot 1309596. After the
-// Leios header extension activated mid-Dijkstra, the header body carries an
-// 11th element (a [hash, uint] pair) following protocol_version, which a plain
-// Babbage header decoder rejects.
+// Leios prototype testnet (network magic 164) at slot 1309596, from when the
+// header body carried an 11th element (a [hash, uint] pair) following
+// protocol_version. The current header body has exactly 12 fields, so tests
+// use it as a source of the ten Babbage fields and of that pair; the capture
+// itself must be rejected.
 const leiosExtendedHeaderHex = "828b19ff661a0013fb9c582017f18b18364e406fdf68a72845f9b005119425ddd344d171a7d5dd005df8b7f058200c058acd8105777ffee584b5bc3e7507fe1615179bb2d291f83b089e7733de5f582017658451b63aa1614b7a93c12533a9d73032a599a411533cf5e88f9fb98343c58258405231c2bde7d989ef9df5f31dd636ad8bb6773ef1d3b1e54f35e9c2ebac647aa525b6a9219763b3a9e285a5f7acd8d1cf8c5c3ed2fc780a9f4b9f1f063a7346a05850d58cc6245cad4d434f6b17fc5af1d9d56df46f7d483af40b134f817903f0061ce3cac58fda15cfe085fa42407d03b40d207dad9d2255791f1c000bfebd36a3017aa274cbb138e6768199574e0466f8091a000151c158206f351bafba4758062454b2125a57419c3599e62be312ed0677411d4ad05c0f6184582022cead0f99f08fb8002d88ce78ec2b8bc2657b0b9e4b96f68b01dcc249e71671000058403f56eec6cb0cb526154a6fd0dcc27fe1efcbeabac244bc49c2c1ac304db52bd5d40da6960c6331a808307340c285b1abc94ea69a947ef64980f0015f1f77a607820c00825820a2dcb7c0d77a9ab7396d734665d5b25f7ead1ee0595704a90f9825c6b533925019567f5901c0103d6a7191e176f98c0dd438ba9fb84f665d17728eb659e26096fee55f9493f8d3914ebd42204b6d1ca0c93d0edab06235e7e44b5458c3ab676763dd1306d60388573c0fd8f581c24f0bbeb91eae9379d175fd6c532120acd570e3b83db66b03dade4cdfa86f4fc857c3c3580eeb14d5eb7922b2c83531aea1c725d9a296ee51a24b6006c0c0b4f0842ed247536aafe86b983252566d869ae04a3bab013ff55a116b7a220285cce2e49355b2e9aa316f3e4f71c4e1ffc880462bc49e39e064c783ce40c166b39673407fea92ed55a9721fdf9d3c06d38ec0edd2278effc70b9c985ec7c776edc22234f7659e4c085821c27756713ad2243080e1e32d28a635ff9f45309b537c142f880ff07898aa4cf5b2f26356e267a2c8fb425b324653c991d0c9138a27891be8d5d8a427446cce884e3cb4b3d9d9b3a8d551a3e0471091a4dffb3ef2868c9982a9fafcc6ef22ba750bf9a38c821e1c496511b98ee90e43b01f088e3a96e2ddb0be9309b63ca34c317e708d0a739f69e979f9b9a97cd608e1a64266877574542014af4f55223c6ff56eaa98730bde2ad7bef8d164b5a4d0a729e746714501986f1d97c69e5645befd8771bf628a3fdf6011bf8e438aaadc35"
 
-// TestDijkstraBlockHeaderDecodesLeiosExtension verifies that the Leios-extended
-// Dijkstra block header (11-field body) decodes, exposes the standard Babbage
-// fields, retains the extra Leios field, and round-trips byte-for-byte so the
-// header hash is stable.
+// TestDijkstraBlockHeaderDecodesLeiosExtension verifies that a 12-field
+// Dijkstra block header decodes, exposes the standard Babbage fields, retains
+// both Leios fields, and round-trips byte-for-byte so the header hash is
+// stable.
 func TestDijkstraBlockHeaderDecodesLeiosExtension(t *testing.T) {
-	raw, err := hex.DecodeString(leiosExtendedHeaderHex)
+	full, err := hex.DecodeString(leiosExtendedHeaderHex)
 	require.NoError(t, err)
+	var fullTop []cbor.RawMessage
+	_, err = cbor.Decode(full, &fullTop)
+	require.NoError(t, err)
+	require.Len(t, fullTop, 2)
+	var fullBody []cbor.RawMessage
+	_, err = cbor.Decode(fullTop[0], &fullBody)
+	require.NoError(t, err)
+	require.Len(t, fullBody, 11)
+	// The captured 11th element is a [hash32, uint] pair; use it as the
+	// announcement.
+	announcement := fullBody[10]
+	raw := dijkstraHeaderWithBodyFields(t, true, announcement)
 
 	var header DijkstraBlockHeader
 	_, err = cbor.Decode(raw, &header)
@@ -831,19 +844,22 @@ func TestDijkstraBlockHeaderDecodesLeiosExtension(t *testing.T) {
 	require.Equal(t, uint64(65382), header.BlockNumber())
 	require.Equal(t, uint64(1309596), header.SlotNumber())
 
-	// The 11th body element is retained verbatim.
-	require.Len(t, header.LeiosHeaderExtension, 1)
+	require.Len(t, header.LeiosHeaderExtension, 2)
+	certified, present := header.LeiosCertified()
+	require.True(t, present)
+	require.True(t, certified)
+	_, size, ok := header.LeiosAnnouncement()
+	require.True(t, ok)
+	require.Equal(t, uint64(0x567f), size)
 
-	// The body's stored CBOR must be the ORIGINAL (Leios-extended) body bytes,
-	// not a re-encoding of the leading Babbage fields: KES signature
-	// verification (ledger.extractOriginalBodyCbor) is computed over the
-	// original header-body encoding.
+	// The body's stored CBOR must be the ORIGINAL body bytes, not a
+	// re-encoding of the leading Babbage fields: KES signature verification
+	// (ledger.extractOriginalBodyCbor) is computed over the original
+	// header-body encoding.
 	var top []cbor.RawMessage
 	_, err = cbor.Decode(raw, &top)
 	require.NoError(t, err)
-	if len(top) == 0 {
-		t.Fatal("expected header CBOR to contain a body")
-	}
+	require.Len(t, top, 2)
 	require.Equal(t, []byte(top[0]), header.Body.Cbor())
 
 	// Round-trips byte-for-byte so the header hash matches the wire bytes.
@@ -853,40 +869,18 @@ func TestDijkstraBlockHeaderDecodesLeiosExtension(t *testing.T) {
 	require.Equal(t, common.Blake2b256Hash(raw), header.Hash())
 }
 
-// TestDijkstraBlockHeaderDecodesLegacyBabbageBody verifies that a plain
-// 10-field Babbage-shaped Dijkstra header (pre-Leios-extension) still decodes
-// with no Leios extension captured.
-func TestDijkstraBlockHeaderDecodesLegacyBabbageBody(t *testing.T) {
-	// Re-encode the captured header with only the first 10 body fields to
-	// model a legacy Dijkstra header.
+// TestDijkstraBlockHeaderRejectsLegacyBabbageBody verifies that the plain
+// 10-field Babbage-shaped header body and the superseded 11-field capture are
+// no longer accepted as Dijkstra headers.
+func TestDijkstraBlockHeaderRejectsLegacyBabbageBody(t *testing.T) {
+	var header DijkstraBlockHeader
+	_, err := cbor.Decode(dijkstraHeaderWithBodyFields(t), &header)
+	require.ErrorContains(t, err, "expected exactly 12 fields, got 10")
+
 	full, err := hex.DecodeString(leiosExtendedHeaderHex)
 	require.NoError(t, err)
-	var top []cbor.RawMessage
-	_, err = cbor.Decode(full, &top)
-	require.NoError(t, err)
-	if len(top) < 2 {
-		t.Fatal("expected header CBOR to contain body and signature")
-	}
-	var bodyElems []cbor.RawMessage
-	_, err = cbor.Decode(top[0], &bodyElems)
-	require.NoError(t, err)
-	if len(bodyElems) < 10 {
-		t.Fatal("expected at least 10 header body fields")
-	}
-	legacyBody, err := cbor.Encode(bodyElems[:10])
-	require.NoError(t, err)
-	legacyHeader, err := cbor.Encode([]cbor.RawMessage{
-		cbor.RawMessage(legacyBody),
-		top[1],
-	})
-	require.NoError(t, err)
-
-	var header DijkstraBlockHeader
-	_, err = cbor.Decode(legacyHeader, &header)
-	require.NoError(t, err)
-	require.Nil(t, header.LeiosHeaderExtension)
-	require.Equal(t, uint64(65382), header.BlockNumber())
-	require.Equal(t, uint64(1309596), header.SlotNumber())
+	_, err = cbor.Decode(full, &header)
+	require.ErrorContains(t, err, "expected exactly 12 fields, got 11")
 }
 
 func TestDijkstraBlockBodyHashIncludesLeiosAndPerasCertSlots(t *testing.T) {
@@ -2104,6 +2098,68 @@ func TestDijkstraProtocolParametersRejectsUnsupportedArrayLength(t *testing.T) {
 	require.Error(t, decoded.UnmarshalCBOR(data))
 }
 
+// Stored parameters carry any non-negative maxPledgeLeverage, including zero
+// and values outside the pre-Dijkstra operator range.
+func TestDijkstraProtocolParametersUnmarshalRewardLeverageDomain(t *testing.T) {
+	rat := func(num, denom int64) *cbor.Rat {
+		return &cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
+	ratValue := func(num, denom int64) cbor.Rat {
+		return cbor.Rat{Rat: big.NewRat(num, denom)}
+	}
+	encode := func(leverage *big.Rat) []byte {
+		encoded, err := cbor.Encode(DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				A0:  rat(1, 2),
+				Rho: rat(3, 1000),
+				Tau: rat(1, 5),
+				PoolVotingThresholds: conway.PoolVotingThresholds{
+					MotionNoConfidence:    ratValue(1, 2),
+					CommitteeNormal:       ratValue(1, 2),
+					CommitteeNoConfidence: ratValue(1, 2),
+					HardForkInitiation:    ratValue(1, 2),
+					PpSecurityGroup:       ratValue(1, 2),
+				},
+				DRepVotingThresholds: conway.DRepVotingThresholds{
+					MotionNoConfidence:    ratValue(1, 2),
+					CommitteeNormal:       ratValue(1, 2),
+					CommitteeNoConfidence: ratValue(1, 2),
+					UpdateToConstitution:  ratValue(1, 2),
+					HardForkInitiation:    ratValue(1, 2),
+					PpNetworkGroup:        ratValue(1, 2),
+					PpEconomicGroup:       ratValue(1, 2),
+					PpTechnicalGroup:      ratValue(1, 2),
+					PpGovGroup:            ratValue(1, 2),
+					TreasuryWithdrawal:    ratValue(1, 2),
+				},
+			},
+			MaxPledgeLeverage:        &cbor.Rat{Rat: leverage},
+			MaxRefScriptSizePerBlock: 123,
+		})
+		require.NoError(t, err)
+		return encoded
+	}
+
+	for _, leverage := range []*big.Rat{
+		big.NewRat(0, 1),
+		big.NewRat(1, 2),
+		big.NewRat(10_001, 1),
+	} {
+		var decoded DijkstraProtocolParameters
+		require.NoError(t, decoded.UnmarshalCBOR(encode(leverage)))
+		require.Equal(t, leverage, decoded.MaxPledgeLeverage.Rat)
+		require.Equal(t, uint32(123), decoded.MaxRefScriptSizePerBlock)
+	}
+
+	decoded := DijkstraProtocolParameters{
+		MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(3, 1)},
+		MaxRefScriptSizePerBlock: 77,
+	}
+	require.Error(t, decoded.UnmarshalCBOR(encode(big.NewRat(-1, 1))))
+	require.Equal(t, big.NewRat(3, 1), decoded.MaxPledgeLeverage.Rat)
+	require.Equal(t, uint32(77), decoded.MaxRefScriptSizePerBlock)
+}
+
 func TestDijkstraProtocolParametersRejectsOversizedArrayHeader(t *testing.T) {
 	// The arity guard must reject an array whose declared length cannot be
 	// represented before attempting to decode all of its elements.
@@ -2336,6 +2392,31 @@ func TestDijkstraMaxPledgeLeverageNullUpdate(t *testing.T) {
 		data.NewConstr(1),
 	)
 	require.True(t, action.ToPlutusData().Equal(wantAction))
+}
+
+// cardano-ledger types maxPledgeLeverage as a NonNegativeInterval and its
+// ppuWellFormed has no zero check for it.
+func TestDijkstraApplyUpdateAcceptsNonNegativeMaxPledgeLeverage(t *testing.T) {
+	for _, leverage := range []*big.Rat{
+		big.NewRat(0, 1),
+		big.NewRat(1, 2),
+		big.NewRat(10_001, 1),
+	} {
+		params := DijkstraProtocolParameters{
+			MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(3, 1)},
+		}
+		require.NoError(t, params.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+			MaxPledgeLeverage: &cbor.Rat{Rat: leverage},
+		}))
+		require.Equal(t, leverage, params.MaxPledgeLeverage.Rat)
+	}
+	params := DijkstraProtocolParameters{
+		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(3, 1)},
+	}
+	require.Error(t, params.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+		MaxPledgeLeverage: &cbor.Rat{Rat: big.NewRat(-1, 1)},
+	}))
+	require.Equal(t, big.NewRat(3, 1), params.MaxPledgeLeverage.Rat)
 }
 
 func TestDijkstraProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
@@ -2718,6 +2799,61 @@ func TestDijkstraGenesisRejectsInvalidLeiosStakeParameters(t *testing.T) {
 	require.ErrorAs(t, err, &LeiosCommitteeStakeParametersError{})
 }
 
+func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		genesis      string
+		wantLeverage *big.Rat
+		wantErr      bool
+	}{
+		{
+			name:         "valid reward parameters",
+			genesis:      `{"maxPledgeLeverage": 3.5, "minPoolMargin": 0.1}`,
+			wantLeverage: big.NewRat(7, 2),
+		},
+		{
+			name:         "zero max pledge leverage",
+			genesis:      `{"maxPledgeLeverage": 0, "minPoolMargin": 0.1}`,
+			wantLeverage: big.NewRat(0, 1),
+		},
+		{
+			name:         "fractional max pledge leverage",
+			genesis:      `{"maxPledgeLeverage": 0.25, "minPoolMargin": 0.1}`,
+			wantLeverage: big.NewRat(1, 4),
+		},
+		{
+			name:    "negative max pledge leverage",
+			genesis: `{"maxPledgeLeverage": -1, "maxRefScriptSizePerBlock": 123}`,
+			wantErr: true,
+		},
+		{
+			name:    "min pool margin above one",
+			genesis: `{"minPoolMargin": 1.1, "maxRefScriptSizePerBlock": 123}`,
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(test.genesis))
+			require.NoError(t, err)
+
+			params := DijkstraProtocolParameters{
+				MaxRefScriptSizePerBlock: 77,
+				MaxPledgeLeverage:        &cbor.Rat{Rat: big.NewRat(3, 1)},
+			}
+			err = params.UpdateFromGenesis(&genesis)
+			if test.wantErr {
+				require.Error(t, err)
+				require.Equal(t, uint32(77), params.MaxRefScriptSizePerBlock)
+				require.Equal(t, big.NewRat(3, 1), params.MaxPledgeLeverage.Rat)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.wantLeverage, params.MaxPledgeLeverage.Rat)
+			require.Equal(t, big.NewRat(1, 10), params.MinPoolMargin.Rat)
+		})
+	}
+}
+
 func TestDijkstraLeiosStakeParametersValidateSingleField(t *testing.T) {
 	tests := []struct {
 		name                   string
@@ -2879,4 +3015,47 @@ func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(
 		maxRefScriptSizePerBlock,
 		*decodedAction.ParamUpdate.MaxRefScriptSizePerBlock,
 	)
+}
+
+// TestDijkstraUpdateFromGenesis_PlutusV4CostModelNotAliased checks that
+// UpdateFromGenesis copies the genesis PlutusV4 cost model, so mutating either
+// side afterwards does not change the other.
+func TestDijkstraUpdateFromGenesis_PlutusV4CostModelNotAliased(t *testing.T) {
+	v4 := []int64{1, 2, 3}
+	genesis := &DijkstraGenesis{PlutusV4CostModel: v4}
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(genesis))
+
+	live, ok := params.CostModels[3]
+	if !ok {
+		t.Fatal("expected PlutusV4 cost model after UpdateFromGenesis")
+	}
+	live[0] = -1
+	require.Equal(t, int64(1), v4[0])
+
+	v4[1] = -1
+	require.Equal(t, int64(2), live[1])
+}
+
+// TestDijkstraUpdate_CostModelsNotAliased checks that Update copies the
+// update's cost-model slices through the Conway update it delegates to, so
+// mutating either side afterwards does not change the other.
+func TestDijkstraUpdate_CostModelsNotAliased(t *testing.T) {
+	src0 := []int64{1, 2}
+	src1 := []int64{3, 4}
+	update := &DijkstraProtocolParameterUpdate{
+		CostModels: map[uint][]int64{0: src0, 1: src1},
+	}
+	var params DijkstraProtocolParameters
+	params.Update(update)
+
+	live, ok := params.CostModels[1]
+	if !ok {
+		t.Fatal("expected cost model 1 after Update")
+	}
+	live[0] = -1
+	require.Equal(t, []int64{3, 4}, src1)
+
+	src0[0] = -1
+	require.Equal(t, []int64{1, 2}, params.CostModels[0])
 }

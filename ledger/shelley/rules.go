@@ -104,6 +104,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateDelegation,
 	},
 	{
+		Id:        common.UtxoValidationRuleMIRGenesisQuorum,
+		Validator: UtxoValidateMIRGenesisQuorum,
+	},
+	{
 		Id:        common.UtxoValidationRuleWithdrawals,
 		Validator: UtxoValidateWithdrawals,
 	},
@@ -737,18 +741,15 @@ func UtxoValidateMetadata(
 // - Pool registration status
 // - Stake credential registration status
 //
-// It also enforces the DELEG predicate that bounds the sign of a move
-// instantaneous rewards delta. The wire format types delta_coin as int, so the
-// decoder accepts a negative delta; the reference rejects one before the Alonzo
-// hard fork with MIRNegativesNotCurrentlyAllowed
-// (eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs, delegTransition).
+// It also enforces the DELEG predicates of move instantaneous rewards
+// certificates; see validateMirCertificates.
 func UtxoValidateDelegation(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if err := validateMirDeltaSigns(tx, pp); err != nil {
+	if err := validateMirCertificates(tx, ls, pp); err != nil {
 		return err
 	}
 
@@ -793,17 +794,21 @@ func UtxoValidateDelegation(
 	return nil
 }
 
-// validateMirDeltaSigns rejects a negative move instantaneous rewards delta at
-// a protocol version that does not permit one. From the Alonzo hard fork
-// onwards a negative delta is permitted as long as the resulting reward is not
-// negative, a check that needs the pending InstantaneousRewards accumulated by
-// earlier certificates in the epoch and so is not expressible against the
-// LedgerState interface.
+// validateMirCertificates enforces the DELEG predicates of move instantaneous
+// rewards certificates. Before the Alonzo hard fork a pot-to-pot transfer
+// (MIRTransferNotCurrentlyAllowed) and a negative delta
+// (MIRNegativesNotCurrentlyAllowed) are rejected. From Alonzo a delta is
+// rejected when it drives the credential's pending rewards in its pot below
+// zero (MIRProducesNegativeUpdate); the pending rewards are those the ledger
+// state reports through common.PendingInstantaneousRewardsState plus the
+// deltas of earlier certificates in the block and transaction. When the state
+// does not report them, a delta those deltas do not cover is rejected with
+// PendingInstantaneousRewardsUnavailableError.
 //
-// Reference: MIRNegativesNotCurrentlyAllowed and MIRProducesNegativeUpdate in
-// delegTransition, eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
-func validateMirDeltaSigns(
+// Reference: delegTransition, eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+func validateMirCertificates(
 	tx common.Transaction,
+	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
 	mirCerts := make([]*common.MoveInstantaneousRewardsCertificate, 0)
@@ -825,22 +830,80 @@ func validateMirDeltaSigns(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	if common.MirTransferAllowed(versionedPparams.ProtocolMajorVersion()) {
-		return nil
+	allowed := common.MirTransferAllowed(versionedPparams.ProtocolMajorVersion())
+	type pendingKey struct {
+		source   uint
+		credType uint
+		hash     common.Blake2b224
 	}
+	type pendingTotal struct {
+		amount *big.Int
+		known  bool
+	}
+	pending := make(map[pendingKey]pendingTotal)
 	for _, cert := range mirCerts {
-		for cred, delta := range cert.Reward.Rewards {
-			if delta == nil || delta.Sign() >= 0 {
+		reward := cert.Reward
+		if reward.Rewards == nil {
+			if !allowed {
+				return MIRTransferNotCurrentlyAllowedError{
+					Source: reward.Source,
+					Amount: reward.OtherPot,
+				}
+			}
+			continue
+		}
+		for cred, delta := range reward.Rewards {
+			if delta == nil {
 				continue
 			}
 			var tmpCred common.Credential
 			if cred != nil {
 				tmpCred = *cred
 			}
-			return MIRNegativesNotCurrentlyAllowedError{
-				Credential: tmpCred,
-				Delta:      new(big.Int).Set(delta),
+			if !allowed {
+				if delta.Sign() < 0 {
+					return MIRNegativesNotCurrentlyAllowedError{
+						Credential: tmpCred,
+						Delta:      new(big.Int).Set(delta),
+					}
+				}
+				continue
 			}
+			key := pendingKey{
+				source:   reward.Source,
+				credType: tmpCred.CredType,
+				hash:     tmpCred.Credential,
+			}
+			total, seen := pending[key]
+			if !seen {
+				amount, known, err := common.PendingInstantaneousRewardsFor(
+					ls,
+					reward.Source,
+					tmpCred,
+				)
+				if err != nil {
+					return err
+				}
+				total = pendingTotal{amount: amount, known: known}
+			}
+			next := new(big.Int).Add(total.amount, delta)
+			if next.Sign() < 0 {
+				if !total.known {
+					return PendingInstantaneousRewardsUnavailableError{
+						Credential: tmpCred,
+						Source:     reward.Source,
+						Delta:      new(big.Int).Set(delta),
+					}
+				}
+				return MIRProducesNegativeUpdateError{
+					Credential:   tmpCred,
+					Source:       reward.Source,
+					Pending:      new(big.Int).Set(total.amount),
+					Delta:        new(big.Int).Set(delta),
+					PendingAfter: next,
+				}
+			}
+			pending[key] = pendingTotal{amount: next, known: total.known}
 		}
 	}
 	return nil

@@ -31,7 +31,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 )
@@ -437,7 +436,7 @@ func dijkstraPparams(
 	default:
 		return nil, errors.New("pparams are not expected type")
 	}
-	applyConwayRefScriptFeeDefaults(&ret)
+	ApplyConwayRefScriptFeeDefaults(&ret)
 	return &ret, nil
 }
 
@@ -470,9 +469,18 @@ type dijkstraGovernanceStateView struct {
 	stakeCredentials  map[dijkstraAccountKey]bool
 	drepCredentials   map[dijkstraAccountKey]bool
 	poolRegistrations map[common.PoolKeyHash]struct{}
-	committeeHot      map[common.Blake2b224]*common.CommitteeMember
 	committeeCold     map[dijkstraAccountKey]*common.CommitteeMember
-	committeeColdHot  map[dijkstraAccountKey]*common.Blake2b224
+	// committeeColdHot tracks, for a cold credential an earlier level's
+	// certificates touched, the typed hot credential currently authorized
+	// for it (nil if resigned). CommitteeHotCredentialMembers derives its
+	// answer from this map and committeeCold on every call rather than from
+	// a separate hot-keyed cache, because a hot credential may be shared by
+	// more than one cold credential: GOVCERT's csCommitteeCreds is keyed by
+	// cold credential, and a hot credential is a known voter whenever *any*
+	// entry currently authorizes it. See conway/certs_overlay.go's
+	// committeeColdHot field, which this mirrors, including why the hot
+	// credential keeps its key/script tag.
+	committeeColdHot map[dijkstraAccountKey]*dijkstraAccountKey
 }
 
 type dijkstraCommitteeCredentialView struct {
@@ -494,6 +502,12 @@ func (s dijkstraCommitteeCredentialView) CommitteeHotCredentialMember(
 	credential common.Credential,
 ) (*common.CommitteeMember, error) {
 	return s.state.CommitteeHotCredentialMember(credential)
+}
+
+func (s dijkstraCommitteeCredentialView) CommitteeHotCredentialMembers(
+	credential common.Credential,
+) ([]*common.CommitteeMember, error) {
+	return s.state.CommitteeHotCredentialMembers(credential)
 }
 
 func dijkstraCommitteeCredentialState(ls common.LedgerState) common.LedgerState {
@@ -567,8 +581,11 @@ func (s *dijkstraGovernanceStateView) committeeCredentialState() (
 	common.CommitteeCredentialState,
 	bool,
 ) {
-	state, ok := common.UnwrapLedgerState(s.LedgerState).(common.CommitteeCredentialState)
-	return state, ok
+	state, ok := common.CommitteeCredentialStateFor(s.LedgerState)
+	if !ok {
+		return nil, false
+	}
+	return state, true
 }
 
 func (s *dijkstraGovernanceStateView) CommitteeStateAvailable() (bool, error) {
@@ -592,31 +609,100 @@ func (s *dijkstraGovernanceStateView) CommitteeCredentialMember(
 	return state.CommitteeCredentialMember(cold)
 }
 
-func (s *dijkstraGovernanceStateView) CommitteeHotCredentialMember(
+// committeeHotCredentialMembersState resolves ls's optional
+// CommitteeHotCredentialMembers capability; see
+// conway/certs_overlay.go's identical helper and the committeeColdHot
+// field comment.
+func (s *dijkstraGovernanceStateView) committeeHotCredentialMembersState() (
+	common.CommitteeHotCredentialMembers,
+	bool,
+) {
+	state, ok := common.CommitteeHotCredentialMembersFor(s.LedgerState)
+	if !ok {
+		return nil, false
+	}
+	return state, true
+}
+
+// CommitteeHotCredentialMembers resolves every cold credential currently
+// authorizing hot after earlier levels' certificates: every touched cold
+// credential in committeeColdHot that currently maps to hot, plus whatever
+// ls itself reports for any cold credential those levels did not touch. See
+// conway/certs_overlay.go's identical method and the committeeColdHot
+// field comment for why a plural lookup is needed.
+func (s *dijkstraGovernanceStateView) CommitteeHotCredentialMembers(
 	hot common.Credential,
-) (*common.CommitteeMember, error) {
-	if member, tracked := s.committeeHot[hot.Credential]; tracked {
-		return member, nil
+) ([]*common.CommitteeMember, error) {
+	var members []*common.CommitteeMember
+	hotKey := dijkstraAccountKeyFor(hot)
+	for coldKey, curHot := range s.committeeColdHot {
+		if curHot == nil || *curHot != hotKey {
+			continue
+		}
+		if member, tracked := s.committeeCold[coldKey]; tracked &&
+			member != nil {
+			members = append(members, member)
+		}
+	}
+	if plural, ok := s.committeeHotCredentialMembersState(); ok {
+		lsMembers, err := plural.CommitteeHotCredentialMembers(hot)
+		if err != nil {
+			return nil, err
+		}
+		for _, member := range lsMembers {
+			if member == nil || s.coldCredentialTouched(member.ColdKey) {
+				continue
+			}
+			members = append(members, member)
+		}
+		return members, nil
 	}
 	state, ok := s.committeeCredentialState()
 	if !ok {
-		return nil, nil
+		return members, nil
 	}
-	return state.CommitteeHotCredentialMember(hot)
+	member, err := state.CommitteeHotCredentialMember(hot)
+	if err != nil {
+		return nil, err
+	}
+	// ls resolved hot against a cold credential from before earlier
+	// levels' certificates ran. If those levels touched that cold
+	// credential, the loop above already returned its current answer, or
+	// found none because it moved away from hot -- either way ls's answer
+	// is stale here and must not be returned.
+	if member != nil && !s.coldCredentialTouched(member.ColdKey) {
+		members = append(members, member)
+	}
+	return members, nil
 }
 
-func (s *dijkstraGovernanceStateView) currentCommitteeHotForCold(
-	cold common.Credential,
-) (*common.Blake2b224, bool) {
-	coldKey := dijkstraAccountKeyFor(cold)
-	if hot, tracked := s.committeeColdHot[coldKey]; tracked {
-		return hot, true
+// CommitteeHotCredentialMember resolves one hot committee credential
+// witness after earlier levels' certificates. Prefer
+// CommitteeHotCredentialMembers when a hot credential shared by more than
+// one cold credential must be resolved correctly.
+func (s *dijkstraGovernanceStateView) CommitteeHotCredentialMember(
+	hot common.Credential,
+) (*common.CommitteeMember, error) {
+	members, err := s.CommitteeHotCredentialMembers(hot)
+	if err != nil || len(members) == 0 {
+		return nil, err
 	}
-	member, err := s.CommitteeCredentialMember(cold)
-	if err != nil || member == nil {
-		return nil, false
+	return members[0], nil
+}
+
+// coldCredentialTouched reports whether an earlier level's certificates
+// recorded any state for a cold credential with this bare hash. See
+// conway/certs_overlay.go's identical helper for why matching on the hash
+// alone cannot conflate two cold credentials.
+func (s *dijkstraGovernanceStateView) coldCredentialTouched(
+	coldHash common.Blake2b224,
+) bool {
+	for coldKey := range s.committeeColdHot {
+		if coldKey.hash == coldHash {
+			return true
+		}
 	}
-	return member.HotKey, true
+	return false
 }
 
 func (s *dijkstraGovernanceStateView) applyCommitteeCertificates(
@@ -632,14 +718,15 @@ func (s *dijkstraGovernanceStateView) applyCommitteeCertificates(
 	}
 }
 
+// authorizeCommitteeHot applies an AuthCommitteeHotCertificate: cold now
+// authorizes hot, superseding whichever hot credential cold authorized
+// before. A different cold credential that separately authorizes the
+// superseded hot credential is unaffected; see the committeeColdHot field
+// comment.
 func (s *dijkstraGovernanceStateView) authorizeCommitteeHot(
 	cold, hot common.Credential,
 ) {
 	coldKey := dijkstraAccountKeyFor(cold)
-	if previous, ok := s.currentCommitteeHotForCold(cold); ok && previous != nil &&
-		*previous != hot.Credential {
-		s.committeeHot[*previous] = nil
-	}
 	member, err := s.CommitteeCredentialMember(cold)
 	if err != nil || member == nil {
 		return
@@ -648,18 +735,18 @@ func (s *dijkstraGovernanceStateView) authorizeCommitteeHot(
 	updated.HotKey = &hot.Credential
 	updated.Resigned = false
 	s.committeeCold[coldKey] = &updated
-	newHot := hot.Credential
-	s.committeeHot[hot.Credential] = &updated
+	newHot := dijkstraAccountKeyFor(hot)
 	s.committeeColdHot[coldKey] = &newHot
 }
 
+// resignCommitteeCold applies a ResignCommitteeColdCertificate: cold no
+// longer authorizes any hot credential. A different cold credential that
+// separately authorizes the same hot credential is unaffected; see the
+// committeeColdHot field comment.
 func (s *dijkstraGovernanceStateView) resignCommitteeCold(
 	cold common.Credential,
 ) {
 	coldKey := dijkstraAccountKeyFor(cold)
-	if previous, ok := s.currentCommitteeHotForCold(cold); ok && previous != nil {
-		s.committeeHot[*previous] = nil
-	}
 	member, err := s.CommitteeCredentialMember(cold)
 	if err == nil && member != nil {
 		updated := *member
@@ -706,9 +793,8 @@ func validateDijkstraGovernanceLevels(
 		stakeCredentials:  make(map[dijkstraAccountKey]bool),
 		drepCredentials:   make(map[dijkstraAccountKey]bool),
 		poolRegistrations: make(map[common.PoolKeyHash]struct{}),
-		committeeHot:      make(map[common.Blake2b224]*common.CommitteeMember),
 		committeeCold:     make(map[dijkstraAccountKey]*common.CommitteeMember),
-		committeeColdHot:  make(map[dijkstraAccountKey]*common.Blake2b224),
+		committeeColdHot:  make(map[dijkstraAccountKey]*dijkstraAccountKey),
 	}
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
 		if err := validate(level, state); err != nil {
@@ -1095,9 +1181,6 @@ func validateDijkstraProtocolParameterUpdate(
 			Value:     uint(*ppu.RefScriptCostStride),
 		}
 	}
-	if ppu.MaxPledgeLeverage != nil && ppu.MaxPledgeLeverage.Rat != nil && ppu.MaxPledgeLeverage.Sign() == 0 {
-		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "eMax"}
-	}
 	return validateLeiosCommitteeStakeParameters(
 		ppu.CommitteeStakeCoverage,
 		ppu.QuorumStakeThreshold,
@@ -1126,7 +1209,7 @@ func validateDijkstraProtocolParameterUpdateDomains(
 		return errors.New("refScriptCostMultiplier must be a positive bounded ratio")
 	}
 	if rat := ppu.MaxPledgeLeverage; rat != nil && !validNonNegativeDijkstraRat(rat) {
-		return errors.New("maxPledgeLeverage must be a nonnegative bounded ratio")
+		return errors.New("maxPledgeLeverage must be a non-negative bounded ratio")
 	}
 	if rat := ppu.MinPoolMargin; rat != nil && !validUnitDijkstraRat(rat) {
 		return errors.New("minPoolMargin must be a bounded unit interval")
@@ -1147,6 +1230,19 @@ func validNonNegativeDijkstraRat(rat *cbor.Rat) bool {
 
 func validPositiveDijkstraRat(rat *cbor.Rat) bool {
 	return validNonNegativeDijkstraRat(rat) && rat.Num().Sign() > 0
+}
+
+func validateDijkstraRewardParameterDomains(
+	maxPledgeLeverage *cbor.Rat,
+	minPoolMargin *cbor.Rat,
+) error {
+	if maxPledgeLeverage != nil && !validNonNegativeDijkstraRat(maxPledgeLeverage) {
+		return errors.New("maxPledgeLeverage must be a non-negative bounded ratio")
+	}
+	if minPoolMargin != nil && !validUnitDijkstraRat(minPoolMargin) {
+		return errors.New("minPoolMargin must be a bounded unit interval")
+	}
+	return nil
 }
 
 func validUnitDijkstraRat(rat *cbor.Rat) bool {
@@ -1459,6 +1555,9 @@ type dijkstraScriptLevel struct {
 	view       script.TxScriptView
 	slotState  common.SlotState
 	subTxIndex *uint32
+	// txInfoV4 holds the level's V4 TxInfo conversion, which is the same for
+	// every redeemer of the level. It is shared by copies of the level.
+	txInfoV4 *dijkstraTxInfoV4Cache
 }
 
 func dijkstraScriptLevels(
@@ -1495,6 +1594,7 @@ func dijkstraScriptLevels(
 			tx:        txLevel,
 			resolved:  resolved,
 			slotState: ls,
+			txInfoV4:  &dijkstraTxInfoV4Cache{},
 			view: script.TxScriptView{
 				ResolvedInputs:          inputs,
 				ResolvedReferenceInputs: refInputs,
@@ -1565,6 +1665,7 @@ func dijkstraWitnessRuleLevels(
 				ResolvedReferenceInputs: refInputs,
 			},
 			slotState: ls,
+			txInfoV4:  &dijkstraTxInfoV4Cache{},
 		}
 		if levelIndex < len(txLevels)-1 {
 			idx := uint32(levelIndex) // #nosec G115 -- bounded by tx size
@@ -2627,6 +2728,27 @@ func UtxoValidatePlutusScripts(
 	if err != nil {
 		return err
 	}
+	if err := validateDijkstraPlutusScriptLevels(
+		levels,
+		available,
+	); err != nil {
+		return err
+	}
+	if !tx.IsValid() {
+		return nil
+	}
+	_, err = evaluateDijkstraPlutusLevels(levels, available, ls, tmpPparams, nil)
+	return err
+}
+
+// validateDijkstraPlutusScriptLevels applies the structural script checks
+// that precede script execution: no Plutus V1-V3 script in a
+// sub-transaction, a script for every required purpose, and a redeemer for
+// exactly the purposes a Plutus script serves.
+func validateDijkstraPlutusScriptLevels(
+	levels []dijkstraScriptLevel,
+	available map[common.ScriptHash]common.Script,
+) error {
 	for _, level := range levels {
 		if level.subTxIndex == nil {
 			continue
@@ -2654,50 +2776,6 @@ func UtxoValidatePlutusScripts(
 		if err := validateDijkstraPlutusRedeemers(
 			level,
 			available,
-		); err != nil {
-			return err
-		}
-	}
-	if !tx.IsValid() {
-		return nil
-	}
-	for _, level := range levels {
-		v4Keys, err := dijkstraPlutusV4RedeemerKeys(level, available)
-		if err != nil {
-			return err
-		}
-		levelTx := transactionWithAvailablePlutusScripts{
-			Transaction: level.tx,
-			available:   available,
-		}
-		if err := conway.UtxoValidatePlutusScripts(
-			transactionWithoutRedeemers{
-				Transaction: levelTx,
-				excluded:    v4Keys,
-				guarding:    true,
-			},
-			slot,
-			ls,
-			tmpPparams,
-		); err != nil {
-			return err
-		}
-		if level.subTxIndex == nil {
-			if err := validateGuardingPlutusScripts(
-				level.tx,
-				ls,
-				tmpPparams,
-				available,
-				level.resolved,
-			); err != nil {
-				return err
-			}
-		}
-		if err := validateDijkstraPlutusV4Scripts(
-			level,
-			tmpPparams,
-			available,
-			v4Keys,
 		); err != nil {
 			return err
 		}
@@ -2810,28 +2888,27 @@ func validateDijkstraPlutusV4Scripts(
 	pp *conway.ConwayProtocolParameters,
 	available map[common.ScriptHash]common.Script,
 	keys map[common.RedeemerKey]struct{},
-) error {
+	budget *common.ExUnits,
+) (map[common.RedeemerKey]common.ExUnits, error) {
+	used := make(map[common.RedeemerKey]common.ExUnits)
 	if len(keys) == 0 {
-		return nil
+		return used, nil
 	}
 	wits := level.tx.Witnesses()
 	if wits == nil {
-		return nil
+		return used, nil
 	}
 	redeemers := wits.Redeemers()
 	if redeemers == nil {
-		return nil
+		return used, nil
 	}
-	evalContext, err := cek.NewEvalContext(
+	evalContext, err := common.PooledEvalContext(
 		lang.LanguageVersionV4,
-		cek.ProtoVersion{
-			Major: pp.ProtocolVersion.Major,
-			Minor: pp.ProtocolVersion.Minor,
-		},
+		pp.ProtocolVersion.Major,
 		pp.CostModels[3],
 	)
 	if err != nil {
-		return fmt.Errorf("build Plutus V4 evaluation context: %w", err)
+		return nil, fmt.Errorf("build Plutus V4 evaluation context: %w", err)
 	}
 	for key, value := range redeemers.Iter() {
 		if _, ok := keys[key]; !ok {
@@ -2839,28 +2916,34 @@ func validateDijkstraPlutusV4Scripts(
 		}
 		purpose, err := dijkstraPurposeForKey(level, key)
 		if err != nil {
-			return conway.ExtraRedeemerError{RedeemerKey: key}
+			return nil, conway.ExtraRedeemerError{RedeemerKey: key}
 		}
 		candidate, ok := available[purpose.ScriptHash()].(common.PlutusV4Script)
 		if !ok {
-			return common.MissingScriptWitnessesError{
+			return nil, common.MissingScriptWitnessesError{
 				ScriptHash: purpose.ScriptHash(),
 			}
 		}
 		context, err := dijkstraPlutusV4Context(level, purpose, key, value)
 		if err != nil {
-			return conway.ScriptContextConstructionError{Err: err}
+			return nil, conway.ScriptContextConstructionError{Err: err}
 		}
-		if _, err := candidate.Evaluate(context, value.ExUnits, evalContext); err != nil {
-			return conway.PlutusScriptFailedError{
+		units := value.ExUnits
+		if budget != nil {
+			units = *budget
+		}
+		usedUnits, err := candidate.Evaluate(context, units, evalContext)
+		if err != nil {
+			return nil, conway.PlutusScriptFailedError{
 				ScriptHash: purpose.ScriptHash(),
 				Tag:        key.Tag,
 				Index:      key.Index,
 				Err:        err,
 			}
 		}
+		used[key] = usedUnits
 	}
-	return nil
+	return used, nil
 }
 
 type transactionWithAvailablePlutusScripts struct {
@@ -3111,15 +3194,21 @@ func validateGuardingPlutusScripts(
 	pp *conway.ConwayProtocolParameters,
 	availableScripts map[common.ScriptHash]common.Script,
 	resolvedInputs []common.Utxo,
-) error {
+	budget *common.ExUnits,
+) (map[common.RedeemerKey]common.ExUnits, error) {
+	used := make(map[common.RedeemerKey]common.ExUnits)
 	wits := tx.Witnesses()
 	if wits == nil || wits.Redeemers() == nil {
-		return nil
+		return used, nil
 	}
 
 	var txInfoV1 script.TxInfoV1
+	// Cached so each redeemer reuses one PlutusData conversion of the TxInfo.
+	var txInfoV1Cached *script.CachedTxInfo
 	var txInfoV2 script.TxInfoV2
+	var txInfoV2Cached *script.CachedTxInfo
 	var txInfoV3 script.TxInfoV3
+	var txInfoV3Cached *script.CachedTxInfo
 	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
 
 	for redeemerKey, redeemerValue := range wits.Redeemers().Iter() {
@@ -3128,23 +3217,28 @@ func validateGuardingPlutusScripts(
 		}
 		purpose, ok := dijkstraGuardingPurpose(tx, redeemerKey)
 		if !ok {
-			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
+			return nil, conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 		scriptHash := purpose.ScriptHash()
 		plutusScript, ok := availableScripts[scriptHash]
 		if !ok {
-			return common.MissingScriptWitnessesError{ScriptHash: scriptHash}
+			return nil, common.MissingScriptWitnessesError{ScriptHash: scriptHash}
 		}
 		if _, ok := plutusScript.(common.NativeScript); ok {
-			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
+			return nil, conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 		if ls == nil {
-			return errors.New(
+			return nil, errors.New(
 				"ledger state is required for Dijkstra guarding Plutus validation",
 			)
 		}
 
+		units := redeemerValue.ExUnits
+		if budget != nil {
+			units = *budget
+		}
 		var execErr error
+		var usedUnits common.ExUnits
 		switch s := plutusScript.(type) {
 		case common.PlutusV4Script:
 			// V4 guarding scripts are evaluated with the Dijkstra V4 context by
@@ -3156,7 +3250,7 @@ func validateGuardingPlutusScripts(
 					tx,
 					pp.ProtocolVersion.Major,
 				); err != nil {
-					return conway.ScriptContextConstructionError{Err: err}
+					return nil, conway.ScriptContextConstructionError{Err: err}
 				}
 				var err error
 				txInfoV3, err = script.NewTxInfoV3FromTransaction(
@@ -3166,27 +3260,25 @@ func validateGuardingPlutusScripts(
 					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return conway.ScriptContextConstructionError{Err: err}
+					return nil, conway.ScriptContextConstructionError{Err: err}
 				}
 				txInfoV3Built = true
+				txInfoV3Cached = script.NewCachedTxInfo(txInfoV3)
 			}
 			ctx := script.NewScriptContextV3(
-				txInfoV3,
+				txInfoV3Cached,
 				guardingRedeemer(redeemerKey, redeemerValue),
 				purpose,
 			)
-			evalContext, err := cek.NewEvalContext(
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV3,
-				cek.ProtoVersion{
-					Major: pp.ProtocolVersion.Major,
-					Minor: pp.ProtocolVersion.Minor,
-				},
+				pp.ProtocolVersion.Major,
 				pp.CostModels[2],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(ctx.ToPlutusData(), redeemerValue.ExUnits, evalContext)
+			usedUnits, execErr = s.Evaluate(ctx.ToPlutusData(), units, evalContext)
 		case common.PlutusV2Script:
 			if !txInfoV2Built {
 				var err error
@@ -3198,28 +3290,26 @@ func validateGuardingPlutusScripts(
 					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return conway.ScriptContextConstructionError{Err: err}
+					return nil, conway.ScriptContextConstructionError{Err: err}
 				}
 				txInfoV2Built = true
+				txInfoV2Cached = script.NewCachedTxInfo(txInfoV2)
 			}
-			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
-			evalContext, err := cek.NewEvalContext(
+			ctx := script.NewScriptContextV1V2(txInfoV2Cached, purpose)
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV2,
-				cek.ProtoVersion{
-					Major: pp.ProtocolVersion.Major,
-					Minor: pp.ProtocolVersion.Minor,
-				},
+				pp.ProtocolVersion.Major,
 				pp.CostModels[1],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
 			var datum data.PlutusData
-			_, execErr = s.Evaluate(
+			usedUnits, execErr = s.Evaluate(
 				datum,
 				data.Normalize(redeemerValue.Data.Data),
 				ctx.ToPlutusData(),
-				redeemerValue.ExUnits,
+				units,
 				evalContext,
 			)
 		case common.PlutusV1Script:
@@ -3233,43 +3323,42 @@ func validateGuardingPlutusScripts(
 					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return conway.ScriptContextConstructionError{Err: err}
+					return nil, conway.ScriptContextConstructionError{Err: err}
 				}
 				txInfoV1Built = true
+				txInfoV1Cached = script.NewCachedTxInfo(txInfoV1)
 			}
-			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
-			evalContext, err := cek.NewEvalContext(
+			ctx := script.NewScriptContextV1V2(txInfoV1Cached, purpose)
+			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV1,
-				cek.ProtoVersion{
-					Major: pp.ProtocolVersion.Major,
-					Minor: pp.ProtocolVersion.Minor,
-				},
+				pp.ProtocolVersion.Major,
 				pp.CostModels[0],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
 			var datum data.PlutusData
-			_, execErr = s.Evaluate(
+			usedUnits, execErr = s.Evaluate(
 				datum,
 				data.Normalize(redeemerValue.Data.Data),
 				ctx.ToPlutusData(),
-				redeemerValue.ExUnits,
+				units,
 				evalContext,
 			)
 		default:
 			continue
 		}
 		if execErr != nil {
-			return conway.PlutusScriptFailedError{
+			return nil, conway.PlutusScriptFailedError{
 				ScriptHash: scriptHash,
 				Tag:        redeemerKey.Tag,
 				Index:      redeemerKey.Index,
 				Err:        execErr,
 			}
 		}
+		used[redeemerKey] = usedUnits
 	}
-	return nil
+	return used, nil
 }
 
 func dijkstraGuardingPurpose(

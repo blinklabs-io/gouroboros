@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -71,15 +73,22 @@ const (
 // client's FIFO queue identifies the response it will receive; the head entry
 // owns the next MsgStartBatch, MsgNoBlocks, MsgBlock, and MsgBatchDone.
 type rangeRequest struct {
-	id             uint64
-	start          pcommon.Point
-	end            pcommon.Point
-	lastPoint      pcommon.Point
-	hasLastPoint   bool
-	protocol       *protocol.Protocol
-	delivery       requestDelivery
-	pipelined      bool
-	reservedBytes  uint64
+	id            uint64
+	start         pcommon.Point
+	end           pcommon.Point
+	lastPoint     pcommon.Point
+	hasLastPoint  bool
+	protocol      *protocol.Protocol
+	delivery      requestDelivery
+	pipelined     bool
+	reservedBytes uint64
+	// ingressBytes is the most the peer may send in answer to this request,
+	// counted in the protocol's ingress allowance from before the request is
+	// sent until it is resolved. It is zero for an unestimated request,
+	// which turns on the protocol's ingress backpressure for that time
+	// instead.
+	ingressBytes   uint64
+	estimated      bool
 	busyToken      uint64
 	hasBusyToken   bool
 	started        bool
@@ -104,9 +113,22 @@ type RangeRequest struct {
 	Start pcommon.Point // Start point of the range (inclusive)
 	End   pcommon.Point // End point of the range (inclusive)
 	// ExpectedBytes is the caller's estimate of the total serialized size of
-	// the blocks in this range, used for the client's in-flight byte bound.
-	// A caller driving block-fetch from chain-sync headers has this from the
-	// header block body sizes. Zero means DefaultRequestExpectedBytes.
+	// the blocks in this range, headers included. It is counted against the
+	// client's in-flight byte bound, and with a 10% margin in the ingress
+	// allowance that lets the connection hold the range while the block
+	// consumer catches up. A caller driving block-fetch from chain-sync has
+	// it from the headers: each header's block body size plus the size of
+	// the header itself.
+	//
+	// Zero means unestimated. The request then counts as
+	// DefaultRequestExpectedBytes against the in-flight bound, and adds
+	// nothing to the ingress allowance: while it is outstanding the muxer
+	// holds at most the allowance for estimated requests, or IngressLimit,
+	// for block-fetch, and past that stops reading the connection until the
+	// block consumer catches up. That pause holds up every protocol on the
+	// connection, keep-alive included, so a consumer slower than the
+	// keep-alive timeout can lose the connection. Set ExpectedBytes to avoid
+	// it.
 	ExpectedBytes uint64
 }
 
@@ -177,7 +199,32 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) initProtocol() {
 	c.protoStarted = false
+	stateMap := c.protocolStateMap()
+	// Configure underlying Protocol
+	protoConfig := protocol.ProtocolConfig{
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
+		Muxer:               c.protoOptions.Muxer,
+		Logger:              c.protoOptions.Logger,
+		ErrorChan:           c.protoOptions.ErrorChan,
+		Mode:                c.protoOptions.Mode,
+		Role:                protocol.ProtocolRoleClient,
+		MessageHandlerFunc:  c.messageHandler,
+		MessageFromCborFunc: NewMsgFromCbor,
+		StateMap:            stateMap,
+		InitialState:        StateIdle,
+		IngressLimit:        IngressLimit,
+	}
+	if c.config != nil {
+		protoConfig.RecvQueueSize = c.config.RecvQueueSize
+	}
+	p := protocol.New(protoConfig)
+	c.protocolMu.Lock()
+	c.Protocol = p
+	c.protocolMu.Unlock()
+}
 
+func (c *Client) protocolStateMap() protocol.StateMap {
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[StateBusy]; ok {
@@ -202,27 +249,7 @@ func (c *Client) initProtocol() {
 			stateMap[StateIdle] = entry
 		}
 	}
-	// Configure underlying Protocol
-	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolId,
-		Muxer:               c.protoOptions.Muxer,
-		Logger:              c.protoOptions.Logger,
-		ErrorChan:           c.protoOptions.ErrorChan,
-		Mode:                c.protoOptions.Mode,
-		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
-		InitialState:        StateIdle,
-	}
-	if c.config != nil {
-		protoConfig.RecvQueueSize = c.config.RecvQueueSize
-	}
-	p := protocol.New(protoConfig)
-	c.protocolMu.Lock()
-	c.Protocol = p
-	c.protocolMu.Unlock()
+	return stateMap
 }
 
 func (c *Client) ProtocolInstance() *protocol.Protocol {
@@ -492,6 +519,7 @@ func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 		deliveryCallback,
 		false,
 		0,
+		false,
 		token,
 	)
 	if err != nil {
@@ -527,6 +555,7 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		deliveryChannel,
 		false,
 		0,
+		false,
 		token,
 	)
 	if err != nil {
@@ -638,7 +667,11 @@ func completedBlockOrShutdown(
 // It blocks while the expected size of the outstanding requests would exceed
 // the configured MaxInFlightBytes, and returns the context's error if the
 // caller gives up first. A request larger than the whole bound is admitted
-// once the queue is empty, so an oversized range cannot stall forever.
+// once the queue is empty, so it cannot stall forever. With ExpectedBytes
+// set, the protocol's ingress allowance is raised to cover the request
+// before it is sent, so a peer answering promptly while the block consumer
+// lags does not overflow the connection's ingress limit for block-fetch;
+// without it, see RangeRequest.ExpectedBytes.
 //
 // The client must be configured with RequestPipelining and a RangeDoneFunc.
 func (c *Client) RequestRange(
@@ -680,6 +713,7 @@ func (c *Client) RequestRange(
 		deliveryCallback,
 		true,
 		expectedBytes,
+		req.ExpectedBytes != 0,
 		0,
 	)
 	if err != nil {
@@ -710,6 +744,56 @@ func (c *Client) hasInFlightCapacityLocked(expectedBytes uint64) bool {
 	limit := c.maxInFlightBytes()
 	return c.inFlightBytes <= limit &&
 		expectedBytes <= limit-c.inFlightBytes
+}
+
+func saturatingAdd(a, b uint64) uint64 {
+	if a > math.MaxUint64-b {
+		return math.MaxUint64
+	}
+	return a + b
+}
+
+// updateIngressAllowanceLocked sets proto's ingress allowance to what its
+// estimated outstanding requests may still draw from the peer, plus one
+// maximum-size message for the batch framing around them. The allowance is
+// raised before a request is sent and lowered only when it is resolved, by
+// which point its whole reply has passed through the muxer, so every byte of
+// a well-behaved reply is covered while it can be queued.
+//
+// An unestimated request has no bound that is both safe and never refuses an
+// honest peer: block-fetch replies are bounded per block, not per range. So
+// it adds nothing to the allowance, and while one is outstanding the
+// protocol's ingress backpressure is on, which holds the peer back at the
+// limit instead of failing the connection. The caller must hold queueMutex,
+// which orders the updates.
+func (c *Client) updateIngressAllowanceLocked(proto *protocol.Protocol) {
+	if proto == nil {
+		return
+	}
+	var outstanding uint64
+	unestimated := false
+	for _, req := range c.queue {
+		if req.protocol == proto {
+			outstanding = saturatingAdd(outstanding, req.ingressBytes)
+			unestimated = unestimated || !req.estimated
+		}
+	}
+	allowance := 0
+	if outstanding > 0 {
+		outstanding = saturatingAdd(
+			outstanding,
+			StreamingMaxPendingMessageBytes,
+		)
+		allowance = math.MaxInt
+		if outstanding < uint64(math.MaxInt) {
+			allowance = int(outstanding)
+		}
+	}
+	// Adding or resolving one request changes only one of these: an
+	// estimated request the allowance, an unestimated one the
+	// backpressure. So the two calls need no particular order.
+	proto.SetIngressBackpressure(unestimated)
+	proto.SetIngressAllowance(allowance)
 }
 
 // waitForInFlightCapacity blocks until the in-flight byte budget can admit
@@ -754,6 +838,7 @@ func (c *Client) sendRequestRange(
 	delivery requestDelivery,
 	pipelined bool,
 	expectedBytes uint64,
+	estimated bool,
 	busyToken uint64,
 ) (*rangeRequest, error) {
 	if err := ctx.Err(); err != nil {
@@ -789,6 +874,10 @@ func (c *Client) sendRequestRange(
 			continue
 		}
 		c.nextRequestId++
+		var ingressBytes uint64
+		if estimated {
+			ingressBytes = saturatingAdd(expectedBytes, expectedBytes/10)
+		}
 		req = &rangeRequest{
 			id:            c.nextRequestId,
 			start:         start,
@@ -797,6 +886,8 @@ func (c *Client) sendRequestRange(
 			delivery:      delivery,
 			pipelined:     pipelined,
 			reservedBytes: expectedBytes,
+			ingressBytes:  ingressBytes,
+			estimated:     estimated,
 			busyToken:     busyToken,
 			hasBusyToken:  busyToken != 0,
 			startChan:     make(chan error, 1),
@@ -804,7 +895,8 @@ func (c *Client) sendRequestRange(
 			doneChan:      make(chan error, 1),
 		}
 		c.queue = append(c.queue, req)
-		c.inFlightBytes += expectedBytes
+		c.inFlightBytes = saturatingAdd(c.inFlightBytes, expectedBytes)
+		c.updateIngressAllowanceLocked(proto)
 		c.queueMutex.Unlock()
 		break
 	}
@@ -857,6 +949,7 @@ func (c *Client) removeLocked(req *rangeRequest) {
 		if queued == req {
 			c.queue = slices.Delete(c.queue, i, i+1)
 			c.releaseBytesLocked(req.reservedBytes)
+			c.updateIngressAllowanceLocked(req.protocol)
 			return
 		}
 	}
@@ -915,6 +1008,9 @@ func (c *Client) drainLocked() []*rangeRequest {
 		c.inFlightBytes = 0
 		close(c.bytesFreed)
 		c.bytesFreed = make(chan struct{})
+		for _, req := range pending {
+			c.updateIngressAllowanceLocked(req.protocol)
+		}
 	}
 	return pending
 }
@@ -998,6 +1094,7 @@ func (c *Client) failOutstandingForProtocol(
 		remaining = append(remaining, req)
 	}
 	c.queue = remaining
+	c.updateIngressAllowanceLocked(proto)
 	c.queueMutex.Unlock()
 	for _, req := range pending {
 		if resolveErr := c.resolve(req, err); resolveErr != nil {
@@ -1191,8 +1288,15 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	var blockPoint pcommon.Point
 	var prevHash []byte
 	if block != nil {
+		slot, err := ledgerbyron.SlotNumberFromBlockHeader(
+			block.Header(),
+			c.config.ByronSlotsPerEpoch,
+		)
+		if err != nil {
+			return c.failRequest(req, fmt.Errorf("convert block slot: %w", err))
+		}
 		blockPoint = pcommon.NewPoint(
-			block.SlotNumber(),
+			slot,
 			block.Hash().Bytes(),
 		)
 		blockPrevHash := block.PrevHash()
@@ -1282,22 +1386,17 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	return nil
 }
 
+// pointInRange reports whether a block's slot lies within the requested slot
+// bounds. It deliberately ignores hashes: Byron places an epoch boundary block
+// and the first main block of the epoch in the same slot, so a block sharing an
+// endpoint's slot need not be that endpoint. Identity of the endpoints and the
+// blocks between them is established by recordBlock.
 func pointInRange(block, start, end pcommon.Point) bool {
-	if start.Hash != nil {
-		if block.Slot < start.Slot {
-			return false
-		}
-		if block.Slot == start.Slot && !bytes.Equal(block.Hash, start.Hash) {
-			return false
-		}
+	if start.Hash != nil && block.Slot < start.Slot {
+		return false
 	}
-	if end.Hash != nil {
-		if block.Slot > end.Slot {
-			return false
-		}
-		if block.Slot == end.Slot && !bytes.Equal(block.Hash, end.Hash) {
-			return false
-		}
+	if end.Hash != nil && block.Slot > end.Slot {
+		return false
 	}
 	return true
 }
@@ -1319,6 +1418,15 @@ func (req *rangeRequest) recordBlock(
 	if !pointInRange(blockPoint, req.start, req.end) {
 		return fmt.Errorf(
 			"%s: received block outside requested range: slot=%d hash=%x",
+			ProtocolName,
+			blockPoint.Slot,
+			blockPoint.Hash,
+		)
+	}
+	if req.hasLastPoint && req.end.Hash != nil &&
+		pointsEqual(req.lastPoint, req.end) {
+		return fmt.Errorf(
+			"%s: received block beyond requested range end: slot=%d hash=%x",
 			ProtocolName,
 			blockPoint.Slot,
 			blockPoint.Hash,

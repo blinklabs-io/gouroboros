@@ -25,6 +25,7 @@ internal/bench/
   block_bench_test.go     # Block validation benchmarks
   cbor_bench_test.go      # CBOR decode benchmarks
   tx_bench_test.go        # Transaction benchmarks
+  signature_bench_test.go # Witness signature pre-verification benchmarks
   consensus_bench_test.go # Consensus/leader election benchmarks
   script_bench_test.go    # Script execution benchmarks
   regression_test.go      # Allocation regression tests
@@ -82,6 +83,12 @@ internal/bench/
 | `BenchmarkTxProducedUtxos` | Produced UTXO enumeration |
 | `BenchmarkTxConsumedUtxos` | Consumed UTXO enumeration |
 | `BenchmarkTxBlockIteration` | Iterate all transactions in a block |
+
+### Signature Benchmarks (`signature_bench_test.go`)
+
+| Benchmark | Description |
+|-----------|-------------|
+| `BenchmarkSignatureVerification` | Serial signature rule vs concurrent pre-verification over a block's transactions, by era |
 
 ### Consensus Benchmarks (`consensus_bench_test.go`)
 

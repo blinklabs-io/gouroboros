@@ -180,18 +180,7 @@ func (h *pipelineHarness) nextBlock(t *testing.T) deliveredBlock {
 
 func (h *pipelineHarness) nextDone(t *testing.T) rangeResult {
 	t.Helper()
-	select {
-	case res := <-h.done:
-		return res
-	case err := <-h.connErrs:
-		t.Fatalf(
-			"unexpected connection error while awaiting range done: %s",
-			err,
-		)
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for a range request to complete")
-	}
-	return rangeResult{}
+	return awaitRangeDone(t, h, false)
 }
 
 // TestRequestRangePipelinedOutstandingRequests covers request accounting with
@@ -432,14 +421,17 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, deliveredBlock{requestId: id1, slot: 100}, h.nextBlock(t))
-	first := h.nextDone(t)
+	require.Equal(t, deliveredBlock{requestId: id1, slot: 100}, waitForBlock(t, h))
+	// The excess BatchDone surfaces a connection error right after this done
+	// is written, so both channels can be ready; tolerate the error.
+	first := waitForDone(t, h)
 	require.Equal(t, id1, first.requestId)
 	require.NoError(t, first.err)
 
 	// The second request must be resolved with a failure, never with the
 	// excess BatchDone that belonged to the retired request.
-	second := waitForDone(t, h, id2)
+	second := waitForDone(t, h)
+	require.Equal(t, id2, second.requestId)
 	require.Error(t, second.err)
 	// No block was ever delivered for the second request
 	select {
@@ -449,24 +441,60 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 	}
 }
 
-// waitForDone waits for the completion of a specific request, tolerating a
-// connection error arriving first since a protocol violation reports on both
-// paths.
-func waitForDone(
+// waitForBlock tolerates the expected protocol error racing with delivery of
+// a block from the completed first request.
+func waitForBlock(t *testing.T, h *pipelineHarness) deliveredBlock {
+	t.Helper()
+	deadline := time.After(testTimeout)
+	connErrs := h.connErrs
+	for {
+		select {
+		case blk := <-h.blocks:
+			return blk
+		case _, ok := <-connErrs:
+			if !ok {
+				connErrs = nil
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for a block from the first request")
+		}
+	}
+}
+
+// waitForDone tolerates a connection error arriving before the range callback
+// because a protocol violation is reported on both paths.
+func waitForDone(t *testing.T, h *pipelineHarness) rangeResult {
+	t.Helper()
+	return awaitRangeDone(t, h, true)
+}
+
+// awaitRangeDone is the single wait for a range request to resolve. When
+// tolerateConnErr is false, a connection error is fatal.
+func awaitRangeDone(
 	t *testing.T,
 	h *pipelineHarness,
-	requestId uint64,
+	tolerateConnErr bool,
 ) rangeResult {
 	t.Helper()
 	deadline := time.After(testTimeout)
+	connErrs := h.connErrs
 	for {
 		select {
 		case res := <-h.done:
-			if res.requestId == requestId {
-				return res
+			return res
+		case err, ok := <-connErrs:
+			if !ok {
+				connErrs = nil
+				continue
+			}
+			if !tolerateConnErr {
+				t.Fatalf(
+					"unexpected connection error while awaiting range done: %s",
+					err,
+				)
 			}
 		case <-deadline:
-			t.Fatalf("timed out waiting for request %d to resolve", requestId)
+			t.Fatal("timed out waiting for a range request to resolve")
 		}
 	}
 }
@@ -766,4 +794,98 @@ func TestGetBlockRejectsEmptyBatch(t *testing.T) {
 		"before requested range end",
 	)
 	require.ErrorContains(t, connectionErr, "before requested range end")
+}
+
+// testChainPair builds two Babbage blocks at the given slots, the second
+// following the first, so together they answer a range request spanning
+// the slots between them.
+func testChainPair(
+	t *testing.T,
+	firstSlot, secondSlot uint64,
+) ([]byte, pcommon.Point, []byte, pcommon.Point) {
+	t.Helper()
+	build := func(slot uint64, prevHash ledger.Blake2b256) (
+		[]byte,
+		pcommon.Point,
+		ledger.Blake2b256,
+	) {
+		blk := ledger.BabbageBlock{BlockHeader: &ledger.BabbageBlockHeader{}}
+		blk.BlockHeader.Body.BlockNumber = slot
+		blk.BlockHeader.Body.Slot = slot
+		blk.BlockHeader.Body.PrevHash = prevHash
+		blockCbor, err := cbor.Encode(blk)
+		require.NoError(t, err)
+		_, err = cbor.Decode(blockCbor, &blk)
+		require.NoError(t, err)
+		wrapped, err := cbor.Encode(blockfetch.WrappedBlock{
+			Type:     ledger.BlockTypeBabbage,
+			RawBlock: cbor.RawMessage(blockCbor),
+		})
+		require.NoError(t, err)
+		hash := blk.Hash()
+		return wrapped, pcommon.NewPoint(slot, hash.Bytes()), hash
+	}
+	wrapped1, point1, hash1 := build(firstSlot, ledger.Blake2b256{})
+	wrapped2, point2, _ := build(secondSlot, hash1)
+	return wrapped1, point1, wrapped2, point2
+}
+
+// TestUnestimatedRangeRequestsPipeline sends two RequestRange calls without
+// ExpectedBytes, each spanning 20 slots, under the default in-flight bound.
+// The mock peer answers nothing until it has received both, so the second
+// call can only return if an unestimated request does not reserve enough of
+// the bound to hold every other request back.
+func TestUnestimatedRangeRequestsPipeline(t *testing.T) {
+	t.Parallel()
+	a1, aStart, a2, aEnd := testChainPair(t, 100, 120)
+	b1, bStart, b2, bEnd := testChainPair(t, 200, 220)
+	conversation := []ouroboros_mock.ConversationEntry{
+		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+		ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+		requestRangeInput(),
+		requestRangeInput(),
+		batchOutput(
+			blockfetch.NewMsgStartBatch(),
+			blockfetch.NewMsgBlock(a1),
+			blockfetch.NewMsgBlock(a2),
+			blockfetch.NewMsgBatchDone(),
+		),
+		batchOutput(
+			blockfetch.NewMsgStartBatch(),
+			blockfetch.NewMsgBlock(b1),
+			blockfetch.NewMsgBlock(b2),
+			blockfetch.NewMsgBatchDone(),
+		),
+	}
+	h := newPipelineHarness(t, conversation)
+	defer h.close(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	ids := make([]uint64, 0, 2)
+	for _, r := range [][2]pcommon.Point{{aStart, aEnd}, {bStart, bEnd}} {
+		id, err := h.client.RequestRange(ctx, blockfetch.RangeRequest{
+			Start: r[0],
+			End:   r[1],
+		})
+		require.NoError(
+			t,
+			err,
+			"unestimated request %d was not sent while another was outstanding",
+			len(ids)+1,
+		)
+		ids = append(ids, id)
+	}
+	for i, slots := range [][]uint64{{100, 120}, {200, 220}} {
+		for _, slot := range slots {
+			require.Equal(
+				t,
+				deliveredBlock{requestId: ids[i], slot: slot},
+				h.nextBlock(t),
+			)
+		}
+		res := h.nextDone(t)
+		require.Equal(t, ids[i], res.requestId)
+		require.NoError(t, res.err)
+	}
 }

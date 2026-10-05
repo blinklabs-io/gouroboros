@@ -52,7 +52,6 @@ linters:
       - docs
       - third_party$
       - builtin$
-      - examples$
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
@@ -68,4 +67,3 @@ formatters:
       - docs
       - third_party$
       - builtin$
-      - examples$

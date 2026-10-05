@@ -26,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/blinklabs-io/plutigo/builtin"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/blinklabs-io/plutigo/syn"
@@ -83,6 +84,136 @@ func dijkstraGuardTestPlutus(
 		t.Fatalf("unsupported Plutus language version %v", version)
 		return nil
 	}
+}
+
+func dijkstraV4SubTxIndexAbsentScript(t *testing.T) common.PlutusV4Script {
+	t.Helper()
+	applyBuiltin := func(
+		fn builtin.DefaultFunction,
+		args ...syn.Term[syn.DeBruijn],
+	) syn.Term[syn.DeBruijn] {
+		var term syn.Term[syn.DeBruijn] = &syn.Builtin{DefaultFunction: fn}
+		forces := 0
+		switch fn {
+		case builtin.SndPair:
+			forces = 2
+		case builtin.HeadList, builtin.TailList, builtin.IfThenElse:
+			forces = 1
+		}
+		for range forces {
+			term = &syn.Force[syn.DeBruijn]{Term: term}
+		}
+		for _, arg := range args {
+			term = &syn.Apply[syn.DeBruijn]{Function: term, Argument: arg}
+		}
+		return term
+	}
+	context := syn.Term[syn.DeBruijn](&syn.Var[syn.DeBruijn]{Name: 1})
+	contextFields := applyBuiltin(
+		builtin.SndPair,
+		applyBuiltin(builtin.UnConstrData, context),
+	)
+	txInfo := applyBuiltin(builtin.HeadList, contextFields)
+	txInfoFields := applyBuiltin(
+		builtin.SndPair,
+		applyBuiltin(builtin.UnConstrData, txInfo),
+	)
+	subTxIndex := applyBuiltin(
+		builtin.HeadList,
+		applyBuiltin(builtin.TailList, txInfoFields),
+	)
+	condition := applyBuiltin(
+		builtin.EqualsData,
+		subTxIndex,
+		&syn.Constant{Con: &syn.Data{Inner: data.NewConstr(1)}},
+	)
+	term := syn.Term[syn.DeBruijn](&syn.Force[syn.DeBruijn]{
+		Term: applyBuiltin(
+			builtin.IfThenElse,
+			condition,
+			&syn.Delay[syn.DeBruijn]{Term: &syn.Constant{Con: &syn.Unit{}}},
+			&syn.Delay[syn.DeBruijn]{Term: &syn.Error{}},
+		),
+	})
+	flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
+		Version: uplcProgramVersion(lang.LanguageVersionV4),
+		Term:    &syn.Lambda[syn.DeBruijn]{Body: term},
+	})
+	require.NoError(t, err)
+	wrapper, err := cbor.Encode(flat)
+	require.NoError(t, err)
+	return common.PlutusV4Script(wrapper)
+}
+
+func TestVerifyTransactionPlutusV4SubTxIndexIsAbsent(t *testing.T) {
+	script := dijkstraV4SubTxIndexAbsentScript(t)
+	guard := dijkstraGuardCredentialForScript(script)
+	referenceInput, referenceUtxo := dijkstraReferenceScriptInput(script, 904)
+	referenceAddress, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		script.Hash().Bytes(),
+		nil,
+	)
+	require.NoError(t, err)
+	referenceOutput := referenceUtxo.Output.(babbage.BabbageTransactionOutput)
+	referenceOutput.OutputAddress = referenceAddress
+	referenceUtxo.Output = referenceOutput
+	redeemer := common.RedeemerValue{
+		Data: common.Datum{Data: data.NewInteger(big.NewInt(0))},
+		ExUnits: common.ExUnits{
+			Steps:  10_000_000,
+			Memory: 10_000_000,
+		},
+	}
+	guardSet := &DijkstraGuards{Credentials: []common.Credential{guard}}
+	children := []DijkstraSubTransaction{
+		{
+			Body: DijkstraSubTransactionBody{TxGuards: guardSet},
+			WitnessSet: DijkstraTransactionWitnessSet{
+				WsRedeemers: DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{Tag: common.RedeemerTagGuarding}: redeemer,
+					},
+				},
+			},
+		},
+		{
+			Body: DijkstraSubTransactionBody{TxGuards: guardSet},
+			WitnessSet: DijkstraTransactionWitnessSet{
+				WsRedeemers: DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{Tag: common.RedeemerTagGuarding}: redeemer,
+					},
+				},
+			},
+		},
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards:          guardSet,
+			TxReferenceInputs: dijkstraReferenceInputSet(referenceInput),
+			TxSubTransactions: cbor.NewSetType(children, true),
+		},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagGuarding}: redeemer,
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{referenceUtxo}).
+		Build()
+	require.NoError(t, common.VerifyTransaction(
+		tx,
+		0,
+		state,
+		dijkstraGuardTestPParams(),
+		[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
+	))
 }
 
 func dijkstraGuardTestPParams() *DijkstraProtocolParameters {
@@ -340,6 +471,31 @@ func TestVerifyTransactionExecutesSubtransactionNativeGuards(t *testing.T) {
 			require.Equal(t, native.Hash(), scriptErr.ScriptHash)
 		})
 	}
+}
+
+// A sub-transaction witness script that no purpose at any level requires is
+// not evaluated, the same neededness filter the top level applies.
+func TestVerifyTransactionSkipsUnneededSubtransactionNativeScripts(
+	t *testing.T,
+) {
+	native := testRequireGuardNativeScript(t, testGuardCredential())
+	subTx := DijkstraSubTransaction{}
+	subTx.WitnessSet.WsNativeScripts = cbor.NewSetType(
+		[]common.NativeScript{native},
+		true,
+	)
+	tx := &DijkstraTransaction{TxIsValid: true}
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]DijkstraSubTransaction{subTx},
+		true,
+	)
+	require.NoError(t, common.VerifyTransaction(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&DijkstraProtocolParameters{},
+		[]common.UtxoValidationRuleFunc{UtxoValidateNativeScripts},
+	))
 }
 
 func TestVerifyTransactionSubtransactionGuardControls(t *testing.T) {

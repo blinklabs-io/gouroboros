@@ -46,6 +46,10 @@ The LeiosNotify protocol provides notifications about new Leios blocks, transact
 | `VotesOffer` | 4 | Server → Client | Offer votes for download |
 | `Done` | 5 | Client → Server | Terminate protocol |
 
+These tags match the [`leios-prototype` CDDL at revision
+8b946c4](https://github.com/cardano-scaling/cardano-blueprint/blob/8b946c431e3209b2aa70bf5362f64f42e56fb849/src/network/node-to-node/leios-notify/messages.cddl).
+That prototype describes its CDDL tags as provisional.
+
 ## State Transitions
 
 ### From Idle (Client Agency)
@@ -68,6 +72,29 @@ Each offer is limited to `MaxVotesOfferCount` (1,000) entries and
 `MaxVotesOfferBytes` (256 KiB). The byte limit is checked before CBOR parsing;
 the decoder then checks the array header before scanning vote values and
 applies the count limit to definite- and indefinite-length arrays.
+`BlockAnnouncement` is limited to `MaxBlockAnnouncementBytes` (one muxer
+segment), checked before CBOR parsing.
+
+## Byte budget
+
+`Config.MaxPendingBytes` bounds the encoded bytes of received messages
+queued for their handler, and is the largest message accepted. Every state
+uses it as its pending-message byte limit, and the receive queue holds
+`MaxPendingBytes / MaxBlockAnnouncementBytes` messages.
+
+It is not the whole amount a client holds. While the budget is held the
+protocol takes no more from the muxer, but the muxer keeps reading into its
+ingress queue for the protocol, which is limited to `MaxPendingBytes` or ten
+maximum-size segments, whichever is larger. Ingress past that fails the
+connection with `muxer.ErrIngressOverflow`. Whole segments are also held
+outside both limits: the muxer's delivery channel and forwarder, the read
+loop's batch, the segment that overflowed, and the notification inside
+`NotificationFunc`, 24 in all. At the default budget of 655,350 bytes and
+maximum-size segments that bound is 2,883,732 bytes.
+
+Zero sizes it to the larger of `PipelineLimit * MaxBlockAnnouncementBytes`
+and `MaxVotesOfferBytes`. An explicit value must be at least each of those
+two values; they are checked separately, not summed.
 
 ## Timeouts
 

@@ -40,6 +40,7 @@ const (
 	UtxoValidationRuleOutputBootAddrAttrsTooBig    UtxoValidationRuleId = "output-bootstrap-address-attributes-too-big"
 	UtxoValidationRuleMaxTxSize                    UtxoValidationRuleId = "max-transaction-size"
 	UtxoValidationRuleDelegation                   UtxoValidationRuleId = "delegation"
+	UtxoValidationRuleMIRGenesisQuorum             UtxoValidationRuleId = "mir-genesis-quorum"
 	UtxoValidationRuleWithdrawals                  UtxoValidationRuleId = "withdrawals"
 	UtxoValidationRuleBatchWithdrawals             UtxoValidationRuleId = "batch-withdrawals"
 	UtxoValidationRuleAccountBalanceIntervals      UtxoValidationRuleId = "account-balance-intervals"

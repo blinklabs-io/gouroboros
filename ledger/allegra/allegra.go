@@ -244,7 +244,7 @@ type AllegraTransactionBody struct {
 func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tAllegraTransactionBody AllegraTransactionBody
 	var tmp tAllegraTransactionBody
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
@@ -262,7 +262,7 @@ func (b AllegraTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b, 0, 1, 2)
 }
 
 func (b *AllegraTransactionBody) Inputs() []common.TransactionInput {

@@ -1,0 +1,118 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package byron_test
+
+import (
+	"encoding/hex"
+	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/require"
+)
+
+// Two unmodified preprod main blocks, each carrying an update proposal and
+// the seven genesis delegates' votes for it. Their hashes are the ones
+// preprod's chain records at these slots.
+//
+// Both proposals carry software version cardano-sl 1 and a metadata map
+// with one installer, under the system tag "linux", yet the reference
+// classifies them differently. At slot 2163 no version of cardano-sl is
+// adopted (Interface.initialState's appVersions is empty), so
+// registerProposalComponents registers a software update and applies
+// checkSystemTag; the block's votes confirm it, adopting cardano-sl 1. At
+// slot 43211 the same software version is therefore unchanged, the
+// proposal is protocol-only, and its tag is never checked. Identical
+// proposal fields with opposite verdicts are why Validate cannot apply the
+// rule itself.
+const (
+	preprodSlot2163BlockHex  = "83850158201d031daf47281f69cd95ab929c269fd26b1434a56a5bbbd65b7afe85ef96b23384830058200e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a85820afc0da64183bf2664f3d4eec7238d524ba607faeeab24fc100eb861dba69971b82035820d36a2619a672494604e11bb447cbcf5231e9f2ba25c2169177edc941bd50ad6c5820afc0da64183bf2664f3d4eec7238d524ba607faeeab24fc100eb861dba69971b5820572e46c1a0165e31e5781ed59917ac065cf60ec01e2fd88872c55e50860c9d518482001908735840505b237a1cb140020cc442f6e51c6a0f48ad3344427735a9ad5b755bece8a4ce5bed4f6bbbd00caffcdff6502359a16534ea5182badbcfbaf9b516edf305264a810282028284005840505b237a1cb140020cc442f6e51c6a0f48ad3344427735a9ad5b755bece8a4ce5bed4f6bbbd00caffcdff6502359a16534ea5182badbcfbaf9b516edf305264a58408b0960d234bda67d52432c5d1a26aca2bfb5b9a09f966d9592a7bf0c728a1ecd840eac5c3fe8a7edda024a7403b6d37705990828b3548332a3f850221c2098bf5840633fc347138ee155d038b9d1040ee1e45cea5b1e8627046c95f7fe4ba949b0569437962568eadef9d49e22becbf30192425c008d10e03004612633dbc307340b5840f5faa76fe8c1e2dac09bccd6696fc76dd4c0fc2780951eac58cade1693a5c59d6b1bc7f98245d173fbd0c0c9efc83349643834ea51af0a82f53b88cc44b48d0b8483000000826a63617264616e6f2d736c01a058204ba92aa320c60acc9ad7b9a64f2eda55c4d2ec28e604faf186708b4f0c4e8edf849fff8203d90102809fff828187830100008e8080808080808080808080808080826a63617264616e6f2d736c01a1656c696e757884582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131458200fd923ca5e7218c4ba3c3801c26a617ecdbfdaebb9c76ce2eca166e7855efbb8582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314a058408ef320c2df6654a6188c45e9c639c0a686bf5a865295587d399dfeb05fe74ab67961a696b268c8bcec9372bc73aa9b1365ec007b3dfa0539eac00d154a31518c58408ac677b7ff7875d6d7c174969d19eaacb5fefe11c6a44bc678b4ae06885f3906a6f94d3d18a26698f13658570be23b95e553d59bcd0939db505b4822dbf3ff049f8458408ef320c2df6654a6188c45e9c639c0a686bf5a865295587d399dfeb05fe74ab67961a696b268c8bcec9372bc73aa9b1365ec007b3dfa0539eac00d154a31518c5820561a907d9d313c7a3b769db775eb9f2a00af344952d8ae906a5f4e363d6ed3e2f5584074902a37be48431a6470ea8dfebce7070d2de278854ca391d48a5f48e859ba302256221597224e4fb12d155626fa415b6696eefe80e3e43609a76a51c5cfba008458408b0960d234bda67d52432c5d1a26aca2bfb5b9a09f966d9592a7bf0c728a1ecd840eac5c3fe8a7edda024a7403b6d37705990828b3548332a3f850221c2098bf5820561a907d9d313c7a3b769db775eb9f2a00af344952d8ae906a5f4e363d6ed3e2f5584092347c2c8332ed692b0efd5ad0ce53063f4a8d75de4e36b4170c6501069a2b85f07172e1bec628dc4ca6ad44a98e971db9f5b2660c2a952c199bde9fb61e400b845840d4dd69a41071bc2dc8e64a97f4bd6379524ce0c2b665728043a067e34d3e218af89a1e334d87220ac4c94f2bd8f0828804111c4f71985ba665698cbb5db639925820561a907d9d313c7a3b769db775eb9f2a00af344952d8ae906a5f4e363d6ed3e2f558402b18ff7dc379889c4042ab9bc66b9f0b8138802e2faa699bad1c4887ffe76151de78c52edf548d14a5191b83bd2fbc421a3736e82711650b11fceba5868d510c845840618b625df30de53895ff29e7a3770dca56c2ff066d4aa05a6971905deecef6dbb7dd10ea1f9175e5293eadec97bf16b167af379a7b3ed4af032cd07b99ecc1ea5820561a907d9d313c7a3b769db775eb9f2a00af344952d8ae906a5f4e363d6ed3e2f5584008fe8e6d92d460bb65a2a49b26aa9113c708fb9ec56e6f482060e774254ea1ec0fc8f8ad77be7f1baf35ccfb9de508f4a6c63f0af59d7ae2bb745f2f40dd0e0e8458409aae625d4d15bcb3733d420e064f1cd338f386e0af049fcd42b455a69d28ad366483d177ba2b801b4136e0d6662e5e9e0a24f2c80a0e78d4c235b4c08f201f4c5820561a907d9d313c7a3b769db775eb9f2a00af344952d8ae906a5f4e363d6ed3e2f55840000d9297b45ba4d0bc33d3aa4e0a1c87d09d5773fc15f57e0741b791c5ab1c357184089b1364873c4925d3f99eb48af9c9d0592d8c91bea1187a981e74cebd0c845840d1a8de6caa8fd9b175c59862ecdd5abcd0477b84b82a0e52faecc6b3c85100a475216ffb64ea74537021405bb328b0f706e4aad7157795e316781cca120dac965820561a907d9d313c7a3b769db775eb9f2a00af344952d8ae906a5f4e363d6ed3e2f558403ea4f111ce4dd159ee116c3c5aa03384cae87a0afd2ad9dbb742f6fafd03c03b2f469cf1d4718948b296dba621a564255859ab1d7854b4fb77d89fcb1e508a01845840942bb3aaab0f6442b906b65ba6ddbf7969caa662d90968926211a3d56532f11d8e8cb4adc3f5034fbc6257fa5b1086689dc7d024df7226aa501fc28eba2d1f635820561a907d9d313c7a3b769db775eb9f2a00af344952d8ae906a5f4e363d6ed3e2f55840b99c70fc219bf98a1822ca1a322458818baf3a2a6ff9e7dc18b3adf4f80528e29dd0fc1df6c141dd02d2dc19489edb7635755da79ddcff11742ed245c9d33f0cff81a0"
+	preprodSlot43211BlockHex = "8385015820fbe86b20620034b5f68978cdd34044d0efda4f4de81578a1c34b22579eb6663d84830058200e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a85820afc0da64183bf2664f3d4eec7238d524ba607faeeab24fc100eb861dba69971b82035820d36a2619a672494604e11bb447cbcf5231e9f2ba25c2169177edc941bd50ad6c5820afc0da64183bf2664f3d4eec7238d524ba607faeeab24fc100eb861dba69971b5820846512c3c2273a4bbb62ad6a50f587fd86bf0178535f76a35d69c7b5c7c835c28482020b5840505b237a1cb140020cc442f6e51c6a0f48ad3344427735a9ad5b755bece8a4ce5bed4f6bbbd00caffcdff6502359a16534ea5182badbcfbaf9b516edf305264a811782028284005840505b237a1cb140020cc442f6e51c6a0f48ad3344427735a9ad5b755bece8a4ce5bed4f6bbbd00caffcdff6502359a16534ea5182badbcfbaf9b516edf305264a58408b0960d234bda67d52432c5d1a26aca2bfb5b9a09f966d9592a7bf0c728a1ecd840eac5c3fe8a7edda024a7403b6d37705990828b3548332a3f850221c2098bf5840633fc347138ee155d038b9d1040ee1e45cea5b1e8627046c95f7fe4ba949b0569437962568eadef9d49e22becbf30192425c008d10e03004612633dbc307340b58405dcbce14f395d166d85218596b4156cd77c7a5b815dd834428d2102ad8e62a2c69b3eb97dd062975a9d009a7cb700e3f7b309e44c82796bb84f5d43ddc6a03038483010000826a63617264616e6f2d736c01a058204ba92aa320c60acc9ad7b9a64f2eda55c4d2ec28e604faf186708b4f0c4e8edf849fff8203d90102809fff828187830200008e8080808080808080808080808080826a63617264616e6f2d736c01a1656c696e757884582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131458200fd923ca5e7218c4ba3c3801c26a617ecdbfdaebb9c76ce2eca166e7855efbb8582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314a058408ef320c2df6654a6188c45e9c639c0a686bf5a865295587d399dfeb05fe74ab67961a696b268c8bcec9372bc73aa9b1365ec007b3dfa0539eac00d154a31518c5840b430b0ec0229f81d4e7c1cecaa7a761a39b39ac50ed04836f66ebdd219b9507cf210be70ce4e80dae86537456eda808793b32b996d817f565fba30d02f704d089f8458408ef320c2df6654a6188c45e9c639c0a686bf5a865295587d399dfeb05fe74ab67961a696b268c8bcec9372bc73aa9b1365ec007b3dfa0539eac00d154a31518c58205474e0cf8e8f6b97b6fb962cc1d144c31707279cb655b6f0f83bda64d396fbebf5584033655b54795f33cc91b1ff08e6f993301f4223d55959184e13ecfff0d41048629225acc9429b37413774af239782d1e5132ec16b029478d3dc1dbd61413270098458408b0960d234bda67d52432c5d1a26aca2bfb5b9a09f966d9592a7bf0c728a1ecd840eac5c3fe8a7edda024a7403b6d37705990828b3548332a3f850221c2098bf58205474e0cf8e8f6b97b6fb962cc1d144c31707279cb655b6f0f83bda64d396fbebf55840119fff374eb5bdc63c2e1821d6160148ea32c9fe6fbaefc9c8767b2f3973fd03595e8ea44da35ab93efdc9cddb67a7e4be2572affc3078c4df17e9ce65de5a06845840d4dd69a41071bc2dc8e64a97f4bd6379524ce0c2b665728043a067e34d3e218af89a1e334d87220ac4c94f2bd8f0828804111c4f71985ba665698cbb5db6399258205474e0cf8e8f6b97b6fb962cc1d144c31707279cb655b6f0f83bda64d396fbebf558408d95536d7c13984eb307d252f13e95c5dc25317e411025b24fb07b3e3c6b0b1370ac17cac68be40db4f9925249887886584e524fe9c1af88b17a5cdabd713b01845840618b625df30de53895ff29e7a3770dca56c2ff066d4aa05a6971905deecef6dbb7dd10ea1f9175e5293eadec97bf16b167af379a7b3ed4af032cd07b99ecc1ea58205474e0cf8e8f6b97b6fb962cc1d144c31707279cb655b6f0f83bda64d396fbebf55840f90f110c272bcbd61d1dec1b4b9348dd7effbd545d32abd996c164a82cdd031302187022cda78ab52c0930ecbc05f914c18a26f794985a8aa04c3fdb4715ea028458409aae625d4d15bcb3733d420e064f1cd338f386e0af049fcd42b455a69d28ad366483d177ba2b801b4136e0d6662e5e9e0a24f2c80a0e78d4c235b4c08f201f4c58205474e0cf8e8f6b97b6fb962cc1d144c31707279cb655b6f0f83bda64d396fbebf558403b379b8aa896a3dc67d3e83259d45f854e5a75462f48140095e393c9da7e5c3bc544bf17f8f9a42cf57e5e6ee0c2bcd202c2019e3162305f2b0bed16e0a5ee05845840d1a8de6caa8fd9b175c59862ecdd5abcd0477b84b82a0e52faecc6b3c85100a475216ffb64ea74537021405bb328b0f706e4aad7157795e316781cca120dac9658205474e0cf8e8f6b97b6fb962cc1d144c31707279cb655b6f0f83bda64d396fbebf55840c62e97832e62aabc9aa342c505f1648eac8d48bbbd81501261cbbad9dd2b860d68046c1d43e4c5199057024960404386541ff9d6fc0f29cd7546c85bfd973a05845840942bb3aaab0f6442b906b65ba6ddbf7969caa662d90968926211a3d56532f11d8e8cb4adc3f5034fbc6257fa5b1086689dc7d024df7226aa501fc28eba2d1f6358205474e0cf8e8f6b97b6fb962cc1d144c31707279cb655b6f0f83bda64d396fbebf558403b9fba68276d594824d77948885088c2614d334e7b381579837eea43184151c6f28a1361e706e0898728532f95c37347d53fb0ef340638a7eb9cfdec3622e005ff81a0"
+)
+
+func TestRealPreprodUpdateProposals(t *testing.T) {
+	testCases := []struct {
+		name         string
+		blockHex     string
+		slot         uint64
+		hash         string
+		versionMajor uint16
+	}{
+		{
+			name:         "software update at slot 2163",
+			blockHex:     preprodSlot2163BlockHex,
+			slot:         2163,
+			hash:         "9972ffaee13b4afcf1a133434161ce25e8ecaf34b7a76e06b0c642125cf911a9",
+			versionMajor: 1,
+		},
+		{
+			name:         "protocol-only update at slot 43211",
+			blockHex:     preprodSlot43211BlockHex,
+			slot:         43211,
+			hash:         "f48fffc65e16c3808720b38110a6d284250360108b6198a44331eb0de8e49817",
+			versionMajor: 2,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			raw, err := hex.DecodeString(testCase.blockHex)
+			require.NoError(t, err)
+			block, err := byron.NewByronMainBlockFromCbor(raw)
+			require.NoError(t, err)
+			require.Equal(t, testCase.hash, block.Hash().String())
+			require.Equal(t, testCase.slot, block.SlotNumber())
+
+			require.Len(t, block.Body.UpdPayload.Proposals, 1)
+			proposal := &block.Body.UpdPayload.Proposals[0]
+			require.Equal(t, testCase.versionMajor, proposal.BlockVersion.Major)
+			require.Equal(t, "cardano-sl", proposal.SoftwareVersion.Name)
+			require.Equal(t, uint32(1), proposal.SoftwareVersion.Version)
+			metadata, ok := proposal.Data.(map[any]any)
+			require.True(t, ok, "metadata is %T", proposal.Data)
+			require.Len(t, metadata, 1)
+			require.Contains(t, metadata, "linux")
+
+			// The genesis delegates voted for the hash of the proposal's
+			// wire bytes, so the preserved CBOR must be exactly those bytes.
+			upId := common.Blake2b256Hash(proposal.Cbor())
+			var parts []cbor.RawMessage
+			_, err = cbor.Decode(block.Body.UpdPayloadCbor(), &parts)
+			require.NoError(t, err)
+			require.Len(t, parts, 2)
+			var rawVotes []cbor.RawMessage
+			_, err = cbor.Decode(parts[1], &rawVotes)
+			require.NoError(t, err)
+			require.Len(t, rawVotes, 7)
+			voters := make(map[string]struct{}, len(rawVotes))
+			for _, rawVote := range rawVotes {
+				vote, err := byron.ParseUpdateVote(rawVote)
+				require.NoError(t, err)
+				require.Equal(t, upId.Bytes(), vote.ProposalId)
+				voters[hex.EncodeToString(vote.VoterVK)] = struct{}{}
+			}
+			require.Len(t, voters, 7)
+
+			require.NoError(t, block.ValidateBodyProof(common.VerifyConfig{
+				EnableByronPayloadValidation: true,
+			}))
+			require.NoError(
+				t,
+				proposal.Validate(block.BlockHeader.ProtocolMagic),
+			)
+			require.NoError(t, proposal.ValidateSystemTags())
+		})
+	}
+}

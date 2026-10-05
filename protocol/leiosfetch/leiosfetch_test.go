@@ -101,8 +101,9 @@ func runTestCollectingConnErrors(
 	t *testing.T,
 	conversation []ouroboros_mock.ConversationEntry,
 	innerFunc func(*testing.T, *ouroboros.Connection, <-chan error),
+	connectionOptions ...ouroboros.ConnectionOptionFunc,
 ) {
-	defer goleak.VerifyNone(t)
+	t.Cleanup(func() { goleak.VerifyNone(t) })
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		conversation,
@@ -115,11 +116,13 @@ func runTestCollectingConnErrors(
 		for range mockConn.(*ouroboros_mock.Connection).ErrorChan() {
 		}
 	}()
-	oConn, err := ouroboros.New(
+	options := []ouroboros.ConnectionOptionFunc{
 		ouroboros.WithConnection(mockConn),
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 		ouroboros.WithNodeToNode(true),
-	)
+	}
+	options = append(options, connectionOptions...)
+	oConn, err := ouroboros.New(options...)
 	require.NoError(t, err)
 	connErrChan := make(chan error, 16)
 	connDone := make(chan struct{})
@@ -135,92 +138,26 @@ func runTestCollectingConnErrors(
 			}
 		}
 	}()
+	t.Cleanup(func() {
+		// Ensure failed assertions also release the mock and protocol goroutines.
+		_ = oConn.Close()
+		select {
+		case <-connDone:
+		case <-time.After(10 * time.Second):
+			t.Error("connection did not shut down within timeout")
+		}
+		select {
+		case <-mockDone:
+		case <-time.After(10 * time.Second):
+			t.Error("mock connection did not shut down within timeout")
+		}
+	})
 	innerFunc(t, oConn, connErrChan)
-	// The connection may already be closing because the test asserted a
-	// protocol error, so a Close error is not itself a failure.
-	_ = oConn.Close()
-	select {
-	case <-connDone:
-	case <-time.After(10 * time.Second):
-		t.Fatal("connection did not shut down within timeout")
-	}
-	select {
-	case <-mockDone:
-	case <-time.After(10 * time.Second):
-		t.Fatal("mock connection did not shut down within timeout")
-	}
 }
 
 var conversationHandshake = []ouroboros_mock.ConversationEntry{
 	ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
 	ouroboros_mock.ConversationEntryHandshakeNtNResponse,
-}
-
-// TestBlockRequestNoBlock verifies that when the server responds to a
-// BlockRequest with MsgNoBlock, the client's BlockRequest returns the typed
-// ErrBlockNotFound sentinel rather than a protocol error, and the connection
-// stays usable.
-func TestBlockRequestNoBlock(t *testing.T) {
-	conversation := append(
-		conversationHandshake,
-		ouroboros_mock.ConversationEntryInput{
-			ProtocolId:  leiosfetch.ProtocolId,
-			MessageType: leiosfetch.MessageTypeBlockRequest,
-		},
-		ouroboros_mock.ConversationEntryOutput{
-			ProtocolId: leiosfetch.ProtocolId,
-			IsResponse: true,
-			Messages: []protocol.Message{
-				leiosfetch.NewMsgNoBlock(),
-			},
-		},
-	)
-	runTest(
-		t,
-		conversation,
-		func(t *testing.T, oConn *ouroboros.Connection) {
-			resp, err := oConn.LeiosFetch().Client.BlockRequest(
-				context.Background(),
-				pcommon.NewPoint(12345, testPointHash(0x01)),
-			)
-			require.Error(t, err)
-			assert.ErrorIs(t, err, leiosfetch.ErrBlockNotFound)
-			assert.Nil(t, resp)
-		},
-	)
-}
-
-// TestBlockTxsRequestNoBlockTxs verifies the equivalent behavior for
-// BlockTxsRequest / MsgNoBlockTxs.
-func TestBlockTxsRequestNoBlockTxs(t *testing.T) {
-	conversation := append(
-		conversationHandshake,
-		ouroboros_mock.ConversationEntryInput{
-			ProtocolId:  leiosfetch.ProtocolId,
-			MessageType: leiosfetch.MessageTypeBlockTxsRequest,
-		},
-		ouroboros_mock.ConversationEntryOutput{
-			ProtocolId: leiosfetch.ProtocolId,
-			IsResponse: true,
-			Messages: []protocol.Message{
-				leiosfetch.NewMsgNoBlockTxs(),
-			},
-		},
-	)
-	runTest(
-		t,
-		conversation,
-		func(t *testing.T, oConn *ouroboros.Connection) {
-			resp, err := oConn.LeiosFetch().Client.BlockTxsRequest(
-				context.Background(),
-				pcommon.NewPoint(12345, testPointHash(0x01)),
-				map[uint16]uint64{0: 0xff00000000000000},
-			)
-			require.Error(t, err)
-			assert.ErrorIs(t, err, leiosfetch.ErrBlockTxsNotFound)
-			assert.Nil(t, resp)
-		},
-	)
 }
 
 // TestBlockRequestSuccess verifies the normal path: the server answers a
@@ -647,6 +584,123 @@ func TestBlockRangeRequestStreamsMultipleMessages(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, resp, 3)
 	})
+}
+
+func TestBlockRangeRequestLimitFailsConnection(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRangeRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgNextBlockAndTxsInRange([]byte{0x82, 0x01, 0x01}, nil),
+				leiosfetch.NewMsgNextBlockAndTxsInRange([]byte{0x82, 0x01, 0x02}, nil),
+				leiosfetch.NewMsgLastBlockAndTxsInRange([]byte{0x82, 0x01, 0x03}, nil),
+			},
+		},
+	)
+	cfg := leiosfetch.NewConfig(
+		leiosfetch.WithMaxBlockRangeResponses(2),
+	)
+	runTestCollectingConnErrors(
+		t,
+		conversation,
+		func(
+			t *testing.T,
+			oConn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				time.Second,
+			)
+			defer cancel()
+			_, err := oConn.LeiosFetch().Client.BlockRangeRequest(
+				ctx,
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+				pcommon.NewPoint(12346, testPointHash(0x02)),
+			)
+			require.Error(t, err)
+			require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+			select {
+			case <-oConn.LeiosFetch().Client.DoneChan():
+			case <-time.After(time.Second):
+				t.Fatal("over-limit range stream did not stop the protocol")
+			}
+			select {
+			case connErr := <-connErrs:
+				require.Error(t, connErr)
+			case <-time.After(time.Second):
+				t.Fatal("over-limit range stream did not fail the connection")
+			}
+		},
+		ouroboros.WithLeiosFetchConfig(cfg),
+	)
+}
+
+func TestBlockRangeRequestStallFailsConnection(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRangeRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgNextBlockAndTxsInRange(
+					[]byte{0x82, 0x01, 0x01},
+					nil,
+				),
+			},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRangeRequest,
+		},
+	)
+	cfg := leiosfetch.NewConfig(leiosfetch.WithTimeout(100 * time.Millisecond))
+	runTestCollectingConnErrors(
+		t,
+		conversation,
+		func(
+			t *testing.T,
+			oConn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				3*time.Second,
+			)
+			defer cancel()
+			startedAt := time.Now()
+			_, err := oConn.LeiosFetch().Client.BlockRangeRequest(
+				ctx,
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+				pcommon.NewPoint(12346, testPointHash(0x02)),
+			)
+			require.Error(t, err)
+			require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+			require.GreaterOrEqual(t, time.Since(startedAt), 50*time.Millisecond)
+			select {
+			case <-oConn.LeiosFetch().Client.DoneChan():
+			case <-time.After(time.Second):
+				t.Fatal("stalled range stream did not stop the protocol")
+			}
+			select {
+			case connErr := <-connErrs:
+				require.Error(t, connErr)
+			case <-time.After(time.Second):
+				t.Fatal("stalled range stream did not fail the connection")
+			}
+		},
+		ouroboros.WithLeiosFetchConfig(cfg),
+	)
 }
 
 // TestNonBlockRequestsAfterAbandonedBlockRequestFailFast pins that every

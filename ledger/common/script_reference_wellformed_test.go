@@ -125,15 +125,9 @@ func TestValidatePlutusScriptsWellFormed_StoredReferenceScript(t *testing.T) {
 		"genuinely malformed reference script is still rejected",
 		func(t *testing.T) {
 			t.Parallel()
-			// Unsupported UPLC program version 1.2.0: a decode-time defect
-			// independent of the van Rossem gate, so it must still be
-			// caught by the well-formedness check.
-			badScript := common.PlutusV2Script(encodePlutusContextTestScript(
-				t,
-				lang.LanguageVersion{1, 2, 0},
-				3,
-				nil,
-			))
+			// A malformed CBOR wrapper is independent of UPLC version
+			// gating, so the well-formedness check must still reject it.
+			badScript := common.PlutusV2Script([]byte{0xff})
 			tx := &conway.ConwayTransaction{
 				Body: conway.ConwayTransactionBody{
 					TxOutputs: []babbage.BabbageTransactionOutput{

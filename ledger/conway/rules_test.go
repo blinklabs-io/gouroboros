@@ -149,6 +149,28 @@ type committeeCredentialLedgerState struct {
 	hotLookup       func(common.Credential) (*common.CommitteeMember, error)
 	hotColdLookup   func(common.Credential) ([]common.Credential, error)
 	electedLookup   func(common.Credential) (bool, error)
+	// hotMembersLookup backs CommitteeHotCredentialMembers, which only
+	// hotMembersCommitteeCredentialLedgerState implements: a bare
+	// committeeCredentialLedgerState models a provider without that
+	// optional capability.
+	hotMembersLookup func(common.Credential) ([]*common.CommitteeMember, error)
+}
+
+// hotMembersCommitteeCredentialLedgerState additionally implements
+// common.CommitteeHotCredentialMembers. It is a distinct type, rather than
+// an unconditional method on committeeCredentialLedgerState, so a test can
+// still construct a value that implements only the singular capability.
+type hotMembersCommitteeCredentialLedgerState struct {
+	committeeCredentialLedgerState
+}
+
+func (s hotMembersCommitteeCredentialLedgerState) CommitteeHotCredentialMembers(
+	credential common.Credential,
+) ([]*common.CommitteeMember, error) {
+	if s.hotMembersLookup == nil {
+		return nil, nil
+	}
+	return s.hotMembersLookup(credential)
 }
 
 type erroringCommitteeCredentialLedgerState struct {
@@ -5985,4 +6007,14 @@ func TestConwayTransactionBodyRequiredAndGuardedFields(t *testing.T) {
 	require.NoError(t, err)
 	var body conway.ConwayTransactionBody
 	require.NoError(t, body.UnmarshalCBOR(wire))
+}
+
+func TestEvaluatePlutusScriptsRejectsNilTransaction(t *testing.T) {
+	_, err := conway.EvaluatePlutusScripts(
+		nil,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&conway.ConwayProtocolParameters{},
+		nil,
+	)
+	require.Error(t, err)
 }

@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -646,8 +647,12 @@ func (c *Client) GetAvailableBlockRange(
 	start := result.point
 	end := result.tip.Point
 
-	// If we're already at the chain tip, return an empty range
-	if start.Slot >= end.Slot {
+	// Nothing follows the intersect when it is the tip block itself, or when
+	// the peer reports a tip behind it; RequestNext would then wait for a
+	// block that may never come. Equal slots alone do not mean the tip: a
+	// Byron EBB shares its slot with the first block of its epoch.
+	if start.Slot > end.Slot ||
+		(start.Slot == end.Slot && bytes.Equal(start.Hash, end.Hash)) {
 		return pcommon.Point{}, pcommon.Point{}, nil
 	}
 
@@ -700,8 +705,10 @@ func (c *Client) GetAvailableBlockRange(
 			break
 		}
 	}
-	// If we're already at the chain tip, return an empty range
-	if start.Slot >= end.Slot {
+	// start is now the first block after the intersect, so start == end is a
+	// valid one-block range. Only a start beyond the tip means nothing is
+	// available.
+	if start.Slot > end.Slot {
 		return pcommon.Point{}, pcommon.Point{}, nil
 	}
 	return start, end, nil
@@ -1129,7 +1136,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			slot, err := chainSyncSlotNumber(
+			slot, err := ledgerbyron.SlotNumberFromBlockHeader(
 				blockHeader,
 				c.config.ByronSlotsPerEpoch,
 			)
@@ -1225,7 +1232,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			slot, err := chainSyncSlotNumber(
+			slot, err := ledgerbyron.SlotNumberFromBlockHeader(
 				block,
 				c.config.ByronSlotsPerEpoch,
 			)
@@ -1297,7 +1304,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 	// before calling the rollback callback. This prevents blocks from being
 	// applied after the ledger state has been rolled back.
 	if c.config.Pipeline != nil {
-		// Use a timeout context but also check for protocol shutdown via DoneChan
+		// Use a timeout context but also check for a protocol shutdown request.
 		drainTimeout := c.config.PipelineDrainTimeout
 		if drainTimeout == 0 {
 			drainTimeout = DefaultPipelineDrainTimeout
@@ -1324,15 +1331,20 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 						"component", "network",
 						"protocol", ProtocolName,
 					)
-				// Continue with rollback even if drain fails
+				return fmt.Errorf(
+					"%s: failed to drain pipeline before rollback: %w",
+					ProtocolName,
+					err,
+				)
 			}
-		case <-c.DoneChan():
+		case <-c.StopChan():
 			// Protocol is shutting down, skip waiting for drain
 			c.Protocol.Logger().
 				Debug("skipping pipeline drain due to shutdown",
 					"component", "network",
 					"protocol", ProtocolName,
 				)
+			return protocol.ErrProtocolShuttingDown
 		}
 	}
 
@@ -1416,14 +1428,4 @@ func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) {
 		ch <- clientPointResult{tip: msgIntersectNotFound.Tip, error: ErrIntersectNotFound}
 	default:
 	}
-}
-
-func chainSyncSlotNumber(
-	header lcommon.BlockHeader,
-	slotsPerEpoch uint64,
-) (uint64, error) {
-	if header.Era().Id != ledgerbyron.EraIdByron {
-		return header.SlotNumber(), nil
-	}
-	return ledgerbyron.SlotNumberFromHeader(header, slotsPerEpoch)
 }

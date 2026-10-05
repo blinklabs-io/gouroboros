@@ -127,16 +127,14 @@ func (s *ApplyStage) ProcessWithStatus(
 		return processed, nil
 	}
 
-	// Buffer for later - always add to preserve sequence ordering
-	s.pending[item.SequenceNumber()] = item
-	pendingCount := len(s.pending)
-	s.mu.Unlock()
-
-	// Check pending limit after buffering - return error to signal backpressure
-	// but the item is still buffered to prevent sequence gaps
-	if s.maxPending > 0 && pendingCount > s.maxPending {
+	// Reject before buffering so callers can retry without leaving this sequence
+	// in both their queue and the stage's pending map.
+	if s.maxPending > 0 && len(s.pending) >= s.maxPending {
+		s.mu.Unlock()
 		return nil, ErrPendingLimitExceeded
 	}
+	s.pending[item.SequenceNumber()] = item
+	s.mu.Unlock()
 	return nil, nil
 }
 
@@ -352,19 +350,28 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 
 			processed, err := r.process(ctx, item)
 			if err != nil {
-				select {
-				case r.errors <- err:
-				case <-ctx.Done():
-					return
-				}
-				if errors.Is(err, ErrStagePanic) {
-					// ProcessWithStatus owns ordering state. A panic can occur after
-					// it advanced nextSequence or removed pending items, so treating
-					// the input as an ordered singleton could move a Fence across an
-					// unresolved gap. Stop this runner and cancel its owning pipeline.
+				fatal := errors.Is(err, ErrStagePanic) ||
+					errors.Is(err, ErrPendingLimitExceeded)
+				if fatal {
 					if r.fatalFunc != nil {
 						r.fatalFunc()
 					}
+					select {
+					case r.errors <- err:
+					default:
+					}
+					// ProcessWithStatus owns ordering state. A panic can occur after
+					// it advanced nextSequence or removed pending items, so treating
+					// the input as an ordered singleton could move a Fence across an
+					// unresolved gap. A pending-limit error means admission bypassed
+					// Submit's capacity guard, and the rejected sequence was not retained.
+					// Fatal cancellation precedes best-effort error delivery so a full
+					// error channel cannot prevent shutdown.
+					return
+				}
+				select {
+				case r.errors <- err:
+				case <-ctx.Done():
 					return
 				}
 				continue

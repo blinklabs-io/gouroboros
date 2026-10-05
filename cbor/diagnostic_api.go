@@ -29,7 +29,7 @@ const maxKnownEra = 10
 // in practice; the 16 MiB ceiling here is a DoS guard for unattended
 // callers (e.g. an HTTP handler running Diagnose on user-supplied bytes),
 // not a protocol-level cap. Callers parsing trusted on-disk data that
-// genuinely exceeds this should call ParseDiagnostic directly.
+// genuinely exceeds this should call ParseDiagnosticWithLimits.
 const maxDiagnosticInputBytes = 16 * 1024 * 1024
 
 // maxCardanoTxSize is the Cardano mainnet protocol parameter for the
@@ -73,28 +73,33 @@ type DiagnosticStats struct {
 // are returned as the function's error; non-fatal warnings (shape oddities
 // the caller may want to surface) are attached to the result.
 //
-// Two safety gates apply before tree construction: an input-size guard
-// (maxDiagnosticInputBytes, 16 MiB) and the depth cap that
-// ParseDiagnostic and parseDiagnosticNode enforce internally. The depth cap
-// is MaxNestedLevels. Inputs that violate this limit are
-// rejected without producing a partial tree.
+// An input-size guard (16 MiB), depth bound (MaxNestedLevels), and cumulative
+// construction budgets apply before allocation. Budget exhaustion returns an
+// error without producing a partial tree.
 //
-// opts is part of the signature so callers and the Cardano-aware wrappers
-// share a single surface — Diagnose itself does not consult it.
-func Diagnose(data []byte, _ DiagnosticOptions) (*DiagnosticResult, error) {
+// ParseLimits bounds construction. The other options control rendering only.
+func Diagnose(data []byte, opts DiagnosticOptions) (*DiagnosticResult, error) {
+	result, _, err := diagnoseWithBudget(data, opts)
+	return result, err
+}
+
+func diagnoseWithBudget(
+	data []byte,
+	opts DiagnosticOptions,
+) (*DiagnosticResult, *diagnosticBudget, error) {
 	if len(data) == 0 {
-		return nil, errors.New("cbor: empty input")
+		return nil, nil, errors.New("cbor: empty input")
 	}
 	if len(data) > maxDiagnosticInputBytes {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"cbor: input size %d exceeds diagnostic limit of %d bytes",
 			len(data),
 			maxDiagnosticInputBytes,
 		)
 	}
-	root, err := ParseDiagnostic(data)
+	root, budget, err := parseDiagnosticWithBudget(data, opts.ParseLimits, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	result := &DiagnosticResult{
 		Root: root,
@@ -103,7 +108,7 @@ func Diagnose(data []byte, _ DiagnosticOptions) (*DiagnosticResult, error) {
 		},
 	}
 	collectDiagnosticStats(root, 0, &result.Statistics)
-	return result, nil
+	return result, budget, nil
 }
 
 // DiagnoseTransaction parses txData as a Cardano transaction
@@ -181,11 +186,11 @@ func DiagnoseBlock(
 	blockData []byte,
 	opts DiagnosticOptions,
 ) (*DiagnosticResult, error) {
-	result, err := Diagnose(blockData, opts)
+	result, budget, err := diagnoseWithBudget(blockData, opts)
 	if err != nil {
 		return nil, err
 	}
-	inner, era, eraPresent, unwrapErr := unwrapBlockInner(result.Root)
+	inner, era, eraPresent, unwrapErr := unwrapBlockInner(result.Root, budget)
 	if unwrapErr != nil {
 		return nil, unwrapErr
 	}
@@ -232,13 +237,18 @@ func isCardanoBlockFieldCount(count int) bool {
 // regardless of magnitude — otherwise an overflowing era value would
 // leave validation running on the 2-element wrapper and emit a bogus
 // "block body has 2 fields" warning.
-func unwrapBlockInner(root *DiagnosticNode) (*DiagnosticNode, uint64, bool, error) {
+func unwrapBlockInner(
+	root *DiagnosticNode,
+	budget *diagnosticBudget,
+) (*DiagnosticNode, uint64, bool, error) {
 	inner := root
 	var era uint64
 	eraPresent := false
 	if inner.Type == DiagTypeTag {
 		if inner.Tag == nil {
-			return nil, 0, false, errors.New("tag-wrapped block has no tag number")
+			return nil, 0, false, errors.New(
+				"tag-wrapped block has no tag number",
+			)
 		}
 		if *inner.Tag != CborTagCbor {
 			return nil, 0, false, fmt.Errorf(
@@ -248,15 +258,26 @@ func unwrapBlockInner(root *DiagnosticNode) (*DiagnosticNode, uint64, bool, erro
 			)
 		}
 		if len(inner.Children) == 0 || inner.Children[0].Type != DiagTypeBytes {
-			return nil, 0, false, errors.New("tag-24 block payload is not a byte string")
+			return nil, 0, false, errors.New(
+				"tag-24 block payload is not a byte string",
+			)
 		}
 		payload, ok := inner.Children[0].Value.([]byte)
 		if !ok {
-			return nil, 0, false, errors.New("tag-24 block payload missing bytes")
+			return nil, 0, false, errors.New(
+				"tag-24 block payload missing bytes",
+			)
 		}
-		decoded, err := ParseDiagnostic(payload)
+		decoded, _, err := parseDiagnosticWithBudget(
+			payload,
+			DiagnosticParseLimits{},
+			budget,
+		)
 		if err != nil {
-			return nil, 0, false, fmt.Errorf("decode tag-24 block payload: %w", err)
+			return nil, 0, false, fmt.Errorf(
+				"decode tag-24 block payload: %w",
+				err,
+			)
 		}
 		inner = decoded
 	}

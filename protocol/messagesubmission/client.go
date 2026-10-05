@@ -45,6 +45,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if cfg == nil {
 		tmpCfg := NewConfig()
 		cfg = &tmpCfg
+	} else if cfg.MaxUnacknowledgedMessageIDs <= 0 {
+		// Keep zero-value Config literals bounded as well as configs built with
+		// NewConfig.
+		cfg.MaxUnacknowledgedMessageIDs = DefaultMaxUnacknowledgedMessageIDs
 	}
 	c := &Client{
 		config:            cfg,
@@ -173,12 +177,16 @@ func (c *Client) ReplyMessageIds(messages []pcommon.MessageIDAndSize) error {
 		return err
 	}
 
-	// On successful send, update pendingMessageIDs under lock. Deep-copy inner byte slices
-	// to avoid external mutation affecting internal state.
+	// On successful send, append the new IDs to the unacknowledged window.
+	c.appendPendingMessageIDs(messages)
+
+	return nil
+}
+
+func (c *Client) appendPendingMessageIDs(messages []pcommon.MessageIDAndSize) {
 	ids := make([][]byte, len(messages))
 	for i, m := range messages {
 		if m.MessageID == nil {
-			ids[i] = nil
 			continue
 		}
 		ids[i] = make([]byte, len(m.MessageID))
@@ -186,10 +194,8 @@ func (c *Client) ReplyMessageIds(messages []pcommon.MessageIDAndSize) error {
 	}
 
 	c.lock.Lock()
-	c.pendingMessageIDs = ids
+	c.pendingMessageIDs = append(c.pendingMessageIDs, ids...)
 	c.lock.Unlock()
-
-	return nil
 }
 
 // ReplyMessages sends a reply with full messages
@@ -256,31 +262,45 @@ func (c *Client) handleRequestMessageIds(msg protocol.Message) error {
 			"request_count", msgRequest.RequestCount,
 		)
 
-	// Acknowledge previously sent IDs
 	c.lock.Lock()
-	if msgRequest.AckCount > 0 {
-		if int(msgRequest.AckCount) <= len(c.pendingMessageIDs) {
-			c.pendingMessageIDs = c.pendingMessageIDs[int(msgRequest.AckCount):]
-		} else {
-			c.Protocol.Logger().Warn("AckCount greater than pendingMessageIDs; clearing all",
-				"ack_count", msgRequest.AckCount,
-				"pending", len(c.pendingMessageIDs))
-			c.pendingMessageIDs = nil
-		}
+	pendingCount := len(c.pendingMessageIDs)
+	ackCount := int(msgRequest.AckCount)
+	requestCount := int(msgRequest.RequestCount)
+	if ackCount > pendingCount {
+		c.lock.Unlock()
+		c.Protocol.Logger().
+			Error("message ID acknowledgement exceeds outstanding IDs",
+				"ack_count", ackCount,
+				"pending", pendingCount,
+			)
+		return protocol.ErrProtocolViolationRequestExceeded
+	}
+	unacknowledged := pendingCount - ackCount
+	if requestCount == 0 {
+		c.lock.Unlock()
+		c.Protocol.Logger().Error("message ID request count is zero")
+		return protocol.ErrProtocolViolationRequestExceeded
+	}
+	if msgRequest.IsBlocking && unacknowledged > 0 {
+		c.lock.Unlock()
+		return protocol.ErrProtocolViolationRequestExceeded
+	}
+	if !msgRequest.IsBlocking && unacknowledged == 0 {
+		c.lock.Unlock()
+		return protocol.ErrProtocolViolationRequestExceeded
+	}
+	if unacknowledged+requestCount > c.config.MaxUnacknowledgedMessageIDs {
+		c.lock.Unlock()
+		c.Protocol.Logger().Error("message ID request exceeds unacknowledged limit",
+			"ack_count", ackCount,
+			"request_count", requestCount,
+			"unacknowledged", unacknowledged,
+			"limit", c.config.MaxUnacknowledgedMessageIDs)
+		return protocol.ErrProtocolViolationRequestExceeded
 	}
 
-	// Validate blocking/non-blocking protocol invariants
-	if msgRequest.IsBlocking && len(c.pendingMessageIDs) > 0 {
-		c.lock.Unlock()
-		return errors.New(
-			"cannot accept blocking request when pending IDs exist",
-		)
-	}
-	if !msgRequest.IsBlocking && len(c.pendingMessageIDs) == 0 {
-		c.lock.Unlock()
-		return errors.New(
-			"cannot accept non-blocking request when no pending IDs",
-		)
+	if ackCount > 0 {
+		c.pendingMessageIDs = c.pendingMessageIDs[ackCount:]
 	}
 	c.lock.Unlock()
 

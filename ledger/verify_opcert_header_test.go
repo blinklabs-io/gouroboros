@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/internal/ledgertest"
 	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -54,6 +55,7 @@ func TestExtractOpCertFromEveryPraosEra(t *testing.T) {
 func TestExtractOpCertFromDijkstraHeader(t *testing.T) {
 	headerCbor, err := hex.DecodeString(realConwayHeaderHex)
 	require.NoError(t, err)
+	headerCbor = ledgertest.MustWidenToDijkstraHeader(t, headerCbor)
 	header, err := ledger.NewBlockHeaderFromCbor(
 		ledger.BlockTypeDijkstra,
 		headerCbor,

@@ -19,6 +19,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -74,6 +75,14 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	}
 	committeeStakeCoverage := genesisRatToRat(genesis.CommitteeStakeCoverage)
 	quorumStakeThreshold := genesisRatToRat(genesis.QuorumStakeThreshold)
+	maxPledgeLeverage := genesisRatToRat(genesis.MaxPledgeLeverage)
+	minPoolMargin := genesisRatToRat(genesis.MinPoolMargin)
+	if err := validateDijkstraRewardParameterDomains(
+		maxPledgeLeverage,
+		minPoolMargin,
+	); err != nil {
+		return err
+	}
 	if err := validateLeiosCommitteeStakeParameters(
 		committeeStakeCoverage,
 		quorumStakeThreshold,
@@ -89,14 +98,14 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 		if p.CostModels == nil {
 			p.CostModels = make(map[uint][]int64)
 		}
-		p.CostModels[3] = genesis.PlutusV4CostModel
+		p.CostModels[3] = slices.Clone(genesis.PlutusV4CostModel)
 	}
 	p.MaxRefScriptSizePerBlock = genesis.MaxRefScriptSizePerBlock
 	p.MaxRefScriptSizePerTx = genesis.MaxRefScriptSizePerTx
 	p.RefScriptCostStride = genesis.RefScriptCostStride
 	p.RefScriptCostMultiplier = genesisRatToRat(genesis.RefScriptCostMultiplier)
-	p.MaxPledgeLeverage = genesisRatToRat(genesis.MaxPledgeLeverage)
-	p.MinPoolMargin = genesisRatToRat(genesis.MinPoolMargin)
+	p.MaxPledgeLeverage = maxPledgeLeverage
+	p.MinPoolMargin = minPoolMargin
 	p.LeiosAnnouncementPeriodLength = genesis.LeiosAnnouncementPeriodLength
 	p.LeiosVotePeriodLength = genesis.LeiosVotePeriodLength
 	p.LeiosDiffusionPeriodLength = genesis.LeiosDiffusionPeriodLength
@@ -106,13 +115,15 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.MaxEndorserBlockTxsSize = genesis.MaxEndorserBlockTxsSize
 	p.MaxEndorserBlockExUnits = genesis.MaxEndorserBlockExUnits
 	p.MaxRefScriptSizePerEndorserBlock = genesis.MaxRefScriptSizePerEndorserBlock
-	applyConwayRefScriptFeeDefaults(p)
+	ApplyConwayRefScriptFeeDefaults(p)
 	p.CommitteeStakeCoverage = committeeStakeCoverage
 	p.QuorumStakeThreshold = quorumStakeThreshold
 	return nil
 }
 
-func applyConwayRefScriptFeeDefaults(p *DijkstraProtocolParameters) {
+// ApplyConwayRefScriptFeeDefaults sets an unset reference-script cost stride
+// or multiplier to the fixed Conway value.
+func ApplyConwayRefScriptFeeDefaults(p *DijkstraProtocolParameters) {
 	if p.RefScriptCostStride == 0 {
 		p.RefScriptCostStride = uint32(conway.RefScriptCostStride)
 	}

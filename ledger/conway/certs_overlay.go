@@ -79,28 +79,32 @@ type conwayCertsOverlay struct {
 	// there is no corresponding deregistration set.
 	poolRegistrations map[common.PoolKeyHash]struct{}
 
-	// committeeHot overrides a hot-credential committee-member lookup,
-	// keyed by the hot credential's bare hash, for a hot credential this
-	// transaction's own certificates authorized or invalidated (by a later
-	// re-authorization of the same cold credential, or by resignation). A
-	// stored nil means the hot credential is no longer authorized. Keying
-	// by bare hash (rather than a type-qualified credential) matches
-	// CommitteeMember.HotKey, which is itself a bare hash with no
-	// key/script tag; a cold credential's previously authorized hot key
-	// learned from ls carries no type to preserve here; a hot key learned
-	// directly from an AuthCommitteeHotCertificate in this transaction
-	// does carry a type, but is still recorded by bare hash for a single
-	// consistent lookup. An absent key defers to ls.
-	committeeHot map[common.Blake2b224]*common.CommitteeMember
-
 	// committeeColdHot tracks, for a cold credential this transaction's
 	// own certificates touched, the hot credential currently authorized
-	// for it within this transaction (nil if resigned), so a later
-	// certificate for the same cold credential can find and invalidate
-	// the hot key it supersedes. A key absent here means "not yet touched
-	// in this transaction"; committeeColdHot[k] == (nil, true) means
-	// "resigned in this transaction, no hot key".
-	committeeColdHot map[credOverlayKey]*common.Blake2b224
+	// for it within this transaction (nil if resigned). A key absent here
+	// means "not yet touched in this transaction"; committeeColdHot[k] ==
+	// (nil, true) means "resigned in this transaction, no hot key".
+	//
+	// This is the only state CommitteeHotCredentialMembers derives from: a
+	// hot credential is resolved by scanning for a cold credential that
+	// currently maps to it, never by a separate hot-keyed cache. Reference:
+	// Cardano.Ledger.Conway.Rules.GovCert's csCommitteeCreds is a Map keyed
+	// by cold credential (ConwayAuthCommitteeHotKey /
+	// ConwayResignCommitteeColdKey each write only their own cold
+	// credential's entry), and Cardano.Ledger.Conway.Rules.Gov treats a hot
+	// credential as a known voter whenever *any* entry in that map
+	// currently authorizes it -- GOVCERT does not prevent two cold
+	// credentials from sharing one hot credential. A flat hot-keyed cache
+	// that a resignation or re-authorization overwrites destructively would
+	// drop a different, untouched cold credential's authorization of the
+	// same hot key.
+	//
+	// The hot credential keeps its key/script tag: csCommitteeCreds stores
+	// a typed Credential HotCommitteeRole, and a certificate's hot
+	// credential needs no witness, so matching on the hash alone would let
+	// a script-hash authorization admit a key-hash voter with the same
+	// bytes.
+	committeeColdHot map[credOverlayKey]*credOverlayKey
 }
 
 // credOverlayKey identifies a credential by both its type and its hash, so
@@ -127,8 +131,7 @@ func newConwayCertsOverlay(
 		stakeCredentialState: make(map[credOverlayKey]bool),
 		drepRegistrations:    make(map[credOverlayKey]bool),
 		poolRegistrations:    make(map[common.PoolKeyHash]struct{}),
-		committeeHot:         make(map[common.Blake2b224]*common.CommitteeMember),
-		committeeColdHot:     make(map[credOverlayKey]*common.Blake2b224),
+		committeeColdHot:     make(map[credOverlayKey]*credOverlayKey),
 	}
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
@@ -201,16 +204,18 @@ func (o *conwayCertsOverlay) IsPoolRegistered(pool common.PoolKeyHash) bool {
 }
 
 // committeeCredentialState resolves ls's optional CommitteeCredentialState
-// capability. Rules invoked through VerifyTransaction receive a
-// transaction-scoped caching wrapper around the caller's ledger state
-// (common.UnwrapLedgerState), so the type assertion must unwrap first or it
-// will never see the capability even when the wrapped state implements it.
+// capability through the adapters VerifyTransaction and VerifyBlock wrap
+// around the caller's ledger state, with the block's earlier committee
+// certificates applied (common.CommitteeCredentialStateFor).
 func (o *conwayCertsOverlay) committeeCredentialState() (
 	common.CommitteeCredentialState,
 	bool,
 ) {
-	cs, ok := common.UnwrapLedgerState(o.ls).(common.CommitteeCredentialState)
-	return cs, ok
+	cs, ok := common.CommitteeCredentialStateFor(o.ls)
+	if !ok {
+		return nil, false
+	}
+	return cs, true
 }
 
 // CommitteeStateAvailable reports whether committee state is available,
@@ -224,88 +229,119 @@ func (o *conwayCertsOverlay) CommitteeStateAvailable() (bool, error) {
 	return cs.CommitteeStateAvailable()
 }
 
-// CommitteeCredentialMember resolves a cold committee credential, deferring
-// to ls. This transaction's own certificates do not change how a cold
-// credential itself resolves (only its hot-key authorization, tracked
-// separately by CommitteeHotCredentialMember); this method exists so the
-// overlay can look up a cold credential's ls-recorded hot key when a
-// resignation or re-authorization needs to invalidate it.
-func (o *conwayCertsOverlay) CommitteeCredentialMember(
-	cold common.Credential,
-) (*common.CommitteeMember, error) {
-	cs, ok := o.committeeCredentialState()
+// committeeHotCredentialMembersState resolves ls's optional
+// CommitteeHotCredentialMembers capability (see the committeeColdHot field
+// comment for why a plural lookup is needed). Absent this capability,
+// callers fall back to the singular CommitteeCredentialState.
+func (o *conwayCertsOverlay) committeeHotCredentialMembersState() (
+	common.CommitteeHotCredentialMembers,
+	bool,
+) {
+	cs, ok := common.CommitteeHotCredentialMembersFor(o.ls)
 	if !ok {
-		return nil, nil
-	}
-	return cs.CommitteeCredentialMember(cold)
-}
-
-// CommitteeHotCredentialMember resolves a hot committee credential after
-// this transaction's own certificates, falling back to ls when this
-// transaction does not touch it.
-func (o *conwayCertsOverlay) CommitteeHotCredentialMember(
-	hot common.Credential,
-) (*common.CommitteeMember, error) {
-	if member, tracked := o.committeeHot[hot.Credential]; tracked {
-		return member, nil
-	}
-	cs, ok := o.committeeCredentialState()
-	if !ok {
-		return nil, nil
-	}
-	return cs.CommitteeHotCredentialMember(hot)
-}
-
-// currentHotForCold resolves the hot-credential hash currently authorized
-// for coldKey, checking this transaction's own certificates first and
-// falling back to ls. ok is false only when neither source has an opinion.
-func (o *conwayCertsOverlay) currentHotForCold(
-	coldKey credOverlayKey,
-) (hot *common.Blake2b224, ok bool) {
-	if hot, tracked := o.committeeColdHot[coldKey]; tracked {
-		return hot, true
-	}
-	cold := common.Credential{CredType: coldKey.credType, Credential: coldKey.hash}
-	member, err := o.CommitteeCredentialMember(cold)
-	if err != nil || member == nil {
 		return nil, false
 	}
-	return member.HotKey, true
+	return cs, true
 }
 
-// authorizeCommitteeHot applies an AuthCommitteeHotCertificate: it
-// invalidates whichever hot credential was previously authorized for cold
-// (from an earlier certificate in this same transaction, or from ls), then
-// records hot as authorized for cold.
+// CommitteeHotCredentialMembers resolves every cold credential currently
+// authorizing hot after this transaction's own certificates: every touched
+// cold credential in committeeColdHot that currently maps to hot, plus
+// whatever ls itself reports for any cold credential this transaction did
+// not touch. A hot credential may be shared by more than one cold
+// credential (see the committeeColdHot field comment), so resigning or
+// re-authorizing one cold credential must not take voting rights away from
+// a different cold credential that still authorizes the same hot key.
+//
+// When ls does not implement CommitteeHotCredentialMembers, this falls back
+// to the singular CommitteeCredentialState.CommitteeHotCredentialMember,
+// which returns at most one witness and is excluded here only when this
+// transaction touched the cold credential it names -- the same degraded
+// but backward-compatible behavior as before this capability existed.
+func (o *conwayCertsOverlay) CommitteeHotCredentialMembers(
+	hot common.Credential,
+) ([]*common.CommitteeMember, error) {
+	var members []*common.CommitteeMember
+	hotKey := credKey(hot)
+	for coldKey, curHot := range o.committeeColdHot {
+		if curHot != nil && *curHot == hotKey {
+			hotHash := hot.Credential
+			members = append(members, &common.CommitteeMember{
+				ColdKey: coldKey.hash,
+				HotKey:  &hotHash,
+			})
+		}
+	}
+	if plural, ok := o.committeeHotCredentialMembersState(); ok {
+		lsMembers, err := plural.CommitteeHotCredentialMembers(hot)
+		if err != nil {
+			return nil, err
+		}
+		for _, member := range lsMembers {
+			if member == nil || o.coldCredentialTouched(member.ColdKey) {
+				continue
+			}
+			members = append(members, member)
+		}
+		return members, nil
+	}
+	cs, ok := o.committeeCredentialState()
+	if !ok {
+		return members, nil
+	}
+	member, err := cs.CommitteeHotCredentialMember(hot)
+	if err != nil {
+		return nil, err
+	}
+	// ls resolved hot against a cold credential from before this
+	// transaction's own certificates ran. If this transaction touched that
+	// cold credential, the loop above already returned its current answer,
+	// or found none because it moved away from hot -- either way ls's
+	// answer is stale here and must not be returned.
+	if member != nil && !o.coldCredentialTouched(member.ColdKey) {
+		members = append(members, member)
+	}
+	return members, nil
+}
+
+// coldCredentialTouched reports whether this transaction's own certificates
+// recorded any state for a cold credential with this bare hash. It matches
+// by hash because CommitteeMember.ColdKey carries no key/script tag. That
+// cannot conflate two credentials in practice: ls reports only cold
+// credentials holding a csCommitteeCreds entry, and every entry, like every
+// certificate touching one here, required that cold credential's witness,
+// so a key-hash and a script-hash cold credential with the same bytes would
+// need a Blake2b-224 collision between a verification key and a script.
+func (o *conwayCertsOverlay) coldCredentialTouched(
+	coldHash common.Blake2b224,
+) bool {
+	for coldKey := range o.committeeColdHot {
+		if coldKey.hash == coldHash {
+			return true
+		}
+	}
+	return false
+}
+
+// authorizeCommitteeHot applies an AuthCommitteeHotCertificate: cold now
+// authorizes hot, superseding whichever hot credential cold authorized
+// before (from an earlier certificate in this same transaction, or from
+// ls). A different cold credential that separately authorizes the
+// superseded hot credential is unaffected; see the committeeColdHot field
+// comment.
 func (o *conwayCertsOverlay) authorizeCommitteeHot(
 	cold, hot common.Credential,
 ) {
-	coldKey := credKey(cold)
-	if prevHot, ok := o.currentHotForCold(coldKey); ok && prevHot != nil &&
-		*prevHot != hot.Credential {
-		o.committeeHot[*prevHot] = nil
-	}
-	member := &common.CommitteeMember{
-		ColdKey: cold.Credential,
-		HotKey:  &hot.Credential,
-	}
-	if base, err := o.CommitteeCredentialMember(cold); err == nil && base != nil {
-		member.ExpiryEpoch = base.ExpiryEpoch
-	}
-	newHot := hot.Credential
-	o.committeeHot[hot.Credential] = member
-	o.committeeColdHot[coldKey] = &newHot
+	newHot := credKey(hot)
+	o.committeeColdHot[credKey(cold)] = &newHot
 }
 
-// resignCommitteeCold applies a ResignCommitteeColdCertificate: it
-// invalidates whichever hot credential was authorized for cold (from an
-// earlier certificate in this same transaction, or from ls), so a vote
-// cast with that hot credential later in this same transaction is no
-// longer recognized.
+// resignCommitteeCold applies a ResignCommitteeColdCertificate: cold no
+// longer authorizes any hot credential, so a vote cast under its previous
+// hot credential later in this same transaction is no longer recognized as
+// coming from cold. A different cold credential that separately authorizes
+// the same hot credential is unaffected; see the committeeColdHot field
+// comment.
 func (o *conwayCertsOverlay) resignCommitteeCold(cold common.Credential) {
-	coldKey := credKey(cold)
-	if prevHot, ok := o.currentHotForCold(coldKey); ok && prevHot != nil {
-		o.committeeHot[*prevHot] = nil
-	}
-	o.committeeColdHot[coldKey] = nil
+	o.committeeColdHot[credKey(cold)] = nil
 }

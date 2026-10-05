@@ -119,7 +119,7 @@ func TestEvaluateNormalizesRedeemerEncoding(t *testing.T) {
 			name: "PlutusV1",
 			eval: func(s []byte, redeemer data.PlutusData) (common.ExUnits, error) {
 				return common.PlutusV1Script(s).Evaluate(
-					datum, redeemer, ctx, common.ExUnits{},
+					datum, redeemer, ctx, plutusDefaultTestBudget(),
 					cek.NewDefaultEvalContext(
 						lang.LanguageVersionV1, cek.ProtoVersion{Major: 11},
 					),
@@ -130,7 +130,7 @@ func TestEvaluateNormalizesRedeemerEncoding(t *testing.T) {
 			name: "PlutusV2",
 			eval: func(s []byte, redeemer data.PlutusData) (common.ExUnits, error) {
 				return common.PlutusV2Script(s).Evaluate(
-					datum, redeemer, ctx, common.ExUnits{},
+					datum, redeemer, ctx, plutusDefaultTestBudget(),
 					cek.NewDefaultEvalContext(
 						lang.LanguageVersionV2, cek.ProtoVersion{Major: 11},
 					),

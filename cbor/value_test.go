@@ -365,6 +365,17 @@ func TestValueMarshalJSON(t *testing.T) {
 				fullExpectedJson,
 			)
 		}
+		valueJSON, err := json.Marshal(tmpValue)
+		if err != nil {
+			t.Fatalf("failed to marshal Value value as JSON: %s", err)
+		}
+		if !test.JsonStringsEqual(valueJSON, jsonData) {
+			t.Fatalf(
+				"Value value JSON differs from pointer JSON\n  got:    %s\n  wanted: %s",
+				valueJSON,
+				jsonData,
+			)
+		}
 	}
 }
 
@@ -521,4 +532,79 @@ func TestLazyValueZeroValueMethods(t *testing.T) {
 		_, err := tmpValue.Decode()
 		require.Error(t, err)
 	})
+}
+
+func TestValueDuplicateMapKeyPolicy(t *testing.T) {
+	tests := []struct {
+		name string
+		wire []byte
+		key  any
+	}{
+		{
+			name: "scalar",
+			wire: []byte{0xa2, 0x01, 0x00, 0x01, 0x02},
+			key:  uint64(1),
+		},
+		{
+			name: "same integer through a bignum tag",
+			wire: []byte{0xa2, 0x01, 0x00, 0xc2, 0x41, 0x01, 0x02},
+			key:  uint64(1),
+		},
+		{
+			name: "composite with alternate array encoding",
+			wire: []byte{
+				0xa2,
+				0x82, 0x01, 0x00, 0x00,
+				0x9f, 0x01, 0x00, 0xff, 0x02,
+			},
+			key: []any{uint64(1), uint64(0)},
+		},
+		{
+			name: "composite with alternate map encoding",
+			wire: []byte{
+				0xa2,
+				0xa2, 0x01, 0x02, 0x03, 0x04, 0x00,
+				0xbf, 0x03, 0x04, 0x01, 0x02, 0xff, 0x02,
+			},
+			key: map[any]any{uint64(1): uint64(2), uint64(3): uint64(4)},
+		},
+		{
+			name: "tagged composite with alternate array encoding",
+			wire: []byte{
+				0xa2,
+				0xd9, 0xea, 0x60, 0x81, 0x01,
+				0x00,
+				0xd9, 0xea, 0x60, 0x9f, 0x01, 0xff,
+				0x02,
+			},
+			key: cbor.Tag{Number: 60000, Content: []any{uint64(1)}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var strictValue cbor.Value
+			_, err := cbor.Decode(tt.wire, &strictValue)
+			require.Error(t, err)
+			require.True(t, cbor.IsDuplicateMapKeyError(err))
+
+			var untrustedValue cbor.Value
+			_, err = cbor.DecodeStrict(tt.wire, &untrustedValue)
+			require.Error(t, err)
+			require.True(t, cbor.IsDuplicateMapKeyError(err))
+
+			var lenientValue cbor.Value
+			_, err = cbor.DecodeLenient(tt.wire, &lenientValue)
+			require.NoError(t, err)
+			decoded, ok := lenientValue.Value().(map[any]any)
+			require.True(t, ok)
+			require.Len(t, decoded, 1)
+			for key, value := range decoded {
+				if pointerKey, ok := key.(*any); ok {
+					key = *pointerKey
+				}
+				require.Equal(t, tt.key, key)
+				require.Equal(t, uint64(2), value)
+			}
+		})
+	}
 }

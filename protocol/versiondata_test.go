@@ -17,6 +17,7 @@ package protocol
 import (
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,4 +66,27 @@ func TestVersionDataNtN13andUpPeerSharingModes(t *testing.T) {
 				"VersionDataNtN13andUp.PeerSharing() with mode %d", tt.mode)
 		})
 	}
+}
+
+func TestVersionDataNtN16PerasSupportWireShape(t *testing.T) {
+	versionData := VersionDataNtN16andUp{
+		CborNetworkMagic:                       42,
+		CborInitiatorAndResponderDiffusionMode: DiffusionModeInitiatorOnly,
+		CborPeerSharing:                        PeerSharingModePeerSharingPublic,
+		CborQuery:                              QueryModeDisabled,
+		CborPerasSupport:                       true,
+	}
+	want := []byte{0x85, 0x18, 0x2a, 0xf5, 0x01, 0xf4, 0xf5}
+	encoded, err := cbor.Encode(versionData)
+	require.NoError(t, err)
+	require.Equal(t, want, encoded)
+	decoded, err := NewVersionDataNtN16andUpFromCbor(want)
+	require.NoError(t, err)
+	got, ok := decoded.(VersionDataNtN16andUp)
+	require.True(t, ok)
+	require.Equal(t, uint32(42), got.NetworkMagic())
+	require.Equal(t, DiffusionModeInitiatorOnly, got.DiffusionMode())
+	require.True(t, got.PeerSharing())
+	require.False(t, got.Query())
+	require.True(t, got.PerasSupported())
 }

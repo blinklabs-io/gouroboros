@@ -16,11 +16,13 @@ package babbage_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
@@ -854,4 +856,62 @@ func TestBabbageUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
 	if _, err := params.Utxorpc(); err == nil {
 		t.Fatal("expected error for out-of-range A0 numerator, got nil")
 	}
+}
+
+func testCostModels() map[uint][]int64 {
+	return map[uint][]int64{0: {1, 2}, 1: {3, 4}, 2: {5, 6}, 3: {7, 8}}
+}
+
+// TestUpgradePParams_CostModelsIsolated checks that the Alonzo to Babbage
+// upgrade deep-copies CostModels for every model key. Mutating the source or
+// the upgraded parameters, by element or by replacing the slice, must not
+// affect the other.
+func TestUpgradePParams_CostModelsIsolated(t *testing.T) {
+	for key := range testCostModels() {
+		t.Run(fmt.Sprintf("model %d mutate source", key), func(t *testing.T) {
+			prev := alonzo.AlonzoProtocolParameters{
+				CostModels: testCostModels(),
+			}
+			up := babbage.UpgradePParams(prev)
+			prev.CostModels[key][0] = -1
+			prev.CostModels[key] = []int64{-1}
+			assert.Equal(t, testCostModels(), up.CostModels)
+		})
+		t.Run(fmt.Sprintf("model %d mutate upgraded", key), func(t *testing.T) {
+			prev := alonzo.AlonzoProtocolParameters{
+				CostModels: testCostModels(),
+			}
+			up := babbage.UpgradePParams(prev)
+			up.CostModels[key][0] = -1
+			up.CostModels[key] = []int64{-1}
+			assert.Equal(t, testCostModels(), prev.CostModels)
+		})
+	}
+	t.Run("nil stays nil", func(t *testing.T) {
+		up := babbage.UpgradePParams(alonzo.AlonzoProtocolParameters{})
+		assert.Nil(t, up.CostModels)
+	})
+}
+
+// TestBabbageUpdate_CostModelsNotAliased checks that Update copies the update's
+// cost-model slices, so mutating either side afterwards does not change the
+// other.
+func TestBabbageUpdate_CostModelsNotAliased(t *testing.T) {
+	src0 := []int64{1, 2}
+	src1 := []int64{3, 4}
+	upd := &babbage.BabbageProtocolParameterUpdate{
+		CostModels: map[uint][]int64{0: src0, 1: src1},
+	}
+	base := &babbage.BabbageProtocolParameters{}
+	base.Update(upd)
+
+	src0[0] = -1
+	assert.Equal(t, map[uint][]int64{0: {1, 2}, 1: {3, 4}}, base.CostModels)
+
+	live, ok := base.CostModels[1]
+	if !ok {
+		t.Fatal("expected cost model 1 after Update")
+	}
+	live[0] = -1
+	assert.Equal(t, []int64{3, 4}, src1)
 }

@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"net"
@@ -49,9 +48,17 @@ func TestPointInRange(t *testing.T) {
 		{name: "after", point: pcommon.NewPoint(201, []byte("after"))},
 		{name: "start", point: start, want: true},
 		{name: "end", point: end, want: true},
+		// Slot bounds only: a same-slot block with another hash (Byron EBB
+		// and first main block) is accepted here and vetted by recordBlock.
 		{
-			name:  "same slot wrong hash",
+			name:  "same slot as start, other hash",
 			point: pcommon.NewPoint(100, []byte("other")),
+			want:  true,
+		},
+		{
+			name:  "same slot as end, other hash",
+			point: pcommon.NewPoint(200, []byte("other")),
+			want:  true,
 		},
 	}
 	for _, test := range tests {
@@ -364,8 +371,9 @@ func newInMemoryPeer(
 		m.Start()
 	}
 	peerDone := make(chan struct{})
+	outboundRead := &peerByteCounter{wakeup: make(chan struct{}, 1)}
 	go func() {
-		_, _ = io.Copy(io.Discard, peerConn)
+		_, _ = io.Copy(outboundRead, peerConn)
 		close(peerDone)
 	}()
 	c := NewClient(protocol.ProtocolOptions{
@@ -395,7 +403,12 @@ func newInMemoryPeer(
 			t.Error("peer drain did not stop")
 		}
 	})
-	return &idlePeer{client: c, conn: peerConn, errorChan: errorChan}
+	return &idlePeer{
+		client:       c,
+		conn:         peerConn,
+		errorChan:    errorChan,
+		outboundRead: outboundRead,
+	}
 }
 
 // newStartedQueueTestClient provides a live protocol send queue while draining
@@ -965,9 +978,7 @@ func TestNonPipelinedBatchDoneErrorCallsBatchDoneOnce(t *testing.T) {
 	}
 }
 
-// idleLimitObservationWindow bounds both halves of the Idle-state ingress
-// limit pair below: the non-pipelining client must report the oversized
-// message within it, and the pipelining client must not.
+// idleLimitObservationWindow bounds the out-of-agency rejection checks below.
 const idleLimitObservationWindow = time.Second
 
 // idlePeer drives a client attached to a real muxer over an in-memory
@@ -976,9 +987,49 @@ const idleLimitObservationWindow = time.Second
 // payload is capped at muxer.SegmentMaxPayloadLength, so it cannot deliver a
 // mainnet-sized block at all.
 type idlePeer struct {
-	client    *Client
-	conn      net.Conn
-	errorChan chan error
+	client       *Client
+	conn         net.Conn
+	errorChan    chan error
+	outboundRead *peerByteCounter
+}
+
+type peerByteCounter struct {
+	mu     sync.Mutex
+	count  int
+	wakeup chan struct{}
+}
+
+func (c *peerByteCounter) Write(data []byte) (int, error) {
+	c.mu.Lock()
+	c.count += len(data)
+	c.mu.Unlock()
+	select {
+	case c.wakeup <- struct{}{}:
+	default:
+	}
+	return len(data), nil
+}
+
+func (c *peerByteCounter) value() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.count
+}
+
+func (p *idlePeer) waitForOutboundBytes(t *testing.T, total int) {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for p.outboundRead.value() < total {
+		select {
+		case <-p.outboundRead.wakeup:
+		case <-deadline:
+			t.Fatalf(
+				"peer read %d outbound bytes, want %d",
+				p.outboundRead.value(),
+				total,
+			)
+		}
+	}
 }
 
 func newIdlePeer(t *testing.T, cfg *Config) *idlePeer {
@@ -1016,11 +1067,18 @@ func (p *idlePeer) send(t *testing.T, msg protocol.Message) {
 func (p *idlePeer) completeOneBatch(t *testing.T, done chan error) {
 	t.Helper()
 	blockMsg, point := queueTestBlock(t, 100, lcommon.Blake2b256{})
+	outboundStart := p.outboundRead.value()
 	_, err := p.client.RequestRange(
 		context.Background(),
 		RangeRequest{Start: point, End: point, ExpectedBytes: 1},
 	)
 	require.NoError(t, err)
+	requestData, err := cbor.Encode(NewMsgRequestRange(point, point))
+	require.NoError(t, err)
+	p.waitForOutboundBytes(
+		t,
+		outboundStart+binary.Size(muxer.SegmentHeader{})+len(requestData),
+	)
 	p.send(t, NewMsgStartBatch())
 	p.send(t, blockMsg)
 	p.send(t, NewMsgBatchDone())
@@ -1047,14 +1105,37 @@ func bigBlockMsg(t *testing.T) protocol.Message {
 	return msg
 }
 
-// TestPipelinedIdleLimitAdmitsMainnetSizedBlock covers the Idle-state ingress
-// limit for a pipelining client. With more than one request outstanding, the
-// peer's MsgBlock for the next request can arrive while the state machine is
-// momentarily back in Idle after a MsgBatchDone, so the Idle limit has to
-// admit a block. A limit of IdleMaxPendingMessageBytes tears the connection
-// down instead, which only shows up against a real peer because the blocks in
-// the mock conversations are tiny.
-func TestPipelinedIdleLimitAdmitsMainnetSizedBlock(t *testing.T) {
+func TestRequestPipeliningRaisesIdleMessageLimit(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		requestPipelining bool
+		wantLimit         int
+	}{
+		{
+			name:      "without pipelining",
+			wantLimit: IdleMaxPendingMessageBytes,
+		},
+		{
+			name:              "with pipelining",
+			requestPipelining: true,
+			wantLimit:         PipelinedIdleMaxPendingMessageBytes,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &Client{config: &Config{
+				RequestPipelining: test.requestPipelining,
+			}}
+			entry, ok := client.protocolStateMap()[StateIdle]
+			require.True(t, ok)
+			require.Equal(t, test.wantLimit, entry.PendingMessageByteLimit)
+		})
+	}
+}
+
+// TestPipeliningDoesNotGrantPeerAgencyWithoutOutstandingRequest ensures that
+// enabling request pipelining does not let the peer send after a completed
+// request when no pipelined request remains outstanding.
+func TestPipeliningRejectsReplyWithoutOutstandingRequest(t *testing.T) {
 	done := make(chan error, 4)
 	p := newIdlePeer(t, &Config{
 		RequestPipelining:   true,
@@ -1068,39 +1149,22 @@ func TestPipelinedIdleLimitAdmitsMainnetSizedBlock(t *testing.T) {
 		},
 	})
 	p.completeOneBatch(t, done)
-
-	// The state machine is back in Idle and the block is larger than the
-	// unpipelined Idle limit. It must be admitted rather than rejected as
-	// oversized; nothing consumes it, because the client has agency in Idle.
 	p.send(t, bigBlockMsg(t))
 	select {
 	case err := <-p.errorChan:
-		t.Fatalf(
-			"a mainnet-sized block was rejected while the state machine was in Idle: %s",
-			err,
-		)
-	case <-p.client.ProtocolInstance().DoneChan():
-		t.Fatal("the protocol was torn down by a mainnet-sized block in Idle")
+		require.ErrorContains(t, err, "without peer agency")
 	case <-time.After(idleLimitObservationWindow):
+		t.Fatal("an out-of-agency block was not rejected")
 	}
 }
 
-// TestUnpipelinedIdleLimitRejectsMainnetSizedBlock is the paired positive
-// case. It keeps the unpipelined Idle limit honest, and it proves the
-// observation window above is long enough to see the rejection when the limit
-// does produce one.
-func TestUnpipelinedIdleLimitRejectsMainnetSizedBlock(t *testing.T) {
+func TestUnpipelinedIdleRejectsOutOfAgencyBlock(t *testing.T) {
 	p := newIdlePeer(t, &Config{})
 	p.send(t, bigBlockMsg(t))
 	select {
 	case err := <-p.errorChan:
-		require.ErrorContains(t, err, "received oversized message")
-		require.ErrorContains(
-			t,
-			err,
-			fmt.Sprintf("exceeding limit (%d bytes)", IdleMaxPendingMessageBytes),
-		)
+		require.ErrorContains(t, err, "without peer agency")
 	case <-time.After(idleLimitObservationWindow):
-		t.Fatal("an oversized block in Idle was not rejected")
+		t.Fatal("an out-of-agency block in Idle was not rejected")
 	}
 }

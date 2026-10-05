@@ -130,6 +130,10 @@ var StateMapNtN = protocol.StateMap{
 		PendingMessageByteLimit: MaxPendingMessageBytes,
 		TimeoutFunc:             MustReplyTimeoutFunc,
 		Transitions:             mustReplyTransitions,
+		// A client pipelines RequestNext against its own view of CanAwait,
+		// which lags the server's: the server may already have sent
+		// AwaitReply when the request arrives.
+		PipelinedMessageTypes: []uint8{MessageTypeRequestNext},
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyNone,
@@ -141,25 +145,31 @@ var StateMapNtN = protocol.StateMap{
 // limits per spec Section 3.7.5: "There are no size-limits nor timeouts".
 var StateMapNtC = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
-		Agency:      protocol.AgencyClient,
-		Transitions: idleTransitions,
+		PendingReceiveByteBudget: PendingReceiveBytesNtC,
+		Agency:                   protocol.AgencyClient,
+		Transitions:              idleTransitions,
 	},
 	stateCanAwait: protocol.StateMapEntry{
-		Agency:                protocol.AgencyServer,
-		Transitions:           canAwaitTransitions,
-		AllowPipelinedSend:    true,
-		PipelinedMessageTypes: []uint8{MessageTypeRequestNext},
+		PendingReceiveByteBudget: PendingReceiveBytesNtC,
+		Agency:                   protocol.AgencyServer,
+		Transitions:              canAwaitTransitions,
+		AllowPipelinedSend:       true,
+		PipelinedMessageTypes:    []uint8{MessageTypeRequestNext},
 	},
 	stateIntersect: protocol.StateMapEntry{
-		Agency:      protocol.AgencyServer,
-		Transitions: intersectTransitions,
+		PendingReceiveByteBudget: PendingReceiveBytesNtC,
+		Agency:                   protocol.AgencyServer,
+		Transitions:              intersectTransitions,
 	},
 	stateMustReply: protocol.StateMapEntry{
-		Agency:      protocol.AgencyServer,
-		Transitions: mustReplyTransitions,
+		PendingReceiveByteBudget: PendingReceiveBytesNtC,
+		Agency:                   protocol.AgencyServer,
+		Transitions:              mustReplyTransitions,
+		PipelinedMessageTypes:    []uint8{MessageTypeRequestNext},
 	},
 	stateDone: protocol.StateMapEntry{
-		Agency: protocol.AgencyNone,
+		PendingReceiveByteBudget: PendingReceiveBytesNtC,
+		Agency:                   protocol.AgencyNone,
 	},
 }
 
@@ -188,7 +198,8 @@ type Config struct {
 	RecvQueueSize       int
 	SkipBlockValidation bool // Skip block validation during parsing
 	// ByronSlotsPerEpoch sets the non-mainnet Byron epoch length used when
-	// converting Byron headers to ChainSync points. Zero uses the legacy value.
+	// converting Byron headers to ChainSync points. Connections apply a non-zero
+	// value to both ChainSync and BlockFetch. Zero uses the legacy value.
 	ByronSlotsPerEpoch uint64
 
 	// Pipeline enables the block processing pipeline.
@@ -213,6 +224,15 @@ const (
 	MaxPendingMessageBytes      = 462000 // NtN mux ingress buffer per spec Table 3.15 (462KB)
 	DefaultPipelineDrainTimeout = 30 * time.Second
 )
+
+// PendingReceiveBytesNtC is the most received, not yet handled, node-to-client
+// ChainSync message bytes a connection holds. The reference node-to-client
+// policy has no limit, so this is an implementation bound, not a
+// specification value, and it is not a message size limit: a message past
+// it still arrives, alone, and the peer waits behind it. It is sized for a
+// full default receive queue (DefaultRecvQueueSize messages) of
+// maximum-size blocks, so a consumer that keeps up never waits on it.
+const PendingReceiveBytesNtC = 8 * 1024 * 1024
 
 // Protocol state timeout constants per Ouroboros Network Specification (Table 3.8).
 const (
@@ -250,7 +270,12 @@ type (
 
 type (
 	FindIntersectFunc func(CallbackContext, []pcommon.Point) (pcommon.Point, Tip, error)
-	RequestNextFunc   func(CallbackContext) error
+	// RequestNextFunc answers one MsgRequestNext on the server. It may send
+	// its reply (RollForward, RollBackward, or AwaitReply followed by either)
+	// before returning or after, from another goroutine. A pipelined
+	// RequestNext is not passed to RequestNextFunc until the server has
+	// answered the previous one and returned to Idle.
+	RequestNextFunc func(CallbackContext) error
 )
 
 // New returns a new ChainSync object
@@ -410,6 +435,14 @@ func WithIdleTimeout(timeout time.Duration) ChainSyncOptionFunc {
 func WithBlockTimeout(timeout time.Duration) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.BlockTimeout = timeout
+	}
+}
+
+// WithByronSlotsPerEpoch sets the Byron epoch length used for ChainSync points.
+// Zero selects the legacy mainnet value.
+func WithByronSlotsPerEpoch(slotsPerEpoch uint64) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.ByronSlotsPerEpoch = slotsPerEpoch
 	}
 }
 

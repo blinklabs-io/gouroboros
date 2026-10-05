@@ -25,6 +25,13 @@ import (
 const (
 	ProtocolName        = "leios-fetch"
 	ProtocolId   uint16 = 19
+
+	// DefaultMaxBlockRangeResponses bounds the number of messages retained for
+	// one BlockRangeRequest, including its terminal response.
+	DefaultMaxBlockRangeResponses = 1_000
+	// DefaultMaxBlockRangeResponseBytes bounds the total encoded size retained
+	// for one BlockRangeRequest.
+	DefaultMaxBlockRangeResponseBytes = 64 * 1024 * 1024
 )
 
 var (
@@ -69,10 +76,6 @@ var StateMap = protocol.StateMap{
 				MsgType:  MessageTypeBlock,
 				NewState: StateIdle,
 			},
-			{
-				MsgType:  MessageTypeNoBlock,
-				NewState: StateIdle,
-			},
 		},
 	},
 	StateBlockTxs: protocol.StateMapEntry{
@@ -80,10 +83,6 @@ var StateMap = protocol.StateMap{
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlockTxs,
-				NewState: StateIdle,
-			},
-			{
-				MsgType:  MessageTypeNoBlockTxs,
 				NewState: StateIdle,
 			},
 		},
@@ -121,11 +120,13 @@ type LeiosFetch struct {
 }
 
 type Config struct {
-	BlockRequestFunc      BlockRequestFunc
-	BlockTxsRequestFunc   BlockTxsRequestFunc
-	VotesRequestFunc      VotesRequestFunc
-	BlockRangeRequestFunc BlockRangeRequestFunc
-	Timeout               time.Duration
+	BlockRequestFunc           BlockRequestFunc
+	BlockTxsRequestFunc        BlockTxsRequestFunc
+	VotesRequestFunc           VotesRequestFunc
+	BlockRangeRequestFunc      BlockRangeRequestFunc
+	MaxBlockRangeResponses     int
+	MaxBlockRangeResponseBytes int
+	Timeout                    time.Duration
 }
 
 // Callback context
@@ -137,11 +138,9 @@ type CallbackContext struct {
 
 // Callback function types
 //
-// BlockRequestFunc and BlockTxsRequestFunc may return ErrBlockNotFound /
-// ErrBlockTxsNotFound (directly or wrapped) to signal that the requested data
-// is not available. The server then responds with MsgNoBlock / MsgNoBlockTxs
-// rather than propagating the error and tearing down the connection. Any other
-// error is treated as a protocol violation.
+// Errors from BlockRequestFunc and BlockTxsRequestFunc are propagated as
+// protocol errors. LeiosFetch defines no not-found response, so returning
+// ErrBlockNotFound or ErrBlockTxsNotFound ends the connection.
 type (
 	BlockRequestFunc      func(CallbackContext, pcommon.Point) (protocol.Message, error)
 	BlockTxsRequestFunc   func(CallbackContext, pcommon.Point, map[uint16]uint64) (protocol.Message, error)
@@ -161,7 +160,9 @@ type LeiosFetchOptionFunc func(*Config)
 
 func NewConfig(options ...LeiosFetchOptionFunc) Config {
 	c := Config{
-		Timeout: 5 * time.Second,
+		MaxBlockRangeResponses:     DefaultMaxBlockRangeResponses,
+		MaxBlockRangeResponseBytes: DefaultMaxBlockRangeResponseBytes,
+		Timeout:                    5 * time.Second,
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -210,5 +211,21 @@ func WithBlockRangeRequestFunc(
 func WithTimeout(timeout time.Duration) LeiosFetchOptionFunc {
 	return func(c *Config) {
 		c.Timeout = timeout
+	}
+}
+
+// WithMaxBlockRangeResponses sets the maximum number of responses retained
+// for one BlockRangeRequest. Non-positive values use the default.
+func WithMaxBlockRangeResponses(maxResponses int) LeiosFetchOptionFunc {
+	return func(c *Config) {
+		c.MaxBlockRangeResponses = maxResponses
+	}
+}
+
+// WithMaxBlockRangeResponseBytes sets the maximum encoded response bytes
+// retained for one BlockRangeRequest. Non-positive values use the default.
+func WithMaxBlockRangeResponseBytes(maxBytes int) LeiosFetchOptionFunc {
+	return func(c *Config) {
+		c.MaxBlockRangeResponseBytes = maxBytes
 	}
 }
