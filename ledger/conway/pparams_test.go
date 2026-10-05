@@ -1135,7 +1135,8 @@ func TestConwayUtxorpc_MinCommitteeSizeOutOfRangeRejected(t *testing.T) {
 			t.Skip("uint cannot exceed uint32 range on a 32-bit build")
 		}
 		params := base
-		params.MinCommitteeSize = uint(uint64(math.MaxUint32) + 1)
+		beyondUint32 := uint64(math.MaxUint32) + 1
+		params.MinCommitteeSize = uint(beyondUint32)
 		_, err := params.Utxorpc()
 		require.Error(t, err)
 	})
@@ -1160,7 +1161,8 @@ func TestConwayProtocolParameterUpdateUtxorpcRejectsWideVersion(t *testing.T) {
 	if bits.UintSize <= 32 {
 		t.Skip("uint cannot exceed uint32 range on a 32-bit build")
 	}
-	beyondUint32 := uint(uint64(math.MaxUint32) + 1)
+	beyondUint32Value := uint64(math.MaxUint32) + 1
+	beyondUint32 := uint(beyondUint32Value)
 	for _, tc := range []struct {
 		name    string
 		version common.ProtocolParametersProtocolVersion

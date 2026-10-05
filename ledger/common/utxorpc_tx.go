@@ -646,6 +646,9 @@ type parameterChangeUtxorpc interface {
 }
 
 func govActionToUtxorpc(action GovAction) (*utxorpc.GovernanceAction, error) {
+	if action == nil {
+		return nil, errors.New("unsupported governance action <nil>")
+	}
 	ret := &utxorpc.GovernanceAction{}
 	switch a := action.(type) {
 	case ParameterChangeGovAction:

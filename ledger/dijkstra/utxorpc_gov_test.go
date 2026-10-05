@@ -30,6 +30,7 @@ func TestDijkstraParameterChangeUtxorpcUpdate(t *testing.T) {
 	}
 	got, err := action.ProtocolParamUpdateUtxorpc()
 	require.NoError(t, err)
+	require.NotNil(t, got)
 	require.Equal(t, int64(44), got.MinFeeCoefficient.GetInt())
 	require.Nil(t, got.MinFeeConstant)
 }
