@@ -1194,12 +1194,25 @@ func TestConwayProtocolParameterUpdateUtxorpcRejectsPartialPrices(
 	t *testing.T,
 ) {
 	price := &cbor.Rat{Rat: big.NewRat(1, 2)}
+	unset := &cbor.Rat{}
 	for _, tc := range []struct {
 		name  string
 		costs common.ExUnitPrice
 	}{
 		{name: "missing memory", costs: common.ExUnitPrice{StepPrice: price}},
 		{name: "missing steps", costs: common.ExUnitPrice{MemPrice: price}},
+		{
+			name: "unset memory",
+			costs: common.ExUnitPrice{
+				MemPrice: unset, StepPrice: price,
+			},
+		},
+		{
+			name: "unset steps",
+			costs: common.ExUnitPrice{
+				MemPrice: price, StepPrice: unset,
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			update := conway.ConwayProtocolParameterUpdate{

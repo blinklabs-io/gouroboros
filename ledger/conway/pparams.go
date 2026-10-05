@@ -727,7 +727,9 @@ func (u *ConwayProtocolParameterUpdate) Utxorpc() (*utxorpc.PParams, error) {
 	}
 	if u.ExecutionCosts != nil {
 		if u.ExecutionCosts.MemPrice == nil ||
-			u.ExecutionCosts.StepPrice == nil {
+			u.ExecutionCosts.MemPrice.Rat == nil ||
+			u.ExecutionCosts.StepPrice == nil ||
+			u.ExecutionCosts.StepPrice.Rat == nil {
 			return nil, errors.New(
 				"execution costs require memory and step prices",
 			)

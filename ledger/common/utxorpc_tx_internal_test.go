@@ -15,7 +15,9 @@
 package common
 
 import (
+	"math"
 	"math/big"
+	"strconv"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -174,4 +176,58 @@ func TestGovActionToUtxorpc(t *testing.T) {
 
 	_, err = govActionToUtxorpc(nil)
 	require.ErrorContains(t, err, "unsupported governance action")
+}
+
+func TestGovActionToUtxorpcRejectsTypedNil(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		action GovAction
+	}{
+		{name: "hard fork", action: (*HardForkInitiationGovAction)(nil)},
+		{name: "treasury", action: (*TreasuryWithdrawalGovAction)(nil)},
+		{name: "no confidence", action: (*NoConfidenceGovAction)(nil)},
+		{name: "committee", action: (*UpdateCommitteeGovAction)(nil)},
+		{name: "constitution", action: (*NewConstitutionGovAction)(nil)},
+		{name: "info", action: (*InfoGovAction)(nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				_, err := govActionToUtxorpc(tc.action)
+				require.ErrorContains(t, err, "unsupported governance action")
+			})
+		})
+	}
+}
+
+func TestGovActionToUtxorpcRejectsWideProtocolVersion(t *testing.T) {
+	if strconv.IntSize <= 32 {
+		t.Skip("uint cannot exceed uint32 range on a 32-bit build")
+	}
+	beyondUint32Value := uint64(math.MaxUint32) + 1
+	beyondUint32 := uint(beyondUint32Value)
+	for _, tc := range []struct {
+		name  string
+		major uint
+		minor uint
+	}{
+		{name: "major", major: beyondUint32},
+		{name: "minor", minor: beyondUint32},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			action := &HardForkInitiationGovAction{}
+			action.ProtocolVersion.Major = tc.major
+			action.ProtocolVersion.Minor = tc.minor
+			_, err := govActionToUtxorpc(action)
+			require.ErrorContains(t, err, "protocol version")
+		})
+	}
+}
+
+func TestToUtxorpcRationalNumberRejectsNil(t *testing.T) {
+	t.Parallel()
+	require.NotPanics(t, func() {
+		_, err := ToUtxorpcRationalNumber(nil)
+		require.ErrorContains(t, err, "rational number")
+	})
 }

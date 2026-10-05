@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"reflect"
 	"slices"
 
 	"github.com/blinklabs-io/plutigo/data"
@@ -649,6 +650,10 @@ func govActionToUtxorpc(action GovAction) (*utxorpc.GovernanceAction, error) {
 	if action == nil {
 		return nil, errors.New("unsupported governance action <nil>")
 	}
+	actionValue := reflect.ValueOf(action)
+	if actionValue.Kind() == reflect.Pointer && actionValue.IsNil() {
+		return nil, errors.New("unsupported governance action <nil>")
+	}
 	ret := &utxorpc.GovernanceAction{}
 	switch a := action.(type) {
 	case ParameterChangeGovAction:
@@ -669,6 +674,10 @@ func govActionToUtxorpc(action GovAction) (*utxorpc.GovernanceAction, error) {
 			ParameterChangeAction: change,
 		}
 	case *HardForkInitiationGovAction:
+		if uint64(a.ProtocolVersion.Major) > math.MaxUint32 ||
+			uint64(a.ProtocolVersion.Minor) > math.MaxUint32 {
+			return nil, errors.New("protocol version exceeds uint32 range")
+		}
 		ret.GovernanceAction = &utxorpc.GovernanceAction_HardForkInitiationAction{
 			HardForkInitiationAction: &utxorpc.HardForkInitiationAction{
 				GovActionId: govActionIdToUtxorpc(a.ActionId),
@@ -797,6 +806,9 @@ func credentialBytes(c *utxorpc.StakeCredential) []byte {
 // ToUtxorpcRationalNumber converts a rational to the int32/uint32 pair
 // UTxO-RPC carries, rejecting values that would wrap.
 func ToUtxorpcRationalNumber(r *big.Rat) (*utxorpc.RationalNumber, error) {
+	if r == nil {
+		return nil, errors.New("rational number is unset")
+	}
 	if r.Num().Cmp(big.NewInt(math.MinInt32)) < 0 ||
 		r.Num().Cmp(big.NewInt(math.MaxInt32)) > 0 ||
 		r.Denom().Sign() < 0 ||
