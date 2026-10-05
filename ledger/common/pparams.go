@@ -189,6 +189,20 @@ type ExUnitPrice struct {
 	StepPrice *cbor.Rat
 }
 
+// CloneCostModels returns a deep copy of a cost-models map, including each
+// model's value slice. Protocol-parameter upgrades and updates use it so that
+// mutating one era's cost models cannot change another's. A nil map stays nil.
+func CloneCostModels(models map[uint][]int64) map[uint][]int64 {
+	if models == nil {
+		return nil
+	}
+	ret := make(map[uint][]int64, len(models))
+	for k, v := range models {
+		ret[k] = slices.Clone(v)
+	}
+	return ret
+}
+
 // ConvertToUtxorpcCardanoCostModels converts a map of cost models for Plutus
 // scripts into cardano.CostModels.
 //

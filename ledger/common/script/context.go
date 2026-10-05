@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
@@ -111,6 +112,41 @@ func NewScriptContextV3(
 type TxInfo interface {
 	isTxInfo()
 	ToPlutusData() data.PlutusData
+}
+
+// CachedTxInfo is a TxInfo whose PlutusData conversion is computed once and
+// shared by every script context built from it. A transaction's TxInfo is the
+// same for each of its redeemers; only the purpose differs, so building the
+// contexts from one CachedTxInfo converts the TxInfo once per transaction
+// rather than once per redeemer. The returned PlutusData must be treated as
+// read-only. It is safe for concurrent use.
+type CachedTxInfo struct {
+	inner TxInfo
+	once  sync.Once
+	data  data.PlutusData
+}
+
+func (*CachedTxInfo) isTxInfo() {}
+
+// NewCachedTxInfo wraps txInfo so that its ToPlutusData conversion runs at
+// most once. Wrapping an already cached TxInfo returns it unchanged.
+func NewCachedTxInfo(txInfo TxInfo) *CachedTxInfo {
+	if cached, ok := txInfo.(*CachedTxInfo); ok {
+		return cached
+	}
+	return &CachedTxInfo{inner: txInfo}
+}
+
+// Unwrap returns the TxInfo being cached.
+func (c *CachedTxInfo) Unwrap() TxInfo {
+	return c.inner
+}
+
+func (c *CachedTxInfo) ToPlutusData() data.PlutusData {
+	c.once.Do(func() {
+		c.data = c.inner.ToPlutusData()
+	})
+	return c.data
 }
 
 type TxInfoV1 struct {

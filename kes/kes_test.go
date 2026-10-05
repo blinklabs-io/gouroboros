@@ -19,6 +19,8 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha512"
+	"fmt"
+	"math"
 	"testing"
 
 	"filippo.io/edwards25519"
@@ -480,4 +482,72 @@ func TestHashPair(t *testing.T) {
 	// Same inputs should produce same hash
 	hash2 := HashPair(left, right)
 	require.True(t, bytes.Equal(hash, hash2), "HashPair not deterministic")
+}
+
+func TestNewSumKesFromBytesDepthBounds(t *testing.T) {
+	t.Parallel()
+	// Depths whose size arithmetic wraps uint64: depth*64 + 64 reduces to
+	// 128 (or 64) bytes, which a wrapped comparison would accept.
+	wrapDepths := []uint64{
+		(1 << 58) + 1,
+		1 << 58,
+		math.MaxUint64,
+		math.MaxUint64/64 + 1,
+	}
+	for _, depth := range wrapDepths {
+		t.Run(fmt.Sprintf("wrap_%d", depth), func(t *testing.T) {
+			t.Parallel()
+			for _, size := range []int{0, 64, 128, 192} {
+				require.NotPanics(t, func() {
+					_, err := NewSumKesFromBytes(depth, make([]byte, size))
+					require.Error(
+						t,
+						err,
+						"depth %d size %d accepted",
+						depth,
+						size,
+					)
+				})
+			}
+		})
+	}
+
+	t.Run("max depth accepted", func(t *testing.T) {
+		t.Parallel()
+		sig, err := NewSumKesFromBytes(
+			MaxDepth,
+			make([]byte, SignatureSize(MaxDepth)),
+		)
+		require.NoError(t, err)
+		require.EqualValues(t, MaxDepth, sig.Depth)
+	})
+
+	t.Run("over max depth rejected even with exact size", func(t *testing.T) {
+		t.Parallel()
+		depth := uint64(MaxDepth + 1)
+		_, err := NewSumKesFromBytes(depth, make([]byte, SignatureSize(depth)))
+		require.Error(t, err)
+	})
+
+	t.Run("zero depth rejected", func(t *testing.T) {
+		t.Parallel()
+		_, err := NewSumKesFromBytes(0, make([]byte, SigmaSize))
+		require.Error(t, err)
+	})
+}
+
+func TestKeyGenRejectsDepthAboveMax(t *testing.T) {
+	t.Parallel()
+	seed := make([]byte, SeedSize)
+	for _, depth := range []uint64{
+		MaxKeyGenDepth + 1,
+		MaxDepth + 1,
+		1 << 60,
+		math.MaxUint64,
+	} {
+		require.NotPanics(t, func() {
+			_, _, err := KeyGen(depth, seed)
+			require.Error(t, err, "depth %d accepted", depth)
+		})
+	}
 }

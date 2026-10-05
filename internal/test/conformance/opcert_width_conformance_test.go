@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ledgertest"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -230,6 +231,10 @@ func TestGoldenHeaderOCertCounterAndKesPeriodWidth(t *testing.T) {
 			blockType, ok := ledger.BlockHeaderToBlockTypeMap[eraId]
 			if !ok {
 				t.Fatalf("no block type for era id %d", eraId)
+			}
+			if blockType == ledger.BlockTypeDijkstra {
+				// The embedded golden predates the 12-field Dijkstra header body.
+				headerCbor = ledgertest.MustWidenToDijkstraHeader(t, headerCbor)
 			}
 			if _, err := ledger.NewBlockHeaderFromCbor(blockType, headerCbor); err != nil {
 				t.Fatalf("unmodified golden failed to decode: %v", err)

@@ -20,6 +20,7 @@ import (
 	"maps"
 	"math"
 	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -472,7 +473,7 @@ func (p *ConwayProtocolParameters) updateUnchecked(
 		if p.CostModels == nil {
 			p.CostModels = make(map[uint][]int64)
 		}
-		maps.Copy(p.CostModels, paramUpdate.CostModels)
+		maps.Copy(p.CostModels, common.CloneCostModels(paramUpdate.CostModels))
 	}
 	if paramUpdate.ExecutionCosts != nil {
 		p.ExecutionCosts = *paramUpdate.ExecutionCosts
@@ -542,7 +543,7 @@ func (p *ConwayProtocolParameters) UpdateFromGenesis(
 		if p.CostModels == nil {
 			p.CostModels = make(map[uint][]int64)
 		}
-		p.CostModels[2] = genesis.PlutusV3CostModel
+		p.CostModels[2] = slices.Clone(genesis.PlutusV3CostModel)
 	}
 	if genesis.PoolVotingThresholds.MotionNoConfidence != nil {
 		p.PoolVotingThresholds.MotionNoConfidence = cbor.Rat{
@@ -1233,7 +1234,7 @@ func UpgradePParams(
 		},
 		MinPoolCost:          prevPParams.MinPoolCost,
 		AdaPerUtxoByte:       prevPParams.AdaPerUtxoByte,
-		CostModels:           prevPParams.CostModels,
+		CostModels:           common.CloneCostModels(prevPParams.CostModels),
 		ExecutionCosts:       prevPParams.ExecutionCosts,
 		MaxTxExUnits:         prevPParams.MaxTxExUnits,
 		MaxBlockExUnits:      prevPParams.MaxBlockExUnits,

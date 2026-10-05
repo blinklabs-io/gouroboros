@@ -1255,3 +1255,51 @@ func TestAlonzoUtxorpc_FullWidthRationalBounds(t *testing.T) {
 		})
 	}
 }
+
+// TestAlonzoUpdate_CostModelsNotAliased checks that Update copies the update's
+// cost-model slices, so mutating either side afterwards does not change the
+// other.
+func TestAlonzoUpdate_CostModelsNotAliased(t *testing.T) {
+	src0 := []int64{1, 2}
+	src1 := []int64{3, 4}
+	upd := &alonzo.AlonzoProtocolParameterUpdate{
+		CostModels: map[uint][]int64{0: src0, 1: src1},
+	}
+	base := &alonzo.AlonzoProtocolParameters{}
+	base.Update(upd)
+
+	src0[0] = -1
+	assert.Equal(t, map[uint][]int64{0: {1, 2}, 1: {3, 4}}, base.CostModels)
+
+	live, ok := base.CostModels[1]
+	if !ok {
+		t.Fatal("expected cost model 1 after Update")
+	}
+	live[0] = -1
+	assert.Equal(t, []int64{3, 4}, src1)
+}
+
+// TestAlonzoUpdateFromGenesis_CostModelsNotAliased checks that
+// UpdateFromGenesis copies the genesis cost-model slices, so mutating either
+// side afterwards does not change the other.
+func TestAlonzoUpdateFromGenesis_CostModelsNotAliased(t *testing.T) {
+	v1 := make([]int64, 166)
+	for i := range v1 {
+		v1[i] = int64(i + 1)
+	}
+	genesis := &alonzo.AlonzoGenesis{
+		CostModels: map[string][]int64{"PlutusV1": v1},
+	}
+	var params alonzo.AlonzoProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(genesis))
+
+	live, ok := params.CostModels[alonzo.PlutusV1Key]
+	if !ok {
+		t.Fatal("expected PlutusV1 cost model after UpdateFromGenesis")
+	}
+	live[0] = -1
+	assert.Equal(t, int64(1), v1[0])
+
+	v1[1] = -1
+	assert.Equal(t, int64(2), live[1])
+}

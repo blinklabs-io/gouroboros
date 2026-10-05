@@ -865,8 +865,18 @@ func (t *ByronTransaction) Consumed() []common.TransactionInput {
 	return t.Inputs()
 }
 
+// byronMaxProducedOutputs is the number of outputs a Byron transaction adds to
+// the UTxO set. The reference indexes them with a Word16: txOutputUTxO
+// (Cardano/Chain/UTxO/UTxO.hs) zips the outputs with [0 ..] :: [Word16], which
+// stops at 65535, so later outputs never become UTxOs.
+const byronMaxProducedOutputs = math.MaxUint16 + 1
+
+// Produced returns the UTxOs the transaction creates: outputs 0 through 65535.
+// Outputs past index 65535 remain in Outputs, the transaction body, and its ID,
+// but are not spendable.
 func (t *ByronTransaction) Produced() []common.Utxo {
 	outputs := t.Outputs()
+	outputs = outputs[:min(len(outputs), byronMaxProducedOutputs)]
 	txId := t.Id()
 	ret := make([]common.Utxo, 0, len(outputs))
 	for idx, output := range outputs {
@@ -875,10 +885,7 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 			common.Utxo{
 				Id: ByronTransactionInput{
 					TxId: txId,
-					// The output count is bounded by the Byron
-					// transaction size limit, orders of magnitude
-					// below MaxUint32.
-					//nolint:gosec // G115: see above
+					//nolint:gosec // G115: idx < byronMaxProducedOutputs
 					OutputIndex: uint32(idx),
 				},
 				Output: output,
@@ -1078,7 +1085,8 @@ type ByronTransactionInput struct {
 }
 
 // NewByronTransactionInput builds a transaction input from a hex-encoded
-// 32-byte transaction hash and an output index.
+// 32-byte transaction hash and an output index. The index is a Word16 on the
+// Byron wire (Cardano.Chain.UTxO.TxIn), so it must be in 0-65535.
 //
 // It returns an error rather than panicking, so a caller passing a value it
 // did not produce itself -- a hash off the wire, out of an API request, or
@@ -1101,12 +1109,9 @@ func NewByronTransactionInput(
 			len(tmpHash), common.Blake2b256Size,
 		)
 	}
-	// Compare the upper bound via int64 so this builds on 32-bit GOARCHs, where
-	// int is 32-bit and the untyped math.MaxUint32 constant would overflow the
-	// int comparison type. On 32-bit a positive int can never exceed MaxUint32.
-	if idx < 0 || int64(idx) > math.MaxUint32 {
+	if idx < 0 || idx > math.MaxUint16 {
 		return ByronTransactionInput{}, fmt.Errorf(
-			"output index %d out of range", idx,
+			"output index %d out of range 0-%d", idx, math.MaxUint16,
 		)
 	}
 	return ByronTransactionInput{
@@ -1152,6 +1157,12 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 			return fmt.Errorf(
 				"byron TxInUtxo tag 24 payload has %d trailing byte(s)",
 				len(innerBytes)-consumed,
+			)
+		}
+		if tmp.OutputIndex > math.MaxUint16 {
+			return fmt.Errorf(
+				"byron transaction input output index %d out of range 0-%d",
+				tmp.OutputIndex, math.MaxUint16,
 			)
 		}
 		*i = ByronTransactionInput(tmp)

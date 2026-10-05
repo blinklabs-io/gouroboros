@@ -100,6 +100,13 @@ func KeyGen(depth uint64, seed []byte) (*SecretKey, []byte, error) {
 			len(seed),
 		)
 	}
+	if depth > MaxKeyGenDepth {
+		return nil, nil, fmt.Errorf(
+			"depth %d exceeds maximum %d",
+			depth,
+			MaxKeyGenDepth,
+		)
+	}
 
 	keySize := secretKeySize(depth)
 	data := make([]byte, keySize)

@@ -19,6 +19,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -97,7 +98,7 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 		if p.CostModels == nil {
 			p.CostModels = make(map[uint][]int64)
 		}
-		p.CostModels[3] = genesis.PlutusV4CostModel
+		p.CostModels[3] = slices.Clone(genesis.PlutusV4CostModel)
 	}
 	p.MaxRefScriptSizePerBlock = genesis.MaxRefScriptSizePerBlock
 	p.MaxRefScriptSizePerTx = genesis.MaxRefScriptSizePerTx
@@ -114,13 +115,15 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.MaxEndorserBlockTxsSize = genesis.MaxEndorserBlockTxsSize
 	p.MaxEndorserBlockExUnits = genesis.MaxEndorserBlockExUnits
 	p.MaxRefScriptSizePerEndorserBlock = genesis.MaxRefScriptSizePerEndorserBlock
-	applyConwayRefScriptFeeDefaults(p)
+	ApplyConwayRefScriptFeeDefaults(p)
 	p.CommitteeStakeCoverage = committeeStakeCoverage
 	p.QuorumStakeThreshold = quorumStakeThreshold
 	return nil
 }
 
-func applyConwayRefScriptFeeDefaults(p *DijkstraProtocolParameters) {
+// ApplyConwayRefScriptFeeDefaults sets an unset reference-script cost stride
+// or multiplier to the fixed Conway value.
+func ApplyConwayRefScriptFeeDefaults(p *DijkstraProtocolParameters) {
 	if p.RefScriptCostStride == 0 {
 		p.RefScriptCostStride = uint32(conway.RefScriptCostStride)
 	}

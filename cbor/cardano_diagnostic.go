@@ -60,7 +60,7 @@ func FormatTransactionDiagnostic(
 	txData []byte,
 	opts DiagnosticOptions,
 ) (string, error) {
-	node, err := ParseDiagnostic(txData)
+	node, err := ParseDiagnosticWithLimits(txData, opts.ParseLimits)
 	if err != nil {
 		return "", err
 	}
@@ -87,7 +87,11 @@ func FormatBlockDiagnostic(
 	blockData []byte,
 	opts DiagnosticOptions,
 ) (string, error) {
-	node, err := ParseDiagnostic(blockData)
+	node, budget, err := parseDiagnosticWithBudget(
+		blockData,
+		opts.ParseLimits,
+		nil,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -99,14 +103,21 @@ func FormatBlockDiagnostic(
 		// Other tag wrappers (rare for blocks) are unwrapped to their
 		// single CBOR child directly.
 		if inner.Tag != nil && *inner.Tag == CborTagCbor {
-			if len(inner.Children) == 0 || inner.Children[0].Type != DiagTypeBytes {
-				return "", errors.New("tag-24 block payload is not a byte string")
+			if len(inner.Children) == 0 ||
+				inner.Children[0].Type != DiagTypeBytes {
+				return "", errors.New(
+					"tag-24 block payload is not a byte string",
+				)
 			}
 			payload, ok := inner.Children[0].Value.([]byte)
 			if !ok {
 				return "", errors.New("tag-24 block payload missing bytes")
 			}
-			decoded, err := ParseDiagnostic(payload)
+			decoded, _, err := parseDiagnosticWithBudget(
+				payload,
+				opts.ParseLimits,
+				budget,
+			)
 			if err != nil {
 				return "", fmt.Errorf("decode tag-24 block payload: %w", err)
 			}
@@ -147,7 +158,7 @@ func FormatPlutusData(
 	data []byte,
 	opts DiagnosticOptions,
 ) (string, error) {
-	node, err := ParseDiagnostic(data)
+	node, err := ParseDiagnosticWithLimits(data, opts.ParseLimits)
 	if err != nil {
 		return "", err
 	}
@@ -166,7 +177,7 @@ func FormatNativeScript(
 	data []byte,
 	opts DiagnosticOptions,
 ) (string, error) {
-	node, err := ParseDiagnostic(data)
+	node, err := ParseDiagnosticWithLimits(data, opts.ParseLimits)
 	if err != nil {
 		return "", err
 	}

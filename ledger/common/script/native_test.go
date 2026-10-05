@@ -49,9 +49,10 @@ func TestNativeScriptsToEvaluateOrderIsStable(t *testing.T) {
 	)
 	view := script.TxScriptView{
 		Needed: map[common.ScriptHash]common.Script{
-			witnessFirst.Hash(): witnessFirst,
-			referenceOne.Hash(): referenceOne,
-			referenceTwo.Hash(): &referenceTwo,
+			witnessFirst.Hash():  witnessFirst,
+			witnessSecond.Hash(): witnessSecond,
+			referenceOne.Hash():  referenceOne,
+			referenceTwo.Hash():  &referenceTwo,
 		},
 	}
 
@@ -125,20 +126,17 @@ func TestNativeScriptsToEvaluateDeduplicates(t *testing.T) {
 	)
 }
 
-// An era before Babbage has no reference scripts and passes the zero view, so
-// the witness set alone has to survive it.
-func TestNativeScriptsToEvaluateZeroView(t *testing.T) {
+// A witness script no purpose requires is not evaluated, so a view that needs
+// nothing yields nothing.
+func TestNativeScriptsToEvaluateSkipsUnneededWitnessScripts(t *testing.T) {
 	nativeScript := testNativeScript(t, 1)
 	tx := mockledger.NewTransactionBuilder().WithWitnesses(
 		mockledger.NewMockTransactionWitnessSet().
 			WithNativeScripts(nativeScript),
 	)
-	require.Equal(
+	require.Empty(
 		t,
-		[]common.ScriptHash{nativeScript.Hash()},
-		nativeScriptHashes(
-			script.NativeScriptsToEvaluate(tx, script.TxScriptView{}),
-		),
+		script.NativeScriptsToEvaluate(tx, script.TxScriptView{}),
 	)
 	require.Empty(
 		t,

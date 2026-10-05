@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/ledgertest"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -182,6 +183,16 @@ func ledgerFuzzSeeds() ([]ledgerFuzzSeed, error) {
 		headerCbor, err := hex.DecodeString(seed.headerCbor)
 		if err != nil {
 			return nil, err
+		}
+		if seed.blockType == BlockTypeDijkstra {
+			// The mock seed carries a 10-field header body; widen it to the
+			// current 12-field Dijkstra shape.
+			if blockCbor, err = ledgertest.WidenToDijkstraBlockHeader(blockCbor); err != nil {
+				return nil, err
+			}
+			if headerCbor, err = ledgertest.WidenToDijkstraHeader(headerCbor); err != nil {
+				return nil, err
+			}
 		}
 		_, err = NewBlockFromCbor(seed.blockType, blockCbor, common.VerifyConfig{
 			SkipBodyHashValidation: true,

@@ -413,6 +413,57 @@ func TestSlowBlockConsumerDoesNotStarveKeepAlive(t *testing.T) {
 	}
 }
 
+// TestEstimatedRangeAboveConnectionBudgetSurvivesSlowConsumer requests an
+// estimated range larger than the connection's default ingress budget while
+// the block consumer is held. The allowance block-fetch raises for the range
+// extends the budget, so every byte of an honest reply is still read and the
+// connection survives.
+func TestEstimatedRangeAboveConnectionBudgetSurvivesSlowConsumer(
+	t *testing.T,
+) {
+	t.Parallel()
+	chain := ingressTestChain(
+		t,
+		muxer.DefaultIngressBudget/ingressTestBlockPadding+12,
+	)
+	total := ingressTestChainBytes(chain)
+	require.Greater(t, total, uint64(muxer.DefaultIngressBudget))
+	client, peer := connectIngressTestPair(
+		t,
+		chain,
+		blockfetch.WithRequestPipelining(true),
+	)
+	_, err := client.conn.BlockFetch().Client.RequestRange(
+		context.Background(),
+		blockfetch.RangeRequest{
+			Start:         chain[0].point,
+			End:           chain[len(chain)-1].point,
+			ExpectedBytes: total,
+		},
+	)
+	require.NoError(t, err)
+	client.waitFor(t, peer, client.firstBlock, "the first block")
+	client.waitFor(
+		t,
+		peer,
+		peer.served,
+		"the peer to finish serving the range with the consumer held",
+	)
+	client.waitFor(t, peer, client.pongs, "a keep-alive response")
+	client.release()
+	for range chain {
+		client.waitFor(t, peer, client.blocks, "block delivery")
+	}
+	select {
+	case err := <-client.rangeDone:
+		require.NoError(t, err)
+	case err := <-client.errs:
+		t.Fatalf("client connection failed before the range completed: %v", err)
+	case <-time.After(ingressTestTimeout):
+		t.Fatal("range did not complete after the consumer was released")
+	}
+}
+
 // TestNodeToNodeIngressLimits checks that each mini-protocol registers with
 // its own ingress limit rather than one muxer-wide default.
 func TestNodeToNodeIngressLimits(t *testing.T) {
@@ -444,11 +495,17 @@ func TestNodeToNodeIngressLimits(t *testing.T) {
 			"tx-submission client", client.conn, txsubmission.ProtocolId,
 			muxer.ProtocolRoleInitiator, txsubmission.MaxPendingMessageBytes,
 		},
-		// keep-alive declares no per-state limit, so it gets the largest
-		// message it would reassemble.
+		// The per-state message limits reach LargeMaxPendingMessageBytes,
+		// but the reference ingress queue is the unacknowledged window.
+		{
+			"tx-submission server", peer.conn, txsubmission.ProtocolId,
+			muxer.ProtocolRoleResponder, txsubmission.MaxPendingMessageBytes,
+		},
+		// keep-alive's 65,535-byte state limit is also below one batch of
+		// maximum-size segments.
 		{
 			"keep-alive client", client.conn, keepalive.ProtocolId,
-			muxer.ProtocolRoleInitiator, 16 * 1024 * 1024,
+			muxer.ProtocolRoleInitiator, 10 * muxer.SegmentMaxPayloadLength,
 		},
 	} {
 		require.Equal(

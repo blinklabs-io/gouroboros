@@ -2023,3 +2023,81 @@ func TestConwayUtxorpc_FullWidthRationalBounds(t *testing.T) {
 		})
 	}
 }
+
+func testCostModels() map[uint][]int64 {
+	return map[uint][]int64{0: {1, 2}, 1: {3, 4}, 2: {5, 6}, 3: {7, 8}}
+}
+
+// TestUpgradePParams_CostModelsIsolated checks that the Babbage to Conway
+// upgrade deep-copies CostModels for every model key. Mutating the source or
+// the upgraded parameters, by element or by replacing the slice, must not
+// affect the other.
+func TestUpgradePParams_CostModelsIsolated(t *testing.T) {
+	for key := range testCostModels() {
+		t.Run(fmt.Sprintf("model %d mutate source", key), func(t *testing.T) {
+			prev := babbage.BabbageProtocolParameters{
+				CostModels: testCostModels(),
+			}
+			up := conway.UpgradePParams(prev)
+			prev.CostModels[key][0] = -1
+			prev.CostModels[key] = []int64{-1}
+			assert.Equal(t, testCostModels(), up.CostModels)
+		})
+		t.Run(fmt.Sprintf("model %d mutate upgraded", key), func(t *testing.T) {
+			prev := babbage.BabbageProtocolParameters{
+				CostModels: testCostModels(),
+			}
+			up := conway.UpgradePParams(prev)
+			up.CostModels[key][0] = -1
+			up.CostModels[key] = []int64{-1}
+			assert.Equal(t, testCostModels(), prev.CostModels)
+		})
+	}
+	t.Run("nil stays nil", func(t *testing.T) {
+		up := conway.UpgradePParams(babbage.BabbageProtocolParameters{})
+		assert.Nil(t, up.CostModels)
+	})
+}
+
+// TestConwayUpdate_CostModelsNotAliased checks that Update copies the update's
+// cost-model slices, so mutating either side afterwards does not change the
+// other.
+func TestConwayUpdate_CostModelsNotAliased(t *testing.T) {
+	src0 := []int64{1, 2}
+	src1 := []int64{3, 4}
+	upd := &conway.ConwayProtocolParameterUpdate{
+		CostModels: map[uint][]int64{0: src0, 1: src1},
+	}
+	base := &conway.ConwayProtocolParameters{}
+	base.Update(upd)
+
+	src0[0] = -1
+	assert.Equal(t, map[uint][]int64{0: {1, 2}, 1: {3, 4}}, base.CostModels)
+
+	live, ok := base.CostModels[1]
+	if !ok {
+		t.Fatal("expected cost model 1 after Update")
+	}
+	live[0] = -1
+	assert.Equal(t, []int64{3, 4}, src1)
+}
+
+// TestConwayUpdateFromGenesis_PlutusV3CostModelNotAliased checks that
+// UpdateFromGenesis copies the genesis PlutusV3 cost model, so mutating either
+// side afterwards does not change the other.
+func TestConwayUpdateFromGenesis_PlutusV3CostModelNotAliased(t *testing.T) {
+	v3 := []int64{1, 2, 3}
+	genesis := &conway.ConwayGenesis{PlutusV3CostModel: v3}
+	p := &conway.ConwayProtocolParameters{}
+	require.NoError(t, p.UpdateFromGenesis(genesis))
+
+	live, ok := p.CostModels[2]
+	if !ok {
+		t.Fatal("expected PlutusV3 cost model after UpdateFromGenesis")
+	}
+	live[0] = -1
+	assert.Equal(t, int64(1), v3[0])
+
+	v3[1] = -1
+	assert.Equal(t, int64(2), live[1])
+}

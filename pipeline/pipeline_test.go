@@ -2978,6 +2978,10 @@ func TestBlockPipeline_ValidationDisabled(t *testing.T) {
 	stats := pipeline.Stats()
 	assert.Equal(t, uint64(numBlocks), stats.BlocksDecoded)
 	assert.Equal(t, uint64(numBlocks), stats.BlocksApplied)
+	assert.Equal(t, uint64(numBlocks), stats.DecodeTimings.Count)
+	assert.Positive(t, stats.DecodeTimings.Total)
+	assert.Equal(t, uint64(numBlocks), stats.ApplyTimings.Count)
+	assert.Zero(t, stats.ValidateTimings.Count)
 }
 
 func TestBlockPipeline_ErrorsReturnsNewChannelEachTime(t *testing.T) {

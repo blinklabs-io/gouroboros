@@ -378,6 +378,11 @@ func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
 			msgGeneric,
 		)
 	}
+	if !c.proposedQuery() {
+		return errors.New(
+			"received handshake QueryReply message without proposing query mode",
+		)
+	}
 	if c.config.QueryReplyFunc == nil && c.config.FinishedFunc == nil {
 		return errors.New(
 			"received handshake QueryReply message but neither QueryReplyFunc nor FinishedFunc is defined",
@@ -408,4 +413,15 @@ func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
 		)
 	}
 	return nil
+}
+
+// proposedQuery reports whether any proposed version requested query mode,
+// the only case in which the server may answer with MsgQueryReply.
+func (c *Client) proposedQuery() bool {
+	for _, versionData := range c.config.ProtocolVersionMap {
+		if versionData != nil && versionData.Query() {
+			return true
+		}
+	}
+	return false
 }

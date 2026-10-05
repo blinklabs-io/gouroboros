@@ -436,7 +436,7 @@ func dijkstraPparams(
 	default:
 		return nil, errors.New("pparams are not expected type")
 	}
-	applyConwayRefScriptFeeDefaults(&ret)
+	ApplyConwayRefScriptFeeDefaults(&ret)
 	return &ret, nil
 }
 
@@ -581,8 +581,11 @@ func (s *dijkstraGovernanceStateView) committeeCredentialState() (
 	common.CommitteeCredentialState,
 	bool,
 ) {
-	state, ok := common.UnwrapLedgerState(s.LedgerState).(common.CommitteeCredentialState)
-	return state, ok
+	state, ok := common.CommitteeCredentialStateFor(s.LedgerState)
+	if !ok {
+		return nil, false
+	}
+	return state, true
 }
 
 func (s *dijkstraGovernanceStateView) CommitteeStateAvailable() (bool, error) {
@@ -614,10 +617,11 @@ func (s *dijkstraGovernanceStateView) committeeHotCredentialMembersState() (
 	common.CommitteeHotCredentialMembers,
 	bool,
 ) {
-	state, ok := common.UnwrapLedgerState(
-		s.LedgerState,
-	).(common.CommitteeHotCredentialMembers)
-	return state, ok
+	state, ok := common.CommitteeHotCredentialMembersFor(s.LedgerState)
+	if !ok {
+		return nil, false
+	}
+	return state, true
 }
 
 // CommitteeHotCredentialMembers resolves every cold credential currently
@@ -1551,6 +1555,9 @@ type dijkstraScriptLevel struct {
 	view       script.TxScriptView
 	slotState  common.SlotState
 	subTxIndex *uint32
+	// txInfoV4 holds the level's V4 TxInfo conversion, which is the same for
+	// every redeemer of the level. It is shared by copies of the level.
+	txInfoV4 *dijkstraTxInfoV4Cache
 }
 
 func dijkstraScriptLevels(
@@ -1587,6 +1594,7 @@ func dijkstraScriptLevels(
 			tx:        txLevel,
 			resolved:  resolved,
 			slotState: ls,
+			txInfoV4:  &dijkstraTxInfoV4Cache{},
 			view: script.TxScriptView{
 				ResolvedInputs:          inputs,
 				ResolvedReferenceInputs: refInputs,
@@ -1657,6 +1665,7 @@ func dijkstraWitnessRuleLevels(
 				ResolvedReferenceInputs: refInputs,
 			},
 			slotState: ls,
+			txInfoV4:  &dijkstraTxInfoV4Cache{},
 		}
 		if levelIndex < len(txLevels)-1 {
 			idx := uint32(levelIndex) // #nosec G115 -- bounded by tx size
@@ -2719,6 +2728,27 @@ func UtxoValidatePlutusScripts(
 	if err != nil {
 		return err
 	}
+	if err := validateDijkstraPlutusScriptLevels(
+		levels,
+		available,
+	); err != nil {
+		return err
+	}
+	if !tx.IsValid() {
+		return nil
+	}
+	_, err = evaluateDijkstraPlutusLevels(levels, available, ls, tmpPparams, nil)
+	return err
+}
+
+// validateDijkstraPlutusScriptLevels applies the structural script checks
+// that precede script execution: no Plutus V1-V3 script in a
+// sub-transaction, a script for every required purpose, and a redeemer for
+// exactly the purposes a Plutus script serves.
+func validateDijkstraPlutusScriptLevels(
+	levels []dijkstraScriptLevel,
+	available map[common.ScriptHash]common.Script,
+) error {
 	for _, level := range levels {
 		if level.subTxIndex == nil {
 			continue
@@ -2746,50 +2776,6 @@ func UtxoValidatePlutusScripts(
 		if err := validateDijkstraPlutusRedeemers(
 			level,
 			available,
-		); err != nil {
-			return err
-		}
-	}
-	if !tx.IsValid() {
-		return nil
-	}
-	for _, level := range levels {
-		v4Keys, err := dijkstraPlutusV4RedeemerKeys(level, available)
-		if err != nil {
-			return err
-		}
-		levelTx := transactionWithAvailablePlutusScripts{
-			Transaction: level.tx,
-			available:   available,
-		}
-		if err := conway.UtxoValidatePlutusScripts(
-			transactionWithoutRedeemers{
-				Transaction: levelTx,
-				excluded:    v4Keys,
-				guarding:    true,
-			},
-			slot,
-			ls,
-			tmpPparams,
-		); err != nil {
-			return err
-		}
-		if level.subTxIndex == nil {
-			if err := validateGuardingPlutusScripts(
-				level.tx,
-				ls,
-				tmpPparams,
-				available,
-				level.resolved,
-			); err != nil {
-				return err
-			}
-		}
-		if err := validateDijkstraPlutusV4Scripts(
-			level,
-			tmpPparams,
-			available,
-			v4Keys,
 		); err != nil {
 			return err
 		}
@@ -2902,17 +2888,19 @@ func validateDijkstraPlutusV4Scripts(
 	pp *conway.ConwayProtocolParameters,
 	available map[common.ScriptHash]common.Script,
 	keys map[common.RedeemerKey]struct{},
-) error {
+	budget *common.ExUnits,
+) (map[common.RedeemerKey]common.ExUnits, error) {
+	used := make(map[common.RedeemerKey]common.ExUnits)
 	if len(keys) == 0 {
-		return nil
+		return used, nil
 	}
 	wits := level.tx.Witnesses()
 	if wits == nil {
-		return nil
+		return used, nil
 	}
 	redeemers := wits.Redeemers()
 	if redeemers == nil {
-		return nil
+		return used, nil
 	}
 	evalContext, err := common.PooledEvalContext(
 		lang.LanguageVersionV4,
@@ -2920,7 +2908,7 @@ func validateDijkstraPlutusV4Scripts(
 		pp.CostModels[3],
 	)
 	if err != nil {
-		return fmt.Errorf("build Plutus V4 evaluation context: %w", err)
+		return nil, fmt.Errorf("build Plutus V4 evaluation context: %w", err)
 	}
 	for key, value := range redeemers.Iter() {
 		if _, ok := keys[key]; !ok {
@@ -2928,28 +2916,34 @@ func validateDijkstraPlutusV4Scripts(
 		}
 		purpose, err := dijkstraPurposeForKey(level, key)
 		if err != nil {
-			return conway.ExtraRedeemerError{RedeemerKey: key}
+			return nil, conway.ExtraRedeemerError{RedeemerKey: key}
 		}
 		candidate, ok := available[purpose.ScriptHash()].(common.PlutusV4Script)
 		if !ok {
-			return common.MissingScriptWitnessesError{
+			return nil, common.MissingScriptWitnessesError{
 				ScriptHash: purpose.ScriptHash(),
 			}
 		}
 		context, err := dijkstraPlutusV4Context(level, purpose, key, value)
 		if err != nil {
-			return conway.ScriptContextConstructionError{Err: err}
+			return nil, conway.ScriptContextConstructionError{Err: err}
 		}
-		if _, err := candidate.Evaluate(context, value.ExUnits, evalContext); err != nil {
-			return conway.PlutusScriptFailedError{
+		units := value.ExUnits
+		if budget != nil {
+			units = *budget
+		}
+		usedUnits, err := candidate.Evaluate(context, units, evalContext)
+		if err != nil {
+			return nil, conway.PlutusScriptFailedError{
 				ScriptHash: purpose.ScriptHash(),
 				Tag:        key.Tag,
 				Index:      key.Index,
 				Err:        err,
 			}
 		}
+		used[key] = usedUnits
 	}
-	return nil
+	return used, nil
 }
 
 type transactionWithAvailablePlutusScripts struct {
@@ -3200,15 +3194,21 @@ func validateGuardingPlutusScripts(
 	pp *conway.ConwayProtocolParameters,
 	availableScripts map[common.ScriptHash]common.Script,
 	resolvedInputs []common.Utxo,
-) error {
+	budget *common.ExUnits,
+) (map[common.RedeemerKey]common.ExUnits, error) {
+	used := make(map[common.RedeemerKey]common.ExUnits)
 	wits := tx.Witnesses()
 	if wits == nil || wits.Redeemers() == nil {
-		return nil
+		return used, nil
 	}
 
 	var txInfoV1 script.TxInfoV1
+	// Cached so each redeemer reuses one PlutusData conversion of the TxInfo.
+	var txInfoV1Cached *script.CachedTxInfo
 	var txInfoV2 script.TxInfoV2
+	var txInfoV2Cached *script.CachedTxInfo
 	var txInfoV3 script.TxInfoV3
+	var txInfoV3Cached *script.CachedTxInfo
 	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
 
 	for redeemerKey, redeemerValue := range wits.Redeemers().Iter() {
@@ -3217,23 +3217,28 @@ func validateGuardingPlutusScripts(
 		}
 		purpose, ok := dijkstraGuardingPurpose(tx, redeemerKey)
 		if !ok {
-			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
+			return nil, conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 		scriptHash := purpose.ScriptHash()
 		plutusScript, ok := availableScripts[scriptHash]
 		if !ok {
-			return common.MissingScriptWitnessesError{ScriptHash: scriptHash}
+			return nil, common.MissingScriptWitnessesError{ScriptHash: scriptHash}
 		}
 		if _, ok := plutusScript.(common.NativeScript); ok {
-			return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
+			return nil, conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 		if ls == nil {
-			return errors.New(
+			return nil, errors.New(
 				"ledger state is required for Dijkstra guarding Plutus validation",
 			)
 		}
 
+		units := redeemerValue.ExUnits
+		if budget != nil {
+			units = *budget
+		}
 		var execErr error
+		var usedUnits common.ExUnits
 		switch s := plutusScript.(type) {
 		case common.PlutusV4Script:
 			// V4 guarding scripts are evaluated with the Dijkstra V4 context by
@@ -3245,7 +3250,7 @@ func validateGuardingPlutusScripts(
 					tx,
 					pp.ProtocolVersion.Major,
 				); err != nil {
-					return conway.ScriptContextConstructionError{Err: err}
+					return nil, conway.ScriptContextConstructionError{Err: err}
 				}
 				var err error
 				txInfoV3, err = script.NewTxInfoV3FromTransaction(
@@ -3255,12 +3260,13 @@ func validateGuardingPlutusScripts(
 					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return conway.ScriptContextConstructionError{Err: err}
+					return nil, conway.ScriptContextConstructionError{Err: err}
 				}
 				txInfoV3Built = true
+				txInfoV3Cached = script.NewCachedTxInfo(txInfoV3)
 			}
 			ctx := script.NewScriptContextV3(
-				txInfoV3,
+				txInfoV3Cached,
 				guardingRedeemer(redeemerKey, redeemerValue),
 				purpose,
 			)
@@ -3270,9 +3276,9 @@ func validateGuardingPlutusScripts(
 				pp.CostModels[2],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(ctx.ToPlutusData(), redeemerValue.ExUnits, evalContext)
+			usedUnits, execErr = s.Evaluate(ctx.ToPlutusData(), units, evalContext)
 		case common.PlutusV2Script:
 			if !txInfoV2Built {
 				var err error
@@ -3284,25 +3290,26 @@ func validateGuardingPlutusScripts(
 					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return conway.ScriptContextConstructionError{Err: err}
+					return nil, conway.ScriptContextConstructionError{Err: err}
 				}
 				txInfoV2Built = true
+				txInfoV2Cached = script.NewCachedTxInfo(txInfoV2)
 			}
-			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
+			ctx := script.NewScriptContextV1V2(txInfoV2Cached, purpose)
 			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV2,
 				pp.ProtocolVersion.Major,
 				pp.CostModels[1],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
 			var datum data.PlutusData
-			_, execErr = s.Evaluate(
+			usedUnits, execErr = s.Evaluate(
 				datum,
 				data.Normalize(redeemerValue.Data.Data),
 				ctx.ToPlutusData(),
-				redeemerValue.ExUnits,
+				units,
 				evalContext,
 			)
 		case common.PlutusV1Script:
@@ -3316,40 +3323,42 @@ func validateGuardingPlutusScripts(
 					pp.ProtocolVersion.Major,
 				)
 				if err != nil {
-					return conway.ScriptContextConstructionError{Err: err}
+					return nil, conway.ScriptContextConstructionError{Err: err}
 				}
 				txInfoV1Built = true
+				txInfoV1Cached = script.NewCachedTxInfo(txInfoV1)
 			}
-			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
+			ctx := script.NewScriptContextV1V2(txInfoV1Cached, purpose)
 			evalContext, err := common.PooledEvalContext(
 				lang.LanguageVersionV1,
 				pp.ProtocolVersion.Major,
 				pp.CostModels[0],
 			)
 			if err != nil {
-				return fmt.Errorf("build evaluation context: %w", err)
+				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
 			var datum data.PlutusData
-			_, execErr = s.Evaluate(
+			usedUnits, execErr = s.Evaluate(
 				datum,
 				data.Normalize(redeemerValue.Data.Data),
 				ctx.ToPlutusData(),
-				redeemerValue.ExUnits,
+				units,
 				evalContext,
 			)
 		default:
 			continue
 		}
 		if execErr != nil {
-			return conway.PlutusScriptFailedError{
+			return nil, conway.PlutusScriptFailedError{
 				ScriptHash: scriptHash,
 				Tag:        redeemerKey.Tag,
 				Index:      redeemerKey.Index,
 				Err:        execErr,
 			}
 		}
+		used[redeemerKey] = usedUnits
 	}
-	return nil
+	return used, nil
 }
 
 func dijkstraGuardingPurpose(

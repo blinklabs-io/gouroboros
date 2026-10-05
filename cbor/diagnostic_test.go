@@ -437,6 +437,47 @@ func TestStreamDecoderDecodeAllDiagnostic(t *testing.T) {
 	assert.True(t, dec.EOF())
 }
 
+func TestStreamDecoderDiagnosticLimits(t *testing.T) {
+	data, err := hex.DecodeString("83010203")
+	require.NoError(t, err)
+	dec, err := cbor.NewStreamDecoder(data)
+	require.NoError(t, err)
+	_, err = dec.DecodeDiagnosticWithLimits(
+		cbor.DiagnosticParseLimits{MaxNodes: 3},
+	)
+	require.ErrorContains(t, err, "node budget")
+
+	dec, err = cbor.NewStreamDecoder(data)
+	require.NoError(t, err)
+	node, err := dec.DecodeDiagnosticWithLimits(
+		cbor.DiagnosticParseLimits{MaxNodes: 4},
+	)
+	require.NoError(t, err)
+	require.Len(t, node.Children, 3)
+}
+
+func TestStreamDecoderAllDiagnosticLimitsAreCumulative(t *testing.T) {
+	dec, err := cbor.NewStreamDecoder([]byte{0x01, 0x02})
+	require.NoError(t, err)
+	nodes, err := dec.DecodeAllDiagnosticWithLimits(
+		cbor.DiagnosticParseLimits{MaxNodes: 1},
+	)
+	require.ErrorContains(t, err, "node budget")
+	require.Len(t, nodes, 1)
+}
+
+func TestStreamDecoderAllDiagnosticAtEOFDoesNotStartBudget(t *testing.T) {
+	dec, err := cbor.NewStreamDecoder([]byte{0x01, 0x02})
+	require.NoError(t, err)
+	_, _, err = dec.SkipN(2)
+	require.NoError(t, err)
+	nodes, err := dec.DecodeAllDiagnosticWithLimits(
+		cbor.DiagnosticParseLimits{MaxRetainedBytes: 1},
+	)
+	require.NoError(t, err)
+	require.Nil(t, nodes)
+}
+
 func TestFormatDiagnosticPrettyShowHex(t *testing.T) {
 	data, err := hex.DecodeString("83010203")
 	require.NoError(t, err)

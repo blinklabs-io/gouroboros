@@ -715,6 +715,18 @@ func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
 	return nil
 }
 
+// IsDatumHash reports whether the datum option is the datum hash variant,
+// [0, hash]. It returns false for a nil receiver.
+func (d *BabbageTransactionOutputDatumOption) IsDatumHash() bool {
+	return d != nil && d.hash != nil
+}
+
+// IsInlineDatum reports whether the datum option is the inline datum variant,
+// [1, #6.24(data)]. It returns false for a nil receiver.
+func (d *BabbageTransactionOutputDatumOption) IsInlineDatum() bool {
+	return d != nil && d.data != nil
+}
+
 func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
 	var tmpObj []any
 	if d.hash != nil {

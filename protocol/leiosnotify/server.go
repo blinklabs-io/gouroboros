@@ -46,7 +46,12 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 }
 
 func (s *Server) initProtocol() {
-	protoConfig := protocol.ProtocolConfig{
+	cfg := s.config
+	if cfg == nil {
+		defaultConfig := NewConfig()
+		cfg = &defaultConfig
+	}
+	protoConfig := cfg.protocolConfig(protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               s.protoOptions.Muxer,
@@ -56,9 +61,8 @@ func (s *Server) initProtocol() {
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
 		InitialState:        StateIdle,
-	}
+	})
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
 	s.Protocol = p

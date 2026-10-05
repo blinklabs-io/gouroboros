@@ -61,11 +61,32 @@ taken yet.
 | Block Fetch server | 2,500,000 |
 | Tx Submission | 721,424 |
 | Chain Sync (node-to-node), Peer Sharing | 655,350 |
-| Keep Alive, Handshake, local protocols | effective `MaxReadBufferSize` (16 MB) |
+| Keep Alive | 655,350 (floor; state limit 65,535) |
+| Handshake | 655,350 (floor; state limit 5,760) |
+| Local protocols | effective `MaxReadBufferSize` (16 MB) |
 
-The worst-case memory a connection can queue is the sum of the limits of its
-registered protocol roles; a queue only fills while its protocol is not
-taking segments.
+The muxer also bounds the segment payload queued across every protocol role
+on the connection (`Muxer.SetIngressBudget`, default
+`muxer.DefaultIngressBudget`, 64 MB). The specification mandates no aggregate
+figure, so this is an implementation bound: it keeps many individually bounded
+queues from adding up to an unbounded total. A protocol that solicits more than
+its ordinary limit, as a block-fetch client does for a large range, extends the
+budget by the excess while it has asked for it
+(`Muxer.SetIngressBudgetExtension`, set from `Protocol.SetIngressAllowance`),
+so the budget never refuses a reply the protocol has said it will accept; the
+budget in force is the base plus every role's extension (`Muxer.IngressBudget`).
+Ingress that would take the connection past it stops the connection with
+`muxer.ErrIngressOverflow`, except for a protocol role with backpressure
+enabled, which pauses the read loop instead and is always admitted when its own
+queue is empty, so segments held by other roles cannot wedge it. That
+admission can exceed the budget by one segment (65,535 bytes) per
+backpressured role. Queued bytes are returned to the budget when the muxer
+moves a segment to the protocol's delivery channel and when its receiver is
+unregistered. The queue memory of a connection is therefore bounded by the
+base budget, plus the extensions, plus
+that overshoot. The budget counts only the muxer's ingress queues: each
+protocol's delivery channel (ten segments), the segment its delivery goroutine
+holds, and its reassembly buffers are outside it.
 
 Block Fetch is the only node-to-node protocol whose peer sends an amount
 chosen by the local side. Its client limit is the reference
@@ -104,7 +125,15 @@ The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
 | MustReply | random in `[135, 269)` seconds | 462,000 |
 | Done | none | 462,000 |
 
-The N2C map has no state timeouts or pending-message byte limits. `MustReply`
+The N2C map has no state timeouts or pending-message byte limits, so no
+message is refused for its size. Every N2C state does carry a pending receive
+budget, `chainsync.PendingReceiveBytesNtC` (8 MiB, an implementation bound; the
+reference node-to-client policy has none): the read loop holds back a message
+that would take the received-but-unhandled bytes past it until the consumer has
+drained enough, which applies backpressure to the peer rather than failing the
+connection. A message larger than the whole budget is admitted once nothing
+else is pending. `PendingReceiveByteBudget` in a state map entry sets this
+per state. `MustReply`
 uses a fresh random timeout for each state entry; `MustReplyTimeout` is the
 fixed maximum retained for compatibility and configuration defaults.
 
@@ -213,6 +242,12 @@ refused.
 
 ## Handshake
 
+Both state maps bound the pending message bytes of the Propose and Confirm
+states at 5,760 bytes (`handshake.MaxPendingMessageBytes`), the reference
+implementation's `byteLimitsHandshake` (4 x 1440). A larger message is refused
+before it is decoded, so a peer that has not completed the handshake cannot
+make the node buffer and decode a message up to the read-buffer cap.
+
 For N2N, `Propose` and `Confirm` each have a 10-second timeout. The framework
 does not arm the initial state's timer by default; the N2N handshake server
 opts into its configured `Propose` timeout. N2C has no state timeouts and does
@@ -221,6 +256,10 @@ timeout. Client and server instances copy the N2N map and can override the
 applicable timeout with `WithTimeout`; the N2C map remains timeout-free.
 
 ## Keep Alive
+
+Both active states bound pending message bytes at 65,535
+(`keepalive.MaxPendingMessageBytes`), the reference implementation's
+`byteLimitsKeepAlive`.
 
 | State | Timeout |
 | --- | ---: |
@@ -310,5 +349,60 @@ framework. Message-specific limits and configuration validation are enforced
 by the owning protocol implementation. This document intentionally does not
 claim limits for protocols or states whose current map contains no such entry.
 
+## CBOR allocation budgets
+
+Encoded-message admission and decoded allocation use different bounds. The
+protocol framework's effective read-buffer allowance is 16 MiB by default and
+can be raised by the caller. State-map limits listed above apply before message
+decoding. A response containing an entire ledger-state map uses the normal
+mode's 10,000,000-element collection allowance. The strict mode's 131,072-element
+allowance applies when a caller explicitly chooses it. Both modes enforce their
+own nesting and collection limits on custom `Value` destinations before tree
+construction. Prefix decoding retains only the consumed item's bytes and leaves
+subsequent items available to the caller.
+
+| Message family | Encoded allowance | Decoded allocation contract |
+| --- | --- | --- |
+| Handshake proposal/acceptance | 5,760 bytes | Version maps pass the selected CBOR mode's pre-allocation validation. |
+| Keep Alive | 65,535 bytes | Cookies and message discriminants have fixed scalar shapes. |
+| Local State Query query/result | Effective read-buffer allowance | Query input sets have their own 10,000-item request bound. Result maps retain the normal decoder's larger allowance, including whole-UTxO queries. Raw result storage grows with the actual encoded payload. |
+| Local Tx Monitor next-transaction reply | Effective read-buffer allowance | Transaction bytes and the optional reply envelope are validated before typed decoding. |
+| Local Tx Submission submit/rejection | Effective read-buffer allowance | Transaction bytes and raw rejection data are retained from validated input. |
+| Leios Fetch block, transaction and vote replies | Effective read-buffer allowance per message; range retention defaults to 64 MiB and 1,000 messages | Raw-item collections validate encoded items before allocation. Range retention is enforced by the client separately. |
+| Leios Notify vote offers | 256 KiB and 1,000 votes | Definite counts and indefinite entries are checked before the vote list is allocated. Other notifications use the configured pending-byte allowance. |
+| Leios Votes vote reply | Effective read-buffer allowance | Typed fields use the normal CBOR mode; request counts are independently limited to 1,000. |
+| Peras vote IDs/objects | `maxObjectsUnacknowledged × 1,100 + 256` bytes | Lists are checked against the supported outstanding-window maximum. Fixed vote envelopes are checked before opaque bytes are retained. |
+| Leios endorser-block references | At least 35 encoded bytes per valid reference | A hash32 uses a two-byte header and 32 payload bytes; size uses at least one byte. Counts exceeding available encoded entries are rejected before allocation. Collections grow as entries validate. |
+
+Typed CBOR decoders validate definite and indefinite collection claims before
+materializing them. Seven-byte truncated local-query, local-transaction, Leios
+and Peras reply vectors exercise this admission separately from healthy large
+responses. A whole-UTxO response with 131,073 valid outputs occupies about
+9 MiB and remains accepted. Collection policies retain historical duplicate-map
+behavior and optional set tags in their owning ledger eras.
+
+Diagnostic tree construction has a separate inspection budget. Its default
+retained-byte and work allowances are 128 MiB, eight times `Diagnose`'s 16 MiB
+input allowance. This accommodates owned input, growing decoder scratch and
+copied string payloads. Node admission reserves eight node-sized storage units
+plus 512 bytes of scalar-decoder scratch. Node and cumulative collection-item
+defaults are derived from that reservation. Array entries, map pairs and
+indefinite-string chunks share one collection counter. Input visits, node
+visits and payload-copy work share one work counter. Tag-24 block wrappers and
+their embedded trees spend the same operation budget.
+
+`DiagnosticOptions.ParseLimits` and `ParseDiagnosticWithLimits` configure these
+inspection budgets. Zero fields choose the documented defaults; negative fields
+are rejected. `MaxDepth`, `MaxArrayItems` and `MaxByteLength` control rendering.
+Every raw span is a capacity-bounded, read-only view into one owned input buffer;
+copy it before modification. String values and indefinite-string concatenation
+are charged separately before copying.
+
+The shared block corpus spans Byron through Conway. Its largest diagnostic
+case has 17,943 encoded bytes, 1,543 nodes and depth 18. Construction budgets
+cover the corpus and bound hostile scalar arrays, maps, nested tags and string
+chunks without imposing inspection budgets on ledger validation.
+
 The repository's `build-examples` workflow runs `make build` on pull requests;
-that target builds every module under `examples/` against the public API.
+that target builds every program under `examples/` against the public API
+using the root module's dependencies.

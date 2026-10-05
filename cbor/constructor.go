@@ -73,17 +73,28 @@ func (ce ConstructorEncoder) MarshalCBOR() ([]byte, error) {
 }
 
 // ConstructorDecoder decodes a CBOR constructor/alternative, keeping fields as
-// raw CBOR bytes for type-safe deferred decoding.
+// raw CBOR bytes for type-safe deferred decoding. cbor.Value decodes any
+// constructor tag into a ConstructorDecoder.
 //
-// This replaces the pattern of decoding into cbor.Value and then type-asserting
-// to Constructor. Instead, embed ConstructorDecoder and call DecodeFields to
-// decode into typed structs:
+// Constructors are the Plutus Data encoding of a sum type. Alternative N is
+// written as:
+//   - tags 121-127 for alternatives 0-6, with the fields as the tag content;
+//   - tags 1280-1400 for alternatives 7-127, with the fields as the tag content;
+//   - tag 102 for alternatives 128 and above, with the content [N, fields].
 //
-//	type DatumOption struct {
+// Ledger sum types (datum options, native scripts, certificates, governance
+// actions and similar) do not use these tags. The CDDL encodes them as a list
+// whose first element is the variant number, such as [0, hash] or
+// [1, #6.24(data)], and must keep decoding with DecodeIdFromList.
+//
+// Embed ConstructorDecoder in a type that decodes a Plutus Data constructor
+// and call Tag and DecodeFields to decode the fields into typed values:
+//
+//	type MyConstr struct {
 //	    cbor.ConstructorDecoder
 //	}
 //
-//	func (d *DatumOption) IsDatumHash() bool { return d.Tag() == 0 }
+//	func (m *MyConstr) IsFirst() bool { return m.Tag() == 0 }
 type ConstructorDecoder struct {
 	DecodeStoreCbor
 	tag    uint

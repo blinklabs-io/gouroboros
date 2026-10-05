@@ -15,7 +15,6 @@
 package txsubmission
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
@@ -92,6 +91,7 @@ func (s *Server) initProtocol() {
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        stateInit,
+		IngressLimit:        MaxPendingMessageBytes,
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
@@ -478,7 +478,9 @@ func (s *Server) handleDone() error {
 	resultChan <- requestTxIdsResult{
 		err: ErrStopServerProcess,
 	}
-	// Call the user callback function
+	if s.config != nil && s.config.OnDone != nil {
+		s.config.OnDone(callbackContext.ConnectionId)
+	}
 	if s.config != nil && s.config.DoneFunc != nil {
 		if err := s.config.DoneFunc(callbackContext); err != nil {
 			return err
@@ -503,11 +505,14 @@ func (s *Server) handleInit() error {
 			"role", "server",
 			"connection_id", callbackContext.ConnectionId.String(),
 		)
-	if s.config == nil || s.config.InitFunc == nil {
-		return errors.New(
-			"received tx-submission Init message but no callback function is defined",
-		)
+	if s.config == nil {
+		return nil
 	}
-	// Call the user callback function
-	return s.config.InitFunc(callbackContext)
+	if s.config.OnInit != nil {
+		s.config.OnInit(callbackContext.ConnectionId)
+	}
+	if s.config.InitFunc != nil {
+		return s.config.InitFunc(callbackContext)
+	}
+	return nil
 }

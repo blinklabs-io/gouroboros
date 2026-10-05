@@ -473,6 +473,31 @@ func TestVerifyTransactionExecutesSubtransactionNativeGuards(t *testing.T) {
 	}
 }
 
+// A sub-transaction witness script that no purpose at any level requires is
+// not evaluated, the same neededness filter the top level applies.
+func TestVerifyTransactionSkipsUnneededSubtransactionNativeScripts(
+	t *testing.T,
+) {
+	native := testRequireGuardNativeScript(t, testGuardCredential())
+	subTx := DijkstraSubTransaction{}
+	subTx.WitnessSet.WsNativeScripts = cbor.NewSetType(
+		[]common.NativeScript{native},
+		true,
+	)
+	tx := &DijkstraTransaction{TxIsValid: true}
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]DijkstraSubTransaction{subTx},
+		true,
+	)
+	require.NoError(t, common.VerifyTransaction(
+		tx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&DijkstraProtocolParameters{},
+		[]common.UtxoValidationRuleFunc{UtxoValidateNativeScripts},
+	))
+}
+
 func TestVerifyTransactionSubtransactionGuardControls(t *testing.T) {
 	tests := []struct {
 		name        string

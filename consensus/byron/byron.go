@@ -28,6 +28,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"math/bits"
 	"time"
 
 	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
@@ -75,7 +76,8 @@ type ByronTxFeePolicy struct {
 const ByronFeeDivisor = 1_000_000_000 // 10^9
 
 // CalculateMinFee calculates the minimum required fee for a Byron transaction
-// of the given size in bytes. Returns the fee in lovelace.
+// of the given size in bytes. Returns the fee in lovelace, saturating at
+// MaxUint64 when the exact fee cannot fit in uint64.
 //
 // The Byron fee formula is: fee = ceiling((summand + multiplier * txSize) / 10^9)
 func (p *ByronTxFeePolicy) CalculateMinFee(txSizeBytes uint64) uint64 {
@@ -89,33 +91,19 @@ func (p *ByronTxFeePolicy) CalculateMinFee(txSizeBytes uint64) uint64 {
 		return 0
 	}
 
-	// Pre-multiplication overflow check for p.Multiplier * int64(txSizeBytes)
-	// Since we've rejected negative values above, p.Multiplier is non-negative
-	var total int64
-	if p.Multiplier != 0 {
-		// #nosec G115 -- p.Multiplier is guaranteed non-negative (checked above)
-		multiplierUint := uint64(p.Multiplier)
-		// Check: txSizeBytes > MaxInt64 / multiplier would overflow
-		if txSizeBytes > uint64(math.MaxInt64)/multiplierUint {
-			// Overflow would occur - return maximum possible fee
-			// This is a deterministic fallback for extreme edge cases
-			total = math.MaxInt64
-		} else {
-			// Safe to compute: summand + multiplier * txSize
-			// #nosec G115 -- overflow checked above
-			total = p.Summand + p.Multiplier*int64(txSizeBytes)
-		}
-	} else {
-		// Multiplier is 0, so just use summand
-		total = p.Summand
+	high, low := bits.Mul64(uint64(p.Multiplier), txSizeBytes)
+	var carry uint64
+	low, carry = bits.Add64(low, uint64(p.Summand), 0)
+	high += carry
+
+	divisor := uint64(ByronFeeDivisor)
+	if high >= divisor {
+		return math.MaxUint64
 	}
-
-	// Ceiling division using unsigned arithmetic to avoid overflow when total == math.MaxInt64
-	// Formula: (total + divisor - 1) / divisor, but computed with uint64 to prevent wraparound
-	// total is guaranteed non-negative due to early return for negative policy fields
-	// #nosec G115 -- total is guaranteed non-negative due to early return for negative policy fields
-	fee := (uint64(total) + uint64(ByronFeeDivisor) - 1) / uint64(ByronFeeDivisor)
-
+	fee, remainder := bits.Div64(high, low, divisor)
+	if remainder != 0 && fee < math.MaxUint64 {
+		fee++
+	}
 	return fee
 }
 
