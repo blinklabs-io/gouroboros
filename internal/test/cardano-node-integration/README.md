@@ -32,3 +32,8 @@ If either variable is missing, the tagged test skips when invoked directly.
 The runner requires both values so a misconfigured integration run cannot pass
 as a successful skip. The normal `go test ./...` and `make test` commands do
 not include this suite because it requires an external node.
+
+The `cardano-node-integration` workflow vets and lints the tagged suite, then
+runs it against a preview `cardano-node` container started without a Mithril
+snapshot, so it serves blocks from genesis shortly after startup. UNIX socket
+paths are limited to 108 bytes, so keep the socket path short.

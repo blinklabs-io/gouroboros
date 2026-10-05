@@ -73,6 +73,14 @@ func dialNode(
 
 	rollForward := make(chan rollForwardResult, 1)
 	chainSyncConfig := chainsync.NewConfig(
+		// A node answers FindIntersect with RollBackward to the intersection
+		// before sending any block, and the client fails the connection when
+		// no RollBackward callback is configured.
+		chainsync.WithRollBackwardFunc(
+			func(chainsync.CallbackContext, pcommon.Point, chainsync.Tip) error {
+				return nil
+			},
+		),
 		chainsync.WithRollForwardFunc(
 			func(
 				_ chainsync.CallbackContext,
