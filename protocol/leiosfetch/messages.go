@@ -69,8 +69,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			msgType,
 		)
 	}
-	if _, err := cbor.Decode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	var decodeErr error
+	if request, ok := ret.(*MsgVotesRequest); ok {
+		decodeErr = request.UnmarshalCBOR(data)
+	} else {
+		_, decodeErr = cbor.Decode(data, ret)
+	}
+	if decodeErr != nil {
+		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, decodeErr)
 	}
 	if uint(ret.Type()) != msgType {
 		return nil, fmt.Errorf(
