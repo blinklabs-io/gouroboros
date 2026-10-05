@@ -68,8 +68,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			msgType,
 		)
 	}
-	if _, err := cbor.Decode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	var decodeErr error
+	if reply, ok := ret.(*MsgReplyNextTx); ok {
+		decodeErr = reply.UnmarshalCBOR(data)
+	} else {
+		_, decodeErr = cbor.Decode(data, ret)
+	}
+	if decodeErr != nil {
+		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, decodeErr)
 	}
 	if ret != nil {
 		// Store the raw message CBOR
@@ -170,6 +176,13 @@ func NewMsgReplyNextTx(eraId uint8, tx []byte) *MsgReplyNextTx {
 }
 
 func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
+	if err := validateReplyNextTx(data); err != nil {
+		return err
+	}
+	return decodeReplyNextTx(data, m)
+}
+
+func decodeReplyNextTx(data []byte, m *MsgReplyNextTx) error {
 	var tmp []any
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
