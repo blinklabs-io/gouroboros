@@ -106,6 +106,7 @@ localmessagenotification.NewConfig(
 ```go
 // Configure client with reply callback
 cfg := localmessagenotification.NewConfig(
+    localmessagenotification.WithAuthenticator(authenticator),
     localmessagenotification.WithReplyMessagesFunc(func(ctx CallbackContext, messages []DmqMessage, hasMore bool) {
         for _, msg := range messages {
             // Handle message

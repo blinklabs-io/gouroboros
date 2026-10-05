@@ -122,7 +122,7 @@ func TestClientRejectsForgedAndExpiredRepliesBeforeCallback(t *testing.T) {
 			))
 			require.Error(t, err)
 			require.Zero(t, callbacks.Load())
-			require.Empty(t, client.acceptedIDs)
+			require.Empty(t, client.replayState.acceptedIDs)
 		})
 	}
 }
@@ -166,7 +166,7 @@ func TestClientConcurrentReplayInvokesCallbackOnce(t *testing.T) {
 	}
 	require.Equal(t, 1, successes)
 	require.Equal(t, int32(1), callbacks.Load())
-	require.Len(t, client.acceptedIDs, 1)
+	require.Len(t, client.replayState.acceptedIDs, 1)
 }
 
 func TestClientBatchFailureDoesNotReserveEarlierMessages(t *testing.T) {
@@ -188,7 +188,7 @@ func TestClientBatchFailureDoesNotReserveEarlierMessages(t *testing.T) {
 			false,
 		),
 	))
-	require.Zero(t, len(client.acceptedIDs))
+	require.Zero(t, len(client.replayState.acceptedIDs))
 	require.Zero(t, callbacks.Load())
 
 	require.NoError(t, client.messageHandler(
@@ -211,12 +211,77 @@ func TestClientReplayCacheCapAndExpiration(t *testing.T) {
 		[]pcommon.DmqMessage{second},
 		time.Unix(100, 0),
 	), "replay cache full")
-	require.Len(t, client.acceptedIDs, 1)
+	require.Len(t, client.replayState.acceptedIDs, 1)
 
 	require.NoError(t, client.reserveMessageIDs(
 		[]pcommon.DmqMessage{second},
 		time.Unix(101, 0),
 	))
-	require.Len(t, client.acceptedIDs, 1)
-	require.Contains(t, client.acceptedIDs, string(second.ID()))
+	require.Len(t, client.replayState.acceptedIDs, 1)
+	require.Contains(t, client.replayState.acceptedIDs, string(second.ID()))
+}
+
+func TestClientReplayCacheUsesBoundForZeroValueConfig(t *testing.T) {
+	cfg := Config{}
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	msg := clientTestMessage(t, "zero value config", 100)
+
+	require.NoError(t, client.reserveMessageIDs(
+		[]pcommon.DmqMessage{msg},
+		time.Unix(100, 0),
+	))
+	require.Len(t, client.replayState.acceptedIDs, 1)
+}
+
+func TestClientReplayReservationSurvivesReconstruction(t *testing.T) {
+	var callbacks atomic.Int32
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithReplyMessagesFunc(
+			func(CallbackContext, []pcommon.DmqMessage, bool) {
+				callbacks.Add(1)
+			},
+		),
+	)
+	msg := clientTestMessage(
+		t,
+		"reconnect replay",
+		uint32(time.Now().Add(time.Minute).Unix()),
+	)
+	firstClient := NewClient(protocol.ProtocolOptions{}, &cfg)
+	require.NoError(t, firstClient.messageHandler(
+		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{msg}, false),
+	))
+
+	secondClient := NewClient(protocol.ProtocolOptions{}, &cfg)
+	require.ErrorContains(t, secondClient.messageHandler(
+		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{msg}, false),
+	), "already accepted")
+	require.Equal(t, int32(1), callbacks.Load())
+}
+
+func TestClientRechecksTTLAfterAuthentication(t *testing.T) {
+	var callbacks atomic.Int32
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithReplyMessagesFunc(
+			func(CallbackContext, []pcommon.DmqMessage, bool) {
+				callbacks.Add(1)
+			},
+		),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	times := []time.Time{time.Unix(100, 0), time.Unix(101, 0)}
+	client.now = func() time.Time {
+		now := times[0]
+		times = times[1:]
+		return now
+	}
+	msg := clientTestMessage(t, "expires during authentication", 100)
+
+	require.ErrorContains(t, client.messageHandler(
+		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{msg}, false),
+	), "TTL validation failed")
+	require.Zero(t, callbacks.Load())
+	require.Empty(t, client.replayState.acceptedIDs)
 }

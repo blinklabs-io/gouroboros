@@ -43,6 +43,7 @@ type Server struct {
 	done                   chan struct{}
 	stopOnce               sync.Once
 	connectionDoneChan     <-chan any
+	muxerDoneChan          <-chan bool
 }
 
 // NewServer returns a new LocalMessageNotification server object
@@ -61,6 +62,9 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		newMessageSignal:   make(chan struct{}, 1),
 		done:               make(chan struct{}),
 		connectionDoneChan: protoOptions.ConnectionDoneChan,
+	}
+	if protoOptions.Muxer != nil {
+		s.muxerDoneChan = protoOptions.Muxer.DoneChan()
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -146,32 +150,36 @@ func (s *Server) WaitForMessage(timeout time.Duration) error {
 		select {
 		case _, ok := <-s.newMessageSignal:
 			if !ok {
-				return errors.New("server shutting down")
+				return protocol.ErrProtocolShuttingDown
 			}
 			return nil
 		case <-timer.C:
 			return errors.New("timeout waiting for message")
 		case <-s.done:
-			return errors.New("server shutting down")
+			return protocol.ErrProtocolShuttingDown
 		case <-s.StopChan():
-			return errors.New("server shutting down")
+			return protocol.ErrProtocolShuttingDown
 		case <-s.connectionDoneChan:
-			return errors.New("connection shutting down")
+			return protocol.ErrProtocolShuttingDown
+		case <-s.muxerDoneChan:
+			return protocol.ErrProtocolShuttingDown
 		}
 	}
 	// Wait indefinitely
 	select {
 	case _, ok := <-s.newMessageSignal:
 		if !ok {
-			return errors.New("server shutting down")
+			return protocol.ErrProtocolShuttingDown
 		}
 		return nil
 	case <-s.done:
-		return errors.New("server shutting down")
+		return protocol.ErrProtocolShuttingDown
 	case <-s.StopChan():
-		return errors.New("server shutting down")
+		return protocol.ErrProtocolShuttingDown
 	case <-s.connectionDoneChan:
-		return errors.New("connection shutting down")
+		return protocol.ErrProtocolShuttingDown
+	case <-s.muxerDoneChan:
+		return protocol.ErrProtocolShuttingDown
 	}
 }
 
@@ -306,6 +314,8 @@ func (s *Server) startExpirationCleaner() {
 			case <-s.StopChan():
 				return
 			case <-s.connectionDoneChan:
+				return
+			case <-s.muxerDoneChan:
 				return
 			case <-s.DoneChan():
 				return

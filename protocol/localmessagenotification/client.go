@@ -32,8 +32,28 @@ type Client struct {
 	onceStart       sync.Once
 	onceStop        sync.Once
 	stopErr         error
-	replayMu        sync.Mutex
-	acceptedIDs     map[string]uint32
+	replayState     *messageReplayState
+	now             func() time.Time
+}
+
+type messageReplayState struct {
+	mu          sync.Mutex
+	acceptedIDs map[string]uint32
+}
+
+var replayStateInitMu sync.Mutex
+
+func newMessageReplayState() *messageReplayState {
+	return &messageReplayState{acceptedIDs: make(map[string]uint32)}
+}
+
+func replayStateForConfig(cfg *Config) *messageReplayState {
+	replayStateInitMu.Lock()
+	defer replayStateInitMu.Unlock()
+	if cfg.replayState == nil {
+		cfg.replayState = newMessageReplayState()
+	}
+	return cfg.replayState
 }
 
 // NewClient returns a new LocalMessageNotification client object
@@ -44,7 +64,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config:      cfg,
-		acceptedIDs: make(map[string]uint32),
+		replayState: replayStateForConfig(cfg),
+		now:         time.Now,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -216,13 +237,19 @@ func (c *Client) validateAndReserve(messages []pcommon.DmqMessage) error {
 	if c.config.Authenticator == nil {
 		return errors.New("dmq: message authenticator not configured")
 	}
-	now := time.Now()
+	now := c.now()
 	for i := range messages {
 		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
 			return fmt.Errorf("message %d TTL validation failed: %w", i, err)
 		}
-		if err := c.config.Authenticator.VerifyMessage(&messages[i]); err != nil {
-			return fmt.Errorf("message %d authentication failed: %w", i, err)
+	}
+	if err := c.config.Authenticator.VerifyMessages(messages); err != nil {
+		return err
+	}
+	now = c.now()
+	for i := range messages {
+		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
+			return fmt.Errorf("message %d TTL validation failed: %w", i, err)
 		}
 	}
 	return c.reserveMessageIDs(messages, now)
@@ -232,35 +259,42 @@ func (c *Client) reserveMessageIDs(
 	messages []pcommon.DmqMessage,
 	now time.Time,
 ) error {
-	c.replayMu.Lock()
-	defer c.replayMu.Unlock()
+	c.replayState.mu.Lock()
+	defer c.replayState.mu.Unlock()
 
 	nowUnix := now.Unix()
-	for id, expiresAt := range c.acceptedIDs {
+	for id, expiresAt := range c.replayState.acceptedIDs {
 		if nowUnix > int64(expiresAt) {
-			delete(c.acceptedIDs, id)
+			delete(c.replayState.acceptedIDs, id)
 		}
 	}
 
 	batch := make(map[string]uint32, len(messages))
 	for i := range messages {
 		id := string(messages[i].ID())
-		if _, exists := c.acceptedIDs[id]; exists {
+		if _, exists := c.replayState.acceptedIDs[id]; exists {
 			return fmt.Errorf("message %d was already accepted", i)
 		}
 		if _, exists := batch[id]; exists {
-			return fmt.Errorf("message %d duplicates an earlier message in the reply", i)
+			return fmt.Errorf(
+				"message %d duplicates an earlier message in the reply",
+				i,
+			)
 		}
 		batch[id] = messages[i].Payload.ExpiresAt
 	}
-	if c.config.MaxReplayEntries <= 0 {
+	maxReplayEntries := c.config.MaxReplayEntries
+	if maxReplayEntries == 0 {
+		maxReplayEntries = defaultMaxReplayEntries
+	}
+	if maxReplayEntries < 0 {
 		return errors.New("dmq: MaxReplayEntries must be greater than zero")
 	}
-	if len(c.acceptedIDs)+len(batch) > c.config.MaxReplayEntries {
+	if len(c.replayState.acceptedIDs)+len(batch) > maxReplayEntries {
 		return errors.New("dmq: replay cache full")
 	}
 	for id, expiresAt := range batch {
-		c.acceptedIDs[id] = expiresAt
+		c.replayState.acceptedIDs[id] = expiresAt
 	}
 	return nil
 }

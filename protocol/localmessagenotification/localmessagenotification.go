@@ -139,6 +139,7 @@ type Config struct {
 	// Shared configuration
 	Authenticator *pcommon.MessageAuthenticator
 	TTLValidator  *pcommon.TTLValidator
+	replayState   *messageReplayState
 }
 
 // CallbackContext provides context for callback functions
@@ -171,6 +172,7 @@ func NewConfig(options ...LocalMessageNotificationOptionFunc) Config {
 	c := Config{
 		MaxQueueSize:     100,
 		MaxReplayEntries: defaultMaxReplayEntries,
+		replayState:      newMessageReplayState(),
 	}
 	// Apply provided options functions
 	for _, option := range options {

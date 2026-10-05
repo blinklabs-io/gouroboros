@@ -232,6 +232,68 @@ func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	return m.verifyMessageInternal(msg, &slot)
 }
 
+// VerifyMessages verifies a batch at one authoritative current slot and
+// commits operational-certificate cache updates only when every message is
+// valid.
+func (m *MessageAuthenticator) VerifyMessages(messages []DmqMessage) error {
+	if m.disableValidation || len(messages) == 0 {
+		return nil
+	}
+	slot, err := m.currentSlot()
+	if err != nil {
+		return fmt.Errorf("look up current slot: %w", err)
+	}
+
+	m.mu.Lock()
+	cacheSnapshot := make(map[PoolKeyHash]uint64, len(m.kesOpCertCache))
+	for poolID, issueNumber := range m.kesOpCertCache {
+		cacheSnapshot[poolID] = issueNumber
+	}
+	m.mu.Unlock()
+	batchAuthenticator := &MessageAuthenticator{
+		logger:                m.logger,
+		stakeAuthority:        m.stakeAuthority,
+		currentSlot:           m.currentSlot,
+		poolOpCertIssueNumber: m.poolOpCertIssueNumber,
+		kesOpCertCache:        cacheSnapshot,
+		slotsPerKesPeriod:     m.slotsPerKesPeriod,
+		maxKESEvolutions:      m.maxKESEvolutions,
+	}
+	touchedPools := make(map[PoolKeyHash]struct{})
+	for i := range messages {
+		if err := batchAuthenticator.verifyMessageInternal(&messages[i], &slot); err != nil {
+			return fmt.Errorf("message %d authentication failed: %w", i, err)
+		}
+		poolID, err := poolKeyHash(messages[i].ColdVerificationKey)
+		if err != nil {
+			return fmt.Errorf("message %d compute pool id: %w", i, err)
+		}
+		touchedPools[poolID] = struct{}{}
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for poolID := range touchedPools {
+		issueNumber := batchAuthenticator.kesOpCertCache[poolID]
+		if currentIssue, exists := m.kesOpCertCache[poolID]; exists &&
+			issueNumber < currentIssue {
+			return fmt.Errorf(
+				"opcert number went backwards: previous=%d, current=%d",
+				currentIssue,
+				issueNumber,
+			)
+		}
+	}
+	for poolID := range touchedPools {
+		issueNumber := batchAuthenticator.kesOpCertCache[poolID]
+		if currentIssue, exists := m.kesOpCertCache[poolID]; !exists ||
+			issueNumber > currentIssue {
+			m.kesOpCertCache[poolID] = issueNumber
+		}
+	}
+	return nil
+}
+
 // VerifyMessageWithSlot verifies a message using an explicit slot value. When available,
 // callers should supply the slot (e.g., from the block header) so KES period/current period
 // checks are accurate.

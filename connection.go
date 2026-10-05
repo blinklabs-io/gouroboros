@@ -438,6 +438,17 @@ func (c *Connection) stopProtocols() {
 	}
 }
 
+func (c *Connection) lockProtocolSetup() error {
+	c.protocolMu.Lock()
+	select {
+	case <-c.doneChan:
+		c.protocolMu.Unlock()
+		return errors.New("connection shutting down")
+	default:
+		return nil
+	}
+}
+
 // protocolInstancesLocked returns the protocols constructed for this
 // connection. The caller must hold c.protocolMu for reading.
 func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
@@ -752,7 +763,9 @@ func (c *Connection) setupConnection() error {
 	if c.useNodeToNodeProto {
 		versionNtN := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
-		c.protocolMu.Lock()
+		if err := c.lockProtocolSetup(); err != nil {
+			return err
+		}
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.blockFetch = blockfetch.New(protoOptions, c.blockFetchConfig)
 		c.txSubmission = txsubmission.New(protoOptions, c.txSubmissionConfig)
@@ -853,7 +866,9 @@ func (c *Connection) setupConnection() error {
 		// LocalMessageNotification (proto 15) are valid on this
 		// connection. No chain-sync, no localTxSubmission, etc.
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
-		c.protocolMu.Lock()
+		if err := c.lockProtocolSetup(); err != nil {
+			return err
+		}
 		c.localMessageSubmission = localmessagesubmission.New(
 			protoOptions,
 			c.localMessageSubmissionConfig,
@@ -883,7 +898,9 @@ func (c *Connection) setupConnection() error {
 	} else {
 		versionNtC := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
-		c.protocolMu.Lock()
+		if err := c.lockProtocolSetup(); err != nil {
+			return err
+		}
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.localTxSubmission = localtxsubmission.New(protoOptions, c.localTxSubmissionConfig)
 		if versionNtC.EnableLocalQueryProtocol {

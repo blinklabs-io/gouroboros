@@ -78,7 +78,7 @@ func TestServerStopUnblocksWaitingRequest(t *testing.T) {
 		require.NoError(t, server.Stop())
 		select {
 		case err := <-result:
-			require.ErrorContains(t, err, "server shutting down")
+			require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
 		case <-time.After(time.Second):
 			t.Fatal("waiting request was not cancelled")
 		}
@@ -114,7 +114,7 @@ func TestConnectionDoneCancelsBlockingRequestAndCleaner(t *testing.T) {
 		close(connectionDone)
 		select {
 		case err := <-result:
-			require.ErrorContains(t, err, "connection shutting down")
+			require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
 		case <-time.After(time.Second):
 			t.Fatal("blocking request did not observe connection shutdown")
 		}
@@ -124,4 +124,26 @@ func TestConnectionDoneCancelsBlockingRequestAndCleaner(t *testing.T) {
 			t.Fatal("expiration cleaner did not observe connection shutdown")
 		}
 	})
+}
+
+func TestMuxerDoneCancelsStandaloneBlockingRequestAndCleaner(t *testing.T) {
+	localConn, remoteConn := net.Pipe()
+	t.Cleanup(func() { _ = remoteConn.Close() })
+	protocolMuxer := muxer.New(localConn)
+	server := NewServer(protocol.ProtocolOptions{Muxer: protocolMuxer}, nil)
+	result := make(chan error, 1)
+	go func() { result <- server.handleBlockingRequest() }()
+
+	protocolMuxer.Stop()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		t.Fatal("blocking request did not observe muxer shutdown")
+	}
+	select {
+	case <-server.expirationDoneChan:
+	case <-time.After(time.Second):
+		t.Fatal("expiration cleaner did not observe muxer shutdown")
+	}
 }

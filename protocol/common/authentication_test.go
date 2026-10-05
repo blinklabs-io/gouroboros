@@ -1057,6 +1057,34 @@ func TestVerifyMessageRejectsMismatchedPoolIdentity(t *testing.T) {
 	require.Empty(t, auth.kesOpCertCache)
 }
 
+func TestVerifyMessagesRejectsBatchWithoutCacheMutation(t *testing.T) {
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority:        stake,
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+	})
+	require.NoError(t, err)
+
+	valid := buildSignedTestMessage(t, 100, 100)
+	validPoolID, err := poolKeyHash(valid.ColdVerificationKey)
+	require.NoError(t, err)
+	stake.register(validPoolID, 1000)
+	invalid := buildSignedTestMessage(t, 100, 100)
+	invalidPoolID, err := poolKeyHash(invalid.ColdVerificationKey)
+	require.NoError(t, err)
+	stake.register(invalidPoolID, 1000)
+	invalid.OperationalCertificate.ColdSignature = make(
+		[]byte,
+		ed25519.SignatureSize,
+	)
+
+	require.Error(t, auth.VerifyMessages([]DmqMessage{*valid, *invalid}))
+	require.Empty(t, auth.kesOpCertCache)
+	require.NoError(t, auth.VerifyMessage(valid))
+	require.Contains(t, auth.kesOpCertCache, validPoolID)
+}
+
 // TestOpCertCacheAdmitsOnlyAuthorizedPools pins the property the opcert
 // cache's memory bound rests on: verifyMessageInternal runs stake
 // authorization and both signature checks before verifyKESPeriodRotation

@@ -52,3 +52,22 @@ func TestConnectionShutdownStopsConstructedDMQProtocols(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectionRefusesProtocolSetupAfterShutdownBegins(t *testing.T) {
+	conn, err := New()
+	require.NoError(t, err)
+	conn.doneChan = make(chan any)
+	close(conn.doneChan)
+
+	require.ErrorContains(
+		t,
+		conn.lockProtocolSetup(),
+		"connection shutting down",
+	)
+	require.True(
+		t,
+		conn.protocolMu.TryLock(),
+		"protocol setup left its lock held",
+	)
+	conn.protocolMu.Unlock()
+}
