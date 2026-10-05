@@ -200,13 +200,13 @@ func TestClientRejectsForgedAndExpiredRepliesBeforeCallback(t *testing.T) {
 	}
 }
 
-func TestClientConcurrentReplayInvokesCallbackOnce(t *testing.T) {
+func TestClientConcurrentReplayDeliversMessageOnce(t *testing.T) {
 	const attempts = 32
-	var callbacks atomic.Int32
+	var delivered atomic.Int32
 	cfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
-		WithReplyMessagesFunc(func(CallbackContext, []pcommon.DmqMessage, bool) {
-			callbacks.Add(1)
+		WithReplyMessagesFunc(func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
+			delivered.Add(int32(len(messages)))
 		}),
 	)
 	client := NewClient(protocol.ProtocolOptions{}, &cfg)
@@ -231,14 +231,10 @@ func TestClientConcurrentReplayInvokesCallbackOnce(t *testing.T) {
 	wg.Wait()
 	close(errs)
 
-	successes := 0
 	for err := range errs {
-		if err == nil {
-			successes++
-		}
+		require.NoError(t, err)
 	}
-	require.Equal(t, 1, successes)
-	require.Equal(t, int32(1), callbacks.Load())
+	require.Equal(t, int32(1), delivered.Load())
 	require.Len(t, client.replayState.acceptedIDs, 1)
 }
 
@@ -270,31 +266,59 @@ func TestClientBatchFailureDoesNotReserveEarlierMessages(t *testing.T) {
 	require.Equal(t, int32(1), callbacks.Load())
 }
 
-func TestClientReplayCacheCapAndExpiration(t *testing.T) {
-	cfg := NewConfig(WithMaxReplayEntries(1))
+func TestClientReplayCacheEvictsEarliestExpiry(t *testing.T) {
+	cfg := NewConfig(WithMaxReplayEntries(2))
 	client := NewClient(protocol.ProtocolOptions{}, &cfg)
-	first := clientTestMessage(t, "first", 100)
-	second := clientTestMessage(t, "second", 200)
+	late := clientTestMessage(t, "late", 300)
+	early := clientTestMessage(t, "early", 200)
+	next := clientTestMessage(t, "next", 250)
 
-	require.NoError(t, client.commitAcceptedMessages(
-		[]pcommon.DmqMessage{first},
-		time.Unix(100, 0),
-		nil,
-	))
-	require.ErrorContains(t, client.commitAcceptedMessages(
-		[]pcommon.DmqMessage{second},
-		time.Unix(100, 0),
-		nil,
-	), "replay cache full")
-	require.Len(t, client.replayState.acceptedIDs, 1)
+	for _, msg := range []pcommon.DmqMessage{late, early, next} {
+		accepted, err := client.commitAcceptedMessages(
+			[]pcommon.DmqMessage{msg},
+			time.Unix(100, 0),
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, accepted, 1)
+	}
+	require.Len(t, client.replayState.acceptedIDs, 2)
+	require.Contains(t, client.replayState.acceptedIDs, string(late.ID()))
+	require.Contains(t, client.replayState.acceptedIDs, string(next.ID()))
 
-	require.NoError(t, client.commitAcceptedMessages(
-		[]pcommon.DmqMessage{second},
-		time.Unix(101, 0),
+	after := clientTestMessage(t, "after", 400)
+	accepted, err := client.commitAcceptedMessages(
+		[]pcommon.DmqMessage{after},
+		time.Unix(251, 0),
 		nil,
-	))
+	)
+	require.NoError(t, err)
+	require.Len(t, accepted, 1)
+	require.Len(t, client.replayState.acceptedIDs, 2)
+	require.Contains(t, client.replayState.acceptedIDs, string(late.ID()))
+	require.Contains(t, client.replayState.acceptedIDs, string(after.ID()))
+}
+
+func TestClientFullReplayCacheDeliversNewMessages(t *testing.T) {
+	var delivered atomic.Int32
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithMaxReplayEntries(1),
+		WithReplyMessagesFunc(func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
+			delivered.Add(int32(len(messages)))
+		}),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	expiresAt := uint32(time.Now().Add(time.Minute).Unix())
+
+	for _, body := range []string{"first", "second", "third"} {
+		require.NoError(t, client.messageHandler(NewMsgReplyMessagesNonBlocking(
+			[]pcommon.DmqMessage{clientTestMessage(t, body, expiresAt)},
+			false,
+		)))
+	}
+	require.Equal(t, int32(3), delivered.Load())
 	require.Len(t, client.replayState.acceptedIDs, 1)
-	require.Contains(t, client.replayState.acceptedIDs, string(second.ID()))
 }
 
 func TestClientReplayCacheUsesBoundForZeroValueConfig(t *testing.T) {
@@ -302,39 +326,99 @@ func TestClientReplayCacheUsesBoundForZeroValueConfig(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, &cfg)
 	msg := clientTestMessage(t, "zero value config", 100)
 
-	require.NoError(t, client.commitAcceptedMessages(
+	_, err := client.commitAcceptedMessages(
 		[]pcommon.DmqMessage{msg},
 		time.Unix(100, 0),
 		nil,
-	))
+	)
+	require.NoError(t, err)
 	require.Len(t, client.replayState.acceptedIDs, 1)
 }
 
-func TestClientReplayReservationSurvivesReconstruction(t *testing.T) {
-	var callbacks atomic.Int32
+func TestClientReconnectReplayDeliversOnlyNewMessages(t *testing.T) {
+	var deliveries [][]pcommon.DmqMessage
 	cfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
 		WithReplyMessagesFunc(
-			func(CallbackContext, []pcommon.DmqMessage, bool) {
-				callbacks.Add(1)
+			func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
+				deliveries = append(deliveries, messages)
 			},
 		),
 	)
-	msg := clientTestMessage(
-		t,
-		"reconnect replay",
-		uint32(time.Now().Add(time.Minute).Unix()),
-	)
+	expiresAt := uint32(time.Now().Add(time.Minute).Unix())
+	msg := clientTestMessage(t, "reconnect replay", expiresAt)
+	fresh := clientTestMessage(t, "after reconnect", expiresAt)
 	firstClient := NewClient(protocol.ProtocolOptions{}, &cfg)
 	require.NoError(t, firstClient.messageHandler(
 		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{msg}, false),
 	))
 
 	secondClient := NewClient(protocol.ProtocolOptions{}, &cfg)
-	require.ErrorContains(t, secondClient.messageHandler(
-		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{msg}, false),
-	), "already accepted")
-	require.Equal(t, int32(1), callbacks.Load())
+	require.NoError(t, secondClient.messageHandler(
+		NewMsgReplyMessagesBlocking([]pcommon.DmqMessage{msg, fresh}),
+	))
+	require.Len(t, deliveries, 2)
+	require.Equal(t, []pcommon.DmqMessage{fresh}, deliveries[1])
+}
+
+func TestClientDropsDuplicateWithinReply(t *testing.T) {
+	var deliveries [][]pcommon.DmqMessage
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithReplyMessagesFunc(
+			func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
+				deliveries = append(deliveries, messages)
+			},
+		),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	msg := clientTestMessage(
+		t,
+		"duplicate",
+		uint32(time.Now().Add(time.Minute).Unix()),
+	)
+
+	require.NoError(t, client.messageHandler(
+		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{msg, msg}, false),
+	))
+	require.Equal(t, [][]pcommon.DmqMessage{{msg}}, deliveries)
+}
+
+func TestClientReplayAfterOpCertRotationIsDropped(t *testing.T) {
+	messages, _ := clientTestSignedMessages(
+		t,
+		[]string{"before rotation"},
+		[]uint64{1},
+		[]uint32{200},
+	)
+	var chainIssue atomic.Uint64
+	authenticator, err := pcommon.NewMessageAuthenticator(
+		pcommon.MessageAuthenticatorConfig{
+			StakeAuthority: clientTestStakeAuthority{},
+			CurrentSlot: func() (uint64, error) {
+				return 129600, nil
+			},
+			PoolOpCertIssueNumber: func(
+				pcommon.PoolKeyHash,
+			) (uint64, bool, error) {
+				return chainIssue.Load(), true, nil
+			},
+		},
+	)
+	require.NoError(t, err)
+	chainIssue.Store(1)
+	cfg := NewConfig(WithAuthenticator(authenticator))
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	client.now = func() time.Time { return time.Unix(100, 0) }
+
+	accepted, err := client.validateAndReserve(messages)
+	require.NoError(t, err)
+	require.Len(t, accepted, 1)
+
+	chainIssue.Store(2)
+	accepted, err = client.validateAndReserve(messages)
+	require.NoError(t, err)
+	require.Empty(t, accepted)
 }
 
 func TestClientRechecksTTLAfterAuthentication(t *testing.T) {
@@ -363,7 +447,7 @@ func TestClientRechecksTTLAfterAuthentication(t *testing.T) {
 	require.Empty(t, client.replayState.acceptedIDs)
 }
 
-func TestClientReplayRejectionDoesNotCommitHigherOpCert(t *testing.T) {
+func TestClientDroppedReplayDoesNotCommitHigherOpCert(t *testing.T) {
 	messages, authenticator := clientTestSignedMessages(
 		t,
 		[]string{"same", "same", "later"},
@@ -374,10 +458,13 @@ func TestClientReplayRejectionDoesNotCommitHigherOpCert(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, &cfg)
 	client.now = func() time.Time { return time.Unix(100, 0) }
 
-	require.NoError(t, client.validateAndReserve(messages[:1]))
-	require.ErrorContains(t, client.validateAndReserve(messages[1:2]), "already accepted")
-	delete(client.replayState.acceptedIDs, string(messages[0].ID()))
-	require.NoError(t, client.validateAndReserve(messages[2:]))
+	_, err := client.validateAndReserve(messages[:1])
+	require.NoError(t, err)
+	accepted, err := client.validateAndReserve(messages[1:2])
+	require.NoError(t, err)
+	require.Empty(t, accepted)
+	_, err = client.validateAndReserve(messages[2:])
+	require.NoError(t, err)
 }
 
 func TestClientExpiryRejectionDoesNotCommitHigherOpCert(t *testing.T) {
@@ -399,26 +486,8 @@ func TestClientExpiryRejectionDoesNotCommitHigherOpCert(t *testing.T) {
 		return now
 	}
 
-	require.ErrorContains(t, client.validateAndReserve(messages[:1]), "TTL validation failed")
-	require.NoError(t, client.validateAndReserve(messages[1:]))
-}
-
-func TestClientReplayCapRejectionDoesNotCommitHigherOpCert(t *testing.T) {
-	messages, authenticator := clientTestSignedMessages(
-		t,
-		[]string{"first", "higher", "later"},
-		[]uint64{1, 2, 1},
-		[]uint32{100, 200, 200},
-	)
-	cfg := NewConfig(
-		WithAuthenticator(authenticator),
-		WithMaxReplayEntries(1),
-	)
-	client := NewClient(protocol.ProtocolOptions{}, &cfg)
-	client.now = func() time.Time { return time.Unix(100, 0) }
-
-	require.NoError(t, client.validateAndReserve(messages[:1]))
-	require.ErrorContains(t, client.validateAndReserve(messages[1:2]), "replay cache full")
-	client.now = func() time.Time { return time.Unix(101, 0) }
-	require.NoError(t, client.validateAndReserve(messages[2:]))
+	_, err := client.validateAndReserve(messages[:1])
+	require.ErrorContains(t, err, "TTL validation failed")
+	_, err = client.validateAndReserve(messages[1:])
+	require.NoError(t, err)
 }

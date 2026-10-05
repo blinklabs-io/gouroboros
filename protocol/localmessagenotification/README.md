@@ -126,7 +126,7 @@ err := client.RequestMessagesBlocking()
 The client validates every reply before invoking the configured callback:
 - KES signature verification
 - TTL validation
-- Duplicate message rejection until expiration
+- Messages already delivered are dropped until expiration, including after reconnection
 
 ## Notes
 

@@ -120,6 +120,11 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	if _, acknowledged := s.acknowledgedIDs[msgID]; acknowledged {
 		return errors.New("message already acknowledged")
 	}
+	for _, queued := range s.messageQueue {
+		if string(queued.ID()) == msgID {
+			return errors.New("message already queued")
+		}
+	}
 
 	// Check queue size limit
 	if len(s.messageQueue) >= s.config.MaxQueueSize {

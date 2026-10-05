@@ -161,6 +161,27 @@ func TestServerDuplicateDoesNotCommitHigherOpCert(t *testing.T) {
 	require.NoError(t, server.AddMessage(&messages[2]))
 }
 
+func TestServerRejectsQueuedDuplicate(t *testing.T) {
+	expiresAt := uint32(time.Now().Add(time.Minute).Unix())
+	messages, authenticator := clientTestSignedMessages(
+		t,
+		[]string{"same", "same", "later"},
+		[]uint64{1, 2, 1},
+		[]uint32{expiresAt, expiresAt, expiresAt},
+	)
+	cfg := NewConfig(WithAuthenticator(authenticator))
+	server := NewServer(protocol.ProtocolOptions{}, &cfg)
+	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+
+	require.NoError(t, server.AddMessage(&messages[0]))
+	require.ErrorContains(t, server.AddMessage(&messages[1]), "already queued")
+	require.NoError(t, server.AddMessage(&messages[2]))
+	server.lock.Lock()
+	drained := server.drainValidMessagesLocked(time.Now())
+	server.lock.Unlock()
+	require.Len(t, drained, 2)
+}
+
 func TestServerExpiryDuringAuthenticationDoesNotCommitHigherOpCert(t *testing.T) {
 	initial := time.Unix(1_000, 0)
 	messages, authenticator := clientTestSignedMessages(

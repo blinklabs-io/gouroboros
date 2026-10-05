@@ -133,7 +133,8 @@ type Config struct {
 	// Client timeouts
 	BlockingRequestTimeout time.Duration
 	// MaxReplayEntries bounds the number of accepted message IDs retained by
-	// the client until their signed expiration time.
+	// the client until their signed expiration time. When the bound is
+	// exceeded, the IDs that expire soonest are forgotten first.
 	MaxReplayEntries int
 
 	// Shared configuration

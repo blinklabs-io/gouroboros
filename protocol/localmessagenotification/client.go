@@ -15,8 +15,10 @@
 package localmessagenotification
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -198,11 +200,12 @@ func (c *Client) handleReplyMessagesNonBlocking(msg protocol.Message) error {
 			"message_count", len(msgReply.Messages),
 			"has_more", msgReply.HasMore,
 		)
-	if err := c.validateAndReserve(msgReply.Messages); err != nil {
+	messages, err := c.validateAndReserve(msgReply.Messages)
+	if err != nil {
 		return err
 	}
 	if c.config.ReplyMessagesFunc != nil {
-		c.config.ReplyMessagesFunc(c.callbackContext, msgReply.Messages, msgReply.HasMore)
+		c.config.ReplyMessagesFunc(c.callbackContext, messages, msgReply.HasMore)
 	}
 	return nil
 }
@@ -220,88 +223,123 @@ func (c *Client) handleReplyMessagesBlocking(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 			"message_count", len(msgReply.Messages),
 		)
-	if err := c.validateAndReserve(msgReply.Messages); err != nil {
+	messages, err := c.validateAndReserve(msgReply.Messages)
+	if err != nil {
 		return err
 	}
 	if c.config.ReplyMessagesFunc != nil {
 		// For blocking replies, hasMore is always false (waiting until at least one message available)
-		c.config.ReplyMessagesFunc(c.callbackContext, msgReply.Messages, false)
+		c.config.ReplyMessagesFunc(c.callbackContext, messages, false)
 	}
 	return nil
 }
 
-func (c *Client) validateAndReserve(messages []pcommon.DmqMessage) error {
+// validateAndReserve returns the messages in a reply that were not already
+// delivered. A server restarts from the beginning of its queue on every new
+// connection, so a replayed ID is expected and is dropped rather than treated
+// as a protocol violation. Replays are dropped before authentication because a
+// message accepted earlier can carry an operational certificate the chain has
+// since superseded.
+func (c *Client) validateAndReserve(
+	messages []pcommon.DmqMessage,
+) ([]pcommon.DmqMessage, error) {
 	if c.config.TTLValidator == nil {
-		return errors.New("dmq: TTL validator not configured")
+		return nil, errors.New("dmq: TTL validator not configured")
 	}
 	if c.config.Authenticator == nil {
-		return errors.New("dmq: message authenticator not configured")
+		return nil, errors.New("dmq: message authenticator not configured")
 	}
 	now := c.now()
 	for i := range messages {
 		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
-			return fmt.Errorf("message %d TTL validation failed: %w", i, err)
+			return nil, fmt.Errorf("message %d TTL validation failed: %w", i, err)
 		}
 	}
+	c.replayState.mu.Lock()
+	messages = c.replayState.unacceptedLocked(messages)
+	c.replayState.mu.Unlock()
 	commitAuthentication, err := c.config.Authenticator.PrepareMessages(messages)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	now = c.now()
 	for i := range messages {
 		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
-			return fmt.Errorf("message %d TTL validation failed: %w", i, err)
+			return nil, fmt.Errorf("message %d TTL validation failed: %w", i, err)
 		}
 	}
 	return c.commitAcceptedMessages(messages, now, commitAuthentication)
 }
 
+// commitAcceptedMessages records the messages not already accepted and returns
+// them. When the cache exceeds its bound, the entries that expire soonest are
+// evicted, so a full cache never rejects a reply.
 func (c *Client) commitAcceptedMessages(
 	messages []pcommon.DmqMessage,
 	now time.Time,
 	commitAuthentication func() error,
-) error {
-	c.replayState.mu.Lock()
-	defer c.replayState.mu.Unlock()
-
-	nowUnix := now.Unix()
-	for id, expiresAt := range c.replayState.acceptedIDs {
-		if nowUnix > int64(expiresAt) {
-			delete(c.replayState.acceptedIDs, id)
-		}
-	}
-
-	batch := make(map[string]uint32, len(messages))
-	for i := range messages {
-		id := string(messages[i].ID())
-		if _, exists := c.replayState.acceptedIDs[id]; exists {
-			return fmt.Errorf("message %d was already accepted", i)
-		}
-		if _, exists := batch[id]; exists {
-			return fmt.Errorf(
-				"message %d duplicates an earlier message in the reply",
-				i,
-			)
-		}
-		batch[id] = messages[i].Payload.ExpiresAt
-	}
+) ([]pcommon.DmqMessage, error) {
 	maxReplayEntries := c.config.MaxReplayEntries
 	if maxReplayEntries == 0 {
 		maxReplayEntries = defaultMaxReplayEntries
 	}
 	if maxReplayEntries < 0 {
-		return errors.New("dmq: MaxReplayEntries must be greater than zero")
+		return nil, errors.New("dmq: MaxReplayEntries must be greater than zero")
 	}
-	if len(c.replayState.acceptedIDs)+len(batch) > maxReplayEntries {
-		return errors.New("dmq: replay cache full")
-	}
-	if commitAuthentication != nil {
-		if err := commitAuthentication(); err != nil {
-			return err
+
+	c.replayState.mu.Lock()
+	defer c.replayState.mu.Unlock()
+
+	acceptedIDs := c.replayState.acceptedIDs
+	nowUnix := now.Unix()
+	for id, expiresAt := range acceptedIDs {
+		if nowUnix > int64(expiresAt) {
+			delete(acceptedIDs, id)
 		}
 	}
-	for id, expiresAt := range batch {
-		c.replayState.acceptedIDs[id] = expiresAt
+	// Another client sharing this state may have accepted some of these
+	// messages since the unlocked authentication step.
+	messages = c.replayState.unacceptedLocked(messages)
+	if commitAuthentication != nil {
+		if err := commitAuthentication(); err != nil {
+			return nil, err
+		}
 	}
-	return nil
+	for i := range messages {
+		acceptedIDs[string(messages[i].ID())] = messages[i].Payload.ExpiresAt
+	}
+	if excess := len(acceptedIDs) - maxReplayEntries; excess > 0 {
+		ids := make([]string, 0, len(acceptedIDs))
+		for id := range acceptedIDs {
+			ids = append(ids, id)
+		}
+		slices.SortFunc(ids, func(a, b string) int {
+			return cmp.Compare(acceptedIDs[a], acceptedIDs[b])
+		})
+		for _, id := range ids[:excess] {
+			delete(acceptedIDs, id)
+		}
+	}
+	return messages, nil
+}
+
+// unacceptedLocked returns the messages whose IDs are neither already accepted
+// nor repeated earlier in the same slice.
+func (r *messageReplayState) unacceptedLocked(
+	messages []pcommon.DmqMessage,
+) []pcommon.DmqMessage {
+	seen := make(map[string]struct{}, len(messages))
+	ret := make([]pcommon.DmqMessage, 0, len(messages))
+	for i := range messages {
+		id := string(messages[i].ID())
+		if _, accepted := r.acceptedIDs[id]; accepted {
+			continue
+		}
+		if _, repeated := seen[id]; repeated {
+			continue
+		}
+		seen[id] = struct{}{}
+		ret = append(ret, messages[i])
+	}
+	return ret
 }
