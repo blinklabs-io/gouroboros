@@ -15,11 +15,13 @@
 package common_test
 
 import (
+	"context"
 	"math/big"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -35,6 +37,31 @@ import (
 	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/stretchr/testify/require"
 )
+
+type cancelDuringEvaluationContext struct {
+	checks int
+	limit  int
+	done   chan struct{}
+}
+
+func (*cancelDuringEvaluationContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (c *cancelDuringEvaluationContext) Done() <-chan struct{} { return c.done }
+
+func (c *cancelDuringEvaluationContext) Err() error {
+	c.checks++
+	if c.checks == c.limit {
+		close(c.done)
+	}
+	if c.checks >= c.limit {
+		return context.Canceled
+	}
+	return nil
+}
+
+func (*cancelDuringEvaluationContext) Value(any) any { return nil }
 
 const plutusContextTestAddress = "addr_test1qz2fxv2umyhttkxyxp8x0dlpdt3" +
 	"k6cwng5pxj3jhsydzer3jcu5d8ps7zex2k2xt3uqxgjqnnj83w" +
@@ -78,6 +105,49 @@ func plutusDefaultTestBudget() common.ExUnits {
 		Memory: cek.DefaultExBudget.Mem,
 		Steps:  cek.DefaultExBudget.Cpu,
 	}
+}
+
+func TestPlutusEvaluateContextStopsMachine(t *testing.T) {
+	t.Parallel()
+
+	selfApply := &syn.Lambda[syn.DeBruijn]{
+		Body: &syn.Apply[syn.DeBruijn]{
+			Function: &syn.Var[syn.DeBruijn]{Name: 1},
+			Argument: &syn.Var[syn.DeBruijn]{Name: 1},
+		},
+	}
+	term := syn.Term[syn.DeBruijn](&syn.Apply[syn.DeBruijn]{
+		Function: selfApply,
+		Argument: selfApply,
+	})
+	for range 3 {
+		term = &syn.Lambda[syn.DeBruijn]{Body: term}
+	}
+	flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
+		Version: lang.LanguageVersion{1, 0, 0},
+		Term:    term,
+	})
+	require.NoError(t, err)
+	wrapped, err := cbor.Encode(flat)
+	require.NoError(t, err)
+
+	ctx := &cancelDuringEvaluationContext{
+		limit: 64,
+		done:  make(chan struct{}),
+	}
+	_, err = common.PlutusV1Script(wrapped).EvaluateContext(
+		ctx,
+		testPlutusData(),
+		testPlutusData(),
+		testPlutusData(),
+		plutusDefaultTestBudget(),
+		cek.NewDefaultEvalContext(
+			lang.LanguageVersionV1,
+			cek.ProtoVersion{Major: 9},
+		),
+	)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, ctx.limit, ctx.checks)
 }
 
 func TestPlutusEvaluateContextValidation(t *testing.T) {
