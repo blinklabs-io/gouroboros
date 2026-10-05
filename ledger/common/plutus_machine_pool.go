@@ -282,7 +282,7 @@ func releaseMachine(
 	machinePoolFor(version, evalContext).pool.Put(machine)
 }
 
-// runPooledMachine runs program on a Machine checked out for (version,
+// runPooledMachineContext runs program on a Machine checked out for (version,
 // evalContext) with the given budget and returns the budget consumed, which
 // is computed even when Run fails.
 //
