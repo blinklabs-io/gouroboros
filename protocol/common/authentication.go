@@ -70,14 +70,11 @@ var (
 	ErrPoolNotInStakeDistribution = errors.New(
 		"protocol/common: issuing pool holds no stake in the current distribution",
 	)
-	// ErrKESPeriodOverflow is returned when a message's claimed KES period
-	// is so large that converting it to a slot (period * slotsPerKesPeriod)
-	// would overflow uint64. Rejecting it outright, rather than letting the
-	// multiplication wrap, matters because the wrapped slot can land on a
-	// small, easy-to-produce evolution that has nothing to do with the
-	// claimed period -- silently verifying it there would let a large
-	// claimed period smuggle through a signature made at a completely
-	// different, attacker-chosen evolution.
+	// ErrKESPeriodOverflow reported a claimed KES period too large to convert
+	// to a slot.
+	//
+	// Deprecated: verification always uses a trusted slot and never converts
+	// a claimed KES period to a slot, so this error is no longer returned.
 	ErrKESPeriodOverflow = errors.New(
 		"protocol/common: message KES period would overflow when converted to a slot",
 	)
@@ -210,12 +207,11 @@ func NewNoOpAuthenticator(logger *slog.Logger) *MessageAuthenticator {
 	}
 }
 
-// VerifyMessage performs complete message authentication as per CIP-0137.
-// It verifies: message ID, pool-ID derivation and stake-distribution
-// authorization, operational certificate, KES signature, and KES period
-// rotation. Returns error if verification fails (which is a protocol
-// violation and should result in peer disconnection).
-// VerifyMessage verifies a message at the authoritative current chain slot.
+// VerifyMessage performs complete message authentication as per CIP-0137 at
+// the authoritative current chain slot. It verifies: message ID, pool-ID
+// derivation and stake-distribution authorization, operational certificate,
+// KES signature, and KES period rotation. Returns error if verification fails
+// (which is a protocol violation and should result in peer disconnection).
 // Use VerifyMessageWithSlot when the caller already holds a trusted slot from
 // the state being processed.
 func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
@@ -229,7 +225,7 @@ func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	if err != nil {
 		return fmt.Errorf("look up current slot: %w", err)
 	}
-	return m.verifyMessageInternal(msg, &slot)
+	return m.verifyMessageInternal(msg, slot)
 }
 
 // PrepareMessages verifies a batch at one authoritative current slot and
@@ -264,7 +260,7 @@ func (m *MessageAuthenticator) PrepareMessages(
 	}
 	touchedPools := make(map[PoolKeyHash]struct{})
 	for i := range messages {
-		if err := batchAuthenticator.verifyMessageInternal(&messages[i], &slot); err != nil {
+		if err := batchAuthenticator.verifyMessageInternal(&messages[i], slot); err != nil {
 			return nil, fmt.Errorf("message %d authentication failed: %w", i, err)
 		}
 		poolID, err := poolKeyHash(messages[i].ColdVerificationKey)
@@ -315,11 +311,11 @@ func (m *MessageAuthenticator) VerifyMessageWithSlot(
 	msg *DmqMessage,
 	slot uint64,
 ) error {
-	return m.verifyMessageInternal(msg, &slot)
+	return m.verifyMessageInternal(msg, slot)
 }
 
-// verifyMessageInternal contains the core verification logic. A nil slot means
-// that the verifier should derive the slot from the message's claimed KES period.
+// verifyMessageInternal contains the core verification logic. The slot must
+// come from trusted chain state, never from the message.
 //
 // Stake authorization runs before either signature check. Deriving a pool ID
 // from ColdVerificationKey needs no signature -- anyone can self-sign an
@@ -330,7 +326,7 @@ func (m *MessageAuthenticator) VerifyMessageWithSlot(
 // for an ed25519 verify and the KES verify, rather than after.
 func (m *MessageAuthenticator) verifyMessageInternal(
 	msg *DmqMessage,
-	slot *uint64,
+	slot uint64,
 ) error {
 	if m.disableValidation {
 		return nil
@@ -462,9 +458,8 @@ func opCertSignableBytes(
 	return out
 }
 
-// verifyKESSignature verifies the KES signature over the message payload (CBOR encoded).
-// If slot is nil, a slot will be computed from the message's claimed signing
-// period and configured slots per KES period. The certificate's own issuance
+// verifyKESSignature verifies the KES signature over the message payload (CBOR
+// encoded) at the given trusted slot. The certificate's own issuance
 // period (msg.OperationalCertificate.KESPeriod) — not the message's claimed
 // signing period (msg.Payload.KESPeriod) — is what a real KES evolution check
 // needs as its baseline; this function keeps them distinct and rejects a
@@ -472,7 +467,7 @@ func opCertSignableBytes(
 // issued.
 func (m *MessageAuthenticator) verifyKESSignature(
 	msg *DmqMessage,
-	slot *uint64,
+	slot uint64,
 ) error {
 	if len(msg.KESSignature) != kes.CardanoKesSignatureSize {
 		return fmt.Errorf(
@@ -513,33 +508,18 @@ func (m *MessageAuthenticator) verifyKESSignature(
 			certPeriod,
 		)
 	}
-	if slot == nil && m.slotsPerKesPeriod != 0 &&
-		msgPeriod > math.MaxUint64/m.slotsPerKesPeriod {
-		return ErrKESPeriodOverflow
-	}
 	if err := m.checkKESWindow(msgPeriod, certPeriod); err != nil {
 		return err
 	}
 
-	// Absent an explicit slot, fall back to the slot implied by the
-	// message's own claimed signing period. msgPeriod is attacker-controlled
-	// (CIP-0137's CDDL says word32, but decoding doesn't enforce that range),
-	// so reject outright when the conversion would overflow uint64 rather
-	// than let it wrap to an unrelated, easy evolution.
-	var computedSlot uint64
-	if slot != nil {
-		computedSlot = *slot
-	} else {
-		computedSlot = msgPeriod * m.slotsPerKesPeriod
-	}
-	currentKesPeriod := computedSlot / m.slotsPerKesPeriod
+	currentKesPeriod := slot / m.slotsPerKesPeriod
 	if err := m.checkKESWindow(currentKesPeriod, certPeriod); err != nil {
 		return err
 	}
 
 	m.logger.Debug(
 		"KES verification using slot",
-		"slot", computedSlot,
+		"slot", slot,
 		"cert_period", certPeriod,
 		"msg_period", msgPeriod,
 	)
@@ -549,7 +529,7 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		msg.KESSignature,
 		msg.OperationalCertificate.KESVerificationKey,
 		certPeriod,
-		computedSlot,
+		slot,
 		m.slotsPerKesPeriod,
 	)
 	if err != nil {

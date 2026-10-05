@@ -908,15 +908,14 @@ func TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance(t *tes
 		KESSignature: make([]byte, kes.CardanoKesSignatureSize),
 	}
 
-	err = auth.verifyKESSignature(msg, nil)
+	err = auth.verifyKESSignature(msg, 80*129600)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "precedes certificate issuance period")
 }
 
-// TestVerifyKESSignature_OverflowGuard proves a message whose claimed KES
-// period would overflow the period-to-slot conversion is rejected rather
-// than silently wrapping to an unrelated, easy evolution.
-func TestVerifyKESSignature_OverflowGuard(t *testing.T) {
+// TestVerifyKESSignature_RejectsHugeClaimedPeriod proves a message claiming a
+// KES period far beyond its certificate's evolution window is rejected.
+func TestVerifyKESSignature_RejectsHugeClaimedPeriod(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
 		CurrentSlot:           testCurrentSlot,
 		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
@@ -935,8 +934,8 @@ func TestVerifyKESSignature_OverflowGuard(t *testing.T) {
 		KESSignature: make([]byte, kes.CardanoKesSignatureSize),
 	}
 
-	err = auth.verifyKESSignature(msg, nil)
-	assert.ErrorIs(t, err, ErrKESPeriodOverflow)
+	err = auth.verifyKESSignature(msg, 0)
+	assert.ErrorContains(t, err, "exceeds the maximum")
 }
 
 func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
@@ -950,10 +949,10 @@ func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
 	require.NoError(t, err)
 
 	lastValid := buildSignedTestMessage(t, 100, 102)
-	assert.NoError(t, auth.verifyKESSignature(lastValid, nil))
+	assert.NoError(t, auth.verifyKESSignature(lastValid, 102*129600))
 
 	firstInvalid := buildSignedTestMessage(t, 100, 103)
-	err = auth.verifyKESSignature(firstInvalid, nil)
+	err = auth.verifyKESSignature(firstInvalid, 103*129600)
 	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
 
 	// A supplied slot determines the evolution used for signature verification
@@ -961,7 +960,7 @@ func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
 	// earlier, otherwise valid KES period.
 	validClaim := buildSignedTestMessage(t, 100, 101)
 	tooLateSlot := uint64(103) * 129600
-	err = auth.verifyKESSignature(validClaim, &tooLateSlot)
+	err = auth.verifyKESSignature(validClaim, tooLateSlot)
 	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
 }
 
