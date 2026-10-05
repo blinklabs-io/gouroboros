@@ -5,7 +5,6 @@ on:
     types: [created]
   release:
     types: [published]
-  workflow_dispatch:
 
 jobs:
   # Gate: verify the commenter has write access before running untrusted code
@@ -14,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.event_name == 'release' ||
-      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request &&
        contains(github.event.comment.body, '/benchmark'))
@@ -70,6 +68,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0 https://github.com/actions/setup-go/releases/tag/v7.0.0
         with:
           go-version: '1.26'
+          cache: false
 
       - name: Run benchmarks
         # pipefail so a benchmark failure is not masked by tee's exit code
@@ -77,12 +76,30 @@ jobs:
           set -o pipefail
           go test -run='^$' -bench=. -benchmem -count=3 -timeout=30m ./... 2>&1 | tee benchmark.txt
 
+      # refs/pull/N/merge has the base branch tip as its first parent, so
+      # the same benchmarks run against it give the baseline for the PR.
+      - name: Run benchmarks (base)
+        if: github.event_name == 'issue_comment'
+        run: |
+          set -o pipefail
+          git checkout --quiet --detach HEAD^1
+          go test -run='^$' -bench=. -benchmem -count=3 -timeout=30m ./... 2>&1 | tee base.txt
+
+      - name: Compare benchmarks
+        if: github.event_name == 'issue_comment'
+        run: |
+          set -o pipefail
+          go run golang.org/x/perf/cmd/benchstat@latest base.txt benchmark.txt | tee comparison.txt
+
       - name: Upload benchmark results
         if: github.event_name == 'issue_comment'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: benchmark-results
-          path: benchmark.txt
+          path: |
+            benchmark.txt
+            base.txt
+            comparison.txt
 
   # Post results with write permissions (no untrusted code checkout)
   post-results:
@@ -103,11 +120,11 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const results = fs.readFileSync('benchmark.txt', 'utf8');
+            const results = fs.readFileSync('comparison.txt', 'utf8');
             const truncated = results.length > 60000 ? results.substring(0, 60000) + '\n... (truncated)' : results;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.issue.number,
-              body: `## Benchmark Results\n\n<details>\n<summary>Click to expand</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n\n</details>\n\nCommit: ${{ needs.benchmark.outputs.commit-sha }}\nTriggered by: @${context.payload.comment.user.login}`
+              body: `## Benchmark Comparison (base vs PR)\n\n<details>\n<summary>Click to expand</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n\n</details>\n\nCommit: ${{ needs.benchmark.outputs.commit-sha }}\nTriggered by: @${context.payload.comment.user.login}`
             });
