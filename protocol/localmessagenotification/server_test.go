@@ -94,4 +94,34 @@ func TestServerStopStopsExpirationCleanerBeforeStart(t *testing.T) {
 	default:
 		t.Fatal("expiration cleaner was not stopped")
 	}
+	select {
+	case <-server.expirationDoneChan:
+	case <-time.After(time.Second):
+		t.Fatal("expiration cleaner did not exit")
+	}
+}
+
+func TestConnectionDoneCancelsBlockingRequestAndCleaner(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		connectionDone := make(chan any)
+		server := NewServer(protocol.ProtocolOptions{
+			ConnectionDoneChan: connectionDone,
+		}, nil)
+		result := make(chan error, 1)
+		go func() { result <- server.handleBlockingRequest() }()
+
+		synctest.Wait()
+		close(connectionDone)
+		select {
+		case err := <-result:
+			require.ErrorContains(t, err, "connection shutting down")
+		case <-time.After(time.Second):
+			t.Fatal("blocking request did not observe connection shutdown")
+		}
+		select {
+		case <-server.expirationDoneChan:
+		case <-time.After(time.Second):
+			t.Fatal("expiration cleaner did not observe connection shutdown")
+		}
+	})
 }

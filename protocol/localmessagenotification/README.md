@@ -97,6 +97,7 @@ localmessagenotification.NewConfig(
     localmessagenotification.WithBlockingRequestTimeout(timeout),
     localmessagenotification.WithAuthenticator(authenticator),
     localmessagenotification.WithTTLValidator(ttlValidator),
+    localmessagenotification.WithMaxReplayEntries(10000),
 )
 ```
 
@@ -121,15 +122,15 @@ err := client.RequestMessagesBlocking()
 
 ## Message Authentication
 
-Received messages have been validated:
+The client validates every reply before invoking the configured callback:
 - KES signature verification
 - TTL validation
-- Message format validation
+- Duplicate message rejection until expiration
 
 ## Notes
 
 - Part of CIP-0137 (Distributed Message Queue)
 - Non-blocking mode for polling
 - Blocking mode for push-style notification
-- Messages are pre-validated by the node
+- Reply batches are accepted atomically; one invalid message rejects the batch
 - Default queue size is 100 messages

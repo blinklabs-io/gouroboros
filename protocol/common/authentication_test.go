@@ -51,10 +51,20 @@ func (s *stubStakeAuthority) register(poolKeyHash PoolKeyHash, stake uint64) {
 	s.stake[poolKeyHash] = stake
 }
 
+func testCurrentSlot() (uint64, error) {
+	return 100 * 129600, nil
+}
+
+func testPoolOpCertIssueNumber(PoolKeyHash) (uint64, bool, error) {
+	return 0, false, nil
+}
+
 // TestMessageAuthenticatorCreation tests authenticator creation
 func TestMessageAuthenticatorCreation(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, auth)
@@ -64,16 +74,49 @@ func TestMessageAuthenticatorCreation(t *testing.T) {
 // TestMessageAuthenticatorRequiresStakeAuthority tests that construction
 // fails without a StakeAuthority.
 func TestMessageAuthenticatorRequiresStakeAuthority(t *testing.T) {
-	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{})
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber})
 	assert.Nil(t, auth)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrAuthenticatorMisconfigured)
 }
 
+func TestMessageAuthenticatorRequiresChainAuthorities(t *testing.T) {
+	stake := newStubStakeAuthority()
+	for _, test := range []struct {
+		name string
+		cfg  MessageAuthenticatorConfig
+	}{
+		{
+			name: "current slot",
+			cfg: MessageAuthenticatorConfig{
+				StakeAuthority:        stake,
+				PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+			},
+		},
+		{
+			name: "operational certificate",
+			cfg: MessageAuthenticatorConfig{
+				StakeAuthority: stake,
+				CurrentSlot:    testCurrentSlot,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			auth, err := NewMessageAuthenticator(test.cfg)
+			require.Nil(t, auth)
+			require.ErrorIs(t, err, ErrAuthenticatorMisconfigured)
+		})
+	}
+}
+
 // TestVerifyMessageNil tests nil message verification
 func TestVerifyMessageNil(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 	err = auth.VerifyMessage(nil)
@@ -85,7 +128,9 @@ func TestVerifyMessageNil(t *testing.T) {
 func TestVerifyMessageInvalidCertificate(t *testing.T) {
 	stake := newStubStakeAuthority()
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        stake,
 	})
 	require.NoError(t, err)
 
@@ -120,7 +165,9 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 // from the stake distribution is rejected before any signature is checked.
 func TestVerifyMessageUnauthorizedPool(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(), // no pool registered
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(), // no pool registered
 	})
 	require.NoError(t, err)
 
@@ -136,7 +183,9 @@ func TestVerifyMessageStakeAuthorityError(t *testing.T) {
 	stake := newStubStakeAuthority()
 	stake.err = errors.New("boom")
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        stake,
 	})
 	require.NoError(t, err)
 
@@ -167,7 +216,9 @@ func TestComputePoolKeyHash(t *testing.T) {
 // TestVerifyKESPeriodRotation tests KES period rotation verification
 func TestVerifyKESPeriodRotation(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 
@@ -381,7 +432,9 @@ func TestGetTimeUntilExpirationNil(t *testing.T) {
 // TestMessageAuthenticatorWithLogger tests authenticator creation with a logger
 func TestMessageAuthenticatorWithLogger(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, auth)
@@ -400,7 +453,9 @@ func TestMessageIsValid(t *testing.T) {
 // TestVerifyOperationalCertificateInvalidColdKeySize tests cert verification with invalid cold key size
 func TestVerifyOperationalCertificateInvalidColdKeySize(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 
@@ -422,7 +477,9 @@ func TestVerifyOperationalCertificateInvalidColdKeySize(t *testing.T) {
 // TestVerifyOperationalCertificateInvalidSignatureSize tests cert verification with invalid signature size
 func TestVerifyOperationalCertificateInvalidSignatureSize(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 
@@ -443,7 +500,9 @@ func TestVerifyOperationalCertificateInvalidSignatureSize(t *testing.T) {
 // BE), matching cardano-node/cardano-ledger, not a CBOR encoding.
 func TestVerifyOperationalCertificate_RawOCertSignableRepresentation(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -470,7 +529,9 @@ func TestVerifyOperationalCertificate_RawOCertSignableRepresentation(t *testing.
 // operational certificate is never signed this way.
 func TestVerifyOperationalCertificate_RejectsCBORArraySignature(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -498,7 +559,9 @@ func TestVerifyOperationalCertificate_RejectsCBORArraySignature(t *testing.T) {
 // TestVerifyMessageIDInvalid tests message ID verification with invalid ID
 func TestVerifyMessageIDInvalid(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 
@@ -516,7 +579,9 @@ func TestVerifyMessageIDInvalid(t *testing.T) {
 // TestVerifyMessageIDTooLong tests message ID verification with too long ID
 func TestVerifyMessageIDTooLong(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 
@@ -552,7 +617,9 @@ func TestComputeDmqMessageIDGoldenVector(t *testing.T) {
 
 func TestVerifyMessageIDMismatch(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 
@@ -577,7 +644,9 @@ func TestVerifyMessageIDMismatch(t *testing.T) {
 
 func TestVerifyMessageIDValid(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 
@@ -670,7 +739,9 @@ func TestDmqMessageCBORDecodesLegacyShape(t *testing.T) {
 func TestVerifyKESSignatureInvalidSize(t *testing.T) {
 	stake := newStubStakeAuthority()
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        stake,
 	})
 	require.NoError(t, err)
 	// Generate an ed25519 keypair for a valid cold key and sign the opcert
@@ -780,7 +851,9 @@ func buildSignedTestMessage(
 func TestVerifyMessage_EndToEndValid(t *testing.T) {
 	stake := newStubStakeAuthority()
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        stake,
 	})
 	require.NoError(t, err)
 
@@ -797,7 +870,11 @@ func TestVerifyMessage_EndToEndValid(t *testing.T) {
 func TestVerifyMessage_EndToEndEvolvedKES(t *testing.T) {
 	stake := newStubStakeAuthority()
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
+		CurrentSlot: func() (uint64, error) {
+			return 53 * 129600, nil
+		},
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        stake,
 	})
 	require.NoError(t, err)
 
@@ -814,7 +891,9 @@ func TestVerifyMessage_EndToEndEvolvedKES(t *testing.T) {
 // own certificate's issuance period is rejected outright.
 func TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 
@@ -839,7 +918,9 @@ func TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance(t *tes
 // than silently wrapping to an unrelated, easy evolution.
 func TestVerifyKESSignature_OverflowGuard(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: newStubStakeAuthority(),
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
 	})
 	require.NoError(t, err)
 
@@ -861,8 +942,10 @@ func TestVerifyKESSignature_OverflowGuard(t *testing.T) {
 func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
 	const maxKESEvolutions = uint64(3)
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority:   newStubStakeAuthority(),
-		MaxKESEvolutions: maxKESEvolutions,
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        newStubStakeAuthority(),
+		MaxKESEvolutions:      maxKESEvolutions,
 	})
 	require.NoError(t, err)
 
@@ -888,7 +971,9 @@ func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
 func TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne(t *testing.T) {
 	stake := newStubStakeAuthority()
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        stake,
 	})
 	require.NoError(t, err)
 
@@ -907,6 +992,71 @@ func TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne(t *testing.T) {
 	assert.Error(t, auth.VerifyMessageWithSlot(msg, 0))
 }
 
+func TestVerifyMessageUsesAuthoritativeCurrentSlot(t *testing.T) {
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+		CurrentSlot: func() (uint64, error) {
+			return 101 * 129600, nil
+		},
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+	})
+	require.NoError(t, err)
+
+	msg := buildSignedTestMessage(t, 100, 100)
+	poolID, err := poolKeyHash(msg.ColdVerificationKey)
+	require.NoError(t, err)
+	stake.register(poolID, 1000)
+
+	require.ErrorContains(t, auth.VerifyMessage(msg), "KES signature")
+	require.NoError(t, auth.VerifyMessageWithSlot(msg, 100*129600))
+}
+
+func TestVerifyMessageRejectsOpCertSupersededInChainState(t *testing.T) {
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+		CurrentSlot:    testCurrentSlot,
+		PoolOpCertIssueNumber: func(PoolKeyHash) (uint64, bool, error) {
+			return 2, true, nil
+		},
+	})
+	require.NoError(t, err)
+
+	msg := buildSignedTestMessage(t, 100, 100)
+	poolID, err := poolKeyHash(msg.ColdVerificationKey)
+	require.NoError(t, err)
+	stake.register(poolID, 1000)
+
+	require.ErrorContains(t, auth.VerifyMessage(msg), "issue number is stale")
+	require.Empty(t, auth.kesOpCertCache)
+}
+
+func TestVerifyMessageRejectsMismatchedPoolIdentity(t *testing.T) {
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority:        stake,
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+	})
+	require.NoError(t, err)
+
+	msg := buildSignedTestMessage(t, 100, 100)
+	otherColdKey, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	msg.ColdVerificationKey = otherColdKey
+	poolID, err := poolKeyHash(msg.ColdVerificationKey)
+	require.NoError(t, err)
+	stake.register(poolID, 1000)
+
+	require.ErrorContains(
+		t,
+		auth.VerifyMessage(msg),
+		"operational certificate verification failed",
+	)
+	require.Empty(t, auth.kesOpCertCache)
+}
+
 // TestOpCertCacheAdmitsOnlyAuthorizedPools pins the property the opcert
 // cache's memory bound rests on: verifyMessageInternal runs stake
 // authorization and both signature checks before verifyKESPeriodRotation
@@ -919,7 +1069,9 @@ func TestOpCertCacheAdmitsOnlyAuthorizedPools(t *testing.T) {
 	t.Parallel()
 	stake := newStubStakeAuthority()
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        stake,
 	})
 	require.NoError(t, err)
 

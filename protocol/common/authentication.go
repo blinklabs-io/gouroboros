@@ -97,7 +97,9 @@ type MessageAuthenticator struct {
 
 	// stakeAuthority backs pool authorization. Immutable after construction,
 	// so it needs no lock.
-	stakeAuthority StakeAuthority
+	stakeAuthority        StakeAuthority
+	currentSlot           func() (uint64, error)
+	poolOpCertIssueNumber func(PoolKeyHash) (uint64, bool, error)
 
 	// KES period tracking from opcerts, keyed by pool ID. Only
 	// verifyKESPeriodRotation writes here, and it runs after stake
@@ -126,6 +128,13 @@ type MessageAuthenticatorConfig struct {
 	// StakeAuthority is a configuration error rather than a silent skip of
 	// the check.
 	StakeAuthority StakeAuthority
+	// CurrentSlot returns the authoritative current chain slot used for live
+	// KES verification. Required; it must not derive the slot from a message.
+	CurrentSlot func() (uint64, error)
+	// PoolOpCertIssueNumber returns the latest operational-certificate issue
+	// number known from authoritative chain state. A pool absent from that
+	// state should return (0, false, nil). Required.
+	PoolOpCertIssueNumber func(PoolKeyHash) (uint64, bool, error)
 	// SlotsPerKESPeriod is the Shelley genesis slotsPerKESPeriod parameter.
 	// Defaults to 129600 (Cardano mainnet) when zero.
 	SlotsPerKESPeriod uint64
@@ -137,13 +146,26 @@ type MessageAuthenticatorConfig struct {
 }
 
 // NewMessageAuthenticator constructs a MessageAuthenticator. It returns
-// ErrAuthenticatorMisconfigured if cfg.StakeAuthority is nil.
+// ErrAuthenticatorMisconfigured when any authoritative chain-state lookup is
+// missing.
 func NewMessageAuthenticator(
 	cfg MessageAuthenticatorConfig,
 ) (*MessageAuthenticator, error) {
 	if cfg.StakeAuthority == nil {
 		return nil, fmt.Errorf(
 			"%w: StakeAuthority is required",
+			ErrAuthenticatorMisconfigured,
+		)
+	}
+	if cfg.CurrentSlot == nil {
+		return nil, fmt.Errorf(
+			"%w: CurrentSlot is required",
+			ErrAuthenticatorMisconfigured,
+		)
+	}
+	if cfg.PoolOpCertIssueNumber == nil {
+		return nil, fmt.Errorf(
+			"%w: PoolOpCertIssueNumber is required",
 			ErrAuthenticatorMisconfigured,
 		)
 	}
@@ -161,11 +183,13 @@ func NewMessageAuthenticator(
 		maxKESEvolutions = DefaultMaxKESEvolutions
 	}
 	return &MessageAuthenticator{
-		logger:            logger,
-		stakeAuthority:    cfg.StakeAuthority,
-		kesOpCertCache:    make(map[PoolKeyHash]uint64),
-		slotsPerKesPeriod: slotsPerKesPeriod,
-		maxKESEvolutions:  maxKESEvolutions,
+		logger:                logger,
+		stakeAuthority:        cfg.StakeAuthority,
+		currentSlot:           cfg.CurrentSlot,
+		poolOpCertIssueNumber: cfg.PoolOpCertIssueNumber,
+		kesOpCertCache:        make(map[PoolKeyHash]uint64),
+		slotsPerKesPeriod:     slotsPerKesPeriod,
+		maxKESEvolutions:      maxKESEvolutions,
 	}, nil
 }
 
@@ -191,10 +215,21 @@ func NewNoOpAuthenticator(logger *slog.Logger) *MessageAuthenticator {
 // authorization, operational certificate, KES signature, and KES period
 // rotation. Returns error if verification fails (which is a protocol
 // violation and should result in peer disconnection).
-// VerifyMessage verifies a message using no explicit slot. Use VerifyMessageWithSlot
-// when the caller has an explicit slot value to supply.
+// VerifyMessage verifies a message at the authoritative current chain slot.
+// Use VerifyMessageWithSlot when the caller already holds a trusted slot from
+// the state being processed.
 func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
-	return m.verifyMessageInternal(msg, nil)
+	if m.disableValidation {
+		return nil
+	}
+	if msg == nil {
+		return errors.New("message is nil")
+	}
+	slot, err := m.currentSlot()
+	if err != nil {
+		return fmt.Errorf("look up current slot: %w", err)
+	}
+	return m.verifyMessageInternal(msg, &slot)
 }
 
 // VerifyMessageWithSlot verifies a message using an explicit slot value. When available,
@@ -256,12 +291,25 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 		)
 	}
 
-	// Step 4: Verify KES signature over message payload
+	// Step 4: Compare the certificate with authoritative chain state.
+	latestIssue, exists, err := m.poolOpCertIssueNumber(poolID)
+	if err != nil {
+		return fmt.Errorf("look up pool operational certificate: %w", err)
+	}
+	if exists && msg.OperationalCertificate.IssueNumber < latestIssue {
+		return fmt.Errorf(
+			"operational certificate issue number is stale: chain=%d, message=%d",
+			latestIssue,
+			msg.OperationalCertificate.IssueNumber,
+		)
+	}
+
+	// Step 5: Verify KES signature over message payload.
 	if err := m.verifyKESSignature(msg, slot); err != nil {
 		return fmt.Errorf("KES signature verification failed: %w", err)
 	}
 
-	// Step 5: Verify KES period rotation (opcert number doesn't go backwards).
+	// Step 6: Verify KES period rotation (opcert number doesn't go backwards).
 	// Not updated until every earlier check has passed, so a message that
 	// fails an earlier check cannot poison replay protection for a later,
 	// legitimately higher-numbered certificate from the same pool.

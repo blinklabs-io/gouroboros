@@ -37,10 +37,12 @@ type Server struct {
 	acknowledgedIDsTTL     time.Duration        // TTL for acknowledged message IDs (default: 10 minutes)
 	expirationTicker       *time.Ticker
 	expirationStopChan     chan struct{}
+	expirationDoneChan     chan struct{}
 	newMessageSignal       chan struct{}
 	newMessageSignalClosed bool
 	done                   chan struct{}
 	stopOnce               sync.Once
+	connectionDoneChan     <-chan any
 }
 
 // NewServer returns a new LocalMessageNotification server object
@@ -55,8 +57,10 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		acknowledgedIDs:    make(map[string]time.Time),
 		acknowledgedIDsTTL: 10 * time.Minute, // TTL for acknowledged message IDs
 		expirationStopChan: make(chan struct{}),
+		expirationDoneChan: make(chan struct{}),
 		newMessageSignal:   make(chan struct{}, 1),
 		done:               make(chan struct{}),
+		connectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -149,6 +153,10 @@ func (s *Server) WaitForMessage(timeout time.Duration) error {
 			return errors.New("timeout waiting for message")
 		case <-s.done:
 			return errors.New("server shutting down")
+		case <-s.StopChan():
+			return errors.New("server shutting down")
+		case <-s.connectionDoneChan:
+			return errors.New("connection shutting down")
 		}
 	}
 	// Wait indefinitely
@@ -160,6 +168,10 @@ func (s *Server) WaitForMessage(timeout time.Duration) error {
 		return nil
 	case <-s.done:
 		return errors.New("server shutting down")
+	case <-s.StopChan():
+		return errors.New("server shutting down")
+	case <-s.connectionDoneChan:
+		return errors.New("connection shutting down")
 	}
 }
 
@@ -222,9 +234,7 @@ func (s *Server) handleBlockingRequest() error {
 
 		// Wait for a message to arrive (no timeout - blocking indefinitely)
 		if err := s.WaitForMessage(0); err != nil {
-			// If we get an error (e.g., shutting down), return empty list
-			replyMsg := NewMsgReplyMessagesBlocking([]pcommon.DmqMessage{})
-			return s.SendMessage(replyMsg)
+			return err
 		}
 	}
 }
@@ -285,15 +295,19 @@ func (s *Server) stop() {
 func (s *Server) startExpirationCleaner() {
 	s.expirationTicker = time.NewTicker(1 * time.Minute) // Check every 1 minute
 	go func() {
+		defer close(s.expirationDoneChan)
+		defer s.expirationTicker.Stop()
 		for {
 			select {
 			case <-s.expirationTicker.C:
 				s.cleanupExpiredAcknowledgedIDs()
 			case <-s.expirationStopChan:
-				s.expirationTicker.Stop()
+				return
+			case <-s.StopChan():
+				return
+			case <-s.connectionDoneChan:
 				return
 			case <-s.DoneChan():
-				s.expirationTicker.Stop()
 				return
 			}
 		}

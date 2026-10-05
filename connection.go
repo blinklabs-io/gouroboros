@@ -369,6 +369,7 @@ func (c *Connection) shutdown() {
 	// connClosedChan/errorChan closes (txtop#287). Guard with sync.Once so
 	// the cleanup remains idempotent regardless of who races whom.
 	c.onceShutdown.Do(func() {
+		c.stopProtocols()
 		// Gracefully stop the muxer
 		if c.muxer != nil {
 			c.muxer.Stop()
@@ -409,7 +410,46 @@ func (c *Connection) allProtocolsIdle() bool {
 	if !c.protocolsReady {
 		return false
 	}
+	protocols := c.protocolInstancesLocked()
+	for _, p := range protocols {
+		if p != nil && !p.IsInTerminalOrIdleState() {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Connection) stopProtocols() {
+	c.protocolMu.RLock()
+	protocols := c.protocolInstancesLocked()
+	var notificationServer *localmessagenotification.Server
+	if c.localMessageNotification != nil {
+		notificationServer = c.localMessageNotification.Server
+	}
+	c.protocolMu.RUnlock()
+
+	if notificationServer != nil {
+		_ = notificationServer.Stop()
+	}
+	for _, p := range protocols {
+		if p != nil {
+			p.Stop()
+		}
+	}
+}
+
+// protocolInstancesLocked returns the protocols constructed for this
+// connection. The caller must hold c.protocolMu for reading.
+func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 	protocols := make([]*protocol.Protocol, 0)
+	if c.handshake != nil {
+		if c.handshake.Client != nil {
+			protocols = append(protocols, c.handshake.Client.Protocol)
+		}
+		if c.handshake.Server != nil {
+			protocols = append(protocols, c.handshake.Server.Protocol)
+		}
+	}
 	if c.chainSync != nil {
 		if c.chainSync.Client != nil {
 			protocols = append(protocols, c.chainSync.Client.ProtocolInstance())
@@ -522,12 +562,7 @@ func (c *Connection) allProtocolsIdle() bool {
 			protocols = append(protocols, c.localMessageNotification.Server.Protocol)
 		}
 	}
-	for _, p := range protocols {
-		if p != nil && !p.IsInTerminalOrIdleState() {
-			return false
-		}
-	}
-	return true
+	return protocols
 }
 
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes

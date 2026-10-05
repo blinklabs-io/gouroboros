@@ -15,11 +15,13 @@
 package localmessagenotification
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Client implements the LocalMessageNotification client
@@ -30,6 +32,8 @@ type Client struct {
 	onceStart       sync.Once
 	onceStop        sync.Once
 	stopErr         error
+	replayMu        sync.Mutex
+	acceptedIDs     map[string]uint32
 }
 
 // NewClient returns a new LocalMessageNotification client object
@@ -39,7 +43,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config: cfg,
+		config:      cfg,
+		acceptedIDs: make(map[string]uint32),
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -172,12 +177,11 @@ func (c *Client) handleReplyMessagesNonBlocking(msg protocol.Message) error {
 			"message_count", len(msgReply.Messages),
 			"has_more", msgReply.HasMore,
 		)
+	if err := c.validateAndReserve(msgReply.Messages); err != nil {
+		return err
+	}
 	if c.config.ReplyMessagesFunc != nil {
-		c.config.ReplyMessagesFunc(
-			c.callbackContext,
-			msgReply.Messages,
-			msgReply.HasMore,
-		)
+		c.config.ReplyMessagesFunc(c.callbackContext, msgReply.Messages, msgReply.HasMore)
 	}
 	return nil
 }
@@ -195,9 +199,68 @@ func (c *Client) handleReplyMessagesBlocking(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 			"message_count", len(msgReply.Messages),
 		)
+	if err := c.validateAndReserve(msgReply.Messages); err != nil {
+		return err
+	}
 	if c.config.ReplyMessagesFunc != nil {
 		// For blocking replies, hasMore is always false (waiting until at least one message available)
 		c.config.ReplyMessagesFunc(c.callbackContext, msgReply.Messages, false)
+	}
+	return nil
+}
+
+func (c *Client) validateAndReserve(messages []pcommon.DmqMessage) error {
+	if c.config.TTLValidator == nil {
+		return errors.New("dmq: TTL validator not configured")
+	}
+	if c.config.Authenticator == nil {
+		return errors.New("dmq: message authenticator not configured")
+	}
+	now := time.Now()
+	for i := range messages {
+		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
+			return fmt.Errorf("message %d TTL validation failed: %w", i, err)
+		}
+		if err := c.config.Authenticator.VerifyMessage(&messages[i]); err != nil {
+			return fmt.Errorf("message %d authentication failed: %w", i, err)
+		}
+	}
+	return c.reserveMessageIDs(messages, now)
+}
+
+func (c *Client) reserveMessageIDs(
+	messages []pcommon.DmqMessage,
+	now time.Time,
+) error {
+	c.replayMu.Lock()
+	defer c.replayMu.Unlock()
+
+	nowUnix := now.Unix()
+	for id, expiresAt := range c.acceptedIDs {
+		if nowUnix > int64(expiresAt) {
+			delete(c.acceptedIDs, id)
+		}
+	}
+
+	batch := make(map[string]uint32, len(messages))
+	for i := range messages {
+		id := string(messages[i].ID())
+		if _, exists := c.acceptedIDs[id]; exists {
+			return fmt.Errorf("message %d was already accepted", i)
+		}
+		if _, exists := batch[id]; exists {
+			return fmt.Errorf("message %d duplicates an earlier message in the reply", i)
+		}
+		batch[id] = messages[i].Payload.ExpiresAt
+	}
+	if c.config.MaxReplayEntries <= 0 {
+		return errors.New("dmq: MaxReplayEntries must be greater than zero")
+	}
+	if len(c.acceptedIDs)+len(batch) > c.config.MaxReplayEntries {
+		return errors.New("dmq: replay cache full")
+	}
+	for id, expiresAt := range batch {
+		c.acceptedIDs[id] = expiresAt
 	}
 	return nil
 }
