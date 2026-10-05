@@ -23,11 +23,9 @@ import (
 func TestDijkstraParameterChangeUtxorpcUpdate(t *testing.T) {
 	t.Parallel()
 	minFeeA := uint(44)
-	refScriptSize := uint32(1024)
 	action := &DijkstraParameterChangeGovAction{
 		ParamUpdate: DijkstraProtocolParameterUpdate{
-			MinFeeA:                  &minFeeA,
-			MaxRefScriptSizePerBlock: &refScriptSize,
+			MinFeeA: &minFeeA,
 		},
 	}
 	got, err := action.ProtocolParamUpdateUtxorpc()

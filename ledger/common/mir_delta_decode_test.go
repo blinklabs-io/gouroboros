@@ -311,7 +311,11 @@ func TestMirRewardDeltaUtxorpcEncodesNegativeOverflow(t *testing.T) {
 
 	converted, err := cert.Utxorpc()
 	require.NoError(t, err)
-	delta := converted.GetMirCert().GetTo()[0].GetDeltaCoin()
+	mirCert := converted.GetMirCert()
+	require.NotNil(t, mirCert)
+	require.Len(t, mirCert.GetTo(), 1)
+	delta := mirCert.GetTo()[0].GetDeltaCoin()
+	require.NotNil(t, delta)
 	assert.Equal(
 		t,
 		new(big.Int).Lsh(big.NewInt(1), 63).Bytes(),

@@ -525,7 +525,9 @@ func TestConwayProtocolParameterUpdateCostModelLanguageIDDomain(t *testing.T) {
 	})
 }
 
-func TestConwayProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
+func TestConwayProtocolParameterUpdateRejectsNullForNonNullableFields(
+	t *testing.T,
+) {
 	for _, tag := range []int{
 		0, 1, 5, 6, 14, 16, 17, 18, 20, 21, 25, 26, 30, 31,
 	} {
@@ -1110,13 +1112,6 @@ func TestConwayUtxorpc_VotingThresholdOutOfRangeRejected(t *testing.T) {
 	})
 }
 
-// TestConwayUtxorpc_MinCommitteeSizeOutOfRangeRejected is the regression
-// test for a chrisguiney review finding on blinklabs-io/gouroboros#2292:
-// MinCommitteeSize is a uint (64 bits wide on a 64-bit build) narrowed
-// unchecked to utxorpc.PParams.MinCommitteeSize's uint32. A value of
-// 1<<32 silently converted to 0 instead of surfacing an error, unlike
-// every rational field and MaxTxExUnits/MaxBlockExUnits in the same
-// function.
 func TestConwayUtxorpc_MinCommitteeSizeOutOfRangeRejected(t *testing.T) {
 	base := conway.ConwayProtocolParameters{
 		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
@@ -1137,19 +1132,81 @@ func TestConwayUtxorpc_MinCommitteeSizeOutOfRangeRejected(t *testing.T) {
 
 	t.Run("beyond uint32 range", func(t *testing.T) {
 		if bits.UintSize <= 32 {
-			// uint(1) << 32 as a constant overflows a 32-bit uint at
-			// compile time (breaks the build on 386, not just this
-			// test), and uint itself cannot hold a value beyond
-			// uint32's range on such a build in the first place -- so
-			// there is nothing this subtest can exercise there.
 			t.Skip("uint cannot exceed uint32 range on a 32-bit build")
 		}
 		params := base
-		var beyondUint32 uint64 = 1 << 32
-		params.MinCommitteeSize = uint(beyondUint32)
+		params.MinCommitteeSize = uint(uint64(math.MaxUint32) + 1)
 		_, err := params.Utxorpc()
 		require.Error(t, err)
 	})
+}
+
+func TestConwayProtocolParameterUpdateUtxorpcRejectsWideCommitteeSize(
+	t *testing.T,
+) {
+	largest := uint(math.MaxUint16)
+	update := conway.ConwayProtocolParameterUpdate{MinCommitteeSize: &largest}
+	got, err := update.Utxorpc()
+	require.NoError(t, err)
+	require.Equal(t, uint32(math.MaxUint16), got.MinCommitteeSize)
+
+	beyond := uint(math.MaxUint16 + 1)
+	update.MinCommitteeSize = &beyond
+	_, err = update.Utxorpc()
+	require.ErrorContains(t, err, "committee size")
+}
+
+func TestConwayProtocolParameterUpdateUtxorpcRejectsWideVersion(t *testing.T) {
+	if bits.UintSize <= 32 {
+		t.Skip("uint cannot exceed uint32 range on a 32-bit build")
+	}
+	beyondUint32 := uint(uint64(math.MaxUint32) + 1)
+	for _, tc := range []struct {
+		name    string
+		version common.ProtocolParametersProtocolVersion
+	}{
+		{
+			name: "major",
+			version: common.ProtocolParametersProtocolVersion{
+				Major: beyondUint32,
+			},
+		},
+		{
+			name: "minor",
+			version: common.ProtocolParametersProtocolVersion{
+				Minor: beyondUint32,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			update := conway.ConwayProtocolParameterUpdate{
+				ProtocolVersion: &tc.version,
+			}
+			_, err := update.Utxorpc()
+			require.ErrorContains(t, err, "protocol version")
+		})
+	}
+}
+
+func TestConwayProtocolParameterUpdateUtxorpcRejectsPartialPrices(
+	t *testing.T,
+) {
+	price := &cbor.Rat{Rat: big.NewRat(1, 2)}
+	for _, tc := range []struct {
+		name  string
+		costs common.ExUnitPrice
+	}{
+		{name: "missing memory", costs: common.ExUnitPrice{StepPrice: price}},
+		{name: "missing steps", costs: common.ExUnitPrice{MemPrice: price}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			update := conway.ConwayProtocolParameterUpdate{
+				ExecutionCosts: &tc.costs,
+			}
+			_, err := update.Utxorpc()
+			require.ErrorContains(t, err, "execution costs")
+		})
+	}
 }
 
 // TestConwayUtxorpc_ValueBeyondInt64RangeRejected is the regression test

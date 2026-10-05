@@ -711,6 +711,10 @@ func (u *ConwayProtocolParameterUpdate) Utxorpc() (*utxorpc.PParams, error) {
 		return nil, fmt.Errorf("invalid Tau: %w", err)
 	}
 	if u.ProtocolVersion != nil {
+		if uint64(u.ProtocolVersion.Major) > math.MaxUint32 ||
+			uint64(u.ProtocolVersion.Minor) > math.MaxUint32 {
+			return nil, errors.New("protocol version exceeds uint32 range")
+		}
 		ret.ProtocolVersion = &utxorpc.ProtocolVersion{
 			Major: uint32(u.ProtocolVersion.Major), // #nosec G115
 			Minor: uint32(u.ProtocolVersion.Minor), // #nosec G115
@@ -722,6 +726,12 @@ func (u *ConwayProtocolParameterUpdate) Utxorpc() (*utxorpc.PParams, error) {
 		ret.CostModels = common.ConvertToUtxorpcCardanoCostModels(u.CostModels)
 	}
 	if u.ExecutionCosts != nil {
+		if u.ExecutionCosts.MemPrice == nil ||
+			u.ExecutionCosts.StepPrice == nil {
+			return nil, errors.New(
+				"execution costs require memory and step prices",
+			)
+		}
 		memory, err := ratPtrToUtxorpcRationalNumber(u.ExecutionCosts.MemPrice)
 		if err != nil {
 			return nil, fmt.Errorf("invalid memory price: %w", err)
@@ -752,9 +762,12 @@ func (u *ConwayProtocolParameterUpdate) Utxorpc() (*utxorpc.PParams, error) {
 		}
 	}
 	if u.MinCommitteeSize != nil {
-		// The wire value is unbounded and the field uint32; no committee can
-		// reach a minimum past uint32, so saturating keeps its meaning.
-		ret.MinCommitteeSize = uint32(min(uint64(*u.MinCommitteeSize), math.MaxUint32)) // #nosec G115 -- clamped
+		if *u.MinCommitteeSize > math.MaxUint16 {
+			return nil, errors.New(
+				"minimum committee size exceeds uint16 range",
+			)
+		}
+		ret.MinCommitteeSize = uint32(*u.MinCommitteeSize) // #nosec G115
 	}
 	if u.CommitteeTermLimit != nil {
 		ret.CommitteeTermLimit = *u.CommitteeTermLimit

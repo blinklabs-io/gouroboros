@@ -129,7 +129,7 @@ func TestConwayTransactionUtxorpcProjectsEveryField(t *testing.T) {
 		got.Validity,
 	), "validity: %v", got.Validity)
 
-	// Withdrawals are ordered by reward account bytes, not map iteration.
+	// Withdrawals use the ledger reward-account order, not map iteration.
 	require.Len(t, got.Withdrawals, 2)
 	require.Equal(t, rewardA, got.Withdrawals[0].RewardAccount)
 	require.Equal(t, int64(5000), got.Withdrawals[0].Coin.GetInt())
@@ -155,7 +155,10 @@ func TestConwayTransactionUtxorpcProjectsEveryField(t *testing.T) {
 
 	require.NotNil(t, got.Witnesses)
 	require.True(t, proto.Equal(
-		&utxorpc.VKeyWitness{Vkey: filled(32, 0x05), Signature: filled(64, 0x06)},
+		&utxorpc.VKeyWitness{
+			Vkey:      filled(32, 0x05),
+			Signature: filled(64, 0x06),
+		},
 		got.Witnesses.Vkeywitness[0],
 	))
 	require.Len(t, got.Witnesses.Vkeywitness, 1)
@@ -168,9 +171,21 @@ func TestConwayTransactionUtxorpcProjectsEveryField(t *testing.T) {
 				Constr: &utxorpc.Constr{
 					Tag: 121,
 					Fields: []*utxorpc.PlutusData{
-						{PlutusData: &utxorpc.PlutusData_BigInt{BigInt: int64Big(1)}},
-						{PlutusData: &utxorpc.PlutusData_BoundedBytes{BoundedBytes: []byte{0xab}}},
-						{PlutusData: &utxorpc.PlutusData_BigInt{BigInt: int64Big(-5)}},
+						{
+							PlutusData: &utxorpc.PlutusData_BigInt{
+								BigInt: int64Big(1),
+							},
+						},
+						{
+							PlutusData: &utxorpc.PlutusData_BoundedBytes{
+								BoundedBytes: []byte{0xab},
+							},
+						},
+						{
+							PlutusData: &utxorpc.PlutusData_BigInt{
+								BigInt: int64Big(-5),
+							},
+						},
 					},
 				},
 			},
@@ -183,7 +198,11 @@ func TestConwayTransactionUtxorpcProjectsEveryField(t *testing.T) {
 	require.Len(t, got.Inputs, 2)
 	first := got.Inputs[1].Redeemer
 	require.Equal(t, filled(32, 0x01), got.Inputs[1].TxHash)
-	require.Equal(t, utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_SPEND, first.Purpose)
+	require.Equal(
+		t,
+		utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_SPEND,
+		first.Purpose,
+	)
 	require.Equal(t, uint32(0), first.Index)
 	require.Equal(t, uint64(1), first.ExUnits.Memory)
 	require.Equal(t, uint64(2), first.ExUnits.Steps)
@@ -192,7 +211,11 @@ func TestConwayTransactionUtxorpcProjectsEveryField(t *testing.T) {
 	require.Equal(t, uint32(1), second.Index)
 	require.Equal(t, int64(5), second.Payload.GetBigInt().GetInt())
 	mintRedeemer := got.Mint[0].Redeemer
-	require.Equal(t, utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_MINT, mintRedeemer.Purpose)
+	require.Equal(
+		t,
+		utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_MINT,
+		mintRedeemer.Purpose,
+	)
 	require.Equal(t, int64(7), mintRedeemer.Payload.GetBigInt().GetInt())
 	require.Equal(t, uint64(3), mintRedeemer.ExUnits.Memory)
 
@@ -248,6 +271,55 @@ func TestConwayTransactionUtxorpcOmitsAbsentFields(t *testing.T) {
 	require.Empty(t, got.Proposals)
 }
 
+func TestConwayTransactionUtxorpcPreservesExplicitZeroValidityEnd(
+	t *testing.T,
+) {
+	t.Parallel()
+	enterprise := append([]byte{0x61}, filled(28, 0x0a)...)
+	raw := mustEncode(t, []any{
+		map[uint]any{
+			0: []any{[]any{filled(32, 0x01), uint64(0)}},
+			1: []any{[]any{enterprise, uint64(2_000_000)}},
+			2: uint64(170_000),
+			3: uint64(0),
+		},
+		map[uint]any{},
+		true,
+		nil,
+	})
+	tx, err := conway.NewConwayTransactionFromCbor(raw)
+	require.NoError(t, err)
+	got, err := tx.Utxorpc()
+	require.NoError(t, err)
+	require.NotNil(t, got.Validity)
+	require.Zero(t, got.Validity.Ttl)
+}
+
+func TestConwayTransactionUtxorpcPreservesExplicitZeroTotalCollateral(
+	t *testing.T,
+) {
+	t.Parallel()
+	enterprise := append([]byte{0x61}, filled(28, 0x0a)...)
+	raw := mustEncode(t, []any{
+		map[uint]any{
+			0:  []any{[]any{filled(32, 0x01), uint64(0)}},
+			1:  []any{[]any{enterprise, uint64(2_000_000)}},
+			2:  uint64(170_000),
+			17: uint64(0),
+		},
+		map[uint]any{},
+		true,
+		nil,
+	})
+	tx, err := conway.NewConwayTransactionFromCbor(raw)
+	require.NoError(t, err)
+	got, err := tx.Utxorpc()
+	require.NoError(t, err)
+	require.NotNil(t, got.Collateral)
+	require.NotNil(t, got.Collateral.TotalCollateral)
+	require.Zero(t, got.Collateral.TotalCollateral.GetInt())
+}
+
 // Reward redeemer indexes address withdrawals in cardano-ledger's
 // reward-account order, which puts script credentials before key
 // credentials; certificate redeemer indexes address the listed order.
@@ -291,7 +363,11 @@ func TestConwayTransactionUtxorpcAttachesRewardAndCertRedeemers(t *testing.T) {
 	require.Equal(t, keyAccount, got.Withdrawals[1].RewardAccount)
 	reward := got.Withdrawals[0].Redeemer
 	require.NotNil(t, reward)
-	require.Equal(t, utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_REWARD, reward.Purpose)
+	require.Equal(
+		t,
+		utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_REWARD,
+		reward.Purpose,
+	)
 	require.Equal(t, int64(10), reward.Payload.GetBigInt().GetInt())
 	require.Nil(t, got.Withdrawals[1].Redeemer)
 
@@ -299,7 +375,11 @@ func TestConwayTransactionUtxorpcAttachesRewardAndCertRedeemers(t *testing.T) {
 	require.Nil(t, got.Certificates[0].Redeemer)
 	cert := got.Certificates[1].Redeemer
 	require.NotNil(t, cert)
-	require.Equal(t, utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_CERT, cert.Purpose)
+	require.Equal(
+		t,
+		utxorpc.RedeemerPurpose_REDEEMER_PURPOSE_CERT,
+		cert.Purpose,
+	)
 	require.Equal(t, int64(11), cert.Payload.GetBigInt().GetInt())
 	require.Equal(t, uint64(2), cert.ExUnits.Steps)
 }
@@ -322,9 +402,12 @@ func TestConwayTransactionUtxorpcParameterChangeUpdate(t *testing.T) {
 						uint64(0),
 						nil,
 						map[uint]any{
-							0:  uint64(44),
-							3:  uint64(16384),
-							10: cbor.RawTag{Number: 30, Content: mustEncode(t, []uint64{3, 1000})},
+							0: uint64(44),
+							3: uint64(16384),
+							10: cbor.RawTag{
+								Number:  30,
+								Content: mustEncode(t, []uint64{3, 1000}),
+							},
 							20: []uint64{7, 8},
 						},
 						filled(28, 0x05),

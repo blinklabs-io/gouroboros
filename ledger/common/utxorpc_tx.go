@@ -201,7 +201,9 @@ func nativeScriptToUtxorpc(item any) (*utxorpc.NativeScript, error) {
 
 // plutusConstrTag maps a constructor index to the CBOR tag UTxO-RPC carries
 // in Constr.Tag, plus the explicit index used by the general form (tag 102).
-func plutusConstrTag(index *big.Int) (tag uint32, anyConstructor uint64, err error) {
+func plutusConstrTag(
+	index *big.Int,
+) (tag uint32, anyConstructor uint64, err error) {
 	switch {
 	case index.Sign() < 0 || !index.IsUint64():
 		return 0, 0, fmt.Errorf("invalid constructor index %s", index)
@@ -575,7 +577,7 @@ func collateralToUtxorpc(tx TransactionBody) (*utxorpc.Collateral, error) {
 	returnOutput := tx.CollateralReturn()
 	total := tx.TotalCollateral()
 	if len(inputs) == 0 && returnOutput == nil &&
-		(total == nil || total.Sign() == 0) {
+		!TransactionTotalCollateralPresent(tx) {
 		return nil, nil
 	}
 	ret := &utxorpc.Collateral{}
@@ -755,7 +757,9 @@ func updateCommitteeToUtxorpc(
 			ret.NewCommitteeCredentials,
 			&utxorpc.NewCommitteeCredentials{
 				CommitteeColdCredential: cred,
-				ExpiresEpoch:            uint32(min(epoch, math.MaxUint32)), // #nosec G115 -- clamped
+				ExpiresEpoch: uint32(
+					min(epoch, math.MaxUint32),
+				), // #nosec G115 -- clamped
 			},
 		)
 	}
