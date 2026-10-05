@@ -365,6 +365,17 @@ func TestValueMarshalJSON(t *testing.T) {
 				fullExpectedJson,
 			)
 		}
+		valueJSON, err := json.Marshal(tmpValue)
+		if err != nil {
+			t.Fatalf("failed to marshal Value value as JSON: %s", err)
+		}
+		if !test.JsonStringsEqual(valueJSON, jsonData) {
+			t.Fatalf(
+				"Value value JSON differs from pointer JSON\n  got:    %s\n  wanted: %s",
+				valueJSON,
+				jsonData,
+			)
+		}
 	}
 }
 
