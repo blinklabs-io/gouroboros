@@ -44,6 +44,7 @@ type Server struct {
 	stopOnce               sync.Once
 	connectionDoneChan     <-chan any
 	muxerDoneChan          <-chan bool
+	now                    func() time.Time
 }
 
 // NewServer returns a new LocalMessageNotification server object
@@ -62,6 +63,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		newMessageSignal:   make(chan struct{}, 1),
 		done:               make(chan struct{}),
 		connectionDoneChan: protoOptions.ConnectionDoneChan,
+		now:                time.Now,
 	}
 	if protoOptions.Muxer != nil {
 		s.muxerDoneChan = protoOptions.Muxer.DoneChan()
@@ -91,16 +93,22 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 
 // AddMessage adds a message to the notification queue
 func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
-	// Validate message before adding to queue
-	if s.config.TTLValidator != nil {
-		if err := s.config.TTLValidator.ValidateMessageTTL(msg); err != nil {
-			return err
-		}
+	if msg == nil {
+		return errors.New("message is nil")
+	}
+	if s.config.TTLValidator == nil {
+		return errors.New("dmq: TTL validator not configured")
+	}
+	if err := s.config.TTLValidator.ValidateMessageTTLAt(msg, s.now()); err != nil {
+		return err
 	}
 	if s.config.Authenticator == nil {
 		return errors.New("dmq: message authenticator not configured")
 	}
-	if err := s.config.Authenticator.VerifyMessage(msg); err != nil {
+	commitAuthentication, err := s.config.Authenticator.PrepareMessages(
+		[]pcommon.DmqMessage{*msg},
+	)
+	if err != nil {
 		return err
 	}
 
@@ -116,6 +124,12 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	// Check queue size limit
 	if len(s.messageQueue) >= s.config.MaxQueueSize {
 		return errors.New("message queue full")
+	}
+	if err := s.config.TTLValidator.ValidateMessageTTLAt(msg, s.now()); err != nil {
+		return err
+	}
+	if err := commitAuthentication(); err != nil {
+		return err
 	}
 
 	s.messageQueue = append(s.messageQueue, msg)

@@ -22,6 +22,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -110,6 +111,90 @@ func TestServerStopJoinsExpirationCleaner(t *testing.T) {
 	default:
 		t.Fatal("Stop returned before the expiration cleaner exited")
 	}
+}
+
+func TestServerQueueFullDoesNotCommitHigherOpCert(t *testing.T) {
+	expiresAt := uint32(time.Now().Add(time.Minute).Unix())
+	messages, authenticator := clientTestSignedMessages(
+		t,
+		[]string{"first", "higher", "later"},
+		[]uint64{1, 2, 1},
+		[]uint32{expiresAt, expiresAt, expiresAt},
+	)
+	cfg := NewConfig(
+		WithAuthenticator(authenticator),
+		WithMaxQueueSize(1),
+	)
+	server := NewServer(protocol.ProtocolOptions{}, &cfg)
+	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+
+	require.NoError(t, server.AddMessage(&messages[0]))
+	require.ErrorContains(t, server.AddMessage(&messages[1]), "queue full")
+	server.lock.Lock()
+	server.messageQueue = server.messageQueue[:0]
+	server.lock.Unlock()
+	require.NoError(t, server.AddMessage(&messages[2]))
+}
+
+func TestServerDuplicateDoesNotCommitHigherOpCert(t *testing.T) {
+	expiresAt := uint32(time.Now().Add(time.Minute).Unix())
+	messages, authenticator := clientTestSignedMessages(
+		t,
+		[]string{"same", "same", "later"},
+		[]uint64{1, 2, 1},
+		[]uint32{expiresAt, expiresAt, expiresAt},
+	)
+	cfg := NewConfig(WithAuthenticator(authenticator))
+	server := NewServer(protocol.ProtocolOptions{}, &cfg)
+	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+
+	require.NoError(t, server.AddMessage(&messages[0]))
+	server.lock.Lock()
+	drained := server.drainValidMessagesLocked(time.Now())
+	server.lock.Unlock()
+	require.Len(t, drained, 1)
+	require.ErrorContains(
+		t,
+		server.AddMessage(&messages[1]),
+		"already acknowledged",
+	)
+	require.NoError(t, server.AddMessage(&messages[2]))
+}
+
+func TestServerExpiryDuringAuthenticationDoesNotCommitHigherOpCert(t *testing.T) {
+	initial := time.Unix(1_000, 0)
+	messages, authenticator := clientTestSignedMessages(
+		t,
+		[]string{"expiring", "later"},
+		[]uint64{2, 1},
+		[]uint32{uint32(initial.Unix()), uint32(initial.Add(time.Minute).Unix())},
+	)
+	cfg := NewConfig(WithAuthenticator(authenticator))
+	server := NewServer(protocol.ProtocolOptions{}, &cfg)
+	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	times := []time.Time{
+		initial,
+		initial.Add(time.Second),
+		initial.Add(time.Second),
+		initial.Add(time.Second),
+	}
+	server.now = func() time.Time {
+		now := times[0]
+		times = times[1:]
+		return now
+	}
+
+	require.ErrorContains(t, server.AddMessage(&messages[0]), "expired")
+	require.NoError(t, server.AddMessage(&messages[1]))
+}
+
+func TestServerRequiresTTLValidator(t *testing.T) {
+	cfg := Config{Authenticator: pcommon.NewNoOpAuthenticator(nil)}
+	server := NewServer(protocol.ProtocolOptions{}, &cfg)
+	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+
+	err := server.AddMessage(&pcommon.DmqMessage{})
+	require.ErrorContains(t, err, "TTL validator not configured")
 }
 
 func TestConnectionDoneCancelsBlockingRequestAndCleaner(t *testing.T) {
