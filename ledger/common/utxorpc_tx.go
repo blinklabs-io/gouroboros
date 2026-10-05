@@ -576,9 +576,8 @@ func mintToUtxorpc(mint *MultiAsset[MultiAssetTypeMint]) []*utxorpc.Multiasset {
 func collateralToUtxorpc(tx TransactionBody) (*utxorpc.Collateral, error) {
 	inputs := tx.Collateral()
 	returnOutput := tx.CollateralReturn()
-	total := tx.TotalCollateral()
-	if len(inputs) == 0 && returnOutput == nil &&
-		!TransactionTotalCollateralPresent(tx) {
+	totalPresent := TransactionTotalCollateralPresent(tx)
+	if len(inputs) == 0 && returnOutput == nil && !totalPresent {
 		return nil, nil
 	}
 	ret := &utxorpc.Collateral{}
@@ -596,8 +595,8 @@ func collateralToUtxorpc(tx TransactionBody) (*utxorpc.Collateral, error) {
 		}
 		ret.CollateralReturn = output
 	}
-	if total != nil {
-		ret.TotalCollateral = BigIntToUtxorpcBigInt(total)
+	if totalPresent {
+		ret.TotalCollateral = BigIntToUtxorpcBigInt(tx.TotalCollateral())
 	}
 	return ret, nil
 }

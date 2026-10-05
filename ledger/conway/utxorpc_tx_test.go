@@ -320,6 +320,31 @@ func TestConwayTransactionUtxorpcPreservesExplicitZeroTotalCollateral(
 	require.Zero(t, got.Collateral.TotalCollateral.GetInt())
 }
 
+// Babbage and later bodies return a zero total collateral when key 17 is
+// absent, so absence must come from the decoded presence, not from nil.
+func TestConwayTransactionUtxorpcOmitsAbsentTotalCollateral(t *testing.T) {
+	t.Parallel()
+	enterprise := append([]byte{0x61}, filled(28, 0x0a)...)
+	raw := mustEncode(t, []any{
+		map[uint]any{
+			0:  []any{[]any{filled(32, 0x01), uint64(0)}},
+			1:  []any{[]any{enterprise, uint64(2_000_000)}},
+			2:  uint64(170_000),
+			13: []any{[]any{filled(32, 0x02), uint64(1)}},
+		},
+		map[uint]any{},
+		true,
+		nil,
+	})
+	tx, err := conway.NewConwayTransactionFromCbor(raw)
+	require.NoError(t, err)
+	got, err := tx.Utxorpc()
+	require.NoError(t, err)
+	require.NotNil(t, got.Collateral)
+	require.Len(t, got.Collateral.Collateral, 1)
+	require.Nil(t, got.Collateral.TotalCollateral)
+}
+
 // Reward redeemer indexes address withdrawals in cardano-ledger's
 // reward-account order, which puts script credentials before key
 // credentials; certificate redeemer indexes address the listed order.
