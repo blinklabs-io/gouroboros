@@ -271,6 +271,9 @@ func (s PlutusV1Script) EvaluateContext(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	if err := ctx.Err(); err != nil {
+		return ExUnits{}, err
+	}
 	// Normalize the script-visible arguments rather than trusting every
 	// caller to do it. Decode preserves each container's definite/indefinite
 	// length choice so a decoded value re-encodes to its original bytes, but
@@ -380,6 +383,9 @@ func (s PlutusV2Script) EvaluateContext(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	if err := ctx.Err(); err != nil {
+		return ExUnits{}, err
+	}
 	// Normalize the script-visible arguments rather than trusting every
 	// caller to do it. Decode preserves each container's definite/indefinite
 	// length choice so a decoded value re-encodes to its original bytes, but
@@ -482,6 +488,9 @@ func (s PlutusV3Script) EvaluateContext(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	if err := ctx.Err(); err != nil {
+		return ExUnits{}, err
+	}
 	var usedExUnits ExUnits
 	var err error
 	var program *syn.Program[syn.DeBruijn]
@@ -565,6 +574,9 @@ func (s PlutusV4Script) EvaluateContext(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	if err := ctx.Err(); err != nil {
+		return ExUnits{}, err
+	}
 	var usedExUnits ExUnits
 	var err error
 	var program *syn.Program[syn.DeBruijn]

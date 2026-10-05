@@ -150,6 +150,77 @@ func TestPlutusEvaluateContextStopsMachine(t *testing.T) {
 	require.Equal(t, ctx.limit, ctx.checks)
 }
 
+func TestPlutusEvaluateContextStopsBeforeDecode(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	malformed := []byte{0xff}
+	tests := []struct {
+		name     string
+		evaluate func() (common.ExUnits, error)
+	}{
+		{
+			name: "v1",
+			evaluate: func() (common.ExUnits, error) {
+				return common.PlutusV1Script(malformed).EvaluateContext(
+					ctx, testPlutusData(), testPlutusData(), testPlutusData(),
+					plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV1,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name: "v2",
+			evaluate: func() (common.ExUnits, error) {
+				return common.PlutusV2Script(malformed).EvaluateContext(
+					ctx, testPlutusData(), testPlutusData(), testPlutusData(),
+					plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV2,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name: "v3",
+			evaluate: func() (common.ExUnits, error) {
+				return common.PlutusV3Script(malformed).EvaluateContext(
+					ctx, testPlutusData(), plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV3,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name: "v4",
+			evaluate: func() (common.ExUnits, error) {
+				return common.PlutusV4Script(malformed).EvaluateContext(
+					ctx, testPlutusData(), plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV4,
+						cek.ProtoVersion{Major: 12},
+					),
+				)
+			},
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			used, err := testCase.evaluate()
+			require.ErrorIs(t, err, context.Canceled)
+			require.Zero(t, used)
+		})
+	}
+}
+
 func TestPlutusEvaluateContextValidation(t *testing.T) {
 	t.Run("Plutus V1 builtin protocol boundary", func(t *testing.T) {
 		script := common.PlutusV1Script(encodePlutusContextTestScript(
