@@ -243,7 +243,8 @@ func (c *Client) validateAndReserve(messages []pcommon.DmqMessage) error {
 			return fmt.Errorf("message %d TTL validation failed: %w", i, err)
 		}
 	}
-	if err := c.config.Authenticator.VerifyMessages(messages); err != nil {
+	commitAuthentication, err := c.config.Authenticator.PrepareMessages(messages)
+	if err != nil {
 		return err
 	}
 	now = c.now()
@@ -252,12 +253,13 @@ func (c *Client) validateAndReserve(messages []pcommon.DmqMessage) error {
 			return fmt.Errorf("message %d TTL validation failed: %w", i, err)
 		}
 	}
-	return c.reserveMessageIDs(messages, now)
+	return c.commitAcceptedMessages(messages, now, commitAuthentication)
 }
 
-func (c *Client) reserveMessageIDs(
+func (c *Client) commitAcceptedMessages(
 	messages []pcommon.DmqMessage,
 	now time.Time,
+	commitAuthentication func() error,
 ) error {
 	c.replayState.mu.Lock()
 	defer c.replayState.mu.Unlock()
@@ -292,6 +294,11 @@ func (c *Client) reserveMessageIDs(
 	}
 	if len(c.replayState.acceptedIDs)+len(batch) > maxReplayEntries {
 		return errors.New("dmq: replay cache full")
+	}
+	if commitAuthentication != nil {
+		if err := commitAuthentication(); err != nil {
+			return err
+		}
 	}
 	for id, expiresAt := range batch {
 		c.replayState.acceptedIDs[id] = expiresAt

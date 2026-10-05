@@ -327,14 +327,14 @@ func (s *Server) startExpirationCleaner() {
 // stopExpirationCleaner stops the background expiration cleanup goroutine
 func (s *Server) stopExpirationCleaner() {
 	s.lock.Lock()
-	defer s.lock.Unlock()
-
 	select {
 	case <-s.expirationStopChan:
 		// Already closed
 	default:
 		close(s.expirationStopChan)
 	}
+	s.lock.Unlock()
+	<-s.expirationDoneChan
 }
 
 // cleanupExpiredAcknowledgedIDs removes acknowledged IDs that have exceeded their TTL

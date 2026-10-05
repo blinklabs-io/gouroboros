@@ -15,11 +15,16 @@
 package localmessagenotification
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/binary"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
@@ -63,6 +68,74 @@ func clientTestAuthenticator(t *testing.T) *pcommon.MessageAuthenticator {
 	)
 	require.NoError(t, err)
 	return auth
+}
+
+func clientTestSignedMessages(
+	t *testing.T,
+	bodies []string,
+	issueNumbers []uint64,
+	expiresAt []uint32,
+) ([]pcommon.DmqMessage, *pcommon.MessageAuthenticator) {
+	t.Helper()
+	require.Len(t, issueNumbers, len(bodies))
+	require.Len(t, expiresAt, len(bodies))
+	coldPub, coldPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	seed := make([]byte, kes.SeedSize)
+	_, err = rand.Read(seed)
+	require.NoError(t, err)
+	kesKey, kesPub, err := kes.KeyGen(kes.CardanoKesDepth, seed)
+	require.NoError(t, err)
+
+	messages := make([]pcommon.DmqMessage, len(bodies))
+	for i := range bodies {
+		payload := pcommon.DmqMessagePayload{
+			MessageBody: []byte(bodies[i]),
+			KESPeriod:   1,
+			ExpiresAt:   expiresAt[i],
+		}
+		payloadCBOR, err := cbor.Encode(payload)
+		require.NoError(t, err)
+		wrappedCBOR, err := cbor.Encode(payloadCBOR)
+		require.NoError(t, err)
+		kesSignature, err := kes.Sign(kesKey, 0, wrappedCBOR)
+		require.NoError(t, err)
+		signable := make([]byte, 0, len(kesPub)+16)
+		signable = append(signable, kesPub...)
+		issueBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(issueBytes, issueNumbers[i])
+		signable = append(signable, issueBytes...)
+		periodBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(periodBytes, 1)
+		signable = append(signable, periodBytes...)
+		messages[i] = pcommon.DmqMessage{
+			Payload:      payload,
+			KESSignature: kesSignature,
+			OperationalCertificate: pcommon.OperationalCertificate{
+				KESVerificationKey: kesPub,
+				IssueNumber:        issueNumbers[i],
+				KESPeriod:          1,
+				ColdSignature:      ed25519.Sign(coldPriv, signable),
+			},
+			ColdVerificationKey: coldPub,
+		}
+		require.NoError(t, messages[i].SetComputedMessageID())
+	}
+	authenticator, err := pcommon.NewMessageAuthenticator(
+		pcommon.MessageAuthenticatorConfig{
+			StakeAuthority: clientTestStakeAuthority{},
+			CurrentSlot: func() (uint64, error) {
+				return 129600, nil
+			},
+			PoolOpCertIssueNumber: func(
+				pcommon.PoolKeyHash,
+			) (uint64, bool, error) {
+				return 0, false, nil
+			},
+		},
+	)
+	require.NoError(t, err)
+	return messages, authenticator
 }
 
 func testReplyMessages(
@@ -203,19 +276,22 @@ func TestClientReplayCacheCapAndExpiration(t *testing.T) {
 	first := clientTestMessage(t, "first", 100)
 	second := clientTestMessage(t, "second", 200)
 
-	require.NoError(t, client.reserveMessageIDs(
+	require.NoError(t, client.commitAcceptedMessages(
 		[]pcommon.DmqMessage{first},
 		time.Unix(100, 0),
+		nil,
 	))
-	require.ErrorContains(t, client.reserveMessageIDs(
+	require.ErrorContains(t, client.commitAcceptedMessages(
 		[]pcommon.DmqMessage{second},
 		time.Unix(100, 0),
+		nil,
 	), "replay cache full")
 	require.Len(t, client.replayState.acceptedIDs, 1)
 
-	require.NoError(t, client.reserveMessageIDs(
+	require.NoError(t, client.commitAcceptedMessages(
 		[]pcommon.DmqMessage{second},
 		time.Unix(101, 0),
+		nil,
 	))
 	require.Len(t, client.replayState.acceptedIDs, 1)
 	require.Contains(t, client.replayState.acceptedIDs, string(second.ID()))
@@ -226,9 +302,10 @@ func TestClientReplayCacheUsesBoundForZeroValueConfig(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, &cfg)
 	msg := clientTestMessage(t, "zero value config", 100)
 
-	require.NoError(t, client.reserveMessageIDs(
+	require.NoError(t, client.commitAcceptedMessages(
 		[]pcommon.DmqMessage{msg},
 		time.Unix(100, 0),
+		nil,
 	))
 	require.Len(t, client.replayState.acceptedIDs, 1)
 }
@@ -284,4 +361,64 @@ func TestClientRechecksTTLAfterAuthentication(t *testing.T) {
 	), "TTL validation failed")
 	require.Zero(t, callbacks.Load())
 	require.Empty(t, client.replayState.acceptedIDs)
+}
+
+func TestClientReplayRejectionDoesNotCommitHigherOpCert(t *testing.T) {
+	messages, authenticator := clientTestSignedMessages(
+		t,
+		[]string{"same", "same", "later"},
+		[]uint64{1, 2, 1},
+		[]uint32{200, 200, 200},
+	)
+	cfg := NewConfig(WithAuthenticator(authenticator))
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	client.now = func() time.Time { return time.Unix(100, 0) }
+
+	require.NoError(t, client.validateAndReserve(messages[:1]))
+	require.ErrorContains(t, client.validateAndReserve(messages[1:2]), "already accepted")
+	delete(client.replayState.acceptedIDs, string(messages[0].ID()))
+	require.NoError(t, client.validateAndReserve(messages[2:]))
+}
+
+func TestClientExpiryRejectionDoesNotCommitHigherOpCert(t *testing.T) {
+	messages, authenticator := clientTestSignedMessages(
+		t,
+		[]string{"expires", "later"},
+		[]uint64{2, 1},
+		[]uint32{100, 200},
+	)
+	cfg := NewConfig(WithAuthenticator(authenticator))
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	times := []time.Time{
+		time.Unix(100, 0), time.Unix(101, 0),
+		time.Unix(101, 0), time.Unix(101, 0),
+	}
+	client.now = func() time.Time {
+		now := times[0]
+		times = times[1:]
+		return now
+	}
+
+	require.ErrorContains(t, client.validateAndReserve(messages[:1]), "TTL validation failed")
+	require.NoError(t, client.validateAndReserve(messages[1:]))
+}
+
+func TestClientReplayCapRejectionDoesNotCommitHigherOpCert(t *testing.T) {
+	messages, authenticator := clientTestSignedMessages(
+		t,
+		[]string{"first", "higher", "later"},
+		[]uint64{1, 2, 1},
+		[]uint32{100, 200, 200},
+	)
+	cfg := NewConfig(
+		WithAuthenticator(authenticator),
+		WithMaxReplayEntries(1),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	client.now = func() time.Time { return time.Unix(100, 0) }
+
+	require.NoError(t, client.validateAndReserve(messages[:1]))
+	require.ErrorContains(t, client.validateAndReserve(messages[1:2]), "replay cache full")
+	client.now = func() time.Time { return time.Unix(101, 0) }
+	require.NoError(t, client.validateAndReserve(messages[2:]))
 }

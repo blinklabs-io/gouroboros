@@ -101,6 +101,17 @@ func TestServerStopStopsExpirationCleanerBeforeStart(t *testing.T) {
 	}
 }
 
+func TestServerStopJoinsExpirationCleaner(t *testing.T) {
+	server := NewServer(protocol.ProtocolOptions{}, nil)
+	require.NoError(t, server.Stop())
+
+	select {
+	case <-server.expirationDoneChan:
+	default:
+		t.Fatal("Stop returned before the expiration cleaner exited")
+	}
+}
+
 func TestConnectionDoneCancelsBlockingRequestAndCleaner(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		connectionDone := make(chan any)

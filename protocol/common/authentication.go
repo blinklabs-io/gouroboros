@@ -232,16 +232,19 @@ func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	return m.verifyMessageInternal(msg, &slot)
 }
 
-// VerifyMessages verifies a batch at one authoritative current slot and
-// commits operational-certificate cache updates only when every message is
-// valid.
-func (m *MessageAuthenticator) VerifyMessages(messages []DmqMessage) error {
+// PrepareMessages verifies a batch at one authoritative current slot and
+// returns a function that atomically commits its operational-certificate
+// observations. Verification does not mutate the authenticator until the
+// returned function succeeds.
+func (m *MessageAuthenticator) PrepareMessages(
+	messages []DmqMessage,
+) (func() error, error) {
 	if m.disableValidation || len(messages) == 0 {
-		return nil
+		return func() error { return nil }, nil
 	}
 	slot, err := m.currentSlot()
 	if err != nil {
-		return fmt.Errorf("look up current slot: %w", err)
+		return nil, fmt.Errorf("look up current slot: %w", err)
 	}
 
 	m.mu.Lock()
@@ -262,36 +265,47 @@ func (m *MessageAuthenticator) VerifyMessages(messages []DmqMessage) error {
 	touchedPools := make(map[PoolKeyHash]struct{})
 	for i := range messages {
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i], &slot); err != nil {
-			return fmt.Errorf("message %d authentication failed: %w", i, err)
+			return nil, fmt.Errorf("message %d authentication failed: %w", i, err)
 		}
 		poolID, err := poolKeyHash(messages[i].ColdVerificationKey)
 		if err != nil {
-			return fmt.Errorf("message %d compute pool id: %w", i, err)
+			return nil, fmt.Errorf("message %d compute pool id: %w", i, err)
 		}
 		touchedPools[poolID] = struct{}{}
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for poolID := range touchedPools {
-		issueNumber := batchAuthenticator.kesOpCertCache[poolID]
-		if currentIssue, exists := m.kesOpCertCache[poolID]; exists &&
-			issueNumber < currentIssue {
-			return fmt.Errorf(
-				"opcert number went backwards: previous=%d, current=%d",
-				currentIssue,
-				issueNumber,
-			)
+	return func() error {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		for poolID := range touchedPools {
+			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
+			if currentIssue, exists := m.kesOpCertCache[poolID]; exists &&
+				issueNumber < currentIssue {
+				return fmt.Errorf(
+					"opcert number went backwards: previous=%d, current=%d",
+					currentIssue,
+					issueNumber,
+				)
+			}
 		}
-	}
-	for poolID := range touchedPools {
-		issueNumber := batchAuthenticator.kesOpCertCache[poolID]
-		if currentIssue, exists := m.kesOpCertCache[poolID]; !exists ||
-			issueNumber > currentIssue {
-			m.kesOpCertCache[poolID] = issueNumber
+		for poolID := range touchedPools {
+			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
+			if currentIssue, exists := m.kesOpCertCache[poolID]; !exists ||
+				issueNumber > currentIssue {
+				m.kesOpCertCache[poolID] = issueNumber
+			}
 		}
+		return nil
+	}, nil
+}
+
+// VerifyMessages verifies a batch and commits its authentication state.
+func (m *MessageAuthenticator) VerifyMessages(messages []DmqMessage) error {
+	commit, err := m.PrepareMessages(messages)
+	if err != nil {
+		return err
 	}
-	return nil
+	return commit()
 }
 
 // VerifyMessageWithSlot verifies a message using an explicit slot value. When available,
