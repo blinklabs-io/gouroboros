@@ -257,6 +257,9 @@ func (m *MsgBlockTxs) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if err := validateBlockTxsTransactions(data, elementCount, maxWireBlockTxs); err != nil {
+		return err
+	}
 	switch elementCount {
 	case 2: // [msgType, tx_list] — dingo form
 		var env struct {

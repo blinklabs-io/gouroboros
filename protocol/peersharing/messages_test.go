@@ -17,9 +17,9 @@ package peersharing
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"reflect"
-	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -165,16 +165,16 @@ func TestMsgSharePeersRejectsDeclaredCountBeforeAllocation(t *testing.T) {
 		[]byte{0x82, MessageTypeSharePeers, 0x99, 0x13, 0x88},
 		bytes.Repeat([]byte{0}, 5000)...,
 	)
-	runtime.GC()
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
-	runtime.ReadMemStats(&after)
-	require.Error(t, err)
-	require.Nil(t, msg)
-	allocated := after.TotalAlloc - before.TotalAlloc
-	t.Logf("wire=%d allocated=%d", len(wire), allocated)
-	require.LessOrEqual(t, allocated, uint64(64<<10))
+	_, _ = NewMsgFromCbor(MessageTypeSharePeers, []byte{0x82, MessageTypeSharePeers, 0x80})
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
+			if err == nil || msg != nil {
+				b.Fatal("invalid address list accepted")
+			}
+		}
+	})
+	require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
 }
 
 func TestMsgSharePeersAcceptsMaximumAddressCount(t *testing.T) {
@@ -188,14 +188,23 @@ func TestMsgSharePeersAcceptsMaximumAddressCount(t *testing.T) {
 	require.Len(t, msg.(*MsgSharePeers).PeerAddresses, MaxSharedPeers)
 }
 
+func TestMsgSharePeersAcceptsCompactWireMaximum(t *testing.T) {
+	wire, err := cbor.Encode(NewMsgSharePeers(smallPeerAddresses(MaxPeerSharingResponseCount)))
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(wire), MaxPendingMessageBytes)
+	msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgSharePeers).PeerAddresses, MaxPeerSharingResponseCount)
+}
+
 func TestMsgSharePeersBoundsIndefiniteAddressArray(t *testing.T) {
 	wire := append([]byte{0x9f, MessageTypeSharePeers, 0x9f},
-		bytes.Repeat([]byte{0x80}, MaxSharedPeers+1)...)
+		bytes.Repeat([]byte{0x80}, MaxPeerSharingResponseCount+1)...)
 	wire = append(wire, 0xff, 0xff)
 	msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
 	require.Error(t, err)
 	require.Nil(t, msg)
-	require.ErrorContains(t, err, "maximum is 230")
+	require.ErrorContains(t, err, fmt.Sprintf("maximum is %d", MaxPeerSharingResponseCount))
 }
 
 func TestMsgSharePeersPreflightPreservesWireForms(t *testing.T) {

@@ -20,12 +20,12 @@ import (
 )
 
 // UnmarshalCBOR checks the address count before the generic decoder allocates
-// the typed slice. MaxSharedPeers comes from the protocol's byte limit and
-// maximum encoded PeerAddress size.
+// the typed slice. A request count is uint8, so a compact response may legally
+// contain 255 addresses; the server's worst-case emission cap is separate.
 func (m *MsgSharePeers) UnmarshalCBOR(data []byte) error {
 	if err := cborpreflight.ValidateSecondFieldArray(
 		data,
-		MaxSharedPeers,
+		MaxPeerSharingResponseCount,
 		"peer-sharing address array",
 		nil,
 	); err != nil {

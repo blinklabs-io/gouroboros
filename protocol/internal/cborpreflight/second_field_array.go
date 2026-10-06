@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborwalk"
 )
 
 // ValidateSecondFieldArray validates a two-field message whose second field is
@@ -56,6 +57,12 @@ func validateArray(
 	return err
 }
 
+// ValidateArray validates an array before a typed decoder can allocate from
+// its peer-controlled count.
+func ValidateArray(data []byte, maxCount int, label string, validateItem func(int, []byte) error) error {
+	return validateArray(data, maxCount, label, validateItem)
+}
+
 func arrayItems(
 	data []byte,
 	maxCount int,
@@ -75,35 +82,30 @@ func arrayItems(
 		return nil, tooManyItems(label, count, maxCount)
 	}
 	pos += int(headerSize)
-	dec, err := cbor.NewStreamDecoder(data[pos:])
-	if err != nil {
-		return nil, err
-	}
 	var items [][]byte
 	if collect {
 		items = make([][]byte, 0, min(count, maxCount))
 	}
 	for idx := 0; indefinite || idx < count; idx++ {
-		current := pos + dec.Position()
+		current := pos
 		if indefinite {
 			if current >= len(data) {
 				return nil, fmt.Errorf("unterminated %s", label)
 			}
 			if data[current] == 0xff {
-				if err := dec.Advance(1); err != nil {
-					return nil, err
-				}
+				pos++
 				break
 			}
 			if idx >= maxCount {
 				return nil, tooManyItems(label, idx+1, maxCount)
 			}
 		}
-		start, length, err := dec.Skip()
+		length, err := cborwalk.ItemLength(data[current:])
 		if err != nil {
 			return nil, fmt.Errorf("decode %s item %d: %w", label, idx, err)
 		}
-		raw := dec.RawBytes(start, length)
+		raw := data[current : current+length]
+		pos += length
 		if validateItem != nil {
 			if err := validateItem(idx, raw); err != nil {
 				return nil, err
@@ -113,7 +115,7 @@ func arrayItems(
 			items = append(items, raw)
 		}
 	}
-	if !dec.EOF() {
+	if pos != len(data) {
 		return nil, fmt.Errorf("trailing data after %s", label)
 	}
 	return items, nil

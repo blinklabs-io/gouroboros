@@ -17,9 +17,9 @@ package handshake
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"reflect"
-	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -33,7 +33,7 @@ func TestHandshakeCollectionsRejectBeforeAllocation(t *testing.T) {
 		name      string
 		kind      uint
 		wire      []byte
-		maxAlloc  uint64
+		maxAlloc  int64
 		errorText string
 	}{
 		{
@@ -65,16 +65,17 @@ func TestHandshakeCollectionsRejectBeforeAllocation(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			runtime.GC()
-			var before, after runtime.MemStats
-			runtime.ReadMemStats(&before)
-			msg, err := NewMsgFromCbor(tc.kind, tc.wire)
-			runtime.ReadMemStats(&after)
-			require.Error(t, err)
-			require.Nil(t, msg)
-			allocated := after.TotalAlloc - before.TotalAlloc
-			t.Logf("wire=%d allocated=%d", len(tc.wire), allocated)
-			require.LessOrEqual(t, allocated, tc.maxAlloc)
+			_, _ = NewMsgFromCbor(MessageTypeProposeVersions, []byte{0x82, MessageTypeProposeVersions, 0xa0})
+			result := testing.Benchmark(func(b *testing.B) {
+				for range b.N {
+					msg, err := NewMsgFromCbor(tc.kind, tc.wire)
+					if err == nil || msg != nil {
+						b.Fatal("invalid handshake collection accepted")
+					}
+				}
+			})
+			require.LessOrEqual(t, result.AllocedBytesPerOp(), tc.maxAlloc)
+			_, err := NewMsgFromCbor(tc.kind, tc.wire)
 			require.ErrorContains(t, err, tc.errorText)
 		})
 	}
@@ -105,6 +106,18 @@ func TestHandshakePreservesLargeValidCollections(t *testing.T) {
 	msg, err = NewMsgFromCbor(MessageTypeRefuse, wire)
 	require.NoError(t, err)
 	require.Len(t, msg.(*MsgRefuse).Reason, 2)
+}
+
+func TestHandshakeExtendedHeaderCountsUseTheirEncodedSize(t *testing.T) {
+	versionCount := maxHandshakeVersions + 1
+	versionWire := []byte{0x82, MessageTypeProposeVersions, 0xb9, byte(versionCount >> 8), byte(versionCount)}
+	_, err := NewMsgFromCbor(MessageTypeProposeVersions, versionWire)
+	require.ErrorContains(t, err, fmt.Sprintf("maximum is %d", maxHandshakeVersions))
+
+	supportedCount := maxRefusalSupportedVersions + 1
+	supportedWire := []byte{0x82, MessageTypeRefuse, 0x82, byte(RefuseReasonVersionMismatch), 0x99, byte(supportedCount >> 8), byte(supportedCount)}
+	_, err = NewMsgFromCbor(MessageTypeRefuse, supportedWire)
+	require.ErrorContains(t, err, fmt.Sprintf("maximum is %d", maxRefusalSupportedVersions))
 }
 
 type testDefinition struct {

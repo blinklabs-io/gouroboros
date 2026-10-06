@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -36,16 +35,45 @@ func TestFindIntersectRejectsInvalidPointBeforeAllocation(t *testing.T) {
 		[]byte{0x82, MessageTypeFindIntersect, 0x99, 0x13, 0x88},
 		bytes.Repeat([]byte{0}, 5000)...,
 	)
-	runtime.GC()
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	msg, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
-	runtime.ReadMemStats(&after)
-	require.Error(t, err)
-	require.Nil(t, msg)
-	allocated := after.TotalAlloc - before.TotalAlloc
-	t.Logf("wire=%d allocated=%d", len(wire), allocated)
-	require.LessOrEqual(t, allocated, uint64(64<<10))
+	_, _ = NewMsgFromCborNtN(MessageTypeFindIntersect, []byte{0x82, MessageTypeFindIntersect, 0x80})
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			msg, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
+			if err == nil || msg != nil {
+				b.Fatal("invalid point list accepted")
+			}
+		}
+	})
+	require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
+}
+
+func TestFindIntersectRejectsPointFieldsBeforeTypedDecode(t *testing.T) {
+	for name, point := range map[string][]byte{
+		"negative slot": {0x82, 0x20, 0x58, 0x20},
+		"nested slot":   {0x82, 0x80, 0x58, 0x20},
+		"text hash":     {0x82, 0x00, 0x78, 0x20},
+		"short hash":    {0x82, 0x00, 0x58, 0x1f},
+	} {
+		t.Run(name, func(t *testing.T) {
+			wire := append([]byte{0x82, MessageTypeFindIntersect, 0x81}, point...)
+			wire = append(wire, make([]byte, 32)...)
+			_, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestFindIntersectRejectsPointCountAboveAllocationBudget(t *testing.T) {
+	const count = maxFindIntersectDecodedPoints + 1
+	wire := append([]byte{0x82, MessageTypeFindIntersect, 0x9a, 0, 2, 0, 2}, bytes.Repeat([]byte{0x80}, count)...)
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			if _, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire); err == nil {
+				b.Fatal("oversized point list accepted")
+			}
+		}
+	})
+	require.Less(t, result.AllocedBytesPerOp(), int64(64<<10))
 }
 
 func TestFindIntersectPreservesLargeOriginList(t *testing.T) {

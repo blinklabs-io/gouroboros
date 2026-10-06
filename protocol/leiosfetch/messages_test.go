@@ -17,7 +17,6 @@ package leiosfetch
 import (
 	"bytes"
 	"reflect"
-	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -33,16 +32,57 @@ func TestBlockTxsRejectsEnvelopeCountBeforeAllocation(t *testing.T) {
 		[]byte{0x99, 0x13, 0x88},
 		bytes.Repeat([]byte{0}, 5000)...,
 	)
-	runtime.GC()
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
-	runtime.ReadMemStats(&after)
+	_, _ = NewMsgFromCbor(MessageTypeBlockTxs, []byte{0x82, MessageTypeBlockTxs, 0x80})
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+			if err == nil || msg != nil {
+				b.Fatal("invalid envelope accepted")
+			}
+		}
+	})
+	require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
+}
+
+func TestBlockTxsRejectsTransactionCountBeforeAllocation(t *testing.T) {
+	// [3, array(5000)] contains no transaction items. The declared inner count
+	// must be rejected before []RawMessage allocation.
+	wire := []byte{0x82, MessageTypeBlockTxs, 0x99, 0x13, 0x88}
+	// Warm lazy decoder initialization before measuring the rejected path.
+	_, _ = NewMsgFromCbor(MessageTypeBlockTxs, []byte{0x82, MessageTypeBlockTxs, 0x80})
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			if _, err := NewMsgFromCbor(MessageTypeBlockTxs, wire); err == nil {
+				b.Fatal("truncated transaction list accepted")
+			}
+		}
+	})
+	require.Less(t, result.AllocedBytesPerOp(), int64(32<<10))
+}
+
+func TestBlockTxsClientUsesRequestBitmapCardinality(t *testing.T) {
+	wire := []byte{0x82, MessageTypeBlockTxs, 0x83, 0x80, 0x80, 0x80}
+	client := &Client{}
+	client.blockRequestSlot.maxBlockTxs = 2
+	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
 	require.Error(t, err)
 	require.Nil(t, msg)
-	allocated := after.TotalAlloc - before.TotalAlloc
-	t.Logf("wire=%d allocated=%d", len(wire), allocated)
-	require.LessOrEqual(t, allocated, uint64(64<<10))
+	client.blockRequestSlot.maxBlockTxs = 3
+	msg, err = client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgBlockTxs).TxsRaw, 3)
+}
+
+func TestLeiosFetchRolesRejectWrongDirectionBeforeDecode(t *testing.T) {
+	declared := []byte{0x82, MessageTypeBlockTxs, 0x9a, 0, 0x40, 0}
+	msg, err := serverMessageFromCbor(MessageTypeBlockTxs, declared)
+	require.ErrorContains(t, err, "not a client request")
+	require.Nil(t, msg)
+
+	client := &Client{}
+	msg, err = client.messageFromCbor(MessageTypeBlockTxsRequest, declared)
+	require.ErrorContains(t, err, "not a server response")
+	require.Nil(t, msg)
 }
 
 type testDefinition struct {

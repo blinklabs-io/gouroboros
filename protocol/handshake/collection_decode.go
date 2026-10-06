@@ -19,19 +19,21 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborwalk"
 )
 
 const (
 	// A version-map entry needs at least one byte each for its uint16 key and
-	// raw version data. The message, type and map headers consume three bytes.
-	maxHandshakeVersions = (MaxPendingMessageBytes - 3) / 2
+	// raw version data. The message and type consume two bytes; a count this
+	// large uses a three-byte map header.
+	maxHandshakeVersions = (MaxPendingMessageBytes - 5) / 2
 	// Refusal reasons have two fields for version mismatch and three for a
 	// decode error or explicit refusal.
 	maxRefusalFields = 3
 	// A version-mismatch refusal needs one byte each for the message, message
-	// type, reason array, reason code and supported-version array headers. Each
-	// uint16 version needs at least one byte.
-	maxRefusalSupportedVersions = MaxPendingMessageBytes - 5
+	// type, reason array and reason code. A count this large uses a three-byte
+	// supported-version array header. Each uint16 version needs at least one byte.
+	maxRefusalSupportedVersions = MaxPendingMessageBytes - 7
 )
 
 func validateVersionMapMessage(data []byte) error {
@@ -39,23 +41,17 @@ func validateVersionMapMessage(data []byte) error {
 	if err != nil {
 		return err
 	}
-	count, headerSize, indefinite := cbor.MapInfo(collection)
-	if count < 0 {
-		return errors.New("handshake versions are not a map")
+	count, headerSize, indefinite, err := handshakeCollectionInfo(collection, 5, "handshake versions")
+	if err != nil {
+		return err
 	}
 	if !indefinite && count > maxHandshakeVersions {
 		return tooManyHandshakeVersions(count)
 	}
-	dec, err := cbor.NewStreamDecoder(collection)
-	if err != nil {
-		return err
-	}
-	if err := dec.Advance(int(headerSize)); err != nil {
-		return err
-	}
+	pos := int(headerSize)
 	var seen [1 << 13]byte
 	for idx := 0; indefinite || idx < count; idx++ {
-		position := dec.Position()
+		position := pos
 		if indefinite {
 			if position >= len(collection) {
 				return errors.New("unterminated handshake version map")
@@ -68,17 +64,21 @@ func validateVersionMapMessage(data []byte) error {
 			}
 		}
 		var version uint16
-		if _, _, err := dec.Decode(&version); err != nil {
+		consumed, err := cbor.Decode(collection[position:], &version)
+		if err != nil {
 			return fmt.Errorf("decode handshake version %d: %w", idx, err)
 		}
+		pos += consumed
 		byteIndex := version >> 3
 		bit := byte(1 << (version & 7))
 		if seen[byteIndex]&bit != 0 {
 			return fmt.Errorf("duplicate handshake version %d", version)
 		}
 		seen[byteIndex] |= bit
-		if _, _, err := dec.Skip(); err != nil {
+		if length, err := cborwalk.ItemLength(collection[pos:]); err != nil {
 			return fmt.Errorf("decode handshake version data %d: %w", idx, err)
+		} else {
+			pos += length
 		}
 	}
 	return nil
@@ -89,23 +89,17 @@ func validateRefusalMessage(data []byte) error {
 	if err != nil {
 		return err
 	}
-	count, headerSize, indefinite := cbor.ArrayInfo(collection)
-	if count < 0 {
-		return errors.New("handshake refusal reason is not an array")
+	count, headerSize, indefinite, err := handshakeCollectionInfo(collection, 4, "handshake refusal reason")
+	if err != nil {
+		return err
 	}
 	if !indefinite && count > maxRefusalFields {
 		return tooManyRefusalFields(count)
 	}
-	dec, err := cbor.NewStreamDecoder(collection)
-	if err != nil {
-		return err
-	}
-	if err := dec.Advance(int(headerSize)); err != nil {
-		return err
-	}
+	pos := int(headerSize)
 	var reason uint64
 	for idx := 0; indefinite || idx < count; idx++ {
-		position := dec.Position()
+		position := pos
 		if indefinite {
 			if position >= len(collection) {
 				return errors.New("unterminated handshake refusal reason")
@@ -118,9 +112,11 @@ func validateRefusalMessage(data []byte) error {
 			}
 		}
 		if idx == 0 {
-			if _, _, err := dec.Decode(&reason); err != nil {
+			consumed, err := cbor.Decode(collection[position:], &reason)
+			if err != nil {
 				return fmt.Errorf("decode handshake refusal reason: %w", err)
 			}
+			pos += consumed
 			continue
 		}
 		if idx == 1 && reason == RefuseReasonVersionMismatch {
@@ -128,8 +124,10 @@ func validateRefusalMessage(data []byte) error {
 				return err
 			}
 		}
-		if _, _, err := dec.Skip(); err != nil {
+		if length, err := cborwalk.ItemLength(collection[position:]); err != nil {
 			return fmt.Errorf("decode handshake refusal field %d: %w", idx, err)
+		} else {
+			pos += length
 		}
 	}
 	return nil
@@ -140,33 +138,31 @@ func validateSupportedVersions(data []byte) error {
 	if err != nil {
 		return err
 	}
-	count, headerSize, indefinite := cbor.ArrayInfo(data[pos:])
-	if count < 0 {
-		return errors.New("handshake supported versions are not an array")
+	count, headerSize, indefinite, err := handshakeCollectionInfo(data[pos:], 4, "handshake supported versions")
+	if err != nil {
+		return err
 	}
 	if !indefinite && count > maxRefusalSupportedVersions {
 		return tooManySupportedVersions(count)
 	}
 	pos += int(headerSize)
-	dec, err := cbor.NewStreamDecoder(data[pos:])
-	if err != nil {
-		return err
-	}
 	for idx := 0; indefinite || idx < count; idx++ {
-		position := dec.Position()
+		position := pos
 		if indefinite {
-			if position >= len(data)-pos {
+			if position >= len(data) {
 				return errors.New("unterminated handshake supported versions")
 			}
-			if data[pos+position] == 0xff {
+			if data[position] == 0xff {
 				return nil
 			}
 			if idx >= maxRefusalSupportedVersions {
 				return tooManySupportedVersions(idx + 1)
 			}
 		}
-		if _, _, err := dec.Skip(); err != nil {
+		if length, err := cborwalk.ItemLength(data[position:]); err != nil {
 			return fmt.Errorf("decode handshake supported version %d: %w", idx, err)
+		} else {
+			pos += length
 		}
 	}
 	return nil
@@ -177,9 +173,9 @@ func handshakeSecondField(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	fieldCount, headerSize, indefinite := cbor.ArrayInfo(data[pos:])
-	if fieldCount < 0 {
-		return nil, errors.New("handshake message is not an array")
+	fieldCount, headerSize, indefinite, err := handshakeCollectionInfo(data[pos:], 4, "handshake message")
+	if err != nil {
+		return nil, err
 	}
 	if !indefinite && fieldCount != 2 {
 		return nil, fmt.Errorf(
@@ -188,20 +184,46 @@ func handshakeSecondField(data []byte) ([]byte, error) {
 		)
 	}
 	pos += int(headerSize)
-	dec, err := cbor.NewStreamDecoder(data[pos:])
-	if err != nil {
-		return nil, err
-	}
 	var messageType uint
-	if _, _, err := dec.Decode(&messageType); err != nil {
+	consumed, err := cbor.Decode(data[pos:], &messageType)
+	if err != nil {
 		return nil, fmt.Errorf("decode handshake message type: %w", err)
 	}
-	pos += dec.Position()
+	pos += consumed
 	pos, err = skipHandshakeTags(data, pos)
 	if err != nil {
 		return nil, err
 	}
 	return data[pos:], nil
+}
+
+func handshakeCollectionInfo(data []byte, major byte, label string) (int, uint32, bool, error) {
+	head, ok, err := cborwalk.ReadHead(data, 0)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("invalid %s header: %w", label, err)
+	}
+	if !ok {
+		return 0, 0, false, fmt.Errorf("truncated %s header", label)
+	}
+	if head.Major != major || head.IsBreak {
+		kind := "array"
+		if major == 5 {
+			kind = "map"
+		}
+		return 0, 0, false, fmt.Errorf("%s is not a %s", label, kind)
+	}
+	var count int
+	var headerSize uint32
+	var indefinite bool
+	if major == 4 {
+		count, headerSize, indefinite = cbor.ArrayInfo(data)
+	} else {
+		count, headerSize, indefinite = cbor.MapInfo(data)
+	}
+	if count < 0 {
+		return 0, 0, false, fmt.Errorf("invalid %s header", label)
+	}
+	return count, headerSize, indefinite, nil
 }
 
 func skipHandshakeTags(data []byte, pos int) (int, error) {

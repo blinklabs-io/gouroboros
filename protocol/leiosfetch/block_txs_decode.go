@@ -19,6 +19,8 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborwalk"
 )
 
 func blockTxsEnvelopeCount(data []byte) (int, error) {
@@ -46,11 +48,7 @@ func blockTxsEnvelopeCount(data []byte) (int, error) {
 		if count >= 5 {
 			return 0, errors.New("block transactions envelope has too many fields")
 		}
-		dec, err := cbor.NewStreamDecoder(data[cursor.pos:])
-		if err != nil {
-			return 0, err
-		}
-		if _, length, err := dec.Skip(); err != nil {
+		if length, err := cborwalk.ItemLength(data[cursor.pos:]); err != nil {
 			return 0, fmt.Errorf(
 				"decode block transactions field %d: %w",
 				count,
@@ -60,4 +58,15 @@ func blockTxsEnvelopeCount(data []byte) (int, error) {
 			cursor.pos += length
 		}
 	}
+}
+
+const maxWireBlockTxs = (int(^uint16(0)) + 1) * 64
+
+func validateBlockTxsTransactions(data []byte, elementCount, maxCount int) error {
+	return cborpreflight.ValidateArray(data, 4, "block transactions envelope", func(idx int, raw []byte) error {
+		if idx != elementCount-1 {
+			return nil
+		}
+		return cborpreflight.ValidateArray(raw, maxCount, "block transactions", nil)
+	})
 }

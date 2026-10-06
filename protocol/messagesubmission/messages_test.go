@@ -16,7 +16,6 @@ package messagesubmission
 
 import (
 	"bytes"
-	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -40,16 +39,16 @@ func TestCollectionMessagesRejectConfiguredCountBeforeAllocation(t *testing.T) {
 				[]byte{0x82, byte(tc.kind), 0x99, 0x13, 0x88},
 				bytes.Repeat([]byte{0x80}, 5000)...,
 			)
-			runtime.GC()
-			var before, after runtime.MemStats
-			runtime.ReadMemStats(&before)
-			msg, err := decodeMsgFromCborWithLimit(tc.kind, wire, 100)
-			runtime.ReadMemStats(&after)
-			require.Error(t, err)
-			require.Nil(t, msg)
-			allocated := after.TotalAlloc - before.TotalAlloc
-			t.Logf("wire=%d allocated=%d", len(wire), allocated)
-			require.LessOrEqual(t, allocated, uint64(64<<10))
+			_, _ = decodeMsgFromCborWithLimit(tc.kind, []byte{0x82, byte(tc.kind), 0x80}, 100)
+			result := testing.Benchmark(func(b *testing.B) {
+				for range b.N {
+					msg, err := decodeMsgFromCborWithLimit(tc.kind, wire, 100)
+					if err == nil || msg != nil {
+						b.Fatal("oversized collection accepted")
+					}
+				}
+			})
+			require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
 		})
 	}
 }

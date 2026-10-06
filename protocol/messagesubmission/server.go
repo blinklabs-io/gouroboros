@@ -33,10 +33,13 @@ type Server struct {
 	protoVersion    uint16
 
 	// Server-side state for message queue management
-	lock              sync.Mutex
-	messageQueue      []*pcommon.DmqMessage
-	pendingMessageIDs [][]byte
-	requestInFlight   bool // Protects against concurrent request modifications (TOCTOU)
+	lock                    sync.Mutex
+	messageQueue            []*pcommon.DmqMessage
+	pendingMessageIDs       [][]byte
+	requestInFlight         bool // Protects against concurrent request modifications (TOCTOU)
+	expectedReplyMessageIDs int
+	expectedReplyMessages   int
+	messagesRequestInFlight bool
 }
 
 // NewServer returns a new MessageSubmission server object
@@ -81,7 +84,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 			return decodeMsgFromCborWithLimit(
 				msgType,
 				data,
-				configuredMessageIDLimit(s.config),
+				s.collectionLimit(msgType),
 			)
 		},
 		StateMap:     baseStateMap,
@@ -89,6 +92,19 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
+}
+
+func (s *Server) collectionLimit(msgType uint) int {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	switch msgType {
+	case MessageTypeReplyMessageIds:
+		return s.expectedReplyMessageIDs
+	case MessageTypeReplyMessages:
+		return s.expectedReplyMessages
+	default:
+		return configuredMessageIDLimit(s.config)
+	}
 }
 
 // AddMessage adds a message to the outbound queue
@@ -153,9 +169,14 @@ func (s *Server) RequestMessageIdsBlocking(
 		s.lock.Unlock()
 		return errors.New("cannot request 0 message IDs")
 	}
+	if int(requestCount) > configuredMessageIDLimit(s.config) {
+		s.lock.Unlock()
+		return fmt.Errorf("request count %d exceeds configured maximum %d", requestCount, configuredMessageIDLimit(s.config))
+	}
 
 	// Mark request as in-flight before releasing lock.
 	s.requestInFlight = true
+	s.expectedReplyMessageIDs = int(requestCount)
 	// Prepare message
 	msg := NewMsgRequestMessageIds(true, ackCount, requestCount)
 	// Release lock before performing network I/O
@@ -165,6 +186,7 @@ func (s *Server) RequestMessageIdsBlocking(
 	s.lock.Lock()
 	if err != nil {
 		s.requestInFlight = false
+		s.expectedReplyMessageIDs = 0
 	}
 	s.lock.Unlock()
 
@@ -195,9 +217,14 @@ func (s *Server) RequestMessageIdsNonBlocking(
 		s.lock.Unlock()
 		return errors.New("cannot request 0 message IDs")
 	}
+	if int(requestCount) > configuredMessageIDLimit(s.config) {
+		s.lock.Unlock()
+		return fmt.Errorf("request count %d exceeds configured maximum %d", requestCount, configuredMessageIDLimit(s.config))
+	}
 
 	// Mark request as in-flight while holding the lock.
 	s.requestInFlight = true
+	s.expectedReplyMessageIDs = int(requestCount)
 	// Prepare message
 	msg := NewMsgRequestMessageIds(false, ackCount, requestCount)
 	// Release lock before performing network I/O
@@ -207,6 +234,7 @@ func (s *Server) RequestMessageIdsNonBlocking(
 	s.lock.Lock()
 	if err != nil {
 		s.requestInFlight = false
+		s.expectedReplyMessageIDs = 0
 	}
 	s.lock.Unlock()
 
@@ -215,8 +243,26 @@ func (s *Server) RequestMessageIdsNonBlocking(
 
 // RequestMessages sends a request for specific messages by their IDs
 func (s *Server) RequestMessages(messageIDs [][]byte) error {
+	if len(messageIDs) > configuredMessageIDLimit(s.config) {
+		return fmt.Errorf("message request has %d IDs, maximum is %d", len(messageIDs), configuredMessageIDLimit(s.config))
+	}
+	s.lock.Lock()
+	if s.messagesRequestInFlight {
+		s.lock.Unlock()
+		return errors.New("a message request is already in flight")
+	}
+	s.messagesRequestInFlight = true
+	s.expectedReplyMessages = len(messageIDs)
+	s.lock.Unlock()
 	msg := NewMsgRequestMessages(messageIDs)
-	return s.SendMessage(msg)
+	if err := s.SendMessage(msg); err != nil {
+		s.lock.Lock()
+		s.messagesRequestInFlight = false
+		s.expectedReplyMessages = 0
+		s.lock.Unlock()
+		return err
+	}
+	return nil
 }
 
 // Done sends MsgDone to terminate the protocol from the server side.
@@ -408,6 +454,7 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 	s.lock.Lock()
 	// Clear the in-flight flag now that response is received
 	s.requestInFlight = false
+	s.expectedReplyMessageIDs = 0
 	// Remove the replied IDs from pendingMessageIDs to mark them as acknowledged
 	repliedIDs := make(map[string]struct{}, len(msgReply.Messages))
 	for _, entry := range msgReply.Messages {
@@ -432,6 +479,10 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 
 func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	msgReply := msg.(*MsgReplyMessages)
+	s.lock.Lock()
+	s.messagesRequestInFlight = false
+	s.expectedReplyMessages = 0
+	s.lock.Unlock()
 
 	s.Protocol.Logger().
 		Debug("received reply messages",
