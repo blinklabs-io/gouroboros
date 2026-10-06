@@ -134,7 +134,7 @@ type Config struct {
 	BlockingRequestTimeout time.Duration
 	// MaxReplayEntries bounds the number of accepted message IDs retained by
 	// the client until their signed expiration time. Fresh messages received
-	// while the cache is full are withheld until capacity expires.
+	// while the cache is full require sender retry after capacity expires.
 	MaxReplayEntries int
 
 	// Shared configuration
