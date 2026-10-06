@@ -15,6 +15,8 @@
 package messagesubmission
 
 import (
+	"bytes"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -23,6 +25,34 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCollectionMessagesRejectConfiguredCountBeforeAllocation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind uint
+	}{
+		{"reply message IDs", MessageTypeReplyMessageIds},
+		{"request messages", MessageTypeRequestMessages},
+		{"reply messages", MessageTypeReplyMessages},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := append(
+				[]byte{0x82, byte(tc.kind), 0x99, 0x13, 0x88},
+				bytes.Repeat([]byte{0x80}, 5000)...,
+			)
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			msg, err := decodeMsgFromCborWithLimit(tc.kind, wire, 100)
+			runtime.ReadMemStats(&after)
+			require.Error(t, err)
+			require.Nil(t, msg)
+			allocated := after.TotalAlloc - before.TotalAlloc
+			t.Logf("wire=%d allocated=%d", len(wire), allocated)
+			require.LessOrEqual(t, allocated, uint64(64<<10))
+		})
+	}
+}
 
 // TestMsgInitEncoding tests MsgInit message encoding
 func TestMsgInitEncoding(t *testing.T) {

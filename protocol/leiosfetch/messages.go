@@ -253,11 +253,11 @@ func (m *MsgBlockTxs) MarshalCBOR() ([]byte, error) {
 }
 
 func (m *MsgBlockTxs) UnmarshalCBOR(data []byte) error {
-	var elems []cbor.RawMessage
-	if _, err := cbor.Decode(data, &elems); err != nil {
+	elementCount, err := blockTxsEnvelopeCount(data)
+	if err != nil {
 		return err
 	}
-	switch len(elems) {
+	switch elementCount {
 	case 2: // [msgType, tx_list] — dingo form
 		var env struct {
 			cbor.StructAsArray
@@ -288,7 +288,7 @@ func (m *MsgBlockTxs) UnmarshalCBOR(data []byte) error {
 		return fmt.Errorf(
 			"%s: block txs: unexpected element count %d",
 			ProtocolName,
-			len(elems),
+			elementCount,
 		)
 	}
 	m.SetCbor(data)

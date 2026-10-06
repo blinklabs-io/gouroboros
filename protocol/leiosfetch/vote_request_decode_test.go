@@ -119,7 +119,7 @@ func TestVotesRequestRejectsNullIDBeforeAllocation(t *testing.T) {
 	require.LessOrEqual(t, allocated, uint64(64<<10))
 	require.Error(t, err)
 	require.Nil(t, msg)
-	require.ErrorContains(t, err, "vote request field is not unsigned")
+	require.ErrorContains(t, err, "CBOR field is not unsigned")
 }
 
 func TestVotesRequestPreservesTypedScalarAndArrayForms(t *testing.T) {

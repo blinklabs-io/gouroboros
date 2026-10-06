@@ -69,17 +69,23 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	}
 
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolID,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleServer,
-		MessageHandlerFunc:  s.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            baseStateMap,
-		InitialState:        initialState,
+		Name:               ProtocolName,
+		ProtocolId:         ProtocolID,
+		Muxer:              protoOptions.Muxer,
+		Logger:             protoOptions.Logger,
+		ErrorChan:          protoOptions.ErrorChan,
+		Mode:               protoOptions.Mode,
+		Role:               protocol.ProtocolRoleServer,
+		MessageHandlerFunc: s.messageHandler,
+		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
+			return decodeMsgFromCborWithLimit(
+				msgType,
+				data,
+				configuredMessageIDLimit(s.config),
+			)
+		},
+		StateMap:     baseStateMap,
+		InitialState: initialState,
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s

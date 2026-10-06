@@ -79,6 +79,18 @@ func NewMsgFromCbor(
 			msgType,
 		)
 	}
+	if msgType == MessageTypeFindIntersect {
+		limit := MaxPendingMessageBytes
+		if protoMode == protocol.ProtocolModeNodeToClient {
+			limit = PendingReceiveBytesNtC
+		}
+		if err := validateFindIntersect(
+			data,
+			maxFindIntersectPoints(limit),
+		); err != nil {
+			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+		}
+	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
@@ -235,6 +247,9 @@ type MsgFindIntersect struct {
 }
 
 func NewMsgFindIntersect(points []pcommon.Point) *MsgFindIntersect {
+	if points == nil {
+		points = []pcommon.Point{}
+	}
 	m := &MsgFindIntersect{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeFindIntersect,

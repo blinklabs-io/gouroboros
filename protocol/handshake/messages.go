@@ -119,6 +119,16 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			msgType,
 		)
 	}
+	switch msgType {
+	case MessageTypeProposeVersions, MessageTypeQueryReply:
+		if err := validateVersionMapMessage(data); err != nil {
+			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+		}
+	case MessageTypeRefuse:
+		if err := validateRefusalMessage(data); err != nil {
+			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+		}
+	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}

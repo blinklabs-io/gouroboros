@@ -160,6 +160,14 @@ func NewMsgDone() *MsgDone {
 
 // NewMsgFromCbor parses a Message Submission message from CBOR
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	return decodeMsgFromCborWithLimit(msgType, data, maxWireMessageIDs)
+}
+
+func decodeMsgFromCborWithLimit(
+	msgType uint,
+	data []byte,
+	maxCount int,
+) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
 	case MessageTypeInit:
@@ -180,6 +188,13 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			ProtocolName,
 			msgType,
 		)
+	}
+	if msgType == MessageTypeReplyMessageIds ||
+		msgType == MessageTypeRequestMessages ||
+		msgType == MessageTypeReplyMessages {
+		if err := validateMessageSubmissionCollection(data, maxCount); err != nil {
+			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+		}
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)

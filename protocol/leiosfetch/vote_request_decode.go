@@ -35,14 +35,14 @@ func (m *MsgVotesRequest) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-type voteRequestCursor struct {
+type cborCursor struct {
 	data []byte
 	pos  int
 }
 
-func (c *voteRequestCursor) header(major byte) (uint64, bool, error) {
+func (c *cborCursor) header(major byte) (uint64, bool, error) {
 	if c.pos >= len(c.data) || c.data[c.pos]&0xe0 != major {
-		return 0, false, errors.New("unexpected vote request field type")
+		return 0, false, errors.New("unexpected CBOR field type")
 	}
 	additional := c.data[c.pos] & 31
 	c.pos++
@@ -53,11 +53,11 @@ func (c *voteRequestCursor) header(major byte) (uint64, bool, error) {
 		return 0, true, nil
 	}
 	if additional > 27 {
-		return 0, false, errors.New("invalid vote request field header")
+		return 0, false, errors.New("invalid CBOR field header")
 	}
 	width := 1 << (additional - 24)
 	if int(width) > len(c.data)-c.pos {
-		return 0, false, errors.New("truncated vote request field")
+		return 0, false, errors.New("truncated CBOR field")
 	}
 	var value uint64
 	for range width {
@@ -67,20 +67,20 @@ func (c *voteRequestCursor) header(major byte) (uint64, bool, error) {
 	return value, false, nil
 }
 
-func (c *voteRequestCursor) end(indefinite bool) error {
+func (c *cborCursor) end(indefinite bool) error {
 	if indefinite {
 		if c.pos >= len(c.data) || c.data[c.pos] != 0xff {
-			return errors.New("vote request array has extra fields")
+			return errors.New("CBOR array has extra fields")
 		}
 		c.pos++
 	}
 	return nil
 }
 
-func (c *voteRequestCursor) skipTags() error {
+func (c *cborCursor) skipTags() error {
 	for depth := 0; c.pos < len(c.data) && c.data[c.pos]&0xe0 == 0xc0; depth++ {
 		if depth >= cbor.MaxNestedLevels {
-			return errors.New("vote request tag nesting limit")
+			return errors.New("CBOR tag nesting limit")
 		}
 		if _, _, err := c.header(0xc0); err != nil {
 			return err
@@ -89,14 +89,14 @@ func (c *voteRequestCursor) skipTags() error {
 	return nil
 }
 
-func (c *voteRequestCursor) unsigned() (uint64, error) {
+func (c *cborCursor) unsigned() (uint64, error) {
 	start := c.pos
 	if err := c.skipTags(); err != nil {
 		return 0, err
 	}
 	tagged := c.pos != start
 	if c.pos >= len(c.data) {
-		return 0, errors.New("truncated vote request scalar")
+		return 0, errors.New("truncated CBOR scalar")
 	}
 	var value uint64
 	switch c.data[c.pos] & 0xe0 {
@@ -114,12 +114,12 @@ func (c *voteRequestCursor) unsigned() (uint64, error) {
 		}
 		// #nosec G115 -- pos is within data, so the remainder is non-negative.
 		if length > uint64(len(c.data)-c.pos) {
-			return 0, errors.New("truncated vote request bignum")
+			return 0, errors.New("truncated CBOR bignum")
 		}
 		// #nosec G115 -- length is bounded by the remaining slice length.
 		c.pos += int(length)
 	default:
-		return 0, errors.New("vote request field is not unsigned")
+		return 0, errors.New("CBOR field is not unsigned")
 	}
 	if tagged || c.data[start]&0xe0 != 0 {
 		return decodeTaggedUnsigned(c.data[start:c.pos])
@@ -136,7 +136,7 @@ func decodeTaggedUnsigned(data []byte) (uint64, error) {
 }
 
 func validateVoteRequest(data []byte) error {
-	c := voteRequestCursor{data: data}
+	c := cborCursor{data: data}
 	if err := c.skipTags(); err != nil {
 		return err
 	}

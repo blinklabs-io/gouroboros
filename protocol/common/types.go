@@ -46,8 +46,19 @@ func NewPointOrigin() Point {
 // so we need to do some special handling when decoding. It is not intended to be called directly.
 func (p *Point) UnmarshalCBOR(data []byte) error {
 	// Points use a definite-length array: [] for origin or [slot, hash].
-	if len(data) == 0 || data[0]>>5 != 4 || data[0] == 0x9f {
+	listLen, headerSize, indefinite := cbor.ArrayInfo(data)
+	if listLen < 0 || indefinite {
 		return errors.New("Point must be a definite-length array")
+	}
+	if listLen == 0 {
+		if len(data) != int(headerSize) {
+			return errors.New("Point contains trailing CBOR data")
+		}
+		*p = NewPointOrigin()
+		return nil
+	}
+	if listLen != 2 {
+		return fmt.Errorf("Point must contain 0 or 2 elements, got %d", listLen)
 	}
 	var tmp []any
 	consumed, err := cbor.Decode(data, &tmp)

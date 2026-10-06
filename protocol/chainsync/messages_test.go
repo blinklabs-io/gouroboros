@@ -15,10 +15,12 @@
 package chainsync
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -28,6 +30,35 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFindIntersectRejectsInvalidPointBeforeAllocation(t *testing.T) {
+	wire := append(
+		[]byte{0x82, MessageTypeFindIntersect, 0x99, 0x13, 0x88},
+		bytes.Repeat([]byte{0}, 5000)...,
+	)
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	msg, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
+	runtime.ReadMemStats(&after)
+	require.Error(t, err)
+	require.Nil(t, msg)
+	allocated := after.TotalAlloc - before.TotalAlloc
+	t.Logf("wire=%d allocated=%d", len(wire), allocated)
+	require.LessOrEqual(t, allocated, uint64(64<<10))
+}
+
+func TestFindIntersectPreservesLargeOriginList(t *testing.T) {
+	const count = 131073
+	wire := append(
+		[]byte{0x82, MessageTypeFindIntersect, 0x9a, 0, 2, 0, 1},
+		bytes.Repeat([]byte{0x80}, count)...,
+	)
+	require.LessOrEqual(t, len(wire), MaxPendingMessageBytes)
+	msg, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgFindIntersect).Points, count)
+}
 
 type testDefinition struct {
 	CborHex      string
@@ -324,6 +355,13 @@ func TestMsgRollBackward(t *testing.T) {
 
 func TestMsgFindIntersect(t *testing.T) {
 	tests := []testDefinition{
+		// Empty intersection list
+		{
+			CborHex:      "820480",
+			Message:      NewMsgFindIntersect(nil),
+			MessageType:  MessageTypeFindIntersect,
+			ProtocolMode: protocol.ProtocolModeNodeToNode,
+		},
 		// "origin"
 		{
 			CborHex: "82048180",

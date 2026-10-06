@@ -15,9 +15,11 @@
 package handshake
 
 import (
+	"bytes"
 	"encoding/hex"
 	"net"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -25,6 +27,85 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHandshakeCollectionsRejectBeforeAllocation(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		kind      uint
+		wire      []byte
+		maxAlloc  uint64
+		errorText string
+	}{
+		{
+			name: "duplicate version map",
+			kind: MessageTypeProposeVersions,
+			wire: append([]byte{0x82, MessageTypeProposeVersions, 0xb9, 0x09, 0xc4},
+				bytes.Repeat([]byte{0, 0}, 2500)...),
+			maxAlloc:  128 << 10,
+			errorText: "duplicate handshake version",
+		},
+		{
+			name: "refusal field count",
+			kind: MessageTypeRefuse,
+			wire: append([]byte{0x82, MessageTypeRefuse, 0x99, 0x13, 0x88},
+				bytes.Repeat([]byte{0}, 5000)...),
+			maxAlloc:  64 << 10,
+			errorText: "maximum is 3",
+		},
+		{
+			name: "version mismatch supported-version count",
+			kind: MessageTypeRefuse,
+			wire: []byte{
+				0x82, MessageTypeRefuse, 0x82,
+				byte(RefuseReasonVersionMismatch),
+				0x9a, 0x00, 0x01, 0x00, 0x00,
+			},
+			maxAlloc:  64 << 10,
+			errorText: "supported versions",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			msg, err := NewMsgFromCbor(tc.kind, tc.wire)
+			runtime.ReadMemStats(&after)
+			require.Error(t, err)
+			require.Nil(t, msg)
+			allocated := after.TotalAlloc - before.TotalAlloc
+			t.Logf("wire=%d allocated=%d", len(tc.wire), allocated)
+			require.LessOrEqual(t, allocated, tc.maxAlloc)
+			require.ErrorContains(t, err, tc.errorText)
+		})
+	}
+}
+
+func TestHandshakePreservesLargeValidCollections(t *testing.T) {
+	versions := make(map[uint16]cbor.RawMessage, 1000)
+	for idx := range uint16(1000) {
+		versions[idx] = cbor.RawMessage{0xf4}
+	}
+	wire, err := cbor.Encode([]any{MessageTypeProposeVersions, versions})
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(wire), MaxPendingMessageBytes)
+	msg, err := NewMsgFromCbor(MessageTypeProposeVersions, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgProposeVersions).VersionMap, len(versions))
+
+	supported := make([]uint16, 1000)
+	for idx := range supported {
+		supported[idx] = uint16(idx)
+	}
+	wire, err = cbor.Encode([]any{
+		MessageTypeRefuse,
+		[]any{RefuseReasonVersionMismatch, supported},
+	})
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(wire), MaxPendingMessageBytes)
+	msg, err = NewMsgFromCbor(MessageTypeRefuse, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgRefuse).Reason, 2)
+}
 
 type testDefinition struct {
 	CborHex     string

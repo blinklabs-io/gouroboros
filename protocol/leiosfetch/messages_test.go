@@ -15,7 +15,9 @@
 package leiosfetch
 
 import (
+	"bytes"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -25,6 +27,23 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBlockTxsRejectsEnvelopeCountBeforeAllocation(t *testing.T) {
+	wire := append(
+		[]byte{0x99, 0x13, 0x88},
+		bytes.Repeat([]byte{0}, 5000)...,
+	)
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+	runtime.ReadMemStats(&after)
+	require.Error(t, err)
+	require.Nil(t, msg)
+	allocated := after.TotalAlloc - before.TotalAlloc
+	t.Logf("wire=%d allocated=%d", len(wire), allocated)
+	require.LessOrEqual(t, allocated, uint64(64<<10))
+}
 
 type testDefinition struct {
 	Name        string

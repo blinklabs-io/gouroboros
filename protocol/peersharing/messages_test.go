@@ -15,9 +15,11 @@
 package peersharing
 
 import (
+	"bytes"
 	"encoding/hex"
 	"net"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -156,6 +158,65 @@ func TestMsgSharePeersNilUsesEmptyArray(t *testing.T) {
 	encoded, err := cbor.Encode(NewMsgSharePeers(nil))
 	require.NoError(t, err)
 	require.Equal(t, []byte{0x82, MessageTypeSharePeers, 0x80}, encoded)
+}
+
+func TestMsgSharePeersRejectsDeclaredCountBeforeAllocation(t *testing.T) {
+	wire := append(
+		[]byte{0x82, MessageTypeSharePeers, 0x99, 0x13, 0x88},
+		bytes.Repeat([]byte{0}, 5000)...,
+	)
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
+	runtime.ReadMemStats(&after)
+	require.Error(t, err)
+	require.Nil(t, msg)
+	allocated := after.TotalAlloc - before.TotalAlloc
+	t.Logf("wire=%d allocated=%d", len(wire), allocated)
+	require.LessOrEqual(t, allocated, uint64(64<<10))
+}
+
+func TestMsgSharePeersAcceptsMaximumAddressCount(t *testing.T) {
+	wire, err := cbor.Encode(NewMsgSharePeers(
+		maxSizePeerAddresses(MaxSharedPeers),
+	))
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(wire), MaxPendingMessageBytes)
+	msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgSharePeers).PeerAddresses, MaxSharedPeers)
+}
+
+func TestMsgSharePeersBoundsIndefiniteAddressArray(t *testing.T) {
+	wire := append([]byte{0x9f, MessageTypeSharePeers, 0x9f},
+		bytes.Repeat([]byte{0x80}, MaxSharedPeers+1)...)
+	wire = append(wire, 0xff, 0xff)
+	msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
+	require.Error(t, err)
+	require.Nil(t, msg)
+	require.ErrorContains(t, err, "maximum is 230")
+}
+
+func TestMsgSharePeersPreflightPreservesWireForms(t *testing.T) {
+	for name, wire := range map[string][]byte{
+		"canonical":           {0x82, MessageTypeSharePeers, 0x80},
+		"indefinite":          {0x9f, MessageTypeSharePeers, 0x9f, 0xff, 0xff},
+		"non-shortest":        {0x98, 2, 0x18, MessageTypeSharePeers, 0x98, 0},
+		"tagged message":      {0xd8, 100, 0x82, MessageTypeSharePeers, 0x80},
+		"tagged address list": {0x82, MessageTypeSharePeers, 0xd8, 100, 0x80},
+	} {
+		t.Run(name, func(t *testing.T) {
+			type unvalidated MsgSharePeers
+			var expected unvalidated
+			_, decodeErr := cbor.Decode(wire, &expected)
+			require.NoError(t, decodeErr)
+			msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
+			require.NoError(t, err)
+			require.Equal(t, expected.PeerAddresses,
+				msg.(*MsgSharePeers).PeerAddresses)
+		})
+	}
 }
 
 func TestNewMsgFromCborUnknownType(t *testing.T) {
