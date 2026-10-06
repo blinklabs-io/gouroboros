@@ -15,6 +15,7 @@
 package shelley_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
@@ -249,6 +250,9 @@ func TestGenesisExtraConfig(t *testing.T) {
 	require.Empty(t, genesis.InitialFunds)
 	require.Empty(t, genesis.Staking.Pools)
 	require.Empty(t, genesis.Staking.Stake)
+	extraPoolID := "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+	extraPool := genesis.ExtraConfig.StakePools.Data[extraPoolID]
+	require.Contains(t, extraPool.Unknown, "futurePoolField")
 
 	utxos, err := genesis.GenesisUtxos()
 	require.NoError(t, err)
@@ -290,8 +294,8 @@ func TestGenesisExtraConfigPoolFields(t *testing.T) {
 		reward = "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
 		owner  = "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36"
 	)
-	publicKey := strings.Repeat("A", common.LeiosBlsPublicKeySize)
-	proof := strings.Repeat("B", common.LeiosBlsPossessionProofSize)
+	publicKey := bytes.Repeat([]byte{0x41}, common.LeiosBlsPublicKeySize)
+	proof := bytes.Repeat([]byte{0x42}, common.LeiosBlsPossessionProofSize)
 	metadataHash := common.PoolMetadataHash(
 		strings.Repeat("M", common.Blake2b256Size),
 	)
@@ -305,8 +309,8 @@ func TestGenesisExtraConfigPoolFields(t *testing.T) {
 			"network":    "Mainnet",
 		},
 		"blsKey": map[string]any{
-			"publicKey":       []byte(publicKey),
-			"possessionProof": []byte(proof),
+			"blsPubKey":          hex.EncodeToString(publicKey),
+			"blsPossessionProof": hex.EncodeToString(proof),
 		},
 		"metadata": map[string]any{
 			"url":  "https://example.com/pool.json",
@@ -332,8 +336,8 @@ func TestGenesisExtraConfigPoolFields(t *testing.T) {
 	require.Contains(t, pools, poolID)
 	pool := pools[poolID]
 	require.NotNil(t, pool.LeiosKey)
-	assert.Equal(t, []byte(publicKey), pool.LeiosKey.PublicKey)
-	assert.Equal(t, []byte(proof), pool.LeiosKey.PossessionProof)
+	assert.Equal(t, publicKey, pool.LeiosKey.PublicKey)
+	assert.Equal(t, proof, pool.LeiosKey.PossessionProof)
 	assert.Equal(t, common.NewBlake2b224(mustHex(t, reward)), pool.RewardAccount)
 	assert.Equal(
 		t,
@@ -372,6 +376,8 @@ func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
 		vrf    = "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
 		reward = "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
 	)
+	validBlsPublicKey := strings.Repeat("00", common.LeiosBlsPublicKeySize)
+	validBlsProof := strings.Repeat("00", common.LeiosBlsPossessionProofSize)
 	validPool := func() map[string]any {
 		return map[string]any{
 			"vrf": vrf,
@@ -420,11 +426,43 @@ func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
 			name: "invalid Leios key length",
 			mutate: func(pool map[string]any) {
 				pool["blsKey"] = map[string]any{
-					"publicKey":       []byte{1},
-					"possessionProof": make([]byte, common.LeiosBlsPossessionProofSize),
+					"blsPubKey": "01",
+					"blsPossessionProof": hex.EncodeToString(
+						make([]byte, common.LeiosBlsPossessionProofSize),
+					),
 				}
 			},
 			errString: "invalid Leios BLS public key length",
+		},
+		{
+			name: "invalid BLS public key hex",
+			mutate: func(pool map[string]any) {
+				pool["blsKey"] = map[string]any{
+					"blsPubKey":          "zz",
+					"blsPossessionProof": validBlsProof,
+				}
+			},
+			errString: "decode extraConfig pool blsKey public key",
+		},
+		{
+			name: "invalid BLS possession proof hex",
+			mutate: func(pool map[string]any) {
+				pool["blsKey"] = map[string]any{
+					"blsPubKey":          validBlsPublicKey,
+					"blsPossessionProof": "zz",
+				}
+			},
+			errString: "decode extraConfig pool blsKey possession proof",
+		},
+		{
+			name: "invalid BLS possession proof length",
+			mutate: func(pool map[string]any) {
+				pool["blsKey"] = map[string]any{
+					"blsPubKey":          validBlsPublicKey,
+					"blsPossessionProof": "01",
+				}
+			},
+			errString: "invalid Leios BLS possession proof length",
 		},
 		{
 			// pool_metadata_hash is an unbounded byte string, so only a

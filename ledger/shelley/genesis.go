@@ -129,6 +129,11 @@ type shelleyExtraPoolCredential struct {
 	ScriptHash string `json:"scriptHash"`
 }
 
+type shelleyExtraPoolBlsKey struct {
+	PublicKey       string `json:"blsPubKey"`
+	PossessionProof string `json:"blsPossessionProof"`
+}
+
 func (g *ShelleyGenesis) effectiveInitialFunds() map[string]uint64 {
 	if g.ExtraConfig == nil || len(g.ExtraConfig.InitialFunds.Data) == 0 {
 		return g.InitialFunds
@@ -227,12 +232,8 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 		}
 		rewardAccount := common.Blake2b224(reward)
 
-		var leiosKey *common.LeiosKey
-		if err := decodeExtraPoolField(
-			extraPool.LeiosKey,
-			"blsKey",
-			&leiosKey,
-		); err != nil {
+		leiosKey, err := decodeExtraPoolBlsKey(extraPool.LeiosKey)
+		if err != nil {
 			return nil, err
 		}
 
@@ -300,6 +301,46 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 		}
 	}
 	return out, nil
+}
+
+func decodeExtraPoolBlsKey(raw json.RawMessage) (*common.LeiosKey, error) {
+	data := bytes.TrimSpace(raw)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		return nil, nil
+	}
+	var key shelleyExtraPoolBlsKey
+	if err := json.Unmarshal(data, &key); err != nil {
+		return nil, fmt.Errorf("decode extraConfig pool blsKey: %w", err)
+	}
+	publicKey, err := hex.DecodeString(key.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("decode extraConfig pool blsKey public key: %w", err)
+	}
+	if len(publicKey) != common.LeiosBlsPublicKeySize {
+		return nil, fmt.Errorf(
+			"invalid Leios BLS public key length: expected %d, got %d",
+			common.LeiosBlsPublicKeySize,
+			len(publicKey),
+		)
+	}
+	possessionProof, err := hex.DecodeString(key.PossessionProof)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"decode extraConfig pool blsKey possession proof: %w",
+			err,
+		)
+	}
+	if len(possessionProof) != common.LeiosBlsPossessionProofSize {
+		return nil, fmt.Errorf(
+			"invalid Leios BLS possession proof length: expected %d, got %d",
+			common.LeiosBlsPossessionProofSize,
+			len(possessionProof),
+		)
+	}
+	return &common.LeiosKey{
+		PublicKey:       publicKey,
+		PossessionProof: possessionProof,
+	}, nil
 }
 
 func decodeExtraPoolField(
