@@ -15,10 +15,8 @@
 package localmessagenotification
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
-	"slices"
 	"sync"
 	"time"
 
@@ -204,7 +202,8 @@ func (c *Client) handleReplyMessagesNonBlocking(msg protocol.Message) error {
 	if err != nil {
 		return err
 	}
-	if c.config.ReplyMessagesFunc != nil {
+	if c.config.ReplyMessagesFunc != nil &&
+		(len(msgReply.Messages) == 0 || len(messages) > 0) {
 		c.config.ReplyMessagesFunc(c.callbackContext, messages, msgReply.HasMore)
 	}
 	return nil
@@ -227,7 +226,8 @@ func (c *Client) handleReplyMessagesBlocking(msg protocol.Message) error {
 	if err != nil {
 		return err
 	}
-	if c.config.ReplyMessagesFunc != nil {
+	if c.config.ReplyMessagesFunc != nil &&
+		(len(msgReply.Messages) == 0 || len(messages) > 0) {
 		// For blocking replies, hasMore is always false (waiting until at least one message available)
 		c.config.ReplyMessagesFunc(c.callbackContext, messages, false)
 	}
@@ -249,15 +249,26 @@ func (c *Client) validateAndReserve(
 	if c.config.Authenticator == nil {
 		return nil, errors.New("dmq: message authenticator not configured")
 	}
+	maxReplayEntries := c.config.MaxReplayEntries
+	if maxReplayEntries == 0 {
+		maxReplayEntries = defaultMaxReplayEntries
+	}
+	if maxReplayEntries < 0 {
+		return nil, errors.New("dmq: MaxReplayEntries must be greater than zero")
+	}
 	now := c.now()
+	c.replayState.mu.Lock()
+	defer c.replayState.mu.Unlock()
+	c.replayState.pruneExpiredLocked(now)
+	messages = c.replayState.admitLocked(messages, maxReplayEntries)
+	if len(messages) == 0 {
+		return messages, nil
+	}
 	for i := range messages {
 		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
 			return nil, fmt.Errorf("message %d TTL validation failed: %w", i, err)
 		}
 	}
-	c.replayState.mu.Lock()
-	messages = c.replayState.unacceptedLocked(messages)
-	c.replayState.mu.Unlock()
 	commitAuthentication, err := c.config.Authenticator.PrepareMessages(messages)
 	if err != nil {
 		return nil, err
@@ -268,68 +279,38 @@ func (c *Client) validateAndReserve(
 			return nil, fmt.Errorf("message %d TTL validation failed: %w", i, err)
 		}
 	}
-	return c.commitAcceptedMessages(messages, now, commitAuthentication)
-}
-
-// commitAcceptedMessages records the messages not already accepted and returns
-// them. When the cache exceeds its bound, the entries that expire soonest are
-// evicted, so a full cache never rejects a reply.
-func (c *Client) commitAcceptedMessages(
-	messages []pcommon.DmqMessage,
-	now time.Time,
-	commitAuthentication func() error,
-) ([]pcommon.DmqMessage, error) {
-	maxReplayEntries := c.config.MaxReplayEntries
-	if maxReplayEntries == 0 {
-		maxReplayEntries = defaultMaxReplayEntries
-	}
-	if maxReplayEntries < 0 {
-		return nil, errors.New("dmq: MaxReplayEntries must be greater than zero")
-	}
-
-	c.replayState.mu.Lock()
-	defer c.replayState.mu.Unlock()
-
-	acceptedIDs := c.replayState.acceptedIDs
-	nowUnix := now.Unix()
-	for id, expiresAt := range acceptedIDs {
-		if nowUnix > int64(expiresAt) {
-			delete(acceptedIDs, id)
-		}
-	}
-	// Another client sharing this state may have accepted some of these
-	// messages since the unlocked authentication step.
-	messages = c.replayState.unacceptedLocked(messages)
 	if commitAuthentication != nil {
 		if err := commitAuthentication(); err != nil {
 			return nil, err
 		}
 	}
 	for i := range messages {
-		acceptedIDs[string(messages[i].ID())] = messages[i].Payload.ExpiresAt
-	}
-	if excess := len(acceptedIDs) - maxReplayEntries; excess > 0 {
-		ids := make([]string, 0, len(acceptedIDs))
-		for id := range acceptedIDs {
-			ids = append(ids, id)
-		}
-		slices.SortFunc(ids, func(a, b string) int {
-			return cmp.Compare(acceptedIDs[a], acceptedIDs[b])
-		})
-		for _, id := range ids[:excess] {
-			delete(acceptedIDs, id)
-		}
+		c.replayState.acceptedIDs[string(messages[i].ID())] = messages[i].Payload.ExpiresAt
 	}
 	return messages, nil
 }
 
-// unacceptedLocked returns the messages whose IDs are neither already accepted
-// nor repeated earlier in the same slice.
-func (r *messageReplayState) unacceptedLocked(
+func (r *messageReplayState) pruneExpiredLocked(now time.Time) {
+	nowUnix := now.Unix()
+	for id, expiresAt := range r.acceptedIDs {
+		if nowUnix > int64(expiresAt) {
+			delete(r.acceptedIDs, id)
+		}
+	}
+}
+
+// admitLocked returns fresh messages up to the remaining replay-cache
+// capacity. Accepted IDs remain protected until their signed expiration.
+func (r *messageReplayState) admitLocked(
 	messages []pcommon.DmqMessage,
+	maxEntries int,
 ) []pcommon.DmqMessage {
+	available := maxEntries - len(r.acceptedIDs)
+	if available <= 0 {
+		return nil
+	}
 	seen := make(map[string]struct{}, len(messages))
-	ret := make([]pcommon.DmqMessage, 0, len(messages))
+	ret := make([]pcommon.DmqMessage, 0, min(len(messages), available))
 	for i := range messages {
 		id := string(messages[i].ID())
 		if _, accepted := r.acceptedIDs[id]; accepted {
@@ -340,6 +321,9 @@ func (r *messageReplayState) unacceptedLocked(
 		}
 		seen[id] = struct{}{}
 		ret = append(ret, messages[i])
+		if len(ret) == available {
+			break
+		}
 	}
 	return ret
 }
