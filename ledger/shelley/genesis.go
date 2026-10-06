@@ -83,7 +83,7 @@ type ShelleyGenesisExtraPool struct {
 	Pledge         uint64                      `json:"pledge"`
 	Cost           uint64                      `json:"cost"`
 	Margin         json.RawMessage             `json:"margin"`
-	LeiosKey       json.RawMessage             `json:"leiosKey"`
+	LeiosKey       json.RawMessage             `json:"blsKey"`
 	Metadata       json.RawMessage             `json:"metadata"`
 	Owners         json.RawMessage             `json:"owners"`
 	Relays         json.RawMessage             `json:"relays"`
@@ -108,7 +108,7 @@ func (p *ShelleyGenesisExtraPool) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	for _, key := range []string{
-		"vrf", "pledge", "cost", "margin", "leiosKey", "metadata",
+		"vrf", "pledge", "cost", "margin", "blsKey", "metadata",
 		"owners", "relays", "poolId", "accountAddress",
 	} {
 		delete(all, key)
@@ -230,7 +230,7 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 		var leiosKey *common.LeiosKey
 		if err := decodeExtraPoolField(
 			extraPool.LeiosKey,
-			"leiosKey",
+			"blsKey",
 			&leiosKey,
 		); err != nil {
 			return nil, err

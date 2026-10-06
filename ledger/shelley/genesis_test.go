@@ -304,7 +304,7 @@ func TestGenesisExtraConfigPoolFields(t *testing.T) {
 			"credential": map[string]any{"keyHash": reward},
 			"network":    "Mainnet",
 		},
-		"leiosKey": map[string]any{
+		"blsKey": map[string]any{
 			"publicKey":       []byte(publicKey),
 			"possessionProof": []byte(proof),
 		},
@@ -419,7 +419,7 @@ func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
 		{
 			name: "invalid Leios key length",
 			mutate: func(pool map[string]any) {
-				pool["leiosKey"] = map[string]any{
+				pool["blsKey"] = map[string]any{
 					"publicKey":       []byte{1},
 					"possessionProof": make([]byte, common.LeiosBlsPossessionProofSize),
 				}
