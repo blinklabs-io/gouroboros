@@ -15,11 +15,13 @@
 package common_test
 
 import (
+	"context"
 	"math/big"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -35,6 +37,31 @@ import (
 	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/stretchr/testify/require"
 )
+
+type cancelDuringEvaluationContext struct {
+	checks int
+	limit  int
+	done   chan struct{}
+}
+
+func (*cancelDuringEvaluationContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (c *cancelDuringEvaluationContext) Done() <-chan struct{} { return c.done }
+
+func (c *cancelDuringEvaluationContext) Err() error {
+	c.checks++
+	if c.checks == c.limit {
+		close(c.done)
+	}
+	if c.checks >= c.limit {
+		return context.Canceled
+	}
+	return nil
+}
+
+func (*cancelDuringEvaluationContext) Value(any) any { return nil }
 
 const plutusContextTestAddress = "addr_test1qz2fxv2umyhttkxyxp8x0dlpdt3" +
 	"k6cwng5pxj3jhsydzer3jcu5d8ps7zex2k2xt3uqxgjqnnj83w" +
@@ -77,6 +104,183 @@ func plutusDefaultTestBudget() common.ExUnits {
 	return common.ExUnits{
 		Memory: cek.DefaultExBudget.Mem,
 		Steps:  cek.DefaultExBudget.Cpu,
+	}
+}
+
+func TestPlutusEvaluateContextStopsMachine(t *testing.T) {
+	t.Parallel()
+
+	selfApply := &syn.Lambda[syn.DeBruijn]{
+		Body: &syn.Apply[syn.DeBruijn]{
+			Function: &syn.Var[syn.DeBruijn]{Name: 1},
+			Argument: &syn.Var[syn.DeBruijn]{Name: 1},
+		},
+	}
+	// The self-application never terminates, so only ctx can stop it. The
+	// leading lambdas absorb the arguments each language applies.
+	loopScript := func(t *testing.T, arguments int) []byte {
+		t.Helper()
+		term := syn.Term[syn.DeBruijn](&syn.Apply[syn.DeBruijn]{
+			Function: selfApply,
+			Argument: selfApply,
+		})
+		for range arguments {
+			term = &syn.Lambda[syn.DeBruijn]{Body: term}
+		}
+		flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
+			Version: lang.LanguageVersion{1, 0, 0},
+			Term:    term,
+		})
+		require.NoError(t, err)
+		wrapped, err := cbor.Encode(flat)
+		require.NoError(t, err)
+		return wrapped
+	}
+	tests := []struct {
+		name      string
+		arguments int
+		evaluate  func(context.Context, []byte) (common.ExUnits, error)
+	}{
+		{
+			name:      "v1",
+			arguments: 3,
+			evaluate: func(ctx context.Context, script []byte) (common.ExUnits, error) {
+				return common.PlutusV1Script(script).EvaluateContext(
+					ctx, testPlutusData(), testPlutusData(), testPlutusData(),
+					plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV1,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name:      "v2",
+			arguments: 3,
+			evaluate: func(ctx context.Context, script []byte) (common.ExUnits, error) {
+				return common.PlutusV2Script(script).EvaluateContext(
+					ctx, testPlutusData(), testPlutusData(), testPlutusData(),
+					plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV2,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name:      "v3",
+			arguments: 1,
+			evaluate: func(ctx context.Context, script []byte) (common.ExUnits, error) {
+				return common.PlutusV3Script(script).EvaluateContext(
+					ctx, testPlutusData(), plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV3,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name:      "v4",
+			arguments: 1,
+			evaluate: func(ctx context.Context, script []byte) (common.ExUnits, error) {
+				return common.PlutusV4Script(script).EvaluateContext(
+					ctx, testPlutusData(), plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV4,
+						cek.ProtoVersion{Major: 12},
+					),
+				)
+			},
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := &cancelDuringEvaluationContext{
+				limit: 64,
+				done:  make(chan struct{}),
+			}
+			_, err := testCase.evaluate(
+				ctx,
+				loopScript(t, testCase.arguments),
+			)
+			require.ErrorIs(t, err, context.Canceled)
+			require.Equal(t, ctx.limit, ctx.checks)
+		})
+	}
+}
+
+func TestPlutusEvaluateContextStopsBeforeDecode(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	malformed := []byte{0xff}
+	tests := []struct {
+		name     string
+		evaluate func() (common.ExUnits, error)
+	}{
+		{
+			name: "v1",
+			evaluate: func() (common.ExUnits, error) {
+				return common.PlutusV1Script(malformed).EvaluateContext(
+					ctx, testPlutusData(), testPlutusData(), testPlutusData(),
+					plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV1,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name: "v2",
+			evaluate: func() (common.ExUnits, error) {
+				return common.PlutusV2Script(malformed).EvaluateContext(
+					ctx, testPlutusData(), testPlutusData(), testPlutusData(),
+					plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV2,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name: "v3",
+			evaluate: func() (common.ExUnits, error) {
+				return common.PlutusV3Script(malformed).EvaluateContext(
+					ctx, testPlutusData(), plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV3,
+						cek.ProtoVersion{Major: 9},
+					),
+				)
+			},
+		},
+		{
+			name: "v4",
+			evaluate: func() (common.ExUnits, error) {
+				return common.PlutusV4Script(malformed).EvaluateContext(
+					ctx, testPlutusData(), plutusDefaultTestBudget(),
+					cek.NewDefaultEvalContext(
+						lang.LanguageVersionV4,
+						cek.ProtoVersion{Major: 12},
+					),
+				)
+			},
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			used, err := testCase.evaluate()
+			require.ErrorIs(t, err, context.Canceled)
+			require.Zero(t, used)
+		})
 	}
 }
 

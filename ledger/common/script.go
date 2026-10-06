@@ -15,6 +15,7 @@
 package common
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -251,6 +252,28 @@ func (s PlutusV1Script) Evaluate(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	return s.EvaluateContext(
+		context.Background(),
+		datum,
+		redeemer,
+		scriptContext,
+		budget,
+		evalContext,
+	)
+}
+
+// EvaluateContext executes a PlutusV1 script and stops when ctx is canceled.
+func (s PlutusV1Script) EvaluateContext(
+	ctx context.Context,
+	datum data.PlutusData,
+	redeemer data.PlutusData,
+	scriptContext data.PlutusData,
+	budget ExUnits,
+	evalContext *cek.EvalContext,
+) (ExUnits, error) {
+	if err := ctx.Err(); err != nil {
+		return ExUnits{}, err
+	}
 	// Normalize the script-visible arguments rather than trusting every
 	// caller to do it. Decode preserves each container's definite/indefinite
 	// length choice so a decoded value re-encodes to its original bytes, but
@@ -299,7 +322,8 @@ func (s PlutusV1Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	consumedBudget, runErr := runPooledMachine(
+	consumedBudget, runErr := runPooledMachineContext(
+		ctx,
 		cek.LanguageVersionV1,
 		evalContext,
 		machineBudget,
@@ -340,6 +364,28 @@ func (s PlutusV2Script) Evaluate(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	return s.EvaluateContext(
+		context.Background(),
+		datum,
+		redeemer,
+		scriptContext,
+		budget,
+		evalContext,
+	)
+}
+
+// EvaluateContext executes a PlutusV2 script and stops when ctx is canceled.
+func (s PlutusV2Script) EvaluateContext(
+	ctx context.Context,
+	datum data.PlutusData,
+	redeemer data.PlutusData,
+	scriptContext data.PlutusData,
+	budget ExUnits,
+	evalContext *cek.EvalContext,
+) (ExUnits, error) {
+	if err := ctx.Err(); err != nil {
+		return ExUnits{}, err
+	}
 	// Normalize the script-visible arguments rather than trusting every
 	// caller to do it. Decode preserves each container's definite/indefinite
 	// length choice so a decoded value re-encodes to its original bytes, but
@@ -388,7 +434,8 @@ func (s PlutusV2Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	consumedBudget, runErr := runPooledMachine(
+	consumedBudget, runErr := runPooledMachineContext(
+		ctx,
 		cek.LanguageVersionV2,
 		evalContext,
 		machineBudget,
@@ -426,6 +473,24 @@ func (s PlutusV3Script) Evaluate(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	return s.EvaluateContext(
+		context.Background(),
+		scriptContext,
+		budget,
+		evalContext,
+	)
+}
+
+// EvaluateContext executes a PlutusV3 script and stops when ctx is canceled.
+func (s PlutusV3Script) EvaluateContext(
+	ctx context.Context,
+	scriptContext data.PlutusData,
+	budget ExUnits,
+	evalContext *cek.EvalContext,
+) (ExUnits, error) {
+	if err := ctx.Err(); err != nil {
+		return ExUnits{}, err
+	}
 	var usedExUnits ExUnits
 	var err error
 	var program *syn.Program[syn.DeBruijn]
@@ -455,7 +520,8 @@ func (s PlutusV3Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	consumedBudget, runErr := runPooledMachine(
+	consumedBudget, runErr := runPooledMachineContext(
+		ctx,
 		cek.LanguageVersionV3,
 		evalContext,
 		machineBudget,
@@ -493,6 +559,24 @@ func (s PlutusV4Script) Evaluate(
 	budget ExUnits,
 	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
+	return s.EvaluateContext(
+		context.Background(),
+		scriptContext,
+		budget,
+		evalContext,
+	)
+}
+
+// EvaluateContext executes a PlutusV4 script and stops when ctx is canceled.
+func (s PlutusV4Script) EvaluateContext(
+	ctx context.Context,
+	scriptContext data.PlutusData,
+	budget ExUnits,
+	evalContext *cek.EvalContext,
+) (ExUnits, error) {
+	if err := ctx.Err(); err != nil {
+		return ExUnits{}, err
+	}
 	var usedExUnits ExUnits
 	var err error
 	var program *syn.Program[syn.DeBruijn]
@@ -518,7 +602,8 @@ func (s PlutusV4Script) Evaluate(
 		Function: program.Term,
 		Argument: contextTerm,
 	}
-	consumedBudget, runErr := runPooledMachine(
+	consumedBudget, runErr := runPooledMachineContext(
+		ctx,
 		cek.LanguageVersionV4,
 		evalContext,
 		machineBudget,

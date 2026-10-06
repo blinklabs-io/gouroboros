@@ -15,6 +15,7 @@
 package common
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"runtime"
@@ -597,7 +598,8 @@ func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
 		Cpu: cek.DefaultExBudget.Cpu,
 	}
 	require.Panics(t, func() {
-		_, _ = runPooledMachine(
+		_, _ = runPooledMachineContext(
+			context.Background(),
 			lang.LanguageVersionV3,
 			evalContext,
 			budget,
