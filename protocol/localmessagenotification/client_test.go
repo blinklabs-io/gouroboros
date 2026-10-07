@@ -283,10 +283,11 @@ func TestClientReplayCacheKeepsAcceptedIDsUntilExpiry(t *testing.T) {
 
 	for i, msg := range []pcommon.DmqMessage{late, early, next} {
 		accepted, err := client.validateAndReserve([]pcommon.DmqMessage{msg})
-		require.NoError(t, err)
 		if i < 2 {
+			require.NoError(t, err)
 			require.Len(t, accepted, 1)
 		} else {
+			require.ErrorContains(t, err, "capacity exceeded")
 			require.Empty(t, accepted)
 		}
 	}
@@ -303,7 +304,7 @@ func TestClientReplayCacheKeepsAcceptedIDsUntilExpiry(t *testing.T) {
 	require.Contains(t, client.replayState.acceptedIDs, string(next.ID()))
 }
 
-func TestClientFullReplayCacheWithholdsNewMessages(t *testing.T) {
+func TestClientFullReplayCacheRejectsNewMessages(t *testing.T) {
 	var callbacks atomic.Int32
 	var delivered atomic.Int32
 	cfg := NewConfig(
@@ -323,10 +324,10 @@ func TestClientFullReplayCacheWithholdsNewMessages(t *testing.T) {
 		[]pcommon.DmqMessage{first},
 		false,
 	)))
-	require.NoError(t, client.messageHandler(NewMsgReplyMessagesNonBlocking(
+	require.ErrorContains(t, client.messageHandler(NewMsgReplyMessagesNonBlocking(
 		[]pcommon.DmqMessage{second},
 		false,
-	)))
+	)), "capacity exceeded")
 	require.NoError(t, client.messageHandler(NewMsgReplyMessagesNonBlocking(
 		[]pcommon.DmqMessage{first},
 		false,
@@ -345,6 +346,45 @@ func TestClientFullReplayCacheWithholdsNewMessages(t *testing.T) {
 	require.Equal(t, int32(2), delivered.Load())
 	require.Len(t, client.replayState.acceptedIDs, 1)
 	require.Contains(t, client.replayState.acceptedIDs, string(second.ID()))
+}
+
+func TestClientReplayCapacityRejectsBatchAtomically(t *testing.T) {
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithMaxReplayEntries(2),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	client.now = func() time.Time { return time.Unix(100, 0) }
+	first := clientTestMessage(t, "first", 200)
+	second := clientTestMessage(t, "second", 300)
+	third := clientTestMessage(t, "third", 300)
+
+	accepted, err := client.validateAndReserve([]pcommon.DmqMessage{first})
+	require.NoError(t, err)
+	require.Equal(t, []pcommon.DmqMessage{first}, accepted)
+
+	accepted, err = client.validateAndReserve([]pcommon.DmqMessage{second, third})
+	require.ErrorContains(t, err, "capacity exceeded")
+	require.Empty(t, accepted)
+	require.Len(t, client.replayState.acceptedIDs, 1)
+	require.Contains(t, client.replayState.acceptedIDs, string(first.ID()))
+	require.NotContains(t, client.replayState.acceptedIDs, string(second.ID()))
+	require.NotContains(t, client.replayState.acceptedIDs, string(third.ID()))
+}
+
+func TestClientFullReplayCacheBackpressuresBeforeRequest(t *testing.T) {
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithMaxReplayEntries(1),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	client.now = func() time.Time { return time.Unix(100, 0) }
+	msg := clientTestMessage(t, "first", 200)
+	_, err := client.validateAndReserve([]pcommon.DmqMessage{msg})
+	require.NoError(t, err)
+
+	require.ErrorContains(t, client.RequestMessagesNonBlocking(), "capacity exceeded")
+	require.ErrorContains(t, client.RequestMessagesBlocking(), "capacity exceeded")
 }
 
 func TestClientPreservesGenuineEmptyReplyCallback(t *testing.T) {
@@ -532,7 +572,7 @@ func TestClientReplayCapacityDoesNotCommitWithheldAuthentication(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, accepted, 1)
 	accepted, err = client.validateAndReserve(messages[1:2])
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "capacity exceeded")
 	require.Empty(t, accepted)
 
 	client.now = func() time.Time { return time.Unix(201, 0) }

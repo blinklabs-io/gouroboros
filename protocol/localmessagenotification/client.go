@@ -41,7 +41,10 @@ type messageReplayState struct {
 	acceptedIDs map[string]uint32
 }
 
-var replayStateInitMu sync.Mutex
+var (
+	replayStateInitMu              sync.Mutex
+	errReplayCacheCapacityExceeded = errors.New("dmq: replay cache capacity exceeded")
+)
 
 func newMessageReplayState() *messageReplayState {
 	return &messageReplayState{acceptedIDs: make(map[string]uint32)}
@@ -71,6 +74,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	maxReplyMessages := cfg.MaxReplayEntries
+	if maxReplyMessages <= 0 {
+		maxReplyMessages = defaultMaxReplayEntries
+	}
 
 	// Update state map with timeouts for blocking requests
 	stateMapCopy := stateMap.Copy()
@@ -82,17 +89,19 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolID,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMapCopy,
-		InitialState:        protocolStateIdle,
+		Name:               ProtocolName,
+		ProtocolId:         ProtocolID,
+		Muxer:              protoOptions.Muxer,
+		Logger:             protoOptions.Logger,
+		ErrorChan:          protoOptions.ErrorChan,
+		Mode:               protoOptions.Mode,
+		Role:               protocol.ProtocolRoleClient,
+		MessageHandlerFunc: c.messageHandler,
+		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
+			return newMsgFromCborWithLimit(msgType, data, maxReplyMessages)
+		},
+		StateMap:     stateMapCopy,
+		InitialState: protocolStateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
@@ -128,12 +137,18 @@ func (c *Client) Stop() error {
 
 // RequestMessagesNonBlocking sends a non-blocking request for messages
 func (c *Client) RequestMessagesNonBlocking() error {
+	if err := c.ensureReplayCapacity(); err != nil {
+		return err
+	}
 	msg := NewMsgRequestMessages(false)
 	return c.SendMessage(msg)
 }
 
 // RequestMessagesBlocking sends a blocking request for messages
 func (c *Client) RequestMessagesBlocking() error {
+	if err := c.ensureReplayCapacity(); err != nil {
+		return err
+	}
 	msg := NewMsgRequestMessages(true)
 	return c.SendMessage(msg)
 }
@@ -161,6 +176,9 @@ func (c *Client) RequestMessagesBlockingValidateTimeout(
 			c.config.BlockingRequestTimeout.String(),
 			expectedTimeout.String(),
 		)
+	}
+	if err := c.ensureReplayCapacity(); err != nil {
+		return err
 	}
 
 	msg := NewMsgRequestMessages(true)
@@ -260,7 +278,11 @@ func (c *Client) validateAndReserve(
 	c.replayState.mu.Lock()
 	defer c.replayState.mu.Unlock()
 	c.replayState.pruneExpiredLocked(now)
-	messages = c.replayState.admitLocked(messages, maxReplayEntries)
+	var capacityExceeded bool
+	messages, capacityExceeded = c.replayState.admitLocked(messages, maxReplayEntries)
+	if capacityExceeded {
+		return nil, errReplayCacheCapacityExceeded
+	}
 	if len(messages) == 0 {
 		return messages, nil
 	}
@@ -304,10 +326,15 @@ func (r *messageReplayState) pruneExpiredLocked(now time.Time) {
 func (r *messageReplayState) admitLocked(
 	messages []pcommon.DmqMessage,
 	maxEntries int,
-) []pcommon.DmqMessage {
+) ([]pcommon.DmqMessage, bool) {
 	available := maxEntries - len(r.acceptedIDs)
 	if available <= 0 {
-		return nil
+		for i := range messages {
+			if _, accepted := r.acceptedIDs[string(messages[i].ID())]; !accepted {
+				return nil, true
+			}
+		}
+		return nil, false
 	}
 	seen := make(map[string]struct{}, len(messages))
 	ret := make([]pcommon.DmqMessage, 0, min(len(messages), available))
@@ -320,10 +347,27 @@ func (r *messageReplayState) admitLocked(
 			continue
 		}
 		seen[id] = struct{}{}
-		ret = append(ret, messages[i])
 		if len(ret) == available {
-			break
+			return nil, true
 		}
+		ret = append(ret, messages[i])
 	}
-	return ret
+	return ret, false
+}
+
+func (c *Client) ensureReplayCapacity() error {
+	maxReplayEntries := c.config.MaxReplayEntries
+	if maxReplayEntries == 0 {
+		maxReplayEntries = defaultMaxReplayEntries
+	}
+	if maxReplayEntries < 0 {
+		return errors.New("dmq: MaxReplayEntries must be greater than zero")
+	}
+	c.replayState.mu.Lock()
+	defer c.replayState.mu.Unlock()
+	c.replayState.pruneExpiredLocked(c.now())
+	if len(c.replayState.acceptedIDs) >= maxReplayEntries {
+		return errReplayCacheCapacityExceeded
+	}
+	return nil
 }

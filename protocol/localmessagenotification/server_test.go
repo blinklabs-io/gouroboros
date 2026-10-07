@@ -182,6 +182,34 @@ func TestServerRejectsQueuedDuplicate(t *testing.T) {
 	require.Len(t, drained, 2)
 }
 
+func TestServerOwnsAuthenticatedQueuedMessage(t *testing.T) {
+	expiresAt := uint32(time.Now().Add(time.Minute).Unix())
+	messages, authenticator := clientTestSignedMessages(
+		t,
+		[]string{"owned"},
+		[]uint64{1},
+		[]uint32{expiresAt},
+	)
+	cfg := NewConfig(WithAuthenticator(authenticator))
+	server := NewServer(protocol.ProtocolOptions{}, &cfg)
+	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	expected := cloneDmqMessage(messages[0])
+
+	require.NoError(t, server.AddMessage(&messages[0]))
+	messages[0].MessageID[0] ^= 0xff
+	messages[0].Payload.MessageID[0] ^= 0xff
+	messages[0].Payload.MessageBody[0] ^= 0xff
+	messages[0].KESSignature[0] ^= 0xff
+	messages[0].OperationalCertificate.KESVerificationKey[0] ^= 0xff
+	messages[0].OperationalCertificate.ColdSignature[0] ^= 0xff
+	messages[0].ColdVerificationKey[0] ^= 0xff
+
+	server.lock.Lock()
+	drained := server.drainValidMessagesLocked(time.Now())
+	server.lock.Unlock()
+	require.Equal(t, []pcommon.DmqMessage{expected}, drained)
+}
+
 func TestServerExpiryDuringAuthenticationDoesNotCommitHigherOpCert(t *testing.T) {
 	initial := time.Unix(1_000, 0)
 	messages, authenticator := clientTestSignedMessages(

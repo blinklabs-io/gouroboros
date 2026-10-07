@@ -15,6 +15,7 @@
 package localmessagenotification
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
@@ -105,8 +106,9 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	if s.config.Authenticator == nil {
 		return errors.New("dmq: message authenticator not configured")
 	}
+	queued := cloneDmqMessage(*msg)
 	commitAuthentication, err := s.config.Authenticator.PrepareMessages(
-		[]pcommon.DmqMessage{*msg},
+		[]pcommon.DmqMessage{queued},
 	)
 	if err != nil {
 		return err
@@ -116,7 +118,7 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	defer s.lock.Unlock()
 
 	// Check if already acknowledged (non-zero timestamp means it was acknowledged)
-	msgID := string(msg.ID())
+	msgID := string(queued.ID())
 	if _, acknowledged := s.acknowledgedIDs[msgID]; acknowledged {
 		return errors.New("message already acknowledged")
 	}
@@ -130,14 +132,14 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	if len(s.messageQueue) >= s.config.MaxQueueSize {
 		return errors.New("message queue full")
 	}
-	if err := s.config.TTLValidator.ValidateMessageTTLAt(msg, s.now()); err != nil {
+	if err := s.config.TTLValidator.ValidateMessageTTLAt(&queued, s.now()); err != nil {
 		return err
 	}
 	if err := commitAuthentication(); err != nil {
 		return err
 	}
 
-	s.messageQueue = append(s.messageQueue, msg)
+	s.messageQueue = append(s.messageQueue, &queued)
 
 	// Signal that a new message is available (non-blocking).
 	// Check the closed flag under the lock to avoid sending to a closed channel.
@@ -159,6 +161,21 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 		)
 
 	return nil
+}
+
+func cloneDmqMessage(msg pcommon.DmqMessage) pcommon.DmqMessage {
+	msg.MessageID = bytes.Clone(msg.MessageID)
+	msg.Payload.MessageID = bytes.Clone(msg.Payload.MessageID)
+	msg.Payload.MessageBody = bytes.Clone(msg.Payload.MessageBody)
+	msg.KESSignature = bytes.Clone(msg.KESSignature)
+	msg.OperationalCertificate.KESVerificationKey = bytes.Clone(
+		msg.OperationalCertificate.KESVerificationKey,
+	)
+	msg.OperationalCertificate.ColdSignature = bytes.Clone(
+		msg.OperationalCertificate.ColdSignature,
+	)
+	msg.ColdVerificationKey = bytes.Clone(msg.ColdVerificationKey)
+	return msg
 }
 
 // WaitForMessage blocks until a message is available or timeout occurs
