@@ -69,6 +69,70 @@ func ArrayItems(data []byte, maxCount int, label string) ([][]byte, error) {
 	return arrayItems(data, maxCount, label, nil, true)
 }
 
+// ValidateMap validates a map before a typed decoder can allocate from its
+// peer-controlled count.
+func ValidateMap(
+	data []byte,
+	maxCount int,
+	label string,
+	validateEntry func(int, []byte, []byte) error,
+) error {
+	if len(data) == 0 {
+		return fmt.Errorf("missing %s", label)
+	}
+	pos, err := skipTags(data, 0, label)
+	if err != nil {
+		return err
+	}
+	count, headerSize, indefinite := cbor.MapInfo(data[pos:])
+	if count < 0 {
+		return fmt.Errorf("%s is not a map", label)
+	}
+	if !indefinite && count > maxCount {
+		return tooManyItems(label, count, maxCount)
+	}
+	pos += int(headerSize)
+	for idx := 0; indefinite || idx < count; idx++ {
+		if indefinite {
+			if pos >= len(data) {
+				return fmt.Errorf("unterminated %s", label)
+			}
+			if data[pos] == 0xff {
+				pos++
+				break
+			}
+			if idx >= maxCount {
+				return tooManyItems(label, idx+1, maxCount)
+			}
+		}
+		keyStart := pos
+		keyLength, err := cborwalk.ItemLength(data[keyStart:])
+		if err != nil {
+			return fmt.Errorf("decode %s key %d: %w", label, idx, err)
+		}
+		pos += keyLength
+		valueStart := pos
+		valueLength, err := cborwalk.ItemLength(data[valueStart:])
+		if err != nil {
+			return fmt.Errorf("decode %s value %d: %w", label, idx, err)
+		}
+		pos += valueLength
+		if validateEntry != nil {
+			if err := validateEntry(
+				idx,
+				data[keyStart:keyStart+keyLength],
+				data[valueStart:valueStart+valueLength],
+			); err != nil {
+				return err
+			}
+		}
+	}
+	if pos != len(data) {
+		return fmt.Errorf("trailing data after %s", label)
+	}
+	return nil
+}
+
 // ValidateItemDepth rejects an item whose nesting exceeds the immutable wire
 // shape expected by its caller. It runs before typed decoding so malformed
 // peer input cannot drive the recursive decoder to its general ledger limit.

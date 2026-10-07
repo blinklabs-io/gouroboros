@@ -285,3 +285,42 @@ func TestHandshakeRejectsDeepVersionDataBeforeTypedDecode(t *testing.T) {
 	_, err := NewMsgFromCbor(MessageTypeProposeVersions, wire)
 	require.ErrorContains(t, err, "handshake message: CBOR nesting exceeds maximum depth 4")
 }
+
+func TestHandshakeRejectsDeepScalarBeforeTypedDecode(t *testing.T) {
+	t.Parallel()
+	deepTags := bytes.Repeat(
+		[]byte{0xd9, 0x03, 0xe8},
+		cbor.MaxNestedLevels+1,
+	)
+	for _, tc := range []struct {
+		name    string
+		msgType uint
+		wire    []byte
+		want    string
+	}{
+		{
+			name:    "version key",
+			msgType: MessageTypeProposeVersions,
+			wire: append(
+				append([]byte{0x82, MessageTypeProposeVersions, 0xa1}, deepTags...),
+				0x00, 0xf4,
+			),
+			want: "handshake version must be an unsigned integer",
+		},
+		{
+			name:    "refusal reason",
+			msgType: MessageTypeRefuse,
+			wire: append(
+				append([]byte{0x82, MessageTypeRefuse, 0x82}, deepTags...),
+				byte(RefuseReasonVersionMismatch), 0x80,
+			),
+			want: "handshake refusal reason must be an unsigned integer",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := NewMsgFromCbor(tc.msgType, tc.wire)
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}

@@ -84,6 +84,36 @@ func TestBlockTxsPreservesDeepRawTransaction(t *testing.T) {
 	require.Equal(t, cbor.RawMessage(tx), msg.(*MsgBlockTxs).TxsRaw[0])
 }
 
+func TestBlockTxsClientUsesExactBitmapCount(t *testing.T) {
+	// [3, origin, {0: 1, 1: 1}, []]
+	wire := []byte{
+		0x84, MessageTypeBlockTxs, 0x80,
+		0xa2, 0x00, 0x01, 0x01, 0x01,
+		0x80,
+	}
+	client := &Client{}
+	client.blockRequestSlot.maxBlockBitmaps = 1
+	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.ErrorContains(t, err, "maximum is 1")
+	require.Nil(t, msg)
+
+	client.blockRequestSlot.maxBlockBitmaps = 2
+	msg, err = client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgBlockTxs).Bitmaps, 2)
+}
+
+func TestBlockTxsRequestRejectsDuplicateBitmapBeforeTypedDecode(t *testing.T) {
+	// [2, origin, {_ 0: 1, 0: 2}]
+	wire := []byte{
+		0x83, MessageTypeBlockTxsRequest, 0x80,
+		0xbf, 0x00, 0x01, 0x00, 0x02, 0xff,
+	}
+	msg, err := NewMsgFromCbor(MessageTypeBlockTxsRequest, wire)
+	require.ErrorContains(t, err, "duplicate block transaction bitmap key 0")
+	require.Nil(t, msg)
+}
+
 func TestLeiosFetchRolesRejectWrongDirectionBeforeDecode(t *testing.T) {
 	declared := []byte{0x82, MessageTypeBlockTxs, 0x9a, 0, 0x40, 0}
 	msg, err := serverMessageFromCbor(MessageTypeBlockTxs, declared)

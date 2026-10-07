@@ -63,11 +63,15 @@ func validateVersionMapMessage(data []byte) error {
 				return tooManyHandshakeVersions(idx + 1)
 			}
 		}
-		var version uint16
-		consumed, err := cbor.Decode(collection[position:], &version)
+		versionValue, consumed, err := decodeHandshakeUnsigned(
+			collection[position:],
+			uint64(^uint16(0)),
+			"handshake version",
+		)
 		if err != nil {
 			return fmt.Errorf("decode handshake version %d: %w", idx, err)
 		}
+		version := uint16(versionValue) // #nosec G115 -- bounded to uint16 above
 		pos += consumed
 		byteIndex := version >> 3
 		bit := byte(1 << (version & 7))
@@ -112,7 +116,12 @@ func validateRefusalMessage(data []byte) error {
 			}
 		}
 		if idx == 0 {
-			consumed, err := cbor.Decode(collection[position:], &reason)
+			var consumed int
+			reason, consumed, err = decodeHandshakeUnsigned(
+				collection[position:],
+				^uint64(0),
+				"handshake refusal reason",
+			)
 			if err != nil {
 				return fmt.Errorf("decode handshake refusal reason: %w", err)
 			}
@@ -184,8 +193,11 @@ func handshakeSecondField(data []byte) ([]byte, error) {
 		)
 	}
 	pos += int(headerSize)
-	var messageType uint
-	consumed, err := cbor.Decode(data[pos:], &messageType)
+	_, consumed, err := decodeHandshakeUnsigned(
+		data[pos:],
+		^uint64(0),
+		"handshake message type",
+	)
 	if err != nil {
 		return nil, fmt.Errorf("decode handshake message type: %w", err)
 	}
@@ -195,6 +207,27 @@ func handshakeSecondField(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return data[pos:], nil
+}
+
+func decodeHandshakeUnsigned(
+	data []byte,
+	maxValue uint64,
+	label string,
+) (uint64, int, error) {
+	head, ok, err := cborwalk.ReadHead(data, 0)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid %s: %w", label, err)
+	}
+	if !ok {
+		return 0, 0, fmt.Errorf("truncated %s", label)
+	}
+	if head.Major != 0 || head.Indefinite || head.IsBreak {
+		return 0, 0, fmt.Errorf("%s must be an unsigned integer", label)
+	}
+	if head.Argument > maxValue {
+		return 0, 0, fmt.Errorf("%s exceeds its wire range", label)
+	}
+	return head.Argument, head.EncodedSize, nil
 }
 
 func handshakeCollectionInfo(data []byte, major byte, label string) (int, uint32, bool, error) {

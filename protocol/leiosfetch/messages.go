@@ -72,6 +72,10 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	}
 	var decodeErr error
 	switch msg := ret.(type) {
+	case *MsgBlockTxsRequest:
+		if decodeErr = validateBlockTxsRequest(data); decodeErr == nil {
+			_, decodeErr = cbor.Decode(data, msg)
+		}
 	case *MsgVotesRequest:
 		decodeErr = msg.UnmarshalCBOR(data)
 	case *MsgBlockTxs:
@@ -257,10 +261,18 @@ func (m *MsgBlockTxs) MarshalCBOR() ([]byte, error) {
 }
 
 func (m *MsgBlockTxs) UnmarshalCBOR(data []byte) error {
-	return m.unmarshalCBORWithLimit(data, maxWireBlockTxs)
+	return m.unmarshalCBORWithLimits(
+		data,
+		maxWireBlockTxs,
+		maxWireBlockBitmaps,
+	)
 }
 
-func (m *MsgBlockTxs) unmarshalCBORWithLimit(data []byte, maxCount int) error {
+func (m *MsgBlockTxs) unmarshalCBORWithLimits(
+	data []byte,
+	maxTxCount int,
+	maxBitmapCount int,
+) error {
 	fields, err := cborpreflight.ArrayItems(
 		data,
 		4,
@@ -295,11 +307,14 @@ func (m *MsgBlockTxs) unmarshalCBORWithLimit(data []byte, maxCount int) error {
 		if err := cborpreflight.ValidateItemDepth(fields[2], 1, "block transactions bitmap map"); err != nil {
 			return err
 		}
+		if err := validateBlockTxBitmaps(fields[2], maxBitmapCount); err != nil {
+			return err
+		}
 		if _, err := cbor.Decode(fields[2], &m.Bitmaps); err != nil {
 			return err
 		}
 	}
-	txs, err := cborpreflight.ArrayItems(txField, maxCount, "block transactions")
+	txs, err := cborpreflight.ArrayItems(txField, maxTxCount, "block transactions")
 	if err != nil {
 		return err
 	}

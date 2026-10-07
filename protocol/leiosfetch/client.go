@@ -65,6 +65,7 @@ type requestSlot struct {
 	rangeReplies    int
 	rangeBytes      int
 	maxBlockTxs     int
+	maxBlockBitmaps int
 	drainedCh       chan struct{}
 	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
 }
@@ -363,6 +364,7 @@ func (s *requestSlot) freeLocked() {
 	s.busy = false
 	s.abandoned = false
 	s.maxBlockTxs = 0
+	s.maxBlockBitmaps = 0
 	if s.drainedCh != nil {
 		close(s.drainedCh)
 		s.drainedCh = nil
@@ -444,9 +446,14 @@ func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, e
 	if msgType == MessageTypeBlockTxs {
 		c.blockRequestSlot.mu.Lock()
 		maxCount := c.blockRequestSlot.maxBlockTxs
+		maxBitmapCount := c.blockRequestSlot.maxBlockBitmaps
 		c.blockRequestSlot.mu.Unlock()
 		msg := &MsgBlockTxs{}
-		if err := msg.unmarshalCBORWithLimit(data, maxCount); err != nil {
+		if err := msg.unmarshalCBORWithLimits(
+			data,
+			maxCount,
+			maxBitmapCount,
+		); err != nil {
 			return nil, err
 		}
 		if msg.Type() != MessageTypeBlockTxs {
@@ -618,6 +625,7 @@ func (c *Client) BlockTxsRequest(
 	}
 	c.blockRequestSlot.mu.Lock()
 	c.blockRequestSlot.maxBlockTxs = maxTxs
+	c.blockRequestSlot.maxBlockBitmaps = len(bitmaps)
 	c.blockRequestSlot.mu.Unlock()
 	msg := NewMsgBlockTxsRequest(point, bitmaps)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
