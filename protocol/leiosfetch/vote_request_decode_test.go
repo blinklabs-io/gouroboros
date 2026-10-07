@@ -159,3 +159,11 @@ func TestVotesRequestPreservesTaggedArrays(t *testing.T) {
 		})
 	}
 }
+
+func TestVotesRequestRejectsDeepIDBeforeTypedDecode(t *testing.T) {
+	id := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := append([]byte{0x82, MessageTypeVotesRequest, 0x81}, id...)
+
+	_, err := NewMsgFromCbor(MessageTypeVotesRequest, wire)
+	require.ErrorContains(t, err, "vote request: CBOR nesting exceeds maximum depth 4")
+}

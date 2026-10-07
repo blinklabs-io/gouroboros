@@ -89,6 +89,16 @@ type frame struct {
 // its encoded length. The explicit stack keeps peer-controlled nesting off the
 // Go call stack.
 func ItemLength(data []byte) (int, error) {
+	return ItemLengthWithin(data, cbor.MaxNestedLevels)
+}
+
+// ItemLengthWithin validates one complete CBOR item without recursion and
+// rejects structures deeper than maxDepth. A scalar has depth zero; each
+// enclosing array, map, tag, or indefinite string adds one level.
+func ItemLengthWithin(data []byte, maxDepth int) (int, error) {
+	if maxDepth < 0 {
+		return 0, errors.New("invalid CBOR nesting limit")
+	}
 	frames := []frame{{remaining: 1}}
 	pos := 0
 	for len(frames) > 0 {
@@ -123,8 +133,8 @@ func ItemLength(data []byte) (int, error) {
 		}
 		pos += head.EncodedSize
 		push := func(f frame) error {
-			if len(frames) >= cbor.MaxNestedLevels {
-				return fmt.Errorf("CBOR nesting exceeds maximum depth %d", cbor.MaxNestedLevels)
+			if len(frames) > maxDepth {
+				return fmt.Errorf("CBOR nesting exceeds maximum depth %d", maxDepth)
 			}
 			frames = append(frames, f)
 			return nil

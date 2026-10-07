@@ -19,6 +19,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
 // Message types
@@ -128,6 +129,13 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		if err := validateRefusalMessage(data); err != nil {
 			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 		}
+	}
+	// Current handshake messages contain at most the message array, a version
+	// map or refusal array, one shallow version-data/supported-version array,
+	// and an accepted outer tag. Enforce that wire shape before the recursive
+	// typed decoder runs.
+	if err := cborpreflight.ValidateItemDepth(data, 4, "handshake message"); err != nil {
+		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)

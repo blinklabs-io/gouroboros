@@ -19,10 +19,14 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
 // UnmarshalCBOR admits every vote-ID shape before typed slice allocation.
 func (m *MsgVotesRequest) UnmarshalCBOR(data []byte) error {
+	if err := cborpreflight.ValidateItemDepth(data, 4, "vote request"); err != nil {
+		return err
+	}
 	if err := validateVoteRequest(data); err != nil {
 		return err
 	}

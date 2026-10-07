@@ -14,13 +14,30 @@
 
 package txsubmission
 
-import "github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
+import (
+	"fmt"
 
-func validateTxSubmissionCollection(data []byte) error {
-	return cborpreflight.ValidateSecondFieldArray(
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
+)
+
+func validateTxSubmissionCollection(msgType uint, data []byte) error {
+	maxItemDepth := 1
+	if msgType == MessageTypeReplyTxIds || msgType == MessageTypeReplyTxs {
+		maxItemDepth = 2
+	}
+	if err := cborpreflight.ValidateSecondFieldArray(
 		data,
 		MaxUnackedTxIds,
 		"tx-submission collection",
-		nil,
-	)
+		func(idx int, raw []byte) error {
+			return cborpreflight.ValidateItemDepth(
+				raw,
+				maxItemDepth,
+				fmt.Sprintf("tx-submission item %d", idx),
+			)
+		},
+	); err != nil {
+		return err
+	}
+	return cborpreflight.ValidateItemDepth(data, 4, "tx-submission message")
 }

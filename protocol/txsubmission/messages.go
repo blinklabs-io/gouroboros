@@ -57,7 +57,7 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	if msgType == MessageTypeReplyTxIds ||
 		msgType == MessageTypeRequestTxs ||
 		msgType == MessageTypeReplyTxs {
-		if err := validateTxSubmissionCollection(data); err != nil {
+		if err := validateTxSubmissionCollection(msgType, data); err != nil {
 			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 		}
 	}

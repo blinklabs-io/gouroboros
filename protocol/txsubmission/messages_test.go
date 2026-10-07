@@ -170,3 +170,11 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 	require.Contains(t, err.Error(), ProtocolName)
 	require.Contains(t, err.Error(), "999")
 }
+
+func TestRequestTxsRejectsDeepItemBeforeTypedDecode(t *testing.T) {
+	item := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := append([]byte{0x82, MessageTypeRequestTxs, 0x81}, item...)
+
+	_, err := NewMsgFromCbor(MessageTypeRequestTxs, wire)
+	require.ErrorContains(t, err, "tx-submission item 0: CBOR nesting exceeds maximum depth 1")
+}

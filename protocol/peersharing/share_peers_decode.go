@@ -15,6 +15,8 @@
 package peersharing
 
 import (
+	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
@@ -27,8 +29,17 @@ func (m *MsgSharePeers) UnmarshalCBOR(data []byte) error {
 		data,
 		MaxPeerSharingResponseCount,
 		"peer-sharing address array",
-		nil,
+		func(idx int, raw []byte) error {
+			return cborpreflight.ValidateItemDepth(
+				raw,
+				1,
+				fmt.Sprintf("peer-sharing address %d", idx),
+			)
+		},
 	); err != nil {
+		return err
+	}
+	if err := cborpreflight.ValidateItemDepth(data, 4, "peer-sharing message"); err != nil {
 		return err
 	}
 	type message MsgSharePeers

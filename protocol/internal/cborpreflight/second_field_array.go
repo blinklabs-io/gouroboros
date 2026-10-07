@@ -63,6 +63,26 @@ func ValidateArray(data []byte, maxCount int, label string, validateItem func(in
 	return validateArray(data, maxCount, label, validateItem)
 }
 
+// ArrayItems returns the encoded items of one validated array. The returned
+// slices reference data and must not outlive or mutate it.
+func ArrayItems(data []byte, maxCount int, label string) ([][]byte, error) {
+	return arrayItems(data, maxCount, label, nil, true)
+}
+
+// ValidateItemDepth rejects an item whose nesting exceeds the immutable wire
+// shape expected by its caller. It runs before typed decoding so malformed
+// peer input cannot drive the recursive decoder to its general ledger limit.
+func ValidateItemDepth(data []byte, maxDepth int, label string) error {
+	length, err := cborwalk.ItemLengthWithin(data, maxDepth)
+	if err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	if length != len(data) {
+		return fmt.Errorf("trailing data after %s", label)
+	}
+	return nil
+}
+
 func arrayItems(
 	data []byte,
 	maxCount int,

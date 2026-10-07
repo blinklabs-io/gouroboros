@@ -73,6 +73,17 @@ func TestBlockTxsClientUsesRequestBitmapCardinality(t *testing.T) {
 	require.Len(t, msg.(*MsgBlockTxs).TxsRaw, 3)
 }
 
+func TestBlockTxsPreservesDeepRawTransaction(t *testing.T) {
+	tx := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := append([]byte{0x82, MessageTypeBlockTxs, 0x81}, tx...)
+	client := &Client{}
+	client.blockRequestSlot.maxBlockTxs = 1
+
+	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.NoError(t, err)
+	require.Equal(t, cbor.RawMessage(tx), msg.(*MsgBlockTxs).TxsRaw[0])
+}
+
 func TestLeiosFetchRolesRejectWrongDirectionBeforeDecode(t *testing.T) {
 	declared := []byte{0x82, MessageTypeBlockTxs, 0x9a, 0, 0x40, 0}
 	msg, err := serverMessageFromCbor(MessageTypeBlockTxs, declared)

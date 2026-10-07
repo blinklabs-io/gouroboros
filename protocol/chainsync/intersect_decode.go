@@ -37,7 +37,7 @@ func maxFindIntersectPoints(modeLimit int) int {
 }
 
 func validateFindIntersect(data []byte, maxCount int) error {
-	return cborpreflight.ValidateSecondFieldArray(
+	if err := cborpreflight.ValidateSecondFieldArray(
 		data,
 		maxCount,
 		"find-intersect point array",
@@ -70,5 +70,8 @@ func validateFindIntersect(data []byte, maxCount int) error {
 				return nil
 			})
 		},
-	)
+	); err != nil {
+		return err
+	}
+	return cborpreflight.ValidateItemDepth(data, 4, "find-intersect message")
 }

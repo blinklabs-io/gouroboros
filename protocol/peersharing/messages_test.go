@@ -235,3 +235,11 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 	require.Contains(t, err.Error(), ProtocolName)
 	require.Contains(t, err.Error(), "999")
 }
+
+func TestMsgSharePeersRejectsDeepAddressBeforeTypedDecode(t *testing.T) {
+	address := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := append([]byte{0x82, MessageTypeSharePeers, 0x81}, address...)
+
+	_, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
+	require.ErrorContains(t, err, "peer-sharing address 0: CBOR nesting exceeds maximum depth 1")
+}

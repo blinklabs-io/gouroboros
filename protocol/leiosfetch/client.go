@@ -445,13 +445,19 @@ func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, e
 		c.blockRequestSlot.mu.Lock()
 		maxCount := c.blockRequestSlot.maxBlockTxs
 		c.blockRequestSlot.mu.Unlock()
-		elementCount, err := blockTxsEnvelopeCount(data)
-		if err != nil {
+		msg := &MsgBlockTxs{}
+		if err := msg.unmarshalCBORWithLimit(data, maxCount); err != nil {
 			return nil, err
 		}
-		if err := validateBlockTxsTransactions(data, elementCount, maxCount); err != nil {
-			return nil, err
+		if msg.Type() != MessageTypeBlockTxs {
+			return nil, fmt.Errorf(
+				"%s: message type mismatch: parser received %d, payload contains %d",
+				ProtocolName,
+				msgType,
+				msg.Type(),
+			)
 		}
+		return msg, nil
 	}
 	return NewMsgFromCbor(msgType, data)
 }

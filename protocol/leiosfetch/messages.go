@@ -23,6 +23,7 @@ import (
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
 // Message IDs follow the leios-prototype CDDL in Cardano Blueprint.
@@ -70,9 +71,12 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		)
 	}
 	var decodeErr error
-	if request, ok := ret.(*MsgVotesRequest); ok {
-		decodeErr = request.UnmarshalCBOR(data)
-	} else {
+	switch msg := ret.(type) {
+	case *MsgVotesRequest:
+		decodeErr = msg.UnmarshalCBOR(data)
+	case *MsgBlockTxs:
+		decodeErr = msg.UnmarshalCBOR(data)
+	default:
 		_, decodeErr = cbor.Decode(data, ret)
 	}
 	if decodeErr != nil {
@@ -253,46 +257,60 @@ func (m *MsgBlockTxs) MarshalCBOR() ([]byte, error) {
 }
 
 func (m *MsgBlockTxs) UnmarshalCBOR(data []byte) error {
-	elementCount, err := blockTxsEnvelopeCount(data)
+	return m.unmarshalCBORWithLimit(data, maxWireBlockTxs)
+}
+
+func (m *MsgBlockTxs) unmarshalCBORWithLimit(data []byte, maxCount int) error {
+	fields, err := cborpreflight.ArrayItems(
+		data,
+		4,
+		"block transactions envelope",
+	)
 	if err != nil {
 		return err
 	}
-	if err := validateBlockTxsTransactions(data, elementCount, maxWireBlockTxs); err != nil {
-		return err
-	}
-	switch elementCount {
-	case 2: // [msgType, tx_list] — dingo form
-		var env struct {
-			cbor.StructAsArray
-			MessageType uint8
-			TxsRaw      []cbor.RawMessage
-		}
-		if _, err := cbor.Decode(data, &env); err != nil {
-			return err
-		}
-		m.MessageType = env.MessageType
-		m.TxsRaw = env.TxsRaw
-	case 4: // [msgType, point, bitmaps, tx_list] — prototype form
-		var env struct {
-			cbor.StructAsArray
-			MessageType uint8
-			Point       pcommon.Point
-			Bitmaps     map[uint16]uint64
-			TxsRaw      []cbor.RawMessage
-		}
-		if _, err := cbor.Decode(data, &env); err != nil {
-			return err
-		}
-		m.MessageType = env.MessageType
-		m.Point = env.Point
-		m.Bitmaps = env.Bitmaps
-		m.TxsRaw = env.TxsRaw
-	default:
+	elementCount := len(fields)
+	if elementCount != 2 && elementCount != 4 {
 		return fmt.Errorf(
 			"%s: block txs: unexpected element count %d",
 			ProtocolName,
 			elementCount,
 		)
+	}
+	var messageType uint8
+	if err := cborpreflight.ValidateItemDepth(fields[0], 0, "block transactions message type"); err != nil {
+		return err
+	}
+	if _, err := cbor.Decode(fields[0], &messageType); err != nil {
+		return err
+	}
+	var txField []byte
+	switch elementCount {
+	case 2: // [msgType, tx_list] — dingo form
+		txField = fields[1]
+	case 4: // [msgType, point, bitmaps, tx_list] — prototype form
+		if err := cborpreflight.ValidateItemDepth(fields[1], 1, "block transactions point"); err != nil {
+			return err
+		}
+		if _, err := cbor.Decode(fields[1], &m.Point); err != nil {
+			return err
+		}
+		if err := cborpreflight.ValidateItemDepth(fields[2], 1, "block transactions bitmap map"); err != nil {
+			return err
+		}
+		if _, err := cbor.Decode(fields[2], &m.Bitmaps); err != nil {
+			return err
+		}
+		txField = fields[3]
+	}
+	txs, err := cborpreflight.ArrayItems(txField, maxCount, "block transactions")
+	if err != nil {
+		return err
+	}
+	m.MessageType = messageType
+	m.TxsRaw = make([]cbor.RawMessage, len(txs))
+	for idx, tx := range txs {
+		m.TxsRaw[idx] = append(cbor.RawMessage(nil), tx...)
 	}
 	m.SetCbor(data)
 	return nil

@@ -14,7 +14,11 @@
 
 package messagesubmission
 
-import "github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
+import (
+	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
+)
 
 // RequestCount is uint16 on the wire, so no conforming session can have more
 // message IDs outstanding than this even when its configured window is larger.
@@ -27,11 +31,31 @@ func configuredMessageIDLimit(cfg *Config) int {
 	return min(cfg.MaxUnacknowledgedMessageIDs, maxWireMessageIDs)
 }
 
-func validateMessageSubmissionCollection(data []byte, maxCount int) error {
-	return cborpreflight.ValidateSecondFieldArray(
+func validateMessageSubmissionCollection(msgType uint, data []byte, maxCount int) error {
+	var maxItemDepth int
+	switch msgType {
+	case MessageTypeRequestMessages:
+		maxItemDepth = 0
+	case MessageTypeReplyMessages:
+		// A DMQ message contains payload and operational-certificate arrays,
+		// whose fields are all scalars or byte strings.
+		maxItemDepth = 2
+	default:
+		maxItemDepth = 1
+	}
+	if err := cborpreflight.ValidateSecondFieldArray(
 		data,
 		maxCount,
 		"message-submission collection",
-		nil,
-	)
+		func(idx int, raw []byte) error {
+			return cborpreflight.ValidateItemDepth(
+				raw,
+				maxItemDepth,
+				fmt.Sprintf("message-submission item %d", idx),
+			)
+		},
+	); err != nil {
+		return err
+	}
+	return cborpreflight.ValidateItemDepth(data, 4, "message-submission message")
 }

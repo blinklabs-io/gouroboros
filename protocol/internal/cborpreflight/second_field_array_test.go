@@ -28,3 +28,12 @@ func TestValidateSecondFieldArrayRejectsDeepItemIteratively(t *testing.T) {
 	err := ValidateSecondFieldArray(wire, 1, "test collection", nil)
 	require.ErrorContains(t, err, "nesting exceeds maximum depth")
 }
+
+func TestValidateItemDepthUsesWireShapeLimit(t *testing.T) {
+	require.NoError(t, ValidateItemDepth([]byte{0x81, 0}, 1, "item"))
+	require.ErrorContains(
+		t,
+		ValidateItemDepth([]byte{0x81, 0x81, 0}, 1, "item"),
+		"nesting exceeds maximum depth 1",
+	)
+}

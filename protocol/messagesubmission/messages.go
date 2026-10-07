@@ -192,7 +192,7 @@ func decodeMsgFromCborWithLimit(
 	if msgType == MessageTypeReplyMessageIds ||
 		msgType == MessageTypeRequestMessages ||
 		msgType == MessageTypeReplyMessages {
-		if err := validateMessageSubmissionCollection(data, maxCount); err != nil {
+		if err := validateMessageSubmissionCollection(msgType, data, maxCount); err != nil {
 			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 		}
 	}

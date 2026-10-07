@@ -277,3 +277,11 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 	require.Contains(t, err.Error(), ProtocolName)
 	require.Contains(t, err.Error(), "999")
 }
+
+func TestHandshakeRejectsDeepVersionDataBeforeTypedDecode(t *testing.T) {
+	versionData := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := append([]byte{0x82, MessageTypeProposeVersions, 0xa1, 0}, versionData...)
+
+	_, err := NewMsgFromCbor(MessageTypeProposeVersions, wire)
+	require.ErrorContains(t, err, "handshake message: CBOR nesting exceeds maximum depth 4")
+}
