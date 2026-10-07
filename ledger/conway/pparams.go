@@ -111,53 +111,36 @@ func (p *ConwayProtocolParameters) DRepDepositAmount() *big.Int {
 	return new(big.Int).SetUint64(p.DRepDeposit)
 }
 
-// ratOutOfRange reports whether r's numerator or denominator cannot be
-// represented in utxorpc.RationalNumber's int32/uint32 fields. Compares the
-// underlying *big.Int values directly against the bounds, not via Int64()
-// first: Int64() is undefined for a value that does not fit in int64 at all
-// (silently wraps rather than erroring, per math/big's own documentation),
-// so a value far outside range (e.g. 2^64+1) could pass an Int64()-based
-// comparison completely undetected. The same bound applies to A0, Rho, Tau,
-// execution-cost prices, and voting thresholds.
-// r itself must be non-nil; every caller already guards that separately
-// (e.g. "p.A0 == nil ||", short-circuiting before this runs).
-func ratOutOfRange(r *big.Rat) bool {
-	return r.Num().Cmp(big.NewInt(math.MinInt32)) < 0 ||
-		r.Num().Cmp(big.NewInt(math.MaxInt32)) > 0 ||
-		r.Denom().Sign() < 0 ||
-		r.Denom().Cmp(new(big.Int).SetUint64(math.MaxUint32)) > 0
-}
-
 func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
-	// sanity check
-	//
-	// Checks the embedded *big.Rat for nil separately from the *cbor.Rat
-	// pointer itself: A0/Rho/Tau/the execution-cost prices are mandatory
-	// fields here (unlike the optional MinFeeRefScriptCostPerByte, whose
-	// nil-embedded-Rat case legitimately means "unset" via
-	// ratPtrToUtxorpcRationalNumber), so a non-nil *cbor.Rat with a nil
-	// embedded Rat -- the same shape that panic was found on for
-	// MinFeeRefScriptCostPerByte -- must be rejected as invalid too,
-	// rather than reaching ratOutOfRange's Num()/Denom() calls, which
-	// require their receiver to be non-nil.
-	if p.A0 == nil || p.A0.Rat == nil || ratOutOfRange(p.A0.Rat) {
-		return nil, errors.New("invalid A0 rational number values")
+	requiredRational := func(name string, r *cbor.Rat) (*utxorpc.RationalNumber, error) {
+		if r == nil || r.Rat == nil {
+			return nil, fmt.Errorf("invalid %s rational number values", name)
+		}
+		ret, err := common.ToUtxorpcRationalNumber(r.Rat)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s rational number values: %w", name, err)
+		}
+		return ret, nil
 	}
-	if p.Rho == nil || p.Rho.Rat == nil || ratOutOfRange(p.Rho.Rat) {
-		return nil, errors.New("invalid Rho rational number values")
+	poolInfluence, err := requiredRational("A0", p.A0)
+	if err != nil {
+		return nil, err
 	}
-	if p.Tau == nil || p.Tau.Rat == nil || ratOutOfRange(p.Tau.Rat) {
-		return nil, errors.New("invalid Tau rational number values")
+	monetaryExpansion, err := requiredRational("Rho", p.Rho)
+	if err != nil {
+		return nil, err
 	}
-	if p.ExecutionCosts.MemPrice == nil ||
-		p.ExecutionCosts.MemPrice.Rat == nil ||
-		ratOutOfRange(p.ExecutionCosts.MemPrice.Rat) {
-		return nil, errors.New("invalid memory price rational number values")
+	treasuryExpansion, err := requiredRational("Tau", p.Tau)
+	if err != nil {
+		return nil, err
 	}
-	if p.ExecutionCosts.StepPrice == nil ||
-		p.ExecutionCosts.StepPrice.Rat == nil ||
-		ratOutOfRange(p.ExecutionCosts.StepPrice.Rat) {
-		return nil, errors.New("invalid step price rational number values")
+	memoryPrice, err := requiredRational("memory price", p.ExecutionCosts.MemPrice)
+	if err != nil {
+		return nil, err
+	}
+	stepPrice, err := requiredRational("step price", p.ExecutionCosts.StepPrice)
+	if err != nil {
+		return nil, err
 	}
 	if p.MaxTxExUnits.Memory < 0 || p.MaxTxExUnits.Steps < 0 ||
 		p.MaxBlockExUnits.Memory < 0 || p.MaxBlockExUnits.Steps < 0 {
@@ -175,10 +158,8 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 		return nil, errors.New("invalid MinCommitteeSize value")
 	}
 	// minFeeRefScriptCost, poolVotingThresholds, and drepVotingThresholds are
-	// resolved before constructing the reply below, rather than inline in
-	// the struct literal, so a range violation in any of them is rejected
-	// instead of silently wrapping during the int32/uint32 cast, matching the
-	// other full-parameter rational fields above.
+	// resolved before constructing the reply below so malformed values outside
+	// the ledger's Word64 domain fail the whole projection consistently.
 	minFeeRefScriptCost, err := ratPtrToUtxorpcRationalNumber(
 		p.MinFeeRefScriptCostPerByte,
 	)
@@ -210,18 +191,9 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 		MinPoolCost:              common.ToUtxorpcBigInt(p.MinPoolCost),
 		PoolRetirementEpochBound: uint64(p.MaxEpoch),
 		DesiredNumberOfPools:     uint64(p.NOpt),
-		PoolInfluence: &utxorpc.RationalNumber{
-			Numerator:   int32(p.A0.Num().Int64()),
-			Denominator: uint32(p.A0.Denom().Int64()),
-		},
-		MonetaryExpansion: &utxorpc.RationalNumber{
-			Numerator:   int32(p.Rho.Num().Int64()),
-			Denominator: uint32(p.Rho.Denom().Int64()),
-		},
-		TreasuryExpansion: &utxorpc.RationalNumber{
-			Numerator:   int32(p.Tau.Num().Int64()),
-			Denominator: uint32(p.Tau.Denom().Int64()),
-		},
+		PoolInfluence:            poolInfluence,
+		MonetaryExpansion:        monetaryExpansion,
+		TreasuryExpansion:        treasuryExpansion,
 		ProtocolVersion: &utxorpc.ProtocolVersion{
 			Major: uint32(p.ProtocolVersion.Major),
 			Minor: uint32(p.ProtocolVersion.Minor),
@@ -232,16 +204,7 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 		CostModels: common.ConvertToUtxorpcCardanoCostModels(
 			p.CostModels,
 		),
-		Prices: &utxorpc.ExPrices{
-			Memory: &utxorpc.RationalNumber{
-				Numerator:   int32(p.ExecutionCosts.MemPrice.Num().Int64()),
-				Denominator: uint32(p.ExecutionCosts.MemPrice.Denom().Int64()),
-			},
-			Steps: &utxorpc.RationalNumber{
-				Numerator:   int32(p.ExecutionCosts.StepPrice.Num().Int64()),
-				Denominator: uint32(p.ExecutionCosts.StepPrice.Denom().Int64()),
-			},
-		},
+		Prices: &utxorpc.ExPrices{Memory: memoryPrice, Steps: stepPrice},
 		MaxExecutionUnitsPerTransaction: &utxorpc.ExUnits{
 			Memory: uint64(p.MaxTxExUnits.Memory),
 			Steps:  uint64(p.MaxTxExUnits.Steps),
@@ -270,17 +233,10 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 // populated with this particular threshold (e.g. constructed directly
 // rather than decoded from a full on-chain protocol-parameters value or
 // genesis).
-// It also validates the value fits utxorpc.RationalNumber's int32/uint32
-// fields the same way every other rational conversion in this file does
-// (A0, Rho, Tau, the execution-cost prices): an out-of-range numerator or
-// denominator returns an error instead of silently wrapping during the
-// int32/uint32 cast.
+// Valid ledger Word64 values use UTxO-RPC's canonical low-32-bit projection.
 func ratToUtxorpcRationalNumber(r cbor.Rat) (*utxorpc.RationalNumber, error) {
 	if r.Rat == nil {
 		return nil, nil
-	}
-	if ratOutOfRange(r.Rat) {
-		return nil, errors.New("invalid rational number values")
 	}
 	return common.ToUtxorpcRationalNumber(r.Rat)
 }
@@ -301,15 +257,6 @@ func ratPtrToUtxorpcRationalNumber(
 	return ratToUtxorpcRationalNumber(*r)
 }
 
-func ratPtrToUtxorpcTransactionRationalNumber(
-	r *cbor.Rat,
-) (*utxorpc.RationalNumber, error) {
-	if r == nil || r.Rat == nil {
-		return nil, nil
-	}
-	return common.ToUtxorpcRationalNumber(r.Rat)
-}
-
 type rationalNumberConverter func(
 	*cbor.Rat,
 ) (*utxorpc.RationalNumber, error)
@@ -327,8 +274,7 @@ type rationalNumberConverter func(
 // of thresholds (not expected for a fully decoded on-chain
 // protocol-parameters value) cannot be represented without corrupting the
 // positions of the thresholds that are present. Returns an error instead if
-// any populated threshold is out of utxorpc.RationalNumber's representable
-// range -- see ratToUtxorpcRationalNumber.
+// any populated threshold is outside the ledger's Word64 domain.
 func poolVotingThresholdsUtxorpc(
 	t PoolVotingThresholds,
 ) (*utxorpc.VotingThresholds, error) {
@@ -689,7 +635,7 @@ type ConwayProtocolParameterUpdate struct {
 // Utxorpc converts the parameters this update sets. A parameter the update
 // leaves unchanged is left unset in the result.
 func (u *ConwayProtocolParameterUpdate) Utxorpc() (*utxorpc.PParams, error) {
-	convertRational := ratPtrToUtxorpcTransactionRationalNumber
+	convertRational := ratPtrToUtxorpcRationalNumber
 	ret := &utxorpc.PParams{}
 	var err error
 	bigUint := func(v *uint) *utxorpc.BigInt {

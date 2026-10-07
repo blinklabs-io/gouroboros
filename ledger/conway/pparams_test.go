@@ -1012,16 +1012,8 @@ func TestConwayUtxorpc_MinFeeRefScriptCostPerByteNilEmbeddedRatDoesNotPanic(
 	})
 }
 
-// TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic verifies
-// that, unlike the optional MinFeeRefScriptCostPerByte above (where a nil
-// embedded *big.Rat legitimately means "unset"), A0, Rho, Tau, and the two
-// execution-cost prices are mandatory -- Utxorpc()'s own validation guard
-// for each already rejects a nil *cbor.Rat pointer with an "invalid ...
-// rational number values" error, but only checked that outer pointer, not
-// whether a non-nil *cbor.Rat's embedded *big.Rat was itself nil. That
-// shape reached ratOutOfRange's Num()/Denom() calls, which panic on a nil
-// receiver, instead of being rejected with the same existing error a nil
-// outer pointer already gets.
+// Mandatory rational fields reject both a nil wrapper and a nil embedded
+// value. Optional rational fields use an embedded nil to represent "unset."
 func TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic(
 	t *testing.T,
 ) {
@@ -1070,13 +1062,7 @@ func TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic(
 	}
 }
 
-// TestConwayUtxorpc_VotingThresholdOutOfRangeRejected verifies that full
-// parameter projection does not cast a threshold's numerator/denominator to
-// int32/uint32 unconditionally, unlike every sibling rational field in this
-// file (A0, Rho, Tau, the execution-cost prices), which reject an
-// out-of-range value with an error rather than silently wrapping it during
-// the cast. An out-of-range voting threshold must fail the same way.
-func TestConwayUtxorpc_VotingThresholdOutOfRangeRejected(t *testing.T) {
+func TestConwayUtxorpc_VotingThresholdProjectsWord64(t *testing.T) {
 	base := conway.ConwayProtocolParameters{
 		A0:  &cbor.Rat{Rat: big.NewRat(1, 2)},
 		Rho: &cbor.Rat{Rat: big.NewRat(3, 4)},
@@ -1086,26 +1072,42 @@ func TestConwayUtxorpc_VotingThresholdOutOfRangeRejected(t *testing.T) {
 			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
 		},
 	}
-	outOfRange := cbor.Rat{
+	wide := cbor.Rat{
 		Rat: big.NewRat(int64(math.MaxInt32)+1, 1),
 	}
+	normal := cbor.Rat{Rat: big.NewRat(1, 2)}
 
 	t.Run("pool voting threshold", func(t *testing.T) {
 		params := base
 		params.PoolVotingThresholds = conway.PoolVotingThresholds{
-			MotionNoConfidence: outOfRange,
+			MotionNoConfidence:    wide,
+			CommitteeNormal:       normal,
+			CommitteeNoConfidence: normal,
+			HardForkInitiation:    normal,
+			PpSecurityGroup:       normal,
 		}
-		_, err := params.Utxorpc()
-		require.Error(t, err)
+		got, err := params.Utxorpc()
+		require.NoError(t, err)
+		require.Equal(t, int32(math.MinInt32), got.PoolVotingThresholds.Thresholds[0].Numerator)
 	})
 
 	t.Run("drep voting threshold", func(t *testing.T) {
 		params := base
 		params.DRepVotingThresholds = conway.DRepVotingThresholds{
-			MotionNoConfidence: outOfRange,
+			MotionNoConfidence:    wide,
+			CommitteeNormal:       normal,
+			CommitteeNoConfidence: normal,
+			UpdateToConstitution:  normal,
+			HardForkInitiation:    normal,
+			PpNetworkGroup:        normal,
+			PpEconomicGroup:       normal,
+			PpTechnicalGroup:      normal,
+			PpGovGroup:            normal,
+			TreasuryWithdrawal:    normal,
 		}
-		_, err := params.Utxorpc()
-		require.Error(t, err)
+		got, err := params.Utxorpc()
+		require.NoError(t, err)
+		require.Equal(t, int32(math.MinInt32), got.DrepVotingThresholds.Thresholds[0].Numerator)
 	})
 }
 
@@ -1261,18 +1263,9 @@ func TestConwayUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
 	})
 }
 
-// TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField verifies
-// that poolVotingThresholdsUtxorpc/drepVotingThresholdsUtxorpc do not return
-// (nil, nil)
-// as soon as the scan reached the first unset threshold, before ever
-// checking any threshold that came after it in field order. An out-of-range
-// threshold positioned after an earlier unset one was therefore never
-// caught -- the whole set was silently treated as "not fully populated"
-// instead of surfacing the real range error. Leaves MotionNoConfidence
-// (the first field in both structs' order) unset and puts the out-of-range
-// value on CommitteeNormal (the second field) to prove the scan still
-// reaches and validates it.
-func TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField(
+// An invalid threshold after an unset field must still be validated even
+// though the incomplete threshold set is omitted from the projection.
+func TestConwayUtxorpc_VotingThresholdInvalidAfterUnsetField(
 	t *testing.T,
 ) {
 	base := conway.ConwayProtocolParameters{
@@ -1284,15 +1277,15 @@ func TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField(
 			StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
 		},
 	}
-	outOfRange := cbor.Rat{
-		Rat: big.NewRat(int64(math.MaxInt32)+1, 1),
-	}
+	tooWide := new(big.Int).Lsh(big.NewInt(1), 64)
+	tooWide.Add(tooWide, big.NewInt(1))
+	invalid := cbor.Rat{Rat: new(big.Rat).SetFrac(tooWide, big.NewInt(1))}
 
 	t.Run("pool voting threshold", func(t *testing.T) {
 		params := base
 		params.PoolVotingThresholds = conway.PoolVotingThresholds{
 			// MotionNoConfidence left unset (zero-value cbor.Rat).
-			CommitteeNormal: outOfRange,
+			CommitteeNormal: invalid,
 		}
 		_, err := params.Utxorpc()
 		require.Error(t, err)
@@ -1302,7 +1295,7 @@ func TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField(
 		params := base
 		params.DRepVotingThresholds = conway.DRepVotingThresholds{
 			// MotionNoConfidence left unset (zero-value cbor.Rat).
-			CommitteeNormal: outOfRange,
+			CommitteeNormal: invalid,
 		}
 		_, err := params.Utxorpc()
 		require.Error(t, err)
@@ -1933,9 +1926,11 @@ func TestConwayUtxorpc_FullWidthRationalBounds(t *testing.T) {
 	negativeTooLargeNumerator := new(big.Int).Neg(
 		new(big.Int).Set(tooLargeNumerator),
 	)
-	invalidCases := []struct {
-		name     string
-		rational *cbor.Rat
+	wideCases := []struct {
+		name        string
+		rational    *cbor.Rat
+		numerator   int32
+		denominator uint32
 	}{
 		{
 			name: "below int32 minimum",
@@ -1943,6 +1938,8 @@ func TestConwayUtxorpc_FullWidthRationalBounds(t *testing.T) {
 				big.NewInt(int64(math.MinInt32)-1),
 				big.NewInt(1),
 			),
+			numerator:   math.MaxInt32,
+			denominator: 1,
 		},
 		{
 			name: "above int32 maximum",
@@ -1950,14 +1947,41 @@ func TestConwayUtxorpc_FullWidthRationalBounds(t *testing.T) {
 				big.NewInt(int64(math.MaxInt32)+1),
 				big.NewInt(1),
 			),
+			numerator:   math.MinInt32,
+			denominator: 1,
 		},
+		{
+			name:        "2^63 numerator",
+			rational:    rat(new(big.Int).Lsh(big.NewInt(1), 63), big.NewInt(1)),
+			numerator:   0,
+			denominator: 1,
+		},
+	}
+	for _, field := range fields {
+		field := field
+		t.Run(field.name+" Word64 projection", func(t *testing.T) {
+			for _, wide := range wideCases {
+				wide := wide
+				t.Run(wide.name, func(t *testing.T) {
+					params := validBase()
+					field.set(&params, wide.rational)
+					result, err := params.Utxorpc()
+					require.NoError(t, err)
+					got := field.get(result)
+					require.Equal(t, wide.numerator, got.Numerator)
+					require.Equal(t, wide.denominator, got.Denominator)
+				})
+			}
+		})
+	}
+
+	invalidCases := []struct {
+		name     string
+		rational *cbor.Rat
+	}{
 		{
 			name:     "negative 2^64 plus one numerator",
 			rational: rat(negativeTooLargeNumerator, big.NewInt(1)),
-		},
-		{
-			name:     "2^63 numerator",
-			rational: rat(new(big.Int).Lsh(big.NewInt(1), 63), big.NewInt(1)),
 		},
 		{
 			name:     "2^64 numerator",
@@ -2014,6 +2038,30 @@ func TestConwayUtxorpc_FullWidthRationalBounds(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConwayUtxorpc_ProjectsWideLedgerRationals(t *testing.T) {
+	wide := &cbor.Rat{Rat: new(big.Rat).SetFrac(
+		big.NewInt(1),
+		new(big.Int).Add(
+			new(big.Int).Lsh(big.NewInt(1), 32),
+			big.NewInt(1),
+		),
+	)}
+	params := conway.ConwayProtocolParameters{
+		A0:  wide,
+		Rho: &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Tau: &cbor.Rat{Rat: big.NewRat(1, 3)},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 4)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(1, 5)},
+		},
+	}
+
+	got, err := params.Utxorpc()
+	require.NoError(t, err)
+	require.Equal(t, int32(1), got.PoolInfluence.Numerator)
+	require.Equal(t, uint32(1), got.PoolInfluence.Denominator)
 }
 
 func testCostModels() map[uint][]int64 {
