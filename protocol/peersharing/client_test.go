@@ -15,12 +15,10 @@
 package peersharing
 
 import (
-	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"net"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,38 +28,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type getPeersLogHandler struct {
-	calls chan struct{}
+type notifyingLocker struct {
+	sync.Locker
+	attempts chan<- struct{}
 }
 
-func (h *getPeersLogHandler) Enabled(context.Context, slog.Level) bool {
-	return true
+func (l *notifyingLocker) Lock() {
+	l.attempts <- struct{}{}
+	l.Locker.Lock()
 }
 
-func (h *getPeersLogHandler) Handle(
-	_ context.Context,
-	record slog.Record,
-) error {
-	if strings.HasPrefix(record.Message, "calling GetPeers") {
-		h.calls <- struct{}{}
+func notifyExchangeLockAttempts(client *Client) <-chan struct{} {
+	attempts := make(chan struct{}, 2)
+	client.exchangeLock = &notifyingLocker{
+		Locker:   client.exchangeLock,
+		attempts: attempts,
 	}
-	return nil
+	return attempts
 }
 
-func (h *getPeersLogHandler) WithAttrs([]slog.Attr) slog.Handler {
-	return h
-}
-
-func (h *getPeersLogHandler) WithGroup(string) slog.Handler {
-	return h
-}
-
-func waitForGetPeersCall(t *testing.T, calls <-chan struct{}) {
+func waitForExchangeLockAttempt(t *testing.T, attempts <-chan struct{}) {
 	t.Helper()
 	select {
-	case <-calls:
+	case <-attempts:
 	case <-time.After(5 * time.Second):
-		t.Fatal("GetPeers did not reach the request boundary")
+		t.Fatal("GetPeers did not attempt to lock the exchange")
 	}
 }
 
@@ -79,20 +70,17 @@ func requirePeerAddressesEqual(
 }
 
 func TestClientGetPeersSerializesConcurrentExchanges(t *testing.T) {
-	handler := &getPeersLogHandler{calls: make(chan struct{}, 2)}
-	client, connB, errs := testPeerSharingClientWithLogger(
-		t,
-		slog.New(handler),
-	)
+	client, connB, errs := testPeerSharingClient(t)
+	attempts := notifyExchangeLockAttempts(client)
 
 	first := startGetPeers(t, client, connB, 5)
-	waitForGetPeersCall(t, handler.calls)
+	waitForExchangeLockAttempt(t, attempts)
 	second := make(chan peersResult, 1)
 	go func() {
 		peers, err := client.GetPeers(1)
 		second <- peersResult{peers: peers, err: err}
 	}()
-	waitForGetPeersCall(t, handler.calls)
+	waitForExchangeLockAttempt(t, attempts)
 
 	firstPeers := smallPeerAddresses(5)
 	writeSharePeers(t, connB, firstPeers)
@@ -122,20 +110,17 @@ func TestClientGetPeersSerializesConcurrentExchanges(t *testing.T) {
 }
 
 func TestClientGetPeersConcurrentRequestCannotWidenLimit(t *testing.T) {
-	handler := &getPeersLogHandler{calls: make(chan struct{}, 2)}
-	client, connB, errs := testPeerSharingClientWithLogger(
-		t,
-		slog.New(handler),
-	)
+	client, connB, errs := testPeerSharingClient(t)
+	attempts := notifyExchangeLockAttempts(client)
 
 	first := startGetPeers(t, client, connB, 1)
-	waitForGetPeersCall(t, handler.calls)
+	waitForExchangeLockAttempt(t, attempts)
 	second := make(chan peersResult, 1)
 	go func() {
 		peers, err := client.GetPeers(5)
 		second <- peersResult{peers: peers, err: err}
 	}()
-	waitForGetPeersCall(t, handler.calls)
+	waitForExchangeLockAttempt(t, attempts)
 
 	writeSharePeers(t, connB, smallPeerAddresses(2))
 	select {

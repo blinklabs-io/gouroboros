@@ -15,7 +15,6 @@
 package peersharing
 
 import (
-	"log/slog"
 	"net"
 	"strconv"
 	"testing"
@@ -55,13 +54,6 @@ func smallPeerAddresses(count int) []PeerAddress {
 }
 
 func testPeerSharingClient(t *testing.T) (*Client, net.Conn, chan error) {
-	return testPeerSharingClientWithLogger(t, nil)
-}
-
-func testPeerSharingClientWithLogger(
-	t *testing.T,
-	logger *slog.Logger,
-) (*Client, net.Conn, chan error) {
 	t.Helper()
 	connA, connB := net.Pipe()
 	m := muxer.New(connA)
@@ -74,7 +66,6 @@ func testPeerSharingClientWithLogger(
 			},
 			Muxer:     m,
 			ErrorChan: errs,
-			Logger:    logger,
 			Mode:      protocol.ProtocolModeNodeToNode,
 		},
 		nil,
