@@ -15,6 +15,7 @@
 package peersharing
 
 import (
+	"log/slog"
 	"net"
 	"strconv"
 	"testing"
@@ -54,6 +55,13 @@ func smallPeerAddresses(count int) []PeerAddress {
 }
 
 func testPeerSharingClient(t *testing.T) (*Client, net.Conn, chan error) {
+	return testPeerSharingClientWithLogger(t, nil)
+}
+
+func testPeerSharingClientWithLogger(
+	t *testing.T,
+	logger *slog.Logger,
+) (*Client, net.Conn, chan error) {
 	t.Helper()
 	connA, connB := net.Pipe()
 	m := muxer.New(connA)
@@ -66,6 +74,7 @@ func testPeerSharingClient(t *testing.T) (*Client, net.Conn, chan error) {
 			},
 			Muxer:     m,
 			ErrorChan: errs,
+			Logger:    logger,
 			Mode:      protocol.ProtocolModeNodeToNode,
 		},
 		nil,
@@ -90,12 +99,17 @@ func startGetPeers(t *testing.T, client *Client, connB net.Conn, amount uint8) c
 		peers, err := client.GetPeers(amount)
 		results <- peersResult{peers: peers, err: err}
 	}()
+	readShareRequest(t, connB, amount)
+	return results
+}
+
+func readShareRequest(t *testing.T, connB net.Conn, amount uint8) {
+	t.Helper()
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(5*time.Second)))
 	segment := readPeerSharingSegment(t, connB)
 	expected, err := cbor.Encode(NewMsgShareRequest(amount))
 	require.NoError(t, err)
 	require.Equal(t, expected, segment.Payload)
-	return results
 }
 
 type peersResult struct {

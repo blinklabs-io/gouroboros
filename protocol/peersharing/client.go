@@ -27,6 +27,7 @@ type Client struct {
 	config          *Config
 	callbackContext CallbackContext
 	sharePeersChan  chan []PeerAddress
+	exchangeMutex   sync.Mutex
 	requestedMutex  sync.Mutex
 	requestedAmount int
 }
@@ -84,6 +85,8 @@ func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	c.exchangeMutex.Lock()
+	defer c.exchangeMutex.Unlock()
 	// The reply's legal length is bounded by this count. Record it before
 	// the request goes out, under a mutex: the handler that checks it runs
 	// on the protocol's receive goroutine.
