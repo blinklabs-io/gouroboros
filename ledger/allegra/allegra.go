@@ -613,7 +613,7 @@ func NewAllegraBlockFromCbor(
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
 	var allegraBlock AllegraBlock
-	if _, err := cbor.Decode(data, &allegraBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &allegraBlock); err != nil {
 		return nil, fmt.Errorf("decode Allegra block error: %w", err)
 	}
 
@@ -637,7 +637,7 @@ func NewAllegraBlockFromCbor(
 
 func NewAllegraBlockHeaderFromCbor(data []byte) (*AllegraBlockHeader, error) {
 	var allegraBlockHeader AllegraBlockHeader
-	if _, err := cbor.Decode(data, &allegraBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &allegraBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Allegra block header error: %w", err)
 	}
 	return &allegraBlockHeader, nil
@@ -647,7 +647,7 @@ func NewAllegraTransactionBodyFromCbor(
 	data []byte,
 ) (*AllegraTransactionBody, error) {
 	var allegraTx AllegraTransactionBody
-	if _, err := cbor.Decode(data, &allegraTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &allegraTx); err != nil {
 		return nil, fmt.Errorf("decode Allegra transaction body error: %w", err)
 	}
 	return &allegraTx, nil
@@ -655,7 +655,7 @@ func NewAllegraTransactionBodyFromCbor(
 
 func NewAllegraTransactionFromCbor(data []byte) (*AllegraTransaction, error) {
 	var allegraTx AllegraTransaction
-	if _, err := cbor.Decode(data, &allegraTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &allegraTx); err != nil {
 		return nil, fmt.Errorf("decode Allegra transaction error: %w", err)
 	}
 	return &allegraTx, nil

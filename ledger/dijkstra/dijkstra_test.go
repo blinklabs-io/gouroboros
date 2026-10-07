@@ -571,6 +571,11 @@ func TestDijkstraTransactionDecodesThreePartTx(t *testing.T) {
 	require.True(t, tx.IsValid())
 	require.Equal(t, TxTypeDijkstra, tx.Type())
 	require.Equal(t, txCbor, tx.Cbor())
+
+	_, err = NewDijkstraTransactionFromCbor(
+		append(append([]byte(nil), txCbor...), 0x00),
+	)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
 }
 
 func TestDijkstraTransactionAllowsOnlyTrueIsValidForMempool(t *testing.T) {

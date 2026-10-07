@@ -57,7 +57,7 @@ func makeConwayRewardAddress(
 
 func TestUtxoValidateOutsideForecastUsesConwayFailureTag(t *testing.T) {
 	const upperBound = uint64(12_345)
-	inputs := []common.TransactionInput{shelley.NewShelleyTransactionInput(
+	inputs := []common.TransactionInput{shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000001",
 		0,
 	)}
@@ -3113,7 +3113,7 @@ func TestUtxoValidateDisjointRefInputs_PV11PlusSkipsGlobalCheck(t *testing.T) {
 }
 
 func TestUtxoValidateDisjointRefInputs_PV11AllowsOverlapWithoutPlutus(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
 		0,
 	)
@@ -5800,7 +5800,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 				TxFee: fee,
 				TxCollateral: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(
+						shelley.MustNewShelleyTransactionInput(
 							testInputTxId,
 							0,
 						),
@@ -5819,7 +5819,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
 			[]common.Utxo{
 				{
-					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: collateral,
 					},

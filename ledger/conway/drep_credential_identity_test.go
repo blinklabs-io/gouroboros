@@ -164,7 +164,7 @@ func TestUnregisteredDRepDelegationBootstrapFullValidation(t *testing.T) {
 	tx := certificateDepositTransaction(t, fixture, [][]byte{certificate}, 0, 0)
 	state := mockledger.NewLedgerStateBuilder().
 		WithUtxos([]common.Utxo{{
-			Id: shelley.NewShelleyTransactionInput(certificateDepositTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(certificateDepositTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: certificateDepositInputAmount,
 			},

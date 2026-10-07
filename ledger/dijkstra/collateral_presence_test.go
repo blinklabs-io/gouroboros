@@ -14,7 +14,7 @@ import (
 )
 
 func TestExplicitZeroTotalCollateralIsValidated(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	raw, err := cbor.Encode(map[uint]any{
 		0:  cbor.NewSetType([]any{}, false),
 		1:  []any{},
@@ -112,7 +112,7 @@ func TestDijkstraCollateralReturnIsCheckedByOutputRules(t *testing.T) {
 }
 
 func TestDijkstraInsufficientCollateralUsesNetAmount(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
 			TxFee:        1_000_000,

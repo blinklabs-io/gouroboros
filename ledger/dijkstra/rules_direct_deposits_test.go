@@ -39,7 +39,7 @@ func dijkstraDepositInput(amount uint64) (
 	shelley.ShelleyTransactionInput,
 	common.Utxo,
 ) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"1111111111111111111111111111111111111111111111111111111111111111",
 		0,
 	)

@@ -1437,7 +1437,7 @@ func NewBabbageBlockFromCbor(
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
 	var babbageBlock BabbageBlock
-	if _, err := cbor.Decode(data, &babbageBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageBlock); err != nil {
 		return nil, fmt.Errorf("decode Babbage block error: %w", err)
 	}
 
@@ -1461,7 +1461,7 @@ func NewBabbageBlockFromCbor(
 
 func NewBabbageBlockHeaderFromCbor(data []byte) (*BabbageBlockHeader, error) {
 	var babbageBlockHeader BabbageBlockHeader
-	if _, err := cbor.Decode(data, &babbageBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Babbage block header error: %w", err)
 	}
 	return &babbageBlockHeader, nil
@@ -1471,7 +1471,7 @@ func NewBabbageTransactionBodyFromCbor(
 	data []byte,
 ) (*BabbageTransactionBody, error) {
 	var babbageTx BabbageTransactionBody
-	if _, err := cbor.Decode(data, &babbageTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageTx); err != nil {
 		return nil, fmt.Errorf("decode Babbage transaction body error: %w", err)
 	}
 	return &babbageTx, nil
@@ -1479,7 +1479,7 @@ func NewBabbageTransactionBodyFromCbor(
 
 func NewBabbageTransactionFromCbor(data []byte) (*BabbageTransaction, error) {
 	var babbageTx BabbageTransaction
-	if _, err := cbor.Decode(data, &babbageTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageTx); err != nil {
 		return nil, fmt.Errorf("decode Babbage transaction error: %w", err)
 	}
 	return &babbageTx, nil
@@ -1489,7 +1489,7 @@ func NewBabbageTransactionOutputFromCbor(
 	data []byte,
 ) (*BabbageTransactionOutput, error) {
 	var babbageTxOutput BabbageTransactionOutput
-	if _, err := cbor.Decode(data, &babbageTxOutput); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageTxOutput); err != nil {
 		return nil, fmt.Errorf(
 			"decode Babbage transaction output error: %w",
 			err,

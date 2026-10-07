@@ -91,6 +91,21 @@ func Decode(dataBytes []byte, dest any) (int, error) {
 	return decode(dataBytes, dest, getDecMode, rejectDuplicateMapKeys)
 }
 
+// DecodeExact decodes one CBOR item and rejects any trailing bytes.
+func DecodeExact(dataBytes []byte, dest any) (int, error) {
+	bytesRead, err := Decode(dataBytes, dest)
+	if err != nil {
+		return bytesRead, err
+	}
+	if bytesRead != len(dataBytes) {
+		return bytesRead, fmt.Errorf(
+			"unexpected trailing CBOR data: %d bytes",
+			len(dataBytes)-bytesRead,
+		)
+	}
+	return bytesRead, nil
+}
+
 // DecodeLedgerMap decodes a ledger map with duplicate keys rejected. Unknown
 // fields are rejected by a typed destination's decoder or by caller validation
 // when decoding raw fields. Call it at custom UnmarshalCBOR boundaries because

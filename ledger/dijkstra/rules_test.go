@@ -2454,7 +2454,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 				TxFee: fee,
 				TxCollateral: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(
+						shelley.MustNewShelleyTransactionInput(
 							testInputTxId,
 							0,
 						),
@@ -2473,7 +2473,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
 			[]common.Utxo{
 				{
-					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: collateral,
 					},

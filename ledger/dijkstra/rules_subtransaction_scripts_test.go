@@ -837,7 +837,7 @@ func TestVerifyTransactionChecksSubtransactionSupplementalDatums(t *testing.T) {
 
 func TestSupplementalDatumsChecksEachSubtransactionLevel(t *testing.T) {
 	v1 := common.PlutusV1Script{0x31}
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0202020202020202020202020202020202020202020202020202020202020202",
 		0,
 	)

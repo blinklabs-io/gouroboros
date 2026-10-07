@@ -183,4 +183,16 @@ func TestNewBlockHeaderFromCbor(t *testing.T) {
 			}
 		})
 	}
+
+	for _, test := range tests {
+		if test.expectErr {
+			continue
+		}
+		t.Run(test.name+" trailing CBOR", func(t *testing.T) {
+			data := append(append([]byte(nil), test.data...), 0x00)
+			if _, err := NewBlockHeaderFromCbor(test.blockType, data); err == nil {
+				t.Fatal("block header with trailing CBOR was accepted")
+			}
+		})
+	}
 }

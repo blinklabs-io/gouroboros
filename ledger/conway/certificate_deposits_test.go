@@ -744,7 +744,7 @@ func TestDRepDeregistrationThenAssignmentRejectedByFullRules(t *testing.T) {
 	drepDeposit := pp.DRepDeposit
 	baseState := mockledger.NewLedgerStateBuilder().
 		WithUtxos([]common.Utxo{{
-			Id: shelley.NewShelleyTransactionInput(certificateDepositTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(certificateDepositTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: certificateDepositInputAmount,
 			},
@@ -795,7 +795,7 @@ func TestDRepUpdateRequiresSequentialRegistration(t *testing.T) {
 		require.True(t, errors.As(err, &target), "unexpected error: %v", err)
 		initialDeposit := pp.DRepDeposit
 		base := mockledger.NewLedgerStateBuilder().
-			WithUtxos([]common.Utxo{{Id: shelley.NewShelleyTransactionInput(certificateDepositTxId, 0), Output: shelley.ShelleyTransactionOutput{OutputAmount: certificateDepositInputAmount}}}).
+			WithUtxos([]common.Utxo{{Id: shelley.MustNewShelleyTransactionInput(certificateDepositTxId, 0), Output: shelley.ShelleyTransactionOutput{OutputAmount: certificateDepositInputAmount}}}).
 			WithNetworkId(1).
 			WithDRepRegistrations([]common.DRepRegistration{{Credential: fixture.credential, Deposit: &initialDeposit}}).
 			Build()

@@ -1215,7 +1215,7 @@ func NewAlonzoBlockFromCbor(
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
 	var alonzoBlock AlonzoBlock
-	if _, err := cbor.Decode(data, &alonzoBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoBlock); err != nil {
 		return nil, fmt.Errorf("decode Alonzo block error: %w", err)
 	}
 
@@ -1239,7 +1239,7 @@ func NewAlonzoBlockFromCbor(
 
 func NewAlonzoBlockHeaderFromCbor(data []byte) (*AlonzoBlockHeader, error) {
 	var alonzoBlockHeader AlonzoBlockHeader
-	if _, err := cbor.Decode(data, &alonzoBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Alonzo block header error: %w", err)
 	}
 	return &alonzoBlockHeader, nil
@@ -1249,7 +1249,7 @@ func NewAlonzoTransactionBodyFromCbor(
 	data []byte,
 ) (*AlonzoTransactionBody, error) {
 	var alonzoTx AlonzoTransactionBody
-	if _, err := cbor.Decode(data, &alonzoTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoTx); err != nil {
 		return nil, fmt.Errorf("decode Alonzo transaction body error: %w", err)
 	}
 	return &alonzoTx, nil
@@ -1257,7 +1257,7 @@ func NewAlonzoTransactionBodyFromCbor(
 
 func NewAlonzoTransactionFromCbor(data []byte) (*AlonzoTransaction, error) {
 	var alonzoTx AlonzoTransaction
-	if _, err := cbor.Decode(data, &alonzoTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoTx); err != nil {
 		return nil, fmt.Errorf("decode Alonzo transaction error: %w", err)
 	}
 	return &alonzoTx, nil
@@ -1267,7 +1267,7 @@ func NewAlonzoTransactionOutputFromCbor(
 	data []byte,
 ) (*AlonzoTransactionOutput, error) {
 	var alonzoTxOutput AlonzoTransactionOutput
-	if _, err := cbor.Decode(data, &alonzoTxOutput); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoTxOutput); err != nil {
 		return nil, fmt.Errorf(
 			"decode Alonzo transaction output error: %w",
 			err,

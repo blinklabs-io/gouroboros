@@ -2241,12 +2241,13 @@ func (t DijkstraTransaction) Produced() []common.Utxo {
 		txId := t.Hash()
 		ret := make([]common.Utxo, 0, len(outputs))
 		for _, subTx := range t.Body.TxSubTransactions.Items() {
+			subTxId := subTx.Body.Id()
 			for idx, output := range subTx.Body.Outputs() {
 				ret = append(ret, common.Utxo{
-					Id: shelley.NewShelleyTransactionInput(
-						subTx.Body.Id().String(),
-						idx,
-					),
+					Id: shelley.ShelleyTransactionInput{
+						TxId:        subTxId,
+						OutputIndex: uint32(idx),
+					},
 					Output: output,
 				})
 			}
@@ -2419,7 +2420,7 @@ func NewDijkstraBlockFromCbor(
 		cfg = config[0]
 	}
 	var dijkstraBlock DijkstraBlock
-	if _, err := cbor.Decode(data, &dijkstraBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &dijkstraBlock); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra block error: %w", err)
 	}
 	if !cfg.SkipBodyHashValidation {
@@ -2449,7 +2450,7 @@ func NewDijkstraBlockFromCbor(
 
 func NewDijkstraBlockHeaderFromCbor(data []byte) (*DijkstraBlockHeader, error) {
 	var dijkstraBlockHeader DijkstraBlockHeader
-	if _, err := cbor.Decode(data, &dijkstraBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &dijkstraBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra block header error: %w", err)
 	}
 	return &dijkstraBlockHeader, nil
@@ -2459,7 +2460,7 @@ func NewDijkstraTransactionBodyFromCbor(
 	data []byte,
 ) (*DijkstraTransactionBody, error) {
 	var dijkstraTx DijkstraTransactionBody
-	if _, err := cbor.Decode(data, &dijkstraTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &dijkstraTx); err != nil {
 		return nil, fmt.Errorf(
 			"decode Dijkstra transaction body error: %w",
 			err,
@@ -2492,7 +2493,7 @@ func newDijkstraTransactionFromCbor(
 	allowIsValid bool,
 ) (*DijkstraTransaction, error) {
 	var txArray []cbor.RawMessage
-	if _, err := cbor.Decode(data, &txArray); err != nil {
+	if _, err := cbor.DecodeExact(data, &txArray); err != nil {
 		return nil, err
 	}
 	return newDijkstraTransactionFromCborComponents(data, txArray, allowIsValid)

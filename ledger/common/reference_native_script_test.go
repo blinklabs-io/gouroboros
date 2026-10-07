@@ -506,7 +506,7 @@ func TestUnresolvableInputsAreRejectedBeforeNativeScripts(t *testing.T) {
 func TestUnneededWitnessNativeScriptIsNotEvaluated(t *testing.T) {
 	t.Parallel()
 	unneeded := testPubkeyNativeScript(t, bytes.Repeat([]byte{0x66}, 32))
-	spentInput := shelley.NewShelleyTransactionInput(
+	spentInput := shelley.MustNewShelleyTransactionInput(
 		"7777777777777777777777777777777777777777777777777777777777777777",
 		0,
 	)

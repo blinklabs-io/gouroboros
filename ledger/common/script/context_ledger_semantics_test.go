@@ -128,7 +128,7 @@ func TestTxInfoV1FiltersByronInputsAcrossEras(t *testing.T) {
 	byronOutput, err := mockledger.NewTransactionOutputBuilder().
 		WithAddress(byronAddress.String()).WithLovelace(1).Build()
 	require.NoError(t, err)
-	byronInput := shelley.NewShelleyTransactionInput(
+	byronInput := shelley.MustNewShelleyTransactionInput(
 		hex.EncodeToString(bytes.Repeat([]byte{0x43}, common.Blake2b256Size)), 0,
 	)
 	shelleyAddress, err := common.NewAddressFromParts(
@@ -197,7 +197,7 @@ func TestTxInfoV1FiltersByronOutputsAcrossEras(t *testing.T) {
 	shelleyOutput, err := mockledger.NewTransactionOutputBuilder().
 		WithAddress(shelleyAddress.String()).WithLovelace(1).Build()
 	require.NoError(t, err)
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		hex.EncodeToString(bytes.Repeat([]byte{0x43}, common.Blake2b256Size)), 0,
 	)
 	base := mockledger.NewTransactionBuilder()
@@ -246,7 +246,7 @@ func TestTxInfoRejectsByronReferenceInputs(t *testing.T) {
 	byronOutput, err := mockledger.NewTransactionOutputBuilder().
 		WithAddress(byronAddress.String()).WithLovelace(1).Build()
 	require.NoError(t, err)
-	reference := shelley.NewShelleyTransactionInput(
+	reference := shelley.MustNewShelleyTransactionInput(
 		hex.EncodeToString(bytes.Repeat([]byte{0x44}, common.Blake2b256Size)), 0,
 	)
 	resolved := []common.Utxo{{Id: reference, Output: byronOutput}}

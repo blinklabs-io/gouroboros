@@ -516,7 +516,7 @@ func TestConwayFeaturesWithPlutusV1V2ReferenceScripts(t *testing.T) {
 
 func TestConwayPlutusV1KeepsReferenceInputsAndScripts(t *testing.T) {
 	v1 := common.PlutusV1Script{0x31, 0x32}
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"1111111111111111111111111111111111111111111111111111111111111111",
 		0,
 	)

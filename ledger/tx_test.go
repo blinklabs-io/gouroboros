@@ -115,6 +115,84 @@ func TestMaryTransactionCborRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTransactionConstructorsRejectTrailingCBOR(t *testing.T) {
+	testDefs := []struct {
+		name      string
+		txType    uint
+		txCborHex string
+	}{
+		{name: "Byron", txType: ledger.TxTypeByron, txCborHex: byronTxCborHex},
+		{name: "Shelley", txType: ledger.TxTypeShelley, txCborHex: shelleyTxCborHex},
+		{name: "Allegra", txType: ledger.TxTypeAllegra, txCborHex: allegraTxCborHex},
+		{name: "Mary", txType: ledger.TxTypeMary, txCborHex: maryTxCborHex},
+		{name: "Alonzo", txType: ledger.TxTypeAlonzo, txCborHex: alonzoTxCborHex},
+		{name: "Babbage", txType: ledger.TxTypeBabbage, txCborHex: babbageTxCborHex},
+		{name: "Conway", txType: ledger.TxTypeConway, txCborHex: conwayTxCborHex},
+	}
+	for _, testDef := range testDefs {
+		t.Run(testDef.name, func(t *testing.T) {
+			txCbor, err := hex.DecodeString(testDef.txCborHex)
+			if err != nil {
+				t.Fatalf("decode transaction fixture: %s", err)
+			}
+			if _, err := ledger.NewTransactionFromCbor(testDef.txType, txCbor); err != nil {
+				t.Fatalf("decode transaction fixture: %s", err)
+			}
+			if _, err := ledger.NewTransactionFromCbor(
+				testDef.txType,
+				append(append([]byte(nil), txCbor...), 0x00),
+			); err == nil {
+				t.Fatal("transaction with trailing CBOR was accepted")
+			}
+		})
+	}
+}
+
+func TestStandaloneConstructorsRejectTrailingCBOR(t *testing.T) {
+	txCbor, err := hex.DecodeString(shelleyTxCborHex)
+	if err != nil {
+		t.Fatalf("decode transaction fixture: %s", err)
+	}
+	tx, err := ledger.NewShelleyTransactionFromCbor(txCbor)
+	if err != nil {
+		t.Fatalf("decode transaction fixture: %s", err)
+	}
+
+	testDefs := []struct {
+		name   string
+		data   []byte
+		decode func([]byte) error
+	}{
+		{
+			name: "transaction body",
+			data: tx.Body.Cbor(),
+			decode: func(data []byte) error {
+				_, err := ledger.NewShelleyTransactionBodyFromCbor(data)
+				return err
+			},
+		},
+		{
+			name: "transaction output",
+			data: tx.Body.Outputs()[0].Cbor(),
+			decode: func(data []byte) error {
+				_, err := ledger.NewShelleyTransactionOutputFromCbor(data)
+				return err
+			},
+		},
+	}
+	for _, testDef := range testDefs {
+		t.Run(testDef.name, func(t *testing.T) {
+			if err := testDef.decode(testDef.data); err != nil {
+				t.Fatalf("decode fixture: %s", err)
+			}
+			trailing := append(append([]byte(nil), testDef.data...), 0x00)
+			if err := testDef.decode(trailing); err == nil {
+				t.Fatal("constructor accepted trailing CBOR")
+			}
+		})
+	}
+}
+
 func TestDetermineTransactionTypeDijkstraOnlyFields(t *testing.T) {
 	txCbor, err := cbor.Encode([]any{
 		map[uint]any{
