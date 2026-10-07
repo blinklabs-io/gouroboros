@@ -978,10 +978,9 @@ func TestConwayUtxorpc_GovernanceFields_UnsetVotingThresholdsOmitted(
 	assert.Nil(t, result.DrepVotingThresholds)
 }
 
-// TestConwayUtxorpc_MinFeeRefScriptCostPerByteNilEmbeddedRatDoesNotPanic is
-// the regression test for a review finding on
-// blinklabs-io/gouroboros#2292: MinFeeRefScriptCostPerByte is a *cbor.Rat,
-// and the nil check in Utxorpc()'s original validation guard only covered
+// TestConwayUtxorpc_MinFeeRefScriptCostPerByteNilEmbeddedRatDoesNotPanic
+// verifies that MinFeeRefScriptCostPerByte's nested rational may be unset.
+// The nil check in Utxorpc()'s validation guard must cover
 // that outer pointer -- a non-nil *cbor.Rat whose embedded *big.Rat is
 // itself nil (the same "unset" representation
 // TestConwayUtxorpc_GovernanceFields_UnsetVotingThresholdsOmitted's
@@ -1013,9 +1012,8 @@ func TestConwayUtxorpc_MinFeeRefScriptCostPerByteNilEmbeddedRatDoesNotPanic(
 	})
 }
 
-// TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic is the
-// regression test for a CodeRabbit finding on blinklabs-io/gouroboros#2292:
-// unlike the optional MinFeeRefScriptCostPerByte above (where a nil
+// TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic verifies
+// that, unlike the optional MinFeeRefScriptCostPerByte above (where a nil
 // embedded *big.Rat legitimately means "unset"), A0, Rho, Tau, and the two
 // execution-cost prices are mandatory -- Utxorpc()'s own validation guard
 // for each already rejects a nil *cbor.Rat pointer with an "invalid ...
@@ -1072,9 +1070,8 @@ func TestConwayUtxorpc_MandatoryRatFieldNilEmbeddedRatRejectedNotPanic(
 	}
 }
 
-// TestConwayUtxorpc_VotingThresholdOutOfRangeRejected is the regression
-// test for a review finding on blinklabs-io/gouroboros#2292:
-// ratToUtxorpcRationalNumber cast a threshold's numerator/denominator to
+// TestConwayUtxorpc_VotingThresholdOutOfRangeRejected verifies that full
+// parameter projection does not cast a threshold's numerator/denominator to
 // int32/uint32 unconditionally, unlike every sibling rational field in this
 // file (A0, Rho, Tau, the execution-cost prices), which reject an
 // out-of-range value with an error rather than silently wrapping it during
@@ -1224,17 +1221,12 @@ func TestConwayProtocolParameterUpdateUtxorpcRejectsPartialPrices(
 	}
 }
 
-// TestConwayUtxorpc_ValueBeyondInt64RangeRejected is the regression test
-// for a review finding on blinklabs-io/gouroboros#2292: the range check
-// (both the voting-threshold one just added, and the pre-existing A0/Rho/
-// Tau/execution-cost-price ones it was modeled on) compared
-// r.Num().Int64() against math.MinInt32/MaxInt32 -- but big.Int.Int64() is
-// undefined (silently wraps, per math/big's own documentation) for a value
-// that does not fit in int64 at all, which is a much lower bar to clear
-// than not fitting in int32. A numerator like 2^64+1 could pass that
-// Int64()-based comparison completely undetected instead of being
-// rejected. Covers both a pre-existing guard (A0) and the new
-// voting-threshold path, since both used the same flawed pattern.
+// TestConwayUtxorpc_ValueBeyondInt64RangeRejected verifies that the range
+// checks for voting thresholds, A0, Rho, Tau, and execution-cost prices
+// compare the big integers directly. big.Int.Int64() is undefined for a
+// value that does not fit in int64, so narrowing before checking could let a
+// value such as 2^64+1 pass undetected. This covers both A0 and a voting
+// threshold.
 func TestConwayUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
 	beyondInt64 := new(big.Int).Lsh(big.NewInt(1), 64) // 2^64
 	beyondInt64.Add(beyondInt64, big.NewInt(1))        // 2^64 + 1
@@ -1252,7 +1244,7 @@ func TestConwayUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
 		}
 	}
 
-	t.Run("pre-existing A0 guard", func(t *testing.T) {
+	t.Run("A0 guard", func(t *testing.T) {
 		params := validBase()
 		params.A0 = &cbor.Rat{Rat: badRat}
 		_, err := params.Utxorpc()
@@ -1269,9 +1261,9 @@ func TestConwayUtxorpc_ValueBeyondInt64RangeRejected(t *testing.T) {
 	})
 }
 
-// TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField is the
-// regression test for a review finding on blinklabs-io/gouroboros#2292:
-// poolVotingThresholdsUtxorpc/drepVotingThresholdsUtxorpc returned (nil, nil)
+// TestConwayUtxorpc_VotingThresholdOutOfRangeRejectedAfterUnsetField verifies
+// that poolVotingThresholdsUtxorpc/drepVotingThresholdsUtxorpc do not return
+// (nil, nil)
 // as soon as the scan reached the first unset threshold, before ever
 // checking any threshold that came after it in field order. An out-of-range
 // threshold positioned after an earlier unset one was therefore never

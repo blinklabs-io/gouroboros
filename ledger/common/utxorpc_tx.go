@@ -803,19 +803,17 @@ func credentialBytes(c *utxorpc.StakeCredential) []byte {
 }
 
 // ToUtxorpcRationalNumber converts a rational to the int32/uint32 pair
-// UTxO-RPC carries, rejecting values that would wrap.
+// UTxO-RPC carries. The schema exposes the low 32 bits of each ledger value,
+// matching the canonical pallas UTxO-RPC mapper.
 func ToUtxorpcRationalNumber(r *big.Rat) (*utxorpc.RationalNumber, error) {
 	if r == nil {
 		return nil, errors.New("rational number is unset")
 	}
-	if r.Num().Cmp(big.NewInt(math.MinInt32)) < 0 ||
-		r.Num().Cmp(big.NewInt(math.MaxInt32)) > 0 ||
-		r.Denom().Sign() < 0 ||
-		r.Denom().Cmp(new(big.Int).SetUint64(math.MaxUint32)) > 0 {
-		return nil, errors.New("invalid rational number values")
-	}
+	mask := new(big.Int).SetUint64(math.MaxUint32)
+	numerator := new(big.Int).And(r.Num(), mask).Uint64()
+	denominator := new(big.Int).And(r.Denom(), mask).Uint64()
 	return &utxorpc.RationalNumber{
-		Numerator:   int32(r.Num().Int64()),    // #nosec G115
-		Denominator: uint32(r.Denom().Int64()), // #nosec G115
+		Numerator:   int32(uint32(numerator)), // #nosec G115 -- wire truncation
+		Denominator: uint32(denominator),      // #nosec G115 -- wire truncation
 	}, nil
 }

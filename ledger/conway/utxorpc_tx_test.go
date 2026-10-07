@@ -465,6 +465,71 @@ func TestConwayTransactionUtxorpcParameterChangeUpdate(t *testing.T) {
 	require.Nil(t, update.Prices)
 }
 
+func TestConwayTransactionUtxorpcProjectsWideGovernanceRationals(
+	t *testing.T,
+) {
+	t.Parallel()
+	enterprise := append([]byte{0x61}, filled(28, 0x0a)...)
+	rewardAccount := append([]byte{0xe1}, filled(28, 0x01)...)
+	wide := cbor.RawTag{
+		Number:  30,
+		Content: mustEncode(t, []uint64{1, uint64(1)<<32 + 1}),
+	}
+	for _, tc := range []struct {
+		name   string
+		action []any
+		get    func(*utxorpc.Tx) *utxorpc.RationalNumber
+	}{
+		{
+			name: "parameter change",
+			action: []any{
+				uint64(0), nil, map[uint]any{9: wide}, filled(28, 0x05),
+			},
+			get: func(tx *utxorpc.Tx) *utxorpc.RationalNumber {
+				return tx.Proposals[0].GovAction.
+					GetParameterChangeAction().ProtocolParamUpdate.PoolInfluence
+			},
+		},
+		{
+			name: "committee update",
+			action: []any{
+				uint64(4), nil, []any{}, map[cbor.ByteString]uint64{}, wide,
+			},
+			get: func(tx *utxorpc.Tx) *utxorpc.RationalNumber {
+				return tx.Proposals[0].GovAction.
+					GetUpdateCommitteeAction().NewCommitteeThreshold
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, successful := range []bool{true, false} {
+				raw := mustEncode(t, []any{
+					map[uint]any{
+						0: []any{[]any{filled(32, 0x01), uint64(0)}},
+						1: []any{[]any{enterprise, uint64(2_000_000)}},
+						2: uint64(170_000),
+						20: []any{[]any{
+							uint64(100),
+							rewardAccount,
+							tc.action,
+							[]any{"https://example.com", filled(32, 0x04)},
+						}},
+					},
+					map[uint]any{}, successful, nil,
+				})
+				tx, err := conway.NewConwayTransactionFromCbor(raw)
+				require.NoError(t, err)
+				got, err := tx.Utxorpc()
+				require.NoError(t, err)
+				require.Equal(t, successful, got.Successful)
+				rational := tc.get(got)
+				require.Equal(t, int32(1), rational.Numerator)
+				require.Equal(t, uint32(1), rational.Denominator)
+			}
+		})
+	}
+}
+
 // Metadata integers outside int64 are valid on the wire and must not fail the
 // transaction conversion.
 func TestConwayTransactionUtxorpcWideMetadataInteger(t *testing.T) {
