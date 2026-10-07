@@ -384,10 +384,10 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 
-	// Ensure we have at least 3 components (body, witness_set, metadata)
-	if len(txArray) < 3 {
+	// Ensure we have 3 components (body, witness_set, metadata)
+	if len(txArray) != 3 {
 		return fmt.Errorf(
-			"invalid transaction: expected at least 3 components, got %d",
+			"invalid transaction: expected 3 components, got %d",
 			len(txArray),
 		)
 	}

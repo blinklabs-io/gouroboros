@@ -146,6 +146,12 @@ func TestShelleyBlockConstructorRejectsTrailingCBOR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode block fixture: %v", err)
 	}
+	if _, err := shelley.NewShelleyBlockFromCbor(
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	); err != nil {
+		t.Fatalf("decode block fixture: %v", err)
+	}
 	_, err = shelley.NewShelleyBlockFromCbor(
 		append(append([]byte(nil), blockCbor...), 0x00),
 		common.VerifyConfig{SkipBodyHashValidation: true},

@@ -369,10 +369,10 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 	if _, _, err := dec.Decode(&txArray); err != nil {
 		return err
 	}
-	// Ensure we have at least 3 components (body, witness, metadata)
-	if len(txArray) < 3 {
+	// Ensure we have 3 components (body, witness, metadata)
+	if len(txArray) != 3 {
 		return fmt.Errorf(
-			"invalid transaction: expected at least 3 components, got %d",
+			"invalid transaction: expected 3 components, got %d",
 			len(txArray),
 		)
 	}

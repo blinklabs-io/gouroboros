@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -144,6 +145,34 @@ func TestTransactionConstructorsRejectTrailingCBOR(t *testing.T) {
 			); err == nil {
 				t.Fatal("transaction with trailing CBOR was accepted")
 			}
+		})
+	}
+}
+
+func TestTransactionConstructorsRejectExtraComponents(t *testing.T) {
+	testDefs := []struct {
+		name      string
+		txType    uint
+		txCborHex string
+	}{
+		{name: "Shelley", txType: ledger.TxTypeShelley, txCborHex: shelleyTxCborHex},
+		{name: "Allegra", txType: ledger.TxTypeAllegra, txCborHex: allegraTxCborHex},
+		{name: "Mary", txType: ledger.TxTypeMary, txCborHex: maryTxCborHex},
+	}
+	for _, testDef := range testDefs {
+		t.Run(testDef.name, func(t *testing.T) {
+			txCbor, err := hex.DecodeString(testDef.txCborHex)
+			require.NoError(t, err)
+
+			var components []cbor.RawMessage
+			_, err = cbor.DecodeExact(txCbor, &components)
+			require.NoError(t, err)
+			components = append(components, cbor.RawMessage{0xf6})
+			txCbor, err = cbor.Encode(components)
+			require.NoError(t, err)
+
+			_, err = ledger.NewTransactionFromCbor(testDef.txType, txCbor)
+			require.ErrorContains(t, err, "expected 3 components")
 		})
 	}
 }

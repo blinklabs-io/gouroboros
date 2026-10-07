@@ -189,6 +189,9 @@ func TestNewBlockHeaderFromCbor(t *testing.T) {
 			continue
 		}
 		t.Run(test.name+" trailing CBOR", func(t *testing.T) {
+			if _, err := NewBlockHeaderFromCbor(test.blockType, test.data); err != nil {
+				t.Fatalf("decode block header fixture: %v", err)
+			}
 			data := append(append([]byte(nil), test.data...), 0x00)
 			if _, err := NewBlockHeaderFromCbor(test.blockType, data); err == nil {
 				t.Fatal("block header with trailing CBOR was accepted")
