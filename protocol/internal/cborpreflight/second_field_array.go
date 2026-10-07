@@ -90,6 +90,9 @@ func arrayItems(
 	validateItem func(int, []byte) error,
 	collect bool,
 ) ([][]byte, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("missing %s", label)
+	}
 	pos, err := skipTags(data, 0, label)
 	if err != nil {
 		return nil, err
@@ -102,7 +105,7 @@ func arrayItems(
 		return nil, tooManyItems(label, count, maxCount)
 	}
 	pos += int(headerSize)
-	var items [][]byte
+	items := make([][]byte, 0)
 	if collect {
 		items = make([][]byte, 0, min(count, maxCount))
 	}

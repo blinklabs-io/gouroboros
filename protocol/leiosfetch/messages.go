@@ -284,11 +284,8 @@ func (m *MsgBlockTxs) unmarshalCBORWithLimit(data []byte, maxCount int) error {
 	if _, err := cbor.Decode(fields[0], &messageType); err != nil {
 		return err
 	}
-	var txField []byte
-	switch elementCount {
-	case 2: // [msgType, tx_list] — dingo form
-		txField = fields[1]
-	case 4: // [msgType, point, bitmaps, tx_list] — prototype form
+	txField := fields[len(fields)-1]
+	if elementCount == 4 { // [msgType, point, bitmaps, tx_list] — prototype form
 		if err := cborpreflight.ValidateItemDepth(fields[1], 1, "block transactions point"); err != nil {
 			return err
 		}
@@ -301,7 +298,6 @@ func (m *MsgBlockTxs) unmarshalCBORWithLimit(data []byte, maxCount int) error {
 		if _, err := cbor.Decode(fields[2], &m.Bitmaps); err != nil {
 			return err
 		}
-		txField = fields[3]
 	}
 	txs, err := cborpreflight.ArrayItems(txField, maxCount, "block transactions")
 	if err != nil {
