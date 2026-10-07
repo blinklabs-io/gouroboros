@@ -228,42 +228,10 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] Deserialize from CBOR
     - [X] Retrieve staking key
 
-## Examples
-
-The `examples/` directory contains example programs demonstrating how to use
-the library. They share the root Go module, so dependency updates apply to the
-library and every example together. Root test and lint commands include the
-examples:
-
-| Example | Protocol | Description |
-|---------|----------|-------------|
-| `block-fetch` | Node-to-Node | Fetch a specific block by slot and hash |
-| `chain-sync` | NtC / NtN | Sync blocks from genesis or a specific era; supports rollback/rollforward |
-| `chain-tip` | Node-to-Client | Get the current chain tip via ChainSync |
-| `peer-sharing` | Node-to-Node | Request a list of peers from a remote node |
-| `ping` | Node-to-Client | Measure connection and protocol handshake latency |
-| `state-query` | Node-to-Client | Query protocol parameters and other node state |
-| `tx-monitor` | Node-to-Client | Inspect the node mempool contents |
-| `tx-submission` | Node-to-Client | Submit a signed transaction to the node |
-
-Build all examples:
-
-```
-make build
-```
-
-Run an example directly (e.g. check the current chain tip over a local socket):
-
-```
-go -C examples/chain-tip run .
-```
-
-See the inline comments in each `main.go` and the environment variables each command accepts for full usage details.
-
 ## Testing
 
-gOuroboros includes automated tests that cover various aspects of its functionality, but not all. For more than the basics,
-manual testing is required.
+gOuroboros includes automated tests that cover various aspects of its
+functionality.
 
 ### Running the automated tests
 
@@ -278,32 +246,4 @@ gOuroboros uses [golangci-lint](https://golangci-lint.run/) for code quality che
 
 ```
 make lint
-```
-
-### Manual testing
-
-Example programs are included in the `examples/` directory of this repo. Some can be run against public nodes
-via NtN protocols; others require access to the UNIX socket of a local node for NtC protocols.
-
-#### Run chain-sync from the start of a particular era
-
-This is useful for testing changes to the handling of ledger types for a particular era. It will decode each block and either print
-a summary line for the block or an error.
-
-Run the chain-sync example against a public mainnet node, starting at the beginning of the Shelley era:
-
-```
-CARDANO_NODE_ADDRESS=backbone.cardano.iog.io:3001 CARDANO_NODE_NETWORK=mainnet ./chain-sync -bulk -start-era shelley
-```
-
-This will produce a LOT of output and take quite a few hours to reach chain tip. You're mostly looking for it to get through
-all blocks of the chosen start era before hitting the next era or chain tip
-
-#### Dump details of a particular block
-
-You can use the `block-fetch` example to fetch a particular block and dump its details. You must provide at least
-the block slot and hash. This is useful for debugging decoding problems, since it allows fetching a specific block and decoding it over and over.
-
-```
-BLOCK_FETCH_SLOT=120521627 BLOCK_FETCH_HASH=afd4c97e32003d9803a305011cbd8796e6b36bf61576567206887e35795b6e09 ./block-fetch
 ```
