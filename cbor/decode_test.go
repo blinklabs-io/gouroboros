@@ -56,6 +56,33 @@ func TestIsEmptyCollection(t *testing.T) {
 	}
 }
 
+func TestDecodeBool(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		data    []byte
+		want    bool
+		wantErr bool
+	}{
+		{name: "false", data: []byte{0xf4}},
+		{name: "true", data: []byte{0xf5}, want: true},
+		{name: "null", data: []byte{0xf6}, wantErr: true},
+		{name: "undefined", data: []byte{0xf7}, wantErr: true},
+		{name: "integer", data: []byte{0x00}, wantErr: true},
+		{name: "empty", wantErr: true},
+		{name: "trailing data", data: []byte{0xf5, 0x00}, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := cbor.DecodeBool(test.data)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
 type decodeTestDefinition struct {
 	CborHex   string
 	Object    any

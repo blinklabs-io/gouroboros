@@ -491,6 +491,13 @@ func minimalTxParts() []any {
 	return []any{minimalTxBody(), minimalWitnessSet(), nil}
 }
 
+func encodeRaw(t *testing.T, value any) cbor.RawMessage {
+	t.Helper()
+	data, err := cbor.Encode(value)
+	require.NoError(t, err)
+	return data
+}
+
 func testDuplicatePolicyMultiAssetCbor(policyByte byte) []byte {
 	policy := bytes.Repeat([]byte{policyByte}, common.Blake2b224Size)
 	ret := []byte{0xa2, 0x58, 0x1c}
@@ -589,6 +596,30 @@ func TestDijkstraTransactionAllowsOnlyTrueIsValidForMempool(t *testing.T) {
 
 	_, err = NewDijkstraTransactionFromCbor(txCbor)
 	require.ErrorContains(t, err, "is_valid=false")
+}
+
+func TestDijkstraTransactionRejectsNullOrUndefinedIsValid(t *testing.T) {
+	parts := minimalTxParts()
+	for _, test := range []struct {
+		name  string
+		value cbor.RawMessage
+	}{
+		{name: "null", value: cbor.RawMessage{0xf6}},
+		{name: "undefined", value: cbor.RawMessage{0xf7}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			txCbor, err := cbor.Encode([]cbor.RawMessage{
+				encodeRaw(t, parts[0]),
+				encodeRaw(t, parts[1]),
+				test.value,
+				encodeRaw(t, parts[2]),
+			})
+			require.NoError(t, err)
+
+			_, err = NewDijkstraTransactionFromCbor(txCbor)
+			require.ErrorContains(t, err, "TxIsValid")
+		})
+	}
 }
 
 // oversizedTxParts builds a well-formed Dijkstra transaction whose CBOR exceeds
@@ -768,6 +799,35 @@ func TestDijkstraBlockBodyRequiresTrailingTransactionIsValidFlag(t *testing.T) {
 	var blockBody DijkstraBlockBody
 	err = blockBody.UnmarshalCBOR(bodyCbor)
 	require.ErrorContains(t, err, "expected 4 components")
+}
+
+func TestDijkstraBlockBodyRejectsNullOrUndefinedIsValid(t *testing.T) {
+	parts := minimalTxParts()
+	for _, test := range []struct {
+		name  string
+		value cbor.RawMessage
+	}{
+		{name: "null", value: cbor.RawMessage{0xf6}},
+		{name: "undefined", value: cbor.RawMessage{0xf7}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tx := []cbor.RawMessage{
+				encodeRaw(t, parts[0]),
+				encodeRaw(t, parts[1]),
+				encodeRaw(t, parts[2]),
+				test.value,
+			}
+			bodyCbor, err := cbor.Encode([]cbor.RawMessage{
+				encodeRaw(t, []cbor.RawMessage{encodeRaw(t, tx)}),
+				{0xf6},
+				{0xf6},
+			})
+			require.NoError(t, err)
+
+			var body DijkstraBlockBody
+			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "TxIsValid")
+		})
+	}
 }
 
 func TestDijkstraBlockMarshalUsesTwoItemEnvelope(t *testing.T) {

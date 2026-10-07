@@ -516,23 +516,37 @@ func TestExtractTransactionOffsetsDijkstraBlockTransactionValidity(
 // block_transaction whose trailing is_valid field is not a CBOR bool is
 // refused, as the era decoder refuses it, rather than read as valid.
 func TestExtractTransactionOffsetsDijkstraRejectsNonBoolIsValid(t *testing.T) {
-	header, leios, peras, tx3 := dijkstraFixtureParts(t)
-	tx4 := make([]cbor.RawMessage, 0, 4)
-	tx4 = append(tx4, tx3...)
-	tx4 = append(tx4, encodeCbor(t, 0))
-	blockBody := encodeCbor(t, []cbor.RawMessage{
-		encodeCbor(t, []cbor.RawMessage{encodeCbor(t, tx4)}),
-		leios,
-		peras,
-	})
-	blockCbor := []byte(encodeCbor(t, []cbor.RawMessage{header, blockBody}))
+	for _, test := range []struct {
+		name  string
+		value cbor.RawMessage
+	}{
+		{name: "integer", value: encodeCbor(t, 0)},
+		{name: "null", value: cbor.RawMessage{0xf6}},
+		{name: "undefined", value: cbor.RawMessage{0xf7}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			header, leios, peras, tx3 := dijkstraFixtureParts(t)
+			tx4 := make([]cbor.RawMessage, 0, 4)
+			tx4 = append(tx4, tx3...)
+			tx4 = append(tx4, test.value)
+			blockBody := encodeCbor(t, []cbor.RawMessage{
+				encodeCbor(t, []cbor.RawMessage{encodeCbor(t, tx4)}),
+				leios,
+				peras,
+			})
+			blockCbor := []byte(encodeCbor(
+				t,
+				[]cbor.RawMessage{header, blockBody},
+			))
 
-	var block dijkstra.DijkstraBlock
-	require.Error(t, block.UnmarshalCBOR(blockCbor))
+			var block dijkstra.DijkstraBlock
+			require.Error(t, block.UnmarshalCBOR(blockCbor))
 
-	offsets, err := common.ExtractTransactionOffsets(blockCbor)
-	require.ErrorContains(t, err, "transaction 0 is_valid")
-	require.Nil(t, offsets)
+			offsets, err := common.ExtractTransactionOffsets(blockCbor)
+			require.ErrorContains(t, err, "transaction 0 is_valid")
+			require.Nil(t, offsets)
+		})
+	}
 }
 
 // TestExtractTransactionOffsetsDijkstraRejectsBlockTransactionWithoutIsValid

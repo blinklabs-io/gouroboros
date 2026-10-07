@@ -1905,11 +1905,10 @@ func extractDijkstraTransactionOffsets(
 		// Only the current body shape defines block_transaction's trailing
 		// is_valid; the legacy body carries invalid_transactions instead.
 		if !legacyBody && len(txParts) == dijkstraBlockTxComponents {
-			var isValid bool
-			if _, err := cbor.Decode(
+			isValid, err := cbor.DecodeBool(
 				txParts[dijkstraBlockTxComponents-1],
-				&isValid,
-			); err != nil {
+			)
+			if err != nil {
 				return nil, fmt.Errorf(
 					"failed to decode Dijkstra transaction %d is_valid: %w",
 					i,
