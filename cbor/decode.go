@@ -91,6 +91,21 @@ func Decode(dataBytes []byte, dest any) (int, error) {
 	return decode(dataBytes, dest, getDecMode, rejectDuplicateMapKeys)
 }
 
+// DecodeBool decodes a CBOR boolean while rejecting every other simple value.
+func DecodeBool(data []byte) (bool, error) {
+	if len(data) != 1 {
+		return false, errors.New("CBOR value is not a boolean")
+	}
+	switch data[0] {
+	case 0xf4:
+		return false, nil
+	case 0xf5:
+		return true, nil
+	default:
+		return false, errors.New("CBOR value is not a boolean")
+	}
+}
+
 // DecodeLedgerMap decodes a ledger map with duplicate keys rejected. Unknown
 // fields are rejected by a typed destination's decoder or by caller validation
 // when decoding raw fields. Call it at custom UnmarshalCBOR boundaries because
