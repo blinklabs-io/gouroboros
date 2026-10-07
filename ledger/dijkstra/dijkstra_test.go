@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -576,6 +577,25 @@ func TestDijkstraTransactionDecodesThreePartTx(t *testing.T) {
 		append(append([]byte(nil), txCbor...), 0x00),
 	)
 	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+}
+
+func TestDijkstraTransactionComponentsMatchCbor(t *testing.T) {
+	txCbor, err := cbor.Encode(minimalTxParts())
+	require.NoError(t, err)
+	var components []cbor.RawMessage
+	_, err = cbor.DecodeExact(txCbor, &components)
+	require.NoError(t, err)
+
+	_, err = NewDijkstraTransactionFromCborComponents(
+		append(append([]byte(nil), txCbor...), 0x00),
+		components,
+	)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+
+	mismatched := slices.Clone(components)
+	mismatched[0] = cbor.RawMessage{0xa0}
+	_, err = NewDijkstraTransactionFromCborComponents(txCbor, mismatched)
+	require.ErrorContains(t, err, "components do not match")
 }
 
 func TestDijkstraTransactionAllowsOnlyTrueIsValidForMempool(t *testing.T) {

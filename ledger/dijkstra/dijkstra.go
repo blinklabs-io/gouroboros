@@ -2479,7 +2479,19 @@ func NewDijkstraTransactionFromCborComponents(
 	data []byte,
 	txArray []cbor.RawMessage,
 ) (*DijkstraTransaction, error) {
-	return newDijkstraTransactionFromCborComponents(data, txArray, true)
+	var decoded []cbor.RawMessage
+	if _, err := cbor.DecodeExact(data, &decoded); err != nil {
+		return nil, err
+	}
+	if len(decoded) != len(txArray) {
+		return nil, errors.New("transaction components do not match CBOR data")
+	}
+	for idx := range decoded {
+		if !slices.Equal(decoded[idx], txArray[idx]) {
+			return nil, errors.New("transaction components do not match CBOR data")
+		}
+	}
+	return newDijkstraTransactionFromCborComponents(data, decoded, true)
 }
 
 // newDijkstraTransactionFromCbor applies no transaction size limit. The

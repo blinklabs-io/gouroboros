@@ -250,6 +250,11 @@ func TestDetermineTransactionTypeDijkstraOnlyFields(t *testing.T) {
 			ledger.TxTypeDijkstra,
 		)
 	}
+
+	_, err = ledger.DetermineTransactionType(
+		append(append([]byte(nil), txCbor...), 0x00),
+	)
+	require.ErrorContains(t, err, "unknown transaction type")
 }
 
 func TestDetermineTransactionTypeDijkstraGuards(t *testing.T) {
