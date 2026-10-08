@@ -81,8 +81,8 @@ func TestValidateBlockSignatureInputReuse(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid block signature size: got 0")
 }
 
-// TestValidateBodyHashRealMainnetBlockWithPayloadValidation confirms the
-// opt-in payload check does not reject a real mainnet block.
+// TestValidateBodyHashRealMainnetBlockWithPayloadValidation confirms default
+// payload validation accepts a real mainnet block.
 func TestValidateBodyHashRealMainnetBlockWithPayloadValidation(t *testing.T) {
 	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
 	require.NoError(t, err)
@@ -93,23 +93,14 @@ func TestValidateBodyHashRealMainnetBlockWithPayloadValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, block.ValidatePayloads())
-	require.NoError(t, ValidateBodyHash(
-		block,
-		common.VerifyConfig{EnableByronPayloadValidation: true},
-	))
-	// The same block must also survive a decode that opts in.
-	_, err = byron.NewByronMainBlockFromCbor(
-		blockBytes,
-		common.VerifyConfig{EnableByronPayloadValidation: true},
-	)
+	require.NoError(t, ValidateBodyHash(block))
+	_, err = byron.NewByronMainBlockFromCbor(blockBytes)
 	require.NoError(t, err)
 }
 
-// TestValidateBodyHashRejectsMalformedPayloadWhenEnabled pins that the
-// opt-in check is what catches a payload the body proof cannot: dlg_proof
-// binds the payload bytes to the header, so a block carrying a malformed
-// certificate still passes the default validation.
-func TestValidateBodyHashRejectsMalformedPayloadWhenEnabled(t *testing.T) {
+// TestValidateDelegationPayloadRejectsMalformedPayload confirms that payload
+// validation rejects a malformed delegation certificate.
+func TestValidateDelegationPayloadRejectsMalformedPayload(t *testing.T) {
 	block := &byron.ByronMainBlock{
 		BlockHeader: &byron.ByronMainBlockHeader{ProtocolMagic: 764824073},
 		Body: byron.ByronMainBlockBody{
