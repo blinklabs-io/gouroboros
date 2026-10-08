@@ -746,9 +746,11 @@ func (c *Connection) setupConnection() error {
 				!c.handshakeVersionData.PeerSharing()
 			c.peerSharing = peersharing.New(protoOptions, &psCfg)
 		}
-		c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
-		c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
-		c.leiosVotes = leiosvotes.New(protoOptions, c.leiosVotesConfig)
+		if versionNtN.EnableLeiosProtocols {
+			c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
+			c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
+			c.leiosVotes = leiosvotes.New(protoOptions, c.leiosVotesConfig)
+		}
 		if c.perasVotesConfig != nil {
 			if versionData, ok := c.handshakeVersionData.(interface {
 				PerasSupported() bool
@@ -769,9 +771,11 @@ func (c *Connection) setupConnection() error {
 			if c.peerSharing != nil {
 				c.peerSharing.Server.EnsureRegistered()
 			}
-			c.leiosNotify.Server.EnsureRegistered()
-			c.leiosFetch.Server.EnsureRegistered()
-			c.leiosVotes.Server.EnsureRegistered()
+			if c.leiosNotify != nil {
+				c.leiosNotify.Server.EnsureRegistered()
+				c.leiosFetch.Server.EnsureRegistered()
+				c.leiosVotes.Server.EnsureRegistered()
+			}
 			if c.perasVotes != nil {
 				c.perasVotes.Server.EnsureRegistered()
 			}
@@ -788,9 +792,11 @@ func (c *Connection) setupConnection() error {
 				if c.peerSharing != nil {
 					c.peerSharing.Client.Start()
 				}
-				c.leiosNotify.Client.Start()
-				c.leiosFetch.Client.Start()
-				c.leiosVotes.Client.Start()
+				if c.leiosNotify != nil {
+					c.leiosNotify.Client.Start()
+					c.leiosFetch.Client.Start()
+					c.leiosVotes.Client.Start()
+				}
 				if c.perasVotes != nil {
 					c.perasVotes.Client.Start()
 				}
@@ -805,9 +811,11 @@ func (c *Connection) setupConnection() error {
 				if c.peerSharing != nil {
 					c.peerSharing.Server.Start()
 				}
-				c.leiosNotify.Server.Start()
-				c.leiosFetch.Server.Start()
-				c.leiosVotes.Server.Start()
+				if c.leiosNotify != nil {
+					c.leiosNotify.Server.Start()
+					c.leiosFetch.Server.Start()
+					c.leiosVotes.Server.Start()
+				}
 				if c.perasVotes != nil {
 					c.perasVotes.Server.Start()
 				}

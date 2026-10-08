@@ -244,6 +244,94 @@ func TestPerasVotesHandshakeNegotiation(t *testing.T) {
 	}
 }
 
+func TestLeiosProtocolsRequireNegotiatedCapability(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	for _, test := range []struct {
+		name        string
+		version     uint16
+		wantEnabled bool
+	}{
+		{name: "pre-Leios version", version: 14},
+		{name: "Leios version", version: 15, wantEnabled: true},
+	} {
+		for _, server := range []bool{false, true} {
+			role := "client"
+			if server {
+				role = "server"
+			}
+			t.Run(test.name+"/"+role, func(t *testing.T) {
+				versionData := protocol.VersionDataNtN13andUp{
+					VersionDataNtN11to12: protocol.VersionDataNtN11to12{
+						CborNetworkMagic: ouroboros_mock.MockNetworkMagic,
+					},
+				}
+				mockRole := ouroboros_mock.ProtocolRoleClient
+				var conversation []ouroboros_mock.ConversationEntry
+				if server {
+					mockRole = ouroboros_mock.ProtocolRoleServer
+					conversation = []ouroboros_mock.ConversationEntry{
+						ouroboros_mock.ConversationEntryOutput{
+							ProtocolId: handshake.ProtocolId,
+							Messages: []protocol.Message{
+								handshake.NewMsgProposeVersions(
+									protocol.ProtocolVersionMap{
+										test.version: versionData,
+									},
+								),
+							},
+						},
+						ouroboros_mock.ConversationEntryInput{
+							ProtocolId:      handshake.ProtocolId,
+							IsResponse:      true,
+							MsgFromCborFunc: handshake.NewMsgFromCbor,
+							Message: handshake.NewMsgAcceptVersion(
+								test.version,
+								versionData,
+							),
+						},
+					}
+				} else {
+					conversation = []ouroboros_mock.ConversationEntry{
+						ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+						ouroboros_mock.ConversationEntryOutput{
+							ProtocolId: handshake.ProtocolId,
+							IsResponse: true,
+							Messages: []protocol.Message{
+								handshake.NewMsgAcceptVersion(
+									test.version,
+									versionData,
+								),
+							},
+						},
+					}
+				}
+				mockConn := ouroboros_mock.NewConnection(mockRole, conversation)
+				conn, err := ouroboros.NewConnection(
+					ouroboros.WithConnection(mockConn),
+					ouroboros.WithNodeToNode(true),
+					ouroboros.WithServer(server),
+					ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+					ouroboros.WithDelayProtocolStart(true),
+				)
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, conn.Close()) })
+
+				version, _ := conn.ProtocolVersion()
+				require.Equal(t, test.version, version)
+				if test.wantEnabled {
+					assert.NotNil(t, conn.LeiosNotify())
+					assert.NotNil(t, conn.LeiosFetch())
+					assert.NotNil(t, conn.LeiosVotes())
+				} else {
+					assert.Nil(t, conn.LeiosNotify())
+					assert.Nil(t, conn.LeiosFetch())
+					assert.Nil(t, conn.LeiosVotes())
+				}
+			})
+		}
+	}
+}
+
 func TestConnectionOptionCombinations(t *testing.T) {
 	defer goleak.VerifyNone(t)
 

@@ -52,6 +52,7 @@ type ProtocolVersion struct {
 	EnableKeepAliveProtocol   bool
 	EnableFullDuplex          bool
 	EnablePeerSharingProtocol bool
+	EnableLeiosProtocols      bool
 	PeerSharingUseV11         bool
 }
 
@@ -309,6 +310,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableDijkstraEra:          true,
 		EnableFullDuplex:           true,
 		EnablePeerSharingProtocol:  true,
+		EnableLeiosProtocols:       true,
 	},
 	// Adds the Peras support flag to node-to-node version data.
 	16: {
@@ -323,6 +325,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableDijkstraEra:          true,
 		EnableFullDuplex:           true,
 		EnablePeerSharingProtocol:  true,
+		EnableLeiosProtocols:       true,
 	},
 }
 

@@ -24,6 +24,7 @@ import (
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"github.com/stretchr/testify/assert"
@@ -157,7 +158,20 @@ func runTestCollectingConnErrors(
 
 var conversationHandshake = []ouroboros_mock.ConversationEntry{
 	ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-	ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+	ouroboros_mock.ConversationEntryOutput{
+		ProtocolId: handshake.ProtocolId,
+		IsResponse: true,
+		Messages: []protocol.Message{
+			handshake.NewMsgAcceptVersion(
+				15,
+				protocol.VersionDataNtN13andUp{
+					VersionDataNtN11to12: protocol.VersionDataNtN11to12{
+						CborNetworkMagic: ouroboros_mock.MockNetworkMagic,
+					},
+				},
+			),
+		},
+	},
 }
 
 // TestBlockRequestSuccess verifies the normal path: the server answers a
