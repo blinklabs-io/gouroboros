@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// allCapabilityState implements every optional ledger-state capability
+// allCapabilityState implements every narrow ledger-state capability
 // declared in state.go, so a rule that asserts one against it succeeds when it
 // is passed directly. VerifyTransaction substitutes a cache wrapper that
 // implements none of them.
@@ -85,6 +85,12 @@ func (allCapabilityState) GovPurposeRoots() (*common.GovPurposeRoots, error) {
 	return &common.GovPurposeRoots{}, nil
 }
 
+func (allCapabilityState) IsFutureVrfKeyInUse(
+	common.Blake2b256,
+) (bool, common.PoolKeyHash, error) {
+	return false, common.PoolKeyHash{}, nil
+}
+
 func (allCapabilityState) Tip() (pcommon.Tip, error) { return pcommon.Tip{}, nil }
 
 var (
@@ -94,6 +100,7 @@ var (
 	_ common.DRepDelegationState         = allCapabilityState{}
 	_ common.GenesisDelegationState      = allCapabilityState{}
 	_ common.GovPurposeRootsState        = allCapabilityState{}
+	_ common.FuturePoolParametersState   = allCapabilityState{}
 	_ common.TipState                    = allCapabilityState{}
 )
 
@@ -128,6 +135,11 @@ var capabilityProbes = map[string]func(common.LedgerState) (direct, unwrapped bo
 	"GovPurposeRootsState": func(ls common.LedgerState) (bool, bool) {
 		_, direct := ls.(common.GovPurposeRootsState)
 		_, unwrapped := common.UnwrapLedgerState(ls).(common.GovPurposeRootsState)
+		return direct, unwrapped
+	},
+	"FuturePoolParametersState": func(ls common.LedgerState) (bool, bool) {
+		_, direct := ls.(common.FuturePoolParametersState)
+		_, unwrapped := common.UnwrapLedgerState(ls).(common.FuturePoolParametersState)
 		return direct, unwrapped
 	},
 	"TipState": func(ls common.LedgerState) (bool, bool) {
@@ -203,6 +215,63 @@ func TestVerifyTransactionUnwrapLeavesForeignStateAlone(t *testing.T) {
 		common.LedgerState(state),
 		common.UnwrapLedgerState(state),
 	)
+}
+
+type capabilityAdapterState struct {
+	common.LedgerState
+	roots *common.GovPurposeRoots
+	owner common.PoolKeyHash
+}
+
+func (s capabilityAdapterState) UnwrapLedgerState() common.LedgerState {
+	return s.LedgerState
+}
+
+func (capabilityAdapterState) EpochForSlot(uint64) (uint64, error) {
+	return 42, nil
+}
+
+func (s capabilityAdapterState) GovPurposeRoots() (*common.GovPurposeRoots, error) {
+	return s.roots, nil
+}
+
+func (s capabilityAdapterState) IsFutureVrfKeyInUse(
+	common.Blake2b256,
+) (bool, common.PoolKeyHash, error) {
+	return true, s.owner, nil
+}
+
+func TestStateCapabilityLookupPreservesImplementingAdapter(t *testing.T) {
+	t.Parallel()
+	owner := common.PoolKeyHash{0x21}
+	roots := &common.GovPurposeRoots{
+		HardFork: &common.GovActionId{TransactionId: common.Blake2b256{0x31}},
+	}
+	adapter := capabilityAdapterState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		roots:       roots,
+		owner:       owner,
+	}
+
+	epochState, ok := common.EpochStateFor(adapter)
+	require.True(t, ok)
+	epoch, err := epochState.EpochForSlot(0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), epoch)
+
+	rootsState, ok := common.GovPurposeRootsStateFor(adapter)
+	require.True(t, ok)
+	gotRoots, err := rootsState.GovPurposeRoots()
+	require.NoError(t, err)
+	require.Same(t, roots, gotRoots)
+
+	blockState := common.NewBlockLedgerState(adapter)
+	futureState, ok := common.FuturePoolParametersStateFor(blockState)
+	require.True(t, ok)
+	inUse, gotOwner, err := futureState.IsFutureVrfKeyInUse(common.Blake2b256{0x41})
+	require.NoError(t, err)
+	require.True(t, inUse)
+	require.Equal(t, owner, gotOwner)
 }
 
 type foreignWrapper struct {

@@ -1080,29 +1080,28 @@ func UtxoValidatePoolCertificates(
 	// reference rule only adds the pool to psRetiring and leaves it in
 	// psStakePools until POOLREAP runs at the epoch boundary.
 	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
-	// VRF key hashes claimed by earlier registrations in this transaction,
-	// mirroring the psVRFKeyHashes insert that poolTransition performs.
-	inTxVrfKeys := make(map[common.VrfKeyHash]common.PoolKeyHash)
+	poolState := newPoolCertificateState(ls)
 
 	for _, cert := range certs {
 		switch c := cert.(type) {
 		case *common.PoolRegistrationCertificate:
 			if err := validatePoolRegistration(
 				c,
-				ls,
+				poolState,
 				networkId,
 				minPoolCost,
 				protocolMajor,
 				checkNetworkId,
 				checkMetadataHash,
 				checkVrfKeys,
-				inTxVrfKeys,
 			); err != nil {
 				return err
 			}
 			inTxPoolRegs[c.Operator] = true
 			if checkVrfKeys {
-				inTxVrfKeys[c.VrfKeyHash] = c.Operator
+				if err := poolState.applyRegistration(c); err != nil {
+					return err
+				}
 			}
 		case *common.PoolRetirementCertificate:
 			if err := validatePoolRetirement(
@@ -1116,6 +1115,55 @@ func UtxoValidatePoolCertificates(
 			}
 		}
 	}
+	return nil
+}
+
+// poolCertificateState is the effective POOL state after the registrations
+// already visited in one transaction. New pools become current immediately;
+// registrations for existing pools replace their deferred parameters.
+type poolCertificateState struct {
+	base      common.LedgerState
+	current   map[common.PoolKeyHash]*common.PoolRegistrationCertificate
+	future    map[common.PoolKeyHash]*common.PoolRegistrationCertificate
+	vrfOwners map[common.VrfKeyHash]common.PoolKeyHash
+}
+
+func newPoolCertificateState(ls common.LedgerState) *poolCertificateState {
+	return &poolCertificateState{
+		base:      ls,
+		current:   make(map[common.PoolKeyHash]*common.PoolRegistrationCertificate),
+		future:    make(map[common.PoolKeyHash]*common.PoolRegistrationCertificate),
+		vrfOwners: make(map[common.VrfKeyHash]common.PoolKeyHash),
+	}
+}
+
+func (s *poolCertificateState) currentRegistration(
+	pool common.PoolKeyHash,
+) (*common.PoolRegistrationCertificate, error) {
+	if current, ok := s.current[pool]; ok {
+		return current, nil
+	}
+	current, _, err := s.base.PoolCurrentState(pool)
+	return current, err
+}
+
+func (s *poolCertificateState) applyRegistration(
+	cert *common.PoolRegistrationCertificate,
+) error {
+	current, err := s.currentRegistration(cert.Operator)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		s.current[cert.Operator] = cert
+	} else {
+		if previous, ok := s.future[cert.Operator]; ok &&
+			s.vrfOwners[previous.VrfKeyHash] == cert.Operator {
+			delete(s.vrfOwners, previous.VrfKeyHash)
+		}
+		s.future[cert.Operator] = cert
+	}
+	s.vrfOwners[cert.VrfKeyHash] = cert.Operator
 	return nil
 }
 
@@ -1135,14 +1183,13 @@ func hasPoolCertificate(certs []common.Certificate) bool {
 // validatePoolRegistration applies the RegPool branch of poolTransition.
 func validatePoolRegistration(
 	cert *common.PoolRegistrationCertificate,
-	ls common.LedgerState,
+	state *poolCertificateState,
 	networkId uint,
 	minPoolCost uint64,
 	protocolMajor uint,
 	checkNetworkId bool,
 	checkMetadataHash bool,
 	checkVrfKeys bool,
-	inTxVrfKeys map[common.VrfKeyHash]common.PoolKeyHash,
 ) error {
 	if err := common.ValidatePoolMetadataForProtocolVersion(
 		cert.PoolMetadata,
@@ -1201,14 +1248,11 @@ func validatePoolRegistration(
 	// reduce to the same predicate here: the VRF key hash must be unused,
 	// or held by this same pool.
 	//
-	// One narrow case is not reproduced. psVRFKeyHashes also retains the
-	// VRF key hash of an earlier same-epoch re-registration held in
-	// psFutureStakePoolParams, which the reference rejects because it is
-	// neither absent nor equal to the pool's current VRF key hash. This
-	// package has no future-pool-parameter state, so a pool reverting to
-	// such a key hash is accepted. That direction cannot reject a valid
-	// registration.
-	if owner, claimed := inTxVrfKeys[cert.VrfKeyHash]; claimed &&
+	futureState, ok := common.FuturePoolParametersStateFor(state.base)
+	if !ok {
+		return common.FuturePoolParametersStateUnavailableError{}
+	}
+	if owner, claimed := state.vrfOwners[cert.VrfKeyHash]; claimed &&
 		owner != cert.Operator {
 		return VrfKeyHashAlreadyRegisteredError{
 			PoolKeyHash:  cert.Operator,
@@ -1216,12 +1260,12 @@ func validatePoolRegistration(
 			RegisteredBy: owner,
 		}
 	}
-	inUse, owningPool, err := ls.IsVrfKeyInUse(cert.VrfKeyHash)
+	inUse, owningPool, err := state.base.IsVrfKeyInUse(cert.VrfKeyHash)
 	if err != nil {
 		return err
 	}
 	if inUse && owningPool == cert.Operator {
-		current, _, err := ls.PoolCurrentState(cert.Operator)
+		current, err := state.currentRegistration(cert.Operator)
 		if err != nil {
 			return err
 		}
@@ -1238,6 +1282,30 @@ func validatePoolRegistration(
 			PoolKeyHash:  cert.Operator,
 			VrfKeyHash:   cert.VrfKeyHash,
 			RegisteredBy: owningPool,
+		}
+	}
+	futureInUse, futureOwner, err := futureState.IsFutureVrfKeyInUse(
+		cert.VrfKeyHash,
+	)
+	if err != nil {
+		return err
+	}
+	if replacement, replaced := state.future[futureOwner]; replaced &&
+		replacement.VrfKeyHash != cert.VrfKeyHash {
+		futureInUse = false
+	}
+	if futureInUse {
+		current, err := state.currentRegistration(cert.Operator)
+		if err != nil {
+			return err
+		}
+		if futureOwner != cert.Operator || current == nil ||
+			current.VrfKeyHash != cert.VrfKeyHash {
+			return VrfKeyHashAlreadyRegisteredError{
+				PoolKeyHash:  cert.Operator,
+				VrfKeyHash:   cert.VrfKeyHash,
+				RegisteredBy: futureOwner,
+			}
 		}
 	}
 	return nil
@@ -1261,20 +1329,9 @@ func validatePoolRetirement(
 	// StakePoolRetirementWrongEpochPOOL: cEpoch < e && e <= cEpoch + eMax.
 	//
 	// The current epoch is required to evaluate the retirement bound.
-	epochState, ok := common.UnwrapLedgerState(ls).(common.EpochState)
+	epochState, ok := common.EpochStateFor(ls)
 	if !ok {
-		// Epoch zero is invalid for every possible current epoch. For any
-		// other epoch, the optional capability's degrading contract requires
-		// us to skip only the bound that cannot be evaluated here.
-		if cert.Epoch == 0 {
-			return StakePoolRetirementWrongEpochError{
-				PoolKeyHash:  cert.PoolKeyHash,
-				Supplied:     cert.Epoch,
-				CurrentEpoch: 0,
-				LimitEpoch:   0,
-			}
-		}
-		return nil
+		return common.EpochStateUnavailableError{}
 	}
 	currentEpoch, err := epochState.EpochForSlot(slot)
 	if err != nil {

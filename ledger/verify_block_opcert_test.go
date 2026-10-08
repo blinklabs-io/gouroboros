@@ -73,6 +73,7 @@ func opCertTestBlock(
 func opCertTestVerifyConfig() common.VerifyConfig {
 	return common.VerifyConfig{
 		SkipBodyHashValidation:    true,
+		SkipBlockLimitsValidation: true,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,
 	}

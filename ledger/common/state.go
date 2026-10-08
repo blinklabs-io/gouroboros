@@ -70,23 +70,12 @@ func StakeCredentialDepositOrDefault(
 	return *deposit, nil
 }
 
-// EpochState is the optional ledger-state capability that maps a slot to the
-// epoch containing it. The Shelley POOL rule's retirement bound
+// EpochState maps a slot to the epoch containing it. Rules that need an epoch
+// require this capability and fail closed when it is unavailable. The Shelley
+// POOL rule's retirement bound
 // (StakePoolRetirementWrongEpochPOOL) is expressed relative to the current
 // epoch, which the (transaction, slot, state, params) validation contract does
 // not otherwise carry.
-//
-// It is deliberately optional and degrading: a ledger state that does not
-// implement it keeps every other POOL predicate and does not get the
-// retirement-epoch bound enforced, so that adopting a gouroboros release
-// containing this rule cannot reject otherwise-valid pool retirements in a
-// consumer that has not implemented the method yet.
-//
-// The single exception is retirement epoch zero, which is rejected without
-// EpochState. The bound is cEpoch < e, and cEpoch is unsigned, so e == 0 is
-// invalid for every possible current epoch and needs no epoch lookup to
-// judge. Every other epoch value requires current-epoch knowledge and is
-// skipped rather than rejected when EpochState is absent.
 type EpochState interface {
 	// EpochForSlot returns the epoch number containing the given slot.
 	EpochForSlot(slot uint64) (uint64, error)
@@ -122,6 +111,12 @@ type PoolState interface {
 	// IsVrfKeyInUse checks if a VRF key hash is registered by another pool.
 	// Returns (inUse, owningPoolId, error). Used for PV11+ VRF uniqueness validation.
 	IsVrfKeyInUse(vrfKeyHash Blake2b256) (bool, PoolKeyHash, error)
+}
+
+// FuturePoolParametersState exposes the VRF-key index retained for pool
+// parameter updates that take effect at the next epoch boundary.
+type FuturePoolParametersState interface {
+	IsFutureVrfKeyInUse(vrfKeyHash Blake2b256) (bool, PoolKeyHash, error)
 }
 
 // RewardState defines the interface for reward calculation and querying
@@ -379,12 +374,8 @@ type GovActionState struct {
 	ActionId   GovActionId
 	ActionType GovActionType
 	ExpirySlot uint64
-	// Action is the governance action itself, as proposed. It is optional
-	// in the LedgerState contract: a state provider that only records the
-	// action type leaves it nil. Rules that need the proposal's contents
-	// (a hard-fork proposal's proposed protocol version, a parameter
-	// change's modified parameters) skip their content-dependent check
-	// when it is nil rather than guessing.
+	// Action is the governance action itself, as proposed. Rules that need
+	// proposal contents fail closed when it is nil.
 	Action GovAction
 	// Add more fields as needed for validation
 }
@@ -401,12 +392,9 @@ type GovPurposeRoots struct {
 	Constitution *GovActionId
 }
 
-// GovPurposeRootsState is the optional ledger-state capability exposing the
-// current root of each governance-action purpose chain. A ledger state that
-// implements it gets the full Conway ancestry rule enforced (a proposal's
-// predecessor must be the purpose root or a pending proposal of the same
-// purpose); one that does not is limited to ancestor existence and purpose
-// matching.
+// GovPurposeRootsState exposes the current root of each governance-action
+// purpose chain. The Conway ancestry rule requires this capability whenever a
+// transaction proposes an action that belongs to a purpose chain.
 type GovPurposeRootsState interface {
 	GovPurposeRoots() (*GovPurposeRoots, error)
 }

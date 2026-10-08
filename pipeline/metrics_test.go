@@ -294,6 +294,7 @@ func validatingPipelineOptions(
 			SkipBodyHashValidation:    true,
 			SkipTransactionValidation: true,
 			SkipStakePoolValidation:   true,
+			SkipBlockLimitsValidation: true,
 		}),
 		WithApplyFunc(apply),
 	}
