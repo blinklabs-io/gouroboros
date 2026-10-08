@@ -300,33 +300,12 @@ func decodePrimaryEntries(
 //     from a map to a set. Since we can't change the protocol easily at
 //     this point, for hashing we still use the map representation."
 //
-// SharesPayload's own hash is not independently confirmed against a real,
-// non-empty example: a genuinely non-empty SharesPayload only arises when
-// a commitment's own contributor fails to reveal their opening directly
-// and other stakeholders instead reveal decrypted shares of it -- a
-// failure-path event not found while scanning real mainnet blocks from
-// genesis through slot 1,650,000 (epoch 76, ~October 2018). That scan
-// covers roughly the first third of the classic-Ouroboros SSC era, not
-// "essentially the entire window" an earlier version of this comment
-// claimed: the OBFT hard fork (the end of that era) landed around March
-// 2019, epoch 105-108, some 30 epochs later. The scanning tooling used has
-// since been deleted and no log or artifact of exactly what it checked
-// survives, so treat "an exhaustive scan found nothing" as an unreproduced
-// claim, not an established fact.
-//
-// This is not purely a guess, though: SscTypeShares is handled by the
-// exact same code path as SscTypeOpenings immediately below (same case
-// branch, same blake2b256-of-raw-bytes computation), over the same kind
-// of wire shape per the CDDL -- both sscopens and sscshares are genuine
-// CBOR maps keyed by a 28-byte ID (see ByronEpochSscState's doc comment)
-// -- so confirming SscTypeOpenings's hash construction, as real data now
-// has, provides strong indirect evidence for SscTypeShares's too, even
-// without a genuinely non-empty SharesPayload vector to confirm it
-// directly. cardano-sl's own SscPayload type declares
-// `SharesProof !(Hash SharesMap) !VssCertificatesHash` -- a plain hash of
-// the shares map, with no map-vs-set encoding quirk of its own; that quirk
-// (see the VssCertificatesHash discussion above) is specific to
-// VssCertificatesMap/VssCertificatesHash, not shares.
+// SharesPayload's hash construction is confirmed directly by cardano-sl.
+// Pos.Chain.Ssc.Proof declares `SharesProof !(Hash SharesMap)` and hashes
+// the SharesMap through its canonical Bi serialization. The non-empty
+// `chain/test/golden/bi/ssc/SharesMap` vector hashes to the first digest in
+// its `SscProof_SharesProof` vector; sscstate_golden_test.go asserts that
+// digest against the same canonical SharesMap bytes used here.
 //
 // expectedType is the discriminant of the block's own SscPayload (see
 // decodeSscPayloadParts); the proof's declared type is required to match
