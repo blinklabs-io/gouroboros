@@ -131,6 +131,9 @@ messagesubmission.NewConfig(
 `MaxUnacknowledgedMessageIDs` defaults to 100. The client rejects a request
 that would make the IDs awaiting acknowledgement exceed this limit.
 
+Replies may omit unavailable entries. A message-body reply may use any order,
+but every returned message ID must be unique and present in the active request.
+
 ## Usage Example
 
 ```go
