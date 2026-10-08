@@ -512,6 +512,55 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 	}
 }
 
+func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
+	const rejectedSequence = uint64(4)
+	p := NewBlockPipeline()
+	p.ctx, p.cancel = context.WithCancel(context.Background())
+	p.submitChan = make(chan *BlockItem, 1)
+	p.decodedChan = make(chan *BlockItem, rejectedSequence+1)
+	p.resultsChan = make(chan *BlockItem, 2)
+	p.errorsChan = make(chan error, 1)
+	p.decodePool = &StageWorkerPool{}
+	p.applyStage = NewApplyStage(func(item *BlockItem) error {
+		if item.SequenceNumber() == rejectedSequence {
+			return errors.New("buffered commit failed")
+		}
+		return nil
+	}, 0)
+	p.applyStage.SetRequireValidation(true)
+	p.applyStage.SetChainContextValidator(acceptSecurityTestChainContext)
+	p.applyRunner = NewApplyStageRunner(
+		p.applyStage,
+		p.decodedChan,
+		p.resultsChan,
+		p.errorsChan,
+		0,
+	)
+	p.applyRunner.setFatalErrorFunc(p.setFatalError)
+	p.applyRunner.setFatalFunc(p.cancel)
+	p.applyRunner.Start(p.ctx)
+	p.started.Store(true)
+
+	for sequence := uint64(1); sequence <= rejectedSequence; sequence++ {
+		p.decodedChan <- newValidatedSecurityTestItem(sequence)
+	}
+	p.decodedChan <- newValidatedSecurityTestItem(0)
+	select {
+	case <-p.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("fatal rejection did not cancel the pipeline")
+	}
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- p.Stop() }()
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop remained blocked on undelivered committed results")
+	}
+}
+
 func TestBufferedRejectionRecordsExactApplyMetrics(t *testing.T) {
 	tests := []struct {
 		name      string

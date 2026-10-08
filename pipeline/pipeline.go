@@ -596,7 +596,11 @@ func (p *BlockPipeline) markProcessed(sequence uint64) {
 }
 
 // Results returns a channel of successfully processed block items.
-// If the pipeline has not been started, returns a closed channel to prevent blocking.
+// If the pipeline has not been started, it returns a closed channel. Results
+// are observational: Stop may consume undelivered notifications while waiting
+// for the apply runner. Callers that need every notification must receive them
+// before invoking Stop; delivery is not guaranteed after Stop begins. ApplyFunc
+// remains the authoritative commit sink.
 func (p *BlockPipeline) Results() <-chan *BlockItem {
 	if !p.started.Load() {
 		return closedResultsChan
@@ -614,7 +618,9 @@ func (p *BlockPipeline) Errors() <-chan error {
 	return p.errorsChan
 }
 
-// Stop gracefully stops the pipeline.
+// Stop gracefully stops the pipeline. It drains undelivered observational
+// results while waiting for the apply runner so shutdown cannot depend on a
+// Results consumer.
 func (p *BlockPipeline) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -648,8 +654,23 @@ func (p *BlockPipeline) Stop() error {
 		close(p.validatedChan)
 	}
 
-	// Wait for apply runner to finish
-	p.applyRunner.Stop()
+	// The fatal path preserves its committed prefix with blocking result sends.
+	// Drain those observational notifications while waiting so a caller that
+	// does not consume Results cannot prevent shutdown.
+	applyDone := make(chan struct{})
+	go func() {
+		p.applyRunner.Stop()
+		close(applyDone)
+	}()
+	for {
+		select {
+		case <-applyDone:
+			goto applyStopped
+		case <-p.resultsChan:
+		}
+	}
+
+applyStopped:
 
 	// Close output channels
 	close(p.resultsChan)
