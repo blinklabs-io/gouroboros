@@ -26,7 +26,7 @@
 
 services:
   cardano-shares-on:
-    image: ${PEERSHARING_NODE_IMAGE:-ghcr.io/blinklabs-io/cardano-node:11.0.1}
+    image: ${PEERSHARING_NODE_IMAGE:-ghcr.io/blinklabs-io/cardano-node:11.0.1@sha256:d5ede07a890e9b6a0a5182cdba9dbaf73756336762235e0934a11690beedae02}
     container_name: cardano-shares-on
     restart: unless-stopped
     environment:
@@ -54,7 +54,7 @@ services:
       start_period: 60s
 
   cardano-shares-off:
-    image: ${PEERSHARING_NODE_IMAGE:-ghcr.io/blinklabs-io/cardano-node:11.0.1}
+    image: ${PEERSHARING_NODE_IMAGE:-ghcr.io/blinklabs-io/cardano-node:11.0.1@sha256:d5ede07a890e9b6a0a5182cdba9dbaf73756336762235e0934a11690beedae02}
     container_name: cardano-shares-off
     restart: unless-stopped
     environment:

@@ -99,7 +99,7 @@ Manual usage:
 | `PEERSHARING_SHARES_OFF_PORT`     | `3011`                                      | docker-compose host port for `cardano-shares-off` |
 | `PEERSHARING_SHARES_ON_ADDR`      | `localhost:${PEERSHARING_SHARES_ON_PORT}`   | go test target for the shares-on node |
 | `PEERSHARING_SHARES_OFF_ADDR`     | `localhost:${PEERSHARING_SHARES_OFF_PORT}`  | go test target for the shares-off node |
-| `PEERSHARING_NODE_IMAGE`          | `ghcr.io/blinklabs-io/cardano-node:11.0.1`  | docker-compose image (matches the pin in dingo/internal/test/devnet) |
+| `PEERSHARING_NODE_IMAGE`          | `ghcr.io/blinklabs-io/cardano-node:11.0.1@sha256:d5ede07a890e9b6a0a5182cdba9dbaf73756336762235e0934a11690beedae02` | cardano-node image |
 | `PEERSHARING_CONFIG_BASE_URL`     | `https://book.world.dev.cardano.org/environments/preview` | `fetch-configs.sh` base URL |
 | `TEST_TIMEOUT`                    | `5m`                                        | `go test -timeout` in `run-tests.sh` |
 
