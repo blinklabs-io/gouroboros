@@ -617,6 +617,17 @@ func (b *BlockLedgerState) IsVrfKeyInUse(
 func (b *BlockLedgerState) IsFutureVrfKeyInUse(
 	vrfKeyHash Blake2b256,
 ) (bool, PoolKeyHash, error) {
+	futureState, ok := ledgerStateCapabilityFor[FuturePoolParametersState](b.base)
+	if !ok {
+		return false, PoolKeyHash{}, FuturePoolParametersStateUnavailableError{}
+	}
+	return b.isFutureVrfKeyInUse(vrfKeyHash, futureState)
+}
+
+func (b *BlockLedgerState) isFutureVrfKeyInUse(
+	vrfKeyHash Blake2b256,
+	futureState FuturePoolParametersState,
+) (bool, PoolKeyHash, error) {
 	if pool, ok := b.vrfKeys[vrfKeyHash]; ok {
 		if state := b.pools[pool]; state != nil && state.future != nil &&
 			state.future.VrfKeyHash == vrfKeyHash {
@@ -625,10 +636,6 @@ func (b *BlockLedgerState) IsFutureVrfKeyInUse(
 	}
 	if _, released := b.vrfReleased[vrfKeyHash]; released {
 		return false, PoolKeyHash{}, nil
-	}
-	futureState, ok := ledgerStateCapabilityFor[FuturePoolParametersState](b.base)
-	if !ok {
-		return false, PoolKeyHash{}, FuturePoolParametersStateUnavailableError{}
 	}
 	inUse, pool, err := futureState.IsFutureVrfKeyInUse(vrfKeyHash)
 	if err != nil || !inUse {
@@ -644,6 +651,17 @@ func (b *BlockLedgerState) IsFutureVrfKeyInUse(
 	return true, pool, nil
 }
 
+type blockFuturePoolParametersState struct {
+	block *BlockLedgerState
+	base  FuturePoolParametersState
+}
+
+func (s blockFuturePoolParametersState) IsFutureVrfKeyInUse(
+	vrfKeyHash Blake2b256,
+) (bool, PoolKeyHash, error) {
+	return s.block.isFutureVrfKeyInUse(vrfKeyHash, s.base)
+}
+
 // FuturePoolParametersStateFor returns ls's future pool parameters with the
 // block's earlier transactions applied, or false when the provider does not
 // implement it.
@@ -651,6 +669,14 @@ func FuturePoolParametersStateFor(
 	ls LedgerState,
 ) (FuturePoolParametersState, bool) {
 	if b := findBlockLedgerState(ls); b != nil {
+		futureState, ok := ledgerStateCapabilityFor[FuturePoolParametersState](ls)
+		if provider, isBlock := futureState.(*BlockLedgerState); ok &&
+			isBlock && provider == b {
+			return b, true
+		}
+		if ok {
+			return blockFuturePoolParametersState{block: b, base: futureState}, true
+		}
 		return b, true
 	}
 	return ledgerStateCapabilityFor[FuturePoolParametersState](ls)

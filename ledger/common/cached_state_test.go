@@ -272,6 +272,21 @@ func TestStateCapabilityLookupPreservesImplementingAdapter(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, inUse)
 	require.Equal(t, owner, gotOwner)
+
+	outerAdapter := capabilityAdapterState{
+		LedgerState: common.NewBlockLedgerState(
+			mockledger.NewLedgerStateBuilder().Build(),
+		),
+		owner: owner,
+	}
+	futureState, ok = common.FuturePoolParametersStateFor(outerAdapter)
+	require.True(t, ok)
+	inUse, gotOwner, err = futureState.IsFutureVrfKeyInUse(
+		common.Blake2b256{0x42},
+	)
+	require.NoError(t, err)
+	require.True(t, inUse)
+	require.Equal(t, owner, gotOwner)
 }
 
 type foreignWrapper struct {

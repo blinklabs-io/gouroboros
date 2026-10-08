@@ -545,6 +545,38 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		))
 	})
 
+	t.Run("existing pool cannot repeat a pending VRF key in one tx", func(t *testing.T) {
+		currentVrf := vrfKeyHash(0x04)
+		current := &common.PoolRegistrationCertificate{
+			CertType:   uint(common.CertificateTypePoolRegistration),
+			Operator:   registeringPool,
+			VrfKeyHash: currentVrf,
+			Margin:     common.NewGenesisRat(0, 1),
+		}
+		pending := poolRegCertWire(
+			t,
+			registeringPool,
+			sharedVrf,
+			0,
+			common.AddressNetworkMainnet,
+		)
+		ls := withFuturePoolState(mockledger.NewLedgerStateBuilder().
+			WithNetworkId(common.AddressNetworkMainnet).
+			WithPools([]*common.PoolRegistrationCertificate{current}).
+			WithVrfKeyInUseFunc(func(
+				hash common.Blake2b256,
+			) (bool, common.PoolKeyHash, error) {
+				return hash == currentVrf, registeringPool, nil
+			}).
+			Build())
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(pending, pending), 0, ls, pparams,
+		)
+		var target shelley.VrfKeyHashAlreadyRegisteredError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, registeringPool, target.RegisteredBy)
+	})
+
 	t.Run("VRF lookup error propagates", func(t *testing.T) {
 		wantErr := errors.New("vrf lookup failed")
 		ls := withFuturePoolState(mockledger.NewLedgerStateBuilder().
@@ -902,6 +934,18 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 		)
 		var target common.EpochStateUnavailableError
 		require.ErrorAs(t, err, &target)
+	})
+
+	t.Run("epoch zero is rejected without EpochState", func(t *testing.T) {
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(poolRetirementCert(registered, 0)),
+			0,
+			base,
+			pparams,
+		)
+		var target shelley.StakePoolRetirementWrongEpochError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, uint64(0), target.Supplied)
 	})
 
 	t.Run("EpochState error propagates", func(t *testing.T) {

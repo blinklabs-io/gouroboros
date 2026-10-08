@@ -893,6 +893,9 @@ type GovernanceStateUnavailableError struct {
 
 func (e GovernanceStateUnavailableError) Error() string {
 	message := "governance state unavailable"
+	if e.ActionId != nil {
+		message += ": " + e.ActionId.String()
+	}
 	if e.Field != "" {
 		message += ": " + e.Field
 	}

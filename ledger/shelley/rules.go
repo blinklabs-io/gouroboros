@@ -1252,12 +1252,18 @@ func validatePoolRegistration(
 	if !ok {
 		return common.FuturePoolParametersStateUnavailableError{}
 	}
-	if owner, claimed := state.vrfOwners[cert.VrfKeyHash]; claimed &&
-		owner != cert.Operator {
-		return VrfKeyHashAlreadyRegisteredError{
-			PoolKeyHash:  cert.Operator,
-			VrfKeyHash:   cert.VrfKeyHash,
-			RegisteredBy: owner,
+	if owner, claimed := state.vrfOwners[cert.VrfKeyHash]; claimed {
+		current, err := state.currentRegistration(cert.Operator)
+		if err != nil {
+			return err
+		}
+		if owner != cert.Operator || current == nil ||
+			current.VrfKeyHash != cert.VrfKeyHash {
+			return VrfKeyHashAlreadyRegisteredError{
+				PoolKeyHash:  cert.Operator,
+				VrfKeyHash:   cert.VrfKeyHash,
+				RegisteredBy: owner,
+			}
 		}
 	}
 	inUse, owningPool, err := state.base.IsVrfKeyInUse(cert.VrfKeyHash)
@@ -1331,6 +1337,12 @@ func validatePoolRetirement(
 	// The current epoch is required to evaluate the retirement bound.
 	epochState, ok := common.EpochStateFor(ls)
 	if !ok {
+		if cert.Epoch == 0 {
+			return StakePoolRetirementWrongEpochError{
+				PoolKeyHash: cert.PoolKeyHash,
+				Supplied:    cert.Epoch,
+			}
+		}
 		return common.EpochStateUnavailableError{}
 	}
 	currentEpoch, err := epochState.EpochForSlot(slot)

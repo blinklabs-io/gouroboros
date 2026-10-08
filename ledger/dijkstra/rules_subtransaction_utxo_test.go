@@ -821,7 +821,10 @@ func TestDijkstraChildProposalAncestryUsesEarlierChildState(t *testing.T) {
 	rule := dijkstraRule(t, common.UtxoValidationRuleProposalAncestry)
 	require.NoError(
 		t,
-		rule(tx, 0, dijkstraRootsState{LedgerState: mockledger.NewLedgerStateBuilder().Build()},
+		rule(
+			tx,
+			0,
+			dijkstraRootsState{LedgerState: mockledger.NewLedgerStateBuilder().Build()},
 			&DijkstraProtocolParameters{}),
 	)
 }
