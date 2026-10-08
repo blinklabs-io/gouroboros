@@ -146,6 +146,7 @@ func TestDefaultDecodeRejectsInvalidUpdateProposalSignature(t *testing.T) {
 	var signature []byte
 	_, err = cbor.Decode(proposal[6], &signature)
 	require.NoError(t, err)
+	require.NotEmpty(t, signature)
 	signature[0] ^= 0xff
 	proposal[6], err = cbor.Encode(signature)
 	require.NoError(t, err)
