@@ -126,6 +126,15 @@ type Config struct {
 	// a pipelining client keeps outstanding. Zero means
 	// DefaultMaxInFlightBytes.
 	MaxInFlightBytes uint64
+	// MaxBlocksPerRange bounds the number of blocks accepted for one range.
+	// Zero uses DefaultMaxBlocksPerRange.
+	MaxBlocksPerRange uint64
+	// MaxRangeBytes bounds the cumulative complete encoded MsgBlock bytes
+	// accepted for one range. Zero uses DefaultMaxRangeBytes.
+	MaxRangeBytes uint64
+	// RangeTimeout bounds one range from admission through completion. Zero
+	// uses DefaultRangeTimeout.
+	RangeTimeout time.Duration
 	// ByronSlotsPerEpoch selects the Byron epoch length used when correlating
 	// fetched blocks with protocol points. Connections apply a non-zero value
 	// to both BlockFetch and ChainSync. Zero uses the legacy value.
@@ -173,6 +182,20 @@ const DefaultRequestExpectedBytes uint64 = 88 * 1024
 // cardano-node sizes for block-fetch in blockFetchProtocolLimits:
 // blockFetchPipeliningMax (100) times the maximum block body size (88 KiB).
 const DefaultMaxInFlightBytes uint64 = 100 * DefaultRequestExpectedBytes
+
+// DefaultMaxBlocksPerRange admits one Cardano security window, matching the
+// default number of pending blocks accepted by the block pipeline.
+const DefaultMaxBlocksPerRange uint64 = pipeline.DefaultMaxPendingBlocks
+
+// DefaultMaxRangeBytes admits DefaultMaxBlocksPerRange maximum-size mainnet
+// block bodies, with the same 10% allowance used by the block-fetch ingress
+// limit.
+const DefaultMaxRangeBytes uint64 = DefaultMaxBlocksPerRange * DefaultRequestExpectedBytes * 11 / 10
+
+// DefaultRangeTimeout admits the batch-start timeout and a full streaming
+// timeout for every block allowed by DefaultMaxBlocksPerRange.
+const DefaultRangeTimeout = BusyTimeout +
+	time.Duration(DefaultMaxBlocksPerRange)*StreamingTimeout
 
 // IngressLimit is the base limit on block-fetch payload, in bytes, the muxer
 // holds for a client between reading it from the connection and the protocol
@@ -247,6 +270,9 @@ func NewConfig(options ...BlockFetchOptionFunc) (Config, error) {
 		BlockTimeout:      60 * time.Second,
 		RecvQueueSize:     DefaultRecvQueueSize,
 		MaxInFlightBytes:  DefaultMaxInFlightBytes,
+		MaxBlocksPerRange: DefaultMaxBlocksPerRange,
+		MaxRangeBytes:     DefaultMaxRangeBytes,
+		RangeTimeout:      DefaultRangeTimeout,
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -275,6 +301,9 @@ func (c *Config) validate() error {
 			c.RecvQueueSize,
 			MaxRecvQueueSize,
 		)
+	}
+	if c.RangeTimeout < 0 {
+		return fmt.Errorf("RangeTimeout %s must be non-negative", c.RangeTimeout)
 	}
 	return nil
 }
@@ -314,6 +343,30 @@ func WithRequestPipelining(enabled bool) BlockFetchOptionFunc {
 func WithMaxInFlightBytes(maxBytes uint64) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.MaxInFlightBytes = maxBytes
+	}
+}
+
+// WithMaxBlocksPerRange sets the cumulative block limit for one range. Zero
+// selects DefaultMaxBlocksPerRange.
+func WithMaxBlocksPerRange(maxBlocks uint64) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.MaxBlocksPerRange = maxBlocks
+	}
+}
+
+// WithMaxRangeBytes sets the cumulative encoded-byte limit for one range.
+// Zero selects DefaultMaxRangeBytes.
+func WithMaxRangeBytes(maxBytes uint64) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.MaxRangeBytes = maxBytes
+	}
+}
+
+// WithRangeTimeout sets the total lifetime limit for one range. Zero selects
+// DefaultRangeTimeout.
+func WithRangeTimeout(timeout time.Duration) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.RangeTimeout = timeout
 	}
 }
 

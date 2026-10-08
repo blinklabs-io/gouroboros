@@ -30,6 +30,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/muxer"
+	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
@@ -97,6 +98,249 @@ func TestBatchDoneRejectsIncompleteRequestedRange(t *testing.T) {
 		completionErr,
 		"RangeDoneFunc must not report an incomplete range as successful",
 	)
+}
+
+func TestRangeRequestCumulativeBudgets(t *testing.T) {
+	now := time.Now()
+	t.Run("exact byte boundary and overflow", func(t *testing.T) {
+		req := &rangeRequest{id: 1, deadline: now.Add(time.Minute)}
+		require.NoError(t, req.chargeBlock(now, 4, 3, 7))
+		require.NoError(t, req.chargeBlock(now, 3, 3, 7))
+		err := req.chargeBlock(now, 1, 3, 7)
+		require.ErrorIs(t, err, ErrRangeByteLimit)
+		require.Equal(t, uint64(2), req.blocksReceived)
+		require.Equal(t, uint64(7), req.bytesReceived)
+	})
+
+	t.Run("block count", func(t *testing.T) {
+		req := &rangeRequest{id: 2, deadline: now.Add(time.Minute)}
+		require.NoError(t, req.chargeBlock(now, 1, 1, 2))
+		err := req.chargeBlock(now, 1, 1, 2)
+		require.ErrorIs(t, err, ErrRangeBlockLimit)
+	})
+
+	t.Run("total deadline", func(t *testing.T) {
+		req := &rangeRequest{id: 3, deadline: now}
+		err := req.chargeBlock(now, 1, 1, 1)
+		require.ErrorIs(t, err, ErrRangeTimeout)
+		require.Zero(t, req.blocksReceived)
+		require.Zero(t, req.bytesReceived)
+	})
+
+	t.Run("overflow-safe byte accumulation", func(t *testing.T) {
+		req := &rangeRequest{
+			id:            4,
+			deadline:      now.Add(time.Minute),
+			bytesReceived: math.MaxUint64,
+		}
+		err := req.chargeBlock(now, 1, 2, math.MaxUint64)
+		require.ErrorIs(t, err, ErrRangeByteLimit)
+	})
+}
+
+func TestHandleBlockRejectsRangeBytesBeforeDecodeOrDelivery(t *testing.T) {
+	delivered := false
+	c := newQueueTestClient(&Config{
+		MaxRangeBytes: 3,
+		BlockRawFunc: func(CallbackContext, uint, []byte) error {
+			delivered = true
+			return nil
+		},
+	})
+	req := c.appendTestRequest(1)
+	req.started = true
+	req.deadline = time.Now().Add(time.Minute)
+	msg := NewMsgBlock([]byte{0xff})
+	msg.SetCbor([]byte{0x01, 0x02, 0x03, 0x04})
+
+	err := c.handleBlock(msg)
+	require.ErrorIs(t, err, ErrRangeByteLimit)
+	require.False(t, delivered)
+	require.Zero(t, req.blocksReceived)
+	require.Zero(t, req.bytesReceived)
+}
+
+func TestRangeTotalDeadlineDoesNotRenewAfterBlock(t *testing.T) {
+	done := make(chan error, 1)
+	blockDelivered := make(chan struct{})
+	first, firstPoint := queueTestBlock(t, 100, lcommon.Blake2b256{})
+	_, lastPoint := queueTestBlock(
+		t,
+		200,
+		lcommon.Blake2b256(firstPoint.Hash),
+	)
+	cfg := &Config{
+		RequestPipelining:   true,
+		SkipBlockValidation: true,
+		BatchStartTimeout:   time.Second,
+		BlockTimeout:        2 * time.Second,
+		RangeTimeout:        500 * time.Millisecond,
+		BlockRawFunc: func(CallbackContext, uint, []byte) error {
+			close(blockDelivered)
+			return nil
+		},
+		RangeDoneFunc: func(_ CallbackContext, err error) error {
+			done <- err
+			return nil
+		},
+	}
+	p := newIdlePeer(t, cfg)
+	start := time.Now()
+	outboundStart := p.outboundRead.value()
+	_, err := p.client.RequestRange(context.Background(), RangeRequest{
+		Start:         firstPoint,
+		End:           lastPoint,
+		ExpectedBytes: 1024,
+	})
+	require.NoError(t, err)
+	requestData, err := cbor.Encode(NewMsgRequestRange(firstPoint, lastPoint))
+	require.NoError(t, err)
+	p.waitForOutboundBytes(
+		t,
+		outboundStart+binary.Size(muxer.SegmentHeader{})+len(requestData),
+	)
+	p.send(t, NewMsgStartBatch())
+	p.send(t, first)
+	select {
+	case <-blockDelivered:
+	case <-time.After(time.Second):
+		t.Fatal("progress block was not delivered before the total deadline")
+	}
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrRangeTimeout)
+		require.Less(t, time.Since(start), cfg.BlockTimeout)
+	case <-time.After(2 * time.Second):
+		t.Fatal("range total deadline did not stop a progressing batch")
+	}
+}
+
+func TestRangeDeadlineWaitsForActiveCallback(t *testing.T) {
+	done := make(chan error, 1)
+	callbackStarted := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	block, point := queueTestBlock(t, 100, lcommon.Blake2b256{})
+	c := newQueueTestClient(&Config{
+		RequestPipelining:   true,
+		SkipBlockValidation: true,
+		RangeTimeout:        time.Second,
+		BlockRawFunc: func(CallbackContext, uint, []byte) error {
+			close(callbackStarted)
+			<-releaseCallback
+			return nil
+		},
+		RangeDoneFunc: func(_ CallbackContext, err error) error {
+			done <- err
+			return nil
+		},
+	})
+	req := c.appendTestRequest(1024)
+	req.start = point
+	req.end = point
+	req.started = true
+	req.retired = make(chan struct{})
+	handlerDone := make(chan error, 1)
+	go func() { handlerDone <- c.handleBlock(block) }()
+	select {
+	case <-callbackStarted:
+	case <-time.After(time.Second):
+		t.Fatal("block callback did not start")
+	}
+	req.deadline = time.Now().Add(25 * time.Millisecond)
+	go c.watchRangeDeadline(req)
+	select {
+	case err := <-done:
+		t.Fatalf("range retired while its block callback was active: %v", err)
+	case <-time.After(75 * time.Millisecond):
+	}
+	close(releaseCallback)
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrRangeTimeout)
+	case <-time.After(time.Second):
+		t.Fatal("range deadline was not reported after callback returned")
+	}
+	require.NoError(t, <-handlerDone)
+}
+
+func TestRangeDeadlineCancelsBlockedPipelineSubmit(t *testing.T) {
+	msg, point := queueTestBlock(t, 100, lcommon.Blake2b256{})
+	var wrapped WrappedBlock
+	_, err := cbor.Decode(msg.WrappedBlock, &wrapped)
+	require.NoError(t, err)
+	blockPipeline := pipeline.NewBlockPipeline(
+		pipeline.WithValidateWorkers(0),
+		pipeline.WithSkipBodyHashValidation(true),
+		pipeline.WithMaxRawCborBytes(uint64(len(wrapped.RawBlock))),
+		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error { return nil }),
+	)
+	require.NoError(t, blockPipeline.Start(context.Background()))
+	defer func() { require.NoError(t, blockPipeline.Stop()) }()
+	require.NoError(t, blockPipeline.Submit(
+		context.Background(),
+		wrapped.Type,
+		wrapped.RawBlock,
+		pcommon.Tip{},
+	))
+	held := <-blockPipeline.Results()
+	defer held.Release()
+
+	done := make(chan error, 1)
+	cfg := &Config{
+		RequestPipelining:   true,
+		SkipBlockValidation: true,
+		BatchStartTimeout:   time.Second,
+		BlockTimeout:        time.Second,
+		RangeTimeout:        200 * time.Millisecond,
+		Pipeline:            blockPipeline,
+		RangeDoneFunc: func(_ CallbackContext, err error) error {
+			done <- err
+			return nil
+		},
+	}
+	p := newIdlePeer(t, cfg)
+	_, err = p.client.RequestRange(context.Background(), RangeRequest{
+		Start:         point,
+		End:           point,
+		ExpectedBytes: 1024,
+	})
+	require.NoError(t, err)
+	p.send(t, NewMsgStartBatch())
+	p.send(t, msg)
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrRangeTimeout)
+	case <-time.After(time.Second):
+		t.Fatal("range deadline did not cancel blocked pipeline admission")
+	}
+}
+
+func TestRangeDeadlineBoundsAdmissionWait(t *testing.T) {
+	c := newQueueTestClient(&Config{RangeTimeout: 25 * time.Millisecond})
+	<-c.rangeSendToken
+	defer func() { c.rangeSendToken <- struct{}{} }()
+	started := time.Now()
+	_, err := c.sendRequestRange(
+		context.Background(),
+		pcommon.NewPoint(1, []byte{1}),
+		pcommon.NewPoint(2, []byte{2}),
+		deliveryCallback,
+		false,
+		1,
+		true,
+		0,
+	)
+	require.ErrorIs(t, err, ErrRangeTimeout)
+	require.Less(t, time.Since(started), time.Second)
+}
+
+func TestBlockFetchZeroRangeLimitsUseSecureDefaults(t *testing.T) {
+	c := newQueueTestClient(&Config{})
+	require.Equal(t, DefaultMaxBlocksPerRange, c.maxBlocksPerRange())
+	require.Equal(t, DefaultMaxRangeBytes, c.maxRangeBytes())
+	require.Equal(t, DefaultRangeTimeout, c.rangeTimeout())
 }
 
 // shutdownRaceIterations bounds how many times a test drives a select whose

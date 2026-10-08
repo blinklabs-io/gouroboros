@@ -25,16 +25,18 @@ import (
 // BlockItem represents a block as it moves through the pipeline.
 // It is thread-safe and tracks the processing state at each stage.
 type BlockItem struct {
-	// Immutable fields (set at construction, never modified)
-	// These are unexported to prevent modification; use getter methods.
+	// Immutable fields are unexported to prevent modification; use getters.
 	blockType      uint
-	rawCbor        []byte
 	tip            pcommon.Tip
 	sequenceNumber uint64
 	receivedAt     time.Time
 
 	// Mutable fields protected by mutex
 	mu sync.RWMutex
+	// rawCbor remains available until Release retires the result.
+	rawCbor     []byte
+	releaseOnce sync.Once
+	releaseFunc func(uint64)
 
 	// Decode stage results
 	block          common.Block
@@ -88,7 +90,32 @@ func (b *BlockItem) BlockType() uint {
 // RawCbor returns the raw CBOR bytes of the block.
 // The returned slice should not be modified.
 func (b *BlockItem) RawCbor() []byte {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	return b.rawCbor
+}
+
+func (b *BlockItem) setReleaseFunc(releaseFunc func(uint64)) {
+	b.mu.Lock()
+	b.releaseFunc = releaseFunc
+	b.mu.Unlock()
+}
+
+// Release retires this result's raw CBOR ownership and returns its bytes to
+// the pipeline admission budget. It is safe to call more than once. Callers
+// must not use RawCbor after Release.
+func (b *BlockItem) Release() {
+	b.releaseOnce.Do(func() {
+		b.mu.Lock()
+		bytes := uint64(len(b.rawCbor))
+		b.rawCbor = nil
+		releaseFunc := b.releaseFunc
+		b.releaseFunc = nil
+		b.mu.Unlock()
+		if releaseFunc != nil {
+			releaseFunc(bytes)
+		}
+	})
 }
 
 // Tip returns the chain tip associated with this block.

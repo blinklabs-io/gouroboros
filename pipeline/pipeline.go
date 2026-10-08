@@ -17,6 +17,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,6 +30,12 @@ var ErrPipelineStopped = errors.New("pipeline is stopped")
 
 // ErrPipelineNotStarted is returned when trying to use a pipeline that hasn't been started.
 var ErrPipelineNotStarted = errors.New("pipeline not started")
+
+// ErrRawCborBudgetExceeded is returned when one block cannot fit within the
+// pipeline's aggregate raw CBOR byte budget.
+var ErrRawCborBudgetExceeded = errors.New(
+	"pipeline: raw CBOR byte budget exceeded",
+)
 
 // ErrMissingEta0Provider is returned when validation is enabled but no Eta0Provider is configured.
 var ErrMissingEta0Provider = errors.New(
@@ -91,6 +98,11 @@ type BlockPipeline struct {
 	submitGate     chan struct{}
 	completionMu   sync.Mutex
 	completionChan chan struct{}
+	rawBudgetMu    sync.Mutex
+	rawBytesInUse  uint64
+	rawBytesFreed  chan struct{}
+	activeItemsMu  sync.Mutex
+	activeItems    map[*BlockItem]struct{}
 	// Test hooks must be installed before Start. They make blocked Submit/Fence
 	// interleavings deterministic without changing production behavior.
 	testSubmitLocked func()
@@ -116,12 +128,107 @@ func NewBlockPipeline(opts ...PipelineOption) *BlockPipeline {
 		opt(&config)
 	}
 	p := &BlockPipeline{
-		config:     config,
-		metrics:    NewPipelineMetrics(config.MetricsWindowSize),
-		submitGate: make(chan struct{}, 1),
+		config:        config,
+		metrics:       NewPipelineMetrics(config.MetricsWindowSize),
+		submitGate:    make(chan struct{}, 1),
+		rawBytesFreed: make(chan struct{}),
+		activeItems:   make(map[*BlockItem]struct{}),
 	}
 	p.submitGate <- struct{}{}
 	return p
+}
+
+func (p *BlockPipeline) maxRawCborBytes() uint64 {
+	if p.config.MaxRawCborBytes == 0 {
+		return DefaultMaxRawCborBytes
+	}
+	return p.config.MaxRawCborBytes
+}
+
+func (p *BlockPipeline) reserveRawCborBytes(
+	ctx context.Context,
+	bytes uint64,
+) error {
+	limit := p.maxRawCborBytes()
+	if bytes > limit {
+		return fmt.Errorf(
+			"%w: block requires %d bytes (limit %d)",
+			ErrRawCborBudgetExceeded,
+			bytes,
+			limit,
+		)
+	}
+	for {
+		p.rawBudgetMu.Lock()
+		if p.rawBytesInUse <= limit && bytes <= limit-p.rawBytesInUse {
+			p.rawBytesInUse += bytes
+			p.rawBudgetMu.Unlock()
+			return nil
+		}
+		freed := p.rawBytesFreed
+		if freed == nil {
+			freed = make(chan struct{})
+			p.rawBytesFreed = freed
+		}
+		p.rawBudgetMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-p.ctx.Done():
+			return ErrPipelineStopped
+		case <-freed:
+		}
+	}
+}
+
+func (p *BlockPipeline) releaseRawCborBytes(bytes uint64) {
+	if bytes == 0 {
+		return
+	}
+	p.rawBudgetMu.Lock()
+	if bytes >= p.rawBytesInUse {
+		p.rawBytesInUse = 0
+	} else {
+		p.rawBytesInUse -= bytes
+	}
+	if p.rawBytesFreed != nil {
+		close(p.rawBytesFreed)
+	}
+	p.rawBytesFreed = make(chan struct{})
+	p.rawBudgetMu.Unlock()
+}
+
+func (p *BlockPipeline) trackItem(item *BlockItem) {
+	p.activeItemsMu.Lock()
+	if p.activeItems == nil {
+		p.activeItems = make(map[*BlockItem]struct{})
+	}
+	p.activeItems[item] = struct{}{}
+	p.activeItemsMu.Unlock()
+	item.setReleaseFunc(func(bytes uint64) {
+		p.activeItemsMu.Lock()
+		delete(p.activeItems, item)
+		p.activeItemsMu.Unlock()
+		p.releaseRawCborBytes(bytes)
+	})
+}
+
+func (p *BlockPipeline) transferItem(item *BlockItem) {
+	p.activeItemsMu.Lock()
+	delete(p.activeItems, item)
+	p.activeItemsMu.Unlock()
+}
+
+func (p *BlockPipeline) releaseActiveItems() {
+	p.activeItemsMu.Lock()
+	items := make([]*BlockItem, 0, len(p.activeItems))
+	for item := range p.activeItems {
+		items = append(items, item)
+	}
+	p.activeItemsMu.Unlock()
+	for _, item := range items {
+		item.Release()
+	}
 }
 
 func (p *BlockPipeline) lockSubmit(ctx context.Context) error {
@@ -271,6 +378,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.completedSequence.Store(0)
 	p.completionMu.Unlock()
 	p.applyRunner.SetProcessedFunc(p.markProcessed)
+	p.applyRunner.setDeliveredFunc(p.transferItem)
 	p.applyRunner.setFatalFunc(p.cancel)
 
 	// Start all stages
@@ -329,7 +437,18 @@ func (p *BlockPipeline) Submit(
 	// contiguous in queue order, while canceled or backpressured submissions do
 	// not create positions that Fence must wait for.
 	sequence := p.sequenceCounter.Load()
+	rawBytes := uint64(len(rawCbor))
+	if err := p.reserveRawCborBytes(ctx, rawBytes); err != nil {
+		return err
+	}
+	reserved := true
 	item := NewBlockItem(blockType, rawCbor, tip, sequence)
+	p.trackItem(item)
+	defer func() {
+		if reserved {
+			item.Release()
+		}
+	}()
 
 	// Preserve cancellation precedence over an immediately writable input.
 	// These checks are repeated under submitGate so cancellation that occurred
@@ -351,6 +470,7 @@ func (p *BlockPipeline) Submit(
 
 	select {
 	case p.submitChan <- item:
+		reserved = false
 		p.sequenceCounter.Add(1)
 		p.metrics.RecordSubmit()
 		return nil
@@ -418,7 +538,9 @@ func (p *BlockPipeline) markProcessed(sequence uint64) {
 	p.completionMu.Unlock()
 }
 
-// Results returns a channel of successfully processed block items.
+// Results returns a channel of successfully processed block items. Consumers
+// must call BlockItem.Release after they finish using each result so its raw
+// bytes return to the pipeline admission budget.
 // If the pipeline has not been started, returns a closed channel to prevent blocking.
 func (p *BlockPipeline) Results() <-chan *BlockItem {
 	if !p.started.Load() {
@@ -473,6 +595,7 @@ func (p *BlockPipeline) Stop() error {
 
 	// Wait for apply runner to finish
 	p.applyRunner.Stop()
+	p.releaseActiveItems()
 
 	// Close output channels
 	close(p.resultsChan)
@@ -565,8 +688,9 @@ func (p *BlockPipeline) metricsCollector() {
 	}
 }
 
-// DrainResults reads all available results without blocking.
-// Useful for testing or cleanup.
+// DrainResults reads all available results without blocking. Ownership of
+// every returned item transfers to the caller, which must call Release after
+// use. Useful for testing or cleanup.
 func (p *BlockPipeline) DrainResults() []*BlockItem {
 	var results []*BlockItem
 	for {

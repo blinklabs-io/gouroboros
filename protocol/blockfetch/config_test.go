@@ -16,6 +16,7 @@ package blockfetch_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/stretchr/testify/require"
@@ -51,4 +52,24 @@ func TestNewConfigSucceedsWithDefaults(t *testing.T) {
 	cfg, err := blockfetch.NewConfig()
 	require.NoError(t, err)
 	require.Equal(t, blockfetch.DefaultRecvQueueSize, cfg.RecvQueueSize)
+	require.Equal(t, blockfetch.DefaultMaxBlocksPerRange, cfg.MaxBlocksPerRange)
+	require.Equal(t, blockfetch.DefaultMaxRangeBytes, cfg.MaxRangeBytes)
+	require.Equal(t, blockfetch.DefaultRangeTimeout, cfg.RangeTimeout)
+}
+
+func TestRangeLimitOptions(t *testing.T) {
+	cfg, err := blockfetch.NewConfig(
+		blockfetch.WithMaxBlocksPerRange(7),
+		blockfetch.WithMaxRangeBytes(4096),
+		blockfetch.WithRangeTimeout(2*time.Minute),
+	)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), cfg.MaxBlocksPerRange)
+	require.Equal(t, uint64(4096), cfg.MaxRangeBytes)
+	require.Equal(t, 2*time.Minute, cfg.RangeTimeout)
+}
+
+func TestNegativeRangeTimeoutRejected(t *testing.T) {
+	_, err := blockfetch.NewConfig(blockfetch.WithRangeTimeout(-time.Second))
+	require.Error(t, err)
 }

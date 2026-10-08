@@ -86,6 +86,107 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 	assert.False(t, item.ReceivedAt().IsZero())
 }
 
+func TestBlockPipelineRawCborBudgetFollowsResultOwnership(t *testing.T) {
+	p := NewBlockPipeline(
+		WithValidateWorkers(0),
+		WithMaxRawCborBytes(4),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+
+	raw := []byte{0x85, 0x00, 0x01, 0x02}
+	require.NoError(t, p.Submit(
+		context.Background(),
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(1, 1),
+	))
+
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- p.Submit(
+			context.Background(),
+			uint(ledger.BlockTypeConway),
+			raw,
+			createTestTip(2, 2),
+		)
+	}()
+	select {
+	case err := <-secondDone:
+		t.Fatalf("second submission passed the raw-byte budget: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	canceledDone := make(chan error, 1)
+	go func() {
+		canceledDone <- p.Submit(
+			cancelCtx,
+			uint(ledger.BlockTypeConway),
+			raw,
+			createTestTip(3, 3),
+		)
+	}()
+	cancel()
+	require.ErrorIs(t, <-canceledDone, context.Canceled)
+	p.rawBudgetMu.Lock()
+	require.Equal(t, uint64(4), p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+
+	first := <-p.Results()
+	require.Equal(t, raw, first.RawCbor())
+	first.Release()
+	require.Nil(t, first.RawCbor())
+	first.Release()
+
+	select {
+	case err := <-secondDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("submission did not resume after result release")
+	}
+	second := <-p.Results()
+	second.Release()
+
+	err := p.Submit(
+		context.Background(),
+		uint(ledger.BlockTypeConway),
+		make([]byte, 5),
+		createTestTip(3, 3),
+	)
+	require.ErrorIs(t, err, ErrRawCborBudgetExceeded)
+}
+
+func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
+	p := NewBlockPipeline(
+		WithValidateWorkers(0),
+		WithMaxRawCborBytes(4),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	require.NoError(t, p.Submit(
+		context.Background(),
+		uint(ledger.BlockTypeConway),
+		[]byte{0x85, 0x00, 0x01, 0x02},
+		createTestTip(1, 1),
+	))
+	result := <-p.Results()
+	require.NotNil(t, result.RawCbor())
+	require.NoError(t, p.Stop())
+	require.NotNil(t, result.RawCbor())
+	p.rawBudgetMu.Lock()
+	require.Equal(t, uint64(4), p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+	result.Release()
+	require.Nil(t, result.RawCbor())
+	p.rawBudgetMu.Lock()
+	require.Zero(t, p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+}
+
+func TestPipelineZeroRawCborLimitUsesSecureDefault(t *testing.T) {
+	p := NewBlockPipeline(WithMaxRawCborBytes(0))
+	require.Equal(t, DefaultMaxRawCborBytes, p.maxRawCborBytes())
+}
+
 func TestBlockItem_SetBlock_Block(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 	tip := createTestTip(1000, 500)
@@ -1269,10 +1370,11 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 			select {
 			case <-resultCtx.Done():
 				return
-			case _, ok := <-p.Results():
+			case item, ok := <-p.Results():
 				if !ok {
 					return
 				}
+				item.Release()
 				processedResults <- struct{}{}
 			}
 		}
@@ -1520,6 +1622,7 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 		select {
 		case item := <-p.Results():
 			assert.Equal(t, expected, item.SequenceNumber())
+			item.Release()
 		case <-time.After(time.Second):
 			t.Fatalf("pipeline did not return processed block %d", expected)
 		}
@@ -2966,6 +3069,7 @@ func TestBlockPipeline_ValidationDisabled(t *testing.T) {
 			// Blocks should not be validated (no IsValid check since validation was skipped)
 			assert.True(t, item.IsDecoded(), "Block should be decoded")
 			assert.True(t, item.IsApplied(), "Block should be applied")
+			item.Release()
 		case <-ctx.Done():
 			t.Fatal("Timed out waiting for results")
 		}
@@ -3049,7 +3153,8 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	received := 0
 	for received < numBlocks {
 		select {
-		case <-pipeline.Results():
+		case item := <-pipeline.Results():
+			item.Release()
 			received++
 		case <-ctx.Done():
 			t.Fatal("Timed out waiting for results")

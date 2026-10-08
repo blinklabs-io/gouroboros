@@ -1541,11 +1541,44 @@ func (p *Protocol) appendSegment(
 			pendingLen,
 		)
 	}
-	if !p.reserveReadBuffer(pendingLen, reserved) {
-		return p.errReadBufferBudget(pendingLen)
+	targetCapacity := readBuffer.Cap()
+	if len(payload) > readBuffer.Available() {
+		targetCapacity *= 2
+		if targetCapacity < pendingLen {
+			targetCapacity = pendingLen
+		}
+		if targetCapacity > p.config.maxReadBufferSize() {
+			targetCapacity = p.config.maxReadBufferSize()
+		}
+	}
+	if !p.reserveReadBuffer(targetCapacity, reserved) {
+		return p.errReadBufferBudget(targetCapacity)
+	}
+	if len(payload) > readBuffer.Available() {
+		retained := make([]byte, pendingLen, targetCapacity)
+		copy(retained, readBuffer.Bytes())
+		copy(retained[readBuffer.Len():], payload)
+		*readBuffer = *bytes.NewBuffer(retained)
+		return nil
 	}
 	readBuffer.Write(payload)
 	return nil
+}
+
+func consumeReadBuffer(
+	readBuffer *bytes.Buffer,
+	messageLength int,
+) (*bytes.Buffer, bool, bool) {
+	if messageLength >= readBuffer.Len() {
+		return bytes.NewBuffer(nil), false, false
+	}
+	readBuffer.Next(messageLength)
+	if readBuffer.Cap() <= 2*readBuffer.Len() {
+		return readBuffer, true, false
+	}
+	retained := make([]byte, readBuffer.Len())
+	copy(retained, readBuffer.Bytes())
+	return bytes.NewBuffer(retained), true, true
 }
 
 func (p *Protocol) readLoop() {
@@ -1567,17 +1600,15 @@ func (p *Protocol) readLoop() {
 		}
 	}()
 	consumeMessage := func(messageLength int) {
-		if messageLength < readBuffer.Len() {
-			readBuffer = bytes.NewBuffer(readBuffer.Bytes()[messageLength:])
-			leftoverData = true
-		} else {
-			readBuffer.Reset()
-		}
+		readBuffer, leftoverData, _ = consumeReadBuffer(
+			readBuffer,
+			messageLength,
+		)
 		scanner = messageScanner{}
 		peerAgencyChecked = false
 		messageStateSet = false
 		pendingPipelinedRequests = 0
-		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
+		_ = p.reserveReadBuffer(readBuffer.Cap(), &reserved)
 	}
 	waitForPendingBudget := func(budget, msgLen int, account bool) bool {
 		for {

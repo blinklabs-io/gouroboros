@@ -55,6 +55,17 @@ var ErrRequestPipeliningDisabled = errors.New(
 	"block-fetch request pipelining is not enabled on this client",
 )
 
+// ErrRangeBlockLimit is returned when a peer sends too many blocks for one
+// range request.
+var ErrRangeBlockLimit = errors.New("block-fetch range block limit exceeded")
+
+// ErrRangeByteLimit is returned when a peer sends too many encoded block bytes
+// for one range request.
+var ErrRangeByteLimit = errors.New("block-fetch range byte limit exceeded")
+
+// ErrRangeTimeout is returned when a range exceeds its total lifetime.
+var ErrRangeTimeout = errors.New("block-fetch range total deadline exceeded")
+
 // requestDelivery selects how a queued range request delivers its blocks.
 type requestDelivery uint8
 
@@ -93,6 +104,15 @@ type rangeRequest struct {
 	hasBusyToken   bool
 	started        bool
 	blockDelivered bool
+	blocksReceived uint64
+	bytesReceived  uint64
+	deadline       time.Time
+	retired        chan struct{}
+	// deliveryMu keeps terminal reporting behind any block handler that has
+	// already claimed this request. A deadline may stop the protocol while a
+	// callback is running, but it cannot report retirement until that callback
+	// has returned.
+	deliveryMu sync.Mutex
 	// startChan carries the MsgStartBatch outcome to a synchronous caller.
 	startChan chan error
 	// blockChan carries the single block of a deliveryChannel request.
@@ -732,6 +752,27 @@ func (c *Client) maxInFlightBytes() uint64 {
 	return c.config.MaxInFlightBytes
 }
 
+func (c *Client) maxBlocksPerRange() uint64 {
+	if c.config.MaxBlocksPerRange == 0 {
+		return DefaultMaxBlocksPerRange
+	}
+	return c.config.MaxBlocksPerRange
+}
+
+func (c *Client) maxRangeBytes() uint64 {
+	if c.config.MaxRangeBytes == 0 {
+		return DefaultMaxRangeBytes
+	}
+	return c.config.MaxRangeBytes
+}
+
+func (c *Client) rangeTimeout() time.Duration {
+	if c.config.RangeTimeout == 0 {
+		return DefaultRangeTimeout
+	}
+	return c.config.RangeTimeout
+}
+
 // hasInFlightCapacityLocked reports whether a pipelined request can reserve
 // expectedBytes. Subtraction avoids wrapping at the top of the uint64 range.
 // The caller must hold queueMutex.
@@ -751,6 +792,37 @@ func saturatingAdd(a, b uint64) uint64 {
 		return math.MaxUint64
 	}
 	return a + b
+}
+
+func (req *rangeRequest) chargeBlock(
+	now time.Time,
+	encodedBytes uint64,
+	maxBlocks uint64,
+	maxBytes uint64,
+) error {
+	if !req.deadline.IsZero() && !now.Before(req.deadline) {
+		return fmt.Errorf("%w for request %d", ErrRangeTimeout, req.id)
+	}
+	if req.blocksReceived >= maxBlocks {
+		return fmt.Errorf(
+			"%w for request %d (limit %d)",
+			ErrRangeBlockLimit,
+			req.id,
+			maxBlocks,
+		)
+	}
+	if req.bytesReceived > maxBytes ||
+		encodedBytes > maxBytes-req.bytesReceived {
+		return fmt.Errorf(
+			"%w for request %d (limit %d bytes)",
+			ErrRangeByteLimit,
+			req.id,
+			maxBytes,
+		)
+	}
+	req.blocksReceived++
+	req.bytesReceived += encodedBytes
+	return nil
 }
 
 // updateIngressAllowanceLocked sets proto's ingress allowance to what its
@@ -844,23 +916,26 @@ func (c *Client) sendRequestRange(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	rangeCtx, cancelRange := context.WithTimeout(ctx, c.rangeTimeout())
+	defer cancelRange()
+	rangeDeadline, _ := rangeCtx.Deadline()
 	proto := c.ProtocolInstance()
 	protocolDone := proto.DoneChan()
 	var req *rangeRequest
 	for {
 		if pipelined {
 			if err := c.waitForInFlightCapacity(
-				ctx,
+				rangeCtx,
 				protocolDone,
 				expectedBytes,
 			); err != nil {
-				return nil, err
+				return nil, c.rangeAdmissionError(ctx, err)
 			}
 		}
 		select {
 		case <-c.rangeSendToken:
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		case <-rangeCtx.Done():
+			return nil, c.rangeAdmissionError(ctx, rangeCtx.Err())
 		case <-protocolDone:
 			return nil, protocol.ErrProtocolShuttingDown
 		}
@@ -893,6 +968,8 @@ func (c *Client) sendRequestRange(
 			startChan:     make(chan error, 1),
 			blockChan:     make(chan ledger.Block, 1),
 			doneChan:      make(chan error, 1),
+			deadline:      rangeDeadline,
+			retired:       make(chan struct{}),
 		}
 		c.queue = append(c.queue, req)
 		c.inFlightBytes = saturatingAdd(c.inFlightBytes, expectedBytes)
@@ -905,16 +982,76 @@ func (c *Client) sendRequestRange(
 	defer func() {
 		c.rangeSendToken <- struct{}{}
 	}()
-	err := proto.SendMessageContext(ctx, NewMsgRequestRange(start, end))
+	err := proto.SendMessageContext(
+		rangeCtx,
+		NewMsgRequestRange(start, end),
+	)
 	if err != nil {
 		// The request never reached the wire, so it can be removed without
 		// disturbing the position of any other entry.
 		c.queueMutex.Lock()
 		c.removeLocked(req)
 		c.queueMutex.Unlock()
-		return nil, err
+		return nil, c.rangeAdmissionError(ctx, err)
 	}
+	go c.watchRangeDeadline(req)
 	return req, nil
+}
+
+func (c *Client) rangeAdmissionError(ctx context.Context, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		return fmt.Errorf(
+			"%w after %s",
+			ErrRangeTimeout,
+			c.rangeTimeout(),
+		)
+	}
+	return err
+}
+
+func (c *Client) watchRangeDeadline(req *rangeRequest) {
+	timer := time.NewTimer(time.Until(req.deadline))
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		err := fmt.Errorf(
+			"%w for request %d after %s",
+			ErrRangeTimeout,
+			req.id,
+			c.rangeTimeout(),
+		)
+		c.queueMutex.Lock()
+		pending := make([]*rangeRequest, 0)
+		found := false
+		for _, queued := range c.queue {
+			if queued.protocol == req.protocol {
+				pending = append(pending, queued)
+			}
+			found = found || queued == req
+		}
+		if !found {
+			c.queueMutex.Unlock()
+			return
+		}
+		for _, queued := range pending {
+			c.removeLocked(queued)
+		}
+		c.queueMutex.Unlock()
+		// Remove the requests before stopping the protocol so its shutdown
+		// watcher cannot replace the specific deadline failure with a generic
+		// shutdown error.
+		req.protocol.SendError(err)
+		// Protocol shutdown interrupts a handler blocked on pipeline admission.
+		// Wait for a handler that already claimed this request before exposing
+		// terminal completion to its caller.
+		req.deliveryMu.Lock()
+		req.deliveryMu.Unlock()
+		for _, queued := range pending {
+			_ = c.resolve(queued, err)
+		}
+	case <-req.retired:
+	case <-req.protocol.DoneChan():
+	}
 }
 
 // waitForBatchStart waits for the peer to accept a request, for the
@@ -1020,6 +1157,9 @@ func (c *Client) drainLocked() []*rangeRequest {
 func (c *Client) resolve(req *rangeRequest, err error) error {
 	var callbackErr error
 	req.resolveOnce.Do(func() {
+		if req.retired != nil {
+			close(req.retired)
+		}
 		if err != nil {
 			// Release a caller that is still waiting for the batch to start.
 			select {
@@ -1210,6 +1350,15 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 		c.queueMutex.Unlock()
 		return err
 	}
+	if err := req.chargeBlock(
+		time.Now(),
+		uint64(len(msg.Cbor())),
+		c.maxBlocksPerRange(),
+		c.maxRangeBytes(),
+	); err != nil {
+		c.queueMutex.Unlock()
+		return c.failRequest(req, err)
+	}
 	if req.delivery == deliveryChannel {
 		if req.blockDelivered {
 			c.queueMutex.Unlock()
@@ -1221,7 +1370,9 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 		}
 		req.blockDelivered = true
 	}
+	req.deliveryMu.Lock()
 	c.queueMutex.Unlock()
+	defer req.deliveryMu.Unlock()
 	// Decode the wrapper and block header before delivering anything. The
 	// response point must be correlated with the requested range; otherwise a
 	// peer can inject an unrelated block into a valid batch.
@@ -1321,7 +1472,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	if c.config.Pipeline != nil && req.delivery == deliveryCallback {
 		// Check for shutdown
 		select {
-		case <-c.DoneChan():
+		case <-req.protocol.StopChan():
 			return c.failRequest(req, protocol.ErrProtocolShuttingDown)
 		default:
 		}
@@ -1333,7 +1484,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
 			select {
-			case <-c.DoneChan():
+			case <-req.protocol.StopChan():
 				cancel()
 			case <-ctx.Done():
 			}
@@ -1352,7 +1503,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	}
 	// Check for shutdown
 	select {
-	case <-c.DoneChan():
+	case <-req.protocol.StopChan():
 		return c.failRequest(req, protocol.ErrProtocolShuttingDown)
 	default:
 	}
