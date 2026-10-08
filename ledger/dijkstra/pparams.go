@@ -79,6 +79,13 @@ func copyRewardRat(value *cbor.Rat) *big.Rat {
 	return new(big.Rat).Set(value.Rat)
 }
 
+func copyRat(value *cbor.Rat) *cbor.Rat {
+	if value == nil || value.Rat == nil {
+		return nil
+	}
+	return &cbor.Rat{Rat: new(big.Rat).Set(value.Rat)}
+}
+
 var _ common.CommitteeMaxTermLengthProvider = (*DijkstraProtocolParameters)(nil)
 
 // CommitteeMaxTermLength returns the configured committee term limit.
@@ -506,7 +513,7 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 		p.PerasMinCandidateBlockAge = *paramUpdate.PerasMinCandidateBlockAge
 	}
 	if paramUpdate.PerasHealingFactor != nil {
-		p.PerasHealingFactor = paramUpdate.PerasHealingFactor
+		p.PerasHealingFactor = copyRat(paramUpdate.PerasHealingFactor)
 	}
 	if paramUpdate.PerasCertBoost != nil {
 		p.PerasCertBoost = *paramUpdate.PerasCertBoost
@@ -515,10 +522,12 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 		p.PerasTargetCommitteeSize = *paramUpdate.PerasTargetCommitteeSize
 	}
 	if paramUpdate.PerasBootstrapRoundSet || paramUpdate.PerasBootstrapRound != nil {
-		p.PerasBootstrapRound = paramUpdate.PerasBootstrapRound
+		p.PerasBootstrapRound = copyUint32(paramUpdate.PerasBootstrapRound)
 	}
 	if paramUpdate.PerasQuorumThresholdSafetyMargin != nil {
-		p.PerasQuorumThresholdSafetyMargin = paramUpdate.PerasQuorumThresholdSafetyMargin
+		p.PerasQuorumThresholdSafetyMargin = copyRat(
+			paramUpdate.PerasQuorumThresholdSafetyMargin,
+		)
 	}
 	if paramUpdate.RefInputsCostPerMultiAssetPolicy != nil {
 		p.RefInputsCostPerMultiAssetPolicy = *paramUpdate.RefInputsCostPerMultiAssetPolicy

@@ -2874,6 +2874,7 @@ func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(t
 	require.Equal(t, uint32(13), *params.PerasBootstrapRound)
 	require.Equal(t, uint64(14), params.RefInputsCostPerMultiAssetPolicy)
 
+	update.SetCbor(nil)
 	reencoded, err := update.MarshalCBOR()
 	require.NoError(t, err)
 	var fields map[uint]cbor.RawMessage
@@ -2893,6 +2894,16 @@ func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(t
 		{data.NewInteger(big.NewInt(56)), data.NewInteger(big.NewInt(15))},
 	})
 	require.True(t, update.ToPlutusData().Equal(wantPlutus))
+	update.PerasHealingFactor.SetInt64(99)
+	require.Equal(t, big.NewRat(3, 2), params.PerasHealingFactor.Rat)
+	update.PerasQuorumThresholdSafetyMargin.SetInt64(99)
+	require.Equal(
+		t,
+		big.NewRat(1, 4),
+		params.PerasQuorumThresholdSafetyMargin.Rat,
+	)
+	*update.PerasBootstrapRound = 99
+	require.Equal(t, uint32(13), *params.PerasBootstrapRound)
 }
 
 func TestDijkstraProtocolParameterUpdateClearsPerasBootstrapRound(t *testing.T) {
@@ -2945,12 +2956,23 @@ func TestDijkstraProtocolParameterUpdateRejectsGenesisOnlyLeiosFields(
 	}
 }
 
+func dijkstraGenesisWithRequiredPerasIntervals() DijkstraGenesis {
+	return DijkstraGenesis{
+		PerasHealingFactor: &common.GenesisRat{Rat: big.NewRat(1, 1)},
+		PerasQuorumThresholdSafetyMargin: &common.GenesisRat{
+			Rat: big.NewRat(0, 1),
+		},
+	}
+}
+
 func TestDijkstraGenesisDecodesCurrentDevnetExample(t *testing.T) {
 	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
   "maxRefScriptSizePerBlock": 1048576,
   "maxRefScriptSizePerTx": 204800,
   "refScriptCostStride": 25600,
-  "refScriptCostMultiplier": 1.2
+  "refScriptCostMultiplier": 1.2,
+  "perasHealingFactor": 1,
+  "perasQuorumThresholdSafetyMargin": 0
 }`))
 	require.NoError(t, err)
 	require.Equal(t, uint32(1048576), genesis.MaxRefScriptSizePerBlock)
@@ -2969,7 +2991,9 @@ func TestDijkstraGenesisDecodesCurrentDevnetExample(t *testing.T) {
 func TestDijkstraGenesisLeiosStakeParameters(t *testing.T) {
 	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
   "committeeStakeCoverage": 0.99,
-  "quorumStakeThreshold": 0.75
+  "quorumStakeThreshold": 0.75,
+  "perasHealingFactor": 1,
+  "perasQuorumThresholdSafetyMargin": 0
 }`))
 	require.NoError(t, err)
 
@@ -2998,7 +3022,9 @@ func TestDijkstraGenesisDecodesLeiosProtocolParameters(t *testing.T) {
   "maxEndorserBlockReferencesSize": 500000,
   "maxEndorserBlockTxsSize": 12000000,
   "maxEndorserBlockExecutionUnits": {"memory": 123, "steps": 456},
-  "maxRefScriptSizePerEndorserBlock": 1048576
+  "maxRefScriptSizePerEndorserBlock": 1048576,
+  "perasHealingFactor": 1,
+  "perasQuorumThresholdSafetyMargin": 0
 }`))
 	require.NoError(t, err)
 
@@ -3043,7 +3069,8 @@ func TestDijkstraGenesisDecodesPerasAndReferenceInputParameters(t *testing.T) {
 
 func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {
 	var pparams DijkstraProtocolParameters
-	require.NoError(t, pparams.UpdateFromGenesis(&DijkstraGenesis{}))
+	genesis := dijkstraGenesisWithRequiredPerasIntervals()
+	require.NoError(t, pparams.UpdateFromGenesis(&genesis))
 	require.Equal(
 		t,
 		uint32(conway.RefScriptCostStride),
@@ -3060,7 +3087,9 @@ func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {
 func TestDijkstraGenesisRejectsInvalidLeiosStakeParameters(t *testing.T) {
 	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
   "committeeStakeCoverage": 0.75,
-  "quorumStakeThreshold": 0.75
+  "quorumStakeThreshold": 0.75,
+  "perasHealingFactor": 1,
+  "perasQuorumThresholdSafetyMargin": 0
 }`))
 	require.NoError(t, err)
 
@@ -3078,27 +3107,27 @@ func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
 	}{
 		{
 			name:         "valid reward parameters",
-			genesis:      `{"maxPledgeLeverage": 3.5, "minPoolMargin": 0.1}`,
+			genesis:      `{"maxPledgeLeverage": 3.5, "minPoolMargin": 0.1, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantLeverage: big.NewRat(7, 2),
 		},
 		{
 			name:         "zero max pledge leverage",
-			genesis:      `{"maxPledgeLeverage": 0, "minPoolMargin": 0.1}`,
+			genesis:      `{"maxPledgeLeverage": 0, "minPoolMargin": 0.1, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantLeverage: big.NewRat(0, 1),
 		},
 		{
 			name:         "fractional max pledge leverage",
-			genesis:      `{"maxPledgeLeverage": 0.25, "minPoolMargin": 0.1}`,
+			genesis:      `{"maxPledgeLeverage": 0.25, "minPoolMargin": 0.1, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantLeverage: big.NewRat(1, 4),
 		},
 		{
 			name:    "negative max pledge leverage",
-			genesis: `{"maxPledgeLeverage": -1, "maxRefScriptSizePerBlock": 123}`,
+			genesis: `{"maxPledgeLeverage": -1, "maxRefScriptSizePerBlock": 123, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantErr: true,
 		},
 		{
 			name:    "min pool margin above one",
-			genesis: `{"minPoolMargin": 1.1, "maxRefScriptSizePerBlock": 123}`,
+			genesis: `{"minPoolMargin": 1.1, "maxRefScriptSizePerBlock": 123, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantErr: true,
 		},
 	} {
@@ -3126,8 +3155,10 @@ func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
 
 func TestDijkstraGenesisRejectsInvalidPerasParametersAtomically(t *testing.T) {
 	for _, input := range []string{
-		`{"perasHealingFactor": 0, "perasMinCandidateBlockAge": 99}`,
-		`{"perasQuorumThresholdSafetyMargin": 1.1, "perasMinCandidateBlockAge": 99}`,
+		`{"perasHealingFactor": 0, "perasQuorumThresholdSafetyMargin": 0, "perasMinCandidateBlockAge": 99}`,
+		`{"perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 1.1, "perasMinCandidateBlockAge": 99}`,
+		`{"perasQuorumThresholdSafetyMargin": 0, "perasMinCandidateBlockAge": 99}`,
+		`{"perasHealingFactor": 1, "perasMinCandidateBlockAge": 99}`,
 	} {
 		genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(input))
 		require.NoError(t, err)
@@ -3305,9 +3336,10 @@ func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(
 // side afterwards does not change the other.
 func TestDijkstraUpdateFromGenesis_PlutusV4CostModelNotAliased(t *testing.T) {
 	v4 := []int64{1, 2, 3}
-	genesis := &DijkstraGenesis{PlutusV4CostModel: v4}
+	genesis := dijkstraGenesisWithRequiredPerasIntervals()
+	genesis.PlutusV4CostModel = v4
 	var params DijkstraProtocolParameters
-	require.NoError(t, params.UpdateFromGenesis(genesis))
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
 
 	live, ok := params.CostModels[3]
 	if !ok {

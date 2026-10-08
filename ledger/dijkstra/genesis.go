@@ -101,7 +101,7 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	); err != nil {
 		return err
 	}
-	if err := validateDijkstraPerasParameterDomains(
+	if err := validateDijkstraCurrentPerasParameterDomains(
 		perasHealingFactor,
 		perasQuorumThresholdSafetyMargin,
 	); err != nil {
