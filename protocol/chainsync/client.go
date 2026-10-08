@@ -207,6 +207,20 @@ func (c *Client) initProtocol() {
 	c.protocolMu.Unlock()
 }
 
+func (c *Client) startPipelineStopWatcher(p *protocol.Protocol) {
+	if c.config.Pipeline != nil {
+		fenceCtx := c.awaitReplyCtx
+		fenceCancel := c.awaitReplyCancel
+		go func() {
+			select {
+			case <-p.StopChan():
+				fenceCancel()
+			case <-fenceCtx.Done():
+			}
+		}()
+	}
+}
+
 func (c *Client) ProtocolInstance() *protocol.Protocol {
 	c.protocolMu.RLock()
 	defer c.protocolMu.RUnlock()
@@ -329,6 +343,7 @@ func (c *Client) Start() {
 				return
 			}
 			proto.Start()
+			c.startPipelineStopWatcher(proto)
 			c.protocolStarted = true
 			c.lifecycleState = clientStateRunning
 			if c.startingDone == ch {
@@ -1177,20 +1192,16 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		// NOTE: RollBackward handling coordinates with the pipeline via WaitForDrain()
 		// to ensure pending blocks are processed before the rollback callback runs.
 		if c.config.Pipeline != nil && firstBlockChan == nil {
-			// Create a context that cancels when the protocol shuts down.
-			// This prevents Submit from blocking indefinitely if the pipeline is
-			// full (backpressure) and DoneChan fires before pipeline.Stop().
-			ctx, cancel := context.WithCancel(context.Background())
-			go func() {
-				select {
-				case <-c.DoneChan():
-					cancel()
-				case <-ctx.Done():
-				}
-			}()
-			err := c.config.Pipeline.Submit(ctx, msg.BlockType(), msg.BlockCbor(), msg.Tip)
+			c.lifecycleMutex.Lock()
+			fenceCtx := c.awaitReplyCtx
+			c.lifecycleMutex.Unlock()
+			err := c.config.Pipeline.Submit(
+				fenceCtx,
+				msg.BlockType(),
+				msg.BlockCbor(),
+				msg.Tip,
+			)
 			if err != nil {
-				cancel()
 				// Signal syncLoop to stop on pipeline error
 				c.lifecycleMutex.Lock()
 				if c.readyForNextBlockChan != nil {
@@ -1200,12 +1211,11 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 					}
 				}
 				c.lifecycleMutex.Unlock()
-				return err
+				return c.handlePipelineFenceError(fenceCtx, err)
 			}
 			// Do not advance ChainSync until the ordered validation and apply
 			// boundary accepts this block.
-			err = c.config.Pipeline.Fence(ctx)
-			cancel()
+			err = c.config.Pipeline.Fence(fenceCtx)
 			if err != nil {
 				c.lifecycleMutex.Lock()
 				if c.readyForNextBlockChan != nil {
@@ -1215,7 +1225,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 					}
 				}
 				c.lifecycleMutex.Unlock()
-				return err
+				return c.handlePipelineFenceError(fenceCtx, err)
 			}
 			// Signal ready only after ordered acceptance.
 			c.lifecycleMutex.Lock()

@@ -15,10 +15,20 @@
 package pipeline
 
 import (
+	"context"
 	"runtime"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
+
+// BlockTypeResolver resolves the exact block type that is active for a signed
+// header. The input is the preserved header CBOR and does not include the
+// untrusted wire discriminator. Decode workers may call the resolver
+// concurrently and out of submission order, before earlier blocks reach
+// ApplyFunc. Implementations must be concurrency-safe and resolve from an
+// immutable or atomically read hard-fork schedule keyed by the signed header;
+// they must not depend on state changes from earlier in-flight blocks.
+type BlockTypeResolver func(context.Context, []byte) (uint, error)
 
 // DefaultMaxPendingBlocks is the default limit for out-of-order blocks buffered
 // in the apply stage. This matches the Cardano security parameter (k=2160) which
@@ -47,6 +57,9 @@ type PipelineConfig struct {
 	SlotsPerKesPeriod uint64
 	// VerifyConfig contains verification options.
 	VerifyConfig common.VerifyConfig
+	// BlockTypeResolver binds a signed header to the authoritative active era
+	// before an era-specific decoder is selected.
+	BlockTypeResolver BlockTypeResolver
 	// ChainContextValidator validates each decoded block against authoritative
 	// chain state immediately before ordered application.
 	ChainContextValidator ChainContextValidator
@@ -62,9 +75,11 @@ type PipelineConfig struct {
 	TrustedDecodeOnly bool
 }
 
-// DefaultPipelineConfig returns a PipelineConfig with sensible defaults.
-// A caller must configure validation and authoritative chain context, or opt
-// into trusted decode-only mode.
+// DefaultPipelineConfig returns a PipelineConfig with sensible sizing defaults.
+// Normal processing also requires nonzero validation workers and
+// SlotsPerKesPeriod, plus BlockTypeResolver, Eta0Provider,
+// ChainContextValidator, and ApplyFunc. Callers that only decode trusted
+// persisted data must opt into trusted decode-only mode instead.
 func DefaultPipelineConfig() PipelineConfig {
 	numCPU := runtime.NumCPU()
 
@@ -89,9 +104,18 @@ func WithTrustedDecodeOnly() PipelineOption {
 	}
 }
 
+// WithBlockTypeResolver sets the authoritative resolver used before typed
+// block decoding. It must derive the active block type from the signed header
+// and trusted hard-fork state.
+func WithBlockTypeResolver(resolver BlockTypeResolver) PipelineOption {
+	return func(c *PipelineConfig) {
+		c.BlockTypeResolver = resolver
+	}
+}
+
 // WithChainContextValidator sets the authoritative validator run in sequence
-// immediately before ApplyFunc. The validator must bind the wire block type
-// to the active era and validate linkage and consensus state.
+// immediately before ApplyFunc. The validator checks linkage and consensus
+// state after BlockTypeResolver has bound the signed header to the active era.
 func WithChainContextValidator(validator ChainContextValidator) PipelineOption {
 	return func(c *PipelineConfig) {
 		c.ChainContextValidator = validator

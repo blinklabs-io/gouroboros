@@ -421,7 +421,8 @@ err = ts.SubmitTx(txCbor)
 
 ```
 1. Network receives the hard-fork envelope type and block bytes
-2. Authoritative chain context confirms that the envelope type is active
+2. `BlockTypeResolver` reads the preserved signed header and confirms that the
+   envelope type is the authoritative active era
 3. NewBlockFromCbor(envelopeType, bytes) -> Block
 4. Extract components:
    |- BlockHeader (VRF, KES, slot)
@@ -438,14 +439,16 @@ err = ts.SubmitTx(txCbor)
    |- Validate UTxO consumption
    |- Execute supported Plutus scripts
    |- Process certificates
-7. Update ledger state
+7. `ChainContextValidator` checks ordered linkage and consensus state
+8. `ApplyFunc` atomically updates ledger state
 ```
 
 `VerifyBlock()` and `pipeline.ValidateStage` are block-local validation helpers,
 not complete consensus gates. They do not receive the previous header, active
 stake distribution, active slot coefficient, max KES evolutions, or operational
 certificate sequence state. Production chain validation must combine these
-checks with chain-context consensus validation before accepting a block.
+checks with pre-decode block-type resolution and ordered chain-context
+consensus validation before accepting a block.
 
 `VerifyBlock()` takes the ledger state before the block and validates each
 transaction against it plus the effects of the transactions before it in the
@@ -500,9 +503,14 @@ Usage:
 pipeline := pipeline.NewBlockPipeline(
     pipeline.WithDecodeWorkers(4),
     pipeline.WithValidateWorkers(2),
+    pipeline.WithBlockTypeResolver(resolveBlockType),
+    pipeline.WithEta0Provider(eta0Provider),
+    pipeline.WithSlotsPerKesPeriod(slotsPerKesPeriod),
+    pipeline.WithChainContextValidator(validateChainContext),
+    pipeline.WithApplyFunc(applyBlock),
 )
-pipeline.Start(ctx)
-pipeline.Submit(blockItem)
+if err := pipeline.Start(ctx); err != nil { ... }
+if err := pipeline.Submit(ctx, blockType, rawBlock, tip); err != nil { ... }
 for result := range pipeline.Results() { ... }
 ```
 

@@ -56,6 +56,25 @@ func validatingTestVerifyConfig(t *testing.T) common.VerifyConfig {
 	return config
 }
 
+func resolveTestBlockType(_ context.Context, headerCbor []byte) (uint, error) {
+	blockType, err := ledger.DetermineBlockType(headerCbor)
+	if err == nil {
+		return blockType, nil
+	}
+	var ambiguous *ledger.AmbiguousBlockTypeError
+	if !errors.As(err, &ambiguous) {
+		return 0, err
+	}
+	switch ambiguous.HeaderBodyLength {
+	case ledger.HeaderBodyLengthShelleyLike:
+		return uint(ledger.BlockTypeShelley), nil
+	case ledger.HeaderBodyLengthBabbageLike:
+		return uint(ledger.BlockTypeConway), nil
+	default:
+		return 0, err
+	}
+}
+
 func validatedTestPipelineOptions(
 	t *testing.T,
 	apply ApplyFunc,
@@ -64,6 +83,7 @@ func validatedTestPipelineOptions(
 	return []PipelineOption{
 		WithDecodeWorkers(1),
 		WithValidateWorkers(1),
+		WithBlockTypeResolver(resolveTestBlockType),
 		WithChainContextValidator(acceptTestChainContext),
 		WithEta0Provider(StaticEta0Provider(shelleyBlockEta0)),
 		WithSlotsPerKesPeriod(129600),
@@ -950,7 +970,9 @@ func TestApplyStage_NoRequireValidation_AppliesUnvalidatedItems(t *testing.T) {
 func TestBlockPipeline_Start_WiresRequireValidation(t *testing.T) {
 	// Validation enabled -> apply stage must require validated items
 	p := NewBlockPipeline(WithValidateWorkers(1),
+		WithBlockTypeResolver(resolveTestBlockType),
 		WithChainContextValidator(acceptTestChainContext), WithEta0("00"),
+		WithSlotsPerKesPeriod(1),
 		WithApplyFunc(func(*BlockItem) error { return nil }))
 	require.NoError(t, p.Start(context.Background()))
 	defer p.Stop()
@@ -1222,6 +1244,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	config.MaxPendingBlocks = 3
 	config.Eta0Provider = StaticEta0Provider(shelleyBlockEta0)
 	config.SlotsPerKesPeriod = 129600
+	config.BlockTypeResolver = resolveTestBlockType
 	config.ChainContextValidator = acceptTestChainContext
 	config.VerifyConfig = validatingTestVerifyConfig(t)
 	var appliedSequences []uint64
@@ -1402,6 +1425,7 @@ func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
 	p := NewBlockPipeline(
 		WithDecodeWorkers(1),
 		WithValidateWorkers(1),
+		WithBlockTypeResolver(resolveTestBlockType),
 		WithChainContextValidator(acceptTestChainContext),
 		WithApplyFunc(func(*BlockItem) error { return nil }),
 		WithEta0Provider(func(uint64) (string, error) {
@@ -1474,6 +1498,7 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 	p := NewBlockPipeline(
 		WithDecodeWorkers(3),
 		WithValidateWorkers(3),
+		WithBlockTypeResolver(resolveTestBlockType),
 		WithChainContextValidator(acceptTestChainContext),
 		WithApplyFunc(func(*BlockItem) error { return nil }),
 		WithPrefetchBufferSize(4),
@@ -2092,6 +2117,7 @@ func TestBlockPipeline_StartStop(t *testing.T) {
 	// Create pipeline with proper configuration
 	p := NewBlockPipeline(
 		WithValidateWorkers(1),
+		WithBlockTypeResolver(resolveTestBlockType),
 		WithChainContextValidator(acceptTestChainContext),
 		WithEta0Provider(
 			StaticEta0Provider(
@@ -2686,6 +2712,7 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 	for iteration := range 100 {
 		p := NewBlockPipeline(
 			WithValidateWorkers(1),
+			WithBlockTypeResolver(resolveTestBlockType),
 			WithChainContextValidator(acceptTestChainContext),
 			WithEta0Provider(
 				StaticEta0Provider(
@@ -3012,6 +3039,7 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	// Using dummy Eta0 will cause validation to fail, which is expected
 	pipeline := NewBlockPipeline(
 		WithValidateWorkers(1),
+		WithBlockTypeResolver(resolveTestBlockType),
 		WithChainContextValidator(acceptTestChainContext),
 		WithEta0Provider(
 			StaticEta0Provider(

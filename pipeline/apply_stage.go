@@ -215,6 +215,14 @@ func (s *ApplyStage) maybeApply(ctx context.Context, item *BlockItem) error {
 	if s.trustedDecodeOnly {
 		return nil
 	}
+	s.mu.Lock()
+	s.inFlight++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.inFlight--
+		s.mu.Unlock()
+	}()
 	if s.chainContextValidator == nil {
 		return fmt.Errorf(
 			"%w: %w",
@@ -238,15 +246,6 @@ func (s *ApplyStage) applyItem(ctx context.Context, item *BlockItem) error {
 		return ctx.Err()
 	default:
 	}
-
-	s.mu.Lock()
-	s.inFlight++
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		s.inFlight--
-		s.mu.Unlock()
-	}()
 
 	start := time.Now()
 	err := s.callApplyFunc(item)

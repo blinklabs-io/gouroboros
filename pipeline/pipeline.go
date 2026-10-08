@@ -37,6 +37,18 @@ var ErrMissingEta0Provider = errors.New(
 	"pipeline: validation enabled but Eta0Provider not configured",
 )
 
+// ErrMissingBlockTypeResolver is returned when normal processing cannot bind
+// a signed block header to the authoritative active era before typed decode.
+var ErrMissingBlockTypeResolver = errors.New(
+	"pipeline: block type resolver not configured",
+)
+
+// ErrInvalidSlotsPerKesPeriod is returned when validation cannot calculate a
+// KES period because its configured slot interval is zero.
+var ErrInvalidSlotsPerKesPeriod = errors.New(
+	"pipeline: SlotsPerKesPeriod must be greater than zero",
+)
+
 // ErrMissingChainContextValidator is returned when ordered application lacks
 // an authoritative chain-context validator.
 var ErrMissingChainContextValidator = errors.New(
@@ -71,6 +83,12 @@ var ErrTrustedDecodeOnlyValidation = errors.New(
 // is combined with a chain-context validator.
 var ErrTrustedDecodeOnlyChainContext = errors.New(
 	"pipeline: trusted decode-only mode cannot validate chain context",
+)
+
+// ErrTrustedDecodeOnlyBlockTypeResolver is returned when trusted decode-only
+// mode is combined with an authoritative block type resolver.
+var ErrTrustedDecodeOnlyBlockTypeResolver = errors.New(
+	"pipeline: trusted decode-only mode cannot resolve authoritative block types",
 )
 
 // TrustedDecodeOnlyChainContextError identifies an invalid trusted decode-only
@@ -307,6 +325,9 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		if p.config.ChainContextValidator != nil {
 			return &TrustedDecodeOnlyChainContextError{}
 		}
+		if p.config.BlockTypeResolver != nil {
+			return ErrTrustedDecodeOnlyBlockTypeResolver
+		}
 	} else {
 		if !validationEnabled {
 			return ErrBlockValidationRequired
@@ -326,6 +347,12 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		if flag := validationBypassFlag(p.config.VerifyConfig); flag != "" {
 			return &ValidationBypassError{Flag: flag}
 		}
+		if p.config.SlotsPerKesPeriod == 0 {
+			return ErrInvalidSlotsPerKesPeriod
+		}
+		if p.config.BlockTypeResolver == nil {
+			return ErrMissingBlockTypeResolver
+		}
 	}
 
 	// Create cancellable context
@@ -340,6 +367,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 
 	// Create decode stage
 	p.decodeStage = NewDecodeStage(p.config.SkipBodyHashValidation)
+	p.decodeStage.SetBlockTypeResolver(p.config.BlockTypeResolver)
 	p.applyStage = NewApplyStage(p.config.ApplyFunc, p.config.MaxPendingBlocks)
 	p.applyStage.SetChainContextValidator(p.config.ChainContextValidator)
 	p.applyStage.setTrustedDecodeOnly(trustedDecodeOnly)
@@ -474,7 +502,7 @@ func (p *BlockPipeline) Submit(
 	// Check stopping under the gate to ensure we don't race with Stop. This
 	// follows the context checks so caller cancellation keeps precedence.
 	if p.stopping.Load() || p.stopped.Load() {
-		return ErrPipelineStopped
+		return p.stoppedError()
 	}
 	if p.testSubmitReady != nil {
 		p.testSubmitReady()
@@ -509,7 +537,7 @@ func (p *BlockPipeline) Fence(ctx context.Context) error {
 	}
 	if p.stopping.Load() || p.stopped.Load() {
 		p.unlockSubmit()
-		return ErrPipelineStopped
+		return p.stoppedError()
 	}
 	target := p.sequenceCounter.Load()
 	p.unlockSubmit()

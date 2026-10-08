@@ -15,10 +15,12 @@
 package ledger
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"reflect"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -27,6 +29,33 @@ type (
 	Block       = common.Block
 	BlockHeader = common.BlockHeader
 )
+
+// ExtractBlockHeaderCbor returns a copy of the block's original header CBOR
+// without selecting an era-specific block decoder. Every supported Cardano
+// block encoding places its header first in a definite-length outer array.
+func ExtractBlockHeaderCbor(data []byte) ([]byte, error) {
+	decoder, err := cbor.NewStreamDecoder(data)
+	if err != nil {
+		return nil, fmt.Errorf("create block decoder: %w", err)
+	}
+	fieldCount, _, _, err := decoder.DecodeArrayHeader()
+	if err != nil {
+		return nil, fmt.Errorf("decode block array: %w", err)
+	}
+	if fieldCount == 0 {
+		return nil, errors.New("block has no header")
+	}
+	// Current Byron through Dijkstra blocks contain at most seven outer
+	// fields. Rejecting larger arrays keeps this pre-decode boundary bounded.
+	if fieldCount > 7 {
+		return nil, fmt.Errorf("block has %d fields, expected at most 7", fieldCount)
+	}
+	offset, length, err := decoder.Skip()
+	if err != nil {
+		return nil, fmt.Errorf("decode block header: %w", err)
+	}
+	return bytes.Clone(decoder.RawBytes(offset, length)), nil
+}
 
 func NewBlockFromCbor(
 	blockType uint,

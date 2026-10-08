@@ -45,6 +45,11 @@ func validatedPipelineOptions(
 	return []pipeline.PipelineOption{
 		pipeline.WithDecodeWorkers(1),
 		pipeline.WithValidateWorkers(1),
+		pipeline.WithBlockTypeResolver(
+			func(context.Context, []byte) (uint, error) {
+				return chainSyncShelleyBlock(t).BlockType, nil
+			},
+		),
 		pipeline.WithEta0(chainSyncTestShelleyEta0),
 		pipeline.WithSlotsPerKesPeriod(129600),
 		pipeline.WithVerifyConfig(verifyConfig),
@@ -354,6 +359,77 @@ func TestRollForwardReturnsOrderedValidationFailure(t *testing.T) {
 		pipeline.ErrChainContextValidation,
 	)
 	require.False(t, applyCalled)
+}
+
+func TestRollForwardFenceStopsWithClientLifecycle(t *testing.T) {
+	for _, protocolStop := range []bool{false, true} {
+		name := "client lifecycle"
+		if protocolStop {
+			name = "protocol stop"
+		}
+		t.Run(name, func(t *testing.T) {
+			applyStarted := make(chan struct{})
+			releaseApply := make(chan struct{})
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(releaseApply) }) }
+			p := pipeline.NewBlockPipeline(validatedPipelineOptions(t,
+				func(*pipeline.BlockItem) error {
+					close(applyStarted)
+					<-releaseApply
+					return nil
+				},
+			)...)
+			require.NoError(t, p.Start(context.Background()))
+			t.Cleanup(func() {
+				release()
+				require.NoError(t, p.Stop())
+			})
+			client := NewClient(
+				protocol.ProtocolOptions{
+					ConnectionId: testConnectionId(),
+					Mode:         protocol.ProtocolModeNodeToClient,
+				},
+				&Config{
+					Pipeline: p,
+					RollForwardFunc: func(CallbackContext, uint, any, Tip) error {
+						return nil
+					},
+				},
+			)
+			shelley := chainSyncShelleyBlock(t)
+			rollForward, err := NewMsgRollForwardNtC(
+				shelley.BlockType,
+				shelley.Cbor,
+				Tip{},
+			)
+			require.NoError(t, err)
+			done := make(chan error, 1)
+			go func() { done <- client.handleRollForward(rollForward) }()
+			select {
+			case <-applyStarted:
+			case err := <-done:
+				t.Fatalf("RollForward failed before apply: %v", err)
+			case <-time.After(time.Second):
+				t.Fatal("pipeline apply did not start")
+			}
+			if protocolStop {
+				proto := client.ProtocolInstance()
+				client.startPipelineStopWatcher(proto)
+				proto.Stop()
+			} else {
+				client.lifecycleMutex.Lock()
+				client.lifecycleState = clientStateStopping
+				client.awaitReplyCancel()
+				client.lifecycleMutex.Unlock()
+			}
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				t.Fatal("shutdown did not unblock RollForward fence")
+			}
+		})
+	}
 }
 
 func newBlockedApplyPipeline(t *testing.T) *pipeline.BlockPipeline {

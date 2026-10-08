@@ -148,6 +148,8 @@ type Client struct {
 	startingDone    chan struct{}
 	protoOptions    protocol.ProtocolOptions
 	protoStarted    bool // Whether Protocol.Start() was called
+	pipelineCtx     context.Context
+	pipelineCancel  context.CancelFunc
 	// queueMutex protects the outstanding request queue and the in-flight
 	// byte accounting.
 	queueMutex    sync.Mutex
@@ -168,6 +170,9 @@ type Client struct {
 	// reservation are already atomic by construction, sharing one queueMutex
 	// hold, so no hook placed between them could observe anything.
 	beforeRequestAdmission func()
+	// testBatchFence synchronizes tests after BatchDone validates the request and
+	// immediately before it waits for ordered pipeline completion.
+	testBatchFence func()
 	// beforeInFlightWait is a test synchronization point immediately before a
 	// pipelined caller parks on the in-flight byte bound. The park is
 	// otherwise unobservable, and the ordering it establishes is what proves
@@ -198,6 +203,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 }
 
 func (c *Client) initProtocol() {
+	if c.pipelineCancel != nil {
+		c.pipelineCancel()
+	}
+	c.pipelineCtx, c.pipelineCancel = context.WithCancel(context.Background())
 	c.protoStarted = false
 	stateMap := c.protocolStateMap()
 	// Configure underlying Protocol
@@ -222,6 +231,20 @@ func (c *Client) initProtocol() {
 	c.protocolMu.Lock()
 	c.Protocol = p
 	c.protocolMu.Unlock()
+}
+
+func (c *Client) startPipelineStopWatcher(p *protocol.Protocol) {
+	if c.config.Pipeline != nil {
+		pipelineCtx := c.pipelineCtx
+		pipelineCancel := c.pipelineCancel
+		go func() {
+			select {
+			case <-p.StopChan():
+				pipelineCancel()
+			case <-pipelineCtx.Done():
+			}
+		}()
+	}
 }
 
 func (c *Client) protocolStateMap() protocol.StateMap {
@@ -382,6 +405,7 @@ func (c *Client) Start() {
 				)
 			proto := c.ProtocolInstance()
 			proto.Start()
+			c.startPipelineStopWatcher(proto)
 			c.protoStarted = true
 			c.lifecycleState = clientStateRunning
 			// Resolve any request left outstanding when the protocol shuts
@@ -425,13 +449,21 @@ func (c *Client) Stop() error {
 	defer c.lifecycleMutex.Unlock()
 
 	switch c.lifecycleState {
-	case clientStateNew, clientStateStopped:
+	case clientStateNew:
+		c.lifecycleState = clientStateStopped
+		c.pipelineCancel()
+		c.failOutstanding(protocol.ErrProtocolShuttingDown)
+		c.releaseCurrentBusy()
+		return nil
+	case clientStateStopped:
+		c.pipelineCancel()
 		c.failOutstanding(protocol.ErrProtocolShuttingDown)
 		c.releaseCurrentBusy()
 		return nil
 	case clientStateStarting:
 		// Mark as stopped so Start() will abort when it re-checks state
 		c.lifecycleState = clientStateStopped
+		c.pipelineCancel()
 		// Unblock Start() if it's waiting
 		if c.startingDone != nil {
 			close(c.startingDone)
@@ -443,6 +475,7 @@ func (c *Client) Stop() error {
 	case clientStateRunning:
 		// Continue with normal stop logic below
 	}
+	c.pipelineCancel()
 
 	c.Protocol.Logger().
 		Debug("stopping client protocol",
@@ -488,6 +521,19 @@ func (c *Client) Stop() error {
 		c.startingDone = nil
 	}
 	return sendErr
+}
+
+func (c *Client) pipelineContext() context.Context {
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+	return c.pipelineCtx
+}
+
+func (c *Client) pipelineError(ctx context.Context, err error) error {
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		return protocol.ErrProtocolShuttingDown
+	}
+	return err
 }
 
 // GetBlockRange starts an async process to fetch all blocks in the specified range (inclusive).
@@ -1232,14 +1278,20 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			fmt.Errorf("%s: decode error: %w", ProtocolName, err),
 		)
 	}
-	block, decodeErr := ledger.NewBlockFromCbor(
-		wrappedBlock.Type,
-		wrappedBlock.RawBlock,
-		lcommon.VerifyConfig{
-			SkipBodyHashValidation: c.config.SkipBlockValidation,
-		},
-	)
-	if decodeErr != nil {
+	pipelineDelivery := c.config.Pipeline != nil &&
+		req.delivery == deliveryCallback
+	var block ledger.Block
+	var decodeErr error
+	if !pipelineDelivery {
+		block, decodeErr = ledger.NewBlockFromCbor(
+			wrappedBlock.Type,
+			wrappedBlock.RawBlock,
+			lcommon.VerifyConfig{
+				SkipBodyHashValidation: c.config.SkipBlockValidation,
+			},
+		)
+	}
+	if !pipelineDelivery && decodeErr != nil {
 		// The era decoders return a typed nil pointer alongside their error
 		// (see conway.NewConwayBlockFromCbor), and an interface holding one
 		// is not itself nil, so a `block != nil` check would pass and every
@@ -1272,7 +1324,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	if decodeErr != nil && !rawFallback {
 		return c.failRequest(req, decodeErr)
 	}
-	if decodeErr == nil && block == nil {
+	if !pipelineDelivery && decodeErr == nil && block == nil {
 		// Not reachable through any current decoder, but the rest of this
 		// function hands the block to a consumer, so state the contract
 		// rather than relying on it.
@@ -1287,7 +1339,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	// type decoder rejects.
 	var blockPoint pcommon.Point
 	var prevHash []byte
-	if block != nil {
+	if !pipelineDelivery && block != nil {
 		slot, err := ledgerbyron.SlotNumberFromBlockHeader(
 			block.Header(),
 			c.config.ByronSlotsPerEpoch,
@@ -1302,7 +1354,10 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 		blockPrevHash := block.PrevHash()
 		prevHash = blockPrevHash.Bytes()
 	} else {
-		info, err := rawBlockHeaderInfoFromCbor(wrappedBlock.RawBlock)
+		info, err := rawBlockHeaderInfoFromCbor(
+			wrappedBlock.RawBlock,
+			c.config.ByronSlotsPerEpoch,
+		)
 		if err != nil {
 			return c.failRequest(req, errors.Join(decodeErr, err))
 		}
@@ -1318,26 +1373,9 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	// If pipeline is configured, submit to pipeline
 	// Only use pipeline if we are in callback mode (GetBlockRange, RequestRange),
 	// preserving GetBlock functionality.
-	if c.config.Pipeline != nil && req.delivery == deliveryCallback {
-		// Check for shutdown
-		select {
-		case <-c.DoneChan():
-			return c.failRequest(req, protocol.ErrProtocolShuttingDown)
-		default:
-		}
-
+	if pipelineDelivery {
 		tip := pcommon.Tip{} // BlockFetch doesn't provide tip
-		// Create a context that cancels when the protocol shuts down.
-		// This prevents Submit from blocking indefinitely if the pipeline is
-		// full (backpressure) and DoneChan fires before pipeline.Stop().
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			select {
-			case <-c.DoneChan():
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
+		ctx := c.pipelineContext()
 		err := c.config.Pipeline.Submit(
 			ctx,
 			wrappedBlock.Type,
@@ -1345,13 +1383,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			tip,
 		)
 		if err != nil {
-			cancel()
-			return c.failRequest(req, err)
-		}
-		err = c.config.Pipeline.Fence(ctx)
-		cancel()
-		if err != nil {
-			return c.failRequest(req, err)
+			return c.failRequest(req, c.pipelineError(ctx, err))
 		}
 		return nil
 	}
@@ -1523,6 +1555,17 @@ func (c *Client) handleBatchDone() error {
 			),
 		)
 	}
+	c.queueMutex.Unlock()
+	if c.config.Pipeline != nil && req.delivery == deliveryCallback {
+		ctx := c.pipelineContext()
+		if c.testBatchFence != nil {
+			c.testBatchFence()
+		}
+		if err := c.config.Pipeline.Fence(ctx); err != nil {
+			return c.failRequest(req, c.pipelineError(ctx, err))
+		}
+	}
+	c.queueMutex.Lock()
 	if !req.pipelined && req.delivery == deliveryCallback &&
 		c.config.BatchDoneFunc != nil {
 		req.batchDoneReported.Store(true)

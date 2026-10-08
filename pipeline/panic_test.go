@@ -205,8 +205,10 @@ func TestApplyFuncPanicBecomesApplyError(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, buffered)
 
-	processed, err := stage.ProcessWithStatus(ctx, newPanicTestItem(0))
+	item0 := newPanicTestItem(0)
+	processed, err := stage.ProcessWithStatus(ctx, item0)
 	require.ErrorIs(t, err, ErrPipelineItemRejected)
+	require.ErrorIs(t, item0.ApplyError(), ErrStagePanic)
 	require.Empty(t, processed)
 	require.Empty(t, applied)
 	require.Equal(t, 1, stage.PendingCount())

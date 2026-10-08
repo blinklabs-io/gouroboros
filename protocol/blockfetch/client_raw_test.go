@@ -329,6 +329,11 @@ func TestGetBlockRangePipelineStillFailsUndecodableBlock(t *testing.T) {
 	)
 	blockPipeline := pipeline.NewBlockPipeline(
 		pipeline.WithValidateWorkers(1),
+		pipeline.WithBlockTypeResolver(
+			func(context.Context, []byte) (uint, error) {
+				return ledger.BlockTypeConway, nil
+			},
+		),
 		pipeline.WithEta0(strings.Repeat("00", 32)),
 		pipeline.WithSlotsPerKesPeriod(129600),
 		pipeline.WithChainContextValidator(

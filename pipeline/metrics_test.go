@@ -315,6 +315,7 @@ func validatingPipelineOptions(
 	return []PipelineOption{
 		WithDecodeWorkers(2),
 		WithValidateWorkers(2),
+		WithBlockTypeResolver(resolveTestBlockType),
 		WithChainContextValidator(acceptTestChainContext),
 		WithEta0Provider(StaticEta0Provider(eta0)),
 		WithSlotsPerKesPeriod(129600),

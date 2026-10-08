@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -64,6 +65,27 @@ func TestBlockPipelineRequiresExplicitSourcePolicy(t *testing.T) {
 		require.ErrorIs(t, p.Start(t.Context()), ErrMissingApplyFunc)
 	})
 
+	t.Run("normal requires KES period", func(t *testing.T) {
+		p := NewBlockPipeline(
+			WithValidateWorkers(1),
+			WithEta0("00"),
+			WithChainContextValidator(acceptSecurityTestChainContext),
+			WithApplyFunc(func(*BlockItem) error { return nil }),
+		)
+		require.ErrorIs(t, p.Start(t.Context()), ErrInvalidSlotsPerKesPeriod)
+	})
+
+	t.Run("normal requires block type resolver", func(t *testing.T) {
+		p := NewBlockPipeline(
+			WithValidateWorkers(1),
+			WithEta0("00"),
+			WithSlotsPerKesPeriod(1),
+			WithChainContextValidator(acceptSecurityTestChainContext),
+			WithApplyFunc(func(*BlockItem) error { return nil }),
+		)
+		require.ErrorIs(t, p.Start(t.Context()), ErrMissingBlockTypeResolver)
+	})
+
 	t.Run("trusted mode is decode only", func(t *testing.T) {
 		p := NewBlockPipeline(
 			WithTrustedDecodeOnly(),
@@ -81,6 +103,18 @@ func TestBlockPipelineRequiresExplicitSourcePolicy(t *testing.T) {
 		require.ErrorIs(t, err, ErrTrustedDecodeOnlyChainContext)
 		var configErr *TrustedDecodeOnlyChainContextError
 		require.ErrorAs(t, err, &configErr)
+	})
+
+	t.Run("trusted mode rejects block type resolver", func(t *testing.T) {
+		p := NewBlockPipeline(
+			WithTrustedDecodeOnly(),
+			WithBlockTypeResolver(resolveTestBlockType),
+		)
+		require.ErrorIs(
+			t,
+			p.Start(t.Context()),
+			ErrTrustedDecodeOnlyBlockTypeResolver,
+		)
 	})
 }
 
@@ -153,6 +187,83 @@ func TestRealAdjacentEraHeadersRequireEnvelopeType(t *testing.T) {
 	}
 }
 
+func TestBlockTypeMismatchRejectedBeforeTypedDecodeAndValidation(t *testing.T) {
+	var allegra testdata.TestBlock
+	for _, fixture := range testdata.GetTestBlocks() {
+		if fixture.Name == "Allegra" {
+			allegra = fixture
+			break
+		}
+	}
+	require.NotEmpty(t, allegra.Cbor)
+	var blockFields []cbor.RawMessage
+	_, err := cbor.Decode(allegra.Cbor, &blockFields)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(blockFields), 2)
+	blockFields[1] = cbor.RawMessage{0x00}
+	malformedBodyBlock, err := cbor.Encode(blockFields)
+	require.NoError(t, err)
+	headerCbor, err := ledger.ExtractBlockHeaderCbor(malformedBodyBlock)
+	require.NoError(t, err)
+	require.Equal(t, []byte(blockFields[0]), headerCbor)
+	_, err = ledger.NewBlockFromCbor(
+		ledger.BlockTypeMary,
+		malformedBodyBlock,
+	)
+	require.Error(t, err, "the claimed typed decoder must reject the fixture")
+
+	resolver := func(context.Context, []byte) (uint, error) {
+		return uint(ledger.BlockTypeAllegra), nil
+	}
+	item := NewBlockItem(
+		uint(ledger.BlockTypeMary),
+		malformedBodyBlock,
+		createTestTip(1, 1),
+		0,
+	)
+	decodeStage := NewDecodeStage(false)
+	decodeStage.SetBlockTypeResolver(resolver)
+	err = decodeStage.Process(t.Context(), item)
+	require.ErrorIs(t, err, ErrBlockTypeMismatch)
+	require.Nil(t, item.Block(), "typed decoder must not run after a mismatch")
+
+	eta0Calls := 0
+	chainContextCalls := 0
+	applyCalls := 0
+	p := NewBlockPipeline(
+		WithDecodeWorkers(1),
+		WithValidateWorkers(1),
+		WithBlockTypeResolver(resolver),
+		WithEta0Provider(func(uint64) (string, error) {
+			eta0Calls++
+			return shelleyBlockEta0, nil
+		}),
+		WithSlotsPerKesPeriod(129600),
+		WithVerifyConfig(validatingTestVerifyConfig(t)),
+		WithChainContextValidator(func(context.Context, *BlockItem) error {
+			chainContextCalls++
+			return nil
+		}),
+		WithApplyFunc(func(*BlockItem) error {
+			applyCalls++
+			return nil
+		}),
+	)
+	require.NoError(t, p.Start(t.Context()))
+	require.NoError(t, p.Submit(
+		t.Context(),
+		uint(ledger.BlockTypeMary),
+		malformedBodyBlock,
+		createTestTip(1, 1),
+	))
+	err = p.Fence(t.Context())
+	require.ErrorIs(t, err, ErrBlockTypeMismatch)
+	require.NoError(t, p.Stop())
+	require.Zero(t, eta0Calls)
+	require.Zero(t, chainContextCalls)
+	require.Zero(t, applyCalls)
+}
+
 func TestTrustedDecodeOnlyPreservesEnvelopeWithoutApplying(t *testing.T) {
 	p := NewBlockPipeline(WithTrustedDecodeOnly())
 	require.NoError(t, p.Start(t.Context()))
@@ -194,6 +305,41 @@ func TestApplyStageValidatesContextImmediatelyBeforeCommit(t *testing.T) {
 	require.NoError(t, stage.Process(t.Context(), item))
 	require.Equal(t, []string{"validate", "apply"}, calls)
 	require.True(t, item.IsApplied())
+}
+
+func TestApplyStagePendingCountIncludesChainContextValidation(t *testing.T) {
+	validationStarted := make(chan struct{})
+	releaseValidation := make(chan struct{})
+	stage := NewApplyStage(func(*BlockItem) error { return nil }, 0)
+	stage.SetRequireValidation(true)
+	stage.SetChainContextValidator(func(context.Context, *BlockItem) error {
+		close(validationStarted)
+		<-releaseValidation
+		return nil
+	})
+	item := NewBlockItem(0, nil, createTestTip(1, 1), 0)
+	item.SetValidation(true, "", nil, 0)
+	done := make(chan error, 1)
+	go func() { done <- stage.Process(t.Context(), item) }()
+	<-validationStarted
+	require.Equal(t, 1, stage.PendingCount())
+	close(releaseValidation)
+	require.NoError(t, <-done)
+	require.Zero(t, stage.PendingCount())
+}
+
+func TestStoppingPipelinePreservesFatalCause(t *testing.T) {
+	p := NewBlockPipeline(WithTrustedDecodeOnly())
+	require.NoError(t, p.Start(t.Context()))
+	fatalErr := errors.New("fatal validation failure")
+	p.setFatalError(fatalErr)
+	p.stopping.Store(true)
+
+	require.ErrorIs(t, p.Submit(t.Context(), 0, nil, createTestTip(0, 0)), fatalErr)
+	require.ErrorIs(t, p.Fence(t.Context()), fatalErr)
+
+	p.stopping.Store(false)
+	require.NoError(t, p.Stop())
 }
 
 func TestApplyFailureCancelsWithoutAdvancingAuthoritativeContext(t *testing.T) {
