@@ -139,7 +139,7 @@ func TestMessageReplyAllowsOmissionAndRequestIndependentOrdering(t *testing.T) {
 
 func TestMessageIDReplyAllowsFewerEntriesThanRequested(t *testing.T) {
 	next, err := reconcileMessageIDs(
-		nil,
+		[][]byte{},
 		messageIDRequest{blocking: true, requested: 3},
 		[]pcommon.MessageIDAndSize{{MessageID: testMessageID(0xa1)}},
 		DefaultMaxUnacknowledgedMessageIDs,
