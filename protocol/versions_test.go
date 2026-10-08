@@ -199,9 +199,3 @@ func TestNtNVersion16NegotiatesPerasSupport(t *testing.T) {
 	require.True(t, ok)
 	assert.False(t, versionData.PerasSupported())
 }
-
-func TestNtNLeiosProtocolCapability(t *testing.T) {
-	assert.False(t, GetProtocolVersion(14).EnableLeiosProtocols)
-	assert.True(t, GetProtocolVersion(15).EnableLeiosProtocols)
-	assert.True(t, GetProtocolVersion(16).EnableLeiosProtocols)
-}

@@ -290,17 +290,20 @@ func (c *Connection) KeepAlive() *keepalive.KeepAlive {
 	return c.keepAlive
 }
 
-// LeiosFetch returns the leios-fetch protocol handler
+// LeiosFetch returns the configured LeiosFetch protocol handler, or nil when
+// LeiosFetch was not enabled with WithLeiosFetchConfig.
 func (c *Connection) LeiosFetch() *leiosfetch.LeiosFetch {
 	return c.leiosFetch
 }
 
-// LeiosNotify returns the leios-notify protocol handler
+// LeiosNotify returns the configured LeiosNotify protocol handler, or nil when
+// LeiosNotify was not enabled with WithLeiosNotifyConfig.
 func (c *Connection) LeiosNotify() *leiosnotify.LeiosNotify {
 	return c.leiosNotify
 }
 
-// LeiosVotes returns the leios-votes protocol handler
+// LeiosVotes returns the configured LeiosVotes protocol handler, or nil when
+// LeiosVotes was not enabled with WithLeiosVotesConfig.
 func (c *Connection) LeiosVotes() *leiosvotes.LeiosVotes {
 	return c.leiosVotes
 }
@@ -746,9 +749,13 @@ func (c *Connection) setupConnection() error {
 				!c.handshakeVersionData.PeerSharing()
 			c.peerSharing = peersharing.New(protoOptions, &psCfg)
 		}
-		if versionNtN.EnableLeiosProtocols {
+		if c.leiosNotifyConfig != nil {
 			c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
+		}
+		if c.leiosFetchConfig != nil {
 			c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
+		}
+		if c.leiosVotesConfig != nil {
 			c.leiosVotes = leiosvotes.New(protoOptions, c.leiosVotesConfig)
 		}
 		if c.perasVotesConfig != nil {
@@ -773,7 +780,11 @@ func (c *Connection) setupConnection() error {
 			}
 			if c.leiosNotify != nil {
 				c.leiosNotify.Server.EnsureRegistered()
+			}
+			if c.leiosFetch != nil {
 				c.leiosFetch.Server.EnsureRegistered()
+			}
+			if c.leiosVotes != nil {
 				c.leiosVotes.Server.EnsureRegistered()
 			}
 			if c.perasVotes != nil {
@@ -794,7 +805,11 @@ func (c *Connection) setupConnection() error {
 				}
 				if c.leiosNotify != nil {
 					c.leiosNotify.Client.Start()
+				}
+				if c.leiosFetch != nil {
 					c.leiosFetch.Client.Start()
+				}
+				if c.leiosVotes != nil {
 					c.leiosVotes.Client.Start()
 				}
 				if c.perasVotes != nil {
@@ -813,7 +828,11 @@ func (c *Connection) setupConnection() error {
 				}
 				if c.leiosNotify != nil {
 					c.leiosNotify.Server.Start()
+				}
+				if c.leiosFetch != nil {
 					c.leiosFetch.Server.Start()
+				}
+				if c.leiosVotes != nil {
 					c.leiosVotes.Server.Start()
 				}
 				if c.perasVotes != nil {
