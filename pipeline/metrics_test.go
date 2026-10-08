@@ -270,7 +270,8 @@ func runPipeline(
 	}
 	for range count {
 		select {
-		case <-p.Results():
+		case item := <-p.Results():
+			item.Release()
 		case <-ctx.Done():
 			t.Fatal("timed out waiting for pipeline results")
 		}

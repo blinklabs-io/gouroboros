@@ -250,6 +250,7 @@ type ApplyStageRunner struct {
 	errors        chan<- error
 	metrics       *PipelineMetrics
 	processedFunc func(uint64)
+	deliveredFunc func(*BlockItem)
 	fatalFunc     func()
 	done          chan struct{}
 	running       bool
@@ -293,6 +294,14 @@ func (r *ApplyStageRunner) SetMetrics(metrics *PipelineMetrics) {
 // through the supplied sequence number. It must be called before Start.
 func (r *ApplyStageRunner) SetProcessedFunc(processedFunc func(uint64)) {
 	r.processedFunc = processedFunc
+}
+
+// setDeliveredFunc sets the ownership-transfer hook called after an item is
+// sent to the result consumer. It must be called before Start.
+func (r *ApplyStageRunner) setDeliveredFunc(
+	deliveredFunc func(*BlockItem),
+) {
+	r.deliveredFunc = deliveredFunc
 }
 
 // setFatalFunc sets the pipeline cancellation hook used when runner
@@ -454,6 +463,9 @@ func (r *ApplyStageRunner) forwardItem(ctx context.Context, item *BlockItem) {
 
 	select {
 	case r.output <- item:
+		if r.deliveredFunc != nil {
+			r.deliveredFunc(item)
+		}
 	case <-ctx.Done():
 		return
 	}

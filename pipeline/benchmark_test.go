@@ -205,10 +205,11 @@ func BenchmarkBlockPipeline(b *testing.B) {
 	receiveLoop:
 		for received < b.N {
 			select {
-			case _, ok := <-p.Results():
+			case item, ok := <-p.Results():
 				if !ok {
 					break receiveLoop
 				}
+				item.Release()
 				received++
 			case err := <-p.Errors():
 				b.Fatalf("pipeline error: %v", err)

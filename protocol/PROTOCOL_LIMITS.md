@@ -167,6 +167,9 @@ arrive during the Idle transition.
 | --- | ---: | ---: |
 | Receive queue size | 512 messages | 384 |
 | Total expected in-flight request bytes | — | 9,011,200 (100 × 88 KiB) |
+| Blocks per range | configurable | 2,160 |
+| Encoded bytes per range | configurable | 214,106,112 |
+| Total range lifetime | configurable | 36 hours 1 minute |
 
 `WithRecvQueueSize` rejects values outside the receive-queue range. The
 in-flight byte bound applies to client request pipelining and blocks the
@@ -191,6 +194,13 @@ timeout can still lose the connection. A peer that sends more than was
 asked for is refused once the client's range checks reach the excess,
 or with `muxer.ErrIngressOverflow` if the muxer still holds excess when that
 request fails and its backpressure ends.
+
+Every request path also counts complete encoded `MsgBlock` bytes and block
+messages against cumulative per-range limits. The total deadline starts when
+request admission begins, covers local admission and enqueue waits, and is not
+renewed by `MsgBlock` progress. Zero-valued
+range settings select the secure defaults; callers can raise them explicitly
+for a known larger range.
 
 ## Transaction Submission
 

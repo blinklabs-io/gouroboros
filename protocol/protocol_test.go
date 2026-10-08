@@ -826,6 +826,39 @@ func TestReadLoopBoundsConnectionWideReadBuffers(t *testing.T) {
 	require.LessOrEqual(t, m.ReadBufferInUse(), maxBufferSize)
 }
 
+func TestConsumeReadBufferRightSizesRetainedStorage(t *testing.T) {
+	large := bytes.Repeat([]byte{0xaa}, 2*1024*1024)
+	large = append(large, 0x01, 0x02, 0x03)
+	buf := bytes.NewBuffer(large)
+
+	buf, leftover, compacted := consumeReadBuffer(buf, len(large)-3)
+	require.True(t, leftover)
+	require.True(t, compacted)
+	require.Equal(t, []byte{0x01, 0x02, 0x03}, buf.Bytes())
+	require.Equal(t, buf.Len(), cap(buf.Bytes()))
+
+	buf, leftover, compacted = consumeReadBuffer(buf, buf.Len())
+	require.False(t, leftover)
+	require.False(t, compacted)
+	require.Zero(t, buf.Len())
+	require.Zero(t, cap(buf.Bytes()))
+}
+
+func TestConsumeReadBufferCompactionIsGeometric(t *testing.T) {
+	const messageCount = 4096
+	buf := bytes.NewBuffer(make([]byte, messageCount))
+	totalCopied := 0
+	for buf.Len() > 1 {
+		var compacted bool
+		buf, _, compacted = consumeReadBuffer(buf, 1)
+		if compacted {
+			totalCopied += buf.Len()
+		}
+		require.LessOrEqual(t, buf.Cap(), 2*buf.Len())
+	}
+	require.Less(t, totalCopied, messageCount)
+}
+
 // TestReadLoopReturnsConnectionBudgetOnExit is the paired release case: a
 // mini-protocol that stops must hand its share back, or a connection that
 // restarts a protocol slowly starves itself.

@@ -25,6 +25,12 @@ import (
 // defines the immutability window.
 const DefaultMaxPendingBlocks = 2160
 
+// DefaultMaxRawCborBytes bounds the two full block CBOR copies retained for
+// pipeline items: the raw submission and the decoded block's stored CBOR. It
+// matches muxer.DefaultIngressBudget, the repository's connection-wide
+// implementation memory bound.
+const DefaultMaxRawCborBytes uint64 = 64 * 1024 * 1024
+
 // PipelineConfig holds configuration for a BlockPipeline.
 type PipelineConfig struct {
 	// DecodeWorkers is the number of parallel decode workers.
@@ -39,6 +45,9 @@ type PipelineConfig struct {
 	// flight to occupy the missing earliest position. Default is 2160 (Cardano
 	// security parameter k); zero disables the limit.
 	MaxPendingBlocks int
+	// MaxRawCborBytes limits the full block CBOR copies retained by the pipeline.
+	// Zero selects DefaultMaxRawCborBytes.
+	MaxRawCborBytes uint64
 	// Eta0Provider dynamically provides the epoch nonce for each block's slot.
 	// This is required for VRF validation since the epoch nonce changes every epoch.
 	// For simple test cases, use StaticEta0Provider to wrap a constant value.
@@ -70,6 +79,7 @@ func DefaultPipelineConfig() PipelineConfig {
 		ValidateWorkers:    0,                       // Validation is opt-in; requires Eta0Provider
 		PrefetchBufferSize: 1000,                    // Large enough for typical chain gaps
 		MaxPendingBlocks:   DefaultMaxPendingBlocks, // Cardano security parameter k
+		MaxRawCborBytes:    DefaultMaxRawCborBytes,
 		MetricsWindowSize:  1000,
 	}
 }
@@ -134,6 +144,14 @@ func WithMaxPendingBlocks(n int) PipelineOption {
 		if n >= 0 {
 			c.MaxPendingBlocks = n
 		}
+	}
+}
+
+// WithMaxRawCborBytes sets the aggregate retained block CBOR byte budget. Zero
+// selects DefaultMaxRawCborBytes.
+func WithMaxRawCborBytes(maxBytes uint64) PipelineOption {
+	return func(c *PipelineConfig) {
+		c.MaxRawCborBytes = maxBytes
 	}
 }
 
