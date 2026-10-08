@@ -289,6 +289,13 @@ func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
 	if err != nil {
 		return err
 	}
+	if arrayLen != 54 {
+		tmp.PerasHealingFactor, tmp.PerasQuorumThresholdSafetyMargin =
+			defaultDijkstraPerasIntervals(
+				tmp.PerasHealingFactor,
+				tmp.PerasQuorumThresholdSafetyMargin,
+			)
+	}
 	if err := validateDijkstraRewardParameterDomains(
 		tmp.MaxPledgeLeverage,
 		tmp.MinPoolMargin,
@@ -376,6 +383,11 @@ func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (p DijkstraProtocolParameters) MarshalCBOR() ([]byte, error) {
+	p.PerasHealingFactor, p.PerasQuorumThresholdSafetyMargin =
+		defaultDijkstraPerasIntervals(
+			p.PerasHealingFactor,
+			p.PerasQuorumThresholdSafetyMargin,
+		)
 	if err := validateDijkstraCurrentPerasParameterDomains(
 		p.PerasHealingFactor,
 		p.PerasQuorumThresholdSafetyMargin,
@@ -383,6 +395,22 @@ func (p DijkstraProtocolParameters) MarshalCBOR() ([]byte, error) {
 		return nil, err
 	}
 	return cbor.Encode(p.toCbor())
+}
+
+func defaultDijkstraPerasIntervals(
+	healingFactor *cbor.Rat,
+	safetyMargin *cbor.Rat,
+) (*cbor.Rat, *cbor.Rat) {
+	if healingFactor == nil {
+		healingFactor = &cbor.Rat{Rat: new(big.Rat).SetFrac(
+			big.NewInt(1),
+			new(big.Int).Exp(big.NewInt(10), big.NewInt(19), nil),
+		)}
+	}
+	if safetyMargin == nil {
+		safetyMargin = &cbor.Rat{Rat: big.NewRat(0, 1)}
+	}
+	return healingFactor, safetyMargin
 }
 
 func (p DijkstraProtocolParameters) toCbor() dijkstraProtocolParametersCbor {

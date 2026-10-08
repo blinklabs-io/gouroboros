@@ -2160,9 +2160,10 @@ func TestDijkstraProtocolParametersDecodesLegacyArray(t *testing.T) {
 	var leiosDecoded DijkstraProtocolParameters
 	require.NoError(t, leiosDecoded.UnmarshalCBOR(leios))
 	require.Equal(t, uint32(3000), leiosDecoded.RefScriptCostStride)
-	require.Zero(t, leiosDecoded.PerasHealingFactor)
+	require.Equal(t, expectedDefaultDijkstraPerasHealingFactor(), leiosDecoded.PerasHealingFactor.Rat)
+	require.Zero(t, leiosDecoded.PerasQuorumThresholdSafetyMargin.Rat.Sign())
 	_, err = leiosDecoded.MarshalCBOR()
-	require.ErrorContains(t, err, "perasHealingFactor is required")
+	require.NoError(t, err)
 	legacy, err := cbor.Encode(fields[:35])
 	require.NoError(t, err)
 
@@ -2228,7 +2229,7 @@ func TestDijkstraProtocolParametersRejectsNullCurrentPerasIntervals(t *testing.T
 	}
 }
 
-func TestDijkstraProtocolParametersMarshalRequiresCurrentPerasIntervals(t *testing.T) {
+func TestDijkstraProtocolParametersMarshalDefaultsMissingPerasIntervals(t *testing.T) {
 	encoded, err := os.ReadFile("testdata/cardano_ledger_dijkstra_current_pparams.cbor")
 	require.NoError(t, err)
 	var response []cbor.RawMessage
@@ -2243,13 +2244,36 @@ func TestDijkstraProtocolParametersMarshalRequiresCurrentPerasIntervals(t *testi
 
 	missingHealing := valid
 	missingHealing.PerasHealingFactor = nil
-	_, err = missingHealing.MarshalCBOR()
-	require.ErrorContains(t, err, "perasHealingFactor is required")
+	encoded, err = missingHealing.MarshalCBOR()
+	require.NoError(t, err)
+	var healingRoundTrip DijkstraProtocolParameters
+	require.NoError(t, healingRoundTrip.UnmarshalCBOR(encoded))
+	require.Equal(t, expectedDefaultDijkstraPerasHealingFactor(), healingRoundTrip.PerasHealingFactor.Rat)
 
 	missingSafetyMargin := valid
 	missingSafetyMargin.PerasQuorumThresholdSafetyMargin = nil
-	_, err = missingSafetyMargin.MarshalCBOR()
-	require.ErrorContains(t, err, "perasQuorumThresholdSafetyMargin is required")
+	encoded, err = missingSafetyMargin.MarshalCBOR()
+	require.NoError(t, err)
+	var marginRoundTrip DijkstraProtocolParameters
+	require.NoError(t, marginRoundTrip.UnmarshalCBOR(encoded))
+	require.Zero(t, marginRoundTrip.PerasQuorumThresholdSafetyMargin.Rat.Sign())
+
+}
+
+func TestDijkstraGenesisDefaultsMissingPerasIntervals(t *testing.T) {
+	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{}`))
+	require.NoError(t, err)
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
+	require.Equal(t, expectedDefaultDijkstraPerasHealingFactor(), params.PerasHealingFactor.Rat)
+	require.Zero(t, params.PerasQuorumThresholdSafetyMargin.Rat.Sign())
+}
+
+func expectedDefaultDijkstraPerasHealingFactor() *big.Rat {
+	return new(big.Rat).SetFrac(
+		big.NewInt(1),
+		new(big.Int).SetUint64(10_000_000_000_000_000_000),
+	)
 }
 
 func TestDijkstraProtocolParametersRejectsUnsupportedArrayLength(t *testing.T) {
@@ -3157,8 +3181,6 @@ func TestDijkstraGenesisRejectsInvalidPerasParametersAtomically(t *testing.T) {
 	for _, input := range []string{
 		`{"perasHealingFactor": 0, "perasQuorumThresholdSafetyMargin": 0, "perasMinCandidateBlockAge": 99}`,
 		`{"perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 1.1, "perasMinCandidateBlockAge": 99}`,
-		`{"perasQuorumThresholdSafetyMargin": 0, "perasMinCandidateBlockAge": 99}`,
-		`{"perasHealingFactor": 1, "perasMinCandidateBlockAge": 99}`,
 	} {
 		genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(input))
 		require.NoError(t, err)
