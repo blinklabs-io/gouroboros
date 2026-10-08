@@ -521,6 +521,7 @@ func TestValidateHeaderFull(t *testing.T) {
 		OpCertSequenceNumber: opCertSeqNum,
 		OpCertKesPeriod:      opCertKesPeriod,
 		OpCertSignature:      opCertSignature,
+		OpCertCounterState:   opCertSequence(4),
 		PrevSlot:             0,
 		PrevBlockNumber:      0,
 		PrevHeaderHash:       nil, // Genesis has no prev
@@ -629,6 +630,25 @@ func TestValidateOpCertSignature(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected valid OpCert signature, got error: %v", err)
 	}
+
+	// A pool may cold-sign a new hot key without incrementing the counter.
+	_, replacementKesPk, err := kes.KeyGen(
+		kes.CardanoKesDepth,
+		[]byte("replacement_kes_seed_for_test!!!"),
+	)
+	require.NoError(t, err)
+	input.OpCertHotVkey = replacementKesPk
+	err = validator.validateOpCertSignature(input)
+	require.Error(t, err, "the old signature must not authorize a new hot key")
+	input.OpCertSignature = ed25519.Sign(coldPrivateKey, common.OpCertSignableBytes(
+		replacementKesPk,
+		opCertSeqNum,
+		opCertKesPeriod,
+	))
+	require.NoError(t, validator.validateOpCertSignature(input))
+
+	input.OpCertHotVkey = kesPk
+	input.OpCertSignature = opCertSignature
 
 	// Test with wrong signature
 	wrongSig := make([]byte, ed25519.SignatureSize)
@@ -786,6 +806,43 @@ func TestNewHeaderValidatorWithMode(t *testing.T) {
 		ConsensusModeTPraos,
 	)
 	require.Equal(t, ConsensusModeTPraos, tpraosValidator.mode)
+}
+
+func TestValidateOpCertSequence(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     ConsensusMode
+		previous *uint64
+		current  uint64
+		wantErr  string
+	}{
+		{name: "initial counter zero", mode: ConsensusModeCPraos, previous: opCertSequence(0)},
+		{name: "same counter", mode: ConsensusModeCPraos, previous: opCertSequence(4), current: 4},
+		{name: "CPraos increments", mode: ConsensusModeCPraos, previous: opCertSequence(4), current: 5},
+		{name: "TPraos skips ahead", mode: ConsensusModeTPraos, previous: opCertSequence(4), current: 6},
+		{name: "missing state", mode: ConsensusModeCPraos, current: 1, wantErr: "counter is required"},
+		{name: "counter rollback", mode: ConsensusModeCPraos, previous: opCertSequence(4), current: 3, wantErr: "counter rolled back"},
+		{name: "CPraos counter over incremented", mode: ConsensusModeCPraos, previous: opCertSequence(4), current: 6, wantErr: "counter skipped ahead"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := NewHeaderValidatorWithMode(testNetworkConfig(), tt.mode)
+			got, err := validator.validateOpCertSequence(&ValidateHeaderInput{
+				OpCertSequenceNumber: tt.current,
+				OpCertCounterState:   tt.previous,
+			})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.current, got)
+		})
+	}
+}
+
+func opCertSequence(sequence uint64) *uint64 {
+	return &sequence
 }
 
 // TestValidateVRFProofTPraos exercises the TPraos-mode VRF input
@@ -1002,6 +1059,7 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 		OpCertSequenceNumber: opCertSeqNum,
 		OpCertKesPeriod:      opCertKesPeriod,
 		OpCertSignature:      opCertSignature,
+		OpCertCounterState:   opCertSequence(0),
 		PrevSlot:             0,
 		PrevBlockNumber:      0,
 		PrevHeaderHash:       prevHash, // matches PrevHash for a valid non-genesis header
@@ -1020,6 +1078,7 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 	)
 	require.Empty(t, result.Errors)
 	require.Equal(t, vrfOutput, result.VrfOutput)
+	require.Equal(t, opCertSeqNum, *result.NextOpCertCounter)
 
 	missingRegistration := *input
 	missingRegistration.RegisteredVrfKeyHash = nil
