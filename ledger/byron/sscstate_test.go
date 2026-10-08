@@ -216,9 +216,7 @@ func withSscPayloadAndProof(
 // decodeWithSscPayload decodes a mainnet Byron main block after replacing
 // its SSC payload and ssc_proof with the given raw bytes. It uses a
 // placeholder ssc_proof, and so decodes with decode-time body-proof
-// validation (which by default only checks ssc_proof structurally, but
-// can reject a mismatched proof shape outright -- see ValidateBodyProof's
-// doc comment) explicitly disabled, so callers that need a specific
+// validation explicitly disabled. Callers that need a specific
 // header proof value can patch it in afterwards with
 // withSscPayloadAndProof and decode again with validation enabled.
 func decodeWithSscPayload(
@@ -299,13 +297,7 @@ func TestByronEpochSscStateValidatesBlockLocalProof(t *testing.T) {
 	block, err := byron.NewByronMainBlockFromCbor(blockCbor)
 	require.NoError(t, err)
 
-	// Opt into the full hash comparison (see
-	// common.VerifyConfig.EnableByronSscProofHashValidation's doc comment):
-	// this test's whole point is confirming the recomputed hash matches, so
-	// the default, structural-only check alone would not exercise it.
-	assert.NoError(t, block.ValidateBodyProof(
-		common.VerifyConfig{EnableByronSscProofHashValidation: true},
-	))
+	assert.NoError(t, block.ValidateBodyProof())
 }
 
 // TestByronEpochSscStateTamperingIsBlockLocal demonstrates that a real
@@ -341,12 +333,7 @@ func TestByronEpochSscStateTamperingIsBlockLocal(t *testing.T) {
 	)
 	block, err := byron.NewByronMainBlockFromCbor(blockCbor)
 	require.NoError(t, err)
-	// Opt into the full hash comparison: see
-	// TestByronEpochSscStateValidatesBlockLocalProof's opt-in call above for
-	// why the default, structural-only check would not exercise this.
-	require.NoError(t, block.ValidateBodyProof(
-		common.VerifyConfig{EnableByronSscProofHashValidation: true},
-	))
+	require.NoError(t, block.ValidateBodyProof())
 
 	// Tampering *this* block's own commitment is detected: rebuild the same
 	// block with an altered commitment entry but the same (now stale) real
@@ -364,9 +351,7 @@ func TestByronEpochSscStateTamperingIsBlockLocal(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = tamperedBlock.ValidateBodyProof(
-		common.VerifyConfig{EnableByronSscProofHashValidation: true},
-	)
+	err = tamperedBlock.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
@@ -405,12 +390,7 @@ func TestByronEpochSscStateCertificatesOnly(t *testing.T) {
 	realBlock, err := byron.NewByronMainBlockFromCbor(blockCbor)
 	require.NoError(t, err)
 
-	// Opt into the full hash comparison: see
-	// TestByronEpochSscStateValidatesBlockLocalProof's opt-in call for why
-	// the default, structural-only check would not exercise this.
-	assert.NoError(t, realBlock.ValidateBodyProof(
-		common.VerifyConfig{EnableByronSscProofHashValidation: true},
-	))
+	assert.NoError(t, realBlock.ValidateBodyProof())
 
 	// Tampering this block's own certificate entry, keeping the same (now
 	// stale) real proof, is detected.
@@ -427,9 +407,7 @@ func TestByronEpochSscStateCertificatesOnly(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = tamperedBlock.ValidateBodyProof(
-		common.VerifyConfig{EnableByronSscProofHashValidation: true},
-	)
+	err = tamperedBlock.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
@@ -459,9 +437,7 @@ func TestByronEpochSscStateCertificatesOnly(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = tamperedPubkeyBlock.ValidateBodyProof(
-		common.VerifyConfig{EnableByronSscProofHashValidation: true},
-	)
+	err = tamperedPubkeyBlock.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
@@ -684,16 +660,18 @@ func TestByronEpochSscStateRejectsProofPayloadTypeMismatch(t *testing.T) {
 	blockCbor := withSscPayloadAndProof(
 		t, mainnetByronBlock(t), payload, mismatchedProof,
 	)
+	_, err = byron.NewByronMainBlockFromCbor(blockCbor)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+
 	mismatchedBlock, err := byron.NewByronMainBlockFromCbor(
 		blockCbor, common.VerifyConfig{SkipBodyHashValidation: true},
 	)
 	require.NoError(t, err)
 
-	require.NoError(
-		t, mismatchedBlock.ValidateBodyProof(),
-		"dropSscProof and dropSscPayload never compare their tags, so a "+
-			"type mismatch must not fail the decode",
-	)
+	err = mismatchedBlock.ValidateBodyProof()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
 	err = mismatchedBlock.ValidateSscProof()
 	require.Error(t, err)

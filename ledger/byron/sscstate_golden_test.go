@@ -192,9 +192,8 @@ func TestByronSscGoldenVectorsAcceptedByAccumulateBlock(t *testing.T) {
 
 // TestByronSscGoldenVectorsAcceptedByValidateBodyProof is the same positive
 // control as TestByronSscGoldenVectorsAcceptedByAccumulateBlock, but
-// through the actual proof-check entry point (ValidateBodyProof, with the
-// opt-in EnableByronSscProofHashValidation flag set, exercising
-// checkSscProofLocal), which is the code path this fix (the shape gate
+// through the actual proof-check entry point (ValidateBodyProof, exercising
+// checkSscProofLocal), which is the code path the shape gate
 // before hashing rest[0]) touches. A real ssc_proof is computed directly
 // from the golden bytes, exactly as checkSscProofLocal itself would.
 func TestByronSscGoldenVectorsAcceptedByValidateBodyProof(t *testing.T) {
@@ -232,13 +231,7 @@ func TestByronSscGoldenVectorsAcceptedByValidateBodyProof(t *testing.T) {
 	block, err := byron.NewByronMainBlockFromCbor(blockCbor)
 	require.NoError(t, err)
 
-	// Opt into the full hash comparison (see
-	// common.VerifyConfig.EnableByronSscProofHashValidation's doc comment):
-	// this test's whole point is confirming the recomputed hash matches, so
-	// the default, structural-only check alone would not exercise it.
-	assert.NoError(t, block.ValidateBodyProof(
-		common.VerifyConfig{EnableByronSscProofHashValidation: true},
-	))
+	assert.NoError(t, block.ValidateBodyProof())
 }
 
 // TestByronSscGoldenVectorsRejectMutatedShape is the negative control

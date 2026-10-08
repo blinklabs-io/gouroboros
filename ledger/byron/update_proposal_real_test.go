@@ -105,9 +105,7 @@ func TestRealPreprodUpdateProposals(t *testing.T) {
 			}
 			require.Len(t, voters, 7)
 
-			require.NoError(t, block.ValidateBodyProof(common.VerifyConfig{
-				EnableByronPayloadValidation: true,
-			}))
+			require.NoError(t, block.ValidateBodyProof())
 			require.NoError(
 				t,
 				proposal.Validate(block.BlockHeader.ProtocolMagic),
@@ -115,4 +113,75 @@ func TestRealPreprodUpdateProposals(t *testing.T) {
 			require.NoError(t, proposal.ValidateSystemTags())
 		})
 	}
+}
+
+func TestDefaultDecodeRejectsInvalidUpdateProposalSignature(t *testing.T) {
+	raw, err := hex.DecodeString(preprodSlot2163BlockHex)
+	require.NoError(t, err)
+
+	var block []cbor.RawMessage
+	_, err = cbor.Decode(raw, &block)
+	require.NoError(t, err)
+	require.Len(t, block, 3)
+
+	var body []cbor.RawMessage
+	_, err = cbor.Decode(block[1], &body)
+	require.NoError(t, err)
+	require.Len(t, body, 4)
+
+	var updatePayload []cbor.RawMessage
+	_, err = cbor.Decode(body[3], &updatePayload)
+	require.NoError(t, err)
+	require.Len(t, updatePayload, 2)
+
+	var proposals []cbor.RawMessage
+	_, err = cbor.Decode(updatePayload[0], &proposals)
+	require.NoError(t, err)
+	require.Len(t, proposals, 1)
+
+	var proposal []cbor.RawMessage
+	_, err = cbor.Decode(proposals[0], &proposal)
+	require.NoError(t, err)
+	require.Len(t, proposal, 7)
+	var signature []byte
+	_, err = cbor.Decode(proposal[6], &signature)
+	require.NoError(t, err)
+	signature[0] ^= 0xff
+	proposal[6], err = cbor.Encode(signature)
+	require.NoError(t, err)
+	proposals[0], err = cbor.Encode(proposal)
+	require.NoError(t, err)
+	updatePayload[0], err = cbor.Encode(proposals)
+	require.NoError(t, err)
+	body[3], err = cbor.Encode(updatePayload)
+	require.NoError(t, err)
+	block[1], err = cbor.Encode(body)
+	require.NoError(t, err)
+
+	var header []cbor.RawMessage
+	_, err = cbor.Decode(block[0], &header)
+	require.NoError(t, err)
+	require.Len(t, header, 5)
+	var bodyProof []cbor.RawMessage
+	_, err = cbor.Decode(header[2], &bodyProof)
+	require.NoError(t, err)
+	require.Len(t, bodyProof, 4)
+	bodyProof[3], err = cbor.Encode(common.Blake2b256Hash(body[3]).Bytes())
+	require.NoError(t, err)
+	header[2], err = cbor.Encode(bodyProof)
+	require.NoError(t, err)
+	block[0], err = cbor.Encode(header)
+	require.NoError(t, err)
+	tampered, err := cbor.Encode(block)
+	require.NoError(t, err)
+
+	_, err = byron.NewByronMainBlockFromCbor(tampered)
+	require.ErrorIs(t, err, byron.ErrInvalidSignature)
+
+	parsed, err := byron.NewByronMainBlockFromCbor(
+		tampered,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+	require.ErrorIs(t, parsed.ValidateBodyProof(), byron.ErrInvalidSignature)
 }
