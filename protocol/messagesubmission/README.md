@@ -133,6 +133,9 @@ that would make the IDs awaiting acknowledgement exceed this limit.
 
 Replies may omit unavailable entries. A message-body reply may use any order,
 but every returned message ID must be unique and present in the active request.
+Message-ID replies may not exceed the requested count, and blocking replies
+must include at least one ID. Each returned ID must be 32 bytes and unique
+across both the reply and the IDs that remain outstanding.
 
 ## Usage Example
 
