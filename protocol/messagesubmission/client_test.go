@@ -65,13 +65,6 @@ func TestHandleRequestMessageIdsRejectsInvalidCountsWithoutMutatingPending(t *te
 			isBlocking:   true,
 			requestCount: 1,
 		},
-		{
-			name:         "nonblocking request leaves no IDs unacknowledged",
-			limit:        10,
-			pending:      [][]byte{[]byte("id-1")},
-			ackCount:     1,
-			requestCount: 1,
-		},
 	}
 
 	for _, tt := range tests {

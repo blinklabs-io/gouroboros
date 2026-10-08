@@ -66,9 +66,11 @@ func validateMessageIDRequest(
 			protocol.ErrProtocolViolationRequestExceeded,
 		)
 	}
-	if request.requested <= 0 {
+	if request.requested < 0 ||
+		(request.blocking && request.requested == 0) ||
+		(!request.blocking && request.ack == 0 && request.requested == 0) {
 		return fmt.Errorf(
-			"%s: message ID request count must be positive: %w",
+			"%s: invalid message ID request counts: %w",
 			ProtocolName,
 			protocol.ErrProtocolViolationRequestExceeded,
 		)
@@ -79,13 +81,6 @@ func validateMessageIDRequest(
 			"%s: blocking request leaves %d message IDs unacknowledged: %w",
 			ProtocolName,
 			remaining,
-			protocol.ErrProtocolViolationRequestExceeded,
-		)
-	}
-	if !request.blocking && remaining == 0 {
-		return fmt.Errorf(
-			"%s: non-blocking request has no unacknowledged message IDs: %w",
-			ProtocolName,
 			protocol.ErrProtocolViolationRequestExceeded,
 		)
 	}

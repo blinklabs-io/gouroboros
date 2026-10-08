@@ -149,6 +149,55 @@ func TestMessageIDReplyAllowsFewerEntriesThanRequested(t *testing.T) {
 	require.Len(t, next, 1)
 }
 
+func TestMessageIDRequestCountRules(t *testing.T) {
+	id := testMessageID(0xa1)
+	tests := []struct {
+		name        string
+		outstanding [][]byte
+		request     messageIDRequest
+		wantErr     bool
+	}{
+		{
+			name:    "blocking request requires a positive count",
+			request: messageIDRequest{blocking: true},
+			wantErr: true,
+		},
+		{
+			name:    "non-blocking zero counts are invalid",
+			request: messageIDRequest{},
+			wantErr: true,
+		},
+		{
+			name:    "non-blocking request can request first IDs",
+			request: messageIDRequest{requested: 1},
+		},
+		{
+			name:        "non-blocking request can only acknowledge IDs",
+			outstanding: [][]byte{id},
+			request:     messageIDRequest{ack: 1},
+		},
+		{
+			name:    "negative request count is invalid",
+			request: messageIDRequest{requested: -1},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateMessageIDRequest(
+				tt.outstanding,
+				tt.request,
+				DefaultMaxUnacknowledgedMessageIDs,
+			)
+			if tt.wantErr {
+				require.ErrorIs(t, err, protocol.ErrProtocolViolationRequestExceeded)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestServerRejectsUnrequestedMessageBeforeAuthenticationAndCallback(
 	t *testing.T,
 ) {
@@ -228,10 +277,7 @@ func TestClientRejectsMessageRequestAboveOutstandingWindowBeforeCallback(
 
 func TestClientRejectsSubstitutedMessageReplyBeforeSend(t *testing.T) {
 	requestedID := testMessageID(0xa1)
-	client := NewClient(
-		newTestProtoOptions(MessageSubmissionV2MinVersion),
-		nil,
-	)
+	client := newStartedMessageSubmissionClient(t)
 	client.pendingMsgRequest = &messageRequest{
 		ids: map[string]struct{}{string(requestedID): {}},
 	}
@@ -245,10 +291,7 @@ func TestClientRejectsSubstitutedMessageReplyBeforeSend(t *testing.T) {
 }
 
 func TestClientRejectsExcessMessageIDReplyBeforeSend(t *testing.T) {
-	client := NewClient(
-		newTestProtoOptions(MessageSubmissionV2MinVersion),
-		nil,
-	)
+	client := newStartedMessageSubmissionClient(t)
 	client.pendingIDRequest = &messageIDRequest{
 		blocking:  true,
 		requested: 1,
@@ -451,4 +494,134 @@ func newStartedMessageSubmissionClient(t *testing.T) *Client {
 		_ = localConn.Close()
 	})
 	return client
+}
+
+func newStartedMessageSubmissionServer(t *testing.T) *Server {
+	t.Helper()
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	options := newTestProtoOptions(MessageSubmissionV2MinVersion)
+	options.Muxer = m
+	options.ErrorChan = make(chan error, 1)
+	server := NewServer(options, nil)
+	server.Protocol.EnsureRegistered()
+	m.Start()
+	server.Start()
+	t.Cleanup(func() {
+		server.Protocol.Stop()
+		m.Stop()
+		_ = peerConn.Close()
+		_ = localConn.Close()
+	})
+	return server
+}
+
+func TestServerRequestAPIsValidateAndTrackRequests(t *testing.T) {
+	id := testMessageID(0xa1)
+	tests := []struct {
+		name       string
+		prepare    func(*Server)
+		request    func(*Server) error
+		wantErr    bool
+		wantIDReq  bool
+		wantMsgReq bool
+	}{
+		{
+			name: "blocking ID request accepted",
+			request: func(server *Server) error {
+				return server.RequestMessageIdsBlocking(0, 1)
+			},
+			wantIDReq: true,
+		},
+		{
+			name: "blocking zero request rejected",
+			request: func(server *Server) error {
+				return server.RequestMessageIdsBlocking(0, 0)
+			},
+			wantErr: true,
+		},
+		{
+			name: "blocking request above window rejected",
+			request: func(server *Server) error {
+				return server.RequestMessageIdsBlocking(
+					0,
+					uint16(DefaultMaxUnacknowledgedMessageIDs+1),
+				)
+			},
+			wantErr: true,
+		},
+		{
+			name: "non-blocking ID request accepted",
+			request: func(server *Server) error {
+				return server.RequestMessageIdsNonBlocking(0, 1)
+			},
+			wantIDReq: true,
+		},
+		{
+			name: "non-blocking zero request rejected",
+			request: func(server *Server) error {
+				return server.RequestMessageIdsNonBlocking(0, 0)
+			},
+			wantErr: true,
+		},
+		{
+			name: "non-blocking request above window rejected",
+			request: func(server *Server) error {
+				return server.RequestMessageIdsNonBlocking(
+					0,
+					uint16(DefaultMaxUnacknowledgedMessageIDs+1),
+				)
+			},
+			wantErr: true,
+		},
+		{
+			name:    "non-blocking acknowledgement accepted",
+			prepare: func(server *Server) { server.pendingMessageIDs = [][]byte{id} },
+			request: func(server *Server) error {
+				return server.RequestMessageIdsNonBlocking(1, 0)
+			},
+			wantIDReq: true,
+		},
+		{
+			name:    "message request accepted",
+			prepare: func(server *Server) { server.pendingMessageIDs = [][]byte{id} },
+			request: func(server *Server) error {
+				return server.RequestMessages([][]byte{id})
+			},
+			wantMsgReq: true,
+		},
+		{
+			name: "unannounced message request rejected",
+			request: func(server *Server) error {
+				return server.RequestMessages([][]byte{id})
+			},
+			wantErr: true,
+		},
+		{
+			name: "malformed message ID rejected",
+			prepare: func(server *Server) {
+				server.pendingMessageIDs = [][]byte{[]byte("short")}
+			},
+			request: func(server *Server) error {
+				return server.RequestMessages([][]byte{[]byte("short")})
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := newStartedMessageSubmissionServer(t)
+			if tt.prepare != nil {
+				tt.prepare(server)
+			}
+			err := tt.request(server)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantIDReq, server.pendingIDRequest != nil)
+			assert.Equal(t, tt.wantMsgReq, server.pendingMsgRequest != nil)
+		})
+	}
 }
