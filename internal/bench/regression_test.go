@@ -484,8 +484,8 @@ func TestRegressionCBOR(t *testing.T) {
 
 	// Expected allocation limits by era (measured 2026-02-10 + 10% headroom)
 	limits := map[string]int64{
-		// Byron decoding validates SSC hashes and delegation/update payload
-		// signatures before returning a block.
+		// Byron main-block decoding validates SSC hashes and
+		// delegation/update payload signatures before returning a block.
 		//
 		// Bumped from 620 to 706 on 2026-09-23: ByronTransaction.UnmarshalCBOR
 		// now decodes and validates every transaction witness eagerly
