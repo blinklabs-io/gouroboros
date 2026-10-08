@@ -561,6 +561,14 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 	maxEndorserBlockTxsSize := uint32(9)
 	maxEndorserBlockExUnits := common.ExUnits{Memory: 10, Steps: 11}
 	maxRefScriptSizePerEndorserBlock := uint32(12)
+	perasMinCandidateBlockAge := uint32(13)
+	perasHealingFactor := &cbor.Rat{Rat: big.NewRat(3, 2)}
+	perasCertBoost := uint16(14)
+	perasTargetCommitteeSize := uint16(15)
+	perasBootstrapRound := uint32(16)
+	perasQuorumThresholdSafetyMargin := &cbor.Rat{Rat: big.NewRat(1, 4)}
+	refInputsCostPerMultiAssetPolicy := uint64(17)
+	refInputsCostPerDatumByte := uint64(18)
 	action := DijkstraParameterChangeGovAction{
 		ParamUpdate: DijkstraProtocolParameterUpdate{
 			MaxRefScriptSizePerBlock:         &maxRefScriptSizePerBlock,
@@ -578,6 +586,14 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 			MaxEndorserBlockTxsSize:          &maxEndorserBlockTxsSize,
 			MaxEndorserBlockExUnits:          &maxEndorserBlockExUnits,
 			MaxRefScriptSizePerEndorserBlock: &maxRefScriptSizePerEndorserBlock,
+			PerasMinCandidateBlockAge:        &perasMinCandidateBlockAge,
+			PerasHealingFactor:               perasHealingFactor,
+			PerasCertBoost:                   &perasCertBoost,
+			PerasTargetCommitteeSize:         &perasTargetCommitteeSize,
+			PerasBootstrapRound:              &perasBootstrapRound,
+			PerasQuorumThresholdSafetyMargin: perasQuorumThresholdSafetyMargin,
+			RefInputsCostPerMultiAssetPolicy: &refInputsCostPerMultiAssetPolicy,
+			RefInputsCostPerDatumByte:        &refInputsCostPerDatumByte,
 		},
 	}
 	require.Equal(t, []string{
@@ -594,6 +610,14 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 		"MaxEndorserBlockTxsSize",
 		"MaxEndorserBlockExUnits",
 		"MaxRefScriptSizePerEndorserBlock",
+		"PerasMinCandidateBlockAge",
+		"PerasHealingFactor",
+		"PerasCertBoost",
+		"PerasTargetCommitteeSize",
+		"PerasBootstrapRound",
+		"PerasQuorumThresholdSafetyMargin",
+		"RefInputsCostPerMultiAssetPolicy",
+		"RefInputsCostPerDatumByte",
 	}, action.SecurityGroupFields())
 }
 

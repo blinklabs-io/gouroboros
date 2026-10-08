@@ -245,5 +245,29 @@ func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
 	if a.ParamUpdate.MaxRefScriptSizePerEndorserBlock != nil {
 		fields = append(fields, "MaxRefScriptSizePerEndorserBlock")
 	}
+	if a.ParamUpdate.PerasMinCandidateBlockAge != nil {
+		fields = append(fields, "PerasMinCandidateBlockAge")
+	}
+	if a.ParamUpdate.PerasHealingFactor != nil {
+		fields = append(fields, "PerasHealingFactor")
+	}
+	if a.ParamUpdate.PerasCertBoost != nil {
+		fields = append(fields, "PerasCertBoost")
+	}
+	if a.ParamUpdate.PerasTargetCommitteeSize != nil {
+		fields = append(fields, "PerasTargetCommitteeSize")
+	}
+	if a.ParamUpdate.PerasBootstrapRoundSet || a.ParamUpdate.PerasBootstrapRound != nil {
+		fields = append(fields, "PerasBootstrapRound")
+	}
+	if a.ParamUpdate.PerasQuorumThresholdSafetyMargin != nil {
+		fields = append(fields, "PerasQuorumThresholdSafetyMargin")
+	}
+	if a.ParamUpdate.RefInputsCostPerMultiAssetPolicy != nil {
+		fields = append(fields, "RefInputsCostPerMultiAssetPolicy")
+	}
+	if a.ParamUpdate.RefInputsCostPerDatumByte != nil {
+		fields = append(fields, "RefInputsCostPerDatumByte")
+	}
 	return fields
 }
