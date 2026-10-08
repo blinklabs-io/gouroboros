@@ -2205,6 +2205,7 @@ func TestDijkstraProtocolParametersRejectsNullCurrentPerasIntervals(t *testing.T
 	var response []cbor.RawMessage
 	_, err = cbor.Decode(encoded, &response)
 	require.NoError(t, err)
+	require.Len(t, response, 2)
 
 	for _, test := range []struct {
 		name  string
@@ -2233,6 +2234,7 @@ func TestDijkstraProtocolParametersMarshalRequiresCurrentPerasIntervals(t *testi
 	var response []cbor.RawMessage
 	_, err = cbor.Decode(encoded, &response)
 	require.NoError(t, err)
+	require.Len(t, response, 2)
 	var valid DijkstraProtocolParameters
 	require.NoError(t, valid.UnmarshalCBOR(response[0]))
 
