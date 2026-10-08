@@ -186,11 +186,11 @@ func TestStageWorkerPoolContainsMetricsCallbackPanic(t *testing.T) {
 }
 
 // TestApplyFuncPanicBecomesApplyError covers the consumer-callback boundary in
-// the apply stage. The panic must become the item's apply error without
-// disturbing ordered application of the items behind it.
+// the apply stage. The panic must become a fatal item error and prevent the
+// buffered item behind it from applying.
 func TestApplyFuncPanicBecomesApplyError(t *testing.T) {
 	applied := []uint64{}
-	stage := NewApplyStage(func(item *BlockItem) error {
+	stage := newTestApplyStage(func(item *BlockItem) error {
 		if item.SequenceNumber() == 0 {
 			panic(stagePanicValue)
 		}
@@ -206,17 +206,10 @@ func TestApplyFuncPanicBecomesApplyError(t *testing.T) {
 	require.Empty(t, buffered)
 
 	processed, err := stage.ProcessWithStatus(ctx, newPanicTestItem(0))
-	require.NoError(t, err)
-	require.Len(
-		t, processed, 2,
-		"the buffered item was dropped when the apply function panicked",
-	)
-
-	requireContainedStagePanic(t, processed[0].ApplyError())
-	require.False(t, processed[0].IsApplied())
-	require.True(t, processed[1].IsApplied())
-	require.Equal(t, []uint64{1}, applied)
-	require.Zero(t, stage.PendingCount())
+	require.ErrorIs(t, err, ErrPipelineItemRejected)
+	require.Empty(t, processed)
+	require.Empty(t, applied)
+	require.Equal(t, 1, stage.PendingCount())
 }
 
 // TestApplyStageRunnerContainsStagePanic covers the runner backstop: the
@@ -278,7 +271,7 @@ func TestApplyStageRunnerCancelsBeforeReportingFatalError(t *testing.T) {
 	errorChan <- blockedError
 	fatalChan := make(chan struct{})
 	runner := NewApplyStageRunner(
-		NewApplyStage(nil, 1), input, output, errorChan, 0,
+		newTestApplyStage(nil, 1), input, output, errorChan, 0,
 	)
 	runner.setFatalFunc(func() { close(fatalChan) })
 	ctx, cancel := context.WithCancel(context.Background())
@@ -311,7 +304,7 @@ func TestApplyStageRunnerContainsProcessedCallbackPanic(t *testing.T) {
 	errorChan := make(chan error, 1)
 	fatalChan := make(chan struct{}, 1)
 	runner := NewApplyStageRunner(
-		NewApplyStage(nil, 0), input, output, errorChan, 0,
+		newTestApplyStage(nil, 0), input, output, errorChan, 0,
 	)
 	runner.SetProcessedFunc(func(uint64) { panic(stagePanicValue) })
 	runner.setFatalFunc(func() { fatalChan <- struct{}{} })
@@ -409,7 +402,7 @@ func TestStagePipelineUnaffectedByContainment(t *testing.T) {
 	})
 
 	t.Run("successful apply function", func(t *testing.T) {
-		stage := NewApplyStage(func(*BlockItem) error { return nil }, 0)
+		stage := newTestApplyStage(func(*BlockItem) error { return nil }, 0)
 		processed, err := stage.ProcessWithStatus(
 			context.Background(), newPanicTestItem(0),
 		)
@@ -420,21 +413,18 @@ func TestStagePipelineUnaffectedByContainment(t *testing.T) {
 	})
 
 	t.Run("apply function error", func(t *testing.T) {
-		stage := NewApplyStage(func(*BlockItem) error {
+		stage := newTestApplyStage(func(*BlockItem) error {
 			return errInjectedStage
 		}, 0)
 		processed, err := stage.ProcessWithStatus(
 			context.Background(), newPanicTestItem(0),
 		)
-		require.NoError(t, err)
-		require.Len(t, processed, 1)
-		require.False(t, processed[0].IsApplied())
-		require.ErrorIs(t, processed[0].ApplyError(), errInjectedStage)
-		require.NotErrorIs(t, processed[0].ApplyError(), ErrStagePanic)
+		require.ErrorIs(t, err, ErrPipelineItemRejected)
+		require.Empty(t, processed)
 	})
 
 	t.Run("nil apply function", func(t *testing.T) {
-		stage := NewApplyStage(nil, 0)
+		stage := newTestApplyStage(nil, 0)
 		processed, err := stage.ProcessWithStatus(
 			context.Background(), newPanicTestItem(0),
 		)

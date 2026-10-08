@@ -17,10 +17,12 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
@@ -34,6 +36,97 @@ var ErrPipelineNotStarted = errors.New("pipeline not started")
 var ErrMissingEta0Provider = errors.New(
 	"pipeline: validation enabled but Eta0Provider not configured",
 )
+
+// ErrMissingChainContextValidator is returned when ordered application lacks
+// an authoritative chain-context validator.
+var ErrMissingChainContextValidator = errors.New(
+	"pipeline: chain-context validator not configured",
+)
+
+// ErrMissingApplyFunc is returned when ordered validation has no authoritative
+// state commit function.
+var ErrMissingApplyFunc = errors.New(
+	"pipeline: apply function not configured",
+)
+
+// ErrBlockValidationRequired is returned when a non-decode-only pipeline has
+// no block-local validation workers.
+var ErrBlockValidationRequired = errors.New(
+	"pipeline: block-local validation is required",
+)
+
+// ErrTrustedDecodeOnlyApply is returned when trusted decode-only mode is
+// combined with an ApplyFunc.
+var ErrTrustedDecodeOnlyApply = errors.New(
+	"pipeline: trusted decode-only mode cannot apply blocks",
+)
+
+// ErrTrustedDecodeOnlyValidation is returned when trusted decode-only mode is
+// combined with validation workers.
+var ErrTrustedDecodeOnlyValidation = errors.New(
+	"pipeline: trusted decode-only mode cannot run validation workers",
+)
+
+// ErrTrustedDecodeOnlyChainContext is returned when trusted decode-only mode
+// is combined with a chain-context validator.
+var ErrTrustedDecodeOnlyChainContext = errors.New(
+	"pipeline: trusted decode-only mode cannot validate chain context",
+)
+
+// TrustedDecodeOnlyChainContextError identifies an invalid trusted decode-only
+// configuration that also supplies a chain-context validator.
+type TrustedDecodeOnlyChainContextError struct{}
+
+func (*TrustedDecodeOnlyChainContextError) Error() string {
+	return ErrTrustedDecodeOnlyChainContext.Error()
+}
+
+func (*TrustedDecodeOnlyChainContextError) Unwrap() error {
+	return ErrTrustedDecodeOnlyChainContext
+}
+
+// ErrBodyHashValidationRequired is returned when a normal pipeline attempts
+// to skip block body binding during decode.
+var ErrBodyHashValidationRequired = errors.New(
+	"pipeline: body hash validation is required",
+)
+
+// ErrValidationBypassConfigured is returned when normal mode configures a
+// block-validation bypass.
+var ErrValidationBypassConfigured = errors.New(
+	"pipeline: block-validation bypass configured",
+)
+
+// ValidationBypassError identifies the VerifyConfig flag that would bypass a
+// required normal-mode validation.
+type ValidationBypassError struct {
+	Flag string
+}
+
+func (e *ValidationBypassError) Error() string {
+	return fmt.Sprintf("%s: VerifyConfig.%s", ErrValidationBypassConfigured, e.Flag)
+}
+
+func (*ValidationBypassError) Unwrap() error {
+	return ErrValidationBypassConfigured
+}
+
+func validationBypassFlag(config lcommon.VerifyConfig) string {
+	switch {
+	case config.SkipHeaderValidation:
+		return "SkipHeaderValidation"
+	case config.SkipBodyHashValidation:
+		return "SkipBodyHashValidation"
+	case config.SkipTransactionValidation:
+		return "SkipTransactionValidation"
+	case config.SkipStakePoolValidation:
+		return "SkipStakePoolValidation"
+	case config.SkipBlockLimitsValidation:
+		return "SkipBlockLimitsValidation"
+	default:
+		return ""
+	}
+}
 
 // closedResultsChan is a closed channel returned by Results() before Start() is called.
 // This prevents callers from blocking indefinitely on a nil channel.
@@ -86,6 +179,8 @@ type BlockPipeline struct {
 	stopped           atomic.Bool
 	wg                sync.WaitGroup
 	mu                sync.Mutex // protects Start/Stop
+	fatalErrMu        sync.RWMutex
+	fatalErr          error
 	// submitGate serializes successful submissions and Fence boundaries.
 	// Its channel form lets Fence stop waiting when its context is canceled.
 	submitGate     chan struct{}
@@ -99,6 +194,7 @@ type BlockPipeline struct {
 	// tests synchronize cancellation at the backpressure boundary.
 	testSubmitReady   func()
 	testFenceBoundary func(uint64)
+	testProcessedFunc func(uint64)
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
@@ -108,7 +204,7 @@ type BlockPipeline struct {
 //
 //	p := NewBlockPipeline(
 //	    WithDecodeWorkers(4),
-//	    WithApplyFunc(myApplyFunc),
+//	    WithTrustedDecodeOnly(),
 //	)
 func NewBlockPipeline(opts ...PipelineOption) *BlockPipeline {
 	config := DefaultPipelineConfig()
@@ -129,14 +225,14 @@ func (p *BlockPipeline) lockSubmit(ctx context.Context) error {
 		return err
 	}
 	if p.ctx.Err() != nil {
-		return ErrPipelineStopped
+		return p.stoppedError()
 	}
 
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-p.ctx.Done():
-		return ErrPipelineStopped
+		return p.stoppedError()
 	case <-p.submitGate:
 	}
 
@@ -146,7 +242,7 @@ func (p *BlockPipeline) lockSubmit(ctx context.Context) error {
 	}
 	if p.ctx.Err() != nil {
 		p.unlockSubmit()
-		return ErrPipelineStopped
+		return p.stoppedError()
 	}
 	return nil
 }
@@ -179,7 +275,7 @@ func (p *BlockPipeline) waitForPendingCapacity(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-p.ctx.Done():
-			return ErrPipelineStopped
+			return p.stoppedError()
 		case <-completionChan:
 		}
 	}
@@ -198,10 +294,38 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		return nil // Already started
 	}
 
-	// Validate configuration
+	// Validate configuration.
+	trustedDecodeOnly := p.config.TrustedDecodeOnly
 	validationEnabled := p.config.ValidateWorkers > 0
-	if validationEnabled && p.config.Eta0Provider == nil {
-		return ErrMissingEta0Provider
+	if trustedDecodeOnly {
+		if p.config.ApplyFunc != nil {
+			return ErrTrustedDecodeOnlyApply
+		}
+		if validationEnabled {
+			return ErrTrustedDecodeOnlyValidation
+		}
+		if p.config.ChainContextValidator != nil {
+			return &TrustedDecodeOnlyChainContextError{}
+		}
+	} else {
+		if !validationEnabled {
+			return ErrBlockValidationRequired
+		}
+		if p.config.Eta0Provider == nil {
+			return ErrMissingEta0Provider
+		}
+		if p.config.ChainContextValidator == nil {
+			return ErrMissingChainContextValidator
+		}
+		if p.config.ApplyFunc == nil {
+			return ErrMissingApplyFunc
+		}
+		if p.config.SkipBodyHashValidation {
+			return ErrBodyHashValidationRequired
+		}
+		if flag := validationBypassFlag(p.config.VerifyConfig); flag != "" {
+			return &ValidationBypassError{Flag: flag}
+		}
 	}
 
 	// Create cancellable context
@@ -217,6 +341,8 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	// Create decode stage
 	p.decodeStage = NewDecodeStage(p.config.SkipBodyHashValidation)
 	p.applyStage = NewApplyStage(p.config.ApplyFunc, p.config.MaxPendingBlocks)
+	p.applyStage.SetChainContextValidator(p.config.ChainContextValidator)
+	p.applyStage.setTrustedDecodeOnly(trustedDecodeOnly)
 	// When validation is enabled, require items to have actually passed
 	// validation before apply; ValidationError alone cannot distinguish
 	// "passed" from "never ran"
@@ -270,7 +396,12 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.completionChan = make(chan struct{})
 	p.completedSequence.Store(0)
 	p.completionMu.Unlock()
-	p.applyRunner.SetProcessedFunc(p.markProcessed)
+	processedFunc := p.markProcessed
+	if p.testProcessedFunc != nil {
+		processedFunc = p.testProcessedFunc
+	}
+	p.applyRunner.SetProcessedFunc(processedFunc)
+	p.applyRunner.setFatalErrorFunc(p.setFatalError)
 	p.applyRunner.setFatalFunc(p.cancel)
 
 	// Start all stages
@@ -321,7 +452,7 @@ func (p *BlockPipeline) Submit(
 		return err
 	}
 	if p.ctx.Err() != nil || p.stopping.Load() || p.stopped.Load() {
-		return ErrPipelineStopped
+		return p.stoppedError()
 	}
 
 	// Commit a sequence number only after its item was successfully enqueued.
@@ -338,7 +469,7 @@ func (p *BlockPipeline) Submit(
 		return err
 	}
 	if p.ctx.Err() != nil {
-		return ErrPipelineStopped
+		return p.stoppedError()
 	}
 	// Check stopping under the gate to ensure we don't race with Stop. This
 	// follows the context checks so caller cancellation keeps precedence.
@@ -357,7 +488,7 @@ func (p *BlockPipeline) Submit(
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-p.ctx.Done():
-		return ErrPipelineStopped
+		return p.stoppedError()
 	}
 }
 
@@ -404,10 +535,28 @@ func (p *BlockPipeline) Fence(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-p.ctx.Done():
-			return ErrPipelineStopped
+			return p.stoppedError()
 		case <-completionChan:
 		}
 	}
+}
+
+func (p *BlockPipeline) setFatalError(err error) {
+	p.fatalErrMu.Lock()
+	if p.fatalErr == nil {
+		p.fatalErr = err
+	}
+	p.fatalErrMu.Unlock()
+}
+
+func (p *BlockPipeline) stoppedError() error {
+	p.fatalErrMu.RLock()
+	err := p.fatalErr
+	p.fatalErrMu.RUnlock()
+	if err != nil {
+		return err
+	}
+	return ErrPipelineStopped
 }
 
 func (p *BlockPipeline) markProcessed(sequence uint64) {
@@ -535,7 +684,7 @@ func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 		return nil
 	}
 	if p.ctx.Err() != nil {
-		return ErrPipelineStopped
+		return p.stoppedError()
 	}
 	return err
 }

@@ -39,10 +39,9 @@ import (
 	"github.com/blinklabs-io/gouroboros/vrf"
 )
 
-// The era packages own the protocol-major ranges their blocks may carry, and
-// DetermineBlockType classifies against those. These single values are kept
-// for callers that already reference them; they name the first major of each
-// era and are not the authority on its extent.
+// These single values name the first protocol major associated with each era.
+// A header's protocol major advertises the producer's capabilities and does
+// not identify the era of an ambiguous header shape.
 const (
 	HeaderBodyLengthShelleyLike = 15
 	HeaderBodyLengthBabbageLike = 10
@@ -63,10 +62,31 @@ const (
 	ProtoMajorDijkstra                = 12
 )
 
-// inProtocolRange reports whether a header's protocol major falls within an
-// era's declared range, inclusive at both ends.
-func inProtocolRange(protoMajor, min, max uint64) bool {
-	return protoMajor >= min && protoMajor <= max
+// ErrAmbiguousBlockType is returned when a header shape is shared by several
+// eras. Callers must retain the hard-fork envelope discriminator or use their
+// authoritative hard-fork schedule to select the decoder.
+var ErrAmbiguousBlockType = errors.New("ambiguous block type")
+
+// AmbiguousBlockTypeError describes a header shape that cannot identify its
+// exact era. ProtocolMajor is retained as diagnostic input and must not be
+// used as an era discriminator.
+type AmbiguousBlockTypeError struct {
+	HeaderBodyLength int
+	ProtocolMajor    uint64
+}
+
+func (e *AmbiguousBlockTypeError) Error() string {
+	return fmt.Sprintf(
+		"%v: %d-field header with producer protocol major %d requires hard-fork context",
+		ErrAmbiguousBlockType,
+		e.HeaderBodyLength,
+		e.ProtocolMajor,
+	)
+}
+
+// Unwrap supports errors.Is with ErrAmbiguousBlockType.
+func (e *AmbiguousBlockTypeError) Unwrap() error {
+	return ErrAmbiguousBlockType
 }
 
 func eraAtLeast(era common.Era, min common.Era) bool {
@@ -257,7 +277,10 @@ func eraOrder(era common.Era) (int, bool) {
 	}
 }
 
-// DetermineBlockType determines the block type from the header CBOR
+// DetermineBlockType determines a block type only when the header has a shape
+// unique to one era. Shared Shelley-like and Babbage-like shapes return
+// ErrAmbiguousBlockType because the producer protocol major is not an era
+// discriminator.
 func DetermineBlockType(headerCbor []byte) (uint, error) {
 	var header any
 	if _, err := cbor.Decode(headerCbor, &header); err != nil {
@@ -274,84 +297,22 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 	lenBody := len(body)
 	switch lenBody {
 	case HeaderBodyLengthShelleyLike:
-		// Shelley era
 		protoMajor, ok := body[13].(uint64)
 		if !ok {
 			return 0, errors.New("invalid proto major")
 		}
-		switch {
-		case inProtocolRange(
-			protoMajor,
-			shelley.MinProtocolVersionShelley,
-			shelley.MaxProtocolVersionShelley,
-		):
-			return BlockTypeShelley, nil
-		case inProtocolRange(
-			protoMajor,
-			allegra.MinProtocolVersionAllegra,
-			allegra.MaxProtocolVersionAllegra,
-		):
-			return BlockTypeAllegra, nil
-		case inProtocolRange(
-			protoMajor,
-			mary.MinProtocolVersionMary,
-			mary.MaxProtocolVersionMary,
-		):
-			return BlockTypeMary, nil
-		case inProtocolRange(
-			protoMajor,
-			alonzo.MinProtocolVersionAlonzo,
-			alonzo.MaxProtocolVersionAlonzo,
-		):
-			return BlockTypeAlonzo, nil
-		default:
-			return 0, fmt.Errorf(
-				"unknown proto major %d for Shelley-like",
-				protoMajor,
-			)
+		return 0, &AmbiguousBlockTypeError{
+			HeaderBodyLength: lenBody,
+			ProtocolMajor:    protoMajor,
 		}
 	case HeaderBodyLengthBabbageLike:
-		// Babbage era
 		protoMajor, err := praosHeaderProtoMajor(body)
 		if err != nil {
 			return 0, err
 		}
-		switch {
-		case inProtocolRange(
-			protoMajor,
-			babbage.MinProtocolVersionBabbage,
-			babbage.MaxProtocolVersionBabbage,
-		):
-			return BlockTypeBabbage, nil
-		case inProtocolRange(
-			protoMajor,
-			conway.MinProtocolVersionConway,
-			conway.MaxProtocolVersionConway,
-		):
-			return BlockTypeConway, nil
-		case inProtocolRange(
-			protoMajor,
-			dijkstra.MinProtocolVersionDijkstra,
-			dijkstra.MaxProtocolVersionDijkstra,
-		):
-			return BlockTypeDijkstra, nil
-		case inProtocolRange(
-			protoMajor,
-			alonzo.MinProtocolVersionAlonzo,
-			alonzo.MaxProtocolVersionAlonzo,
-		):
-			return BlockTypeAlonzo, nil
-		case inProtocolRange(
-			protoMajor,
-			mary.MinProtocolVersionMary,
-			mary.MaxProtocolVersionMary,
-		):
-			return BlockTypeMary, nil
-		default:
-			return 0, fmt.Errorf(
-				"unknown proto major %d for 10-field header",
-				protoMajor,
-			)
+		return 0, &AmbiguousBlockTypeError{
+			HeaderBodyLength: lenBody,
+			ProtocolMajor:    protoMajor,
 		}
 	case HeaderBodyLengthDijkstraLeiosLike:
 		// Only Dijkstra has this shape, so the shape decides the era. The
@@ -364,11 +325,8 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 		if err != nil {
 			return 0, err
 		}
-		if !inProtocolRange(
-			protoMajor,
-			dijkstra.MinProtocolVersionDijkstra,
-			math.MaxUint32,
-		) {
+		if protoMajor < dijkstra.MinProtocolVersionDijkstra ||
+			protoMajor > math.MaxUint32 {
 			return 0, fmt.Errorf(
 				"unknown proto major %d for 12-field header",
 				protoMajor,

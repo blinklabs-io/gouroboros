@@ -420,9 +420,9 @@ err = ts.SubmitTx(txCbor)
 ## Data Flow: Block Processing
 
 ```
-1. Network receives block bytes
-2. DetermineBlockType(header) -> BlockType
-3. NewBlockFromCbor(type, bytes) -> Block
+1. Network receives the hard-fork envelope type and block bytes
+2. Authoritative chain context confirms that the envelope type is active
+3. NewBlockFromCbor(envelopeType, bytes) -> Block
 4. Extract components:
    |- BlockHeader (VRF, KES, slot)
    |- Transaction bodies

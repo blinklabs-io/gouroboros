@@ -280,21 +280,45 @@ func runPipeline(
 	return p.Stats()
 }
 
+func runRejectedPipelineItem(
+	t *testing.T,
+	blockType uint,
+	rawCbor []byte,
+	opts ...PipelineOption,
+) PipelineStats {
+	t.Helper()
+	p := NewBlockPipeline(opts...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	require.NoError(t, p.Start(ctx))
+	require.NoError(t, p.Submit(
+		ctx,
+		blockType,
+		rawCbor,
+		createTestTip(1000, 0),
+	))
+	select {
+	case <-p.ctx.Done():
+	case <-ctx.Done():
+		t.Fatal("rejected pipeline item did not cancel processing")
+	}
+	require.NoError(t, p.Stop())
+	return p.Stats()
+}
+
 func validatingPipelineOptions(
+	t *testing.T,
 	eta0 string,
 	apply ApplyFunc,
 ) []PipelineOption {
+	t.Helper()
 	return []PipelineOption{
 		WithDecodeWorkers(2),
 		WithValidateWorkers(2),
-		WithSkipBodyHashValidation(true),
+		WithChainContextValidator(acceptTestChainContext),
 		WithEta0Provider(StaticEta0Provider(eta0)),
 		WithSlotsPerKesPeriod(129600),
-		WithVerifyConfig(common.VerifyConfig{
-			SkipBodyHashValidation:    true,
-			SkipTransactionValidation: true,
-			SkipStakePoolValidation:   true,
-		}),
+		WithVerifyConfig(validatingTestVerifyConfig(t)),
 		WithApplyFunc(apply),
 	}
 }
@@ -323,7 +347,7 @@ func TestBlockPipelineStageTimingsAllStages(t *testing.T) {
 		uint(shelley.BlockType),
 		shelley.Cbor,
 		numBlocks,
-		validatingPipelineOptions(
+		validatingPipelineOptions(t,
 			shelleyBlockEta0,
 			func(*BlockItem) error { return nil },
 		)...,
@@ -349,22 +373,20 @@ func TestBlockPipelineStageTimingsAllStages(t *testing.T) {
 // validation fail and checks that the failed validations count as errors and
 // add nothing to ValidateTimings, while the stages that succeeded still do.
 func TestBlockPipelineStageTimingsExcludeValidationFailures(t *testing.T) {
-	const numBlocks = 3
-	stats := runPipeline(
+	stats := runRejectedPipelineItem(
 		t,
 		uint(ledger.BlockTypeConway),
 		getValidBlockCbor(t),
-		numBlocks,
-		validatingPipelineOptions(
+		validatingPipelineOptions(t,
 			// An all-zero nonce does not match the block's VRF proof.
 			"0000000000000000000000000000000000000000000000000000000000000000",
 			func(*BlockItem) error { return nil },
 		)...,
 	)
 
-	require.Equal(t, uint64(numBlocks), stats.ValidationErrors)
+	require.Equal(t, uint64(1), stats.ValidationErrors)
 	assert.Equal(t, StageTimings{}, stats.ValidateTimings)
-	assert.Equal(t, uint64(numBlocks), stats.DecodeTimings.Count)
+	assert.Equal(t, uint64(1), stats.DecodeTimings.Count)
 	assert.Zero(t, stats.ApplyTimings.Count,
 		"unvalidated items are not applied when validation is enabled")
 }
@@ -380,9 +402,7 @@ func TestBlockPipelineStageTimingsExcludeDecodeFailures(t *testing.T) {
 		[]byte{0xff, 0x00, 0x01},
 		numBlocks,
 		WithDecodeWorkers(2),
-		WithValidateWorkers(0),
-		WithSkipBodyHashValidation(true),
-		WithApplyFunc(func(*BlockItem) error { return nil }),
+		WithTrustedDecodeOnly(),
 	)
 
 	require.Equal(t, uint64(numBlocks), stats.DecodeErrors)
@@ -391,8 +411,8 @@ func TestBlockPipelineStageTimingsExcludeDecodeFailures(t *testing.T) {
 }
 
 // TestBlockPipelineRunHelperDrainsErrors submits more failing items than the
-// pipeline's error buffer holds. Without a reader on Errors the workers block
-// on the error send and the items never reach Results.
+// pipeline's error buffer holds. Error reporting is observational and must not
+// block forwarding to the trusted decode-only result stream.
 func TestBlockPipelineRunHelperDrainsErrors(t *testing.T) {
 	const numBlocks = 2500
 	stats := runPipeline(
@@ -401,9 +421,7 @@ func TestBlockPipelineRunHelperDrainsErrors(t *testing.T) {
 		[]byte{0xff, 0x00, 0x01},
 		numBlocks,
 		WithDecodeWorkers(2),
-		WithValidateWorkers(0),
-		WithSkipBodyHashValidation(true),
-		WithApplyFunc(func(*BlockItem) error { return nil }),
+		WithTrustedDecodeOnly(),
 	)
 
 	assert.Equal(t, uint64(numBlocks), stats.DecodeErrors)
@@ -413,23 +431,26 @@ func TestBlockPipelineRunHelperDrainsErrors(t *testing.T) {
 // fail and checks that the failures count as apply errors and add nothing to
 // ApplyTimings, exercising the direct RecordApply call in the apply stage.
 func TestBlockPipelineStageTimingsExcludeApplyFailures(t *testing.T) {
-	const numBlocks = 3
-	stats := runPipeline(
+	var shelley testdata.TestBlock
+	for _, block := range testdata.GetTestBlocks() {
+		if block.Name == "Shelley" {
+			shelley = block
+		}
+	}
+	require.NotEmpty(t, shelley.Cbor)
+	stats := runRejectedPipelineItem(
 		t,
-		uint(ledger.BlockTypeConway),
-		getValidBlockCbor(t),
-		numBlocks,
-		WithDecodeWorkers(2),
-		WithValidateWorkers(0),
-		WithSkipBodyHashValidation(true),
-		WithApplyFunc(func(*BlockItem) error {
-			return errors.New("apply failed")
-		}),
+		shelley.BlockType,
+		shelley.Cbor,
+		validatingPipelineOptions(t,
+			shelleyBlockEta0,
+			func(*BlockItem) error { return errors.New("apply failed") },
+		)...,
 	)
 
-	require.Equal(t, uint64(numBlocks), stats.ApplyErrors)
+	require.Equal(t, uint64(1), stats.ApplyErrors)
 	assert.Equal(t, StageTimings{}, stats.ApplyTimings)
-	assert.Equal(t, uint64(numBlocks), stats.DecodeTimings.Count)
+	assert.Equal(t, uint64(1), stats.DecodeTimings.Count)
 }
 
 // TestStageMetricsRecordersFeedMatchingTimings runs a stub stage through a

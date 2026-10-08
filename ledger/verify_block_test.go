@@ -35,159 +35,35 @@ var (
 	}()
 )
 
-func TestDetermineBlockTypeConwayAndDijkstraProtocolRanges(t *testing.T) {
-	testCases := []struct {
-		name      string
-		major     uint64
-		blockType uint
+func TestDetermineBlockTypeRequiresHardForkContextForSharedShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		fields int
+		major  uint64
 	}{
-		{name: "conway 9", major: 9, blockType: BlockTypeConway},
-		{name: "conway 10", major: 10, blockType: BlockTypeConway},
-		{name: "conway 11", major: 11, blockType: BlockTypeConway},
-		{name: "dijkstra 12", major: 12, blockType: BlockTypeDijkstra},
-		{name: "dijkstra 13", major: 13, blockType: BlockTypeDijkstra},
-	}
-
-	for _, tc := range testCases {
+		{name: "Allegra producer advertises Mary", fields: 15, major: 4},
+		{name: "Mary producer advertises Alonzo", fields: 15, major: 5},
+		{name: "Alonzo producer advertises Babbage", fields: 15, major: 7},
+		{name: "Conway producer advertises Dijkstra", fields: 10, major: 12},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := make([]any, HeaderBodyLengthBabbageLike)
-			body[9] = []any{tc.major, uint64(0)}
-			headerCbor, err := cbor.Encode([]any{body, []byte{}})
-			if err != nil {
-				t.Fatalf("failed to encode header: %v", err)
+			var headerCbor []byte
+			var err error
+			if tc.fields == HeaderBodyLengthBabbageLike {
+				headerCbor, err = encodeTestHeader(tc.major, true)
+			} else {
+				headerCbor, err = encodeTestHeader(tc.major, false)
 			}
+			require.NoError(t, err)
 
 			blockType, err := DetermineBlockType(headerCbor)
-			if err != nil {
-				t.Fatalf("failed to determine block type: %v", err)
-			}
-			if blockType != tc.blockType {
-				t.Fatalf("block type = %d, want %d", blockType, tc.blockType)
-			}
+			require.Zero(t, blockType)
+			require.ErrorIs(t, err, ErrAmbiguousBlockType)
+			var ambiguity *AmbiguousBlockTypeError
+			require.ErrorAs(t, err, &ambiguity)
+			require.Equal(t, tc.fields, ambiguity.HeaderBodyLength)
+			require.Equal(t, tc.major, ambiguity.ProtocolMajor)
 		})
-	}
-}
-
-// TestDetermineBlockTypeCoversDeclaredProtocolRanges walks every protocol
-// major each era package declares and requires classification to accept it.
-//
-// The era packages are the authority on which majors belong to an era, so
-// matching a single version here silently falls behind the moment a range
-// widens. That is how Alonzo 6 and Babbage 8 came to be rejected while the
-// era constructors decoded and body-validated them happily, which in turn
-// made callers that classify a header independently refuse valid blocks.
-//
-// Driving the cases from the constants rather than literals means a future
-// range change is covered without touching this test.
-func TestDetermineBlockTypeCoversDeclaredProtocolRanges(t *testing.T) {
-	testCases := []struct {
-		name        string
-		minMajor    uint64
-		maxMajor    uint64
-		blockType   uint
-		babbageLike bool
-	}{
-		{
-			name:      shelley.EraNameShelley,
-			minMajor:  shelley.MinProtocolVersionShelley,
-			maxMajor:  shelley.MaxProtocolVersionShelley,
-			blockType: BlockTypeShelley,
-		},
-		{
-			name:      allegra.EraNameAllegra,
-			minMajor:  allegra.MinProtocolVersionAllegra,
-			maxMajor:  allegra.MaxProtocolVersionAllegra,
-			blockType: BlockTypeAllegra,
-		},
-		{
-			name:      mary.EraNameMary,
-			minMajor:  mary.MinProtocolVersionMary,
-			maxMajor:  mary.MaxProtocolVersionMary,
-			blockType: BlockTypeMary,
-		},
-		{
-			name:      alonzo.EraNameAlonzo,
-			minMajor:  alonzo.MinProtocolVersionAlonzo,
-			maxMajor:  alonzo.MaxProtocolVersionAlonzo,
-			blockType: BlockTypeAlonzo,
-		},
-		// The ten-field header switch also classifies these eras, so their
-		// ranges have to hold in both shapes.
-		{
-			name:        alonzo.EraNameAlonzo + " ten-field",
-			minMajor:    alonzo.MinProtocolVersionAlonzo,
-			maxMajor:    alonzo.MaxProtocolVersionAlonzo,
-			blockType:   BlockTypeAlonzo,
-			babbageLike: true,
-		},
-		{
-			name:        mary.EraNameMary + " ten-field",
-			minMajor:    mary.MinProtocolVersionMary,
-			maxMajor:    mary.MaxProtocolVersionMary,
-			blockType:   BlockTypeMary,
-			babbageLike: true,
-		},
-		{
-			name:        babbage.EraNameBabbage,
-			minMajor:    babbage.MinProtocolVersionBabbage,
-			maxMajor:    babbage.MaxProtocolVersionBabbage,
-			blockType:   BlockTypeBabbage,
-			babbageLike: true,
-		},
-		{
-			name:        conway.EraNameConway,
-			minMajor:    conway.MinProtocolVersionConway,
-			maxMajor:    conway.MaxProtocolVersionConway,
-			blockType:   BlockTypeConway,
-			babbageLike: true,
-		},
-		{
-			name:        dijkstra.EraNameDijkstra,
-			minMajor:    dijkstra.MinProtocolVersionDijkstra,
-			maxMajor:    dijkstra.MaxProtocolVersionDijkstra,
-			blockType:   BlockTypeDijkstra,
-			babbageLike: true,
-		},
-	}
-
-	for _, tc := range testCases {
-		for major := tc.minMajor; major <= tc.maxMajor; major++ {
-			t.Run(
-				fmt.Sprintf("%s major %d", tc.name, major),
-				func(t *testing.T) {
-					headerCbor, err := encodeTestHeader(major, tc.babbageLike)
-					require.NoError(t, err, "failed to encode header")
-					blockType, err := DetermineBlockType(headerCbor)
-					require.NoErrorf(t, err,
-						"major %d declared by %s was rejected", major, tc.name)
-					require.Equalf(t, tc.blockType, blockType,
-						"major %d classified as the wrong era", major)
-				},
-			)
-		}
-	}
-}
-
-// TestDetermineBlockTypeRejectsUndeclaredProtocolMajor keeps the negative side
-// of classification honest: widening the accepted ranges must not turn the
-// helper into one that accepts anything.
-func TestDetermineBlockTypeRejectsUndeclaredProtocolMajor(t *testing.T) {
-	// Above every declared range, and below the lowest.
-	for _, major := range []uint64{0, 1, 99} {
-		for _, babbageLike := range []bool{false, true} {
-			shape := "fifteen-field"
-			if babbageLike {
-				shape = "ten-field"
-			}
-			t.Run(fmt.Sprintf("%s major %d", shape, major), func(t *testing.T) {
-				headerCbor, err := encodeTestHeader(major, babbageLike)
-				require.NoError(t, err, "failed to encode header")
-				_, err = DetermineBlockType(headerCbor)
-				require.Errorf(t, err,
-					"major %d is declared by no era but was classified",
-					major)
-			})
-		}
 	}
 }
 
@@ -310,13 +186,15 @@ func decodeTransactionMetadataSet(
 
 var verifyBlockBodyTestCases = []struct {
 	name          string
+	blockType     uint
 	blockHexCbor  BlockHexCbor
 	expectedValid bool
 	expectedErr   string
 }{
 	{
 		// https://cardanoscan.io/block/10882991
-		name: "TestVerifyBlockBody success, 34 items",
+		name:      "TestVerifyBlockBody success, 34 items",
+		blockType: BlockTypeConway,
 		blockHexCbor: BlockHexCbor{
 			Flag:          0,
 			HeaderCbor:    "828a1a00a60faf1a0817580c58204eac1e7264c0e80436b04687e75d46d6a0d6b2338c2abb73a14fafbd689f69b2582012209e0b93f0128f670c9a02781c5466c4c4be003da3a51344b6a94f709ce51f58209c1a5fc5dec0a4b822d5a3b254ce9b168299479127aadcf97506ef257517fff682584023c2d70c24c44041644f5152f7e8a1bb580e516eb8e73c7df287116adb5f009c0c001feccfeebdf34c2275d1fce859c6c46182631b6306d5fd2724ac7ab1c6be58500dbe31ef7c00c34b6522e983d223e05075359cb170668d960b8cebfced178287ee6ca5cfc6e8e60aec97fd197aebfefc24aae695680631d575c6dacdfd9efc5687e46eb2a5c04a755c7f260af9ef830819c5ea5820d2b74b6333637801f2e9c7265792d5b8fc1647f9056d67c769dbac27f25f2fd08458200946347d22a3b6da29d79102424973c932b898808ff2436fa138df102484230a0a1904165840c75619c3ebad0758349eb1dedc154a8cd280d8189d6da973b4a147b0cdb0f60442d493feeba64167a05b5fc40bc695192bf1c08afad3c07ebd33cb5925f378018209015901c00a8442332bd3f33a4d78fe2736a75110b528a1e7501bc7887910d1475fc0e425f49a84f94e98f87047916cf622f3db1f61b60c5f06709769f98c4cc67de8f50c320c6772b647ac9916765b6985d4eafccb54e71064d01df41f8d0638ed5cd62b7b6e49ba15dd87cc687ab87d3fb22490d355e8fa9c5f7c24ed88b800fcc4cb1f1b54e65b5ba82c442f4643caadc86583072b8b6956f4f9a4530c29873f7231605efd7a7f961a863530512ef86b50f9b1004748c31fa07978f2ece7d8e76ffde67d713015824b28e19f05f0383c2def3cdeb67247f33f5eae329c38a375b2eb06a586dcc2e102a776a6deaad1741f2a7f5aa604074698e876afab4455278fd84a1db5768078e2848cc85e3c8a0b48630a2622832ecd2dbb3c505df2a70b93b49ce99616f601e5e2004a8ce8926319c23f2a26ac8550cb1c05c9d2d25fc5fcd122fc35b057a71d6e961250c99b19a7bfd9acdc60a8151d6c81ef2d7d69a62fd0f17d184dd753cce9a2e9c32b53baf317e31c6c5e3cf8ea8b203b413ae8b0253db53d0cbe19b0f0547a0e67d3591d1cade6ceb4a47779ba4a09e7526280acb62200f42c98f6185ea9da3daf47aa3d10ffe5307331fa3430af6c6361154943c39375",
@@ -328,7 +206,8 @@ var verifyBlockBodyTestCases = []struct {
 	},
 	{
 		// https://cardanoscan.io/block/10873394
-		name: "Large set of aux data, complicated aux",
+		name:      "Large set of aux data, complicated aux",
+		blockType: BlockTypeConway,
 		blockHexCbor: BlockHexCbor{
 			Flag:          0,
 			HeaderCbor:    "828a1a00a5ea321a081459ae582064d554d21bb34b0fa9b00e45e1903c0600ae1119c6d6d97499df8a0f58247074582002fd66153af56f48e38d73780ee33b0871d68213e75ceacb988e3089fbd7af505820bdd4cc0e84384ccbdbc8f09143573d640d38e0610bf0837e9885c380d30aa90382584091579d9d44861d162e5c4c4dfc3bd2bd9ae0083fd3fd0d1a644efd52f4f837402246ddf916ffdaf2c7ac947f4d299050bc6d424bd6d2cbdf71e6278b1e46443c5850518eb4d32b7f69a6e2a4731a431e202621fa327dd64ab004f259132711b9f68d2f67618e8a38b23d9faf7c434592fe962702d41d25a15a71e7a9aa5e29b042d54456011f727ca448fc542b754851d70d1a000159e95820164e00179fcbd28afcbeb015f820470137e69e150ef81aa8007d0ae1b06b3f6e845820f8a0477c49b672a4edb8af2e1688d50b7f97e6be9f6684ca10ff59252f9c0013111903f15840175ea92dff4e3ab927b7a8b7ef571dd6af03c0d2288adc78d6251a1a6cf0683c0bb144d9397c07ba503bc665ab25e9e8a73a384278e0140bfd08acd15ae475038209015901c0a54255e1496db49bc9182c501ec37b2c2e7e247146da93b68f34490ef0da1ddc2960161d87ec91615a32a126879e8e9ffd3f5f07e2cf94f563ddfa064d38f10221a05782972bcc2f51ca970bf961e65466e0f9e5d4000c4a2a9f04fd1133130ec6924dcbfba8f513f58e93fc821fc7946c7e33b4c9fc0dac514d36f393e42622a3b53a82984fd3b73c22e9d84b12f4e02b0927e4bb60fd8ee0d997128bdcc71f4ceec6d27e16da7a086fa20545e67cad716a8bf9d11c2f06a443829cd6691102509e27666be7bc4810c69fd190bfaadf88207e2a63f34e56b05c89afcc182f7829107cfc295d29286896c4a83e7470809f7954b8287ba82b946763c99b628764c99c1f7f16bfa9ee2589251a5b153c5dc58f91bb4a652f48bdcd08f82940c0b9a3b2399af3307b12681cea4dbeaa5db7f8eb85facccb45a8922e7b372917bb2a7d1b40f186b984aee01345bc146d4d950203ecaf708030ed9fd2e418c2b88ec684489a678b2c6d14a86703c9918c5029c1310432c55e2a72a793f90a2c60fb47fc44cb0c2e5d5593ed31ef3e346d3134a1883e3cd6ba7be149e634f5c928dc5c3d21b68f3eeb783ad96dcce7c99a0846f4882c8a63aa353a70e930017f311003",
@@ -344,7 +223,8 @@ var verifyBlockBodyTestCases = []struct {
 		// it failed was that DetermineBlockType matched Babbage on
 		// major 7 alone and could not classify the header. The block
 		// itself is valid and now verifies.
-		name: "TestVerifyBlockBody success, Babbage protocol major 8",
+		name:      "TestVerifyBlockBody success, Babbage protocol major 8",
+		blockType: BlockTypeBabbage,
 		blockHexCbor: BlockHexCbor{
 			Flag:          0,
 			HeaderCbor:    "828a1a00a11c251a07b248af582012e0d55c96d9c197fa3cc265ba81df9b9bd435d32e839b436fbec9623799145558206c6aeb4c58918e71403d8a9bee01e39ac8c8c4ffc52bf58b46beb7a7d121a05b5820e44615156d5140f59b218cbcc64ed195c23f0ddc3d80e4f63541f96082e80871825840f29a8c0373c08f8e19adbd02d8179560a32d3e7de1985499c9e250379c6f5b46db84e875d703f7239c786cad5807ca6ad16c8d08f92360a28dfd9e354fe1b13b58509f99f42454b9cdde9f5559560f9baa7a5a6f79f97659ec56e6d81ddd4e5c3e64e27ca2e0804b2456c0b59050b6d994fb60b1f8c0518c031d1f5c36b5c5e08db18afb055fe6d41252b7b0b42510d8b50c1935f658202e293f1d9aed556b51dd1eee374e3899124c8a3f9b88bd3d9c5a1e3d3b5960778458206e31b612cbbbdc6e539ebb175835424b4fa608c4937ea42c761ef7e84f25c5a1121903cf584091bafbbc5b280c96d1bc2b71cfaee13be1146c2b980ed2851bdf3f2dbb880a3efd7fd3ba0c982c0a9e27b8552a7540108e4c8f239807c44b956e1d978b93130b8208005901c034ad8775bc3af6c8fbcec1e704dc53439de0c0f86cccd79d84fd7788bf009d976960b8b291bca6e250ef1c8cd3f8c8c064c94afe039eb006e5247b8288a7340911674523ab058fded91b667a21d8b1cb1a4c2305b9f80ff03ed7ea036b87ec3185356bcd8e425811d88265ef5ec42d4aeaa526772a0e57bddf202008df47374cc144b1f08b688b27884385ca2a7d44e52e7ff96b9589ed3238eec73de6718023127e84ede20c9092c592dfaa735d64cde007416c58db0afafb311857cdb7103ebce8d311c7c2a5f52151b1a2c07fc8319f51bf3b9f2953030520b064c369518ade6696519d2ca7865483e29aa07b8cf8fa838c965b1b9d5ee55e5f25927d2f29a294a8f578045a34d71e8cbede10ca7805e9c21dd5889d05a4306a026691922803a869d6ac214698fd0778c37a383766e2000a67341ae11e0e21506f65fd1b8782472b2923318b0d466240de0d0292a08e6770c859679049e89527dfe468a5878bebee1e1dc1b4bd763f90f76cf3b1847f9a172f42b9cf81959f23bc5fe530ff573778ca1ead972c51d2f7bf1fbd01e2471533ef85f5404d64648fcfb86a118b91faee8d922eb30436a1d02d1ff106f64ef3205990d919e9cfed53f610321f87",
@@ -372,13 +252,7 @@ func verifiedBlockFuzzSeed() (uint, []byte, string, uint64, error) {
 	if err != nil {
 		return 0, nil, "", 0, err
 	}
-	blockType, err := DetermineBlockType(headerBytes)
-	if err != nil {
-		return 0, nil, "", 0, err
-	}
-	if blockType != BlockTypeBabbage {
-		return 0, nil, "", 0, fmt.Errorf("expected Babbage fuzz seed, got block type %d", blockType)
-	}
+	blockType := uint(BlockTypeBabbage)
 	header, err := NewBlockHeaderFromCbor(blockType, headerBytes)
 	if err != nil {
 		return 0, nil, "", 0, err
@@ -523,15 +397,7 @@ func TestVerifyBlockBody(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to decode header hex: %v", err)
 			}
-			blockType, err := DetermineBlockType(headerBytes)
-			if err != nil {
-				if tc.expectedErr != "" &&
-					strings.Contains(err.Error(), tc.expectedErr) {
-					// Expected error, test passes
-					return
-				}
-				t.Fatalf("failed to determine block type: %v", err)
-			}
+			blockType := tc.blockType
 			if tc.expectedErr != "" {
 				t.Errorf("expected error %q but got none", tc.expectedErr)
 			}
@@ -808,10 +674,7 @@ func TestVerifyBlock_TransactionValidation(t *testing.T) {
 				t.Fatalf("failed to decode header CBOR: %v", err)
 			}
 
-			blockType, err := DetermineBlockType(headerCborBytes)
-			if err != nil {
-				t.Fatalf("failed to determine block type: %v", err)
-			}
+			blockType := uint(BlockTypeConway)
 
 			// Create a minimal block to test the integration
 			// This test verifies that transaction validation is properly enabled and
@@ -903,10 +766,7 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 				t.Fatalf("failed to decode header CBOR: %v", err)
 			}
 
-			blockType, err := DetermineBlockType(headerCborBytes)
-			if err != nil {
-				t.Fatalf("failed to determine block type: %v", err)
-			}
+			blockType := uint(BlockTypeConway)
 
 			// Create a minimal block to test the integration
 			header, err := NewBlockHeaderFromCbor(blockType, headerCborBytes)
@@ -1088,8 +948,7 @@ func TestVerifyBlock_UnrecognizedProtocolParameters(t *testing.T) {
 	eta0Hex := "4ef95a10f639d0cf16bb963c3a580d4bf2a95b6ae7848702665884843e3c661d"
 	slotsPerKesPeriod := uint64(129600)
 
-	blockType, err := DetermineBlockType(headerCborBytes)
-	require.NoError(t, err)
+	blockType := uint(BlockTypeConway)
 	header, err := NewBlockHeaderFromCbor(blockType, headerCborBytes)
 	require.NoError(t, err)
 	conwayHeader, ok := header.(*conway.ConwayBlockHeader)

@@ -16,6 +16,7 @@ package blockfetch_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -327,7 +328,12 @@ func TestGetBlockRangePipelineStillFailsUndecodableBlock(t *testing.T) {
 		ouroboros_mock.ConversationEntryClose{},
 	)
 	blockPipeline := pipeline.NewBlockPipeline(
-		pipeline.WithSkipBodyHashValidation(true),
+		pipeline.WithValidateWorkers(1),
+		pipeline.WithEta0(strings.Repeat("00", 32)),
+		pipeline.WithSlotsPerKesPeriod(129600),
+		pipeline.WithChainContextValidator(
+			func(context.Context, *pipeline.BlockItem) error { return nil },
+		),
 		pipeline.WithApplyFunc(func(_ *pipeline.BlockItem) error {
 			return nil
 		}),

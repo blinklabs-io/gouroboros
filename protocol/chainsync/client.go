@@ -1189,8 +1189,8 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				}
 			}()
 			err := c.config.Pipeline.Submit(ctx, msg.BlockType(), msg.BlockCbor(), msg.Tip)
-			cancel() // Ensure goroutine exits promptly
 			if err != nil {
+				cancel()
 				// Signal syncLoop to stop on pipeline error
 				c.lifecycleMutex.Lock()
 				if c.readyForNextBlockChan != nil {
@@ -1202,7 +1202,22 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				c.lifecycleMutex.Unlock()
 				return err
 			}
-			// Signal ready for next block immediately (pipeline handles backpressure)
+			// Do not advance ChainSync until the ordered validation and apply
+			// boundary accepts this block.
+			err = c.config.Pipeline.Fence(ctx)
+			cancel()
+			if err != nil {
+				c.lifecycleMutex.Lock()
+				if c.readyForNextBlockChan != nil {
+					select {
+					case c.readyForNextBlockChan <- false:
+					case <-c.DoneChan():
+					}
+				}
+				c.lifecycleMutex.Unlock()
+				return err
+			}
+			// Signal ready only after ordered acceptance.
 			c.lifecycleMutex.Lock()
 			if c.readyForNextBlockChan != nil {
 				select {

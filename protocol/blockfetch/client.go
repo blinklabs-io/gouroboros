@@ -1344,7 +1344,12 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			wrappedBlock.RawBlock,
 			tip,
 		)
-		cancel() // Ensure goroutine exits promptly
+		if err != nil {
+			cancel()
+			return c.failRequest(req, err)
+		}
+		err = c.config.Pipeline.Fence(ctx)
+		cancel()
 		if err != nil {
 			return c.failRequest(req, err)
 		}

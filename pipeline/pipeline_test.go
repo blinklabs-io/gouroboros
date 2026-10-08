@@ -38,6 +38,40 @@ func getValidBlockCbor(t *testing.T) []byte {
 	return testdata.MustDecodeHex(testdata.ConwayBlockHex)
 }
 
+func getValidShelleyBlock(t *testing.T) testdata.TestBlock {
+	t.Helper()
+	for _, block := range testdata.GetTestBlocks() {
+		if block.Name == "Shelley" {
+			return block
+		}
+	}
+	t.Fatal("Shelley test block not found")
+	return testdata.TestBlock{}
+}
+
+func validatingTestVerifyConfig(t *testing.T) common.VerifyConfig {
+	t.Helper()
+	config, err := testdata.ShelleyVerifyConfig()
+	require.NoError(t, err)
+	return config
+}
+
+func validatedTestPipelineOptions(
+	t *testing.T,
+	apply ApplyFunc,
+) []PipelineOption {
+	t.Helper()
+	return []PipelineOption{
+		WithDecodeWorkers(1),
+		WithValidateWorkers(1),
+		WithChainContextValidator(acceptTestChainContext),
+		WithEta0Provider(StaticEta0Provider(shelleyBlockEta0)),
+		WithSlotsPerKesPeriod(129600),
+		WithVerifyConfig(validatingTestVerifyConfig(t)),
+		WithApplyFunc(apply),
+	}
+}
+
 func TestWithMaxPendingBlocksAllowsZeroToDisableLimit(t *testing.T) {
 	config := DefaultPipelineConfig()
 	WithMaxPendingBlocks(0)(&config)
@@ -665,8 +699,18 @@ func TestValidateStage_ContextCancellation(t *testing.T) {
 // TestApplyStage tests
 // ============================================================================
 
+func acceptTestChainContext(context.Context, *BlockItem) error {
+	return nil
+}
+
+func newTestApplyStage(applyFunc ApplyFunc, maxPending int) *ApplyStage {
+	stage := NewApplyStage(applyFunc, maxPending)
+	stage.SetChainContextValidator(acceptTestChainContext)
+	return stage
+}
+
 func TestApplyStage_Name(t *testing.T) {
-	stage := NewApplyStage(nil, 0)
+	stage := newTestApplyStage(nil, 0)
 	assert.Equal(t, "apply", stage.Name())
 }
 
@@ -683,7 +727,7 @@ func TestApplyStageOrdering_OutOfOrderReordering(t *testing.T) {
 		return nil
 	}
 
-	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage := newTestApplyStage(applyFunc, 0)
 
 	// Create items with sequence numbers
 	items := make([]*BlockItem, 5)
@@ -717,7 +761,7 @@ func TestApplyStageOrdering_OutOfOrderReordering(t *testing.T) {
 	assert.Equal(t, []uint64{0, 1, 2, 3, 4}, appliedOrder)
 }
 
-func TestApplyStageOrdering_SkipsInvalidItems(t *testing.T) {
+func TestApplyStageOrdering_RejectsInvalidItems(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 	var appliedSeqs []uint64
 	var mu sync.Mutex
@@ -729,7 +773,7 @@ func TestApplyStageOrdering_SkipsInvalidItems(t *testing.T) {
 		return nil
 	}
 
-	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage := newTestApplyStage(applyFunc, 0)
 
 	// Create items - some valid, some invalid
 	items := make([]*BlockItem, 5)
@@ -766,11 +810,14 @@ func TestApplyStageOrdering_SkipsInvalidItems(t *testing.T) {
 	// Process all items in order
 	for i := range items {
 		err := applyStage.Process(context.Background(), items[i])
+		if i == 1 {
+			require.ErrorIs(t, err, ErrPipelineItemRejected)
+			break
+		}
 		require.NoError(t, err)
 	}
 
-	// Only items 0, 2, 4 should have been applied (1 and 3 had validation errors)
-	assert.Equal(t, []uint64{0, 2, 4}, appliedSeqs)
+	assert.Equal(t, []uint64{0}, appliedSeqs)
 }
 
 // newDecodedTestItem creates a decoded BlockItem that has NOT been validated
@@ -802,13 +849,13 @@ func TestApplyStage_RequireValidation_SkipsUnvalidatedItems(t *testing.T) {
 		return nil
 	}
 
-	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage := newTestApplyStage(applyFunc, 0)
 	applyStage.SetRequireValidation(true)
 
 	item := newDecodedTestItem(t, 0)
 
 	err := applyStage.Process(context.Background(), item)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrPipelineItemRejected)
 
 	// The unvalidated item must not be applied, and the skip must be loud
 	assert.Empty(t, appliedSeqs)
@@ -827,7 +874,7 @@ func TestApplyStage_RequireValidation_AppliesValidatedItems(t *testing.T) {
 		return nil
 	}
 
-	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage := newTestApplyStage(applyFunc, 0)
 	applyStage.SetRequireValidation(true)
 
 	item := newDecodedTestItem(t, 0)
@@ -854,7 +901,7 @@ func TestApplyStage_RequireValidation_BufferedUnvalidatedItemsSkipped(
 		return nil
 	}
 
-	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage := newTestApplyStage(applyFunc, 0)
 	applyStage.SetRequireValidation(true)
 
 	// Item 1 is unvalidated and arrives first, so it is buffered and later
@@ -864,7 +911,11 @@ func TestApplyStage_RequireValidation_BufferedUnvalidatedItemsSkipped(
 	item0.SetValidation(true, "vrf", nil, time.Millisecond)
 
 	require.NoError(t, applyStage.Process(context.Background(), item1))
-	require.NoError(t, applyStage.Process(context.Background(), item0))
+	require.ErrorIs(
+		t,
+		applyStage.Process(context.Background(), item0),
+		ErrPipelineItemRejected,
+	)
 
 	// Only the validated item is applied; the buffered unvalidated item is
 	// skipped with an explicit error
@@ -884,8 +935,8 @@ func TestApplyStage_NoRequireValidation_AppliesUnvalidatedItems(t *testing.T) {
 		return nil
 	}
 
-	// Default behavior (validation disabled / trusted source) is unchanged
-	applyStage := NewApplyStage(applyFunc, 0)
+	// Direct apply-stage tests install an explicit context validator.
+	applyStage := newTestApplyStage(applyFunc, 0)
 
 	item := newDecodedTestItem(t, 0)
 
@@ -898,13 +949,15 @@ func TestApplyStage_NoRequireValidation_AppliesUnvalidatedItems(t *testing.T) {
 
 func TestBlockPipeline_Start_WiresRequireValidation(t *testing.T) {
 	// Validation enabled -> apply stage must require validated items
-	p := NewBlockPipeline(WithValidateWorkers(1), WithEta0("00"))
+	p := NewBlockPipeline(WithValidateWorkers(1),
+		WithChainContextValidator(acceptTestChainContext), WithEta0("00"),
+		WithApplyFunc(func(*BlockItem) error { return nil }))
 	require.NoError(t, p.Start(context.Background()))
 	defer p.Stop()
 	assert.True(t, p.applyStage.requireValidation)
 
-	// Validation disabled (default) -> apply stage accepts unvalidated items
-	p2 := NewBlockPipeline()
+	// Trusted decode-only mode bypasses the apply stage deliberately.
+	p2 := NewBlockPipeline(WithTrustedDecodeOnly())
 	require.NoError(t, p2.Start(context.Background()))
 	defer p2.Stop()
 	assert.False(t, p2.applyStage.requireValidation)
@@ -917,27 +970,25 @@ func TestBlockPipelineFenceWaitsForBlockedApply(t *testing.T) {
 	release := func() {
 		releaseOnce.Do(func() { close(releaseApply) })
 	}
-	p := NewBlockPipeline(
-		WithDecodeWorkers(1),
-		WithValidateWorkers(0),
-		WithSkipBodyHashValidation(true),
-		WithApplyFunc(func(*BlockItem) error {
+	p := NewBlockPipeline(validatedTestPipelineOptions(t,
+		func(*BlockItem) error {
 			close(applyStarted)
 			<-releaseApply
 			return nil
-		}),
-	)
+		},
+	)...)
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
 		require.NoError(t, p.Stop())
 	}()
+	shelley := getValidShelleyBlock(t)
 	require.NoError(
 		t,
 		p.Submit(
 			context.Background(),
-			uint(ledger.BlockTypeConway),
-			getValidBlockCbor(t),
+			shelley.BlockType,
+			shelley.Cbor,
 			createTestTip(1000, 500),
 		),
 	)
@@ -1012,8 +1063,7 @@ func TestBlockPipelineFenceCancelsWhileWaitingForBlockedSubmit(t *testing.T) {
 func TestBlockPipelineSubmitCancellationPrecedence(t *testing.T) {
 	t.Run("pre-canceled caller", func(t *testing.T) {
 		p := NewBlockPipeline(
-			WithValidateWorkers(0),
-			WithSkipBodyHashValidation(true),
+			WithTrustedDecodeOnly(),
 		)
 		var gateAcquisitions atomic.Uint64
 		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
@@ -1048,8 +1098,7 @@ func TestBlockPipelineSubmitCancellationPrecedence(t *testing.T) {
 		parentCtx, cancelParent := context.WithCancel(context.Background())
 		cancelParent()
 		p := NewBlockPipeline(
-			WithValidateWorkers(0),
-			WithSkipBodyHashValidation(true),
+			WithTrustedDecodeOnly(),
 		)
 		var gateAcquisitions atomic.Uint64
 		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
@@ -1088,7 +1137,7 @@ func TestBlockPipelineSubmitCancellationPrecedence(t *testing.T) {
 
 func TestBlockPipelineFenceCancellationPrecedence(t *testing.T) {
 	t.Run("pre-canceled caller", func(t *testing.T) {
-		p := NewBlockPipeline(WithValidateWorkers(0))
+		p := NewBlockPipeline(WithTrustedDecodeOnly())
 		var boundaryCaptures atomic.Uint64
 		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
 		require.NoError(t, p.Start(context.Background()))
@@ -1121,7 +1170,7 @@ func TestBlockPipelineFenceCancellationPrecedence(t *testing.T) {
 	t.Run("canceled Start parent", func(t *testing.T) {
 		parentCtx, cancelParent := context.WithCancel(context.Background())
 		cancelParent()
-		p := NewBlockPipeline(WithValidateWorkers(0))
+		p := NewBlockPipeline(WithTrustedDecodeOnly())
 		var boundaryCaptures atomic.Uint64
 		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
 		require.NoError(t, p.Start(parentCtx))
@@ -1133,7 +1182,10 @@ func TestBlockPipelineFenceCancellationPrecedence(t *testing.T) {
 
 		unexpectedResults := 0
 		for range readyCancellationTieAttempts {
-			if err := p.Fence(context.Background()); !errors.Is(err, ErrPipelineStopped) {
+			if err := p.Fence(context.Background()); !errors.Is(
+				err,
+				ErrPipelineStopped,
+			) {
 				unexpectedResults++
 			}
 		}
@@ -1165,9 +1217,13 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	}
 	config := DefaultPipelineConfig()
 	config.DecodeWorkers = 1
-	config.ValidateWorkers = 0
+	config.ValidateWorkers = 1
 	config.PrefetchBufferSize = 1
-	config.SkipBodyHashValidation = true
+	config.MaxPendingBlocks = 3
+	config.Eta0Provider = StaticEta0Provider(shelleyBlockEta0)
+	config.SlotsPerKesPeriod = 129600
+	config.ChainContextValidator = acceptTestChainContext
+	config.VerifyConfig = validatingTestVerifyConfig(t)
 	var appliedSequences []uint64
 	var appliedMu sync.Mutex
 	readyToEnqueue := make(chan struct{})
@@ -1196,7 +1252,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 			cancelFence()
 		}
 	}
-	p.testSubmitReady = func() {
+	p.testSubmitLocked = func() {
 		if submitInvocations.Add(1) == 5 {
 			close(readyToEnqueue)
 		}
@@ -1207,14 +1263,15 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 		require.NoError(t, p.Stop())
 	}()
 
-	rawCbor := getValidBlockCbor(t)
+	shelley := getValidShelleyBlock(t)
+	rawCbor := shelley.Cbor
 	tip := createTestTip(1000, 500)
 	for range 3 {
 		require.NoError(
 			t,
 			p.Submit(
 				context.Background(),
-				uint(ledger.BlockTypeConway),
+				shelley.BlockType,
 				rawCbor,
 				tip,
 			),
@@ -1229,7 +1286,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 		t,
 		p.Submit(
 			context.Background(),
-			uint(ledger.BlockTypeConway),
+			shelley.BlockType,
 			rawCbor,
 			tip,
 		),
@@ -1241,7 +1298,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	go func() {
 		backpressuredSubmit <- p.Submit(
 			backpressuredCtx,
-			uint(ledger.BlockTypeConway),
+			shelley.BlockType,
 			rawCbor,
 			tip,
 		)
@@ -1249,7 +1306,10 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	select {
 	case <-readyToEnqueue:
 	case err := <-backpressuredSubmit:
-		t.Fatalf("submission completed before reaching enqueue boundary: %v", err)
+		t.Fatalf(
+			"submission completed before reaching enqueue boundary: %v",
+			err,
+		)
 	case <-time.After(time.Second):
 		t.Fatal("backpressured submission did not reach enqueue boundary")
 	}
@@ -1284,7 +1344,9 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	case err := <-fenceBeforeRelease:
 		require.ErrorIs(t, err, context.Canceled)
 	case <-time.After(time.Second):
-		t.Fatal("canceled fence did not return while the first apply was blocked")
+		t.Fatal(
+			"canceled fence did not return while the first apply was blocked",
+		)
 	}
 
 	release()
@@ -1294,13 +1356,15 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	case err := <-fenceAfterRelease:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("fresh fence did not complete after the first apply was released")
+		t.Fatal(
+			"fresh fence did not complete after the first apply was released",
+		)
 	}
 	require.NoError(
 		t,
 		p.Submit(
 			context.Background(),
-			uint(ledger.BlockTypeConway),
+			shelley.BlockType,
 			rawCbor,
 			tip,
 		),
@@ -1311,7 +1375,9 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	case err := <-fenceDone:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("fence did not complete after the subsequent successful submission")
+		t.Fatal(
+			"fence did not complete after the subsequent successful submission",
+		)
 	}
 	for range 5 {
 		select {
@@ -1326,8 +1392,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 }
 
 func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
-	const eta0 = "00000000000000000000000000000000" +
-		"00000000000000000000000000000000"
+	const eta0 = shelleyBlockEta0
 	validationStarted := make(chan struct{})
 	releaseValidation := make(chan struct{})
 	var releaseOnce sync.Once
@@ -1337,18 +1402,15 @@ func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
 	p := NewBlockPipeline(
 		WithDecodeWorkers(1),
 		WithValidateWorkers(1),
-		WithSkipBodyHashValidation(true),
+		WithChainContextValidator(acceptTestChainContext),
+		WithApplyFunc(func(*BlockItem) error { return nil }),
 		WithEta0Provider(func(uint64) (string, error) {
 			close(validationStarted)
 			<-releaseValidation
 			return eta0, nil
 		}),
 		WithSlotsPerKesPeriod(129600),
-		WithVerifyConfig(common.VerifyConfig{
-			SkipBodyHashValidation:    true,
-			SkipTransactionValidation: true,
-			SkipStakePoolValidation:   true,
-		}),
+		WithVerifyConfig(validatingTestVerifyConfig(t)),
 	)
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
@@ -1356,12 +1418,13 @@ func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
 		require.NoError(t, p.Stop())
 	}()
 
+	shelley := getValidShelleyBlock(t)
 	require.NoError(
 		t,
 		p.Submit(
 			context.Background(),
-			uint(ledger.BlockTypeConway),
-			getValidBlockCbor(t),
+			shelley.BlockType,
+			shelley.Cbor,
 			createTestTip(1000, 500),
 		),
 	)
@@ -1397,7 +1460,7 @@ func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
 }
 
 func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
-	const eta0 = "4ef95a10f639d0cf16bb963c3a580d4bf2a95b6ae7848702665884843e3c661d"
+	const eta0 = shelleyBlockEta0
 	validationStarted := make(chan struct{})
 	releaseValidation := make(chan struct{})
 	var releaseOnce sync.Once
@@ -1411,9 +1474,10 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 	p := NewBlockPipeline(
 		WithDecodeWorkers(3),
 		WithValidateWorkers(3),
+		WithChainContextValidator(acceptTestChainContext),
+		WithApplyFunc(func(*BlockItem) error { return nil }),
 		WithPrefetchBufferSize(4),
 		WithMaxPendingBlocks(2),
-		WithSkipBodyHashValidation(true),
 		WithEta0Provider(func(uint64) (string, error) {
 			if eta0Calls.Add(1) == 1 {
 				close(validationStarted)
@@ -1422,11 +1486,7 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 			return eta0, nil
 		}),
 		WithSlotsPerKesPeriod(129600),
-		WithVerifyConfig(common.VerifyConfig{
-			SkipBodyHashValidation:    true,
-			SkipTransactionValidation: true,
-			SkipStakePoolValidation:   true,
-		}),
+		WithVerifyConfig(validatingTestVerifyConfig(t)),
 	)
 	p.testSubmitLocked = func() {
 		switch submitLocks.Add(1) {
@@ -1441,11 +1501,12 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 		release()
 		require.NoError(t, p.Stop())
 	}()
-	rawCbor := getValidBlockCbor(t)
+	shelley := getValidShelleyBlock(t)
+	rawCbor := shelley.Cbor
 	submit := func() error {
 		return p.Submit(
 			context.Background(),
-			uint(ledger.BlockTypeConway),
+			shelley.BlockType,
 			rawCbor,
 			createTestTip(1000, 500),
 		)
@@ -1481,7 +1542,10 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 	assert.Equal(t, uint64(3), p.sequenceCounter.Load())
 	select {
 	case err := <-fourthSubmitDone:
-		t.Fatalf("submission passed the pending limit before sequence completion: %v", err)
+		t.Fatalf(
+			"submission passed the pending limit before sequence completion: %v",
+			err,
+		)
 	default:
 	}
 	cancelFourth()
@@ -1502,7 +1566,10 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 	}
 	select {
 	case err := <-retrySubmitDone:
-		t.Fatalf("retry passed the pending limit before the gap completed: %v", err)
+		t.Fatalf(
+			"retry passed the pending limit before the gap completed: %v",
+			err,
+		)
 	default:
 	}
 
@@ -1513,7 +1580,10 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("retry did not resume after the pending blocks applied")
 	}
-	drainCtx, cancelDrain := context.WithTimeout(context.Background(), time.Second)
+	drainCtx, cancelDrain := context.WithTimeout(
+		context.Background(),
+		time.Second,
+	)
 	defer cancelDrain()
 	require.NoError(t, p.WaitForDrain(drainCtx))
 	for expected := range uint64(4) {
@@ -1537,7 +1607,7 @@ func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
 	})
 
 	t.Run("stopped", func(t *testing.T) {
-		p := NewBlockPipeline(WithValidateWorkers(0))
+		p := NewBlockPipeline(WithTrustedDecodeOnly())
 		require.NoError(t, p.Start(context.Background()))
 		require.NoError(t, p.Stop())
 		require.NoError(t, p.WaitForDrain(context.Background()))
@@ -1550,26 +1620,25 @@ func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
 		release := func() {
 			releaseOnce.Do(func() { close(releaseApply) })
 		}
-		p := NewBlockPipeline(
-			WithValidateWorkers(0),
-			WithSkipBodyHashValidation(true),
-			WithApplyFunc(func(*BlockItem) error {
+		p := NewBlockPipeline(validatedTestPipelineOptions(t,
+			func(*BlockItem) error {
 				close(applyStarted)
 				<-releaseApply
 				return nil
-			}),
-		)
+			},
+		)...)
 		require.NoError(t, p.Start(context.Background()))
 		defer func() {
 			release()
 			require.NoError(t, p.Stop())
 		}()
+		shelley := getValidShelleyBlock(t)
 		require.NoError(
 			t,
 			p.Submit(
 				context.Background(),
-				uint(ledger.BlockTypeConway),
-				getValidBlockCbor(t),
+				shelley.BlockType,
+				shelley.Cbor,
 				createTestTip(1000, 500),
 			),
 		)
@@ -1595,8 +1664,7 @@ func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
 		releaseOnce.Do(func() { close(releaseSubmit) })
 	}
 	p := NewBlockPipeline(
-		WithValidateWorkers(0),
-		WithSkipBodyHashValidation(true),
+		WithTrustedDecodeOnly(),
 	)
 	p.testSubmitLocked = func() {
 		close(submitLocked)
@@ -1658,7 +1726,7 @@ func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
 	t.Run("parent canceled before Start", func(t *testing.T) {
 		parentCtx, cancelParent := context.WithCancel(context.Background())
 		cancelParent()
-		p := NewBlockPipeline(WithValidateWorkers(0))
+		p := NewBlockPipeline(WithTrustedDecodeOnly())
 		require.NoError(t, p.Start(parentCtx))
 		defer func() { require.NoError(t, p.Stop()) }()
 
@@ -1678,7 +1746,7 @@ func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
 		}
 		parentCtx, cancelParent := context.WithCancel(context.Background())
 		defer cancelParent()
-		p := NewBlockPipeline(WithValidateWorkers(0))
+		p := NewBlockPipeline(WithTrustedDecodeOnly())
 		p.testFenceBoundary = func(target uint64) {
 			boundaryCaptured <- target
 			<-releaseBoundary
@@ -1733,15 +1801,13 @@ func TestBlockPipelineWaitForDrainParentCancellationWithInFlightWork(
 	}
 	parentCtx, cancelParent := context.WithCancel(context.Background())
 	defer cancelParent()
-	p := NewBlockPipeline(
-		WithValidateWorkers(0),
-		WithSkipBodyHashValidation(true),
-		WithApplyFunc(func(*BlockItem) error {
+	p := NewBlockPipeline(validatedTestPipelineOptions(t,
+		func(*BlockItem) error {
 			close(applyStarted)
 			<-releaseApply
 			return nil
-		}),
-	)
+		},
+	)...)
 	p.testFenceBoundary = func(target uint64) {
 		boundaryCaptured <- target
 		<-releaseBoundary
@@ -1752,12 +1818,13 @@ func TestBlockPipelineWaitForDrainParentCancellationWithInFlightWork(
 		releaseBoundaryFunc()
 		require.NoError(t, p.Stop())
 	}()
+	shelley := getValidShelleyBlock(t)
 	require.NoError(
 		t,
 		p.Submit(
 			context.Background(),
-			uint(ledger.BlockTypeConway),
-			getValidBlockCbor(t),
+			shelley.BlockType,
+			shelley.Cbor,
 			createTestTip(1000, 500),
 		),
 	)
@@ -1775,10 +1842,6 @@ func TestBlockPipelineWaitForDrainParentCancellationWithInFlightWork(
 	case <-time.After(time.Second):
 		t.Fatal("WaitForDrain did not capture the accepted-work boundary")
 	}
-	p.completionMu.Lock()
-	processed := p.completionChan
-	p.completionMu.Unlock()
-
 	cancelParent()
 	select {
 	case <-p.ctx.Done():
@@ -1786,11 +1849,6 @@ func TestBlockPipelineWaitForDrainParentCancellationWithInFlightWork(
 		t.Fatal("parent cancellation did not reach the pipeline context")
 	}
 	releaseApplyFunc()
-	select {
-	case <-processed:
-	case <-time.After(time.Second):
-		t.Fatal("accepted in-flight work did not complete")
-	}
 	releaseBoundaryFunc()
 	select {
 	case err := <-drainDone:
@@ -1807,7 +1865,7 @@ func TestBlockPipelineWaitForDrainPrefersCallerContext(t *testing.T) {
 	release := func() {
 		releaseOnce.Do(func() { close(releaseBoundary) })
 	}
-	p := NewBlockPipeline(WithValidateWorkers(0))
+	p := NewBlockPipeline(WithTrustedDecodeOnly())
 	p.testFenceBoundary = func(target uint64) {
 		boundaryCaptured <- target
 		<-releaseBoundary
@@ -1840,7 +1898,7 @@ func TestBlockPipelineWaitForDrainPrefersCallerContext(t *testing.T) {
 func TestApplyStage_PendingCount(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 
-	applyStage := NewApplyStage(func(item *BlockItem) error {
+	applyStage := newTestApplyStage(func(item *BlockItem) error {
 		return nil
 	}, 0)
 
@@ -1886,7 +1944,7 @@ func TestApplyStage_PendingCount(t *testing.T) {
 
 func TestApplyStageRejectsPendingItemWithoutRetainingIt(t *testing.T) {
 	var appliedSequences []uint64
-	stage := NewApplyStage(func(item *BlockItem) error {
+	stage := newTestApplyStage(func(item *BlockItem) error {
 		appliedSequences = append(appliedSequences, item.SequenceNumber())
 		return nil
 	}, 1)
@@ -1904,7 +1962,12 @@ func TestApplyStageRejectsPendingItemWithoutRetainingIt(t *testing.T) {
 	processed, err = stage.ProcessWithStatus(ctx, rejected)
 	require.ErrorIs(t, err, ErrPendingLimitExceeded)
 	assert.Empty(t, processed)
-	assert.Equal(t, 1, stage.PendingCount(), "rejected item must not remain buffered")
+	assert.Equal(
+		t,
+		1,
+		stage.PendingCount(),
+		"rejected item must not remain buffered",
+	)
 
 	processed, err = stage.ProcessWithStatus(ctx, newItem(0))
 	require.NoError(t, err)
@@ -1925,7 +1988,7 @@ func TestApplyStage_PendingCountIncludesInFlightApply(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 
-	applyStage := NewApplyStage(func(item *BlockItem) error {
+	applyStage := newTestApplyStage(func(item *BlockItem) error {
 		close(started)
 		<-release
 		return nil
@@ -1968,7 +2031,7 @@ func TestApplyStage_PendingCountIncludesInFlightApply(t *testing.T) {
 func TestApplyStage_Reset(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 
-	applyStage := NewApplyStage(nil, 0)
+	applyStage := newTestApplyStage(nil, 0)
 
 	// Add some pending items
 	for i := 1; i <= 3; i++ {
@@ -2001,7 +2064,7 @@ func TestApplyStage_Reset(t *testing.T) {
 func TestApplyStage_ContextCancellation(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 
-	applyStage := NewApplyStage(nil, 0)
+	applyStage := newTestApplyStage(nil, 0)
 
 	tip := createTestTip(1000, 500)
 	item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, 0)
@@ -2028,19 +2091,15 @@ func TestApplyStage_ContextCancellation(t *testing.T) {
 func TestBlockPipeline_StartStop(t *testing.T) {
 	// Create pipeline with proper configuration
 	p := NewBlockPipeline(
-		WithSkipBodyHashValidation(true),
 		WithValidateWorkers(1),
+		WithChainContextValidator(acceptTestChainContext),
 		WithEta0Provider(
 			StaticEta0Provider(
 				"0000000000000000000000000000000000000000000000000000000000000000",
 			),
 		),
 		WithSlotsPerKesPeriod(129600),
-		WithVerifyConfig(common.VerifyConfig{
-			SkipBodyHashValidation:    true,
-			SkipTransactionValidation: true,
-			SkipStakePoolValidation:   true,
-		}),
+		WithVerifyConfig(validatingTestVerifyConfig(t)),
 		WithApplyFunc(func(item *BlockItem) error {
 			return nil
 		}),
@@ -2626,19 +2685,15 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 	// Run multiple iterations to increase likelihood of hitting the race
 	for iteration := range 100 {
 		p := NewBlockPipeline(
-			WithSkipBodyHashValidation(true),
 			WithValidateWorkers(1),
+			WithChainContextValidator(acceptTestChainContext),
 			WithEta0Provider(
 				StaticEta0Provider(
 					"0000000000000000000000000000000000000000000000000000000000000000",
 				),
 			),
 			WithSlotsPerKesPeriod(129600),
-			WithVerifyConfig(common.VerifyConfig{
-				SkipBodyHashValidation:    true,
-				SkipTransactionValidation: true,
-				SkipStakePoolValidation:   true,
-			}),
+			WithVerifyConfig(validatingTestVerifyConfig(t)),
 			WithApplyFunc(func(item *BlockItem) error {
 				return nil
 			}),
@@ -2697,7 +2752,7 @@ func TestApplyStageRunner_OutOfOrderItemsForwarded(t *testing.T) {
 		return nil
 	}
 
-	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage := newTestApplyStage(applyFunc, 0)
 
 	input := make(chan *BlockItem, 10)
 	output := make(chan *BlockItem, 10)
@@ -2772,12 +2827,9 @@ func TestApplyStageRunner_OutOfOrderItemsForwarded(t *testing.T) {
 	}
 }
 
-// TestApplyStageRunner_OutOfOrderErrorItemsForwardedOnce verifies that items with
-// decode/validation errors that arrive out of order are only forwarded once to the
-// output channel. This is a regression test for the double-forwarding bug where
-// error items were forwarded immediately in run() and again later via pendingQueue
-// when applyPending() processed them.
-func TestApplyStageRunner_OutOfOrderErrorItemsForwardedOnce(t *testing.T) {
+// TestApplyStageRunner_OutOfOrderErrorPreservesAppliedPrefix verifies that a
+// later buffered rejection does not hide the prefix already committed in order.
+func TestApplyStageRunner_OutOfOrderErrorPreservesAppliedPrefix(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 
 	var appliedOrder []uint64
@@ -2790,7 +2842,7 @@ func TestApplyStageRunner_OutOfOrderErrorItemsForwardedOnce(t *testing.T) {
 		return nil
 	}
 
-	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage := newTestApplyStage(applyFunc, 0)
 
 	input := make(chan *BlockItem, 10)
 	output := make(chan *BlockItem, 20) // Extra capacity to detect duplicates
@@ -2838,77 +2890,29 @@ func TestApplyStageRunner_OutOfOrderErrorItemsForwardedOnce(t *testing.T) {
 
 	// Send items in scrambled order: 2, 4, 1, 3, 0
 	// Items 2, 4, 1, 3 will be buffered until item 0 arrives
-	// Items 1 and 3 have validation errors and should only be forwarded once
+	// Item 1 rejects the buffered suffix after item 0 commits.
 	scrambledOrder := []int{2, 4, 1, 3, 0}
 	for _, idx := range scrambledOrder {
 		input <- items[idx]
 	}
 	close(input)
 
-	// Collect all items from output with a timeout.
-	// 500ms is sufficient since duplicates would appear immediately.
-	var received []*BlockItem
-	timeout := time.After(500 * time.Millisecond)
-collectLoop:
-	for {
-		select {
-		case item, ok := <-output:
-			if !ok {
-				break collectLoop
-			}
-			received = append(received, item)
-			// If we get more than 5, that's a bug (duplicates)
-			if len(received) > 5 {
-				t.Fatalf("Received more than 5 items (%d), likely duplicates", len(received))
-			}
-		case <-timeout:
-			break collectLoop
-		}
-	}
-
 	runner.Stop()
-
-	// Verify exactly 5 items were forwarded (no duplicates)
-	assert.Len(
-		t,
-		received,
-		5,
-		"Exactly 5 items should be forwarded (no duplicates)",
-	)
-
-	// Count how many times each sequence number appears
-	seqCounts := make(map[uint64]int)
-	for _, item := range received {
-		seqCounts[item.SequenceNumber()]++
+	select {
+	case item := <-output:
+		require.Equal(t, uint64(0), item.SequenceNumber())
+		require.True(t, item.IsApplied())
+	default:
+		t.Fatal("successfully applied prefix was not forwarded")
 	}
-
-	// Verify each item was forwarded exactly once
-	for seq, count := range seqCounts {
-		assert.Equal(
-			t,
-			1,
-			count,
-			"Item %d should be forwarded exactly once, got %d",
-			seq,
-			count,
-		)
+	require.Empty(t, output, "rejected and later items must not be forwarded")
+	select {
+	case err := <-errors:
+		require.ErrorIs(t, err, ErrPipelineItemRejected)
+	default:
+		t.Fatal("ordered validation failure was not reported")
 	}
-
-	// Verify items with validation errors were NOT applied
-	for _, seq := range appliedOrder {
-		if seq == 1 || seq == 3 {
-			t.Errorf("Item %d has validation error but was applied", seq)
-		}
-	}
-
-	// Verify valid items (0, 2, 4) were applied in sequence order
-	expectedApplied := []uint64{0, 2, 4}
-	assert.Equal(
-		t,
-		expectedApplied,
-		appliedOrder,
-		"Valid items should be applied in sequence order",
-	)
+	assert.Equal(t, []uint64{0}, appliedOrder)
 }
 
 // TestBlockPipeline_StartFailsWithoutEta0Provider verifies that Start() returns
@@ -2916,7 +2920,8 @@ collectLoop:
 func TestBlockPipeline_StartFailsWithoutEta0Provider(t *testing.T) {
 	// Create pipeline with validation enabled but no Eta0Provider
 	p := NewBlockPipeline(
-		WithValidateWorkers(1), // Validation enabled
+		WithValidateWorkers(1),
+		WithChainContextValidator(acceptTestChainContext), // Validation enabled
 		// Eta0Provider is nil by default
 		WithApplyFunc(func(item *BlockItem) error {
 			return nil
@@ -2934,14 +2939,7 @@ func TestBlockPipeline_ValidationDisabled(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 	const numBlocks = 5
 
-	// Create pipeline with validation disabled (default)
-	pipeline := NewBlockPipeline(
-		WithValidateWorkers(0), // Disable validation (default)
-		WithSkipBodyHashValidation(true),
-		WithApplyFunc(func(item *BlockItem) error {
-			return nil
-		}),
-	)
+	pipeline := NewBlockPipeline(WithTrustedDecodeOnly())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -2965,7 +2963,7 @@ func TestBlockPipeline_ValidationDisabled(t *testing.T) {
 			received++
 			// Blocks should not be validated (no IsValid check since validation was skipped)
 			assert.True(t, item.IsDecoded(), "Block should be decoded")
-			assert.True(t, item.IsApplied(), "Block should be applied")
+			assert.False(t, item.IsApplied(), "decode-only mode must not apply")
 		case <-ctx.Done():
 			t.Fatal("Timed out waiting for results")
 		}
@@ -2974,13 +2972,13 @@ func TestBlockPipeline_ValidationDisabled(t *testing.T) {
 	err = pipeline.Stop()
 	require.NoError(t, err)
 
-	// Verify stats - no validation stats since it was disabled
+	// Verify trusted decode-only stats.
 	stats := pipeline.Stats()
 	assert.Equal(t, uint64(numBlocks), stats.BlocksDecoded)
-	assert.Equal(t, uint64(numBlocks), stats.BlocksApplied)
+	assert.Zero(t, stats.BlocksApplied)
 	assert.Equal(t, uint64(numBlocks), stats.DecodeTimings.Count)
 	assert.Positive(t, stats.DecodeTimings.Total)
-	assert.Equal(t, uint64(numBlocks), stats.ApplyTimings.Count)
+	assert.Zero(t, stats.ApplyTimings.Count)
 	assert.Zero(t, stats.ValidateTimings.Count)
 }
 
@@ -3010,23 +3008,18 @@ func TestBlockPipeline_ErrorsReturnsNewChannelEachTime(t *testing.T) {
 
 func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
-	const numBlocks = 5
 
 	// Using dummy Eta0 will cause validation to fail, which is expected
 	pipeline := NewBlockPipeline(
-		WithSkipBodyHashValidation(true),
 		WithValidateWorkers(1),
+		WithChainContextValidator(acceptTestChainContext),
 		WithEta0Provider(
 			StaticEta0Provider(
 				"0000000000000000000000000000000000000000000000000000000000000000",
 			),
 		),
 		WithSlotsPerKesPeriod(129600),
-		WithVerifyConfig(common.VerifyConfig{
-			SkipBodyHashValidation:    true,
-			SkipTransactionValidation: true,
-			SkipStakePoolValidation:   true,
-		}),
+		WithVerifyConfig(validatingTestVerifyConfig(t)),
 		WithApplyFunc(func(item *BlockItem) error {
 			return nil
 		}),
@@ -3038,22 +3031,16 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	err := pipeline.Start(ctx)
 	require.NoError(t, err)
 
-	// Submit blocks
-	for i := range numBlocks {
-		tip := createTestTip(uint64(1000+i), uint64(i))
-		err := pipeline.Submit(ctx, uint(ledger.BlockTypeConway), rawCbor, tip)
-		require.NoError(t, err)
-	}
-
-	// Wait for all blocks to be processed (they flow through even with validation errors)
-	received := 0
-	for received < numBlocks {
-		select {
-		case <-pipeline.Results():
-			received++
-		case <-ctx.Done():
-			t.Fatal("Timed out waiting for results")
-		}
+	require.NoError(t, pipeline.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		rawCbor,
+		createTestTip(1000, 0),
+	))
+	select {
+	case <-pipeline.ctx.Done():
+	case <-ctx.Done():
+		t.Fatal("validation failure did not cancel the pipeline")
 	}
 
 	// Stop the pipeline
@@ -3065,13 +3052,13 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 
 	assert.Equal(
 		t,
-		uint64(numBlocks),
+		uint64(1),
 		stats.BlocksSubmitted,
 		"BlocksSubmitted should match",
 	)
 	assert.Equal(
 		t,
-		uint64(numBlocks),
+		uint64(1),
 		stats.BlocksDecoded,
 		"BlocksDecoded should match",
 	)
@@ -3080,7 +3067,7 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	// Validation will fail due to incorrect Eta0, so we expect validation errors
 	assert.Equal(
 		t,
-		uint64(numBlocks),
+		uint64(1),
 		stats.ValidationErrors,
 		"ValidationErrors should match (validation fails with dummy Eta0)",
 	)
