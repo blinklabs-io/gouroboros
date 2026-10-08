@@ -17,8 +17,6 @@ package localmessagenotification
 import (
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -280,9 +278,7 @@ func (c *Client) validateAndReserve(
 	c.replayState.mu.Lock()
 	defer c.replayState.mu.Unlock()
 	c.replayState.pruneExpiredLocked(now)
-	var evictedIDs []string
-	var capacityExceeded bool
-	messages, evictedIDs, capacityExceeded = c.replayState.admitLocked(
+	messages, capacityExceeded := c.replayState.admitLocked(
 		messages,
 		maxReplayEntries,
 	)
@@ -312,9 +308,6 @@ func (c *Client) validateAndReserve(
 			return nil, err
 		}
 	}
-	for _, id := range evictedIDs {
-		delete(c.replayState.acceptedIDs, id)
-	}
 	for i := range messages {
 		c.replayState.acceptedIDs[string(messages[i].ID())] = messages[i].Payload.ExpiresAt
 	}
@@ -330,13 +323,12 @@ func (r *messageReplayState) pruneExpiredLocked(now time.Time) {
 	}
 }
 
-// admitLocked returns fresh messages and the accepted IDs to evict after those
-// messages pass TTL and authentication checks. The earliest-expiring IDs are
-// evicted first so a complete bounded server reply can be accepted.
+// admitLocked returns the fresh messages when the complete reply fits without
+// discarding replay protection for any unexpired accepted ID.
 func (r *messageReplayState) admitLocked(
 	messages []pcommon.DmqMessage,
 	maxEntries int,
-) ([]pcommon.DmqMessage, []string, bool) {
+) ([]pcommon.DmqMessage, bool) {
 	seen := make(map[string]struct{}, len(messages))
 	ret := make([]pcommon.DmqMessage, 0, min(len(messages), maxEntries))
 	for i := range messages {
@@ -349,36 +341,14 @@ func (r *messageReplayState) admitLocked(
 		}
 		seen[id] = struct{}{}
 		if len(ret) == maxEntries {
-			return nil, nil, true
+			return nil, true
 		}
 		ret = append(ret, messages[i])
 	}
-	toEvict := max(0, len(r.acceptedIDs)+len(ret)-maxEntries)
-	if toEvict == 0 {
-		return ret, nil, false
+	if len(r.acceptedIDs)+len(ret) > maxEntries {
+		return nil, true
 	}
-	type replayEntry struct {
-		id        string
-		expiresAt uint32
-	}
-	entries := make([]replayEntry, 0, len(r.acceptedIDs))
-	for id, expiresAt := range r.acceptedIDs {
-		entries = append(entries, replayEntry{id: id, expiresAt: expiresAt})
-	}
-	slices.SortFunc(entries, func(a, b replayEntry) int {
-		if a.expiresAt < b.expiresAt {
-			return -1
-		}
-		if a.expiresAt > b.expiresAt {
-			return 1
-		}
-		return strings.Compare(a.id, b.id)
-	})
-	evictedIDs := make([]string, toEvict)
-	for i := range toEvict {
-		evictedIDs[i] = entries[i].id
-	}
-	return ret, evictedIDs, false
+	return ret, false
 }
 
 func (c *Client) ensureReplayCapacity() error {
