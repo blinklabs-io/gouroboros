@@ -233,7 +233,8 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 // populated with this particular threshold (e.g. constructed directly
 // rather than decoded from a full on-chain protocol-parameters value or
 // genesis).
-// Valid ledger Word64 values use UTxO-RPC's canonical low-32-bit projection.
+// Valid ledger Word64 values are preserved exactly when the UTxO-RPC schema
+// can carry them and approximated within its bounds otherwise.
 func ratToUtxorpcRationalNumber(r cbor.Rat) (*utxorpc.RationalNumber, error) {
 	if r.Rat == nil {
 		return nil, nil

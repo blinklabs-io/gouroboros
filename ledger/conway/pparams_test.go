@@ -1088,7 +1088,7 @@ func TestConwayUtxorpc_VotingThresholdProjectsWord64(t *testing.T) {
 		}
 		got, err := params.Utxorpc()
 		require.NoError(t, err)
-		require.Equal(t, int32(math.MinInt32), got.PoolVotingThresholds.Thresholds[0].Numerator)
+		require.Equal(t, int32(math.MaxInt32), got.PoolVotingThresholds.Thresholds[0].Numerator)
 	})
 
 	t.Run("drep voting threshold", func(t *testing.T) {
@@ -1107,7 +1107,7 @@ func TestConwayUtxorpc_VotingThresholdProjectsWord64(t *testing.T) {
 		}
 		got, err := params.Utxorpc()
 		require.NoError(t, err)
-		require.Equal(t, int32(math.MinInt32), got.DrepVotingThresholds.Thresholds[0].Numerator)
+		require.Equal(t, int32(math.MaxInt32), got.DrepVotingThresholds.Thresholds[0].Numerator)
 	})
 }
 
@@ -1938,7 +1938,7 @@ func TestConwayUtxorpc_FullWidthRationalBounds(t *testing.T) {
 				big.NewInt(int64(math.MinInt32)-1),
 				big.NewInt(1),
 			),
-			numerator:   math.MaxInt32,
+			numerator:   math.MinInt32,
 			denominator: 1,
 		},
 		{
@@ -1947,13 +1947,13 @@ func TestConwayUtxorpc_FullWidthRationalBounds(t *testing.T) {
 				big.NewInt(int64(math.MaxInt32)+1),
 				big.NewInt(1),
 			),
-			numerator:   math.MinInt32,
+			numerator:   math.MaxInt32,
 			denominator: 1,
 		},
 		{
 			name:        "2^63 numerator",
 			rational:    rat(new(big.Int).Lsh(big.NewInt(1), 63), big.NewInt(1)),
-			numerator:   0,
+			numerator:   math.MaxInt32,
 			denominator: 1,
 		},
 	}
@@ -2061,7 +2061,7 @@ func TestConwayUtxorpc_ProjectsWideLedgerRationals(t *testing.T) {
 	got, err := params.Utxorpc()
 	require.NoError(t, err)
 	require.Equal(t, int32(1), got.PoolInfluence.Numerator)
-	require.Equal(t, uint32(1), got.PoolInfluence.Denominator)
+	require.Equal(t, uint32(math.MaxUint32), got.PoolInfluence.Denominator)
 }
 
 func testCostModels() map[uint][]int64 {

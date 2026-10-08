@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"net"
 	"strings"
@@ -1600,28 +1599,7 @@ func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 }
 
 func poolMarginUtxorpc(margin GenesisRat) (*utxorpc.RationalNumber, error) {
-	numerator := margin.Num().Uint64()
-	denominator := margin.Denom().Uint64()
-	if numerator > math.MaxInt32 {
-		return nil, fmt.Errorf(
-			"%w: numerator %d exceeds int32 maximum %d",
-			ErrPoolMarginUTxORPCUnrepresentable,
-			numerator,
-			math.MaxInt32,
-		)
-	}
-	if denominator > math.MaxUint32 {
-		return nil, fmt.Errorf(
-			"%w: denominator %d exceeds uint32 maximum %d",
-			ErrPoolMarginUTxORPCUnrepresentable,
-			denominator,
-			uint64(math.MaxUint32),
-		)
-	}
-	return &utxorpc.RationalNumber{
-		Numerator:   int32(numerator),
-		Denominator: uint32(denominator),
-	}, nil
+	return ToUtxorpcRationalNumber(margin.Rat)
 }
 
 func (c *PoolRegistrationCertificate) Type() uint {

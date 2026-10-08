@@ -231,3 +231,83 @@ func TestToUtxorpcRationalNumberRejectsNil(t *testing.T) {
 		require.ErrorContains(t, err, "rational number")
 	})
 }
+
+func TestToUtxorpcRationalNumberApproximatesWideValues(t *testing.T) {
+	t.Parallel()
+	maxDenominator := new(big.Int).SetUint64(math.MaxUint32)
+	for _, tc := range []struct {
+		name            string
+		value           *big.Rat
+		wantNumerator   int32
+		wantDenominator uint32
+	}{
+		{
+			name: "denominator at two to the thirty-two",
+			value: new(big.Rat).SetFrac(
+				big.NewInt(1),
+				new(big.Int).Add(maxDenominator, big.NewInt(1)),
+			),
+			wantNumerator:   1,
+			wantDenominator: math.MaxUint32,
+		},
+		{
+			name: "denominator above uint32",
+			value: new(big.Rat).SetFrac(
+				big.NewInt(1),
+				new(big.Int).Add(maxDenominator, big.NewInt(2)),
+			),
+			wantNumerator:   1,
+			wantDenominator: math.MaxUint32,
+		},
+		{
+			name: "closest fraction near one half crosses the numerator boundary",
+			value: new(big.Rat).SetFrac(
+				new(big.Int).Lsh(big.NewInt(1), 31),
+				new(big.Int).Add(maxDenominator, big.NewInt(2)),
+			),
+			wantNumerator:   math.MaxInt32,
+			wantDenominator: math.MaxUint32,
+		},
+		{
+			name: "closest fraction can cross the numerator boundary",
+			value: new(big.Rat).SetFrac(
+				new(big.Int).SetUint64(8_589_934_588),
+				new(big.Int).SetUint64(8_589_934_591),
+			),
+			wantNumerator:   math.MaxInt32,
+			wantDenominator: uint32(math.MaxInt32) + 1,
+		},
+		{
+			name: "negative closest fraction crosses the numerator boundary",
+			value: new(big.Rat).SetFrac(
+				new(big.Int).Neg(new(big.Int).SetUint64(8_589_934_588)),
+				new(big.Int).SetUint64(8_589_934_591),
+			),
+			wantNumerator:   math.MinInt32,
+			wantDenominator: uint32(math.MaxInt32) + 2,
+		},
+		{
+			name: "positive numerator above int32",
+			value: new(big.Rat).SetInt(
+				new(big.Int).Add(big.NewInt(math.MaxInt32), big.NewInt(1)),
+			),
+			wantNumerator:   math.MaxInt32,
+			wantDenominator: 1,
+		},
+		{
+			name: "negative numerator below int32",
+			value: new(big.Rat).SetInt(
+				new(big.Int).Sub(big.NewInt(math.MinInt32), big.NewInt(1)),
+			),
+			wantNumerator:   math.MinInt32,
+			wantDenominator: 1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ToUtxorpcRationalNumber(tc.value)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantNumerator, got.Numerator)
+			require.Equal(t, tc.wantDenominator, got.Denominator)
+		})
+	}
+}

@@ -803,10 +803,10 @@ func credentialBytes(c *utxorpc.StakeCredential) []byte {
 }
 
 // ToUtxorpcRationalNumber converts a rational to the int32/uint32 pair
-// UTxO-RPC carries. The schema exposes the low 32 bits of each ledger value,
-// matching the canonical pallas UTxO-RPC mapper. Values outside the signed or
-// unsigned Word64 numerator and unsigned Word64 denominator wire domains are
-// rejected.
+// UTxO-RPC carries. Exact values are preserved when possible. Wider ledger
+// values use the closest fraction within the schema bounds so a valid
+// transaction remains projectable without changing sign or emitting a zero
+// denominator.
 func ToUtxorpcRationalNumber(r *big.Rat) (*utxorpc.RationalNumber, error) {
 	if r == nil {
 		return nil, errors.New("rational number is unset")
@@ -814,11 +814,108 @@ func ToUtxorpcRationalNumber(r *big.Rat) (*utxorpc.RationalNumber, error) {
 	if (!r.Num().IsInt64() && !r.Num().IsUint64()) || !r.Denom().IsUint64() {
 		return nil, errors.New("rational number exceeds Word64 domain")
 	}
-	mask := new(big.Int).SetUint64(math.MaxUint32)
-	numerator := new(big.Int).And(r.Num(), mask).Uint64()
-	denominator := new(big.Int).And(r.Denom(), mask).Uint64()
+	if r.Num().IsInt64() && r.Num().Int64() >= math.MinInt32 &&
+		r.Num().Int64() <= math.MaxInt32 && r.Denom().Uint64() <= math.MaxUint32 {
+		return &utxorpc.RationalNumber{
+			Numerator:   int32(r.Num().Int64()),     // #nosec G115 -- bounded above
+			Denominator: uint32(r.Denom().Uint64()), // #nosec G115 -- bounded above
+		}, nil
+	}
+
+	sign := r.Sign()
+	absNumerator := new(big.Int).Abs(r.Num())
+	if sign == 0 {
+		return &utxorpc.RationalNumber{Denominator: 1}, nil
+	}
+	maxNumerator := big.NewInt(math.MaxInt32)
+	if sign < 0 {
+		maxNumerator = new(big.Int).Lsh(big.NewInt(1), 31)
+	}
+	if absNumerator.Cmp(new(big.Int).Mul(maxNumerator, r.Denom())) >= 0 {
+		numerator := maxNumerator.Int64()
+		if sign < 0 {
+			numerator = -numerator
+		}
+		return &utxorpc.RationalNumber{
+			Numerator:   int32(numerator), // #nosec G115 -- bounded above
+			Denominator: 1,
+		}, nil
+	}
+
+	schemaMaxDenominator := new(big.Int).SetUint64(math.MaxUint32)
+	maxDenominator := new(big.Int).Set(schemaMaxDenominator)
+	numeratorBoundDenominator := new(big.Int).Quo(
+		new(big.Int).Mul(maxNumerator, r.Denom()),
+		absNumerator,
+	)
+	numeratorLimited := numeratorBoundDenominator.Cmp(maxDenominator) < 0
+	if numeratorLimited {
+		maxDenominator = numeratorBoundDenominator
+	}
+	absRational := new(big.Rat).SetFrac(absNumerator, r.Denom())
+	numerator, denominator := limitRationalDenominator(
+		absRational,
+		maxDenominator,
+	)
+	if numeratorLimited {
+		boundaryDenominator := new(big.Int).Add(maxDenominator, big.NewInt(1))
+		boundary := new(big.Rat).SetFrac(maxNumerator, boundaryDenominator)
+		limited := new(big.Rat).SetFrac(numerator, denominator)
+		if rationalDistance(absRational, boundary).Cmp(
+			rationalDistance(absRational, limited),
+		) < 0 {
+			numerator = new(big.Int).Set(maxNumerator)
+			denominator = boundaryDenominator
+		}
+	}
+	if sign < 0 {
+		numerator.Neg(numerator)
+	}
 	return &utxorpc.RationalNumber{
-		Numerator:   int32(uint32(numerator)), // #nosec G115 -- wire truncation
-		Denominator: uint32(denominator),      // #nosec G115 -- wire truncation
+		Numerator:   int32(numerator.Int64()),     // #nosec G115 -- bounded above
+		Denominator: uint32(denominator.Uint64()), // #nosec G115 -- bounded above
 	}, nil
+}
+
+func limitRationalDenominator(
+	r *big.Rat,
+	maxDenominator *big.Int,
+) (*big.Int, *big.Int) {
+	p0, q0 := big.NewInt(0), big.NewInt(1)
+	p1, q1 := big.NewInt(1), big.NewInt(0)
+	numerator := new(big.Int).Set(r.Num())
+	denominator := new(big.Int).Set(r.Denom())
+	for denominator.Sign() != 0 {
+		quotient, remainder := new(big.Int).QuoRem(
+			numerator,
+			denominator,
+			new(big.Int),
+		)
+		q2 := new(big.Int).Add(q0, new(big.Int).Mul(quotient, q1))
+		if q2.Cmp(maxDenominator) > 0 {
+			break
+		}
+		p2 := new(big.Int).Add(p0, new(big.Int).Mul(quotient, p1))
+		p0, q0, p1, q1 = p1, q1, p2, q2
+		numerator, denominator = denominator, remainder
+	}
+	if denominator.Sign() == 0 {
+		return p1, q1
+	}
+
+	k := new(big.Int).Quo(new(big.Int).Sub(maxDenominator, q0), q1)
+	boundNumerator := new(big.Int).Add(p0, new(big.Int).Mul(k, p1))
+	boundDenominator := new(big.Int).Add(q0, new(big.Int).Mul(k, q1))
+	bound := new(big.Rat).SetFrac(boundNumerator, boundDenominator)
+	convergent := new(big.Rat).SetFrac(p1, q1)
+	boundDistance := rationalDistance(r, bound)
+	convergentDistance := rationalDistance(r, convergent)
+	if convergentDistance.Cmp(boundDistance) <= 0 {
+		return p1, q1
+	}
+	return boundNumerator, boundDenominator
+}
+
+func rationalDistance(a, b *big.Rat) *big.Rat {
+	return new(big.Rat).Abs(new(big.Rat).Sub(a, b))
 }
