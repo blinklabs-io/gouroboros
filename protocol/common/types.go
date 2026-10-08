@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborwalk"
 )
 
 // The Point type represents a point on the blockchain. It consists of a slot number and block hash
@@ -60,35 +61,35 @@ func (p *Point) UnmarshalCBOR(data []byte) error {
 	if listLen != 2 {
 		return fmt.Errorf("Point must contain 0 or 2 elements, got %d", listLen)
 	}
-	var tmp []any
-	consumed, err := cbor.Decode(data, &tmp)
+	pos := int(headerSize)
+	slotHead, ok, err := cborwalk.ReadHead(data, pos)
+	if err != nil || !ok || slotHead.Major != 0 || slotHead.Indefinite {
+		return errors.New("Point slot must be an unsigned integer")
+	}
+	slotEnd := pos + slotHead.EncodedSize
+	if slotEnd > len(data) {
+		return errors.New("Point slot is truncated")
+	}
+	hashHead, ok, err := cborwalk.ReadHead(data, slotEnd)
+	if err != nil || !ok || hashHead.Major != 2 || hashHead.Indefinite {
+		return errors.New("Point hash must be a byte string")
+	}
+	if hashHead.Argument != 32 {
+		return fmt.Errorf("Point hash must be 32 bytes, got %d", hashHead.Argument)
+	}
+	hashStart := slotEnd + hashHead.EncodedSize
+	if hashStart > len(data) || len(data)-hashStart != 32 {
+		return errors.New("Point contains trailing or truncated CBOR data")
+	}
+	var slot uint64
+	consumed, err := cbor.Decode(data[pos:slotEnd], &slot)
 	if err != nil {
 		return err
 	}
-	if consumed != len(data) {
-		return errors.New("Point contains trailing CBOR data")
+	if consumed != slotEnd-pos {
+		return errors.New("Point slot contains trailing CBOR data")
 	}
-	switch len(tmp) {
-	case 0:
-		*p = NewPointOrigin()
-	case 2:
-		slot, ok := tmp[0].(uint64)
-		if !ok {
-			return fmt.Errorf("Point slot must be uint64, got %T", tmp[0])
-		}
-		hash, ok := tmp[1].([]byte)
-		if !ok {
-			return fmt.Errorf("Point hash must be []byte, got %T", tmp[1])
-		}
-		// Cardano block-header hashes are Blake2b-256 in every era.
-		if len(hash) != 32 {
-			return fmt.Errorf("Point hash must be 32 bytes, got %d", len(hash))
-		}
-		p.Slot = slot
-		p.Hash = hash
-	default:
-		return fmt.Errorf("Point must contain 0 or 2 elements, got %d", len(tmp))
-	}
+	*p = NewPoint(slot, append([]byte(nil), data[hashStart:]...))
 	return nil
 }
 

@@ -32,7 +32,8 @@ func TestBlockTxsRejectsEnvelopeCountBeforeAllocation(t *testing.T) {
 		[]byte{0x99, 0x13, 0x88},
 		bytes.Repeat([]byte{0}, 5000)...,
 	)
-	_, _ = NewMsgFromCbor(MessageTypeBlockTxs, []byte{0x82, MessageTypeBlockTxs, 0x80})
+	_, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+	require.Error(t, err)
 	result := testing.Benchmark(func(b *testing.B) {
 		for range b.N {
 			msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
@@ -41,6 +42,7 @@ func TestBlockTxsRejectsEnvelopeCountBeforeAllocation(t *testing.T) {
 			}
 		}
 	})
+	require.Positive(t, result.N)
 	require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
 }
 
@@ -49,7 +51,8 @@ func TestBlockTxsRejectsTransactionCountBeforeAllocation(t *testing.T) {
 	// must be rejected before []RawMessage allocation.
 	wire := []byte{0x82, MessageTypeBlockTxs, 0x99, 0x13, 0x88}
 	// Warm lazy decoder initialization before measuring the rejected path.
-	_, _ = NewMsgFromCbor(MessageTypeBlockTxs, []byte{0x82, MessageTypeBlockTxs, 0x80})
+	_, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+	require.Error(t, err)
 	result := testing.Benchmark(func(b *testing.B) {
 		for range b.N {
 			if _, err := NewMsgFromCbor(MessageTypeBlockTxs, wire); err == nil {
@@ -57,6 +60,7 @@ func TestBlockTxsRejectsTransactionCountBeforeAllocation(t *testing.T) {
 			}
 		}
 	})
+	require.Positive(t, result.N)
 	require.Less(t, result.AllocedBytesPerOp(), int64(32<<10))
 }
 

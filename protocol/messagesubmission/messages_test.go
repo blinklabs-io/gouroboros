@@ -39,7 +39,8 @@ func TestCollectionMessagesRejectConfiguredCountBeforeAllocation(t *testing.T) {
 				[]byte{0x82, byte(tc.kind), 0x99, 0x13, 0x88},
 				bytes.Repeat([]byte{0x80}, 5000)...,
 			)
-			_, _ = decodeMsgFromCborWithLimit(tc.kind, []byte{0x82, byte(tc.kind), 0x80}, 100)
+			_, err := decodeMsgFromCborWithLimit(tc.kind, wire, 100)
+			require.Error(t, err)
 			result := testing.Benchmark(func(b *testing.B) {
 				for range b.N {
 					msg, err := decodeMsgFromCborWithLimit(tc.kind, wire, 100)
@@ -48,6 +49,7 @@ func TestCollectionMessagesRejectConfiguredCountBeforeAllocation(t *testing.T) {
 					}
 				}
 			})
+			require.Positive(t, result.N)
 			require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
 		})
 	}

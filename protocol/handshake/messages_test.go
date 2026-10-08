@@ -65,7 +65,8 @@ func TestHandshakeCollectionsRejectBeforeAllocation(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _ = NewMsgFromCbor(MessageTypeProposeVersions, []byte{0x82, MessageTypeProposeVersions, 0xa0})
+			_, err := NewMsgFromCbor(tc.kind, tc.wire)
+			require.Error(t, err)
 			result := testing.Benchmark(func(b *testing.B) {
 				for range b.N {
 					msg, err := NewMsgFromCbor(tc.kind, tc.wire)
@@ -74,8 +75,8 @@ func TestHandshakeCollectionsRejectBeforeAllocation(t *testing.T) {
 					}
 				}
 			})
+			require.Positive(t, result.N)
 			require.LessOrEqual(t, result.AllocedBytesPerOp(), tc.maxAlloc)
-			_, err := NewMsgFromCbor(tc.kind, tc.wire)
 			require.ErrorContains(t, err, tc.errorText)
 		})
 	}

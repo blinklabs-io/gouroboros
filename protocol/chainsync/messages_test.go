@@ -35,7 +35,8 @@ func TestFindIntersectRejectsInvalidPointBeforeAllocation(t *testing.T) {
 		[]byte{0x82, MessageTypeFindIntersect, 0x99, 0x13, 0x88},
 		bytes.Repeat([]byte{0}, 5000)...,
 	)
-	_, _ = NewMsgFromCborNtN(MessageTypeFindIntersect, []byte{0x82, MessageTypeFindIntersect, 0x80})
+	_, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
+	require.Error(t, err)
 	result := testing.Benchmark(func(b *testing.B) {
 		for range b.N {
 			msg, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
@@ -44,6 +45,7 @@ func TestFindIntersectRejectsInvalidPointBeforeAllocation(t *testing.T) {
 			}
 		}
 	})
+	require.Positive(t, result.N)
 	require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
 }
 
@@ -66,6 +68,8 @@ func TestFindIntersectRejectsPointFieldsBeforeTypedDecode(t *testing.T) {
 func TestFindIntersectRejectsPointCountAboveAllocationBudget(t *testing.T) {
 	const count = maxFindIntersectDecodedPoints + 1
 	wire := append([]byte{0x82, MessageTypeFindIntersect, 0x9a, 0, 2, 0, 2}, bytes.Repeat([]byte{0x80}, count)...)
+	_, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
+	require.Error(t, err)
 	result := testing.Benchmark(func(b *testing.B) {
 		for range b.N {
 			if _, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire); err == nil {
@@ -73,6 +77,7 @@ func TestFindIntersectRejectsPointCountAboveAllocationBudget(t *testing.T) {
 			}
 		}
 	})
+	require.Positive(t, result.N)
 	require.Less(t, result.AllocedBytesPerOp(), int64(64<<10))
 }
 
