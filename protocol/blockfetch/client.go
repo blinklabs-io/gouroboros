@@ -800,8 +800,8 @@ func (req *rangeRequest) chargeBlock(
 	maxBlocks uint64,
 	maxBytes uint64,
 ) error {
-	if !req.deadline.IsZero() && !now.Before(req.deadline) {
-		return fmt.Errorf("%w for request %d", ErrRangeTimeout, req.id)
+	if err := req.deadlineError(now); err != nil {
+		return err
 	}
 	if req.blocksReceived >= maxBlocks {
 		return fmt.Errorf(
@@ -823,6 +823,13 @@ func (req *rangeRequest) chargeBlock(
 	req.blocksReceived++
 	req.bytesReceived += encodedBytes
 	return nil
+}
+
+func (req *rangeRequest) deadlineError(now time.Time) error {
+	if req.deadline.IsZero() || now.Before(req.deadline) {
+		return nil
+	}
+	return fmt.Errorf("%w for request %d", ErrRangeTimeout, req.id)
 }
 
 // updateIngressAllowanceLocked sets proto's ingress allowance to what its
@@ -916,9 +923,9 @@ func (c *Client) sendRequestRange(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	rangeCtx, cancelRange := context.WithTimeout(ctx, c.rangeTimeout())
+	rangeDeadline := time.Now().Add(c.rangeTimeout())
+	rangeCtx, cancelRange := context.WithDeadline(ctx, rangeDeadline)
 	defer cancelRange()
-	rangeDeadline, _ := rangeCtx.Deadline()
 	proto := c.ProtocolInstance()
 	protocolDone := proto.DoneChan()
 	var req *rangeRequest
@@ -1042,12 +1049,13 @@ func (c *Client) watchRangeDeadline(req *rangeRequest) {
 		// shutdown error.
 		req.protocol.SendError(err)
 		// Protocol shutdown interrupts a handler blocked on pipeline admission.
-		// Wait for a handler that already claimed this request before exposing
-		// terminal completion to its caller.
-		req.deliveryMu.Lock()
-		req.deliveryMu.Unlock()
+		// Serialize each terminal callback behind a handler that already claimed
+		// that request. Only one request lock is held at a time, so callbacks for
+		// an older protocol generation cannot block delivery on a restarted one.
 		for _, queued := range pending {
+			queued.deliveryMu.Lock()
 			_ = c.resolve(queued, err)
+			queued.deliveryMu.Unlock()
 		}
 	case <-req.retired:
 	case <-req.protocol.DoneChan():
@@ -1325,6 +1333,10 @@ func (c *Client) handleNoBlocks() error {
 	if err != nil {
 		c.queueMutex.Unlock()
 		return err
+	}
+	if err := req.deadlineError(time.Now()); err != nil {
+		c.queueMutex.Unlock()
+		return c.failRequest(req, err)
 	}
 	c.removeLocked(req)
 	c.queueMutex.Unlock()
@@ -1656,6 +1668,10 @@ func (c *Client) handleBatchDone() error {
 	if err != nil {
 		c.queueMutex.Unlock()
 		return err
+	}
+	if err := req.deadlineError(time.Now()); err != nil {
+		c.queueMutex.Unlock()
+		return c.failRequest(req, err)
 	}
 	if !req.hasLastPoint || !pointsEqual(req.lastPoint, req.end) {
 		c.queueMutex.Unlock()

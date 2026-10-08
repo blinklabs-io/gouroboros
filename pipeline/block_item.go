@@ -34,9 +34,10 @@ type BlockItem struct {
 	// Mutable fields protected by mutex
 	mu sync.RWMutex
 	// rawCbor remains available until Release retires the result.
-	rawCbor     []byte
-	releaseOnce sync.Once
-	releaseFunc func(uint64)
+	rawCbor      []byte
+	releaseOnce  sync.Once
+	releaseFunc  func(uint64)
+	releaseBytes uint64
 
 	// Decode stage results
 	block          common.Block
@@ -95,20 +96,26 @@ func (b *BlockItem) RawCbor() []byte {
 	return b.rawCbor
 }
 
-func (b *BlockItem) setReleaseFunc(releaseFunc func(uint64)) {
+func (b *BlockItem) setReleaseFunc(
+	releaseBytes uint64,
+	releaseFunc func(uint64),
+) {
 	b.mu.Lock()
+	b.releaseBytes = releaseBytes
 	b.releaseFunc = releaseFunc
 	b.mu.Unlock()
 }
 
-// Release retires this result's raw CBOR ownership and returns its bytes to
-// the pipeline admission budget. It is safe to call more than once. Callers
-// must not use RawCbor after Release.
+// Release retires this result and returns its retained CBOR bytes to the
+// pipeline admission budget. It is safe to call more than once. Callers must
+// not use RawCbor or Block after Release.
 func (b *BlockItem) Release() {
 	b.releaseOnce.Do(func() {
 		b.mu.Lock()
-		bytes := uint64(len(b.rawCbor))
+		bytes := b.releaseBytes
 		b.rawCbor = nil
+		b.block = nil
+		b.releaseBytes = 0
 		releaseFunc := b.releaseFunc
 		b.releaseFunc = nil
 		b.mu.Unlock()
@@ -134,7 +141,8 @@ func (b *BlockItem) ReceivedAt() time.Time {
 	return b.receivedAt
 }
 
-// Block returns the decoded block, or nil if not yet decoded or decode failed.
+// Block returns the decoded block, or nil if it has not been decoded, decoding
+// failed, or the result has been released.
 func (b *BlockItem) Block() common.Block {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

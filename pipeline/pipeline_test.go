@@ -87,20 +87,49 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 }
 
 func TestBlockPipelineRawCborBudgetFollowsResultOwnership(t *testing.T) {
+	raw := getValidBlockCbor(t)
 	p := NewBlockPipeline(
 		WithValidateWorkers(0),
-		WithMaxRawCborBytes(4),
+		WithMaxRawCborBytes(2*uint64(len(raw))),
 	)
+	budgetWait := make(chan struct{})
+	var budgetWaitOnce sync.Once
+	p.testRawBudgetWait = func() {
+		budgetWaitOnce.Do(func() { close(budgetWait) })
+	}
 	require.NoError(t, p.Start(context.Background()))
 	t.Cleanup(func() { require.NoError(t, p.Stop()) })
 
-	raw := []byte{0x85, 0x00, 0x01, 0x02}
 	require.NoError(t, p.Submit(
 		context.Background(),
 		uint(ledger.BlockTypeConway),
 		raw,
 		createTestTip(1, 1),
 	))
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	canceledDone := make(chan error, 1)
+	go func() {
+		canceledDone <- p.Submit(
+			cancelCtx,
+			uint(ledger.BlockTypeConway),
+			raw,
+			createTestTip(2, 2),
+		)
+	}()
+	select {
+	case <-budgetWait:
+	case <-time.After(time.Second):
+		t.Fatal("submission did not reach the retained CBOR budget wait")
+	}
+	fenceCtx, cancelFence := context.WithTimeout(context.Background(), time.Second)
+	require.NoError(t, p.Fence(fenceCtx))
+	cancelFence()
+	cancel()
+	require.ErrorIs(t, <-canceledDone, context.Canceled)
+	p.rawBudgetMu.Lock()
+	require.Equal(t, 2*uint64(len(raw)), p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
 
 	secondDone := make(chan error, 1)
 	go func() {
@@ -111,31 +140,13 @@ func TestBlockPipelineRawCborBudgetFollowsResultOwnership(t *testing.T) {
 			createTestTip(2, 2),
 		)
 	}()
-	select {
-	case err := <-secondDone:
-		t.Fatalf("second submission passed the raw-byte budget: %v", err)
-	case <-time.After(25 * time.Millisecond):
-	}
-	cancelCtx, cancel := context.WithCancel(context.Background())
-	canceledDone := make(chan error, 1)
-	go func() {
-		canceledDone <- p.Submit(
-			cancelCtx,
-			uint(ledger.BlockTypeConway),
-			raw,
-			createTestTip(3, 3),
-		)
-	}()
-	cancel()
-	require.ErrorIs(t, <-canceledDone, context.Canceled)
-	p.rawBudgetMu.Lock()
-	require.Equal(t, uint64(4), p.rawBytesInUse)
-	p.rawBudgetMu.Unlock()
 
 	first := <-p.Results()
 	require.Equal(t, raw, first.RawCbor())
+	require.NotNil(t, first.Block())
 	first.Release()
 	require.Nil(t, first.RawCbor())
+	require.Nil(t, first.Block())
 	first.Release()
 
 	select {
@@ -150,7 +161,7 @@ func TestBlockPipelineRawCborBudgetFollowsResultOwnership(t *testing.T) {
 	err := p.Submit(
 		context.Background(),
 		uint(ledger.BlockTypeConway),
-		make([]byte, 5),
+		make([]byte, len(raw)+1),
 		createTestTip(3, 3),
 	)
 	require.ErrorIs(t, err, ErrRawCborBudgetExceeded)
@@ -159,7 +170,7 @@ func TestBlockPipelineRawCborBudgetFollowsResultOwnership(t *testing.T) {
 func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
 	p := NewBlockPipeline(
 		WithValidateWorkers(0),
-		WithMaxRawCborBytes(4),
+		WithMaxRawCborBytes(8),
 	)
 	require.NoError(t, p.Start(context.Background()))
 	require.NoError(t, p.Submit(
@@ -173,7 +184,7 @@ func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
 	require.NoError(t, p.Stop())
 	require.NotNil(t, result.RawCbor())
 	p.rawBudgetMu.Lock()
-	require.Equal(t, uint64(4), p.rawBytesInUse)
+	require.Equal(t, uint64(8), p.rawBytesInUse)
 	p.rawBudgetMu.Unlock()
 	result.Release()
 	require.Nil(t, result.RawCbor())

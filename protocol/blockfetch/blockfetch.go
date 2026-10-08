@@ -192,10 +192,10 @@ const DefaultMaxBlocksPerRange uint64 = pipeline.DefaultMaxPendingBlocks
 // limit.
 const DefaultMaxRangeBytes uint64 = DefaultMaxBlocksPerRange * DefaultRequestExpectedBytes * 11 / 10
 
-// DefaultRangeTimeout admits the batch-start timeout and a full streaming
-// timeout for every block allowed by DefaultMaxBlocksPerRange.
+// DefaultRangeTimeout admits the batch-start timeout, a full streaming timeout
+// for every block allowed by DefaultMaxBlocksPerRange, and the final BatchDone.
 const DefaultRangeTimeout = BusyTimeout +
-	time.Duration(DefaultMaxBlocksPerRange)*StreamingTimeout
+	time.Duration(DefaultMaxBlocksPerRange+1)*StreamingTimeout
 
 // IngressLimit is the base limit on block-fetch payload, in bytes, the muxer
 // holds for a client between reading it from the connection and the protocol

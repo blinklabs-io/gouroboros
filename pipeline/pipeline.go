@@ -31,8 +31,8 @@ var ErrPipelineStopped = errors.New("pipeline is stopped")
 // ErrPipelineNotStarted is returned when trying to use a pipeline that hasn't been started.
 var ErrPipelineNotStarted = errors.New("pipeline not started")
 
-// ErrRawCborBudgetExceeded is returned when one block cannot fit within the
-// pipeline's aggregate raw CBOR byte budget.
+// ErrRawCborBudgetExceeded is returned when one block's retained full CBOR
+// copies cannot fit within the pipeline byte budget.
 var ErrRawCborBudgetExceeded = errors.New(
 	"pipeline: raw CBOR byte budget exceeded",
 )
@@ -106,6 +106,9 @@ type BlockPipeline struct {
 	// Test hooks must be installed before Start. They make blocked Submit/Fence
 	// interleavings deterministic without changing production behavior.
 	testSubmitLocked func()
+	// testRawBudgetWait is called immediately before Submit waits for retained
+	// CBOR budget. It is nil in production.
+	testRawBudgetWait func()
 	// testSubmitReady is called after Submit's cancellation and stopping checks,
 	// immediately before its enqueue select. It is nil in production and lets
 	// tests synchronize cancellation at the backpressure boundary.
@@ -171,6 +174,9 @@ func (p *BlockPipeline) reserveRawCborBytes(
 			p.rawBytesFreed = freed
 		}
 		p.rawBudgetMu.Unlock()
+		if p.testRawBudgetWait != nil {
+			p.testRawBudgetWait()
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -198,14 +204,14 @@ func (p *BlockPipeline) releaseRawCborBytes(bytes uint64) {
 	p.rawBudgetMu.Unlock()
 }
 
-func (p *BlockPipeline) trackItem(item *BlockItem) {
+func (p *BlockPipeline) trackItem(item *BlockItem, retainedBytes uint64) {
 	p.activeItemsMu.Lock()
 	if p.activeItems == nil {
 		p.activeItems = make(map[*BlockItem]struct{})
 	}
 	p.activeItems[item] = struct{}{}
 	p.activeItemsMu.Unlock()
-	item.setReleaseFunc(func(bytes uint64) {
+	item.setReleaseFunc(retainedBytes, func(bytes uint64) {
 		p.activeItemsMu.Lock()
 		delete(p.activeItems, item)
 		p.activeItemsMu.Unlock()
@@ -411,6 +417,17 @@ func (p *BlockPipeline) Submit(
 	if !p.started.Load() {
 		return ErrPipelineNotStarted
 	}
+	rawBytes := uint64(len(rawCbor))
+	retainedBytes := saturatingDouble(rawBytes)
+	if err := p.reserveRawCborBytes(ctx, retainedBytes); err != nil {
+		return err
+	}
+	reservationOwned := true
+	defer func() {
+		if reservationOwned {
+			p.releaseRawCborBytes(retainedBytes)
+		}
+	}()
 
 	// The gate prevents Stop from closing submitChan while a submission is in
 	// flight. It also serializes the enqueue and sequence commit, so canceled
@@ -437,13 +454,10 @@ func (p *BlockPipeline) Submit(
 	// contiguous in queue order, while canceled or backpressured submissions do
 	// not create positions that Fence must wait for.
 	sequence := p.sequenceCounter.Load()
-	rawBytes := uint64(len(rawCbor))
-	if err := p.reserveRawCborBytes(ctx, rawBytes); err != nil {
-		return err
-	}
 	reserved := true
 	item := NewBlockItem(blockType, rawCbor, tip, sequence)
-	p.trackItem(item)
+	p.trackItem(item, retainedBytes)
+	reservationOwned = false
 	defer func() {
 		if reserved {
 			item.Release()
@@ -479,6 +493,13 @@ func (p *BlockPipeline) Submit(
 	case <-p.ctx.Done():
 		return ErrPipelineStopped
 	}
+}
+
+func saturatingDouble(value uint64) uint64 {
+	if value > ^uint64(0)/2 {
+		return ^uint64(0)
+	}
+	return value * 2
 }
 
 // Fence waits until every block submitted before the fence is installed has

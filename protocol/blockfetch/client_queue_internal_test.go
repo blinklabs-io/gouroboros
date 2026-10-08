@@ -264,6 +264,152 @@ func TestRangeDeadlineWaitsForActiveCallback(t *testing.T) {
 	require.NoError(t, <-handlerDone)
 }
 
+func TestRangeDeadlineWaitsForEveryActiveDelivery(t *testing.T) {
+	done := make(chan error, 2)
+	c := newQueueTestClient(&Config{
+		RequestPipelining: true,
+		RangeTimeout:      time.Second,
+		RangeDoneFunc: func(_ CallbackContext, err error) error {
+			done <- err
+			return nil
+		},
+	})
+	active := c.appendTestRequest(1)
+	active.retired = make(chan struct{})
+	timedOut := c.appendTestRequest(1)
+	timedOut.retired = make(chan struct{})
+	timedOut.deadline = time.Now().Add(25 * time.Millisecond)
+
+	active.deliveryMu.Lock()
+	go c.watchRangeDeadline(timedOut)
+	select {
+	case err := <-done:
+		t.Fatalf("range retired while another delivery was active: %v", err)
+	case <-time.After(75 * time.Millisecond):
+	}
+	active.deliveryMu.Unlock()
+	for range 2 {
+		select {
+		case err := <-done:
+			require.ErrorIs(t, err, ErrRangeTimeout)
+		case <-time.After(time.Second):
+			t.Fatal("range deadline did not retire every protocol request")
+		}
+	}
+}
+
+func TestRangeDeadlineCompletionCanDeliverOnRestartedProtocol(t *testing.T) {
+	block, point := queueTestBlock(t, 100, lcommon.Blake2b256{})
+	restarted := newQueueTestClient(&Config{}).ProtocolInstance()
+	callbackDone := make(chan error, 1)
+	var c *Client
+	c = newQueueTestClient(&Config{
+		RequestPipelining:   true,
+		SkipBlockValidation: true,
+		BlockRawFunc: func(CallbackContext, uint, []byte) error {
+			return nil
+		},
+		RangeDoneFunc: func(_ CallbackContext, _ error) error {
+			req := c.appendTestRequest(1)
+			req.protocol = restarted
+			req.start = point
+			req.end = point
+			req.started = true
+			req.retired = make(chan struct{})
+			callbackDone <- c.handleBlock(block)
+			return nil
+		},
+	})
+	old := c.appendTestRequest(1)
+	old.retired = make(chan struct{})
+	old.deadline = time.Now().Add(25 * time.Millisecond)
+	go c.watchRangeDeadline(old)
+
+	select {
+	case err := <-callbackDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("old range completion blocked delivery on the restarted protocol")
+	}
+}
+
+func TestAcceptedRangeIgnoresCallerDeadlineAfterAdmission(t *testing.T) {
+	const rangeTimeout = 2 * time.Second
+	p := newIdlePeer(t, &Config{
+		RequestPipelining: true,
+		RangeTimeout:      rangeTimeout,
+		RangeDoneFunc: func(CallbackContext, error) error {
+			return nil
+		},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	point := pcommon.NewPoint(1, []byte{1})
+	_, err := p.client.RequestRange(ctx, RangeRequest{
+		Start:         point,
+		End:           point,
+		ExpectedBytes: 1,
+	})
+	require.NoError(t, err)
+	cancel()
+
+	p.client.queueMutex.Lock()
+	require.Len(t, p.client.queue, 1)
+	deadline := p.client.queue[0].deadline
+	p.client.queueMutex.Unlock()
+	require.WithinDuration(t, time.Now().Add(rangeTimeout), deadline, time.Second)
+
+	select {
+	case <-p.client.ProtocolInstance().DoneChan():
+		t.Fatal("caller context cancellation stopped an accepted range")
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestExpiredRangeRejectsTerminalResponse(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		handle func(*Client) error
+	}{
+		{
+			name: "no blocks",
+			handle: func(c *Client) error {
+				return c.handleNoBlocks()
+			},
+		},
+		{
+			name: "batch done",
+			handle: func(c *Client) error {
+				return c.handleBatchDone()
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var completionErr error
+			c := newQueueTestClient(&Config{
+				RequestPipelining: true,
+				RangeDoneFunc: func(_ CallbackContext, err error) error {
+					completionErr = err
+					return nil
+				},
+			})
+			req := c.appendTestRequest(1)
+			req.retired = make(chan struct{})
+			req.deadline = time.Now().Add(-time.Nanosecond)
+			if test.name == "batch done" {
+				req.started = true
+				req.end = pcommon.NewPoint(1, []byte{1})
+				req.lastPoint = req.end
+				req.hasLastPoint = true
+			}
+
+			err := test.handle(c)
+			require.ErrorIs(t, err, ErrRangeTimeout)
+			require.ErrorIs(t, completionErr, ErrRangeTimeout)
+		})
+	}
+}
+
 func TestRangeDeadlineCancelsBlockedPipelineSubmit(t *testing.T) {
 	msg, point := queueTestBlock(t, 100, lcommon.Blake2b256{})
 	var wrapped WrappedBlock
@@ -272,7 +418,7 @@ func TestRangeDeadlineCancelsBlockedPipelineSubmit(t *testing.T) {
 	blockPipeline := pipeline.NewBlockPipeline(
 		pipeline.WithValidateWorkers(0),
 		pipeline.WithSkipBodyHashValidation(true),
-		pipeline.WithMaxRawCborBytes(uint64(len(wrapped.RawBlock))),
+		pipeline.WithMaxRawCborBytes(2*uint64(len(wrapped.RawBlock))),
 		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error { return nil }),
 	)
 	require.NoError(t, blockPipeline.Start(context.Background()))
@@ -300,12 +446,19 @@ func TestRangeDeadlineCancelsBlockedPipelineSubmit(t *testing.T) {
 		},
 	}
 	p := newIdlePeer(t, cfg)
+	outboundStart := p.outboundRead.value()
 	_, err = p.client.RequestRange(context.Background(), RangeRequest{
 		Start:         point,
 		End:           point,
 		ExpectedBytes: 1024,
 	})
 	require.NoError(t, err)
+	requestData, err := cbor.Encode(NewMsgRequestRange(point, point))
+	require.NoError(t, err)
+	p.waitForOutboundBytes(
+		t,
+		outboundStart+binary.Size(muxer.SegmentHeader{})+len(requestData),
+	)
 	p.send(t, NewMsgStartBatch())
 	p.send(t, msg)
 
@@ -341,6 +494,11 @@ func TestBlockFetchZeroRangeLimitsUseSecureDefaults(t *testing.T) {
 	require.Equal(t, DefaultMaxBlocksPerRange, c.maxBlocksPerRange())
 	require.Equal(t, DefaultMaxRangeBytes, c.maxRangeBytes())
 	require.Equal(t, DefaultRangeTimeout, c.rangeTimeout())
+	require.Equal(
+		t,
+		BusyTimeout+time.Duration(DefaultMaxBlocksPerRange+1)*StreamingTimeout,
+		DefaultRangeTimeout,
+	)
 }
 
 // shutdownRaceIterations bounds how many times a test drives a select whose
