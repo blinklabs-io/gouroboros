@@ -290,11 +290,10 @@ func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if arrayLen != 54 {
-		tmp.PerasHealingFactor, tmp.PerasQuorumThresholdSafetyMargin =
-			defaultDijkstraPerasIntervals(
-				tmp.PerasHealingFactor,
-				tmp.PerasQuorumThresholdSafetyMargin,
-			)
+		tmp.PerasHealingFactor, tmp.PerasQuorumThresholdSafetyMargin = defaultDijkstraPerasIntervals(
+			tmp.PerasHealingFactor,
+			tmp.PerasQuorumThresholdSafetyMargin,
+		)
 	}
 	if err := validateDijkstraRewardParameterDomains(
 		tmp.MaxPledgeLeverage,
@@ -383,11 +382,10 @@ func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (p DijkstraProtocolParameters) MarshalCBOR() ([]byte, error) {
-	p.PerasHealingFactor, p.PerasQuorumThresholdSafetyMargin =
-		defaultDijkstraPerasIntervals(
-			p.PerasHealingFactor,
-			p.PerasQuorumThresholdSafetyMargin,
-		)
+	p.PerasHealingFactor, p.PerasQuorumThresholdSafetyMargin = defaultDijkstraPerasIntervals(
+		p.PerasHealingFactor,
+		p.PerasQuorumThresholdSafetyMargin,
+	)
 	if err := validateDijkstraCurrentPerasParameterDomains(
 		p.PerasHealingFactor,
 		p.PerasQuorumThresholdSafetyMargin,

@@ -89,11 +89,10 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	perasQuorumThresholdSafetyMargin := genesisRatToRat(
 		genesis.PerasQuorumThresholdSafetyMargin,
 	)
-	perasHealingFactor, perasQuorumThresholdSafetyMargin =
-		defaultDijkstraPerasIntervals(
-			perasHealingFactor,
-			perasQuorumThresholdSafetyMargin,
-		)
+	perasHealingFactor, perasQuorumThresholdSafetyMargin = defaultDijkstraPerasIntervals(
+		perasHealingFactor,
+		perasQuorumThresholdSafetyMargin,
+	)
 	if err := validateDijkstraRewardParameterDomains(
 		maxPledgeLeverage,
 		minPoolMargin,
