@@ -615,7 +615,7 @@ func (t *MaryTransaction) Cbor() []byte {
 }
 
 func (t *MaryTransaction) Utxorpc() (*utxorpc.Tx, error) {
-	tx, err := t.Body.Utxorpc()
+	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Mary transaction: %w", err)
 	}

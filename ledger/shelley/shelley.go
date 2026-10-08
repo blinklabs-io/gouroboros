@@ -1021,7 +1021,7 @@ func (t ShelleyTransaction) Witnesses() common.TransactionWitnessSet {
 }
 
 func (t ShelleyTransaction) Utxorpc() (*utxorpc.Tx, error) {
-	tx, err := t.Body.Utxorpc()
+	tx, err := common.TransactionToUtxorpc(&t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Shelley transaction: %w", err)
 	}

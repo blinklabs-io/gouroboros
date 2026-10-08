@@ -2352,7 +2352,7 @@ func (t *DijkstraTransaction) Cbor() []byte {
 }
 
 func (t *DijkstraTransaction) Utxorpc() (*utxorpc.Tx, error) {
-	tx, err := t.Body.Utxorpc()
+	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"failed to convert Dijkstra transaction: %w",
@@ -2525,8 +2525,8 @@ func newDijkstraBlockTransactionFromCbor(data []byte) (*DijkstraTransaction, err
 			len(txArray),
 		)
 	}
-	var txIsValid bool
-	if _, err := cbor.Decode(txArray[3], &txIsValid); err != nil {
+	txIsValid, err := cbor.DecodeBool(txArray[3])
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
 	var ret DijkstraTransaction
@@ -2574,8 +2574,8 @@ func newDijkstraTransactionFromCborComponents(
 	}
 	auxIdx := 2
 	if len(txArray) == 4 {
-		var txIsValid bool
-		if _, err := cbor.Decode(txArray[2], &txIsValid); err != nil {
+		txIsValid, err := cbor.DecodeBool(txArray[2])
+		if err != nil {
 			return nil, fmt.Errorf("failed to decode TxIsValid: %w", err)
 		}
 		if !txIsValid {

@@ -1217,6 +1217,12 @@ func validateDijkstraProtocolParameterUpdateDomains(
 	if rat := ppu.LeiosQuorumStakeThreshold; rat != nil && !validUnitDijkstraRat(rat) {
 		return errors.New("leiosQuorumStakeThreshold must be a bounded unit interval")
 	}
+	if err := validateDijkstraPerasParameterDomains(
+		ppu.PerasHealingFactor,
+		ppu.PerasQuorumThresholdSafetyMargin,
+	); err != nil {
+		return err
+	}
 	if ppu.MaxEndorserBlockExUnits != nil &&
 		(ppu.MaxEndorserBlockExUnits.Memory < 0 || ppu.MaxEndorserBlockExUnits.Steps < 0) {
 		return errors.New("maxEndorserBlockExUnits must be nonnegative")
@@ -1243,6 +1249,38 @@ func validateDijkstraRewardParameterDomains(
 		return errors.New("minPoolMargin must be a bounded unit interval")
 	}
 	return nil
+}
+
+func validateDijkstraPerasParameterDomains(
+	healingFactor *cbor.Rat,
+	quorumThresholdSafetyMargin *cbor.Rat,
+) error {
+	if healingFactor != nil && !validPositiveDijkstraRat(healingFactor) {
+		return errors.New("perasHealingFactor must be a positive bounded ratio")
+	}
+	if quorumThresholdSafetyMargin != nil &&
+		!validUnitDijkstraRat(quorumThresholdSafetyMargin) {
+		return errors.New(
+			"perasQuorumThresholdSafetyMargin must be a bounded unit interval",
+		)
+	}
+	return nil
+}
+
+func validateDijkstraCurrentPerasParameterDomains(
+	healingFactor *cbor.Rat,
+	quorumThresholdSafetyMargin *cbor.Rat,
+) error {
+	if healingFactor == nil {
+		return errors.New("perasHealingFactor is required")
+	}
+	if quorumThresholdSafetyMargin == nil {
+		return errors.New("perasQuorumThresholdSafetyMargin is required")
+	}
+	return validateDijkstraPerasParameterDomains(
+		healingFactor,
+		quorumThresholdSafetyMargin,
+	)
 }
 
 func validUnitDijkstraRat(rat *cbor.Rat) bool {

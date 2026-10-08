@@ -44,6 +44,14 @@ type DijkstraGenesis struct {
 	MaxEndorserBlockTxsSize          uint32             `json:"maxEndorserBlockTxsSize"`
 	MaxEndorserBlockExUnits          common.ExUnits     `json:"maxEndorserBlockExecutionUnits"`
 	MaxRefScriptSizePerEndorserBlock uint32             `json:"maxRefScriptSizePerEndorserBlock"`
+	PerasMinCandidateBlockAge        uint32             `json:"perasMinCandidateBlockAge"`
+	PerasHealingFactor               *common.GenesisRat `json:"perasHealingFactor"`
+	PerasCertBoost                   uint16             `json:"perasCertBoost"`
+	PerasTargetCommitteeSize         uint16             `json:"perasTargetCommitteeSize"`
+	PerasBootstrapRound              *uint32            `json:"perasBootstrapRound"`
+	PerasQuorumThresholdSafetyMargin *common.GenesisRat `json:"perasQuorumThresholdSafetyMargin"`
+	RefInputsCostPerMultiAssetPolicy uint64             `json:"refInputsCostPerMultiAssetPolicy"`
+	RefInputsCostPerDatumByte        uint64             `json:"refInputsCostPerDatumByte"`
 	CommitteeStakeCoverage           *common.GenesisRat `json:"committeeStakeCoverage"`
 	QuorumStakeThreshold             *common.GenesisRat `json:"quorumStakeThreshold"`
 }
@@ -77,6 +85,14 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	quorumStakeThreshold := genesisRatToRat(genesis.QuorumStakeThreshold)
 	maxPledgeLeverage := genesisRatToRat(genesis.MaxPledgeLeverage)
 	minPoolMargin := genesisRatToRat(genesis.MinPoolMargin)
+	perasHealingFactor := genesisRatToRat(genesis.PerasHealingFactor)
+	perasQuorumThresholdSafetyMargin := genesisRatToRat(
+		genesis.PerasQuorumThresholdSafetyMargin,
+	)
+	perasHealingFactor, perasQuorumThresholdSafetyMargin = defaultDijkstraPerasIntervals(
+		perasHealingFactor,
+		perasQuorumThresholdSafetyMargin,
+	)
 	if err := validateDijkstraRewardParameterDomains(
 		maxPledgeLeverage,
 		minPoolMargin,
@@ -86,6 +102,12 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	if err := validateLeiosCommitteeStakeParameters(
 		committeeStakeCoverage,
 		quorumStakeThreshold,
+	); err != nil {
+		return err
+	}
+	if err := validateDijkstraCurrentPerasParameterDomains(
+		perasHealingFactor,
+		perasQuorumThresholdSafetyMargin,
 	); err != nil {
 		return err
 	}
@@ -115,6 +137,14 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.MaxEndorserBlockTxsSize = genesis.MaxEndorserBlockTxsSize
 	p.MaxEndorserBlockExUnits = genesis.MaxEndorserBlockExUnits
 	p.MaxRefScriptSizePerEndorserBlock = genesis.MaxRefScriptSizePerEndorserBlock
+	p.PerasMinCandidateBlockAge = genesis.PerasMinCandidateBlockAge
+	p.PerasHealingFactor = perasHealingFactor
+	p.PerasCertBoost = genesis.PerasCertBoost
+	p.PerasTargetCommitteeSize = genesis.PerasTargetCommitteeSize
+	p.PerasBootstrapRound = copyUint32(genesis.PerasBootstrapRound)
+	p.PerasQuorumThresholdSafetyMargin = perasQuorumThresholdSafetyMargin
+	p.RefInputsCostPerMultiAssetPolicy = genesis.RefInputsCostPerMultiAssetPolicy
+	p.RefInputsCostPerDatumByte = genesis.RefInputsCostPerDatumByte
 	ApplyConwayRefScriptFeeDefaults(p)
 	p.CommitteeStakeCoverage = committeeStakeCoverage
 	p.QuorumStakeThreshold = quorumStakeThreshold
@@ -137,4 +167,12 @@ func genesisRatToRat(r *common.GenesisRat) *cbor.Rat {
 		return nil
 	}
 	return &cbor.Rat{Rat: new(big.Rat).Set(r.Rat)}
+}
+
+func copyUint32(value *uint32) *uint32 {
+	if value == nil {
+		return nil
+	}
+	ret := *value
+	return &ret
 }

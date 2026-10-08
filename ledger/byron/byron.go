@@ -2301,15 +2301,11 @@ func NewByronMainBlockFromCbor(
 	// Bind the body to the header. Without this the header, and so the
 	// block hash, can be genuine while the body has been substituted.
 	//
-	// cfg is forwarded as-is: ValidateBodyProof checks
-	// cfg.EnableByronSscProofHashValidation itself, so a caller who opts
-	// into the full ssc_proof hash comparison via this same VerifyConfig
-	// gets it at decode time too, while the default (that flag unset)
-	// leaves ssc_proof checked only structurally -- see ValidateBodyProof's
-	// doc comment (bodyproof.go) and
-	// common.VerifyConfig.EnableByronSscProofHashValidation's.
+	// Full SSC proof hashes and delegation/update payload signatures are part
+	// of this check. Parse-only callers must set SkipBodyHashValidation and
+	// validate the decoded value before trusting it.
 	if !cfg.SkipBodyHashValidation {
-		if err := byronMainBlock.ValidateBodyProof(cfg); err != nil {
+		if err := byronMainBlock.ValidateBodyProof(); err != nil {
 			return nil, err
 		}
 	}

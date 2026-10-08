@@ -456,9 +456,10 @@ func TestPoolRegistrationCertificateJSONValidationPreservesCachedCBOR(
 
 func TestPoolRegistrationCertificateUtxorpcMarginBounds(t *testing.T) {
 	tests := []struct {
-		name   string
-		margin GenesisRat
-		valid  bool
+		name        string
+		margin      GenesisRat
+		numerator   int32
+		denominator uint32
 	}{
 		{
 			name: "largest representable components",
@@ -466,7 +467,8 @@ func TestPoolRegistrationCertificateUtxorpcMarginBounds(t *testing.T) {
 				big.NewInt(math.MaxInt32),
 				new(big.Int).SetUint64(math.MaxUint32),
 			),
-			valid: true,
+			numerator:   math.MaxInt32,
+			denominator: math.MaxUint32,
 		},
 		{
 			name: "numerator above signed schema range",
@@ -474,6 +476,8 @@ func TestPoolRegistrationCertificateUtxorpcMarginBounds(t *testing.T) {
 				new(big.Int).SetUint64(uint64(math.MaxInt32)+1),
 				new(big.Int).SetUint64(uint64(math.MaxInt32)+2),
 			),
+			numerator:   math.MaxInt32,
+			denominator: uint32(math.MaxInt32) + 1,
 		},
 		{
 			name: "denominator above unsigned schema range",
@@ -481,6 +485,8 @@ func TestPoolRegistrationCertificateUtxorpcMarginBounds(t *testing.T) {
 				big.NewInt(1),
 				new(big.Int).SetUint64(uint64(math.MaxUint32)+1),
 			),
+			numerator:   1,
+			denominator: math.MaxUint32,
 		},
 		{
 			name: "valid Word64 components outside schema range",
@@ -488,22 +494,18 @@ func TestPoolRegistrationCertificateUtxorpcMarginBounds(t *testing.T) {
 				new(big.Int).SetUint64(math.MaxUint64-1),
 				new(big.Int).SetUint64(math.MaxUint64),
 			),
+			numerator:   1,
+			denominator: 1,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cert := testPoolRegistrationCertificate(test.margin)
 			converted, err := cert.Utxorpc()
-			if test.valid {
-				require.NoError(t, err)
-				margin := converted.GetPoolRegistration().GetMargin()
-				assert.Equal(t, int32(math.MaxInt32), margin.GetNumerator())
-				assert.Equal(t, uint32(math.MaxUint32), margin.GetDenominator())
-				return
-			}
-			require.Error(t, err)
-			assert.ErrorIs(t, err, ErrPoolMarginUTxORPCUnrepresentable)
-			assert.Nil(t, converted)
+			require.NoError(t, err)
+			margin := converted.GetPoolRegistration().GetMargin()
+			assert.Equal(t, test.numerator, margin.GetNumerator())
+			assert.Equal(t, test.denominator, margin.GetDenominator())
 		})
 	}
 }
