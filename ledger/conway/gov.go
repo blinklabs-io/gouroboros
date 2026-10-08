@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type ConwayProposalProcedure struct {
@@ -166,6 +167,14 @@ func (a *ConwayParameterChangeGovAction) PreviousGovActionId() *common.GovAction
 		return nil
 	}
 	return a.ActionId
+}
+
+// ProtocolParamUpdateUtxorpc converts the proposed parameter update.
+func (a *ConwayParameterChangeGovAction) ProtocolParamUpdateUtxorpc() (*utxorpc.PParams, error) {
+	if a == nil {
+		return nil, nil
+	}
+	return a.ParamUpdate.Utxorpc()
 }
 
 // SecurityGroupFields returns the security-group parameters changed by this

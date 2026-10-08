@@ -2347,7 +2347,7 @@ func (t *DijkstraTransaction) Cbor() []byte {
 }
 
 func (t *DijkstraTransaction) Utxorpc() (*utxorpc.Tx, error) {
-	tx, err := t.Body.Utxorpc()
+	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"failed to convert Dijkstra transaction: %w",
