@@ -17,12 +17,15 @@ package localmessagenotification
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
+
+var errReplayCacheCapacityExceeded = errors.New("dmq: replay cache capacity exceeded")
 
 // Client implements the LocalMessageNotification client
 type Client struct {
@@ -42,8 +45,7 @@ type messageReplayState struct {
 }
 
 var (
-	replayStateInitMu              sync.Mutex
-	errReplayCacheCapacityExceeded = errors.New("dmq: replay cache capacity exceeded")
+	replayStateInitMu sync.Mutex
 )
 
 func newMessageReplayState() *messageReplayState {
@@ -137,18 +139,12 @@ func (c *Client) Stop() error {
 
 // RequestMessagesNonBlocking sends a non-blocking request for messages
 func (c *Client) RequestMessagesNonBlocking() error {
-	if err := c.ensureReplayCapacity(); err != nil {
-		return err
-	}
 	msg := NewMsgRequestMessages(false)
 	return c.SendMessage(msg)
 }
 
 // RequestMessagesBlocking sends a blocking request for messages
 func (c *Client) RequestMessagesBlocking() error {
-	if err := c.ensureReplayCapacity(); err != nil {
-		return err
-	}
 	msg := NewMsgRequestMessages(true)
 	return c.SendMessage(msg)
 }
@@ -177,10 +173,6 @@ func (c *Client) RequestMessagesBlockingValidateTimeout(
 			expectedTimeout.String(),
 		)
 	}
-	if err := c.ensureReplayCapacity(); err != nil {
-		return err
-	}
-
 	msg := NewMsgRequestMessages(true)
 	return c.SendMessage(msg)
 }
@@ -278,7 +270,7 @@ func (c *Client) validateAndReserve(
 	c.replayState.mu.Lock()
 	defer c.replayState.mu.Unlock()
 	c.replayState.pruneExpiredLocked(now)
-	messages, capacityExceeded := c.replayState.admitLocked(
+	messages, evictIDs, capacityExceeded := c.replayState.admitLocked(
 		messages,
 		maxReplayEntries,
 	)
@@ -308,6 +300,9 @@ func (c *Client) validateAndReserve(
 			return nil, err
 		}
 	}
+	for _, id := range evictIDs {
+		delete(c.replayState.acceptedIDs, id)
+	}
 	for i := range messages {
 		c.replayState.acceptedIDs[string(messages[i].ID())] = messages[i].Payload.ExpiresAt
 	}
@@ -323,12 +318,12 @@ func (r *messageReplayState) pruneExpiredLocked(now time.Time) {
 	}
 }
 
-// admitLocked returns the fresh messages when the complete reply fits without
-// discarding replay protection for any unexpired accepted ID.
+// admitLocked returns fresh messages and the earliest-expiring IDs to evict
+// when needed. The caller applies evictions only after the batch validates.
 func (r *messageReplayState) admitLocked(
 	messages []pcommon.DmqMessage,
 	maxEntries int,
-) ([]pcommon.DmqMessage, bool) {
+) ([]pcommon.DmqMessage, []string, bool) {
 	seen := make(map[string]struct{}, len(messages))
 	ret := make([]pcommon.DmqMessage, 0, min(len(messages), maxEntries))
 	for i := range messages {
@@ -341,29 +336,31 @@ func (r *messageReplayState) admitLocked(
 		}
 		seen[id] = struct{}{}
 		if len(ret) == maxEntries {
-			return nil, true
+			return nil, nil, true
 		}
 		ret = append(ret, messages[i])
 	}
-	if len(r.acceptedIDs)+len(ret) > maxEntries {
-		return nil, true
+	needed := len(r.acceptedIDs) + len(ret) - maxEntries
+	if needed <= 0 {
+		return ret, nil, false
 	}
-	return ret, false
-}
-
-func (c *Client) ensureReplayCapacity() error {
-	maxReplayEntries := c.config.MaxReplayEntries
-	if maxReplayEntries == 0 {
-		maxReplayEntries = defaultMaxReplayEntries
+	type entry struct {
+		id      string
+		expires uint32
 	}
-	if maxReplayEntries < 0 {
-		return errors.New("dmq: MaxReplayEntries must be greater than zero")
+	entries := make([]entry, 0, len(r.acceptedIDs))
+	for id, expires := range r.acceptedIDs {
+		entries = append(entries, entry{id: id, expires: expires})
 	}
-	c.replayState.mu.Lock()
-	defer c.replayState.mu.Unlock()
-	c.replayState.pruneExpiredLocked(c.now())
-	if len(c.replayState.acceptedIDs) >= maxReplayEntries {
-		return errReplayCacheCapacityExceeded
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].expires < entries[j].expires
+	})
+	if needed > len(entries) {
+		return nil, nil, true
 	}
-	return nil
+	evictIDs := make([]string, needed)
+	for i := range needed {
+		evictIDs[i] = entries[i].id
+	}
+	return ret, evictIDs, false
 }
