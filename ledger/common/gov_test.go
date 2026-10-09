@@ -246,13 +246,12 @@ func TestVotingProcedureUnmarshalCBORRejectsExtraFields(t *testing.T) {
 	require.Error(t, procedure.UnmarshalCBOR(encoded))
 }
 
-func TestVotingProcedureUnmarshalCBORAcceptsIndefiniteArray(t *testing.T) {
+func TestVotingProcedureUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
 	var procedure VotingProcedure
-	require.NoError(
+	require.Error(
 		t,
 		procedure.UnmarshalCBOR([]byte{0x9f, GovVoteYes, 0xf6, 0xff}),
 	)
-	require.Equal(t, GovVoteYes, procedure.Vote)
 }
 
 func TestVotingProceduresUnmarshalCBORVoterKeys(t *testing.T) {
