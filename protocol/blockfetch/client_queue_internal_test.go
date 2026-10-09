@@ -27,13 +27,299 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/muxer"
+	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
+
+const blockFetchTestShelleyEta0 = "829749cb2701843214ae3aee67ae12ec9bdb3502e060ac0b75275d0f52af349c"
+
+func blockFetchShelleyMessage(t *testing.T) (*MsgBlock, pcommon.Point) {
+	t.Helper()
+	var fixture testdata.TestBlock
+	for _, block := range testdata.GetTestBlocks() {
+		if block.Name == "Shelley" {
+			fixture = block
+			break
+		}
+	}
+	require.NotEmpty(t, fixture.Cbor)
+	block, err := ledger.NewBlockFromCbor(fixture.BlockType, fixture.Cbor)
+	require.NoError(t, err)
+	wrapped, err := cbor.Encode(WrappedBlock{
+		Type:     fixture.BlockType,
+		RawBlock: cbor.RawMessage(fixture.Cbor),
+	})
+	require.NoError(t, err)
+	return NewMsgBlock(wrapped), pcommon.NewPoint(
+		block.SlotNumber(),
+		block.Hash().Bytes(),
+	)
+}
+
+func blockFetchTestPipeline(
+	t *testing.T,
+	validator pipeline.ChainContextValidator,
+	apply pipeline.ApplyFunc,
+) *pipeline.BlockPipeline {
+	t.Helper()
+	verifyConfig, err := testdata.ShelleyVerifyConfig()
+	require.NoError(t, err)
+	p := pipeline.NewBlockPipeline(
+		pipeline.WithDecodeWorkers(1),
+		pipeline.WithValidateWorkers(1),
+		pipeline.WithBlockTypeResolver(
+			func(context.Context, []byte) (uint, error) {
+				return ledger.BlockTypeShelley, nil
+			},
+		),
+		pipeline.WithEta0(blockFetchTestShelleyEta0),
+		pipeline.WithSlotsPerKesPeriod(129600),
+		pipeline.WithVerifyConfig(verifyConfig),
+		pipeline.WithChainContextValidator(validator),
+		pipeline.WithApplyFunc(apply),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	return p
+}
+
+func preparePipelineBatch(
+	t *testing.T,
+	c *Client,
+	msg *MsgBlock,
+	point pcommon.Point,
+) *rangeRequest {
+	t.Helper()
+	req := c.appendTestRequest(1)
+	req.start = point
+	req.end = point
+	require.NoError(t, c.handleStartBatch())
+	require.NoError(t, c.handleBlock(msg))
+	return req
+}
+
+func TestPipelineBatchFencesAtCompletion(t *testing.T) {
+	applyStarted := make(chan struct{})
+	releaseApply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseApply) }) }
+	p := blockFetchTestPipeline(
+		t,
+		func(context.Context, *pipeline.BlockItem) error { return nil },
+		func(*pipeline.BlockItem) error {
+			close(applyStarted)
+			<-releaseApply
+			return nil
+		},
+	)
+	t.Cleanup(func() {
+		release()
+		require.NoError(t, p.Stop())
+	})
+	completion := make(chan error, 1)
+	c := newQueueTestClient(&Config{
+		Pipeline:          p,
+		RequestPipelining: true,
+		RangeDoneFunc: func(_ CallbackContext, err error) error {
+			completion <- err
+			return nil
+		},
+	})
+	t.Cleanup(c.pipelineCancel)
+	msg, point := blockFetchShelleyMessage(t)
+	preparePipelineBatch(t, c, msg, point)
+	select {
+	case <-applyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline apply did not start")
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- c.handleBatchDone() }()
+	select {
+	case err := <-done:
+		t.Fatalf("BatchDone completed before ordered apply: %v", err)
+	default:
+	}
+	release()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("BatchDone did not complete after ordered apply")
+	}
+	require.NoError(t, <-completion)
+}
+
+func TestPipelineBatchReportsTailValidationFailure(t *testing.T) {
+	rejected := errors.New("wrong active era")
+	applyCalled := make(chan struct{}, 1)
+	p := blockFetchTestPipeline(
+		t,
+		func(context.Context, *pipeline.BlockItem) error { return rejected },
+		func(*pipeline.BlockItem) error {
+			applyCalled <- struct{}{}
+			return nil
+		},
+	)
+	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	completion := make(chan error, 1)
+	c := newQueueTestClient(&Config{
+		Pipeline:          p,
+		RequestPipelining: true,
+		RangeDoneFunc: func(_ CallbackContext, err error) error {
+			completion <- err
+			return nil
+		},
+	})
+	t.Cleanup(c.pipelineCancel)
+	msg, point := blockFetchShelleyMessage(t)
+	preparePipelineBatch(t, c, msg, point)
+
+	err := c.handleBatchDone()
+	require.ErrorIs(t, err, rejected)
+	require.ErrorIs(t, <-completion, rejected)
+	select {
+	case <-applyCalled:
+		t.Fatal("rejected block reached ApplyFunc")
+	default:
+	}
+}
+
+func TestPipelineBlockTypeMismatchPrecedesBlockFetchTypedDecode(t *testing.T) {
+	var allegra testdata.TestBlock
+	for _, fixture := range testdata.GetTestBlocks() {
+		if fixture.Name == "Allegra" {
+			allegra = fixture
+			break
+		}
+	}
+	require.NotEmpty(t, allegra.Cbor)
+	var fields []cbor.RawMessage
+	_, err := cbor.Decode(allegra.Cbor, &fields)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(fields), 2)
+	fields[1] = cbor.RawMessage{0x00}
+	raw, err := cbor.Encode(fields)
+	require.NoError(t, err)
+	_, err = ledger.NewBlockFromCbor(ledger.BlockTypeMary, raw)
+	require.Error(t, err, "the peer-selected decoder must reject the fixture")
+	info, err := rawBlockHeaderInfoFromCbor(raw, 0)
+	require.NoError(t, err)
+
+	verifyConfig, err := testdata.ShelleyVerifyConfig()
+	require.NoError(t, err)
+	p := pipeline.NewBlockPipeline(
+		pipeline.WithDecodeWorkers(1),
+		pipeline.WithValidateWorkers(1),
+		pipeline.WithBlockTypeResolver(
+			func(context.Context, []byte) (uint, error) {
+				return ledger.BlockTypeAllegra, nil
+			},
+		),
+		pipeline.WithEta0(blockFetchTestShelleyEta0),
+		pipeline.WithSlotsPerKesPeriod(129600),
+		pipeline.WithVerifyConfig(verifyConfig),
+		pipeline.WithChainContextValidator(
+			func(context.Context, *pipeline.BlockItem) error { return nil },
+		),
+		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error { return nil }),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	wrapper, err := cbor.Encode(WrappedBlock{
+		Type:     ledger.BlockTypeMary,
+		RawBlock: cbor.RawMessage(raw),
+	})
+	require.NoError(t, err)
+	c := newQueueTestClient(&Config{Pipeline: p})
+	t.Cleanup(c.pipelineCancel)
+	req := c.appendTestRequest(1)
+	req.start = info.point
+	req.end = info.point
+	require.NoError(t, c.handleStartBatch())
+	require.NoError(t, c.handleBlock(NewMsgBlock(wrapper)))
+	require.ErrorIs(t, c.handleBatchDone(), pipeline.ErrBlockTypeMismatch)
+}
+
+func TestPipelineBatchShutdownReportsProtocolError(t *testing.T) {
+	for _, directProtocolStop := range []bool{false, true} {
+		name := "client stop"
+		if directProtocolStop {
+			name = "protocol stop"
+		}
+		t.Run(name, func(t *testing.T) {
+			applyStarted := make(chan struct{})
+			releaseApply := make(chan struct{})
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(releaseApply) }) }
+			p := blockFetchTestPipeline(
+				t,
+				func(context.Context, *pipeline.BlockItem) error { return nil },
+				func(*pipeline.BlockItem) error {
+					close(applyStarted)
+					<-releaseApply
+					return nil
+				},
+			)
+			t.Cleanup(func() {
+				release()
+				require.NoError(t, p.Stop())
+			})
+			completion := make(chan error, 1)
+			peer := newInMemoryPeer(t, &Config{
+				Pipeline:          p,
+				RequestPipelining: true,
+				RangeDoneFunc: func(_ CallbackContext, err error) error {
+					completion <- err
+					return nil
+				},
+			}, true, make(chan error, 1))
+			c := peer.client
+			msg, point := blockFetchShelleyMessage(t)
+			preparePipelineBatch(t, c, msg, point)
+			<-applyStarted
+
+			fenceStarted := make(chan struct{})
+			c.testBatchFence = func() { close(fenceStarted) }
+			done := make(chan error, 1)
+			go func() { done <- c.handleBatchDone() }()
+			<-fenceStarted
+			stopDone := make(chan error, 1)
+			if directProtocolStop {
+				proto := c.ProtocolInstance()
+				proto.Stop()
+				go func() {
+					<-proto.DoneChan()
+					stopDone <- nil
+				}()
+			} else {
+				go func() { stopDone <- c.Stop() }()
+			}
+			select {
+			case err := <-done:
+				require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+				require.NotErrorIs(t, err, context.Canceled)
+			case <-time.After(time.Second):
+				t.Fatal("shutdown did not unblock the batch fence")
+			}
+			select {
+			case err := <-stopDone:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				t.Fatal("shutdown remained blocked behind the batch fence")
+			}
+			callbackErr := <-completion
+			require.ErrorIs(t, callbackErr, protocol.ErrProtocolShuttingDown)
+			require.NotErrorIs(t, callbackErr, context.Canceled)
+		})
+	}
+}
 
 func TestPointInRange(t *testing.T) {
 	start := pcommon.NewPoint(100, []byte("start"))

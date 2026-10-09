@@ -15,10 +15,16 @@
 package blockfetch
 
 import (
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,22 +52,57 @@ func TestRawBlockHeaderInfoMatchesTypedDecode(t *testing.T) {
 	_, err = cbor.Decode(originCbor, &originBlock)
 	require.NoError(t, err)
 
-	testCases := []struct {
-		name  string
-		raw   []byte
-		block ledger.Block
-	}{
+	type testCase struct {
+		name          string
+		raw           []byte
+		block         ledger.Block
+		slotsPerEpoch uint64
+	}
+	testCases := []testCase{
 		// Babbage exercises a 10-field header body with a present prev_hash.
 		{name: "babbage", raw: babbageCbor, block: &babbageBlock},
 		// The origin case: prev_hash encoded as CBOR null, which the typed
 		// header decoder turns into the zero hash.
 		{name: "babbage origin", raw: originCbor, block: &originBlock},
 	}
+	for _, fixture := range testdata.GetTestBlocks() {
+		if fixture.Name != "Byron" {
+			continue
+		}
+		block, err := ledger.NewBlockFromCbor(fixture.BlockType, fixture.Cbor)
+		require.NoError(t, err)
+		testCases = append(testCases, testCase{
+			name: "byron main", raw: fixture.Cbor, block: block,
+		})
+	}
+	ebbHex, err := os.ReadFile(filepath.Join(
+		"..", "chainsync", "testdata",
+		"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
+	))
+	require.NoError(t, err)
+	ebbCbor, err := hex.DecodeString(strings.TrimSpace(string(ebbHex)))
+	require.NoError(t, err)
+	ebb, err := ledger.NewBlockFromCbor(ledger.BlockTypeByronEbb, ebbCbor)
+	require.NoError(t, err)
+	testCases = append(testCases, testCase{
+		name:          "byron epoch boundary",
+		raw:           ebbCbor,
+		block:         ebb,
+		slotsPerEpoch: 600,
+	})
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			info, err := rawBlockHeaderInfoFromCbor(tc.raw)
+			info, err := rawBlockHeaderInfoFromCbor(
+				tc.raw,
+				tc.slotsPerEpoch,
+			)
 			require.NoError(t, err)
-			require.Equal(t, tc.block.SlotNumber(), info.point.Slot)
+			expectedSlot, err := ledgerbyron.SlotNumberFromBlockHeader(
+				tc.block.Header(),
+				tc.slotsPerEpoch,
+			)
+			require.NoError(t, err)
+			require.Equal(t, expectedSlot, info.point.Slot)
 			require.Equal(t, tc.block.Hash().Bytes(), info.point.Hash)
 			wantPrev := tc.block.PrevHash()
 			require.Equal(t, wantPrev.Bytes(), info.prevHash)
@@ -117,7 +158,7 @@ func TestRawBlockHeaderInfoRejectsMalformed(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := rawBlockHeaderInfoFromCbor(tc.raw)
+			_, err := rawBlockHeaderInfoFromCbor(tc.raw, 0)
 			require.Error(t, err)
 		})
 	}

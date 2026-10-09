@@ -202,8 +202,11 @@ type Config struct {
 	// value to both ChainSync and BlockFetch. Zero uses the legacy value.
 	ByronSlotsPerEpoch uint64
 
-	// Pipeline enables the block processing pipeline.
-	// The pipeline should be configured with desired buffer sizes when created.
+	// Pipeline enables block processing through a shared pipeline. Do not share
+	// one pipeline across peers: each roll-forward waits for its ordered fence,
+	// limiting this client to one in-flight block and allowing one peer's invalid
+	// block to stop work submitted by other clients. Configure buffer sizes when
+	// creating the pipeline.
 	Pipeline *pipeline.BlockPipeline
 
 	// PipelineBufferSize is reserved for future use.

@@ -172,14 +172,11 @@ func BenchmarkBlockPipeline(b *testing.B) {
 
 		ctx := b.Context()
 
-		// Create full pipeline (decode + apply, no validation for benchmark)
+		// Benchmark trusted decoding without state application.
 		p := pipeline.NewBlockPipeline(
 			pipeline.WithDecodeWorkers(4),
-			pipeline.WithValidateWorkers(0), // Skip validation for throughput benchmark
+			pipeline.WithTrustedDecodeOnly(),
 			pipeline.WithSkipBodyHashValidation(true),
-			pipeline.WithApplyFunc(func(item *pipeline.BlockItem) error {
-				return nil // No-op apply for benchmark
-			}),
 		)
 		if err := p.Start(ctx); err != nil {
 			b.Fatalf("failed to start pipeline: %v", err)

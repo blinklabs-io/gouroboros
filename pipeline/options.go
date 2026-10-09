@@ -15,10 +15,20 @@
 package pipeline
 
 import (
+	"context"
 	"runtime"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
+
+// BlockTypeResolver resolves the exact block type that is active for a signed
+// header. The input is the preserved header CBOR and does not include the
+// untrusted wire discriminator. Decode workers may call the resolver
+// concurrently and out of submission order, before earlier blocks reach
+// ApplyFunc. Implementations must be concurrency-safe and resolve from an
+// immutable or atomically read hard-fork schedule keyed by the signed header;
+// they must not depend on state changes from earlier in-flight blocks.
+type BlockTypeResolver func(context.Context, []byte) (uint, error)
 
 // DefaultMaxPendingBlocks is the default limit for out-of-order blocks buffered
 // in the apply stage. This matches the Cardano security parameter (k=2160) which
@@ -47,18 +57,29 @@ type PipelineConfig struct {
 	SlotsPerKesPeriod uint64
 	// VerifyConfig contains verification options.
 	VerifyConfig common.VerifyConfig
-	// ApplyFunc is the function called to apply blocks in order.
+	// BlockTypeResolver binds a signed header to the authoritative active era
+	// before an era-specific decoder is selected.
+	BlockTypeResolver BlockTypeResolver
+	// ChainContextValidator validates each decoded block against authoritative
+	// chain state immediately before ordered application.
+	ChainContextValidator ChainContextValidator
+	// ApplyFunc commits validated blocks to authoritative state in order. It is
+	// required outside trusted decode-only mode.
 	ApplyFunc ApplyFunc
 	// MetricsWindowSize is the number of samples to keep for latency metrics.
 	MetricsWindowSize int
 	// SkipBodyHashValidation disables body hash validation during decode.
 	SkipBodyHashValidation bool
+	// TrustedDecodeOnly permits decoding without validation or application.
+	// Callers must opt into this mode explicitly.
+	TrustedDecodeOnly bool
 }
 
-// DefaultPipelineConfig returns a PipelineConfig with sensible defaults.
-// Validation is disabled by default (ValidateWorkers = 0) to prevent nil-pointer
-// panics when Eta0Provider is not configured. To enable validation, use
-// WithValidateWorkers() and ensure Eta0Provider and SlotsPerKesPeriod are configured.
+// DefaultPipelineConfig returns a PipelineConfig with sensible sizing defaults.
+// Normal processing also requires nonzero validation workers and
+// SlotsPerKesPeriod, plus BlockTypeResolver, Eta0Provider,
+// ChainContextValidator, and ApplyFunc. Callers that only decode trusted
+// persisted data must opt into trusted decode-only mode instead.
 func DefaultPipelineConfig() PipelineConfig {
 	numCPU := runtime.NumCPU()
 
@@ -67,10 +88,37 @@ func DefaultPipelineConfig() PipelineConfig {
 
 	return PipelineConfig{
 		DecodeWorkers:      decodeWorkers,
-		ValidateWorkers:    0,                       // Validation is opt-in; requires Eta0Provider
+		ValidateWorkers:    0,
 		PrefetchBufferSize: 1000,                    // Large enough for typical chain gaps
 		MaxPendingBlocks:   DefaultMaxPendingBlocks, // Cardano security parameter k
 		MetricsWindowSize:  1000,
+	}
+}
+
+// WithTrustedDecodeOnly configures the pipeline to decode blocks and return
+// them through Results without validation or application. It is intended for
+// trusted persisted data whose consumer performs validation separately.
+func WithTrustedDecodeOnly() PipelineOption {
+	return func(c *PipelineConfig) {
+		c.TrustedDecodeOnly = true
+	}
+}
+
+// WithBlockTypeResolver sets the authoritative resolver used before typed
+// block decoding. It must derive the active block type from the signed header
+// and trusted hard-fork state.
+func WithBlockTypeResolver(resolver BlockTypeResolver) PipelineOption {
+	return func(c *PipelineConfig) {
+		c.BlockTypeResolver = resolver
+	}
+}
+
+// WithChainContextValidator sets the authoritative validator run in sequence
+// immediately before ApplyFunc. The validator checks linkage and consensus
+// state after BlockTypeResolver has bound the signed header to the active era.
+func WithChainContextValidator(validator ChainContextValidator) PipelineOption {
+	return func(c *PipelineConfig) {
+		c.ChainContextValidator = validator
 	}
 }
 
@@ -103,8 +151,8 @@ func WithDecodeWorkers(n int) PipelineOption {
 	}
 }
 
-// WithValidateWorkers sets the number of validate workers.
-// Set to 0 to disable validation entirely (useful for trusted block sources).
+// WithValidateWorkers sets the number of block-local validate workers.
+// Set to 0 only with WithTrustedDecodeOnly.
 // When validation is enabled (n > 0), the apply stage refuses to apply any
 // block that has not actually passed validation, reporting
 // ErrBlockNotValidated on the errors channel.
@@ -137,8 +185,8 @@ func WithMaxPendingBlocks(n int) PipelineOption {
 	}
 }
 
-// WithApplyFunc sets the apply function.
-// A nil function is ignored (the pipeline will use a no-op apply).
+// WithApplyFunc sets the authoritative state commit function. A nil function
+// is ignored and causes Start to reject a normal pipeline.
 func WithApplyFunc(fn ApplyFunc) PipelineOption {
 	return func(c *PipelineConfig) {
 		if fn != nil {

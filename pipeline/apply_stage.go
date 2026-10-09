@@ -17,6 +17,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -35,9 +36,29 @@ var ErrBlockNotValidated = errors.New(
 	"pipeline: block reached apply stage without validation",
 )
 
+// ErrChainContextValidation is returned when authoritative chain-context
+// validation rejects a block.
+var ErrChainContextValidation = errors.New(
+	"pipeline: chain-context validation failed",
+)
+
+// ErrBlockApply is returned when ApplyFunc fails to commit a validated block.
+var ErrBlockApply = errors.New("pipeline: block apply failed")
+
+// ErrPipelineItemRejected marks a failure that makes ordered application
+// unsafe to continue.
+var ErrPipelineItemRejected = errors.New("pipeline: ordered block rejected")
+
 // ApplyFunc is a function that applies a block to some state.
-// It is called in sequence order (by SequenceNumber).
+// It is called in sequence order after ChainContextValidator succeeds. It must
+// commit state atomically: returning an error cancels ordered processing.
 type ApplyFunc func(*BlockItem) error
+
+// ChainContextValidator validates a decoded block against the consumer's
+// current authoritative chain state. It is called in sequence order and must
+// be read-only; ApplyFunc alone commits state. The consumer owns rollback of
+// that authoritative state.
+type ChainContextValidator func(context.Context, *BlockItem) error
 
 // ApplyStage buffers validated blocks and applies them in sequence order.
 //
@@ -45,7 +66,9 @@ type ApplyFunc func(*BlockItem) error
 // ProcessWithStatus must be called from a single goroutine to guarantee ordered
 // execution of ApplyFunc. The ApplyStageRunner provides this guarantee.
 type ApplyStage struct {
-	applyFunc ApplyFunc
+	applyFunc             ApplyFunc
+	chainContextValidator ChainContextValidator
+	trustedDecodeOnly     bool
 	// requireValidation requires items to have passed validation (IsValid)
 	// before applying. ValidationError alone cannot distinguish "validation
 	// passed" from "validation never ran" (both are nil).
@@ -81,6 +104,16 @@ func (s *ApplyStage) SetRequireValidation(require bool) {
 	s.requireValidation = require
 }
 
+// SetChainContextValidator sets the authoritative validator used immediately
+// before ApplyFunc. It must be called before processing begins.
+func (s *ApplyStage) SetChainContextValidator(validator ChainContextValidator) {
+	s.chainContextValidator = validator
+}
+
+func (s *ApplyStage) setTrustedDecodeOnly(trusted bool) {
+	s.trustedDecodeOnly = trusted
+}
+
 // Name returns the stage name.
 func (s *ApplyStage) Name() string {
 	return "apply"
@@ -105,9 +138,17 @@ func (s *ApplyStage) ProcessWithStatus(
 	ctx context.Context,
 	item *BlockItem,
 ) ([]*BlockItem, error) {
+	processed, _, err := s.processWithStatus(ctx, item)
+	return processed, err
+}
+
+func (s *ApplyStage) processWithStatus(
+	ctx context.Context,
+	item *BlockItem,
+) ([]*BlockItem, *BlockItem, error) {
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, nil, ctx.Err()
 	default:
 	}
 
@@ -117,51 +158,63 @@ func (s *ApplyStage) ProcessWithStatus(
 	if item.SequenceNumber() == s.nextSequence {
 		s.nextSequence++
 		s.mu.Unlock()
-		s.maybeApply(ctx, item)
+		if err := s.maybeApply(ctx, item); err != nil {
+			return nil, item, err
+		}
 		// Try to apply any buffered items that are now in order
-		buffered := s.applyPending(ctx)
-		// Return the input item plus any buffered items
+		buffered, rejected, err := s.applyPending(ctx)
 		processed := make([]*BlockItem, 0, 1+len(buffered))
 		processed = append(processed, item)
 		processed = append(processed, buffered...)
-		return processed, nil
+		if err != nil {
+			return processed, rejected, err
+		}
+		// Return the input item plus any buffered items
+		return processed, nil, nil
 	}
 
 	// Reject before buffering so callers can retry without leaving this sequence
 	// in both their queue and the stage's pending map.
 	if s.maxPending > 0 && len(s.pending) >= s.maxPending {
 		s.mu.Unlock()
-		return nil, ErrPendingLimitExceeded
+		return nil, item, ErrPendingLimitExceeded
 	}
 	s.pending[item.SequenceNumber()] = item
 	s.mu.Unlock()
-	return nil, nil
+	return nil, nil, nil
 }
 
-// maybeApply applies the item if it passed all preceding stages: no decode or
-// validation errors, and (when validation is required) validation actually ran
-// and passed. Items failing the validation requirement are marked with
-// ErrBlockNotValidated so the skip is observable downstream.
-func (s *ApplyStage) maybeApply(ctx context.Context, item *BlockItem) {
-	if item.DecodeError() != nil || item.ValidationError() != nil {
-		return
+// maybeApply validates and applies an ordered item. Any rejection outside
+// trusted decode-only mode is fatal to ordered processing.
+func (s *ApplyStage) maybeApply(ctx context.Context, item *BlockItem) error {
+	if item.DecodeError() != nil {
+		if s.trustedDecodeOnly {
+			return nil
+		}
+		return fmt.Errorf(
+			"%w: decode block: %w",
+			ErrPipelineItemRejected,
+			item.DecodeError(),
+		)
+	}
+	if item.ValidationError() != nil {
+		return fmt.Errorf(
+			"%w: validate block: %w",
+			ErrPipelineItemRejected,
+			item.ValidationError(),
+		)
 	}
 	if s.requireValidation && !item.IsValid() {
 		item.SetApplied(false, ErrBlockNotValidated, 0)
-		return
+		return fmt.Errorf(
+			"%w: %w",
+			ErrPipelineItemRejected,
+			ErrBlockNotValidated,
+		)
 	}
-	s.applyItem(ctx, item)
-}
-
-// applyItem applies a single item without holding the lock.
-func (s *ApplyStage) applyItem(ctx context.Context, item *BlockItem) {
-	select {
-	case <-ctx.Done():
-		item.SetApplied(false, ctx.Err(), 0)
-		return
-	default:
+	if s.trustedDecodeOnly {
+		return nil
 	}
-
 	s.mu.Lock()
 	s.inFlight++
 	s.mu.Unlock()
@@ -170,16 +223,58 @@ func (s *ApplyStage) applyItem(ctx context.Context, item *BlockItem) {
 		s.inFlight--
 		s.mu.Unlock()
 	}()
+	if s.chainContextValidator == nil {
+		return fmt.Errorf(
+			"%w: %w",
+			ErrPipelineItemRejected,
+			ErrMissingChainContextValidator,
+		)
+	}
+	if err := s.callChainContextValidator(ctx, item); err != nil {
+		wrappedErr := fmt.Errorf("%w: %w", ErrChainContextValidation, err)
+		item.SetApplied(false, wrappedErr, 0)
+		return fmt.Errorf("%w: %w", ErrPipelineItemRejected, wrappedErr)
+	}
+	return s.applyItem(ctx, item)
+}
+
+// applyItem applies a single item without holding the lock.
+func (s *ApplyStage) applyItem(ctx context.Context, item *BlockItem) error {
+	select {
+	case <-ctx.Done():
+		item.SetApplied(false, ctx.Err(), 0)
+		return ctx.Err()
+	default:
+	}
 
 	start := time.Now()
 	err := s.callApplyFunc(item)
 	duration := time.Since(start)
 
 	if err != nil {
-		item.SetApplied(false, err, duration)
+		wrappedErr := fmt.Errorf("%w: %w", ErrBlockApply, err)
+		item.SetApplied(false, wrappedErr, duration)
+		return fmt.Errorf("%w: %w", ErrPipelineItemRejected, wrappedErr)
 	} else {
 		item.SetApplied(true, nil, duration)
 	}
+	return nil
+}
+
+func (s *ApplyStage) callChainContextValidator(
+	ctx context.Context,
+	item *BlockItem,
+) (err error) {
+	defer func() {
+		if recovered := panics.New(
+			ErrStagePanic,
+			"chain-context validator",
+			recover(),
+		); recovered != nil {
+			err = recovered
+		}
+	}()
+	return s.chainContextValidator(ctx, item)
 }
 
 // callApplyFunc invokes the consumer's ApplyFunc for an item, containing any
@@ -201,12 +296,14 @@ func (s *ApplyStage) callApplyFunc(item *BlockItem) (err error) {
 // applyPending applies any pending items that are now in order.
 // This method acquires and releases the lock as needed to avoid holding it during applyFunc.
 // Returns a slice of all items that were processed from the pending buffer.
-func (s *ApplyStage) applyPending(ctx context.Context) []*BlockItem {
+func (s *ApplyStage) applyPending(
+	ctx context.Context,
+) ([]*BlockItem, *BlockItem, error) {
 	var processed []*BlockItem
 	for {
 		select {
 		case <-ctx.Done():
-			return processed
+			return processed, nil, ctx.Err()
 		default:
 		}
 
@@ -214,14 +311,16 @@ func (s *ApplyStage) applyPending(ctx context.Context) []*BlockItem {
 		item, ok := s.pending[s.nextSequence]
 		if !ok {
 			s.mu.Unlock()
-			return processed
+			return processed, nil, nil
 		}
 		delete(s.pending, s.nextSequence)
 		s.nextSequence++
 		s.mu.Unlock()
 
 		// Apply if valid, otherwise just advance (sequence already incremented)
-		s.maybeApply(ctx, item)
+		if err := s.maybeApply(ctx, item); err != nil {
+			return processed, item, err
+		}
 
 		processed = append(processed, item)
 	}
@@ -244,16 +343,17 @@ func (s *ApplyStage) PendingCount() int {
 
 // ApplyStageRunner runs the apply stage as a single goroutine.
 type ApplyStageRunner struct {
-	stage         *ApplyStage
-	input         <-chan *BlockItem
-	output        chan<- *BlockItem
-	errors        chan<- error
-	metrics       *PipelineMetrics
-	processedFunc func(uint64)
-	fatalFunc     func()
-	done          chan struct{}
-	running       bool
-	mu            sync.Mutex
+	stage          *ApplyStage
+	input          <-chan *BlockItem
+	output         chan<- *BlockItem
+	errors         chan<- error
+	metrics        *PipelineMetrics
+	processedFunc  func(uint64)
+	fatalFunc      func()
+	fatalErrorFunc func(error)
+	done           chan struct{}
+	running        bool
+	mu             sync.Mutex
 }
 
 // NewApplyStageRunner creates a new runner for the apply stage.
@@ -301,6 +401,10 @@ func (r *ApplyStageRunner) setFatalFunc(fatalFunc func()) {
 	r.fatalFunc = fatalFunc
 }
 
+func (r *ApplyStageRunner) setFatalErrorFunc(fatalErrorFunc func(error)) {
+	r.fatalErrorFunc = fatalErrorFunc
+}
+
 // Start starts the apply stage runner.
 func (r *ApplyStageRunner) Start(ctx context.Context) {
 	r.mu.Lock()
@@ -317,7 +421,8 @@ func (r *ApplyStageRunner) Start(ctx context.Context) {
 
 // Stop waits for the runner to complete. The runner will exit when the context
 // passed to Start is cancelled or the input channel is closed. This method blocks
-// until completion; it does not signal the runner to stop.
+// until completion; it does not signal the runner to stop. If the output is not
+// consumed concurrently, callers must drain it until Stop returns.
 func (r *ApplyStageRunner) Stop() {
 	r.mu.Lock()
 	if !r.running {
@@ -348,84 +453,122 @@ func (r *ApplyStageRunner) run(ctx context.Context) {
 				return
 			}
 
-			processed, err := r.process(ctx, item)
-			if err != nil {
-				fatal := errors.Is(err, ErrStagePanic) ||
-					errors.Is(err, ErrPendingLimitExceeded)
+			processed, rejected, processErr := r.process(ctx, item)
+			processedErr := r.accountProcessed(processed)
+			if processedErr != nil {
+				fatalErr := errors.Join(processErr, processedErr)
+				r.recordItemMetrics(rejected)
+				r.fail(fatalErr)
+				r.forwardCommitted(processed)
+				select {
+				case r.errors <- fatalErr:
+				default:
+				}
+				return
+			}
+			if processErr != nil {
+				fatal := errors.Is(processErr, ErrStagePanic) ||
+					errors.Is(processErr, ErrPendingLimitExceeded) ||
+					errors.Is(processErr, ErrPipelineItemRejected)
 				if fatal {
-					if r.fatalFunc != nil {
-						r.fatalFunc()
-					}
+					fatalErr := processErr
+					r.recordItemMetrics(rejected)
+					r.fail(fatalErr)
+					r.forwardCommitted(processed)
 					select {
-					case r.errors <- err:
+					case r.errors <- fatalErr:
 					default:
 					}
-					// ProcessWithStatus owns ordering state. A panic can occur after
-					// it advanced nextSequence or removed pending items, so treating
-					// the input as an ordered singleton could move a Fence across an
-					// unresolved gap. A pending-limit error means admission bypassed
-					// Submit's capacity guard, and the rejected sequence was not retained.
-					// Fatal cancellation precedes best-effort error delivery so a full
-					// error channel cannot prevent shutdown.
 					return
 				}
+				r.forwardProcessed(ctx, processed)
 				select {
-				case r.errors <- err:
+				case r.errors <- processErr:
 				case <-ctx.Done():
 					return
 				}
 				continue
 			}
-			var processedErr error
-			if len(processed) > 0 && r.processedFunc != nil {
-				processedErr = r.callProcessedFunc(
-					processed[len(processed)-1].SequenceNumber() + 1,
-				)
-				if processedErr != nil {
-					select {
-					case r.errors <- processedErr:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}
-
-			// Forward all processed items (includes input item + any buffered items
-			// that became ready). This eliminates the data loss vulnerability from
-			// the previous callback-based approach where items could be dropped if
-			// the pending queue overflowed.
-			for _, p := range processed {
-				r.forwardItem(ctx, p)
-			}
-			if processedErr != nil {
-				if r.fatalFunc != nil {
-					r.fatalFunc()
-				}
-				return
-			}
+			r.forwardProcessed(ctx, processed)
 		}
 	}
 }
 
-// process runs the apply stage for one item, containing any panic so that it
-// fails that item rather than this runner: the runner is the pipeline's only
-// apply goroutine, so losing it stops application permanently and leaves
-// WaitForDrain waiting forever. The consumer's ApplyFunc is guarded closer in,
-// by callApplyFunc, so a panic reaching here comes from the stage's own
-// ordering bookkeeping.
+// accountProcessed records every successfully committed item and advances the
+// completion boundary without waiting for a Results consumer.
+func (r *ApplyStageRunner) accountProcessed(
+	processed []*BlockItem,
+) error {
+	if len(processed) == 0 {
+		return nil
+	}
+	var err error
+	if r.processedFunc != nil {
+		err = r.callProcessedFunc(
+			processed[len(processed)-1].SequenceNumber() + 1,
+		)
+	}
+	for _, item := range processed {
+		r.recordItemMetrics(item)
+	}
+	return err
+}
+
+func (r *ApplyStageRunner) forwardProcessed(
+	ctx context.Context,
+	processed []*BlockItem,
+) {
+	for _, item := range processed {
+		if !r.forwardItem(ctx, item) {
+			return
+		}
+	}
+}
+
+// forwardCommitted preserves the ordered successful prefix after a fatal
+// cancellation. The runner retains ownership until the Results consumer has
+// accepted every item, so callers must continue draining Results during Stop.
+func (r *ApplyStageRunner) forwardCommitted(processed []*BlockItem) {
+	for _, item := range processed {
+		r.output <- item
+	}
+}
+
+func (r *ApplyStageRunner) fail(err error) {
+	if r.fatalErrorFunc != nil {
+		r.fatalErrorFunc(err)
+	}
+	if r.fatalFunc != nil {
+		r.fatalFunc()
+	}
+}
+
+func (r *ApplyStageRunner) recordItemMetrics(item *BlockItem) {
+	if r.metrics != nil && item != nil && item.DecodeError() == nil &&
+		item.ValidationError() == nil &&
+		(item.IsApplied() || item.ApplyError() != nil) {
+		r.metrics.RecordApply(item.ApplyDuration(), item.ApplyError())
+		r.metrics.RecordPipelineLatency(item.TotalDuration())
+	}
+}
+
+// process contains apply-stage panics so the runner can cancel the pipeline
+// and report the failure. The consumer's ApplyFunc is guarded closer in by
+// callApplyFunc, so a panic reaching here comes from ordering bookkeeping.
 func (r *ApplyStageRunner) process(
 	ctx context.Context,
 	item *BlockItem,
-) (processed []*BlockItem, err error) {
+) (processed []*BlockItem, rejected *BlockItem, err error) {
 	defer func() {
 		if recovered := panics.New(ErrStagePanic, "apply stage", recover()); recovered != nil {
 			err = recovered
+			rejected = item
 			if item != nil {
 				item.SetApplied(false, recovered, 0)
 			}
 		}
 	}()
-	return r.stage.ProcessWithStatus(ctx, item)
+	return r.stage.processWithStatus(ctx, item)
 }
 
 func (r *ApplyStageRunner) callProcessedFunc(sequence uint64) (err error) {
@@ -442,28 +585,37 @@ func (r *ApplyStageRunner) callProcessedFunc(sequence uint64) (err error) {
 	return nil
 }
 
-// forwardItem sends an item to output and reports any apply errors.
-func (r *ApplyStageRunner) forwardItem(ctx context.Context, item *BlockItem) {
-	// Record metrics for items that went through the apply stage (both success and failure).
-	// Items with decode/validation errors are not applied and don't have apply metrics.
-	if r.metrics != nil && item.DecodeError() == nil &&
-		item.ValidationError() == nil {
-		r.metrics.RecordApply(item.ApplyDuration(), item.ApplyError())
-		r.metrics.RecordPipelineLatency(item.TotalDuration())
-	}
-
+// forwardItem sends an item to output and reports any apply errors. A ready
+// output wins over cancellation so an already committed prefix fills available
+// result capacity in order without delaying fatal shutdown on a full channel.
+func (r *ApplyStageRunner) forwardItem(
+	ctx context.Context,
+	item *BlockItem,
+) bool {
 	select {
 	case r.output <- item:
-	case <-ctx.Done():
-		return
+		return r.reportItemError(ctx, item)
+	default:
 	}
+	select {
+	case r.output <- item:
+		return r.reportItemError(ctx, item)
+	case <-ctx.Done():
+		return false
+	}
+}
 
+func (r *ApplyStageRunner) reportItemError(
+	ctx context.Context,
+	item *BlockItem,
+) bool {
 	// Report apply errors separately
 	if applyErr := item.ApplyError(); applyErr != nil {
 		select {
 		case r.errors <- applyErr:
 		case <-ctx.Done():
-			return
+			return false
 		}
 	}
+	return true
 }
