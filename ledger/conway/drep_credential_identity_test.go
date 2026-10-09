@@ -190,8 +190,8 @@ func TestCertificateDepositsDistinguishesDRepCredentialType(t *testing.T) {
 	deposit := uint64(500_000_000)
 	ls := scriptOnlyDRepState(&deposit)
 	pp := &conway.ConwayProtocolParameters{DRepDeposit: deposit}
-	require.NoError(t, conway.UtxoValidateCertificateDeposits(drepDeregistrationTx(drepIdentityCredential(common.CredentialTypeScriptHash), int64(deposit)), 0, ls, pp))
+	require.NoError(t, conway.UtxoValidateCertificateDeposits(drepDeregistrationTx(drepIdentityCredential(common.CredentialTypeScriptHash), deposit), 0, ls, pp))
 	var target conway.DRepNotRegisteredError
-	require.ErrorAs(t, conway.UtxoValidateCertificateDeposits(drepDeregistrationTx(drepIdentityCredential(common.CredentialTypeAddrKeyHash), int64(deposit)), 0, ls, pp), &target)
+	require.ErrorAs(t, conway.UtxoValidateCertificateDeposits(drepDeregistrationTx(drepIdentityCredential(common.CredentialTypeAddrKeyHash), deposit), 0, ls, pp), &target)
 	require.Equal(t, drepIdentityCredential(common.CredentialTypeAddrKeyHash), target.Credential)
 }

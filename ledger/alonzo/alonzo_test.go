@@ -428,6 +428,46 @@ func TestAlonzoRedeemersIter(t *testing.T) {
 	}
 }
 
+func TestAlonzoRedeemerUnmarshalCBORRejectsExtraFields(t *testing.T) {
+	encoded, err := cbor.Encode([]any{
+		common.RedeemerTagSpend,
+		uint32(0),
+		cbor.RawMessage{0x00},
+		[2]uint64{0, 0},
+		uint8(1),
+	})
+	require.NoError(t, err)
+	var decoded AlonzoRedeemer
+	require.Error(t, decoded.UnmarshalCBOR(encoded))
+}
+
+func TestAlonzoTransactionOutputDecodesIndefiniteThreeFieldArray(t *testing.T) {
+	address, err := common.NewAddress(
+		"addr_test1vqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygxrcya6",
+	)
+	require.NoError(t, err)
+	addressCbor, err := cbor.Encode(address)
+	require.NoError(t, err)
+	amountCbor, err := cbor.Encode(uint64(42))
+	require.NoError(t, err)
+	var datumHash common.Blake2b256
+	datumHash[0] = 0x42
+	hashCbor, err := cbor.Encode(datumHash)
+	require.NoError(t, err)
+
+	wire := []byte{0x9f}
+	wire = append(wire, addressCbor...)
+	wire = append(wire, amountCbor...)
+	wire = append(wire, hashCbor...)
+	wire = append(wire, 0xff)
+	var output AlonzoTransactionOutput
+	_, err = cbor.DecodeExact(wire, &output)
+	require.NoError(t, err)
+	require.NotNil(t, output.OutputDatumHash)
+	assert.Equal(t, datumHash, *output.OutputDatumHash)
+	assert.False(t, output.legacyOutput)
+}
+
 func TestAlonzoTransactionOutputString(t *testing.T) {
 	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
 	addr, _ := common.NewAddress(addrStr)

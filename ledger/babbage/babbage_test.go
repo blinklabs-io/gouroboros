@@ -40,20 +40,61 @@ func encodeBabbageHeaderWithPrevHash(
 		uint64(0),
 		prevHash,
 		common.IssuerVkey{},
-		[]byte{0},
-		common.VrfResult{},
+		make([]byte, 32),
+		common.VrfResult{Output: make([]byte, 64), Proof: make([]byte, 80)},
 		uint64(0),
 		common.Blake2b256{},
-		BabbageOpCert{},
+		BabbageOpCert{
+			HotVkey:   make([]byte, 32),
+			Signature: make([]byte, 64),
+		},
 		BabbageProtoVersion{},
 	})
 	require.NoError(t, err)
 	headerCbor, err := cbor.Encode([]any{
 		cbor.RawMessage(bodyCbor),
-		[]byte{0},
+		make([]byte, 448),
 	})
 	require.NoError(t, err)
 	return headerCbor, bodyCbor
+}
+
+func TestBabbageBlockHeaderBodyRejectsInvalidVrfKeyWidth(t *testing.T) {
+	_, bodyCbor := encodeBabbageHeaderWithPrevHash(t, cbor.RawMessage{0xf6})
+	fields := make([]cbor.RawMessage, 10)
+	_, err := cbor.Decode(bodyCbor, &fields)
+	require.NoError(t, err)
+	fields[4], err = cbor.Encode([]byte{0})
+	require.NoError(t, err)
+	invalidBody, err := cbor.Encode(fields)
+	require.NoError(t, err)
+	var body BabbageBlockHeaderBody
+	_, err = cbor.Decode(invalidBody, &body)
+	require.Error(t, err)
+}
+
+func TestBabbageBlockHeaderBodyRejectsInvalidVrfOutputWidth(t *testing.T) {
+	_, bodyCbor := encodeBabbageHeaderWithPrevHash(t, cbor.RawMessage{0xf6})
+	fields := make([]cbor.RawMessage, 10)
+	_, err := cbor.Decode(bodyCbor, &fields)
+	require.NoError(t, err)
+	fields[5], err = cbor.Encode(common.VrfResult{
+		Output: make([]byte, 63),
+		Proof:  make([]byte, 80),
+	})
+	require.NoError(t, err)
+	invalidBody, err := cbor.Encode(fields)
+	require.NoError(t, err)
+	var body BabbageBlockHeaderBody
+	_, err = cbor.Decode(invalidBody, &body)
+	require.Error(t, err)
+}
+
+func TestBabbageDatumOptionRejectsIndefiniteWrappedData(t *testing.T) {
+	wire := []byte{0x82, 0x01, 0xd8, 0x18, 0x5f, 0x41, 0x01, 0xff}
+	var option BabbageTransactionOutputDatumOption
+	_, err := cbor.Decode(wire, &option)
+	require.Error(t, err)
 }
 
 func TestBabbageBlockHeaderPreviousHashDecoding(t *testing.T) {

@@ -1974,7 +1974,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 					Type: uint(common.CertificateTypeRegistration),
 					Certificate: &common.RegistrationCertificate{
 						StakeCredential: common.Credential{},
-						Amount:          int64(testDepositAmount),
+						Amount:          uint64(testDepositAmount),
 					},
 				},
 			}
@@ -2027,7 +2027,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 					Type: uint(common.CertificateTypeDeregistration),
 					Certificate: &common.DeregistrationCertificate{
 						StakeCredential: common.Credential{},
-						Amount:          int64(testDepositAmount),
+						Amount:          uint64(testDepositAmount),
 					},
 				},
 			}

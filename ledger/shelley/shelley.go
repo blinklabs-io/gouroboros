@@ -15,6 +15,7 @@
 package shelley
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -559,6 +560,139 @@ type ShelleyTransactionInput struct {
 	cbor.StructAsArray
 	TxId        common.Blake2b256
 	OutputIndex uint32
+}
+
+func (i *ShelleyTransactionInput) UnmarshalCBOR(data []byte) error {
+	arrayLength, arrayHeaderLength, indefinite := cbor.ArrayInfo(data)
+	if arrayLength < 0 {
+		return errors.New("transaction input must be a CBOR array")
+	}
+	var hashCBOR, indexCBOR []byte
+	if indefinite {
+		var items []cbor.RawMessage
+		bytesRead, err := cbor.Decode(data, &items)
+		if err != nil {
+			return fmt.Errorf("decode transaction input array: %w", err)
+		}
+		if bytesRead != len(data) {
+			return fmt.Errorf("%d trailing bytes after transaction input", len(data)-bytesRead)
+		}
+		if len(items) != 2 {
+			return fmt.Errorf("transaction input must contain two array elements, got %d", len(items))
+		}
+		hashCBOR, indexCBOR = items[0], items[1]
+	} else {
+		if arrayLength != 2 {
+			return fmt.Errorf("transaction input must contain two array elements, got %d", arrayLength)
+		}
+		offset := int(arrayHeaderLength)
+		hashLength, hashHeaderLength, err := decodeCBORStringLength(
+			data[offset:],
+			cbor.CborTypeByteString,
+		)
+		if err != nil {
+			return fmt.Errorf("decode transaction input hash: %w", err)
+		}
+		if hashLength > len(data)-offset-hashHeaderLength {
+			return errors.New("transaction input hash exceeds CBOR data")
+		}
+		hashEnd := offset + hashHeaderLength + hashLength
+		hashCBOR, indexCBOR = data[offset:hashEnd], data[hashEnd:]
+	}
+	return i.unmarshalCBORFields(hashCBOR, indexCBOR)
+}
+
+func (i *ShelleyTransactionInput) unmarshalCBORFields(
+	hashCBOR []byte,
+	indexCBOR []byte,
+) error {
+	hashLength, hashHeaderLength, err := decodeCBORStringLength(
+		hashCBOR,
+		cbor.CborTypeByteString,
+	)
+	if err != nil {
+		return fmt.Errorf("decode transaction input hash: %w", err)
+	}
+	if hashLength != common.Blake2b256Size {
+		return fmt.Errorf(
+			"transaction input hash must be %d bytes, got %d",
+			common.Blake2b256Size,
+			hashLength,
+		)
+	}
+	if hashHeaderLength > len(hashCBOR) || hashLength > len(hashCBOR)-hashHeaderLength {
+		return errors.New("transaction input hash exceeds CBOR data")
+	}
+	if hashHeaderLength+hashLength != len(hashCBOR) {
+		return errors.New("trailing CBOR data after transaction input hash")
+	}
+	var txId common.Blake2b256
+	copy(txId[:], hashCBOR[hashHeaderLength:])
+	outputIndex, indexLength, err := decodeCBORUnsigned(indexCBOR)
+	if err != nil {
+		return fmt.Errorf("decode transaction input index: %w", err)
+	}
+	if indexLength != len(indexCBOR) {
+		return errors.New("trailing CBOR data after transaction input index")
+	}
+	if outputIndex > math.MaxUint16 {
+		return fmt.Errorf(
+			"transaction input index %d exceeds the maximum of %d",
+			outputIndex,
+			math.MaxUint16,
+		)
+	}
+	*i = ShelleyTransactionInput{
+		TxId:        txId,
+		OutputIndex: uint32(outputIndex),
+	}
+	return nil
+}
+
+func decodeCBORStringLength(data []byte, majorType uint8) (int, int, error) {
+	if len(data) == 0 || data[0]&cbor.CborTypeMask != majorType {
+		return 0, 0, errors.New("unexpected CBOR type")
+	}
+	value, headerLength, err := decodeCBORArgument(data)
+	if err != nil {
+		return 0, 0, err
+	}
+	if headerLength == 0 {
+		return 0, 0, errors.New("indefinite-length CBOR string")
+	}
+	if value > uint64(math.MaxInt) {
+		return 0, 0, errors.New("CBOR string length exceeds int range")
+	}
+	return int(value), headerLength, nil
+}
+
+func decodeCBORUnsigned(data []byte) (uint64, int, error) {
+	if len(data) == 0 || data[0]&cbor.CborTypeMask != 0 {
+		return 0, 0, errors.New("expected CBOR unsigned integer")
+	}
+	return decodeCBORArgument(data)
+}
+
+func decodeCBORArgument(data []byte) (uint64, int, error) {
+	if len(data) == 0 {
+		return 0, 0, errors.New("empty CBOR data")
+	}
+	switch additional := data[0] & 0x1f; {
+	case additional < 24:
+		return uint64(additional), 1, nil
+	case additional == 24 && len(data) >= 2:
+		return uint64(data[1]), 2, nil
+	case additional == 25 && len(data) >= 3:
+		return uint64(binary.BigEndian.Uint16(data[1:3])), 3, nil
+	case additional == 26 && len(data) >= 5:
+		return uint64(binary.BigEndian.Uint32(data[1:5])), 5, nil
+	case additional == 27 && len(data) >= 9:
+		return binary.BigEndian.Uint64(data[1:9]), 9, nil
+	case additional == 31:
+		return 0, 0, errors.New("indefinite-length CBOR value")
+	default:
+		return 0, 0, errors.New("invalid CBOR argument")
+	}
 }
 
 // NewShelleyTransactionInput builds a transaction input from a hex-encoded

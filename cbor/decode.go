@@ -91,9 +91,31 @@ func Decode(dataBytes []byte, dest any) (int, error) {
 	return decode(dataBytes, dest, getDecMode, rejectDuplicateMapKeys)
 }
 
-// DecodeExact decodes one CBOR item and rejects any trailing bytes.
+// DecodeExact decodes one untrusted CBOR item, applies the strict network
+// collection limits, and rejects any trailing bytes.
 func DecodeExact(dataBytes []byte, dest any) (int, error) {
-	bytesRead, err := Decode(dataBytes, dest)
+	decMode, err := getStrictDecMode()
+	if err != nil {
+		return 0, err
+	}
+	if decMode == nil {
+		return 0, errors.New("CBOR decoder mode not initialized")
+	}
+	// Validate the complete item before decoding into a custom UnmarshalCBOR
+	// implementation. Those implementations may recursively call Decode, which
+	// would otherwise reset the decoder's nesting counter at every boundary.
+	if err := decMode.Wellformed(dataBytes); err != nil {
+		var trailingDataErr *_cbor.ExtraneousDataError
+		if !errors.As(err, &trailingDataErr) {
+			return 0, err
+		}
+	}
+	bytesRead, err := decodeWithMode(
+		dataBytes,
+		dest,
+		decMode,
+		rejectDuplicateMapKeys,
+	)
 	if err != nil {
 		return bytesRead, err
 	}

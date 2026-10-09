@@ -292,6 +292,21 @@ type ConwayBlockHeader struct {
 	babbage.BabbageBlockHeader
 }
 
+func (h *ConwayBlockHeader) UnmarshalCBOR(data []byte) error {
+	var decoded babbage.BabbageBlockHeader
+	if _, err := cbor.Decode(data, &decoded); err != nil {
+		return err
+	}
+	if decoded.Body.ProtoVersion.Major > 12 {
+		return fmt.Errorf(
+			"conway block header protocol major %d exceeds the maximum of 12",
+			decoded.Body.ProtoVersion.Major,
+		)
+	}
+	h.BabbageBlockHeader = decoded
+	return nil
+}
+
 func (h *ConwayBlockHeader) Era() common.Era {
 	return EraConway
 }
@@ -301,6 +316,22 @@ type ConwayRedeemers struct {
 	Redeemers       map[common.RedeemerKey]common.RedeemerValue
 	legacyRedeemers alonzo.AlonzoRedeemers
 	legacy          bool
+}
+
+func (r ConwayRedeemers) validateTagLimit(maxTag common.RedeemerTag) error {
+	if r.legacy {
+		return common.ValidateRedeemerTagLimit(r.legacyRedeemers, maxTag)
+	}
+	for key := range r.Redeemers {
+		if key.Tag > maxTag {
+			return fmt.Errorf(
+				"unsupported redeemer tag %d (maximum %d)",
+				key.Tag,
+				maxTag,
+			)
+		}
+	}
+	return nil
 }
 
 func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
@@ -327,6 +358,9 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 				return err
 			}
 		}
+		if len(r.Redeemers) == 0 {
+			return errors.New("conway redeemers map must not be empty")
+		}
 		return nil
 	}
 	// Legacy array form — clear any stale map state
@@ -334,6 +368,9 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	_, err := cbor.Decode(cborData, &r.legacyRedeemers)
 	if err != nil {
 		return err
+	}
+	if len(r.legacyRedeemers.Redeemers) == 0 {
+		return errors.New("conway redeemer list must not be empty")
 	}
 	r.legacy = true
 	return nil
@@ -491,10 +528,7 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts.Items(), 5); err != nil {
 		return err
 	}
-	if err := common.ValidateRedeemerTagLimit(
-		tmp.WsRedeemers,
-		common.RedeemerTagProposing,
-	); err != nil {
+	if err := tmp.WsRedeemers.validateTagLimit(common.RedeemerTagProposing); err != nil {
 		return fmt.Errorf("invalid Conway redeemers: %w", err)
 	}
 	// Conway (protocol versions 9-11) tolerates duplicate members in the
@@ -603,17 +637,12 @@ func (s *ConwayTransactionInputSet) CheckForDuplicatesAlways() error {
 }
 
 func (s *ConwayTransactionInputSet) checkForDuplicates() error {
-	seen := make(map[string]struct{}, len(s.items))
+	seen := make(map[shelley.ShelleyTransactionInput]struct{}, len(s.items))
 	for _, item := range s.items {
-		encoded, err := cbor.Encode(item)
-		if err != nil {
-			return err
-		}
-		key := string(encoded)
-		if _, exists := seen[key]; exists {
+		if _, exists := seen[item]; exists {
 			return errors.New("duplicate member in set")
 		}
-		seen[key] = struct{}{}
+		seen[item] = struct{}{}
 	}
 	return nil
 }

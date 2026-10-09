@@ -782,6 +782,41 @@ func (p *PoolRelay) validateDecodedAddressWidths() error {
 	return nil
 }
 
+func decodeOptionalRelayAddress(raw cbor.RawMessage, name string) (*net.IP, error) {
+	if len(raw) == 1 && raw[0] == 0xf6 {
+		return nil, nil
+	}
+	_, _, indefinite, err := byteStringHeader(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decode pool relay %s: %w", name, err)
+	}
+	if indefinite {
+		return nil, fmt.Errorf(
+			"decode pool relay %s: expected a definite-length byte string",
+			name,
+		)
+	}
+	var address net.IP
+	if _, err := cbor.Decode(raw, &address); err != nil {
+		return nil, fmt.Errorf("decode pool relay %s: %w", name, err)
+	}
+	return &address, nil
+}
+
+func decodePoolRelayHostname(raw cbor.RawMessage) (string, error) {
+	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeTextString {
+		return "", errors.New("pool relay hostname must be a CBOR text string")
+	}
+	if raw[0]&0x1f == 0x1f {
+		return "", errors.New("pool relay hostname must be a definite-length text string")
+	}
+	var hostname string
+	if _, err := cbor.Decode(raw, &hostname); err != nil {
+		return "", err
+	}
+	return hostname, nil
+}
+
 func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 	tmpId, err := cbor.DecodeIdFromList(data)
 	if err != nil {
@@ -794,15 +829,21 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 			cbor.StructAsArray
 			Type uint
 			Port *uint32
-			Ipv4 *net.IP
-			Ipv6 *net.IP
+			Ipv4 cbor.RawMessage
+			Ipv6 cbor.RawMessage
 		}
 		if _, err := cbor.Decode(data, &tmpData); err != nil {
 			return err
 		}
 		p.Port = tmpData.Port
-		p.Ipv4 = tmpData.Ipv4
-		p.Ipv6 = tmpData.Ipv6
+		p.Ipv4, err = decodeOptionalRelayAddress(tmpData.Ipv4, "IPv4 address")
+		if err != nil {
+			return err
+		}
+		p.Ipv6, err = decodeOptionalRelayAddress(tmpData.Ipv6, "IPv6 address")
+		if err != nil {
+			return err
+		}
 		if err := p.validateDecodedAddressWidths(); err != nil {
 			return err
 		}
@@ -811,29 +852,39 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 			cbor.StructAsArray
 			Type     uint
 			Port     *uint32
-			Hostname *string
+			Hostname cbor.RawMessage
 		}
 		if _, err := cbor.Decode(data, &tmpData); err != nil {
 			return err
 		}
-		if tmpData.Hostname == nil {
+		if len(tmpData.Hostname) == 0 || tmpData.Hostname[0] == 0xf6 ||
+			tmpData.Hostname[0] == 0xf7 {
 			return ErrPoolRelayMissingHostname
 		}
+		hostname, err := decodePoolRelayHostname(tmpData.Hostname)
+		if err != nil {
+			return err
+		}
 		p.Port = tmpData.Port
-		p.Hostname = tmpData.Hostname
+		p.Hostname = &hostname
 	case PoolRelayTypeMultiHostName:
 		var tmpData struct {
 			cbor.StructAsArray
 			Type     uint
-			Hostname *string
+			Hostname cbor.RawMessage
 		}
 		if _, err := cbor.Decode(data, &tmpData); err != nil {
 			return err
 		}
-		if tmpData.Hostname == nil {
+		if len(tmpData.Hostname) == 0 || tmpData.Hostname[0] == 0xf6 ||
+			tmpData.Hostname[0] == 0xf7 {
 			return ErrPoolRelayMissingHostname
 		}
-		p.Hostname = tmpData.Hostname
+		hostname, err := decodePoolRelayHostname(tmpData.Hostname)
+		if err != nil {
+			return err
+		}
+		p.Hostname = &hostname
 	default:
 		return fmt.Errorf("invalid relay type: %d", tmpId)
 	}
@@ -1933,7 +1984,7 @@ type RegistrationCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType        uint
 	StakeCredential Credential
-	Amount          int64
+	Amount          uint64
 }
 
 func (c RegistrationCertificate) isCertificate() {}
@@ -1972,7 +2023,7 @@ func (c *RegistrationCertificate) Type() uint {
 
 // DepositAmount returns the deposit amount as a *big.Int
 func (c *RegistrationCertificate) DepositAmount() *big.Int {
-	return new(big.Int).SetInt64(c.Amount)
+	return new(big.Int).SetUint64(c.Amount)
 }
 
 type DeregistrationCertificate struct {
@@ -1980,7 +2031,7 @@ type DeregistrationCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType        uint
 	StakeCredential Credential
-	Amount          int64
+	Amount          uint64
 }
 
 func (c DeregistrationCertificate) isCertificate() {}
@@ -2019,7 +2070,7 @@ func (c *DeregistrationCertificate) Type() uint {
 
 // DepositAmount returns the deposit amount as a *big.Int
 func (c *DeregistrationCertificate) DepositAmount() *big.Int {
-	return new(big.Int).SetInt64(c.Amount)
+	return new(big.Int).SetUint64(c.Amount)
 }
 
 type VoteDelegationCertificate struct {
@@ -2123,7 +2174,7 @@ type StakeRegistrationDelegationCertificate struct {
 	CertType        uint
 	StakeCredential Credential
 	PoolKeyHash     PoolKeyHash
-	Amount          int64
+	Amount          uint64
 }
 
 func (c StakeRegistrationDelegationCertificate) isCertificate() {}
@@ -2163,7 +2214,7 @@ func (c *StakeRegistrationDelegationCertificate) Type() uint {
 
 // DepositAmount returns the deposit amount as a *big.Int
 func (c *StakeRegistrationDelegationCertificate) DepositAmount() *big.Int {
-	return new(big.Int).SetInt64(c.Amount)
+	return new(big.Int).SetUint64(c.Amount)
 }
 
 type VoteRegistrationDelegationCertificate struct {
@@ -2172,7 +2223,7 @@ type VoteRegistrationDelegationCertificate struct {
 	CertType        uint
 	StakeCredential Credential
 	Drep            Drep
-	Amount          int64
+	Amount          uint64
 }
 
 func (c VoteRegistrationDelegationCertificate) isCertificate() {}
@@ -2217,7 +2268,7 @@ func (c *VoteRegistrationDelegationCertificate) Type() uint {
 
 // DepositAmount returns the deposit amount as a *big.Int
 func (c *VoteRegistrationDelegationCertificate) DepositAmount() *big.Int {
-	return new(big.Int).SetInt64(c.Amount)
+	return new(big.Int).SetUint64(c.Amount)
 }
 
 type StakeVoteRegistrationDelegationCertificate struct {
@@ -2227,7 +2278,7 @@ type StakeVoteRegistrationDelegationCertificate struct {
 	StakeCredential Credential
 	PoolKeyHash     PoolKeyHash
 	Drep            Drep
-	Amount          int64
+	Amount          uint64
 }
 
 func (c StakeVoteRegistrationDelegationCertificate) isCertificate() {}
@@ -2274,7 +2325,7 @@ func (c *StakeVoteRegistrationDelegationCertificate) Type() uint {
 
 // DepositAmount returns the deposit amount as a *big.Int
 func (c *StakeVoteRegistrationDelegationCertificate) DepositAmount() *big.Int {
-	return new(big.Int).SetInt64(c.Amount)
+	return new(big.Int).SetUint64(c.Amount)
 }
 
 type AuthCommitteeHotCertificate struct {
@@ -2377,7 +2428,7 @@ type RegistrationDrepCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType       uint
 	DrepCredential Credential
-	Amount         int64
+	Amount         uint64
 	Anchor         *GovAnchor
 }
 
@@ -2426,7 +2477,7 @@ func (c *RegistrationDrepCertificate) Type() uint {
 
 // DepositAmount returns the deposit amount as a *big.Int
 func (c *RegistrationDrepCertificate) DepositAmount() *big.Int {
-	return new(big.Int).SetInt64(c.Amount)
+	return new(big.Int).SetUint64(c.Amount)
 }
 
 type DeregistrationDrepCertificate struct {
@@ -2434,7 +2485,7 @@ type DeregistrationDrepCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType       uint
 	DrepCredential Credential
-	Amount         int64
+	Amount         uint64
 }
 
 func (c DeregistrationDrepCertificate) isCertificate() {}
@@ -2473,7 +2524,7 @@ func (c *DeregistrationDrepCertificate) Type() uint {
 
 // DepositAmount returns the deposit amount as a *big.Int
 func (c *DeregistrationDrepCertificate) DepositAmount() *big.Int {
-	return new(big.Int).SetInt64(c.Amount)
+	return new(big.Int).SetUint64(c.Amount)
 }
 
 type UpdateDrepCertificate struct {

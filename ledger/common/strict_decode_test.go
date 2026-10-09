@@ -92,6 +92,89 @@ func TestFixedLengthByteStringDecode(t *testing.T) {
 	}
 }
 
+func TestValidateCBORArrayLength(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		data    []byte
+		wantErr bool
+	}{
+		{name: "definite", data: []byte{0x82, 0x01, 0x02}},
+		{name: "indefinite", data: []byte{0x9f, 0x01, 0x02, 0xff}},
+		{name: "short", data: []byte{0x81, 0x01}, wantErr: true},
+		{name: "long", data: []byte{0x83, 0x01, 0x02, 0x03}, wantErr: true},
+		{name: "non-array", data: []byte{0xa0}, wantErr: true},
+		{name: "trailing", data: []byte{0x82, 0x01, 0x02, 0x00}, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateCBORArrayLength(test.data, 2, "test value")
+			if test.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestExUnitsUnmarshalCBORArrayLength(t *testing.T) {
+	valid := []byte{0x82, 0x01, 0x02}
+	var units ExUnits
+	require.NoError(t, units.UnmarshalCBOR(valid))
+	assert.Equal(t, int64(1), units.Memory)
+	assert.Equal(t, int64(2), units.Steps)
+
+	var indefinite ExUnits
+	require.Error(t, indefinite.UnmarshalCBOR([]byte{0x9f, 0x01, 0x02, 0xff}))
+
+	var extra ExUnits
+	require.Error(t, extra.UnmarshalCBOR([]byte{0x83, 0x01, 0x02, 0x03}))
+}
+
+func TestGovActionIdUnmarshalCBORRejectsExtraFields(t *testing.T) {
+	encoded, err := cbor.Encode([]any{make([]byte, Blake2b256Size), uint16(1), uint8(0)})
+	require.NoError(t, err)
+	var id GovActionId
+	require.Error(t, id.UnmarshalCBOR(encoded))
+}
+
+func TestGovActionIdUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
+	encoded, err := cbor.Encode([]any{make([]byte, Blake2b256Size), uint16(1)})
+	require.NoError(t, err)
+	encoded[0] = 0x9f
+	encoded = append(encoded, 0xff)
+
+	var id GovActionId
+	require.ErrorContains(
+		t,
+		id.UnmarshalCBOR(encoded),
+		"definite-length CBOR array",
+	)
+}
+
+func TestGovAnchorUnmarshalCBORRejectsInvalidUTF8(t *testing.T) {
+	encoded, err := cbor.Encode([]any{
+		cbor.RawMessage{0x61, 0xff},
+		make([]byte, Blake2b256Size),
+	})
+	require.NoError(t, err)
+	var anchor GovAnchor
+	require.ErrorContains(t, anchor.UnmarshalCBOR(encoded), "invalid UTF-8")
+}
+
+func TestGovAnchorUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
+	encoded, err := cbor.Encode([]any{"https://example.com", make([]byte, Blake2b256Size)})
+	require.NoError(t, err)
+	encoded[0] = 0x9f
+	encoded = append(encoded, 0xff)
+
+	var anchor GovAnchor
+	require.ErrorContains(
+		t,
+		anchor.UnmarshalCBOR(encoded),
+		"definite-length CBOR array",
+	)
+}
+
 func TestFixedHashDecodeRejectsAliasedWireValue(t *testing.T) {
 	exact := bytes.Repeat([]byte{0xaa}, Blake2b256Size)
 	long := append(bytes.Clone(exact), 0xbb)
@@ -123,13 +206,7 @@ func TestFixedHashDecodeIndefiniteByteString(t *testing.T) {
 
 			var hash Blake2b256
 			_, err := cbor.Decode(wire, &hash)
-			if size == Blake2b256Size {
-				require.NoError(t, err)
-				assert.Equal(t, bytes.Repeat([]byte{0xaa}, firstChunkSize), hash[:firstChunkSize])
-				assert.Equal(t, bytes.Repeat([]byte{0xbb}, secondChunkSize), hash[firstChunkSize:])
-			} else {
-				assert.Error(t, err)
-			}
+			assert.Error(t, err)
 		})
 	}
 }

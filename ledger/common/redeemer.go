@@ -107,10 +107,36 @@ type RedeemerKey struct {
 	Index uint32      `json:"index"`
 }
 
+func (k *RedeemerKey) UnmarshalCBOR(data []byte) error {
+	if err := ValidateCBORArrayLength(data, 2, "redeemer key"); err != nil {
+		return err
+	}
+	type tRedeemerKey RedeemerKey
+	var decoded tRedeemerKey
+	if _, err := cbor.Decode(data, &decoded); err != nil {
+		return err
+	}
+	*k = RedeemerKey(decoded)
+	return nil
+}
+
 type RedeemerValue struct {
 	cbor.StructAsArray
 	Data    Datum   `json:"data"`
 	ExUnits ExUnits `json:"exUnits"`
+}
+
+func (v *RedeemerValue) UnmarshalCBOR(data []byte) error {
+	if err := ValidateDefiniteCBORArrayLength(data, 2, "redeemer value"); err != nil {
+		return err
+	}
+	type tRedeemerValue RedeemerValue
+	var decoded tRedeemerValue
+	if _, err := cbor.Decode(data, &decoded); err != nil {
+		return err
+	}
+	*v = RedeemerValue(decoded)
+	return nil
 }
 
 // CompareRedeemerKeys compares two RedeemerKey values by Tag then Index,

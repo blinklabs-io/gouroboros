@@ -330,7 +330,7 @@ func (DRepDelegationStateUnavailableError) Error() string {
 // does not carry the active protocol-parameter deposit.
 type CertificateDepositIncorrectError struct {
 	CertificateType common.CertificateType
-	Supplied        int64
+	Supplied        uint64
 	Expected        uint64
 }
 
@@ -347,7 +347,7 @@ func (e CertificateDepositIncorrectError) Error() string {
 // does not refund the deposit recorded for the credential.
 type CertificateRefundIncorrectError struct {
 	CertificateType common.CertificateType
-	Supplied        int64
+	Supplied        uint64
 	Expected        uint64
 }
 

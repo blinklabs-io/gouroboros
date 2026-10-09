@@ -49,6 +49,37 @@ func TestShelleyTransactionInputSetOnlyCoalescesOnDecode(t *testing.T) {
 	assert.Equal(t, []shelley.ShelleyTransactionInput{input, input}, set.Items())
 }
 
+func TestShelleyTransactionInputRejectsIndexOutsideWireWidth(t *testing.T) {
+	for _, index := range []uint64{65535, 65536} {
+		t.Run(fmt.Sprint(index), func(t *testing.T) {
+			wire, err := cbor.Encode([]any{make([]byte, 32), index})
+			require.NoError(t, err)
+			var input shelley.ShelleyTransactionInput
+			_, err = cbor.Decode(wire, &input)
+			if index == 65535 {
+				require.NoError(t, err)
+				assert.Equal(t, uint32(index), input.OutputIndex)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestShelleyTransactionInputAcceptsIndefiniteArray(t *testing.T) {
+	txId := make([]byte, common.Blake2b256Size)
+	txId[0] = 1
+	wire := []byte{0x9f, 0x58, 0x20}
+	wire = append(wire, txId...)
+	wire = append(wire, 0x18, 0x00, 0xff)
+
+	var input shelley.ShelleyTransactionInput
+	_, err := cbor.Decode(wire, &input)
+	require.NoError(t, err)
+	assert.Equal(t, common.Blake2b256(txId), input.TxId)
+	assert.Zero(t, input.OutputIndex)
+}
+
 func TestShelleyTransactionOutputString(t *testing.T) {
 	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
 	addr, _ := common.NewAddress(addrStr)

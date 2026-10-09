@@ -767,12 +767,22 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 	if len(data) == 0 {
 		return errors.New("empty Mary transaction output value")
 	}
-	if (data[0] & cbor.CborTypeMask) != cbor.CborTypeArray {
+	if data[0]&cbor.CborTypeMask != cbor.CborTypeArray {
+		if data[0]&cbor.CborTypeMask != 0 {
+			return errors.New("mary transaction output coin must be an unsigned integer")
+		}
 		if _, err := cbor.Decode(data, &v.Amount); err != nil {
 			return err
 		}
 		v.Assets = nil
 		return nil
+	}
+	if err := common.ValidateDefiniteCBORArrayLength(
+		data,
+		2,
+		"Mary transaction output value",
+	); err != nil {
+		return err
 	}
 	type tMaryTransactionOutputValue MaryTransactionOutputValue
 	var tmp tMaryTransactionOutputValue
@@ -787,7 +797,7 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 }
 
 func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
-	if v.Assets == nil {
+	if v.Assets == nil || len(v.Assets.Policies()) == 0 {
 		return cbor.Encode(v.Amount)
 	} else {
 		return cbor.EncodeGeneric(v)

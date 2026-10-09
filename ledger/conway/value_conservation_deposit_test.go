@@ -115,13 +115,13 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *t
 		refund      bool
 	}{
 		{"legacy stake registration", &common.StakeRegistrationCertificate{StakeCredential: credential}, false, keyDeposit, false},
-		{"explicit stake registration", &common.RegistrationCertificate{StakeCredential: credential, Amount: int64(keyDeposit)}, false, keyDeposit, false},
-		{"stake registration delegation", &common.StakeRegistrationDelegationCertificate{StakeCredential: credential, Amount: int64(keyDeposit)}, false, keyDeposit, false},
-		{"stake vote registration delegation", &common.StakeVoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: int64(keyDeposit)}, false, keyDeposit, false},
-		{"vote registration delegation", &common.VoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: int64(keyDeposit)}, false, keyDeposit, false},
-		{"DRep registration", &common.RegistrationDrepCertificate{DrepCredential: drepCredential, Amount: int64(drepDeposit)}, false, drepDeposit, false},
-		{"explicit stake refund", &common.DeregistrationCertificate{StakeCredential: credential, Amount: int64(recordedStake)}, false, recordedStake, true},
-		{"DRep refund", &common.DeregistrationDrepCertificate{DrepCredential: drepCredential, Amount: int64(recordedDRep)}, false, recordedDRep, true},
+		{"explicit stake registration", &common.RegistrationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
+		{"stake registration delegation", &common.StakeRegistrationDelegationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
+		{"stake vote registration delegation", &common.StakeVoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
+		{"vote registration delegation", &common.VoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
+		{"DRep registration", &common.RegistrationDrepCertificate{DrepCredential: drepCredential, Amount: uint64(drepDeposit)}, false, drepDeposit, false},
+		{"explicit stake refund", &common.DeregistrationCertificate{StakeCredential: credential, Amount: recordedStake}, false, recordedStake, true},
+		{"DRep refund", &common.DeregistrationDrepCertificate{DrepCredential: drepCredential, Amount: recordedDRep}, false, recordedDRep, true},
 		{"proposal deposit", nil, true, proposalDeposit, false},
 	}
 	for _, test := range tests {

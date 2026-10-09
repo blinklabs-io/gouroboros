@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/require"
 )
 
 func createMaryTransactionOutputValueAssets(
@@ -115,6 +116,40 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 				test.CborHex,
 			)
 		}
+	}
+}
+
+func TestMaryTransactionOutputValueEncodesEmptyAssetsAsCoin(t *testing.T) {
+	emptyAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{})
+	value := MaryTransactionOutputValue{Amount: 42, Assets: &emptyAssets}
+
+	encoded, err := cbor.Encode(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coin, err := cbor.Encode(uint64(42))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(encoded, coin) {
+		t.Fatalf("empty multiasset value encoded as %x, want coin %x", encoded, coin)
+	}
+}
+
+func TestMaryTransactionOutputValueRejectsInvalidMajorTypesAndArrayLength(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		wire []byte
+	}{
+		{name: "null coin", wire: []byte{0xf6}},
+		{name: "map coin", wire: []byte{0xa0}},
+		{name: "extra array field", wire: []byte{0x83, 0x01, 0xa0, 0x00}},
+		{name: "indefinite value array", wire: []byte{0x9f, 0x01, 0xa0, 0xff}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var value MaryTransactionOutputValue
+			require.Error(t, value.UnmarshalCBOR(test.wire))
+		})
 	}
 }
 

@@ -15,6 +15,7 @@
 package conway
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -40,6 +41,33 @@ func TestConwayProposalProcedureToPlutusData(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, big.NewInt(0), constr.Tag)
 	assert.Len(t, constr.Fields, 3)
+}
+
+func TestConwayGovActionHardForkProtocolVersionMajorBound(t *testing.T) {
+	for _, test := range []struct {
+		major   uint
+		wantErr bool
+	}{
+		{major: 12},
+		{major: 13, wantErr: true},
+	} {
+		t.Run(fmt.Sprintf("major_%d", test.major), func(t *testing.T) {
+			encoded, err := cbor.Encode([]any{
+				uint(common.GovActionTypeHardForkInitiation),
+				nil,
+				[]any{test.major, uint(0)},
+			})
+			require.NoError(t, err)
+
+			var action ConwayGovAction
+			_, err = cbor.DecodeExact(encoded, &action)
+			if test.wantErr {
+				require.Error(t, err, "Conway must reject hard fork major versions above 12")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestConwayProposalProcedureCbor(t *testing.T) {
@@ -90,6 +118,29 @@ func TestConwayProposalProcedureRejectsBaseAddress(t *testing.T) {
 	require.NoError(t, err)
 	var decoded ConwayProposalProcedure
 	require.ErrorContains(t, decoded.UnmarshalCBOR(wire), "invalid account address type")
+}
+
+func TestConwayProposalProcedureRejectsIndefiniteArray(t *testing.T) {
+	actionWire, err := cbor.Encode(common.InfoGovAction{Type: uint(common.GovActionTypeInfo)})
+	require.NoError(t, err)
+	anchorWire, err := cbor.Encode(common.GovAnchor{Url: "https://example.com"})
+	require.NoError(t, err)
+	wire, err := cbor.Encode([]any{
+		uint64(0),
+		make([]byte, 29),
+		cbor.RawMessage(actionWire),
+		cbor.RawMessage(anchorWire),
+	})
+	require.NoError(t, err)
+	wire[0] = 0x9f
+	wire = append(wire, 0xff)
+
+	var decoded ConwayProposalProcedure
+	require.ErrorContains(
+		t,
+		decoded.UnmarshalCBOR(wire),
+		"definite-length CBOR array",
+	)
 }
 
 func TestConwayGovActionCbor(t *testing.T) {

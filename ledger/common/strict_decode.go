@@ -18,9 +18,138 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
+
+// ValidateCBORArrayLength checks that data is one CBOR array containing the
+// required number of elements. Definite and indefinite arrays are both
+// accepted; callers can then decode the validated shape into a struct.
+func ValidateCBORArrayLength(data []byte, expected int, name string) error {
+	if expected < 0 {
+		return fmt.Errorf("%s has an invalid expected array length %d", name, expected)
+	}
+	var items []cbor.RawMessage
+	n, err := cbor.Decode(data, &items)
+	if err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	if n != len(data) {
+		return fmt.Errorf("decode %s: %d trailing bytes after array", name, len(data)-n)
+	}
+	if len(items) != expected {
+		return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, len(items))
+	}
+	return nil
+}
+
+// ValidateDefiniteCBORArrayLength checks that data is a definite-length CBOR
+// array with exactly the required number of elements.
+func ValidateDefiniteCBORArrayLength(
+	data []byte,
+	expected int,
+	name string,
+) error {
+	if expected < 0 {
+		return fmt.Errorf("%s has an invalid expected array length %d", name, expected)
+	}
+	length, _, indefinite := cbor.ArrayInfo(data)
+	if length < 0 {
+		return fmt.Errorf("%s must be a CBOR array", name)
+	}
+	if indefinite {
+		return fmt.Errorf("%s must be a definite-length CBOR array", name)
+	}
+	if length != expected {
+		return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, length)
+	}
+	return nil
+}
+
+type byteStringRange struct {
+	start int
+	end   int
+}
+
+func decodeByteStringArray(
+	data []byte,
+	expectedLengths []int,
+	name string,
+) ([4][]byte, error) {
+	var fields [4][]byte
+	if len(expectedLengths) > len(fields) {
+		return fields, fmt.Errorf("%s has too many byte string fields", name)
+	}
+	if err := ValidateDefiniteCBORArrayLength(data, len(expectedLengths), name); err != nil {
+		return fields, err
+	}
+	_, headerLength, _ := cbor.ArrayInfo(data)
+	offset := int(headerLength)
+	var ranges [4]byteStringRange
+	var totalLength int
+	for i, expectedLength := range expectedLengths {
+		if offset > len(data) {
+			return fields, fmt.Errorf("decode %s: truncated byte string array", name)
+		}
+		length, byteHeaderLength, indefinite, err := byteStringHeader(data[offset:])
+		if err != nil {
+			return fields, fmt.Errorf("decode %s field %d: %w", name, i, err)
+		}
+		if indefinite {
+			return fields, fmt.Errorf("%s field %d must be a definite-length byte string", name, i)
+		}
+		if expectedLength >= 0 && length != uint64(expectedLength) {
+			return fields, fmt.Errorf(
+				"invalid %s field %d length: expected %d bytes, got %d",
+				name,
+				i,
+				expectedLength,
+				length,
+			)
+		}
+		remaining := len(data) - offset
+		if byteHeaderLength > remaining {
+			return fields, fmt.Errorf("decode %s field %d: byte string exceeds data", name, i)
+		}
+		remaining -= byteHeaderLength
+		if length > uint64(remaining) { // #nosec G115 -- remaining is non-negative and bounded by data above.
+			return fields, fmt.Errorf("decode %s field %d: byte string exceeds data", name, i)
+		}
+		start := offset + byteHeaderLength
+		end := start + int(length) // #nosec G115 -- bounded by the input length above
+		ranges[i] = byteStringRange{start: start, end: end}
+		totalLength += int(length) // #nosec G115 -- disjoint fields are bounded by data
+		offset = end
+	}
+	if offset != len(data) {
+		return fields, fmt.Errorf("decode %s: trailing data after byte string array", name)
+	}
+
+	ownedData := make([]byte, totalLength)
+	ownedOffset := 0
+	for i := range expectedLengths {
+		fieldLength := ranges[i].end - ranges[i].start
+		copy(ownedData[ownedOffset:], data[ranges[i].start:ranges[i].end])
+		ownedEnd := ownedOffset + fieldLength
+		fields[i] = ownedData[ownedOffset:ownedEnd:ownedEnd]
+		ownedOffset = ownedEnd
+	}
+	return fields, nil
+}
+
+// ValidateNullOrFixedLengthByteStringCBOR validates a CBOR null or a definite
+// byte string of exactly expected bytes. Undefined is not a null value.
+func ValidateNullOrFixedLengthByteStringCBOR(
+	data []byte,
+	expected int,
+	name string,
+) error {
+	if len(data) == 1 && data[0] == 0xf6 {
+		return nil
+	}
+	return validateFixedLengthByteString(data, expected, name)
+}
 
 // rewardAccountCBOR isolates reward addresses from the Blake2b224 decoder.
 // The ledger wire value is a one-byte address header followed by a 28-byte
@@ -40,20 +169,115 @@ func unmarshalFixedLengthByteString(
 	destination []byte,
 	name string,
 ) error {
+	if err := validateFixedLengthByteString(cborData, len(destination), name); err != nil {
+		return err
+	}
 	decoded, decodedLength, err := decodeByteString(cborData)
 	if err != nil {
 		return fmt.Errorf("decode %s: %w", name, err)
 	}
-	if decodedLength != uint64(len(destination)) {
+	copy(destination, decoded[:decodedLength])
+	return nil
+}
+
+func validateFixedLengthByteString(cborData []byte, expected int, name string) error {
+	if expected < 0 {
+		return fmt.Errorf("%s has a negative expected length", name)
+	}
+	_, _, indefinite, err := byteStringHeader(cborData)
+	if err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	if indefinite {
+		return fmt.Errorf("decode %s: expected a definite-length byte string", name)
+	}
+	length, _, _, err := byteStringHeader(cborData)
+	if err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	if length != uint64(expected) { // #nosec G115 -- expected is non-negative after the guard above.
 		return fmt.Errorf(
 			"invalid %s length: expected %d bytes, got %d",
 			name,
-			len(destination),
-			decodedLength,
+			expected,
+			length,
 		)
 	}
-	copy(destination, decoded[:decodedLength])
 	return nil
+}
+
+func validateDefiniteTextString(cborData []byte, name string) error {
+	if len(cborData) == 0 || cborData[0]&cbor.CborTypeMask != cbor.CborTypeTextString {
+		return fmt.Errorf("%s must be a CBOR text string", name)
+	}
+	if cborData[0]&0x1f == 0x1f {
+		return fmt.Errorf("%s must be a definite-length text string", name)
+	}
+	length, headerLength, _, err := textStringHeader(cborData)
+	if err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	if headerLength > len(cborData) {
+		return fmt.Errorf("decode %s: text string header exceeds data", name)
+	}
+	payloadLength := len(cborData) - headerLength
+	if length != uint64(payloadLength) { // #nosec G115 -- payloadLength is non-negative after the bound check above.
+		return fmt.Errorf("decode %s: text string length does not match data", name)
+	}
+	if !utf8.Valid(cborData[headerLength:]) {
+		return fmt.Errorf("%s contains invalid UTF-8", name)
+	}
+	return nil
+}
+
+func validateDefiniteByteString(cborData []byte, name string) error {
+	length, headerLength, indefinite, err := byteStringHeader(cborData)
+	if err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	if indefinite {
+		return fmt.Errorf("%s must be a definite-length byte string", name)
+	}
+	if headerLength > len(cborData) {
+		return fmt.Errorf("decode %s: byte string header exceeds data", name)
+	}
+	payloadLength := len(cborData) - headerLength
+	if length != uint64(payloadLength) { // #nosec G115 -- payloadLength is non-negative after the bound check above.
+		return fmt.Errorf("decode %s: byte string length does not match data", name)
+	}
+	return nil
+}
+
+func cborTagHeaderLength(cborData []byte) (int, error) {
+	if len(cborData) == 0 || cborData[0]&cbor.CborTypeMask != cbor.CborTypeTag {
+		return 0, errors.New("expected CBOR tag")
+	}
+	switch cborData[0] & 0x1f {
+	case 0x18:
+		if len(cborData) < 2 {
+			return 0, errors.New("truncated CBOR tag")
+		}
+		return 2, nil
+	case 0x19:
+		if len(cborData) < 3 {
+			return 0, errors.New("truncated CBOR tag")
+		}
+		return 3, nil
+	case 0x1a:
+		if len(cborData) < 5 {
+			return 0, errors.New("truncated CBOR tag")
+		}
+		return 5, nil
+	case 0x1b:
+		if len(cborData) < 9 {
+			return 0, errors.New("truncated CBOR tag")
+		}
+		return 9, nil
+	case 0x1f:
+		return 0, errors.New("indefinite CBOR tag")
+	default:
+		return 1, nil
+	}
 }
 
 func decodeByteString(cborData []byte) ([32]byte, uint64, error) {
@@ -115,11 +339,25 @@ func decodeByteString(cborData []byte) ([32]byte, uint64, error) {
 }
 
 func byteStringHeader(data []byte) (uint64, int, bool, error) {
+	return stringHeader(data, cbor.CborTypeByteString)
+}
+
+func textStringHeader(data []byte) (uint64, int, bool, error) {
+	return stringHeader(data, cbor.CborTypeTextString)
+}
+
+func stringHeader(data []byte, majorType uint8) (uint64, int, bool, error) {
 	if len(data) == 0 {
 		return 0, 0, false, errors.New("empty CBOR data")
 	}
-	if data[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
-		return 0, 0, false, errors.New("expected CBOR byte string")
+	if data[0]&cbor.CborTypeMask != majorType {
+		switch majorType {
+		case cbor.CborTypeByteString:
+			return 0, 0, false, errors.New("expected CBOR byte string")
+		case cbor.CborTypeTextString:
+			return 0, 0, false, errors.New("expected CBOR text string")
+		}
+		return 0, 0, false, fmt.Errorf("expected CBOR string type 0x%02x", majorType)
 	}
 	additionalInfo := data[0] & 0x1f
 	switch additionalInfo {
@@ -149,7 +387,7 @@ func byteStringHeader(data []byte) (uint64, int, bool, error) {
 		if additionalInfo < 0x18 {
 			return uint64(additionalInfo), 1, false, nil
 		}
-		return 0, 0, false, errors.New("invalid byte string length")
+		return 0, 0, false, errors.New("invalid CBOR string length")
 	}
 }
 
@@ -251,14 +489,33 @@ func (a *GovAnchor) UnmarshalCBOR(cborData []byte) error {
 	if a == nil {
 		return errors.New("nil GovAnchor receiver")
 	}
+	if err := ValidateDefiniteCBORArrayLength(
+		cborData,
+		2,
+		"governance anchor",
+	); err != nil {
+		return err
+	}
+	var raw struct {
+		cbor.StructAsArray
+		Url      cbor.RawMessage
+		DataHash Blake2b256
+	}
+	if _, err := cbor.Decode(cborData, &raw); err != nil {
+		return fmt.Errorf("decode governance anchor: %w", err)
+	}
+	if err := validateDefiniteTextString(raw.Url, "governance anchor URL"); err != nil {
+		return err
+	}
 	var decoded struct {
 		cbor.StructAsArray
 		Url      string
 		DataHash Blake2b256
 	}
-	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+	if _, err := cbor.Decode(raw.Url, &decoded.Url); err != nil {
 		return fmt.Errorf("decode governance anchor: %w", err)
 	}
+	decoded.DataHash = raw.DataHash
 	if err := validateGovAnchorURL(decoded.Url); err != nil {
 		return err
 	}
@@ -276,6 +533,13 @@ func (a *GovAnchor) UnmarshalCBOR(cborData []byte) error {
 func (id *GovActionId) UnmarshalCBOR(cborData []byte) error {
 	if id == nil {
 		return errors.New("nil GovActionId receiver")
+	}
+	if err := ValidateDefiniteCBORArrayLength(
+		cborData,
+		2,
+		"governance action ID",
+	); err != nil {
+		return err
 	}
 	var decoded struct {
 		cbor.StructAsArray

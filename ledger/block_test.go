@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -12,26 +13,51 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+func mockShelleyHeader() ShelleyBlockHeader {
+	return ShelleyBlockHeader{
+		Body: shelley.ShelleyBlockHeaderBody{
+			VrfKey: make([]byte, 32),
+			NonceVrf: common.VrfResult{
+				Output: make([]byte, 64),
+				Proof:  make([]byte, 80),
+			},
+			LeaderVrf: common.VrfResult{
+				Output: make([]byte, 64),
+				Proof:  make([]byte, 80),
+			},
+			OpCertHotVkey:   make([]byte, 32),
+			OpCertSignature: make([]byte, 64),
+		},
+		Signature: make([]byte, kes.CardanoKesSignatureSize),
+	}
+}
+
 func mockShelleyCBOR() []byte {
 	shelleyHeader := shelley.ShelleyBlockHeader{
 		Body: shelley.ShelleyBlockHeaderBody{
-			BlockNumber:          12345,
-			Slot:                 67890,
-			PrevHash:             common.Blake2b256{},
-			IssuerVkey:           common.IssuerVkey{},
-			VrfKey:               []byte{0x01, 0x02},
-			NonceVrf:             common.VrfResult{},
-			LeaderVrf:            common.VrfResult{},
+			BlockNumber: 12345,
+			Slot:        67890,
+			PrevHash:    common.Blake2b256{},
+			IssuerVkey:  common.IssuerVkey{},
+			VrfKey:      make([]byte, 32),
+			NonceVrf: common.VrfResult{
+				Output: make([]byte, 64),
+				Proof:  make([]byte, 80),
+			},
+			LeaderVrf: common.VrfResult{
+				Output: make([]byte, 64),
+				Proof:  make([]byte, 80),
+			},
 			BlockBodySize:        512,
 			BlockBodyHash:        common.Blake2b256{},
-			OpCertHotVkey:        []byte{0x03, 0x04},
+			OpCertHotVkey:        make([]byte, 32),
 			OpCertSequenceNumber: 10,
 			OpCertKesPeriod:      20,
-			OpCertSignature:      []byte{0x05, 0x06},
+			OpCertSignature:      make([]byte, 64),
 			ProtoMajorVersion:    1,
 			ProtoMinorVersion:    0,
 		},
-		Signature: []byte{0x07, 0x08},
+		Signature: make([]byte, kes.CardanoKesSignatureSize),
 	}
 
 	// Convert to CBOR
@@ -44,51 +70,56 @@ func mockShelleyCBOR() []byte {
 
 func mockAllegraCBOR() []byte {
 	allegraHeader := allegra.AllegraBlockHeader{
-		ShelleyBlockHeader: ShelleyBlockHeader{},
+		ShelleyBlockHeader: mockShelleyHeader(),
 	}
 	data, _ := cbor.Marshal(allegraHeader)
 	return data
 }
 
 func mockMaryCBOR() []byte {
-	maryHeader := mary.MaryBlockHeader{ShelleyBlockHeader: ShelleyBlockHeader{}}
+	maryHeader := mary.MaryBlockHeader{ShelleyBlockHeader: mockShelleyHeader()}
 	data, _ := cbor.Marshal(maryHeader)
 	return data
 }
 
 func mockAlonzoCBOR() []byte {
-	alonzoHeader := AlonzoBlockHeader{ShelleyBlockHeader: ShelleyBlockHeader{}}
+	alonzoHeader := AlonzoBlockHeader{ShelleyBlockHeader: mockShelleyHeader()}
 	data, _ := cbor.Marshal(alonzoHeader)
 	return data
 }
 
-func mockBabbageCBOR() []byte {
-	babbageHeader := babbage.BabbageBlockHeader{
+func mockBabbageHeader() babbage.BabbageBlockHeader {
+	return babbage.BabbageBlockHeader{
 		Body: babbage.BabbageBlockHeaderBody{
-			BlockNumber:   54321,
-			Slot:          98765,
-			PrevHash:      common.Blake2b256{},
-			IssuerVkey:    common.IssuerVkey{},
-			VrfKey:        []byte{0x09, 0x10},
-			VrfResult:     common.VrfResult{},
+			BlockNumber: 54321,
+			Slot:        98765,
+			PrevHash:    common.Blake2b256{},
+			IssuerVkey:  common.IssuerVkey{},
+			VrfKey:      make([]byte, 32),
+			VrfResult: common.VrfResult{
+				Output: make([]byte, 64),
+				Proof:  make([]byte, 80),
+			},
 			BlockBodySize: 1024,
 			BlockBodyHash: common.Blake2b256{},
 			OpCert: babbage.BabbageOpCert{
-				HotVkey:        []byte{0x11, 0x12},
+				HotVkey:        make([]byte, 32),
 				SequenceNumber: 30,
 				KesPeriod:      40,
-				Signature:      []byte{0x13, 0x14},
+				Signature:      make([]byte, 64),
 			},
 			ProtoVersion: babbage.BabbageProtoVersion{
 				Major: 2,
 				Minor: 0,
 			},
 		},
-		Signature: []byte{0x15, 0x16},
+		Signature: make([]byte, kes.CardanoKesSignatureSize),
 	}
+}
 
+func mockBabbageCBOR() []byte {
 	// Convert to CBOR
-	data, err := cbor.Marshal(babbageHeader)
+	data, err := cbor.Marshal(mockBabbageHeader())
 	if err != nil {
 		fmt.Printf("CBOR Encoding Error for Babbage: %v\n", err)
 	}
@@ -96,7 +127,9 @@ func mockBabbageCBOR() []byte {
 }
 
 func mockConwayCBOR() []byte {
-	conwayHeader := ConwayBlockHeader{BabbageBlockHeader: BabbageBlockHeader{}}
+	conwayHeader := ConwayBlockHeader{
+		BabbageBlockHeader: mockBabbageHeader(),
+	}
 	data, _ := cbor.Marshal(conwayHeader)
 	return data
 }

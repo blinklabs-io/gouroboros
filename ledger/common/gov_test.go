@@ -101,6 +101,51 @@ func TestTreasuryWithdrawalPlutusDataUsesLedgerAddressOrder(t *testing.T) {
 	require.Equal(t, firstEncoding, secondEncoding)
 }
 
+func TestTreasuryWithdrawalMarshalCBORUsesLedgerAddressOrder(t *testing.T) {
+	hash := bytes.Repeat([]byte{0x33}, AddressHashSize)
+	scriptAddress, err := NewAddressFromParts(
+		AddressTypeNoneScript, AddressNetworkTestnet, nil, hash,
+	)
+	require.NoError(t, err)
+	keyAddress, err := NewAddressFromParts(
+		AddressTypeNoneKey, AddressNetworkTestnet, nil, hash,
+	)
+	require.NoError(t, err)
+
+	action := &TreasuryWithdrawalGovAction{
+		Type: uint(GovActionTypeTreasuryWithdrawal),
+		Withdrawals: map[*Address]uint64{
+			&keyAddress:    2,
+			&scriptAddress: 1,
+		},
+	}
+	actual, err := cbor.Encode(action)
+	require.NoError(t, err)
+
+	withdrawals := appendCBORMapHeader(nil, 2)
+	for _, item := range []struct {
+		address *Address
+		amount  uint64
+	}{
+		{address: &scriptAddress, amount: 1},
+		{address: &keyAddress, amount: 2},
+	} {
+		encodedAddress, encodeErr := cbor.Encode(item.address)
+		require.NoError(t, encodeErr)
+		encodedAmount, encodeErr := cbor.Encode(item.amount)
+		require.NoError(t, encodeErr)
+		withdrawals = append(withdrawals, encodedAddress...)
+		withdrawals = append(withdrawals, encodedAmount...)
+	}
+	expected, err := cbor.Encode([]any{
+		uint(GovActionTypeTreasuryWithdrawal),
+		cbor.RawMessage(withdrawals),
+		nil,
+	})
+	require.NoError(t, err)
+	require.Equal(t, expected, actual)
+}
+
 func TestVoterUnmarshalCBORValidTypes(t *testing.T) {
 	for voterType := uint8(0); voterType <= VoterTypeStakingPoolKeyHash; voterType++ {
 		t.Run(fmt.Sprintf("type_%d", voterType), func(t *testing.T) {
@@ -192,6 +237,22 @@ func TestVotingProcedureUnmarshalCBORVoteTypes(t *testing.T) {
 			assert.Equal(t, tc.vote, procedure.Vote)
 		})
 	}
+}
+
+func TestVotingProcedureUnmarshalCBORRejectsExtraFields(t *testing.T) {
+	encoded, err := cbor.Encode([]any{GovVoteYes, nil, uint8(0)})
+	require.NoError(t, err)
+	var procedure VotingProcedure
+	require.Error(t, procedure.UnmarshalCBOR(encoded))
+}
+
+func TestVotingProcedureUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
+	var procedure VotingProcedure
+	require.ErrorContains(
+		t,
+		procedure.UnmarshalCBOR([]byte{0x9f, GovVoteYes, 0xf6, 0xff}),
+		"definite-length CBOR array",
+	)
 }
 
 func TestVotingProceduresUnmarshalCBORVoterKeys(t *testing.T) {
@@ -1351,6 +1412,21 @@ func TestGovAnchorUnmarshalCBORURLLength(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGovAnchorUnmarshalCBORRejectsIndefiniteURL(t *testing.T) {
+	wire := []byte{0x82, 0x7f, 0x61, 'x', 0xff, 0x58, 0x20}
+	wire = append(wire, make([]byte, 32)...)
+	var anchor GovAnchor
+	_, err := cbor.Decode(wire, &anchor)
+	require.Error(t, err)
+}
+
+func TestGovAnchorUnmarshalCBORRejectsExtraFields(t *testing.T) {
+	encoded, err := cbor.Encode([]any{"https://example.com", make([]byte, 32), uint8(0)})
+	require.NoError(t, err)
+	var anchor GovAnchor
+	require.Error(t, anchor.UnmarshalCBOR(encoded))
 }
 
 func TestVoterTextRoundTrip(t *testing.T) {

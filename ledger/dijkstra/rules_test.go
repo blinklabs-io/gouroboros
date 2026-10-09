@@ -1102,7 +1102,7 @@ func TestDijkstraDelegationInheritsDRepDeregistrationTombstone(t *testing.T) {
 			TxCertificates: []common.CertificateWrapper{
 				{Certificate: &common.DeregistrationDrepCertificate{
 					DrepCredential: drep,
-					Amount:         int64(drepDeposit),
+					Amount:         drepDeposit,
 				}},
 				{Certificate: &common.VoteDelegationCertificate{
 					StakeCredential: stake,

@@ -1025,7 +1025,7 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 					BlockBodyHash: blockBody.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{
@@ -1075,7 +1075,7 @@ func TestDijkstraBlockNonEmptyTransactionsValidity(t *testing.T) {
 					BlockBodyHash: blockBody.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{
@@ -1192,20 +1192,16 @@ func TestDijkstraRejectsDuplicateMultiAssetKeys(t *testing.T) {
 }
 
 func TestDijkstraWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
-	// Craft a witness set CBOR where field 0 (vkey witnesses) is a tag-258 set
-	// containing two identical VkeyWitness entries.
-	// VkeyWitness{Vkey:[0x01], Signature:[0x02]} = 82 41 01 41 02.
-	// The Dijkstra guard introduced in UnmarshalCBOR must reject this.
-	dupCbor := []byte{
-		0xa1,             // map(1)
-		0x00,             // key: 0  (VkeyWitnesses field)
-		0xd9, 0x01, 0x02, // tag(258) — CBOR set
-		0x82,                         // array(2)
-		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
-		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
+	witness := common.VkeyWitness{
+		Vkey:      make([]byte, 32),
+		Signature: make([]byte, 64),
 	}
+	dupCbor, err := cbor.Encode(map[uint]any{
+		0: cbor.NewSetType([]common.VkeyWitness{witness, witness}, true),
+	})
+	require.NoError(t, err)
 	var ws DijkstraTransactionWitnessSet
-	err := ws.UnmarshalCBOR(dupCbor)
+	err = ws.UnmarshalCBOR(dupCbor)
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
@@ -1360,9 +1356,11 @@ func TestDijkstraSubTransactionsDeduplicateByBodyID(t *testing.T) {
 	witnessCBOR := func(key byte) cbor.RawMessage {
 		witnesses := map[uint]any{}
 		if key != 0 {
+			vkey := bytes.Repeat([]byte{key}, 32)
+			signature := bytes.Repeat([]byte{key}, 64)
 			witnesses[0] = cbor.NewSetType([]common.VkeyWitness{{
-				Vkey:      []byte{key},
-				Signature: []byte{key},
+				Vkey:      vkey,
+				Signature: signature,
 			}}, true)
 		}
 		encoded, err := cbor.Encode(witnesses)
@@ -1946,14 +1944,16 @@ func TestDijkstraSubTransactionBodyRequiredTopLevelGuardsRejectsDuplicateCredent
 }
 
 func TestDijkstraWitnessSetRejectsDuplicateUntaggedVkeyWitness(t *testing.T) {
-	dupCbor := []byte{
-		0xa1, // map(1)
-		0x00, // key: 0  (VkeyWitnesses field)
-		// plain array — no tag 258
-		0x82,                         // array(2)
-		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
-		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
+	witness := common.VkeyWitness{
+		Vkey:      make([]byte, 32),
+		Signature: make([]byte, 64),
 	}
+	witnesses, err := cbor.Encode([]common.VkeyWitness{witness, witness})
+	require.NoError(t, err)
+	dupCbor, err := cbor.Encode(map[uint]any{
+		0: cbor.RawMessage(witnesses),
+	})
+	require.NoError(t, err)
 	var ws DijkstraTransactionWitnessSet
 	require.ErrorContains(
 		t,
@@ -1995,7 +1995,7 @@ func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
 					BlockBodyHash: blockBody.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{
