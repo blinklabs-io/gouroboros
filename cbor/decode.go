@@ -93,7 +93,8 @@ func getDecMode() (_cbor.DecMode, error) {
 // Decode does not copy dataBytes. A dest whose UnmarshalCBOR retains its input
 // (for example the stored CBOR of a ledger transaction body) keeps a reference
 // into dataBytes, so the caller must not modify or reuse dataBytes while the
-// decoded value is in use. The same holds for the DecodeStrict and
+// decoded value is in use. A *Value dest is the exception: it stores its own
+// copy of the item. The same holds for the DecodeStrict, DecodeLenient and
 // DecodeLedgerMap variants and for the ledger New*FromCbor constructors.
 func Decode(dataBytes []byte, dest any) (int, error) {
 	return decode(dataBytes, dest, getDecMode, rejectDuplicateMapKeys)

@@ -88,6 +88,17 @@ func TestDecodeRetainedInputAliasesCallerSlice(t *testing.T) {
 	require.Equal(t, []byte{0x82, 0xff, 0x02}, dest.data)
 }
 
+// A *Value destination keeps its own copy, as the Decode doc states.
+func TestDecodeValueDoesNotAliasCallerSlice(t *testing.T) {
+	t.Parallel()
+	input := []byte{0x82, 0x01, 0x02}
+	var dest cbor.Value
+	_, err := cbor.Decode(input, &dest)
+	require.NoError(t, err)
+	input[1] = 0xff
+	require.Equal(t, []byte{0x82, 0x01, 0x02}, dest.Cbor())
+}
+
 func TestDecodeReportsZeroBytesOnError(t *testing.T) {
 	t.Parallel()
 	// Malformed: array header promises two items, only one present.
