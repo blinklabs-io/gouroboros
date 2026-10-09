@@ -493,6 +493,33 @@ func minimalTxParts() []any {
 	return []any{minimalTxBody(), minimalWitnessSet(), nil}
 }
 
+func votingProcedureCBOR(indefinite bool) []byte {
+	ret := []byte{0xa1, 0x82, 0x00, 0x58, 0x1c}
+	ret = append(ret, bytes.Repeat([]byte{0x11}, common.Blake2b224Size)...)
+	ret = append(ret, 0xa1, 0x82, 0x58, 0x20)
+	ret = append(ret, bytes.Repeat([]byte{0x22}, common.Blake2b256Size)...)
+	ret = append(ret, 0x00)
+	if indefinite {
+		return append(ret, 0x9f, 0x01, 0xf6, 0xff)
+	}
+	return append(ret, 0x82, 0x01, 0xf6)
+}
+
+func TestDijkstraBodyAcceptsIndefiniteVotingProcedure(t *testing.T) {
+	encodeBody := func(indefinite bool) []byte {
+		body := minimalTxBody()
+		body[19] = cbor.RawMessage(votingProcedureCBOR(indefinite))
+		data, err := cbor.Encode(body)
+		require.NoError(t, err)
+		return data
+	}
+
+	_, err := NewDijkstraTransactionBodyFromCbor(encodeBody(false))
+	require.NoError(t, err, "definite voting procedure must decode")
+	_, err = NewDijkstraTransactionBodyFromCbor(encodeBody(true))
+	require.NoError(t, err, "indefinite voting procedure must decode in Dijkstra")
+}
+
 func encodeRaw(t *testing.T, value any) cbor.RawMessage {
 	t.Helper()
 	data, err := cbor.Encode(value)

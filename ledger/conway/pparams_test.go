@@ -73,7 +73,7 @@ func TestConwayProtocolParameterUpdateExecutionCostsArrayShape(t *testing.T) {
 		return err
 	}
 	require.NoError(t, decode(definiteCosts))
-	require.ErrorContains(t, decode(indefiniteCosts), "definite-length CBOR array")
+	require.NoError(t, decode(indefiniteCosts))
 }
 
 func testPlutusInteger(v int64) data.PlutusData {

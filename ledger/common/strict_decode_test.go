@@ -24,6 +24,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func indefiniteArray(t *testing.T, encoded []byte) []byte {
+	t.Helper()
+	length, headerLength, isIndefinite := cbor.ArrayInfo(encoded)
+	require.GreaterOrEqual(t, length, 0)
+	require.False(t, isIndefinite)
+	indefinite := append([]byte{0x9f}, encoded[headerLength:]...)
+	return append(indefinite, 0xff)
+}
+
 func TestFixedLengthByteStringDecode(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -138,18 +147,13 @@ func TestGovActionIdUnmarshalCBORRejectsExtraFields(t *testing.T) {
 	require.Error(t, id.UnmarshalCBOR(encoded))
 }
 
-func TestGovActionIdUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
+func TestGovActionIdUnmarshalCBORAcceptsIndefiniteArray(t *testing.T) {
 	encoded, err := cbor.Encode([]any{make([]byte, Blake2b256Size), uint16(1)})
 	require.NoError(t, err)
-	encoded[0] = 0x9f
-	encoded = append(encoded, 0xff)
 
 	var id GovActionId
-	require.ErrorContains(
-		t,
-		id.UnmarshalCBOR(encoded),
-		"definite-length CBOR array",
-	)
+	require.NoError(t, id.UnmarshalCBOR(indefiniteArray(t, encoded)))
+	require.Equal(t, uint32(1), id.GovActionIdx)
 }
 
 func TestGovAnchorUnmarshalCBORRejectsInvalidUTF8(t *testing.T) {
@@ -162,18 +166,33 @@ func TestGovAnchorUnmarshalCBORRejectsInvalidUTF8(t *testing.T) {
 	require.ErrorContains(t, anchor.UnmarshalCBOR(encoded), "invalid UTF-8")
 }
 
-func TestGovAnchorUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
+func TestGovAnchorUnmarshalCBORAcceptsIndefiniteArray(t *testing.T) {
 	encoded, err := cbor.Encode([]any{"https://example.com", make([]byte, Blake2b256Size)})
 	require.NoError(t, err)
-	encoded[0] = 0x9f
-	encoded = append(encoded, 0xff)
 
 	var anchor GovAnchor
-	require.ErrorContains(
-		t,
-		anchor.UnmarshalCBOR(encoded),
-		"definite-length CBOR array",
-	)
+	require.NoError(t, anchor.UnmarshalCBOR(indefiniteArray(t, encoded)))
+	require.Equal(t, "https://example.com", anchor.Url)
+}
+
+func TestNewConstitutionGovActionAcceptsIndefiniteConstitution(t *testing.T) {
+	anchor, err := cbor.Encode(GovAnchor{Url: "https://example.com"})
+	require.NoError(t, err)
+	constitution, err := cbor.Encode([]any{
+		cbor.RawMessage(anchor),
+		nil,
+	})
+	require.NoError(t, err)
+	action, err := cbor.Encode([]any{
+		uint(GovActionTypeNewConstitution),
+		nil,
+		cbor.RawMessage(indefiniteArray(t, constitution)),
+	})
+	require.NoError(t, err)
+
+	var decoded NewConstitutionGovAction
+	require.NoError(t, decoded.UnmarshalCBOR(action))
+	require.Equal(t, "https://example.com", decoded.Constitution.Anchor.Url)
 }
 
 func TestFixedHashDecodeRejectsAliasedWireValue(t *testing.T) {

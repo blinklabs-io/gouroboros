@@ -150,6 +150,12 @@ func TestDecodeExact(t *testing.T) {
 	assert.Equal(t, 2, bytesRead)
 }
 
+func TestValidateExact(t *testing.T) {
+	require.NoError(t, cbor.ValidateExact([]byte{0x81, 0x01}))
+	require.Error(t, cbor.ValidateExact([]byte{0x81, 0x01, 0x00}))
+	require.Error(t, cbor.ValidateExact([]byte{0x81, 0x01, 0xff}))
+}
+
 func TestDecodeRejectsDuplicateMapKeys(t *testing.T) {
 	cborData, err := hex.DecodeString("a201010102")
 	require.NoError(t, err)

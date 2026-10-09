@@ -144,13 +144,19 @@ func TestMaryTransactionOutputValueRejectsInvalidMajorTypesAndArrayLength(t *tes
 		{name: "null coin", wire: []byte{0xf6}},
 		{name: "map coin", wire: []byte{0xa0}},
 		{name: "extra array field", wire: []byte{0x83, 0x01, 0xa0, 0x00}},
-		{name: "indefinite value array", wire: []byte{0x9f, 0x01, 0xa0, 0xff}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var value MaryTransactionOutputValue
 			require.Error(t, value.UnmarshalCBOR(test.wire))
 		})
 	}
+}
+
+func TestMaryTransactionOutputValueAcceptsIndefiniteArray(t *testing.T) {
+	var value MaryTransactionOutputValue
+	require.NoError(t, value.UnmarshalCBOR([]byte{0x9f, 0x01, 0xa0, 0xff}))
+	require.Equal(t, uint64(1), value.Amount)
+	require.NotNil(t, value.Assets)
 }
 
 func TestMaryTransactionOutputString(t *testing.T) {

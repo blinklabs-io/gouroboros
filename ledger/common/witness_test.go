@@ -29,6 +29,23 @@ func TestVkeyWitnessRejectsInvalidWidths(t *testing.T) {
 	}
 }
 
+func TestVkeyWitnessAcceptsIndefiniteArray(t *testing.T) {
+	vkey := make([]byte, 32)
+	signature := make([]byte, 64)
+	definite, err := cbor.Encode(common.VkeyWitness{
+		Vkey: vkey, Signature: signature,
+	})
+	require.NoError(t, err)
+	indefinite := append([]byte{0x9f}, definite[1:]...)
+	indefinite = append(indefinite, 0xff)
+
+	var witness common.VkeyWitness
+	_, err = cbor.Decode(indefinite, &witness)
+	require.NoError(t, err)
+	require.Equal(t, vkey, witness.Vkey)
+	require.Equal(t, signature, witness.Signature)
+}
+
 func TestVkeyWitnessRejectsIndefiniteKey(t *testing.T) {
 	key := append([]byte{0x5f, 0x58, 0x20}, make([]byte, 32)...)
 	key = append(key, 0xff)
@@ -62,6 +79,30 @@ func TestBootstrapWitnessRejectsInvalidWidths(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestBootstrapWitnessAcceptsIndefiniteArray(t *testing.T) {
+	publicKey := make([]byte, 32)
+	signature := make([]byte, 64)
+	chainCode := make([]byte, 32)
+	attributes := []byte{0xa0}
+	definite, err := cbor.Encode(common.BootstrapWitness{
+		PublicKey:  publicKey,
+		Signature:  signature,
+		ChainCode:  chainCode,
+		Attributes: attributes,
+	})
+	require.NoError(t, err)
+	indefinite := append([]byte{0x9f}, definite[1:]...)
+	indefinite = append(indefinite, 0xff)
+
+	var witness common.BootstrapWitness
+	_, err = cbor.Decode(indefinite, &witness)
+	require.NoError(t, err)
+	require.Equal(t, publicKey, witness.PublicKey)
+	require.Equal(t, signature, witness.Signature)
+	require.Equal(t, chainCode, witness.ChainCode)
+	require.Equal(t, attributes, witness.Attributes)
 }
 
 func TestBootstrapWitnessRejectsIndefiniteSignature(t *testing.T) {

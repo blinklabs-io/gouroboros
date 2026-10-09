@@ -128,6 +128,19 @@ func DecodeExact(dataBytes []byte, dest any) (int, error) {
 	return bytesRead, nil
 }
 
+// ValidateExact validates that data contains exactly one well-formed CBOR item
+// using the default decoder limits, without constructing its decoded value.
+func ValidateExact(dataBytes []byte) error {
+	decMode, err := getDecMode()
+	if err != nil {
+		return err
+	}
+	if decMode == nil {
+		return errors.New("CBOR decoder mode not initialized")
+	}
+	return decMode.Wellformed(dataBytes)
+}
+
 // DecodeBool decodes a CBOR boolean while rejecting every other simple value.
 func DecodeBool(data []byte) (bool, error) {
 	if len(data) != 1 {

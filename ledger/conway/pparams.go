@@ -844,7 +844,7 @@ func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	if raw, ok := fields[19]; ok {
-		if err := common.ValidateDefiniteCBORArrayLength(
+		if err := common.ValidateCBORArrayLength(
 			raw,
 			2,
 			"protocol parameter tag 19",

@@ -30,6 +30,19 @@ func ValidateCBORArrayLength(data []byte, expected int, name string) error {
 	if expected < 0 {
 		return fmt.Errorf("%s has an invalid expected array length %d", name, expected)
 	}
+	arrayLength, _, indefinite := cbor.ArrayInfo(data)
+	if arrayLength < 0 && !indefinite {
+		return fmt.Errorf("%s must be a CBOR array", name)
+	}
+	if !indefinite {
+		if arrayLength != expected {
+			return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, arrayLength)
+		}
+		if err := cbor.ValidateExact(data); err != nil {
+			return fmt.Errorf("decode %s: %w", name, err)
+		}
+		return nil
+	}
 	var items []cbor.RawMessage
 	n, err := cbor.Decode(data, &items)
 	if err != nil {
@@ -81,22 +94,33 @@ func decodeByteStringArray(
 	if len(expectedLengths) > len(fields) {
 		return fields, fmt.Errorf("%s has too many byte string fields", name)
 	}
-	if err := ValidateDefiniteCBORArrayLength(data, len(expectedLengths), name); err != nil {
-		return fields, err
+	arrayLength, headerLength, indefinite := cbor.ArrayInfo(data)
+	if arrayLength < 0 && !indefinite {
+		return fields, fmt.Errorf("%s must be a CBOR array", name)
 	}
-	_, headerLength, _ := cbor.ArrayInfo(data)
+	if !indefinite && arrayLength != len(expectedLengths) {
+		return fields, fmt.Errorf(
+			"%s must contain %d array elements, got %d",
+			name,
+			len(expectedLengths),
+			arrayLength,
+		)
+	}
+	if uint64(headerLength) > uint64(len(data)) {
+		return fields, fmt.Errorf("decode %s: array header exceeds data", name)
+	}
 	offset := int(headerLength)
 	var ranges [4]byteStringRange
 	var totalLength int
 	for i, expectedLength := range expectedLengths {
-		if offset > len(data) {
+		if offset >= len(data) || (indefinite && data[offset] == 0xff) {
 			return fields, fmt.Errorf("decode %s: truncated byte string array", name)
 		}
-		length, byteHeaderLength, indefinite, err := byteStringHeader(data[offset:])
+		length, byteHeaderLength, indefiniteByteString, err := byteStringHeader(data[offset:])
 		if err != nil {
 			return fields, fmt.Errorf("decode %s field %d: %w", name, i, err)
 		}
-		if indefinite {
+		if indefiniteByteString {
 			return fields, fmt.Errorf("%s field %d must be a definite-length byte string", name, i)
 		}
 		if expectedLength >= 0 && length != uint64(expectedLength) {
@@ -121,6 +145,16 @@ func decodeByteStringArray(
 		ranges[i] = byteStringRange{start: start, end: end}
 		totalLength += int(length) // #nosec G115 -- disjoint fields are bounded by data
 		offset = end
+	}
+	if indefinite {
+		if offset >= len(data) || data[offset] != 0xff {
+			return fields, fmt.Errorf(
+				"%s must contain exactly %d array elements",
+				name,
+				len(expectedLengths),
+			)
+		}
+		offset++
 	}
 	if offset != len(data) {
 		return fields, fmt.Errorf("decode %s: trailing data after byte string array", name)
@@ -489,7 +523,7 @@ func (a *GovAnchor) UnmarshalCBOR(cborData []byte) error {
 	if a == nil {
 		return errors.New("nil GovAnchor receiver")
 	}
-	if err := ValidateDefiniteCBORArrayLength(
+	if err := ValidateCBORArrayLength(
 		cborData,
 		2,
 		"governance anchor",
@@ -534,7 +568,7 @@ func (id *GovActionId) UnmarshalCBOR(cborData []byte) error {
 	if id == nil {
 		return errors.New("nil GovActionId receiver")
 	}
-	if err := ValidateDefiniteCBORArrayLength(
+	if err := ValidateCBORArrayLength(
 		cborData,
 		2,
 		"governance action ID",
