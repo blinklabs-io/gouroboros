@@ -70,7 +70,7 @@ func TestExtractBlockHeaderCborPreservesSupportedHeaders(t *testing.T) {
 func TestExtractBlockHeaderCborRejectsInvalidOuterArrays(t *testing.T) {
 	tests := map[string][]byte{
 		"empty":      {0x80},
-		"too many":   {0x88},
+		"too many":   append([]byte{0x88}, bytes.Repeat([]byte{0x00}, 8)...),
 		"indefinite": {0x9f, 0xff},
 		"not array":  {0xa0},
 	}

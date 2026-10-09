@@ -421,7 +421,8 @@ func (r *ApplyStageRunner) Start(ctx context.Context) {
 
 // Stop waits for the runner to complete. The runner will exit when the context
 // passed to Start is cancelled or the input channel is closed. This method blocks
-// until completion; it does not signal the runner to stop.
+// until completion; it does not signal the runner to stop. If the output is not
+// consumed concurrently, callers must drain it until Stop returns.
 func (r *ApplyStageRunner) Stop() {
 	r.mu.Lock()
 	if !r.running {
