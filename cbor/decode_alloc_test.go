@@ -65,3 +65,39 @@ func TestDecodeDoesNotCopyInputThroughStreamBuffer(t *testing.T) {
 		payloadSize,
 	)
 }
+
+type retainingUnmarshaler struct {
+	data []byte
+}
+
+func (r *retainingUnmarshaler) UnmarshalCBOR(data []byte) error {
+	r.data = data
+	return nil
+}
+
+// Decode documents that decoded values may keep references into the input.
+func TestDecodeRetainedInputAliasesCallerSlice(t *testing.T) {
+	t.Parallel()
+	input := []byte{0x82, 0x01, 0x02}
+	var dest retainingUnmarshaler
+	n, err := cbor.Decode(input, &dest)
+	require.NoError(t, err)
+	require.Equal(t, len(input), n)
+	require.Equal(t, []byte{0x82, 0x01, 0x02}, dest.data)
+	input[1] = 0xff
+	require.Equal(t, []byte{0x82, 0xff, 0x02}, dest.data)
+}
+
+func TestDecodeReportsZeroBytesOnError(t *testing.T) {
+	t.Parallel()
+	// Malformed: array header promises two items, only one present.
+	var malformed any
+	n, err := cbor.Decode([]byte{0x82, 0x01}, &malformed)
+	require.Error(t, err)
+	require.Equal(t, 0, n)
+	// Well-formed item that does not fit the destination, with trailing data.
+	var wrong string
+	n, err = cbor.Decode([]byte{0x01, 0x02, 0x03}, &wrong)
+	require.Error(t, err)
+	require.Equal(t, 0, n)
+}

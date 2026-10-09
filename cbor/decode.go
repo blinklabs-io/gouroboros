@@ -87,6 +87,14 @@ func getDecMode() (_cbor.DecMode, error) {
 	return cachedDecMode, cachedDecModeErr
 }
 
+// Decode decodes the first CBOR item in dataBytes into dest and returns the
+// number of bytes consumed. It returns 0 bytes when decoding fails.
+//
+// Decode does not copy dataBytes. A dest whose UnmarshalCBOR retains its input
+// (for example the stored CBOR of a ledger transaction body) keeps a reference
+// into dataBytes, so the caller must not modify or reuse dataBytes while the
+// decoded value is in use. The same holds for the DecodeStrict and
+// DecodeLedgerMap variants and for the ledger New*FromCbor constructors.
 func Decode(dataBytes []byte, dest any) (int, error) {
 	return decode(dataBytes, dest, getDecMode, rejectDuplicateMapKeys)
 }
@@ -148,7 +156,12 @@ func decodeWithMode(
 	// UnmarshalFirst reads the caller's slice directly. A streaming Decoder
 	// would copy the input through its own growing buffer on every call.
 	rest, err := decMode.UnmarshalFirst(dataBytes, dest)
-	return len(dataBytes) - len(rest), err
+	if err != nil {
+		// UnmarshalFirst returns no remainder on error, so a consumed count
+		// derived from it would be the whole input.
+		return 0, err
+	}
+	return len(dataBytes) - len(rest), nil
 }
 
 // IsDuplicateMapKeyError returns true when err wraps fxamacker's duplicate map
