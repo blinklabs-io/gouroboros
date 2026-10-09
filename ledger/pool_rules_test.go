@@ -545,7 +545,7 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		))
 	})
 
-	t.Run("existing pool cannot repeat a pending VRF key in one tx", func(t *testing.T) {
+	t.Run("existing pool cannot re-register twice with one pending VRF key", func(t *testing.T) {
 		currentVrf := vrfKeyHash(0x04)
 		current := &common.PoolRegistrationCertificate{
 			CertType:   uint(common.CertificateTypePoolRegistration),
@@ -574,6 +574,8 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		)
 		var target shelley.VrfKeyHashAlreadyRegisteredError
 		require.ErrorAs(t, err, &target)
+		assert.Equal(t, registeringPool, target.PoolKeyHash)
+		assert.Equal(t, sharedVrf, target.VrfKeyHash)
 		assert.Equal(t, registeringPool, target.RegisteredBy)
 	})
 
@@ -721,6 +723,15 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 			},
 		}
 	}
+	unreservedFutureState := func() common.LedgerState {
+		state := inheritedFutureState().(futurePoolLedgerState)
+		state.lookup = func(
+			common.Blake2b256,
+		) (bool, common.PoolKeyHash, error) {
+			return false, common.PoolKeyHash{}, nil
+		}
+		return state
+	}
 	registration := func(pool common.PoolKeyHash, vrf common.VrfKeyHash) common.Certificate {
 		return poolRegCertWire(
 			t,
@@ -731,13 +742,14 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		)
 	}
 
-	t.Run("re-registration releases inherited future key in one tx", func(t *testing.T) {
+	t.Run("later re-registration releases prior transaction key", func(t *testing.T) {
+		reserve := registration(registeringPool, sharedVrf)
 		replace := registration(registeringPool, replacementVrf)
 		claimReleased := registration(otherPool, sharedVrf)
 		require.NoError(t, shelley.UtxoValidatePoolCertificates(
-			poolCertTx(replace, claimReleased),
+			poolCertTx(reserve, replace, claimReleased),
 			0,
-			inheritedFutureState(),
+			unreservedFutureState(),
 			pparams,
 		))
 	})
