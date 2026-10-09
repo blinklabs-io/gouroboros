@@ -506,36 +506,56 @@ type AlonzoTransactionOutput struct {
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
-	// Reset shape-dependent fields when decoding into a reused output.
-	o.legacyOutput = false
-	o.OutputDatumHash = nil
-	if len(cborData) > 0 && cborData[0] == 0x83 {
-		var tmp struct {
+	arrayLength, _, indefinite := cbor.ArrayInfo(cborData)
+	if indefinite {
+		var items []cbor.RawMessage
+		if _, err := cbor.Decode(cborData, &items); err != nil {
+			return err
+		}
+		arrayLength = len(items)
+	}
+	if arrayLength != 2 && arrayLength != 3 {
+		return fmt.Errorf(
+			"alonzo transaction output must contain 2 or 3 items, got %d",
+			arrayLength,
+		)
+	}
+	var addressBytes []byte
+	var amount mary.MaryTransactionOutputValue
+	var datumHash *common.Blake2b256
+	if arrayLength == 2 {
+		var decoded struct {
+			cbor.StructAsArray
+			OutputAddress []byte
+			OutputAmount  mary.MaryTransactionOutputValue
+		}
+		if _, err := cbor.Decode(cborData, &decoded); err != nil {
+			return fmt.Errorf("decode legacy transaction output: %w", err)
+		}
+		addressBytes = decoded.OutputAddress
+		amount = decoded.OutputAmount
+	} else {
+		var decoded struct {
 			cbor.StructAsArray
 			OutputAddress   []byte
 			OutputAmount    mary.MaryTransactionOutputValue
 			OutputDatumHash *common.Blake2b256
 		}
-		if _, err := cbor.Decode(cborData, &tmp); err != nil {
-			return err
+		if _, err := cbor.Decode(cborData, &decoded); err != nil {
+			return fmt.Errorf("decode transaction output: %w", err)
 		}
-		address, err := common.NewAddressFromBytesLenient(tmp.OutputAddress)
-		if err != nil {
-			return err
-		}
-		o.OutputAddress = address
-		o.OutputAmount = tmp.OutputAmount
-		o.OutputDatumHash = tmp.OutputDatumHash
-	} else {
-		var tmpOutput mary.MaryTransactionOutput
-		if _, err := cbor.Decode(cborData, &tmpOutput); err != nil {
-			return err
-		}
-		// Copy from temp mary.Mary output to Alonzo format
-		o.OutputAddress = tmpOutput.OutputAddress
-		o.OutputAmount = tmpOutput.OutputAmount
-		o.legacyOutput = true
+		addressBytes = decoded.OutputAddress
+		amount = decoded.OutputAmount
+		datumHash = decoded.OutputDatumHash
 	}
+	address, err := common.NewAddressFromBytesLenient(addressBytes)
+	if err != nil {
+		return err
+	}
+	o.OutputAddress = address
+	o.OutputAmount = amount
+	o.OutputDatumHash = datumHash
+	o.legacyOutput = arrayLength == 2
 	// Save original CBOR
 	o.SetCborReference(cborData)
 	return nil
@@ -716,6 +736,19 @@ type AlonzoRedeemer struct {
 	Index   uint32             `json:"index"`
 	Data    common.Datum       `json:"data"`
 	ExUnits common.ExUnits     `json:"exUnits"`
+}
+
+func (r *AlonzoRedeemer) UnmarshalCBOR(data []byte) error {
+	if err := common.ValidateCBORArrayLength(data, 4, "redeemer"); err != nil {
+		return err
+	}
+	type tAlonzoRedeemer AlonzoRedeemer
+	var decoded tAlonzoRedeemer
+	if _, err := cbor.Decode(data, &decoded); err != nil {
+		return err
+	}
+	*r = AlonzoRedeemer(decoded)
+	return nil
 }
 
 // AlonzoRedeemers wraps a slice of redeemers with CBOR preservation
@@ -1115,15 +1148,16 @@ func (t AlonzoTransaction) Consumed() []common.TransactionInput {
 func (t AlonzoTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		outputs := t.Outputs()
+		txId := t.Hash()
 		ret := make([]common.Utxo, 0, len(outputs))
 		for idx, output := range outputs {
 			ret = append(
 				ret,
 				common.Utxo{
-					Id: shelley.NewShelleyTransactionInput(
-						t.Hash().String(),
-						idx,
-					),
+					Id: shelley.ShelleyTransactionInput{
+						TxId:        txId,
+						OutputIndex: uint32(idx),
+					},
 					Output: output,
 				},
 			)
@@ -1214,7 +1248,7 @@ func NewAlonzoBlockFromCbor(
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
 	var alonzoBlock AlonzoBlock
-	if _, err := cbor.Decode(data, &alonzoBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoBlock); err != nil {
 		return nil, fmt.Errorf("decode Alonzo block error: %w", err)
 	}
 
@@ -1238,7 +1272,7 @@ func NewAlonzoBlockFromCbor(
 
 func NewAlonzoBlockHeaderFromCbor(data []byte) (*AlonzoBlockHeader, error) {
 	var alonzoBlockHeader AlonzoBlockHeader
-	if _, err := cbor.Decode(data, &alonzoBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Alonzo block header error: %w", err)
 	}
 	return &alonzoBlockHeader, nil
@@ -1248,7 +1282,7 @@ func NewAlonzoTransactionBodyFromCbor(
 	data []byte,
 ) (*AlonzoTransactionBody, error) {
 	var alonzoTx AlonzoTransactionBody
-	if _, err := cbor.Decode(data, &alonzoTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoTx); err != nil {
 		return nil, fmt.Errorf("decode Alonzo transaction body error: %w", err)
 	}
 	return &alonzoTx, nil
@@ -1256,7 +1290,7 @@ func NewAlonzoTransactionBodyFromCbor(
 
 func NewAlonzoTransactionFromCbor(data []byte) (*AlonzoTransaction, error) {
 	var alonzoTx AlonzoTransaction
-	if _, err := cbor.Decode(data, &alonzoTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoTx); err != nil {
 		return nil, fmt.Errorf("decode Alonzo transaction error: %w", err)
 	}
 	return &alonzoTx, nil
@@ -1266,7 +1300,7 @@ func NewAlonzoTransactionOutputFromCbor(
 	data []byte,
 ) (*AlonzoTransactionOutput, error) {
 	var alonzoTxOutput AlonzoTransactionOutput
-	if _, err := cbor.Decode(data, &alonzoTxOutput); err != nil {
+	if _, err := cbor.DecodeExact(data, &alonzoTxOutput); err != nil {
 		return nil, fmt.Errorf(
 			"decode Alonzo transaction output error: %w",
 			err,

@@ -22,11 +22,27 @@ import (
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 )
+
+func newTestBabbageBlock(blockNumber, slot uint64) ledger.BabbageBlock {
+	block := ledger.BabbageBlock{BlockHeader: &ledger.BabbageBlockHeader{}}
+	block.BlockHeader.Body.BlockNumber = blockNumber
+	block.BlockHeader.Body.Slot = slot
+	block.BlockHeader.Body.VrfKey = make([]byte, 32)
+	block.BlockHeader.Body.VrfResult = common.VrfResult{
+		Output: make([]byte, 64),
+		Proof:  make([]byte, 80),
+	}
+	block.BlockHeader.Body.OpCert.HotVkey = make([]byte, 32)
+	block.BlockHeader.Body.OpCert.Signature = make([]byte, 64)
+	block.BlockHeader.Signature = make([]byte, 448)
+	return block
+}
 
 // testRangeOneBlockAfterIntersect drives GetAvailableBlockRange where the only
 // block after the intersection is at blockSlot and is also the peer's tip.
@@ -36,11 +52,7 @@ func testRangeOneBlockAfterIntersect(
 	blockSlot uint64,
 ) {
 	t.Helper()
-	testBlock := ledger.BabbageBlock{
-		BlockHeader: &ledger.BabbageBlockHeader{},
-	}
-	testBlock.BlockHeader.Body.BlockNumber = 12001
-	testBlock.BlockHeader.Body.Slot = blockSlot
+	testBlock := newTestBabbageBlock(12001, blockSlot)
 	blockCbor, err := cbor.Encode(testBlock)
 	if err != nil {
 		t.Fatalf("received unexpected error: %s", err)

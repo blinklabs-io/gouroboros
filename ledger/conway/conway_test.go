@@ -129,8 +129,48 @@ func TestConwayRedeemersIter(t *testing.T) {
 	}
 }
 
+func TestConwayBlockHeaderRejectsProtocolMajorAboveEraMaximum(t *testing.T) {
+	for _, major := range []uint64{12, 13} {
+		t.Run(fmt.Sprint(major), func(t *testing.T) {
+			header := babbage.BabbageBlockHeader{
+				Body: babbage.BabbageBlockHeaderBody{
+					IssuerVkey: common.IssuerVkey{},
+					VrfKey:     make([]byte, 32),
+					VrfResult: common.VrfResult{
+						Output: make([]byte, 64),
+						Proof:  make([]byte, 80),
+					},
+					BlockBodyHash: common.Blake2b256{},
+					OpCert: babbage.BabbageOpCert{
+						HotVkey:   make([]byte, 32),
+						Signature: make([]byte, 64),
+					},
+					ProtoVersion: babbage.BabbageProtoVersion{Major: major},
+				},
+				Signature: make([]byte, 448),
+			}
+			wire, err := cbor.Encode(header)
+			require.NoError(t, err)
+			_, err = NewConwayBlockHeaderFromCbor(wire)
+			if major == 12 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestConwayRedeemersRejectsEmptyForms(t *testing.T) {
+	for _, wire := range [][]byte{{0xa0}, {0x80}} {
+		var redeemers ConwayRedeemers
+		_, err := cbor.Decode(wire, &redeemers)
+		require.Error(t, err)
+	}
+}
+
 func TestConwayTransactionInputSetConditionalDuplicateCheck(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
@@ -744,14 +784,13 @@ func TestConwayTransactionBodyRejectsDuplicatePoolOwners(t *testing.T) {
 // duplicates at protocol version 12 (Dijkstra). Rejecting at decode in Conway
 // wrongly rejects valid historical blocks (issue #1853).
 func TestConwayWitnessSetToleratesDuplicateTaggedVkeyWitness(t *testing.T) {
-	dupCbor := []byte{
-		0xa1,             // map(1)
-		0x00,             // key: 0  (VkeyWitnesses field)
-		0xd9, 0x01, 0x02, // tag(258) - CBOR set
-		0x82,                         // array(2)
-		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
-		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
-	}
+	witness := []byte{0x82, 0x58, common.Blake2b256Size}
+	witness = append(witness, bytes.Repeat([]byte{0x01}, common.Blake2b256Size)...)
+	witness = append(witness, 0x58, 0x40)
+	witness = append(witness, bytes.Repeat([]byte{0x02}, 64)...)
+	dupCbor := []byte{0xa1, 0x00, 0xd9, 0x01, 0x02, 0x82}
+	dupCbor = append(dupCbor, witness...)
+	dupCbor = append(dupCbor, witness...)
 
 	var ws ConwayTransactionWitnessSet
 	err := ws.UnmarshalCBOR(dupCbor)
@@ -773,11 +812,16 @@ func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(
 		{
 			name:  "bootstrap witnesses",
 			field: 0x02,
-			member: []byte{
-				0x84,                   // BootstrapWitness
-				0x41, 0x01, 0x41, 0x02, // public key, signature
-				0x41, 0x03, 0x41, 0x04, // chain code, attributes
-			},
+			member: func() []byte {
+				encoded := []byte{0x84, 0x58, common.Blake2b256Size}
+				encoded = append(encoded, bytes.Repeat([]byte{0x01}, common.Blake2b256Size)...)
+				encoded = append(encoded, 0x58, 0x40)
+				encoded = append(encoded, bytes.Repeat([]byte{0x02}, 64)...)
+				encoded = append(encoded, 0x58, common.Blake2b256Size)
+				encoded = append(encoded, bytes.Repeat([]byte{0x03}, common.Blake2b256Size)...)
+				encoded = append(encoded, 0x40)
+				return encoded
+			}(),
 		},
 		{
 			name:  "native scripts",
@@ -967,7 +1011,7 @@ func TestConwayTx_WithReferenceInputs_CborRoundTrip(t *testing.T) {
 	tx := &ConwayTransaction{}
 	tx.Body.TxInputs = NewConwayTransactionInputSet(
 		[]shelley.ShelleyTransactionInput{
-			shelley.NewShelleyTransactionInput(
+			shelley.MustNewShelleyTransactionInput(
 				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				0,
 			),
@@ -975,7 +1019,7 @@ func TestConwayTx_WithReferenceInputs_CborRoundTrip(t *testing.T) {
 	)
 	tx.Body.TxReferenceInputs = cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{
-			shelley.NewShelleyTransactionInput(
+			shelley.MustNewShelleyTransactionInput(
 				"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				1,
 			),
@@ -1039,7 +1083,7 @@ func TestConwayTx_WithReferenceScripts_CborRoundTrip(t *testing.T) {
 	tx := &ConwayTransaction{}
 	tx.Body.TxInputs = NewConwayTransactionInputSet(
 		[]shelley.ShelleyTransactionInput{
-			shelley.NewShelleyTransactionInput(
+			shelley.MustNewShelleyTransactionInput(
 				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				0,
 			),

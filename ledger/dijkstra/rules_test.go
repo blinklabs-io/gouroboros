@@ -1102,7 +1102,7 @@ func TestDijkstraDelegationInheritsDRepDeregistrationTombstone(t *testing.T) {
 			TxCertificates: []common.CertificateWrapper{
 				{Certificate: &common.DeregistrationDrepCertificate{
 					DrepCredential: drep,
-					Amount:         int64(drepDeposit),
+					Amount:         drepDeposit,
 				}},
 				{Certificate: &common.VoteDelegationCertificate{
 					StakeCredential: stake,
@@ -1339,7 +1339,7 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeReferenceScriptGuard(
 		CredType:   common.CredentialTypeScriptHash,
 		Credential: nativeScript.Hash(),
 	}
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"4444444444444444444444444444444444444444444444444444444444444444",
 		0,
 	)
@@ -2021,7 +2021,7 @@ func dijkstraRefScriptInput(
 	scriptSize int,
 ) (shelley.ShelleyTransactionInput, common.Utxo) {
 	t.Helper()
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		strings.Repeat(fmt.Sprintf("%02x", hashByte), 32),
 		index,
 	)
@@ -2478,7 +2478,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 				TxFee: fee,
 				TxCollateral: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(
+						shelley.MustNewShelleyTransactionInput(
 							testInputTxId,
 							0,
 						),
@@ -2497,7 +2497,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
 			[]common.Utxo{
 				{
-					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: collateral,
 					},

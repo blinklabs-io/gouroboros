@@ -1011,6 +1011,13 @@ type ExUnits struct {
 // UnmarshalCBOR enforces the unsigned wire domain of execution units while
 // retaining signed fields for overflow-checked accumulation.
 func (e *ExUnits) UnmarshalCBOR(cborData []byte) error {
+	if err := ValidateCBORArrayLength(
+		cborData,
+		2,
+		"execution units",
+	); err != nil {
+		return err
+	}
 	var encoded struct {
 		cbor.StructAsArray
 		Memory uint64

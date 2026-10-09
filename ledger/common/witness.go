@@ -24,12 +24,39 @@ type VkeyWitness struct {
 	Signature []byte
 }
 
+func (w *VkeyWitness) UnmarshalCBOR(data []byte) error {
+	fields, err := decodeByteStringArray(data, []int{32, 64}, "vkey witness")
+	if err != nil {
+		return err
+	}
+	*w = VkeyWitness{Vkey: fields[0], Signature: fields[1]}
+	return nil
+}
+
 type BootstrapWitness struct {
 	cbor.StructAsArray
 	PublicKey  []byte
 	Signature  []byte
 	ChainCode  []byte
 	Attributes []byte
+}
+
+func (w *BootstrapWitness) UnmarshalCBOR(data []byte) error {
+	fields, err := decodeByteStringArray(
+		data,
+		[]int{32, 64, 32, -1},
+		"bootstrap witness",
+	)
+	if err != nil {
+		return err
+	}
+	*w = BootstrapWitness{
+		PublicKey:  fields[0],
+		Signature:  fields[1],
+		ChainCode:  fields[2],
+		Attributes: fields[3],
+	}
+	return nil
 }
 
 // ValidateCollateralVKeyWitnesses ensures every key-locked collateral input

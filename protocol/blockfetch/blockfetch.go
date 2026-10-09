@@ -130,6 +130,10 @@ type Config struct {
 	// fetched blocks with protocol points. Connections apply a non-zero value
 	// to both BlockFetch and ChainSync. Zero uses the legacy value.
 	ByronSlotsPerEpoch uint64
+	// IngressLimit overrides the base number of block-fetch payload bytes
+	// the muxer may hold before delivering them to the protocol. Zero uses
+	// the protocol's default ingress limit.
+	IngressLimit int
 }
 
 // MaxRecvQueueSize is the maximum allowed receive queue size (messages).
@@ -314,6 +318,14 @@ func WithRequestPipelining(enabled bool) BlockFetchOptionFunc {
 func WithMaxInFlightBytes(maxBytes uint64) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.MaxInFlightBytes = maxBytes
+	}
+}
+
+// WithIngressLimit sets the base block-fetch ingress limit in bytes.
+// Zero selects the protocol's default limit.
+func WithIngressLimit(limit int) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.IngressLimit = limit
 	}
 }
 

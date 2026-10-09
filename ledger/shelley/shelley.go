@@ -15,6 +15,7 @@
 package shelley
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -561,21 +562,190 @@ type ShelleyTransactionInput struct {
 	OutputIndex uint32
 }
 
-func NewShelleyTransactionInput(hash string, idx int) ShelleyTransactionInput {
+func (i *ShelleyTransactionInput) UnmarshalCBOR(data []byte) error {
+	arrayLength, arrayHeaderLength, indefinite := cbor.ArrayInfo(data)
+	if arrayLength < 0 {
+		return errors.New("transaction input must be a CBOR array")
+	}
+	var hashCBOR, indexCBOR []byte
+	if indefinite {
+		var items []cbor.RawMessage
+		bytesRead, err := cbor.Decode(data, &items)
+		if err != nil {
+			return fmt.Errorf("decode transaction input array: %w", err)
+		}
+		if bytesRead != len(data) {
+			return fmt.Errorf("%d trailing bytes after transaction input", len(data)-bytesRead)
+		}
+		if len(items) != 2 {
+			return fmt.Errorf("transaction input must contain two array elements, got %d", len(items))
+		}
+		hashCBOR, indexCBOR = items[0], items[1]
+	} else {
+		if arrayLength != 2 {
+			return fmt.Errorf("transaction input must contain two array elements, got %d", arrayLength)
+		}
+		offset := int(arrayHeaderLength)
+		hashLength, hashHeaderLength, err := decodeCBORStringLength(
+			data[offset:],
+			cbor.CborTypeByteString,
+		)
+		if err != nil {
+			return fmt.Errorf("decode transaction input hash: %w", err)
+		}
+		if hashLength > len(data)-offset-hashHeaderLength {
+			return errors.New("transaction input hash exceeds CBOR data")
+		}
+		hashEnd := offset + hashHeaderLength + hashLength
+		hashCBOR, indexCBOR = data[offset:hashEnd], data[hashEnd:]
+	}
+	return i.unmarshalCBORFields(hashCBOR, indexCBOR)
+}
+
+func (i *ShelleyTransactionInput) unmarshalCBORFields(
+	hashCBOR []byte,
+	indexCBOR []byte,
+) error {
+	hashLength, hashHeaderLength, err := decodeCBORStringLength(
+		hashCBOR,
+		cbor.CborTypeByteString,
+	)
+	if err != nil {
+		return fmt.Errorf("decode transaction input hash: %w", err)
+	}
+	if hashLength != common.Blake2b256Size {
+		return fmt.Errorf(
+			"transaction input hash must be %d bytes, got %d",
+			common.Blake2b256Size,
+			hashLength,
+		)
+	}
+	if hashHeaderLength > len(hashCBOR) || hashLength > len(hashCBOR)-hashHeaderLength {
+		return errors.New("transaction input hash exceeds CBOR data")
+	}
+	if hashHeaderLength+hashLength != len(hashCBOR) {
+		return errors.New("trailing CBOR data after transaction input hash")
+	}
+	var txId common.Blake2b256
+	copy(txId[:], hashCBOR[hashHeaderLength:])
+	outputIndex, indexLength, err := decodeCBORUnsigned(indexCBOR)
+	if err != nil {
+		return fmt.Errorf("decode transaction input index: %w", err)
+	}
+	if indexLength != len(indexCBOR) {
+		return errors.New("trailing CBOR data after transaction input index")
+	}
+	if outputIndex > math.MaxUint16 {
+		return fmt.Errorf(
+			"transaction input index %d exceeds the maximum of %d",
+			outputIndex,
+			math.MaxUint16,
+		)
+	}
+	*i = ShelleyTransactionInput{
+		TxId:        txId,
+		OutputIndex: uint32(outputIndex),
+	}
+	return nil
+}
+
+func decodeCBORStringLength(data []byte, majorType uint8) (int, int, error) {
+	if len(data) == 0 || data[0]&cbor.CborTypeMask != majorType {
+		return 0, 0, errors.New("unexpected CBOR type")
+	}
+	value, headerLength, err := decodeCBORArgument(data)
+	if err != nil {
+		return 0, 0, err
+	}
+	if headerLength == 0 {
+		return 0, 0, errors.New("indefinite-length CBOR string")
+	}
+	if value > uint64(math.MaxInt) {
+		return 0, 0, errors.New("CBOR string length exceeds int range")
+	}
+	return int(value), headerLength, nil
+}
+
+func decodeCBORUnsigned(data []byte) (uint64, int, error) {
+	if len(data) == 0 || data[0]&cbor.CborTypeMask != 0 {
+		return 0, 0, errors.New("expected CBOR unsigned integer")
+	}
+	return decodeCBORArgument(data)
+}
+
+func decodeCBORArgument(data []byte) (uint64, int, error) {
+	if len(data) == 0 {
+		return 0, 0, errors.New("empty CBOR data")
+	}
+	switch additional := data[0] & 0x1f; {
+	case additional < 24:
+		return uint64(additional), 1, nil
+	case additional == 24 && len(data) >= 2:
+		return uint64(data[1]), 2, nil
+	case additional == 25 && len(data) >= 3:
+		return uint64(binary.BigEndian.Uint16(data[1:3])), 3, nil
+	case additional == 26 && len(data) >= 5:
+		return uint64(binary.BigEndian.Uint32(data[1:5])), 5, nil
+	case additional == 27 && len(data) >= 9:
+		return binary.BigEndian.Uint64(data[1:9]), 9, nil
+	case additional == 31:
+		return 0, 0, errors.New("indefinite-length CBOR value")
+	default:
+		return 0, 0, errors.New("invalid CBOR argument")
+	}
+}
+
+// NewShelleyTransactionInput builds a transaction input from a hex-encoded
+// 32-byte transaction hash and an output index.
+//
+// It returns an error rather than panicking, so a caller passing a value it
+// did not produce itself -- a hash off the wire, out of an API request, or
+// out of a config file -- can reject it. A hash shorter than 32 bytes would
+// otherwise panic in the slice-to-array conversion below, before any check
+// on it ran, and a longer one would be silently truncated to 32 bytes.
+func NewShelleyTransactionInput(
+	hash string,
+	idx int,
+) (ShelleyTransactionInput, error) {
 	tmpHash, err := hex.DecodeString(hash)
 	if err != nil {
-		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
+		return ShelleyTransactionInput{}, fmt.Errorf(
+			"decode transaction hash: %w", err,
+		)
+	}
+	if len(tmpHash) != common.Blake2b256Size {
+		return ShelleyTransactionInput{}, fmt.Errorf(
+			"transaction hash is %d bytes, expected %d",
+			len(tmpHash), common.Blake2b256Size,
+		)
 	}
 	// Compare the upper bound via int64 so this builds on 32-bit GOARCHs, where
 	// int is 32-bit and the untyped math.MaxUint32 constant would overflow the
 	// int comparison type. On 32-bit a positive int can never exceed MaxUint32.
 	if idx < 0 || int64(idx) > math.MaxUint32 {
-		panic("index out of range")
+		return ShelleyTransactionInput{}, fmt.Errorf(
+			"output index %d out of range", idx,
+		)
 	}
 	return ShelleyTransactionInput{
 		TxId:        common.Blake2b256(tmpHash),
 		OutputIndex: uint32(idx),
+	}, nil
+}
+
+// MustNewShelleyTransactionInput is NewShelleyTransactionInput for values the
+// caller controls, such as hard-coded hashes and test fixtures. It panics if
+// the hash or index is invalid. Use NewShelleyTransactionInput for anything
+// that came from a peer, an API request, or a configuration file.
+func MustNewShelleyTransactionInput(
+	hash string,
+	idx int,
+) ShelleyTransactionInput {
+	input, err := NewShelleyTransactionInput(hash, idx)
+	if err != nil {
+		panic(fmt.Sprintf("invalid shelley transaction input: %s", err))
 	}
+	return input
 }
 
 func (i ShelleyTransactionInput) Id() common.Blake2b256 {
@@ -796,10 +966,10 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 
-	// Ensure we have at least 3 components (body, witness, metadata)
-	if len(txArray) < 3 {
+	// Ensure we have 3 components (body, witness, metadata)
+	if len(txArray) != 3 {
 		return fmt.Errorf(
-			"invalid transaction: expected at least 3 components, got %d",
+			"invalid transaction: expected 3 components, got %d",
 			len(txArray),
 		)
 	}
@@ -963,12 +1133,16 @@ func (t ShelleyTransaction) Consumed() []common.TransactionInput {
 
 func (t ShelleyTransaction) Produced() []common.Utxo {
 	outputs := t.Outputs()
+	txId := t.Hash()
 	ret := make([]common.Utxo, 0, len(outputs))
 	for idx, output := range outputs {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     NewShelleyTransactionInput(t.Hash().String(), idx),
+				Id: ShelleyTransactionInput{
+					TxId:        txId,
+					OutputIndex: uint32(idx),
+				},
 				Output: output,
 			},
 		)
@@ -1040,7 +1214,7 @@ func NewShelleyBlockFromCbor(
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
 	var shelleyBlock ShelleyBlock
-	if _, err := cbor.Decode(data, &shelleyBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &shelleyBlock); err != nil {
 		return nil, fmt.Errorf("decode Shelley block error: %w", err)
 	}
 
@@ -1064,7 +1238,7 @@ func NewShelleyBlockFromCbor(
 
 func NewShelleyBlockHeaderFromCbor(data []byte) (*ShelleyBlockHeader, error) {
 	var shelleyBlockHeader ShelleyBlockHeader
-	if _, err := cbor.Decode(data, &shelleyBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &shelleyBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Shelley block header error: %w", err)
 	}
 	return &shelleyBlockHeader, nil
@@ -1074,7 +1248,7 @@ func NewShelleyTransactionBodyFromCbor(
 	data []byte,
 ) (*ShelleyTransactionBody, error) {
 	var shelleyTx ShelleyTransactionBody
-	if _, err := cbor.Decode(data, &shelleyTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &shelleyTx); err != nil {
 		return nil, fmt.Errorf("decode Shelley transaction body error: %w", err)
 	}
 	return &shelleyTx, nil
@@ -1082,7 +1256,7 @@ func NewShelleyTransactionBodyFromCbor(
 
 func NewShelleyTransactionFromCbor(data []byte) (*ShelleyTransaction, error) {
 	var shelleyTx ShelleyTransaction
-	if _, err := cbor.Decode(data, &shelleyTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &shelleyTx); err != nil {
 		return nil, fmt.Errorf("decode Shelley transaction error: %w", err)
 	}
 	return &shelleyTx, nil
@@ -1092,7 +1266,7 @@ func NewShelleyTransactionOutputFromCbor(
 	data []byte,
 ) (*ShelleyTransactionOutput, error) {
 	var shelleyTxOutput ShelleyTransactionOutput
-	if _, err := cbor.Decode(data, &shelleyTxOutput); err != nil {
+	if _, err := cbor.DecodeExact(data, &shelleyTxOutput); err != nil {
 		return nil, fmt.Errorf(
 			"decode Shelley transaction output error: %w",
 			err,

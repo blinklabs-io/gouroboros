@@ -45,6 +45,7 @@ var (
 	NewShelleyBlockFromCbor             = shelley.NewShelleyBlockFromCbor
 	NewShelleyBlockHeaderFromCbor       = shelley.NewShelleyBlockHeaderFromCbor
 	NewShelleyTransactionInput          = shelley.NewShelleyTransactionInput
+	MustNewShelleyTransactionInput      = shelley.MustNewShelleyTransactionInput
 	NewShelleyTransactionFromCbor       = shelley.NewShelleyTransactionFromCbor
 	NewShelleyTransactionBodyFromCbor   = shelley.NewShelleyTransactionBodyFromCbor
 	NewShelleyTransactionOutputFromCbor = shelley.NewShelleyTransactionOutputFromCbor

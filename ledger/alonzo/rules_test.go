@@ -331,11 +331,11 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 
 func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
-	testGoodInput := shelley.NewShelleyTransactionInput(
+	testGoodInput := shelley.MustNewShelleyTransactionInput(
 		testInputTxId,
 		0,
 	)
-	testBadInput := shelley.NewShelleyTransactionInput(
+	testBadInput := shelley.MustNewShelleyTransactionInput(
 		testInputTxId,
 		1,
 	)
@@ -557,7 +557,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			TxFee: testFee,
 			TxInputs: shelley.NewShelleyTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(
+					shelley.MustNewShelleyTransactionInput(
 						testInputTxId,
 						0,
 					),
@@ -567,7 +567,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	}
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testInputAmount,
 			},
@@ -1020,13 +1020,13 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	}
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount1,
 			},
 		},
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount2,
 			},
@@ -1043,7 +1043,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 				false,
 			)
@@ -1076,8 +1076,8 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
-					shelley.NewShelleyTransactionInput(testInputTxId, 1),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 				},
 				false,
 			)
@@ -1098,7 +1098,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 }
 
 func TestUtxoValidateInsufficientCollateralRejectsUnresolvedInput(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
 		0,
 	)
@@ -1124,7 +1124,7 @@ func TestUtxoValidateInsufficientCollateralRejectsUnresolvedInput(t *testing.T) 
 }
 
 func TestUtxoValidateInsufficientCollateralRejectsNilOutput(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
 		0,
 	)
@@ -1172,13 +1172,13 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	)
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount,
 			},
 		},
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 			Output: alonzo.AlonzoTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
 					Amount: testCollateralAmount,
@@ -1196,8 +1196,8 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
-					shelley.NewShelleyTransactionInput(testInputTxId, 1),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 				},
 				false,
 			)
@@ -1230,7 +1230,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 				false,
 			)
@@ -1266,7 +1266,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	}
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount,
 			},
@@ -1308,7 +1308,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 				false,
 			)
@@ -1637,7 +1637,7 @@ func TestUtxoValidatePlutusScriptsUnsupported_Alonzo(t *testing.T) {
 }
 
 func TestUtxoValidateExtraneousRedeemers_Alonzo(t *testing.T) {
-	testInput := shelley.NewShelleyTransactionInput(
+	testInput := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000001",
 		0,
 	)
@@ -1909,7 +1909,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 				TxFee: fee,
 				TxCollateral: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(
+						shelley.MustNewShelleyTransactionInput(
 							testInputTxId,
 							0,
 						),
@@ -1926,7 +1926,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
 			[]common.Utxo{
 				{
-					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: collateral,
 					},

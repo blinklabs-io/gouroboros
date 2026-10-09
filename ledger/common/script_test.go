@@ -67,6 +67,44 @@ func TestScriptRefDecodeEncode(t *testing.T) {
 	}
 }
 
+func TestScriptRefRejectsInvalidTagAndExtraInnerFields(t *testing.T) {
+	validInner, err := cbor.Encode([]any{uint(3), []byte{0x48, 0x01}})
+	require.NoError(t, err)
+	tests := []struct {
+		name string
+		wire []byte
+	}{
+		{
+			name: "wrong outer tag",
+			wire: mustEncodeScriptRefTag(t, 557, validInner),
+		},
+		{
+			name: "extra inner field",
+			wire: mustEncodeScriptRefTag(t, cbor.CborTagCbor, mustEncodeScriptRefInner(t)),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var decoded common.ScriptRef
+			require.Error(t, decoded.UnmarshalCBOR(test.wire))
+		})
+	}
+}
+
+func mustEncodeScriptRefTag(t *testing.T, number uint64, content []byte) []byte {
+	t.Helper()
+	wire, err := cbor.Encode(cbor.Tag{Number: number, Content: content})
+	require.NoError(t, err)
+	return wire
+}
+
+func mustEncodeScriptRefInner(t *testing.T) []byte {
+	t.Helper()
+	wire, err := cbor.Encode([]any{uint(3), []byte{0x48, 0x01}, uint(0)})
+	require.NoError(t, err)
+	return wire
+}
+
 func TestPlutusScriptWrapperTrailingBytes(t *testing.T) {
 	flatScript, err := syn.Encode(&syn.Program[syn.DeBruijn]{
 		Version: lang.LanguageVersionV3,
@@ -133,6 +171,31 @@ func TestNativeScriptHash(t *testing.T) {
 	}
 	tmpHash := testScript.Hash()
 	assert.Equal(t, expectedScriptHash, tmpHash.String())
+}
+
+func TestNativeScriptDecodeRejectsExtraFields(t *testing.T) {
+	raw, err := cbor.Encode([]any{
+		uint(0),
+		make([]byte, common.Blake2b224Size),
+		uint(0),
+	})
+	require.NoError(t, err)
+	var script common.NativeScript
+	_, err = cbor.Decode(raw, &script)
+	require.Error(t, err)
+}
+
+func TestNativeScriptDecodeRejectsIndefiniteKeyHash(t *testing.T) {
+	indefiniteHash := append([]byte{0x5f, 0x58, 0x1c}, make([]byte, common.Blake2b224Size)...)
+	indefiniteHash = append(indefiniteHash, 0xff)
+	raw, err := cbor.Encode([]any{
+		uint(0),
+		cbor.RawMessage(indefiniteHash),
+	})
+	require.NoError(t, err)
+	var script common.NativeScript
+	_, err = cbor.Decode(raw, &script)
+	require.Error(t, err)
 }
 
 func TestNativeScriptRequireGuardEvaluation(t *testing.T) {

@@ -36,7 +36,7 @@ func conwayRefScriptInput(
 	scriptSize int,
 ) (shelley.ShelleyTransactionInput, common.Utxo) {
 	t.Helper()
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		strings.Repeat(fmt.Sprintf("%02x", hashByte), 32),
 		index,
 	)
@@ -449,7 +449,7 @@ func TestConwayRefScriptSizePerBlockUsesPriorOutputsAtPV11(t *testing.T) {
 			},
 		},
 	}
-	consumedInput := shelley.NewShelleyTransactionInput(
+	consumedInput := shelley.MustNewShelleyTransactionInput(
 		publishingTx.Hash().String(),
 		0,
 	)

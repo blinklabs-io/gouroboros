@@ -85,7 +85,7 @@ func TestBabbageUtxoValidateRequiredRedeemers(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)

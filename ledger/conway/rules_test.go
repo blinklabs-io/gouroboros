@@ -57,7 +57,7 @@ func makeConwayRewardAddress(
 
 func TestUtxoValidateOutsideForecastUsesConwayFailureTag(t *testing.T) {
 	const upperBound = uint64(12_345)
-	inputs := []common.TransactionInput{shelley.NewShelleyTransactionInput(
+	inputs := []common.TransactionInput{shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000001",
 		0,
 	)}
@@ -915,7 +915,7 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 	// Reference script tests (CIP-0033)
 	t.Run("redeemer with reference plutus v1 script", func(t *testing.T) {
 		// Create a mock ledger state with a reference input containing a Plutus script
-		refInput := shelley.NewShelleyTransactionInput(
+		refInput := shelley.MustNewShelleyTransactionInput(
 			"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			0,
 		)
@@ -960,7 +960,7 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 	})
 
 	t.Run("redeemer with reference plutus v4 script", func(t *testing.T) {
-		refInput := shelley.NewShelleyTransactionInput(
+		refInput := shelley.MustNewShelleyTransactionInput(
 			"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			0,
 		)
@@ -1005,7 +1005,7 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 	})
 
 	t.Run("redeemer with regular input plutus v4 script ref", func(t *testing.T) {
-		input := shelley.NewShelleyTransactionInput(
+		input := shelley.MustNewShelleyTransactionInput(
 			"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 			0,
 		)
@@ -1052,7 +1052,7 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 		"reference plutus script without redeemer should not error",
 		func(t *testing.T) {
 			// Reference scripts alone should not trigger extraneous witness errors
-			refInput := shelley.NewShelleyTransactionInput(
+			refInput := shelley.MustNewShelleyTransactionInput(
 				"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				0,
 			)
@@ -1146,7 +1146,7 @@ func TestUtxoValidateRequiredRedeemers(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"7777777777777777777777777777777777777777777777777777777777777777",
 		0,
 	)
@@ -1213,7 +1213,7 @@ func TestUtxoValidateRequiredRedeemers(t *testing.T) {
 	})
 
 	t.Run("non-script input unaffected", func(t *testing.T) {
-		keyInput := shelley.NewShelleyTransactionInput(
+		keyInput := shelley.MustNewShelleyTransactionInput(
 			"8888888888888888888888888888888888888888888888888888888888888888",
 			0,
 		)
@@ -1563,11 +1563,11 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 
 func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
-	testGoodInput := shelley.NewShelleyTransactionInput(
+	testGoodInput := shelley.MustNewShelleyTransactionInput(
 		testInputTxId,
 		0,
 	)
-	testBadInput := shelley.NewShelleyTransactionInput(
+	testBadInput := shelley.MustNewShelleyTransactionInput(
 		testInputTxId,
 		1,
 	)
@@ -1784,7 +1784,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		Body: conway.ConwayTransactionBody{
 			TxInputs: conway.NewConwayTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 			),
 			TxOutputs: []babbage.BabbageTransactionOutput{
@@ -1796,7 +1796,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	}
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testInputAmount,
 			},
@@ -1974,7 +1974,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 					Type: uint(common.CertificateTypeRegistration),
 					Certificate: &common.RegistrationCertificate{
 						StakeCredential: common.Credential{},
-						Amount:          int64(testDepositAmount),
+						Amount:          uint64(testDepositAmount),
 					},
 				},
 			}
@@ -2027,7 +2027,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 					Type: uint(common.CertificateTypeDeregistration),
 					Certificate: &common.DeregistrationCertificate{
 						StakeCredential: common.Credential{},
-						Amount:          int64(testDepositAmount),
+						Amount:          uint64(testDepositAmount),
 					},
 				},
 			}
@@ -2477,13 +2477,13 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	}
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount1,
 			},
 		},
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount2,
 			},
@@ -2500,7 +2500,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 				false,
 			)
@@ -2533,8 +2533,8 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
-					shelley.NewShelleyTransactionInput(testInputTxId, 1),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 				},
 				false,
 			)
@@ -2586,13 +2586,13 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	)
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount,
 			},
 		},
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 			Output: babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
 					Amount: testCollateralAmount,
@@ -2601,7 +2601,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 2),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 2),
 			Output: babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
 					Amount: testCollateralAmount,
@@ -2619,8 +2619,8 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
-					shelley.NewShelleyTransactionInput(testInputTxId, 1),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 				},
 				false,
 			)
@@ -2653,7 +2653,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 				false,
 			)
@@ -2677,8 +2677,8 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
-					shelley.NewShelleyTransactionInput(testInputTxId, 1),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 				},
 				false,
 			)
@@ -2708,7 +2708,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 2),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 2),
 				},
 				false,
 			)
@@ -2749,7 +2749,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	}
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount,
 			},
@@ -2791,7 +2791,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 				false,
 			)
@@ -2954,12 +2954,12 @@ func TestUtxoValidateDisjointRefInputs(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 			)
 			testTx.Body.TxReferenceInputs = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 				false,
 			)
@@ -2992,12 +2992,12 @@ func TestUtxoValidateDisjointRefInputs(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 			)
 			testTx.Body.TxReferenceInputs = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 1),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 				},
 				false,
 			)
@@ -3053,12 +3053,12 @@ func TestUtxoValidateDisjointRefInputs_PV11PlusSkipsGlobalCheck(t *testing.T) {
 			Body: conway.ConwayTransactionBody{
 				TxInputs: conway.NewConwayTransactionInputSet(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(testInputTxId, 0),
+						shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 					},
 				),
 				TxReferenceInputs: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(refInputTxId, 0),
+						shelley.MustNewShelleyTransactionInput(refInputTxId, 0),
 					},
 					false,
 				),
@@ -3085,12 +3085,16 @@ func TestUtxoValidateDisjointRefInputs_PV11PlusSkipsGlobalCheck(t *testing.T) {
 			Body: conway.ConwayTransactionBody{
 				TxInputs: conway.NewConwayTransactionInputSet(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(testInputTxId, 0),
+						shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 					},
 				),
 				TxReferenceInputs: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(refInputTxId, 1), // different index to avoid disjoint error
+						// different index to avoid disjoint error
+						shelley.MustNewShelleyTransactionInput(
+							refInputTxId,
+							1,
+						),
 					},
 					false,
 				),
@@ -3109,7 +3113,7 @@ func TestUtxoValidateDisjointRefInputs_PV11PlusSkipsGlobalCheck(t *testing.T) {
 }
 
 func TestUtxoValidateDisjointRefInputs_PV11AllowsOverlapWithoutPlutus(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
 		0,
 	)
@@ -3147,7 +3151,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 			TxTotalCollateral: testTotalCollateral,
 			TxCollateral: cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 				false,
 			),
@@ -3166,7 +3170,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	}
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testInputAmount,
 			},
@@ -3273,8 +3277,8 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
-					shelley.NewShelleyTransactionInput(testInputTxId, 1),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
 				},
 				false,
 			)
@@ -3307,7 +3311,7 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 				false,
 			)
@@ -5796,7 +5800,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 				TxFee: fee,
 				TxCollateral: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(
+						shelley.MustNewShelleyTransactionInput(
 							testInputTxId,
 							0,
 						),
@@ -5815,7 +5819,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
 			[]common.Utxo{
 				{
-					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: collateral,
 					},

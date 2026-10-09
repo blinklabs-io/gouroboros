@@ -41,7 +41,7 @@ func dijkstraSubUtxoInput(index int) (
 	shelley.ShelleyTransactionInput,
 	common.Utxo,
 ) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"1111111111111111111111111111111111111111111111111111111111111111",
 		index,
 	)

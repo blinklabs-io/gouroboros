@@ -49,7 +49,7 @@ func datumSpendingFixture(
 	withDatumHash bool,
 ) (shelley.ShelleyTransactionInput, common.Utxo) {
 	t.Helper()
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0101010101010101010101010101010101010101010101010101010101010101",
 		0,
 	)

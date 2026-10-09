@@ -15,6 +15,8 @@
 package cbor_test
 
 import (
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -30,6 +32,65 @@ func nestedArrays(depth int) []byte {
 		out = append(out, 0x81)
 	}
 	return append(out, 0x00)
+}
+
+type unmarshalProbe struct {
+	called bool
+}
+
+func (p *unmarshalProbe) UnmarshalCBOR([]byte) error {
+	p.called = true
+	return nil
+}
+
+type recursiveUnmarshalProbe struct {
+	calls int
+}
+
+func (p *recursiveUnmarshalProbe) UnmarshalCBOR(data []byte) error {
+	p.calls++
+	if len(data) == 0 || data[0] != 0x81 {
+		return nil
+	}
+	_, err := cbor.Decode(data[1:], p)
+	return err
+}
+
+func TestDecodeExactChecksDepthBeforeCustomUnmarshal(t *testing.T) {
+	const childEnv = "GOUROBOROS_TEST_DECODE_EXACT_DEPTH_CHILD"
+	if os.Getenv(childEnv) != "1" {
+		// The cached decoder mode keeps the depth limit from the first decode.
+		cmd := exec.Command(os.Args[0], "-test.run=^TestDecodeExactChecksDepthBeforeCustomUnmarshal$")
+		cmd.Env = append(os.Environ(), childEnv+"=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("depth-check subprocess failed: %v\n%s", err, output)
+		}
+		return
+	}
+
+	cbor.MaxUntrustedNestedLevels = 8
+	data := nestedArrays(cbor.MaxUntrustedNestedLevels + 1)
+	var dest recursiveUnmarshalProbe
+	if _, err := cbor.DecodeExact(data, &dest); err == nil {
+		t.Fatalf("accepted nesting depth %d", cbor.MaxUntrustedNestedLevels+1)
+	}
+	if dest.calls != 0 {
+		t.Fatalf("custom UnmarshalCBOR ran %d times before the nesting limit was checked", dest.calls)
+	}
+}
+
+func TestDecodeExactChecksCollectionBoundsBeforeCustomUnmarshal(t *testing.T) {
+	data, err := cbor.Encode(make([]any, 131073))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := &unmarshalProbe{}
+	if _, err := cbor.DecodeExact(data, dest); err == nil {
+		t.Fatal("accepted an array exceeding the untrusted collection limit")
+	}
+	if dest.called {
+		t.Fatal("custom decoder ran before the collection bound was checked")
+	}
 }
 
 // TestDecodeRejectsNestingPastConfiguredLimit keeps all public decode modes

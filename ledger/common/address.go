@@ -1017,6 +1017,9 @@ func (a *Address) RewardAccountCredential() (Credential, error) {
 func ValidateWithdrawalAddresses[T any](withdrawals map[*Address]T) error {
 	seen := make(map[string]struct{}, len(withdrawals))
 	for addr := range withdrawals {
+		if addr == nil {
+			return errors.New("withdrawal address cannot be nil")
+		}
 		if _, err := addr.RewardAccountCredential(); err != nil {
 			return fmt.Errorf("invalid withdrawal address: %w", err)
 		}

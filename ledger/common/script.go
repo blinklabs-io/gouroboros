@@ -152,11 +152,27 @@ func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmpTag); err != nil {
 		return err
 	}
+	if tmpTag.Number != cbor.CborTagCbor {
+		return fmt.Errorf("unexpected script reference tag %d", tmpTag.Number)
+	}
 	innerCbor, ok := tmpTag.Content.([]byte)
 	if !ok {
 		return errors.New("unexpected tag type")
 	}
+	tagHeaderLength, err := cborTagHeaderLength(data)
+	if err != nil {
+		return err
+	}
+	if err := validateDefiniteByteString(
+		data[tagHeaderLength:],
+		"script reference CBOR",
+	); err != nil {
+		return err
+	}
 	// Determine script type
+	if err := ValidateCBORArrayLength(innerCbor, 2, "script reference"); err != nil {
+		return err
+	}
 	var rawScript struct {
 		cbor.StructAsArray
 		Type uint
@@ -1126,6 +1142,20 @@ type NativeScriptPubkey struct {
 
 // UnmarshalCBOR requires the signature hash to match its ledger-defined width.
 func (s *NativeScriptPubkey) UnmarshalCBOR(data []byte) error {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(data, &fields); err != nil {
+		return err
+	}
+	if len(fields) != 2 {
+		return fmt.Errorf("native script pubkey must contain 2 fields, got %d", len(fields))
+	}
+	if err := validateFixedLengthByteString(
+		fields[1],
+		Blake2b224Size,
+		"native script key hash",
+	); err != nil {
+		return err
+	}
 	type nativeScriptPubkeyAlias NativeScriptPubkey
 	var decoded nativeScriptPubkeyAlias
 	if _, err := cbor.Decode(data, &decoded); err != nil {

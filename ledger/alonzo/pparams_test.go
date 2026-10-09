@@ -360,7 +360,7 @@ func TestAlonzoTransactionOutput_Utxorpc(t *testing.T) {
 // Unit test for AlonzoTransactionBody.Utxorpc()
 func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 	// Mock input
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
@@ -430,7 +430,7 @@ func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 // Unit test for AlonzoTransaction.Utxorpc()
 func TestAlonzoTransaction_Utxorpc(t *testing.T) {
 	// Mock input
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		1,
 	)

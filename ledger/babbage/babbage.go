@@ -301,6 +301,23 @@ type BabbageBlockHeaderBody struct {
 	ProtoVersion  BabbageProtoVersion
 }
 
+func validateFixedLengthByteString(data []byte, expected int, name string) error {
+	if len(data) == 0 || data[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
+		return fmt.Errorf("%s must be a CBOR byte string", name)
+	}
+	if data[0]&0x1f == 0x1f {
+		return fmt.Errorf("%s must be a definite-length byte string", name)
+	}
+	var decoded []byte
+	if _, err := cbor.Decode(data, &decoded); err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	if len(decoded) != expected {
+		return fmt.Errorf("%s must be %d bytes, got %d", name, expected, len(decoded))
+	}
+	return nil
+}
+
 type babbageBlockHeaderBodyWire struct {
 	cbor.StructAsArray
 	BlockNumber   uint64
@@ -316,9 +333,82 @@ type babbageBlockHeaderBodyWire struct {
 }
 
 func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
+	var raw struct {
+		cbor.StructAsArray
+		BlockNumber   cbor.RawMessage
+		Slot          cbor.RawMessage
+		PrevHash      cbor.RawMessage
+		IssuerVkey    cbor.RawMessage
+		VrfKey        cbor.RawMessage
+		VrfResult     cbor.RawMessage
+		BlockBodySize cbor.RawMessage
+		BlockBodyHash cbor.RawMessage
+		OpCert        cbor.RawMessage
+		ProtoVersion  cbor.RawMessage
+	}
+	if _, err := cbor.Decode(cborData, &raw); err != nil {
+		return err
+	}
+	if err := validateFixedLengthByteString(raw.VrfKey, 32, "VRF verification key"); err != nil {
+		return err
+	}
+	var vrfResult struct {
+		cbor.StructAsArray
+		Output cbor.RawMessage
+		Proof  cbor.RawMessage
+	}
+	if _, err := cbor.Decode(raw.VrfResult, &vrfResult); err != nil {
+		return fmt.Errorf("decode VRF result: %w", err)
+	}
+	if err := validateFixedLengthByteString(vrfResult.Output, 64, "VRF output"); err != nil {
+		return err
+	}
+	if err := validateFixedLengthByteString(vrfResult.Proof, 80, "VRF proof"); err != nil {
+		return err
+	}
+	var opCert struct {
+		cbor.StructAsArray
+		HotVkey        cbor.RawMessage
+		SequenceNumber cbor.RawMessage
+		KesPeriod      cbor.RawMessage
+		Signature      cbor.RawMessage
+	}
+	if _, err := cbor.Decode(raw.OpCert, &opCert); err != nil {
+		return fmt.Errorf("decode operational certificate: %w", err)
+	}
+	if err := validateFixedLengthByteString(opCert.HotVkey, 32, "operational certificate hot key"); err != nil {
+		return err
+	}
+	if err := validateFixedLengthByteString(opCert.Signature, 64, "operational certificate signature"); err != nil {
+		return err
+	}
 	var tmp babbageBlockHeaderBodyWire
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	if tmp.ProtoVersion.Major > uint64(1<<32-1) {
+		return errors.New("protocol version major exceeds uint32 maximum")
+	}
+	if len(tmp.VrfKey) != 32 {
+		return fmt.Errorf("vrf verification key must be 32 bytes, got %d", len(tmp.VrfKey))
+	}
+	if len(tmp.VrfResult.Proof) != 80 {
+		return fmt.Errorf(
+			"vrf proof must be 80 bytes, got %d",
+			len(tmp.VrfResult.Proof),
+		)
+	}
+	if tmp.BlockBodySize > uint64(1<<32-1) {
+		return errors.New("block body size exceeds uint32 maximum")
+	}
+	if len(tmp.OpCert.HotVkey) != 32 {
+		return fmt.Errorf("operational certificate hot key must be 32 bytes, got %d", len(tmp.OpCert.HotVkey))
+	}
+	if len(tmp.OpCert.Signature) != 64 {
+		return fmt.Errorf("operational certificate signature must be 64 bytes, got %d", len(tmp.OpCert.Signature))
+	}
+	if tmp.ProtoVersion.Minor > uint64(1<<32-1) {
+		return errors.New("protocol version minor exceeds uint32 maximum")
 	}
 	var prevHash common.Blake2b256
 	// Origin headers encode prev_hash as null. Keep that compatibility scoped
@@ -359,10 +449,24 @@ type BabbageProtoVersion struct {
 }
 
 func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
+	var raw struct {
+		cbor.StructAsArray
+		Body      cbor.RawMessage
+		Signature cbor.RawMessage
+	}
+	if _, err := cbor.Decode(cborData, &raw); err != nil {
+		return err
+	}
+	if err := validateFixedLengthByteString(raw.Signature, 448, "header body signature"); err != nil {
+		return err
+	}
 	type tBabbageBlockHeader BabbageBlockHeader
 	var tmp tBabbageBlockHeader
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	if len(tmp.Signature) != 448 {
+		return fmt.Errorf("header body signature must be 448 bytes, got %d", len(tmp.Signature))
 	}
 	*h = BabbageBlockHeader(tmp)
 	h.SetCbor(cborData)
@@ -666,6 +770,16 @@ type BabbageTransactionOutputDatumOption struct {
 	data *common.Datum
 }
 
+func validateDefiniteByteString(data []byte, name string) error {
+	if len(data) == 0 || data[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
+		return fmt.Errorf("%s must be a CBOR byte string", name)
+	}
+	if data[0]&0x1f == 0x1f {
+		return fmt.Errorf("%s must be a definite-length byte string", name)
+	}
+	return nil
+}
+
 func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
 	cborData []byte,
 ) error {
@@ -697,6 +811,16 @@ func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
 		}
 		d.hash = &hash
 	case DatumOptionTypeData:
+		var rawTag cbor.RawTag
+		if _, err := cbor.Decode([]byte(items[1]), &rawTag); err != nil {
+			return err
+		}
+		if rawTag.Number != cbor.CborTagCbor {
+			return fmt.Errorf("inline datum must use CBOR tag %d", cbor.CborTagCbor)
+		}
+		if err := validateDefiniteByteString(rawTag.Content, "inline datum CBOR"); err != nil {
+			return err
+		}
 		var wrapped cbor.WrappedCbor
 		if _, err := cbor.Decode([]byte(items[1]), &wrapped); err != nil {
 			return err
@@ -1324,15 +1448,16 @@ func (t BabbageTransaction) Consumed() []common.TransactionInput {
 func (t BabbageTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		outputs := t.Outputs()
+		txId := t.Hash()
 		ret := make([]common.Utxo, 0, len(outputs))
 		for idx, output := range outputs {
 			ret = append(
 				ret,
 				common.Utxo{
-					Id: shelley.NewShelleyTransactionInput(
-						t.Hash().String(),
-						idx,
-					),
+					Id: shelley.ShelleyTransactionInput{
+						TxId:        txId,
+						OutputIndex: uint32(idx),
+					},
 					Output: output,
 				},
 			)
@@ -1344,7 +1469,13 @@ func (t BabbageTransaction) Produced() []common.Utxo {
 		}
 		return []common.Utxo{
 			{
-				Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), len(t.Outputs())),
+				Id: shelley.ShelleyTransactionInput{
+					TxId: t.Hash(),
+					// The output count is bounded by the transaction size
+					// limit, orders of magnitude below MaxUint32.
+					//nolint:gosec // G115: see above
+					OutputIndex: uint32(len(t.Outputs())),
+				},
 				Output: t.CollateralReturn(),
 			},
 		}
@@ -1430,7 +1561,7 @@ func NewBabbageBlockFromCbor(
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
 	var babbageBlock BabbageBlock
-	if _, err := cbor.Decode(data, &babbageBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageBlock); err != nil {
 		return nil, fmt.Errorf("decode Babbage block error: %w", err)
 	}
 
@@ -1454,7 +1585,7 @@ func NewBabbageBlockFromCbor(
 
 func NewBabbageBlockHeaderFromCbor(data []byte) (*BabbageBlockHeader, error) {
 	var babbageBlockHeader BabbageBlockHeader
-	if _, err := cbor.Decode(data, &babbageBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Babbage block header error: %w", err)
 	}
 	return &babbageBlockHeader, nil
@@ -1464,7 +1595,7 @@ func NewBabbageTransactionBodyFromCbor(
 	data []byte,
 ) (*BabbageTransactionBody, error) {
 	var babbageTx BabbageTransactionBody
-	if _, err := cbor.Decode(data, &babbageTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageTx); err != nil {
 		return nil, fmt.Errorf("decode Babbage transaction body error: %w", err)
 	}
 	return &babbageTx, nil
@@ -1472,7 +1603,7 @@ func NewBabbageTransactionBodyFromCbor(
 
 func NewBabbageTransactionFromCbor(data []byte) (*BabbageTransaction, error) {
 	var babbageTx BabbageTransaction
-	if _, err := cbor.Decode(data, &babbageTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageTx); err != nil {
 		return nil, fmt.Errorf("decode Babbage transaction error: %w", err)
 	}
 	return &babbageTx, nil
@@ -1482,7 +1613,7 @@ func NewBabbageTransactionOutputFromCbor(
 	data []byte,
 ) (*BabbageTransactionOutput, error) {
 	var babbageTxOutput BabbageTransactionOutput
-	if _, err := cbor.Decode(data, &babbageTxOutput); err != nil {
+	if _, err := cbor.DecodeExact(data, &babbageTxOutput); err != nil {
 		return nil, fmt.Errorf(
 			"decode Babbage transaction output error: %w",
 			err,

@@ -36,6 +36,46 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
+func TestConwayProtocolParameterUpdateAcceptsShortKnownCostModels(t *testing.T) {
+	decode := func(model []int64) error {
+		wire, err := cbor.Encode(map[int]any{
+			18: map[uint][]int64{0: model},
+		})
+		require.NoError(t, err)
+		var update conway.ConwayProtocolParameterUpdate
+		_, err = cbor.Decode(wire, &update)
+		return err
+	}
+	assert.NoError(t, decode([]int64{1}))
+}
+
+func TestConwayProtocolParameterUpdateExecutionCostsArrayShape(t *testing.T) {
+	memPrice, err := cbor.Encode(&cbor.Rat{Rat: big.NewRat(1, 2)})
+	require.NoError(t, err)
+	stepPrice, err := cbor.Encode(&cbor.Rat{Rat: big.NewRat(3, 4)})
+	require.NoError(t, err)
+	definiteCosts, err := cbor.Encode([]any{
+		cbor.RawMessage(memPrice),
+		cbor.RawMessage(stepPrice),
+	})
+	require.NoError(t, err)
+	indefiniteCosts := append([]byte{0x9f}, memPrice...)
+	indefiniteCosts = append(indefiniteCosts, stepPrice...)
+	indefiniteCosts = append(indefiniteCosts, 0xff)
+
+	decode := func(costs []byte) error {
+		wire, err := cbor.Encode(map[uint]cbor.RawMessage{
+			19: costs,
+		})
+		require.NoError(t, err)
+		var update conway.ConwayProtocolParameterUpdate
+		_, err = cbor.Decode(wire, &update)
+		return err
+	}
+	require.NoError(t, decode(definiteCosts))
+	require.NoError(t, decode(indefiniteCosts))
+}
+
 func testPlutusInteger(v int64) data.PlutusData {
 	return data.NewInteger(big.NewInt(v))
 }
@@ -46,19 +86,6 @@ func TestConwayProtocolParamsUpdate(t *testing.T) {
 		updateCbor     string
 		expectedParams conway.ConwayProtocolParameters
 	}{
-		{
-			startParams: conway.ConwayProtocolParameters{
-				ProtocolVersion: common.ProtocolParametersProtocolVersion{
-					Major: 8,
-				},
-			},
-			updateCbor: "a10e820900",
-			expectedParams: conway.ConwayProtocolParameters{
-				ProtocolVersion: common.ProtocolParametersProtocolVersion{
-					Major: 9,
-				},
-			},
-		},
 		{
 			startParams: conway.ConwayProtocolParameters{
 				MaxBlockBodySize: 1,
@@ -451,6 +478,13 @@ func TestConwayProtocolParamsUpdate(t *testing.T) {
 	}
 }
 
+func TestConwayProtocolParameterUpdateRejectsProtocolVersionField(t *testing.T) {
+	encoded, err := hex.DecodeString("a10e820900")
+	require.NoError(t, err)
+	var update conway.ConwayProtocolParameterUpdate
+	require.Error(t, update.UnmarshalCBOR(encoded))
+}
+
 // TestConwayProtocolParameterUpdate_CostModelLengthForwardCompat asserts that
 // a ConwayProtocolParameterUpdate whose Plutus cost-model arrays are longer
 // than today's PV10 baselines round-trips through CBOR without truncation.
@@ -525,11 +559,25 @@ func TestConwayProtocolParameterUpdateCostModelLanguageIDDomain(t *testing.T) {
 	})
 }
 
+func TestConwayProtocolParameterUpdateRejectsUnknownTags(t *testing.T) {
+	encoded, err := cbor.Encode(map[int]any{34: uint64(1)})
+	require.NoError(t, err)
+	var update conway.ConwayProtocolParameterUpdate
+	require.Error(t, update.UnmarshalCBOR(encoded))
+}
+
+func TestConwayProtocolParameterUpdateRejectsExtraTupleFields(t *testing.T) {
+	encoded, err := cbor.Encode(map[int]any{25: []uint64{1, 2, 3, 4, 5, 6}})
+	require.NoError(t, err)
+	var update conway.ConwayProtocolParameterUpdate
+	require.Error(t, update.UnmarshalCBOR(encoded))
+}
+
 func TestConwayProtocolParameterUpdateRejectsNullForNonNullableFields(
 	t *testing.T,
 ) {
 	for _, tag := range []int{
-		0, 1, 5, 6, 14, 16, 17, 18, 20, 21, 25, 26, 30, 31,
+		0, 1, 5, 6, 16, 17, 18, 20, 21, 25, 26, 30, 31,
 	} {
 		t.Run(fmt.Sprintf("tag_%d", tag), func(t *testing.T) {
 			encoded, err := cbor.Encode(map[int]any{tag: nil})
@@ -1304,7 +1352,7 @@ func TestConwayUtxorpc_VotingThresholdInvalidAfterUnsetField(
 
 // Unit test for ConwayTransactionBody.Utxorpc()
 func TestConwayTransactionBody_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		1,
 	)
@@ -1387,7 +1435,7 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 
 // Unit test for ConwayTransaction.Utxorpc()
 func TestConwayTransaction_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)

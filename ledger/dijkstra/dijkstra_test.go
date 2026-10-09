@@ -21,6 +21,7 @@ import (
 	"math"
 	"math/big"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -492,6 +493,33 @@ func minimalTxParts() []any {
 	return []any{minimalTxBody(), minimalWitnessSet(), nil}
 }
 
+func votingProcedureCBOR(indefinite bool) []byte {
+	ret := []byte{0xa1, 0x82, 0x00, 0x58, 0x1c}
+	ret = append(ret, bytes.Repeat([]byte{0x11}, common.Blake2b224Size)...)
+	ret = append(ret, 0xa1, 0x82, 0x58, 0x20)
+	ret = append(ret, bytes.Repeat([]byte{0x22}, common.Blake2b256Size)...)
+	ret = append(ret, 0x00)
+	if indefinite {
+		return append(ret, 0x9f, 0x01, 0xf6, 0xff)
+	}
+	return append(ret, 0x82, 0x01, 0xf6)
+}
+
+func TestDijkstraBodyAcceptsIndefiniteVotingProcedure(t *testing.T) {
+	encodeBody := func(indefinite bool) []byte {
+		body := minimalTxBody()
+		body[19] = cbor.RawMessage(votingProcedureCBOR(indefinite))
+		data, err := cbor.Encode(body)
+		require.NoError(t, err)
+		return data
+	}
+
+	_, err := NewDijkstraTransactionBodyFromCbor(encodeBody(false))
+	require.NoError(t, err, "definite voting procedure must decode")
+	_, err = NewDijkstraTransactionBodyFromCbor(encodeBody(true))
+	require.NoError(t, err, "indefinite voting procedure must decode in Dijkstra")
+}
+
 func encodeRaw(t *testing.T, value any) cbor.RawMessage {
 	t.Helper()
 	data, err := cbor.Encode(value)
@@ -579,6 +607,30 @@ func TestDijkstraTransactionDecodesThreePartTx(t *testing.T) {
 	require.True(t, tx.IsValid())
 	require.Equal(t, TxTypeDijkstra, tx.Type())
 	require.Equal(t, txCbor, tx.Cbor())
+
+	_, err = NewDijkstraTransactionFromCbor(
+		append(append([]byte(nil), txCbor...), 0x00),
+	)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+}
+
+func TestDijkstraTransactionComponentsMatchCbor(t *testing.T) {
+	txCbor, err := cbor.Encode(minimalTxParts())
+	require.NoError(t, err)
+	var components []cbor.RawMessage
+	_, err = cbor.DecodeExact(txCbor, &components)
+	require.NoError(t, err)
+
+	_, err = NewDijkstraTransactionFromCborComponents(
+		append(append([]byte(nil), txCbor...), 0x00),
+		components,
+	)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+
+	mismatched := slices.Clone(components)
+	mismatched[0] = cbor.RawMessage{0xa0}
+	_, err = NewDijkstraTransactionFromCborComponents(txCbor, mismatched)
+	require.ErrorContains(t, err, "components do not match")
 }
 
 func TestDijkstraTransactionAllowsOnlyTrueIsValidForMempool(t *testing.T) {
@@ -757,6 +809,42 @@ func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
 		t.Fatal("encoded transaction list is empty")
 	}
 	require.Equal(t, rawTx, []byte(encodedTxs[0]))
+}
+
+func TestDijkstraBlockBodyEncodesMempoolTransactionValidityLast(t *testing.T) {
+	parts := minimalTxParts()
+	mempoolCbor, err := cbor.Encode([]any{
+		parts[0],
+		parts[1],
+		true,
+		parts[2],
+	})
+	require.NoError(t, err)
+
+	tx, err := NewDijkstraTransactionFromCbor(mempoolCbor)
+	require.NoError(t, err)
+	body := DijkstraBlockBody{Transactions: []DijkstraTransaction{*tx}}
+	blockBodyCbor, err := body.MarshalCBOR()
+	require.NoError(t, err)
+
+	var decoded DijkstraBlockBody
+	require.NoError(t, decoded.UnmarshalCBOR(blockBodyCbor))
+	require.Len(t, decoded.Transactions, 1)
+	require.True(t, decoded.Transactions[0].IsValid())
+
+	var bodyFields []cbor.RawMessage
+	_, err = cbor.Decode(blockBodyCbor, &bodyFields)
+	require.NoError(t, err)
+	require.Len(t, bodyFields, 3)
+	var transactions []cbor.RawMessage
+	_, err = cbor.Decode(bodyFields[0], &transactions)
+	require.NoError(t, err)
+	require.Len(t, transactions, 1)
+	var transactionFields []cbor.RawMessage
+	_, err = cbor.Decode(transactions[0], &transactionFields)
+	require.NoError(t, err)
+	require.Equal(t, 4, len(transactionFields))
+	require.Equal(t, []byte{0xf5}, []byte(transactionFields[3]))
 }
 
 func TestDijkstraBlockBodyOmitsLegacyInvalidTransactionIndices(t *testing.T) {
@@ -1000,7 +1088,7 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 					BlockBodyHash: blockBody.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{
@@ -1050,7 +1138,7 @@ func TestDijkstraBlockNonEmptyTransactionsValidity(t *testing.T) {
 					BlockBodyHash: blockBody.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{
@@ -1167,20 +1255,16 @@ func TestDijkstraRejectsDuplicateMultiAssetKeys(t *testing.T) {
 }
 
 func TestDijkstraWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
-	// Craft a witness set CBOR where field 0 (vkey witnesses) is a tag-258 set
-	// containing two identical VkeyWitness entries.
-	// VkeyWitness{Vkey:[0x01], Signature:[0x02]} = 82 41 01 41 02.
-	// The Dijkstra guard introduced in UnmarshalCBOR must reject this.
-	dupCbor := []byte{
-		0xa1,             // map(1)
-		0x00,             // key: 0  (VkeyWitnesses field)
-		0xd9, 0x01, 0x02, // tag(258) — CBOR set
-		0x82,                         // array(2)
-		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
-		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
+	witness := common.VkeyWitness{
+		Vkey:      make([]byte, 32),
+		Signature: make([]byte, 64),
 	}
+	dupCbor, err := cbor.Encode(map[uint]any{
+		0: cbor.NewSetType([]common.VkeyWitness{witness, witness}, true),
+	})
+	require.NoError(t, err)
 	var ws DijkstraTransactionWitnessSet
-	err := ws.UnmarshalCBOR(dupCbor)
+	err = ws.UnmarshalCBOR(dupCbor)
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
@@ -1335,9 +1419,11 @@ func TestDijkstraSubTransactionsDeduplicateByBodyID(t *testing.T) {
 	witnessCBOR := func(key byte) cbor.RawMessage {
 		witnesses := map[uint]any{}
 		if key != 0 {
+			vkey := bytes.Repeat([]byte{key}, 32)
+			signature := bytes.Repeat([]byte{key}, 64)
 			witnesses[0] = cbor.NewSetType([]common.VkeyWitness{{
-				Vkey:      []byte{key},
-				Signature: []byte{key},
+				Vkey:      vkey,
+				Signature: signature,
 			}}, true)
 		}
 		encoded, err := cbor.Encode(witnesses)
@@ -1921,14 +2007,16 @@ func TestDijkstraSubTransactionBodyRequiredTopLevelGuardsRejectsDuplicateCredent
 }
 
 func TestDijkstraWitnessSetRejectsDuplicateUntaggedVkeyWitness(t *testing.T) {
-	dupCbor := []byte{
-		0xa1, // map(1)
-		0x00, // key: 0  (VkeyWitnesses field)
-		// plain array — no tag 258
-		0x82,                         // array(2)
-		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
-		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
+	witness := common.VkeyWitness{
+		Vkey:      make([]byte, 32),
+		Signature: make([]byte, 64),
 	}
+	witnesses, err := cbor.Encode([]common.VkeyWitness{witness, witness})
+	require.NoError(t, err)
+	dupCbor, err := cbor.Encode(map[uint]any{
+		0: cbor.RawMessage(witnesses),
+	})
+	require.NoError(t, err)
 	var ws DijkstraTransactionWitnessSet
 	require.ErrorContains(
 		t,
@@ -1970,7 +2058,7 @@ func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
 					BlockBodyHash: blockBody.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{

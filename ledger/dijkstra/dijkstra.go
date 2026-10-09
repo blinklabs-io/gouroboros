@@ -394,6 +394,17 @@ func marshalDijkstraBlockTransaction(t *DijkstraTransaction) ([]byte, error) {
 	if raw := t.DecodeStoreCbor.Cbor(); len(raw) > 0 {
 		var fields []cbor.RawMessage
 		if _, err := cbor.Decode(raw, &fields); err == nil && len(fields) == 4 {
+			if _, err := cbor.DecodeBool(fields[3]); err == nil {
+				return raw, nil
+			}
+			if _, err := cbor.DecodeBool(fields[2]); err == nil {
+				return cbor.Encode([]cbor.RawMessage{
+					fields[0],
+					fields[1],
+					fields[3],
+					fields[2],
+				})
+			}
 			return raw, nil
 		}
 	}
@@ -2238,14 +2249,16 @@ func dijkstraLedgerDirectDeposits(
 func (t DijkstraTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		outputs := t.Outputs()
+		txId := t.Hash()
 		ret := make([]common.Utxo, 0, len(outputs))
 		for _, subTx := range t.Body.TxSubTransactions.Items() {
+			subTxId := subTx.Body.Id()
 			for idx, output := range subTx.Body.Outputs() {
 				ret = append(ret, common.Utxo{
-					Id: shelley.NewShelleyTransactionInput(
-						subTx.Body.Id().String(),
-						idx,
-					),
+					Id: shelley.ShelleyTransactionInput{
+						TxId:        subTxId,
+						OutputIndex: uint32(idx),
+					},
 					Output: output,
 				})
 			}
@@ -2254,10 +2267,10 @@ func (t DijkstraTransaction) Produced() []common.Utxo {
 			ret = append(
 				ret,
 				common.Utxo{
-					Id: shelley.NewShelleyTransactionInput(
-						t.Hash().String(),
-						idx,
-					),
+					Id: shelley.ShelleyTransactionInput{
+						TxId:        txId,
+						OutputIndex: uint32(idx),
+					},
 					Output: output,
 				},
 			)
@@ -2269,10 +2282,13 @@ func (t DijkstraTransaction) Produced() []common.Utxo {
 	}
 	return []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(
-				t.Hash().String(),
-				len(t.Outputs()),
-			),
+			Id: shelley.ShelleyTransactionInput{
+				TxId: t.Hash(),
+				// The output count is bounded by the transaction size
+				// limit, orders of magnitude below MaxUint32.
+				//nolint:gosec // G115: see above
+				OutputIndex: uint32(len(t.Outputs())),
+			},
 			Output: t.CollateralReturn(),
 		},
 	}
@@ -2415,7 +2431,7 @@ func NewDijkstraBlockFromCbor(
 		cfg = config[0]
 	}
 	var dijkstraBlock DijkstraBlock
-	if _, err := cbor.Decode(data, &dijkstraBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &dijkstraBlock); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra block error: %w", err)
 	}
 	if !cfg.SkipBodyHashValidation {
@@ -2445,7 +2461,7 @@ func NewDijkstraBlockFromCbor(
 
 func NewDijkstraBlockHeaderFromCbor(data []byte) (*DijkstraBlockHeader, error) {
 	var dijkstraBlockHeader DijkstraBlockHeader
-	if _, err := cbor.Decode(data, &dijkstraBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &dijkstraBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra block header error: %w", err)
 	}
 	return &dijkstraBlockHeader, nil
@@ -2455,7 +2471,7 @@ func NewDijkstraTransactionBodyFromCbor(
 	data []byte,
 ) (*DijkstraTransactionBody, error) {
 	var dijkstraTx DijkstraTransactionBody
-	if _, err := cbor.Decode(data, &dijkstraTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &dijkstraTx); err != nil {
 		return nil, fmt.Errorf(
 			"decode Dijkstra transaction body error: %w",
 			err,
@@ -2474,7 +2490,19 @@ func NewDijkstraTransactionFromCborComponents(
 	data []byte,
 	txArray []cbor.RawMessage,
 ) (*DijkstraTransaction, error) {
-	return newDijkstraTransactionFromCborComponents(data, txArray, true)
+	var decoded []cbor.RawMessage
+	if _, err := cbor.DecodeExact(data, &decoded); err != nil {
+		return nil, err
+	}
+	if len(decoded) != len(txArray) {
+		return nil, errors.New("transaction components do not match CBOR data")
+	}
+	for idx := range decoded {
+		if !slices.Equal(decoded[idx], txArray[idx]) {
+			return nil, errors.New("transaction components do not match CBOR data")
+		}
+	}
+	return newDijkstraTransactionFromCborComponents(data, decoded, true)
 }
 
 // newDijkstraTransactionFromCbor applies no transaction size limit. The
@@ -2488,7 +2516,7 @@ func newDijkstraTransactionFromCbor(
 	allowIsValid bool,
 ) (*DijkstraTransaction, error) {
 	var txArray []cbor.RawMessage
-	if _, err := cbor.Decode(data, &txArray); err != nil {
+	if _, err := cbor.DecodeExact(data, &txArray); err != nil {
 		return nil, err
 	}
 	return newDijkstraTransactionFromCborComponents(data, txArray, allowIsValid)
