@@ -127,7 +127,7 @@ type RedeemerValue struct {
 }
 
 func (v *RedeemerValue) UnmarshalCBOR(data []byte) error {
-	if err := ValidateDefiniteCBORArrayLength(data, 2, "redeemer value"); err != nil {
+	if err := ValidateCBORArrayLength(data, 2, "redeemer value"); err != nil {
 		return err
 	}
 	type tRedeemerValue RedeemerValue

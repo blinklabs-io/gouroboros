@@ -394,6 +394,17 @@ func marshalDijkstraBlockTransaction(t *DijkstraTransaction) ([]byte, error) {
 	if raw := t.DecodeStoreCbor.Cbor(); len(raw) > 0 {
 		var fields []cbor.RawMessage
 		if _, err := cbor.Decode(raw, &fields); err == nil && len(fields) == 4 {
+			if _, err := cbor.DecodeBool(fields[3]); err == nil {
+				return raw, nil
+			}
+			if _, err := cbor.DecodeBool(fields[2]); err == nil {
+				return cbor.Encode([]cbor.RawMessage{
+					fields[0],
+					fields[1],
+					fields[3],
+					fields[2],
+				})
+			}
 			return raw, nil
 		}
 	}

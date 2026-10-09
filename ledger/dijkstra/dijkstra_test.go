@@ -784,6 +784,42 @@ func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
 	require.Equal(t, rawTx, []byte(encodedTxs[0]))
 }
 
+func TestDijkstraBlockBodyEncodesMempoolTransactionValidityLast(t *testing.T) {
+	parts := minimalTxParts()
+	mempoolCbor, err := cbor.Encode([]any{
+		parts[0],
+		parts[1],
+		true,
+		parts[2],
+	})
+	require.NoError(t, err)
+
+	tx, err := NewDijkstraTransactionFromCbor(mempoolCbor)
+	require.NoError(t, err)
+	body := DijkstraBlockBody{Transactions: []DijkstraTransaction{*tx}}
+	blockBodyCbor, err := body.MarshalCBOR()
+	require.NoError(t, err)
+
+	var decoded DijkstraBlockBody
+	require.NoError(t, decoded.UnmarshalCBOR(blockBodyCbor))
+	require.Len(t, decoded.Transactions, 1)
+	require.True(t, decoded.Transactions[0].IsValid())
+
+	var bodyFields []cbor.RawMessage
+	_, err = cbor.Decode(blockBodyCbor, &bodyFields)
+	require.NoError(t, err)
+	require.Len(t, bodyFields, 3)
+	var transactions []cbor.RawMessage
+	_, err = cbor.Decode(bodyFields[0], &transactions)
+	require.NoError(t, err)
+	require.Len(t, transactions, 1)
+	var transactionFields []cbor.RawMessage
+	_, err = cbor.Decode(transactions[0], &transactionFields)
+	require.NoError(t, err)
+	require.Equal(t, 4, len(transactionFields))
+	require.Equal(t, []byte{0xf5}, []byte(transactionFields[3]))
+}
+
 func TestDijkstraBlockBodyOmitsLegacyInvalidTransactionIndices(t *testing.T) {
 	bodyCbor, err := cbor.Encode(minimalBlockBodyParts(true))
 	require.NoError(t, err)

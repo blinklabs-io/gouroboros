@@ -176,11 +176,16 @@ func TestRedeemerValueUnmarshalCBORRejectsExtraFields(t *testing.T) {
 	require.Error(t, decoded.UnmarshalCBOR(encoded))
 }
 
-func TestRedeemerValueUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
+func TestRedeemerValueUnmarshalCBORAcceptsIndefiniteArrays(t *testing.T) {
 	var decoded RedeemerValue
-	require.ErrorContains(
-		t,
-		decoded.UnmarshalCBOR([]byte{0x9f, 0x00, 0x82, 0x01, 0x02, 0xff}),
-		"definite-length CBOR array",
-	)
+	require.NoError(t, decoded.UnmarshalCBOR([]byte{0x9f, 0x00, 0x82, 0x01, 0x02, 0xff}))
+	assert.Equal(t, int64(1), decoded.ExUnits.Memory)
+	assert.Equal(t, int64(2), decoded.ExUnits.Steps)
+
+	var indefiniteExUnits RedeemerValue
+	require.NoError(t, indefiniteExUnits.UnmarshalCBOR([]byte{
+		0x82, 0x00, 0x9f, 0x01, 0x02, 0xff,
+	}))
+	assert.Equal(t, int64(1), indefiniteExUnits.ExUnits.Memory)
+	assert.Equal(t, int64(2), indefiniteExUnits.ExUnits.Steps)
 }

@@ -124,7 +124,8 @@ func TestExUnitsUnmarshalCBORArrayLength(t *testing.T) {
 	assert.Equal(t, int64(2), units.Steps)
 
 	var indefinite ExUnits
-	require.Error(t, indefinite.UnmarshalCBOR([]byte{0x9f, 0x01, 0x02, 0xff}))
+	require.NoError(t, indefinite.UnmarshalCBOR([]byte{0x9f, 0x01, 0x02, 0xff}))
+	assert.Equal(t, units, indefinite)
 
 	var extra ExUnits
 	require.Error(t, extra.UnmarshalCBOR([]byte{0x83, 0x01, 0x02, 0x03}))

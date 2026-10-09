@@ -1011,9 +1011,7 @@ type ExUnits struct {
 // UnmarshalCBOR enforces the unsigned wire domain of execution units while
 // retaining signed fields for overflow-checked accumulation.
 func (e *ExUnits) UnmarshalCBOR(cborData []byte) error {
-	// The reference ledger's fixed-record decoder rejects indefinite ExUnits
-	// arrays, though it accepts them for other ledger structures.
-	if err := ValidateDefiniteCBORArrayLength(
+	if err := ValidateCBORArrayLength(
 		cborData,
 		2,
 		"execution units",
