@@ -145,10 +145,10 @@ func decodeWithMode(
 			decMode,
 		)
 	}
-	data := bytes.NewReader(dataBytes)
-	dec := decMode.NewDecoder(data)
-	err := dec.Decode(dest)
-	return dec.NumBytesRead(), err
+	// UnmarshalFirst reads the caller's slice directly. A streaming Decoder
+	// would copy the input through its own growing buffer on every call.
+	rest, err := decMode.UnmarshalFirst(dataBytes, dest)
+	return len(dataBytes) - len(rest), err
 }
 
 // IsDuplicateMapKeyError returns true when err wraps fxamacker's duplicate map
