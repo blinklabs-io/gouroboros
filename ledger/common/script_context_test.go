@@ -411,7 +411,7 @@ func TestPlutusEvaluateContextValidation(t *testing.T) {
 			common.ExUnits{},
 			evalContext,
 		)
-		require.ErrorContains(t, err, "constr with 1025 fields")
+		require.ErrorContains(t, err, "too many term list items: limit is 1024")
 
 		validScript := common.PlutusV4Script(
 			encodePlutusContextTestScript(
