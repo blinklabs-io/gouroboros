@@ -957,14 +957,6 @@ func isZeroEraHistoryTimespan(value any) bool {
 	}
 }
 
-func decodeEraHistoryArray(
-	data []byte,
-	name string,
-	want int,
-) ([]cbor.RawMessage, error) {
-	return decodeEraHistoryArrayOneOf(data, name, want)
-}
-
 func decodeEraHistoryArrayOneOf(
 	data []byte,
 	name string,
