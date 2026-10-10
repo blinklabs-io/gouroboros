@@ -526,7 +526,7 @@ func (a *GovAnchor) UnmarshalCBOR(cborData []byte) error {
 	if a == nil {
 		return errors.New("nil GovAnchor receiver")
 	}
-	if err := ValidateDefiniteCBORArrayLength(
+	if err := ValidateCBORArrayLength(
 		cborData,
 		2,
 		"governance anchor",
@@ -571,7 +571,7 @@ func (id *GovActionId) UnmarshalCBOR(cborData []byte) error {
 	if id == nil {
 		return errors.New("nil GovActionId receiver")
 	}
-	if err := ValidateDefiniteCBORArrayLength(
+	if err := ValidateCBORArrayLength(
 		cborData,
 		2,
 		"governance action ID",

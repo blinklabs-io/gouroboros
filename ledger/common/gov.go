@@ -462,7 +462,7 @@ func (vp *VotingProcedure) UnmarshalCBOR(cborData []byte) error {
 	if len(cborData) == 1 && (cborData[0] == 0xf6 || cborData[0] == 0xf7) {
 		return errors.New("voting procedure cannot be CBOR null or undefined")
 	}
-	if err := ValidateDefiniteCBORArrayLength(
+	if err := ValidateCBORArrayLength(
 		cborData,
 		2,
 		"voting procedure",
@@ -1185,7 +1185,7 @@ func (a *NewConstitutionGovAction) UnmarshalCBOR(cborData []byte) error {
 	if len(fields[1]) == 1 && fields[1][0] == 0xf7 {
 		return errors.New("new constitution previous action ID cannot be CBOR undefined")
 	}
-	if err := ValidateDefiniteCBORArrayLength(
+	if err := ValidateCBORArrayLength(
 		fields[2],
 		2,
 		"constitution",

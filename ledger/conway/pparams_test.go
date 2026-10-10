@@ -73,10 +73,10 @@ func TestConwayProtocolParameterUpdateExecutionCostsArrayShape(t *testing.T) {
 		return err
 	}
 	require.NoError(t, decode(definiteCosts))
-	require.Error(t, decode(indefiniteCosts))
+	require.NoError(t, decode(indefiniteCosts))
 }
 
-func TestConwayProtocolParameterUpdateRejectsIndefiniteExecutionUnits(
+func TestConwayProtocolParameterUpdateAcceptsIndefiniteExecutionUnits(
 	t *testing.T,
 ) {
 	for _, key := range []uint{20, 21} {
@@ -88,7 +88,7 @@ func TestConwayProtocolParameterUpdateRejectsIndefiniteExecutionUnits(
 
 			var update conway.ConwayProtocolParameterUpdate
 			_, err = cbor.Decode(wire, &update)
-			require.Error(t, err)
+			require.NoError(t, err)
 		})
 	}
 }

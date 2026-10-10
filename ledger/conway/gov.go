@@ -36,7 +36,7 @@ type ConwayProposalProcedure struct {
 }
 
 func (p *ConwayProposalProcedure) UnmarshalCBOR(cborData []byte) error {
-	if err := common.ValidateDefiniteCBORArrayLength(
+	if err := common.ValidateCBORArrayLength(
 		cborData,
 		4,
 		"Conway proposal procedure",

@@ -122,7 +122,7 @@ func TestConwayProposalProcedureRejectsBaseAddress(t *testing.T) {
 	require.ErrorContains(t, decoded.UnmarshalCBOR(wire), "invalid account address type")
 }
 
-func TestConwayProposalProcedureRejectsIndefiniteArray(t *testing.T) {
+func TestConwayProposalProcedureAcceptsIndefiniteArray(t *testing.T) {
 	addr, err := common.NewAddress(
 		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
@@ -142,7 +142,9 @@ func TestConwayProposalProcedureRejectsIndefiniteArray(t *testing.T) {
 	indefinite = append(indefinite, 0xff)
 
 	var decoded ConwayProposalProcedure
-	require.Error(t, decoded.UnmarshalCBOR(indefinite))
+	require.NoError(t, decoded.UnmarshalCBOR(indefinite))
+	require.Equal(t, uint64(1), decoded.PPDeposit)
+	require.Equal(t, "https://example.com", decoded.PPAnchor.Url)
 }
 
 func TestConwayProposalProcedureRejectsTrailingData(t *testing.T) {

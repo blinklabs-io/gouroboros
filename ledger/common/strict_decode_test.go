@@ -141,7 +141,8 @@ func TestExUnitsUnmarshalCBORArrayLength(t *testing.T) {
 	assert.Equal(t, int64(2), units.Steps)
 
 	var indefinite ExUnits
-	require.Error(t, indefinite.UnmarshalCBOR([]byte{0x9f, 0x01, 0x02, 0xff}))
+	require.NoError(t, indefinite.UnmarshalCBOR([]byte{0x9f, 0x01, 0x02, 0xff}))
+	assert.Equal(t, units, indefinite)
 
 	var extra ExUnits
 	require.Error(t, extra.UnmarshalCBOR([]byte{0x83, 0x01, 0x02, 0x03}))
@@ -157,12 +158,13 @@ func TestGovActionIdUnmarshalCBORRejectsExtraFields(t *testing.T) {
 	require.Error(t, id.UnmarshalCBOR(encoded))
 }
 
-func TestGovActionIdUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
+func TestGovActionIdUnmarshalCBORAcceptsIndefiniteArray(t *testing.T) {
 	encoded, err := cbor.Encode([]any{make([]byte, Blake2b256Size), uint16(1)})
 	require.NoError(t, err)
 
 	var id GovActionId
-	require.Error(t, id.UnmarshalCBOR(indefiniteArray(t, encoded)))
+	require.NoError(t, id.UnmarshalCBOR(indefiniteArray(t, encoded)))
+	require.Equal(t, uint32(1), id.GovActionIdx)
 }
 
 func TestGovAnchorUnmarshalCBORRejectsInvalidUTF8(t *testing.T) {
@@ -175,15 +177,16 @@ func TestGovAnchorUnmarshalCBORRejectsInvalidUTF8(t *testing.T) {
 	require.ErrorContains(t, anchor.UnmarshalCBOR(encoded), "invalid UTF-8")
 }
 
-func TestGovAnchorUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
+func TestGovAnchorUnmarshalCBORAcceptsIndefiniteArray(t *testing.T) {
 	encoded, err := cbor.Encode([]any{"https://example.com", make([]byte, Blake2b256Size)})
 	require.NoError(t, err)
 
 	var anchor GovAnchor
-	require.Error(t, anchor.UnmarshalCBOR(indefiniteArray(t, encoded)))
+	require.NoError(t, anchor.UnmarshalCBOR(indefiniteArray(t, encoded)))
+	require.Equal(t, "https://example.com", anchor.Url)
 }
 
-func TestNewConstitutionGovActionRejectsIndefiniteConstitution(t *testing.T) {
+func TestNewConstitutionGovActionAcceptsIndefiniteConstitution(t *testing.T) {
 	anchor, err := cbor.Encode(GovAnchor{Url: "https://example.com"})
 	require.NoError(t, err)
 	constitution, err := cbor.Encode([]any{
@@ -199,7 +202,8 @@ func TestNewConstitutionGovActionRejectsIndefiniteConstitution(t *testing.T) {
 	require.NoError(t, err)
 
 	var decoded NewConstitutionGovAction
-	require.Error(t, decoded.UnmarshalCBOR(action))
+	require.NoError(t, decoded.UnmarshalCBOR(action))
+	require.Equal(t, "https://example.com", decoded.Constitution.Anchor.Url)
 }
 
 func TestFixedHashDecodeRejectsAliasedWireValue(t *testing.T) {
