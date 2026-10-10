@@ -296,22 +296,6 @@ func (s *Server) GetAvailableMessageIDs(count int) []pcommon.MessageIDAndSize {
 	}
 	s.messageQueue = filtered
 
-	// Append new pending IDs instead of overwriting to avoid dropping unacknowledged IDs
-	if len(ids) > 0 {
-		// Build a set of existing pending IDs to prevent duplicates across multiple calls
-		existing := make(map[string]struct{}, len(s.pendingMessageIDs))
-		for _, b := range s.pendingMessageIDs {
-			existing[string(b)] = struct{}{}
-		}
-		for _, id := range ids {
-			key := string(id.MessageID)
-			if _, seen := existing[key]; !seen {
-				s.pendingMessageIDs = append(s.pendingMessageIDs, id.MessageID)
-				existing[key] = struct{}{}
-			}
-		}
-	}
-
 	return ids
 }
 

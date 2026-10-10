@@ -151,6 +151,7 @@ func TestMessageIDReplyAllowsFewerEntriesThanRequested(t *testing.T) {
 
 func TestMessageIDRequestCountRules(t *testing.T) {
 	id := testMessageID(0xa1)
+	otherID := testMessageID(0xb2)
 	tests := []struct {
 		name        string
 		outstanding [][]byte
@@ -168,12 +169,24 @@ func TestMessageIDRequestCountRules(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "non-blocking request can request first IDs",
+			name:    "non-blocking request requires an existing window",
 			request: messageIDRequest{requested: 1},
+			wantErr: true,
 		},
 		{
-			name:        "non-blocking request can only acknowledge IDs",
+			name:        "non-blocking request can extend an existing window",
 			outstanding: [][]byte{id},
+			request:     messageIDRequest{requested: 1},
+		},
+		{
+			name:        "non-blocking acknowledgement cannot empty the window",
+			outstanding: [][]byte{id},
+			request:     messageIDRequest{ack: 1},
+			wantErr:     true,
+		},
+		{
+			name:        "non-blocking acknowledgement keeps outstanding IDs",
+			outstanding: [][]byte{id, otherID},
 			request:     messageIDRequest{ack: 1},
 		},
 		{
@@ -518,6 +531,7 @@ func newStartedMessageSubmissionServer(t *testing.T) *Server {
 
 func TestServerRequestAPIsValidateAndTrackRequests(t *testing.T) {
 	id := testMessageID(0xa1)
+	otherID := testMessageID(0xb2)
 	tests := []struct {
 		name       string
 		prepare    func(*Server)
@@ -552,6 +566,9 @@ func TestServerRequestAPIsValidateAndTrackRequests(t *testing.T) {
 		},
 		{
 			name: "non-blocking ID request accepted",
+			prepare: func(server *Server) {
+				server.pendingMessageIDs = [][]byte{id}
+			},
 			request: func(server *Server) error {
 				return server.RequestMessageIdsNonBlocking(0, 1)
 			},
@@ -575,8 +592,18 @@ func TestServerRequestAPIsValidateAndTrackRequests(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "non-blocking acknowledgement accepted",
+			name:    "non-blocking acknowledgement cannot empty the window",
 			prepare: func(server *Server) { server.pendingMessageIDs = [][]byte{id} },
+			request: func(server *Server) error {
+				return server.RequestMessageIdsNonBlocking(1, 0)
+			},
+			wantErr: true,
+		},
+		{
+			name: "non-blocking acknowledgement keeps outstanding IDs",
+			prepare: func(server *Server) {
+				server.pendingMessageIDs = [][]byte{id, otherID}
+			},
 			request: func(server *Server) error {
 				return server.RequestMessageIdsNonBlocking(1, 0)
 			},

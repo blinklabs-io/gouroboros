@@ -84,6 +84,13 @@ func validateMessageIDRequest(
 			protocol.ErrProtocolViolationRequestExceeded,
 		)
 	}
+	if !request.blocking && remaining == 0 {
+		return fmt.Errorf(
+			"%s: non-blocking request leaves no message IDs outstanding: %w",
+			ProtocolName,
+			protocol.ErrProtocolViolationRequestExceeded,
+		)
+	}
 	if remaining+request.requested > limit {
 		return fmt.Errorf(
 			"%s: request would leave %d message IDs outstanding, limit %d: %w",
