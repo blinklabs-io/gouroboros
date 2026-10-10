@@ -143,7 +143,9 @@ func TestMaryTransactionOutputValueRejectsInvalidMajorTypesAndArrayLength(t *tes
 	}{
 		{name: "null coin", wire: []byte{0xf6}},
 		{name: "map coin", wire: []byte{0xa0}},
+		{name: "coin with trailing data", wire: []byte{0x01, 0x00}},
 		{name: "extra array field", wire: []byte{0x83, 0x01, 0xa0, 0x00}},
+		{name: "trailing data", wire: []byte{0x82, 0x01, 0xa0, 0x00}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var value MaryTransactionOutputValue

@@ -77,6 +77,9 @@ func ValidateDefiniteCBORArrayLength(
 	if length != expected {
 		return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, length)
 	}
+	if err := cbor.ValidateExact(data); err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
 	return nil
 }
 
