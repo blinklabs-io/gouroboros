@@ -17,7 +17,6 @@ package localmessagenotification
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -44,9 +43,7 @@ type messageReplayState struct {
 	acceptedIDs map[string]uint32
 }
 
-var (
-	replayStateInitMu sync.Mutex
-)
+var replayStateInitMu sync.Mutex
 
 func newMessageReplayState() *messageReplayState {
 	return &messageReplayState{acceptedIDs: make(map[string]uint32)}
@@ -270,7 +267,7 @@ func (c *Client) validateAndReserve(
 	c.replayState.mu.Lock()
 	defer c.replayState.mu.Unlock()
 	c.replayState.pruneExpiredLocked(now)
-	messages, evictIDs, capacityExceeded := c.replayState.admitLocked(
+	messages, capacityExceeded := c.replayState.admitLocked(
 		messages,
 		maxReplayEntries,
 	)
@@ -300,9 +297,6 @@ func (c *Client) validateAndReserve(
 			return nil, err
 		}
 	}
-	for _, id := range evictIDs {
-		delete(c.replayState.acceptedIDs, id)
-	}
 	for i := range messages {
 		c.replayState.acceptedIDs[string(messages[i].ID())] = messages[i].Payload.ExpiresAt
 	}
@@ -318,12 +312,12 @@ func (r *messageReplayState) pruneExpiredLocked(now time.Time) {
 	}
 }
 
-// admitLocked returns fresh messages and the earliest-expiring IDs to evict
-// when needed. The caller applies evictions only after the batch validates.
+// admitLocked returns fresh messages when the complete reply fits without
+// discarding replay protection for any unexpired accepted ID.
 func (r *messageReplayState) admitLocked(
 	messages []pcommon.DmqMessage,
 	maxEntries int,
-) ([]pcommon.DmqMessage, []string, bool) {
+) ([]pcommon.DmqMessage, bool) {
 	seen := make(map[string]struct{}, len(messages))
 	ret := make([]pcommon.DmqMessage, 0, min(len(messages), maxEntries))
 	for i := range messages {
@@ -336,31 +330,12 @@ func (r *messageReplayState) admitLocked(
 		}
 		seen[id] = struct{}{}
 		if len(ret) == maxEntries {
-			return nil, nil, true
+			return nil, true
 		}
 		ret = append(ret, messages[i])
 	}
-	needed := len(r.acceptedIDs) + len(ret) - maxEntries
-	if needed <= 0 {
-		return ret, nil, false
+	if len(r.acceptedIDs)+len(ret) > maxEntries {
+		return nil, true
 	}
-	type entry struct {
-		id      string
-		expires uint32
-	}
-	entries := make([]entry, 0, len(r.acceptedIDs))
-	for id, expires := range r.acceptedIDs {
-		entries = append(entries, entry{id: id, expires: expires})
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].expires < entries[j].expires
-	})
-	if needed > len(entries) {
-		return nil, nil, true
-	}
-	evictIDs := make([]string, needed)
-	for i := range needed {
-		evictIDs[i] = entries[i].id
-	}
-	return ret, evictIDs, false
+	return ret, false
 }

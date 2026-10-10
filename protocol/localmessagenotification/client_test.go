@@ -274,7 +274,7 @@ func TestClientBatchFailureDoesNotReserveEarlierMessages(t *testing.T) {
 	require.Equal(t, int32(1), callbacks.Load())
 }
 
-func TestClientReplayCapacityEvictsEarliestExpiry(t *testing.T) {
+func TestClientReplayCapacityPreservesAcceptedIDsUntilExpiry(t *testing.T) {
 	var callbacks atomic.Int32
 	cfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
@@ -293,17 +293,17 @@ func TestClientReplayCapacityEvictsEarliestExpiry(t *testing.T) {
 		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{accepted}, false),
 	))
 	require.Equal(t, int32(1), callbacks.Load())
-	require.NoError(t, client.messageHandler(
+	require.ErrorIs(t, client.messageHandler(
 		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{fresh}, false),
-	))
-	require.Equal(t, int32(2), callbacks.Load())
-	require.NotContains(t, client.replayState.acceptedIDs, string(accepted.ID()))
-	require.Contains(t, client.replayState.acceptedIDs, string(fresh.ID()))
+	), errReplayCacheCapacityExceeded)
+	require.Equal(t, int32(1), callbacks.Load())
+	require.Contains(t, client.replayState.acceptedIDs, string(accepted.ID()))
+	require.NotContains(t, client.replayState.acceptedIDs, string(fresh.ID()))
 
 	require.NoError(t, client.messageHandler(
-		NewMsgReplyMessagesBlocking([]pcommon.DmqMessage{fresh}),
+		NewMsgReplyMessagesBlocking([]pcommon.DmqMessage{accepted}),
 	))
-	require.Equal(t, int32(2), callbacks.Load())
+	require.Equal(t, int32(1), callbacks.Load())
 
 	now = time.Unix(301, 0)
 	client.replayState.mu.Lock()
@@ -312,7 +312,7 @@ func TestClientReplayCapacityEvictsEarliestExpiry(t *testing.T) {
 	require.Empty(t, client.replayState.acceptedIDs)
 }
 
-func TestClientReplayAdmissionEvictsEarliestExpiryForBatch(t *testing.T) {
+func TestClientReplayAdmissionRejectsBatchesBeyondRemainingCapacity(t *testing.T) {
 	for _, occupancy := range []int{2, 3} {
 		t.Run(fmt.Sprintf("occupancy=%d", occupancy), func(t *testing.T) {
 			var callbacks atomic.Int32
@@ -336,20 +336,16 @@ func TestClientReplayAdmissionEvictsEarliestExpiryForBatch(t *testing.T) {
 			for i := range 2 {
 				batch = append(batch, clientTestMessage(t, fmt.Sprintf("reply-%d", i), 500))
 			}
-			require.NoError(t, client.messageHandler(
+			require.ErrorIs(t, client.messageHandler(
 				NewMsgReplyMessagesNonBlocking(batch, false),
-			))
-			require.Len(t, client.replayState.acceptedIDs, 3)
-			require.Equal(t, int32(1), callbacks.Load())
-			for i, id := range existingIDs {
-				if i < occupancy-1 {
-					require.NotContains(t, client.replayState.acceptedIDs, id)
-				} else {
-					require.Contains(t, client.replayState.acceptedIDs, id)
-				}
+			), errReplayCacheCapacityExceeded)
+			require.Len(t, client.replayState.acceptedIDs, occupancy)
+			require.Zero(t, callbacks.Load())
+			for _, id := range existingIDs {
+				require.Contains(t, client.replayState.acceptedIDs, id)
 			}
-			require.Contains(t, client.replayState.acceptedIDs, string(batch[0].ID()))
-			require.Contains(t, client.replayState.acceptedIDs, string(batch[1].ID()))
+			require.NotContains(t, client.replayState.acceptedIDs, string(batch[0].ID()))
+			require.NotContains(t, client.replayState.acceptedIDs, string(batch[1].ID()))
 		})
 	}
 }

@@ -127,7 +127,7 @@ The client validates every message passed to the configured callback:
 - KES signature verification
 - TTL validation
 - Messages already delivered are dropped until expiration, including after reconnection
-- A full replay cache evicts the earliest-expiring accepted IDs to admit fresh messages; an evicted message can be delivered again if replayed before expiration
+- A full replay cache rejects replies containing fresh messages until retained IDs expire; retained IDs continue to suppress replays
 
 ## Notes
 
