@@ -668,29 +668,351 @@ type HardForkEraHistoryQuery struct {
 
 type EraHistoryResult struct {
 	cbor.StructAsArray
-	Begin  eraHistoryResultBeginEnd
-	End    eraHistoryResultBeginEnd
+	Begin  eraHistoryResultBound
+	End    eraHistoryResultEnd
 	Params eraHistoryResultParams
 }
 
-type eraHistoryResultBeginEnd struct {
+type eraHistoryResultBound struct {
 	cbor.StructAsArray
-	Timespan any
-	SlotNo   int
-	EpochNo  int
+	Timespan   any
+	SlotNo     int
+	EpochNo    int
+	PerasRound *uint64
+}
+
+func (b *eraHistoryResultBound) UnmarshalCBOR(data []byte) error {
+	fields, err := decodeEraHistoryArrayOneOf(data, "bound", 3, 4)
+	if err != nil {
+		return err
+	}
+	var relativeTime big.Int
+	if _, err := cbor.Decode(fields[0], &relativeTime); err != nil {
+		return fmt.Errorf("decode era history bound timespan: %w", err)
+	}
+	var timespan any
+	if _, err := cbor.Decode(fields[0], &timespan); err != nil {
+		return fmt.Errorf("decode era history bound timespan: %w", err)
+	}
+	slotNo, err := decodeEraHistoryInt(fields[1], "bound slot number")
+	if err != nil {
+		return err
+	}
+	epochNo, err := decodeEraHistoryInt(fields[2], "bound epoch number")
+	if err != nil {
+		return err
+	}
+	var perasRound *uint64
+	if len(fields) == 4 {
+		var value uint64
+		if _, err := cbor.Decode(fields[3], &value); err != nil {
+			return fmt.Errorf("decode era history bound Peras round: %w", err)
+		}
+		perasRound = &value
+	}
+	*b = eraHistoryResultBound{
+		Timespan:   timespan,
+		SlotNo:     slotNo,
+		EpochNo:    epochNo,
+		PerasRound: perasRound,
+	}
+	return nil
+}
+
+func (b eraHistoryResultBound) MarshalCBOR() ([]byte, error) {
+	if b.SlotNo < 0 || b.EpochNo < 0 {
+		return nil, errors.New("encode era history bound: negative value")
+	}
+	fields := []any{b.Timespan, b.SlotNo, b.EpochNo}
+	if b.PerasRound != nil {
+		fields = append(fields, *b.PerasRound)
+	}
+	return cbor.Encode(fields)
+}
+
+type eraHistoryResultEnd struct {
+	eraHistoryResultBound
+	Unbounded bool
+}
+
+func (e *eraHistoryResultEnd) UnmarshalCBOR(data []byte) error {
+	if len(data) == 1 && data[0] == 0xf6 {
+		*e = eraHistoryResultEnd{Unbounded: true}
+		return nil
+	}
+	if len(data) == 1 && data[0] == 0xf7 {
+		return errors.New(
+			"decode era history end: CBOR undefined is not an unbounded end",
+		)
+	}
+	var bound eraHistoryResultBound
+	if _, err := cbor.Decode(data, &bound); err != nil {
+		return fmt.Errorf("decode era history end: %w", err)
+	}
+	*e = eraHistoryResultEnd{eraHistoryResultBound: bound}
+	return nil
+}
+
+func (e eraHistoryResultEnd) MarshalCBOR() ([]byte, error) {
+	if e.Unbounded {
+		if !isZeroEraHistoryTimespan(e.Timespan) || e.SlotNo != 0 ||
+			e.EpochNo != 0 || e.PerasRound != nil {
+			return nil, errors.New(
+				"encode era history end: unbounded end contains a bound",
+			)
+		}
+		return []byte{0xf6}, nil
+	}
+	return cbor.Encode(e.eraHistoryResultBound)
+}
+
+// A nil SafeFromTip identifies an indefinite safe zone.
+type eraHistorySafeZone struct {
+	SafeFromTip     *uint64
+	SafeBeforeEpoch *uint64
+}
+
+func (s *eraHistorySafeZone) UnmarshalCBOR(data []byte) error {
+	fields, err := decodeEraHistoryArrayOneOf(
+		data,
+		"safe zone",
+		1,
+		3,
+	)
+	if err != nil {
+		return err
+	}
+	if len(fields) == 0 {
+		return errors.New("decode era history safe zone: empty array")
+	}
+	var tag uint8
+	if _, err := cbor.Decode(fields[0], &tag); err != nil {
+		return fmt.Errorf("decode era history safe zone tag: %w", err)
+	}
+	switch tag {
+	case 0:
+		if len(fields) != 3 {
+			return fmt.Errorf(
+				"decode standard era history safe zone: got %d fields, want 3",
+				len(fields),
+			)
+		}
+		var safeFromTip uint64
+		if _, err := cbor.Decode(fields[1], &safeFromTip); err != nil {
+			return fmt.Errorf("decode safe-from-tip slot count: %w", err)
+		}
+		safeBeforeEpoch, err := decodeSafeBeforeEpoch(fields[2])
+		if err != nil {
+			return err
+		}
+		*s = eraHistorySafeZone{
+			SafeFromTip:     &safeFromTip,
+			SafeBeforeEpoch: safeBeforeEpoch,
+		}
+		return nil
+	case 1:
+		if len(fields) != 1 {
+			return fmt.Errorf(
+				"decode indefinite era history safe zone: got %d fields, want 1",
+				len(fields),
+			)
+		}
+		*s = eraHistorySafeZone{}
+		return nil
+	default:
+		return fmt.Errorf("decode era history safe zone: unknown tag %d", tag)
+	}
+}
+
+func (s eraHistorySafeZone) MarshalCBOR() ([]byte, error) {
+	if s.SafeFromTip == nil {
+		if s.SafeBeforeEpoch != nil {
+			return nil, errors.New(
+				"encode indefinite era history safe zone with epoch limit",
+			)
+		}
+		return cbor.Encode([]any{uint8(1)})
+	}
+	safeBeforeEpoch := []any{uint8(0)}
+	if s.SafeBeforeEpoch != nil {
+		safeBeforeEpoch = []any{uint8(1), *s.SafeBeforeEpoch}
+	}
+	return cbor.Encode([]any{uint8(0), *s.SafeFromTip, safeBeforeEpoch})
+}
+
+func decodeSafeBeforeEpoch(data []byte) (*uint64, error) {
+	fields, err := decodeEraHistoryArrayOneOf(
+		data,
+		"safe-before-epoch",
+		1,
+		2,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(fields) == 0 {
+		return nil, errors.New("decode safe-before-epoch: empty array")
+	}
+	var tag uint8
+	if _, err := cbor.Decode(fields[0], &tag); err != nil {
+		return nil, fmt.Errorf("decode safe-before-epoch tag: %w", err)
+	}
+	if len(fields) == 1 && tag == 0 {
+		return nil, nil
+	}
+	if len(fields) == 2 && tag == 1 {
+		var epochNo uint64
+		if _, err := cbor.Decode(fields[1], &epochNo); err != nil {
+			return nil, fmt.Errorf("decode safe-before epoch number: %w", err)
+		}
+		return &epochNo, nil
+	}
+	return nil, fmt.Errorf(
+		"decode safe-before-epoch: invalid size and tag (%d, %d)",
+		len(fields),
+		tag,
+	)
 }
 
 type eraHistoryResultParams struct {
 	cbor.StructAsArray
-	EpochLength       int
-	SlotLength        int
-	SlotsPerKESPeriod struct {
-		cbor.StructAsArray
-		Dummy1 int
-		Value  int
-		Dummy2 []int
+	EpochLength      int
+	SlotLength       int
+	SafeZone         eraHistorySafeZone
+	GenesisWindow    uint64
+	PerasRoundLength *uint64
+}
+
+func (p *eraHistoryResultParams) UnmarshalCBOR(data []byte) error {
+	fields, err := decodeEraHistoryArrayOneOf(data, "parameters", 4, 5)
+	if err != nil {
+		return err
 	}
-	Unknown int
+	epochLength, err := decodeEraHistoryInt(fields[0], "epoch length")
+	if err != nil {
+		return err
+	}
+	slotLength, err := decodeEraHistoryInt(fields[1], "slot length")
+	if err != nil {
+		return err
+	}
+	var safeZone eraHistorySafeZone
+	if _, err := cbor.Decode(fields[2], &safeZone); err != nil {
+		return fmt.Errorf("decode era history parameters safe zone: %w", err)
+	}
+	var genesisWindow uint64
+	if _, err := cbor.Decode(fields[3], &genesisWindow); err != nil {
+		return fmt.Errorf("decode genesis window: %w", err)
+	}
+	var perasRoundLength *uint64
+	if len(fields) == 5 {
+		var value uint64
+		if _, err := cbor.Decode(fields[4], &value); err != nil {
+			return fmt.Errorf("decode Peras round length: %w", err)
+		}
+		perasRoundLength = &value
+	}
+	*p = eraHistoryResultParams{
+		EpochLength:      epochLength,
+		SlotLength:       slotLength,
+		SafeZone:         safeZone,
+		GenesisWindow:    genesisWindow,
+		PerasRoundLength: perasRoundLength,
+	}
+	return nil
+}
+
+func (p eraHistoryResultParams) MarshalCBOR() ([]byte, error) {
+	if p.EpochLength < 0 || p.SlotLength < 0 {
+		return nil, errors.New("encode era history parameters: negative value")
+	}
+	fields := []any{
+		p.EpochLength,
+		p.SlotLength,
+		p.SafeZone,
+		p.GenesisWindow,
+	}
+	if p.PerasRoundLength != nil {
+		fields = append(fields, *p.PerasRoundLength)
+	}
+	return cbor.Encode(fields)
+}
+
+func isZeroEraHistoryTimespan(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return true
+	case int:
+		return value == 0
+	case int64:
+		return value == 0
+	case uint64:
+		return value == 0
+	case big.Int:
+		return value.Sign() == 0
+	case *big.Int:
+		return value == nil || value.Sign() == 0
+	default:
+		return false
+	}
+}
+
+func decodeEraHistoryArrayOneOf(
+	data []byte,
+	name string,
+	wants ...int,
+) ([]cbor.RawMessage, error) {
+	decoder, err := cbor.NewStreamDecoder(data)
+	if err != nil {
+		return nil, fmt.Errorf("decode era history %s: %w", name, err)
+	}
+	count, _, _, err := decoder.DecodeArrayHeader()
+	if err != nil {
+		return nil, fmt.Errorf("decode era history %s: %w", name, err)
+	}
+	validCount := false
+	for _, want := range wants {
+		if count == want {
+			validCount = true
+			break
+		}
+	}
+	if !validCount {
+		return nil, fmt.Errorf(
+			"decode era history %s: unexpected array length %d",
+			name,
+			count,
+		)
+	}
+	var fields []cbor.RawMessage
+	consumed, err := cbor.Decode(data, &fields)
+	if err != nil {
+		return nil, fmt.Errorf("decode era history %s: %w", name, err)
+	}
+	if len(fields) != count {
+		return nil, fmt.Errorf(
+			"decode era history %s: got %d fields, want %d",
+			name,
+			len(fields),
+			count,
+		)
+	}
+	if consumed != len(data) {
+		return nil, fmt.Errorf("decode era history %s: trailing data", name)
+	}
+	return fields, nil
+}
+
+func decodeEraHistoryInt(data []byte, name string) (int, error) {
+	var value uint64
+	if _, err := cbor.Decode(data, &value); err != nil {
+		return 0, fmt.Errorf("decode era history %s: %w", name, err)
+	}
+	maxInt := uint64(^uint(0) >> 1)
+	if value > maxInt {
+		return 0, fmt.Errorf("decode era history %s: overflows int", name)
+	}
+	return int(value), nil
 }
 
 // StakeCredential represents a stake credential as [tag, bytes]
