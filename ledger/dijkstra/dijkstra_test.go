@@ -505,7 +505,7 @@ func votingProcedureCBOR(indefinite bool) []byte {
 	return append(ret, 0x82, 0x01, 0xf6)
 }
 
-func TestDijkstraBodyAcceptsIndefiniteVotingProcedure(t *testing.T) {
+func TestDijkstraBodyRejectsIndefiniteVotingProcedure(t *testing.T) {
 	encodeBody := func(indefinite bool) []byte {
 		body := minimalTxBody()
 		body[19] = cbor.RawMessage(votingProcedureCBOR(indefinite))
@@ -517,10 +517,10 @@ func TestDijkstraBodyAcceptsIndefiniteVotingProcedure(t *testing.T) {
 	_, err := NewDijkstraTransactionBodyFromCbor(encodeBody(false))
 	require.NoError(t, err, "definite voting procedure must decode")
 	_, err = NewDijkstraTransactionBodyFromCbor(encodeBody(true))
-	require.NoError(
+	require.Error(
 		t,
 		err,
-		"indefinite voting procedure must decode in Dijkstra",
+		"indefinite voting procedure must be rejected in Dijkstra",
 	)
 }
 

@@ -777,7 +777,7 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 		v.Assets = nil
 		return nil
 	}
-	if err := common.ValidateCBORArrayLength(
+	if err := common.ValidateDefiniteCBORArrayLength(
 		data,
 		2,
 		"Mary transaction output value",
