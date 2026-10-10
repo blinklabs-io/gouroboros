@@ -517,7 +517,11 @@ func TestDijkstraBodyAcceptsIndefiniteVotingProcedure(t *testing.T) {
 	_, err := NewDijkstraTransactionBodyFromCbor(encodeBody(false))
 	require.NoError(t, err, "definite voting procedure must decode")
 	_, err = NewDijkstraTransactionBodyFromCbor(encodeBody(true))
-	require.NoError(t, err, "indefinite voting procedure must decode in Dijkstra")
+	require.NoError(
+		t,
+		err,
+		"indefinite voting procedure must decode in Dijkstra",
+	)
 }
 
 func encodeRaw(t *testing.T, value any) cbor.RawMessage {

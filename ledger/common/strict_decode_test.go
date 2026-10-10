@@ -125,6 +125,14 @@ func TestValidateCBORArrayLength(t *testing.T) {
 	}
 }
 
+func TestValidateDefiniteCBORArrayLengthRejectsTrailingData(t *testing.T) {
+	valid := []byte{0x82, 0x01, 0x02}
+	require.NoError(t, ValidateDefiniteCBORArrayLength(valid, 2, "test value"))
+	require.Error(t, ValidateDefiniteCBORArrayLength(
+		append(valid, 0x00), 2, "test value",
+	))
+}
+
 func TestExUnitsUnmarshalCBORArrayLength(t *testing.T) {
 	valid := []byte{0x82, 0x01, 0x02}
 	var units ExUnits
@@ -138,6 +146,9 @@ func TestExUnitsUnmarshalCBORArrayLength(t *testing.T) {
 
 	var extra ExUnits
 	require.Error(t, extra.UnmarshalCBOR([]byte{0x83, 0x01, 0x02, 0x03}))
+
+	var trailing ExUnits
+	require.Error(t, trailing.UnmarshalCBOR([]byte{0x82, 0x01, 0x02, 0x00}))
 }
 
 func TestGovActionIdUnmarshalCBORRejectsExtraFields(t *testing.T) {

@@ -155,6 +155,23 @@ func TestRedeemerKeyUnmarshalCBORRejectsExtraFields(t *testing.T) {
 	require.Error(t, decoded.UnmarshalCBOR(encoded))
 }
 
+func TestRedeemerKeyUnmarshalCBORDefiniteArray(t *testing.T) {
+	encoded, err := cbor.Encode([]any{RedeemerTagSpend, uint32(0)})
+	require.NoError(t, err)
+	var decoded RedeemerKey
+	require.NoError(t, decoded.UnmarshalCBOR(encoded))
+	assert.Equal(t, RedeemerTagSpend, decoded.Tag)
+	assert.Zero(t, decoded.Index)
+}
+
+func TestRedeemerKeyUnmarshalCBORAcceptsIndefiniteArray(t *testing.T) {
+	encoded, err := cbor.Encode([]any{RedeemerTagSpend, uint32(0)})
+	require.NoError(t, err)
+	var decoded RedeemerKey
+	require.NoError(t, decoded.UnmarshalCBOR(indefiniteArray(t, encoded)))
+	assert.Equal(t, RedeemerTagSpend, decoded.Tag)
+}
+
 func TestRedeemerValueMarshalJSON(t *testing.T) {
 	val := RedeemerValue{
 		ExUnits: ExUnits{Memory: 100, Steps: 200},
@@ -176,9 +193,18 @@ func TestRedeemerValueUnmarshalCBORRejectsExtraFields(t *testing.T) {
 	require.Error(t, decoded.UnmarshalCBOR(encoded))
 }
 
+func TestRedeemerValueUnmarshalCBORDefiniteArray(t *testing.T) {
+	var decoded RedeemerValue
+	require.NoError(t, decoded.UnmarshalCBOR([]byte{0x82, 0x00, 0x82, 0x01, 0x02}))
+	assert.Equal(t, int64(1), decoded.ExUnits.Memory)
+	assert.Equal(t, int64(2), decoded.ExUnits.Steps)
+}
+
 func TestRedeemerValueUnmarshalCBORAcceptsIndefiniteArrays(t *testing.T) {
 	var decoded RedeemerValue
-	require.NoError(t, decoded.UnmarshalCBOR([]byte{0x9f, 0x00, 0x82, 0x01, 0x02, 0xff}))
+	require.NoError(t, decoded.UnmarshalCBOR(
+		[]byte{0x9f, 0x00, 0x82, 0x01, 0x02, 0xff},
+	))
 	assert.Equal(t, int64(1), decoded.ExUnits.Memory)
 	assert.Equal(t, int64(2), decoded.ExUnits.Steps)
 
