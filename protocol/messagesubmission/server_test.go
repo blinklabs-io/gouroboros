@@ -1,6 +1,7 @@
 package messagesubmission
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -10,7 +11,7 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-func TestServerGetAvailableMessageIDs_DedupAcrossCalls(t *testing.T) {
+func TestServerGetAvailableMessageIDsDoNotBecomePeerOutstanding(t *testing.T) {
 	cfg := NewConfig()
 	// Disable validation to simplify queueing in this unit test
 	cfg.Authenticator = pcommon.NewNoOpAuthenticator(nil)
@@ -23,9 +24,11 @@ func TestServerGetAvailableMessageIDs_DedupAcrossCalls(t *testing.T) {
 	s := NewServer(protocol.ProtocolOptions{ConnectionId: connId}, &cfg)
 	// Add two identical messages (same ID) and one different
 	exp := uint32(time.Now().Unix() + 60)
+	id1 := testMessageID(0xa1)
+	id2 := testMessageID(0xb2)
 	msg1 := &pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
-			MessageID:   []byte("id1"),
+			MessageID:   id1,
 			MessageBody: []byte("body1"),
 			KESPeriod:   1,
 			ExpiresAt:   exp,
@@ -33,7 +36,7 @@ func TestServerGetAvailableMessageIDs_DedupAcrossCalls(t *testing.T) {
 	}
 	msg2 := &pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
-			MessageID:   []byte("id1"),
+			MessageID:   id1,
 			MessageBody: []byte("body1"),
 			KESPeriod:   1,
 			ExpiresAt:   exp,
@@ -41,7 +44,7 @@ func TestServerGetAvailableMessageIDs_DedupAcrossCalls(t *testing.T) {
 	}
 	msg3 := &pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
-			MessageID:   []byte("id2"),
+			MessageID:   id2,
 			MessageBody: []byte("body2"),
 			KESPeriod:   1,
 			ExpiresAt:   exp,
@@ -58,21 +61,18 @@ func TestServerGetAvailableMessageIDs_DedupAcrossCalls(t *testing.T) {
 	}
 
 	ids1 := s.GetAvailableMessageIDs(10)
-	if len(ids1) == 0 {
-		t.Fatalf("expected some IDs, got 0")
+	if len(ids1) != 3 {
+		t.Fatalf("expected three queued IDs, got %d", len(ids1))
 	}
-	// pendingMessageIDs should not contain duplicates across calls
-	seen := map[string]int{}
-	for _, b := range s.pendingMessageIDs {
-		seen[string(b)]++
+	if len(s.pendingMessageIDs) != 0 {
+		t.Fatalf("local queue IDs became peer outstanding: %x", s.pendingMessageIDs)
 	}
-	for k, count := range seen {
-		if count > 1 {
-			t.Fatalf(
-				"duplicate pendingMessageID %s count=%d; expected deduplication",
-				k,
-				count,
-			)
-		}
+	if err := s.RequestMessages([][]byte{ids1[0].MessageID}); !errors.Is(err, protocol.ErrProtocolViolationRequestExceeded) {
+		t.Fatalf("RequestMessages error = %v, want outstanding-window rejection", err)
+	}
+
+	ids2 := s.GetAvailableMessageIDs(10)
+	if len(ids2) != 3 || len(s.pendingMessageIDs) != 0 {
+		t.Fatalf("second queue read changed peer outstanding IDs: ids=%d pending=%x", len(ids2), s.pendingMessageIDs)
 	}
 }
