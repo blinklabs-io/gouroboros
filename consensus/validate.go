@@ -92,6 +92,11 @@ type ValidateHeaderInput struct {
 	OpCertKesPeriod      uint64
 	OpCertSignature      []byte
 
+	// OpCertCounterState is the authoritative counter for IssuerVkey
+	// before this header. Use a pointer to zero when the issuer has no entry.
+	// Header validation fails when the state is unavailable.
+	OpCertCounterState *uint64
+
 	// Previous header for chain validation
 	PrevSlot        uint64
 	PrevBlockNumber uint64
@@ -111,9 +116,10 @@ type ValidateHeaderInput struct {
 
 // ValidateResult contains the result of header validation.
 type ValidateResult struct {
-	Valid     bool
-	VrfOutput []byte
-	Errors    []error
+	Valid             bool
+	VrfOutput         []byte
+	NextOpCertCounter *uint64
+	Errors            []error
 }
 
 // ValidateHeader performs full consensus validation of a block header.
@@ -128,7 +134,8 @@ type ValidateResult struct {
 //  7. KES period is within valid range
 //  8. KES signature is valid
 //  9. OpCert signature is valid (cold key signed the hot key)
-//  10. VRF key matches the required pool registration hash
+//  10. OpCert counter is consistent with authoritative pool state
+//  11. VRF key matches the required pool registration hash
 func (v *HeaderValidator) ValidateHeader(
 	input *ValidateHeaderInput,
 ) *ValidateResult {
@@ -196,13 +203,51 @@ func (v *HeaderValidator) ValidateHeader(
 		result.Errors = append(result.Errors, err)
 	}
 
-	// 10. Validate VRF key matches pool registration (if provided)
-	if err := v.validateVRFKeyRegistration(input); err != nil {
+	// 10. Validate the OpCert counter against authoritative pool state.
+	nextOpCertSequence, err := v.validateOpCertSequence(input)
+	if err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err)
 	}
 
+	// 11. Validate VRF key matches pool registration (if provided)
+	if err := v.validateVRFKeyRegistration(input); err != nil {
+		result.Valid = false
+		result.Errors = append(result.Errors, err)
+	}
+	if result.Valid {
+		result.NextOpCertCounter = &nextOpCertSequence
+	}
+
 	return result
+}
+
+func (v *HeaderValidator) validateOpCertSequence(
+	input *ValidateHeaderInput,
+) (uint64, error) {
+	if input.OpCertCounterState == nil {
+		return 0, errors.New(
+			"previous operational certificate counter is required for header validation",
+		)
+	}
+	previous := *input.OpCertCounterState
+	current := input.OpCertSequenceNumber
+	if current < previous {
+		return 0, fmt.Errorf(
+			"operational certificate counter rolled back: current=%d, previous=%d",
+			current,
+			previous,
+		)
+	}
+	if v.mode == ConsensusModeCPraos &&
+		current > previous && current-previous > 1 {
+		return 0, fmt.Errorf(
+			"operational certificate counter skipped ahead: current=%d, previous=%d",
+			current,
+			previous,
+		)
+	}
+	return current, nil
 }
 
 // validateSlotOrdering checks that the slot strictly increases.
