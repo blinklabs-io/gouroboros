@@ -15,12 +15,16 @@
 package localmessagenotification
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
+
+var errReplayCacheCapacityExceeded = errors.New("dmq: replay cache capacity exceeded")
 
 // Client implements the LocalMessageNotification client
 type Client struct {
@@ -30,6 +34,28 @@ type Client struct {
 	onceStart       sync.Once
 	onceStop        sync.Once
 	stopErr         error
+	replayState     *messageReplayState
+	now             func() time.Time
+}
+
+type messageReplayState struct {
+	mu          sync.Mutex
+	acceptedIDs map[string]uint32
+}
+
+var replayStateInitMu sync.Mutex
+
+func newMessageReplayState() *messageReplayState {
+	return &messageReplayState{acceptedIDs: make(map[string]uint32)}
+}
+
+func replayStateForConfig(cfg *Config) *messageReplayState {
+	replayStateInitMu.Lock()
+	defer replayStateInitMu.Unlock()
+	if cfg.replayState == nil {
+		cfg.replayState = newMessageReplayState()
+	}
+	return cfg.replayState
 }
 
 // NewClient returns a new LocalMessageNotification client object
@@ -39,11 +65,17 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config: cfg,
+		config:      cfg,
+		replayState: replayStateForConfig(cfg),
+		now:         time.Now,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
+	}
+	maxReplyMessages := cfg.MaxReplayEntries
+	if maxReplyMessages <= 0 {
+		maxReplyMessages = defaultMaxReplayEntries
 	}
 
 	// Update state map with timeouts for blocking requests
@@ -56,17 +88,19 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolID,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMapCopy,
-		InitialState:        protocolStateIdle,
+		Name:               ProtocolName,
+		ProtocolId:         ProtocolID,
+		Muxer:              protoOptions.Muxer,
+		Logger:             protoOptions.Logger,
+		ErrorChan:          protoOptions.ErrorChan,
+		Mode:               protoOptions.Mode,
+		Role:               protocol.ProtocolRoleClient,
+		MessageHandlerFunc: c.messageHandler,
+		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
+			return newMsgFromCborWithLimit(msgType, data, maxReplyMessages)
+		},
+		StateMap:     stateMapCopy,
+		InitialState: protocolStateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
@@ -136,7 +170,6 @@ func (c *Client) RequestMessagesBlockingValidateTimeout(
 			expectedTimeout.String(),
 		)
 	}
-
 	msg := NewMsgRequestMessages(true)
 	return c.SendMessage(msg)
 }
@@ -172,12 +205,13 @@ func (c *Client) handleReplyMessagesNonBlocking(msg protocol.Message) error {
 			"message_count", len(msgReply.Messages),
 			"has_more", msgReply.HasMore,
 		)
-	if c.config.ReplyMessagesFunc != nil {
-		c.config.ReplyMessagesFunc(
-			c.callbackContext,
-			msgReply.Messages,
-			msgReply.HasMore,
-		)
+	messages, err := c.validateAndReserve(msgReply.Messages)
+	if err != nil {
+		return err
+	}
+	if c.config.ReplyMessagesFunc != nil &&
+		(len(msgReply.Messages) == 0 || len(messages) > 0) {
+		c.config.ReplyMessagesFunc(c.callbackContext, messages, msgReply.HasMore)
 	}
 	return nil
 }
@@ -195,9 +229,113 @@ func (c *Client) handleReplyMessagesBlocking(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 			"message_count", len(msgReply.Messages),
 		)
-	if c.config.ReplyMessagesFunc != nil {
+	messages, err := c.validateAndReserve(msgReply.Messages)
+	if err != nil {
+		return err
+	}
+	if c.config.ReplyMessagesFunc != nil &&
+		(len(msgReply.Messages) == 0 || len(messages) > 0) {
 		// For blocking replies, hasMore is always false (waiting until at least one message available)
-		c.config.ReplyMessagesFunc(c.callbackContext, msgReply.Messages, false)
+		c.config.ReplyMessagesFunc(c.callbackContext, messages, false)
 	}
 	return nil
+}
+
+// validateAndReserve returns the messages in a reply that were not already
+// delivered. A server restarts from the beginning of its queue on every new
+// connection, so a replayed ID is expected and is dropped rather than treated
+// as a protocol violation. Replays are dropped before authentication because a
+// message accepted earlier can carry an operational certificate the chain has
+// since superseded.
+func (c *Client) validateAndReserve(
+	messages []pcommon.DmqMessage,
+) ([]pcommon.DmqMessage, error) {
+	if c.config.TTLValidator == nil {
+		return nil, errors.New("dmq: TTL validator not configured")
+	}
+	if c.config.Authenticator == nil {
+		return nil, errors.New("dmq: message authenticator not configured")
+	}
+	maxReplayEntries := c.config.MaxReplayEntries
+	if maxReplayEntries == 0 {
+		maxReplayEntries = defaultMaxReplayEntries
+	}
+	if maxReplayEntries < 0 {
+		return nil, errors.New("dmq: MaxReplayEntries must be greater than zero")
+	}
+	now := c.now()
+	c.replayState.mu.Lock()
+	defer c.replayState.mu.Unlock()
+	c.replayState.pruneExpiredLocked(now)
+	messages, capacityExceeded := c.replayState.admitLocked(
+		messages,
+		maxReplayEntries,
+	)
+	if capacityExceeded {
+		return nil, errReplayCacheCapacityExceeded
+	}
+	if len(messages) == 0 {
+		return messages, nil
+	}
+	for i := range messages {
+		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
+			return nil, fmt.Errorf("message %d TTL validation failed: %w", i, err)
+		}
+	}
+	commitAuthentication, err := c.config.Authenticator.PrepareMessages(messages)
+	if err != nil {
+		return nil, err
+	}
+	now = c.now()
+	for i := range messages {
+		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
+			return nil, fmt.Errorf("message %d TTL validation failed: %w", i, err)
+		}
+	}
+	if commitAuthentication != nil {
+		if err := commitAuthentication(); err != nil {
+			return nil, err
+		}
+	}
+	for i := range messages {
+		c.replayState.acceptedIDs[string(messages[i].ID())] = messages[i].Payload.ExpiresAt
+	}
+	return messages, nil
+}
+
+func (r *messageReplayState) pruneExpiredLocked(now time.Time) {
+	nowUnix := now.Unix()
+	for id, expiresAt := range r.acceptedIDs {
+		if nowUnix > int64(expiresAt) {
+			delete(r.acceptedIDs, id)
+		}
+	}
+}
+
+// admitLocked returns fresh messages when the complete reply fits without
+// discarding replay protection for any unexpired accepted ID.
+func (r *messageReplayState) admitLocked(
+	messages []pcommon.DmqMessage,
+	maxEntries int,
+) ([]pcommon.DmqMessage, bool) {
+	seen := make(map[string]struct{}, len(messages))
+	ret := make([]pcommon.DmqMessage, 0, min(len(messages), maxEntries))
+	for i := range messages {
+		id := string(messages[i].ID())
+		if _, accepted := r.acceptedIDs[id]; accepted {
+			continue
+		}
+		if _, repeated := seen[id]; repeated {
+			continue
+		}
+		seen[id] = struct{}{}
+		if len(ret) == maxEntries {
+			return nil, true
+		}
+		ret = append(ret, messages[i])
+	}
+	if len(r.acceptedIDs)+len(ret) > maxEntries {
+		return nil, true
+	}
+	return ret, false
 }

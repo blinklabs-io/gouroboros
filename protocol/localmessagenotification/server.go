@@ -15,6 +15,7 @@
 package localmessagenotification
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
@@ -37,10 +38,14 @@ type Server struct {
 	acknowledgedIDsTTL     time.Duration        // TTL for acknowledged message IDs (default: 10 minutes)
 	expirationTicker       *time.Ticker
 	expirationStopChan     chan struct{}
+	expirationDoneChan     chan struct{}
 	newMessageSignal       chan struct{}
 	newMessageSignalClosed bool
 	done                   chan struct{}
 	stopOnce               sync.Once
+	connectionDoneChan     <-chan any
+	muxerDoneChan          <-chan bool
+	now                    func() time.Time
 }
 
 // NewServer returns a new LocalMessageNotification server object
@@ -55,8 +60,14 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		acknowledgedIDs:    make(map[string]time.Time),
 		acknowledgedIDsTTL: 10 * time.Minute, // TTL for acknowledged message IDs
 		expirationStopChan: make(chan struct{}),
+		expirationDoneChan: make(chan struct{}),
 		newMessageSignal:   make(chan struct{}, 1),
 		done:               make(chan struct{}),
+		connectionDoneChan: protoOptions.ConnectionDoneChan,
+		now:                time.Now,
+	}
+	if protoOptions.Muxer != nil {
+		s.muxerDoneChan = protoOptions.Muxer.DoneChan()
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -83,16 +94,23 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 
 // AddMessage adds a message to the notification queue
 func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
-	// Validate message before adding to queue
-	if s.config.TTLValidator != nil {
-		if err := s.config.TTLValidator.ValidateMessageTTL(msg); err != nil {
-			return err
-		}
+	if msg == nil {
+		return errors.New("message is nil")
+	}
+	if s.config.TTLValidator == nil {
+		return errors.New("dmq: TTL validator not configured")
+	}
+	if err := s.config.TTLValidator.ValidateMessageTTLAt(msg, s.now()); err != nil {
+		return err
 	}
 	if s.config.Authenticator == nil {
 		return errors.New("dmq: message authenticator not configured")
 	}
-	if err := s.config.Authenticator.VerifyMessage(msg); err != nil {
+	queued := cloneDmqMessage(*msg)
+	commitAuthentication, err := s.config.Authenticator.PrepareMessages(
+		[]pcommon.DmqMessage{queued},
+	)
+	if err != nil {
 		return err
 	}
 
@@ -100,17 +118,28 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	defer s.lock.Unlock()
 
 	// Check if already acknowledged (non-zero timestamp means it was acknowledged)
-	msgID := string(msg.ID())
+	msgID := string(queued.ID())
 	if _, acknowledged := s.acknowledgedIDs[msgID]; acknowledged {
 		return errors.New("message already acknowledged")
+	}
+	for _, queued := range s.messageQueue {
+		if string(queued.ID()) == msgID {
+			return errors.New("message already queued")
+		}
 	}
 
 	// Check queue size limit
 	if len(s.messageQueue) >= s.config.MaxQueueSize {
 		return errors.New("message queue full")
 	}
+	if err := s.config.TTLValidator.ValidateMessageTTLAt(&queued, s.now()); err != nil {
+		return err
+	}
+	if err := commitAuthentication(); err != nil {
+		return err
+	}
 
-	s.messageQueue = append(s.messageQueue, msg)
+	s.messageQueue = append(s.messageQueue, &queued)
 
 	// Signal that a new message is available (non-blocking).
 	// Check the closed flag under the lock to avoid sending to a closed channel.
@@ -134,6 +163,21 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	return nil
 }
 
+func cloneDmqMessage(msg pcommon.DmqMessage) pcommon.DmqMessage {
+	msg.MessageID = bytes.Clone(msg.MessageID)
+	msg.Payload.MessageID = bytes.Clone(msg.Payload.MessageID)
+	msg.Payload.MessageBody = bytes.Clone(msg.Payload.MessageBody)
+	msg.KESSignature = bytes.Clone(msg.KESSignature)
+	msg.OperationalCertificate.KESVerificationKey = bytes.Clone(
+		msg.OperationalCertificate.KESVerificationKey,
+	)
+	msg.OperationalCertificate.ColdSignature = bytes.Clone(
+		msg.OperationalCertificate.ColdSignature,
+	)
+	msg.ColdVerificationKey = bytes.Clone(msg.ColdVerificationKey)
+	return msg
+}
+
 // WaitForMessage blocks until a message is available or timeout occurs
 func (s *Server) WaitForMessage(timeout time.Duration) error {
 	if timeout > 0 {
@@ -142,24 +186,36 @@ func (s *Server) WaitForMessage(timeout time.Duration) error {
 		select {
 		case _, ok := <-s.newMessageSignal:
 			if !ok {
-				return errors.New("server shutting down")
+				return protocol.ErrProtocolShuttingDown
 			}
 			return nil
 		case <-timer.C:
 			return errors.New("timeout waiting for message")
 		case <-s.done:
-			return errors.New("server shutting down")
+			return protocol.ErrProtocolShuttingDown
+		case <-s.StopChan():
+			return protocol.ErrProtocolShuttingDown
+		case <-s.connectionDoneChan:
+			return protocol.ErrProtocolShuttingDown
+		case <-s.muxerDoneChan:
+			return protocol.ErrProtocolShuttingDown
 		}
 	}
 	// Wait indefinitely
 	select {
 	case _, ok := <-s.newMessageSignal:
 		if !ok {
-			return errors.New("server shutting down")
+			return protocol.ErrProtocolShuttingDown
 		}
 		return nil
 	case <-s.done:
-		return errors.New("server shutting down")
+		return protocol.ErrProtocolShuttingDown
+	case <-s.StopChan():
+		return protocol.ErrProtocolShuttingDown
+	case <-s.connectionDoneChan:
+		return protocol.ErrProtocolShuttingDown
+	case <-s.muxerDoneChan:
+		return protocol.ErrProtocolShuttingDown
 	}
 }
 
@@ -222,9 +278,7 @@ func (s *Server) handleBlockingRequest() error {
 
 		// Wait for a message to arrive (no timeout - blocking indefinitely)
 		if err := s.WaitForMessage(0); err != nil {
-			// If we get an error (e.g., shutting down), return empty list
-			replyMsg := NewMsgReplyMessagesBlocking([]pcommon.DmqMessage{})
-			return s.SendMessage(replyMsg)
+			return err
 		}
 	}
 }
@@ -285,15 +339,21 @@ func (s *Server) stop() {
 func (s *Server) startExpirationCleaner() {
 	s.expirationTicker = time.NewTicker(1 * time.Minute) // Check every 1 minute
 	go func() {
+		defer close(s.expirationDoneChan)
+		defer s.expirationTicker.Stop()
 		for {
 			select {
 			case <-s.expirationTicker.C:
 				s.cleanupExpiredAcknowledgedIDs()
 			case <-s.expirationStopChan:
-				s.expirationTicker.Stop()
+				return
+			case <-s.StopChan():
+				return
+			case <-s.connectionDoneChan:
+				return
+			case <-s.muxerDoneChan:
 				return
 			case <-s.DoneChan():
-				s.expirationTicker.Stop()
 				return
 			}
 		}
@@ -303,14 +363,14 @@ func (s *Server) startExpirationCleaner() {
 // stopExpirationCleaner stops the background expiration cleanup goroutine
 func (s *Server) stopExpirationCleaner() {
 	s.lock.Lock()
-	defer s.lock.Unlock()
-
 	select {
 	case <-s.expirationStopChan:
 		// Already closed
 	default:
 		close(s.expirationStopChan)
 	}
+	s.lock.Unlock()
+	<-s.expirationDoneChan
 }
 
 // cleanupExpiredAcknowledgedIDs removes acknowledged IDs that have exceeded their TTL
