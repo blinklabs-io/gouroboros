@@ -119,7 +119,7 @@ func TestVotesRequestRejectsNullIDBeforeAllocation(t *testing.T) {
 	require.LessOrEqual(t, allocated, uint64(64<<10))
 	require.Error(t, err)
 	require.Nil(t, msg)
-	require.ErrorContains(t, err, "vote request field is not unsigned")
+	require.ErrorContains(t, err, "CBOR field is not unsigned")
 }
 
 func TestVotesRequestPreservesTypedScalarAndArrayForms(t *testing.T) {
@@ -158,4 +158,12 @@ func TestVotesRequestPreservesTaggedArrays(t *testing.T) {
 			require.Equal(t, wire, msg.Cbor())
 		})
 	}
+}
+
+func TestVotesRequestRejectsDeepIDBeforeTypedDecode(t *testing.T) {
+	id := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := append([]byte{0x82, MessageTypeVotesRequest, 0x81}, id...)
+
+	_, err := NewMsgFromCbor(MessageTypeVotesRequest, wire)
+	require.ErrorContains(t, err, "vote request: CBOR nesting exceeds maximum depth 4")
 }

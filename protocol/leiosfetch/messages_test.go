@@ -15,6 +15,7 @@
 package leiosfetch
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 
@@ -25,6 +26,109 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBlockTxsRejectsEnvelopeCountBeforeAllocation(t *testing.T) {
+	wire := append(
+		[]byte{0x99, 0x13, 0x88},
+		bytes.Repeat([]byte{0}, 5000)...,
+	)
+	_, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+	require.Error(t, err)
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+			if err == nil || msg != nil {
+				b.Fatal("invalid envelope accepted")
+			}
+		}
+	})
+	require.Positive(t, result.N)
+	require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
+}
+
+func TestBlockTxsRejectsTransactionCountBeforeAllocation(t *testing.T) {
+	// [3, array(5000)] contains no transaction items. The declared inner count
+	// must be rejected before []RawMessage allocation.
+	wire := []byte{0x82, MessageTypeBlockTxs, 0x99, 0x13, 0x88}
+	// Warm lazy decoder initialization before measuring the rejected path.
+	_, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+	require.Error(t, err)
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			if _, err := NewMsgFromCbor(MessageTypeBlockTxs, wire); err == nil {
+				b.Fatal("truncated transaction list accepted")
+			}
+		}
+	})
+	require.Positive(t, result.N)
+	require.Less(t, result.AllocedBytesPerOp(), int64(32<<10))
+}
+
+func TestBlockTxsClientUsesRequestBitmapCardinality(t *testing.T) {
+	wire := []byte{0x82, MessageTypeBlockTxs, 0x83, 0x80, 0x80, 0x80}
+	client := &Client{}
+	client.blockRequestSlot.maxBlockTxs = 2
+	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.Error(t, err)
+	require.Nil(t, msg)
+	client.blockRequestSlot.maxBlockTxs = 3
+	msg, err = client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgBlockTxs).TxsRaw, 3)
+}
+
+func TestBlockTxsPreservesDeepRawTransaction(t *testing.T) {
+	tx := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := append([]byte{0x82, MessageTypeBlockTxs, 0x81}, tx...)
+	client := &Client{}
+	client.blockRequestSlot.maxBlockTxs = 1
+
+	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.NoError(t, err)
+	require.Equal(t, cbor.RawMessage(tx), msg.(*MsgBlockTxs).TxsRaw[0])
+}
+
+func TestBlockTxsClientUsesExactBitmapCount(t *testing.T) {
+	// [3, origin, {0: 1, 1: 1}, []]
+	wire := []byte{
+		0x84, MessageTypeBlockTxs, 0x80,
+		0xa2, 0x00, 0x01, 0x01, 0x01,
+		0x80,
+	}
+	client := &Client{}
+	client.blockRequestSlot.maxBlockBitmaps = 1
+	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.ErrorContains(t, err, "maximum is 1")
+	require.Nil(t, msg)
+
+	client.blockRequestSlot.maxBlockBitmaps = 2
+	msg, err = client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgBlockTxs).Bitmaps, 2)
+}
+
+func TestBlockTxsRequestRejectsDuplicateBitmapBeforeTypedDecode(t *testing.T) {
+	// [2, origin, {_ 0: 1, 0: 2}]
+	wire := []byte{
+		0x83, MessageTypeBlockTxsRequest, 0x80,
+		0xbf, 0x00, 0x01, 0x00, 0x02, 0xff,
+	}
+	msg, err := NewMsgFromCbor(MessageTypeBlockTxsRequest, wire)
+	require.ErrorContains(t, err, "duplicate block transaction bitmap key 0")
+	require.Nil(t, msg)
+}
+
+func TestLeiosFetchRolesRejectWrongDirectionBeforeDecode(t *testing.T) {
+	declared := []byte{0x82, MessageTypeBlockTxs, 0x9a, 0, 0x40, 0}
+	msg, err := serverMessageFromCbor(MessageTypeBlockTxs, declared)
+	require.ErrorContains(t, err, "not a client request")
+	require.Nil(t, msg)
+
+	client := &Client{}
+	msg, err = client.messageFromCbor(MessageTypeBlockTxsRequest, declared)
+	require.ErrorContains(t, err, "not a server response")
+	require.Nil(t, msg)
+}
 
 type testDefinition struct {
 	Name        string

@@ -77,6 +77,11 @@ const MaxPendingMessageBytes = 4 * 1440
 // reply would encode to 6,379 bytes and exceed MaxPendingMessageBytes.
 const MaxSharedPeers = 230
 
+// MaxPeerSharingResponseCount is the uint8 wire maximum for a requested
+// compact peer-address response. MaxSharedPeers remains the server emission
+// cap that guarantees even worst-case IPv6 addresses fit the byte budget.
+const MaxPeerSharingResponseCount = int(^uint8(0))
+
 var (
 	stateIdle = protocol.NewState(1, "Idle")
 	stateBusy = protocol.NewState(2, "Busy")

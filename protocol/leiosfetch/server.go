@@ -55,7 +55,7 @@ func (s *Server) initProtocol() {
 		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
+		MessageFromCborFunc: serverMessageFromCbor,
 		StateMap:            StateMap,
 		InitialState:        StateIdle,
 	}
@@ -63,6 +63,16 @@ func (s *Server) initProtocol() {
 	s.protocolMu.Lock()
 	s.Protocol = p
 	s.protocolMu.Unlock()
+}
+
+func serverMessageFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	switch msgType {
+	case MessageTypeBlockRequest, MessageTypeBlockTxsRequest,
+		MessageTypeVotesRequest, MessageTypeBlockRangeRequest, MessageTypeDone:
+		return NewMsgFromCbor(msgType, data)
+	default:
+		return nil, fmt.Errorf("%s: message type %d is not a client request", ProtocolName, msgType)
+	}
 }
 
 func (s *Server) ProtocolInstance() *protocol.Protocol {

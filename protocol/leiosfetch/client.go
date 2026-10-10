@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/bits"
 	"sync"
 	"time"
 
@@ -63,6 +64,8 @@ type requestSlot struct {
 	maxBytes        int
 	rangeReplies    int
 	rangeBytes      int
+	maxBlockTxs     int
+	maxBlockBitmaps int
 	drainedCh       chan struct{}
 	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
 }
@@ -360,6 +363,8 @@ func (s *requestSlot) freeLocked() {
 	}
 	s.busy = false
 	s.abandoned = false
+	s.maxBlockTxs = 0
+	s.maxBlockBitmaps = 0
 	if s.drainedCh != nil {
 		close(s.drainedCh)
 		s.drainedCh = nil
@@ -423,12 +428,45 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
+		MessageFromCborFunc: c.messageFromCbor,
 		StateMap:            stateMap,
 		InitialState:        StateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	switch msgType {
+	case MessageTypeBlock, MessageTypeBlockTxs, MessageTypeVotes,
+		MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
+	default:
+		return nil, fmt.Errorf("%s: message type %d is not a server response", ProtocolName, msgType)
+	}
+	if msgType == MessageTypeBlockTxs {
+		c.blockRequestSlot.mu.Lock()
+		maxCount := c.blockRequestSlot.maxBlockTxs
+		maxBitmapCount := c.blockRequestSlot.maxBlockBitmaps
+		c.blockRequestSlot.mu.Unlock()
+		msg := &MsgBlockTxs{}
+		if err := msg.unmarshalCBORWithLimits(
+			data,
+			maxCount,
+			maxBitmapCount,
+		); err != nil {
+			return nil, err
+		}
+		if msg.Type() != MessageTypeBlockTxs {
+			return nil, fmt.Errorf(
+				"%s: message type mismatch: parser received %d, payload contains %d",
+				ProtocolName,
+				msgType,
+				msg.Type(),
+			)
+		}
+		return msg, nil
+	}
+	return NewMsgFromCbor(msgType, data)
 }
 
 func (c *Client) Start() {
@@ -581,6 +619,14 @@ func (c *Client) BlockTxsRequest(
 	if err != nil {
 		return nil, err
 	}
+	maxTxs := 0
+	for _, bitmap := range bitmaps {
+		maxTxs += bits.OnesCount64(bitmap)
+	}
+	c.blockRequestSlot.mu.Lock()
+	c.blockRequestSlot.maxBlockTxs = maxTxs
+	c.blockRequestSlot.maxBlockBitmaps = len(bitmaps)
+	c.blockRequestSlot.mu.Unlock()
 	msg := NewMsgBlockTxsRequest(point, bitmaps)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockRequestSlot.release(w)

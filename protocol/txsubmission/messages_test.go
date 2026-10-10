@@ -15,13 +15,43 @@
 package txsubmission
 
 import (
+	"bytes"
 	"encoding/hex"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCollectionMessagesRejectCountBeforeAllocation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind uint
+	}{
+		{"reply transaction IDs", MessageTypeReplyTxIds},
+		{"request transactions", MessageTypeRequestTxs},
+		{"reply transactions", MessageTypeReplyTxs},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := append(
+				[]byte{0x82, byte(tc.kind), 0x99, 0x13, 0x88},
+				bytes.Repeat([]byte{0x80}, 5000)...,
+			)
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			msg, err := NewMsgFromCbor(tc.kind, wire)
+			runtime.ReadMemStats(&after)
+			require.Error(t, err)
+			require.Nil(t, msg)
+			allocated := after.TotalAlloc - before.TotalAlloc
+			t.Logf("wire=%d allocated=%d", len(wire), allocated)
+			require.LessOrEqual(t, allocated, uint64(64<<10))
+		})
+	}
+}
 
 type testDefinition struct {
 	Name        string
@@ -139,4 +169,12 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 	require.Nil(t, msg)
 	require.Contains(t, err.Error(), ProtocolName)
 	require.Contains(t, err.Error(), "999")
+}
+
+func TestRequestTxsRejectsDeepItemBeforeTypedDecode(t *testing.T) {
+	item := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := append([]byte{0x82, MessageTypeRequestTxs, 0x81}, item...)
+
+	_, err := NewMsgFromCbor(MessageTypeRequestTxs, wire)
+	require.ErrorContains(t, err, "tx-submission item 0: CBOR nesting exceeds maximum depth 1")
 }

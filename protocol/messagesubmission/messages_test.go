@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -23,6 +24,36 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCollectionMessagesRejectConfiguredCountBeforeAllocation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind uint
+	}{
+		{"reply message IDs", MessageTypeReplyMessageIds},
+		{"request messages", MessageTypeRequestMessages},
+		{"reply messages", MessageTypeReplyMessages},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := append(
+				[]byte{0x82, byte(tc.kind), 0x99, 0x13, 0x88},
+				bytes.Repeat([]byte{0x80}, 5000)...,
+			)
+			_, err := decodeMsgFromCborWithLimit(tc.kind, wire, 100)
+			require.Error(t, err)
+			result := testing.Benchmark(func(b *testing.B) {
+				for range b.N {
+					msg, err := decodeMsgFromCborWithLimit(tc.kind, wire, 100)
+					if err == nil || msg != nil {
+						b.Fatal("oversized collection accepted")
+					}
+				}
+			})
+			require.Positive(t, result.N)
+			require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
+		})
+	}
+}
 
 // TestMsgInitEncoding tests MsgInit message encoding
 func TestMsgInitEncoding(t *testing.T) {
@@ -371,4 +402,12 @@ func TestNewMsgFromCborRoundTrip(t *testing.T) {
 	parsed, err = NewMsgFromCbor(uint(MessageTypeDone), data)
 	assert.NoError(t, err)
 	assert.Equal(t, uint8(MessageTypeDone), parsed.Type())
+}
+
+func TestRequestMessagesRejectsDeepIDBeforeTypedDecode(t *testing.T) {
+	item := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := append([]byte{0x82, MessageTypeRequestMessages, 0x81}, item...)
+
+	_, err := NewMsgFromCbor(MessageTypeRequestMessages, wire)
+	require.ErrorContains(t, err, "message-submission item 0: CBOR nesting exceeds maximum depth 0")
 }

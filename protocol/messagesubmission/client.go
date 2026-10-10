@@ -31,10 +31,12 @@ type Client struct {
 	protoVersion    uint16
 
 	// Client-side state for message ID tracking
-	lock              sync.Mutex
-	pendingMessageIDs [][]byte
-	onceStart         sync.Once
-	onceStop          sync.Once
+	lock                     sync.Mutex
+	pendingMessageIDs        [][]byte
+	requestedReplyMessageIDs int
+	requestedReplyMessages   int
+	onceStart                sync.Once
+	onceStop                 sync.Once
 	// stopErr caches the error returned by the first Stop() call so
 	// subsequent Stop() calls return the same result instead of nil.
 	stopErr error
@@ -98,20 +100,35 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolID,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMapCopy,
-		InitialState:        initialState,
+		Name:               ProtocolName,
+		ProtocolId:         ProtocolID,
+		Muxer:              protoOptions.Muxer,
+		Logger:             protoOptions.Logger,
+		ErrorChan:          protoOptions.ErrorChan,
+		Mode:               protoOptions.Mode,
+		Role:               protocol.ProtocolRoleClient,
+		MessageHandlerFunc: c.messageHandler,
+		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
+			return decodeMsgFromCborWithLimit(
+				msgType,
+				data,
+				c.collectionLimit(msgType),
+			)
+		},
+		StateMap:     stateMapCopy,
+		InitialState: initialState,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+func (c *Client) collectionLimit(msgType uint) int {
+	if msgType != MessageTypeRequestMessages {
+		return configuredMessageIDLimit(c.config)
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return len(c.pendingMessageIDs)
 }
 
 // Start begins protocol operation
@@ -171,11 +188,20 @@ func (c *Client) Init() error {
 
 // ReplyMessageIds sends a reply with message IDs and sizes
 func (c *Client) ReplyMessageIds(messages []pcommon.MessageIDAndSize) error {
+	c.lock.Lock()
+	maxReply := c.requestedReplyMessageIDs
+	c.lock.Unlock()
+	if len(messages) > maxReply {
+		return fmt.Errorf("message ID reply has %d entries, requested maximum is %d", len(messages), maxReply)
+	}
 	// Prepare the outgoing message first and attempt send before mutating internal state.
 	msg := NewMsgReplyMessageIds(messages)
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
+	c.lock.Lock()
+	c.requestedReplyMessageIDs = 0
+	c.lock.Unlock()
 
 	// On successful send, append the new IDs to the unacknowledged window.
 	c.appendPendingMessageIDs(messages)
@@ -200,12 +226,21 @@ func (c *Client) appendPendingMessageIDs(messages []pcommon.MessageIDAndSize) {
 
 // ReplyMessages sends a reply with full messages
 func (c *Client) ReplyMessages(messages []pcommon.DmqMessage) error {
+	c.lock.Lock()
+	maxReply := c.requestedReplyMessages
+	c.lock.Unlock()
+	if len(messages) > maxReply {
+		return fmt.Errorf("message reply has %d entries, requested maximum is %d", len(messages), maxReply)
+	}
 	msg := NewMsgReplyMessages(messages)
 	msg.legacyMessageEncoding = c.config.LegacyV1MessageEncoding &&
 		!isMessageSubmissionV2(c.protoVersion)
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
+	c.lock.Lock()
+	c.requestedReplyMessages = 0
+	c.lock.Unlock()
 	return nil
 }
 
@@ -302,6 +337,7 @@ func (c *Client) handleRequestMessageIds(msg protocol.Message) error {
 	if ackCount > 0 {
 		c.pendingMessageIDs = c.pendingMessageIDs[ackCount:]
 	}
+	c.requestedReplyMessageIDs = requestCount
 	c.lock.Unlock()
 
 	// Invoke callback to get available message IDs
@@ -331,6 +367,9 @@ func (c *Client) handleRequestMessages(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 			"message_count", len(msgRequest.MessageIDs),
 		)
+	c.lock.Lock()
+	c.requestedReplyMessages = len(msgRequest.MessageIDs)
+	c.lock.Unlock()
 
 	// Invoke callback to get the requested messages
 	if c.config.RequestMessagesFunc != nil {
