@@ -166,11 +166,11 @@ func TestReferenceProvidedNativeScriptsAreValidated(t *testing.T) {
 	unusedScript := testPubkeyNativeScript(t, unusedVkey)
 	keyAddr := testKeyPaymentAddress(t, vkey)
 
-	spentInput := shelley.NewShelleyTransactionInput(
+	spentInput := shelley.MustNewShelleyTransactionInput(
 		"1111111111111111111111111111111111111111111111111111111111111111",
 		0,
 	)
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"2222222222222222222222222222222222222222222222222222222222222222",
 		0,
 	)
@@ -323,11 +323,11 @@ func TestInvalidTransactionsRetainReferenceScriptRequirements(t *testing.T) {
 	scriptAddr := testScriptPaymentAddress(t, nativeScript.Hash())
 	keyAddr := testKeyPaymentAddress(t, vkey)
 
-	spendInput := shelley.NewShelleyTransactionInput(
+	spendInput := shelley.MustNewShelleyTransactionInput(
 		"6666666666666666666666666666666666666666666666666666666666666666",
 		0,
 	)
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"7777777777777777777777777777777777777777777777777777777777777777",
 		0,
 	)
@@ -410,15 +410,15 @@ func TestUnresolvableInputsAreRejectedBeforeNativeScripts(t *testing.T) {
 	scriptAddr := testScriptPaymentAddress(t, nativeScript.Hash())
 	keyAddr := testKeyPaymentAddress(t, vkey)
 
-	scriptInput := shelley.NewShelleyTransactionInput(
+	scriptInput := shelley.MustNewShelleyTransactionInput(
 		"3333333333333333333333333333333333333333333333333333333333333333",
 		0,
 	)
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"4444444444444444444444444444444444444444444444444444444444444444",
 		0,
 	)
-	missingInput := shelley.NewShelleyTransactionInput(
+	missingInput := shelley.MustNewShelleyTransactionInput(
 		"5555555555555555555555555555555555555555555555555555555555555555",
 		0,
 	)
@@ -506,7 +506,7 @@ func TestUnresolvableInputsAreRejectedBeforeNativeScripts(t *testing.T) {
 func TestUnneededWitnessNativeScriptIsNotEvaluated(t *testing.T) {
 	t.Parallel()
 	unneeded := testPubkeyNativeScript(t, bytes.Repeat([]byte{0x66}, 32))
-	spentInput := shelley.NewShelleyTransactionInput(
+	spentInput := shelley.MustNewShelleyTransactionInput(
 		"7777777777777777777777777777777777777777777777777777777777777777",
 		0,
 	)

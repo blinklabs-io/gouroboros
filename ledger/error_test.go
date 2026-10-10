@@ -38,7 +38,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(
+			Id: shelley.MustNewShelleyTransactionInput(
 				"deadbeef00000000000000000000000000000000000000000000000000000000",
 				0,
 			),
@@ -48,7 +48,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 			},
 		},
 		{
-			Id: shelley.NewShelleyTransactionInput(
+			Id: shelley.MustNewShelleyTransactionInput(
 				"cafebabe11111111111111111111111111111111111111111111111111111111",
 				1,
 			),
@@ -58,7 +58,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 			},
 		},
 		{
-			Id: shelley.NewShelleyTransactionInput(
+			Id: shelley.MustNewShelleyTransactionInput(
 				"feedface22222222222222222222222222222222222222222222222222222222",
 				2,
 			),
@@ -347,11 +347,11 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	}
 
 	// Test Shelley inputs
-	shelleyInput1 := shelley.NewShelleyTransactionInput(
+	shelleyInput1 := shelley.MustNewShelleyTransactionInput(
 		"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
 		0,
 	)
-	shelleyInput2 := shelley.NewShelleyTransactionInput(
+	shelleyInput2 := shelley.MustNewShelleyTransactionInput(
 		"fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
 		1,
 	)
@@ -535,7 +535,7 @@ func TestScriptsNotPaidUtxo_RequiresExplicitType(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	input1 := shelley.NewShelleyTransactionInput(
+	input1 := shelley.MustNewShelleyTransactionInput(
 		"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
 		0,
 	)
@@ -1882,7 +1882,7 @@ func TestUtxoFailure_DijkstraScriptsNotPaidUtxo(t *testing.T) {
 		},
 		Utxos: []common.Utxo{
 			{
-				Id: shelley.NewShelleyTransactionInput(
+				Id: shelley.MustNewShelleyTransactionInput(
 					"deadbeef00000000000000000000000000000000000000000000000000000000",
 					0,
 				),

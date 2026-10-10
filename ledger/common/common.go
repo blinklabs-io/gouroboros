@@ -1011,6 +1011,13 @@ type ExUnits struct {
 // UnmarshalCBOR enforces the unsigned wire domain of execution units while
 // retaining signed fields for overflow-checked accumulation.
 func (e *ExUnits) UnmarshalCBOR(cborData []byte) error {
+	if err := ValidateCBORArrayLength(
+		cborData,
+		2,
+		"execution units",
+	); err != nil {
+		return err
+	}
 	var encoded struct {
 		cbor.StructAsArray
 		Memory uint64
@@ -1057,7 +1064,15 @@ func BigIntToUtxorpcBigInt(v *big.Int) *utxorpc.BigInt {
 			BigInt: &utxorpc.BigInt_Int{Int: v.Int64()},
 		}
 	}
-	// Otherwise use the big int bytes representation
+	// CBOR bignums: tag 2 carries n, tag 3 carries -1-n, so a negative value
+	// is encoded by the magnitude of -1-n rather than abs(n).
+	if v.Sign() < 0 {
+		return &utxorpc.BigInt{
+			BigInt: &utxorpc.BigInt_BigNInt{
+				BigNInt: new(big.Int).Sub(new(big.Int).Neg(v), big.NewInt(1)).Bytes(),
+			},
+		}
+	}
 	return &utxorpc.BigInt{
 		BigInt: &utxorpc.BigInt_BigUInt{
 			BigUInt: v.Bytes(),
@@ -1905,11 +1920,10 @@ func extractDijkstraTransactionOffsets(
 		// Only the current body shape defines block_transaction's trailing
 		// is_valid; the legacy body carries invalid_transactions instead.
 		if !legacyBody && len(txParts) == dijkstraBlockTxComponents {
-			var isValid bool
-			if _, err := cbor.Decode(
+			isValid, err := cbor.DecodeBool(
 				txParts[dijkstraBlockTxComponents-1],
-				&isValid,
-			); err != nil {
+			)
+			if err != nil {
 				return nil, fmt.Errorf(
 					"failed to decode Dijkstra transaction %d is_valid: %w",
 					i,

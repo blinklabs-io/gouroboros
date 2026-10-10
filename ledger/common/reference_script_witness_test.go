@@ -35,10 +35,10 @@ func TestReferenceSuppliedScriptWitnessIsExtraneous(t *testing.T) {
 	t.Parallel()
 	vkey := bytes.Repeat([]byte{0x71}, 32)
 	keyAddr := testKeyPaymentAddress(t, vkey)
-	spentInput := shelley.NewShelleyTransactionInput(
+	spentInput := shelley.MustNewShelleyTransactionInput(
 		"3333333333333333333333333333333333333333333333333333333333333333", 0,
 	)
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"4444444444444444444444444444444444444444444444444444444444444444", 0,
 	)
 	nativeScript := testPubkeyNativeScript(t, vkey)

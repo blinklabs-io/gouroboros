@@ -1342,44 +1342,10 @@ const (
 //  2. Computing the merkle roots from transaction bodies and witnesses
 //  3. Hashing the delegation and update payloads
 //  4. Comparing computed values against the header's body proof
-//  5. Validating the ssc_proof as far as cardano-ledger's dropSscProof
-//     does -- the proof's tag, its element count for that tag, that each
-//     hash slot is a byte string, and the payload's element count for the
-//     payload's own tag -- via byron.ByronMainBlock.ValidateSscProofShape
-//     in the ledger package. dropSscProof and dropSscPayload are
-//     independent decoders, so their tags are not compared, and dropBytes
-//     places no bound on a hash slot's length
+//  5. Recomputing the ssc_proof hashes from the block's SSC payload
+//  6. Validating delegation and update payload structure and signatures
 //     (Cardano/Chain/Ssc.hs:75-90, :169-188).
-//
-// tx_proof/dlg_proof/upd_proof (steps 2-4) are always checked by full hash
-// comparison. ssc_proof's hash comparison is different: by default this
-// function only checks ssc_proof structurally (step 5) and does NOT
-// compare its hash values against the header. Pass a
-// common.VerifyConfig with EnableByronSscProofHashValidation set to true to
-// additionally run the full comparison, via byron.ByronMainBlock.
-// ValidateSscProof in the ledger package, against the real hashes of the
-// block's own SSC payload.
-//
-// ssc_proof's hash construction is entirely block-local -- every hash it
-// carries is a plain blake2b-256 hash of this same block's own SSC payload
-// content, not of any epoch-wide accumulated state (an earlier version of
-// this function believed the real hash check was unavoidably out of reach
-// for that reason, but real, non-empty mainnet vectors disproved it; see
-// the ledger package's byron.checkSscProofLocal doc comment) -- but unlike
-// tx_proof/dlg_proof/upd_proof, that construction has no upstream reference
-// implementation to cross-check against, and is confirmed only against a
-// handful of real mainnet blocks so far. See
-// common.VerifyConfig.EnableByronSscProofHashValidation's doc comment for
-// the full reasoning behind leaving the hash comparison opt-in here, and
-// checkSscProofCore's (ledger/byron) for the shared implementation.
-func ValidateBodyHash(
-	block *byron.ByronMainBlock,
-	config ...common.VerifyConfig,
-) error {
-	var cfg common.VerifyConfig
-	if len(config) > 0 {
-		cfg = config[0]
-	}
+func ValidateBodyHash(block *byron.ByronMainBlock) error {
 	if block == nil {
 		return &common.ValidationError{
 			Type:    common.ValidationErrorTypeBodyHash,
@@ -1429,44 +1395,19 @@ func ValidateBodyHash(
 		}
 	}
 
-	// Validate the ssc_proof. By default this is the structural check
-	// cardano-ledger's dropSscProof performs and nothing more -- the
-	// proof's tag, its element count for that tag, that each hash slot is
-	// a byte string, and the payload's element count for the payload's own
-	// tag (Cardano/Chain/Ssc.hs:75-90, :169-188). dropSscProof and
-	// dropSscPayload are independent decoders, so their tags are not
-	// compared. Recomputing and comparing the hashes themselves is opt-in
-	// (EnableByronSscProofHashValidation); see this function's doc comment
-	// for why.
-	if cfg.EnableByronSscProofHashValidation {
-		if err := block.ValidateSscProof(); err != nil {
-			return &common.ValidationError{
-				Type:    common.ValidationErrorTypeBodyHash,
-				Message: "ssc_proof validation failed",
-				Cause:   err,
-			}
-		}
-	} else if err := block.ValidateSscProofShape(); err != nil {
+	if err := block.ValidateSscProof(); err != nil {
 		return &common.ValidationError{
 			Type:    common.ValidationErrorTypeBodyHash,
-			Message: "ssc_proof shape validation failed",
+			Message: "ssc_proof validation failed",
 			Cause:   err,
 		}
 	}
 
-	// Validate the delegation and update payloads themselves -- opt-in
-	// only (EnableByronPayloadValidation). The dlg_proof/upd_proof checks
-	// above bind those payloads' bytes to the header but say nothing about
-	// whether they decode to well-formed certificates, proposals, and
-	// votes, or whether the signatures inside them verify. See that flag's
-	// doc comment for why the check is not on by default.
-	if cfg.EnableByronPayloadValidation {
-		if err := block.ValidatePayloads(); err != nil {
-			return &common.ValidationError{
-				Type:    common.ValidationErrorTypeBodyHash,
-				Message: "byron payload validation failed",
-				Cause:   err,
-			}
+	if err := block.ValidatePayloads(); err != nil {
+		return &common.ValidationError{
+			Type:    common.ValidationErrorTypeBodyHash,
+			Message: "byron payload validation failed",
+			Cause:   err,
 		}
 	}
 
@@ -1518,15 +1459,21 @@ func parseSscProof(proof any) (*ByronSscProof, error) {
 	}
 	result.Hash1 = hash1
 
-	// For types 0-2, there should be a second hash (VSS certificates hash)
+	expectedLength := 2
 	if proofType != SscTypeCertificates {
-		if len(proofSlice) < 3 {
-			return nil, fmt.Errorf(
-				"sscProof type %d requires 3 elements, got %d",
-				proofType,
-				len(proofSlice),
-			)
-		}
+		expectedLength = 3
+	}
+	if len(proofSlice) != expectedLength {
+		return nil, fmt.Errorf(
+			"sscProof type %d requires exactly %d elements, got %d",
+			proofType,
+			expectedLength,
+			len(proofSlice),
+		)
+	}
+
+	// For types 0-2, parse the second hash (VSS certificates hash).
+	if proofType != SscTypeCertificates {
 		hash2, ok := proofSlice[2].([]byte)
 		if !ok {
 			return nil, fmt.Errorf(

@@ -91,6 +91,71 @@ func Decode(dataBytes []byte, dest any) (int, error) {
 	return decode(dataBytes, dest, getDecMode, rejectDuplicateMapKeys)
 }
 
+// DecodeExact decodes one untrusted CBOR item, applies the strict network
+// collection limits, and rejects any trailing bytes.
+func DecodeExact(dataBytes []byte, dest any) (int, error) {
+	decMode, err := getStrictDecMode()
+	if err != nil {
+		return 0, err
+	}
+	if decMode == nil {
+		return 0, errors.New("CBOR decoder mode not initialized")
+	}
+	// Validate the complete item before decoding into a custom UnmarshalCBOR
+	// implementation. Those implementations may recursively call Decode, which
+	// would otherwise reset the decoder's nesting counter at every boundary.
+	if err := decMode.Wellformed(dataBytes); err != nil {
+		var trailingDataErr *_cbor.ExtraneousDataError
+		if !errors.As(err, &trailingDataErr) {
+			return 0, err
+		}
+	}
+	bytesRead, err := decodeWithMode(
+		dataBytes,
+		dest,
+		decMode,
+		rejectDuplicateMapKeys,
+	)
+	if err != nil {
+		return bytesRead, err
+	}
+	if bytesRead != len(dataBytes) {
+		return bytesRead, fmt.Errorf(
+			"unexpected trailing CBOR data: %d bytes",
+			len(dataBytes)-bytesRead,
+		)
+	}
+	return bytesRead, nil
+}
+
+// ValidateExact validates that data contains exactly one well-formed CBOR item
+// using the default decoder limits, without constructing its decoded value.
+func ValidateExact(dataBytes []byte) error {
+	decMode, err := getDecMode()
+	if err != nil {
+		return err
+	}
+	if decMode == nil {
+		return errors.New("CBOR decoder mode not initialized")
+	}
+	return decMode.Wellformed(dataBytes)
+}
+
+// DecodeBool decodes a CBOR boolean while rejecting every other simple value.
+func DecodeBool(data []byte) (bool, error) {
+	if len(data) != 1 {
+		return false, errors.New("CBOR value is not a boolean")
+	}
+	switch data[0] {
+	case 0xf4:
+		return false, nil
+	case 0xf5:
+		return true, nil
+	default:
+		return false, errors.New("CBOR value is not a boolean")
+	}
+}
+
 // DecodeLedgerMap decodes a ledger map with duplicate keys rejected. Unknown
 // fields are rejected by a typed destination's decoder or by caller validation
 // when decoding raw fields. Call it at custom UnmarshalCBOR boundaries because

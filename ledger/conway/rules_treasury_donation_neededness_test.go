@@ -35,11 +35,11 @@ func TestConwayDonationRestrictionUsesNeededPlutusScripts(t *testing.T) {
 		make([]byte, common.AddressHashSize),
 	)
 	require.NoError(t, err)
-	spent := shelley.NewShelleyTransactionInput(
+	spent := shelley.MustNewShelleyTransactionInput(
 		"0101010101010101010101010101010101010101010101010101010101010101",
 		0,
 	)
-	reference := shelley.NewShelleyTransactionInput(
+	reference := shelley.MustNewShelleyTransactionInput(
 		"0202020202020202020202020202020202020202020202020202020202020202",
 		0,
 	)

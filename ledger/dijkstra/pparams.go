@@ -43,6 +43,14 @@ type DijkstraProtocolParameters struct {
 	MaxEndorserBlockTxsSize          uint32
 	MaxEndorserBlockExUnits          common.ExUnits
 	MaxRefScriptSizePerEndorserBlock uint32
+	PerasMinCandidateBlockAge        uint32
+	PerasHealingFactor               *cbor.Rat
+	PerasCertBoost                   uint16
+	PerasTargetCommitteeSize         uint16
+	PerasBootstrapRound              *uint32
+	PerasQuorumThresholdSafetyMargin *cbor.Rat
+	RefInputsCostPerMultiAssetPolicy uint64
+	RefInputsCostPerDatumByte        uint64
 	CommitteeStakeCoverage           *cbor.Rat
 	QuorumStakeThreshold             *cbor.Rat
 }
@@ -69,6 +77,13 @@ func copyRewardRat(value *cbor.Rat) *big.Rat {
 		return nil
 	}
 	return new(big.Rat).Set(value.Rat)
+}
+
+func copyRat(value *cbor.Rat) *cbor.Rat {
+	if value == nil || value.Rat == nil {
+		return nil
+	}
+	return &cbor.Rat{Rat: new(big.Rat).Set(value.Rat)}
 }
 
 var _ common.CommitteeMaxTermLengthProvider = (*DijkstraProtocolParameters)(nil)
@@ -129,6 +144,14 @@ type dijkstraProtocolParametersCbor struct {
 	MaxEndorserBlockTxsSize          uint32
 	MaxEndorserBlockExUnits          common.ExUnits
 	MaxRefScriptSizePerEndorserBlock uint32
+	PerasMinCandidateBlockAge        uint32
+	PerasHealingFactor               *cbor.Rat
+	PerasCertBoost                   uint16
+	PerasTargetCommitteeSize         uint16
+	PerasBootstrapRound              []uint32
+	PerasQuorumThresholdSafetyMargin *cbor.Rat
+	RefInputsCostPerMultiAssetPolicy uint64
+	RefInputsCostPerDatumByte        uint64
 }
 
 type dijkstraProtocolParametersCborLegacy struct {
@@ -223,6 +246,30 @@ func decodeDijkstraProtocolParametersCbor(
 			RefScriptCostMultiplier:    legacy.RefScriptCostMultiplier,
 		}, nil
 	case 46:
+		fields := make([]cbor.RawMessage, 0, 54)
+		if _, err := cbor.Decode(cborData, &fields); err != nil {
+			return dijkstraProtocolParametersCbor{}, err
+		}
+		fields = append(fields,
+			cbor.RawMessage{0x00}, // perasMinCandidateBlockAge
+			cbor.RawMessage{0xf6}, // perasHealingFactor
+			cbor.RawMessage{0x00}, // perasCertBoost
+			cbor.RawMessage{0x00}, // perasTargetCommitteeSize
+			cbor.RawMessage{0x80}, // perasBootstrapRound
+			cbor.RawMessage{0xf6}, // perasQuorumThresholdSafetyMargin
+			cbor.RawMessage{0x00}, // refInputsCostPerMultiAssetPolicy
+			cbor.RawMessage{0x00}, // refInputsCostPerDatumByte
+		)
+		extended, err := cbor.Encode(fields)
+		if err != nil {
+			return dijkstraProtocolParametersCbor{}, err
+		}
+		var current dijkstraProtocolParametersCbor
+		if _, err := cbor.Decode(extended, &current); err != nil {
+			return dijkstraProtocolParametersCbor{}, err
+		}
+		return current, nil
+	case 54:
 		var current dijkstraProtocolParametersCbor
 		if _, err := cbor.Decode(cborData, &current); err != nil {
 			return dijkstraProtocolParametersCbor{}, err
@@ -237,15 +284,40 @@ func decodeDijkstraProtocolParametersCbor(
 }
 
 func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
+	arrayLen, _, _ := cbor.ArrayInfo(cborData)
 	tmp, err := decodeDijkstraProtocolParametersCbor(cborData)
 	if err != nil {
 		return err
+	}
+	if arrayLen != 54 {
+		tmp.PerasHealingFactor, tmp.PerasQuorumThresholdSafetyMargin = defaultDijkstraPerasIntervals(
+			tmp.PerasHealingFactor,
+			tmp.PerasQuorumThresholdSafetyMargin,
+		)
 	}
 	if err := validateDijkstraRewardParameterDomains(
 		tmp.MaxPledgeLeverage,
 		tmp.MinPoolMargin,
 	); err != nil {
 		return err
+	}
+	if arrayLen == 54 {
+		if err := validateDijkstraCurrentPerasParameterDomains(
+			tmp.PerasHealingFactor,
+			tmp.PerasQuorumThresholdSafetyMargin,
+		); err != nil {
+			return err
+		}
+	} else {
+		if err := validateDijkstraPerasParameterDomains(
+			tmp.PerasHealingFactor,
+			tmp.PerasQuorumThresholdSafetyMargin,
+		); err != nil {
+			return err
+		}
+	}
+	if len(tmp.PerasBootstrapRound) > 1 {
+		return errors.New("perasBootstrapRound must contain at most one round")
 	}
 	p.ConwayProtocolParameters = conway.ConwayProtocolParameters{
 		MinFeeA:                    tmp.MinFeeA,
@@ -295,11 +367,48 @@ func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
 	p.MaxEndorserBlockTxsSize = tmp.MaxEndorserBlockTxsSize
 	p.MaxEndorserBlockExUnits = tmp.MaxEndorserBlockExUnits
 	p.MaxRefScriptSizePerEndorserBlock = tmp.MaxRefScriptSizePerEndorserBlock
+	p.PerasMinCandidateBlockAge = tmp.PerasMinCandidateBlockAge
+	p.PerasHealingFactor = tmp.PerasHealingFactor
+	p.PerasCertBoost = tmp.PerasCertBoost
+	p.PerasTargetCommitteeSize = tmp.PerasTargetCommitteeSize
+	p.PerasBootstrapRound = nil
+	if len(tmp.PerasBootstrapRound) == 1 {
+		p.PerasBootstrapRound = copyUint32(&tmp.PerasBootstrapRound[0])
+	}
+	p.PerasQuorumThresholdSafetyMargin = tmp.PerasQuorumThresholdSafetyMargin
+	p.RefInputsCostPerMultiAssetPolicy = tmp.RefInputsCostPerMultiAssetPolicy
+	p.RefInputsCostPerDatumByte = tmp.RefInputsCostPerDatumByte
 	return nil
 }
 
 func (p DijkstraProtocolParameters) MarshalCBOR() ([]byte, error) {
+	p.PerasHealingFactor, p.PerasQuorumThresholdSafetyMargin = defaultDijkstraPerasIntervals(
+		p.PerasHealingFactor,
+		p.PerasQuorumThresholdSafetyMargin,
+	)
+	if err := validateDijkstraCurrentPerasParameterDomains(
+		p.PerasHealingFactor,
+		p.PerasQuorumThresholdSafetyMargin,
+	); err != nil {
+		return nil, err
+	}
 	return cbor.Encode(p.toCbor())
+}
+
+func defaultDijkstraPerasIntervals(
+	healingFactor *cbor.Rat,
+	safetyMargin *cbor.Rat,
+) (*cbor.Rat, *cbor.Rat) {
+	if healingFactor == nil {
+		healingFactor = &cbor.Rat{Rat: new(big.Rat).SetFrac(
+			big.NewInt(1),
+			new(big.Int).Exp(big.NewInt(10), big.NewInt(19), nil),
+		)}
+	}
+	if safetyMargin == nil {
+		safetyMargin = &cbor.Rat{Rat: big.NewRat(0, 1)}
+	}
+	return healingFactor, safetyMargin
 }
 
 func (p DijkstraProtocolParameters) toCbor() dijkstraProtocolParametersCbor {
@@ -350,7 +459,22 @@ func (p DijkstraProtocolParameters) toCbor() dijkstraProtocolParametersCbor {
 		MaxEndorserBlockTxsSize:          p.MaxEndorserBlockTxsSize,
 		MaxEndorserBlockExUnits:          p.MaxEndorserBlockExUnits,
 		MaxRefScriptSizePerEndorserBlock: p.MaxRefScriptSizePerEndorserBlock,
+		PerasMinCandidateBlockAge:        p.PerasMinCandidateBlockAge,
+		PerasHealingFactor:               p.PerasHealingFactor,
+		PerasCertBoost:                   p.PerasCertBoost,
+		PerasTargetCommitteeSize:         p.PerasTargetCommitteeSize,
+		PerasBootstrapRound:              perasBootstrapRoundToCbor(p.PerasBootstrapRound),
+		PerasQuorumThresholdSafetyMargin: p.PerasQuorumThresholdSafetyMargin,
+		RefInputsCostPerMultiAssetPolicy: p.RefInputsCostPerMultiAssetPolicy,
+		RefInputsCostPerDatumByte:        p.RefInputsCostPerDatumByte,
 	}
+}
+
+func perasBootstrapRoundToCbor(round *uint32) []uint32 {
+	if round == nil {
+		return []uint32{}
+	}
+	return []uint32{*round}
 }
 
 func (p *DijkstraProtocolParameters) Update(
@@ -410,6 +534,32 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 	}
 	if paramUpdate.MaxRefScriptSizePerEndorserBlock != nil {
 		p.MaxRefScriptSizePerEndorserBlock = *paramUpdate.MaxRefScriptSizePerEndorserBlock
+	}
+	if paramUpdate.PerasMinCandidateBlockAge != nil {
+		p.PerasMinCandidateBlockAge = *paramUpdate.PerasMinCandidateBlockAge
+	}
+	if paramUpdate.PerasHealingFactor != nil {
+		p.PerasHealingFactor = copyRat(paramUpdate.PerasHealingFactor)
+	}
+	if paramUpdate.PerasCertBoost != nil {
+		p.PerasCertBoost = *paramUpdate.PerasCertBoost
+	}
+	if paramUpdate.PerasTargetCommitteeSize != nil {
+		p.PerasTargetCommitteeSize = *paramUpdate.PerasTargetCommitteeSize
+	}
+	if paramUpdate.PerasBootstrapRoundSet || paramUpdate.PerasBootstrapRound != nil {
+		p.PerasBootstrapRound = copyUint32(paramUpdate.PerasBootstrapRound)
+	}
+	if paramUpdate.PerasQuorumThresholdSafetyMargin != nil {
+		p.PerasQuorumThresholdSafetyMargin = copyRat(
+			paramUpdate.PerasQuorumThresholdSafetyMargin,
+		)
+	}
+	if paramUpdate.RefInputsCostPerMultiAssetPolicy != nil {
+		p.RefInputsCostPerMultiAssetPolicy = *paramUpdate.RefInputsCostPerMultiAssetPolicy
+	}
+	if paramUpdate.RefInputsCostPerDatumByte != nil {
+		p.RefInputsCostPerDatumByte = *paramUpdate.RefInputsCostPerDatumByte
 	}
 }
 
@@ -524,6 +674,15 @@ type DijkstraProtocolParameterUpdate struct {
 	MaxEndorserBlockTxsSize          *uint32                                   `cbor:"46,keyasint"`
 	MaxEndorserBlockExUnits          *common.ExUnits                           `cbor:"47,keyasint"`
 	MaxRefScriptSizePerEndorserBlock *uint32                                   `cbor:"48,keyasint"`
+	PerasMinCandidateBlockAge        *uint32                                   `cbor:"49,keyasint"`
+	PerasHealingFactor               *cbor.Rat                                 `cbor:"50,keyasint"`
+	PerasCertBoost                   *uint16                                   `cbor:"51,keyasint"`
+	PerasTargetCommitteeSize         *uint16                                   `cbor:"52,keyasint"`
+	PerasBootstrapRound              *uint32                                   `cbor:"53,keyasint"`
+	PerasBootstrapRoundSet           bool                                      `cbor:"-"`
+	PerasQuorumThresholdSafetyMargin *cbor.Rat                                 `cbor:"54,keyasint"`
+	RefInputsCostPerMultiAssetPolicy *uint64                                   `cbor:"55,keyasint"`
+	RefInputsCostPerDatumByte        *uint64                                   `cbor:"56,keyasint"`
 	// These genesis-only settings are retained for source compatibility with
 	// local Leios prototype configuration. They are not ledger parameters.
 	CommitteeStakeCoverage *cbor.Rat `cbor:"-"`
@@ -548,7 +707,13 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 			return errors.New("maxPledgeLeverage cannot be undefined")
 		}
 	}
-	for _, key := range []int{37, 38, 39, 44} {
+	if raw, ok := fields[53]; ok {
+		tmp.PerasBootstrapRoundSet = true
+		if len(raw) == 1 && raw[0] == 0xf7 {
+			return errors.New("perasBootstrapRound cannot be undefined")
+		}
+	}
+	for _, key := range []int{37, 38, 39, 44, 50, 54} {
 		if raw, ok := fields[key]; ok {
 			if key == 38 && len(raw) == 1 && raw[0] == 0xf6 {
 				continue
@@ -559,7 +724,7 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	for key, raw := range fields {
-		if key >= 34 && key <= 48 && key != 38 &&
+		if key >= 34 && key <= 56 && key != 38 && key != 53 &&
 			(len(raw) == 1 && (raw[0] == 0xf6 || raw[0] == 0xf7)) {
 			return fmt.Errorf("dijkstra protocol parameter tag %d cannot be null or undefined", key)
 		}
@@ -737,6 +902,30 @@ func (u DijkstraProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
 	if u.MaxRefScriptSizePerEndorserBlock != nil {
 		fields[48] = *u.MaxRefScriptSizePerEndorserBlock
 	}
+	if u.PerasMinCandidateBlockAge != nil {
+		fields[49] = *u.PerasMinCandidateBlockAge
+	}
+	if u.PerasHealingFactor != nil {
+		fields[50] = u.PerasHealingFactor
+	}
+	if u.PerasCertBoost != nil {
+		fields[51] = *u.PerasCertBoost
+	}
+	if u.PerasTargetCommitteeSize != nil {
+		fields[52] = *u.PerasTargetCommitteeSize
+	}
+	if u.PerasBootstrapRoundSet || u.PerasBootstrapRound != nil {
+		fields[53] = u.PerasBootstrapRound
+	}
+	if u.PerasQuorumThresholdSafetyMargin != nil {
+		fields[54] = u.PerasQuorumThresholdSafetyMargin
+	}
+	if u.RefInputsCostPerMultiAssetPolicy != nil {
+		fields[55] = *u.RefInputsCostPerMultiAssetPolicy
+	}
+	if u.RefInputsCostPerDatumByte != nil {
+		fields[56] = *u.RefInputsCostPerDatumByte
+	}
 	return cbor.Encode(fields)
 }
 
@@ -801,12 +990,21 @@ func (u *DijkstraProtocolParameterUpdate) hasUpdate() bool {
 		u.MaxEndorserBlockTxsSize != nil ||
 		u.MaxEndorserBlockExUnits != nil ||
 		u.MaxRefScriptSizePerEndorserBlock != nil ||
+		u.PerasMinCandidateBlockAge != nil ||
+		u.PerasHealingFactor != nil ||
+		u.PerasCertBoost != nil ||
+		u.PerasTargetCommitteeSize != nil ||
+		u.PerasBootstrapRoundSet ||
+		u.PerasBootstrapRound != nil ||
+		u.PerasQuorumThresholdSafetyMargin != nil ||
+		u.RefInputsCostPerMultiAssetPolicy != nil ||
+		u.RefInputsCostPerDatumByte != nil ||
 		u.CommitteeStakeCoverage != nil ||
 		u.QuorumStakeThreshold != nil
 }
 
 func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
-	tmpPairs := make([][2]data.PlutusData, 0, 37)
+	tmpPairs := make([][2]data.PlutusData, 0, 45)
 	push := func(idx int, pd data.PlutusData) {
 		tmpPairs = append(
 			tmpPairs,
@@ -1044,6 +1242,36 @@ func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 	}
 	if u.MaxRefScriptSizePerEndorserBlock != nil {
 		push(48, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxRefScriptSizePerEndorserBlock))))
+	}
+	if u.PerasMinCandidateBlockAge != nil {
+		push(49, data.NewInteger(new(big.Int).SetUint64(uint64(*u.PerasMinCandidateBlockAge))))
+	}
+	if u.PerasHealingFactor != nil {
+		pushRat(50, u.PerasHealingFactor)
+	}
+	if u.PerasCertBoost != nil {
+		push(51, data.NewInteger(new(big.Int).SetUint64(uint64(*u.PerasCertBoost))))
+	}
+	if u.PerasTargetCommitteeSize != nil {
+		push(52, data.NewInteger(new(big.Int).SetUint64(uint64(*u.PerasTargetCommitteeSize))))
+	}
+	if u.PerasBootstrapRoundSet || u.PerasBootstrapRound != nil {
+		if u.PerasBootstrapRound == nil {
+			push(53, data.NewConstr(1))
+		} else {
+			push(53, data.NewConstr(0, data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.PerasBootstrapRound)),
+			)))
+		}
+	}
+	if u.PerasQuorumThresholdSafetyMargin != nil {
+		pushRat(54, u.PerasQuorumThresholdSafetyMargin)
+	}
+	if u.RefInputsCostPerMultiAssetPolicy != nil {
+		push(55, data.NewInteger(new(big.Int).SetUint64(*u.RefInputsCostPerMultiAssetPolicy)))
+	}
+	if u.RefInputsCostPerDatumByte != nil {
+		push(56, data.NewInteger(new(big.Int).SetUint64(*u.RefInputsCostPerDatumByte)))
 	}
 	return data.NewMap(tmpPairs)
 }

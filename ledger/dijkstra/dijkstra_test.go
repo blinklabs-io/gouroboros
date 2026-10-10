@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -491,6 +493,40 @@ func minimalTxParts() []any {
 	return []any{minimalTxBody(), minimalWitnessSet(), nil}
 }
 
+func votingProcedureCBOR(indefinite bool) []byte {
+	ret := []byte{0xa1, 0x82, 0x00, 0x58, 0x1c}
+	ret = append(ret, bytes.Repeat([]byte{0x11}, common.Blake2b224Size)...)
+	ret = append(ret, 0xa1, 0x82, 0x58, 0x20)
+	ret = append(ret, bytes.Repeat([]byte{0x22}, common.Blake2b256Size)...)
+	ret = append(ret, 0x00)
+	if indefinite {
+		return append(ret, 0x9f, 0x01, 0xf6, 0xff)
+	}
+	return append(ret, 0x82, 0x01, 0xf6)
+}
+
+func TestDijkstraBodyAcceptsIndefiniteVotingProcedure(t *testing.T) {
+	encodeBody := func(indefinite bool) []byte {
+		body := minimalTxBody()
+		body[19] = cbor.RawMessage(votingProcedureCBOR(indefinite))
+		data, err := cbor.Encode(body)
+		require.NoError(t, err)
+		return data
+	}
+
+	_, err := NewDijkstraTransactionBodyFromCbor(encodeBody(false))
+	require.NoError(t, err, "definite voting procedure must decode")
+	_, err = NewDijkstraTransactionBodyFromCbor(encodeBody(true))
+	require.NoError(t, err, "indefinite voting procedure must decode in Dijkstra")
+}
+
+func encodeRaw(t *testing.T, value any) cbor.RawMessage {
+	t.Helper()
+	data, err := cbor.Encode(value)
+	require.NoError(t, err)
+	return data
+}
+
 func testDuplicatePolicyMultiAssetCbor(policyByte byte) []byte {
 	policy := bytes.Repeat([]byte{policyByte}, common.Blake2b224Size)
 	ret := []byte{0xa2, 0x58, 0x1c}
@@ -571,6 +607,30 @@ func TestDijkstraTransactionDecodesThreePartTx(t *testing.T) {
 	require.True(t, tx.IsValid())
 	require.Equal(t, TxTypeDijkstra, tx.Type())
 	require.Equal(t, txCbor, tx.Cbor())
+
+	_, err = NewDijkstraTransactionFromCbor(
+		append(append([]byte(nil), txCbor...), 0x00),
+	)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+}
+
+func TestDijkstraTransactionComponentsMatchCbor(t *testing.T) {
+	txCbor, err := cbor.Encode(minimalTxParts())
+	require.NoError(t, err)
+	var components []cbor.RawMessage
+	_, err = cbor.DecodeExact(txCbor, &components)
+	require.NoError(t, err)
+
+	_, err = NewDijkstraTransactionFromCborComponents(
+		append(append([]byte(nil), txCbor...), 0x00),
+		components,
+	)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+
+	mismatched := slices.Clone(components)
+	mismatched[0] = cbor.RawMessage{0xa0}
+	_, err = NewDijkstraTransactionFromCborComponents(txCbor, mismatched)
+	require.ErrorContains(t, err, "components do not match")
 }
 
 func TestDijkstraTransactionAllowsOnlyTrueIsValidForMempool(t *testing.T) {
@@ -589,6 +649,30 @@ func TestDijkstraTransactionAllowsOnlyTrueIsValidForMempool(t *testing.T) {
 
 	_, err = NewDijkstraTransactionFromCbor(txCbor)
 	require.ErrorContains(t, err, "is_valid=false")
+}
+
+func TestDijkstraTransactionRejectsNullOrUndefinedIsValid(t *testing.T) {
+	parts := minimalTxParts()
+	for _, test := range []struct {
+		name  string
+		value cbor.RawMessage
+	}{
+		{name: "null", value: cbor.RawMessage{0xf6}},
+		{name: "undefined", value: cbor.RawMessage{0xf7}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			txCbor, err := cbor.Encode([]cbor.RawMessage{
+				encodeRaw(t, parts[0]),
+				encodeRaw(t, parts[1]),
+				test.value,
+				encodeRaw(t, parts[2]),
+			})
+			require.NoError(t, err)
+
+			_, err = NewDijkstraTransactionFromCbor(txCbor)
+			require.ErrorContains(t, err, "TxIsValid")
+		})
+	}
 }
 
 // oversizedTxParts builds a well-formed Dijkstra transaction whose CBOR exceeds
@@ -727,6 +811,42 @@ func TestDijkstraBlockBodyPreservesRawBlockTransactionCbor(t *testing.T) {
 	require.Equal(t, rawTx, []byte(encodedTxs[0]))
 }
 
+func TestDijkstraBlockBodyEncodesMempoolTransactionValidityLast(t *testing.T) {
+	parts := minimalTxParts()
+	mempoolCbor, err := cbor.Encode([]any{
+		parts[0],
+		parts[1],
+		true,
+		parts[2],
+	})
+	require.NoError(t, err)
+
+	tx, err := NewDijkstraTransactionFromCbor(mempoolCbor)
+	require.NoError(t, err)
+	body := DijkstraBlockBody{Transactions: []DijkstraTransaction{*tx}}
+	blockBodyCbor, err := body.MarshalCBOR()
+	require.NoError(t, err)
+
+	var decoded DijkstraBlockBody
+	require.NoError(t, decoded.UnmarshalCBOR(blockBodyCbor))
+	require.Len(t, decoded.Transactions, 1)
+	require.True(t, decoded.Transactions[0].IsValid())
+
+	var bodyFields []cbor.RawMessage
+	_, err = cbor.Decode(blockBodyCbor, &bodyFields)
+	require.NoError(t, err)
+	require.Len(t, bodyFields, 3)
+	var transactions []cbor.RawMessage
+	_, err = cbor.Decode(bodyFields[0], &transactions)
+	require.NoError(t, err)
+	require.Len(t, transactions, 1)
+	var transactionFields []cbor.RawMessage
+	_, err = cbor.Decode(transactions[0], &transactionFields)
+	require.NoError(t, err)
+	require.Equal(t, 4, len(transactionFields))
+	require.Equal(t, []byte{0xf5}, []byte(transactionFields[3]))
+}
+
 func TestDijkstraBlockBodyOmitsLegacyInvalidTransactionIndices(t *testing.T) {
 	bodyCbor, err := cbor.Encode(minimalBlockBodyParts(true))
 	require.NoError(t, err)
@@ -768,6 +888,35 @@ func TestDijkstraBlockBodyRequiresTrailingTransactionIsValidFlag(t *testing.T) {
 	var blockBody DijkstraBlockBody
 	err = blockBody.UnmarshalCBOR(bodyCbor)
 	require.ErrorContains(t, err, "expected 4 components")
+}
+
+func TestDijkstraBlockBodyRejectsNullOrUndefinedIsValid(t *testing.T) {
+	parts := minimalTxParts()
+	for _, test := range []struct {
+		name  string
+		value cbor.RawMessage
+	}{
+		{name: "null", value: cbor.RawMessage{0xf6}},
+		{name: "undefined", value: cbor.RawMessage{0xf7}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tx := []cbor.RawMessage{
+				encodeRaw(t, parts[0]),
+				encodeRaw(t, parts[1]),
+				encodeRaw(t, parts[2]),
+				test.value,
+			}
+			bodyCbor, err := cbor.Encode([]cbor.RawMessage{
+				encodeRaw(t, []cbor.RawMessage{encodeRaw(t, tx)}),
+				{0xf6},
+				{0xf6},
+			})
+			require.NoError(t, err)
+
+			var body DijkstraBlockBody
+			require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "TxIsValid")
+		})
+	}
 }
 
 func TestDijkstraBlockMarshalUsesTwoItemEnvelope(t *testing.T) {
@@ -939,7 +1088,7 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 					BlockBodyHash: blockBody.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{
@@ -989,7 +1138,7 @@ func TestDijkstraBlockNonEmptyTransactionsValidity(t *testing.T) {
 					BlockBodyHash: blockBody.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{
@@ -1106,20 +1255,16 @@ func TestDijkstraRejectsDuplicateMultiAssetKeys(t *testing.T) {
 }
 
 func TestDijkstraWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
-	// Craft a witness set CBOR where field 0 (vkey witnesses) is a tag-258 set
-	// containing two identical VkeyWitness entries.
-	// VkeyWitness{Vkey:[0x01], Signature:[0x02]} = 82 41 01 41 02.
-	// The Dijkstra guard introduced in UnmarshalCBOR must reject this.
-	dupCbor := []byte{
-		0xa1,             // map(1)
-		0x00,             // key: 0  (VkeyWitnesses field)
-		0xd9, 0x01, 0x02, // tag(258) — CBOR set
-		0x82,                         // array(2)
-		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
-		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
+	witness := common.VkeyWitness{
+		Vkey:      make([]byte, 32),
+		Signature: make([]byte, 64),
 	}
+	dupCbor, err := cbor.Encode(map[uint]any{
+		0: cbor.NewSetType([]common.VkeyWitness{witness, witness}, true),
+	})
+	require.NoError(t, err)
 	var ws DijkstraTransactionWitnessSet
-	err := ws.UnmarshalCBOR(dupCbor)
+	err = ws.UnmarshalCBOR(dupCbor)
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
@@ -1274,9 +1419,11 @@ func TestDijkstraSubTransactionsDeduplicateByBodyID(t *testing.T) {
 	witnessCBOR := func(key byte) cbor.RawMessage {
 		witnesses := map[uint]any{}
 		if key != 0 {
+			vkey := bytes.Repeat([]byte{key}, 32)
+			signature := bytes.Repeat([]byte{key}, 64)
 			witnesses[0] = cbor.NewSetType([]common.VkeyWitness{{
-				Vkey:      []byte{key},
-				Signature: []byte{key},
+				Vkey:      vkey,
+				Signature: signature,
 			}}, true)
 		}
 		encoded, err := cbor.Encode(witnesses)
@@ -1860,14 +2007,16 @@ func TestDijkstraSubTransactionBodyRequiredTopLevelGuardsRejectsDuplicateCredent
 }
 
 func TestDijkstraWitnessSetRejectsDuplicateUntaggedVkeyWitness(t *testing.T) {
-	dupCbor := []byte{
-		0xa1, // map(1)
-		0x00, // key: 0  (VkeyWitnesses field)
-		// plain array — no tag 258
-		0x82,                         // array(2)
-		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
-		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
+	witness := common.VkeyWitness{
+		Vkey:      make([]byte, 32),
+		Signature: make([]byte, 64),
 	}
+	witnesses, err := cbor.Encode([]common.VkeyWitness{witness, witness})
+	require.NoError(t, err)
+	dupCbor, err := cbor.Encode(map[uint]any{
+		0: cbor.RawMessage(witnesses),
+	})
+	require.NoError(t, err)
 	var ws DijkstraTransactionWitnessSet
 	require.ErrorContains(
 		t,
@@ -1909,7 +2058,7 @@ func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
 					BlockBodyHash: blockBody.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{
@@ -1962,6 +2111,7 @@ func TestDijkstraProtocolParametersRoundTrip(t *testing.T) {
 	ratValue := func(num, denom int64) cbor.Rat {
 		return cbor.Rat{Rat: big.NewRat(num, denom)}
 	}
+	bootstrapRound := uint32(104)
 	pparams := DijkstraProtocolParameters{
 		ConwayProtocolParameters: conway.ConwayProtocolParameters{
 			MinFeeA:    44,
@@ -2001,10 +2151,18 @@ func TestDijkstraProtocolParametersRoundTrip(t *testing.T) {
 			},
 			MinFeeRefScriptCostPerByte: rat(15, 1000),
 		},
-		MaxRefScriptSizePerBlock: 1000,
-		MaxRefScriptSizePerTx:    2000,
-		RefScriptCostStride:      16,
-		RefScriptCostMultiplier:  rat(2, 1),
+		MaxRefScriptSizePerBlock:         1000,
+		MaxRefScriptSizePerTx:            2000,
+		RefScriptCostStride:              16,
+		RefScriptCostMultiplier:          rat(2, 1),
+		PerasMinCandidateBlockAge:        101,
+		PerasHealingFactor:               rat(1, 100),
+		PerasCertBoost:                   102,
+		PerasTargetCommitteeSize:         103,
+		PerasBootstrapRound:              &bootstrapRound,
+		PerasQuorumThresholdSafetyMargin: rat(1, 4),
+		RefInputsCostPerMultiAssetPolicy: 105,
+		RefInputsCostPerDatumByte:        106,
 	}
 
 	pparamsCbor, err := cbor.Encode(pparams)
@@ -2020,6 +2178,14 @@ func TestDijkstraProtocolParametersRoundTrip(t *testing.T) {
 	require.Equal(t, uint32(2000), decoded.MaxRefScriptSizePerTx)
 	require.Equal(t, uint32(16), decoded.RefScriptCostStride)
 	require.Equal(t, 0, decoded.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
+	require.Equal(t, uint32(101), decoded.PerasMinCandidateBlockAge)
+	require.Equal(t, big.NewRat(1, 100), decoded.PerasHealingFactor.Rat)
+	require.Equal(t, uint16(102), decoded.PerasCertBoost)
+	require.Equal(t, uint16(103), decoded.PerasTargetCommitteeSize)
+	require.Equal(t, uint32(104), *decoded.PerasBootstrapRound)
+	require.Equal(t, big.NewRat(1, 4), decoded.PerasQuorumThresholdSafetyMargin.Rat)
+	require.Equal(t, uint64(105), decoded.RefInputsCostPerMultiAssetPolicy)
+	require.Equal(t, uint64(106), decoded.RefInputsCostPerDatumByte)
 }
 
 func TestDijkstraProtocolParametersDecodesLegacyArray(t *testing.T) {
@@ -2076,7 +2242,16 @@ func TestDijkstraProtocolParametersDecodesLegacyArray(t *testing.T) {
 	var fields []cbor.RawMessage
 	_, err = cbor.Decode(full, &fields)
 	require.NoError(t, err)
-	require.Len(t, fields, 46)
+	require.Len(t, fields, 54)
+	leios, err := cbor.Encode(fields[:46])
+	require.NoError(t, err)
+	var leiosDecoded DijkstraProtocolParameters
+	require.NoError(t, leiosDecoded.UnmarshalCBOR(leios))
+	require.Equal(t, uint32(3000), leiosDecoded.RefScriptCostStride)
+	require.Equal(t, expectedDefaultDijkstraPerasHealingFactor(), leiosDecoded.PerasHealingFactor.Rat)
+	require.Zero(t, leiosDecoded.PerasQuorumThresholdSafetyMargin.Rat.Sign())
+	_, err = leiosDecoded.MarshalCBOR()
+	require.NoError(t, err)
 	legacy, err := cbor.Encode(fields[:35])
 	require.NoError(t, err)
 
@@ -2089,6 +2264,104 @@ func TestDijkstraProtocolParametersDecodesLegacyArray(t *testing.T) {
 	require.Equal(t, uint32(3000), decoded.RefScriptCostStride)
 	require.Zero(t, decoded.MaxPledgeLeverage)
 	require.Zero(t, decoded.LeiosAnnouncementPeriodLength)
+}
+
+func TestDijkstraProtocolParametersDecodesCardanoLedgerVector(t *testing.T) {
+	encoded, err := os.ReadFile("testdata/cardano_ledger_dijkstra_current_pparams.cbor")
+	require.NoError(t, err)
+	var response []cbor.RawMessage
+	_, err = cbor.Decode(encoded, &response)
+	require.NoError(t, err)
+	require.Len(t, response, 2)
+
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.UnmarshalCBOR(response[0]))
+	wantHealingFactor := new(big.Rat).SetFrac(
+		big.NewInt(1),
+		new(big.Int).SetUint64(10_000_000_000_000_000_000),
+	)
+	require.Equal(t, wantHealingFactor, params.PerasHealingFactor.Rat)
+	require.Nil(t, params.PerasBootstrapRound)
+	require.Zero(t, params.PerasQuorumThresholdSafetyMargin.Num().Sign())
+	roundTrip, err := params.MarshalCBOR()
+	require.NoError(t, err)
+	require.Equal(t, []byte(response[0]), roundTrip)
+}
+
+func TestDijkstraProtocolParametersRejectsNullCurrentPerasIntervals(t *testing.T) {
+	encoded, err := os.ReadFile("testdata/cardano_ledger_dijkstra_current_pparams.cbor")
+	require.NoError(t, err)
+	var response []cbor.RawMessage
+	_, err = cbor.Decode(encoded, &response)
+	require.NoError(t, err)
+	require.Len(t, response, 2)
+
+	for _, test := range []struct {
+		name  string
+		index int
+	}{
+		{name: "healing factor", index: 47},
+		{name: "quorum threshold safety margin", index: 51},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var fields []cbor.RawMessage
+			_, err := cbor.Decode(response[0], &fields)
+			require.NoError(t, err)
+			fields[test.index] = cbor.RawMessage{0xf6}
+			invalid, err := cbor.Encode(fields)
+			require.NoError(t, err)
+
+			var params DijkstraProtocolParameters
+			require.Error(t, params.UnmarshalCBOR(invalid))
+		})
+	}
+}
+
+func TestDijkstraProtocolParametersMarshalDefaultsMissingPerasIntervals(t *testing.T) {
+	encoded, err := os.ReadFile("testdata/cardano_ledger_dijkstra_current_pparams.cbor")
+	require.NoError(t, err)
+	var response []cbor.RawMessage
+	_, err = cbor.Decode(encoded, &response)
+	require.NoError(t, err)
+	require.Len(t, response, 2)
+	var valid DijkstraProtocolParameters
+	require.NoError(t, valid.UnmarshalCBOR(response[0]))
+
+	_, err = valid.MarshalCBOR()
+	require.NoError(t, err)
+
+	missingHealing := valid
+	missingHealing.PerasHealingFactor = nil
+	encoded, err = missingHealing.MarshalCBOR()
+	require.NoError(t, err)
+	var healingRoundTrip DijkstraProtocolParameters
+	require.NoError(t, healingRoundTrip.UnmarshalCBOR(encoded))
+	require.Equal(t, expectedDefaultDijkstraPerasHealingFactor(), healingRoundTrip.PerasHealingFactor.Rat)
+
+	missingSafetyMargin := valid
+	missingSafetyMargin.PerasQuorumThresholdSafetyMargin = nil
+	encoded, err = missingSafetyMargin.MarshalCBOR()
+	require.NoError(t, err)
+	var marginRoundTrip DijkstraProtocolParameters
+	require.NoError(t, marginRoundTrip.UnmarshalCBOR(encoded))
+	require.Zero(t, marginRoundTrip.PerasQuorumThresholdSafetyMargin.Rat.Sign())
+
+}
+
+func TestDijkstraGenesisDefaultsMissingPerasIntervals(t *testing.T) {
+	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{}`))
+	require.NoError(t, err)
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
+	require.Equal(t, expectedDefaultDijkstraPerasHealingFactor(), params.PerasHealingFactor.Rat)
+	require.Zero(t, params.PerasQuorumThresholdSafetyMargin.Rat.Sign())
+}
+
+func expectedDefaultDijkstraPerasHealingFactor() *big.Rat {
+	return new(big.Rat).SetFrac(
+		big.NewInt(1),
+		new(big.Int).SetUint64(10_000_000_000_000_000_000),
+	)
 }
 
 func TestDijkstraProtocolParametersRejectsUnsupportedArrayLength(t *testing.T) {
@@ -2133,8 +2406,10 @@ func TestDijkstraProtocolParametersUnmarshalRewardLeverageDomain(t *testing.T) {
 					TreasuryWithdrawal:    ratValue(1, 2),
 				},
 			},
-			MaxPledgeLeverage:        &cbor.Rat{Rat: leverage},
-			MaxRefScriptSizePerBlock: 123,
+			MaxPledgeLeverage:                &cbor.Rat{Rat: leverage},
+			MaxRefScriptSizePerBlock:         123,
+			PerasHealingFactor:               rat(1, 1),
+			PerasQuorumThresholdSafetyMargin: rat(0, 1),
 		})
 		require.NoError(t, err)
 		return encoded
@@ -2325,6 +2600,10 @@ func TestDijkstraProtocolParameterUpdateDijkstraFieldWidths(t *testing.T) {
 		{"maxEndorserBlockReferencesSize", 45, math.MaxUint32},
 		{"maxEndorserBlockTxsSize", 46, math.MaxUint32},
 		{"maxRefScriptSizePerEndorserBlock", 48, math.MaxUint32},
+		{"perasMinCandidateBlockAge", 49, math.MaxUint32},
+		{"perasCertBoost", 51, math.MaxUint16},
+		{"perasTargetCommitteeSize", 52, math.MaxUint16},
+		{"perasBootstrapRound", 53, math.MaxUint32},
 	}
 	for _, field := range fields {
 		t.Run(field.name, func(t *testing.T) {
@@ -2421,8 +2700,8 @@ func TestDijkstraApplyUpdateAcceptsNonNegativeMaxPledgeLeverage(t *testing.T) {
 
 func TestDijkstraProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
 	tags := []int{0, 1, 5, 6, 14, 16, 17, 18, 20, 21, 25, 26, 30, 31}
-	for tag := 34; tag <= 48; tag++ {
-		if tag != 38 {
+	for tag := 34; tag <= 56; tag++ {
+		if tag != 38 && tag != 53 {
 			tags = append(tags, tag)
 		}
 	}
@@ -2458,6 +2737,13 @@ func TestDijkstraProtocolParameterUpdateDomains(t *testing.T) {
 		{name: "quorum threshold one", field: map[int]any{44: ratio(1, 1)}, valid: true},
 		{name: "quorum threshold below zero", field: map[int]any{44: ratio(-1, 1)}},
 		{name: "quorum threshold above one", field: map[int]any{44: ratio(2, 1)}},
+		{name: "positive Peras healing factor", field: map[int]any{50: ratio(1, 1)}, valid: true},
+		{name: "zero Peras healing factor", field: map[int]any{50: ratio(0, 1)}},
+		{name: "negative Peras healing factor", field: map[int]any{50: ratio(-1, 1)}},
+		{name: "Peras safety margin zero", field: map[int]any{54: ratio(0, 1)}, valid: true},
+		{name: "Peras safety margin one", field: map[int]any{54: ratio(1, 1)}, valid: true},
+		{name: "Peras safety margin below zero", field: map[int]any{54: ratio(-1, 1)}},
+		{name: "Peras safety margin above one", field: map[int]any{54: ratio(2, 1)}},
 		{name: "negative endorser memory", field: map[int]any{47: []int64{-1, 0}}},
 		{name: "negative endorser steps", field: map[int]any{47: []int64{0, -1}}},
 		{name: "zero endorser ex-units", field: map[int]any{47: []int64{0, 0}}, valid: true},
@@ -2670,6 +2956,88 @@ func TestDijkstraProtocolParameterUpdateEncodesLeiosFields(t *testing.T) {
 	}
 }
 
+func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(t *testing.T) {
+	encoded, err := cbor.Encode(map[uint]any{
+		49: uint32(10),
+		50: &cbor.Rat{Rat: big.NewRat(3, 2)},
+		51: uint16(11),
+		52: uint16(12),
+		53: uint32(13),
+		54: &cbor.Rat{Rat: big.NewRat(1, 4)},
+		55: uint64(14),
+		56: uint64(15),
+	})
+	require.NoError(t, err)
+
+	var update DijkstraProtocolParameterUpdate
+	require.NoError(t, update.UnmarshalCBOR(encoded))
+	require.Equal(t, uint32(10), *update.PerasMinCandidateBlockAge)
+	require.Equal(t, big.NewRat(3, 2), update.PerasHealingFactor.Rat)
+	require.Equal(t, uint16(11), *update.PerasCertBoost)
+	require.Equal(t, uint16(12), *update.PerasTargetCommitteeSize)
+	require.True(t, update.PerasBootstrapRoundSet)
+	require.Equal(t, uint32(13), *update.PerasBootstrapRound)
+	require.Equal(t, big.NewRat(1, 4), update.PerasQuorumThresholdSafetyMargin.Rat)
+	require.Equal(t, uint64(14), *update.RefInputsCostPerMultiAssetPolicy)
+	require.Equal(t, uint64(15), *update.RefInputsCostPerDatumByte)
+
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.ApplyUpdate(&update))
+	require.Equal(t, uint32(13), *params.PerasBootstrapRound)
+	require.Equal(t, uint64(14), params.RefInputsCostPerMultiAssetPolicy)
+
+	update.SetCbor(nil)
+	reencoded, err := update.MarshalCBOR()
+	require.NoError(t, err)
+	var fields map[uint]cbor.RawMessage
+	_, err = cbor.Decode(reencoded, &fields)
+	require.NoError(t, err)
+	for key := uint(49); key <= 56; key++ {
+		require.Contains(t, fields, key)
+	}
+	wantPlutus := data.NewMap([][2]data.PlutusData{
+		{data.NewInteger(big.NewInt(49)), data.NewInteger(big.NewInt(10))},
+		{data.NewInteger(big.NewInt(50)), data.NewList(data.NewInteger(big.NewInt(3)), data.NewInteger(big.NewInt(2)))},
+		{data.NewInteger(big.NewInt(51)), data.NewInteger(big.NewInt(11))},
+		{data.NewInteger(big.NewInt(52)), data.NewInteger(big.NewInt(12))},
+		{data.NewInteger(big.NewInt(53)), data.NewConstr(0, data.NewInteger(big.NewInt(13)))},
+		{data.NewInteger(big.NewInt(54)), data.NewList(data.NewInteger(big.NewInt(1)), data.NewInteger(big.NewInt(4)))},
+		{data.NewInteger(big.NewInt(55)), data.NewInteger(big.NewInt(14))},
+		{data.NewInteger(big.NewInt(56)), data.NewInteger(big.NewInt(15))},
+	})
+	require.True(t, update.ToPlutusData().Equal(wantPlutus))
+	update.PerasHealingFactor.SetInt64(99)
+	require.Equal(t, big.NewRat(3, 2), params.PerasHealingFactor.Rat)
+	update.PerasQuorumThresholdSafetyMargin.SetInt64(99)
+	require.Equal(
+		t,
+		big.NewRat(1, 4),
+		params.PerasQuorumThresholdSafetyMargin.Rat,
+	)
+	*update.PerasBootstrapRound = 99
+	require.Equal(t, uint32(13), *params.PerasBootstrapRound)
+}
+
+func TestDijkstraProtocolParameterUpdateClearsPerasBootstrapRound(t *testing.T) {
+	encoded, err := cbor.Encode(map[uint]any{53: nil})
+	require.NoError(t, err)
+	var update DijkstraProtocolParameterUpdate
+	require.NoError(t, update.UnmarshalCBOR(encoded))
+	require.True(t, update.PerasBootstrapRoundSet)
+	require.Nil(t, update.PerasBootstrapRound)
+
+	bootstrapRound := uint32(99)
+	params := DijkstraProtocolParameters{PerasBootstrapRound: &bootstrapRound}
+	require.NoError(t, params.ApplyUpdate(&update))
+	require.Nil(t, params.PerasBootstrapRound)
+
+	want := data.NewMap([][2]data.PlutusData{{
+		data.NewInteger(big.NewInt(53)),
+		data.NewConstr(1),
+	}})
+	require.True(t, update.ToPlutusData().Equal(want))
+}
+
 func TestDijkstraProtocolParameterUpdateRejectsGenesisOnlyLeiosFields(
 	t *testing.T,
 ) {
@@ -2700,12 +3068,23 @@ func TestDijkstraProtocolParameterUpdateRejectsGenesisOnlyLeiosFields(
 	}
 }
 
+func dijkstraGenesisWithRequiredPerasIntervals() DijkstraGenesis {
+	return DijkstraGenesis{
+		PerasHealingFactor: &common.GenesisRat{Rat: big.NewRat(1, 1)},
+		PerasQuorumThresholdSafetyMargin: &common.GenesisRat{
+			Rat: big.NewRat(0, 1),
+		},
+	}
+}
+
 func TestDijkstraGenesisDecodesCurrentDevnetExample(t *testing.T) {
 	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
   "maxRefScriptSizePerBlock": 1048576,
   "maxRefScriptSizePerTx": 204800,
   "refScriptCostStride": 25600,
-  "refScriptCostMultiplier": 1.2
+  "refScriptCostMultiplier": 1.2,
+  "perasHealingFactor": 1,
+  "perasQuorumThresholdSafetyMargin": 0
 }`))
 	require.NoError(t, err)
 	require.Equal(t, uint32(1048576), genesis.MaxRefScriptSizePerBlock)
@@ -2724,7 +3103,9 @@ func TestDijkstraGenesisDecodesCurrentDevnetExample(t *testing.T) {
 func TestDijkstraGenesisLeiosStakeParameters(t *testing.T) {
 	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
   "committeeStakeCoverage": 0.99,
-  "quorumStakeThreshold": 0.75
+  "quorumStakeThreshold": 0.75,
+  "perasHealingFactor": 1,
+  "perasQuorumThresholdSafetyMargin": 0
 }`))
 	require.NoError(t, err)
 
@@ -2753,7 +3134,9 @@ func TestDijkstraGenesisDecodesLeiosProtocolParameters(t *testing.T) {
   "maxEndorserBlockReferencesSize": 500000,
   "maxEndorserBlockTxsSize": 12000000,
   "maxEndorserBlockExecutionUnits": {"memory": 123, "steps": 456},
-  "maxRefScriptSizePerEndorserBlock": 1048576
+  "maxRefScriptSizePerEndorserBlock": 1048576,
+  "perasHealingFactor": 1,
+  "perasQuorumThresholdSafetyMargin": 0
 }`))
 	require.NoError(t, err)
 
@@ -2771,9 +3154,35 @@ func TestDijkstraGenesisDecodesLeiosProtocolParameters(t *testing.T) {
 	require.Equal(t, []int64{4000, 5000, 6000}, params.CostModels[3])
 }
 
+func TestDijkstraGenesisDecodesPerasAndReferenceInputParameters(t *testing.T) {
+	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
+  "perasMinCandidateBlockAge": 10,
+  "perasHealingFactor": 1.5,
+  "perasCertBoost": 11,
+  "perasTargetCommitteeSize": 12,
+  "perasBootstrapRound": 13,
+  "perasQuorumThresholdSafetyMargin": 0.25,
+  "refInputsCostPerMultiAssetPolicy": 14,
+  "refInputsCostPerDatumByte": 15
+}`))
+	require.NoError(t, err)
+
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
+	require.Equal(t, uint32(10), params.PerasMinCandidateBlockAge)
+	require.Equal(t, big.NewRat(3, 2), params.PerasHealingFactor.Rat)
+	require.Equal(t, uint16(11), params.PerasCertBoost)
+	require.Equal(t, uint16(12), params.PerasTargetCommitteeSize)
+	require.Equal(t, uint32(13), *params.PerasBootstrapRound)
+	require.Equal(t, big.NewRat(1, 4), params.PerasQuorumThresholdSafetyMargin.Rat)
+	require.Equal(t, uint64(14), params.RefInputsCostPerMultiAssetPolicy)
+	require.Equal(t, uint64(15), params.RefInputsCostPerDatumByte)
+}
+
 func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {
 	var pparams DijkstraProtocolParameters
-	require.NoError(t, pparams.UpdateFromGenesis(&DijkstraGenesis{}))
+	genesis := dijkstraGenesisWithRequiredPerasIntervals()
+	require.NoError(t, pparams.UpdateFromGenesis(&genesis))
 	require.Equal(
 		t,
 		uint32(conway.RefScriptCostStride),
@@ -2790,7 +3199,9 @@ func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {
 func TestDijkstraGenesisRejectsInvalidLeiosStakeParameters(t *testing.T) {
 	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
   "committeeStakeCoverage": 0.75,
-  "quorumStakeThreshold": 0.75
+  "quorumStakeThreshold": 0.75,
+  "perasHealingFactor": 1,
+  "perasQuorumThresholdSafetyMargin": 0
 }`))
 	require.NoError(t, err)
 
@@ -2808,27 +3219,27 @@ func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
 	}{
 		{
 			name:         "valid reward parameters",
-			genesis:      `{"maxPledgeLeverage": 3.5, "minPoolMargin": 0.1}`,
+			genesis:      `{"maxPledgeLeverage": 3.5, "minPoolMargin": 0.1, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantLeverage: big.NewRat(7, 2),
 		},
 		{
 			name:         "zero max pledge leverage",
-			genesis:      `{"maxPledgeLeverage": 0, "minPoolMargin": 0.1}`,
+			genesis:      `{"maxPledgeLeverage": 0, "minPoolMargin": 0.1, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantLeverage: big.NewRat(0, 1),
 		},
 		{
 			name:         "fractional max pledge leverage",
-			genesis:      `{"maxPledgeLeverage": 0.25, "minPoolMargin": 0.1}`,
+			genesis:      `{"maxPledgeLeverage": 0.25, "minPoolMargin": 0.1, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantLeverage: big.NewRat(1, 4),
 		},
 		{
 			name:    "negative max pledge leverage",
-			genesis: `{"maxPledgeLeverage": -1, "maxRefScriptSizePerBlock": 123}`,
+			genesis: `{"maxPledgeLeverage": -1, "maxRefScriptSizePerBlock": 123, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantErr: true,
 		},
 		{
 			name:    "min pool margin above one",
-			genesis: `{"minPoolMargin": 1.1, "maxRefScriptSizePerBlock": 123}`,
+			genesis: `{"minPoolMargin": 1.1, "maxRefScriptSizePerBlock": 123, "perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 0}`,
 			wantErr: true,
 		},
 	} {
@@ -2851,6 +3262,19 @@ func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
 			require.Equal(t, test.wantLeverage, params.MaxPledgeLeverage.Rat)
 			require.Equal(t, big.NewRat(1, 10), params.MinPoolMargin.Rat)
 		})
+	}
+}
+
+func TestDijkstraGenesisRejectsInvalidPerasParametersAtomically(t *testing.T) {
+	for _, input := range []string{
+		`{"perasHealingFactor": 0, "perasQuorumThresholdSafetyMargin": 0, "perasMinCandidateBlockAge": 99}`,
+		`{"perasHealingFactor": 1, "perasQuorumThresholdSafetyMargin": 1.1, "perasMinCandidateBlockAge": 99}`,
+	} {
+		genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(input))
+		require.NoError(t, err)
+		params := DijkstraProtocolParameters{PerasMinCandidateBlockAge: 7}
+		require.Error(t, params.UpdateFromGenesis(&genesis))
+		require.Equal(t, uint32(7), params.PerasMinCandidateBlockAge)
 	}
 }
 
@@ -3022,9 +3446,10 @@ func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(
 // side afterwards does not change the other.
 func TestDijkstraUpdateFromGenesis_PlutusV4CostModelNotAliased(t *testing.T) {
 	v4 := []int64{1, 2, 3}
-	genesis := &DijkstraGenesis{PlutusV4CostModel: v4}
+	genesis := dijkstraGenesisWithRequiredPerasIntervals()
+	genesis.PlutusV4CostModel = v4
 	var params DijkstraProtocolParameters
-	require.NoError(t, params.UpdateFromGenesis(genesis))
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
 
 	live, ok := params.CostModels[3]
 	if !ok {

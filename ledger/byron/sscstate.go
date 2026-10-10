@@ -234,13 +234,9 @@ func decodePrimaryEntries(
 // already-decoded SscPayload parts (rest, as returned by
 // decodeSscPayloadParts) -- no cross-block state needed.
 //
-// This is the opt-in, full-hash-comparison form (checkSscProofCore): it recomputes each hash the header claims and rejects
-// the block unless the header's value matches exactly. ValidateBodyProof
-// does NOT call this by default -- see checkSscProofCore's doc comment
-// and common.VerifyConfig.EnableByronSscProofHashValidation for why that
-// comparison is opt-in rather than applied unconditionally to every
-// decoded Byron main block, and checkSscProofShape for the structural-only
-// form ValidateBodyProof runs instead by default.
+// This recomputes each hash the header claims and rejects the block unless the
+// header's value matches exactly. ValidateBodyProof calls it for every decoded
+// Byron main block unless the caller explicitly requests parse-only behavior.
 //
 // This replaced an earlier, epoch-accumulation-based design (see
 // ByronEpochSscState's doc comment) after real, non-empty mainnet vectors
@@ -304,33 +300,12 @@ func decodePrimaryEntries(
 //     from a map to a set. Since we can't change the protocol easily at
 //     this point, for hashing we still use the map representation."
 //
-// SharesPayload's own hash is not independently confirmed against a real,
-// non-empty example: a genuinely non-empty SharesPayload only arises when
-// a commitment's own contributor fails to reveal their opening directly
-// and other stakeholders instead reveal decrypted shares of it -- a
-// failure-path event not found while scanning real mainnet blocks from
-// genesis through slot 1,650,000 (epoch 76, ~October 2018). That scan
-// covers roughly the first third of the classic-Ouroboros SSC era, not
-// "essentially the entire window" an earlier version of this comment
-// claimed: the OBFT hard fork (the end of that era) landed around March
-// 2019, epoch 105-108, some 30 epochs later. The scanning tooling used has
-// since been deleted and no log or artifact of exactly what it checked
-// survives, so treat "an exhaustive scan found nothing" as an unreproduced
-// claim, not an established fact.
-//
-// This is not purely a guess, though: SscTypeShares is handled by the
-// exact same code path as SscTypeOpenings immediately below (same case
-// branch, same blake2b256-of-raw-bytes computation), over the same kind
-// of wire shape per the CDDL -- both sscopens and sscshares are genuine
-// CBOR maps keyed by a 28-byte ID (see ByronEpochSscState's doc comment)
-// -- so confirming SscTypeOpenings's hash construction, as real data now
-// has, provides strong indirect evidence for SscTypeShares's too, even
-// without a genuinely non-empty SharesPayload vector to confirm it
-// directly. cardano-sl's own SscPayload type declares
-// `SharesProof !(Hash SharesMap) !VssCertificatesHash` -- a plain hash of
-// the shares map, with no map-vs-set encoding quirk of its own; that quirk
-// (see the VssCertificatesHash discussion above) is specific to
-// VssCertificatesMap/VssCertificatesHash, not shares.
+// SharesPayload's hash construction is confirmed directly by cardano-sl.
+// Pos.Chain.Ssc.Proof declares `SharesProof !(Hash SharesMap)` and hashes
+// the SharesMap through its canonical Bi serialization. The non-empty
+// `chain/test/golden/bi/ssc/SharesMap` vector hashes to the first digest in
+// its `SscProof_SharesProof` vector; sscstate_golden_test.go asserts that
+// digest against the same canonical SharesMap bytes used here.
 //
 // expectedType is the discriminant of the block's own SscPayload (see
 // decodeSscPayloadParts); the proof's declared type is required to match
@@ -363,13 +338,8 @@ func checkSscProofLocal(
 
 // checkSscProofShape validates a block's ssc_proof as far as
 // cardano-ledger's dropSscProof does, and validates the separately decoded
-// SSC payload as far as dropSscPayload does. This is what
-// ValidateBodyProof runs by default for every decoded Byron main block
-// (see NewByronMainBlockFromCbor), so anything it rejects is a whole-block
-// decode failure; checkSscProofLocal's full hash comparison, and the
-// stricter wire shapes it needs to compute those hashes, are opt-in via
-// common.VerifyConfig.EnableByronSscProofHashValidation, exposed through
-// ByronMainBlock.ValidateSscProof.
+// SSC payload as far as dropSscPayload does. Parse-only callers can use this
+// independently; consensus validation uses checkSscProofLocal instead.
 //
 // dropSscProof reads a list length, then a Word8 tag, then matchSize
 // against 3 for tags 0-2 and 2 for tag 3, then a dropBytes per hash slot,
@@ -698,35 +668,10 @@ func validateVssCertificate(raw cbor.RawMessage) error {
 // not share it -- that function is bounded by cardano-ledger's dropSscProof
 // and cannot use any of the shapes below.
 //
-// This is a separate function from checkSscProofShape because,
-// unlike tx_proof/dlg_proof/upd_proof, ssc_proof has no upstream reference
-// implementation to cross-check this package's own hash construction
-// against: modern cardano-ledger decodes SscProof as a unit type and
-// re-encodes a hardcoded placeholder regardless of the block's actual SSC
-// content, so cardano-node itself would accept a block whose ssc_proof
-// this comparison might reject. The construction below is confirmed
-// against a handful of real, non-empty mainnet blocks (see
-// checkSscProofLocal's doc comment, and sscstate_real_test.go) --
-// roughly 4-5 blocks, covering only two of the four SSC payload types
-// (CommitmentsPayload and OpeningsPayload) but exercising three of the
-// four distinct hash constructions those payloads use (the
-// commitments-field, openings-field, and certificates-field hashes; the
-// CommitmentsPayload vector happens to also carry a non-empty certificate
-// set). SharesPayload's hash construction has no confirmed non-empty
-// vector -- see checkSscProofLocal's doc comment -- out of Byron's
-// ~5,000,000 total blocks and 208 epochs -- and two real encoding bugs
-// were found and fixed in this construction during the same review round
-// that produced those vectors, which is evidence the construction is
-// subtle rather than settled. Making the hash comparison decode-gating by
-// default (as an earlier version of this function did) means any
-// undiscovered edge case in this construction turns into every real,
-// unrelated caller of NewByronMainBlockFromCbor failing to decode an
-// otherwise-genuine mainnet block. The structural checks this function
-// always performs (proof type and element counts matching the payload,
-// and the wire shape -- tag-258 set vs. genuine CBOR map -- of every field
-// the proof would hash) carry no such risk, since they only ever reject
-// input that the real Byron wire format could not have produced in the
-// first place; only the value comparison is gated.
+// This is separate from checkSscProofShape because the full check also
+// authenticates every payload field against the proof's hash. Real mainnet
+// fixtures cover commitments, openings, and certificate hashes. Shares use
+// the same map hashing path as openings, matching the Byron wire definition.
 func checkSscProofCore(
 	rawProof any,
 	expectedType uint64,
@@ -752,9 +697,9 @@ func checkSscProofCore(
 	}
 	switch sscType {
 	case SscTypeCommitments, SscTypeOpenings, SscTypeShares:
-		if len(proofSlice) < 3 {
+		if len(proofSlice) != 3 {
 			return fmt.Errorf(
-				"%w: ssc proof type %d requires 3 elements, got %d",
+				"%w: ssc proof type %d requires exactly 3 elements, got %d",
 				ErrBodyProofMismatch, sscType, len(proofSlice),
 			)
 		}

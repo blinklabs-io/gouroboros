@@ -18,6 +18,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,121 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/require"
 )
+
+type notifyingLocker struct {
+	sync.Locker
+	attempts chan<- struct{}
+}
+
+func (l *notifyingLocker) Lock() {
+	l.attempts <- struct{}{}
+	l.Locker.Lock()
+}
+
+func notifyExchangeLockAttempts(client *Client) <-chan struct{} {
+	attempts := make(chan struct{}, 2)
+	client.exchangeLock = &notifyingLocker{
+		Locker:   client.exchangeLock,
+		attempts: attempts,
+	}
+	return attempts
+}
+
+func waitForExchangeLockAttempt(t *testing.T, attempts <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-attempts:
+	case <-time.After(5 * time.Second):
+		t.Fatal("GetPeers did not attempt to lock the exchange")
+	}
+}
+
+func requirePeerAddressesEqual(
+	t *testing.T,
+	expected []PeerAddress,
+	actual []PeerAddress,
+) {
+	t.Helper()
+	require.Len(t, actual, len(expected))
+	for i := range expected {
+		require.True(t, expected[i].IP.Equal(actual[i].IP), "peer %d IP", i)
+		require.Equal(t, expected[i].Port, actual[i].Port, "peer %d port", i)
+	}
+}
+
+func TestClientGetPeersSerializesConcurrentExchanges(t *testing.T) {
+	client, connB, errs := testPeerSharingClient(t)
+	attempts := notifyExchangeLockAttempts(client)
+
+	first := startGetPeers(t, client, connB, 5)
+	waitForExchangeLockAttempt(t, attempts)
+	second := make(chan peersResult, 1)
+	go func() {
+		peers, err := client.GetPeers(1)
+		second <- peersResult{peers: peers, err: err}
+	}()
+	waitForExchangeLockAttempt(t, attempts)
+
+	firstPeers := smallPeerAddresses(5)
+	writeSharePeers(t, connB, firstPeers)
+	select {
+	case result := <-first:
+		require.NoError(t, result.err)
+		requirePeerAddressesEqual(t, firstPeers, result.peers)
+	case <-time.After(5 * time.Second):
+		t.Fatal("first GetPeers did not receive its reply")
+	}
+
+	readShareRequest(t, connB, 1)
+	secondPeers := []PeerAddress{{IP: net.IPv4(192, 0, 2, 1), Port: 3002}}
+	writeSharePeers(t, connB, secondPeers)
+	select {
+	case result := <-second:
+		require.NoError(t, result.err)
+		requirePeerAddressesEqual(t, secondPeers, result.peers)
+	case <-time.After(5 * time.Second):
+		t.Fatal("second GetPeers did not receive its reply")
+	}
+	select {
+	case err := <-errs:
+		t.Fatalf("protocol reported an error for serialized exchanges: %v", err)
+	default:
+	}
+}
+
+func TestClientGetPeersConcurrentRequestCannotWidenLimit(t *testing.T) {
+	client, connB, errs := testPeerSharingClient(t)
+	attempts := notifyExchangeLockAttempts(client)
+
+	first := startGetPeers(t, client, connB, 1)
+	waitForExchangeLockAttempt(t, attempts)
+	second := make(chan peersResult, 1)
+	go func() {
+		peers, err := client.GetPeers(5)
+		second <- peersResult{peers: peers, err: err}
+	}()
+	waitForExchangeLockAttempt(t, attempts)
+
+	writeSharePeers(t, connB, smallPeerAddresses(2))
+	select {
+	case err := <-errs:
+		require.ErrorIs(t, err, ErrTooManyPeersShared)
+		require.ErrorContains(t, err, "requested 1, received 2")
+	case <-time.After(5 * time.Second):
+		t.Fatal("concurrent request widened the active reply limit")
+	}
+	for name, resultChan := range map[string]<-chan peersResult{
+		"first":  first,
+		"second": second,
+	} {
+		select {
+		case result := <-resultChan:
+			require.ErrorIs(t, result.err, protocol.ErrProtocolShuttingDown, name)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s GetPeers stayed blocked after protocol rejection", name)
+		}
+	}
+}
 
 func testProtocolOptions() protocol.ProtocolOptions {
 	return protocol.ProtocolOptions{

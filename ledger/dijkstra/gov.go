@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type DijkstraProposalProcedure struct {
@@ -189,6 +190,15 @@ func (a *DijkstraParameterChangeGovAction) PreviousGovActionId() *common.GovActi
 	return a.ActionId
 }
 
+// ProtocolParamUpdateUtxorpc converts the proposed parameter update. The
+// parameters Dijkstra adds have no UTxO-RPC field and are not carried.
+func (a *DijkstraParameterChangeGovAction) ProtocolParamUpdateUtxorpc() (*utxorpc.PParams, error) {
+	if a == nil {
+		return nil, nil
+	}
+	return a.ParamUpdate.conwayUpdate().Utxorpc()
+}
+
 // SecurityGroupFields returns the security-group parameters changed by this
 // action.
 func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
@@ -234,6 +244,30 @@ func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
 	}
 	if a.ParamUpdate.MaxRefScriptSizePerEndorserBlock != nil {
 		fields = append(fields, "MaxRefScriptSizePerEndorserBlock")
+	}
+	if a.ParamUpdate.PerasMinCandidateBlockAge != nil {
+		fields = append(fields, "PerasMinCandidateBlockAge")
+	}
+	if a.ParamUpdate.PerasHealingFactor != nil {
+		fields = append(fields, "PerasHealingFactor")
+	}
+	if a.ParamUpdate.PerasCertBoost != nil {
+		fields = append(fields, "PerasCertBoost")
+	}
+	if a.ParamUpdate.PerasTargetCommitteeSize != nil {
+		fields = append(fields, "PerasTargetCommitteeSize")
+	}
+	if a.ParamUpdate.PerasBootstrapRoundSet || a.ParamUpdate.PerasBootstrapRound != nil {
+		fields = append(fields, "PerasBootstrapRound")
+	}
+	if a.ParamUpdate.PerasQuorumThresholdSafetyMargin != nil {
+		fields = append(fields, "PerasQuorumThresholdSafetyMargin")
+	}
+	if a.ParamUpdate.RefInputsCostPerMultiAssetPolicy != nil {
+		fields = append(fields, "RefInputsCostPerMultiAssetPolicy")
+	}
+	if a.ParamUpdate.RefInputsCostPerDatumByte != nil {
+		fields = append(fields, "RefInputsCostPerDatumByte")
 	}
 	return fields
 }

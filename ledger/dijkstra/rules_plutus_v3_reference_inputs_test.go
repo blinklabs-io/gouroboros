@@ -48,7 +48,7 @@ func dijkstraOverlappingInputTx(
 	redeemer := common.RedeemerValue{
 		ExUnits: common.ExUnits{Steps: 10_000_000, Memory: 10_000_000},
 	}
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 		0,
 	)

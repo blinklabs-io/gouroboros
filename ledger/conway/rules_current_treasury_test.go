@@ -55,7 +55,7 @@ func conwayTreasuryScriptInput(
 	index int,
 ) (shelley.ShelleyTransactionInput, common.Utxo) {
 	t.Helper()
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		index,
 	)
@@ -371,7 +371,7 @@ func conwayTreasuryWitnessSet(
 }
 
 func TestConwayFeaturesWithPlutusV1V2NilLedgerState(t *testing.T) {
-	unresolvedInput := shelley.NewShelleyTransactionInput(
+	unresolvedInput := shelley.MustNewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		0,
 	)
@@ -443,7 +443,7 @@ func TestConwayFeaturesWithPlutusV1V2NilLedgerState(t *testing.T) {
 }
 
 func TestConwayFeaturesWithPlutusV1V2ReferenceScripts(t *testing.T) {
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
 		0,
 	)
@@ -516,7 +516,7 @@ func TestConwayFeaturesWithPlutusV1V2ReferenceScripts(t *testing.T) {
 
 func TestConwayPlutusV1KeepsReferenceInputsAndScripts(t *testing.T) {
 	v1 := common.PlutusV1Script{0x31, 0x32}
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"1111111111111111111111111111111111111111111111111111111111111111",
 		0,
 	)

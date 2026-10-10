@@ -158,7 +158,7 @@ func TestVerifyBlock_RefScriptLimitIndependentOfTransactionValidation(
 	block := buildBlockLimitsTestBlock(t, 1, common.ExUnits{})
 	conwayBlock, ok := block.(*conway.ConwayBlock)
 	require.True(t, ok)
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		strings.Repeat("01", 32),
 		0,
 	)

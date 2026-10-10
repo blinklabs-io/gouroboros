@@ -16,6 +16,7 @@ package common
 
 import (
 	"container/list"
+	"context"
 	"encoding/binary"
 	"runtime"
 	"sync"
@@ -281,7 +282,7 @@ func releaseMachine(
 	machinePoolFor(version, evalContext).pool.Put(machine)
 }
 
-// runPooledMachine runs program on a Machine checked out for (version,
+// runPooledMachineContext runs program on a Machine checked out for (version,
 // evalContext) with the given budget and returns the budget consumed, which
 // is computed even when Run fails.
 //
@@ -290,14 +291,15 @@ func releaseMachine(
 // its pool rather than handing a Machine interrupted mid-evaluation to the
 // next caller, and releasing before the ExBudget read would let a concurrent
 // checkout overwrite it.
-func runPooledMachine(
+func runPooledMachineContext(
+	ctx context.Context,
 	version lang.LanguageVersion,
 	evalContext *cek.EvalContext,
 	budget cek.ExBudget,
 	program syn.Term[syn.DeBruijn],
 ) (cek.ExBudget, error) {
 	machine := checkoutMachineWithBudget(version, evalContext, budget)
-	_, runErr := machine.Run(program)
+	_, runErr := machine.RunContext(ctx, program)
 	consumed := budget.Sub(&machine.ExBudget)
 	releaseMachine(version, evalContext, machine)
 	return consumed, runErr

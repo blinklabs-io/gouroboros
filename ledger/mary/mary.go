@@ -384,10 +384,10 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 
-	// Ensure we have at least 3 components (body, witness_set, metadata)
-	if len(txArray) < 3 {
+	// Ensure we have 3 components (body, witness_set, metadata)
+	if len(txArray) != 3 {
 		return fmt.Errorf(
-			"invalid transaction: expected at least 3 components, got %d",
+			"invalid transaction: expected 3 components, got %d",
 			len(txArray),
 		)
 	}
@@ -554,15 +554,16 @@ func (t MaryTransaction) Consumed() []common.TransactionInput {
 
 func (t MaryTransaction) Produced() []common.Utxo {
 	outputs := t.Outputs()
+	txId := t.Hash()
 	ret := make([]common.Utxo, 0, len(outputs))
 	for idx, output := range outputs {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id: shelley.NewShelleyTransactionInput(
-					t.Hash().String(),
-					idx,
-				),
+				Id: shelley.ShelleyTransactionInput{
+					TxId:        txId,
+					OutputIndex: uint32(idx),
+				},
 				Output: output,
 			},
 		)
@@ -614,7 +615,7 @@ func (t *MaryTransaction) Cbor() []byte {
 }
 
 func (t *MaryTransaction) Utxorpc() (*utxorpc.Tx, error) {
-	tx, err := t.Body.Utxorpc()
+	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Mary transaction: %w", err)
 	}
@@ -766,12 +767,22 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 	if len(data) == 0 {
 		return errors.New("empty Mary transaction output value")
 	}
-	if (data[0] & cbor.CborTypeMask) != cbor.CborTypeArray {
+	if data[0]&cbor.CborTypeMask != cbor.CborTypeArray {
+		if data[0]&cbor.CborTypeMask != 0 {
+			return errors.New("mary transaction output coin must be an unsigned integer")
+		}
 		if _, err := cbor.Decode(data, &v.Amount); err != nil {
 			return err
 		}
 		v.Assets = nil
 		return nil
+	}
+	if err := common.ValidateCBORArrayLength(
+		data,
+		2,
+		"Mary transaction output value",
+	); err != nil {
+		return err
 	}
 	type tMaryTransactionOutputValue MaryTransactionOutputValue
 	var tmp tMaryTransactionOutputValue
@@ -786,7 +797,7 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 }
 
 func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
-	if v.Assets == nil {
+	if v.Assets == nil || len(v.Assets.Policies()) == 0 {
 		return cbor.Encode(v.Amount)
 	} else {
 		return cbor.EncodeGeneric(v)
@@ -804,7 +815,7 @@ func NewMaryBlockFromCbor(
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
 	var maryBlock MaryBlock
-	if _, err := cbor.Decode(data, &maryBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &maryBlock); err != nil {
 		return nil, fmt.Errorf("decode Mary block error: %w", err)
 	}
 
@@ -828,7 +839,7 @@ func NewMaryBlockFromCbor(
 
 func NewMaryBlockHeaderFromCbor(data []byte) (*MaryBlockHeader, error) {
 	var maryBlockHeader MaryBlockHeader
-	if _, err := cbor.Decode(data, &maryBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &maryBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Mary block header error: %w", err)
 	}
 	return &maryBlockHeader, nil
@@ -836,7 +847,7 @@ func NewMaryBlockHeaderFromCbor(data []byte) (*MaryBlockHeader, error) {
 
 func NewMaryTransactionBodyFromCbor(data []byte) (*MaryTransactionBody, error) {
 	var maryTx MaryTransactionBody
-	if _, err := cbor.Decode(data, &maryTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &maryTx); err != nil {
 		return nil, fmt.Errorf("decode Mary transaction body error: %w", err)
 	}
 	return &maryTx, nil
@@ -844,7 +855,7 @@ func NewMaryTransactionBodyFromCbor(data []byte) (*MaryTransactionBody, error) {
 
 func NewMaryTransactionFromCbor(data []byte) (*MaryTransaction, error) {
 	var maryTx MaryTransaction
-	if _, err := cbor.Decode(data, &maryTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &maryTx); err != nil {
 		return nil, fmt.Errorf("decode Mary transaction error: %w", err)
 	}
 	return &maryTx, nil
@@ -854,7 +865,7 @@ func NewMaryTransactionOutputFromCbor(
 	data []byte,
 ) (*MaryTransactionOutput, error) {
 	var maryTxOutput MaryTransactionOutput
-	if _, err := cbor.Decode(data, &maryTxOutput); err != nil {
+	if _, err := cbor.DecodeExact(data, &maryTxOutput); err != nil {
 		return nil, fmt.Errorf("decode Mary transaction output error: %w", err)
 	}
 	return &maryTxOutput, nil

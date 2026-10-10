@@ -462,6 +462,13 @@ func (vp *VotingProcedure) UnmarshalCBOR(cborData []byte) error {
 	if len(cborData) == 1 && (cborData[0] == 0xf6 || cborData[0] == 0xf7) {
 		return errors.New("voting procedure cannot be CBOR null or undefined")
 	}
+	if err := ValidateCBORArrayLength(
+		cborData,
+		2,
+		"voting procedure",
+	); err != nil {
+		return err
+	}
 	type tVotingProcedure VotingProcedure
 	var tmp tVotingProcedure
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -805,6 +812,40 @@ type TreasuryWithdrawalGovAction struct {
 }
 
 func (a *TreasuryWithdrawalGovAction) UnmarshalCBOR(cborData []byte) error {
+	if err := ValidateCBORArrayLength(
+		cborData,
+		3,
+		"treasury withdrawal governance action",
+	); err != nil {
+		return err
+	}
+	fields := make([]cbor.RawMessage, 3)
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	var rawWithdrawals map[*Address]cbor.RawMessage
+	if _, err := cbor.Decode(fields[1], &rawWithdrawals); err != nil {
+		return fmt.Errorf("decode treasury withdrawals: %w", err)
+	}
+	for address, amountCBOR := range rawWithdrawals {
+		if address == nil {
+			return errors.New("nil withdrawal address")
+		}
+		if len(amountCBOR) == 0 || amountCBOR[0]&cbor.CborTypeMask != 0 {
+			return errors.New("treasury withdrawal amount must be an unsigned integer")
+		}
+		var amount uint64
+		if _, err := cbor.DecodeExact(amountCBOR, &amount); err != nil {
+			return fmt.Errorf("decode treasury withdrawal amount: %w", err)
+		}
+	}
+	if err := ValidateNullOrFixedLengthByteStringCBOR(
+		fields[2],
+		Blake2b224Size,
+		"treasury withdrawal policy hash",
+	); err != nil {
+		return err
+	}
 	type tTreasuryWithdrawalGovAction TreasuryWithdrawalGovAction
 	var tmp tTreasuryWithdrawalGovAction
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -813,8 +854,46 @@ func (a *TreasuryWithdrawalGovAction) UnmarshalCBOR(cborData []byte) error {
 	if err := ValidateWithdrawalAddresses(tmp.Withdrawals); err != nil {
 		return fmt.Errorf("treasury withdrawal: %w", err)
 	}
+	if tmp.PolicyHash != nil && len(tmp.PolicyHash) != Blake2b224Size {
+		return fmt.Errorf(
+			"treasury withdrawal policy hash must be %d bytes, got %d",
+			Blake2b224Size,
+			len(tmp.PolicyHash),
+		)
+	}
 	*a = TreasuryWithdrawalGovAction(tmp)
 	return nil
+}
+
+func (a TreasuryWithdrawalGovAction) MarshalCBOR() ([]byte, error) {
+	if err := ValidateWithdrawalAddresses(a.Withdrawals); err != nil {
+		return nil, fmt.Errorf("treasury withdrawal: %w", err)
+	}
+	if a.PolicyHash != nil && len(a.PolicyHash) != Blake2b224Size {
+		return nil, fmt.Errorf(
+			"treasury withdrawal policy hash must be %d bytes, got %d",
+			Blake2b224Size,
+			len(a.PolicyHash),
+		)
+	}
+	withdrawals := appendCBORMapHeader(nil, uint64(len(a.Withdrawals)))
+	for _, address := range SortRewardAccountAddresses(a.Withdrawals) {
+		encodedAddress, err := cbor.Encode(address)
+		if err != nil {
+			return nil, fmt.Errorf("encode treasury withdrawal address: %w", err)
+		}
+		encodedAmount, err := cbor.Encode(a.Withdrawals[address])
+		if err != nil {
+			return nil, fmt.Errorf("encode treasury withdrawal amount: %w", err)
+		}
+		withdrawals = append(withdrawals, encodedAddress...)
+		withdrawals = append(withdrawals, encodedAmount...)
+	}
+	return cbor.Encode([]any{
+		a.Type,
+		cbor.RawMessage(withdrawals),
+		a.PolicyHash,
+	})
 }
 
 func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
@@ -1089,6 +1168,48 @@ type NewConstitutionGovAction struct {
 		Anchor     GovAnchor
 		ScriptHash []byte
 	}
+}
+
+func (a *NewConstitutionGovAction) UnmarshalCBOR(cborData []byte) error {
+	if err := ValidateCBORArrayLength(
+		cborData,
+		3,
+		"new constitution governance action",
+	); err != nil {
+		return err
+	}
+	fields := make([]cbor.RawMessage, 3)
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	if len(fields[1]) == 1 && fields[1][0] == 0xf7 {
+		return errors.New("new constitution previous action ID cannot be CBOR undefined")
+	}
+	if err := ValidateCBORArrayLength(
+		fields[2],
+		2,
+		"constitution",
+	); err != nil {
+		return err
+	}
+	constitution := make([]cbor.RawMessage, 2)
+	if _, err := cbor.Decode(fields[2], &constitution); err != nil {
+		return err
+	}
+	if err := ValidateNullOrFixedLengthByteStringCBOR(
+		constitution[1],
+		Blake2b224Size,
+		"constitution script hash",
+	); err != nil {
+		return err
+	}
+	type tNewConstitutionGovAction NewConstitutionGovAction
+	var decoded tNewConstitutionGovAction
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		return err
+	}
+	*a = NewConstitutionGovAction(decoded)
+	return nil
 }
 
 func (a *NewConstitutionGovAction) ToPlutusData() data.PlutusData {

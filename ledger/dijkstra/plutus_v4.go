@@ -778,8 +778,8 @@ func dijkstraPlutusDataList(values []common.ProposalProcedure) data.PlutusData {
 func dijkstraCertificateV4(
 	certificate common.Certificate,
 ) (data.PlutusData, error) {
-	integer := func(value int64) data.PlutusData {
-		return data.NewInteger(big.NewInt(value))
+	integer := func(value uint64) data.PlutusData {
+		return data.NewInteger(new(big.Int).SetUint64(value))
 	}
 	delegateePool := func(pool common.PoolKeyHash) data.PlutusData {
 		return data.NewConstr(0, data.NewByteString(pool.Bytes()))

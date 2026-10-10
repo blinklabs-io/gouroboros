@@ -447,11 +447,8 @@ func (b *BlockLedgerState) applyPoolRegistration(
 	return nil
 }
 
-func blockAmount(amount int64) uint64 {
-	if amount < 0 {
-		return 0
-	}
-	return uint64(amount)
+func blockAmount(amount uint64) uint64 {
+	return amount
 }
 
 func blockKeyDeposit(pp ProtocolParameters) (uint64, error) {

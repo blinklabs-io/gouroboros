@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type ConwayProposalProcedure struct {
@@ -35,6 +36,13 @@ type ConwayProposalProcedure struct {
 }
 
 func (p *ConwayProposalProcedure) UnmarshalCBOR(cborData []byte) error {
+	if err := common.ValidateCBORArrayLength(
+		cborData,
+		4,
+		"Conway proposal procedure",
+	); err != nil {
+		return err
+	}
 	type tConwayProposalProcedure ConwayProposalProcedure
 	var tmp tConwayProposalProcedure
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -89,32 +97,104 @@ func (g *ConwayGovAction) UnmarshalCBOR(data []byte) error {
 	if actionType < 0 {
 		return fmt.Errorf("invalid governance action type: %d", actionType)
 	}
+	arrayLength := 0
+	optionalFieldIndexes := []int{}
 	var tmpAction common.GovAction
 	switch common.GovActionType(actionType) {
 	case common.GovActionTypeParameterChange:
+		arrayLength = 4
+		optionalFieldIndexes = []int{1, 3}
 		tmpAction = &ConwayParameterChangeGovAction{}
 	case common.GovActionTypeHardForkInitiation:
+		arrayLength = 3
+		optionalFieldIndexes = []int{1}
 		tmpAction = &common.HardForkInitiationGovAction{}
 	case common.GovActionTypeTreasuryWithdrawal:
+		arrayLength = 3
+		optionalFieldIndexes = []int{2}
 		tmpAction = &common.TreasuryWithdrawalGovAction{}
 	case common.GovActionTypeNoConfidence:
+		arrayLength = 2
+		optionalFieldIndexes = []int{1}
 		tmpAction = &common.NoConfidenceGovAction{}
 	case common.GovActionTypeUpdateCommittee:
+		arrayLength = 5
+		optionalFieldIndexes = []int{1}
 		tmpAction = &common.UpdateCommitteeGovAction{}
 	case common.GovActionTypeNewConstitution:
+		arrayLength = 3
+		optionalFieldIndexes = []int{1}
 		tmpAction = &common.NewConstitutionGovAction{}
 	case common.GovActionTypeInfo:
+		arrayLength = 1
 		tmpAction = &common.InfoGovAction{}
 	default:
 		return fmt.Errorf("unknown governance action type: %d", actionType)
+	}
+	if err := common.ValidateCBORArrayLength(
+		data,
+		arrayLength,
+		"Conway governance action",
+	); err != nil {
+		return err
+	}
+	fields := make([]cbor.RawMessage, arrayLength)
+	if _, err := cbor.Decode(data, &fields); err != nil {
+		return err
+	}
+	for _, fieldIndex := range optionalFieldIndexes {
+		if len(fields[fieldIndex]) == 1 && fields[fieldIndex][0] == 0xf7 {
+			return fmt.Errorf(
+				"conway governance action optional field %d cannot be CBOR undefined",
+				fieldIndex,
+			)
+		}
 	}
 	// Decode action
 	if _, err := cbor.Decode(data, tmpAction); err != nil {
 		return err
 	}
+	if hardFork, ok := tmpAction.(*common.HardForkInitiationGovAction); ok &&
+		hardFork.ProtocolVersion.Major > 12 {
+		return fmt.Errorf(
+			"hard fork protocol version major %d exceeds Conway maximum 12",
+			hardFork.ProtocolVersion.Major,
+		)
+	}
 	// action type is known within uint range
 	g.Type = uint(actionType) // #nosec G115
 	g.Action = tmpAction
+	return nil
+}
+
+func (a *ConwayParameterChangeGovAction) UnmarshalCBOR(cborData []byte) error {
+	if err := common.ValidateCBORArrayLength(
+		cborData,
+		4,
+		"parameter change governance action",
+	); err != nil {
+		return err
+	}
+	fields := make([]cbor.RawMessage, 4)
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	if len(fields[1]) == 1 && fields[1][0] == 0xf7 {
+		return errors.New("parameter change previous action ID cannot be CBOR undefined")
+	}
+	if err := common.ValidateNullOrFixedLengthByteStringCBOR(
+		fields[3],
+		common.Blake2b224Size,
+		"parameter change policy hash",
+	); err != nil {
+		return err
+	}
+	type tConwayParameterChangeGovAction ConwayParameterChangeGovAction
+	var decoded tConwayParameterChangeGovAction
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		return err
+	}
+	*a = ConwayParameterChangeGovAction(decoded)
 	return nil
 }
 
@@ -166,6 +246,14 @@ func (a *ConwayParameterChangeGovAction) PreviousGovActionId() *common.GovAction
 		return nil
 	}
 	return a.ActionId
+}
+
+// ProtocolParamUpdateUtxorpc converts the proposed parameter update.
+func (a *ConwayParameterChangeGovAction) ProtocolParamUpdateUtxorpc() (*utxorpc.PParams, error) {
+	if a == nil {
+		return nil, nil
+	}
+	return a.ParamUpdate.Utxorpc()
 }
 
 // SecurityGroupFields returns the security-group parameters changed by this

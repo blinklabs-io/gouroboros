@@ -402,7 +402,3 @@ The shared block corpus spans Byron through Conway. Its largest diagnostic
 case has 17,943 encoded bytes, 1,543 nodes and depth 18. Construction budgets
 cover the corpus and bound hostile scalar arrays, maps, nested tags and string
 chunks without imposing inspection budgets on ledger validation.
-
-The repository's `build-examples` workflow runs `make build` on pull requests;
-that target builds every program under `examples/` against the public API
-using the root module's dependencies.

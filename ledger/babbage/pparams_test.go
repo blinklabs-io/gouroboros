@@ -608,7 +608,7 @@ func TestBabbageUtxorpc(t *testing.T) {
 
 // Unit test for BabbageTransactionInput.Utxorpc()
 func TestBabbageTransactionInput_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		2,
 	)
@@ -662,7 +662,7 @@ func TestBabbageTransactionOutput_Utxorpc(t *testing.T) {
 
 // Unit test for BabbageTransactionBody.Utxorpc()
 func TestBabbageTransactionBody_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
 	inputSet := shelley.NewShelleyTransactionInputSet(
 		[]shelley.ShelleyTransactionInput{input},
@@ -715,7 +715,7 @@ func TestBabbageTransactionBody_Utxorpc(t *testing.T) {
 
 // Unit test for BabbageTransaction.Utxorpc()
 func TestBabbageTransaction_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 2)
 	inputSet := shelley.NewShelleyTransactionInputSet(
 		[]shelley.ShelleyTransactionInput{input},

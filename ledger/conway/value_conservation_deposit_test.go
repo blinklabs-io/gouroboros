@@ -33,7 +33,7 @@ func TestValueConservationFoldsStakeDepositsSequentially(t *testing.T) {
 		current        = uint64(3_000_000)
 		correctRefunds = historical + current
 	)
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	for _, credType := range []uint{common.CredentialTypeAddrKeyHash, common.CredentialTypeScriptHash} {
 		credential := common.Credential{CredType: credType}
 		credential.Credential[0] = 0x42
@@ -77,7 +77,7 @@ func TestValueConservationFoldsStakeDepositsSequentially(t *testing.T) {
 
 func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *testing.T) {
 	const inputAmount = uint64(100_000_000)
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
 	credential.Credential[0] = 0x42
 	drepCredential := common.Credential{CredType: common.CredentialTypeScriptHash}
@@ -115,13 +115,13 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *t
 		refund      bool
 	}{
 		{"legacy stake registration", &common.StakeRegistrationCertificate{StakeCredential: credential}, false, keyDeposit, false},
-		{"explicit stake registration", &common.RegistrationCertificate{StakeCredential: credential, Amount: int64(keyDeposit)}, false, keyDeposit, false},
-		{"stake registration delegation", &common.StakeRegistrationDelegationCertificate{StakeCredential: credential, Amount: int64(keyDeposit)}, false, keyDeposit, false},
-		{"stake vote registration delegation", &common.StakeVoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: int64(keyDeposit)}, false, keyDeposit, false},
-		{"vote registration delegation", &common.VoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: int64(keyDeposit)}, false, keyDeposit, false},
-		{"DRep registration", &common.RegistrationDrepCertificate{DrepCredential: drepCredential, Amount: int64(drepDeposit)}, false, drepDeposit, false},
-		{"explicit stake refund", &common.DeregistrationCertificate{StakeCredential: credential, Amount: int64(recordedStake)}, false, recordedStake, true},
-		{"DRep refund", &common.DeregistrationDrepCertificate{DrepCredential: drepCredential, Amount: int64(recordedDRep)}, false, recordedDRep, true},
+		{"explicit stake registration", &common.RegistrationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
+		{"stake registration delegation", &common.StakeRegistrationDelegationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
+		{"stake vote registration delegation", &common.StakeVoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
+		{"vote registration delegation", &common.VoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
+		{"DRep registration", &common.RegistrationDrepCertificate{DrepCredential: drepCredential, Amount: uint64(drepDeposit)}, false, drepDeposit, false},
+		{"explicit stake refund", &common.DeregistrationCertificate{StakeCredential: credential, Amount: recordedStake}, false, recordedStake, true},
+		{"DRep refund", &common.DeregistrationDrepCertificate{DrepCredential: drepCredential, Amount: recordedDRep}, false, recordedDRep, true},
 		{"proposal deposit", nil, true, proposalDeposit, false},
 	}
 	for _, test := range tests {
@@ -186,7 +186,7 @@ func TestInvalidExplicitRegistrationStillUsesProtocolDepositForValueConservation
 		inputAmount = uint64(100_000_000)
 		keyDeposit  = uint64(2_000_000)
 	)
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
 	credential.Credential[0] = 0x42
 	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{{
@@ -207,7 +207,7 @@ func TestInvalidExplicitRegistrationStillUsesProtocolDepositForValueConservation
 
 func TestValueConservationAllowsZeroDRepDeposits(t *testing.T) {
 	const inputAmount = uint64(100_000_000)
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
 	credential.Credential[0] = 0x42
 	zero := uint64(0)

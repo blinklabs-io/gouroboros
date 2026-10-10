@@ -15,7 +15,7 @@ import (
 )
 
 func TestCollateralReturnValidationUsesNetCollateral(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	tx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
 			TxFee:        1_000_000,
@@ -35,7 +35,7 @@ func TestCollateralReturnValidationUsesNetCollateral(t *testing.T) {
 }
 
 func TestCollateralReturnCannotCreateAssets(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	assets := common.NewMultiAsset[common.MultiAssetTypeOutput](map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 		common.Blake2b224Hash([]byte("policy")): {cbor.NewByteString([]byte("token")): big.NewInt(1)},
 	})
@@ -72,7 +72,7 @@ func TestBabbageOutputRulesIncludeCollateralReturn(t *testing.T) {
 }
 
 func TestBabbageTotalCollateralPresenceDistinguishesExplicitZero(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	bodyBytes, err := cbor.Encode(map[uint]any{17: uint64(0)})
 	require.NoError(t, err)
 	var body babbage.BabbageTransactionBody
