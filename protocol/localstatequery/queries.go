@@ -675,22 +675,24 @@ type EraHistoryResult struct {
 
 type eraHistoryResultBound struct {
 	cbor.StructAsArray
-	Timespan int
-	SlotNo   int
-	EpochNo  int
+	Timespan   any
+	SlotNo     int
+	EpochNo    int
+	PerasRound *uint64
 }
 
 func (b *eraHistoryResultBound) UnmarshalCBOR(data []byte) error {
-	fields, err := decodeEraHistoryArray(data, "bound", 3)
+	fields, err := decodeEraHistoryArrayOneOf(data, "bound", 3, 4)
 	if err != nil {
 		return err
 	}
-	if len(fields) != 3 {
-		return errors.New("decode era history bound: unexpected array length")
+	var relativeTime big.Int
+	if _, err := cbor.Decode(fields[0], &relativeTime); err != nil {
+		return fmt.Errorf("decode era history bound timespan: %w", err)
 	}
-	timespan, err := decodeEraHistorySignedInt(fields[0], "bound timespan")
-	if err != nil {
-		return err
+	var timespan any
+	if _, err := cbor.Decode(fields[0], &timespan); err != nil {
+		return fmt.Errorf("decode era history bound timespan: %w", err)
 	}
 	slotNo, err := decodeEraHistoryInt(fields[1], "bound slot number")
 	if err != nil {
@@ -700,10 +702,19 @@ func (b *eraHistoryResultBound) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		return err
 	}
+	var perasRound *uint64
+	if len(fields) == 4 {
+		var value uint64
+		if _, err := cbor.Decode(fields[3], &value); err != nil {
+			return fmt.Errorf("decode era history bound Peras round: %w", err)
+		}
+		perasRound = &value
+	}
 	*b = eraHistoryResultBound{
-		Timespan: timespan,
-		SlotNo:   slotNo,
-		EpochNo:  epochNo,
+		Timespan:   timespan,
+		SlotNo:     slotNo,
+		EpochNo:    epochNo,
+		PerasRound: perasRound,
 	}
 	return nil
 }
@@ -712,7 +723,11 @@ func (b eraHistoryResultBound) MarshalCBOR() ([]byte, error) {
 	if b.SlotNo < 0 || b.EpochNo < 0 {
 		return nil, errors.New("encode era history bound: negative value")
 	}
-	return cbor.Encode([]any{b.Timespan, b.SlotNo, b.EpochNo})
+	fields := []any{b.Timespan, b.SlotNo, b.EpochNo}
+	if b.PerasRound != nil {
+		fields = append(fields, *b.PerasRound)
+	}
+	return cbor.Encode(fields)
 }
 
 type eraHistoryResultEnd struct {
@@ -740,7 +755,8 @@ func (e *eraHistoryResultEnd) UnmarshalCBOR(data []byte) error {
 
 func (e eraHistoryResultEnd) MarshalCBOR() ([]byte, error) {
 	if e.Unbounded {
-		if e.Timespan != 0 || e.SlotNo != 0 || e.EpochNo != 0 {
+		if !isZeroEraHistoryTimespan(e.Timespan) || e.SlotNo != 0 ||
+			e.EpochNo != 0 || e.PerasRound != nil {
 			return nil, errors.New(
 				"encode era history end: unbounded end contains a bound",
 			)
@@ -860,19 +876,17 @@ func decodeSafeBeforeEpoch(data []byte) (*uint64, error) {
 
 type eraHistoryResultParams struct {
 	cbor.StructAsArray
-	EpochLength   int
-	SlotLength    int
-	SafeZone      eraHistorySafeZone
-	GenesisWindow uint64
+	EpochLength      int
+	SlotLength       int
+	SafeZone         eraHistorySafeZone
+	GenesisWindow    uint64
+	PerasRoundLength *uint64
 }
 
 func (p *eraHistoryResultParams) UnmarshalCBOR(data []byte) error {
-	fields, err := decodeEraHistoryArray(data, "parameters", 4)
+	fields, err := decodeEraHistoryArrayOneOf(data, "parameters", 4, 5)
 	if err != nil {
 		return err
-	}
-	if len(fields) != 4 {
-		return errors.New("decode era history parameters: unexpected array length")
 	}
 	epochLength, err := decodeEraHistoryInt(fields[0], "epoch length")
 	if err != nil {
@@ -890,11 +904,20 @@ func (p *eraHistoryResultParams) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(fields[3], &genesisWindow); err != nil {
 		return fmt.Errorf("decode genesis window: %w", err)
 	}
+	var perasRoundLength *uint64
+	if len(fields) == 5 {
+		var value uint64
+		if _, err := cbor.Decode(fields[4], &value); err != nil {
+			return fmt.Errorf("decode Peras round length: %w", err)
+		}
+		perasRoundLength = &value
+	}
 	*p = eraHistoryResultParams{
-		EpochLength:   epochLength,
-		SlotLength:    slotLength,
-		SafeZone:      safeZone,
-		GenesisWindow: genesisWindow,
+		EpochLength:      epochLength,
+		SlotLength:       slotLength,
+		SafeZone:         safeZone,
+		GenesisWindow:    genesisWindow,
+		PerasRoundLength: perasRoundLength,
 	}
 	return nil
 }
@@ -903,12 +926,35 @@ func (p eraHistoryResultParams) MarshalCBOR() ([]byte, error) {
 	if p.EpochLength < 0 || p.SlotLength < 0 {
 		return nil, errors.New("encode era history parameters: negative value")
 	}
-	return cbor.Encode([]any{
+	fields := []any{
 		p.EpochLength,
 		p.SlotLength,
 		p.SafeZone,
 		p.GenesisWindow,
-	})
+	}
+	if p.PerasRoundLength != nil {
+		fields = append(fields, *p.PerasRoundLength)
+	}
+	return cbor.Encode(fields)
+}
+
+func isZeroEraHistoryTimespan(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return true
+	case int:
+		return value == 0
+	case int64:
+		return value == 0
+	case uint64:
+		return value == 0
+	case big.Int:
+		return value.Sign() == 0
+	case *big.Int:
+		return value == nil || value.Sign() == 0
+	default:
+		return false
+	}
 }
 
 func decodeEraHistoryArray(
@@ -964,19 +1010,6 @@ func decodeEraHistoryInt(data []byte, name string) (int, error) {
 	}
 	maxInt := uint64(^uint(0) >> 1)
 	if value > maxInt {
-		return 0, fmt.Errorf("decode era history %s: overflows int", name)
-	}
-	return int(value), nil
-}
-
-func decodeEraHistorySignedInt(data []byte, name string) (int, error) {
-	var value int64
-	if _, err := cbor.Decode(data, &value); err != nil {
-		return 0, fmt.Errorf("decode era history %s: %w", name, err)
-	}
-	maxInt := int64(^uint(0) >> 1)
-	minInt := -maxInt - 1
-	if value < minInt || value > maxInt {
 		return 0, fmt.Errorf("decode era history %s: overflows int", name)
 	}
 	return int(value), nil

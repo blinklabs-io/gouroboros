@@ -25,14 +25,17 @@ import (
 
 func TestEraHistoryResultWireVariants(t *testing.T) {
 	tests := []struct {
-		name                string
-		end                 any
-		safeZone            any
-		wantUnbounded       bool
-		wantEndSlot         int
-		wantSafeFromTip     *uint64
-		wantSafeBeforeEpoch *uint64
-		wantGenesisWindow   uint64
+		name                 string
+		end                  any
+		safeZone             any
+		params               any
+		wantUnbounded        bool
+		wantEndSlot          int
+		wantPerasRound       *uint64
+		wantSafeFromTip      *uint64
+		wantSafeBeforeEpoch  *uint64
+		wantGenesisWindow    uint64
+		wantPerasRoundLength *uint64
 	}{
 		{
 			name:              "indefinite safe zone and unbounded end",
@@ -58,13 +61,27 @@ func TestEraHistoryResultWireVariants(t *testing.T) {
 			wantSafeBeforeEpoch: uint64Ptr(9),
 			wantGenesisWindow:   129600,
 		},
+		{
+			name:                 "Peras fields in bound and parameters",
+			end:                  []any{0, 13, 2, uint64(7)},
+			safeZone:             []any{uint8(1)},
+			params:               []any{432000, 1000, []any{uint8(1)}, 129600, uint64(1800)},
+			wantEndSlot:          13,
+			wantPerasRound:       uint64Ptr(7),
+			wantGenesisWindow:    129600,
+			wantPerasRoundLength: uint64Ptr(1800),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			params := test.params
+			if params == nil {
+				params = []any{432000, 1000, test.safeZone, test.wantGenesisWindow}
+			}
 			wire, err := cbor.Encode([]any{
 				[]any{0, 0, 0},
 				test.end,
-				[]any{432000, 1000, test.safeZone, test.wantGenesisWindow},
+				params,
 			})
 			require.NoError(t, err)
 
@@ -77,6 +94,7 @@ func TestEraHistoryResultWireVariants(t *testing.T) {
 				t.Fatalf("End.Unbounded = %t, want %t", got, test.wantUnbounded)
 			}
 			require.Equal(t, test.wantEndSlot, result.End.SlotNo)
+			require.True(t, equalUint64Ptr(test.wantPerasRound, result.End.PerasRound))
 			if test.wantSafeFromTip == nil {
 				require.Nil(t, result.Params.SafeZone.SafeFromTip)
 			} else {
@@ -93,6 +111,10 @@ func TestEraHistoryResultWireVariants(t *testing.T) {
 				t.Fatal("SafeBeforeEpoch did not preserve the tagged epoch")
 			}
 			require.Equal(t, test.wantGenesisWindow, result.Params.GenesisWindow)
+			require.True(
+				t,
+				equalUint64Ptr(test.wantPerasRoundLength, result.Params.PerasRoundLength),
+			)
 
 			roundTrip, err := cbor.Encode(result)
 			require.NoError(t, err)
@@ -178,10 +200,6 @@ func TestEraHistoryResultRejectsInvalidCounters(t *testing.T) {
 		end    any
 		params any
 	}{
-		{
-			name:  "overflowing begin timespan",
-			begin: []any{intOverflow, 0, 0},
-		},
 		{
 			name:  "wrong begin timespan type",
 			begin: []any{"0", 0, 0},
@@ -305,7 +323,33 @@ func TestEraHistoryNegativeRelativeTimeRoundTrip(t *testing.T) {
 	var result EraHistoryResult
 	_, err = cbor.Decode(wire, &result)
 	require.NoError(t, err)
-	require.Equal(t, -1, result.Begin.Timespan)
+	require.Equal(t, int64(-1), result.Begin.Timespan)
+
+	roundTrip, err := cbor.Encode(result)
+	require.NoError(t, err)
+	require.Equal(t, wire, roundTrip)
+}
+
+func TestEraHistoryBignumRelativeTimeRoundTrip(t *testing.T) {
+	relativeTime := new(big.Int).Mul(big.NewInt(89_856_000), big.NewInt(1_000_000_000_000))
+	wire, err := cbor.Encode([]any{
+		[]any{relativeTime, 0, 0},
+		nil,
+		[]any{432000, 1000, []any{uint8(1)}, 129600},
+	})
+	require.NoError(t, err)
+
+	var result EraHistoryResult
+	_, err = cbor.Decode(wire, &result)
+	require.NoError(t, err)
+	switch got := result.Begin.Timespan.(type) {
+	case *big.Int:
+		require.Equal(t, relativeTime, got)
+	case big.Int:
+		require.Equal(t, *relativeTime, got)
+	default:
+		t.Fatalf("decoded bignum timespan as %T", result.Begin.Timespan)
+	}
 
 	roundTrip, err := cbor.Encode(result)
 	require.NoError(t, err)
