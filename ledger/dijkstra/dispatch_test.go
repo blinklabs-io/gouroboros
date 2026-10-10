@@ -36,3 +36,42 @@ func TestDijkstraGovActionAcceptsListLengthEncodings(t *testing.T) {
 		})
 	}
 }
+
+func TestDijkstraGovActionAcceptsIndefiniteArray(t *testing.T) {
+	var decoded DijkstraGovAction
+	require.NoError(
+		t,
+		decoded.UnmarshalCBOR([]byte{0x9f, byte(common.GovActionTypeInfo), 0xff}),
+	)
+	require.IsType(t, &common.InfoGovAction{}, decoded.Action)
+}
+
+func TestDijkstraProposalProcedureAcceptsIndefiniteArray(t *testing.T) {
+	address, err := common.NewAddress(
+		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
+	)
+	require.NoError(t, err)
+	anchor, err := common.NewGovAnchor(
+		"https://example.com/proposal.json",
+		make([]byte, common.Blake2b256Size),
+	)
+	require.NoError(t, err)
+	procedure := DijkstraProposalProcedure{
+		PPDeposit:       1,
+		PPRewardAccount: address,
+		PPGovAction: DijkstraGovAction{Action: &common.InfoGovAction{
+			Type: uint(common.GovActionTypeInfo),
+		}},
+		PPAnchor: anchor,
+	}
+	encoded, err := cbor.Encode(procedure)
+	require.NoError(t, err)
+	length, headerLength, indefinite := cbor.ArrayInfo(encoded)
+	require.GreaterOrEqual(t, length, 0)
+	require.False(t, indefinite)
+	encoded = append([]byte{0x9f}, encoded[headerLength:]...)
+	encoded = append(encoded, 0xff)
+
+	var decoded DijkstraProposalProcedure
+	require.NoError(t, decoded.UnmarshalCBOR(encoded))
+}

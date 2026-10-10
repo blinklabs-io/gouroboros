@@ -34,3 +34,12 @@ func TestConwayGovActionAcceptsListLengthEncodings(t *testing.T) {
 		})
 	}
 }
+
+func TestConwayGovActionAcceptsIndefiniteArray(t *testing.T) {
+	var decoded ConwayGovAction
+	require.NoError(
+		t,
+		decoded.UnmarshalCBOR([]byte{0x9f, byte(common.GovActionTypeInfo), 0xff}),
+	)
+	require.IsType(t, &common.InfoGovAction{}, decoded.Action)
+}

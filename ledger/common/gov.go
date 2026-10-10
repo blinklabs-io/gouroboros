@@ -462,7 +462,7 @@ func (vp *VotingProcedure) UnmarshalCBOR(cborData []byte) error {
 	if len(cborData) == 1 && (cborData[0] == 0xf6 || cborData[0] == 0xf7) {
 		return errors.New("voting procedure cannot be CBOR null or undefined")
 	}
-	if err := ValidateDefiniteCBORArrayLength(
+	if err := ValidateCBORArrayLength(
 		cborData,
 		2,
 		"voting procedure",
@@ -998,6 +998,13 @@ type UpdateCommitteeGovAction struct {
 }
 
 func (a *UpdateCommitteeGovAction) UnmarshalCBOR(cborData []byte) error {
+	if err := ValidateCBORArrayLength(
+		cborData,
+		5,
+		"update committee governance action",
+	); err != nil {
+		return err
+	}
 	type tUpdateCommitteeGovAction UpdateCommitteeGovAction
 	var tmp tUpdateCommitteeGovAction
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
