@@ -883,6 +883,32 @@ type InvalidGovActionAncestorError struct {
 	Reason   string
 }
 
+// GovernanceStateUnavailableError indicates that a governance rule cannot
+// load authoritative state required to validate an action or vote.
+type GovernanceStateUnavailableError struct {
+	ActionId *common.GovActionId
+	Field    string
+	Err      error
+}
+
+func (e GovernanceStateUnavailableError) Error() string {
+	message := "governance state unavailable"
+	if e.ActionId != nil {
+		message += ": " + e.ActionId.String()
+	}
+	if e.Field != "" {
+		message += ": " + e.Field
+	}
+	if e.Err != nil {
+		message += ": " + e.Err.Error()
+	}
+	return message
+}
+
+func (e GovernanceStateUnavailableError) Unwrap() error {
+	return e.Err
+}
+
 func (e InvalidGovActionAncestorError) Error() string {
 	return fmt.Sprintf(
 		"invalid governance action ancestor %x#%d: %s",

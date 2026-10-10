@@ -33,6 +33,20 @@ import (
 
 const sequentialTestAddress = "addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07"
 
+type sequentialFuturePoolState struct {
+	common.LedgerState
+	lookup func(common.Blake2b256) (bool, common.PoolKeyHash, error)
+}
+
+func (s sequentialFuturePoolState) IsFutureVrfKeyInUse(
+	hash common.Blake2b256,
+) (bool, common.PoolKeyHash, error) {
+	if s.lookup != nil {
+		return s.lookup(hash)
+	}
+	return false, common.PoolKeyHash{}, nil
+}
+
 var sequentialTestRules = []common.UtxoValidationRuleFunc{
 	shelley.UtxoValidateBadInputsUtxo,
 }
@@ -429,7 +443,7 @@ func TestVerifyBlockTransactionsKeepsCurrentPoolOnReregistration(
 		Operator:   pool,
 		VrfKeyHash: vrf(0x41),
 	}
-	ls := mockledger.NewLedgerStateBuilder().
+	ls := sequentialFuturePoolState{LedgerState: mockledger.NewLedgerStateBuilder().
 		WithPoolCurrentState(func(
 			operator common.PoolKeyHash,
 		) (*common.PoolRegistrationCertificate, *uint64, error) {
@@ -446,7 +460,7 @@ func TestVerifyBlockTransactionsKeepsCurrentPoolOnReregistration(
 			}
 			return false, common.PoolKeyHash{}, nil
 		}).
-		Build()
+		Build()}
 	pp := &conway.ConwayProtocolParameters{}
 	pp.ProtocolVersion.Major = common.ProtocolVersionVanRossem
 	rules := []common.UtxoValidationRuleFunc{
@@ -493,6 +507,119 @@ func TestVerifyBlockTransactionsKeepsCurrentPoolOnReregistration(
 			require.Equal(t, 1, idx)
 		})
 	}
+}
+
+func TestVerifyBlockTransactionsReleasesWrappedFuturePoolVrfKey(
+	t *testing.T,
+) {
+	pool := common.PoolKeyHash(bytes.Repeat([]byte{0x31}, 28))
+	other := common.PoolKeyHash(bytes.Repeat([]byte{0x32}, 28))
+	vrf := func(b byte) common.VrfKeyHash {
+		return common.VrfKeyHash(bytes.Repeat([]byte{b}, 32))
+	}
+	register := func(id byte, operator common.PoolKeyHash, key byte) common.Transaction {
+		tx := sequentialTestTx(
+			t,
+			id,
+			sequentialTestInput(t, id, 0),
+		).(*mockledger.MockTransaction)
+		return tx.WithCertificates(&common.PoolRegistrationCertificate{
+			Operator:   operator,
+			VrfKeyHash: vrf(key),
+		})
+	}
+	current := &common.PoolRegistrationCertificate{
+		Operator:   pool,
+		VrfKeyHash: vrf(0x41),
+	}
+	oldFuture := vrf(0x42)
+	ls := sequentialFuturePoolState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithPoolCurrentState(func(
+				operator common.PoolKeyHash,
+			) (*common.PoolRegistrationCertificate, *uint64, error) {
+				if operator == pool {
+					return current, nil, nil
+				}
+				return nil, nil, nil
+			}).
+			WithVrfKeyInUseFunc(func(
+				key common.Blake2b256,
+			) (bool, common.PoolKeyHash, error) {
+				if key == current.VrfKeyHash {
+					return true, pool, nil
+				}
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build(),
+		lookup: func(
+			key common.Blake2b256,
+		) (bool, common.PoolKeyHash, error) {
+			if key == oldFuture {
+				return true, pool, nil
+			}
+			return false, common.PoolKeyHash{}, nil
+		},
+	}
+	pp := &conway.ConwayProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionVanRossem
+	idx, err := verifyBlockTransactions(
+		[]common.Transaction{
+			register(0xe1, pool, 0x43),
+			register(0xe2, other, 0x42),
+		},
+		0,
+		ls,
+		pp,
+		[]common.UtxoValidationRuleFunc{
+			shelley.UtxoValidatePoolCertificates,
+		},
+	)
+	require.NoError(t, err)
+	require.Zero(t, idx)
+}
+
+func TestVerifyBlockTransactionsAcceptsVoteOnEarlierProposal(t *testing.T) {
+	proposalTx := sequentialTestTx(
+		t,
+		0xf1,
+		sequentialTestInput(t, 0xf1, 0),
+	).(*mockledger.MockTransaction).WithProposalProcedures(
+		conway.ConwayProposalProcedure{
+			PPGovAction: conway.ConwayGovAction{
+				Action: &common.InfoGovAction{},
+			},
+		},
+	)
+	actionId := common.GovActionId{
+		TransactionId: proposalTx.Hash(),
+	}
+	voter := common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224(bytes.Repeat([]byte{0x51}, 28)),
+	}
+	voteTx := sequentialTestTx(
+		t,
+		0xf2,
+		sequentialTestInput(t, 0xf2, 0),
+	).(*mockledger.MockTransaction).WithVotingProcedures(
+		common.VotingProcedures{
+			&voter: {
+				&actionId: {Vote: common.GovVoteYes},
+			},
+		},
+	)
+	idx, err := verifyBlockTransactions(
+		[]common.Transaction{proposalTx, voteTx},
+		100,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&conway.ConwayProtocolParameters{},
+		[]common.UtxoValidationRuleFunc{
+			conway.UtxoValidateVotingOnExpiredGovAction,
+		},
+	)
+	require.NoError(t, err)
+	require.Zero(t, idx)
 }
 
 // A Dijkstra transaction's sub-transactions and direct deposits change

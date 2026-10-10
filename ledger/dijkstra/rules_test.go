@@ -36,6 +36,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type dijkstraRootsState struct {
+	common.LedgerState
+}
+
+func (dijkstraRootsState) GovPurposeRoots() (*common.GovPurposeRoots, error) {
+	return &common.GovPurposeRoots{}, nil
+}
+
 func TestDijkstraMetadataRuleAcceptsConwayTransactionsWithDijkstraParams(t *testing.T) {
 	tx := &conway.ConwayTransaction{}
 	pp := &DijkstraProtocolParameters{}
@@ -746,7 +754,9 @@ func TestDijkstraGovernanceValidationRulesRejectInvalidProposalsAndVotes(
 				},
 			}},
 		}, TxIsValid: true}
-		ls := mockledger.NewLedgerStateBuilder().Build()
+		ls := dijkstraRootsState{
+			LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		}
 		rule, _ := dijkstraValidationRule(
 			t,
 			"ledger/dijkstra.UtxoValidateProposalAncestry",

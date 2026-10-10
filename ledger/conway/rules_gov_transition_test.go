@@ -210,7 +210,7 @@ func TestUtxoValidateProposalDeposit(t *testing.T) {
 	})
 }
 
-func TestUtxoValidateHardForkCanFollowSkipsTypedNilAncestor(t *testing.T) {
+func TestUtxoValidateHardForkCanFollowRejectsTypedNilAncestor(t *testing.T) {
 	ancestorId := common.GovActionId{TransactionId: common.Blake2b256{0x01}}
 	var ancestorAction *common.HardForkInitiationGovAction
 	ls := mockledger.NewLedgerStateBuilder().WithGovActions(
@@ -228,15 +228,14 @@ func TestUtxoValidateHardForkCanFollowSkipsTypedNilAncestor(t *testing.T) {
 	)
 
 	require.NotPanics(t, func() {
-		require.NoError(
-			t,
-			conway.UtxoValidateHardForkCanFollow(
-				tx,
-				0,
-				ls,
-				mkConwayPp(common.ProtocolVersionConway, 0),
-			),
+		err := conway.UtxoValidateHardForkCanFollow(
+			tx,
+			0,
+			ls,
+			mkConwayPp(common.ProtocolVersionConway, 0),
 		)
+		var target conway.GovernanceStateUnavailableError
+		require.ErrorAs(t, err, &target)
 	})
 }
 
@@ -578,7 +577,12 @@ func TestUtxoValidateProposalAncestry(t *testing.T) {
 			ActionType: common.GovActionTypeNewConstitution,
 		},
 	}
-	ls := mockledger.NewLedgerStateBuilder().WithGovActions(govActions).Build()
+	ls := rootedLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithGovActions(govActions).
+			Build(),
+		roots: &common.GovPurposeRoots{},
+	}
 
 	t.Run("no ancestor is fine", func(t *testing.T) {
 		action := &common.HardForkInitiationGovAction{}
@@ -987,12 +991,7 @@ func TestUtxoValidateVotingOnExpiredGovAction(t *testing.T) {
 		require.ErrorAs(t, err, &unkErr)
 	})
 
-	// A LedgerState implementation that does not model gov-action expiry
-	// leaves ExpirySlot at its zero value. That must be treated as
-	// "expiry not modeled" rather than "expired at slot 0", which would
-	// otherwise reject every vote at any slot > 0 (the production bug this
-	// case pins).
-	t.Run("unset ExpirySlot is treated as not modeled", func(t *testing.T) {
+	t.Run("unset ExpirySlot fails closed", func(t *testing.T) {
 		unexpiringActionId := common.GovActionId{
 			TransactionId: common.Blake2b256{0x02},
 		}
@@ -1006,16 +1005,16 @@ func TestUtxoValidateVotingOnExpiredGovAction(t *testing.T) {
 			WithGovActions(unexpiringGovActions).
 			Build()
 		tx := mkVoteTx(voter, unexpiringActionId, common.GovVoteYes)
-		require.NoError(
-			t,
-			conway.UtxoValidateVotingOnExpiredGovAction(
-				tx,
-				1_000_000,
-				unexpiringLs,
-				pp,
-			),
+		err := conway.UtxoValidateVotingOnExpiredGovAction(
+			tx,
+			1_000_000,
+			unexpiringLs,
+			pp,
 		)
+		var target conway.GovernanceStateUnavailableError
+		require.ErrorAs(t, err, &target)
 	})
+
 }
 
 // NOTE: this deliberately does not add a PV11 (ProtocolVersionVanRossem)
@@ -1179,10 +1178,9 @@ func TestUtxoValidateCCVotingRestrictionsSameTransactionProposal(
 		)
 		requireDistinctTxIds(t, other, tx)
 		addVote(tx, ccVoter, selfActionId(other, 0), common.GovVoteYes)
-		require.NoError(
-			t,
-			conway.UtxoValidateCCVotingRestrictions(tx, 0, ls, pp),
-		)
+		err := conway.UtxoValidateCCVotingRestrictions(tx, 0, ls, pp)
+		var target conway.UnknownGovActionIdError
+		require.ErrorAs(t, err, &target)
 	})
 }
 
@@ -1238,19 +1236,13 @@ func TestUtxoValidateStakePoolVotingRestrictions(t *testing.T) {
 		)
 	})
 
-	// The security-group restriction on SPO votes over ParameterChange
-	// needs the proposed parameter update. This ledger state records only
-	// the action type, so the restriction stays unenforced for it; see
-	// TestUtxoValidateStakePoolVotingRestrictionsParameterChange for the
-	// enforced cases.
 	t.Run(
-		"SPO vote on an opaque ParameterChange is not classified",
+		"SPO vote on an opaque ParameterChange fails closed",
 		func(t *testing.T) {
 			tx := mkVoteTx(spoVoter, paramChangeId, common.GovVoteYes)
-			require.NoError(
-				t,
-				conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp),
-			)
+			err := conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp)
+			var target conway.GovernanceStateUnavailableError
+			require.ErrorAs(t, err, &target)
 		},
 	)
 
@@ -1365,8 +1357,7 @@ func addVote(
 	}
 }
 
-// rootedLedgerState decorates a ledger state with the optional
-// GovPurposeRootsState capability.
+// rootedLedgerState decorates a ledger state with GovPurposeRootsState.
 type rootedLedgerState struct {
 	common.LedgerState
 	roots *common.GovPurposeRoots
@@ -1462,30 +1453,22 @@ func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
 		assert.Equal(t, uint(4), hfErr.Supplied.Minor)
 	})
 
-	// An ancestor id that carries another transaction's id is not a
-	// same-transaction ancestor, whatever its index: the numeric check is
-	// deferred to the ledger state, which does not record it.
 	t.Run("ancestor id of another transaction", func(t *testing.T) {
 		other := mkProposalsTx(t, mkHfAction(nil, 10, 0))
 		otherId := selfActionId(other, 0)
 		second := mkHfAction(&otherId, 10, 4)
 		tx := mkProposalsTx(t, mkHfAction(nil, 10, 0), second)
 		requireDistinctTxIds(t, other, tx)
-		require.NoError(
-			t,
-			conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp),
-		)
+		err := conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp)
+		var target conway.InvalidGovActionAncestorError
+		require.ErrorAs(t, err, &target)
 	})
 
-	// A state provider that does not expose the ancestor's proposed
-	// protocol version cannot support the comparison; the check is skipped
-	// rather than run against the wrong reference version.
-	t.Run("ancestor without contents defers the check", func(t *testing.T) {
+	t.Run("ancestor without contents fails closed", func(t *testing.T) {
 		tx := mkProposalsTx(t, mkHfAction(&opaqueId, 10, 7))
-		require.NoError(
-			t,
-			conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp),
-		)
+		err := conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp)
+		var target conway.GovernanceStateUnavailableError
+		require.ErrorAs(t, err, &target)
 	})
 }
 
@@ -1643,20 +1626,23 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 		},
 	)
 
-	// A ledger state that cannot report purpose roots keeps the looser
-	// existence-and-purpose behavior, so a syncing node backed by such a
-	// state is not wedged by the stricter rule.
-	t.Run("no roots capability keeps existence checks", func(t *testing.T) {
+	t.Run("no roots capability fails closed", func(t *testing.T) {
 		tx := mkProposalsTx(t, mkHfAction(nil, 10, 0))
-		require.NoError(
-			t,
-			conway.UtxoValidateProposalAncestry(tx, 50, base, pp),
+		err := conway.UtxoValidateProposalAncestry(tx, 50, base, pp)
+		var target conway.GovernanceStateUnavailableError
+		require.ErrorAs(t, err, &target)
+	})
+
+	t.Run("nil roots result fails closed", func(t *testing.T) {
+		tx := mkProposalsTx(t, mkHfAction(nil, 10, 0))
+		err := conway.UtxoValidateProposalAncestry(
+			tx,
+			50,
+			rootedLedgerState{LedgerState: base},
+			pp,
 		)
-		missing := common.GovActionId{TransactionId: common.Blake2b256{0xFE}}
-		bad := mkProposalsTx(t, mkHfAction(&missing, 10, 0))
-		err := conway.UtxoValidateProposalAncestry(bad, 50, base, pp)
-		var ancErr conway.InvalidGovActionAncestorError
-		require.ErrorAs(t, err, &ancErr)
+		var target conway.GovernanceStateUnavailableError
+		require.ErrorAs(t, err, &target)
 	})
 }
 
@@ -1771,9 +1757,6 @@ func TestUtxoValidateStakePoolVotingRestrictionsParameterChange(t *testing.T) {
 		assert.Equal(t, selfActionId(nonSecurityTx, 0), spoErr.ActionId)
 	})
 
-	// A vote naming an action that another transaction proposes is not
-	// resolved from this transaction's proposals; the SPO restriction is
-	// left to the ledger state, which does not record it.
 	t.Run("action proposed by another transaction", func(t *testing.T) {
 		// Both transactions propose the same non-security parameter
 		// change at index 0, so only the transaction id in the action id
@@ -1794,9 +1777,8 @@ func TestUtxoValidateStakePoolVotingRestrictionsParameterChange(t *testing.T) {
 		requireDistinctTxIds(t, other, tx)
 		otherId := selfActionId(other, 0)
 		addVote(tx, spoVoter, otherId, common.GovVoteYes)
-		require.NoError(
-			t,
-			conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp),
-		)
+		err := conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp)
+		var target conway.UnknownGovActionIdError
+		require.ErrorAs(t, err, &target)
 	})
 }

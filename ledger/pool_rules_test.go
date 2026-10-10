@@ -40,7 +40,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// epochLedgerState adds the optional EpochState capability to a ledger state.
+// epochLedgerState adds the EpochState capability to a ledger state.
 type epochLedgerState struct {
 	common.LedgerState
 	epoch uint64
@@ -52,6 +52,24 @@ func (s epochLedgerState) EpochForSlot(uint64) (uint64, error) {
 }
 
 var _ common.EpochState = epochLedgerState{}
+
+type futurePoolLedgerState struct {
+	common.LedgerState
+	lookup func(common.Blake2b256) (bool, common.PoolKeyHash, error)
+}
+
+func (s futurePoolLedgerState) IsFutureVrfKeyInUse(
+	hash common.Blake2b256,
+) (bool, common.PoolKeyHash, error) {
+	if s.lookup == nil {
+		return false, common.PoolKeyHash{}, nil
+	}
+	return s.lookup(hash)
+}
+
+func withFuturePoolState(ls common.LedgerState) common.LedgerState {
+	return futurePoolLedgerState{LedgerState: ls}
+}
 
 func poolKeyHash(b byte) common.PoolKeyHash {
 	return common.NewBlake2b224(bytes.Repeat([]byte{b}, common.Blake2b224Size))
@@ -379,14 +397,14 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 	sharedVrf := vrfKeyHash(0x03)
 	pparams := conwayPparams(common.ProtocolVersionVanRossem, 0)
 
-	inUseBy := func(owner common.PoolKeyHash) *mockledger.MockLedgerState {
+	inUseBy := func(owner common.PoolKeyHash) common.LedgerState {
 		current := &common.PoolRegistrationCertificate{
 			CertType:   uint(common.CertificateTypePoolRegistration),
 			Operator:   owner,
 			VrfKeyHash: sharedVrf,
 			Margin:     common.NewGenesisRat(0, 1),
 		}
-		return mockledger.NewLedgerStateBuilder().
+		return withFuturePoolState(mockledger.NewLedgerStateBuilder().
 			WithNetworkId(common.AddressNetworkMainnet).
 			WithPools([]*common.PoolRegistrationCertificate{current}).
 			WithVrfKeyInUseFunc(
@@ -399,7 +417,7 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 					return false, common.PoolKeyHash{}, nil
 				},
 			).
-			Build()
+			Build())
 	}
 
 	t.Run("another pool's VRF key hash is rejected", func(t *testing.T) {
@@ -486,9 +504,9 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 			0,
 			common.AddressNetworkMainnet,
 		)
-		ls := mockledger.NewLedgerStateBuilder().
+		ls := withFuturePoolState(mockledger.NewLedgerStateBuilder().
 			WithNetworkId(common.AddressNetworkMainnet).
-			Build()
+			Build())
 		err := shelley.UtxoValidatePoolCertificates(
 			poolCertTx(first, second),
 			0,
@@ -516,9 +534,9 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 			0,
 			common.AddressNetworkMainnet,
 		)
-		ls := mockledger.NewLedgerStateBuilder().
+		ls := withFuturePoolState(mockledger.NewLedgerStateBuilder().
 			WithNetworkId(common.AddressNetworkMainnet).
-			Build()
+			Build())
 		require.NoError(t, shelley.UtxoValidatePoolCertificates(
 			poolCertTx(first, second),
 			0,
@@ -527,9 +545,43 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		))
 	})
 
+	t.Run("existing pool cannot re-register twice with one pending VRF key", func(t *testing.T) {
+		currentVrf := vrfKeyHash(0x04)
+		current := &common.PoolRegistrationCertificate{
+			CertType:   uint(common.CertificateTypePoolRegistration),
+			Operator:   registeringPool,
+			VrfKeyHash: currentVrf,
+			Margin:     common.NewGenesisRat(0, 1),
+		}
+		pending := poolRegCertWire(
+			t,
+			registeringPool,
+			sharedVrf,
+			0,
+			common.AddressNetworkMainnet,
+		)
+		ls := withFuturePoolState(mockledger.NewLedgerStateBuilder().
+			WithNetworkId(common.AddressNetworkMainnet).
+			WithPools([]*common.PoolRegistrationCertificate{current}).
+			WithVrfKeyInUseFunc(func(
+				hash common.Blake2b256,
+			) (bool, common.PoolKeyHash, error) {
+				return hash == currentVrf, registeringPool, nil
+			}).
+			Build())
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(pending, pending), 0, ls, pparams,
+		)
+		var target shelley.VrfKeyHashAlreadyRegisteredError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, registeringPool, target.PoolKeyHash)
+		assert.Equal(t, sharedVrf, target.VrfKeyHash)
+		assert.Equal(t, registeringPool, target.RegisteredBy)
+	})
+
 	t.Run("VRF lookup error propagates", func(t *testing.T) {
 		wantErr := errors.New("vrf lookup failed")
-		ls := mockledger.NewLedgerStateBuilder().
+		ls := withFuturePoolState(mockledger.NewLedgerStateBuilder().
 			WithNetworkId(common.AddressNetworkMainnet).
 			WithVrfKeyInUseFunc(
 				func(
@@ -538,7 +590,7 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 					return false, common.PoolKeyHash{}, wantErr
 				},
 			).
-			Build()
+			Build())
 		cert := poolRegCertWire(
 			t,
 			registeringPool,
@@ -553,6 +605,164 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 			pparams,
 		)
 		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("missing future pool state fails closed", func(t *testing.T) {
+		cert := poolRegCertWire(
+			t,
+			registeringPool,
+			vrfKeyHash(0x04),
+			0,
+			common.AddressNetworkMainnet,
+		)
+		ls := mockledger.NewLedgerStateBuilder().
+			WithNetworkId(common.AddressNetworkMainnet).
+			Build()
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(cert), 0, ls, pparams,
+		)
+		var target common.FuturePoolParametersStateUnavailableError
+		require.ErrorAs(t, err, &target)
+	})
+
+	t.Run("future VRF key reservation is rejected", func(t *testing.T) {
+		cert := poolRegCertWire(
+			t,
+			registeringPool,
+			sharedVrf,
+			0,
+			common.AddressNetworkMainnet,
+		)
+		ls := futurePoolLedgerState{
+			LedgerState: mockledger.NewLedgerStateBuilder().
+				WithNetworkId(common.AddressNetworkMainnet).
+				Build(),
+			lookup: func(common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return true, otherPool, nil
+			},
+		}
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(cert), 0, ls, pparams,
+		)
+		var target shelley.VrfKeyHashAlreadyRegisteredError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, otherPool, target.RegisteredBy)
+	})
+
+	t.Run("own future VRF key differs from current and is rejected", func(t *testing.T) {
+		currentVrf := vrfKeyHash(0x04)
+		current := &common.PoolRegistrationCertificate{
+			Operator:   registeringPool,
+			VrfKeyHash: currentVrf,
+		}
+		cert := poolRegCertWire(
+			t,
+			registeringPool,
+			sharedVrf,
+			0,
+			common.AddressNetworkMainnet,
+		)
+		ls := futurePoolLedgerState{
+			LedgerState: mockledger.NewLedgerStateBuilder().
+				WithNetworkId(common.AddressNetworkMainnet).
+				WithPoolCurrentState(func(
+					operator common.PoolKeyHash,
+				) (*common.PoolRegistrationCertificate, *uint64, error) {
+					if operator == registeringPool {
+						return current, nil, nil
+					}
+					return nil, nil, nil
+				}).
+				Build(),
+			lookup: func(common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return true, registeringPool, nil
+			},
+		}
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(cert), 0, ls, pparams,
+		)
+		var target shelley.VrfKeyHashAlreadyRegisteredError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, registeringPool, target.RegisteredBy)
+	})
+
+	currentVrf := vrfKeyHash(0x04)
+	replacementVrf := vrfKeyHash(0x05)
+	inheritedFutureState := func() common.LedgerState {
+		current := &common.PoolRegistrationCertificate{
+			Operator:   registeringPool,
+			VrfKeyHash: currentVrf,
+		}
+		return futurePoolLedgerState{
+			LedgerState: mockledger.NewLedgerStateBuilder().
+				WithNetworkId(common.AddressNetworkMainnet).
+				WithPoolCurrentState(func(
+					operator common.PoolKeyHash,
+				) (*common.PoolRegistrationCertificate, *uint64, error) {
+					if operator == registeringPool {
+						return current, nil, nil
+					}
+					return nil, nil, nil
+				}).
+				WithVrfKeyInUseFunc(func(
+					key common.Blake2b256,
+				) (bool, common.PoolKeyHash, error) {
+					if key == currentVrf {
+						return true, registeringPool, nil
+					}
+					return false, common.PoolKeyHash{}, nil
+				}).
+				Build(),
+			lookup: func(
+				key common.Blake2b256,
+			) (bool, common.PoolKeyHash, error) {
+				if key == sharedVrf {
+					return true, registeringPool, nil
+				}
+				return false, common.PoolKeyHash{}, nil
+			},
+		}
+	}
+	unreservedFutureState := func() common.LedgerState {
+		state := inheritedFutureState().(futurePoolLedgerState)
+		state.lookup = func(
+			common.Blake2b256,
+		) (bool, common.PoolKeyHash, error) {
+			return false, common.PoolKeyHash{}, nil
+		}
+		return state
+	}
+	registration := func(pool common.PoolKeyHash, vrf common.VrfKeyHash) common.Certificate {
+		return poolRegCertWire(
+			t,
+			pool,
+			vrf,
+			0,
+			common.AddressNetworkMainnet,
+		)
+	}
+
+	t.Run("later re-registration releases prior transaction key", func(t *testing.T) {
+		reserve := registration(registeringPool, sharedVrf)
+		replace := registration(registeringPool, replacementVrf)
+		claimReleased := registration(otherPool, sharedVrf)
+		require.NoError(t, shelley.UtxoValidatePoolCertificates(
+			poolCertTx(reserve, replace, claimReleased),
+			0,
+			unreservedFutureState(),
+			pparams,
+		))
+	})
+
+	t.Run("re-registration can restore inherited future key in one tx", func(t *testing.T) {
+		replace := registration(registeringPool, replacementVrf)
+		restore := registration(registeringPool, sharedVrf)
+		require.NoError(t, shelley.UtxoValidatePoolCertificates(
+			poolCertTx(replace, restore),
+			0,
+			inheritedFutureState(),
+			pparams,
+		))
 	})
 }
 
@@ -674,7 +884,7 @@ func TestUtxoValidateDelegationPoolRetirementKeepsPoolRegistered(
 }
 
 // TestUtxoValidatePoolCertificatesRetirementEpoch covers
-// StakePoolRetirementWrongEpochPOOL and the degrading EpochState capability.
+// StakePoolRetirementWrongEpochPOOL and the EpochState capability.
 func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 	registered, base := registeredPoolLedgerState()
 	pparams := conwayPparams(common.ProtocolVersionConway, 0)
@@ -725,20 +935,20 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 		})
 	}
 
-	t.Run("no EpochState skips nonzero retirement epoch bound", func(t *testing.T) {
-		// EpochState is deliberately optional and degrading. Only epoch zero
-		// is invalid without current-epoch knowledge.
+	t.Run("no EpochState fails closed", func(t *testing.T) {
 		_, ok := any(base).(common.EpochState)
 		require.False(t, ok)
-		require.NoError(t, shelley.UtxoValidatePoolCertificates(
+		err := shelley.UtxoValidatePoolCertificates(
 			poolCertTx(poolRetirementCert(registered, limitEpoch+1)),
 			0,
 			base,
 			pparams,
-		))
+		)
+		var target common.EpochStateUnavailableError
+		require.ErrorAs(t, err, &target)
 	})
 
-	t.Run("no EpochState rejects epoch zero", func(t *testing.T) {
+	t.Run("epoch zero is rejected without EpochState", func(t *testing.T) {
 		err := shelley.UtxoValidatePoolCertificates(
 			poolCertTx(poolRetirementCert(registered, 0)),
 			0,
@@ -747,7 +957,7 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 		)
 		var target shelley.StakePoolRetirementWrongEpochError
 		require.ErrorAs(t, err, &target)
-		require.Equal(t, uint64(0), target.Supplied)
+		assert.Equal(t, uint64(0), target.Supplied)
 	})
 
 	t.Run("EpochState error propagates", func(t *testing.T) {

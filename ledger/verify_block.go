@@ -1037,7 +1037,8 @@ func VerifyBlock(
 	// scripts for) every transaction in a block that is doomed regardless.
 	// It only runs when there is something to check (at least one
 	// transaction, for the ExUnits budget, or the block's raw CBOR is
-	// available, for the size checks) and ProtocolParameters is set;
+	// available, for the size checks). ProtocolParameters is required when
+	// there is anything to check;
 	// blockLevelLimits type-asserts config.ProtocolParameters to the era's
 	// concrete pparams struct (there is no shared getter across eras, and
 	// no other way to confirm it matches the block's actual era), mirroring
@@ -1045,12 +1046,23 @@ func VerifyBlock(
 	// ProtocolParameters implementation is a hard configuration error (see
 	// blockLevelLimits); callers who don't want block-limit enforcement must
 	// opt out explicitly via config.SkipBlockLimitsValidation.
-	if block.Era() != byron.EraByron && !config.SkipBlockLimitsValidation &&
-		config.ProtocolParameters != nil {
+	if block.Era() != byron.EraByron && !config.SkipBlockLimitsValidation {
 		txs := block.Transactions()
 		rawBlockCbor := block.Cbor()
 		headerCbor := header.Cbor()
 		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 {
+			if config.ProtocolParameters == nil {
+				return false, "", 0, 0, common.NewValidationError(
+					common.ValidationErrorTypeConfiguration,
+					"protocol parameters are required for block-wide limits",
+					map[string]any{
+						"block_slot":   slot,
+						"block_number": blockNo,
+						"era":          era,
+					},
+					nil,
+				)
+			}
 			maxBodySize, maxHeaderSize, maxExUnits, hasMaxExUnits, limitsErr := blockLevelLimits(
 				config.ProtocolParameters,
 			)

@@ -17,6 +17,7 @@ package common
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"time"
@@ -264,6 +265,10 @@ func (b *BlockLedgerState) applyLevel(
 		b.proposals[id] = GovActionState{
 			ActionId:   id,
 			ActionType: actionType,
+			// BlockLedgerState is valid only while this block is folded.
+			// A proposal inserted by an earlier transaction cannot expire
+			// before a later transaction in the same block votes on it.
+			ExpirySlot: math.MaxUint64,
 			Action:     action,
 		}
 	}
@@ -418,8 +423,8 @@ func (b *BlockLedgerState) pool(operator PoolKeyHash) *blockPool {
 // becomes current at once. A re-registration only records future parameters
 // and cancels a pending retirement, and on the VRF key set it replaces the
 // key of an earlier re-registration in the block, as the reference does from
-// protocol version 11. A future key recorded before the block is not
-// visible here, so it stays claimed in the wrapped state.
+// protocol version 11. IsFutureVrfKeyInUse suppresses an inherited future key
+// when this method records its replacement.
 func (b *BlockLedgerState) applyPoolRegistration(
 	cert *PoolRegistrationCertificate,
 ) error {
@@ -602,6 +607,76 @@ func (b *BlockLedgerState) IsVrfKeyInUse(
 		return false, PoolKeyHash{}, nil
 	}
 	return b.base.IsVrfKeyInUse(vrfKeyHash)
+}
+
+// IsFutureVrfKeyInUse reports a VRF key reserved by deferred pool parameters
+// in the wrapped state or by an earlier transaction in this block.
+func (b *BlockLedgerState) IsFutureVrfKeyInUse(
+	vrfKeyHash Blake2b256,
+) (bool, PoolKeyHash, error) {
+	futureState, ok := ledgerStateCapabilityFor[FuturePoolParametersState](b.base)
+	if !ok {
+		return false, PoolKeyHash{}, FuturePoolParametersStateUnavailableError{}
+	}
+	return b.isFutureVrfKeyInUse(vrfKeyHash, futureState)
+}
+
+func (b *BlockLedgerState) isFutureVrfKeyInUse(
+	vrfKeyHash Blake2b256,
+	futureState FuturePoolParametersState,
+) (bool, PoolKeyHash, error) {
+	if pool, ok := b.vrfKeys[vrfKeyHash]; ok {
+		if state := b.pools[pool]; state != nil && state.future != nil &&
+			state.future.VrfKeyHash == vrfKeyHash {
+			return true, pool, nil
+		}
+	}
+	if _, released := b.vrfReleased[vrfKeyHash]; released {
+		return false, PoolKeyHash{}, nil
+	}
+	inUse, pool, err := futureState.IsFutureVrfKeyInUse(vrfKeyHash)
+	if err != nil || !inUse {
+		return inUse, pool, err
+	}
+	// A re-registration in this block replaces any deferred parameters the
+	// wrapped state held for the same pool. Its old VRF key is therefore free
+	// even though the wrapped index still reports the superseded reservation.
+	if state := b.pools[pool]; state != nil && state.future != nil &&
+		state.future.VrfKeyHash != vrfKeyHash {
+		return false, PoolKeyHash{}, nil
+	}
+	return true, pool, nil
+}
+
+type blockFuturePoolParametersState struct {
+	block *BlockLedgerState
+	base  FuturePoolParametersState
+}
+
+func (s blockFuturePoolParametersState) IsFutureVrfKeyInUse(
+	vrfKeyHash Blake2b256,
+) (bool, PoolKeyHash, error) {
+	return s.block.isFutureVrfKeyInUse(vrfKeyHash, s.base)
+}
+
+// FuturePoolParametersStateFor returns ls's future pool parameters with the
+// block's earlier transactions applied, or false when the provider does not
+// implement it.
+func FuturePoolParametersStateFor(
+	ls LedgerState,
+) (FuturePoolParametersState, bool) {
+	if b := findBlockLedgerState(ls); b != nil {
+		futureState, ok := ledgerStateCapabilityFor[FuturePoolParametersState](ls)
+		if provider, isBlock := futureState.(*BlockLedgerState); ok &&
+			isBlock && provider == b {
+			return b, true
+		}
+		if ok {
+			return blockFuturePoolParametersState{block: b, base: futureState}, true
+		}
+		return b, true
+	}
+	return ledgerStateCapabilityFor[FuturePoolParametersState](ls)
 }
 
 // DRepRegistration reports a registration, update or deregistration an

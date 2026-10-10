@@ -416,7 +416,7 @@ func UtxoValidateProposalProcedures(
 		if committeeUpdate, ok := govAction.(*common.UpdateCommitteeGovAction); ok &&
 			len(committeeUpdate.CredEpochs) > 0 {
 			if !epochKnown {
-				epochState, ok := common.UnwrapLedgerState(ls).(common.EpochState)
+				epochState, ok := common.EpochStateFor(ls)
 				if !ok {
 					return CommitteeExpiryEpochUnavailableError{}
 				}
@@ -764,35 +764,45 @@ func (r *govActionResolver) exists(actionId common.GovActionId) bool {
 	return ok
 }
 
-// resolve returns the type and, where available, the contents of the
-// governance action named by actionId. ok is false when neither the
-// transaction nor the ledger state can classify the action, which leaves a
-// type-dependent restriction unenforced rather than guessed at.
-func (r *govActionResolver) resolve(
+func (r *govActionResolver) resolveRequired(
 	actionId common.GovActionId,
-) (actionType common.GovActionType, action common.GovAction, ok bool) {
+) (actionType common.GovActionType, action common.GovAction, err error) {
 	if proposal, found := r.txProposal(actionId); found {
 		if isNilGovAction(proposal.action) {
-			return 0, nil, false
+			return 0, nil, GovernanceStateUnavailableError{
+				ActionId: &actionId,
+				Field:    "transaction proposal contents",
+			}
 		}
 		resolvedType, ok := govActionValidationType(proposal.action)
 		if !ok {
-			return 0, nil, false
+			return 0, nil, GovernanceStateUnavailableError{
+				ActionId: &actionId,
+				Field:    "transaction proposal type",
+			}
 		}
-		return resolvedType, proposal.action, true
+		return resolvedType, proposal.action, nil
 	}
 	if r.ls == nil {
-		return 0, nil, false
+		return 0, nil, GovernanceStateUnavailableError{
+			ActionId: &actionId,
+			Field:    "ledger state",
+		}
 	}
-	actionState, err := r.ls.GovActionById(actionId)
-	if err != nil || actionState == nil {
-		return 0, nil, false
+	actionState, lookupErr := r.ls.GovActionById(actionId)
+	if lookupErr != nil {
+		return 0, nil, GovernanceStateUnavailableError{
+			ActionId: &actionId,
+			Field:    "governance action lookup",
+			Err:      lookupErr,
+		}
 	}
-	action = actionState.Action
-	if isNilGovAction(action) {
-		action = nil
+	if actionState == nil {
+		return 0, nil, UnknownGovActionIdError{
+			ActionIds: []common.GovActionId{actionId},
+		}
 	}
-	return actionState.ActionType, action, true
+	return actionState.ActionType, actionState.Action, nil
 }
 
 // govActionValidationType classifies an action for shared governance rules.
@@ -829,16 +839,29 @@ func hardForkProposedVersion(
 }
 
 // govPurposeRoots returns the current root of each governance-action purpose
-// chain when the ledger state implements the optional
-// common.GovPurposeRootsState capability, and nil when it does not.
+// chain.
 func govPurposeRoots(
 	ls common.LedgerState,
 ) (*common.GovPurposeRoots, error) {
-	rootsState, ok := common.UnwrapLedgerState(ls).(common.GovPurposeRootsState)
+	rootsState, ok := common.GovPurposeRootsStateFor(ls)
 	if !ok {
-		return nil, nil
+		return nil, GovernanceStateUnavailableError{
+			Field: "governance purpose roots",
+		}
 	}
-	return rootsState.GovPurposeRoots()
+	roots, err := rootsState.GovPurposeRoots()
+	if err != nil {
+		return nil, GovernanceStateUnavailableError{
+			Field: "governance purpose roots",
+			Err:   err,
+		}
+	}
+	if roots == nil {
+		return nil, GovernanceStateUnavailableError{
+			Field: "governance purpose roots",
+		}
+	}
+	return roots, nil
 }
 
 // govPurposeRootId returns the root governance action id recorded for a
@@ -1093,17 +1116,40 @@ func UtxoValidateHardForkCanFollow(
 					continue
 				}
 				ancestorAction = txProposal.action
-			} else if ls != nil {
+			} else {
+				if ls == nil {
+					return GovernanceStateUnavailableError{
+						ActionId: hf.ActionId,
+						Field:    "hard-fork predecessor",
+					}
+				}
 				ancestorState, err := ls.GovActionById(*hf.ActionId)
-				if err != nil || ancestorState == nil {
-					// A missing predecessor is reported by
-					// UtxoValidateProposalAncestry.
-					continue
+				if err != nil {
+					return GovernanceStateUnavailableError{
+						ActionId: hf.ActionId,
+						Field:    "hard-fork predecessor",
+						Err:      err,
+					}
+				}
+				if ancestorState == nil {
+					return InvalidGovActionAncestorError{
+						ActionId: *hf.ActionId,
+						Reason:   "referenced hard-fork predecessor does not exist",
+					}
+				}
+				if isNilGovAction(ancestorState.Action) {
+					return GovernanceStateUnavailableError{
+						ActionId: hf.ActionId,
+						Field:    "hard-fork predecessor contents",
+					}
 				}
 				ancestorAction = ancestorState.Action
 			}
 			if isNilGovAction(ancestorAction) {
-				continue
+				return GovernanceStateUnavailableError{
+					ActionId: hf.ActionId,
+					Field:    "hard-fork predecessor contents",
+				}
 			}
 			major, minor, isHardFork := hardForkProposedVersion(ancestorAction)
 			if !isHardFork {
@@ -1149,11 +1195,8 @@ func UtxoValidateHardForkCanFollow(
 // proposal of that purpose. A RATIFY expiry classification remains live until
 // EPOCH applies it and removes the action from the proposal tree.
 //
-// The current root is only available when the ledger state implements the
-// optional common.GovPurposeRootsState capability. Without it this rule
-// stays limited to ancestor existence and purpose matching, so a ledger
-// state that cannot report roots is not made to reject proposals it has no
-// way to judge.
+// The current root is required whenever the transaction proposes an action
+// that belongs to a purpose chain.
 func UtxoValidateProposalAncestry(
 	tx common.Transaction,
 	slot uint64,
@@ -1162,6 +1205,20 @@ func UtxoValidateProposalAncestry(
 ) error {
 	proposals := tx.ProposalProcedures()
 	if len(proposals) == 0 {
+		return nil
+	}
+	needsRoots := false
+	for _, proposal := range proposals {
+		if proposal == nil {
+			continue
+		}
+		_, _, hasPurpose := govActionAncestor(proposal.GovAction())
+		if hasPurpose {
+			needsRoots = true
+			break
+		}
+	}
+	if !needsRoots {
 		return nil
 	}
 	roots, err := govPurposeRoots(ls)
@@ -1181,9 +1238,8 @@ func UtxoValidateProposalAncestry(
 		rootId := govPurposeRootId(roots, purpose)
 		if ancestorId == nil {
 			// A proposal without a predecessor is only valid while the
-			// purpose chain has no root. Skip the check entirely when the
-			// roots are unknown.
-			if roots == nil || rootId == nil {
+			// purpose chain has no root.
+			if rootId == nil {
 				continue
 			}
 			return InvalidGovActionAncestorError{
@@ -4572,6 +4628,7 @@ func UtxoValidateVotingOnExpiredGovAction(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range tx.VotingProcedures() {
 		if voter == nil {
 			continue
@@ -4582,17 +4639,33 @@ func UtxoValidateVotingOnExpiredGovAction(
 					ActionIds: []common.GovActionId{{}},
 				}
 			}
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil || actionState == nil {
+			if _, proposed := resolver.txProposal(*actionId); proposed {
 				continue
 			}
-			// ExpirySlot is optional in the LedgerState contract: a
-			// state provider that does not model gov-action expiry
-			// leaves it zero. Treat that as "expiry not modeled"
-			// rather than "expired at slot 0", which would reject
-			// every vote at any slot > 0.
+			if ls == nil {
+				return GovernanceStateUnavailableError{
+					ActionId: actionId,
+					Field:    "governance action expiry",
+				}
+			}
+			actionState, err := ls.GovActionById(*actionId)
+			if err != nil {
+				return GovernanceStateUnavailableError{
+					ActionId: actionId,
+					Field:    "governance action expiry",
+					Err:      err,
+				}
+			}
+			if actionState == nil {
+				return UnknownGovActionIdError{
+					ActionIds: []common.GovActionId{*actionId},
+				}
+			}
 			if actionState.ExpirySlot == 0 {
-				continue
+				return GovernanceStateUnavailableError{
+					ActionId: actionId,
+					Field:    "governance action expiry",
+				}
 			}
 			if slot > actionState.ExpirySlot {
 				return VotingOnExpiredGovActionError{
@@ -4655,9 +4728,9 @@ func UtxoValidateBootstrapVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			actionType, _, ok := resolver.resolve(*actionId)
-			if !ok {
-				continue
+			actionType, _, err := resolver.resolveRequired(*actionId)
+			if err != nil {
+				return err
 			}
 			var allowed bool
 			switch voter.Type {
@@ -4722,9 +4795,9 @@ func UtxoValidateStakePoolVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			actionType, action, ok := resolver.resolve(*actionId)
-			if !ok {
-				continue
+			actionType, action, err := resolver.resolveRequired(*actionId)
+			if err != nil {
+				return err
 			}
 			var restriction string
 			switch actionType {
@@ -4735,9 +4808,10 @@ func UtxoValidateStakePoolVotingRestrictions(
 			case common.GovActionTypeParameterChange:
 				paramChange, ok := action.(common.ParameterChangeGovAction)
 				if !ok {
-					// The action contents are not available, so the
-					// parameter groups it modifies are unknown.
-					continue
+					return GovernanceStateUnavailableError{
+						ActionId: actionId,
+						Field:    "parameter-change contents",
+					}
 				}
 				if len(paramChange.SecurityGroupFields()) > 0 {
 					continue
@@ -4805,9 +4879,9 @@ func UtxoValidateCCVotingRestrictions(
 			// Resolve the action type from the transaction's own proposals
 			// or, failing that, from governance state. An action neither
 			// names is reported by UtxoValidateUnknownGovActionIds.
-			actionType, _, ok := resolver.resolve(*actionId)
-			if !ok {
-				continue
+			actionType, _, err := resolver.resolveRequired(*actionId)
+			if err != nil {
+				return err
 			}
 
 			// CC members cannot vote on NoConfidence or UpdateCommittee

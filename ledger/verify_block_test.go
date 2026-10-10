@@ -1133,6 +1133,27 @@ func TestVerifyBlock_UnrecognizedProtocolParameters(t *testing.T) {
 		)
 	})
 
+	t.Run("missing ProtocolParameters fails closed", func(t *testing.T) {
+		config := common.VerifyConfig{
+			SkipBodyHashValidation:    true,
+			SkipStakePoolValidation:   true,
+			SkipTransactionValidation: true,
+			LedgerState:               ledgerState,
+		}
+		_, _, _, _, err := VerifyBlock(
+			newBlock(),
+			eta0Hex,
+			slotsPerKesPeriod,
+			config,
+		)
+		require.Error(t, err)
+		assert.Contains(
+			t,
+			err.Error(),
+			"protocol parameters are required for block-wide limits",
+		)
+	})
+
 	t.Run(
 		"SkipBlockLimitsValidation bypasses the error",
 		func(t *testing.T) {
