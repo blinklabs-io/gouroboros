@@ -989,6 +989,14 @@ func decodeEraHistoryArrayOneOf(
 	if err != nil {
 		return nil, fmt.Errorf("decode era history %s: %w", name, err)
 	}
+	if len(fields) != count {
+		return nil, fmt.Errorf(
+			"decode era history %s: got %d fields, want %d",
+			name,
+			len(fields),
+			count,
+		)
+	}
 	if consumed != len(data) {
 		return nil, fmt.Errorf("decode era history %s: trailing data", name)
 	}
