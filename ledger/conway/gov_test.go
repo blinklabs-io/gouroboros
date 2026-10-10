@@ -26,6 +26,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestConwayVotingProcedureCBOR(t *testing.T) {
+	definite := []byte{0x82, common.GovVoteYes, 0xf6}
+	var procedure ConwayVotingProcedure
+	_, err := cbor.DecodeExact(definite, &procedure)
+	require.NoError(t, err)
+
+	reencoded, err := cbor.Encode(procedure)
+	require.NoError(t, err)
+	require.Equal(t, definite, reencoded)
+
+	_, err = cbor.DecodeExact([]byte{0x9f, common.GovVoteYes, 0xf6, 0xff}, &procedure)
+	require.ErrorContains(
+		t,
+		err,
+		"Conway voting procedure must be a definite-length CBOR array",
+	)
+}
+
 func TestConwayProposalProcedureToPlutusData(t *testing.T) {
 	addr := common.Address{}
 	action := &common.InfoGovAction{}
@@ -122,7 +140,7 @@ func TestConwayProposalProcedureRejectsBaseAddress(t *testing.T) {
 	require.ErrorContains(t, decoded.UnmarshalCBOR(wire), "invalid account address type")
 }
 
-func TestConwayProposalProcedureAcceptsIndefiniteArray(t *testing.T) {
+func TestConwayProposalProcedureRejectsIndefiniteArray(t *testing.T) {
 	addr, err := common.NewAddress(
 		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
@@ -142,9 +160,11 @@ func TestConwayProposalProcedureAcceptsIndefiniteArray(t *testing.T) {
 	indefinite = append(indefinite, 0xff)
 
 	var decoded ConwayProposalProcedure
-	require.NoError(t, decoded.UnmarshalCBOR(indefinite))
-	require.Equal(t, uint64(1), decoded.PPDeposit)
-	require.Equal(t, "https://example.com", decoded.PPAnchor.Url)
+	require.ErrorContains(
+		t,
+		decoded.UnmarshalCBOR(indefinite),
+		"Conway proposal procedure must be a definite-length CBOR array",
+	)
 }
 
 func TestConwayProposalProcedureRejectsTrailingData(t *testing.T) {
@@ -190,4 +210,22 @@ func TestConwayGovActionCbor(t *testing.T) {
 	infoAction, ok := decoded.Action.(*common.InfoGovAction)
 	require.True(t, ok, "type assertion to *common.InfoGovAction failed")
 	assert.Equal(t, uint(common.GovActionTypeInfo), infoAction.Type)
+}
+
+func TestConwayParameterChangeGovActionAcceptsIndefiniteArray(t *testing.T) {
+	encoded, err := cbor.Encode([]any{
+		uint(common.GovActionTypeParameterChange),
+		nil,
+		ConwayProtocolParameterUpdate{},
+		nil,
+	})
+	require.NoError(t, err)
+	length, headerLength, indefinite := cbor.ArrayInfo(encoded)
+	require.GreaterOrEqual(t, length, 0)
+	require.False(t, indefinite)
+	encoded = append([]byte{0x9f}, encoded[headerLength:]...)
+	encoded = append(encoded, 0xff)
+
+	var decoded ConwayParameterChangeGovAction
+	require.NoError(t, decoded.UnmarshalCBOR(encoded))
 }

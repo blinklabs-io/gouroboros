@@ -259,6 +259,35 @@ func TestConwayTransactionBodyUnmarshalCBORCertificateTypes(t *testing.T) {
 	}
 }
 
+func TestConwayTransactionBodyRejectsIndefiniteVotingProcedure(t *testing.T) {
+	votingProcedures := []byte{0xa1, 0x82, 0x00, 0x58, 0x1c}
+	votingProcedures = append(
+		votingProcedures,
+		bytes.Repeat([]byte{0x11}, common.Blake2b224Size)...,
+	)
+	votingProcedures = append(votingProcedures, 0xa1, 0x82, 0x58, 0x20)
+	votingProcedures = append(
+		votingProcedures,
+		bytes.Repeat([]byte{0x22}, common.Blake2b256Size)...,
+	)
+	votingProcedures = append(votingProcedures, 0x00, 0x9f, 0x01, 0xf6, 0xff)
+
+	encoded, err := cbor.Encode(map[uint]any{
+		0:  []any{},
+		1:  []any{},
+		2:  uint64(0),
+		19: cbor.RawMessage(votingProcedures),
+	})
+	require.NoError(t, err)
+
+	_, err = NewConwayTransactionBodyFromCbor(encoded)
+	require.ErrorContains(
+		t,
+		err,
+		"voting procedure must be a definite-length CBOR array",
+	)
+}
+
 func TestConwayTransactionBodyRequiresFieldsAndRejectsEmptyCollections(t *testing.T) {
 	base := map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)}
 	for _, key := range []uint{0, 1, 2} {

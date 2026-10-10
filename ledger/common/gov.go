@@ -998,6 +998,13 @@ type UpdateCommitteeGovAction struct {
 }
 
 func (a *UpdateCommitteeGovAction) UnmarshalCBOR(cborData []byte) error {
+	if err := ValidateCBORArrayLength(
+		cborData,
+		5,
+		"update committee governance action",
+	); err != nil {
+		return err
+	}
 	type tUpdateCommitteeGovAction UpdateCommitteeGovAction
 	var tmp tUpdateCommitteeGovAction
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -1185,7 +1192,7 @@ func (a *NewConstitutionGovAction) UnmarshalCBOR(cborData []byte) error {
 	if len(fields[1]) == 1 && fields[1][0] == 0xf7 {
 		return errors.New("new constitution previous action ID cannot be CBOR undefined")
 	}
-	if err := ValidateCBORArrayLength(
+	if err := ValidateDefiniteCBORArrayLength(
 		fields[2],
 		2,
 		"constitution",

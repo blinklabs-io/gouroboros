@@ -716,6 +716,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if hasRemovedField {
 		return ConwayTransactionBodyFieldError{FieldKey: 6}
 	}
+	if err := validateConwayVotingProcedures(cborData); err != nil {
+		return err
+	}
 	type tConwayTransactionBody ConwayTransactionBody
 	var tmp tConwayTransactionBody
 	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
@@ -850,6 +853,22 @@ func conwayTransactionBodyHasField(cborData []byte, wanted int) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func validateConwayVotingProcedures(cborData []byte) error {
+	var fields map[uint64]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	votingProceduresCBOR, ok := fields[19]
+	if !ok {
+		return nil
+	}
+	var votingProcedures map[*common.Voter]map[*common.GovActionId]ConwayVotingProcedure
+	if _, err := cbor.Decode(votingProceduresCBOR, &votingProcedures); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
