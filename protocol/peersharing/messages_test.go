@@ -244,4 +244,16 @@ func TestMsgSharePeersRejectsDeepAddressBeforeTypedDecode(t *testing.T) {
 
 	_, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
 	require.ErrorContains(t, err, "peer-sharing address 0: CBOR nesting exceeds maximum depth 1")
+
+	taggedAddress := append(bytes.Repeat([]byte{0xc0}, 64), 0x83, 0x00, 0x00, 0x00)
+	taggedWire := append(
+		[]byte{0x82, MessageTypeSharePeers, 0x81},
+		taggedAddress...,
+	)
+	_, err = NewMsgFromCbor(MessageTypeSharePeers, taggedWire)
+	require.ErrorContains(
+		t,
+		err,
+		"peer-sharing address 0: CBOR nesting exceeds maximum depth 1",
+	)
 }

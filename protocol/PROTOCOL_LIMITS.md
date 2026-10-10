@@ -372,12 +372,14 @@ subsequent items available to the caller.
 | --- | --- | --- |
 | Handshake proposal/acceptance | 5,760 bytes | Version maps pass the selected CBOR mode's pre-allocation validation. |
 | Keep Alive | 65,535 bytes | Cookies and message discriminants have fixed scalar shapes. |
+| Peer Sharing responses | 5,760 bytes; up to 255 addresses on the wire; server emission is capped at 230 | Address count and each address's nesting are checked before typed decoding. |
+| Tx Submission | 65,535 bytes in Init/Idle/Done; 2,500,000 bytes in reply states; 721,424-byte ingress limit | Collection counts are capped at 10 before allocation; transaction bodies are capped at 65,540 bytes each and 655,400 decoded bytes per reply. |
 | Chain Sync find-intersect | 462,000 bytes N2N; 8 MiB N2C; 131,073 points maximum | Point fields are preflighted before the point slice is decoded. The point hash must be exactly 32 bytes. |
-| Block Fetch block replies | 2,500,000 bytes per block; client range allowance follows outstanding requests | Blocks remain raw CBOR until the caller decodes them; transaction collections are checked against the request bitmap before allocation. |
+| Block Fetch block replies | 2,500,000 bytes per block; client range allowance follows outstanding requests | Blocks remain raw CBOR until the caller decodes them. |
 | Local State Query query/result | Effective read-buffer allowance | Query input sets have their own 10,000-item request bound. Result maps retain the normal decoder's larger allowance, including whole-UTxO queries. Raw result storage grows with the actual encoded payload. |
 | Local Tx Monitor next-transaction reply | Effective read-buffer allowance | Transaction bytes and the optional reply envelope are validated before typed decoding. |
 | Local Tx Submission submit/rejection | Effective read-buffer allowance | Transaction bytes and raw rejection data are retained from validated input. |
-| Leios Fetch block, transaction and vote replies | Effective read-buffer allowance per message; range retention defaults to 64 MiB and 1,000 messages | Raw-item collections validate encoded items before allocation. Range retention is enforced by the client separately. |
+| Leios Fetch block, transaction and vote replies | Effective read-buffer allowance per message; range retention defaults to 64 MiB and 1,000 messages | Raw-item collections validate encoded items before allocation; BlockTxs transaction counts are checked against the request bitmap. Range retention is enforced by the client separately. |
 | Leios Notify vote offers | 256 KiB and 1,000 votes | Definite counts and indefinite entries are checked before the vote list is allocated. Other notifications use the configured pending-byte allowance. |
 | Leios Votes vote reply | Effective read-buffer allowance | Typed fields use the normal CBOR mode; request counts are independently limited to 1,000. |
 | Peras vote IDs/objects | `maxObjectsUnacknowledged × 1,100 + 256` bytes | Lists are checked against the supported outstanding-window maximum. Fixed vote envelopes are checked before opaque bytes are retained. |
