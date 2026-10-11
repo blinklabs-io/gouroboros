@@ -22,6 +22,7 @@ import (
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
@@ -801,4 +802,65 @@ func TestNonBlockRequestsAfterAbandonedBlockRequestFailFast(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
+	point := pcommon.NewPoint(12345, testPointHash(0x01))
+	bitmaps := map[uint16]uint64{0: 0x3}
+	t.Run("accepts requested count", func(t *testing.T) {
+		conversation := append(
+			conversationHandshake,
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:  leiosfetch.ProtocolId,
+				MessageType: leiosfetch.MessageTypeBlockTxsRequest,
+			},
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: leiosfetch.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}, {0x80}}),
+				},
+			},
+		)
+		runTest(t, conversation, func(t *testing.T, conn *ouroboros.Connection) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			msg, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
+			require.NoError(t, err)
+			require.Len(t, msg.(*leiosfetch.MsgBlockTxs).TxsRaw, 2)
+		})
+	})
+
+	t.Run("rejects above requested count", func(t *testing.T) {
+		conversation := append(
+			conversationHandshake,
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:  leiosfetch.ProtocolId,
+				MessageType: leiosfetch.MessageTypeBlockTxsRequest,
+			},
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: leiosfetch.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}, {0x80}, {0x80}}),
+				},
+			},
+		)
+		runTestCollectingConnErrors(
+			t,
+			conversation,
+			func(t *testing.T, conn *ouroboros.Connection, connErrs <-chan error) {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
+				require.Error(t, err)
+				select {
+				case connErr := <-connErrs:
+					require.ErrorContains(t, connErr, "maximum is 2")
+				case <-time.After(2 * time.Second):
+					t.Fatal("oversized BlockTxs reply did not fail the connection")
+				}
+			},
+		)
+	})
 }

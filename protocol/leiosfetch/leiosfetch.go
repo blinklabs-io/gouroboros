@@ -32,6 +32,16 @@ const (
 	// DefaultMaxBlockRangeResponseBytes bounds the total encoded size retained
 	// for one BlockRangeRequest.
 	DefaultMaxBlockRangeResponseBytes = 64 * 1024 * 1024
+	// MaxVotesPerMessage matches the existing Leios vote offer and standalone
+	// vote request budgets. It bounds generic fetch responses; a live fetch
+	// client also applies its exact request count.
+	MaxVotesPerMessage = 1_000
+	// MaxVoteRequestIDs preserves the largest request admitted by the strict
+	// CBOR collection budget. Replies remain limited by both the requested
+	// count and MaxVotesMessageBytes.
+	MaxVoteRequestIDs = 131_073
+	// MaxVotesMessageBytes matches the existing Leios vote-offer byte budget.
+	MaxVotesMessageBytes = 256 * 1024
 )
 
 var (

@@ -25,6 +25,9 @@ import (
 
 const (
 	ProtocolName = "LocalMessageNotification"
+	// DefaultMaxReplyMessages is the default decoded collection budget. It is
+	// shared with the server queue default so one full queue fits one reply.
+	DefaultMaxReplyMessages = 100
 	// ProtocolID is the DMQ N2C mini-protocol number. dmq-node reference
 	// (DMQ.NodeToClient: localMsgNotification miniProtocolNum =
 	// MiniProtocolNum 15) and Pallas (PROTOCOL_N2C_MSG_NOTIFICATION = 15)
@@ -165,7 +168,7 @@ type LocalMessageNotificationOptionFunc func(*Config)
 // NewConfig returns a new LocalMessageNotification config object with the provided options
 func NewConfig(options ...LocalMessageNotificationOptionFunc) Config {
 	c := Config{
-		MaxQueueSize: 100,
+		MaxQueueSize: DefaultMaxReplyMessages,
 	}
 	// Apply provided options functions
 	for _, option := range options {

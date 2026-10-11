@@ -181,10 +181,24 @@ func validateVoteRequest(data []byte) error {
 	if !listIndefinite && count > uint64((len(data)-c.pos)/3) {
 		return errors.New("vote ID count exceeds encoded entries")
 	}
+	if !listIndefinite && count > MaxVoteRequestIDs {
+		return fmt.Errorf(
+			"vote ID list has %d items, maximum is %d",
+			count,
+			MaxVoteRequestIDs,
+		)
+	}
 	for idx := uint64(0); listIndefinite || idx < count; idx++ {
 		if listIndefinite && c.pos < len(data) && data[c.pos] == 0xff {
 			c.pos++
 			break
+		}
+		if idx >= MaxVoteRequestIDs {
+			return fmt.Errorf(
+				"vote ID list has %d items, maximum is %d",
+				idx+1,
+				MaxVoteRequestIDs,
+			)
 		}
 		if err := c.skipTags(); err != nil {
 			return fmt.Errorf("vote ID %d: %w", idx, err)

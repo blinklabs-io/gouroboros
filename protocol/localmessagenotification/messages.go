@@ -101,6 +101,14 @@ func NewMsgClientDone() *MsgClientDone {
 
 // NewMsgFromCbor parses a Local Message Notification message from CBOR
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	return decodeMsgFromCborWithLimit(msgType, data, DefaultMaxReplyMessages)
+}
+
+func decodeMsgFromCborWithLimit(
+	msgType uint,
+	data []byte,
+	maxMessages int,
+) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
 	case MessageTypeRequestMessages:
@@ -117,6 +125,12 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			ProtocolName,
 			msgType,
 		)
+	}
+	if msgType == MessageTypeReplyMessagesNonBlocking ||
+		msgType == MessageTypeReplyMessagesBlocking {
+		if err := validateReplyCollection(msgType, data, maxMessages); err != nil {
+			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+		}
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)

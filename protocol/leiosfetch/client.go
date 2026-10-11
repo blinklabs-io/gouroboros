@@ -66,6 +66,7 @@ type requestSlot struct {
 	rangeBytes      int
 	maxBlockTxs     int
 	maxBlockBitmaps int
+	maxVotes        int
 	drainedCh       chan struct{}
 	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
 }
@@ -466,6 +467,29 @@ func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, e
 		}
 		return msg, nil
 	}
+	if msgType == MessageTypeVotes {
+		c.blockRequestSlot.mu.Lock()
+		maxCount := c.blockRequestSlot.maxVotes
+		c.blockRequestSlot.mu.Unlock()
+		msg := &MsgVotes{}
+		if err := msg.unmarshalCBORWithLimits(
+			data,
+			maxCount,
+			MaxVotesMessageBytes,
+		); err != nil {
+			return nil, err
+		}
+		return msg, nil
+	}
+	if msgType == MessageTypeNextBlockAndTxsInRange ||
+		msgType == MessageTypeLastBlockAndTxsInRange {
+		return decodeBlockAndTxsInRange(
+			msgType,
+			data,
+			maxWireBlockTxs,
+			c.maxRangeBytes,
+		)
+	}
 	return NewMsgFromCbor(msgType, data)
 }
 
@@ -665,6 +689,9 @@ func (c *Client) VotesRequest(
 	if err != nil {
 		return nil, err
 	}
+	c.blockRequestSlot.mu.Lock()
+	c.blockRequestSlot.maxVotes = len(voteIds)
+	c.blockRequestSlot.mu.Unlock()
 	msg := NewMsgVotesRequest(voteIds)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockRequestSlot.release(w)

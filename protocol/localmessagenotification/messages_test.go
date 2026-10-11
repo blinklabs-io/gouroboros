@@ -15,6 +15,8 @@
 package localmessagenotification
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
 	"time"
 
@@ -260,4 +262,43 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 	_, err := NewMsgFromCbor(99, []byte{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown message type")
+}
+
+func TestReplyMessageCollectionBudget(t *testing.T) {
+	for _, msgType := range []uint{
+		MessageTypeReplyMessagesNonBlocking,
+		MessageTypeReplyMessagesBlocking,
+	} {
+		t.Run(fmt.Sprintf("message_%d", msgType), func(t *testing.T) {
+			wire := []byte{0x82, byte(msgType), 0x98, DefaultMaxReplyMessages + 1}
+			if msgType == MessageTypeReplyMessagesNonBlocking {
+				wire[0] = 0x83
+			}
+			wire = append(
+				wire,
+				bytes.Repeat([]byte{0x80}, DefaultMaxReplyMessages+1)...,
+			)
+			if msgType == MessageTypeReplyMessagesNonBlocking {
+				wire = append(wire, 0xf4)
+			}
+			msg, err := NewMsgFromCbor(msgType, wire)
+			require.ErrorContains(t, err, "maximum is 100")
+			require.Nil(t, msg)
+		})
+	}
+}
+
+func TestReplyMessageCollectionUsesConfiguredLimit(t *testing.T) {
+	wire := []byte{0x82, MessageTypeReplyMessagesBlocking, 0x82, 0x80, 0x80}
+	err := validateReplyCollection(
+		MessageTypeReplyMessagesBlocking,
+		wire,
+		1,
+	)
+	require.ErrorContains(t, err, "maximum is 1")
+	require.NoError(t, validateReplyCollection(
+		MessageTypeReplyMessagesBlocking,
+		wire,
+		2,
+	))
 }

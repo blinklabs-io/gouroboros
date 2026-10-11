@@ -80,6 +80,12 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		decodeErr = msg.UnmarshalCBOR(data)
 	case *MsgBlockTxs:
 		decodeErr = msg.UnmarshalCBOR(data)
+	case *MsgVotes:
+		decodeErr = msg.UnmarshalCBOR(data)
+	case *MsgNextBlockAndTxsInRange:
+		decodeErr = msg.UnmarshalCBOR(data)
+	case *MsgLastBlockAndTxsInRange:
+		decodeErr = msg.UnmarshalCBOR(data)
 	default:
 		_, decodeErr = cbor.Decode(data, ret)
 	}
@@ -349,6 +355,14 @@ type MsgVotes struct {
 	VotesRaw []cbor.RawMessage
 }
 
+func (m *MsgVotes) UnmarshalCBOR(data []byte) error {
+	return m.unmarshalCBORWithLimits(
+		data,
+		MaxVotesPerMessage,
+		MaxVotesMessageBytes,
+	)
+}
+
 func NewMsgVotes(votes []cbor.RawMessage) *MsgVotes {
 	if votes == nil {
 		votes = []cbor.RawMessage{}
@@ -415,6 +429,21 @@ type MsgNextBlockAndTxsInRange struct {
 	TxsRaw   []cbor.RawMessage
 }
 
+func (m *MsgNextBlockAndTxsInRange) UnmarshalCBOR(data []byte) error {
+	msg, err := decodeBlockAndTxsInRange(
+		MessageTypeNextBlockAndTxsInRange,
+		data,
+		maxWireBlockTxs,
+		DefaultMaxBlockRangeResponseBytes,
+	)
+	if err != nil {
+		return err
+	}
+	decoded := msg.(*MsgNextBlockAndTxsInRange)
+	*m = *decoded
+	return nil
+}
+
 func NewMsgNextBlockAndTxsInRange(
 	block cbor.RawMessage,
 	txs []cbor.RawMessage,
@@ -433,6 +462,21 @@ type MsgLastBlockAndTxsInRange struct {
 	protocol.MessageBase
 	BlockRaw cbor.RawMessage
 	TxsRaw   []cbor.RawMessage
+}
+
+func (m *MsgLastBlockAndTxsInRange) UnmarshalCBOR(data []byte) error {
+	msg, err := decodeBlockAndTxsInRange(
+		MessageTypeLastBlockAndTxsInRange,
+		data,
+		maxWireBlockTxs,
+		DefaultMaxBlockRangeResponseBytes,
+	)
+	if err != nil {
+		return err
+	}
+	decoded := msg.(*MsgLastBlockAndTxsInRange)
+	*m = *decoded
+	return nil
 }
 
 func NewMsgLastBlockAndTxsInRange(

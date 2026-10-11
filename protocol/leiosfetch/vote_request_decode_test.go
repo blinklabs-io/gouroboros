@@ -167,3 +167,14 @@ func TestVotesRequestRejectsDeepIDBeforeTypedDecode(t *testing.T) {
 	_, err := NewMsgFromCbor(MessageTypeVotesRequest, wire)
 	require.ErrorContains(t, err, "vote request: CBOR nesting exceeds maximum depth 4")
 }
+
+func TestVotesRequestRejectsAboveRequestBudget(t *testing.T) {
+	const count = 131_074
+	wire := append(
+		[]byte{0x82, MessageTypeVotesRequest, 0x9a, 0x00, 0x02, 0x00, 0x02},
+		bytes.Repeat([]byte{0x82, 0x00, 0x00}, count)...,
+	)
+	msg, err := NewMsgFromCbor(MessageTypeVotesRequest, wire)
+	require.ErrorContains(t, err, "maximum is 131073")
+	require.Nil(t, msg)
+}

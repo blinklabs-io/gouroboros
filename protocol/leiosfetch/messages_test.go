@@ -16,6 +16,7 @@ package leiosfetch
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -601,4 +602,107 @@ func TestMsgVotesNilUsesEmptyArray(t *testing.T) {
 	encoded, err := cbor.Encode(NewMsgVotes(nil))
 	require.NoError(t, err)
 	require.Equal(t, []byte{0x82, MessageTypeVotes, 0x80}, encoded)
+}
+
+func TestVotesResponseUsesResponseCountBudget(t *testing.T) {
+	valid := append(
+		[]byte{0x82, MessageTypeVotes, 0x99, 0x03, 0xe8},
+		bytes.Repeat([]byte{0x80}, 1_000)...,
+	)
+	msg, err := NewMsgFromCbor(MessageTypeVotes, valid)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgVotes).VotesRaw, 1_000)
+
+	oversized := append(
+		[]byte{0x82, MessageTypeVotes, 0x99, 0x03, 0xe9},
+		bytes.Repeat([]byte{0x80}, 1_001)...,
+	)
+	msg, err = NewMsgFromCbor(MessageTypeVotes, oversized)
+	require.ErrorContains(t, err, "maximum is 1000")
+	require.Nil(t, msg)
+}
+
+func TestVotesResponseUsesRequestedCount(t *testing.T) {
+	wire := []byte{0x82, MessageTypeVotes, 0x83, 0x80, 0x80, 0x80}
+	client := &Client{}
+	client.blockRequestSlot.maxVotes = 2
+	msg, err := client.messageFromCbor(MessageTypeVotes, wire)
+	require.ErrorContains(t, err, "maximum is 2")
+	require.Nil(t, msg)
+
+	client.blockRequestSlot.maxVotes = 3
+	msg, err = client.messageFromCbor(MessageTypeVotes, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgVotes).VotesRaw, 3)
+}
+
+func TestVotesResponseRejectsDeepVoteBeforeTypedDecode(t *testing.T) {
+	wire := []byte{0x82, MessageTypeVotes, 0x81, 0x81, 0x81, 0x00}
+	msg, err := NewMsgFromCbor(MessageTypeVotes, wire)
+	require.ErrorContains(t, err, "maximum depth 1")
+	require.Nil(t, msg)
+}
+
+func TestBlockRangeResponsesBoundTransactionCollections(t *testing.T) {
+	for _, msgType := range []uint{
+		MessageTypeNextBlockAndTxsInRange,
+		MessageTypeLastBlockAndTxsInRange,
+	} {
+		t.Run(fmt.Sprintf("message_%d", msgType), func(t *testing.T) {
+			wire := append([]byte{
+				0x83, byte(msgType), 0xf6,
+				0x9a, 0x00, 0x40, 0x00, 0x01,
+			}, bytes.Repeat([]byte{0}, maxWireBlockTxs+1)...)
+			msg, err := NewMsgFromCbor(msgType, wire)
+			require.ErrorContains(t, err, "maximum is 4194304")
+			require.Nil(t, msg)
+		})
+	}
+}
+
+func TestBlockRangeResponseUsesConfiguredByteBudget(t *testing.T) {
+	wire := []byte{
+		0x83, MessageTypeNextBlockAndTxsInRange, 0xf6, 0x80,
+	}
+	msg, err := decodeBlockAndTxsInRange(
+		MessageTypeNextBlockAndTxsInRange,
+		wire,
+		maxWireBlockTxs,
+		len(wire)-1,
+	)
+	require.ErrorContains(t, err, "exceeds maximum")
+	require.Nil(t, msg)
+
+	msg, err = decodeBlockAndTxsInRange(
+		MessageTypeNextBlockAndTxsInRange,
+		wire,
+		maxWireBlockTxs,
+		len(wire),
+	)
+	require.NoError(t, err)
+	require.Empty(t, msg.(*MsgNextBlockAndTxsInRange).TxsRaw)
+}
+
+func TestBlockRangeResponseUsesTransactionCountBudget(t *testing.T) {
+	wire := []byte{
+		0x83, MessageTypeLastBlockAndTxsInRange, 0xf6,
+		0x83, 0x80, 0x80, 0x80,
+	}
+	msg, err := decodeBlockAndTxsInRange(
+		MessageTypeLastBlockAndTxsInRange,
+		wire,
+		2,
+		len(wire),
+	)
+	require.ErrorContains(t, err, "maximum is 2")
+	require.Nil(t, msg)
+
+	msg, err = decodeBlockAndTxsInRange(
+		MessageTypeLastBlockAndTxsInRange,
+		wire,
+		3,
+		len(wire),
+	)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgLastBlockAndTxsInRange).TxsRaw, 3)
 }
