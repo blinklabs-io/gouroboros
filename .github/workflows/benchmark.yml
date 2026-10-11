@@ -89,7 +89,7 @@ jobs:
         if: github.event_name == 'issue_comment'
         run: |
           set -o pipefail
-          go run golang.org/x/perf/cmd/benchstat@latest base.txt benchmark.txt | tee comparison.txt
+          go tool benchstat base.txt benchmark.txt | tee comparison.txt
 
       - name: Upload benchmark results
         if: github.event_name == 'issue_comment'

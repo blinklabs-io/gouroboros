@@ -163,17 +163,14 @@ go test -bench=BenchmarkConsensus -benchmem ./internal/bench/...
 For reliable performance comparisons, run benchmarks multiple times:
 
 ```bash
-# Install benchstat
-go install golang.org/x/perf/cmd/benchstat@latest
-
 # Run baseline
 go test -bench=. -benchmem -count=5 ./internal/bench/... | tee baseline.txt
 
 # Make changes, then run again
 go test -bench=. -benchmem -count=5 ./internal/bench/... | tee new.txt
 
-# Compare results
-benchstat baseline.txt new.txt
+# Compare results with the repository-pinned tool
+go tool benchstat baseline.txt new.txt
 ```
 
 ## Interpreting Results

@@ -134,11 +134,8 @@ go test -bench=. -benchmem ./ledger/... -run=^$ 2>&1 | tee ledger_bench.txt
 ### Compare Against Previous Run
 
 ```bash
-# Install benchstat if needed
-go install golang.org/x/perf/cmd/benchstat@latest
-
-# Compare old vs new
-benchstat old_bench.txt new_bench.txt
+# Compare old vs new with the repository-pinned tool
+go tool benchstat old_bench.txt new_bench.txt
 ```
 
 ### Generate Memory Profile
