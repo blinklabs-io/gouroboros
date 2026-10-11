@@ -68,23 +68,23 @@ func TestNewClientWithConfig(t *testing.T) {
 }
 
 func TestRequestSlotRangeResponseLimits(t *testing.T) {
+	wire := []byte{
+		0x83, MessageTypeNextBlockAndTxsInRange, 0xf6, 0x80,
+	}
 	for _, tc := range []struct {
 		name       string
 		maxReplies int
 		maxBytes   int
-		messages   [][]byte
 	}{
 		{
 			name:       "response count",
 			maxReplies: 1,
-			maxBytes:   10,
-			messages:   [][]byte{{0x01}, {0x02}},
+			maxBytes:   2 * len(wire),
 		},
 		{
 			name:       "response bytes",
 			maxReplies: 10,
-			maxBytes:   3,
-			messages:   [][]byte{{0x01, 0x02}, {0x03, 0x04}},
+			maxBytes:   2*len(wire) - 1,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,29 +98,58 @@ func TestRequestSlotRangeResponseLimits(t *testing.T) {
 			require.NoError(t, err)
 			defer slot.release(w)
 
-			for i, raw := range tc.messages {
-				msg := NewMsgNextBlockAndTxsInRange(nil, nil)
-				msg.SetCbor(raw)
-				accepted, err := slot.deliverRange(msg, false)
-				if i < len(tc.messages)-1 {
-					require.NoError(t, err)
-					require.True(t, accepted)
-					select {
-					case <-w:
-					case <-time.After(time.Second):
-						t.Fatal("range reply was not delivered")
-					}
-					continue
-				}
-				require.False(t, accepted)
-				require.ErrorIs(
-					t,
-					err,
-					ErrBlockRangeResponseLimitExceeded,
-				)
-			}
+			msg, err := slot.decodeRangeResponse(
+				MessageTypeNextBlockAndTxsInRange,
+				wire,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, msg)
+
+			msg, err = slot.decodeRangeResponse(
+				MessageTypeNextBlockAndTxsInRange,
+				wire,
+			)
+			require.Nil(t, msg)
+			require.ErrorIs(t, err, ErrBlockRangeResponseLimitExceeded)
+			require.Equal(t, 1, slot.rangeReplies)
+			require.Equal(t, len(wire), slot.rangeBytes)
 		})
 	}
+}
+
+func TestRequestSlotRangeDecodeErrorDoesNotConsumeLimits(t *testing.T) {
+	wire := []byte{
+		0x83, MessageTypeNextBlockAndTxsInRange, 0xf6, 0x80,
+	}
+	slot := &requestSlot{}
+	w, err := slot.acquireWithRangeLimits(
+		context.Background(),
+		make(chan struct{}),
+		2,
+		2*len(wire),
+	)
+	require.NoError(t, err)
+	defer slot.release(w)
+
+	msg, err := slot.decodeRangeResponse(
+		MessageTypeNextBlockAndTxsInRange,
+		wire[:len(wire)-1],
+	)
+	require.Error(t, err)
+	require.Nil(t, msg)
+	require.Zero(t, slot.rangeReplies)
+	require.Zero(t, slot.rangeBytes)
+
+	for range 2 {
+		msg, err = slot.decodeRangeResponse(
+			MessageTypeNextBlockAndTxsInRange,
+			wire,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, msg)
+	}
+	require.Equal(t, 2, slot.rangeReplies)
+	require.Equal(t, 2*len(wire), slot.rangeBytes)
 }
 
 func TestClientMessageHandler(t *testing.T) {

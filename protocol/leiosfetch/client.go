@@ -22,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -233,44 +232,14 @@ func (s *requestSlot) acquireWithRangeLimits(
 func (s *requestSlot) deliverRange(
 	msg protocol.Message,
 	terminal bool,
-) (bool, error) {
-	messageBytes := len(msg.Cbor())
-	if messageBytes == 0 {
-		encoded, err := cbor.Encode(msg)
-		if err != nil {
-			return false, fmt.Errorf("encode block range response: %w", err)
-		}
-		messageBytes = len(encoded)
-	}
-
+) bool {
 	s.mu.Lock()
-	if s.busy {
-		if s.maxReplies > 0 && s.rangeReplies >= s.maxReplies {
-			s.mu.Unlock()
-			return false, fmt.Errorf(
-				"%w: received more than %d messages",
-				ErrBlockRangeResponseLimitExceeded,
-				s.maxReplies,
-			)
-		}
-		nextReplies := s.rangeReplies + 1
-		if s.maxBytes > 0 && messageBytes > s.maxBytes-s.rangeBytes {
-			s.mu.Unlock()
-			return false, fmt.Errorf(
-				"%w: response bytes exceed %d",
-				ErrBlockRangeResponseLimitExceeded,
-				s.maxBytes,
-			)
-		}
-		s.rangeReplies = nextReplies
-		s.rangeBytes += messageBytes
-	}
 	w := s.waiter
 	d := s.delivery
 	if w == nil && d == nil && terminal && s.abandoned {
 		s.freeLocked()
 		s.mu.Unlock()
-		return true, nil
+		return true
 	}
 	if terminal && w != nil {
 		s.waiter = nil
@@ -279,9 +248,9 @@ func (s *requestSlot) deliverRange(
 	}
 	s.mu.Unlock()
 	if w == nil || d == nil {
-		return false, nil
+		return false
 	}
-	return d.enqueue(msg, terminal), nil
+	return d.enqueue(msg, terminal)
 }
 
 func (s *requestSlot) decodeRangeResponse(
@@ -324,6 +293,8 @@ func (s *requestSlot) decodeRangeResponse(
 	if err != nil {
 		return nil, err
 	}
+	s.rangeReplies++
+	s.rangeBytes += len(data)
 	switch typedMsg := msg.(type) {
 	case *MsgNextBlockAndTxsInRange:
 		s.rangeTxCount += len(typedMsg.TxsRaw)
@@ -817,9 +788,9 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	case MessageTypeVotes:
 		c.handleVotes(msg)
 	case MessageTypeNextBlockAndTxsInRange:
-		err = c.handleNextBlockAndTxsInRange(msg)
+		c.handleNextBlockAndTxsInRange(msg)
 	case MessageTypeLastBlockAndTxsInRange:
-		err = c.handleLastBlockAndTxsInRange(msg)
+		c.handleLastBlockAndTxsInRange(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -867,24 +838,14 @@ func (c *Client) handleVotes(msg protocol.Message) {
 	}
 }
 
-func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) error {
-	delivered, err := c.blockRequestSlot.deliverRange(msg, false)
-	if err != nil {
-		return err
-	}
-	if !delivered {
+func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) {
+	if !c.blockRequestSlot.deliverRange(msg, false) {
 		c.logDroppedResponse(msg)
 	}
-	return nil
 }
 
-func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) error {
-	delivered, err := c.blockRequestSlot.deliverRange(msg, true)
-	if err != nil {
-		return err
-	}
-	if !delivered {
+func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) {
+	if !c.blockRequestSlot.deliverRange(msg, true) {
 		c.logDroppedResponse(msg)
 	}
-	return nil
 }
