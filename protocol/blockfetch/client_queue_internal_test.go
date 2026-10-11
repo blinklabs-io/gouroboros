@@ -253,6 +253,14 @@ func queueTestBlock(
 	blk.BlockHeader.Body.BlockNumber = slot
 	blk.BlockHeader.Body.Slot = slot
 	blk.BlockHeader.Body.PrevHash = prevHash
+	blk.BlockHeader.Body.VrfKey = make([]byte, 32)
+	blk.BlockHeader.Body.VrfResult = lcommon.VrfResult{
+		Output: make([]byte, 64),
+		Proof:  make([]byte, 80),
+	}
+	blk.BlockHeader.Body.OpCert.HotVkey = make([]byte, 32)
+	blk.BlockHeader.Body.OpCert.Signature = make([]byte, 64)
+	blk.BlockHeader.Signature = make([]byte, 448)
 	blockCbor, err := cbor.Encode(blk)
 	require.NoError(t, err)
 	_, err = cbor.Decode(blockCbor, &blk)

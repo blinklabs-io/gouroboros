@@ -132,8 +132,8 @@ func TestVerifyBlockTransactionsRejectsDoubleSpend(t *testing.T) {
 func TestVerifyBlockTransactionsPhaseTwoInvalidAppliesCollateralOnly(
 	t *testing.T,
 ) {
-	input := shelley.NewShelleyTransactionInput(strings.Repeat("01", 32), 0)
-	collateral := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(strings.Repeat("01", 32), 0)
+	collateral := shelley.MustNewShelleyTransactionInput(
 		strings.Repeat("02", 32),
 		0,
 	)
@@ -168,11 +168,11 @@ func TestVerifyBlockTransactionsPhaseTwoInvalidAppliesCollateralOnly(
 		{name: "regular input stays unspent", spend: input},
 		{
 			name:  "collateral return is created",
-			spend: shelley.NewShelleyTransactionInput(invalidId, 1),
+			spend: shelley.MustNewShelleyTransactionInput(invalidId, 1),
 		},
 		{
 			name:    "regular output is not created",
-			spend:   shelley.NewShelleyTransactionInput(invalidId, 0),
+			spend:   shelley.MustNewShelleyTransactionInput(invalidId, 0),
 			wantErr: true,
 		},
 		{name: "collateral is consumed", spend: collateral, wantErr: true},

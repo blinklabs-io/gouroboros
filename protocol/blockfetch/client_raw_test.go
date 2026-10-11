@@ -371,9 +371,12 @@ func TestGetBlockRangePipelineStillFailsUndecodableBlock(t *testing.T) {
 // replaces the body.
 func tamperedBodyConwayBlock(t *testing.T) ([]byte, pcommon.Point) {
 	t.Helper()
-	blk := ledger.ConwayBlock{BlockHeader: &ledger.ConwayBlockHeader{}}
-	blk.BlockHeader.Body.BlockNumber = 12345
-	blk.BlockHeader.Body.Slot = 23456
+	babbageHeader := newTestBabbageBlock(12345, 23456).BlockHeader
+	blk := ledger.ConwayBlock{
+		BlockHeader: &ledger.ConwayBlockHeader{
+			BabbageBlockHeader: *babbageHeader,
+		},
+	}
 	raw, err := cbor.Encode(blk)
 	require.NoError(t, err)
 	// The layout is representable, so the decoder gets far enough to check

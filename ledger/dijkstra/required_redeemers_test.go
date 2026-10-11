@@ -83,7 +83,7 @@ func TestUtxoValidateRequiredRedeemersDijkstra(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"6666666666666666666666666666666666666666666666666666666666666666",
 		0,
 	)
@@ -174,7 +174,7 @@ func TestUtxoValidateRequiredRedeemersSubTransaction(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"7777777777777777777777777777777777777777777777777777777777777777",
 		0,
 	)
@@ -357,7 +357,7 @@ func TestUtxoValidateRequiredRedeemersSubTransactionReferenceScriptOnly(t *testi
 		nil,
 	)
 	require.NoError(t, err)
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"8888888888888888888888888888888888888888888888888888888888888888",
 		0,
 	)
@@ -445,7 +445,7 @@ func TestUtxoValidateRequiredRedeemersSubTransactionReferenceScriptOnly(t *testi
 // UtxoById on the nil pointer.
 func TestUtxoValidateRequiredRedeemersTypedNilLedgerState(t *testing.T) {
 	v3 := common.PlutusV3Script{0x2a, 0x2b, 0x2c}
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"9999999999999999999999999999999999999999999999999999999999999999",
 		0,
 	)

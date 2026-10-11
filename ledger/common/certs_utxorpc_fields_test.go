@@ -78,28 +78,28 @@ func TestRegistrationDelegationUtxorpcDeposits(t *testing.T) {
 		t.Run(fmt.Sprint(amount), func(t *testing.T) {
 			certs := []Certificate{
 				&RegistrationCertificate{
-					StakeCredential: stake, Amount: amount,
+					StakeCredential: stake, Amount: uint64(amount),
 				},
 				&DeregistrationCertificate{
-					StakeCredential: stake, Amount: amount,
+					StakeCredential: stake, Amount: uint64(amount),
 				},
 				&RegistrationDrepCertificate{
-					DrepCredential: stake, Amount: amount,
+					DrepCredential: stake, Amount: uint64(amount),
 				},
 				&DeregistrationDrepCertificate{
-					DrepCredential: stake, Amount: amount,
+					DrepCredential: stake, Amount: uint64(amount),
 				},
 				&StakeRegistrationDelegationCertificate{
 					StakeCredential: stake, PoolKeyHash: PoolKeyHash{0x22},
-					Amount: amount,
+					Amount: uint64(amount),
 				},
 				&VoteRegistrationDelegationCertificate{
 					StakeCredential: stake, Drep: Drep{Type: DrepTypeAbstain},
-					Amount: amount,
+					Amount: uint64(amount),
 				},
 				&StakeVoteRegistrationDelegationCertificate{
 					StakeCredential: stake, PoolKeyHash: PoolKeyHash{0x22},
-					Drep: Drep{Type: DrepTypeAbstain}, Amount: amount,
+					Drep: Drep{Type: DrepTypeAbstain}, Amount: uint64(amount),
 				},
 			}
 			for _, cert := range certs {

@@ -64,6 +64,7 @@ func (s *Server) initProtocol() {
 	}
 	if s.config != nil {
 		protoConfig.RecvQueueSize = s.config.RecvQueueSize
+		protoConfig.IngressLimit = s.config.IngressLimit
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()

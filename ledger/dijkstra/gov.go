@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type DijkstraProposalProcedure struct {
@@ -35,6 +36,13 @@ type DijkstraProposalProcedure struct {
 }
 
 func (p *DijkstraProposalProcedure) UnmarshalCBOR(cborData []byte) error {
+	if err := common.ValidateCBORArrayLength(
+		cborData,
+		4,
+		"Dijkstra proposal procedure",
+	); err != nil {
+		return err
+	}
 	type tDijkstraProposalProcedure DijkstraProposalProcedure
 	var tmp tDijkstraProposalProcedure
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -98,24 +106,39 @@ func (g *DijkstraGovAction) UnmarshalCBOR(cborData []byte) error {
 	if actionType < 0 {
 		return fmt.Errorf("invalid governance action type: %d", actionType)
 	}
+	arrayLength := 0
 	var tmpAction common.GovAction
 	switch common.GovActionType(actionType) {
 	case common.GovActionTypeParameterChange:
+		arrayLength = 4
 		tmpAction = &DijkstraParameterChangeGovAction{}
 	case common.GovActionTypeHardForkInitiation:
+		arrayLength = 3
 		tmpAction = &common.HardForkInitiationGovAction{}
 	case common.GovActionTypeTreasuryWithdrawal:
+		arrayLength = 3
 		tmpAction = &common.TreasuryWithdrawalGovAction{}
 	case common.GovActionTypeNoConfidence:
+		arrayLength = 2
 		tmpAction = &common.NoConfidenceGovAction{}
 	case common.GovActionTypeUpdateCommittee:
+		arrayLength = 5
 		tmpAction = &common.UpdateCommitteeGovAction{}
 	case common.GovActionTypeNewConstitution:
+		arrayLength = 3
 		tmpAction = &common.NewConstitutionGovAction{}
 	case common.GovActionTypeInfo:
+		arrayLength = 1
 		tmpAction = &common.InfoGovAction{}
 	default:
 		return fmt.Errorf("unknown governance action type: %d", actionType)
+	}
+	if err := common.ValidateCBORArrayLength(
+		cborData,
+		arrayLength,
+		"Dijkstra governance action",
+	); err != nil {
+		return err
 	}
 	if _, err := cbor.Decode(cborData, tmpAction); err != nil {
 		return err
@@ -189,6 +212,15 @@ func (a *DijkstraParameterChangeGovAction) PreviousGovActionId() *common.GovActi
 	return a.ActionId
 }
 
+// ProtocolParamUpdateUtxorpc converts the proposed parameter update. The
+// parameters Dijkstra adds have no UTxO-RPC field and are not carried.
+func (a *DijkstraParameterChangeGovAction) ProtocolParamUpdateUtxorpc() (*utxorpc.PParams, error) {
+	if a == nil {
+		return nil, nil
+	}
+	return a.ParamUpdate.conwayUpdate().Utxorpc()
+}
+
 // SecurityGroupFields returns the security-group parameters changed by this
 // action.
 func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
@@ -234,6 +266,30 @@ func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
 	}
 	if a.ParamUpdate.MaxRefScriptSizePerEndorserBlock != nil {
 		fields = append(fields, "MaxRefScriptSizePerEndorserBlock")
+	}
+	if a.ParamUpdate.PerasMinCandidateBlockAge != nil {
+		fields = append(fields, "PerasMinCandidateBlockAge")
+	}
+	if a.ParamUpdate.PerasHealingFactor != nil {
+		fields = append(fields, "PerasHealingFactor")
+	}
+	if a.ParamUpdate.PerasCertBoost != nil {
+		fields = append(fields, "PerasCertBoost")
+	}
+	if a.ParamUpdate.PerasTargetCommitteeSize != nil {
+		fields = append(fields, "PerasTargetCommitteeSize")
+	}
+	if a.ParamUpdate.PerasBootstrapRoundSet || a.ParamUpdate.PerasBootstrapRound != nil {
+		fields = append(fields, "PerasBootstrapRound")
+	}
+	if a.ParamUpdate.PerasQuorumThresholdSafetyMargin != nil {
+		fields = append(fields, "PerasQuorumThresholdSafetyMargin")
+	}
+	if a.ParamUpdate.RefInputsCostPerMultiAssetPolicy != nil {
+		fields = append(fields, "RefInputsCostPerMultiAssetPolicy")
+	}
+	if a.ParamUpdate.RefInputsCostPerDatumByte != nil {
+		fields = append(fields, "RefInputsCostPerDatumByte")
 	}
 	return fields
 }

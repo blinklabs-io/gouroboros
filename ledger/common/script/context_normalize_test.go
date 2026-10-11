@@ -66,7 +66,7 @@ func normalizeFixture(t *testing.T) (lcommon.Transaction, []lcommon.Utxo) {
 	if err != nil {
 		t.Fatalf("parse spending transaction: %v", err)
 	}
-	input := shelley.NewShelleyTransactionInput(parentTx.Hash().String(), 0)
+	input := shelley.MustNewShelleyTransactionInput(parentTx.Hash().String(), 0)
 	return spendTx, []lcommon.Utxo{
 		{Id: &input, Output: parentTx.Outputs()[0]},
 	}
@@ -205,7 +205,7 @@ func TestTxInfoV2InputDatumNormalized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse spending transaction: %v", err)
 	}
-	input := shelley.NewShelleyTransactionInput(parentTx.Hash().String(), 0)
+	input := shelley.MustNewShelleyTransactionInput(parentTx.Hash().String(), 0)
 	resolvedInputs := []lcommon.Utxo{
 		{Id: &input, Output: parentTx.Outputs()[0]},
 	}

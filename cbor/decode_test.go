@@ -133,6 +133,29 @@ func TestDecode(t *testing.T) {
 	}
 }
 
+func TestDecodeExact(t *testing.T) {
+	var dest []uint64
+	bytesRead, err := cbor.DecodeExact([]byte{0x81, 0x01}, &dest)
+	require.NoError(t, err)
+	assert.Equal(t, 2, bytesRead)
+	assert.Equal(t, []uint64{1}, dest)
+
+	bytesRead, err = cbor.DecodeExact([]byte{0x81, 0x01, 0x00}, &dest)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+	assert.Equal(t, 2, bytesRead)
+
+	var value cbor.Value
+	bytesRead, err = cbor.DecodeExact([]byte{0x81, 0x01, 0x00}, &value)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+	assert.Equal(t, 2, bytesRead)
+}
+
+func TestValidateExact(t *testing.T) {
+	require.NoError(t, cbor.ValidateExact([]byte{0x81, 0x01}))
+	require.Error(t, cbor.ValidateExact([]byte{0x81, 0x01, 0x00}))
+	require.Error(t, cbor.ValidateExact([]byte{0x81, 0x01, 0xff}))
+}
+
 func TestDecodeRejectsDuplicateMapKeys(t *testing.T) {
 	cborData, err := hex.DecodeString("a201010102")
 	require.NoError(t, err)

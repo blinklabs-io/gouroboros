@@ -2260,7 +2260,7 @@ func NewByronEpochBoundaryBlockFromCbor(
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
 	var byronEbbBlock ByronEpochBoundaryBlock
-	if _, err := cbor.Decode(data, &byronEbbBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &byronEbbBlock); err != nil {
 		return nil, fmt.Errorf("decode Byron EBB block error: %w", err)
 	}
 	// Check the header's body-proof field is a well-formed byte string.
@@ -2278,7 +2278,7 @@ func NewByronEpochBoundaryBlockHeaderFromCbor(
 	data []byte,
 ) (*ByronEpochBoundaryBlockHeader, error) {
 	var byronEbbBlockHeader ByronEpochBoundaryBlockHeader
-	if _, err := cbor.Decode(data, &byronEbbBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &byronEbbBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Byron EBB block header error: %w", err)
 	}
 	return &byronEbbBlockHeader, nil
@@ -2295,21 +2295,17 @@ func NewByronMainBlockFromCbor(
 	// Default: validation enabled (SkipBodyHashValidation = false)
 
 	var byronMainBlock ByronMainBlock
-	if _, err := cbor.Decode(data, &byronMainBlock); err != nil {
+	if _, err := cbor.DecodeExact(data, &byronMainBlock); err != nil {
 		return nil, fmt.Errorf("decode Byron main block error: %w", err)
 	}
 	// Bind the body to the header. Without this the header, and so the
 	// block hash, can be genuine while the body has been substituted.
 	//
-	// cfg is forwarded as-is: ValidateBodyProof checks
-	// cfg.EnableByronSscProofHashValidation itself, so a caller who opts
-	// into the full ssc_proof hash comparison via this same VerifyConfig
-	// gets it at decode time too, while the default (that flag unset)
-	// leaves ssc_proof checked only structurally -- see ValidateBodyProof's
-	// doc comment (bodyproof.go) and
-	// common.VerifyConfig.EnableByronSscProofHashValidation's.
+	// Full SSC proof hashes and delegation/update payload signatures are part
+	// of this check. Parse-only callers must set SkipBodyHashValidation and
+	// validate the decoded value before trusting it.
 	if !cfg.SkipBodyHashValidation {
-		if err := byronMainBlock.ValidateBodyProof(cfg); err != nil {
+		if err := byronMainBlock.ValidateBodyProof(); err != nil {
 			return nil, err
 		}
 	}
@@ -2320,7 +2316,7 @@ func NewByronMainBlockHeaderFromCbor(
 	data []byte,
 ) (*ByronMainBlockHeader, error) {
 	var byronMainBlockHeader ByronMainBlockHeader
-	if _, err := cbor.Decode(data, &byronMainBlockHeader); err != nil {
+	if _, err := cbor.DecodeExact(data, &byronMainBlockHeader); err != nil {
 		return nil, fmt.Errorf("decode Byron main block header error: %w", err)
 	}
 	return &byronMainBlockHeader, nil
@@ -2328,7 +2324,7 @@ func NewByronMainBlockHeaderFromCbor(
 
 func NewByronTransactionFromCbor(data []byte) (*ByronTransaction, error) {
 	var byronTx ByronTransaction
-	if _, err := cbor.Decode(data, &byronTx); err != nil {
+	if _, err := cbor.DecodeExact(data, &byronTx); err != nil {
 		return nil, fmt.Errorf("decode Byron transaction error: %w", err)
 	}
 	return &byronTx, nil
@@ -2338,7 +2334,7 @@ func NewByronTransactionOutputFromCbor(
 	data []byte,
 ) (*ByronTransactionOutput, error) {
 	var byronTxOutput ByronTransactionOutput
-	if _, err := cbor.Decode(data, &byronTxOutput); err != nil {
+	if _, err := cbor.DecodeExact(data, &byronTxOutput); err != nil {
 		return nil, fmt.Errorf("decode Byron transaction output error: %w", err)
 	}
 	return &byronTxOutput, nil

@@ -202,11 +202,7 @@ func TestGetAvailableBlockRange(t *testing.T) {
 	// Create basic block and round-trip it through the CBOR encoder to get the hash populated
 	// The slot value is one higher than our intersect point and the block height is less than
 	// our expected tip
-	testBlock := ledger.BabbageBlock{
-		BlockHeader: &ledger.BabbageBlockHeader{},
-	}
-	testBlock.BlockHeader.Body.BlockNumber = 12001
-	testBlock.BlockHeader.Body.Slot = 20002
+	testBlock := newTestBabbageBlock(12001, 20002)
 	blockCbor, err := cbor.Encode(testBlock)
 	if err != nil {
 		t.Fatalf("received unexpected error: %s", err)
@@ -433,11 +429,10 @@ func TestSyncPipelining(t *testing.T) {
 	testBlocks := make([]ledger.BabbageBlock, totalBlocks)
 	blockCbors := make([][]byte, totalBlocks)
 	for i := range totalBlocks {
-		testBlocks[i] = ledger.BabbageBlock{
-			BlockHeader: &ledger.BabbageBlockHeader{},
-		}
-		testBlocks[i].BlockHeader.Body.Slot = uint64(1000 + i)
-		testBlocks[i].BlockHeader.Body.BlockNumber = uint64(100 + i)
+		testBlocks[i] = newTestBabbageBlock(
+			uint64(100+i),
+			uint64(1000+i),
+		)
 		var err error
 		blockCbors[i], err = cbor.Encode(testBlocks[i])
 		if err != nil {
