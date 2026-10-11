@@ -771,13 +771,13 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 		if data[0]&cbor.CborTypeMask != 0 {
 			return errors.New("mary transaction output coin must be an unsigned integer")
 		}
-		if _, err := cbor.Decode(data, &v.Amount); err != nil {
+		if _, err := cbor.DecodeExact(data, &v.Amount); err != nil {
 			return err
 		}
 		v.Assets = nil
 		return nil
 	}
-	if err := common.ValidateCBORArrayLength(
+	if err := common.ValidateDefiniteCBORArrayLength(
 		data,
 		2,
 		"Mary transaction output value",

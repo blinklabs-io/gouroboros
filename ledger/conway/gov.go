@@ -26,6 +26,30 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
+// ConwayVotingProcedure is a Conway voting procedure with its era-specific
+// definite-array encoding requirement.
+type ConwayVotingProcedure common.VotingProcedure
+
+func (vp *ConwayVotingProcedure) UnmarshalCBOR(cborData []byte) error {
+	if err := common.ValidateDefiniteCBORArrayLength(
+		cborData,
+		2,
+		"Conway voting procedure",
+	); err != nil {
+		return err
+	}
+	var decoded common.VotingProcedure
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		return err
+	}
+	*vp = ConwayVotingProcedure(decoded)
+	return nil
+}
+
+func (vp ConwayVotingProcedure) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(common.VotingProcedure(vp))
+}
+
 type ConwayProposalProcedure struct {
 	common.ProposalProcedureBase
 	cbor.StructAsArray
@@ -36,7 +60,7 @@ type ConwayProposalProcedure struct {
 }
 
 func (p *ConwayProposalProcedure) UnmarshalCBOR(cborData []byte) error {
-	if err := common.ValidateCBORArrayLength(
+	if err := common.ValidateDefiniteCBORArrayLength(
 		cborData,
 		4,
 		"Conway proposal procedure",

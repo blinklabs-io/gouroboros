@@ -77,6 +77,9 @@ func ValidateDefiniteCBORArrayLength(
 	if length != expected {
 		return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, length)
 	}
+	if err := cbor.ValidateExact(data); err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
 	return nil
 }
 
@@ -523,7 +526,7 @@ func (a *GovAnchor) UnmarshalCBOR(cborData []byte) error {
 	if a == nil {
 		return errors.New("nil GovAnchor receiver")
 	}
-	if err := ValidateCBORArrayLength(
+	if err := ValidateDefiniteCBORArrayLength(
 		cborData,
 		2,
 		"governance anchor",
@@ -568,7 +571,7 @@ func (id *GovActionId) UnmarshalCBOR(cborData []byte) error {
 	if id == nil {
 		return errors.New("nil GovActionId receiver")
 	}
-	if err := ValidateCBORArrayLength(
+	if err := ValidateDefiniteCBORArrayLength(
 		cborData,
 		2,
 		"governance action ID",

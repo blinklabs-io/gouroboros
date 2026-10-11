@@ -73,7 +73,24 @@ func TestConwayProtocolParameterUpdateExecutionCostsArrayShape(t *testing.T) {
 		return err
 	}
 	require.NoError(t, decode(definiteCosts))
-	require.NoError(t, decode(indefiniteCosts))
+	require.Error(t, decode(indefiniteCosts))
+}
+
+func TestConwayProtocolParameterUpdateRejectsIndefiniteExecutionUnits(
+	t *testing.T,
+) {
+	for _, key := range []uint{20, 21} {
+		t.Run(fmt.Sprintf("tag_%d", key), func(t *testing.T) {
+			wire, err := cbor.Encode(map[uint]cbor.RawMessage{
+				key: {0x9f, 0x00, 0x00, 0xff},
+			})
+			require.NoError(t, err)
+
+			var update conway.ConwayProtocolParameterUpdate
+			_, err = cbor.Decode(wire, &update)
+			require.Error(t, err)
+		})
+	}
 }
 
 func testPlutusInteger(v int64) data.PlutusData {
