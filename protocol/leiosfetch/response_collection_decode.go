@@ -143,6 +143,15 @@ func decodeBlockAndTxsInRange(
 	maxTxCount = min(maxTxCount, maxRangeTransactionCount(maxBytes))
 	txRaws := make([]cbor.RawMessage, 0)
 	if len(fields[2]) != 1 || (fields[2][0] != 0xf6 && fields[2][0] != 0xf7) {
+		capacity, err := cborpreflight.ArrayCapacity(
+			fields[2],
+			maxTxCount,
+			"block range response transactions",
+		)
+		if err != nil {
+			return nil, err
+		}
+		txRaws = make([]cbor.RawMessage, 0, capacity)
 		err = cborpreflight.VisitArray(
 			fields[2],
 			maxTxCount,
@@ -163,9 +172,9 @@ func decodeBlockAndTxsInRange(
 	var ret protocol.Message
 	switch msgType {
 	case MessageTypeNextBlockAndTxsInRange:
-		ret = NewMsgNextBlockAndTxsInRange(block, txRaws)
+		ret = newMsgNextBlockAndTxsInRangeOwned(block, txRaws)
 	case MessageTypeLastBlockAndTxsInRange:
-		ret = NewMsgLastBlockAndTxsInRange(block, txRaws)
+		ret = newMsgLastBlockAndTxsInRangeOwned(block, txRaws)
 	default:
 		return nil, fmt.Errorf("unexpected block range response type %d", msgType)
 	}

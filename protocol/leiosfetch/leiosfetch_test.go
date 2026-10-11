@@ -587,6 +587,56 @@ func TestBlockRangeRequestStreamsMultipleMessages(t *testing.T) {
 	})
 }
 
+func TestBlockRangeRequestRejectsAggregateTransactionHeaders(t *testing.T) {
+	txs := []cbor.RawMessage{{0x80}, {0x80}, {0x80}}
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRangeRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgNextBlockAndTxsInRange(nil, txs),
+				leiosfetch.NewMsgLastBlockAndTxsInRange(nil, txs),
+			},
+		},
+	)
+	cfg := leiosfetch.NewConfig(
+		leiosfetch.WithMaxBlockRangeResponseBytes(256),
+	)
+	runTestCollectingConnErrors(
+		t,
+		conversation,
+		func(
+			t *testing.T,
+			conn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				2*time.Second,
+			)
+			defer cancel()
+			_, err := conn.LeiosFetch().Client.BlockRangeRequest(
+				ctx,
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+				pcommon.NewPoint(12346, testPointHash(0x02)),
+			)
+			require.Error(t, err)
+			select {
+			case connErr := <-connErrs:
+				require.ErrorContains(t, connErr, "maximum is 1")
+			case <-time.After(2 * time.Second):
+				t.Fatal("aggregate transaction headers did not fail the connection")
+			}
+		},
+		ouroboros.WithLeiosFetchConfig(cfg),
+	)
+}
+
 func TestBlockRangeRequestLimitFailsConnection(t *testing.T) {
 	conversation := append(
 		conversationHandshake,

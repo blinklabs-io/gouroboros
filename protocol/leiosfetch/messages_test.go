@@ -505,6 +505,25 @@ func TestMsgNextBlockAndTxsInRange(t *testing.T) {
 	assert.Equal(t, txs, msg.TxsRaw)
 }
 
+func TestBlockRangeConstructorsCloneTransactionHeaders(t *testing.T) {
+	for _, construct := range []func(
+		cbor.RawMessage,
+		[]cbor.RawMessage,
+	) []cbor.RawMessage{
+		func(block cbor.RawMessage, txs []cbor.RawMessage) []cbor.RawMessage {
+			return NewMsgNextBlockAndTxsInRange(block, txs).TxsRaw
+		},
+		func(block cbor.RawMessage, txs []cbor.RawMessage) []cbor.RawMessage {
+			return NewMsgLastBlockAndTxsInRange(block, txs).TxsRaw
+		},
+	} {
+		txs := []cbor.RawMessage{{0x80}}
+		retained := construct(nil, txs)
+		txs[0] = cbor.RawMessage{0x81, 0x00}
+		require.Equal(t, cbor.RawMessage{0x80}, retained[0])
+	}
+}
+
 func TestMsgLastBlockAndTxsInRange(t *testing.T) {
 	blockRaw := cbor.RawMessage([]byte{0x82, 0x01, 0x02})
 	txs := []cbor.RawMessage{

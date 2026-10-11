@@ -340,12 +340,14 @@ before parsing the vote list. Leios Fetch admits up to 131,073 vote IDs in a
 request, matching the established strict CBOR collection control, while a
 generic vote response is limited to 1,000 entries and 256 KiB. A live client
 further limits that response to the number of IDs it requested. Each block
-range response limits its transaction list to the smaller of the 4,194,304
-transactions addressable by the block-transaction bitmap and one transaction
-per 64 bytes of the configured range byte budget. The default is 1,048,576
-transactions. The decoded count budget covers retained raw-message headers,
-slice growth, and item copies. Nonpositive Leios Fetch range limits select the
-defaults.
+range request limits all transaction lists in its response stream to the
+smaller of the 4,194,304 transactions addressable by the block-transaction
+bitmap and one transaction per 64 bytes of the configured range byte budget.
+The default cumulative limit is 1,048,576 transactions across at most 1,000
+responses. The decoded count budget covers retained raw-message headers, slice
+growth, and item copies. Definite arrays reserve their bounded count once;
+indefinite arrays grow only as entries pass the remaining request allowance.
+Nonpositive Leios Fetch range limits select the defaults.
 
 ## Peras Vote Diffusion
 
@@ -390,7 +392,7 @@ subsequent items available to the caller.
 | Local Tx Monitor next-transaction reply | Effective read-buffer allowance | Transaction bytes and the optional reply envelope are validated before typed decoding. |
 | Local Tx Submission submit/rejection | Effective read-buffer allowance | Transaction bytes and raw rejection data are retained from validated input. |
 | Local Message Notification replies | Effective read-buffer allowance; 100 messages by default | Reply collections are capped by the configured queue size and each DMQ message by the fixed wire depth before typed decoding. |
-| Leios Fetch block, transaction and vote replies | Vote replies: 256 KiB; range replies: configured byte budget, 64 MiB by default; range retention: 1,000 messages by default | Vote replies admit at most 1,000 entries and no more than the request count on a live client. Range transaction lists admit at most one entry per 64 bytes of the byte budget, capped at 4,194,304. Raw items and their envelope are checked before slice allocation; BlockTxs counts are checked against the request bitmap. |
+| Leios Fetch block, transaction and vote replies | Vote replies: 256 KiB; range replies: cumulative configured byte and decoded-count budgets, 64 MiB and 1,048,576 transactions by default; range retention: 1,000 messages by default | Vote replies admit at most 1,000 entries and no more than the request count on a live client. All transaction lists in one range stream share one entry per 64 bytes of its byte budget, capped at 4,194,304. Raw items and their envelope are checked before slice allocation; BlockTxs counts are checked against the request bitmap. |
 | Leios Notify vote offers | 256 KiB and 1,000 votes | Definite counts and indefinite entries are checked before the vote list is allocated. Other notifications use the configured pending-byte allowance. |
 | Leios Votes vote reply | Effective read-buffer allowance | Typed fields use the normal CBOR mode; request counts are independently limited to 1,000. |
 | Peras vote IDs/objects | `maxObjectsUnacknowledged × 1,100 + 256` bytes | Lists are checked against the supported outstanding-window maximum. Fixed vote envelopes are checked before opaque bytes are retained. |

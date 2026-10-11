@@ -64,6 +64,7 @@ type requestSlot struct {
 	maxBytes        int
 	rangeReplies    int
 	rangeBytes      int
+	rangeTxCount    int
 	maxBlockTxs     int
 	maxBlockBitmaps int
 	maxVotes        int
@@ -223,6 +224,7 @@ func (s *requestSlot) acquireWithRangeLimits(
 	s.maxBytes = maxBytes
 	s.rangeReplies = 0
 	s.rangeBytes = 0
+	s.rangeTxCount = 0
 	s.drainedCh = make(chan struct{})
 	s.mu.Unlock()
 	return w, nil
@@ -280,6 +282,55 @@ func (s *requestSlot) deliverRange(
 		return false, nil
 	}
 	return d.enqueue(msg, terminal), nil
+}
+
+func (s *requestSlot) decodeRangeResponse(
+	msgType uint,
+	data []byte,
+) (protocol.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.busy {
+		return nil, fmt.Errorf(
+			"%w: no active range request",
+			ErrBlockRangeResponseLimitExceeded,
+		)
+	}
+	if s.maxReplies > 0 && s.rangeReplies >= s.maxReplies {
+		return nil, fmt.Errorf(
+			"%w: received more than %d messages",
+			ErrBlockRangeResponseLimitExceeded,
+			s.maxReplies,
+		)
+	}
+	remainingBytes := s.maxBytes - s.rangeBytes
+	if remainingBytes < 0 || len(data) > remainingBytes {
+		return nil, fmt.Errorf(
+			"%w: response bytes exceed %d",
+			ErrBlockRangeResponseLimitExceeded,
+			s.maxBytes,
+		)
+	}
+	remainingTxCount := maxRangeTransactionCount(s.maxBytes) - s.rangeTxCount
+	if remainingTxCount < 0 {
+		remainingTxCount = 0
+	}
+	msg, err := decodeBlockAndTxsInRange(
+		msgType,
+		data,
+		remainingTxCount,
+		remainingBytes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	switch typedMsg := msg.(type) {
+	case *MsgNextBlockAndTxsInRange:
+		s.rangeTxCount += len(typedMsg.TxsRaw)
+	case *MsgLastBlockAndTxsInRange:
+		s.rangeTxCount += len(typedMsg.TxsRaw)
+	}
+	return msg, nil
 }
 
 // abandon clears the live waiter so that a late response is dropped by deliver
@@ -486,12 +537,7 @@ func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, e
 	}
 	if msgType == MessageTypeNextBlockAndTxsInRange ||
 		msgType == MessageTypeLastBlockAndTxsInRange {
-		return decodeBlockAndTxsInRange(
-			msgType,
-			data,
-			maxWireBlockTxs,
-			c.maxRangeBytes,
-		)
+		return c.blockRequestSlot.decodeRangeResponse(msgType, data)
 	}
 	return NewMsgFromCbor(msgType, data)
 }

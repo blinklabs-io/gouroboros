@@ -448,14 +448,20 @@ func NewMsgNextBlockAndTxsInRange(
 	block cbor.RawMessage,
 	txs []cbor.RawMessage,
 ) *MsgNextBlockAndTxsInRange {
-	m := &MsgNextBlockAndTxsInRange{
+	return newMsgNextBlockAndTxsInRangeOwned(block, slices.Clone(txs))
+}
+
+func newMsgNextBlockAndTxsInRangeOwned(
+	block cbor.RawMessage,
+	txs []cbor.RawMessage,
+) *MsgNextBlockAndTxsInRange {
+	return &MsgNextBlockAndTxsInRange{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeNextBlockAndTxsInRange,
 		},
 		BlockRaw: block,
-		TxsRaw:   slices.Clone(txs),
+		TxsRaw:   txs,
 	}
-	return m
 }
 
 type MsgLastBlockAndTxsInRange struct {
@@ -483,14 +489,20 @@ func NewMsgLastBlockAndTxsInRange(
 	block cbor.RawMessage,
 	txs []cbor.RawMessage,
 ) *MsgLastBlockAndTxsInRange {
-	m := &MsgLastBlockAndTxsInRange{
+	return newMsgLastBlockAndTxsInRangeOwned(block, slices.Clone(txs))
+}
+
+func newMsgLastBlockAndTxsInRangeOwned(
+	block cbor.RawMessage,
+	txs []cbor.RawMessage,
+) *MsgLastBlockAndTxsInRange {
+	return &MsgLastBlockAndTxsInRange{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeLastBlockAndTxsInRange,
 		},
 		BlockRaw: block,
-		TxsRaw:   slices.Clone(txs),
+		TxsRaw:   txs,
 	}
-	return m
 }
 
 type MsgDone struct {

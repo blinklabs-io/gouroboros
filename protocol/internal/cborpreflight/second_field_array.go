@@ -75,6 +75,30 @@ func VisitArray(
 	return validateArray(data, maxCount, label, visit)
 }
 
+// ArrayCapacity validates a definite array count and returns a safe capacity
+// for collecting its items. Indefinite arrays return zero capacity and must
+// grow only as their items are validated.
+func ArrayCapacity(data []byte, maxCount int, label string) (int, error) {
+	if len(data) == 0 {
+		return 0, fmt.Errorf("missing %s", label)
+	}
+	pos, err := skipTags(data, 0, label)
+	if err != nil {
+		return 0, err
+	}
+	count, _, indefinite := cbor.ArrayInfo(data[pos:])
+	if count < 0 {
+		return 0, fmt.Errorf("%s is not an array", label)
+	}
+	if indefinite {
+		return 0, nil
+	}
+	if count > maxCount {
+		return 0, tooManyItems(label, count, maxCount)
+	}
+	return count, nil
+}
+
 // ArrayItems returns the encoded items of one validated array. The returned
 // slices reference data and must not outlive or mutate it.
 func ArrayItems(data []byte, maxCount int, label string) ([][]byte, error) {
