@@ -36,6 +36,13 @@ type DijkstraProposalProcedure struct {
 }
 
 func (p *DijkstraProposalProcedure) UnmarshalCBOR(cborData []byte) error {
+	if err := common.ValidateCBORArrayLength(
+		cborData,
+		4,
+		"Dijkstra proposal procedure",
+	); err != nil {
+		return err
+	}
 	type tDijkstraProposalProcedure DijkstraProposalProcedure
 	var tmp tDijkstraProposalProcedure
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -99,24 +106,39 @@ func (g *DijkstraGovAction) UnmarshalCBOR(cborData []byte) error {
 	if actionType < 0 {
 		return fmt.Errorf("invalid governance action type: %d", actionType)
 	}
+	arrayLength := 0
 	var tmpAction common.GovAction
 	switch common.GovActionType(actionType) {
 	case common.GovActionTypeParameterChange:
+		arrayLength = 4
 		tmpAction = &DijkstraParameterChangeGovAction{}
 	case common.GovActionTypeHardForkInitiation:
+		arrayLength = 3
 		tmpAction = &common.HardForkInitiationGovAction{}
 	case common.GovActionTypeTreasuryWithdrawal:
+		arrayLength = 3
 		tmpAction = &common.TreasuryWithdrawalGovAction{}
 	case common.GovActionTypeNoConfidence:
+		arrayLength = 2
 		tmpAction = &common.NoConfidenceGovAction{}
 	case common.GovActionTypeUpdateCommittee:
+		arrayLength = 5
 		tmpAction = &common.UpdateCommitteeGovAction{}
 	case common.GovActionTypeNewConstitution:
+		arrayLength = 3
 		tmpAction = &common.NewConstitutionGovAction{}
 	case common.GovActionTypeInfo:
+		arrayLength = 1
 		tmpAction = &common.InfoGovAction{}
 	default:
 		return fmt.Errorf("unknown governance action type: %d", actionType)
+	}
+	if err := common.ValidateCBORArrayLength(
+		cborData,
+		arrayLength,
+		"Dijkstra governance action",
+	); err != nil {
+		return err
 	}
 	if _, err := cbor.Decode(cborData, tmpAction); err != nil {
 		return err
