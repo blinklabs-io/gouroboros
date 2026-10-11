@@ -16,7 +16,6 @@ package leiosfetch
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -644,20 +643,55 @@ func TestVotesResponseRejectsDeepVoteBeforeTypedDecode(t *testing.T) {
 }
 
 func TestBlockRangeResponsesBoundTransactionCollections(t *testing.T) {
-	for _, msgType := range []uint{
-		MessageTypeNextBlockAndTxsInRange,
-		MessageTypeLastBlockAndTxsInRange,
+	for _, tc := range []struct {
+		name    string
+		msgType uint
+		wire    []byte
+	}{
+		{
+			name:    "definite_next",
+			msgType: MessageTypeNextBlockAndTxsInRange,
+			wire: []byte{0x83, MessageTypeNextBlockAndTxsInRange, 0xf6,
+				0x83, 0x80, 0x80, 0x80},
+		},
+		{
+			name:    "indefinite_last",
+			msgType: MessageTypeLastBlockAndTxsInRange,
+			wire: []byte{0x83, MessageTypeLastBlockAndTxsInRange, 0xf6,
+				0x9f, 0x80, 0x80, 0x80, 0xff},
+		},
 	} {
-		t.Run(fmt.Sprintf("message_%d", msgType), func(t *testing.T) {
-			wire := append([]byte{
-				0x83, byte(msgType), 0xf6,
-				0x9a, 0x00, 0x40, 0x00, 0x01,
-			}, bytes.Repeat([]byte{0}, maxWireBlockTxs+1)...)
-			msg, err := NewMsgFromCbor(msgType, wire)
-			require.ErrorContains(t, err, "maximum is 4194304")
+		t.Run(tc.name, func(t *testing.T) {
+			msg, err := decodeBlockAndTxsInRange(
+				tc.msgType,
+				tc.wire,
+				maxWireBlockTxs,
+				2*rangeTxDecodedBudgetBytes,
+			)
+			require.ErrorContains(t, err, "maximum is 2")
 			require.Nil(t, msg)
 		})
 	}
+}
+
+func TestBlockRangeResponseCountUsesDecodedMemoryBudget(t *testing.T) {
+	require.Equal(
+		t,
+		DefaultMaxBlockRangeResponseBytes/rangeTxDecodedBudgetBytes,
+		maxRangeTransactionCount(DefaultMaxBlockRangeResponseBytes),
+	)
+}
+
+func TestBlockRangeRejectsDecodedCountBeforeAllocation(t *testing.T) {
+	// The transaction array contains one more item than the default decoded
+	// memory budget allows. Its count must be rejected before item storage is
+	// allocated.
+	wire := append([]byte{
+		0x83, MessageTypeNextBlockAndTxsInRange, 0xf6,
+		0x9a, 0x00, 0x10, 0x00, 0x01,
+	}, bytes.Repeat([]byte{0}, 1_048_577)...)
+	_, err := NewMsgFromCbor(MessageTypeNextBlockAndTxsInRange, wire)
+	require.ErrorContains(t, err, "maximum is 1048576")
 }
 
 func TestBlockRangeResponseUsesConfiguredByteBudget(t *testing.T) {
@@ -692,7 +726,7 @@ func TestBlockRangeResponseUsesTransactionCountBudget(t *testing.T) {
 		MessageTypeLastBlockAndTxsInRange,
 		wire,
 		2,
-		len(wire),
+		3*rangeTxDecodedBudgetBytes,
 	)
 	require.ErrorContains(t, err, "maximum is 2")
 	require.Nil(t, msg)
@@ -701,7 +735,7 @@ func TestBlockRangeResponseUsesTransactionCountBudget(t *testing.T) {
 		MessageTypeLastBlockAndTxsInRange,
 		wire,
 		3,
-		len(wire),
+		3*rangeTxDecodedBudgetBytes,
 	)
 	require.NoError(t, err)
 	require.Len(t, msg.(*MsgLastBlockAndTxsInRange).TxsRaw, 3)

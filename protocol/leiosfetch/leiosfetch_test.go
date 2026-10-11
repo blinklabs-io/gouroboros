@@ -643,6 +643,54 @@ func TestBlockRangeRequestLimitFailsConnection(t *testing.T) {
 	)
 }
 
+func TestVotesRequestRejectsReplyAboveProtocolMaximum(t *testing.T) {
+	voteIds := make(
+		[]leiosfetch.MsgVotesRequestVoteId,
+		leiosfetch.MaxVotesPerMessage+1,
+	)
+	votes := make([]cbor.RawMessage, leiosfetch.MaxVotesPerMessage+1)
+	for idx := range votes {
+		votes[idx] = cbor.RawMessage{0x80}
+	}
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeVotesRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgVotes(votes),
+			},
+		},
+	)
+	runTestCollectingConnErrors(
+		t,
+		conversation,
+		func(
+			t *testing.T,
+			conn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				2*time.Second,
+			)
+			defer cancel()
+			_, err := conn.LeiosFetch().Client.VotesRequest(ctx, voteIds)
+			require.Error(t, err)
+			select {
+			case connErr := <-connErrs:
+				require.ErrorContains(t, connErr, "maximum is 1000")
+			case <-time.After(2 * time.Second):
+				t.Fatal("oversized Votes reply did not fail the connection")
+			}
+		},
+	)
+}
+
 func TestBlockRangeRequestStallFailsConnection(t *testing.T) {
 	conversation := append(
 		conversationHandshake,

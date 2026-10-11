@@ -58,6 +58,9 @@ func NewMsgReplyMessagesNonBlocking(
 	messages []pcommon.DmqMessage,
 	hasMore bool,
 ) *MsgReplyMessagesNonBlocking {
+	if messages == nil {
+		messages = []pcommon.DmqMessage{}
+	}
 	return &MsgReplyMessagesNonBlocking{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeReplyMessagesNonBlocking,
@@ -77,6 +80,9 @@ type MsgReplyMessagesBlocking struct {
 func NewMsgReplyMessagesBlocking(
 	messages []pcommon.DmqMessage,
 ) *MsgReplyMessagesBlocking {
+	if messages == nil {
+		messages = []pcommon.DmqMessage{}
+	}
 	return &MsgReplyMessagesBlocking{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeReplyMessagesBlocking,

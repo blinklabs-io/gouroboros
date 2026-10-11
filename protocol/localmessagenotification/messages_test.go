@@ -152,6 +152,21 @@ func TestMsgReplyMessagesNonBlockingEmpty(t *testing.T) {
 	assert.Equal(t, data, reencoded)
 }
 
+func TestNewMsgReplyMessagesNonBlockingNilRoundTrip(t *testing.T) {
+	msg := NewMsgReplyMessagesNonBlocking(nil, false)
+	data, err := cbor.Encode(msg)
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x83, 0x01, 0x80, 0xf4}, data)
+	parsed, err := NewMsgFromCbor(
+		uint(MessageTypeReplyMessagesNonBlocking),
+		data,
+	)
+	require.NoError(t, err)
+	decoded := parsed.(*MsgReplyMessagesNonBlocking)
+	require.NotNil(t, decoded.Messages)
+	require.Empty(t, decoded.Messages)
+}
+
 // TestMsgReplyMessagesBlocking tests MsgReplyMessagesBlocking struct creation
 func TestMsgReplyMessagesBlocking(t *testing.T) {
 	messages := []pcommon.DmqMessage{
@@ -209,6 +224,21 @@ func TestMsgReplyMessagesBlocking(t *testing.T) {
 	reencoded, err := cbor.Encode(decoded)
 	assert.NoError(t, err)
 	assert.Equal(t, data, reencoded)
+}
+
+func TestNewMsgReplyMessagesBlockingNilRoundTrip(t *testing.T) {
+	msg := NewMsgReplyMessagesBlocking(nil)
+	data, err := cbor.Encode(msg)
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x82, 0x02, 0x80}, data)
+	parsed, err := NewMsgFromCbor(
+		uint(MessageTypeReplyMessagesBlocking),
+		data,
+	)
+	require.NoError(t, err)
+	decoded := parsed.(*MsgReplyMessagesBlocking)
+	require.NotNil(t, decoded.Messages)
+	require.Empty(t, decoded.Messages)
 }
 
 func TestServerDrainValidMessagesDropsExpired(t *testing.T) {

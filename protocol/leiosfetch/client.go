@@ -469,7 +469,10 @@ func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, e
 	}
 	if msgType == MessageTypeVotes {
 		c.blockRequestSlot.mu.Lock()
-		maxCount := c.blockRequestSlot.maxVotes
+		maxCount := min(
+			c.blockRequestSlot.maxVotes,
+			MaxVotesPerMessage,
+		)
 		c.blockRequestSlot.mu.Unlock()
 		msg := &MsgVotes{}
 		if err := msg.unmarshalCBORWithLimits(

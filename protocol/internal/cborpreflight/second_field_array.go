@@ -63,6 +63,18 @@ func ValidateArray(data []byte, maxCount int, label string, validateItem func(in
 	return validateArray(data, maxCount, label, validateItem)
 }
 
+// VisitArray validates an array and visits each encoded item without retaining
+// a second slice of item headers. Item slices reference data and must not
+// outlive or mutate it.
+func VisitArray(
+	data []byte,
+	maxCount int,
+	label string,
+	visit func(int, []byte) error,
+) error {
+	return validateArray(data, maxCount, label, visit)
+}
+
 // ArrayItems returns the encoded items of one validated array. The returned
 // slices reference data and must not outlive or mutate it.
 func ArrayItems(data []byte, maxCount int, label string) ([][]byte, error) {

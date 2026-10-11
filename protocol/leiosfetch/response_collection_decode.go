@@ -22,6 +22,15 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
+const rangeTxDecodedBudgetBytes = 64
+
+func maxRangeTransactionCount(maxBytes int) int {
+	if maxBytes <= 0 {
+		return 0
+	}
+	return min(maxWireBlockTxs, maxBytes/rangeTxDecodedBudgetBytes)
+}
+
 func (m *MsgVotes) unmarshalCBORWithLimits(
 	data []byte,
 	maxCount int,
@@ -131,22 +140,26 @@ func decodeBlockAndTxsInRange(
 			msgType,
 		)
 	}
-	var txs [][]byte
+	maxTxCount = min(maxTxCount, maxRangeTransactionCount(maxBytes))
+	txRaws := make([]cbor.RawMessage, 0)
 	if len(fields[2]) != 1 || (fields[2][0] != 0xf6 && fields[2][0] != 0xf7) {
-		txs, err = cborpreflight.ArrayItems(
+		err = cborpreflight.VisitArray(
 			fields[2],
 			maxTxCount,
 			"block range response transactions",
+			func(_ int, tx []byte) error {
+				txRaws = append(
+					txRaws,
+					append(cbor.RawMessage(nil), tx...),
+				)
+				return nil
+			},
 		)
 		if err != nil {
 			return nil, err
 		}
 	}
 	block := append(cbor.RawMessage(nil), fields[1]...)
-	txRaws := make([]cbor.RawMessage, len(txs))
-	for idx, tx := range txs {
-		txRaws[idx] = append(cbor.RawMessage(nil), tx...)
-	}
 	var ret protocol.Message
 	switch msgType {
 	case MessageTypeNextBlockAndTxsInRange:
