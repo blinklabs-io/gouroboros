@@ -656,3 +656,90 @@ func TestCallbackResponseTypes(t *testing.T) {
 		})
 	}
 }
+
+func newQuitTestServer(
+	t *testing.T,
+	cfg Config,
+) (*Server, net.Conn) {
+	t.Helper()
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	connA, connB := net.Pipe()
+	t.Cleanup(func() {
+		_ = connA.Close()
+		_ = connB.Close()
+	})
+	m := muxer.New(connA)
+	t.Cleanup(m.Stop)
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connId,
+		Muxer:        m,
+	}, &cfg)
+	server.Start()
+	t.Cleanup(func() { server.ProtocolInstance().Stop() })
+	m.Start()
+	return server, connB
+}
+
+func readQuitTestMessage(
+	t *testing.T,
+	conn net.Conn,
+) protocol.Message {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	segment, err := readLeiosNotifyTestSegment(t, conn)
+	require.NoError(t, err)
+	var fields []cbor.RawMessage
+	_, err = cbor.Decode(segment.Payload, &fields)
+	require.NoError(t, err)
+	require.NotEmpty(t, fields)
+	var tag uint
+	_, err = cbor.Decode(fields[0], &tag)
+	require.NoError(t, err)
+	msg, err := NewMsgFromCbor(tag, segment.Payload)
+	require.NoError(t, err)
+	return msg
+}
+
+func TestServerAnswersQuitWithDone(t *testing.T) {
+	_, conn := newQuitTestServer(t, NewConfig())
+
+	quitData, err := cbor.Encode(NewMsgQuit())
+	require.NoError(t, err)
+	writeLeiosNotifyTestSegment(
+		t,
+		conn,
+		muxer.NewSegment(ProtocolId, quitData, false),
+	)
+	msg := readQuitTestMessage(t, conn)
+	require.IsType(t, &MsgDone{}, msg)
+}
+
+// A reference-node client pipelines MsgQuit behind its outstanding request,
+// so the reply to the request must precede MsgDone.
+func TestServerAnswersPipelinedQuitAfterReply(t *testing.T) {
+	_, conn := newQuitTestServer(t, NewConfig(
+		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
+			return NewMsgBlockAnnouncement(
+				cbor.RawMessage{0x82, 0x01, 0x02},
+			), nil
+		}),
+	))
+
+	for _, msg := range []protocol.Message{
+		NewMsgNotificationRequestNext(),
+		NewMsgQuit(),
+	} {
+		data, err := cbor.Encode(msg)
+		require.NoError(t, err)
+		writeLeiosNotifyTestSegment(
+			t,
+			conn,
+			muxer.NewSegment(ProtocolId, data, false),
+		)
+	}
+	require.IsType(t, &MsgBlockAnnouncement{}, readQuitTestMessage(t, conn))
+	require.IsType(t, &MsgDone{}, readQuitTestMessage(t, conn))
+}

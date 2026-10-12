@@ -25,20 +25,24 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-// Message IDs follow the leios-prototype CDDL in Cardano Blueprint.
+// Message IDs follow the LeiosNotify messages CDDL in Cardano Blueprint as
+// implemented by the node of Leios release candidate 2026w41.
 const (
-	MessageTypeNotificationRequestNext = 0
-	MessageTypeBlockAnnouncement       = 1
-	MessageTypeBlockOffer              = 2
-	MessageTypeBlockTxsOffer           = 3
-	MessageTypeVotesOffer              = 4
-	MessageTypeDone                    = 5
+	MessageTypeDone                    = 0
+	MessageTypeQuit                    = 1
+	MessageTypeCanceled                = 2
+	MessageTypeNotificationRequestNext = 3
+	MessageTypeBlockAnnouncement       = 4
+	MessageTypeBlockOffer              = 5
+	MessageTypeBlockTxsOffer           = 6
+	MessageTypeVotesOffer              = 7
 	// MaxVotesOfferCount bounds vote work from one leios-notify message,
 	// independently of the transport frame limit.
 	MaxVotesOfferCount = 1000
 	// MaxVotesOfferBytes bounds CBOR parsing work for one offer before the
-	// decoder scans any individual vote value.
-	MaxVotesOfferBytes = 256 * 1024
+	// decoder scans any individual vote value. It is the largest message the
+	// reference node accepts in any LeiosNotify state.
+	MaxVotesOfferBytes = 0xffff
 	// MaxBlockAnnouncementBytes bounds one encoded block announcement before
 	// it is decoded. It is one muxer segment, far above any ranking-block
 	// header the ledger accepts (mainnet maxBlockHeaderSize is 1,100 bytes).
@@ -77,6 +81,10 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgVotesOffer{}
 	case MessageTypeDone:
 		ret = &MsgDone{}
+	case MessageTypeQuit:
+		ret = &MsgQuit{}
+	case MessageTypeCanceled:
+		ret = &MsgCanceled{}
 	default:
 		return nil, fmt.Errorf("%s: unknown message type %d", ProtocolName, msgType)
 	}
@@ -97,9 +105,28 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			ret.Type(),
 		)
 	}
+	if err := validateMessage(ret); err != nil {
+		return nil, fmt.Errorf("%s: %w", ProtocolName, err)
+	}
 	// Store the raw message CBOR
 	ret.SetCbor(data)
 	return ret, nil
+}
+
+// validateMessage applies the size bound the reference node enforces on a
+// block offer; the point's hash length is checked when the point decodes.
+func validateMessage(msg protocol.Message) error {
+	switch m := msg.(type) {
+	case *MsgBlockOffer:
+		if m.Size == 0 || m.Size > pcommon.MaxLeiosEndorserBlockSize {
+			return fmt.Errorf(
+				"block offer size %d outside 1..%d",
+				m.Size,
+				pcommon.MaxLeiosEndorserBlockSize,
+			)
+		}
+	}
+	return nil
 }
 
 type MsgNotificationRequestNext struct {
@@ -508,6 +535,37 @@ func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeDone,
+		},
+	}
+	return m
+}
+
+// MsgQuit is sent by the client to end the protocol. The server answers every
+// request still outstanding, with a reply or MsgCanceled, and then sends
+// MsgDone.
+type MsgQuit struct {
+	protocol.MessageBase
+}
+
+func NewMsgQuit() *MsgQuit {
+	m := &MsgQuit{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeQuit,
+		},
+	}
+	return m
+}
+
+// MsgCanceled is sent by the server in place of a reply to a request that was
+// outstanding when the client sent MsgQuit.
+type MsgCanceled struct {
+	protocol.MessageBase
+}
+
+func NewMsgCanceled() *MsgCanceled {
+	m := &MsgCanceled{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeCanceled,
 		},
 	}
 	return m

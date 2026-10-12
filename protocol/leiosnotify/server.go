@@ -80,8 +80,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	switch msg.Type() {
 	case MessageTypeNotificationRequestNext:
 		err = s.handleRequestNext()
-	case MessageTypeDone:
-		s.handleDone()
+	case MessageTypeQuit:
+		err = s.handleQuit()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -131,16 +131,23 @@ func (s *Server) handleRequestNext() error {
 	return sendErr
 }
 
-func (s *Server) handleDone() {
+// handleQuit acknowledges the client's MsgQuit with MsgDone. A request that
+// was outstanding when the client quit was already answered, because the
+// protocol holds MsgQuit back until the server has sent its reply.
+func (s *Server) handleQuit() error {
 	s.Protocol.Logger().
-		Debug("client done",
+		Debug("client quit",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	if err := s.SendMessageAndWait(NewMsgDone()); err != nil {
+		return err
+	}
 	// Restart protocol
 	s.Stop()
 	s.initProtocol()
 	s.Start()
+	return nil
 }

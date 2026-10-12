@@ -20,7 +20,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
@@ -176,15 +178,18 @@ func TestStateMap(t *testing.T) {
 	assert.Equal(t, uint(1), StateIdle.Id)
 	assert.Equal(t, uint(2), StateBusy.Id)
 	assert.Equal(t, uint(3), StateDone.Id)
+	assert.Equal(t, uint(4), StateQuit.Id)
 
 	// Test StateMap entries
 	assert.Contains(t, StateMap, StateIdle)
 	assert.Contains(t, StateMap, StateBusy)
 	assert.Contains(t, StateMap, StateDone)
+	assert.Contains(t, StateMap, StateQuit)
 
 	// Test agency for each state
 	assert.Equal(t, protocol.AgencyClient, StateMap[StateIdle].Agency)
 	assert.Equal(t, protocol.AgencyServer, StateMap[StateBusy].Agency)
+	assert.Equal(t, protocol.AgencyServer, StateMap[StateQuit].Agency)
 	assert.Equal(t, protocol.AgencyNone, StateMap[StateDone].Agency)
 }
 
@@ -195,7 +200,7 @@ func TestStateTransitions(t *testing.T) {
 
 	expectedTransitions := map[uint8]protocol.State{
 		MessageTypeNotificationRequestNext: StateBusy,
-		MessageTypeDone:                    StateDone,
+		MessageTypeQuit:                    StateQuit,
 	}
 
 	for _, trans := range idleEntry.Transitions {
@@ -206,13 +211,14 @@ func TestStateTransitions(t *testing.T) {
 
 	// Test transitions from Busy state
 	busyEntry := StateMap[StateBusy]
-	require.Len(t, busyEntry.Transitions, 4)
+	require.Len(t, busyEntry.Transitions, 5)
 
 	expectedBusyTransitions := map[uint8]protocol.State{
 		MessageTypeBlockAnnouncement: StateIdle,
 		MessageTypeBlockOffer:        StateIdle,
 		MessageTypeBlockTxsOffer:     StateIdle,
 		MessageTypeVotesOffer:        StateIdle,
+		MessageTypeCanceled:          StateIdle,
 	}
 
 	for _, trans := range busyEntry.Transitions {
@@ -220,6 +226,31 @@ func TestStateTransitions(t *testing.T) {
 		require.True(t, ok, "unexpected transition message type: %d", trans.MsgType)
 		assert.Equal(t, expected, trans.NewState)
 	}
+
+	// A client may pipeline requests and MsgQuit behind an unanswered request
+	assert.True(t, busyEntry.AllowPipelinedSend)
+	assert.ElementsMatch(
+		t,
+		[]uint8{MessageTypeNotificationRequestNext, MessageTypeQuit},
+		busyEntry.PipelinedMessageTypes,
+	)
+
+	// Only the server's MsgDone leaves Quit
+	quitEntry := StateMap[StateQuit]
+	require.Len(t, quitEntry.Transitions, 1)
+	assert.Equal(t, uint8(MessageTypeDone), quitEntry.Transitions[0].MsgType)
+	assert.Equal(t, StateDone, quitEntry.Transitions[0].NewState)
+}
+
+// Busy and Idle wait forever: a server with nothing to notify legitimately
+// holds agency. Only the wait for MsgDone after MsgQuit is bounded.
+func TestOnlyQuitStateHasTimeout(t *testing.T) {
+	cfg := NewConfig(WithTimeout(7 * time.Second))
+	stateMap := cfg.protocolConfig(protocol.ProtocolConfig{}).StateMap
+	assert.Zero(t, stateMap[StateIdle].Timeout)
+	assert.Zero(t, stateMap[StateBusy].Timeout)
+	assert.Equal(t, 7*time.Second, stateMap[StateQuit].Timeout)
+	assert.Zero(t, stateMap[StateDone].Timeout)
 }
 
 func TestConfig(t *testing.T) {
@@ -550,4 +581,49 @@ func TestNotificationLoopExitsOnChannelClose(t *testing.T) {
 	running := client.notificationRunning
 	client.busyMutex.Unlock()
 	assert.False(t, running, "notificationRunning should be reset after loop exit")
+}
+
+// Stop quits rather than sending Done: Done is the server's answer to Quit.
+func TestClientStopSendsQuitAndEndsOnDone(t *testing.T) {
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(connA)
+	defer m.Stop()
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},
+			RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},
+		},
+		Muxer: m,
+	}, nil)
+	client.Start()
+	defer client.Protocol.Stop()
+	m.Start()
+
+	require.NoError(t, client.Stop())
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(2*time.Second)))
+	segment, err := readLeiosNotifyTestSegment(t, connB)
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x81, MessageTypeQuit}, segment.Payload)
+
+	doneData, err := cbor.Encode(NewMsgDone())
+	require.NoError(t, err)
+	writeLeiosNotifyTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, doneData, true),
+	)
+	require.Eventually(
+		t,
+		client.IsDone,
+		2*time.Second,
+		10*time.Millisecond,
+		"client did not finish after MsgDone",
+	)
+}
+
+func TestClientIgnoresCanceled(t *testing.T) {
+	client := NewClient(protocol.ProtocolOptions{}, nil)
+	require.NoError(t, client.messageHandler(NewMsgCanceled()))
 }

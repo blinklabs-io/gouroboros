@@ -83,7 +83,7 @@ func TestConfigRejectsMaxPendingBytesBelowLimits(t *testing.T) {
 	}
 	require.NoError(t, (&Config{
 		PipelineLimit:   4,
-		MaxPendingBytes: MaxVotesOfferBytes,
+		MaxPendingBytes: 4 * MaxBlockAnnouncementBytes,
 	}).validate())
 }
 

@@ -31,6 +31,7 @@ var (
 	StateIdle = protocol.NewState(1, "Idle")
 	StateBusy = protocol.NewState(2, "Busy")
 	StateDone = protocol.NewState(3, "Done")
+	StateQuit = protocol.NewState(4, "Quit")
 )
 
 // StateMap is the LeiosNotify state machine. Every state carries
@@ -46,14 +47,22 @@ var StateMap = protocol.StateMap{
 				NewState: StateBusy,
 			},
 			{
-				MsgType:  MessageTypeDone,
-				NewState: StateDone,
+				MsgType:  MessageTypeQuit,
+				NewState: StateQuit,
 			},
 		},
 	},
+	// A client may send further requests, and MsgQuit, without waiting for
+	// the reply to an outstanding request, so a server accepts them while it
+	// holds agency.
 	StateBusy: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: DefaultMaxPendingBytes,
+		AllowPipelinedSend:      true,
+		PipelinedMessageTypes: []uint8{
+			MessageTypeNotificationRequestNext,
+			MessageTypeQuit,
+		},
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlockAnnouncement,
@@ -70,6 +79,20 @@ var StateMap = protocol.StateMap{
 			{
 				MsgType:  MessageTypeVotesOffer,
 				NewState: StateIdle,
+			},
+			{
+				MsgType:  MessageTypeCanceled,
+				NewState: StateIdle,
+			},
+		},
+	},
+	StateQuit: protocol.StateMapEntry{
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: DefaultMaxPendingBytes,
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType:  MessageTypeDone,
+				NewState: StateDone,
 			},
 		},
 	},
@@ -99,7 +122,11 @@ type Config struct {
 	MaxPendingBytes  int
 	ResponseSentFunc ResponseSentFunc
 	RequestNextFunc  RequestNextFunc
-	Timeout          time.Duration
+	// Timeout bounds how long the server may take to send MsgDone after the
+	// client sends MsgQuit. The Idle and Busy states have no timeout: a server
+	// with nothing to notify legitimately holds agency indefinitely. Zero
+	// disables the timeout.
+	Timeout time.Duration
 }
 
 const (
@@ -134,6 +161,10 @@ func (c *Config) protocolConfig(
 	for state, entry := range stateMap {
 		entry.PendingMessageByteLimit = budget
 		stateMap[state] = entry
+	}
+	if entry, ok := stateMap[StateQuit]; ok {
+		entry.Timeout = c.Timeout
+		stateMap[StateQuit] = entry
 	}
 	protoConfig.StateMap = stateMap
 	protoConfig.RecvQueueSize = max(budget/MaxBlockAnnouncementBytes, 1)
