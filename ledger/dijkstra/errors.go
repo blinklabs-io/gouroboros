@@ -248,3 +248,86 @@ func (e *LeiosCertifiedBlockTransactionsError) Error() string {
 		e.TransactionCount,
 	)
 }
+
+// HeaderProtVerTooLowError reports a Dijkstra header whose highest supported
+// major protocol version is below the major version in force.
+type HeaderProtVerTooLowError struct {
+	Supplied uint64
+	Expected uint64
+}
+
+func (e *HeaderProtVerTooLowError) Error() string {
+	return fmt.Sprintf(
+		"HeaderProtVerTooLow (supplied %d, expected at least %d)",
+		e.Supplied,
+		e.Expected,
+	)
+}
+
+// LeiosEbTooBigError reports a header announcing an endorser block larger than
+// maxEndorserBlockReferencesSize.
+type LeiosEbTooBigError struct {
+	Announced uint32
+	Maximum   uint32
+}
+
+func (e *LeiosEbTooBigError) Error() string {
+	return fmt.Sprintf(
+		"LeiosEbTooBig (announced %d, maximum %d)",
+		e.Announced,
+		e.Maximum,
+	)
+}
+
+// LeiosCertWithoutAnnouncementError reports a header that sets its certificate
+// flag although its immediate predecessor announced no endorser block.
+type LeiosCertWithoutAnnouncementError struct{}
+
+func (e *LeiosCertWithoutAnnouncementError) Error() string {
+	return "LeiosCertWithoutAnnouncement"
+}
+
+// LeiosCertTooYoungError reports a header that certifies an endorser block
+// before the announcement, vote and diffusion periods have elapsed.
+type LeiosCertTooYoungError struct {
+	AnnouncingSlot  uint64
+	Slot            uint64
+	EarliestAllowed uint64
+}
+
+func (e *LeiosCertTooYoungError) Error() string {
+	return fmt.Sprintf(
+		"LeiosCertTooYoung (announcing slot %d, slot %d, earliest allowed %d)",
+		e.AnnouncingSlot,
+		e.Slot,
+		e.EarliestAllowed,
+	)
+}
+
+// LeiosCertificateFlagMismatchError reports a header certificate flag that
+// disagrees with the presence of a Leios certificate in the block body.
+type LeiosCertificateFlagMismatchError struct {
+	HeaderCertified    bool
+	BodyHasCertificate bool
+}
+
+func (e *LeiosCertificateFlagMismatchError) Error() string {
+	return fmt.Sprintf(
+		"dijkstra header certificate flag %t does not match block-body certificate presence %t",
+		e.HeaderCertified,
+		e.BodyHasCertificate,
+	)
+}
+
+// PerasCertValidationFailedError reports a block body carrying a Peras
+// certificate, which Dijkstra rejects while Peras is disabled.
+type PerasCertValidationFailedError struct {
+	Certificate []byte
+}
+
+func (e *PerasCertValidationFailedError) Error() string {
+	return fmt.Sprintf(
+		"PerasCertValidationFailed (%d-byte certificate)",
+		len(e.Certificate),
+	)
+}

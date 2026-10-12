@@ -89,7 +89,8 @@ func TestValidateDijkstraBlockCertificates(t *testing.T) {
 		invalid := *validCert
 		invalid.Signers = []byte{0x80}
 		invalidBlock := &dijkstra.DijkstraBlock{
-			BlockBody: dijkstra.DijkstraBlockBody{LeiosCertificate: &invalid},
+			BlockHeader: block.BlockHeader,
+			BlockBody:   dijkstra.DijkstraBlockBody{LeiosCertificate: &invalid},
 		}
 		err := validateDijkstraBlockCertificates(invalidBlock, params, nil)
 		require.Error(t, err)
