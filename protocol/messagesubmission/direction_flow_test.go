@@ -80,12 +80,15 @@ func newDirectionFlow(
 
 func TestMessageIDReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		count int
-		valid bool
+		name     string
+		blocking bool
+		count    int
+		valid    bool
 	}{
-		{name: "at requested count", count: 2, valid: true},
-		{name: "above requested count", count: 3},
+		{name: "blocking at requested count", blocking: true, count: 2, valid: true},
+		{name: "blocking above requested count", blocking: true, count: 3},
+		{name: "non-blocking at requested count", count: 2, valid: true},
+		{name: "non-blocking above requested count", count: 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requestReceived := make(chan struct{})
@@ -105,7 +108,19 @@ func TestMessageIDReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 				replyReceived <- len(ids)
 			}))
 			flow := newDirectionFlow(t, clientCfg, serverCfg)
-			require.NoError(t, flow.server.RequestMessageIdsBlocking(0, 2))
+			if tc.blocking {
+				require.NoError(t, flow.server.RequestMessageIdsBlocking(0, 2))
+			} else {
+				// A non-blocking request is only legal while both sides hold
+				// an unacknowledged ID.
+				flow.server.lock.Lock()
+				flow.server.pendingMessageIDs = [][]byte{{0xff}}
+				flow.server.lock.Unlock()
+				flow.client.lock.Lock()
+				flow.client.pendingMessageIDs = [][]byte{{0xff}}
+				flow.client.lock.Unlock()
+				require.NoError(t, flow.server.RequestMessageIdsNonBlocking(0, 2))
+			}
 			select {
 			case <-requestReceived:
 			case <-time.After(time.Second):
@@ -241,4 +256,93 @@ func TestMessageRequestUsesPendingCountThroughProtocol(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The client's own reply is bounded by the count the server asked for, which
+// it learns only from the request on the wire.
+func TestClientReplyUsesPeerRequestThroughProtocol(t *testing.T) {
+	t.Run("message IDs", func(t *testing.T) {
+		requestReceived := make(chan struct{})
+		replyReceived := make(chan int, 1)
+		clientCfg := NewConfig(WithRequestMessageIdsFunc(func(
+			_ CallbackContext,
+			_ bool,
+			_ uint16,
+			_ uint16,
+		) {
+			close(requestReceived)
+		}))
+		serverCfg := NewConfig(WithReplyMessageIdsFunc(func(
+			_ CallbackContext,
+			ids []pcommon.MessageIDAndSize,
+		) {
+			replyReceived <- len(ids)
+		}))
+		flow := newDirectionFlow(t, clientCfg, serverCfg)
+		require.NoError(t, flow.server.RequestMessageIdsBlocking(0, 2))
+		select {
+		case <-requestReceived:
+		case <-time.After(time.Second):
+			t.Fatal("message ID request did not reach the client")
+		}
+		entries := make([]pcommon.MessageIDAndSize, 3)
+		for idx := range entries {
+			entries[idx].MessageID = []byte{byte(idx)}
+		}
+		require.ErrorContains(
+			t,
+			flow.client.ReplyMessageIds(entries),
+			"requested maximum is 2",
+		)
+		require.NoError(t, flow.client.ReplyMessageIds(entries[:2]))
+		select {
+		case count := <-replyReceived:
+			require.Equal(t, 2, count)
+		case <-time.After(time.Second):
+			t.Fatal("message ID reply did not reach the server")
+		}
+	})
+	t.Run("messages", func(t *testing.T) {
+		requestReceived := make(chan struct{})
+		replyReceived := make(chan int, 1)
+		clientCfg := NewConfig(WithRequestMessagesFunc(func(
+			_ CallbackContext,
+			_ [][]byte,
+		) {
+			close(requestReceived)
+		}))
+		serverCfg := NewConfig(WithReplyMessagesFunc(func(
+			_ CallbackContext,
+			messages []pcommon.DmqMessage,
+		) {
+			replyReceived <- len(messages)
+		}))
+		serverCfg.Authenticator = pcommon.NewNoOpAuthenticator(nil)
+		serverCfg.TTLValidator = pcommon.NewNoOpTTLValidator(nil)
+		flow := newDirectionFlow(t, clientCfg, serverCfg)
+		flow.client.lock.Lock()
+		flow.client.pendingMessageIDs = [][]byte{{1}, {2}}
+		flow.client.lock.Unlock()
+		require.NoError(t, flow.server.RequestMessages([][]byte{{1}, {2}}))
+		select {
+		case <-requestReceived:
+		case <-time.After(time.Second):
+			t.Fatal("message request did not reach the client")
+		}
+		require.ErrorContains(
+			t,
+			flow.client.ReplyMessages(make([]pcommon.DmqMessage, 3)),
+			"requested maximum is 2",
+		)
+		require.NoError(
+			t,
+			flow.client.ReplyMessages(make([]pcommon.DmqMessage, 2)),
+		)
+		select {
+		case count := <-replyReceived:
+			require.Equal(t, 2, count)
+		case <-time.After(time.Second):
+			t.Fatal("message reply did not reach the server")
+		}
+	})
 }
