@@ -34,6 +34,10 @@ const (
 	ledgerPeerSnapshotWireVersionAll = 3
 )
 
+// ledgerPeerSnapshotBlockHashSize is the size of a Cardano header hash. The
+// snapshot carries it as raw bytes with no length of its own.
+const ledgerPeerSnapshotBlockHashSize = 32
+
 // WithOriginSlot is the CBOR encoding of Haskell's WithOrigin SlotNo:
 //
 //	Origin    -> [0]
@@ -459,8 +463,9 @@ func encodeStake(r *cbor.Rat) ([]byte, error) {
 // Version 23 answers with 2 for big ledger peers and 3 for all of them.
 //
 // Slot is filled for every version; BlockHash and NetworkMagic only for 2
-// and 3, and BlockHash is nil at origin. Version 3 entries carry no
-// accumulated stake, so their AccumulatedStake is nil.
+// and 3, and BlockHash is nil at origin and a 32-byte header hash otherwise.
+// Version 3 entries carry no accumulated stake, so their AccumulatedStake is
+// nil.
 type LedgerPeerSnapshotResult struct {
 	// Version is the wire version. Zero is accepted as an unset value when
 	// constructing a result and encodes as version 1.
@@ -687,8 +692,12 @@ func encodeSnapshotPoint(slot WithOriginSlot, hash []byte) ([]byte, error) {
 		}
 		return cbor.Encode([]int{0})
 	}
-	if hash == nil {
-		return nil, errors.New("LedgerPeerSnapshot point: missing block hash")
+	if len(hash) != ledgerPeerSnapshotBlockHashSize {
+		return nil, fmt.Errorf(
+			"LedgerPeerSnapshot point: block hash is %d bytes, expected %d",
+			len(hash),
+			ledgerPeerSnapshotBlockHashSize,
+		)
 	}
 	return cbor.Encode([]any{1, slot.Slot, hash})
 }

@@ -150,6 +150,39 @@ func checkLedgerPeerSnapshotResult(
 	return nil
 }
 
+// withoutSRVRelays drops SRV relays from a version 1 snapshot answering a
+// node-to-client version before 22, which cannot decode them, and then any
+// pool left with no relay, as ouroboros-network's encoder does. The callback's
+// snapshot is left unchanged.
+func withoutSRVRelays(result any, version uint16) any {
+	if version-protocol.ProtocolVersionNtCOffset >= 22 {
+		return result
+	}
+	snap := snapshotInResult(result)
+	if snap == nil || snap.Version > ledgerPeerSnapshotWireVersion {
+		return result
+	}
+	filtered := *snap
+	filtered.Pools = make([]PoolLedgerPeers, 0, len(snap.Pools))
+	for _, pool := range snap.Pools {
+		relays := make([]RelayAccessPoint, 0, len(pool.Detail.Relays))
+		for _, relay := range pool.Detail.Relays {
+			if relay.Kind != RelayKindSRV {
+				relays = append(relays, relay)
+			}
+		}
+		if len(relays) == 0 {
+			continue
+		}
+		pool.Detail.Relays = relays
+		filtered.Pools = append(filtered.Pools, pool)
+	}
+	if _, ok := result.([]any); ok {
+		return []any{filtered}
+	}
+	return filtered
+}
+
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -283,6 +316,7 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 		if err := checkLedgerPeerSnapshotResult(q, result); err != nil {
 			return fmt.Errorf("%s: %w", ProtocolName, err)
 		}
+		result = withoutSRVRelays(result, s.version)
 	}
 	// Encode query result
 	resultCbor, err := cbor.Encode(&result)
