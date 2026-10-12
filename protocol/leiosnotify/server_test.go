@@ -231,7 +231,7 @@ func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
 	m := muxer.New(connA)
 	defer m.Stop()
 
-	response := NewMsgBlockAnnouncement(cbor.RawMessage{0x82, 0x01, 0x02})
+	response := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02})
 	type sendResult struct {
 		msg protocol.Message
 		err error
@@ -290,7 +290,7 @@ func TestHandleRequestNextReportsFailedSend(t *testing.T) {
 	defer m.Stop()
 	cfg := NewConfig(
 		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
-			return NewMsgBlockAnnouncement(cbor.RawMessage{0x81, 0x01}), nil
+			return NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x81, 0x01}), nil
 		}),
 		WithResponseSentFunc(func(
 			_ CallbackContext,
@@ -343,7 +343,7 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 			close(requestCalled)
 			// Keep the response from being queued until shutdown is observable.
 			<-releaseRequest
-			return NewMsgBlockAnnouncement(cbor.RawMessage{0x81, 0x01}), nil
+			return NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x81, 0x01}), nil
 		}),
 		WithResponseSentFunc(func(
 			_ CallbackContext,
@@ -448,7 +448,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 	assert.Equal(t, connId, server.callbackContext.ConnectionId)
 	assert.Equal(t, server, server.callbackContext.Server)
 
-	response := NewMsgBlockAnnouncement(cbor.RawMessage{0x82, 0x01, 0x02})
+	response := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02})
 	require.NoError(t, server.SendMessage(response))
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
 	segment, err := readLeiosNotifyTestSegment(t, connB)
@@ -636,7 +636,7 @@ func TestCallbackResponseTypes(t *testing.T) {
 	}{
 		{
 			name:     "BlockAnnouncement response",
-			response: NewMsgBlockAnnouncement(cbor.RawMessage{0x82, 0x01, 0x02}),
+			response: NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02}),
 		},
 		{
 			name:     "BlockOffer response",
@@ -744,7 +744,7 @@ func writeQuitTestMessage(t *testing.T, conn net.Conn, msg protocol.Message) {
 func TestServerAnswersQuitAfterReply(t *testing.T) {
 	_, conn := newQuitTestServer(t, NewConfig(
 		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
-			return NewMsgBlockAnnouncement(
+			return NewMsgBlockAnnouncement(testAnnouncementEra,
 				cbor.RawMessage{0x82, 0x01, 0x02},
 			), nil
 		}),
@@ -835,7 +835,7 @@ func TestServerReleasesNotificationReturnedAfterQuit(t *testing.T) {
 	sourceStarted := make(chan struct{})
 	release := make(chan struct{})
 	released := make(chan error, 1)
-	response := NewMsgBlockAnnouncement(cbor.RawMessage{0x82, 0x01, 0x02})
+	response := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02})
 	_, conn := newQuitTestServer(t, NewConfig(
 		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
 			close(sourceStarted)

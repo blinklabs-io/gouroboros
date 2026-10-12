@@ -142,21 +142,107 @@ func NewMsgNotificationRequestNext() *MsgNotificationRequestNext {
 	return m
 }
 
+// MsgBlockAnnouncement carries the header of a ranking block that announces an
+// endorser block. On the wire the header is the hard-fork combinator's
+// node-to-node header encoding, [era, #6.24(bytes .cbor header)], the shape
+// ChainSync uses for headers of the Shelley-based eras. Byron headers, which
+// carry an extra size prefix there, cannot announce an endorser block and are
+// rejected.
 type MsgBlockAnnouncement struct {
 	protocol.MessageBase
+	// Era is the hard-fork era index of the header (Dijkstra is 7).
+	Era uint
+	// BlockHeaderRaw is the era's own header CBOR, without the era wrapper.
 	BlockHeaderRaw cbor.RawMessage
 }
 
 func NewMsgBlockAnnouncement(
+	era uint,
 	blockHeader cbor.RawMessage,
 ) *MsgBlockAnnouncement {
 	m := &MsgBlockAnnouncement{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockAnnouncement,
 		},
+		Era:            era,
 		BlockHeaderRaw: blockHeader,
 	}
 	return m
+}
+
+// The reference decoder reads the era index as a word8, so any larger index
+// costs the connection.
+const maxAnnouncementEra = 0xff
+
+func validateAnnouncementEra(era uint) error {
+	if era == 0 || era > maxAnnouncementEra {
+		return fmt.Errorf(
+			"block announcement era %d outside 1..%d",
+			era,
+			maxAnnouncementEra,
+		)
+	}
+	return nil
+}
+
+func (m *MsgBlockAnnouncement) MarshalCBOR() ([]byte, error) {
+	if raw := m.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	if err := validateAnnouncementEra(m.Era); err != nil {
+		return nil, fmt.Errorf("%s: %w", ProtocolName, err)
+	}
+	return cbor.Encode([]any{
+		m.MessageType,
+		[]any{
+			m.Era,
+			cbor.Tag{
+				Number:  cbor.CborTagCbor,
+				Content: []byte(m.BlockHeaderRaw),
+			},
+		},
+	})
+}
+
+func (m *MsgBlockAnnouncement) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		MessageType uint8
+		Header      struct {
+			cbor.StructAsArray
+			Era     uint
+			Wrapped cbor.RawMessage
+		}
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	if err := validateAnnouncementEra(tmp.Header.Era); err != nil {
+		return err
+	}
+	var tag cbor.Tag
+	if _, err := cbor.Decode(tmp.Header.Wrapped, &tag); err != nil {
+		return fmt.Errorf("block announcement header: %w", err)
+	}
+	if tag.Number != cbor.CborTagCbor {
+		return fmt.Errorf(
+			"block announcement header has tag %d, expected %d",
+			tag.Number,
+			cbor.CborTagCbor,
+		)
+	}
+	header, ok := tag.Content.([]byte)
+	if !ok {
+		return fmt.Errorf(
+			"block announcement header tag content must be bytes, got %T",
+			tag.Content,
+		)
+	}
+	m.MessageType = tmp.MessageType
+	m.Era = tmp.Header.Era
+	m.BlockHeaderRaw = cbor.RawMessage(header)
+	m.SetCbor(data)
+	return nil
 }
 
 type MsgBlockOffer struct {

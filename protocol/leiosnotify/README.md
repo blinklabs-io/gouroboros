@@ -69,6 +69,13 @@ quits so a `RequestNextFunc` can stop waiting. A notification the source hands
 back after the quit is not sent; `ResponseSentFunc` receives
 `ErrRequestCanceled` for it.
 
+A block announcement carries the ranking-block header in the hard-fork
+combinator's node-to-node encoding, `[4, [era, #6.24(bytes .cbor header)]]`,
+the same wrapping ChainSync uses for the headers of the Shelley-based eras.
+`MsgBlockAnnouncement` holds the era index and the unwrapped header. The
+reference node reads the era as a single byte and drops the connection on a
+bare header, so era 0 (Byron) and indices above 255 are rejected.
+
 A block offer is rejected unless its point hash is 32 bytes and its size is
 between 1 and 600,000.
 

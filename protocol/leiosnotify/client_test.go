@@ -106,7 +106,7 @@ func TestClientMessageHandler(t *testing.T) {
 	}{
 		{
 			name:        "BlockAnnouncement message",
-			msg:         NewMsgBlockAnnouncement([]byte{0x82, 0x01, 0x02}),
+			msg:         NewMsgBlockAnnouncement(testAnnouncementEra, []byte{0x82, 0x01, 0x02}),
 			expectError: false,
 		},
 		{
@@ -304,7 +304,7 @@ func TestClientHandleBlockAnnouncement(t *testing.T) {
 	}
 	client := NewClient(protoOptions, nil)
 
-	msg := NewMsgBlockAnnouncement([]byte{0x82, 0x01, 0x02})
+	msg := NewMsgBlockAnnouncement(testAnnouncementEra, []byte{0x82, 0x01, 0x02})
 
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)
@@ -441,7 +441,7 @@ func TestNotificationCallbackPanicFailsProtocol(t *testing.T) {
 	}()
 
 	select {
-	case client.notificationChan <- NewMsgBlockAnnouncement([]byte{0x01}):
+	case client.notificationChan <- NewMsgBlockAnnouncement(testAnnouncementEra, []byte{0x01}):
 	case <-time.After(time.Second):
 		t.Fatal("notification loop did not accept the test message")
 	}
@@ -516,12 +516,12 @@ func TestNotificationLoopDrainsOnStop(t *testing.T) {
 	}()
 
 	// Send the first message (triggers ErrStopNotificationProcess)
-	client.notificationChan <- NewMsgBlockAnnouncement([]byte{0x01})
+	client.notificationChan <- NewMsgBlockAnnouncement(testAnnouncementEra, []byte{0x01})
 
 	// Send 3 remaining pipelined messages (should be drained without calling NotificationFunc)
 	for i := range 3 {
 		select {
-		case client.notificationChan <- NewMsgBlockAnnouncement([]byte{byte(i + 2)}):
+		case client.notificationChan <- NewMsgBlockAnnouncement(testAnnouncementEra, []byte{byte(i + 2)}):
 		case <-time.After(time.Second):
 			t.Fatalf("timeout sending pipelined message %d - drain blocked", i+1)
 		}

@@ -16,6 +16,7 @@ package leiosnotify
 
 import (
 	"bytes"
+	"encoding/hex"
 	"reflect"
 	"testing"
 
@@ -42,7 +43,7 @@ func getTestDefinitions() []testDefinition {
 		},
 		{
 			Name: "MsgBlockAnnouncement",
-			Message: NewMsgBlockAnnouncement(
+			Message: NewMsgBlockAnnouncement(testAnnouncementEra,
 				cbor.RawMessage([]byte{0x82, 0x01, 0x02}),
 			),
 			MessageType: 4,
@@ -194,10 +195,56 @@ func TestMsgNotificationRequestNext(t *testing.T) {
 func TestMsgBlockAnnouncement(t *testing.T) {
 	blockHeaderRaw := cbor.RawMessage([]byte{0x82, 0x01, 0x02})
 
-	msg := NewMsgBlockAnnouncement(blockHeaderRaw)
+	msg := NewMsgBlockAnnouncement(testAnnouncementEra, blockHeaderRaw)
 
 	assert.Equal(t, uint8(MessageTypeBlockAnnouncement), msg.Type())
 	assert.Equal(t, blockHeaderRaw, msg.BlockHeaderRaw)
+}
+
+// A block announcement carries the header in the hard-fork combinator's
+// node-to-node form, [era, #6.24(bytes .cbor header)]. The reference decoder
+// reads the era as a word8 and fails on a bare header with "expected word8".
+func TestMsgBlockAnnouncementWireFormat(t *testing.T) {
+	header := cbor.RawMessage{0x82, 0x01, 0x02}
+	encoded, err := cbor.Encode(
+		NewMsgBlockAnnouncement(testAnnouncementEra, header),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "82048207d81843820102", hex.EncodeToString(encoded))
+
+	decoded, err := NewMsgFromCbor(MessageTypeBlockAnnouncement, encoded)
+	require.NoError(t, err)
+	msg := decoded.(*MsgBlockAnnouncement)
+	assert.Equal(t, uint(testAnnouncementEra), msg.Era)
+	assert.Equal(t, header, msg.BlockHeaderRaw)
+	assert.Equal(t, encoded, msg.Cbor())
+}
+
+func TestMsgBlockAnnouncementRejectsMalformedHeader(t *testing.T) {
+	for name, data := range map[string]string{
+		"bare header":      "8204820102",
+		"untagged bytes":   "8204820743820102",
+		"wrong tag":        "82048207d81943820102",
+		"tagged non-bytes": "82048207d818820102",
+		"Byron era":        "82048200d81843820102",
+		"era above word8":  "820482190100d81843820102",
+		"extra element":    "82048307d8184382010200",
+		"missing header":   "82048107",
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := hex.DecodeString(data)
+			require.NoError(t, err)
+			_, err = NewMsgFromCbor(MessageTypeBlockAnnouncement, raw)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestMsgBlockAnnouncementRejectsInvalidEraOnEncode(t *testing.T) {
+	for _, era := range []uint{0, 256} {
+		_, err := cbor.Encode(NewMsgBlockAnnouncement(era, cbor.RawMessage{0x80}))
+		require.Error(t, err, "era %d", era)
+	}
 }
 
 func TestMsgBlockOffer(t *testing.T) {
@@ -365,7 +412,7 @@ func TestMsgVotesOfferAcceptsIndefiniteArrays(t *testing.T) {
 
 func TestMsgBlockAnnouncementEmpty(t *testing.T) {
 	// Create a message with empty block header
-	msg := NewMsgBlockAnnouncement(cbor.RawMessage{})
+	msg := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{})
 
 	encoded, err := cbor.Encode(msg)
 	require.NoError(t, err)
