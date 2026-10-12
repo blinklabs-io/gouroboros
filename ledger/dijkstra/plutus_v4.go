@@ -30,7 +30,10 @@ import (
 
 // dijkstraPlutusV4Context builds the Plutus V4 ScriptContext defined by the
 // Dijkstra ledger. V4 deliberately has a different TxInfo, ScriptPurpose and
-// ScriptInfo shape from Conway's V3 context.
+// ScriptInfo shape from Conway's V3 context, and from plutus-ledger-api 1.69
+// it encodes every single-constructor type (ScriptContext, TxInfo, TxInInfo,
+// TxOutRef, TxOut, Address, POSIXTimeRange and the governance products) as a
+// Data list of its fields instead of as constructor 0.
 func dijkstraPlutusV4Context(
 	level dijkstraScriptLevel,
 	purpose script.ScriptPurpose,
@@ -46,8 +49,7 @@ func dijkstraPlutusV4Context(
 		return nil, err
 	}
 	_ = purposeData // The purpose is represented in txInfoRedeemers.
-	return data.NewConstr(
-		0,
+	return data.NewList(
 		txInfo,
 		data.Normalize(value.Data.Data),
 		scriptInfo,
@@ -77,8 +79,6 @@ func (level dijkstraScriptLevel) cachedTxInfoV4() (data.PlutusData, error) {
 }
 
 func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
-	// IntersectMBO/cardano-ledger sets txInfoSubTxIx to Nothing for every
-	// level in TxInfo.hs at 7d76ec20dea1302bb1d76f7e22a72e25f70657c6.
 	base, err := script.NewTxInfoV3FromTransaction(
 		level.slotState,
 		transactionWithoutGuardingRedeemers{Transaction: level.tx},
@@ -146,10 +146,16 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		donation = new(big.Int)
 	}
 
-	return data.NewConstr(
-		0,
+	proposals, err := dijkstraProposalProceduresV4(
+		level.tx.ProposalProcedures(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return data.NewList(
 		data.NewByteString(level.tx.Id().Bytes()),
-		dijkstraOptionalIndex(nil),
+		dijkstraOptionalIndex(level.subTxIndex),
 		data.NewList(inputs...),
 		data.NewList(referenceInputs...),
 		data.NewList(outputs...),
@@ -163,8 +169,8 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		requiredGuards,
 		redeemers,
 		base.Data.ToPlutusData(),
-		base.Votes.ToPlutusData(),
-		dijkstraPlutusDataList(level.tx.ProposalProcedures()),
+		dijkstraVotesV4(base.Votes.ToPlutusData()),
+		proposals,
 		base.CurrentTreasuryAmount.ToPlutusData(),
 		data.NewInteger(donation),
 	), nil
@@ -217,7 +223,7 @@ func dijkstraPOSIXTimeRangeDataV4(
 		}
 		return data.NewConstr(0, data.NewInteger(value))
 	}
-	return data.NewConstr(0, optional(lower), optional(upper))
+	return data.NewList(optional(lower), optional(upper))
 }
 
 func dijkstraOptionalIndex(index *uint32) data.PlutusData {
@@ -253,18 +259,13 @@ func dijkstraInputsV4(
 		if err != nil {
 			return nil, err
 		}
-		ret = append(ret, data.NewConstr(
-			0,
-			dijkstraTxOutRefV4(input),
-			output,
-		))
+		ret = append(ret, data.NewList(dijkstraTxOutRefV4(input), output))
 	}
 	return ret, nil
 }
 
 func dijkstraTxOutRefV4(input common.TransactionInput) data.PlutusData {
-	return data.NewConstr(
-		0,
+	return data.NewList(
 		data.NewByteString(input.Id().Bytes()),
 		data.NewInteger(new(big.Int).SetUint64(uint64(input.Index()))),
 	)
@@ -320,8 +321,7 @@ func dijkstraOutputV4(
 			data.NewByteString(output.ScriptRef().Hash().Bytes()),
 		)
 	}
-	return data.NewConstr(
-		0,
+	return data.NewList(
 		address,
 		data.NewMap(valuePairs),
 		datumData,
@@ -356,7 +356,7 @@ func dijkstraAddressV4(address common.Address) (data.PlutusData, error) {
 	if credential, ok := address.StakeCredential(); ok {
 		stake = data.NewConstr(0, credential.ToPlutusData())
 	}
-	return data.NewConstr(0, payment.ToPlutusData(), stake), nil
+	return data.NewList(payment.ToPlutusData(), stake), nil
 }
 
 func dijkstraRedeemersV4(level dijkstraScriptLevel) (data.PlutusData, error) {
@@ -457,16 +457,10 @@ func dijkstraPurposeV4(
 		voter := p.Voter.ToPlutusData()
 		return data.NewConstr(4, hash, voter), data.NewConstr(4, voter), nil
 	case script.ScriptPurposeProposing:
-		proposal, ok := p.ProposalProcedure.(interface {
-			ToPlutusData() data.PlutusData
-		})
-		if !ok {
-			return nil, nil, fmt.Errorf(
-				"proposal procedure %T cannot be encoded for Plutus V4",
-				p.ProposalProcedure,
-			)
+		proposalData, err := dijkstraProposalProcedureV4(p.ProposalProcedure)
+		if err != nil {
+			return nil, nil, err
 		}
-		proposalData := proposal.ToPlutusData()
 		return data.NewConstr(5, hash, index, proposalData),
 			data.NewConstr(5, index, proposalData), nil
 	case script.ScriptPurposeGuarding:
@@ -763,16 +757,190 @@ func dijkstraSortCredentialKeys(credentials []dijkstraCredentialKey) {
 	})
 }
 
-func dijkstraPlutusDataList(values []common.ProposalProcedure) data.PlutusData {
+func dijkstraProposalProceduresV4(
+	values []common.ProposalProcedure,
+) (data.PlutusData, error) {
 	items := make([]data.PlutusData, 0, len(values))
 	for _, value := range values {
-		if encodable, ok := value.(interface {
-			ToPlutusData() data.PlutusData
-		}); ok {
-			items = append(items, encodable.ToPlutusData())
+		item, err := dijkstraProposalProcedureV4(value)
+		if err != nil {
+			return nil, err
 		}
+		items = append(items, item)
 	}
-	return data.NewList(items...)
+	return data.NewList(items...), nil
+}
+
+// dijkstraProposalProcedureV4 derives the V4 ProposalProcedure from the V3
+// encoding the procedure produces. plutus-ledger-api defines each V4
+// governance product as ListEncoded over its V3 type, which is exactly the V3
+// constructor-0 fields as a list, so the conversion is the same one plutus
+// applies.
+func dijkstraProposalProcedureV4(
+	value common.ProposalProcedure,
+) (data.PlutusData, error) {
+	encodable, ok := value.(interface {
+		ToPlutusData() data.PlutusData
+	})
+	if !ok {
+		return nil, fmt.Errorf(
+			"proposal procedure %T cannot be encoded for Plutus V4",
+			value,
+		)
+	}
+	fields, err := dijkstraListEncodedFieldsV4(
+		encodable.ToPlutusData(),
+		3,
+		"proposal procedure",
+	)
+	if err != nil {
+		return nil, err
+	}
+	action, err := dijkstraGovActionV4(fields[2])
+	if err != nil {
+		return nil, err
+	}
+	return data.NewList(fields[0], fields[1], action), nil
+}
+
+// dijkstraGovActionV4 rewrites the fields of a V3 GovernanceAction whose V4
+// types are list-encoded: every Maybe GovernanceActionId, HardForkInitiation's
+// ProtocolVersion, UpdateCommittee's quorum Rational and NewConstitution's
+// Constitution. The constructor indices are unchanged.
+func dijkstraGovActionV4(value data.PlutusData) (data.PlutusData, error) {
+	action, ok := value.(*data.Constr)
+	if !ok || action.Tag == nil || !action.Tag.IsUint64() {
+		return nil, fmt.Errorf(
+			"governance action is not a constructor: %T",
+			value,
+		)
+	}
+	fields := slices.Clone(action.Fields)
+	// Field positions per constructor index: 0 ParameterChange,
+	// 1 HardForkInitiation, 3 NoConfidence, 4 UpdateCommittee and
+	// 5 NewConstitution lead with the previous action id; 2
+	// TreasuryWithdrawals and 6 InfoAction carry no V4 product.
+	listFields := map[uint64]struct {
+		count    int
+		products []int
+	}{
+		0: {count: 3},
+		1: {count: 2, products: []int{1}},
+		3: {count: 1},
+		4: {count: 4, products: []int{3}},
+		5: {count: 2, products: []int{1}},
+	}
+	layout, hasActionId := listFields[action.Tag.Uint64()]
+	if !hasActionId {
+		return action, nil
+	}
+	if len(fields) != layout.count {
+		return nil, fmt.Errorf(
+			"governance action %d has %d fields, expected %d",
+			action.Tag.Uint64(),
+			len(fields),
+			layout.count,
+		)
+	}
+	actionId, err := dijkstraMaybeGovActionIdV4(fields[0])
+	if err != nil {
+		return nil, err
+	}
+	fields[0] = actionId
+	for _, idx := range layout.products {
+		product, err := dijkstraListEncodedFieldsV4(
+			fields[idx],
+			-1,
+			"governance action field",
+		)
+		if err != nil {
+			return nil, err
+		}
+		fields[idx] = data.NewList(product...)
+	}
+	return data.NewConstr(action.Tag.Uint64(), fields...), nil
+}
+
+func dijkstraMaybeGovActionIdV4(
+	value data.PlutusData,
+) (data.PlutusData, error) {
+	maybe, ok := value.(*data.Constr)
+	if !ok || maybe.Tag == nil {
+		return nil, fmt.Errorf(
+			"governance action id option is not a constructor: %T",
+			value,
+		)
+	}
+	if maybe.Tag.Sign() != 0 || len(maybe.Fields) != 1 {
+		return maybe, nil
+	}
+	id, err := dijkstraListEncodedFieldsV4(
+		maybe.Fields[0],
+		2,
+		"governance action id",
+	)
+	if err != nil {
+		return nil, err
+	}
+	return data.NewConstr(0, data.NewList(id...)), nil
+}
+
+// dijkstraVotesV4 list-encodes the GovernanceActionId keys of the V3 votes
+// map. The V4 id orders exactly as the V3 one, so the key order is kept.
+func dijkstraVotesV4(value data.PlutusData) data.PlutusData {
+	votes, ok := value.(*data.Map)
+	if !ok {
+		return value
+	}
+	pairs := make([][2]data.PlutusData, len(votes.Pairs))
+	for idx, pair := range votes.Pairs {
+		pairs[idx] = pair
+		byAction, ok := pair[1].(*data.Map)
+		if !ok {
+			continue
+		}
+		actionPairs := make([][2]data.PlutusData, len(byAction.Pairs))
+		for actionIdx, actionPair := range byAction.Pairs {
+			actionPairs[actionIdx] = actionPair
+			id, err := dijkstraListEncodedFieldsV4(
+				actionPair[0],
+				2,
+				"governance action id",
+			)
+			if err == nil {
+				actionPairs[actionIdx][0] = data.NewList(id...)
+			}
+		}
+		pairs[idx][1] = data.NewMap(actionPairs)
+	}
+	return data.NewMap(pairs)
+}
+
+// dijkstraListEncodedFieldsV4 returns the fields of a V3 constructor-0 value,
+// which plutus-ledger-api's ListEncoded turns into the V4 list. count < 0
+// accepts any field count.
+func dijkstraListEncodedFieldsV4(
+	value data.PlutusData,
+	count int,
+	name string,
+) ([]data.PlutusData, error) {
+	constr, ok := value.(*data.Constr)
+	if !ok || constr.Tag == nil || constr.Tag.Sign() != 0 {
+		return nil, fmt.Errorf(
+			"%s is not a constructor-0 product: %T",
+			name,
+			value,
+		)
+	}
+	if count >= 0 && len(constr.Fields) != count {
+		return nil, fmt.Errorf(
+			"%s has %d fields, expected %d",
+			name,
+			len(constr.Fields),
+			count,
+		)
+	}
+	return slices.Clone(constr.Fields), nil
 }
 
 func dijkstraCertificateV4(
