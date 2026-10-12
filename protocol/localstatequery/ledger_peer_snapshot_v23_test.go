@@ -20,6 +20,7 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/stretchr/testify/assert"
@@ -152,5 +153,102 @@ func TestServerLedgerPeerSnapshotFormGate(t *testing.T) {
 			require.True(t, errors.Is(err, ErrQueryUnsupportedVersion), err)
 			assert.False(t, called)
 		})
+	}
+}
+
+// TestServerRejectsSnapshotVersionForRequestForm checks the server refuses to
+// encode a snapshot whose wire version the request form does not take, which
+// the client could not decode.
+func TestServerRejectsSnapshotVersionForRequestForm(t *testing.T) {
+	cases := []struct {
+		name     string
+		version  uint16
+		peerKind LedgerPeerKind
+		withKind bool
+		result   any
+	}{
+		{
+			"v1_for_big_peer_kind", 23, LedgerPeerKindBig, true,
+			[]any{LedgerPeerSnapshotResult{Version: 1}},
+		},
+		{
+			"unset_for_all_peer_kind", 23, LedgerPeerKindAll, true,
+			LedgerPeerSnapshotResult{},
+		},
+		{
+			"v3_for_big_peer_kind", 23, LedgerPeerKindBig, true,
+			&LedgerPeerSnapshotResult{Version: 3},
+		},
+		{
+			"v2_for_bare_form", 22, LedgerPeerKindBig, false,
+			[]any{LedgerPeerSnapshotResult{Version: 2}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newServerWithVersion(
+				ntc(tc.version),
+				func(_ CallbackContext, _ QueryWrapper) (any, error) {
+					return tc.result, nil
+				},
+			)
+			msg := NewMsgQuery(&BlockQuery{
+				Query: &ShelleyQuery{
+					Era: 6,
+					Query: &ShelleyGetLedgerPeerSnapshotQuery{
+						Type:         QueryTypeShelleyGetLedgerPeerSnapshot,
+						PeerKind:     tc.peerKind,
+						WithPeerKind: tc.withKind,
+					},
+				},
+			})
+			// An unstarted server blocks sending a reply, so a reply that
+			// gets past the check shows as a timeout.
+			errCh := make(chan error, 1)
+			go func() { errCh <- s.handleQuery(msg) }()
+			select {
+			case err := <-errCh:
+				require.ErrorIs(
+					t,
+					err,
+					ErrLedgerPeerSnapshotUnsupportedWireVersion,
+				)
+			case <-time.After(5 * time.Second):
+				t.Fatal("server tried to send the mismatched snapshot")
+			}
+		})
+	}
+}
+
+// TestCheckLedgerPeerSnapshotResultAcceptsMatchingVersion covers the versions
+// each request form takes.
+func TestCheckLedgerPeerSnapshotResultAcceptsMatchingVersion(t *testing.T) {
+	cases := []struct {
+		query  ShelleyGetLedgerPeerSnapshotQuery
+		result any
+	}{
+		{
+			ShelleyGetLedgerPeerSnapshotQuery{PeerKind: LedgerPeerKindBig},
+			[]any{LedgerPeerSnapshotResult{}},
+		},
+		{
+			ShelleyGetLedgerPeerSnapshotQuery{PeerKind: LedgerPeerKindBig},
+			LedgerPeerSnapshotResult{Version: 1},
+		},
+		{
+			ShelleyGetLedgerPeerSnapshotQuery{
+				PeerKind: LedgerPeerKindBig, WithPeerKind: true,
+			},
+			[]any{&LedgerPeerSnapshotResult{Version: 2}},
+		},
+		{
+			ShelleyGetLedgerPeerSnapshotQuery{
+				PeerKind: LedgerPeerKindAll, WithPeerKind: true,
+			},
+			[]any{LedgerPeerSnapshotResult{Version: 3}},
+		},
+	}
+	for _, tc := range cases {
+		assert.NoError(t, checkLedgerPeerSnapshotResult(&tc.query, tc.result))
 	}
 }

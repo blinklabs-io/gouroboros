@@ -100,6 +100,56 @@ func ledgerPeerSnapshotQuery(
 	return q
 }
 
+// snapshotInResult returns the LedgerPeerSnapshotResult a query callback
+// answered with, bare or inside the single-element era result wrapper, or
+// nil when the result has neither shape.
+func snapshotInResult(result any) *LedgerPeerSnapshotResult {
+	switch r := result.(type) {
+	case LedgerPeerSnapshotResult:
+		return &r
+	case *LedgerPeerSnapshotResult:
+		return r
+	case []any:
+		if len(r) == 1 {
+			return snapshotInResult(r[0])
+		}
+	}
+	return nil
+}
+
+// checkLedgerPeerSnapshotResult rejects a snapshot whose wire version the
+// request form does not accept: the client decodes the reply by the form it
+// sent, so any other layout fails there instead of here.
+func checkLedgerPeerSnapshotResult(
+	q *ShelleyGetLedgerPeerSnapshotQuery,
+	result any,
+) error {
+	snap := snapshotInResult(result)
+	if snap == nil {
+		return nil
+	}
+	want := uint64(ledgerPeerSnapshotWireVersion)
+	if q.WithPeerKind {
+		want = ledgerPeerSnapshotWireVersionAll
+		if q.PeerKind == LedgerPeerKindBig {
+			want = ledgerPeerSnapshotWireVersionBig
+		}
+	}
+	got := snap.Version
+	if got == 0 {
+		got = ledgerPeerSnapshotWireVersion
+	}
+	if got != want {
+		return fmt.Errorf(
+			"%w: result version %d for a request that takes version %d",
+			ErrLedgerPeerSnapshotUnsupportedWireVersion,
+			got,
+			want,
+		)
+	}
+	return nil
+}
+
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -228,6 +278,11 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 	result, err := s.config.QueryFunc(s.callbackContext, msgQuery.Query)
 	if err != nil {
 		return err
+	}
+	if q := ledgerPeerSnapshotQuery(msgQuery.Query); q != nil {
+		if err := checkLedgerPeerSnapshotResult(q, result); err != nil {
+			return fmt.Errorf("%s: %w", ProtocolName, err)
+		}
 	}
 	// Encode query result
 	resultCbor, err := cbor.Encode(&result)
