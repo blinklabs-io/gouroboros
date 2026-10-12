@@ -326,12 +326,16 @@ func TestReplyMessageCollectionBudget(t *testing.T) {
 // refuse one more.
 func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		count int
-		valid bool
+		name     string
+		maxReply int
+		count    int
+		valid    bool
+		limitErr string
 	}{
 		{name: "reference batch", count: 1000, valid: true},
-		{name: "above reference batch", count: 1001},
+		{name: "above reference batch", count: 1001, limitErr: "maximum is 1000"},
+		{name: "configured limit", maxReply: 1, count: 1, valid: true},
+		{name: "above configured limit", maxReply: 1, count: 2, limitErr: "maximum is 1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			connA, connB := net.Pipe()
@@ -343,8 +347,11 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 			t.Cleanup(m.Stop)
 			replies := make(chan int, 1)
 			errs := make(chan error, 4)
-			cfg := NewConfig(
-				WithMaxQueueSize(1),
+			opts := []LocalMessageNotificationOptionFunc{WithMaxQueueSize(1)}
+			if tc.maxReply > 0 {
+				opts = append(opts, WithMaxReplyMessages(tc.maxReply))
+			}
+			cfg := NewConfig(append(opts,
 				WithReplyMessagesFunc(func(
 					_ CallbackContext,
 					messages []pcommon.DmqMessage,
@@ -352,7 +359,7 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 				) {
 					replies <- len(messages)
 				}),
-			)
+			)...)
 			client := NewClient(protocol.ProtocolOptions{
 				Muxer:     m,
 				ErrorChan: errs,
@@ -398,7 +405,7 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 			}
 			select {
 			case err := <-errs:
-				require.ErrorContains(t, err, "maximum is 1000")
+				require.ErrorContains(t, err, tc.limitErr)
 			case <-time.After(2 * time.Second):
 				t.Fatal("oversized reply was not rejected")
 			}
