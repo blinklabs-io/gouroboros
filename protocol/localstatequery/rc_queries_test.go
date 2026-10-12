@@ -21,6 +21,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -311,7 +312,16 @@ func TestClientRefusesQueriesOutsideVersion(t *testing.T) {
 	for _, tc := range calls {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newClientWithVersion(ntc(tc.version))
-			require.ErrorIs(t, tc.call(c), ErrQueryUnsupportedVersion)
+			// The client is not started, so a call that gets past its gate
+			// blocks on the protocol instead of returning.
+			errCh := make(chan error, 1)
+			go func() { errCh <- tc.call(c) }()
+			select {
+			case err := <-errCh:
+				require.ErrorIs(t, err, ErrQueryUnsupportedVersion)
+			case <-time.After(5 * time.Second):
+				t.Fatal("call passed the version gate")
+			}
 		})
 	}
 }
