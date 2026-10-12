@@ -170,6 +170,9 @@ func TestBlockPipelineRawCborBudgetReturnsOnDelivery(t *testing.T) {
 			t.Fatal("delivery failed to return the byte budget")
 		}
 	}
+	if first == nil {
+		t.Fatal("pipeline returned no results")
+	}
 	require.Equal(t, raw, first.RawCbor())
 	first.Release()
 	first.Release()
