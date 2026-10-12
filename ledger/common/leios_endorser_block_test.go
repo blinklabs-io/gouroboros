@@ -83,18 +83,76 @@ func TestLeiosEndorserBlockEncodingMatchesReference(t *testing.T) {
 	require.Equal(t, Blake2b256Hash(want), decoded.Hash())
 }
 
-// The endorser block hash commits to the received bytes, so a decoded block
-// keeps the hash of its wire form even when that form is not the one the
-// encoder would produce.
-func TestLeiosEndorserBlockHashUsesWireBytes(t *testing.T) {
+// The reference node checks a received endorser block by hashing the
+// re-encoding of its decoded value, and its decoder accepts a definite head
+// of any width. A block decoded from wider heads therefore hashes as its
+// canonical form, while its wire bytes are kept for re-serialization.
+func TestLeiosEndorserBlockHashUsesCanonicalEncoding(t *testing.T) {
 	hash := make([]byte, Blake2b256Size)
-	wire := append([]byte{0xa1, 0x58, 0x20}, hash...)
-	// 7 encoded with a one-byte argument instead of inline.
-	wire = append(wire, 0x18, 0x07)
+	hash[0] = 0xaa
+	canonical := append([]byte{0xa1, 0x58, 0x20}, hash...)
+	canonical = append(canonical, 0x18, 0x26)
+	want := Blake2b256Hash(canonical)
+	tests := map[string][]byte{
+		"canonical": canonical,
+		"size with a four-byte argument": append(
+			append([]byte{0xa1, 0x58, 0x20}, hash...),
+			0x1a, 0x00, 0x00, 0x00, 0x26,
+		),
+		"size with an eight-byte argument": append(
+			append([]byte{0xa1, 0x58, 0x20}, hash...),
+			0x1b, 0, 0, 0, 0, 0, 0, 0, 0x26,
+		),
+		"map length with a one-byte argument": append(
+			append([]byte{0xb8, 0x01, 0x58, 0x20}, hash...),
+			0x18, 0x26,
+		),
+		"hash length with a two-byte argument": append(
+			append([]byte{0xa1, 0x59, 0x00, 0x20}, hash...),
+			0x18, 0x26,
+		),
+	}
+	for name, wire := range tests {
+		t.Run(name, func(t *testing.T) {
+			decoded, err := NewLeiosEndorserBlockFromCbor(wire)
+			require.NoError(t, err)
+			require.Equal(t, want, decoded.Hash())
+			encoded, err := decoded.MarshalCBOR()
+			require.NoError(t, err)
+			require.Equal(t, wire, encoded)
+		})
+	}
+}
 
-	decoded, err := NewLeiosEndorserBlockFromCbor(wire)
-	require.NoError(t, err)
-	require.Equal(t, Blake2b256Hash(wire), decoded.Hash())
+// The reference decodes each hash with decodeBytes and each size with
+// decodeWord32, neither of which accepts an indefinite-length byte string or
+// a tagged value.
+func TestLeiosEndorserBlockRejectsNonDefiniteEntries(t *testing.T) {
+	hash := make([]byte, Blake2b256Size)
+	tests := map[string][]byte{
+		"indefinite-length hash": append(
+			append([]byte{0xa1, 0x5f, 0x58, 0x20}, hash...),
+			0xff, 0x18, 0x26,
+		),
+		"tagged hash": append(
+			append([]byte{0xa1, 0xd8, 0x18, 0x58, 0x20}, hash...),
+			0x18, 0x26,
+		),
+		"bignum size": append(
+			append([]byte{0xa1, 0x58, 0x20}, hash...),
+			0xc2, 0x41, 0x26,
+		),
+		"negative size": append(
+			append([]byte{0xa1, 0x58, 0x20}, hash...),
+			0x20,
+		),
+	}
+	for name, wire := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewLeiosEndorserBlockFromCbor(wire)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestLeiosEndorserBlockRejectsArrayWrapper(t *testing.T) {

@@ -29,6 +29,8 @@ import (
 // larger count before decoding any reference.
 const LeiosMaxTxsPerEndorserBlock = 17142
 
+const cborTypeUnsignedInt uint8 = 0x00
+
 // LeiosEndorserBlock is a Leios endorser block: a bare, definite-length CBOR
 // map from transaction hash to encoded transaction size, in endorser-block
 // order:
@@ -71,11 +73,18 @@ func (b LeiosEndorserBlock) MarshalCBOR() ([]byte, error) {
 }
 
 // Hash returns the endorser block hash that ranking-block headers announce:
-// Blake2b-256 of the endorser block's CBOR bytes. A decoded block hashes the
-// bytes it was decoded from; a block that cannot be encoded hashes to the
+// Blake2b-256 of the canonical encoding of the transaction references, with
+// every CBOR head in its shortest form. The decoder accepts wider heads, as
+// the reference decoder does, and the reference node checks a received block
+// by hashing its re-encoding rather than the bytes it arrived as, so a decoded
+// block hashes the same as the canonical form of its references whatever
+// encoding it was decoded from. A block that cannot be encoded hashes to the
 // zero hash.
 func (b LeiosEndorserBlock) Hash() Blake2b256 {
-	raw, err := b.MarshalCBOR()
+	if err := validateLeiosTransactionReferences(b.TransactionReferences); err != nil {
+		return Blake2b256{}
+	}
+	raw, err := encodeLeiosTransactionReferences(b.TransactionReferences)
 	if err != nil {
 		return Blake2b256{}
 	}
@@ -186,6 +195,20 @@ func decodeLeiosTransactionReferences(
 	refs := make([]LeiosTransactionReference, 0)
 	seen := make(map[Blake2b256]struct{})
 	for idx := range count {
+		// The reference decodes each entry with decodeBytes and decodeWord32,
+		// which accept a definite head of any width but no indefinite-length
+		// byte string and no tagged value, so a bignum size is refused too.
+		if err := requireLeiosDefiniteHead(
+			raw,
+			dec.Position(),
+			cbor.CborTypeByteString,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"decode leios transaction reference %d hash: %w",
+				idx,
+				err,
+			)
+		}
 		var hashBytes cbor.ByteString
 		if _, _, err := dec.Decode(&hashBytes); err != nil {
 			return nil, fmt.Errorf(
@@ -211,6 +234,17 @@ func decodeLeiosTransactionReferences(
 			)
 		}
 		seen[txHash] = struct{}{}
+		if err := requireLeiosDefiniteHead(
+			raw,
+			dec.Position(),
+			cborTypeUnsignedInt,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"decode leios transaction reference %d size: %w",
+				idx,
+				err,
+			)
+		}
 		var size uint64
 		if _, _, err := dec.Decode(&size); err != nil {
 			return nil, fmt.Errorf(
@@ -241,6 +275,24 @@ func decodeLeiosTransactionReferences(
 		return nil, err
 	}
 	return refs, nil
+}
+
+// requireLeiosDefiniteHead checks that the data item at pos has the given
+// major type and a definite argument of any width.
+func requireLeiosDefiniteHead(raw []byte, pos int, major uint8) error {
+	if pos < 0 || pos >= len(raw) {
+		return errors.New("unexpected end of data")
+	}
+	head := raw[pos]
+	if head&cbor.CborTypeMask != major {
+		return fmt.Errorf("unexpected CBOR major type %d", head>>5)
+	}
+	// Additional information 24-27 carries a 1-8 byte argument; 28-30 are
+	// reserved and 31 marks an indefinite length.
+	if head&0x1f > 27 {
+		return errors.New("indefinite or reserved CBOR head")
+	}
+	return nil
 }
 
 func leiosReferenceCountError(count int) error {
