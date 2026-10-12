@@ -63,6 +63,23 @@ func querySnapshotOverPipe(
 	snap LedgerPeerSnapshotResult,
 ) *LedgerPeerSnapshotResult {
 	t.Helper()
+	got, err := querySnapshotResultOverPipe(
+		t, version, LedgerPeerKindBig, []any{snap},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	return got
+}
+
+// querySnapshotResultOverPipe answers GetLedgerPeerSnapshot with the given
+// callback result and returns what the client decodes.
+func querySnapshotResultOverPipe(
+	t *testing.T,
+	version uint16,
+	peerKind LedgerPeerKind,
+	answer any,
+) (*LedgerPeerSnapshotResult, error) {
+	t.Helper()
 	local, remote := net.Pipe()
 	serverMuxer := muxer.New(local)
 	clientMuxer := muxer.New(remote)
@@ -83,7 +100,7 @@ func querySnapshotOverPipe(
 		},
 		QueryFunc: func(_ CallbackContext, q QueryWrapper) (any, error) {
 			if ledgerPeerSnapshotQuery(q) != nil {
-				return []any{snap}, nil
+				return answer, nil
 			}
 			return 6, nil
 		},
@@ -111,10 +128,45 @@ func querySnapshotOverPipe(
 	client.Start()
 	serverMuxer.Start()
 	clientMuxer.Start()
-	got, err := client.GetLedgerPeerSnapshot(LedgerPeerKindBig)
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	return got
+	return client.GetLedgerPeerSnapshot(peerKind)
+}
+
+// TestServerWrapsBareSnapshotResult checks the client decodes the reply
+// whether the callback answers with the snapshot bare, as a pointer, or
+// already inside the era result wrapper, including after SRV filtering.
+func TestServerWrapsBareSnapshotResult(t *testing.T) {
+	v1 := srvSnapshotFixture()
+	v3 := LedgerPeerSnapshotResult{
+		Version:   ledgerPeerSnapshotWireVersionBig,
+		Slot:      WithOriginSlot{HasSlot: true, Slot: 9},
+		BlockHash: make([]byte, 32),
+	}
+	tests := []struct {
+		name      string
+		version   uint16
+		answer    any
+		wantPools int
+		wantSlot  uint64
+	}{
+		{name: "bare below 22", version: ntc(21), answer: v1, wantPools: 1, wantSlot: 7},
+		{name: "bare pointer below 22", version: ntc(21), answer: &v1, wantPools: 1, wantSlot: 7},
+		{name: "wrapped below 22", version: ntc(21), answer: []any{v1}, wantPools: 1, wantSlot: 7},
+		{name: "bare at 22", version: ntc(22), answer: v1, wantPools: 2, wantSlot: 7},
+		{name: "bare at 23", version: ntc(23), answer: v3, wantSlot: 9},
+		{name: "bare pointer at 23", version: ntc(23), answer: &v3, wantSlot: 9},
+		{name: "wrapped at 23", version: ntc(23), answer: []any{v3}, wantSlot: 9},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := querySnapshotResultOverPipe(
+				t, test.version, LedgerPeerKindBig, test.answer,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Len(t, got.Pools, test.wantPools)
+			assert.Equal(t, test.wantSlot, got.Slot.Slot)
+		})
+	}
 }
 
 // TestServerDropsSRVRelaysBeforeVersion22 checks a version 1 snapshot sent

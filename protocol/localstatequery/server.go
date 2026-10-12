@@ -173,6 +173,19 @@ func withoutSRVRelays(result any, version uint16) any {
 	return filtered
 }
 
+// wrapLedgerPeerSnapshotResult puts a bare snapshot into the single-element
+// era result wrapper the client decodes, so a callback may answer with either
+// form and the reply always has the wrapped one.
+func wrapLedgerPeerSnapshotResult(result any) any {
+	if _, wrapped := result.([]any); wrapped {
+		return result
+	}
+	if snap := snapshotInResult(result); snap != nil {
+		return []any{*snap}
+	}
+	return result
+}
+
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -307,6 +320,7 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 			return fmt.Errorf("%s: %w", ProtocolName, err)
 		}
 		result = withoutSRVRelays(result, s.version)
+		result = wrapLedgerPeerSnapshotResult(result)
 	}
 	// Encode query result
 	resultCbor, err := cbor.Encode(&result)
