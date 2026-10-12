@@ -824,6 +824,11 @@ func TestServerCancelsRequestWithoutSource(t *testing.T) {
 	_, conn := newQuitTestServer(t, NewConfig())
 
 	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+	// A quit read before the handler runs is answered without parking the
+	// request at all. The pause lets the request park first, which is the
+	// path a server with no notification source takes on a live connection;
+	// the expected replies are the same either way.
+	time.Sleep(50 * time.Millisecond)
 	writeQuitTestMessage(t, conn, NewMsgQuit())
 	require.IsType(t, &MsgCanceled{}, readQuitTestMessage(t, conn))
 	require.IsType(t, &MsgDone{}, readQuitTestMessage(t, conn))
