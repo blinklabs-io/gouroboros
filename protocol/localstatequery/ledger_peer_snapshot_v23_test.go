@@ -93,6 +93,10 @@ func TestLedgerPeerSnapshotV23Malformed(t *testing.T) {
 		"origin_with_hash": "82 03 83 83 00 01 41 aa 01 80",
 		// The magic is the second of three fields, not the first of two.
 		"v2_two_fields": "82 02 82 81 00 80",
+		// A block hash is 32 bytes.
+		"v2_short_hash": "82 02 83 83 01 19 3039 58 1f " +
+			strings.Repeat("aa", 31) + " 1a 2d964a09" +
+			" 9f 83 82 01 0a 82 01 0a 9f 82 03 4d " + relayExampleHex + " ff ff",
 		// Relays are NonEmpty.
 		"empty_relays": "82 03 83 81 00 01 9f 82 82 01 02 80 ff",
 	} {

@@ -79,7 +79,16 @@ func shelleyLeafQueryType(w QueryWrapper) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	switch sq.Query.(type) {
+	// GetCBOR wraps another query, which is what the version gates apply to
+	query := sq.Query
+	for {
+		cborQuery, isCbor := query.(*ShelleyCborQuery)
+		if !isCbor {
+			break
+		}
+		query = cborQuery.Query
+	}
+	switch query.(type) {
 	case *ShelleyProposedProtocolParamsUpdatesQuery:
 		return QueryTypeShelleyProposedProtocolParamsUpdates, true
 	case *ShelleyStakeDistributionQuery:

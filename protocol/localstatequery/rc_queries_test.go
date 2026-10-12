@@ -394,3 +394,18 @@ func TestServerRefusesPoolDistr2BeforeVersion21(t *testing.T) {
 	require.ErrorIs(t, s.handleQuery(msg), ErrQueryUnsupportedVersion)
 	assert.False(t, called, "callback ran for a query version 20 lacks")
 }
+
+// GetCBOR wraps another query, and the version gate applies to the wrapped
+// one.
+func TestShelleyLeafQueryTypeSeesThroughGetCBOR(t *testing.T) {
+	var query any = &ShelleyDRepDelegationsQuery{}
+	for depth := 0; depth <= 2; depth++ {
+		wrapper := QueryWrapper{
+			Query: &BlockQuery{Query: &ShelleyQuery{Query: query}},
+		}
+		queryType, ok := shelleyLeafQueryType(wrapper)
+		require.True(t, ok, "depth %d", depth)
+		assert.Equal(t, QueryTypeShelleyDRepDelegations, queryType)
+		query = &ShelleyCborQuery{Query: query}
+	}
+}

@@ -139,7 +139,7 @@ func (s *IndividualPoolStake) UnmarshalCBOR(data []byte) error {
 
 // MarshalCBOR writes three fields, or four when BlsKey is set, as the ledger
 // does for IndividualPoolStake.
-func (s *IndividualPoolStake) MarshalCBOR() ([]byte, error) {
+func (s IndividualPoolStake) MarshalCBOR() ([]byte, error) {
 	if s.StakeFraction == nil || s.StakeFraction.Rat == nil {
 		return nil, errors.New("IndividualPoolStake: nil stake fraction")
 	}

@@ -674,6 +674,13 @@ func decodeSnapshotPoint(data []byte) (WithOriginSlot, []byte, error) {
 		if _, err := cbor.Decode(fields[2], &hash); err != nil {
 			return WithOriginSlot{}, nil, err
 		}
+		if len(hash) != ledgerPeerSnapshotBlockHashSize {
+			return WithOriginSlot{}, nil, fmt.Errorf(
+				"LedgerPeerSnapshot point: block hash is %d bytes, expected %d",
+				len(hash),
+				ledgerPeerSnapshotBlockHashSize,
+			)
+		}
 		return WithOriginSlot{HasSlot: true, Slot: slot}, hash, nil
 	}
 	return WithOriginSlot{}, nil, fmt.Errorf(
