@@ -322,20 +322,22 @@ carrying more addresses than it requested.
 | --- | --- | ---: | ---: |
 | Leios Fetch client | Votes | 5 seconds | none |
 | Leios Fetch client | BlockRange | 5 seconds | 64 MiB |
-| Leios Notify client | Busy | 60 seconds | none |
+| Leios Notify client | Quit | 60 seconds | none |
 | Leios Votes client | Busy | 60 seconds | none |
 | Leios Votes server with a configured request callback | Busy | 60 seconds | none |
 
 Leios Fetch `Block` and `BlockTxs` requests are bounded by the caller's
-context, not by a protocol state timeout. Leios Notify has no pending-message
-byte limit. Leios Fetch `BlockRangeRequest` retains at most 1,000 response
+context, not by a protocol state timeout. Leios Fetch admits at most 65,535
+bytes while the client holds agency, 660,000 bytes of `Block` reply and 550,000
+bytes of `BlockTxs` reply, the limits of the reference node. Leios Notify waits
+indefinitely in Idle and Busy and times only the wait for `Done` after `Quit`. Leios Fetch `BlockRangeRequest` retains at most 1,000 response
 messages and 64 MiB of encoded response data per request by default; both
 limits can be configured. The byte limit also bounds pending range messages in
 the protocol receive queue. Exceeding either retained-response limit is a
 protocol error and closes the connection. Leios Notify allows up to 100
 pipelined requests and defaults to 10. Leios Votes allows up to 100 pipelined
 requests, defaults to 1, and limits one request to 1,000 votes (the default is
-also 1,000). Leios Notify limits each VotesOffer to 1,000 entries and 256 KiB
+also 1,000). Leios Notify limits each VotesOffer to 1,000 entries and 65,535 bytes
 before parsing the vote list. Leios Fetch admits up to 131,073 vote IDs in a
 request, matching the established strict CBOR collection control, while a
 generic vote response is limited to 1,000 entries and 256 KiB. A live client
@@ -393,7 +395,7 @@ subsequent items available to the caller.
 | Local Tx Submission submit/rejection | Effective read-buffer allowance | Transaction bytes and raw rejection data are retained from validated input. |
 | Local Message Notification replies | Effective read-buffer allowance; 100 messages by default | Reply collections are capped by the configured queue size and each DMQ message by the fixed wire depth before typed decoding. |
 | Leios Fetch block, transaction and vote replies | Vote replies: 256 KiB; range replies: cumulative configured byte and decoded-count budgets, 64 MiB and 1,048,576 transactions by default; range retention: 1,000 messages by default | Vote replies admit at most 1,000 entries and no more than the request count on a live client. All transaction lists in one range stream share one entry per 64 bytes of its byte budget, capped at 4,194,304. Raw items and their envelope are checked before slice allocation; BlockTxs counts are checked against the request bitmap. |
-| Leios Notify vote offers | 256 KiB and 1,000 votes | Definite counts and indefinite entries are checked before the vote list is allocated. Other notifications use the configured pending-byte allowance. |
+| Leios Notify vote offers | 65,535 bytes and 1,000 votes | Definite counts and indefinite entries are checked before the vote list is allocated. Other notifications use the configured pending-byte allowance. |
 | Leios Votes vote reply | Effective read-buffer allowance | Typed fields use the normal CBOR mode; request counts are independently limited to 1,000. |
 | Peras vote IDs/objects | `maxObjectsUnacknowledged × 1,100 + 256` bytes | Lists are checked against the supported outstanding-window maximum. Fixed vote envelopes are checked before opaque bytes are retained. |
 | Leios endorser-block references | At least 35 encoded bytes per valid reference | A hash32 uses a two-byte header and 32 payload bytes; size uses at least one byte. Counts exceeding available encoded entries are rejected before allocation. Collections grow as entries validate. |

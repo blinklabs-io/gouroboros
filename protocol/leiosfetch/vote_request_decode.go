@@ -156,7 +156,10 @@ func validateVoteRequest(data []byte) error {
 		return err
 	}
 	if messageType != MessageTypeVotesRequest {
-		return errors.New("vote request message type must be 4")
+		return fmt.Errorf(
+			"vote request message type must be %d",
+			MessageTypeVotesRequest,
+		)
 	}
 	if err := c.skipTags(); err != nil {
 		return err

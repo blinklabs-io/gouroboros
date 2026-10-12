@@ -17,14 +17,15 @@ The LeiosNotify protocol provides notifications about new Leios blocks, transact
 │ Idle │ ─────────────────────────►│ Busy │
 └──┬───┘                           └──┬───┘
    │                                  │
-   │ Done                             │ BlockAnnouncement
+   │ Quit                             │ BlockAnnouncement
    │                                  │ BlockOffer
    │                                  │ BlockTxsOffer
    │                                  │ VotesOffer
-   ▼                                  ▼
-┌──────┐                           ┌──────┐
-│ Done │                           │ Idle │
-└──────┘                           └──────┘
+   ▼                                  │ Canceled
+┌──────┐  Done   ┌──────┐             ▼
+│ Quit │ ───────►│ Done │          ┌──────┐
+└──────┘         └──────┘          │ Idle │
+                                   └──────┘
 ```
 
 ## States
@@ -34,21 +35,37 @@ The LeiosNotify protocol provides notifications about new Leios blocks, transact
 | **Idle** | 1 | Client | Waiting for notification request |
 | **Busy** | 2 | Server | Preparing notification |
 | **Done** | 3 | None | Terminal state |
+| **Quit** | 4 | Server | Client quit; server acknowledges |
 
 ## Messages
 
 | Message | Type ID | Direction | Description |
 |---------|---------|-----------|-------------|
-| `NotificationRequestNext` | 0 | Client → Server | Request next notification |
-| `BlockAnnouncement` | 1 | Server → Client | Announce new block |
-| `BlockOffer` | 2 | Server → Client | Offer block for download |
-| `BlockTxsOffer` | 3 | Server → Client | Offer block transactions |
-| `VotesOffer` | 4 | Server → Client | Offer votes for download |
-| `Done` | 5 | Client → Server | Terminate protocol |
+| `Done` | 0 | Server → Client | Acknowledge `Quit` and end the protocol |
+| `Quit` | 1 | Client → Server | End the protocol |
+| `Canceled` | 2 | Server → Client | Reply to a request outstanding at `Quit` |
+| `NotificationRequestNext` | 3 | Client → Server | Request next notification |
+| `BlockAnnouncement` | 4 | Server → Client | Announce new block |
+| `BlockOffer` | 5 | Server → Client | Offer block for download |
+| `BlockTxsOffer` | 6 | Server → Client | Offer block transactions |
+| `VotesOffer` | 7 | Server → Client | Offer votes for download |
 
-These tags match the [`leios-prototype` CDDL at revision
-8b946c4](https://github.com/cardano-scaling/cardano-blueprint/blob/8b946c431e3209b2aa70bf5362f64f42e56fb849/src/network/node-to-node/leios-notify/messages.cddl).
-That prototype describes its CDDL tags as provisional.
+These tags match the LeiosNotify messages of the node of Leios release
+candidate 2026w41, which numbers the messages of both Leios mini-protocols
+from zero.
+
+A client sends further requests, and `Quit`, without waiting for the reply to
+an outstanding request. The protocol holds them back until the server has
+replied, so the server answers every request before it acknowledges `Quit`.
+`Quit` lets a client demote a peer from hot to warm without dropping the
+connection for lack of Leios traffic.
+
+A server that has accepted a request and has no notification to send does not
+see a `Quit` queued behind it until the notification callback returns, and
+therefore sends no `Canceled`.
+
+A block offer is rejected unless its point hash is 32 bytes and its size is
+between 1 and 600,000.
 
 ## State Transitions
 
@@ -56,7 +73,7 @@ That prototype describes its CDDL tags as provisional.
 | Message | New State |
 |---------|-----------|
 | `NotificationRequestNext` | Busy |
-| `Done` | Done |
+| `Quit` | Quit |
 
 ### From Busy (Server Agency)
 | Message | New State |
@@ -65,11 +82,17 @@ That prototype describes its CDDL tags as provisional.
 | `BlockOffer` | Idle |
 | `BlockTxsOffer` | Idle |
 | `VotesOffer` | Idle |
+| `Canceled` | Idle |
+
+### From Quit (Server Agency)
+| Message | New State |
+|---------|-----------|
+| `Done` | Done |
 
 `VotesOffer` advertises available votes by `(SlotNo, VoterId)`, where
 `VoterId` is the voter's index in the epoch's stake-based committee.
 Each offer is limited to `MaxVotesOfferCount` (1,000) entries and
-`MaxVotesOfferBytes` (256 KiB). The byte limit is checked before CBOR parsing;
+`MaxVotesOfferBytes` (65,535 bytes). The byte limit is checked before CBOR parsing;
 the decoder then checks the array header before scanning vote values and
 applies the count limit to definite- and indefinite-length arrays.
 `BlockAnnouncement` is limited to `MaxBlockAnnouncementBytes` (one muxer
@@ -100,7 +123,10 @@ two values; they are checked separately, not summed.
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Default Timeout | 60 seconds | Time to receive notification |
+| Default Timeout | 60 seconds | Time for the server to send `Done` after `Quit` |
+
+Idle and Busy have no timeout: a server with nothing to notify holds agency
+until it has something to send.
 
 ## Configuration Options
 

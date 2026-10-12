@@ -64,10 +64,32 @@ func TestBlockTxsRejectsTransactionCountBeforeAllocation(t *testing.T) {
 	require.Less(t, result.AllocedBytesPerOp(), int64(32<<10))
 }
 
+func blockTxsWire(
+	t *testing.T,
+	bitmaps map[uint16]uint64,
+	txs []cbor.RawMessage,
+) []byte {
+	t.Helper()
+	wire, err := cbor.Encode(
+		NewMsgBlockTxs(
+			pcommon.NewPoint(1, testPointHash(0x01)),
+			bitmaps,
+			txs,
+		),
+	)
+	require.NoError(t, err)
+	return wire
+}
+
 func TestBlockTxsClientUsesRequestBitmapCardinality(t *testing.T) {
-	wire := []byte{0x82, MessageTypeBlockTxs, 0x83, 0x80, 0x80, 0x80}
+	wire := blockTxsWire(
+		t,
+		map[uint16]uint64{0: 0x7},
+		[]cbor.RawMessage{{0x80}, {0x80}, {0x80}},
+	)
 	client := &Client{}
 	client.blockRequestSlot.maxBlockTxs = 2
+	client.blockRequestSlot.maxBlockBitmaps = 1
 	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
 	require.Error(t, err)
 	require.Nil(t, msg)
@@ -79,9 +101,14 @@ func TestBlockTxsClientUsesRequestBitmapCardinality(t *testing.T) {
 
 func TestBlockTxsPreservesDeepRawTransaction(t *testing.T) {
 	tx := append(bytes.Repeat([]byte{0x81}, 64), 0)
-	wire := append([]byte{0x82, MessageTypeBlockTxs, 0x81}, tx...)
+	wire := blockTxsWire(
+		t,
+		map[uint16]uint64{0: 0x1},
+		[]cbor.RawMessage{tx},
+	)
 	client := &Client{}
 	client.blockRequestSlot.maxBlockTxs = 1
+	client.blockRequestSlot.maxBlockBitmaps = 1
 
 	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
 	require.NoError(t, err)
@@ -89,13 +116,13 @@ func TestBlockTxsPreservesDeepRawTransaction(t *testing.T) {
 }
 
 func TestBlockTxsClientUsesExactBitmapCount(t *testing.T) {
-	// [3, origin, {0: 1, 1: 1}, []]
-	wire := []byte{
-		0x84, MessageTypeBlockTxs, 0x80,
-		0xa2, 0x00, 0x01, 0x01, 0x01,
-		0x80,
-	}
+	wire := blockTxsWire(
+		t,
+		map[uint16]uint64{0: 1, 1: 1},
+		[]cbor.RawMessage{{0x80}, {0x80}},
+	)
 	client := &Client{}
+	client.blockRequestSlot.maxBlockTxs = 2
 	client.blockRequestSlot.maxBlockBitmaps = 1
 	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
 	require.ErrorContains(t, err, "maximum is 1")
@@ -107,15 +134,118 @@ func TestBlockTxsClientUsesExactBitmapCount(t *testing.T) {
 	require.Len(t, msg.(*MsgBlockTxs).Bitmaps, 2)
 }
 
+func TestBlockTxsRejectsTransactionCountNotMatchingBitmaps(t *testing.T) {
+	for _, txCount := range []int{0, 1, 3} {
+		txs := make([]cbor.RawMessage, txCount)
+		for i := range txs {
+			txs[i] = cbor.RawMessage{0x80}
+		}
+		wire := blockTxsWire(t, map[uint16]uint64{0: 0x3}, txs)
+		msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+		require.ErrorContains(
+			t,
+			err,
+			"do not match the 2 requested",
+			"%d transactions",
+			txCount,
+		)
+		require.Nil(t, msg)
+	}
+}
+
+func TestBlockTxsRejectsTwoElementForm(t *testing.T) {
+	// [4, [tx]] was the form of the earlier prototype
+	wire := []byte{0x82, MessageTypeBlockTxs, 0x81, 0x80}
+	msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+	require.ErrorContains(t, err, "unexpected element count 2")
+	require.Nil(t, msg)
+}
+
 func TestBlockTxsRequestRejectsDuplicateBitmapBeforeTypedDecode(t *testing.T) {
-	// [2, origin, {_ 0: 1, 0: 2}]
+	// [3, origin, {_ 0: 1, 0: 2}]
 	wire := []byte{
 		0x83, MessageTypeBlockTxsRequest, 0x80,
 		0xbf, 0x00, 0x01, 0x00, 0x02, 0xff,
 	}
 	msg, err := NewMsgFromCbor(MessageTypeBlockTxsRequest, wire)
-	require.ErrorContains(t, err, "duplicate block transaction bitmap key 0")
+	require.ErrorContains(t, err, "not strictly ascending")
 	require.Nil(t, msg)
+}
+
+// The reference node reads bitmaps in wire order and rejects a key that does
+// not exceed its predecessor, a zero bitmap, and a key past the last bitmap an
+// endorser block can need. Both map encodings are accepted.
+func TestBlockTxsRequestBitmapRules(t *testing.T) {
+	point := []byte{0x80}
+	request := func(bitmaps ...byte) []byte {
+		return append(
+			append([]byte{0x83, MessageTypeBlockTxsRequest}, point...),
+			bitmaps...,
+		)
+	}
+	tests := []struct {
+		name    string
+		wire    []byte
+		wantErr string
+	}{
+		{
+			name: "definite map",
+			wire: request(0xa2, 0x00, 0x01, 0x01, 0x02),
+		},
+		{
+			name: "indefinite map",
+			wire: request(0xbf, 0x00, 0x01, 0x01, 0x02, 0xff),
+		},
+		{
+			name: "last index",
+			wire: request(0xa1, 0x19, 0x01, 0x0b, 0x01),
+		},
+		{
+			name:    "index past the last bitmap",
+			wire:    request(0xa1, 0x19, 0x01, 0x0c, 0x01),
+			wantErr: "must be an index below 268",
+		},
+		{
+			name:    "descending keys",
+			wire:    request(0xa2, 0x01, 0x01, 0x00, 0x01),
+			wantErr: "not strictly ascending",
+		},
+		{
+			name:    "zero bitmap",
+			wire:    request(0xa1, 0x00, 0x00),
+			wantErr: "selects no transaction",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			msg, err := NewMsgFromCbor(MessageTypeBlockTxsRequest, test.wire)
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				require.NotNil(t, msg)
+				return
+			}
+			require.ErrorContains(t, err, test.wantErr)
+			require.Nil(t, msg)
+		})
+	}
+}
+
+func TestWireTagsMatchReferenceNode(t *testing.T) {
+	assert.Equal(t, 0, MessageTypeDone)
+	assert.Equal(t, 1, MessageTypeBlockRequest)
+	assert.Equal(t, 2, MessageTypeBlock)
+	assert.Equal(t, 3, MessageTypeBlockTxsRequest)
+	assert.Equal(t, 4, MessageTypeBlockTxs)
+	// The extension messages must not reuse a reference tag
+	for _, tag := range []int{
+		MessageTypeVotesRequest,
+		MessageTypeVotes,
+		MessageTypeBlockRangeRequest,
+		MessageTypeNextBlockAndTxsInRange,
+		MessageTypeLastBlockAndTxsInRange,
+	} {
+		assert.Greater(t, tag, MessageTypeBlockTxs)
+	}
 }
 
 func TestLeiosFetchRolesRejectWrongDirectionBeforeDecode(t *testing.T) {
@@ -154,14 +284,14 @@ func getTestDefinitions() []testDefinition {
 					testPointHash(0x01),
 				),
 			),
-			MessageType: 0,
+			MessageType: 1,
 		},
 		{
 			Name: "MsgBlock",
 			Message: NewMsgBlock(
 				cbor.RawMessage([]byte{0x82, 0x01, 0x02}),
 			),
-			MessageType: 1,
+			MessageType: 2,
 		},
 		{
 			Name: "MsgBlockTxsRequest",
@@ -175,17 +305,26 @@ func getTestDefinitions() []testDefinition {
 					64: 0x00ff000000000000,
 				},
 			),
-			MessageType: 2,
+			MessageType: 3,
 		},
 		{
 			Name: "MsgBlockTxs",
 			Message: NewMsgBlockTxs(
+				pcommon.NewPoint(
+					12345,
+					testPointHash(0x01),
+				),
+				map[uint16]uint64{
+					0:  0x3,
+					64: 0x1,
+				},
 				[]cbor.RawMessage{
 					[]byte{0x82, 0x01, 0x02},
 					[]byte{0x82, 0x03, 0x04},
+					[]byte{0x82, 0x05, 0x06},
 				},
 			),
-			MessageType: 3,
+			MessageType: 4,
 		},
 		{
 			Name: "MsgVotesRequest",
@@ -195,7 +334,7 @@ func getTestDefinitions() []testDefinition {
 					{SlotNo: 200, VoterId: 2},
 				},
 			),
-			MessageType: 4,
+			MessageType: 10,
 		},
 		{
 			Name: "MsgVotes",
@@ -205,7 +344,7 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x07, 0x08},
 				},
 			),
-			MessageType: 5,
+			MessageType: 11,
 		},
 		{
 			Name: "MsgBlockRangeRequest",
@@ -219,7 +358,7 @@ func getTestDefinitions() []testDefinition {
 					testPointHash(0x09),
 				),
 			),
-			MessageType: 6,
+			MessageType: 12,
 		},
 		{
 			Name: "MsgNextBlockAndTxsInRange",
@@ -229,7 +368,7 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x03, 0x04},
 				},
 			),
-			MessageType: 7,
+			MessageType: 13,
 		},
 		{
 			Name: "MsgLastBlockAndTxsInRange",
@@ -240,12 +379,12 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x0d, 0x0e},
 				},
 			),
-			MessageType: 8,
+			MessageType: 14,
 		},
 		{
 			Name:        "MsgDone",
 			Message:     NewMsgDone(),
-			MessageType: 9,
+			MessageType: 0,
 		},
 	}
 }
@@ -374,17 +513,22 @@ func TestMsgBlockTxs(t *testing.T) {
 		[]byte{0x82, 0x03, 0x04},
 	}
 
-	msg := NewMsgBlockTxs(txs)
+	point := pcommon.NewPoint(123, testPointHash(0x01))
+	bitmaps := map[uint16]uint64{0: 0x3}
+
+	msg := NewMsgBlockTxs(point, bitmaps, txs)
 
 	assert.Equal(t, uint8(MessageTypeBlockTxs), msg.Type())
+	assert.Equal(t, point, msg.Point)
+	assert.Equal(t, bitmaps, msg.Bitmaps)
 	assert.Equal(t, txs, msg.TxsRaw)
 }
 
-func TestMsgBlockTxsFullUsesRequestBitmapEncoding(t *testing.T) {
+func TestMsgBlockTxsUsesRequestBitmapEncoding(t *testing.T) {
 	point := pcommon.NewPoint(123, testPointHash(0x01))
 	bitmaps := map[uint16]uint64{
 		0:  1,
-		64: 0x00ff000000000000,
+		64: 0x1,
 	}
 
 	requestEncoded, err := cbor.Encode(
@@ -393,10 +537,13 @@ func TestMsgBlockTxsFullUsesRequestBitmapEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	responseEncoded, err := cbor.Encode(
-		NewMsgBlockTxsFull(
+		NewMsgBlockTxs(
 			point,
 			bitmaps,
-			[]cbor.RawMessage{[]byte{0x82, 0x01, 0x02}},
+			[]cbor.RawMessage{
+				[]byte{0x82, 0x01, 0x02},
+				[]byte{0x82, 0x03, 0x04},
+			},
 		),
 	)
 	require.NoError(t, err)
@@ -591,7 +738,11 @@ func TestMsgVotesRequestEmpty(t *testing.T) {
 }
 
 func TestMsgBlockTxsEmpty(t *testing.T) {
-	msg := NewMsgBlockTxs([]cbor.RawMessage{})
+	msg := NewMsgBlockTxs(
+		pcommon.NewPoint(123, testPointHash(0x01)),
+		nil,
+		[]cbor.RawMessage{},
+	)
 
 	encoded, err := cbor.Encode(msg)
 	require.NoError(t, err)

@@ -22,13 +22,19 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
-const rangeTxDecodedBudgetBytes = 64
+const (
+	rangeTxDecodedBudgetBytes = 64
+	// maxWireRangeTxs bounds the transactions of one block-range response,
+	// which is an extension message and not limited by the reference
+	// endorser block size.
+	maxWireRangeTxs = (1 << 16) * 64
+)
 
 func maxRangeTransactionCount(maxBytes int) int {
 	if maxBytes <= 0 {
 		return 0
 	}
-	return min(maxWireBlockTxs, maxBytes/rangeTxDecodedBudgetBytes)
+	return min(maxWireRangeTxs, maxBytes/rangeTxDecodedBudgetBytes)
 }
 
 func (m *MsgVotes) unmarshalCBORWithLimits(

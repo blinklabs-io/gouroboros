@@ -77,29 +77,29 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
 
 | Message | Type ID | Direction | Description |
 |---------|---------|-----------|-------------|
-| `BlockRequest` | 0 | Client → Server | Request single block |
-| `Block` | 1 | Server → Client | Block response |
-| `BlockTxsRequest` | 2 | Client → Server | Request block transactions |
-| `BlockTxs` | 3 | Server → Client | Block transactions response |
-| `VotesRequest` | 4 | Client → Server | Request votes |
-| `Votes` | 5 | Server → Client | Votes response |
-| `BlockRangeRequest` | 6 | Client → Server | Request range of blocks |
-| `NextBlockAndTxsInRange` | 7 | Server → Client | Next block in range |
-| `LastBlockAndTxsInRange` | 8 | Server → Client | Last block in range |
-| `Done` | 9 | Client → Server | Terminate protocol |
+| `Done` | 0 | Client → Server | Terminate protocol |
+| `BlockRequest` | 1 | Client → Server | Request single block |
+| `Block` | 2 | Server → Client | Block response |
+| `BlockTxsRequest` | 3 | Client → Server | Request block transactions |
+| `BlockTxs` | 4 | Server → Client | Block transactions response |
+| `VotesRequest` | 10 | Client → Server | Request votes |
+| `Votes` | 11 | Server → Client | Votes response |
+| `BlockRangeRequest` | 12 | Client → Server | Request range of blocks |
+| `NextBlockAndTxsInRange` | 13 | Server → Client | Next block in range |
+| `LastBlockAndTxsInRange` | 14 | Server → Client | Last block in range |
 
-Message IDs follow the [`leios-prototype` CDDL at revision
-8b946c4](https://github.com/cardano-scaling/cardano-blueprint/blob/8b946c431e3209b2aa70bf5362f64f42e56fb849/src/network/node-to-node/leios-fetch/messages.cddl)
-only in part:
+Tags 0–4 are the LeiosFetch messages of the node of Leios release candidate
+2026w41, which numbers the messages of both Leios mini-protocols from zero. The
+reference node speaks no other message. Tags 10–14 are extensions of this
+library: they are numbered clear of the reference tags and a peer that does not
+implement them rejects them as unknown, so do not send them to a reference
+node.
 
-- Defined: tags 0–3 and 9.
-- Commented out as "not implemented yet in leios-prototype": tags 6
-  (`BlockRangeRequest`), 7 (`NextBlockAndTxsInRange`) and 8
-  (`LastBlockAndTxsInRange`).
-- Not in that CDDL: tags 4 and 5 (`VotesRequest`, `Votes`), and any
-  not-found message at IDs 10 or 11. CIP-0164 describes vote requests as a
-  separate `MsgLeiosVotesRequestNext` / `MsgLeiosVote` exchange, so tags 4–5
-  here have no upstream source at this revision.
+`BlockTxs` is `[4, point, bitmaps, txs]`: it echoes the request's point and
+bitmaps and holds one transaction for each bit set in them. Bitmaps are a map
+of ascending indices below 268 to non-zero 64-bit bitmaps, in definite or
+indefinite form; requests are encoded in indefinite form. An endorser block
+references at most 17,142 transactions.
 
 CIP-0164 says a server should disconnect when requested data is unavailable.
 

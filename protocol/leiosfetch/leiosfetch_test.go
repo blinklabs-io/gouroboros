@@ -918,7 +918,7 @@ func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
 				ProtocolId: leiosfetch.ProtocolId,
 				IsResponse: true,
 				Messages: []protocol.Message{
-					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}, {0x80}}),
+					leiosfetch.NewMsgBlockTxs(point, bitmaps, []cbor.RawMessage{{0x80}, {0x80}}),
 				},
 			},
 		)
@@ -942,7 +942,7 @@ func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
 				ProtocolId: leiosfetch.ProtocolId,
 				IsResponse: true,
 				Messages: []protocol.Message{
-					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}, {0x80}, {0x80}}),
+					leiosfetch.NewMsgBlockTxs(point, bitmaps, []cbor.RawMessage{{0x80}, {0x80}, {0x80}}),
 				},
 			},
 		)

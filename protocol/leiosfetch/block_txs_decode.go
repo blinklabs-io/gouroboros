@@ -16,18 +16,37 @@ package leiosfetch
 
 import (
 	"fmt"
+	"math/bits"
 
 	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 	"github.com/blinklabs-io/gouroboros/protocol/internal/cborwalk"
 )
 
 const (
-	maxWireBlockBitmaps = int(^uint16(0)) + 1
-	maxWireBlockTxs     = maxWireBlockBitmaps * 64
+	// maxWireBlockTxs is the most transactions an endorser block can
+	// reference; the reference node rejects any bitmaps or reply beyond it.
+	maxWireBlockTxs = 17_142
+	// maxWireBlockBitmaps is the number of 64-bit bitmaps covering
+	// maxWireBlockTxs. A bitmap key is an index below it.
+	maxWireBlockBitmaps = (maxWireBlockTxs + 63) / 64
 )
 
+// bitmapTxCount returns the number of transactions the bitmaps select.
+func bitmapTxCount(bitmaps map[uint16]uint64) int {
+	count := 0
+	for _, bitmap := range bitmaps {
+		count += bits.OnesCount64(bitmap)
+	}
+	return count
+}
+
+// validateBlockTxBitmaps applies the checks the reference node makes while
+// decoding bitmaps, in wire order: keys strictly ascend, each below
+// maxWireBlockBitmaps, and no bitmap is zero. Ascending keys also exclude a
+// duplicate.
 func validateBlockTxBitmaps(data []byte, maxCount int) error {
-	var seen [maxWireBlockBitmaps / 8]byte
+	maxCount = min(maxCount, maxWireBlockBitmaps)
+	next := uint64(0)
 	return cborpreflight.ValidateMap(
 		data,
 		maxCount,
@@ -36,28 +55,32 @@ func validateBlockTxBitmaps(data []byte, maxCount int) error {
 			keyHead, ok, err := cborwalk.ReadHead(key, 0)
 			if err != nil || !ok || keyHead.Major != 0 ||
 				keyHead.EncodedSize != len(key) ||
-				keyHead.Argument > uint64(^uint16(0)) {
+				keyHead.Argument >= maxWireBlockBitmaps {
 				return fmt.Errorf(
-					"block transaction bitmap key %d must be uint16",
+					"block transaction bitmap key %d must be an index below %d",
 					idx,
+					maxWireBlockBitmaps,
 				)
 			}
-			keyValue := uint16(keyHead.Argument)
-			byteIndex := keyValue >> 3
-			bit := byte(1 << (keyValue & 7))
-			if seen[byteIndex]&bit != 0 {
+			if keyHead.Argument < next {
 				return fmt.Errorf(
-					"duplicate block transaction bitmap key %d",
-					keyValue,
+					"block transaction bitmap key %d is not strictly ascending",
+					keyHead.Argument,
 				)
 			}
-			seen[byteIndex] |= bit
+			next = keyHead.Argument + 1
 			valueHead, ok, err := cborwalk.ReadHead(value, 0)
 			if err != nil || !ok || valueHead.Major != 0 ||
 				valueHead.EncodedSize != len(value) {
 				return fmt.Errorf(
 					"block transaction bitmap value %d must be uint64",
 					idx,
+				)
+			}
+			if valueHead.Argument == 0 {
+				return fmt.Errorf(
+					"block transaction bitmap %d selects no transaction",
+					keyHead.Argument,
 				)
 			}
 			return nil

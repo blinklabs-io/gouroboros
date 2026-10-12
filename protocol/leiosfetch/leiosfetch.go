@@ -42,6 +42,19 @@ const (
 	MaxVoteRequestIDs = 131_073
 	// MaxVotesMessageBytes matches the existing Leios vote-offer byte budget.
 	MaxVotesMessageBytes = 256 * 1024
+
+	// MaxIdleMessageBytes is the largest message the reference node accepts
+	// while the client holds agency, which is any request.
+	MaxIdleMessageBytes = 0xffff
+	// MaxBlockMessageBytes is the largest message the reference node accepts
+	// in reply to a block request: an endorser block of at most 600,000 bytes
+	// plus a tenth of margin for the framing.
+	MaxBlockMessageBytes = pcommon.MaxLeiosEndorserBlockSize +
+		pcommon.MaxLeiosEndorserBlockSize/10
+	// MaxBlockTxsMessageBytes is the largest message the reference node
+	// accepts in reply to a block transactions request: 500,000 bytes of
+	// transactions plus a tenth of margin for the framing.
+	MaxBlockTxsMessageBytes = 500_000 + 500_000/10
 )
 
 var (
@@ -55,7 +68,8 @@ var (
 
 var StateMap = protocol.StateMap{
 	StateIdle: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: MaxIdleMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlockRequest,
@@ -80,7 +94,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateBlock: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxBlockMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlock,
@@ -89,7 +104,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateBlockTxs: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxBlockTxsMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlockTxs,
