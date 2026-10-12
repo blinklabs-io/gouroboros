@@ -160,6 +160,11 @@ func TestDetermineBlockTypeHeaderShapeBoundaries(t *testing.T) {
 				headerCbor, err := cbor.Encode([]any{body, []byte{}})
 				require.NoError(t, err)
 				blockType, err := DetermineBlockType(headerCbor)
+				if tc.fields == HeaderBodyLengthBabbageLike {
+					require.Zero(t, blockType)
+					require.ErrorIs(t, err, ErrAmbiguousBlockType)
+					return
+				}
 				if tc.errText != "" {
 					require.ErrorContainsf(t, err, tc.errText,
 						"classified as block type %d", blockType)

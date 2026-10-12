@@ -24,8 +24,6 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
-	"github.com/blinklabs-io/gouroboros/internal/testdata"
-	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -164,7 +162,9 @@ func TestStopWaitsForActiveOperationBeforeRestart(t *testing.T) {
 	}()
 	select {
 	case <-startDone:
-		t.Fatal("Start replaced protocol state before the active operation ended")
+		t.Fatal(
+			"Start replaced protocol state before the active operation ended",
+		)
 	default:
 	}
 
@@ -416,16 +416,13 @@ func TestStopCancelsAwaitReplyPipelineFence(t *testing.T) {
 	release := func() {
 		releaseOnce.Do(func() { close(releaseApply) })
 	}
-	p := pipeline.NewBlockPipeline(
-		pipeline.WithDecodeWorkers(1),
-		pipeline.WithValidateWorkers(0),
-		pipeline.WithSkipBodyHashValidation(true),
-		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error {
+	p := pipeline.NewBlockPipeline(validatedPipelineOptions(t,
+		func(*pipeline.BlockItem) error {
 			close(applyStarted)
 			<-releaseApply
 			return nil
-		}),
-	)
+		},
+	)...)
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
@@ -459,12 +456,13 @@ func TestStopCancelsAwaitReplyPipelineFence(t *testing.T) {
 	client.Start()
 	defer func() { require.NoError(t, client.Stop()) }()
 
+	shelley := chainSyncShelleyBlock(t)
 	require.NoError(
 		t,
 		p.Submit(
 			context.Background(),
-			uint(ledger.BlockTypeConway),
-			testdata.MustDecodeHex(testdata.ConwayBlockHex),
+			shelley.BlockType,
+			shelley.Cbor,
 			Tip{},
 		),
 	)
