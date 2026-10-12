@@ -81,6 +81,31 @@ func TestBootstrapWitnessRejectsInvalidWidths(t *testing.T) {
 	}
 }
 
+func TestBootstrapWitnessDefersChainCodeWidthToEraDecoder(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		chainCodeSize int
+	}{
+		{name: "short", chainCodeSize: 31},
+		{name: "long", chainCodeSize: 33},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := cbor.Encode(common.BootstrapWitness{
+				PublicKey:  make([]byte, 32),
+				Signature:  make([]byte, 64),
+				ChainCode:  make([]byte, tc.chainCodeSize),
+				Attributes: []byte{0xa0},
+			})
+			require.NoError(t, err)
+
+			var witness common.BootstrapWitness
+			_, err = cbor.Decode(raw, &witness)
+			require.NoError(t, err)
+			require.Len(t, witness.ChainCode, tc.chainCodeSize)
+		})
+	}
+}
+
 func TestBootstrapWitnessAcceptsIndefiniteArray(t *testing.T) {
 	publicKey := make([]byte, 32)
 	signature := make([]byte, 64)
