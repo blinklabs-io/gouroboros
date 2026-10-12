@@ -11,7 +11,7 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-func TestServerGetAvailableMessageIDsDoNotBecomePeerOutstanding(t *testing.T) {
+func TestServerGetAvailableMessageIDsRemainLocalDuringRequests(t *testing.T) {
 	cfg := NewConfig()
 	// Disable validation to simplify queueing in this unit test
 	cfg.Authenticator = pcommon.NewNoOpAuthenticator(nil)
@@ -65,14 +65,40 @@ func TestServerGetAvailableMessageIDsDoNotBecomePeerOutstanding(t *testing.T) {
 		t.Fatalf("expected three queued IDs, got %d", len(ids1))
 	}
 	if len(s.pendingMessageIDs) != 0 {
-		t.Fatalf("local queue IDs became peer outstanding: %x", s.pendingMessageIDs)
+		t.Fatalf(
+			"local queue IDs became peer outstanding: %x",
+			s.pendingMessageIDs,
+		)
 	}
-	if err := s.RequestMessages([][]byte{ids1[0].MessageID}); !errors.Is(err, protocol.ErrProtocolViolationRequestExceeded) {
-		t.Fatalf("RequestMessages error = %v, want outstanding-window rejection", err)
+	if err := s.RequestMessages([][]byte{ids1[0].MessageID}); !errors.Is(
+		err,
+		protocol.ErrProtocolViolationRequestExceeded,
+	) {
+		t.Fatalf(
+			"RequestMessages error = %v, want outstanding-window rejection",
+			err,
+		)
 	}
 
+	s.pendingIDRequest = &messageIDRequest{blocking: true, requested: 1}
 	ids2 := s.GetAvailableMessageIDs(10)
 	if len(ids2) != 3 || len(s.pendingMessageIDs) != 0 {
-		t.Fatalf("second queue read changed peer outstanding IDs: ids=%d pending=%x", len(ids2), s.pendingMessageIDs)
+		t.Fatalf(
+			"ID request hid local IDs or changed peer outstanding IDs: ids=%d pending=%x",
+			len(ids2),
+			s.pendingMessageIDs,
+		)
+	}
+	s.pendingIDRequest = nil
+	s.pendingMsgRequest = &messageRequest{
+		ids: map[string]struct{}{string(id1): {}},
+	}
+	ids3 := s.GetAvailableMessageIDs(10)
+	if len(ids3) != 3 || len(s.pendingMessageIDs) != 0 {
+		t.Fatalf(
+			"body request hid local IDs or changed peer outstanding IDs: ids=%d pending=%x",
+			len(ids3),
+			s.pendingMessageIDs,
+		)
 	}
 }

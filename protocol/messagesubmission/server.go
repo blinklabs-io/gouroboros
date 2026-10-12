@@ -247,18 +247,6 @@ func (s *Server) GetAvailableMessageIDs(count int) []pcommon.MessageIDAndSize {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	// Guard: prevent overwriting pending IDs if a request is already in flight
-	if s.pendingIDRequest != nil || s.pendingMsgRequest != nil {
-		s.Protocol.Logger().
-			Debug("ignoring GetAvailableMessageIDs; request already in flight",
-				"component", "network",
-				"protocol", ProtocolName,
-				"role", "server",
-				"connection_id", s.callbackContext.ConnectionId.String(),
-			)
-		return []pcommon.MessageIDAndSize{}
-	}
-
 	ids := make([]pcommon.MessageIDAndSize, 0, count)
 	now := time.Now().Unix()
 
