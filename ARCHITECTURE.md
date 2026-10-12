@@ -420,32 +420,38 @@ err = ts.SubmitTx(txCbor)
 ## Data Flow: Block Processing
 
 ```
-1. Network receives block bytes
-2. DetermineBlockType(header) -> BlockType
-3. NewBlockFromCbor(type, bytes) -> Block
+1. Network receives the hard-fork envelope type and block bytes
+2. `BlockTypeResolver` reads the preserved signed header and confirms that the
+   envelope type is the authoritative active era
+3. NewBlockFromCbor(envelopeType, bytes) -> Block
 4. Extract components:
    |- BlockHeader (VRF, KES, slot)
    |- Transaction bodies
    |- Witness sets
    |- Metadata
-5. VerifyBlock() validates:
+5. VerifyBlockLocal() validates:
    |- Body hash matches header
    |- Block-local VRF proof bytes and KES signature
-   |- Ledger rules per era
-6. For each transaction:
+6. ChainContextValidator checks ordered linkage and consensus state
+7. VerifyBlockState() reads refreshed ledger state and protocol parameters
+   and checks certificates, block limits, pool registration, and transactions:
    |- Verify signatures
    |- Check fees, TTL
    |- Validate UTxO consumption
    |- Execute supported Plutus scripts
    |- Process certificates
-7. Update ledger state
+8. `ApplyFunc` atomically updates ledger state
 ```
 
-`VerifyBlock()` and `pipeline.ValidateStage` are block-local validation helpers,
-not complete consensus gates. They do not receive the previous header, active
+`VerifyBlockLocal()` checks cryptography and body integrity without ledger state.
+`VerifyBlockState()` checks certificates, block limits, transactions, and pool
+registration against the state before the block. `VerifyBlock()` combines both.
+These helpers are not complete consensus gates. They do not receive the previous
+header, active
 stake distribution, active slot coefficient, max KES evolutions, or operational
 certificate sequence state. Production chain validation must combine these
-checks with chain-context consensus validation before accepting a block.
+checks with pre-decode block-type resolution and ordered chain-context
+consensus validation before accepting a block.
 
 `VerifyBlock()` takes the ledger state before the block and validates each
 transaction against it plus the effects of the transactions before it in the
@@ -492,30 +498,45 @@ The `pipeline` package provides a staged block processing pipeline with worker p
 ```
 
 - **DecodeStage**: CBOR decoding of raw block bytes (parallelizable)
-- **ValidateStage**: Block-local validation (VRF proof bytes, KES signature, ledger rules)
-- **ApplyStage**: State updates (must preserve ordering)
+- **ValidateStage**: Parallel block-local cryptography and body integrity
+- **ApplyStage**: Ordered chain-context validation, refreshed ledger validation,
+  and atomic state updates
+
+Normal pipelines require `VerifyConfigProvider` to read ledger state and protocol
+parameters after earlier blocks commit. The ordered stage checks certificates,
+block limits, transactions, and pool registration before calling `ApplyFunc`.
+Parallel workers never read that mutable ledger state.
+
+`WithHeaderOnly()` returns ordered, cryptographically checked blocks to an
+external ledger validator without applying them. `WithTrustedDecodeOnly()`
+decodes trusted persisted data without validation. Neither offline mode is
+accepted by ChainSync or BlockFetch clients. Network pipelines must own ordered
+validation and application; each peer needs its own pipeline because a rejection
+stops processing, and each protocol fence waits for ordered completion.
 
 Usage:
 ```go
 pipeline := pipeline.NewBlockPipeline(
     pipeline.WithDecodeWorkers(4),
     pipeline.WithValidateWorkers(2),
+    pipeline.WithBlockTypeResolver(resolveBlockType),
+    pipeline.WithEta0Provider(eta0Provider),
+    pipeline.WithSlotsPerKesPeriod(slotsPerKesPeriod),
+    pipeline.WithChainContextValidator(validateChainContext),
+    pipeline.WithVerifyConfigProvider(currentVerifyConfig),
+    pipeline.WithApplyFunc(applyBlock),
 )
-pipeline.Start(ctx)
-pipeline.Submit(blockItem)
-for result := range pipeline.Results() {
-    // consume result
-    result.Release()
-}
+if err := pipeline.Start(ctx); err != nil { ... }
+if err := pipeline.Submit(ctx, blockType, rawBlock, tip); err != nil { ... }
+for result := range pipeline.Results() { ... }
 ```
 
 Pipeline admission reserves the raw and decoded full block CBOR copies against
-`MaxRawCborBytes` before allocating a `BlockItem`. A result keeps that charge
-while either copy remains available. Consumers call `BlockItem.Release()`
-after using a result; release is idempotent and clears both `RawCbor()` and
-`Block()`. A zero byte limit selects `DefaultMaxRawCborBytes`, and stopping the
-pipeline retires all remaining internally owned items. Results already sent to
-the result channel remain the consumer's responsibility after stop.
+`MaxRawCborBytes` before allocating a `BlockItem`. Delivery returns the charge
+to the pipeline; consumers may call `BlockItem.Release()` to clear the result's
+raw and decoded data after use. A zero byte limit selects
+`DefaultMaxRawCborBytes`, and stopping the pipeline retires all remaining
+internally owned items. Delivered results remain available to their consumers.
 
 ## Testing
 

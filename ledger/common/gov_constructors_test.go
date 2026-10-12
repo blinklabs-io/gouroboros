@@ -124,6 +124,23 @@ func TestNewTreasuryWithdrawalGovAction(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestTreasuryWithdrawalGovActionAcceptsIndefiniteArray(t *testing.T) {
+	addr, err := NewAddress(
+		"stake1u9f9v0z5zzlldgx58n8tklphu8mf7h4jvp2j2gddluemnssjfnkzz",
+	)
+	require.NoError(t, err)
+	action, err := NewTreasuryWithdrawalGovAction(
+		map[*Address]uint64{&addr: 5_000_000},
+		nil,
+	)
+	require.NoError(t, err)
+	encoded, err := cbor.Encode(action)
+	require.NoError(t, err)
+
+	var decoded TreasuryWithdrawalGovAction
+	require.NoError(t, decoded.UnmarshalCBOR(indefiniteArray(t, encoded)))
+}
+
 func TestNewNoConfidenceGovAction(t *testing.T) {
 	action, err := NewNoConfidenceGovAction(nil)
 	require.NoError(t, err)
@@ -199,6 +216,25 @@ func TestNewUpdateCommitteeGovAction(t *testing.T) {
 		cbor.Rat{Rat: big.NewRat(1, 2)},
 	)
 	require.ErrorContains(t, err, "duplicate removal credential")
+}
+
+func TestUpdateCommitteeGovActionAcceptsIndefiniteArray(t *testing.T) {
+	credential := Credential{
+		CredType:   CredentialTypeAddrKeyHash,
+		Credential: NewBlake2b224([]byte("test")),
+	}
+	action, err := NewUpdateCommitteeGovAction(
+		nil,
+		[]Credential{credential},
+		map[*Credential]uint64{&credential: 42},
+		cbor.Rat{Rat: big.NewRat(2, 3)},
+	)
+	require.NoError(t, err)
+	encoded, err := cbor.Encode(action)
+	require.NoError(t, err)
+
+	var decoded UpdateCommitteeGovAction
+	require.NoError(t, decoded.UnmarshalCBOR(indefiniteArray(t, encoded)))
 }
 
 func TestUpdateCommitteeGovActionUnmarshalCBORRejectsNilCredEpochKey(t *testing.T) {
@@ -324,6 +360,21 @@ func TestNewNewConstitutionGovAction(t *testing.T) {
 	require.Error(t, err)
 	_, err = NewNewConstitutionGovAction(nil, anchor, []byte{})
 	require.Error(t, err)
+}
+
+func TestNewConstitutionGovActionAcceptsIndefiniteArray(t *testing.T) {
+	anchor, err := NewGovAnchor(
+		"https://example.com/constitution.json",
+		make([]byte, Blake2b256Size),
+	)
+	require.NoError(t, err)
+	action, err := NewNewConstitutionGovAction(nil, anchor, nil)
+	require.NoError(t, err)
+	encoded, err := cbor.Encode(action)
+	require.NoError(t, err)
+
+	var decoded NewConstitutionGovAction
+	require.NoError(t, decoded.UnmarshalCBOR(indefiniteArray(t, encoded)))
 }
 
 func TestNewInfoGovAction(t *testing.T) {

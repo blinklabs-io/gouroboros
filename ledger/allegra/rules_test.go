@@ -293,11 +293,11 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 
 func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
-	testGoodInput := shelley.NewShelleyTransactionInput(
+	testGoodInput := shelley.MustNewShelleyTransactionInput(
 		testInputTxId,
 		0,
 	)
-	testBadInput := shelley.NewShelleyTransactionInput(
+	testBadInput := shelley.MustNewShelleyTransactionInput(
 		testInputTxId,
 		1,
 	)
@@ -506,7 +506,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			TxFee: testFee,
 			TxInputs: shelley.NewShelleyTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 				},
 			),
 			TxOutputs: []shelley.ShelleyTransactionOutput{
@@ -517,7 +517,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	}
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: testInputAmount,
 			},

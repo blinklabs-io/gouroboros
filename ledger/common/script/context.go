@@ -1116,7 +1116,7 @@ func certificateToPlutusData(
 			data.NewConstr(1),
 		)
 	case *lcommon.RegistrationCertificate:
-		deposit := Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData()
+		deposit := Option[*big.Int]{Value: new(big.Int).SetUint64(c.Amount)}.ToPlutusData()
 		if protocolVersionMajor == lcommon.ProtocolVersionConway {
 			deposit = Option[*big.Int]{}.ToPlutusData()
 		}
@@ -1132,7 +1132,7 @@ func certificateToPlutusData(
 			data.NewConstr(1),
 		)
 	case *lcommon.DeregistrationCertificate:
-		refund := Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData()
+		refund := Option[*big.Int]{Value: new(big.Int).SetUint64(c.Amount)}.ToPlutusData()
 		if protocolVersionMajor == lcommon.ProtocolVersionConway {
 			refund = Option[*big.Int]{}.ToPlutusData()
 		}
@@ -1177,7 +1177,7 @@ func certificateToPlutusData(
 				0,
 				toPlutusData(c.PoolKeyHash),
 			),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(new(big.Int).SetUint64(c.Amount)),
 		)
 	case *lcommon.VoteRegistrationDelegationCertificate:
 		return data.NewConstr(
@@ -1187,7 +1187,7 @@ func certificateToPlutusData(
 				1,
 				c.Drep.ToPlutusData(),
 			),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(new(big.Int).SetUint64(c.Amount)),
 		)
 	case *lcommon.StakeVoteRegistrationDelegationCertificate:
 		return data.NewConstr(
@@ -1198,13 +1198,13 @@ func certificateToPlutusData(
 				c.PoolKeyHash.ToPlutusData(),
 				c.Drep.ToPlutusData(),
 			),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(new(big.Int).SetUint64(c.Amount)),
 		)
 	case *lcommon.RegistrationDrepCertificate:
 		return data.NewConstr(
 			4,
 			c.DrepCredential.ToPlutusData(),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(new(big.Int).SetUint64(c.Amount)),
 		)
 	case *lcommon.UpdateDrepCertificate:
 		return data.NewConstr(
@@ -1215,7 +1215,7 @@ func certificateToPlutusData(
 		return data.NewConstr(
 			6,
 			c.DrepCredential.ToPlutusData(),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(new(big.Int).SetUint64(c.Amount)),
 		)
 	case *lcommon.PoolRegistrationCertificate:
 		return data.NewConstr(

@@ -29,6 +29,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEnsureRegisteredRefusesAfterStop(t *testing.T) {
+	localConn, remoteConn := net.Pipe()
+	t.Cleanup(func() { _ = remoteConn.Close() })
+	protocolMuxer := muxer.New(localConn)
+	t.Cleanup(protocolMuxer.Stop)
+	proto := New(ProtocolConfig{Muxer: protocolMuxer})
+
+	proto.Stop()
+	proto.EnsureRegistered()
+
+	require.False(t, proto.registered)
+	require.Nil(t, proto.muxerDoneChan)
+}
+
 func TestInitialStateTimeoutOptIn(t *testing.T) {
 	for _, test := range []struct {
 		name        string
@@ -994,4 +1008,32 @@ func TestReadLoopRejectsAnOversizedMessageOnTheProtocolCap(t *testing.T) {
 		m.ReadBufferInUse(),
 		"the refused mini-protocol kept part of the connection allowance",
 	)
+}
+
+func TestReadLoopAccountsRetainedCapacityAfterDelivery(t *testing.T) {
+	t.Parallel()
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() { m.Stop(); _ = peerConn.Close() })
+	m.RaiseReadBufferBudget(8192)
+	// A complete 1000-byte message precedes a 3000-byte prefix of a
+	// second message, leaving the original 4000-byte allocation retained.
+	first := append([]byte{0x82, 0, 0x59, 0x03, 0xe3}, bytes.Repeat([]byte{1}, 995)...)
+	tail := append([]byte{0x82, 0, 0x59, 0x0f, 0xa0}, bytes.Repeat([]byte{2}, 2995)...)
+	payload := append(first, tail...)
+	p := newBudgetTestProtocol(t, m, "retained", 8192, []*muxer.Segment{muxer.NewSegment(0, payload, false)})
+	p.proto.recvQueueChan = make(chan Message, 1)
+	p.proto.config.MessageFromCborFunc = func(uint, []byte) (Message, error) { return &MessageBase{}, nil }
+	done := make(chan struct{})
+	go func() { defer close(done); p.proto.readLoop() }()
+	t.Cleanup(func() { close(p.proto.stopChan); <-done })
+	select {
+	case <-p.proto.recvQueueChan:
+	case err := <-p.errorChan:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("first message was not delivered")
+	}
+	require.Eventually(t, func() bool { return m.ReadBufferInUse() == 4000 }, time.Second, time.Millisecond)
+	require.Equal(t, 4000, m.ReadBufferInUse())
 }

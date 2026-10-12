@@ -106,6 +106,20 @@ func (b *BlockItem) setReleaseFunc(
 	b.mu.Unlock()
 }
 
+// releaseBudget transfers byte ownership out of the pipeline without clearing
+// the result's data, preserving consumers that predate explicit Release calls.
+func (b *BlockItem) releaseBudget() {
+	b.mu.Lock()
+	bytes := b.releaseBytes
+	releaseFunc := b.releaseFunc
+	b.releaseBytes = 0
+	b.releaseFunc = nil
+	b.mu.Unlock()
+	if releaseFunc != nil {
+		releaseFunc(bytes)
+	}
+}
+
 // Release retires this result and returns its retained CBOR bytes to the
 // pipeline admission budget. It is safe to call more than once. Callers must
 // not use RawCbor or Block after Release.

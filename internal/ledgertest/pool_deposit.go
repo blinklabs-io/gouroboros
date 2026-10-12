@@ -55,7 +55,7 @@ var _ common.EpochState = poolDepositEpochLedgerState{}
 // eras use shelley.NewShelleyTransactionInputSet.
 func PoolDepositInputs() []shelley.ShelleyTransactionInput {
 	return []shelley.ShelleyTransactionInput{
-		shelley.NewShelleyTransactionInput(poolDepositTxId, 0),
+		shelley.MustNewShelleyTransactionInput(poolDepositTxId, 0),
 	}
 }
 
@@ -114,7 +114,7 @@ func RunPoolDepositRuleCases(t *testing.T, f PoolDepositRuleFixture) {
 	onRecord := &common.PoolRegistrationCertificate{Operator: operator}
 	utxos := []common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(poolDepositTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(poolDepositTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: poolDepositInput,
 			},

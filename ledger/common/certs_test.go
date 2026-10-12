@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"math/big"
 	"net"
 	"reflect"
 	"strings"
@@ -70,6 +71,35 @@ func TestStakeDelegationCertificateUnmarshalCBORCredential(t *testing.T) {
 			require.NotNil(t, certificate.StakeCredential)
 		})
 	}
+}
+
+func TestRegistrationCertificateDecodesUint64Deposit(t *testing.T) {
+	const amount = ^uint64(0)
+	encoded, err := cbor.Encode([]any{
+		uint(CertificateTypeRegistration),
+		Credential{},
+		amount,
+	})
+	require.NoError(t, err)
+
+	var decoded RegistrationCertificate
+	_, err = cbor.DecodeExact(encoded, &decoded)
+	require.NoError(t, err)
+	require.Equal(t, amount, decoded.Amount)
+	require.Equal(t, new(big.Int).SetUint64(amount), decoded.DepositAmount())
+}
+
+func TestRegistrationCertificateRejectsNegativeDeposit(t *testing.T) {
+	encoded, err := cbor.Encode([]any{
+		uint(CertificateTypeRegistration),
+		Credential{},
+		int64(-1),
+	})
+	require.NoError(t, err)
+
+	var decoded RegistrationCertificate
+	_, err = cbor.DecodeExact(encoded, &decoded)
+	require.Error(t, err)
 }
 
 // TestDrepString tests CIP-0129 bech32 encoding for DRep identifiers.
@@ -515,6 +545,28 @@ func TestPoolRelayCBORRoundTrip(t *testing.T) {
 			assert.Equal(t, raw, reencoded)
 		})
 	}
+}
+
+func TestPoolRelayRejectsIndefiniteHostname(t *testing.T) {
+	raw := []byte{0x82, 0x02, 0x7f, 0x61, 'a', 0xff}
+	var relay PoolRelay
+	_, err := cbor.Decode(raw, &relay)
+	require.Error(t, err)
+}
+
+func TestPoolRelayRejectsIndefiniteAddress(t *testing.T) {
+	indefiniteIpv6 := append([]byte{0x5f, 0x50}, make([]byte, 16)...)
+	indefiniteIpv6 = append(indefiniteIpv6, 0xff)
+	raw, err := cbor.Encode([]any{
+		uint(PoolRelayTypeSingleHostAddress),
+		nil,
+		nil,
+		cbor.RawMessage(indefiniteIpv6),
+	})
+	require.NoError(t, err)
+	var relay PoolRelay
+	_, err = cbor.Decode(raw, &relay)
+	require.Error(t, err)
 }
 
 func TestPoolRelayCBORMarshalFreshValues(t *testing.T) {

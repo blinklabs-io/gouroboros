@@ -18,6 +18,7 @@
 package blockfetch
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -26,6 +27,11 @@ import (
 	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+)
+
+// ErrPipelineValidationRequired rejects pipelines that cannot validate peer blocks.
+var ErrPipelineValidationRequired = errors.New(
+	"peer block delivery requires a validating pipeline",
 )
 
 // ProtocolName is the name of the Block Fetch protocol.
@@ -139,6 +145,10 @@ type Config struct {
 	// fetched blocks with protocol points. Connections apply a non-zero value
 	// to both BlockFetch and ChainSync. Zero uses the legacy value.
 	ByronSlotsPerEpoch uint64
+	// IngressLimit overrides the base number of block-fetch payload bytes
+	// the muxer may hold before delivering them to the protocol. Zero uses
+	// the protocol's default ingress limit.
+	IngressLimit int
 }
 
 // MaxRecvQueueSize is the maximum allowed receive queue size (messages).
@@ -289,6 +299,9 @@ func NewConfig(options ...BlockFetchOptionFunc) (Config, error) {
 
 // validate checks that the configuration values are within protocol limits.
 func (c *Config) validate() error {
+	if c.Pipeline != nil && !c.Pipeline.ValidatesPeerBlocks() {
+		return ErrPipelineValidationRequired
+	}
 	if c.RecvQueueSize < 0 {
 		return fmt.Errorf(
 			"RecvQueueSize %d must be non-negative",
@@ -370,6 +383,14 @@ func WithRangeTimeout(timeout time.Duration) BlockFetchOptionFunc {
 	}
 }
 
+// WithIngressLimit sets the base block-fetch ingress limit in bytes.
+// Zero selects the protocol's default limit.
+func WithIngressLimit(limit int) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.IngressLimit = limit
+	}
+}
+
 // WithByronSlotsPerEpoch sets the Byron epoch length used for block points.
 // Zero selects the legacy mainnet value.
 func WithByronSlotsPerEpoch(slotsPerEpoch uint64) BlockFetchOptionFunc {
@@ -420,6 +441,8 @@ func WithRecvQueueSize(size int) BlockFetchOptionFunc {
 // When a pipeline is configured, received blocks are submitted to the pipeline
 // for parallel decoding, validation, and ordered application instead of being
 // processed synchronously through callbacks.
+// TrustedDecodeOnly and HeaderOnly pipelines are rejected because they do not
+// perform authoritative ordered ledger validation.
 func WithPipeline(p *pipeline.BlockPipeline) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.Pipeline = p

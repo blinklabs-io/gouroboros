@@ -225,15 +225,15 @@ func TestPlutusWitnessScriptsNilWitnessSet(t *testing.T) {
 // conway.UtxoValidatePlutusScripts, and Dijkstra's guarding-redeemer
 // execution now all share. These pin its order and error-type contract.
 func TestResolveTxInputsOrderAndErrors(t *testing.T) {
-	in1 := shelley.NewShelleyTransactionInput(
+	in1 := shelley.MustNewShelleyTransactionInput(
 		"1111111111111111111111111111111111111111111111111111111111111111",
 		0,
 	)
-	in2 := shelley.NewShelleyTransactionInput(
+	in2 := shelley.MustNewShelleyTransactionInput(
 		"2222222222222222222222222222222222222222222222222222222222222222",
 		1,
 	)
-	ref1 := shelley.NewShelleyTransactionInput(
+	ref1 := shelley.MustNewShelleyTransactionInput(
 		"3333333333333333333333333333333333333333333333333333333333333333",
 		0,
 	)
@@ -342,11 +342,11 @@ func TestNewTxScriptViewPartialViewKeepsReferenceScripts(t *testing.T) {
 	v1 := common.PlutusV1Script([]byte{0x01, 0x02})
 	scriptHash := v1.Hash()
 
-	spendInput := shelley.NewShelleyTransactionInput(
+	spendInput := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000001",
 		0,
 	)
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000002",
 		0,
 	)
@@ -398,11 +398,11 @@ func TestNewTxScriptViewPartialViewKeepsResolvedSpendScripts(t *testing.T) {
 	v1 := common.PlutusV1Script([]byte{0x03, 0x04})
 	scriptHash := v1.Hash()
 
-	resolvableSpend := shelley.NewShelleyTransactionInput(
+	resolvableSpend := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000003",
 		0,
 	)
-	unresolvableSpend := shelley.NewShelleyTransactionInput(
+	unresolvableSpend := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000004",
 		0,
 	)

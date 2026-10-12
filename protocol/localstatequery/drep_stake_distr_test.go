@@ -339,25 +339,20 @@ func TestDRepStakeDistrResultRejectsUnterminatedIndefiniteMap(t *testing.T) {
 // the result count one DRep's stake twice, which is the thing the duplicate
 // check exists to prevent.
 func TestDRepStakeDistrResultRejectsNonCanonicalDuplicateDRep(t *testing.T) {
-	t.Run("chunked credential", func(t *testing.T) {
+	t.Run("nonpreferred credential length", func(t *testing.T) {
 		//	81                     ; result wrapper, array(1)
 		//	  a2                   ; map(2)
 		//	    82 00 581c <28>    ; [0, hash28]
 		//	    18 32              ; 50
-		//	    82 00 5f 4e <14>
-		//	             4e <14>
-		//	             ff        ; the same hash28, chunked
+		//	    82 00 59 001c <28> ; same [0, hash28] with nonpreferred
+		//	                       ; length encoding
 		//	    18 64              ; 100
 		hash28 := strings.Repeat("ab", lcommon.Blake2b224Size)
-		half := strings.Repeat("ab", lcommon.Blake2b224Size/2)
 		definite := "8200" + "581c" + hash28
-		chunked := "8200" + "5f" +
-			"4e" + half +
-			"4e" + half +
-			"ff"
+		nonpreferred := "8200" + "59001c" + hash28
 		reply := mustDecodeHex(
 			t,
-			"81a2"+definite+"1832"+chunked+"1864",
+			"81a2"+definite+"1832"+nonpreferred+"1864",
 		)
 		var result DRepStakeDistrResult
 		_, err := cbor.Decode(reply, &result)

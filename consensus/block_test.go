@@ -927,6 +927,7 @@ func TestBuildHeaderTPraosRoundTripsWithHeaderValidator(t *testing.T) {
 		OpCertSequenceNumber: header.Body.OpCertSequenceNumber,
 		OpCertKesPeriod:      header.Body.OpCertKesPeriod,
 		OpCertSignature:      header.Body.OpCertSignature,
+		OpCertCounterState:   opCertSequence(0),
 		PrevSlot:             0,
 		PrevBlockNumber:      0,
 		PrevHeaderHash:       prevHash,

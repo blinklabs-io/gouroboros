@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
-	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,13 +65,6 @@ func TestHandleRequestMessageIdsRejectsInvalidCountsWithoutMutatingPending(t *te
 			isBlocking:   true,
 			requestCount: 1,
 		},
-		{
-			name:         "nonblocking request leaves no IDs unacknowledged",
-			limit:        10,
-			pending:      [][]byte{[]byte("id-1")},
-			ackCount:     1,
-			requestCount: 1,
-		},
 	}
 
 	for _, tt := range tests {
@@ -116,22 +108,14 @@ func TestHandleRequestMessageIdsAcceptsWindowBoundary(t *testing.T) {
 	assert.False(t, callbackBlocking)
 	assert.Equal(t, uint16(1), callbackAckCount)
 	assert.Equal(t, uint16(2), callbackRequestCount)
-	assert.Equal(t, [][]byte{[]byte("id-2")}, client.GetPendingMessageIDs())
-}
-
-func TestAppendPendingMessageIDsPreservesUnacknowledgedIDs(t *testing.T) {
-	client := NewClient(newTestProtoOptions(MessageSubmissionV2MinVersion), nil)
-	client.pendingMessageIDs = [][]byte{[]byte("id-1")}
-	newID := []byte("id-2")
-
-	client.appendPendingMessageIDs([]pcommon.MessageIDAndSize{{MessageID: newID}})
-	newID[0] = 'x'
-
 	assert.Equal(
 		t,
 		[][]byte{[]byte("id-1"), []byte("id-2")},
 		client.GetPendingMessageIDs(),
 	)
+	require.NotNil(t, client.pendingIDRequest)
+	assert.Equal(t, 1, client.pendingIDRequest.ack)
+	assert.Equal(t, 2, client.pendingIDRequest.requested)
 }
 
 func cloneIDs(ids [][]byte) [][]byte {

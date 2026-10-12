@@ -74,7 +74,7 @@ func withSpendRedeemer(index uint32) conway.ConwayRedeemers {
 // check catches the missing redeemer.
 func TestValidateRequiredRedeemersMissingReferenceScript(t *testing.T) {
 	v1 := common.PlutusV1Script{0x01, 0x02, 0x03}
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"1111111111111111111111111111111111111111111111111111111111111111",
 		0,
 	)
@@ -113,7 +113,7 @@ func TestValidateRequiredRedeemersMissingReferenceScript(t *testing.T) {
 // redeemer present.
 func TestValidateRequiredRedeemersValidReferenceScript(t *testing.T) {
 	v1 := common.PlutusV1Script{0x01, 0x02, 0x03}
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"1111111111111111111111111111111111111111111111111111111111111111",
 		0,
 	)
@@ -151,11 +151,11 @@ func TestValidateRequiredRedeemersValidReferenceScript(t *testing.T) {
 // spent input's own output carries no script at all.
 func TestValidateRequiredRedeemersScriptViaSeparateReferenceInput(t *testing.T) {
 	v1 := common.PlutusV1Script{0x01, 0x02, 0x03}
-	spentInput := shelley.NewShelleyTransactionInput(
+	spentInput := shelley.MustNewShelleyTransactionInput(
 		"9999999999999999999999999999999999999999999999999999999999999999",
 		0,
 	)
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		0,
 	)
@@ -214,7 +214,7 @@ func TestValidateRequiredRedeemersScriptViaSeparateReferenceInput(t *testing.T) 
 // redeemers exist in the transaction.
 func TestValidateRequiredRedeemersMissingWitnessScript(t *testing.T) {
 	v1 := common.PlutusV1Script{0x01, 0x02, 0x03}
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"2222222222222222222222222222222222222222222222222222222222222222",
 		0,
 	)
@@ -261,11 +261,11 @@ func TestValidateRequiredRedeemersMixedInputs(t *testing.T) {
 	v2 := common.PlutusV2Script{0x02}
 
 	// Sorts after "aaaa...", so v1's input lands at sorted index 1.
-	inputWitness := shelley.NewShelleyTransactionInput(
+	inputWitness := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		0,
 	)
-	inputRef := shelley.NewShelleyTransactionInput(
+	inputRef := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
@@ -323,11 +323,11 @@ func TestValidateRequiredRedeemersMixedInputsBothRedeemed(t *testing.T) {
 	v2 := common.PlutusV2Script{0x02}
 
 	// Sorts after "aaaa...", so v1's input lands at sorted index 1.
-	inputWitness := shelley.NewShelleyTransactionInput(
+	inputWitness := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		0,
 	)
-	inputRef := shelley.NewShelleyTransactionInput(
+	inputRef := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
@@ -388,11 +388,11 @@ func TestValidateRequiredRedeemersMixedInputsBothRedeemed(t *testing.T) {
 // exercises the derived sorted-input view used by this helper.
 func TestValidateRequiredRedeemersDeduplicatesInputs(t *testing.T) {
 	v1 := common.PlutusV1Script{0x01}
-	first := shelley.NewShelleyTransactionInput(
+	first := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
-	second := shelley.NewShelleyTransactionInput(
+	second := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		0,
 	)
@@ -443,7 +443,7 @@ func TestValidateRequiredRedeemersDeduplicatesInputs(t *testing.T) {
 // TestValidateRequiredRedeemersSkipsNonScriptAddress ensures a key-address
 // input is never treated as requiring a redeemer.
 func TestValidateRequiredRedeemersSkipsNonScriptAddress(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"3333333333333333333333333333333333333333333333333333333333333333",
 		0,
 	)
@@ -486,7 +486,7 @@ func TestValidateRequiredRedeemersSkipsNativeScript(t *testing.T) {
 	var ns common.NativeScript
 	require.NoError(t, ns.UnmarshalCBOR(nsCbor))
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"4444444444444444444444444444444444444444444444444444444444444444",
 		0,
 	)
@@ -527,7 +527,7 @@ func TestValidateRequiredRedeemersSkipsNativeWitnessScript(t *testing.T) {
 	var ns common.NativeScript
 	require.NoError(t, ns.UnmarshalCBOR(nsCbor))
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"6666666666666666666666666666666666666666666666666666666666666666",
 		0,
 	)
@@ -566,7 +566,7 @@ func TestValidateRequiredRedeemersSkipsNativeWitnessScript(t *testing.T) {
 // the same missing script.
 func TestValidateRequiredRedeemersSkipsScriptEntirelyMissing(t *testing.T) {
 	v1 := common.PlutusV1Script{0x01, 0x02, 0x03}
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"7777777777777777777777777777777777777777777777777777777777777777",
 		0,
 	)
@@ -603,7 +603,7 @@ func TestValidateRequiredRedeemersSkipsScriptEntirelyMissing(t *testing.T) {
 // switch to NewTxScriptViewSkippingUnresolved (#2162) changes it
 // deliberately rather than silently.
 func TestValidateRequiredRedeemersPropagatesInputResolutionError(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"8888888888888888888888888888888888888888888888888888888888888888",
 		0,
 	)
@@ -636,7 +636,7 @@ func TestValidateRequiredRedeemersMissingRedeemerPlutusV3AndV4(t *testing.T) {
 		{"PlutusV4", common.PlutusV4Script{0x01}, common.ScriptRefTypePlutusV4},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input := shelley.NewShelleyTransactionInput(
+			input := shelley.MustNewShelleyTransactionInput(
 				"9999999999999999999999999999999999999999999999999999999999999999",
 				0,
 			)
@@ -681,7 +681,7 @@ func TestValidateRequiredRedeemersMissingRedeemerPlutusV3AndV4(t *testing.T) {
 // every redeemer its script-locked inputs require.
 func TestValidateRequiredRedeemersAppliesRegardlessOfIsValid(t *testing.T) {
 	v1 := common.PlutusV1Script{0x01}
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"5555555555555555555555555555555555555555555555555555555555555555",
 		0,
 	)

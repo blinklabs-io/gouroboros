@@ -24,19 +24,19 @@ import (
 )
 
 func TestSortInputsDeduplicatesAndPreservesInputSlice(t *testing.T) {
-	first := shelley.NewShelleyTransactionInput(
+	first := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		1,
 	)
-	duplicate := shelley.NewShelleyTransactionInput(
+	duplicate := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		1,
 	)
-	second := shelley.NewShelleyTransactionInput(
+	second := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		2,
 	)
-	third := shelley.NewShelleyTransactionInput(
+	third := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		3,
 	)
