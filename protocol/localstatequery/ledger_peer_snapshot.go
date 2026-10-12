@@ -24,7 +24,15 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
-const ledgerPeerSnapshotWireVersion = 1
+// Internal wire versions of a LedgerPeerSnapshot result. Version 1 answers
+// the node-to-client version 19 to 22 request; versions 2 (big ledger peers)
+// and 3 (all ledger peers) answer the version 23 request, and add the
+// snapshot's block hash and network magic.
+const (
+	ledgerPeerSnapshotWireVersion    = 1
+	ledgerPeerSnapshotWireVersionBig = 2
+	ledgerPeerSnapshotWireVersionAll = 3
+)
 
 // WithOriginSlot is the CBOR encoding of Haskell's WithOrigin SlotNo:
 //
@@ -440,79 +448,247 @@ func encodeStake(r *cbor.Rat) ([]byte, error) {
 }
 
 // LedgerPeerSnapshotResult is the typed result of a GetLedgerPeerSnapshot
-// query.
+// query, without the era result wrapper. Version selects the wire layout:
 //
-// The supported node-to-client v19/v20 wire layout is:
+//	1: [1, [with_origin_slot, [* [acc_stake, [stake, relays]]]]]
+//	2: [2, [point, network_magic, [* [acc_stake, stake, relays]]]]
+//	3: [3, [point, network_magic, [* [stake, relays]]]]
 //
-//	[1, [WithOriginSlot, [PoolLedgerPeers ...]]]
+// where point is [0] at origin or [1, slot, block_hash]. Version 1 answers
+// node-to-client versions 19 to 22, which ask only for big ledger peers.
+// Version 23 answers with 2 for big ledger peers and 3 for all of them.
 //
-// Wire version 1 is LedgerPeerSnapshotV2 in ouroboros-network. Other snapshot
-// versions use different inner layouts and are rejected before decoding them.
+// Slot is filled for every version; BlockHash and NetworkMagic only for 2
+// and 3, and BlockHash is nil at origin. Version 3 entries carry no
+// accumulated stake, so their AccumulatedStake is nil.
 type LedgerPeerSnapshotResult struct {
-	// Version is 1 when decoded. Zero is accepted as an unset value when
-	// constructing a result; MarshalCBOR always emits the supported version 1.
-	Version uint64
-	Slot    WithOriginSlot
-	Pools   []PoolLedgerPeers
+	// Version is the wire version. Zero is accepted as an unset value when
+	// constructing a result and encodes as version 1.
+	Version      uint64
+	Slot         WithOriginSlot
+	BlockHash    []byte
+	NetworkMagic uint32
+	Pools        []PoolLedgerPeers
 }
 
 func (l *LedgerPeerSnapshotResult) UnmarshalCBOR(data []byte) error {
-	var outer struct {
-		cbor.StructAsArray
-		Version uint64
-		Inner   cbor.RawMessage
-	}
+	var outer []cbor.RawMessage
 	if _, err := cbor.Decode(data, &outer); err != nil {
 		return err
 	}
-	if outer.Version != ledgerPeerSnapshotWireVersion {
-		return fmt.Errorf("%w: %d (expected %d/V2)",
-			ErrLedgerPeerSnapshotUnsupportedWireVersion,
-			outer.Version,
-			ledgerPeerSnapshotWireVersion,
+	if len(outer) != 2 {
+		return fmt.Errorf(
+			"LedgerPeerSnapshot: expected 2 elements, got %d",
+			len(outer),
 		)
 	}
-	var inner struct {
-		cbor.StructAsArray
-		Slot  WithOriginSlot
-		Pools []PoolLedgerPeers
-	}
-	if _, err := cbor.Decode(outer.Inner, &inner); err != nil {
+	var version uint64
+	if _, err := cbor.Decode(outer[0], &version); err != nil {
 		return err
 	}
-	l.Version = outer.Version
-	l.Slot = inner.Slot
-	l.Pools = inner.Pools
+	var inner []cbor.RawMessage
+	switch version {
+	case ledgerPeerSnapshotWireVersion,
+		ledgerPeerSnapshotWireVersionBig,
+		ledgerPeerSnapshotWireVersionAll:
+		if _, err := cbor.Decode(outer[1], &inner); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("%w: %d (expected 1, 2 or 3)",
+			ErrLedgerPeerSnapshotUnsupportedWireVersion,
+			version,
+		)
+	}
+	var tmp LedgerPeerSnapshotResult
+	tmp.Version = version
+	if version == ledgerPeerSnapshotWireVersion {
+		if len(inner) != 2 {
+			return fmt.Errorf(
+				"LedgerPeerSnapshot v1: expected 2 elements, got %d",
+				len(inner),
+			)
+		}
+		if _, err := cbor.Decode(inner[0], &tmp.Slot); err != nil {
+			return err
+		}
+		if _, err := cbor.Decode(inner[1], &tmp.Pools); err != nil {
+			return err
+		}
+		*l = tmp
+		return nil
+	}
+	if len(inner) != 3 {
+		return fmt.Errorf(
+			"LedgerPeerSnapshot v%d: expected 3 elements, got %d",
+			version,
+			len(inner),
+		)
+	}
+	slot, hash, err := decodeSnapshotPoint(inner[0])
+	if err != nil {
+		return err
+	}
+	tmp.Slot = slot
+	tmp.BlockHash = hash
+	if _, err := cbor.Decode(inner[1], &tmp.NetworkMagic); err != nil {
+		return fmt.Errorf("LedgerPeerSnapshot: network magic: %w", err)
+	}
+	var pools [][]cbor.RawMessage
+	if _, err := cbor.Decode(inner[2], &pools); err != nil {
+		return err
+	}
+	tmp.Pools = make([]PoolLedgerPeers, 0, len(pools))
+	for _, fields := range pools {
+		var pool PoolLedgerPeers
+		if version == ledgerPeerSnapshotWireVersionBig {
+			if len(fields) != 3 {
+				return fmt.Errorf(
+					"LedgerPeerSnapshot v2 pool: expected 3 elements, got %d",
+					len(fields),
+				)
+			}
+			acc, err := decodeRational(fields[0])
+			if err != nil {
+				return fmt.Errorf("accumulated stake: %w", err)
+			}
+			pool.AccumulatedStake = &cbor.Rat{Rat: acc}
+			fields = fields[1:]
+		} else if len(fields) != 2 {
+			return fmt.Errorf(
+				"LedgerPeerSnapshot v3 pool: expected 2 elements, got %d",
+				len(fields),
+			)
+		}
+		stake, relays, err := decodeStakeAndRelays(fields[0], fields[1])
+		if err != nil {
+			return err
+		}
+		pool.Detail = PoolLedgerPeersDetail{PoolStake: stake, Relays: relays}
+		tmp.Pools = append(tmp.Pools, pool)
+	}
+	*l = tmp
 	return nil
 }
 
 func (l LedgerPeerSnapshotResult) MarshalCBOR() ([]byte, error) {
-	if l.Version != 0 && l.Version != ledgerPeerSnapshotWireVersion {
-		return nil, fmt.Errorf("%w: %d (expected %d/V2)",
-			ErrLedgerPeerSnapshotUnsupportedWireVersion,
-			l.Version,
-			ledgerPeerSnapshotWireVersion,
-		)
+	version := l.Version
+	if version == 0 {
+		version = ledgerPeerSnapshotWireVersion
 	}
 	pools := make([][]byte, 0, len(l.Pools))
-	for _, pool := range l.Pools {
-		item, err := cbor.Encode(pool)
+	var inner []cbor.RawMessage
+	switch version {
+	case ledgerPeerSnapshotWireVersion:
+		for _, pool := range l.Pools {
+			item, err := cbor.Encode(pool)
+			if err != nil {
+				return nil, err
+			}
+			pools = append(pools, item)
+		}
+		slot, err := cbor.Encode(l.Slot)
 		if err != nil {
 			return nil, err
 		}
-		pools = append(pools, item)
+		inner = []cbor.RawMessage{slot, encodeIndefiniteList(pools)}
+	case ledgerPeerSnapshotWireVersionBig, ledgerPeerSnapshotWireVersionAll:
+		for _, pool := range l.Pools {
+			stake, relays, err := encodeStakeAndRelays(
+				pool.Detail.PoolStake,
+				pool.Detail.Relays,
+			)
+			if err != nil {
+				return nil, err
+			}
+			fields := []cbor.RawMessage{stake, relays}
+			if version == ledgerPeerSnapshotWireVersionBig {
+				acc, err := encodeStake(pool.AccumulatedStake)
+				if err != nil {
+					return nil, err
+				}
+				fields = append([]cbor.RawMessage{acc}, fields...)
+			}
+			item, err := cbor.Encode(fields)
+			if err != nil {
+				return nil, err
+			}
+			pools = append(pools, item)
+		}
+		point, err := encodeSnapshotPoint(l.Slot, l.BlockHash)
+		if err != nil {
+			return nil, err
+		}
+		magic, err := cbor.Encode(l.NetworkMagic)
+		if err != nil {
+			return nil, err
+		}
+		inner = []cbor.RawMessage{
+			point,
+			magic,
+			encodeIndefiniteList(pools),
+		}
+	default:
+		return nil, fmt.Errorf("%w: %d (expected 1, 2 or 3)",
+			ErrLedgerPeerSnapshotUnsupportedWireVersion,
+			l.Version,
+		)
 	}
-	slot, err := cbor.Encode(l.Slot)
+	innerData, err := cbor.Encode(inner)
 	if err != nil {
 		return nil, err
 	}
-	inner, err := cbor.Encode(
-		[]cbor.RawMessage{slot, encodeIndefiniteList(pools)},
-	)
-	if err != nil {
-		return nil, err
+	return cbor.Encode([]any{version, cbor.RawMessage(innerData)})
+}
+
+// decodeSnapshotPoint decodes the snapshot's Point RawBlockHash: [0] at
+// origin, [1, slot, hash] otherwise.
+func decodeSnapshotPoint(data []byte) (WithOriginSlot, []byte, error) {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(data, &fields); err != nil {
+		return WithOriginSlot{}, nil, err
 	}
-	return cbor.Encode(
-		[]any{ledgerPeerSnapshotWireVersion, cbor.RawMessage(inner)},
+	if len(fields) == 0 {
+		return WithOriginSlot{}, nil, errors.New(
+			"LedgerPeerSnapshot point: empty list",
+		)
+	}
+	var tag uint8
+	if _, err := cbor.Decode(fields[0], &tag); err != nil {
+		return WithOriginSlot{}, nil, err
+	}
+	switch {
+	case tag == 0 && len(fields) == 1:
+		return WithOriginSlot{}, nil, nil
+	case tag == 1 && len(fields) == 3:
+		var slot uint64
+		if _, err := cbor.Decode(fields[1], &slot); err != nil {
+			return WithOriginSlot{}, nil, err
+		}
+		var hash []byte
+		if _, err := cbor.Decode(fields[2], &hash); err != nil {
+			return WithOriginSlot{}, nil, err
+		}
+		return WithOriginSlot{HasSlot: true, Slot: slot}, hash, nil
+	}
+	return WithOriginSlot{}, nil, fmt.Errorf(
+		"LedgerPeerSnapshot point: tag %d with %d elements",
+		tag,
+		len(fields),
 	)
+}
+
+func encodeSnapshotPoint(slot WithOriginSlot, hash []byte) ([]byte, error) {
+	if !slot.HasSlot {
+		if hash != nil {
+			return nil, errors.New(
+				"LedgerPeerSnapshot point: block hash at origin",
+			)
+		}
+		return cbor.Encode([]int{0})
+	}
+	if hash == nil {
+		return nil, errors.New("LedgerPeerSnapshot point: missing block hash")
+	}
+	return cbor.Encode([]any{1, slot.Slot, hash})
 }

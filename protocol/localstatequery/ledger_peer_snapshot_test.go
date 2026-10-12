@@ -86,15 +86,44 @@ func TestShelleyGetLedgerPeerSnapshotQueryBuildShelleyQuery(t *testing.T) {
 	}
 }
 
-func TestShelleyGetLedgerPeerSnapshotQueryRejectsPeerKindExtension(t *testing.T) {
-	// The peer-kind byte belongs to node-to-client v23+, unsupported here.
-	wire, err := hex.DecodeString("82182201")
+// TestShelleyGetLedgerPeerSnapshotQueryPeerKindForm covers the version 23
+// request [34, peer_kind], where 0 asks for all ledger peers and 1 for big
+// ones, and keeps LedgerPeerKindAll out of the bare form.
+func TestShelleyGetLedgerPeerSnapshotQueryPeerKindForm(t *testing.T) {
+	for _, tc := range []struct {
+		kind LedgerPeerKind
+		hex  string
+	}{
+		{LedgerPeerKindAll, "82182200"},
+		{LedgerPeerKindBig, "82182201"},
+	} {
+		q := ShelleyGetLedgerPeerSnapshotQuery{
+			Type:         QueryTypeShelleyGetLedgerPeerSnapshot,
+			PeerKind:     tc.kind,
+			WithPeerKind: true,
+		}
+		data, err := cbor.Encode(q)
+		if err != nil {
+			t.Fatalf("encode: %s", err)
+		}
+		if got := hex.EncodeToString(data); got != tc.hex {
+			t.Fatalf("encoded %s, want %s", got, tc.hex)
+		}
+		var decoded ShelleyGetLedgerPeerSnapshotQuery
+		if _, err := cbor.Decode(data, &decoded); err != nil {
+			t.Fatalf("decode: %s", err)
+		}
+		if decoded != q {
+			t.Fatalf("decoded %#v, want %#v", decoded, q)
+		}
+	}
+	wire, err := hex.DecodeString("82182202")
 	if err != nil {
 		t.Fatalf("hex: %s", err)
 	}
 	var query ShelleyGetLedgerPeerSnapshotQuery
 	if _, err := cbor.Decode(wire, &query); err == nil {
-		t.Fatal("expected v23 peer-kind query shape to be rejected")
+		t.Fatal("expected peer kind 2 to be rejected")
 	}
 
 	query = ShelleyGetLedgerPeerSnapshotQuery{
@@ -358,8 +387,8 @@ func TestLedgerPeerSnapshotGolden(t *testing.T) {
 // TestLedgerPeerSnapshotRejectsUnknownVersion reports unsupported result
 // layouts before trying to decode their version-specific fields.
 func TestLedgerPeerSnapshotRejectsUnknownVersion(t *testing.T) {
-	// [2, []] is an unsupported later result version with a different layout.
-	wire, err := hex.DecodeString("820280")
+	// [4, []] is an unsupported later result version with a different layout.
+	wire, err := hex.DecodeString("820480")
 	if err != nil {
 		t.Fatalf("hex: %s", err)
 	}
@@ -382,7 +411,7 @@ func TestLedgerPeerSnapshotRejectsUnknownVersion(t *testing.T) {
 		t.Fatalf("zero-value result wire version: got %d want %d",
 			zeroValueResult.Version, 1)
 	}
-	if _, err := cbor.Encode(LedgerPeerSnapshotResult{Version: 2}); !errors.Is(
+	if _, err := cbor.Encode(LedgerPeerSnapshotResult{Version: 4}); !errors.Is(
 		err,
 		ErrLedgerPeerSnapshotUnsupportedWireVersion,
 	) {
@@ -531,7 +560,7 @@ func TestServerIsLedgerPeerSnapshotQuery(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isLedgerPeerSnapshotQuery(tc.w); got != tc.want {
+			if got := ledgerPeerSnapshotQuery(tc.w) != nil; got != tc.want {
 				t.Fatalf("got %v want %v", got, tc.want)
 			}
 		})

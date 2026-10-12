@@ -31,6 +31,7 @@ type Server struct {
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
 	enableGetLedgerPeerSnapshot   bool
+	enableLedgerPeerKind          bool
 	version                       uint16
 }
 
@@ -73,25 +74,30 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 19 {
 		s.enableGetLedgerPeerSnapshot = true
 	}
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 23 {
+		s.enableLedgerPeerKind = true
+	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
 }
 
-// isLedgerPeerSnapshotQuery reports whether the given decoded query
-// wrapper holds a GetLedgerPeerSnapshot leaf. The query lives under
-// BlockQuery -> ShelleyQuery -> ShelleyGetLedgerPeerSnapshotQuery, so we
-// walk that chain rather than re-decoding the raw CBOR.
-func isLedgerPeerSnapshotQuery(w QueryWrapper) bool {
+// ledgerPeerSnapshotQuery returns the GetLedgerPeerSnapshot leaf of a
+// decoded query wrapper, or nil. The query lives under BlockQuery ->
+// ShelleyQuery -> ShelleyGetLedgerPeerSnapshotQuery, so we walk that chain
+// rather than re-decoding the raw CBOR.
+func ledgerPeerSnapshotQuery(
+	w QueryWrapper,
+) *ShelleyGetLedgerPeerSnapshotQuery {
 	bq, ok := w.Query.(*BlockQuery)
 	if !ok {
-		return false
+		return nil
 	}
 	sq, ok := bq.Query.(*ShelleyQuery)
 	if !ok {
-		return false
+		return nil
 	}
-	_, ok = sq.Query.(*ShelleyGetLedgerPeerSnapshotQuery)
-	return ok
+	q, _ := sq.Query.(*ShelleyGetLedgerPeerSnapshotQuery)
+	return q
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -192,11 +198,24 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 	// advertise, before the user callback ever sees them. The decoder map
 	// in QueryWrapper accepts sub-tag 34 on any connection, so the gate
 	// has to live here.
-	if !s.enableGetLedgerPeerSnapshot && isLedgerPeerSnapshotQuery(msgQuery.Query) {
-		return fmt.Errorf(
-			"%s: received GetLedgerPeerSnapshot query but negotiated NtC protocol version is older than 19",
-			ProtocolName,
-		)
+	if q := ledgerPeerSnapshotQuery(msgQuery.Query); q != nil {
+		if !s.enableGetLedgerPeerSnapshot {
+			return fmt.Errorf(
+				"%s: received GetLedgerPeerSnapshot query but negotiated NtC protocol version is older than 19",
+				ProtocolName,
+			)
+		}
+		// Version 23 takes only the peer-kind form and earlier versions
+		// only the bare one, so the form also tells the callback which
+		// result layout to answer with.
+		if q.WithPeerKind != s.enableLedgerPeerKind {
+			return fmt.Errorf(
+				"%s: %w: GetLedgerPeerSnapshot form (peer kind: %v)",
+				ProtocolName,
+				ErrQueryUnsupportedVersion,
+				q.WithPeerKind,
+			)
+		}
 	}
 	if queryType, ok := shelleyLeafQueryType(msgQuery.Query); ok &&
 		!shelleyQuerySupported(queryType, s.version) {

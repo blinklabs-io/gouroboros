@@ -77,8 +77,8 @@ const (
 	QueryTypeShelleyGetProposals           = 31
 	QueryTypeShelleyGetRatifyState         = 32
 
-	// GetBigLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node 10.7+).
-	// The supported v19/v20 request is the one-element list [34].
+	// GetLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node
+	// 10.7+): [34] up to v22, [34, peer_kind] from v23.
 	QueryTypeShelleyGetLedgerPeerSnapshot = 34
 
 	// GetPoolDistr2 (Shelley sub-query 36) replaces GetPoolDistr from NtC v21.
@@ -94,7 +94,7 @@ const (
 )
 
 // LedgerPeerKind selects which ledger peers the snapshot covers.
-// LedgerPeerKindAll requires node-to-client v23; supported v19/v20 expose only
+// LedgerPeerKindAll requires node-to-client v23; v19 to v22 expose only
 // LedgerPeerKindBig, the high-stake pools used by the diffusion layer for
 // Genesis.
 type LedgerPeerKind int
@@ -1631,41 +1631,72 @@ type ShelleyGetRatifyStateQuery struct {
 	simpleQueryBase
 }
 
-// ShelleyGetLedgerPeerSnapshotQuery represents the supported NtC v19/v20
-// GetBigLedgerPeerSnapshot request. Those versions encode only [34]; the
-// peer-kind argument was added for later node-to-client versions.
+// ShelleyGetLedgerPeerSnapshotQuery is GetLedgerPeerSnapshot (Shelley query
+// 34). Node-to-client versions 19 to 22 encode it as [34] and ask only for
+// big ledger peers; version 23 encodes it as [34, peer_kind] and accepts only
+// that form. WithPeerKind selects the version 23 form.
 type ShelleyGetLedgerPeerSnapshotQuery struct {
-	cbor.StructAsArray
-	Type     int
-	PeerKind LedgerPeerKind
+	Type         int
+	PeerKind     LedgerPeerKind
+	WithPeerKind bool
 }
 
 func (q *ShelleyGetLedgerPeerSnapshotQuery) UnmarshalCBOR(data []byte) error {
-	listLen, err := cbor.ListLength(data)
-	if err != nil {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(data, &fields); err != nil {
 		return err
 	}
-	if listLen != 1 {
+	if len(fields) != 1 && len(fields) != 2 {
 		return fmt.Errorf(
-			"GetBigLedgerPeerSnapshot: expected one-element query, got %d",
-			listLen,
+			"GetLedgerPeerSnapshot: expected 1 or 2 elements, got %d",
+			len(fields),
 		)
 	}
-	var tmp simpleQueryBase
-	if _, err := cbor.Decode(data, &tmp); err != nil {
+	var queryType int
+	if _, err := cbor.Decode(fields[0], &queryType); err != nil {
 		return err
 	}
-	if tmp.Type != QueryTypeShelleyGetLedgerPeerSnapshot {
-		return fmt.Errorf("unexpected GetBigLedgerPeerSnapshot query type: %d", tmp.Type)
+	if queryType != QueryTypeShelleyGetLedgerPeerSnapshot {
+		return fmt.Errorf(
+			"unexpected GetLedgerPeerSnapshot query type: %d",
+			queryType,
+		)
 	}
-	q.Type = tmp.Type
-	q.PeerKind = LedgerPeerKindBig
+	tmp := ShelleyGetLedgerPeerSnapshotQuery{
+		Type:     queryType,
+		PeerKind: LedgerPeerKindBig,
+	}
+	if len(fields) == 2 {
+		var kind uint8
+		if _, err := cbor.Decode(fields[1], &kind); err != nil {
+			return err
+		}
+		switch LedgerPeerKind(kind) {
+		case LedgerPeerKindAll, LedgerPeerKindBig:
+		default:
+			return fmt.Errorf("invalid LedgerPeerKind: %d", kind)
+		}
+		tmp.PeerKind = LedgerPeerKind(kind)
+		tmp.WithPeerKind = true
+	}
+	*q = tmp
 	return nil
 }
 
 func (q ShelleyGetLedgerPeerSnapshotQuery) MarshalCBOR() ([]byte, error) {
 	if q.Type != QueryTypeShelleyGetLedgerPeerSnapshot {
-		return nil, fmt.Errorf("unexpected GetBigLedgerPeerSnapshot query type: %d", q.Type)
+		return nil, fmt.Errorf(
+			"unexpected GetLedgerPeerSnapshot query type: %d",
+			q.Type,
+		)
+	}
+	if q.WithPeerKind {
+		switch q.PeerKind {
+		case LedgerPeerKindAll, LedgerPeerKindBig:
+		default:
+			return nil, fmt.Errorf("invalid LedgerPeerKind: %d", q.PeerKind)
+		}
+		return cbor.Encode([]int{q.Type, int(q.PeerKind)})
 	}
 	if q.PeerKind != LedgerPeerKindBig {
 		return nil, ErrLedgerPeerKindUnsupportedVersion

@@ -56,6 +56,7 @@ type Client struct {
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
 	enableGetLedgerPeerSnapshot   bool
+	enableLedgerPeerKind          bool
 	version                       uint16
 	busyMutex                     sync.Mutex
 	acquired                      bool
@@ -118,6 +119,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 19 {
 		c.enableGetLedgerPeerSnapshot = true
+	}
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 23 {
+		c.enableLedgerPeerKind = true
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
@@ -1810,13 +1814,14 @@ func (c *Client) GetDRepDelegations(
 
 // GetLedgerPeerSnapshot returns the ledger peer snapshot used by
 // node-to-node peer discovery (introduced at node-to-client protocol version
-// 19 / cardano-node 10.7). The supported versions expose only
-// LedgerPeerKindBig, the high-stake pools used by Genesis diffusion.
-// LedgerPeerKindAll requires node-to-client version 23 or later.
+// 19 / cardano-node 10.7). Versions 19 to 22 expose only LedgerPeerKindBig,
+// the high-stake pools used by Genesis diffusion; LedgerPeerKindAll requires
+// node-to-client version 23 or later.
 //
 // The returned LedgerPeerSnapshotResult preserves the snapshot slot (or
-// origin), each pool's accumulated and own stake, and the typed list of
-// IPv4, IPv6, and A-record relay endpoints.
+// origin), each pool's stake, and the typed list of IPv4, IPv6, domain and
+// SRV relay endpoints. From version 23 it also carries the snapshot's block
+// hash and network magic.
 //
 // Returns ErrLedgerPeerSnapshotUnsupportedVersion if the negotiated
 // node-to-client protocol version does not advertise the query.
@@ -1830,8 +1835,12 @@ func (c *Client) GetLedgerPeerSnapshot(
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	var wantVersion uint64
 	switch peerKind {
-	case LedgerPeerKindAll, LedgerPeerKindBig:
+	case LedgerPeerKindAll:
+		wantVersion = ledgerPeerSnapshotWireVersionAll
+	case LedgerPeerKindBig:
+		wantVersion = ledgerPeerSnapshotWireVersionBig
 	default:
 		return nil, fmt.Errorf("invalid LedgerPeerKind: %d", peerKind)
 	}
@@ -1840,8 +1849,14 @@ func (c *Client) GetLedgerPeerSnapshot(
 	if !c.enableGetLedgerPeerSnapshot {
 		return nil, ErrLedgerPeerSnapshotUnsupportedVersion
 	}
-	if peerKind != LedgerPeerKindBig {
-		return nil, ErrLedgerPeerKindUnsupportedVersion
+	var params []any
+	if c.enableLedgerPeerKind {
+		params = []any{int(peerKind)}
+	} else {
+		if peerKind != LedgerPeerKindBig {
+			return nil, ErrLedgerPeerKindUnsupportedVersion
+		}
+		wantVersion = ledgerPeerSnapshotWireVersion
 	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
@@ -1850,6 +1865,7 @@ func (c *Client) GetLedgerPeerSnapshot(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyGetLedgerPeerSnapshot,
+		params...,
 	)
 	// The snapshot arrives inside the single-element era result wrapper.
 	var result struct {
@@ -1858,6 +1874,13 @@ func (c *Client) GetLedgerPeerSnapshot(
 	}
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
+	}
+	if result.Snapshot.Version != wantVersion {
+		return nil, fmt.Errorf("%w: got %d, expected %d",
+			ErrLedgerPeerSnapshotUnsupportedWireVersion,
+			result.Snapshot.Version,
+			wantVersion,
+		)
 	}
 	return &result.Snapshot, nil
 }
