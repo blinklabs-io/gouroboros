@@ -1104,6 +1104,30 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 		"does not match registered key hash",
 	)
 
+	missingCounterState := *input
+	missingCounterState.OpCertCounterState = nil
+	missingCounterResult := validator.ValidateHeader(&missingCounterState)
+	require.False(t, missingCounterResult.Valid)
+	require.Nil(t, missingCounterResult.NextOpCertCounter)
+	require.Len(t, missingCounterResult.Errors, 1)
+	require.ErrorContains(
+		t,
+		missingCounterResult.Errors[0],
+		"previous operational certificate counter is required",
+	)
+
+	rolledBackCounter := *input
+	rolledBackCounter.OpCertCounterState = opCertSequence(1)
+	rolledBackResult := validator.ValidateHeader(&rolledBackCounter)
+	require.False(t, rolledBackResult.Valid)
+	require.Nil(t, rolledBackResult.NextOpCertCounter)
+	require.Len(t, rolledBackResult.Errors, 1)
+	require.ErrorContains(
+		t,
+		rolledBackResult.Errors[0],
+		"operational certificate counter rolled back",
+	)
+
 	// Invalid: the identical header data fails VRF verification when
 	// validated under CPraos mode, because CPraos and TPraos use different
 	// VRF input constructions and threshold interpretations.
