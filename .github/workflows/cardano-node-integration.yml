@@ -1,0 +1,65 @@
+name: cardano-node-integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  cardano-node-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOWORK: "off"
+      # Keep the socket path short: UNIX socket paths are limited to 108 bytes.
+      NODE_IPC_DIR: /tmp/cardano-node-ipc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 https://github.com/actions/setup-go/releases/tag/v7.0.0
+        with:
+          go-version: 1.26.x
+      # The suite is excluded from untagged builds, so the default go vet,
+      # golangci-lint and go test jobs never compile it.
+      - name: go vet
+        run: go vet -tags=cardano_node_integration ./internal/test/cardano-node-integration
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0 https://github.com/golangci/golangci-lint-action/releases/tag/v9.3.0
+        with:
+          version: latest
+          args: --build-tags=cardano_node_integration --tests ./internal/test/cardano-node-integration/...
+      # Without a Mithril snapshot the preview node syncs from genesis and
+      # serves its first blocks within seconds.
+      - name: Start preview cardano-node
+        run: |
+          mkdir -p "$NODE_IPC_DIR"
+          docker run -d --name cardano-node \
+            -e NETWORK=preview \
+            -e RESTORE_NETWORK=false \
+            -e RESTORE_SNAPSHOT=false \
+            -v "$NODE_IPC_DIR:/ipc" \
+            ghcr.io/blinklabs-io/cardano-node:11.1.3-1
+      - name: Wait for the node to extend its chain
+        run: |
+          for _ in $(seq 1 120); do
+            if [ -S "$NODE_IPC_DIR/node.socket" ] &&
+              docker logs cardano-node 2>&1 | grep -q 'Chain extended'; then
+              # The node creates its socket as root with mode 0755.
+              docker exec cardano-node chmod 0666 /ipc/node.socket
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'cardano-node did not extend its chain within 10 minutes' >&2
+          exit 1
+      - name: Run integration tests
+        env:
+          GOUROBOROS_CARDANO_NODE_SOCKET_PATH: /tmp/cardano-node-ipc/node.socket
+          GOUROBOROS_CARDANO_NETWORK_MAGIC: "2"
+        run: ./internal/test/cardano-node-integration/run-tests.sh
+      - name: cardano-node logs
+        if: failure()
+        run: docker logs --tail 200 cardano-node

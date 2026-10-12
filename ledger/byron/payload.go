@@ -1126,8 +1126,8 @@ func validateDelegationPayloadWire(raw []byte) error {
 }
 
 // ValidatePayloads runs ValidateDelegationPayload and
-// ValidateUpdatePayload. This is what ValidateBodyProof calls when a caller
-// opts in via common.VerifyConfig.EnableByronPayloadValidation.
+// ValidateUpdatePayload. ValidateBodyProof always calls this before accepting
+// a Byron main block.
 func (b *ByronMainBlock) ValidatePayloads() error {
 	if err := b.ValidateDelegationPayload(); err != nil {
 		return err

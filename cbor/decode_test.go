@@ -56,6 +56,33 @@ func TestIsEmptyCollection(t *testing.T) {
 	}
 }
 
+func TestDecodeBool(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		data    []byte
+		want    bool
+		wantErr bool
+	}{
+		{name: "false", data: []byte{0xf4}},
+		{name: "true", data: []byte{0xf5}, want: true},
+		{name: "null", data: []byte{0xf6}, wantErr: true},
+		{name: "undefined", data: []byte{0xf7}, wantErr: true},
+		{name: "integer", data: []byte{0x00}, wantErr: true},
+		{name: "empty", wantErr: true},
+		{name: "trailing data", data: []byte{0xf5, 0x00}, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := cbor.DecodeBool(test.data)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
 type decodeTestDefinition struct {
 	CborHex   string
 	Object    any
@@ -104,6 +131,29 @@ func TestDecode(t *testing.T) {
 			)
 		}
 	}
+}
+
+func TestDecodeExact(t *testing.T) {
+	var dest []uint64
+	bytesRead, err := cbor.DecodeExact([]byte{0x81, 0x01}, &dest)
+	require.NoError(t, err)
+	assert.Equal(t, 2, bytesRead)
+	assert.Equal(t, []uint64{1}, dest)
+
+	bytesRead, err = cbor.DecodeExact([]byte{0x81, 0x01, 0x00}, &dest)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+	assert.Equal(t, 2, bytesRead)
+
+	var value cbor.Value
+	bytesRead, err = cbor.DecodeExact([]byte{0x81, 0x01, 0x00}, &value)
+	require.ErrorContains(t, err, "unexpected trailing CBOR data")
+	assert.Equal(t, 2, bytesRead)
+}
+
+func TestValidateExact(t *testing.T) {
+	require.NoError(t, cbor.ValidateExact([]byte{0x81, 0x01}))
+	require.Error(t, cbor.ValidateExact([]byte{0x81, 0x01, 0x00}))
+	require.Error(t, cbor.ValidateExact([]byte{0x81, 0x01, 0xff}))
 }
 
 func TestDecodeRejectsDuplicateMapKeys(t *testing.T) {

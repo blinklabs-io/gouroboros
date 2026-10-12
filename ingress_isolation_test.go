@@ -25,7 +25,9 @@ import (
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
@@ -36,13 +38,11 @@ import (
 )
 
 const (
-	// ingressTestBlocks blocks of ingressTestBlockPadding bytes each make a
-	// range of about 31 MB: larger than block-fetch's reference ingress
-	// limit (blockfetch.IngressLimit, about 23 MB), so the range only fits
-	// if the client accounts for what it asked for.
-	ingressTestBlocks       = 60
-	ingressTestBlockPadding = 512 * 1024
-	ingressTestTimeout      = 20 * time.Second
+	ingressTestBlocks           = 1200
+	ingressTestBlockFetchLimit  = 256 * 1024
+	ingressTestConnectionBudget = 512 * 1024
+	ingressTestMaxInFlightBytes = 128 * 1024
+	ingressTestTimeout          = 20 * time.Second
 )
 
 type ingressTestBlock struct {
@@ -51,11 +51,9 @@ type ingressTestBlock struct {
 	point   pcommon.Point
 }
 
-// ingressTestChain builds a chain of Babbage blocks, each carrying padding in
-// its header signature so a handful of blocks adds up to tens of megabytes.
-// The client is configured with SkipBlockValidation, so the body hash and
-// the signature are never checked; the header hash and the previous-hash
-// links the client does check are real.
+// ingressTestChain builds a linked Babbage chain with a correctly sized KES
+// signature. Small caller-configured limits let a moderate number of valid
+// blocks exercise ingress accounting.
 func ingressTestChain(t *testing.T, count int) []ingressTestBlock {
 	t.Helper()
 	blocks := make([]ingressTestBlock, 0, count)
@@ -66,7 +64,14 @@ func ingressTestChain(t *testing.T, count int) []ingressTestBlock {
 		blk.BlockHeader.Body.BlockNumber = slot
 		blk.BlockHeader.Body.Slot = slot
 		blk.BlockHeader.Body.PrevHash = prevHash
-		blk.BlockHeader.Signature = make([]byte, ingressTestBlockPadding)
+		blk.BlockHeader.Body.VrfKey = make([]byte, 32)
+		blk.BlockHeader.Body.VrfResult = lcommon.VrfResult{
+			Output: make([]byte, 64),
+			Proof:  make([]byte, 80),
+		}
+		blk.BlockHeader.Body.OpCert.HotVkey = make([]byte, 32)
+		blk.BlockHeader.Body.OpCert.Signature = make([]byte, 64)
+		blk.BlockHeader.Signature = make([]byte, kes.CardanoKesSignatureSize)
 		blockCbor, err := cbor.Encode(blk)
 		require.NoError(t, err)
 		var decoded ledger.BabbageBlock
@@ -295,13 +300,27 @@ func connectIngressTestPair(
 	return client, peer
 }
 
+func configureIngressTestBounds(t *testing.T, client *ingressTestClient) {
+	t.Helper()
+	m := client.conn.Muxer()
+	require.Equal(
+		t,
+		ingressTestBlockFetchLimit,
+		m.IngressLimit(
+			blockfetch.ProtocolId,
+			muxer.ProtocolRoleInitiator,
+		),
+	)
+	m.SetIngressBudget(ingressTestConnectionBudget)
+}
+
 // TestSlowBlockConsumerDoesNotStarveKeepAlive requests a range larger than
 // block-fetch's reference ingress limit, with its size estimated, from a
 // peer that serves it promptly, and holds the block consumer. Every byte of
 // the range must still be read off the connection, keep-alive must keep
 // completing while the consumer is held, the connection must survive, and
 // the range must then complete once the consumer is released. The range is
-// also larger than DefaultMaxInFlightBytes. Unestimated ranges are covered by
+// also larger than the configured in-flight byte bound. Unestimated ranges are covered by
 // TestUnestimatedRangeAppliesBackpressure.
 func TestSlowBlockConsumerDoesNotStarveKeepAlive(t *testing.T) {
 	t.Parallel()
@@ -310,7 +329,7 @@ func TestSlowBlockConsumerDoesNotStarveKeepAlive(t *testing.T) {
 	require.Greater(
 		t,
 		ingressTestChainBytes(chain),
-		uint64(blockfetch.IngressLimit),
+		uint64(ingressTestBlockFetchLimit),
 	)
 
 	cases := []struct {
@@ -322,6 +341,10 @@ func TestSlowBlockConsumerDoesNotStarveKeepAlive(t *testing.T) {
 			name: "RequestRange with ExpectedBytes",
 			options: []blockfetch.BlockFetchOptionFunc{
 				blockfetch.WithRequestPipelining(true),
+				blockfetch.WithIngressLimit(ingressTestBlockFetchLimit),
+				blockfetch.WithMaxInFlightBytes(
+					uint64(ingressTestMaxInFlightBytes),
+				),
 			},
 			request: func(c *blockfetch.Client) error {
 				_, err := c.RequestRange(
@@ -340,6 +363,7 @@ func TestSlowBlockConsumerDoesNotStarveKeepAlive(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			client, peer := connectIngressTestPair(t, chain, tc.options...)
+			configureIngressTestBounds(t, client)
 			bf := client.conn.BlockFetch().Client
 			require.NoError(t, tc.request(bf))
 			client.waitFor(t, peer, client.firstBlock, "the first block")
@@ -398,7 +422,7 @@ func TestSlowBlockConsumerDoesNotStarveKeepAlive(t *testing.T) {
 					return m.IngressLimit(
 						blockfetch.ProtocolId,
 						muxer.ProtocolRoleInitiator,
-					) == blockfetch.IngressLimit
+					) == ingressTestBlockFetchLimit
 				},
 				ingressTestTimeout,
 				time.Millisecond,
@@ -424,15 +448,17 @@ func TestEstimatedRangeAboveConnectionBudgetSurvivesSlowConsumer(
 	t.Parallel()
 	chain := ingressTestChain(
 		t,
-		muxer.DefaultIngressBudget/ingressTestBlockPadding+12,
+		ingressTestBlocks,
 	)
 	total := ingressTestChainBytes(chain)
-	require.Greater(t, total, uint64(muxer.DefaultIngressBudget))
+	require.Greater(t, total, uint64(ingressTestConnectionBudget))
 	client, peer := connectIngressTestPair(
 		t,
 		chain,
 		blockfetch.WithRequestPipelining(true),
+		blockfetch.WithIngressLimit(ingressTestBlockFetchLimit),
 	)
+	configureIngressTestBounds(t, client)
 	_, err := client.conn.BlockFetch().Client.RequestRange(
 		context.Background(),
 		blockfetch.RangeRequest{
@@ -524,12 +550,14 @@ func TestNodeToNodeIngressLimits(t *testing.T) {
 // rather than buffering it without bound.
 func TestExcessBlockFetchIngressIsAProtocolError(t *testing.T) {
 	t.Parallel()
-	chain := ingressTestChain(t, ingressTestBlocks)
+	chain := ingressTestChain(t, 4*ingressTestBlocks)
 	client, _ := connectIngressTestPair(
 		t,
 		chain,
 		blockfetch.WithRequestPipelining(true),
+		blockfetch.WithIngressLimit(ingressTestBlockFetchLimit),
 	)
+	configureIngressTestBounds(t, client)
 	_, err := client.conn.BlockFetch().Client.RequestRange(
 		context.Background(),
 		blockfetch.RangeRequest{
@@ -557,12 +585,16 @@ func TestExcessBlockFetchIngressIsAProtocolError(t *testing.T) {
 type blockFetchIngressRecorder struct {
 	mu       sync.Mutex
 	maxDepth int
+	limit    int
 	full     chan struct{}
 	fullOnce sync.Once
 }
 
-func newBlockFetchIngressRecorder() *blockFetchIngressRecorder {
-	return &blockFetchIngressRecorder{full: make(chan struct{})}
+func newBlockFetchIngressRecorder(limit int) *blockFetchIngressRecorder {
+	return &blockFetchIngressRecorder{
+		limit: limit,
+		full:  make(chan struct{}),
+	}
 }
 
 func (r *blockFetchIngressRecorder) IngressQueueDepth(
@@ -577,7 +609,7 @@ func (r *blockFetchIngressRecorder) IngressQueueDepth(
 	r.mu.Lock()
 	r.maxDepth = max(r.maxDepth, bytes)
 	r.mu.Unlock()
-	if bytes > blockfetch.IngressLimit-muxer.SegmentMaxPayloadLength {
+	if bytes > r.limit-muxer.SegmentMaxPayloadLength {
 		r.fullOnce.Do(func() { close(r.full) })
 	}
 }
@@ -603,8 +635,8 @@ func (r *blockFetchIngressRecorder) max() int {
 }
 
 // requireHeldAtIngressLimit waits for the block-fetch ingress queue to fill
-// while the consumer is held, then checks that it stays within
-// blockfetch.IngressLimit and that the peer cannot finish sending: the
+// while the consumer is held, then checks that it stays within its configured
+// limit and that the peer cannot finish sending: the
 // connection is being held by backpressure, not buffered and not dropped.
 // The window only has to be long enough for an unbounded queue to take the
 // rest of the peer's data, which over net.Pipe takes milliseconds.
@@ -618,12 +650,12 @@ func requireHeldAtIngressLimit(
 	client.waitFor(t, peer, rec.full, "the block-fetch ingress queue to fill")
 	require.Never(
 		t,
-		func() bool { return rec.max() > blockfetch.IngressLimit },
+		func() bool { return rec.max() > rec.limit },
 		500*time.Millisecond,
 		5*time.Millisecond,
 		"block-fetch ingress queued past its limit with the consumer held",
 	)
-	require.LessOrEqual(t, rec.max(), blockfetch.IngressLimit)
+	require.LessOrEqual(t, rec.max(), rec.limit)
 	select {
 	case <-peer.served:
 		t.Fatal("the peer finished sending while the consumer was held")
@@ -633,15 +665,14 @@ func requireHeldAtIngressLimit(
 	}
 }
 
-// ingressBackpressureTestBlocks makes a chain of about 42 MB, well past
-// blockfetch.IngressLimit plus what the protocol layer holds downstream of
-// the muxer, so the muxer's queue for block-fetch has to fill.
-const ingressBackpressureTestBlocks = 80
+// ingressBackpressureTestBlocks provides enough valid data to fill the
+// test-sized block-fetch ingress queue while the consumer is held.
+const ingressBackpressureTestBlocks = ingressTestBlocks
 
 // TestUnestimatedRangeAppliesBackpressure requests a range without a size
 // estimate from a peer that serves it promptly, and holds the block
 // consumer. The client cannot know how much the range holds, so the muxer
-// holds at most blockfetch.IngressLimit for block-fetch and stops reading the
+// holds at most the configured block-fetch limit and stops reading the
 // connection until the consumer makes room. The peer must not be dropped,
 // and the range must complete once the consumer is released.
 func TestUnestimatedRangeAppliesBackpressure(t *testing.T) {
@@ -657,6 +688,7 @@ func TestUnestimatedRangeAppliesBackpressure(t *testing.T) {
 			name: "RequestRange",
 			options: []blockfetch.BlockFetchOptionFunc{
 				blockfetch.WithRequestPipelining(true),
+				blockfetch.WithIngressLimit(ingressTestBlockFetchLimit),
 			},
 			request: func(c *blockfetch.Client) error {
 				_, err := c.RequestRange(
@@ -668,6 +700,9 @@ func TestUnestimatedRangeAppliesBackpressure(t *testing.T) {
 		},
 		{
 			name: "GetBlockRange",
+			options: []blockfetch.BlockFetchOptionFunc{
+				blockfetch.WithIngressLimit(ingressTestBlockFetchLimit),
+			},
 			request: func(c *blockfetch.Client) error {
 				return c.GetBlockRange(start, end)
 			},
@@ -677,7 +712,8 @@ func TestUnestimatedRangeAppliesBackpressure(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			client, peer := connectIngressTestPair(t, chain, tc.options...)
-			rec := newBlockFetchIngressRecorder()
+			configureIngressTestBounds(t, client)
+			rec := newBlockFetchIngressRecorder(ingressTestBlockFetchLimit)
 			m := client.conn.Muxer()
 			m.SetMetrics(rec)
 			require.NoError(t, tc.request(client.conn.BlockFetch().Client))
@@ -702,7 +738,7 @@ func TestUnestimatedRangeAppliesBackpressure(t *testing.T) {
 					"range did not complete after the consumer was released",
 				)
 			}
-			require.LessOrEqual(t, rec.max(), blockfetch.IngressLimit)
+			require.LessOrEqual(t, rec.max(), ingressTestBlockFetchLimit)
 			// The connection is healthy afterwards: keep-alive completes
 			// again and block-fetch is back to failing excess ingress.
 			for len(client.pongs) > 0 {
@@ -728,7 +764,7 @@ func TestUnestimatedRangeAppliesBackpressure(t *testing.T) {
 			)
 			require.Equal(
 				t,
-				blockfetch.IngressLimit,
+				ingressTestBlockFetchLimit,
 				m.IngressLimit(
 					blockfetch.ProtocolId,
 					muxer.ProtocolRoleInitiator,
@@ -754,8 +790,10 @@ func TestUnestimatedRangeFloodIsBoundedThenRefused(t *testing.T) {
 		t,
 		chain,
 		blockfetch.WithRequestPipelining(true),
+		blockfetch.WithIngressLimit(ingressTestBlockFetchLimit),
 	)
-	rec := newBlockFetchIngressRecorder()
+	configureIngressTestBounds(t, client)
+	rec := newBlockFetchIngressRecorder(ingressTestBlockFetchLimit)
 	client.conn.Muxer().SetMetrics(rec)
 	_, err := client.conn.BlockFetch().Client.RequestRange(
 		context.Background(),
@@ -774,5 +812,5 @@ func TestUnestimatedRangeFloodIsBoundedThenRefused(t *testing.T) {
 	case <-time.After(ingressTestTimeout):
 		t.Fatal("the block past the requested range was not refused")
 	}
-	require.LessOrEqual(t, rec.max(), blockfetch.IngressLimit)
+	require.LessOrEqual(t, rec.max(), ingressTestBlockFetchLimit)
 }

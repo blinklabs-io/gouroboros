@@ -24,7 +24,7 @@ import (
 )
 
 func TestPlutusV3ReferenceInputDisjointnessStartsAtPV11(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0100000000000000000000000000000000000000000000000000000000000000",
 		0,
 	)
@@ -35,7 +35,7 @@ func TestPlutusV3ReferenceInputDisjointnessStartsAtPV11(t *testing.T) {
 	require.NoError(t, script.ValidatePlutusV3ReferenceInputs(tx, common.ProtocolVersionPlomin))
 	require.Error(t, script.ValidatePlutusV3ReferenceInputs(tx, common.ProtocolVersionVanRossem))
 	tx.referenceInputs = []common.TransactionInput{
-		shelley.NewShelleyTransactionInput(
+		shelley.MustNewShelleyTransactionInput(
 			"0100000000000000000000000000000000000000000000000000000000000000",
 			1,
 		),

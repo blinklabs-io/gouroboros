@@ -57,6 +57,7 @@ func runTest(
 		ouroboros.WithConnection(mockConn),
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 		ouroboros.WithNodeToNode(true),
+		ouroboros.WithLeiosFetchConfig(leiosfetch.Config{}),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
@@ -121,6 +122,7 @@ func runTestCollectingConnErrors(
 		ouroboros.WithConnection(mockConn),
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 		ouroboros.WithNodeToNode(true),
+		ouroboros.WithLeiosFetchConfig(leiosfetch.Config{}),
 	}
 	options = append(options, connectionOptions...)
 	oConn, err := ouroboros.New(options...)

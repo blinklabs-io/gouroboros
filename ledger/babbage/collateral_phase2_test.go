@@ -83,7 +83,7 @@ func collateralFixtureLedgerState(t *testing.T) common.LedgerState {
 	}
 	return mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(collateralFixtureTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(collateralFixtureTxId, 0),
 			Output: babbage.BabbageTransactionOutput{
 				OutputAddress: scriptAddr,
 				OutputAmount: mary.MaryTransactionOutputValue{
@@ -121,7 +121,7 @@ func collateralFixtureTx(
 			TxTotalCollateral: totalCollateral,
 			TxCollateral: cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(collateralFixtureTxId, 0),
+					shelley.MustNewShelleyTransactionInput(collateralFixtureTxId, 0),
 				},
 				false,
 			),
@@ -319,7 +319,7 @@ func keyLockedCollateralFixtureLedgerState(t *testing.T) common.LedgerState {
 	}
 	return mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{
 		{
-			Id: shelley.NewShelleyTransactionInput(
+			Id: shelley.MustNewShelleyTransactionInput(
 				keyLockedCollateralFixtureTxId,
 				0,
 			),
@@ -353,7 +353,7 @@ func keyLockedCollateralFixtureTx(
 		Body: babbage.BabbageTransactionBody{
 			TxCollateral: cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(
+					shelley.MustNewShelleyTransactionInput(
 						keyLockedCollateralFixtureTxId,
 						0,
 					),
@@ -426,7 +426,7 @@ func TestCollateralVKeyWitnessRequiredWithoutPhase2(t *testing.T) {
 			Body: babbage.BabbageTransactionBody{
 				TxCollateral: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(
+						shelley.MustNewShelleyTransactionInput(
 							collateralFixtureTxId,
 							0,
 						),

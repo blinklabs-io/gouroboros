@@ -16,7 +16,7 @@ import (
 )
 
 func TestExplicitZeroTotalCollateralIsValidated(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	raw, err := cbor.Encode(map[uint]any{
 		0:  cbor.NewSetType([]any{}, false),
 		1:  []any{},
@@ -54,7 +54,7 @@ func TestConwayCollateralReturnRunsAllOutputPredicates(t *testing.T) {
 }
 
 func TestConwayCollateralReturnCannotCreateAssets(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	assets := common.NewMultiAsset[common.MultiAssetTypeOutput](map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 		common.Blake2b224Hash([]byte("policy")): {cbor.NewByteString([]byte("token")): big.NewInt(1)},
 	})
@@ -71,7 +71,7 @@ func TestConwayCollateralReturnCannotCreateAssets(t *testing.T) {
 }
 
 func TestConwayMinimumCollateralUsesNetCollateral(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	tx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
 			TxFee:              1_000_000,

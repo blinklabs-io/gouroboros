@@ -209,7 +209,7 @@ func TestMIRRewardEncodingRejectsInvalidTargets(t *testing.T) {
 			"invalid credential kind",
 			common.MoveInstantaneousRewardsCertificateReward{
 				Rewards: map[*common.Credential]*big.Int{
-					&common.Credential{CredType: 2}: big.NewInt(1),
+					{CredType: 2}: big.NewInt(1),
 				},
 			},
 		},

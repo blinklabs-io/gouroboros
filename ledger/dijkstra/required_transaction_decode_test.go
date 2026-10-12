@@ -22,7 +22,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDijkstraTransactionDecodeRejectsInvalidBodyAndWitnessFields(t *testing.T) {
+func TestDijkstraTransactionDecodeRejectsInvalidBodyAndWitnessFields(
+	t *testing.T,
+) {
 	for _, test := range []struct {
 		name     string
 		body     map[uint]any
@@ -86,6 +88,47 @@ func TestDijkstraWitnessSetRejectsLegacyEmptyRedeemerList(t *testing.T) {
 	require.Error(t, witnesses.UnmarshalCBOR(encoded))
 }
 
+func TestDijkstraTransactionDecodeRejectsInvalidBootstrapChainCodeWidths(
+	t *testing.T,
+) {
+	for _, tc := range []struct {
+		name          string
+		chainCodeSize int
+	}{
+		{name: "short", chainCodeSize: 31},
+		{name: "long", chainCodeSize: 33},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := cbor.Encode(map[uint]any{
+				0: []any{},
+				1: []any{},
+				2: uint64(0),
+			})
+			require.NoError(t, err)
+
+			tx, err := cbor.Encode([]any{
+				cbor.RawMessage(body),
+				map[uint]any{2: []any{common.BootstrapWitness{
+					PublicKey:  make([]byte, 32),
+					Signature:  make([]byte, 64),
+					ChainCode:  make([]byte, tc.chainCodeSize),
+					Attributes: []byte{0xa0},
+				}}},
+				true,
+				nil,
+			})
+			require.NoError(t, err)
+
+			_, err = NewDijkstraTransactionFromCbor(tx)
+			require.ErrorContains(
+				t,
+				err,
+				"bootstrap witness chain code must be 32 bytes",
+			)
+		})
+	}
+}
+
 func TestDijkstraTransactionMarshalRejectsPlutusV4Witnesses(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -104,7 +147,11 @@ func TestDijkstraTransactionMarshalRejectsPlutusV4Witnesses(t *testing.T) {
 				tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xf6})
 			}
 			_, err := tx.MarshalCBOR()
-			require.ErrorContains(t, err, "must be supplied by reference scripts")
+			require.ErrorContains(
+				t,
+				err,
+				"must be supplied by reference scripts",
+			)
 		})
 	}
 }
