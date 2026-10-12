@@ -193,6 +193,11 @@ func VerifyPossessionProof(key common.LeiosKey) error {
 		key.PossessionProof,
 		leiosProofDST,
 	); err != nil {
+		if errors.Is(err, ErrInvalidSignature) {
+			// The single-key pairing check failed; the aggregate-signature
+			// sentinel's text would misdescribe it.
+			return fmt.Errorf("%w: pairing check failed", ErrInvalidProof)
+		}
 		return fmt.Errorf("%w: %w", ErrInvalidProof, err)
 	}
 	return nil

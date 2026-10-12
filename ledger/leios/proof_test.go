@@ -53,3 +53,20 @@ func TestVerifyPossessionProof(t *testing.T) {
 	}
 	require.ErrorIs(t, VerifyPossessionProof(malformed), ErrInvalidProof)
 }
+
+// A proof that fails the pairing check is a proof failure, not an aggregate
+// signature failure.
+func TestVerifyPossessionProofFailureIsNotDescribedAsAggregate(t *testing.T) {
+	t.Parallel()
+	key := makeLeiosTestKey(t, big.NewInt(7))
+	other := makeLeiosTestKey(t, big.NewInt(8))
+	swapped := common.LeiosKey{
+		PublicKey:       key.PublicKey,
+		PossessionProof: other.PossessionProof,
+	}
+	err := VerifyPossessionProof(swapped)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidProof)
+	require.NotErrorIs(t, err, ErrInvalidSignature)
+	require.NotContains(t, err.Error(), "aggregate")
+}

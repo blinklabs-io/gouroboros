@@ -193,6 +193,24 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 		)
 		require.ErrorIs(t, err, cause)
 	})
+	t.Run("typed nil predecessor is the chain origin", func(t *testing.T) {
+		var nilHeader *dijkstra.DijkstraBlockHeader
+		var err error
+		require.NotPanics(t, func() {
+			err = validateDijkstraLeiosHeader(
+				certifying(110),
+				params,
+				dijkstraLeiosHeaderTestState{
+					context: common.DijkstraLeiosHeaderContext{
+						Predecessor: nilHeader,
+						SlotLength:  time.Second,
+					},
+				},
+			)
+		})
+		var without *dijkstra.LeiosCertWithoutAnnouncementError
+		requireProtocolError(t, err, &without)
+	})
 	t.Run("predecessor is not the previous header", func(t *testing.T) {
 		block := certifying(110)
 		block.BlockHeader.Body.PrevHash = common.Blake2b256{0x01}

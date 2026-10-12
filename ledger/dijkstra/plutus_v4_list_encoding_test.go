@@ -161,6 +161,8 @@ func TestDijkstraProposalProceduresV4ListEncoding(t *testing.T) {
 	for _, item := range encoded.Items {
 		procedure := requireDijkstraV4List(t, item, 3)
 		requireDijkstraV4Integer(t, procedure.Items[0], 100)
+		reward := requireDijkstraV4Constr(t, procedure.Items[1], 0, 1)
+		requireDijkstraV4Bytes(t, reward.Fields[0], stakeHash)
 		action, ok := procedure.Items[2].(*data.Constr)
 		require.True(t, ok, "expected constructor, got %T", procedure.Items[2])
 		actions = append(actions, action)
@@ -284,4 +286,17 @@ func TestDijkstraTopTxInfoV4MergesBatch(t *testing.T) {
 	byAction := requireDijkstraV4Map(t, votes.Pairs[0][1], 1)
 	requireDijkstraV4List(t, byAction.Pairs[0][0], 2)
 	requireDijkstraV4Constr(t, byAction.Pairs[0][1], 0, 0)
+}
+
+func TestDijkstraVotesV4RejectsMalformedActionId(t *testing.T) {
+	malformed := data.NewMap([][2]data.PlutusData{{
+		data.NewConstr(0),
+		data.NewMap([][2]data.PlutusData{{
+			data.NewByteString([]byte{0x01}),
+			data.NewConstr(0),
+		}}),
+	}})
+	votes, err := dijkstraVotesV4(malformed)
+	require.Error(t, err)
+	require.Nil(t, votes)
 }

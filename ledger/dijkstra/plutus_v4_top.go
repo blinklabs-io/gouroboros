@@ -215,6 +215,10 @@ func dijkstraTopTxInfoSimplifiedV4(
 	if err != nil {
 		return nil, err
 	}
+	votes, err := dijkstraBatchVotesV4(batch)
+	if err != nil {
+		return nil, err
+	}
 	fields = append(
 		fields,
 		withdrawals,
@@ -224,7 +228,7 @@ func dijkstraTopTxInfoSimplifiedV4(
 		requiredGuards,
 		redeemerHashes,
 		datums,
-		dijkstraBatchVotesV4(batch),
+		votes,
 	)
 	proposals, err := concat(dijkstraTxInfoV4ProposalProcedures)
 	if err != nil {
@@ -519,7 +523,9 @@ func dijkstraBatchDatumsV4(txInfos []*data.List) (data.PlutusData, error) {
 // dijkstraBatchVotesV4 unions the batch's votes. For a voter that votes in
 // more than one level, a later level's vote on an action replaces an earlier
 // one, as the reference VotingProcedures semigroup does.
-func dijkstraBatchVotesV4(batch []dijkstraScriptLevel) data.PlutusData {
+func dijkstraBatchVotesV4(
+	batch []dijkstraScriptLevel,
+) (data.PlutusData, error) {
 	type voterKey struct {
 		voterType uint8
 		hash      [28]byte

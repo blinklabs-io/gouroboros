@@ -197,6 +197,11 @@ func validateDijkstraLeiosHeader(
 			err,
 		)
 	}
+	if predecessor, typed := context.Predecessor.(*dijkstra.DijkstraBlockHeader); typed &&
+		predecessor == nil {
+		// A typed nil is the chain origin, as an untyped nil is
+		context.Predecessor = nil
+	}
 	if context.Predecessor != nil {
 		predecessorHash := context.Predecessor.Hash()
 		prevHash := header.PrevHash()

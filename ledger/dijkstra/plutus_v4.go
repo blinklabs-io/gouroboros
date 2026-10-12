@@ -170,6 +170,11 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		return nil, err
 	}
 
+	votes, err := dijkstraVotesV4(base.Votes.ToPlutusData())
+	if err != nil {
+		return nil, err
+	}
+
 	return data.NewList(
 		data.NewByteString(level.tx.Id().Bytes()),
 		dijkstraOptionalIndex(level.subTxIndex),
@@ -186,7 +191,7 @@ func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		requiredGuards,
 		redeemers,
 		base.Data.ToPlutusData(),
-		dijkstraVotesV4(base.Votes.ToPlutusData()),
+		votes,
 		proposals,
 		base.CurrentTreasuryAmount.ToPlutusData(),
 		data.NewInteger(donation),
@@ -904,10 +909,10 @@ func dijkstraMaybeGovActionIdV4(
 
 // dijkstraVotesV4 list-encodes the GovernanceActionId keys of the V3 votes
 // map. The V4 id orders exactly as the V3 one, so the key order is kept.
-func dijkstraVotesV4(value data.PlutusData) data.PlutusData {
+func dijkstraVotesV4(value data.PlutusData) (data.PlutusData, error) {
 	votes, ok := value.(*data.Map)
 	if !ok {
-		return value
+		return value, nil
 	}
 	pairs := make([][2]data.PlutusData, len(votes.Pairs))
 	for idx, pair := range votes.Pairs {
@@ -924,13 +929,14 @@ func dijkstraVotesV4(value data.PlutusData) data.PlutusData {
 				2,
 				"governance action id",
 			)
-			if err == nil {
-				actionPairs[actionIdx][0] = data.NewList(id...)
+			if err != nil {
+				return nil, err
 			}
+			actionPairs[actionIdx][0] = data.NewList(id...)
 		}
 		pairs[idx][1] = data.NewMap(actionPairs)
 	}
-	return data.NewMap(pairs)
+	return data.NewMap(pairs), nil
 }
 
 // dijkstraListEncodedFieldsV4 returns the fields of a V3 constructor-0 value,

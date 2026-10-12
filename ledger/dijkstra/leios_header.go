@@ -71,6 +71,8 @@ func LeiosMinCertificationSlot(
 	announcementMs, voteMs, diffusionMs uint32,
 	announcingSlot uint64,
 ) (uint64, error) {
+	// The reference converts the slot length with slotLengthToMillisec, whole
+	// milliseconds, so a finer duration is truncated the same way.
 	slotMs := uint64(slotLength.Milliseconds()) // #nosec G115
 	if slotLength <= 0 || slotMs == 0 {
 		return 0, errors.New("leios certification slot: zero slot length")
