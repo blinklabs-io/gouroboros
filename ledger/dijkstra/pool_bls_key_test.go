@@ -108,6 +108,7 @@ func TestUtxoValidatePoolCertificatesBlsProofOfPossession(t *testing.T) {
 		)
 		var popErr *BlsKeyInvalidProofOfPossessionError
 		require.ErrorAs(t, err, &popErr)
+		require.NotNil(t, popErr)
 		require.Equal(t, common.PoolKeyHash{0x01}, popErr.PoolId)
 		require.Equal(t, invalid, popErr.Key)
 		require.ErrorIs(t, err, leios.ErrInvalidProof)

@@ -82,6 +82,7 @@ func TestValidateHeaderProtocolVersion(t *testing.T) {
 	)
 	var tooLow *HeaderProtVerTooLowError
 	require.ErrorAs(t, err, &tooLow)
+	require.NotNil(t, tooLow)
 	require.Equal(t, uint64(11), tooLow.Supplied)
 	require.Equal(t, uint64(12), tooLow.Expected)
 }
@@ -102,6 +103,7 @@ func TestValidateLeiosAnnouncementSize(t *testing.T) {
 	)
 	var tooBig *LeiosEbTooBigError
 	require.ErrorAs(t, err, &tooBig)
+	require.NotNil(t, tooBig)
 	require.Equal(t, over, tooBig.Announced)
 	require.Equal(t, limit, tooBig.Maximum)
 }

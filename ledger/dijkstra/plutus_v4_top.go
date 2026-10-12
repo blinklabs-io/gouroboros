@@ -539,9 +539,11 @@ func dijkstraBatchVotesV4(batch []dijkstraScriptLevel) data.PlutusData {
 				continue
 			}
 			vKey := voterKey{voter.Type, voter.Hash}
-			if _, ok := voters[vKey]; !ok {
+			voterVotes, ok := votes[vKey]
+			if !ok {
 				voters[vKey] = voter
-				votes[vKey] = make(map[actionKey]common.VotingProcedure)
+				voterVotes = make(map[actionKey]common.VotingProcedure)
+				votes[vKey] = voterVotes
 			}
 			for actionId, procedure := range byAction {
 				if actionId == nil {
@@ -554,7 +556,7 @@ func dijkstraBatchVotesV4(batch []dijkstraScriptLevel) data.PlutusData {
 				if _, ok := actions[aKey]; !ok {
 					actions[aKey] = actionId
 				}
-				votes[vKey][aKey] = procedure
+				voterVotes[aKey] = procedure
 			}
 		}
 	}
