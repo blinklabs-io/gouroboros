@@ -29,6 +29,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/leios"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
@@ -1031,13 +1032,51 @@ func UtxoValidateCommitteeCertificates(
 	})
 }
 
+// UtxoValidatePoolCertificates applies the Conway POOL predicates to every
+// transaction level, then the Dijkstra one: a registration carrying a Leios
+// BLS key must carry a proof of possession that verifies.
 func UtxoValidatePoolCertificates(
 	tx common.Transaction, slot uint64, ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
 	return validateDijkstraConwayGovernanceLevels(
-		tx, slot, ls, pp, conway.UtxoValidatePoolCertificates,
+		tx, slot, ls, pp, func(
+			level common.Transaction,
+			slot uint64,
+			state common.LedgerState,
+			pp common.ProtocolParameters,
+		) error {
+			if err := conway.UtxoValidatePoolCertificates(
+				level, slot, state, pp,
+			); err != nil {
+				return err
+			}
+			return validateDijkstraPoolBlsKeys(level)
+		},
 	)
+}
+
+func validateDijkstraPoolBlsKeys(tx common.Transaction) error {
+	// Only a phase-2-valid transaction reaches the POOL rule.
+	if !tx.IsValid() {
+		return nil
+	}
+	for _, certificate := range tx.Certificates() {
+		registration, ok := certificate.(*common.PoolRegistrationCertificate)
+		if !ok || registration.LeiosKey == nil {
+			continue
+		}
+		if err := leios.VerifyPossessionProof(
+			*registration.LeiosKey,
+		); err != nil {
+			return &BlsKeyInvalidProofOfPossessionError{
+				PoolId: registration.Operator,
+				Key:    *registration.LeiosKey,
+				Err:    err,
+			}
+		}
+	}
+	return nil
 }
 
 func UtxoValidateCertificateDeposits(

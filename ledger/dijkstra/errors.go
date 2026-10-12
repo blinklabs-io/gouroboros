@@ -331,3 +331,23 @@ func (e *PerasCertValidationFailedError) Error() string {
 		len(e.Certificate),
 	)
 }
+
+// BlsKeyInvalidProofOfPossessionError reports a stake pool (re-)registration
+// whose Leios BLS key carries a proof of possession that does not verify.
+type BlsKeyInvalidProofOfPossessionError struct {
+	PoolId common.PoolKeyHash
+	Key    common.LeiosKey
+	Err    error
+}
+
+func (e *BlsKeyInvalidProofOfPossessionError) Error() string {
+	return fmt.Sprintf(
+		"BlsKeyInvalidProofOfPossession (pool %s: %v)",
+		e.PoolId.String(),
+		e.Err,
+	)
+}
+
+func (e *BlsKeyInvalidProofOfPossessionError) Unwrap() error {
+	return e.Err
+}
