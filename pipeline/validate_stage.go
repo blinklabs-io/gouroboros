@@ -50,6 +50,8 @@ type ValidateStageConfig struct {
 	ByronSlotsPerEpoch uint64
 	// VerifyConfig contains verification options.
 	VerifyConfig common.VerifyConfig
+	// BlockLocal restricts verification to cryptography and body integrity.
+	BlockLocal bool
 }
 
 // StaticEta0Provider returns an Eta0Provider that always returns the same nonce.
@@ -113,7 +115,10 @@ func (s *ValidateStage) Process(ctx context.Context, item *BlockItem) error {
 	// Get the epoch nonce from the provider
 	if s.config.Eta0Provider == nil {
 		duration := time.Since(start)
-		configErr := fmt.Errorf("eta0 provider not configured for slot %d", slot)
+		configErr := fmt.Errorf(
+			"eta0 provider not configured for slot %d",
+			slot,
+		)
 		item.SetValidation(false, "", configErr, duration)
 		return configErr
 	}
@@ -121,12 +126,24 @@ func (s *ValidateStage) Process(ctx context.Context, item *BlockItem) error {
 	eta0, err := s.config.Eta0Provider(slot)
 	if err != nil {
 		duration := time.Since(start)
-		providerErr := fmt.Errorf("eta0 provider error for slot %d: %w", slot, err)
+		providerErr := fmt.Errorf(
+			"eta0 provider error for slot %d: %w",
+			slot,
+			err,
+		)
 		item.SetValidation(false, "", providerErr, duration)
 		return providerErr
 	}
 
-	isValid, vrfOutput, _, _, err := ledger.VerifyBlock(
+	verify := ledger.VerifyBlock
+	if s.config.BlockLocal {
+		verify = func(block ledger.Block, eta0 string, slots uint64,
+			_ common.VerifyConfig,
+		) (bool, string, uint64, uint64, error) {
+			return ledger.VerifyBlockLocal(block, eta0, slots)
+		}
+	}
+	isValid, vrfOutput, _, _, err := verify(
 		block,
 		eta0,
 		s.config.SlotsPerKesPeriod,

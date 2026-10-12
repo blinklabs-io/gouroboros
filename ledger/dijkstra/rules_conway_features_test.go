@@ -245,7 +245,7 @@ func dijkstraScriptLockedInput(
 	index int,
 ) (shelley.ShelleyTransactionInput, common.Utxo) {
 	t.Helper()
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		index,
 	)
@@ -271,7 +271,7 @@ func dijkstraReferenceScriptInput(
 	script common.Script,
 	index int,
 ) (shelley.ShelleyTransactionInput, common.Utxo) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 		index,
 	)
@@ -293,7 +293,7 @@ func dijkstraSetUnresolvedInput(
 	index int,
 ) shelley.ShelleyTransactionInput {
 	t.Helper()
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
 		index,
 	)
@@ -318,7 +318,7 @@ func dijkstraSetUnresolvedReferenceInput(
 	index int,
 ) shelley.ShelleyTransactionInput {
 	t.Helper()
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
 		index,
 	)

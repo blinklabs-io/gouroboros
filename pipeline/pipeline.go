@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -31,6 +32,44 @@ var ErrPipelineStopped = errors.New("pipeline is stopped")
 
 // ErrPipelineNotStarted is returned when trying to use a pipeline that hasn't been started.
 var ErrPipelineNotStarted = errors.New("pipeline not started")
+
+// ErrMissingVerifyConfigProvider indicates missing ordered ledger state.
+var ErrMissingVerifyConfigProvider = errors.New(
+	"ordered verification config provider is required",
+)
+
+// ErrInvalidPipelineMode indicates incompatible processing modes or callbacks.
+var ErrInvalidPipelineMode = errors.New(
+	"incompatible pipeline mode configuration",
+)
+
+// ValidatesPeerBlocks reports whether this pipeline performs authoritative
+// ordered validation. Offline preparation modes must not consume peer blocks.
+func (p *BlockPipeline) ValidatesPeerBlocks() bool {
+	return p != nil && !p.config.TrustedDecodeOnly && !p.config.HeaderOnly
+}
+
+func (p *BlockPipeline) validateOrdered(
+	ctx context.Context,
+	item *BlockItem,
+) error {
+	config, err := p.config.VerifyConfigProvider(ctx, item)
+	if err != nil {
+		return err
+	}
+	if flag := validationBypassFlag(config); flag != "" {
+		return &ValidationBypassError{Flag: flag}
+	}
+	if item.Block().Era().Id != ledger.EraIdByron {
+		if config.LedgerState == nil {
+			return errors.New("ordered validation requires ledger state")
+		}
+		if config.ProtocolParameters == nil {
+			return errors.New("ordered validation requires protocol parameters")
+		}
+	}
+	return ledger.VerifyBlockState(item.Block(), config)
+}
 
 // ErrMissingEta0Provider is returned when validation is enabled but no Eta0Provider is configured.
 var ErrMissingEta0Provider = errors.New(
@@ -122,7 +161,11 @@ type ValidationBypassError struct {
 }
 
 func (e *ValidationBypassError) Error() string {
-	return fmt.Sprintf("%s: VerifyConfig.%s", ErrValidationBypassConfigured, e.Flag)
+	return fmt.Sprintf(
+		"%s: VerifyConfig.%s",
+		ErrValidationBypassConfigured,
+		e.Flag,
+	)
 }
 
 func (*ValidationBypassError) Unwrap() error {
@@ -314,7 +357,12 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 
 	// Validate configuration.
 	trustedDecodeOnly := p.config.TrustedDecodeOnly
+	headerOnly := p.config.HeaderOnly
 	validationEnabled := p.config.ValidateWorkers > 0
+	if headerOnly && (trustedDecodeOnly || p.config.ApplyFunc != nil ||
+		p.config.ChainContextValidator != nil || p.config.VerifyConfigProvider != nil) {
+		return ErrInvalidPipelineMode
+	}
 	if trustedDecodeOnly {
 		if p.config.ApplyFunc != nil {
 			return ErrTrustedDecodeOnlyApply
@@ -335,16 +383,16 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		if p.config.Eta0Provider == nil {
 			return ErrMissingEta0Provider
 		}
-		if p.config.ChainContextValidator == nil {
+		if !headerOnly && p.config.ChainContextValidator == nil {
 			return ErrMissingChainContextValidator
 		}
-		if p.config.ApplyFunc == nil {
+		if !headerOnly && p.config.ApplyFunc == nil {
 			return ErrMissingApplyFunc
 		}
 		if p.config.SkipBodyHashValidation {
 			return ErrBodyHashValidationRequired
 		}
-		if flag := validationBypassFlag(p.config.VerifyConfig); flag != "" {
+		if flag := validationBypassFlag(p.config.VerifyConfig); !headerOnly && flag != "" {
 			return &ValidationBypassError{Flag: flag}
 		}
 		if p.config.SlotsPerKesPeriod == 0 {
@@ -352,6 +400,9 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		}
 		if p.config.BlockTypeResolver == nil {
 			return ErrMissingBlockTypeResolver
+		}
+		if !headerOnly && p.config.VerifyConfigProvider == nil {
+			return ErrMissingVerifyConfigProvider
 		}
 	}
 
@@ -371,6 +422,10 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.applyStage = NewApplyStage(p.config.ApplyFunc, p.config.MaxPendingBlocks)
 	p.applyStage.SetChainContextValidator(p.config.ChainContextValidator)
 	p.applyStage.setTrustedDecodeOnly(trustedDecodeOnly)
+	p.applyStage.headerOnly = headerOnly
+	if !trustedDecodeOnly && !headerOnly {
+		p.applyStage.orderedValidator = p.validateOrdered
+	}
 	// When validation is enabled, require items to have actually passed
 	// validation before apply; ValidationError alone cannot distinguish
 	// "passed" from "never ran"
@@ -393,9 +448,9 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		// Create validation stage
 		p.validatedChan = make(chan *BlockItem, bufSize)
 		p.validateStage = NewValidateStage(ValidateStageConfig{
+			BlockLocal:        true,
 			Eta0Provider:      p.config.Eta0Provider,
 			SlotsPerKesPeriod: p.config.SlotsPerKesPeriod,
-			VerifyConfig:      p.config.VerifyConfig,
 		})
 		p.validatePool = NewStageWorkerPool(StageWorkerPoolConfig{
 			Stage:         p.validateStage,

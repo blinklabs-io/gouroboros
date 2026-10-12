@@ -612,8 +612,8 @@ func MinCoinTxOut(
 
 const maxMetadataDepth = 64
 
-// validateMetadataContent checks that metadata contains valid data according to Cardano rules
-func validateMetadataContent(metadata common.TransactionMetadatum) error {
+// ValidateMetadataContent checks that metadata contains valid data according to Cardano rules.
+func ValidateMetadataContent(metadata common.TransactionMetadatum) error {
 	if metadata == nil {
 		return nil
 	}
@@ -727,7 +727,7 @@ func UtxoValidateMetadata(
 
 		// Validate metadata content
 		if txAuxData != nil {
-			if err := validateMetadataContent(txAuxData); err != nil {
+			if err := ValidateMetadataContent(txAuxData); err != nil {
 				return err
 			}
 		}

@@ -64,43 +64,11 @@ const (
 // safety net for those three fields being both correct and safe to enforce
 // unconditionally.
 //
-// ssc_proof does not have that same safety net (see
-// common.VerifyConfig.EnableByronSscProofHashValidation's doc comment and
-// checkSscProofCore's for the full reasoning), so by default this function
-// checks ssc_proof only as far as cardano-ledger's own dropSscProof does,
-// via ValidateSscProofShape: the proof's tag, its element count for that
-// tag, that each hash slot is a byte string, and the payload's element
-// count for the payload's own tag. Pass a common.VerifyConfig with
-// EnableByronSscProofHashValidation set to true to additionally run the
-// full hash comparison (ValidateSscProof) as part of this call;
-// NewByronMainBlockFromCbor forwards whatever VerifyConfig it was given
-// here, so that same flag controls decode-time behavior too.
-//
-// The dlg_proof and upd_proof comparisons bind the delegation and update
-// payload bytes to the header but say nothing about what those bytes
-// decode to. Pass a common.VerifyConfig with EnableByronPayloadValidation
-// set to true to additionally validate those payloads structurally and
-// verify the signatures they carry, via ValidatePayloads; see that flag's
-// doc comment for why it is opt-in.
-//
-// This was not always the default: an earlier version of this function
-// unconditionally ran the full ssc_proof hash comparison, after an even
-// earlier version had deliberately skipped ssc_proof's hashes entirely,
-// believing that they depended on epoch-wide accumulated state -- real,
-// non-empty mainnet vectors disproved that belief, but the unconditional
-// hash comparison this replaced was reverted in favor of the opt-in scheme
-// here specifically because ssc_proof's construction has no upstream
-// reference oracle: see checkSscProofLocal's doc comment (sscstate.go) for
-// the vectors and reasoning, and checkSscProofCore's for why the hash
-// comparison itself, not the structural check, is what moved behind the
-// opt-in flag.
-func (b *ByronMainBlock) ValidateBodyProof(
-	config ...common.VerifyConfig,
-) error {
-	var cfg common.VerifyConfig
-	if len(config) > 0 {
-		cfg = config[0]
-	}
+// The SSC proof hashes and delegation/update payload signatures are part of
+// the block's consensus evidence. A caller that needs parse-only behavior must
+// use NewByronMainBlockFromCbor with SkipBodyHashValidation and run the desired
+// validation explicitly before trusting the result.
+func (b *ByronMainBlock) ValidateBodyProof() error {
 	proof, err := b.bodyProofArray()
 	if err != nil {
 		return err
@@ -108,11 +76,7 @@ func (b *ByronMainBlock) ValidateBodyProof(
 	if err := b.validateTxProof(proof[bodyProofTxIndex]); err != nil {
 		return err
 	}
-	if cfg.EnableByronSscProofHashValidation {
-		if err := b.ValidateSscProof(); err != nil {
-			return err
-		}
-	} else if err := b.ValidateSscProofShape(); err != nil {
+	if err := b.ValidateSscProof(); err != nil {
 		return err
 	}
 	if err := checkPayloadHash(
@@ -125,27 +89,20 @@ func (b *ByronMainBlock) ValidateBodyProof(
 	); err != nil {
 		return err
 	}
-	if cfg.EnableByronPayloadValidation {
-		return b.ValidatePayloads()
-	}
-	return nil
+	return b.ValidatePayloads()
 }
 
 // ValidateSscProof validates only a Byron main block's ssc_proof, entirely
 // from that block's own payload, including a full comparison of every hash
 // it carries against the header (see checkSscProofLocal's doc comment).
 //
-// This is the opt-in, full-hash form: ValidateBodyProof does not call this
-// by default (see its own doc comment and
-// common.VerifyConfig.EnableByronSscProofHashValidation) -- it is exposed
-// separately for callers that specifically want the full check, such as
-// consensus/byron's ValidateBodyHash when given that same opt-in flag, or
-// a caller that has already validated tx_proof/dlg_proof/upd_proof through
-// some other, independently implemented pipeline and wants to add a real
+// ValidateBodyProof runs this by default. It is exposed separately for callers
+// that have already validated tx_proof/dlg_proof/upd_proof through
+// some other, independently implemented pipeline and want to add a real
 // ssc_proof check without paying for a second, redundant pass over the
 // transaction merkle root and the other body components ValidateBodyProof
-// would otherwise repeat. See ValidateSscProofShape for the structural-only
-// check ValidateBodyProof runs by default instead.
+// would otherwise repeat. See ValidateSscProofShape for the parse-only
+// structural check.
 func (b *ByronMainBlock) ValidateSscProof() error {
 	return b.checkSscProof(true)
 }
@@ -153,10 +110,8 @@ func (b *ByronMainBlock) ValidateSscProof() error {
 // ValidateSscProofShape validates only a Byron main block's ssc_proof, and
 // only as far as cardano-ledger's dropSscProof does: the proof's tag, its
 // element count for that tag, that each hash slot is a byte string, and
-// the payload's element count for the payload's own tag. This is what
-// ValidateBodyProof runs by default; see checkSscProofShape (sscstate.go)
-// for the reference decoders that bound it, and ValidateSscProof for the
-// opt-in form that recomputes and compares the hash values.
+// the payload's element count for the payload's own tag. See
+// checkSscProofShape for the reference decoders that bound it.
 func (b *ByronMainBlock) ValidateSscProofShape() error {
 	return b.checkSscProof(false)
 }

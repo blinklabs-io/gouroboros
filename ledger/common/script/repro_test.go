@@ -81,15 +81,15 @@ func TestReproPreviewV3ScriptFailure(t *testing.T) {
 
 	resolvedInputs := []lcommon.Utxo{
 		{
-			Id:     shelley.NewShelleyTransactionInput(pTx1.Hash().String(), 1),
+			Id:     shelley.MustNewShelleyTransactionInput(pTx1.Hash().String(), 1),
 			Output: pTx1Outputs[1],
 		},
 		{
-			Id:     shelley.NewShelleyTransactionInput(pTx1.Hash().String(), 2),
+			Id:     shelley.MustNewShelleyTransactionInput(pTx1.Hash().String(), 2),
 			Output: pTx1Outputs[2],
 		},
 		{
-			Id:     shelley.NewShelleyTransactionInput(pTx2.Hash().String(), 2),
+			Id:     shelley.MustNewShelleyTransactionInput(pTx2.Hash().String(), 2),
 			Output: pTx2Outputs[2],
 		},
 	}

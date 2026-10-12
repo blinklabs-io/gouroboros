@@ -30,6 +30,11 @@ import (
 // they must not depend on state changes from earlier in-flight blocks.
 type BlockTypeResolver func(context.Context, []byte) (uint, error)
 
+// VerifyConfigProvider reads ledger state and protocol parameters after all
+// earlier blocks have been applied. It runs serially immediately before the
+// current block's stateful validation and must not disable validation.
+type VerifyConfigProvider func(context.Context, *BlockItem) (common.VerifyConfig, error)
+
 // DefaultMaxPendingBlocks is the default limit for out-of-order blocks buffered
 // in the apply stage. This matches the Cardano security parameter (k=2160) which
 // defines the immutability window.
@@ -55,8 +60,15 @@ type PipelineConfig struct {
 	Eta0Provider Eta0Provider
 	// SlotsPerKesPeriod is the number of slots per KES period.
 	SlotsPerKesPeriod uint64
-	// VerifyConfig contains verification options.
+	// VerifyConfig is checked for forbidden bypass flags in full mode.
+	// Stateful verification uses VerifyConfigProvider instead of this snapshot.
 	VerifyConfig common.VerifyConfig
+	// VerifyConfigProvider supplies current state for ordered body validation.
+	VerifyConfigProvider VerifyConfigProvider
+	// HeaderOnly validates block-local cryptography and integrity, then returns
+	// ordered persisted blocks for a consumer that owns ledger validation.
+	// It cannot be used by network protocol clients.
+	HeaderOnly bool
 	// BlockTypeResolver binds a signed header to the authoritative active era
 	// before an era-specific decoder is selected.
 	BlockTypeResolver BlockTypeResolver
@@ -64,7 +76,7 @@ type PipelineConfig struct {
 	// chain state immediately before ordered application.
 	ChainContextValidator ChainContextValidator
 	// ApplyFunc commits validated blocks to authoritative state in order. It is
-	// required outside trusted decode-only mode.
+	// required in full mode.
 	ApplyFunc ApplyFunc
 	// MetricsWindowSize is the number of samples to keep for latency metrics.
 	MetricsWindowSize int
@@ -78,8 +90,9 @@ type PipelineConfig struct {
 // DefaultPipelineConfig returns a PipelineConfig with sensible sizing defaults.
 // Normal processing also requires nonzero validation workers and
 // SlotsPerKesPeriod, plus BlockTypeResolver, Eta0Provider,
-// ChainContextValidator, and ApplyFunc. Callers that only decode trusted
-// persisted data must opt into trusted decode-only mode instead.
+// ChainContextValidator, VerifyConfigProvider, and ApplyFunc. Consumers that
+// own ordered ledger validation can prepare persisted data with HeaderOnly;
+// consumers that only decode trusted persisted data use TrustedDecodeOnly.
 func DefaultPipelineConfig() PipelineConfig {
 	numCPU := runtime.NumCPU()
 
@@ -102,6 +115,20 @@ func WithTrustedDecodeOnly() PipelineOption {
 	return func(c *PipelineConfig) {
 		c.TrustedDecodeOnly = true
 	}
+}
+
+// WithHeaderOnly prepares persisted blocks for an external ordered ledger
+// validator. It must not be used directly on untrusted peer input.
+// Header cryptography, body integrity, and authoritative era resolution remain
+// mandatory; Results do not certify transaction or chain-state validity.
+func WithHeaderOnly() PipelineOption {
+	return func(c *PipelineConfig) { c.HeaderOnly = true }
+}
+
+// WithVerifyConfigProvider sets the current-state provider for ordered body
+// validation. It is required when the pipeline commits authoritative state.
+func WithVerifyConfigProvider(provider VerifyConfigProvider) PipelineOption {
+	return func(c *PipelineConfig) { c.VerifyConfigProvider = provider }
 }
 
 // WithBlockTypeResolver sets the authoritative resolver used before typed
@@ -247,7 +274,9 @@ func WithSlotsPerKesPeriod(slots uint64) PipelineOption {
 	}
 }
 
-// WithVerifyConfig sets the verify config for validation.
+// WithVerifyConfig sets a configuration snapshot checked for forbidden bypass
+// flags in full mode. WithVerifyConfigProvider supplies state and parameters
+// for the ordered stateful checks; local cryptographic checks need neither.
 func WithVerifyConfig(config common.VerifyConfig) PipelineOption {
 	return func(c *PipelineConfig) {
 		c.VerifyConfig = config

@@ -68,7 +68,9 @@ type ChainContextValidator func(context.Context, *BlockItem) error
 type ApplyStage struct {
 	applyFunc             ApplyFunc
 	chainContextValidator ChainContextValidator
+	orderedValidator      ChainContextValidator
 	trustedDecodeOnly     bool
+	headerOnly            bool
 	// requireValidation requires items to have passed validation (IsValid)
 	// before applying. ValidationError alone cannot distinguish "validation
 	// passed" from "validation never ran" (both are nil).
@@ -212,7 +214,7 @@ func (s *ApplyStage) maybeApply(ctx context.Context, item *BlockItem) error {
 			ErrBlockNotValidated,
 		)
 	}
-	if s.trustedDecodeOnly {
+	if s.trustedDecodeOnly || s.headerOnly {
 		return nil
 	}
 	s.mu.Lock()
@@ -235,7 +237,25 @@ func (s *ApplyStage) maybeApply(ctx context.Context, item *BlockItem) error {
 		item.SetApplied(false, wrappedErr, 0)
 		return fmt.Errorf("%w: %w", ErrPipelineItemRejected, wrappedErr)
 	}
+	if s.orderedValidator != nil {
+		if err := s.callOrderedValidator(ctx, item); err != nil {
+			item.SetApplied(false, err, 0)
+			return fmt.Errorf("%w: %w", ErrPipelineItemRejected, err)
+		}
+	}
 	return s.applyItem(ctx, item)
+}
+
+func (s *ApplyStage) callOrderedValidator(
+	ctx context.Context,
+	item *BlockItem,
+) (err error) {
+	defer func() {
+		if recovered := panics.New(ErrStagePanic, "ordered validator", recover()); recovered != nil {
+			err = recovered
+		}
+	}()
+	return s.orderedValidator(ctx, item)
 }
 
 // applyItem applies a single item without holding the lock.

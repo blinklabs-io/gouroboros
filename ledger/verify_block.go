@@ -170,7 +170,10 @@ func validateDijkstraBlockCertificates(
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
 			"Dijkstra Leios certified flag does not match block-body certificate presence",
-			map[string]any{"certified": certified, "has_certificate": hasCertificate},
+			map[string]any{
+				"certified":       certified,
+				"has_certificate": hasCertificate,
+			},
 			nil,
 		)
 	}
@@ -228,7 +231,9 @@ func validateDijkstraBlockCertificates(
 			nil,
 		)
 	}
-	context, err := state.DijkstraLeiosCertificateContext(dijkstraBlock.Header())
+	context, err := state.DijkstraLeiosCertificateContext(
+		dijkstraBlock.Header(),
+	)
 	if err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeConfiguration,
@@ -622,6 +627,28 @@ func VerifyBlock(
 	slotsPerKesPeriod uint64,
 	config common.VerifyConfig,
 ) (bool, string, uint64, uint64, error) {
+	return verifyBlock(block, eta0Hex, slotsPerKesPeriod, config, false)
+}
+
+// VerifyBlockLocal checks header cryptography and body integrity without
+// reading ledger state or protocol parameters. Success does not certify
+// transaction validity, block limits, pool registration, or certificates.
+func VerifyBlockLocal(
+	block Block,
+	eta0Hex string,
+	slotsPerKesPeriod uint64,
+) (bool, string, uint64, uint64, error) {
+	return verifyBlock(block, eta0Hex, slotsPerKesPeriod,
+		common.VerifyConfig{}, true)
+}
+
+func verifyBlock(
+	block Block,
+	eta0Hex string,
+	slotsPerKesPeriod uint64,
+	config common.VerifyConfig,
+	localOnly bool,
+) (bool, string, uint64, uint64, error) {
 	vrfHex := ""
 
 	// Decode eta0
@@ -972,12 +999,30 @@ func VerifyBlock(
 			}
 		}
 	}
+	if localOnly {
+		return true, vrfHex, blockNo, slot, nil
+	}
+	if err := VerifyBlockState(block, config); err != nil {
+		return false, "", 0, 0, err
+	}
+	return true, vrfHex, blockNo, slot, nil
+}
+
+// VerifyBlockState checks certificates, block limits, transactions, and pool
+// registration against current ledger state. Callers must first verify the
+// same immutable block with VerifyBlockLocal and serialize this check with
+// application of preceding blocks.
+func VerifyBlockState(block Block, config common.VerifyConfig) error {
+	header := block.Header()
+	slot := header.SlotNumber()
+	blockNo := header.BlockNumber()
+	era := header.Era()
 	if err := validateDijkstraBlockCertificates(
 		block,
 		config.ProtocolParameters,
 		config.LedgerState,
 	); err != nil {
-		return false, "", 0, 0, err
+		return err
 	}
 
 	// Verify block-wide execution-unit budget (BBODY: sum of every
@@ -1013,7 +1058,7 @@ func VerifyBlock(
 				config.ProtocolParameters,
 			)
 			if limitsErr != nil {
-				return false, "", 0, 0, common.NewValidationError(
+				return common.NewValidationError(
 					common.ValidationErrorTypeConfiguration,
 					"unable to determine block-wide limits from protocol parameters",
 					map[string]any{
@@ -1032,7 +1077,7 @@ func VerifyBlock(
 			if hasMaxExUnits && hasNonZeroMaxExUnits && len(txs) > 0 {
 				totalExUnits, sumErr := sumBlockExUnits(txs)
 				if sumErr != nil {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeTransaction,
 						"failed to sum block execution units",
 						map[string]any{
@@ -1045,7 +1090,7 @@ func VerifyBlock(
 				}
 				if totalExUnits.Memory > maxExUnits.Memory ||
 					totalExUnits.Steps > maxExUnits.Steps {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
 						"block total execution units exceed protocol maximum",
 						map[string]any{
@@ -1071,7 +1116,7 @@ func VerifyBlock(
 			if len(headerCbor) > 0 && maxHeaderSize > 0 {
 				headerSize := uint64(len(headerCbor))
 				if headerSize > maxHeaderSize {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
 						"block header size exceeds protocol maximum",
 						map[string]any{
@@ -1096,7 +1141,7 @@ func VerifyBlock(
 			if len(rawBlockCbor) > 0 && maxBodySize > 0 {
 				bodySize, sizeErr := common.BlockBodySizeFromCbor(rawBlockCbor)
 				if sizeErr != nil {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
 						"failed to calculate block body size",
 						map[string]any{
@@ -1108,7 +1153,7 @@ func VerifyBlock(
 					)
 				}
 				if bodySize > maxBodySize {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
 						"block body size exceeds protocol maximum",
 						map[string]any{
@@ -1136,7 +1181,7 @@ func VerifyBlock(
 				if err := mainBlock.Body.TxPayload[idx].ValidateVKeyWitnesses(
 					mainBlock.BlockHeader.ProtocolMagic,
 				); err != nil {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeTransaction,
 						"Byron block transaction witness validation failed",
 						map[string]any{
@@ -1168,13 +1213,13 @@ func VerifyBlock(
 		case dijkstra.EraDijkstra.Id:
 			validationRules = dijkstra.UtxoValidationRules
 		default:
-			return false, "", 0, 0, fmt.Errorf(
+			return fmt.Errorf(
 				"VerifyBlock: unsupported era for transaction validation %s",
 				block.Era().Name,
 			)
 		}
 		if config.LedgerState == nil || config.ProtocolParameters == nil {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeConfiguration,
 				"missing required config fields for transaction validation",
 				map[string]any{
@@ -1193,7 +1238,7 @@ func VerifyBlock(
 			config.ProtocolParameters,
 			validationRules,
 		); err != nil {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeTransaction,
 				"block transaction validation failed",
 				map[string]any{
@@ -1225,7 +1270,7 @@ func VerifyBlock(
 		}
 	}
 	if refScriptSizeErr != nil {
-		return false, "", 0, 0, common.NewValidationError(
+		return common.NewValidationError(
 			common.ValidationErrorTypeTransaction,
 			"block reference-script size validation failed",
 			map[string]any{
@@ -1241,14 +1286,14 @@ func VerifyBlock(
 	// Requires LedgerState in config if enabled.
 	if block.Era() != byron.EraByron && !config.SkipStakePoolValidation {
 		if config.LedgerState == nil {
-			return false, "", 0, 0, errors.New(
+			return errors.New(
 				"VerifyBlock: missing required config field: LedgerState must be set for stake pool validation",
 			)
 		}
 
 		issuerVkey, blockVrfKey, err := extractHeaderFields(block.Header())
 		if err != nil {
-			return false, "", 0, 0, err
+			return err
 		}
 
 		poolKeyHash := common.Blake2b224Hash(issuerVkey)
@@ -1256,7 +1301,7 @@ func VerifyBlock(
 		// Check if pool is registered
 		poolCert, _, err := config.LedgerState.PoolCurrentState(poolKeyHash)
 		if err != nil {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeStakePool,
 				"failed to query pool state",
 				map[string]any{
@@ -1269,7 +1314,7 @@ func VerifyBlock(
 			)
 		}
 		if poolCert == nil {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeStakePool,
 				"pool is not registered",
 				map[string]any{
@@ -1286,7 +1331,7 @@ func VerifyBlock(
 		registeredVrfKeyHash := poolCert.VrfKeyHash
 		expectedVrfKeyHash := common.Blake2b256Hash(blockVrfKey)
 		if registeredVrfKeyHash != expectedVrfKeyHash {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeVRF,
 				"VRF key mismatch for pool",
 				map[string]any{
@@ -1302,7 +1347,7 @@ func VerifyBlock(
 		}
 	}
 
-	return true, vrfHex, blockNo, slot, nil
+	return nil
 }
 
 type BlockHexCbor struct {

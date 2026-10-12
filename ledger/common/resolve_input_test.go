@@ -25,7 +25,7 @@ import (
 )
 
 func TestResolveInputUtxoRejectsTypedNilOutput(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000000", 0,
 	)
 	var output *shelley.ShelleyTransactionOutput
@@ -39,7 +39,7 @@ func TestResolveInputUtxoRejectsTypedNilOutput(t *testing.T) {
 	require.ErrorIs(t, err, common.ErrInputResolution)
 }
 func TestValidateCollateralVKeyWitnessesRejectsNilOutput(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000000", 0,
 	)
 	state := mockledger.NewLedgerStateBuilder().WithUtxoById(

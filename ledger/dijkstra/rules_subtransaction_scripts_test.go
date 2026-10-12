@@ -688,11 +688,11 @@ func TestVerifyTransactionChecksSubtransactionWitnesses(t *testing.T) {
 
 func TestUtxoValidateExtraneousRedeemersPerTransactionLevel(t *testing.T) {
 	inputs := []shelley.ShelleyTransactionInput{
-		shelley.NewShelleyTransactionInput(
+		shelley.MustNewShelleyTransactionInput(
 			"0000000000000000000000000000000000000000000000000000000000000001",
 			0,
 		),
-		shelley.NewShelleyTransactionInput(
+		shelley.MustNewShelleyTransactionInput(
 			"0000000000000000000000000000000000000000000000000000000000000002",
 			0,
 		),
@@ -837,7 +837,7 @@ func TestVerifyTransactionChecksSubtransactionSupplementalDatums(t *testing.T) {
 
 func TestSupplementalDatumsChecksEachSubtransactionLevel(t *testing.T) {
 	v1 := common.PlutusV1Script{0x31}
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0202020202020202020202020202020202020202020202020202020202020202",
 		0,
 	)

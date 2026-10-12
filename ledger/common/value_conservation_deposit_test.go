@@ -31,7 +31,7 @@ import (
 
 func TestLegacyStakeRefundUsesRecordedDepositAcrossEras(t *testing.T) {
 	const inputAmount = uint64(100_000_000)
-	input := shelley.NewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
 	validators := []struct {
 		name string
 		call func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error
@@ -91,7 +91,7 @@ func TestLegacyStakeRefundUsesRecordedDepositAcrossEras(t *testing.T) {
 
 func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(t *testing.T) {
 	const inputAmount = uint64(100_000_000)
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
 		0,
 	)
@@ -161,7 +161,7 @@ func TestPhase2InvalidUnregisteredStakeDeregistrationDoesNotRefundKeyDeposit(t *
 		inputAmount = uint64(100_000_000)
 		keyDeposit  = uint(2_000_000)
 	)
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
 		0,
 	)

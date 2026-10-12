@@ -157,6 +157,45 @@ func validateFuzzSeedVrfProofs(blockType uint, headerCbor []byte) error {
 	return nil
 }
 
+func fuzzSeedWithPostAlonzoKesSignature(blockCbor []byte) (
+	[]byte,
+	[]byte,
+	error,
+) {
+	var blockFields []cbor.RawMessage
+	if _, err := cbor.Decode(blockCbor, &blockFields); err != nil {
+		return nil, nil, err
+	}
+	if len(blockFields) == 0 {
+		return nil, nil, fmt.Errorf("Babbage block has no header")
+	}
+	var headerFields []cbor.RawMessage
+	if _, err := cbor.Decode(blockFields[0], &headerFields); err != nil {
+		return nil, nil, err
+	}
+	if len(headerFields) != 2 {
+		return nil, nil, fmt.Errorf(
+			"Babbage header has %d components, expected 2",
+			len(headerFields),
+		)
+	}
+	signature, err := cbor.Encode(make([]byte, 448))
+	if err != nil {
+		return nil, nil, err
+	}
+	headerFields[1] = signature
+	headerCbor, err := cbor.Encode(headerFields)
+	if err != nil {
+		return nil, nil, err
+	}
+	blockFields[0] = headerCbor
+	blockCbor, err = cbor.Encode(blockFields)
+	if err != nil {
+		return nil, nil, err
+	}
+	return blockCbor, headerCbor, nil
+}
+
 var mockEraFuzzSeedHex = []struct {
 	blockType  uint
 	blockCbor  string
@@ -192,6 +231,14 @@ func ledgerFuzzSeeds() ([]ledgerFuzzSeed, error) {
 			}
 			if headerCbor, err = ledgertest.WidenToDijkstraHeader(headerCbor); err != nil {
 				return nil, err
+			}
+		} else if seed.blockType == BlockTypeBabbage ||
+			seed.blockType == BlockTypeConway {
+			blockCbor, headerCbor, err = fuzzSeedWithPostAlonzoKesSignature(
+				blockCbor,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("update fuzz seed KES signature: %w", err)
 			}
 		}
 		_, err = NewBlockFromCbor(seed.blockType, blockCbor, common.VerifyConfig{

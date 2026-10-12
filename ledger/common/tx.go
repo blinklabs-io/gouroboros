@@ -82,7 +82,10 @@ func TransactionOutputsAndCollateralReturn(
 ) []TransactionOutput {
 	outputs := tx.Outputs()
 	if collateralReturn := tx.CollateralReturn(); collateralReturn != nil {
-		outputs = append(append([]TransactionOutput(nil), outputs...), collateralReturn)
+		outputs = append(
+			append([]TransactionOutput(nil), outputs...),
+			collateralReturn,
+		)
 	}
 	return outputs
 }
@@ -329,7 +332,10 @@ func ValidateMapFields(
 			return fmt.Errorf("required CBOR map field %d is missing", field)
 		}
 		if len(value) == 1 && value[0] == 0xf6 {
-			return fmt.Errorf("required CBOR map field %d must not be null", field)
+			return fmt.Errorf(
+				"required CBOR map field %d must not be null",
+				field,
+			)
 		}
 		if len(value) == 1 && value[0] == 0xf7 {
 			return fmt.Errorf(
@@ -553,7 +559,10 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		case 2:
 			value = uint64(0)
 		default:
-			return nil, fmt.Errorf("unsupported required transaction body field %d", key)
+			return nil, fmt.Errorf(
+				"unsupported required transaction body field %d",
+				key,
+			)
 		}
 		encoded, err := cbor.Encode(value)
 		if err != nil {
@@ -716,19 +725,30 @@ func TransactionBodyToUtxorpc(tx TransactionBody) (*utxorpc.Tx, error) {
 	ret := &utxorpc.Tx{
 		Inputs:  txi,
 		Outputs: txo,
-		// Certificates:    tx.Certificates(),
-		// Withdrawals:     tx.Withdrawals(),
-		// Mint:            tx.Mint(),
-		// ReferenceInputs: tx.ReferenceInputs(),
-		// Witnesses:       tx.Witnesses(),
-		// Collateral:      tx.Collateral(),
-		Fee: BigIntToUtxorpcBigInt(tx.Fee()),
-		// Validity:        tx.Validity(),
-		// Successful:      tx.Successful(),
-		// Auxiliary:       tx.AuxData(),
-		Hash: tx.Id().Bytes(),
-		// Proposals:       tx.ProposalProcedures(),
+		Fee:     BigIntToUtxorpcBigInt(tx.Fee()),
+		Hash:    tx.Id().Bytes(),
+		Mint:    mintToUtxorpc(tx.AssetMint()),
 	}
+	withdrawals, err := withdrawalsToUtxorpc(tx.Withdrawals())
+	if err != nil {
+		return nil, err
+	}
+	ret.Withdrawals = withdrawals
+	collateral, err := collateralToUtxorpc(tx)
+	if err != nil {
+		return nil, err
+	}
+	ret.Collateral = collateral
+	start := tx.ValidityIntervalStart()
+	ttl, ttlPresent := TransactionValidityIntervalUpperBound(tx)
+	if start != 0 || ttlPresent {
+		ret.Validity = &utxorpc.TxValidity{Start: start, Ttl: ttl}
+	}
+	proposals, err := proposalsToUtxorpc(tx.ProposalProcedures())
+	if err != nil {
+		return nil, err
+	}
+	ret.Proposals = proposals
 	if len(referenceInputs) > 0 {
 		ret.ReferenceInputs = make(
 			[]*utxorpc.TxInput,

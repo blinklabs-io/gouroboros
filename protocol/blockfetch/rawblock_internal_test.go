@@ -25,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,6 +40,14 @@ func TestRawBlockHeaderInfoMatchesTypedDecode(t *testing.T) {
 	}
 	babbageBlock.BlockHeader.Body.BlockNumber = 12345
 	babbageBlock.BlockHeader.Body.Slot = 23456
+	babbageBlock.BlockHeader.Body.VrfKey = make([]byte, 32)
+	babbageBlock.BlockHeader.Body.VrfResult = common.VrfResult{
+		Output: make([]byte, 64),
+		Proof:  make([]byte, 80),
+	}
+	babbageBlock.BlockHeader.Body.OpCert.HotVkey = make([]byte, 32)
+	babbageBlock.BlockHeader.Body.OpCert.Signature = make([]byte, 64)
+	babbageBlock.BlockHeader.Signature = make([]byte, 448)
 	babbageCbor, err := cbor.Encode(babbageBlock)
 	require.NoError(t, err)
 	_, err = cbor.Decode(babbageCbor, &babbageBlock)

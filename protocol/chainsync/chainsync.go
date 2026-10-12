@@ -16,6 +16,7 @@
 package chainsync
 
 import (
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"time"
@@ -24,6 +25,11 @@ import (
 	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+)
+
+// ErrPipelineValidationRequired rejects pipelines that cannot validate peer blocks.
+var ErrPipelineValidationRequired = errors.New(
+	"peer block delivery requires a validating pipeline",
 )
 
 // Protocol identifiers
@@ -319,6 +325,9 @@ func NewConfig(options ...ChainSyncOptionFunc) Config {
 
 // validate checks that the configuration values are within protocol limits
 func (c *Config) validate() error {
+	if c.Pipeline != nil && !c.Pipeline.ValidatesPeerBlocks() {
+		return ErrPipelineValidationRequired
+	}
 	if c.PipelineLimit < 0 {
 		return fmt.Errorf(
 			"PipelineLimit %d must be non-negative",
@@ -498,6 +507,8 @@ func WithRecvQueueSize(size int) ChainSyncOptionFunc {
 }
 
 // WithPipeline sets the block processing pipeline for parallel block handling.
+// TrustedDecodeOnly and HeaderOnly pipelines are rejected because they do not
+// perform authoritative ordered ledger validation.
 func WithPipeline(p *pipeline.BlockPipeline) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.Pipeline = p

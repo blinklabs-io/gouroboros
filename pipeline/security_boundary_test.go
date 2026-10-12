@@ -240,6 +240,7 @@ func TestBlockTypeMismatchRejectedBeforeTypedDecodeAndValidation(t *testing.T) {
 		}),
 		WithSlotsPerKesPeriod(129600),
 		WithVerifyConfig(validatingTestVerifyConfig(t)),
+		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 		WithChainContextValidator(func(context.Context, *BlockItem) error {
 			chainContextCalls++
 			return nil

@@ -320,6 +320,7 @@ func validatingPipelineOptions(
 		WithEta0Provider(StaticEta0Provider(eta0)),
 		WithSlotsPerKesPeriod(129600),
 		WithVerifyConfig(validatingTestVerifyConfig(t)),
+		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 		WithApplyFunc(apply),
 	}
 }

@@ -328,7 +328,11 @@ func TestGetBlockRangePipelineStillFailsUndecodableBlock(t *testing.T) {
 		ouroboros_mock.ConversationEntryClose{},
 	)
 	blockPipeline := pipeline.NewBlockPipeline(
-		pipeline.WithValidateWorkers(1),
+		pipeline.WithVerifyConfigProvider(
+			func(context.Context, *pipeline.BlockItem) (lcommon.VerifyConfig, error) {
+				return lcommon.VerifyConfig{}, nil
+			},
+		), pipeline.WithValidateWorkers(1),
 		pipeline.WithBlockTypeResolver(
 			func(context.Context, []byte) (uint, error) {
 				return ledger.BlockTypeConway, nil
@@ -382,9 +386,12 @@ func TestGetBlockRangePipelineStillFailsUndecodableBlock(t *testing.T) {
 // replaces the body.
 func tamperedBodyConwayBlock(t *testing.T) ([]byte, pcommon.Point) {
 	t.Helper()
-	blk := ledger.ConwayBlock{BlockHeader: &ledger.ConwayBlockHeader{}}
-	blk.BlockHeader.Body.BlockNumber = 12345
-	blk.BlockHeader.Body.Slot = 23456
+	babbageHeader := newTestBabbageBlock(12345, 23456).BlockHeader
+	blk := ledger.ConwayBlock{
+		BlockHeader: &ledger.ConwayBlockHeader{
+			BabbageBlockHeader: *babbageHeader,
+		},
+	}
 	raw, err := cbor.Encode(blk)
 	require.NoError(t, err)
 	// The layout is representable, so the decoder gets far enough to check

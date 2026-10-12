@@ -88,7 +88,16 @@ func validatedTestPipelineOptions(
 		WithEta0Provider(StaticEta0Provider(shelleyBlockEta0)),
 		WithSlotsPerKesPeriod(129600),
 		WithVerifyConfig(validatingTestVerifyConfig(t)),
+		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 		WithApplyFunc(apply),
+	}
+}
+
+func validatingTestVerifyConfigProvider(t *testing.T) VerifyConfigProvider {
+	t.Helper()
+	config := validatingTestVerifyConfig(t)
+	return func(context.Context, *BlockItem) (common.VerifyConfig, error) {
+		return config, nil
 	}
 }
 
@@ -973,6 +982,7 @@ func TestBlockPipeline_Start_WiresRequireValidation(t *testing.T) {
 		WithBlockTypeResolver(resolveTestBlockType),
 		WithChainContextValidator(acceptTestChainContext), WithEta0("00"),
 		WithSlotsPerKesPeriod(1),
+		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 		WithApplyFunc(func(*BlockItem) error { return nil }))
 	require.NoError(t, p.Start(context.Background()))
 	defer p.Stop()
@@ -1247,6 +1257,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	config.BlockTypeResolver = resolveTestBlockType
 	config.ChainContextValidator = acceptTestChainContext
 	config.VerifyConfig = validatingTestVerifyConfig(t)
+	config.VerifyConfigProvider = validatingTestVerifyConfigProvider(t)
 	var appliedSequences []uint64
 	var appliedMu sync.Mutex
 	readyToEnqueue := make(chan struct{})
@@ -1435,6 +1446,7 @@ func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
 		}),
 		WithSlotsPerKesPeriod(129600),
 		WithVerifyConfig(validatingTestVerifyConfig(t)),
+		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 	)
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
@@ -1512,6 +1524,7 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 		}),
 		WithSlotsPerKesPeriod(129600),
 		WithVerifyConfig(validatingTestVerifyConfig(t)),
+		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 	)
 	p.testSubmitLocked = func() {
 		switch submitLocks.Add(1) {
@@ -2126,6 +2139,7 @@ func TestBlockPipeline_StartStop(t *testing.T) {
 		),
 		WithSlotsPerKesPeriod(129600),
 		WithVerifyConfig(validatingTestVerifyConfig(t)),
+		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 		WithApplyFunc(func(item *BlockItem) error {
 			return nil
 		}),
@@ -2721,6 +2735,7 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 			),
 			WithSlotsPerKesPeriod(129600),
 			WithVerifyConfig(validatingTestVerifyConfig(t)),
+			WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 			WithApplyFunc(func(item *BlockItem) error {
 				return nil
 			}),
@@ -3048,6 +3063,7 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 		),
 		WithSlotsPerKesPeriod(129600),
 		WithVerifyConfig(validatingTestVerifyConfig(t)),
+		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 		WithApplyFunc(func(item *BlockItem) error {
 			return nil
 		}),

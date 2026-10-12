@@ -45,7 +45,7 @@ func TestBuildScriptPurposeGuardingRedeemerDoesNotPanic(t *testing.T) {
 }
 
 func TestBuildScriptPurposeSpendingNilOutputDoesNotPanic(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000001",
 		0,
 	)

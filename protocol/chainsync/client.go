@@ -1084,6 +1084,10 @@ func (c *Client) handlePipelineFenceError(
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
+	if c.config != nil && c.config.Pipeline != nil &&
+		!c.config.Pipeline.ValidatesPeerBlocks() {
+		return ErrPipelineValidationRequired
+	}
 	c.Protocol.Logger().
 		Debug("roll forward",
 			"component", "network",

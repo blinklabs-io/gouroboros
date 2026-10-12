@@ -33,7 +33,7 @@ import (
 func TestShelleyTransactionInputToPlutusData(t *testing.T) {
 	testTxIdHex := "1639f61ed08f5e489dd64db20f86451a0db06e83d21ea39c73ea0a93b478a370"
 	testTxOutputIdx := 2
-	testInput := shelley.NewShelleyTransactionInput(
+	testInput := shelley.MustNewShelleyTransactionInput(
 		testTxIdHex,
 		testTxOutputIdx,
 	)

@@ -226,6 +226,9 @@ func (c *Client) initProtocol() {
 	}
 	if c.config != nil {
 		protoConfig.RecvQueueSize = c.config.RecvQueueSize
+		if c.config.IngressLimit > 0 {
+			protoConfig.IngressLimit = c.config.IngressLimit
+		}
 	}
 	p := protocol.New(protoConfig)
 	c.protocolMu.Lock()
@@ -1239,6 +1242,10 @@ func (c *Client) handleNoBlocks() error {
 
 // handleBlock handles the Block message from the server.
 func (c *Client) handleBlock(msgGeneric protocol.Message) error {
+	if c.config != nil && c.config.Pipeline != nil &&
+		!c.config.Pipeline.ValidatesPeerBlocks() {
+		return ErrPipelineValidationRequired
+	}
 	c.Protocol.Logger().
 		Debug("block returned",
 			"component", "network",

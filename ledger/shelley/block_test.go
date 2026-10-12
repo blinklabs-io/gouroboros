@@ -141,6 +141,26 @@ func TestShelleyBlockUtxorpc(t *testing.T) {
 	}
 }
 
+func TestShelleyBlockConstructorRejectsTrailingCBOR(t *testing.T) {
+	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ShelleyBlockHex))
+	if err != nil {
+		t.Fatalf("decode block fixture: %v", err)
+	}
+	if _, err := shelley.NewShelleyBlockFromCbor(
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	); err != nil {
+		t.Fatalf("decode block fixture: %v", err)
+	}
+	_, err = shelley.NewShelleyBlockFromCbor(
+		append(append([]byte(nil), blockCbor...), 0x00),
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	if err == nil {
+		t.Fatal("block with trailing CBOR was accepted")
+	}
+}
+
 func BenchmarkShelleyBlockDeserialization(b *testing.B) {
 	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ShelleyBlockHex))
 	if err != nil {

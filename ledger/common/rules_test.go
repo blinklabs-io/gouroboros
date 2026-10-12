@@ -79,7 +79,7 @@ func TestUtxoValidateOutsideForecast(t *testing.T) {
 			).Build()
 			builder := mockledger.NewTransactionBuilder()
 			builder.WithValid(tc.valid)
-			builder.WithInputs(shelley.NewShelleyTransactionInput(
+			builder.WithInputs(shelley.MustNewShelleyTransactionInput(
 				"0000000000000000000000000000000000000000000000000000000000000001",
 				0,
 			))
@@ -1737,7 +1737,7 @@ func TestCalculateMinFee(t *testing.T) {
 }
 
 func TestValidateExtraneousRedeemers_Common(t *testing.T) {
-	testInput := shelley.NewShelleyTransactionInput(
+	testInput := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000001",
 		0,
 	)

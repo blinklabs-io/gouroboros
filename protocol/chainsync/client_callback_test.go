@@ -26,6 +26,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/testdata"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -53,6 +54,11 @@ func validatedPipelineOptions(
 		pipeline.WithEta0(chainSyncTestShelleyEta0),
 		pipeline.WithSlotsPerKesPeriod(129600),
 		pipeline.WithVerifyConfig(verifyConfig),
+		pipeline.WithVerifyConfigProvider(
+			func(context.Context, *pipeline.BlockItem) (lcommon.VerifyConfig, error) {
+				return verifyConfig, nil
+			},
+		),
 		pipeline.WithChainContextValidator(
 			func(context.Context, *pipeline.BlockItem) error { return nil },
 		),
@@ -170,9 +176,9 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 	})
 
 	t.Run("stopped pipeline while running", func(t *testing.T) {
-		p := pipeline.NewBlockPipeline(
-			pipeline.WithTrustedDecodeOnly(),
-		)
+		p := pipeline.NewBlockPipeline(validatedPipelineOptions(
+			t, func(*pipeline.BlockItem) error { return nil },
+		)...)
 		require.NoError(t, p.Start(context.Background()))
 		require.NoError(t, p.Stop())
 		callbackCalled := false
@@ -196,9 +202,9 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 	})
 
 	t.Run("stopped pipeline while stopping", func(t *testing.T) {
-		p := pipeline.NewBlockPipeline(
-			pipeline.WithTrustedDecodeOnly(),
-		)
+		p := pipeline.NewBlockPipeline(validatedPipelineOptions(
+			t, func(*pipeline.BlockItem) error { return nil },
+		)...)
 		require.NoError(t, p.Start(context.Background()))
 		require.NoError(t, p.Stop())
 		callbackCalled := false
@@ -218,9 +224,9 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 	})
 
 	t.Run("stopped pipeline while stopped", func(t *testing.T) {
-		p := pipeline.NewBlockPipeline(
-			pipeline.WithTrustedDecodeOnly(),
-		)
+		p := pipeline.NewBlockPipeline(validatedPipelineOptions(
+			t, func(*pipeline.BlockItem) error { return nil },
+		)...)
 		require.NoError(t, p.Start(context.Background()))
 		require.NoError(t, p.Stop())
 		client := NewClient(
@@ -663,5 +669,62 @@ func TestRollBackwardShutdownUsesStopRequestWhileReceiveLoopIsBlocked(
 		t.Fatal(
 			"roll-back handler waited for DoneChan instead of the stop request",
 		)
+	}
+}
+
+func TestPeerRollForwardRejectsTrustedDecodeOnlyPipeline(t *testing.T) {
+	for _, headerOnly := range []bool{false, true} {
+		name := "trusted decode only"
+		if headerOnly {
+			name = "header only"
+		}
+		t.Run(name, func(t *testing.T) {
+			options := []pipeline.PipelineOption{
+				pipeline.WithTrustedDecodeOnly(),
+			}
+			if headerOnly {
+				options = []pipeline.PipelineOption{
+					pipeline.WithHeaderOnly(), pipeline.WithValidateWorkers(1),
+					pipeline.WithBlockTypeResolver(
+						func(context.Context, []byte) (uint, error) { return chainSyncShelleyBlock(t).BlockType, nil },
+					),
+					pipeline.WithEta0(
+						"829749cb2701843214ae3aee67ae12ec9bdb3502e060ac0b75275d0f52af349c",
+					),
+					pipeline.WithSlotsPerKesPeriod(129600),
+				}
+			}
+			p := pipeline.NewBlockPipeline(options...)
+			require.NoError(t, p.Start(context.Background()))
+			t.Cleanup(func() { require.NoError(t, p.Stop()) })
+			cfg := Config{
+				Pipeline: p,
+				RollForwardFunc: func(CallbackContext, uint, any, Tip) error {
+					t.Fatal("peer block reached callback without validation")
+					return nil
+				},
+			}
+			require.ErrorIs(t, cfg.validate(), ErrPipelineValidationRequired)
+			require.Panics(t, func() { NewConfig(WithPipeline(p)) })
+			client := NewClient(protocol.ProtocolOptions{
+				ConnectionId: testConnectionId(),
+				Mode:         protocol.ProtocolModeNodeToClient,
+			}, &cfg)
+			shelley := chainSyncShelleyBlock(t)
+			msg, err := NewMsgRollForwardNtC(
+				shelley.BlockType,
+				shelley.Cbor,
+				Tip{},
+			)
+			require.NoError(t, err)
+			require.ErrorIs(
+				t,
+				client.handleRollForward(msg),
+				ErrPipelineValidationRequired,
+			)
+			require.Zero(t, p.PendingCount())
+			require.Empty(t, p.DrainResults())
+
+		})
 	}
 }

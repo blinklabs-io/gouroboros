@@ -20,7 +20,7 @@ func TestCostModelsPresent_UnresolvedReferenceInputReturnsError(t *testing.T) {
 	}).Build()
 	var pp common.ProtocolParameters = &babbage.BabbageProtocolParameters{}
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		0,
 	)
@@ -48,7 +48,7 @@ func TestCostModelsPresent_UnresolvedReferenceInputUnwraps(t *testing.T) {
 	}).Build()
 	var pp common.ProtocolParameters = &babbage.BabbageProtocolParameters{}
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		0,
 	)
@@ -99,7 +99,7 @@ func TestCostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	}
 
 	// craft the UTxO that will be returned by the mock ledger state
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		0,
 	)

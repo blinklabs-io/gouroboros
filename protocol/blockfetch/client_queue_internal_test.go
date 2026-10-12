@@ -81,6 +81,11 @@ func blockFetchTestPipeline(
 		pipeline.WithEta0(blockFetchTestShelleyEta0),
 		pipeline.WithSlotsPerKesPeriod(129600),
 		pipeline.WithVerifyConfig(verifyConfig),
+		pipeline.WithVerifyConfigProvider(
+			func(context.Context, *pipeline.BlockItem) (lcommon.VerifyConfig, error) {
+				return verifyConfig, nil
+			},
+		),
 		pipeline.WithChainContextValidator(validator),
 		pipeline.WithApplyFunc(apply),
 	)
@@ -225,6 +230,11 @@ func TestPipelineBlockTypeMismatchPrecedesBlockFetchTypedDecode(t *testing.T) {
 		pipeline.WithEta0(blockFetchTestShelleyEta0),
 		pipeline.WithSlotsPerKesPeriod(129600),
 		pipeline.WithVerifyConfig(verifyConfig),
+		pipeline.WithVerifyConfigProvider(
+			func(context.Context, *pipeline.BlockItem) (lcommon.VerifyConfig, error) {
+				return verifyConfig, nil
+			},
+		),
 		pipeline.WithChainContextValidator(
 			func(context.Context, *pipeline.BlockItem) error { return nil },
 		),
@@ -330,7 +340,11 @@ func TestPointInRange(t *testing.T) {
 		want  bool
 	}{
 		{name: "before", point: pcommon.NewPoint(99, []byte("before"))},
-		{name: "inside", point: pcommon.NewPoint(150, []byte("inside")), want: true},
+		{
+			name:  "inside",
+			point: pcommon.NewPoint(150, []byte("inside")),
+			want:  true,
+		},
 		{name: "after", point: pcommon.NewPoint(201, []byte("after"))},
 		{name: "start", point: start, want: true},
 		{name: "end", point: end, want: true},
@@ -539,6 +553,14 @@ func queueTestBlock(
 	blk.BlockHeader.Body.BlockNumber = slot
 	blk.BlockHeader.Body.Slot = slot
 	blk.BlockHeader.Body.PrevHash = prevHash
+	blk.BlockHeader.Body.VrfKey = make([]byte, 32)
+	blk.BlockHeader.Body.VrfResult = lcommon.VrfResult{
+		Output: make([]byte, 64),
+		Proof:  make([]byte, 80),
+	}
+	blk.BlockHeader.Body.OpCert.HotVkey = make([]byte, 32)
+	blk.BlockHeader.Body.OpCert.Signature = make([]byte, 64)
+	blk.BlockHeader.Signature = make([]byte, 448)
 	blockCbor, err := cbor.Encode(blk)
 	require.NoError(t, err)
 	_, err = cbor.Decode(blockCbor, &blk)
@@ -992,16 +1014,20 @@ func TestInFlightWaitDoesNotBlockOtherCallers(t *testing.T) {
 	go func() {
 		legacyDone <- c.GetBlockRange(pcommon.Point{}, pcommon.Point{})
 	}()
-	require.Eventually(t, func() bool {
-		c.queueMutex.Lock()
-		defer c.queueMutex.Unlock()
-		for _, queued := range c.queue {
-			if !queued.pipelined {
-				return true
+	require.Eventually(
+		t,
+		func() bool {
+			c.queueMutex.Lock()
+			defer c.queueMutex.Unlock()
+			for _, queued := range c.queue {
+				if !queued.pipelined {
+					return true
+				}
 			}
-		}
-		return false
-	}, time.Second, time.Millisecond,
+			return false
+		},
+		time.Second,
+		time.Millisecond,
 		"GetBlockRange never queued its request: it is wedged behind a RequestRange parked on the in-flight byte bound",
 	)
 
@@ -1168,7 +1194,10 @@ func TestNonPipelinedShutdownCallsBatchDone(t *testing.T) {
 	}
 	select {
 	case id := <-completions:
-		t.Fatalf("non-pipelined shutdown reported completion twice for request %d", id)
+		t.Fatalf(
+			"non-pipelined shutdown reported completion twice for request %d",
+			id,
+		)
 	default:
 	}
 }
@@ -1372,7 +1401,10 @@ func (p *idlePeer) completeOneBatch(t *testing.T, done chan error) {
 	case err := <-done:
 		require.NoError(t, err)
 	case err := <-p.errorChan:
-		t.Fatalf("unexpected protocol error before the batch completed: %s", err)
+		t.Fatalf(
+			"unexpected protocol error before the batch completed: %s",
+			err,
+		)
 	case <-time.After(5 * time.Second):
 		t.Fatal("the first range request never completed")
 	}
@@ -1452,5 +1484,51 @@ func TestUnpipelinedIdleRejectsOutOfAgencyBlock(t *testing.T) {
 		require.ErrorContains(t, err, "without peer agency")
 	case <-time.After(idleLimitObservationWindow):
 		t.Fatal("an out-of-agency block in Idle was not rejected")
+	}
+}
+
+func TestPeerBlockRejectsTrustedDecodeOnlyPipeline(t *testing.T) {
+	for _, headerOnly := range []bool{false, true} {
+		name := "trusted decode only"
+		if headerOnly {
+			name = "header only"
+		}
+		t.Run(name, func(t *testing.T) {
+			options := []pipeline.PipelineOption{
+				pipeline.WithTrustedDecodeOnly(),
+			}
+			if headerOnly {
+				options = []pipeline.PipelineOption{
+					pipeline.WithHeaderOnly(), pipeline.WithValidateWorkers(1),
+					pipeline.WithBlockTypeResolver(
+						func(context.Context, []byte) (uint, error) { return ledger.BlockTypeShelley, nil },
+					),
+					pipeline.WithEta0(
+						"829749cb2701843214ae3aee67ae12ec9bdb3502e060ac0b75275d0f52af349c",
+					),
+					pipeline.WithSlotsPerKesPeriod(129600),
+				}
+			}
+			p := pipeline.NewBlockPipeline(options...)
+			require.NoError(t, p.Start(context.Background()))
+			t.Cleanup(func() { require.NoError(t, p.Stop()) })
+			cfg := Config{Pipeline: p}
+			require.ErrorIs(t, cfg.validate(), ErrPipelineValidationRequired)
+			_, configErr := NewConfig(WithPipeline(p))
+			require.ErrorIs(t, configErr, ErrPipelineValidationRequired)
+			c := newQueueTestClient(&cfg)
+			msg, point := blockFetchShelleyMessage(t)
+			req := c.appendTestRequest(1)
+			req.start, req.end = point, point
+			require.NoError(t, c.handleStartBatch())
+			require.ErrorIs(
+				t,
+				c.handleBlock(msg),
+				ErrPipelineValidationRequired,
+			)
+			require.Zero(t, p.PendingCount())
+			require.Empty(t, p.DrainResults())
+
+		})
 	}
 }

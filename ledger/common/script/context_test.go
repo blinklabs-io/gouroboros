@@ -899,7 +899,7 @@ func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
 // future change routing V3 output rendering through a different path would
 // be caught here even if the per-type alonzo package tests still passed.
 func TestTxInfoV3AlonzoResolvedInputDatumHash(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"6107c3019b9d3f119f1b8755a51d0031d82450cf1126302eacbc0dc32ebf6cdb",
 		1,
 	)
