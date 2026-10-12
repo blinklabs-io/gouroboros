@@ -29,6 +29,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEnsureRegisteredRefusesAfterStop(t *testing.T) {
+	localConn, remoteConn := net.Pipe()
+	t.Cleanup(func() { _ = remoteConn.Close() })
+	protocolMuxer := muxer.New(localConn)
+	t.Cleanup(protocolMuxer.Stop)
+	proto := New(ProtocolConfig{Muxer: protocolMuxer})
+
+	proto.Stop()
+	proto.EnsureRegistered()
+
+	require.False(t, proto.registered)
+	require.Nil(t, proto.muxerDoneChan)
+}
+
 func TestInitialStateTimeoutOptIn(t *testing.T) {
 	for _, test := range []struct {
 		name        string
