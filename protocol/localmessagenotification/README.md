@@ -94,6 +94,7 @@ The LocalMessageNotification protocol receives notifications about new messages 
 localmessagenotification.NewConfig(
     localmessagenotification.WithReplyMessagesFunc(replyCallback),
     localmessagenotification.WithMaxQueueSize(100),
+    localmessagenotification.WithMaxReplyMessages(1000),
     localmessagenotification.WithBlockingRequestTimeout(timeout),
     localmessagenotification.WithAuthenticator(authenticator),
     localmessagenotification.WithTTLValidator(ttlValidator),

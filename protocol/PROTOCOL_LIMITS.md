@@ -292,9 +292,10 @@ applies the configured operation timeout where indicated:
 | Local Tx Submission | Busy submit | 30 seconds |
 
 The local protocols have no additional queue, pipeline, or pending-message
-byte limits in their state maps. Local Message Notification bounds reply
-collections to its configured queue size before typed decoding; the default is
-100 messages. Each DMQ message is limited to the protocol's fixed array depth.
+byte limits in their state maps. A Local Message Notification client bounds
+reply collections to `MaxReplyMessages` before typed decoding; the default is
+1,000 messages, the reference server's batch size, and a server queue
+(100 by default) does not lower it. Each DMQ message is limited to the protocol's fixed array depth.
 
 ## Peer Sharing
 
@@ -393,7 +394,7 @@ subsequent items available to the caller.
 | Local State Query query/result | Effective read-buffer allowance | Query input sets have their own 10,000-item request bound. Result maps retain the normal decoder's larger allowance, including whole-UTxO queries. Raw result storage grows with the actual encoded payload. |
 | Local Tx Monitor next-transaction reply | Effective read-buffer allowance | Transaction bytes and the optional reply envelope are validated before typed decoding. |
 | Local Tx Submission submit/rejection | Effective read-buffer allowance | Transaction bytes and raw rejection data are retained from validated input. |
-| Local Message Notification replies | Effective read-buffer allowance; 100 messages by default | Reply collections are capped by the configured queue size and each DMQ message by the fixed wire depth before typed decoding. |
+| Local Message Notification replies | Effective read-buffer allowance; 1,000 messages by default | A client caps a reply collection at `MaxReplyMessages`, the batch size of the reference server and independent of a server queue size (100 by default), and each DMQ message by the fixed wire depth before typed decoding. |
 | Leios Fetch block, transaction and vote replies | Vote replies: 256 KiB; range replies: cumulative configured byte and decoded-count budgets, 64 MiB and 1,048,576 transactions by default; range retention: 1,000 messages by default | Vote replies admit at most 1,000 entries and no more than the request count on a live client. All transaction lists in one range stream share one entry per 64 bytes of its byte budget, capped at 4,194,304. Raw items and their envelope are checked before slice allocation; BlockTxs counts are checked against the request bitmap. |
 | Leios Notify vote offers | 65,535 bytes and 1,000 votes | Definite counts and indefinite entries are checked before the vote list is allocated. Other notifications use the configured pending-byte allowance. |
 | Leios Votes vote reply | Effective read-buffer allowance | Typed fields use the normal CBOR mode; request counts are independently limited to 1,000. |

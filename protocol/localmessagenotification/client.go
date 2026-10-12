@@ -38,6 +38,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		tmpCfg := NewConfig()
 		cfg = &tmpCfg
 	}
+	maxReplyMessages := cfg.MaxReplyMessages
+	if maxReplyMessages <= 0 {
+		maxReplyMessages = DefaultMaxReplyMessages
+	}
 	c := &Client{
 		config: cfg,
 	}
@@ -71,7 +75,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 			return decodeMsgFromCborWithLimit(
 				msgType,
 				data,
-				cfg.MaxQueueSize,
+				maxReplyMessages,
 			)
 		},
 		StateMap:     stateMapCopy,

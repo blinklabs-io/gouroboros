@@ -16,11 +16,15 @@ package localmessagenotification
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
@@ -295,25 +299,109 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 }
 
 func TestReplyMessageCollectionBudget(t *testing.T) {
+	over := DefaultMaxReplyMessages + 1
 	for _, msgType := range []uint{
 		MessageTypeReplyMessagesNonBlocking,
 		MessageTypeReplyMessagesBlocking,
 	} {
 		t.Run(fmt.Sprintf("message_%d", msgType), func(t *testing.T) {
-			wire := []byte{0x82, byte(msgType), 0x98, DefaultMaxReplyMessages + 1}
+			// array header with a two-byte count
+			wire := []byte{0x82, byte(msgType), 0x99, byte(over >> 8), byte(over)}
 			if msgType == MessageTypeReplyMessagesNonBlocking {
 				wire[0] = 0x83
 			}
-			wire = append(
-				wire,
-				bytes.Repeat([]byte{0x80}, DefaultMaxReplyMessages+1)...,
-			)
+			wire = append(wire, bytes.Repeat([]byte{0x80}, over)...)
 			if msgType == MessageTypeReplyMessagesNonBlocking {
 				wire = append(wire, 0xf4)
 			}
 			msg, err := NewMsgFromCbor(msgType, wire)
-			require.ErrorContains(t, err, "maximum is 100")
+			require.ErrorContains(t, err, "maximum is 1000")
 			require.Nil(t, msg)
+		})
+	}
+}
+
+// The reference server replies with up to 1000 messages, so a client must
+// accept that many whatever queue size a server of this library is given, and
+// refuse one more.
+func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		count int
+		valid bool
+	}{
+		{name: "reference batch", count: 1000, valid: true},
+		{name: "above reference batch", count: 1001},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			connA, connB := net.Pipe()
+			t.Cleanup(func() {
+				_ = connA.Close()
+				_ = connB.Close()
+			})
+			m := muxer.New(connA)
+			t.Cleanup(m.Stop)
+			replies := make(chan int, 1)
+			errs := make(chan error, 4)
+			cfg := NewConfig(
+				WithMaxQueueSize(1),
+				WithReplyMessagesFunc(func(
+					_ CallbackContext,
+					messages []pcommon.DmqMessage,
+					_ bool,
+				) {
+					replies <- len(messages)
+				}),
+			)
+			client := NewClient(protocol.ProtocolOptions{
+				Muxer:     m,
+				ErrorChan: errs,
+			}, &cfg)
+			client.Start()
+			t.Cleanup(func() { client.Protocol.Stop() })
+			m.Start()
+
+			require.NoError(t, client.RequestMessagesBlocking())
+			require.NoError(
+				t,
+				connB.SetReadDeadline(time.Now().Add(2*time.Second)),
+			)
+			header := muxer.SegmentHeader{}
+			require.NoError(t, binary.Read(connB, binary.BigEndian, &header))
+			_, err := io.CopyN(io.Discard, connB, int64(header.PayloadLength))
+			require.NoError(t, err)
+
+			payload, err := cbor.Encode(
+				NewMsgReplyMessagesBlocking(
+					make([]pcommon.DmqMessage, tc.count),
+				),
+			)
+			require.NoError(t, err)
+			segment := muxer.NewSegment(ProtocolID, payload, true)
+			buf := &bytes.Buffer{}
+			require.NoError(
+				t,
+				binary.Write(buf, binary.BigEndian, segment.SegmentHeader),
+			)
+			buf.Write(segment.Payload)
+			_, err = connB.Write(buf.Bytes())
+			require.NoError(t, err)
+
+			if tc.valid {
+				select {
+				case count := <-replies:
+					require.Equal(t, tc.count, count)
+				case <-time.After(2 * time.Second):
+					t.Fatal("reply did not reach the client callback")
+				}
+				return
+			}
+			select {
+			case err := <-errs:
+				require.ErrorContains(t, err, "maximum is 1000")
+			case <-time.After(2 * time.Second):
+				t.Fatal("oversized reply was not rejected")
+			}
 		})
 	}
 }
