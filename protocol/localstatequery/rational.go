@@ -54,3 +54,12 @@ func decodeRational(data []byte) (*big.Rat, error) {
 	}
 	return new(big.Rat).SetFrac(&num, &denom), nil
 }
+
+// encodeRationalUntagged encodes a Rational the way cardano-binary does:
+// [numerator, denominator] with no tag.
+func encodeRationalUntagged(r *big.Rat) ([]byte, error) {
+	if r == nil {
+		return nil, errors.New("encoding rational: nil value")
+	}
+	return cbor.Encode([]*big.Int{r.Num(), r.Denom()})
+}

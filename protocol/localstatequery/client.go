@@ -1851,11 +1851,15 @@ func (c *Client) GetLedgerPeerSnapshot(
 		currentEra,
 		QueryTypeShelleyGetLedgerPeerSnapshot,
 	)
-	var result LedgerPeerSnapshotResult
+	// The snapshot arrives inside the single-element era result wrapper.
+	var result struct {
+		cbor.StructAsArray
+		Snapshot LedgerPeerSnapshotResult
+	}
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &result.Snapshot, nil
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {

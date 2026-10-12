@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -81,14 +82,14 @@ func (w WithOriginSlot) MarshalCBOR() ([]byte, error) {
 }
 
 // RelayKind identifies the kind of relay access point in a LedgerPeerSnapshot.
-// The integer values match the wire-format discriminator used by the Haskell
-// Serialise instance for RelayAccessPoint.
+// The integer values are the constructor tags of ouroboros-network's
+// LedgerRelayAccessPoint CBOR encoding.
 type RelayKind int
 
 const (
-	RelayKindIPv4   RelayKind = 0 // [0, ipv4-uint32, port]
-	RelayKindIPv6   RelayKind = 1 // [1, [w0,w1,w2,w3], port]
-	RelayKindDomain RelayKind = 2 // [2, domain-bytes, port]
+	RelayKindDomain RelayKind = 0 // [0, port, domain-bytes]
+	RelayKindIPv4   RelayKind = 1 // [1, port, [o0, o1, o2, o3]]
+	RelayKindIPv6   RelayKind = 2 // [2, port, [w0, ..., w7]]
 	RelayKindSRV    RelayKind = 3 // [3, domain-bytes]
 )
 
@@ -115,105 +116,73 @@ func (r *RelayAccessPoint) UnmarshalCBOR(data []byte) error {
 	r.IPv6 = nil
 	r.Domain = nil
 	r.Port = nil
-	listLen, err := cbor.ListLength(data)
-	if err != nil {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(data, &fields); err != nil {
 		return err
 	}
-	kind, err := cbor.DecodeIdFromList(data)
-	if err != nil {
-		return err
+	if len(fields) == 0 {
+		return errors.New("RelayAccessPoint: empty list")
+	}
+	var kind uint8
+	if _, err := cbor.Decode(fields[0], &kind); err != nil {
+		return fmt.Errorf("RelayAccessPoint: kind: %w", err)
+	}
+	wantLen := 3
+	if RelayKind(kind) == RelayKindSRV {
+		wantLen = 2
 	}
 	switch RelayKind(kind) {
-	case RelayKindIPv4:
-		if listLen != 3 {
-			return fmt.Errorf(
-				"RelayAccessPoint IPv4: expected list length 3, got %d",
-				listLen,
-			)
-		}
-		var tmp struct {
-			cbor.StructAsArray
-			Tag  int
-			Addr cbor.RawMessage
-			Port uint16
-		}
-		if _, err := cbor.Decode(data, &tmp); err != nil {
-			return err
-		}
-		ip, err := decodeIPv4(tmp.Addr)
-		if err != nil {
-			return err
-		}
-		r.Kind = RelayKindIPv4
-		r.IPv4 = &ip
-		port := tmp.Port
-		r.Port = &port
-	case RelayKindIPv6:
-		if listLen != 3 {
-			return fmt.Errorf(
-				"RelayAccessPoint IPv6: expected list length 3, got %d",
-				listLen,
-			)
-		}
-		var tmp struct {
-			cbor.StructAsArray
-			Tag  int
-			Addr cbor.RawMessage
-			Port uint16
-		}
-		if _, err := cbor.Decode(data, &tmp); err != nil {
-			return err
-		}
-		ip, err := decodeIPv6(tmp.Addr)
-		if err != nil {
-			return err
-		}
-		r.Kind = RelayKindIPv6
-		r.IPv6 = &ip
-		port := tmp.Port
-		r.Port = &port
-	case RelayKindDomain:
-		if listLen != 3 {
-			return fmt.Errorf(
-				"RelayAccessPoint Domain: expected list length 3, got %d",
-				listLen,
-			)
-		}
-		var tmp struct {
-			cbor.StructAsArray
-			Tag    int
-			Domain []byte
-			Port   uint16
-		}
-		if _, err := cbor.Decode(data, &tmp); err != nil {
-			return err
-		}
-		dn := string(tmp.Domain)
-		r.Kind = RelayKindDomain
-		r.Domain = &dn
-		port := tmp.Port
-		r.Port = &port
-	case RelayKindSRV:
-		if listLen != 2 {
-			return fmt.Errorf(
-				"RelayAccessPoint SRV: expected list length 2, got %d",
-				listLen,
-			)
-		}
-		var tmp struct {
-			cbor.StructAsArray
-			Tag    int
-			Domain []byte
-		}
-		if _, err := cbor.Decode(data, &tmp); err != nil {
-			return err
-		}
-		dn := string(tmp.Domain)
-		r.Kind = RelayKindSRV
-		r.Domain = &dn
+	case RelayKindDomain, RelayKindIPv4, RelayKindIPv6, RelayKindSRV:
 	default:
 		return fmt.Errorf("unknown relay kind: %d", kind)
 	}
+	if len(fields) != wantLen {
+		return fmt.Errorf(
+			"RelayAccessPoint kind %d: expected list length %d, got %d",
+			kind,
+			wantLen,
+			len(fields),
+		)
+	}
+	if RelayKind(kind) == RelayKindSRV {
+		var domain []byte
+		if _, err := cbor.Decode(fields[1], &domain); err != nil {
+			return fmt.Errorf("RelayAccessPoint SRV: %w", err)
+		}
+		dn := string(domain)
+		r.Kind = RelayKindSRV
+		r.Domain = &dn
+		return nil
+	}
+	var port uint16
+	if _, err := cbor.Decode(fields[1], &port); err != nil {
+		return fmt.Errorf("RelayAccessPoint: port: %w", err)
+	}
+	switch RelayKind(kind) {
+	case RelayKindDomain:
+		var domain []byte
+		if _, err := cbor.Decode(fields[2], &domain); err != nil {
+			return fmt.Errorf("RelayAccessPoint Domain: %w", err)
+		}
+		dn := string(domain)
+		r.Domain = &dn
+	case RelayKindIPv4:
+		ip, err := decodeIPWords(fields[2], 4, 8)
+		if err != nil {
+			return fmt.Errorf("RelayAccessPoint IPv4: %w", err)
+		}
+		r.IPv4 = &ip
+	case RelayKindIPv6:
+		ip, err := decodeIPWords(fields[2], 8, 16)
+		if err != nil {
+			return fmt.Errorf("RelayAccessPoint IPv6: %w", err)
+		}
+		r.IPv6 = &ip
+	case RelayKindSRV:
+		// Handled above: an SRV relay carries no port.
+	}
+	r.Kind = RelayKind(kind)
+	r.Port = &port
 	return nil
 }
 
@@ -231,8 +200,7 @@ func (r RelayAccessPoint) MarshalCBOR() ([]byte, error) {
 				"RelayAccessPoint IPv4: not a valid IPv4 address",
 			)
 		}
-		addr := binary.BigEndian.Uint32(ipv4)
-		return cbor.Encode([]any{int(RelayKindIPv4), addr, *r.Port})
+		return encodeRelay(r.Kind, *r.Port, encodeIPWords(ipv4, 8))
 	case RelayKindIPv6:
 		if r.IPv6 == nil || r.Port == nil {
 			return nil, errors.New(
@@ -245,23 +213,18 @@ func (r RelayAccessPoint) MarshalCBOR() ([]byte, error) {
 				"RelayAccessPoint IPv6: not a valid IPv6 address",
 			)
 		}
-		// Haskell encodes IPv6 as a 4-tuple of Word32 (toHostAddress6).
-		a := binary.BigEndian.Uint32(ipv6[0:4])
-		b := binary.BigEndian.Uint32(ipv6[4:8])
-		c := binary.BigEndian.Uint32(ipv6[8:12])
-		d := binary.BigEndian.Uint32(ipv6[12:16])
-		return cbor.Encode(
-			[]any{int(RelayKindIPv6), []uint32{a, b, c, d}, *r.Port},
-		)
+		return encodeRelay(r.Kind, *r.Port, encodeIPWords(ipv6, 16))
 	case RelayKindDomain:
 		if r.Domain == nil || r.Port == nil {
 			return nil, errors.New(
 				"RelayAccessPoint Domain requires Domain and Port",
 			)
 		}
-		return cbor.Encode(
-			[]any{int(RelayKindDomain), []byte(*r.Domain), *r.Port},
-		)
+		domain, err := cbor.Encode([]byte(*r.Domain))
+		if err != nil {
+			return nil, err
+		}
+		return encodeRelay(r.Kind, *r.Port, domain)
 	case RelayKindSRV:
 		if r.Domain == nil {
 			return nil, errors.New("RelayAccessPoint SRV requires Domain")
@@ -271,51 +234,74 @@ func (r RelayAccessPoint) MarshalCBOR() ([]byte, error) {
 	return nil, fmt.Errorf("unknown relay kind: %d", r.Kind)
 }
 
-// decodeIPv4 accepts either the canonical Haskell encoding (CBOR uint of the
-// host address in network byte order) or a raw 4-byte bytestring fallback.
-func decodeIPv4(data []byte) (net.IP, error) {
-	var word uint32
-	if _, err := cbor.Decode(data, &word); err == nil {
-		b := make([]byte, 4)
-		binary.BigEndian.PutUint32(b, word)
-		return net.IP(b), nil
-	}
-	var bs []byte
-	if _, err := cbor.Decode(data, &bs); err == nil {
-		if len(bs) != 4 {
-			return nil, fmt.Errorf(
-				"IPv4 bytestring must be 4 bytes, got %d",
-				len(bs),
-			)
-		}
-		return net.IP(bs), nil
-	}
-	return nil, errors.New("invalid IPv4 encoding")
+func encodeRelay(kind RelayKind, port uint16, addr []byte) ([]byte, error) {
+	return cbor.Encode(
+		[]any{int(kind), port, cbor.RawMessage(addr)},
+	)
 }
 
-// decodeIPv6 accepts either the canonical Haskell encoding (4-element list
-// of Word32 from toHostAddress6) or a raw 16-byte bytestring fallback.
-func decodeIPv6(data []byte) (net.IP, error) {
-	var tuple []uint32
-	if _, err := cbor.Decode(data, &tuple); err == nil && len(tuple) == 4 {
-		b := make([]byte, 16)
-		binary.BigEndian.PutUint32(b[0:4], tuple[0])
-		binary.BigEndian.PutUint32(b[4:8], tuple[1])
-		binary.BigEndian.PutUint32(b[8:12], tuple[2])
-		binary.BigEndian.PutUint32(b[12:16], tuple[3])
-		return net.IP(b), nil
-	}
-	var bs []byte
-	if _, err := cbor.Decode(data, &bs); err == nil {
-		if len(bs) != 16 {
-			return nil, fmt.Errorf(
-				"IPv6 bytestring must be 16 bytes, got %d",
-				len(bs),
-			)
+// decodeIPWords decodes the address list ouroboros-network writes with
+// iproute's fromIPv4/fromIPv6: 4 octets for IPv4, 8 big-endian 16-bit words
+// for IPv6. Decoding into the word type rejects an out-of-range word.
+func decodeIPWords(data []byte, count int, bits uint) (net.IP, error) {
+	var ip net.IP
+	var n int
+	if bits == 8 {
+		var octets []uint8
+		if _, err := cbor.Decode(data, &octets); err != nil {
+			return nil, err
 		}
-		return net.IP(bs), nil
+		n = len(octets)
+		ip = net.IP(octets)
+	} else {
+		var words []uint16
+		if _, err := cbor.Decode(data, &words); err != nil {
+			return nil, err
+		}
+		n = len(words)
+		for _, w := range words {
+			ip = binary.BigEndian.AppendUint16(ip, w)
+		}
 	}
-	return nil, errors.New("invalid IPv6 encoding")
+	if n != count {
+		return nil, fmt.Errorf(
+			"expected %d address words, got %d",
+			count,
+			n,
+		)
+	}
+	return ip, nil
+}
+
+// encodeIPWords is the inverse of decodeIPWords. The list is
+// indefinite-length because cardano-binary's list decoder accepts nothing
+// else.
+func encodeIPWords(ip net.IP, bits uint) []byte {
+	size := int(bits / 8)
+	items := make([][]byte, 0, len(ip)/size)
+	for i := 0; i < len(ip); i += size {
+		var w uint64
+		if size == 1 {
+			w = uint64(ip[i])
+		} else {
+			w = uint64(binary.BigEndian.Uint16(ip[i : i+2]))
+		}
+		// A small unsigned integer encodes infallibly.
+		item, _ := cbor.Encode(w)
+		items = append(items, item)
+	}
+	return encodeIndefiniteList(items)
+}
+
+// encodeIndefiniteList joins already-encoded items into an
+// indefinite-length CBOR list.
+func encodeIndefiniteList(items [][]byte) []byte {
+	buf := bytes.NewBuffer([]byte{0x9f})
+	for _, item := range items {
+		buf.Write(item)
+	}
+	buf.WriteByte(cborBreak)
+	return buf.Bytes()
 }
 
 // PoolLedgerPeers is a single pool's entry in a LedgerPeerSnapshot. The
@@ -330,17 +316,127 @@ func decodeIPv6(data []byte) (net.IP, error) {
 // Note: LedgerPeerSnapshotV2 does not carry a pool identity (PoolKeyHash);
 // it is a stake-and-relays summary only.
 type PoolLedgerPeers struct {
-	cbor.StructAsArray
 	AccumulatedStake *cbor.Rat
 	Detail           PoolLedgerPeersDetail
+}
+
+func (p *PoolLedgerPeers) UnmarshalCBOR(data []byte) error {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(data, &fields); err != nil {
+		return err
+	}
+	if len(fields) != 2 {
+		return fmt.Errorf(
+			"PoolLedgerPeers: expected 2 elements, got %d",
+			len(fields),
+		)
+	}
+	acc, err := decodeRational(fields[0])
+	if err != nil {
+		return fmt.Errorf("PoolLedgerPeers: accumulated stake: %w", err)
+	}
+	var detail PoolLedgerPeersDetail
+	if _, err := cbor.Decode(fields[1], &detail); err != nil {
+		return err
+	}
+	p.AccumulatedStake = &cbor.Rat{Rat: acc}
+	p.Detail = detail
+	return nil
+}
+
+func (p PoolLedgerPeers) MarshalCBOR() ([]byte, error) {
+	acc, err := encodeStake(p.AccumulatedStake)
+	if err != nil {
+		return nil, err
+	}
+	detail, err := cbor.Encode(p.Detail)
+	if err != nil {
+		return nil, err
+	}
+	return cbor.Encode(
+		[]cbor.RawMessage{acc, detail},
+	)
 }
 
 // PoolLedgerPeersDetail is the inner (PoolStake, NonEmpty RelayAccessPoint)
 // pair of a PoolLedgerPeers entry.
 type PoolLedgerPeersDetail struct {
-	cbor.StructAsArray
 	PoolStake *cbor.Rat
 	Relays    []RelayAccessPoint
+}
+
+func (d *PoolLedgerPeersDetail) UnmarshalCBOR(data []byte) error {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(data, &fields); err != nil {
+		return err
+	}
+	if len(fields) != 2 {
+		return fmt.Errorf(
+			"PoolLedgerPeersDetail: expected 2 elements, got %d",
+			len(fields),
+		)
+	}
+	stake, relays, err := decodeStakeAndRelays(fields[0], fields[1])
+	if err != nil {
+		return err
+	}
+	d.PoolStake = stake
+	d.Relays = relays
+	return nil
+}
+
+func (d PoolLedgerPeersDetail) MarshalCBOR() ([]byte, error) {
+	stake, relays, err := encodeStakeAndRelays(d.PoolStake, d.Relays)
+	if err != nil {
+		return nil, err
+	}
+	return cbor.Encode([]cbor.RawMessage{stake, relays})
+}
+
+func decodeStakeAndRelays(
+	stakeData, relaysData []byte,
+) (*cbor.Rat, []RelayAccessPoint, error) {
+	stake, err := decodeRational(stakeData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pool stake: %w", err)
+	}
+	var relays []RelayAccessPoint
+	if _, err := cbor.Decode(relaysData, &relays); err != nil {
+		return nil, nil, err
+	}
+	if len(relays) == 0 {
+		return nil, nil, errors.New("pool relays: empty NonEmpty list")
+	}
+	return &cbor.Rat{Rat: stake}, relays, nil
+}
+
+func encodeStakeAndRelays(
+	stake *cbor.Rat,
+	relays []RelayAccessPoint,
+) ([]byte, []byte, error) {
+	stakeData, err := encodeStake(stake)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(relays) == 0 {
+		return nil, nil, errors.New("pool relays: empty NonEmpty list")
+	}
+	items := make([][]byte, 0, len(relays))
+	for _, relay := range relays {
+		item, err := cbor.Encode(relay)
+		if err != nil {
+			return nil, nil, err
+		}
+		items = append(items, item)
+	}
+	return stakeData, encodeIndefiniteList(items), nil
+}
+
+func encodeStake(r *cbor.Rat) ([]byte, error) {
+	if r == nil {
+		return nil, errors.New("pool stake: nil value")
+	}
+	return encodeRationalUntagged(r.Rat)
 }
 
 // LedgerPeerSnapshotResult is the typed result of a GetLedgerPeerSnapshot
@@ -398,23 +494,25 @@ func (l LedgerPeerSnapshotResult) MarshalCBOR() ([]byte, error) {
 			ledgerPeerSnapshotWireVersion,
 		)
 	}
-	return cbor.Encode(struct {
-		cbor.StructAsArray
-		Version uint64
-		Inner   struct {
-			cbor.StructAsArray
-			Slot  WithOriginSlot
-			Pools []PoolLedgerPeers
+	pools := make([][]byte, 0, len(l.Pools))
+	for _, pool := range l.Pools {
+		item, err := cbor.Encode(pool)
+		if err != nil {
+			return nil, err
 		}
-	}{
-		Version: ledgerPeerSnapshotWireVersion,
-		Inner: struct {
-			cbor.StructAsArray
-			Slot  WithOriginSlot
-			Pools []PoolLedgerPeers
-		}{
-			Slot:  l.Slot,
-			Pools: l.Pools,
-		},
-	})
+		pools = append(pools, item)
+	}
+	slot, err := cbor.Encode(l.Slot)
+	if err != nil {
+		return nil, err
+	}
+	inner, err := cbor.Encode(
+		[]cbor.RawMessage{slot, encodeIndefiniteList(pools)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return cbor.Encode(
+		[]any{ledgerPeerSnapshotWireVersion, cbor.RawMessage(inner)},
+	)
 }

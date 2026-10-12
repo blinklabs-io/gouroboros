@@ -20,6 +20,7 @@ import (
 	"math/big"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -160,8 +161,8 @@ func TestRelayAccessPointRoundTrip(t *testing.T) {
 				IPv4: ptrIP(ipv4),
 				Port: ptrUint16(3001),
 			},
-			// list-3 + 0 + uint32(0xC0000201) + uint16(0x0BB9)
-			hex: "83001ac0000201190bb9",
+			// [1, port 3001, indefinite [192, 0, 2, 1]]
+			hex: "8301190bb99f18c0000201ff",
 		},
 		{
 			name: "domain",
@@ -170,11 +171,9 @@ func TestRelayAccessPointRoundTrip(t *testing.T) {
 				Domain: ptrStr("relays.example"),
 				Port:   ptrUint16(3001),
 			},
-			// list-3 + 2 + bstr"relays.example" + uint16(0x0BB9)
-			// 4e = bytestring of length 14
-			hex: "8302" +
-				"4e" + "72656c6179732e6578616d706c65" + // "relays.example"
-				"190bb9",
+			// [0, port 3001, bstr "relays.example"]
+			hex: "8300190bb9" +
+				"4e" + "72656c6179732e6578616d706c65",
 		},
 		{
 			name: "srv",
@@ -278,26 +277,28 @@ func TestRelayAccessPointRoundTrip(t *testing.T) {
 // LedgerPeerSnapshotV2 wire layout and verifies that
 // every typed field is preserved.
 func TestLedgerPeerSnapshotGolden(t *testing.T) {
-	// Reference encoding of LedgerPeerSnapshotV2 with:
+	// LedgerPeerSnapshotV2 as ouroboros-network encodes it with
+	// cardano-binary, which writes Rationals untagged and lists as
+	// indefinite-length:
 	//   slot = At 12345
 	//   one pool: accStake=1/10, poolStake=1/10,
 	//             one IPv4 relay 192.0.2.1:3001
 	//
-	// Layout:
 	//   82 01                       version=1 (V2)
 	//   82                          inner [slot, pools]
 	//     82 01 19 3039             slot = At 12345
-	//     81                        pools = list-1
+	//     9f                        pools
 	//       82                      pool entry
-	//         d8 1e 82 01 0a        acc stake = tag30 [1, 10]
+	//         82 01 0a              acc stake = [1, 10]
 	//         82                    detail
-	//           d8 1e 82 01 0a      pool stake = tag30 [1, 10]
-	//           81                  relays = list-1
-	//             83 00             IPv4 entry, kind=0
-	//               1a c0 00 02 01    uint32 192.0.2.1
-	//               19 0b b9          uint16 3001
+	//           82 01 0a            pool stake = [1, 10]
+	//           9f                  relays
+	//             83 01 19 0bb9     IPv4 relay, port 3001
+	//               9f 18c0 00 02 01 ff
+	//           ff
+	//       ff
 	wire, err := hex.DecodeString(
-		"82018282011930398182d81e82010a82d81e82010a8183001ac0000201190bb9",
+		"82018282011930399f8282010a8282010a9f8301190bb99f18c0000201ffffff",
 	)
 	if err != nil {
 		t.Fatalf("hex: %s", err)
@@ -746,5 +747,54 @@ func TestLedgerPeerSnapshotRoundTrip(t *testing.T) {
 	}
 	if len(decoded.Pools[0].Detail.Relays) != 2 {
 		t.Fatalf("relays length: got %d", len(decoded.Pools[0].Detail.Relays))
+	}
+}
+
+// TestRelayAccessPointIPv6Wire pins the IPv6 address as eight 16-bit words.
+func TestRelayAccessPointIPv6Wire(t *testing.T) {
+	ipv6 := net.ParseIP("2001:db8::1")
+	data, err := cbor.Encode(RelayAccessPoint{
+		Kind: RelayKindIPv6,
+		IPv6: ptrIP(ipv6),
+		Port: ptrUint16(3001),
+	})
+	if err != nil {
+		t.Fatalf("encode: %s", err)
+	}
+	want := "8302190bb99f19200119 0db8000000000001ff"
+	want = strings.ReplaceAll(want, " ", "")
+	if got := hex.EncodeToString(data); got != want {
+		t.Fatalf("encode mismatch:\n  got:  %s\n  want: %s", got, want)
+	}
+	// A definite-length address list decodes too.
+	definite, err := hex.DecodeString("8302190bb98819200119" +
+		"0db8000000000001")
+	if err != nil {
+		t.Fatalf("hex: %s", err)
+	}
+	var decoded RelayAccessPoint
+	if _, err := cbor.Decode(definite, &decoded); err != nil {
+		t.Fatalf("decode: %s", err)
+	}
+	if !decoded.IPv6.Equal(ipv6) {
+		t.Fatalf("ipv6: got %s want %s", *decoded.IPv6, ipv6)
+	}
+}
+
+// TestPoolLedgerPeersAcceptsTaggedStake keeps decoding a stake written with
+// the ledger's tag 30.
+func TestPoolLedgerPeersAcceptsTaggedStake(t *testing.T) {
+	wire, err := hex.DecodeString(
+		"82d81e82010a82d81e8201039f8203416dff",
+	)
+	if err != nil {
+		t.Fatalf("hex: %s", err)
+	}
+	var pool PoolLedgerPeers
+	if _, err := cbor.Decode(wire, &pool); err != nil {
+		t.Fatalf("decode: %s", err)
+	}
+	if pool.Detail.PoolStake.Cmp(big.NewRat(1, 3)) != 0 {
+		t.Fatalf("pool stake: got %s", pool.Detail.PoolStake.RatString())
 	}
 }
