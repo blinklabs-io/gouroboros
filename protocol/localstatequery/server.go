@@ -82,21 +82,11 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 }
 
 // ledgerPeerSnapshotQuery returns the GetLedgerPeerSnapshot leaf of a
-// decoded query wrapper, or nil. The query lives under BlockQuery ->
-// ShelleyQuery -> ShelleyGetLedgerPeerSnapshotQuery, so we walk that chain
-// rather than re-decoding the raw CBOR.
+// decoded query wrapper, or nil.
 func ledgerPeerSnapshotQuery(
 	w QueryWrapper,
 ) *ShelleyGetLedgerPeerSnapshotQuery {
-	bq, ok := w.Query.(*BlockQuery)
-	if !ok {
-		return nil
-	}
-	sq, ok := bq.Query.(*ShelleyQuery)
-	if !ok {
-		return nil
-	}
-	q, _ := sq.Query.(*ShelleyGetLedgerPeerSnapshotQuery)
+	q, _ := shelleyLeafQuery(w).(*ShelleyGetLedgerPeerSnapshotQuery)
 	return q
 }
 

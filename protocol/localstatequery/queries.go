@@ -91,6 +91,11 @@ const (
 	QueryTypeShelleyStakeDistribution2      = 37
 	QueryTypeShelleyMaxMajorProtocolVersion = 38
 	QueryTypeShelleyDRepDelegations         = 39
+
+	// A Shelley query needs at most one GetCBOR wrapper in current clients.
+	// Keep compatibility headroom while bounding recursive custom decoding of
+	// peer-controlled queries well below the general CBOR nesting limit.
+	maxShelleyCborQueryDepth = 32
 )
 
 // LedgerPeerKind selects which ledger peers the snapshot covers.
@@ -273,6 +278,17 @@ func shelleyQueryTypes() map[int]any {
 // the era-wrapped path in ShelleyQuery and by the inner query carried by the
 // GetCBOR combinator (ShelleyCborQuery).
 func decodeShelleyQuery(data []byte) (any, error) {
+	return decodeShelleyQueryAtDepth(data, 0)
+}
+
+func decodeShelleyQueryAtDepth(data []byte, depth int) (any, error) {
+	queryType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return nil, err
+	}
+	if queryType == QueryTypeShelleyCbor {
+		return decodeShelleyCborQuery(data, depth)
+	}
 	return decodeQuery(data, "Block", shelleyQueryTypes())
 }
 
@@ -367,21 +383,40 @@ type ShelleyCborQuery struct {
 }
 
 func (q *ShelleyCborQuery) UnmarshalCBOR(data []byte) error {
+	decoded, err := decodeShelleyCborQuery(data, 0)
+	if err != nil {
+		return err
+	}
+	*q = *decoded
+	return nil
+}
+
+func decodeShelleyCborQuery(
+	data []byte,
+	depth int,
+) (*ShelleyCborQuery, error) {
+	if depth >= maxShelleyCborQueryDepth {
+		return nil, fmt.Errorf(
+			"shelley GetCBOR query wrapper depth exceeds maximum %d",
+			maxShelleyCborQueryDepth,
+		)
+	}
 	var tmp struct {
 		cbor.StructAsArray
 		Type     int
 		SubQuery cbor.RawMessage
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
-		return err
+		return nil, err
 	}
-	inner, err := decodeShelleyQuery(tmp.SubQuery)
+	if tmp.Type != QueryTypeShelleyCbor {
+		return nil, fmt.Errorf("unexpected GetCBOR query type: %d", tmp.Type)
+	}
+	inner, err := decodeShelleyQueryAtDepth(tmp.SubQuery, depth+1)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	q.Type = tmp.Type
-	q.Query = inner
-	return nil
+	return &ShelleyCborQuery{Type: tmp.Type, Query: inner}, nil
 }
 
 func (q *ShelleyCborQuery) MarshalCBOR() ([]byte, error) {

@@ -68,26 +68,31 @@ func unsupportedQueryError(name string, version uint16) error {
 	)
 }
 
-// shelleyLeafQueryType returns the Shelley query type of a decoded query
-// wrapper, if it holds one whose availability depends on the version.
-func shelleyLeafQueryType(w QueryWrapper) (int, bool) {
+// shelleyLeafQuery returns the decoded Shelley query inside the block, era,
+// and any GetCBOR wrappers.
+func shelleyLeafQuery(w QueryWrapper) any {
 	bq, ok := w.Query.(*BlockQuery)
 	if !ok {
-		return 0, false
+		return nil
 	}
 	sq, ok := bq.Query.(*ShelleyQuery)
 	if !ok {
-		return 0, false
+		return nil
 	}
-	// GetCBOR wraps another query, which is what the version gates apply to
 	query := sq.Query
 	for {
 		cborQuery, isCbor := query.(*ShelleyCborQuery)
 		if !isCbor {
-			break
+			return query
 		}
 		query = cborQuery.Query
 	}
+}
+
+// shelleyLeafQueryType returns the Shelley query type of a decoded query
+// wrapper, if it holds one whose availability depends on the version.
+func shelleyLeafQueryType(w QueryWrapper) (int, bool) {
+	query := shelleyLeafQuery(w)
 	switch query.(type) {
 	case *ShelleyProposedProtocolParamsUpdatesQuery:
 		return QueryTypeShelleyProposedProtocolParamsUpdates, true
