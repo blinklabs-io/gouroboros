@@ -137,6 +137,16 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 		var tooBig *dijkstra.LeiosEbTooBigError
 		requireProtocolError(t, err, &tooBig)
 	})
+	t.Run("announced endorser block at the limit", func(t *testing.T) {
+		limit := params.MaxEndorserBlockReferencesSize
+		require.NoError(t, validateDijkstraLeiosHeader(
+			&dijkstra.DijkstraBlock{
+				BlockHeader: dijkstraLeiosTestHeader(t, 1, 12, false, &limit),
+			},
+			params,
+			nil,
+		))
+	})
 	t.Run("certificate at the earliest slot", func(t *testing.T) {
 		require.NoError(t, validateDijkstraLeiosHeader(
 			certifying(110), params, state,

@@ -86,6 +86,18 @@ func LeiosMinCertificationSlot(
 	return earliest, nil
 }
 
+// leiosAnnouncer is the part of a Dijkstra header the certification timing
+// check reads from its predecessor. A chain state may hand back a wrapper
+// around the header, so the check does not require the concrete type.
+type leiosAnnouncer interface {
+	SlotNumber() uint64
+	LeiosAnnouncement() (
+		hash common.Blake2b256,
+		size uint64,
+		ok bool,
+	)
+}
+
 // ValidateLeiosCertificateTiming applies the header checks that depend on the
 // immediately preceding header. A header that sets its certificate flag must
 // follow a header that announced an endorser block, and must not be earlier
@@ -105,8 +117,12 @@ func ValidateLeiosCertificateTiming(
 	// Only the immediate predecessor counts: the reference chain state keeps
 	// one announcement and replaces it on every header, including with
 	// nothing.
-	announcing, ok := predecessor.(*DijkstraBlockHeader)
-	if !ok || announcing == nil {
+	if concrete, isConcrete := predecessor.(*DijkstraBlockHeader); isConcrete &&
+		concrete == nil {
+		return &LeiosCertWithoutAnnouncementError{}
+	}
+	announcing, ok := predecessor.(leiosAnnouncer)
+	if !ok {
 		return &LeiosCertWithoutAnnouncementError{}
 	}
 	if _, _, announced := announcing.LeiosAnnouncement(); !announced {

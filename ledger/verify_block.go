@@ -128,7 +128,9 @@ func validateDijkstraBlockBodyHash(
 // endorser block size bound and, for a header that sets its certificate flag,
 // the announcement and certification-delay rules against its predecessor.
 // Without protocol parameters it checks nothing; the block-body rules still
-// require them for any certified block.
+// require them for any certified block. Parameters of another era are a
+// configuration error even for an uncertified block, because the version floor
+// and size bound are read from them.
 func validateDijkstraLeiosHeader(
 	block Block,
 	protocolParameters common.ProtocolParameters,

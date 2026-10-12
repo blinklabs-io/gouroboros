@@ -138,6 +138,19 @@ func TestValidateLeiosCertificateTiming(t *testing.T) {
 			announcing, pp, time.Second,
 		))
 	})
+	t.Run("predecessor wrapped by the chain state", func(t *testing.T) {
+		wrapped := struct{ *DijkstraBlockHeader }{announcing}
+		require.NoError(t, ValidateLeiosCertificateTiming(
+			testLeiosHeader(t, 110, 12, true, nil),
+			wrapped, pp, time.Second,
+		))
+		err := ValidateLeiosCertificateTiming(
+			testLeiosHeader(t, 109, 12, true, nil),
+			wrapped, pp, time.Second,
+		)
+		var tooYoung *LeiosCertTooYoungError
+		require.ErrorAs(t, err, &tooYoung)
+	})
 	t.Run("certificate too young", func(t *testing.T) {
 		err := ValidateLeiosCertificateTiming(
 			testLeiosHeader(t, 109, 12, true, nil),
