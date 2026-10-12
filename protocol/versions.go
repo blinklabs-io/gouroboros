@@ -207,6 +207,34 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableDijkstraEra:            true,
 		EnableLocalTxMonitorProtocol: true,
 	},
+	// Allows SRV relays in the GetLedgerPeerSnapshot result.
+	(22 + ProtocolVersionNtCOffset): {
+		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableConwayEra:              true,
+		EnableDijkstraEra:            true,
+		EnableLocalTxMonitorProtocol: true,
+	},
+	// Added the GetDRepDelegations query and the peer-kind argument to
+	// GetLedgerPeerSnapshot, whose result gains the snapshot block hash and
+	// network magic. Some nodes accept only this version.
+	(23 + ProtocolVersionNtCOffset): {
+		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableConwayEra:              true,
+		EnableDijkstraEra:            true,
+		EnableLocalTxMonitorProtocol: true,
+	},
 
 	//
 	// We don't bother supporting NtN protocol versions before 7 (when Alonzo was enabled)
@@ -507,7 +535,8 @@ func GetProtocolVersionsDMQNtN() []uint16 {
 	return versions
 }
 
-// GetProtocolVersionsNtC returns a list of supported NtC protocol versions
+// GetProtocolVersionsNtC returns the supported NtC protocol versions in
+// ascending order, the order the handshake must propose them in.
 func GetProtocolVersionsNtC() []uint16 {
 	versions := []uint16{}
 	for key := range protocolVersions {

@@ -18,11 +18,15 @@ import (
 	"bytes"
 	"encoding/hex"
 	"math/big"
+	"strings"
 	"testing"
 
+	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // GetPoolDistr2 (Shelley sub-query 36) replaces GetPoolDistr from node-to-client
@@ -188,4 +192,103 @@ func TestPoolDistr2QueryIsDispatchable(t *testing.T) {
 			shelleyQ.Query,
 		)
 	}
+}
+
+// GetPoolDistr2 replies inside the single-element era result wrapper. Before
+// the Dijkstra era each entry has three fields; from it, four, the last being
+// the pool's BLS key as a list of at most one [public key, possession proof].
+const (
+	poolDistr2PoolHex = "1cb2c9bb54fb097fba58542c5adcf3a7d094db95e8b9c4e3d0bcbf1d"
+	poolDistr2VrfHex  = "c0d1f9b040d2f6fd7fc8775d24753d6d" +
+		"b4b0fb6846b76f0d8f4b8e8b96ed7d9a"
+	poolDistr2Prefix = "81 82 a1 58 1c " + poolDistr2PoolHex
+	poolDistr2Stake  = " d8 1e 82 01 03 1a 05 f5 e1 00 58 20 " +
+		poolDistr2VrfHex
+	poolDistr2Total = " 1a 11 e1 a3 00"
+)
+
+func poolDistr2BlsKeyHex() string {
+	return "82 58 60 " + strings.Repeat("a1", 96) +
+		" 58 60 " + strings.Repeat("b2", 96)
+}
+
+func TestGetPoolDistr2EraWrappedReply(t *testing.T) {
+	cases := []struct {
+		name   string
+		wire   string
+		blsKey string
+		// A Dijkstra entry with no key re-encodes in the three-field form.
+		reencodes bool
+	}{
+		{
+			name:      "conway",
+			wire:      poolDistr2Prefix + " 83" + poolDistr2Stake + poolDistr2Total,
+			reencodes: true,
+		},
+		{
+			name: "dijkstra_with_bls_key",
+			wire: poolDistr2Prefix + " 84" + poolDistr2Stake +
+				" 81 " + poolDistr2BlsKeyHex() + poolDistr2Total,
+			blsKey:    poolDistr2BlsKeyHex(),
+			reencodes: true,
+		},
+		{
+			name: "dijkstra_without_bls_key",
+			wire: poolDistr2Prefix + " 84" + poolDistr2Stake +
+				" 80" + poolDistr2Total,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := poolDistr2Hex(t, tc.wire)
+			runTest(
+				t,
+				conversationEraQueryAt(23, 6, wire),
+				func(t *testing.T, oConn *ouroboros.Connection) {
+					result, err := oConn.LocalStateQuery().Client.
+						GetPoolDistr2(nil)
+					require.NoError(t, err)
+					require.NotNil(t, result)
+					assert.Equal(
+						t,
+						uint64(300000000),
+						result.TotalActiveStake,
+					)
+					poolId, vrfHash := poolDistr2Fixture(t)
+					stake, ok := result.Pools[poolId]
+					require.True(t, ok, "pool missing from the reply")
+					require.NotNil(t, stake.StakeFraction)
+					assert.Zero(
+						t,
+						stake.StakeFraction.Cmp(big.NewRat(1, 3)),
+					)
+					assert.Equal(t, uint64(100000000), stake.TotalPoolStake)
+					assert.Equal(t, vrfHash, stake.VrfHash.Bytes())
+					assert.Equal(
+						t,
+						strings.ReplaceAll(tc.blsKey, " ", ""),
+						hex.EncodeToString(stake.BlsKey),
+					)
+					if !tc.reencodes {
+						return
+					}
+					data, err := cbor.Encode(
+						localstatequery.StakeDistribution2Result{
+							Distribution: *result,
+						},
+					)
+					require.NoError(t, err)
+					assert.Equal(t, hex.EncodeToString(wire),
+						hex.EncodeToString(data))
+				},
+			)
+		})
+	}
+}
+
+func poolDistr2Hex(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(strings.ReplaceAll(s, " ", ""))
+	require.NoError(t, err)
+	return b
 }

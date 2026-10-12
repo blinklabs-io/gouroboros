@@ -77,17 +77,29 @@ const (
 	QueryTypeShelleyGetProposals           = 31
 	QueryTypeShelleyGetRatifyState         = 32
 
-	// GetBigLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node 10.7+).
-	// The supported v19/v20 request is the one-element list [34].
+	// GetLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node
+	// 10.7+): [34] up to v22, [34, peer_kind] from v23.
 	QueryTypeShelleyGetLedgerPeerSnapshot = 34
 
 	// GetPoolDistr2 (Shelley sub-query 36) replaces GetPoolDistr from NtC v21.
 	// cardano-cli sends it while computing a leadership schedule.
 	QueryTypeShelleyPoolDistr2 = 36
+
+	// Shelley queries added after node-to-client version 19. See
+	// shelleyQuerySupported for the versions that carry them.
+	QueryTypeShelleyStakePoolDefaultVote    = 35
+	QueryTypeShelleyStakeDistribution2      = 37
+	QueryTypeShelleyMaxMajorProtocolVersion = 38
+	QueryTypeShelleyDRepDelegations         = 39
+
+	// A Shelley query needs at most one GetCBOR wrapper in current clients.
+	// Keep compatibility headroom while bounding recursive custom decoding of
+	// peer-controlled queries well below the general CBOR nesting limit.
+	maxShelleyCborQueryDepth = 32
 )
 
 // LedgerPeerKind selects which ledger peers the snapshot covers.
-// LedgerPeerKindAll requires node-to-client v23; supported v19/v20 expose only
+// LedgerPeerKindAll requires node-to-client v23; v19 to v22 expose only
 // LedgerPeerKindBig, the high-stake pools used by the diffusion layer for
 // Genesis.
 type LedgerPeerKind int
@@ -243,17 +255,21 @@ func shelleyQueryTypes() map[int]any {
 		QueryTypeShelleyPoolDistr2:                          &ShelleyPoolDistr2Query{},
 		QueryTypeShelleyStakeDelegDeposits:                  &ShelleyStakeDelegDepositsQuery{},
 		// Conway governance queries
-		QueryTypeShelleyConstitution:           &ShelleyConstitutionQuery{},
-		QueryTypeShelleyGovState:               &ShelleyGovStateQuery{},
-		QueryTypeShelleyDRepState:              &ShelleyDRepStateQuery{},
-		QueryTypeShelleyDRepStakeDistr:         &ShelleyDRepStakeDistrQuery{},
-		QueryTypeShelleyCommitteeMembersState:  &ShelleyCommitteeMembersStateQuery{},
-		QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
-		QueryTypeShelleyAccountState:           &ShelleyAccountStateQuery{},
-		QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
-		QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
-		QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
-		QueryTypeShelleyGetLedgerPeerSnapshot:  &ShelleyGetLedgerPeerSnapshotQuery{},
+		QueryTypeShelleyConstitution:            &ShelleyConstitutionQuery{},
+		QueryTypeShelleyGovState:                &ShelleyGovStateQuery{},
+		QueryTypeShelleyDRepState:               &ShelleyDRepStateQuery{},
+		QueryTypeShelleyDRepStakeDistr:          &ShelleyDRepStakeDistrQuery{},
+		QueryTypeShelleyCommitteeMembersState:   &ShelleyCommitteeMembersStateQuery{},
+		QueryTypeShelleyFilteredVoteDelegatees:  &ShelleyFilteredVoteDelegateesQuery{},
+		QueryTypeShelleyAccountState:            &ShelleyAccountStateQuery{},
+		QueryTypeShelleySPOStakeDistr:           &ShelleySPOStakeDistrQuery{},
+		QueryTypeShelleyGetProposals:            &ShelleyGetProposalsQuery{},
+		QueryTypeShelleyGetRatifyState:          &ShelleyGetRatifyStateQuery{},
+		QueryTypeShelleyGetLedgerPeerSnapshot:   &ShelleyGetLedgerPeerSnapshotQuery{},
+		QueryTypeShelleyStakePoolDefaultVote:    &ShelleyStakePoolDefaultVoteQuery{},
+		QueryTypeShelleyStakeDistribution2:      &ShelleyStakeDistribution2Query{},
+		QueryTypeShelleyMaxMajorProtocolVersion: &ShelleyMaxMajorProtocolVersionQuery{},
+		QueryTypeShelleyDRepDelegations:         &ShelleyDRepDelegationsQuery{},
 	}
 }
 
@@ -262,6 +278,17 @@ func shelleyQueryTypes() map[int]any {
 // the era-wrapped path in ShelleyQuery and by the inner query carried by the
 // GetCBOR combinator (ShelleyCborQuery).
 func decodeShelleyQuery(data []byte) (any, error) {
+	return decodeShelleyQueryAtDepth(data, 0)
+}
+
+func decodeShelleyQueryAtDepth(data []byte, depth int) (any, error) {
+	queryType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return nil, err
+	}
+	if queryType == QueryTypeShelleyCbor {
+		return decodeShelleyCborQuery(data, depth)
+	}
 	return decodeQuery(data, "Block", shelleyQueryTypes())
 }
 
@@ -356,21 +383,40 @@ type ShelleyCborQuery struct {
 }
 
 func (q *ShelleyCborQuery) UnmarshalCBOR(data []byte) error {
+	decoded, err := decodeShelleyCborQuery(data, 0)
+	if err != nil {
+		return err
+	}
+	*q = *decoded
+	return nil
+}
+
+func decodeShelleyCborQuery(
+	data []byte,
+	depth int,
+) (*ShelleyCborQuery, error) {
+	if depth >= maxShelleyCborQueryDepth {
+		return nil, fmt.Errorf(
+			"shelley GetCBOR query wrapper depth exceeds maximum %d",
+			maxShelleyCborQueryDepth,
+		)
+	}
 	var tmp struct {
 		cbor.StructAsArray
 		Type     int
 		SubQuery cbor.RawMessage
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
-		return err
+		return nil, err
 	}
-	inner, err := decodeShelleyQuery(tmp.SubQuery)
+	if tmp.Type != QueryTypeShelleyCbor {
+		return nil, fmt.Errorf("unexpected GetCBOR query type: %d", tmp.Type)
+	}
+	inner, err := decodeShelleyQueryAtDepth(tmp.SubQuery, depth+1)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	q.Type = tmp.Type
-	q.Query = inner
-	return nil
+	return &ShelleyCborQuery{Type: tmp.Type, Query: inner}, nil
 }
 
 func (q *ShelleyCborQuery) MarshalCBOR() ([]byte, error) {
@@ -1530,27 +1576,17 @@ type StakeSnapshotsResult struct {
 	TotalStakeGo   uint64
 }
 
-// PoolDistr2Result is the GetPoolDistr2 reply: the ledger's own pool
-// distribution rather than the consensus one that GetPoolDistr returned.
-//
-// It carries two values its predecessor did not. Each pool's entry gains the
-// total stake delegated to it, alongside the fraction and VRF hash the old
-// entry held, and the record as a whole gains the total active stake across
-// all pools. Both are needed to check a pool's leader eligibility without
-// re-deriving the denominator.
-type PoolDistr2Result struct {
-	cbor.StructAsArray
-	Pools            map[ledger.PoolId]PoolDistr2IndividualStake
-	TotalActiveStake uint64
-}
+// PoolDistr2Result is the GetPoolDistr2 reply without its era result
+// wrapper: the ledger's QueryResultPoolDistr, which has the same wire form as
+// its PoolDistr. Unlike the GetPoolDistr reply, each pool's entry carries the
+// total stake delegated to it, and the record the total active stake across
+// all pools.
+type PoolDistr2Result = PoolDistribution
 
 // PoolDistr2IndividualStake is one pool's entry in a GetPoolDistr2 reply.
-type PoolDistr2IndividualStake struct {
-	cbor.StructAsArray
-	StakeFraction  *cbor.Rat
-	TotalPoolStake uint64
-	VrfHash        ledger.Blake2b256
-}
+// From the Dijkstra era it carries a fourth field, the pool's BLS key if it
+// registered one.
+type PoolDistr2IndividualStake = IndividualPoolStake
 
 // PoolDistrResult represents the pool distribution result.
 // It contains a map of pool IDs to their stake distribution
@@ -1620,41 +1656,72 @@ type ShelleyGetRatifyStateQuery struct {
 	simpleQueryBase
 }
 
-// ShelleyGetLedgerPeerSnapshotQuery represents the supported NtC v19/v20
-// GetBigLedgerPeerSnapshot request. Those versions encode only [34]; the
-// peer-kind argument was added for later node-to-client versions.
+// ShelleyGetLedgerPeerSnapshotQuery is GetLedgerPeerSnapshot (Shelley query
+// 34). Node-to-client versions 19 to 22 encode it as [34] and ask only for
+// big ledger peers; version 23 encodes it as [34, peer_kind] and accepts only
+// that form. WithPeerKind selects the version 23 form.
 type ShelleyGetLedgerPeerSnapshotQuery struct {
-	cbor.StructAsArray
-	Type     int
-	PeerKind LedgerPeerKind
+	Type         int
+	PeerKind     LedgerPeerKind
+	WithPeerKind bool
 }
 
 func (q *ShelleyGetLedgerPeerSnapshotQuery) UnmarshalCBOR(data []byte) error {
-	listLen, err := cbor.ListLength(data)
-	if err != nil {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(data, &fields); err != nil {
 		return err
 	}
-	if listLen != 1 {
+	if len(fields) != 1 && len(fields) != 2 {
 		return fmt.Errorf(
-			"GetBigLedgerPeerSnapshot: expected one-element query, got %d",
-			listLen,
+			"GetLedgerPeerSnapshot: expected 1 or 2 elements, got %d",
+			len(fields),
 		)
 	}
-	var tmp simpleQueryBase
-	if _, err := cbor.Decode(data, &tmp); err != nil {
+	var queryType int
+	if _, err := cbor.Decode(fields[0], &queryType); err != nil {
 		return err
 	}
-	if tmp.Type != QueryTypeShelleyGetLedgerPeerSnapshot {
-		return fmt.Errorf("unexpected GetBigLedgerPeerSnapshot query type: %d", tmp.Type)
+	if queryType != QueryTypeShelleyGetLedgerPeerSnapshot {
+		return fmt.Errorf(
+			"unexpected GetLedgerPeerSnapshot query type: %d",
+			queryType,
+		)
 	}
-	q.Type = tmp.Type
-	q.PeerKind = LedgerPeerKindBig
+	tmp := ShelleyGetLedgerPeerSnapshotQuery{
+		Type:     queryType,
+		PeerKind: LedgerPeerKindBig,
+	}
+	if len(fields) == 2 {
+		var kind uint8
+		if _, err := cbor.Decode(fields[1], &kind); err != nil {
+			return err
+		}
+		switch LedgerPeerKind(kind) {
+		case LedgerPeerKindAll, LedgerPeerKindBig:
+		default:
+			return fmt.Errorf("invalid LedgerPeerKind: %d", kind)
+		}
+		tmp.PeerKind = LedgerPeerKind(kind)
+		tmp.WithPeerKind = true
+	}
+	*q = tmp
 	return nil
 }
 
 func (q ShelleyGetLedgerPeerSnapshotQuery) MarshalCBOR() ([]byte, error) {
 	if q.Type != QueryTypeShelleyGetLedgerPeerSnapshot {
-		return nil, fmt.Errorf("unexpected GetBigLedgerPeerSnapshot query type: %d", q.Type)
+		return nil, fmt.Errorf(
+			"unexpected GetLedgerPeerSnapshot query type: %d",
+			q.Type,
+		)
+	}
+	if q.WithPeerKind {
+		switch q.PeerKind {
+		case LedgerPeerKindAll, LedgerPeerKindBig:
+		default:
+			return nil, fmt.Errorf("invalid LedgerPeerKind: %d", q.PeerKind)
+		}
+		return cbor.Encode([]int{q.Type, int(q.PeerKind)})
 	}
 	if q.PeerKind != LedgerPeerKindBig {
 		return nil, ErrLedgerPeerKindUnsupportedVersion
