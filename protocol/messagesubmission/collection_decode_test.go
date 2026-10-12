@@ -28,7 +28,15 @@ func TestCollectionLimitsFollowProtocolDirection(t *testing.T) {
 	require.Equal(t, 3, client.collectionLimit(MessageTypeRequestMessages))
 	require.Equal(t, 7, client.collectionLimit(MessageTypeReplyMessageIds))
 
-	server := &Server{config: &cfg, expectedReplyMessageIDs: 5, expectedReplyMessages: 2}
+	server := &Server{config: &cfg}
+	// With nothing outstanding only an empty reply can be admitted.
+	require.Equal(t, 0, server.collectionLimit(MessageTypeReplyMessageIds))
+	require.Equal(t, 0, server.collectionLimit(MessageTypeReplyMessages))
+	server.pendingIDRequest = &messageIDRequest{blocking: true, requested: 5}
+	server.pendingMsgRequest = &messageRequest{ids: map[string]struct{}{
+		string(testMessageID(1)): {},
+		string(testMessageID(2)): {},
+	}}
 	require.Equal(t, 5, server.collectionLimit(MessageTypeReplyMessageIds))
 	require.Equal(t, 2, server.collectionLimit(MessageTypeReplyMessages))
 	require.Equal(t, 7, server.collectionLimit(MessageTypeRequestMessages))
@@ -36,9 +44,24 @@ func TestCollectionLimitsFollowProtocolDirection(t *testing.T) {
 
 func TestClientReplyCountsCannotExceedPeerRequest(t *testing.T) {
 	cfg := NewConfig(WithMaxUnacknowledgedMessageIDs(7))
-	client := &Client{config: &cfg, requestedReplyMessageIDs: 2, requestedReplyMessages: 1}
-	require.ErrorContains(t, client.ReplyMessageIds(make([]pcommon.MessageIDAndSize, 3)), "requested maximum is 2")
-	require.ErrorContains(t, client.ReplyMessages(make([]pcommon.DmqMessage, 2)), "requested maximum is 1")
+	client := &Client{
+		config:           &cfg,
+		pendingIDRequest: &messageIDRequest{blocking: true, requested: 2},
+	}
+	ids := make([]pcommon.MessageIDAndSize, 3)
+	for idx := range ids {
+		ids[idx].MessageID = testMessageID(byte(idx + 1))
+	}
+	require.ErrorContains(t, client.ReplyMessageIds(ids), "for a request of 2")
+	client.pendingIDRequest = nil
+	client.pendingMessageIDs = [][]byte{testMessageID(1)}
+	client.pendingMsgRequest = &messageRequest{ids: map[string]struct{}{
+		string(testMessageID(1)): {},
+	}}
+	require.ErrorContains(t, client.ReplyMessages([]pcommon.DmqMessage{
+		{MessageID: testMessageID(1)},
+		{MessageID: testMessageID(2)},
+	}), "for a request of 1")
 }
 
 func TestMessageSubmissionAcceptsConfiguredCollectionLimit(t *testing.T) {

@@ -114,10 +114,10 @@ func TestMessageIDReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 				// A non-blocking request is only legal while both sides hold
 				// an unacknowledged ID.
 				flow.server.lock.Lock()
-				flow.server.pendingMessageIDs = [][]byte{{0xff}}
+				flow.server.pendingMessageIDs = [][]byte{testMessageID(0xff)}
 				flow.server.lock.Unlock()
 				flow.client.lock.Lock()
-				flow.client.pendingMessageIDs = [][]byte{{0xff}}
+				flow.client.pendingMessageIDs = [][]byte{testMessageID(0xff)}
 				flow.client.lock.Unlock()
 				require.NoError(t, flow.server.RequestMessageIdsNonBlocking(0, 2))
 			}
@@ -128,7 +128,7 @@ func TestMessageIDReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 			}
 			entries := make([]pcommon.MessageIDAndSize, tc.count)
 			for idx := range entries {
-				entries[idx].MessageID = []byte{byte(idx)}
+				entries[idx].MessageID = testMessageID(byte(idx))
 			}
 			require.NoError(t, flow.client.SendMessage(NewMsgReplyMessageIds(entries)))
 			if tc.valid {
@@ -177,19 +177,25 @@ func TestMessageReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 			serverCfg.Authenticator = pcommon.NewNoOpAuthenticator(nil)
 			serverCfg.TTLValidator = pcommon.NewNoOpTTLValidator(nil)
 			flow := newDirectionFlow(t, clientCfg, serverCfg)
+			requested := [][]byte{testMessageID(1), testMessageID(2)}
+			flow.server.lock.Lock()
+			flow.server.pendingMessageIDs = requested
+			flow.server.lock.Unlock()
 			flow.client.lock.Lock()
-			flow.client.pendingMessageIDs = [][]byte{{1}, {2}}
+			flow.client.pendingMessageIDs = requested
 			flow.client.lock.Unlock()
-			require.NoError(t, flow.server.RequestMessages(
-				[][]byte{{1}, {2}},
-			))
+			require.NoError(t, flow.server.RequestMessages(requested))
 			select {
 			case <-requestReceived:
 			case <-time.After(time.Second):
 				t.Fatal("message request did not reach the client")
 			}
+			reply := make([]pcommon.DmqMessage, tc.count)
+			for idx := range reply {
+				reply[idx].MessageID = testMessageID(byte(idx + 1))
+			}
 			require.NoError(t, flow.client.SendMessage(
-				NewMsgReplyMessages(make([]pcommon.DmqMessage, tc.count)),
+				NewMsgReplyMessages(reply),
 			))
 			if tc.valid {
 				select {
@@ -231,13 +237,18 @@ func TestMessageRequestUsesPendingCountThroughProtocol(t *testing.T) {
 				requestReceived <- len(ids)
 			}))
 			flow := newDirectionFlow(t, clientCfg, NewConfig())
-			flow.client.lock.Lock()
-			flow.client.pendingMessageIDs = [][]byte{{0}, {1}}
-			flow.client.lock.Unlock()
 			ids := make([][]byte, tc.count)
 			for idx := range ids {
-				ids[idx] = []byte{byte(idx)}
+				ids[idx] = testMessageID(byte(idx))
 			}
+			// The server legitimately holds every ID it requests; only the
+			// client's smaller window bounds the decode.
+			flow.server.lock.Lock()
+			flow.server.pendingMessageIDs = ids
+			flow.server.lock.Unlock()
+			flow.client.lock.Lock()
+			flow.client.pendingMessageIDs = ids[:2]
+			flow.client.lock.Unlock()
 			require.NoError(t, flow.server.RequestMessages(ids))
 			if tc.valid {
 				select {
@@ -287,12 +298,12 @@ func TestClientReplyUsesPeerRequestThroughProtocol(t *testing.T) {
 		}
 		entries := make([]pcommon.MessageIDAndSize, 3)
 		for idx := range entries {
-			entries[idx].MessageID = []byte{byte(idx)}
+			entries[idx].MessageID = testMessageID(byte(idx))
 		}
 		require.ErrorContains(
 			t,
 			flow.client.ReplyMessageIds(entries),
-			"requested maximum is 2",
+			"for a request of 2",
 		)
 		require.NoError(t, flow.client.ReplyMessageIds(entries[:2]))
 		select {
@@ -320,24 +331,29 @@ func TestClientReplyUsesPeerRequestThroughProtocol(t *testing.T) {
 		serverCfg.Authenticator = pcommon.NewNoOpAuthenticator(nil)
 		serverCfg.TTLValidator = pcommon.NewNoOpTTLValidator(nil)
 		flow := newDirectionFlow(t, clientCfg, serverCfg)
+		requested := [][]byte{testMessageID(1), testMessageID(2)}
+		flow.server.lock.Lock()
+		flow.server.pendingMessageIDs = requested
+		flow.server.lock.Unlock()
 		flow.client.lock.Lock()
-		flow.client.pendingMessageIDs = [][]byte{{1}, {2}}
+		flow.client.pendingMessageIDs = requested
 		flow.client.lock.Unlock()
-		require.NoError(t, flow.server.RequestMessages([][]byte{{1}, {2}}))
+		require.NoError(t, flow.server.RequestMessages(requested))
 		select {
 		case <-requestReceived:
 		case <-time.After(time.Second):
 			t.Fatal("message request did not reach the client")
 		}
+		reply := make([]pcommon.DmqMessage, 3)
+		for idx := range reply {
+			reply[idx].MessageID = testMessageID(byte(idx + 1))
+		}
 		require.ErrorContains(
 			t,
-			flow.client.ReplyMessages(make([]pcommon.DmqMessage, 3)),
-			"requested maximum is 2",
+			flow.client.ReplyMessages(reply),
+			"for a request of 2",
 		)
-		require.NoError(
-			t,
-			flow.client.ReplyMessages(make([]pcommon.DmqMessage, 2)),
-		)
+		require.NoError(t, flow.client.ReplyMessages(reply[:2]))
 		select {
 		case count := <-replyReceived:
 			require.Equal(t, 2, count)

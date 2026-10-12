@@ -33,13 +33,11 @@ type Server struct {
 	protoVersion    uint16
 
 	// Server-side state for message queue management
-	lock                    sync.Mutex
-	messageQueue            []*pcommon.DmqMessage
-	pendingMessageIDs       [][]byte
-	requestInFlight         bool // Protects against concurrent request modifications (TOCTOU)
-	expectedReplyMessageIDs int
-	expectedReplyMessages   int
-	messagesRequestInFlight bool
+	lock              sync.Mutex
+	messageQueue      []*pcommon.DmqMessage
+	pendingMessageIDs [][]byte
+	pendingIDRequest  *messageIDRequest
+	pendingMsgRequest *messageRequest
 }
 
 // NewServer returns a new MessageSubmission server object
@@ -47,6 +45,8 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	if cfg == nil {
 		tmpCfg := NewConfig()
 		cfg = &tmpCfg
+	} else if cfg.MaxUnacknowledgedMessageIDs <= 0 {
+		cfg.MaxUnacknowledgedMessageIDs = DefaultMaxUnacknowledgedMessageIDs
 	}
 	s := &Server{
 		config:            cfg,
@@ -94,14 +94,23 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
+// collectionLimit bounds an inbound collection before it is decoded. A reply
+// can never be larger than the correlated request that admits it, and with no
+// request outstanding only an empty collection can reach the reply validator.
 func (s *Server) collectionLimit(msgType uint) int {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	switch msgType {
 	case MessageTypeReplyMessageIds:
-		return s.expectedReplyMessageIDs
+		if s.pendingIDRequest == nil {
+			return 0
+		}
+		return s.pendingIDRequest.requested
 	case MessageTypeReplyMessages:
-		return s.expectedReplyMessages
+		if s.pendingMsgRequest == nil {
+			return 0
+		}
+		return len(s.pendingMsgRequest.ids)
 	default:
 		return configuredMessageIDLimit(s.config)
 	}
@@ -149,116 +158,76 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 func (s *Server) RequestMessageIdsBlocking(
 	ackCount, requestCount uint16,
 ) error {
-	s.lock.Lock()
-
-	// Protocol invariant: blocking request must be done if and only if buffer of unacknowledged ids is empty
-	if len(s.pendingMessageIDs) > 0 {
-		s.lock.Unlock()
-		return errors.New(
-			"cannot send blocking request when pending message IDs exist",
-		)
-	}
-
-	// Prevent concurrent requests
-	if s.requestInFlight {
-		s.lock.Unlock()
-		return errors.New("a request is already in flight")
-	}
-
-	if requestCount == 0 {
-		s.lock.Unlock()
-		return errors.New("cannot request 0 message IDs")
-	}
-	if int(requestCount) > configuredMessageIDLimit(s.config) {
-		s.lock.Unlock()
-		return fmt.Errorf("request count %d exceeds configured maximum %d", requestCount, configuredMessageIDLimit(s.config))
-	}
-
-	// Mark request as in-flight before releasing lock.
-	s.requestInFlight = true
-	s.expectedReplyMessageIDs = int(requestCount)
-	// Prepare message
-	msg := NewMsgRequestMessageIds(true, ackCount, requestCount)
-	// Release lock before performing network I/O
-	s.lock.Unlock()
-	err := s.SendMessage(msg)
-	// Re-acquire lock to update in-flight flag on error
-	s.lock.Lock()
-	if err != nil {
-		s.requestInFlight = false
-		s.expectedReplyMessageIDs = 0
-	}
-	s.lock.Unlock()
-
-	return err
+	return s.requestMessageIDs(true, ackCount, requestCount)
 }
 
 // RequestMessageIdsNonBlocking sends a non-blocking request for message IDs
 func (s *Server) RequestMessageIdsNonBlocking(
 	ackCount, requestCount uint16,
 ) error {
+	return s.requestMessageIDs(false, ackCount, requestCount)
+}
+
+func (s *Server) requestMessageIDs(
+	blocking bool,
+	ackCount, requestCount uint16,
+) error {
 	s.lock.Lock()
-
-	// Protocol invariant: cannot request if buffer of unacknowledged ids is empty
-	if len(s.pendingMessageIDs) == 0 {
-		s.lock.Unlock()
-		return errors.New(
-			"cannot send non-blocking request when pending message IDs buffer is empty",
-		)
-	}
-
-	// Prevent concurrent requests
-	if s.requestInFlight {
+	if s.pendingIDRequest != nil || s.pendingMsgRequest != nil {
 		s.lock.Unlock()
 		return errors.New("a request is already in flight")
 	}
-
-	if requestCount == 0 {
+	request := &messageIDRequest{
+		blocking:  blocking,
+		ack:       int(ackCount),
+		requested: int(requestCount),
+	}
+	if err := validateMessageIDRequest(
+		s.pendingMessageIDs,
+		*request,
+		s.config.MaxUnacknowledgedMessageIDs,
+	); err != nil {
 		s.lock.Unlock()
-		return errors.New("cannot request 0 message IDs")
+		return err
 	}
-	if int(requestCount) > configuredMessageIDLimit(s.config) {
+	s.pendingIDRequest = request
+	s.lock.Unlock()
+	if err := s.SendMessage(
+		NewMsgRequestMessageIds(blocking, ackCount, requestCount),
+	); err != nil {
+		s.lock.Lock()
+		if s.pendingIDRequest == request {
+			s.pendingIDRequest = nil
+		}
 		s.lock.Unlock()
-		return fmt.Errorf("request count %d exceeds configured maximum %d", requestCount, configuredMessageIDLimit(s.config))
+		return err
 	}
-
-	// Mark request as in-flight while holding the lock.
-	s.requestInFlight = true
-	s.expectedReplyMessageIDs = int(requestCount)
-	// Prepare message
-	msg := NewMsgRequestMessageIds(false, ackCount, requestCount)
-	// Release lock before performing network I/O
-	s.lock.Unlock()
-	err := s.SendMessage(msg)
-	// Re-acquire lock to update in-flight flag on error
-	s.lock.Lock()
-	if err != nil {
-		s.requestInFlight = false
-		s.expectedReplyMessageIDs = 0
-	}
-	s.lock.Unlock()
-
-	return err
+	return nil
 }
 
 // RequestMessages sends a request for specific messages by their IDs
 func (s *Server) RequestMessages(messageIDs [][]byte) error {
-	if len(messageIDs) > configuredMessageIDLimit(s.config) {
-		return fmt.Errorf("message request has %d IDs, maximum is %d", len(messageIDs), configuredMessageIDLimit(s.config))
-	}
+	messageIDs = cloneMessageIDs(messageIDs)
 	s.lock.Lock()
-	if s.messagesRequestInFlight {
+	if s.pendingIDRequest != nil || s.pendingMsgRequest != nil {
 		s.lock.Unlock()
-		return errors.New("a message request is already in flight")
+		return errors.New("a request is already in flight")
 	}
-	s.messagesRequestInFlight = true
-	s.expectedReplyMessages = len(messageIDs)
+	request, err := requestedMessagesAreOutstanding(
+		s.pendingMessageIDs,
+		messageIDs,
+	)
+	if err != nil {
+		s.lock.Unlock()
+		return err
+	}
+	s.pendingMsgRequest = request
 	s.lock.Unlock()
-	msg := NewMsgRequestMessages(messageIDs)
-	if err := s.SendMessage(msg); err != nil {
+	if err := s.SendMessage(NewMsgRequestMessages(messageIDs)); err != nil {
 		s.lock.Lock()
-		s.messagesRequestInFlight = false
-		s.expectedReplyMessages = 0
+		if s.pendingMsgRequest == request {
+			s.pendingMsgRequest = nil
+		}
 		s.lock.Unlock()
 		return err
 	}
@@ -306,18 +275,6 @@ func (s *Server) GetAvailableMessageIDs(count int) []pcommon.MessageIDAndSize {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	// Guard: prevent overwriting pending IDs if a request is already in flight
-	if s.requestInFlight {
-		s.Protocol.Logger().
-			Debug("ignoring GetAvailableMessageIDs; request already in flight",
-				"component", "network",
-				"protocol", ProtocolName,
-				"role", "server",
-				"connection_id", s.callbackContext.ConnectionId.String(),
-			)
-		return []pcommon.MessageIDAndSize{}
-	}
-
 	ids := make([]pcommon.MessageIDAndSize, 0, count)
 	now := time.Now().Unix()
 
@@ -354,22 +311,6 @@ func (s *Server) GetAvailableMessageIDs(count int) []pcommon.MessageIDAndSize {
 		filtered = append(filtered, msg)
 	}
 	s.messageQueue = filtered
-
-	// Append new pending IDs instead of overwriting to avoid dropping unacknowledged IDs
-	if len(ids) > 0 {
-		// Build a set of existing pending IDs to prevent duplicates across multiple calls
-		existing := make(map[string]struct{}, len(s.pendingMessageIDs))
-		for _, b := range s.pendingMessageIDs {
-			existing[string(b)] = struct{}{}
-		}
-		for _, id := range ids {
-			key := string(id.MessageID)
-			if _, seen := existing[key]; !seen {
-				s.pendingMessageIDs = append(s.pendingMessageIDs, id.MessageID)
-				existing[key] = struct{}{}
-			}
-		}
-	}
 
 	return ids
 }
@@ -452,21 +393,24 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 		)
 
 	s.lock.Lock()
-	// Clear the in-flight flag now that response is received
-	s.requestInFlight = false
-	s.expectedReplyMessageIDs = 0
-	// Remove the replied IDs from pendingMessageIDs to mark them as acknowledged
-	repliedIDs := make(map[string]struct{}, len(msgReply.Messages))
-	for _, entry := range msgReply.Messages {
-		repliedIDs[string(entry.MessageID)] = struct{}{}
+	if s.pendingIDRequest == nil {
+		s.lock.Unlock()
+		return invalidMessageSubmissionMessage(
+			"received message ID reply without an outstanding request",
+		)
 	}
-	filtered := make([][]byte, 0, len(s.pendingMessageIDs))
-	for _, id := range s.pendingMessageIDs {
-		if _, replied := repliedIDs[string(id)]; !replied {
-			filtered = append(filtered, id)
-		}
+	next, err := reconcileMessageIDs(
+		s.pendingMessageIDs,
+		*s.pendingIDRequest,
+		msgReply.Messages,
+		s.config.MaxUnacknowledgedMessageIDs,
+	)
+	if err != nil {
+		s.lock.Unlock()
+		return err
 	}
-	s.pendingMessageIDs = filtered
+	s.pendingMessageIDs = next
+	s.pendingIDRequest = nil
 	s.lock.Unlock()
 
 	// Invoke callback
@@ -479,10 +423,6 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 
 func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	msgReply := msg.(*MsgReplyMessages)
-	s.lock.Lock()
-	s.messagesRequestInFlight = false
-	s.expectedReplyMessages = 0
-	s.lock.Unlock()
 
 	s.Protocol.Logger().
 		Debug("received reply messages",
@@ -493,7 +433,14 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			"message_count", len(msgReply.Messages),
 		)
 
-	// Validate messages before invoking callback
+	s.lock.Lock()
+	request := s.pendingMsgRequest
+	if err := validateMessageReply(request, msgReply.Messages); err != nil {
+		s.lock.Unlock()
+		return err
+	}
+	s.lock.Unlock()
+
 	for i := range msgReply.Messages {
 		if s.config.TTLValidator != nil {
 			if err := s.config.TTLValidator.ValidateMessageTTL(&msgReply.Messages[i]); err != nil {
@@ -523,8 +470,16 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			return err
 		}
 	}
+	s.lock.Lock()
+	if s.pendingMsgRequest != request {
+		s.lock.Unlock()
+		return invalidMessageSubmissionMessage(
+			"message request changed while validating its reply",
+		)
+	}
+	s.pendingMsgRequest = nil
+	s.lock.Unlock()
 
-	// Invoke callback
 	if s.config.ReplyMessagesFunc != nil {
 		s.config.ReplyMessagesFunc(s.callbackContext, msgReply.Messages)
 	}

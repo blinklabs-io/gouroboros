@@ -20,6 +20,21 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
+// replyDecodeLimit is the most messages a client decodes from one reply. A
+// reply carrying more fresh messages than the replay cache holds is refused
+// after decoding, so the cache bound also caps the decode budget.
+func replyDecodeLimit(cfg *Config) int {
+	maxReply := cfg.MaxReplyMessages
+	if maxReply <= 0 {
+		maxReply = DefaultMaxReplyMessages
+	}
+	maxReplay := cfg.MaxReplayEntries
+	if maxReplay <= 0 {
+		maxReplay = defaultMaxReplayEntries
+	}
+	return min(maxReply, maxReplay)
+}
+
 func validateReplyCollection(msgType uint, data []byte, maxMessages int) error {
 	fields, err := cborpreflight.ArrayItems(
 		data,

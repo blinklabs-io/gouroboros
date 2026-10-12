@@ -31,6 +31,64 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestReplyMessageCountPreflightRejectsBeforeCollectionAllocation(t *testing.T) {
+	const claimedCount = 100_000
+	data := []byte{0x83, MessageTypeReplyMessagesNonBlocking, 0x9a, 0, 0, 0, 0, 0xf4}
+	binary.BigEndian.PutUint32(data[3:7], claimedCount)
+
+	var err error
+	allocs := testing.AllocsPerRun(100, func() {
+		_, err = newMsgFromCborWithLimit(
+			MessageTypeReplyMessagesNonBlocking,
+			data,
+			defaultMaxReplayEntries,
+		)
+	})
+	require.ErrorContains(t, err, "maximum")
+	require.Less(t, allocs, float64(20))
+}
+
+func TestReplyMessageCountPreflightAcceptsConfiguredLimit(t *testing.T) {
+	messages := []pcommon.DmqMessage{
+		clientTestMessage(t, "first", 200),
+		clientTestMessage(t, "second", 200),
+	}
+	data, err := cbor.Encode(NewMsgReplyMessagesNonBlocking(messages, false))
+	require.NoError(t, err)
+
+	parsed, err := newMsgFromCborWithLimit(
+		MessageTypeReplyMessagesNonBlocking,
+		data,
+		len(messages),
+	)
+	require.NoError(t, err)
+	require.Len(t, parsed.(*MsgReplyMessagesNonBlocking).Messages, len(messages))
+
+	_, err = newMsgFromCborWithLimit(
+		MessageTypeReplyMessagesNonBlocking,
+		data,
+		len(messages)-1,
+	)
+	require.ErrorContains(t, err, "maximum")
+}
+
+func TestReplyMessagePreflightRejectsDeepItem(t *testing.T) {
+	const depth = 1_024
+	data := []byte{0x82, MessageTypeReplyMessagesBlocking, 0x81}
+	data = append(data, make([]byte, depth)...)
+	for i := 3; i < len(data); i++ {
+		data[i] = 0x81
+	}
+	data = append(data, 0xf6)
+
+	_, err := newMsgFromCborWithLimit(
+		MessageTypeReplyMessagesBlocking,
+		data,
+		defaultMaxReplayEntries,
+	)
+	require.ErrorContains(t, err, "maximum depth 4")
+}
+
 // TestMsgRequestMessagesNonBlocking tests MsgRequestMessages non-blocking variant
 func TestMsgRequestMessagesNonBlocking(t *testing.T) {
 	msg := &MsgRequestMessages{
@@ -347,7 +405,13 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 			t.Cleanup(m.Stop)
 			replies := make(chan int, 1)
 			errs := make(chan error, 4)
-			opts := []LocalMessageNotificationOptionFunc{WithMaxQueueSize(1)}
+			// The client authenticates every admitted message, so the
+			// reply must carry distinct, unexpired messages to reach the
+			// callback.
+			opts := []LocalMessageNotificationOptionFunc{
+				WithMaxQueueSize(1),
+				WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+			}
 			if tc.maxReply > 0 {
 				opts = append(opts, WithMaxReplyMessages(tc.maxReply))
 			}
@@ -378,11 +442,16 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 			_, err := io.CopyN(io.Discard, connB, int64(header.PayloadLength))
 			require.NoError(t, err)
 
-			payload, err := cbor.Encode(
-				NewMsgReplyMessagesBlocking(
-					make([]pcommon.DmqMessage, tc.count),
-				),
-			)
+			expiresAt := uint32(time.Now().Add(time.Minute).Unix())
+			messages := make([]pcommon.DmqMessage, tc.count)
+			for idx := range messages {
+				messages[idx] = clientTestMessage(
+					t,
+					fmt.Sprintf("message %d", idx),
+					expiresAt,
+				)
+			}
+			payload, err := cbor.Encode(NewMsgReplyMessagesBlocking(messages))
 			require.NoError(t, err)
 			segment := muxer.NewSegment(ProtocolID, payload, true)
 			buf := &bytes.Buffer{}

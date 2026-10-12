@@ -289,6 +289,15 @@ func New(config ProtocolConfig) *Protocol {
 
 // EnsureRegistered registers the protocol with the muxer if not already registered.
 func (p *Protocol) EnsureRegistered() {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	if p.stopped {
+		return
+	}
+	p.ensureRegistered()
+}
+
+func (p *Protocol) ensureRegistered() {
 	p.onceRegister.Do(func() {
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
@@ -382,7 +391,7 @@ func (p *Protocol) Start() {
 			return
 		}
 
-		p.EnsureRegistered()
+		p.ensureRegistered()
 
 		if p.muxerDoneChan == nil {
 			p.lifecycleMu.Unlock()

@@ -37,7 +37,8 @@ const (
 	// (DMQ.NodeToClient: localMsgNotification miniProtocolNum =
 	// MiniProtocolNum 15) and Pallas (PROTOCOL_N2C_MSG_NOTIFICATION = 15)
 	// both use 15.
-	ProtocolID = 15
+	ProtocolID              = 15
+	defaultMaxReplayEntries = 10000
 )
 
 // State timeouts for Local Message Notification protocol
@@ -143,10 +144,16 @@ type Config struct {
 
 	// Client timeouts
 	BlockingRequestTimeout time.Duration
+	// MaxReplayEntries bounds the number of accepted message IDs retained by
+	// the client until their signed expiration time. When accepting fresh
+	// messages would exceed the bound, the earliest-expiring IDs are evicted;
+	// an evicted message can be delivered again if replayed before expiration.
+	MaxReplayEntries int
 
 	// Shared configuration
 	Authenticator *pcommon.MessageAuthenticator
 	TTLValidator  *pcommon.TTLValidator
+	replayState   *messageReplayState
 }
 
 // CallbackContext provides context for callback functions
@@ -179,6 +186,8 @@ func NewConfig(options ...LocalMessageNotificationOptionFunc) Config {
 	c := Config{
 		MaxQueueSize:     DefaultMaxQueueSize,
 		MaxReplyMessages: DefaultMaxReplyMessages,
+		MaxReplayEntries: defaultMaxReplayEntries,
+		replayState:      newMessageReplayState(),
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -198,6 +207,14 @@ func NewConfig(options ...LocalMessageNotificationOptionFunc) Config {
 	// be overridden by the default above. To explicitly opt out, use
 	// common.NewNoOpTTLValidator().
 	return c
+}
+
+// WithMaxReplayEntries sets the maximum accepted message IDs retained by the
+// client for replay protection.
+func WithMaxReplayEntries(maxReplayEntries int) LocalMessageNotificationOptionFunc {
+	return func(c *Config) {
+		c.MaxReplayEntries = maxReplayEntries
+	}
 }
 
 // WithReplyMessagesFunc specifies the callback function when messages are received when acting as a client

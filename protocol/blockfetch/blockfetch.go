@@ -18,6 +18,7 @@
 package blockfetch
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -26,6 +27,11 @@ import (
 	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+)
+
+// ErrPipelineValidationRequired rejects pipelines that cannot validate peer blocks.
+var ErrPipelineValidationRequired = errors.New(
+	"peer block delivery requires a validating pipeline",
 )
 
 // ProtocolName is the name of the Block Fetch protocol.
@@ -267,6 +273,9 @@ func NewConfig(options ...BlockFetchOptionFunc) (Config, error) {
 
 // validate checks that the configuration values are within protocol limits.
 func (c *Config) validate() error {
+	if c.Pipeline != nil && !c.Pipeline.ValidatesPeerBlocks() {
+		return ErrPipelineValidationRequired
+	}
 	if c.RecvQueueSize < 0 {
 		return fmt.Errorf(
 			"RecvQueueSize %d must be non-negative",
@@ -379,6 +388,8 @@ func WithRecvQueueSize(size int) BlockFetchOptionFunc {
 // When a pipeline is configured, received blocks are submitted to the pipeline
 // for parallel decoding, validation, and ordered application instead of being
 // processed synchronously through callbacks.
+// TrustedDecodeOnly and HeaderOnly pipelines are rejected because they do not
+// perform authoritative ordered ledger validation.
 func WithPipeline(p *pipeline.BlockPipeline) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.Pipeline = p

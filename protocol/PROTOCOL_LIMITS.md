@@ -293,9 +293,10 @@ applies the configured operation timeout where indicated:
 
 The local protocols have no additional queue, pipeline, or pending-message
 byte limits in their state maps. A Local Message Notification client bounds
-reply collections to `MaxReplyMessages` before typed decoding; the default is
-1,000 messages, the reference server's batch size, and a server queue
-(100 by default) does not lower it. Each DMQ message is limited to the protocol's fixed array depth.
+reply collections before typed decoding to the smaller of `MaxReplyMessages`
+and `MaxReplayEntries`. The defaults are 1,000 messages, the reference server's
+batch size, and 10,000 replay entries; a server queue (100 by default) does not
+lower the bound. Each DMQ message is limited to the protocol's fixed array depth.
 
 ## Peer Sharing
 
@@ -394,7 +395,8 @@ subsequent items available to the caller.
 | Local State Query query/result | Effective read-buffer allowance | Query input sets have their own 10,000-item request bound. Result maps retain the normal decoder's larger allowance, including whole-UTxO queries. Raw result storage grows with the actual encoded payload. |
 | Local Tx Monitor next-transaction reply | Effective read-buffer allowance | Transaction bytes and the optional reply envelope are validated before typed decoding. |
 | Local Tx Submission submit/rejection | Effective read-buffer allowance | Transaction bytes and raw rejection data are retained from validated input. |
-| Local Message Notification replies | Effective read-buffer allowance; 1,000 messages by default | A client caps a reply collection at `MaxReplyMessages`, the batch size of the reference server and independent of a server queue size (100 by default), and each DMQ message by the fixed wire depth before typed decoding. |
+| Local Message Notification replies | Effective read-buffer allowance; 1,000 messages by default | A client caps a reply collection at the smaller of `MaxReplyMessages` (the batch size of the reference server, independent of a server queue size of 100 by default) and `MaxReplayEntries` (10,000 by default), and each DMQ message by the fixed wire depth, before typed decoding. |
+| Message Submission collections | Effective read-buffer allowance; counts follow the active request | A server decodes a message-ID reply against the count of its outstanding ID request and a message reply against the IDs of its outstanding message request; with no request outstanding only an empty collection decodes. A client decodes a message request against the IDs it holds unacknowledged. Other collections are capped at `MaxUnacknowledgedMessageIDs`, at most 65,535. |
 | Leios Fetch block, transaction and vote replies | Vote replies: 256 KiB; range replies: cumulative configured byte and decoded-count budgets, 64 MiB and 1,048,576 transactions by default; range retention: 1,000 messages by default | Vote replies admit at most 1,000 entries and no more than the request count on a live client, which refuses a request for more than 1,000 IDs before sending it. All transaction lists in one range stream share one entry per 64 bytes of its byte budget, capped at 4,194,304. Raw items and their envelope are checked before slice allocation; BlockTxs counts are checked against the request bitmap, and a client refuses bitmaps the reference node rejects before sending them. |
 | Leios Notify vote offers | 65,535 bytes and 1,000 votes | Definite counts and indefinite entries are checked before the vote list is allocated. Other notifications use the configured pending-byte allowance. |
 | Leios Votes vote reply | Effective read-buffer allowance | Typed fields use the normal CBOR mode; request counts are independently limited to 1,000. |

@@ -31,12 +31,15 @@ type Client struct {
 	protoVersion    uint16
 
 	// Client-side state for message ID tracking
-	lock                     sync.Mutex
-	pendingMessageIDs        [][]byte
-	requestedReplyMessageIDs int
-	requestedReplyMessages   int
-	onceStart                sync.Once
-	onceStop                 sync.Once
+	lock               sync.Mutex
+	pendingMessageIDs  [][]byte
+	pendingIDRequest   *messageIDRequest
+	pendingMsgRequest  *messageRequest
+	requestGeneration  uint64
+	testReplyPublished func()
+	testReplyEnqueued  func()
+	onceStart          sync.Once
+	onceStop           sync.Once
 	// stopErr caches the error returned by the first Stop() call so
 	// subsequent Stop() calls return the same result instead of nil.
 	stopErr error
@@ -122,6 +125,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	return c
 }
 
+// collectionLimit bounds an inbound collection before it is decoded. A
+// message request may only name IDs this client still holds unacknowledged.
 func (c *Client) collectionLimit(msgType uint) int {
 	if msgType != MessageTypeRequestMessages {
 		return configuredMessageIDLimit(c.config)
@@ -189,58 +194,78 @@ func (c *Client) Init() error {
 // ReplyMessageIds sends a reply with message IDs and sizes
 func (c *Client) ReplyMessageIds(messages []pcommon.MessageIDAndSize) error {
 	c.lock.Lock()
-	maxReply := c.requestedReplyMessageIDs
-	c.lock.Unlock()
-	if len(messages) > maxReply {
-		return fmt.Errorf("message ID reply has %d entries, requested maximum is %d", len(messages), maxReply)
+	request := c.pendingIDRequest
+	if request == nil {
+		c.lock.Unlock()
+		return errors.New("no message ID request is outstanding")
 	}
-	// Prepare the outgoing message first and attempt send before mutating internal state.
-	msg := NewMsgReplyMessageIds(messages)
-	if err := c.SendMessage(msg); err != nil {
+	previous := c.pendingMessageIDs
+	next, err := reconcileMessageIDs(
+		c.pendingMessageIDs,
+		*request,
+		messages,
+		c.config.MaxUnacknowledgedMessageIDs,
+	)
+	if err != nil {
+		c.lock.Unlock()
 		return err
 	}
-	c.lock.Lock()
-	c.requestedReplyMessageIDs = 0
+	generation := c.requestGeneration
+	c.pendingMessageIDs = next
+	c.pendingIDRequest = nil
 	c.lock.Unlock()
-
-	// On successful send, append the new IDs to the unacknowledged window.
-	c.appendPendingMessageIDs(messages)
-
-	return nil
-}
-
-func (c *Client) appendPendingMessageIDs(messages []pcommon.MessageIDAndSize) {
-	ids := make([][]byte, len(messages))
-	for i, m := range messages {
-		if m.MessageID == nil {
-			continue
-		}
-		ids[i] = make([]byte, len(m.MessageID))
-		copy(ids[i], m.MessageID)
+	if c.testReplyPublished != nil {
+		c.testReplyPublished()
 	}
-
-	c.lock.Lock()
-	c.pendingMessageIDs = append(c.pendingMessageIDs, ids...)
-	c.lock.Unlock()
+	if err := c.SendMessage(NewMsgReplyMessageIds(messages)); err != nil {
+		c.lock.Lock()
+		if c.requestGeneration == generation &&
+			c.pendingIDRequest == nil && c.pendingMsgRequest == nil {
+			c.pendingMessageIDs = previous
+			c.pendingIDRequest = request
+		}
+		c.lock.Unlock()
+		return err
+	}
+	if c.testReplyEnqueued != nil {
+		c.testReplyEnqueued()
+	}
+	return nil
 }
 
 // ReplyMessages sends a reply with full messages
 func (c *Client) ReplyMessages(messages []pcommon.DmqMessage) error {
 	c.lock.Lock()
-	maxReply := c.requestedReplyMessages
+	request := c.pendingMsgRequest
+	if request == nil {
+		c.lock.Unlock()
+		return errors.New("no message request is outstanding")
+	}
+	if err := validateMessageReply(request, messages); err != nil {
+		c.lock.Unlock()
+		return err
+	}
+	generation := c.requestGeneration
+	c.pendingMsgRequest = nil
 	c.lock.Unlock()
-	if len(messages) > maxReply {
-		return fmt.Errorf("message reply has %d entries, requested maximum is %d", len(messages), maxReply)
+	if c.testReplyPublished != nil {
+		c.testReplyPublished()
 	}
 	msg := NewMsgReplyMessages(messages)
 	msg.legacyMessageEncoding = c.config.LegacyV1MessageEncoding &&
 		!isMessageSubmissionV2(c.protoVersion)
 	if err := c.SendMessage(msg); err != nil {
+		c.lock.Lock()
+		if c.requestGeneration == generation &&
+			c.pendingIDRequest == nil && c.pendingMsgRequest == nil {
+			c.pendingMsgRequest = request
+		}
+		c.lock.Unlock()
 		return err
 	}
-	c.lock.Lock()
-	c.requestedReplyMessages = 0
-	c.lock.Unlock()
+	if c.testReplyEnqueued != nil {
+		c.testReplyEnqueued()
+	}
 	return nil
 }
 
@@ -298,46 +323,25 @@ func (c *Client) handleRequestMessageIds(msg protocol.Message) error {
 		)
 
 	c.lock.Lock()
-	pendingCount := len(c.pendingMessageIDs)
-	ackCount := int(msgRequest.AckCount)
-	requestCount := int(msgRequest.RequestCount)
-	if ackCount > pendingCount {
+	if c.pendingIDRequest != nil || c.pendingMsgRequest != nil {
 		c.lock.Unlock()
-		c.Protocol.Logger().
-			Error("message ID acknowledgement exceeds outstanding IDs",
-				"ack_count", ackCount,
-				"pending", pendingCount,
-			)
-		return protocol.ErrProtocolViolationRequestExceeded
+		return invalidMessageSubmissionMessage("a request is already pending")
 	}
-	unacknowledged := pendingCount - ackCount
-	if requestCount == 0 {
+	request := &messageIDRequest{
+		blocking:  msgRequest.IsBlocking,
+		ack:       int(msgRequest.AckCount),
+		requested: int(msgRequest.RequestCount),
+	}
+	if err := validateMessageIDRequest(
+		c.pendingMessageIDs,
+		*request,
+		c.config.MaxUnacknowledgedMessageIDs,
+	); err != nil {
 		c.lock.Unlock()
-		c.Protocol.Logger().Error("message ID request count is zero")
-		return protocol.ErrProtocolViolationRequestExceeded
+		return err
 	}
-	if msgRequest.IsBlocking && unacknowledged > 0 {
-		c.lock.Unlock()
-		return protocol.ErrProtocolViolationRequestExceeded
-	}
-	if !msgRequest.IsBlocking && unacknowledged == 0 {
-		c.lock.Unlock()
-		return protocol.ErrProtocolViolationRequestExceeded
-	}
-	if unacknowledged+requestCount > c.config.MaxUnacknowledgedMessageIDs {
-		c.lock.Unlock()
-		c.Protocol.Logger().Error("message ID request exceeds unacknowledged limit",
-			"ack_count", ackCount,
-			"request_count", requestCount,
-			"unacknowledged", unacknowledged,
-			"limit", c.config.MaxUnacknowledgedMessageIDs)
-		return protocol.ErrProtocolViolationRequestExceeded
-	}
-
-	if ackCount > 0 {
-		c.pendingMessageIDs = c.pendingMessageIDs[ackCount:]
-	}
-	c.requestedReplyMessageIDs = requestCount
+	c.pendingIDRequest = request
+	c.requestGeneration++
 	c.lock.Unlock()
 
 	// Invoke callback to get available message IDs
@@ -367,13 +371,29 @@ func (c *Client) handleRequestMessages(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 			"message_count", len(msgRequest.MessageIDs),
 		)
+
 	c.lock.Lock()
-	c.requestedReplyMessages = len(msgRequest.MessageIDs)
+	if c.pendingIDRequest != nil || c.pendingMsgRequest != nil {
+		c.lock.Unlock()
+		return invalidMessageSubmissionMessage("a request is already pending")
+	}
+	request, err := requestedMessagesAreOutstanding(
+		c.pendingMessageIDs,
+		msgRequest.MessageIDs,
+	)
+	if err != nil {
+		c.lock.Unlock()
+		return err
+	}
+	c.pendingMsgRequest = request
+	c.requestGeneration++
 	c.lock.Unlock()
 
-	// Invoke callback to get the requested messages
 	if c.config.RequestMessagesFunc != nil {
-		c.config.RequestMessagesFunc(c.callbackContext, msgRequest.MessageIDs)
+		c.config.RequestMessagesFunc(
+			c.callbackContext,
+			cloneMessageIDs(msgRequest.MessageIDs),
+		)
 	}
 
 	return nil
