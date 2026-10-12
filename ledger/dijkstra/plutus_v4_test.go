@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"math/big"
+	"slices"
 	"testing"
 	"time"
 
@@ -835,11 +836,69 @@ func TestDijkstraPlutusV4GuardingSubTxIndex(t *testing.T) {
 	topContext := requireDijkstraV4List(t, topContextData, 4)
 	requireDijkstraV4Integer(t, topContext.Items[1], 91)
 	requireDijkstraV4Bytes(t, topContext.Items[3], purpose.ScriptHash().Bytes())
-	topScriptInfo := requireDijkstraV4Constr(t, topContext.Items[2], 6, 2)
-	requireDijkstraV4Integer(t, topScriptInfo.Fields[0], 0)
-	requireDijkstraV4Constr(t, topScriptInfo.Fields[1], 1, 0)
 	topTxInfo := requireDijkstraV4List(t, topContext.Items[0], 19)
 	requireDijkstraV4Constr(t, topTxInfo.Items[1], 1, 0)
+	topScriptInfo := requireDijkstraV4Constr(t, topContext.Items[2], 6, 2)
+	requireDijkstraV4Integer(t, topScriptInfo.Fields[0], 0)
+	justTop := requireDijkstraV4Constr(t, topScriptInfo.Fields[1], 0, 1)
+	topInfo := requireDijkstraV4List(t, justTop.Fields[0], 4)
+
+	subTxInfos := requireDijkstraV4List(t, topInfo.Items[0], 2)
+	subTxIds := make([][]byte, 0, 2)
+	for idx, item := range subTxInfos.Items {
+		info := requireDijkstraV4List(t, item, 19)
+		subTxIx := requireDijkstraV4Constr(t, info.Items[1], 0, 1)
+		requireDijkstraV4Integer(t, subTxIx.Fields[0], int64(idx))
+		id, ok := info.Items[0].(*data.ByteString)
+		require.True(t, ok)
+		subTxIds = append(subTxIds, id.Inner)
+	}
+	// Both sub-transactions name the executing guard with a datum.
+	datums := requireDijkstraV4Map(t, topInfo.Items[1], 2)
+	sortedIds := [][]byte{subTxIds[0], subTxIds[1]}
+	slices.SortFunc(sortedIds, bytes.Compare)
+	for idx, pair := range datums.Pairs {
+		requireDijkstraV4Bytes(t, pair[0], sortedIds[idx])
+		requireDijkstraV4Integer(t, pair[1], 123)
+	}
+	requireDijkstraV4Map(t, topInfo.Items[2], 0)
+
+	simplified := requireDijkstraV4List(t, topInfo.Items[3], 18)
+	ids := requireDijkstraV4List(t, simplified.Items[0], 3)
+	requireDijkstraV4Bytes(t, ids.Items[0], subTxIds[0])
+	requireDijkstraV4Bytes(t, ids.Items[1], subTxIds[1])
+	requireDijkstraV4Bytes(t, ids.Items[2], tx.Id().Bytes())
+	for _, idx := range []int{1, 2, 3, 6} {
+		requireDijkstraV4List(t, simplified.Items[idx], 0)
+	}
+	mints := requireDijkstraV4Map(t, simplified.Items[4], 1)
+	requireDijkstraV4Bytes(t, mints.Pairs[0][0], policy.Bytes())
+	minted := requireDijkstraV4Map(t, mints.Pairs[0][1], 1)
+	requireDijkstraV4Integer(t, minted.Pairs[0][1], 10)
+	burns := requireDijkstraV4Map(t, simplified.Items[5], 1)
+	burned := requireDijkstraV4Map(t, burns.Pairs[0][1], 1)
+	requireDijkstraV4Integer(t, burned.Pairs[0][1], -3)
+	requireDijkstraV4Map(t, simplified.Items[7], 0)
+	requireDijkstraV4Map(t, simplified.Items[8], 0)
+	// The batch validity range is the intersection of every level's range.
+	validRange := requireDijkstraV4List(t, simplified.Items[9], 2)
+	lower := requireDijkstraV4Constr(t, validRange.Items[0], 0, 1)
+	requireDijkstraV4Integer(t, lower.Fields[0], 3500)
+	upper := requireDijkstraV4Constr(t, validRange.Items[1], 0, 1)
+	requireDijkstraV4Integer(t, upper.Fields[0], 8500)
+	requireDijkstraV4List(t, simplified.Items[10], 3)
+	requiredGuardList := requireDijkstraV4List(t, simplified.Items[11], 2)
+	require.True(t, guard.ToPlutusData().Equal(requiredGuardList.Items[0]))
+	require.True(
+		t,
+		otherGuard.ToPlutusData().Equal(requiredGuardList.Items[1]),
+	)
+	requireDijkstraV4List(t, simplified.Items[12], 0)
+	requireDijkstraV4Map(t, simplified.Items[13], 0)
+	requireDijkstraV4Map(t, simplified.Items[14], 0)
+	requireDijkstraV4List(t, simplified.Items[15], 0)
+	requireDijkstraV4Constr(t, simplified.Items[16], 1, 0)
+	requireDijkstraV4Integer(t, simplified.Items[17], 18)
 
 	for idx, level := range levels[:2] {
 		subContextData, err := dijkstraPlutusV4Context(

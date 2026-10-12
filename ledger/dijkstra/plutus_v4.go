@@ -49,6 +49,23 @@ func dijkstraPlutusV4Context(
 		return nil, err
 	}
 	_ = purposeData // The purpose is represented in txInfoRedeemers.
+	if guarding, ok := purpose.(script.ScriptPurposeGuarding); ok &&
+		level.subTxIndex == nil {
+		// A top-level guard script sees the whole batch; a sub-transaction
+		// guard script sees Nothing.
+		topTxInfo, err := dijkstraTopTxInfoV4(
+			level,
+			guarding.ScriptHash(),
+		)
+		if err != nil {
+			return nil, err
+		}
+		scriptInfo = data.NewConstr(
+			6,
+			data.NewInteger(new(big.Int).SetUint64(uint64(key.Index))),
+			data.NewConstr(0, topTxInfo),
+		)
+	}
 	return data.NewList(
 		txInfo,
 		data.Normalize(value.Data.Data),

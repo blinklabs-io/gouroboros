@@ -1639,6 +1639,9 @@ type dijkstraScriptLevel struct {
 	// txInfoV4 holds the level's V4 TxInfo conversion, which is the same for
 	// every redeemer of the level. It is shared by copies of the level.
 	txInfoV4 *dijkstraTxInfoV4Cache
+	// subLevels holds the sub-transaction levels, in order, on the top level
+	// only; a top-level guard script's context embeds them.
+	subLevels []dijkstraScriptLevel
 }
 
 func dijkstraScriptLevels(
@@ -1694,6 +1697,9 @@ func dijkstraScriptLevels(
 			levels[idx].tx,
 			available,
 		)
+	}
+	if len(levels) > 0 {
+		levels[len(levels)-1].subLevels = levels[:len(levels)-1]
 	}
 	return levels, available, nil
 }
@@ -1759,6 +1765,9 @@ func dijkstraWitnessRuleLevels(
 			levels[idx].tx,
 			available,
 		)
+	}
+	if len(levels) > 0 {
+		levels[len(levels)-1].subLevels = levels[:len(levels)-1]
 	}
 	return levels, available, nil
 }

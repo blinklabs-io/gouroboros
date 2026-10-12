@@ -229,3 +229,59 @@ func TestDijkstraTxInfoV4VotesListEncodeGovActionIds(t *testing.T) {
 	requireDijkstraV4Integer(t, actionId.Items[1], int64(id.GovActionIdx))
 	requireDijkstraV4Constr(t, byAction.Pairs[0][1], 1, 0)
 }
+
+// TopTxInfoSimplified sums withdrawals from the same account across levels,
+// and a later level's vote on an action replaces an earlier one.
+func TestDijkstraTopTxInfoV4MergesBatch(t *testing.T) {
+	stakeHash := bytes.Repeat([]byte{0x66}, common.AddressHashSize)
+	newRewardAccount := func() *common.Address {
+		address, err := common.NewAddressFromParts(
+			common.AddressTypeNoneKey,
+			common.AddressNetworkTestnet,
+			nil,
+			stakeHash,
+		)
+		require.NoError(t, err)
+		return &address
+	}
+	id := testDijkstraV4GovActionId(t)
+	newVoter := func() *common.Voter {
+		return &common.Voter{Type: common.VoterTypeDRepKeyHash}
+	}
+	sub := DijkstraSubTransactionBody{
+		TxWithdrawals: map[*common.Address]uint64{newRewardAccount(): 4},
+		TxVotingProcedures: common.VotingProcedures{
+			newVoter(): {id: common.VotingProcedure{Vote: 1}},
+		},
+	}
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxWithdrawals: map[*common.Address]uint64{newRewardAccount(): 5},
+			TxVotingProcedures: common.VotingProcedures{
+				newVoter(): {id: common.VotingProcedure{Vote: 0}},
+			},
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{{Body: sub}},
+				true,
+			),
+		},
+		TxIsValid: true,
+	}
+	levels, _, err := dijkstraScriptLevels(tx, dijkstraV4TestLedgerState())
+	require.NoError(t, err)
+	require.Len(t, levels, 2)
+	var guardHash common.Blake2b224
+	topInfo, err := dijkstraTopTxInfoV4(levels[1], guardHash)
+	require.NoError(t, err)
+	simplified := requireDijkstraV4List(
+		t,
+		requireDijkstraV4List(t, topInfo, 4).Items[3],
+		18,
+	)
+	withdrawals := requireDijkstraV4Map(t, simplified.Items[7], 1)
+	requireDijkstraV4Integer(t, withdrawals.Pairs[0][1], 9)
+	votes := requireDijkstraV4Map(t, simplified.Items[14], 1)
+	byAction := requireDijkstraV4Map(t, votes.Pairs[0][1], 1)
+	requireDijkstraV4List(t, byAction.Pairs[0][0], 2)
+	requireDijkstraV4Constr(t, byAction.Pairs[0][1], 0, 0)
+}
