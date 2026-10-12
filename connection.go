@@ -372,6 +372,7 @@ func (c *Connection) shutdown() {
 	// connClosedChan/errorChan closes (txtop#287). Guard with sync.Once so
 	// the cleanup remains idempotent regardless of who races whom.
 	c.onceShutdown.Do(func() {
+		c.stopProtocols()
 		// Gracefully stop the muxer
 		if c.muxer != nil {
 			c.muxer.Stop()
@@ -412,7 +413,57 @@ func (c *Connection) allProtocolsIdle() bool {
 	if !c.protocolsReady {
 		return false
 	}
+	protocols := c.protocolInstancesLocked()
+	for _, p := range protocols {
+		if p != nil && !p.IsInTerminalOrIdleState() {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Connection) stopProtocols() {
+	c.protocolMu.RLock()
+	protocols := c.protocolInstancesLocked()
+	var notificationServer *localmessagenotification.Server
+	if c.localMessageNotification != nil {
+		notificationServer = c.localMessageNotification.Server
+	}
+	c.protocolMu.RUnlock()
+
+	if notificationServer != nil {
+		_ = notificationServer.Stop()
+	}
+	for _, p := range protocols {
+		if p != nil {
+			p.Stop()
+		}
+	}
+}
+
+func (c *Connection) lockProtocolSetup() error {
+	c.protocolMu.Lock()
+	select {
+	case <-c.doneChan:
+		c.protocolMu.Unlock()
+		return errors.New("connection shutting down")
+	default:
+		return nil
+	}
+}
+
+// protocolInstancesLocked returns the protocols constructed for this
+// connection. The caller must hold c.protocolMu for reading.
+func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 	protocols := make([]*protocol.Protocol, 0)
+	if c.handshake != nil {
+		if c.handshake.Client != nil {
+			protocols = append(protocols, c.handshake.Client.Protocol)
+		}
+		if c.handshake.Server != nil {
+			protocols = append(protocols, c.handshake.Server.Protocol)
+		}
+	}
 	if c.chainSync != nil {
 		if c.chainSync.Client != nil {
 			protocols = append(protocols, c.chainSync.Client.ProtocolInstance())
@@ -525,12 +576,7 @@ func (c *Connection) allProtocolsIdle() bool {
 			protocols = append(protocols, c.localMessageNotification.Server.Protocol)
 		}
 	}
-	for _, p := range protocols {
-		if p != nil && !p.IsInTerminalOrIdleState() {
-			return false
-		}
-	}
-	return true
+	return protocols
 }
 
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
@@ -720,7 +766,9 @@ func (c *Connection) setupConnection() error {
 	if c.useNodeToNodeProto {
 		versionNtN := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
-		c.protocolMu.Lock()
+		if err := c.lockProtocolSetup(); err != nil {
+			return err
+		}
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.blockFetch = blockfetch.New(protoOptions, c.blockFetchConfig)
 		c.txSubmission = txsubmission.New(protoOptions, c.txSubmissionConfig)
@@ -845,7 +893,9 @@ func (c *Connection) setupConnection() error {
 		// LocalMessageNotification (proto 15) are valid on this
 		// connection. No chain-sync, no localTxSubmission, etc.
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
-		c.protocolMu.Lock()
+		if err := c.lockProtocolSetup(); err != nil {
+			return err
+		}
 		c.localMessageSubmission = localmessagesubmission.New(
 			protoOptions,
 			c.localMessageSubmissionConfig,
@@ -875,7 +925,9 @@ func (c *Connection) setupConnection() error {
 	} else {
 		versionNtC := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
-		c.protocolMu.Lock()
+		if err := c.lockProtocolSetup(); err != nil {
+			return err
+		}
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.localTxSubmission = localtxsubmission.New(protoOptions, c.localTxSubmissionConfig)
 		if versionNtC.EnableLocalQueryProtocol {

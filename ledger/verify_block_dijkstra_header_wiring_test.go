@@ -65,3 +65,25 @@ func TestVerifyBlockDijkstraHeaderProtocolVersionFloor(t *testing.T) {
 		})
 	}
 }
+
+// The pipeline's ordered validation calls VerifyBlockState after the parallel
+// VerifyBlockLocal pass, so the protocol-parameter header rules must run there
+// and not only in the combined VerifyBlock.
+func TestVerifyBlockStateDijkstraHeaderProtocolVersionFloor(t *testing.T) {
+	block := buildDijkstraLimitsTestBlock(t, nil)
+	config := common.VerifyConfig{
+		SkipBodyHashValidation:    true,
+		SkipTransactionValidation: true,
+		SkipStakePoolValidation:   true,
+	}
+	pp := &dijkstra.DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = dijkstra.MinProtocolVersionDijkstra
+	config.ProtocolParameters = pp
+	require.NoError(t, ledger.VerifyBlockState(block, config))
+
+	pp = &dijkstra.DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = dijkstra.MinProtocolVersionDijkstra + 1
+	config.ProtocolParameters = pp
+	var tooLow *dijkstra.HeaderProtVerTooLowError
+	require.ErrorAs(t, ledger.VerifyBlockState(block, config), &tooLow)
+}
