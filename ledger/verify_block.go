@@ -48,7 +48,7 @@ const (
 	HeaderBodyLengthBabbageLike = 10
 	// HeaderBodyLengthDijkstraLeiosLike is the Dijkstra/Leios-extended header
 	// body: Babbage's 10 fields plus block_body_contains_leios_cert and
-	// eb_announcement (cardano-ledger eras/dijkstra/impl/cddl/data/
+	// eb_references_announcement (cardano-ledger eras/dijkstra/impl/cddl/data/
 	// dijkstra.cddl header_body; see ledger/dijkstra.DijkstraBlockHeader).
 	// No other era has this shape. Offset 9 is header_version_info, whose
 	// first element is the issuer's highest supported major protocol version
