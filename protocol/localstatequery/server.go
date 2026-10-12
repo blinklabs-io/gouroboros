@@ -31,6 +31,7 @@ type Server struct {
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
 	enableGetLedgerPeerSnapshot   bool
+	version                       uint16
 }
 
 // NewServer returns a new LocalStateQuery server object
@@ -60,6 +61,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		InitialState:        stateIdle,
 		MaxReadBufferSize:   cfg.MaxReadBufferSize,
 	}
+	s.version = protoOptions.Version
 	// Enable version-dependent features
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {
 		s.enableGetChainBlockNo = true
@@ -195,6 +197,13 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 			"%s: received GetLedgerPeerSnapshot query but negotiated NtC protocol version is older than 19",
 			ProtocolName,
 		)
+	}
+	if queryType, ok := shelleyLeafQueryType(msgQuery.Query); ok &&
+		!shelleyQuerySupported(queryType, s.version) {
+		return fmt.Errorf("%s: %w", ProtocolName, unsupportedQueryError(
+			fmt.Sprintf("Shelley query %d", queryType),
+			s.version,
+		))
 	}
 	// Call the user callback function
 	result, err := s.config.QueryFunc(s.callbackContext, msgQuery.Query)

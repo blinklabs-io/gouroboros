@@ -56,6 +56,7 @@ type Client struct {
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
 	enableGetLedgerPeerSnapshot   bool
+	version                       uint16
 	busyMutex                     sync.Mutex
 	acquired                      bool
 	queryResultChan               chan []byte
@@ -106,6 +107,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		InitialState:        stateIdle,
 		MaxReadBufferSize:   cfg.MaxReadBufferSize,
 	}
+	c.version = protoOptions.Version
 	// Enable version-dependent features
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {
 		c.enableGetChainBlockNo = true
@@ -485,6 +487,15 @@ func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpda
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	if !shelleyQuerySupported(
+		QueryTypeShelleyProposedProtocolParamsUpdates,
+		c.version,
+	) {
+		return nil, unsupportedQueryError(
+			"GetProposedPParamsUpdates",
+			c.version,
+		)
+	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -511,6 +522,9 @@ func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	if !shelleyQuerySupported(QueryTypeShelleyStakeDistribution, c.version) {
+		return nil, unsupportedQueryError("GetStakeDistribution", c.version)
+	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -1050,6 +1064,9 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	if !shelleyQuerySupported(QueryTypeShelleyPoolDistr, c.version) {
+		return nil, unsupportedQueryError("GetPoolDistr", c.version)
+	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
@@ -1628,6 +1645,163 @@ func (c *Client) GetRatifyState() (*RatifyStateResult, error) {
 		QueryTypeShelleyGetRatifyState,
 	)
 	var result RatifyStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetStakePoolDefaultVote returns the vote the ledger counts for a stake pool
+// on a governance action the pool does not vote on, which follows from the
+// DRep delegation of the pool's reward account.
+//
+// Requires node-to-client version 20 or later and the Conway era or later.
+func (c *Client) GetStakePoolDefaultVote(
+	poolId ledger.PoolId,
+) (DefaultVote, error) {
+	c.Protocol.Logger().
+		Debug(
+			fmt.Sprintf("calling GetStakePoolDefaultVote(poolId: %s)", poolId),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	if !shelleyQuerySupported(QueryTypeShelleyStakePoolDefaultVote, c.version) {
+		return 0, unsupportedQueryError("QueryStakePoolDefaultVote", c.version)
+	}
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return 0, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return 0, fmt.Errorf(
+			"QueryStakePoolDefaultVote requires Conway era or later (current era: %d)",
+			currentEra,
+		)
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyStakePoolDefaultVote,
+		poolId,
+	)
+	var result StakePoolDefaultVoteResult
+	if err := c.runQuery(query, &result); err != nil {
+		return 0, err
+	}
+	return result.Vote, nil
+}
+
+// GetStakeDistribution2 returns the ledger's pool stake distribution, which
+// replaces GetStakeDistribution from node-to-client version 21. Unlike
+// GetPoolDistr2 it takes no pool filter.
+func (c *Client) GetStakeDistribution2() (*StakeDistribution2Result, error) {
+	c.Protocol.Logger().
+		Debug("calling GetStakeDistribution2()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	if !shelleyQuerySupported(QueryTypeShelleyStakeDistribution2, c.version) {
+		return nil, unsupportedQueryError("GetStakeDistribution2", c.version)
+	}
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyStakeDistribution2,
+	)
+	var result StakeDistribution2Result
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetMaxMajorProtocolVersion returns the highest major protocol version the
+// node can follow. Requires node-to-client version 21 or later.
+func (c *Client) GetMaxMajorProtocolVersion() (uint64, error) {
+	c.Protocol.Logger().
+		Debug("calling GetMaxMajorProtocolVersion()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	if !shelleyQuerySupported(
+		QueryTypeShelleyMaxMajorProtocolVersion,
+		c.version,
+	) {
+		return 0, unsupportedQueryError(
+			"GetMaxMajorProtocolVersion",
+			c.version,
+		)
+	}
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return 0, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyMaxMajorProtocolVersion,
+	)
+	var result MaxMajorProtocolVersionResult
+	if err := c.runQuery(query, &result); err != nil {
+		return 0, err
+	}
+	return result.Version, nil
+}
+
+// GetDRepDelegations returns the stake credentials delegated to each of the
+// given DReps. Pass nil or an empty slice to cover every DRep.
+//
+// Requires node-to-client version 23 or later and the Conway era or later.
+func (c *Client) GetDRepDelegations(
+	dreps []lcommon.Drep,
+) (*DRepDelegationsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetDRepDelegations(dreps: %d)", len(dreps)),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	if !shelleyQuerySupported(QueryTypeShelleyDRepDelegations, c.version) {
+		return nil, unsupportedQueryError("GetDRepDelegations", c.version)
+	}
+	if err := validateLocalStateQuerySet(dreps, "DReps"); err != nil {
+		return nil, err
+	}
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf(
+			"GetDRepDelegations requires Conway era or later (current era: %d)",
+			currentEra,
+		)
+	}
+	if dreps == nil {
+		dreps = []lcommon.Drep{}
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyDRepDelegations,
+		cbor.Tag{Number: cbor.CborTagSet, Content: dreps},
+	)
+	var result DRepDelegationsResult
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}

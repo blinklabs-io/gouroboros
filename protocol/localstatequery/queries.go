@@ -84,6 +84,13 @@ const (
 	// GetPoolDistr2 (Shelley sub-query 36) replaces GetPoolDistr from NtC v21.
 	// cardano-cli sends it while computing a leadership schedule.
 	QueryTypeShelleyPoolDistr2 = 36
+
+	// Shelley queries added after node-to-client version 19. See
+	// shelleyQuerySupported for the versions that carry them.
+	QueryTypeShelleyStakePoolDefaultVote    = 35
+	QueryTypeShelleyStakeDistribution2      = 37
+	QueryTypeShelleyMaxMajorProtocolVersion = 38
+	QueryTypeShelleyDRepDelegations         = 39
 )
 
 // LedgerPeerKind selects which ledger peers the snapshot covers.
@@ -243,17 +250,21 @@ func shelleyQueryTypes() map[int]any {
 		QueryTypeShelleyPoolDistr2:                          &ShelleyPoolDistr2Query{},
 		QueryTypeShelleyStakeDelegDeposits:                  &ShelleyStakeDelegDepositsQuery{},
 		// Conway governance queries
-		QueryTypeShelleyConstitution:           &ShelleyConstitutionQuery{},
-		QueryTypeShelleyGovState:               &ShelleyGovStateQuery{},
-		QueryTypeShelleyDRepState:              &ShelleyDRepStateQuery{},
-		QueryTypeShelleyDRepStakeDistr:         &ShelleyDRepStakeDistrQuery{},
-		QueryTypeShelleyCommitteeMembersState:  &ShelleyCommitteeMembersStateQuery{},
-		QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
-		QueryTypeShelleyAccountState:           &ShelleyAccountStateQuery{},
-		QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
-		QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
-		QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
-		QueryTypeShelleyGetLedgerPeerSnapshot:  &ShelleyGetLedgerPeerSnapshotQuery{},
+		QueryTypeShelleyConstitution:            &ShelleyConstitutionQuery{},
+		QueryTypeShelleyGovState:                &ShelleyGovStateQuery{},
+		QueryTypeShelleyDRepState:               &ShelleyDRepStateQuery{},
+		QueryTypeShelleyDRepStakeDistr:          &ShelleyDRepStakeDistrQuery{},
+		QueryTypeShelleyCommitteeMembersState:   &ShelleyCommitteeMembersStateQuery{},
+		QueryTypeShelleyFilteredVoteDelegatees:  &ShelleyFilteredVoteDelegateesQuery{},
+		QueryTypeShelleyAccountState:            &ShelleyAccountStateQuery{},
+		QueryTypeShelleySPOStakeDistr:           &ShelleySPOStakeDistrQuery{},
+		QueryTypeShelleyGetProposals:            &ShelleyGetProposalsQuery{},
+		QueryTypeShelleyGetRatifyState:          &ShelleyGetRatifyStateQuery{},
+		QueryTypeShelleyGetLedgerPeerSnapshot:   &ShelleyGetLedgerPeerSnapshotQuery{},
+		QueryTypeShelleyStakePoolDefaultVote:    &ShelleyStakePoolDefaultVoteQuery{},
+		QueryTypeShelleyStakeDistribution2:      &ShelleyStakeDistribution2Query{},
+		QueryTypeShelleyMaxMajorProtocolVersion: &ShelleyMaxMajorProtocolVersionQuery{},
+		QueryTypeShelleyDRepDelegations:         &ShelleyDRepDelegationsQuery{},
 	}
 }
 
