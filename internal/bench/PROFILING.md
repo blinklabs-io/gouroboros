@@ -378,7 +378,7 @@ git checkout my-optimization-branch
 go test -bench=. -run=^$ -benchmem -count=5 ./internal/bench/... | tee optimized.txt
 
 # Compare
-benchstat baseline.txt optimized.txt
+go tool benchstat baseline.txt optimized.txt
 ```
 
 ## Resources

@@ -11,9 +11,9 @@ go test -bench=. -benchmem ./internal/bench/...
 # Run specific benchmark
 go test -bench=BenchmarkConsensusThreshold -benchmem ./internal/bench/...
 
-# Compare two runs (requires benchstat)
+# Compare two runs with the repository-pinned tool
 go test -bench=. -benchmem -count=5 ./internal/bench/... | tee new.txt
-benchstat old.txt new.txt
+go tool benchstat old.txt new.txt
 ```
 
 ## Package Structure
