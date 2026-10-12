@@ -163,7 +163,7 @@ func TestUtxoValidateUnknownVotersSeesInTxDRepRegistration(t *testing.T) {
 			&common.RegistrationDrepCertificate{
 				CertType:       uint(common.CertificateTypeRegistrationDrep),
 				DrepCredential: drep,
-				Amount:         int64(pp.DRepDeposit),
+				Amount:         pp.DRepDeposit,
 			},
 		),
 	}
@@ -198,7 +198,7 @@ func TestUtxoValidateUnknownVotersRejectsInTxDRepDeregistration(t *testing.T) {
 			&common.DeregistrationDrepCertificate{
 				CertType:       uint(common.CertificateTypeDeregistrationDrep),
 				DrepCredential: drep,
-				Amount:         int64(drepDeposit),
+				Amount:         drepDeposit,
 			},
 		),
 	}
@@ -261,7 +261,7 @@ func TestUtxoValidateDelegationPreservesDRepDeregistrationTombstone(
 						Type:       int(drep.CredType),
 						Credential: drep.Credential.Bytes(),
 					},
-					Amount: int64(pp.KeyDeposit),
+					Amount: uint64(pp.KeyDeposit),
 				}
 			},
 		},
@@ -275,7 +275,7 @@ func TestUtxoValidateDelegationPreservesDRepDeregistrationTombstone(
 						Type:       int(drep.CredType),
 						Credential: drep.Credential.Bytes(),
 					},
-					Amount: int64(pp.KeyDeposit),
+					Amount: uint64(pp.KeyDeposit),
 				}
 			},
 		},
@@ -315,7 +315,7 @@ func TestUtxoValidateDelegationPreservesDRepDeregistrationTombstone(
 						TxCertificates: []common.CertificateWrapper{
 							{Certificate: &common.DeregistrationDrepCertificate{
 								DrepCredential: drep,
-								Amount:         int64(drepDeposit),
+								Amount:         uint64(drepDeposit),
 							}},
 							{Certificate: tc.build(drep)},
 						},
@@ -351,7 +351,7 @@ func TestUtxoValidateDelegationPreservesDRepDeregistrationTombstone(
 			TxCertificates: []common.CertificateWrapper{
 				{Certificate: &common.DeregistrationDrepCertificate{
 					DrepCredential: drep,
-					Amount:         int64(drepDeposit),
+					Amount:         uint64(drepDeposit),
 				}},
 				{Certificate: &common.VoteDelegationCertificate{
 					StakeCredential: stake,
@@ -407,7 +407,7 @@ func TestUtxoValidateDelegationAllowsDRepRegistrationThenAssignment(
 				Type:       common.DrepTypeScriptHash,
 				Credential: drep.Credential.Bytes(),
 			},
-			Amount: int64(pp.KeyDeposit),
+			Amount: uint64(pp.KeyDeposit),
 		},
 		&common.StakeVoteRegistrationDelegationCertificate{
 			StakeCredential: stake,
@@ -416,7 +416,7 @@ func TestUtxoValidateDelegationAllowsDRepRegistrationThenAssignment(
 				Type:       common.DrepTypeScriptHash,
 				Credential: drep.Credential.Bytes(),
 			},
-			Amount: int64(pp.KeyDeposit),
+			Amount: uint64(pp.KeyDeposit),
 		},
 	}
 	for idx, assignment := range registrations {
@@ -433,7 +433,7 @@ func TestUtxoValidateDelegationAllowsDRepRegistrationThenAssignment(
 					TxCertificates: []common.CertificateWrapper{
 						{Certificate: &common.RegistrationDrepCertificate{
 							DrepCredential: drep,
-							Amount:         int64(pp.DRepDeposit),
+							Amount:         pp.DRepDeposit,
 						}},
 						{Certificate: assignment},
 					},
@@ -710,7 +710,7 @@ func TestUtxoValidateProposalReturnAccountsSeesInTxStakeRegistration(
 					CredType:   common.CredentialTypeAddrKeyHash,
 					Credential: cred,
 				},
-				Amount: int64(pp.KeyDeposit),
+				Amount: uint64(pp.KeyDeposit),
 			},
 		),
 	}
@@ -745,7 +745,7 @@ func TestUtxoValidateProposalReturnAccountsSeesInTxTreasuryReturnAccount(
 					CredType:   common.CredentialTypeAddrKeyHash,
 					Credential: treasuryCred,
 				},
-				Amount: int64(pp.KeyDeposit),
+				Amount: uint64(pp.KeyDeposit),
 			},
 		),
 	}

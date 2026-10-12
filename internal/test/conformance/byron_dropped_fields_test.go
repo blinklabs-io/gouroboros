@@ -223,6 +223,21 @@ func mustDecodeByronBlock(
 	return block
 }
 
+func mustParseByronBlock(
+	t *testing.T,
+	blockType uint,
+	blockCbor []byte,
+) common.Block {
+	t.Helper()
+	block, err := ledger.NewBlockFromCbor(
+		blockType,
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+	return block
+}
+
 // TestByronUpdateProposalParametersAreNatural covers the five update
 // proposal protocol parameters cardano-ledger types as Maybe Natural, an
 // unbounded non-negative integer decoded by a bare decCBOR
@@ -337,7 +352,10 @@ func TestByronGoldenBlockSscProofHashSlots(t *testing.T) {
 			t, blockCbor, append(sscProofPath, 1),
 			mustEncodeCbor(t, make([]byte, common.Blake2b256Size-1)),
 		)
-		mustDecodeByronBlock(t, blockType, mutated)
+		decoded := mustParseByronBlock(t, blockType, mutated)
+		block, ok := decoded.(*byron.ByronMainBlock)
+		require.True(t, ok)
+		require.NoError(t, block.ValidateSscProofShape())
 	})
 
 	t.Run("hash slot must still be a byte string", func(t *testing.T) {
@@ -345,8 +363,10 @@ func TestByronGoldenBlockSscProofHashSlots(t *testing.T) {
 			t, blockCbor, append(sscProofPath, 1),
 			mustEncodeCbor(t, uint64(0)),
 		)
-		_, err := ledger.NewBlockFromCbor(blockType, mutated)
-		require.Error(t, err)
+		decoded := mustParseByronBlock(t, blockType, mutated)
+		block, ok := decoded.(*byron.ByronMainBlock)
+		require.True(t, ok)
+		require.Error(t, block.ValidateSscProofShape())
 	})
 
 	t.Run("unknown proof tag still rejected", func(t *testing.T) {
@@ -354,7 +374,9 @@ func TestByronGoldenBlockSscProofHashSlots(t *testing.T) {
 			t, blockCbor, append(sscProofPath, 0),
 			mustEncodeCbor(t, uint64(4)),
 		)
-		_, err := ledger.NewBlockFromCbor(blockType, mutated)
-		require.Error(t, err)
+		decoded := mustParseByronBlock(t, blockType, mutated)
+		block, ok := decoded.(*byron.ByronMainBlock)
+		require.True(t, ok)
+		require.Error(t, block.ValidateSscProofShape())
 	})
 }

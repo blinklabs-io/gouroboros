@@ -922,6 +922,11 @@ func (m *Muxer) Stop() {
 	})
 }
 
+// DoneChan returns a channel that closes when the muxer begins shutting down.
+func (m *Muxer) DoneChan() <-chan bool {
+	return m.doneChan
+}
+
 // SetDiffusionMode sets the muxer diffusion mode after the handshake completes
 func (m *Muxer) SetDiffusionMode(diffusionMode DiffusionMode) {
 	m.diffusionMode.Store(int64(diffusionMode))

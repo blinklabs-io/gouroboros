@@ -141,7 +141,7 @@ func TestMaryUtxorpc(t *testing.T) {
 
 // Unit test for MaryTransactionInput.Utxorpc()
 func TestMaryTransactionInput_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
@@ -194,7 +194,7 @@ func TestMaryTransactionOutput_Utxorpc(t *testing.T) {
 
 // Unit test for MaryTransactionBody.Utxorpc()
 func TestMaryTransactionBody_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		1,
 	)
@@ -250,7 +250,7 @@ func TestMaryTransactionBody_Utxorpc(t *testing.T) {
 
 // Unit test for MaryTransaction.Utxorpc()
 func TestMaryTransaction_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		2,
 	)

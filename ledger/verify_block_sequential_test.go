@@ -47,6 +47,10 @@ func (s sequentialFuturePoolState) IsFutureVrfKeyInUse(
 	return false, common.PoolKeyHash{}, nil
 }
 
+func (s sequentialFuturePoolState) UnwrapLedgerState() common.LedgerState {
+	return s.LedgerState
+}
+
 var sequentialTestRules = []common.UtxoValidationRuleFunc{
 	shelley.UtxoValidateBadInputsUtxo,
 }
@@ -146,8 +150,8 @@ func TestVerifyBlockTransactionsRejectsDoubleSpend(t *testing.T) {
 func TestVerifyBlockTransactionsPhaseTwoInvalidAppliesCollateralOnly(
 	t *testing.T,
 ) {
-	input := shelley.NewShelleyTransactionInput(strings.Repeat("01", 32), 0)
-	collateral := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(strings.Repeat("01", 32), 0)
+	collateral := shelley.MustNewShelleyTransactionInput(
 		strings.Repeat("02", 32),
 		0,
 	)
@@ -182,11 +186,11 @@ func TestVerifyBlockTransactionsPhaseTwoInvalidAppliesCollateralOnly(
 		{name: "regular input stays unspent", spend: input},
 		{
 			name:  "collateral return is created",
-			spend: shelley.NewShelleyTransactionInput(invalidId, 1),
+			spend: shelley.MustNewShelleyTransactionInput(invalidId, 1),
 		},
 		{
 			name:    "regular output is not created",
-			spend:   shelley.NewShelleyTransactionInput(invalidId, 0),
+			spend:   shelley.MustNewShelleyTransactionInput(invalidId, 0),
 			wantErr: true,
 		},
 		{name: "collateral is consumed", spend: collateral, wantErr: true},
@@ -573,6 +577,78 @@ func TestVerifyBlockTransactionsReleasesWrappedFuturePoolVrfKey(
 		pp,
 		[]common.UtxoValidationRuleFunc{
 			shelley.UtxoValidatePoolCertificates,
+		},
+	)
+	require.NoError(t, err)
+	require.Zero(t, idx)
+}
+
+func TestVerifyBlockTransactionsReleasesFuturePoolVrfKeyThroughOuterAdapter(
+	t *testing.T,
+) {
+	pool := common.PoolKeyHash(bytes.Repeat([]byte{0x31}, 28))
+	other := common.PoolKeyHash(bytes.Repeat([]byte{0x32}, 28))
+	vrf := func(b byte) common.VrfKeyHash {
+		return common.VrfKeyHash(bytes.Repeat([]byte{b}, 32))
+	}
+	register := func(id byte, operator common.PoolKeyHash, key byte) common.Transaction {
+		tx := sequentialTestTx(
+			t,
+			id,
+			sequentialTestInput(t, id, 0),
+		).(*mockledger.MockTransaction)
+		return tx.WithCertificates(&common.PoolRegistrationCertificate{
+			Operator:   operator,
+			VrfKeyHash: vrf(key),
+		})
+	}
+	current := &common.PoolRegistrationCertificate{
+		Operator:   pool,
+		VrfKeyHash: vrf(0x41),
+	}
+	oldFuture := vrf(0x42)
+	ls := sequentialFuturePoolState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithPoolCurrentState(func(
+				operator common.PoolKeyHash,
+			) (*common.PoolRegistrationCertificate, *uint64, error) {
+				if operator == pool {
+					return current, nil, nil
+				}
+				return nil, nil, nil
+			}).
+			WithVrfKeyInUseFunc(func(
+				key common.Blake2b256,
+			) (bool, common.PoolKeyHash, error) {
+				if key == current.VrfKeyHash {
+					return true, pool, nil
+				}
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build(),
+		lookup: func(
+			key common.Blake2b256,
+		) (bool, common.PoolKeyHash, error) {
+			if key == oldFuture {
+				return true, pool, nil
+			}
+			return false, common.PoolKeyHash{}, nil
+		},
+	}
+	pp := &conway.ConwayProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionVanRossem
+	idx, err := verifyBlockTransactions(
+		[]common.Transaction{
+			register(0xe1, pool, 0x43),
+			register(0xe2, other, 0x42),
+		},
+		0,
+		ls,
+		pp,
+		[]common.UtxoValidationRuleFunc{
+			func(tx common.Transaction, slot uint64, state common.LedgerState, params common.ProtocolParameters) error {
+				return shelley.UtxoValidatePoolCertificates(tx, slot, sequentialFuturePoolState{LedgerState: state, lookup: ls.lookup}, params)
+			},
 		},
 	)
 	require.NoError(t, err)

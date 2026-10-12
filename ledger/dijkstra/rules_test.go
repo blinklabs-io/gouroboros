@@ -569,6 +569,14 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 	maxEndorserBlockTxsSize := uint32(9)
 	maxEndorserBlockExUnits := common.ExUnits{Memory: 10, Steps: 11}
 	maxRefScriptSizePerEndorserBlock := uint32(12)
+	perasMinCandidateBlockAge := uint32(13)
+	perasHealingFactor := &cbor.Rat{Rat: big.NewRat(3, 2)}
+	perasCertBoost := uint16(14)
+	perasTargetCommitteeSize := uint16(15)
+	perasBootstrapRound := uint32(16)
+	perasQuorumThresholdSafetyMargin := &cbor.Rat{Rat: big.NewRat(1, 4)}
+	refInputsCostPerMultiAssetPolicy := uint64(17)
+	refInputsCostPerDatumByte := uint64(18)
 	action := DijkstraParameterChangeGovAction{
 		ParamUpdate: DijkstraProtocolParameterUpdate{
 			MaxRefScriptSizePerBlock:         &maxRefScriptSizePerBlock,
@@ -586,6 +594,14 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 			MaxEndorserBlockTxsSize:          &maxEndorserBlockTxsSize,
 			MaxEndorserBlockExUnits:          &maxEndorserBlockExUnits,
 			MaxRefScriptSizePerEndorserBlock: &maxRefScriptSizePerEndorserBlock,
+			PerasMinCandidateBlockAge:        &perasMinCandidateBlockAge,
+			PerasHealingFactor:               perasHealingFactor,
+			PerasCertBoost:                   &perasCertBoost,
+			PerasTargetCommitteeSize:         &perasTargetCommitteeSize,
+			PerasBootstrapRound:              &perasBootstrapRound,
+			PerasQuorumThresholdSafetyMargin: perasQuorumThresholdSafetyMargin,
+			RefInputsCostPerMultiAssetPolicy: &refInputsCostPerMultiAssetPolicy,
+			RefInputsCostPerDatumByte:        &refInputsCostPerDatumByte,
 		},
 	}
 	require.Equal(t, []string{
@@ -602,6 +618,14 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 		"MaxEndorserBlockTxsSize",
 		"MaxEndorserBlockExUnits",
 		"MaxRefScriptSizePerEndorserBlock",
+		"PerasMinCandidateBlockAge",
+		"PerasHealingFactor",
+		"PerasCertBoost",
+		"PerasTargetCommitteeSize",
+		"PerasBootstrapRound",
+		"PerasQuorumThresholdSafetyMargin",
+		"RefInputsCostPerMultiAssetPolicy",
+		"RefInputsCostPerDatumByte",
 	}, action.SecurityGroupFields())
 }
 
@@ -1088,7 +1112,7 @@ func TestDijkstraDelegationInheritsDRepDeregistrationTombstone(t *testing.T) {
 			TxCertificates: []common.CertificateWrapper{
 				{Certificate: &common.DeregistrationDrepCertificate{
 					DrepCredential: drep,
-					Amount:         int64(drepDeposit),
+					Amount:         drepDeposit,
 				}},
 				{Certificate: &common.VoteDelegationCertificate{
 					StakeCredential: stake,
@@ -1325,7 +1349,7 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeReferenceScriptGuard(
 		CredType:   common.CredentialTypeScriptHash,
 		Credential: nativeScript.Hash(),
 	}
-	refInput := shelley.NewShelleyTransactionInput(
+	refInput := shelley.MustNewShelleyTransactionInput(
 		"4444444444444444444444444444444444444444444444444444444444444444",
 		0,
 	)
@@ -2007,7 +2031,7 @@ func dijkstraRefScriptInput(
 	scriptSize int,
 ) (shelley.ShelleyTransactionInput, common.Utxo) {
 	t.Helper()
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		strings.Repeat(fmt.Sprintf("%02x", hashByte), 32),
 		index,
 	)
@@ -2464,7 +2488,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 				TxFee: fee,
 				TxCollateral: cbor.NewSetType(
 					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(
+						shelley.MustNewShelleyTransactionInput(
 							testInputTxId,
 							0,
 						),
@@ -2483,7 +2507,7 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
 			[]common.Utxo{
 				{
-					Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: collateral,
 					},

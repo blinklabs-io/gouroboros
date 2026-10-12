@@ -36,7 +36,7 @@ import (
 // V1-incompatible feature sits.
 
 func testInput(b byte, idx uint32) shelley.ShelleyTransactionInput {
-	return shelley.NewShelleyTransactionInput(
+	return shelley.MustNewShelleyTransactionInput(
 		hexRepeat(b),
 		int(idx), // #nosec G115 -- test index
 	)

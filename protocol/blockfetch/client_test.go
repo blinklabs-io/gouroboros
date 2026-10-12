@@ -163,11 +163,7 @@ func TestGetBlock(t *testing.T) {
 	// Create basic block and round-trip it through the CBOR encoder to get the hash populated
 	// The slot value is one higher than our intersect point and the block height is less than
 	// our expected tip
-	testBlock := ledger.BabbageBlock{
-		BlockHeader: &ledger.BabbageBlockHeader{},
-	}
-	testBlock.BlockHeader.Body.BlockNumber = testBlockNumber
-	testBlock.BlockHeader.Body.Slot = testBlockSlot
+	testBlock := newTestBabbageBlock(testBlockNumber, testBlockSlot)
 	blockCbor, err := cbor.Encode(testBlock)
 	if err != nil {
 		t.Fatalf("received unexpected error: %s", err)

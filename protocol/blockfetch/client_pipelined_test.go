@@ -23,6 +23,7 @@ import (
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -49,9 +50,7 @@ type rangeResult struct {
 // block-fetch wrapped CBOR the mock peer sends and the point identifying it.
 func testBlock(t *testing.T, slot uint64) ([]byte, pcommon.Point) {
 	t.Helper()
-	blk := ledger.BabbageBlock{BlockHeader: &ledger.BabbageBlockHeader{}}
-	blk.BlockHeader.Body.BlockNumber = slot
-	blk.BlockHeader.Body.Slot = slot
+	blk := newTestBabbageBlock(slot, slot)
 	blockCbor, err := cbor.Encode(blk)
 	require.NoError(t, err)
 	_, err = cbor.Decode(blockCbor, &blk)
@@ -62,6 +61,21 @@ func testBlock(t *testing.T, slot uint64) ([]byte, pcommon.Point) {
 	})
 	require.NoError(t, err)
 	return wrapped, pcommon.NewPoint(slot, blk.Hash().Bytes())
+}
+
+func newTestBabbageBlock(blockNumber, slot uint64) ledger.BabbageBlock {
+	blk := ledger.BabbageBlock{BlockHeader: &ledger.BabbageBlockHeader{}}
+	blk.BlockHeader.Body.BlockNumber = blockNumber
+	blk.BlockHeader.Body.Slot = slot
+	blk.BlockHeader.Body.VrfKey = make([]byte, 32)
+	blk.BlockHeader.Body.VrfResult = common.VrfResult{
+		Output: make([]byte, 64),
+		Proof:  make([]byte, 80),
+	}
+	blk.BlockHeader.Body.OpCert.HotVkey = make([]byte, 32)
+	blk.BlockHeader.Body.OpCert.Signature = make([]byte, 64)
+	blk.BlockHeader.Signature = make([]byte, 448)
+	return blk
 }
 
 func requestRangeInput() ouroboros_mock.ConversationEntry {
@@ -809,9 +823,7 @@ func testChainPair(
 		pcommon.Point,
 		ledger.Blake2b256,
 	) {
-		blk := ledger.BabbageBlock{BlockHeader: &ledger.BabbageBlockHeader{}}
-		blk.BlockHeader.Body.BlockNumber = slot
-		blk.BlockHeader.Body.Slot = slot
+		blk := newTestBabbageBlock(slot, slot)
 		blk.BlockHeader.Body.PrevHash = prevHash
 		blockCbor, err := cbor.Encode(blk)
 		require.NoError(t, err)

@@ -80,7 +80,7 @@ func TestScriptWitnessRulesUseNeededPurposes(t *testing.T) {
 	require.ErrorAs(t, common.ValidateExactExtraneousRedeemers(tx, ledgerState), &extraErr)
 	require.Equal(t, extra, extraErr.RedeemerKey)
 
-	refInput := shelley.NewShelleyTransactionInput(hex.EncodeToString(bytes.Repeat([]byte{0x22}, 32)), 0)
+	refInput := shelley.MustNewShelleyTransactionInput(hex.EncodeToString(bytes.Repeat([]byte{0x22}, 32)), 0)
 	scriptRef, err := cbor.Encode(&common.ScriptRef{Type: common.ScriptRefTypePlutusV1, Script: plutus})
 	require.NoError(t, err)
 	reference, err := mockledger.NewUtxoBuilder().

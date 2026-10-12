@@ -128,8 +128,16 @@ messagesubmission.NewConfig(
 )
 ```
 
-`MaxUnacknowledgedMessageIDs` defaults to 100. The client rejects a request
-that would make the IDs awaiting acknowledgement exceed this limit.
+`MaxUnacknowledgedMessageIDs` defaults to 100. Both roles reject a request that
+would make the IDs awaiting acknowledgement exceed this limit.
+Non-blocking ID requests must leave at least one ID outstanding after applying
+their acknowledgement count.
+
+Replies may omit unavailable entries. A message-body reply may use any order,
+but every returned message ID must be unique and present in the active request.
+Message-ID replies may not exceed the requested count, and blocking replies
+must include at least one ID. Each returned ID must be 32 bytes and unique
+across both the reply and the IDs that remain outstanding.
 
 ## Usage Example
 
@@ -137,8 +145,9 @@ that would make the IDs awaiting acknowledgement exceed this limit.
 // Server requests message IDs (blocking mode)
 err := server.RequestMessageIdsBlocking(0, 10)
 
-// Server requests message IDs (non-blocking mode)
-err := server.RequestMessageIdsNonBlocking(0, 10)
+// After the peer announces at least two IDs, acknowledge one while leaving
+// another outstanding and request up to ten more without blocking.
+err = server.RequestMessageIdsNonBlocking(1, 10)
 
 // Client provides IDs via RequestMessageIdsFunc callback
 // Client provides messages via RequestMessagesFunc callback

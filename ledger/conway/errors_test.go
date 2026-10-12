@@ -57,7 +57,7 @@ func TestConway_CostModelsPresent_UnresolvedReferenceInputReturnsError(
 		Build()
 	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		0,
 	)
@@ -88,7 +88,7 @@ func TestConway_CostModelsPresent_UnresolvedReferenceInputUnwraps(
 		Build()
 	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		0,
 	)
@@ -137,7 +137,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 		TxOutScriptRef: scriptRef,
 	}
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		0,
 	)
@@ -183,7 +183,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV1(
 		TxOutScriptRef: scriptRef,
 	}
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
@@ -223,7 +223,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 		TxOutScriptRef: scriptRef,
 	}
 
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		0,
 	)

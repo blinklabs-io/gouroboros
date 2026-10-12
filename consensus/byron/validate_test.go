@@ -1913,6 +1913,14 @@ func TestParseSscProof_InvalidInputs(t *testing.T) {
 		{"only type", []any{uint64(0)}},
 		{"invalid type", []any{uint64(4), make([]byte, 32)}},
 		{"type 0 missing second hash", []any{uint64(0), make([]byte, 32)}},
+		{
+			"type 0 trailing field",
+			[]any{uint64(0), make([]byte, 32), make([]byte, 32), nil},
+		},
+		{
+			"type 3 trailing field",
+			[]any{uint64(3), make([]byte, 32), nil},
+		},
 		{"hash1 is not a byte string", []any{uint64(3), uint64(0)}},
 		{
 			"hash2 is not a byte string",
@@ -2120,16 +2128,8 @@ func withRealSscProof(t *testing.T, sscProof []byte) []byte {
 }
 
 // TestValidateBodyHash_SscProofSuccess confirms ValidateBodyHash's ssc_proof
-// success path: when the header's ssc_proof actually matches
-// byron.ByronEpochSscState's canonical hash of the block's own (empty)
-// CertificatesPayload, ValidateBodyHash returns nil when the caller opts
-// into the full hash comparison via
-// common.VerifyConfig.EnableByronSscProofHashValidation (see
-// ValidateBodyHash's doc comment for why that comparison is opt-in rather
-// than run by default). This isolates ValidateBodyHash's own ssc_proof
-// check from the (separately documented, and separately tested in
-// ledger/byron) question of whether that canonical hash matches
-// cardano-ledger's real mainnet encoding.
+// success path: when the header's ssc_proof matches the block's own payload,
+// ValidateBodyHash returns nil.
 func TestValidateBodyHash_SscProofSuccess(t *testing.T) {
 	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
 	require.NoError(t, err)
@@ -2149,10 +2149,7 @@ func TestValidateBodyHash_SscProofSuccess(t *testing.T) {
 	patchedBlock, err := byron.NewByronMainBlockFromCbor(patchedBytes)
 	require.NoError(t, err)
 
-	assert.NoError(t, ValidateBodyHash(
-		patchedBlock,
-		common.VerifyConfig{EnableByronSscProofHashValidation: true},
-	))
+	assert.NoError(t, ValidateBodyHash(patchedBlock))
 }
 
 // withSscPayloadAndProof returns a copy of the real mainnet fixture's CBOR
@@ -2210,79 +2207,10 @@ func withSscPayloadAndProof(
 	return tampered
 }
 
-// TestValidateBodyHash_DefaultLeniencyOnHashMismatch confirms that, under
-// the default VerifyConfig (EnableByronSscProofHashValidation off), a
-// structurally-valid ssc_proof whose hash value does NOT match the block's
-// own (real, empty) CertificatesPayload is still accepted by both layers:
-// ledger.byron's ValidateBodyProof (exercised indirectly through
-// byron.NewByronMainBlockFromCbor's decode-time call) and this package's
-// ValidateBodyHash. This pins down the leniency the opt-in redesign
-// intentionally grants by default -- see ValidateBodyHash's and
-// common.VerifyConfig.EnableByronSscProofHashValidation's doc comments --
-// which no test previously asserted.
-//
-// This test alone does not catch the B1 regression (ValidateBodyHash
-// dropping the ledger-side shape gate entirely when the flag is off):
-// dropping that gate has no effect on a *hash-wrong-but-shape-valid* input,
-// since neither the thin local shape check nor the full
-// ledger.ByronMainBlock.ValidateSscProofShape one compares hash values
-// unless opted in. See
-// TestValidateBodyHash_DefaultRejectsMalformedSscShape for the regression
-// test that does distinguish the two.
-func TestValidateBodyHash_DefaultLeniencyOnHashMismatch(t *testing.T) {
-	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
-	require.NoError(t, err)
-	genuineBlock, err := byron.NewByronMainBlockFromCbor(blockBytes)
-	require.NoError(t, err)
-
-	sscState := byron.NewByronEpochSscState()
-	require.NoError(t, sscState.AccumulateBlock(genuineBlock))
-	realHash := sscState.CertificatesHash()
-
-	// A 32-byte value that is not the block's real certificates hash.
-	wrongHash := realHash
-	wrongHash[0] ^= 0xff
-	require.NotEqual(t, realHash, wrongHash)
-
-	wrongProof, err := cbor.Encode([]any{
-		uint64(byron.SscTypeCertificates),
-		wrongHash.Bytes(),
-	})
-	require.NoError(t, err)
-
-	patchedBytes := withRealSscProof(t, wrongProof)
-
-	// Decoding with the default config must succeed: the ledger package's
-	// decode-time call to ValidateBodyProof runs only the always-on
-	// structural check by default, not the hash comparison.
-	patchedBlock, err := byron.NewByronMainBlockFromCbor(patchedBytes)
-	require.NoError(
-		t, err,
-		"a hash-wrong but structurally-valid ssc_proof must still decode "+
-			"under the default, structural-only check",
-	)
-
-	// The ledger package's own ValidateBodyProof, called explicitly with no
-	// config, agrees.
-	assert.NoError(t, patchedBlock.ValidateBodyProof())
-
-	// This package's ValidateBodyHash, called with no config, must agree
-	// too -- it genuinely delegates to
-	// ledger.ByronMainBlock.ValidateSscProofShape for the structural check
-	// rather than silently doing nothing, so this also confirms that
-	// delegation runs (and tolerates the hash mismatch) rather than being
-	// skipped outright.
-	assert.NoError(t, ValidateBodyHash(patchedBlock))
-}
-
-// TestValidateBodyHash_OptInRejectsHashMismatch confirms that the same
-// hash-wrong ssc_proof from TestValidateBodyHash_DefaultLeniencyOnHashMismatch
-// is correctly rejected -- by both ledger.byron's ValidateBodyProof and this
-// package's ValidateBodyHash -- once the caller explicitly opts in via
-// common.VerifyConfig{EnableByronSscProofHashValidation: true}. This proves
-// the opt-in flag genuinely re-enables the full hash comparison rather than
-// being inert.
-func TestValidateBodyHash_OptInRejectsHashMismatch(t *testing.T) {
+// TestValidateBodyHashRejectsHashMismatch confirms that both the default
+// decoder and consensus validation reject a structurally valid but incorrect
+// ssc_proof hash.
+func TestValidateBodyHashRejectsHashMismatch(t *testing.T) {
 	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
 	require.NoError(t, err)
 	genuineBlock, err := byron.NewByronMainBlockFromCbor(blockBytes)
@@ -2304,14 +2232,10 @@ func TestValidateBodyHash_OptInRejectsHashMismatch(t *testing.T) {
 
 	patchedBytes := withRealSscProof(t, wrongProof)
 
-	// Decoding with the opt-in flag set must fail, since the ledger
-	// package's decode-time call now runs the full hash comparison.
-	optInCfg := common.VerifyConfig{EnableByronSscProofHashValidation: true}
-	_, err = byron.NewByronMainBlockFromCbor(patchedBytes, optInCfg)
+	_, err = byron.NewByronMainBlockFromCbor(patchedBytes)
 	require.Error(
 		t, err,
-		"a hash-wrong ssc_proof must fail to decode once the opt-in hash "+
-			"comparison is enabled",
+		"a hash-wrong ssc_proof must fail default decoding",
 	)
 
 	// Decode without validation so ValidateBodyProof/ValidateBodyHash can be
@@ -2321,20 +2245,19 @@ func TestValidateBodyHash_OptInRejectsHashMismatch(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = patchedBlock.ValidateBodyProof(optInCfg)
+	err = patchedBlock.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
-	err = ValidateBodyHash(patchedBlock, optInCfg)
+	err = ValidateBodyHash(patchedBlock)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
 
-// TestValidateBodyHash_DefaultRejectsMalformedSscPayload pins
-// ValidateBodyHash's default SSC payload check to cardano-ledger's
-// dropSscPayload. The malformed untagged commitments set is rejected before
-// the optional hash comparison is considered.
-func TestValidateBodyHash_DefaultRejectsMalformedSscPayload(t *testing.T) {
+// TestValidateBodyHashRejectsMalformedSscPayload pins ValidateBodyHash's SSC
+// payload check to cardano-ledger's dropSscPayload. The malformed untagged
+// commitments set is rejected before its hash can be authenticated.
+func TestValidateBodyHashRejectsMalformedSscPayload(t *testing.T) {
 	// An untagged (rather than tag-258-wrapped) commitments array.
 	untaggedComms, err := cbor.Encode([]any{})
 	require.NoError(t, err)
@@ -2369,15 +2292,6 @@ func TestValidateBodyHash_DefaultRejectsMalformedSscPayload(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
-	err = ValidateBodyHash(
-		block,
-		common.VerifyConfig{EnableByronSscProofHashValidation: true},
-	)
-	require.Error(
-		t, err,
-		"the opt-in hash comparison must still reject these shapes",
-	)
-	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
 
 // Test genesis config similar to mainnet for NewByronConfigFromGenesis test

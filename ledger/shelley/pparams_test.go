@@ -175,7 +175,7 @@ func TestShelleyUtxorpc(t *testing.T) {
 // Tests conversion of a ShelleyTransactionInput to its utxorpc-compatible representation.
 func TestShelleyTransactionInput_Utxorpc(t *testing.T) {
 	// Create a mock transaction input with dummy transaction hash and index
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		1,
 	)
@@ -247,7 +247,7 @@ func TestShelleyTransactionOutput_Utxorpc(t *testing.T) {
 // Test the conversion of a full ShelleyTransactionBody to utxorpc format, verifying fee, input count, and output count.
 func TestShelleyTransactionBody_Utxorpc(t *testing.T) {
 	// Create input set with one mock input
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		0,
 	)
@@ -312,7 +312,7 @@ func TestShelleyTransactionBody_Utxorpc(t *testing.T) {
 // Test the conversion of a full ShelleyTransaction to utxorpc format, verifying fee, input count, and output count.
 func TestShelleyTransaction_Utxorpc(t *testing.T) {
 	// Create input set with one mock input
-	input := shelley.NewShelleyTransactionInput(
+	input := shelley.MustNewShelleyTransactionInput(
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		0,
 	)

@@ -65,53 +65,16 @@ func buildHashMismatchedCommitmentsBlock(
 	return tampered, realCommsHash
 }
 
-// TestByronMainBlockDefaultLeniencyOnHashMismatch confirms that, under the
-// default (zero-value) common.VerifyConfig, a structurally-valid ssc_proof
-// whose commitments hash does not match the block's own real commitments
-// hash still decodes successfully via NewByronMainBlockFromCbor and passes
-// ValidateBodyProof with no config -- i.e. the lenient default genuinely
-// tolerates a hash mismatch rather than only appearing to because no test
-// ever exercised it. See common.VerifyConfig.EnableByronSscProofHashValidation
-// and ValidateBodyProof's doc comment for why this leniency is intentional.
-func TestByronMainBlockDefaultLeniencyOnHashMismatch(t *testing.T) {
+// TestByronMainBlockRejectsSscHashMismatch confirms that a structurally valid
+// ssc_proof whose hash does not match the block's payload is rejected by the
+// default decoder and by explicit body-proof validation.
+func TestByronMainBlockRejectsSscHashMismatch(t *testing.T) {
 	tampered, realHash := buildHashMismatchedCommitmentsBlock(t)
 
-	block, err := byron.NewByronMainBlockFromCbor(tampered)
-	require.NoError(
-		t, err,
-		"a hash-wrong but structurally-valid ssc_proof must still decode "+
-			"under the default, structural-only check",
-	)
-
-	assert.NoError(t, block.ValidateBodyProof())
-
-	// Sanity check that the proof this test built really is hash-wrong,
-	// not accidentally correct.
-	decodedProof, ok := block.BlockHeader.BodyProof.([]any)
-	require.True(t, ok)
-	sscProof, ok := decodedProof[1].([]any)
-	require.True(t, ok)
-	proofHash, ok := sscProof[1].([]byte)
-	require.True(t, ok)
-	assert.NotEqual(t, realHash.Bytes(), proofHash)
-}
-
-// TestByronMainBlockOptInRejectsHashMismatch confirms that the same
-// hash-wrong ssc_proof from TestByronMainBlockDefaultLeniencyOnHashMismatch
-// is rejected -- both at decode time and via an explicit ValidateBodyProof
-// call -- once the caller opts in via
-// common.VerifyConfig{EnableByronSscProofHashValidation: true}, proving the
-// flag genuinely re-enables the full hash comparison rather than being
-// inert.
-func TestByronMainBlockOptInRejectsHashMismatch(t *testing.T) {
-	tampered, _ := buildHashMismatchedCommitmentsBlock(t)
-
-	optInCfg := common.VerifyConfig{EnableByronSscProofHashValidation: true}
-	_, err := byron.NewByronMainBlockFromCbor(tampered, optInCfg)
+	_, err := byron.NewByronMainBlockFromCbor(tampered)
 	require.Error(
 		t, err,
-		"a hash-wrong ssc_proof must fail to decode once the opt-in hash "+
-			"comparison is enabled",
+		"a hash-wrong ssc_proof must fail default decoding",
 	)
 
 	block, err := byron.NewByronMainBlockFromCbor(
@@ -119,10 +82,57 @@ func TestByronMainBlockOptInRejectsHashMismatch(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = block.ValidateBodyProof(optInCfg)
+	decodedProof, ok := block.BlockHeader.BodyProof.([]any)
+	require.True(t, ok)
+	sscProof, ok := decodedProof[1].([]any)
+	require.True(t, ok)
+	proofHash, ok := sscProof[1].([]byte)
+	require.True(t, ok)
+	assert.NotEqual(t, realHash.Bytes(), proofHash)
+
+	err = block.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 
+	err = block.ValidateSscProof()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+}
+
+// TestByronMainBlockRejectsTrailingSscProofField confirms that a valid
+// commitments proof cannot carry fields beyond its exact wire shape.
+func TestByronMainBlockRejectsTrailingSscProofField(t *testing.T) {
+	pubkeyA := sscPubkey(0xa1)
+	pubkeyB := sscPubkey(0xb2)
+	comms := mustEncodeSet(t, sscCommEntry(pubkeyA, "trailing-field-a"))
+	certs := mustEncodeSet(t, sscCertEntry(pubkeyB, "trailing-field-b"))
+	payload := encodeSscCommitmentsPayload(t, comms, certs)
+
+	certState := byron.NewByronEpochSscState()
+	require.NoError(
+		t,
+		certState.AccumulateBlock(decodeWithSscPayload(t, payload)),
+	)
+	proof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCommitments),
+		common.Blake2b256Hash(comms).Bytes(),
+		certState.CertificatesHash().Bytes(),
+		uint64(0),
+	})
+	require.NoError(t, err)
+
+	blockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), payload, proof,
+	)
+	_, err = byron.NewByronMainBlockFromCbor(blockCbor)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+
+	block, err := byron.NewByronMainBlockFromCbor(
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
 	err = block.ValidateSscProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)

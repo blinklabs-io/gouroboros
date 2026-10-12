@@ -212,7 +212,7 @@ func testDijkstraBlockWithBody(
 					BlockBodyHash: body.Hash(),
 					VrfKey:        make([]byte, 32),
 					VrfResult: common.VrfResult{
-						Output: []byte{},
+						Output: make([]byte, 64),
 						Proof:  make([]byte, 80),
 					},
 					OpCert: babbage.BabbageOpCert{

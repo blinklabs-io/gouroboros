@@ -51,7 +51,7 @@ func drepDepositPparams(drepDeposit uint64) *conway.ConwayProtocolParameters {
 
 func drepDeregistrationTx(
 	credential common.Credential,
-	refund int64,
+	refund uint64,
 ) *conway.ConwayTransaction {
 	return &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
@@ -83,7 +83,7 @@ func TestCertificateDepositsRejectsDRepWithoutRecordedDeposit(t *testing.T) {
 	const paid = uint64(500_000_000)
 	ls := drepStateWithDeposit(nil)
 	pp := drepDepositPparams(paid)
-	tx := drepDeregistrationTx(drepDepositCredential(), int64(paid))
+	tx := drepDeregistrationTx(drepDepositCredential(), paid)
 
 	err := conway.UtxoValidateCertificateDeposits(tx, 0, ls, pp)
 	var inconsistent conway.DRepDepositStateInconsistentError
@@ -113,7 +113,7 @@ func TestCertificateDepositsUsesRecordedDRepDeposit(t *testing.T) {
 	credential := drepDepositCredential()
 
 	t.Run("recorded refund is accepted", func(t *testing.T) {
-		tx := drepDeregistrationTx(credential, int64(recorded))
+		tx := drepDeregistrationTx(credential, recorded)
 		require.NoError(
 			t,
 			conway.UtxoValidateCertificateDeposits(tx, 0, ls, pp),
@@ -121,10 +121,10 @@ func TestCertificateDepositsUsesRecordedDRepDeposit(t *testing.T) {
 	})
 
 	t.Run("current parameter is rejected", func(t *testing.T) {
-		tx := drepDeregistrationTx(credential, int64(current))
+		tx := drepDeregistrationTx(credential, current)
 		err := conway.UtxoValidateCertificateDeposits(tx, 0, ls, pp)
 		var target conway.CertificateRefundIncorrectError
 		require.ErrorAs(t, err, &target)
-		require.Equal(t, int64(recorded), int64(target.Expected))
+		require.Equal(t, recorded, target.Expected)
 	})
 }

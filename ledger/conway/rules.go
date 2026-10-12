@@ -2383,21 +2383,8 @@ func conwayValueConservationDeposits(
 	setDRep := func(cred common.Credential, state *common.DRepRegistration) {
 		drepStates[certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}] = state
 	}
-	nonNegativeAmount := func(cert common.Certificate, amount int64) (uint64, error) {
-		if amount < 0 {
-			return 0, shelley.InvalidCertificateDepositError{
-				CertificateType: common.CertificateType(cert.Type()),
-				Amount:          amount,
-			}
-		}
-		return uint64(amount), nil
-	}
-	checkDeposit := func(cert common.Certificate, amount int64, expected uint64) error {
-		got, err := nonNegativeAmount(cert, amount)
-		if err != nil {
-			return err
-		}
-		if got != expected {
+	checkDeposit := func(cert common.Certificate, amount uint64, expected uint64) error {
+		if amount != expected {
 			return CertificateDepositIncorrectError{
 				CertificateType: common.CertificateType(cert.Type()),
 				Supplied:        amount,
@@ -2428,11 +2415,7 @@ func conwayValueConservationDeposits(
 		case *common.DeregistrationCertificate:
 			var amount uint64
 			if tx.IsValid() {
-				parsedAmount, parseErr := nonNegativeAmount(cert, cert.Amount)
-				if parseErr != nil {
-					return nil, nil, parseErr
-				}
-				amount = parsedAmount
+				amount = cert.Amount
 			}
 			state, err := getStake(cert.StakeCredential)
 			if err != nil {
@@ -2460,11 +2443,7 @@ func conwayValueConservationDeposits(
 		case *common.DeregistrationDrepCertificate:
 			var amount uint64
 			if tx.IsValid() {
-				parsedAmount, parseErr := nonNegativeAmount(cert, cert.Amount)
-				if parseErr != nil {
-					return nil, nil, parseErr
-				}
-				amount = parsedAmount
+				amount = cert.Amount
 			}
 			state, err := getDRep(cert.DrepCredential)
 			if err != nil {
@@ -4025,9 +4004,9 @@ func UtxoValidateCertificateDeposits(
 	registerStake := func(
 		cred common.Credential,
 		certificateType common.CertificateType,
-		supplied int64,
+		supplied uint64,
 	) error {
-		if supplied < 0 || uint64(supplied) != keyDeposit {
+		if supplied != keyDeposit {
 			return CertificateDepositIncorrectError{
 				CertificateType: certificateType,
 				Supplied:        supplied,
@@ -4039,7 +4018,7 @@ func UtxoValidateCertificateDeposits(
 	deregisterStake := func(
 		cred common.Credential,
 		certificateType common.CertificateType,
-		supplied *int64,
+		supplied *uint64,
 	) error {
 		state, err := loadStakeState(cred)
 		if err != nil {
@@ -4048,7 +4027,7 @@ func UtxoValidateCertificateDeposits(
 		if !state.registered {
 			return StakeCredentialNotRegisteredError{Credential: cred}
 		}
-		if supplied != nil && (*supplied < 0 || uint64(*supplied) != state.deposit) {
+		if supplied != nil && *supplied != state.deposit {
 			return CertificateRefundIncorrectError{
 				CertificateType: certificateType,
 				Supplied:        *supplied,
@@ -4138,7 +4117,7 @@ func UtxoValidateCertificateDeposits(
 				return err
 			}
 		case *common.RegistrationDrepCertificate:
-			if c.Amount < 0 || uint64(c.Amount) != drepDeposit {
+			if c.Amount != drepDeposit {
 				return CertificateDepositIncorrectError{
 					CertificateType: common.CertificateType(c.CertType),
 					Supplied:        c.Amount,
@@ -4175,7 +4154,7 @@ func UtxoValidateCertificateDeposits(
 					Credential: c.DrepCredential,
 				}
 			}
-			if c.Amount < 0 || uint64(c.Amount) != *registration.Deposit {
+			if c.Amount != *registration.Deposit {
 				return CertificateRefundIncorrectError{
 					CertificateType: common.CertificateType(c.CertType),
 					Supplied:        c.Amount,

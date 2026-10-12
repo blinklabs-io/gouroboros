@@ -135,11 +135,12 @@ func (p *StageWorkerPool) worker(ctx context.Context) {
 			}
 
 			if err != nil && p.errors != nil {
-				// Send error but still forward item for tracking
+				// Error delivery is observational. A caller that does not drain the
+				// channel must not prevent the item from reaching the ordered stage,
+				// which owns fail-closed cancellation.
 				select {
 				case p.errors <- err:
-				case <-ctx.Done():
-					return
+				default:
 				}
 			}
 

@@ -290,17 +290,20 @@ func (c *Connection) KeepAlive() *keepalive.KeepAlive {
 	return c.keepAlive
 }
 
-// LeiosFetch returns the leios-fetch protocol handler
+// LeiosFetch returns the configured LeiosFetch protocol handler, or nil when
+// LeiosFetch was not enabled with WithLeiosFetchConfig.
 func (c *Connection) LeiosFetch() *leiosfetch.LeiosFetch {
 	return c.leiosFetch
 }
 
-// LeiosNotify returns the leios-notify protocol handler
+// LeiosNotify returns the configured LeiosNotify protocol handler, or nil when
+// LeiosNotify was not enabled with WithLeiosNotifyConfig.
 func (c *Connection) LeiosNotify() *leiosnotify.LeiosNotify {
 	return c.leiosNotify
 }
 
-// LeiosVotes returns the leios-votes protocol handler
+// LeiosVotes returns the configured LeiosVotes protocol handler, or nil when
+// LeiosVotes was not enabled with WithLeiosVotesConfig.
 func (c *Connection) LeiosVotes() *leiosvotes.LeiosVotes {
 	return c.leiosVotes
 }
@@ -369,6 +372,7 @@ func (c *Connection) shutdown() {
 	// connClosedChan/errorChan closes (txtop#287). Guard with sync.Once so
 	// the cleanup remains idempotent regardless of who races whom.
 	c.onceShutdown.Do(func() {
+		c.stopProtocols()
 		// Gracefully stop the muxer
 		if c.muxer != nil {
 			c.muxer.Stop()
@@ -409,7 +413,57 @@ func (c *Connection) allProtocolsIdle() bool {
 	if !c.protocolsReady {
 		return false
 	}
+	protocols := c.protocolInstancesLocked()
+	for _, p := range protocols {
+		if p != nil && !p.IsInTerminalOrIdleState() {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Connection) stopProtocols() {
+	c.protocolMu.RLock()
+	protocols := c.protocolInstancesLocked()
+	var notificationServer *localmessagenotification.Server
+	if c.localMessageNotification != nil {
+		notificationServer = c.localMessageNotification.Server
+	}
+	c.protocolMu.RUnlock()
+
+	if notificationServer != nil {
+		_ = notificationServer.Stop()
+	}
+	for _, p := range protocols {
+		if p != nil {
+			p.Stop()
+		}
+	}
+}
+
+func (c *Connection) lockProtocolSetup() error {
+	c.protocolMu.Lock()
+	select {
+	case <-c.doneChan:
+		c.protocolMu.Unlock()
+		return errors.New("connection shutting down")
+	default:
+		return nil
+	}
+}
+
+// protocolInstancesLocked returns the protocols constructed for this
+// connection. The caller must hold c.protocolMu for reading.
+func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 	protocols := make([]*protocol.Protocol, 0)
+	if c.handshake != nil {
+		if c.handshake.Client != nil {
+			protocols = append(protocols, c.handshake.Client.Protocol)
+		}
+		if c.handshake.Server != nil {
+			protocols = append(protocols, c.handshake.Server.Protocol)
+		}
+	}
 	if c.chainSync != nil {
 		if c.chainSync.Client != nil {
 			protocols = append(protocols, c.chainSync.Client.ProtocolInstance())
@@ -522,12 +576,7 @@ func (c *Connection) allProtocolsIdle() bool {
 			protocols = append(protocols, c.localMessageNotification.Server.Protocol)
 		}
 	}
-	for _, p := range protocols {
-		if p != nil && !p.IsInTerminalOrIdleState() {
-			return false
-		}
-	}
-	return true
+	return protocols
 }
 
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
@@ -717,7 +766,9 @@ func (c *Connection) setupConnection() error {
 	if c.useNodeToNodeProto {
 		versionNtN := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
-		c.protocolMu.Lock()
+		if err := c.lockProtocolSetup(); err != nil {
+			return err
+		}
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.blockFetch = blockfetch.New(protoOptions, c.blockFetchConfig)
 		c.txSubmission = txsubmission.New(protoOptions, c.txSubmissionConfig)
@@ -746,9 +797,15 @@ func (c *Connection) setupConnection() error {
 				!c.handshakeVersionData.PeerSharing()
 			c.peerSharing = peersharing.New(protoOptions, &psCfg)
 		}
-		c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
-		c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
-		c.leiosVotes = leiosvotes.New(protoOptions, c.leiosVotesConfig)
+		if c.leiosNotifyConfig != nil {
+			c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
+		}
+		if c.leiosFetchConfig != nil {
+			c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
+		}
+		if c.leiosVotesConfig != nil {
+			c.leiosVotes = leiosvotes.New(protoOptions, c.leiosVotesConfig)
+		}
 		if c.perasVotesConfig != nil {
 			if versionData, ok := c.handshakeVersionData.(interface {
 				PerasSupported() bool
@@ -769,9 +826,15 @@ func (c *Connection) setupConnection() error {
 			if c.peerSharing != nil {
 				c.peerSharing.Server.EnsureRegistered()
 			}
-			c.leiosNotify.Server.EnsureRegistered()
-			c.leiosFetch.Server.EnsureRegistered()
-			c.leiosVotes.Server.EnsureRegistered()
+			if c.leiosNotify != nil {
+				c.leiosNotify.Server.EnsureRegistered()
+			}
+			if c.leiosFetch != nil {
+				c.leiosFetch.Server.EnsureRegistered()
+			}
+			if c.leiosVotes != nil {
+				c.leiosVotes.Server.EnsureRegistered()
+			}
 			if c.perasVotes != nil {
 				c.perasVotes.Server.EnsureRegistered()
 			}
@@ -788,9 +851,15 @@ func (c *Connection) setupConnection() error {
 				if c.peerSharing != nil {
 					c.peerSharing.Client.Start()
 				}
-				c.leiosNotify.Client.Start()
-				c.leiosFetch.Client.Start()
-				c.leiosVotes.Client.Start()
+				if c.leiosNotify != nil {
+					c.leiosNotify.Client.Start()
+				}
+				if c.leiosFetch != nil {
+					c.leiosFetch.Client.Start()
+				}
+				if c.leiosVotes != nil {
+					c.leiosVotes.Client.Start()
+				}
 				if c.perasVotes != nil {
 					c.perasVotes.Client.Start()
 				}
@@ -805,9 +874,15 @@ func (c *Connection) setupConnection() error {
 				if c.peerSharing != nil {
 					c.peerSharing.Server.Start()
 				}
-				c.leiosNotify.Server.Start()
-				c.leiosFetch.Server.Start()
-				c.leiosVotes.Server.Start()
+				if c.leiosNotify != nil {
+					c.leiosNotify.Server.Start()
+				}
+				if c.leiosFetch != nil {
+					c.leiosFetch.Server.Start()
+				}
+				if c.leiosVotes != nil {
+					c.leiosVotes.Server.Start()
+				}
 				if c.perasVotes != nil {
 					c.perasVotes.Server.Start()
 				}
@@ -818,7 +893,9 @@ func (c *Connection) setupConnection() error {
 		// LocalMessageNotification (proto 15) are valid on this
 		// connection. No chain-sync, no localTxSubmission, etc.
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
-		c.protocolMu.Lock()
+		if err := c.lockProtocolSetup(); err != nil {
+			return err
+		}
 		c.localMessageSubmission = localmessagesubmission.New(
 			protoOptions,
 			c.localMessageSubmissionConfig,
@@ -848,7 +925,9 @@ func (c *Connection) setupConnection() error {
 	} else {
 		versionNtC := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
-		c.protocolMu.Lock()
+		if err := c.lockProtocolSetup(); err != nil {
+			return err
+		}
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.localTxSubmission = localtxsubmission.New(protoOptions, c.localTxSubmissionConfig)
 		if versionNtC.EnableLocalQueryProtocol {

@@ -39,10 +39,9 @@ import (
 	"github.com/blinklabs-io/gouroboros/vrf"
 )
 
-// The era packages own the protocol-major ranges their blocks may carry, and
-// DetermineBlockType classifies against those. These single values are kept
-// for callers that already reference them; they name the first major of each
-// era and are not the authority on its extent.
+// These single values name the first protocol major associated with each era.
+// A header's protocol major advertises the producer's capabilities and does
+// not identify the era of an ambiguous header shape.
 const (
 	HeaderBodyLengthShelleyLike = 15
 	HeaderBodyLengthBabbageLike = 10
@@ -63,10 +62,31 @@ const (
 	ProtoMajorDijkstra                = 12
 )
 
-// inProtocolRange reports whether a header's protocol major falls within an
-// era's declared range, inclusive at both ends.
-func inProtocolRange(protoMajor, min, max uint64) bool {
-	return protoMajor >= min && protoMajor <= max
+// ErrAmbiguousBlockType is returned when a header shape is shared by several
+// eras. Callers must retain the hard-fork envelope discriminator or use their
+// authoritative hard-fork schedule to select the decoder.
+var ErrAmbiguousBlockType = errors.New("ambiguous block type")
+
+// AmbiguousBlockTypeError describes a header shape that cannot identify its
+// exact era. ProtocolMajor is retained as diagnostic input and must not be
+// used as an era discriminator.
+type AmbiguousBlockTypeError struct {
+	HeaderBodyLength int
+	ProtocolMajor    uint64
+}
+
+func (e *AmbiguousBlockTypeError) Error() string {
+	return fmt.Sprintf(
+		"%v: %d-field header with producer protocol major %d requires hard-fork context",
+		ErrAmbiguousBlockType,
+		e.HeaderBodyLength,
+		e.ProtocolMajor,
+	)
+}
+
+// Unwrap supports errors.Is with ErrAmbiguousBlockType.
+func (e *AmbiguousBlockTypeError) Unwrap() error {
+	return ErrAmbiguousBlockType
 }
 
 func eraAtLeast(era common.Era, min common.Era) bool {
@@ -150,7 +170,10 @@ func validateDijkstraBlockCertificates(
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
 			"Dijkstra Leios certified flag does not match block-body certificate presence",
-			map[string]any{"certified": certified, "has_certificate": hasCertificate},
+			map[string]any{
+				"certified":       certified,
+				"has_certificate": hasCertificate,
+			},
 			nil,
 		)
 	}
@@ -208,7 +231,9 @@ func validateDijkstraBlockCertificates(
 			nil,
 		)
 	}
-	context, err := state.DijkstraLeiosCertificateContext(dijkstraBlock.Header())
+	context, err := state.DijkstraLeiosCertificateContext(
+		dijkstraBlock.Header(),
+	)
 	if err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeConfiguration,
@@ -257,7 +282,10 @@ func eraOrder(era common.Era) (int, bool) {
 	}
 }
 
-// DetermineBlockType determines the block type from the header CBOR
+// DetermineBlockType determines a block type only when the header has a shape
+// unique to one era. Shared Shelley-like and Babbage-like shapes return
+// ErrAmbiguousBlockType because the producer protocol major is not an era
+// discriminator.
 func DetermineBlockType(headerCbor []byte) (uint, error) {
 	var header any
 	if _, err := cbor.Decode(headerCbor, &header); err != nil {
@@ -274,84 +302,22 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 	lenBody := len(body)
 	switch lenBody {
 	case HeaderBodyLengthShelleyLike:
-		// Shelley era
 		protoMajor, ok := body[13].(uint64)
 		if !ok {
 			return 0, errors.New("invalid proto major")
 		}
-		switch {
-		case inProtocolRange(
-			protoMajor,
-			shelley.MinProtocolVersionShelley,
-			shelley.MaxProtocolVersionShelley,
-		):
-			return BlockTypeShelley, nil
-		case inProtocolRange(
-			protoMajor,
-			allegra.MinProtocolVersionAllegra,
-			allegra.MaxProtocolVersionAllegra,
-		):
-			return BlockTypeAllegra, nil
-		case inProtocolRange(
-			protoMajor,
-			mary.MinProtocolVersionMary,
-			mary.MaxProtocolVersionMary,
-		):
-			return BlockTypeMary, nil
-		case inProtocolRange(
-			protoMajor,
-			alonzo.MinProtocolVersionAlonzo,
-			alonzo.MaxProtocolVersionAlonzo,
-		):
-			return BlockTypeAlonzo, nil
-		default:
-			return 0, fmt.Errorf(
-				"unknown proto major %d for Shelley-like",
-				protoMajor,
-			)
+		return 0, &AmbiguousBlockTypeError{
+			HeaderBodyLength: lenBody,
+			ProtocolMajor:    protoMajor,
 		}
 	case HeaderBodyLengthBabbageLike:
-		// Babbage era
 		protoMajor, err := praosHeaderProtoMajor(body)
 		if err != nil {
 			return 0, err
 		}
-		switch {
-		case inProtocolRange(
-			protoMajor,
-			babbage.MinProtocolVersionBabbage,
-			babbage.MaxProtocolVersionBabbage,
-		):
-			return BlockTypeBabbage, nil
-		case inProtocolRange(
-			protoMajor,
-			conway.MinProtocolVersionConway,
-			conway.MaxProtocolVersionConway,
-		):
-			return BlockTypeConway, nil
-		case inProtocolRange(
-			protoMajor,
-			dijkstra.MinProtocolVersionDijkstra,
-			dijkstra.MaxProtocolVersionDijkstra,
-		):
-			return BlockTypeDijkstra, nil
-		case inProtocolRange(
-			protoMajor,
-			alonzo.MinProtocolVersionAlonzo,
-			alonzo.MaxProtocolVersionAlonzo,
-		):
-			return BlockTypeAlonzo, nil
-		case inProtocolRange(
-			protoMajor,
-			mary.MinProtocolVersionMary,
-			mary.MaxProtocolVersionMary,
-		):
-			return BlockTypeMary, nil
-		default:
-			return 0, fmt.Errorf(
-				"unknown proto major %d for 10-field header",
-				protoMajor,
-			)
+		return 0, &AmbiguousBlockTypeError{
+			HeaderBodyLength: lenBody,
+			ProtocolMajor:    protoMajor,
 		}
 	case HeaderBodyLengthDijkstraLeiosLike:
 		// Only Dijkstra has this shape, so the shape decides the era. The
@@ -364,11 +330,8 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 		if err != nil {
 			return 0, err
 		}
-		if !inProtocolRange(
-			protoMajor,
-			dijkstra.MinProtocolVersionDijkstra,
-			math.MaxUint32,
-		) {
+		if protoMajor < dijkstra.MinProtocolVersionDijkstra ||
+			protoMajor > math.MaxUint32 {
 			return 0, fmt.Errorf(
 				"unknown proto major %d for 12-field header",
 				protoMajor,
@@ -663,6 +626,28 @@ func VerifyBlock(
 	eta0Hex string,
 	slotsPerKesPeriod uint64,
 	config common.VerifyConfig,
+) (bool, string, uint64, uint64, error) {
+	return verifyBlock(block, eta0Hex, slotsPerKesPeriod, config, false)
+}
+
+// VerifyBlockLocal checks header cryptography and body integrity without
+// reading ledger state or protocol parameters. Success does not certify
+// transaction validity, block limits, pool registration, or certificates.
+func VerifyBlockLocal(
+	block Block,
+	eta0Hex string,
+	slotsPerKesPeriod uint64,
+) (bool, string, uint64, uint64, error) {
+	return verifyBlock(block, eta0Hex, slotsPerKesPeriod,
+		common.VerifyConfig{}, true)
+}
+
+func verifyBlock(
+	block Block,
+	eta0Hex string,
+	slotsPerKesPeriod uint64,
+	config common.VerifyConfig,
+	localOnly bool,
 ) (bool, string, uint64, uint64, error) {
 	vrfHex := ""
 
@@ -1014,12 +999,30 @@ func VerifyBlock(
 			}
 		}
 	}
+	if localOnly {
+		return true, vrfHex, blockNo, slot, nil
+	}
+	if err := VerifyBlockState(block, config); err != nil {
+		return false, "", 0, 0, err
+	}
+	return true, vrfHex, blockNo, slot, nil
+}
+
+// VerifyBlockState checks certificates, block limits, transactions, and pool
+// registration against current ledger state. Callers must first verify the
+// same immutable block with VerifyBlockLocal and serialize this check with
+// application of preceding blocks.
+func VerifyBlockState(block Block, config common.VerifyConfig) error {
+	header := block.Header()
+	slot := header.SlotNumber()
+	blockNo := header.BlockNumber()
+	era := header.Era()
 	if err := validateDijkstraBlockCertificates(
 		block,
 		config.ProtocolParameters,
 		config.LedgerState,
 	); err != nil {
-		return false, "", 0, 0, err
+		return err
 	}
 
 	// Verify block-wide execution-unit budget (BBODY: sum of every
@@ -1052,7 +1055,7 @@ func VerifyBlock(
 		headerCbor := header.Cbor()
 		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 {
 			if config.ProtocolParameters == nil {
-				return false, "", 0, 0, common.NewValidationError(
+				return common.NewValidationError(
 					common.ValidationErrorTypeConfiguration,
 					"protocol parameters are required for block-wide limits",
 					map[string]any{
@@ -1067,7 +1070,7 @@ func VerifyBlock(
 				config.ProtocolParameters,
 			)
 			if limitsErr != nil {
-				return false, "", 0, 0, common.NewValidationError(
+				return common.NewValidationError(
 					common.ValidationErrorTypeConfiguration,
 					"unable to determine block-wide limits from protocol parameters",
 					map[string]any{
@@ -1086,7 +1089,7 @@ func VerifyBlock(
 			if hasMaxExUnits && hasNonZeroMaxExUnits && len(txs) > 0 {
 				totalExUnits, sumErr := sumBlockExUnits(txs)
 				if sumErr != nil {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeTransaction,
 						"failed to sum block execution units",
 						map[string]any{
@@ -1099,7 +1102,7 @@ func VerifyBlock(
 				}
 				if totalExUnits.Memory > maxExUnits.Memory ||
 					totalExUnits.Steps > maxExUnits.Steps {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
 						"block total execution units exceed protocol maximum",
 						map[string]any{
@@ -1125,7 +1128,7 @@ func VerifyBlock(
 			if len(headerCbor) > 0 && maxHeaderSize > 0 {
 				headerSize := uint64(len(headerCbor))
 				if headerSize > maxHeaderSize {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
 						"block header size exceeds protocol maximum",
 						map[string]any{
@@ -1150,7 +1153,7 @@ func VerifyBlock(
 			if len(rawBlockCbor) > 0 && maxBodySize > 0 {
 				bodySize, sizeErr := common.BlockBodySizeFromCbor(rawBlockCbor)
 				if sizeErr != nil {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
 						"failed to calculate block body size",
 						map[string]any{
@@ -1162,7 +1165,7 @@ func VerifyBlock(
 					)
 				}
 				if bodySize > maxBodySize {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
 						"block body size exceeds protocol maximum",
 						map[string]any{
@@ -1190,7 +1193,7 @@ func VerifyBlock(
 				if err := mainBlock.Body.TxPayload[idx].ValidateVKeyWitnesses(
 					mainBlock.BlockHeader.ProtocolMagic,
 				); err != nil {
-					return false, "", 0, 0, common.NewValidationError(
+					return common.NewValidationError(
 						common.ValidationErrorTypeTransaction,
 						"Byron block transaction witness validation failed",
 						map[string]any{
@@ -1222,13 +1225,13 @@ func VerifyBlock(
 		case dijkstra.EraDijkstra.Id:
 			validationRules = dijkstra.UtxoValidationRules
 		default:
-			return false, "", 0, 0, fmt.Errorf(
+			return fmt.Errorf(
 				"VerifyBlock: unsupported era for transaction validation %s",
 				block.Era().Name,
 			)
 		}
 		if config.LedgerState == nil || config.ProtocolParameters == nil {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeConfiguration,
 				"missing required config fields for transaction validation",
 				map[string]any{
@@ -1247,7 +1250,7 @@ func VerifyBlock(
 			config.ProtocolParameters,
 			validationRules,
 		); err != nil {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeTransaction,
 				"block transaction validation failed",
 				map[string]any{
@@ -1279,7 +1282,7 @@ func VerifyBlock(
 		}
 	}
 	if refScriptSizeErr != nil {
-		return false, "", 0, 0, common.NewValidationError(
+		return common.NewValidationError(
 			common.ValidationErrorTypeTransaction,
 			"block reference-script size validation failed",
 			map[string]any{
@@ -1295,14 +1298,14 @@ func VerifyBlock(
 	// Requires LedgerState in config if enabled.
 	if block.Era() != byron.EraByron && !config.SkipStakePoolValidation {
 		if config.LedgerState == nil {
-			return false, "", 0, 0, errors.New(
+			return errors.New(
 				"VerifyBlock: missing required config field: LedgerState must be set for stake pool validation",
 			)
 		}
 
 		issuerVkey, blockVrfKey, err := extractHeaderFields(block.Header())
 		if err != nil {
-			return false, "", 0, 0, err
+			return err
 		}
 
 		poolKeyHash := common.Blake2b224Hash(issuerVkey)
@@ -1310,7 +1313,7 @@ func VerifyBlock(
 		// Check if pool is registered
 		poolCert, _, err := config.LedgerState.PoolCurrentState(poolKeyHash)
 		if err != nil {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeStakePool,
 				"failed to query pool state",
 				map[string]any{
@@ -1323,7 +1326,7 @@ func VerifyBlock(
 			)
 		}
 		if poolCert == nil {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeStakePool,
 				"pool is not registered",
 				map[string]any{
@@ -1340,7 +1343,7 @@ func VerifyBlock(
 		registeredVrfKeyHash := poolCert.VrfKeyHash
 		expectedVrfKeyHash := common.Blake2b256Hash(blockVrfKey)
 		if registeredVrfKeyHash != expectedVrfKeyHash {
-			return false, "", 0, 0, common.NewValidationError(
+			return common.NewValidationError(
 				common.ValidationErrorTypeVRF,
 				"VRF key mismatch for pool",
 				map[string]any{
@@ -1356,7 +1359,7 @@ func VerifyBlock(
 		}
 	}
 
-	return true, vrfHex, blockNo, slot, nil
+	return nil
 }
 
 type BlockHexCbor struct {

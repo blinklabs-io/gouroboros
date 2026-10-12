@@ -96,7 +96,7 @@ func TestTxInfoV3FromTransactionPreservesCertificateAmountRules(t *testing.T) {
 			name: "explicit registration",
 			certificate: &common.RegistrationCertificate{
 				StakeCredential: credential,
-				Amount:          amount.Int64(),
+				Amount:          uint64(amount.Int64()),
 			},
 			want: map[uint]data.PlutusData{
 				common.ProtocolVersionConway:   data.NewConstr(1),
@@ -108,7 +108,7 @@ func TestTxInfoV3FromTransactionPreservesCertificateAmountRules(t *testing.T) {
 			name: "explicit deregistration",
 			certificate: &common.DeregistrationCertificate{
 				StakeCredential: credential,
-				Amount:          amount.Int64(),
+				Amount:          uint64(amount.Int64()),
 			},
 			want: map[uint]data.PlutusData{
 				common.ProtocolVersionConway:   data.NewConstr(1),
@@ -172,7 +172,7 @@ func TestConwayPhase2SeesCertificateAmountByProtocolVersion(t *testing.T) {
 	credential := common.Credential{Credential: common.Blake2b224{1}}
 	amount := big.NewInt(2_000_000)
 	explicit := mockledger.NewTransactionBuilder().WithCertificates(
-		&common.RegistrationCertificate{StakeCredential: credential, Amount: amount.Int64()},
+		&common.RegistrationCertificate{StakeCredential: credential, Amount: uint64(amount.Int64())},
 	)
 	legacy := mockledger.NewTransactionBuilder().WithCertificates(
 		&common.StakeRegistrationCertificate{StakeCredential: credential},

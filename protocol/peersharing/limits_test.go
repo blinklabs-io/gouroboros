@@ -90,12 +90,17 @@ func startGetPeers(t *testing.T, client *Client, connB net.Conn, amount uint8) c
 		peers, err := client.GetPeers(amount)
 		results <- peersResult{peers: peers, err: err}
 	}()
+	readShareRequest(t, connB, amount)
+	return results
+}
+
+func readShareRequest(t *testing.T, connB net.Conn, amount uint8) {
+	t.Helper()
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(5*time.Second)))
 	segment := readPeerSharingSegment(t, connB)
 	expected, err := cbor.Encode(NewMsgShareRequest(amount))
 	require.NoError(t, err)
 	require.Equal(t, expected, segment.Payload)
-	return results
 }
 
 type peersResult struct {
