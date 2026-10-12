@@ -1117,6 +1117,9 @@ func (c *Client) GetPoolDistr2(
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	if !shelleyQuerySupported(QueryTypeShelleyPoolDistr2, c.version) {
+		return nil, unsupportedQueryError("GetPoolDistr2", c.version)
+	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {

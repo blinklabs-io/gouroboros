@@ -17,6 +17,7 @@ package localstatequery
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"math/big"
 	"net"
 	"strings"
@@ -252,6 +253,7 @@ func TestShelleyQueryVersionGates(t *testing.T) {
 		{QueryTypeShelleyPoolDistr, []uint16{20}, []uint16{21, 23}},
 		{QueryTypeShelleyStakePoolDefaultVote, []uint16{20, 23}, []uint16{19}},
 		{QueryTypeShelleyStakeDistribution2, []uint16{21, 23}, []uint16{20}},
+		{QueryTypeShelleyPoolDistr2, []uint16{21, 23}, []uint16{19, 20}},
 		{
 			QueryTypeShelleyMaxMajorProtocolVersion,
 			[]uint16{21, 23},
@@ -294,6 +296,10 @@ func TestClientRefusesQueriesOutsideVersion(t *testing.T) {
 		}},
 		{"stake_pool_default_vote_v19", 19, func(c *Client) error {
 			_, err := c.GetStakePoolDefaultVote(ledger.PoolId{})
+			return err
+		}},
+		{"pool_distr2_v20", 20, func(c *Client) error {
+			_, err := c.GetPoolDistr2(nil)
 			return err
 		}},
 		{"stake_distribution2_v20", 20, func(c *Client) error {
@@ -363,4 +369,28 @@ func TestIndividualPoolStakeTagsFraction(t *testing.T) {
 	require.NoError(t, err)
 	// cardano-ledger tags a Rational with 30 from protocol version 9.
 	assert.Equal(t, "83d81e820103", hex.EncodeToString(data[:6]))
+}
+
+// TestServerRefusesPoolDistr2BeforeVersion21 checks the server rejects
+// GetPoolDistr2, which node-to-client version 21 introduced, on version 20.
+func TestServerRefusesPoolDistr2BeforeVersion21(t *testing.T) {
+	called := false
+	s := newServerWithVersion(
+		ntc(20),
+		func(_ CallbackContext, _ QueryWrapper) (any, error) {
+			called = true
+			// Failing here keeps the unstarted server from sending a reply.
+			return nil, errors.New("callback reached")
+		},
+	)
+	msg := NewMsgQuery(&BlockQuery{
+		Query: &ShelleyQuery{
+			Era: ledger.EraIdConway,
+			Query: &ShelleyPoolDistr2Query{
+				Type: QueryTypeShelleyPoolDistr2,
+			},
+		},
+	})
+	require.ErrorIs(t, s.handleQuery(msg), ErrQueryUnsupportedVersion)
+	assert.False(t, called, "callback ran for a query version 20 lacks")
 }

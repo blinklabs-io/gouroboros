@@ -37,6 +37,7 @@ var shelleyQueryVersionRanges = map[int]shelleyQueryVersionRange{
 	QueryTypeShelleyStakeDistribution:             {last: 20},
 	QueryTypeShelleyPoolDistr:                     {last: 20},
 	QueryTypeShelleyStakePoolDefaultVote:          {first: 20},
+	QueryTypeShelleyPoolDistr2:                    {first: 21},
 	QueryTypeShelleyStakeDistribution2:            {first: 21},
 	QueryTypeShelleyMaxMajorProtocolVersion:       {first: 21},
 	QueryTypeShelleyDRepDelegations:               {first: 23},
@@ -87,6 +88,8 @@ func shelleyLeafQueryType(w QueryWrapper) (int, bool) {
 		return QueryTypeShelleyPoolDistr, true
 	case *ShelleyStakePoolDefaultVoteQuery:
 		return QueryTypeShelleyStakePoolDefaultVote, true
+	case *ShelleyPoolDistr2Query:
+		return QueryTypeShelleyPoolDistr2, true
 	case *ShelleyStakeDistribution2Query:
 		return QueryTypeShelleyStakeDistribution2, true
 	case *ShelleyMaxMajorProtocolVersionQuery:
