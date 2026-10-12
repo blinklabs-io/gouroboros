@@ -55,13 +55,13 @@ func TestLeiosReferencesFitEncodedInput(t *testing.T) {
 		data = append(data, hash...)
 		data = append(data, 1)
 	}
-	for _, wire := range [][]byte{data, append([]byte{0x81}, data...)} {
+	for _, wire := range [][]byte{data} {
 		block, err := NewLeiosEndorserBlockFromCbor(wire)
 		require.NoError(t, err)
 		require.Len(t, block.TransactionReferences, count)
 		require.Equal(
 			t,
-			uint16(1),
+			uint32(1),
 			block.TransactionReferences[count-1].TransactionSize,
 		)
 		require.Equal(t, wire, block.Cbor())
