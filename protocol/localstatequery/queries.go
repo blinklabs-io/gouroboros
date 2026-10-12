@@ -1541,27 +1541,17 @@ type StakeSnapshotsResult struct {
 	TotalStakeGo   uint64
 }
 
-// PoolDistr2Result is the GetPoolDistr2 reply: the ledger's own pool
-// distribution rather than the consensus one that GetPoolDistr returned.
-//
-// It carries two values its predecessor did not. Each pool's entry gains the
-// total stake delegated to it, alongside the fraction and VRF hash the old
-// entry held, and the record as a whole gains the total active stake across
-// all pools. Both are needed to check a pool's leader eligibility without
-// re-deriving the denominator.
-type PoolDistr2Result struct {
-	cbor.StructAsArray
-	Pools            map[ledger.PoolId]PoolDistr2IndividualStake
-	TotalActiveStake uint64
-}
+// PoolDistr2Result is the GetPoolDistr2 reply without its era result
+// wrapper: the ledger's QueryResultPoolDistr, which has the same wire form as
+// its PoolDistr. Unlike the GetPoolDistr reply, each pool's entry carries the
+// total stake delegated to it, and the record the total active stake across
+// all pools.
+type PoolDistr2Result = PoolDistribution
 
 // PoolDistr2IndividualStake is one pool's entry in a GetPoolDistr2 reply.
-type PoolDistr2IndividualStake struct {
-	cbor.StructAsArray
-	StakeFraction  *cbor.Rat
-	TotalPoolStake uint64
-	VrfHash        ledger.Blake2b256
-}
+// From the Dijkstra era it carries a fourth field, the pool's BLS key if it
+// registered one.
+type PoolDistr2IndividualStake = IndividualPoolStake
 
 // PoolDistrResult represents the pool distribution result.
 // It contains a map of pool IDs to their stake distribution

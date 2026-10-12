@@ -68,7 +68,8 @@ type ShelleyStakeDistribution2Query struct {
 }
 
 // StakeDistribution2Result is the GetStakeDistribution2 reply, the ledger's
-// PoolDistr inside the single-element era result wrapper.
+// PoolDistr inside the single-element era result wrapper. A GetPoolDistr2
+// reply has the same form.
 type StakeDistribution2Result struct {
 	cbor.StructAsArray
 	Distribution PoolDistribution

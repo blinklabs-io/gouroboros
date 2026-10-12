@@ -1137,11 +1137,11 @@ func (c *Client) GetPoolDistr2(
 		QueryTypeShelleyPoolDistr2,
 		poolFilter,
 	)
-	var result PoolDistr2Result
+	var result StakeDistribution2Result
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &result.Distribution, nil
 }
 
 // GetConstitution returns the current on-chain constitution (CIP-1694).
