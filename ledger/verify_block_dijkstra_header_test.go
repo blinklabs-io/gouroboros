@@ -46,6 +46,23 @@ func dijkstraLeiosTestHeader(
 	announcedSize *uint32,
 ) *dijkstra.DijkstraBlockHeader {
 	t.Helper()
+	return dijkstraLeiosTestHeaderAfter(
+		t, common.Blake2b256{}, slot, major, certified, announcedSize,
+	)
+}
+
+// dijkstraLeiosTestHeaderAfter builds a header extending prevHash and stores
+// its encoding, so that each header hashes to its own identity rather than to
+// the hash of empty bytes.
+func dijkstraLeiosTestHeaderAfter(
+	t *testing.T,
+	prevHash common.Blake2b256,
+	slot uint64,
+	major uint64,
+	certified bool,
+	announcedSize *uint32,
+) *dijkstra.DijkstraBlockHeader {
+	t.Helper()
 	certifiedField := cbor.RawMessage{0xf4}
 	if certified {
 		certifiedField = cbor.RawMessage{0xf5}
@@ -59,15 +76,20 @@ func dijkstraLeiosTestHeader(
 		require.NoError(t, err)
 		announcement = encoded
 	}
-	return &dijkstra.DijkstraBlockHeader{
+	header := &dijkstra.DijkstraBlockHeader{
 		BabbageBlockHeader: babbage.BabbageBlockHeader{
 			Body: babbage.BabbageBlockHeaderBody{
 				Slot:         slot,
+				PrevHash:     prevHash,
 				ProtoVersion: babbage.BabbageProtoVersion{Major: major},
 			},
 		},
 		LeiosHeaderExtension: []cbor.RawMessage{certifiedField, announcement},
 	}
+	encoded, err := header.MarshalCBOR()
+	require.NoError(t, err)
+	header.SetCbor(encoded)
+	return header
 }
 
 func TestValidateDijkstraLeiosHeader(t *testing.T) {
@@ -81,10 +103,18 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 	params.ProtocolVersion.Major = 12
 	size := uint32(10)
 	announcing := dijkstraLeiosTestHeader(t, 100, 12, false, &size)
+	certifyingAfter := func(
+		prev common.Blake2b256,
+		slot uint64,
+	) *dijkstra.DijkstraBlock {
+		return &dijkstra.DijkstraBlock{
+			BlockHeader: dijkstraLeiosTestHeaderAfter(
+				t, prev, slot, 12, true, nil,
+			),
+		}
+	}
 	certifying := func(slot uint64) *dijkstra.DijkstraBlock {
-		header := dijkstraLeiosTestHeader(t, slot, 12, true, nil)
-		header.Body.PrevHash = announcing.Hash()
-		return &dijkstra.DijkstraBlock{BlockHeader: header}
+		return certifyingAfter(announcing.Hash(), slot)
 	}
 	state := dijkstraLeiosHeaderTestState{
 		context: common.DijkstraLeiosHeaderContext{
@@ -159,8 +189,7 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 	})
 	t.Run("certificate without announcement", func(t *testing.T) {
 		silent := dijkstraLeiosTestHeader(t, 100, 12, false, nil)
-		block := certifying(200)
-		block.BlockHeader.Body.PrevHash = silent.Hash()
+		block := certifyingAfter(silent.Hash(), 200)
 		err := validateDijkstraLeiosHeader(
 			block,
 			params,
@@ -212,9 +241,31 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 		requireProtocolError(t, err, &without)
 	})
 	t.Run("predecessor is not the previous header", func(t *testing.T) {
-		block := certifying(110)
-		block.BlockHeader.Body.PrevHash = common.Blake2b256{0x01}
+		block := certifyingAfter(common.Blake2b256{0x01}, 110)
 		err := validateDijkstraLeiosHeader(block, params, state)
+		var validationErr *common.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		require.Equal(
+			t,
+			common.ValidationErrorTypeConfiguration,
+			validationErr.Type,
+		)
+	})
+	t.Run("predecessor is another announcing header", func(t *testing.T) {
+		// Same announcement at an earlier slot: it would satisfy the timing
+		// rule, so only header identity can reject it.
+		other := dijkstraLeiosTestHeader(t, 99, 12, false, &size)
+		require.NotEqual(t, announcing.Hash(), other.Hash())
+		err := validateDijkstraLeiosHeader(
+			certifying(110),
+			params,
+			dijkstraLeiosHeaderTestState{
+				context: common.DijkstraLeiosHeaderContext{
+					Predecessor: other,
+					SlotLength:  time.Second,
+				},
+			},
+		)
 		var validationErr *common.ValidationError
 		require.ErrorAs(t, err, &validationErr)
 		require.Equal(

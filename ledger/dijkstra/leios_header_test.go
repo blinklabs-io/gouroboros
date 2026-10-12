@@ -121,6 +121,23 @@ func TestLeiosMinCertificationSlot(t *testing.T) {
 	require.Error(t, err)
 }
 
+// The reference minCertificationGap divides by slotLengthToMillisec, which
+// truncates the slot length to whole milliseconds, so a sub-millisecond
+// remainder does not shorten the gap. 3001 ms over a 1.5005 s slot is exactly
+// two slots, but over the truncated 1500 ms slot it rounds up to three.
+func TestLeiosMinCertificationSlotTruncatesSlotLengthToMilliseconds(
+	t *testing.T,
+) {
+	t.Parallel()
+	slot, err := LeiosMinCertificationSlot(
+		1500500*time.Microsecond, 1000, 0, 1, 100,
+	)
+	require.NoError(t, err)
+	require.Equal(t, uint64(103), slot)
+	_, err = LeiosMinCertificationSlot(time.Microsecond*999, 1000, 0, 0, 100)
+	require.Error(t, err, "a slot shorter than one millisecond truncates to zero")
+}
+
 func TestValidateLeiosCertificateTiming(t *testing.T) {
 	t.Parallel()
 	pp := testLeiosParams()
