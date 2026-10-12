@@ -32,6 +32,7 @@ type directionFlow struct {
 	serverMuxer  *muxer.Muxer
 	clientConn   net.Conn
 	serverConn   net.Conn
+	clientErrors chan error
 	serverErrors chan error
 }
 
@@ -47,11 +48,12 @@ func newDirectionFlow(
 		serverMuxer:  muxer.New(serverConn),
 		clientConn:   clientConn,
 		serverConn:   serverConn,
+		clientErrors: make(chan error, 4),
 		serverErrors: make(chan error, 4),
 	}
 	f.client = NewClient(protocol.ProtocolOptions{
 		Muxer:     f.clientMuxer,
-		ErrorChan: make(chan error, 4),
+		ErrorChan: f.clientErrors,
 		Version:   MessageSubmissionV2MinVersion,
 	}, &clientCfg)
 	f.server = NewServer(protocol.ProtocolOptions{
@@ -188,6 +190,54 @@ func TestMessageReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 				require.ErrorContains(t, err, "maximum is 2")
 			case <-time.After(time.Second):
 				t.Fatal("oversized message reply was not rejected")
+			}
+		})
+	}
+}
+
+// The client decodes a message request against the IDs it still holds
+// unacknowledged, so the limit must come from its own state, not the wire
+// maximum.
+func TestMessageRequestUsesPendingCountThroughProtocol(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		count int
+		valid bool
+	}{
+		{name: "at pending count", count: 2, valid: true},
+		{name: "above pending count", count: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requestReceived := make(chan int, 1)
+			clientCfg := NewConfig(WithRequestMessagesFunc(func(
+				_ CallbackContext,
+				ids [][]byte,
+			) {
+				requestReceived <- len(ids)
+			}))
+			flow := newDirectionFlow(t, clientCfg, NewConfig())
+			flow.client.lock.Lock()
+			flow.client.pendingMessageIDs = [][]byte{{0}, {1}}
+			flow.client.lock.Unlock()
+			ids := make([][]byte, tc.count)
+			for idx := range ids {
+				ids[idx] = []byte{byte(idx)}
+			}
+			require.NoError(t, flow.server.RequestMessages(ids))
+			if tc.valid {
+				select {
+				case count := <-requestReceived:
+					require.Equal(t, 2, count)
+				case <-time.After(time.Second):
+					t.Fatal("message request did not reach the client")
+				}
+				return
+			}
+			select {
+			case err := <-flow.clientErrors:
+				require.ErrorContains(t, err, "maximum is 2")
+			case <-time.After(time.Second):
+				t.Fatal("oversized message request was not rejected")
 			}
 		})
 	}
