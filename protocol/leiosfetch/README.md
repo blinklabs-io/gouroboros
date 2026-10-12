@@ -99,7 +99,14 @@ node.
 bitmaps and holds one transaction for each bit set in them. Bitmaps are a map
 of ascending indices below 268 to non-zero 64-bit bitmaps, in definite or
 indefinite form; requests are encoded in indefinite form. An endorser block
-references at most 17,142 transactions.
+references at most 17,142 transactions. The client refuses a bitmap key at or
+above 268, or a zero bitmap, with `ErrInvalidBlockTxsBitmaps` before sending,
+because the reference node fails the connection on either.
+
+A `Votes` reply carries one vote per requested ID and at most 1,000 votes. The
+client refuses a `VotesRequest` for more than 1,000 IDs with
+`ErrVoteRequestTooLarge` before sending, and fails the connection on a reply
+holding more votes than it requested.
 
 CIP-0164 says a server should disconnect when requested data is unavailable.
 

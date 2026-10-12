@@ -654,11 +654,25 @@ func (c *Client) BlockRequest(
 // As with BlockRequest, the wait is bounded by the provided context and a
 // context cancellation/deadline returns the context error without tearing down
 // the shared connection.
+//
+// A bitmap key at or above the number of bitmaps an endorser block can need,
+// or a zero bitmap, returns ErrInvalidBlockTxsBitmaps without sending.
 func (c *Client) BlockTxsRequest(
 	ctx context.Context,
 	point pcommon.Point,
 	bitmaps map[uint16]uint64,
 ) (protocol.Message, error) {
+	for key, bitmap := range bitmaps {
+		if int(key) >= maxWireBlockBitmaps || bitmap == 0 {
+			return nil, fmt.Errorf(
+				"%w: key %d, bitmap %#x; keys must be below %d and select a transaction",
+				ErrInvalidBlockTxsBitmaps,
+				key,
+				bitmap,
+				maxWireBlockBitmaps,
+			)
+		}
+	}
 	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlockTxs)
 	if err != nil {
 		return nil, err
@@ -701,10 +715,22 @@ func (c *Client) BlockTxsRequest(
 // this releases it explicitly on success. A context that expires with the
 // response still outstanding abandons instead: the peer still owes a reply and
 // still holds agency, so the slot has to stay busy until that reply drains it.
+//
+// More than MaxVotesPerMessage IDs returns ErrVoteRequestTooLarge without
+// sending: the reply carries one vote per ID, and a reply above that count is
+// a protocol violation that fails the connection.
 func (c *Client) VotesRequest(
 	ctx context.Context,
 	voteIds []MsgVotesRequestVoteId,
 ) (protocol.Message, error) {
+	if len(voteIds) > MaxVotesPerMessage {
+		return nil, fmt.Errorf(
+			"%w: %d IDs, maximum is %d",
+			ErrVoteRequestTooLarge,
+			len(voteIds),
+			MaxVotesPerMessage,
+		)
+	}
 	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateVotes)
 	if err != nil {
 		return nil, err
