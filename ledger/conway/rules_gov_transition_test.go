@@ -1017,6 +1017,24 @@ func TestUtxoValidateVotingOnExpiredGovAction(t *testing.T) {
 
 }
 
+func TestUtxoValidateVotingOnExpiredGovActionAllowsOwnProposal(t *testing.T) {
+	pp := mkConwayPp(common.ProtocolVersionVanRossem, 0)
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	tx := mkProposalsTx(t, &common.InfoGovAction{})
+	actionId := selfActionId(tx, 0)
+	require.False(t, ls.GovActionExists(actionId))
+	voter := common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224{0x01},
+	}
+	addVote(tx, voter, actionId, common.GovVoteYes)
+
+	require.NoError(
+		t,
+		conway.UtxoValidateVotingOnExpiredGovAction(tx, 1_000_000, ls, pp),
+	)
+}
+
 // NOTE: this deliberately does not add a PV11 (ProtocolVersionVanRossem)
 // case alongside the PV10 ("PV10 lifts the bootstrap voting restriction")
 // case below: isInConwayBootstrapPhase only distinguishes PV9 from

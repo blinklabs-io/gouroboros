@@ -125,7 +125,7 @@ type VerifyConfig struct {
 	// of SkipTransactionValidation: it only needs ProtocolParameters (for
 	// the limits) and, for the size checks, the block's raw CBOR. It returns a
 	// validation failure when ProtocolParameters is nil and is a no-op only
-	// when the block has neither transactions nor raw CBOR available.
+	// when transactions, raw block CBOR, and header CBOR are all unavailable.
 	SkipBlockLimitsValidation bool
 	// EnableByronSscProofHashValidation opts into recomputing and comparing
 	// a Byron main block's ssc_proof hashes against its header, in addition

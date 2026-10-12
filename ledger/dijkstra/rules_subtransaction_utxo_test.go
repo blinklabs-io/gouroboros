@@ -745,6 +745,40 @@ func TestDijkstraChildProposalIsVisibleToTopLevelVote(t *testing.T) {
 		rule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
 			&DijkstraProtocolParameters{}),
 	)
+	require.NoError(
+		t,
+		dijkstraRule(
+			t,
+			common.UtxoValidationRuleVotingOnExpiredGovAction,
+		)(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{}),
+	)
+}
+
+func TestDijkstraNonAncestralProposalsDoNotRequirePurposeRoots(
+	t *testing.T,
+) {
+	for name, action := range map[string]common.GovAction{
+		"information":         &common.InfoGovAction{},
+		"treasury withdrawal": &common.TreasuryWithdrawalGovAction{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tx := dijkstraSingleSubTx(DijkstraSubTransaction{
+				Body: DijkstraSubTransactionBody{
+					TxProposalProcedures: []DijkstraProposalProcedure{{
+						PPRewardAccount: testAccountAddress(t),
+						PPGovAction:     DijkstraGovAction{Action: action},
+					}},
+				},
+			})
+			require.NoError(t, UtxoValidateProposalAncestry(
+				tx,
+				0,
+				nil,
+				&DijkstraProtocolParameters{},
+			))
+		})
+	}
 }
 
 func TestDijkstraChildProposalIsVisibleToLaterChildVote(t *testing.T) {
@@ -782,6 +816,15 @@ func TestDijkstraChildProposalIsVisibleToLaterChildVote(t *testing.T) {
 	require.NoError(
 		t,
 		rule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
+			&DijkstraProtocolParameters{}),
+	)
+	expiryRule := dijkstraRule(
+		t,
+		common.UtxoValidationRuleVotingOnExpiredGovAction,
+	)
+	require.NoError(
+		t,
+		expiryRule(tx, 0, mockledger.NewLedgerStateBuilder().Build(),
 			&DijkstraProtocolParameters{}),
 	)
 }

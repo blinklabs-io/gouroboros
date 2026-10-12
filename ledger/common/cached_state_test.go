@@ -223,6 +223,10 @@ type capabilityAdapterState struct {
 	owner common.PoolKeyHash
 }
 
+type ledgerStateWithoutFuturePoolParameters struct {
+	common.LedgerState
+}
+
 func (s capabilityAdapterState) UnwrapLedgerState() common.LedgerState {
 	return s.LedgerState
 }
@@ -287,6 +291,17 @@ func TestStateCapabilityLookupPreservesImplementingAdapter(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, inUse)
 	require.Equal(t, owner, gotOwner)
+}
+
+func TestBlockLedgerStateRequiresFuturePoolParametersCapability(t *testing.T) {
+	t.Parallel()
+	base := mockledger.NewLedgerStateBuilder().Build()
+	block := common.NewBlockLedgerState(
+		ledgerStateWithoutFuturePoolParameters{LedgerState: base},
+	)
+	_, _, err := block.IsFutureVrfKeyInUse(common.Blake2b256{0x41})
+	var unavailable common.FuturePoolParametersStateUnavailableError
+	require.ErrorAs(t, err, &unavailable)
 }
 
 type foreignWrapper struct {
