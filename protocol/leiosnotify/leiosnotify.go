@@ -178,8 +178,13 @@ type CallbackContext struct {
 	// It is distinct from the current protocol instance's DoneChan and is nil
 	// when the protocol was constructed without an owning connection.
 	ConnectionDoneChan <-chan any
-	Client             *Client
-	Server             *Server
+	// QuitChan is closed when the client has sent MsgQuit. A server callback
+	// that waits for a notification should stop waiting and return when it
+	// closes, so the request is answered with MsgCanceled. It is nil outside
+	// a server request.
+	QuitChan <-chan struct{}
+	Client   *Client
+	Server   *Server
 }
 
 // Callback function types

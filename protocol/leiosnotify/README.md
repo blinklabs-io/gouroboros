@@ -60,9 +60,14 @@ replied, so the server answers every request before it acknowledges `Quit`.
 `Quit` lets a client demote a peer from hot to warm without dropping the
 connection for lack of Leios traffic.
 
-A server that has accepted a request and has no notification to send does not
-see a `Quit` queued behind it until the notification callback returns, and
-therefore sends no `Canceled`.
+A server answers each request still outstanding when the client quits with
+`Canceled`, or with its notification if that is already ready, and then sends
+`Done`. It reads the `Quit` while a request waits for a notification: the
+server queues up to 1,002 received messages, enough for the 1,000 requests the
+reference client pipelines. `CallbackContext.QuitChan` closes when the client
+quits so a `RequestNextFunc` can stop waiting. A notification the source hands
+back after the quit is not sent; `ResponseSentFunc` receives
+`ErrRequestCanceled` for it.
 
 A block offer is rejected unless its point hash is 32 bytes and its size is
 between 1 and 600,000.
