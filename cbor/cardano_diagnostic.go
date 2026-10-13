@@ -264,22 +264,68 @@ func diagTypeName(t DiagnosticType) string {
 // cardanoWriter renders DiagnosticNodes with Cardano-specific labels emitted
 // as RFC 8949 / comment / markers on each line. Output is multi-line and
 // indented; depth tracks nesting for the indent prefix.
+//
+// depth only sets the indentation. level counts the CBOR nodes open on the
+// current path, which can exceed depth because tag contents share their
+// tag's line, and is what MaxDepth bounds.
 type cardanoWriter struct {
-	b    *strings.Builder
-	opts DiagnosticOptions
+	b     *strings.Builder
+	opts  DiagnosticOptions
+	level int
 }
 
 func (w *cardanoWriter) indent(depth int) string {
 	return strings.Repeat(w.opts.IndentString, depth)
 }
 
+// enter opens one CBOR nesting level for the node about to be rendered. At
+// MaxDepth it writes "..." in place of the node and returns false; otherwise
+// the caller must call leave once the node is rendered.
+func (w *cardanoWriter) enter() bool {
+	if w.opts.MaxDepth > 0 && w.level >= w.opts.MaxDepth {
+		w.b.WriteString("...")
+		return false
+	}
+	w.level++
+	return true
+}
+
+func (w *cardanoWriter) leave() {
+	w.level--
+}
+
+// itemLimit returns how many of count collection entries to render.
+func (w *cardanoWriter) itemLimit(count int) int {
+	if w.opts.MaxArrayItems > 0 && count > w.opts.MaxArrayItems {
+		return w.opts.MaxArrayItems
+	}
+	return count
+}
+
+// compact renders an entered node on one line, continuing the MaxDepth
+// count from that node's own level.
+func (w *cardanoWriter) compact(n *DiagnosticNode) string {
+	return n.formatCompact(w.opts, w.level-1)
+}
+
+// writeElided writes the marker for collection entries beyond MaxArrayItems.
+func (w *cardanoWriter) writeElided(depth int) {
+	w.b.WriteString(w.indent(depth))
+	w.b.WriteString("...\n")
+}
+
 func (w *cardanoWriter) writeTransaction(n *DiagnosticNode, depth int) {
 	w.b.WriteString(w.indent(depth))
+	if !w.enter() {
+		return
+	}
+	defer w.leave()
 	w.b.WriteString("transaction [")
 	w.writeRange(n)
 	w.b.WriteString("\n")
 	labels := txArrayLabelsFor(n)
-	for i := range n.Children {
+	limit := w.itemLimit(len(n.Children))
+	for i := 0; i < limit; i++ {
 		label := "extra"
 		if i < len(labels) {
 			label = labels[i]
@@ -299,6 +345,9 @@ func (w *cardanoWriter) writeTransaction(n *DiagnosticNode, depth int) {
 			w.b.WriteString(",")
 		}
 		w.b.WriteString("\n")
+	}
+	if limit < len(n.Children) {
+		w.writeElided(depth + 1)
 	}
 	w.b.WriteString(w.indent(depth))
 	w.b.WriteString("]")
@@ -327,13 +376,18 @@ func txArrayLabelsFor(n *DiagnosticNode) []string {
 
 func (w *cardanoWriter) writeBlock(n *DiagnosticNode, era int, depth int) {
 	w.b.WriteString(w.indent(depth))
+	if !w.enter() {
+		return
+	}
+	defer w.leave()
 	w.b.WriteString("block [")
 	if era >= 0 {
 		fmt.Fprintf(w.b, "  / era %d /", era)
 	}
 	w.writeRange(n)
 	w.b.WriteString("\n")
-	for i := range n.Children {
+	limit := w.itemLimit(len(n.Children))
+	for i := 0; i < limit; i++ {
 		label := fmt.Sprintf("field_%d", i)
 		if i < len(CardanoBlockLabels) {
 			label = CardanoBlockLabels[i]
@@ -346,6 +400,9 @@ func (w *cardanoWriter) writeBlock(n *DiagnosticNode, era int, depth int) {
 			w.b.WriteString(",")
 		}
 		w.b.WriteString("\n")
+	}
+	if limit < len(n.Children) {
+		w.writeElided(depth + 1)
 	}
 	w.b.WriteString(w.indent(depth))
 	w.b.WriteString("]")
@@ -360,19 +417,21 @@ func (w *cardanoWriter) writeLabelledMap(
 		w.writeValue(n, depth)
 		return
 	}
+	if !w.enter() {
+		return
+	}
+	defer w.leave()
 	w.b.WriteString("{")
 	w.writeRange(n)
 	w.b.WriteString("\n")
 	pairs := len(n.Children) / 2
-	limit := pairs
-	if w.opts.MaxArrayItems > 0 && limit > w.opts.MaxArrayItems {
-		limit = w.opts.MaxArrayItems
-	}
+	limit := w.itemLimit(pairs)
 	for i := 0; i < limit; i++ {
 		keyNode := &n.Children[i*2]
 		valNode := &n.Children[i*2+1]
 		w.b.WriteString(w.indent(depth + 1))
-		keyStr := keyNode.formatCompact(w.opts, depth+1)
+		// The key is not entered, so its level is the map's child level.
+		keyStr := keyNode.formatCompact(w.opts, w.level)
 		w.b.WriteString(keyStr)
 		w.b.WriteString(": ")
 		w.writeValue(valNode, depth+1)
@@ -385,8 +444,7 @@ func (w *cardanoWriter) writeLabelledMap(
 		w.b.WriteString("\n")
 	}
 	if limit < pairs {
-		w.b.WriteString(w.indent(depth + 1))
-		w.b.WriteString("...\n")
+		w.writeElided(depth + 1)
 	}
 	w.b.WriteString(w.indent(depth))
 	w.b.WriteString("}")
@@ -409,6 +467,10 @@ func mapLabelForKey(key *DiagnosticNode, labels map[int]string) (string, bool) {
 // writeValue dispatches on node type. Bytes recognised as addresses (or
 // carrying a Comment from AnnotateAddresses) get an annotated rendering.
 func (w *cardanoWriter) writeValue(n *DiagnosticNode, depth int) {
+	if !w.enter() {
+		return
+	}
+	defer w.leave()
 	switch n.Type {
 	case DiagTypeArray:
 		w.writeArray(n, depth)
@@ -423,15 +485,15 @@ func (w *cardanoWriter) writeValue(n *DiagnosticNode, depth int) {
 		DiagTypeText,
 		DiagTypeSimple,
 		DiagTypeFloat:
-		w.b.WriteString(n.formatCompact(w.opts, depth))
+		w.b.WriteString(w.compact(n))
 	default:
-		w.b.WriteString(n.formatCompact(w.opts, depth))
+		w.b.WriteString(w.compact(n))
 	}
 }
 
 func (w *cardanoWriter) writeBytes(n *DiagnosticNode) {
 	raw, _ := n.Value.([]byte)
-	w.b.WriteString(n.formatCompact(w.opts, 0))
+	w.b.WriteString(w.compact(n))
 	if comment := w.byteComment(n, raw); comment != "" {
 		fmt.Fprintf(w.b, "  / %s /", comment)
 	}
@@ -458,10 +520,7 @@ func (w *cardanoWriter) writeArray(n *DiagnosticNode, depth int) {
 	w.b.WriteString("[")
 	w.writeRange(n)
 	w.b.WriteString("\n")
-	limit := len(n.Children)
-	if w.opts.MaxArrayItems > 0 && limit > w.opts.MaxArrayItems {
-		limit = w.opts.MaxArrayItems
-	}
+	limit := w.itemLimit(len(n.Children))
 	for i := 0; i < limit; i++ {
 		w.b.WriteString(w.indent(depth + 1))
 		w.writeValue(&n.Children[i], depth+1)
@@ -471,8 +530,7 @@ func (w *cardanoWriter) writeArray(n *DiagnosticNode, depth int) {
 		w.b.WriteString("\n")
 	}
 	if limit < len(n.Children) {
-		w.b.WriteString(w.indent(depth + 1))
-		w.b.WriteString("...\n")
+		w.writeElided(depth + 1)
 	}
 	w.b.WriteString(w.indent(depth))
 	w.b.WriteString("]")
@@ -487,10 +545,7 @@ func (w *cardanoWriter) writeMap(n *DiagnosticNode, depth int) {
 	w.writeRange(n)
 	w.b.WriteString("\n")
 	pairs := len(n.Children) / 2
-	limit := pairs
-	if w.opts.MaxArrayItems > 0 && limit > w.opts.MaxArrayItems {
-		limit = w.opts.MaxArrayItems
-	}
+	limit := w.itemLimit(pairs)
 	for i := 0; i < limit; i++ {
 		w.b.WriteString(w.indent(depth + 1))
 		w.writeValue(&n.Children[i*2], depth+1)
@@ -502,8 +557,7 @@ func (w *cardanoWriter) writeMap(n *DiagnosticNode, depth int) {
 		w.b.WriteString("\n")
 	}
 	if limit < pairs {
-		w.b.WriteString(w.indent(depth + 1))
-		w.b.WriteString("...\n")
+		w.writeElided(depth + 1)
 	}
 	w.b.WriteString(w.indent(depth))
 	w.b.WriteString("}")
@@ -522,7 +576,7 @@ func (w *cardanoWriter) writeTag(n *DiagnosticNode, depth int) {
 		w.b.WriteString(")")
 		return
 	}
-	w.b.WriteString(n.formatCompact(w.opts, depth))
+	w.b.WriteString(w.compact(n))
 }
 
 // writeRange appends an "@start-end" comment when ShowOffsets is enabled.
@@ -537,6 +591,10 @@ func (w *cardanoWriter) writeRange(n *DiagnosticNode) {
 // tags render as Constr_N(...) and integer maps/arrays/bytestrings get
 // their natural RFC 8949 form, indented for nesting.
 func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
+	if !w.enter() {
+		return
+	}
+	defer w.leave()
 	if n.Type == DiagTypeTag && n.Tag != nil {
 		if idx, ok := PlutusConstrFromTag(*n.Tag); ok {
 			fmt.Fprintf(w.b, "Constr_%d(", idx)
@@ -553,7 +611,12 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 				if idxNode := &payload.Children[0]; idxNode.Type == DiagTypeUint {
 					if idx, ok := idxNode.Value.(uint64); ok {
 						fmt.Fprintf(w.b, "Constr_%d(", idx)
-						w.writePlutusData(&payload.Children[1], depth)
+						// The [index, fields] payload is a level
+						// between the tag and its fields.
+						if w.enter() {
+							w.writePlutusData(&payload.Children[1], depth)
+							w.leave()
+						}
 						w.b.WriteString(")")
 						return
 					}
@@ -572,10 +635,7 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 		w.b.WriteString("[")
 		w.writeRange(n)
 		w.b.WriteString("\n")
-		limit := len(n.Children)
-		if w.opts.MaxArrayItems > 0 && limit > w.opts.MaxArrayItems {
-			limit = w.opts.MaxArrayItems
-		}
+		limit := w.itemLimit(len(n.Children))
 		for i := 0; i < limit; i++ {
 			w.b.WriteString(w.indent(depth + 1))
 			w.writePlutusData(&n.Children[i], depth+1)
@@ -585,8 +645,7 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 			w.b.WriteString("\n")
 		}
 		if limit < len(n.Children) {
-			w.b.WriteString(w.indent(depth + 1))
-			w.b.WriteString("...\n")
+			w.writeElided(depth + 1)
 		}
 		w.b.WriteString(w.indent(depth))
 		w.b.WriteString("]")
@@ -601,7 +660,8 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 		w.writeRange(n)
 		w.b.WriteString("\n")
 		pairs := len(n.Children) / 2
-		for i := range pairs {
+		limit := w.itemLimit(pairs)
+		for i := 0; i < limit; i++ {
 			w.b.WriteString(w.indent(depth + 1))
 			w.writePlutusData(&n.Children[i*2], depth+1)
 			w.b.WriteString(": ")
@@ -610,6 +670,9 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 				w.b.WriteString(",")
 			}
 			w.b.WriteString("\n")
+		}
+		if limit < pairs {
+			w.writeElided(depth + 1)
 		}
 		w.b.WriteString(w.indent(depth))
 		w.b.WriteString("}")
@@ -620,13 +683,17 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 		DiagTypeTag,
 		DiagTypeSimple,
 		DiagTypeFloat:
-		w.b.WriteString(n.formatCompact(w.opts, depth))
+		w.b.WriteString(w.compact(n))
 	default:
-		w.b.WriteString(n.formatCompact(w.opts, depth))
+		w.b.WriteString(w.compact(n))
 	}
 }
 
 func (w *cardanoWriter) writeNativeScript(n *DiagnosticNode, depth int) {
+	if !w.enter() {
+		return
+	}
+	defer w.leave()
 	typeID := -1
 	if len(n.Children) > 0 && n.Children[0].Type == DiagTypeUint {
 		if v, ok := n.Children[0].Value.(uint64); ok && v <= math.MaxInt32 {
@@ -655,13 +722,21 @@ func (w *cardanoWriter) writeNativeScript(n *DiagnosticNode, depth int) {
 	case 3:
 		// [type, n, scripts]
 		if len(n.Children) >= 3 {
-			fmt.Fprintf(w.b, "n: %s, scripts: ", strconv.FormatUint(uintFromNode(&n.Children[1]), 10))
+			fmt.Fprintf(
+				w.b,
+				"n: %s, scripts: ",
+				strconv.FormatUint(uintFromNode(&n.Children[1]), 10),
+			)
 			w.writeScriptArray(&n.Children[2], depth+1)
 		}
 	case 4, 5:
 		// [type, slot]
 		if len(n.Children) >= 2 {
-			fmt.Fprintf(w.b, "slot: %s", strconv.FormatUint(uintFromNode(&n.Children[1]), 10))
+			fmt.Fprintf(
+				w.b,
+				"slot: %s",
+				strconv.FormatUint(uintFromNode(&n.Children[1]), 10),
+			)
 		}
 	default:
 		// Unknown — fall back to raw rendering of trailing fields.
@@ -680,18 +755,26 @@ func (w *cardanoWriter) writeScriptArray(n *DiagnosticNode, depth int) {
 		w.writeValue(n, depth)
 		return
 	}
+	if !w.enter() {
+		return
+	}
+	defer w.leave()
 	if len(n.Children) == 0 {
 		w.b.WriteString("[]")
 		return
 	}
 	w.b.WriteString("[\n")
-	for i := range n.Children {
+	limit := w.itemLimit(len(n.Children))
+	for i := 0; i < limit; i++ {
 		w.b.WriteString(w.indent(depth + 1))
 		w.writeNativeScript(&n.Children[i], depth+1)
 		if i < len(n.Children)-1 {
 			w.b.WriteString(",")
 		}
 		w.b.WriteString("\n")
+	}
+	if limit < len(n.Children) {
+		w.writeElided(depth + 1)
 	}
 	w.b.WriteString(w.indent(depth))
 	w.b.WriteString("]")
