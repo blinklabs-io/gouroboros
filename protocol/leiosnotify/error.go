@@ -19,3 +19,8 @@ import "errors"
 // ErrStopNotificationProcess is used as a special return value from a Notification handler function
 // to signify that the notification process should be stopped
 var ErrStopNotificationProcess = errors.New("stop notification process")
+
+// ErrRequestCanceled is the error ResponseSentFunc receives for a notification
+// the server obtained after the client had quit, which was therefore never
+// sent. A source that reserved the notification should release it.
+var ErrRequestCanceled = errors.New("notification request canceled")

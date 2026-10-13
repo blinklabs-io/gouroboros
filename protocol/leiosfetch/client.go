@@ -18,10 +18,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/bits"
 	"sync"
 	"time"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -63,6 +63,10 @@ type requestSlot struct {
 	maxBytes        int
 	rangeReplies    int
 	rangeBytes      int
+	rangeTxCount    int
+	maxBlockTxs     int
+	maxBlockBitmaps int
+	maxVotes        int
 	drainedCh       chan struct{}
 	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
 }
@@ -219,6 +223,7 @@ func (s *requestSlot) acquireWithRangeLimits(
 	s.maxBytes = maxBytes
 	s.rangeReplies = 0
 	s.rangeBytes = 0
+	s.rangeTxCount = 0
 	s.drainedCh = make(chan struct{})
 	s.mu.Unlock()
 	return w, nil
@@ -227,44 +232,14 @@ func (s *requestSlot) acquireWithRangeLimits(
 func (s *requestSlot) deliverRange(
 	msg protocol.Message,
 	terminal bool,
-) (bool, error) {
-	messageBytes := len(msg.Cbor())
-	if messageBytes == 0 {
-		encoded, err := cbor.Encode(msg)
-		if err != nil {
-			return false, fmt.Errorf("encode block range response: %w", err)
-		}
-		messageBytes = len(encoded)
-	}
-
+) bool {
 	s.mu.Lock()
-	if s.busy {
-		if s.maxReplies > 0 && s.rangeReplies >= s.maxReplies {
-			s.mu.Unlock()
-			return false, fmt.Errorf(
-				"%w: received more than %d messages",
-				ErrBlockRangeResponseLimitExceeded,
-				s.maxReplies,
-			)
-		}
-		nextReplies := s.rangeReplies + 1
-		if s.maxBytes > 0 && messageBytes > s.maxBytes-s.rangeBytes {
-			s.mu.Unlock()
-			return false, fmt.Errorf(
-				"%w: response bytes exceed %d",
-				ErrBlockRangeResponseLimitExceeded,
-				s.maxBytes,
-			)
-		}
-		s.rangeReplies = nextReplies
-		s.rangeBytes += messageBytes
-	}
 	w := s.waiter
 	d := s.delivery
 	if w == nil && d == nil && terminal && s.abandoned {
 		s.freeLocked()
 		s.mu.Unlock()
-		return true, nil
+		return true
 	}
 	if terminal && w != nil {
 		s.waiter = nil
@@ -273,9 +248,60 @@ func (s *requestSlot) deliverRange(
 	}
 	s.mu.Unlock()
 	if w == nil || d == nil {
-		return false, nil
+		return false
 	}
-	return d.enqueue(msg, terminal), nil
+	return d.enqueue(msg, terminal)
+}
+
+func (s *requestSlot) decodeRangeResponse(
+	msgType uint,
+	data []byte,
+) (protocol.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.busy {
+		return nil, fmt.Errorf(
+			"%w: no active range request",
+			ErrBlockRangeResponseLimitExceeded,
+		)
+	}
+	if s.maxReplies > 0 && s.rangeReplies >= s.maxReplies {
+		return nil, fmt.Errorf(
+			"%w: received more than %d messages",
+			ErrBlockRangeResponseLimitExceeded,
+			s.maxReplies,
+		)
+	}
+	remainingBytes := s.maxBytes - s.rangeBytes
+	if remainingBytes < 0 || len(data) > remainingBytes {
+		return nil, fmt.Errorf(
+			"%w: response bytes exceed %d",
+			ErrBlockRangeResponseLimitExceeded,
+			s.maxBytes,
+		)
+	}
+	remainingTxCount := maxRangeTransactionCount(s.maxBytes) - s.rangeTxCount
+	if remainingTxCount < 0 {
+		remainingTxCount = 0
+	}
+	msg, err := decodeBlockAndTxsInRange(
+		msgType,
+		data,
+		remainingTxCount,
+		remainingBytes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	s.rangeReplies++
+	s.rangeBytes += len(data)
+	switch typedMsg := msg.(type) {
+	case *MsgNextBlockAndTxsInRange:
+		s.rangeTxCount += len(typedMsg.TxsRaw)
+	case *MsgLastBlockAndTxsInRange:
+		s.rangeTxCount += len(typedMsg.TxsRaw)
+	}
+	return msg, nil
 }
 
 // abandon clears the live waiter so that a late response is dropped by deliver
@@ -360,6 +386,8 @@ func (s *requestSlot) freeLocked() {
 	}
 	s.busy = false
 	s.abandoned = false
+	s.maxBlockTxs = 0
+	s.maxBlockBitmaps = 0
 	if s.drainedCh != nil {
 		close(s.drainedCh)
 		s.drainedCh = nil
@@ -423,12 +451,66 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
+		MessageFromCborFunc: c.messageFromCbor,
 		StateMap:            stateMap,
 		InitialState:        StateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	switch msgType {
+	case MessageTypeBlock, MessageTypeBlockTxs, MessageTypeVotes,
+		MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
+	default:
+		return nil, fmt.Errorf("%s: message type %d is not a server response", ProtocolName, msgType)
+	}
+	if msgType == MessageTypeBlockTxs {
+		c.blockRequestSlot.mu.Lock()
+		maxCount := c.blockRequestSlot.maxBlockTxs
+		maxBitmapCount := c.blockRequestSlot.maxBlockBitmaps
+		c.blockRequestSlot.mu.Unlock()
+		msg := &MsgBlockTxs{}
+		if err := msg.unmarshalCBORWithLimits(
+			data,
+			maxCount,
+			maxBitmapCount,
+		); err != nil {
+			return nil, err
+		}
+		if msg.Type() != MessageTypeBlockTxs {
+			return nil, fmt.Errorf(
+				"%s: message type mismatch: parser received %d, payload contains %d",
+				ProtocolName,
+				msgType,
+				msg.Type(),
+			)
+		}
+		return msg, nil
+	}
+	if msgType == MessageTypeVotes {
+		c.blockRequestSlot.mu.Lock()
+		maxCount := min(
+			c.blockRequestSlot.maxVotes,
+			MaxVotesPerMessage,
+		)
+		c.blockRequestSlot.mu.Unlock()
+		msg := &MsgVotes{}
+		if err := msg.unmarshalCBORWithLimits(
+			data,
+			maxCount,
+			MaxVotesMessageBytes,
+		); err != nil {
+			return nil, err
+		}
+		return msg, nil
+	}
+	if msgType == MessageTypeNextBlockAndTxsInRange ||
+		msgType == MessageTypeLastBlockAndTxsInRange {
+		return c.blockRequestSlot.decodeRangeResponse(msgType, data)
+	}
+	return NewMsgFromCbor(msgType, data)
 }
 
 func (c *Client) Start() {
@@ -572,15 +654,37 @@ func (c *Client) BlockRequest(
 // As with BlockRequest, the wait is bounded by the provided context and a
 // context cancellation/deadline returns the context error without tearing down
 // the shared connection.
+//
+// A bitmap key at or above the number of bitmaps an endorser block can need,
+// or a zero bitmap, returns ErrInvalidBlockTxsBitmaps without sending.
 func (c *Client) BlockTxsRequest(
 	ctx context.Context,
 	point pcommon.Point,
 	bitmaps map[uint16]uint64,
 ) (protocol.Message, error) {
+	for key, bitmap := range bitmaps {
+		if int(key) >= maxWireBlockBitmaps || bitmap == 0 {
+			return nil, fmt.Errorf(
+				"%w: key %d, bitmap %#x; keys must be below %d and select a transaction",
+				ErrInvalidBlockTxsBitmaps,
+				key,
+				bitmap,
+				maxWireBlockBitmaps,
+			)
+		}
+	}
 	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlockTxs)
 	if err != nil {
 		return nil, err
 	}
+	maxTxs := 0
+	for _, bitmap := range bitmaps {
+		maxTxs += bits.OnesCount64(bitmap)
+	}
+	c.blockRequestSlot.mu.Lock()
+	c.blockRequestSlot.maxBlockTxs = maxTxs
+	c.blockRequestSlot.maxBlockBitmaps = len(bitmaps)
+	c.blockRequestSlot.mu.Unlock()
 	msg := NewMsgBlockTxsRequest(point, bitmaps)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockRequestSlot.release(w)
@@ -611,14 +715,29 @@ func (c *Client) BlockTxsRequest(
 // this releases it explicitly on success. A context that expires with the
 // response still outstanding abandons instead: the peer still owes a reply and
 // still holds agency, so the slot has to stay busy until that reply drains it.
+//
+// More than MaxVotesPerMessage IDs returns ErrVoteRequestTooLarge without
+// sending: the reply carries one vote per ID, and a reply above that count is
+// a protocol violation that fails the connection.
 func (c *Client) VotesRequest(
 	ctx context.Context,
 	voteIds []MsgVotesRequestVoteId,
 ) (protocol.Message, error) {
+	if len(voteIds) > MaxVotesPerMessage {
+		return nil, fmt.Errorf(
+			"%w: %d IDs, maximum is %d",
+			ErrVoteRequestTooLarge,
+			len(voteIds),
+			MaxVotesPerMessage,
+		)
+	}
 	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateVotes)
 	if err != nil {
 		return nil, err
 	}
+	c.blockRequestSlot.mu.Lock()
+	c.blockRequestSlot.maxVotes = len(voteIds)
+	c.blockRequestSlot.mu.Unlock()
 	msg := NewMsgVotesRequest(voteIds)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockRequestSlot.release(w)
@@ -695,9 +814,9 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	case MessageTypeVotes:
 		c.handleVotes(msg)
 	case MessageTypeNextBlockAndTxsInRange:
-		err = c.handleNextBlockAndTxsInRange(msg)
+		c.handleNextBlockAndTxsInRange(msg)
 	case MessageTypeLastBlockAndTxsInRange:
-		err = c.handleLastBlockAndTxsInRange(msg)
+		c.handleLastBlockAndTxsInRange(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -745,24 +864,14 @@ func (c *Client) handleVotes(msg protocol.Message) {
 	}
 }
 
-func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) error {
-	delivered, err := c.blockRequestSlot.deliverRange(msg, false)
-	if err != nil {
-		return err
-	}
-	if !delivered {
+func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) {
+	if !c.blockRequestSlot.deliverRange(msg, false) {
 		c.logDroppedResponse(msg)
 	}
-	return nil
 }
 
-func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) error {
-	delivered, err := c.blockRequestSlot.deliverRange(msg, true)
-	if err != nil {
-		return err
-	}
-	if !delivered {
+func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) {
+	if !c.blockRequestSlot.deliverRange(msg, true) {
 		c.logDroppedResponse(msg)
 	}
-	return nil
 }

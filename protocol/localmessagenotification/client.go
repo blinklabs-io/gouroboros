@@ -65,6 +65,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		tmpCfg := NewConfig()
 		cfg = &tmpCfg
 	}
+	maxReplyMessages := replyDecodeLimit(cfg)
 	c := &Client{
 		config:      cfg,
 		replayState: replayStateForConfig(cfg),
@@ -73,10 +74,6 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
-	}
-	maxReplyMessages := cfg.MaxReplayEntries
-	if maxReplyMessages <= 0 {
-		maxReplyMessages = defaultMaxReplayEntries
 	}
 
 	// Update state map with timeouts for blocking requests

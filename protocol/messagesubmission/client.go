@@ -103,20 +103,37 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolID,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMapCopy,
-		InitialState:        initialState,
+		Name:               ProtocolName,
+		ProtocolId:         ProtocolID,
+		Muxer:              protoOptions.Muxer,
+		Logger:             protoOptions.Logger,
+		ErrorChan:          protoOptions.ErrorChan,
+		Mode:               protoOptions.Mode,
+		Role:               protocol.ProtocolRoleClient,
+		MessageHandlerFunc: c.messageHandler,
+		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
+			return decodeMsgFromCborWithLimit(
+				msgType,
+				data,
+				c.collectionLimit(msgType),
+			)
+		},
+		StateMap:     stateMapCopy,
+		InitialState: initialState,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+// collectionLimit bounds an inbound collection before it is decoded. A
+// message request may only name IDs this client still holds unacknowledged.
+func (c *Client) collectionLimit(msgType uint) int {
+	if msgType != MessageTypeRequestMessages {
+		return configuredMessageIDLimit(c.config)
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return len(c.pendingMessageIDs)
 }
 
 // Start begins protocol operation

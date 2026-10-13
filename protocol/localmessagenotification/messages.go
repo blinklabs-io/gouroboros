@@ -59,6 +59,9 @@ func NewMsgReplyMessagesNonBlocking(
 	messages []pcommon.DmqMessage,
 	hasMore bool,
 ) *MsgReplyMessagesNonBlocking {
+	if messages == nil {
+		messages = []pcommon.DmqMessage{}
+	}
 	return &MsgReplyMessagesNonBlocking{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeReplyMessagesNonBlocking,
@@ -78,6 +81,9 @@ type MsgReplyMessagesBlocking struct {
 func NewMsgReplyMessagesBlocking(
 	messages []pcommon.DmqMessage,
 ) *MsgReplyMessagesBlocking {
+	if messages == nil {
+		messages = []pcommon.DmqMessage{}
+	}
 	return &MsgReplyMessagesBlocking{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeReplyMessagesBlocking,
@@ -102,7 +108,7 @@ func NewMsgClientDone() *MsgClientDone {
 
 // NewMsgFromCbor parses a Local Message Notification message from CBOR
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
-	return newMsgFromCborWithLimit(msgType, data, 0)
+	return newMsgFromCborWithLimit(msgType, data, DefaultMaxReplyMessages)
 }
 
 func newMsgFromCborWithLimit(
@@ -110,11 +116,16 @@ func newMsgFromCborWithLimit(
 	data []byte,
 	maxReplyMessages int,
 ) (protocol.Message, error) {
-	if maxReplyMessages > 0 &&
-		(msgType == MessageTypeReplyMessagesNonBlocking ||
-			msgType == MessageTypeReplyMessagesBlocking) {
+	if msgType == MessageTypeReplyMessagesNonBlocking ||
+		msgType == MessageTypeReplyMessagesBlocking {
+		// The count check reads only the collection header, so an inflated
+		// count is refused before any item is walked; the collection check then
+		// pins the envelope arity and the per-message nesting.
 		if err := validateReplyMessageCount(data, maxReplyMessages); err != nil {
 			return nil, err
+		}
+		if err := validateReplyCollection(msgType, data, maxReplyMessages); err != nil {
+			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 		}
 	}
 	var ret protocol.Message
