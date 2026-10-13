@@ -519,6 +519,22 @@ func (GenesisDelegationStateUnavailableError) Error() string {
 	return "ledger state does not provide genesis delegation state"
 }
 
+// EpochStateUnavailableError indicates that a consensus rule cannot determine
+// the epoch containing a slot.
+type EpochStateUnavailableError struct{}
+
+func (EpochStateUnavailableError) Error() string {
+	return "ledger state does not provide epoch state"
+}
+
+// FuturePoolParametersStateUnavailableError indicates that PV11+ pool
+// registration validation cannot inspect deferred pool parameters.
+type FuturePoolParametersStateUnavailableError struct{}
+
+func (FuturePoolParametersStateUnavailableError) Error() string {
+	return "ledger state does not provide future pool parameters"
+}
+
 // ClassicProtocolParameterUpdateWindowStateUnavailableError indicates that a
 // ledger state cannot provide the PPUP epoch boundary needed for validation.
 type ClassicProtocolParameterUpdateWindowStateUnavailableError struct{}
