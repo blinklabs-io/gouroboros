@@ -589,31 +589,33 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	assert.ErrorContains(t, err, "duplicate member in set")
 }
 
-func TestConwayTransactionRejectsNegativeCurrentTreasuryValue(t *testing.T) {
-	encoded, err := cbor.Encode([]any{
-		map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0), 21: int64(-1)},
-		map[uint]any{},
-		false,
-		nil,
+func TestConwayTransactionBodyRejectsNegativeCurrentTreasuryValue(t *testing.T) {
+	encoded, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0), 21: int64(-1),
 	})
 	require.NoError(t, err)
 
-	var tx ConwayTransaction
-	err = tx.UnmarshalCBOR(encoded)
-	require.ErrorContains(t, err, "current treasury value")
+	var body ConwayTransactionBody
+	require.Error(t, body.UnmarshalCBOR(encoded))
 }
 
-func TestConwayTransactionMarshalRejectsNegativeCurrentTreasuryValue(
-	t *testing.T,
-) {
-	tx := ConwayTransaction{
-		Body: ConwayTransactionBody{
-			TxCurrentTreasuryValue: -1,
-		},
-		TxIsValid: false,
-	}
-	_, err := tx.MarshalCBOR()
-	require.ErrorContains(t, err, "current treasury value")
+func TestConwayTransactionBodyAcceptsFullWidthCurrentTreasuryValue(t *testing.T) {
+	want := uint64(math.MaxUint64)
+	encoded, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0), 21: want,
+	})
+	require.NoError(t, err)
+
+	var body ConwayTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(encoded))
+	assert.Equal(t, want, body.TxCurrentTreasuryValue)
+	assert.Equal(t, new(big.Int).SetUint64(want), body.CurrentTreasuryValue())
+
+	reencoded, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var roundTripped ConwayTransactionBody
+	require.NoError(t, roundTripped.UnmarshalCBOR(reencoded))
+	assert.Equal(t, want, roundTripped.TxCurrentTreasuryValue)
 }
 
 func TestConwayRejectsDuplicateUntaggedInputSets(t *testing.T) {

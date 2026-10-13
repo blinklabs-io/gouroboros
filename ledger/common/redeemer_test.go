@@ -164,11 +164,13 @@ func TestRedeemerKeyUnmarshalCBORDefiniteArray(t *testing.T) {
 	assert.Zero(t, decoded.Index)
 }
 
-func TestRedeemerKeyUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
+func TestRedeemerKeyUnmarshalCBORAcceptsIndefiniteArray(t *testing.T) {
 	encoded, err := cbor.Encode([]any{RedeemerTagSpend, uint32(0)})
 	require.NoError(t, err)
 	var decoded RedeemerKey
-	require.Error(t, decoded.UnmarshalCBOR(indefiniteArray(t, encoded)))
+	require.NoError(t, decoded.UnmarshalCBOR(indefiniteArray(t, encoded)))
+	require.Equal(t, RedeemerTagSpend, decoded.Tag)
+	require.Zero(t, decoded.Index)
 }
 
 func TestRedeemerValueMarshalJSON(t *testing.T) {

@@ -108,7 +108,7 @@ type RedeemerKey struct {
 }
 
 func (k *RedeemerKey) UnmarshalCBOR(data []byte) error {
-	if err := ValidateDefiniteCBORArrayLength(data, 2, "redeemer key"); err != nil {
+	if err := ValidateCBORArrayLength(data, 2, "redeemer key"); err != nil {
 		return err
 	}
 	type tRedeemerKey RedeemerKey

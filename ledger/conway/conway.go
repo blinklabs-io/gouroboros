@@ -700,7 +700,7 @@ type ConwayTransactionBody struct {
 	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
 	TxVotingProcedures      common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
 	TxProposalProcedures    []ConwayProposalProcedure                     `cbor:"20,keyasint,omitempty"`
-	TxCurrentTreasuryValue  int64                                         `cbor:"21,keyasint,omitempty"`
+	TxCurrentTreasuryValue  uint64                                        `cbor:"21,keyasint,omitempty"`
 	TxDonation              uint64                                        `cbor:"22,keyasint,omitempty"`
 }
 
@@ -742,9 +742,6 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		if err := common.ValidateNativeScriptOutputConstructor(tmp.TxCollateralReturn, 5); err != nil {
 			return fmt.Errorf("collateral return: %w", err)
 		}
-	}
-	if tmp.TxCurrentTreasuryValue < 0 {
-		return errors.New("current treasury value must not be negative")
 	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
@@ -872,9 +869,6 @@ func validateConwayVotingProcedures(cborData []byte) error {
 }
 
 func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
-	if b.TxCurrentTreasuryValue < 0 {
-		return nil, errors.New("current treasury value must not be negative")
-	}
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
@@ -1049,7 +1043,7 @@ func (b *ConwayTransactionBody) CurrentTreasuryValue() *big.Int {
 		!b.CurrentTreasuryValuePresent() {
 		return nil
 	}
-	return big.NewInt(b.TxCurrentTreasuryValue)
+	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
 }
 
 func (b *ConwayTransactionBody) CurrentTreasuryValuePresent() bool {

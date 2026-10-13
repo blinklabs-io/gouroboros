@@ -102,6 +102,30 @@ func TestRegistrationCertificateRejectsNegativeDeposit(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestDeregistrationDrepCertificateRejectsNullAmount(t *testing.T) {
+	encoded, err := cbor.Encode([]any{
+		uint(CertificateTypeDeregistrationDrep),
+		Credential{},
+		cbor.RawMessage{0xf6},
+	})
+	require.NoError(t, err)
+
+	var decoded DeregistrationDrepCertificate
+	require.ErrorContains(t, decoded.UnmarshalCBOR(encoded), "amount must be an unsigned integer")
+}
+
+func TestUpdateDrepCertificateRejectsUndefinedAnchor(t *testing.T) {
+	encoded, err := cbor.Encode([]any{
+		uint(CertificateTypeUpdateDrep),
+		Credential{},
+		cbor.RawMessage{0xf7},
+	})
+	require.NoError(t, err)
+
+	var decoded UpdateDrepCertificate
+	require.ErrorContains(t, decoded.UnmarshalCBOR(encoded), "anchor cannot be CBOR undefined")
+}
+
 // TestDrepString tests CIP-0129 bech32 encoding for DRep identifiers.
 func TestDrepString(t *testing.T) {
 	var zeroHash = make([]byte, 28)
