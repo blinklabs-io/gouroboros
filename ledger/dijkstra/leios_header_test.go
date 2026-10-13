@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -86,48 +87,119 @@ func TestValidateHeaderProtocolVersion(t *testing.T) {
 	require.Equal(t, uint64(12), tooLow.Expected)
 }
 
-func TestValidateLeiosCertificateAnnouncement(t *testing.T) {
+func TestValidateLeiosAnnouncementSize(t *testing.T) {
 	t.Parallel()
+	pp := testLeiosParams()
+	limit := pp.MaxEndorserBlockReferencesSize
+	over := limit + 1
+	require.NoError(t, ValidateLeiosAnnouncementSize(
+		testLeiosHeader(t, 1, 12, false, nil), pp,
+	))
+	require.NoError(t, ValidateLeiosAnnouncementSize(
+		testLeiosHeader(t, 1, 12, false, &limit), pp,
+	))
+	err := ValidateLeiosAnnouncementSize(
+		testLeiosHeader(t, 1, 12, false, &over), pp,
+	)
+	var tooBig *LeiosEbTooBigError
+	require.ErrorAs(t, err, &tooBig)
+	require.NotNil(t, tooBig)
+	require.Equal(t, over, tooBig.Announced)
+	require.Equal(t, limit, tooBig.Maximum)
+}
+
+func TestLeiosMinCertificationSlot(t *testing.T) {
+	t.Parallel()
+	// (3*1000 + 4000 + 2500) ms over 1 s slots is 9.5, rounded up to 10.
+	slot, err := LeiosMinCertificationSlot(time.Second, 1000, 4000, 2500, 100)
+	require.NoError(t, err)
+	require.Equal(t, uint64(110), slot)
+	slot, err = LeiosMinCertificationSlot(time.Second, 1000, 4000, 3000, 100)
+	require.NoError(t, err)
+	require.Equal(t, uint64(110), slot)
+	_, err = LeiosMinCertificationSlot(0, 1000, 4000, 2500, 100)
+	require.Error(t, err)
+}
+
+// The reference minCertificationGap divides by slotLengthToMillisec, which
+// truncates the slot length to whole milliseconds, so a sub-millisecond
+// remainder does not shorten the gap. 3001 ms over a 1.5005 s slot is exactly
+// two slots, but over the truncated 1500 ms slot it rounds up to three.
+func TestLeiosMinCertificationSlotTruncatesSlotLengthToMilliseconds(
+	t *testing.T,
+) {
+	t.Parallel()
+	slot, err := LeiosMinCertificationSlot(
+		1500500*time.Microsecond, 1000, 0, 1, 100,
+	)
+	require.NoError(t, err)
+	require.Equal(t, uint64(103), slot)
+	_, err = LeiosMinCertificationSlot(time.Microsecond*999, 1000, 0, 0, 100)
+	require.Error(t, err, "a slot shorter than one millisecond truncates to zero")
+}
+
+func TestValidateLeiosCertificateTiming(t *testing.T) {
+	t.Parallel()
+	pp := testLeiosParams()
 	size := uint32(10)
 	announcing := testLeiosHeader(t, 100, 12, false, &size)
 
 	t.Run("uncertified header needs no predecessor", func(t *testing.T) {
-		require.NoError(t, ValidateLeiosCertificateAnnouncement(
-			testLeiosHeader(t, 101, 12, false, nil), nil,
+		require.NoError(t, ValidateLeiosCertificateTiming(
+			testLeiosHeader(t, 101, 12, false, nil), nil, pp, time.Second,
 		))
 	})
-	t.Run("certificate follows announcement", func(t *testing.T) {
-		require.NoError(t, ValidateLeiosCertificateAnnouncement(
+	t.Run("certificate at the earliest slot", func(t *testing.T) {
+		require.NoError(t, ValidateLeiosCertificateTiming(
 			testLeiosHeader(t, 110, 12, true, nil),
-			announcing,
+			announcing, pp, time.Second,
 		))
 	})
 	t.Run("predecessor wrapped by the chain state", func(t *testing.T) {
 		wrapped := struct{ *DijkstraBlockHeader }{announcing}
-		require.NoError(t, ValidateLeiosCertificateAnnouncement(
-			testLeiosHeader(t, 109, 12, true, nil),
-			wrapped,
+		require.NoError(t, ValidateLeiosCertificateTiming(
+			testLeiosHeader(t, 110, 12, true, nil),
+			wrapped, pp, time.Second,
 		))
+		err := ValidateLeiosCertificateTiming(
+			testLeiosHeader(t, 109, 12, true, nil),
+			wrapped, pp, time.Second,
+		)
+		var tooYoung *LeiosCertTooYoungError
+		require.ErrorAs(t, err, &tooYoung)
+	})
+	t.Run("certificate too young", func(t *testing.T) {
+		err := ValidateLeiosCertificateTiming(
+			testLeiosHeader(t, 109, 12, true, nil),
+			announcing, pp, time.Second,
+		)
+		var tooYoung *LeiosCertTooYoungError
+		require.ErrorAs(t, err, &tooYoung)
+		require.Equal(t, uint64(100), tooYoung.AnnouncingSlot)
+		require.Equal(t, uint64(109), tooYoung.Slot)
+		require.Equal(t, uint64(110), tooYoung.EarliestAllowed)
 	})
 	t.Run("predecessor announced nothing", func(t *testing.T) {
-		err := ValidateLeiosCertificateAnnouncement(
+		err := ValidateLeiosCertificateTiming(
 			testLeiosHeader(t, 200, 12, true, nil),
 			testLeiosHeader(t, 100, 12, false, nil),
+			pp, time.Second,
 		)
 		var without *LeiosCertWithoutAnnouncementError
 		require.ErrorAs(t, err, &without)
 	})
 	t.Run("no predecessor", func(t *testing.T) {
-		err := ValidateLeiosCertificateAnnouncement(
-			testLeiosHeader(t, 200, 12, true, nil), nil,
+		err := ValidateLeiosCertificateTiming(
+			testLeiosHeader(t, 200, 12, true, nil), nil, pp, time.Second,
 		)
 		var without *LeiosCertWithoutAnnouncementError
 		require.ErrorAs(t, err, &without)
 	})
 	t.Run("pre-Dijkstra predecessor", func(t *testing.T) {
-		err := ValidateLeiosCertificateAnnouncement(
+		err := ValidateLeiosCertificateTiming(
 			testLeiosHeader(t, 200, 12, true, nil),
 			&babbage.BabbageBlockHeader{},
+			pp, time.Second,
 		)
 		var without *LeiosCertWithoutAnnouncementError
 		require.ErrorAs(t, err, &without)
@@ -173,13 +245,16 @@ func TestValidateLeiosBlockBody(t *testing.T) {
 		require.ErrorAs(t, err, &mismatch)
 	})
 	t.Run("certificate and transactions", func(t *testing.T) {
-		require.NoError(t, ValidateLeiosBlockBody(&DijkstraBlock{
+		err := ValidateLeiosBlockBody(&DijkstraBlock{
 			BlockHeader: certified,
 			BlockBody: DijkstraBlockBody{
 				LeiosCertificate: cert,
 				Transactions:     []DijkstraTransaction{{}},
 			},
-		}))
+		})
+		var both *LeiosCertifiedBlockTransactionsError
+		require.ErrorAs(t, err, &both)
+		require.Equal(t, 1, both.TransactionCount)
 	})
 	t.Run("any Peras certificate", func(t *testing.T) {
 		for _, perasCert := range [][]byte{{}, {0x01}} {

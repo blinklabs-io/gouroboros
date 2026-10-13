@@ -234,6 +234,22 @@ func (e BalancesOutsideAccountBalanceIntervalsError) Error() string {
 	)
 }
 
+// LeiosCertifiedBlockTransactionsError reports a block body that carries both
+// a Leios certificate and Dijkstra transactions. CIP-0164 admits one or the
+// other: "RB' contains either a certificate for the EB announced in RB, or a
+// list of transactions forming a valid extension of RB." blockMatchesHeader
+// in ouroboros-consensus 5cc95f4c rejects such a block.
+type LeiosCertifiedBlockTransactionsError struct {
+	TransactionCount int
+}
+
+func (e *LeiosCertifiedBlockTransactionsError) Error() string {
+	return fmt.Sprintf(
+		"dijkstra block body carries a Leios certificate and %d transactions; CIP-0164 permits a certificate or transactions, not both",
+		e.TransactionCount,
+	)
+}
+
 // HeaderProtVerTooLowError reports a Dijkstra header whose highest supported
 // major protocol version is below the major version in force.
 type HeaderProtVerTooLowError struct {
@@ -249,12 +265,46 @@ func (e *HeaderProtVerTooLowError) Error() string {
 	)
 }
 
+// LeiosEbTooBigError reports a header announcing an endorser block larger than
+// maxEndorserBlockReferencesSize, the LeiosEbTooBig failure of
+// ouroboros-consensus 5cc95f4c.
+type LeiosEbTooBigError struct {
+	Announced uint32
+	Maximum   uint32
+}
+
+func (e *LeiosEbTooBigError) Error() string {
+	return fmt.Sprintf(
+		"LeiosEbTooBig (announced %d, maximum %d)",
+		e.Announced,
+		e.Maximum,
+	)
+}
+
 // LeiosCertWithoutAnnouncementError reports a header that sets its certificate
 // flag although its immediate predecessor announced no endorser block.
 type LeiosCertWithoutAnnouncementError struct{}
 
 func (e *LeiosCertWithoutAnnouncementError) Error() string {
 	return "LeiosCertWithoutAnnouncement"
+}
+
+// LeiosCertTooYoungError reports a header that certifies an endorser block
+// before the announcement, vote and diffusion periods have elapsed, the
+// LeiosCertTooYoung failure of ouroboros-consensus 5cc95f4c.
+type LeiosCertTooYoungError struct {
+	AnnouncingSlot  uint64
+	Slot            uint64
+	EarliestAllowed uint64
+}
+
+func (e *LeiosCertTooYoungError) Error() string {
+	return fmt.Sprintf(
+		"LeiosCertTooYoung (announcing slot %d, slot %d, earliest allowed %d)",
+		e.AnnouncingSlot,
+		e.Slot,
+		e.EarliestAllowed,
+	)
 }
 
 // LeiosCertificateFlagMismatchError reports a header certificate flag that
