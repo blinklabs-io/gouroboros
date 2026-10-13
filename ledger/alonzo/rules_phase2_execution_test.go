@@ -73,3 +73,53 @@ func TestAlonzoPlutusExecutionMatchesValidityFlag(t *testing.T) {
 	err := alonzo.UtxoValidatePlutusScripts(newTx(false, false), 0, state, params)
 	require.True(t, errors.As(err, &unexpectedSuccess))
 }
+
+func TestAlonzoMalformedScriptIsPhaseOneFailure(t *testing.T) {
+	plutus := common.PlutusV1Script{0xff}
+	policy := common.Blake2b224(plutus.Hash())
+	mint := common.NewMultiAsset[*big.Int](
+		map[common.Blake2b224]map[cbor.ByteString]*big.Int{
+			policy: {cbor.NewByteString(nil): big.NewInt(1)},
+		},
+	)
+	tx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{TxMint: &mint},
+		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
+			WsPlutusV1Scripts: []common.PlutusV1Script{plutus},
+			WsRedeemers: alonzo.AlonzoRedeemers{Redeemers: []alonzo.AlonzoRedeemer{{
+				Tag:     common.RedeemerTagMint,
+				ExUnits: common.ExUnits{Memory: 1, Steps: 1},
+			}}},
+		},
+		TxIsValid: false,
+	}
+	params := &alonzo.AlonzoProtocolParameters{
+		ProtocolMajor: common.ProtocolVersionAlonzo,
+	}
+	state := mockledger.NewLedgerStateBuilder().Build()
+
+	// Execution errors alone look like the declared phase-2 failure, so the
+	// always-run well-formedness rule must reject malformed program bytes first.
+	require.NoError(t, alonzo.UtxoValidatePlutusScripts(tx, 0, state, params))
+
+	descriptors := alonzo.UtxoValidationRuleDescriptors()
+	wellFormedIdx, phase2Idx := -1, -1
+	for idx, descriptor := range descriptors {
+		switch descriptor.Id {
+		case common.UtxoValidationRuleMalformedReferenceScripts:
+			wellFormedIdx = idx
+		case common.UtxoValidationRulePlutusScripts:
+			phase2Idx = idx
+		}
+	}
+	require.NotEqual(t, -1, wellFormedIdx)
+	require.Greater(t, phase2Idx, wellFormedIdx)
+	err := common.VerifyTransaction(
+		tx,
+		0,
+		state,
+		params,
+		alonzo.UtxoValidationRules[wellFormedIdx:phase2Idx+1],
+	)
+	require.ErrorIs(t, err, common.ErrMalformedScriptWitnesses)
+}

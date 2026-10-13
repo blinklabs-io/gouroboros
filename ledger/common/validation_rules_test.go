@@ -158,6 +158,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleExUnitsTooBig,
 				common.UtxoValidationRuleNativeScripts,
 				common.UtxoValidationRuleExtraneousRedeemers,
+				common.UtxoValidationRuleMalformedReferenceScripts,
 				common.UtxoValidationRulePlutusScripts,
 				common.UtxoValidationRuleDelegation,
 				common.UtxoValidationRuleMIRGenesisQuorum,
