@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 	"sync/atomic"
 )
@@ -722,21 +721,16 @@ func (w *cardanoWriter) writeNativeScript(n *DiagnosticNode, depth int) {
 	case 3:
 		// [type, n, scripts]
 		if len(n.Children) >= 3 {
-			fmt.Fprintf(
-				w.b,
-				"n: %s, scripts: ",
-				strconv.FormatUint(uintFromNode(&n.Children[1]), 10),
-			)
+			w.b.WriteString("n: ")
+			w.writeValue(&n.Children[1], depth+1)
+			w.b.WriteString(", scripts: ")
 			w.writeScriptArray(&n.Children[2], depth+1)
 		}
 	case 4, 5:
 		// [type, slot]
 		if len(n.Children) >= 2 {
-			fmt.Fprintf(
-				w.b,
-				"slot: %s",
-				strconv.FormatUint(uintFromNode(&n.Children[1]), 10),
-			)
+			w.b.WriteString("slot: ")
+			w.writeValue(&n.Children[1], depth+1)
 		}
 	default:
 		// Unknown — fall back to raw rendering of trailing fields.
@@ -778,14 +772,4 @@ func (w *cardanoWriter) writeScriptArray(n *DiagnosticNode, depth int) {
 	}
 	w.b.WriteString(w.indent(depth))
 	w.b.WriteString("]")
-}
-
-func uintFromNode(n *DiagnosticNode) uint64 {
-	if n == nil {
-		return 0
-	}
-	if v, ok := n.Value.(uint64); ok {
-		return v
-	}
-	return 0
 }

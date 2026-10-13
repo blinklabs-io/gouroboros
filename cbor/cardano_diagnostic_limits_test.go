@@ -250,6 +250,53 @@ func TestFormatCardanoNativeScriptHonorsMaxDepth(t *testing.T) {
 	}
 }
 
+// TestFormatCardanoNativeScriptFieldsHonorMaxDepth checks that the scalar
+// n and slot fields elide at MaxDepth like the other script fields, and that
+// a signed n renders its actual value (#2715).
+func TestFormatCardanoNativeScriptFieldsHonorMaxDepth(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		maxDepth int
+		want     string
+	}{
+		{
+			name:     "n_of_k elided",
+			data:     "8303" + "01" + "80", // [3, 1, []]
+			maxDepth: 1,
+			want:     "script_n_of_k(n: ..., scripts: ...)",
+		},
+		{
+			name:     "invalid_before elided",
+			data:     "8204" + "182a", // [4, 42]
+			maxDepth: 1,
+			want:     "invalid_before(slot: ...)",
+		},
+		{
+			name:     "invalid_hereafter within limit",
+			data:     "8205" + "182a", // [5, 42]
+			maxDepth: 2,
+			want:     "invalid_hereafter(slot: 42)",
+		},
+		{
+			name:     "negative n",
+			data:     "8303" + "20" + "80", // [3, -1, []]
+			maxDepth: 0,
+			want:     "script_n_of_k(n: -1, scripts: [])",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := cbor.FormatNativeScript(
+				limitTestHex(t, tc.data),
+				cbor.DiagnosticOptions{MaxDepth: tc.maxDepth},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, out)
+		})
+	}
+}
+
 // TestFormatCardanoNativeScriptHonorsMaxArrayItems checks that
 // FormatNativeScript stops at MaxArrayItems in a script_any child list
 // (#2715).
