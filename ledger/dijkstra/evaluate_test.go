@@ -342,3 +342,27 @@ func TestEvaluatePlutusScriptsReportsFailures(t *testing.T) {
 		require.ErrorAs(t, err, &extraErr)
 	})
 }
+
+func TestDijkstraPlutusExecutionMatchesValidityFlag(t *testing.T) {
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	params := dijkstraGuardTestPParams()
+
+	failing := evaluateTestMintTx(
+		t,
+		dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, true),
+	)
+	failing.TxIsValid = false
+	require.NoError(t, UtxoValidatePlutusScripts(failing, 0, ls, params))
+
+	succeeding := evaluateTestMintTx(
+		t,
+		dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false),
+	)
+	succeeding.TxIsValid = false
+	var unexpectedSuccess common.UnexpectedPlutusScriptSuccessError
+	require.ErrorAs(
+		t,
+		UtxoValidatePlutusScripts(succeeding, 0, ls, params),
+		&unexpectedSuccess,
+	)
+}

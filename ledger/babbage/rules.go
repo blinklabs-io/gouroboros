@@ -286,7 +286,19 @@ func UtxoValidatePlutusScripts(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return common.ValidateUnsupportedPlutusExecution(tx, "Babbage")
+	params, ok := pp.(*BabbageProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	_, err := script.EvaluatePlutusScripts(
+		tx,
+		ls,
+		params.ProtocolMajor,
+		params.CostModels,
+		EraNameBabbage,
+		nil,
+	)
+	return common.ValidatePlutusScriptResult(tx, err)
 }
 
 // UtxoValidateSupplementalDatums enforces required and supplemental datum
