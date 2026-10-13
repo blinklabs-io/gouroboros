@@ -83,9 +83,23 @@ func testPoolRegistrationTx(
 	return tx
 }
 
+// futurePoolLedgerState adds the future pool parameter lookup the pool
+// certificate rules require.
+type futurePoolLedgerState struct {
+	common.LedgerState
+}
+
+func (futurePoolLedgerState) IsFutureVrfKeyInUse(
+	common.Blake2b256,
+) (bool, common.PoolKeyHash, error) {
+	return false, common.PoolKeyHash{}, nil
+}
+
 func TestUtxoValidatePoolCertificatesBlsProofOfPossession(t *testing.T) {
 	t.Parallel()
-	ls := mockledger.NewLedgerStateBuilder().WithNetworkId(0).Build()
+	ls := futurePoolLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().WithNetworkId(0).Build(),
+	}
 	pp := &DijkstraProtocolParameters{}
 	pp.ProtocolVersion.Major = 12
 	pp.MinPoolCost = 340_000_000
