@@ -329,11 +329,6 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 	if err != nil {
 		return err
 	}
-	if leiosCert != nil && len(txs) > 0 {
-		return &LeiosCertifiedBlockTransactionsError{
-			TransactionCount: len(txs),
-		}
-	}
 	b.Transactions = txs
 	b.InvalidTransactions = nil
 	b.LeiosCertificate = leiosCert

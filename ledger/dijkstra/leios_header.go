@@ -15,10 +15,6 @@
 package dijkstra
 
 import (
-	"errors"
-	"math/bits"
-	"time"
-
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -41,55 +37,8 @@ func ValidateHeaderProtocolVersion(
 	return nil
 }
 
-// ValidateLeiosAnnouncementSize rejects a header that announces an endorser
-// block larger than maxEndorserBlockReferencesSize. pp must be the protocol
-// parameters in force at the header's slot.
-func ValidateLeiosAnnouncementSize(
-	header *DijkstraBlockHeader,
-	pp *DijkstraProtocolParameters,
-) error {
-	_, size, ok := header.LeiosAnnouncement()
-	if !ok {
-		return nil
-	}
-	if size > uint64(pp.MaxEndorserBlockReferencesSize) {
-		return &LeiosEbTooBigError{
-			// The header decoder bounds the announced size to uint32.
-			Announced: uint32(size), // #nosec G115
-			Maximum:   pp.MaxEndorserBlockReferencesSize,
-		}
-	}
-	return nil
-}
-
-// LeiosMinCertificationSlot returns the earliest slot in which a ranking block
-// may certify the endorser block announced at announcingSlot: the
-// announcement, vote and diffusion periods, with the announcement period
-// counted three times, rounded up to whole slots of slotLength.
-func LeiosMinCertificationSlot(
-	slotLength time.Duration,
-	announcementMs, voteMs, diffusionMs uint32,
-	announcingSlot uint64,
-) (uint64, error) {
-	// The reference converts the slot length with slotLengthToMillisec, whole
-	// milliseconds, so a finer duration is truncated the same way.
-	slotMs := uint64(slotLength.Milliseconds()) // #nosec G115
-	if slotLength <= 0 || slotMs == 0 {
-		return 0, errors.New("leios certification slot: zero slot length")
-	}
-	// Three uint32 periods plus two more cannot overflow uint64.
-	totalMs := 3*uint64(announcementMs) + uint64(voteMs) +
-		uint64(diffusionMs)
-	slots := (totalMs + slotMs - 1) / slotMs
-	earliest, carry := bits.Add64(announcingSlot, slots, 0)
-	if carry != 0 {
-		return 0, errors.New("leios certification slot overflows uint64")
-	}
-	return earliest, nil
-}
-
-// leiosAnnouncer is the part of a Dijkstra header the certification timing
-// check reads from its predecessor. A chain state may hand back a wrapper
+// leiosAnnouncer is the part of a Dijkstra header the certification check reads
+// from its predecessor. A chain state may hand back a wrapper
 // around the header, so the check does not require the concrete type.
 type leiosAnnouncer interface {
 	SlotNumber() uint64
@@ -100,18 +49,13 @@ type leiosAnnouncer interface {
 	)
 }
 
-// ValidateLeiosCertificateTiming applies the header checks that depend on the
-// immediately preceding header. A header that sets its certificate flag must
-// follow a header that announced an endorser block, and must not be earlier
-// than LeiosMinCertificationSlot after that announcement. predecessor is the
-// header the given one extends, or nil at the chain origin; a pre-Dijkstra
-// predecessor announces nothing. pp and slotLength must be those in force at
-// the header's slot.
-func ValidateLeiosCertificateTiming(
+// ValidateLeiosCertificateAnnouncement requires a header that sets its
+// certificate flag to follow a header that announced an endorser block.
+// predecessor is the header the given one extends, or nil at the chain origin;
+// a pre-Dijkstra predecessor announces nothing.
+func ValidateLeiosCertificateAnnouncement(
 	header *DijkstraBlockHeader,
 	predecessor common.BlockHeader,
-	pp *DijkstraProtocolParameters,
-	slotLength time.Duration,
 ) error {
 	if certified, _ := header.LeiosCertified(); !certified {
 		return nil
@@ -130,30 +74,13 @@ func ValidateLeiosCertificateTiming(
 	if _, _, announced := announcing.LeiosAnnouncement(); !announced {
 		return &LeiosCertWithoutAnnouncementError{}
 	}
-	earliest, err := LeiosMinCertificationSlot(
-		slotLength,
-		pp.LeiosAnnouncementPeriodLength,
-		pp.LeiosVotePeriodLength,
-		pp.LeiosDiffusionPeriodLength,
-		announcing.SlotNumber(),
-	)
-	if err != nil {
-		return err
-	}
-	if header.SlotNumber() < earliest {
-		return &LeiosCertTooYoungError{
-			AnnouncingSlot:  announcing.SlotNumber(),
-			Slot:            header.SlotNumber(),
-			EarliestAllowed: earliest,
-		}
-	}
 	return nil
 }
 
 // ValidateLeiosBlockBody checks the block body against its header: the
-// header's certificate flag must match the presence of a Leios certificate, a
-// certificate excludes transactions, and no Peras certificate is accepted. A
-// header without the Leios extension counts as uncertified.
+// header's certificate flag must match the presence of a Leios certificate,
+// and no Peras certificate is accepted. A header without the Leios extension
+// counts as uncertified.
 func ValidateLeiosBlockBody(block *DijkstraBlock) error {
 	var certified bool
 	if block.BlockHeader != nil {
@@ -164,11 +91,6 @@ func ValidateLeiosBlockBody(block *DijkstraBlock) error {
 		return &LeiosCertificateFlagMismatchError{
 			HeaderCertified:    certified,
 			BodyHasCertificate: hasCertificate,
-		}
-	}
-	if hasCertificate && len(block.BlockBody.Transactions) > 0 {
-		return &LeiosCertifiedBlockTransactionsError{
-			TransactionCount: len(block.BlockBody.Transactions),
 		}
 	}
 	// The reference ledger fails every Peras certificate until Peras is

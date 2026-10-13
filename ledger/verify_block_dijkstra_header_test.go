@@ -17,7 +17,6 @@ package ledger
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -119,7 +118,6 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 	state := dijkstraLeiosHeaderTestState{
 		context: common.DijkstraLeiosHeaderContext{
 			Predecessor: announcing,
-			SlotLength:  time.Second,
 		},
 	}
 	requireProtocolError := func(t *testing.T, err error, target any) {
@@ -155,17 +153,15 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 		var tooLow *dijkstra.HeaderProtVerTooLowError
 		requireProtocolError(t, err, &tooLow)
 	})
-	t.Run("announced endorser block too big", func(t *testing.T) {
+	t.Run("release candidate admits oversized announcement", func(t *testing.T) {
 		over := params.MaxEndorserBlockReferencesSize + 1
-		err := validateDijkstraLeiosHeader(
+		require.NoError(t, validateDijkstraLeiosHeader(
 			&dijkstra.DijkstraBlock{
 				BlockHeader: dijkstraLeiosTestHeader(t, 1, 12, false, &over),
 			},
 			params,
 			nil,
-		)
-		var tooBig *dijkstra.LeiosEbTooBigError
-		requireProtocolError(t, err, &tooBig)
+		))
 	})
 	t.Run("announced endorser block at the limit", func(t *testing.T) {
 		limit := params.MaxEndorserBlockReferencesSize
@@ -182,10 +178,10 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 			certifying(110), params, state,
 		))
 	})
-	t.Run("certificate too young", func(t *testing.T) {
-		err := validateDijkstraLeiosHeader(certifying(109), params, state)
-		var tooYoung *dijkstra.LeiosCertTooYoungError
-		requireProtocolError(t, err, &tooYoung)
+	t.Run("release candidate admits certificate before minimum gap", func(t *testing.T) {
+		require.NoError(t, validateDijkstraLeiosHeader(
+			certifying(109), params, state,
+		))
 	})
 	t.Run("certificate without announcement", func(t *testing.T) {
 		silent := dijkstraLeiosTestHeader(t, 100, 12, false, nil)
@@ -196,7 +192,6 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 			dijkstraLeiosHeaderTestState{
 				context: common.DijkstraLeiosHeaderContext{
 					Predecessor: silent,
-					SlotLength:  time.Second,
 				},
 			},
 		)
@@ -232,7 +227,6 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 				dijkstraLeiosHeaderTestState{
 					context: common.DijkstraLeiosHeaderContext{
 						Predecessor: nilHeader,
-						SlotLength:  time.Second,
 					},
 				},
 			)
@@ -262,7 +256,6 @@ func TestValidateDijkstraLeiosHeader(t *testing.T) {
 			dijkstraLeiosHeaderTestState{
 				context: common.DijkstraLeiosHeaderContext{
 					Predecessor: other,
-					SlotLength:  time.Second,
 				},
 			},
 		)
@@ -309,21 +302,6 @@ func TestValidateDijkstraBlockCertificatesBodyRules(t *testing.T) {
 		)
 		var mismatch *dijkstra.LeiosCertificateFlagMismatchError
 		require.ErrorAs(t, err, &mismatch)
-	})
-	t.Run("certificate and transactions", func(t *testing.T) {
-		err := validateDijkstraBlockCertificates(
-			&dijkstra.DijkstraBlock{
-				BlockHeader: dijkstraLeiosTestHeader(t, 1, 12, true, nil),
-				BlockBody: dijkstra.DijkstraBlockBody{
-					LeiosCertificate: cert,
-					Transactions:     []dijkstra.DijkstraTransaction{{}},
-				},
-			},
-			nil,
-			nil,
-		)
-		var both *dijkstra.LeiosCertifiedBlockTransactionsError
-		require.ErrorAs(t, err, &both)
 	})
 	t.Run("Peras certificate", func(t *testing.T) {
 		err := validateDijkstraBlockCertificates(

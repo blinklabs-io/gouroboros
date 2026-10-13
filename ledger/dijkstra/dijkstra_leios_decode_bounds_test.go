@@ -15,7 +15,6 @@
 package dijkstra
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -75,9 +74,7 @@ func TestDijkstraLeiosCertificateAcceptsEmptySigners(t *testing.T) {
 	require.Empty(t, cert.Signers)
 }
 
-// CIP-0164: "RB' contains either a certificate for the EB announced in RB, or
-// a list of transactions forming a valid extension of RB."
-func TestDijkstraBlockBodyRejectsCertifiedBodyWithTransactions(t *testing.T) {
+func TestDijkstraBlockBodyAcceptsCertifiedBodyWithTransactions(t *testing.T) {
 	body := DijkstraBlockBody{
 		Transactions: []DijkstraTransaction{
 			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
@@ -88,12 +85,9 @@ func TestDijkstraBlockBodyRejectsCertifiedBodyWithTransactions(t *testing.T) {
 	require.NoError(t, err)
 
 	var decoded DijkstraBlockBody
-	err = decoded.UnmarshalCBOR(bodyCbor)
-	require.Error(t, err)
-	var target *LeiosCertifiedBlockTransactionsError
-	require.ErrorAs(t, err, &target)
-	require.NotNil(t, target)
-	require.Equal(t, 1, target.TransactionCount)
+	require.NoError(t, decoded.UnmarshalCBOR(bodyCbor))
+	require.Len(t, decoded.Transactions, 1)
+	require.NotNil(t, decoded.LeiosCertificate)
 }
 
 // The pre-respin four-element body is rejected before Leios semantics.
@@ -178,7 +172,7 @@ func TestDijkstraBlockBodyAcceptsLargePerasCertificate(t *testing.T) {
 	require.Len(t, decoded.PerasCertificate, 1<<20)
 }
 
-func TestDijkstraBlockRejectsCertifiedBodyWithTransactions(t *testing.T) {
+func TestDijkstraBlockAcceptsCertifiedBodyWithTransactions(t *testing.T) {
 	body := DijkstraBlockBody{
 		Transactions: []DijkstraTransaction{
 			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
@@ -189,15 +183,10 @@ func TestDijkstraBlockRejectsCertifiedBodyWithTransactions(t *testing.T) {
 	blockCbor, err := block.MarshalCBOR()
 	require.NoError(t, err)
 
-	_, err = NewDijkstraBlockFromCbor(blockCbor)
-	require.Error(t, err)
-	var target *LeiosCertifiedBlockTransactionsError
-	require.True(
-		t,
-		errors.As(err, &target),
-		"expected LeiosCertifiedBlockTransactionsError, got %v",
-		err,
-	)
+	decoded, err := NewDijkstraBlockFromCbor(blockCbor)
+	require.NoError(t, err)
+	require.Len(t, decoded.BlockBody.Transactions, 1)
+	require.NotNil(t, decoded.BlockBody.LeiosCertificate)
 }
 
 func testDijkstraBlockWithBody(

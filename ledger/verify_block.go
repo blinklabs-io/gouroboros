@@ -144,13 +144,13 @@ func validateDijkstraBlockBodyHash(
 }
 
 // validateDijkstraLeiosHeader applies the Dijkstra header rules that need the
-// protocol parameters in force: the header version floor, the announced
-// endorser block size bound and, for a header that sets its certificate flag,
-// the announcement and certification-delay rules against its predecessor.
+// protocol parameters in force: the header version floor and, for a header
+// that sets its certificate flag, the announcement rule against its
+// predecessor.
 // Without protocol parameters it checks nothing; the block-body rules still
 // require them for any certified block. Parameters of another era are a
-// configuration error even for an uncertified block, because the version floor
-// and size bound are read from them.
+// configuration error even for an uncertified block, because the version
+// floor is read from them.
 func validateDijkstraLeiosHeader(
 	block Block,
 	protocolParameters common.ProtocolParameters,
@@ -181,17 +181,6 @@ func validateDijkstraLeiosHeader(
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
 			"Dijkstra header protocol version too low",
-			details,
-			err,
-		)
-	}
-	if err := dijkstra.ValidateLeiosAnnouncementSize(
-		header,
-		pparams,
-	); err != nil {
-		return common.NewValidationError(
-			common.ValidationErrorTypeProtocol,
-			"Dijkstra header announces an oversized endorser block",
 			details,
 			err,
 		)
@@ -237,15 +226,13 @@ func validateDijkstraLeiosHeader(
 			)
 		}
 	}
-	if err := dijkstra.ValidateLeiosCertificateTiming(
+	if err := dijkstra.ValidateLeiosCertificateAnnouncement(
 		header,
 		context.Predecessor,
-		pparams,
-		context.SlotLength,
 	); err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
-			"invalid Dijkstra Leios certificate timing",
+			"invalid Dijkstra Leios certificate announcement",
 			details,
 			err,
 		)

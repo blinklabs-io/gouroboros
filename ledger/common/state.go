@@ -217,13 +217,11 @@ type DijkstraLeiosHeaderContext struct {
 	// its chain, whose hash is the checked header's PrevHash, or nil when the
 	// checked header follows the chain origin.
 	Predecessor BlockHeader
-	// SlotLength is the slot length in force at the checked header's slot.
-	SlotLength time.Duration
 }
 
 // DijkstraLeiosHeaderState is an optional capability required when a Dijkstra
 // header sets its Leios certificate flag. Implementations resolve the header's
-// immediate predecessor and the slot length at the header's slot.
+// immediate predecessor.
 type DijkstraLeiosHeaderState interface {
 	DijkstraLeiosHeaderContext(
 		header BlockHeader,
