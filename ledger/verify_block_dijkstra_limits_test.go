@@ -75,6 +75,17 @@ func dijkstraBlockLimitExUnitsTx(
 // covers the body. Only the slot and block number are taken from the fixture.
 func signedDijkstraLimitsHeader(t *testing.T) *dijkstra.DijkstraBlockHeader {
 	t.Helper()
+	return signedDijkstraTestHeader(t, nil)
+}
+
+// signedDijkstraTestHeader is signedDijkstraLimitsHeader with customize applied
+// to the header before it is signed, so a test can set the previous hash and
+// the Leios header fields and still pass the VRF and KES checks.
+func signedDijkstraTestHeader(
+	t *testing.T,
+	customize func(*dijkstra.DijkstraBlockHeader),
+) *dijkstra.DijkstraBlockHeader {
+	t.Helper()
 	fixtureCbor, err := hex.DecodeString(blockLimitsTestHeaderHex)
 	require.NoError(t, err)
 	fixture, err := ledger.NewBlockHeaderFromCbor(
@@ -127,6 +138,9 @@ func signedDijkstraLimitsHeader(t *testing.T) *dijkstra.DijkstraBlockHeader {
 			},
 			Signature: make([]byte, kes.CardanoKesSignatureSize),
 		},
+	}
+	if customize != nil {
+		customize(header)
 	}
 	unsigned, err := header.MarshalCBOR()
 	require.NoError(t, err)
