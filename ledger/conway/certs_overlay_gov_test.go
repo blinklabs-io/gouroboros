@@ -141,6 +141,7 @@ func govOverlayGovAction(
 		govActionKey(actionId): {
 			ActionId:   actionId,
 			ActionType: common.GovActionTypeInfo,
+			ExpirySlot: 1,
 		},
 	}
 }

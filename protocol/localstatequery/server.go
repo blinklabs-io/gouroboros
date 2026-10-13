@@ -31,6 +31,8 @@ type Server struct {
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
 	enableGetLedgerPeerSnapshot   bool
+	enableLedgerPeerKind          bool
+	version                       uint16
 }
 
 // NewServer returns a new LocalStateQuery server object
@@ -60,6 +62,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		InitialState:        stateIdle,
 		MaxReadBufferSize:   cfg.MaxReadBufferSize,
 	}
+	s.version = protoOptions.Version
 	// Enable version-dependent features
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {
 		s.enableGetChainBlockNo = true
@@ -71,25 +74,116 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 19 {
 		s.enableGetLedgerPeerSnapshot = true
 	}
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 23 {
+		s.enableLedgerPeerKind = true
+	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
 }
 
-// isLedgerPeerSnapshotQuery reports whether the given decoded query
-// wrapper holds a GetLedgerPeerSnapshot leaf. The query lives under
-// BlockQuery -> ShelleyQuery -> ShelleyGetLedgerPeerSnapshotQuery, so we
-// walk that chain rather than re-decoding the raw CBOR.
-func isLedgerPeerSnapshotQuery(w QueryWrapper) bool {
-	bq, ok := w.Query.(*BlockQuery)
-	if !ok {
-		return false
+// ledgerPeerSnapshotQuery returns the GetLedgerPeerSnapshot leaf of a
+// decoded query wrapper, or nil.
+func ledgerPeerSnapshotQuery(
+	w QueryWrapper,
+) *ShelleyGetLedgerPeerSnapshotQuery {
+	q, _ := shelleyLeafQuery(w).(*ShelleyGetLedgerPeerSnapshotQuery)
+	return q
+}
+
+// snapshotInResult returns the LedgerPeerSnapshotResult a query callback
+// answered with, bare or inside the single-element era result wrapper, or
+// nil when the result has neither shape.
+func snapshotInResult(result any) *LedgerPeerSnapshotResult {
+	switch r := result.(type) {
+	case LedgerPeerSnapshotResult:
+		return &r
+	case *LedgerPeerSnapshotResult:
+		return r
+	case []any:
+		if len(r) == 1 {
+			return snapshotInResult(r[0])
+		}
 	}
-	sq, ok := bq.Query.(*ShelleyQuery)
-	if !ok {
-		return false
+	return nil
+}
+
+// checkLedgerPeerSnapshotResult rejects a snapshot whose wire version the
+// request form does not accept: the client decodes the reply by the form it
+// sent, so any other layout fails there instead of here.
+func checkLedgerPeerSnapshotResult(
+	q *ShelleyGetLedgerPeerSnapshotQuery,
+	result any,
+) error {
+	snap := snapshotInResult(result)
+	if snap == nil {
+		return nil
 	}
-	_, ok = sq.Query.(*ShelleyGetLedgerPeerSnapshotQuery)
-	return ok
+	want := uint64(ledgerPeerSnapshotWireVersion)
+	if q.WithPeerKind {
+		want = ledgerPeerSnapshotWireVersionAll
+		if q.PeerKind == LedgerPeerKindBig {
+			want = ledgerPeerSnapshotWireVersionBig
+		}
+	}
+	got := snap.Version
+	if got == 0 {
+		got = ledgerPeerSnapshotWireVersion
+	}
+	if got != want {
+		return fmt.Errorf(
+			"%w: result version %d for a request that takes version %d",
+			ErrLedgerPeerSnapshotUnsupportedWireVersion,
+			got,
+			want,
+		)
+	}
+	return nil
+}
+
+// withoutSRVRelays drops SRV relays from a version 1 snapshot answering a
+// node-to-client version before 22, which cannot decode them, and then any
+// pool left with no relay, as ouroboros-network's encoder does. The callback's
+// snapshot is left unchanged.
+func withoutSRVRelays(result any, version uint16) any {
+	if version-protocol.ProtocolVersionNtCOffset >= 22 {
+		return result
+	}
+	snap := snapshotInResult(result)
+	if snap == nil || snap.Version > ledgerPeerSnapshotWireVersion {
+		return result
+	}
+	filtered := *snap
+	filtered.Pools = make([]PoolLedgerPeers, 0, len(snap.Pools))
+	for _, pool := range snap.Pools {
+		relays := make([]RelayAccessPoint, 0, len(pool.Detail.Relays))
+		for _, relay := range pool.Detail.Relays {
+			if relay.Kind != RelayKindSRV {
+				relays = append(relays, relay)
+			}
+		}
+		if len(relays) == 0 {
+			continue
+		}
+		pool.Detail.Relays = relays
+		filtered.Pools = append(filtered.Pools, pool)
+	}
+	if _, ok := result.([]any); ok {
+		return []any{filtered}
+	}
+	return filtered
+}
+
+// wrapLedgerPeerSnapshotResult puts a bare snapshot into the single-element
+// era result wrapper the client decodes, so a callback may answer with either
+// form and the reply always has the wrapped one.
+func wrapLedgerPeerSnapshotResult(result any) any {
+	if _, wrapped := result.([]any); wrapped {
+		return result
+	}
+	if snap := snapshotInResult(result); snap != nil {
+		return []any{*snap}
+	}
+	return result
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -190,16 +284,43 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 	// advertise, before the user callback ever sees them. The decoder map
 	// in QueryWrapper accepts sub-tag 34 on any connection, so the gate
 	// has to live here.
-	if !s.enableGetLedgerPeerSnapshot && isLedgerPeerSnapshotQuery(msgQuery.Query) {
-		return fmt.Errorf(
-			"%s: received GetLedgerPeerSnapshot query but negotiated NtC protocol version is older than 19",
-			ProtocolName,
-		)
+	if q := ledgerPeerSnapshotQuery(msgQuery.Query); q != nil {
+		if !s.enableGetLedgerPeerSnapshot {
+			return fmt.Errorf(
+				"%s: received GetLedgerPeerSnapshot query but negotiated NtC protocol version is older than 19",
+				ProtocolName,
+			)
+		}
+		// Version 23 takes only the peer-kind form and earlier versions
+		// only the bare one, so the form also tells the callback which
+		// result layout to answer with.
+		if q.WithPeerKind != s.enableLedgerPeerKind {
+			return fmt.Errorf(
+				"%s: %w: GetLedgerPeerSnapshot form (peer kind: %v)",
+				ProtocolName,
+				ErrQueryUnsupportedVersion,
+				q.WithPeerKind,
+			)
+		}
+	}
+	if queryType, ok := shelleyLeafQueryType(msgQuery.Query); ok &&
+		!shelleyQuerySupported(queryType, s.version) {
+		return fmt.Errorf("%s: %w", ProtocolName, unsupportedQueryError(
+			fmt.Sprintf("Shelley query %d", queryType),
+			s.version,
+		))
 	}
 	// Call the user callback function
 	result, err := s.config.QueryFunc(s.callbackContext, msgQuery.Query)
 	if err != nil {
 		return err
+	}
+	if q := ledgerPeerSnapshotQuery(msgQuery.Query); q != nil {
+		if err := checkLedgerPeerSnapshotResult(q, result); err != nil {
+			return fmt.Errorf("%s: %w", ProtocolName, err)
+		}
+		result = withoutSRVRelays(result, s.version)
+		result = wrapLedgerPeerSnapshotResult(result)
 	}
 	// Encode query result
 	resultCbor, err := cbor.Encode(&result)

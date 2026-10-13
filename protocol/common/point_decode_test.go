@@ -97,3 +97,23 @@ func TestPointDecodeRejectsMalformedWithoutMutation(t *testing.T) {
 		})
 	}
 }
+
+func TestPointDecodeRejectsNonByteHashBeforeLargeAllocation(t *testing.T) {
+	data := append(
+		[]byte{0x82, 0x00, 0x99, 0xea, 0x60}, // [0, array(60000)]
+		bytes.Repeat([]byte{0x80}, 60_000)...,
+	)
+	var point Point
+	require.Error(t, point.UnmarshalCBOR(data))
+
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			var decoded Point
+			if err := decoded.UnmarshalCBOR(data); err == nil {
+				b.Fatal("non-byte hash accepted")
+			}
+		}
+	})
+	require.Positive(t, result.N)
+	require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
+}

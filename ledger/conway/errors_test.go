@@ -34,6 +34,18 @@ func TestWithdrawalNotDelegatedToDRepError(t *testing.T) {
 	)
 }
 
+func TestGovernanceStateUnavailableErrorIncludesActionID(t *testing.T) {
+	actionID := common.GovActionId{
+		TransactionId: common.Blake2b256{0x42},
+		GovActionIdx:  3,
+	}
+	err := conway.GovernanceStateUnavailableError{
+		ActionId: &actionID,
+		Field:    "expiry slot",
+	}
+	assert.Contains(t, err.Error(), actionID.String())
+}
+
 func TestConway_CostModelsPresent_UnresolvedReferenceInputReturnsError(
 	t *testing.T,
 ) {

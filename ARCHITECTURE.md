@@ -467,6 +467,19 @@ transaction can change (stake deposits, DRep delegations, committee
 credentials) through `common.StakeCredentialDepositStateFor` and its siblings
 rather than `common.UnwrapLedgerState`, which would skip the block's effects.
 
+Future pool VRF lookups preserve this overlay even when an outer adapter
+implements the capability. Re-registering a pool releases its superseded
+future VRF key for later transactions in the block. Protocol version 11 and
+later require `FuturePoolParametersState` for pool registrations; unavailable
+state produces a typed configuration error. Governance validation similarly
+requires authoritative roots, action contents and expiry when the action needs
+them. A proposal from an earlier Dijkstra child is visible to later child votes.
+
+Block-wide resource checks require protocol parameters whenever transactions,
+block CBOR or header CBOR are present, unless `SkipBlockLimitsValidation` is
+explicitly selected. Header-only callers must provide parameters or select that
+skip alongside their other header verification options.
+
 Binding the body to the header happens at decode, inside `NewBlockFromCbor`,
 not in `VerifyBlock()`. Every era does this by default and skips it only when
 the caller passes `common.VerifyConfig{SkipBodyHashValidation: true}`. Without

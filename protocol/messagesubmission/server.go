@@ -72,20 +72,48 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	}
 
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolID,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleServer,
-		MessageHandlerFunc:  s.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            baseStateMap,
-		InitialState:        initialState,
+		Name:               ProtocolName,
+		ProtocolId:         ProtocolID,
+		Muxer:              protoOptions.Muxer,
+		Logger:             protoOptions.Logger,
+		ErrorChan:          protoOptions.ErrorChan,
+		Mode:               protoOptions.Mode,
+		Role:               protocol.ProtocolRoleServer,
+		MessageHandlerFunc: s.messageHandler,
+		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
+			return decodeMsgFromCborWithLimit(
+				msgType,
+				data,
+				s.collectionLimit(msgType),
+			)
+		},
+		StateMap:     baseStateMap,
+		InitialState: initialState,
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
+}
+
+// collectionLimit bounds an inbound collection before it is decoded. A reply
+// can never be larger than the correlated request that admits it, and with no
+// request outstanding only an empty collection can reach the reply validator.
+func (s *Server) collectionLimit(msgType uint) int {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	switch msgType {
+	case MessageTypeReplyMessageIds:
+		if s.pendingIDRequest == nil {
+			return 0
+		}
+		return s.pendingIDRequest.requested
+	case MessageTypeReplyMessages:
+		if s.pendingMsgRequest == nil {
+			return 0
+		}
+		return len(s.pendingMsgRequest.ids)
+	default:
+		return configuredMessageIDLimit(s.config)
+	}
 }
 
 // AddMessage adds a message to the outbound queue

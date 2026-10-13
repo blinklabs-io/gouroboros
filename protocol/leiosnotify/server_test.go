@@ -20,6 +20,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -230,7 +231,7 @@ func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
 	m := muxer.New(connA)
 	defer m.Stop()
 
-	response := NewMsgBlockAnnouncement(cbor.RawMessage{0x82, 0x01, 0x02})
+	response := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02})
 	type sendResult struct {
 		msg protocol.Message
 		err error
@@ -289,7 +290,7 @@ func TestHandleRequestNextReportsFailedSend(t *testing.T) {
 	defer m.Stop()
 	cfg := NewConfig(
 		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
-			return NewMsgBlockAnnouncement(cbor.RawMessage{0x81, 0x01}), nil
+			return NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x81, 0x01}), nil
 		}),
 		WithResponseSentFunc(func(
 			_ CallbackContext,
@@ -342,7 +343,7 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 			close(requestCalled)
 			// Keep the response from being queued until shutdown is observable.
 			<-releaseRequest
-			return NewMsgBlockAnnouncement(cbor.RawMessage{0x81, 0x01}), nil
+			return NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x81, 0x01}), nil
 		}),
 		WithResponseSentFunc(func(
 			_ CallbackContext,
@@ -447,7 +448,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 	assert.Equal(t, connId, server.callbackContext.ConnectionId)
 	assert.Equal(t, server, server.callbackContext.Server)
 
-	response := NewMsgBlockAnnouncement(cbor.RawMessage{0x82, 0x01, 0x02})
+	response := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02})
 	require.NoError(t, server.SendMessage(response))
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
 	segment, err := readLeiosNotifyTestSegment(t, connB)
@@ -560,10 +561,12 @@ func TestServerMessageHandler_RequestNext(t *testing.T) {
 		ConnectionId: connId,
 	}
 
-	called := false
+	called := make(chan struct{})
+	errCh := make(chan error, 1)
+	protoOptions.ErrorChan = errCh
 	cfg := NewConfig(
 		WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
-			called = true
+			close(called)
 			// Return an error to prevent attempting to send (which would hang without a muxer)
 			return nil, errors.New("test: callback error")
 		}),
@@ -572,11 +575,21 @@ func TestServerMessageHandler_RequestNext(t *testing.T) {
 	server := NewServer(protoOptions, &cfg)
 
 	msg := NewMsgNotificationRequestNext()
-	err := server.messageHandler(msg)
+	// The request is answered off the receive loop, so its error is
+	// reported to the connection rather than returned
+	require.NoError(t, server.messageHandler(msg))
 
-	// Error is expected because callback returns error
-	assert.Error(t, err)
-	assert.True(t, called, "expected callback to be called")
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("expected callback to be called")
+	}
+	select {
+	case err := <-errCh:
+		assert.ErrorContains(t, err, "test: callback error")
+	case <-time.After(time.Second):
+		t.Fatal("callback error was not reported")
+	}
 }
 
 func TestNew(t *testing.T) {
@@ -623,7 +636,7 @@ func TestCallbackResponseTypes(t *testing.T) {
 	}{
 		{
 			name:     "BlockAnnouncement response",
-			response: NewMsgBlockAnnouncement(cbor.RawMessage{0x82, 0x01, 0x02}),
+			response: NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02}),
 		},
 		{
 			name:     "BlockOffer response",
@@ -654,5 +667,206 @@ func TestCallbackResponseTypes(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.response, resp)
 		})
+	}
+}
+
+func newQuitTestServer(
+	t *testing.T,
+	cfg Config,
+) (*Server, net.Conn) {
+	t.Helper()
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	connA, connB := net.Pipe()
+	t.Cleanup(func() {
+		_ = connA.Close()
+		_ = connB.Close()
+	})
+	m := muxer.New(connA)
+	t.Cleanup(m.Stop)
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connId,
+		Muxer:        m,
+	}, &cfg)
+	server.Start()
+	t.Cleanup(func() { server.ProtocolInstance().Stop() })
+	m.Start()
+	return server, connB
+}
+
+func readQuitTestMessage(
+	t *testing.T,
+	conn net.Conn,
+) protocol.Message {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	segment, err := readLeiosNotifyTestSegment(t, conn)
+	require.NoError(t, err)
+	var fields []cbor.RawMessage
+	_, err = cbor.Decode(segment.Payload, &fields)
+	require.NoError(t, err)
+	require.NotEmpty(t, fields)
+	var tag uint
+	_, err = cbor.Decode(fields[0], &tag)
+	require.NoError(t, err)
+	msg, err := NewMsgFromCbor(tag, segment.Payload)
+	require.NoError(t, err)
+	return msg
+}
+
+func TestServerAnswersQuitWithDone(t *testing.T) {
+	_, conn := newQuitTestServer(t, NewConfig())
+
+	quitData, err := cbor.Encode(NewMsgQuit())
+	require.NoError(t, err)
+	writeLeiosNotifyTestSegment(
+		t,
+		conn,
+		muxer.NewSegment(ProtocolId, quitData, false),
+	)
+	msg := readQuitTestMessage(t, conn)
+	require.IsType(t, &MsgDone{}, msg)
+}
+
+func writeQuitTestMessage(t *testing.T, conn net.Conn, msg protocol.Message) {
+	t.Helper()
+	data, err := cbor.Encode(msg)
+	require.NoError(t, err)
+	writeLeiosNotifyTestSegment(
+		t,
+		conn,
+		muxer.NewSegment(ProtocolId, data, false),
+	)
+}
+
+func TestServerAnswersQuitAfterReply(t *testing.T) {
+	_, conn := newQuitTestServer(t, NewConfig(
+		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
+			return NewMsgBlockAnnouncement(testAnnouncementEra,
+				cbor.RawMessage{0x82, 0x01, 0x02},
+			), nil
+		}),
+	))
+
+	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+	require.IsType(t, &MsgBlockAnnouncement{}, readQuitTestMessage(t, conn))
+	writeQuitTestMessage(t, conn, NewMsgQuit())
+	require.IsType(t, &MsgDone{}, readQuitTestMessage(t, conn))
+}
+
+// A reference-node client pipelines MsgQuit behind its outstanding requests,
+// and the server must answer each of them before it acknowledges the quit,
+// even while the notification source is still waiting.
+func TestServerCancelsRequestOutstandingAtQuit(t *testing.T) {
+	sourceStarted := make(chan struct{})
+	sawQuit := make(chan struct{})
+	_, conn := newQuitTestServer(t, NewConfig(
+		WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
+			close(sourceStarted)
+			select {
+			case <-ctx.QuitChan:
+				close(sawQuit)
+			case <-time.After(5 * time.Second):
+			}
+			return nil, errors.New("canceled")
+		}),
+	))
+
+	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+	<-sourceStarted
+	writeQuitTestMessage(t, conn, NewMsgQuit())
+	require.IsType(t, &MsgCanceled{}, readQuitTestMessage(t, conn))
+	require.IsType(t, &MsgDone{}, readQuitTestMessage(t, conn))
+	select {
+	case <-sawQuit:
+	case <-time.After(time.Second):
+		t.Fatal("source was not told the client quit")
+	}
+}
+
+func TestServerCancelsEveryPipelinedRequest(t *testing.T) {
+	const pipelined = 1000
+	var sourceCalls atomic.Int32
+	sourceStarted := make(chan struct{}, 1)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	_, conn := newQuitTestServer(t, NewConfig(
+		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
+			sourceCalls.Add(1)
+			sourceStarted <- struct{}{}
+			<-release
+			return nil, errors.New("released")
+		}),
+	))
+
+	go func() {
+		for range pipelined {
+			writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+		}
+		writeQuitTestMessage(t, conn, NewMsgQuit())
+	}()
+	for i := range pipelined {
+		require.IsType(
+			t,
+			&MsgCanceled{},
+			readQuitTestMessage(t, conn),
+			"request %d",
+			i,
+		)
+	}
+	require.IsType(t, &MsgDone{}, readQuitTestMessage(t, conn))
+	require.Equal(t, int32(1), sourceCalls.Load())
+}
+
+func TestServerCancelsRequestWithoutSource(t *testing.T) {
+	_, conn := newQuitTestServer(t, NewConfig())
+
+	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+	// A quit read before the handler runs is answered without parking the
+	// request at all. The pause lets the request park first, which is the
+	// path a server with no notification source takes on a live connection;
+	// the expected replies are the same either way.
+	time.Sleep(50 * time.Millisecond)
+	writeQuitTestMessage(t, conn, NewMsgQuit())
+	require.IsType(t, &MsgCanceled{}, readQuitTestMessage(t, conn))
+	require.IsType(t, &MsgDone{}, readQuitTestMessage(t, conn))
+}
+
+// A source that ignores the quit and hands back a notification later must be
+// told it was not sent.
+func TestServerReleasesNotificationReturnedAfterQuit(t *testing.T) {
+	sourceStarted := make(chan struct{})
+	release := make(chan struct{})
+	released := make(chan error, 1)
+	response := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02})
+	_, conn := newQuitTestServer(t, NewConfig(
+		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
+			close(sourceStarted)
+			<-release
+			return response, nil
+		}),
+		WithResponseSentFunc(func(
+			_ CallbackContext,
+			msg protocol.Message,
+			err error,
+		) {
+			require.Same(t, response, msg)
+			released <- err
+		}),
+	))
+
+	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+	<-sourceStarted
+	writeQuitTestMessage(t, conn, NewMsgQuit())
+	require.IsType(t, &MsgCanceled{}, readQuitTestMessage(t, conn))
+	require.IsType(t, &MsgDone{}, readQuitTestMessage(t, conn))
+	close(release)
+	select {
+	case err := <-released:
+		require.ErrorIs(t, err, ErrRequestCanceled)
+	case <-time.After(time.Second):
+		t.Fatal("late notification was not released")
 	}
 }

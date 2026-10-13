@@ -817,6 +817,7 @@ func validateDijkstraGovernanceLevels(
 			state.actions[id] = common.GovActionState{
 				ActionId:   id,
 				ActionType: actionType,
+				ExpirySlot: math.MaxUint64,
 				Action:     action,
 			}
 		}

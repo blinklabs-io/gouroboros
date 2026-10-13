@@ -25,6 +25,14 @@ import (
 
 const (
 	ProtocolName = "LocalMessageNotification"
+	// DefaultMaxQueueSize is the default number of messages a server holds
+	// for one reply.
+	DefaultMaxQueueSize = 100
+	// DefaultMaxReplyMessages is the default number of messages a client
+	// accepts in one reply. It is the batch size the dmq-node reference server
+	// replies with (_ntc_MAX_SIGS_TO_ACK), and is independent of the server
+	// queue size so a client does not reject a reply a reference node sends.
+	DefaultMaxReplyMessages = 1000
 	// ProtocolID is the DMQ N2C mini-protocol number. dmq-node reference
 	// (DMQ.NodeToClient: localMsgNotification miniProtocolNum =
 	// MiniProtocolNum 15) and Pallas (PROTOCOL_N2C_MSG_NOTIFICATION = 15)
@@ -130,6 +138,10 @@ type Config struct {
 	// Server configuration
 	MaxQueueSize int
 
+	// MaxReplyMessages bounds the messages a client decodes from one reply.
+	// Zero selects DefaultMaxReplyMessages.
+	MaxReplyMessages int
+
 	// Client timeouts
 	BlockingRequestTimeout time.Duration
 	// MaxReplayEntries bounds the number of accepted message IDs retained by
@@ -172,7 +184,8 @@ type LocalMessageNotificationOptionFunc func(*Config)
 // NewConfig returns a new LocalMessageNotification config object with the provided options
 func NewConfig(options ...LocalMessageNotificationOptionFunc) Config {
 	c := Config{
-		MaxQueueSize:     100,
+		MaxQueueSize:     DefaultMaxQueueSize,
+		MaxReplyMessages: DefaultMaxReplyMessages,
 		MaxReplayEntries: defaultMaxReplayEntries,
 		replayState:      newMessageReplayState(),
 	}
@@ -217,6 +230,14 @@ func WithReplyMessagesFunc(
 func WithMaxQueueSize(maxQueueSize int) LocalMessageNotificationOptionFunc {
 	return func(c *Config) {
 		c.MaxQueueSize = maxQueueSize
+	}
+}
+
+// WithMaxReplyMessages specifies the maximum number of messages a client
+// accepts in one reply
+func WithMaxReplyMessages(maxReplyMessages int) LocalMessageNotificationOptionFunc {
+	return func(c *Config) {
+		c.MaxReplyMessages = maxReplyMessages
 	}
 }
 

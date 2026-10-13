@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -30,6 +31,7 @@ type Client struct {
 	notificationChan     chan protocol.Message
 	pipelinedRequestNext int
 	notificationRunning  bool
+	quitting             atomic.Bool
 	onceStart            sync.Once
 	onceStop             sync.Once
 }
@@ -60,10 +62,6 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageFromCborFunc: NewMsgFromCbor,
 		InitialState:        StateIdle,
 	})
-	if entry, ok := protoConfig.StateMap[StateBusy]; ok {
-		entry.Timeout = c.config.Timeout
-		protoConfig.StateMap[StateBusy] = entry
-	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
 }
@@ -94,8 +92,10 @@ func (c *Client) Stop() error {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
-		msg := NewMsgDone()
-		err = c.SendMessage(msg)
+		// Once quitting, the notification loop sends no further requests,
+		// which the protocol no longer allows
+		c.quitting.Store(true)
+		err = c.SendMessage(NewMsgQuit())
 	})
 	return err
 }
@@ -163,6 +163,9 @@ func (c *Client) notificationLoop() {
 		// Request the next notification(s)
 		msgCount := max(c.config.PipelineLimit, 1)
 		c.busyMutex.Unlock()
+		if c.quitting.Load() {
+			return
+		}
 		for range msgCount {
 			msg := NewMsgNotificationRequestNext()
 			if err := c.SendMessage(msg); err != nil {
@@ -207,6 +210,11 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		c.handleBlockTxsOffer(msg)
 	case MessageTypeVotesOffer:
 		c.handleVotesOffer(msg)
+	case MessageTypeCanceled:
+		// Answers a request that was outstanding when this client quit. It
+		// carries no notification, so there is nothing to deliver.
+	case MessageTypeDone:
+		// The server has acknowledged MsgQuit and the protocol is over
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
