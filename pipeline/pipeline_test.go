@@ -2730,7 +2730,7 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 			WithChainContextValidator(acceptTestChainContext),
 			WithEta0Provider(
 				StaticEta0Provider(
-					"0000000000000000000000000000000000000000000000000000000000000000",
+					shelleyBlockEta0,
 				),
 			),
 			WithSlotsPerKesPeriod(129600),
