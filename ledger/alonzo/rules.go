@@ -334,6 +334,7 @@ func UtxoValidatePlutusScripts(
 		ls,
 		params.ProtocolMajor,
 		params.CostModels,
+		1,
 		EraNameAlonzo,
 		nil,
 	)

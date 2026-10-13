@@ -3197,8 +3197,8 @@ func UtxoValidateSupplementalDatums(
 	return common.ValidateSupplementalDatums(tx, ls)
 }
 
-// UtxoValidatePlutusScripts executes all Plutus scripts in the transaction
-// and validates that they pass. This is the phase-2 validation.
+// UtxoValidatePlutusScripts executes all Plutus scripts and checks the result
+// against the transaction's phase-2 validity declaration.
 func UtxoValidatePlutusScripts(
 	tx common.Transaction,
 	slot uint64,
@@ -3228,6 +3228,7 @@ func EvaluatePlutusScripts(
 		ls,
 		conwayPparams.ProtocolVersion.Major,
 		conwayPparams.CostModels,
+		3,
 		EraNameConway,
 		budget,
 	)

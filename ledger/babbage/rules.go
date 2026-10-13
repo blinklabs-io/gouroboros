@@ -295,6 +295,7 @@ func UtxoValidatePlutusScripts(
 		ls,
 		params.ProtocolMajor,
 		params.CostModels,
+		2,
 		EraNameBabbage,
 		nil,
 	)
@@ -1295,9 +1296,8 @@ func UtxoValidateScriptWitnesses(
 // input -- whether its script is provided as an explicit witness or as a
 // CIP-33 reference script -- has a matching spend redeemer. See
 // script.ValidateRequiredRedeemers for details on the gap this closes.
-// Babbage never executes Plutus itself (see UtxoValidatePlutusScripts
-// below), but a reference-script-backed input with no redeemer must still
-// be rejected rather than silently spent unexecuted.
+// A reference-script-backed input with no redeemer must be rejected before
+// phase-2 execution rather than silently spent unexecuted.
 func UtxoValidateRequiredRedeemers(
 	tx common.Transaction,
 	slot uint64,

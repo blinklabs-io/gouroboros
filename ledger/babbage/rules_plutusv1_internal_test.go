@@ -175,6 +175,43 @@ func runRule(
 	)
 }
 
+func TestBabbagePlutusExecutionRejectsV3ReferenceScript(t *testing.T) {
+	v3 := common.PlutusV3Script{0x01}
+	spend := testInput(0x13, 0)
+	ref := testInput(0x14, 0)
+	tx := &BabbageTransaction{
+		Body: BabbageTransactionBody{
+			TxInputs: inputSet(spend),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{ref},
+				false,
+			),
+		},
+		WitnessSet: BabbageTransactionWitnessSet{
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{{
+					Tag:     common.RedeemerTagSpend,
+					ExUnits: common.ExUnits{Memory: 1, Steps: 1},
+				}},
+			},
+		},
+		TxIsValid: true,
+	}
+	state := utxoOnlyLedgerState{utxos: map[string]common.Utxo{
+		spend.String(): utxo(spend, plainOutput(scriptAddr(t, v3))),
+		ref.String():   utxo(ref, scriptRefOutput(keyAddr(t), v3)),
+	}}
+	err := UtxoValidatePlutusScripts(
+		tx,
+		0,
+		state,
+		&BabbageProtocolParameters{ProtocolMajor: common.ProtocolVersionBabbage},
+	)
+	var unsupported common.PlutusScriptValidationUnsupportedError
+	require.ErrorAs(t, err, &unsupported)
+	require.Equal(t, EraNameBabbage, unsupported.Era)
+}
+
 func runDatumRules(
 	tx common.Transaction,
 	utxos []common.Utxo,

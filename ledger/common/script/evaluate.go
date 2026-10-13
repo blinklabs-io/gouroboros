@@ -25,11 +25,13 @@ import (
 
 // EvaluatePlutusScripts executes every redeemer against its required script.
 // The transaction's IsValid declaration is intentionally ignored.
+// maxPlutusVersion is the highest language number supported by the era.
 func EvaluatePlutusScripts(
 	tx common.Transaction,
 	ls common.LedgerState,
 	protocolMajor uint,
 	costModels map[uint][]int64,
+	maxPlutusVersion uint,
 	era string,
 	budget *common.ExUnits,
 ) (map[common.RedeemerKey]common.ExUnits, error) {
@@ -194,6 +196,9 @@ func EvaluatePlutusScripts(
 		case common.PlutusV4Script:
 			return nil, common.PlutusScriptValidationUnsupportedError{Era: era}
 		case common.PlutusV3Script:
+			if maxPlutusVersion < 3 {
+				return nil, common.PlutusScriptValidationUnsupportedError{Era: era}
+			}
 			// Build V3 TxInfo lazily
 			if !txInfoV3Built {
 				if err := ValidatePlutusV3ReferenceInputs(
@@ -234,6 +239,9 @@ func EvaluatePlutusScripts(
 			}
 			usedUnits, execErr = s.Evaluate(ctxData, units, evalContext)
 		case common.PlutusV2Script:
+			if maxPlutusVersion < 2 {
+				return nil, common.PlutusScriptValidationUnsupportedError{Era: era}
+			}
 			// V2 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(ScriptPurposeSpending); isSpend && datum == nil {
 				return nil, common.MissingDatumForSpendingScriptError{
@@ -268,6 +276,9 @@ func EvaluatePlutusScripts(
 			}
 			usedUnits, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, units, evalContext)
 		case common.PlutusV1Script:
+			if maxPlutusVersion < 1 {
+				return nil, common.PlutusScriptValidationUnsupportedError{Era: era}
+			}
 			// V1 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(ScriptPurposeSpending); isSpend && datum == nil {
 				return nil, common.MissingDatumForSpendingScriptError{
