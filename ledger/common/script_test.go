@@ -187,6 +187,9 @@ func TestNestedNativeScriptRetainsSingleCborBuffer(t *testing.T) {
 	require.NoError(t, script.UnmarshalCBOR(wire))
 	rootScript := script
 	rootCbor := script.Cbor()
+	wantCbor := bytes.Clone(wire)
+	wantHash := rootScript.Hash()
+	require.NotSame(t, &wire[0], &rootCbor[0])
 	for level := range depth + 1 {
 		raw := script.Cbor()
 		offset := level * 3
@@ -202,10 +205,15 @@ func TestNestedNativeScriptRetainsSingleCborBuffer(t *testing.T) {
 		require.Len(t, all.Scripts, 1)
 		script = all.Scripts[0]
 	}
+	for i := range wire {
+		wire[i] ^= 0xff
+	}
+	require.Equal(t, wantCbor, rootScript.Cbor())
+	require.Equal(t, wantHash, rootScript.Hash())
 
 	roundTrip, err := cbor.Encode(rootScript)
 	require.NoError(t, err)
-	require.Equal(t, wire, roundTrip)
+	require.Equal(t, wantCbor, roundTrip)
 }
 
 func TestNativeScriptDecodeRejectsExtraFields(t *testing.T) {
