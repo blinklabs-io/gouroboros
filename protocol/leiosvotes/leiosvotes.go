@@ -34,6 +34,31 @@ const (
 	MaxPipelineLimit               = 100
 	DefaultPipelineLimit           = 1
 	DefaultTimeout                 = 60 * time.Second
+	// MaxVoteMessageBytes is the largest encoded Vote message a client
+	// admits. A vote holds two unsigned integers, a 32-byte hash and a
+	// 48-byte signature, so a Vote message is at most 143 bytes even with
+	// every CBOR head in its longest form. The limit leaves headroom above
+	// that and refuses votes padded further, such as with indefinite-length
+	// chunks.
+	MaxVoteMessageBytes = 256
+	// PendingReceiveBytes bounds the encoded votes a client holds received
+	// but not yet taken by its consumer, independent of the receive queue's
+	// length. A slow consumer holds the peer back at this budget, before the
+	// next vote is decoded, rather than letting the queue grow.
+	PendingReceiveBytes = 16 * 1024
+)
+
+const (
+	// maxClientRequestBytes is the longest message a client sends:
+	// VotesRequestNext with a 9-byte count.
+	maxClientRequestBytes = 11
+	// clientBusyMessageBytes is the client's Busy pending-message limit. The
+	// framework applies it to each received vote and to the requests queued
+	// while the server holds agency: one per pipelined request, plus Done.
+	clientBusyMessageBytes = max(
+		MaxVoteMessageBytes,
+		(MaxPipelineLimit+1)*maxClientRequestBytes,
+	)
 )
 
 var (
