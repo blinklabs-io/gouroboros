@@ -179,6 +179,17 @@ func TestPublicKeyExtraction(t *testing.T) {
 	)
 }
 
+func TestPublicKeyExtractionWithoutCache(t *testing.T) {
+	sk, pk, err := KeyGen(0, testSeed)
+	require.NoError(t, err)
+	legacyKey := &SecretKey{
+		Depth: 0,
+		Data:  append([]byte(nil), sk.Data...),
+	}
+
+	require.Equal(t, pk, PublicKey(legacyKey))
+}
+
 func TestPublicKeyAfterUpdate(t *testing.T) {
 	sk, pk, err := KeyGen(CardanoKesDepth, testSeed)
 	require.NoError(t, err, "KeyGen failed")
