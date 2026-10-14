@@ -22,9 +22,11 @@
 //     -run TestGetLedgerPeerSnapshotIntegration -v \
 //     ./protocol/localstatequery/...
 //
-// The test connects to a running cardano-node that has negotiated
-// node-to-client protocol version 19 (cardano-node 10.7+) and exercises
-// GetLedgerPeerSnapshot end-to-end against the real wire format. It is
+// The test connects to a running cardano-node that negotiates
+// node-to-client protocol version 19 or later (cardano-node 10.7+) and
+// exercises GetLedgerPeerSnapshot for big ledger peers end-to-end against the
+// real wire format. The node answers with snapshot version 1 below
+// node-to-client version 23 and with version 2 from it. It is
 // intentionally gated by a build tag so that CI without a live node does
 // not attempt the call.
 
@@ -39,6 +41,7 @@ import (
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 )
 
@@ -85,8 +88,35 @@ func TestGetLedgerPeerSnapshotIntegration(t *testing.T) {
 		t.Fatalf("GetLedgerPeerSnapshot: %s", err)
 	}
 
-	if snap.Version != 1 {
-		t.Fatalf("snapshot version: got %d want 1 (V2)", snap.Version)
+	version, _ := oConn.ProtocolVersion()
+	ntcVersion := version - protocol.ProtocolVersionNtCOffset
+	wantSnapshot := uint64(1)
+	if ntcVersion >= 23 {
+		wantSnapshot = 2
+	}
+	if snap.Version != wantSnapshot {
+		t.Fatalf(
+			"snapshot version at node-to-client version %d: got %d want %d",
+			ntcVersion,
+			snap.Version,
+			wantSnapshot,
+		)
+	}
+	if wantSnapshot == 2 {
+		if snap.NetworkMagic != uint32(magic) {
+			t.Fatalf(
+				"network magic: got %d want %d",
+				snap.NetworkMagic,
+				magic,
+			)
+		}
+		if snap.Slot.HasSlot != (snap.BlockHash != nil) {
+			t.Fatalf(
+				"block hash %x does not match slot %+v",
+				snap.BlockHash,
+				snap.Slot,
+			)
+		}
 	}
 	t.Logf("snapshot OK: slot=%+v, %d pools", snap.Slot, len(snap.Pools))
 	if len(snap.Pools) > 0 {

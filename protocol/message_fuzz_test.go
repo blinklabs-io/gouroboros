@@ -89,7 +89,7 @@ var protocolMessageDecoders = []protocolMessageDecoder{
 	},
 	{
 		name:       "leiosnotify",
-		maxMsgType: leiosnotify.MessageTypeDone,
+		maxMsgType: leiosnotify.MessageTypeVotesOffer,
 		decode:     leiosnotify.NewMsgFromCbor,
 	},
 	{

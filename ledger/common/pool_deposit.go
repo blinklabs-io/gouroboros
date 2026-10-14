@@ -35,11 +35,8 @@ package common
 // a re-registration would see a retirement epoch the current epoch has already
 // passed and be charged a second deposit.
 //
-// The current epoch comes from the optional EpochState capability. Without it
-// the retirement bound cannot be evaluated, so the pre-existing behaviour is
-// kept: the registration on record is taken at face value. Both possible errors
-// are loud -- charging a deposit that is not due and skipping one that is both
-// fail conservation -- so neither silently admits an invalid transaction.
+// The current epoch comes from EpochState. A pending retirement cannot be
+// classified without it, so validation fails closed when it is unavailable.
 func PoolRegistrationDepositDue(
 	ls LedgerState,
 	slot uint64,
@@ -55,9 +52,9 @@ func PoolRegistrationDepositDue(
 	if retirementEpoch == nil {
 		return false, nil
 	}
-	epochState, ok := UnwrapLedgerState(ls).(EpochState)
+	epochState, ok := EpochStateFor(ls)
 	if !ok {
-		return false, nil
+		return false, EpochStateUnavailableError{}
 	}
 	currentEpoch, err := epochState.EpochForSlot(slot)
 	if err != nil {

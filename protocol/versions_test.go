@@ -15,8 +15,10 @@
 package protocol
 
 import (
+	"encoding/hex"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -198,4 +200,48 @@ func TestNtNVersion16NegotiatesPerasSupport(t *testing.T) {
 	versionData, ok = versionMap[version].(VersionDataNtN16andUp)
 	require.True(t, ok)
 	assert.False(t, versionData.PerasSupported())
+}
+
+// TestNtCVersions22And23Supported pins the two node-to-client versions after
+// 21. A node that accepts only version 23 refuses a client whose map stops
+// at 21, so every node-to-client mini-protocol fails before it starts.
+func TestNtCVersions22And23Supported(t *testing.T) {
+	versions := GetProtocolVersionsNtC()
+	require.NotEmpty(t, versions)
+	assert.Equal(
+		t,
+		uint16(23+ProtocolVersionNtCOffset),
+		versions[len(versions)-1],
+		"version 23 must be the highest node-to-client version offered",
+	)
+	// The bit-15 offset is how the peer tells a node-to-client version
+	// number from a node-to-node one.
+	assert.Equal(t, uint16(0x8017), uint16(23+ProtocolVersionNtCOffset))
+	previous := GetProtocolVersion(21 + ProtocolVersionNtCOffset)
+	versionMap := GetProtocolVersionMap(
+		ProtocolModeNodeToClient, 42, DiffusionModeInitiatorOnly, false, true,
+	)
+	for _, n := range []uint16{22, 23} {
+		version := n + ProtocolVersionNtCOffset
+		assert.Contains(t, versions, version)
+		got := GetProtocolVersion(version)
+		require.NotNil(t, got.NewVersionDataFromCborFunc, "version %d", n)
+		// Neither version adds or removes an era or a mini-protocol.
+		got.NewVersionDataFromCborFunc = nil
+		want := previous
+		want.NewVersionDataFromCborFunc = nil
+		assert.Equal(t, want, got, "version %d", n)
+
+		// Version data is still [networkMagic, query].
+		versionData, ok := versionMap[version].(VersionDataNtC15andUp)
+		require.True(t, ok, "version %d", n)
+		data, err := cbor.Encode(&versionData)
+		require.NoError(t, err)
+		assert.Equal(t, "82182af5", hex.EncodeToString(data))
+		decoded, err := GetProtocolVersion(version).
+			NewVersionDataFromCborFunc(data)
+		require.NoError(t, err)
+		assert.Equal(t, uint32(42), decoded.NetworkMagic())
+		assert.True(t, decoded.Query())
+	}
 }

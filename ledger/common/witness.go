@@ -42,9 +42,12 @@ type BootstrapWitness struct {
 }
 
 func (w *BootstrapWitness) UnmarshalCBOR(data []byte) error {
+	// The chain-code width is era-version dependent: Dijkstra enforces 32
+	// bytes in its witness-set decoder, while earlier eras preserve the
+	// reference decoder's permissive behavior.
 	fields, err := decodeByteStringArray(
 		data,
-		[]int{32, 64, 32, -1},
+		[]int{32, 64, -1, -1},
 		"bootstrap witness",
 	)
 	if err != nil {

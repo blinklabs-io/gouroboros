@@ -83,7 +83,7 @@ func TestConfigRejectsMaxPendingBytesBelowLimits(t *testing.T) {
 	}
 	require.NoError(t, (&Config{
 		PipelineLimit:   4,
-		MaxPendingBytes: MaxVotesOfferBytes,
+		MaxPendingBytes: 4 * MaxBlockAnnouncementBytes,
 	}).validate())
 }
 
@@ -101,7 +101,7 @@ func blockAnnouncementBytes(t *testing.T, size int) []byte {
 	t.Helper()
 	header, err := cbor.Encode(make([]byte, size))
 	require.NoError(t, err)
-	data, err := cbor.Encode(NewMsgBlockAnnouncement(header))
+	data, err := cbor.Encode(NewMsgBlockAnnouncement(testAnnouncementEra, header))
 	require.NoError(t, err)
 	return data
 }

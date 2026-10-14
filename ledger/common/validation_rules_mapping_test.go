@@ -135,6 +135,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateExUnitsTooBigUtxo,           // UtxoValidationRuleExUnitsTooBig
 		alonzo.UtxoValidateNativeScripts,               // UtxoValidationRuleNativeScripts
 		alonzo.UtxoValidateExtraneousRedeemers,         // UtxoValidationRuleExtraneousRedeemers
+		alonzo.UtxoValidateMalformedReferenceScripts,   // UtxoValidationRuleMalformedReferenceScripts
 		alonzo.UtxoValidatePlutusScripts,               // UtxoValidationRulePlutusScripts
 		alonzo.UtxoValidateDelegation,                  // UtxoValidationRuleDelegation
 		alonzo.UtxoValidateMIRGenesisQuorum,            // UtxoValidationRuleMIRGenesisQuorum

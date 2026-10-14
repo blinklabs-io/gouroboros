@@ -94,9 +94,11 @@ The LocalMessageNotification protocol receives notifications about new messages 
 localmessagenotification.NewConfig(
     localmessagenotification.WithReplyMessagesFunc(replyCallback),
     localmessagenotification.WithMaxQueueSize(100),
+    localmessagenotification.WithMaxReplyMessages(1000),
     localmessagenotification.WithBlockingRequestTimeout(timeout),
     localmessagenotification.WithAuthenticator(authenticator),
     localmessagenotification.WithTTLValidator(ttlValidator),
+    localmessagenotification.WithMaxReplayEntries(10000),
 )
 ```
 
@@ -105,6 +107,7 @@ localmessagenotification.NewConfig(
 ```go
 // Configure client with reply callback
 cfg := localmessagenotification.NewConfig(
+    localmessagenotification.WithAuthenticator(authenticator),
     localmessagenotification.WithReplyMessagesFunc(func(ctx CallbackContext, messages []DmqMessage, hasMore bool) {
         for _, msg := range messages {
             // Handle message
@@ -121,15 +124,16 @@ err := client.RequestMessagesBlocking()
 
 ## Message Authentication
 
-Received messages have been validated:
+The client validates every message passed to the configured callback:
 - KES signature verification
 - TTL validation
-- Message format validation
+- Messages already delivered are dropped until expiration, including after reconnection
+- A full replay cache evicts the earliest-expiring accepted IDs to admit fresh messages; an evicted message can be delivered again if replayed before expiration
 
 ## Notes
 
 - Part of CIP-0137 (Distributed Message Queue)
 - Non-blocking mode for polling
 - Blocking mode for push-style notification
-- Messages are pre-validated by the node
+- Authentication state commits atomically for each admitted reply batch; one invalid admitted message rejects that batch
 - Default queue size is 100 messages

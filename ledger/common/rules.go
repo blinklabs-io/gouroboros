@@ -172,6 +172,39 @@ func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
 	return nil
 }
 
+// ledgerStateCapabilityFor finds the first provider of a narrow state
+// capability without discarding a validation adapter that implements it.
+func ledgerStateCapabilityFor[T any](ledgerState LedgerState) (T, bool) {
+	for ledgerState != nil {
+		if capability, ok := any(ledgerState).(T); ok {
+			return capability, true
+		}
+		if cached, ok := ledgerState.(*cachedLedgerState); ok {
+			ledgerState = cached.LedgerState
+			continue
+		}
+		unwrapper, ok := ledgerState.(LedgerStateUnwrapper)
+		if !ok {
+			break
+		}
+		ledgerState = unwrapper.UnwrapLedgerState()
+	}
+	var zero T
+	return zero, false
+}
+
+// GovPurposeRootsStateFor returns the first governance-purpose root provider
+// in ls's validation adapter chain.
+func GovPurposeRootsStateFor(ls LedgerState) (GovPurposeRootsState, bool) {
+	return ledgerStateCapabilityFor[GovPurposeRootsState](ls)
+}
+
+// EpochStateFor returns the first epoch provider in ls's validation adapter
+// chain.
+func EpochStateFor(ls LedgerState) (EpochState, bool) {
+	return ledgerStateCapabilityFor[EpochState](ls)
+}
+
 // UtxoValidateOutsideForecast requires a transaction's upper validity bound
 // to be convertible when the transaction has redeemers. SlotToTime is
 // supplied by the caller's validation state and carries its forecast
@@ -1007,6 +1040,25 @@ func ValidateUnsupportedPlutusExecution(tx Transaction, era string) error {
 		return PlutusScriptValidationUnsupportedError{Era: era}
 	}
 	return nil
+}
+
+// ValidatePlutusScriptResult checks execution against the transaction's
+// phase-2 validity declaration.
+func ValidatePlutusScriptResult(tx Transaction, err error) error {
+	if tx == nil {
+		return err
+	}
+	if tx.IsValid() {
+		return err
+	}
+	var scriptFailure PlutusScriptFailedError
+	if errors.As(err, &scriptFailure) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return UnexpectedPlutusScriptSuccessError{}
 }
 
 type scriptRequirement struct {

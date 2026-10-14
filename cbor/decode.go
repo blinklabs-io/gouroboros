@@ -199,6 +199,7 @@ func decodeWithMode(
 		return value.unmarshalCBOR(
 			dataBytes,
 			true,
+			nil,
 			0,
 			duplicateKeyPolicy,
 			decMode,

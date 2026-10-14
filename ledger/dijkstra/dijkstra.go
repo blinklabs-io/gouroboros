@@ -329,6 +329,8 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 	if err != nil {
 		return err
 	}
+	// blockMatchesHeader in ouroboros-consensus 5cc95f4c rejects every block
+	// whose body carries both, so no valid block body decodes this way.
 	if leiosCert != nil && len(txs) > 0 {
 		return &LeiosCertifiedBlockTransactionsError{
 			TransactionCount: len(txs),

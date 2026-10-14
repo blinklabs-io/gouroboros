@@ -17,6 +17,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -27,10 +28,40 @@ import (
 // ErrNilStage is returned when a nil stage is passed to a worker pool.
 var ErrNilStage = errors.New("pipeline: nil stage")
 
+// ErrBlockTypeMismatch is returned before typed decoding when the wire block
+// type does not match the authoritative type for the signed header.
+var ErrBlockTypeMismatch = errors.New("pipeline: block type mismatch")
+
+// BlockTypeMismatchError identifies the authoritative and wire block types.
+type BlockTypeMismatchError struct {
+	Expected uint
+	Actual   uint
+}
+
+func (e *BlockTypeMismatchError) Error() string {
+	return fmt.Sprintf(
+		"%s: expected %d, got %d",
+		ErrBlockTypeMismatch,
+		e.Expected,
+		e.Actual,
+	)
+}
+
+func (*BlockTypeMismatchError) Unwrap() error {
+	return ErrBlockTypeMismatch
+}
+
 // DecodeStage decodes raw block CBOR into Block objects.
 type DecodeStage struct {
 	// SkipBodyHashValidation disables body hash validation during decode.
 	SkipBodyHashValidation bool
+	blockTypeResolver      BlockTypeResolver
+}
+
+// SetBlockTypeResolver sets the authoritative resolver invoked before an
+// era-specific block decoder is selected. It must be called before processing.
+func (s *DecodeStage) SetBlockTypeResolver(resolver BlockTypeResolver) {
+	s.blockTypeResolver = resolver
 }
 
 // NewDecodeStage creates a new DecodeStage.
@@ -54,6 +85,28 @@ func (s *DecodeStage) Process(ctx context.Context, item *BlockItem) error {
 	}
 
 	start := time.Now()
+	if s.blockTypeResolver != nil {
+		headerCbor, err := ledger.ExtractBlockHeaderCbor(item.RawCbor())
+		if err != nil {
+			wrappedErr := fmt.Errorf("extract block header: %w", err)
+			item.SetDecodeError(wrappedErr, time.Since(start))
+			return wrappedErr
+		}
+		expected, err := s.blockTypeResolver(ctx, headerCbor)
+		if err != nil {
+			wrappedErr := fmt.Errorf("resolve block type: %w", err)
+			item.SetDecodeError(wrappedErr, time.Since(start))
+			return wrappedErr
+		}
+		if expected != item.BlockType() {
+			mismatchErr := &BlockTypeMismatchError{
+				Expected: expected,
+				Actual:   item.BlockType(),
+			}
+			item.SetDecodeError(mismatchErr, time.Since(start))
+			return mismatchErr
+		}
+	}
 
 	config := common.VerifyConfig{
 		SkipBodyHashValidation: s.SkipBodyHashValidation,

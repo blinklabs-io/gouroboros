@@ -23,20 +23,29 @@ import (
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
-// Message IDs follow the leios-prototype CDDL in Cardano Blueprint.
+// Message IDs 0 to 4 follow the LeiosFetch messages CDDL in Cardano Blueprint
+// as implemented by the node of Leios release candidate 2026w41. That node
+// speaks no other message.
 const (
-	MessageTypeBlockRequest           = 0
-	MessageTypeBlock                  = 1
-	MessageTypeBlockTxsRequest        = 2
-	MessageTypeBlockTxs               = 3
-	MessageTypeVotesRequest           = 4
-	MessageTypeVotes                  = 5
-	MessageTypeBlockRangeRequest      = 6
-	MessageTypeNextBlockAndTxsInRange = 7
-	MessageTypeLastBlockAndTxsInRange = 8
-	MessageTypeDone                   = 9
+	MessageTypeDone            = 0
+	MessageTypeBlockRequest    = 1
+	MessageTypeBlock           = 2
+	MessageTypeBlockTxsRequest = 3
+	MessageTypeBlockTxs        = 4
+)
+
+// Vote and block-range messages are not part of the reference protocol. They
+// are numbered clear of it so a reference-node message can never decode as
+// one, and a peer that does not implement them rejects them as unknown.
+const (
+	MessageTypeVotesRequest           = 10
+	MessageTypeVotes                  = 11
+	MessageTypeBlockRangeRequest      = 12
+	MessageTypeNextBlockAndTxsInRange = 13
+	MessageTypeLastBlockAndTxsInRange = 14
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
@@ -70,9 +79,22 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		)
 	}
 	var decodeErr error
-	if request, ok := ret.(*MsgVotesRequest); ok {
-		decodeErr = request.UnmarshalCBOR(data)
-	} else {
+	switch msg := ret.(type) {
+	case *MsgBlockTxsRequest:
+		if decodeErr = validateBlockTxsRequest(data); decodeErr == nil {
+			_, decodeErr = cbor.Decode(data, msg)
+		}
+	case *MsgVotesRequest:
+		decodeErr = msg.UnmarshalCBOR(data)
+	case *MsgBlockTxs:
+		decodeErr = msg.UnmarshalCBOR(data)
+	case *MsgVotes:
+		decodeErr = msg.UnmarshalCBOR(data)
+	case *MsgNextBlockAndTxsInRange:
+		decodeErr = msg.UnmarshalCBOR(data)
+	case *MsgLastBlockAndTxsInRange:
+		decodeErr = msg.UnmarshalCBOR(data)
+	default:
 		_, decodeErr = cbor.Decode(data, ret)
 	}
 	if decodeErr != nil {
@@ -187,15 +209,9 @@ func encodeBlockTxBitmaps(bitmaps map[uint16]uint64) ([]byte, error) {
 	return ret, nil
 }
 
-// MsgBlockTxs carries the transactions of an endorser block. Two wire shapes
-// are accepted for prototype interop:
-//
-//   - dingo: [tx_list] — just the transactions (2-element message).
-//   - IOG Leios prototype: [point, bitmaps, tx_list] — echoes the request's
-//     point and bitmaps alongside the transactions (4-element message).
-//
-// Point/Bitmaps are populated only when decoding the prototype form; encoding
-// emits the prototype form when Bitmaps is non-nil, otherwise the dingo form.
+// MsgBlockTxs carries the requested transactions of an endorser block. It
+// echoes the request's point and bitmaps, and holds one transaction for each
+// bit set in the bitmaps.
 type MsgBlockTxs struct {
 	protocol.MessageBase
 	Point   pcommon.Point
@@ -203,19 +219,9 @@ type MsgBlockTxs struct {
 	TxsRaw  []cbor.RawMessage
 }
 
-func NewMsgBlockTxs(txs []cbor.RawMessage) *MsgBlockTxs {
-	m := &MsgBlockTxs{
-		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeBlockTxs,
-		},
-		TxsRaw: slices.Clone(txs),
-	}
-	return m
-}
-
-// NewMsgBlockTxsFull builds the prototype's 4-element block-txs response,
+// NewMsgBlockTxs builds the response to a block transactions request,
 // echoing the requested point and bitmaps alongside the transactions.
-func NewMsgBlockTxsFull(
+func NewMsgBlockTxs(
 	point pcommon.Point,
 	bitmaps map[uint16]uint64,
 	txs []cbor.RawMessage,
@@ -235,61 +241,90 @@ func (m *MsgBlockTxs) MarshalCBOR() ([]byte, error) {
 	if raw := m.Cbor(); len(raw) > 0 {
 		return raw, nil
 	}
-	if m.Bitmaps != nil {
-		bitmaps, err := encodeBlockTxBitmaps(m.Bitmaps)
-		if err != nil {
-			return nil, err
-		}
-		return cbor.Encode(
-			[]any{
-				m.MessageType,
-				m.Point,
-				cbor.RawMessage(bitmaps),
-				m.TxsRaw,
-			},
-		)
+	bitmaps, err := encodeBlockTxBitmaps(m.Bitmaps)
+	if err != nil {
+		return nil, err
 	}
-	return cbor.Encode([]any{m.MessageType, m.TxsRaw})
+	return cbor.Encode(
+		[]any{
+			m.MessageType,
+			m.Point,
+			cbor.RawMessage(bitmaps),
+			m.TxsRaw,
+		},
+	)
 }
 
 func (m *MsgBlockTxs) UnmarshalCBOR(data []byte) error {
-	var elems []cbor.RawMessage
-	if _, err := cbor.Decode(data, &elems); err != nil {
+	return m.unmarshalCBORWithLimits(
+		data,
+		maxWireBlockTxs,
+		maxWireBlockBitmaps,
+	)
+}
+
+func (m *MsgBlockTxs) unmarshalCBORWithLimits(
+	data []byte,
+	maxTxCount int,
+	maxBitmapCount int,
+) error {
+	fields, err := cborpreflight.ArrayItems(
+		data,
+		4,
+		"block transactions envelope",
+	)
+	if err != nil {
 		return err
 	}
-	switch len(elems) {
-	case 2: // [msgType, tx_list] — dingo form
-		var env struct {
-			cbor.StructAsArray
-			MessageType uint8
-			TxsRaw      []cbor.RawMessage
-		}
-		if _, err := cbor.Decode(data, &env); err != nil {
-			return err
-		}
-		m.MessageType = env.MessageType
-		m.TxsRaw = env.TxsRaw
-	case 4: // [msgType, point, bitmaps, tx_list] — prototype form
-		var env struct {
-			cbor.StructAsArray
-			MessageType uint8
-			Point       pcommon.Point
-			Bitmaps     map[uint16]uint64
-			TxsRaw      []cbor.RawMessage
-		}
-		if _, err := cbor.Decode(data, &env); err != nil {
-			return err
-		}
-		m.MessageType = env.MessageType
-		m.Point = env.Point
-		m.Bitmaps = env.Bitmaps
-		m.TxsRaw = env.TxsRaw
-	default:
+	if len(fields) != 4 {
 		return fmt.Errorf(
 			"%s: block txs: unexpected element count %d",
 			ProtocolName,
-			len(elems),
+			len(fields),
 		)
+	}
+	var messageType uint8
+	if err := cborpreflight.ValidateItemDepth(fields[0], 0, "block transactions message type"); err != nil {
+		return err
+	}
+	if _, err := cbor.Decode(fields[0], &messageType); err != nil {
+		return err
+	}
+	if err := cborpreflight.ValidateItemDepth(fields[1], 1, "block transactions point"); err != nil {
+		return err
+	}
+	var point pcommon.Point
+	if _, err := cbor.Decode(fields[1], &point); err != nil {
+		return err
+	}
+	if err := cborpreflight.ValidateItemDepth(fields[2], 1, "block transactions bitmap map"); err != nil {
+		return err
+	}
+	if err := validateBlockTxBitmaps(fields[2], maxBitmapCount); err != nil {
+		return err
+	}
+	var bitmaps map[uint16]uint64
+	if _, err := cbor.Decode(fields[2], &bitmaps); err != nil {
+		return err
+	}
+	txs, err := cborpreflight.ArrayItems(fields[3], maxTxCount, "block transactions")
+	if err != nil {
+		return err
+	}
+	if requested := bitmapTxCount(bitmaps); len(txs) != requested {
+		return fmt.Errorf(
+			"%s: block txs: %d transactions do not match the %d requested by the bitmaps",
+			ProtocolName,
+			len(txs),
+			requested,
+		)
+	}
+	m.MessageType = messageType
+	m.Point = point
+	m.Bitmaps = bitmaps
+	m.TxsRaw = make([]cbor.RawMessage, len(txs))
+	for idx, tx := range txs {
+		m.TxsRaw[idx] = append(cbor.RawMessage(nil), tx...)
 	}
 	m.SetCbor(data)
 	return nil
@@ -315,6 +350,14 @@ func NewMsgVotesRequest(voteIds []MsgVotesRequestVoteId) *MsgVotesRequest {
 type MsgVotes struct {
 	protocol.MessageBase
 	VotesRaw []cbor.RawMessage
+}
+
+func (m *MsgVotes) UnmarshalCBOR(data []byte) error {
+	return m.unmarshalCBORWithLimits(
+		data,
+		MaxVotesPerMessage,
+		MaxVotesMessageBytes,
+	)
 }
 
 func NewMsgVotes(votes []cbor.RawMessage) *MsgVotes {
@@ -383,18 +426,39 @@ type MsgNextBlockAndTxsInRange struct {
 	TxsRaw   []cbor.RawMessage
 }
 
+func (m *MsgNextBlockAndTxsInRange) UnmarshalCBOR(data []byte) error {
+	msg, err := decodeBlockAndTxsInRange(
+		MessageTypeNextBlockAndTxsInRange,
+		data,
+		maxWireRangeTxs,
+		DefaultMaxBlockRangeResponseBytes,
+	)
+	if err != nil {
+		return err
+	}
+	decoded := msg.(*MsgNextBlockAndTxsInRange)
+	*m = *decoded
+	return nil
+}
+
 func NewMsgNextBlockAndTxsInRange(
 	block cbor.RawMessage,
 	txs []cbor.RawMessage,
 ) *MsgNextBlockAndTxsInRange {
-	m := &MsgNextBlockAndTxsInRange{
+	return newMsgNextBlockAndTxsInRangeOwned(block, slices.Clone(txs))
+}
+
+func newMsgNextBlockAndTxsInRangeOwned(
+	block cbor.RawMessage,
+	txs []cbor.RawMessage,
+) *MsgNextBlockAndTxsInRange {
+	return &MsgNextBlockAndTxsInRange{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeNextBlockAndTxsInRange,
 		},
 		BlockRaw: block,
-		TxsRaw:   slices.Clone(txs),
+		TxsRaw:   txs,
 	}
-	return m
 }
 
 type MsgLastBlockAndTxsInRange struct {
@@ -403,18 +467,39 @@ type MsgLastBlockAndTxsInRange struct {
 	TxsRaw   []cbor.RawMessage
 }
 
+func (m *MsgLastBlockAndTxsInRange) UnmarshalCBOR(data []byte) error {
+	msg, err := decodeBlockAndTxsInRange(
+		MessageTypeLastBlockAndTxsInRange,
+		data,
+		maxWireRangeTxs,
+		DefaultMaxBlockRangeResponseBytes,
+	)
+	if err != nil {
+		return err
+	}
+	decoded := msg.(*MsgLastBlockAndTxsInRange)
+	*m = *decoded
+	return nil
+}
+
 func NewMsgLastBlockAndTxsInRange(
 	block cbor.RawMessage,
 	txs []cbor.RawMessage,
 ) *MsgLastBlockAndTxsInRange {
-	m := &MsgLastBlockAndTxsInRange{
+	return newMsgLastBlockAndTxsInRangeOwned(block, slices.Clone(txs))
+}
+
+func newMsgLastBlockAndTxsInRangeOwned(
+	block cbor.RawMessage,
+	txs []cbor.RawMessage,
+) *MsgLastBlockAndTxsInRange {
+	return &MsgLastBlockAndTxsInRange{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeLastBlockAndTxsInRange,
 		},
 		BlockRaw: block,
-		TxsRaw:   slices.Clone(txs),
+		TxsRaw:   txs,
 	}
-	return m
 }
 
 type MsgDone struct {

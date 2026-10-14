@@ -47,11 +47,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		ConnectionId:       protoOptions.ConnectionId,
 		ConnectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
-	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[StateBusy]; ok {
-		entry.Timeout = c.config.Timeout
-		stateMap[StateBusy] = entry
-	}
+	stateMap := clientStateMap(c.config)
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
@@ -68,6 +64,22 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+// clientStateMap returns the client's copy of StateMap. Busy carries the
+// configured timeout and bounds both each received vote and the encoded
+// votes waiting for the consumer. Requests are not pipelined on the wire, so
+// at most one batch of MaxRequestNextCount votes is outstanding, which the
+// protocol's derived muxer ingress limit covers.
+func clientStateMap(cfg *Config) protocol.StateMap {
+	stateMap := StateMap.Copy()
+	if entry, ok := stateMap[StateBusy]; ok {
+		entry.Timeout = cfg.Timeout
+		entry.PendingMessageByteLimit = clientBusyMessageBytes
+		entry.PendingReceiveByteBudget = PendingReceiveBytes
+		stateMap[StateBusy] = entry
+	}
+	return stateMap
 }
 
 func (c *Client) Start() {

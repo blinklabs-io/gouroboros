@@ -20,6 +20,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -74,18 +75,19 @@ type rawBlockHeaderInfo struct {
 // rawBlockHeaderInfoFromCbor reads a block's point and previous-block hash
 // straight from its CBOR, without a typed era decode.
 //
-// Every Shelley-family block (Shelley through Dijkstra) is a [header, ...]
-// array whose header is [header_body, signature] and whose header body begins
-// with block_number, slot, prev_hash. The block hash is Blake2b-256 over the
-// header's original CBOR bytes, the same definition the typed headers use --
-// see babbage.BabbageBlockHeader.Hash.
+// Every supported block is a [header, ...] array. Shelley-family headers are
+// [header_body, signature], with block_number, slot, prev_hash leading the
+// body. Byron headers have five fields and carry epoch/slot in consensus data.
+// Hashes use the original header CBOR bytes, matching the typed headers.
 //
 // This exists so range correlation survives a payload whose full wire layout
 // the generic type decoder cannot represent. It reads only the three fields
 // correlation needs and makes no claim about the rest of the block; decoding
-// that is the raw callback's job. Byron blocks use a different header shape
-// and are not supported here.
-func rawBlockHeaderInfoFromCbor(data []byte) (rawBlockHeaderInfo, error) {
+// that is the raw callback or block pipeline's job.
+func rawBlockHeaderInfoFromCbor(
+	data []byte,
+	byronSlotsPerEpoch uint64,
+) (rawBlockHeaderInfo, error) {
 	var blockElems []cbor.RawMessage
 	if _, err := cbor.Decode(data, &blockElems); err != nil {
 		return rawBlockHeaderInfo{}, fmt.Errorf(
@@ -107,6 +109,19 @@ func rawBlockHeaderInfoFromCbor(data []byte) (rawBlockHeaderInfo, error) {
 	if len(headerElems) == 0 {
 		return rawBlockHeaderInfo{}, errors.New(
 			"raw block header has no body",
+		)
+	}
+	if len(headerElems) == 5 {
+		return rawByronBlockHeaderInfo(
+			headerCbor,
+			headerElems,
+			byronSlotsPerEpoch,
+		)
+	}
+	if len(headerElems) != 2 {
+		return rawBlockHeaderInfo{}, fmt.Errorf(
+			"raw block header has %d fields, expected 2 or 5",
+			len(headerElems),
 		)
 	}
 	var bodyElems []cbor.RawMessage
@@ -138,6 +153,80 @@ func rawBlockHeaderInfoFromCbor(data []byte) (rawBlockHeaderInfo, error) {
 	return rawBlockHeaderInfo{
 		point:    pcommon.NewPoint(slot, blockHash.Bytes()),
 		prevHash: prevHash,
+	}, nil
+}
+
+func rawByronBlockHeaderInfo(
+	headerCbor []byte,
+	headerElems []cbor.RawMessage,
+	slotsPerEpoch uint64,
+) (rawBlockHeaderInfo, error) {
+	if slotsPerEpoch == 0 {
+		slotsPerEpoch = ledgerbyron.ByronSlotsPerEpoch
+	}
+	var prevHash lcommon.Blake2b256
+	if _, err := cbor.Decode(headerElems[1], &prevHash); err != nil {
+		return rawBlockHeaderInfo{}, fmt.Errorf(
+			"decode raw Byron previous hash: %w",
+			err,
+		)
+	}
+	var consensus []cbor.RawMessage
+	if _, err := cbor.Decode(headerElems[3], &consensus); err != nil {
+		return rawBlockHeaderInfo{}, fmt.Errorf(
+			"decode raw Byron consensus data: %w",
+			err,
+		)
+	}
+	var blockType uint
+	var epoch uint64
+	var slotInEpoch uint64
+	switch len(consensus) {
+	case 2:
+		blockType = ledger.BlockTypeByronEbb
+		if _, err := cbor.Decode(consensus[0], &epoch); err != nil {
+			return rawBlockHeaderInfo{}, fmt.Errorf(
+				"decode raw Byron EBB epoch: %w",
+				err,
+			)
+		}
+	case 4:
+		blockType = ledger.BlockTypeByronMain
+		var slotID []uint64
+		if _, err := cbor.Decode(consensus[0], &slotID); err != nil {
+			return rawBlockHeaderInfo{}, fmt.Errorf(
+				"decode raw Byron slot ID: %w",
+				err,
+			)
+		}
+		if len(slotID) != 2 {
+			return rawBlockHeaderInfo{}, fmt.Errorf(
+				"raw Byron slot ID has %d fields, expected 2",
+				len(slotID),
+			)
+		}
+		epoch, slotInEpoch = slotID[0], slotID[1]
+	default:
+		return rawBlockHeaderInfo{}, fmt.Errorf(
+			"raw Byron consensus data has %d fields, expected 2 or 4",
+			len(consensus),
+		)
+	}
+	slot, err := ledgerbyron.SlotNumberFromEpochAndSlot(
+		epoch,
+		slotInEpoch,
+		slotsPerEpoch,
+	)
+	if err != nil {
+		return rawBlockHeaderInfo{}, fmt.Errorf("convert raw Byron slot: %w", err)
+	}
+	hashInput := make([]byte, 0, len(headerCbor)+2)
+	hashInput = append(hashInput, 0x82, byte(blockType))
+	hashInput = append(hashInput, headerCbor...)
+	blockHash := lcommon.Blake2b256Hash(hashInput)
+	return rawBlockHeaderInfo{
+		point:    pcommon.NewPoint(slot, blockHash.Bytes()),
+		prevHash: prevHash.Bytes(),
 	}, nil
 }
 

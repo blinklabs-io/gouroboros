@@ -19,3 +19,6 @@ import "bytes"
 func testPointHash(fill byte) []byte {
 	return bytes.Repeat([]byte{fill}, 32)
 }
+
+// testAnnouncementEra is the hard-fork era index of a Dijkstra header.
+const testAnnouncementEra = 7

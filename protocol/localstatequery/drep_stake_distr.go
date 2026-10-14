@@ -16,7 +16,6 @@ package localstatequery
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -73,13 +72,66 @@ type DRepStakeDistrEntry struct {
 type DRepStakeDistrResult []DRepStakeDistrEntry
 
 func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
+	var entries DRepStakeDistrResult
+	err := decodeDRepKeyedResult(
+		data,
+		"DRep stake distribution",
+		func(dec *cbor.StreamDecoder, drep lcommon.Drep) error {
+			entry := DRepStakeDistrEntry{Drep: drep}
+			if _, _, err := dec.Decode(&entry.Stake); err != nil {
+				return fmt.Errorf(
+					"DRep stake distribution: decoding stake: %w",
+					err,
+				)
+			}
+			entries = append(entries, entry)
+			return nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if entries == nil {
+		entries = DRepStakeDistrResult{}
+	}
+	*r = entries
+	return nil
+}
+
+func (r DRepStakeDistrResult) MarshalCBOR() ([]byte, error) {
+	entries := make([]drepKeyedValue, 0, len(r))
+	for _, entry := range r {
+		value, err := cbor.Encode(entry.Stake)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"DRep stake distribution: encoding stake: %w",
+				err,
+			)
+		}
+		entries = append(entries, drepKeyedValue{
+			drep:  entry.Drep,
+			value: value,
+		})
+	}
+	return encodeDRepKeyedResult(entries, "DRep stake distribution")
+}
+
+// decodeDRepKeyedResult walks a ledger Map keyed by DRep inside the
+// single-element era result wrapper, handing each key to decodeValue with the
+// decoder positioned on its value. Keys arrive in wire order.
+func decodeDRepKeyedResult(
+	data []byte,
+	what string,
+	decodeValue func(dec *cbor.StreamDecoder, drep lcommon.Drep) error,
+) error {
 	var wrapper []cbor.RawMessage
 	if _, err := cbor.Decode(data, &wrapper); err != nil {
 		return err
 	}
 	if len(wrapper) != 1 {
 		return fmt.Errorf(
-			"DRep stake distribution: expected a single-element result array, got %d elements",
+			"%s: expected a single-element result array, got %d elements",
+			what,
 			len(wrapper),
 		)
 	}
@@ -92,31 +144,30 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 	indefinite := len(distr) > 0 && distr[0] == cborIndefiniteMapHeader
 	if indefinite {
 		if err := dec.Advance(1); err != nil {
-			return fmt.Errorf("DRep stake distribution: %w", err)
+			return fmt.Errorf("%s: %w", what, err)
 		}
 	} else {
 		entryCount, _, _, err = dec.DecodeMapHeader()
 		if err != nil {
-			return fmt.Errorf("DRep stake distribution: %w", err)
+			return fmt.Errorf("%s: %w", what, err)
 		}
 	}
 	// distr is a cbor.RawMessage taken out of the result array, so it is one
 	// well-formed CBOR item: a definite-length map header cannot declare more
 	// pairs than the item actually carries, and entryCount is therefore
 	// bounded by len(distr).
-	entries := make(DRepStakeDistrResult, 0, entryCount)
+	//
 	// The decode modes in the cbor package reject a repeated map key
 	// (DupMapKeyEnforcedAPF), so every other map-shaped result in this
 	// package gets that for free. Walking this map by hand does not, and a
-	// caller summing a slice that repeats a DRep counts its stake twice.
+	// caller summing a slice that repeats a DRep counts it twice.
 	//
 	// Two checks are needed, because a repeat can take two forms. A CBOR
 	// map's keys are unique by their encoding, so seenEncoded rejects a
 	// literally repeated key. That is not enough on its own: a credential
 	// written as indefinite-length chunks decodes to the same lcommon.Drep
 	// as the definite-length form from different bytes. seenDrep rejects
-	// that pair too, since a caller summing the result would otherwise
-	// count one DRep's stake twice.
+	// that pair too.
 	type drepKey struct {
 		drepType   int
 		credential string
@@ -129,71 +180,67 @@ func (r *DRepStakeDistrResult) UnmarshalCBOR(data []byte) error {
 			// path: distr is one complete well-formed CBOR item, so an
 			// indefinite map inside it always carries its break byte.
 			if dec.EOF() {
-				return errors.New(
-					"DRep stake distribution: unterminated indefinite-length map",
+				return fmt.Errorf(
+					"%s: unterminated indefinite-length map",
+					what,
 				)
 			}
 			if distr[dec.Position()] == cborBreak {
 				if err := dec.Advance(1); err != nil {
-					return fmt.Errorf("DRep stake distribution: %w", err)
+					return fmt.Errorf("%s: %w", what, err)
 				}
 				break
 			}
 		}
-		var entry DRepStakeDistrEntry
-		_, key, err := dec.DecodeRaw(&entry.Drep)
+		var drep lcommon.Drep
+		_, key, err := dec.DecodeRaw(&drep)
 		if err != nil {
-			return fmt.Errorf(
-				"DRep stake distribution: decoding DRep: %w",
-				err,
-			)
+			return fmt.Errorf("%s: decoding DRep: %w", what, err)
 		}
 		if _, dup := seenEncoded[string(key)]; dup {
-			return fmt.Errorf(
-				"DRep stake distribution: duplicate DRep %s",
-				entry.Drep.String(),
-			)
+			return fmt.Errorf("%s: duplicate DRep %s", what, drep.String())
 		}
 		seenEncoded[string(key)] = struct{}{}
 		decoded := drepKey{
-			drepType:   entry.Drep.Type,
-			credential: string(entry.Drep.Credential),
+			drepType:   drep.Type,
+			credential: string(drep.Credential),
 		}
 		if _, dup := seenDrep[decoded]; dup {
-			return fmt.Errorf(
-				"DRep stake distribution: duplicate DRep %s",
-				entry.Drep.String(),
-			)
+			return fmt.Errorf("%s: duplicate DRep %s", what, drep.String())
 		}
 		seenDrep[decoded] = struct{}{}
-		if _, _, err := dec.Decode(&entry.Stake); err != nil {
-			return fmt.Errorf(
-				"DRep stake distribution: decoding stake: %w",
-				err,
-			)
+		if err := decodeValue(dec, drep); err != nil {
+			return err
 		}
-		entries = append(entries, entry)
 	}
-	*r = entries
 	return nil
 }
 
-func (r DRepStakeDistrResult) MarshalCBOR() ([]byte, error) {
+// drepKeyedValue is one entry of a DRep-keyed ledger Map with its value
+// already encoded.
+type drepKeyedValue struct {
+	drep  lcommon.Drep
+	value []byte
+}
+
+// encodeDRepKeyedResult encodes a ledger Map keyed by DRep inside the
+// single-element era result wrapper, in the order and framing a node uses.
+func encodeDRepKeyedResult(
+	entries []drepKeyedValue,
+	what string,
+) ([]byte, error) {
 	type encodedEntry struct {
 		key        []byte
 		value      []byte
 		drepType   int
 		credential []byte
 	}
-	encoded := make([]encodedEntry, 0, len(r))
-	seen := make(map[string]struct{}, len(r))
-	for _, entry := range r {
-		key, err := cbor.Encode(entry.Drep)
+	encoded := make([]encodedEntry, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		key, err := cbor.Encode(entry.drep)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"DRep stake distribution: encoding DRep: %w",
-				err,
-			)
+			return nil, fmt.Errorf("%s: encoding DRep: %w", what, err)
 		}
 		// Keyed on the encoding, not on the Go value: an Abstain or
 		// NoConfidence DRep carries no credential on the wire, so two
@@ -201,27 +248,21 @@ func (r DRepStakeDistrResult) MarshalCBOR() ([]byte, error) {
 		// into one map key.
 		if _, dup := seen[string(key)]; dup {
 			return nil, fmt.Errorf(
-				"DRep stake distribution: duplicate DRep %s",
-				entry.Drep.String(),
+				"%s: duplicate DRep %s",
+				what,
+				entry.drep.String(),
 			)
 		}
 		seen[string(key)] = struct{}{}
-		value, err := cbor.Encode(entry.Stake)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"DRep stake distribution: encoding stake: %w",
-				err,
-			)
-		}
 		encoded = append(encoded, encodedEntry{
 			key:        key,
-			value:      value,
-			drepType:   entry.Drep.Type,
-			credential: entry.Drep.Credential,
+			value:      entry.value,
+			drepType:   entry.drep.Type,
+			credential: entry.drep.Credential,
 		})
 	}
-	// cardano-ledger walks Map DRep Coin in Haskell's derived Ord order over
-	// DRep's constructors, which runs DRepKeyHash, DRepScriptHash,
+	// cardano-ledger walks a Map keyed by DRep in Haskell's derived Ord order
+	// over DRep's constructors, which runs DRepKeyHash, DRepScriptHash,
 	// DRepAlwaysAbstain, DRepAlwaysNoConfidence: the same sequence as the
 	// type numbers, with the credential compared bytewise within a type.
 	// Sorting by the encoded key instead would put the one-element arrays

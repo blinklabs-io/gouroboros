@@ -83,13 +83,18 @@ type Client struct {
 	waitingForCurrentTipChan chan chan<- Tip
 	wantCurrentTipChan       chan chan<- Tip
 	wantFirstBlockChan       chan chan<- clientPointResult
-	wantIntersectFoundChan   chan chan<- clientPointResult
+	wantIntersectFoundChan   chan intersectRequest
 }
 
 type clientPointResult struct {
 	tip   Tip
 	point pcommon.Point
 	error error
+}
+
+type intersectRequest struct {
+	points     []pcommon.Point
+	resultChan chan<- clientPointResult
 }
 
 // NewClient returns a new ChainSync client object
@@ -151,7 +156,7 @@ func (c *Client) initProtocol() {
 	c.waitingForCurrentTipChan = make(chan chan<- Tip, 20)
 	c.wantCurrentTipChan = make(chan chan<- Tip, 1)
 	c.wantFirstBlockChan = make(chan chan<- clientPointResult, 1)
-	c.wantIntersectFoundChan = make(chan chan<- clientPointResult, 1)
+	c.wantIntersectFoundChan = make(chan intersectRequest, 1)
 
 	// Select base state map based on protocol mode.
 	// Default to NtC (matching ProtocolId/CBOR defaults above) so that
@@ -205,6 +210,20 @@ func (c *Client) initProtocol() {
 	c.Protocol = p
 	c.protocolStarted = false
 	c.protocolMu.Unlock()
+}
+
+func (c *Client) startPipelineStopWatcher(p *protocol.Protocol) {
+	if c.config.Pipeline != nil {
+		fenceCtx := c.awaitReplyCtx
+		fenceCancel := c.awaitReplyCancel
+		go func() {
+			select {
+			case <-p.StopChan():
+				fenceCancel()
+			case <-fenceCtx.Done():
+			}
+		}()
+	}
 }
 
 func (c *Client) ProtocolInstance() *protocol.Protocol {
@@ -329,6 +348,7 @@ func (c *Client) Start() {
 				return
 			}
 			proto.Start()
+			c.startPipelineStopWatcher(proto)
 			c.protocolStarted = true
 			c.lifecycleState = clientStateRunning
 			if c.startingDone == ch {
@@ -777,8 +797,9 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 			)
 	}
 
-	intersectResultChan, cancel := c.wantIntersectFound()
-	msgFindIntersect := NewMsgFindIntersect(intersectPoints)
+	offeredPoints := clonePoints(intersectPoints)
+	intersectResultChan, cancel := c.wantIntersectFound(offeredPoints)
+	msgFindIntersect := NewMsgFindIntersect(offeredPoints)
 	if err := proto.SendMessage(msgFindIntersect); err != nil {
 		cancel()
 		return err
@@ -962,13 +983,19 @@ func (c *Client) wantFirstBlock() (<-chan clientPointResult, func()) {
 
 // wantIntersectFound returns a channel that will receive the result of the next intersect request,
 // and a function that can be used to clear the channel if sending the request message fails.
-func (c *Client) wantIntersectFound() (<-chan clientPointResult, func()) {
+func (c *Client) wantIntersectFound(
+	points []pcommon.Point,
+) (<-chan clientPointResult, func()) {
 	ch := make(chan clientPointResult, 1)
+	request := intersectRequest{
+		points:     points,
+		resultChan: ch,
+	}
 
 	select {
 	case <-c.DoneChan():
 		return nil, func() {}
-	case c.wantIntersectFoundChan <- ch:
+	case c.wantIntersectFoundChan <- request:
 		return ch, func() {
 			select {
 			case <-c.wantIntersectFoundChan:
@@ -978,11 +1005,29 @@ func (c *Client) wantIntersectFound() (<-chan clientPointResult, func()) {
 	}
 }
 
+func clonePoints(points []pcommon.Point) []pcommon.Point {
+	ret := make([]pcommon.Point, len(points))
+	for i, point := range points {
+		ret[i] = pcommon.NewPoint(point.Slot, bytes.Clone(point.Hash))
+	}
+	return ret
+}
+
+func pointWasOffered(points []pcommon.Point, point pcommon.Point) bool {
+	for _, offered := range points {
+		if offered.Slot == point.Slot && bytes.Equal(offered.Hash, point.Hash) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Client) requestFindIntersect(
 	intersectPoints []pcommon.Point,
 ) clientPointResult {
-	resultChan, cancel := c.wantIntersectFound()
-	msg := NewMsgFindIntersect(intersectPoints)
+	offeredPoints := clonePoints(intersectPoints)
+	resultChan, cancel := c.wantIntersectFound(offeredPoints)
+	msg := NewMsgFindIntersect(offeredPoints)
 	if err := c.SendMessage(msg); err != nil {
 		cancel()
 		return clientPointResult{error: err}
@@ -1069,6 +1114,10 @@ func (c *Client) handlePipelineFenceError(
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
+	if c.config != nil && c.config.Pipeline != nil &&
+		!c.config.Pipeline.ValidatesPeerBlocks() {
+		return ErrPipelineValidationRequired
+	}
 	c.Protocol.Logger().
 		Debug("roll forward",
 			"component", "network",
@@ -1177,19 +1226,15 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		// NOTE: RollBackward handling coordinates with the pipeline via WaitForDrain()
 		// to ensure pending blocks are processed before the rollback callback runs.
 		if c.config.Pipeline != nil && firstBlockChan == nil {
-			// Create a context that cancels when the protocol shuts down.
-			// This prevents Submit from blocking indefinitely if the pipeline is
-			// full (backpressure) and DoneChan fires before pipeline.Stop().
-			ctx, cancel := context.WithCancel(context.Background())
-			go func() {
-				select {
-				case <-c.DoneChan():
-					cancel()
-				case <-ctx.Done():
-				}
-			}()
-			err := c.config.Pipeline.Submit(ctx, msg.BlockType(), msg.BlockCbor(), msg.Tip)
-			cancel() // Ensure goroutine exits promptly
+			c.lifecycleMutex.Lock()
+			fenceCtx := c.awaitReplyCtx
+			c.lifecycleMutex.Unlock()
+			err := c.config.Pipeline.Submit(
+				fenceCtx,
+				msg.BlockType(),
+				msg.BlockCbor(),
+				msg.Tip,
+			)
 			if err != nil {
 				// Signal syncLoop to stop on pipeline error
 				c.lifecycleMutex.Lock()
@@ -1200,9 +1245,23 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 					}
 				}
 				c.lifecycleMutex.Unlock()
-				return err
+				return c.handlePipelineFenceError(fenceCtx, err)
 			}
-			// Signal ready for next block immediately (pipeline handles backpressure)
+			// Do not advance ChainSync until the ordered validation and apply
+			// boundary accepts this block.
+			err = c.config.Pipeline.Fence(fenceCtx)
+			if err != nil {
+				c.lifecycleMutex.Lock()
+				if c.readyForNextBlockChan != nil {
+					select {
+					case c.readyForNextBlockChan <- false:
+					case <-c.DoneChan():
+					}
+				}
+				c.lifecycleMutex.Unlock()
+				return c.handlePipelineFenceError(fenceCtx, err)
+			}
+			// Signal ready only after ordered acceptance.
 			c.lifecycleMutex.Lock()
 			if c.readyForNextBlockChan != nil {
 				select {
@@ -1393,6 +1452,23 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgIntersectFound := msg.(*MsgIntersectFound)
+	var request intersectRequest
+	select {
+	case request = <-c.wantIntersectFoundChan:
+	default:
+		return fmt.Errorf(
+			"%s: received IntersectFound without a pending FindIntersect request",
+			ProtocolName,
+		)
+	}
+	if !pointWasOffered(request.points, msgIntersectFound.Point) {
+		err := fmt.Errorf(
+			"%s: received IntersectFound point that was not offered",
+			ProtocolName,
+		)
+		request.resultChan <- clientPointResult{error: err}
+		return err
+	}
 	c.sendCurrentTip(msgIntersectFound.Tip)
 	if c.config != nil && c.config.IntersectFoundFunc != nil {
 		if err := c.config.IntersectFoundFunc(
@@ -1404,10 +1480,9 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 		}
 	}
 
-	select {
-	case ch := <-c.wantIntersectFoundChan:
-		ch <- clientPointResult{tip: msgIntersectFound.Tip, point: msgIntersectFound.Point}
-	default:
+	request.resultChan <- clientPointResult{
+		tip:   msgIntersectFound.Tip,
+		point: msgIntersectFound.Point,
 	}
 	return nil
 }
@@ -1424,8 +1499,11 @@ func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) {
 	c.sendCurrentTip(msgIntersectNotFound.Tip)
 
 	select {
-	case ch := <-c.wantIntersectFoundChan:
-		ch <- clientPointResult{tip: msgIntersectNotFound.Tip, error: ErrIntersectNotFound}
+	case request := <-c.wantIntersectFoundChan:
+		request.resultChan <- clientPointResult{
+			tip:   msgIntersectNotFound.Tip,
+			error: ErrIntersectNotFound,
+		}
 	default:
 	}
 }

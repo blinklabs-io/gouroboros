@@ -104,4 +104,22 @@ func TestUtxoValidatePlutusScriptsUsesDeclaredBudget(t *testing.T) {
 		state,
 		pp,
 	))
+
+	declaredInvalidFailure := newTx(common.ExUnits{})
+	declaredInvalidFailure.TxIsValid = false
+	require.NoError(t, conway.UtxoValidatePlutusScripts(
+		declaredInvalidFailure,
+		0,
+		state,
+		pp,
+	))
+	declaredInvalidSuccess := newTx(defaultBudget)
+	declaredInvalidSuccess.TxIsValid = false
+	var unexpectedSuccess common.UnexpectedPlutusScriptSuccessError
+	require.ErrorAs(t, conway.UtxoValidatePlutusScripts(
+		declaredInvalidSuccess,
+		0,
+		state,
+		pp,
+	), &unexpectedSuccess)
 }

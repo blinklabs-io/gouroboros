@@ -26,7 +26,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/testdata"
-	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -34,12 +34,61 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const chainSyncTestShelleyEta0 = "829749cb2701843214ae3aee67ae12ec9bdb3502e060ac0b75275d0f52af349c"
+
+func validatedPipelineOptions(
+	t *testing.T,
+	apply pipeline.ApplyFunc,
+) []pipeline.PipelineOption {
+	t.Helper()
+	verifyConfig, err := testdata.ShelleyVerifyConfig()
+	require.NoError(t, err)
+	return []pipeline.PipelineOption{
+		pipeline.WithDecodeWorkers(1),
+		pipeline.WithValidateWorkers(1),
+		pipeline.WithBlockTypeResolver(
+			func(context.Context, []byte) (uint, error) {
+				return chainSyncShelleyBlock(t).BlockType, nil
+			},
+		),
+		pipeline.WithEta0(chainSyncTestShelleyEta0),
+		pipeline.WithSlotsPerKesPeriod(129600),
+		pipeline.WithVerifyConfig(verifyConfig),
+		pipeline.WithVerifyConfigProvider(
+			func(context.Context, *pipeline.BlockItem) (lcommon.VerifyConfig, error) {
+				return verifyConfig, nil
+			},
+		),
+		pipeline.WithChainContextValidator(
+			func(context.Context, *pipeline.BlockItem) error { return nil },
+		),
+		pipeline.WithApplyFunc(apply),
+	}
+}
+
+func chainSyncShelleyBlock(t *testing.T) testdata.TestBlock {
+	t.Helper()
+	for _, block := range testdata.GetTestBlocks() {
+		if block.Name == "Shelley" {
+			return block
+		}
+	}
+	t.Fatal("Shelley test block not found")
+	return testdata.TestBlock{}
+}
+
 func TestExactTipCallbacksExposeIntersectionBeforeAwaitReply(t *testing.T) {
 	intersect := pcommon.NewPoint(100, testPointHash(0x01))
-	tip := Tip{Point: pcommon.NewPoint(100, testPointHash(0x02)), BlockNumber: 10}
+	tip := Tip{
+		Point:       pcommon.NewPoint(100, testPointHash(0x02)),
+		BlockNumber: 10,
+	}
 	var callbacks []string
 	client := NewClient(
-		protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+		protocol.ProtocolOptions{
+			ConnectionId: testConnectionId(),
+			Mode:         protocol.ProtocolModeNodeToClient,
+		},
 		&Config{
 			IntersectFoundFunc: func(
 				_ CallbackContext,
@@ -57,11 +106,14 @@ func TestExactTipCallbacksExposeIntersectionBeforeAwaitReply(t *testing.T) {
 			},
 		},
 	)
+	resultChan, cancel := client.wantIntersectFound([]pcommon.Point{intersect})
+	defer cancel()
 
 	require.NoError(
 		t,
 		client.handleIntersectFound(NewMsgIntersectFound(intersect, tip)),
 	)
+	require.Equal(t, intersect, (<-resultChan).point)
 	require.NoError(t, client.handleAwaitReply())
 	require.Equal(t, []string{"intersect", "await"}, callbacks)
 }
@@ -70,7 +122,10 @@ func TestAtTipCallbackErrorsPropagate(t *testing.T) {
 	awaitReplyErr := errors.New("await reply callback failed")
 	intersectFoundErr := errors.New("intersect found callback failed")
 	intersect := pcommon.NewPoint(100, testPointHash(0x01))
-	tip := Tip{Point: pcommon.NewPoint(100, testPointHash(0x02)), BlockNumber: 10}
+	tip := Tip{
+		Point:       pcommon.NewPoint(100, testPointHash(0x02)),
+		BlockNumber: 10,
+	}
 
 	t.Run("await reply", func(t *testing.T) {
 		client := NewClient(
@@ -101,12 +156,123 @@ func TestAtTipCallbackErrorsPropagate(t *testing.T) {
 				},
 			},
 		)
+		_, cancel := client.wantIntersectFound([]pcommon.Point{intersect})
+		defer cancel()
 		require.ErrorIs(
 			t,
 			client.messageHandler(NewMsgIntersectFound(intersect, tip)),
 			intersectFoundErr,
 		)
 	})
+}
+
+func TestIntersectFoundValidatesOfferedPoint(t *testing.T) {
+	concrete := pcommon.NewPoint(100, testPointHash(0x01))
+	tip := Tip{
+		Point:       pcommon.NewPoint(200, testPointHash(0x02)),
+		BlockNumber: 20,
+	}
+	tests := []struct {
+		name    string
+		offered []pcommon.Point
+		reply   pcommon.Point
+		wantErr bool
+	}{
+		{
+			name:    "offered concrete point",
+			offered: []pcommon.Point{concrete},
+			reply:   concrete,
+		},
+		{
+			name:    "offered origin",
+			offered: []pcommon.Point{pcommon.NewPointOrigin()},
+			reply:   pcommon.NewPointOrigin(),
+		},
+		{
+			name:    "same slot with different hash",
+			offered: []pcommon.Point{concrete},
+			reply:   pcommon.NewPoint(concrete.Slot, testPointHash(0x03)),
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			callbackCalled := false
+			client := NewClient(
+				protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+				&Config{
+					IntersectFoundFunc: func(
+						CallbackContext,
+						pcommon.Point,
+						Tip,
+					) error {
+						callbackCalled = true
+						return nil
+					},
+				},
+			)
+			tipChan, cancelTip := client.wantCurrentTip()
+			defer cancelTip()
+			resultChan, cancelIntersect := client.wantIntersectFound(
+				test.offered,
+			)
+			defer cancelIntersect()
+
+			err := client.handleIntersectFound(
+				NewMsgIntersectFound(test.reply, tip),
+			)
+			result := <-resultChan
+			if test.wantErr {
+				require.ErrorContains(t, err, "was not offered")
+				require.ErrorContains(t, result.error, "was not offered")
+				require.False(t, callbackCalled)
+				select {
+				case <-tipChan:
+					t.Fatal("invalid intersection published its tip")
+				default:
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			require.NoError(t, result.error)
+			require.Equal(t, test.reply, result.point)
+			require.Equal(t, tip, <-tipChan)
+			require.True(t, callbackCalled)
+		})
+	}
+}
+
+func TestIntersectFoundRejectsUnsolicitedReply(t *testing.T) {
+	callbackCalled := false
+	client := NewClient(
+		protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+		&Config{
+			IntersectFoundFunc: func(
+				CallbackContext,
+				pcommon.Point,
+				Tip,
+			) error {
+				callbackCalled = true
+				return nil
+			},
+		},
+	)
+	tipChan, cancelTip := client.wantCurrentTip()
+	defer cancelTip()
+
+	err := client.handleIntersectFound(NewMsgIntersectFound(
+		pcommon.NewPointOrigin(),
+		Tip{Point: pcommon.NewPointOrigin()},
+	))
+	require.ErrorContains(t, err, "without a pending FindIntersect request")
+	require.False(t, callbackCalled)
+	select {
+	case <-tipChan:
+		t.Fatal("unsolicited intersection published its tip")
+	default:
+	}
 }
 
 func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
@@ -124,9 +290,9 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 	})
 
 	t.Run("stopped pipeline while running", func(t *testing.T) {
-		p := pipeline.NewBlockPipeline(
-			pipeline.WithValidateWorkers(0),
-		)
+		p := pipeline.NewBlockPipeline(validatedPipelineOptions(
+			t, func(*pipeline.BlockItem) error { return nil },
+		)...)
 		require.NoError(t, p.Start(context.Background()))
 		require.NoError(t, p.Stop())
 		callbackCalled := false
@@ -150,9 +316,9 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 	})
 
 	t.Run("stopped pipeline while stopping", func(t *testing.T) {
-		p := pipeline.NewBlockPipeline(
-			pipeline.WithValidateWorkers(0),
-		)
+		p := pipeline.NewBlockPipeline(validatedPipelineOptions(
+			t, func(*pipeline.BlockItem) error { return nil },
+		)...)
 		require.NoError(t, p.Start(context.Background()))
 		require.NoError(t, p.Stop())
 		callbackCalled := false
@@ -172,9 +338,9 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 	})
 
 	t.Run("stopped pipeline while stopped", func(t *testing.T) {
-		p := pipeline.NewBlockPipeline(
-			pipeline.WithValidateWorkers(0),
-		)
+		p := pipeline.NewBlockPipeline(validatedPipelineOptions(
+			t, func(*pipeline.BlockItem) error { return nil },
+		)...)
 		require.NoError(t, p.Start(context.Background()))
 		require.NoError(t, p.Stop())
 		client := NewClient(
@@ -210,83 +376,179 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 	})
 }
 
-func TestAwaitReplyWaitsForPipelineFence(t *testing.T) {
+func TestRollForwardWaitsForPipelineAcceptance(t *testing.T) {
 	applyStarted := make(chan struct{})
 	releaseApply := make(chan struct{})
 	var releaseOnce sync.Once
 	release := func() {
 		releaseOnce.Do(func() { close(releaseApply) })
 	}
-	p := pipeline.NewBlockPipeline(
-		pipeline.WithDecodeWorkers(1),
-		pipeline.WithValidateWorkers(0),
-		pipeline.WithSkipBodyHashValidation(true),
-		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error {
+	p := pipeline.NewBlockPipeline(validatedPipelineOptions(t,
+		func(*pipeline.BlockItem) error {
 			close(applyStarted)
 			<-releaseApply
 			return nil
-		}),
-	)
+		},
+	)...)
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
 		require.NoError(t, p.Stop())
 	}()
 
-	fenceStarted := make(chan struct{})
-	callbackCalled := make(chan struct{}, 1)
 	client := NewClient(
-		protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+		protocol.ProtocolOptions{
+			ConnectionId: testConnectionId(),
+			Mode:         protocol.ProtocolModeNodeToClient,
+		},
 		&Config{
 			Pipeline: p,
 			RollForwardFunc: func(CallbackContext, uint, any, Tip) error {
 				return nil
 			},
-			AwaitReplyFunc: func(CallbackContext) error {
-				callbackCalled <- struct{}{}
-				return nil
-			},
 		},
 	)
-	client.testAwaitReplyBeforeFence = func() { close(fenceStarted) }
-	blockCbor := testdata.MustDecodeHex(testdata.ConwayBlockHex)
+	shelley := chainSyncShelleyBlock(t)
 	rollForward, err := NewMsgRollForwardNtC(
-		ledger.BlockTypeConway,
-		blockCbor,
+		shelley.BlockType,
+		shelley.Cbor,
 		Tip{},
 	)
 	require.NoError(t, err)
-	require.NoError(t, client.handleRollForward(rollForward))
+	rollForwardDone := make(chan error, 1)
+	go func() { rollForwardDone <- client.handleRollForward(rollForward) }()
 	select {
 	case <-applyStarted:
+	case err := <-rollForwardDone:
+		t.Fatalf("RollForward failed before apply: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("pipeline apply did not start")
 	}
-
-	awaitDone := make(chan error, 1)
-	go func() { awaitDone <- client.handleAwaitReply() }()
 	select {
-	case <-fenceStarted:
-	case <-time.After(time.Second):
-		t.Fatal("AwaitReply did not install its pipeline fence")
-	}
-	select {
-	case <-callbackCalled:
-		t.Fatal("AwaitReply callback ran before the blocked apply completed")
+	case err := <-rollForwardDone:
+		t.Fatalf("RollForward completed before ordered acceptance: %v", err)
 	default:
 	}
 
 	release()
 	select {
-	case err := <-awaitDone:
+	case err := <-rollForwardDone:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("AwaitReply did not finish after the apply completed")
+		t.Fatal("RollForward did not finish after ordered acceptance")
 	}
-	select {
-	case <-callbackCalled:
-	case <-time.After(time.Second):
-		t.Fatal("AwaitReply callback did not run after the pipeline fence")
+}
+
+func TestRollForwardReturnsOrderedValidationFailure(t *testing.T) {
+	applyCalled := false
+	opts := validatedPipelineOptions(t, func(*pipeline.BlockItem) error {
+		applyCalled = true
+		return nil
+	})
+	opts = append(opts, pipeline.WithChainContextValidator(
+		func(context.Context, *pipeline.BlockItem) error {
+			return errors.New("wrong active era")
+		},
+	))
+	p := pipeline.NewBlockPipeline(opts...)
+	require.NoError(t, p.Start(context.Background()))
+	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId: testConnectionId(),
+			Mode:         protocol.ProtocolModeNodeToClient,
+		},
+		&Config{
+			Pipeline: p,
+			RollForwardFunc: func(CallbackContext, uint, any, Tip) error {
+				return nil
+			},
+		},
+	)
+	shelley := chainSyncShelleyBlock(t)
+	rollForward, err := NewMsgRollForwardNtC(
+		shelley.BlockType,
+		shelley.Cbor,
+		Tip{},
+	)
+	require.NoError(t, err)
+	require.ErrorIs(
+		t,
+		client.handleRollForward(rollForward),
+		pipeline.ErrChainContextValidation,
+	)
+	require.False(t, applyCalled)
+}
+
+func TestRollForwardFenceStopsWithClientLifecycle(t *testing.T) {
+	for _, protocolStop := range []bool{false, true} {
+		name := "client lifecycle"
+		if protocolStop {
+			name = "protocol stop"
+		}
+		t.Run(name, func(t *testing.T) {
+			applyStarted := make(chan struct{})
+			releaseApply := make(chan struct{})
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(releaseApply) }) }
+			p := pipeline.NewBlockPipeline(validatedPipelineOptions(t,
+				func(*pipeline.BlockItem) error {
+					close(applyStarted)
+					<-releaseApply
+					return nil
+				},
+			)...)
+			require.NoError(t, p.Start(context.Background()))
+			t.Cleanup(func() {
+				release()
+				require.NoError(t, p.Stop())
+			})
+			client := NewClient(
+				protocol.ProtocolOptions{
+					ConnectionId: testConnectionId(),
+					Mode:         protocol.ProtocolModeNodeToClient,
+				},
+				&Config{
+					Pipeline: p,
+					RollForwardFunc: func(CallbackContext, uint, any, Tip) error {
+						return nil
+					},
+				},
+			)
+			shelley := chainSyncShelleyBlock(t)
+			rollForward, err := NewMsgRollForwardNtC(
+				shelley.BlockType,
+				shelley.Cbor,
+				Tip{},
+			)
+			require.NoError(t, err)
+			done := make(chan error, 1)
+			go func() { done <- client.handleRollForward(rollForward) }()
+			select {
+			case <-applyStarted:
+			case err := <-done:
+				t.Fatalf("RollForward failed before apply: %v", err)
+			case <-time.After(time.Second):
+				t.Fatal("pipeline apply did not start")
+			}
+			if protocolStop {
+				proto := client.ProtocolInstance()
+				client.startPipelineStopWatcher(proto)
+				proto.Stop()
+			} else {
+				client.lifecycleMutex.Lock()
+				client.lifecycleState = clientStateStopping
+				client.awaitReplyCancel()
+				client.lifecycleMutex.Unlock()
+			}
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				t.Fatal("shutdown did not unblock RollForward fence")
+			}
+		})
 	}
 }
 
@@ -298,16 +560,13 @@ func newBlockedApplyPipeline(t *testing.T) *pipeline.BlockPipeline {
 	release := func() {
 		releaseOnce.Do(func() { close(releaseApply) })
 	}
-	p := pipeline.NewBlockPipeline(
-		pipeline.WithDecodeWorkers(1),
-		pipeline.WithValidateWorkers(0),
-		pipeline.WithSkipBodyHashValidation(true),
-		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error {
+	p := pipeline.NewBlockPipeline(validatedPipelineOptions(t,
+		func(*pipeline.BlockItem) error {
 			close(applyStarted)
 			<-releaseApply
 			return nil
-		}),
-	)
+		},
+	)...)
 	require.NoError(t, p.Start(context.Background()))
 	t.Cleanup(func() {
 		release()
@@ -315,12 +574,13 @@ func newBlockedApplyPipeline(t *testing.T) *pipeline.BlockPipeline {
 			t.Errorf("stop pipeline: %v", err)
 		}
 	})
+	shelley := chainSyncShelleyBlock(t)
 	require.NoError(
 		t,
 		p.Submit(
 			context.Background(),
-			uint(ledger.BlockTypeConway),
-			testdata.MustDecodeHex(testdata.ConwayBlockHex),
+			shelley.BlockType,
+			shelley.Cbor,
 			Tip{},
 		),
 	)
@@ -392,16 +652,13 @@ func TestRollBackwardShutdownUsesStopRequestWhileReceiveLoopIsBlocked(
 	releaseApplyFunc := func() {
 		releaseApplyOnce.Do(func() { close(releaseApply) })
 	}
-	p := pipeline.NewBlockPipeline(
-		pipeline.WithDecodeWorkers(1),
-		pipeline.WithValidateWorkers(0),
-		pipeline.WithSkipBodyHashValidation(true),
-		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error {
+	p := pipeline.NewBlockPipeline(validatedPipelineOptions(t,
+		func(*pipeline.BlockItem) error {
 			close(applyStarted)
 			<-releaseApply
 			return nil
-		}),
-	)
+		},
+	)...)
 	require.NoError(t, p.Start(context.Background()))
 	t.Cleanup(func() {
 		releaseApplyFunc()
@@ -470,7 +727,9 @@ func TestRollBackwardShutdownUsesStopRequestWhileReceiveLoopIsBlocked(
 		select {
 		case <-client.DoneChan():
 		case <-time.After(time.Second):
-			t.Error("protocol did not stop after releasing the receive callback")
+			t.Error(
+				"protocol did not stop after releasing the receive callback",
+			)
 		}
 	})
 
@@ -486,10 +745,11 @@ func TestRollBackwardShutdownUsesStopRequestWhileReceiveLoopIsBlocked(
 	case <-time.After(time.Second):
 		t.Fatal("receive loop did not enter the blocked AwaitReply callback")
 	}
+	shelley := chainSyncShelleyBlock(t)
 	require.NoError(t, p.Submit(
 		context.Background(),
-		uint(ledger.BlockTypeConway),
-		testdata.MustDecodeHex(testdata.ConwayBlockHex),
+		shelley.BlockType,
+		shelley.Cbor,
 		Tip{},
 	))
 	select {
@@ -516,8 +776,69 @@ func TestRollBackwardShutdownUsesStopRequestWhileReceiveLoopIsBlocked(
 		select {
 		case <-rollbackDone:
 		case <-time.After(time.Second):
-			t.Fatal("roll-back handler remained blocked after receive loop release")
+			t.Fatal(
+				"roll-back handler remained blocked after receive loop release",
+			)
 		}
-		t.Fatal("roll-back handler waited for DoneChan instead of the stop request")
+		t.Fatal(
+			"roll-back handler waited for DoneChan instead of the stop request",
+		)
+	}
+}
+
+func TestPeerRollForwardRejectsTrustedDecodeOnlyPipeline(t *testing.T) {
+	for _, headerOnly := range []bool{false, true} {
+		name := "trusted decode only"
+		if headerOnly {
+			name = "header only"
+		}
+		t.Run(name, func(t *testing.T) {
+			options := []pipeline.PipelineOption{
+				pipeline.WithTrustedDecodeOnly(),
+			}
+			if headerOnly {
+				options = []pipeline.PipelineOption{
+					pipeline.WithHeaderOnly(), pipeline.WithValidateWorkers(1),
+					pipeline.WithBlockTypeResolver(
+						func(context.Context, []byte) (uint, error) { return chainSyncShelleyBlock(t).BlockType, nil },
+					),
+					pipeline.WithEta0(
+						"829749cb2701843214ae3aee67ae12ec9bdb3502e060ac0b75275d0f52af349c",
+					),
+					pipeline.WithSlotsPerKesPeriod(129600),
+				}
+			}
+			p := pipeline.NewBlockPipeline(options...)
+			require.NoError(t, p.Start(context.Background()))
+			t.Cleanup(func() { require.NoError(t, p.Stop()) })
+			cfg := Config{
+				Pipeline: p,
+				RollForwardFunc: func(CallbackContext, uint, any, Tip) error {
+					t.Fatal("peer block reached callback without validation")
+					return nil
+				},
+			}
+			require.ErrorIs(t, cfg.validate(), ErrPipelineValidationRequired)
+			require.Panics(t, func() { NewConfig(WithPipeline(p)) })
+			client := NewClient(protocol.ProtocolOptions{
+				ConnectionId: testConnectionId(),
+				Mode:         protocol.ProtocolModeNodeToClient,
+			}, &cfg)
+			shelley := chainSyncShelleyBlock(t)
+			msg, err := NewMsgRollForwardNtC(
+				shelley.BlockType,
+				shelley.Cbor,
+				Tip{},
+			)
+			require.NoError(t, err)
+			require.ErrorIs(
+				t,
+				client.handleRollForward(msg),
+				ErrPipelineValidationRequired,
+			)
+			require.Zero(t, p.PendingCount())
+			require.Empty(t, p.DrainResults())
+
+		})
 	}
 }
