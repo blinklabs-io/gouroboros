@@ -535,10 +535,11 @@ for result := range pipeline.Results() {
 ```
 
 Pipeline admission reserves the raw and decoded full block CBOR copies against
-`MaxRawCborBytes` before allocating a `BlockItem`. The charge remains until the
-result consumer calls `BlockItem.Release()`; this includes results waiting in
-the buffered results channel. A zero byte limit selects
-`DefaultMaxRawCborBytes`, and stopping the pipeline retires all remaining
+`MaxRawCborBytes` before allocating a `BlockItem`. The reservation returns when
+the result is delivered, while the consumer retains ownership of its data and
+should call `BlockItem.Release()` when finished to clear the raw and decoded
+CBOR. Results waiting in the buffered channel remain charged. A zero byte limit
+selects `DefaultMaxRawCborBytes`, and stopping the pipeline retires all remaining
 internally owned items and results that shutdown drains.
 
 ## Testing

@@ -1037,3 +1037,56 @@ func TestReadLoopAccountsRetainedCapacityAfterDelivery(t *testing.T) {
 	require.Eventually(t, func() bool { return m.ReadBufferInUse() == 4000 }, time.Second, time.Millisecond)
 	require.Equal(t, 4000, m.ReadBufferInUse())
 }
+
+func TestReadLoopAccountsGrownCapacityAfterDelivery(t *testing.T) {
+	t.Parallel()
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() { m.Stop(); _ = peerConn.Close() })
+	m.RaiseReadBufferBudget(8192)
+	first := append([]byte{0x82, 0, 0x59, 0x03, 0xe3}, bytes.Repeat([]byte{1}, 995)...)
+	secondPrefix := append([]byte{0x82, 0, 0x59, 0x13, 0x83}, bytes.Repeat([]byte{2}, 2995)...)
+	initial := append(first, secondPrefix...)
+	segment := muxer.NewSegment(0, initial, false)
+	require.NotNil(t, segment)
+	p := newBudgetTestProtocol(t, m, "grown-retained", 8192, []*muxer.Segment{segment})
+	p.proto.recvQueueChan = make(chan Message, 1)
+	decodeStarted := make(chan struct{})
+	finishDecode := make(chan struct{})
+	decodeCount := 0
+	p.proto.config.MessageFromCborFunc = func(uint, []byte) (Message, error) {
+		decodeCount++
+		if decodeCount == 2 {
+			close(decodeStarted)
+			<-finishDecode
+		}
+		return &MessageBase{}, nil
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); p.proto.readLoop() }()
+	t.Cleanup(func() {
+		close(p.proto.stopChan)
+		close(finishDecode)
+		<-done
+	})
+	select {
+	case <-p.proto.recvQueueChan:
+	case err := <-p.errorChan:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("first message was not delivered")
+	}
+	// The second message now retains 3000 bytes in a 4000-byte allocation.
+	// Appending its remaining 2000 bytes grows the backing allocation to 8000.
+	tail := muxer.NewSegment(0, bytes.Repeat([]byte{3}, 2000), false)
+	require.NotNil(t, tail)
+	p.proto.muxerRecvChan <- tail
+	select {
+	case <-decodeStarted:
+	case err := <-p.errorChan:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("completed second message was not decoded")
+	}
+	require.Equal(t, 8000, m.ReadBufferInUse(), "reservation must include grown backing capacity")
+}

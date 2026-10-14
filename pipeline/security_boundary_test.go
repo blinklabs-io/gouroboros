@@ -547,15 +547,28 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 		p.errorsChan,
 		0,
 	)
+	delivered := make(map[uint64]bool, rejectedSequence)
+	p.applyRunner.setDeliveredFunc(func(item *BlockItem) {
+		delivered[item.SequenceNumber()] = true
+		p.markItemDelivered(item)
+	})
 	p.applyRunner.setFatalErrorFunc(p.setFatalError)
 	p.applyRunner.setFatalFunc(p.cancel)
 	p.applyRunner.Start(p.ctx)
 	p.started.Store(true)
+	items := make(map[uint64]*BlockItem, rejectedSequence+1)
+	for sequence := uint64(0); sequence <= rejectedSequence; sequence++ {
+		item := NewBlockItem(0, []byte{0x80}, createTestTip(sequence, sequence), sequence)
+		item.SetValidation(true, "", nil, 0)
+		p.trackItem(item, 1)
+		items[sequence] = item
+	}
+	p.rawBytesInUse = uint64(len(items))
 
 	for sequence := uint64(1); sequence <= rejectedSequence; sequence++ {
-		p.decodedChan <- newValidatedSecurityTestItem(sequence)
+		p.decodedChan <- items[sequence]
 	}
-	p.decodedChan <- newValidatedSecurityTestItem(0)
+	p.decodedChan <- items[0]
 	select {
 	case <-p.ctx.Done():
 	case <-time.After(time.Second):
@@ -570,6 +583,14 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Stop remained blocked on undelivered committed results")
 	}
+	for sequence := uint64(0); sequence < rejectedSequence; sequence++ {
+		require.True(t, delivered[sequence], "fatal committed result %d must be marked delivered", sequence)
+		require.Nil(t, items[sequence].RawCbor(), "Stop clears undelivered result data")
+	}
+	require.Nil(t, items[rejectedSequence].RawCbor(), "rejected item remains pipeline-owned")
+	p.rawBudgetMu.Lock()
+	require.Zero(t, p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
 }
 
 func TestBufferedRejectionRecordsExactApplyMetrics(t *testing.T) {

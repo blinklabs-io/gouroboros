@@ -60,8 +60,9 @@ type PipelineConfig struct {
 	// flight to occupy the missing earliest position. Default is 2160 (Cardano
 	// security parameter k); zero disables the limit.
 	MaxPendingBlocks int
-	// MaxRawCborBytes limits the full block CBOR copies retained by the pipeline
-	// and by delivered results until their consumers call BlockItem.Release.
+	// MaxRawCborBytes limits full block CBOR copies retained by the pipeline.
+	// Admission reservations return on result delivery; callers own delivered
+	// results and should call BlockItem.Release when finished with their data.
 	// Zero selects DefaultMaxRawCborBytes.
 	MaxRawCborBytes uint64
 	// Eta0Provider dynamically provides the epoch nonce for each block's slot.
@@ -224,7 +225,7 @@ func WithMaxPendingBlocks(n int) PipelineOption {
 }
 
 // WithMaxRawCborBytes sets the aggregate retained block CBOR byte budget.
-// Delivered results remain charged until BlockItem.Release. Zero selects
+// Admission reservations return when results are delivered. Zero selects
 // DefaultMaxRawCborBytes.
 func WithMaxRawCborBytes(maxBytes uint64) PipelineOption {
 	return func(c *PipelineConfig) {

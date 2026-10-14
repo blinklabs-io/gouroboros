@@ -376,9 +376,7 @@ func (p *BlockPipeline) trackItem(item *BlockItem, retainedBytes uint64) {
 }
 
 func (p *BlockPipeline) markItemDelivered(item *BlockItem) {
-	p.activeItemsMu.Lock()
-	delete(p.activeItems, item)
-	p.activeItemsMu.Unlock()
+	item.releaseBudget()
 }
 
 func (p *BlockPipeline) releaseActiveItems() {
@@ -790,9 +788,9 @@ func (p *BlockPipeline) markProcessed(sequence uint64) {
 	p.completionMu.Unlock()
 }
 
-// Results returns a channel of successfully processed block items. Consumers
-// must call Release on every received item after use. Until Release, the item
-// retains its raw and decoded CBOR and remains charged to MaxRawCborBytes.
+// Results returns a channel of successfully processed block items. Delivery
+// returns the item's MaxRawCborBytes reservation while preserving its data.
+// Consumers should call Release after use to clear the raw and decoded CBOR.
 // If the pipeline has not been started, it returns a closed channel. Results
 // are observational: Stop may consume undelivered notifications while waiting
 // for the apply runner. Callers that need every notification must receive them
