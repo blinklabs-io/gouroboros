@@ -215,29 +215,51 @@ func TestIngressBackpressurePanicIsContained(t *testing.T) {
 	requireMuxerStops(t, m)
 }
 
+// unreadBytes returns how many bytes of conn's input the muxer has not read.
+func unreadBytes(conn *mockConn) int {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	return conn.readBuf.Len()
+}
+
 // TestIngressBackpressurePanicDuringStop checks that stopping the muxer while
 // the read loop waits under backpressure completes when the backpressure
 // callback, which reports that wait as the read loop exits, panics.
 func TestIngressBackpressurePanicDuringStop(t *testing.T) {
+	const (
+		segments = 40
+		payload  = "0123456789"
+		limit    = 100
+	)
 	conn := newMockConn()
 	m := muxer.New(conn)
 	t.Cleanup(m.Stop)
 	metrics := &panicMetrics{backpressure: true}
 	m.SetMetrics(metrics)
-	_, _, _ = m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
-	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 100))
+	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, limit))
 	require.True(
 		t,
 		m.SetIngressBackpressure(0x01, muxer.ProtocolRoleResponder, true),
 	)
 	m.Start()
 
-	// Nothing drains the protocol, so the read loop waits for room.
-	writePanicTestSegments(t, conn, 40, "0123456789")
+	// Nothing drains the protocol. The receive channel, the segment its
+	// forwarder holds and a full queue take the first segments, and the read
+	// loop then waits for room with the next one in hand.
+	seg := muxer.NewSegment(0x01, []byte(payload), false)
+	require.NotNil(t, seg)
+	wireLen := len(createSegmentData(seg))
+	admitted := cap(recvChan) + 1 + limit/len(payload)
+	writePanicTestSegments(t, conn, segments, payload)
 	require.Eventually(t, func() bool {
-		_, maxDepth, _ := metrics.snapshot()
-		return maxDepth == 100
-	}, 2*time.Second, time.Millisecond, "queue did not fill to its limit")
+		return unreadBytes(conn) == (segments-admitted-1)*wireLen
+	}, 2*time.Second, time.Millisecond, "read loop did not reach the wait")
+	// The read loop reads nothing more while it waits. Give it a moment to
+	// enter the wait it is about to make.
+	<-time.After(50 * time.Millisecond)
+	require.Equal(t, (segments-admitted-1)*wireLen, unreadBytes(conn))
+
 	requireMuxerStops(t, m)
 	require.Eventually(t, func() bool {
 		return len(metrics.backpressureWaits()) > 0
