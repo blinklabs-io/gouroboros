@@ -929,7 +929,7 @@ func (n *NativeScript) Item() any {
 }
 
 func (n *NativeScript) UnmarshalCBOR(data []byte) error {
-	n.SetCbor(data)
+	n.SetCborReference(data)
 	id, err := cbor.DecodeIdFromList(data)
 	if err != nil {
 		return err

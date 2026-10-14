@@ -173,6 +173,41 @@ func TestNativeScriptHash(t *testing.T) {
 	assert.Equal(t, expectedScriptHash, tmpHash.String())
 }
 
+func TestNestedNativeScriptRetainsSingleCborBuffer(t *testing.T) {
+	const depth = 128
+	wire := append(
+		[]byte{0x82, 0x00, 0x58, common.Blake2b224Size},
+		make([]byte, common.Blake2b224Size)...,
+	)
+	for range depth {
+		wire = append([]byte{0x82, 0x01, 0x81}, wire...)
+	}
+
+	var script common.NativeScript
+	require.NoError(t, script.UnmarshalCBOR(wire))
+	rootScript := script
+	rootCbor := script.Cbor()
+	for level := range depth + 1 {
+		raw := script.Cbor()
+		offset := level * 3
+		require.Equal(t, rootCbor[offset:], raw)
+		require.Same(t, &rootCbor[offset], &raw[0])
+		if level == depth {
+			_, ok := script.Item().(*common.NativeScriptPubkey)
+			require.True(t, ok)
+			break
+		}
+		all, ok := script.Item().(*common.NativeScriptAll)
+		require.True(t, ok)
+		require.Len(t, all.Scripts, 1)
+		script = all.Scripts[0]
+	}
+
+	roundTrip, err := cbor.Encode(rootScript)
+	require.NoError(t, err)
+	require.Equal(t, wire, roundTrip)
+}
+
 func TestNativeScriptDecodeRejectsExtraFields(t *testing.T) {
 	raw, err := cbor.Encode([]any{
 		uint(0),
