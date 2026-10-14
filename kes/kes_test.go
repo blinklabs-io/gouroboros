@@ -180,14 +180,18 @@ func TestPublicKeyExtraction(t *testing.T) {
 }
 
 func TestPublicKeyExtractionWithoutCache(t *testing.T) {
-	sk, pk, err := KeyGen(0, testSeed)
-	require.NoError(t, err)
-	legacyKey := &SecretKey{
-		Depth: 0,
-		Data:  append([]byte(nil), sk.Data...),
-	}
+	for _, depth := range []uint64{0, CardanoKesDepth} {
+		t.Run(fmt.Sprintf("depth_%d", depth), func(t *testing.T) {
+			sk, pk, err := KeyGen(depth, testSeed)
+			require.NoError(t, err)
+			legacyKey := &SecretKey{
+				Depth: depth,
+				Data:  append([]byte(nil), sk.Data...),
+			}
 
-	require.Equal(t, pk, PublicKey(legacyKey))
+			require.Equal(t, pk, PublicKey(legacyKey))
+		})
+	}
 }
 
 func TestPublicKeyAfterUpdate(t *testing.T) {
