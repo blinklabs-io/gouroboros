@@ -90,10 +90,18 @@ func (rs *RewardService) ValidateRewardDistribution(
 	actualRewards map[AddrKeyHash]uint64,
 ) error {
 	expectedAllocations := make(map[AddrKeyHash]uint64)
-	for _, poolRewards := range expectedRewards.PoolRewards {
-		expectedAllocations[poolRewards.OperatorRewardAccount] += poolRewards.OperatorRewards
-		for recipient, reward := range poolRewards.DelegatorRewards {
+	addAllocation := func(recipient AddrKeyHash, reward uint64) {
+		if reward > 0 {
 			expectedAllocations[recipient] += reward
+		}
+	}
+	for _, poolRewards := range expectedRewards.PoolRewards {
+		addAllocation(
+			poolRewards.OperatorRewardAccount,
+			poolRewards.OperatorRewards,
+		)
+		for recipient, reward := range poolRewards.DelegatorRewards {
+			addAllocation(recipient, reward)
 		}
 	}
 

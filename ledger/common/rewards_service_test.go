@@ -123,3 +123,25 @@ func TestValidateRewardDistributionAggregatesSharedRecipients(t *testing.T) {
 		),
 	)
 }
+
+func TestValidateRewardDistributionOmitsZeroAllocations(t *testing.T) {
+	recipient := AddrKeyHash{1}
+	expected := &RewardCalculationResult{
+		PoolRewards: map[PoolKeyHash]PoolRewards{
+			{9}: {
+				OperatorRewardAccount: recipient,
+				DelegatorRewards: map[AddrKeyHash]uint64{
+					recipient: 0,
+				},
+			},
+		},
+	}
+
+	require.NoError(
+		t,
+		(&RewardService{}).ValidateRewardDistribution(
+			expected,
+			map[AddrKeyHash]uint64{},
+		),
+	)
+}
