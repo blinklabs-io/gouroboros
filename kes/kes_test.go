@@ -602,6 +602,7 @@ func TestSecretKeyOperationsRejectUnsupportedDepth(t *testing.T) {
 		t.Run(fmt.Sprintf("depth_%d", depth), func(t *testing.T) {
 			t.Parallel()
 			sk := &SecretKey{Depth: depth, Data: make([]byte, SeedSize)}
+			before := append([]byte(nil), sk.Data...)
 			require.NotPanics(t, func() {
 				_, err := Sign(sk, 0, []byte("message"))
 				require.Error(t, err)
@@ -610,6 +611,7 @@ func TestSecretKeyOperationsRejectUnsupportedDepth(t *testing.T) {
 				_, err := Update(sk)
 				require.Error(t, err)
 			})
+			require.Equal(t, before, sk.Data)
 			require.NotPanics(t, func() {
 				require.Nil(t, PublicKey(sk))
 			})
