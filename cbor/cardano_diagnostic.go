@@ -734,11 +734,19 @@ func (w *cardanoWriter) writeNativeScript(n *DiagnosticNode, depth int) {
 		}
 	default:
 		// Unknown — fall back to raw rendering of trailing fields.
-		for i := 1; i < len(n.Children); i++ {
-			if i > 1 {
+		fields := max(len(n.Children)-1, 0)
+		limit := w.itemLimit(fields)
+		for i := range limit {
+			if i > 0 {
 				w.b.WriteString(", ")
 			}
-			w.writeValue(&n.Children[i], depth+1)
+			w.writeValue(&n.Children[i+1], depth+1)
+		}
+		if limit < fields {
+			if limit > 0 {
+				w.b.WriteString(", ")
+			}
+			w.b.WriteString("...")
 		}
 	}
 	w.b.WriteString(")")

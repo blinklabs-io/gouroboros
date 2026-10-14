@@ -314,6 +314,44 @@ func TestFormatCardanoNativeScriptHonorsMaxArrayItems(t *testing.T) {
 	requireItemsElided(t, out)
 }
 
+// TestFormatCardanoNativeScriptUnknownHonorsMaxArrayItems checks that the
+// raw fallback for an unknown script type stops at MaxArrayItems trailing
+// fields, and renders every field when they fit (#2715).
+func TestFormatCardanoNativeScriptUnknownHonorsMaxArrayItems(t *testing.T) {
+	// [99, h'00', ..., h'13']
+	data := limitTestHex(t, "95"+"1863"+limitTestBytes(20))
+	fields := make([]string, 20)
+	for i := range fields {
+		fields[i] = fmt.Sprintf("h'%02x'", i)
+	}
+	tests := []struct {
+		name     string
+		maxItems int
+		want     []string
+	}{
+		{
+			name:     "elided",
+			maxItems: limitTestItems,
+			want:     append(fields[:limitTestItems:limitTestItems], "..."),
+		},
+		{name: "within limit", maxItems: len(fields), want: fields},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := cbor.FormatNativeScript(
+				data,
+				cbor.DiagnosticOptions{MaxArrayItems: tc.maxItems},
+			)
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				"native_script_unknown_99("+strings.Join(tc.want, ", ")+")",
+				out,
+			)
+		})
+	}
+}
+
 // TestFormatCardanoUnchangedWithinLimits checks that each Cardano formatter
 // renders identically with and without limits when the value fits within
 // them, so labels and layout are preserved (#2712-#2715).
