@@ -13,7 +13,7 @@ go test -bench=BenchmarkConsensusThreshold -benchmem ./internal/bench/...
 
 # Compare two runs with the repository-pinned tool
 go test -bench=. -benchmem -count=5 ./internal/bench/... | tee new.txt
-go tool benchstat old.txt new.txt
+go tool -modfile=tools/go.mod benchstat old.txt new.txt
 ```
 
 ## Package Structure
@@ -170,7 +170,7 @@ go test -bench=. -benchmem -count=5 ./internal/bench/... | tee baseline.txt
 go test -bench=. -benchmem -count=5 ./internal/bench/... | tee new.txt
 
 # Compare results with the repository-pinned tool
-go tool benchstat baseline.txt new.txt
+go tool -modfile=tools/go.mod benchstat baseline.txt new.txt
 ```
 
 ## Interpreting Results

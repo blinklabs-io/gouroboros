@@ -92,7 +92,7 @@ jobs:
         run: |
           set -o pipefail
           git checkout --quiet --detach "$PR_COMMIT"
-          go tool benchstat base.txt benchmark.txt | tee comparison.txt
+          go tool -modfile=tools/go.mod benchstat base.txt benchmark.txt | tee comparison.txt
 
       - name: Upload benchmark results
         if: github.event_name == 'issue_comment'

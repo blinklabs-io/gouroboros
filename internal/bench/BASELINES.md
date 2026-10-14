@@ -135,7 +135,7 @@ go test -bench=. -benchmem ./ledger/... -run=^$ 2>&1 | tee ledger_bench.txt
 
 ```bash
 # Compare old vs new with the repository-pinned tool
-go tool benchstat old_bench.txt new_bench.txt
+go tool -modfile=tools/go.mod benchstat old_bench.txt new_bench.txt
 ```
 
 ### Generate Memory Profile
