@@ -574,6 +574,13 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("fatal rejection did not cancel the pipeline")
 	}
+	var callerOwned *BlockItem
+	select {
+	case callerOwned = <-p.resultsChan:
+		require.Equal(t, uint64(0), callerOwned.SequenceNumber())
+	case <-time.After(time.Second):
+		t.Fatal("fatal committed prefix did not reach the Results consumer")
+	}
 
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.Stop() }()
@@ -585,7 +592,12 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	}
 	for sequence := uint64(0); sequence < rejectedSequence; sequence++ {
 		require.True(t, delivered[sequence], "fatal committed result %d must be marked delivered", sequence)
-		require.Nil(t, items[sequence].RawCbor(), "Stop clears undelivered result data")
+		if sequence == callerOwned.SequenceNumber() {
+			require.Equal(t, []byte{0x80}, callerOwned.RawCbor(),
+				"Stop must preserve data already received by the caller")
+		} else {
+			require.Nil(t, items[sequence].RawCbor(), "Stop clears undelivered result data")
+		}
 	}
 	require.Nil(t, items[rejectedSequence].RawCbor(), "rejected item remains pipeline-owned")
 	p.rawBudgetMu.Lock()
