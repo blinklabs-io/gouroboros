@@ -176,29 +176,24 @@ type Muxer struct {
 // queue and delivery. A panic in a callback is recovered and that
 // observation is discarded; it does not stop the muxer.
 //
-// IngressQueueDepth and IngressDeliveryBlocked run on, or hold up, the
-// goroutine that delivers to the reported protocol role, and UnregisterProtocol
-// waits for that goroutine to finish. A callback must not synchronously
-// unregister the role it reports, nor wait on anything that does; do that from
-// another goroutine. Other muxer calls, such as registering a protocol or
-// unregistering a different protocol or role, are supported from a callback.
+// Metrics callbacks may call other muxer methods, including RegisterProtocol
+// and UnregisterProtocol. If a callback unregisters a role whose callback is
+// already running, receiver shutdown finishes after those callbacks return.
 type Metrics interface {
 	// IngressQueueDepth reports the segment payload bytes received for a
 	// protocol role and not yet delivered to its receive channel. It is
 	// called with the new depth after every enqueue and every dequeue, one
 	// call at a time per protocol role, so the values arrive in order. It
 	// runs after that queue's lock is released, but the next enqueue or
-	// dequeue waits for it, so an implementation must return promptly. It
-	// must not synchronously unregister the reported protocol role. A depth
-	// that stays near the protocol's IngressLimit means its consumer is not
-	// keeping up.
+	// dequeue waits for it, so an implementation must return promptly. A
+	// depth that stays near the protocol's IngressLimit means its consumer is
+	// not keeping up.
 	IngressQueueDepth(protocolId uint16, protocolRole ProtocolRole, bytes int)
 	// IngressDeliveryBlocked reports how long delivery of one segment to a
 	// protocol role waited for that protocol to make room in its receive
 	// channel. It is called only for deliveries that had to wait. This is
 	// the time a slow consumer holds up its own protocol, and only that
-	// protocol. It runs on the delivery goroutine, so it must not
-	// synchronously unregister the reported protocol role.
+	// protocol. It runs on the delivery goroutine.
 	IngressDeliveryBlocked(
 		protocolId uint16,
 		protocolRole ProtocolRole,
@@ -572,11 +567,18 @@ type segmentChannel struct {
 	depthReports []int
 	closed       bool
 	// reportMu serializes reporting depthReports, which happens outside mu.
-	reportMu      sync.Mutex
+	reportMu sync.Mutex
+	// callbackMu serializes callback admission with shutdown. Once stopping
+	// is set, no new callback begins. A stop called from a callback signals
+	// the forwarder and returns; the forwarder closes ch after all callbacks
+	// have returned.
+	callbackMu    sync.Mutex
+	callbacks     int
+	callbacksDone chan struct{}
+	stopping      bool
 	ch            chan *Segment
 	done          chan struct{}
 	forwarderDone chan struct{}
-	onceStop      sync.Once
 }
 
 func newSegmentChannel(
@@ -664,7 +666,7 @@ func (sc *segmentChannel) reportDepths() {
 		sc.depthReports = sc.depthReports[1:]
 		sc.mu.Unlock()
 		if metrics := sc.metrics(); metrics != nil {
-			callMetrics(func() {
+			sc.callMetrics(func() {
 				metrics.IngressQueueDepth(sc.protocolId, sc.protocolRole, depth)
 			})
 		}
@@ -679,6 +681,25 @@ func callMetrics(report func()) {
 		_ = recover()
 	}()
 	report()
+}
+
+func (sc *segmentChannel) callMetrics(report func()) {
+	sc.callbackMu.Lock()
+	if sc.stopping {
+		sc.callbackMu.Unlock()
+		return
+	}
+	sc.callbacks++
+	sc.callbackMu.Unlock()
+	defer func() {
+		sc.callbackMu.Lock()
+		defer sc.callbackMu.Unlock()
+		sc.callbacks--
+		if sc.stopping && sc.callbacks == 0 {
+			close(sc.callbacksDone)
+		}
+	}()
+	callMetrics(report)
 }
 
 // enqueue appends msg to the queue. Payload past the ingress limit, or past
@@ -696,7 +717,7 @@ func (sc *segmentChannel) enqueue(msg *Segment) error {
 		}
 		if metrics := sc.metrics(); metrics != nil {
 			waited := time.Since(waitStart)
-			callMetrics(func() {
+			sc.callMetrics(func() {
 				metrics.IngressBackpressure(
 					sc.protocolId,
 					sc.protocolRole,
@@ -777,7 +798,28 @@ func (sc *segmentChannel) enqueue(msg *Segment) error {
 // forward drains queue into ch, waiting on the protocol's consumer when ch
 // is full.
 func (sc *segmentChannel) forward() {
-	defer close(sc.forwarderDone)
+	defer func() {
+		sc.callbackMu.Lock()
+		callbacksDone := sc.callbacksDone
+		sc.callbackMu.Unlock()
+		if callbacksDone != nil {
+			<-callbacksDone
+		}
+		sc.mu.Lock()
+		// Segments still queued are never delivered, so their share of the
+		// connection budget is returned here.
+		sc.account.release(sc.pendingBytes)
+		sc.pendingBytes = 0
+		sc.account.extend(-sc.extension)
+		sc.extension = 0
+		sc.queue = nil
+		if sc.ch != nil {
+			close(sc.ch)
+			sc.ch = nil
+		}
+		sc.mu.Unlock()
+		close(sc.forwarderDone)
+	}()
 	for {
 		sc.mu.Lock()
 		for len(sc.queue) == 0 && !sc.closed {
@@ -816,7 +858,7 @@ func (sc *segmentChannel) forward() {
 		}
 		if metrics := sc.metrics(); metrics != nil {
 			waited := time.Since(waitStart)
-			callMetrics(func() {
+			sc.callMetrics(func() {
 				metrics.IngressDeliveryBlocked(
 					sc.protocolId,
 					sc.protocolRole,
@@ -861,26 +903,28 @@ func (s *segmentChannel) stop() {
 	// goroutine that touches ch, and closing from under a pending send
 	// would panic. Unlock before waiting: forward() takes mu itself to
 	// observe closed.
-	s.onceStop.Do(func() {
-		close(s.done)
-	})
+	s.callbackMu.Lock()
+	if s.stopping {
+		callbackActive := s.callbacks > 0
+		s.callbackMu.Unlock()
+		if !callbackActive {
+			<-s.forwarderDone
+		}
+		return
+	}
+	s.stopping = true
+	callbackActive := s.callbacks > 0
+	if callbackActive {
+		s.callbacksDone = make(chan struct{})
+	}
+	s.callbackMu.Unlock()
+	close(s.done)
 	s.mu.Lock()
 	s.closed = true
 	s.cond.Broadcast()
 	s.mu.Unlock()
-	<-s.forwarderDone
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Segments still queued are never delivered, so their share of the
-	// connection budget is returned here.
-	s.account.release(s.pendingBytes)
-	s.pendingBytes = 0
-	s.account.extend(-s.extension)
-	s.extension = 0
-	s.queue = nil
-	if s.ch != nil {
-		close(s.ch)
-		s.ch = nil
+	if !callbackActive {
+		<-s.forwarderDone
 	}
 }
 
@@ -1120,14 +1164,15 @@ func (m *Muxer) UnregisterProtocol(
 	protocolRole ProtocolRole,
 ) {
 	m.protocolReceiversMutex.Lock()
-	defer m.protocolReceiversMutex.Unlock()
 	removed := false
+	var recvChan *segmentChannel
+	var sender *segmentSender
 	// Remove both directions while holding the same lock. This prevents a
 	// concurrent re-registration from observing only half of the old mapping.
 	if protocolRoles, ok := m.protocolReceivers[protocolId]; ok {
-		if recvChan, ok := protocolRoles[protocolRole]; ok {
+		if registered, ok := protocolRoles[protocolRole]; ok {
 			removed = true
-			recvChan.stop()
+			recvChan = registered
 			delete(protocolRoles, protocolRole)
 		}
 		if len(protocolRoles) == 0 {
@@ -1135,9 +1180,9 @@ func (m *Muxer) UnregisterProtocol(
 		}
 	}
 	if protocolRoles, ok := m.protocolSenders[protocolId]; ok {
-		if sender, ok := protocolRoles[protocolRole]; ok {
+		if registered, ok := protocolRoles[protocolRole]; ok {
 			removed = true
-			sender.stop()
+			sender = registered
 			delete(protocolRoles, protocolRole)
 		}
 		if len(protocolRoles) == 0 {
@@ -1149,6 +1194,13 @@ func (m *Muxer) UnregisterProtocol(
 			m.protocolTombstones[protocolId] = make(map[ProtocolRole]struct{})
 		}
 		m.protocolTombstones[protocolId][protocolRole] = struct{}{}
+	}
+	m.protocolReceiversMutex.Unlock()
+	if sender != nil {
+		sender.stop()
+	}
+	if recvChan != nil {
+		recvChan.stop()
 	}
 }
 

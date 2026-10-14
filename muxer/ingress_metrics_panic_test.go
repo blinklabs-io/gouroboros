@@ -394,3 +394,108 @@ func TestIngressQueueDepthMayUnregisterOtherRoles(t *testing.T) {
 	requireMuxerHealthy(t, m)
 	requireMuxerStops(t, m)
 }
+
+type reciprocalUnregisterMetrics struct {
+	fakeMetrics
+	m       *muxer.Muxer
+	mu      sync.Mutex
+	started map[uint16]bool
+	ready   chan uint16
+	release chan struct{}
+	done    chan uint16
+}
+
+func (u *reciprocalUnregisterMetrics) IngressDeliveryBlocked(
+	id uint16,
+	role muxer.ProtocolRole,
+	d time.Duration,
+) {
+	u.fakeMetrics.IngressDeliveryBlocked(id, role, d)
+	if id != 0x01 && id != 0x02 {
+		return
+	}
+	u.mu.Lock()
+	if u.started[id] {
+		u.mu.Unlock()
+		return
+	}
+	u.started[id] = true
+	u.mu.Unlock()
+	u.ready <- id
+	<-u.release
+	other := uint16(0x01)
+	if id == other {
+		other = 0x02
+	}
+	u.m.UnregisterProtocol(other, role)
+	u.done <- id
+}
+
+func TestConcurrentMetricsCallbacksMayUnregisterEachOther(t *testing.T) {
+	conn := newMockConn()
+	m := muxer.New(conn)
+	t.Cleanup(m.Stop)
+	metrics := &reciprocalUnregisterMetrics{
+		m:       m,
+		started: make(map[uint16]bool),
+		ready:   make(chan uint16, 2),
+		release: make(chan struct{}),
+		done:    make(chan uint16, 2),
+	}
+	m.SetMetrics(metrics)
+	receivers := make([]chan *muxer.Segment, 0, 2)
+	for _, id := range []uint16{0x01, 0x02} {
+		_, receiver, _ := m.RegisterProtocol(id, muxer.ProtocolRoleResponder)
+		if receiver == nil {
+			t.Fatal("protocol registration returned no receiver")
+		}
+		receivers = append(receivers, receiver)
+	}
+	m.Start()
+
+	var buf bytes.Buffer
+	for _, id := range []uint16{0x01, 0x02} {
+		for range cap(receivers[0]) + 1 {
+			segment := muxer.NewSegment(id, []byte("payload"), false)
+			require.NotNil(t, segment)
+			buf.Write(createSegmentData(segment))
+		}
+	}
+	conn.WriteToReadBuf(buf.Bytes())
+	require.Eventually(t, func() bool {
+		return len(receivers[0]) == cap(receivers[0]) &&
+			len(receivers[1]) == cap(receivers[1])
+	}, 5*time.Second, time.Millisecond)
+	<-receivers[0]
+	<-receivers[1]
+	for range 2 {
+		select {
+		case <-metrics.ready:
+		case <-time.After(5 * time.Second):
+			t.Fatal("metrics callbacks did not run concurrently")
+		}
+	}
+	close(metrics.release)
+	for range 2 {
+		select {
+		case <-metrics.done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("metrics callbacks deadlocked unregistering each other")
+		}
+	}
+	for _, receiver := range receivers {
+		for {
+			select {
+			case _, ok := <-receiver:
+				if !ok {
+					goto closed
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("unregistered receiver did not close")
+			}
+		}
+	closed:
+	}
+	requireMuxerHealthy(t, m)
+	requireMuxerStops(t, m)
+}
