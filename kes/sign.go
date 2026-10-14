@@ -68,6 +68,26 @@ func secretKeySize(depth uint64) int {
 	return kesEd25519KeySize + int(depth)*96 // #nosec G115
 }
 
+func validateSecretKeyStructure(sk *SecretKey) error {
+	if sk.Depth > MaxDepth {
+		return fmt.Errorf(
+			"depth %d exceeds maximum %d",
+			sk.Depth,
+			MaxDepth,
+		)
+	}
+	expectedSize := secretKeySize(sk.Depth)
+	if len(sk.Data) != expectedSize {
+		return fmt.Errorf(
+			"secret key at depth %d must be %d bytes, got %d",
+			sk.Depth,
+			expectedSize,
+			len(sk.Data),
+		)
+	}
+	return nil
+}
+
 // KeyGen generates a KES keypair from a 32-byte seed.
 // depth: tree depth (6 for Cardano)
 // seed: 32-byte random seed
@@ -207,6 +227,9 @@ func Sign(sk *SecretKey, period uint64, message []byte) ([]byte, error) {
 	if sk.Data == nil {
 		return nil, errors.New("secret key has been erased")
 	}
+	if err := validateSecretKeyStructure(sk); err != nil {
+		return nil, err
+	}
 
 	maxPeriod := uint64(1) << sk.Depth
 	if period >= maxPeriod {
@@ -317,6 +340,9 @@ func Update(sk *SecretKey) (*SecretKey, error) {
 	if sk.Data == nil {
 		return nil, errors.New("secret key has been erased")
 	}
+	if err := validateSecretKeyStructure(sk); err != nil {
+		return nil, err
+	}
 
 	maxPeriod := uint64(1) << sk.Depth
 	newPeriod := sk.Period + 1
@@ -398,6 +424,14 @@ func updateInternal(depth uint64, period uint64, data []byte) error {
 // keys that were created before caching was implemented).
 func PublicKey(sk *SecretKey) []byte {
 	if sk == nil {
+		return nil
+	}
+
+	// Zeroized keys retain their cached, non-secret public key.
+	if sk.Data == nil {
+		return sk.publicKey
+	}
+	if validateSecretKeyStructure(sk) != nil {
 		return nil
 	}
 
