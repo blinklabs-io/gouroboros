@@ -106,23 +106,9 @@ func (b *BlockItem) setReleaseFunc(
 	b.mu.Unlock()
 }
 
-// releaseBudget returns the admission reservation without clearing the result.
-func (b *BlockItem) releaseBudget() {
-	b.mu.Lock()
-	bytes := b.releaseBytes
-	b.releaseBytes = 0
-	releaseFunc := b.releaseFunc
-	b.releaseFunc = nil
-	b.mu.Unlock()
-	if releaseFunc != nil {
-		releaseFunc(bytes)
-	}
-}
-
 // Release retires this result and returns its retained CBOR bytes to the
-// pipeline admission budget if it is still pipeline-owned. Delivery returns
-// the reservation while preserving the result data. It is safe to call more
-// than once. Callers must not use RawCbor or Block after Release.
+// pipeline admission budget. It is safe to call more than once. Callers must
+// not use RawCbor or Block after Release.
 func (b *BlockItem) Release() {
 	b.releaseOnce.Do(func() {
 		b.mu.Lock()

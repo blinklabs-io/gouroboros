@@ -612,6 +612,11 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	}
 	require.Nil(t, rejectedItem.RawCbor(), "rejected item remains pipeline-owned")
 	p.rawBudgetMu.Lock()
+	require.Equal(t, uint64(1), p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+	callerOwned.Release()
+	require.Nil(t, callerOwned.RawCbor())
+	p.rawBudgetMu.Lock()
 	require.Zero(t, p.rawBytesInUse)
 	p.rawBudgetMu.Unlock()
 }

@@ -149,7 +149,7 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 	assert.False(t, item.ReceivedAt().IsZero())
 }
 
-func TestBlockPipelineRawCborBudgetReturnsOnDelivery(t *testing.T) {
+func TestBlockPipelineRawCborBudgetRemainsReservedUntilRelease(t *testing.T) {
 	raw := getValidBlockCbor(t)
 	p := NewBlockPipeline(WithTrustedDecodeOnly(), WithMaxRawCborBytes(2*uint64(len(raw))))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -176,29 +176,27 @@ func TestBlockPipelineRawCborBudgetReturnsOnDelivery(t *testing.T) {
 	first := <-p.Results()
 	require.Equal(t, raw, first.RawCbor())
 	require.NotNil(t, first.Block())
-	require.Eventually(t, func() bool {
-		p.rawBudgetMu.Lock()
-		defer p.rawBudgetMu.Unlock()
-		return p.rawBytesInUse == 0
-	}, time.Second, time.Millisecond)
-	require.NoError(t, p.Submit(
-		ctx,
+
+	blockedCtx, blockedCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer blockedCancel()
+	err = p.Submit(
+		blockedCtx,
 		uint(ledger.BlockTypeConway),
 		raw,
-		createTestTip(1, 1),
-	))
-	second := <-p.Results()
-	require.Equal(t, raw, first.RawCbor(), "delivery must preserve caller-owned result data")
-	require.Equal(t, raw, second.RawCbor())
-	require.Eventually(t, func() bool {
-		p.rawBudgetMu.Lock()
-		defer p.rawBudgetMu.Unlock()
-		return p.rawBytesInUse == 0
-	}, time.Second, time.Millisecond)
+		createTestTip(2, 2),
+	)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	first.Release()
 	first.Release()
 	require.Nil(t, first.RawCbor())
+	require.NoError(t, p.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(2, 2),
+	))
+	second := <-p.Results()
 	second.Release()
 }
 
@@ -219,7 +217,7 @@ func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
 	require.NoError(t, p.Stop())
 	require.NotNil(t, result.RawCbor())
 	p.rawBudgetMu.Lock()
-	require.Zero(t, p.rawBytesInUse)
+	require.Equal(t, uint64(8), p.rawBytesInUse)
 	p.rawBudgetMu.Unlock()
 	result.Release()
 	require.Nil(t, result.RawCbor())

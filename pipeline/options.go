@@ -61,8 +61,8 @@ type PipelineConfig struct {
 	// security parameter k); zero disables the limit.
 	MaxPendingBlocks int
 	// MaxRawCborBytes limits full block CBOR copies retained by the pipeline.
-	// Admission reservations return on result delivery; callers own delivered
-	// results and should call BlockItem.Release when finished with their data.
+	// Callers own delivered results and must call BlockItem.Release when
+	// finished with their data to return their admission reservations.
 	// Zero selects DefaultMaxRawCborBytes.
 	MaxRawCborBytes uint64
 	// Eta0Provider dynamically provides the epoch nonce for each block's slot.
