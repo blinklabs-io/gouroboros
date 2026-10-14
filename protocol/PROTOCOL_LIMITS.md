@@ -98,7 +98,8 @@ Block Fetch below for how a request is sized.
 The muxer reports each queue's depth on every enqueue and dequeue, how long
 each delivery waited for its protocol to take it, and how long the read loop
 paused under backpressure, through the optional `muxer.Metrics` hooks set
-with `Muxer.SetMetrics`.
+with `Muxer.SetMetrics`. The hooks run outside the muxer's queue locks, and a
+panic in one is recovered and its observation discarded.
 
 ## Muxer socket deadlines
 
@@ -107,8 +108,11 @@ write, after acquiring its connection-wide send lock. A deadline-setting error
 is returned without attempting the write. The deadline bounds the socket write,
 not time spent waiting for the send lock or the protocol's outbound queue.
 
-Read deadlines remain independently managed per segment. Connection wrappers
-must preserve those read deadlines and support `SetWriteDeadline`. The muxer
+Read deadlines remain independently managed per segment: before each segment
+read the muxer installs the read deadline, or clears it when the timeout is
+disabled. An error from either stops the muxer before the read; one caused by a
+closed connection is reported as `muxer.ConnectionClosedError`. Connection
+wrappers must preserve those read deadlines and support `SetWriteDeadline`. The muxer
 replaces an existing write deadline; wrappers that enforce a shorter external
 deadline must cap the requested value. Stopping the muxer closes the underlying
 connection to interrupt pending socket operations.
