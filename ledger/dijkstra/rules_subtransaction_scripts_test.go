@@ -585,7 +585,12 @@ func TestVerifyTransactionSubtransactionGuardControls(t *testing.T) {
 					[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
 				)
 				if !test.unsupported {
-					require.NoError(t, err)
+					if txIsValid {
+						require.NoError(t, err)
+					} else {
+						var unexpected common.UnexpectedPlutusScriptSuccessError
+						require.ErrorAs(t, err, &unexpected)
+					}
 					return
 				}
 				var unsupported UnsupportedScriptInSubtransactionError
@@ -633,13 +638,19 @@ func TestVerifyTransactionSubtransactionGuardControls(t *testing.T) {
 					WitnessSet: witnesses,
 					TxIsValid:  txIsValid,
 				}
-				require.NoError(t, common.VerifyTransaction(
+				err := common.VerifyTransaction(
 					tx,
 					0,
 					mockledger.NewLedgerStateBuilder().Build(),
 					dijkstraGuardTestPParams(),
 					[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
-				))
+				)
+				if txIsValid {
+					require.NoError(t, err)
+				} else {
+					var unexpected common.UnexpectedPlutusScriptSuccessError
+					require.ErrorAs(t, err, &unexpected)
+				}
 			})
 		}
 	}

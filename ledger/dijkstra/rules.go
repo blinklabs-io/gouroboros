@@ -2825,11 +2825,8 @@ func UtxoValidatePlutusScripts(
 	); err != nil {
 		return err
 	}
-	if !tx.IsValid() {
-		return nil
-	}
 	_, err = evaluateDijkstraPlutusLevels(levels, available, ls, tmpPparams, nil)
-	return err
+	return common.ValidatePlutusScriptResult(tx, err)
 }
 
 // validateDijkstraPlutusScriptLevels applies the structural script checks

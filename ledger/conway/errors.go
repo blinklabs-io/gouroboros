@@ -114,27 +114,8 @@ func (e ConwayCertificateWithPlutusV1V2Error) Error() string {
 	)
 }
 
-// PlutusScriptFailedError indicates that a Plutus script execution failed
-type PlutusScriptFailedError struct {
-	ScriptHash common.ScriptHash
-	Tag        common.RedeemerTag
-	Index      uint32
-	Err        error
-}
-
-func (e PlutusScriptFailedError) Error() string {
-	return fmt.Sprintf(
-		"plutus script failed (hash=%x, tag=%d, index=%d): %v",
-		e.ScriptHash[:],
-		e.Tag,
-		e.Index,
-		e.Err,
-	)
-}
-
-func (e PlutusScriptFailedError) Unwrap() error {
-	return e.Err
-}
+// PlutusScriptFailedError identifies a failed phase-2 script execution.
+type PlutusScriptFailedError = common.PlutusScriptFailedError
 
 // NativeScriptFailedError indicates that a native (timelock) script evaluation failed
 type NativeScriptFailedError = allegra.NativeScriptFailedError
@@ -143,17 +124,7 @@ type NativeScriptFailedError = allegra.NativeScriptFailedError
 var ErrNativeScriptFailed = allegra.ErrNativeScriptFailed
 
 // ScriptContextConstructionError indicates that the script context could not be built
-type ScriptContextConstructionError struct {
-	Err error
-}
-
-func (e ScriptContextConstructionError) Error() string {
-	return fmt.Sprintf("failed to construct script context: %v", e.Err)
-}
-
-func (e ScriptContextConstructionError) Unwrap() error {
-	return e.Err
-}
+type ScriptContextConstructionError = common.ScriptContextConstructionError
 
 // MissingDatumForSpendingScriptError retains the Conway package error name for
 // callers while sharing its definition across ledger eras.
@@ -165,17 +136,11 @@ type NotAllowedSupplementalDatumsError = common.NotAllowedSupplementalDatumsErro
 
 // ExtraRedeemerError indicates a redeemer exists that doesn't match any valid script purpose
 // (e.g., redeemer index is out of bounds for the inputs/mints/etc.)
-type ExtraRedeemerError struct {
-	RedeemerKey common.RedeemerKey
-}
+type ExtraRedeemerError = common.ExtraRedeemerError
 
-func (e ExtraRedeemerError) Error() string {
-	return fmt.Sprintf(
-		"extra redeemer: tag=%d, index=%d doesn't match any valid script purpose",
-		e.RedeemerKey.Tag,
-		e.RedeemerKey.Index,
-	)
-}
+// UnexpectedPlutusScriptSuccessError indicates that every phase-2 script
+// succeeded for a transaction that declared phase-2 failure.
+type UnexpectedPlutusScriptSuccessError = common.UnexpectedPlutusScriptSuccessError
 
 // MissingRedeemerForScriptError is an alias to common.MissingRedeemerForScriptError
 type MissingRedeemerForScriptError = common.MissingRedeemerForScriptError
