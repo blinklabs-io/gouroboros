@@ -19,6 +19,8 @@ import (
 	"encoding/binary"
 	"math"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -239,22 +241,47 @@ func writeTestMessages(t *testing.T, conn net.Conn, messages [][]byte) {
 	}
 }
 
+// newHeldVoteFunc returns a VoteFunc that passes each vote to onVote and
+// then blocks until release is called. Call it before starting the client:
+// its cleanup then runs after the client stops, releases any blocked call
+// and waits for it to return, so a failing test cannot leave the vote loop
+// parked in the callback. release may be called more than once.
+func newHeldVoteFunc(
+	t *testing.T,
+	onVote func(Vote),
+) (VoteFunc, func()) {
+	t.Helper()
+	held := make(chan struct{})
+	var once sync.Once
+	release := func() { once.Do(func() { close(held) }) }
+	var active atomic.Int32
+	t.Cleanup(func() {
+		release()
+		require.Eventually(
+			t,
+			func() bool { return active.Load() == 0 },
+			5*time.Second,
+			time.Millisecond,
+			"vote callback did not return",
+		)
+	})
+	voteFunc := func(_ CallbackContext, vote Vote) error {
+		active.Add(1)
+		defer active.Add(-1)
+		onVote(vote)
+		<-held
+		return nil
+	}
+	return voteFunc, release
+}
+
 // TestClientSlowConsumerRejectsPaddedVote checks that a client whose
 // consumer is stalled fails the protocol on a maximally padded vote instead
 // of queueing it, and never hands that vote to the consumer.
 func TestClientSlowConsumerRejectsPaddedVote(t *testing.T) {
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
 	votes := make(chan Vote, 2)
-	conn, errorChan := startBudgetTestClient(
-		t,
-		2,
-		func(_ CallbackContext, vote Vote) error {
-			votes <- vote
-			<-release
-			return nil
-		},
-	)
+	voteFunc, _ := newHeldVoteFunc(t, func(vote Vote) { votes <- vote })
+	conn, errorChan := startBudgetTestClient(t, 2, voteFunc)
 
 	// Stall the consumer on a first vote before the padded one arrives.
 	writeTestMessages(t, conn, [][]byte{longestHeadVoteMessage(1)})
@@ -280,17 +307,12 @@ func TestClientSlowConsumerRejectsPaddedVote(t *testing.T) {
 // an honest peer that sent a full batch of longest-encoded votes.
 func TestClientSlowConsumerReceivesFullBatch(t *testing.T) {
 	const count = MaxRequestNextCount
-	release := make(chan struct{})
 	votes := make(chan Vote, count)
-	conn, errorChan := startBudgetTestClient(
+	voteFunc, release := newHeldVoteFunc(
 		t,
-		count,
-		func(_ CallbackContext, vote Vote) error {
-			<-release
-			votes <- vote
-			return nil
-		},
+		func(vote Vote) { votes <- vote },
 	)
+	conn, errorChan := startBudgetTestClient(t, count, voteFunc)
 
 	messages := make([][]byte, 0, count)
 	for i := range uint64(count) {
@@ -303,7 +325,7 @@ func TestClientSlowConsumerReceivesFullBatch(t *testing.T) {
 		t.Fatalf("stalled consumer failed the protocol: %v", err)
 	case <-time.After(200 * time.Millisecond):
 	}
-	close(release)
+	release()
 	for i := range uint64(count) {
 		select {
 		case vote := <-votes:
