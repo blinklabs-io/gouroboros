@@ -175,21 +175,30 @@ type Muxer struct {
 // report where waiting happens instead: in each protocol role's own ingress
 // queue and delivery. A panic in a callback is recovered and that
 // observation is discarded; it does not stop the muxer.
+//
+// IngressQueueDepth and IngressDeliveryBlocked run on, or hold up, the
+// goroutine that delivers to the reported protocol role, and unregistering a
+// role waits for that goroutine to finish. Neither may therefore
+// synchronously call UnregisterProtocol for the role it reports; do that from
+// another goroutine. Other muxer calls are safe from any callback, including
+// registering a protocol and unregistering a different protocol or role.
 type Metrics interface {
 	// IngressQueueDepth reports the segment payload bytes received for a
 	// protocol role and not yet delivered to its receive channel. It is
 	// called with the new depth after every enqueue and every dequeue, one
 	// call at a time per protocol role, so the values arrive in order. It
 	// runs after that queue's lock is released, but the next enqueue or
-	// dequeue waits for it, so an implementation must return promptly. A
-	// depth that stays near the protocol's IngressLimit means its consumer
-	// is not keeping up.
+	// dequeue waits for it, so an implementation must return promptly. It
+	// must not synchronously unregister the reported protocol role. A depth
+	// that stays near the protocol's IngressLimit means its consumer is not
+	// keeping up.
 	IngressQueueDepth(protocolId uint16, protocolRole ProtocolRole, bytes int)
 	// IngressDeliveryBlocked reports how long delivery of one segment to a
 	// protocol role waited for that protocol to make room in its receive
 	// channel. It is called only for deliveries that had to wait. This is
 	// the time a slow consumer holds up its own protocol, and only that
-	// protocol.
+	// protocol. It runs on the delivery goroutine, so it must not
+	// synchronously unregister the reported protocol role.
 	IngressDeliveryBlocked(
 		protocolId uint16,
 		protocolRole ProtocolRole,

@@ -16,6 +16,7 @@ package muxer_test
 
 import (
 	"bytes"
+	"sync"
 	"testing"
 	"time"
 
@@ -321,4 +322,60 @@ func TestIngressQueueDepthRunsOutsideQueueLock(t *testing.T) {
 		previous = depth
 	}
 	require.Zero(t, previous)
+}
+
+// unregisterMetrics unregisters another protocol and registers a new one
+// from its first depth report, both of which the Metrics contract allows.
+type unregisterMetrics struct {
+	fakeMetrics
+	m    *muxer.Muxer
+	once sync.Once
+	done chan struct{}
+}
+
+func (u *unregisterMetrics) IngressQueueDepth(
+	id uint16,
+	role muxer.ProtocolRole,
+	n int,
+) {
+	u.fakeMetrics.IngressQueueDepth(id, role, n)
+	if id != 0x01 {
+		return
+	}
+	u.once.Do(func() {
+		u.m.UnregisterProtocol(0x02, muxer.ProtocolRoleResponder)
+		u.m.UnregisterProtocol(0x01, muxer.ProtocolRoleInitiator)
+		u.m.RegisterProtocol(0x03, muxer.ProtocolRoleResponder)
+		close(u.done)
+	})
+}
+
+// TestIngressQueueDepthMayUnregisterOtherRoles checks the supported side of
+// the Metrics contract: a depth callback may unregister a different protocol
+// or role, and register one, without deadlocking the muxer.
+func TestIngressQueueDepthMayUnregisterOtherRoles(t *testing.T) {
+	conn := newMockConn()
+	m := muxer.New(conn)
+	t.Cleanup(m.Stop)
+	metrics := &unregisterMetrics{m: m, done: make(chan struct{})}
+	m.SetMetrics(metrics)
+	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+	_, _, _ = m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
+	_, _, _ = m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
+	m.Start()
+
+	writePanicTestSegments(t, conn, 1, "payload")
+	select {
+	case <-metrics.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("depth callback did not return from unregistering")
+	}
+	select {
+	case got := <-recvChan:
+		require.Equal(t, []byte("payload"), got.Payload)
+	case <-time.After(5 * time.Second):
+		t.Fatal("segment was not delivered")
+	}
+	requireMuxerHealthy(t, m)
+	requireMuxerStops(t, m)
 }
