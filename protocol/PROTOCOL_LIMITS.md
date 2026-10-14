@@ -112,12 +112,14 @@ not time spent waiting for the send lock or the protocol's outbound queue.
 
 Read deadlines remain independently managed per segment: before each segment
 read the muxer installs the read deadline, or clears it when the timeout is
-disabled. An error from either stops the muxer before the read; one caused by a
-closed connection is reported as `muxer.ConnectionClosedError`. Connection
-wrappers must preserve those read deadlines and support `SetWriteDeadline`. The muxer
-replaces an existing write deadline; wrappers that enforce a shorter external
-deadline must cap the requested value. Stopping the muxer closes the underlying
-connection to interrupt pending socket operations.
+disabled. An error from either stops the muxer before the read. One that is
+`io.EOF` or `io.ErrClosedPipe` is reported as `muxer.ConnectionClosedError`, as
+for a failed read; any other error, including `net.ErrClosed` from a connection
+closed on this side, is reported unchanged. Connection wrappers must preserve
+those read deadlines and support `SetWriteDeadline`. The muxer replaces an
+existing write deadline; wrappers that enforce a shorter external deadline must
+cap the requested value. Stopping the muxer closes the underlying connection to
+interrupt pending socket operations.
 
 ## Chain Sync
 

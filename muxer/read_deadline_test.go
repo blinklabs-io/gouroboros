@@ -70,16 +70,13 @@ func newDeadlineConn(t *testing.T, err error) (*deadlineConn, net.Conn) {
 	return &deadlineConn{Conn: local, err: err}, peer
 }
 
-// requireMuxerError waits for the muxer to report an error and stop.
+// requireMuxerError waits for the muxer to report an error and finish
+// stopping, which closes ErrorChan once its read loop has cleaned up.
 func requireMuxerError(t *testing.T, m *muxer.Muxer) error {
 	t.Helper()
 	select {
 	case err := <-m.ErrorChan():
-		select {
-		case <-m.DoneChan():
-		case <-time.After(5 * time.Second):
-			t.Fatal("muxer did not stop after its error")
-		}
+		waitMuxerFinished(t, m)
 		return err
 	case <-time.After(5 * time.Second):
 		t.Fatal("muxer reported no error")
@@ -131,6 +128,21 @@ func TestReadLoopDeadlineOnClosedConnection(t *testing.T) {
 	require.Zero(t, conn.reads.Load())
 }
 
+// TestReadLoopDeadlineLocalCloseIsNotPeerClose checks that net.ErrClosed, which
+// a connection closed on this side returns from both Read and SetReadDeadline,
+// is reported unchanged rather than as the peer closing the connection.
+func TestReadLoopDeadlineLocalCloseIsNotPeerClose(t *testing.T) {
+	conn, _ := newDeadlineConn(t, net.ErrClosed)
+	m := muxer.New(conn)
+	t.Cleanup(m.Stop)
+	m.Start()
+
+	err := requireMuxerError(t, m)
+	require.ErrorIs(t, err, net.ErrClosed)
+	var closedErr *muxer.ConnectionClosedError
+	require.False(t, errors.As(err, &closedErr), "reported as a peer close")
+}
+
 // TestReadLoopDeadlineDisabledClearsDeadline checks that a disabled timeout
 // still clears the deadline before each read and delivers segments.
 func TestReadLoopDeadlineDisabledClearsDeadline(t *testing.T) {
@@ -152,9 +164,12 @@ func TestReadLoopDeadlineDisabledClearsDeadline(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("segment was not delivered")
 	}
-	deadlines := conn.recordedDeadlines()
-	require.NotEmpty(t, deadlines)
-	for _, deadline := range deadlines {
+	// The first deadline is set before the segment is read; the read loop
+	// sets a second as it starts the next read.
+	require.Eventually(t, func() bool {
+		return len(conn.recordedDeadlines()) >= 2
+	}, 5*time.Second, time.Millisecond, "read loop did not start another read")
+	for _, deadline := range conn.recordedDeadlines() {
 		require.True(t, deadline.IsZero(), "deadline %v", deadline)
 	}
 }

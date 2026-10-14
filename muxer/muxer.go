@@ -177,11 +177,11 @@ type Muxer struct {
 // observation is discarded; it does not stop the muxer.
 //
 // IngressQueueDepth and IngressDeliveryBlocked run on, or hold up, the
-// goroutine that delivers to the reported protocol role, and unregistering a
-// role waits for that goroutine to finish. Neither may therefore
-// synchronously call UnregisterProtocol for the role it reports; do that from
-// another goroutine. Other muxer calls are safe from any callback, including
-// registering a protocol and unregistering a different protocol or role.
+// goroutine that delivers to the reported protocol role, and UnregisterProtocol
+// waits for that goroutine to finish. A callback must not synchronously
+// unregister the role it reports, nor wait on anything that does; do that from
+// another goroutine. Other muxer calls, such as registering a protocol or
+// unregistering a different protocol or role, are supported from a callback.
 type Metrics interface {
 	// IngressQueueDepth reports the segment payload bytes received for a
 	// protocol role and not yet delivered to its receive channel. It is
@@ -901,8 +901,10 @@ func (e *ConnectionClosedError) Unwrap() error {
 	return e.Err
 }
 
-// readLoopError reports a closed connection met while context as a
-// ConnectionClosedError, and returns any other error unchanged.
+// readLoopError reports io.EOF and io.ErrClosedPipe met while context as a
+// ConnectionClosedError, and returns any other error unchanged. That includes
+// net.ErrClosed, which a net.Conn closed on this side returns from both Read
+// and SetReadDeadline; it is not a close by the peer.
 func readLoopError(context string, err error) error {
 	if errors.Is(err, io.ErrClosedPipe) {
 		err = io.EOF

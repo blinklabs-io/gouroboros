@@ -93,8 +93,27 @@ func requireMuxerHealthy(t *testing.T, m *muxer.Muxer) {
 	}
 }
 
-// requireMuxerStops checks that Stop returns and the muxer finishes, which
-// it cannot if a callback panic left a queue locked.
+// waitMuxerFinished waits for the muxer to finish stopping: ErrorChan is
+// closed only after the read loop's cleanup, which waits for every delivery
+// goroutine, has completed. DoneChan only signals that a stop was requested.
+// Errors still buffered are discarded.
+func waitMuxerFinished(t *testing.T, m *muxer.Muxer) {
+	t.Helper()
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-m.ErrorChan():
+			if !ok {
+				return
+			}
+		case <-timeout:
+			t.Fatal("muxer did not finish stopping")
+		}
+	}
+}
+
+// requireMuxerStops checks that Stop returns and the muxer finishes stopping,
+// which it cannot if a callback panic left a queue locked.
 func requireMuxerStops(t *testing.T, m *muxer.Muxer) {
 	t.Helper()
 	stopped := make(chan struct{})
@@ -107,11 +126,7 @@ func requireMuxerStops(t *testing.T, m *muxer.Muxer) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("muxer did not stop")
 	}
-	select {
-	case <-m.DoneChan():
-	case <-time.After(5 * time.Second):
-		t.Fatal("muxer did not finish stopping")
-	}
+	waitMuxerFinished(t, m)
 }
 
 // TestIngressMetricsPanicsAreContained checks that a panic in the queue-depth
