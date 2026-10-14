@@ -16,6 +16,7 @@ package txsubmission
 
 import (
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,13 +58,16 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 		return id
 	}
 	txsByHash := make(map[[32]byte][]byte)
-	for n := byte(3); n <= 5; n++ {
+	for n := byte(3); n <= 7; n++ {
 		id, tx := fakeTx(n)
 		txsByHash[id.TxId] = tx
 	}
 
 	release := make(chan struct{})
 	holding := make(chan struct{}, 1)
+	idsHolding := make(chan struct{}, 1)
+	releaseIds := make(chan struct{})
+	var holdIds atomic.Bool
 	var nextId byte = 2
 	clientErrors := make(chan error, 1)
 	client := NewClient(
@@ -80,6 +84,10 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 				_ uint16,
 				req uint16,
 			) ([]TxIdAndSize, error) {
+				if holdIds.CompareAndSwap(true, false) {
+					idsHolding <- struct{}{}
+					<-releaseIds
+				}
 				ids := make([]TxIdAndSize, 0, req)
 				for range req {
 					nextId++
@@ -160,7 +168,7 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 	// Announced ids are 3 and 4. Request the first and, before the client
 	// replies, pipeline a further id request and a request for the second.
 	require.NoError(t, peer.SendMessage(NewMsgRequestTxs([]TxId{txId(3)})))
-	<-holding
+	waitHolding(t, holding, clientErrors)
 	require.NoError(t, peer.SendMessage(NewMsgRequestTxIds(false, 0, 1)))
 	require.NoError(t, peer.SendMessage(NewMsgRequestTxs([]TxId{txId(4)})))
 
@@ -175,4 +183,36 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 	expect(MessageTypeReplyTxs)
 	expect(MessageTypeReplyTxIds)
 	expect(MessageTypeReplyTxs)
+
+	// Phase two holds the client in TxIdsNonblocking instead. Ids 3 and 4 are
+	// acknowledged and id 5 stays outstanding, so the pipelined request for
+	// it is still valid.
+	holdIds.Store(true)
+	require.NoError(t, peer.SendMessage(NewMsgRequestTxIds(false, 2, 1)))
+	waitHolding(t, idsHolding, clientErrors)
+	require.NoError(t, peer.SendMessage(NewMsgRequestTxIds(false, 0, 1)))
+	require.NoError(t, peer.SendMessage(NewMsgRequestTxs([]TxId{txId(5)})))
+	select {
+	case err := <-clientErrors:
+		require.NoError(t, err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(releaseIds)
+
+	expect(MessageTypeReplyTxIds)
+	expect(MessageTypeReplyTxIds)
+	expect(MessageTypeReplyTxs)
+}
+
+// waitHolding waits until the client has entered a held callback, failing on
+// a client protocol error or a timeout instead of blocking forever.
+func waitHolding(t *testing.T, holding <-chan struct{}, errs <-chan error) {
+	t.Helper()
+	select {
+	case <-holding:
+	case err := <-errs:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the client to enter the callback")
+	}
 }
