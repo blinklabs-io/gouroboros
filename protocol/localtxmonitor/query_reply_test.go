@@ -133,6 +133,7 @@ func writeQueryTestMessage(t *testing.T, conn net.Conn, msg protocol.Message) {
 	data, err := cbor.Encode(msg)
 	require.NoError(t, err)
 	segment := muxer.NewSegment(ProtocolId, data, true)
+	require.NotNil(t, segment)
 	var buf bytes.Buffer
 	require.NoError(
 		t,
