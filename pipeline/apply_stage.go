@@ -417,7 +417,7 @@ func (r *ApplyStageRunner) SetProcessedFunc(processedFunc func(uint64)) {
 }
 
 // setDeliveredFunc sets the ownership-transfer hook called after an item is
-// sent to the result consumer. It must be called before Start.
+// sent to the results channel. It must be called before Start.
 func (r *ApplyStageRunner) setDeliveredFunc(
 	deliveredFunc func(*BlockItem),
 ) {
@@ -560,6 +560,9 @@ func (r *ApplyStageRunner) forwardProcessed(
 func (r *ApplyStageRunner) forwardCommitted(processed []*BlockItem) {
 	for _, item := range processed {
 		r.output <- item
+		if r.deliveredFunc != nil {
+			r.deliveredFunc(item)
+		}
 	}
 }
 

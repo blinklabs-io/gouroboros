@@ -375,8 +375,7 @@ func (p *BlockPipeline) trackItem(item *BlockItem, retainedBytes uint64) {
 	})
 }
 
-func (p *BlockPipeline) transferItem(item *BlockItem) {
-	item.releaseBudget()
+func (p *BlockPipeline) markItemDelivered(item *BlockItem) {
 	p.activeItemsMu.Lock()
 	delete(p.activeItems, item)
 	p.activeItemsMu.Unlock()
@@ -598,7 +597,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	}
 	p.applyRunner.SetProcessedFunc(processedFunc)
 	p.applyRunner.setFatalErrorFunc(p.setFatalError)
-	p.applyRunner.setDeliveredFunc(p.transferItem)
+	p.applyRunner.setDeliveredFunc(p.markItemDelivered)
 	p.applyRunner.setFatalFunc(p.cancel)
 
 	// Start all stages
@@ -791,7 +790,9 @@ func (p *BlockPipeline) markProcessed(sequence uint64) {
 	p.completionMu.Unlock()
 }
 
-// Results returns a channel of successfully processed block items.
+// Results returns a channel of successfully processed block items. Consumers
+// must call Release on every received item after use. Until Release, the item
+// retains its raw and decoded CBOR and remains charged to MaxRawCborBytes.
 // If the pipeline has not been started, it returns a closed channel. Results
 // are observational: Stop may consume undelivered notifications while waiting
 // for the apply runner. Callers that need every notification must receive them
@@ -862,11 +863,24 @@ func (p *BlockPipeline) Stop() error {
 		select {
 		case <-applyDone:
 			goto applyStopped
-		case <-p.resultsChan:
+		case item := <-p.resultsChan:
+			item.Release()
 		}
 	}
 
 applyStopped:
+	// No producers remain, so every result still buffered here is owned by the
+	// pipeline and can be retired. Results already received remain caller-owned.
+	for {
+		select {
+		case item := <-p.resultsChan:
+			item.Release()
+		default:
+			goto resultsDrained
+		}
+	}
+
+resultsDrained:
 	p.releaseActiveItems()
 
 	// Close output channels
@@ -961,8 +975,9 @@ func (p *BlockPipeline) metricsCollector() {
 }
 
 // DrainResults reads all available results without blocking. Ownership of
-// every returned item transfers to the caller, which may call Release after
-// use to clear its data. Useful for testing or cleanup.
+// every returned item transfers to the caller, which must call Release after
+// use to clear its data and return its byte reservation. Useful for testing or
+// cleanup.
 func (p *BlockPipeline) DrainResults() []*BlockItem {
 	var results []*BlockItem
 	for {

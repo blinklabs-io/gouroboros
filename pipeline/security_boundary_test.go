@@ -460,6 +460,7 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 	output := make(chan *BlockItem, 2)
 	errorChan := make(chan error, 1)
 	fatalCause := make(chan error, 1)
+	delivered := make(chan uint64, rejectedSequence)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	stage := NewApplyStage(func(item *BlockItem) error {
@@ -472,6 +473,9 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 	stage.SetChainContextValidator(acceptSecurityTestChainContext)
 	runner := NewApplyStageRunner(stage, input, output, errorChan, 0)
 	runner.setFatalErrorFunc(func(err error) { fatalCause <- err })
+	runner.setDeliveredFunc(func(item *BlockItem) {
+		delivered <- item.SequenceNumber()
+	})
 	runner.setFatalFunc(cancel)
 	runner.Start(ctx)
 	defer func() {
@@ -503,6 +507,12 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 			require.Equal(t, want, item.SequenceNumber())
 		case <-time.After(time.Second):
 			t.Fatalf("successful prefix item %d was not forwarded", want)
+		}
+		select {
+		case sequence := <-delivered:
+			require.Equal(t, want, sequence)
+		case <-time.After(50 * time.Millisecond):
+			t.Errorf("successful prefix item %d did not transfer ownership", want)
 		}
 	}
 	runner.Stop()

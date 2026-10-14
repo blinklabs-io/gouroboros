@@ -149,36 +149,55 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 	assert.False(t, item.ReceivedAt().IsZero())
 }
 
-func TestBlockPipelineRawCborBudgetReturnsOnDelivery(t *testing.T) {
+func TestBlockPipelineRawCborBudgetRemainsReservedUntilRelease(t *testing.T) {
 	raw := getValidBlockCbor(t)
 	p := NewBlockPipeline(WithTrustedDecodeOnly(), WithMaxRawCborBytes(2*uint64(len(raw))))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, p.Stop()) })
-	var first *BlockItem
-	for i := range 10 {
-		require.NoError(t, p.Submit(ctx, uint(ledger.BlockTypeConway), raw, createTestTip(uint64(i), uint64(i))))
-		select {
-		case item := <-p.Results():
-			require.Equal(t, raw, item.RawCbor())
-			require.NotNil(t, item.Block())
-			if first == nil {
-				first = item
-			}
-		case <-ctx.Done():
-			t.Fatal("delivery failed to return the byte budget")
-		}
-	}
-	if first == nil {
-		t.Fatal("pipeline returned no results")
-	}
+	err := p.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		make([]byte, len(raw)+1),
+		createTestTip(0, 0),
+	)
+	require.ErrorIs(t, err, ErrRawCborBudgetExceeded)
+	require.NoError(t, p.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(0, 0),
+	))
+	require.Eventually(t, func() bool {
+		return len(p.resultsChan) == 1
+	}, time.Second, time.Millisecond)
+
+	blockedCtx, blockedCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer blockedCancel()
+	err = p.Submit(
+		blockedCtx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(1, 1),
+	)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	first := <-p.Results()
 	require.Equal(t, raw, first.RawCbor())
+	require.NotNil(t, first.Block())
 	first.Release()
 	first.Release()
 	require.Nil(t, first.RawCbor())
-	err := p.Submit(ctx, uint(ledger.BlockTypeConway), make([]byte, len(raw)+1), createTestTip(11, 11))
-	require.ErrorIs(t, err, ErrRawCborBudgetExceeded)
+
+	require.NoError(t, p.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(2, 2),
+	))
+	second := <-p.Results()
+	second.Release()
 }
 
 func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
@@ -198,10 +217,32 @@ func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
 	require.NoError(t, p.Stop())
 	require.NotNil(t, result.RawCbor())
 	p.rawBudgetMu.Lock()
-	require.Zero(t, p.rawBytesInUse)
+	require.Equal(t, uint64(8), p.rawBytesInUse)
 	p.rawBudgetMu.Unlock()
 	result.Release()
 	require.Nil(t, result.RawCbor())
+	p.rawBudgetMu.Lock()
+	require.Zero(t, p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+}
+
+func TestBlockPipelineStopReleasesBufferedResult(t *testing.T) {
+	p := NewBlockPipeline(
+		WithTrustedDecodeOnly(),
+		WithMaxRawCborBytes(8),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	require.NoError(t, p.Submit(
+		context.Background(),
+		uint(ledger.BlockTypeConway),
+		[]byte{0x85, 0x00, 0x01, 0x02},
+		createTestTip(1, 1),
+	))
+	require.Eventually(t, func() bool {
+		return len(p.resultsChan) == 1
+	}, time.Second, time.Millisecond)
+
+	require.NoError(t, p.Stop())
 	p.rawBudgetMu.Lock()
 	require.Zero(t, p.rawBytesInUse)
 	p.rawBudgetMu.Unlock()
