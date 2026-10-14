@@ -393,6 +393,7 @@ subsequent items available to the caller.
 | Chain Sync find-intersect | 462,000 bytes N2N; 8 MiB N2C; 131,073 points maximum | Point fields are preflighted before the point slice is decoded. The point hash must be exactly 32 bytes. |
 | Block Fetch block replies | 2,500,000 bytes per block; client range allowance follows outstanding requests | Blocks remain raw CBOR until the caller decodes them. |
 | Local State Query query/result | Effective read-buffer allowance | Query input sets have their own 10,000-item request bound. Result maps retain the normal decoder's larger allowance, including whole-UTxO queries. Raw result storage grows with the actual encoded payload. |
+| Local Tx Monitor has-transaction query | 32-byte transaction ID | The ID length is checked while decoding, before it is formatted or looked up. |
 | Local Tx Monitor next-transaction reply | Effective read-buffer allowance | Transaction bytes and the optional reply envelope are validated before typed decoding. |
 | Local Tx Submission submit/rejection | Effective read-buffer allowance | Transaction bytes and raw rejection data are retained from validated input. |
 | Local Message Notification replies | Effective read-buffer allowance; 1,000 messages by default | A client caps a reply collection at the smaller of `MaxReplyMessages` (the batch size of the reference server, independent of a server queue size of 100 by default) and `MaxReplayEntries` (10,000 by default), and each DMQ message by the fixed wire depth, before typed decoding. |

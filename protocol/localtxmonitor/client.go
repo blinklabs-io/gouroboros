@@ -75,6 +75,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
+		StateContext:        &stateContext{},
 		StateMap:            stateMap,
 		InitialState:        stateIdle,
 	}
@@ -91,14 +92,6 @@ func (c *Client) Start() {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.acquireResultChan)
-			close(c.hasTxResultChan)
-			close(c.nextTxResultChan)
-			close(c.getSizesResultChan)
-		}()
 	})
 }
 
@@ -159,6 +152,9 @@ func (c *Client) HasTx(txId []byte) (bool, error) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	if err := validateTxId(txId); err != nil {
+		return false, err
+	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	if !c.acquired {
@@ -170,11 +166,12 @@ func (c *Client) HasTx(txId []byte) (bool, error) {
 	if err := c.SendMessage(msg); err != nil {
 		return false, err
 	}
-	result, ok := <-c.hasTxResultChan
-	if !ok {
+	select {
+	case result := <-c.hasTxResultChan:
+		return result, nil
+	case <-c.DoneChan():
 		return false, protocol.ErrProtocolShuttingDown
 	}
-	return result, nil
 }
 
 // NextTx returns the next transaction in the mempool snapshot
@@ -197,11 +194,12 @@ func (c *Client) NextTx() ([]byte, error) {
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
 	}
-	tx, ok := <-c.nextTxResultChan
-	if !ok {
+	select {
+	case tx := <-c.nextTxResultChan:
+		return tx, nil
+	case <-c.DoneChan():
 		return nil, protocol.ErrProtocolShuttingDown
 	}
-	return tx, nil
 }
 
 // GetSizes returns the capacity (in bytes), size (in bytes), and number of transactions in the mempool snapshot
@@ -224,11 +222,12 @@ func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
 	if err := c.SendMessage(msg); err != nil {
 		return 0, 0, 0, err
 	}
-	result, ok := <-c.getSizesResultChan
-	if !ok {
+	select {
+	case result := <-c.getSizesResultChan:
+		return result.Capacity, result.Size, result.NumberOfTxs, nil
+	case <-c.DoneChan():
 		return 0, 0, 0, protocol.ErrProtocolShuttingDown
 	}
-	return result.Capacity, result.Size, result.NumberOfTxs, nil
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
@@ -263,7 +262,7 @@ func (c *Client) handleAcquired(msg protocol.Message) {
 	msgAcquired := msg.(*MsgAcquired)
 	c.acquired = true
 	c.acquiredSlot = msgAcquired.SlotNo
-	c.acquireResultChan <- true
+	deliverResult(c, c.acquireResultChan, true)
 }
 
 func (c *Client) handleReplyHasTx(msg protocol.Message) {
@@ -275,7 +274,7 @@ func (c *Client) handleReplyHasTx(msg protocol.Message) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgReplyHasTx := msg.(*MsgReplyHasTx)
-	c.hasTxResultChan <- msgReplyHasTx.Result
+	deliverResult(c, c.hasTxResultChan, msgReplyHasTx.Result)
 }
 
 func (c *Client) handleReplyNextTx(msg protocol.Message) {
@@ -287,7 +286,7 @@ func (c *Client) handleReplyNextTx(msg protocol.Message) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgReplyNextTx := msg.(*MsgReplyNextTx)
-	c.nextTxResultChan <- msgReplyNextTx.Transaction.Tx
+	deliverResult(c, c.nextTxResultChan, msgReplyNextTx.Transaction.Tx)
 }
 
 func (c *Client) handleReplyGetSizes(msg protocol.Message) {
@@ -299,7 +298,16 @@ func (c *Client) handleReplyGetSizes(msg protocol.Message) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgReplyGetSizes := msg.(*MsgReplyGetSizes)
-	c.getSizesResultChan <- msgReplyGetSizes.Result
+	deliverResult(c, c.getSizesResultChan, msgReplyGetSizes.Result)
+}
+
+// deliverResult hands a reply to the waiting caller, or gives up once the
+// protocol shuts down so the receive loop is never left blocked.
+func deliverResult[T any](c *Client, resultChan chan<- T, result T) {
+	select {
+	case resultChan <- result:
+	case <-c.DoneChan():
+	}
 }
 
 func (c *Client) acquire() error {
@@ -308,11 +316,12 @@ func (c *Client) acquire() error {
 		return err
 	}
 	// Wait for reply
-	_, ok := <-c.acquireResultChan
-	if !ok {
+	select {
+	case <-c.acquireResultChan:
+		return nil
+	case <-c.DoneChan():
 		return protocol.ErrProtocolShuttingDown
 	}
-	return nil
 }
 
 func (c *Client) release() error {
