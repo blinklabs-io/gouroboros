@@ -1042,6 +1042,25 @@ func ValidateUnsupportedPlutusExecution(tx Transaction, era string) error {
 	return nil
 }
 
+// ValidatePlutusScriptResult checks execution against the transaction's
+// phase-2 validity declaration.
+func ValidatePlutusScriptResult(tx Transaction, err error) error {
+	if tx == nil {
+		return err
+	}
+	if tx.IsValid() {
+		return err
+	}
+	var scriptFailure PlutusScriptFailedError
+	if errors.As(err, &scriptFailure) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return UnexpectedPlutusScriptSuccessError{}
+}
+
 type scriptRequirement struct {
 	hash     ScriptHash
 	redeemer RedeemerKey

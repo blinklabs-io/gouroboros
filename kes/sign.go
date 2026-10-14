@@ -19,8 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"runtime"
 
+	"github.com/blinklabs-io/gouroboros/internal/cryptoutil"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -39,38 +39,18 @@ type SecretKey struct {
 	publicKey []byte // Cached public key (computed once, never changes)
 }
 
-// wipe overwrites the given buffer with zeros in a way the compiler is not
-// permitted to elide as a dead store.
-//
-// Go provides no guaranteed-secure zeroization primitive. This helper uses the
-// established best-effort pattern: the write loop lives in a //go:noinline
-// function (so the call site cannot prove the stores are dead and remove them)
-// and runtime.KeepAlive pins the backing array until the loop completes.
-//
-// CAVEAT: this only wipes THIS backing array. Go's garbage collector or stack
-// growth may have copied the secret elsewhere earlier in its lifetime; those
-// copies cannot be reached from here and are outside the guarantees of this
-// package. Callers needing stronger assurances should hold KES secrets in
-// mlock'd, non-GC-managed memory and wipe that buffer as well.
-//
-//go:noinline
-func wipe(b []byte) {
-	for i := range b {
-		b[i] = 0
-	}
-	runtime.KeepAlive(b)
-}
-
 // Zeroize erases all secret material held by the key and renders it unusable.
 // After Zeroize, Sign and Update return an error for this key. The (public,
 // non-secret) cached public key is retained so PublicKey still works.
 //
-// See the wipe caveat regarding residual copies the Go runtime may have made.
+// Go does not guarantee complete secret erasure because the runtime may have
+// copied the data. Zeroize clears the key's current backing array on a
+// best-effort basis.
 func (sk *SecretKey) Zeroize() {
 	if sk == nil {
 		return
 	}
-	wipe(sk.Data)
+	cryptoutil.Wipe(sk.Data)
 	sk.Data = nil
 	sk.Period = 0
 }
@@ -113,6 +93,7 @@ func KeyGen(depth uint64, seed []byte) (*SecretKey, []byte, error) {
 
 	pubKey, err := keyGenInternal(depth, seed, data)
 	if err != nil {
+		cryptoutil.Wipe(data)
 		return nil, nil, err
 	}
 
@@ -136,13 +117,16 @@ func keyGenInternal(depth uint64, seed []byte, data []byte) ([]byte, error) {
 
 		// Generate the public key
 		privateKey := ed25519.NewKeyFromSeed(seed)
+		defer cryptoutil.Wipe(privateKey)
 		pubKey := privateKey.Public().(ed25519.PublicKey)
 		return pubKey, nil
 	}
 
 	// Expand seed into left and right seeds using Blake2b with domain separators
 	leftSeed := expandSeed(seed, 0x01)
+	defer cryptoutil.Wipe(leftSeed)
 	rightSeed := expandSeed(seed, 0x02)
+	defer cryptoutil.Wipe(rightSeed)
 
 	// Calculate sizes for child key
 	childKeySize := secretKeySize(depth - 1)
@@ -180,11 +164,14 @@ func keyGenInternal(depth uint64, seed []byte, data []byte) ([]byte, error) {
 func publicKeyFromSeed(depth uint64, seed []byte) ([]byte, error) {
 	if depth == 0 {
 		privateKey := ed25519.NewKeyFromSeed(seed)
+		defer cryptoutil.Wipe(privateKey)
 		return privateKey.Public().(ed25519.PublicKey), nil
 	}
 
 	leftSeed := expandSeed(seed, 0x01)
+	defer cryptoutil.Wipe(leftSeed)
 	rightSeed := expandSeed(seed, 0x02)
+	defer cryptoutil.Wipe(rightSeed)
 
 	leftPubKey, err := publicKeyFromSeed(depth-1, leftSeed)
 	if err != nil {
@@ -206,6 +193,7 @@ func expandSeed(seed []byte, separator byte) []byte {
 	var input [33]byte
 	input[0] = separator
 	copy(input[1:], seed)
+	defer cryptoutil.Wipe(input[:])
 	sum := blake2b.Sum256(input[:])
 	return sum[:]
 }
@@ -263,6 +251,7 @@ func signInternal(
 		// Base case: Ed25519 signature
 		seed := data[0:kesEd25519KeySize]
 		privateKey := ed25519.NewKeyFromSeed(seed)
+		defer cryptoutil.Wipe(privateKey)
 		signature := ed25519.Sign(privateKey, message)
 		copy(sig[0:SigmaSize], signature)
 		return nil
@@ -348,7 +337,7 @@ func Update(sk *SecretKey) (*SecretKey, error) {
 
 	if err := updateInternal(sk.Depth, sk.Period, newData); err != nil {
 		// Don't leak partially-derived secret material on failure.
-		wipe(newData)
+		cryptoutil.Wipe(newData)
 		return nil, err
 	}
 
@@ -371,7 +360,7 @@ func updateInternal(depth uint64, period uint64, data []byte) error {
 	if depth == 0 {
 		// At depth 0, zero out the old key for forward security.
 		// This ensures compromising future keys doesn't reveal past signing capability.
-		wipe(data[0:kesEd25519KeySize])
+		cryptoutil.Wipe(data[0:kesEd25519KeySize])
 		return nil
 	}
 
@@ -394,7 +383,7 @@ func updateInternal(depth uint64, period uint64, data []byte) error {
 		}
 
 		// Zero out the seed (it's been used)
-		wipe(data[seedOffset : seedOffset+32])
+		cryptoutil.Wipe(data[seedOffset : seedOffset+32])
 
 		return nil
 	} else {
@@ -426,6 +415,7 @@ func publicKeyInternal(depth uint64, data []byte) []byte {
 	if depth == 0 {
 		seed := data[0:kesEd25519KeySize]
 		privateKey := ed25519.NewKeyFromSeed(seed)
+		defer cryptoutil.Wipe(privateKey)
 		return privateKey.Public().(ed25519.PublicKey)
 	}
 

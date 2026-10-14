@@ -57,6 +57,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
+		StateContext:        &stateContext{},
 		StateMap:            StateMap,
 		InitialState:        stateIdle,
 	}

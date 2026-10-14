@@ -17,6 +17,7 @@ package localtxmonitor_test
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,7 +107,7 @@ func runTest(
 }
 
 func TestHasTxTrue(t *testing.T) {
-	testTxId := test.DecodeHexString("abcdef0123456789")
+	testTxId := test.DecodeHexString(strings.Repeat("abcdef0123456789", 4))
 	expectedResult := true
 	conversation := append(
 		conversationHandshakeAcquire,
@@ -142,7 +143,7 @@ func TestHasTxTrue(t *testing.T) {
 }
 
 func TestHasTxFalse(t *testing.T) {
-	testTxId := test.DecodeHexString("abcdef0123456789")
+	testTxId := test.DecodeHexString(strings.Repeat("abcdef0123456789", 4))
 	expectedResult := false
 	conversation := append(
 		conversationHandshakeAcquire,

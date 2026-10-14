@@ -20,6 +20,7 @@ import (
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -273,6 +274,34 @@ func NewMsgHasTx(txId []byte) *MsgHasTx {
 		TxId: txId,
 	}
 	return m
+}
+
+// UnmarshalCBOR decodes a HasTx message and requires a transaction ID of
+// exactly lcommon.Blake2b256Size bytes, so an invalid ID is refused before
+// it is formatted or looked up.
+func (m *MsgHasTx) UnmarshalCBOR(data []byte) error {
+	type tMsgHasTx MsgHasTx
+	var tmp tMsgHasTx
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	if err := validateTxId(tmp.TxId); err != nil {
+		return err
+	}
+	*m = MsgHasTx(tmp)
+	return nil
+}
+
+func validateTxId(txId []byte) error {
+	if len(txId) != lcommon.Blake2b256Size {
+		return fmt.Errorf(
+			"%s: transaction ID must be %d bytes, got %d",
+			ProtocolName,
+			lcommon.Blake2b256Size,
+			len(txId),
+		)
+	}
+	return nil
 }
 
 type MsgReplyHasTx struct {

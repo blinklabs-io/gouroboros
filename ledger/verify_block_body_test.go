@@ -93,3 +93,48 @@ func TestVerifyBlockBodyAcceptsWellFormedHex(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 }
+
+func TestVerifyBlockBodyRejectsTrailingBytes(t *testing.T) {
+	t.Parallel()
+
+	bodies := map[string]string{
+		"definite":   "80",
+		"indefinite": "9fff",
+	}
+	trailing := map[string]string{
+		"scalar":      "00",
+		"array":       "80",
+		"byte string": "40",
+		"non-CBOR":    "1c",
+	}
+	for bodyName, body := range bodies {
+		for trailingName, suffix := range trailing {
+			t.Run(bodyName+"/"+trailingName, func(t *testing.T) {
+				t.Parallel()
+
+				ok, err := ledger.VerifyBlockBody(
+					body+suffix,
+					ledger.BLOCK_BODY_HASH_ZERO_TX_HEX,
+					nil,
+				)
+				require.ErrorContains(t, err, "trailing")
+				require.False(t, ok)
+			})
+		}
+	}
+}
+
+func TestVerifyBlockBodyAcceptsExactNonEmptyBodies(t *testing.T) {
+	t.Parallel()
+
+	txs := [][]string{{"", "", ""}}
+	for name, body := range map[string]string{
+		"definite":   "8183606060",
+		"indefinite": "9f83606060ff",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			verifyBlockBodyOf(t, body, txs)
+		})
+	}
+}
