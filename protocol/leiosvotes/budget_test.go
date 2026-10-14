@@ -256,19 +256,23 @@ func TestClientSlowConsumerRejectsPaddedVote(t *testing.T) {
 		},
 	)
 
-	writeTestMessages(t, conn, [][]byte{
-		longestHeadVoteMessage(1),
-		paddedVoteMessage(t, 60_000),
-	})
+	// Stall the consumer on a first vote before the padded one arrives.
+	writeTestMessages(t, conn, [][]byte{longestHeadVoteMessage(1)})
+	select {
+	case vote := <-votes:
+		require.Equal(t, uint64(1), vote.VoterId)
+	case <-time.After(5 * time.Second):
+		t.Fatal("first vote was not delivered")
+	}
 
+	writeTestMessages(t, conn, [][]byte{paddedVoteMessage(t, 60_000)})
 	select {
 	case err := <-errorChan:
-		require.Error(t, err)
+		require.ErrorContains(t, err, "exceeding limit")
 	case <-time.After(5 * time.Second):
 		t.Fatal("padded vote was not refused")
 	}
-	require.Len(t, votes, 1)
-	assert.Equal(t, uint64(1), (<-votes).VoterId)
+	assert.Empty(t, votes)
 }
 
 // TestClientSlowConsumerReceivesFullBatch checks that votes held back for a
