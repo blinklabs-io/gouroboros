@@ -21,15 +21,18 @@ import (
 )
 
 func TestValidateRewardDistributionComparesAllocations(t *testing.T) {
-	operator := AddrKeyHash{1}
-	delegator := AddrKeyHash{2}
-	other := AddrKeyHash{3}
+	operatorHash := AddrKeyHash{1}
+	delegatorHash := AddrKeyHash{2}
+	otherHash := AddrKeyHash{3}
+	operator := keyRewardCredential(operatorHash)
+	delegator := keyRewardCredential(delegatorHash)
+	other := keyRewardCredential(otherHash)
 	expected := &RewardCalculationResult{
 		PoolRewards: map[PoolKeyHash]PoolRewards{
 			{9}: {
 				OperatorRewardAccount: operator,
 				OperatorRewards:       40,
-				DelegatorRewards: map[AddrKeyHash]uint64{
+				DelegatorRewards: map[RewardCredential]uint64{
 					delegator: 60,
 				},
 				TotalRewards: 100,
@@ -40,12 +43,12 @@ func TestValidateRewardDistributionComparesAllocations(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		actual map[AddrKeyHash]uint64
+		actual map[RewardCredential]uint64
 		valid  bool
 	}{
 		{
 			name: "valid independent of insertion order",
-			actual: map[AddrKeyHash]uint64{
+			actual: map[RewardCredential]uint64{
 				delegator: 60,
 				operator:  40,
 			},
@@ -53,13 +56,13 @@ func TestValidateRewardDistributionComparesAllocations(t *testing.T) {
 		},
 		{
 			name: "missing recipient",
-			actual: map[AddrKeyHash]uint64{
+			actual: map[RewardCredential]uint64{
 				operator: 40,
 			},
 		},
 		{
 			name: "additional recipient",
-			actual: map[AddrKeyHash]uint64{
+			actual: map[RewardCredential]uint64{
 				operator:  40,
 				delegator: 60,
 				other:     1,
@@ -67,14 +70,14 @@ func TestValidateRewardDistributionComparesAllocations(t *testing.T) {
 		},
 		{
 			name: "substituted recipient with equal total",
-			actual: map[AddrKeyHash]uint64{
+			actual: map[RewardCredential]uint64{
 				operator: 40,
 				other:    60,
 			},
 		},
 		{
 			name: "mismatched amounts with equal total",
-			actual: map[AddrKeyHash]uint64{
+			actual: map[RewardCredential]uint64{
 				operator:  60,
 				delegator: 40,
 			},
@@ -98,13 +101,14 @@ func TestValidateRewardDistributionComparesAllocations(t *testing.T) {
 }
 
 func TestValidateRewardDistributionAggregatesSharedRecipients(t *testing.T) {
-	recipient := AddrKeyHash{1}
+	recipientHash := AddrKeyHash{1}
+	recipient := keyRewardCredential(recipientHash)
 	expected := &RewardCalculationResult{
 		PoolRewards: map[PoolKeyHash]PoolRewards{
 			{8}: {
 				OperatorRewardAccount: recipient,
 				OperatorRewards:       40,
-				DelegatorRewards: map[AddrKeyHash]uint64{
+				DelegatorRewards: map[RewardCredential]uint64{
 					recipient: 10,
 				},
 			},
@@ -119,18 +123,19 @@ func TestValidateRewardDistributionAggregatesSharedRecipients(t *testing.T) {
 		t,
 		(&RewardService{}).ValidateRewardDistribution(
 			expected,
-			map[AddrKeyHash]uint64{recipient: 100},
+			map[RewardCredential]uint64{recipient: 100},
 		),
 	)
 }
 
 func TestValidateRewardDistributionOmitsZeroAllocations(t *testing.T) {
-	recipient := AddrKeyHash{1}
+	recipientHash := AddrKeyHash{1}
+	recipient := keyRewardCredential(recipientHash)
 	expected := &RewardCalculationResult{
 		PoolRewards: map[PoolKeyHash]PoolRewards{
 			{9}: {
 				OperatorRewardAccount: recipient,
-				DelegatorRewards: map[AddrKeyHash]uint64{
+				DelegatorRewards: map[RewardCredential]uint64{
 					recipient: 0,
 				},
 			},
@@ -141,7 +146,63 @@ func TestValidateRewardDistributionOmitsZeroAllocations(t *testing.T) {
 		t,
 		(&RewardService{}).ValidateRewardDistribution(
 			expected,
-			map[AddrKeyHash]uint64{},
+			map[RewardCredential]uint64{},
 		),
 	)
+}
+
+func TestValidateRewardDistributionDistinguishesCredentialKinds(t *testing.T) {
+	hash := CredentialHash{1}
+	script := RewardCredential{
+		CredType:   CredentialTypeScriptHash,
+		Credential: hash,
+	}
+	key := RewardCredential{
+		CredType:   CredentialTypeAddrKeyHash,
+		Credential: hash,
+	}
+	service := &RewardService{}
+	tests := []struct {
+		name    string
+		rewards PoolRewards
+	}{
+		{
+			name: "operator",
+			rewards: PoolRewards{
+				OperatorRewardAccount: script,
+				OperatorRewards:       40,
+			},
+		},
+		{
+			name: "delegator",
+			rewards: PoolRewards{
+				DelegatorRewards: map[RewardCredential]uint64{
+					script: 40,
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			expected := &RewardCalculationResult{
+				PoolRewards: map[PoolKeyHash]PoolRewards{{9}: test.rewards},
+			}
+			require.NoError(
+				t,
+				service.ValidateRewardDistribution(
+					expected,
+					map[RewardCredential]uint64{script: 40},
+				),
+			)
+			require.EqualError(
+				t,
+				service.ValidateRewardDistribution(
+					expected,
+					map[RewardCredential]uint64{key: 40},
+				),
+				"reward distribution does not match calculated allocations",
+			)
+		})
+	}
 }

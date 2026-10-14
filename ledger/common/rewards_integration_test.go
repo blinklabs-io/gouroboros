@@ -73,6 +73,13 @@ func TestRewardServiceIntegration(t *testing.T) {
 		},
 		TotalBlocksInEpoch: 2500,
 	}
+	require.NoError(t, snapshot.PoolParams[common.PoolKeyHash{1}].SetRewardAccountCredential(
+		common.Credential{
+			CredType:   common.CredentialTypeScriptHash,
+			Credential: common.CredentialHash{4},
+		},
+		0,
+	))
 
 	mockState := mockledger.NewLedgerStateBuilder().
 		WithAdaPots(pots).
@@ -89,12 +96,18 @@ func TestRewardServiceIntegration(t *testing.T) {
 	assert.Equal(t, pots.Rewards, result.TotalRewards)
 	assert.Equal(
 		t,
-		common.AddrKeyHash{4},
+		common.RewardCredential{
+			CredType:   common.CredentialTypeScriptHash,
+			Credential: common.CredentialHash{4},
+		},
 		result.PoolRewards[common.PoolKeyHash{1}].OperatorRewardAccount,
 	)
 	assert.Equal(
 		t,
-		common.AddrKeyHash{5},
+		common.RewardCredential{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: common.CredentialHash{5},
+		},
 		result.PoolRewards[common.PoolKeyHash{2}].OperatorRewardAccount,
 	)
 

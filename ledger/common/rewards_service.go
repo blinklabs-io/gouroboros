@@ -87,10 +87,10 @@ func (rs *RewardService) CalculateEpochRewards(
 // ValidateRewardDistribution validates that a reward distribution transaction is correct
 func (rs *RewardService) ValidateRewardDistribution(
 	expectedRewards *RewardCalculationResult,
-	actualRewards map[AddrKeyHash]uint64,
+	actualRewards map[RewardCredential]uint64,
 ) error {
-	expectedAllocations := make(map[AddrKeyHash]uint64)
-	addAllocation := func(recipient AddrKeyHash, reward uint64) {
+	expectedAllocations := make(map[RewardCredential]uint64)
+	addAllocation := func(recipient RewardCredential, reward uint64) {
 		if reward > 0 {
 			expectedAllocations[recipient] += reward
 		}
