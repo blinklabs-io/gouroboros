@@ -55,6 +55,10 @@ The TxSubmission protocol propagates transactions between nodes. It uses a pull-
 | **Txs** | 5 | Client | Client must provide transaction bodies |
 | **Done** | 6 | None | Terminal state |
 
+### Pipelining
+
+A server may pipeline `RequestTxIds` (non-blocking) and `RequestTxs` behind a request the client has not answered yet, so the client can receive them while in `TxIdsNonblocking` or `Txs`. The client holds each one until it regains agency in `Idle`. A blocking `RequestTxIds` is never pipelined.
+
 ## Messages
 
 | Message | Type ID | Direction | Description |
