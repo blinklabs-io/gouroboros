@@ -339,6 +339,20 @@ func NewConfig(options ...MessageSubmissionOptionFunc) Config {
 	return c
 }
 
+func normalizeConfig(cfg *Config) Config {
+	if cfg == nil {
+		return NewConfig()
+	}
+	ret := *cfg
+	if ret.MaxUnacknowledgedMessageIDs <= 0 {
+		ret.MaxUnacknowledgedMessageIDs = DefaultMaxUnacknowledgedMessageIDs
+	}
+	if ret.TTLValidator == nil {
+		ret.TTLValidator = pcommon.NewTTLValidator(0, nil)
+	}
+	return ret
+}
+
 // WithRequestMessageIdsFunc specifies the callback function when message IDs are requested when acting as a client
 func WithRequestMessageIdsFunc(
 	requestMessageIdsFunc RequestMessageIdsFunc,

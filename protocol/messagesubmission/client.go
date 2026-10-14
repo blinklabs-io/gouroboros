@@ -47,16 +47,9 @@ type Client struct {
 
 // NewClient returns a new MessageSubmission client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
-	if cfg == nil {
-		tmpCfg := NewConfig()
-		cfg = &tmpCfg
-	} else if cfg.MaxUnacknowledgedMessageIDs <= 0 {
-		// Keep zero-value Config literals bounded as well as configs built with
-		// NewConfig.
-		cfg.MaxUnacknowledgedMessageIDs = DefaultMaxUnacknowledgedMessageIDs
-	}
+	normalizedCfg := normalizeConfig(cfg)
 	c := &Client{
-		config:            cfg,
+		config:            &normalizedCfg,
 		pendingMessageIDs: [][]byte{},
 		protoVersion:      protoOptions.Version,
 	}

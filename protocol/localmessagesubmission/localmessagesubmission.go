@@ -160,6 +160,17 @@ func NewConfig(options ...LocalMessageSubmissionOptionFunc) Config {
 	return c
 }
 
+func normalizeConfig(cfg *Config) Config {
+	if cfg == nil {
+		return NewConfig()
+	}
+	ret := *cfg
+	if ret.TTLValidator == nil {
+		ret.TTLValidator = pcommon.NewTTLValidator(0, nil)
+	}
+	return ret
+}
+
 // WithSubmitMessageFunc specifies the callback function when a message is submitted when acting as a server
 func WithSubmitMessageFunc(
 	submitMessageFunc SubmitMessageFunc,
