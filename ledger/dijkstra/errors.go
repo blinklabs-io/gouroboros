@@ -237,7 +237,8 @@ func (e BalancesOutsideAccountBalanceIntervalsError) Error() string {
 // LeiosCertifiedBlockTransactionsError reports a block body that carries both
 // a Leios certificate and Dijkstra transactions. CIP-0164 admits one or the
 // other: "RB' contains either a certificate for the EB announced in RB, or a
-// list of transactions forming a valid extension of RB."
+// list of transactions forming a valid extension of RB." blockMatchesHeader
+// in ouroboros-consensus 5cc95f4c rejects such a block.
 type LeiosCertifiedBlockTransactionsError struct {
 	TransactionCount int
 }
@@ -247,4 +248,109 @@ func (e *LeiosCertifiedBlockTransactionsError) Error() string {
 		"dijkstra block body carries a Leios certificate and %d transactions; CIP-0164 permits a certificate or transactions, not both",
 		e.TransactionCount,
 	)
+}
+
+// HeaderProtVerTooLowError reports a Dijkstra header whose highest supported
+// major protocol version is below the major version in force.
+type HeaderProtVerTooLowError struct {
+	Supplied uint64
+	Expected uint64
+}
+
+func (e *HeaderProtVerTooLowError) Error() string {
+	return fmt.Sprintf(
+		"HeaderProtVerTooLow (supplied %d, expected at least %d)",
+		e.Supplied,
+		e.Expected,
+	)
+}
+
+// LeiosEbTooBigError reports a header announcing an endorser block larger than
+// maxEndorserBlockReferencesSize, the LeiosEbTooBig failure of
+// ouroboros-consensus 5cc95f4c.
+type LeiosEbTooBigError struct {
+	Announced uint32
+	Maximum   uint32
+}
+
+func (e *LeiosEbTooBigError) Error() string {
+	return fmt.Sprintf(
+		"LeiosEbTooBig (announced %d, maximum %d)",
+		e.Announced,
+		e.Maximum,
+	)
+}
+
+// LeiosCertWithoutAnnouncementError reports a header that sets its certificate
+// flag although its immediate predecessor announced no endorser block.
+type LeiosCertWithoutAnnouncementError struct{}
+
+func (e *LeiosCertWithoutAnnouncementError) Error() string {
+	return "LeiosCertWithoutAnnouncement"
+}
+
+// LeiosCertTooYoungError reports a header that certifies an endorser block
+// before the announcement, vote and diffusion periods have elapsed, the
+// LeiosCertTooYoung failure of ouroboros-consensus 5cc95f4c.
+type LeiosCertTooYoungError struct {
+	AnnouncingSlot  uint64
+	Slot            uint64
+	EarliestAllowed uint64
+}
+
+func (e *LeiosCertTooYoungError) Error() string {
+	return fmt.Sprintf(
+		"LeiosCertTooYoung (announcing slot %d, slot %d, earliest allowed %d)",
+		e.AnnouncingSlot,
+		e.Slot,
+		e.EarliestAllowed,
+	)
+}
+
+// LeiosCertificateFlagMismatchError reports a header certificate flag that
+// disagrees with the presence of a Leios certificate in the block body.
+type LeiosCertificateFlagMismatchError struct {
+	HeaderCertified    bool
+	BodyHasCertificate bool
+}
+
+func (e *LeiosCertificateFlagMismatchError) Error() string {
+	return fmt.Sprintf(
+		"dijkstra header certificate flag %t does not match block-body certificate presence %t",
+		e.HeaderCertified,
+		e.BodyHasCertificate,
+	)
+}
+
+// PerasCertValidationFailedError reports a block body carrying a Peras
+// certificate, which Dijkstra rejects while Peras is disabled.
+type PerasCertValidationFailedError struct {
+	Certificate []byte
+}
+
+func (e *PerasCertValidationFailedError) Error() string {
+	return fmt.Sprintf(
+		"PerasCertValidationFailed (%d-byte certificate)",
+		len(e.Certificate),
+	)
+}
+
+// BlsKeyInvalidProofOfPossessionError reports a stake pool (re-)registration
+// whose Leios BLS key carries a proof of possession that does not verify.
+type BlsKeyInvalidProofOfPossessionError struct {
+	PoolId common.PoolKeyHash
+	Key    common.LeiosKey
+	Err    error
+}
+
+func (e *BlsKeyInvalidProofOfPossessionError) Error() string {
+	return fmt.Sprintf(
+		"BlsKeyInvalidProofOfPossession (pool %s: %v)",
+		e.PoolId.String(),
+		e.Err,
+	)
+}
+
+func (e *BlsKeyInvalidProofOfPossessionError) Unwrap() error {
+	return e.Err
 }

@@ -205,6 +205,26 @@ type DijkstraLeiosCertificateState interface {
 	) (DijkstraLeiosCertificateContext, error)
 }
 
+// DijkstraLeiosHeaderContext is the chain state needed to check a Dijkstra
+// header that sets its Leios certificate flag.
+type DijkstraLeiosHeaderContext struct {
+	// Predecessor is the header immediately preceding the checked header on
+	// its chain, whose hash is the checked header's PrevHash, or nil when the
+	// checked header follows the chain origin.
+	Predecessor BlockHeader
+	// SlotLength is the slot length in force at the checked header's slot.
+	SlotLength time.Duration
+}
+
+// DijkstraLeiosHeaderState is an optional capability required when a Dijkstra
+// header sets its Leios certificate flag. Implementations resolve the header's
+// immediate predecessor and the slot length at the header's slot.
+type DijkstraLeiosHeaderState interface {
+	DijkstraLeiosHeaderContext(
+		header BlockHeader,
+	) (DijkstraLeiosHeaderContext, error)
+}
+
 // SlotState defines the interface for querying slots
 type SlotState interface {
 	SlotToTime(uint64) (time.Time, error)

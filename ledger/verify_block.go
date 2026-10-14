@@ -47,7 +47,7 @@ const (
 	HeaderBodyLengthBabbageLike = 10
 	// HeaderBodyLengthDijkstraLeiosLike is the Dijkstra/Leios-extended header
 	// body: Babbage's 10 fields plus block_body_contains_leios_cert and
-	// eb_announcement (cardano-ledger eras/dijkstra/impl/cddl/data/
+	// eb_references_announcement (cardano-ledger eras/dijkstra/impl/cddl/data/
 	// dijkstra.cddl header_body; see ledger/dijkstra.DijkstraBlockHeader).
 	// No other era has this shape. Offset 9 is header_version_info, whose
 	// first element is the issuer's highest supported major protocol version
@@ -143,6 +143,117 @@ func validateDijkstraBlockBodyHash(
 	return nil
 }
 
+// validateDijkstraLeiosHeader applies the Dijkstra header rules that need the
+// protocol parameters in force: the header version floor, the announced
+// endorser block size bound and, for a header that sets its certificate flag,
+// the announcement and certification-delay rules against its predecessor.
+// Without protocol parameters it checks nothing; the block-body rules still
+// require them for any certified block. Parameters of another era are a
+// configuration error even for an uncertified block, because the version floor
+// and size bound are read from them. The size and certificate rules are those
+// of leiosHeaderChecks in ouroboros-consensus 5cc95f4c.
+func validateDijkstraLeiosHeader(
+	block Block,
+	protocolParameters common.ProtocolParameters,
+	ledgerState common.LedgerState,
+) error {
+	dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock)
+	if !ok || dijkstraBlock.BlockHeader == nil || protocolParameters == nil {
+		return nil
+	}
+	header := dijkstraBlock.BlockHeader
+	pparams, ok := protocolParameters.(*dijkstra.DijkstraProtocolParameters)
+	if !ok {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"Dijkstra header validation requires Dijkstra protocol parameters",
+			map[string]any{"block_era": dijkstra.EraNameDijkstra},
+			nil,
+		)
+	}
+	details := map[string]any{
+		"slot":         header.SlotNumber(),
+		"block_number": header.BlockNumber(),
+	}
+	if err := dijkstra.ValidateHeaderProtocolVersion(
+		header,
+		pparams,
+	); err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"Dijkstra header protocol version too low",
+			details,
+			err,
+		)
+	}
+	if err := dijkstra.ValidateLeiosAnnouncementSize(
+		header,
+		pparams,
+	); err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"Dijkstra header announces an oversized endorser block",
+			details,
+			err,
+		)
+	}
+	if certified, _ := header.LeiosCertified(); !certified {
+		return nil
+	}
+	state, ok := common.UnwrapLedgerState(ledgerState).(common.DijkstraLeiosHeaderState)
+	if !ok {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"Dijkstra Leios certified header validation requires header state",
+			map[string]any{"has_ledger_state": ledgerState != nil},
+			nil,
+		)
+	}
+	context, err := state.DijkstraLeiosHeaderContext(header)
+	if err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"failed to resolve Dijkstra Leios header state",
+			details,
+			err,
+		)
+	}
+	if predecessor, typed := context.Predecessor.(*dijkstra.DijkstraBlockHeader); typed &&
+		predecessor == nil {
+		// A typed nil is the chain origin, as an untyped nil is
+		context.Predecessor = nil
+	}
+	if context.Predecessor != nil {
+		predecessorHash := context.Predecessor.Hash()
+		prevHash := header.PrevHash()
+		if subtle.ConstantTimeCompare(predecessorHash[:], prevHash[:]) != 1 {
+			return common.NewValidationError(
+				common.ValidationErrorTypeConfiguration,
+				"Dijkstra Leios header state returned a header that is not the predecessor",
+				map[string]any{
+					"prev_hash":        prevHash.String(),
+					"predecessor_hash": predecessorHash.String(),
+				},
+				nil,
+			)
+		}
+	}
+	if err := dijkstra.ValidateLeiosCertificateTiming(
+		header,
+		context.Predecessor,
+		pparams,
+		context.SlotLength,
+	); err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"invalid Dijkstra Leios certificate timing",
+			details,
+			err,
+		)
+	}
+	return nil
+}
+
 func validateDijkstraBlockCertificates(
 	block Block,
 	protocolParameters common.ProtocolParameters,
@@ -152,11 +263,9 @@ func validateDijkstraBlockCertificates(
 	if !ok {
 		return nil
 	}
-	var certified, hasLeiosHeaderExtension bool
-	if dijkstraBlock.BlockHeader != nil {
-		certified, hasLeiosHeaderExtension = dijkstraBlock.BlockHeader.LeiosCertified()
-		if len(dijkstraBlock.BlockHeader.LeiosHeaderExtension) > 0 &&
-			!hasLeiosHeaderExtension {
+	if dijkstraBlock.BlockHeader != nil &&
+		len(dijkstraBlock.BlockHeader.LeiosHeaderExtension) > 0 {
+		if _, ok := dijkstraBlock.BlockHeader.LeiosCertified(); !ok {
 			return common.NewValidationError(
 				common.ValidationErrorTypeProtocol,
 				"invalid Dijkstra Leios certified flag in block header",
@@ -165,18 +274,15 @@ func validateDijkstraBlockCertificates(
 			)
 		}
 	}
-	hasCertificate := dijkstraBlock.BlockBody.LeiosCertificate != nil
-	if hasLeiosHeaderExtension && certified != hasCertificate {
+	if err := dijkstra.ValidateLeiosBlockBody(dijkstraBlock); err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
-			"Dijkstra Leios certified flag does not match block-body certificate presence",
-			map[string]any{
-				"certified":       certified,
-				"has_certificate": hasCertificate,
-			},
+			"invalid Dijkstra block body",
 			nil,
+			err,
 		)
 	}
+	hasCertificate := dijkstraBlock.BlockBody.LeiosCertificate != nil
 	if !hasCertificate {
 		return nil
 	}
@@ -632,7 +738,8 @@ func VerifyBlock(
 
 // VerifyBlockLocal checks header cryptography and body integrity without
 // reading ledger state or protocol parameters. Success does not certify
-// transaction validity, block limits, pool registration, or certificates.
+// transaction validity, block limits, pool registration, certificates, or the
+// Dijkstra header rules that depend on protocol parameters.
 func VerifyBlockLocal(
 	block Block,
 	eta0Hex string,
@@ -1008,15 +1115,22 @@ func verifyBlock(
 	return true, vrfHex, blockNo, slot, nil
 }
 
-// VerifyBlockState checks certificates, block limits, transactions, and pool
-// registration against current ledger state. Callers must first verify the
-// same immutable block with VerifyBlockLocal and serialize this check with
-// application of preceding blocks.
+// VerifyBlockState checks the Dijkstra header rules, certificates, block
+// limits, transactions, and pool registration against current ledger state.
+// Callers must first verify the same immutable block with VerifyBlockLocal and
+// serialize this check with application of preceding blocks.
 func VerifyBlockState(block Block, config common.VerifyConfig) error {
 	header := block.Header()
 	slot := header.SlotNumber()
 	blockNo := header.BlockNumber()
 	era := header.Era()
+	if err := validateDijkstraLeiosHeader(
+		block,
+		config.ProtocolParameters,
+		config.LedgerState,
+	); err != nil {
+		return err
+	}
 	if err := validateDijkstraBlockCertificates(
 		block,
 		config.ProtocolParameters,

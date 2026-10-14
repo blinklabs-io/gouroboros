@@ -86,7 +86,12 @@ func dijkstraGuardTestPlutus(
 	}
 }
 
-func dijkstraV4SubTxIndexAbsentScript(t *testing.T) common.PlutusV4Script {
+// dijkstraV4SubTxIndexScript builds a guard script that fails unless its
+// context's txInfoSubTxIx equals expected.
+func dijkstraV4SubTxIndexScript(
+	t *testing.T,
+	expected data.PlutusData,
+) common.PlutusV4Script {
 	t.Helper()
 	applyBuiltin := func(
 		fn builtin.DefaultFunction,
@@ -95,8 +100,6 @@ func dijkstraV4SubTxIndexAbsentScript(t *testing.T) common.PlutusV4Script {
 		var term syn.Term[syn.DeBruijn] = &syn.Builtin{DefaultFunction: fn}
 		forces := 0
 		switch fn {
-		case builtin.SndPair:
-			forces = 2
 		case builtin.HeadList, builtin.TailList, builtin.IfThenElse:
 			forces = 1
 		}
@@ -108,16 +111,11 @@ func dijkstraV4SubTxIndexAbsentScript(t *testing.T) common.PlutusV4Script {
 		}
 		return term
 	}
+	// ScriptContext and TxInfo are list-encoded in Plutus V4.
 	context := syn.Term[syn.DeBruijn](&syn.Var[syn.DeBruijn]{Name: 1})
-	contextFields := applyBuiltin(
-		builtin.SndPair,
-		applyBuiltin(builtin.UnConstrData, context),
-	)
+	contextFields := applyBuiltin(builtin.UnListData, context)
 	txInfo := applyBuiltin(builtin.HeadList, contextFields)
-	txInfoFields := applyBuiltin(
-		builtin.SndPair,
-		applyBuiltin(builtin.UnConstrData, txInfo),
-	)
+	txInfoFields := applyBuiltin(builtin.UnListData, txInfo)
 	subTxIndex := applyBuiltin(
 		builtin.HeadList,
 		applyBuiltin(builtin.TailList, txInfoFields),
@@ -125,7 +123,7 @@ func dijkstraV4SubTxIndexAbsentScript(t *testing.T) common.PlutusV4Script {
 	condition := applyBuiltin(
 		builtin.EqualsData,
 		subTxIndex,
-		&syn.Constant{Con: &syn.Data{Inner: data.NewConstr(1)}},
+		&syn.Constant{Con: &syn.Data{Inner: expected}},
 	)
 	term := syn.Term[syn.DeBruijn](&syn.Force[syn.DeBruijn]{
 		Term: applyBuiltin(
@@ -145,75 +143,118 @@ func dijkstraV4SubTxIndexAbsentScript(t *testing.T) common.PlutusV4Script {
 	return common.PlutusV4Script(wrapper)
 }
 
-func TestVerifyTransactionPlutusV4SubTxIndexIsAbsent(t *testing.T) {
-	script := dijkstraV4SubTxIndexAbsentScript(t)
-	guard := dijkstraGuardCredentialForScript(script)
-	referenceInput, referenceUtxo := dijkstraReferenceScriptInput(script, 904)
-	referenceAddress, err := common.NewAddressFromParts(
-		common.AddressTypeKeyNone,
-		common.AddressNetworkTestnet,
-		script.Hash().Bytes(),
-		nil,
-	)
-	require.NoError(t, err)
-	referenceOutput := referenceUtxo.Output.(babbage.BabbageTransactionOutput)
-	referenceOutput.OutputAddress = referenceAddress
-	referenceUtxo.Output = referenceOutput
-	redeemer := common.RedeemerValue{
-		Data: common.Datum{Data: data.NewInteger(big.NewInt(0))},
-		ExUnits: common.ExUnits{
-			Steps:  10_000_000,
-			Memory: 10_000_000,
-		},
+// dijkstraSubTxIndexGuardTx builds a transaction with two sub-transactions.
+// Each level is guarded by its own reference V4 script, which fails unless
+// the level's txInfoSubTxIx is Just its sub-transaction position, or Nothing
+// at the top level. swapped reverses the sub-transactions, so each guard
+// script then sees the wrong index.
+func dijkstraSubTxIndexGuardTx(
+	t *testing.T,
+	firstReferenceIndex int,
+	redeemers func() DijkstraRedeemers,
+	swapped bool,
+) (*DijkstraTransaction, common.LedgerState) {
+	t.Helper()
+	expected := []data.PlutusData{
+		data.NewConstr(0, data.NewInteger(big.NewInt(0))),
+		data.NewConstr(0, data.NewInteger(big.NewInt(1))),
+		data.NewConstr(1),
 	}
-	guardSet := &DijkstraGuards{Credentials: []common.Credential{guard}}
+	guardSets := make([]*DijkstraGuards, len(expected))
+	referenceInputs := make(
+		[]shelley.ShelleyTransactionInput,
+		0,
+		len(expected),
+	)
+	referenceUtxos := make([]common.Utxo, 0, len(expected))
+	for idx, want := range expected {
+		script := dijkstraV4SubTxIndexScript(t, want)
+		guardSets[idx] = &DijkstraGuards{
+			Credentials: []common.Credential{
+				dijkstraGuardCredentialForScript(script),
+			},
+		}
+		referenceInput, referenceUtxo := dijkstraReferenceScriptInput(
+			script,
+			firstReferenceIndex+idx,
+		)
+		referenceAddress, err := common.NewAddressFromParts(
+			common.AddressTypeKeyNone,
+			common.AddressNetworkTestnet,
+			script.Hash().Bytes(),
+			nil,
+		)
+		require.NoError(t, err)
+		referenceOutput := referenceUtxo.Output.(babbage.BabbageTransactionOutput)
+		referenceOutput.OutputAddress = referenceAddress
+		referenceUtxo.Output = referenceOutput
+		referenceInputs = append(referenceInputs, referenceInput)
+		referenceUtxos = append(referenceUtxos, referenceUtxo)
+	}
 	children := []DijkstraSubTransaction{
 		{
-			Body: DijkstraSubTransactionBody{TxGuards: guardSet},
+			Body: DijkstraSubTransactionBody{TxGuards: guardSets[0]},
 			WitnessSet: DijkstraTransactionWitnessSet{
-				WsRedeemers: DijkstraRedeemers{
-					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-						{Tag: common.RedeemerTagGuarding}: redeemer,
-					},
-				},
+				WsRedeemers: redeemers(),
 			},
 		},
 		{
-			Body: DijkstraSubTransactionBody{TxGuards: guardSet},
+			Body: DijkstraSubTransactionBody{TxGuards: guardSets[1]},
 			WitnessSet: DijkstraTransactionWitnessSet{
-				WsRedeemers: DijkstraRedeemers{
-					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-						{Tag: common.RedeemerTagGuarding}: redeemer,
-					},
-				},
+				WsRedeemers: redeemers(),
 			},
 		},
+	}
+	if swapped {
+		children[0], children[1] = children[1], children[0]
 	}
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
-			TxGuards:          guardSet,
-			TxReferenceInputs: dijkstraReferenceInputSet(referenceInput),
+			TxGuards:          guardSets[2],
+			TxReferenceInputs: cbor.NewSetType(referenceInputs, true),
 			TxSubTransactions: cbor.NewSetType(children, true),
 		},
 		WitnessSet: DijkstraTransactionWitnessSet{
-			WsRedeemers: DijkstraRedeemers{
-				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-					{Tag: common.RedeemerTagGuarding}: redeemer,
-				},
-			},
+			WsRedeemers: redeemers(),
 		},
 		TxIsValid: true,
 	}
-	state := mockledger.NewLedgerStateBuilder().
-		WithUtxos([]common.Utxo{referenceUtxo}).
+	return tx, mockledger.NewLedgerStateBuilder().
+		WithUtxos(referenceUtxos).
 		Build()
-	require.NoError(t, common.VerifyTransaction(
-		tx,
-		0,
-		state,
-		dijkstraGuardTestPParams(),
-		[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
-	))
+}
+
+func TestVerifyTransactionPlutusV4SubTxIndex(t *testing.T) {
+	redeemers := func() DijkstraRedeemers {
+		return DijkstraRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagGuarding}: {
+					Data: common.Datum{
+						Data: data.NewInteger(big.NewInt(0)),
+					},
+					ExUnits: common.ExUnits{
+						Steps:  10_000_000,
+						Memory: 10_000_000,
+					},
+				},
+			},
+		}
+	}
+	for _, swapped := range []bool{false, true} {
+		tx, state := dijkstraSubTxIndexGuardTx(t, 904, redeemers, swapped)
+		err := common.VerifyTransaction(
+			tx,
+			0,
+			state,
+			dijkstraGuardTestPParams(),
+			[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
+		)
+		if swapped {
+			require.Error(t, err)
+			continue
+		}
+		require.NoError(t, err)
+	}
 }
 
 func dijkstraGuardTestPParams() *DijkstraProtocolParameters {
