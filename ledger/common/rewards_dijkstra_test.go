@@ -299,20 +299,24 @@ func TestCalculateRewardsDijkstraMinPoolMargin(t *testing.T) {
 	require.Equal(t, uint64(5_000), beforeActivation.OperatorRewards)
 	require.Equal(t, beforeActivation, zeroFloor)
 	require.Equal(t, zeroFloor, unsetFloor)
+	delegator := common.RewardCredential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.CredentialHash{1},
+	}
 	require.Equal(
 		t,
 		uint64(90_000),
-		belowFloor.DelegatorRewards[common.AddrKeyHash{1}],
+		belowFloor.DelegatorRewards[delegator],
 	)
 	require.Equal(
 		t,
 		uint64(80_000),
-		aboveFloor.DelegatorRewards[common.AddrKeyHash{1}],
+		aboveFloor.DelegatorRewards[delegator],
 	)
 	require.Equal(
 		t,
 		uint64(95_000),
-		beforeActivation.DelegatorRewards[common.AddrKeyHash{1}],
+		beforeActivation.DelegatorRewards[delegator],
 	)
 }
 

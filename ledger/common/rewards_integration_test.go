@@ -48,16 +48,18 @@ func TestRewardServiceIntegration(t *testing.T) {
 		},
 		PoolParams: map[common.PoolKeyHash]*common.PoolRegistrationCertificate{
 			{1}: {
-				Cost:       50000,
-				Margin:     common.NewGenesisRat(0, 1),
-				Pledge:     1000000,
-				PoolOwners: []common.AddrKeyHash{{1}},
+				Cost:          50000,
+				Margin:        common.NewGenesisRat(0, 1),
+				Pledge:        1000000,
+				RewardAccount: common.AddrKeyHash{4},
+				PoolOwners:    []common.AddrKeyHash{{1}},
 			},
 			{2}: {
-				Cost:       30000,
-				Margin:     common.NewGenesisRat(0, 1),
-				Pledge:     500000,
-				PoolOwners: []common.AddrKeyHash{{3}},
+				Cost:          30000,
+				Margin:        common.NewGenesisRat(0, 1),
+				Pledge:        500000,
+				RewardAccount: common.AddrKeyHash{5},
+				PoolOwners:    []common.AddrKeyHash{{3}},
 			},
 		},
 		StakeRegistrations: map[common.AddrKeyHash]bool{
@@ -71,6 +73,13 @@ func TestRewardServiceIntegration(t *testing.T) {
 		},
 		TotalBlocksInEpoch: 2500,
 	}
+	require.NoError(t, snapshot.PoolParams[common.PoolKeyHash{1}].SetRewardAccountCredential(
+		common.Credential{
+			CredType:   common.CredentialTypeScriptHash,
+			Credential: common.CredentialHash{4},
+		},
+		0,
+	))
 
 	mockState := mockledger.NewLedgerStateBuilder().
 		WithAdaPots(pots).
@@ -85,6 +94,22 @@ func TestRewardServiceIntegration(t *testing.T) {
 
 	assert.Greater(t, len(result.PoolRewards), 0)
 	assert.Equal(t, pots.Rewards, result.TotalRewards)
+	assert.Equal(
+		t,
+		common.RewardCredential{
+			CredType:   common.CredentialTypeScriptHash,
+			Credential: common.CredentialHash{4},
+		},
+		result.PoolRewards[common.PoolKeyHash{1}].OperatorRewardAccount,
+	)
+	assert.Equal(
+		t,
+		common.RewardCredential{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: common.CredentialHash{5},
+		},
+		result.PoolRewards[common.PoolKeyHash{2}].OperatorRewardAccount,
+	)
 
 	updatedPots := mockState.GetAdaPots()
 	assert.Equal(t, uint64(0), updatedPots.Rewards)
