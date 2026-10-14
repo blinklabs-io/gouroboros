@@ -63,6 +63,7 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 	_, err = v.unmarshalCBOR(
 		data,
 		true,
+		nil,
 		0,
 		rejectDuplicateMapKeys,
 		decMode,
@@ -73,6 +74,7 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 func (v *Value) unmarshalCBOR(
 	data []byte,
 	retainCbor bool,
+	mapKeyDigestOut *[sha256.Size]byte,
 	depth int,
 	duplicateKeyPolicy duplicateMapKeyPolicy,
 	decMode _cbor.DecMode,
@@ -108,9 +110,21 @@ func (v *Value) unmarshalCBOR(
 	cborType := data[0] & CborTypeMask
 	switch cborType {
 	case CborTypeMap:
-		return v.processMap(data, depth, duplicateKeyPolicy, decMode)
+		return v.processMap(
+			data,
+			mapKeyDigestOut,
+			depth,
+			duplicateKeyPolicy,
+			decMode,
+		)
 	case CborTypeArray:
-		return v.processArray(data, depth, duplicateKeyPolicy, decMode)
+		return v.processArray(
+			data,
+			mapKeyDigestOut,
+			depth,
+			duplicateKeyPolicy,
+			decMode,
+		)
 	case CborTypeTextString:
 		var tmpValue string
 		decodedLength, err := decodeWithMode(
@@ -123,6 +137,7 @@ func (v *Value) unmarshalCBOR(
 			return 0, err
 		}
 		v.value = tmpValue
+		setMapKeyDigest(mapKeyDigestOut, v.value)
 		return decodedLength, nil
 	case CborTypeByteString:
 		// Use our custom type which stores the bytestring in a way that allows it to be used as a map key
@@ -137,6 +152,7 @@ func (v *Value) unmarshalCBOR(
 			return 0, err
 		}
 		v.value = tmpValue
+		setMapKeyDigest(mapKeyDigestOut, v.value)
 		return decodedLength, nil
 	case CborTypeTag:
 		// Parse as a raw tag to get number and nested CBOR data
@@ -175,6 +191,7 @@ func (v *Value) unmarshalCBOR(
 			}
 			v.value = tmpTagDecode
 		}
+		setMapKeyDigest(mapKeyDigestOut, v.value)
 		return decodedLength, nil
 	default:
 		var tmpValue any
@@ -188,7 +205,14 @@ func (v *Value) unmarshalCBOR(
 			return 0, err
 		}
 		v.value = tmpValue
+		setMapKeyDigest(mapKeyDigestOut, v.value)
 		return decodedLength, nil
+	}
+}
+
+func setMapKeyDigest(out *[sha256.Size]byte, value any) {
+	if out != nil {
+		*out = mapKeyDigest(value)
 	}
 }
 
@@ -223,6 +247,7 @@ func (v Value) MarshalJSON() ([]byte, error) {
 
 func (v *Value) processMap(
 	data []byte,
+	mapKeyDigestOut *[sha256.Size]byte,
 	depth int,
 	duplicateKeyPolicy duplicateMapKeyPolicy,
 	decMode _cbor.DecMode,
@@ -247,6 +272,10 @@ func (v *Value) processMap(
 	}
 	newValue := map[any]any{}
 	seenKeys := make(map[string]any)
+	var digestEntries map[string][sha256.Size * 2]byte
+	if mapKeyDigestOut != nil {
+		digestEntries = make(map[string][sha256.Size * 2]byte)
+	}
 	position := int(headerLength)
 	for itemIndex := 0; indefinite || itemIndex < itemCount; itemIndex++ {
 		if position >= len(data) {
@@ -255,13 +284,20 @@ func (v *Value) processMap(
 		if indefinite && data[position] == 0xff {
 			position++
 			v.value = newValue
+			if mapKeyDigestOut != nil {
+				*mapKeyDigestOut = mapKeyMapDigest('m', digestEntries)
+			}
 			return position, nil
 		}
 
-		var key Value
+		var (
+			key       Value
+			keyDigest [sha256.Size]byte
+		)
 		keyLength, keyErr := key.unmarshalCBOR(
 			data[position:],
 			false,
+			&keyDigest,
 			depth+1,
 			duplicateKeyPolicy,
 			decMode,
@@ -272,7 +308,7 @@ func (v *Value) processMap(
 		position += keyLength
 		keyValue := key.Value()
 		keyComparable := isReflexiveMapKey(keyValue)
-		keyIdentity := mapKeyIdentity(keyValue)
+		keyIdentity := string(keyDigest[:])
 		storageKey, duplicate := seenKeys[keyIdentity]
 		if duplicate && duplicateKeyPolicy == rejectDuplicateMapKeys {
 			return 0, &_cbor.DupMapKeyError{
@@ -284,10 +320,18 @@ func (v *Value) processMap(
 			return 0, io.ErrUnexpectedEOF
 		}
 
-		var value Value
+		var (
+			value          Value
+			valueDigest    [sha256.Size]byte
+			valueDigestOut *[sha256.Size]byte
+		)
+		if mapKeyDigestOut != nil {
+			valueDigestOut = &valueDigest
+		}
 		valueLength, valueErr := value.unmarshalCBOR(
 			data[position:],
 			false,
+			valueDigestOut,
 			depth+1,
 			duplicateKeyPolicy,
 			decMode,
@@ -296,6 +340,12 @@ func (v *Value) processMap(
 			return 0, valueErr
 		}
 		position += valueLength
+		if digestEntries != nil {
+			var entry [sha256.Size * 2]byte
+			copy(entry[:sha256.Size], keyDigest[:])
+			copy(entry[sha256.Size:], valueDigest[:])
+			digestEntries[keyIdentity] = entry
+		}
 
 		if duplicate {
 			newValue[storageKey] = value.Value()
@@ -312,11 +362,15 @@ func (v *Value) processMap(
 		newValue[newStorageKey] = value.Value()
 	}
 	v.value = newValue
+	if mapKeyDigestOut != nil {
+		*mapKeyDigestOut = mapKeyMapDigest('m', digestEntries)
+	}
 	return position, nil
 }
 
 func (v *Value) processArray(
 	data []byte,
+	mapKeyDigestOut *[sha256.Size]byte,
 	depth int,
 	duplicateKeyPolicy duplicateMapKeyPolicy,
 	decMode _cbor.DecMode,
@@ -326,6 +380,10 @@ func (v *Value) processArray(
 		return 0, errors.New("invalid CBOR array header")
 	}
 	newValue := []any{}
+	var childDigests [][sha256.Size]byte
+	if mapKeyDigestOut != nil {
+		childDigests = make([][sha256.Size]byte, 0, itemCount)
+	}
 	position := int(headerLength)
 	for itemIndex := 0; indefinite || itemIndex < itemCount; itemIndex++ {
 		if position >= len(data) {
@@ -334,13 +392,24 @@ func (v *Value) processArray(
 		if indefinite && data[position] == 0xff {
 			position++
 			v.value = newValue
+			if mapKeyDigestOut != nil {
+				*mapKeyDigestOut = mapKeySequenceDigest('a', childDigests)
+			}
 			return position, nil
 		}
 
-		var value Value
+		var (
+			value          Value
+			valueDigest    [sha256.Size]byte
+			valueDigestOut *[sha256.Size]byte
+		)
+		if mapKeyDigestOut != nil {
+			valueDigestOut = &valueDigest
+		}
 		valueLength, err := value.unmarshalCBOR(
 			data[position:],
 			false,
+			valueDigestOut,
 			depth+1,
 			duplicateKeyPolicy,
 			decMode,
@@ -350,8 +419,14 @@ func (v *Value) processArray(
 		}
 		position += valueLength
 		newValue = append(newValue, value.Value())
+		if mapKeyDigestOut != nil {
+			childDigests = append(childDigests, valueDigest)
+		}
 	}
 	v.value = newValue
+	if mapKeyDigestOut != nil {
+		*mapKeyDigestOut = mapKeySequenceDigest('a', childDigests)
+	}
 	return position, nil
 }
 
@@ -362,17 +437,64 @@ func isReflexiveMapKey(key any) bool {
 	return reflect.ValueOf(key).Comparable() && key == key
 }
 
-func mapKeyIdentity(key any) string {
-	digest := mapKeyDigest(key)
-	return string(digest[:])
-}
-
 func mapKeyDigest(key any) [sha256.Size]byte {
 	digest := sha256.New()
 	appendMapKeyDigest(digest, key)
 	var ret [sha256.Size]byte
 	copy(ret[:], digest.Sum(nil))
 	return ret
+}
+
+func mapKeySequenceDigest(
+	marker byte,
+	children [][sha256.Size]byte,
+) [sha256.Size]byte {
+	digest := sha256.New()
+	writeMapKeyDigestUint(digest, marker, uint64(len(children)))
+	for _, child := range children {
+		_, _ = digest.Write(child[:])
+	}
+	return sumMapKeyDigest(digest)
+}
+
+func mapKeyMapDigest(
+	marker byte,
+	entriesByKey map[string][sha256.Size * 2]byte,
+) [sha256.Size]byte {
+	entries := make([][sha256.Size * 2]byte, 0, len(entriesByKey))
+	for _, entry := range entriesByKey {
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return bytes.Compare(entries[i][:], entries[j][:]) < 0
+	})
+	digest := sha256.New()
+	writeMapKeyDigestMap(digest, marker, entries)
+	return sumMapKeyDigest(digest)
+}
+
+func sumMapKeyDigest(digest hash.Hash) [sha256.Size]byte {
+	var ret [sha256.Size]byte
+	copy(ret[:], digest.Sum(nil))
+	return ret
+}
+
+func writeMapKeyDigestUint(digest hash.Hash, marker byte, value uint64) {
+	_, _ = digest.Write([]byte{marker})
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], value)
+	_, _ = digest.Write(encoded[:])
+}
+
+func writeMapKeyDigestMap(
+	digest hash.Hash,
+	marker byte,
+	entries [][sha256.Size * 2]byte,
+) {
+	writeMapKeyDigestUint(digest, marker, uint64(len(entries)))
+	for _, entry := range entries {
+		_, _ = digest.Write(entry[:])
+	}
 }
 
 func appendMapKeyDigest(digest hash.Hash, key any) {
@@ -409,10 +531,7 @@ func appendMapKeyDigest(digest hash.Hash, key any) {
 		sort.Slice(entries, func(i, j int) bool {
 			return bytes.Compare(entries[i][:], entries[j][:]) < 0
 		})
-		writeUint(marker, uint64(len(entries)))
-		for _, entry := range entries {
-			_, _ = digest.Write(entry[:])
-		}
+		writeMapKeyDigestMap(digest, marker, entries)
 	}
 
 	switch key := key.(type) {
