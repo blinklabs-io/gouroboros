@@ -551,3 +551,76 @@ func TestKeyGenRejectsDepthAboveMax(t *testing.T) {
 		})
 	}
 }
+
+func TestSecretKeyOperationsRejectMalformedStructure(t *testing.T) {
+	t.Parallel()
+	for depth := uint64(0); depth <= MaxDepth; depth++ {
+		expectedSize := secretKeySize(depth)
+		cases := []struct {
+			name string
+			size int
+		}{
+			{name: "truncated", size: expectedSize - 1},
+			{name: "oversized", size: expectedSize + 1},
+			{
+				name: "inconsistent",
+				size: secretKeySize((depth + 1) % (MaxDepth + 1)),
+			},
+		}
+		for _, test := range cases {
+			t.Run(
+				fmt.Sprintf("depth_%d/%s", depth, test.name),
+				func(t *testing.T) {
+					t.Parallel()
+					sk := &SecretKey{
+						Depth: depth,
+						Data:  make([]byte, test.size),
+					}
+					before := append([]byte(nil), sk.Data...)
+
+					require.NotPanics(t, func() {
+						_, err := Sign(sk, 0, []byte("message"))
+						require.Error(t, err)
+					})
+					require.NotPanics(t, func() {
+						_, err := Update(sk)
+						require.Error(t, err)
+					})
+					require.Equal(t, before, sk.Data)
+					require.NotPanics(t, func() {
+						require.Nil(t, PublicKey(sk))
+					})
+				},
+			)
+		}
+	}
+}
+
+func TestSecretKeyOperationsRejectUnsupportedDepth(t *testing.T) {
+	t.Parallel()
+	for _, depth := range []uint64{MaxDepth + 1, math.MaxUint64} {
+		t.Run(fmt.Sprintf("depth_%d", depth), func(t *testing.T) {
+			t.Parallel()
+			sk := &SecretKey{Depth: depth, Data: make([]byte, SeedSize)}
+			require.NotPanics(t, func() {
+				_, err := Sign(sk, 0, []byte("message"))
+				require.Error(t, err)
+			})
+			require.NotPanics(t, func() {
+				_, err := Update(sk)
+				require.Error(t, err)
+			})
+			require.NotPanics(t, func() {
+				require.Nil(t, PublicKey(sk))
+			})
+		})
+	}
+}
+
+func TestPublicKeyRejectsMalformedGeneratedKey(t *testing.T) {
+	t.Parallel()
+	sk, _, err := KeyGen(CardanoKesDepth, testSeed)
+	require.NoError(t, err)
+	sk.Data = sk.Data[:len(sk.Data)-1]
+	require.Nil(t, PublicKey(sk))
+}
