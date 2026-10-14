@@ -132,6 +132,9 @@ type RewardCalculationResult struct {
 
 // PoolRewards contains rewards for a specific pool
 type PoolRewards struct {
+	// OperatorRewardAccount receives the pool operator rewards.
+	OperatorRewardAccount AddrKeyHash
+
 	// Pool operator rewards
 	OperatorRewards uint64
 
@@ -642,9 +645,10 @@ func distributePoolRewards(
 	// Check if poolCost already uses up all the available rewards
 	if totalPoolRewards <= poolCost {
 		return &PoolRewards{
-			OperatorRewards:  totalPoolRewards,
-			DelegatorRewards: make(map[AddrKeyHash]uint64),
-			TotalRewards:     totalPoolRewards,
+			OperatorRewardAccount: poolParams.RewardAccount,
+			OperatorRewards:       totalPoolRewards,
+			DelegatorRewards:      make(map[AddrKeyHash]uint64),
+			TotalRewards:          totalPoolRewards,
 		}
 	}
 
@@ -721,9 +725,10 @@ func distributePoolRewards(
 	}
 
 	return &PoolRewards{
-		OperatorRewards:  operatorRewards,
-		DelegatorRewards: delegatorRewards,
-		TotalRewards:     totalPoolRewards,
+		OperatorRewardAccount: poolParams.RewardAccount,
+		OperatorRewards:       operatorRewards,
+		DelegatorRewards:      delegatorRewards,
+		TotalRewards:          totalPoolRewards,
 	}
 }
 
