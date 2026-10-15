@@ -52,14 +52,10 @@ func UtxoValidateRefScriptSizePerTx(
 	if err != nil {
 		return err
 	}
-	maxSize := MaxRefScriptSizePerTx
-	if conwayPparams.MaxRefScriptSizePerTxOverride != nil {
-		maxSize = *conwayPparams.MaxRefScriptSizePerTxOverride
-	}
-	if totalSize > maxSize {
+	if totalSize > MaxRefScriptSizePerTx {
 		return common.RefScriptSizePerTxTooLargeError{
 			TxSize:  totalSize,
-			MaxSize: maxSize,
+			MaxSize: MaxRefScriptSizePerTx,
 		}
 	}
 	return nil
@@ -117,7 +113,9 @@ func CalculateRefScriptFee(
 		return 0, errors.New("invalid reference-script base cost")
 	}
 	if stride == 0 {
-		return 0, errors.New("reference-script cost stride must be greater than zero")
+		return 0, errors.New(
+			"reference-script cost stride must be greater than zero",
+		)
 	}
 	if multiplier == nil || multiplier.Rat == nil || multiplier.Sign() <= 0 {
 		return 0, errors.New("invalid reference-script cost multiplier")

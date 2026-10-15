@@ -62,9 +62,6 @@ type ConwayProtocolParameters struct {
 	DRepDeposit                uint64
 	DRepInactivityPeriod       uint64
 	MinFeeRefScriptCostPerByte *cbor.Rat
-	// MaxRefScriptSizePerTxOverride is an out-of-band test limit. It is not a
-	// Conway protocol parameter and is omitted from CBOR encoding.
-	MaxRefScriptSizePerTxOverride *uint64 `cbor:"-"`
 }
 
 var _ common.CommitteeMaxTermLengthProvider = (*ConwayProtocolParameters)(nil)
@@ -121,7 +118,11 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 		}
 		ret, err := common.ToUtxorpcRationalNumber(r.Rat)
 		if err != nil {
-			return nil, fmt.Errorf("invalid %s rational number values: %w", name, err)
+			return nil, fmt.Errorf(
+				"invalid %s rational number values: %w",
+				name,
+				err,
+			)
 		}
 		return ret, nil
 	}
@@ -137,7 +138,10 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	if err != nil {
 		return nil, err
 	}
-	memoryPrice, err := requiredRational("memory price", p.ExecutionCosts.MemPrice)
+	memoryPrice, err := requiredRational(
+		"memory price",
+		p.ExecutionCosts.MemPrice,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -871,8 +875,11 @@ func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 				fmt.Sprintf("protocol parameter tag %d", field.key),
 			); err != nil {
 				return ConwayProtocolParameterUpdateError{
-					FieldName: fmt.Sprintf("protocol parameter tag %d", field.key),
-					Reason:    err.Error(),
+					FieldName: fmt.Sprintf(
+						"protocol parameter tag %d",
+						field.key,
+					),
+					Reason: err.Error(),
 				}
 			}
 		}

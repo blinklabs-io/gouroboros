@@ -166,23 +166,26 @@ func TestConsumedReferenceScriptSizeInputUnion(t *testing.T) {
 		require.Zero(t, size)
 	})
 
-	t.Run("unresolved regular input is left to bad-input validation", func(t *testing.T) {
-		tx := conwayTxWithInputs(
-			[]shelley.ShelleyTransactionInput{inputA},
-			nil,
-		)
-		tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
-		missingState := conwayRefScriptLedgerState(t)
-		size, err := common.ConsumedReferenceScriptSize(tx, missingState)
-		require.NoError(t, err)
-		require.Zero(t, size)
-		require.NoError(t, conway.UtxoValidateFeeTooSmallUtxo(
-			tx,
-			0,
-			missingState,
-			&conway.ConwayProtocolParameters{},
-		))
-	})
+	t.Run(
+		"unresolved regular input is left to bad-input validation",
+		func(t *testing.T) {
+			tx := conwayTxWithInputs(
+				[]shelley.ShelleyTransactionInput{inputA},
+				nil,
+			)
+			tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
+			missingState := conwayRefScriptLedgerState(t)
+			size, err := common.ConsumedReferenceScriptSize(tx, missingState)
+			require.NoError(t, err)
+			require.Zero(t, size)
+			require.NoError(t, conway.UtxoValidateFeeTooSmallUtxo(
+				tx,
+				0,
+				missingState,
+				&conway.ConwayProtocolParameters{},
+			))
+		},
+	)
 
 	t.Run("unresolved reference input remains an error", func(t *testing.T) {
 		tx := conwayTxWithInputs(
@@ -254,57 +257,6 @@ func TestConwayRefScriptSizePerTxBoundsAndPublishing(t *testing.T) {
 		conwayRefScriptLedgerState(t),
 		pp,
 	))
-}
-
-func TestConwayRefScriptSizePerTxUsesOverride(t *testing.T) {
-	limit := uint64(50)
-	atInput, atUtxo := conwayRefScriptInput(t, 0x01, 0, int(limit))
-	overInput, overUtxo := conwayRefScriptInput(t, 0x02, 0, int(limit+1))
-	pp := &conway.ConwayProtocolParameters{
-		MaxRefScriptSizePerTxOverride: &limit,
-	}
-
-	require.NoError(t, conway.UtxoValidateRefScriptSizePerTx(
-		conwayTxWithInputs(nil, []shelley.ShelleyTransactionInput{atInput}),
-		0,
-		conwayRefScriptLedgerState(t, atUtxo),
-		pp,
-	))
-	err := conway.UtxoValidateRefScriptSizePerTx(
-		conwayTxWithInputs(nil, []shelley.ShelleyTransactionInput{overInput}),
-		0,
-		conwayRefScriptLedgerState(t, overUtxo),
-		pp,
-	)
-	var sizeErr common.RefScriptSizePerTxTooLargeError
-	require.ErrorAs(t, err, &sizeErr)
-	require.Equal(t, limit, sizeErr.MaxSize)
-	require.Equal(t, limit+1, sizeErr.TxSize)
-}
-
-func TestConwayRefScriptSizePerTxOverrideIsNotEncoded(t *testing.T) {
-	newRat := func() cbor.Rat {
-		return cbor.Rat{Rat: big.NewRat(0, 1)}
-	}
-	newRatPtr := func() *cbor.Rat {
-		return &cbor.Rat{Rat: big.NewRat(0, 1)}
-	}
-	params := &conway.ConwayProtocolParameters{
-		A0:                         newRatPtr(),
-		Rho:                        newRatPtr(),
-		Tau:                        newRatPtr(),
-		PoolVotingThresholds:       conway.PoolVotingThresholds{MotionNoConfidence: newRat(), CommitteeNormal: newRat(), CommitteeNoConfidence: newRat(), HardForkInitiation: newRat(), PpSecurityGroup: newRat()},
-		DRepVotingThresholds:       conway.DRepVotingThresholds{MotionNoConfidence: newRat(), CommitteeNormal: newRat(), CommitteeNoConfidence: newRat(), UpdateToConstitution: newRat(), HardForkInitiation: newRat(), PpNetworkGroup: newRat(), PpEconomicGroup: newRat(), PpTechnicalGroup: newRat(), PpGovGroup: newRat(), TreasuryWithdrawal: newRat()},
-		MinFeeRefScriptCostPerByte: newRatPtr(),
-	}
-	encoded, err := cbor.Encode(params)
-	require.NoError(t, err)
-
-	limit := uint64(50)
-	params.MaxRefScriptSizePerTxOverride = &limit
-	encodedWithOverride, err := cbor.Encode(params)
-	require.NoError(t, err)
-	require.Equal(t, encoded, encodedWithOverride)
 }
 
 func TestConwayInvalidTxSkipsPerTxRefScriptLimitButCountsForBlock(
@@ -422,7 +374,10 @@ func TestMinFeeTxIncludesExecutionAndReferenceScriptCosts(t *testing.T) {
 
 	byteFee, err := common.CalculateMinFee(4, pp.MinFeeA, pp.MinFeeB)
 	require.NoError(t, err)
-	executionFee, err := conway.CalculateExecutionUnitsFee(tx, pp.ExecutionCosts)
+	executionFee, err := conway.CalculateExecutionUnitsFee(
+		tx,
+		pp.ExecutionCosts,
+	)
 	require.NoError(t, err)
 	require.Equal(t, uint64(6), executionFee)
 	minFee, err := conway.MinFeeTx(tx, pp)
