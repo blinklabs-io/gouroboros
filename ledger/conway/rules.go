@@ -2803,11 +2803,11 @@ func UtxoValidateOutputTooBigUtxo(
 		if !ok {
 			return errors.New("transaction output is not expected type")
 		}
-		outputValBytes, err := cbor.Encode(tmpOutput.OutputAmount)
+		outputValSize, err := tmpOutput.OutputAmount.LedgerSerializedSize()
 		if err != nil {
 			return err
 		}
-		if uint(len(outputValBytes)) <= tmpPparams.MaxValueSize {
+		if uint(outputValSize) <= tmpPparams.MaxValueSize {
 			continue
 		}
 		badOutputs = append(badOutputs, tmpOutput)

@@ -465,6 +465,37 @@ func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(m.data)
 }
 
+// LedgerSerializedSizeAdjustment returns the byte count to add to the length of
+// the definite-length encoding written by MarshalCBOR to obtain the size
+// cardano-ledger measures for this value. It is zero or negative. At encoding
+// version 2 and above the ledger writes any map with more than 23 entries as an
+// indefinite-length map, which costs 2 bytes regardless of entry count, while
+// a definite header costs 3 bytes from 256 entries and 5 from 65536.
+func (m *MultiAsset[T]) LedgerSerializedSizeAdjustment() int {
+	if m == nil {
+		return 0
+	}
+	adjustment := mapHeaderSizeAdjustment(len(m.data))
+	for _, assets := range m.data {
+		adjustment += mapHeaderSizeAdjustment(len(assets))
+	}
+	return adjustment
+}
+
+func mapHeaderSizeAdjustment(entries int) int {
+	const indefiniteMapOverhead = 2
+	switch {
+	case entries <= 23:
+		return 0
+	case entries <= math.MaxUint8:
+		return indefiniteMapOverhead - 2
+	case entries <= math.MaxUint16:
+		return indefiniteMapOverhead - 3
+	default:
+		return indefiniteMapOverhead - 5
+	}
+}
+
 func (m *MultiAsset[T]) CheckForDuplicateKeys() error {
 	if m != nil && m.duplicateMapKeys {
 		return errors.New("duplicate map key in multiasset")
