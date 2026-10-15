@@ -9,7 +9,7 @@ This package provides comprehensive benchmarks for memory profiling and performa
 go test -bench=. -benchmem ./internal/bench/...
 
 # Run specific benchmark
-go test -bench=BenchmarkConsensusThreshold -benchmem ./internal/bench/...
+go test -run='^$' -bench=BenchmarkConsensusEligibility -benchmem ./internal/bench/...
 
 # Compare two runs (requires benchstat)
 go test -bench=. -benchmem -count=5 ./internal/bench/... | tee new.txt
@@ -94,16 +94,33 @@ internal/bench/
 
 | Benchmark | Description |
 |-----------|-------------|
-| `BenchmarkConsensusThreshold` | Certified natural threshold calculation |
-| `BenchmarkConsensusThresholdWithMode` | Threshold for CPraos vs TPraos modes |
+| `BenchmarkConsensusEligibilityPrepareCached` | Warm finite E34 preparation lookup; CPraos and TPraos |
+| `BenchmarkConsensusEligibilityCheckVRFOutput` | Prepared raw-output decision, setup outside timer; both modes |
 | `BenchmarkConsensusLeaderValue` | VRF leader value computation (BLAKE2b-256) |
 | `BenchmarkConsensusVRFOutputToInt` | VRF output to big.Int conversion |
-| `BenchmarkConsensusIsSlotLeader` | Full leader election check |
-| `BenchmarkConsensusIsSlotLeaderFromComponents` | Leader check from pre-computed components |
 | `BenchmarkConsensusMkInputVrf` | VRF input (nonce) creation |
-| `BenchmarkConsensusIsVRFOutputBelowThreshold` | Threshold comparison |
-| `BenchmarkConsensusFullLeaderElectionWorkflow` | Complete leader election workflow |
-| `BenchmarkConsensusParallelThreshold` | Concurrent threshold calculations |
+| `BenchmarkConsensusFullLeaderElectionWorkflow` | Input, real signing, warm preparation and decision; both modes |
+| `BenchmarkConsensusReferenceSchedule` | Sign/replay every slot of the shared 120-slot reference interval and compare the full assigned list; both modes |
+| `BenchmarkConsensusParallelHeaderLeadership` | Concurrent mode-specific input, real VRF proof/output verification and prepared eligibility; both modes (not KES/opcert validation) |
+
+The reference benchmarks load checksum-verified embedded upstream fixtures; missing
+or malformed fixtures fail rather than skip. Preparation, fixture parsing and key
+setup are excluded from prepared evaluation and schedule timing. Concurrent reads
+of immutable rational inputs and prepared evaluators are safe; concurrent mutation
+of caller-owned rationals is not supported.
+
+The `consensus` package separately measures uncached preparation, warm preparation,
+prepared certified-natural/output decisions, and ordinary/boundary/MAX_REACHED
+comparator workloads. Use both suites when reviewing the E34 cutover:
+
+```bash
+go test ./consensus -run='^$' -bench='Eligibility' -benchmem -count=5
+go test ./internal/bench -run='^$' -bench='Consensus' -benchmem -count=5
+```
+
+Historical ideal-cutoff measurements in `BASELINES.md` are not E34 targets.
+That document records the measured before/after cutover results, including
+ordinary and slow paths. No new eligibility allocation budget is imposed.
 
 ### Script Benchmarks (`script_bench_test.go`)
 
@@ -149,7 +166,7 @@ go test -bench=BenchmarkConsensus -benchmem ./internal/bench/...
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `-bench=<regex>` | Run benchmarks matching pattern | `-bench=Threshold` |
+| `-bench=<regex>` | Run benchmarks matching pattern | `-bench=Eligibility` |
 | `-benchmem` | Report memory allocations | Always recommended |
 | `-benchtime=<d>` | Run each benchmark for duration | `-benchtime=5s` |
 | `-count=<n>` | Run each benchmark n times | `-count=5` |
@@ -180,8 +197,10 @@ benchstat baseline.txt new.txt
 
 ### Output Format
 
+Illustrative output only (not an E34 measurement):
+
 ```text
-BenchmarkConsensusThreshold/1pct-16    876543    1234 ns/op    256 B/op    8 allocs/op
+BenchmarkExample-16    876543    1234 ns/op    256 B/op    8 allocs/op
 ```
 
 | Field | Meaning |
@@ -200,18 +219,16 @@ are documented in `BASELINES.md`.
 |-----------|---------------|-------|
 | VRF Verify | 4-8 | After opt/vrf-combined |
 | KES Verify | 6-12 | After opt/kes-combined |
-| Threshold Calc | 10-15 | After opt/threshold-allocs |
-| Leader Check | 15-20 | Composite of above |
 | MkInputVrf | 0 | After opt/nonce-buffers |
 
 ### benchstat Output
 
 ```text
 name                  old time/op    new time/op    delta
-ConsensusThreshold    1.23us +-2%    0.89us +-1%   -27.64%  (p=0.008 n=5+5)
+ExampleOperation      1.23us +-2%    0.89us +-1%   -27.64%  (p=0.008 n=5+5)
 
 name                  old alloc/op   new alloc/op   delta
-ConsensusThreshold     256B +- 0%     128B +- 0%   -50.00%  (p=0.008 n=5+5)
+ExampleOperation       256B +- 0%     128B +- 0%   -50.00%  (p=0.008 n=5+5)
 ```
 
 - `delta` shows percentage change
