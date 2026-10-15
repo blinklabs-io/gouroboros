@@ -179,6 +179,7 @@ type Muxer struct {
 // Metrics callbacks may call other muxer methods, including RegisterProtocol
 // and UnregisterProtocol. If a callback unregisters a role whose callback is
 // already running, receiver shutdown finishes after those callbacks return.
+// RegisterProtocol returns nil channels once the muxer is stopping.
 type Metrics interface {
 	// IngressQueueDepth reports the segment payload bytes received for a
 	// protocol role and not yet delivered to its receive channel. It is
@@ -997,10 +998,11 @@ func NewWithSegmentReadTimeout(
 		// Close underlying connection
 		// We must do this to break out of pending Read() calls to shut down cleanly
 		_ = m.conn.Close()
-		// Wait for other goroutines to shutdown
-		m.waitGroupMutex.Lock()
+		// Wait for other goroutines to shutdown. No registration may add to
+		// waitGroup once the wait begins, but the registration mutex must not
+		// be held across it: see fenceRegistrations.
+		m.fenceRegistrations()
 		m.waitGroup.Wait()
-		m.waitGroupMutex.Unlock()
 		// Close ErrorChan to signify to consumer that we're shutting down
 		close(m.errorChan)
 	}()
@@ -1202,6 +1204,18 @@ func (m *Muxer) UnregisterProtocol(
 	if recvChan != nil {
 		recvChan.stop()
 	}
+}
+
+// fenceRegistrations returns once every RegisterProtocol that began before
+// doneChan was closed has finished. RegisterProtocol adds to waitGroup under
+// waitGroupMutex after checking doneChan under that same mutex, so once this
+// has run, any later call sees doneChan closed and adds nothing. The mutex
+// must not be held while waiting for waitGroup, because a metrics callback
+// runs on a goroutine that wait covers and may be blocked in RegisterProtocol
+// on it.
+func (m *Muxer) fenceRegistrations() {
+	m.waitGroupMutex.Lock()
+	defer m.waitGroupMutex.Unlock()
 }
 
 // Send takes a populated Segment and writes it to the connection. Only one segment is written at a time:

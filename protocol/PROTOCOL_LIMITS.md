@@ -99,9 +99,10 @@ The muxer reports each queue's depth on every enqueue and dequeue, how long
 each delivery waited for its protocol to take it, and how long the read loop
 paused under backpressure, through the optional `muxer.Metrics` hooks set
 with `Muxer.SetMetrics`. The hooks run outside the muxer's queue locks, and a
-panic in one is recovered and its observation discarded. The queue-depth and
-delivery hooks must not synchronously unregister the protocol role they report,
-which waits for the goroutine running the hook.
+panic in one is recovered and its observation discarded. A hook may call other
+muxer methods, including registering and unregistering protocols; unregistering
+a role whose hook is running finishes once that hook returns, and registering
+once the muxer is stopping returns nil channels.
 
 ## Muxer socket deadlines
 
