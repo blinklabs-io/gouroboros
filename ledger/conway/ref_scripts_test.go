@@ -166,26 +166,23 @@ func TestConsumedReferenceScriptSizeInputUnion(t *testing.T) {
 		require.Zero(t, size)
 	})
 
-	t.Run(
-		"unresolved regular input is left to bad-input validation",
-		func(t *testing.T) {
-			tx := conwayTxWithInputs(
-				[]shelley.ShelleyTransactionInput{inputA},
-				nil,
-			)
-			tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
-			missingState := conwayRefScriptLedgerState(t)
-			size, err := common.ConsumedReferenceScriptSize(tx, missingState)
-			require.NoError(t, err)
-			require.Zero(t, size)
-			require.NoError(t, conway.UtxoValidateFeeTooSmallUtxo(
-				tx,
-				0,
-				missingState,
-				&conway.ConwayProtocolParameters{},
-			))
-		},
-	)
+	t.Run("unresolved regular input is left to bad-input validation", func(t *testing.T) {
+		tx := conwayTxWithInputs(
+			[]shelley.ShelleyTransactionInput{inputA},
+			nil,
+		)
+		tx.SetCbor([]byte{0x84, 0xa0, 0xa0, 0xf5, 0xf6})
+		missingState := conwayRefScriptLedgerState(t)
+		size, err := common.ConsumedReferenceScriptSize(tx, missingState)
+		require.NoError(t, err)
+		require.Zero(t, size)
+		require.NoError(t, conway.UtxoValidateFeeTooSmallUtxo(
+			tx,
+			0,
+			missingState,
+			&conway.ConwayProtocolParameters{},
+		))
+	})
 
 	t.Run("unresolved reference input remains an error", func(t *testing.T) {
 		tx := conwayTxWithInputs(
@@ -374,10 +371,7 @@ func TestMinFeeTxIncludesExecutionAndReferenceScriptCosts(t *testing.T) {
 
 	byteFee, err := common.CalculateMinFee(4, pp.MinFeeA, pp.MinFeeB)
 	require.NoError(t, err)
-	executionFee, err := conway.CalculateExecutionUnitsFee(
-		tx,
-		pp.ExecutionCosts,
-	)
+	executionFee, err := conway.CalculateExecutionUnitsFee(tx, pp.ExecutionCosts)
 	require.NoError(t, err)
 	require.Equal(t, uint64(6), executionFee)
 	minFee, err := conway.MinFeeTx(tx, pp)

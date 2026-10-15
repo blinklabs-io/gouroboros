@@ -118,11 +118,7 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 		}
 		ret, err := common.ToUtxorpcRationalNumber(r.Rat)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"invalid %s rational number values: %w",
-				name,
-				err,
-			)
+			return nil, fmt.Errorf("invalid %s rational number values: %w", name, err)
 		}
 		return ret, nil
 	}
@@ -138,10 +134,7 @@ func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	if err != nil {
 		return nil, err
 	}
-	memoryPrice, err := requiredRational(
-		"memory price",
-		p.ExecutionCosts.MemPrice,
-	)
+	memoryPrice, err := requiredRational("memory price", p.ExecutionCosts.MemPrice)
 	if err != nil {
 		return nil, err
 	}
@@ -875,11 +868,8 @@ func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 				fmt.Sprintf("protocol parameter tag %d", field.key),
 			); err != nil {
 				return ConwayProtocolParameterUpdateError{
-					FieldName: fmt.Sprintf(
-						"protocol parameter tag %d",
-						field.key,
-					),
-					Reason: err.Error(),
+					FieldName: fmt.Sprintf("protocol parameter tag %d", field.key),
+					Reason:    err.Error(),
 				}
 			}
 		}

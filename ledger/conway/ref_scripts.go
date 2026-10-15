@@ -113,9 +113,7 @@ func CalculateRefScriptFee(
 		return 0, errors.New("invalid reference-script base cost")
 	}
 	if stride == 0 {
-		return 0, errors.New(
-			"reference-script cost stride must be greater than zero",
-		)
+		return 0, errors.New("reference-script cost stride must be greater than zero")
 	}
 	if multiplier == nil || multiplier.Rat == nil || multiplier.Sign() <= 0 {
 		return 0, errors.New("invalid reference-script cost multiplier")
