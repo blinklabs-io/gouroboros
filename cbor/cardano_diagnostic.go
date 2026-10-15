@@ -332,7 +332,7 @@ func (w *cardanoWriter) writeTransaction(n *DiagnosticNode, depth int) {
 	w.b.write("\n")
 	labels := txArrayLabelsFor(n)
 	limit := w.itemLimit(len(n.Children))
-	for i := 0; i < limit; i++ {
+	for i := 0; i < limit && !w.b.truncated; i++ {
 		label := "extra"
 		if i < len(labels) {
 			label = labels[i]
@@ -394,7 +394,7 @@ func (w *cardanoWriter) writeBlock(n *DiagnosticNode, era int, depth int) {
 	w.writeRange(n)
 	w.b.write("\n")
 	limit := w.itemLimit(len(n.Children))
-	for i := 0; i < limit; i++ {
+	for i := 0; i < limit && !w.b.truncated; i++ {
 		label := fmt.Sprintf("field_%d", i)
 		if i < len(CardanoBlockLabels) {
 			label = CardanoBlockLabels[i]
@@ -433,7 +433,7 @@ func (w *cardanoWriter) writeLabelledMap(
 	w.b.write("\n")
 	pairs := len(n.Children) / 2
 	limit := w.itemLimit(pairs)
-	for i := 0; i < limit; i++ {
+	for i := 0; i < limit && !w.b.truncated; i++ {
 		keyNode := &n.Children[i*2]
 		valNode := &n.Children[i*2+1]
 		w.b.writeRepeat(w.opts.IndentString, depth+1)
@@ -527,7 +527,7 @@ func (w *cardanoWriter) writeArray(n *DiagnosticNode, depth int) {
 	w.writeRange(n)
 	w.b.write("\n")
 	limit := w.itemLimit(len(n.Children))
-	for i := 0; i < limit; i++ {
+	for i := 0; i < limit && !w.b.truncated; i++ {
 		w.b.writeRepeat(w.opts.IndentString, depth+1)
 		w.writeValue(&n.Children[i], depth+1)
 		if i < len(n.Children)-1 {
@@ -552,7 +552,7 @@ func (w *cardanoWriter) writeMap(n *DiagnosticNode, depth int) {
 	w.b.write("\n")
 	pairs := len(n.Children) / 2
 	limit := w.itemLimit(pairs)
-	for i := 0; i < limit; i++ {
+	for i := 0; i < limit && !w.b.truncated; i++ {
 		w.b.writeRepeat(w.opts.IndentString, depth+1)
 		w.writeValue(&n.Children[i*2], depth+1)
 		w.b.write(": ")
@@ -642,7 +642,7 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 		w.writeRange(n)
 		w.b.write("\n")
 		limit := w.itemLimit(len(n.Children))
-		for i := 0; i < limit; i++ {
+		for i := 0; i < limit && !w.b.truncated; i++ {
 			w.b.writeRepeat(w.opts.IndentString, depth+1)
 			w.writePlutusData(&n.Children[i], depth+1)
 			if i < len(n.Children)-1 {
@@ -667,7 +667,7 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 		w.b.write("\n")
 		pairs := len(n.Children) / 2
 		limit := w.itemLimit(pairs)
-		for i := 0; i < limit; i++ {
+		for i := 0; i < limit && !w.b.truncated; i++ {
 			w.b.writeRepeat(w.opts.IndentString, depth+1)
 			w.writePlutusData(&n.Children[i*2], depth+1)
 			w.b.write(": ")
@@ -743,7 +743,7 @@ func (w *cardanoWriter) writeNativeScript(n *DiagnosticNode, depth int) {
 		// Unknown — fall back to raw rendering of trailing fields.
 		fields := max(len(n.Children)-1, 0)
 		limit := w.itemLimit(fields)
-		for i := range limit {
+		for i := 0; i < limit && !w.b.truncated; i++ {
 			if i > 0 {
 				w.b.write(", ")
 			}
@@ -774,7 +774,7 @@ func (w *cardanoWriter) writeScriptArray(n *DiagnosticNode, depth int) {
 	}
 	w.b.write("[\n")
 	limit := w.itemLimit(len(n.Children))
-	for i := 0; i < limit; i++ {
+	for i := 0; i < limit && !w.b.truncated; i++ {
 		w.b.writeRepeat(w.opts.IndentString, depth+1)
 		w.writeNativeScript(&n.Children[i], depth+1)
 		if i < len(n.Children)-1 {
