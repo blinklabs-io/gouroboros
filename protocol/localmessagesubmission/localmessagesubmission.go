@@ -165,6 +165,9 @@ func normalizeConfig(cfg *Config) Config {
 		return NewConfig()
 	}
 	ret := *cfg
+	if ret.Timeout == 0 {
+		ret.Timeout = BusyTimeout
+	}
 	if ret.TTLValidator == nil {
 		ret.TTLValidator = pcommon.NewTTLValidator(0, nil)
 	}

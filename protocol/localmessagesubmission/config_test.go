@@ -45,6 +45,8 @@ func TestConstructorsApplyTTLDefaultToRawConfig(t *testing.T) {
 			server := NewServer(protocol.ProtocolOptions{}, &cfg)
 
 			require.Nil(t, cfg.TTLValidator)
+			require.Equal(t, BusyTimeout, client.config.Timeout)
+			require.Equal(t, BusyTimeout, server.config.Timeout)
 			require.NotNil(t, client.config.TTLValidator)
 			require.NotNil(t, server.config.TTLValidator)
 			require.Error(

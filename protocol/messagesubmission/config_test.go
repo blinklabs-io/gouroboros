@@ -46,8 +46,20 @@ func TestConstructorsApplyTTLDefaultToRawConfig(t *testing.T) {
 
 			require.Nil(t, cfg.TTLValidator)
 			require.Zero(t, cfg.MaxUnacknowledgedMessageIDs)
+			require.Zero(t, cfg.MaxQueueSize)
 			require.NotNil(t, client.config.TTLValidator)
 			require.NotNil(t, server.config.TTLValidator)
+			require.Equal(t, 100, client.config.MaxQueueSize)
+			require.Equal(t, 100, server.config.MaxQueueSize)
+			require.Equal(t, InitTimeout, client.config.InitTimeout)
+			require.Equal(t, IdleTimeout, client.config.IdleTimeout)
+			require.Equal(
+				t,
+				MessageIdsBlockingTimeout,
+				client.config.MessageIdsBlockingTimeout,
+			)
+			require.Equal(t, MessagesTimeout, client.config.MessagesTimeout)
+			require.Equal(t, DoneTimeout, client.config.DoneTimeout)
 			require.Equal(
 				t,
 				DefaultMaxUnacknowledgedMessageIDs,
@@ -85,4 +97,6 @@ func TestConstructorsPreserveExplicitNoOpTTLValidator(t *testing.T) {
 		),
 	)
 	require.NoError(t, server.AddMessage(expired))
+	require.Equal(t, 1, client.config.MaxQueueSize)
+	require.Equal(t, 1, server.config.MaxQueueSize)
 }

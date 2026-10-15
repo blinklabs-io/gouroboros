@@ -131,9 +131,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		rejectMsg, err := NewMsgRejectMessage(
-			pcommon.InvalidReason{Message: err.Error()},
-		)
+		rejectMsg, err := NewMsgRejectMessage(ttlValidationRejectReason(err))
 		if err != nil {
 			return err
 		}
@@ -186,6 +184,13 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 		}
 	}
 	return nil
+}
+
+func ttlValidationRejectReason(err error) pcommon.RejectReason {
+	if errors.Is(err, pcommon.ErrMessageExpired) {
+		return pcommon.ExpiredReason{}
+	}
+	return pcommon.InvalidReason{Message: err.Error()}
 }
 
 //nolint:unparam
