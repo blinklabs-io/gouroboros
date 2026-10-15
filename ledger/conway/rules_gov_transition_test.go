@@ -1490,6 +1490,30 @@ func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
 	})
 }
 
+func TestUtxoValidateHardForkCanFollowUsesCurrentVersionForPurposeRoot(
+	t *testing.T,
+) {
+	rootId := common.GovActionId{TransactionId: common.Blake2b256{0x31}}
+	base := mockledger.NewLedgerStateBuilder().
+		WithGovActions(map[string]*common.GovActionState{
+			govActionKey(rootId): {
+				ActionId:   rootId,
+				ActionType: common.GovActionTypeHardForkInitiation,
+			},
+		}).
+		Build()
+	ls := rootedLedgerState{
+		LedgerState: base,
+		roots:       &common.GovPurposeRoots{HardFork: &rootId},
+	}
+	tx := mkProposalsTx(t, mkHfAction(&rootId, 10, 0))
+
+	require.NoError(
+		t,
+		conway.UtxoValidateHardForkCanFollow(tx, 0, ls, mkConwayPp(9, 0)),
+	)
+}
+
 func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 	pp := mkConwayPp(common.ProtocolVersionConway, 0)
 	rootId := common.GovActionId{TransactionId: common.Blake2b256{0x21}}

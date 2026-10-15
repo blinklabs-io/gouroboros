@@ -41,7 +41,8 @@ func UtxoValidateRefScriptSizePerTx(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if _, ok := pp.(*ConwayProtocolParameters); !ok {
+	conwayPparams, ok := pp.(*ConwayProtocolParameters)
+	if !ok || conwayPparams == nil {
 		return errors.New("pparams are not expected type")
 	}
 	if !tx.IsValid() {

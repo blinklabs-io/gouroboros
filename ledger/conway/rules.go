@@ -1061,8 +1061,9 @@ func UtxoValidateGuardrailsScriptHash(
 //     pending proposals cannot be used to jump ahead;
 //   - otherwise a proposal with a predecessor is compared against that
 //     predecessor's proposed protocol version, taken from the transaction
-//     itself for a predecessor proposed by the same transaction, or from the
-//     ledger state's record of the referenced action;
+//     itself for a predecessor proposed by the same transaction, from the
+//     current protocol parameters for the hard-fork purpose root, or from
+//     the ledger state's record of another referenced action;
 //   - a proposal with no predecessor is compared against the enacted
 //     version. The enacted protocol version is always the version proposed
 //     by the hard-fork action that is the current root of the hard-fork
@@ -1071,10 +1072,10 @@ func UtxoValidateGuardrailsScriptHash(
 //     of a predecessor that is the root gives the same verdict as the
 //     reference implementation's comparison against the enacted version.
 //
-// A predecessor whose contents the ledger state does not record (see
-// common.GovActionState.Action) leaves the numeric check deferred rather
-// than run against the wrong reference version; the predecessor's existence
-// and purpose are validated by UtxoValidateProposalAncestry.
+// A non-root predecessor whose contents the ledger state does not record (see
+// common.GovActionState.Action) leaves the numeric check deferred rather than
+// run against the wrong reference version; the predecessor's existence and
+// purpose are validated by UtxoValidateProposalAncestry.
 func UtxoValidateHardForkCanFollow(
 	tx common.Transaction,
 	slot uint64,
@@ -1105,6 +1106,7 @@ func UtxoValidateHardForkCanFollow(
 				txProposalsLoaded = true
 			}
 			var ancestorAction common.GovAction
+			rootPredecessor := false
 			if txProposal, ok := txProposals[*hf.ActionId]; ok {
 				if txProposal.idx >= idx {
 					// Only an earlier proposal of the same transaction has
@@ -1115,47 +1117,53 @@ func UtxoValidateHardForkCanFollow(
 				}
 				ancestorAction = txProposal.action
 			} else {
-				if ls == nil {
-					return GovernanceStateUnavailableError{
-						ActionId: hf.ActionId,
-						Field:    "hard-fork predecessor",
+				if _, hasRoots := common.GovPurposeRootsStateFor(ls); hasRoots {
+					roots, err := govPurposeRoots(ls)
+					if err != nil {
+						return err
 					}
+					rootPredecessor = roots.HardFork != nil &&
+						*roots.HardFork == *hf.ActionId
 				}
-				ancestorState, err := ls.GovActionById(*hf.ActionId)
-				if err != nil {
-					return GovernanceStateUnavailableError{
-						ActionId: hf.ActionId,
-						Field:    "hard-fork predecessor",
-						Err:      err,
+				if !rootPredecessor {
+					if ls == nil {
+						return GovernanceStateUnavailableError{
+							ActionId: hf.ActionId,
+							Field:    "hard-fork predecessor",
+						}
 					}
-				}
-				if ancestorState == nil {
-					return InvalidGovActionAncestorError{
-						ActionId: *hf.ActionId,
-						Reason:   "referenced hard-fork predecessor does not exist",
+					ancestorState, err := ls.GovActionById(*hf.ActionId)
+					if err != nil {
+						return GovernanceStateUnavailableError{
+							ActionId: hf.ActionId,
+							Field:    "hard-fork predecessor",
+							Err:      err,
+						}
 					}
+					if ancestorState == nil {
+						return InvalidGovActionAncestorError{
+							ActionId: *hf.ActionId,
+							Reason:   "referenced hard-fork predecessor does not exist",
+						}
+					}
+					ancestorAction = ancestorState.Action
 				}
-				if isNilGovAction(ancestorState.Action) {
+			}
+			if !rootPredecessor {
+				if isNilGovAction(ancestorAction) {
 					return GovernanceStateUnavailableError{
 						ActionId: hf.ActionId,
 						Field:    "hard-fork predecessor contents",
 					}
 				}
-				ancestorAction = ancestorState.Action
-			}
-			if isNilGovAction(ancestorAction) {
-				return GovernanceStateUnavailableError{
-					ActionId: hf.ActionId,
-					Field:    "hard-fork predecessor contents",
+				major, minor, isHardFork := hardForkProposedVersion(ancestorAction)
+				if !isHardFork {
+					// A predecessor of another purpose is reported by
+					// UtxoValidateProposalAncestry.
+					continue
 				}
+				refMajor, refMinor = major, minor
 			}
-			major, minor, isHardFork := hardForkProposedVersion(ancestorAction)
-			if !isHardFork {
-				// A predecessor of another purpose is reported by
-				// UtxoValidateProposalAncestry.
-				continue
-			}
-			refMajor, refMinor = major, minor
 		}
 		if !protocolVersionCanFollow(
 			refMajor,
@@ -4180,10 +4188,58 @@ func UtxoValidateUnknownGovActionIds(
 	return UnknownGovActionIdError{ActionIds: unknown}
 }
 
+func electedCommitteeColdCredentials(
+	tx common.Transaction,
+	votingState common.CommitteeVotingState,
+	hotCredential common.Credential,
+) (map[credOverlayKey]struct{}, error) {
+	coldCredentials, err := votingState.CommitteeHotCredentialColdCredentials(
+		hotCredential,
+	)
+	if err != nil {
+		return nil, err
+	}
+	elected := make(map[credOverlayKey]struct{}, len(coldCredentials))
+	for _, coldCredential := range coldCredentials {
+		isElected, err := votingState.CommitteeCredentialIsElected(
+			coldCredential,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if isElected {
+			elected[credKey(coldCredential)] = struct{}{}
+		}
+	}
+	for _, cert := range tx.Certificates() {
+		switch c := cert.(type) {
+		case *common.AuthCommitteeHotCertificate:
+			if credKey(c.HotCredential) == credKey(hotCredential) {
+				isElected, err := votingState.CommitteeCredentialIsElected(
+					c.ColdCredential,
+				)
+				if err != nil {
+					return nil, err
+				}
+				if isElected {
+					elected[credKey(c.ColdCredential)] = struct{}{}
+				} else {
+					delete(elected, credKey(c.ColdCredential))
+				}
+			} else {
+				delete(elected, credKey(c.ColdCredential))
+			}
+		case *common.ResignCommitteeColdCertificate:
+			delete(elected, credKey(c.ColdCredential))
+		}
+	}
+	return elected, nil
+}
+
 // UtxoValidateUnknownVoters rejects votes cast by a voter that does not
 // exist in the ledger state: an unregistered DRep, an unregistered stake
-// pool, or a credential that is not currently authorized as a committee hot
-// key (ConwayGovPredFailure.VotersDoNotExist).
+// pool, or a committee hot key that is not currently authorized and, from
+// PV11, elected (ConwayGovPredFailure.VotersDoNotExist).
 func UtxoValidateUnknownVoters(
 	tx common.Transaction,
 	slot uint64,
@@ -4268,6 +4324,28 @@ func UtxoValidateUnknownVoters(
 			if !committeeStateAvailable {
 				return lookupError(CommitteeStateUnavailableError{})
 			}
+			if params, ok := pp.(*ConwayProtocolParameters); ok &&
+				common.IsProtocolVersionAtLeast(
+					params.ProtocolVersion.Major, 0,
+					common.ProtocolVersionVanRossem,
+				) {
+				votingState, ok := common.CommitteeVotingStateFor(ls)
+				if !ok {
+					return lookupError(CommitteeStateUnavailableError{})
+				}
+				elected, err := electedCommitteeColdCredentials(
+					tx,
+					votingState,
+					hotCredential,
+				)
+				if err != nil {
+					return lookupError(err)
+				}
+				if len(elected) == 0 {
+					return UnknownVoterError{Voter: *voter}
+				}
+				continue
+			}
 			// A hot credential may be authorized by more than one cold
 			// credential at once (cardano-ledger-core's
 			// authorizedHotCommitteeCredentials: "there is no unique
@@ -4288,38 +4366,6 @@ func UtxoValidateUnknownVoters(
 			}
 			if len(candidates) == 0 {
 				return UnknownVoterError{Voter: *voter}
-			}
-			if params, ok := pp.(*ConwayProtocolParameters); ok &&
-				common.IsProtocolVersionAtLeast(
-					params.ProtocolVersion.Major, 0,
-					common.ProtocolVersionVanRossem,
-				) {
-				currentMembers, err := ls.CommitteeMembers()
-				if err != nil {
-					return lookupError(err)
-				}
-				// CommitteeMembers carries bare cold hashes, so this can
-				// only over-match a key/script twin named in the enacted
-				// committee; UtxoValidateUnelectedCommitteeVoters applies
-				// the typed elected-committee check on the same protocol
-				// versions.
-				seatedColdKeys := make(
-					map[common.Blake2b224]struct{},
-					len(currentMembers),
-				)
-				for _, current := range currentMembers {
-					seatedColdKeys[current.ColdKey] = struct{}{}
-				}
-				seated := false
-				for _, candidate := range candidates {
-					if _, ok := seatedColdKeys[candidate.ColdKey]; ok {
-						seated = true
-						break
-					}
-				}
-				if !seated {
-					return UnknownVoterError{Voter: *voter}
-				}
 			}
 
 		default:
@@ -4695,48 +4741,13 @@ func UtxoValidateUnelectedCommitteeVoters(
 				Err:              err,
 			}
 		}
-		coldCredentials, err := votingState.CommitteeHotCredentialColdCredentials(
+		elected, err := electedCommitteeColdCredentials(
+			tx,
+			votingState,
 			hotCredential,
 		)
 		if err != nil {
 			return lookupError(err)
-		}
-		credentialKey := func(credential common.Credential) string {
-			return fmt.Sprintf("%d:%x", credential.CredType, credential.Credential)
-		}
-		elected := make(map[string]struct{}, len(coldCredentials))
-		for _, coldCredential := range coldCredentials {
-			isElected, err := votingState.CommitteeCredentialIsElected(
-				coldCredential,
-			)
-			if err != nil {
-				return lookupError(err)
-			}
-			if isElected {
-				elected[credentialKey(coldCredential)] = struct{}{}
-			}
-		}
-		for _, cert := range tx.Certificates() {
-			switch c := cert.(type) {
-			case *common.AuthCommitteeHotCertificate:
-				if credentialKey(c.HotCredential) == credentialKey(hotCredential) {
-					isElected, err := votingState.CommitteeCredentialIsElected(
-						c.ColdCredential,
-					)
-					if err != nil {
-						return lookupError(err)
-					}
-					if isElected {
-						elected[credentialKey(c.ColdCredential)] = struct{}{}
-					} else {
-						delete(elected, credentialKey(c.ColdCredential))
-					}
-				} else {
-					delete(elected, credentialKey(c.ColdCredential))
-				}
-			case *common.ResignCommitteeColdCertificate:
-				delete(elected, credentialKey(c.ColdCredential))
-			}
 		}
 		if len(elected) == 0 {
 			return UnelectedCommitteeVoterError{Voter: *voter}

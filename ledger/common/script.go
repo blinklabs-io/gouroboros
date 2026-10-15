@@ -338,7 +338,7 @@ func (s PlutusV1Script) EvaluateContext(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	consumedBudget, runErr := runPooledMachineContext(
+	consumedBudget, _, runErr := runPooledMachineContext(
 		ctx,
 		cek.LanguageVersionV1,
 		evalContext,
@@ -450,7 +450,7 @@ func (s PlutusV2Script) EvaluateContext(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	consumedBudget, runErr := runPooledMachineContext(
+	consumedBudget, _, runErr := runPooledMachineContext(
 		ctx,
 		cek.LanguageVersionV2,
 		evalContext,
@@ -536,13 +536,16 @@ func (s PlutusV3Script) EvaluateContext(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	consumedBudget, runErr := runPooledMachineContext(
+	consumedBudget, isUnit, runErr := runPooledMachineContext(
 		ctx,
 		cek.LanguageVersionV3,
 		evalContext,
 		machineBudget,
 		wrappedProgram,
 	)
+	if runErr == nil && !isUnit {
+		runErr = PlutusScriptResultNotUnitError{}
+	}
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
 	if runErr != nil {
@@ -618,13 +621,16 @@ func (s PlutusV4Script) EvaluateContext(
 		Function: program.Term,
 		Argument: contextTerm,
 	}
-	consumedBudget, runErr := runPooledMachineContext(
+	consumedBudget, isUnit, runErr := runPooledMachineContext(
 		ctx,
 		cek.LanguageVersionV4,
 		evalContext,
 		machineBudget,
 		wrappedProgram,
 	)
+	if runErr == nil && !isUnit {
+		runErr = PlutusScriptResultNotUnitError{}
+	}
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
 	if runErr != nil {
