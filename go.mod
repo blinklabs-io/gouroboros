@@ -32,3 +32,7 @@ require (
 )
 
 // replace github.com/blinklabs-io/plutigo => ../plutigo
+
+// The E34 corpus is in PR #337 and is not yet released upstream.
+// https://github.com/blinklabs-io/ouroboros-mock/pull/337
+replace github.com/blinklabs-io/ouroboros-mock => github.com/AndrewWestberg/ouroboros-mock v0.20.6-0.20261015233204-bf44019de46e

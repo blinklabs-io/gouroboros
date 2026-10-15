@@ -37,6 +37,12 @@ The consensus package's `TestLeaderEligibilityElectionValidatorAgreement`
 also checks legitimate assigned and unassigned proofs and complete signed
 header validation in both modes against the shared 120-slot schedules.
 
+The module configuration pins the corpus from
+[ouroboros-mock PR #337](https://github.com/blinklabs-io/ouroboros-mock/pull/337)
+at commit `bf44019de46e9bc734e70ebdbbbf6fb7fedb8890` through the remote
+`github.com/AndrewWestberg/ouroboros-mock` replacement. Go downloads the
+checksum-verified module normally; no local checkout or workspace is required.
+
 ---
 
 ## Ledger Rules Conformance
