@@ -786,12 +786,17 @@ func (n *DiagnosticNode) writeHexDump(
 		if maxShow <= 0 {
 			maxShow = 4
 		}
-		w.printf(
-			"%-8s%-42s%s\n",
-			fmt.Sprintf("%04x", contentOffset),
-			formatHexBytes(contentBytes, maxShow),
-			indent,
-		)
+		// formatHexBytes builds the whole spaced hex string, which MaxByteLength
+		// lets scale with the leaf. Size it first so the output cap also bounds
+		// that allocation; fits is false once the header rows exhausted the cap.
+		if w.fits(hexBytesSize(len(contentBytes), maxShow)) {
+			w.printf(
+				"%-8s%-42s%s\n",
+				fmt.Sprintf("%04x", contentOffset),
+				formatHexBytes(contentBytes, maxShow),
+				indent,
+			)
+		}
 	}
 
 	switch n.Type {
@@ -920,6 +925,23 @@ func (n *DiagnosticNode) structureLabel() string {
 		}
 	}
 	return ""
+}
+
+// hexBytesSize returns len(formatHexBytes(data, maxBytes)) for a data of n
+// bytes without building it, or -1 if that size overflows an int.
+func hexBytesSize(n int, maxBytes int) int {
+	shown, extra := n, 0
+	if maxBytes > 0 && n > maxBytes {
+		shown = maxBytes
+		extra = len(" ... ( bytes)") + len(strconv.Itoa(n))
+	}
+	if shown == 0 {
+		return extra
+	}
+	if shown > (math.MaxInt-extra)/3 {
+		return -1
+	}
+	return 3*shown - 1 + extra
 }
 
 func formatHexBytes(data []byte, maxBytes int) string {

@@ -434,3 +434,33 @@ func TestCardanoFormatterStopsAtOversizedLeaf(t *testing.T) {
 	)
 	assert.NotContains(t, out, "7777", "rendering stopped at the leaf")
 }
+
+// TestHexDumpSkipsContentPastCap checks that the hex dump does not build a
+// byte string's spaced hex text before checking the cap. MaxByteLength lets
+// that text scale with the leaf, so a 1 MiB string would otherwise allocate
+// tens of megabytes to produce a few hundred bytes of output. The second case
+// has the header rows exhaust the cap first, so nothing about the leaf may be
+// built at all.
+func TestHexDumpSkipsContentPastCap(t *testing.T) {
+	// Not t.Parallel: reads the process-wide allocation counter.
+	const size = 1 << 20
+	data := append([]byte{0x5a, 0x00, 0x10, 0x00, 0x00}, make([]byte, size)...)
+	node, err := cbor.ParseDiagnostic(data)
+	require.NoError(t, err)
+
+	for name, limit := range map[string]int{
+		"content row does not fit": 1024,
+		"header rows exhaust cap":  64,
+	} {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		out := node.FormatHexDump(cbor.DiagnosticOptions{
+			MaxByteLength:  size,
+			MaxOutputBytes: limit,
+		})
+		runtime.ReadMemStats(&after)
+
+		assert.Contains(t, out, renderTruncationMarker, name)
+		assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20), name)
+	}
+}
