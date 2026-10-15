@@ -416,14 +416,6 @@ func (r *ApplyStageRunner) SetProcessedFunc(processedFunc func(uint64)) {
 	r.processedFunc = processedFunc
 }
 
-// setDeliveredFunc sets the ownership-transfer hook called after an item is
-// sent to the results channel. It must be called before Start.
-func (r *ApplyStageRunner) setDeliveredFunc(
-	deliveredFunc func(*BlockItem),
-) {
-	r.deliveredFunc = deliveredFunc
-}
-
 // setFatalFunc sets the pipeline cancellation hook used when runner
 // bookkeeping can no longer be trusted. It must be called before Start.
 func (r *ApplyStageRunner) setFatalFunc(fatalFunc func()) {

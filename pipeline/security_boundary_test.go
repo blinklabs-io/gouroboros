@@ -473,9 +473,9 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 	stage.SetChainContextValidator(acceptSecurityTestChainContext)
 	runner := NewApplyStageRunner(stage, input, output, errorChan, 0)
 	runner.setFatalErrorFunc(func(err error) { fatalCause <- err })
-	runner.setDeliveredFunc(func(item *BlockItem) {
+	runner.deliveredFunc = func(item *BlockItem) {
 		delivered <- item.SequenceNumber()
-	})
+	}
 	runner.setFatalFunc(cancel)
 	runner.Start(ctx)
 	defer func() {
@@ -529,7 +529,9 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	p.submitChan = make(chan *BlockItem, 1)
 	p.decodedChan = make(chan *BlockItem, rejectedSequence+1)
-	p.resultsChan = make(chan *BlockItem, 2)
+	p.resultsQueue = make(chan *BlockItem, 2)
+	p.resultsChan = make(chan *BlockItem)
+	p.resultsDone = make(chan struct{})
 	p.errorsChan = make(chan error, 1)
 	p.decodePool = &StageWorkerPool{}
 	p.applyStage = NewApplyStage(func(item *BlockItem) error {
@@ -543,18 +545,14 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	p.applyRunner = NewApplyStageRunner(
 		p.applyStage,
 		p.decodedChan,
-		p.resultsChan,
+		p.resultsQueue,
 		p.errorsChan,
 		0,
 	)
-	delivered := make(map[uint64]bool, rejectedSequence)
-	p.applyRunner.setDeliveredFunc(func(item *BlockItem) {
-		delivered[item.SequenceNumber()] = true
-		p.markItemDelivered(item)
-	})
 	p.applyRunner.setFatalErrorFunc(p.setFatalError)
 	p.applyRunner.setFatalFunc(p.cancel)
 	p.applyRunner.Start(p.ctx)
+	go p.forwardResults()
 	p.started.Store(true)
 	items := make(map[uint64]*BlockItem, rejectedSequence+1)
 	for sequence := uint64(0); sequence <= rejectedSequence; sequence++ {
@@ -594,7 +592,6 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 		t.Fatal("Stop remained blocked on undelivered committed results")
 	}
 	for sequence := uint64(0); sequence < rejectedSequence; sequence++ {
-		require.True(t, delivered[sequence], "fatal committed result %d must be marked delivered", sequence)
 		item := items[sequence]
 		if item == nil {
 			t.Fatalf("fatal committed result %d was not created", sequence)
