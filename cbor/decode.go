@@ -16,6 +16,7 @@ package cbor
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -287,43 +288,77 @@ func DecodeLenient(dataBytes []byte, dest any) (int, error) {
 	return decode(dataBytes, dest, getLenientDecMode, keepLastDuplicateMapKey)
 }
 
+// cborBreak is the "break" stop code that ends an indefinite-length item.
+const cborBreak byte = 0xff
+
 // Extract the first item from a CBOR list. This will return the first item from the
-// provided list if it's numeric and an error otherwise
+// provided list if it's numeric and an error otherwise.
+//
+// Only the list header and its first item are examined, whatever the encoding
+// of the list: definite lengths in any header form, and indefinite lengths.
+// Later items are neither decoded nor validated, so the work done does not
+// grow with them, and a caller that needs the whole list checked must decode
+// it itself.
+//
+// When the list header and the identifier each take a single byte, the
+// identifier is returned from those two bytes alone, without looking at the
+// declared item count, as it always has been. For every other encoding, a
+// definite list must declare no more items than it has bytes left, since
+// every item takes at least one.
 func DecodeIdFromList(cborData []byte) (int, error) {
 	if len(cborData) < 2 {
 		return 0, errors.New("CBOR data too short for list with ID")
 	}
 	// If both the list header and first value use their canonical one-byte
 	// forms, then we can extract the value straight from the byte slice.
-	// A non-shortest list header puts its length at byte one instead.
-	listLen, err := ListLength(cborData)
-	if err != nil {
-		return 0, err
-	}
-	if listLen == 0 {
-		return 0, errors.New("cannot return first item from empty list")
-	}
-	if cborData[0] >= CborTypeArray &&
+	if cborData[0] > CborTypeArray &&
 		cborData[0] <= (CborTypeArray+CborMaxUintSimple) &&
 		cborData[1] <= CborMaxUintSimple {
 		return int(cborData[1]), nil
 	}
-	// If we couldn't use the shortcut above, actually decode the list
-	var tmp Value
-	if _, err := Decode(cborData, &tmp); err != nil {
+	count, headerSize, indefinite := ArrayInfo(cborData)
+	if count < 0 {
+		return 0, errors.New("CBOR data is not a valid list")
+	}
+	rest := cborData[headerSize:]
+	if indefinite {
+		if len(rest) == 0 {
+			return 0, errors.New("indefinite-length list is truncated")
+		}
+		if rest[0] == cborBreak {
+			return 0, errors.New("cannot return first item from empty list")
+		}
+	} else {
+		if count == 0 {
+			return 0, errors.New("cannot return first item from empty list")
+		}
+		if count > len(rest) {
+			return 0, fmt.Errorf(
+				"list declares %d items in %d bytes",
+				count,
+				len(rest),
+			)
+		}
+	}
+	// An unsigned integer, the usual identifier, is read straight from its
+	// head.
+	if v, ok := uintFromHead(rest); ok {
+		if v > uint64(math.MaxInt) {
+			return 0, errors.New(
+				"decoded numeric value too large: uint64 > int",
+			)
+		}
+		return int(v), nil
+	}
+	// Anything else cannot be an identifier. Decode just the first item to
+	// describe it, or to report why it is malformed; Decode consumes one
+	// item, so the items after it are left alone.
+	var first Value
+	if _, err := Decode(rest, &first); err != nil {
 		return 0, err
 	}
-	// Make sure that the value is actually a slice
-	val := tmp.Value()
-	list, ok := val.([]any)
-	if !ok {
-		return 0, fmt.Errorf("decoded value was not a list, found: %T", val)
-	}
-	if len(list) == 0 {
-		return 0, errors.New("cannot return first item from empty list")
-	}
 	// Make sure that the first item is actually numeric
-	switch v := list[0].(type) {
+	switch v := first.Value().(type) {
 	// The upstream CBOR library uses uint64 by default for numeric values
 	case uint64:
 		if v > uint64(math.MaxInt) {
@@ -333,6 +368,28 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 	default:
 		return 0, fmt.Errorf("first list item was not numeric, found: %v", v)
 	}
+}
+
+// uintFromHead returns the unsigned integer at the start of data, in any of
+// its encodings, and whether data starts with a complete one. It does not
+// look past the integer.
+func uintFromHead(data []byte) (uint64, bool) {
+	if len(data) == 0 || data[0]&CborTypeMask != 0 {
+		return 0, false
+	}
+	switch additional := data[0] & 0x1f; {
+	case additional <= CborMaxUintSimple:
+		return uint64(additional), true
+	case additional == 24 && len(data) >= 2:
+		return uint64(data[1]), true
+	case additional == 25 && len(data) >= 3:
+		return uint64(binary.BigEndian.Uint16(data[1:])), true
+	case additional == 26 && len(data) >= 5:
+		return uint64(binary.BigEndian.Uint32(data[1:])), true
+	case additional == 27 && len(data) >= 9:
+		return binary.BigEndian.Uint64(data[1:]), true
+	}
+	return 0, false
 }
 
 // Determine the length of a CBOR list
