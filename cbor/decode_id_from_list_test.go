@@ -120,8 +120,8 @@ type idListCase struct {
 	count     int
 	headerLen int
 	firstLen  int
-	// fast is true when the list and its first item both use their one-byte
-	// forms, which needs nothing beyond those two bytes.
+	// fast is true when the list header and the identifier each take one
+	// byte, which is all that is needed to return the identifier.
 	fast bool
 }
 
@@ -284,9 +284,11 @@ func TestDecodeIdFromListFirstItemNotNumeric(t *testing.T) {
 }
 
 // TestDecodeIdFromListTruncation checks every prefix of lists in each header
-// form: the identifier is returned exactly when the list header and first
-// item are complete and the declared items could fit, whatever was cut from
-// the items after the first, and nothing the full decode accepted is refused.
+// form, the shortest included: the identifier is returned exactly when the
+// list header and first item are complete and the declared items could fit,
+// whatever was cut from the items after the first. A list whose header and
+// identifier each take one byte needs only those two bytes, as it always has,
+// and nothing the full decode accepted is refused.
 func TestDecodeIdFromListTruncation(t *testing.T) {
 	var cases []idListCase
 	for _, headerWidth := range []int{0, 1, 2, 4, 8, -1} {
@@ -295,13 +297,16 @@ func TestDecodeIdFromListTruncation(t *testing.T) {
 				continue
 			}
 			for _, idWidth := range []int{0, 1, 2, 4, 8} {
-				id := uint64(70000)
-				if !idListFits(id, idWidth) {
-					id = 200
+				// 5 with the shortest header and width is the one-byte
+				// shape; 70000 needs the wider forms.
+				for _, id := range []uint64{5, 70000} {
+					if !idListFits(id, idWidth) {
+						continue
+					}
+					cases = append(cases, buildIDList(
+						headerWidth, count, id, idWidth, []byte{0x00},
+					))
 				}
-				cases = append(cases, buildIDList(
-					headerWidth, count, id, idWidth, []byte{0x00},
-				))
 			}
 		}
 	}
@@ -315,6 +320,7 @@ func TestDecodeIdFromListTruncation(t *testing.T) {
 			case cut < 2:
 				wantOk = false
 			case tc.fast:
+				// Two bytes are enough, whatever the list declares.
 				wantOk = true
 			case cut < tc.headerLen+tc.firstLen:
 				wantOk = false
@@ -335,6 +341,7 @@ func TestDecodeIdFromListTruncation(t *testing.T) {
 				wantId, _ := legacyDecodeIdFromList(tc.data)
 				require.Equal(t, wantId, gotId, tc.name)
 			}
+			// Nothing the full decode accepted is refused.
 			if wantId, wantErr := legacyDecodeIdFromList(data); wantErr == nil {
 				require.NoError(t, gotErr,
 					"%s cut at %d: full decode accepted it", tc.name, cut)
@@ -489,6 +496,49 @@ func TestDecodeIdFromListErrorWorkIsIndependentOfTrailingItems(t *testing.T) {
 				)
 			}
 		}
+	}
+}
+
+// TestDecodeIdFromListOneByteFormsIgnoreDeclaredCount documents that a list
+// whose header and identifier each take one byte returns the identifier from
+// those two bytes whatever item count the header declares. Callers and tests
+// pass such bare identifiers, for example Nonce.UnmarshalCBOR with
+// 0x82 0x02, so this is kept as it was; every other encoding is checked.
+func TestDecodeIdFromListOneByteFormsIgnoreDeclaredCount(t *testing.T) {
+	tests := map[string]struct {
+		data []byte
+		id   int
+	}{
+		"two items, one present":  {[]byte{0x82, 0x02}, 2},
+		"23 items, one present":   {[]byte{0x97, 0x00}, 0},
+		"one item":                {[]byte{0x81, 0x17}, 23},
+		"two items, both present": {[]byte{0x82, 0x05, 0x00}, 5},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			id, err := cbor.DecodeIdFromList(tc.data)
+			require.NoError(t, err)
+			assert.Equal(t, tc.id, id)
+			legacyId, legacyErr := legacyDecodeIdFromList(tc.data)
+			require.NoError(t, legacyErr)
+			assert.Equal(t, legacyId, id)
+		})
+	}
+	// The same truncation is refused once the header or identifier takes
+	// more than one byte.
+	refused := map[string][]byte{
+		"1-byte list header":      {0x98, 0x02, 0x00},
+		"1-byte identifier":       {0x83, 0x18, 0x05},
+		"2-byte identifier":       {0x83, 0x19, 0x01},
+		"empty list, any second":  {0x80, 0x00},
+		"indefinite, empty":       {0x9f, 0xff},
+		"indefinite, no item yet": {0x9f},
+	}
+	for name, data := range refused {
+		t.Run("refused/"+name, func(t *testing.T) {
+			_, err := cbor.DecodeIdFromList(data)
+			assert.Error(t, err)
+		})
 	}
 }
 

@@ -298,8 +298,13 @@ const cborBreak byte = 0xff
 // of the list: definite lengths in any header form, and indefinite lengths.
 // Later items are neither decoded nor validated, so the work done does not
 // grow with them, and a caller that needs the whole list checked must decode
-// it itself. A definite list must declare no more items than it has bytes
-// left, since every item takes at least one.
+// it itself.
+//
+// When the list header and the identifier each take a single byte, the
+// identifier is returned from those two bytes alone, without looking at the
+// declared item count, as it always has been. For every other encoding, a
+// definite list must declare no more items than it has bytes left, since
+// every item takes at least one.
 func DecodeIdFromList(cborData []byte) (int, error) {
 	if len(cborData) < 2 {
 		return 0, errors.New("CBOR data too short for list with ID")
