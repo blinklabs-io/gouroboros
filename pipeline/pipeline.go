@@ -269,9 +269,10 @@ type BlockPipeline struct {
 	// testSubmitReady is called after Submit's cancellation and stopping checks,
 	// immediately before its enqueue select. It is nil in production and lets
 	// tests synchronize cancellation at the backpressure boundary.
-	testSubmitReady   func()
-	testFenceBoundary func(uint64)
-	testProcessedFunc func(uint64)
+	testSubmitReady    func()
+	testFenceBoundary  func(uint64)
+	testProcessedFunc  func(uint64)
+	testResultsForward func()
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
@@ -624,6 +625,9 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 func (p *BlockPipeline) forwardResults() {
 	defer close(p.resultsDone)
 	defer close(p.resultsChan)
+	if p.testResultsForward != nil {
+		p.testResultsForward()
+	}
 	for item := range p.resultsQueue {
 		p.resultsChan <- item
 		p.markItemDelivered(item)

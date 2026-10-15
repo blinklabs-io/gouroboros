@@ -152,10 +152,16 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
 	raw := getValidBlockCbor(t)
 	p := NewBlockPipeline(WithTrustedDecodeOnly(), WithMaxRawCborBytes(2*uint64(len(raw))))
+	forwardGate := make(chan struct{})
+	var releaseForward sync.Once
+	p.testResultsForward = func() { <-forwardGate }
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() {
+		releaseForward.Do(func() { close(forwardGate) })
+		require.NoError(t, p.Stop())
+	})
 	err := p.Submit(
 		ctx,
 		uint(ledger.BlockTypeConway),
@@ -170,7 +176,7 @@ func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
 		createTestTip(0, 0),
 	))
 	require.Eventually(t, func() bool {
-		return p.applyStage.PendingCount() == 0 && len(p.resultsQueue) == 0
+		return len(p.resultsQueue) == 1
 	}, time.Second, time.Millisecond)
 	p.rawBudgetMu.Lock()
 	require.Equal(t, uint64(2*len(raw)), p.rawBytesInUse)
@@ -183,6 +189,7 @@ func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
 		raw,
 		createTestTip(1, 1),
 	), context.DeadlineExceeded)
+	releaseForward.Do(func() { close(forwardGate) })
 
 	first := <-p.Results()
 	require.Equal(t, raw, first.RawCbor())
