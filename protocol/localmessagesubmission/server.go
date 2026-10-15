@@ -31,12 +31,9 @@ type Server struct {
 
 // NewServer returns a new LocalMessageSubmission server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
-	if cfg == nil {
-		tmpCfg := NewConfig()
-		cfg = &tmpCfg
-	}
+	normalizedCfg := normalizeConfig(cfg)
 	s := &Server{
-		config: cfg,
+		config: &normalizedCfg,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -125,24 +122,20 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 	}
 
 	// Validate inbound message before invoking handler
-	if s.config.TTLValidator != nil {
-		if err := s.config.TTLValidator.ValidateMessageTTL(&msgSubmit.Message); err != nil {
-			s.Protocol.Logger().
-				Warn("message validation failed",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "server",
-					"connection_id", s.callbackContext.ConnectionId.String(),
-					"error", err,
-				)
-			rejectMsg, err := NewMsgRejectMessage(
-				pcommon.InvalidReason{Message: err.Error()},
+	if err := s.config.TTLValidator.ValidateMessageTTL(&msgSubmit.Message); err != nil {
+		s.Protocol.Logger().
+			Warn("message validation failed",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+				"error", err,
 			)
-			if err != nil {
-				return err
-			}
-			return s.SendMessage(rejectMsg)
+		rejectMsg, err := NewMsgRejectMessage(ttlValidationRejectReason(err))
+		if err != nil {
+			return err
 		}
+		return s.SendMessage(rejectMsg)
 	}
 	if s.config.Authenticator == nil {
 		return errors.New("dmq: message authenticator not configured")
@@ -191,6 +184,13 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 		}
 	}
 	return nil
+}
+
+func ttlValidationRejectReason(err error) pcommon.RejectReason {
+	if errors.Is(err, pcommon.ErrMessageExpired) {
+		return pcommon.ExpiredReason{}
+	}
+	return pcommon.InvalidReason{Message: err.Error()}
 }
 
 //nolint:unparam

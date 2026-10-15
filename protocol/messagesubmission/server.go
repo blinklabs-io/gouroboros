@@ -42,14 +42,9 @@ type Server struct {
 
 // NewServer returns a new MessageSubmission server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
-	if cfg == nil {
-		tmpCfg := NewConfig()
-		cfg = &tmpCfg
-	} else if cfg.MaxUnacknowledgedMessageIDs <= 0 {
-		cfg.MaxUnacknowledgedMessageIDs = DefaultMaxUnacknowledgedMessageIDs
-	}
+	normalizedCfg := normalizeConfig(cfg)
 	s := &Server{
-		config:            cfg,
+		config:            &normalizedCfg,
 		messageQueue:      make([]*pcommon.DmqMessage, 0),
 		pendingMessageIDs: [][]byte{},
 		protoVersion:      protoOptions.Version,
@@ -119,10 +114,8 @@ func (s *Server) collectionLimit(msgType uint) int {
 // AddMessage adds a message to the outbound queue
 func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	// Validate message before adding to queue
-	if s.config.TTLValidator != nil {
-		if err := s.config.TTLValidator.ValidateMessageTTL(msg); err != nil {
-			return err
-		}
+	if err := s.config.TTLValidator.ValidateMessageTTL(msg); err != nil {
+		return err
 	}
 	if s.config.Authenticator == nil {
 		return errors.New("dmq: message authenticator not configured")
@@ -442,18 +435,16 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	s.lock.Unlock()
 
 	for i := range msgReply.Messages {
-		if s.config.TTLValidator != nil {
-			if err := s.config.TTLValidator.ValidateMessageTTL(&msgReply.Messages[i]); err != nil {
-				s.Protocol.Logger().
-					Warn("message validation failed",
-						"component", "network",
-						"protocol", ProtocolName,
-						"role", "server",
-						"connection_id", s.callbackContext.ConnectionId.String(),
-						"error", err,
-					)
-				return err
-			}
+		if err := s.config.TTLValidator.ValidateMessageTTL(&msgReply.Messages[i]); err != nil {
+			s.Protocol.Logger().
+				Warn("message validation failed",
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "server",
+					"connection_id", s.callbackContext.ConnectionId.String(),
+					"error", err,
+				)
+			return err
 		}
 		if s.config.Authenticator == nil {
 			return errors.New("dmq: message authenticator not configured")

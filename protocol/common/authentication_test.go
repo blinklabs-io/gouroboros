@@ -337,7 +337,11 @@ func TestValidateMessageTTLAtExpired(t *testing.T) {
 			ExpiresAt: uint32(now.Add(-time.Minute).Unix()),
 		},
 	}
-	assert.Error(t, validator.ValidateMessageTTLAt(msg, now))
+	assert.ErrorIs(
+		t,
+		validator.ValidateMessageTTLAt(msg, now),
+		ErrMessageExpired,
+	)
 }
 
 // TestValidateMessageTTLAtTooFarFuture tests deterministic TTL validation, too far future
