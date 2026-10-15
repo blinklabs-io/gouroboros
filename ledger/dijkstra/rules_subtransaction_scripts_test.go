@@ -54,6 +54,9 @@ func dijkstraGuardTestPlutus(
 	var body syn.Term[syn.DeBruijn] = &syn.Constant{
 		Con: &syn.Integer{Inner: big.NewInt(1)},
 	}
+	if version == lang.LanguageVersionV3 || version == lang.LanguageVersionV4 {
+		body = &syn.Constant{Con: &syn.Unit{}}
+	}
 	if fail {
 		body = &syn.Error{}
 	}

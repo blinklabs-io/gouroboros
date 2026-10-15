@@ -29,9 +29,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// programCacheTestScript returns the CBOR-wrapped flat encoding of a
-// \ctx -> ctx program at the given UPLC version. salt makes the bytes unique
-// per test so tests sharing defaultProgramCache never share an entry.
+// programCacheTestScript returns a unit-returning program at the given UPLC
+// version. salt makes the bytes unique so tests sharing defaultProgramCache
+// never share an entry.
 func programCacheTestScript(
 	t testing.TB,
 	version lang.LanguageVersion,
@@ -45,7 +45,7 @@ func programCacheTestScript(
 	for range 32 {
 		term = &syn.Apply[syn.DeBruijn]{
 			Function: &syn.Lambda[syn.DeBruijn]{
-				Body: &syn.Var[syn.DeBruijn]{Name: syn.DeBruijn(1)},
+				Body: &syn.Constant{Con: &syn.Unit{}},
 			},
 			Argument: term,
 		}

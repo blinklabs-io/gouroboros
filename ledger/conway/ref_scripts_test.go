@@ -256,6 +256,57 @@ func TestConwayRefScriptSizePerTxBoundsAndPublishing(t *testing.T) {
 	))
 }
 
+func TestConwayRefScriptSizePerTxUsesOverride(t *testing.T) {
+	limit := uint64(50)
+	atInput, atUtxo := conwayRefScriptInput(t, 0x01, 0, int(limit))
+	overInput, overUtxo := conwayRefScriptInput(t, 0x02, 0, int(limit+1))
+	pp := &conway.ConwayProtocolParameters{
+		MaxRefScriptSizePerTxOverride: &limit,
+	}
+
+	require.NoError(t, conway.UtxoValidateRefScriptSizePerTx(
+		conwayTxWithInputs(nil, []shelley.ShelleyTransactionInput{atInput}),
+		0,
+		conwayRefScriptLedgerState(t, atUtxo),
+		pp,
+	))
+	err := conway.UtxoValidateRefScriptSizePerTx(
+		conwayTxWithInputs(nil, []shelley.ShelleyTransactionInput{overInput}),
+		0,
+		conwayRefScriptLedgerState(t, overUtxo),
+		pp,
+	)
+	var sizeErr common.RefScriptSizePerTxTooLargeError
+	require.ErrorAs(t, err, &sizeErr)
+	require.Equal(t, limit, sizeErr.MaxSize)
+	require.Equal(t, limit+1, sizeErr.TxSize)
+}
+
+func TestConwayRefScriptSizePerTxOverrideIsNotEncoded(t *testing.T) {
+	newRat := func() cbor.Rat {
+		return cbor.Rat{Rat: big.NewRat(0, 1)}
+	}
+	newRatPtr := func() *cbor.Rat {
+		return &cbor.Rat{Rat: big.NewRat(0, 1)}
+	}
+	params := &conway.ConwayProtocolParameters{
+		A0:                         newRatPtr(),
+		Rho:                        newRatPtr(),
+		Tau:                        newRatPtr(),
+		PoolVotingThresholds:       conway.PoolVotingThresholds{MotionNoConfidence: newRat(), CommitteeNormal: newRat(), CommitteeNoConfidence: newRat(), HardForkInitiation: newRat(), PpSecurityGroup: newRat()},
+		DRepVotingThresholds:       conway.DRepVotingThresholds{MotionNoConfidence: newRat(), CommitteeNormal: newRat(), CommitteeNoConfidence: newRat(), UpdateToConstitution: newRat(), HardForkInitiation: newRat(), PpNetworkGroup: newRat(), PpEconomicGroup: newRat(), PpTechnicalGroup: newRat(), PpGovGroup: newRat(), TreasuryWithdrawal: newRat()},
+		MinFeeRefScriptCostPerByte: newRatPtr(),
+	}
+	encoded, err := cbor.Encode(params)
+	require.NoError(t, err)
+
+	limit := uint64(50)
+	params.MaxRefScriptSizePerTxOverride = &limit
+	encodedWithOverride, err := cbor.Encode(params)
+	require.NoError(t, err)
+	require.Equal(t, encoded, encodedWithOverride)
+}
+
 func TestConwayInvalidTxSkipsPerTxRefScriptLimitButCountsForBlock(
 	t *testing.T,
 ) {

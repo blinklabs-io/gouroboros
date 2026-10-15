@@ -489,6 +489,11 @@ type dijkstraCommitteeCredentialView struct {
 	state *dijkstraGovernanceStateView
 }
 
+type dijkstraCommitteeVotingView struct {
+	dijkstraCommitteeCredentialView
+	votingState common.CommitteeVotingState
+}
+
 func (s dijkstraCommitteeCredentialView) CommitteeStateAvailable() (bool, error) {
 	return s.state.CommitteeStateAvailable()
 }
@@ -511,12 +516,32 @@ func (s dijkstraCommitteeCredentialView) CommitteeHotCredentialMembers(
 	return s.state.CommitteeHotCredentialMembers(credential)
 }
 
+func (s dijkstraCommitteeVotingView) CommitteeHotCredentialColdCredentials(
+	hot common.Credential,
+) ([]common.Credential, error) {
+	return s.state.committeeHotCredentialColdCredentials(hot, s.votingState)
+}
+
+func (s dijkstraCommitteeVotingView) CommitteeCredentialIsElected(
+	cold common.Credential,
+) (bool, error) {
+	return s.votingState.CommitteeCredentialIsElected(cold)
+}
+
 func dijkstraCommitteeCredentialState(ls common.LedgerState) common.LedgerState {
 	state, ok := ls.(*dijkstraGovernanceStateView)
 	if !ok {
 		return ls
 	}
-	return dijkstraCommitteeCredentialView{LedgerState: ls, state: state}
+	view := dijkstraCommitteeCredentialView{LedgerState: ls, state: state}
+	votingState, ok := common.CommitteeVotingStateFor(state.LedgerState)
+	if !ok {
+		return view
+	}
+	return dijkstraCommitteeVotingView{
+		dijkstraCommitteeCredentialView: view,
+		votingState:                     votingState,
+	}
 }
 
 func (s *dijkstraGovernanceStateView) UnwrapLedgerState() common.LedgerState {
@@ -689,6 +714,34 @@ func (s *dijkstraGovernanceStateView) CommitteeHotCredentialMember(
 		return nil, err
 	}
 	return members[0], nil
+}
+
+func (s *dijkstraGovernanceStateView) committeeHotCredentialColdCredentials(
+	hot common.Credential,
+	votingState common.CommitteeVotingState,
+) ([]common.Credential, error) {
+	ret := make([]common.Credential, 0)
+	hotKey := dijkstraAccountKeyFor(hot)
+	for coldKey, curHot := range s.committeeColdHot {
+		if curHot != nil && *curHot == hotKey {
+			ret = append(ret, common.Credential{
+				CredType:   coldKey.typeID,
+				Credential: common.CredentialHash(coldKey.hash),
+			})
+		}
+	}
+	baseCredentials, err := votingState.CommitteeHotCredentialColdCredentials(hot)
+	if err != nil {
+		return nil, err
+	}
+	for _, cold := range baseCredentials {
+		if _, touched := s.committeeColdHot[dijkstraAccountKeyFor(cold)]; touched {
+			continue
+		}
+		ret = append(ret, cold)
+	}
+	slices.SortFunc(ret, dijkstraCompareCredentials)
+	return ret, nil
 }
 
 // coldCredentialTouched reports whether an earlier level's certificates

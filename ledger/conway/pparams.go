@@ -62,6 +62,9 @@ type ConwayProtocolParameters struct {
 	DRepDeposit                uint64
 	DRepInactivityPeriod       uint64
 	MinFeeRefScriptCostPerByte *cbor.Rat
+	// MaxRefScriptSizePerTxOverride is an out-of-band test limit. It is not a
+	// Conway protocol parameter and is omitted from CBOR encoding.
+	MaxRefScriptSizePerTxOverride *uint64 `cbor:"-"`
 }
 
 var _ common.CommitteeMaxTermLengthProvider = (*ConwayProtocolParameters)(nil)

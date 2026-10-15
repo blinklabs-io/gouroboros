@@ -164,6 +164,14 @@ type PlutusScriptFailedError struct {
 	Err        error
 }
 
+// PlutusScriptResultNotUnitError indicates that a validator returned a value
+// other than the unit constant required for phase-2 success.
+type PlutusScriptResultNotUnitError struct{}
+
+func (PlutusScriptResultNotUnitError) Error() string {
+	return "Plutus script returned a non-unit result"
+}
+
 func (e PlutusScriptFailedError) Error() string {
 	return fmt.Sprintf(
 		"plutus script failed (hash=%x, tag=%d, index=%d): %v",

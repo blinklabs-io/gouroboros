@@ -64,9 +64,16 @@ func checkoutMachine(
 // PlutusV3Script.Evaluate calls without depending on the encode helpers
 // defined in the external common_test package.
 func buildMachinePoolTestV3Script(t testing.TB) PlutusV3Script {
+	return buildMachinePoolTestV3ScriptReturning(t, &syn.Unit{})
+}
+
+func buildMachinePoolTestV3ScriptReturning(
+	t testing.TB,
+	result syn.IConstant,
+) PlutusV3Script {
 	t.Helper()
 	term := &syn.Lambda[syn.DeBruijn]{
-		Body: &syn.Constant{Con: &syn.Unit{}},
+		Body: &syn.Constant{Con: result},
 	}
 	flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
 		// The UPLC wire version (distinct from the Plutus ledger language
@@ -598,7 +605,7 @@ func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
 		Cpu: cek.DefaultExBudget.Cpu,
 	}
 	require.Panics(t, func() {
-		_, _ = runPooledMachineContext(
+		_, _, _ = runPooledMachineContext(
 			context.Background(),
 			lang.LanguageVersionV3,
 			evalContext,
@@ -614,4 +621,20 @@ func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
 	require.False(t, reused,
 		"a Machine whose Run panicked must not be returned to its pool")
 	releaseMachine(lang.LanguageVersionV3, evalContext, machine)
+}
+
+func TestRunPooledMachineRejectsNonUnitResult(t *testing.T) {
+	t.Parallel()
+
+	script := buildMachinePoolTestV3ScriptReturning(
+		t,
+		&syn.Integer{Inner: big.NewInt(1)},
+	)
+	_, err := script.Evaluate(
+		machinePoolTestScriptContext(),
+		machinePoolTestBudget(),
+		pooledTestEvalContext(t, 11),
+	)
+	var resultError PlutusScriptResultNotUnitError
+	require.ErrorAs(t, err, &resultError)
 }

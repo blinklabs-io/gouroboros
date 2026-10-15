@@ -41,7 +41,8 @@ func UtxoValidateRefScriptSizePerTx(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if _, ok := pp.(*ConwayProtocolParameters); !ok {
+	conwayPparams, ok := pp.(*ConwayProtocolParameters)
+	if !ok || conwayPparams == nil {
 		return errors.New("pparams are not expected type")
 	}
 	if !tx.IsValid() {
@@ -51,10 +52,14 @@ func UtxoValidateRefScriptSizePerTx(
 	if err != nil {
 		return err
 	}
-	if totalSize > MaxRefScriptSizePerTx {
+	maxSize := MaxRefScriptSizePerTx
+	if conwayPparams.MaxRefScriptSizePerTxOverride != nil {
+		maxSize = *conwayPparams.MaxRefScriptSizePerTxOverride
+	}
+	if totalSize > maxSize {
 		return common.RefScriptSizePerTxTooLargeError{
 			TxSize:  totalSize,
-			MaxSize: MaxRefScriptSizePerTx,
+			MaxSize: maxSize,
 		}
 	}
 	return nil
