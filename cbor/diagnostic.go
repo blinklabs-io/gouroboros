@@ -1011,8 +1011,10 @@ func (n *DiagnosticNode) writeCompact(
 			return n.writeCompactChunks(w, opts, depth)
 		}
 		s, _ := n.Value.(string)
-		// Quoting never shortens a string, and adds its two quotes.
-		if !w.fits(len(s) + 2) {
+		// Escape expansion can make the quoted form much larger than the
+		// source. Size it before strconv.Quote allocates the result so the
+		// output cap also bounds transient rendering memory.
+		if !w.fits(quotedStringSize(s)) {
 			return false
 		}
 		return w.write(strconv.Quote(s))

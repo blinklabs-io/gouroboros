@@ -380,12 +380,28 @@ func TestDiagnosticRenderSkipsLeavesPastCap(t *testing.T) {
 		assert.Less(t, grew, parsed+(1<<20), name+"/cardano")
 	}
 
+	// The source text can fit while its escaped representation does not.
+	// Check the quoted length before allocating it.
+	escapedText := append(
+		[]byte{0x7a, 0x00, 0x08, 0x00, 0x00},
+		make([]byte, 512<<10)...,
+	)
+	node, err := cbor.ParseDiagnostic(escapedText)
+	require.NoError(t, err)
+	grew := allocated(func() {
+		out := node.FormatDiagnostic(
+			cbor.DiagnosticOptions{MaxOutputBytes: 600 << 10},
+		)
+		assert.Contains(t, out, renderTruncationMarker)
+	})
+	assert.Less(t, grew, uint64(1<<20))
+
 	// A truncated byte string keeps the body tiny, so only the ShowHex suffix
 	// is large enough to hit the cap.
-	node, err := cbor.ParseDiagnostic(leaves["bytes"])
+	node, err = cbor.ParseDiagnostic(leaves["bytes"])
 	require.NoError(t, err)
 	var out string
-	grew := allocated(func() {
+	grew = allocated(func() {
 		out = node.FormatDiagnostic(cbor.DiagnosticOptions{
 			MaxByteLength:  4,
 			ShowHex:        true,

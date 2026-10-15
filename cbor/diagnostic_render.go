@@ -17,7 +17,9 @@ package cbor
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -117,6 +119,39 @@ func hexSize(n int, extra int) int {
 		return -1
 	}
 	return 2*n + extra
+}
+
+// quotedStringSize returns the number of bytes strconv.Quote will produce,
+// or -1 if that size cannot be represented as an int.
+func quotedStringSize(s string) int {
+	ret := 2 // surrounding quotes
+	for len(s) > 0 {
+		r, width := utf8.DecodeRuneInString(s)
+		var size int
+		switch {
+		case width == 1 && r == utf8.RuneError:
+			size = 4 // \\xNN
+		case r == '"' || r == '\\':
+			size = 2
+		case strconv.IsPrint(r):
+			size = width
+		case r == '\a' || r == '\b' || r == '\f' || r == '\n' ||
+			r == '\r' || r == '\t' || r == '\v':
+			size = 2
+		case r < ' ' || r == 0x7f:
+			size = 4 // \\xNN
+		case r < 0x10000:
+			size = 6 // \\uNNNN
+		default:
+			size = 10 // \\UNNNNNNNN
+		}
+		if ret > math.MaxInt-size {
+			return -1
+		}
+		ret += size
+		s = s[width:]
+	}
+	return ret
 }
 
 // writeHexSuffix appends "  / <hex> /" for raw without building the hex when
