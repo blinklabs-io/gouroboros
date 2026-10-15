@@ -55,8 +55,8 @@ func TestDistributePoolRewardsExactDelegatorShare(t *testing.T) {
 		RewardParameters{},
 	)
 
-	assert.Equal(t, firstStake, rewards.DelegatorRewards[first])
-	assert.Equal(t, secondStake, rewards.DelegatorRewards[second])
+	assert.Equal(t, firstStake, rewards.DelegatorRewards[keyRewardCredential(first)])
+	assert.Equal(t, secondStake, rewards.DelegatorRewards[keyRewardCredential(second)])
 	// No rounding remainder is left over for the operator to absorb.
 	assert.Equal(t, poolCost, rewards.OperatorRewards)
 }
@@ -89,8 +89,8 @@ func TestDistributePoolRewardsExactLargeDenominator(t *testing.T) {
 		RewardParameters{},
 	)
 
-	assert.Equal(t, 2*firstStake, rewards.DelegatorRewards[first])
-	assert.Equal(t, 2*secondStake, rewards.DelegatorRewards[second])
+	assert.Equal(t, 2*firstStake, rewards.DelegatorRewards[keyRewardCredential(first)])
+	assert.Equal(t, 2*secondStake, rewards.DelegatorRewards[keyRewardCredential(second)])
 	assert.Equal(t, poolCost, rewards.OperatorRewards)
 }
 

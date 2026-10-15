@@ -15,6 +15,7 @@
 package leiosvotes
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -36,7 +37,7 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	case MessageTypeVotesRequestNext:
 		ret = &MsgVotesRequestNext{}
 	case MessageTypeVote:
-		ret = &MsgVote{}
+		return newMsgVoteFromCbor(data)
 	case MessageTypeDone:
 		ret = &MsgDone{}
 	default:
@@ -79,6 +80,38 @@ func NewMsgVote(vote Vote) *MsgVote {
 		Vote: vote,
 	}
 	return m
+}
+
+// newMsgVoteFromCbor admits a Vote message of at most MaxVoteMessageBytes
+// before decoding it, and leaves the message and its vote sharing one copy of
+// the encoding rather than each retaining its own.
+func newMsgVoteFromCbor(data []byte) (*MsgVote, error) {
+	if len(data) > MaxVoteMessageBytes {
+		return nil, fmt.Errorf(
+			"%s: vote message is %d bytes, maximum %d",
+			ProtocolName,
+			len(data),
+			MaxVoteMessageBytes,
+		)
+	}
+	owned := bytes.Clone(data)
+	msg := &MsgVote{}
+	if _, err := cbor.Decode(owned, msg); err != nil {
+		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	}
+	msg.SetCborReference(owned)
+	// The vote is the last element of [type, vote], ahead of the break byte
+	// when the array is indefinite-length.
+	end := len(owned)
+	if owned[0] == cbor.CborTypeArray|31 {
+		end--
+	}
+	voteRaw := msg.Vote.Cbor()
+	if start := end - len(voteRaw); start > 0 &&
+		bytes.Equal(owned[start:end], voteRaw) {
+		msg.Vote.SetCborReference(owned[start:end])
+	}
+	return msg, nil
 }
 
 type MsgDone struct {

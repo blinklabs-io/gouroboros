@@ -936,3 +936,99 @@ func TestByronEpochSscStateRejectsNonMapOpeningsField(t *testing.T) {
 	)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
+
+// TestByronMainBlockRejectsMalformedSscEntriesWithMatchingProof recomputes
+// each SSC proof over the malformed bytes. Rejection therefore depends on the
+// nested wire-shape validation rather than a hash mismatch.
+func TestByronMainBlockRejectsMalformedSscEntriesWithMatchingProof(
+	t *testing.T,
+) {
+	certs := mustEncodeSet(
+		t, sscCertEntry(sscPubkey(0xe0), "shape-cert"),
+	)
+	certState := byron.NewByronEpochSscState()
+	certPayload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates), certs,
+	})
+	require.NoError(t, err)
+	require.NoError(
+		t,
+		certState.AccumulateBlock(decodeWithSscPayload(t, certPayload)),
+	)
+	certHash := certState.CertificatesHash().Bytes()
+
+	malformedCommitments := mustEncodeSet(t, []any{
+		sscPubkey(0xe1), "not-a-commitment", []byte("signature"),
+	})
+	malformedOpenings := toStakeholderCborMap(
+		map[common.Blake2b224]cbor.RawMessage{
+			sscStakeholder(0xe2): mustEncode(t, "not-an-opening"),
+		},
+	)
+	malformedShares := toStakeholderCborMap(
+		map[common.Blake2b224]cbor.RawMessage{
+			sscStakeholder(0xe3): mustEncode(t, "not-a-shares-map"),
+		},
+	)
+
+	cases := []struct {
+		name    string
+		sscType uint64
+		primary any
+	}{
+		{"commitment", byron.SscTypeCommitments, malformedCommitments},
+		{"opening", byron.SscTypeOpenings, malformedOpenings},
+		{"share", byron.SscTypeShares, malformedShares},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			primary, err := cbor.Encode(tc.primary)
+			require.NoError(t, err)
+			payload, err := cbor.Encode([]any{
+				tc.sscType, cbor.RawMessage(primary), certs,
+			})
+			require.NoError(t, err)
+			proof, err := cbor.Encode([]any{
+				tc.sscType,
+				common.Blake2b256Hash(primary).Bytes(),
+				certHash,
+			})
+			require.NoError(t, err)
+
+			_, err = byron.NewByronMainBlockFromCbor(withSscPayloadAndProof(
+				t, mainnetByronBlock(t), payload, proof,
+			))
+			require.Error(t, err)
+			assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+		})
+	}
+
+	malformedCerts := mustEncodeSet(t, []any{
+		[]byte("vss-key"), "not-an-epoch", []byte("signature"),
+		sscPubkey(0xe4),
+	})
+	malformedCertPayload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates), malformedCerts,
+	})
+	require.NoError(t, err)
+	malformedCertState := byron.NewByronEpochSscState()
+	// The state accumulator's coarse decoder derives the same canonical hash
+	// the proof checker would derive in the absence of its complete shape gate.
+	require.NoError(t, malformedCertState.AccumulateBlock(
+		decodeWithSscPayload(t, malformedCertPayload),
+	))
+	malformedCertProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		malformedCertState.CertificatesHash().Bytes(),
+	})
+	require.NoError(t, err)
+
+	_, err = byron.NewByronMainBlockFromCbor(withSscPayloadAndProof(
+		t,
+		mainnetByronBlock(t),
+		malformedCertPayload,
+		malformedCertProof,
+	))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+}

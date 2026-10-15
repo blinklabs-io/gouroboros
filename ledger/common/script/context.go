@@ -1008,6 +1008,15 @@ func signatoriesInfo(
 	)
 }
 
+// VotingProceduresToPlutusData encodes voting procedures as the script
+// context's votes map, with voters and governance action ids in the
+// reference ledger's order.
+func VotingProceduresToPlutusData(
+	votingProcedures lcommon.VotingProcedures,
+) data.PlutusData {
+	return votingInfo(votingProcedures).ToPlutusData()
+}
+
 func votingInfo(
 	votingProcedures lcommon.VotingProcedures,
 ) KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]] {

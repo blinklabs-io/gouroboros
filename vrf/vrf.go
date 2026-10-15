@@ -56,6 +56,7 @@ import (
 
 	"filippo.io/edwards25519"
 	"filippo.io/edwards25519/field"
+	"github.com/blinklabs-io/gouroboros/internal/cryptoutil"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -96,7 +97,9 @@ func KeyGen(seed []byte) ([]byte, []byte, error) {
 	// This is NOT password hashing - it's elliptic curve scalar derivation.
 	// #nosec G401 -- SHA-512 is cryptographically required by RFC 8032/VRF spec
 	h := sha512.Sum512(seed)
+	defer cryptoutil.Wipe(h[:])
 	xScalar := edwards25519.NewScalar()
+	defer cryptoutil.WipeScalar(xScalar)
 	if _, err := xScalar.SetBytesWithClamping(h[:32]); err != nil {
 		return nil, nil, err
 	}
@@ -127,15 +130,11 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	// This is NOT password hashing - it's elliptic curve scalar derivation.
 	// #nosec G401 -- SHA-512 is cryptographically required by RFC 8032/VRF spec
 	skHash := sha512.Sum512(secretKey)
-	// SEC-10: Zero sensitive key-derived material when done
-	defer func() {
-		for i := range skHash {
-			skHash[i] = 0
-		}
-	}()
+	defer cryptoutil.Wipe(skHash[:])
 
 	// Step 2: Compute public key Y = x * B
 	xScalar := edwards25519.NewScalar()
+	defer cryptoutil.WipeScalar(xScalar)
 	if _, err := xScalar.SetBytesWithClamping(skHash[:32]); err != nil {
 		return nil, nil, err
 	}
@@ -155,22 +154,13 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	copy(nonceInput[:32], skHash[32:64])
 	copy(nonceInput[32:], H.Bytes())
 
-	// SEC-10: Zero nonce input (contains key-derived material from skHash[32:64])
-	defer func() {
-		for i := range nonceInput {
-			nonceInput[i] = 0
-		}
-	}()
+	defer cryptoutil.Wipe(nonceInput[:])
 
 	nonceHash := sha512.Sum512(nonceInput[:])
-	// SEC-10: Zero nonce hash (derived from key material)
-	defer func() {
-		for i := range nonceHash {
-			nonceHash[i] = 0
-		}
-	}()
+	defer cryptoutil.Wipe(nonceHash[:])
 	// SetUniformBytes takes a 64-byte slice and reduces mod L automatically
 	kScalar := edwards25519.NewScalar()
+	defer cryptoutil.WipeScalar(kScalar)
 	if _, err := kScalar.SetUniformBytes(nonceHash[:]); err != nil {
 		return nil, nil, err
 	}
@@ -184,9 +174,9 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	cBytes := cScalar.Bytes()
 
 	// Step 8: Compute s = (k + c * x) mod ORDER
-	// Use native scalar operations: MultiplyAdd computes c*x + k mod L
+	// Avoid MultiplyAdd's internal copy of the nonce scalar.
 	sScalar := edwards25519.NewScalar()
-	sScalar.MultiplyAdd(cScalar, xScalar, kScalar)
+	sScalar.Multiply(cScalar, xScalar).Add(sScalar, kScalar)
 	sBytes := sScalar.Bytes()
 
 	// Step 9: Encode proof: Gamma_bytes (32) || c_bytes (16) || s_bytes (32) = 80 bytes

@@ -203,9 +203,7 @@ func TestByronSscGoldenVectorsAcceptedByAccumulateBlock(t *testing.T) {
 // before hashing rest[0]) touches. A real ssc_proof is computed directly
 // from the golden bytes, exactly as checkSscProofLocal itself would.
 func TestByronSscGoldenVectorsAcceptedByValidateBodyProof(t *testing.T) {
-	comms := goldenSscBytes(t, goldenCommitmentsMapHex)
 	certs := goldenSscBytes(t, goldenVssCertificatesMapHex)
-
 	certState := byron.NewByronEpochSscState()
 	certsOnlyPayload, err := cbor.Encode([]any{
 		uint64(byron.SscTypeCertificates),
@@ -217,27 +215,46 @@ func TestByronSscGoldenVectorsAcceptedByValidateBodyProof(t *testing.T) {
 		certState.AccumulateBlock(decodeWithSscPayload(t, certsOnlyPayload)),
 	)
 
-	payload, err := cbor.Encode([]any{
-		uint64(byron.SscTypeCommitments),
-		cbor.RawMessage(comms),
-		cbor.RawMessage(certs),
-	})
-	require.NoError(t, err)
-
-	realProof, err := cbor.Encode([]any{
-		uint64(byron.SscTypeCommitments),
-		common.Blake2b256Hash(comms).Bytes(),
-		certState.CertificatesHash().Bytes(),
-	})
-	require.NoError(t, err)
-
-	blockCbor := withSscPayloadAndProof(
-		t, mainnetByronBlock(t), payload, realProof,
-	)
-	block, err := byron.NewByronMainBlockFromCbor(blockCbor)
-	require.NoError(t, err)
-
-	assert.NoError(t, block.ValidateBodyProof())
+	cases := []struct {
+		name    string
+		sscType uint64
+		primary []byte
+	}{
+		{"commitments", byron.SscTypeCommitments, goldenSscBytes(t, goldenCommitmentsMapHex)},
+		{"openings", byron.SscTypeOpenings, goldenSscBytes(t, goldenOpeningsMapHex)},
+		{"shares", byron.SscTypeShares, goldenSscBytes(t, goldenSharesMapHex)},
+		{"certificates", byron.SscTypeCertificates, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var payloadFields []any
+			var proofFields []any
+			if tc.primary == nil {
+				payloadFields = []any{tc.sscType, cbor.RawMessage(certs)}
+				proofFields = []any{tc.sscType, certState.CertificatesHash().Bytes()}
+			} else {
+				payloadFields = []any{
+					tc.sscType, cbor.RawMessage(tc.primary), cbor.RawMessage(certs),
+				}
+				proofFields = []any{
+					tc.sscType,
+					common.Blake2b256Hash(tc.primary).Bytes(),
+					certState.CertificatesHash().Bytes(),
+				}
+			}
+			payload, err := cbor.Encode(payloadFields)
+			require.NoError(t, err)
+			proof, err := cbor.Encode(proofFields)
+			require.NoError(t, err)
+			block, err := byron.NewByronMainBlockFromCbor(
+				withSscPayloadAndProof(
+					t, mainnetByronBlock(t), payload, proof,
+				),
+			)
+			require.NoError(t, err)
+			assert.NoError(t, block.ValidateBodyProof())
+		})
+	}
 }
 
 // TestByronSscGoldenVectorsRejectMutatedShape is the negative control

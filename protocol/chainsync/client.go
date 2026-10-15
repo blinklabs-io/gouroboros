@@ -83,13 +83,18 @@ type Client struct {
 	waitingForCurrentTipChan chan chan<- Tip
 	wantCurrentTipChan       chan chan<- Tip
 	wantFirstBlockChan       chan chan<- clientPointResult
-	wantIntersectFoundChan   chan chan<- clientPointResult
+	wantIntersectFoundChan   chan intersectRequest
 }
 
 type clientPointResult struct {
 	tip   Tip
 	point pcommon.Point
 	error error
+}
+
+type intersectRequest struct {
+	points     []pcommon.Point
+	resultChan chan<- clientPointResult
 }
 
 // NewClient returns a new ChainSync client object
@@ -151,7 +156,7 @@ func (c *Client) initProtocol() {
 	c.waitingForCurrentTipChan = make(chan chan<- Tip, 20)
 	c.wantCurrentTipChan = make(chan chan<- Tip, 1)
 	c.wantFirstBlockChan = make(chan chan<- clientPointResult, 1)
-	c.wantIntersectFoundChan = make(chan chan<- clientPointResult, 1)
+	c.wantIntersectFoundChan = make(chan intersectRequest, 1)
 
 	// Select base state map based on protocol mode.
 	// Default to NtC (matching ProtocolId/CBOR defaults above) so that
@@ -792,8 +797,9 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 			)
 	}
 
-	intersectResultChan, cancel := c.wantIntersectFound()
-	msgFindIntersect := NewMsgFindIntersect(intersectPoints)
+	offeredPoints := clonePoints(intersectPoints)
+	intersectResultChan, cancel := c.wantIntersectFound(offeredPoints)
+	msgFindIntersect := NewMsgFindIntersect(offeredPoints)
 	if err := proto.SendMessage(msgFindIntersect); err != nil {
 		cancel()
 		return err
@@ -977,13 +983,19 @@ func (c *Client) wantFirstBlock() (<-chan clientPointResult, func()) {
 
 // wantIntersectFound returns a channel that will receive the result of the next intersect request,
 // and a function that can be used to clear the channel if sending the request message fails.
-func (c *Client) wantIntersectFound() (<-chan clientPointResult, func()) {
+func (c *Client) wantIntersectFound(
+	points []pcommon.Point,
+) (<-chan clientPointResult, func()) {
 	ch := make(chan clientPointResult, 1)
+	request := intersectRequest{
+		points:     points,
+		resultChan: ch,
+	}
 
 	select {
 	case <-c.DoneChan():
 		return nil, func() {}
-	case c.wantIntersectFoundChan <- ch:
+	case c.wantIntersectFoundChan <- request:
 		return ch, func() {
 			select {
 			case <-c.wantIntersectFoundChan:
@@ -993,11 +1005,29 @@ func (c *Client) wantIntersectFound() (<-chan clientPointResult, func()) {
 	}
 }
 
+func clonePoints(points []pcommon.Point) []pcommon.Point {
+	ret := make([]pcommon.Point, len(points))
+	for i, point := range points {
+		ret[i] = pcommon.NewPoint(point.Slot, bytes.Clone(point.Hash))
+	}
+	return ret
+}
+
+func pointWasOffered(points []pcommon.Point, point pcommon.Point) bool {
+	for _, offered := range points {
+		if offered.Slot == point.Slot && bytes.Equal(offered.Hash, point.Hash) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Client) requestFindIntersect(
 	intersectPoints []pcommon.Point,
 ) clientPointResult {
-	resultChan, cancel := c.wantIntersectFound()
-	msg := NewMsgFindIntersect(intersectPoints)
+	offeredPoints := clonePoints(intersectPoints)
+	resultChan, cancel := c.wantIntersectFound(offeredPoints)
+	msg := NewMsgFindIntersect(offeredPoints)
 	if err := c.SendMessage(msg); err != nil {
 		cancel()
 		return clientPointResult{error: err}
@@ -1422,6 +1452,23 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgIntersectFound := msg.(*MsgIntersectFound)
+	var request intersectRequest
+	select {
+	case request = <-c.wantIntersectFoundChan:
+	default:
+		return fmt.Errorf(
+			"%s: received IntersectFound without a pending FindIntersect request",
+			ProtocolName,
+		)
+	}
+	if !pointWasOffered(request.points, msgIntersectFound.Point) {
+		err := fmt.Errorf(
+			"%s: received IntersectFound point that was not offered",
+			ProtocolName,
+		)
+		request.resultChan <- clientPointResult{error: err}
+		return err
+	}
 	c.sendCurrentTip(msgIntersectFound.Tip)
 	if c.config != nil && c.config.IntersectFoundFunc != nil {
 		if err := c.config.IntersectFoundFunc(
@@ -1433,10 +1480,9 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 		}
 	}
 
-	select {
-	case ch := <-c.wantIntersectFoundChan:
-		ch <- clientPointResult{tip: msgIntersectFound.Tip, point: msgIntersectFound.Point}
-	default:
+	request.resultChan <- clientPointResult{
+		tip:   msgIntersectFound.Tip,
+		point: msgIntersectFound.Point,
 	}
 	return nil
 }
@@ -1453,8 +1499,11 @@ func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) {
 	c.sendCurrentTip(msgIntersectNotFound.Tip)
 
 	select {
-	case ch := <-c.wantIntersectFoundChan:
-		ch <- clientPointResult{tip: msgIntersectNotFound.Tip, error: ErrIntersectNotFound}
+	case request := <-c.wantIntersectFoundChan:
+		request.resultChan <- clientPointResult{
+			tip:   msgIntersectNotFound.Tip,
+			error: ErrIntersectNotFound,
+		}
 	default:
 	}
 }

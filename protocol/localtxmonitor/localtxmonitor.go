@@ -16,6 +16,7 @@
 package localtxmonitor
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -73,16 +74,19 @@ var StateMap = protocol.StateMap{
 				NewState: stateIdle,
 			},
 			{
-				MsgType:  MessageTypeHasTx,
-				NewState: stateBusy,
+				MsgType:   MessageTypeHasTx,
+				NewState:  stateBusy,
+				MatchFunc: matchQuery,
 			},
 			{
-				MsgType:  MessageTypeNextTx,
-				NewState: stateBusy,
+				MsgType:   MessageTypeNextTx,
+				NewState:  stateBusy,
+				MatchFunc: matchQuery,
 			},
 			{
-				MsgType:  MessageTypeGetSizes,
-				NewState: stateBusy,
+				MsgType:   MessageTypeGetSizes,
+				NewState:  stateBusy,
+				MatchFunc: matchQuery,
 			},
 		},
 	},
@@ -90,22 +94,63 @@ var StateMap = protocol.StateMap{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeReplyHasTx,
-				NewState: stateAcquired,
+				MsgType:   MessageTypeReplyHasTx,
+				NewState:  stateAcquired,
+				MatchFunc: matchReply,
 			},
 			{
-				MsgType:  MessageTypeReplyNextTx,
-				NewState: stateAcquired,
+				MsgType:   MessageTypeReplyNextTx,
+				NewState:  stateAcquired,
+				MatchFunc: matchReply,
 			},
 			{
-				MsgType:  MessageTypeReplyGetSizes,
-				NewState: stateAcquired,
+				MsgType:   MessageTypeReplyGetSizes,
+				NewState:  stateAcquired,
+				MatchFunc: matchReply,
 			},
 		},
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
 	},
+}
+
+// queryReplyTypes maps each query that hands agency to the server to the
+// only reply that may answer it.
+var queryReplyTypes = map[uint8]uint8{
+	MessageTypeHasTx:    MessageTypeReplyHasTx,
+	MessageTypeNextTx:   MessageTypeReplyNextTx,
+	MessageTypeGetSizes: MessageTypeReplyGetSizes,
+}
+
+// stateContext records the query in flight so that Busy accepts only its
+// reply. Each client and server needs its own.
+type stateContext struct {
+	query atomic.Uint32
+}
+
+// matchQuery records the query before the transition grants the server
+// agency. Recording the same query again is harmless, so the framework may
+// evaluate the transition more than once.
+func matchQuery(ctx any, msg protocol.Message) bool {
+	stateCtx, ok := ctx.(*stateContext)
+	if !ok {
+		return false
+	}
+	stateCtx.query.Store(uint32(msg.Type()))
+	return true
+}
+
+// matchReply accepts only the reply to the query in flight, so a mismatched
+// reply is refused before the transition to Acquired.
+func matchReply(ctx any, msg protocol.Message) bool {
+	stateCtx, ok := ctx.(*stateContext)
+	if !ok {
+		return false
+	}
+	query := uint8(stateCtx.query.Load()) //nolint:gosec // stores a uint8
+	replyType, ok := queryReplyTypes[query]
+	return ok && replyType == msg.Type()
 }
 
 // LocalTxMonitor is a wrapper object that holds the client and server instances

@@ -2,21 +2,23 @@
 
 block = [header, block_body]
 
-; Transactions in a block carry a trailing `is_valid` flag, which is set by
-; the block producer.
+; Transactions in a block carry a trailing `is_valid` flag, which is
+; set by the block producer. It is placed after all the fields that are
+; supplied by the transaction author.
 block_transaction =
   [transaction_body, transaction_witness_set, auxiliary_data/ nil, bool]
 
-; In Dijkstra we're deprecating the `is_valid` flag, but for backwards
-; compatibility we still allow this flag to be present in incoming
-; transactions. Once the transaction is added to a block, the flag will
-; be stripped, so the `is_valid` flag cannot appear in transactions that
-; are in a block.
+; In Dijkstra we're deprecating the `is_valid` flag in submitted
+; transactions, since it is set by the block producer rather than the
+; transaction author. For backwards compatibility we still allow this
+; flag to be present in incoming transactions, but only with its value
+; set to `true`. Once the transaction is added to a block, the flag is
+; moved to the end of the transaction (see the `block_transaction` rule).
 ;
-; In the next era `is_valid` flags will not be allowed even in mempool
-; transactions, so it's strongly recommended to encode transactions
-; using the flag-less three-element form below.
-transaction_mempool =
+; In the next era the `is_valid` flag will not be allowed in mempool
+; transactions at all, so it's strongly recommended to encode
+; transactions without the flag.
+mempool_transaction =
   [ transaction_body, transaction_witness_set, auxiliary_data/ nil
   ]
   / [transaction_body, transaction_witness_set, true, auxiliary_data/ nil]
@@ -54,18 +56,18 @@ certificate =
 header = [header_body, body_signature : kes_signature]
 
 header_body =
-  [ block_number     : block_number
-  , slot             : slot
-  , prev_hash        : hash32/ nil
-  , issuer_vkey      : vkey
-  , vrf_vkey         : vrf_vkey
-  , vrf_result       : vrf_cert
-  , block_body_size  : uint .size 4
-  , block_body_hash  : hash32       ; merkle triple root
+  [ block_number                   : block_number
+  , slot                           : slot
+  , prev_hash                      : hash32/ nil
+  , issuer_vkey                    : vkey
+  , vrf_vkey                       : vrf_vkey
+  , vrf_result                     : vrf_cert
+  , block_body_size                : uint .size 4
+  , block_body_hash                : hash32                           ; merkle triple root
   , operational_cert
-  , protocol_version
+  , header_version_info
   , block_body_contains_leios_cert : bool
-  , eb_announcement                : eb_announcement/ nil
+  , eb_references_announcement     : eb_references_announcement/ nil
   ]
 
 block_number = uint .size 8
@@ -95,13 +97,14 @@ kes_period = uint .size 8
 
 signature = bytes .size 64
 
-protocol_version = [major_protocol_version, uint .size 4]
+header_version_info =
+  [ highest_supported_major_version : uint .size 4
+  , self_reported_software_tag : uint .size 4
+  ]
 
-major_protocol_version = 0 .. 13
-
-eb_announcement =
+eb_references_announcement =
   [ eb_hash : hash32
-  , eb_size : uint .size 4 ; size of the EB block closure
+  , eb_size : uint .size 4 ; size of the EB references
   ]
 
 block_body =
@@ -113,28 +116,28 @@ block_body =
 transaction_body =
   {   0  : set<transaction_input>
   ,   1  : [* transaction_output]
-  ,   2  : coin                            ; fee
-  , ? 3  : slot                            ; time to live
+  ,   2  : coin                               ; fee
+  , ? 3  : slot                               ; time to live
   , ? 4  : certificates
   , ? 5  : withdrawals
   , ? 7  : auxiliary_data_hash
-  , ? 8  : slot                            ; validity interval start
+  , ? 8  : slot                               ; validity interval start
   , ? 9  : mint
   , ? 11 : script_data_hash
-  , ? 13 : nonempty_set<transaction_input> ; collateral
-  , ? 14 : guards                          ; guards (replaces required_signers)
+  , ? 13 : nonempty_set<transaction_input>    ; collateral
+  , ? 14 : guards                             ; guards (replaces required_signers)
   , ? 15 : network_id
-  , ? 16 : transaction_output              ; collateral return
-  , ? 17 : coin                            ; total collateral
-  , ? 18 : nonempty_set<transaction_input> ; reference inputs
+  , ? 16 : transaction_output                 ; collateral return
+  , ? 17 : coin                               ; total collateral
+  , ? 18 : nonempty_set<transaction_input>    ; reference inputs
   , ? 19 : voting_procedures
   , ? 20 : proposal_procedures
-  , ? 21 : coin                            ; current treasury value
-  , ? 22 : positive_coin                   ; donation
-  , ? 23 : sub_transactions                ; sub-transactions (NEW)
-  , ? 24 : required_top_level_guards       ; required top-level guards
-  , ? 25 : direct_deposits                 ; direct deposits
-  , ? 26 : account_balance_intervals       ; account balance intervals
+  , ? 21 : coin                               ; current treasury value
+  , ? 22 : positive_coin                      ; donation
+  , ? 23 : sub_transactions                   ; sub-transactions (NEW)
+  , ? 24 : required_top_level_guards          ; required top-level guards
+  , ? 25 : direct_deposits                    ; direct deposits
+  , ? 26 : account_balance_intervals          ; account balance intervals
   , ? 27 : starting_account_balance_intervals ; starting account balance intervals
   }
 
@@ -462,16 +465,16 @@ pool_registration_cert = (3, pool_params)
 
 ; Pool parameters for stake pool registration
 pool_params =
-  ( operator       : pool_keyhash
-  , vrf_keyhash    : vrf_keyhash
-  , ? bls_key      : bls_key/ nil
-  , pledge         : coin
-  , cost           : coin
-  , margin         : unit_interval
-  , reward_account : reward_account
-  , pool_owners    : set<addr_keyhash>
-  , relays         : [* relay]
-  , pool_metadata  : pool_metadata/ nil
+  (   operator       : pool_keyhash
+  ,   vrf_keyhash    : vrf_keyhash
+  , ? bls_key        : bls_key/ nil
+  ,   pledge         : coin
+  ,   cost           : coin
+  ,   margin         : unit_interval
+  ,   reward_account : reward_account
+  ,   pool_owners    : set<addr_keyhash>
+  ,   relays         : [* relay]
+  ,   pool_metadata  : pool_metadata/ nil
   )
 
 vrf_keyhash = hash32
@@ -677,51 +680,59 @@ parameter_change_action =
   (0, gov_action_id/ nil, protocol_param_update, guardrails_script_hash/ nil)
 
 protocol_param_update =
-  { ? 0  : coin                   ; minfeeA
-  , ? 1  : coin                   ; minfeeB
-  , ? 2  : uint .size 4           ; max block body size
-  , ? 3  : uint .size 4           ; max transaction size
-  , ? 4  : uint .size 2           ; max block header size
-  , ? 5  : coin                   ; key deposit
-  , ? 6  : coin                   ; pool deposit
-  , ? 7  : epoch_interval         ; maximum epoch
-  , ? 8  : uint .size 2           ; n_opt: desired number of stake pools
-  , ? 9  : nonnegative_interval   ; pool pledge influence
-  , ? 10 : unit_interval          ; expansion rate
-  , ? 11 : unit_interval          ; treasury growth rate
-  , ? 16 : coin                   ; min pool cost
-  , ? 17 : coin                   ; ada per utxo byte
-  , ? 18 : cost_models            ; cost models for script languages
-  , ? 19 : ex_unit_prices         ; execution costs
-  , ? 20 : ex_units               ; max tx ex units
-  , ? 21 : ex_units               ; max block ex units
-  , ? 22 : uint .size 4           ; max value size
-  , ? 23 : uint .size 2           ; collateral percentage
-  , ? 24 : uint .size 2           ; max collateral inputs
-  , ? 25 : pool_voting_thresholds ; pool voting thresholds
-  , ? 26 : drep_voting_thresholds ; drep voting thresholds
-  , ? 27 : uint .size 2           ; min committee size
-  , ? 28 : epoch_interval         ; committee term limit
-  , ? 29 : epoch_interval         ; goveranance action validity period
-  , ? 30 : coin                   ; governance action deposit
-  , ? 31 : coin                   ; drep deposit
-  , ? 32 : epoch_interval         ; drep inactivity period
-  , ? 33 : nonnegative_interval   ; minfee refScript coins per byte
-  , ? 34 : uint .size 4           ; max refScript size per block
-  , ? 35 : uint .size 4           ; max refScript size per tx
-  , ? 36 : positive_word32        ; refScript cost stride
-  , ? 37 : positive_interval      ; refScript cost multiplier
-  , ? 38 : max_pledge_leverage    ; max pledge leverage
-  , ? 39 : unit_interval           ; min pool margin
-  , ? 40 : uint .size 4           ; leios announcement period length in ms
-  , ? 41 : uint .size 4           ; leios vote period length in ms
-  , ? 42 : uint .size 4           ; leios diffusion period length in ms
-  , ? 43 : uint .size 2           ; leios committee size
-  , ? 44 : unit_interval          ; leios quorum stake threshold
-  , ? 45 : uint .size 4           ; max endorser block references size
-  , ? 46 : uint .size 4           ; max endorser block txs size
-  , ? 47 : ex_units               ; max endorser block ex units
-  , ? 48 : uint .size 4           ; max ref script size per endorser block
+  { ? 0  : coin                        ; minfeeA
+  , ? 1  : coin                        ; minfeeB
+  , ? 2  : uint .size 4                ; max block body size
+  , ? 3  : uint .size 4                ; max transaction size
+  , ? 4  : uint .size 2                ; max block header size
+  , ? 5  : coin                        ; key deposit
+  , ? 6  : coin                        ; pool deposit
+  , ? 7  : epoch_interval              ; maximum epoch
+  , ? 8  : uint .size 2                ; n_opt: desired number of stake pools
+  , ? 9  : nonnegative_interval        ; pool pledge influence
+  , ? 10 : unit_interval               ; expansion rate
+  , ? 11 : unit_interval               ; treasury growth rate
+  , ? 16 : coin                        ; min pool cost
+  , ? 17 : coin                        ; ada per utxo byte
+  , ? 18 : cost_models                 ; cost models for script languages
+  , ? 19 : ex_unit_prices              ; execution costs
+  , ? 20 : ex_units                    ; max tx ex units
+  , ? 21 : ex_units                    ; max block ex units
+  , ? 22 : uint .size 4                ; max value size
+  , ? 23 : uint .size 2                ; collateral percentage
+  , ? 24 : uint .size 2                ; max collateral inputs
+  , ? 25 : pool_voting_thresholds      ; pool voting thresholds
+  , ? 26 : drep_voting_thresholds      ; drep voting thresholds
+  , ? 27 : uint .size 2                ; min committee size
+  , ? 28 : epoch_interval              ; committee term limit
+  , ? 29 : epoch_interval              ; goveranance action validity period
+  , ? 30 : coin                        ; governance action deposit
+  , ? 31 : coin                        ; drep deposit
+  , ? 32 : epoch_interval              ; drep inactivity period
+  , ? 33 : nonnegative_interval        ; minfee refScript coins per byte
+  , ? 34 : uint .size 4                ; max refScript size per block
+  , ? 35 : uint .size 4                ; max refScript size per tx
+  , ? 36 : positive_word32             ; refScript cost stride
+  , ? 37 : positive_interval           ; refScript cost multiplier
+  , ? 38 : max_pledge_leverage         ; max pledge leverage
+  , ? 39 : unit_interval               ; min pool margin
+  , ? 40 : uint .size 4                ; leios announcement period length in ms
+  , ? 41 : uint .size 4                ; leios vote period length in ms
+  , ? 42 : uint .size 4                ; leios diffusion period length in ms
+  , ? 43 : uint .size 2                ; leios committee size
+  , ? 44 : unit_interval               ; leios quorum stake threshold
+  , ? 45 : uint .size 4                ; max endorser block references size
+  , ? 46 : uint .size 4                ; max endorser block txs size
+  , ? 47 : ex_units                    ; max endorser block ex units
+  , ? 48 : uint .size 4                ; max ref script size per endorser block
+  , ? 49 : slot_interval               ; peras minimum candidate block age in slots
+  , ? 50 : positive_interval           ; peras healing factor
+  , ? 51 : uint .size 2                ; peras certificate boost
+  , ? 52 : uint .size 2                ; peras target committee size
+  , ? 53 : nil/ uint .size 4 ; peras bootstrap round
+  , ? 54 : unit_interval               ; peras quorum threshold safety margin
+  , ? 55 : coin                        ; minfee per multi-asset policy id in reference inputs
+  , ? 56 : coin                        ; minfee per datum byte in reference inputs
   }
 
 epoch_interval = uint .size 4
@@ -781,9 +792,15 @@ positive_interval = #6.30([positive_int, positive_int])
 
 max_pledge_leverage = nonnegative_interval/ nil
 
+slot_interval = uint .size 4
+
 guardrails_script_hash = script_hash
 
 hard_fork_initiation_action = (1, gov_action_id/ nil, protocol_version)
+
+protocol_version = [major_protocol_version, uint .size 4]
+
+major_protocol_version = 0 .. 13
 
 treasury_withdrawals_action =
   (2, {* reward_account => coin}, guardrails_script_hash/ nil)
@@ -842,9 +859,6 @@ account_balance_interval =
   / [inclusive_lower_bound : coin/ nil, exclusive_upper_bound : coin]
   / coin
 
-starting_account_balance_intervals =
-  {+ reward_account => account_balance_interval}
-
 transaction_witness_set =
   { ? 0 : nonempty_set<vkeywitness>
   , ? 1 : nonempty_set<native_script>
@@ -854,6 +868,7 @@ transaction_witness_set =
   , ? 5 : redeemers
   , ? 6 : nonempty_set<plutus_v2_script>
   , ? 7 : nonempty_set<plutus_v3_script>
+  , ? 8 : nonempty_set<plutus_v4_script>
   }
 
 vkeywitness = [vkey, signature]
@@ -916,6 +931,9 @@ auxiliary_data_map =
     }
   )
 
+starting_account_balance_intervals =
+  {+ reward_account => account_balance_interval}
+
 leios_certificate =
   [ signers   : bytes .size (0 .. 8192) ;bitfield with up to 65536 entries
   , signature : leios_signature
@@ -924,3 +942,4 @@ leios_certificate =
 leios_signature = bytes .size 48
 
 peras_certificate = bytes
+

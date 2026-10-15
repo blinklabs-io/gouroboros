@@ -930,20 +930,53 @@ func (n *NativeScript) Item() any {
 
 func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 	n.SetCbor(data)
-	id, err := cbor.DecodeIdFromList(data)
-	if err != nil {
+	var decoded nativeScriptReference
+	if err := decoded.UnmarshalCBOR(n.Cbor()); err != nil {
 		return err
+	}
+	*n = decoded.nativeScript()
+	return nil
+}
+
+// nativeScriptReference keeps every nested script's CBOR as a slice of the
+// root NativeScript's owned buffer.
+type nativeScriptReference struct {
+	cbor.DecodeStoreCbor
+	item any
+}
+
+type nativeScriptListReference struct {
+	cbor.StructAsArray
+	Type    uint
+	Scripts []nativeScriptReference
+}
+
+type nativeScriptNofKReference struct {
+	cbor.StructAsArray
+	Type    uint
+	N       int64
+	Scripts []nativeScriptReference
+}
+
+func (n *nativeScriptReference) UnmarshalCBOR(data []byte) error {
+	n.SetCborReference(data)
+	length, headerLength, indefinite := cbor.ArrayInfo(data)
+	if length < 0 || (!indefinite && length == 0) ||
+		int(headerLength) >= len(data) {
+		return errors.New("native script must be a non-empty CBOR array")
+	}
+	var id uint
+	if _, err := cbor.Decode(data[headerLength:], &id); err != nil {
+		return fmt.Errorf("decode native script type: %w", err)
 	}
 	var tmpData any
 	switch id {
 	case 0:
 		tmpData = &NativeScriptPubkey{}
-	case 1:
-		tmpData = &NativeScriptAll{}
-	case 2:
-		tmpData = &NativeScriptAny{}
+	case 1, 2:
+		tmpData = &nativeScriptListReference{}
 	case 3:
-		tmpData = &NativeScriptNofK{}
+		tmpData = &nativeScriptNofKReference{}
 	case 4:
 		tmpData = &NativeScriptInvalidBefore{}
 	case 5:
@@ -958,6 +991,34 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 	}
 	n.item = tmpData
 	return nil
+}
+
+func (n nativeScriptReference) nativeScript() NativeScript {
+	ret := NativeScript{item: n.item}
+	ret.SetCborReference(n.Cbor())
+	switch item := n.item.(type) {
+	case *nativeScriptListReference:
+		scripts := make([]NativeScript, len(item.Scripts))
+		for i := range item.Scripts {
+			scripts[i] = item.Scripts[i].nativeScript()
+		}
+		if item.Type == 1 {
+			ret.item = &NativeScriptAll{Type: item.Type, Scripts: scripts}
+		} else {
+			ret.item = &NativeScriptAny{Type: item.Type, Scripts: scripts}
+		}
+	case *nativeScriptNofKReference:
+		scripts := make([]NativeScript, len(item.Scripts))
+		for i := range item.Scripts {
+			scripts[i] = item.Scripts[i].nativeScript()
+		}
+		ret.item = &NativeScriptNofK{
+			Type:    item.Type,
+			N:       item.N,
+			Scripts: scripts,
+		}
+	}
+	return ret
 }
 
 // ValidatePreAllegraNativeScripts rejects native-script forms that are not

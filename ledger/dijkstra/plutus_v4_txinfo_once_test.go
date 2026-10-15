@@ -48,7 +48,7 @@ func TestDijkstraPlutusV4TxInfoConvertedOncePerLevel(t *testing.T) {
 			}},
 		)
 		require.NoError(t, err)
-		return requireDijkstraV4Constr(t, context, 0, 4).Fields[0]
+		return requireDijkstraV4List(t, context, 4).Items[0]
 	}
 	first := txInfoOf(0, 1)
 	second := txInfoOf(1, 2)

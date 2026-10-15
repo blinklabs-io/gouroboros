@@ -19,7 +19,6 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -83,58 +82,19 @@ func evaluateTestTopLevelGuardTx(
 }
 
 // evaluateTestContextTx guards both sub-transactions and the top level with
-// a reference V4 script that fails unless its context omits txInfoSubTxIx,
-// so it succeeds only against the context validation builds.
+// reference V4 scripts that fail unless the context carries the level's
+// txInfoSubTxIx, so it succeeds only against the context validation builds.
 func evaluateTestContextTx(
 	t *testing.T,
 ) (*DijkstraTransaction, common.LedgerState) {
 	t.Helper()
-	plutusScript := dijkstraV4SubTxIndexAbsentScript(t)
-	guard := dijkstraGuardCredentialForScript(plutusScript)
-	referenceInput, referenceUtxo := dijkstraReferenceScriptInput(
-		plutusScript,
-		905,
-	)
-	referenceAddress, err := common.NewAddressFromParts(
-		common.AddressTypeKeyNone,
-		common.AddressNetworkTestnet,
-		plutusScript.Hash().Bytes(),
-		nil,
-	)
-	require.NoError(t, err)
-	referenceOutput := referenceUtxo.Output.(babbage.BabbageTransactionOutput)
-	referenceOutput.OutputAddress = referenceAddress
-	referenceUtxo.Output = referenceOutput
-	guardSet := &DijkstraGuards{Credentials: []common.Credential{guard}}
 	key := common.RedeemerKey{Tag: common.RedeemerTagGuarding}
-	children := []DijkstraSubTransaction{
-		{
-			Body: DijkstraSubTransactionBody{TxGuards: guardSet},
-			WitnessSet: DijkstraTransactionWitnessSet{
-				WsRedeemers: evaluateTestRedeemers(key),
-			},
-		},
-		{
-			Body: DijkstraSubTransactionBody{TxGuards: guardSet},
-			WitnessSet: DijkstraTransactionWitnessSet{
-				WsRedeemers: evaluateTestRedeemers(key),
-			},
-		},
-	}
-	tx := &DijkstraTransaction{
-		Body: DijkstraTransactionBody{
-			TxGuards:          guardSet,
-			TxReferenceInputs: dijkstraReferenceInputSet(referenceInput),
-			TxSubTransactions: cbor.NewSetType(children, true),
-		},
-		WitnessSet: DijkstraTransactionWitnessSet{
-			WsRedeemers: evaluateTestRedeemers(key),
-		},
-		TxIsValid: true,
-	}
-	return tx, mockledger.NewLedgerStateBuilder().
-		WithUtxos([]common.Utxo{referenceUtxo}).
-		Build()
+	return dijkstraSubTxIndexGuardTx(
+		t,
+		905,
+		func() DijkstraRedeemers { return evaluateTestRedeemers(key) },
+		false,
+	)
 }
 
 // evaluateTestDeclare sets every redeemer of tx to the units evaluation
@@ -341,4 +301,28 @@ func TestEvaluatePlutusScriptsReportsFailures(t *testing.T) {
 		var extraErr conway.ExtraRedeemerError
 		require.ErrorAs(t, err, &extraErr)
 	})
+}
+
+func TestDijkstraPlutusExecutionMatchesValidityFlag(t *testing.T) {
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	params := dijkstraGuardTestPParams()
+
+	failing := evaluateTestMintTx(
+		t,
+		dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, true),
+	)
+	failing.TxIsValid = false
+	require.NoError(t, UtxoValidatePlutusScripts(failing, 0, ls, params))
+
+	succeeding := evaluateTestMintTx(
+		t,
+		dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false),
+	)
+	succeeding.TxIsValid = false
+	var unexpectedSuccess common.UnexpectedPlutusScriptSuccessError
+	require.ErrorAs(
+		t,
+		UtxoValidatePlutusScripts(succeeding, 0, ls, params),
+		&unexpectedSuccess,
+	)
 }
