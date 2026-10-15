@@ -307,10 +307,12 @@ func (w *cardanoWriter) itemLimit(count int) int {
 	return count
 }
 
-// compact renders an entered node on one line, continuing the MaxDepth
-// count from that node's own level.
-func (w *cardanoWriter) compact(n *DiagnosticNode) string {
-	return n.formatCompact(w.opts, w.level-1)
+// compact writes an entered node on one line, continuing the MaxDepth count
+// from that node's own level. It streams into the shared writer so that a
+// leaf too large for the output cap is neither built nor left to continue
+// rendering after the cap is reached.
+func (w *cardanoWriter) compact(n *DiagnosticNode) {
+	n.writeCompact(w.b, w.opts, w.level-1)
 }
 
 // writeElided writes the marker for collection entries beyond MaxArrayItems.
@@ -436,8 +438,7 @@ func (w *cardanoWriter) writeLabelledMap(
 		valNode := &n.Children[i*2+1]
 		w.b.writeRepeat(w.opts.IndentString, depth+1)
 		// The key is not entered, so its level is the map's child level.
-		keyStr := keyNode.formatCompact(w.opts, w.level)
-		w.b.write(keyStr)
+		keyNode.writeCompact(w.b, w.opts, w.level)
 		w.b.write(": ")
 		w.writeValue(valNode, depth+1)
 		if label, ok := mapLabelForKey(keyNode, labels); ok {
@@ -490,15 +491,15 @@ func (w *cardanoWriter) writeValue(n *DiagnosticNode, depth int) {
 		DiagTypeText,
 		DiagTypeSimple,
 		DiagTypeFloat:
-		w.b.write(w.compact(n))
+		w.compact(n)
 	default:
-		w.b.write(w.compact(n))
+		w.compact(n)
 	}
 }
 
 func (w *cardanoWriter) writeBytes(n *DiagnosticNode) {
 	raw, _ := n.Value.([]byte)
-	w.b.write(w.compact(n))
+	w.compact(n)
 	if comment := w.byteComment(n, raw); comment != "" {
 		w.b.printf("  / %s /", comment)
 	}
@@ -581,7 +582,7 @@ func (w *cardanoWriter) writeTag(n *DiagnosticNode, depth int) {
 		w.b.write(")")
 		return
 	}
-	w.b.write(w.compact(n))
+	w.compact(n)
 }
 
 // writeRange appends an "@start-end" comment when ShowOffsets is enabled.
@@ -688,9 +689,9 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 		DiagTypeTag,
 		DiagTypeSimple,
 		DiagTypeFloat:
-		w.b.write(w.compact(n))
+		w.compact(n)
 	default:
-		w.b.write(w.compact(n))
+		w.compact(n)
 	}
 }
 

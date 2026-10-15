@@ -64,11 +64,13 @@ type DiagnosticOptions struct {
 	MaxArrayItems int
 	MaxByteLength int
 	CardanoAware  bool
-	// MaxOutputBytes caps the bytes one render may write; output past it is
-	// replaced by a truncation marker. Zero or negative selects a default
-	// proportional to the encoded size of the rendered node, which leaves
-	// renders of ordinary inputs untouched but stops a small, deeply nested
-	// input from producing output quadratic in its depth.
+	// MaxOutputBytes caps the rendered content of one render. A render that
+	// reaches it stops and ends with a short truncation marker, so the
+	// returned string can exceed the cap by that marker. A byte or text string
+	// that would not fit is not built at all. Zero or negative selects a
+	// default proportional to the encoded size of the rendered node, which
+	// leaves renders of ordinary inputs untouched but stops a small, deeply
+	// nested input from producing output quadratic in its depth.
 	MaxOutputBytes int
 	ParseLimits    DiagnosticParseLimits
 }
@@ -945,7 +947,7 @@ func (n *DiagnosticNode) FormatDiagnostic(opts DiagnosticOptions) string {
 		w.printf("  / @%d-%d /", n.Offset, n.Offset+n.Length)
 	}
 	if opts.ShowHex {
-		w.printf("  / %x /", n.RawBytes)
+		w.writeHexSuffix(n.RawBytes)
 	}
 	return w.result("")
 }
@@ -957,7 +959,7 @@ func (n *DiagnosticNode) FormatDiagnosticPretty(opts DiagnosticOptions) string {
 	w := newDiagnosticWriter(opts, n)
 	n.writePretty(w, opts, 0)
 	if opts.ShowHex {
-		w.printf("  / %x /", n.RawBytes)
+		w.writeHexSuffix(n.RawBytes)
 	}
 	return w.result("\n")
 }
@@ -992,10 +994,16 @@ func (n *DiagnosticNode) writeCompact(
 		}
 		b, _ := n.Value.([]byte)
 		if opts.MaxByteLength > 0 && len(b) > opts.MaxByteLength {
+			if !w.fits(hexSize(opts.MaxByteLength, len("h'...'"))) {
+				return false
+			}
 			return w.printf(
 				"h'%s...'",
 				hex.EncodeToString(b[:opts.MaxByteLength]),
 			)
+		}
+		if !w.fits(hexSize(len(b), len("h''"))) {
+			return false
 		}
 		return w.printf("h'%s'", hex.EncodeToString(b))
 	case DiagTypeText:
@@ -1003,6 +1011,10 @@ func (n *DiagnosticNode) writeCompact(
 			return n.writeCompactChunks(w, opts, depth)
 		}
 		s, _ := n.Value.(string)
+		// Quoting never shortens a string, and adds its two quotes.
+		if !w.fits(len(s) + 2) {
+			return false
+		}
 		return w.write(strconv.Quote(s))
 	case DiagTypeArray:
 		return w.write("[") &&

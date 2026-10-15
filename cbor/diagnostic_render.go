@@ -62,13 +62,23 @@ func newDiagnosticWriter(
 	return &diagnosticWriter{limit: opts.outputLimit(n)}
 }
 
-// write appends s and reports whether rendering may continue.
-func (w *diagnosticWriter) write(s string) bool {
+// fits reports whether n more bytes fit under the cap. When they do not it
+// marks the writer truncated, so a caller can skip building a value that write
+// would refuse anyway instead of allocating it first.
+func (w *diagnosticWriter) fits(n int) bool {
 	if w.truncated {
 		return false
 	}
-	if len(s) > w.limit-w.b.Len() {
+	if n < 0 || n > w.limit-w.b.Len() {
 		w.truncated = true
+		return false
+	}
+	return true
+}
+
+// write appends s and reports whether rendering may continue.
+func (w *diagnosticWriter) write(s string) bool {
+	if !w.fits(len(s)) {
 		return false
 	}
 	w.b.WriteString(s)
@@ -91,11 +101,30 @@ func (w *diagnosticWriter) writeRepeat(s string, n int) bool {
 	return true
 }
 
+// printf formats and appends. It builds the whole string before the cap is
+// checked, so callers whose arguments can be large check fits first.
 func (w *diagnosticWriter) printf(format string, args ...any) bool {
 	if w.truncated {
 		return false
 	}
 	return w.write(fmt.Sprintf(format, args...))
+}
+
+// hexSize returns the size of n bytes written as hex digits plus extra bytes
+// of surrounding text, or -1 when that overflows. fits treats -1 as too large.
+func hexSize(n int, extra int) int {
+	if n > (math.MaxInt-extra)/2 {
+		return -1
+	}
+	return 2*n + extra
+}
+
+// writeHexSuffix appends "  / <hex> /" for raw without building the hex when
+// it would not fit.
+func (w *diagnosticWriter) writeHexSuffix(raw []byte) {
+	if w.fits(hexSize(len(raw), len("  /  /"))) {
+		w.printf("  / %x /", raw)
+	}
 }
 
 // result returns the output, ending it with the truncation marker after sep

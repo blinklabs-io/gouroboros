@@ -462,10 +462,12 @@ indefinite-string concatenation are charged separately before copying.
 Rendering has its own output cap, because indentation and the fixed-width hex
 columns make a nested item cost output proportional to its depth. A
 16,000-level chain of one-element arrays is 16 KB of input but 512 MB of pretty
-output and 257 MB of hex output. `MaxOutputBytes` bounds the bytes one
-`FormatDiagnostic`, `FormatDiagnosticPretty`, `FormatHexDump` or Cardano
-formatter call writes; a render that reaches it stops and ends with a
-truncation marker. Zero or negative selects 4 MiB plus 256 bytes per encoded
+output and 257 MB of hex output. `MaxOutputBytes` bounds the rendered content
+of one `FormatDiagnostic`, `FormatDiagnosticPretty`, `FormatHexDump` or Cardano
+formatter call; a render that reaches it stops and ends with a truncation
+marker of about 23 bytes, so the returned string can exceed the cap by that
+marker. A byte or text string that would not fit is not built at all. Zero or
+negative selects 4 MiB plus 256 bytes per encoded
 byte of the rendered node, which leaves ordinary inputs untouched. Rendering
 streams into one buffer, and `GetPathToOffset` extends a single path slice, so
 neither recopies nested output or path prefixes at each level.

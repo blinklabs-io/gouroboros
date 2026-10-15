@@ -320,3 +320,101 @@ func TestCardanoFormattersHonorOutputCap(t *testing.T) {
 		assert.True(t, strings.HasSuffix(cut, renderTruncationMarker))
 	})
 }
+
+// TestDiagnosticRenderSkipsLeavesPastCap checks that MaxOutputBytes bounds
+// transient memory as well as output: a byte or text string too large for the
+// cap must not be hex-encoded, quoted, or formatted before the cap is checked.
+// Each 8 MiB leaf would otherwise allocate tens of megabytes to produce output
+// that is then discarded. The ShowHex case matters separately because the hex
+// suffix is built from the whole node even when the body fits.
+func TestDiagnosticRenderSkipsLeavesPastCap(t *testing.T) {
+	// Not t.Parallel: reads the process-wide allocation counter.
+	const size = 8 << 20
+	const limit = 1024
+	leaves := map[string][]byte{
+		"bytes": append(
+			[]byte{0x5a, 0x00, 0x80, 0x00, 0x00},
+			make([]byte, size)...),
+		"text": append(
+			[]byte{0x7a, 0x00, 0x80, 0x00, 0x00},
+			bytes.Repeat([]byte("a"), size)...,
+		),
+	}
+	allocated := func(f func()) uint64 {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		f()
+		runtime.ReadMemStats(&after)
+		return after.TotalAlloc - before.TotalAlloc
+	}
+	for name, data := range leaves {
+		node, err := cbor.ParseDiagnostic(data)
+		require.NoError(t, err, name)
+
+		for _, r := range diagnosticRenderers[:2] {
+			var out string
+			grew := allocated(func() {
+				out = r.render(
+					node, cbor.DiagnosticOptions{MaxOutputBytes: limit},
+				)
+			})
+			assert.Contains(t, out, renderTruncationMarker, name+"/"+r.name)
+			assert.Less(t, grew, uint64(1<<20), name+"/"+r.name)
+		}
+
+		// FormatPlutusData parses its input itself, which costs several copies
+		// of the leaf, so compare against the cost of a plain parse: only the
+		// rendering must stay small.
+		parsed := allocated(func() {
+			_, err = cbor.ParseDiagnostic(data)
+		})
+		require.NoError(t, err, name)
+		var out string
+		grew := allocated(func() {
+			out, err = cbor.FormatPlutusData(
+				data, cbor.DiagnosticOptions{MaxOutputBytes: limit},
+			)
+		})
+		require.NoError(t, err, name)
+		assert.Contains(t, out, renderTruncationMarker, name+"/cardano")
+		assert.Less(t, grew, parsed+(1<<20), name+"/cardano")
+	}
+
+	// A truncated byte string keeps the body tiny, so only the ShowHex suffix
+	// is large enough to hit the cap.
+	node, err := cbor.ParseDiagnostic(leaves["bytes"])
+	require.NoError(t, err)
+	var out string
+	grew := allocated(func() {
+		out = node.FormatDiagnostic(cbor.DiagnosticOptions{
+			MaxByteLength:  4,
+			ShowHex:        true,
+			MaxOutputBytes: limit,
+		})
+	})
+	assert.Contains(t, out, renderTruncationMarker)
+	assert.Less(t, grew, uint64(1<<20))
+}
+
+// TestCardanoFormatterStopsAtOversizedLeaf checks that a leaf too large for the
+// cap ends the whole render. The Cardano writer once rendered each leaf through
+// a separate capped writer and copied the result in, which embedded a marker
+// in the middle of the output and carried on rendering the elements after it.
+func TestCardanoFormatterStopsAtOversizedLeaf(t *testing.T) {
+	t.Parallel()
+
+	// [1, h'00...00' (4096 bytes), 7777]
+	data := append([]byte{0x83, 0x01, 0x59, 0x10, 0x00}, make([]byte, 4096)...)
+	data = append(data, 0x19, 0x1e, 0x61)
+
+	out, err := cbor.FormatPlutusData(
+		data, cbor.DiagnosticOptions{MaxOutputBytes: 256},
+	)
+	require.NoError(t, err)
+	assert.True(t, strings.HasSuffix(out, "\n"+renderTruncationMarker), out)
+	assert.Equal(
+		t, 1, strings.Count(out, renderTruncationMarker),
+		"one marker, at the end",
+	)
+	assert.NotContains(t, out, "7777", "rendering stopped at the leaf")
+}
