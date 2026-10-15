@@ -4354,11 +4354,11 @@ func UtxoValidateOutputTooBigUtxo(
 		if err != nil {
 			return err
 		}
-		outputValBytes, err := cbor.Encode(outputVal)
+		outputValSize, err := outputVal.LedgerSerializedSize()
 		if err != nil {
 			return err
 		}
-		if uint(len(outputValBytes)) <= tmpPparams.MaxValueSize {
+		if uint(outputValSize) <= tmpPparams.MaxValueSize {
 			continue
 		}
 		badOutputs = append(badOutputs, txOutput)
