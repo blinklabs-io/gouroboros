@@ -36,6 +36,7 @@ type BlockItem struct {
 	// rawCbor remains available until Release retires the result.
 	rawCbor      []byte
 	releaseOnce  sync.Once
+	reserveOnce  sync.Once
 	releaseFunc  func(uint64)
 	releaseBytes uint64
 
@@ -106,15 +107,22 @@ func (b *BlockItem) setReleaseFunc(
 	b.mu.Unlock()
 }
 
-// Release retires this result and returns its retained CBOR bytes to the
-// pipeline admission budget. It is safe to call more than once. Callers must
-// not use RawCbor or Block after Release.
+// Release retires this result and clears its raw and decoded CBOR. It is safe
+// to call more than once. Callers must not use RawCbor or Block after Release.
 func (b *BlockItem) Release() {
 	b.releaseOnce.Do(func() {
+		b.releaseReservation()
 		b.mu.Lock()
-		bytes := b.releaseBytes
 		b.rawCbor = nil
 		b.block = nil
+		b.mu.Unlock()
+	})
+}
+
+func (b *BlockItem) releaseReservation() {
+	b.reserveOnce.Do(func() {
+		b.mu.Lock()
+		bytes := b.releaseBytes
 		b.releaseBytes = 0
 		releaseFunc := b.releaseFunc
 		b.releaseFunc = nil

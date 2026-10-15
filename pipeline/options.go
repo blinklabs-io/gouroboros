@@ -40,10 +40,10 @@ type VerifyConfigProvider func(context.Context, *BlockItem) (common.VerifyConfig
 // defines the immutability window.
 const DefaultMaxPendingBlocks = 2160
 
-// DefaultMaxRawCborBytes bounds the two full block CBOR copies retained for
-// pipeline items: the raw submission and the decoded block's stored CBOR. It
-// matches muxer.DefaultIngressBudget, the repository's connection-wide
-// implementation memory bound.
+// DefaultMaxRawCborBytes bounds the two full block CBOR copies retained by
+// in-flight pipeline items: the raw submission and the decoded block's stored
+// CBOR. It matches muxer.DefaultIngressBudget, the repository's connection-
+// wide implementation memory bound.
 const DefaultMaxRawCborBytes uint64 = 64 * 1024 * 1024
 
 // PipelineConfig holds configuration for a BlockPipeline.
@@ -60,9 +60,9 @@ type PipelineConfig struct {
 	// flight to occupy the missing earliest position. Default is 2160 (Cardano
 	// security parameter k); zero disables the limit.
 	MaxPendingBlocks int
-	// MaxRawCborBytes limits full block CBOR copies retained by the pipeline.
-	// Callers own delivered results and must call BlockItem.Release when
-	// finished with their data to return their admission reservations.
+	// MaxRawCborBytes limits full block CBOR copies retained by the pipeline
+	// between admission and result delivery. Callers own delivered results and
+	// should call BlockItem.Release when finished with their data.
 	// Zero selects DefaultMaxRawCborBytes.
 	MaxRawCborBytes uint64
 	// Eta0Provider dynamically provides the epoch nonce for each block's slot.
@@ -224,8 +224,9 @@ func WithMaxPendingBlocks(n int) PipelineOption {
 	}
 }
 
-// WithMaxRawCborBytes sets the aggregate retained block CBOR byte budget.
-// Admission reservations return when results are delivered. Zero selects
+// WithMaxRawCborBytes sets the aggregate in-flight block CBOR byte budget.
+// Admission reservations return when results are delivered; this limit does
+// not account for results retained by callers. Zero selects
 // DefaultMaxRawCborBytes.
 func WithMaxRawCborBytes(maxBytes uint64) PipelineOption {
 	return func(c *PipelineConfig) {
