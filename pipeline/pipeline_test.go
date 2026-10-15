@@ -170,8 +170,19 @@ func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
 		createTestTip(0, 0),
 	))
 	require.Eventually(t, func() bool {
-		return len(p.resultsChan) == 1
+		return p.applyStage.PendingCount() == 0 && len(p.resultsQueue) == 0
 	}, time.Second, time.Millisecond)
+	p.rawBudgetMu.Lock()
+	require.Equal(t, uint64(2*len(raw)), p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+	blockedCtx, blockedCancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer blockedCancel()
+	require.ErrorIs(t, p.Submit(
+		blockedCtx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(1, 1),
+	), context.DeadlineExceeded)
 
 	first := <-p.Results()
 	require.Equal(t, raw, first.RawCbor())
@@ -238,7 +249,7 @@ func TestBlockPipelineStopReleasesBufferedResult(t *testing.T) {
 		createTestTip(1, 1),
 	))
 	require.Eventually(t, func() bool {
-		return len(p.resultsChan) == 1
+		return p.applyStage.PendingCount() == 0
 	}, time.Second, time.Millisecond)
 
 	require.NoError(t, p.Stop())

@@ -230,8 +230,10 @@ type BlockPipeline struct {
 	submitChan    chan *BlockItem
 	decodedChan   chan *BlockItem
 	validatedChan chan *BlockItem
+	resultsQueue  chan *BlockItem
 	resultsChan   chan *BlockItem
 	errorsChan    chan error
+	resultsDone   chan struct{}
 
 	// Metrics
 	metrics *PipelineMetrics
@@ -523,7 +525,9 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	bufSize := p.config.PrefetchBufferSize
 	p.submitChan = make(chan *BlockItem, bufSize)
 	p.decodedChan = make(chan *BlockItem, bufSize)
-	p.resultsChan = make(chan *BlockItem, bufSize)
+	p.resultsQueue = make(chan *BlockItem, bufSize)
+	p.resultsChan = make(chan *BlockItem)
+	p.resultsDone = make(chan struct{})
 	p.errorsChan = make(chan error, bufSize)
 
 	// Create decode stage
@@ -580,7 +584,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.applyRunner = NewApplyStageRunner(
 		p.applyStage,
 		applyInput,
-		p.resultsChan,
+		p.resultsQueue,
 		p.errorsChan,
 		bufSize, // Deprecated: pendingQueueSize is no longer used (kept for API compatibility)
 	)
@@ -595,7 +599,6 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	}
 	p.applyRunner.SetProcessedFunc(processedFunc)
 	p.applyRunner.setFatalErrorFunc(p.setFatalError)
-	p.applyRunner.setDeliveredFunc(p.markItemDelivered)
 	p.applyRunner.setFatalFunc(p.cancel)
 
 	// Start all stages
@@ -605,6 +608,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		p.validatePool.Start(p.ctx) //nolint:contextcheck
 	}
 	p.applyRunner.Start(p.ctx) //nolint:contextcheck
+	go p.forwardResults()
 
 	// Start metrics collection goroutine
 	p.wg.Add(1)
@@ -612,6 +616,18 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 
 	p.started.Store(true)
 	return nil
+}
+
+// forwardResults makes result handoff to the public consumer synchronous. The
+// apply runner may prefetch into resultsQueue, but retained-byte reservations
+// remain charged until a consumer (or Stop) receives the item.
+func (p *BlockPipeline) forwardResults() {
+	defer close(p.resultsDone)
+	defer close(p.resultsChan)
+	for item := range p.resultsQueue {
+		p.resultsChan <- item
+		p.markItemDelivered(item)
+	}
 }
 
 // Submit submits a new block for processing.
@@ -862,20 +878,28 @@ func (p *BlockPipeline) Stop() error {
 		select {
 		case <-applyDone:
 			goto applyStopped
-		case item := <-p.resultsChan:
-			item.Release()
+		case item, ok := <-p.resultsChan:
+			if ok {
+				item.Release()
+			}
 		}
 	}
 
 applyStopped:
-	// No producers remain, so every result still buffered here is owned by the
-	// pipeline and can be retired. Results already received remain caller-owned.
-	for {
-		select {
-		case item := <-p.resultsChan:
-			item.Release()
-		default:
-			goto resultsDrained
+	// The runner has stopped; closing its queue lets the forwarding goroutine
+	// finish. Continue draining public handoffs so shutdown cannot block.
+	if p.resultsQueue != nil {
+		close(p.resultsQueue)
+		for {
+			select {
+			case <-p.resultsDone:
+				goto resultsDrained
+			case item, ok := <-p.resultsChan:
+				if !ok {
+					goto resultsDrained
+				}
+				item.Release()
+			}
 		}
 	}
 
@@ -883,7 +907,6 @@ resultsDrained:
 	p.releaseActiveItems()
 
 	// Close output channels
-	close(p.resultsChan)
 	close(p.errorsChan)
 
 	// Wait for metrics collector
@@ -917,7 +940,7 @@ func (p *BlockPipeline) PendingCount() int {
 	if p.applyStage != nil {
 		applyPending = p.applyStage.PendingCount()
 	}
-	return channelDepth + applyPending
+	return channelDepth + len(p.resultsQueue) + applyPending
 }
 
 // WaitForDrain blocks until every block accepted before the drain boundary has
